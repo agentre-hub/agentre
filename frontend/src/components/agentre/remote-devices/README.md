@@ -9,7 +9,7 @@ Desktop UI for pairing and managing agentred LAN devices.
 | `remote-devices-panel.tsx` | Settings → 远端 主面板，挂载 hook、调度对话框 |
 | `device-row.tsx` | 单台 agentred 行卡片 |
 | `device-action-menu.tsx` | 行右侧 `…` 菜单（Refresh / Rename / Edit TLS / Remove） |
-| `agentred-onboarding.tsx` | 三步接入引导（安装 / 启动服务 / 配对），页头「添加 agentred」召唤，页面上有设备行时默认收起、可收起 |
+| `agentred-onboarding.tsx` | 三步接入引导（安装 / 常驻 / 配对），页头「添加 agentred」召唤，页面上有设备行时默认收起、可收起。安装与常驻两段、命令与步骤条来自 `@agentre-hub/agentre-ui` 的引导域，与 agentre-server 同一份 |
 | `device-pairing-form.tsx` | 配对表单：地址 + 6 位 code + name + Advanced TLS Trust（引导第 3 步的宿主） |
 | `tls-trust-dialog.tsx` | 4 模式 radio：default / pin-cert / ca-bundle / skip-verify |
 | `use-remote-devices.ts` | hook：list / mutate / 30 s 轮询 / window focus 重新拉 |

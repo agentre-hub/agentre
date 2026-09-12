@@ -12,15 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/httpgateway"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 )
 
 // recordingGateway is a TokenIssuer that records the TTLs it was asked to issue
@@ -313,10 +314,10 @@ func TestPrepareTurnRun_LocalTokenRoutesToTurnProvider(t *testing.T) {
 	s := &chatSvc{gateway: gw}
 	runner := &directRunRunner{request: make(chan agentruntime.RunRequest, 1)}
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, runner))
-	prevCwd := resolveCwdFn
-	t.Cleanup(func() { resolveCwdFn = prevCwd })
+	prevCwd := exec_target_svc.CurrentCwdResolver()
+	t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(prevCwd) })
 	dir := t.TempDir()
-	resolveCwdFn = func(context.Context, *chat_entity.Session) (string, error) { return dir, nil }
+	exec_target_svc.RegisterCwdResolver(func(context.Context, *chat_entity.Session) (string, error) { return dir, nil })
 
 	sess := &chat_entity.Session{ID: 100, AgentID: 7, ProviderKey: "session-picked"}
 	a := &agent_entity.Agent{ID: 7, AgentBackendID: 12}
@@ -349,10 +350,10 @@ func TestPrepareTurnRun_SessionProviderNeedsRunningGateway(t *testing.T) {
 		t.Helper()
 		runner := &directRunRunner{request: make(chan agentruntime.RunRequest, 1)}
 		t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, runner))
-		prevCwd := resolveCwdFn
-		t.Cleanup(func() { resolveCwdFn = prevCwd })
+		prevCwd := exec_target_svc.CurrentCwdResolver()
+		t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(prevCwd) })
 		dir := t.TempDir()
-		resolveCwdFn = func(context.Context, *chat_entity.Session) (string, error) { return dir, nil }
+		exec_target_svc.RegisterCwdResolver(func(context.Context, *chat_entity.Session) (string, error) { return dir, nil })
 
 		return &chatSvc{gateway: newStoppedGateway()},
 			&chat_entity.Session{ID: 100, AgentID: 7},
@@ -395,10 +396,10 @@ func TestPrepareTurnRun_PiAgentSessionProviderRunsWithoutGateway(t *testing.T) {
 	registerProviderMockForTurn(t, "session-picked", "", string(llm_provider_entity.TypeAnthropic))
 	runner := &directRunRunner{request: make(chan agentruntime.RunRequest, 1)}
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypePiAgent, runner))
-	prevCwd := resolveCwdFn
-	t.Cleanup(func() { resolveCwdFn = prevCwd })
+	prevCwd := exec_target_svc.CurrentCwdResolver()
+	t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(prevCwd) })
 	dir := t.TempDir()
-	resolveCwdFn = func(context.Context, *chat_entity.Session) (string, error) { return dir, nil }
+	exec_target_svc.RegisterCwdResolver(func(context.Context, *chat_entity.Session) (string, error) { return dir, nil })
 
 	s := &chatSvc{gateway: newStoppedGateway()}
 	// 登录态 pi 后端（这一档没绑供应商）+ 会话自己选了一个 agentre 供应商。
@@ -425,10 +426,10 @@ func TestPrepareTurnRun_BackendFixedModelResolvesSpecificChild(t *testing.T) {
 	registerProviderMockForTurn(t, "key-1", "mk-fixed", "")
 	runner := &directRunRunner{request: make(chan agentruntime.RunRequest, 1)}
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, runner))
-	prevCwd := resolveCwdFn
-	t.Cleanup(func() { resolveCwdFn = prevCwd })
+	prevCwd := exec_target_svc.CurrentCwdResolver()
+	t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(prevCwd) })
 	dir := t.TempDir()
-	resolveCwdFn = func(context.Context, *chat_entity.Session) (string, error) { return dir, nil }
+	exec_target_svc.RegisterCwdResolver(func(context.Context, *chat_entity.Session) (string, error) { return dir, nil })
 
 	s := &chatSvc{gateway: newRecordingGateway()}
 	sess := &chat_entity.Session{ID: 100, AgentID: 7}
@@ -459,10 +460,10 @@ func TestPrepareTurnRun_BackendProviderDefaultFollowsCurrentDefault(t *testing.T
 	registerProviderMockForTurn(t, "key-1", "", "")
 	runner := &directRunRunner{request: make(chan agentruntime.RunRequest, 1)}
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, runner))
-	prevCwd := resolveCwdFn
-	t.Cleanup(func() { resolveCwdFn = prevCwd })
+	prevCwd := exec_target_svc.CurrentCwdResolver()
+	t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(prevCwd) })
 	dir := t.TempDir()
-	resolveCwdFn = func(context.Context, *chat_entity.Session) (string, error) { return dir, nil }
+	exec_target_svc.RegisterCwdResolver(func(context.Context, *chat_entity.Session) (string, error) { return dir, nil })
 
 	s := &chatSvc{gateway: newRecordingGateway()}
 	sess := &chat_entity.Session{ID: 100, AgentID: 7}

@@ -10,10 +10,10 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/hook_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/hookexec"
-	"github.com/agentre-ai/agentre/internal/repository/hook_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/hook_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/hookexec"
+	"github.com/agentre-hub/agentre/internal/repository/hook_repo"
 )
 
 const (
@@ -43,7 +43,7 @@ type hookSvc struct {
 var defaultHook HookSvc = newHookSvc()
 
 func newHookSvc() *hookSvc {
-	return &hookSvc{now: func() int64 { return time.Now().Unix() }, runner: hookexec.NewOSRunner()}
+	return &hookSvc{now: func() int64 { return time.Now().UnixMilli() }, runner: hookexec.NewOSRunner()}
 }
 
 func Hook() HookSvc { return defaultHook }
@@ -97,7 +97,6 @@ func (s *hookSvc) CreateHook(ctx context.Context, req *CreateHookRequest) (*Hook
 		Interpreter:     strings.TrimSpace(req.Interpreter),
 		InterpreterPath: strings.TrimSpace(req.InterpreterPath),
 		Command:         req.Command,
-		TriggerType:     hook_entity.TriggerSchedule,
 		ScheduleExpr:    strings.TrimSpace(req.ScheduleExpr),
 		Timezone:        orDefault(req.Timezone, defaultTimezone),
 		EnvJSON:         marshalEnv(req.Env),
@@ -213,17 +212,9 @@ func toEventItem(e *hook_entity.HookEvent) *HookEventItem {
 		return nil
 	}
 	return &HookEventItem{
-		ID: e.ID, HookID: e.HookID, Kind: orOutputKind(e.Kind), Title: e.Title, DedupeKey: e.DedupeKey,
+		ID: e.ID, HookID: e.HookID, Kind: e.Kind, Title: e.Title, DedupeKey: e.DedupeKey,
 		PayloadJSON: e.PayloadJSON, ReceivedAt: e.ReceivedAt, Createtime: e.Createtime,
 	}
-}
-
-// orOutputKind 把空 kind 兜底成 output(历史行 / 默认值缺失),前端无需处理空串。
-func orOutputKind(kind string) string {
-	if strings.TrimSpace(kind) == "" {
-		return hook_entity.HookEventKindOutput
-	}
-	return kind
 }
 
 func parseEnv(raw string) []EnvVar {

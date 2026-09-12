@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 )
 
 // TestEvent_RoundTrip 每个 sealed Event 至少 1 个 happy + 1 个边界 case,
@@ -27,6 +27,9 @@ func TestEvent_RoundTrip(t *testing.T) {
 		// ThinkingDelta
 		{"thinking_delta", ThinkingDelta{Text: "let me think"}},
 		{"thinking_delta_empty", ThinkingDelta{}},
+
+		// OutputActivity — 无字段的纯计时信号,wire 上只剩 kind
+		{"output_activity", OutputActivity{}},
 
 		// ToolCall — 含 / 不含 canonical
 		{"tool_call_no_canonical", ToolCall{
@@ -247,6 +250,7 @@ func TestEvent_WireKindMatchesType(t *testing.T) {
 	}{
 		{EventTextDelta, TextDelta{}},
 		{EventThinkingDelta, ThinkingDelta{}},
+		{EventOutputActivity, OutputActivity{}},
 		{EventToolUseStart, ToolCall{}},
 		{EventToolResult, ToolResult{}},
 		{EventSteerConsumed, SteerConsumed{}},
@@ -289,7 +293,7 @@ func TestEvent_WireKindMatchesType(t *testing.T) {
 // UnmarshalEvent fails here.
 func TestUnmarshalEvent_AllKindsCovered(t *testing.T) {
 	specimens := []Event{
-		TextDelta{}, ThinkingDelta{}, ToolCall{}, ToolResult{}, SteerConsumed{},
+		TextDelta{}, ThinkingDelta{}, OutputActivity{}, ToolCall{}, ToolResult{}, SteerConsumed{},
 		UserAskRequest{}, UserAskResolved{},
 		ToolPermissionRequest{}, ToolPermissionResolved{},
 		ExecApprovalRequested{}, ExecApprovalResolved{},
@@ -322,6 +326,36 @@ func TestUserMessageEvent_RoundTrip(t *testing.T) {
 			b, err := json.Marshal(c.in)
 			require.NoError(t, err)
 			assert.Contains(t, string(b), `"kind":"user_message"`)
+			got, err := UnmarshalEvent(b)
+			require.NoError(t, err)
+			assert.Equal(t, c.in, got)
+		})
+	}
+}
+
+// TestImageBlockEvent_RoundTrip 钉住一条用户消息里的图片附件过 wire 的往返。
+//
+// 它此前根本没有自己的事件:宿主投影一条 role=user 的 image 块时,
+// projection.go 的 EventForStoredBlock 认不出来,于是走 R8 兜底发成
+// UnrecognizedBlock —— 消费方那一侧只画得出一段 base64 文本。
+//
+// 形状照 cago 的 blocks.ImageBlock(MediaType + BlobSource 的两格,互斥):
+// 字节来源要么内联、要么一个 URL。两格都空是**合法的坏数据**(画不出图),
+// 往返同样不能把它变成别的东西 —— 消费方据此才说得出「这里有一张取不到的图」。
+func TestImageBlockEvent_RoundTrip(t *testing.T) {
+	cases := []struct {
+		name string
+		in   Event
+	}{
+		{"内联字节", ImageBlockEvent{MediaType: "image/png", Inline: []byte{0x01, 0x02, 0x03}}},
+		{"URL 来源", ImageBlockEvent{MediaType: "image/webp", URL: "https://example.test/a.webp"}},
+		{"两格都空", ImageBlockEvent{MediaType: "image/jpeg"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b, err := json.Marshal(c.in)
+			require.NoError(t, err)
+			assert.Contains(t, string(b), `"kind":"image"`)
 			got, err := UnmarshalEvent(b)
 			require.NoError(t, err)
 			assert.Equal(t, c.in, got)

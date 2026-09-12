@@ -9,10 +9,9 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc/mock_remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc/mock_remote_device_watcher_svc"
 )
 
 func setupService(t *testing.T) (
@@ -49,7 +48,7 @@ func TestService_StartAll_SkipsInactive(t *testing.T) {
 			ID: 1, Name: "a", URL: "ws://a/rpc", DaemonFingerprint: "x", TLSMode: "default", Status: 1,
 		}, nil).AnyTimes()
 		kc.EXPECT().Get(gomock.Any()).Return("x", nil).AnyTimes()
-		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(&client.Client{}, nil).AnyTimes()
+		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(newWatcherTestConnection(), nil).AnyTimes()
 		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(1), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 		So(svc.StartAll(context.Background()), ShouldBeNil)
@@ -66,7 +65,7 @@ func TestService_StartIdempotent(t *testing.T) {
 			ID: 5, Name: "x", URL: "ws://x/rpc", DaemonFingerprint: "y", TLSMode: "default", Status: 1,
 		}, nil).AnyTimes()
 		kc.EXPECT().Get(gomock.Any()).Return("x", nil).AnyTimes()
-		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(&client.Client{}, nil).Times(1)
+		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(newWatcherTestConnection(), nil).Times(1)
 		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(5), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 		So(svc.Start(context.Background(), 5), ShouldBeNil)

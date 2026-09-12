@@ -8,7 +8,7 @@ import "sync"
 type State struct {
 	SchemaVersion            int                        `json:"schemaVersion"`
 	DaemonInstanceUUID       string                     `json:"daemonInstanceUUID"`
-	HubServerURL             string                     `json:"hubServerURL,omitempty"`
+	AccountServerURL         string                     `json:"accountServerURL,omitempty"`
 	Listen                   ListenPrefs                `json:"listen"`
 	PairedPeers              map[string]PairedPeer      `json:"pairedPeers"`
 	LLMProviders             map[string]LLMProviderMeta `json:"llmProviders"`
@@ -50,10 +50,12 @@ type PairedPeer struct {
 // ModelKey 稳定不可变（跨实体引用），ModelID 是执行时发给上游的实际模型 id。
 // Enabled=false 表示该模型不可用于执行。
 type LLMModelMeta struct {
-	ModelKey string `json:"modelKey"`
-	ModelID  string `json:"modelId"`
-	Name     string `json:"name,omitempty"`
-	Enabled  bool   `json:"enabled,omitempty"`
+	ModelKey      string `json:"modelKey"`
+	ModelID       string `json:"modelId"`
+	Name          string `json:"name,omitempty"`
+	Enabled       bool   `json:"enabled,omitempty"`
+	ContextWindow *int64 `json:"contextWindow,omitempty"`
+	MaxOutput     *int64 `json:"maxOutput,omitempty"`
 }
 
 type LLMProviderMeta struct {

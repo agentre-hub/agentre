@@ -1,8 +1,7 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Badge, Button } from "@agentre-hub/agentre-ui";
 
 import { relativeTime } from "../remote-devices/format";
 import type { SyncStatusView } from "./use-sync-status";
@@ -15,8 +14,8 @@ const UNREACHABLE_ERROR = "server: unreachable";
 type BadgeKind = "up-to-date" | "waiting" | "unreachable";
 
 function badgeKindOf(status: SyncStatusView): BadgeKind {
-  if (status.LastError) return "unreachable";
-  if (status.PendingCount > 0) return "waiting";
+  if (status.lastError) return "unreachable";
+  if (status.pendingCount > 0) return "waiting";
   return "up-to-date";
 }
 
@@ -76,7 +75,7 @@ export function SyncStatusCard({ status, onRetry, now }: SyncStatusCardProps) {
             variant="secondary"
             className="rounded-sm bg-status-waiting-bg px-1.5 py-0.5 text-2xs font-medium text-status-waiting"
           >
-            {t("sync.status.badge.pending", { count: status.PendingCount })}
+            {t("sync.status.badge.pending", { count: status.pendingCount })}
           </Badge>
         ) : (
           <Badge
@@ -92,14 +91,14 @@ export function SyncStatusCard({ status, onRetry, now }: SyncStatusCardProps) {
         <div className="flex flex-col gap-2 p-4">
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-medium">
-              {status.LastError === UNREACHABLE_ERROR
+              {status.lastError === UNREACHABLE_ERROR
                 ? t("sync.status.unreachableTitle")
                 : t("sync.status.errorTitle")}
             </span>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              {status.LastError === UNREACHABLE_ERROR
+              {status.lastError === UNREACHABLE_ERROR
                 ? t("sync.status.unreachableDetail")
-                : status.LastError}
+                : status.lastError}
             </p>
           </div>
           <Button
@@ -120,7 +119,7 @@ export function SyncStatusCard({ status, onRetry, now }: SyncStatusCardProps) {
               {t("sync.status.lastSuccess")}
             </span>
             <span className="text-sm tabular-nums text-muted-foreground">
-              {relativeTime(status.LastSuccessAt, now, t)}
+              {relativeTime(status.lastSuccessAt, now, t)}
             </span>
           </div>
           {kind === "up-to-date" ? (
@@ -130,7 +129,7 @@ export function SyncStatusCard({ status, onRetry, now }: SyncStatusCardProps) {
               </span>
               <span className="text-sm tabular-nums text-muted-foreground">
                 {t("sync.status.pendingCount", {
-                  count: status.PendingCount,
+                  count: status.pendingCount,
                 })}
               </span>
             </div>

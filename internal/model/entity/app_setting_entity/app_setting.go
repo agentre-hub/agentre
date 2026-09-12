@@ -11,7 +11,7 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 // 预定义的 key 常量。新增 key 时在这里登记，避免 service 层散写魔法字符串。
@@ -25,6 +25,9 @@ const (
 	KeyDownloadMirror = "update.download_mirror"
 	// KeyLastUpdateCheck 上次"检查更新"的 Unix 时间戳，启动自动检查用它做 24h 节流。
 	KeyLastUpdateCheck = "update.last_check"
+	// KeySkippedUpdateVersion 用户点「跳过此版本」的版本号；空串表示没有跳过任何版本。
+	// 只压制到达提示与设置入口红点，不影响状态栏常驻的「有新版本」陈述。
+	KeySkippedUpdateVersion = "update.skipped_version"
 
 	// KeyDebugLogging 是否开启 debug 级别日志（"true"/"false"）；缺省关闭。
 	// 取代旧的 AGENTRE_DEBUG 环境变量，由「设置 → 版本 & 更新」开关写入。
@@ -35,6 +38,16 @@ const (
 	KeyNotifyOnlyWhenUnfocused = "notify.only_when_unfocused" // 仅窗口未激活时通知
 	KeyNotifySystem            = "notify.system"              // 系统原生通知
 	KeyNotifyToast             = "notify.toast"               // 应用内 toast
+
+	// KeyFilesOpenAction 单击一个文件时的去向："preview"（app 内预览）/ "external"
+	// （交给系统默认应用）。缺省 preview —— 键不存在时由前端兜底，服务端不写入缺省值。
+	KeyFilesOpenAction = "files.open_action"
+
+	// KeyCtlSkillDeclined 用户是否在设置页主动卸载过 ctl 控制通道技能包（"true"/"false"）；
+	// 缺省未拒绝。卸载时置真、（重新）安装时清除；启动期把它当第一道闸——为真则整段跳过
+	// 自动安装。不走 app_settings_svc.Update 的白名单，直接经 app_setting_repo 读写，
+	// 参见 internal/bootstrap/debug_logging.go 与 internal/pkg/ctlskill。
+	KeyCtlSkillDeclined = "ctlskill.declined"
 )
 
 // DefaultProxyListenHost 缺省监听地址 —— loopback，只允许本机访问。
@@ -49,7 +62,9 @@ const DefaultUpdateChannel = "stable"
 
 // AppSetting 一行 key-value 设置项记录。
 type AppSetting struct {
-	Key        string `gorm:"column:key;primaryKey;type:text;not null"`
+	ID int64 `gorm:"column:id;primaryKey;autoIncrement"`
+	// Key 是自然键，落在唯一索引上：Set 的 ON CONFLICT(key) 认的就是它。
+	Key        string `gorm:"column:key;type:text;not null;uniqueIndex"`
 	Value      string `gorm:"column:value;type:text;not null"`
 	Updatetime int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
 }
@@ -120,6 +135,16 @@ func ParseDebugLogging(v string) bool {
 func ValidateUpdateChannel(ctx context.Context, v string) error {
 	switch strings.TrimSpace(v) {
 	case "stable", "beta", "nightly":
+		return nil
+	}
+	return i18n.NewError(ctx, code.InvalidParameter)
+}
+
+// ValidateFileOpenAction 校验 files.open_action 取值（service 层调用前已 TrimSpace）。
+// 空串同样非法：这个键没有「撤销」语义，读不到键才是缺省。
+func ValidateFileOpenAction(ctx context.Context, v string) error {
+	switch strings.TrimSpace(v) {
+	case "preview", "external":
 		return nil
 	}
 	return i18n.NewError(ctx, code.InvalidParameter)

@@ -11,8 +11,8 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 )
 
 func loggedInState(url string) *server_state_entity.ServerState {
@@ -33,7 +33,7 @@ func TestSyncPush(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"code":0,"msg":"ok","data":{"results":[
 				{"sync_id":"p-1","kind":"project","version":12,"status":"conflict",
-				 "overwritten_version":11,"overwritten_device_id":5}
+				 "overwritten_version":11,"overwritten_origin_fingerprint":"fp-desktop-02"}
 			]}}`))
 		}))
 		defer srv.Close()
@@ -52,7 +52,7 @@ func TestSyncPush(t *testing.T) {
 		So(out[0].Status, ShouldEqual, syncwire.PushStatusConflict)
 		So(out[0].Version, ShouldEqual, int64(12))
 		So(out[0].OverwrittenVersion, ShouldEqual, int64(11))
-		So(out[0].OverwrittenDeviceID, ShouldEqual, int64(5))
+		So(out[0].OverwrittenOriginFingerprint, ShouldEqual, "fp-desktop-02")
 
 		items := body["items"].([]any)
 		first := items[0].(map[string]any)
@@ -77,14 +77,14 @@ func TestSyncPush(t *testing.T) {
 		mRepo.EXPECT().Get(gomock.Any()).Return(loggedInState(srv.URL), nil)
 
 		_, err := svc.SyncPush(context.Background(), []syncwire.PushItem{{
-			Kind: "project", SyncID: "p-1", BaseVersion: 8, UpdatedAt: 1700, Deleted: true,
+			Kind: "project", SyncID: "p-1", BaseVersion: 8, UpdatedAt: 1700, DeletedAt: 1700,
 		}})
 		So(err, ShouldBeNil)
 
 		var body map[string]any
 		So(json.Unmarshal(raw, &body), ShouldBeNil)
 		first := body["items"].([]any)[0].(map[string]any)
-		So(first["deleted"], ShouldBeTrue)
+		So(first["deleted_at"], ShouldEqual, float64(1700))
 		_, hasPayload := first["payload"]
 		So(hasPayload, ShouldBeFalse)
 		So(string(raw), ShouldNotContainSubstring, `"payload":null`)
@@ -128,8 +128,8 @@ func TestSyncPull(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"code":0,"msg":"ok","data":{"items":[
 				{"kind":"project","sync_id":"p-1","payload":{"name":"A"},"version":11,
-				 "updated_at":1700,"source_device_id":5,"deleted":false},
-				{"kind":"project","sync_id":"p-2","payload":{},"version":12,"deleted":true}
+				 "updated_at":1700,"origin_fingerprint":"fp-desktop-02","deleted_at":0},
+				{"kind":"project","sync_id":"p-2","payload":{},"version":12,"deleted_at":1800}
 			],"next_cursor":12,"has_more":false}}`))
 		}))
 		defer srv.Close()
@@ -143,9 +143,27 @@ func TestSyncPull(t *testing.T) {
 		So(gotQuery, ShouldEqual, "cursor=10&limit=200")
 		So(len(page.Items), ShouldEqual, 2)
 		So(page.Items[0].Version, ShouldEqual, int64(11))
-		So(page.Items[0].SourceDeviceID, ShouldEqual, int64(5))
-		So(page.Items[1].Deleted, ShouldBeTrue)
+		So(page.Items[0].OriginFingerprint, ShouldEqual, "fp-desktop-02")
+		So(page.Items[1].DeletedAt, ShouldEqual, int64(1800))
 		So(page.NextCursor, ShouldEqual, int64(12))
 		So(page.HasMore, ShouldBeFalse)
+	})
+
+	Convey("server 不认识这个游标时翻成 ErrCursorUnknown", t, func() {
+		// 不翻的话它只是一句「rejected with code 30505」，与网络抖动无从区分：那台机器
+		// 会安静地一直重试同一个死游标，而账号下什么都没有。
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"code":30505,"msg":"unknown sync cursor"}`))
+		}))
+		defer srv.Close()
+
+		svc, mRepo, _ := setupServerSvc(t, srv.URL)
+		mRepo.EXPECT().Get(gomock.Any()).Return(loggedInState(srv.URL), nil)
+
+		page, err := svc.SyncPull(context.Background(), 500, 200)
+		So(err, ShouldEqual, syncwire.ErrCursorUnknown)
+		So(page, ShouldBeNil)
 	})
 }

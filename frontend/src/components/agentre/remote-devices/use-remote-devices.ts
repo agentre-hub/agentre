@@ -31,7 +31,7 @@ export type DevicePath = {
   state: PathState;
 };
 
-/** 账号来源。known=false 表示桌面未登录或没拉到清单 —— 此时无法判定「未认领」。 */
+/** 账号来源。known=false 表示桌面未登录或没拉到清单 —— 此时无法判定「未登录账号」。 */
 export type AccountSource = {
   known: boolean;
   devices: server_svc.Device[];
@@ -50,8 +50,8 @@ type DeviceRowBase = {
   lastSeenAt: number;
   /** 可达路径 chips。 */
   paths: DevicePath[];
-  /** 未认领:仅本机配对、账号清单里没有这台机器的指纹(且清单已知)。 */
-  unclaimed: boolean;
+  /** 未登录账号:仅本机配对、账号清单里没有这台机器的指纹(且清单已知)。 */
+  signedOut: boolean;
   /** true → 主地址位显示「经中转」而非 LAN url(中转路径在用)。 */
   viaRelay: boolean;
 };
@@ -62,7 +62,7 @@ type DeviceRowBase = {
  */
 export type LanDeviceRow = DeviceRowBase & {
   lan: DeviceView;
-  /** 账号来源的设备(指纹匹配);undefined = 这台机器还没认领到账号。 */
+  /** 账号来源的设备(指纹匹配);undefined = 这台机器还没登录到账号。 */
   account?: server_svc.Device;
 };
 
@@ -86,24 +86,32 @@ export function mergeDeviceSources(
 ): DeviceRowModel[] {
   const accountByFp = new Map<string, server_svc.Device>();
   for (const d of account.devices) {
-    if (d.Fingerprint && !accountByFp.has(d.Fingerprint)) {
-      accountByFp.set(d.Fingerprint, d);
+    if (d.fingerprint && !accountByFp.has(d.fingerprint)) {
+      accountByFp.set(d.fingerprint, d);
     }
   }
   const claimedFingerprints = new Set<string>();
   const rows: DeviceRowModel[] = lan.map((d) => {
     const acc = accountByFp.get(d.daemonFingerprint);
     if (acc) claimedFingerprints.add(d.daemonFingerprint);
+    // url 为空 = 后端收编自账号的行(paired_agentred_entity.IsRelayOnly):本机有一行
+    // 记录(它正是让这台机器能被选成「运行设备」的东西),但**没有** LAN 路径。画一条
+    // 直连 chip 会把「本机从没配对过它」说成「直连在用」。
+    const relayOnly = !d.url;
     const online = d.online;
-    const paths: DevicePath[] = [
-      { kind: "lan", state: online ? "in-use" : "dead" },
-    ];
+    const paths: DevicePath[] = relayOnly
+      ? []
+      : [{ kind: "lan", state: online ? "in-use" : "dead" }];
     let relayInUse = false;
-    if (acc) {
+    if (relayOnly) {
+      const relayReachable = acc?.online ?? false;
+      relayInUse = relayReachable;
+      paths.push({ kind: "relay", state: relayReachable ? "in-use" : "dead" });
+    } else if (acc) {
       // 中转路径是否可达,取 daemon 在 server 上的中继在线登记(R20),
       // 而不是账号侧的授权标志 —— R15 要求这一行呈现「可达路径」而非
       // 「凭据来源」。授权被撤销的机器无法再续期在线登记,Online 会自行落回 false。
-      const relayReachable = acc.Online;
+      const relayReachable = acc.online;
       relayInUse = relayReachable && !online;
       paths.push({
         kind: "relay",
@@ -113,36 +121,38 @@ export function mergeDeviceSources(
     return {
       key: `lan:${d.id}`,
       name: d.name,
-      online: online || relayInUse,
+      // 收编行没有 LAN 握手,d.online(由 last_seen_at 推出)对它没有意义:
+      // 它是否可达完全取决于账号侧的中继登记。
+      online: relayOnly ? relayInUse : online || relayInUse,
       lastSeenAt: d.lastSeenAt,
       lan: d,
       account: acc,
       paths,
       // 指纹为空的 LAN 行无从与账号清单对照(accountByFp 也不收空键),缺少依据时
-      // 不下「未认领」的结论 —— 否则一台已认领的机器会被标成别人看不到它。
-      unclaimed: account.known && !!d.daemonFingerprint && acc == null,
+      // 不下「未登录账号」的结论 —— 否则一台已登录的机器会被标成别人看不到它。
+      signedOut: account.known && !!d.daemonFingerprint && acc == null,
       viaRelay: relayInUse,
     };
   });
 
-  // 账号独有:账号清单里有、没有任何配对行认领这个指纹。accountByFp 已按指纹
+  // 账号独有:账号清单里有、没有任何配对行匹配这个指纹。accountByFp 已按指纹
   // 去重、且不收空指纹 —— 没有指纹的账号行既无从与 LAN 对照,也无从经中转寻址。
   for (const acc of accountByFp.values()) {
-    if (claimedFingerprints.has(acc.Fingerprint)) continue;
+    if (claimedFingerprints.has(acc.fingerprint)) continue;
     // kind=desktop 的机器由 DesktopDeviceRow 单独成行(R19),这里再出一行
     // 就是同一台机器在面板上出现两次。
-    if (acc.Kind === "desktop") continue;
-    const relayReachable = acc.Online;
+    if (acc.kind === "desktop") continue;
+    const relayReachable = acc.online;
     rows.push({
-      key: `account:${acc.ID}`,
-      name: acc.Name || acc.Fingerprint,
+      key: `account:${acc.id}`,
+      name: acc.name || acc.fingerprint,
       online: relayReachable,
-      lastSeenAt: acc.LastSeenAt,
+      lastSeenAt: acc.lastSeenAt,
       account: acc,
       // 没有配对行 → 没有 LAN 路径,中转是唯一一条。
       paths: [{ kind: "relay", state: relayReachable ? "in-use" : "dead" }],
-      // 它就在账号清单里,按定义不是未认领。
-      unclaimed: false,
+      // 它就在账号清单里,按定义不是未登录。
+      signedOut: false,
       viaRelay: relayReachable,
     });
   }
@@ -185,7 +195,7 @@ export function useRemoteDevices() {
     try {
       const list = (await RemoteDeviceList()) ?? [];
       // 账号来源:未登录时 ServerListDevices 本地即返回 ErrNotLoggedIn(known=false,
-      // 不判未认领);已登录但拉取失败(服务器离线)同样 known=false,不把每台都误标未认领。
+      // 不判未登录);已登录但拉取失败(服务器离线)同样 known=false,不把每台都误标未登录。
       let acc: AccountSource;
       try {
         const accountList = (await ServerListDevices()) ?? [];

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/agentre-ai/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/daemon/state"
 )
 
 // OK is the canonical "success ack" payload reused by several handlers.

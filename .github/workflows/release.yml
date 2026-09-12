@@ -9,6 +9,8 @@ env:
   VERSION: ${{ github.ref_name }}
   COMMIT_ID: ${{ github.sha }}
   NODE_OPTIONS: --max-old-space-size=4096
+  # agentred 容器镜像。GHCR 的 owner 段必须全小写，写死避免大小写踩坑
+  IMAGE: ghcr.io/agentre-hub/agentred
 
 jobs:
   build-desktop:
@@ -102,14 +104,14 @@ jobs:
         if: matrix.goos != 'windows'
         run: |
           if [ -n "${{ matrix.extra_tags }}" ]; then
-            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-ai/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}" -tags "${{ matrix.extra_tags }}"
+            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}" -tags "${{ matrix.extra_tags }}"
           else
-            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-ai/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
+            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
           fi
 
       - name: Build desktop app (Windows)
         if: matrix.goos == 'windows'
-        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-ai/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
+        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
 
       - name: Import Apple certificate
         if: matrix.goos == 'darwin'
@@ -303,3 +305,108 @@ jobs:
         run: |
           gh api repos/${{ github.repository }}/releases/tags/${{ github.ref_name }} > release-info.json
           gh release upload ${{ github.ref_name }} release-info.json --clobber
+
+  # agentred 容器镜像：从源码构建（Dockerfile 默认目标），CLI 版本由 Dockerfile 钉死。
+  # 与二进制产物并行，互不阻塞——镜像挂了不该拦住 Release 里的桌面包。
+  build-agentred-image:
+    name: agentred image (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 两个原生 runner 各打一个架构，不走 QEMU：镜像里要装三个 CLI 并逐个
+          # 跑版本自证，模拟环境下既慢又容易在自证那步无谓地红。
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: ${{ matrix.platform }}
+          # 单架构产物先按 digest 推上去，tag 由 merge job 一次性挂到 manifest list。
+          # provenance 关掉：开着会让每个架构自己变成一个 index，合并时 digest 对不上。
+          provenance: false
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            COMMIT_ID=${{ env.COMMIT_ID }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+          cache-from: type=gha,scope=agentred-release-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=agentred-release-${{ matrix.arch }}
+
+      - name: Export digest
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-image-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-agentred-image:
+    name: Publish agentred manifest
+    needs: [build-agentred-image]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: digests
+          pattern: release-image-digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # tag 在 shell 里拼、也在 shell 里用：不绕 step output，省掉一次把 tag 名
+      # 插回 run 脚本的 ${{ }} 展开
+      - name: Create manifest list and push
+        working-directory: digests
+        run: |
+          SHORT=$(git rev-parse --short HEAD)
+          TAGS=(-t "${IMAGE}:${VERSION}" -t "${IMAGE}:sha-${SHORT}")
+          # 预发布不动 latest：latest 是「拿来就能上生产的那一版」，beta/rc 不是
+          case "$VERSION" in
+            *-beta*|*-rc*) ;;
+            *) TAGS+=(-t "${IMAGE}:latest") ;;
+          esac
+          docker buildx imagetools create "${TAGS[@]}" $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect
+        run: docker buildx imagetools inspect "${IMAGE}:${VERSION}"

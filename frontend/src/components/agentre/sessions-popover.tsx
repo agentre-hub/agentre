@@ -1,12 +1,14 @@
 import * as React from "react";
 import { ChevronDown, Loader2, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import {
+  Button,
+  Input,
+  PopoverContent,
+  isOpenInNewTabModifier,
+} from "@agentre-hub/agentre-ui";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { PopoverContent } from "@/components/ui/popover";
 import { useEffectiveSessionStatus } from "@/hooks/use-live-session-status";
-import { isOpenInNewTabModifier } from "@/lib/keyboard";
 import { relativeTime } from "@/lib/relative-time";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +17,8 @@ import type { AgentColor, AgentStatus } from "./types";
 import { statusConfig } from "./types";
 
 const PAGE_SIZE = 20;
+/** Load the next page before the list reaches its end. */
+const NEAR_BOTTOM_PX = 96;
 
 // SessionsPopoverItem —— popover 内列表行需要的最小字段。
 // chat 用 ChatSessionLite（status 字段）直接满足；项目侧用 ProjectSessionItem 时
@@ -156,6 +160,17 @@ function SessionsPopover({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only fetch initial page on mount
   }, []);
 
+  const listRef = React.useRef<HTMLDivElement>(null);
+
+  /** Fetch one page; fetchPage deduplicates concurrent requests. */
+  const handleScroll = React.useCallback(() => {
+    const el = listRef.current;
+    if (!el || !hasMore || loading) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > NEAR_BOTTOM_PX)
+      return;
+    void fetchPage(sessions.length);
+  }, [fetchPage, hasMore, loading, sessions.length]);
+
   const filterValue = filter.trim().toLowerCase();
   const visibleSessions = filterValue
     ? sessions.filter((s) => s.title.toLowerCase().includes(filterValue))
@@ -223,7 +238,12 @@ function SessionsPopover({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto px-1.5 py-1.5">
+      <div
+        ref={listRef}
+        data-testid="sessions-popover-list"
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 overflow-auto px-1.5 py-1.5"
+      >
         {error ? (
           <div className="px-3 py-4 text-center text-2xs text-status-error">
             {t("sessionsPopover.loadFailed", { error })}

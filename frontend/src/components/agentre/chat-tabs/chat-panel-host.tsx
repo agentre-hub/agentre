@@ -3,14 +3,15 @@ import * as React from "react";
 import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import {
+  Badge,
+  Button,
+  TerminalPanel,
+  pruneChatPanelScrollState,
+} from "@agentre-hub/agentre-ui";
 
 import { ChatPanel } from "../chat-panel";
-import { pruneChatPanelScrollState } from "../chat-panel-scroll-state";
 import { PeerPanel } from "../peer/peer-panel";
-import { TerminalPanel } from "../terminal/terminal-panel";
 import { reloadSidebarSources } from "@/stores/sidebar-reload";
 import type { ChatTab, TabKind } from "@/stores/chat-tabs-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
@@ -265,14 +266,14 @@ const HostedPanel = React.memo(function HostedPanel({
   const handlePeerSessionCreated = React.useCallback(
     (peer: {
       fingerprint: string;
-      sessionId: number;
+      conversationId: string;
       title: string;
       deviceName: string;
     }) => {
       closeTab(tab.id);
       openPeerTab({
         fingerprint: peer.fingerprint,
-        sessionId: peer.sessionId,
+        conversationId: peer.conversationId,
         title: peer.title,
         deviceName: peer.deviceName,
       });
@@ -285,7 +286,7 @@ const HostedPanel = React.memo(function HostedPanel({
   );
   const handleSidebarShouldReload = React.useCallback(() => {
     // 统一信号: 让 /chat (chat-agents-store) 与 /projects
-    // (project-sessions-store) 两边的 sidebar 都同步刷新。新建会话 /
+    // (session-index-store 已加载的 scope) 两条来源都同步刷新。新建会话 /
     // 删除会话 / 改标题 / turn 结束等 RPC 完成都走这里, 不必等下次
     // mount。两个 store 各自 inflight dedup, 调用安全。
     reloadSidebarSources();
@@ -416,7 +417,7 @@ const HostedPeerPanel = React.memo(function HostedPeerPanel({
     >
       <PeerPanel
         fingerprint={meta.fingerprint}
-        sessionId={meta.sessionId}
+        conversationId={meta.conversationId}
         title={tab.title ?? ""}
         deviceName={meta.deviceName}
         active={active}

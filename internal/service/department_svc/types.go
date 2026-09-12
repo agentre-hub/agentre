@@ -65,15 +65,13 @@ type AgentItem struct {
 	DepartmentName  string          `json:"departmentName"`
 	ParentAgentID   int64           `json:"parentAgentId"`
 	ParentAgentName string          `json:"parentAgentName"`
-	AgentBackendID  int64           `json:"agentBackendId"`
 	Backend         *BackendSummary `json:"backend,omitempty"`
 	SortOrder       int             `json:"sortOrder"`
 	Prompt          []string        `json:"prompt"`
-	Skills          []AgentSkillDTO `json:"skills"`
-	// ExecTargets 是 R15 的有序执行目标列表（任务 12：组织架构页展示/编辑用）。
-	// AgentBackendID/Skills 两个字段是它派生出的历史兼容视图（= ExecTargets[0]，
-	// 空列表时为零值），仍被别处只读代码路径消费，不重复维护两份真相——写口只信
-	// ExecTargets（agent_svc.UpdateAgentRequest）。
+	// ExecTargets 是 R15 的有序执行目标列表（任务 12：组织架构页展示/编辑用），
+	// 也是这条 Agent 的后端与技能授权的**唯一**出口：①（sort_order 最小的那一档）
+	// 即从前那对 AgentBackendID/Skills 派生字段说的东西。写口同样只认它
+	// （agent_svc.UpdateAgentRequest）。
 	ExecTargets []AgentExecTargetItem `json:"execTargets"`
 	Tools       []AgentToolDTO        `json:"tools"`
 	Createtime  int64                 `json:"createtime"`

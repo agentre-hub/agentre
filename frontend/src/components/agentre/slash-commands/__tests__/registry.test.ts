@@ -1,151 +1,61 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  filterByQuery,
+  buildSlashCommands,
   listAvailable,
   skillCommandsFromCatalog,
-  slashCommands,
-  type SlashCommand,
-  type SlashExec,
-} from "../registry";
+} from "@agentre-hub/agentre-ui";
 
-function command(
-  name: string,
-  trigger: "/" | "$",
-  description?: string,
-): SlashCommand {
-  return {
-    name,
-    label: `${trigger}${name}`,
-    trigger,
-    description,
-    resolve: () => ({ kind: "literal_text", text: `${trigger}${name}` }),
-  };
+import { desktopSlashCommands } from "../registry";
+
+// 内置命令(/compact、/goal)、Skill 目录的翻译与按 backend 过滤都归共享包,测试也
+// 在那边(packages/agentre-ui/src/chat-input/slash/__tests__/registry.test.ts)。
+// 这里只钉**桌面端独有**的那一条,以及它与包里那份清单合在一起之后的结果。
+const t = (key: string) => key;
+
+/** 桌面端真正交给输入框的那份清单 —— 与 chat.tsx 的组装同构。 */
+function desktopAvailable(
+  backendType: string,
+  skills: { name: string }[] = [],
+) {
+  return listAvailable(backendType, [
+    ...buildSlashCommands(t),
+    ...desktopSlashCommands,
+    ...skillCommandsFromCatalog(backendType, skills, t),
+  ]);
 }
 
-describe("slash command registry", () => {
-  it("claudecode 可用 /compact", () => {
-    const xs = listAvailable("claudecode");
-    expect(xs.map((c) => c.name)).toContain("compact");
-    const compact = xs.find((c) => c.name === "compact")!;
-    const exec = compact.resolve("claudecode")!;
-    expect(exec.kind).toBe("literal_text");
-    expect((exec as Extract<SlashExec, { kind: "literal_text" }>).text).toBe(
-      "/compact",
-    );
+describe("桌面端的 slash 命令清单", () => {
+  it("/new 在任何非空 backend 上都摆得出 —— 它与 backend 无关", () => {
+    for (const backend of ["claudecode", "codex", "piagent", "builtin"]) {
+      expect(desktopAvailable(backend).map((c) => c.label)).toContain("/new");
+    }
   });
 
-  it.each(["codex", "piagent"])(
-    "%s /compact 也走 literal_text (Enter 时由 chat-panel 拦截转 Compact RPC)",
-    (backend) => {
-      const xs = listAvailable(backend);
-      expect(xs.map((c) => c.name)).toContain("compact");
-      const compact = xs.find((c) => c.name === "compact")!;
-      const exec = compact.resolve(backend)!;
-      expect(exec.kind).toBe("literal_text");
-      expect((exec as Extract<SlashExec, { kind: "literal_text" }>).text).toBe(
-        "/compact",
-      );
-    },
-  );
-
-  it("codex 可用 /goal，选择后只补全文字，Enter 时由 chat-panel 转 Goal RPC", () => {
-    const xs = listAvailable("codex");
-    expect(xs.map((c) => c.name)).toContain("goal");
-    const goal = xs.find((c) => c.name === "goal")!;
-    const exec = goal.resolve("codex")!;
-    expect(exec.kind).toBe("literal_text");
-    expect((exec as Extract<SlashExec, { kind: "literal_text" }>).text).toBe(
-      "/goal ",
-    );
+  it("/new 的说明每次读都重新取,切了语言不会留在旧文案上", () => {
+    // 这一条不经过 useSlashCommands 的 t,所以 registry 里用 getter 推迟求值;
+    // 写成模块加载时的字面量就会冻结在 import 那一刻的语言上。
+    const [command] = desktopSlashCommands;
+    expect(command.description).toBeTruthy();
+    expect(command.description).toBe(command.description);
   });
 
-  it.each(["claudecode", "codex", "piagent", "builtin"])(
-    "%s 可用 /new,resolve 返回 literal_text /new(纯前端 tab 操作,与 backend 无关)",
-    (backend) => {
-      const xs = listAvailable(backend);
-      expect(xs.map((c) => c.name)).toContain("new");
-      const cmd = xs.find((c) => c.name === "new")!;
-      const exec = cmd.resolve(backend)!;
-      expect(exec.kind).toBe("literal_text");
-      expect((exec as Extract<SlashExec, { kind: "literal_text" }>).text).toBe(
-        "/new",
-      );
-    },
-  );
-
-  it("空 backend 返回空列表", () => {
-    expect(listAvailable("")).toEqual([]);
+  it("backend 还不知道时一条都不列,/new 也不例外", () => {
+    expect(desktopAvailable("")).toEqual([]);
   });
 
-  it("Given slash candidates, When filtering by query, Then matching is case-insensitive and keeps empty-query source order", () => {
-    expect(filterByQuery(slashCommands, "")).toEqual(slashCommands);
-    expect(filterByQuery(slashCommands, "COMP").map((c) => c.name)).toEqual([
-      "compact",
-    ]);
-    expect(filterByQuery(slashCommands, "xyz")).toEqual([]);
-  });
-
-  it.each(["/", "$"] as const)(
-    "Given %s non-prefix name and description matches, When filtering, Then stronger scores rank first and ties and empty queries keep source order",
-    (trigger) => {
-      const candidates = [
-        command("helper", trigger, "Runs compact migration"),
-        command("compact", trigger),
-        command("campus", trigger),
-      ];
-
-      expect(filterByQuery(candidates, "", trigger)).toEqual(candidates);
-      expect(
-        filterByQuery(candidates, "mp", trigger).map(
-          (candidate) => candidate.name,
-        ),
-      ).toEqual(["compact", "campus", "helper"]);
-    },
-  );
-
-  it("Given slash and skill candidates with the same query, When filtering, Then the active trigger stays isolated", () => {
-    const candidates = [command("review", "$"), command("review", "/")];
-
+  it("Skill 与内置命令重名时,内置那条只出现一次", () => {
     expect(
-      filterByQuery(candidates, "view", "/").map(
-        (candidate) => candidate.label,
-      ),
-    ).toEqual(["/review"]);
-    expect(
-      filterByQuery(candidates, "view", "$").map(
-        (candidate) => candidate.label,
-      ),
-    ).toEqual(["$review"]);
-  });
-
-  it("Given backend-native command names, When building suggestions, Then naked and plugin-qualified skills get the backend prefix exactly once", () => {
-    expect(
-      skillCommandsFromCatalog("codex", [
-        { name: "shadcn", description: "Compose UI" },
-        { name: "lore:lore-memory", description: "Recall" },
+      desktopAvailable("claudecode", [
+        { name: "compact" },
+        { name: "custom" },
       ]).map((command) => command.label),
-    ).toEqual(["$shadcn", "$lore:lore-memory"]);
-    expect(
-      skillCommandsFromCatalog("claudecode", [
-        { name: "cago", description: "Cago conventions" },
-      ]).map((command) => command.label),
-    ).toEqual(["/cago"]);
-    expect(
-      skillCommandsFromCatalog("piagent", [
-        { name: "skill:review", description: "Review changes" },
-      ]).map((command) => command.label),
-    ).toEqual(["/skill:review"]);
-  });
-
-  it("Given a Claude skill shadows a built-in slash command, When listing suggestions, Then the built-in command appears only once", () => {
-    const skills = skillCommandsFromCatalog("claudecode", [
-      { name: "compact" },
-      { name: "custom" },
-    ]);
-
-    expect(
-      listAvailable("claudecode", skills).map((command) => command.label),
     ).toEqual(["/compact", "/new", "/custom"]);
+  });
+
+  it("codex 会话上 /goal 与 $ 前缀的 Skill 并存", () => {
+    expect(
+      desktopAvailable("codex", [{ name: "shadcn" }]).map((c) => c.label),
+    ).toEqual(["/compact", "/goal", "/new", "$shadcn"]);
   });
 });

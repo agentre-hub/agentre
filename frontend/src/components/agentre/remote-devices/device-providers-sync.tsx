@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Copy, Loader2, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
-import { copyTextWithToast } from "@/lib/clipboard-toast";
+import { Button, copyTextWithToast } from "@agentre-hub/agentre-ui";
 
 import {
   ListAgentBackends,

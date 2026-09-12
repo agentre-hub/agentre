@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2022",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -17,8 +17,10 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@agentre-hub/agentre-ui": ["./packages/agentre-ui/src/index.ts"],
+      "@agentre-hub/agentre-ui/i18n": ["./packages/agentre-ui/src/i18n/index.ts"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "packages/agentre-ui/src"]
 }

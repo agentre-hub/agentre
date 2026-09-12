@@ -6,7 +6,7 @@ import (
 	"github.com/cago-frame/cago/database/db"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 )
 
 //go:generate mockgen -source exec_target.go -destination mock_agent_repo/mock_exec_target.go
@@ -270,7 +270,7 @@ func primaryTargetList(backendID int64, skillsJSON string) []*agent_entity.Agent
 }
 
 // hydrateOne 补齐单个 Agent 的派生值；补不齐就不交出这个 Agent —— 交出去的话
-// 调用方会拿着历史列的残值（或 0）当真，把有后端的 Agent 当成「未配置后端」。
+// 调用方会拿着零值当真，把有后端的 Agent 当成「未配置后端」。
 func hydrateOne(ctx context.Context, a *agent_entity.Agent) (*agent_entity.Agent, error) {
 	if err := hydrateExecTargets(ctx, []*agent_entity.Agent{a}); err != nil {
 		return nil, err
@@ -278,9 +278,7 @@ func hydrateOne(ctx context.Context, a *agent_entity.Agent) (*agent_entity.Agent
 	return a, nil
 }
 
-// hydrateExecTargets 用执行目标行补齐一批 Agent 的 AgentBackendID —— 取 sort_order
-// 最小的那一行，没有目标行则为 0。读取一律走这里，agents.agent_backend_id 历史列
-// 不再被读。
+// hydrateExecTargets fills AgentBackendID from the first execution target; zero means none.
 func hydrateExecTargets(ctx context.Context, agents []*agent_entity.Agent) error {
 	ids := make([]int64, 0, len(agents))
 	for _, a := range agents {

@@ -11,9 +11,10 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/service/department_svc"
-	"github.com/agentre-ai/agentre/internal/service/orgtool_svc/mock_orgtool_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/service/department_svc"
+	"github.com/agentre-hub/agentre/internal/service/orgtool_svc/mock_orgtool_svc"
 )
 
 // newTestSvc 构造一个全新的 orgtoolSvc(避免 Default() 单例跨测试串台),只接 AgentLookup
@@ -185,7 +186,7 @@ func TestOrgMCP_OrgGetReturnsLoadResult(t *testing.T) {
 }
 
 func TestOrgMCP_WriteToolRouting(t *testing.T) {
-	Convey("写工具经 handleWriteTool(登记审批);非组织工具 → JSON-RPC error(-32601 unknown tool)", t, func() {
+	Convey("写工具经共享审批闸门(登记审批);非组织工具 → JSON-RPC error(-32601 unknown tool)", t, func() {
 		Convey("org 写工具 → 走审批编排(BeginToolApproval 被调到),拒绝后返回成功体", func() {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
@@ -221,7 +222,7 @@ func TestOrgMCP_BuildTurnMCP(t *testing.T) {
 		s.SetGatewayBaseURL("http://127.0.0.1:52401")
 
 		Convey("org 开关 ON → 返回 1 个 spec(URL/header token/7 个 Tools)", func() {
-			specs := s.BuildTurnMCP(context.Background(), orgEnabledAgent(7), 99, 0)
+			specs := s.BuildTurnMCP(context.Background(), orgEnabledAgent(7), 99)
 			So(len(specs), ShouldEqual, 1)
 			So(specs[0].Name, ShouldEqual, "org")
 			So(specs[0].URL, ShouldEqual, "http://127.0.0.1:52401/mcp/org/")
@@ -229,22 +230,22 @@ func TestOrgMCP_BuildTurnMCP(t *testing.T) {
 			So(len(specs[0].Tools), ShouldEqual, 7)
 			// header 里的 token 应能被本 handler 验签解出 (7, 99)
 			tok := strings.TrimPrefix(specs[0].Headers["Authorization"], "Bearer ")
-			ref, ok := s.mcpHandlerInit().lookup(tok)
+			ref, ok := s.mcpHandlerInit().Lookup(tok)
 			So(ok, ShouldBeTrue)
-			So(ref, ShouldResemble, orgRef{agentID: 7, sessionID: 99})
+			So(ref, ShouldResemble, agenttool.Ref{AgentID: 7, SessionID: 99})
 		})
 
 		Convey("org 开关 OFF → nil", func() {
-			So(s.BuildTurnMCP(context.Background(), orgDisabledAgent(7), 99, 0), ShouldBeNil)
+			So(s.BuildTurnMCP(context.Background(), orgDisabledAgent(7), 99), ShouldBeNil)
 		})
 
 		Convey("agent 为 nil → nil", func() {
-			So(s.BuildTurnMCP(context.Background(), nil, 99, 0), ShouldBeNil)
+			So(s.BuildTurnMCP(context.Background(), nil, 99), ShouldBeNil)
 		})
 	})
 
 	Convey("gatewayBaseURL 未配置 → nil(即使开关 ON)", t, func() {
 		s := newTestSvc(nil, nil) // 没 SetGatewayBaseURL
-		So(s.BuildTurnMCP(context.Background(), orgEnabledAgent(7), 99, 0), ShouldBeNil)
+		So(s.BuildTurnMCP(context.Background(), orgEnabledAgent(7), 99), ShouldBeNil)
 	})
 }

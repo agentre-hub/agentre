@@ -2,19 +2,21 @@ import { useEffect, useState } from "react";
 import { ArrowRight, CircleCheck, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Badge,
+  Button,
   Dialog,
   DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
+  Input,
+  Spinner,
+} from "@agentre-hub/agentre-ui";
 
 import { DesktopDeviceRow } from "./desktop-device-row";
 import { AgentredOnboarding } from "./agentred-onboarding";
@@ -22,12 +24,13 @@ import { DeviceRow } from "./device-row";
 import { hostOf } from "./format";
 import { LoginDialog } from "./login-dialog";
 import { TLSTrustDialog } from "./tls-trust-dialog";
+import { useLatestAgentredVersion } from "./use-latest-agentred-version";
 import { useRemoteDevices, type DeviceView } from "./use-remote-devices";
 import { useServerLogin } from "./use-server-login";
 
 // 规格「界面与交互 › 登录」: entry point for the standard device-authorization
 // flow, and the signed-in identity + sign-out affordance once connected. The
-// remote devices panel is the natural host — it already renders the unclaimed
+// remote devices panel is the natural host — it already renders the signedOut
 // marker and claim guidance that this flow closes the loop on.
 function AccountStatus({
   loading,
@@ -100,6 +103,8 @@ export function RemoteDevicesPanel({
     reload,
   } = useRemoteDevices();
   const serverLogin = useServerLogin();
+  // 「最新版是哪一个」只有一个来源:桌面端自己那套更新检查(见 hook 注释)。
+  const latestVersion = useLatestAgentredVersion();
   const [now, setNow] = useState(() => Date.now());
   const [guideRequested, setGuideRequested] = useState(false);
   const [showBackendGuide, setShowBackendGuide] = useState(false);
@@ -120,7 +125,7 @@ export function RemoteDevicesPanel({
   const onlineCount = devices.filter((d) => d.online).length;
   // 账号设备清单里的桌面端（R19）：不参与 LAN 配对行合并，单独作为可展开行。
   const desktopDevices = (accountDevices ?? []).filter(
-    (d) => d.Kind === "desktop",
+    (d) => d.kind === "desktop",
   );
   // 决策 1:整页一行都没有时引导就是这一页(且无处可退,不给收起);只要页面上还有
   // 一行设备,它就默认收起,由页头那唯一一个入口召唤 —— 引导不自作主张展开。
@@ -247,6 +252,10 @@ export function RemoteDevicesPanel({
           {devices.map((d) => {
             // 用 const 接住,窄化才进得了下面那几个闭包。
             const lan = d.lan;
+            // 「刷新直连」与「TLS 信任」作用在**直连地址**上,不是在配对行上:账号
+            // 收编来的行(IsRelayOnly)有配对行、url 却是空的,给了这两个动作等于让
+            // 用户去刷新一条不存在的直连 —— 点下去只会拿到一个无意义的失败。
+            const hasLanAddress = !!lan?.url;
             return (
               <DeviceRow
                 key={d.key}
@@ -255,14 +264,19 @@ export function RemoteDevicesPanel({
                 actions={
                   lan
                     ? {
-                        onRefresh: () => void refresh(lan.id),
+                        onRefresh: hasLanAddress
+                          ? () => void refresh(lan.id)
+                          : undefined,
                         onRename: () =>
                           setRenameFor({ id: lan.id, draft: lan.name }),
-                        onEditTLS: () => setEditTLSFor(lan),
+                        onEditTLS: hasLanAddress
+                          ? () => setEditTLSFor(lan)
+                          : undefined,
                         onRemove: () => setRemoveFor(lan),
                       }
                     : undefined
                 }
+                latestVersion={latestVersion}
               />
             );
           })}
@@ -274,7 +288,7 @@ export function RemoteDevicesPanel({
           {/* 账号设备清单里 kind=desktop 的行（R19）：正在运行的桌面端可展开出会话
               列表，未运行时按 R2 说明「Agentre 未运行」而不是「离线」。 */}
           {desktopDevices.map((d) => (
-            <DesktopDeviceRow key={d.ID} device={d} now={now} />
+            <DesktopDeviceRow key={d.id} device={d} now={now} />
           ))}
         </div>
       ) : null}
@@ -393,7 +407,7 @@ export function RemoteDevicesPanel({
         onClose={() => setLoginOpen(false)}
         onLoggedIn={() => {
           // Login completed inside the dialog — pull the fresh identity and
-          // re-merge the device list so unclaimed markers / relay chips
+          // re-merge the device list so signedOut markers / relay chips
           // reflect the newly-claimed account without waiting for a window
           // focus event.
           void serverLogin.refresh();

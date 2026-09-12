@@ -56,8 +56,39 @@ func TestGivenOlderStatusWithoutVersionWhenPrintingThenStillRenders(t *testing.T
 	assert.NotContains(t, buf.String(), "Version:")
 }
 
-// TestPrintStatus_OmitsDatabaseLineWhenDaemonDoesNotReportIt 老 daemon 的状态应答里没有
-// dbPath,此时不能印一行空路径的 "Database:" —— 那会让人以为库文件丢了。
+func TestGivenDaemonConnectionStateWhenPrintingThenShowsRelayAndClientConnections(t *testing.T) {
+	var buf bytes.Buffer
+	printStatus(&buf, map[string]any{
+		"pid":                   float64(1),
+		"listenURLs":            []any{},
+		"pairedPeers":           []any{},
+		"activeSessions":        float64(0),
+		"llmProviderCount":      float64(0),
+		"relayConnected":        true,
+		"clientConnectionCount": float64(2),
+	})
+
+	assert.Contains(t, buf.String(), "Relay: connected\n")
+	assert.Contains(t, buf.String(), "Client connections: 2\n")
+}
+
+func TestGivenZeroConnectionStateWhenPrintingThenNeverShowsLegacyUnknownCopy(t *testing.T) {
+	var buf bytes.Buffer
+	printStatus(&buf, map[string]any{
+		"pid":              float64(1),
+		"listenURLs":       []any{},
+		"pairedPeers":      []any{},
+		"activeSessions":   float64(0),
+		"llmProviderCount": float64(0),
+	})
+
+	assert.Contains(t, buf.String(), "Relay: disconnected\n")
+	assert.Contains(t, buf.String(), "Client connections: 0\n")
+	assert.NotContains(t, buf.String(), "unknown")
+}
+
+// TestPrintStatus_OmitsDatabaseLineWhenDaemonDoesNotReportIt 应答里取不出 dbPath 时
+// 不能印一行空路径的 "Database:" —— 那会让人以为库文件丢了。
 func TestPrintStatus_OmitsDatabaseLineWhenDaemonDoesNotReportIt(t *testing.T) {
 	var buf bytes.Buffer
 	printStatus(&buf, map[string]any{
@@ -90,4 +121,24 @@ func TestHumanBytes_RendersEachMagnitude(t *testing.T) {
 	for _, c := range cases {
 		assert.Equal(t, c.want, humanBytes(c.in), "humanBytes(%d)", c.in)
 	}
+}
+
+// TestPrintStatus_PairedPeersAreNotAccountDevices 钉住这一行数的到底是什么。
+//
+// 它数的是 state.json 里的 pairedPeers —— 走配对码那条流、同网段直连过来的桌面端。
+// 而控制台「设备」页数的是账号授权设备（走设备码那条流的 devices 行），两者是不同的
+// 集合：用户先配对再登录，CLI 印 1、控制台可能印 3，共用「devices」这一个词就只能
+// 让人以为其中一边错了。
+func TestPrintStatus_PairedPeersAreNotAccountDevices(t *testing.T) {
+	var buf bytes.Buffer
+	printStatus(&buf, map[string]any{
+		"pid":         float64(4321),
+		"listenURLs":  []any{"wss://192.168.1.9:7456"},
+		"pairedPeers": []any{map[string]any{}, map[string]any{}},
+	})
+
+	out := buf.String()
+	assert.Contains(t, out, "Paired peers: 2", "数的是配对到本机的对端，不是账号设备")
+	assert.NotContains(t, out, "Paired devices",
+		"「devices」在控制台已经指账号授权设备，这里不能再用它指另一个集合")
 }

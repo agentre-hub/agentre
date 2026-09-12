@@ -3,12 +3,11 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
-import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
+} from "@agentre-hub/agentre-ui";
 import { ChevronDown, MapPin, Server, ServerOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -83,8 +82,8 @@ export function useExecTargetCandidates(agentId: number, projectId: number) {
       for (const b of backends?.items ?? []) backendById.set(b.id, b);
       const accountNameByFingerprint = new Map(
         (accountDevices ?? [])
-          .filter((device) => device.Fingerprint)
-          .map((device) => [device.Fingerprint, device.Name] as const),
+          .filter((device) => device.fingerprint)
+          .map((device) => [device.fingerprint, device.name] as const),
       );
       setCandidates(
         (availability ?? []).map((a) => {
@@ -161,7 +160,9 @@ const REASON_I18N_KEY: Record<string, string> = {
   "exec-target-project-path-missing": "projectPathMissing",
 };
 
-function reasonLabel(reason: string, t: TFunction): string {
+// reasonLabel / backendTypeLabel / backendPrimaryName / deviceLabelOf 是「一档执行目标
+// 怎么读」的唯一说法：看板任务表单的机器 pill 复用它们，不另抄一份原因表。
+export function reasonLabel(reason: string, t: TFunction): string {
   const key = REASON_I18N_KEY[reason] ?? "unknownBackend";
   return t(`chatPanel.execTarget.reasons.${key}`);
 }
@@ -175,20 +176,23 @@ const BACKEND_TYPE_LABEL: Record<string, string> = {
   piagent: "Pi Agent",
 };
 
-function backendTypeLabel(type: string): string {
+export function backendTypeLabel(type: string): string {
   return BACKEND_TYPE_LABEL[type] ?? type;
 }
 
 // 后端主位名字：Agent 后端名字（用户在后端管理页起的名字）；缺名时回落到类型
 // 标签，再不行兜底"本机/本地"。
-function backendPrimaryName(c: ExecTargetCandidate, t: TFunction): string {
+export function backendPrimaryName(
+  c: ExecTargetCandidate,
+  t: TFunction,
+): string {
   return (
     c.backendName || backendTypeLabel(c.backendType) || t("deviceTag.local")
   );
 }
 
 // 设备标签：本机档 → 本机（本地）；远端档 → 设备名（缺名用 id）。
-function deviceLabelOf(c: ExecTargetCandidate, t: TFunction): string {
+export function deviceLabelOf(c: ExecTargetCandidate, t: TFunction): string {
   if (!c.deviceId) return t("deviceTag.local");
   return c.deviceName || c.deviceId;
 }
@@ -368,7 +372,7 @@ export function NewSessionExecTargetLine(props: NewSessionExecTargetLineProps) {
         {t("chatPanel.execTarget.willRunSuffix")}
       </span>
       {dropped && candidates[0] && (
-        <p className="w-full text-center text-2xs text-subtle-foreground">
+        <p className="w-full text-center text-2xs text-muted-foreground">
           {reasonLabel(candidates[0].reason, t)}
         </p>
       )}
@@ -455,7 +459,7 @@ function ExecTargetReselectPopover(props: {
         <span className="text-2xs font-semibold">
           {t("chatPanel.execTarget.pickerTitle")}
         </span>
-        <span className="text-2xs text-subtle-foreground">
+        <span className="text-2xs text-muted-foreground">
           {t("chatPanel.execTarget.pickerScope")}
         </span>
       </div>
@@ -504,7 +508,7 @@ function ExecTargetReselectPopover(props: {
               <span
                 data-testid="exec-target-project-path"
                 title={c.projectPath}
-                className="truncate font-mono text-2xs text-subtle-foreground"
+                className="truncate font-mono text-2xs text-muted-foreground"
               >
                 {c.projectPath}
               </span>
@@ -524,46 +528,6 @@ function ExecTargetReselectPopover(props: {
           {t("chatPanel.execTarget.goAdjust")}
         </button>
       </div>
-    </div>
-  );
-}
-
-// ── 聊天头「会话所在机器离线」提示（R15b）：会话钉住的那一档在远端且当前离线时，
-//    给一条走得通的路——不会改派，只能等它上线或用同样的开头新建一个会话。──────
-
-export type SessionOfflineBannerProps = {
-  deviceName: string;
-  onCreateNewSession: () => void;
-};
-
-export function SessionOfflineBanner(props: SessionOfflineBannerProps) {
-  const { t } = useTranslation();
-  return (
-    <div
-      data-testid="session-offline-banner"
-      className="mx-4 mb-2 flex flex-col gap-2 rounded-md border border-destructive bg-destructive-soft px-3 py-2.5"
-    >
-      <div className="flex gap-2">
-        <div className="flex min-w-0 flex-col gap-1">
-          <span className="text-xs font-semibold">
-            {t("chatPanel.execTarget.offlineTitle", {
-              name: props.deviceName,
-            })}
-          </span>
-          <span className="text-2xs leading-relaxed text-muted-foreground">
-            {t("chatPanel.execTarget.offlineHint")}
-          </span>
-        </div>
-      </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="w-fit"
-        onClick={props.onCreateNewSession}
-      >
-        {t("chatPanel.execTarget.offlineNewSession")}
-      </Button>
     </div>
   );
 }

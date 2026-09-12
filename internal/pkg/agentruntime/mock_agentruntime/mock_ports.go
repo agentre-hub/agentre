@@ -14,6 +14,7 @@ import (
 	json "encoding/json"
 	reflect "reflect"
 
+	devicefp "github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -134,7 +135,7 @@ func (m *MockSessionCursorPort) EXPECT() *MockSessionCursorPortMockRecorder {
 }
 
 // LoadCursor mocks base method.
-func (m *MockSessionCursorPort) LoadCursor(ctx context.Context, sessionID int64, daemonFingerprint string) (int64, bool, error) {
+func (m *MockSessionCursorPort) LoadCursor(ctx context.Context, sessionID int64, daemonFingerprint devicefp.Carrier) (int64, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LoadCursor", ctx, sessionID, daemonFingerprint)
 	ret0, _ := ret[0].(int64)
@@ -150,7 +151,7 @@ func (mr *MockSessionCursorPortMockRecorder) LoadCursor(ctx, sessionID, daemonFi
 }
 
 // SaveCursor mocks base method.
-func (m *MockSessionCursorPort) SaveCursor(ctx context.Context, sessionID int64, daemonFingerprint string, seq int64) error {
+func (m *MockSessionCursorPort) SaveCursor(ctx context.Context, sessionID int64, daemonFingerprint devicefp.Carrier, seq int64) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveCursor", ctx, sessionID, daemonFingerprint, seq)
 	ret0, _ := ret[0].(error)

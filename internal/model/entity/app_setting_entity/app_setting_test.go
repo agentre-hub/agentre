@@ -103,6 +103,17 @@ func TestValidateBoolSetting(t *testing.T) {
 	}
 }
 
+func TestValidateFileOpenAction(t *testing.T) {
+	ctx := context.Background()
+	for _, ok := range []string{"preview", "external", " external "} {
+		assert.NoError(t, ValidateFileOpenAction(ctx, ok), "input=%q", ok)
+	}
+	// 空串也非法：这个键没有「撤销」语义，缺省由前端在读不到键时决定。
+	for _, bad := range []string{"", "Preview", "system", "true", "open"} {
+		assert.Error(t, ValidateFileOpenAction(ctx, bad), "input=%q", bad)
+	}
+}
+
 func TestParseBoolSetting(t *testing.T) {
 	assert.True(t, ParseBoolSetting("true"))
 	for _, f := range []string{"false", "", "1", "x"} {

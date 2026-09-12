@@ -10,19 +10,20 @@ import (
 	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/issue_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/issue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
-	"github.com/agentre-ai/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/issue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // 本文件锁住 R11a 的最后一句：**合并后不允许留下任何指向已消失项目的引用**。
@@ -105,10 +106,10 @@ func (f *mergeLocationTable) ListByProject(_ context.Context, projectID int64) (
 }
 
 func (f *mergeLocationTable) FindByProjectAndFingerprint(
-	_ context.Context, projectID int64, fingerprint string,
+	_ context.Context, projectID int64, fingerprint devicefp.Carrier,
 ) (*project_location_entity.ProjectLocation, error) {
 	for _, l := range f.rows {
-		if l.ProjectID == projectID && l.DaemonFingerprint == fingerprint && l.Status == consts.ACTIVE {
+		if l.ProjectID == projectID && l.DeviceFingerprint == fingerprint && l.Status == consts.ACTIVE {
 			return l, nil
 		}
 	}
@@ -165,14 +166,13 @@ func TestProjectSvcMerge_GivenHiddenReferences_ThenNothingStillPointsAtTheDroppe
 		{ID: 12, ProjectID: 41, Status: consts.DELETE},
 	}}
 	locations := &mergeLocationTable{rows: []*project_location_entity.ProjectLocation{
-		{ID: 21, ProjectID: 41, DaemonFingerprint: "fp-a", Path: "/a", Status: consts.ACTIVE},
-		{ID: 22, ProjectID: 41, DaemonFingerprint: "fp-b", Path: "/b", Status: consts.DELETE},
+		{ID: 21, ProjectID: 41, DeviceFingerprint: "fp-a", Path: "/a", Status: consts.ACTIVE},
+		{ID: 22, ProjectID: 41, DeviceFingerprint: "fp-b", Path: "/b", Status: consts.DELETE},
 	}}
 	lost := &recordingLostChange{}
 
 	project_repo.RegisterProject(projectRepo)
 	project_repo.RegisterProjectAgent(agentRepo)
-	chat_repo.RegisterSession(sessions)
 	issue_repo.RegisterIssue(issues)
 	project_location_repo.RegisterProjectLocation(locations)
 	syncqueue_repo.RegisterLostChange(lost)
@@ -194,7 +194,7 @@ func TestProjectSvcMerge_GivenHiddenReferences_ThenNothingStillPointsAtTheDroppe
 	projectRepo.EXPECT().HasActiveChildren(ctx, int64(41)).Return(false, nil)
 	projectRepo.EXPECT().Delete(ctx, int64(41)).Return(nil)
 
-	_, err := project_svc.New().Merge(ctx, &project_svc.MergeProjectsRequest{SourceID: 40, TargetID: 41})
+	_, err := project_svc.New(project_svc.WithSessionPort(sessions)).Merge(ctx, &project_svc.MergeProjectsRequest{SourceID: 40, TargetID: 41})
 	require.NoError(t, err)
 
 	for _, s := range sessions.rows {
@@ -219,11 +219,11 @@ func TestProjectSvcMerge_GivenLocationsCollide_ThenLoserIsRecordedAsALostChange(
 	issues := &mergeIssueTable{}
 	locations := &mergeLocationTable{rows: []*project_location_entity.ProjectLocation{
 		{
-			ID: 60, ProjectID: 50, DaemonFingerprint: "fp-1", Path: "/winner", Status: consts.ACTIVE,
+			ID: 60, ProjectID: 50, DeviceFingerprint: "fp-1", Path: "/winner", Status: consts.ACTIVE,
 			SyncMeta: syncmeta_entity.SyncMeta{SyncID: "loc-win", SyncAccountID: 3, SyncVersion: 9},
 		},
 		{
-			ID: 61, ProjectID: 51, DaemonFingerprint: "fp-1", Path: "/loser", Status: consts.ACTIVE,
+			ID: 61, ProjectID: 51, DeviceFingerprint: "fp-1", Path: "/loser", Status: consts.ACTIVE,
 			SyncMeta: syncmeta_entity.SyncMeta{SyncID: "loc-lose", SyncAccountID: 3, SyncVersion: 4},
 		},
 	}}
@@ -231,7 +231,6 @@ func TestProjectSvcMerge_GivenLocationsCollide_ThenLoserIsRecordedAsALostChange(
 
 	project_repo.RegisterProject(projectRepo)
 	project_repo.RegisterProjectAgent(agentRepo)
-	chat_repo.RegisterSession(sessions)
 	issue_repo.RegisterIssue(issues)
 	project_location_repo.RegisterProjectLocation(locations)
 	syncqueue_repo.RegisterLostChange(lost)
@@ -250,7 +249,7 @@ func TestProjectSvcMerge_GivenLocationsCollide_ThenLoserIsRecordedAsALostChange(
 	projectRepo.EXPECT().HasActiveChildren(ctx, int64(51)).Return(false, nil)
 	projectRepo.EXPECT().Delete(ctx, int64(51)).Return(nil)
 
-	_, err := project_svc.New().Merge(ctx, &project_svc.MergeProjectsRequest{SourceID: 50, TargetID: 51})
+	_, err := project_svc.New(project_svc.WithSessionPort(sessions)).Merge(ctx, &project_svc.MergeProjectsRequest{SourceID: 50, TargetID: 51})
 	require.NoError(t, err)
 
 	require.Len(t, lost.rows, 1, "落败的那一行必须留下一条可追回的记录")
@@ -260,8 +259,8 @@ func TestProjectSvcMerge_GivenLocationsCollide_ThenLoserIsRecordedAsALostChange(
 	assert.Equal(t, syncqueue_entity.ReasonOverwritten, got.Reason)
 	assert.Equal(t, int64(3), got.SyncAccountID)
 	assert.Equal(t, int64(4), got.BaseVersion)
-	assert.Equal(t, "sync-50", got.ProjectSyncID, "恢复要落回保留下来的那个项目")
-	assert.Equal(t, "fp-1", got.AgentredFingerprint)
+	assert.Equal(t, "sync-50", got.ScopeSyncID, "恢复要落回保留下来的那个项目")
+	assert.Equal(t, devicefp.Carrier("fp-1"), got.AgentredFingerprint)
 	assert.Contains(t, got.PayloadJSON, "/loser")
 	assert.NotZero(t, got.OccurredAt)
 }

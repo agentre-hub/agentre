@@ -3,7 +3,7 @@ package canonical
 import (
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/pkg/diff"
+	"github.com/agentre-hub/agentre/internal/pkg/diff"
 )
 
 // WriteContentByteCap 是 FileWrite.Content 字节上限。超过后截断并标 Truncated=true,
@@ -54,6 +54,13 @@ func FromToolUse(toolName string, input map[string]any) (CanonicalTool, bool) {
 		return FileEdit{Files: PatchesFromDiff(payload)}, true
 	case "update_plan":
 		if pu, ok := planUpdateFromUpdatePlanInput(input); ok {
+			return pu, true
+		}
+	case "TodoWrite":
+		// claudecode 独有工具:todos:[{id,content,status}]。canonical 此前没有
+		// 这个分支,识别只活在 claudecode/translator.go 里,live emit 与 replay
+		// 两条路径各认一套。迁入这里让两条路径共用同一份识别。
+		if pu, ok := todoWriteFromInput(input); ok {
 			return pu, true
 		}
 	}
@@ -115,6 +122,37 @@ func planUpdateFromUpdatePlanInput(input map[string]any) (PlanUpdate, bool) {
 		steps = append(steps, PlanStep{
 			Step:   step,
 			Status: normalizePlanStepStatus(status),
+		})
+	}
+	if len(steps) == 0 {
+		return PlanUpdate{}, false
+	}
+	return PlanUpdate{Steps: steps}, true
+}
+
+// todoWriteFromInput 把 claudecode 独有的 TodoWrite 工具 input
+// (todos:[{id,content,status}])降级到 PlanUpdate。Status 原样透传
+// (claudecode 用 "in_progress" 等 snake_case,canonical enum 文案对齐留给上层),
+// 与 update_plan 路径的 normalizePlanStepStatus 不同 —— 两个工具的 wire 形状本
+// 就不同,共用一份归一化反而会掩盖差异。
+func todoWriteFromInput(input map[string]any) (PlanUpdate, bool) {
+	todosRaw, _ := input["todos"].([]any)
+	if len(todosRaw) == 0 {
+		return PlanUpdate{}, false
+	}
+	steps := make([]PlanStep, 0, len(todosRaw))
+	for _, t := range todosRaw {
+		todo, ok := t.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := todo["id"].(string)
+		content, _ := todo["content"].(string)
+		status, _ := todo["status"].(string)
+		steps = append(steps, PlanStep{
+			ID:     id,
+			Step:   content,
+			Status: PlanStepStatus(status),
 		})
 	}
 	if len(steps) == 0 {

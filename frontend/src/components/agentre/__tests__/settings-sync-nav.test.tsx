@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// task 14 (R12):「同步」这个设置导航项只在 SyncStatus().Enabled 为真时出现,
+// task 14 (R12):「同步」这个设置导航项只在 SyncStatus().enabled 为真时出现,
 // 不是灰掉、也不是点进去提示先登录——是整项不存在。这份文件只盯这一条守卫 +
 // 它带出的最小可见内容,详细的状态卡 / 列表行为在 sync/__tests__/sync-panel
 // 里覆盖。
@@ -60,7 +60,7 @@ describe("Settings sync nav guard (task 14, R12)", () => {
   });
 
   it("does not render the Sync nav item when signed out", async () => {
-    appMocks.SyncStatus.mockResolvedValue({ Enabled: false });
+    appMocks.SyncStatus.mockResolvedValue({ enabled: false });
     renderSettings();
 
     // 给 useSyncStatus 的首次 reload 一个机会跑完,证明「不存在」不是加载中的假象。
@@ -73,14 +73,14 @@ describe("Settings sync nav guard (task 14, R12)", () => {
   it("renders the Sync nav item once signed in, and opens the sync panel", async () => {
     const user = userEvent.setup();
     appMocks.SyncStatus.mockResolvedValue({
-      Enabled: true,
-      AccountID: 1,
-      Cursor: 1,
-      LastSuccessAt: Date.now(),
-      PendingCount: 0,
-      DeferredCount: 0,
-      LostChangeCount: 0,
-      LastError: "",
+      enabled: true,
+      accountID: 1,
+      cursor: 1,
+      lastSuccessAt: Date.now(),
+      pendingCount: 0,
+      deferredCount: 0,
+      lostChangeCount: 0,
+      lastError: "",
     });
     renderSettings();
 
@@ -122,14 +122,14 @@ describe("Settings sync nav guard (task 14, R12)", () => {
     ).not.toBeInTheDocument();
 
     resolveStatus({
-      Enabled: true,
-      AccountID: 1,
-      Cursor: 1,
-      LastSuccessAt: Date.now(),
-      PendingCount: 0,
-      DeferredCount: 0,
-      LostChangeCount: 0,
-      LastError: "",
+      enabled: true,
+      accountID: 1,
+      cursor: 1,
+      lastSuccessAt: Date.now(),
+      pendingCount: 0,
+      deferredCount: 0,
+      lostChangeCount: 0,
+      lastError: "",
     });
 
     expect(await screen.findByText("Sync status")).toBeInTheDocument();

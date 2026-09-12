@@ -16,7 +16,9 @@ afterEach(() => {
 });
 
 describe("useAgentSkillCommands", () => {
-  it("Given a Codex agent with an effective skill, When the composer mounts, Then it loads $ suggestions from Wails", async () => {
+  // 这只 hook 现在交出的是**目录**,不是命令:前缀与去重归共享包
+  // (`skillCommandsFromCatalog`),这里只钉「问了哪台机器、拿回来什么」。
+  it("Given a Codex agent with an effective skill, When the composer mounts, Then it loads the catalog from Wails", async () => {
     const list = stubCatalog([
       {
         description: "Browse the web",
@@ -33,9 +35,9 @@ describe("useAgentSkillCommands", () => {
     );
 
     await waitFor(() =>
-      expect(result.current.map((command) => command.label)).toEqual([
-        "$browser:browser",
-        "$shadcn",
+      expect(result.current).toEqual([
+        { name: "browser:browser", description: "Browse the web" },
+        { name: "shadcn", description: "Local system skill" },
       ]),
     );
     expect(list).toHaveBeenCalledWith(7, "/tmp/project");
@@ -55,7 +57,7 @@ describe("useAgentSkillCommands", () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it("Given a Pi agent with a project skill, When the composer mounts, Then it loads /skill:name suggestions", async () => {
+  it("Given a Pi agent with a project skill, When the composer mounts, Then it loads that entry verbatim", async () => {
     const list = stubCatalog([
       { name: "skill:review", description: "Review changes" },
     ]);
@@ -65,8 +67,8 @@ describe("useAgentSkillCommands", () => {
     );
 
     await waitFor(() =>
-      expect(result.current.map((command) => command.label)).toEqual([
-        "/skill:review",
+      expect(result.current).toEqual([
+        { name: "skill:review", description: "Review changes" },
       ]),
     );
     expect(list).toHaveBeenCalledWith(7, "/work/project");

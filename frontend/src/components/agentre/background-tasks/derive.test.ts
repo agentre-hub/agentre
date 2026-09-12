@@ -49,17 +49,13 @@ describe("deriveBackgroundTasks", () => {
     ]);
   });
 
-  it("maps a stopped subagent status (canceled / CLI cancelled) to canceled", () => {
-    const american = deriveBackgroundTasks(
+  // CLI 的英式 "cancelled" 由后端 normalizeTaskStatus 在边界归一,前端只认 canceled。
+  it("maps a stopped subagent status to canceled", () => {
+    const stopped = deriveBackgroundTasks(
       [],
       [tu({ subagent: { kind: "local_bash", status: "canceled" } })],
     );
-    expect(american[0].status).toBe("canceled");
-    const british = deriveBackgroundTasks(
-      [],
-      [tu({ subagent: { kind: "local_bash", status: "cancelled" } })],
-    );
-    expect(british[0].status).toBe("canceled");
+    expect(stopped[0].status).toBe("canceled");
   });
 
   it("includes a background local_agent (run_in_background subagent) with its real kind", () => {

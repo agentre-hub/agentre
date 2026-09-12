@@ -3,7 +3,7 @@ package app
 import (
 	"errors"
 
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
 
 // RemoteDeviceList 返回当前已配对的全部 agentred（不含 keychain 秘密）。
@@ -17,8 +17,21 @@ func (a *App) RemoteDeviceAdd(req remote_device_svc.AddRequest) (*remote_device_
 }
 
 // RemoteDeviceRemove 软删行 + 清 keychain；不调远端 auth.revoke（见 spec §3.7）。
+//
+// 这台设备上还开着的端口转发监听一并关掉。连接池没有按设备逐出的入口，而每条转发
+// 监听握着一条**长活**租约（refcount 永远 ≥ 1，见 internal/pkg/portforward 包注释），
+// idle 回收因此轮不到它、lease.Closed() 也永远不来。少了这一句，那条 127.0.0.1 地址
+// 会在余下的整个 App 生命期里继续把 HTTP 转进一台刚被解除配对的机器——界面上设备
+// 已经没了，本机入口还活着。
+//
+// 只在 Remove 真的成功之后才关：失败时这台设备还配着，关掉监听会让用户手上那条地址
+// 无缘无故失效（与 PortForwardSetEnabled 同一条理由）。
 func (a *App) RemoteDeviceRemove(id int64) error {
-	return remote_device_svc.Default().Remove(a.ctx, id)
+	if err := remote_device_svc.Default().Remove(a.ctx, id); err != nil {
+		return err
+	}
+	a.forwards().CloseDevice(id)
+	return nil
 }
 
 // RemoteDeviceUpdateTLS 更新 TLS 信任配置并立即 Refresh 一次。
@@ -38,9 +51,12 @@ func (a *App) RemoteDeviceRename(id int64, name string) error {
 
 // RemoteDeviceFingerprint 返回本机设备指纹(与 LAN 配对 / 账号登录共用,见 R5)。
 // 前端用它判定一条用户消息是不是本机发出的(R17:本机不带来源标识)。
+// 返回值保持裸 string:理由同 App.PeerDetach —— Wails codegen 只为结构体字段生成
+// TS 类型,方法签名上的具名 Go 类型会指向不存在的命名空间。
 func (a *App) RemoteDeviceFingerprint() (string, error) {
 	if svc := remote_device_svc.Default(); svc != nil {
-		return svc.DeviceFingerprint()
+		fp, err := svc.DeviceFingerprint()
+		return string(fp), err
 	}
 	return "", errors.New("remote device service unavailable")
 }
@@ -61,4 +77,25 @@ func (a *App) RemoteDeviceSyncProvider(id int64, providerKey string) error {
 		return svc.SyncProvider(a.ctx, id, providerKey)
 	}
 	return errors.New("remote device service unavailable")
+}
+
+// RemoteDeviceUpgrade 触发远程一键升级 RPC(spec「远程一键升级」)。channel 留空
+// 按 daemon 当前配置的通道解读;force 越过活跃轮次闸门,必须由前端在拿到
+// UpgradeRejectActiveTurns 之后经用户显式二次确认才置真(决策 8/21)。应答只回
+// 受理结果,前端从版本号变化推断升级中→成功/超时失败。
+func (a *App) RemoteDeviceUpgrade(id int64, channel string, force bool) (*remote_device_svc.UpgradeResult, error) {
+	if svc := remote_device_svc.Default(); svc != nil {
+		return svc.Upgrade(a.ctx, id, channel, force)
+	}
+	return nil, errors.New("remote device service unavailable")
+}
+
+// RemoteDeviceGet 返回一份只读的 DeviceView,不做任何网络探活。升级流程用它按
+// 固定间隔轮询远端版本是否已经变化(watcher 在后台持续用 health.ping 刷新版本
+// 缓存,这里只是读一次快照,不额外发起连接)。
+func (a *App) RemoteDeviceGet(id int64) (*remote_device_svc.DeviceView, error) {
+	if svc := remote_device_svc.Default(); svc != nil {
+		return svc.Get(a.ctx, id)
+	}
+	return nil, errors.New("remote device service unavailable")
 }

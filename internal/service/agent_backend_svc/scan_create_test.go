@@ -8,12 +8,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/cliprober"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/cliprober"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
 )
 
 func setupScanTest(t *testing.T) (
@@ -53,6 +53,10 @@ func (m findByNameMatcher) String() string { return "is a CLI backend default na
 func TestScanAndCreateAgentBackends_ReturnsAllThreeTypes(t *testing.T) {
 	ctx, backendMock, _, svc := setupScanTest(t)
 
+	backendMock.EXPECT().
+		ExistsByName(gomock.Any(), findByNameMatcher{}).
+		Return(false, nil).
+		AnyTimes()
 	backendMock.EXPECT().
 		FindByName(gomock.Any(), findByNameMatcher{}).
 		Return(nil, nil).
@@ -110,6 +114,10 @@ func TestScanAndCreateAgentBackends_NameDuplicateSkips(t *testing.T) {
 	ctx, backendMock, _, svc := setupScanTest(t)
 
 	backendMock.EXPECT().
+		ExistsByName(gomock.Any(), gomock.Any()).
+		Return(false, nil).
+		AnyTimes()
+	backendMock.EXPECT().
 		FindByName(gomock.Any(), "Claude Code CLI").
 		Return(&agent_backend_entity.AgentBackend{ID: 99, Name: "Claude Code CLI"}, nil)
 	backendMock.EXPECT().
@@ -134,6 +142,49 @@ func TestScanAndCreateAgentBackends_NameDuplicateSkips(t *testing.T) {
 	})
 }
 
+// TestScanAndCreateAgentBackends_TombstoneNameSkips 回归 Problem 19 / 决策 25:
+// 扫描创建的撞名判据必须把墓碑一并计入,否则「扫描建 → 被删 → 再扫描建」每轮都会
+// 留一条新墓碑(实测 Claude Code CLI / Codex CLI / Pi Agent CLI 各 47 条同名墓碑,
+// createtime 完全相同)。同名墓碑存在时,重新扫描不应新建第二条 —— 应跳过且不调
+// Create。
+func TestScanAndCreateAgentBackends_TombstoneNameSkips(t *testing.T) {
+	results := cliprober.ScanAllCLIs()
+	if !results[0].Found {
+		t.Skip("claude not found; cannot test tombstone name skip")
+	}
+
+	ctx, backendMock, _, svc := setupScanTest(t)
+
+	backendMock.EXPECT().
+		ExistsByName(gomock.Any(), "Claude Code CLI").
+		Return(true, nil)
+	backendMock.EXPECT().
+		ExistsByName(gomock.Any(), gomock.Not("Claude Code CLI")).
+		Return(false, nil).
+		AnyTimes()
+	backendMock.EXPECT().
+		FindByName(gomock.Any(), gomock.Not("Claude Code CLI")).
+		Return(nil, nil).
+		AnyTimes()
+	backendMock.EXPECT().
+		Create(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
+			b.ID = 100
+			return nil
+		}).
+		AnyTimes()
+
+	resp, err := svc.ScanAndCreateAgentBackends(ctx, &ScanAndCreateAgentBackendsRequest{})
+	convey.Convey("Claude Code found but a same-named tombstone already exists → skipped, no second row created", t, func() {
+		convey.So(err, convey.ShouldBeNil)
+		claude := resp.Results[0]
+		convey.So(claude.Found, convey.ShouldBeTrue)
+		convey.So(claude.Created, convey.ShouldBeFalse)
+		convey.So(claude.Skipped, convey.ShouldBeTrue)
+		convey.So(claude.Error, convey.ShouldContainSubstring, "already exists")
+	})
+}
+
 func TestScanAndCreateAgentBackends_FoundCreates(t *testing.T) {
 	results := cliprober.ScanAllCLIs()
 	if !results[0].Found {
@@ -142,6 +193,10 @@ func TestScanAndCreateAgentBackends_FoundCreates(t *testing.T) {
 
 	ctx, backendMock, _, svc := setupScanTest(t)
 
+	backendMock.EXPECT().
+		ExistsByName(gomock.Any(), gomock.Any()).
+		Return(false, nil).
+		AnyTimes()
 	backendMock.EXPECT().
 		FindByName(gomock.Any(), "Claude Code CLI").
 		Return(nil, nil)

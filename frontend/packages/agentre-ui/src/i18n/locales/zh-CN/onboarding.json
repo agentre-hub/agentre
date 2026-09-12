@@ -1,0 +1,36 @@
+{
+  "onboarding": {
+    "copy": "复制",
+    "copied": "已复制",
+    "copyLabel": "复制{{label}}",
+    "stepNav": "第 {{number}} 步：{{title}}",
+    "dismiss": "收起引导",
+    "install": {
+      "method": "安装方式",
+      "native": "原生二进制（推荐）",
+      "docker": "Docker 容器",
+      "os": "系统",
+      "osHint": "架构自动识别",
+      "linux": "Linux",
+      "macos": "macOS",
+      "windows": "Windows",
+      "terminal": "远端终端",
+      "powershell": "远端 PowerShell",
+      "verify": "验证安装",
+      "pull": "拉镜像",
+      "verifyImage": "验证镜像",
+      "manual": "手动下载",
+      "deployDoc": "挂载与 compose 说明 →"
+    },
+    "service": {
+      "mode": "运行方式",
+      "background": "后台服务（推荐）",
+      "foreground": "前台临时",
+      "install": "注册并启动",
+      "status": "查看状态",
+      "restart": "重启服务",
+      "composeUp": "起容器",
+      "composeLogs": "跟日志"
+    }
+  }
+}

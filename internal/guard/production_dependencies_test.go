@@ -20,7 +20,7 @@ func TestProductionEntrypointsExcludeE2EDependenciesAndBuildTags(t *testing.T) {
 				t.Fatalf("go list %s: %v\n%s", pkg, err, out)
 			}
 			for _, line := range strings.Split(string(out), "\n") {
-				if strings.Contains(line, "github.com/agentre-ai/agentre/e2e/") ||
+				if strings.Contains(line, "github.com/agentre-hub/agentre/e2e/") ||
 					strings.Contains(line, "internal/pkg/agentruntime/runtimes/fake") {
 					t.Fatalf("production package %s depends on %s", pkg, line)
 				}
@@ -34,7 +34,7 @@ func TestProductionEntrypointsExcludeE2EDependenciesAndBuildTags(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(raw), "github.com/agentre-ai/agentre/e2e/") ||
+			if strings.Contains(string(raw), "github.com/agentre-hub/agentre/e2e/") ||
 				strings.Contains(string(raw), "internal/pkg/agentruntime/runtimes/fake") {
 				t.Fatalf("production entrypoint imports E2E code: %s", source)
 			}
@@ -42,24 +42,11 @@ func TestProductionEntrypointsExcludeE2EDependenciesAndBuildTags(t *testing.T) {
 	})
 
 	t.Run("Given the rebuilt harness When Go sources are inspected Then no E2E build-tag seam remains", func(t *testing.T) {
-		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == "node_modules") {
-				return filepath.SkipDir
-			}
-			if entry.IsDir() || filepath.Ext(path) != ".go" {
-				return nil
-			}
-			raw, readErr := os.ReadFile(path) //nolint:gosec // G304: WalkDir supplies paths beneath the repository root
-			if readErr != nil {
-				return readErr
-			}
-			for _, line := range strings.Split(string(raw), "\n") {
+		err := walkRepositoryGoFiles(root, func(rel string, content []byte) error {
+			for _, line := range strings.Split(string(content), "\n") {
 				trimmed := strings.TrimSpace(line)
 				if trimmed == "//go:build e2e" || trimmed == "//go:build !e2e" {
-					t.Errorf("E2E build tag remains in %s", path)
+					t.Errorf("E2E build tag remains in %s", rel)
 				}
 			}
 			return nil

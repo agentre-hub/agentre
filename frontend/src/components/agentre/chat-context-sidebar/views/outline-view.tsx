@@ -51,7 +51,7 @@ export function OutlineView({ items, activeMessageId, onSelect }: Props) {
           >
             <div
               className={cn(
-                "flex items-center gap-1.5 font-mono text-[10px]",
+                "flex items-center gap-1.5 font-mono text-3xs",
                 active ? "text-primary" : "text-muted-foreground/80",
               )}
             >
@@ -61,7 +61,9 @@ export function OutlineView({ items, activeMessageId, onSelect }: Props) {
             </div>
             <p
               className={cn(
-                "line-clamp-2 leading-snug",
+                // break-words:侧栏定宽,长路径/长 URL 这类无空格长词不折行会撑破
+                // 行盒,被 line-clamp 的 overflow:hidden 从词中间裁掉。
+                "line-clamp-2 leading-snug break-words",
                 active ? "font-medium" : "",
               )}
             >
@@ -70,13 +72,13 @@ export function OutlineView({ items, activeMessageId, onSelect }: Props) {
             {it.edits > 0 || it.err ? (
               <div className="flex items-center gap-1.5">
                 {it.err ? (
-                  <span className="inline-flex items-center gap-1 rounded-sm bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+                  <span className="inline-flex items-center gap-1 rounded-sm bg-destructive/10 px-1.5 py-0.5 text-3xs font-medium text-destructive">
                     <CircleX className="size-2.5" aria-hidden="true" />
                     error
                   </span>
                 ) : null}
                 {it.edits > 0 ? (
-                  <span className="inline-flex items-center gap-1 rounded-sm border border-border bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  <span className="inline-flex items-center gap-1 rounded-sm border border-border bg-card px-1.5 py-0.5 text-3xs font-medium text-muted-foreground">
                     <Pencil className="size-2.5" aria-hidden="true" />
                     {it.edits} edits
                   </span>

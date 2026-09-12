@@ -4,7 +4,7 @@ import React from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ChatAgentItem } from "@/hooks/use-chat-agents";
+import type { AgentSlim } from "@/hooks/use-chat-agents";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { consumeNewAgentDialogIntent } from "@/stores/new-agent-intent-store";
@@ -58,7 +58,7 @@ const MOCK_AGENTS = [
     ],
     attentionSessions: [],
   },
-] as unknown as ChatAgentItem[];
+] as unknown as AgentSlim[];
 
 beforeEach(() => {
   useCommandPaletteStore.setState({ open: false });

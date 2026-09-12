@@ -13,7 +13,9 @@ import (
 
 	"github.com/cago-frame/cago/pkg/logger"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // MCPProxyDispatcher 把一条经隧道回到 desktop 的 MCP HTTP 请求重放到 desktop 本机 gateway。
@@ -74,6 +76,20 @@ func NewLocalGatewayDispatcher(baseURL func() string, client *http.Client) MCPPr
 			Body:    body,
 		}, nil
 	}
+}
+
+func (r *Runtime) handleProtobufMCPProxy(ctx context.Context, request *agentrewire.MCPProxyRequest) (*agentrewire.MCPProxyResponse, error) {
+	legacy := protowire.MCPProxyRequestFromProto(request)
+	d := mcpProxyDispatcher
+	if d == nil {
+		response := wire.MCPTunnelUnavailableResponse(legacy.Path, legacy.Body)
+		return protowire.MCPProxyResponseToProto(response), nil
+	}
+	response, err := d(ctx, legacy)
+	if err != nil {
+		response = wire.MCPTunnelUnavailableResponse(legacy.Path, legacy.Body)
+	}
+	return protowire.MCPProxyResponseToProto(response), nil
 }
 
 // handleMCPProxy 处理 daemon 经 MethodMCPProxy 反向请求过来的 MCP HTTP 调用:解包 →

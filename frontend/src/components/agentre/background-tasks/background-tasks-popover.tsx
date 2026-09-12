@@ -53,7 +53,7 @@ export function BackgroundTasksPopoverContent({
           {t("chatPanel.backgroundTasks.title")}
         </span>
         {runningCount > 0 && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-status-running-bg px-1.5 py-0.5 font-mono text-[10px] font-medium text-status-running">
+          <span className="inline-flex items-center gap-1 rounded-full bg-status-running-bg px-1.5 py-0.5 font-mono text-3xs font-medium text-status-running">
             <span
               className="inline-block size-1.5 rounded-full bg-status-running"
               aria-hidden="true"
@@ -66,7 +66,7 @@ export function BackgroundTasksPopoverContent({
           <button
             type="button"
             onClick={onClearCompleted}
-            className="shrink-0 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+            className="shrink-0 text-2xs text-muted-foreground transition-colors hover:text-foreground"
           >
             {t("chatPanel.backgroundTasks.clearCompleted")}
           </button>
@@ -115,16 +115,16 @@ export function BackgroundTasksPopoverContent({
                     {task.description || " "}
                   </p>
                   <div className="mt-0.5 flex items-center gap-1.5">
-                    <span className="font-mono text-[10px] text-muted-foreground">
+                    <span className="font-mono text-3xs text-muted-foreground">
                       {kindLabel}
                     </span>
                     {task.taskId && (
                       <>
-                        <span className="font-mono text-[10px] text-muted-foreground/50">
+                        <span className="font-mono text-3xs text-muted-foreground/50">
                           ·
                         </span>
                         <span
-                          className="font-mono text-[10px] text-muted-foreground"
+                          className="font-mono text-3xs text-muted-foreground"
                           data-testid="task-id"
                         >
                           {task.taskId}
@@ -133,11 +133,11 @@ export function BackgroundTasksPopoverContent({
                     )}
                     {elapsedLabel != null && (
                       <>
-                        <span className="font-mono text-[10px] text-muted-foreground/50">
+                        <span className="font-mono text-3xs text-muted-foreground/50">
                           ·
                         </span>
                         <span
-                          className="font-mono text-[10px] tabular-nums text-muted-foreground"
+                          className="font-mono text-3xs tabular-nums text-muted-foreground"
                           data-testid="elapsed"
                         >
                           {elapsedLabel}
@@ -149,7 +149,7 @@ export function BackgroundTasksPopoverContent({
                       子代理的 summary 是整篇回报正文,会把弹层撑到失控,只展示标题;
                       bash 的 summary 是一行 exit-code 文本,继续展示。 */}
                   {!isSubagent && task.summary && (
-                    <p className="mt-0.5 break-words text-[10px] text-muted-foreground">
+                    <p className="mt-0.5 break-words text-3xs text-muted-foreground">
                       {task.summary}
                     </p>
                   )}
@@ -180,7 +180,7 @@ function StatusPill({ status }: { status: BackgroundTask["status"] }) {
 
   if (status === "running") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-status-running-bg px-1.5 py-0.5 font-mono text-[10px] text-status-running">
+      <span className="inline-flex items-center gap-1 rounded-full bg-status-running-bg px-1.5 py-0.5 font-mono text-3xs text-status-running">
         <span
           className="inline-block size-1.5 rounded-full bg-status-running"
           aria-hidden="true"
@@ -191,7 +191,7 @@ function StatusPill({ status }: { status: BackgroundTask["status"] }) {
   }
   if (status === "failed") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-1.5 py-0.5 font-mono text-[10px] text-destructive">
+      <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-1.5 py-0.5 font-mono text-3xs text-destructive">
         <span
           className="inline-block size-1.5 rounded-full bg-destructive"
           aria-hidden="true"
@@ -202,7 +202,7 @@ function StatusPill({ status }: { status: BackgroundTask["status"] }) {
   }
   if (status === "canceled") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">
         <span
           className="inline-block size-1.5 rounded-full bg-muted-foreground"
           aria-hidden="true"
@@ -213,7 +213,7 @@ function StatusPill({ status }: { status: BackgroundTask["status"] }) {
   }
   // completed
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">
       <span
         className="inline-block size-1.5 rounded-full bg-muted-foreground"
         aria-hidden="true"

@@ -12,20 +12,35 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cago-frame/agents/provider"
 	"github.com/cago-frame/cago/pkg/consts"
+	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/daemon/handlers/mock_handlers"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	piagentrt "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/cago-frame/agents/agent/blocks"
+
+	"github.com/agentre-hub/agentre/internal/daemon/connection"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers/mock_handlers"
+
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // ── fake Runtimes ───────────────────────────────────────────────────────────
@@ -122,6 +137,15 @@ type submitToolPermCall struct {
 
 type goalCall struct {
 	req agentruntime.GoalRequest
+}
+
+// eventText 把一条密封事件还原成它在 wire 上的 JSON 文本 —— 这些用例断言的是
+// 「转发出去的整串内容」,不关心具体事件类型。
+func eventText(t *testing.T, event agentruntime.Event) string {
+	t.Helper()
+	raw, err := json.Marshal(event)
+	require.NoError(t, err)
+	return string(raw)
 }
 
 func (r *fullRT) Capabilities() capability.Capabilities { return r.cap }
@@ -251,19 +275,13 @@ func (bareRT) Run(_ context.Context, _ agentruntime.RunRequest) (<-chan agentrun
 	return ch, &agentruntime.RunResult{}, nil
 }
 
-// recordingOutbound 扮演会话通知出口的两半:通知日志(handlers.JournalPort)与推送
-// (handlers.NotifierPort)。两半合在一个 fake 里是为了共用一份有序 steps —— 「先落库
-// 后推送」只有在同一条时间线上才证得了:每条 notify 之前必须有它自己那条 append。
+// recordingOutbound 扮演会话通知的推送端口(handlers.NotifierPort),并按到达顺序
+// 记下每一帧。通知日志退役之后出口只剩推送这一件事,所以它不再有第二半。
 type recordingOutbound struct {
 	mu      sync.Mutex
 	frames  []notifyFrame
-	rows    []journalRow
-	steps   []string
-	resolve []string // NotifyFor 每次解析推送目标时收到的对端指纹
-	nextSeq map[string]int64
+	resolve []devicefp.Initiator // NotifyFor 每次解析推送目标时收到的对端指纹
 
-	// appendFail 返回非 nil 时该条通知落库失败:不记行、不分配 seq。
-	appendFail func(method string, payload json.RawMessage) error
 	// notifyFail 返回非 nil 时该条通知推送失败(连接已死 / 写超时)。
 	notifyFail func(method string) error
 	// offline 为真时解析不到活连接(对端不在线),推送无目标。
@@ -272,46 +290,23 @@ type recordingOutbound struct {
 	notifyC chan struct{}
 }
 
+// notifyFrame 是推出去的一条通知。notification 是端口实际收到的那条 Protobuf 消息;
+// params 是把它翻回 wire 形状之后的帧,断言读起来仍是领域语言(而且顺带证明推出去的
+// 那条消息本身是完整、可解的)。
 type notifyFrame struct {
-	method string
-	params any
-}
-
-// journalRow 是 fake 日志里的一行,形状对齐 daemon_notification_logs。
-type journalRow struct {
-	peer    string
-	session string
-	method  string
-	payload string
-	seq     int64
+	method       string
+	params       any
+	notification *agentrewire.RpcNotification
 }
 
 func newRecordingOutbound() *recordingOutbound {
-	return &recordingOutbound{notifyC: make(chan struct{}, 64), nextSeq: map[string]int64{}}
-}
-
-// Append 模拟仓储的原子 seq 分配:每个 (对端, 会话) 从 1 起递增,失败时不推进。
-func (n *recordingOutbound) Append(_ context.Context, peer, session, method string, payload json.RawMessage) (int64, error) {
-	n.mu.Lock()
-	defer n.unlockAndSignal()
-	if n.appendFail != nil {
-		if err := n.appendFail(method, payload); err != nil {
-			n.steps = append(n.steps, "append-failed:"+method)
-			return 0, err
-		}
-	}
-	key := peer + "|" + session
-	n.nextSeq[key]++
-	seq := n.nextSeq[key]
-	n.rows = append(n.rows, journalRow{peer: peer, session: session, method: method, payload: string(payload), seq: seq})
-	n.steps = append(n.steps, stepKey("append", method, seq))
-	return seq, nil
+	return &recordingOutbound{notifyC: make(chan struct{}, 64)}
 }
 
 // notifierFor 是注入给 handlers.RuntimeDeps.NotifyFor 的解析函数。
-func (n *recordingOutbound) notifierFor(peer string) handlers.NotifierPort {
+func (n *recordingOutbound) notifierFor(peer devicefp.Initiator) handlers.NotifierPort {
 	n.mu.Lock()
-	defer n.mu.Unlock()
+	defer n.unlockAndSignal()
 	n.resolve = append(n.resolve, peer)
 	if n.offline {
 		return nil
@@ -320,10 +315,19 @@ func (n *recordingOutbound) notifierFor(peer string) handlers.NotifierPort {
 }
 
 // resolvedPeers 返回 NotifyFor 每次被调用时收到的对端指纹,按调用顺序。
-func (n *recordingOutbound) resolvedPeers() []string {
+func (n *recordingOutbound) resolvedPeers() []devicefp.Initiator {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	return append([]string(nil), n.resolve...)
+	return append([]devicefp.Initiator(nil), n.resolve...)
+}
+
+// waitResolves 等到出口至少解析过 want 次推送目标。对端不在线时推不出帧,解析次数是
+// 「这一帧已经走到出口了」唯一的观察点 —— 少了它,断言会跑在事件还排在 channel 里的
+// 那一刻,离线那几帧于是随机地被算到重连之后。
+func (n *recordingOutbound) waitResolves(t *testing.T, want int) {
+	t.Helper()
+	n.waitFor(t, func() bool { return len(n.resolvedPeers()) >= want },
+		func() string { return fmt.Sprintf("%d resolves; got %v", want, n.resolvedPeers()) })
 }
 
 func (n *recordingOutbound) setOffline(off bool) {
@@ -332,23 +336,25 @@ func (n *recordingOutbound) setOffline(off bool) {
 	n.mu.Unlock()
 }
 
-func (n *recordingOutbound) Notify(method string, params any) error {
+func (n *recordingOutbound) Notify(notification *agentrewire.RpcNotification) error {
+	method, value, err := protowire.ProtoNotificationToWire(notification)
+	if err != nil {
+		return err
+	}
 	n.mu.Lock()
 	defer n.unlockAndSignal()
 	if n.notifyFail != nil {
 		if err := n.notifyFail(method); err != nil {
-			n.steps = append(n.steps, stepKey("notify-failed", method, frameSeq(params)))
 			return err
 		}
 	}
-	n.frames = append(n.frames, notifyFrame{method, params})
-	n.steps = append(n.steps, stepKey("notify", method, frameSeq(params)))
+	n.frames = append(n.frames, notifyFrame{method: method, params: framePointer(value), notification: notification})
 	return nil
 }
 
 func (*recordingOutbound) Request(_ context.Context, _ string, _ any, _ any) error { return nil }
 
-// unlockAndSignal 解锁并唤醒 waitFrames / waitSteps 的等待者(非阻塞)。
+// unlockAndSignal 解锁并唤醒 waitFrames 的等待者(非阻塞)。
 func (n *recordingOutbound) unlockAndSignal() {
 	n.mu.Unlock()
 	select {
@@ -357,23 +363,18 @@ func (n *recordingOutbound) unlockAndSignal() {
 	}
 }
 
-// stepKey 把一步记成 "<动作>:<method>#<seq>",让 R1 的顺序断言能按 (method, seq)
-// 精确配对,而不是只数条数。
-func stepKey(action, method string, seq int64) string {
-	return fmt.Sprintf("%s:%s#%d", action, method, seq)
-}
-
-// frameSeq 读出推送帧上盖的 seq。三个通知帧都以指针形式推送(SetSeq 是指针接收者)。
-func frameSeq(params any) int64 {
-	switch f := params.(type) {
-	case *wire.EventFrame:
-		return f.Seq
-	case *wire.RunResultDoneFrame:
-		return f.Seq
-	case *wire.AutonomousTurnStartedFrame:
-		return f.Seq
+// framePointer 把 ProtoNotificationToWire 交回的值形帧换成指针形 —— 用例一律按指针
+// 断言(生产上推的也是指针帧)。
+func framePointer(value any) any {
+	switch v := value.(type) {
+	case wire.EventFrame:
+		return &v
+	case wire.RunResultDoneFrame:
+		return &v
+	case wire.AutonomousTurnStartedFrame:
+		return &v
 	}
-	return -1
+	return value
 }
 
 func (n *recordingOutbound) snapshot() []notifyFrame {
@@ -384,20 +385,6 @@ func (n *recordingOutbound) snapshot() []notifyFrame {
 	return out
 }
 
-func (n *recordingOutbound) journalRows() []journalRow {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	out := make([]journalRow, len(n.rows))
-	copy(out, n.rows)
-	return out
-}
-
-func (n *recordingOutbound) stepLog() []string {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return append([]string(nil), n.steps...)
-}
-
 // waitFrames blocks until n.snapshot() yields at least want frames, or test fails.
 func (n *recordingOutbound) waitFrames(t *testing.T, want int) []notifyFrame {
 	t.Helper()
@@ -406,13 +393,13 @@ func (n *recordingOutbound) waitFrames(t *testing.T, want int) []notifyFrame {
 	return n.snapshot()
 }
 
-// waitSteps 等到出口上至少发生了 want 步(落库 / 推送,含失败),用于推送必然失败、
-// 等不到 frame 的场景。
-func (n *recordingOutbound) waitSteps(t *testing.T, want int) []string {
+// waitFramesUntil 等到快照满足 done 为止 —— 用于目标帧来自多个并发源、到达次序不固定
+// 的场景。这类用例不能用 waitFrames 数条数:只要 want 小于总帧数,快照就可能在目标帧
+// 到达之前被取走,断言随机落空。
+func (n *recordingOutbound) waitFramesUntil(t *testing.T, done func([]notifyFrame) bool, describe func() string) []notifyFrame {
 	t.Helper()
-	n.waitFor(t, func() bool { return len(n.stepLog()) >= want },
-		func() string { return fmt.Sprintf("%d outbound steps; got %v", want, n.stepLog()) })
-	return n.stepLog()
+	n.waitFor(t, func() bool { return done(n.snapshot()) }, describe)
+	return n.snapshot()
 }
 
 func (n *recordingOutbound) waitFor(t *testing.T, done func() bool, describe func() string) {
@@ -456,11 +443,11 @@ func (s *recordingSessions) Start(_ context.Context, rec handlers.SessionRecord)
 	defer s.unlockAndSignal()
 	s.starts = append(s.starts, rec)
 	s.log = append(s.log, "start:"+rec.PeerSessionID)
-	s.rows[sessionKey{peer: rec.PeerFingerprint, session: rec.PeerSessionID}] = rec
+	s.rows[sessionKey{peer: string(rec.PeerFingerprint), session: rec.PeerSessionID}] = rec
 	return nil
 }
 
-func (s *recordingSessions) Running(_ context.Context, peer, session string) error {
+func (s *recordingSessions) Running(_ context.Context, peer devicefp.Initiator, session string) error {
 	s.mu.Lock()
 	defer s.unlockAndSignal()
 	s.log = append(s.log, "running:"+session)
@@ -468,12 +455,23 @@ func (s *recordingSessions) Running(_ context.Context, peer, session string) err
 	return nil
 }
 
-func (s *recordingSessions) Finish(_ context.Context, peer, session string) error {
+func (s *recordingSessions) Finish(_ context.Context, peer devicefp.Initiator, session string) error {
 	s.awaitFinishRelease()
 	s.mu.Lock()
 	defer s.unlockAndSignal()
 	s.log = append(s.log, "finish:"+session)
 	s.setLifecycleLocked(peer, session, wire.SessionLifecycleIdle)
+	return nil
+}
+
+// Fail 与 Finish 走同一道闸(holdFinish):对用例而言两者是同一个「轮末收尾」瞬间,
+// 只是落的状态不同 —— 卡住收尾的那些用例不该因为这一轮恰好跑挂就漏掉闸。
+func (s *recordingSessions) Fail(_ context.Context, peer devicefp.Initiator, session string) error {
+	s.awaitFinishRelease()
+	s.mu.Lock()
+	defer s.unlockAndSignal()
+	s.log = append(s.log, "fail:"+session)
+	s.setLifecycleLocked(peer, session, wire.SessionLifecycleFailed)
 	return nil
 }
 
@@ -507,41 +505,87 @@ func (s *recordingSessions) awaitFinishRelease() {
 // Find / List 让 recordingSessions 同时充当**查询出口**(生产上是同一个仓储的两侧,
 // 见 daemon.daemonSessionStore):Start / Running / Finish 按同样的语义推进这批行,
 // 提交决策解不出会话时读的就是它们。
-func (s *recordingSessions) Find(_ context.Context, peer, session string) (*handlers.SessionRecord, error) {
+func (s *recordingSessions) Find(_ context.Context, peer devicefp.Initiator, session string) (*handlers.SessionRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.findErr != nil {
 		return nil, s.findErr
 	}
-	row, ok := s.rows[sessionKey{peer: peer, session: session}]
+	row, ok := s.rows[sessionKey{peer: string(peer), session: session}]
 	if !ok {
 		return nil, nil
 	}
 	return &row, nil
 }
 
-func (s *recordingSessions) List(_ context.Context, peer string) ([]handlers.SessionRecord, error) {
+func (s *recordingSessions) List(_ context.Context, peer devicefp.Initiator, _ handlers.SessionListFilter, offset, limit int) ([]handlers.SessionRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []handlers.SessionRecord
 	for k, row := range s.rows {
-		if k.peer == peer {
+		if k.peer == string(peer) {
+			out = append(out, row)
+		}
+	}
+	if offset >= len(out) {
+		return nil, nil
+	}
+	out = out[offset:]
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *recordingSessions) ListByLifecycle(_ context.Context, peer devicefp.Initiator, state string, limit int) ([]handlers.SessionRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []handlers.SessionRecord
+	for k, row := range s.rows {
+		if k.peer == string(peer) && row.LifecycleState == state {
+			out = append(out, row)
+		}
+	}
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *recordingSessions) ListCreatedSince(_ context.Context, createdFromMs int64) ([]handlers.SessionRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []handlers.SessionRecord
+	for _, row := range s.rows {
+		if row.Createtime >= createdFromMs {
 			out = append(out, row)
 		}
 	}
 	return out, nil
 }
 
+func (s *recordingSessions) Count(_ context.Context, peer devicefp.Initiator, _ handlers.SessionListFilter) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var n int64
+	for k := range s.rows {
+		if k.peer == string(peer) {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // setLifecycle 直接摆一条会话行的生命周期状态。interrupted 只由 daemon 启动清扫
 // 写(R10),进程内没有触发点,只能这么造。
-func (s *recordingSessions) setLifecycle(peer, session, state string) {
+func (s *recordingSessions) setLifecycle(peer devicefp.Initiator, session, state string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.setLifecycleLocked(peer, session, state)
 }
 
-func (s *recordingSessions) setLifecycleLocked(peer, session, state string) {
-	k := sessionKey{peer: peer, session: session}
+func (s *recordingSessions) setLifecycleLocked(peer devicefp.Initiator, session, state string) {
+	k := sessionKey{peer: string(peer), session: session}
 	row := s.rows[k]
 	row.PeerFingerprint, row.PeerSessionID, row.LifecycleState = peer, session, state
 	s.rows[k] = row
@@ -591,8 +635,9 @@ func countStep(steps []string, want string) int {
 }
 
 type lockedLogBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
+	mu   sync.Mutex
+	b    bytes.Buffer
+	logs *observer.ObservedLogs
 }
 
 func (b *lockedLogBuffer) Write(p []byte) (int, error) {
@@ -604,7 +649,15 @@ func (b *lockedLogBuffer) Write(p []byte) (int, error) {
 func (b *lockedLogBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.b.String()
+	var combined strings.Builder
+	combined.WriteString(b.b.String())
+	if b.logs != nil {
+		for _, entry := range b.logs.All() {
+			combined.WriteString(entry.Message)
+			_, _ = fmt.Fprint(&combined, entry.ContextMap())
+		}
+	}
+	return combined.String()
 }
 
 func captureRuntimeLogs(t *testing.T) *lockedLogBuffer {
@@ -612,11 +665,15 @@ func captureRuntimeLogs(t *testing.T) *lockedLogBuffer {
 	oldWriter := log.Writer()
 	oldFlags := log.Flags()
 	oldPrefix := log.Prefix()
-	captured := &lockedLogBuffer{}
+	core, observed := observer.New(zapcore.DebugLevel)
+	oldLogger := logger.Default()
+	logger.SetLogger(zap.New(core))
+	captured := &lockedLogBuffer{logs: observed}
 	log.SetOutput(captured)
 	log.SetFlags(0)
 	log.SetPrefix("")
 	t.Cleanup(func() {
+		logger.SetLogger(oldLogger)
 		log.SetOutput(oldWriter)
 		log.SetFlags(oldFlags)
 		log.SetPrefix(oldPrefix)
@@ -640,7 +697,6 @@ func setupRuntimeTest(t *testing.T, rt agentruntime.Runtime) (
 	sess := newRecordingSessions()
 	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
 		NotifyFor:    notif.notifierFor,
-		Journal:      notif,
 		Sessions:     sess,
 		SessionQuery: sess,
 		Gateway:      gw,
@@ -650,6 +706,20 @@ func setupRuntimeTest(t *testing.T, rt agentruntime.Runtime) (
 		},
 	})
 	return context.Background(), notif, gw, lookup, h
+}
+
+func setupRuntimeTestWithCLIOverlay(t *testing.T, rt agentruntime.Runtime,
+	resolve func(string) (string, bool),
+) (context.Context, *recordingOutbound, *handlers.RuntimeHandlers) {
+	t.Helper()
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
+		RuntimeFor:        func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+		CLIPathForBackend: resolve,
+	})
+	return context.Background(), notif, h
 }
 
 // setupRuntimeTestWithSessions 同 setupRuntimeTest,但把会话生命周期出口也交回来
@@ -674,7 +744,6 @@ func setupRuntimeTestWithSessions(t *testing.T, rt agentruntime.Runtime) (
 func newRuntimeHandlersOn(rt agentruntime.Runtime, sess *recordingSessions, notif *recordingOutbound) *handlers.RuntimeHandlers {
 	return handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
 		NotifyFor:    notif.notifierFor,
-		Journal:      notif,
 		Sessions:     sess,
 		SessionQuery: sess,
 		RuntimeFor: func(_ agent_backend_entity.BackendType) agentruntime.Runtime {
@@ -683,31 +752,63 @@ func newRuntimeHandlersOn(rt agentruntime.Runtime, sess *recordingSessions, noti
 	})
 }
 
-func mustJSON(t *testing.T, v any) json.RawMessage {
-	t.Helper()
-	b, err := json.Marshal(v)
-	require.NoError(t, err)
-	return b
-}
-
-func backendJSON(t *testing.T, be agent_backend_entity.AgentBackend) json.RawMessage {
-	return mustJSON(t, be)
+func backendProto(_ *testing.T, be agent_backend_entity.AgentBackend) *agentrewire.AgentBackend {
+	return protowire.BackendToProto(&be)
 }
 
 // ── Capabilities ────────────────────────────────────────────────────────────
+
+func TestRuntime_Run_GivenAccountCLIOverlay_WhenExecuting_ThenUsesOverlayWithoutPersistingItInBackendIdentity(t *testing.T) {
+	rt := &fullRT{}
+	ctx, notif, h := setupRuntimeTestWithCLIOverlay(t, rt, func(syncID string) (string, bool) {
+		assert.Equal(t, "backend-sync-1", syncID)
+		return "/private/bin/claude", true
+	})
+	be := agent_backend_entity.AgentBackend{
+		Type: string(agent_backend_entity.TypeClaudeCode), CLIPath: "/desktop/bin/claude",
+	}
+	be.SyncID = "backend-sync-1"
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(71)})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 1)
+	rt.mu.Lock()
+	runReqs := append([]runCall(nil), rt.runReqs...)
+	rt.mu.Unlock()
+	require.Len(t, runReqs, 1)
+	assert.Equal(t, "/private/bin/claude", runReqs[0].req.Backend.CLIPath)
+	assert.Equal(t, "/desktop/bin/claude", be.CLIPath, "the overlay is applied to the execution copy only")
+}
+
+func TestRuntime_Run_GivenNoSuccessfulAccountSnapshot_WhenExecuting_ThenKeepsPairedDesktopCLIPath(t *testing.T) {
+	rt := &fullRT{}
+	ctx, notif, h := setupRuntimeTestWithCLIOverlay(t, rt, func(string) (string, bool) { return "", false })
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), CLIPath: "/paired/bin/claude"}
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(72)})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 1)
+	rt.mu.Lock()
+	runReqs := append([]runCall(nil), rt.runReqs...)
+	rt.mu.Unlock()
+	require.Len(t, runReqs, 1)
+	assert.Equal(t, "/paired/bin/claude", runReqs[0].req.Backend.CLIPath,
+		"logged-out daemons and pre-snapshot paired desktop calls keep their existing execution path")
+}
 
 func TestRuntime_Capabilities_Found(t *testing.T) {
 	rt := &fullRT{cap: capability.Capabilities{}}
 	ctx, _, _, _, h := setupRuntimeTest(t, rt)
 
-	out, err := h.Capabilities(ctx, wire.CapabilitiesParams{BackendType: string(agent_backend_entity.TypeClaudeCode)})
+	out, err := h.Capabilities(ctx, &agentrewire.RuntimeCapabilitiesRequest{BackendType: string(agent_backend_entity.TypeClaudeCode)})
 	require.NoError(t, err)
-	assert.Equal(t, rt.cap, out.Capabilities)
+	assert.Empty(t, out.GetCapabilities())
+	assert.Equal(t, &agentrewire.PermissionModeMeta{}, out.GetPermissionMode())
 }
 
 func TestRuntime_Capabilities_Unknown(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, nil)
-	_, err := h.Capabilities(ctx, wire.CapabilitiesParams{BackendType: "nope"})
+	_, err := h.Capabilities(ctx, &agentrewire.RuntimeCapabilitiesRequest{BackendType: "nope"})
 	require.Error(t, err)
 }
 
@@ -717,24 +818,25 @@ func TestRuntime_GoalRoutesWithoutActiveTurn(t *testing.T) {
 	objective := "ship goal rpc"
 	status := "active"
 	budget := 123
-	params := wire.GoalParams{
-		SessionID:         42,
-		AgentID:           7,
-		ProviderSessionID: "thread-goal",
-		Backend:           backendJSON(t, agent_backend_entity.AgentBackend{ID: 3, Type: string(agent_backend_entity.TypeCodex), Name: "codex"}),
+	tokenBudget := int32(budget)
+	params := &agentrewire.RuntimeGoalRequest{
+		ConversationId:    convID(42),
+		AgentId:           7,
+		ProviderSessionId: "thread-goal",
+		Backend:           protowire.BackendToProto(&agent_backend_entity.AgentBackend{ID: 3, Type: string(agent_backend_entity.TypeCodex), Name: "codex"}),
 		Cwd:               "/tmp/work",
 		Objective:         &objective,
 		Status:            &status,
-		TokenBudget:       &budget,
+		TokenBudget:       &tokenBudget,
 	}
 
 	setOut, err := h.SetGoal(ctx, params)
 	require.NoError(t, err)
-	require.NotNil(t, setOut.Goal)
-	assert.Equal(t, "thread-goal", setOut.Goal.ThreadID)
+	require.NotNil(t, setOut.GetGoal())
+	assert.Equal(t, "thread-goal", setOut.GetGoal().GetThreadId())
 	require.Len(t, rt.setGoalCalls, 1)
 	setReq := rt.setGoalCalls[0].req
-	assert.Equal(t, int64(42), setReq.SessionID)
+	assert.Equal(t, handlers.RuntimeSessionKey(convID(42)), setReq.SessionID)
 	assert.Equal(t, int64(7), setReq.AgentID)
 	assert.Equal(t, "thread-goal", setReq.ProviderSessionID)
 	assert.Equal(t, "/tmp/work", setReq.Cwd)
@@ -749,15 +851,15 @@ func TestRuntime_GoalRoutesWithoutActiveTurn(t *testing.T) {
 
 	getOut, err := h.GetGoal(ctx, params)
 	require.NoError(t, err)
-	require.NotNil(t, getOut.Goal)
-	assert.Equal(t, "thread-goal", getOut.Goal.ThreadID)
+	require.NotNil(t, getOut.GetGoal())
+	assert.Equal(t, "thread-goal", getOut.GetGoal().GetThreadId())
 	require.Len(t, rt.getGoalCalls, 1)
 	require.NotNil(t, rt.getGoalCalls[0].req.Backend)
 	assert.Equal(t, string(agent_backend_entity.TypeCodex), rt.getGoalCalls[0].req.Backend.Type)
 
 	clearOut, err := h.ClearGoal(ctx, params)
 	require.NoError(t, err)
-	assert.True(t, clearOut.Cleared)
+	assert.True(t, clearOut.GetCleared())
 	require.Len(t, rt.clearGoalCalls, 1)
 	require.NotNil(t, rt.clearGoalCalls[0].req.Backend)
 	assert.Equal(t, string(agent_backend_entity.TypeCodex), rt.clearGoalCalls[0].req.Backend.Type)
@@ -787,11 +889,11 @@ func TestRuntime_GoalWithProviderUsesDaemonProviderAndGateway(t *testing.T) {
 		})
 	gw.EXPECT().RevokeToken("goal-token")
 
-	_, err := h.GetGoal(ctx, wire.GoalParams{
-		SessionID:         42,
-		AgentID:           7,
-		ProviderSessionID: "thread-goal",
-		Backend:           backendJSON(t, be),
+	_, err := h.GetGoal(ctx, &agentrewire.RuntimeGoalRequest{
+		ConversationId:    convID(42),
+		AgentId:           7,
+		ProviderSessionId: "thread-goal",
+		Backend:           protowire.BackendToProto(&be),
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.getGoalCalls, 1)
@@ -808,7 +910,7 @@ func TestRuntime_GoalMissingBackendReturnsNoActiveTurn(t *testing.T) {
 	rt := &fullRT{}
 	ctx, _, _, _, h := setupRuntimeTest(t, rt)
 
-	_, err := h.GetGoal(ctx, wire.GoalParams{SessionID: 42, ProviderSessionID: "thread-goal"})
+	_, err := h.GetGoal(ctx, &agentrewire.RuntimeGoalRequest{ConversationId: convID(42), ProviderSessionId: "thread-goal"})
 	require.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
 }
 
@@ -830,40 +932,40 @@ func TestRuntime_Run_NoProvider_EmitsEventsAndDone(t *testing.T) {
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypePiAgent), Name: "x"}
-	ack, err := h.Run(ctx, wire.RunParams{
-		Backend:        backendJSON(t, be),
-		SessionID:      42,
-		AgentID:        7,
+	ack, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		AgentId:        7,
 		Cwd:            "/tmp",
 		UserText:       "hello",
 		Compact:        true,
 		EnabledPlugins: map[string]bool{"browser@openai-bundled": true},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, int64(42), ack.SessionID)
-	assert.Equal(t, "psid-1", ack.ProviderSessionID)
+	assert.Equal(t, convID(42), ack.GetConversationId())
+	assert.Equal(t, "psid-1", ack.GetProviderSessionId())
 	require.Len(t, rt.runReqs, 1)
 	assert.True(t, rt.runReqs[0].req.Compact)
 	assert.Equal(t, map[string]bool{"browser@openai-bundled": true}, rt.runReqs[0].req.EnabledPlugins)
 
-	// 2 events + 1 runResultDone = 3 frames expected.
-	frames := notif.waitFrames(t, 3)
+	// 1 turnStarted + 2 events + 1 runResultDone = 4 frames expected.
+	frames := notif.waitFrames(t, 4)
 
-	assert.Equal(t, wire.NotifyEvent, frames[0].method)
+	assert.Equal(t, wire.NotifyTurnStarted, frames[0].method)
 	assert.Equal(t, wire.NotifyEvent, frames[1].method)
-	assert.Equal(t, wire.NotifyRunResultDone, frames[2].method)
+	assert.Equal(t, wire.NotifyEvent, frames[2].method)
+	assert.Equal(t, wire.NotifyRunResultDone, frames[3].method)
 
 	// First event frame must carry sessionId 42 and a text_delta event payload.
-	ef0, ok := frames[0].params.(*wire.EventFrame)
-	require.True(t, ok, "expected wire.EventFrame, got %T", frames[0].params)
-	assert.Equal(t, int64(42), ef0.SessionID)
-	assert.Contains(t, string(ef0.Event), `"kind":"text_delta"`)
-	assert.Contains(t, string(ef0.Event), `"text":"hi"`)
+	ef0, ok := frames[1].params.(*wire.EventFrame)
+	require.True(t, ok, "expected wire.EventFrame, got %T", frames[1].params)
+	assert.Equal(t, convID(42), ef0.ConversationID)
+	assert.Equal(t, agentruntime.TextDelta{Text: "hi"}, ef0.Event)
 
 	// Final frame carries the RunResult fields.
-	done, ok := frames[2].params.(*wire.RunResultDoneFrame)
-	require.True(t, ok, "expected wire.RunResultDoneFrame, got %T", frames[2].params)
-	assert.Equal(t, int64(42), done.SessionID)
+	done, ok := frames[3].params.(*wire.RunResultDoneFrame)
+	require.True(t, ok, "expected wire.RunResultDoneFrame, got %T", frames[3].params)
+	assert.Equal(t, convID(42), done.ConversationID)
 	assert.Equal(t, "psid-1", done.ProviderSessionID)
 	assert.Equal(t, "claude-sonnet-4-6", done.Model)
 	assert.Equal(t, 200000, done.ContextWindow)
@@ -873,10 +975,44 @@ func TestRuntime_Run_NoProvider_EmitsEventsAndDone(t *testing.T) {
 	// Session must be cleared after fanout finishes so subsequent Steer
 	// returns ErrNoActiveTurn — exercised by a follow-up call.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		_, err = h.Steer(ctx, wire.SteerParams{SessionID: 42, Text: "late"})
+		_, err = h.Steer(ctx, &agentrewire.RuntimeSteerRequest{ConversationId: convID(42), Text: "late"})
 		assert.Error(c, err)
 	}, time.Second, 10*time.Millisecond)
 	assert.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
+}
+
+func TestRuntime_Run_GivenRPCContextEndsAfterAck_ThenNonPiTurnKeepsDelivering(t *testing.T) {
+	events := make(chan agentruntime.Event, 2)
+	var runCtx context.Context
+	rt := &fullRT{}
+	rt.runFn = func(ctx context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		runCtx = ctx
+		return events, &agentruntime.RunResult{}, nil
+	}
+	baseCtx, notif, _, _, h := setupRuntimeTest(t, rt)
+	rpcCtx, cancelRPC := context.WithCancel(baseCtx)
+
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+	_, err := h.Run(rpcCtx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(43),
+		UserText:       "hello",
+	})
+	require.NoError(t, err)
+	cancelRPC() // Protobuf writes the ACK, then ends the per-request context.
+
+	select {
+	case <-runCtx.Done():
+		t.Fatal("runtime turn context ended with the acknowledged RPC")
+	default:
+	}
+	events <- agentruntime.TextDelta{Text: "assistant reply"}
+	events <- agentruntime.Done{}
+	close(events)
+
+	frames := notif.waitFrames(t, 4) // turnStarted + assistant + done + terminal result
+	assert.Equal(t, agentruntime.TextDelta{Text: "assistant reply"}, frames[1].params.(*wire.EventFrame).Event)
+	assert.Equal(t, wire.NotifyRunResultDone, frames[3].method)
 }
 
 func TestRuntime_Run_ForwardsContentBearingEventsWithoutLoggingPayload(t *testing.T) {
@@ -915,17 +1051,17 @@ func TestRuntime_Run_ForwardsContentBearingEventsWithoutLoggingPayload(t *testin
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 142})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(142)})
 	require.NoError(t, err)
-	frames := notif.waitFrames(t, len(events)+1)
+	frames := notif.waitFrames(t, len(events)+2) // +1 turnStarted, +1 runResultDone
 
 	var forwarded strings.Builder
 	for _, frame := range frames {
 		switch params := frame.params.(type) {
 		case wire.EventFrame:
-			forwarded.Write(params.Event)
+			forwarded.WriteString(eventText(t, params.Event))
 		case *wire.EventFrame:
-			forwarded.Write(params.Event)
+			forwarded.WriteString(eventText(t, params.Event))
 		case wire.RunResultDoneFrame:
 			forwarded.WriteString(params.StopErrMsg)
 		case *wire.RunResultDoneFrame:
@@ -937,7 +1073,7 @@ func TestRuntime_Run_ForwardsContentBearingEventsWithoutLoggingPayload(t *testin
 	}
 	require.Eventually(t, func() bool {
 		logs := captured.String()
-		return strings.Contains(logs, "runtime.run: session ended") &&
+		return strings.Contains(logs, "handlers.RuntimeHandlers.fanout: session ended") &&
 			strings.Contains(logs, "runtime.autonomousTurn: source closed")
 	}, time.Second, 10*time.Millisecond)
 	for _, sentinel := range []string{inputSentinel, resultSentinel, metaSentinel, taskSentinel, summarySentinel, runErrSentinel, stopErrSentinel} {
@@ -979,31 +1115,54 @@ func TestRuntime_Run_AutonomousPayloadAndStopErrorRemainForwardedButNotLogged(t 
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 143})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(143)})
 	require.NoError(t, err)
-	frames := notif.waitFrames(t, 5)
-
-	var forwarded strings.Builder
-	for _, frame := range frames {
-		switch params := frame.params.(type) {
-		case wire.EventFrame:
-			forwarded.Write(params.Event)
-		case *wire.EventFrame:
-			forwarded.Write(params.Event)
-		case wire.RunResultDoneFrame:
-			forwarded.WriteString(params.StopErrMsg)
-		case *wire.RunResultDoneFrame:
-			forwarded.WriteString(params.StopErrMsg)
+	// 主轮 fanout 与自主轮是两个并发源,帧序不固定(带 StopErrMsg 的自主轮 done 帧可能
+	// 排在最后)。屏障必须等到三个哨兵都转发到位,数固定条数会在它到达前就取走快照。
+	sentinels := []string{resultSentinel, metaSentinel, stopErrSentinel}
+	forwardedText := func(frames []notifyFrame) string {
+		var forwarded strings.Builder
+		for _, frame := range frames {
+			switch params := frame.params.(type) {
+			case wire.EventFrame:
+				forwarded.WriteString(eventText(t, params.Event))
+			case *wire.EventFrame:
+				forwarded.WriteString(eventText(t, params.Event))
+			case wire.RunResultDoneFrame:
+				forwarded.WriteString(params.StopErrMsg)
+			case *wire.RunResultDoneFrame:
+				forwarded.WriteString(params.StopErrMsg)
+			}
 		}
+		return forwarded.String()
 	}
-	for _, sentinel := range []string{resultSentinel, metaSentinel, stopErrSentinel} {
-		assert.Contains(t, forwarded.String(), sentinel, "autonomous wire forwarding must remain lossless")
+	missing := func(frames []notifyFrame) []string {
+		text := forwardedText(frames)
+		var out []string
+		for _, sentinel := range sentinels {
+			if !strings.Contains(text, sentinel) {
+				out = append(out, sentinel)
+			}
+		}
+		return out
+	}
+	frames := notif.waitFramesUntil(t,
+		func(frames []notifyFrame) bool { return len(missing(frames)) == 0 },
+		func() string {
+			snapshot := notif.snapshot()
+			return fmt.Sprintf("autonomous sentinels %v to be forwarded; still missing %v after %d frames",
+				sentinels, missing(snapshot), len(snapshot))
+		})
+
+	forwarded := forwardedText(frames)
+	for _, sentinel := range sentinels {
+		assert.Contains(t, forwarded, sentinel, "autonomous wire forwarding must remain lossless")
 	}
 	require.Eventually(t, func() bool {
 		logs := captured.String()
 		return strings.Contains(logs, "runtime.autonomousTurn: forwarded") &&
 			strings.Contains(logs, "runtime.autonomousTurn: source closed") &&
-			strings.Contains(logs, "runtime.run: session ended")
+			strings.Contains(logs, "handlers.RuntimeHandlers.fanout: session ended")
 	}, time.Second, 10*time.Millisecond)
 	for _, sentinel := range []string{resultSentinel, metaSentinel, stopErrSentinel} {
 		assert.NotContains(t, captured.String(), sentinel)
@@ -1034,13 +1193,15 @@ func TestRuntime_Run_ForwardsAutonomousTurn(t *testing.T) {
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 42, AgentID: 7, Cwd: "/tmp", UserText: "hi",
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(42), AgentId: 7, Cwd: "/tmp", UserText: "hi",
 	})
 	require.NoError(t, err)
 
-	// run fanout: Done + runResultDone = 2;autonomous: Started + Event + Done = 3 → 5 total。
-	frames := notif.waitFrames(t, 5)
+	// run fanout: turnStarted + Done + runResultDone = 3;autonomous: Started + Event +
+	// Done = 3 → 6 total。少等一帧就是把「第 6 帧赶没赶上」交给调度:两条 goroutine
+	// 交错着发,等够 5 就取快照时缺的那一条是谁全看运气。
+	frames := notif.waitFrames(t, 6)
 
 	// 只挑自主续轮三类帧,断言顺序 + 内容(与 run 帧的交错无关)。
 	var (
@@ -1066,18 +1227,20 @@ func TestRuntime_Run_ForwardsAutonomousTurn(t *testing.T) {
 	require.NotNil(t, autoEvent)
 	require.NotNil(t, autoDone)
 	assert.Equal(t, []string{"started", "event", "done"}, order)
-	assert.Equal(t, int64(42), started.SessionID)
+	assert.Equal(t, convID(42), started.ConversationID)
 	assert.Equal(t, "background_task", started.Trigger)
-	assert.Equal(t, int64(42), autoEvent.SessionID)
-	assert.Contains(t, string(autoEvent.Event), "autonomous:listing")
-	assert.Equal(t, int64(42), autoDone.SessionID)
+	assert.Equal(t, convID(42), autoEvent.ConversationID)
+	assert.Equal(t, agentruntime.TextDelta{Text: "autonomous:listing"}, autoEvent.Event)
+	assert.Equal(t, convID(42), autoDone.ConversationID)
 	assert.Equal(t, "claude-sonnet-4-6", autoDone.Model)
 }
 
-// TestRuntime_Run_UserMessageMarker: R18 —— 浏览器在空闲会话上「开新一轮」时,daemon
-// 在事件流开头注入一条 user_message 标记(携带发起方设备身份与用户文本),扇出给同一条
-// 会话的其余订阅者,让桌面端把这一轮落成一行带来源标识的用户消息。
-func TestRuntime_Run_UserMessageMarker(t *testing.T) {
+// R18 的「发起方标记」已经撤掉:用户那一句现在只以**持久帧**的身份出去一次
+// (见 TestRuntime_Run_GivenPeerSubmittedTurn_ThenTheUserMessageGoesOutExactlyOnce),
+// 提交方身份骑在那一行的正文里。所以带设备身份的一轮也不再往事件流开头插一条
+// user_message —— 没接转录出口的这一档因此一条 user_message 都不发,事件流与本机
+// 发送逐帧一致。
+func TestRuntime_Run_GivenPeerSource_ThenNoUserMessageMarkerIsInjected(t *testing.T) {
 	rt := &fullRT{}
 	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
 		ch := make(chan agentruntime.Event, 3)
@@ -1089,10 +1252,10 @@ func TestRuntime_Run_UserMessageMarker(t *testing.T) {
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend:          backendJSON(t, be),
-		SessionID:        42,
-		AgentID:          7,
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:          backendProto(t, be),
+		ConversationId:   convID(42),
+		AgentId:          7,
 		Cwd:              "/tmp",
 		UserText:         "浏览器发来的消息",
 		SourceDevice:     "sha256:web-device",
@@ -1100,26 +1263,20 @@ func TestRuntime_Run_UserMessageMarker(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 标记 + 后端事件 + 终态 = 3 帧。
+	// 开始 + 后端事件 + 终态 = 3 帧;标记那一格没有了。
 	frames := notif.waitFrames(t, 3)
 
-	require.Equal(t, wire.NotifyEvent, frames[0].method)
-	ef0, ok := frames[0].params.(*wire.EventFrame)
-	require.True(t, ok, "expected EventFrame, got %T", frames[0].params)
-	assert.Equal(t, int64(42), ef0.SessionID)
-	assert.Contains(t, string(ef0.Event), `"kind":"user_message"`)
-	assert.Contains(t, string(ef0.Event), `"text":"浏览器发来的消息"`)
-	assert.Contains(t, string(ef0.Event), `"sourceDevice":"sha256:web-device"`)
-	assert.Contains(t, string(ef0.Event), `"sourceDeviceName":"Chrome · macOS"`)
-
-	// 后续后端事件原样跟在标记之后。
-	ef1, ok := frames[1].params.(*wire.EventFrame)
-	require.True(t, ok)
-	assert.Contains(t, string(ef1.Event), `"kind":"text_delta"`)
+	require.Equal(t, wire.NotifyTurnStarted, frames[0].method)
+	require.Equal(t, wire.NotifyEvent, frames[1].method)
+	ef0, ok := frames[1].params.(*wire.EventFrame)
+	require.True(t, ok, "expected EventFrame, got %T", frames[1].params)
+	assert.Equal(t, convID(42), ef0.ConversationID)
+	assert.IsType(t, agentruntime.TextDelta{}, ef0.Event,
+		"开轮之后紧接着的该是后端第一条事件,不是另插的一条 user_message")
 }
 
-// TestRuntime_Run_NoUserMessageMarkerWhenNoSource: R18 单端零变化 —— 桌面端自己发消息
-// 不带 SourceDevice,daemon 不注入 user_message 标记,事件流与今天逐帧一致。
+// 桌面端自己发消息不带 SourceDevice。它与上一条是同一条不变量的两面:带不带设备身份,
+// 事件流里都不该多出一条 user_message 标记。
 func TestRuntime_Run_NoUserMessageMarkerWhenNoSource(t *testing.T) {
 	rt := &fullRT{}
 	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
@@ -1132,36 +1289,29 @@ func TestRuntime_Run_NoUserMessageMarkerWhenNoSource(t *testing.T) {
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 42, AgentID: 7, Cwd: "/tmp", UserText: "hi",
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(42), AgentId: 7, Cwd: "/tmp", UserText: "hi",
 	})
 	require.NoError(t, err)
 
-	frames := notif.waitFrames(t, 3)
-	ef0, ok := frames[0].params.(*wire.EventFrame)
+	frames := notif.waitFrames(t, 4)
+	ef0, ok := frames[1].params.(*wire.EventFrame)
 	require.True(t, ok)
-	assert.NotContains(t, string(ef0.Event), `"kind":"user_message"`)
-	assert.Contains(t, string(ef0.Event), `"kind":"text_delta"`)
-}
-
-func TestRuntime_Run_BadBackendJSON_Errors(t *testing.T) {
-	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
-	_, err := h.Run(ctx, wire.RunParams{Backend: json.RawMessage(`{bad`)})
-	require.Error(t, err)
+	assert.IsType(t, agentruntime.TextDelta{}, ef0.Event, "没有 SourceDevice 就不该注入 user_message 标记")
 }
 
 func TestRuntime_Run_BuiltinBackend_Rejected(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeBuiltin)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be)})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be)})
 	require.Error(t, err)
 }
 
 func TestRuntime_Run_OpenClawRemoteSecretUnavailable(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, nil)
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend:   backendJSON(t, agent_backend_entity.AgentBackend{ID: 9, Type: string(agent_backend_entity.TypeOpenClaw), DeviceID: "7"}),
-		SessionID: 91,
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, agent_backend_entity.AgentBackend{ID: 9, Type: string(agent_backend_entity.TypeOpenClaw), DeviceFingerprint: "7"}),
+		ConversationId: convID(91),
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "remote secret enrollment is unavailable")
@@ -1171,7 +1321,7 @@ func TestRuntime_Run_UnknownBackendType_Errors(t *testing.T) {
 	// runtimeFor returns nil for unknown type.
 	ctx, _, _, _, h := setupRuntimeTest(t, nil)
 	be := agent_backend_entity.AgentBackend{Type: "ghost"}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be)})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be)})
 	require.Error(t, err)
 }
 
@@ -1198,10 +1348,10 @@ func TestRuntime_Run_EffectiveKeyPreferredOverAgentBinding(t *testing.T) {
 	lookup.EXPECT().ResolveModel(ctx, "session-key", "").Return(handlers.EffectiveModel{ModelKey: "", ModelID: "claude-x"}, nil)
 	gw.EXPECT().URL().Return("").AnyTimes()
 
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend:        backendJSON(t, be),
-		SessionID:      42,
-		LLMProviderKey: "session-key",
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		LlmProviderKey: "session-key",
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.runReqs, 1)
@@ -1232,15 +1382,15 @@ func TestRuntime_Run_EffectiveKeyMissing_FallsBackToAgentBinding(t *testing.T) {
 	lookup.EXPECT().ResolveModel(ctx, "agent-bound-key", "").Return(handlers.EffectiveModel{ModelKey: "", ModelID: "claude-x"}, nil)
 	gw.EXPECT().URL().Return("").AnyTimes()
 
-	ack, err := h.Run(ctx, wire.RunParams{
-		Backend:        backendJSON(t, be),
-		SessionID:      42,
-		LLMProviderKey: "session-key",
+	ack, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		LlmProviderKey: "session-key",
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.runReqs, 1)
 	assert.Equal(t, "agent-bound-key", rt.runReqs[0].req.Provider.ProviderKey, "缺会话 key 时应回退 agent 绑定")
-	assert.Equal(t, "session-key", ack.ProviderFallbackKey, "回退必须回传信号供桌面端追加 notice")
+	assert.Equal(t, "session-key", ack.GetProviderFallbackKey(), "回退必须回传信号供桌面端追加 notice")
 }
 
 // TestRuntime_Run_EffectiveKeyInactive_FallsBackToAgentBinding 钉死决策 9 回退的非
@@ -1270,15 +1420,15 @@ func TestRuntime_Run_EffectiveKeyInactive_FallsBackToAgentBinding(t *testing.T) 
 	lookup.EXPECT().ResolveModel(ctx, "agent-bound-key", "").Return(handlers.EffectiveModel{ModelKey: "", ModelID: "claude-x"}, nil)
 	gw.EXPECT().URL().Return("").AnyTimes()
 
-	ack, err := h.Run(ctx, wire.RunParams{
-		Backend:        backendJSON(t, be),
-		SessionID:      42,
-		LLMProviderKey: "session-key",
+	ack, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		LlmProviderKey: "session-key",
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.runReqs, 1)
 	assert.Equal(t, "agent-bound-key", rt.runReqs[0].req.Provider.ProviderKey, "非 active 会话 key 应回退 agent 绑定")
-	assert.Equal(t, "session-key", ack.ProviderFallbackKey)
+	assert.Equal(t, "session-key", ack.GetProviderFallbackKey())
 }
 
 // TestRuntime_Run_EffectiveKeyMissing_NoAgentBinding_FallsBackToCLILogin 钉死决策 9
@@ -1298,15 +1448,15 @@ func TestRuntime_Run_EffectiveKeyMissing_NoAgentBinding_FallsBackToCLILogin(t *t
 	}
 	lookup.EXPECT().FindByKey(ctx, "session-key").Return(nil, errors.New("provider session-key not configured"))
 
-	ack, err := h.Run(ctx, wire.RunParams{
-		Backend:        backendJSON(t, be),
-		SessionID:      42,
-		LLMProviderKey: "session-key",
+	ack, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		LlmProviderKey: "session-key",
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.runReqs, 1)
 	assert.Nil(t, rt.runReqs[0].req.Provider, "无 agent 绑定回退 CLI 登录态(provider=nil)")
-	assert.Equal(t, "session-key", ack.ProviderFallbackKey, "回退必须回传信号")
+	assert.Equal(t, "session-key", ack.GetProviderFallbackKey(), "回退必须回传信号")
 }
 
 func TestRuntime_Run_ProviderLookupMissing_ReturnsProviderMissingCode(t *testing.T) {
@@ -1318,13 +1468,73 @@ func TestRuntime_Run_ProviderLookupMissing_ReturnsProviderMissingCode(t *testing
 	}
 	lookup.EXPECT().FindByKey(ctx, "missing-key").Return(nil, errors.New("provider missing-key not configured"))
 
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be)})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(73)})
 	require.Error(t, err)
 
-	var rpcErr *rpc.Error
+	var rpcErr *rpcerror.Error
 	require.ErrorAs(t, err, &rpcErr)
-	assert.Equal(t, rpc.ErrProviderMissing.Code, rpcErr.Code)
+	assert.Equal(t, rpcerror.ErrProviderMissing.Code, rpcErr.Code)
 	assert.Contains(t, rpcErr.Message, "missing-key")
+}
+
+// TestRuntime_Run_EffectiveConfig_MatchesDesktopFieldForField 钉死 spec 的收敛判据：
+// 相同输入下 daemon 与桌面构造出的 EffectiveLLMConfig **逐字段相同**。两端从此共用
+// agentruntime.NewEffectiveLLMConfig，桌面喂的是 llm_provider_svc.ResolveTarget 的解析
+// 结果、daemon 喂的是自家目录的解析结果，装配规则只有那一份 —— daemon 手写那份曾漏填
+// ContextWindow 与 MaxOutput。
+func TestRuntime_Run_EffectiveConfig_MatchesDesktopFieldForField(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	ctx, _, gw, lookup, h := setupRuntimeTest(t, rt)
+	be := agent_backend_entity.AgentBackend{
+		Type:           string(agent_backend_entity.TypeClaudeCode),
+		LLMProviderKey: "pk",
+		LLMModelKey:    "model-opus",
+	}
+	lookup.EXPECT().FindByKey(ctx, "pk").Return(&llm_provider_entity.LLMProvider{
+		ProviderKey: "pk",
+		Type:        string(llm_provider_entity.TypeAnthropic),
+		Name:        "Anthropic 主号",
+		BaseURL:     "https://api.example.com",
+		APIKey:      "sk-fixture",
+		Status:      consts.ACTIVE,
+	}, nil)
+	lookup.EXPECT().ResolveModel(ctx, "pk", "model-opus").Return(handlers.EffectiveModel{
+		ModelKey:      "model-opus",
+		ModelID:       "claude-opus-4-5",
+		ContextWindow: 500000,
+		MaxOutput:     64000,
+	}, nil)
+	gw.EXPECT().URL().Return("").AnyTimes()
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		LlmProviderKey: "pk",
+		LlmModelKey:    "model-opus",
+	})
+	require.NoError(t, err)
+	require.Len(t, rt.runReqs, 1)
+
+	// 桌面同一套输入下会构造的那一份（同一个构造口，喂桌面解析口的等价字段）。
+	desktop := agentruntime.NewEffectiveLLMConfig(agentruntime.EffectiveLLMConfigInput{
+		ProviderKey:      "pk",
+		ProviderType:     string(llm_provider_entity.TypeAnthropic),
+		ProviderName:     "Anthropic 主号",
+		TargetModelKey:   "model-opus",
+		ResolvedModelKey: "model-opus",
+		ResolvedModelID:  "claude-opus-4-5",
+		ContextWindow:    500000,
+		MaxOutput:        64000,
+		BaseURL:          "https://api.example.com",
+		APIKey:           "sk-fixture",
+		HasAPIKey:        true,
+	})
+	assert.Equal(t, desktop, rt.runReqs[0].req.Effective, "daemon 与桌面必须逐字段相同")
 }
 
 func TestRuntime_Run_RuntimeReturnsErr_RevokesToken(t *testing.T) {
@@ -1334,7 +1544,7 @@ func TestRuntime_Run_RuntimeReturnsErr_RevokesToken(t *testing.T) {
 	}
 	ctx, _, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be)})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be)})
 	require.Error(t, err)
 }
 
@@ -1371,11 +1581,11 @@ func TestRuntime_Run_WithProvider_ReusesPermanentTokenAcrossTurns(t *testing.T) 
 	gw.EXPECT().SetTokenTarget("sess-token", "pk", "").Return("pk", true).Times(1)
 
 	runOnce := func() {
-		_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 42, UserText: "hi"})
+		_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(42), UserText: "hi"})
 		require.NoError(t, err)
 		// Let the async fanout settle (session unregisters) before the next turn.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			_, serr := h.Steer(ctx, wire.SteerParams{SessionID: 42, Text: "x"})
+			_, serr := h.Steer(ctx, &agentrewire.RuntimeSteerRequest{ConversationId: convID(42), Text: "x"})
 			assert.ErrorIs(c, serr, agentruntime.ErrNoActiveTurn)
 		}, time.Second, 10*time.Millisecond)
 	}
@@ -1422,12 +1632,12 @@ func TestRuntime_Run_SessionTokenFollowsEffectiveProvider(t *testing.T) {
 	gw.EXPECT().SetTokenTarget("sess-token", "switched-key", "").Return("first-key", true).Times(1)
 
 	runOnce := func(providerKey string) {
-		_, err := h.Run(ctx, wire.RunParams{
-			Backend: backendJSON(t, be), SessionID: 42, UserText: "hi", LLMProviderKey: providerKey,
+		_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+			Backend: backendProto(t, be), ConversationId: convID(42), UserText: "hi", LlmProviderKey: providerKey,
 		})
 		require.NoError(t, err)
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			_, serr := h.Steer(ctx, wire.SteerParams{SessionID: 42, Text: "x"})
+			_, serr := h.Steer(ctx, &agentrewire.RuntimeSteerRequest{ConversationId: convID(42), Text: "x"})
 			assert.ErrorIs(c, serr, agentruntime.ErrNoActiveTurn)
 		}, time.Second, 10*time.Millisecond)
 	}
@@ -1449,11 +1659,11 @@ func TestRuntime_Run_StopErrAborted_RehydratesCode(t *testing.T) {
 	}
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 1})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(1)})
 	require.NoError(t, err)
 
-	frames := notif.waitFrames(t, 1)
-	done, ok := frames[0].params.(*wire.RunResultDoneFrame)
+	frames := notif.waitFrames(t, 2)
+	done, ok := frames[1].params.(*wire.RunResultDoneFrame)
 	require.True(t, ok)
 	assert.Equal(t, wire.ErrCodeAborted, done.StopErrCode)
 	assert.Equal(t, agentruntime.ErrAborted.Error(), done.StopErrMsg)
@@ -1464,12 +1674,12 @@ func TestRuntime_Run_StopErrAborted_RehydratesCode(t *testing.T) {
 // runWithRT registers a session by calling Run with a runtime whose Run
 // returns a never-closing channel — the goroutine stays alive so the
 // session row remains registered for subsequent control RPCs.
-func runWithRT(t *testing.T, h *handlers.RuntimeHandlers, ctx context.Context, sid int64) {
+func runWithRT(t *testing.T, h *handlers.RuntimeHandlers, ctx context.Context, conversationID string) {
 	t.Helper()
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	ack, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: sid})
+	ack, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: conversationID})
 	require.NoError(t, err)
-	require.Equal(t, sid, ack.SessionID)
+	require.Equal(t, conversationID, ack.GetConversationId())
 }
 
 // runtimeWithLiveSession installs the fake RT and starts a session with the
@@ -1486,7 +1696,7 @@ func runtimeWithLiveSession(t *testing.T, rt *fullRT, sid int64) (
 		return live, &agentruntime.RunResult{}, nil
 	}
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
-	runWithRT(t, h, ctx, sid)
+	runWithRT(t, h, ctx, convID(sid))
 	return ctx, notif, h, live
 }
 
@@ -1495,14 +1705,53 @@ func TestRuntime_Steer_Success(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 9)
 	defer close(live)
 
-	_, err := h.Steer(ctx, wire.SteerParams{SessionID: 9, QueuedID: "q-1", Text: "stop"})
+	_, err := h.Steer(ctx, &agentrewire.RuntimeSteerRequest{ConversationId: convID(9), QueuedId: "q-1", Text: "stop"})
 	require.NoError(t, err)
-	assert.Equal(t, []steerCall{{sid: 9, queuedID: "q-1", text: "stop"}}, rt.steerCalls)
+	assert.Equal(t, []steerCall{{sid: handlers.RuntimeSessionKey(convID(9)), queuedID: "q-1", text: "stop"}}, rt.steerCalls)
+}
+
+// steerOnlyRT 实现 Runtime + Steerer,但**没有** SteerCanceler —— codex 与 piagent
+// 就是这一档(CapCancelSteer=false)。用来验应答里的 cancellable 说的是「这个 runner
+// 撤不撤得掉」,而不是「插话成功了没有」。
+type steerOnlyRT struct{ bareRT }
+
+func (steerOnlyRT) Steer(_ context.Context, _ int64, _, _ string) error { return nil }
+
+// R: 插话的应答要把这条消息在执行端的句柄交回调用方 —— 调用方(浏览器)据此管理自己
+// 那份排队清单,并按 SteerConsumed.queuedId 把它清掉。此前应答是 wire.OK,调用方只能
+// 拿自己造的号去对,而桌面端托管的那条路上两个号根本不是同一个。
+func TestRuntime_Steer_ReturnsQueuedHandle(t *testing.T) {
+	rt := &fullRT{}
+	ctx, _, h, live := runtimeWithLiveSession(t, rt, 9)
+	defer close(live)
+
+	res, err := h.Steer(ctx, &agentrewire.RuntimeSteerRequest{ConversationId: convID(9), QueuedId: "q-1", Text: "stop"})
+	require.NoError(t, err)
+	// agentred 这一侧的句柄就是调用方传来的那个:它被原样交给了 runner。
+	assert.Equal(t, "q-1", res.GetQueuedId())
+	// fullRT 实现了 SteerCanceler。
+	assert.True(t, res.GetCancellable())
+}
+
+// R: runner 撤不掉时应答如实说不可撤 —— 界面据此把撤回键换成锁,而不是摆一颗按下去
+// 必然失败的键。
+func TestRuntime_Steer_RunnerWithoutCanceler_ReportsNotCancellable(t *testing.T) {
+	rt := &fullRT{}
+	ctx, _, h, live := runtimeWithLiveSession(t, rt, 11)
+	defer close(live)
+
+	// 会话登记完再换 runtime:与 TestRuntime_Steer_BackendUnsupported 同一个手法。
+	h.SwapRuntimeFor(func(_ agent_backend_entity.BackendType) agentruntime.Runtime { return steerOnlyRT{} })
+
+	res, err := h.Steer(ctx, &agentrewire.RuntimeSteerRequest{ConversationId: convID(11), QueuedId: "q-2", Text: "stop"})
+	require.NoError(t, err)
+	assert.Equal(t, "q-2", res.GetQueuedId())
+	assert.False(t, res.GetCancellable())
 }
 
 func TestRuntime_Steer_NoSession_ErrNoActiveTurn(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
-	_, err := h.Steer(ctx, wire.SteerParams{SessionID: 99, Text: "x"})
+	_, err := h.Steer(ctx, &agentrewire.RuntimeSteerRequest{ConversationId: convID(99), Text: "x"})
 	require.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
 }
 
@@ -1516,14 +1765,14 @@ func TestRuntime_Steer_BackendUnsupported_ErrUnsupported(t *testing.T) {
 	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
 		return live, &agentruntime.RunResult{}, nil
 	}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 5})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(5)})
 	require.NoError(t, err)
 
 	// Swap in a bare runtime *after* the session is registered, so the
 	// Steer handler resolves via runtimeFor and finds bareRT (no Steerer).
 	h.SwapRuntimeFor(func(_ agent_backend_entity.BackendType) agentruntime.Runtime { return bareRT{} })
 
-	_, err = h.Steer(ctx, wire.SteerParams{SessionID: 5, Text: "x"})
+	_, err = h.Steer(ctx, &agentrewire.RuntimeSteerRequest{ConversationId: convID(5), Text: "x"})
 	require.ErrorIs(t, err, agentruntime.ErrUnsupported)
 }
 
@@ -1541,49 +1790,49 @@ func TestRuntime_ControlRPCs_BackendUnsupported_ErrUnsupported(t *testing.T) {
 		{
 			name: "cancel steer",
 			call: func() error {
-				_, err := h.CancelSteer(ctx, wire.CancelSteerParams{SessionID: 5, QueuedID: "q-1"})
+				_, err := h.CancelSteer(ctx, &agentrewire.RuntimeCancelSteerRequest{ConversationId: convID(5), QueuedId: "q-1"})
 				return err
 			},
 		},
 		{
 			name: "drain pending",
 			call: func() error {
-				_, err := h.DrainPending(ctx, wire.DrainParams{SessionID: 5})
+				_, err := h.DrainPending(ctx, &agentrewire.RuntimeDrainPendingRequest{ConversationId: convID(5)})
 				return err
 			},
 		},
 		{
 			name: "abort",
 			call: func() error {
-				_, err := h.Abort(ctx, wire.AbortParams{SessionID: 5})
+				_, err := h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: convID(5)})
 				return err
 			},
 		},
 		{
 			name: "stop background task",
 			call: func() error {
-				_, err := h.StopBackgroundTask(ctx, wire.StopBackgroundTaskParams{SessionID: 5, TaskID: "b0"})
+				_, err := h.StopBackgroundTask(ctx, &agentrewire.RuntimeStopBackgroundTaskRequest{ConversationId: convID(5), TaskId: "b0"})
 				return err
 			},
 		},
 		{
 			name: "set permission mode",
 			call: func() error {
-				_, err := h.SetPermissionMode(ctx, wire.SetPermissionModeParams{SessionID: 5, Mode: "plan"})
+				_, err := h.SetPermissionMode(ctx, &agentrewire.RuntimeSetPermissionModeRequest{ConversationId: convID(5), Mode: "plan"})
 				return err
 			},
 		},
 		{
 			name: "submit answer",
 			call: func() error {
-				_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 5, RequestID: "r-1"})
+				_, err := h.SubmitAnswer(ctx, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: convID(5), RequestId: "r-1"})
 				return err
 			},
 		},
 		{
 			name: "submit tool permission",
 			call: func() error {
-				_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 5, RequestID: "p-1"})
+				_, err := h.SubmitToolPermission(ctx, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(5), RequestId: "p-1"})
 				return err
 			},
 		},
@@ -1604,7 +1853,7 @@ func TestRuntime_CancelSteer_ReturnsRemoved(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 1)
 	defer close(live)
 
-	out, err := h.CancelSteer(ctx, wire.CancelSteerParams{SessionID: 1, QueuedID: "q-1"})
+	out, err := h.CancelSteer(ctx, &agentrewire.RuntimeCancelSteerRequest{ConversationId: convID(1), QueuedId: "q-1"})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a", "b"}, out.Removed)
 }
@@ -1618,7 +1867,7 @@ func TestRuntime_CancelSteer_NotFound_RehydrateSentinel(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 1)
 	defer close(live)
 
-	_, err := h.CancelSteer(ctx, wire.CancelSteerParams{SessionID: 1, QueuedID: "q-x"})
+	_, err := h.CancelSteer(ctx, &agentrewire.RuntimeCancelSteerRequest{ConversationId: convID(1), QueuedId: "q-x"})
 	require.ErrorIs(t, err, agentruntime.ErrSteerNotFound)
 }
 
@@ -1631,9 +1880,9 @@ func TestRuntime_DrainPending_ReturnsSteers(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 2)
 	defer close(live)
 
-	out, err := h.DrainPending(ctx, wire.DrainParams{SessionID: 2})
+	out, err := h.DrainPending(ctx, &agentrewire.RuntimeDrainPendingRequest{ConversationId: convID(2)})
 	require.NoError(t, err)
-	assert.Equal(t, []agentruntime.ConsumedSteer{{QueuedID: "q1", Text: "a"}}, out.Steers)
+	assert.Equal(t, []*agentrewire.ConsumedSteer{{QueuedId: "q1", Text: "a"}}, out.GetSteers())
 }
 
 // fakeSteerSource 是 handlers.SteerSourcePort 的内存实现,供单元测试直接注入来源映射。
@@ -1679,7 +1928,6 @@ func newRuntimeHandlersOnWithSource(t *testing.T, rt agentruntime.Runtime, src h
 	sess := newRecordingSessions()
 	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
 		NotifyFor:    notif.notifierFor,
-		Journal:      notif,
 		Sessions:     sess,
 		SessionQuery: sess,
 		SteerSource:  src,
@@ -1691,7 +1939,7 @@ func newRuntimeHandlersOnWithSource(t *testing.T, rt agentruntime.Runtime, src h
 	rt.(*fullRT).runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
 		return live, &agentruntime.RunResult{}, nil
 	}
-	runWithRT(t, h, context.Background(), 2)
+	runWithRT(t, h, context.Background(), convID(2))
 	return context.Background(), notif, h, live
 }
 
@@ -1707,7 +1955,7 @@ func TestRuntime_DrainPending_StampsSubmitterSource(t *testing.T) {
 	ctx, _, h, live := newRuntimeHandlersOnWithSource(t, rt, src)
 	defer close(live)
 
-	out, err := h.DrainPending(ctx, wire.DrainParams{SessionID: 2})
+	out, err := h.DrainPending(ctx, &agentrewire.RuntimeDrainPendingRequest{ConversationId: convID(2)})
 	require.NoError(t, err)
 	require.Len(t, out.Steers, 2)
 	assert.Equal(t, "sha256:other-device", out.Steers[0].SourcePeer)
@@ -1739,13 +1987,11 @@ func TestRuntime_Fanout_StampsSteerConsumedSource(t *testing.T) {
 		}
 	}
 	require.NotNil(t, ef, "fanout must emit the SteerConsumed event frame")
-	ev, err := agentruntime.UnmarshalEvent(ef.Event)
-	require.NoError(t, err)
-	sc, ok := ev.(agentruntime.SteerConsumed)
+	sc, ok := ef.Event.(agentruntime.SteerConsumed)
 	require.True(t, ok)
 	require.Len(t, sc.Steers, 1)
 	assert.Equal(t, "q-live", sc.Steers[0].QueuedID)
-	assert.Equal(t, "sha256:other-device", sc.Steers[0].SourcePeer)
+	assert.Equal(t, devicefp.Initiator("sha256:other-device"), sc.Steers[0].SourcePeer)
 	assert.Equal(t, "iPad", sc.Steers[0].SourceName)
 }
 
@@ -1754,30 +2000,30 @@ func TestRuntime_Abort_Success(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 3)
 	defer close(live)
 
-	_, err := h.Abort(ctx, wire.AbortParams{SessionID: 3})
+	_, err := h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: convID(3)})
 	require.NoError(t, err)
-	assert.Equal(t, []int64{3}, rt.abortCalls)
+	assert.Equal(t, []int64{handlers.RuntimeSessionKey(convID(3))}, rt.abortCalls)
 }
 
 // TestRuntime_Abort_PassesTokenAndReturnsInterruptedTurnKind 钉死决策 1 的 daemon 侧:
-// RuntimeHandlers.Abort 把 wire.AbortParams.TurnToken 透传给 runtime 的 Abort,并把
-// 被中断轮的类型经 wire.AbortResult.TurnKind 返给对端 —— spec 测试接缝「remote wire
-// + daemon handler:AbortParams 携带 token,daemon 侧透传并返回轮类型」。
+// RuntimeHandlers.Abort 把 RuntimeAbortRequest.TurnToken 透传给 runtime 的 Abort,并把
+// 被中断轮的类型经 RuntimeAbortResponse.TurnKind 返给对端 —— spec 测试接缝「remote wire
+// + daemon handler:中断请求携带 token,daemon 侧透传并返回轮类型」。
 func TestRuntime_Abort_PassesTokenAndReturnsInterruptedTurnKind(t *testing.T) {
 	rt := &fullRT{abortOutcome: agentruntime.AbortOutcome{TurnKind: agentruntime.TurnKindSubagentActivity}}
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 3)
 	defer close(live)
 
-	res, err := h.Abort(ctx, wire.AbortParams{SessionID: 3, TurnToken: 42})
+	res, err := h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: convID(3), TurnToken: 42})
 	require.NoError(t, err)
-	assert.Equal(t, []int64{3}, rt.abortCalls)
+	assert.Equal(t, []int64{handlers.RuntimeSessionKey(convID(3))}, rt.abortCalls)
 	assert.Equal(t, []uint64{42}, rt.abortTokens, "daemon 侧必须把 turnToken 原样透传给 runtime")
-	assert.Equal(t, agentruntime.TurnKindSubagentActivity, res.TurnKind)
+	assert.Equal(t, string(agentruntime.TurnKindSubagentActivity), res.GetTurnKind())
 }
 
 func TestRuntime_Abort_NoSession_ErrNoActiveTurn(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
-	_, err := h.Abort(ctx, wire.AbortParams{SessionID: 7})
+	_, err := h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: convID(7)})
 	require.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
 }
 
@@ -1786,14 +2032,14 @@ func TestRuntime_StopBackgroundTask_Success(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 3)
 	defer close(live)
 
-	_, err := h.StopBackgroundTask(ctx, wire.StopBackgroundTaskParams{SessionID: 3, TaskID: "b0n82mqaj"})
+	_, err := h.StopBackgroundTask(ctx, &agentrewire.RuntimeStopBackgroundTaskRequest{ConversationId: convID(3), TaskId: "b0n82mqaj"})
 	require.NoError(t, err)
-	assert.Equal(t, []stopBgCall{{sid: 3, taskID: "b0n82mqaj"}}, rt.stopBgCalls)
+	assert.Equal(t, []stopBgCall{{sid: handlers.RuntimeSessionKey(convID(3)), taskID: "b0n82mqaj"}}, rt.stopBgCalls)
 }
 
 func TestRuntime_StopBackgroundTask_NoSession_ErrNoActiveTurn(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
-	_, err := h.StopBackgroundTask(ctx, wire.StopBackgroundTaskParams{SessionID: 7, TaskID: "b0"})
+	_, err := h.StopBackgroundTask(ctx, &agentrewire.RuntimeStopBackgroundTaskRequest{ConversationId: convID(7), TaskId: "b0"})
 	require.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
 }
 
@@ -1802,9 +2048,9 @@ func TestRuntime_SetPermissionMode_Success(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 4)
 	defer close(live)
 
-	_, err := h.SetPermissionMode(ctx, wire.SetPermissionModeParams{SessionID: 4, Mode: "plan"})
+	_, err := h.SetPermissionMode(ctx, &agentrewire.RuntimeSetPermissionModeRequest{ConversationId: convID(4), Mode: "plan"})
 	require.NoError(t, err)
-	assert.Equal(t, []setModeCall{{sid: 4, mode: "plan"}}, rt.setModeCalls)
+	assert.Equal(t, []setModeCall{{sid: handlers.RuntimeSessionKey(convID(4)), mode: "plan"}}, rt.setModeCalls)
 }
 
 func TestRuntime_SubmitAnswer_Success(t *testing.T) {
@@ -1812,15 +2058,15 @@ func TestRuntime_SubmitAnswer_Success(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 5)
 	defer close(live)
 
-	qs := []agentruntime.AskQuestion{{Question: "ok?"}}
-	as := []agentruntime.AskAnswer{{QuestionIndex: 0, Labels: []string{"yes"}}}
-	_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{
-		SessionID: 5, RequestID: "r-1", Questions: qs, Answers: as, Skipped: false,
+	qs := []*agentrewire.AskQuestion{{Question: "ok?"}}
+	as := []*agentrewire.AskAnswer{{QuestionIndex: 0, Labels: []string{"yes"}}}
+	_, err := h.SubmitAnswer(ctx, &agentrewire.RuntimeSubmitAnswerRequest{
+		ConversationId: convID(5), RequestId: "r-1", Questions: qs, Answers: as, Skipped: false,
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.submitAnswerCalls, 1)
 	assert.Equal(t, "r-1", rt.submitAnswerCalls[0].requestID)
-	assert.Equal(t, as, rt.submitAnswerCalls[0].answers)
+	assert.Equal(t, []agentruntime.AskAnswer{{QuestionIndex: 0, Labels: []string{"yes"}}}, rt.submitAnswerCalls[0].answers)
 }
 
 func TestRuntime_SubmitToolPermission_Success(t *testing.T) {
@@ -1828,8 +2074,8 @@ func TestRuntime_SubmitToolPermission_Success(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 6)
 	defer close(live)
 
-	_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{
-		SessionID: 6, RequestID: "p-1", Allow: false, DenyReason: "nope",
+	_, err := h.SubmitToolPermission(ctx, &agentrewire.RuntimeSubmitToolPermissionRequest{
+		ConversationId: convID(6), RequestId: "p-1", Allow: false, DenyReason: "nope",
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.submitToolPermCalls, 1)
@@ -1856,15 +2102,15 @@ func TestRuntime_Run_RecordsSessionRowThenMovesItToIdleAtTurnEnd(t *testing.T) {
 	}
 	ctx, notif, sess, h := setupRuntimeTestWithSessions(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work",
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(5), AgentId: 7, Cwd: "/work",
 	})
 	require.NoError(t, err)
 
 	notif.waitFrames(t, 2) // Done + runResultDone
-	assert.Equal(t, []string{"start:5", "finish:5"}, sess.waitSteps(t, 2))
+	assert.Equal(t, []string{"start:" + convID(5), "finish:" + convID(5)}, sess.waitSteps(t, 2))
 	assert.Equal(t, []handlers.SessionRecord{{
-		PeerSessionID: "5", AgentID: 7, Cwd: "/work",
+		PeerSessionID: convID(5), AgentID: 7, Cwd: "/work",
 		BackendType:    string(agent_backend_entity.TypeClaudeCode),
 		LifecycleState: wire.SessionLifecycleRunning,
 	}}, sess.started(), "起手必须建行并置 running,带上客户端展示要用的元数据")
@@ -1883,15 +2129,15 @@ func TestRuntime_Run_PersistsTitleAgentSyncIDAndProviderSessionID(t *testing.T) 
 	}
 	ctx, notif, sess, h := setupRuntimeTestWithSessions(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work",
-		Title: "fix the bug", AgentSyncID: "01HXsync000000000000000000",
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(5), AgentId: 7, Cwd: "/work",
+		Title: "fix the bug", AgentSyncId: "01HXsync000000000000000000",
 	})
 	require.NoError(t, err)
 
 	notif.waitFrames(t, 2) // Done + runResultDone
 	assert.Equal(t, []handlers.SessionRecord{{
-		PeerSessionID:     "5",
+		PeerSessionID:     convID(5),
 		AgentID:           7,
 		Cwd:               "/work",
 		BackendType:       string(agent_backend_entity.TypeClaudeCode),
@@ -1900,6 +2146,25 @@ func TestRuntime_Run_PersistsTitleAgentSyncIDAndProviderSessionID(t *testing.T) 
 		AgentSyncID:       "01HXsync000000000000000000",
 		ProviderSessionID: "claude-abc123",
 	}}, sess.started(), "起手建行必须带上标题、Agent 同步标识与 daemon 收回的 provider_session_id")
+}
+
+// TestRuntime_Run_ForwardsAgentSyncIDToRuntime 覆盖 web 发起的随手对话:浏览器没有
+// daemon 本地自增 agentID,没选项目时 cwd 也为空,runtime 只能用账号级同步标识解析
+// Agent 工作目录。协议边界收到的 AgentSyncID 必须原样进入 RunRequest。
+func TestRuntime_Run_ForwardsAgentSyncIDToRuntime(t *testing.T) {
+	rt := &fullRT{}
+	ctx, notif, _, h := setupRuntimeTestWithSessions(t, rt)
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(5), AgentId: 0, Cwd: "",
+		AgentSyncId: "01KZNE7YKJQ6A79YVDCMW1A63R",
+	})
+	require.NoError(t, err)
+	notif.waitFrames(t, 1) // runResultDone
+	require.Len(t, rt.runReqs, 1)
+	assert.Equal(t, "01KZNE7YKJQ6A79YVDCMW1A63R", rt.runReqs[0].req.AgentSyncID,
+		"web 随手对话必须把协议里的 AgentSyncID 交给 runtime 解析兜底 cwd")
 }
 
 // TestRuntime_Run_ContinuationResolvesStoredProviderSessionID 覆盖决策 8:provider_session_id
@@ -1916,13 +2181,13 @@ func TestRuntime_Run_ContinuationResolvesStoredProviderSessionID(t *testing.T) {
 	ctx, notif, _, h := setupRuntimeTestWithSessions(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
 	// 第一轮:daemon 从 result 收回 providerSessionID 并落库。
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work"})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(5), AgentId: 7, Cwd: "/work"})
 	require.NoError(t, err)
 	notif.waitFrames(t, 2)
 	require.Len(t, rt.runReqs, 1)
 
 	// 第二轮:调用方不再提供 providerSessionID(决策 8)。
-	_, err = h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work"})
+	_, err = h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(5), AgentId: 7, Cwd: "/work"})
 	require.NoError(t, err)
 	notif.waitFrames(t, 2)
 	require.Len(t, rt.runReqs, 2)
@@ -1947,13 +2212,13 @@ func TestRuntime_Run_FreshSessionSkipsStoredProviderSessionID(t *testing.T) {
 	ctx, notif, _, h := setupRuntimeTestWithSessions(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
 	// 第一轮:daemon 从 result 收回 providerSessionID 并落库。
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work"})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(5), AgentId: 7, Cwd: "/work"})
 	require.NoError(t, err)
 	notif.waitFrames(t, 2)
 	require.Len(t, rt.runReqs, 1)
 
 	// 第二轮:调用方显式声明 freshSession —— 落库已有旧 id,也必须起全新会话。
-	_, err = h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work", FreshSession: true})
+	_, err = h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(5), AgentId: 7, Cwd: "/work", FreshSession: true})
 	require.NoError(t, err)
 	notif.waitFrames(t, 2)
 	require.Len(t, rt.runReqs, 2)
@@ -1981,14 +2246,14 @@ func TestRuntime_Run_AutonomousTurnMovesLifecycleBackToRunning(t *testing.T) {
 	}
 	ctx, _, sess, h := setupRuntimeTestWithSessions(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 5})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(5)})
 	require.NoError(t, err)
 
 	// 主轮 start + 主轮 finish + 自主续轮 running + 自主续轮 finish;两条 fanout
 	// goroutine 交错,所以断言内容与条数而不是顺序。
 	steps := sess.waitSteps(t, 4)
-	assert.Contains(t, steps, "running:5", "自主续轮开始时会话必须回到 running")
-	assert.Equal(t, 2, countStep(steps, "finish:5"), "自主续轮结束同样要落回 idle")
+	assert.Contains(t, steps, "running:"+convID(5), "自主续轮开始时会话必须回到 running")
+	assert.Equal(t, 2, countStep(steps, "finish:"+convID(5)), "自主续轮结束同样要落回 idle")
 }
 
 // ── SubmitAnswer / SubmitToolPermission idempotency (R8) ────────────────────
@@ -2002,13 +2267,13 @@ func TestRuntime_SubmitAnswer_SameRequestIDTwice_SecondCallStillSucceeds(t *test
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 5)
 	defer close(live)
 
-	_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 5, RequestID: "r-1"})
+	_, err := h.SubmitAnswer(ctx, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: convID(5), RequestId: "r-1"})
 	require.NoError(t, err)
 
 	// Real backends take-and-delete the waiter on first submit; simulate
 	// the second call landing on an already-taken requestID.
 	rt.submitAnswerErr = agentruntime.ErrWaiterNotFound
-	_, err = h.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 5, RequestID: "r-1"})
+	_, err = h.SubmitAnswer(ctx, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: convID(5), RequestId: "r-1"})
 	require.NoError(t, err)
 	assert.Len(t, rt.submitAnswerCalls, 2)
 }
@@ -2018,7 +2283,7 @@ func TestRuntime_SubmitAnswer_WaiterAlreadyGone_IdempotentSuccess(t *testing.T) 
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 5)
 	defer close(live)
 
-	_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 5, RequestID: "vanished"})
+	_, err := h.SubmitAnswer(ctx, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: convID(5), RequestId: "vanished"})
 	require.NoError(t, err)
 }
 
@@ -2027,7 +2292,7 @@ func TestRuntime_SubmitAnswer_SessionGone_IdempotentSuccess(t *testing.T) {
 	// restarted, session marked interrupted" case reduces to this same
 	// resolveSession failure at the current (non-persistent) daemon.
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
-	_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 999, RequestID: "r-1"})
+	_, err := h.SubmitAnswer(ctx, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: convID(999), RequestId: "r-1"})
 	require.NoError(t, err)
 }
 
@@ -2036,11 +2301,11 @@ func TestRuntime_SubmitToolPermission_SameRequestIDTwice_SecondCallStillSucceeds
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 6)
 	defer close(live)
 
-	_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 6, RequestID: "p-1", Allow: true})
+	_, err := h.SubmitToolPermission(ctx, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(6), RequestId: "p-1", Allow: true})
 	require.NoError(t, err)
 
 	rt.submitToolPermErr = agentruntime.ErrWaiterNotFound
-	_, err = h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 6, RequestID: "p-1", Allow: true})
+	_, err = h.SubmitToolPermission(ctx, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(6), RequestId: "p-1", Allow: true})
 	require.NoError(t, err)
 	assert.Len(t, rt.submitToolPermCalls, 2)
 }
@@ -2050,13 +2315,13 @@ func TestRuntime_SubmitToolPermission_WaiterAlreadyGone_IdempotentSuccess(t *tes
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 6)
 	defer close(live)
 
-	_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 6, RequestID: "vanished"})
+	_, err := h.SubmitToolPermission(ctx, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(6), RequestId: "vanished"})
 	require.NoError(t, err)
 }
 
 func TestRuntime_SubmitToolPermission_SessionGone_IdempotentSuccess(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
-	_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 999, RequestID: "p-1"})
+	_, err := h.SubmitToolPermission(ctx, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(999), RequestId: "p-1"})
 	require.NoError(t, err)
 }
 
@@ -2079,7 +2344,7 @@ func TestRuntime_Submit_BackendNotRegistered_IsNotFoldedIntoSuccess(t *testing.T
 		defer close(live)
 		unwire(h)
 
-		_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 5, RequestID: "r-1"})
+		_, err := h.SubmitAnswer(ctx, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: convID(5), RequestId: "r-1"})
 		require.Error(t, err, "接线故障不是 R8 的幂等场景,不能报成 OK")
 		code, ok := wire.CodeForSentinel(err)
 		require.True(t, ok, "过线错误码必须仍然是既有 sentinel")
@@ -2091,7 +2356,7 @@ func TestRuntime_Submit_BackendNotRegistered_IsNotFoldedIntoSuccess(t *testing.T
 		defer close(live)
 		unwire(h)
 
-		_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 6, RequestID: "p-1"})
+		_, err := h.SubmitToolPermission(ctx, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(6), RequestId: "p-1"})
 		require.Error(t, err)
 		code, ok := wire.CodeForSentinel(err)
 		require.True(t, ok)
@@ -2119,14 +2384,14 @@ func TestRuntime_Submit_SessionOwnedByAnotherHandler_IsNotFoldedIntoSuccess(t *t
 		}
 		sess := newRecordingSessions()
 		owner := newRuntimeHandlersOn(rt, sess, newRecordingOutbound())
-		runWithRT(t, owner, context.Background(), sid)
+		runWithRT(t, owner, context.Background(), convID(sid))
 		// 后接入那条连接的 handler:同一批会话行,自己的内存会话表是空的。
 		return rt, newRuntimeHandlersOn(rt, sess, newRecordingOutbound()), sess
 	}
 
 	t.Run("submitAnswer", func(t *testing.T) {
 		rt, other, _ := newPair(t, 11)
-		_, err := other.SubmitAnswer(context.Background(), wire.SubmitAnswerParams{SessionID: 11, RequestID: "r-1"})
+		_, err := other.SubmitAnswer(context.Background(), &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: convID(11), RequestId: "r-1"})
 		require.Error(t, err, "会话还在跑,提交没送达就不能报成 OK")
 		code, ok := wire.CodeForSentinel(err)
 		require.True(t, ok, "过线错误码必须仍然是既有 sentinel")
@@ -2136,7 +2401,7 @@ func TestRuntime_Submit_SessionOwnedByAnotherHandler_IsNotFoldedIntoSuccess(t *t
 
 	t.Run("submitToolPermission", func(t *testing.T) {
 		rt, other, _ := newPair(t, 12)
-		_, err := other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{SessionID: 12, RequestID: "p-1"})
+		_, err := other.SubmitToolPermission(context.Background(), &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(12), RequestId: "p-1"})
 		require.Error(t, err)
 		code, ok := wire.CodeForSentinel(err)
 		require.True(t, ok)
@@ -2147,8 +2412,8 @@ func TestRuntime_Submit_SessionOwnedByAnotherHandler_IsNotFoldedIntoSuccess(t *t
 	// 接管之后就解得出会话了 —— 这正是客户端收到错误后走的那条路,证明报错是可行动的。
 	t.Run("adopt then retry succeeds", func(t *testing.T) {
 		rt, other, _ := newPair(t, 13)
-		other.Adopt(context.Background(), 13, agent_backend_entity.TypeClaudeCode)
-		_, err := other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{SessionID: 13, RequestID: "p-1"})
+		other.Adopt(context.Background(), convID(13), agent_backend_entity.TypeClaudeCode)
+		_, err := other.SubmitToolPermission(context.Background(), &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(13), RequestId: "p-1"})
 		require.NoError(t, err)
 		require.Len(t, rt.submitToolPermCalls, 1)
 	})
@@ -2160,7 +2425,7 @@ func TestRuntime_Submit_SessionOwnedByAnotherHandler_IsNotFoldedIntoSuccess(t *t
 		sess.mu.Lock()
 		sess.findErr = errors.New("database is locked")
 		sess.mu.Unlock()
-		_, err := other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{SessionID: 14, RequestID: "p-1"})
+		_, err := other.SubmitToolPermission(context.Background(), &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(14), RequestId: "p-1"})
 		require.NoError(t, err)
 	})
 }
@@ -2182,9 +2447,9 @@ func TestRuntime_Submit_SessionNoLongerRunning_StaysIdempotent(t *testing.T) {
 			// 会话行在库里,但已经不是 running。
 			sess.setLifecycle("", "21", state)
 
-			_, err := other.SubmitAnswer(context.Background(), wire.SubmitAnswerParams{SessionID: 21, RequestID: "r-1"})
+			_, err := other.SubmitAnswer(context.Background(), &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: convID(21), RequestId: "r-1"})
 			require.NoError(t, err)
-			_, err = other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{SessionID: 21, RequestID: "p-1"})
+			_, err = other.SubmitToolPermission(context.Background(), &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(21), RequestId: "p-1"})
 			require.NoError(t, err)
 		})
 	}
@@ -2194,9 +2459,9 @@ func TestRuntime_Submit_SessionNoLongerRunning_StaysIdempotent(t *testing.T) {
 		sess := newRecordingSessions()
 		other := newRuntimeHandlersOn(rt, sess, newRecordingOutbound())
 
-		_, err := other.SubmitAnswer(context.Background(), wire.SubmitAnswerParams{SessionID: 22, RequestID: "r-1"})
+		_, err := other.SubmitAnswer(context.Background(), &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: convID(22), RequestId: "r-1"})
 		require.NoError(t, err)
-		_, err = other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{SessionID: 22, RequestID: "p-1"})
+		_, err = other.SubmitToolPermission(context.Background(), &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(22), RequestId: "p-1"})
 		require.NoError(t, err)
 	})
 }
@@ -2219,7 +2484,7 @@ func TestRuntime_Submit_DuringTurnTeardown_StaysIdempotent(t *testing.T) {
 	}
 	sess := newRecordingSessions()
 	h := newRuntimeHandlersOn(rt, sess, newRecordingOutbound())
-	runWithRT(t, h, context.Background(), 31)
+	runWithRT(t, h, context.Background(), convID(31))
 
 	entered, release := sess.holdFinish()
 	close(live) // 一轮结束 → fanout 开始收尾
@@ -2231,10 +2496,10 @@ func TestRuntime_Submit_DuringTurnTeardown_StaysIdempotent(t *testing.T) {
 	defer release()
 
 	_, err := h.SubmitToolPermission(context.Background(),
-		wire.SubmitToolPermissionParams{SessionID: 31, RequestID: "p-1"})
+		&agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(31), RequestId: "p-1"})
 	assert.NoError(t, err, "轮末收尾中的提交按 R8 幂等成功,不能变成假失败")
 	_, err = h.SubmitAnswer(context.Background(),
-		wire.SubmitAnswerParams{SessionID: 31, RequestID: "r-1"})
+		&agentrewire.RuntimeSubmitAnswerRequest{ConversationId: convID(31), RequestId: "r-1"})
 	assert.NoError(t, err, "轮末收尾中的提交按 R8 幂等成功,不能变成假失败")
 }
 
@@ -2265,226 +2530,33 @@ func TestRuntime_AllEventsRoundTripThroughNotify(t *testing.T) {
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 100})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(100)})
 	require.NoError(t, err)
 
-	frames := notif.waitFrames(t, len(events)+1) // +1 for runResultDone
+	frames := notif.waitFrames(t, len(events)+2) // +1 turnStarted, +1 runResultDone
 
-	// Every event frame must carry SessionID + a non-empty Event RawMessage
+	// Every event frame must carry ConversationID + a non-empty Event RawMessage
 	// whose top-level "kind" is non-empty.
 	for i := range events {
-		f := frames[i]
+		f := frames[i+1] // frames[0] 是这一轮的开始通知
 		assert.Equal(t, wire.NotifyEvent, f.method)
 		ef, ok := f.params.(*wire.EventFrame)
 		require.True(t, ok, "frame %d: expected EventFrame, got %T", i, f.params)
-		assert.Equal(t, int64(100), ef.SessionID)
-		var head struct {
-			Kind string `json:"kind"`
-		}
-		require.NoError(t, json.Unmarshal(ef.Event, &head))
-		assert.NotEmpty(t, head.Kind, "frame %d kind must be present", i)
+		assert.Equal(t, convID(100), ef.ConversationID)
+		assert.NotNil(t, ef.Event, "frame %d must carry an event", i)
 	}
 }
 
-// ── 会话通知出口:先落库,后推送 ───────────────────────────────────────────
+// ── 会话通知出口:推送目标每次现解析 ────────────────────────────────────────
 
-// assertJournaledBeforePushed 断言时间线上每条推送都排在它自己那条落库之后(R1),
-// 且没有任何一条通知是没落库就推出去的。按 (method, seq) 精确配对,不只数条数。
-func assertJournaledBeforePushed(t *testing.T, steps []string) {
-	t.Helper()
-	appendedAt := map[string]int{}
-	for i, s := range steps {
-		if key, ok := strings.CutPrefix(s, "append:"); ok {
-			appendedAt[key] = i
-		}
-	}
-	for i, s := range steps {
-		key, ok := strings.CutPrefix(s, "notify:")
-		if !ok {
-			continue
-		}
-		at, journaled := appendedAt[key]
-		require.Truef(t, journaled, "推送了一条没落库的通知 %s;时间线 %v", key, steps)
-		assert.Lessf(t, at, i, "通知 %s 的推送排在它自己的落库之前;时间线 %v", key, steps)
-	}
-}
-
-func journalSeqs(rows []journalRow) []int64 {
-	out := make([]int64, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, r.seq)
-	}
-	return out
-}
-
-func journalMethods(rows []journalRow) []string {
-	out := make([]string, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, r.method)
-	}
-	return out
-}
-
-// TestRuntime_Run_JournalsEveryNotificationBeforePushingWithSeq 覆盖 R1 与 R6 的 daemon
-// 半边:五类会话通知(runtime.event / runtime.runResultDone / autonomousTurn.started /
-// .event / .done)每一条都先以下一个 seq 落进通知日志,落库成功之后才带着这个 seq 推出去。
-// 日志里存的是不含 seq 的帧原样,seq 是行自己的属性。
-// 会拒绝的错误实现:直接推不落库;落了库但帧上不盖 seq;推完再补落库;只覆盖 run 流的
-// 两类而漏掉自主续轮的三类。
-func TestRuntime_Run_JournalsEveryNotificationBeforePushingWithSeq(t *testing.T) {
-	rt := &fullRT{}
-	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
-		ch := make(chan agentruntime.Event, 1)
-		ch <- agentruntime.TextDelta{Text: "hi"}
-		close(ch)
-		return ch, &agentruntime.RunResult{ProviderSessionID: "psid-1"}, nil
-	}
-	rt.autoFn = func(_ int64) <-chan agentruntime.AutonomousTurn {
-		out := make(chan agentruntime.AutonomousTurn, 1)
-		evs := make(chan agentruntime.Event, 1)
-		evs <- agentruntime.TextDelta{Text: "autonomous"}
-		close(evs)
-		out <- agentruntime.AutonomousTurn{Events: evs, Result: &agentruntime.RunResult{}, Trigger: "background_task"}
-		close(out)
-		return out
-	}
-	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
-
-	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 42, Cwd: "/tmp", UserText: "hi"})
-	require.NoError(t, err)
-
-	// run 流 2 条(event + runResultDone)+ 自主续轮 3 条(started + event + done)。
-	frames := notif.waitFrames(t, 5)
-	rows := notif.journalRows()
-
-	require.Len(t, rows, 5, "五类通知每条都必须落库")
-	assert.ElementsMatch(t, []int64{1, 2, 3, 4, 5}, journalSeqs(rows), "seq 从 1 起单调无洞")
-	assert.ElementsMatch(t, []string{
-		wire.NotifyEvent,
-		wire.NotifyRunResultDone,
-		wire.NotifyAutonomousTurnStarted,
-		wire.NotifyAutonomousTurnEvent,
-		wire.NotifyAutonomousTurnDone,
-	}, journalMethods(rows), "五类通知一条都不能漏")
-
-	bySeq := map[int64]journalRow{}
-	for _, r := range rows {
-		bySeq[r.seq] = r
-		assert.Equal(t, "42", r.session, "会话身份的后半段是对端会话 id")
-		assert.NotContains(t, r.payload, `"seq"`, "日志里存的是不含 seq 的帧原样,seq 是行自己的列")
-	}
-
-	// 每条推出去的帧都盖着它那条日志行的 seq,且 method 与该行一致。
-	pushedSeqs := make([]int64, 0, len(frames))
-	for _, f := range frames {
-		seq := frameSeq(f.params)
-		row, ok := bySeq[seq]
-		require.Truef(t, ok, "推送帧带的 seq=%d 在日志里不存在(method=%s)", seq, f.method)
-		assert.Equal(t, row.method, f.method)
-		pushedSeqs = append(pushedSeqs, seq)
-	}
-	assert.ElementsMatch(t, []int64{1, 2, 3, 4, 5}, pushedSeqs, "每条推送都带自己的 seq")
-
-	assertJournaledBeforePushed(t, notif.stepLog())
-
-	// 落库与推送必须用同一个对端身份 —— 单测的 ctx 上没有连接,指纹为空串,这里钉的是
-	// 「两边取的是同一个值」,真实指纹的捕获由带真连接的集成路径覆盖。
-	resolved := notif.resolvedPeers()
-	require.NotEmpty(t, resolved, "推送目标必须在发送时解析")
-	for _, peer := range resolved {
-		assert.Equal(t, rows[0].peer, peer)
-	}
-}
-
-// TestRuntime_Run_PushFailureLeavesJournalIntact 覆盖 R2:推送失败(连接已死 / 写超时)
-// 时该条通知已经落库、seq 已经推进,daemon 记日志后继续处理下一条 —— 不回滚、不重试、
-// 不阻塞后续通知。会拒绝的错误实现:推送失败就删日志行 / 重试 / 中断 fanout。
-func TestRuntime_Run_PushFailureLeavesJournalIntact(t *testing.T) {
-	rt := &fullRT{}
-	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
-		ch := make(chan agentruntime.Event, 2)
-		ch <- agentruntime.TextDelta{Text: "one"}
-		ch <- agentruntime.TextDelta{Text: "two"}
-		close(ch)
-		return ch, &agentruntime.RunResult{ProviderSessionID: "psid-1"}, nil
-	}
-	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
-	notif.notifyFail = func(string) error { return errors.New("connection reset by peer") }
-
-	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypePiAgent), Name: "x"}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 42})
-	require.NoError(t, err)
-
-	// 2 条 event + 1 条 runResultDone,每条一次落库 + 一次失败推送 = 6 步。
-	steps := notif.waitSteps(t, 6)
-
-	rows := notif.journalRows()
-	require.Len(t, rows, 3, "推送失败不影响落库")
-	assert.Equal(t, []int64{1, 2, 3}, journalSeqs(rows), "推送失败不回滚 seq,后续通知照常推进")
-	assert.Equal(t, []string{wire.NotifyEvent, wire.NotifyEvent, wire.NotifyRunResultDone}, journalMethods(rows),
-		"第一条推送失败后,后面的通知仍然继续落库")
-	assert.Empty(t, notif.snapshot(), "推送全失败时不该有任何帧被记下")
-
-	attempts := 0
-	for _, s := range steps {
-		if strings.HasPrefix(s, "notify-failed:") {
-			attempts++
-		}
-	}
-	assert.Equal(t, 3, attempts, "每条通知只尝试推一次,不重试")
-}
-
-// TestRuntime_Run_JournalFailureSkipsPushAndDoesNotAdvanceSeq 覆盖 R3:落库失败时该条
-// 通知不推送,seq 也不推进 —— 后面那条通知拿到的是紧接着的 seq,客户端看到的连续 seq
-// 因此仍是完整序列。会拒绝的错误实现:落库失败照样推;或 handler 自己维护一个计数器当
-// seq(那样后一条会带 3 而不是 2,客户端会误判丢了一条并触发无谓补洞)。
-func TestRuntime_Run_JournalFailureSkipsPushAndDoesNotAdvanceSeq(t *testing.T) {
-	rt := &fullRT{}
-	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
-		ch := make(chan agentruntime.Event, 3)
-		ch <- agentruntime.TextDelta{Text: "ok-1"}
-		ch <- agentruntime.TextDelta{Text: "boom"}
-		ch <- agentruntime.TextDelta{Text: "ok-2"}
-		close(ch)
-		return ch, &agentruntime.RunResult{}, nil
-	}
-	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
-	notif.appendFail = func(_ string, payload json.RawMessage) error {
-		if strings.Contains(string(payload), "boom") {
-			return errors.New("disk I/O error")
-		}
-		return nil
-	}
-
-	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypePiAgent), Name: "x"}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 42})
-	require.NoError(t, err)
-
-	// 落库成功的 3 条(ok-1 / ok-2 / runResultDone)会被推出去;失败那条不推。
-	frames := notif.waitFrames(t, 3)
-	require.Len(t, frames, 3)
-
-	for _, f := range frames {
-		if ef, ok := f.params.(*wire.EventFrame); ok {
-			assert.NotContains(t, string(ef.Event), "boom", "落库失败的通知不得推送")
-		}
-	}
-	assert.Equal(t, []int64{1, 2, 3}, []int64{
-		frameSeq(frames[0].params), frameSeq(frames[1].params), frameSeq(frames[2].params),
-	}, "落库失败不推进 seq:后一条拿到的是紧接着的 seq,不是跳号")
-
-	rows := notif.journalRows()
-	require.Len(t, rows, 3, "失败那条不落行")
-	assert.Equal(t, []int64{1, 2, 3}, journalSeqs(rows))
-	assert.Contains(t, notif.stepLog(), "append-failed:"+wire.NotifyEvent)
-}
-
-// TestRuntime_Run_OfflinePeerJournalsAndResumesPushingOnReconnect 覆盖断连场景下的出口
-// 行为:对端不在线时通知照样落库(重连后才补得齐),而推送目标是**发送那一刻**才解析的
-// —— 对端回来之后,同一轮里后续的通知立刻又推得出去。会拒绝的错误实现:把推送端口在
-// runtime.run 期间静态捕获(重连后所有通知永远发往那条死连接),或对端不在线时干脆不落库。
-func TestRuntime_Run_OfflinePeerJournalsAndResumesPushingOnReconnect(t *testing.T) {
+// TestRuntime_Run_OfflinePeerResumesPushingOnReconnect 覆盖断连场景下的出口行为:
+// 推送目标是**发送那一刻**才解析的 —— 对端回来之后,同一轮里后续的通知立刻又推得出去。
+// 会拒绝的错误实现:把推送端口在 runtime.run 期间静态捕获(重连后所有通知永远发往那条
+// 死连接)。
+//
+// 离线期间那几帧就此丢失,这是预览帧的定义(决策 4):同一段内容的事实此刻正被写进块表,
+// 对端重连后补齐读的是那一份,而不是这几帧。
+func TestRuntime_Run_OfflinePeerResumesPushingOnReconnect(t *testing.T) {
 	rt := &fullRT{}
 	live := make(chan agentruntime.Event)
 	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
@@ -2494,26 +2566,24 @@ func TestRuntime_Run_OfflinePeerJournalsAndResumesPushingOnReconnect(t *testing.
 	notif.setOffline(true) // 客户端此刻断开着
 
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypePiAgent), Name: "x"}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 42})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(42)})
 	require.NoError(t, err)
 
 	live <- agentruntime.TextDelta{Text: "while-offline"}
-	notif.waitSteps(t, 1)
-	require.Len(t, notif.journalRows(), 1, "对端不在线也必须落库")
+	// turnStarted 那条也落在离线期间(它排在这一轮任何一条事件之前)。
+	notif.waitResolves(t, 2)
 	assert.Empty(t, notif.snapshot(), "没有活连接时不推送")
 
 	notif.setOffline(false) // 客户端重连
 	live <- agentruntime.TextDelta{Text: "after-reconnect"}
 	frames := notif.waitFrames(t, 1)
 	require.Len(t, frames, 1)
-	assert.Equal(t, int64(2), frameSeq(frames[0].params), "断连期间那条已经占了 seq=1")
+	assert.Equal(t, wire.NotifyEvent, frames[0].method)
 
 	close(live)
 	frames = notif.waitFrames(t, 2)
 	assert.Equal(t, wire.NotifyRunResultDone, frames[1].method)
-	assert.Equal(t, int64(3), frameSeq(frames[1].params))
-	assert.Equal(t, []int64{1, 2, 3}, journalSeqs(notif.journalRows()))
-	assert.Len(t, notif.resolvedPeers(), 3,
+	assert.GreaterOrEqual(t, len(notif.resolvedPeers()), 4,
 		"每条通知都要重新解析一次推送目标(解析一次就缓存下来的实现会一直推给旧连接)")
 }
 
@@ -2814,23 +2884,6 @@ func (p *scriptedPreparedPiRun) finish() {
 	p.finishOnce.Do(func() { close(p.events) })
 }
 
-type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *lockedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
-
-func (b *lockedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
-}
-
 type trackingGenerationRegistry struct {
 	mu       sync.Mutex
 	owners   map[int64]string
@@ -2844,7 +2897,7 @@ func newTrackingGenerationRegistry() *trackingGenerationRegistry {
 	}
 }
 
-func (r *trackingGenerationRegistry) ClaimRuntimeGeneration(_ *rpc.Conn, sessionID int64, generation string) bool {
+func (r *trackingGenerationRegistry) ClaimConnection(_ connection.Conn, sessionID int64, generation string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.owners[sessionID] != "" {
@@ -2854,7 +2907,7 @@ func (r *trackingGenerationRegistry) ClaimRuntimeGeneration(_ *rpc.Conn, session
 	return true
 }
 
-func (r *trackingGenerationRegistry) ReleaseRuntimeGeneration(_ *rpc.Conn, sessionID int64, generation string) bool {
+func (r *trackingGenerationRegistry) ReleaseConnection(_ connection.Conn, sessionID int64, generation string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.owners[sessionID] != generation {
@@ -2904,12 +2957,12 @@ func (c *doneObservingContext) Done() <-chan struct{} {
 	return c.done
 }
 
-func (n *blockingTerminalNotifier) Notify(method string, params any) error {
-	if method == wire.NotifyRunResultDone {
+func (n *blockingTerminalNotifier) Notify(notification *agentrewire.RpcNotification) error {
+	if protowire.NotificationMethod(notification) == wire.NotifyRunResultDone {
 		n.once.Do(func() { close(n.entered) })
 		<-n.allow
 	}
-	return n.recording.Notify(method, params)
+	return n.recording.Notify(notification)
 }
 
 func TestRuntime_PiPendingGenerationIsAbortableBeforePreparationReturns(t *testing.T) {
@@ -2919,7 +2972,7 @@ func TestRuntime_PiPendingGenerationIsAbortableBeforePreparationReturns(t *testi
 
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 41, PermissionMode: "generation-41"}
+	params := &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(41), PermissionMode: "generation-41"}
 	_, err := h.Run(runCtx, params)
 	require.NoError(t, err)
 	errC := make(chan error, 1)
@@ -2929,7 +2982,7 @@ func TestRuntime_PiPendingGenerationIsAbortableBeforePreparationReturns(t *testi
 	}()
 	<-rt.entered
 
-	_, err = h.Abort(ctx, wire.AbortParams{SessionID: 41})
+	_, err = h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: convID(41)})
 	require.NoError(t, err)
 	require.ErrorIs(t, <-errC, context.Canceled)
 }
@@ -2938,7 +2991,7 @@ func TestRuntime_ConnectionCloseCancelsPendingPiPreparation(t *testing.T) {
 	rt := &blockingPreparedPiRT{entered: make(chan struct{})}
 	ctx, _, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 141, PermissionMode: "generation-141"}
+	params := &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(141), PermissionMode: "generation-141"}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
@@ -2953,7 +3006,7 @@ func TestRuntime_ConnectionCloseCancelsPendingPiPreparation(t *testing.T) {
 	defer cancelCleanup()
 	require.NoError(t, h.Close(cleanupCtx))
 	require.ErrorIs(t, <-prepareErrC, context.Canceled)
-	_, err = h.Abort(ctx, wire.AbortParams{SessionID: 141})
+	_, err = h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: convID(141)})
 	require.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
 }
 
@@ -2961,7 +3014,7 @@ func TestRuntime_ConnectionCloseClosesPreparedPiResourcesBeforeStart(t *testing.
 	rt := newScriptedPreparedPiRT("pi-session-prepared")
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 142, PermissionMode: "generation-142"}
+	params := &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(142), PermissionMode: "generation-142"}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
@@ -2981,13 +3034,13 @@ func TestRuntime_ConnectionCloseClosesRunningPiResourcesWithoutTerminalNotify(t 
 	rt := newScriptedPreparedPiRT("pi-session-running")
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 143, PermissionMode: "generation-143"}
+	params := &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(143), PermissionMode: "generation-143"}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
 	ack, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	params.ProviderSessionID = ack.ProviderSessionID
+	params.ProviderSessionId = ack.GetProviderSessionId()
 	_, err = h.Run(ctx, params)
 	require.NoError(t, err)
 
@@ -3004,19 +3057,19 @@ func TestRuntime_ConnectionCloseWaitsForConcurrentExplicitAbortWithoutDeadlock(t
 	rt := newBlockingAbortAcceptedPiRT()
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 144, PermissionMode: "generation-144"}
+	params := &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(144), PermissionMode: "generation-144"}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
 	ack, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	params.ProviderSessionID = ack.ProviderSessionID
+	params.ProviderSessionId = ack.GetProviderSessionId()
 	_, err = h.Run(ctx, params)
 	require.NoError(t, err)
 
 	abortErrC := make(chan error, 1)
 	go func() {
-		_, abortErr := h.Abort(ctx, wire.AbortParams{SessionID: 144})
+		_, abortErr := h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: convID(144)})
 		abortErrC <- abortErr
 	}()
 	<-rt.abortEntered
@@ -3052,7 +3105,6 @@ func TestRuntime_PiAbortStartRaceFinalizesOwnerAndAllowsRetry(t *testing.T) {
 			sessions := newRecordingSessions()
 			h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
 				NotifyFor:          outbound.notifierFor,
-				Journal:            outbound,
 				Sessions:           sessions,
 				SessionQuery:       sessions,
 				Gateway:            mock_handlers.NewMockGatewayPort(ctrl),
@@ -3064,15 +3116,15 @@ func TestRuntime_PiAbortStartRaceFinalizesOwnerAndAllowsRetry(t *testing.T) {
 			})
 			ctx := context.Background()
 			be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-			params := wire.RunParams{
-				Backend: backendJSON(t, be), SessionID: 244, PermissionMode: "generation-racing",
+			params := &agentrewire.RuntimeRunRequest{
+				Backend: backendProto(t, be), ConversationId: convID(244), PermissionMode: "generation-racing",
 			}
 
 			_, err := h.Run(ctx, params)
 			require.NoError(t, err)
 			ack, err := h.Run(ctx, params)
 			require.NoError(t, err)
-			params.ProviderSessionID = ack.ProviderSessionID
+			params.ProviderSessionId = ack.GetProviderSessionId()
 			startErrC := make(chan error, 1)
 			go func() {
 				_, startErr := h.Run(ctx, params)
@@ -3080,21 +3132,21 @@ func TestRuntime_PiAbortStartRaceFinalizesOwnerAndAllowsRetry(t *testing.T) {
 			}()
 			<-rt.prepared.started
 
-			_, abortErr := h.Abort(ctx, wire.AbortParams{SessionID: params.SessionID})
+			_, abortErr := h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: params.ConversationId})
 			require.ErrorContains(t, abortErr, "prepared close failed")
 			require.ErrorIs(t, <-startErrC, context.Canceled)
 			assert.Equal(t, 1, rt.prepared.closeCalls(), "the exact prepared owner must close once")
 			assert.Equal(t, 1, registry.releaseCount("generation-racing"))
 
 			retry := params
-			retry.ProviderSessionID = ""
+			retry.ProviderSessionId = ""
 			retry.PermissionMode = "generation-retry"
 			_, err = h.Run(ctx, retry)
 			require.NoError(t, err, "cancel completion must release registration for an exact retry")
-			assert.Equal(t, "generation-retry", registry.owner(retry.SessionID))
-			_, err = h.Abort(ctx, wire.AbortParams{SessionID: retry.SessionID})
+			assert.Equal(t, "generation-retry", registry.owner(handlers.RuntimeSessionKey(retry.ConversationId)))
+			_, err = h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: retry.ConversationId})
 			require.NoError(t, err)
-			assert.Empty(t, registry.owner(retry.SessionID))
+			assert.Empty(t, registry.owner(handlers.RuntimeSessionKey(retry.ConversationId)))
 		})
 	}
 }
@@ -3103,15 +3155,15 @@ func TestRuntime_PiAbortDuringPromptAcknowledgementClosesExactPreparedProcess(t 
 	rt := newBlockingStartPreparedPiRT()
 	ctx, _, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 44, ProviderSessionID: "pi-session-old", PermissionMode: "generation-44",
+	params := &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(44), ProviderSessionId: "pi-session-old", PermissionMode: "generation-44",
 	}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
 	ack, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	params.ProviderSessionID = ack.ProviderSessionID
+	params.ProviderSessionId = ack.GetProviderSessionId()
 	startErrC := make(chan error, 1)
 	go func() {
 		_, err := h.Run(ctx, params)
@@ -3119,7 +3171,7 @@ func TestRuntime_PiAbortDuringPromptAcknowledgementClosesExactPreparedProcess(t 
 	}()
 	<-rt.prepared.entered
 
-	_, err = h.Abort(ctx, wire.AbortParams{SessionID: 44})
+	_, err = h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: convID(44)})
 	require.NoError(t, err)
 	require.ErrorIs(t, <-startErrC, context.Canceled)
 	<-rt.prepared.closed
@@ -3129,10 +3181,10 @@ func TestRuntime_PiPrepareReturnsIdentityBeforeSecondRunStartsPrompt(t *testing.
 	rt := newScriptedPreparedPiRT("pi-session-new")
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{
-		Backend:           backendJSON(t, be),
-		SessionID:         42,
-		ProviderSessionID: "pi-session-old",
+	params := &agentrewire.RuntimeRunRequest{
+		Backend:           backendProto(t, be),
+		ConversationId:    convID(42),
+		ProviderSessionId: "pi-session-old",
 		ForkAnchor:        "pi-entry-1",
 		UserText:          "replacement",
 		PermissionMode:    "generation-42",
@@ -3140,10 +3192,10 @@ func TestRuntime_PiPrepareReturnsIdentityBeforeSecondRunStartsPrompt(t *testing.
 
 	registrationAck, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	assert.Empty(t, registrationAck.ProviderSessionID)
+	assert.Empty(t, registrationAck.ProviderSessionId)
 	ack, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	assert.Equal(t, "pi-session-new", ack.ProviderSessionID)
+	assert.Equal(t, "pi-session-new", ack.GetProviderSessionId())
 	require.Len(t, rt.requests, 1)
 	assert.Empty(t, rt.requests[0].PermissionMode, "transport generation ownership must not reach Pi runtime")
 	assert.Equal(t, "pi-session-old", rt.requests[0].ProviderSessionID)
@@ -3152,10 +3204,10 @@ func TestRuntime_PiPrepareReturnsIdentityBeforeSecondRunStartsPrompt(t *testing.
 	assert.Zero(t, startCalls, "the preparation response must precede prompt Start")
 	assert.Empty(t, notif.snapshot(), "registration and preparation must not emit turn events")
 
-	params.ProviderSessionID = ack.ProviderSessionID
+	params.ProviderSessionId = ack.GetProviderSessionId()
 	startAck, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	assert.Equal(t, "pi-session-new", startAck.ProviderSessionID)
+	assert.Equal(t, "pi-session-new", startAck.ProviderSessionId)
 	startCalls, _ = rt.prepared[0].counts()
 	assert.Equal(t, 1, startCalls)
 
@@ -3168,19 +3220,19 @@ func TestRuntime_PiAbortSettlesAcceptedTurnBeforeClosingPreparedProcess(t *testi
 	rt := newSettlingAcceptedPiRT()
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 53, PermissionMode: "generation-53",
+	params := &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(53), PermissionMode: "generation-53",
 	}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
 	ack, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	params.ProviderSessionID = ack.ProviderSessionID
+	params.ProviderSessionId = ack.GetProviderSessionId()
 	_, err = h.Run(ctx, params)
 	require.NoError(t, err)
 
-	_, err = h.Abort(ctx, wire.AbortParams{SessionID: 53})
+	_, err = h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: convID(53)})
 	require.NoError(t, err)
 	frames := notif.waitFrames(t, 1)
 	require.Len(t, frames, 1)
@@ -3204,8 +3256,7 @@ func TestRuntime_PiAbortBoundsWaitForClaimedTerminalNotification(t *testing.T) {
 	}
 	sessions := newRecordingSessions()
 	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
-		NotifyFor:    func(string) handlers.NotifierPort { return notif },
-		Journal:      notif.recording,
+		NotifyFor:    func(devicefp.Initiator) handlers.NotifierPort { return notif },
 		Sessions:     sessions,
 		SessionQuery: sessions,
 		Gateway:      mock_handlers.NewMockGatewayPort(ctrl),
@@ -3216,15 +3267,15 @@ func TestRuntime_PiAbortBoundsWaitForClaimedTerminalNotification(t *testing.T) {
 	})
 	ctx := context.Background()
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 154, PermissionMode: "generation-154",
+	params := &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(154), PermissionMode: "generation-154",
 	}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
 	ack, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	params.ProviderSessionID = ack.ProviderSessionID
+	params.ProviderSessionId = ack.GetProviderSessionId()
 	_, err = h.Run(ctx, params)
 	require.NoError(t, err)
 	rt.prepared[0].finish()
@@ -3232,7 +3283,7 @@ func TestRuntime_PiAbortBoundsWaitForClaimedTerminalNotification(t *testing.T) {
 
 	abortErrC := make(chan error, 1)
 	go func() {
-		_, abortErr := h.Abort(context.Background(), wire.AbortParams{SessionID: params.SessionID})
+		_, abortErr := h.Abort(context.Background(), &agentrewire.RuntimeAbortRequest{ConversationId: params.ConversationId})
 		abortErrC <- abortErr
 	}()
 	select {
@@ -3265,8 +3316,7 @@ func TestRuntime_PiAbortWaitsForClaimedTerminalNotification(t *testing.T) {
 	generationRegistry := newTrackingGenerationRegistry()
 	sessions := newRecordingSessions()
 	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
-		NotifyFor:          func(string) handlers.NotifierPort { return notif },
-		Journal:            notif.recording,
+		NotifyFor:          func(devicefp.Initiator) handlers.NotifierPort { return notif },
 		Sessions:           sessions,
 		SessionQuery:       sessions,
 		Gateway:            mock_handlers.NewMockGatewayPort(ctrl),
@@ -3278,15 +3328,15 @@ func TestRuntime_PiAbortWaitsForClaimedTerminalNotification(t *testing.T) {
 	})
 	ctx := context.Background()
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 54, PermissionMode: "generation-54",
+	params := &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(54), PermissionMode: "generation-54",
 	}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
 	ack, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	params.ProviderSessionID = ack.ProviderSessionID
+	params.ProviderSessionId = ack.GetProviderSessionId()
 	_, err = h.Run(ctx, params)
 	require.NoError(t, err)
 	rt.prepared[0].finish()
@@ -3295,7 +3345,7 @@ func TestRuntime_PiAbortWaitsForClaimedTerminalNotification(t *testing.T) {
 	abortCtx := newDoneObservingContext()
 	abortErrC := make(chan error, 1)
 	go func() {
-		_, abortErr := h.Abort(abortCtx, wire.AbortParams{SessionID: 54})
+		_, abortErr := h.Abort(abortCtx, &agentrewire.RuntimeAbortRequest{ConversationId: convID(54)})
 		abortErrC <- abortErr
 	}()
 	<-abortCtx.observed
@@ -3307,12 +3357,12 @@ func TestRuntime_PiAbortWaitsForClaimedTerminalNotification(t *testing.T) {
 	assert.Equal(t, 1, generationRegistry.releaseCount("generation-54"))
 
 	retry := params
-	retry.ProviderSessionID = ""
+	retry.ProviderSessionId = ""
 	retry.PermissionMode = "generation-54-retry"
 	_, err = h.Run(ctx, retry)
 	require.NoError(t, err, "terminal completion must release registration before Abort returns")
-	assert.Equal(t, "generation-54-retry", generationRegistry.owner(retry.SessionID))
-	_, err = h.Abort(ctx, wire.AbortParams{SessionID: retry.SessionID})
+	assert.Equal(t, "generation-54-retry", generationRegistry.owner(handlers.RuntimeSessionKey(retry.ConversationId)))
+	_, err = h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: retry.ConversationId})
 	require.NoError(t, err)
 }
 
@@ -3322,16 +3372,16 @@ func TestRuntime_PiAbortSettlementCannotTerminateOrNotifyForNewerGeneration(t *t
 	rt.prepared[1].result.Model = "current-model"
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 55, PermissionMode: "generation-55-1"}
+	params := &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(55), PermissionMode: "generation-55-1"}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
 	firstAck, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	params.ProviderSessionID = firstAck.ProviderSessionID
+	params.ProviderSessionId = firstAck.ProviderSessionId
 	_, err = h.Run(ctx, params)
 	require.NoError(t, err)
-	_, err = h.Abort(ctx, wire.AbortParams{SessionID: 55})
+	_, err = h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: convID(55)})
 	require.NoError(t, err)
 	firstFrames := notif.waitFrames(t, 1)
 	require.Len(t, firstFrames, 1)
@@ -3339,12 +3389,18 @@ func TestRuntime_PiAbortSettlementCannotTerminateOrNotifyForNewerGeneration(t *t
 	assert.Equal(t, "stale-model", firstDone.Model)
 	assert.Equal(t, wire.ErrCodeAborted, firstDone.StopErrCode)
 
-	params.ProviderSessionID = firstAck.ProviderSessionID
+	params.ProviderSessionId = firstAck.ProviderSessionId
 	params.PermissionMode = "generation-55-2"
 	_, err = h.Run(ctx, params)
 	require.NoError(t, err)
-	staleParams := params
-	staleParams.PermissionMode = "generation-55-1"
+	// 同一条请求,只把 generation 换回旧的那个 —— 单独造一条而不是改 params:
+	// 请求现在是一条 protobuf 消息(指针),就地改会把 params 一起改掉。
+	staleParams := &agentrewire.RuntimeRunRequest{
+		Backend:           params.GetBackend(),
+		ConversationId:    params.GetConversationId(),
+		ProviderSessionId: params.GetProviderSessionId(),
+		PermissionMode:    "generation-55-1",
+	}
 	_, err = h.Run(ctx, staleParams)
 	require.ErrorContains(t, err, "stale Pi generation")
 	rt.mu.Lock()
@@ -3352,14 +3408,14 @@ func TestRuntime_PiAbortSettlementCannotTerminateOrNotifyForNewerGeneration(t *t
 	rt.mu.Unlock()
 	secondAck, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	assert.Equal(t, "shared-native-session", secondAck.ProviderSessionID)
-	params.ProviderSessionID = secondAck.ProviderSessionID
+	assert.Equal(t, "shared-native-session", secondAck.ProviderSessionId)
+	params.ProviderSessionId = secondAck.ProviderSessionId
 	_, err = h.Run(ctx, params)
 	require.NoError(t, err)
 
 	rt.prepared[1].finish()
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		_, steerErr := h.Steer(ctx, wire.SteerParams{SessionID: 55, Text: "after completion"})
+		_, steerErr := h.Steer(ctx, &agentrewire.RuntimeSteerRequest{ConversationId: convID(55), Text: "after completion"})
 		assert.ErrorIs(c, steerErr, agentruntime.ErrNoActiveTurn)
 	}, time.Second, 10*time.Millisecond)
 
@@ -3388,7 +3444,6 @@ func TestRuntime_ReadoptedPiSessionStillReleasesTheOverwrittenGeneration(t *test
 	registry := newTrackingGenerationRegistry()
 	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
 		NotifyFor:          notif.notifierFor,
-		Journal:            notif,
 		Sessions:           sessions,
 		SessionQuery:       sessions,
 		Gateway:            mock_handlers.NewMockGatewayPort(ctrl),
@@ -3400,11 +3455,11 @@ func TestRuntime_ReadoptedPiSessionStillReleasesTheOverwrittenGeneration(t *test
 	})
 	ctx := context.Background()
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 57, PermissionMode: "generation-57"}
+	params := &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(57), PermissionMode: "generation-57"}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	require.Equal(t, "generation-57", registry.owner(57))
+	require.Equal(t, "generation-57", registry.owner(handlers.RuntimeSessionKey(convID(57))))
 
 	prepareErrC := make(chan error, 1)
 	go func() {
@@ -3412,12 +3467,12 @@ func TestRuntime_ReadoptedPiSessionStillReleasesTheOverwrittenGeneration(t *test
 		prepareErrC <- prepareErr
 	}()
 	<-rt.entered
-	h.Adopt(ctx, 57, agent_backend_entity.TypePiAgent)
+	h.Adopt(ctx, convID(57), agent_backend_entity.TypePiAgent)
 	close(rt.release)
 
 	require.ErrorIs(t, <-prepareErrC, context.Canceled)
 	assert.Equal(t, 1, registry.releaseCount("generation-57"))
-	assert.Empty(t, registry.owner(57), "被顶替的 owner 也必须交还 generation 预约")
+	assert.Empty(t, registry.owner(handlers.RuntimeSessionKey(convID(57))), "被顶替的 owner 也必须交还 generation 预约")
 	_, closed := rt.prepared[0].counts()
 	assert.Equal(t, 1, closed, "被顶替的这一轮仍要关掉自己那个 Pi 进程")
 
@@ -3425,15 +3480,12 @@ func TestRuntime_ReadoptedPiSessionStillReleasesTheOverwrittenGeneration(t *test
 	retry.PermissionMode = "generation-57-retry"
 	_, err = h.Run(ctx, retry)
 	require.NoError(t, err, "预约交还后这条会话必须还能开新一轮")
-	assert.Equal(t, "generation-57-retry", registry.owner(57))
+	assert.Equal(t, "generation-57-retry", registry.owner(handlers.RuntimeSessionKey(convID(57))))
 }
 
 func TestRuntime_FanoutLogsEventClassificationWithoutSerializedPayload(t *testing.T) {
 	const secret = "secret-tool-input-and-private-prompt"
-	var logs lockedBuffer
-	previousWriter := log.Writer()
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(previousWriter) })
+	logs := captureRuntimeLogs(t)
 
 	rt := &fullRT{}
 	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
@@ -3444,11 +3496,11 @@ func TestRuntime_FanoutLogsEventClassificationWithoutSerializedPayload(t *testin
 	}
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 66})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(66)})
 	require.NoError(t, err)
 	_ = notif.waitFrames(t, 2)
 
-	assert.Contains(t, logs.String(), "kind=ErrorEvent")
+	assert.Contains(t, logs.String(), "eventKind:ErrorEvent")
 	assert.NotContains(t, logs.String(), secret)
 	assert.NotContains(t, logs.String(), "payload=")
 }
@@ -3542,11 +3594,11 @@ func TestRuntime_Run_FixedModel_ResolvesSpecificModel(t *testing.T) {
 		handlers.EffectiveModel{ModelKey: "model-fixed", ModelID: "claude-opus-4-5"}, nil)
 	gw.EXPECT().URL().Return("").AnyTimes()
 
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend:        backendJSON(t, be),
-		SessionID:      42,
-		LLMProviderKey: "pk",
-		LLMModelKey:    "model-fixed",
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		LlmProviderKey: "pk",
+		LlmModelKey:    "model-fixed",
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.runReqs, 1)
@@ -3582,11 +3634,11 @@ func TestRuntime_Run_FixedModel_BackendPinned(t *testing.T) {
 	gw.EXPECT().URL().Return("").AnyTimes()
 
 	// 未钉会话：桌面端透传 backend 固定模型作为 wire model key。
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend:        backendJSON(t, be),
-		SessionID:      42,
-		LLMProviderKey: "pk",
-		LLMModelKey:    "model-fixed",
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		LlmProviderKey: "pk",
+		LlmModelKey:    "model-fixed",
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.runReqs, 1)
@@ -3611,11 +3663,11 @@ func TestRuntime_Run_FixedModel_ModelMissing_Blocks(t *testing.T) {
 	lookup.EXPECT().ResolveModel(ctx, "pk", "model-gone").Return(
 		handlers.EffectiveModel{}, errors.New("model model-gone not configured on provider pk"))
 
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend:        backendJSON(t, be),
-		SessionID:      42,
-		LLMProviderKey: "pk",
-		LLMModelKey:    "model-gone",
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		LlmProviderKey: "pk",
+		LlmModelKey:    "model-gone",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "model-gone", "必须点出缺失的模型，而不是静默换默认")
@@ -3635,16 +3687,16 @@ func TestRuntime_Run_FixedModel_ProviderMissing_Blocks(t *testing.T) {
 	// 会话钉的 provider 在 daemon 缺失，且带 fixed model → 阻止，不回退。
 	lookup.EXPECT().FindByKey(ctx, "session-key").Return(nil, errors.New("provider session-key not configured"))
 
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend:        backendJSON(t, be),
-		SessionID:      42,
-		LLMProviderKey: "session-key",
-		LLMModelKey:    "model-fixed",
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		LlmProviderKey: "session-key",
+		LlmModelKey:    "model-fixed",
 	})
 	require.Error(t, err)
-	var rpcErr *rpc.Error
+	var rpcErr *rpcerror.Error
 	require.ErrorAs(t, err, &rpcErr)
-	assert.Equal(t, rpc.ErrProviderMissing.Code, rpcErr.Code)
+	assert.Equal(t, rpcerror.ErrProviderMissing.Code, rpcErr.Code)
 	require.Len(t, rt.runReqs, 0)
 }
 
@@ -3670,13 +3722,13 @@ func TestRuntime_Goal_FixedModel_Resolves(t *testing.T) {
 	gw.EXPECT().IssueToken(ctx, gomock.Any(), time.Hour).Return("goal-token", nil)
 	gw.EXPECT().RevokeToken("goal-token")
 
-	_, err := h.GetGoal(ctx, wire.GoalParams{
-		SessionID:         42,
-		AgentID:           7,
-		ProviderSessionID: "thread-goal",
-		Backend:           backendJSON(t, be),
-		LLMProviderKey:    "provider-key",
-		LLMModelKey:       "model-fixed",
+	_, err := h.GetGoal(ctx, &agentrewire.RuntimeGoalRequest{
+		ConversationId:    convID(42),
+		AgentId:           7,
+		ProviderSessionId: "thread-goal",
+		Backend:           protowire.BackendToProto(&be),
+		LlmProviderKey:    "provider-key",
+		LlmModelKey:       "model-fixed",
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.getGoalCalls, 1)
@@ -3714,10 +3766,10 @@ func TestRuntime_Run_PinnedProviderDefault_NotDraggedByBackendFixedModel(t *test
 		handlers.EffectiveModel{ModelKey: "model-default", ModelID: "claude-sonnet-4-6"}, nil)
 	gw.EXPECT().URL().Return("").AnyTimes()
 
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend:        backendJSON(t, be),
-		SessionID:      42,
-		LLMProviderKey: "pk",
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		LlmProviderKey: "pk",
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.runReqs, 1)
@@ -3751,10 +3803,10 @@ func TestRuntime_Run_ProviderDefault_ResolvesDefaultModel(t *testing.T) {
 		handlers.EffectiveModel{ModelKey: "model-default", ModelID: "claude-sonnet-4-6"}, nil)
 	gw.EXPECT().URL().Return("").AnyTimes()
 
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend:        backendJSON(t, be),
-		SessionID:      42,
-		LLMProviderKey: "pk",
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		LlmProviderKey: "pk",
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.runReqs, 1)
@@ -3763,4 +3815,570 @@ func TestRuntime_Run_ProviderDefault_ResolvesDefaultModel(t *testing.T) {
 	assert.Equal(t, agentruntime.EffectiveModeProviderDefault, req.Effective.Mode)
 	assert.Equal(t, "model-default", req.Effective.ModelKey)
 	assert.Equal(t, "claude-sonnet-4-6", req.Effective.ModelID)
+}
+
+// TestRuntime_Run_PersistsProjectSyncID 覆盖「项目在会话发起那一刻就落库」。
+//
+// 此前 agentred 只存 cwd,服务端按 (指纹, cwd) 反推项目。日活跃统计走的是一条不上行
+// 任何路径的纯计数通道,反推那条路在那里用不了 —— 项目必须随起手的这一轮记下来,而
+// 且和 Title / AgentSyncID 同批幂等覆盖(会话可以换项目)。
+func TestRuntime_Run_PersistsProjectSyncID(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event, 1)
+		ch <- agentruntime.Done{}
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	ctx, notif, sess, h := setupRuntimeTestWithSessions(t, rt)
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(5), AgentId: 7, Cwd: "/work",
+		ProjectSyncId: "01HXproj00000000000000000",
+	})
+	require.NoError(t, err)
+
+	notif.waitFrames(t, 2)
+	started := sess.started()
+	require.Len(t, started, 1)
+	assert.Equal(t, "01HXproj00000000000000000", started[0].ProjectSyncID,
+		"起手建行必须带上发起方报的项目同步标识")
+}
+
+// 终态帧带上本轮的计时(耗时 / 首 token / tok/s)。
+//
+// 为什么这三个数必须由 daemon 量:按帧重建转录的消费方 —— 浏览器控制台、peer
+// 视图 —— 手里只有事件流。桌面端本机会话上那三个数是 chat_svc 在 runtime 之上
+// 算完落进自己库的,一格都过不了 wire,于是那边的 meta 只剩「模型 —、耗时 0.0s」。
+// 口径与「哪条事件动哪一下表」两边共用 internal/pkg/turnstats。
+func TestRuntime_Run_DoneFrameCarriesTurnStats(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		go func() {
+			defer close(ch)
+			ch <- agentruntime.TextDelta{Text: "hi"}
+			// 让墙上时间真的走过几毫秒:三个数都以 ms 为单位,同一纳秒内跑完的
+			// 一轮量出 0 是对的,但那样这条用例就证不出接线。
+			time.Sleep(8 * time.Millisecond)
+			ch <- agentruntime.UsageUpdate{Usage: &provider.Usage{CompletionTokens: 60}}
+			ch <- agentruntime.Done{}
+		}()
+		return ch, &agentruntime.RunResult{Model: "claude-sonnet-4-6"}, nil
+	}
+	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
+
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypePiAgent), Name: "x"}
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(42), AgentId: 7, Cwd: "/tmp", UserText: "hello",
+	})
+	require.NoError(t, err)
+
+	frames := notif.waitFrames(t, 5)
+	done, ok := frames[4].params.(*wire.RunResultDoneFrame)
+	require.True(t, ok, "expected wire.RunResultDoneFrame, got %T", frames[4].params)
+	assert.GreaterOrEqual(t, done.DurationMs, 8, "耗时是墙上时间")
+	assert.Greater(t, done.TokensPerSec, 0.0, "分子是本轮累加的 completion token")
+	// 首 token 由第一条 TextDelta 记下,必然早于收口。
+	assert.LessOrEqual(t, done.FirstTokenMs, done.DurationMs)
+}
+
+// convID 把一个短会话号折成一条**格式合法**的 conversation_id,只在测试里用:
+// 线上身份是 uuid,而这些用例真正要断言的是"同一个值原样往返"与"两条不同的对话
+// 互不并轨",一个可读、可复现的映射比随机 uuid 更好读。
+func convID(n int64) string {
+	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
+}
+
+// Given 线上给来的 conversation_id 不是一条对话身份（空串 / 旧的整数会话号），
+// When 对端起一轮，Then runtime.run 与它的八个兄弟处理器一样在边界上拒掉。
+//
+// 只有 Run 漏了这道校验。放行的后果不是「这一轮失败」而是**串账**：身份键收缩到
+// conversation_id 之后，daemon_sessions 的主键就是它，空串于是成了一个人人都能写的
+// 合法主键——每个这么发的对端都落在同一行上，通知日志也共用 (” , seq) 那一串序号，
+// 谁也读不回自己的转录。
+func TestRuntime_Run_GivenAConversationIDThatIsNotOne_ThenItIsRejectedAtTheBoundary(t *testing.T) {
+	for _, conversationID := range []string{"", "42", "not-a-uuid"} {
+		t.Run(conversationID, func(t *testing.T) {
+			rt := &fullRT{}
+			ctx, _, _, _, h := setupRuntimeTest(t, rt)
+			be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+
+			_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: conversationID})
+			require.Error(t, err)
+			var rpcErr *rpcerror.Error
+			require.ErrorAs(t, err, &rpcErr)
+			assert.Equal(t, rpcerror.CodeInvalidParams, rpcErr.Code)
+		})
+	}
+}
+
+// TestRuntime_Run_ReasoningEffortRunParamWinsOverBackendPayload 钉死规格决策 5 的
+// 取值优先级:本轮有效思考力度作为**独立 run 参数**过线(浏览器发的是空壳 backend,
+// 塞进负载里那条路上恒为空),非空即胜过 backend 负载上那一格。
+//
+// 落点是本轮 backend 副本:decision 3 把「有效力度」合成在唯一那个边界上,下游
+// launchIdentity / 各 runtime 的 session 构造一字不改就同时拿到它。
+func TestRuntime_Run_ReasoningEffortRunParamWinsOverBackendPayload(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	ctx, _, _, _, h := setupRuntimeTest(t, rt)
+	be := agent_backend_entity.AgentBackend{
+		Type: string(agent_backend_entity.TypeClaudeCode), ReasoningEffort: "low",
+	}
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:         backendProto(t, be),
+		ConversationId:  convID(42),
+		ReasoningEffort: "max",
+	})
+	require.NoError(t, err)
+	require.Len(t, rt.runReqs, 1)
+	require.NotNil(t, rt.runReqs[0].req.Backend)
+	assert.Equal(t, "max", rt.runReqs[0].req.Backend.ReasoningEffort,
+		"run 参数非空必须胜过 backend 负载上那一格")
+}
+
+// TestRuntime_Run_ReasoningEffortFallsBackToBackendPayload 钉死同一条决策的另一半
+// (硬不变量 6):run 参数**缺省不等于「用户选了默认」**。老桌面端根本不带这个字段,
+// 把缺省读成空档会让它们的后端配置在升级 agentred 之后集体失效。
+func TestRuntime_Run_ReasoningEffortFallsBackToBackendPayload(t *testing.T) {
+	for _, runParam := range []string{"", "   "} {
+		t.Run("runParam="+runParam, func(t *testing.T) {
+			rt := &fullRT{}
+			rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+				ch := make(chan agentruntime.Event)
+				close(ch)
+				return ch, &agentruntime.RunResult{}, nil
+			}
+			ctx, _, _, _, h := setupRuntimeTest(t, rt)
+			be := agent_backend_entity.AgentBackend{
+				Type: string(agent_backend_entity.TypeClaudeCode), ReasoningEffort: "medium",
+			}
+
+			_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+				Backend:         backendProto(t, be),
+				ConversationId:  convID(42),
+				ReasoningEffort: runParam,
+			})
+			require.NoError(t, err)
+			require.Len(t, rt.runReqs, 1)
+			require.NotNil(t, rt.runReqs[0].req.Backend)
+			assert.Equal(t, "medium", rt.runReqs[0].req.Backend.ReasoningEffort,
+				"run 参数缺省时回落后端配置,不能把这一轮拍成空档")
+		})
+	}
+}
+
+// TestRuntime_Run_AnnouncesTheTurnStart: 客户端要的这一轮开始时,daemon 发一条
+// runtime.turnStarted,而且它排在这一轮任何一条事件之前。
+//
+// 自主续轮那一路一直有开始通知,客户端发起的这一路此前没有。缺的这一半是看得见的:
+// 不是自己发起这一轮的订阅者(账号镜像、第二台桌面端、手机)只看得到轮次**结束**,
+// 于是整轮里都把这条对话显示成闲着,等它跑完了才承认它刚才忙过。
+//
+// 次序与自主续轮那一路同规:先把会话行标成 running(startSession),再发这一帧 ——
+// 收到它的一方立刻去查清单必须已经看到 running。
+func TestRuntime_Run_AnnouncesTheTurnStart(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event, 2)
+		ch <- agentruntime.TextDelta{Text: "reply"}
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
+
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(42), AgentId: 7, Cwd: "/tmp", UserText: "hi",
+	})
+	require.NoError(t, err)
+
+	// 开始 + 后端事件 + 终态 = 3 帧。
+	frames := notif.waitFrames(t, 3)
+
+	require.Equal(t, wire.NotifyTurnStarted, frames[0].method, "开始通知必须是这一轮的第一帧")
+	started, ok := frames[0].params.(*wire.TurnStartedFrame)
+	require.True(t, ok, "expected TurnStartedFrame, got %T", frames[0].params)
+	assert.Equal(t, convID(42), started.ConversationID)
+	assert.Zero(t, started.Seq,
+		"开始通知不带编号:它协议上没有 preview 那一格,对端按「这一帧没有序号」直接消费")
+}
+
+// ── 跑挂的那一轮落 failed,而不是和跑成功的那一轮长一个样 ────────────────────
+
+// Given 一轮执行以故障收场;When 它扇出终态帧;Then 会话行落的是 failed 而不是 idle。
+//
+// 此前无论 StopErr 有没有值,轮末一律 Finish 落 idle:agentred 从**不记录**「上一轮
+// 跑挂了」这件事。于是控制台的会话列表里,一条报错收场的对话和一条正常跑完的对话
+// 长得一模一样 —— 转录里画得出错误卡(那是从终态帧上现翻的),列表里一点都看不出来。
+//
+// 桌面端一侧一直是记的(chat_svc 的 AgentStatus = "error"),两端因此各说各的。
+func TestRuntime_Run_TurnFailure_LandsFailedLifecycle(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{StopErr: errors.New("exit status 1")}, nil
+	}
+	ctx, notif, sess, h := setupRuntimeTestWithSessions(t, rt)
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(1)})
+	require.NoError(t, err)
+	notif.waitFrames(t, 2)
+
+	row, err := sess.Find(ctx, "", convID(1))
+	require.NoError(t, err)
+	require.NotNil(t, row)
+	assert.Equal(t, wire.SessionLifecycleFailed, row.LifecycleState,
+		"跑挂的那一轮必须在会话行上留下痕迹")
+}
+
+// Given 用户自己按了停止;When 那一轮收场;Then 会话行照旧落 idle。
+//
+// 中断在线上同样带 StopErrMsg(ErrAborted 的文案),只有 StopErrCode 分得开两者。
+// 不认这一格的话,每点一次「停止」都会把那条对话标成失败。
+func TestRuntime_Run_UserAbort_StaysIdle(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{StopErr: agentruntime.ErrAborted}, nil
+	}
+	ctx, notif, sess, h := setupRuntimeTestWithSessions(t, rt)
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(2)})
+	require.NoError(t, err)
+	notif.waitFrames(t, 2)
+
+	row, err := sess.Find(ctx, "", convID(2))
+	require.NoError(t, err)
+	require.NotNil(t, row)
+	assert.Equal(t, wire.SessionLifecycleIdle, row.LifecycleState,
+		"用户按的停止不是故障")
+}
+
+// Given 一条上一轮跑挂(failed)的会话;When 用户再发一轮;Then 它照旧起得来。
+//
+// 这是 failed 与 interrupted 的分界线本身:interrupted 是自锁的(attach 一律拒),
+// failed 只是一个关于上一轮的事实,不挡任何事。
+func TestRuntime_Run_AfterFailure_SessionRunsAgain(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{StopErr: errors.New("boom")}, nil
+	}
+	ctx, notif, sess, h := setupRuntimeTestWithSessions(t, rt)
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(3)})
+	require.NoError(t, err)
+	notif.waitFrames(t, 2)
+
+	// 第二轮正常收场,行回到 idle —— failed 不是终点。
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	_, err = h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(3)})
+	require.NoError(t, err)
+	notif.waitFrames(t, 4)
+
+	row, err := sess.Find(ctx, "", convID(3))
+	require.NoError(t, err)
+	require.NotNil(t, row)
+	assert.Equal(t, wire.SessionLifecycleIdle, row.LifecycleState)
+}
+
+// TestRuntime_Run_GivenTranscriptStarted_ThenAckCarriesUserMessageHighestFrameSeq
+// —— agentred 接受一轮时必须把「这一轮用户消息的最高持久帧号」放进应答:发起方据它
+// 把游标推进到「我已经持有的内容」,补齐于是不再重放它自己写下的那条用户消息
+// (spec 2026-09-07 决策 1)。
+//
+// 这条同时钉住一个时序:今天用户行的落库与取号发生在 `go h.fanout(...)` 里,而 ack
+// 在那之前就返回了 —— 应答要带上这个号,取号就必须提前到 Run 的同步段。
+func TestRuntime_Run_GivenTranscriptStarted_ThenAckCarriesUserMessageHighestFrameSeq(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	acc := turn.New()
+	acc.AddText("hello")
+	user := &transcript_entity.Message{ID: 11, SessionID: 5, Role: "user", Seq: 1}
+	require.NoError(t, user.SetBlocks(acc.Finalize()))
+	assistant := &transcript_entity.Message{ID: 12, SessionID: 5, Role: "assistant", Seq: 2, BlocksJSON: "[]"}
+
+	tp := mock_handlers.NewMockTranscriptPort(ctrl)
+	tp.EXPECT().StartTurn(gomock.Any(), gomock.Any(), "hello", gomock.Any(), gomock.Any()).Return(user, assistant, nil).Times(1)
+	// 用户那一行只有一个文本块 → 一帧,取到 7 号。
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(1)).
+		Return([]int64{7}, nil).Times(1)
+	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("assistant frames not under test")).AnyTimes()
+
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
+		Transcript: tp,
+		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+	})
+
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
+	ack, err := h.Run(context.Background(), &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		AgentId:        7,
+		Cwd:            "/tmp",
+		UserText:       "hello",
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(7), ack.GetUserMessageSeq(),
+		"应答必须带回用户消息的最高持久帧号,否则发起方的游标停在它已经持有的内容之前")
+	require.Equal(t, int64(7), ack.GetUserMessageMinSeq(),
+		"只占一帧时最低号等于最高号")
+}
+
+// 带附件的一条用户消息占不止一帧。应答要把这一段的**闭区间**都交回去:发起方拿最低号
+// 比闸门(它与游标之间不许有洞)、拿最高号定落点。只回最高号时闸门再也不成立,带附件
+// 的那一轮于是退回补齐重放自己提问的老毛病
+// (spec 2026-09-07-host-transcript-user-input 决策 4)。
+func TestRuntime_Run_GivenUserMessageSpansSeveralFrames_ThenAckCarriesBothEndsOfTheRange(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	acc := turn.New()
+	acc.AddText("look at this")
+	acc.AddBlock(blocks.ImageBlock{MediaType: "image/png", Source: blocks.BlobSource{Inline: []byte("PNGDATA")}}, "")
+	user := &transcript_entity.Message{ID: 11, SessionID: 5, Role: "user", Seq: 1}
+	require.NoError(t, user.SetBlocks(acc.Finalize()))
+	assistant := &transcript_entity.Message{ID: 12, SessionID: 5, Role: "assistant", Seq: 2, BlocksJSON: "[]"}
+
+	tp := mock_handlers.NewMockTranscriptPort(ctrl)
+	tp.EXPECT().StartTurn(gomock.Any(), gomock.Any(), "look at this", gomock.Any(), gomock.Any()).Return(user, assistant, nil).Times(1)
+	// 文本块 + 附件块 → 两帧,取到 7、8。
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(2)).
+		Return([]int64{7, 8}, nil).Times(1)
+	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("assistant frames not under test")).AnyTimes()
+
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
+		Transcript: tp,
+		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+	})
+
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
+	ack, err := h.Run(context.Background(), &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(42),
+		AgentId:        7,
+		Cwd:            "/tmp",
+		UserText:       "look at this",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), ack.GetUserMessageMinSeq(), "闸门要比的是这一段的最低号")
+	assert.Equal(t, int64(8), ack.GetUserMessageSeq(), "游标的落点是这一段的最高号")
+}
+
+// Given 带设备身份的对端(浏览器控制台 / 手机)发起一轮;
+// When  数一数这条会话上出去的事件帧里有几条 user_message;
+// Then  只该有一条 —— 用户那句话在这条会话上只说了一次。
+//
+// 从 3e6f2ced 起 agentred 把用户那一行作为**持久帧**当场发布(beginTranscript →
+// publishDurable),而 R18 的发起方标记(fanout → emitPrelude)照旧又发了一条同样内容的
+// **预览帧**。拿帧重建转录的那两个面(浏览器控制台、桌面端 Peer Tab)对 user_message
+// 一律 pushUserMessage、没有去重,于是同一句话画出两条:持久那条进转录,预览那条进
+// 预览尾巴,而尾巴要等下一个持久帧才清 —— 整个思考阶段它就那么并排挂着。
+func TestRuntime_Run_GivenPeerSubmittedTurn_ThenTheUserMessageGoesOutExactlyOnce(t *testing.T) {
+	// fanout 的收尾日志落在终态帧**之后**。不等它,这条 goroutine 会活过本用例,与下一条
+	// 用例换全局 logger 的那一下撞上(与 runtime_adopt_test.go 同一条纪律)。
+	captured := captureRuntimeLogs(t)
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	acc := turn.New()
+	acc.AddText("看看目录")
+	user := &transcript_entity.Message{ID: 11, SessionID: 5, Role: "user", Seq: 1}
+	require.NoError(t, user.SetBlocks(acc.Finalize()))
+	assistant := &transcript_entity.Message{ID: 12, SessionID: 5, Role: "assistant", Seq: 2, BlocksJSON: "[]"}
+
+	tp := mock_handlers.NewMockTranscriptPort(ctrl)
+	tp.EXPECT().StartTurn(gomock.Any(), gomock.Any(), "看看目录", gomock.Any(),
+		transcript.UserSource{Device: "sha256:browser", Name: "Edge · macOS"}).Return(user, assistant, nil).Times(1)
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(1)).
+		Return([]int64{7}, nil).Times(1)
+	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("assistant frames not under test")).AnyTimes()
+
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
+		Transcript: tp,
+		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+	})
+
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
+	_, err := h.Run(context.Background(), &agentrewire.RuntimeRunRequest{
+		Backend:          backendProto(t, be),
+		ConversationId:   convID(42),
+		AgentId:          7,
+		Cwd:              "/tmp",
+		UserText:         "看看目录",
+		SourceDevice:     "sha256:browser",
+		SourceDeviceName: "Edge · macOS",
+	})
+	require.NoError(t, err)
+
+	userFrames := func() []*wire.EventFrame {
+		var out []*wire.EventFrame
+		for _, f := range notif.snapshot() {
+			ef, ok := f.params.(*wire.EventFrame)
+			if !ok {
+				continue
+			}
+			if _, isUser := ef.Event.(agentruntime.UserMessageEvent); isUser {
+				out = append(out, ef)
+			}
+		}
+		return out
+	}
+	// 等 fanout 自己收工 = 这一轮的帧全发完了,此刻数才不会漏掉后到的那条。
+	require.Eventually(t, func() bool {
+		return strings.Contains(captured.String(), "handlers.RuntimeHandlers.fanout: session ended")
+	}, 2*time.Second, 10*time.Millisecond)
+
+	got := userFrames()
+	require.Len(t, got, 1, "同一句话只该发一条 user_message 帧,得到 %d 条", len(got))
+	assert.False(t, got[0].Preview, "留下的那条必须是持久帧:预览帧不进转录,也不参与补齐")
+	// 「谁发的」现在骑在用户那一行里,由上面 StartTurn 那条 EXPECT 钉住转发;真的盖进
+	// 块正文由 TestDaemon_StartTurn_StampsTheSubmittingPeerOntoTheUserRow 在真库上验。
+}
+
+// Given 分段那一次落库失败(SegmentTurn 报错);
+// When  这一轮继续跑;
+// Then  那条插话要留在待分段队列里、下一个时机重试 —— 落库失败不该把用户打的字吃掉。
+//
+// 此前 flushPendingSteers 在调 SegmentTurn **之前**就把 pendingSteers 清空了,失败分支
+// 只记一条日志:那一段插话此后既不在库里、也不在队列里,谁也找不回来。它与
+// 「轮末不落」是同一类漏(2026-09-05 不变量 1),只是触发条件是一次写失败。
+func TestRuntime_Run_GivenSegmentTurnFails_ThenTheSteerIsRetriedNotDropped(t *testing.T) {
+	captured := captureRuntimeLogs(t)
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	acc := turn.New()
+	acc.AddText("hello")
+	user := &transcript_entity.Message{ID: 11, SessionID: 5, Role: "user", Seq: 1}
+	require.NoError(t, user.SetBlocks(acc.Finalize()))
+	assistant := &transcript_entity.Message{ID: 12, SessionID: 5, Role: "assistant", Seq: 2, BlocksJSON: "[]"}
+
+	tp := mock_handlers.NewMockTranscriptPort(ctrl)
+	tp.EXPECT().StartTurn(gomock.Any(), gomock.Any(), "hello", gomock.Any(), gomock.Any()).
+		Return(user, assistant, nil).Times(1)
+	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	// 收口是本用例唯一确定属于**自己**这一轮的信号:等日志里那句 "session ended" 会
+	// 撞上前面用例泄漏出来的 fanout 协程(全局 logger 是共用的),一撞就在插话还没进
+	// SegmentTurn 时提前收工,断言于是随机判红。FinishTurn 在 flushPendingSteers 之后
+	// 才调,等到它就等到了两次尝试都已发生。
+	finished := make(chan struct{})
+	var finishOnce sync.Once
+	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(context.Context, *transcript_entity.Message) error {
+			finishOnce.Do(func() { close(finished) })
+			return nil
+		}).AnyTimes()
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("frame numbering not under test")).AnyTimes()
+
+	var (
+		segmentMu    sync.Mutex
+		segmentTexts []string
+	)
+	tp.EXPECT().SegmentTurn(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ *transcript_entity.Message, steers []agentruntime.ConsumedSteer) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
+			segmentMu.Lock()
+			defer segmentMu.Unlock()
+			for _, s := range steers {
+				segmentTexts = append(segmentTexts, s.Text)
+			}
+			if len(segmentTexts) == 1 {
+				return nil, nil, errors.New("segment write failed")
+			}
+			return []*transcript_entity.Message{{ID: 13, SessionID: 5, Role: "user", Seq: 3}},
+				&transcript_entity.Message{ID: 14, SessionID: 5, Role: "assistant", Seq: 4, BlocksJSON: "[]"},
+				nil
+		}).AnyTimes()
+
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event, 8)
+		ch <- agentruntime.TextDelta{Text: "before"}
+		ch <- agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{QueuedID: "q-1", Text: "插一句"}}}
+		ch <- agentruntime.TextDelta{Text: "after"}
+		ch <- agentruntime.Done{}
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
+		Transcript: tp,
+		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+	})
+
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
+	_, err := h.Run(context.Background(), &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(42), AgentId: 7,
+		Cwd: "/tmp", UserText: "hello",
+	})
+	require.NoError(t, err)
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("这一轮没有收口:FinishTurn 一直没被调到")
+	}
+	// 收工日志落在终态帧之后。不等它,这条 goroutine 会活过本用例,与下一条用例换全局
+	// logger 的那一下撞上(与 runtime_adopt_test.go 同一条纪律)。
+	require.Eventually(t, func() bool {
+		return strings.Contains(captured.String(), "handlers.RuntimeHandlers.fanout: session ended")
+	}, 2*time.Second, 10*time.Millisecond)
+
+	segmentMu.Lock()
+	defer segmentMu.Unlock()
+	require.Equal(t, []string{"插一句", "插一句"}, segmentTexts,
+		"落库失败之后这条插话必须还在队列里等下一个时机,而不是被丢掉")
 }

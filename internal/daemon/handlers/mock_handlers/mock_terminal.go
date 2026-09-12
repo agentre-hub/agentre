@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	handlers "github.com/agentre-ai/agentre/internal/daemon/handlers"
-	pty "github.com/agentre-ai/agentre/internal/pkg/pty"
+	handlers "github.com/agentre-hub/agentre/internal/daemon/handlers"
+	pty "github.com/agentre-hub/agentre/internal/pkg/pty"
 	gomock "go.uber.org/mock/gomock"
 )
 

@@ -31,7 +31,6 @@ describe("newAgentSource", () => {
       openSession: vi.fn(),
       openNewSession: vi.fn(),
       openNotChattableDialog: vi.fn(),
-      pathname: "/chat",
     });
 
     expect(close).toHaveBeenCalledOnce();

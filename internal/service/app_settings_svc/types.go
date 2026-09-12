@@ -5,7 +5,7 @@
 package app_settings_svc
 
 import (
-	"github.com/agentre-ai/agentre/internal/pkg/httpgateway"
+	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 )
 
 // GetRequest 按 key 读单条设置项。

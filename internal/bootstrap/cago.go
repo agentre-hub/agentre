@@ -9,45 +9,49 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/buildinfo"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/app_setting_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/claudecode"
-	openclawrt "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/openclaw"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentskill/claudeskill"  // 触发 discoverer init 注册
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentskill/codexskill"   // 触发 discoverer init 注册
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentskill/piagentskill" // 触发 discoverer init 注册
-	"github.com/agentre-ai/agentre/internal/pkg/agrctlinstall"
-	"github.com/agentre-ai/agentre/internal/pkg/ctlendpoint"
-	"github.com/agentre-ai/agentre/internal/pkg/httpgateway"
-	"github.com/agentre-ai/agentre/internal/pkg/paths"
-	"github.com/agentre-ai/agentre/internal/pkg/sysnotify"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/app_setting_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo"
-	"github.com/agentre-ai/agentre/internal/repository/hook_repo"
-	"github.com/agentre-ai/agentre/internal/repository/issue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
-	"github.com/agentre-ai/agentre/internal/service/agent_backend_svc"
-	"github.com/agentre-ai/agentre/internal/service/app_settings_svc"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
-	"github.com/agentre-ai/agentre/internal/service/ctl_svc"
-	"github.com/agentre-ai/agentre/internal/service/hooktool_svc"
-	"github.com/agentre-ai/agentre/internal/service/issue_svc"
-	"github.com/agentre-ai/agentre/internal/service/notification_svc"
-	"github.com/agentre-ai/agentre/internal/service/orgtool_svc"
-	"github.com/agentre-ai/agentre/internal/service/project_svc"
-	"github.com/agentre-ai/agentre/internal/service/skill_svc"
-	"github.com/agentre-ai/agentre/internal/service/subagent_svc"
-	"github.com/agentre-ai/agentre/internal/service/workspace_fs_svc"
-	"github.com/agentre-ai/agentre/migrations"
+	"github.com/agentre-hub/agentre/internal/buildinfo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
+	openclawrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/openclaw"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentskill/claudeskill"  // 触发 discoverer init 注册
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentskill/codexskill"   // 触发 discoverer init 注册
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentskill/piagentskill" // 触发 discoverer init 注册
+	"github.com/agentre-hub/agentre/internal/pkg/agrctlinstall"
+	"github.com/agentre-hub/agentre/internal/pkg/ctlendpoint"
+	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/pkg/protorpclog"
+	"github.com/agentre-hub/agentre/internal/pkg/sysnotify"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/hook_repo"
+	"github.com/agentre-hub/agentre/internal/repository/issue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
+	"github.com/agentre-hub/agentre/internal/service/app_settings_svc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/ctl_svc"
+	"github.com/agentre-hub/agentre/internal/service/ctlskill_svc"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
+	"github.com/agentre-hub/agentre/internal/service/hooktool_svc"
+	"github.com/agentre-hub/agentre/internal/service/issue_svc"
+	"github.com/agentre-hub/agentre/internal/service/notification_svc"
+	"github.com/agentre-hub/agentre/internal/service/orgtool_svc"
+	"github.com/agentre-hub/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/internal/service/skill_svc"
+	"github.com/agentre-hub/agentre/internal/service/subagent_svc"
+	"github.com/agentre-hub/agentre/internal/service/workspace_fs_svc"
+	"github.com/agentre-hub/agentre/migrations"
 
 	"github.com/cago-frame/cago"
 	"github.com/cago-frame/cago/configs"
@@ -60,9 +64,6 @@ import (
 	// 注册 SQLite 驱动
 	_ "github.com/cago-frame/cago/database/db/sqlite"
 )
-
-// appName 仍保留作为兼容包级常量；权威定义在 paths.AppName。
-const appName = paths.AppName
 
 // dbFileName 桌面端 SQLite 数据库文件名（位于 AppDataDir 根目录）
 const dbFileName = "agentre.db"
@@ -92,13 +93,15 @@ func Init(ctx context.Context) (*Runtime, error) {
 	}
 
 	dbPath := filepath.Join(dataDir, dbFileName)
-	cfg, err := configs.NewConfig(appName, configs.WithSource(memory.NewSource(defaultConfigValues(logsDir, sqliteDSN(dbPath)))))
+	cfg, err := configs.NewConfig(paths.AppName, configs.WithSource(memory.NewSource(defaultConfigValues(logsDir, sqliteDSN(dbPath)))))
 	if err != nil {
 		return nil, fmt.Errorf("create cago config: %w", err)
 	}
 	if err := logger.Logger(ctx, cfg); err != nil {
 		return nil, fmt.Errorf("init cago logger: %w", err)
 	}
+	// 协议引擎住在共享 module 里、不依赖 cago,它的诊断出口要由宿主装配一次。
+	protorpclog.Install()
 
 	// 注册 SQLite 数据库组件。cago 启动 db 失败时会 panic，由调用方 recover/log。
 	cago.New(ctx, cfg).Registry(db.Database())
@@ -107,6 +110,12 @@ func Init(ctx context.Context) (*Runtime, error) {
 	// sqliteDSN 的 _pragma 让每个连接重复执行——失败只记警告、不阻断启动，详见
 	// convertToWAL。放在 migrations 之前，让迁移本身也跑在 WAL 上。
 	convertToWAL(ctx, db.Default())
+
+	// keychain 后端本身不碰数据库、也不依赖任何服务;放在迁移之前是纯粹的顺序
+	// 安排,装配 Server / Remote Device 时仍然捕获的是同一个实例。
+	if err := initKeychain(ctx); err != nil {
+		return nil, fmt.Errorf("init keychain: %w", err)
+	}
 
 	if err := migrations.RunMigrations(db.Default()); err != nil {
 		return nil, fmt.Errorf("run migrations: %w", err)
@@ -122,7 +131,7 @@ func Init(ctx context.Context) (*Runtime, error) {
 	hook_repo.RegisterHook(hook_repo.NewHook())
 	hook_repo.RegisterHookEvent(hook_repo.NewHookEvent())
 	chat_repo.RegisterSession(chat_repo.NewSession())
-	chat_repo.RegisterMessage(chat_repo.NewMessage())
+	transcript_repo.RegisterMessage(transcript_repo.NewMessage())
 	project_repo.RegisterProject(project_repo.NewProject())
 	project_repo.RegisterProjectAgent(project_repo.NewProjectAgent())
 	project_location_repo.RegisterProjectLocation(project_location_repo.NewProjectLocation())
@@ -136,26 +145,23 @@ func Init(ctx context.Context) (*Runtime, error) {
 	issue_repo.RegisterLabel(issue_repo.NewLabel())
 	issue_repo.RegisterIssueLabel(issue_repo.NewIssueLabel())
 	issue_svc.SetDefault(issue_svc.New())
-	// 把 project_svc 的 cwd 解析注入 chat_svc —— chat_svc 不直接 import project_svc，
-	// 避免 project_svc → chat_repo 与 chat_svc → project_svc 形成环。
-	chat_svc.RegisterCwdResolver(project_svc.Default().ResolveSessionCwd)
-	// 把 chat_svc 的会话解析注入 workspace_fs_svc（它自己声明的窄接口），让它不必
-	// 跨域读 chat / agent / agent_backend 三张表。这里懒解析 chat_svc.Chat()：
-	// RegisterChat 在 app.go registerChatService() 里才执行，此刻还是 nil。
+	// 把 project_svc 的 cwd 解析注入 exec_target_svc —— 那个包不直接 import project_svc，
+	// 避免 project_svc → chat_repo 与 exec_target_svc → project_svc 形成环。
+	exec_target_svc.RegisterCwdResolver(project_svc.Default().ResolveSessionCwd)
+	exec_target_svc.RegisterExecTarget(exec_target_svc.NewExecTarget(nil))
+	// 把执行目标域的会话解析注入 workspace_fs_svc（它自己声明的窄接口），让它不必
+	// 跨域读 chat / agent / agent_backend 三张表。
 	workspace_fs_svc.RegisterSessionWorkspaceResolver(
 		func(ctx context.Context, sessionID int64) (int64, string, error) {
-			return chat_svc.Chat().ResolveSessionWorkspace(ctx, sessionID)
+			return exec_target_svc.ExecTarget().ResolveSessionWorkspace(ctx, sessionID)
 		})
+	// 第二个窄接口：工作根认领要知道「本会话 AI 写过哪些路径」，那是 chat 消息
+	// 里的事实。这里注入的是包级函数（不经 chat_svc.Chat()），因为它只读消息、
+	// 不依赖那个单例的任何状态。
+	workspace_fs_svc.RegisterSessionWrittenPaths(chat_svc.SessionWrittenPaths)
 
 	// 启动时按持久化的开关恢复 Debug 日志级别（取代旧 AGENTRE_DEBUG 环境变量）。
 	applyDebugLoggingOnBoot(ctx)
-
-	// 在装配 Server / Remote Device 之前确立 keychain 后端:设置 AGENTRE_KEYCHAIN_DIR
-	// 时在这里建立 file keychain,失败直接终止,绝不回退生产 system keychain
-	// (见 keychain.go)。
-	if err := initKeychain(ctx); err != nil {
-		return nil, fmt.Errorf("init keychain: %w", err)
-	}
 
 	// Server 接入：注册 server_state_repo + server_svc 默认实现。
 	// server_svc 此时的 emit 为 nil；app.go.startup 在 wails ctx 就绪后调 SetEmitter 绑定事件源。
@@ -182,6 +188,7 @@ func Init(ctx context.Context) (*Runtime, error) {
 	agent_backend_svc.RegisterGateway(gw)
 	app_settings_svc.RegisterGateway(gw)
 	chat_svc.RegisterGateway(gw)
+	exec_target_svc.RegisterGateway(gw)
 
 	// 挂组织架构工具 MCP handler(/mcp/org/),并注册 TurnMCPProvider:
 	// agent 开了 org 工具的会话 turn 注入该 MCP server(审批在服务端,见 orgtool_svc)。
@@ -257,15 +264,41 @@ func Init(ctx context.Context) (*Runtime, error) {
 	}
 	claudecode.Default().SetHookCLIPath(agrctlPath)
 
+	// ctl 控制通道技能包(internal/pkg/ctlskill)：让 agrctl 以 Claude Code 插件 + 通用
+	// Agent Skill 目录两种形态出现在各 CLI 的技能发现里，复用刚算出的 agrctlPath。
+	// 拒绝标记、AGENTRE_ENV=test 两道跳过闸，以及失败降级为 warn，都在服务层内部处理，
+	// 与上面 agrctl 安装本身同一降级口径。
+	ctlskill_svc.Register(agrctlPath, ctlSkillVersion())
+	ctlskill_svc.CtlSkill().InstallOnBoot(ctx)
+
 	runtime = &Runtime{config: cfg, dataDir: dataDir}
 	return runtime, nil
+}
+
+// ctlSkillVersion 技能包清单里的版本号：应用版本，构建注入了 commit 就再缀上它，这样
+// 每次发布构建都会触发一次重铺。不能直接用 buildinfo.CommitID —— 它只在 make build 的
+// ldflags 里注入，wails dev / go run 起的进程里是空串，写出去就是 "version": "" 的
+// plugin.json / marketplace.json。configs.Version 有内置缺省，永远非空。
+func ctlSkillVersion() string {
+	if commit := buildinfo.ShortCommitID(); commit != "" {
+		return configs.Version + "+" + commit
+	}
+	return configs.Version
+}
+
+// sessionResetter is bootstrap's narrow view of chat_repo.SessionRepo (ISP): only the
+// startup cleanup this package needs, not the full ~40-method surface.
+// chat_repo.Session() satisfies it structurally.
+type sessionResetter interface {
+	ResetActiveSessions(ctx context.Context) (int64, error)
 }
 
 // ResetStaleActiveSessions turns persisted running/waiting sessions left by a
 // dead previous desktop process into error. Call this only after the Wails
 // single-instance lock has admitted the process as the primary instance.
 func ResetStaleActiveSessions(ctx context.Context) error {
-	n, err := chat_repo.Session().ResetActiveSessions(ctx)
+	var repo sessionResetter = chat_repo.Session()
+	n, err := repo.ResetActiveSessions(ctx)
 	if err != nil {
 		logger.Default().Warn("reset stale active sessions", zap.Error(err))
 		return err

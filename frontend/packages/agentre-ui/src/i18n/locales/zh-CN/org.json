@@ -1,0 +1,86 @@
+{
+  "org": {
+    "index": {
+      "lead": "Lead · {{name}}",
+      "reportsToInline": "↳ {{name}}",
+      "systemBadge": "系统",
+      "noExecTarget": "无目标",
+      "toggleGroup": "{{name}} 的收放",
+      "drag": {
+        "agentHandle": "拖拽 {{name}}（空格拾起）",
+        "departmentHandle": "拖拽部门 {{name}}（空格拾起）"
+      }
+    },
+    "department": {
+      "departmentMemberCount": "{{count}} 名成员",
+      "topLevel": "公司顶层（CEO 之下）"
+    },
+    "agent": {
+      "reportsTo": "汇报给",
+      "placement": {
+        "label": "归属",
+        "groupDepartment": "部门",
+        "groupParent": "上级 Agent",
+        "searchPlaceholder": "搜索部门或 Agent…",
+        "searchAria": "搜索归属选项",
+        "reasonSelf": "不能把自己当作自己的归属",
+        "reasonCycle": "不能挂到自己的下属之下",
+        "derivedManager": "随部门负责人变动",
+        "systemLocked": "系统 Agent 固定在顶层",
+        "noMatch": "没有匹配项"
+      },
+      "tools": {
+        "title": "工具",
+        "sectionTitle": "工具",
+        "empty": "暂无可用工具",
+        "approval": "需审批",
+        "names": {
+          "org": "组织架构",
+          "subagent": "调用子 Agent",
+          "hook": "脚本 Hook"
+        },
+        "descriptions": {
+          "org": "查询并管理部门与成员",
+          "subagent": "把子任务委派给另一个 Agent",
+          "hook": "编写、试运行并按 cron 调度脚本"
+        },
+        "grantNamed": "授予 {{name}}",
+        "revokeNamed": "收回 {{name}}",
+        "grantedCount": "已授权 {{granted}} / {{total}}",
+        "grant": "授权",
+        "granted": "已授权"
+      },
+      "skills": {
+        "title": "技能"
+      },
+      "skillsGate": {
+        "title": "这一档不做技能授权",
+        "description": "逐档开关技能包目前只有 Claude Code 与 Codex 支持。其它后端的技能由它自己的配置决定，Agentre 不接管——在那边已生效的技能，照样能在输入框用 / 调用。"
+      },
+      "execTargets": {
+        "dragHandle": "拖拽排序（也可按 ↑ / ↓ 方向键）",
+        "keyboardHandle": "按 ↑ / ↓ 方向键排序",
+        "moveUp": "上移执行目标",
+        "moveDown": "下移执行目标",
+        "remove": "移除",
+        "replace": "更换",
+        "localMachine": "本机",
+        "currentlyActive": "当前生效",
+        "online": "在线",
+        "skillsToggle": "{{machine}} 的技能",
+        "reasons": {
+          "orphanBackend": "该执行目标引用的后端已不存在",
+          "backendRequiresProvider": "需指定 LLM Provider",
+          "providerInactive": "LLM 供应商未激活",
+          "remoteProviderMissing": "远端缺少 LLM 供应商",
+          "gatewayNotRunning": "本地网关未启动",
+          "remoteOpenclawUnavailable": "远端 OpenClaw 暂不可用",
+          "unknownBackend": "未知后端类型",
+          "unpaired": "这台电脑未配对它",
+          "offline": "离线",
+          "projectPathMissing": "这台机器上没有配置这个项目的路径"
+        }
+      }
+    }
+  }
+}

@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/internal/pkg/clienv"
 )
 
 func init() {
@@ -27,13 +28,27 @@ type Discoverer struct {
 	pluginsDir func() string
 }
 
-// runner 取命令执行器:未注入 → 真实 exec.CommandContext().Output()。
+// runner 取命令执行器:未注入 → 真实 exec 调用(生产默认)。
+//
+// 必须经 clienv 解析 binary 并补齐 PATH,不能把裸名字丢给 exec:Finder / Dock 起的
+// app bundle 只继承 launchd 的最小 PATH,而 claude 常装在 ~/.local/bin、Homebrew、
+// volta 之类的目录里。本进程 PATH 查不到 → Discover 软降级成空发现 → 插件包整段
+// 消失。真正跑 CLI 的 pkg/claudecode 早就是这么解析的,发现这条路必须同源。
 func (d Discoverer) runner() commandRunner {
 	if d.run != nil {
 		return d.run
 	}
 	return func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		return exec.CommandContext(ctx, name, args...).Output()
+		searchEnv := clienv.BuildEnv(nil, name)
+		binary, ok := clienv.ResolveBinaryForEnv(name, searchEnv)
+		if !ok {
+			return nil, exec.ErrNotFound
+		}
+		// #nosec G204 -- binary 来自 agent backend 配置的 CLIPath(或类型默认名),
+		// 经 clienv 解析,不接受用户输入。
+		cmd := exec.CommandContext(ctx, binary, args...)
+		cmd.Env = clienv.BuildEnv(nil, binary)
+		return cmd.Output()
 	}
 }
 

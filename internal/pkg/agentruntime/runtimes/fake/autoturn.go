@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // AutonomousOutputPrefix 是自主续轮文本的固定前缀:e2e-autonomous-output:<label>。

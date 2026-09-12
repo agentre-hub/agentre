@@ -5,7 +5,7 @@ import (
 
 	"github.com/cago-frame/cago/database/db"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
 )
 
 //go:generate mockgen -source inbound_queue.go -destination mock_syncqueue_repo/mock_inbound_queue.go

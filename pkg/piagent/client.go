@@ -99,17 +99,35 @@ func (c *Client) PrepareStream(ctx context.Context, prompt string, opts ...RunOp
 }
 
 func (c *Client) prepareStream(ctx context.Context, prompt string, requireExactBoundary bool, opts ...RunOption) (*PreparedStream, error) {
+	// 参数校验必须在起进程之前:非法的 fork anchor 不该先把一个进程拉起来再拒。
+	if err := validateRunOptions(opts...); err != nil {
+		return nil, err
+	}
+	proc, err := c.startRPC(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// 一次性用法:进程归这一轮所有,轮末由 Stream.Close 终止。
+	return c.prepareStreamOn(ctx, proc, true, prompt, requireExactBoundary, opts...)
+}
+
+// prepareStreamOn 在一个**已经起来的** RPC 进程上开一轮。ownsProcess 决定这一轮结束时
+// 要不要连进程一起收掉:一次性用法(Client.Stream)归它自己,跨轮复用(Session)归会话。
+func (c *Client) prepareStreamOn(
+	ctx context.Context,
+	proc *rpcProcess,
+	ownsProcess bool,
+	prompt string,
+	requireExactBoundary bool,
+	opts ...RunOption,
+) (*PreparedStream, error) {
 	spec := runSpec{}
 	for _, o := range opts {
 		o(&spec)
 	}
 	// Session resume is wired at the Client level (WithSession → --session); the
 	// per-turn spec carries multimodal images透传到 prompt 帧。
-	if spec.forkAnchor != "" && strings.TrimSpace(spec.forkAnchor) != spec.forkAnchor {
-		return nil, errors.New("piagent: invalid fork anchor")
-	}
-	proc, err := c.startRPC(ctx)
-	if err != nil {
+	if err := validateRunOptions(opts...); err != nil {
 		return nil, err
 	}
 	startupCtx, cancelStartup := c.startupContext(ctx)
@@ -140,6 +158,7 @@ func (c *Client) prepareStream(ctx context.Context, prompt string, requireExactB
 		}
 	}
 	stream := newStream(proc, c.killGrace)
+	stream.ownsProcess = ownsProcess
 	stream.setSessionID(sessionID)
 	if state.Model != nil {
 		stream.setContextWindow(state.Model.ContextWindow)
@@ -177,6 +196,19 @@ func (c *Client) prepareStream(ctx context.Context, prompt string, requireExactB
 		frame["images"] = imgs
 	}
 	return &PreparedStream{stream: stream, frame: frame, startupTimeout: c.startupTimeout}, nil
+}
+
+// validateRunOptions 校验一轮的选项。单独拆出来是因为它必须能在起进程之前跑一遍:
+// 非法参数不该先把一个 RPC 进程拉起来再拒。
+func validateRunOptions(opts ...RunOption) error {
+	spec := runSpec{}
+	for _, o := range opts {
+		o(&spec)
+	}
+	if spec.forkAnchor != "" && strings.TrimSpace(spec.forkAnchor) != spec.forkAnchor {
+		return errors.New("piagent: invalid fork anchor")
+	}
+	return nil
 }
 
 func (p *PreparedStream) Start(ctx context.Context) (*Stream, error) {
@@ -271,14 +303,24 @@ func (c *Client) Compact(ctx context.Context, _ string) (*Stream, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 一次性用法:进程归这一轮所有,收尾时一起关掉。
+	return c.compactOn(ctx, proc, true)
+}
+
+// compactOn 在一个**已经起来的** RPC 进程上做一次压缩。ownsProcess 的含义同
+// prepareStreamOn。
+func (c *Client) compactOn(ctx context.Context, proc *rpcProcess, ownsProcess bool) (*Stream, error) {
 	startupCtx, cancelStartup := c.startupContext(ctx)
 	defer cancelStartup()
 	state, err := readSessionState(startupCtx, proc, c.session)
 	if err != nil {
-		_ = proc.terminate(context.Background(), c.killGrace)
+		if ownsProcess {
+			_ = proc.terminate(context.Background(), c.killGrace)
+		}
 		return nil, err
 	}
 	stream := newStream(proc, c.killGrace)
+	stream.ownsProcess = ownsProcess
 	stream.setSessionID(state.SessionID)
 	if err := stream.send(ctx, map[string]any{"type": "compact"}); err != nil {
 		_ = stream.Close(context.Background())
@@ -438,13 +480,6 @@ func validSessionEntriesLeaf(entries sessionEntriesWire) (string, bool) {
 	return leafID, ok
 }
 
-func isExtensionUIRequestFrame(frame []byte) bool {
-	var probe struct {
-		Type string `json:"type"`
-	}
-	return json.Unmarshal(frame, &probe) == nil && probe.Type == "extension_ui_request"
-}
-
 func extensionUIRequiresResponse(method string) bool {
 	switch strings.TrimSpace(method) {
 	case "select", "confirm", "input", "editor":
@@ -452,6 +487,13 @@ func extensionUIRequiresResponse(method string) bool {
 	default:
 		return false
 	}
+}
+
+func isExtensionUIRequestFrame(frame []byte) bool {
+	var probe struct {
+		Type string `json:"type"`
+	}
+	return json.Unmarshal(frame, &probe) == nil && probe.Type == "extension_ui_request"
 }
 
 func emitRawFrame(proc *rpcProcess, line []byte) {
@@ -464,15 +506,10 @@ func emitRawFrame(proc *rpcProcess, line []byte) {
 }
 
 func sanitizeDiagnosticFrame(line []byte) []byte {
-	// get_entries can legitimately carry tens of MiB of base64 image/session data.
-	// Recognize and replace it before JSON decoding so diagnostics do not duplicate
-	// that payload in memory merely to report the command name.
 	if bytes.Contains(line, []byte(`"type":"response"`)) &&
 		bytes.Contains(line, []byte(`"command":"get_entries"`)) {
 		return []byte(`{"command":"get_entries","payload":"redacted","type":"response"}`)
 	}
-	// extension_ui_request carries interaction copy the user typed or was shown.
-	// It is excluded from diagnostics entirely, not projected.
 	if isExtensionUIRequestFrame(line) {
 		return nil
 	}
@@ -487,7 +524,6 @@ func sanitizeDiagnosticFrame(line []byte) []byte {
 			Canceled     *bool             `json:"cancelled"` //nolint:misspell // Pi RPC field uses British spelling.
 			ContextUsage *contextUsageWire `json:"contextUsage"`
 		} `json:"data"`
-		Method   string          `json:"method"`
 		Message  json.RawMessage `json:"message"`
 		Messages []struct {
 			Role       string `json:"role"`

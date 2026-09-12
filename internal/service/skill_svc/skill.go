@@ -4,10 +4,12 @@ import (
 	"context"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentskill"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // Service 技能包组合服务。依赖通过消费者侧窄接口注入(DIP)。
@@ -42,8 +44,8 @@ func (s *Service) discoverForBackend(ctx context.Context, be *agent_backend_enti
 	// 看不到。经 RemoteDiscoverer 走 daemon skills.list 发现(借 device 连接池)。
 	// 指向本机指纹的档(R13 认领后本机 backend 的 DeviceID == 本机指纹)不是远端:
 	// 它跟 DeviceID 空一样走本地 Discoverer。
-	if remote_device_svc.TargetsAnotherMachine(be.DeviceID) {
-		deviceID, ok := be.DeviceIDInt()
+	if remote_device_svc.TargetsAnotherMachine(be.DeviceFingerprint) {
+		deviceID, ok := pairedDeviceID(ctx, be.DeviceFingerprint)
 		if !ok || s.remote == nil {
 			return discoveryResult{backendType: backendType, backend: be, packs: []agentskill.SkillPack{}}, nil
 		}
@@ -65,6 +67,28 @@ func (s *Service) discoverForBackend(ctx context.Context, be *agent_backend_enti
 		CLIPath:     be.CLIPath,
 	})
 	return discoveryResult{backendType: backendType, backend: be, packs: packs}, err
+}
+
+// pairedDeviceID 把 backend 的 DeviceID（规范指纹）解析成本机 paired_agentreds 的
+// 行 ID —— 远端发现借的是 device 连接池，那个子系统按数值行 ID 建键。指纹在本机配
+// 对表里查不到（这台 daemon 没在本机配对）返回 (0,false)，调用方据此回空包而不是
+// 猜一个行号去拨号。与 chat_svc.localPairedDeviceID 同一取法，skill_svc 侧独立声明
+// 以保持 consumer-side 窄依赖。
+func pairedDeviceID(ctx context.Context, fingerprint devicefp.Carrier) (int64, bool) {
+	rds := remote_device_svc.Default()
+	if rds == nil {
+		return 0, false
+	}
+	rows, err := rds.List(ctx)
+	if err != nil {
+		return 0, false
+	}
+	for _, row := range rows {
+		if row != nil && row.DaemonFingerprint == fingerprint {
+			return row.ID, true
+		}
+	}
+	return 0, false
 }
 
 // authorizedSkills 取 agentID 主档(sort_order 最小的一档)的技能授权。存放位置
@@ -104,71 +128,6 @@ func (s *Service) authorizedSkillsForTarget(
 	return targets[0].GetSkills(), nil
 }
 
-// mergeResult 合并后的包列表及对应的 enabled 标注。
-type mergeResult struct {
-	packs            []agentskill.SkillPack
-	enabled          []bool
-	effectiveEnabled []bool
-}
-
-// merge 推荐 + 发现 按 id 去重,标注 enabled。
-// installed 先入,recommended 后 OR 入 Recommended 旗标。
-func merge(recommended, installed []agentskill.SkillPack, overrides []agent_entity.AgentSkillItem) mergeResult {
-	overrideByID := map[string]bool{}
-	for _, override := range overrides {
-		overrideByID[override.ID] = override.Enabled
-	}
-	type entry struct {
-		pack agentskill.SkillPack
-		idx  int
-	}
-	byID := map[string]*entry{}
-	order := []string{}
-
-	add := func(p agentskill.SkillPack) {
-		if ex, ok := byID[p.ID]; ok {
-			if p.Recommended {
-				ex.pack.Recommended = true
-			}
-			if p.Installed {
-				ex.pack.Installed = true
-				ex.pack.Source = agentskill.SourceInstalled
-			}
-			return
-		}
-		idx := len(order)
-		cp := p
-		byID[cp.ID] = &entry{pack: cp, idx: idx}
-		order = append(order, cp.ID)
-	}
-
-	for _, p := range installed {
-		add(p)
-	}
-	for _, p := range recommended {
-		add(p)
-	}
-
-	packs := make([]agentskill.SkillPack, len(order))
-	enabledFlags := make([]bool, len(order))
-	effectiveFlags := make([]bool, len(order))
-	for _, id := range order {
-		e := byID[id]
-		packs[e.idx] = e.pack
-		override, overridden := overrideByID[id]
-		enabledFlags[e.idx] = overridden && override
-		effectiveFlags[e.idx] = e.pack.Installed && e.pack.GloballyEnabled
-		if overridden {
-			effectiveFlags[e.idx] = e.pack.Installed && override
-		}
-	}
-	return mergeResult{
-		packs:            packs,
-		enabled:          enabledFlags,
-		effectiveEnabled: effectiveFlags,
-	}
-}
-
 // ListAgentSkillPacks 合并推荐 + 发现 + agent 授权,产出目录。refresh 预留(未来强制重发现),当前忽略。
 func (s *Service) ListAgentSkillPacks(ctx context.Context, agentID int64, _ bool) (SkillCatalogDTO, error) {
 	a, err := s.agent.Find(ctx, agentID)
@@ -190,20 +149,20 @@ func (s *Service) ListAgentSkillPacks(ctx context.Context, agentID int64, _ bool
 // 逐字相同过，只有取包与取授权的来源不同——合并与映射只留这一份，免得两边各改
 // 各的又漂开。
 func catalogOf(discovered discoveryResult, authorized []agent_entity.AgentSkillItem) SkillCatalogDTO {
-	mr := merge(agentskill.RecommendedFor(discovered.backendType), discovered.packs, authorized)
-	dto := make([]SkillPackDTO, 0, len(mr.packs))
-	for i, p := range mr.packs {
+	entries := agentskill.MergeCatalog(agentskill.RecommendedFor(discovered.backendType), discovered.packs, authorized)
+	dto := make([]SkillPackDTO, 0, len(entries))
+	for _, e := range entries {
 		dto = append(dto, SkillPackDTO{
-			ID:               p.ID,
-			Name:             p.Name,
-			Description:      p.Description,
-			Skills:           p.Skills,
-			Source:           string(p.Source),
-			Recommended:      p.Recommended,
-			Installed:        p.Installed,
-			Enabled:          mr.enabled[i],
-			GloballyEnabled:  p.GloballyEnabled,
-			EffectiveEnabled: mr.effectiveEnabled[i],
+			ID:               e.Pack.ID,
+			Name:             e.Pack.Name,
+			Description:      e.Pack.Description,
+			Skills:           e.Pack.Skills,
+			Source:           string(e.Pack.Source),
+			Recommended:      e.Pack.Recommended,
+			Installed:        e.Pack.Installed,
+			Enabled:          e.Enabled,
+			GloballyEnabled:  e.Pack.GloballyEnabled,
+			EffectiveEnabled: e.EffectiveEnabled,
 		})
 	}
 	return SkillCatalogDTO{Packs: dto}
@@ -242,15 +201,26 @@ func (s *Service) ListAgentSkillPacksForTarget(ctx context.Context, agentID, age
 }
 
 // ListAgentSkillCommands 返回当前 agent 在 cwd 中可调用的 Skill 命令。
-// 已安装 plugin 的生效态由目录合并结果决定；本地 backend 再合并 CLI 自己解析的
-// user/project/system Skill。远端 backend 当前由 daemon 的 plugin 目录提供命令。
+//
+// 「谁跑这一轮谁说得出自己有什么」是这个方法的判据,于是它按执行目标落在哪台机器
+// 上分成两条:
+//
+//   - **本机档**(DeviceFingerprint 空,或 R13 认领后等于本机指纹):本地枚举包,再
+//     交给 agentskill.BuildCommands 合并。
+//   - **远端档**:整份清单问那台机器要(skills.commands)。此前这里只问得到插件包
+//     那一半,CLI 原生解析的 user / project / system skill 被整段跳过 —— 本机发现器
+//     只看得见桌面端自己这台机器上的目录,拿它答远端档等于答错人,而界面上看不出
+//     少了东西。
+//
+// 两条路的合并规则是同一份实现(agentskill.BuildCommands):本机在这里调,远端在那台
+// 机器的 handler 里调。授权两条路都由这一侧给出 —— 组织架构库只在桌面端。
 func (s *Service) ListAgentSkillCommands(ctx context.Context, agentID int64, cwd string) (SkillCommandCatalogDTO, error) {
 	a, err := s.agent.Find(ctx, agentID)
 	if err != nil || a == nil {
 		return SkillCommandCatalogDTO{}, err
 	}
-	discovered, err := s.discover(ctx, a)
-	if err != nil {
+	be, err := s.backend.Find(ctx, a.AgentBackendID)
+	if err != nil || be == nil {
 		return SkillCommandCatalogDTO{}, err
 	}
 	authorized, err := s.authorizedSkills(ctx, agentID)
@@ -258,71 +228,48 @@ func (s *Service) ListAgentSkillCommands(ctx context.Context, agentID int64, cwd
 		return SkillCommandCatalogDTO{}, err
 	}
 
-	mr := merge(agentskill.RecommendedFor(discovered.backendType), discovered.packs, authorized)
-	commands := make([]SkillCommandDTO, 0)
-	seen := map[string]struct{}{}
-	appendCommand := func(name, description string) {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			return
-		}
-		if _, ok := seen[name]; ok {
-			return
-		}
-		seen[name] = struct{}{}
-		commands = append(commands, SkillCommandDTO{
-			Name:        name,
-			Description: strings.TrimSpace(description),
-		})
+	commands, err := s.discoverCommands(ctx, be, strings.TrimSpace(cwd), authorized)
+	if err != nil {
+		return SkillCommandCatalogDTO{}, err
 	}
-
-	for i, pack := range mr.packs {
-		if !mr.effectiveEnabled[i] {
-			continue
-		}
-		for _, rawSkill := range pack.Skills {
-			skill := strings.TrimSpace(rawSkill)
-			if skill == "" {
-				continue
-			}
-			name := skill
-			if !strings.Contains(skill, ":") && strings.TrimSpace(pack.Name) != "" {
-				name = strings.TrimSpace(pack.Name) + ":" + skill
-			}
-			appendCommand(name, pack.Description)
-		}
+	dto := make([]SkillCommandDTO, 0, len(commands))
+	for _, command := range commands {
+		dto = append(dto, SkillCommandDTO{Name: command.Name, Description: command.Description})
 	}
-
-	// 指向本机指纹的档（R13 认领后本机 backend 的 DeviceID == 本机指纹）跟 DeviceID 空
-	// 一样是本地档：CLI 自己解析的 user/project/system 命令也必须合并进来，不能因为
-	// DeviceID 非空就按远端档跳过（discoverForBackend 已把 self 当本地发现，这里只差
-	// 原生命令这一半边）。
-	if discovered.backend != nil && !remote_device_svc.TargetsAnotherMachine(discovered.backend.DeviceID) {
-		if commandDiscoverer, ok := agentskill.CommandDiscovererFor(discovered.backendType); ok {
-			native, err := commandDiscoverer.DiscoverCommands(ctx, agentskill.CommandDiscoverQuery{
-				BackendType:    discovered.backendType,
-				CLIPath:        discovered.backend.CLIPath,
-				Cwd:            strings.TrimSpace(cwd),
-				EnabledPlugins: enabledPlugins(authorized),
-			})
-			if err != nil {
-				return SkillCommandCatalogDTO{}, err
-			}
-			for _, command := range native {
-				appendCommand(command.Name, command.Description)
-			}
-		}
-	}
-
-	return SkillCommandCatalogDTO{Commands: commands}, nil
+	return SkillCommandCatalogDTO{Commands: dto}, nil
 }
 
-func enabledPlugins(items []agent_entity.AgentSkillItem) map[string]bool {
-	out := make(map[string]bool, len(items))
-	for _, item := range items {
-		out[item.ID] = item.Enabled
+// discoverCommands 按执行目标落在哪台机器上,选出答这份清单的那一方。
+func (s *Service) discoverCommands(
+	ctx context.Context, be *agent_backend_entity.AgentBackend, cwd string,
+	authorized []agent_entity.AgentSkillItem,
+) ([]agentskill.SkillCommand, error) {
+	if remote_device_svc.TargetsAnotherMachine(be.DeviceFingerprint) {
+		deviceID, ok := pairedDeviceID(ctx, be.DeviceFingerprint)
+		if !ok || s.remote == nil {
+			// 那台机器没在本机配对过,没有可拨的对象。回空清单而不是错误:输入框
+			// 照常能用,只是没有补全 —— 与 ListAgentSkillPacks 对同一情形的处置一致。
+			return nil, nil
+		}
+		return s.remote.ListSkillCommands(ctx, deviceID, be.Type, cwd, authorized)
 	}
-	return out
+
+	backendType := agent_backend_entity.BackendType(be.Type)
+	var installed []agentskill.SkillPack
+	if d, ok := agentskill.DiscovererFor(backendType); ok {
+		packs, err := d.Discover(ctx, agentskill.DiscoverQuery{BackendType: backendType, CLIPath: be.CLIPath})
+		if err != nil {
+			return nil, err
+		}
+		installed = packs
+	}
+	return agentskill.BuildCommands(ctx, agentskill.CommandsQuery{
+		BackendType: backendType,
+		CLIPath:     be.CLIPath,
+		Cwd:         cwd,
+		Installed:   installed,
+		Authorized:  authorized,
+	})
 }
 
 // EnabledPluginsMapForTarget 同 EnabledPluginsMap,但授权取自 agentBackendID 指名的
@@ -341,5 +288,5 @@ func (s *Service) EnabledPluginsMapForTarget(
 	if err != nil {
 		return nil, err
 	}
-	return enabledPlugins(authorized), nil
+	return agentskill.EnabledPluginsMap(authorized), nil
 }

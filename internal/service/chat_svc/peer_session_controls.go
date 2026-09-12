@@ -7,20 +7,29 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
+	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/cago-frame/cago/pkg/utils/httputils"
+	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
-	chatblocks "github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
 // ErrPeerExecutionUnavailable is deliberately narrower than a generic remote
@@ -41,14 +50,14 @@ var ErrPeerProjectNotFound = errors.New("desktop peer project not found")
 // persisted inside the existing text StoredBlock so it survives transcript
 // reload without changing the chat_messages schema.
 type peerMessageSource struct {
-	Device string
+	Device devicefp.Initiator
 	Name   string
 }
 
 // PeerSessionSource is the account-authorized caller identity captured by the
 // relay connection. The request cannot nominate a different fingerprint.
 type PeerSessionSource struct {
-	Device string
+	Device devicefp.Initiator
 	Name   string
 }
 
@@ -79,21 +88,40 @@ type PeerSessionRunResult struct {
 // 会话行/标题/转录都在这台机器上新建并跑首轮（见 runFreshPeerSession）。会话存在时
 // 原样续轮，行为不变。
 func (s *chatSvc) RunPeerSession(ctx context.Context, params wire.RunParams, source PeerSessionSource) (*SendResponse, error) {
-	if params.SessionID <= 0 || source.Device == "" {
+	if source.Device == "" {
 		return nil, fmt.Errorf("invalid peer session run")
 	}
-	session, err := chat_repo.Session().Find(ctx, params.SessionID)
+	if err := conversationid.Validate(params.ConversationID); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrPeerSessionInvalidID, err)
+	}
+	// 附件在最前面解:解不开就拒绝整轮,而不是丢掉附件照跑 —— 静默跑一轮「用户以为
+	// 发了图、模型没看见」的对话,比一个明确的错误更糟。解在建会话之前,失败时库里
+	// 也不会留下一条为它新建的空会话(spec 2026-09-07-host-transcript-user-input 决策 3)。
+	userBlocks, err := decodePeerUserBlocks(params.UserText, params.UserBlocks)
+	if err != nil {
+		return nil, err
+	}
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil && !errors.Is(err, ErrPeerSessionNotFound) {
+		return nil, err
+	}
+	// 解析不出来的是对端**新铸**的对话(R17:浏览器把新对话派到这台桌面端上跑)。
+	// 新建的会话行与对端铸的号在这里对上,此后这条对话双向都寻址得到。
+	if sessionID == 0 {
+		return s.runFreshPeerSession(ctx, params, source, userBlocks)
+	}
+	session, err := chat_repo.Session().Find(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	if session == nil {
-		return s.runFreshPeerSession(ctx, params, source)
+		return s.runFreshPeerSession(ctx, params, source, userBlocks)
 	}
 	_, backend, _, err := s.resolveAgentBackend(ctx, session, session.AgentID, session.ProjectID)
 	if err != nil {
 		return nil, err
 	}
-	if beTargetsRemote(backend) {
+	if exec_target_svc.BackendTargetsRemote(backend) {
 		if err := s.preflightPeerRemoteExecution(ctx, backend, session.ID); err != nil {
 			return nil, err
 		}
@@ -104,6 +132,7 @@ func (s *chatSvc) RunPeerSession(ctx context.Context, params wire.RunParams, sou
 		PermissionMode:        params.PermissionMode,
 		EmitTurnStartedBypass: true,
 		peerSource:            source.messageSource(),
+		peerBlocks:            userBlocks,
 	}, sendOptions{})
 }
 
@@ -111,7 +140,10 @@ func (s *chatSvc) RunPeerSession(ctx context.Context, params wire.RunParams, sou
 // 账号级 agentSyncId 与该项目在本机的 cwd，本机据此解析本地 agent / project 行，然后
 // 走与桌面端自己发消息完全相同的 Send 路径（排队、权限模式、转录落库都发生）——
 // 会话行、标题与转录因此都住在这台机器上，返回的也是本机的真实会话 id。
-func (s *chatSvc) runFreshPeerSession(ctx context.Context, params wire.RunParams, source PeerSessionSource) (*SendResponse, error) {
+func (s *chatSvc) runFreshPeerSession(
+	ctx context.Context, params wire.RunParams, source PeerSessionSource,
+	userBlocks []cagoblocks.ContentBlock,
+) (*SendResponse, error) {
 	if strings.TrimSpace(params.AgentSyncID) == "" {
 		return nil, fmt.Errorf("invalid fresh peer session run: agentSyncId is required")
 	}
@@ -126,16 +158,26 @@ func (s *chatSvc) runFreshPeerSession(ctx context.Context, params wire.RunParams
 	if err != nil {
 		return nil, err
 	}
-	return s.send(ctx, &SendRequest{
+	// 号是对端铸的(v5/v7 都可能),本机派生不出来 —— 它随建行一起落进
+	// chat_sessions.conversation_id,此后这条对话的 attach / pull / 控制请求都靠
+	// 那一列的唯一索引寻址得到本机这一行,进程重启也不会丢。
+	out, err := s.send(ctx, &SendRequest{
 		AgentID:               agentID,
 		ProjectID:             projectID,
 		Text:                  params.UserText,
 		PermissionMode:        params.PermissionMode,
 		ProviderKey:           params.LLMProviderKey,
 		ModelKey:              params.LLMModelKey,
+		ReasoningEffort:       params.ReasoningEffort,
 		EmitTurnStartedBypass: true,
 		peerSource:            source.messageSource(),
+		peerBlocks:            userBlocks,
+		conversationID:        params.ConversationID,
 	}, sendOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // resolvePeerProjectID 把对端报告的 cwd（该桌面端自己上报过的本机项目路径）翻回本地
@@ -161,7 +203,7 @@ func resolvePeerProjectID(ctx context.Context, cwd string) (int64, error) {
 func (s *chatSvc) preflightPeerRemoteExecution(ctx context.Context, backend *agent_backend_entity.AgentBackend, sessionID int64) error {
 	_, err := s.selectRunner(ctx, backend, sessionID)
 	if err == nil {
-		if deviceID, ok := localPairedDeviceID(ctx, backend.DeviceID); ok {
+		if deviceID, ok := exec_target_svc.LocalPairedDeviceID(ctx, backend.DeviceFingerprint); ok {
 			s.releaseRemoteRuntime(deviceID, sessionID)
 		}
 		return nil
@@ -177,20 +219,164 @@ func (s *chatSvc) preflightPeerRemoteExecution(ctx context.Context, backend *age
 // to the normal consumed-steer persistence path rather than creating a second
 // queue for remote peers.
 func (s *chatSvc) EnqueuePeerSession(ctx context.Context, params wire.SteerParams, source PeerSessionSource) (*EnqueueResponse, error) {
-	return s.enqueue(ctx, &EnqueueRequest{SessionID: params.SessionID, Text: params.Text, peerSource: source.messageSource()})
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	return s.enqueue(ctx, &EnqueueRequest{SessionID: sessionID, Text: params.Text, peerSource: source.messageSource()})
+}
+
+// CancelPeerSessionQueued 撤回这条会话里还没被取走的排队消息(空 QueuedID = 清空
+// 整条队列),与 EnqueuePeerSession 成对。
+//
+// 浏览器与桌面端前端走的是**同一个**撤回实现(CancelQueued):撤不撤得掉、撤掉了哪
+// 几条,都由那一处说了算,这一层只负责把会话身份解出来。此前这条路根本没有,浏览器
+// 上的排队消息因此只能看着,撤不掉。
+func (s *chatSvc) CancelPeerSessionQueued(ctx context.Context, params wire.CancelSteerParams) (*CancelQueuedResponse, error) {
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	return s.CancelQueued(ctx, &CancelQueuedRequest{SessionID: sessionID, QueuedID: params.QueuedID})
+}
+
+// PendingPeerSessionWaiters 是 AnswerPeerToolPermission / AnswerPeerUserQuestion 这两个
+// 写侧的读侧（与 agentred 的 SessionCatchupHandlers.PendingWaiters 同一个方法、同一份
+// 载荷形状）。浏览器不订阅桌面端的 Wails 事件，它画审批卡 / 提问卡的数据源就是这份
+// 快照 —— 桌面端答不了它，托管在这台机器上的会话在浏览器上就永远没有卡可批。
+//
+// 快照来自 backend runtime 的进程内存而不是数据库：会话行只用来解「这条会话跑在哪个
+// backend 上」。答案随后由写侧用同一个会话键投回同一个 runner，读写两侧因此永远对得上。
+func (s *chatSvc) PendingPeerSessionWaiters(
+	ctx context.Context, params wire.SessionPendingWaitersParams,
+) (wire.SessionPendingWaitersResult, error) {
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil {
+		return wire.SessionPendingWaitersResult{}, err
+	}
+	session, err := chat_repo.Session().Find(ctx, sessionID)
+	if err != nil {
+		return wire.SessionPendingWaitersResult{}, operationFailedWithCause(ctx, err)
+	}
+	if session == nil {
+		return wire.SessionPendingWaitersResult{}, ErrPeerSessionNotFound
+	}
+	backend, err := s.peerSessionExecBackend(ctx, session)
+	if err != nil {
+		return wire.SessionPendingWaitersResult{}, err
+	}
+	// 这一轮跑在另一台机器上:waiter 住在那台 agentred 的进程内存里，取它是一次会失败
+	// 的 RPC，因此走一条**带错误返回**的独立路径而不是塞进 WaiterLister 的无错形状
+	// （理由见 remote.Runtime.PendingWaiters）。
+	if exec_target_svc.BackendTargetsRemote(backend) {
+		return s.remotePendingSessionWaiters(ctx, backend, session.ID)
+	}
+	lister := localWaiterLister(backend)
+	if lister == nil {
+		return wire.SessionPendingWaitersResult{}, nil
+	}
+	snapshot := lister.PendingWaiters(ctx, session.ID)
+	return wire.SessionPendingWaitersResult{
+		ToolPermissions:  snapshot.ToolPermissions,
+		AskUserQuestions: snapshot.AskUserQuestions,
+	}, nil
+}
+
+// remotePendingSessionWaiters 只读地问「那台 agentred 上这条会话此刻卡在哪些决策上」。
+//
+// 只看本机**已经在跑的**那条连接（cachedRemoteRuntime），不为这次查询借新的：没有在跑
+// 的连接就意味着本机没有在那台设备上开着的轮次，那边也没有本机要照看的待决策；而借一条
+// 会顺带拨号、占住池引用并落一次库（recordExecDaemon）——「浏览器查一眼待决策」不该改
+// 会话的执行归属。
+//
+// 查询失败如实上报：降级成空快照等于告诉浏览器「没有待决策」，而远端 agent 正阻塞着等
+// 答复 —— 一条「看起来空闲、实际卡在审批」的会话比一次可见的加载失败糟得多。
+func (s *chatSvc) remotePendingSessionWaiters(
+	ctx context.Context, backend *agent_backend_entity.AgentBackend, sessionID int64,
+) (wire.SessionPendingWaitersResult, error) {
+	deviceID, ok := exec_target_svc.LocalPairedDeviceID(ctx, backend.DeviceFingerprint)
+	if !ok {
+		logger.Ctx(ctx).Warn("chat_svc.remotePendingSessionWaiters: exec device is not paired here",
+			zap.Int64("sessionId", sessionID), zap.String("deviceId", string(backend.DeviceFingerprint)))
+		return wire.SessionPendingWaitersResult{}, nil
+	}
+	rt := s.cachedRemoteRuntime(deviceID)
+	if rt == nil {
+		logger.Ctx(ctx).Debug("chat_svc.remotePendingSessionWaiters: no live connection to that device",
+			zap.Int64("sessionId", sessionID), zap.Int64("deviceId", deviceID))
+		return wire.SessionPendingWaitersResult{}, nil
+	}
+	result, err := rt.PendingWaiters(ctx, sessionID)
+	if err != nil {
+		return wire.SessionPendingWaitersResult{}, operationFailedWithCause(ctx, err,
+			zap.Int64("sessionId", sessionID), zap.Int64("deviceId", deviceID))
+	}
+	return result, nil
+}
+
+// localWaiterLister 解出本机 runtime 注册表里那一档的 waiter 读侧；没有读侧时回 nil。
+//
+// 没有审批协议的 backend 不实现 WaiterLister：R7 明写这一支回空列表而不是报错。
+func localWaiterLister(backend *agent_backend_entity.AgentBackend) agentruntime.WaiterLister {
+	runner := agentruntime.RuntimeFor(agent_backend_entity.BackendType(backend.Type))
+	if runner == nil {
+		return nil
+	}
+	lister, _ := runner.(agentruntime.WaiterLister)
+	return lister
+}
+
+// peerSessionExecBackend 解出这条会话此刻实际执行所在的那一档 backend。
+//
+// 解析与写侧 AnswerToolPermission 逐字一致（会话钉住哪一档就用哪一档）：读出来的
+// waiter 与提交答案的目标必须是同一个 runner，否则浏览器会照着一份别处的 requestID
+// 去答一个这里没有的问题。
+func (s *chatSvc) peerSessionExecBackend(
+	ctx context.Context, session *chat_entity.Session,
+) (*agent_backend_entity.AgentBackend, error) {
+	agent, err := agent_repo.Agent().Find(ctx, session.AgentID)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("%w: agent %d", ErrPeerSessionNotFound, session.AgentID)
+	}
+	backendID := agent.AgentBackendID
+	if session.ExecAgentBackendID > 0 {
+		backendID = session.ExecAgentBackendID
+	}
+	if backendID <= 0 {
+		return nil, fmt.Errorf("%w: session %d has no agent backend", ErrPeerSessionMetadata, session.ID)
+	}
+	backend, err := agent_backend_repo.AgentBackend().Find(ctx, backendID)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	if backend == nil {
+		return nil, fmt.Errorf("%w: agent backend %d", ErrPeerSessionMetadata, backendID)
+	}
+	return backend, nil
 }
 
 func (s *chatSvc) AnswerPeerUserQuestion(ctx context.Context, params wire.SubmitAnswerParams) (PeerSessionControlResult, error) {
-	_, err := s.AnswerUserQuestion(ctx, &AnswerUserQuestionRequest{
-		SessionID: params.SessionID, RequestID: params.RequestID,
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil {
+		return PeerSessionControlResult{}, err
+	}
+	_, err = s.AnswerUserQuestion(ctx, &AnswerUserQuestionRequest{
+		SessionID: sessionID, RequestID: params.RequestID,
 		Answers: chatblocks.AnswersFromRuntime(params.Answers), Skipped: params.Skipped,
 	})
 	return peerSessionControlResult(err)
 }
 
 func (s *chatSvc) AnswerPeerToolPermission(ctx context.Context, params wire.SubmitToolPermissionParams) (PeerSessionControlResult, error) {
-	_, err := s.AnswerToolPermission(ctx, &AnswerToolPermissionRequest{
-		SessionID: params.SessionID, RequestID: params.RequestID, Allow: params.Allow,
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil {
+		return PeerSessionControlResult{}, err
+	}
+	_, err = s.AnswerToolPermission(ctx, &AnswerToolPermissionRequest{
+		SessionID: sessionID, RequestID: params.RequestID, Allow: params.Allow,
 		AlwaysAllowSession: params.AlwaysAllowSession, DenyReason: params.DenyReason,
 	})
 	return peerSessionControlResult(err)
@@ -214,40 +400,18 @@ func PeerSessionExecutionResult(err error) (PeerSessionRunResult, error) {
 	return PeerSessionRunResult{}, err
 }
 
+// persistPeerMessageSource 把提交方的设备身份盖进这条用户消息的正文。盖法归共用的
+// 那一份(transcript.StampUserMessageSource):agentred 做宿主时盖的是同一处、同样的
+// 键名,否则同一句话在两台宿主上投影出不同的来源。
 func persistPeerMessageSource(message *chat_entity.Message, source peerMessageSource) error {
 	if message == nil || source.Device == "" {
 		return nil
 	}
-	var stored []cagoblocks.StoredBlock
-	if err := json.Unmarshal([]byte(message.BlocksJSON), &stored); err != nil {
-		return fmt.Errorf("decode user message source: %w", err)
+	stamped, err := transcript.StampUserMessageSource(message.BlocksJSON, source.Device, source.Name)
+	if err != nil {
+		return err
 	}
-	for index := range stored {
-		if stored[index].Type != "text" && stored[index].Type != "display_text" {
-			continue
-		}
-		var data map[string]json.RawMessage
-		if err := json.Unmarshal(stored[index].Data, &data); err != nil {
-			return fmt.Errorf("decode user text source: %w", err)
-		}
-		device, _ := json.Marshal(source.Device)
-		data["sourceDevice"] = device
-		if source.Name != "" {
-			name, _ := json.Marshal(source.Name)
-			data["sourceDeviceName"] = name
-		}
-		encoded, err := json.Marshal(data)
-		if err != nil {
-			return fmt.Errorf("encode user text source: %w", err)
-		}
-		stored[index].Data = encoded
-		all, err := json.Marshal(stored)
-		if err != nil {
-			return fmt.Errorf("encode user message source: %w", err)
-		}
-		message.BlocksJSON = string(all)
-		return nil
-	}
+	message.BlocksJSON = stamped
 	return nil
 }
 
@@ -270,20 +434,6 @@ func (s *chatSvc) withPeerSteerSources(steers []agentruntime.ConsumedSteer) []ag
 	return steers
 }
 
-func firstTextBlock(blocks []cagoblocks.ContentBlock) string {
-	for _, block := range blocks {
-		switch text := block.(type) {
-		case cagoblocks.TextBlock:
-			return text.Text
-		case *cagoblocks.TextBlock:
-			if text != nil {
-				return text.Text
-			}
-		}
-	}
-	return ""
-}
-
 func peerMessageSourceOf(message *chat_entity.Message) peerMessageSource {
 	if message == nil || message.Role != "user" {
 		return peerMessageSource{}
@@ -301,8 +451,34 @@ func peerMessageSourceOf(message *chat_entity.Message) peerMessageSource {
 			Name   string `json:"sourceDeviceName"`
 		}
 		if json.Unmarshal(block.Data, &data) == nil && data.Device != "" {
-			return peerMessageSource{Device: data.Device, Name: data.Name}
+			return peerMessageSource{Device: devicefp.Initiator(data.Device), Name: data.Name}
 		}
 	}
 	return peerMessageSource{}
+}
+
+// decodePeerUserBlocks 把 runtime.run 带来的附件解成内容块。
+//
+// 空切片交回 nil:没带附件的那一轮不该因为这一格多出任何东西。解不开时交回参数错误
+// —— 调用方(对端)给的这一轮本就不成立,拒绝比丢掉附件照跑更好交代。
+//
+// 交回的是**附件**而不是原样那一串:桌面端派过来的 userBlocks 是那条用户消息的全部块
+// (buildRunRequest),里面已经含着与 userText 同一句话的文本块,而 send 那条汇合口
+// 随后还会由 userBlocksForSend 自己补一个文本块。去重归共用的那一份
+// (transcript.TurnAttachments),agentred 做宿主时过的是同一道 —— 否则同一句话在这一侧
+// 落成两个文本块,还会把图片能力校验误判成「这一轮带了附件」。
+func decodePeerUserBlocks(userText string, in []cagoblocks.StoredBlock) ([]cagoblocks.ContentBlock, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	out, err := cagoblocks.DecodeAll(in)
+	if err != nil {
+		return nil, fmt.Errorf("invalid peer session run: decode user blocks: %w", err)
+	}
+	// 桌面端做宿主时收的同样是**经中继来的**图(控制台驱动一条它托管的会话),所以
+	// 这道闸与 agentred 那一侧同一个:同一个常量、同一条「拒整轮不截断」的处置。
+	if err := transcript.CheckAttachmentBudget(out); err != nil {
+		return nil, fmt.Errorf("invalid peer session run: %w", err)
+	}
+	return transcript.TurnAttachments(userText, out), nil
 }

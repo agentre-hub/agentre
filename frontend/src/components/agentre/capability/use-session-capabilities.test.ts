@@ -40,6 +40,25 @@ describe("useSessionCapabilities", () => {
     );
   });
 
+  // 会话思考力度选择器按这一位渲染或整颗不渲染(spec 2026-09-01 决策 6),所以
+  // "reasoning_effort" 必须是这条查询认识的能力名,而不是被 Capability 联合类型挡在
+  // 外面的字符串。
+  it("surfaces reasoning_effort for a supporting backend and withholds it for openclaw", async () => {
+    getSessionCapabilities.mockResolvedValue({
+      capabilities: ["abort", "reasoning_effort"],
+    });
+    const { result } = renderHook(() => useSessionCapabilities(1));
+    await waitFor(() => expect(result.current.caps).not.toBeNull());
+    expect(result.current.caps?.has("reasoning_effort")).toBe(true);
+
+    getSessionCapabilities.mockResolvedValue({
+      capabilities: ["abort", "exec_approval"],
+    });
+    const { result: openclaw } = renderHook(() => useSessionCapabilities(2));
+    await waitFor(() => expect(openclaw.current.caps).not.toBeNull());
+    expect(openclaw.current.caps?.has("reasoning_effort")).toBe(false);
+  });
+
   it("returns null caps when sessionId is 0/undefined", () => {
     const { result: r0 } = renderHook(() => useSessionCapabilities(0));
     expect(r0.current.caps).toBeNull();

@@ -1,5 +1,10 @@
 // Minimal mocks for wailsjs/go/models used in tests.
 // Wails-generated model classes are just plain-object pass-through constructors.
+//
+// **凡是生产代码当值用到的 `<ns>.<Request>.createFrom(...)`，这里都得有一条。**
+// 漏一条不会报「找不到模块」：那个 namespace 直接是 `undefined`，读它的属性抛
+// TypeError，而调用点通常裹在 try/catch 里 —— 表现是「点了保存什么都没发生」，
+// 只在测试里出现，排查成本远高于在这里多写一行。
 
 class ModelClass {
   static createFrom(source: Record<string, unknown> = {}) {
@@ -15,6 +20,11 @@ export const llm_provider_svc = {
   CreateProviderRequest: ModelClass,
   UpdateProviderRequest: ModelClass,
   DeleteProviderRequest: ModelClass,
+  DeleteModelRequest: ModelClass,
+  SetProviderEnabledRequest: ModelClass,
+  SetModelEnabledRequest: ModelClass,
+  ProviderRefCountsRequest: ModelClass,
+  ModelRefCountsRequest: ModelClass,
   TestConnectionRequest: ModelClass,
   ListModelsRequest: ModelClass,
   PreviewModelsRequest: ModelClass,
@@ -27,6 +37,8 @@ export const agent_backend_svc = {
   DeleteBackendRequest: ModelClass,
   TestBackendRequest: ModelClass,
   CancelTestBackendRequest: ModelClass,
+  GetCLIOverlayRequest: ModelClass,
+  SetCLIOverlayRequest: ModelClass,
   ResolveCLIPathRequest: ModelClass,
 };
 
@@ -54,4 +66,10 @@ export const chat_svc = {
   SendRequest: ModelClass,
   AnswerToolApprovalRequest: ModelClass,
   AnswerToolApprovalResponse: ModelClass,
+  ReadDroppedImagesRequest: ModelClass,
+};
+
+export const hook_svc = {
+  CreateHookRequest: ModelClass,
+  UpdateHookRequest: ModelClass,
 };

@@ -1,0 +1,21 @@
+{
+  "cursor": 1,
+  "hasMore": true,
+  "notifications": [
+    {
+      "createtime": 0,
+      "method": "runtime.event",
+      "params": {
+        "conversationId": "00000000-0000-7000-8000-000000000042",
+        "event": {
+          "kind": "text_delta",
+          "text": "你好"
+        },
+        "seq": 1
+      },
+      "seq": 1
+    }
+  ],
+  "oldestSeq": 1,
+  "serverVersion": "1.2.3"
+}

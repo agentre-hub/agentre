@@ -31,7 +31,12 @@ import {
   PeerSubmitToolPermission,
   PeerDetach,
 } from "../../../wailsjs/go/app/App";
-import { usePeerSessionsStore } from "../peer-session-store";
+import { usePeerSessionsStore, peerKeyOf } from "../peer-session-store";
+
+// conv 是这些用例里第 n 条对话的身份 —— 一个 uuid 字符串。Peer Tab 按它寻址,
+// 而不是按对端机器上那条会话的本地主键。
+const conv = (n: number) =>
+  `0198f4c1-a000-7c0d-8b21-${String(n).padStart(12, "0")}`;
 
 const frame = (
   seq: number,
@@ -39,7 +44,7 @@ const frame = (
   extra: Record<string, unknown> = {},
 ) => ({
   fingerprint: "sha256:peer-desktop",
-  sessionId: 7,
+  conversationId: conv(7),
   seq,
   event: { kind, ...extra },
 });
@@ -63,12 +68,15 @@ describe("peer-session-store", () => {
       notifications: [
         {
           seq: 1,
-          params: { sessionId: 7, event: { kind: "user_message", text: "hi" } },
+          params: {
+            conversationId: conv(7),
+            event: { kind: "user_message", text: "hi" },
+          },
         },
         {
           seq: 2,
           params: {
-            sessionId: 7,
+            conversationId: conv(7),
             event: { kind: "text_delta", text: "hello" },
           },
         },
@@ -80,12 +88,15 @@ describe("peer-session-store", () => {
 
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
 
-    const s = usePeerSessionsStore.getState().sessions["sha256:peer-desktop:7"];
+    const s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
     expect(s.status).toBe("ready");
     expect(s.transcript.messages).toHaveLength(2);
     expect(s.transcript.messages[0]).toMatchObject({
@@ -96,6 +107,108 @@ describe("peer-session-store", () => {
       type: "text",
       text: "hello",
     });
+  });
+
+  // agentred 每次重启都把非终态会话标成 interrupted,而 daemon 的 Attach 对
+  // interrupted 一律回 ErrNoActiveTurn(那一轮的子进程随上一个 daemon 进程消亡了)
+  // —— 它同一处注释也写明「历史仍可 Pull」。
+  //
+  // 此前 attach 失败即 status:"error" 并 return,历史一页都不拉:一条读得到的对话
+  // 因为「接不回实时流」而整条打不开。存量一旦全沉淀成 interrupted(对端重启若干次
+  // 之后就是),Peer Tab 里每一条都打不开。
+  it("attach 被拒:历史照拉,不整条判死", async () => {
+    (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("no active turn"),
+    );
+    (PeerPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      notifications: [
+        {
+          seq: 1,
+          params: {
+            conversationId: conv(7),
+            event: { kind: "user_message", text: "hi" },
+          },
+        },
+        {
+          seq: 2,
+          params: {
+            conversationId: conv(7),
+            event: { kind: "text_delta", text: "hello" },
+          },
+        },
+      ],
+      cursor: 2,
+      hasMore: false,
+      oldestSeq: 1,
+    });
+
+    await usePeerSessionsStore.getState().attach({
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      title: "t",
+      deviceName: "d",
+    });
+
+    const s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
+    expect(s.status).toBe("ready");
+    expect(s.transcript.messages).toHaveLength(2);
+  });
+
+  // attach 交回的高水位是翻页的停止判据之一。attach 被拒时那个数没有,不能拿 0
+  // 当高水位用 —— `cursor >= 0` 第一页就成立,历史会被截成一页。没有高水位时
+  // 唯一的停止判据是对端说 hasMore=false。
+  it("attach 被拒且历史不止一页:翻到对端说没有更多为止", async () => {
+    (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("no active turn"),
+    );
+    // 两页各用一种 kind：同一轮里连着两条 text_delta 会被归约成**一条**助手消息，
+    // 那样数条数就分不出「翻了两页」还是「只翻了一页」。
+    const page = (
+      seq: number,
+      kind: string,
+      text: string,
+      hasMore: boolean,
+    ) => ({
+      notifications: [
+        {
+          seq,
+          params: { conversationId: conv(7), event: { kind, text } },
+        },
+      ],
+      cursor: seq,
+      hasMore,
+      oldestSeq: 1,
+    });
+    // 用计数器驱动的 mockImplementation，而不是两次 mockResolvedValueOnce：
+    // beforeEach 的 clearAllMocks 不清 once 队列，没被消费完的那几个会漏进下一个
+    // 用例，把它的 PeerPull 桩顶掉。
+    let served = 0;
+    (PeerPull as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      async () => {
+        served += 1;
+        return served === 1
+          ? page(1, "user_message", "first", true)
+          : page(2, "text_delta", "second", false);
+      },
+    );
+
+    await usePeerSessionsStore.getState().attach({
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      title: "t",
+      deviceName: "d",
+    });
+
+    const s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
+    expect(PeerPull).toHaveBeenCalledTimes(2);
+    expect(s.status).toBe("ready");
+    expect(s.transcript.messages).toHaveLength(2);
   });
 
   it("live frames after attach are reduced; frames covered by pull are dropped", async () => {
@@ -111,28 +224,114 @@ describe("peer-session-store", () => {
     });
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
 
     // 高水位(2)之后的实时帧正常归约
-    eventsOn.holder.handler?.(frame(3, "text_delta", { text: "live" }));
-    let s = usePeerSessionsStore.getState().sessions["sha256:peer-desktop:7"];
+    eventsOn.holder.handler?.([frame(3, "text_delta", { text: "live" })]);
+    let s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
     expect(s.transcript.messages[0].blocks[0]).toMatchObject({
       type: "text",
       text: "live",
     });
 
     // 重复帧（≤ 游标）被去重丢弃
-    eventsOn.holder.handler?.(frame(3, "text_delta", { text: "live" }));
-    eventsOn.holder.handler?.(frame(2, "text_delta", { text: "dup" }));
-    s = usePeerSessionsStore.getState().sessions["sha256:peer-desktop:7"];
+    eventsOn.holder.handler?.([frame(3, "text_delta", { text: "live" })]);
+    eventsOn.holder.handler?.([frame(2, "text_delta", { text: "dup" })]);
+    s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
     expect(s.transcript.messages).toHaveLength(1);
     expect(s.transcript.messages[0].blocks[0]).toMatchObject({
       type: "text",
       text: "live",
     });
+  });
+
+  it("一批多帧只触发一次 store 更新,且逐帧按序归约", async () => {
+    // 合帧的意义在这里:一批 N 帧过去只是 N 次 setState + N 次 Wails 广播。
+    // 帧本身不合并(各自带 seq),所以归约结果必须与逐帧送达完全一致。
+    (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      latestSeq: 0,
+      lifecycleState: "idle",
+    });
+    (PeerPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      notifications: [],
+      cursor: 0,
+      hasMore: false,
+      oldestSeq: 0,
+    });
+    await usePeerSessionsStore.getState().attach({
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      title: "t",
+      deviceName: "d",
+    });
+
+    let updates = 0;
+    const unsubscribe = usePeerSessionsStore.subscribe(() => {
+      updates += 1;
+    });
+
+    eventsOn.holder.handler?.([
+      frame(1, "text_delta", { text: "he" }),
+      frame(2, "text_delta", { text: "ll" }),
+      frame(3, "text_delta", { text: "o" }),
+    ]);
+    unsubscribe();
+
+    expect(updates).toBe(1);
+    const s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
+    expect(s.transcript.messages[0].blocks[0]).toMatchObject({
+      type: "text",
+      text: "hello",
+    });
+  });
+
+  it("一批里混着多条会话的帧,各自落到自己那条", async () => {
+    // batcher 是全局的,一批里可以同时装着不同对端 / 不同会话的帧。
+    for (const conversationId of [conv(7), conv(9)]) {
+      (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        latestSeq: 0,
+        lifecycleState: "idle",
+      });
+      (PeerPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        notifications: [],
+        cursor: 0,
+        hasMore: false,
+        oldestSeq: 0,
+      });
+      await usePeerSessionsStore.getState().attach({
+        fingerprint: "sha256:peer-desktop",
+        conversationId,
+        title: "t",
+        deviceName: "d",
+      });
+    }
+
+    eventsOn.holder.handler?.([
+      { ...frame(1, "text_delta", { text: "seven" }), conversationId: conv(7) },
+      { ...frame(1, "text_delta", { text: "nine" }), conversationId: conv(9) },
+    ]);
+
+    const sessions = usePeerSessionsStore.getState().sessions;
+    expect(
+      sessions[peerKeyOf("sha256:peer-desktop", conv(7))].transcript.messages[0]
+        .blocks[0],
+    ).toMatchObject({ type: "text", text: "seven" });
+    expect(
+      sessions[peerKeyOf("sha256:peer-desktop", conv(9))].transcript.messages[0]
+        .blocks[0],
+    ).toMatchObject({ type: "text", text: "nine" });
   });
 
   it("steer sends through the peer binding", async () => {
@@ -146,19 +345,19 @@ describe("peer-session-store", () => {
     });
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
 
     const ok = await usePeerSessionsStore
       .getState()
-      .steer("sha256:peer-desktop", 7, "接着干");
+      .steer("sha256:peer-desktop", conv(7), "接着干");
     expect(ok).toBe(true);
     expect(PeerSteer).toHaveBeenCalledWith(
       expect.objectContaining({
         fingerprint: "sha256:peer-desktop",
-        sessionId: 7,
+        conversationId: conv(7),
         text: "接着干",
       }),
     );
@@ -178,14 +377,14 @@ describe("peer-session-store", () => {
     );
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
 
     const res = await usePeerSessionsStore.getState().submitAnswer({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       requestId: "req-1",
       answers: [],
     });
@@ -206,14 +405,14 @@ describe("peer-session-store", () => {
     ).mockResolvedValue({ alreadyHandled: true });
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
 
     const res = await usePeerSessionsStore.getState().submitToolPermission({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       requestId: "p-1",
       allow: true,
     });
@@ -231,29 +430,43 @@ describe("peer-session-store", () => {
     });
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
 
-    usePeerSessionsStore.getState().detach("sha256:peer-desktop", 7);
+    usePeerSessionsStore.getState().detach("sha256:peer-desktop", conv(7));
     expect(
-      usePeerSessionsStore.getState().sessions["sha256:peer-desktop:7"],
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ],
     ).toBeUndefined();
-    expect(PeerDetach).toHaveBeenCalledWith("sha256:peer-desktop", 7);
+    expect(PeerDetach).toHaveBeenCalledWith("sha256:peer-desktop", conv(7));
   });
 
+  // 对端整台机器都不在（Agentre 没在跑）：attach 与 pull **都**够不着。断言不变
+  // ——这一档仍然要如实报错，不能摆一条空转录假装读到了。
+  //
+  // 桩补上 PeerPull 的拒绝，是因为此前它没被桩过：attach 一失败就 return，pull
+  // 根本不会发出去，于是这条用例其实没说清「够不着」长什么样。而 attach 失败还有
+  // 另一种来路（会话 interrupted，历史照样读得到），两者在这个桩下无从区分。
   it("attach failure marks the session error instead of leaving it half-open", async () => {
     (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("Agentre is not running on that computer"),
     );
+    (PeerPull as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("Agentre is not running on that computer"),
+    );
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
-    const s = usePeerSessionsStore.getState().sessions["sha256:peer-desktop:7"];
+    const s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
     expect(s.status).toBe("error");
     expect(s.error).toContain("not running");
   });

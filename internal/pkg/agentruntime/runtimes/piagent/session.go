@@ -10,9 +10,9 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent/mcpbridge"
-	"github.com/agentre-ai/agentre/pkg/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent/mcpbridge"
+	"github.com/agentre-hub/agentre/pkg/piagent"
 )
 
 type stream interface {
@@ -51,23 +51,72 @@ type turnStreamPreparer interface {
 type clientAdapter struct {
 	client *piagent.Client
 	sid    string
+	// chatSessionID 只为收尾时删掉这条会话的 MCP 桥配置:配置的寿命跟着 RPC 进程,
+	// 而进程现在跨轮活着,不能再随某一轮的结束被删掉。
+	chatSessionID int64
+	ownsMCPConfig bool
+
+	sessionMu sync.Mutex
+	session   *piagent.Session
+	closeOnce sync.Once
 
 	streamMu sync.Mutex
 	stream   *piagent.Stream
 }
 
 func (a *clientAdapter) ID() string { return a.sid }
+
+// ensureSession 惰性开出常驻 RPC 会话:进程在这里起一次,之后每轮都在它上面开。
+func (a *clientAdapter) ensureSession(ctx context.Context) (*piagent.Session, error) {
+	a.sessionMu.Lock()
+	defer a.sessionMu.Unlock()
+	if a.session != nil {
+		return a.session, nil
+	}
+	session, err := a.client.OpenSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	a.session = session
+	return session, nil
+}
+
+// Close 收掉这条会话的 RPC 进程与它的 MCP 桥配置。幂等:失败路径会同步关一次,池的
+// 收尾又会异步关一次。
 func (a *clientAdapter) Close(ctx context.Context) error {
+	var closeErr error
+	a.closeOnce.Do(func() { closeErr = a.shutdown(ctx) })
+	return closeErr
+}
+
+func (a *clientAdapter) shutdown(ctx context.Context) error {
 	a.streamMu.Lock()
 	stream := a.stream
 	a.stream = nil
 	a.streamMu.Unlock()
+	var closeErr error
 	if stream != nil {
-		if err := stream.Close(ctx); err != nil {
-			return err
+		closeErr = stream.Close(ctx)
+	}
+	a.sessionMu.Lock()
+	session := a.session
+	a.session = nil
+	a.sessionMu.Unlock()
+	if session != nil {
+		if err := session.Close(ctx); closeErr == nil && err != nil {
+			closeErr = err
 		}
 	}
-	return a.client.Close(ctx)
+	// MCP 桥配置随进程一起走:进程没了才删得。
+	if a.ownsMCPConfig && a.chatSessionID > 0 {
+		if err := mcpbridge.RemoveConfig(a.chatSessionID); closeErr == nil && err != nil {
+			closeErr = err
+		}
+	}
+	if err := a.client.Close(ctx); closeErr == nil && err != nil {
+		closeErr = err
+	}
+	return closeErr
 }
 
 func (a *clientAdapter) Stream(ctx context.Context, prompt string, mode string, images []piagent.Image) (stream, error) {
@@ -83,7 +132,11 @@ func (a *clientAdapter) startStream(ctx context.Context, prompt string, mode str
 	if err != nil {
 		return nil, err
 	}
-	s, err := a.client.Stream(ctx, prompt, opts...)
+	session, err := a.ensureSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s, err := session.Stream(ctx, prompt, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +155,11 @@ func (a *clientAdapter) PrepareStreamTurn(
 	if err != nil {
 		return nil, err
 	}
-	prepared, err := a.client.PrepareStream(ctx, prompt, opts...)
+	session, err := a.ensureSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	prepared, err := session.PrepareStream(ctx, prompt, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +218,11 @@ func (p *clientPreparedTurn) Close(ctx context.Context) error {
 }
 
 func (a *clientAdapter) Compact(ctx context.Context) (stream, error) {
-	s, err := a.client.Compact(ctx, a.sid)
+	session, err := a.ensureSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s, err := session.Compact(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -206,17 +267,15 @@ type sessionHandle interface {
 }
 
 // piRawFrameSink reports only safe metadata for each pi-agent stdout frame.
-// pkg/piagent already hands over a sanitized diagnostic summary — prompts, images,
-// session content and credentials never reach here — and this sink narrows it
-// further to frame type/command. It stays controlled by Debug Logging through
-// logger.Default() (hot reload therefore takes effect immediately), and complete
-// RPC frames never enter the operational log sink.
+// pkg/piagent hands every subprocess stdout frame here unchanged. Debug Logging
+// intentionally records the complete frame for protocol troubleshooting.
 func piRawFrameSink(sessionID int64, providerSessionID string) func([]byte) {
 	return func(line []byte) {
 		fields := []zap.Field{
 			zap.Int64("sessionID", sessionID),
 			zap.String("providerSessionID", providerSessionID),
 			zap.Int("frameBytes", len(line)),
+			zap.ByteString("frame", line),
 		}
 		var head struct {
 			Type    string `json:"type"`
@@ -232,7 +291,7 @@ func piRawFrameSink(sessionID int64, providerSessionID string) func([]byte) {
 				fields = append(fields, zap.String("responseCommand", command))
 			}
 		}
-		logger.Default().Debug("piagent.piRawFrameSink: frame observed", fields...)
+		logger.Default().Debug("piagent runtime: raw frame", fields...)
 	}
 }
 
@@ -380,7 +439,12 @@ var sessionFactory = func(req agentruntime.RunRequest, env map[string]string, cw
 		opts = append(opts, piagent.WithSession(sessionID))
 	}
 	client := piagent.New(opts...)
-	return &clientAdapter{client: client, sid: req.ProviderSessionID}, nil
+	return &clientAdapter{
+		client:        client,
+		sid:           req.ProviderSessionID,
+		chatSessionID: req.SessionID,
+		ownsMCPConfig: len(req.MCPServers) > 0,
+	}, nil
 }
 
 func SetSessionFactoryForTest(fn func(agentruntime.RunRequest, map[string]string, string) (sessionHandle, error)) func() {

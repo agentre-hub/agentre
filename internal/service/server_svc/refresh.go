@@ -10,8 +10,8 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 )
 
 // 退避重试的节奏：首次 5 秒，逐次翻倍，封顶 5 分钟。服务端一次重启大多在首几档

@@ -64,7 +64,10 @@ export async function startFakeSyncServer({ controlToken, identity }) {
             project_sync_id: "",
             agentred_fingerprint: "",
             updated_at: Date.now(),
-            deleted: false,
+            origin_fingerprint: "",
+            // 墓碑是**时刻**不是布尔：时刻在桌面端库、线格式与 server 库三处本来
+            // 就都是时刻（规格 2026-08-27-schema-overhaul 决策 20）。
+            deleted_at: 0,
             ...item,
             version: nextVersion++,
           }));

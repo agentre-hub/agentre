@@ -12,8 +12,8 @@ import (
 	"github.com/cago-frame/agents/provider"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentprovider"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentprovider"
 )
 
 func TestBuild(t *testing.T) {

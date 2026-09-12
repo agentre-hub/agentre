@@ -1,7 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Briefcase,
   LayoutDashboard,
   MessageCircle,
   Settings,
@@ -26,12 +25,6 @@ export type NavigationItem = {
 // 与 App.tsx 左侧 rail 的导航项一一对应（labelKey + path 同步）。
 const NAV_ITEMS: NavigationItem[] = [
   { key: "nav-chat", path: "/chat", labelKey: "nav.chat", icon: MessageCircle },
-  {
-    key: "nav-projects",
-    path: "/projects",
-    labelKey: "nav.projects",
-    icon: Briefcase,
-  },
   {
     key: "nav-issues",
     path: "/issues",

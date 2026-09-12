@@ -8,7 +8,8 @@ import (
 
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // TestDeviceFingerprint (R17 本机侧):DeviceFingerprint 交出与 LAN 配对 / 账号登录
@@ -20,7 +21,7 @@ func TestDeviceFingerprint(t *testing.T) {
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("sha256:existing", nil)
 		fp, err := svc.DeviceFingerprint()
 		So(err, ShouldBeNil)
-		So(fp, ShouldEqual, "sha256:existing")
+		So(fp, ShouldEqual, devicefp.Carrier("sha256:existing"))
 	})
 	Convey("generates and persists a fresh fingerprint when absent", t, func() {
 		_, _, kc, _, svc := setupSvc(t)
@@ -29,6 +30,6 @@ func TestDeviceFingerprint(t *testing.T) {
 		fp, err := svc.DeviceFingerprint()
 		So(err, ShouldBeNil)
 		So(fp, ShouldNotBeEmpty)
-		So(strings.HasPrefix(fp, "sha256:"), ShouldBeTrue)
+		So(strings.HasPrefix(string(fp), "sha256:"), ShouldBeTrue)
 	})
 }

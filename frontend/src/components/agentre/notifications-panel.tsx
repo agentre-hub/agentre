@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { Switch } from "@/components/ui/switch";
+import { Switch } from "@agentre-hub/agentre-ui";
 
 import {
   useNotificationSettingsStore,

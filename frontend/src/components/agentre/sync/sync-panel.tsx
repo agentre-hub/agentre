@@ -30,7 +30,7 @@ export function SyncPanel() {
     useSyncStatus();
   const now = useNow(NOW_REFRESH_INTERVAL_MS);
 
-  if (loading || !status || !status.Enabled) return null;
+  if (loading || !status || !status.enabled) return null;
 
   return (
     <div data-slot="sync-panel" className="flex flex-col gap-6">

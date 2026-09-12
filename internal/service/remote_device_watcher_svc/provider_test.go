@@ -8,15 +8,15 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
 )
 
 // spyRecorder captures RecordDeviceProviders calls for assertion.
 type spyRecorder struct {
-	mu    sync.Mutex
-	calls []recordCall
-	caps  []recordCapsCall
+	mu     sync.Mutex
+	calls  []recordCall
+	caps   []recordCapsCall
+	builds []recordBuildCall
 }
 
 type recordCall struct {
@@ -27,6 +27,12 @@ type recordCall struct {
 type recordCapsCall struct {
 	deviceID int64
 	caps     []string
+}
+
+type recordBuildCall struct {
+	deviceID int64
+	version  string
+	commit   string
 }
 
 func (s *spyRecorder) RecordDeviceProviders(deviceID int64, ps []remote_device_watcher_svc.ProviderSummary) {
@@ -43,6 +49,12 @@ func (s *spyRecorder) RecordDeviceCapabilities(deviceID int64, caps []string) {
 	cp := make([]string, len(caps))
 	copy(cp, caps)
 	s.caps = append(s.caps, recordCapsCall{deviceID: deviceID, caps: cp})
+}
+
+func (s *spyRecorder) RecordDeviceBuild(deviceID int64, version, commit string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.builds = append(s.builds, recordBuildCall{deviceID: deviceID, version: version, commit: commit})
 }
 
 func (s *spyRecorder) snapshot() []recordCall {
@@ -75,7 +87,7 @@ func TestWatcher_HealthPingProviders_PopulateCache(t *testing.T) {
 		repo.EXPECT().Get(gomock.Any(), int64(7)).Return(row, nil)
 		kc.EXPECT().Get("agentre-daemon-token-7").Return("tok", nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("fp", nil)
-		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(&client.Client{}, nil)
+		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(newWatcherTestConnection(), nil)
 		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(7), int64(1_000_000), "").Return(nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -105,7 +117,7 @@ func TestWatcher_ProviderRecorder_NilSafe(t *testing.T) {
 		repo.EXPECT().Get(gomock.Any(), int64(7)).Return(fixtureRow(), nil)
 		kc.EXPECT().Get("agentre-daemon-token-7").Return("tok", nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("fp", nil)
-		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(&client.Client{}, nil)
+		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(newWatcherTestConnection(), nil)
 		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(7), int64(1_000_000), "").Return(nil)
 
 		ctx, cancel := context.WithCancel(context.Background())

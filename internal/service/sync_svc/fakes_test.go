@@ -2,11 +2,14 @@ package sync_svc
 
 import (
 	"context"
+	"sort"
+	"strconv"
+	"strings"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/app_setting_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
 // 队列与同步元数据这几个仓储在本包的测试里是**有状态的存储**：引擎的行为（折叠、
@@ -40,6 +43,21 @@ func (f *fakeOutboundQueue) Delete(_ context.Context, id int64) error {
 	kept := f.rows[:0]
 	for _, row := range f.rows {
 		if row.ID != id {
+			kept = append(kept, row)
+		}
+	}
+	f.rows = kept
+	return nil
+}
+
+func (f *fakeOutboundQueue) DeleteMany(_ context.Context, ids []int64) error {
+	drop := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		drop[id] = struct{}{}
+	}
+	kept := f.rows[:0]
+	for _, row := range f.rows {
+		if _, ok := drop[row.ID]; !ok {
 			kept = append(kept, row)
 		}
 	}
@@ -128,6 +146,9 @@ type fakeSyncState struct {
 	// 那条语句命中 0 行，**同步元数据根本落不下去**。替身以前无条件写，等于凭空给了
 	// 这两类一个真实环境里不存在的版本记忆——版本守卫的漏洞因此在测试里全都看不见。
 	hardDeleted map[string]bool
+	// softDeleted 标出「本机这一行已经软删（status = DELETE）」。替身没有业务列，
+	// 补删除那条取数在真仓储里按 status 判定，这里用一个显式集合表达同一件事。
+	softDeleted map[string]bool
 }
 
 func newFakeSyncState() *fakeSyncState {
@@ -137,19 +158,100 @@ func newFakeSyncState() *fakeSyncState {
 		unowned:     map[string][]syncstate_repo.ClaimedRow{},
 		claimedBy:   map[string]int64{},
 		hardDeleted: map[string]bool{},
+		softDeleted: map[string]bool{},
 	}
 }
 
-func (f *fakeSyncState) ClaimUnowned(_ context.Context, kind string, accountID int64) ([]syncstate_repo.ClaimedRow, error) {
-	rows := f.unowned[kind]
-	if len(rows) == 0 {
+// ClaimForAccount 收两类行：预置的「还没归属任何账号」的那些（R12a），以及
+// meta 里**属于别的账号**的存活行（规格 2026-09-04 决策 1）。后者的版本号一并清零
+// 并按 0 交回去当基版本（决策 2）——那是上一个账号那套序列里的坐标。
+func (f *fakeSyncState) ClaimForAccount(_ context.Context, kind string, accountID int64) ([]syncstate_repo.ClaimedRow, error) {
+	out := append([]syncstate_repo.ClaimedRow(nil), f.unowned[kind]...)
+	delete(f.unowned, kind)
+
+	keys := make([]string, 0, len(f.meta))
+	for key := range f.meta {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		meta := f.meta[key]
+		if !strings.HasPrefix(key, kind+":") {
+			continue
+		}
+		if meta.SyncAccountID == 0 || meta.SyncAccountID == accountID {
+			continue
+		}
+		// 存活判据：本机已软删的行与墓碑不收——给一个账号推它从没有过的墓碑会按 R6
+		// 永久占掉那个同步标识。
+		if meta.SyncDeletedAt != 0 || f.softDeleted[key] {
+			continue
+		}
+		meta.SyncAccountID = accountID
+		meta.SyncVersion = 0
+		f.meta[key] = meta
+		out = append(out, syncstate_repo.ClaimedRow{SyncID: meta.SyncID, Version: 0})
+	}
+
+	if len(out) == 0 {
 		return nil, nil
 	}
-	delete(f.unowned, kind)
-	for _, row := range rows {
+	for _, row := range out {
 		f.claimedBy[kind+":"+row.SyncID] = accountID
 	}
-	return rows, nil
+	return out, nil
+}
+
+// ResetVersions 清掉某张表上**存活**行的版本号，不分账号（换了一套 server 或换了
+// 账号之后，旧序列的版本号既比不了大小，也会把新序列的快照挡在版本守卫外面）。
+//
+// 软删行的版本号**不清**：那不是一个待重建的坐标，而是「server 见过这一行」这条
+// 事实本身，ListUnsyncedTombstones 靠它找出没送达的删除（R6 的本机兜底）。
+func (f *fakeSyncState) ResetVersions(_ context.Context, kind string) error {
+	for key, meta := range f.meta {
+		if !strings.HasPrefix(key, kind+":") {
+			continue
+		}
+		if meta.SyncDeletedAt != 0 || f.softDeleted[key] {
+			continue
+		}
+		meta.SyncVersion = 0
+		f.meta[key] = meta
+	}
+	return nil
+}
+
+// ListUnversioned 列出「server 从没给过版本号」的存活行：版本号为 0 且不是墓碑。
+func (f *fakeSyncState) ListUnversioned(_ context.Context, kind string, accountID int64) ([]string, error) {
+	var out []string
+	for key, meta := range f.meta {
+		if !strings.HasPrefix(key, kind+":") || meta.SyncAccountID != accountID {
+			continue
+		}
+		if meta.SyncVersion != 0 || meta.SyncDeletedAt != 0 || meta.SyncID == "" {
+			continue
+		}
+		out = append(out, meta.SyncID)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// ListUnsyncedTombstones 列出「本机已软删、但这条删除从没送达 server」的行：
+// 有版本号（server 见过它）、sync_deleted_at 仍为 0（墓碑没送达过）、且本机已软删。
+func (f *fakeSyncState) ListUnsyncedTombstones(_ context.Context, kind string, accountID int64) ([]syncstate_repo.ClaimedRow, error) {
+	var out []syncstate_repo.ClaimedRow
+	for key, meta := range f.meta {
+		if !strings.HasPrefix(key, kind+":") || meta.SyncAccountID != accountID {
+			continue
+		}
+		if meta.SyncVersion == 0 || meta.SyncDeletedAt != 0 || !f.softDeleted[key] {
+			continue
+		}
+		out = append(out, syncstate_repo.ClaimedRow{SyncID: meta.SyncID, Version: meta.SyncVersion})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].SyncID < out[j].SyncID })
+	return out, nil
 }
 
 func (f *fakeSyncState) key(kind, syncID string) string { return kind + ":" + syncID }
@@ -180,6 +282,28 @@ func (f *fakeSyncState) SaveMeta(_ context.Context, kind, syncID string, meta sy
 	return nil
 }
 
+// fakeSyncAccounts 是本地账号表的内存替身：把 (server 地址, 远端用户主键) 映射成
+// 本机的账号键。生产实现见 sync_account_repo —— 归属判定用的是这个键，不是 server
+// 那边的 user_id（两套自建部署的第一个用户都是 1）。
+type fakeSyncAccounts struct {
+	keys map[string]int64
+	next int64
+}
+
+func newFakeSyncAccounts() *fakeSyncAccounts {
+	return &fakeSyncAccounts{keys: map[string]int64{}}
+}
+
+func (f *fakeSyncAccounts) EnsureKey(_ context.Context, serverURL string, remoteUserID int64) (int64, error) {
+	key := serverURL + "|" + strconv.FormatInt(remoteUserID, 10)
+	if id, ok := f.keys[key]; ok {
+		return id, nil
+	}
+	f.next++
+	f.keys[key] = f.next
+	return f.next, nil
+}
+
 // fakeSettings 是本地 key-value 设置表的内存替身（游标住在这里）。
 type fakeSettings struct {
 	rows map[string]*app_setting_entity.AppSetting
@@ -200,6 +324,14 @@ func (f *fakeSettings) Get(_ context.Context, key string) (*app_setting_entity.A
 func (f *fakeSettings) Set(_ context.Context, s *app_setting_entity.AppSetting) error {
 	f.rows[s.Key] = s
 	return nil
+}
+
+func (f *fakeSettings) Delete(_ context.Context, key string) (int64, error) {
+	if _, ok := f.rows[key]; !ok {
+		return 0, nil
+	}
+	delete(f.rows, key)
+	return 1, nil
 }
 
 func (f *fakeSettings) List(context.Context) ([]*app_setting_entity.AppSetting, error) {

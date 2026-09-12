@@ -10,10 +10,11 @@ import (
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/pkg/ccoauth"
-	"github.com/agentre-ai/agentre/internal/service/cc_usage_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/pkg/ccoauth"
+	"github.com/agentre-hub/agentre/internal/service/cc_usage_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 // GetCCUsage 给前端 hook 主动拉指定 device 的缓存状态。
@@ -56,22 +57,13 @@ func (a *App) buildCCUsageResolver() cc_usage_svc.FetcherResolver {
 				return nil, errors.Join(cc_usage_svc.ErrDeviceOffline, lerr)
 			}
 			defer lease.Release()
-			var res handlers.CCUsageResult
-			if cerr := lease.Client().Call(ctx, "claudecode.usage", nil, &res); cerr != nil {
+			res, cerr := wirecall.ClaudeCodeUsage(ctx, lease.Client(), &agentrewire.ClaudeCodeUsageRequest{})
+			if cerr != nil {
 				return nil, errors.Join(ccoauth.ErrNetwork, cerr)
 			}
-			switch res.Reason {
-			case "ok":
-				return res.Data, nil
-			case "no_credentials":
-				return nil, ccoauth.ErrNoCredentials
-			case "auth_expired":
-				return nil, ccoauth.ErrAuthExpired
-			case "rate_limited":
-				return nil, ccoauth.ErrRateLimited
-			default:
-				return nil, ccoauth.ErrNetwork
-			}
+			// reason 分支与时间戳还原都在 ccoauth 里:那段翻译从前写在这一层,而 App
+			// 里的代码 go test 够不着(见 architecture.md 对绑定层的规定)。
+			return ccoauth.RateLimitsFromResponse(res)
 		}, nil
 	}
 }

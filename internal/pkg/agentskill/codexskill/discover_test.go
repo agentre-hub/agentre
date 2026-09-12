@@ -9,8 +9,8 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentskill"
-	"github.com/agentre-ai/agentre/pkg/codex"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/pkg/codex"
 )
 
 func mustCodexSkill(t *testing.T, skillsDir, name string) {
@@ -151,6 +151,36 @@ func TestDiscoverCommands(t *testing.T) {
 			So(gotCwd, ShouldEqual, "/tmp/project")
 			So(gotConfig, ShouldResemble, []string{`plugins."browser@openai-bundled".enabled=true`})
 			So(commands, ShouldResemble, []agentskill.SkillCommand{{Name: "lore:lore-memory", Description: "Recall memory"}})
+		})
+	})
+}
+
+// TestDiscover_FindsCLIOutsideProcessPath 与 claudeskill 同一根问题:从 Finder /
+// Dock 起的 app bundle 只继承 launchd 的最小 PATH,codex 常装在 ~/.local/bin、
+// Homebrew、volta 之类的目录里。裸名字交给 exec 查的是本进程 PATH,查不到就被
+// 软降级成空发现,插件技能整段消失。跑 CLI 的那条路(cliprocess → clienv)早就补齐
+// 了 PATH,发现这条路必须同源。
+func TestDiscover_FindsCLIOutsideProcessPath(t *testing.T) {
+	Convey("Given the CLI lives in a user tool dir that a GUI-launched app's PATH does not contain", t, func() {
+		home := t.TempDir()
+		binDir := filepath.Join(home, ".local", "bin")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		const binary = "agentre-skilltest-codex"
+		script := "#!/bin/sh\nprintf '%s' '{\"installed\":[{\"pluginId\":\"browser\",\"name\":\"browser\",\"enabled\":true}]}'\n"
+		if err := os.WriteFile(filepath.Join(binDir, binary), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("HOME", home)
+		t.Setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+
+		Convey("When packs are discovered, Then the CLI is still found and its plugins come back", func() {
+			packs, err := Discoverer{}.Discover(context.Background(), agentskill.DiscoverQuery{CLIPath: binary})
+			So(err, ShouldBeNil)
+			So(len(packs), ShouldEqual, 1)
+			So(packs[0].Name, ShouldEqual, "browser")
+			So(packs[0].GloballyEnabled, ShouldBeTrue)
 		})
 	})
 }

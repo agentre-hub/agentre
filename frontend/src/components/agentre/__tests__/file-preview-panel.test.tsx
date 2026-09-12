@@ -8,10 +8,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const readFileMock = vi.fn();
 const gitFileContentMock = vi.fn();
 vi.mock("@/../wailsjs/go/app/App", () => ({
-  WorkspaceFsReadFile: (sessionId: number, relPath: string) =>
+  WorkspaceFsReadFile: (sessionId: number, _root: string, relPath: string) =>
     readFileMock(sessionId, relPath),
-  WorkspaceFsGitFileContent: (sessionId: number, relPath: string) =>
-    gitFileContentMock(sessionId, relPath),
+  WorkspaceFsGitFileContent: (
+    sessionId: number,
+    _root: string,
+    relPath: string,
+  ) => gitFileContentMock(sessionId, relPath),
 }));
 
 // Monaco 接缝:面板内的 CodePreview / DiffPreview / MarkdownSourceView 在 happy-dom
@@ -23,6 +26,9 @@ type FakeEditor = {
   options: Record<string, unknown>;
   setValue: ReturnType<typeof vi.fn>;
   dispose: ReturnType<typeof vi.fn>;
+  getModel: ReturnType<typeof vi.fn>;
+  revealLineInCenter: ReturnType<typeof vi.fn>;
+  setSelection: ReturnType<typeof vi.fn>;
 };
 type FakeDiff = {
   options: Record<string, unknown>;
@@ -38,16 +44,30 @@ type FakeMonaco = {
   };
 };
 
+let createdEditors: FakeEditor[] = [];
+
 function createFakeMonaco(): FakeMonaco {
+  createdEditors = [];
   const editor = {
     setTheme: vi.fn(),
     create: vi.fn(
       (_container: HTMLElement, options: Record<string, unknown>) => {
+        let text = String(options.value ?? "");
         const e: FakeEditor = {
           options,
-          setValue: vi.fn(),
+          setValue: vi.fn((next: string) => {
+            text = next;
+          }),
           dispose: vi.fn(),
+          getModel: vi.fn(() => ({
+            getLineCount: () => text.split("\n").length,
+            getLineMaxColumn: (line: number) =>
+              (text.split("\n")[line - 1]?.length ?? 0) + 1,
+          })),
+          revealLineInCenter: vi.fn(),
+          setSelection: vi.fn(),
         };
+        createdEditors.push(e);
         return e;
       },
     ),
@@ -72,11 +92,12 @@ function createFakeMonaco(): FakeMonaco {
 
 let fakeMonaco: FakeMonaco;
 
+import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import {
   selectActivePreviewTab,
-  useChatSidebarStore,
+  useFilePreviewTabsStore,
   type PreviewSourceMode,
-} from "@/stores/chat-sidebar-store";
+} from "@/stores/file-preview-tabs-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 import { FilePreviewPanel } from "../file-preview/file-preview-panel";
@@ -92,11 +113,10 @@ beforeEach(() => {
   localStorage.clear();
   useChatSidebarStore.setState({
     open: true,
-    activeTab: "files",
-    filesMode: "changes",
+    activeTab: "changes",
     showIgnored: false,
-    previewTabsBySession: {},
   });
+  useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionStatusStore.getState().__reset();
   readFileMock.mockReset();
   gitFileContentMock.mockReset();
@@ -113,9 +133,16 @@ function openPreview(
   path: string,
   sessionId = 7,
   sourceMode: PreviewSourceMode = "directory",
+  anchor?: { line: number; endLine?: number },
 ) {
-  useChatSidebarStore.getState().openPreview(sessionId, path, sourceMode);
+  useFilePreviewTabsStore
+    .getState()
+    .openPreview(sessionId, path, sourceMode, anchor);
 }
+
+const TWENTY_LINES = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join(
+  "\n",
+);
 
 describe("FilePreviewPanel", () => {
   it("renders nothing when no file is selected", () => {
@@ -269,27 +296,6 @@ describe("FilePreviewPanel", () => {
     expect(within(panel).queryByRole("button", { name: "Diff" })).toBeNull();
   });
 
-  it("shows a changes-mode code file as a diff too", async () => {
-    readFileMock.mockResolvedValue(textView("package main\n"));
-    gitFileContentMock.mockResolvedValue({
-      content: "package main\n// old\n",
-      notARepo: false,
-      hasHead: true,
-    });
-    openPreview("main.go", 7, "changes");
-    renderPanel();
-
-    const panel = await screen.findByRole("complementary", {
-      name: "File preview",
-    });
-    await waitFor(() =>
-      expect(gitFileContentMock).toHaveBeenCalledWith(7, "main.go"),
-    );
-    expect(
-      within(panel).getByText("Diff · HEAD → working tree"),
-    ).toBeInTheDocument();
-  });
-
   it("renders the no-git-baseline empty state for a git-opened code file outside a repo", async () => {
     readFileMock.mockResolvedValue(textView("hello"));
     gitFileContentMock.mockResolvedValue({
@@ -341,7 +347,9 @@ describe("FilePreviewPanel", () => {
     expect(within(panel).queryByRole("button", { name: "Text" })).toBeNull();
   });
 
-  it("shows the binary state and a retry for a binary file", async () => {
+  // 二进制是**终态**（spec「失败与恢复」：只有对端离线给重试）。改造前这里还画着
+  // 一个重试按钮 —— 点下去必然还是这句话，比不给更糟，随面板搬进共享包一并去掉。
+  it("shows the binary state with no action for a binary file", async () => {
     readFileMock.mockResolvedValue({
       content: "",
       contentType: "",
@@ -357,9 +365,7 @@ describe("FilePreviewPanel", () => {
     expect(
       await within(panel).findByText(/Binary file, cannot preview/),
     ).toBeInTheDocument();
-    expect(
-      within(panel).getByRole("button", { name: /Retry/i }),
-    ).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: /Retry/i })).toBeNull();
   });
 
   it("shows the too-large state with the image threshold hint for images", async () => {
@@ -380,6 +386,58 @@ describe("FilePreviewPanel", () => {
     ).toBeInTheDocument();
     expect(
       within(panel).getByText(/Image larger than 10 MiB/),
+    ).toBeInTheDocument();
+  });
+
+  // 这两条**必须**打在生产路径上：让 Wails 桩返回带 unavailable 的应答，由装配根
+  // 自己把它翻成失败标记。不得改成注入一个预先贴好 kind 的 error —— 正是那种写法
+  // 让「文件不存在」在 2026-09-06 那一轮一路绿着发了出去，运行期才被抓到。
+  it("shows the not-found terminal state with no action when the file is gone", async () => {
+    readFileMock.mockResolvedValue({ content: "", unavailable: "not-found" });
+    openPreview("ghost.md", 7, "directory");
+    renderPanel();
+
+    const panel = await screen.findByRole("complementary", {
+      name: "File preview",
+    });
+    expect(
+      await within(panel).findByText(/File not found/),
+    ).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: /Retry/i })).toBeNull();
+  });
+
+  it("shows the offline state with a retry when the peer is unreachable", async () => {
+    readFileMock.mockResolvedValue({ content: "", unavailable: "offline" });
+    openPreview("README.md", 7, "directory");
+    renderPanel();
+
+    const panel = await screen.findByRole("complementary", {
+      name: "File preview",
+    });
+    expect(
+      await within(panel).findByText(/This machine is unreachable right now/),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByRole("button", { name: /Retry/i }),
+    ).toBeInTheDocument();
+  });
+
+  // 服务层将来多给一个原因（或改了取值拼写）时，宿主翻不出标记 —— 那一档必须落
+  // 回包里那句本地化的通用提示，而不是把机器 token 原样端到用户面前。
+  it("falls back to the generic read failure copy for an unrecognised reason", async () => {
+    readFileMock.mockResolvedValue({ content: "", unavailable: "wedged" });
+    openPreview("README.md", 7, "directory");
+    renderPanel();
+
+    const panel = await screen.findByRole("complementary", {
+      name: "File preview",
+    });
+    expect(
+      await within(panel).findByText(/Failed to read file/),
+    ).toBeInTheDocument();
+    expect(within(panel).queryByText("wedged")).toBeNull();
+    expect(
+      within(panel).getByRole("button", { name: /Retry/i }),
     ).toBeInTheDocument();
   });
 
@@ -421,7 +479,7 @@ describe("FilePreviewPanel", () => {
 
     await waitFor(() => {
       expect(
-        useChatSidebarStore.getState().previewTabsBySession[7],
+        useFilePreviewTabsStore.getState().previewTabsBySession[7],
       ).toBeUndefined();
     });
   });
@@ -438,12 +496,12 @@ describe("FilePreviewPanel", () => {
       within(panel).getByRole("button", { name: "Close preview" }),
     );
     // 200ms 出场动画期间打开另一个文件:旧 timer 不能把新选择清掉。
-    useChatSidebarStore.getState().openPreview(7, "b.md", "directory");
+    useFilePreviewTabsStore.getState().openPreview(7, "b.md", "directory");
 
     // 等关闭动画的 timer 跑完,断言 b.md 仍然选中、面板仍然开着。
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 7),
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 7),
     ).toMatchObject({
       path: "b.md",
       segment: null,
@@ -466,13 +524,13 @@ describe("FilePreviewPanel", () => {
           resolveHead = resolve;
         }),
     );
-    useChatSidebarStore.getState().openPreviewInNewTab(7, "main.go", "git");
+    useFilePreviewTabsStore.getState().openPreviewInNewTab(7, "main.go", "git");
     renderPanel();
     await waitFor(() => expect(gitFileContentMock).toHaveBeenCalledTimes(1));
 
     // HEAD 还没回来就切到 markdown 标签：那次读取就此被放弃。
     await act(async () => {
-      useChatSidebarStore
+      useFilePreviewTabsStore
         .getState()
         .openPreviewInNewTab(7, "README.md", "directory");
     });
@@ -493,15 +551,15 @@ describe("FilePreviewPanel", () => {
 
     await screen.findByRole("complementary", { name: "File preview" });
     // 打开第二个文件(同模式,面板保持打开,markdown 档位保留)。
-    useChatSidebarStore.getState().setPreviewSegment(7, "text");
-    useChatSidebarStore.getState().openPreview(7, "b.md", "directory");
+    useFilePreviewTabsStore.getState().setPreviewSegment(7, "text");
+    useFilePreviewTabsStore.getState().openPreview(7, "b.md", "directory");
     rerender(<FilePreviewPanel sessionId={7} />);
 
     await waitFor(() => {
       expect(readFileMock).toHaveBeenLastCalledWith(7, "b.md");
     });
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 7)?.segment,
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 7)?.segment,
     ).toBe("text");
   });
 
@@ -527,7 +585,7 @@ describe("FilePreviewPanel", () => {
     expect(gitFileContentMock).not.toHaveBeenCalled();
 
     // 换到 Git 模式重开同一文件 → 首视图变对比。
-    useChatSidebarStore.getState().openPreview(7, "a.go", "git");
+    useFilePreviewTabsStore.getState().openPreview(7, "a.go", "git");
     rerender(<FilePreviewPanel sessionId={7} />);
 
     await waitFor(() =>
@@ -553,7 +611,7 @@ describe("FilePreviewPanel", () => {
       ).toBeNull();
     });
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 7)?.path,
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 7)?.path,
     ).toBe("README.md");
 
     // 切回来还是原来那个标签。
@@ -653,7 +711,7 @@ describe("FilePreviewPanel", () => {
   });
 
   describe("tab strip", () => {
-    const store = () => useChatSidebarStore.getState();
+    const store = () => useFilePreviewTabsStore.getState();
 
     async function openTwoTabs() {
       readFileMock.mockResolvedValue(textView("# a"));
@@ -924,7 +982,7 @@ describe("FilePreviewPanel", () => {
   });
 
   describe("shared file type icon identity", () => {
-    const store = () => useChatSidebarStore.getState();
+    const store = () => useFilePreviewTabsStore.getState();
 
     async function openCodeAndMarkdownTabs() {
       readFileMock.mockResolvedValue(textView("# a"));
@@ -1010,5 +1068,68 @@ describe("FilePreviewPanel", () => {
 
     await waitFor(() => expect(readFileMock).toHaveBeenCalledTimes(2));
     expect(gitFileContentMock).not.toHaveBeenCalled();
+  });
+
+  // 这一跳此前没有任何测试:转录点一条带行号的链接时,定位目标记在 store 的活动
+  // 标签上,由本宿主壳把它交给共享面板。壳漏了就是「预览开了、但停在第 1 行」,
+  // 而包里那两层的用例照样全绿(2026-09-08 的运行期验证就是这么红的)。
+  it("hands the anchor recorded on the active tab down to the editor", async () => {
+    readFileMock.mockResolvedValue(textView(TWENTY_LINES));
+    openPreview("src/foo.go", 7, "directory", { line: 3, endLine: 5 });
+
+    renderPanel();
+
+    await screen.findByRole("complementary", { name: "File preview" });
+    await waitFor(() => expect(createdEditors).toHaveLength(1));
+    await waitFor(() =>
+      expect(createdEditors[0].revealLineInCenter).toHaveBeenCalledWith(3),
+    );
+    expect(createdEditors[0].setSelection).toHaveBeenCalledWith({
+      startLineNumber: 3,
+      startColumn: 1,
+      endLineNumber: 5,
+      endColumn: "line 5".length + 1,
+    });
+  });
+
+  // 真实运行里的次序:标签早就开着(重启后 rehydrate 出来的标签定位目标是 null),
+  // 编辑器已经挂好了,行号是**后来**点一条带行号的链接才到的。
+  it("reveals when the anchor arrives at an already mounted editor", async () => {
+    readFileMock.mockResolvedValue(textView(TWENTY_LINES));
+    openPreview("src/foo.go", 7, "directory");
+
+    renderPanel();
+
+    await screen.findByRole("complementary", { name: "File preview" });
+    await waitFor(() => expect(createdEditors).toHaveLength(1));
+    expect(createdEditors[0].revealLineInCenter).not.toHaveBeenCalled();
+
+    await act(async () => {
+      openPreview("src/foo.go", 7, "directory", { line: 3, endLine: 5 });
+    });
+
+    await waitFor(() =>
+      expect(createdEditors[0].revealLineInCenter).toHaveBeenCalledWith(3),
+    );
+  });
+
+  // 生产入口是 StrictMode(main.tsx),它在挂载时把每个 effect 跑「setup → cleanup
+  // → setup」两遍。编辑器因此被建两次,定位必须落在**活下来的那一个**上。
+  it("reveals on the surviving editor under StrictMode double mounting", async () => {
+    readFileMock.mockResolvedValue(textView(TWENTY_LINES));
+    openPreview("src/foo.go", 7, "directory", { line: 3, endLine: 5 });
+
+    render(
+      <React.StrictMode>
+        <FilePreviewPanel sessionId={7} />
+      </React.StrictMode>,
+    );
+
+    await screen.findByRole("complementary", { name: "File preview" });
+    await waitFor(() => expect(createdEditors.length).toBeGreaterThan(0));
+    const survivor = createdEditors[createdEditors.length - 1];
+    await waitFor(() =>
+      expect(survivor.revealLineInCenter).toHaveBeenCalledWith(3),
+    );
   });
 });

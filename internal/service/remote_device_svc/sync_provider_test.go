@@ -7,18 +7,16 @@ import (
 
 	"github.com/cago-frame/cago/pkg/consts"
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/mock_agentruntime"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	llmrepomock "github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
-	remoterepomock "github.com/agentre-ai/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	svcmock "github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	llmrepomock "github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	remoterepomock "github.com/agentre-hub/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	svcmock "github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 func TestRemoteDeviceSvc_SyncProvider(t *testing.T) {
@@ -54,31 +52,24 @@ func TestRemoteDeviceSvc_SyncProvider(t *testing.T) {
 
 		Convey("copies local provider metadata, API key and model catalog to remote llm.upsert", func() {
 			lease := svcmock.NewMockLease(ctrl)
-			client := mock_agentruntime.NewMockDaemonClientPort(ctrl)
 			providerRepo.EXPECT().FindByKey(gomock.Any(), "prov-1").Return(provider, nil)
 			providerRepo.EXPECT().ListModels(gomock.Any(), int64(0)).Return([]*llm_provider_model_entity.LLMProviderModel{defaultModel}, nil)
 			pool.EXPECT().Borrow(gomock.Any(), int64(42)).Return(lease, nil)
-			lease.EXPECT().Client().Return(client)
-			client.EXPECT().
-				Call(gomock.Any(), "llm.upsert", gomock.Any(), gomock.Any()).
-				DoAndReturn(func(_ context.Context, _ string, params, result any) error {
-					got, ok := params.(handlers.LLMUpsertParams)
-					require.True(t, ok)
+			lease.EXPECT().LLMUpsert(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, got *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
 					So(got.ProviderKey, ShouldEqual, "prov-1")
 					So(got.Name, ShouldEqual, "Anthropic Prod")
 					So(got.Type, ShouldEqual, "anthropic")
-					So(got.BaseURL, ShouldEqual, "https://api.anthropic.com")
+					So(got.BaseUrl, ShouldEqual, "https://api.anthropic.com")
 					// 默认模型的 ModelID，而不是 default_model_key。
 					So(got.Model, ShouldEqual, "claude-sonnet-4-6")
 					So(got.DefaultModelKey, ShouldEqual, "model-key-1")
 					So(got.Models, ShouldHaveLength, 1)
 					So(got.Models[0].ModelKey, ShouldEqual, "model-key-1")
-					So(got.Models[0].ModelID, ShouldEqual, "claude-sonnet-4-6")
-					So(got.APIKey, ShouldEqual, "sk-secret")
+					So(got.Models[0].ModelId, ShouldEqual, "claude-sonnet-4-6")
+					So(got.ApiKey, ShouldEqual, "sk-secret")
 					So(got.UpdatedAt, ShouldEqual, int64(1716000500))
-					_, ok = result.(*handlers.OK)
-					require.True(t, ok)
-					return nil
+					return &agentrewire.LLMUpsertResponse{Ok: true}, nil
 				})
 			lease.EXPECT().Release()
 
@@ -111,22 +102,15 @@ func TestRemoteDeviceSvc_SyncProvider(t *testing.T) {
 				Status:      consts.ACTIVE,
 			}
 			lease := svcmock.NewMockLease(ctrl)
-			client := mock_agentruntime.NewMockDaemonClientPort(ctrl)
 			providerRepo.EXPECT().FindByKey(gomock.Any(), "prov-1").Return(noDefault, nil)
 			// 无默认模型 → 目录照发、默认 model 留空。
 			providerRepo.EXPECT().ListModels(gomock.Any(), int64(0)).Return(nil, nil)
 			pool.EXPECT().Borrow(gomock.Any(), int64(42)).Return(lease, nil)
-			lease.EXPECT().Client().Return(client)
-			client.EXPECT().
-				Call(gomock.Any(), "llm.upsert", gomock.Any(), gomock.Any()).
-				DoAndReturn(func(_ context.Context, _ string, params, result any) error {
-					got, ok := params.(handlers.LLMUpsertParams)
-					require.True(t, ok)
+			lease.EXPECT().LLMUpsert(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, got *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
 					So(got.Model, ShouldEqual, "")
 					So(got.DefaultModelKey, ShouldEqual, "")
-					_, ok = result.(*handlers.OK)
-					require.True(t, ok)
-					return nil
+					return &agentrewire.LLMUpsertResponse{Ok: true}, nil
 				})
 			lease.EXPECT().Release()
 
@@ -142,23 +126,16 @@ func TestRemoteDeviceSvc_SyncProvider(t *testing.T) {
 				Status:   consts.ACTIVE,
 			}
 			lease := svcmock.NewMockLease(ctrl)
-			client := mock_agentruntime.NewMockDaemonClientPort(ctrl)
 			providerRepo.EXPECT().FindByKey(gomock.Any(), "prov-1").Return(provider, nil)
 			providerRepo.EXPECT().ListModels(gomock.Any(), int64(0)).Return([]*llm_provider_model_entity.LLMProviderModel{disabled}, nil)
 			pool.EXPECT().Borrow(gomock.Any(), int64(42)).Return(lease, nil)
-			lease.EXPECT().Client().Return(client)
-			client.EXPECT().
-				Call(gomock.Any(), "llm.upsert", gomock.Any(), gomock.Any()).
-				DoAndReturn(func(_ context.Context, _ string, params, result any) error {
-					got, ok := params.(handlers.LLMUpsertParams)
-					require.True(t, ok)
+			lease.EXPECT().LLMUpsert(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, got *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
 					So(got.Model, ShouldEqual, "")
 					// 停用模型仍进目录（daemon 据此拒绝 fixed-model），Enabled=false。
 					So(got.Models, ShouldHaveLength, 1)
 					So(got.Models[0].Enabled, ShouldBeFalse)
-					_, ok = result.(*handlers.OK)
-					require.True(t, ok)
-					return nil
+					return &agentrewire.LLMUpsertResponse{Ok: true}, nil
 				})
 			lease.EXPECT().Release()
 
@@ -176,14 +153,10 @@ func TestRemoteDeviceSvc_SyncProvider(t *testing.T) {
 
 		Convey("releases the lease and leaves cache untouched when remote upsert fails", func() {
 			lease := svcmock.NewMockLease(ctrl)
-			client := mock_agentruntime.NewMockDaemonClientPort(ctrl)
 			providerRepo.EXPECT().FindByKey(gomock.Any(), "prov-1").Return(provider, nil)
 			providerRepo.EXPECT().ListModels(gomock.Any(), int64(0)).Return([]*llm_provider_model_entity.LLMProviderModel{defaultModel}, nil)
 			pool.EXPECT().Borrow(gomock.Any(), int64(42)).Return(lease, nil)
-			lease.EXPECT().Client().Return(client)
-			client.EXPECT().
-				Call(gomock.Any(), "llm.upsert", gomock.Any(), gomock.Any()).
-				Return(errors.New("remote boom"))
+			lease.EXPECT().LLMUpsert(gomock.Any(), gomock.Any()).Return(nil, errors.New("remote boom"))
 			lease.EXPECT().Release()
 
 			err := svc.SyncProvider(context.Background(), 42, "prov-1")

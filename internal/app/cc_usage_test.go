@@ -6,8 +6,8 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/ccoauth"
-	"github.com/agentre-ai/agentre/internal/service/cc_usage_svc"
+	"github.com/agentre-hub/agentre/internal/pkg/ccoauth"
+	"github.com/agentre-hub/agentre/internal/service/cc_usage_svc"
 )
 
 // TestBuildCCUsageResolver_LocalVsRemoteIsolation 锁住:resolver 必须把 LocalKey

@@ -1,0 +1,13 @@
+{
+  "portForward": {
+    "title": "Port forwarding",
+    "empty": "No port mappings on this device yet.",
+    "offline": "Offline — forwarding is unavailable.",
+    "addMapping": "Add mapping",
+    "open": "Open",
+    "copyAddress": "Copy address",
+    "moreActions": "More actions",
+    "remove": "Delete",
+    "toggleEnabled": "Enable mapping"
+  }
+}

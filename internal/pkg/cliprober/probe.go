@@ -7,9 +7,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/agentre-ai/agentre/pkg/claudecode"
-	"github.com/agentre-ai/agentre/pkg/codex"
-	"github.com/agentre-ai/agentre/pkg/piagent"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/pkg/codex"
+	"github.com/agentre-hub/agentre/pkg/piagent"
 )
 
 // ProbeRequest 调用方装配好的 CLI 子进程参数。Env 必须完整 —— 包括
@@ -93,7 +93,9 @@ func formatCLIProberError(err error) (string, bool) {
 	}
 	var px *piagent.ExitError
 	if errors.As(err, &px) {
-		return formatNestedExitError("piagent 进程", px.Err, px.Stderr, err), true
+		// piagent 不把 stderr 带出包边界(原始进程错误里有命令行与令牌),
+		// 所以这里只有归一后的退出分类可报。
+		return formatNestedExitError("piagent 进程", px.Err, "", err), true
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {

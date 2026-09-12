@@ -9,7 +9,7 @@ func TestHook_Check(t *testing.T) {
 	ctx := context.Background()
 	base := func() *Hook {
 		return &Hook{Name: "jira", Interpreter: "bash", Command: "echo '{}'",
-			TriggerType: TriggerSchedule, ScheduleExpr: "*/5 * * * *", EnvJSON: "[]"}
+			ScheduleExpr: "*/5 * * * *", EnvJSON: "[]"}
 	}
 	if err := base().Check(ctx); err != nil {
 		t.Fatalf("valid hook should pass: %v", err)

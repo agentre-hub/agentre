@@ -3,14 +3,22 @@ package chat_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // MessageTextExport 暴露 messageText 给外部测试包验证纯文本拼接逻辑。
 func MessageTextExport(m *chat_entity.Message) (string, error) {
 	return messageText(m)
+}
+
+// ToChatMessageForTest 暴露 toChatMessage 给外部测试包:用**真实的转录读路径**
+// (内部走 peerMessageSourceOf,只认落库 block data 里的来源)把一条已落库的消息行
+// 投影成前端 DTO。断言「刷新 / 重开会话之后来源还在」必须走这条路 —— 在 BlocksJSON
+// 里找子串既证明不了读得回来,也会把实时事件里的临时覆盖误判为已落库。
+func ToChatMessageForTest(m *chat_entity.Message) (ChatMessage, error) {
+	return toChatMessage(m)
 }
 
 // DriveAutonomousTurnForTest 暴露 driveAutonomousTurn 给外部测试包,直接驱动一轮
@@ -56,4 +64,10 @@ func IsSubagentActivityWatcherActiveForTest(svc ChatSvc, sessionID int64) bool {
 // 再回吐给 chat_svc dispatcher)。fixture 全部改写成直接构造 NEW Event 后即可删除。
 func ConvertOldEventToNewForTest(ev agentruntime.RuntimeEvent) agentruntime.Event {
 	return convertOldEventToNew(ev)
+}
+
+// DeliverRemotePreviewForTest 暴露 onRemotePreviewEvent 给外部测试包:模拟
+// *remote.Runtime 的读循环交来一条**预览帧**里的事件(即时呈现用,不进转录)。
+func DeliverRemotePreviewForTest(svc ChatSvc, sessionID int64, ev agentruntime.Event) {
+	svc.(*chatSvc).onRemotePreviewEvent(sessionID, ev)
 }

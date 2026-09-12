@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/agentre-ai/agentre/internal/service/agent_backend_svc"
+	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 )
 
 // ListAgentBackends 列出全部 Agent 后端（已 join LLM 供应商摘要）。
@@ -47,6 +47,20 @@ func (a *App) TestOpenClawAgentBackend(req *agent_backend_svc.TestBackendRequest
 // 前端在用户点取消时调用，传入与 TestAgentBackend 时一致的 RequestID。
 func (a *App) CancelTestAgentBackend(req *agent_backend_svc.CancelTestBackendRequest) (*agent_backend_svc.CancelTestBackendResponse, error) {
 	return agent_backend_svc.AgentBackend().CancelTest(a.ctx, req)
+}
+
+// ListAgentBackendCLIOverlays lists overlay statuses only; absolute paths remain
+// behind the local get/set methods below.
+func (a *App) ListAgentBackendCLIOverlays() (*agent_backend_svc.ListCLIOverlaysResponse, error) {
+	return agent_backend_svc.AgentBackend().ListCLIOverlays(a.ctx, &agent_backend_svc.ListCLIOverlaysRequest{})
+}
+
+func (a *App) GetAgentBackendCLIOverlay(req *agent_backend_svc.GetCLIOverlayRequest) (*agent_backend_svc.GetCLIOverlayResponse, error) {
+	return agent_backend_svc.AgentBackend().GetCLIOverlay(a.ctx, req)
+}
+
+func (a *App) SetAgentBackendCLIOverlay(req *agent_backend_svc.SetCLIOverlayRequest) (*agent_backend_svc.SetCLIOverlayResponse, error) {
+	return agent_backend_svc.AgentBackend().SetCLIOverlay(a.ctx, req)
 }
 
 // ResolveAgentBackendCLIPath 用 $PATH 查找 claudecode / codex 后端的可执行文件路径，

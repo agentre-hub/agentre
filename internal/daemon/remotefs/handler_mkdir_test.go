@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/remotefs/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/remotefs/wire"
 )
 
 func TestMkdir_Happy(t *testing.T) {

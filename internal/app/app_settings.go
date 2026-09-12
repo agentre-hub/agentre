@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/agentre-ai/agentre/internal/service/app_settings_svc"
+	"github.com/agentre-hub/agentre/internal/service/app_settings_svc"
 )
 
 // GetAppSetting 按 key 读单条 App 全局设置。

@@ -7,19 +7,13 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  statusConfig,
+} from "@agentre-hub/agentre-ui";
+
 import { cn } from "@/lib/utils";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 
-import type { TabStatus } from "./tab";
 import { useTabsView } from "./use-tabs-view";
-
-const STATUS_DOT_CLASS: Record<TabStatus, string | null> = {
-  idle: null,
-  running: "bg-status-running",
-  waiting: "bg-status-waiting",
-  error: "bg-destructive",
-};
 
 export function TabOverflowMenu() {
   const { t } = useTranslation();
@@ -47,12 +41,14 @@ export function TabOverflowMenu() {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={4} className="w-96 p-0">
-        <div className="px-3 py-2 font-mono text-2xs font-semibold uppercase tracking-wider text-subtle-foreground">
+        <div className="px-3 py-2 font-mono text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
           {t("chatTabs.overflow.openTabs", { count: sortedTabs.length })}
         </div>
         <div className="flex flex-col py-1">
           {sortedTabs.map((t, idx) => {
-            const dotCls = STATUS_DOT_CLASS[t.status];
+            // 颜色与其余状态记号同源；闲置那一格留透明占位，保住行内对齐。
+            const dotCls =
+              t.status === "idle" ? null : statusConfig[t.status].dotClassName;
             return (
               <DropdownMenuItem
                 key={t.id}
@@ -64,6 +60,7 @@ export function TabOverflowMenu() {
                 )}
               >
                 <span
+                  data-testid="overflow-row-status-dot"
                   aria-hidden="true"
                   className={cn(
                     "size-1.5 shrink-0 rounded-full",
@@ -74,7 +71,7 @@ export function TabOverflowMenu() {
                   className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm"
                   style={{ backgroundColor: t.avatar.color }}
                 >
-                  <span className="text-[9px] font-semibold text-white">
+                  <span className="text-[9px] font-semibold text-agent-foreground">
                     {t.avatar.letter}
                   </span>
                 </span>

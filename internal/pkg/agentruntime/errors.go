@@ -28,3 +28,9 @@ var ErrSessionNotFound = errors.New("agentruntime: provider session no longer ex
 // 给客户端(R8):断连重连后客户端无法判断上一次提交是否已经送达,报错只会
 // 让它误报给用户。
 var ErrWaiterNotFound = errors.New("agentruntime: no waiting request for requestID")
+
+// ErrBackgroundTaskUnknown 来自 BackgroundTaskResolver.ResolveBackgroundTask:这个
+// runner 认不出该 tool_use id 对应的后台任务 —— 子进程从没报过它(不是后台任务)、
+// 或那个子进程已经不在(evict / 重开)。与「反查到了但值为空」区分开:调用方据此
+// 退回持久化的 subagent_state overlay,而不是拿一个空标识去下发 stop。
+var ErrBackgroundTaskUnknown = errors.New("agentruntime: unknown background task for tool_use id")

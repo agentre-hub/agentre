@@ -11,23 +11,32 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/issue_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/issue_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/issue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
 
-const positionStep = 65536.0
+const (
+	positionStep = 65536.0
+	millisPerDay = 24 * 60 * 60 * 1000
+)
 
 // IssueSvc Issue 模块应用服务。
 type IssueSvc interface {
 	Create(ctx context.Context, req *CreateIssueRequest) (*IssueDetail, error)
 	Update(ctx context.Context, req *UpdateIssueRequest) (*IssueDetail, error)
-	SetState(ctx context.Context, id int64, state string) (*IssueDetail, error)
 	Delete(ctx context.Context, id int64) error
 	Get(ctx context.Context, id int64) (*IssueDetail, error)
 	List(ctx context.Context, req *ListIssuesRequest) (*ListIssuesResponse, error)
-	ListLabels(ctx context.Context) ([]*issue_entity.Label, error)
 	Move(ctx context.Context, req *MoveIssueRequest) (*IssueDetail, error)
+	ListLabels(ctx context.Context) ([]*LabelDetail, error)
+	CreateLabel(ctx context.Context, req *LabelRequest) (*LabelDetail, error)
+	UpdateLabel(ctx context.Context, req *LabelRequest) (*LabelDetail, error)
+	DeleteLabel(ctx context.Context, id int64) error
 }
 
 type issueSvc struct {
@@ -66,6 +75,7 @@ func (s *issueSvc) Create(ctx context.Context, req *CreateIssueRequest) (*IssueD
 		Createtime:  now,
 		Updatetime:  now,
 	}
+	applyExecution(issue, req.Execution)
 	if stage == issue_entity.StageDone {
 		issue.SetStage(issue_entity.StageDone, now)
 	}
@@ -92,6 +102,14 @@ func (s *issueSvc) Create(ctx context.Context, req *CreateIssueRequest) (*IssueD
 			zap.Int64("issueId", issue.ID), zap.Error(err))
 		return nil, err
 	}
+	// 落库成功之后交给同步层（R3/R8）：入队 + 当场上行，失败不回传。排在 SetLabels
+	// 之后而不是紧接 Create —— 那一步刚生成的 issue_labels 行也是独立的同步对象，
+	// 它们尚未归属账号，由本次触发的这一轮 claimForCurrentAccount 一并收走（sync_svc.SyncOnce
+	// 里认领排在推送之前），标签因此和任务同一轮到达对端。
+	//
+	// session_id / agent_status / source 是本机运行态，压根不进载荷（见
+	// sync_svc.issuePayload）；它们随这一行落库，但改变它们的不是这条路径。
+	sync_svc.NotifyCreate(ctx, syncwire.KindIssue, issue.ID, issue.SyncMeta)
 	return &IssueDetail{Issue: issue, Labels: labels}, nil
 }
 
@@ -107,6 +125,14 @@ func (s *issueSvc) Update(ctx context.Context, req *UpdateIssueRequest) (*IssueD
 	issue.ProjectID = req.ProjectID
 	issue.Title = strings.TrimSpace(req.Title)
 	issue.Body = req.Body
+	applyExecution(issue, req.Execution)
+	// 编辑态里阶段仍可改；走 SetStage 而不是直接赋值，state 与 closed_at 才跟着走。
+	if req.Stage != "" && req.Stage != issue.Stage {
+		if !issue_entity.IsKnownStage(req.Stage) {
+			return nil, i18n.NewError(ctx, code.IssueInvalidState)
+		}
+		issue.SetStage(req.Stage, s.now())
+	}
 	if err := issue.Check(ctx); err != nil {
 		return nil, err
 	}
@@ -117,6 +143,9 @@ func (s *issueSvc) Update(ctx context.Context, req *UpdateIssueRequest) (*IssueD
 	if err := issue_repo.Issue().Update(ctx, issue); err != nil {
 		return nil, err
 	}
+	// 关联行是硬删：被摘掉的那几行的同步标识只在行上，SetLabels 一动就没了，
+	// 必须在它之前读一次（R6 的墓碑靠这些标识上行）。
+	linksBefore := labelLinksBefore(ctx, issue.ID)
 	// TODO(v1): Update 与 SetLabels 目前非原子——SetLabels 失败会留下标签未更新的 issue 行。
 	// 维持非事务以保证 service 可纯 mock 单测（项目规约：service 单测不接 DB）；
 	// 若后续标签写入可靠性变重要，按 agent_svc.Delete 的 db.Ctx(ctx).Transaction 模式包裹。
@@ -125,29 +154,48 @@ func (s *issueSvc) Update(ctx context.Context, req *UpdateIssueRequest) (*IssueD
 			zap.Int64("issueId", issue.ID), zap.Error(err))
 		return nil, err
 	}
+	notifyDetachedLabels(ctx, linksBefore, labelIDs)
+	// 基版本取 Find 那一刻行上的版本（R4a）：它就是「本端编辑时见到的那一版」，
+	// 冲突判定靠它。
+	sync_svc.NotifyUpdate(ctx, syncwire.KindIssue, issue.ID, issue.SyncMeta)
 	return &IssueDetail{Issue: issue, Labels: labels}, nil
 }
 
-func (s *issueSvc) SetState(ctx context.Context, id int64, state string) (*IssueDetail, error) {
-	if state != issue_entity.StateOpen && state != issue_entity.StateClosed {
-		return nil, i18n.NewError(ctx, code.IssueInvalidState)
+// labelLinksBefore 读出这条任务此刻挂着的全部关联行（整行，带同步标识）。
+//
+// 同步未装配时一次库都不查——这次读取只为墓碑服务（与 project_svc.memberSyncMeta
+// 同一口径）。读失败也不让用户的编辑失败（R8）：本地写入本身还没发生，同步层没有
+// 资格否决它，最坏的结果是这一轮少发几条墓碑，下一次编辑再对上。
+func labelLinksBefore(ctx context.Context, issueID int64) []*issue_entity.IssueLabel {
+	if !sync_svc.Active() {
+		return nil
 	}
-	issue, err := issue_repo.Issue().Find(ctx, id)
+	rows, err := issue_repo.IssueLabel().ListRowsByIssue(ctx, issueID)
 	if err != nil {
-		return nil, err
+		logger.Ctx(ctx).Warn("issue_svc.labelLinksBefore: list issue labels failed",
+			zap.Int64("issueId", issueID), zap.Error(err))
+		return nil
 	}
-	if issue == nil {
-		return nil, i18n.NewError(ctx, code.IssueNotFound)
+	return rows
+}
+
+// notifyDetachedLabels 给被摘掉的每一条关联行落一条墓碑（R6）。留下来的那些一条
+// 改动都不发：它们连一次写入都没有过，标识也就没变（R1）。
+func notifyDetachedLabels(ctx context.Context, before []*issue_entity.IssueLabel, kept []int64) {
+	if len(before) == 0 {
+		return
 	}
-	if state == issue_entity.StateClosed {
-		issue.Close(s.now())
-	} else {
-		issue.Reopen()
+	want := make(map[int64]struct{}, len(kept))
+	for _, id := range kept {
+		want[id] = struct{}{}
 	}
-	if err := issue_repo.Issue().Update(ctx, issue); err != nil {
-		return nil, err
+	for _, row := range before {
+		if _, keep := want[row.LabelID]; keep {
+			continue
+		}
+		// 关联表是联合主键，没有本地自增 ID 可交（与 project_agent 的成员关系同形）。
+		sync_svc.NotifyDelete(ctx, syncwire.KindIssueLabel, 0, row.SyncMeta)
 	}
-	return s.hydrate(ctx, issue)
 }
 
 func (s *issueSvc) Delete(ctx context.Context, id int64) error {
@@ -158,7 +206,12 @@ func (s *issueSvc) Delete(ctx context.Context, id int64) error {
 	if issue == nil {
 		return i18n.NewError(ctx, code.IssueNotFound)
 	}
-	return issue_repo.Issue().Delete(ctx, id)
+	if err := issue_repo.Issue().Delete(ctx, id); err != nil {
+		return err
+	}
+	// 删除靠墓碑到达各端（R6）：不入队，这台机器上删掉的卡在别处永远留着。
+	sync_svc.NotifyDelete(ctx, syncwire.KindIssue, id, issue.SyncMeta)
+	return nil
 }
 
 func (s *issueSvc) Get(ctx context.Context, id int64) (*IssueDetail, error) {
@@ -173,12 +226,18 @@ func (s *issueSvc) Get(ctx context.Context, id int64) (*IssueDetail, error) {
 }
 
 func (s *issueSvc) List(ctx context.Context, req *ListIssuesRequest) (*ListIssuesResponse, error) {
-	issues, err := issue_repo.Issue().List(ctx, issue_repo.ListFilter{
-		State:     req.State,
-		ProjectID: req.ProjectID,
-		LabelIDs:  req.LabelIDs,
-		Sort:      req.Sort,
-	})
+	scopeIDs, tree, err := s.resolveScope(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	// scopeFilter 只有项目范围；filter 在它之上再叠其余五个条件。列头的「命中 / 全部」
+	// 就是这两把尺子各量一次。
+	scopeFilter := issue_repo.ListFilter{ProjectIDs: scopeIDs}
+	filter := s.applyConditions(scopeFilter, req)
+	listFilter := filter
+	listFilter.Sort = req.Sort
+
+	issues, err := issue_repo.Issue().List(ctx, listFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -208,21 +267,277 @@ func (s *issueSvc) List(ctx context.Context, req *ListIssuesRequest) (*ListIssue
 		}
 		details = append(details, &IssueDetail{Issue: it, Labels: labels})
 	}
-	open, closed, err := issue_repo.Issue().CountByState(ctx, req.ProjectID)
+	stageCounts, err := issue_repo.Issue().StageCounts(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	stageCounts, err := issue_repo.Issue().StageCounts(ctx, issue_repo.ListFilter{
-		ProjectID: req.ProjectID, LabelIDs: req.LabelIDs,
-	})
+	stageTotals, err := issue_repo.Issue().StageCounts(ctx, scopeFilter)
 	if err != nil {
 		return nil, err
 	}
-	return &ListIssuesResponse{Issues: details, OpenCount: open, ClosedCount: closed, StageCounts: stageCounts}, nil
+	perProject, err := issue_repo.Issue().CountUnfinishedByProject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &ListIssuesResponse{
+		Issues:        details,
+		StageCounts:   stageCounts,
+		StageTotals:   stageTotals,
+		ProjectCounts: rollUpProjectCounts(tree, perProject),
+	}, nil
 }
 
-func (s *issueSvc) ListLabels(ctx context.Context) ([]*issue_entity.Label, error) {
-	return issue_repo.Label().List(ctx)
+// applyConditions 把除「项目」之外的五个筛选条件译到仓储过滤条件上。
+func (s *issueSvc) applyConditions(filter issue_repo.ListFilter, req *ListIssuesRequest) issue_repo.ListFilter {
+	filter.Keyword = strings.TrimSpace(req.Keyword)
+	filter.LabelIDs = uniqueInt64s(req.LabelIDs)
+	filter.LabelMatchAll = req.LabelMatchAll
+	filter.NoLabel = req.NoLabel
+	filter.UpdatedFrom = req.UpdatedFrom
+	filter.UpdatedTo = req.UpdatedTo
+	filter.CreatedFrom = req.CreatedFrom
+	filter.CreatedTo = req.CreatedTo
+	if req.DoneWithinDays > 0 {
+		filter.DoneAfter = s.now() - int64(req.DoneWithinDays)*millisPerDay
+	}
+	return filter
+}
+
+// resolveScope 把「项目范围」这一档展开成 id 集合，并把项目树一并带出来（选择器的
+// 子树计数要用同一份）。全部项目 → 空集合（不加条件）；未归属 → [0]。
+func (s *issueSvc) resolveScope(ctx context.Context, req *ListIssuesRequest) ([]int64, []*project_entity.Project, error) {
+	tree, err := project_repo.Project().List(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	switch req.Scope {
+	case ScopeUnassigned:
+		return []int64{0}, tree, nil
+	case ScopeProject:
+		return collectProjectSubtree(tree, req.ProjectID), tree, nil
+	default:
+		return nil, tree, nil
+	}
+}
+
+// collectProjectSubtree 收集 rootID 自身 + 全部递归后代（深度优先，同级按仓储返回的
+// 顺序）。rootID 不在树里时只返回它自己 —— 范围仍然是一个确定的集合，不会静默变成
+// 「全部项目」。
+func collectProjectSubtree(all []*project_entity.Project, rootID int64) []int64 {
+	children := map[int64][]int64{}
+	for _, p := range all {
+		children[p.ParentID] = append(children[p.ParentID], p.ID)
+	}
+	out := make([]int64, 0, len(all))
+	seen := map[int64]struct{}{}
+	var walk func(id int64)
+	walk = func(id int64) {
+		if _, ok := seen[id]; ok {
+			return // 数据异常成环时不至于转不出来
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+		for _, child := range children[id] {
+			walk(child)
+		}
+	}
+	walk(rootID)
+	return out
+}
+
+// rollUpProjectCounts 把「每个项目自己的未完成任务数」按项目树汇总成「该项目及其
+// 子树」的数；键 0（未归属）自成一档，不挂在任何项目下。
+func rollUpProjectCounts(all []*project_entity.Project, own map[int64]int64) map[int64]int64 {
+	out := make(map[int64]int64, len(all)+1)
+	if unassigned, ok := own[0]; ok {
+		out[0] = unassigned
+	}
+	children := map[int64][]int64{}
+	for _, p := range all {
+		children[p.ParentID] = append(children[p.ParentID], p.ID)
+	}
+	visiting := map[int64]struct{}{}
+	var total func(id int64) int64
+	total = func(id int64) int64 {
+		if v, ok := out[id]; ok {
+			return v
+		}
+		if _, ok := visiting[id]; ok {
+			return 0 // 数据异常成环时不至于转不出来
+		}
+		visiting[id] = struct{}{}
+		sum := own[id]
+		for _, child := range children[id] {
+			sum += total(child)
+		}
+		delete(visiting, id)
+		out[id] = sum
+		return sum
+	}
+	for _, p := range all {
+		total(p.ID)
+	}
+	return out
+}
+
+// applyExecution 把执行归属（Agent / 机器 / 供应商 / 模型）整组落到实体上。四个字段
+// 一起来一起走，别在两处各写一半。
+func applyExecution(issue *issue_entity.Issue, exec ExecutionAssignment) {
+	issue.AssigneeAgentID = exec.AssigneeAgentID
+	issue.AgentBackendID = exec.AgentBackendID
+	issue.LLMProviderKey = exec.LLMProviderKey
+	issue.LLMModelKey = exec.LLMModelKey
+}
+
+func (s *issueSvc) ListLabels(ctx context.Context) ([]*LabelDetail, error) {
+	labels, err := issue_repo.Label().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.withUsage(ctx, labels)
+}
+
+func (s *issueSvc) CreateLabel(ctx context.Context, req *LabelRequest) (*LabelDetail, error) {
+	label := &issue_entity.Label{
+		Name:   strings.TrimSpace(req.Name),
+		Tone:   req.Tone,
+		Status: consts.ACTIVE,
+	}
+	if err := label.Check(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.assertNameFree(ctx, label.Name, 0); err != nil {
+		return nil, err
+	}
+	if err := issue_repo.Label().Create(ctx, label); err != nil {
+		return nil, err
+	}
+	logger.Ctx(ctx).Info("issue_svc.CreateLabel: created",
+		zap.Int64("labelId", label.ID), zap.String("tone", label.Tone))
+	// 标签目录是账号级的：一台机器上建的标签在每台机器上都要看得见。
+	sync_svc.NotifyCreate(ctx, syncwire.KindLabel, label.ID, label.SyncMeta)
+	return s.oneWithUsage(ctx, label)
+}
+
+func (s *issueSvc) UpdateLabel(ctx context.Context, req *LabelRequest) (*LabelDetail, error) {
+	label, err := issue_repo.Label().Find(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	if label == nil {
+		return nil, i18n.NewError(ctx, code.IssueLabelNotFound)
+	}
+	label.Name = strings.TrimSpace(req.Name)
+	label.Tone = req.Tone
+	if err := label.Check(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.assertNameFree(ctx, label.Name, label.ID); err != nil {
+		return nil, err
+	}
+	if err := issue_repo.Label().Update(ctx, label); err != nil {
+		return nil, err
+	}
+	// 改名与换色是同一次写入，两个字段都在载荷里。
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLabel, label.ID, label.SyncMeta)
+	return s.oneWithUsage(ctx, label)
+}
+
+// DeleteLabel 软删标签：先把它从全部任务上摘掉（这正是删除前要说清的爆炸半径），
+// 再把目录行置为已删除。顺序反了会留下指向一个已消失标签的关联行。
+//
+// 被摘掉的那些关联行各自落一条墓碑（R6，规格 2026-09-04）。快照必须在 DeleteByLabel
+// **之前**取：关联表是硬删，摘完之后 ListRowsByLabel 一行都取不到，而墓碑只能凭那一
+// 行自己的同步标识上行（本地 ID 在另一台机器上指向完全不同的两行）。这也是这一半
+// 不能像任务那样交给 sync_svc.issueAdapter.children 的原因——那个缝在删除**之后**
+// 才被调用。做法与 agent_svc 处理被挤掉的执行目标一致：删前快照。
+//
+// 少了这些墓碑，对端靠 sync_svc.labelAdapter.remove 收到标签墓碑时自己摘关联还能
+// 自愈，但 **server 不是桌面端**：它收到一条标签墓碑不会去清关联行，账号里于是留下
+// 一批指向已删标签的活关联行，新设备全量拉取时按 R2a 暂缓 30 天后以「引用丢失」进
+// 「没能同步的改动」。
+func (s *issueSvc) DeleteLabel(ctx context.Context, id int64) error {
+	label, err := issue_repo.Label().Find(ctx, id)
+	if err != nil {
+		return err
+	}
+	if label == nil {
+		return i18n.NewError(ctx, code.IssueLabelNotFound)
+	}
+	// 硬删之前先记下要落墓碑的那些关联行（见上）。取数失败时整次删除退回：这一批
+	// 要么全落墓碑要么一条不删，绝不留下「标签已删、关联行还在」的半批（规格
+	// 2026-09-04「失败处理」）。
+	links, err := issue_repo.IssueLabel().ListRowsByLabel(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := issue_repo.IssueLabel().DeleteByLabel(ctx, id); err != nil {
+		return err
+	}
+	logger.Ctx(ctx).Info("issue_svc.DeleteLabel: detached from issues", zap.Int64("labelId", id))
+	// 排在目录行软删**之前**：硬删一旦生效，这些关联行欠的墓碑只有这一刻能入队。
+	// 关联表是硬删，本机这一侧没有任何兜底认得回它们——ListUnsyncedTombstones 对硬删
+	// 的几类明确返回空集（行已经不在了），children 与删前快照都要先从库里取到行。
+	// 放在软删之后，一次「数据库被锁住」就让本机没有这些关联行、server 上它们一直
+	// 活着，两边从此对不上且没有任何错误可循。
+	for _, link := range links {
+		// 已经落过墓碑的行不再落第二条：那一列非 0 的意思就是「这条删除已经送达过
+		// server」。任务软删不摘关联行，先删任务再删标签时那些行带着这个标记还留在
+		// issue_labels 里，ListRowsByLabel 照样取到；再推一遍只会换回 server 的
+		// 「已是墓碑」，acceptRemoteTombstone 随即往「没能同步的改动」里记一条用户
+		// 从没动过的关联行，还要在那张列表上躺 30 天。
+		if link.SyncID == "" || link.SyncDeletedAt != 0 {
+			continue
+		}
+		// 关联表是联合主键，没有本地自增 ID 可交（与 project_agent 的成员关系同形）。
+		sync_svc.NotifyDelete(ctx, syncwire.KindIssueLabel, 0, link.SyncMeta)
+	}
+	if err := issue_repo.Label().Delete(ctx, id); err != nil {
+		return err
+	}
+	sync_svc.NotifyDelete(ctx, syncwire.KindLabel, id, label.SyncMeta)
+	return nil
+}
+
+// labelNameTaken 目录里已经有一个同名标签（labels 上的 uniq_labels_name_active 也是
+// 这么定的，这里只是把它在触达数据库之前说清楚——否则用户看到的是驱动抛出的那句
+// 未翻译的唯一约束报错）。
+func labelNameTaken(ctx context.Context) error {
+	return i18n.NewError(ctx, code.IssueLabelNameDuplicated)
+}
+
+// assertNameFree 目录里同名只能有一个（唯一索引也是这么定的）；改回自己原来的名字
+// 不算重名。只看 active 行，软删掉的名字可以被重新用起来。
+func (s *issueSvc) assertNameFree(ctx context.Context, name string, selfID int64) error {
+	existing, err := issue_repo.Label().FindByName(ctx, name)
+	if err != nil {
+		return err
+	}
+	if existing != nil && existing.ID != selfID {
+		return labelNameTaken(ctx)
+	}
+	return nil
+}
+
+func (s *issueSvc) oneWithUsage(ctx context.Context, label *issue_entity.Label) (*LabelDetail, error) {
+	details, err := s.withUsage(ctx, []*issue_entity.Label{label})
+	if err != nil {
+		return nil, err
+	}
+	return details[0], nil
+}
+
+// withUsage 给每个标签补上「被 N 个任务使用」。一次分组查询喂全部标签，别按行去数。
+func (s *issueSvc) withUsage(ctx context.Context, labels []*issue_entity.Label) ([]*LabelDetail, error) {
+	usage, err := issue_repo.IssueLabel().CountByLabel(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*LabelDetail, 0, len(labels))
+	for _, l := range labels {
+		out = append(out, &LabelDetail{Label: l, UsageCount: usage[l.ID]})
+	}
+	return out, nil
 }
 
 func (s *issueSvc) resolveLabels(ctx context.Context, ids []int64) ([]*issue_entity.Label, error) {
@@ -303,6 +618,8 @@ func (s *issueSvc) Move(ctx context.Context, req *MoveIssueRequest) (*IssueDetai
 	if err := issue_repo.Issue().Update(ctx, issue); err != nil {
 		return nil, err
 	}
+	// 拖一张卡改的是 stage 与 position，两个都在载荷里。
+	sync_svc.NotifyUpdate(ctx, syncwire.KindIssue, issue.ID, issue.SyncMeta)
 	return s.hydrate(ctx, issue)
 }
 

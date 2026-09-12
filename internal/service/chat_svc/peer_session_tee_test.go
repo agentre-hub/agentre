@@ -19,25 +19,35 @@ func TestCanonicalEventLoops_GivenPeerSubscribers_ThenTeeBeforeLocalDispatcherAp
 		file string
 		name string
 	}{
-		{file: "chat.go", name: "runTurn"},
-		{file: "autonomous_turn.go", name: "driveAutonomousTurn"},
+		// turn_run.go 的事件处理体拆到了 applyLive:远端执行那一路是两级帧,呈现
+		// (预览帧)与转录(持久帧)走两条流,consumeEvents 只做分派。扇出仍须在
+		// 本地 Apply 之前看到原始密封事件,守的还是这一条。
+		{file: "turn_run.go", name: "applyLive"},
+		// autonomous_turn_run.go 同理:远端执行的自主续轮也是两级帧,per-event 的
+		// 处理体拆到了 applyLive,consumeEvents 只做分派。
+		{file: "autonomous_turn_run.go", name: "applyLive"},
 		{file: "subagent_activity.go", name: "driveSubagentActivity"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.file, func(t *testing.T) {
 			source, err := os.ReadFile(tc.file)
 			require.NoError(t, err)
 			file, err := parser.ParseFile(token.NewFileSet(), tc.file, source, 0)
 			require.NoError(t, err)
 
-			var eventLoop *ast.RangeStmt
+			// 事件处理体:range 循环,或(拆成 per-event 函数之后)函数体本身。
+			var eventLoop ast.Node
+			var rangeLoop *ast.RangeStmt
 			ast.Inspect(file, func(node ast.Node) bool {
 				decl, ok := node.(*ast.FuncDecl)
 				if !ok || decl.Name.Name != tc.name {
 					return true
 				}
+				if eventLoop == nil {
+					eventLoop = decl.Body
+				}
 				ast.Inspect(decl.Body, func(inner ast.Node) bool {
 					rangeStmt, ok := inner.(*ast.RangeStmt)
-					if !ok || eventLoop != nil {
+					if !ok || rangeLoop != nil {
 						return true
 					}
 					var hasApply bool
@@ -49,16 +59,16 @@ func TestCanonicalEventLoops_GivenPeerSubscribers_ThenTeeBeforeLocalDispatcherAp
 						return true
 					})
 					if hasApply {
-						eventLoop = rangeStmt
+						rangeLoop, eventLoop = rangeStmt, rangeStmt
 					}
 					return true
 				})
 				return false
 			})
-			require.NotNil(t, eventLoop, "must retain a canonical event range loop")
+			require.NotNil(t, eventLoop, "must retain a canonical event handling body")
 
 			var tee, apply token.Pos
-			ast.Inspect(eventLoop.Body, func(node ast.Node) bool {
+			ast.Inspect(eventLoop, func(node ast.Node) bool {
 				call, ok := node.(*ast.CallExpr)
 				if !ok {
 					return true
@@ -88,4 +98,41 @@ func selectorName(call *ast.CallExpr) string {
 		return ""
 	}
 	return selector.Sel.Name
+}
+
+// 一轮收口必须走 publishPeerTurnDone —— 两条收口路径(用户轮与自主续轮各自的
+// finalize)都要。
+//
+// 为什么用 AST 守:这两只函数各要一整套 runner / repo / 事件循环才跑得起来,而要守
+// 的事实只有一句「它调了那一只」。同文件的 peer tee 守卫
+// 用的是同一手法,理由也一样。漏掉任一条的表现是**静默的**:对端那一轮的 meta 空着,
+// 而另一条路的照常有,两边对不上还查不出来路。
+func TestTurnFinishPaths_GivenPeerSubscribers_ThenPublishTurnDone(t *testing.T) {
+	for _, tc := range []struct{ file, name string }{
+		{file: "turn_run.go", name: "finalize"},
+		{file: "autonomous_turn_run.go", name: "finalize"},
+	} {
+		t.Run(tc.file+":"+tc.name, func(t *testing.T) {
+			source, err := os.ReadFile(tc.file)
+			require.NoError(t, err)
+			file, err := parser.ParseFile(token.NewFileSet(), tc.file, source, 0)
+			require.NoError(t, err)
+
+			var calls bool
+			ast.Inspect(file, func(node ast.Node) bool {
+				decl, ok := node.(*ast.FuncDecl)
+				if !ok || decl.Name.Name != tc.name {
+					return true
+				}
+				ast.Inspect(decl.Body, func(inner ast.Node) bool {
+					if call, ok := inner.(*ast.CallExpr); ok && selectorName(call) == "publishPeerTurnDone" {
+						calls = true
+					}
+					return true
+				})
+				return false
+			})
+			assert.True(t, calls, "%s 里的 %s 必须把本轮统计发给对端订阅者", tc.file, tc.name)
+		})
+	}
 }

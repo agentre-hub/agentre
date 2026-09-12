@@ -9,11 +9,12 @@ import (
 	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo/mock_project_location_repo"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	mockRD "github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo/mock_project_location_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	mockRD "github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 func setupSvc(t *testing.T) (context.Context, *mock_project_location_repo.MockProjectLocationRepo, *mockRD.MockRemoteDeviceSvc, *projectLocationImpl) {
@@ -34,7 +35,7 @@ func TestUpsert(t *testing.T) {
 			rd.EXPECT().Get(ctx, int64(7)).Return(
 				&remote_device_svc.DeviceView{ID: 7, Name: "linux-srv", Online: true, DaemonFingerprint: "fp-7"}, nil,
 			).AnyTimes()
-			repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), "fp-7").Return(nil, gorm.ErrRecordNotFound)
+			repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), devicefp.Carrier("fp-7")).Return(nil, gorm.ErrRecordNotFound)
 			repo.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(
 				func(_ context.Context, p *project_location_entity.ProjectLocation) error {
 					p.ID = 42
@@ -53,8 +54,8 @@ func TestUpsert(t *testing.T) {
 			rd.EXPECT().Get(ctx, int64(7)).Return(
 				&remote_device_svc.DeviceView{ID: 7, Name: "linux-srv", Online: true, DaemonFingerprint: "fp-7"}, nil,
 			).AnyTimes()
-			existing := &project_location_entity.ProjectLocation{ID: 42, ProjectID: 1, DeviceID: "7", DaemonFingerprint: "fp-7", Path: "/old", Status: consts.ACTIVE}
-			repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), "fp-7").Return(existing, nil)
+			existing := &project_location_entity.ProjectLocation{ID: 42, ProjectID: 1, DeviceID: "7", DeviceFingerprint: "fp-7", Path: "/old", Status: consts.ACTIVE}
+			repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), devicefp.Carrier("fp-7")).Return(existing, nil)
 			repo.EXPECT().UpdatePath(ctx, int64(42), "/new").Return(nil)
 			v, err := svc.Upsert(ctx, 1, "7", "/new")
 			So(err, ShouldBeNil)
@@ -65,8 +66,8 @@ func TestUpsert(t *testing.T) {
 			rd.EXPECT().Get(ctx, int64(9)).Return(
 				&remote_device_svc.DeviceView{ID: 9, Name: "linux-srv", Online: true, DaemonFingerprint: "fp-7"}, nil,
 			).AnyTimes()
-			existing := &project_location_entity.ProjectLocation{ID: 42, ProjectID: 1, DeviceID: "7", DaemonFingerprint: "fp-7", Path: "/old", Status: consts.ACTIVE}
-			repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), "fp-7").Return(existing, nil)
+			existing := &project_location_entity.ProjectLocation{ID: 42, ProjectID: 1, DeviceID: "7", DeviceFingerprint: "fp-7", Path: "/old", Status: consts.ACTIVE}
+			repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), devicefp.Carrier("fp-7")).Return(existing, nil)
 			repo.EXPECT().UpdatePath(ctx, int64(42), "/new").Return(nil)
 			repo.EXPECT().UpdateDeviceID(ctx, int64(42), "9").Return(nil)
 			v, err := svc.Upsert(ctx, 1, "9", "/new")
@@ -94,7 +95,7 @@ func TestListByProject(t *testing.T) {
 	Convey("ListByProject 包含 device 状态", t, func() {
 		ctx, repo, rd, svc := setupSvc(t)
 		repo.EXPECT().ListByProject(ctx, int64(1)).Return([]*project_location_entity.ProjectLocation{
-			{ID: 42, ProjectID: 1, DeviceID: "7", DaemonFingerprint: "fp-7", Path: "/home/me/foo", Status: consts.ACTIVE},
+			{ID: 42, ProjectID: 1, DeviceID: "7", DeviceFingerprint: "fp-7", Path: "/home/me/foo", Status: consts.ACTIVE},
 		}, nil)
 		rd.EXPECT().List(ctx).Return([]*remote_device_svc.DeviceView{
 			{ID: 7, Name: "linux-srv", Online: true, DaemonFingerprint: "fp-7"},
@@ -110,7 +111,7 @@ func TestListByProject(t *testing.T) {
 	Convey("R2b：本机配对表里查不到该指纹 → 该行不呈现，且清空已缓存的 device_id（数据不丢，行还在）", t, func() {
 		ctx, repo, rd, svc := setupSvc(t)
 		repo.EXPECT().ListByProject(ctx, int64(1)).Return([]*project_location_entity.ProjectLocation{
-			{ID: 43, ProjectID: 1, DeviceID: "9", DaemonFingerprint: "fp-unpaired", Path: "/srv/app", Status: consts.ACTIVE},
+			{ID: 43, ProjectID: 1, DeviceID: "9", DeviceFingerprint: "fp-unpaired", Path: "/srv/app", Status: consts.ACTIVE},
 		}, nil)
 		rd.EXPECT().List(ctx).Return([]*remote_device_svc.DeviceView{}, nil)
 		repo.EXPECT().UpdateDeviceID(ctx, int64(43), "").Return(nil)
@@ -123,7 +124,7 @@ func TestListByProject(t *testing.T) {
 	Convey("R2b：取得配对行后自动生效 → 回填 device_id 并呈现，用户不需要再做第二件事", t, func() {
 		ctx, repo, rd, svc := setupSvc(t)
 		repo.EXPECT().ListByProject(ctx, int64(1)).Return([]*project_location_entity.ProjectLocation{
-			{ID: 44, ProjectID: 1, DeviceID: "", DaemonFingerprint: "fp-newly-paired", Path: "/srv/app2", Status: consts.ACTIVE},
+			{ID: 44, ProjectID: 1, DeviceID: "", DeviceFingerprint: "fp-newly-paired", Path: "/srv/app2", Status: consts.ACTIVE},
 		}, nil)
 		rd.EXPECT().List(ctx).Return([]*remote_device_svc.DeviceView{
 			{ID: 11, Name: "new-box", Online: true, DaemonFingerprint: "fp-newly-paired"},
@@ -140,14 +141,55 @@ func TestListByProject(t *testing.T) {
 	Convey("多条未解析记录（不同指纹、同一项目）可并存：各自独立清空缓存，都不呈现", t, func() {
 		ctx, repo, rd, svc := setupSvc(t)
 		repo.EXPECT().ListByProject(ctx, int64(1)).Return([]*project_location_entity.ProjectLocation{
-			{ID: 45, ProjectID: 1, DeviceID: "", DaemonFingerprint: "fp-a", Path: "/srv/a", Status: consts.ACTIVE},
-			{ID: 46, ProjectID: 1, DeviceID: "", DaemonFingerprint: "fp-b", Path: "/srv/b", Status: consts.ACTIVE},
+			{ID: 45, ProjectID: 1, DeviceID: "", DeviceFingerprint: "fp-a", Path: "/srv/a", Status: consts.ACTIVE},
+			{ID: 46, ProjectID: 1, DeviceID: "", DeviceFingerprint: "fp-b", Path: "/srv/b", Status: consts.ACTIVE},
 		}, nil)
 		rd.EXPECT().List(ctx).Return([]*remote_device_svc.DeviceView{}, nil)
 
 		list, err := svc.ListByProject(ctx, 1)
 		So(err, ShouldBeNil)
 		So(list, ShouldBeEmpty)
+	})
+}
+
+// 视图必须带上指纹：宿主那侧唯一拿得到的 Agent 设备键是**指纹**
+// （chat_svc 的 ChatAgentItem.DeviceID 来自 ExternalDeviceID(be.DeviceFingerprint)），
+// 而 DeviceID 是配对表的数字 id 缓存。两个键不同源，前端要按指纹比才对得上；
+// 缺了这个字段，「远端 Agent + 已配路径」在界面上永远被判成「还没配路径」。
+func TestViewCarriesFingerprintSoHostsCanMatchAgents(t *testing.T) {
+	Convey("ListByProject 的每一行都带着该设备的指纹", t, func() {
+		ctx, repo, rd, svc := setupSvc(t)
+		repo.EXPECT().ListByProject(ctx, int64(1)).Return([]*project_location_entity.ProjectLocation{
+			{ID: 42, ProjectID: 1, DeviceID: "7", DeviceFingerprint: "sha256:fp-7", Path: "/home/me/foo", Status: consts.ACTIVE},
+		}, nil)
+		rd.EXPECT().List(ctx).Return([]*remote_device_svc.DeviceView{
+			{ID: 7, Name: "linux-srv", Online: true, DaemonFingerprint: "sha256:fp-7"},
+		}, nil)
+
+		list, err := svc.ListByProject(ctx, 1)
+		So(err, ShouldBeNil)
+		So(len(list), ShouldEqual, 1)
+		So(list[0].DeviceFingerprint, ShouldEqual, devicefp.Carrier("sha256:fp-7"))
+		// 数字 id 仍旧照常给出——它是缓存，不是自然键。
+		So(list[0].DeviceID, ShouldEqual, "7")
+	})
+
+	Convey("Upsert 刚写完就回一份带指纹的视图（配完路径立刻能对上 Agent）", t, func() {
+		ctx, repo, rd, svc := setupSvc(t)
+		rd.EXPECT().Get(ctx, int64(7)).Return(
+			&remote_device_svc.DeviceView{ID: 7, Name: "linux-srv", Online: true, DaemonFingerprint: "sha256:fp-7"}, nil,
+		).AnyTimes()
+		repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), devicefp.Carrier("sha256:fp-7")).Return(nil, gorm.ErrRecordNotFound)
+		repo.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(
+			func(_ context.Context, p *project_location_entity.ProjectLocation) error {
+				p.ID = 42
+				return nil
+			},
+		)
+
+		v, err := svc.Upsert(ctx, 1, "7", "/home/me/foo")
+		So(err, ShouldBeNil)
+		So(v.DeviceFingerprint, ShouldEqual, devicefp.Carrier("sha256:fp-7"))
 	})
 }
 

@@ -36,7 +36,7 @@ Agentre follows the standard GitHub fork model:
    ```bash
    git clone https://github.com/<your-username>/agentre.git
    cd agentre
-   git remote add upstream https://github.com/agentre-ai/agentre.git
+   git remote add upstream https://github.com/agentre-hub/agentre.git
    ```
 
 2. **Create a branch off `main`** with a descriptive name such as `feat/...` or `fix/...`:
@@ -77,7 +77,7 @@ The non-negotiables, in short:
 2. **Prove a bug before fixing it.** Write a regression test, watch it fail for the right reason, then patch. Fix the producer of a bad value — don't add guards at every consumer.
 3. **Keep the diff focused.** Touch only the files the task requires. No drive-by refactors, rename sweeps, formatter passes, or unrelated cleanups — they bury the real change and break `git bisect`.
 4. **Respect the layering.** Dependencies flow one way: `internal/app → service → repository → model/entity`. Services depend on repository **interfaces**; new repository tests use sqlmock and new service tests use mockgen repository mocks — neither touches a real database (legacy service sqlmock tests are not precedent).
-5. **Frontend UI copy goes through i18n.** New visible text uses `t(...)` and updates both `zh-CN` and `en` locale files; form controls use shadcn `@/components/ui/*`.
+5. **Frontend UI copy goes through i18n.** New visible text uses `t(...)` and updates both `zh-CN` and `en` locale files; form controls use the shadcn primitives exported by `@agentre-hub/agentre-ui`.
 6. **Migrations are append-only.** Add new migrations to the end of `migrationList()`; never modify an existing one.
 
 If your task seems to conflict with one of these rules, stop and raise it in the issue or PR instead of working around it.
@@ -102,7 +102,7 @@ Before opening a PR, confirm:
 - [ ] Tests were written first and cover the happy path plus at least one boundary/error case.
 - [ ] `make check` passes (golangci-lint + ESLint + backend Go tests + frontend Vitest).
 - [ ] The diff only contains changes in scope for the task.
-- [ ] New visible frontend copy is translated in **both** `frontend/src/i18n/locales/zh-CN/common.json` and `en/common.json`.
+- [ ] New visible frontend copy is translated in **both** `frontend/src/i18n/locales/zh-CN/` and `en/`, in the same domain module file on each side.
 - [ ] Commits follow the gitmoji style above.
 - [ ] If you changed contributor docs, you followed [docs/documentation.md](./docs/documentation.md) (links resolve, facts verified against the proposed staged tree).
 

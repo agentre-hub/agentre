@@ -10,7 +10,7 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 // routePrefix 控制 API 的版本化前缀；gateway 已把 /ctl/* 全部转到本 handler。

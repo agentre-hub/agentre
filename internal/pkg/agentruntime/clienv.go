@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 )
 
 const (
@@ -38,7 +38,7 @@ type CLIDeps struct {
 // BuildClaudeCodeEnv 装配 claudecode 子进程的环境变量：
 //
 //   - **AGENTRE_GATEWAY_URL / AGENTRE_GATEWAY_TOKEN**：deps 非空时一律设置。
-//     PostToolUse hook 子进程（agentre claudecode hook post-tool）用它访问
+//     PostToolUse hook 子进程（agrctl claudecode hook post-tool）用它访问
 //     /hook/v1/inbox 拉排队消息。不走 ANTHROPIC_*，避免被 claude CLI 当成「替
 //     OAuth 把 LLM 路由到 gateway」的开关（CLI 登录模式下我们没 provider 转
 //     发，会直接挂 LLM）。
@@ -132,16 +132,15 @@ func BuildPiAgentEnv(b *agent_backend_entity.AgentBackend) (map[string]string, e
 	return env, nil
 }
 
-// codexReasoningEffortConfigValue 把落库的 reasoning_effort 映射为 codex CLI 配置值。
-// codex 支持 low / medium / high / xhigh；entity 层允许的 max 在这里向下并到 high，
-// 让用户跨后端切换时不丢档位语义。off / 非法值（含大小写错、含空格）→ "" 表示不下发，
-// 走 codex 自身默认。
-func codexReasoningEffortConfigValue(s string) string {
+// CodexReasoningEffortConfigValue 把落库的 reasoning_effort 映射为 codex CLI 配置值。
+// 六档（low/medium/high/xhigh/max）原样透传：codex-cli 对 model_reasoning_effort
+// 不做本地枚举校验、原样转发给上游（spec 2026-09-01「三后端下发档位的收敛」，本机
+// 0.150.1 实测），旧的 max→high 降档前提已不成立。非法值（含大小写错、含空格）→ ""
+// 表示不下发，走 codex 自身默认。
+func CodexReasoningEffortConfigValue(s string) string {
 	switch s {
-	case "low", "medium", "high", "xhigh":
+	case "low", "medium", "high", "xhigh", "max":
 		return s
-	case "max":
-		return "high"
 	default:
 		return ""
 	}

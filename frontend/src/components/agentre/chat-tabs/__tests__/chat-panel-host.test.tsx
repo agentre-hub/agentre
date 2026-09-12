@@ -5,11 +5,14 @@ import { MemoryRouter } from "react-router-dom";
 import { ChatPanelHost } from "../chat-panel-host";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
-import { useProjectSessionsStore } from "@/stores/project-sessions-store";
+import { useSessionIndexStore } from "@/stores/session-index-store";
 
 const chatPanelRenderCounts = vi.hoisted(() => new Map<number, number>());
 
-vi.mock("../../terminal/terminal-panel", () => ({
+// TerminalPanel 已搬进共享包;这里只替换那一个导出,其余(pruneChatPanelScrollState
+// 等)保持真实实现。
+vi.mock("@agentre-hub/agentre-ui", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agentre-hub/agentre-ui")>()),
   TerminalPanel: ({
     terminalID,
     active,
@@ -80,7 +83,7 @@ describe("ChatPanelHost", () => {
     chatPanelRenderCounts.clear();
     useChatTabsStore.setState({ tabs: [], activeTabId: null });
     useChatAgentsStore.getState().__reset();
-    useProjectSessionsStore.getState().__reset();
+    useSessionIndexStore.getState().__reset();
   });
 
   it("空 tab 有可对话 Agent 时显示统一空态 hero", () => {
@@ -269,24 +272,24 @@ describe("ChatPanelHost", () => {
     });
   });
 
-  it("ChatPanel 触发 onSidebarShouldReload 同步刷新 chat-agents + project-sessions (修复新建会话不进左栏)", () => {
+  it("ChatPanel 触发 onSidebarShouldReload 同步刷新 chat-agents + 索引已加载的 scope (修复新建会话不进左栏)", () => {
     const chatReload = vi
       .spyOn(useChatAgentsStore.getState(), "reload")
       .mockResolvedValue();
-    const projectReload = vi
-      .spyOn(useProjectSessionsStore.getState(), "reload")
+    const indexReload = vi
+      .spyOn(useSessionIndexStore.getState(), "reloadLoaded")
       .mockResolvedValue();
     useChatTabsStore.getState().openSessionInNewTab(42);
     render(<ChatPanelHost />);
     const chatCallsBeforeClick = chatReload.mock.calls.length;
-    const projectCallsBeforeClick = projectReload.mock.calls.length;
+    const indexCallsBeforeClick = indexReload.mock.calls.length;
     screen.getByTestId("fire-reload-42").click();
-    // 两个 sidebar 数据源都该被一次性触发 —— 这样 /chat 和 /projects 的左栏
-    // 在新建会话 / turn 落定后都能立刻看到变化, 不必等下一次 mount。
+    // 两条来源都该被一次性触发 —— 新建会话 / turn 落定后左栏立刻能看到变化，
+    // 不必等下一次 mount。
     expect(chatReload).toHaveBeenCalledTimes(chatCallsBeforeClick + 1);
-    expect(projectReload).toHaveBeenCalledTimes(projectCallsBeforeClick + 1);
+    expect(indexReload).toHaveBeenCalledTimes(indexCallsBeforeClick + 1);
     chatReload.mockRestore();
-    projectReload.mockRestore();
+    indexReload.mockRestore();
   });
 
   it("Given a terminal tab is open, When ChatPanelHost renders, Then it shows terminal-panel not a ChatPanel", () => {

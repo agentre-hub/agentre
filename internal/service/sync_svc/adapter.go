@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // errRefMissing 表示引用的目标在本机还没有落地（R2a）：该行暂缓落地，不写悬空引用。
@@ -59,7 +61,7 @@ type baseAdapter struct{}
 func (baseAdapter) dependents(context.Context, string) ([]relatedRow, error) { return nil, nil }
 func (baseAdapter) children(context.Context, string) ([]relatedRow, error)   { return nil, nil }
 
-// defaultAdapters 装配七张账号级表的适配器。avatar 是头像内容存取的窄接口，只有
+// defaultAdapters 装配账号级表的适配器。avatar 是头像内容存取的窄接口，只有
 // agentAdapter 用到（R16a）；单机模式下 New(nil) 传进来的是真正的 nil 接口，
 // agentAdapter 据此优雅退化成只带哈希、不取正文。
 func defaultAdapters(avatar avatarTransport) map[string]adapter {
@@ -68,9 +70,14 @@ func defaultAdapters(avatar avatarTransport) map[string]adapter {
 		&departmentAdapter{},
 		&agentAdapter{avatar: avatar},
 		&agentBackendAdapter{},
+		&agentBackendCLIAdapter{},
 		&agentExecTargetAdapter{},
 		&projectAgentAdapter{},
 		&projectLocationAdapter{},
+		&llmProviderAdapter{},
+		&labelAdapter{},
+		&issueAdapter{},
+		&issueLabelAdapter{},
 	}
 	out := make(map[string]adapter, len(list))
 	for _, a := range list {
@@ -94,7 +101,7 @@ func resolveRefs(ctx context.Context, refs []ref) (map[string]int64, ref, error)
 			err error
 		)
 		if r.Fingerprint != "" {
-			id, err = localIDOfFingerprint(ctx, r.Fingerprint)
+			id, err = localIDOfFingerprint(ctx, devicefp.Carrier(r.Fingerprint))
 		} else {
 			id, err = syncstate_repo.SyncState().FindLocalID(ctx, r.Kind, r.SyncID)
 		}
@@ -111,7 +118,7 @@ func resolveRefs(ctx context.Context, refs []ref) (map[string]int64, ref, error)
 
 // localIDOfFingerprint 把 agentred 指纹解析成本机 paired_agentreds 的行 ID。
 // 判据是「本地配对表里有没有这个指纹」，不是有没有配对令牌（R2b）。
-func localIDOfFingerprint(ctx context.Context, fingerprint string) (int64, error) {
+func localIDOfFingerprint(ctx context.Context, fingerprint devicefp.Carrier) (int64, error) {
 	rows, err := remote_device_repo.PairedAgentred().List(ctx)
 	if err != nil {
 		return 0, err
@@ -135,24 +142,14 @@ func resolvedID(resolved map[string]int64, r ref) int64 {
 	return resolved[r.key()]
 }
 
-// syncKinds 是同步组的七个对象类型，按「被引用者在前」排列——认领（R12a）与任何
+// syncKinds 是同步组的全部对象类型，按「被引用者在前」排列——认领（R12a）与任何
 // 需要遍历全部类型的地方都按它走，父行因此先入队、先落地（R2a 的暂缓少绕一圈）。
-var syncKinds = []string{
-	syncwire.KindProject,
-	syncwire.KindDepartment,
-	syncwire.KindAgent,
-	syncwire.KindAgentBackend,
-	syncwire.KindAgentExecTarget,
-	syncwire.KindProjectAgent,
-	syncwire.KindProjectLocation,
-}
+//
+// 词表与次序归契约所有（syncwire.Kinds）：从前这里与服务端各枚举一遍，漏掉一个新
+// kind 就是那一端整类静默不同步。这个名字只是本地别名，调用点因此不用改。
+var syncKinds = syncwire.Kinds
 
 // kindKnown 报告某个对象类型是否属于同步组。
 func kindKnown(kind string) bool {
-	for _, k := range syncKinds {
-		if k == kind {
-			return true
-		}
-	}
-	return false
+	return syncwire.KindValid(kind)
 }

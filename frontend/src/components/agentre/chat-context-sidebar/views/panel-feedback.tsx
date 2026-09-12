@@ -10,6 +10,8 @@
  * 等各自给了明确文案，照搬即可，不再在前端二次归类。拿不到文案时返回空串，由
  * 调用方回落到自己那句通用提示。
  */
+import { Skeleton } from "@agentre-hub/agentre-ui";
+
 export function errorText(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
@@ -22,7 +24,7 @@ export function PanelNotice({ text, hint }: { text: string; hint?: string }) {
     <div className="px-3 py-6 text-center text-xs leading-relaxed text-muted-foreground">
       {text}
       {hint ? (
-        <span className="mt-1.5 block text-[11px] opacity-80">{hint}</span>
+        <span className="mt-1.5 block text-2xs opacity-80">{hint}</span>
       ) : null}
     </div>
   );
@@ -36,11 +38,10 @@ export function PanelSkeleton({ label }: { label: string }) {
         {label}
       </span>
       {[70, 52, 81, 44].map((width) => (
-        <div
+        <Skeleton
           key={width}
-          className="h-2.5 animate-pulse rounded-sm bg-muted"
+          className="h-2.5"
           style={{ width: `${width}%` }}
-          aria-hidden="true"
         />
       ))}
     </div>

@@ -1,7 +1,9 @@
 package claudecode
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -114,4 +116,102 @@ func TestFindUserAnchorByText_PicksLatestAssistantBlockForMultiBlockTurn(t *test
 	}
 	assert.Equal(t, "a-text", FindUserAnchorByText(msgs, "next"),
 		"应当取最后一条 assistant 而不是中间任何一条 thinking/tool_use")
+}
+
+// TestFindUserAnchorInSessionJSONL_MatchesWholeFileScan 钉死「反向扫描」与「整文件
+// 解析后反查」在各种形状上给出**同一个** anchor。
+//
+// 这是替换的正确性前提:FindUserAnchorInSessionJSONL 从文件尾往回读、拿到答案就停,
+// 而 FindUserAnchorByText(ReadSessionJSONL(...)) 是整文件解析后从尾往回找 —— 两者
+// 的语义必须逐字相同(都取**最后一条**文本匹配的 user,再往回找最近的 assistant)。
+func TestFindUserAnchorInSessionJSONL_MatchesWholeFileScan(t *testing.T) {
+	root, err := filepath.Abs("testdata/jsonl_session")
+	require.NoError(t, err)
+
+	msgs, err := ReadSessionJSONL(root, "sess-x")
+	require.NoError(t, err)
+
+	for _, text := range []string{"list files", "hello", "nope", ""} {
+		want := FindUserAnchorByText(msgs, text)
+		got, err := FindUserAnchorInSessionJSONL(root, "sess-x", text)
+		require.NoError(t, err, "text=%q", text)
+		assert.Equal(t, want, got, "text=%q 两条路径必须给出同一个 anchor", text)
+	}
+}
+
+func TestFindUserAnchorInSessionJSONL_MissingSessionFileReturnsErrNotFound(t *testing.T) {
+	root, err := filepath.Abs("testdata/jsonl_session")
+	require.NoError(t, err)
+
+	_, err = FindUserAnchorInSessionJSONL(root, "sess-nonexistent", "hi")
+	assert.ErrorIs(t, err, ErrSessionJSONLNotFound)
+}
+
+// TestFindUserAnchorInSessionJSONL_TakesLastMatchWhenTextRepeats 同一句 prompt 在
+// 一个会话里发过多次时,anchor 必须锚到**最近一次**那轮,否则 fork 会退回很早的历史。
+func TestFindUserAnchorInSessionJSONL_TakesLastMatchWhenTextRepeats(t *testing.T) {
+	root := t.TempDir()
+	writeJSONLSession(t, root, "sess-dup", []string{
+		`{"uuid":"a-old","message":{"role":"assistant","content":[{"type":"text","text":"old"}]}}`,
+		`{"uuid":"u-old","message":{"role":"user","content":[{"type":"text","text":"go on"}]}}`,
+		`{"uuid":"a-new","message":{"role":"assistant","content":[{"type":"text","text":"new"}]}}`,
+		`{"uuid":"u-new","message":{"role":"user","content":[{"type":"text","text":"go on"}]}}`,
+	})
+
+	got, err := FindUserAnchorInSessionJSONL(root, "sess-dup", "go on")
+	require.NoError(t, err)
+	assert.Equal(t, "a-new", got, "重复 prompt 必须锚到最近一次,不是第一次")
+}
+
+// TestFindUserAnchorInSessionJSONL_FirstTurnHasNoAssistantAnchor user 之前没有任何
+// assistant(首轮)→ 空;此时反向扫描会一路读到文件开头,必须正常收尾而不是报错。
+func TestFindUserAnchorInSessionJSONL_FirstTurnHasNoAssistantAnchor(t *testing.T) {
+	root := t.TempDir()
+	writeJSONLSession(t, root, "sess-first", []string{
+		`{"uuid":"u-1","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}`,
+	})
+
+	got, err := FindUserAnchorInSessionJSONL(root, "sess-first", "hello")
+	require.NoError(t, err)
+	assert.Equal(t, "", got)
+}
+
+// TestFindUserAnchorInSessionJSONL_StopsBeforeReadingTheHeadOfTheFile 证明反向扫描
+// **拿到答案就停**,而不是把整个文件读完。
+//
+// 手法:把文件第一行做成超过 maxFrameBytes(16MB)的单行。整文件解析路径用
+// bufio.Scanner,撞上这行会直接 ErrTooLong 整个失败(调用方 `if err == nil` 于是
+// 悄悄丢掉 anchor);反向扫描只要在读到它之前就命中 anchor,就完全不受影响。
+//
+// 这不只是性能证明 —— 长会话开头内联一个巨大的 tool_result 是真实形状,原路径在
+// 那种会话上会永久性地丢 anchor。
+func TestFindUserAnchorInSessionJSONL_StopsBeforeReadingTheHeadOfTheFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("writes a >16MB fixture")
+	}
+	root := t.TempDir()
+	huge := `{"uuid":"u-huge","message":{"role":"user","content":[{"type":"text","text":"` +
+		strings.Repeat("x", maxFrameBytes+1) + `"}]}}`
+	writeJSONLSession(t, root, "sess-huge", []string{
+		huge,
+		`{"uuid":"a-1","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}`,
+		`{"uuid":"u-2","message":{"role":"user","content":[{"type":"text","text":"list files"}]}}`,
+	})
+
+	// 先确认整文件解析路径确实在这个文件上失败 —— 否则这条测试证明不了任何东西。
+	_, readErr := ReadSessionJSONL(root, "sess-huge")
+	require.Error(t, readErr, "前提:整文件解析在超长行上必须失败,否则本测试无效")
+
+	got, err := FindUserAnchorInSessionJSONL(root, "sess-huge", "list files")
+	require.NoError(t, err)
+	assert.Equal(t, "a-1", got, "反向扫描应当在读到超长首行之前就拿到 anchor")
+}
+
+func writeJSONLSession(t *testing.T, root, sessionID string, lines []string) {
+	t.Helper()
+	dir := filepath.Join(root, "proj")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, sessionID+".jsonl"),
+		[]byte(strings.Join(lines, "\n")+"\n"), 0o600))
 }

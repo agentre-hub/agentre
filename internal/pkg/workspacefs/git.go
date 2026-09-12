@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/pkg/procattr"
+	"github.com/agentre-hub/agentre/internal/pkg/procattr"
 )
 
 // runGit 在 dir 下执行 `git args...`,可选喂 stdin,返回 trimmed 之前的原始

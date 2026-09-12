@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	issue_entity "github.com/agentre-ai/agentre/internal/model/entity/issue_entity"
-	issue_repo "github.com/agentre-ai/agentre/internal/repository/issue_repo"
+	issue_entity "github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
+	issue_repo "github.com/agentre-hub/agentre/internal/repository/issue_repo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -56,6 +56,21 @@ func (m *MockIssueRepo) CountByState(ctx context.Context, projectID int64) (int6
 func (mr *MockIssueRepoMockRecorder) CountByState(ctx, projectID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByState", reflect.TypeOf((*MockIssueRepo)(nil).CountByState), ctx, projectID)
+}
+
+// CountUnfinishedByProject mocks base method.
+func (m *MockIssueRepo) CountUnfinishedByProject(ctx context.Context) (map[int64]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountUnfinishedByProject", ctx)
+	ret0, _ := ret[0].(map[int64]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountUnfinishedByProject indicates an expected call of CountUnfinishedByProject.
+func (mr *MockIssueRepoMockRecorder) CountUnfinishedByProject(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountUnfinishedByProject", reflect.TypeOf((*MockIssueRepo)(nil).CountUnfinishedByProject), ctx)
 }
 
 // Create mocks base method.

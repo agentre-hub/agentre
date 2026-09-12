@@ -7,7 +7,7 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 // Get 按 id 返回一份只读的 DeviceView（不主动探活；Online 仍由 LastSeenAt 推算）。

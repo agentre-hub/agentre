@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/agentre-ai/agentre/internal/pkg/remotefs/pathguard"
-	"github.com/agentre-ai/agentre/internal/pkg/remotefs/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/remotefs/pathguard"
+	"github.com/agentre-hub/agentre/internal/pkg/remotefs/wire"
 )
 
 func (h *Handlers) Mkdir(ctx context.Context, req wire.MkdirReq) (*wire.MkdirResp, error) {

@@ -7,11 +7,12 @@ import (
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/agentre-ai/agentre/internal/pkg/pty"
-	"github.com/agentre-ai/agentre/internal/pkg/pty/local"
-	"github.com/agentre-ai/agentre/internal/pkg/pty/remote"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
-	"github.com/agentre-ai/agentre/internal/service/terminal_svc"
+	"github.com/agentre-hub/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/internal/pkg/pty/local"
+	"github.com/agentre-hub/agentre/internal/pkg/pty/remote"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
+	"github.com/agentre-hub/agentre/internal/service/terminal_svc"
 )
 
 // ptyBackendAdapter bridges pty.Backend → terminal_svc.PTYBackend (same
@@ -25,13 +26,13 @@ func (a ptyBackendAdapter) Open(ctx context.Context, spec pty.Spec) (pty.Handle,
 
 func resolveLocalCommandScope(
 	ctx context.Context,
-	req *chat_svc.ResolveLocalCommandScopeRequest,
-) (*chat_svc.LocalCommandScope, error) {
-	chat := chat_svc.Chat()
-	if chat == nil {
+	req *exec_target_svc.ResolveLocalCommandScopeRequest,
+) (*exec_target_svc.LocalCommandScope, error) {
+	targets := exec_target_svc.ExecTarget()
+	if targets == nil {
 		return nil, terminal_svc.ErrCommandScopeResolverNotInitialized
 	}
-	scope, err := chat.ResolveLocalCommandScope(ctx, req)
+	scope, err := targets.ResolveLocalCommandScope(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -167,12 +168,17 @@ func newTerminalService(appCtx context.Context) *terminal_svc.Service {
 	) (*terminal_svc.CommandScope, error) {
 		scope, err := resolveLocalCommandScope(
 			ctx,
-			&chat_svc.ResolveLocalCommandScopeRequest{SessionID: req.SessionID},
+			&exec_target_svc.ResolveLocalCommandScopeRequest{SessionID: req.SessionID},
 		)
 		if err != nil {
 			return nil, err
 		}
-		return &terminal_svc.CommandScope{DeviceID: scope.DeviceID, Cwd: scope.Cwd}, nil
+		// 角色在这里被跨过去了，而且两个键并不同源：scope.DeviceID 是**承载者指纹**
+		// （exec_target_svc.execDeviceID 交出的 backend device_fingerprint），而
+		// terminal_svc 的 deviceID 另一个来源（App.OpenTerminal，前端传的）是
+		// paired_agentreds 的数字 id —— terminalRemoteWiring.Backend 对它做 ParseInt。
+		// 这是 be367651 那一类键混用在终端这条路上的残留；本次只把它显式化，不改行为。
+		return &terminal_svc.CommandScope{DeviceID: string(scope.DeviceID), Cwd: scope.Cwd}, nil
 	})
 	return service
 }

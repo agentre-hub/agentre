@@ -1,0 +1,80 @@
+package migrations
+
+import (
+	"github.com/go-gormigrate/gormigrate/v2"
+	"gorm.io/gorm"
+
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+)
+
+// migration202609040104 建 agents 表并 seed 一条 CEO 助手。
+//
+// 字段语义：
+//   - department_id    0 = 未直接挂部门；非 CEO 必须有 department_id 或 parent_agent_id
+//   - parent_agent_id  0 = 无上级 Agent
+//   - system_badge     "DEFAULT" = CEO 助手；其它 Agent 留空
+//   - avatar_data_url  用户上传头像（data URL）；空时回落 avatar_icon / name[0]
+//   - avatar_icon      lucide 图标 key
+//   - prompt_json      []string 序列化
+//   - tools_json       []AgentToolItem 序列化
+//   - sync_*           账号级同步元数据（syncmeta_entity.SyncMeta）
+//
+// 注：运行态由 chat_sessions.agent_status 承载；Agent 实体不再持有 agent_status。
+// 执行归属（后端档位与技能授权）的真相源是 agent_exec_targets，不在这张表上留镜像列。
+//
+// Seed：用 INSERT ... WHERE NOT EXISTS 保证幂等。
+func migration202609040104() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "202609040104",
+		Migrate: func(tx *gorm.DB) error {
+			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS agents (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	avatar_color TEXT NOT NULL DEFAULT '',
+	avatar_icon TEXT NOT NULL DEFAULT '',
+	avatar_data_url TEXT NOT NULL DEFAULT '',
+	system_badge TEXT NOT NULL DEFAULT '',
+	department_id INTEGER NOT NULL DEFAULT 0,
+	parent_agent_id INTEGER NOT NULL DEFAULT 0,
+	sort_order INTEGER NOT NULL DEFAULT 0,
+	prompt_json TEXT NOT NULL DEFAULT '[]',
+	tools_json TEXT NOT NULL DEFAULT '[]',
+	pinned BOOLEAN NOT NULL DEFAULT 0,
+	status INTEGER NOT NULL DEFAULT 1,
+	createtime INTEGER NOT NULL DEFAULT 0,
+	updatetime INTEGER NOT NULL DEFAULT 0,
+	sync_id TEXT NOT NULL DEFAULT '',
+	sync_account_id BIGINT NOT NULL DEFAULT 0,
+	sync_version BIGINT NOT NULL DEFAULT 0,
+	sync_updated_at BIGINT NOT NULL DEFAULT 0,
+	sync_origin_fingerprint TEXT NOT NULL DEFAULT '',
+	sync_deleted_at BIGINT NOT NULL DEFAULT 0
+)`).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_agents_department_id ON agents(department_id)`).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_agents_parent_agent_id ON agents(parent_agent_id)`).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_agents_sync_id ON agents(sync_id) WHERE sync_id != ''`).Error; err != nil {
+				return err
+			}
+			return tx.Exec(`INSERT INTO agents (
+	name, description, avatar_color, system_badge,
+	department_id, prompt_json, tools_json,
+	status, createtime, updatetime, sync_id
+)
+SELECT
+	'CEO 助手', '默认入口 · 不可删除', 'agent-1', 'DEFAULT',
+	0, '[]', '[{"key":"org","enabled":true}]',
+	1, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000, ?
+WHERE NOT EXISTS (SELECT 1 FROM agents WHERE system_badge = 'DEFAULT')`, agent_entity.DefaultAgentSyncID).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`DROP TABLE IF EXISTS agents`).Error
+		},
+	}
+}

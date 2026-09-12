@@ -8,29 +8,18 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/department_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
 // ── 部门 ────────────────────────────────────────────────────────────────────
-
-type departmentPayload struct {
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Icon          string `json:"icon"`
-	AccentColor   string `json:"accent_color"`
-	ParentSyncID  string `json:"parent_sync_id,omitempty"`
-	LeadAgentSync string `json:"lead_agent_sync_id,omitempty"`
-	SortOrder     int    `json:"sort_order"`
-}
 
 type departmentAdapter struct{ baseAdapter }
 
@@ -56,14 +45,14 @@ func (departmentAdapter) load(ctx context.Context, syncID string) (*outbound, er
 	if err != nil {
 		return nil, err
 	}
-	payload, err := json.Marshal(departmentPayload{
-		Name:          row.Name,
-		Description:   row.Description,
-		Icon:          row.Icon,
-		AccentColor:   row.AccentColor,
-		ParentSyncID:  parentSyncID,
-		LeadAgentSync: leadSyncID,
-		SortOrder:     row.SortOrder,
+	payload, err := json.Marshal(syncwire.DepartmentPayload{
+		Name:            row.Name,
+		Description:     row.Description,
+		Icon:            row.Icon,
+		AccentColor:     row.AccentColor,
+		ParentSyncID:    parentSyncID,
+		LeadAgentSyncID: leadSyncID,
+		SortOrder:       row.SortOrder,
 	})
 	if err != nil {
 		return nil, err
@@ -86,7 +75,7 @@ func (departmentAdapter) load(ctx context.Context, syncID string) (*outbound, er
 // 负责人改由 apply 自己解析：解析不出就先把部门落下去（打破环），再报 errRefMissing
 // 让这一行留在入站队列，等负责人到达后的重放补上 lead_agent_id。
 func (departmentAdapter) refs(in *inbound) []ref {
-	var p departmentPayload
+	var p syncwire.DepartmentPayload
 	_ = json.Unmarshal(in.Payload, &p)
 	return []ref{
 		{Kind: syncwire.KindDepartment, SyncID: p.ParentSyncID},
@@ -94,7 +83,7 @@ func (departmentAdapter) refs(in *inbound) []ref {
 }
 
 func (departmentAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p departmentPayload
+	var p syncwire.DepartmentPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
@@ -105,8 +94,8 @@ func (departmentAdapter) apply(ctx context.Context, in *inbound, resolved map[st
 	}
 	// 负责人是非阻塞引用（见 refs 的注释）：解析不出时这一轮先落 0，本行照常写下去。
 	leadID := int64(0)
-	if p.LeadAgentSync != "" {
-		if leadID, err = syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindAgent, p.LeadAgentSync); err != nil {
+	if p.LeadAgentSyncID != "" {
+		if leadID, err = syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindAgent, p.LeadAgentSyncID); err != nil {
 			return err
 		}
 	}
@@ -123,7 +112,7 @@ func (departmentAdapter) apply(ctx context.Context, in *inbound, resolved map[st
 	} else if err := department_repo.Department().Update(ctx, row); err != nil {
 		return err
 	}
-	if p.LeadAgentSync != "" && leadID == 0 {
+	if p.LeadAgentSyncID != "" && leadID == 0 {
 		// 部门已经落地（环就此打破，负责人那一行这一轮即可落地），但 lead_agent_id
 		// 还空着：报 errRefMissing 把本行留在入站队列，由随后的重放补齐。
 		return errRefMissing
@@ -140,24 +129,6 @@ func (departmentAdapter) remove(ctx context.Context, in *inbound) error {
 }
 
 // ── Agent ───────────────────────────────────────────────────────────────────
-
-// agentPayload 里只有 avatar_hash：头像按内容哈希单独走一条路（R16a），正文一律
-// 不进同步载荷（守卫见 syncwire.GuardPayload）。也没有 skills_json —— 技能授权
-// 下沉到执行目标行（R15e）。
-type agentPayload struct {
-	Name              string `json:"name"`
-	Description       string `json:"description"`
-	AvatarColor       string `json:"avatar_color"`
-	AvatarIcon        string `json:"avatar_icon"`
-	AvatarHash        string `json:"avatar_hash,omitempty"`
-	SystemBadge       string `json:"system_badge"`
-	DepartmentSyncID  string `json:"department_sync_id,omitempty"`
-	ParentAgentSyncID string `json:"parent_agent_sync_id,omitempty"`
-	SortOrder         int    `json:"sort_order"`
-	PromptJSON        string `json:"prompt_json"`
-	ToolsJSON         string `json:"tools_json"`
-	Pinned            bool   `json:"pinned"`
-}
 
 // agentAdapter 的 avatar 字段是头像内容存取的窄接口（R16a）；nil 时（单机模式、
 // 或测试直接构造 agentAdapter{}）优雅退化，见 avatarTransport 的文档。
@@ -193,7 +164,7 @@ func (a *agentAdapter) load(ctx context.Context, syncID string) (*outbound, erro
 	if hash != "" {
 		a.putAvatarBestEffort(ctx, syncID, hash, row.AvatarDataURL)
 	}
-	payload, err := json.Marshal(agentPayload{
+	payload, err := json.Marshal(syncwire.AgentPayload{
 		Name:              row.Name,
 		Description:       row.Description,
 		AvatarColor:       row.AvatarColor,
@@ -237,7 +208,7 @@ func (a *agentAdapter) putAvatarBestEffort(ctx context.Context, syncID, hash, da
 }
 
 func (*agentAdapter) refs(in *inbound) []ref {
-	var p agentPayload
+	var p syncwire.AgentPayload
 	_ = json.Unmarshal(in.Payload, &p)
 	return []ref{
 		{Kind: syncwire.KindDepartment, SyncID: p.DepartmentSyncID},
@@ -246,7 +217,7 @@ func (*agentAdapter) refs(in *inbound) []ref {
 }
 
 func (a *agentAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p agentPayload
+	var p syncwire.AgentPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
@@ -380,29 +351,6 @@ func agentSyncIDOfLocalID(ctx context.Context, id int64) (string, error) {
 
 // ── backend ─────────────────────────────────────────────────────────────────
 
-// agentBackendPayload 里的 provider 只有 provider_key / model_key 这两个字符串键：
-// llm_providers 整表（含 APIKey 与 Models 正文）不出本机（决策 6），跨机只传稳定的
-// ProviderKey / ModelKey 引用。model_routes 是结构化 Route target 的 JSON 字符串。
-// 指向哪台 agentred 走上行项顶层的指纹字段。
-type agentBackendPayload struct {
-	Type                  string `json:"type"`
-	Name                  string `json:"name"`
-	ProviderKey           string `json:"provider_key"`
-	ModelKey              string `json:"model_key"`
-	CLIPath               string `json:"cli_path"`
-	ModelRoutes           string `json:"model_routes"`
-	Sandbox               string `json:"sandbox"`
-	Approval              string `json:"approval"`
-	EnvJSON               string `json:"env_json"`
-	ReasoningEffort       string `json:"reasoning_effort"`
-	DefaultPermissionMode string `json:"default_permission_mode"`
-	DefaultModel          string `json:"default_model"`
-	OpenClawGatewayURL    string `json:"openclaw_gateway_url"`
-	OpenClawAgentID       string `json:"openclaw_agent_id"`
-	OpenClawDefaultModel  string `json:"openclaw_default_model"`
-	OpenClawSessionMode   string `json:"openclaw_session_mode"`
-}
-
 type agentBackendAdapter struct{ baseAdapter }
 
 func (agentBackendAdapter) kind() string { return syncwire.KindAgentBackend }
@@ -413,35 +361,11 @@ func (agentBackendAdapter) load(ctx context.Context, syncID string) (*outbound, 
 	if err != nil || !found {
 		return nil, err
 	}
-	// DeviceID is the canonical target fingerprint, so a canonical value (sha256:…,
-	// or any non-numeric shape) crosses the sync boundary unchanged. A legacy
-	// numeric value is a LOCAL paired_agentreds row ID (the pre-R13 producer still
-	// submits those): it is resolved to its daemon's fingerprint on upload — a raw
-	// row ID must never cross as a fingerprint, it would resolve to a
-	// possibly-different paired row on the target desktop and dispatch to the
-	// wrong machine. A numeric value whose daemon is no longer paired cannot be
-	// expressed cross-machine, so the row is skipped (mirrors the pre-R13
-	// fingerprintOfLocalID behavior).
-	backendFingerprint := row.DeviceID
-	if legacyID, ok := (&agent_backend_entity.AgentBackend{DeviceID: row.DeviceID}).DeviceIDInt(); ok {
-		var skip bool
-		var ferr error
-		backendFingerprint, skip, ferr = backendFingerprintForSync(ctx, legacyID)
-		if ferr != nil {
-			return nil, ferr
-		}
-		if skip {
-			logger.Ctx(ctx).Debug("sync_svc.agentBackendAdapter: backend targets an unpaired agentred, skipping upload",
-				zap.String("syncId", syncID), zap.String("deviceId", row.DeviceID))
-			return nil, nil // 见上：不是失败，是这一条按设计不发
-		}
-	}
-	payload, err := json.Marshal(agentBackendPayload{
+	payload, err := json.Marshal(syncwire.AgentBackendPayload{
 		Type:                  row.Type,
 		Name:                  row.Name,
 		ProviderKey:           row.LLMProviderKey,
 		ModelKey:              row.LLMModelKey,
-		CLIPath:               row.CLIPath,
 		ModelRoutes:           row.ModelRoutes,
 		Sandbox:               row.Sandbox,
 		Approval:              row.Approval,
@@ -460,35 +384,22 @@ func (agentBackendAdapter) load(ctx context.Context, syncID string) (*outbound, 
 	return &outbound{
 		SyncID:              row.SyncID,
 		UpdatedAt:           row.Updatetime,
-		AgentredFingerprint: backendFingerprint,
+		AgentredFingerprint: row.DeviceFingerprint,
 		Payload:             payload,
 	}, nil
 }
 
-// backendFingerprintForSync 把本地 paired_agentreds 的行 ID 翻成全局指纹（上行方向，
-// 旧 fingerprintOfLocalID 的语义）。翻不出（未配对 / 无指纹）时 skip=true —— 数值
-// 行 ID 只在本机有意义，带它过机就是对端错机派发的根因。
-func backendFingerprintForSync(ctx context.Context, id int64) (fingerprint string, skip bool, err error) {
-	row, err := remote_device_repo.PairedAgentred().Get(ctx, id)
-	if err != nil {
-		return "", false, err
-	}
-	if row == nil || row.DaemonFingerprint == "" {
-		return "", true, nil
-	}
-	return row.DaemonFingerprint, false, nil
-}
-
-// refs is empty: a backend stores the canonical target fingerprint directly.
-// A missing local pairing affects dispatch availability, not sync convergence.
+// Backend identity's machine reference (DeviceID) travels via the outbound's
+// fingerprint column, not as a blocking ref: there is no separate device
+// object to resolve here, and a missing CLI overlay is PATH on that
+// installation while the account identity remains fully usable everywhere.
 func (agentBackendAdapter) refs(*inbound) []ref { return nil }
 
 func (agentBackendAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p agentBackendPayload
+	var p syncwire.AgentBackendPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
-	deviceID := in.AgentredFingerprint
 	row := &agent_backend_entity.AgentBackend{}
 	found, err := syncstate_repo.SyncState().FindRow(ctx, syncwire.KindAgentBackend, in.SyncID, row)
 	if err != nil {
@@ -496,7 +407,13 @@ func (agentBackendAdapter) apply(ctx context.Context, in *inbound, resolved map[
 	}
 	row.Type, row.Name, row.LLMProviderKey = p.Type, p.Name, p.ProviderKey
 	row.LLMModelKey = p.ModelKey
-	row.DeviceID, row.CLIPath, row.ModelRoutes = deviceID, p.CLIPath, p.ModelRoutes
+	// The backend's device is account-level sync identity (同步与身份): it
+	// travels on the push item's own agentred_fingerprint column and lands
+	// straight on DeviceID, so a backend set up on one desktop points at the
+	// same machine on every other end and on the server. cli_path stays a
+	// per-device overlay applied separately by agentBackendCLIAdapter.
+	row.DeviceFingerprint = in.AgentredFingerprint
+	row.ModelRoutes = p.ModelRoutes
 	row.Sandbox, row.Approval, row.EnvJSON = p.Sandbox, p.Approval, p.EnvJSON
 	row.ReasoningEffort = p.ReasoningEffort
 	row.DefaultPermissionMode, row.DefaultModel = p.DefaultPermissionMode, p.DefaultModel
@@ -541,13 +458,6 @@ func (agentBackendAdapter) children(ctx context.Context, syncID string) ([]relat
 
 // ── 执行目标 ────────────────────────────────────────────────────────────────
 
-type agentExecTargetPayload struct {
-	AgentSyncID   string `json:"agent_sync_id"`
-	BackendSyncID string `json:"backend_sync_id"`
-	SortOrder     int    `json:"sort_order"`
-	SkillsJSON    string `json:"skills_json"`
-}
-
 type agentExecTargetAdapter struct{ baseAdapter }
 
 func (agentExecTargetAdapter) kind() string { return syncwire.KindAgentExecTarget }
@@ -569,7 +479,7 @@ func (agentExecTargetAdapter) load(ctx context.Context, syncID string) (*outboun
 	if agentSyncID == "" || backend == nil {
 		return nil, nil
 	}
-	payload, err := json.Marshal(agentExecTargetPayload{
+	payload, err := json.Marshal(syncwire.AgentExecTargetPayload{
 		AgentSyncID:   agentSyncID,
 		BackendSyncID: syncIDOf(backend.SyncMeta),
 		SortOrder:     row.SortOrder,
@@ -586,7 +496,7 @@ func (agentExecTargetAdapter) load(ctx context.Context, syncID string) (*outboun
 }
 
 func (agentExecTargetAdapter) refs(in *inbound) []ref {
-	var p agentExecTargetPayload
+	var p syncwire.AgentExecTargetPayload
 	_ = json.Unmarshal(in.Payload, &p)
 	return []ref{
 		{Kind: syncwire.KindAgent, SyncID: p.AgentSyncID},
@@ -595,7 +505,7 @@ func (agentExecTargetAdapter) refs(in *inbound) []ref {
 }
 
 func (agentExecTargetAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p agentExecTargetPayload
+	var p syncwire.AgentExecTargetPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}

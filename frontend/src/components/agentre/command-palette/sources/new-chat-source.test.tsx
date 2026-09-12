@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ChatAgentItem } from "@/hooks/use-chat-agents";
+import type { AgentSlim } from "@/hooks/use-chat-agents";
 import {
   clearLastAgentId,
   readLastAgentId,
@@ -15,7 +15,7 @@ import {
 } from "./new-chat-source";
 import type { OnSelectCtx } from "../types";
 
-function mkAgent(over: Partial<ChatAgentItem> = {}): ChatAgentItem {
+function mkAgent(over: Partial<AgentSlim> = {}): AgentSlim {
   return {
     id: 1,
     name: "Agent",
@@ -32,7 +32,7 @@ function mkAgent(over: Partial<ChatAgentItem> = {}): ChatAgentItem {
     sessions: [],
     attentionSessions: [],
     ...over,
-  } as ChatAgentItem;
+  } as AgentSlim;
 }
 
 function mkItem(over: Partial<NewChatItem> = {}): NewChatItem {
@@ -46,14 +46,13 @@ function mkItem(over: Partial<NewChatItem> = {}): NewChatItem {
   };
 }
 
-function mkCtx(pathname = "/chat") {
+function mkCtx() {
   return {
     navigate: vi.fn(),
     close: vi.fn(),
     openSession: vi.fn(),
     openNewSession: vi.fn(),
     openNotChattableDialog: vi.fn(),
-    pathname,
   } as unknown as OnSelectCtx & {
     navigate: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
@@ -65,7 +64,7 @@ function mkCtx(pathname = "/chat") {
 
 describe("flattenAgents (NewChatSource · 自由会话)", () => {
   it("keeps chattable agents in the main group and non-chattable agents in a need-setup sub-group", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "Yes", chattable: true }),
       mkAgent({
         id: 2,
@@ -82,7 +81,7 @@ describe("flattenAgents (NewChatSource · 自由会话)", () => {
   });
 
   it("need-setup group keeps pinned-first ordering (mirrors the chattable group)", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A", chattable: true, pinned: true }),
       mkAgent({ id: 2, name: "B", chattable: true, pinned: false }),
       mkAgent({ id: 3, name: "C", chattable: false, pinned: false }),
@@ -95,7 +94,7 @@ describe("flattenAgents (NewChatSource · 自由会话)", () => {
   });
 
   it("lastAgentId only bubbles inside the chattable group, never into need-setup", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A", chattable: true, pinned: true }),
       mkAgent({ id: 2, name: "B", chattable: false }),
       mkAgent({ id: 3, name: "C", chattable: false, pinned: true }),
@@ -106,7 +105,7 @@ describe("flattenAgents (NewChatSource · 自由会话)", () => {
   });
 
   it("pinned agents come before non-pinned; otherwise input order is preserved", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A", pinned: false }),
       mkAgent({ id: 2, name: "B", pinned: true }),
       mkAgent({ id: 3, name: "C", pinned: false }),
@@ -127,7 +126,7 @@ describe("flattenAgents (NewChatSource · 自由会话)", () => {
   });
 
   it("lastAgentId 命中时冒泡到组首，破坏 pinned 优先", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A", pinned: true }),
       mkAgent({ id: 2, name: "B", pinned: false }),
       mkAgent({ id: 3, name: "C", pinned: false }),
@@ -137,7 +136,7 @@ describe("flattenAgents (NewChatSource · 自由会话)", () => {
   });
 
   it("lastAgentId 不在 chattable 列表里时（被删 / 不存在）退化为默认排序", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A", pinned: false }),
       mkAgent({ id: 2, name: "B", pinned: true }),
     ];
@@ -146,7 +145,7 @@ describe("flattenAgents (NewChatSource · 自由会话)", () => {
   });
 
   it("lastAgentId === null（参数缺省）保持历史排序", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A", pinned: false }),
       mkAgent({ id: 2, name: "B", pinned: true }),
     ];
@@ -160,18 +159,9 @@ describe("newChatSource — metadata", () => {
     expect(newChatSource.modes).toEqual(["command"]);
   });
 
-  it("activeFor returns true for non-/projects routes", () => {
-    expect(newChatSource.activeFor?.({ pathname: "/chat" })).toBe(true);
-    expect(newChatSource.activeFor?.({ pathname: "/" })).toBe(true);
-    expect(newChatSource.activeFor?.({ pathname: "/issues" })).toBe(true);
-  });
-
-  it("activeFor returns false for /projects routes (互斥于 newProjectChatSource)", () => {
-    expect(newChatSource.activeFor?.({ pathname: "/projects" })).toBe(false);
-    expect(newChatSource.activeFor?.({ pathname: "/projects/42" })).toBe(false);
-    expect(newChatSource.activeFor?.({ pathname: "/projects/42/foo" })).toBe(
-      false,
-    );
+  it("activeFor 只认项目上下文，不认路由（互斥于 newProjectChatSource）", () => {
+    expect(newChatSource.activeFor?.({ hasProjectContext: false })).toBe(true);
+    expect(newChatSource.activeFor?.({ hasProjectContext: true })).toBe(false);
   });
 
   it("getScore matches the full action title (delegates to scoreItem)", () => {
@@ -283,7 +273,7 @@ describe("newChatSource.onSelect — 永远走 /chat 自由会话，忽略 store
 
   it("写入 lastAgentId，供下次面板打开时置顶", () => {
     const item = mkItem({ agent: mkAgent({ id: 42, name: "工程师" }) });
-    const ctx = mkCtx("/chat");
+    const ctx = mkCtx();
     newChatSource.onSelect(item, ctx);
     expect(readLastAgentId()).toBe(42);
   });
@@ -298,7 +288,7 @@ describe("newChatSource.onSelect — 永远走 /chat 自由会话，忽略 store
     useNewChatContextStore.getState().setNewSelectionHandler(handler);
 
     const item = mkItem({ agent: mkAgent({ id: 7, name: "CEO" }) });
-    const ctx = mkCtx("/chat");
+    const ctx = mkCtx();
     newChatSource.onSelect(item, ctx);
 
     expect(handler).not.toHaveBeenCalled();
@@ -307,9 +297,9 @@ describe("newChatSource.onSelect — 永远走 /chat 自由会话，忽略 store
     expect(ctx.navigate).toHaveBeenCalledWith("/chat");
   });
 
-  it("from any non-/projects route also goes free", () => {
+  it("再选一次仍然走自由会话（无项目上下文时的唯一形态）", () => {
     const item = mkItem({ agent: mkAgent({ id: 7 }) });
-    const ctx = mkCtx("/issues");
+    const ctx = mkCtx();
     newChatSource.onSelect(item, ctx);
 
     expect(ctx.openNewSession).toHaveBeenCalledWith(7);
@@ -325,7 +315,7 @@ describe("newChatSource.onSelect — 永远走 /chat 自由会话，忽略 store
         blockReason: "no-backend",
       }),
     });
-    const ctx = mkCtx("/chat");
+    const ctx = mkCtx();
     newChatSource.onSelect(item, ctx);
 
     // 面板关闭 + 打开引导弹窗
@@ -342,7 +332,7 @@ describe("newChatSource.onSelect — 永远走 /chat 自由会话，忽略 store
 
   it("chattable agent still creates a session (unchanged behavior)", () => {
     const item = mkItem({ agent: mkAgent({ id: 42, name: "工程师" }) });
-    const ctx = mkCtx("/chat");
+    const ctx = mkCtx();
     newChatSource.onSelect(item, ctx);
 
     expect(ctx.openNotChattableDialog).not.toHaveBeenCalled();

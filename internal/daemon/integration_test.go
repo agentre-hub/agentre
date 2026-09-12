@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -30,25 +31,39 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/daemon/state"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/agentskill"
-	"github.com/agentre-ai/agentre/internal/pkg/ccoauth"
-	remotefswire "github.com/agentre-ai/agentre/internal/pkg/remotefs/wire"
-	workspacefswire "github.com/agentre-ai/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/identity"
+	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/internal/pkg/ccoauth"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
+	workspacefswire "github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 
+	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/agents/provider"
+	dbpkg "github.com/cago-frame/cago/database/db"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 // fakeBackendRunner is an in-test Runtime the integration test swaps in for
@@ -142,7 +157,7 @@ func readLocalPair(t *testing.T, d *Daemon) map[string]any {
 }
 
 // TestIntegration_FullFlow exercises the protocol end-to-end at the raw
-// JSON-RPC layer (no *remote.Runtime wrapper): runtime.run + runtime.event +
+// Protobuf RPC layer (no *remote.Runtime wrapper): runtime.run + runtime.event +
 // runtime.runResultDone, plus llm.upsert / list, plus auth.pair handshake.
 // Asserts that text_delta events round-trip and the terminal RunResult frame
 // arrives after channel close.
@@ -172,56 +187,58 @@ func TestIntegration_FullFlow(t *testing.T) {
 	d.mu.RUnlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	c, err := client.Dial(ctx, client.Options{URL: url})
+	c, err := client.DialProtobuf(ctx, client.Options{URL: url})
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
-	var pairResp struct {
-		DeviceToken       string `json:"deviceToken"`
-		DaemonFingerprint string `json:"daemonFingerprint"`
-		InstanceUUID      string `json:"instanceUUID"`
-	}
-	require.NoError(t, c.Call(ctx, "auth.pair", map[string]any{
-		"code":              code,
-		"deviceName":        "test-mac",
-		"deviceFingerprint": "sha256:test-device",
-	}, &pairResp))
-	assert.NotEmpty(t, pairResp.DeviceToken)
-	assert.NotEmpty(t, pairResp.DaemonFingerprint)
+	pairResp, err := c.AuthPair(ctx, &agentrewire.AuthPairRequest{Code: code, DeviceName: "test-mac", DeviceFingerprint: "sha256:test-device"})
+	require.NoError(t, err)
+	assert.NotEmpty(t, pairResp.GetDeviceToken())
+	assert.NotEmpty(t, pairResp.GetDaemonFingerprint())
 
 	// 5. llm.upsert + llm.list round trip.
-	require.NoError(t, c.Call(ctx, "llm.upsert", map[string]any{
-		"providerKey": "4f8c1d2e-3b5a-4c6d-8e9f-1a2b3c4d5e6f",
-		"name":        "anth",
-		"type":        "anthropic",
-		"baseURL":     "https://api.anthropic.com",
-		"apiKey":      "sk-test",
-		"updatedAt":   time.Now().UnixMilli(),
-	}, nil))
-
-	var listResp struct {
-		Providers []struct {
-			ProviderKey string `json:"providerKey"`
-		} `json:"providers"`
-	}
-	require.NoError(t, c.Call(ctx, "llm.list", nil, &listResp))
-	assert.Len(t, listResp.Providers, 1)
+	_, err = protorpc.CallMethod(ctx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_LLM_UPSERT), &agentrewire.LLMUpsertRequest{ProviderKey: "4f8c1d2e-3b5a-4c6d-8e9f-1a2b3c4d5e6f", Name: "anth", Type: "anthropic", BaseUrl: "https://api.anthropic.com", ApiKey: "sk-test", UpdatedAt: time.Now().UnixMilli()}, func() *agentrewire.LLMUpsertResponse { return &agentrewire.LLMUpsertResponse{} })
+	require.NoError(t, err)
+	listResp, err := protorpc.CallMethod(ctx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_LLM_LIST), &agentrewire.LLMListRequest{}, func() *agentrewire.LLMListResponse { return &agentrewire.LLMListResponse{} })
+	require.NoError(t, err)
+	assert.Len(t, listResp.GetProviders(), 1)
 
 	// 6. Register runtime.event + runtime.runResultDone handlers BEFORE
 	// runtime.run so we don't lose frames.
 	events := make(chan wire.EventFrame, 16)
-	c.Handle(wire.NotifyEvent, func(_ context.Context, p json.RawMessage) (any, error) {
-		var f wire.EventFrame
-		_ = json.Unmarshal(p, &f)
-		events <- f
-		return nil, nil
-	})
 	done := make(chan wire.RunResultDoneFrame, 1)
-	c.Handle(wire.NotifyRunResultDone, func(_ context.Context, p json.RawMessage) (any, error) {
-		var f wire.RunResultDoneFrame
-		_ = json.Unmarshal(p, &f)
-		done <- f
-		return nil, nil
+	c.Conn().Registry().SubscribeNotification(func(_ context.Context, n *agentrewire.RpcNotification) error {
+		encoded, marshalErr := proto.Marshal(n)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		decoded, decodeErr := protowire.DecodeNotification(encoded)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		_, value, legacyErr := protowire.ProtoNotificationToWire(decoded)
+		if legacyErr != nil {
+			return legacyErr
+		}
+		payload, legacyErr := json.Marshal(value)
+		if legacyErr != nil {
+			return legacyErr
+		}
+		switch {
+		case n.GetRuntimeEvent() != nil:
+			var f wire.EventFrame
+			if unmarshalErr := json.Unmarshal(payload, &f); unmarshalErr != nil {
+				return unmarshalErr
+			}
+			events <- f
+		case n.GetRunResultDone() != nil:
+			var f wire.RunResultDoneFrame
+			if unmarshalErr := json.Unmarshal(payload, &f); unmarshalErr != nil {
+				return unmarshalErr
+			}
+			done <- f
+		}
+		return nil
 	})
 
 	// 7. runtime.run with claudecode backend.
@@ -230,23 +247,24 @@ func TestIntegration_FullFlow(t *testing.T) {
 		"id":   1,
 		"name": "test-backend",
 	})
-	var ack wire.RunAck
-	require.NoError(t, c.Call(ctx, wire.MethodRun, wire.RunParams{
-		Backend:   json.RawMessage(backendJSON),
-		SessionID: 42,
-		Cwd:       t.TempDir(),
-		UserText:  "hi",
-	}, &ack))
-	assert.Equal(t, int64(42), ack.SessionID)
+	request, err := protowire.RunRequestToProto(wire.RunParams{
+		Backend:        json.RawMessage(backendJSON),
+		ConversationID: convID(42),
+		Cwd:            t.TempDir(),
+		UserText:       "hi",
+	})
+	require.NoError(t, err)
+	ack, err := protorpc.CallMethod(ctx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), request, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+	require.NoError(t, err)
+	assert.Equal(t, convID(42), ack.GetConversationId())
 
-	// 8. Drain at least one text_delta frame.
-	got := drainEventFrames(t, events, 3*time.Second, 1)
+	// 8. Drain at least one text_delta frame. 这一轮的第一帧是用户那一行的**持久帧**
+	// (宿主实时发布,规格「两级帧与补齐」第 3 条),逐 token 的 text_delta 跟在它后面。
+	got := drainEventFrames(t, events, 3*time.Second, 2)
 	var sawText bool
 	for _, f := range got {
-		assert.Equal(t, int64(42), f.SessionID)
-		ev, err := agentruntime.UnmarshalEvent(f.Event)
-		require.NoError(t, err)
-		if _, ok := ev.(agentruntime.TextDelta); ok {
+		assert.Equal(t, convID(42), f.ConversationID)
+		if _, ok := f.Event.(agentruntime.TextDelta); ok {
 			sawText = true
 		}
 	}
@@ -255,7 +273,7 @@ func TestIntegration_FullFlow(t *testing.T) {
 	// 9. runResultDone fires after the fake's channel closes.
 	select {
 	case f := <-done:
-		assert.Equal(t, int64(42), f.SessionID)
+		assert.Equal(t, convID(42), f.ConversationID)
 		assert.Empty(t, f.StopErrMsg)
 	case <-time.After(2 * time.Second):
 		t.Fatal("runResultDone not received")
@@ -341,7 +359,7 @@ func TestIntegration_TLS_AllModes(t *testing.T) {
 			require.NoError(t, err)
 			dialCtx, dialCancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer dialCancel()
-			c, err := client.Dial(dialCtx, client.Options{
+			c, err := client.DialProtobuf(dialCtx, client.Options{
 				URL: wssURL, TLSConfig: cfg,
 			})
 			if tc.wantOK {
@@ -397,53 +415,53 @@ func TestIntegration_UnauthGuard(t *testing.T) {
 
 	callCtx, callCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer callCancel()
-	c, err := client.Dial(callCtx, client.Options{URL: url})
+	c, err := client.DialProtobuf(callCtx, client.Options{URL: url})
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
 	// Skip auth.pair / auth.connect entirely. Any business method must return -32001.
-	err = c.Call(callCtx, "llm.list", nil, &struct{}{})
+	err = protorpc.CallMessage(callCtx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_LLM_LIST), &agentrewire.LLMListRequest{}, &agentrewire.LLMListResponse{})
 	require.Error(t, err, "llm.list must be rejected without auth")
-	var rpcErr *rpc.Error
-	require.True(t, errors.As(err, &rpcErr), "error must be *rpc.Error")
-	assert.Equal(t, -32001, rpcErr.Code)
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	assert.Equal(t, int32(-32001), rpcErr.Code)
 
 	// remotefs.* 也走 requireAuth 闭包,未授权同样应回 -32001。
-	err = c.Call(callCtx, remotefswire.MethodListDir, remotefswire.ListDirReq{}, &remotefswire.ListDirResp{})
+	err = protorpc.CallMessage(callCtx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_REMOTE_FS_LIST_DIR), &agentrewire.RemoteFsListDirRequest{}, &agentrewire.RemoteFsListDirResponse{})
 	require.Error(t, err, "remotefs.listDir must be rejected without auth")
-	var rfsErr *rpc.Error
-	require.True(t, errors.As(err, &rfsErr), "error must be *rpc.Error")
-	assert.Equal(t, -32001, rfsErr.Code)
+	var rfsErr *protorpc.Error
+	require.ErrorAs(t, err, &rfsErr)
+	assert.Equal(t, int32(-32001), rfsErr.Code)
 
 	// workspacefs.* 是独立方法族(spec 设计决策 5),同样套 requireAuth 闭包,
 	// 未授权应回 -32001。
-	err = c.Call(callCtx, workspacefswire.MethodListDir, workspacefswire.ListDirReq{}, &workspacefswire.ListDirResp{})
+	err = protorpc.CallMessage(callCtx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_LIST_DIR), &agentrewire.WorkspaceFsListDirRequest{}, &agentrewire.WorkspaceFsListDirResponse{})
 	require.Error(t, err, "workspacefs.listDir must be rejected without auth")
 	rpcErr = nil
 	require.True(t, errors.As(err, &rpcErr), "error must be *rpc.Error")
-	assert.Equal(t, -32001, rpcErr.Code)
+	assert.Equal(t, int32(-32001), rpcErr.Code)
 
 	// readFile / gitFileContent 同属 workspacefs.* 方法族,同样套 requireAuth
 	// 闭包,未授权应回 -32001。
-	err = c.Call(callCtx, workspacefswire.MethodReadFile, workspacefswire.ReadFileReq{}, &workspacefswire.ReadFileResp{})
+	err = protorpc.CallMessage(callCtx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_READ_FILE), &agentrewire.WorkspaceFsReadFileRequest{}, &agentrewire.WorkspaceFsReadFileResponse{})
 	require.Error(t, err, "workspacefs.readFile must be rejected without auth")
 	rpcErr = nil
 	require.True(t, errors.As(err, &rpcErr), "error must be *rpc.Error")
-	assert.Equal(t, -32001, rpcErr.Code)
+	assert.Equal(t, int32(-32001), rpcErr.Code)
 
-	err = c.Call(callCtx, workspacefswire.MethodGitFileContent, workspacefswire.GitFileContentReq{}, &workspacefswire.GitFileContentResp{})
+	err = protorpc.CallMessage(callCtx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT), &agentrewire.WorkspaceFsGitFileContentRequest{}, &agentrewire.WorkspaceFsGitFileContentResponse{})
 	require.Error(t, err, "workspacefs.gitFileContent must be rejected without auth")
 	rpcErr = nil
 	require.True(t, errors.As(err, &rpcErr), "error must be *rpc.Error")
-	assert.Equal(t, -32001, rpcErr.Code)
+	assert.Equal(t, int32(-32001), rpcErr.Code)
 
 	// searchFiles 同属 workspacefs.* 方法族:递归遍历比单目录列举更值钱,未鉴权
 	// 同样必须在业务逻辑之前被挡掉。
-	err = c.Call(callCtx, workspacefswire.MethodSearchFiles, workspacefswire.SearchFilesReq{}, &workspacefswire.SearchFilesResp{})
+	err = protorpc.CallMessage(callCtx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_SEARCH_FILES), &agentrewire.WorkspaceFsSearchFilesRequest{}, &agentrewire.WorkspaceFsSearchFilesResponse{})
 	require.Error(t, err, "workspacefs.searchFiles must be rejected without auth")
 	rpcErr = nil
 	require.True(t, errors.As(err, &rpcErr), "error must be *rpc.Error")
-	assert.Equal(t, -32001, rpcErr.Code)
+	assert.Equal(t, int32(-32001), rpcErr.Code)
 }
 
 // TestIntegration_WorkspaceFsListDir_EndToEnd 验证 workspacefs.listDir 在鉴权
@@ -463,11 +481,8 @@ func TestIntegration_WorkspaceFsListDir_EndToEnd(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("hi"), 0o644))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	var resp workspacefswire.ListDirResp
-	require.NoError(t, rig.cli.Call(ctx, workspacefswire.MethodListDir, workspacefswire.ListDirReq{Root: root}, &resp))
+	require.NoError(t, callRig(t, rig.cli, workspacefswire.MethodListDir, workspacefswire.ListDirReq{Root: root}, &resp))
 	assert.Equal(t, root, resp.Path)
 	names := map[string]workspacefswire.Entry{}
 	for _, e := range resp.Entries {
@@ -491,11 +506,8 @@ func TestIntegration_WorkspaceFsReadFile_EndToEnd(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world"), 0o644))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	var resp workspacefswire.ReadFileResp
-	require.NoError(t, rig.cli.Call(ctx, workspacefswire.MethodReadFile, workspacefswire.ReadFileReq{Root: root, RelPath: "a.txt"}, &resp))
+	require.NoError(t, callRig(t, rig.cli, workspacefswire.MethodReadFile, workspacefswire.ReadFileReq{Root: root, RelPath: "a.txt"}, &resp))
 	assert.Equal(t, "hello world", resp.Content)
 	assert.False(t, resp.Binary)
 	assert.False(t, resp.TooLarge)
@@ -516,11 +528,8 @@ func TestIntegration_WorkspaceFsSearchFiles_EndToEnd(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "src", "Target.go"), []byte("x"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "other.txt"), []byte("x"), 0o644))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	var resp workspacefswire.SearchFilesResp
-	require.NoError(t, rig.cli.Call(ctx, workspacefswire.MethodSearchFiles,
+	require.NoError(t, callRig(t, rig.cli, workspacefswire.MethodSearchFiles,
 		workspacefswire.SearchFilesReq{Root: root, Query: "target"}, &resp))
 	assert.False(t, resp.Truncated)
 	require.Len(t, resp.Hits, 1)
@@ -562,8 +571,13 @@ func (p *pacedBackendRunner) Abort(_ context.Context, _ int64, _ uint64) (agentr
 type pairedTestRig struct {
 	dir    string
 	d      *Daemon
-	cli    *client.Client
+	cli    *client.ProtobufClient
+	proto  client.ProtobufConnection
 	runner *remote.Runtime
+	// previews 收下这条 runtime 收到的**预览帧**。预览帧只用于即时呈现,不进 Run
+	// 交回的那条事件流(那条流是消费方的转录来源) —— 要断言「逐 token 的文本实时
+	// 到了」就看这里,断言「转录是什么」则看事件流。
+	previews *previewLog
 	// token 是配对拿到的 deviceToken:同一台设备再开一条连接时走 auth.connect
 	// (真机上的设备监视心跳 / 刷新探测就是这么接的),见 connectSameDevice。
 	token string
@@ -574,7 +588,7 @@ type pairedTestRig struct {
 
 // rigDeviceFingerprint 是 rig 里那台「桌面端」的设备指纹。同一台桌面同时开的多条
 // 连接共用它 —— 会话推送因此不能按指纹解析(见 connectSameDevice 的两个回归用例)。
-const rigDeviceFingerprint = "sha256:test-device"
+const rigDeviceFingerprint devicefp.Initiator = "sha256:test-device"
 
 func bootRemoteRig(t *testing.T, script []agentruntime.Event) *pairedTestRig {
 	t.Helper()
@@ -628,43 +642,73 @@ func bootRigInDir(t *testing.T, dir string) *pairedTestRig {
 	d.mu.RUnlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
-	cli, err := client.Dial(ctx, client.Options{URL: url})
+	cli, err := client.DialProtobuf(ctx, client.Options{URL: url})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cli.Close() })
 
-	var pairResp struct {
-		DeviceToken string `json:"deviceToken"`
-	}
-	require.NoError(t, cli.Call(ctx, "auth.pair", map[string]any{
-		"code":              code,
-		"deviceName":        "test-mac",
-		"deviceFingerprint": rigDeviceFingerprint,
-	}, &pairResp))
-	require.NotEmpty(t, pairResp.DeviceToken)
+	pairResp, err := cli.AuthPair(ctx, &agentrewire.AuthPairRequest{Code: code, DeviceName: "test-mac", DeviceFingerprint: string(rigDeviceFingerprint)})
+	require.NoError(t, err)
+	require.NotEmpty(t, pairResp.GetDeviceToken())
 
-	return &pairedTestRig{dir: dir, d: d, cli: cli, runner: remote.New(cli), token: pairResp.DeviceToken, stop: stop}
+	previews := newPreviewLog()
+	return &pairedTestRig{dir: dir, d: d, cli: cli, proto: cli,
+		runner:   remote.New(cli, remote.WithConversationIDResolver(convID), remote.WithPreviewSink(previews)),
+		previews: previews,
+		token:    pairResp.GetDeviceToken(), stop: stop}
 }
 
 // connectSameDevice 再开一条**同一台设备**的已认证连接(auth.connect,与桌面端的
 // 设备监视心跳 remote_device_svc/watcher.go / 刷新探测 refresh.go 走的是同一条路)。
 // 一台桌面端同时开 2-3 条这样的连接是常态:连接池那条承载会话,其余只做保活。
-func (r *pairedTestRig) connectSameDevice(t *testing.T) *client.Client {
+func (r *pairedTestRig) connectSameDevice(t *testing.T) *client.ProtobufClient {
 	t.Helper()
 	r.d.mu.RLock()
 	url := r.d.lan.URL()
 	r.d.mu.RUnlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
-	cli, err := client.Dial(ctx, client.Options{URL: url})
+	cli, err := client.DialProtobuf(ctx, client.Options{URL: url})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cli.Close() })
-	var res map[string]any
-	require.NoError(t, cli.Call(ctx, "auth.connect", map[string]any{
-		"deviceFingerprint": rigDeviceFingerprint,
-		"deviceToken":       r.token,
-	}, &res))
-	require.Equal(t, true, res["ok"], "second connection of the same device must authenticate")
+	res, err := cli.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: string(rigDeviceFingerprint), DeviceToken: r.token})
+	require.NoError(t, err)
+	require.True(t, res.GetOk(), "second connection of the same device must authenticate")
 	return cli
+}
+
+type rigProtobufConnection struct{ conn *protorpc.Conn }
+
+func (c *rigProtobufConnection) Conn() *protorpc.Conn    { return c.conn }
+func (c *rigProtobufConnection) Closed() <-chan struct{} { return c.conn.Done() }
+func (c *rigProtobufConnection) Close() error            { return c.conn.Close() }
+
+func rigtProtobufConnect(t *testing.T, d *Daemon, token string) client.ProtobufConnection {
+	t.Helper()
+	clientTransport, serverTransport := protobufTestPipePair()
+	clientConn := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	serverConn := protorpc.NewConn(serverTransport, d.protobufRegistry.Clone())
+	d.bindProtobufConn(serverConn)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go clientConn.Serve(ctx)
+	go serverConn.Serve(ctx)
+	cli := &rigProtobufConnection{conn: clientConn}
+	t.Cleanup(func() { _ = cli.Close() })
+	callCtx, callCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer callCancel()
+	res, err := protorpc.CallMethod(callCtx, clientConn, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT), &agentrewire.AuthConnectRequest{
+		ProtocolVersion:             wireversion.Protocol,
+		MinSupportedProtocolVersion: wireversion.MinSupported,
+		DeviceFingerprint:           string(rigDeviceFingerprint),
+		DeviceToken:                 token,
+	}, func() *agentrewire.AuthConnectResponse { return &agentrewire.AuthConnectResponse{} })
+	require.NoError(t, err)
+	require.True(t, res.GetOk(), "second protobuf connection of the same device must authenticate")
+	return cli
+}
+
+func (r *pairedTestRig) connectSameDeviceProtobuf(t *testing.T) client.ProtobufConnection {
+	return rigtProtobufConnect(t, r.d, r.token)
 }
 
 func (r *pairedTestRig) startRun(t *testing.T, sid int64) (<-chan agentruntime.Event, *agentruntime.RunResult) {
@@ -715,10 +759,12 @@ func TestIntegration_RemoteRuntime_EventRoundTrip(t *testing.T) {
 			agentruntime.Done{},
 		})
 		events, result := rig.startRun(t, 100)
-		got := drainRuntimeEvents(t, events, 5*time.Second)
+		_ = drainRuntimeEvents(t, events, 5*time.Second)
 
+		// 逐 token 的增量是**预览帧**:它只走呈现出口,不进转录(转录里是合并成一个
+		// 块之后的那一份)。协议无损往返要验的正是这条实时流。
 		var texts []string
-		for _, ev := range got {
+		for _, ev := range rig.previews.events() {
 			if td, ok := ev.(agentruntime.TextDelta); ok {
 				texts = append(texts, td.Text)
 			}
@@ -740,8 +786,9 @@ func TestIntegration_RemoteRuntime_EventRoundTrip(t *testing.T) {
 			agentruntime.Done{},
 		})
 		events, _ := rig.startRun(t, 200)
-		got := drainRuntimeEvents(t, events, 5*time.Second)
+		_ = drainRuntimeEvents(t, events, 5*time.Second)
 
+		got := rig.previews.events()
 		var seen agentruntime.PlanUpdated
 		var found bool
 		for _, ev := range got {
@@ -766,10 +813,10 @@ func TestIntegration_RemoteRuntime_EventRoundTrip(t *testing.T) {
 			agentruntime.Done{},
 		})
 		events, _ := rig.startRun(t, 300)
-		got := drainRuntimeEvents(t, events, 5*time.Second)
+		_ = drainRuntimeEvents(t, events, 5*time.Second)
 
 		var totals []int
-		for _, ev := range got {
+		for _, ev := range rig.previews.events() {
 			if uu, ok := ev.(agentruntime.UsageUpdate); ok {
 				totals = append(totals, uu.TotalInputTokens)
 			}
@@ -794,10 +841,10 @@ func TestIntegration_RemoteRuntime_EventRoundTrip(t *testing.T) {
 			agentruntime.Done{},
 		})
 		events, _ := rig.startRun(t, 400)
-		got := drainRuntimeEvents(t, events, 5*time.Second)
+		_ = drainRuntimeEvents(t, events, 5*time.Second)
 
 		var kinds []string
-		for _, ev := range got {
+		for _, ev := range rig.previews.events() {
 			switch ev.(type) {
 			case agentruntime.SubagentStarted:
 				kinds = append(kinds, "started")
@@ -866,29 +913,14 @@ func TestIntegration_SteerConsumedCarriesSubmitterSource(t *testing.T) {
 	rt := &steerAwareRunner{}
 	rig := bootSteerAwareRig(t, rt)
 
-	events, _ := rig.startRun(t, 700)
+	_, _ = rig.startRun(t, 700)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
 	require.NoError(t, rig.runner.Steer(ctx, 700, "q-1", "follow-up from this device"))
 
-	var consumed agentruntime.SteerConsumed
-	deadline := time.After(5 * time.Second)
-found:
-	for {
-		select {
-		case ev, ok := <-events:
-			if !ok {
-				t.Fatal("events channel closed before SteerConsumed arrived")
-			}
-			if sc, isSteer := ev.(agentruntime.SteerConsumed); isSteer {
-				consumed = sc
-				break found
-			}
-		case <-deadline:
-			t.Fatal("timed out waiting for SteerConsumed to round-trip")
-		}
-	}
+	// SteerConsumed 是过场信号,走实时的**预览帧**这条路(它不落块,补齐里没有它)。
+	consumed := awaitPreviewOfType[agentruntime.SteerConsumed](t, rig.previews)
 
 	require.Len(t, consumed.Steers, 1, "SteerConsumed must carry exactly the consumed steer")
 	assert.Equal(t, "q-1", consumed.Steers[0].QueuedID)
@@ -898,6 +930,28 @@ found:
 		"daemon must stamp the submitter peer fingerprint onto the consumed steer")
 	assert.Equal(t, "test-mac", consumed.Steers[0].SourceName,
 		"daemon must stamp the submitter device name onto the consumed steer")
+}
+
+// TestIntegration_SteerAnswersWithTheQueuedHandle: 插话的应答要把这条消息在执行端的
+// 句柄交回调用方 —— 浏览器据此维护自己那份排队清单,并按 SteerConsumed.queuedId 把
+// 条目清掉。此前这一路答的是 Empty:调用方手里只有自己造的号。
+//
+// cancellable 说的是**这个 runner** 撤不撤得掉(steerAwareRunner 没有 SteerCanceler,
+// 与 codex / piagent 同一档),不是「插话成功了没有」。
+func TestIntegration_SteerAnswersWithTheQueuedHandle(t *testing.T) {
+	rt := &steerAwareRunner{}
+	rig := bootSteerAwareRig(t, rt)
+
+	_, _ = rig.startRun(t, 701)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	res, err := protorpc.CallMethod(ctx, rig.proto.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER),
+		&agentrewire.RuntimeSteerRequest{ConversationId: convID(701), QueuedId: "q-9", Text: "mid-turn"},
+		func() *agentrewire.RuntimeSteerResponse { return &agentrewire.RuntimeSteerResponse{} })
+	require.NoError(t, err)
+	assert.Equal(t, "q-9", res.GetQueuedId(), "agentred 这一路把调用方给的号原样交给 runner,应答就该回它")
+	assert.False(t, res.GetCancellable(), "这个 runner 没有 SteerCanceler,界面该摆锁而不是撤回键")
 }
 
 // TestIntegration_StrayConnDoesNotStealSessionNotifications 回归:一条完成 WS 升级却
@@ -921,27 +975,20 @@ func TestIntegration_StrayConnDoesNotStealSessionNotifications(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	stray, err := client.Dial(ctx, client.Options{URL: lanURL})
+	stray, err := client.DialProtobuf(ctx, client.Options{URL: lanURL})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = stray.Close() })
 
 	// 先打一发必被拒的业务 RPC:既证明野连接确实没有身份,又确保 daemon 已经 bind 了
 	// 它(bindConn 在 Serve 之前同步跑,拿到应答就说明它早已跑完)—— 否则本测会与
 	// 升级握手赛跑,偶发地根本没复现出「顶掉」的时序。
-	var pong map[string]any
-	require.Error(t, stray.Call(ctx, "health.ping", nil, &pong),
+	require.Error(t, protorpc.CallMessage(ctx, stray.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING), &agentrewire.HealthPingRequest{}, &agentrewire.HealthPingResponse{}),
 		"never-authenticated connection must be rejected by requireAuth")
 
 	events, _ := rig.startRun(t, 700)
-	got := drainRuntimeEvents(t, events, 5*time.Second)
+	_ = drainRuntimeEvents(t, events, 5*time.Second)
 
-	var texts []string
-	for _, ev := range got {
-		if td, ok := ev.(agentruntime.TextDelta); ok {
-			texts = append(texts, td.Text)
-		}
-	}
-	assert.Equal(t, []string{"hello", " world"}, texts,
+	assert.Equal(t, "hello world", rig.previews.joined(),
 		"a stray unauthenticated connection must not divert the paired device's session notifications")
 }
 
@@ -1139,7 +1186,7 @@ func bootKeyedApprovalRig(t *testing.T, r *keyedApprovalRunner) *pairedTestRig {
 
 // startRunAs 在给定连接上直接发一次 runtime.run(不经 *remote.Runtime)。第二台配对
 // 设备手里只有一条裸连接,而 R16 的隔离恰恰要求它也起得了自己的会话。
-func startRunAs(t *testing.T, cli *client.Client, dir string, sid int64, userText string) {
+func startRunAs(t *testing.T, cli client.ProtobufConnection, dir string, sid int64, userText string) {
 	t.Helper()
 	be, err := json.Marshal(agent_backend_entity.AgentBackend{
 		Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "test-backend",
@@ -1147,13 +1194,13 @@ func startRunAs(t *testing.T, cli *client.Client, dir string, sid int64, userTex
 	require.NoError(t, err)
 	var ack wire.RunAck
 	require.NoError(t, callRig(t, cli, wire.MethodRun, wire.RunParams{
-		Backend: be, AgentID: 1, SessionID: sid, Cwd: dir, UserText: userText,
+		Backend: be, AgentID: 1, ConversationID: convID(sid), Cwd: dir, UserText: userText,
 	}, &ack))
-	require.Equal(t, sid, ack.SessionID)
+	require.Equal(t, convID(sid), ack.ConversationID)
 }
 
 // awaitLifecycle 等某个对端名下那条会话进入指定生命周期状态。
-func awaitLifecycle(t *testing.T, cli *client.Client, sid int64, state string) {
+func awaitLifecycle(t *testing.T, cli client.ProtobufConnection, sid int64, state string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		var list wire.SessionListResult
@@ -1161,7 +1208,7 @@ func awaitLifecycle(t *testing.T, cli *client.Client, sid int64, state string) {
 			return false
 		}
 		for _, s := range list.Sessions {
-			if s.SessionID == sid {
+			if s.ConversationID == convID(sid) {
 				return s.LifecycleState == state
 			}
 		}
@@ -1169,30 +1216,23 @@ func awaitLifecycle(t *testing.T, cli *client.Client, sid int64, state string) {
 	}, 5*time.Second, 20*time.Millisecond, "会话 %d 没有进入 %s", sid, state)
 }
 
-// awaitText 等下一条 TextDelta 并断言文本,超时即失败(会话被推去了别处 / 挂起时就是
+// awaitText 等某段正文实时到达并断言它,超时即失败(会话被推去了别处 / 挂起时就是
 // 这个表现:客户端既没有错误也没有事件,只是永远收不到)。
-func awaitText(t *testing.T, events <-chan agentruntime.Event, want string) {
+//
+// 看的是**预览流**:逐 token 的增量是预览帧,只走呈现出口、不进转录(转录里是合并
+// 成块之后的那一份,而且要等 checkpoint)。「推送有没有落在这条连接上」问的正是
+// 实时那一条。
+func awaitText(t *testing.T, previews *previewLog, want string) {
 	t.Helper()
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case ev, ok := <-events:
-			if !ok {
-				t.Fatalf("events channel closed while waiting for %q", want)
-			}
-			if td, isText := ev.(agentruntime.TextDelta); isText {
-				require.Equal(t, want, td.Text)
-				return
-			}
-		case <-deadline:
-			t.Fatalf("timed out waiting for %q — the session's notifications never reached the connection that started it", want)
-		}
-	}
+	require.Eventually(t, func() bool { return strings.Contains(previews.joined(), want) },
+		5*time.Second, 5*time.Millisecond,
+		"timed out waiting for %q — the session's notifications never reached the connection that started it; got %q",
+		want, previews.joined())
 }
 
 // TestIntegration_SecondConnOfSameDeviceDoesNotStealSessionNotifications 回归(评审在真
 // 环境复现的其一):一台桌面端同时开多条**同指纹**的已认证连接 —— 连接池那条承载会话
-// (chat_svc/chat.go 的 remote.New(lease.Client())),设备监视心跳(watcher.go)与刷新探测
+// (chat_svc/remote_pool.go 的 remote.New(lease.Client())),设备监视心跳(watcher.go)与刷新探测
 // (refresh.go)各占一条。按设备指纹解析推送目标时,后认证的心跳连接会把正在跑的会话的
 // 通知整个抢走:daemon 侧推送「成功」,而发起会话的那条连接一条也收不到,没有错误、没有
 // seq 跳号,会话永久卡住。
@@ -1207,12 +1247,12 @@ func TestIntegration_SecondConnOfSameDeviceDoesNotStealSessionNotifications(t *t
 	})
 
 	events, _ := rig.startRun(t, 800)
-	awaitText(t, events, "before") // 会话确实在跑,且推送落在发起它的这条连接上
+	awaitText(t, rig.previews, "before") // 会话确实在跑,且推送落在发起它的这条连接上
 
 	rig.connectSameDevice(t) // 心跳连接接入并**留着**
 	close(gate)
 
-	awaitText(t, events, "after")
+	awaitText(t, rig.previews, "after")
 	_ = drainRuntimeEvents(t, events, 5*time.Second)
 }
 
@@ -1229,7 +1269,7 @@ func TestIntegration_SameDeviceConnClosingDoesNotSuspendRunningSession(t *testin
 	})
 
 	events, _ := rig.startRun(t, 801)
-	awaitText(t, events, "before")
+	awaitText(t, rig.previews, "before")
 
 	second := rig.connectSameDevice(t)
 	require.NoError(t, second.Close())
@@ -1238,12 +1278,12 @@ func TestIntegration_SameDeviceConnClosingDoesNotSuspendRunningSession(t *testin
 	require.Eventually(t, func() bool {
 		rig.d.conns.mu.Lock()
 		defer rig.d.conns.mu.Unlock()
-		return len(rig.d.conns.live) == 1
+		return len(rig.d.conns.live) == 2
 	}, 5*time.Second, 10*time.Millisecond, "daemon must drop the closed connection from its live table")
 
 	close(gate)
 
-	awaitText(t, events, "after")
+	awaitText(t, rig.previews, "after")
 	_ = drainRuntimeEvents(t, events, 5*time.Second)
 }
 
@@ -1268,21 +1308,21 @@ func TestIntegration_RejectedRuntimeCallDoesNotSeizeSessionOwnership(t *testing.
 	})
 
 	events, _ := rig.startRun(t, 802)
-	awaitText(t, events, "before")
+	awaitText(t, rig.previews, "before")
 
 	second := rig.connectSameDevice(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	var res map[string]any
-	abortErr := second.Call(ctx, wire.MethodAbort, map[string]any{"sessionId": 802}, &res)
+	abortErr := callRig(t, second, wire.MethodAbort, map[string]any{"conversationId": convID(802)}, &res)
 	require.Error(t, abortErr,
 		"第二条连接的 handler 从不拥有 802 —— daemon 必须拒了这一条")
-	require.ErrorIs(t, wire.FromJSONRPCError(abortErr), agentruntime.ErrNoActiveTurn,
+	var abortRPCErr *protorpc.Error
+	require.ErrorAs(t, abortErr, &abortRPCErr)
+	require.Equal(t, int32(wire.ErrCodeNoActiveTurn), abortRPCErr.Code,
 		"拒绝的理由就是「这个 handler 解不出会话」")
 
 	close(gate)
 
-	awaitText(t, events, "after")
+	awaitText(t, rig.previews, "after")
 	_ = drainRuntimeEvents(t, events, 5*time.Second)
 }
 
@@ -1301,44 +1341,44 @@ func TestIntegration_SameDeviceHeartbeatDoesNotStealRuntimeHandler(t *testing.T)
 	// 会话跑在一条**带重挂能力**的桌面端 runtime 上(生产上 chat_svc 就这么接:
 	// remote.New(lease.Client(), WithReconnect(...)))。连接自始至终是活的,重连端口
 	// 只是让 callSession 的重挂重试生效 —— 真被调用就说明用例走错了路。
-	rt := remote.New(rig.cli,
-		remote.WithDaemonFingerprint(rpc.DaemonFingerprint(rig.d.state.DaemonInstanceUUID)),
-		remote.WithReconnect(remote.ReconnectFunc(func(context.Context) (agentruntime.DaemonClientPort, string, error) {
+	rtConn := rig.connectSameDeviceProtobuf(t)
+	rt := remote.New(rtConn,
+		remote.WithConversationIDResolver(convID),
+		remote.WithPreviewSink(rig.previews),
+		remote.WithDaemonFingerprint(identity.DaemonFingerprint(rig.d.state.DaemonInstanceUUID)),
+		remote.WithReconnect(remote.ReconnectFunc(func(context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 			return nil, "", errors.New("连接一直是活的,这条用例不该触发重连")
 		})),
 	)
 	t.Cleanup(func() { _ = rt.Close() })
 
 	events, _ := rig.startRunOn(t, rt, 803)
-	awaitText(t, events, "before") // 会话确实在跑,推送落在发起它的这条连接上
+	awaitText(t, rig.previews, "before") // 会话确实在跑,推送落在发起它的这条连接上
 
 	// 设备监视心跳那条连接接入并留着；它的 bindConn 只改自己的私有 registry。
 	rig.connectSameDevice(t)
 
-	// 裸 RPC 仍走发起会话的连接，必须落到原 RuntimeHandlers 并真正回答 waiter。
-	var ok wire.OK
-	err := callRig(t, rig.cli, wire.MethodSubmitToolPermission,
-		wire.SubmitToolPermissionParams{SessionID: 803, RequestID: "p-0", Allow: true}, &ok)
-	require.NoError(t, err)
+	// 类型化 RPC 仍走发起会话的连接，必须落到原 RuntimeHandlers 并真正回答 waiter。
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, rt.SubmitToolPermission(ctx, 803, "p-0", true, false, ""))
 	assert.Equal(t, []string{"p-0"}, be.deliveredIDs(),
 		"后接入的同设备连接不得偷走原连接的 runtime handler")
 
 	// 真 *remote.Runtime 也沿用同一连接直接送达，不应触发重挂。
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	require.NoError(t, rt.SubmitToolPermission(ctx, 803, "p-1", true, false, ""))
 	assert.Equal(t, []string{"p-0", "p-1"}, be.deliveredIDs(),
 		"桌面端报了成功,waiter 就必须真的被回答 —— 这两件事分家就是那个永久挂死")
 
 	close(gate)
 
-	awaitText(t, events, "after")
+	awaitText(t, rig.previews, "after")
 	_ = drainRuntimeEvents(t, events, 5*time.Second)
 }
 
 // TestIntegration_ErrorCodeRehydration drives a control RPC against a backend
 // that does NOT implement the corresponding sub-interface, asserting that the
-// daemon returns ErrUnsupported, the wire layer maps it to JSON-RPC error
+// daemon returns ErrUnsupported, the wire layer maps it to a typed RPC error
 // code -32012, and the *remote.Runtime client rehydrates it back to the
 // sentinel for errors.Is. pacedBackendRunner implements Steerer + Aborter but
 // NOT PermissionModeSetter, so SetPermissionMode is the test vehicle.
@@ -1405,7 +1445,7 @@ func TestIntegration_MCPReverseTunnel(t *testing.T) {
 
 	// 模拟 daemon 上的 CLI 子进程:POST /mcp/org/,带 desktop 轮起手时签的 token。
 	reqBody := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
-	httpReq, err := http.NewRequest(http.MethodPost, base+"/mcp/org/?peerFingerprint="+rigDeviceFingerprint+"&sessionId=601", strings.NewReader(reqBody))
+	httpReq, err := http.NewRequest(http.MethodPost, base+"/mcp/org/?peerFingerprint="+string(rigDeviceFingerprint)+"&conversationId="+convID(601), strings.NewReader(reqBody))
 	require.NoError(t, err)
 	httpReq.Header.Set("Authorization", "Bearer desktop-signed-tok")
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -1501,20 +1541,20 @@ func TestIntegration_MCPReverseTunnel_NoTarget(t *testing.T) {
 		after:  []agentruntime.Event{agentruntime.TextDelta{Text: "after"}, agentruntime.Done{}},
 	})
 
-	events, _ := rig.startRun(t, 950)
-	awaitText(t, events, "before") // 会话确实在跑
+	_, _ = rig.startRun(t, 950)
+	awaitText(t, rig.previews, "before") // 会话确实在跑
 
 	base := rig.d.gateway.BaseURL()
 	require.NotEmpty(t, base)
 
-	// 断开这台设备唯一的一条连接,并等 daemon 真的把它从活连接表里摘掉(bindConn 的
+	// 断开承载会话的 Protobuf 连接,并等 daemon 真的把它从活连接表里摘掉(bindConn 的
 	// Done 监视是异步的)——否则隧道可能还打在一条将死未死的连接上,复现不出"无目标"。
-	require.NoError(t, rig.cli.Close())
+	require.NoError(t, rig.proto.Close())
 	require.Eventually(t, func() bool {
 		rig.d.conns.mu.Lock()
 		defer rig.d.conns.mu.Unlock()
 		return len(rig.d.conns.live) == 0
-	}, 5*time.Second, 10*time.Millisecond, "daemon must drop the only connection from its live table")
+	}, 5*time.Second, 10*time.Millisecond, "daemon must drop the session-owning connection from its live table")
 
 	// daemon 上的 CLI 子进程此刻调一个内置工具:隧道无目标。
 	reqBody := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"org_get"}}`
@@ -1555,7 +1595,7 @@ func TestIntegration_MCPReverseTunnel_NoTarget(t *testing.T) {
 		var list wire.SessionListResult
 		require.NoError(t, callRig(t, second, wire.MethodSessionList, nil, &list))
 		for _, s := range list.Sessions {
-			if s.SessionID == 950 {
+			if s.ConversationID == convID(950) {
 				return s.LifecycleState == wire.SessionLifecycleIdle
 			}
 		}
@@ -1644,16 +1684,50 @@ func TestIntegration_SkillsList(t *testing.T) {
 
 	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	var resp handlers.SkillsListResult
-	require.NoError(t, rig.cli.Call(ctx, "skills.list",
+	require.NoError(t, callRig(t, rig.cli, "skills.list",
 		handlers.SkillsListParams{BackendType: "claudecode"}, &resp))
 
 	require.Len(t, resp.Packs, 2)
 	require.Equal(t, "superpowers@claude-plugins-official", resp.Packs[0].ID)
 	require.True(t, resp.Packs[0].GloballyEnabled)
 	require.Equal(t, "opsctl@opskat", resp.Packs[1].ID)
+}
+
+// TestIntegration_SkillsCatalog 端到端验证 skills.catalog:浏览器控制台配一档执行
+// 目标的技能时,靠它替掉「手打 skill id」——问的是**这台机器上**装了什么,答的是
+// 一份能直接渲染的目录(已装 + 推荐,逐行标注这一档授权了没有)。
+func TestIntegration_SkillsCatalog(t *testing.T) {
+	restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, rigSkillDisc{packs: []agentskill.SkillPack{
+		{
+			ID: "superpowers@claude-plugins-official", Name: "superpowers",
+			Description: "TDD 与头脑风暴", Skills: []string{"brainstorming"},
+			Installed: true, Source: agentskill.SourceInstalled, GloballyEnabled: true,
+		},
+	}})
+	t.Cleanup(restore)
+	handlers.SetResolveCLIPathFunc(func(string) (string, bool, error) { return "/daemon/bin/claude", true, nil })
+	t.Cleanup(handlers.ResetResolveCLIPathFunc)
+
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+
+	var resp wire.SkillCatalogResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSkillsCatalog, wire.SkillCatalogParams{
+		BackendType: "claudecode",
+		Authorized:  []wire.SkillAuthorization{{ID: "superpowers@claude-plugins-official", Enabled: true}},
+	}, &resp))
+
+	require.Equal(t, wire.SkillDiscoveryOK, resp.Discovery)
+	byID := map[string]wire.SkillPackSummary{}
+	for _, p := range resp.Packs {
+		byID[p.ID] = p
+	}
+	got := byID["superpowers@claude-plugins-official"]
+	require.Equal(t, "superpowers", got.Name)
+	require.Equal(t, []string{"brainstorming"}, got.Skills)
+	require.True(t, got.Installed)
+	require.True(t, got.Enabled, "请求里带的那一档授权必须原样落回目录")
+	require.True(t, got.GloballyEnabled)
 }
 
 func TestIntegration_HealthPing(t *testing.T) {
@@ -1672,41 +1746,30 @@ func TestIntegration_HealthPing(t *testing.T) {
 	defer cancel()
 
 	// 已鉴权的客户端：auth.pair 后调 health.ping。
-	c, err := client.Dial(ctx, client.Options{URL: serverURL})
+	c, err := client.DialProtobuf(ctx, client.Options{URL: serverURL})
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
-	var pairResp struct {
-		DeviceToken string `json:"deviceToken"`
-	}
-	require.NoError(t, c.Call(ctx, "auth.pair", map[string]any{
-		"code":              code,
-		"deviceName":        "test-mac",
-		"deviceFingerprint": "sha256:test-health",
-	}, &pairResp))
-	require.NotEmpty(t, pairResp.DeviceToken)
+	pairResp, err := c.AuthPair(ctx, &agentrewire.AuthPairRequest{Code: code, DeviceName: "test-mac", DeviceFingerprint: "sha256:test-health"})
+	require.NoError(t, err)
+	require.NotEmpty(t, pairResp.GetDeviceToken())
 
 	// health.ping returns instanceUUID + serverTimeMs。
-	var pingRes struct {
-		InstanceUUID string `json:"instanceUUID"`
-		ServerTimeMs int64  `json:"serverTimeMs"`
-	}
-	err = c.Call(ctx, "health.ping", nil, &pingRes)
+	pingRes, err := protorpc.CallMethod(ctx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING), &agentrewire.HealthPingRequest{}, func() *agentrewire.HealthPingResponse { return &agentrewire.HealthPingResponse{} })
 	require.NoError(t, err)
-	assert.NotEmpty(t, pingRes.InstanceUUID)
-	assert.Greater(t, pingRes.ServerTimeMs, int64(0))
+	assert.NotEmpty(t, pingRes.GetInstanceUuid())
+	assert.Greater(t, pingRes.GetServerTimeMs(), int64(0))
 
 	// health.ping requires auth: 未鉴权的裸连接必须返回 -32001。
-	raw, err := client.Dial(ctx, client.Options{URL: serverURL})
+	raw, err := client.DialProtobuf(ctx, client.Options{URL: serverURL})
 	require.NoError(t, err)
 	defer func() { _ = raw.Close() }()
 
-	var anyRes any
-	err = raw.Call(ctx, "health.ping", nil, &anyRes)
+	_, err = protorpc.CallMethod(ctx, raw.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING), &agentrewire.HealthPingRequest{}, func() *agentrewire.HealthPingResponse { return &agentrewire.HealthPingResponse{} })
 	require.Error(t, err, "health.ping must be rejected without auth")
-	var rpcErr *rpc.Error
-	require.True(t, errors.As(err, &rpcErr), "error must be *rpc.Error")
-	assert.Equal(t, -32001, rpcErr.Code)
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	assert.Equal(t, int32(-32001), rpcErr.Code)
 }
 
 // TestIntegration_CCUsage 验证 claudecode.usage RPC 注册成功、走过 auth 鉴权、
@@ -1759,37 +1822,29 @@ func TestIntegration_CCUsage(t *testing.T) {
 	callCtx, ccancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer ccancel()
 
-	c, err := client.Dial(callCtx, client.Options{URL: serverURL})
+	c, err := client.DialProtobuf(callCtx, client.Options{URL: serverURL})
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
-	var pairResp struct {
-		DeviceToken string `json:"deviceToken"`
-	}
-	require.NoError(t, c.Call(callCtx, "auth.pair", map[string]any{
-		"code":              code,
-		"deviceName":        "test-cc",
-		"deviceFingerprint": "sha256:test-ccusage",
-	}, &pairResp))
-
-	var got handlers.CCUsageResult
-	err = c.Call(callCtx, "claudecode.usage", nil, &got)
+	_, err = c.AuthPair(callCtx, &agentrewire.AuthPairRequest{Code: code, DeviceName: "test-cc", DeviceFingerprint: "sha256:test-ccusage"})
 	require.NoError(t, err)
-	assert.Equal(t, "ok", got.Reason)
-	require.NotNil(t, got.Data)
-	assert.Equal(t, float64(73), got.Data.FiveHourPercent)
-	assert.Equal(t, float64(25), got.Data.WeeklyPercent)
+
+	got, err := protorpc.CallMethod(callCtx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_CLAUDE_CODE_USAGE), &agentrewire.ClaudeCodeUsageRequest{}, func() *agentrewire.ClaudeCodeUsageResponse { return &agentrewire.ClaudeCodeUsageResponse{} })
+	require.NoError(t, err)
+	assert.Equal(t, "ok", got.GetReason())
+	require.NotNil(t, got.GetData())
+	assert.Equal(t, float64(73), got.GetData().GetFiveHourPercent())
+	assert.Equal(t, float64(25), got.GetData().GetWeeklyPercent())
 
 	// 鉴权门禁:裸连接(未 auth.pair)必须被拒,统一 -32001。
-	raw, err := client.Dial(callCtx, client.Options{URL: serverURL})
+	raw, err := client.DialProtobuf(callCtx, client.Options{URL: serverURL})
 	require.NoError(t, err)
 	defer func() { _ = raw.Close() }()
-	var any2 any
-	err = raw.Call(callCtx, "claudecode.usage", nil, &any2)
+	_, err = protorpc.CallMethod(callCtx, raw.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_CLAUDE_CODE_USAGE), &agentrewire.ClaudeCodeUsageRequest{}, func() *agentrewire.ClaudeCodeUsageResponse { return &agentrewire.ClaudeCodeUsageResponse{} })
 	require.Error(t, err)
-	var rpcErr *rpc.Error
-	require.True(t, errors.As(err, &rpcErr))
-	assert.Equal(t, -32001, rpcErr.Code)
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	assert.Equal(t, int32(-32001), rpcErr.Code)
 }
 
 // writeSelfSignedPair generates a self-signed ECDSA cert/key in t.TempDir
@@ -1874,22 +1929,15 @@ func TestIntegration_CLIResolvePath(t *testing.T) {
 	d.mu.RUnlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	c, err := client.Dial(ctx, client.Options{URL: url})
+	c, err := client.DialProtobuf(ctx, client.Options{URL: url})
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
-	var pairResp struct {
-		DeviceToken string `json:"deviceToken"`
-	}
-	require.NoError(t, c.Call(ctx, "auth.pair", map[string]any{
-		"code":              code,
-		"deviceName":        "test-mac",
-		"deviceFingerprint": "sha256:test-device",
-	}, &pairResp))
-	require.NotEmpty(t, pairResp.DeviceToken)
+	pairResp, err := c.AuthPair(ctx, &agentrewire.AuthPairRequest{Code: code, DeviceName: "test-mac", DeviceFingerprint: "sha256:test-device"})
+	require.NoError(t, err)
+	require.NotEmpty(t, pairResp.GetDeviceToken())
 
-	var resp handlers.CLIResolvePathResult
-	err = c.Call(ctx, "cli.resolvePath", handlers.CLIResolvePathParams{Type: "claudecode"}, &resp)
+	resp, err := protorpc.CallMethod(ctx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_CLI_RESOLVE_PATH), &agentrewire.CLIResolvePathRequest{Type: "claudecode"}, func() *agentrewire.CLIResolvePathResponse { return &agentrewire.CLIResolvePathResponse{} })
 	require.NoError(t, err)
 	assert.Equal(t, "/fake/remote/bin/claude", resp.Path)
 	assert.True(t, resp.Found)
@@ -1902,16 +1950,164 @@ func TestIntegration_CLIResolvePath(t *testing.T) {
 // 为断言,而不是内部状态。
 
 // callRig 在 rig 的那条已配对连接上发一次 RPC。
-func callRig(t *testing.T, cli *client.Client, method string, params, result any) error {
+func callRig(t *testing.T, cli client.ProtobufConnection, method string, params, result any) error {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return cli.Call(ctx, method, params, result)
+	if method == wire.MethodRun {
+		request, err := protowire.RunRequestToProto(params.(wire.RunParams))
+		if err != nil {
+			return err
+		}
+		response, err := protorpc.CallMethod(ctx, cli.Conn(), 17, request, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+		if err != nil {
+			return err
+		}
+		*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: response.GetConversationId(), ProviderSessionID: response.GetProviderSessionId(), LaunchPermissionMode: response.GetLaunchPermissionMode(), ProviderFallbackKey: response.GetProviderFallbackKey()}
+		return nil
+	}
+	if method == workspacefswire.MethodReadFile {
+		value := params.(workspacefswire.ReadFileReq)
+		response, err := protorpc.CallMethod(ctx, cli.Conn(), 34, &agentrewire.WorkspaceFsReadFileRequest{Root: value.Root, RelPath: value.RelPath}, func() *agentrewire.WorkspaceFsReadFileResponse { return &agentrewire.WorkspaceFsReadFileResponse{} })
+		if err != nil {
+			return err
+		}
+		*(result.(*workspacefswire.ReadFileResp)) = protowire.WorkspaceReadFileResponseFromProto(response)
+		return nil
+	}
+	if method == workspacefswire.MethodListDir {
+		value := params.(workspacefswire.ListDirReq)
+		response, err := protorpc.CallMethod(ctx, cli.Conn(), 31, &agentrewire.WorkspaceFsListDirRequest{Root: value.Root, RelPath: value.RelPath}, func() *agentrewire.WorkspaceFsListDirResponse { return &agentrewire.WorkspaceFsListDirResponse{} })
+		if err != nil {
+			return err
+		}
+		out := workspacefswire.ListDirResp{Path: response.GetPath(), Truncated: response.GetTruncated()}
+		for _, entry := range response.GetEntries() {
+			out.Entries = append(out.Entries, workspacefswire.Entry{Name: entry.GetName(), IsDir: entry.GetIsDir(), Size: entry.GetSize(), ModTime: entry.GetModTime(), Symlink: entry.GetSymlink()})
+		}
+		*(result.(*workspacefswire.ListDirResp)) = out
+		return nil
+	}
+	if method == wire.MethodSessionPull {
+		value := params.(wire.SessionPullParams)
+		response, err := protorpc.CallMethod(ctx, cli.Conn(), 4, &agentrewire.SessionPullRequest{ConversationId: value.ConversationID, PeerFingerprint: string(value.PeerFingerprint), Cursor: value.Cursor, Limit: int32(value.Limit)}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
+		if err != nil {
+			return err
+		}
+		out := wire.SessionPullResult{Cursor: response.GetCursor(), HasMore: response.GetHasMore(), OldestSeq: response.GetOldestSeq()}
+		for _, entry := range response.GetNotifications() {
+			encoded, err := proto.Marshal(entry.GetPayload())
+			if err != nil {
+				return err
+			}
+			notification, err := protowire.DecodeNotification(encoded)
+			if err != nil {
+				return err
+			}
+			protowire.SetNotificationSeq(notification, entry.GetSeq())
+			method, value, err := protowire.ProtoNotificationToWire(notification)
+			if err != nil {
+				return err
+			}
+			raw, err := json.Marshal(value)
+			if err != nil {
+				return err
+			}
+			out.Notifications = append(out.Notifications, wire.JournaledNotification{Seq: entry.GetSeq(), Method: method, Params: raw})
+		}
+		*(result.(*wire.SessionPullResult)) = out
+		return nil
+	}
+	methodID, request, response, ok := integrationProtoMethod(method)
+	if !ok {
+		return fmt.Errorf("integration test has no Protobuf mapping for %q", method)
+	}
+	if params != nil {
+		data, err := json.Marshal(params)
+		if err != nil {
+			return err
+		}
+		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(data, request); err != nil {
+			return err
+		}
+	}
+	if err := protorpc.CallMessage(ctx, cli.Conn(), methodID, request, response); err != nil {
+		return err
+	}
+	data, err := protojson.Marshal(response)
+	if err != nil {
+		return err
+	}
+	data = normalizeProtoJSONNumbers(data)
+	return json.Unmarshal(data, result)
+}
+
+func normalizeProtoJSONNumbers(data []byte) []byte {
+	var value any
+	if json.Unmarshal(data, &value) != nil {
+		return data
+	}
+	var visit func(any) any
+	visit = func(current any) any {
+		switch typed := current.(type) {
+		case map[string]any:
+			for key, item := range typed {
+				typed[key] = visit(item)
+			}
+		case []any:
+			for index, item := range typed {
+				typed[index] = visit(item)
+			}
+		case string:
+			if number, err := strconv.ParseInt(typed, 10, 64); err == nil {
+				return number
+			}
+		}
+		return current
+	}
+	normalized, err := json.Marshal(visit(value))
+	if err != nil {
+		return data
+	}
+	return normalized
+}
+
+func integrationProtoMethod(method string) (uint32, proto.Message, proto.Message, bool) {
+	switch method {
+	case wire.MethodRun:
+		return 17, &agentrewire.RuntimeRunRequest{}, &agentrewire.RuntimeRunResponse{}, true
+	case wire.MethodAbort:
+		return 12, &agentrewire.RuntimeAbortRequest{}, &agentrewire.RuntimeAbortResponse{}, true
+	case wire.MethodSubmitToolPermission:
+		return 16, &agentrewire.RuntimeSubmitToolPermissionRequest{}, &agentrewire.PeerSessionControlResponse{}, true
+	case wire.MethodSessionList:
+		return 2, &agentrewire.SessionListRequest{}, &agentrewire.SessionListResponse{}, true
+	case wire.MethodSessionAttach:
+		return 3, &agentrewire.SessionAttachRequest{}, &agentrewire.SessionAttachResponse{}, true
+	case wire.MethodSessionPull:
+		return 4, &agentrewire.SessionPullRequest{}, &agentrewire.SessionPullResponse{}, true
+	case wire.MethodSessionPendingWaiters:
+		return 5, &agentrewire.SessionPendingWaitersRequest{}, &agentrewire.SessionPendingWaitersResponse{}, true
+	case wire.MethodSessionDelete:
+		return 6, &agentrewire.SessionDeleteRequest{}, &agentrewire.SessionDeleteResponse{}, true
+	case workspacefswire.MethodListDir:
+		return 31, &agentrewire.WorkspaceFsListDirRequest{}, &agentrewire.WorkspaceFsListDirResponse{}, true
+	case workspacefswire.MethodReadFile:
+		return 34, &agentrewire.WorkspaceFsReadFileRequest{}, &agentrewire.WorkspaceFsReadFileResponse{}, true
+	case workspacefswire.MethodSearchFiles:
+		return 36, &agentrewire.WorkspaceFsSearchFilesRequest{}, &agentrewire.WorkspaceFsSearchFilesResponse{}, true
+	case wire.MethodSkillsCatalog:
+		return 28, &agentrewire.SkillCatalogRequest{}, &agentrewire.SkillCatalogResponse{}, true
+	case "skills.list":
+		return 51, &agentrewire.SkillsListRequest{}, &agentrewire.SkillsListResponse{}, true
+	default:
+		return 0, nil, nil, false
+	}
 }
 
 // pairSecondDevice 再配对一台**不同指纹**的设备,并返回它自己的连接。R16 的范围断言
 // 需要一个真正的第二对端 —— 同指纹的第二条连接(connectSameDevice)是同一个对端。
-func pairSecondDevice(t *testing.T, d *Daemon, fingerprint string) *client.Client {
+func pairSecondDevice(t *testing.T, d *Daemon, fingerprint string) *client.ProtobufClient {
 	t.Helper()
 	pairBody := readLocalPair(t, d)
 	code, _ := pairBody["code"].(string)
@@ -1922,58 +2118,63 @@ func pairSecondDevice(t *testing.T, d *Daemon, fingerprint string) *client.Clien
 	d.mu.RUnlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
-	cli, err := client.Dial(ctx, client.Options{URL: url})
+	cli, err := client.DialProtobuf(ctx, client.Options{URL: url})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cli.Close() })
 
-	var pairResp struct {
-		DeviceToken string `json:"deviceToken"`
-	}
-	require.NoError(t, cli.Call(ctx, "auth.pair", map[string]any{
-		"code":              code,
-		"deviceName":        "other-mac",
-		"deviceFingerprint": fingerprint,
-	}, &pairResp))
-	require.NotEmpty(t, pairResp.DeviceToken)
+	pairResp, err := cli.AuthPair(ctx, &agentrewire.AuthPairRequest{Code: code, DeviceName: "other-mac", DeviceFingerprint: fingerprint})
+	require.NoError(t, err)
+	require.NotEmpty(t, pairResp.GetDeviceToken())
 	return cli
 }
 
-func claimDaemonForIntegration(t *testing.T, d *Daemon, accountID string) string {
+// mintAccountCredential 为一个具名对端铸一枚该账号的凭据。决策 8 之后对端身份写在
+// 凭据的 pfp claim 里,不再由请求体自报 —— 因此「两个不同对端」在测试里也必须是
+// 两枚不同的凭据,而不是同一枚凭据配两个自报字符串。
+type mintAccountCredential func(peerFingerprint string) string
+
+func loginDaemonForIntegration(t *testing.T, d *Daemon, accountID string) mintAccountCredential {
 	t.Helper()
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	der, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
 	require.NoError(t, err)
-	d.state.Claim(accountID, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), state.AccountCredential{})
+	d.state.Login(accountID, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), state.AccountCredential{})
 	require.NoError(t, d.state.Save())
 
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	claims, err := json.Marshal(map[string]any{"uid": accountID, "exp": time.Now().Add(time.Hour).Unix()})
-	require.NoError(t, err)
-	payload := base64.RawURLEncoding.EncodeToString(claims)
-	signingInput := header + "." + payload
-	digest := sha256.Sum256([]byte(signingInput))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
-	require.NoError(t, err)
-	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+	return func(peerFingerprint string) string {
+		t.Helper()
+		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+		claims, err := json.Marshal(map[string]any{
+			"uid": accountID, "exp": time.Now().Add(time.Hour).Unix(), "pfp": peerFingerprint,
+		})
+		require.NoError(t, err)
+		payload := base64.RawURLEncoding.EncodeToString(claims)
+		signingInput := header + "." + payload
+		digest := sha256.Sum256([]byte(signingInput))
+		signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
+		require.NoError(t, err)
+		return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+	}
 }
 
-func accountClientForIntegration(t *testing.T, d *Daemon, fingerprint, credential string) *client.Client {
+func accountClientForIntegration(t *testing.T, d *Daemon, fingerprint devicefp.Initiator, mint mintAccountCredential) *client.ProtobufClient {
 	t.Helper()
 	d.mu.RLock()
 	url := d.lan.URL()
 	d.mu.RUnlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
-	cli, err := client.Dial(ctx, client.Options{URL: url})
+	cli, err := client.DialProtobuf(ctx, client.Options{URL: url})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cli.Close() })
 
-	var result map[string]any
-	require.NoError(t, cli.Call(ctx, "auth.account", rpc.AccountParams{
-		Credential: credential, DeviceFingerprint: fingerprint,
-	}, &result))
-	require.True(t, result["ok"].(bool))
+	result, err := cli.AuthAccount(ctx, &agentrewire.AuthAccountRequest{Credential: mint(string(fingerprint))})
+	require.NoError(t, err)
+	require.True(t, result.GetOk())
+	// 决策 8:daemon 认定的对端身份逐字等于凭据的 pfp,并回写给调用方。
+	require.Equal(t, string(fingerprint), result.GetPeerFingerprint())
+	require.Equal(t, string(fingerprint), cli.SelfFingerprint())
 	return cli
 }
 
@@ -1997,10 +2198,10 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	st, err := state.Load(dir)
 	require.NoError(t, err)
 	accountID := "relay-account"
-	st.Claim(accountID, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})),
+	st.Login(accountID, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})),
 		state.AccountCredential{AccessToken: "relay-access-token"})
 	require.NoError(t, st.Save())
-	credential := signedAccountCredential(t, privateKey, accountID)
+	credential := signedAccountCredential(t, privateKey, accountID, "sha256:relay-client")
 
 	connections := make(chan *websocket.Conn, 1)
 	closeRelay := make(chan struct{})
@@ -2030,7 +2231,7 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	t.Cleanup(relay.Close)
 	t.Cleanup(func() { closeRelayOnce.Do(func() { close(closeRelay) }) })
 
-	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, HubServerURL: relay.URL})
+	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, AccountServerURL: relay.URL})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -2053,25 +2254,15 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	}
 
 	channelID := "relay-client-1"
-	authResponse := relayRequest(t, relayConn, channelID, rpc.Frame{
-		JSONRPC: "2.0",
-		ID:      json.RawMessage(`1`),
-		Method:  "auth.account",
-		Params:  mustMarshal(t, rpc.AccountParams{Credential: credential, DeviceFingerprint: "sha256:relay-client"}),
-	})
-	require.Nil(t, authResponse.Error)
-	var authResult map[string]any
-	require.NoError(t, json.Unmarshal(authResponse.Result, &authResult))
-	assert.Equal(t, true, authResult["ok"])
+	authResult := &agentrewire.AuthAccountResponse{}
+	relayProtoRequest(t, relayConn, channelID, 1, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT), &agentrewire.AuthAccountRequest{Credential: credential, ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported}, authResult)
+	assert.True(t, authResult.GetOk())
+	// 中转这条路上同样:身份来自凭据,daemon 把它认定的那个值回写。
+	assert.Equal(t, "sha256:relay-client", authResult.GetPeerFingerprint())
 
-	runtimeResponse := relayRequest(t, relayConn, channelID, rpc.Frame{
-		JSONRPC: "2.0",
-		ID:      json.RawMessage(`2`),
-		Method:  wire.MethodCapabilities,
-		Params:  mustMarshal(t, wire.CapabilitiesParams{BackendType: "claudecode"}),
-	})
-	require.Nil(t, runtimeResponse.Error)
-	assert.NotEmpty(t, runtimeResponse.Result, "relay channel must serve the per-connection runtime handlers")
+	runtimeResult := &agentrewire.RuntimeCapabilitiesResponse{}
+	relayProtoRequest(t, relayConn, channelID, 2, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CAPABILITIES), &agentrewire.RuntimeCapabilitiesRequest{BackendType: "claudecode"}, runtimeResult)
+	assert.NotNil(t, runtimeResult, "relay channel must serve the per-connection runtime handlers")
 
 	require.Eventually(t, func() bool {
 		d.conns.mu.Lock()
@@ -2087,10 +2278,12 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	}, time.Second, 10*time.Millisecond, "closed relay channel must be removed like a LAN connection")
 }
 
-func signedAccountCredential(t *testing.T, privateKey *rsa.PrivateKey, accountID string) string {
+func signedAccountCredential(t *testing.T, privateKey *rsa.PrivateKey, accountID, peerFingerprint string) string {
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	claims := mustMarshal(t, map[string]any{"uid": accountID, "exp": time.Now().Add(time.Hour).Unix()})
+	claims := mustMarshal(t, map[string]any{
+		"uid": accountID, "exp": time.Now().Add(time.Hour).Unix(), "pfp": peerFingerprint,
+	})
 	payload := base64.RawURLEncoding.EncodeToString(claims)
 	signingInput := header + "." + payload
 	digest := sha256.Sum256([]byte(signingInput))
@@ -2099,19 +2292,25 @@ func signedAccountCredential(t *testing.T, privateKey *rsa.PrivateKey, accountID
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
-func relayRequest(t *testing.T, conn *websocket.Conn, channelID string, request rpc.Frame) rpc.Frame {
+func relayProtoRequest(t *testing.T, conn *websocket.Conn, channelID string, id uint64, methodID uint32, request, response proto.Message) {
 	t.Helper()
-	requestJSON := mustMarshal(t, request)
-	require.NoError(t, conn.WriteMessage(websocket.BinaryMessage, relayEnvelope(channelID, requestJSON)))
+	encodedRequest, err := proto.Marshal(request)
+	require.NoError(t, err)
+	frame, err := proto.Marshal(&agentrewire.RpcFrame{Id: id, Body: &agentrewire.RpcFrame_Request{Request: &agentrewire.Request{MethodId: methodID, EncodedPayload: encodedRequest}}})
+	require.NoError(t, err)
+	require.NoError(t, conn.WriteMessage(websocket.BinaryMessage, relayEnvelope(channelID, frame)))
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(time.Second)))
 	messageType, responsePayload, err := conn.ReadMessage()
 	require.NoError(t, err, "relay-initiated channel did not return a response")
 	require.Equal(t, websocket.BinaryMessage, messageType)
-	responseChannelID, responseJSON := unpackRelayEnvelope(t, responsePayload)
+	responseChannelID, responseFrame := unpackRelayEnvelope(t, responsePayload)
 	require.Equal(t, channelID, responseChannelID)
-	var response rpc.Frame
-	require.NoError(t, json.Unmarshal(responseJSON, &response))
-	return response
+	var decoded agentrewire.RpcFrame
+	require.NoError(t, proto.Unmarshal(responseFrame, &decoded))
+	require.Equal(t, id, decoded.GetId())
+	require.Nil(t, decoded.GetError())
+	require.Equal(t, methodID, decoded.GetResponse().GetMethodId())
+	require.NoError(t, proto.Unmarshal(decoded.GetResponse().GetEncodedPayload(), response))
 }
 
 func relayEnvelope(channelID string, frame []byte) []byte {
@@ -2138,11 +2337,11 @@ func mustMarshal(t *testing.T, value any) []byte {
 	return encoded
 }
 
-// TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount covers R10–R13:
-// two peers stay connected concurrently; unclaimed daemons keep both isolated, while two
+// TestIntegration_MultiClientVisibility_GatesAllPeerAccessByLoggedInAccount covers R10–R13:
+// two peers stay connected concurrently; logged-out daemons keep both isolated, while two
 // same-account auth.account peers on a claimed daemon see and may target both origins.
-func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t *testing.T) {
-	t.Run("unclaimed daemon remains peer-scoped and rejects an explicit foreign origin", func(t *testing.T) {
+func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByLoggedInAccount(t *testing.T) {
+	t.Run("logged-out daemon remains peer-scoped and rejects an explicit foreign origin", func(t *testing.T) {
 		rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
 		other := pairSecondDevice(t, rig.d, "sha256:peer-b")
 		startRunAs(t, rig.cli, rig.dir, 101, "from-a")
@@ -2153,21 +2352,21 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t 
 		var fromA, fromB wire.SessionListResult
 		require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &fromA))
 		require.NoError(t, callRig(t, other, wire.MethodSessionList, nil, &fromB))
-		require.Equal(t, []int64{101}, sessionIDs(fromA.Sessions))
-		require.Equal(t, []int64{202}, sessionIDs(fromB.Sessions))
+		require.Equal(t, []string{convID(101)}, sessionIDs(fromA.Sessions))
+		require.Equal(t, []string{convID(202)}, sessionIDs(fromB.Sessions))
 		require.Empty(t, fromA.Sessions[0].PeerFingerprint)
 		require.Empty(t, fromB.Sessions[0].PeerFingerprint)
 
 		var page wire.SessionPullResult
 		err := callRig(t, other, wire.MethodSessionPull, wire.SessionPullParams{
-			SessionID: 101, PeerFingerprint: rigDeviceFingerprint,
+			ConversationID: convID(101), PeerFingerprint: rigDeviceFingerprint,
 		}, &page)
-		require.Error(t, err, "a paired peer on an unclaimed daemon must not name another origin")
+		require.Error(t, err, "a paired peer on a logged-out daemon must not name another origin")
 	})
 
 	t.Run("claimed daemon shares sessions only with same-account authenticated peers", func(t *testing.T) {
 		rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
-		credential := claimDaemonForIntegration(t, rig.d, "account-42")
+		credential := loginDaemonForIntegration(t, rig.d, "account-42")
 		peerA := accountClientForIntegration(t, rig.d, "sha256:account-peer-a", credential)
 		peerB := accountClientForIntegration(t, rig.d, "sha256:account-peer-b", credential)
 		startRunAs(t, peerA, rig.dir, 301, "from-a")
@@ -2178,28 +2377,28 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t 
 		var fromA, fromB wire.SessionListResult
 		require.NoError(t, callRig(t, peerA, wire.MethodSessionList, nil, &fromA))
 		require.NoError(t, callRig(t, peerB, wire.MethodSessionList, nil, &fromB))
-		require.Equal(t, []int64{301, 302}, sessionIDs(fromA.Sessions))
-		require.Equal(t, []int64{301, 302}, sessionIDs(fromB.Sessions))
+		require.Equal(t, []string{convID(301), convID(302)}, sessionIDs(fromA.Sessions))
+		require.Equal(t, []string{convID(301), convID(302)}, sessionIDs(fromB.Sessions))
 		// Origin 是**相对调用方**的:自己发起的那条留空(「省略 = 调用方自己的对端」),
 		// 只有别的对端那条才带指纹。两个对端因此各自看到一份镜像的 origin 表。
-		require.Equal(t, map[int64]string{301: "", 302: "sha256:account-peer-b"}, sessionOrigins(fromA.Sessions))
-		require.Equal(t, map[int64]string{301: "sha256:account-peer-a", 302: ""}, sessionOrigins(fromB.Sessions))
+		require.Equal(t, map[string]devicefp.Initiator{convID(301): "", convID(302): "sha256:account-peer-b"}, sessionOrigins(fromA.Sessions))
+		require.Equal(t, map[string]devicefp.Initiator{convID(301): "sha256:account-peer-a", convID(302): ""}, sessionOrigins(fromB.Sessions))
 
 		var page wire.SessionPullResult
 		require.NoError(t, callRig(t, peerA, wire.MethodSessionPull, wire.SessionPullParams{
-			SessionID: 302, PeerFingerprint: "sha256:account-peer-b",
+			ConversationID: convID(302), PeerFingerprint: "sha256:account-peer-b",
 		}, &page), "same-account peer must be able to target the other origin")
 		require.Error(t, callRig(t, rig.cli, wire.MethodSessionPull, wire.SessionPullParams{
-			SessionID: 302, PeerFingerprint: "sha256:account-peer-b",
+			ConversationID: convID(302), PeerFingerprint: "sha256:account-peer-b",
 		}, &page), "a pairing-authenticated connection remains peer-scoped on a claimed daemon")
 
 		var attached wire.SessionAttachResult
 		require.NoError(t, callRig(t, peerA, wire.MethodSessionAttach, wire.SessionAttachParams{
-			SessionID: 302, PeerFingerprint: "sha256:account-peer-b",
+			ConversationID: convID(302), PeerFingerprint: "sha256:account-peer-b",
 		}, &attached), "same-account peer must be able to attach the other origin")
 		var ok wire.OK
 		require.NoError(t, callRig(t, peerA, wire.MethodAbort, wire.AbortParams{
-			SessionID: 302, PeerFingerprint: "sha256:account-peer-b",
+			ConversationID: convID(302), PeerFingerprint: "sha256:account-peer-b",
 		}, &ok), "control resolution must use the named origin's runtime session key")
 	})
 
@@ -2212,7 +2411,7 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t 
 	// ResolveSessionPeer 认 origin,runtime.run 是唯一还没认的那一个。
 	t.Run("a same-account peer can run a turn on another origin's session", func(t *testing.T) {
 		rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
-		credential := claimDaemonForIntegration(t, rig.d, "account-42")
+		credential := loginDaemonForIntegration(t, rig.d, "account-42")
 		peerA := accountClientForIntegration(t, rig.d, "sha256:account-peer-a", credential)
 		peerB := accountClientForIntegration(t, rig.d, "sha256:account-peer-b", credential)
 		startRunAs(t, peerB, rig.dir, 302, "from-b")
@@ -2225,7 +2424,7 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t 
 		require.NoError(t, err)
 		var ack wire.RunAck
 		require.NoError(t, callRig(t, peerA, wire.MethodRun, wire.RunParams{
-			Backend: be, AgentID: 1, SessionID: 302, Cwd: rig.dir,
+			Backend: be, AgentID: 1, ConversationID: convID(302), Cwd: rig.dir,
 			PeerFingerprint: "sha256:account-peer-b", UserText: "from-a-on-b",
 		}, &ack))
 		awaitLifecycle(t, peerB, 302, wire.SessionLifecycleIdle)
@@ -2233,20 +2432,20 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t 
 		// 清单里仍然只有 peerB 名下那一条 302 —— 没有在 peerA 名下另建同号会话。
 		var list wire.SessionListResult
 		require.NoError(t, callRig(t, peerA, wire.MethodSessionList, nil, &list))
-		require.Equal(t, []int64{302}, sessionIDs(list.Sessions))
-		require.Equal(t, map[int64]string{302: "sha256:account-peer-b"}, sessionOrigins(list.Sessions),
+		require.Equal(t, []string{convID(302)}, sessionIDs(list.Sessions))
+		require.Equal(t, map[string]devicefp.Initiator{convID(302): "sha256:account-peer-b"}, sessionOrigins(list.Sessions),
 			"这一轮必须落在发起端那条会话上,而不是调用方自己名下那条同号会话")
 
-		// 这一轮的事件落在发起端那个 journal 分区里,发起端补齐时读得到。
+		// 这一轮的转录落在发起端那条会话上,发起端补齐时读得到。
 		var page wire.SessionPullResult
 		require.NoError(t, callRig(t, peerB, wire.MethodSessionPull, wire.SessionPullParams{
-			SessionID: 302, Cursor: 0, Limit: 200,
+			ConversationID: convID(302), Cursor: 0, Limit: 200,
 		}, &page))
 		require.NotEmpty(t, page.Notifications,
 			"别的端跑的这一轮必须扇出/落库在发起端这条会话上(R6 / R18 的前提)")
 	})
 
-	// Given 一台已认领 daemon,和一台**既配过对、又持账号凭据**的桌面 —— R6 的并发选路
+	// Given 一台已登录 daemon,和一台**既配过对、又持账号凭据**的桌面 —— R6 的并发选路
 	// 让它每次重连都可能落在直连(有配对令牌就走 auth.connect)或中转(恒走 auth.account)
 	// 任一条路径上;When 它在账号鉴权那条路径上取会话清单,把清单交出的 origin 记下来,
 	// 随后路径切回直连(配对鉴权)并按既有约定把同一个 origin 原样带进补齐的 attach,
@@ -2260,7 +2459,7 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t 
 	// 所禁止的。
 	t.Run("a peer's own sessions carry no origin, so replaying it on the direct path still resolves", func(t *testing.T) {
 		rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
-		credential := claimDaemonForIntegration(t, rig.d, "account-42")
+		credential := loginDaemonForIntegration(t, rig.d, "account-42")
 		// 同一台桌面的账号鉴权连接:指纹与 rig.cli 那条配对连接相同(R5 硬不变量 ——
 		// 两条路径上必须是同一个对端标识)。
 		viaAccount := accountClientForIntegration(t, rig.d, rigDeviceFingerprint, credential)
@@ -2269,13 +2468,13 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t 
 
 		var list wire.SessionListResult
 		require.NoError(t, callRig(t, viaAccount, wire.MethodSessionList, nil, &list))
-		assert.Equal(t, map[int64]string{601: ""}, sessionOrigins(list.Sessions),
+		assert.Equal(t, map[string]devicefp.Initiator{convID(601): ""}, sessionOrigins(list.Sessions),
 			"调用方自己发起的会话,清单交出的 origin 必须为空")
 
 		// 路径切回直连:配对鉴权的那条连接把清单里学到的 origin 原样带回来。
 		var attached wire.SessionAttachResult
 		require.NoError(t, callRig(t, rig.cli, wire.MethodSessionAttach, wire.SessionAttachParams{
-			SessionID: 601, PeerFingerprint: sessionOrigins(list.Sessions)[601],
+			ConversationID: convID(601), PeerFingerprint: sessionOrigins(list.Sessions)[convID(601)],
 		}, &attached), "路径切换后必须还能按游标接回自己的会话")
 	})
 }
@@ -2323,48 +2522,71 @@ func (r *twoClientApprovalRunner) SubmitToolPermission(_ context.Context, _ int6
 }
 
 // subscribeEventFrames 把一条连接收到的 runtime.event 帧收进 channel。
-func subscribeEventFrames(t *testing.T, cli *client.Client) <-chan wire.EventFrame {
+func subscribeEventFrames(t *testing.T, cli client.ProtobufConnection) <-chan wire.EventFrame {
 	t.Helper()
 	frames := make(chan wire.EventFrame, 64)
-	cli.Handle(wire.NotifyEvent, func(_ context.Context, p json.RawMessage) (any, error) {
-		var f wire.EventFrame
-		if err := json.Unmarshal(p, &f); err == nil {
+	cli.Conn().Registry().SubscribeNotification(func(_ context.Context, notification *agentrewire.RpcNotification) error {
+		if event := notification.GetRuntimeEvent(); event != nil {
+			encoded, err := proto.Marshal(notification)
+			if err != nil {
+				return err
+			}
+			decoded, err := protowire.DecodeNotification(encoded)
+			if err != nil {
+				return err
+			}
+			_, value, err := protowire.ProtoNotificationToWire(decoded)
+			if err != nil {
+				return err
+			}
+			p, err := json.Marshal(value)
+			if err != nil {
+				return err
+			}
+			var f wire.EventFrame
+			if err := json.Unmarshal(p, &f); err != nil {
+				return err
+			}
+			f.Seq = event.GetSeq()
 			select {
 			case frames <- f:
 			default:
 			}
 		}
-		return nil, nil
+		return nil
 	})
 	return frames
 }
 
-// awaitEventKind 等某条会话的某类事件到达这条连接;超时即失败(「收不到」正是会话被推去
+// awaitEventOfType 等某条会话的某类事件到达这条连接;超时即失败(「收不到」正是会话被推去
 // 了别处 / 没有扇出时的表现:没有错误,只是永远没有下一条)。
-func awaitEventKind(t *testing.T, frames <-chan wire.EventFrame, sid int64, kind agentruntime.EventKind, msg string) {
+func awaitEventOfType[E agentruntime.Event](t *testing.T, frames <-chan wire.EventFrame, conversationID string, msg string) {
 	t.Helper()
 	deadline := time.After(5 * time.Second)
 	for {
 		select {
 		case f := <-frames:
-			if f.SessionID != sid {
+			if f.ConversationID != conversationID {
 				continue
 			}
-			var probe struct {
-				Kind agentruntime.EventKind `json:"kind"`
-			}
-			if err := json.Unmarshal(f.Event, &probe); err == nil && probe.Kind == kind {
-				require.Positive(t, f.Seq, "推出去的帧必须带 seq")
+			if _, ok := f.Event.(E); ok {
+				if !f.Preview {
+					// 同一段内容的持久帧也会到这条连接上(宿主实时发布),但这里问的
+					// 是「实时那一条到没到」—— 它是预览帧。
+					continue
+				}
+				assert.Zero(t, f.Seq, "预览帧不带编号")
 				return
 			}
 		case <-deadline:
-			t.Fatalf("%s: 会话 %d 的 %s 事件没有到达这条连接", msg, sid, kind)
+			var want E
+			t.Fatalf("%s: 对话 %s 的 %T 事件没有到达这条连接", msg, conversationID, want)
 		}
 	}
 }
 
 // TestIntegration_MultiClientLiveEvents_SameAccountConnsShareOneSessionStream 兑现用户
-// 流程「桌面与手机同时连着同一个会话」:已认领 daemon 上同账号的两条连接同时收到同一
+// 流程「桌面与手机同时连着同一个会话」:已登录 daemon 上同账号的两条连接同时收到同一
 // 会话的实时事件,任一方回答待决策,另一方从事件流里看到它被解决。
 //
 // 三段断言各钉一个方向:手机按 R12 接管这条会话后回答待决策,已经不是属主的桌面端仍
@@ -2375,7 +2597,7 @@ func TestIntegration_MultiClientLiveEvents_SameAccountConnsShareOneSessionStream
 	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, &twoClientApprovalRunner{}))
 
-	credential := claimDaemonForIntegration(t, rig.d, "account-42")
+	credential := loginDaemonForIntegration(t, rig.d, "account-42")
 	const desktopFingerprint = "sha256:account-desktop"
 	desktop := accountClientForIntegration(t, rig.d, desktopFingerprint, credential)
 	phone := accountClientForIntegration(t, rig.d, "sha256:account-phone", credential)
@@ -2386,34 +2608,34 @@ func TestIntegration_MultiClientLiveEvents_SameAccountConnsShareOneSessionStream
 
 	startRunAs(t, desktop, rig.dir, 501, "two-client")
 
-	awaitEventKind(t, desktopFrames, 501, agentruntime.EventToolPermissionRequest, "发起会话的那条连接")
+	awaitEventOfType[agentruntime.ToolPermissionRequest](t, desktopFrames, convID(501), "发起会话的那条连接")
 
 	// 手机接管这条会话(接管把推送目标改到手机那条连接上)并回答待决策。
 	var attached wire.SessionAttachResult
 	require.NoError(t, callRig(t, phone, wire.MethodSessionAttach, wire.SessionAttachParams{
-		SessionID: 501, PeerFingerprint: desktopFingerprint,
+		ConversationID: convID(501), PeerFingerprint: desktopFingerprint,
 	}, &attached))
 	var ok wire.OK
 	require.NoError(t, callRig(t, phone, wire.MethodSubmitToolPermission, wire.SubmitToolPermissionParams{
-		SessionID: 501, PeerFingerprint: desktopFingerprint, RequestID: twoClientRequestID, Allow: true,
+		ConversationID: convID(501), PeerFingerprint: desktopFingerprint, RequestID: twoClientRequestID, Allow: true,
 	}, &ok))
 
-	awaitEventKind(t, phoneFrames, 501, agentruntime.EventToolPermissionResolved, "回答的那一方")
-	awaitEventKind(t, desktopFrames, 501, agentruntime.EventToolPermissionResolved,
+	awaitEventOfType[agentruntime.ToolPermissionResolved](t, phoneFrames, convID(501), "回答的那一方")
+	awaitEventOfType[agentruntime.ToolPermissionResolved](t, desktopFrames, convID(501),
 		"另一方必须从事件流里看到这条待决策被解决")
 	awaitLifecycle(t, desktop, 501, wire.SessionLifecycleIdle)
 
 	select {
 	case f := <-bystanderFrames:
-		t.Fatalf("会话 %d 的事件推给了一条从没上过它的同账号连接", f.SessionID)
+		t.Fatalf("对话 %s 的事件推给了一条从没上过它的同账号连接", f.ConversationID)
 	case <-time.After(300 * time.Millisecond):
 	}
 }
 
-// TestIntegration_MultiClientLiveEvents_UnclaimedDaemonKeepsEventsWithTheOriginatingPeer
-// 钉死 R13 的另一半:未认领 daemon 上没有账号可言,第二台已配对设备既看不到会话列表,
-// 也收不到别人会话的实时事件 —— 扇出只在已认领 daemon 上成立。
-func TestIntegration_MultiClientLiveEvents_UnclaimedDaemonKeepsEventsWithTheOriginatingPeer(t *testing.T) {
+// TestIntegration_MultiClientLiveEvents_LoggedOutDaemonKeepsEventsWithTheOriginatingPeer
+// 钉死 R13 的另一半:未登录 daemon 上没有账号可言,第二台已配对设备既看不到会话列表,
+// 也收不到别人会话的实时事件 —— 扇出只在已登录 daemon 上成立。
+func TestIntegration_MultiClientLiveEvents_LoggedOutDaemonKeepsEventsWithTheOriginatingPeer(t *testing.T) {
 	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, &twoClientApprovalRunner{}))
 
@@ -2422,11 +2644,11 @@ func TestIntegration_MultiClientLiveEvents_UnclaimedDaemonKeepsEventsWithTheOrig
 	ownFrames := subscribeEventFrames(t, rig.cli)
 
 	startRunAs(t, rig.cli, rig.dir, 502, "two-client")
-	awaitEventKind(t, ownFrames, 502, agentruntime.EventToolPermissionRequest, "发起会话的那条连接")
+	awaitEventOfType[agentruntime.ToolPermissionRequest](t, ownFrames, convID(502), "发起会话的那条连接")
 
 	select {
 	case f := <-otherFrames:
-		t.Fatalf("未认领 daemon 把会话 %d 的事件推给了另一台配对设备", f.SessionID)
+		t.Fatalf("未登录 daemon 把对话 %s 的事件推给了另一台配对设备", f.ConversationID)
 	case <-time.After(300 * time.Millisecond):
 	}
 
@@ -2434,35 +2656,39 @@ func TestIntegration_MultiClientLiveEvents_UnclaimedDaemonKeepsEventsWithTheOrig
 	// 还往库里写(见 TestIntegration_SessionCatchup_AttachRepointsTheLiveStream)。
 	var ok wire.OK
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSubmitToolPermission, wire.SubmitToolPermissionParams{
-		SessionID: 502, RequestID: twoClientRequestID, Allow: true,
+		ConversationID: convID(502), RequestID: twoClientRequestID, Allow: true,
 	}, &ok))
 	awaitLifecycle(t, rig.cli, 502, wire.SessionLifecycleIdle)
 }
 
-func sessionIDs(sessions []wire.SessionSummary) []int64 {
-	ids := make([]int64, 0, len(sessions))
+func sessionIDs(sessions []wire.SessionSummary) []string {
+	ids := make([]string, 0, len(sessions))
 	for _, session := range sessions {
-		ids = append(ids, session.SessionID)
+		ids = append(ids, session.ConversationID)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	sort.Strings(ids)
 	return ids
 }
 
-func sessionOrigins(sessions []wire.SessionSummary) map[int64]string {
-	origins := make(map[int64]string, len(sessions))
+func sessionOrigins(sessions []wire.SessionSummary) map[string]devicefp.Initiator {
+	origins := make(map[string]devicefp.Initiator, len(sessions))
 	for _, session := range sessions {
-		origins[session.SessionID] = session.PeerFingerprint
+		origins[session.ConversationID] = session.PeerFingerprint
 	}
 	return origins
 }
 
 // TestIntegration_SessionCatchup_ListAndPullReplayTheWholeTurn 覆盖补齐的主路径:
-// 跑完一轮后,客户端能列出这条会话(带生命周期状态与最新 seq)、并按游标把这一轮发出去
-// 的每一条通知按 seq 升序**逐条**重放出来 —— 补齐路径与实时路径投递的是同一批
-// (method, params),这是 R5 等价性在结构上成立的前提。
+// 跑完一轮后,客户端能列出这条会话(带生命周期状态与最新 seq)、并按游标把这条转录
+// 投影出的每一个持久帧按 seq 升序**逐条**重放出来。
+//
+// 补齐只服务持久帧(规格「两级帧与补齐」):两条 TextDelta 在累积器里合并成同一个
+// text 块,折出**一条**帧而不是两条;turnStarted / runResultDone 是没有编号的生命
+// 周期信号,不进这段转录。一轮因此只落 3 个持久帧:用户那句话、assistant 合并后的
+// 正文、收口的 Done。
 //
 // 同时钉住三条翻页边界:起始游标 0、每页按 limit 截断且 hasMore 为真、以及起始游标
-// 追平最新 seq 后返回空页且**游标不回退**(回退会让客户端把整段日志重放一遍)。
+// 追平最新 seq 后返回空页且**游标不回退**(回退会让客户端把整段转录重放一遍)。
 func TestIntegration_SessionCatchup_ListAndPullReplayTheWholeTurn(t *testing.T) {
 	rig := bootRemoteRig(t, []agentruntime.Event{
 		agentruntime.TextDelta{Text: "hello"},
@@ -2472,36 +2698,42 @@ func TestIntegration_SessionCatchup_ListAndPullReplayTheWholeTurn(t *testing.T) 
 	events, _ := rig.startRun(t, 900)
 	_ = drainRuntimeEvents(t, events, 5*time.Second)
 
-	// 一轮 = 3 条 runtime.event(两条 TextDelta + 一条 Done)+ 1 条 runResultDone。
-	const wantTotal = 4
+	// 一轮 = 用户那句话 + assistant 合并后的正文块 + 收口的 Done,三个持久帧。
+	const wantTotal = 3
 
 	var list wire.SessionListResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &list))
 	require.Len(t, list.Sessions, 1, "跑过一轮的会话必须出现在清单里")
 	got := list.Sessions[0]
-	assert.Equal(t, int64(900), got.SessionID)
+	assert.Equal(t, convID(900), got.ConversationID)
 	assert.Equal(t, string(agent_backend_entity.TypeClaudeCode), got.BackendType)
 	assert.Equal(t, wire.SessionLifecycleIdle, got.LifecycleState, "轮结束后会话等待下一轮")
 	assert.False(t, got.WaitingForInput)
-	assert.Equal(t, int64(wantTotal), got.LatestSeq, "最新 seq 取自通知日志的 MAX(seq)")
+	assert.Equal(t, int64(wantTotal), got.LatestSeq, "最新 seq 取自持久编号计数器")
 
-	// 按 limit=2 翻页拉平,把每一页的 seq / method 串起来。
+	// 按 limit=2 翻页拉平,把每一页的 seq / method / 帧内容串起来。
 	var (
 		seqs    []int64
 		methods []string
+		frames  []wire.EventFrame
 		cursor  int64
 		pages   int
 	)
 	for {
 		var page wire.SessionPullResult
 		require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPull,
-			wire.SessionPullParams{SessionID: 900, Cursor: cursor, Limit: 2}, &page))
+			wire.SessionPullParams{ConversationID: convID(900), Cursor: cursor, Limit: 2}, &page))
 		pages++
 		require.LessOrEqual(t, len(page.Notifications), 2, "单页条数必须被 limit 截断")
 		for _, n := range page.Notifications {
 			seqs = append(seqs, n.Seq)
 			methods = append(methods, n.Method)
-			require.NotEmpty(t, n.Params, "日志行必须带上那条通知的 params 原样")
+			raw, ok := n.Params.([]byte)
+			require.True(t, ok, "行必须带上那一帧的 params 原样")
+			require.NotEmpty(t, raw)
+			var frame wire.EventFrame
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			frames = append(frames, frame)
 		}
 		require.Greater(t, page.Cursor, cursor-1)
 		cursor = page.Cursor
@@ -2510,17 +2742,26 @@ func TestIntegration_SessionCatchup_ListAndPullReplayTheWholeTurn(t *testing.T) 
 		}
 		require.Less(t, pages, 10, "翻页没有收敛")
 	}
-	assert.Equal(t, []int64{1, 2, 3, 4}, seqs, "seq 必须从 1 起单调无洞")
-	assert.Equal(t, []string{
-		wire.NotifyEvent, wire.NotifyEvent, wire.NotifyEvent, wire.NotifyRunResultDone,
-	}, methods, "补齐重放的就是那一轮本该发出的通知本身")
-	assert.Equal(t, 2, pages, "4 条 / 每页 2 条 = 2 页")
+	assert.Equal(t, []int64{1, 2, 3}, seqs, "seq 必须从 1 起单调无洞")
+	assert.Equal(t, []string{wire.NotifyEvent, wire.NotifyEvent, wire.NotifyEvent}, methods,
+		"补齐只服务持久帧:块级帧与消息级派生帧一律是 runtime.event")
+	assert.Equal(t, 2, pages, "3 条 / 每页 2 条 = 2 页")
 	assert.Equal(t, int64(wantTotal), cursor)
+	for _, frame := range frames {
+		assert.False(t, frame.Preview, "补齐服务的必须是持久帧,不是预览帧")
+	}
+	require.Len(t, frames, 3)
+	assert.Equal(t, agentruntime.UserMessageEvent{Text: "hi"}, frames[0].Event, "用户那句话原样在案")
+	assert.Equal(t, agentruntime.TextDelta{Text: "hello world"}, frames[1].Event,
+		"两条 TextDelta 已经在累积器里合并成一个块,补齐折出的是合并后的正文,不是逐 token 的过程")
+	done, ok := frames[2].Event.(agentruntime.Done)
+	require.True(t, ok, "第三帧必须是收口的 Done(消息级派生帧)")
+	assert.Zero(t, done.Model)
 
 	// 游标已追平最新 seq:空页,游标保持不变。
 	var tail wire.SessionPullResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPull,
-		wire.SessionPullParams{SessionID: 900, Cursor: cursor}, &tail))
+		wire.SessionPullParams{ConversationID: convID(900), Cursor: cursor}, &tail))
 	assert.Empty(t, tail.Notifications)
 	assert.False(t, tail.HasMore)
 	assert.Equal(t, cursor, tail.Cursor, "空页不得把游标回退")
@@ -2528,7 +2769,7 @@ func TestIntegration_SessionCatchup_ListAndPullReplayTheWholeTurn(t *testing.T) 
 	// 起始游标大于最新 seq(客户端游标来自另一台 daemon 实例时会这样)同样是空页。
 	var past wire.SessionPullResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPull,
-		wire.SessionPullParams{SessionID: 900, Cursor: 9999}, &past))
+		wire.SessionPullParams{ConversationID: convID(900), Cursor: 9999}, &past))
 	assert.Empty(t, past.Notifications)
 	assert.False(t, past.HasMore)
 	assert.Equal(t, int64(9999), past.Cursor)
@@ -2536,7 +2777,7 @@ func TestIntegration_SessionCatchup_ListAndPullReplayTheWholeTurn(t *testing.T) 
 	// 待决策查询:这个 backend 不实现审批协议,必须回空列表而不是报错(R7)。
 	var waiters wire.SessionPendingWaitersResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPendingWaiters,
-		wire.SessionPendingWaitersParams{SessionID: 900}, &waiters))
+		wire.SessionPendingWaitersParams{ConversationID: convID(900)}, &waiters))
 	assert.Empty(t, waiters.ToolPermissions)
 	assert.Empty(t, waiters.AskUserQuestions)
 }
@@ -2556,37 +2797,56 @@ func TestIntegration_SessionCatchup_AttachRepointsTheLiveStream(t *testing.T) {
 		after:  []agentruntime.Event{agentruntime.TextDelta{Text: "after"}, agentruntime.Done{}},
 	})
 
-	events, _ := rig.startRun(t, 901)
-	awaitText(t, events, "before") // 推送此刻落在发起会话的那条连接上
+	_, _ = rig.startRun(t, 901)
+	awaitText(t, rig.previews, "before") // 推送此刻落在发起会话的那条连接上
 
 	// 「重连后的新连接」:同一台设备,自己订阅 runtime.event。
 	second := rig.connectSameDevice(t)
 	frames := make(chan wire.EventFrame, 16)
-	second.Handle(wire.NotifyEvent, func(_ context.Context, p json.RawMessage) (any, error) {
-		var f wire.EventFrame
-		if err := json.Unmarshal(p, &f); err == nil {
+	turnDone := make(chan struct{}, 1)
+	second.Conn().Registry().SubscribeNotification(func(_ context.Context, notification *agentrewire.RpcNotification) error {
+		if notification.GetRuntimeEvent() != nil {
+			encoded, err := proto.Marshal(notification)
+			if err != nil {
+				return err
+			}
+			decoded, err := protowire.DecodeNotification(encoded)
+			if err != nil {
+				return err
+			}
+			_, value, err := protowire.ProtoNotificationToWire(decoded)
+			if err != nil {
+				return err
+			}
+			p, err := json.Marshal(value)
+			if err != nil {
+				return err
+			}
+			var f wire.EventFrame
+			if err := json.Unmarshal(p, &f); err != nil {
+				return err
+			}
 			select {
 			case frames <- f:
 			default:
 			}
 		}
-		return nil, nil
-	})
-	turnDone := make(chan struct{}, 1)
-	second.Handle(wire.NotifyRunResultDone, func(_ context.Context, _ json.RawMessage) (any, error) {
-		select {
-		case turnDone <- struct{}{}:
-		default:
+		if notification.GetRunResultDone() != nil {
+			select {
+			case turnDone <- struct{}{}:
+			default:
+			}
 		}
-		return nil, nil
+		return nil
 	})
 
 	var attached wire.SessionAttachResult
 	require.NoError(t, callRig(t, second, wire.MethodSessionAttach,
-		wire.SessionAttachParams{SessionID: 901}, &attached))
-	assert.Equal(t, int64(901), attached.SessionID)
+		wire.SessionAttachParams{ConversationID: convID(901)}, &attached))
+	assert.Equal(t, convID(901), attached.ConversationID)
 	assert.Equal(t, wire.SessionLifecycleRunning, attached.LifecycleState, "一轮还在跑")
-	assert.Positive(t, attached.LatestSeq, "接管要交回此刻的高水位供客户端接着补齐")
+	assert.Positive(t, attached.LatestSeq, "接管要交回此刻的高水位供客户端接着补齐:"+
+		"起手落的那条用户消息此刻已经是一个持久帧")
 
 	close(gate)
 
@@ -2595,8 +2855,8 @@ func TestIntegration_SessionCatchup_AttachRepointsTheLiveStream(t *testing.T) {
 	for !sawAfter {
 		select {
 		case f := <-frames:
-			if strings.Contains(string(f.Event), "after") {
-				assert.Positive(t, f.Seq, "推出去的帧必须带 seq")
+			if delta, ok := f.Event.(agentruntime.TextDelta); ok && strings.Contains(delta.Text, "after") {
+				assert.True(t, f.Preview, "实时事件帧是预览帧")
 				sawAfter = true
 			}
 		case <-deadline:
@@ -2632,15 +2892,15 @@ func TestIntegration_SessionCatchup_AttachRestoresControlOnTheNewConnection(t *t
 
 	var ok wire.OK
 	require.Error(t,
-		callRig(t, second, wire.MethodAbort, wire.AbortParams{SessionID: 904}, &ok),
+		callRig(t, second, wire.MethodAbort, wire.AbortParams{ConversationID: convID(904)}, &ok),
 		"接管之前,新连接的 handler 不认识这条会话")
 
 	var attached wire.SessionAttachResult
 	require.NoError(t, callRig(t, second, wire.MethodSessionAttach,
-		wire.SessionAttachParams{SessionID: 904}, &attached))
+		wire.SessionAttachParams{ConversationID: convID(904)}, &attached))
 
 	require.NoError(t,
-		callRig(t, second, wire.MethodAbort, wire.AbortParams{SessionID: 904}, &ok),
+		callRig(t, second, wire.MethodAbort, wire.AbortParams{ConversationID: convID(904)}, &ok),
 		"接管之后,控制 RPC 必须解得出会话并真的打到 backend")
 }
 
@@ -2669,67 +2929,157 @@ func TestIntegration_SessionCatchup_ScopedToTheCallersPeer(t *testing.T) {
 
 	var page wire.SessionPullResult
 	require.NoError(t, callRig(t, other, wire.MethodSessionPull,
-		wire.SessionPullParams{SessionID: 902}, &page))
+		wire.SessionPullParams{ConversationID: convID(902)}, &page))
 	assert.Empty(t, page.Notifications, "另一个对端点名拉同一个会话 id 也拉不到内容")
 
 	var waiters wire.SessionPendingWaitersResult
 	require.NoError(t, callRig(t, other, wire.MethodSessionPendingWaiters,
-		wire.SessionPendingWaitersParams{SessionID: 902}, &waiters))
+		wire.SessionPendingWaitersParams{ConversationID: convID(902)}, &waiters))
 	assert.Empty(t, waiters.ToolPermissions)
 	assert.Empty(t, waiters.AskUserQuestions)
 
 	var attached wire.SessionAttachResult
-	err := callRig(t, other, wire.MethodSessionAttach, wire.SessionAttachParams{SessionID: 902}, &attached)
+	err := callRig(t, other, wire.MethodSessionAttach, wire.SessionAttachParams{ConversationID: convID(902)}, &attached)
 	require.Error(t, err, "接管改的是通知推给谁 —— 跨对端接管等于把别人的事件流引到自己连接上")
-	var rpcErr *rpc.Error
-	require.True(t, errors.As(err, &rpcErr))
-	assert.Equal(t, wire.ErrCodeSessionNotFound, rpcErr.Code)
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	assert.Equal(t, int32(wire.ErrCodeSessionNotFound), rpcErr.Code)
 }
 
-// TestIntegration_SessionCatchup_PendingWaitersNeverCrossPeersOnTheSameSessionID
-// 覆盖 R16 里最难的那半:两个对端**各自持有同一个本地会话 id**。
+// TestIntegration_SessionDelete_ClearsTheSessionAndItsTranscript 覆盖执行端删除:
+// server 上的一条对话被删掉时,执行端这一份(会话行 + 它的整段转录)也要没。
 //
-// 会话 id 是各客户端本地自增的主键,两台设备的 42 号会话是两条毫不相干的会话。日志与
-// 游标已经按 (对端, 会话) 复合键存放,所以 List / Pull 天然隔离;待决策不在库里,它挂在
-// backend runtime 的内存里、只按会话 id 索引 —— 于是「按对端限定了行,再拿裸数字去问
-// backend」就成了一条跨对端的信息泄漏:
+// 清单走 wire,转录直接看库:后者正是「只删会话行、转录留着」那种半吊子实现的照妖镜
+// —— 会话 id 是调用方本地铸的、会被复用,留下的旧转录下一次就会被当成新会话的历史读走。
+func TestIntegration_SessionDelete_ClearsTheSessionAndItsTranscript(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{
+		agentruntime.TextDelta{Text: "delete me"},
+		agentruntime.Done{},
+	})
+	events, _ := rig.startRun(t, 903)
+	_ = drainRuntimeEvents(t, events, 5*time.Second)
+
+	var before wire.SessionListResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &before))
+	require.Len(t, before.Sessions, 1, "删之前这条会话确实在")
+	sessionID := daemonSessionID(t, rig.d, convID(903))
+	require.NotZero(t, sessionID)
+	require.NotEmpty(t, daemonMessagesOfSession(t, rig.d, sessionID), "删之前它确实有转录")
+
+	var deleted wire.SessionDeleteResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionDelete,
+		wire.SessionDeleteParams{ConversationID: convID(903)}, &deleted))
+	assert.True(t, deleted.Deleted)
+
+	var after wire.SessionListResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &after))
+	assert.Empty(t, after.Sessions, "删掉的会话不得再出现在清单里")
+
+	assert.Empty(t, daemonMessagesOfSession(t, rig.d, sessionID),
+		"那条会话的转录必须一行不剩 —— 按本地主键直查,身份行没了也不留孤儿")
+	assert.Zero(t, daemonFrameSeqRows(t, rig.d, sessionID),
+		"帧编号台账同样是这条转录的一部分:身份行与它的全部转录一并消失")
+
+	// 再删一次:server 的删除待办会重放,报错会让它永远重放下去。
+	var again wire.SessionDeleteResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionDelete,
+		wire.SessionDeleteParams{ConversationID: convID(903)}, &again), "重复删除必须幂等")
+	assert.True(t, again.Deleted)
+}
+
+// TestIntegration_SessionDelete_ScopedToTheCallersPeer 钉住删除的权限边界:删除按
+// 与 list / pull 同一条 (对端, 会话) 复合键定位(ResolveSessionPeer)。会话 id 是各
+// 客户端本地自增的,不带对端限定的删除会让任何一台已配对设备照着裸数字删掉别人的
+// 对话 —— 这是本 wire 上第一个破坏性方法,越界的代价不再是「看到了不该看的」。
+func TestIntegration_SessionDelete_ScopedToTheCallersPeer(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{
+		agentruntime.TextDelta{Text: "mine"},
+		agentruntime.Done{},
+	})
+	events, _ := rig.startRun(t, 904)
+	_ = drainRuntimeEvents(t, events, 5*time.Second)
+
+	other := pairSecondDevice(t, rig.d, "sha256:other-device")
+	var stolen wire.SessionDeleteResult
+	require.NoError(t, callRig(t, other, wire.MethodSessionDelete,
+		wire.SessionDeleteParams{ConversationID: convID(904)}, &stolen), "删自己名下不存在的会话是幂等成功")
+
+	var mine wire.SessionListResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &mine))
+	require.Len(t, mine.Sessions, 1, "另一个对端删不掉别人的会话")
+
+	var page wire.SessionPullResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPull,
+		wire.SessionPullParams{ConversationID: convID(904)}, &page))
+	assert.NotEmpty(t, page.Notifications, "它的转录也必须原封不动,补齐照常读得到")
+
+	// 配对身份点名别人的对端同样删不动(点名 origin 是账号级能力)。
+	var named wire.SessionDeleteResult
+	err := callRig(t, other, wire.MethodSessionDelete,
+		wire.SessionDeleteParams{ConversationID: convID(904), PeerFingerprint: "sha256:desktop-test"}, &named)
+	require.Error(t, err)
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	assert.Equal(t, int32(rpcerror.ErrUnauthorized.Code), rpcErr.Code)
+}
+
+// TestIntegration_SessionCatchup_PendingWaitersNeverCrossPeers 覆盖 R16,并钉住本轮
+// 换身份之后那条泄漏路径的形态。
 //
-//   - 对端 A 只要自己也有一行 42(自己早先跑过就够),就能读到对端 B 那条正在跑的 42
-//     号会话的 requestID、工具名与**完整工具入参**;
-//   - 还能照着那个 requestID 替 B 提交审批 —— B 的子进程会当成机主本人点的允许。
+// 待决策不在库里,它挂在 backend runtime 的内存里、只按一个 int64 会话键索引。从前
+// 那个键是**客户端报的裸数字**,而会话号是各客户端本地自增的主键 —— 两台设备的 42 号
+// 会话在 backend 那边并成一条:对端 A 只要自己也有一行 42,就能读到 B 那条正在跑的
+// 会话的 requestID、工具名与完整工具入参,还能照着 requestID 替 B 提交审批。
 //
-// 所以这里两条断言缺一不可:A 查不到 B 的待决策,且 A 提交了也不会有任何 waiter 被回答。
-// 最后一段反过来钉住正主仍然答得了自己的那条 —— 把所有人都挡掉同样能让前两条通过。
-func TestIntegration_SessionCatchup_PendingWaitersNeverCrossPeersOnTheSameSessionID(t *testing.T) {
-	const sharedSID = 42
+// 对话身份全局唯一之后,那种"同号会话"**由构造消失**:每个发起端各铸各的 uuid,daemon
+// 把它折成的 backend 会话键必然不同(见 runtimeSessionID)。这条用例因此改成两个对端
+// 各持**自己那条对话**,断言仍然缺一不可:A 查不到 B 的待决策,A 提交了也不会有任何
+// waiter 被回答,而正主自己仍然答得了自己那条(把所有人都挡掉同样能让前两条通过)。
+//
+// keyedApprovalRunner 按 backend 自己那把会话键索引待决策,与真实 backend 一致
+// (claudecode 的 sessionKey(id)、codex 的 r.active[sessionID]),所以"会不会并轨"
+// 在它身上如实反映生产行为。
+func TestIntegration_SessionCatchup_PendingWaitersNeverCrossPeers(t *testing.T) {
+	const (
+		ownerSID int64 = 42
+		otherSID int64 = 43
+	)
 
 	gate := make(chan struct{})
 	runner := newKeyedApprovalRunner(gate)
 	rig := bootKeyedApprovalRig(t, runner)
 
-	// 另一台**不同指纹**的已配对设备,先跑完自己的 42 号会话 —— 它因此有了一行 42,
-	// 但没有任何待决策。这正是泄漏的前提:findOwnSession 查得到行,于是继续去问 backend。
+	// 另一台**不同指纹**的已配对设备,先跑完它自己那条对话 —— 它因此在这台 daemon 上
+	// 有了一行,但没有任何待决策。这正是泄漏的前提:findOwnSession 查得到行,于是继续
+	// 去问 backend。
 	other := pairSecondDevice(t, rig.d, "sha256:other-device")
-	startRunAs(t, other, rig.dir, sharedSID, noApprovalText)
-	awaitLifecycle(t, other, sharedSID, wire.SessionLifecycleIdle)
+	startRunAs(t, other, rig.dir, otherSID, noApprovalText)
+	awaitLifecycle(t, other, otherSID, wire.SessionLifecycleIdle)
 
-	// 正主的 42 号会话此刻正卡在一条工具审批上。
-	events, _ := rig.startRun(t, sharedSID)
-	awaitText(t, events, "blocked")
+	// 正主那条对话此刻正卡在一条工具审批上。
+	events, _ := rig.startRun(t, ownerSID)
+	awaitText(t, rig.previews, "blocked")
 	require.Eventually(t, func() bool { return runner.waiterCount() == 1 },
 		5*time.Second, 20*time.Millisecond, "正主那条会话应当卡在审批上")
 
 	var mine wire.SessionPendingWaitersResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPendingWaiters,
-		wire.SessionPendingWaitersParams{SessionID: sharedSID}, &mine))
+		wire.SessionPendingWaitersParams{ConversationID: convID(ownerSID)}, &mine))
 	require.Len(t, mine.ToolPermissions, 1, "正主必须查得到自己那条待决策")
 
-	// ① 查询:另一个对端拿不到别人的 requestID / 工具名 / 工具入参。
+	// 两条对话在 backend 那边是两条:另一个对端问自己那条,拿到的是空,而不是正主那条。
+	var theirsOwn wire.SessionPendingWaitersResult
+	require.NoError(t, callRig(t, other, wire.MethodSessionPendingWaiters,
+		wire.SessionPendingWaitersParams{ConversationID: convID(otherSID)}, &theirsOwn))
+	assert.Empty(t, theirsOwn.ToolPermissions,
+		"两条对话在 backend 上并轨了 —— 另一个对端从自己那条会话读到了别人的审批载荷")
+
+	// ① 查询:另一个对端点名正主那条对话也拿不到任何东西(那一行不在它名下)。
 	var theirs wire.SessionPendingWaitersResult
 	require.NoError(t, callRig(t, other, wire.MethodSessionPendingWaiters,
-		wire.SessionPendingWaitersParams{SessionID: sharedSID}, &theirs))
+		wire.SessionPendingWaitersParams{ConversationID: convID(ownerSID)}, &theirs))
 	assert.Empty(t, theirs.ToolPermissions,
-		"另一个对端同号会话的待决策查询泄漏了别人的审批载荷")
+		"另一个对端点名别人的对话时泄漏了审批载荷")
 	assert.Empty(t, theirs.AskUserQuestions)
 
 	// ② 提交:另一个对端替不了别人答。daemon 侧按 R8 一律回成功(重连的客户端分不清
@@ -2737,16 +3087,38 @@ func TestIntegration_SessionCatchup_PendingWaitersNeverCrossPeersOnTheSameSessio
 	var ok wire.OK
 	require.NoError(t, callRig(t, other, wire.MethodSubmitToolPermission,
 		wire.SubmitToolPermissionParams{
-			SessionID: sharedSID, RequestID: "req-of-the-owner", Allow: true,
+			ConversationID: convID(otherSID), RequestID: "req-of-the-owner", Allow: true,
 		}, &ok))
 	assert.Empty(t, runner.deliveredIDs(),
 		"另一个对端替正主提交了审批 —— 正主的子进程会把它当成机主本人点的允许")
 
-	// ③ 正主自己仍然答得了:隔离不是把所有人都挡掉。
-	require.NoError(t, callRig(t, rig.cli, wire.MethodSubmitToolPermission,
+	// ②′ 同一件事,但**点名正主那条对话的 uuid**。步骤 ② 用的是 other 自己那条对话,
+	// 构造不出这个状态。它钉的是身份收缩之后真正剩下的那条路:backend 的会话键现在只由
+	// conversation_id 折出来、不再含对端(见 resolveSessionCapability),所以「知道那个
+	// uuid 的人摸不到那一轮」只剩一道闸 —— 接管的唯一入口 session.attach 按对端收窄。
+	// 这一条把那道闸的后果钉在 RPC 边界上:哪天它被放宽,这里会红。
+	var crossOK wire.OK
+	require.NoError(t, callRig(t, other, wire.MethodSubmitToolPermission,
 		wire.SubmitToolPermissionParams{
-			SessionID: sharedSID, RequestID: "req-of-the-owner", Allow: true,
-		}, &ok))
+			ConversationID: convID(ownerSID), RequestID: "req-of-the-owner", Allow: true,
+		}, &crossOK))
+	assert.Empty(t, runner.deliveredIDs(),
+		"另一个对端点名正主那条对话就替他答了审批 —— 控制 RPC 缺一次归属复核")
+
+	// ③ 旧的「同号会话」构造已经构造不出:线上再也放不进一个裸会话号,RPC 边界以
+	// 「参数不合法」把它挡在解析之前 —— 那条泄漏路径不是被更好地防住了,是没有了。
+	var rejected wire.SessionPendingWaitersResult
+	err := callRig(t, other, wire.MethodSessionPendingWaiters,
+		wire.SessionPendingWaitersParams{ConversationID: "42"}, &rejected)
+	require.Error(t, err, "裸会话号不再是一条合法的对话身份")
+	var rpcErr *rpcerror.Error
+	require.ErrorAs(t, err, &rpcErr)
+	assert.Equal(t, rpcerror.CodeInvalidParams, rpcErr.Code)
+
+	// ④ 正主自己仍然答得了:隔离不是把所有人都挡掉。
+	ownerCtx, ownerCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer ownerCancel()
+	require.NoError(t, rig.runner.SubmitToolPermission(ownerCtx, ownerSID, "req-of-the-owner", true, false, ""))
 	assert.Equal(t, []string{"req-of-the-owner"}, runner.deliveredIDs(),
 		"正主对自己那条会话的提交必须真的送达 backend")
 
@@ -2784,7 +3156,7 @@ func TestIntegration_SessionCatchup_DaemonRestartMarksSessionsInterrupted(t *tes
 
 	first.stop()
 
-	// 第二台 daemon:同一个数据目录 = 同一个库。
+	// 第二台 daemon:同一个数据目录 = 同一个库,同一份帧编号台账。
 	second := bootRigInDir(t, dir)
 
 	var after wire.SessionListResult
@@ -2792,21 +3164,21 @@ func TestIntegration_SessionCatchup_DaemonRestartMarksSessionsInterrupted(t *tes
 	require.Len(t, after.Sessions, 1, "重启不该让会话从清单里消失 —— 它的历史还在")
 	assert.Equal(t, wire.SessionLifecycleInterrupted, after.Sessions[0].LifecycleState)
 	assert.False(t, after.Sessions[0].WaitingForInput, "等待输入是实时叠加,重启后无人可答")
-	assert.Equal(t, wantSeq, after.Sessions[0].LatestSeq, "日志与 seq 都不因重启而变")
+	assert.Equal(t, wantSeq, after.Sessions[0].LatestSeq, "转录与编号都不因重启而变")
 
-	// 历史可读。
+	// 历史可读:补齐照旧把这条转录的持久帧按原来的号交出来。
 	var page wire.SessionPullResult
 	require.NoError(t, callRig(t, second.cli, wire.MethodSessionPull,
-		wire.SessionPullParams{SessionID: 903}, &page))
+		wire.SessionPullParams{ConversationID: convID(903)}, &page))
 	assert.Len(t, page.Notifications, int(wantSeq), "中断态会话的历史必须照样拉得出来")
 
 	// 不可续跑。
 	var attached wire.SessionAttachResult
-	err = callRig(t, second.cli, wire.MethodSessionAttach, wire.SessionAttachParams{SessionID: 903}, &attached)
+	err = callRig(t, second.cli, wire.MethodSessionAttach, wire.SessionAttachParams{ConversationID: convID(903)}, &attached)
 	require.Error(t, err, "中断态会话不可续跑")
-	var rpcErr *rpc.Error
-	require.True(t, errors.As(err, &rpcErr))
-	assert.Equal(t, wire.ErrCodeNoActiveTurn, rpcErr.Code)
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	assert.Equal(t, int32(wire.ErrCodeNoActiveTurn), rpcErr.Code)
 }
 
 // ── 断连补齐:硬不变量 ──────────────────────────────────────────────────────
@@ -2840,43 +3212,10 @@ func (r *notifyRecorder) observeLive(t *testing.T, method string, raw json.RawMe
 	r.add(recordedNotify{Method: method, Seq: seq, Payload: payload})
 }
 
-func (r *notifyRecorder) observePulled(t *testing.T, ns []wire.JournaledNotification) {
-	for _, n := range ns {
-		_, payload := splitSeq(t, n.Params)
-		r.add(recordedNotify{Method: n.Method, Seq: n.Seq, Payload: payload})
-	}
-}
-
 func (r *notifyRecorder) add(n recordedNotify) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.got = append(r.got, n)
-}
-
-// ordered 按 seq 升序去重后交出这次运行客户端**获得**的通知序列。去重是必要的:
-// 补齐期间 daemon 可能把同一条既推过来又在 pull 里带出来,R6 要求客户端丢弃后者;
-// 「同一条不被投递两次」由事件流的逐条相等去证(见用例末尾)。
-func (r *notifyRecorder) ordered() []recordedNotify {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	bySeq := map[int64]recordedNotify{}
-	seqs := make([]int64, 0, len(r.got))
-	for _, n := range r.got {
-		if n.Seq == 0 {
-			continue
-		}
-		if _, dup := bySeq[n.Seq]; dup {
-			continue
-		}
-		bySeq[n.Seq] = n
-		seqs = append(seqs, n.Seq)
-	}
-	sort.Slice(seqs, func(i, j int) bool { return seqs[i] < seqs[j] })
-	out := make([]recordedNotify, 0, len(seqs))
-	for _, s := range seqs {
-		out = append(out, bySeq[s])
-	}
-	return out
 }
 
 // splitSeq 把一帧拆成 (seq, 剥掉 seq 的规范化载荷)。实时帧带 seq、日志载荷不带,
@@ -2895,49 +3234,51 @@ func splitSeq(t *testing.T, raw json.RawMessage) (int64, string) {
 	return seq, string(canonicalJSON)
 }
 
-// recordingClient 在客户端这一侧记账:它包住真 *client.Client,拦下五类通知的
-// handler(实时路径)与 runtime.session.pull 的应答(补齐路径)。记账点在
+// recordingClient 在客户端这一侧记账:它包住真 ProtobufConnection,订阅五类
+// 实时通知。记账点在
 // *remote.Runtime 之外,所以它记的就是「客户端拿到了什么」,不掺实现细节。
 type recordingClient struct {
-	agentruntime.DaemonClientPort
+	client.ProtobufConnection
 	t   *testing.T
 	rec *notifyRecorder
 }
 
-func (c *recordingClient) Handle(method string, fn func(context.Context, json.RawMessage) (any, error)) {
-	if _, ok := recordedNotifyMethods[method]; ok {
-		inner := fn
-		fn = func(ctx context.Context, raw json.RawMessage) (any, error) {
-			c.rec.observeLive(c.t, method, raw)
-			return inner(ctx, raw)
+func newRecordingClient(t *testing.T, conn client.ProtobufConnection, rec *notifyRecorder) *recordingClient {
+	c := &recordingClient{ProtobufConnection: conn, t: t, rec: rec}
+	conn.Conn().Registry().SubscribeNotification(func(_ context.Context, notification *agentrewire.RpcNotification) error {
+		encoded, err := proto.Marshal(notification)
+		if err != nil {
+			return err
 		}
-	}
-	c.DaemonClientPort.Handle(method, fn)
-}
-
-func (c *recordingClient) Call(ctx context.Context, method string, params, result any) error {
-	err := c.DaemonClientPort.Call(ctx, method, params, result)
-	if err == nil && method == wire.MethodSessionPull {
-		if res, ok := result.(*wire.SessionPullResult); ok {
-			c.rec.observePulled(c.t, res.Notifications)
+		legacy, err := protowire.DecodeNotification(encoded)
+		if err != nil {
+			return err
 		}
-	}
-	return err
+		method, value, err := protowire.ProtoNotificationToWire(legacy)
+		raw, _ := json.Marshal(value)
+		if err == nil {
+			if _, ok := recordedNotifyMethods[method]; ok {
+				rec.observeLive(t, method, raw)
+			}
+		}
+		return err
+	})
+	return c
 }
 
 // memCursor 是桌面端游标端口的内存替身:daemon 包里没有 chat_sessions,
 // 而本用例要验的是「按游标补齐」的行为,不是它存在哪一列。
 type memCursor struct {
 	mu   sync.Mutex
-	fp   string
+	fp   devicefp.Carrier
 	seqs map[int64]int64
 }
 
-func newMemCursor(fp string) *memCursor {
+func newMemCursor(fp devicefp.Carrier) *memCursor {
 	return &memCursor{fp: fp, seqs: map[int64]int64{}}
 }
 
-func (m *memCursor) LoadCursor(_ context.Context, sessionID int64, fp string) (int64, bool, error) {
+func (m *memCursor) LoadCursor(_ context.Context, sessionID int64, fp devicefp.Carrier) (int64, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if fp != m.fp {
@@ -2947,7 +3288,7 @@ func (m *memCursor) LoadCursor(_ context.Context, sessionID int64, fp string) (i
 	return m.seqs[sessionID], true, nil
 }
 
-func (m *memCursor) SaveCursor(_ context.Context, sessionID int64, fp string, seq int64) error {
+func (m *memCursor) SaveCursor(_ context.Context, sessionID int64, fp devicefp.Carrier, seq int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if fp != m.fp {
@@ -2961,11 +3302,17 @@ func (m *memCursor) SaveCursor(_ context.Context, sessionID int64, fp string, se
 
 // durableRunner 在 rig 上造一个**带重连能力**的 *remote.Runtime:记账客户端 +
 // 重连端口(重新 auth.connect 一条同设备连接,与真桌面端连接池重拨走的是同一条路)。
-func (r *pairedTestRig) durableRunner(t *testing.T, rec *notifyRecorder, gate <-chan struct{}, states *connStateLog) *remote.Runtime {
+func (r *pairedTestRig) durableRunner(
+	t *testing.T, rec *notifyRecorder, gate <-chan struct{}, states *connStateLog, previews *previewLog,
+) *remote.Runtime {
 	t.Helper()
-	fp := rpc.DaemonFingerprint(r.d.state.DaemonInstanceUUID)
+	fp := identity.DaemonFingerprint(r.d.state.DaemonInstanceUUID)
+	conn := r.connectSameDeviceProtobuf(t)
+	r.proto = conn
 	rt := remote.New(
-		&recordingClient{DaemonClientPort: r.cli, t: t, rec: rec},
+		newRecordingClient(t, conn, rec),
+		remote.WithPreviewSink(previews),
+		remote.WithConversationIDResolver(convID),
 		remote.WithDaemonFingerprint(fp),
 		remote.WithSessionCursor(newMemCursor(fp)),
 		remote.WithCursorFlushInterval(0),
@@ -2973,14 +3320,14 @@ func (r *pairedTestRig) durableRunner(t *testing.T, rec *notifyRecorder, gate <-
 		remote.WithReconnectBackoff([]time.Duration{
 			10 * time.Millisecond, 50 * time.Millisecond, 200 * time.Millisecond, time.Second,
 		}),
-		remote.WithReconnect(remote.ReconnectFunc(func(context.Context) (agentruntime.DaemonClientPort, string, error) {
+		remote.WithReconnect(remote.ReconnectFunc(func(context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 			// gate 让用例决定「什么时候才允许重连」。用它把重连推到 daemon 把整轮
 			// 都落完库之后,补齐就必然经 runtime.session.pull 拿回来 —— 否则重连
 			// 恰好赶在事件产生之前,一切照旧走实时推送,这个用例就什么也没验到。
 			if gate != nil {
 				<-gate
 			}
-			return &recordingClient{DaemonClientPort: r.connectSameDevice(t), t: t, rec: rec}, fp, nil
+			return newRecordingClient(t, r.connectSameDeviceProtobuf(t), rec), fp, nil
 		})),
 	)
 	t.Cleanup(func() { _ = rt.Close() })
@@ -3041,38 +3388,105 @@ func bootPhasedRig(t *testing.T, r *phasedBackendRunner) *pairedTestRig {
 	return rig
 }
 
-// awaitJournalDepth 等 daemon 的通知日志攒够 want 条。读的是 daemon 自己的库,
-// 与补齐 RPC 同源。
-func awaitJournalDepth(t *testing.T, r *pairedTestRig, sessionID, want int64) {
+// awaitJournalDepth 等 daemon 侧的补齐水位攒够 want。读的是 daemon 自己的库,与补齐
+// RPC 同源(块投影出的持久帧 + 帧编号台账)。
+func awaitCheckpointContains(t *testing.T, r *pairedTestRig, sessionID int64, substrs ...string) {
 	t.Helper()
-	reader := journalReader{db: r.d.db}
 	require.Eventually(t, func() bool {
-		latest, err := reader.LatestSeq(context.Background(), rigDeviceFingerprint,
-			strconv.FormatInt(sessionID, 10))
-		return err == nil && latest >= want
+		rows := daemonMessages(t, r.d, convID(sessionID))
+		if len(rows) == 0 {
+			return false
+		}
+		blocks := rows[len(rows)-1].BlocksJSON
+		for _, s := range substrs {
+			if !strings.Contains(blocks, s) {
+				return false
+			}
+		}
+		return true
 	}, 10*time.Second, 10*time.Millisecond, "daemon 应在断连期间照常落库")
 }
 
-// awaitTextCollecting 等下一条指定文本的 TextDelta,并把这期间收下的事件原样交回
-// (它们已经离开 channel,不收回来后面的逐条比对就会凭空少几条)。
-func awaitTextCollecting(t *testing.T, events <-chan agentruntime.Event, want string) []agentruntime.Event {
-	t.Helper()
+// collectAvailableEvents 把此刻已经到达的事件取空并原样交回(它们已经离开 channel,
+// 不收回来后面的逐条比对就会凭空少几条)。
+func collectAvailableEvents(events <-chan agentruntime.Event) []agentruntime.Event {
 	var got []agentruntime.Event
-	deadline := time.After(5 * time.Second)
 	for {
 		select {
 		case ev, ok := <-events:
 			if !ok {
-				t.Fatalf("events channel closed while waiting for %q", want)
-			}
-			got = append(got, ev)
-			if td, isText := ev.(agentruntime.TextDelta); isText && td.Text == want {
 				return got
 			}
-		case <-deadline:
-			t.Fatalf("timed out waiting for %q", want)
+			got = append(got, ev)
+		default:
+			return got
 		}
 	}
+}
+
+// previewLog 收集**预览帧**里的事件。预览帧只用于即时呈现,不进 Run 交回的那条事件
+// 流(那条流是消费方的转录来源),所以要看「逐 token 的文本确实实时到了」只能看这里
+// —— 硬不变量 2 与硬不变量 1 因此可以分别断言,而不是互相顶掉。
+type previewLog struct {
+	mu   sync.Mutex
+	got  []agentruntime.Event
+	wake chan struct{}
+}
+
+func newPreviewLog() *previewLog { return &previewLog{wake: make(chan struct{}, 1)} }
+
+func (p *previewLog) OnPreviewEvent(_ int64, ev agentruntime.Event) {
+	p.mu.Lock()
+	p.got = append(p.got, ev)
+	p.mu.Unlock()
+	select {
+	case p.wake <- struct{}{}:
+	default:
+	}
+}
+
+// events 交回此刻收到的全部预览事件(按到达顺序)。轮末那条终态帧与预览帧走同一条
+// 读循环、同一个顺序,所以 Run 的事件流一关闭,这一份就是完整的。
+func (p *previewLog) events() []agentruntime.Event {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]agentruntime.Event(nil), p.got...)
+}
+
+// joined 把收到的预览 TextDelta 按到达顺序拼起来。
+func (p *previewLog) joined() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var b strings.Builder
+	for _, ev := range p.got {
+		if td, ok := ev.(agentruntime.TextDelta); ok {
+			b.WriteString(td.Text)
+		}
+	}
+	return b.String()
+}
+
+// awaitPreviewOfType 等预览流里出现某个类型的事件并把它交回。
+func awaitPreviewOfType[E agentruntime.Event](t *testing.T, p *previewLog) E {
+	t.Helper()
+	var found E
+	require.Eventually(t, func() bool {
+		for _, ev := range p.events() {
+			if typed, ok := ev.(E); ok {
+				found = typed
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 5*time.Millisecond, "预览流里没等到 %T", found)
+	return found
+}
+
+// awaitText 等预览流里出现某个片段(逐 token 呈现的判据)。
+func (p *previewLog) awaitText(t *testing.T, want string) {
+	t.Helper()
+	require.Eventually(t, func() bool { return strings.Contains(p.joined(), want) },
+		5*time.Second, 5*time.Millisecond, "预览帧里没等到 %q,只有 %q", want, p.joined())
 }
 
 // connStateLog 收集会话级连接态。用例靠它知道「补齐已经落定、回到实时了」,
@@ -3103,24 +3517,39 @@ func (c *connStateLog) sawAfterReconnect(sessionID int64) bool {
 }
 
 // TestIntegration_ReconnectCatchUp_MatchesUninterruptedRun 是本规格的**硬不变量**:
-// 同一次会话执行,「中途掐断连接、隔一会儿重连补齐」最终拿到的通知序列,必须与
-// 「全程不断连」逐条相等 —— method 相同、载荷字节相同、顺序相同、无重复、无遗漏。
+// 同一次会话执行,「中途掐断连接、隔一会儿重连补齐」最终落进 daemon 库里的转录,
+// 必须与「全程不断连」逐字节相同 —— 断连只影响推送,不影响累积与 checkpoint。
+//
+// 这不再是逐条比对客户端收到的原始事件流:补齐只服务持久帧,拉回来的是块级内容而
+// 不是逐 token 的过程(规格「两级帧与补齐」的**刻意行为变化**),断连期间产生的那段
+// 因此必然以不同的粒度到达 —— 直连时是若干条 TextDelta,补齐时是合并后的一个块。
+// 转录本身(消息行 + 块行)才是不随连接状态变化的那份真相,这正是「转录存储对齐」
+// 要保证的东西。
 //
 // 真 daemon + 真 WebSocket + 真 *remote.Runtime。两次运行跑同一段三阶段脚本,唯一
 // 区别是第二次在第一阶段之后 Close 掉那条 ws,并把重连推迟到 daemon 把第二阶段全部
 // 落完库之后 —— 断连期间那几条因此只可能从 runtime.session.pull 回来。第三阶段在
 // 补齐落定**之后**才产生,用来验证会话确实回到了实时推送,而不是补完就哑了。
 //
-// 记账点在 *remote.Runtime 之外的客户端侧:实时路径记 handler 收到的帧,补齐路径记
-// runtime.session.pull 的应答,两边都剥掉 seq 后规范化,因此可以逐条比对。
+// phase2 以一次工具往返收尾而不是纯文本增量:逐 token 的正文只在收口(FinishTurn)
+// 时才定稿落库(决策 5,ShouldCheckpointAfter 不认 TextDelta),ToolResult 是本轮唯一
+// 会触发 checkpoint 的时刻。没有它,断连期间产生的内容在重连那一刻根本还没落库,
+// 补齐也就无从谈起 —— 这不是本用例要验的东西,让 phase2 在落库之后再断连才问得到
+// 「重连补齐补不补得回来」。
 func TestIntegration_ReconnectCatchUp_MatchesUninterruptedRun(t *testing.T) {
 	const sid int64 = 100
+	toolInput, err := json.Marshal(map[string]any{"path": "README.md"})
+	require.NoError(t, err)
 	phase1 := []agentruntime.Event{agentruntime.TextDelta{Text: "one"}, agentruntime.TextDelta{Text: "two"}}
-	phase2 := []agentruntime.Event{agentruntime.TextDelta{Text: "three"}, agentruntime.TextDelta{Text: "four"}}
+	phase2 := []agentruntime.Event{
+		agentruntime.TextDelta{Text: "three"}, agentruntime.TextDelta{Text: "four"},
+		agentruntime.ToolCall{ID: "tu-1", Name: "Read", Input: toolInput},
+		agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"},
+	}
 	phase3 := []agentruntime.Event{agentruntime.TextDelta{Text: "five"}, agentruntime.Done{}}
 
-	var baseline []recordedNotify
 	var baselineEvents []agentruntime.Event
+	var baselineTranscript []*transcript_entity.Message
 	var baselineResult agentruntime.RunResult
 
 	t.Run("uninterrupted", func(t *testing.T) {
@@ -3131,13 +3560,17 @@ func TestIntegration_ReconnectCatchUp_MatchesUninterruptedRun(t *testing.T) {
 			{events: phase1}, {gate: g1, events: phase2}, {gate: g2, events: phase3},
 		}})
 		rec := &notifyRecorder{}
-		rt := rig.durableRunner(t, rec, nil, newConnStateLog())
+		previews := newPreviewLog()
+		rt := rig.durableRunner(t, rec, nil, newConnStateLog(), previews)
 		events, result := rig.startRunOn(t, rt, sid)
 
 		baselineEvents = drainRuntimeEvents(t, events, 10*time.Second)
 		baselineResult = *result
-		baseline = rec.ordered()
-		require.NotEmpty(t, baseline, "全程不断连也该收到通知")
+		require.NotEmpty(t, baselineEvents, "全程不断连也该收到事件")
+		assert.Equal(t, "onetwothreefourfive", previews.joined(),
+			"硬不变量 2:逐 token 的正文实时到达(它走呈现出口,不进转录)")
+		baselineTranscript = daemonMessages(t, rig.d, convID(sid))
+		require.Len(t, baselineTranscript, 2, "一轮该落下用户 + assistant 两条消息")
 	})
 
 	t.Run("disconnect_then_catch_up", func(t *testing.T) {
@@ -3149,17 +3582,19 @@ func TestIntegration_ReconnectCatchUp_MatchesUninterruptedRun(t *testing.T) {
 		rec := &notifyRecorder{}
 		states := newConnStateLog()
 		reconnectGate := make(chan struct{})
-		rt := rig.durableRunner(t, rec, reconnectGate, states)
+		previews := newPreviewLog()
+		rt := rig.durableRunner(t, rec, reconnectGate, states, previews)
 		events, result := rig.startRunOn(t, rt, sid)
 
-		// 掐断:第一阶段已经实时到达,第二阶段在断连期间产生。等到的那几条要收回
-		// 序列里,它们同样是这次运行交付出去的。
-		got := awaitTextCollecting(t, events, "one")
-		require.NoError(t, rig.cli.Close())
+		// 掐断:第一阶段已经实时到达(它是预览,只呈现、不进转录),第二阶段在断连
+		// 期间产生。这期间进了转录的那几条要收回序列里,它们同样是这次运行交付出去的。
+		previews.awaitText(t, "onetwo")
+		got := collectAvailableEvents(events)
+		require.NoError(t, rig.proto.Close())
 		close(disconnected)
 
 		// 等 daemon 把第二阶段落完库(此刻推送无人接收),再放行重连。
-		awaitJournalDepth(t, rig, sid, int64(len(phase1)+len(phase2)))
+		awaitCheckpointContains(t, rig, sid, "four", `"type":"tool_result"`)
 		close(reconnectGate)
 
 		// 补齐落定 → 会话回到实时 → 第三阶段才开始产生。
@@ -3169,12 +3604,770 @@ func TestIntegration_ReconnectCatchUp_MatchesUninterruptedRun(t *testing.T) {
 
 		got = append(got, drainRuntimeEvents(t, events, 15*time.Second)...)
 
-		// (a) 客户端**获得**的通知序列与不断连时逐条相等:方法、seq、载荷字节。
-		assert.Equal(t, baseline, rec.ordered(),
-			"补齐后拿到的通知序列必须与全程不断连时逐条相等")
-		// (b) 客户端**投递**出去的事件流也逐条相等 —— 这一条堵死重复投递:
-		// (a) 按 seq 去重,只有 (b) 能证明同一条没有被消费两次。
-		assert.Equal(t, baselineEvents, got, "补齐后交付的事件流不得多一条、少一条或换序")
+		// 硬不变量:断连不改变最终落地的转录。daemon 侧的累积与 checkpoint 完全不
+		// 依赖有没有人在听,两次运行喂的是同一段事件脚本,落出来的消息行/块行必须
+		// 逐字节相同。
+		gotTranscript := daemonMessages(t, rig.d, convID(sid))
+		require.Len(t, gotTranscript, len(baselineTranscript))
+		for i := range gotTranscript {
+			assert.Equal(t, baselineTranscript[i].BlocksJSON, gotTranscript[i].BlocksJSON,
+				"第 %d 条消息的正文不因断连而变", i)
+		}
 		assert.Equal(t, baselineResult.StopErr, result.StopErr, "断连不得把终态污染成失败")
+
+		// 硬不变量 1 的判据本身:同一段执行,断连重连之后**交付给调用方的那条流**
+		// 必须与全程不断连逐条相等 —— 不多一条(补齐重发已经看过的内容)、不少一条
+		// (断连期间的内容补不回来)、不换序。
+		assert.Equal(t, withoutWallClock(baselineEvents), withoutWallClock(got),
+			"补齐后交付的事件流不得多一条、少一条或换序")
+
+		// 断连期间产生的工具往返只可能经 runtime.session.pull 到达:客户端那时没有
+		// 连接,不存在任何实时投递路径。这两条断言因此是本用例真正的判据 —— 补齐
+		// 若读不到真实转录(比如仍是空桩),客户端就永远不会知道这次工具调用发生过。
+		assert.Contains(t, got, agentruntime.ToolCall{ID: "tu-1", Name: "Read", Input: toolInput},
+			"断连期间产生的工具调用必须经补齐到达客户端")
+		assert.Contains(t, got, agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"},
+			"断连期间产生的工具结果必须经补齐到达客户端")
+		joined := joinTextDeltas(got)
+		assert.Contains(t, joined, "three", "断连期间的正文同样只能经补齐到达")
+		assert.Contains(t, joined, "four", "断连期间的正文同样只能经补齐到达")
+
+		// 重连之后确实回到了实时推送,不是补完就哑了:第三阶段的内容必须经实时
+		// 推送到达,而不是只靠 daemon 自己把轮跑完。
+		assert.Contains(t, joined, "five",
+			"补齐落定后,第三阶段的内容必须经实时推送到达客户端")
+		var sawDone bool
+		for _, ev := range got {
+			if _, ok := ev.(agentruntime.Done); ok {
+				sawDone = true
+			}
+		}
+		assert.True(t, sawDone, "这一轮必须以 Done 收尾")
 	})
+}
+
+// withoutWallClock 把收口那一帧上的**墙上时间**抹平(耗时 / 首 token 毫秒数)。
+//
+// 它们是这台机器这一次跑出来的测量值,两次运行天然不同,与「交付了什么内容、几条、
+// 什么顺序」无关。除这两格之外的一切 —— 事件类型、每一格内容、条数、顺序 —— 都逐字
+// 比对,重复投递、漏投递、换序都会当场判红。
+func withoutWallClock(events []agentruntime.Event) []agentruntime.Event {
+	out := make([]agentruntime.Event, 0, len(events))
+	for _, ev := range events {
+		if done, ok := ev.(agentruntime.Done); ok {
+			done.DurationMs, done.FirstTokenMs, done.TokensPerSec = 0, 0, 0
+			out = append(out, done)
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+// joinTextDeltas 把一串事件里的 TextDelta 按到达顺序拼起来,供内容层面的比对——
+// 补齐服务的是合并后的块,直连服务的是逐 token 的增量,拼接后的正文才是两者都该
+// 认的公共尺度。
+func joinTextDeltas(events []agentruntime.Event) string {
+	var b strings.Builder
+	for _, ev := range events {
+		if td, ok := ev.(agentruntime.TextDelta); ok {
+			b.WriteString(td.Text)
+		}
+	}
+	return b.String()
+}
+
+// SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
+func (c *rigProtobufConnection) SelfFingerprint() string { return string(rigDeviceFingerprint) }
+
+// ── 转录存储对齐:agentred 落块,不再落通知日志 ───────────────────────────────
+
+// transcriptScript 是这一族用例共用的一串后端事件:thinking 穿插、一次工具往返、
+// 收尾一段正文。它刻意与 internal/pkg/transcript 的累积用例同形 —— 两个宿主跑的是
+// 同一只累积器,这里要证明的正是「agentred 落下的那一份与桌面端逐字节相同」。
+func transcriptScript(t *testing.T) []agentruntime.Event {
+	t.Helper()
+	toolInput, err := json.Marshal(map[string]any{"path": "README.md"})
+	require.NoError(t, err)
+	return []agentruntime.Event{
+		agentruntime.ThinkingDelta{Text: "check the file"},
+		agentruntime.TextDelta{Text: "reading"},
+		agentruntime.ToolCall{ID: "tu-1", Name: "Read", Input: toolInput},
+		agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"},
+		agentruntime.TextDelta{Text: "done"},
+		agentruntime.Done{},
+	}
+}
+
+// desktopBlocksJSON 把同一串事件交给**共用的**累积器,得出桌面端会落进库的那份正文。
+// 它不是「另一份实现」:调的就是 agentred 自己也在调的那只 dispatcher + accumulator,
+// 断言因此是「两个宿主的落库正文逐字节相同」而不是「daemon 落了点什么」。
+func desktopBlocksJSON(t *testing.T, script []agentruntime.Event) string {
+	t.Helper()
+	dispatcher := transcript.NewTurnDispatcher(transcript.Adapters{})
+	acc := turn.New()
+	turnCtx := &turn.TurnContext{Waits: turn.NewWaitTracker()}
+	for _, ev := range script {
+		require.NoError(t, dispatcher.Apply(context.Background(), ev, acc, discardTurnEmitter{}, nil, turnCtx))
+	}
+	msg := &transcript_entity.Message{}
+	require.NoError(t, msg.SetBlocks(acc.Finalize()))
+	return msg.BlocksJSON
+}
+
+type discardTurnEmitter struct{}
+
+func (discardTurnEmitter) Emit(context.Context, string, any) {}
+
+// daemonSessionID 交出这条对话在这台 daemon 上的本地数字主键(没有则 0)。
+func daemonSessionID(t *testing.T, d *Daemon, conversationID string) int64 {
+	t.Helper()
+	var sessionID int64
+	require.NoError(t, d.db.Raw(
+		"SELECT COALESCE(MAX(id), 0) FROM daemon_sessions WHERE conversation_id = ?", conversationID).
+		Row().Scan(&sessionID))
+	return sessionID
+}
+
+// daemonMessages 读出这台 daemon 库里某条对话的全部消息(含正文),按 seq 升序。
+func daemonMessages(t *testing.T, d *Daemon, conversationID string) []*transcript_entity.Message {
+	t.Helper()
+	sessionID := daemonSessionID(t, d, conversationID)
+	if sessionID == 0 {
+		return nil
+	}
+	return daemonMessagesOfSession(t, d, sessionID)
+}
+
+// daemonMessagesOfSession 按本地会话主键读消息 —— 身份行已经被删掉之后仍看得见
+// 转录有没有留成孤儿。
+func daemonMessagesOfSession(t *testing.T, d *Daemon, sessionID int64) []*transcript_entity.Message {
+	t.Helper()
+	rows, err := transcript_repo.NewMessage().List(
+		dbpkg.WithContextDB(context.Background(), d.db), sessionID)
+	require.NoError(t, err)
+	return rows
+}
+
+// daemonTableExists 回答这台 daemon 的库里还有没有这张表。
+func daemonTableExists(t *testing.T, d *Daemon, table string) bool {
+	t.Helper()
+	var count int64
+	require.NoError(t, d.db.Raw(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", table).
+		Row().Scan(&count))
+	return count > 0
+}
+
+// Given 一轮远端执行跑完;
+// When  去 agentred 自己的库里看;
+// Then  落下的是与桌面端同形的消息行 + 块行(正文逐字节相同),而不是一段通知日志 ——
+//
+//	daemon_notification_journal 一行都没有(表已退役)。
+func TestIntegration_RemoteTurn_LandsTheSameBlockTranscriptAsTheDesktop(t *testing.T) {
+	script := transcriptScript(t)
+	rig := bootRemoteRig(t, script)
+	events, _ := rig.startRun(t, 700)
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(700))
+		return len(messages) == 2
+	}, 5*time.Second, 20*time.Millisecond, "一轮该落下用户 + assistant 两条消息,得到 %d 条", len(messages))
+
+	assert.Equal(t, "user", messages[0].Role)
+	assert.Equal(t, `[{"type":"text","data":{"text":"hi"}}]`, messages[0].BlocksJSON,
+		"用户那一行是发起这轮的原文")
+	assert.Equal(t, "assistant", messages[1].Role)
+	assert.Equal(t, desktopBlocksJSON(t, script), messages[1].BlocksJSON,
+		"两个宿主就同一串事件落下的正文必须逐字节相同")
+
+	assert.False(t, daemonTableExists(t, rig.d, "daemon_notification_journal"),
+		"通知日志退役:表不该还在,更不该有行")
+}
+
+// haltingBackendRunner 发完点名的那几条事件就**停在轮中**:channel 不关,轮次不收口。
+// 它模拟的是「daemon 在一轮进行到一半时被杀掉」——崩溃后能看见什么,取决于崩溃之前
+// checkpoint 过什么。
+type haltingBackendRunner struct{ events []agentruntime.Event }
+
+func (*haltingBackendRunner) Capabilities() capability.Capabilities { return capability.Capabilities{} }
+
+func (h *haltingBackendRunner) Run(_ context.Context, _ agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+	ch := make(chan agentruntime.Event, len(h.events))
+	go func() {
+		for _, ev := range h.events {
+			ch <- ev
+			time.Sleep(5 * time.Millisecond)
+		}
+		// 刻意不 close:这一轮永远收不了口。
+	}()
+	return ch, &agentruntime.RunResult{}, nil
+}
+
+func (*haltingBackendRunner) Steer(context.Context, int64, string, string) error { return nil }
+func (*haltingBackendRunner) Abort(context.Context, int64, uint64) (agentruntime.AbortOutcome, error) {
+	return agentruntime.AbortOutcome{}, nil
+}
+
+// Given 一轮跑到 ToolResult 之后就被掐断(daemon 进程消失);
+// When  在同一个数据目录上重新起一台 daemon;
+// Then  崩溃之前 checkpoint 过的那些块仍在库里 —— 在途那一轮靠 checkpoint 抗崩溃,
+//
+//	不另立 WAL(决策 5,桌面端 dispatcher_runtime.go 是同一条)。
+func TestIntegration_MidTurnCrash_KeepsTheCheckpointedBlocks(t *testing.T) {
+	toolInput, err := json.Marshal(map[string]any{"path": "README.md"})
+	require.NoError(t, err)
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, &haltingBackendRunner{events: []agentruntime.Event{
+		agentruntime.TextDelta{Text: "reading"},
+		agentruntime.ToolCall{ID: "tu-1", Name: "Read", Input: toolInput},
+		agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"},
+	}})
+	t.Cleanup(restore)
+
+	dir, err := os.MkdirTemp("", "ard-crash")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	rig := bootRigInDir(t, dir)
+	_, _ = rig.startRun(t, 701)
+
+	const wantBlocks = `[{"type":"text","data":{"text":"reading"}},` +
+		`{"type":"tool_use","data":{"id":"tu-1","name":"Read","input":{"path":"README.md"}}},` +
+		`{"type":"tool_result","data":{"tool_use_id":"tu-1","content":[{"type":"text","data":{"text":"ok"}}]}}]`
+	require.Eventually(t, func() bool {
+		rows := daemonMessages(t, rig.d, convID(701))
+		return len(rows) == 2 && rows[1].BlocksJSON == wantBlocks
+	}, 5*time.Second, 20*time.Millisecond, "ToolResult 之后该已经 checkpoint 过一次")
+
+	// 崩溃:进程没了,轮次停在中途。
+	rig.stop()
+
+	restarted := bootRigInDir(t, dir)
+	rows := daemonMessages(t, restarted.d, convID(701))
+	require.Len(t, rows, 2, "重启后消息行仍在")
+	assert.Equal(t, wantBlocks, rows[1].BlocksJSON, "崩溃前 checkpoint 过的块一个不少")
+}
+
+// daemonMessageFrameSeqs 数一数某一条消息在帧编号台账里占了几个号。0 = 它的持久帧
+// 一个都没发布出去 —— 补齐交不出它,第二个订阅者也永远看不到它。
+func daemonMessageFrameSeqs(t *testing.T, d *Daemon, sessionID, messageID int64) int64 {
+	t.Helper()
+	var count int64
+	require.NoError(t, d.db.Raw(
+		"SELECT COUNT(*) FROM chat_frame_seqs WHERE session_id = ? AND message_id = ?", sessionID, messageID).
+		Row().Scan(&count))
+	return count
+}
+
+// daemonFrameSeqRows 数一数这条会话在帧编号台账里还剩几行。
+func daemonFrameSeqRows(t *testing.T, d *Daemon, sessionID int64) int64 {
+	t.Helper()
+	var count int64
+	require.NoError(t, d.db.Raw(
+		"SELECT COUNT(*) FROM chat_frame_seqs WHERE session_id = ?", sessionID).
+		Row().Scan(&count))
+	return count
+}
+
+// TestIntegration_SessionList_ReportsTheHighWaterWithoutNumberingAnything 钉住
+// 会话清单那条 RPC 的两件事,它们是同一条纪律的两半:
+//
+//   - 报出的「最新 seq」就是持久编号计数器的末尾 —— 随后按它去 pull,拿回的最后
+//     一帧的号必须正好等于它,否则对端会把两者的差当成跳号;
+//   - 它**一行都不写**。规格明写清单无副作用(remote.Runtime.turnStartFloor 正是
+//     靠这一条在每代连接开轮前探一次高水位),取号只发生在「真要发布或真被补齐」
+//     那一刻(规格「帧编号」)。拿真去分配一次来回答高水位,会让一次只读探测替这个
+//     对端的每一条对话都补齐编号。
+//
+// 跑完一轮之后台账里已经有号了:宿主实时发布持久帧时就取了(规格「两级帧与补齐」
+// 第 3 条)。所以判据不是「台账为空」,而是**清单前后一行不差**。
+func TestIntegration_SessionList_ReportsTheHighWaterWithoutNumberingAnything(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{
+		agentruntime.TextDelta{Text: "hello"},
+		agentruntime.Done{},
+	})
+	events, _ := rig.startRun(t, 905)
+	_ = drainRuntimeEvents(t, events, 5*time.Second)
+
+	sessionID := daemonSessionID(t, rig.d, convID(905))
+	require.NotZero(t, sessionID)
+	require.NotEmpty(t, daemonMessagesOfSession(t, rig.d, sessionID), "这一轮确实落了转录")
+	numbered := daemonFrameSeqRows(t, rig.d, sessionID)
+	require.Positive(t, numbered, "这一轮的持久帧是实时发布出去的,发布那一刻就取了号")
+
+	var list wire.SessionListResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &list))
+	require.Len(t, list.Sessions, 1)
+	latest := list.Sessions[0].LatestSeq
+	require.Positive(t, latest, "有转录就有高水位")
+	assert.Equal(t, numbered, daemonFrameSeqRows(t, rig.d, sessionID),
+		"清单是只读探测:它不得给任何一条对话取一个号")
+
+	// 再问一次:读两遍报的是同一个数,而不是第二次因为第一次写过了才稳定下来。
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &list))
+	assert.Equal(t, latest, list.Sessions[0].LatestSeq, "只读探测必须可重复")
+	assert.Equal(t, numbered, daemonFrameSeqRows(t, rig.d, sessionID))
+
+	// 补齐拿回的末尾号必须正是清单报过的那个,而且它同样不再多编一个号 ——
+	// 这一轮的帧全都在发布时编过了。
+	var page wire.SessionPullResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPull,
+		wire.SessionPullParams{ConversationID: convID(905), Cursor: 0, Limit: 200}, &page))
+	require.NotEmpty(t, page.Notifications)
+	assert.Equal(t, latest, page.Notifications[len(page.Notifications)-1].Seq,
+		"清单报的高水位必须等于补齐拿回的最后一个号")
+	assert.Equal(t, numbered, daemonFrameSeqRows(t, rig.d, sessionID),
+		"实时发布过的内容,补齐时沿用同一串号,不再重编")
+}
+
+// Given 一轮带着附件（浏览器控制台发的图走的就是 runtime.run 的 userBlocks）派发到 agentred;
+// When  去 agentred 自己的库里看那一行用户消息;
+// Then  文本块与附件块都在 —— 附件此前只到模型、从不进宿主的转录
+//
+//	(spec 2026-09-07-host-transcript-user-input 决策 3)。
+//
+// blockCapturingRunner 记下这一轮 backend 真正收到的 UserBlocks —— 「附件送没送去
+// 执行」这件事只有在这里看得见。
+type blockCapturingRunner struct {
+	mu  sync.Mutex
+	got []blocks.ContentBlock
+}
+
+func (*blockCapturingRunner) Capabilities() capability.Capabilities { return capability.Capabilities{} }
+
+func (r *blockCapturingRunner) Run(_ context.Context, req agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+	r.mu.Lock()
+	r.got = append([]blocks.ContentBlock(nil), req.UserBlocks...)
+	r.mu.Unlock()
+	ch := make(chan agentruntime.Event, 1)
+	ch <- agentruntime.Done{}
+	close(ch)
+	return ch, &agentruntime.RunResult{}, nil
+}
+
+func (r *blockCapturingRunner) received() []blocks.ContentBlock {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]blocks.ContentBlock(nil), r.got...)
+}
+
+func TestIntegration_RunWithUserBlocks_LandsAttachmentsInTheUserMessage(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	rt := &blockCapturingRunner{}
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	events, result, err := rig.runner.Run(ctx, agentruntime.RunRequest{
+		Backend: &agent_backend_entity.AgentBackend{
+			Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "test-backend",
+		},
+		AgentID: 1, SessionID: 780, Cwd: rig.dir, UserText: "look at this",
+		UserBlocks: []blocks.ContentBlock{
+			blocks.ImageBlock{MediaType: "image/png", Source: blocks.BlobSource{Inline: []byte("PNGDATA")}},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(780))
+		return len(messages) == 2
+	}, 5*time.Second, 20*time.Millisecond, "一轮该落下用户 + assistant 两条消息,得到 %d 条", len(messages))
+
+	assert.Equal(t, "user", messages[0].Role)
+	assert.Equal(t,
+		`[{"type":"text","data":{"text":"look at this"}},`+
+			`{"type":"image","data":{"media_type":"image/png","source":{"inline":"UE5HREFUQQ=="}}}]`,
+		messages[0].BlocksJSON,
+		"附件要与文本一起落进用户那一行")
+
+	// 落转录之外的另一半:这一轮的执行也要收到附件。
+	got := rt.received()
+	require.Len(t, got, 1, "backend 该收到那一个附件块")
+	assert.IsType(t, blocks.ImageBlock{}, got[0], "收到的该是那张图")
+}
+
+// steerThenFinishRunner 把一轮劈成「插话前 / 插话后」两段:Run 先发一条正文停住,
+// 收到 Steer 时发 SteerConsumed + 第二段正文 + Done 并收口。
+type steerThenFinishRunner struct {
+	mu   sync.Mutex
+	live chan agentruntime.Event
+}
+
+func (*steerThenFinishRunner) Capabilities() capability.Capabilities {
+	return capability.Capabilities{}
+}
+
+func (r *steerThenFinishRunner) Run(_ context.Context, _ agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.live = make(chan agentruntime.Event, 16)
+	r.live <- agentruntime.TextDelta{Text: "before-steer"}
+	return r.live, &agentruntime.RunResult{}, nil
+}
+
+func (r *steerThenFinishRunner) Steer(_ context.Context, _ int64, queuedID, text string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.live == nil {
+		return nil
+	}
+	r.live <- agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{QueuedID: queuedID, Text: text}}}
+	r.live <- agentruntime.TextDelta{Text: "after-steer"}
+	r.live <- agentruntime.Done{}
+	close(r.live)
+	r.live = nil
+	return nil
+}
+
+func (*steerThenFinishRunner) Abort(context.Context, int64, uint64) (agentruntime.AbortOutcome, error) {
+	return agentruntime.AbortOutcome{}, nil
+}
+
+// Given 一轮跑到一半,某台已配对设备插了一句话,后端把它消费掉;
+// When  去 agentred 自己的库里看;
+// Then  当前 assistant 就此收口,后面接着「一行带提交方来源的用户消息 + 一行新
+//
+//	assistant」—— 与桌面端做宿主时(chat_svc.persistConsumedSteers)同形。
+//
+// 此前 agentred 把 SteerConsumed 整个丢掉(internal/pkg/transcript/dispatcher.go:37
+// 不注册它),插话文本一个字都不进转录,前后两段正文还被并成一个块:用户自己打的字
+// 从此哪儿都找不回来,那是 2026-09-05 不变量 1 的「漏」
+// (spec 2026-09-07-host-transcript-user-input 决策 1)。
+func TestIntegration_SteerConsumed_SegmentsTheHostTranscript(t *testing.T) {
+	rt := &steerThenFinishRunner{}
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+
+	events, _ := rig.startRun(t, 790)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	require.NoError(t, rig.runner.Steer(ctx, 790, "q-1", "follow-up-from-user"))
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	// 先等这一轮在 daemon 侧落完(后半段正文已经落库),再断言形状 —— 否则失败信息
+	// 只会说「条件不满足」,看不出实际落成了几行。
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(790))
+		return len(messages) >= 2 &&
+			strings.Contains(messages[len(messages)-1].BlocksJSON, "after-steer")
+	}, 5*time.Second, 20*time.Millisecond, "等这一轮在 daemon 侧落完")
+	require.Len(t, messages, 4,
+		"插话要把这一轮切成四行(提问 / 前半段 / 插话 / 后半段),实际落成 %s",
+		daemonRoleSummary(messages))
+
+	assert.Equal(t, "user", messages[0].Role)
+	assert.Equal(t, `[{"type":"text","data":{"text":"hi"}}]`, messages[0].BlocksJSON)
+	assert.Equal(t, "assistant", messages[1].Role)
+	assert.Equal(t, `[{"type":"text","data":{"text":"before-steer"}}]`, messages[1].BlocksJSON,
+		"插话之前那一段就此收口,不再与后半段并成一个块")
+	assert.Equal(t, "user", messages[2].Role)
+	assert.Equal(t,
+		`[{"type":"text","data":{"sourceDevice":"`+string(rigDeviceFingerprint)+`","sourceDeviceName":"test-mac",`+
+			`"text":"follow-up-from-user"}}]`,
+		messages[2].BlocksJSON,
+		"插话落成一行用户消息,并带**提交方**的来源标识(R17)")
+	assert.Equal(t, "assistant", messages[3].Role)
+	assert.Equal(t, `[{"type":"text","data":{"text":"after-steer"}}]`, messages[3].BlocksJSON)
+
+	// 这四行都要有持久帧号 —— 没有号的内容补齐交不出去,第二个订阅者也永远看不到它。
+	for i, m := range messages {
+		assert.NotZero(t, daemonMessageFrameSeqs(t, rig.d, m.SessionID, m.ID),
+			"第 %d 行(role=%s)的持久帧必须已经取号发布", i, m.Role)
+	}
+}
+
+// daemonRoleSummary 把一串消息压成「role:正文」的可读摘要,用在断言失败信息里。
+func daemonRoleSummary(messages []*transcript_entity.Message) string {
+	parts := make([]string, 0, len(messages))
+	for _, m := range messages {
+		parts = append(parts, m.Role+":"+m.BlocksJSON)
+	}
+	return strings.Join(parts, " | ")
+}
+
+// steerDuringToolRunner 精确重现 claudecode 的真实次序:PostToolUse hook 在 CLI 写出
+// tool_result 帧**之前**就 drain 走排队消息,所以 SteerConsumed 会先于同一个工具的
+// ToolResult 到达。
+type steerDuringToolRunner struct {
+	mu   sync.Mutex
+	live chan agentruntime.Event
+}
+
+func (*steerDuringToolRunner) Capabilities() capability.Capabilities {
+	return capability.Capabilities{}
+}
+
+func (r *steerDuringToolRunner) Run(_ context.Context, _ agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.live = make(chan agentruntime.Event, 16)
+	r.live <- agentruntime.ToolCall{ID: "tu-1", Name: "Read", Input: []byte(`{"path":"README.md"}`)}
+	return r.live, &agentruntime.RunResult{}, nil
+}
+
+func (r *steerDuringToolRunner) Steer(_ context.Context, _ int64, queuedID, text string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.live == nil {
+		return nil
+	}
+	// 工具还在途:插话先到。
+	r.live <- agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{QueuedID: queuedID, Text: text}}}
+	r.live <- agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"}
+	r.live <- agentruntime.TextDelta{Text: "after-tool"}
+	r.live <- agentruntime.Done{}
+	close(r.live)
+	r.live = nil
+	return nil
+}
+
+func (*steerDuringToolRunner) Abort(context.Context, int64, uint64) (agentruntime.AbortOutcome, error) {
+	return agentruntime.AbortOutcome{}, nil
+}
+
+// Given 工具还在途时插话就被消费掉(claudecode 的真实次序);
+// When  这一轮跑完;
+// Then  分段发生在 tool_result **之后** —— tool_use 与它的 tool_result 留在同一条
+//
+//	assistant 里,插话那一行排在它们后面。
+//
+// 此刻就收口会把 tool_use 冻在旧消息里,随后的 tool_result 在新累加器里查不到它、
+// 被当孤儿丢弃,工具卡永远停在 running。判据与桌面端同一条(chat_svc 的
+// turnRun.applyLive:HasOpenToolUse 时先攒着)。
+func TestIntegration_SteerConsumedWhileToolInFlight_SegmentsAfterTheToolResult(t *testing.T) {
+	rt := &steerDuringToolRunner{}
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+
+	events, _ := rig.startRun(t, 791)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	require.NoError(t, rig.runner.Steer(ctx, 791, "q-1", "mid-tool-steer"))
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(791))
+		return len(messages) >= 2 &&
+			strings.Contains(messages[len(messages)-1].BlocksJSON, "after-tool")
+	}, 5*time.Second, 20*time.Millisecond, "等这一轮在 daemon 侧落完")
+	require.Len(t, messages, 4, "实际落成 %s", daemonRoleSummary(messages))
+
+	assert.Equal(t,
+		`[{"type":"tool_use","data":{"id":"tu-1","name":"Read","input":{"path":"README.md"}}},`+
+			`{"type":"tool_result","data":{"tool_use_id":"tu-1","content":[{"type":"text","data":{"text":"ok"}}]}}]`,
+		messages[1].BlocksJSON,
+		"tool_use 与它的 tool_result 必须留在同一条 assistant 里 —— 分段要等工具收口")
+	assert.Contains(t, messages[2].BlocksJSON, "mid-tool-steer", "插话排在工具那一段之后")
+	assert.Equal(t, `[{"type":"text","data":{"text":"after-tool"}}]`, messages[3].BlocksJSON)
+}
+
+// Given 桌面端按 buildRunRequest 的**生产形状**派一轮过来 —— UserText 是这句话,
+//
+//	UserBlocks 是那条用户消息的**全部**块(chat.go:2468 `req.UserBlocks = bs`,
+//	因此第一个就是同一句话的文本块),后面才跟着附件;
+//
+// When  去 agentred 自己的库里看那一行用户消息;
+// Then  这句话只落一个文本块 —— 文本不得既从 UserText 落一遍、又从 UserBlocks 里
+//
+//	那个文本块再落一遍。
+func TestIntegration_RunWithUserBlocksCarryingTheText_DoesNotLandTheTextTwice(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	rt := &blockCapturingRunner{}
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	events, result, err := rig.runner.Run(ctx, agentruntime.RunRequest{
+		Backend: &agent_backend_entity.AgentBackend{
+			Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "test-backend",
+		},
+		AgentID: 1, SessionID: 781, Cwd: rig.dir, UserText: "look at this",
+		UserBlocks: []blocks.ContentBlock{
+			&blocks.TextBlock{Text: "look at this"},
+			blocks.ImageBlock{MediaType: "image/png", Source: blocks.BlobSource{Inline: []byte("PNGDATA")}},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(781))
+		return len(messages) == 2
+	}, 5*time.Second, 20*time.Millisecond, "一轮该落下用户 + assistant 两条消息,得到 %d 条", len(messages))
+
+	assert.Equal(t,
+		`[{"type":"text","data":{"text":"look at this"}},`+
+			`{"type":"image","data":{"media_type":"image/png","source":{"inline":"UE5HREFUQQ=="}}}]`,
+		messages[0].BlocksJSON,
+		"同一句话不得落成两个文本块")
+}
+
+// steerWhileToolNeverResolvesRunner 重现「在途 tool_use 的结果根本不走流」那一类工具
+// (AskUserQuestion):插话被消费时工具还开着,而它的 tool_result 永远不会到 ——
+// 随后到的是普通正文,再往后这一轮就收尾了。
+type steerWhileToolNeverResolvesRunner struct {
+	mu   sync.Mutex
+	live chan agentruntime.Event
+	// tail 是插话之后这一轮还要发的全部事件(含 Done)。空表示 SteerConsumed 就是
+	// 流上的最后一件事,通道紧接着关掉 —— 那一路走的是 finish 的收口兜底。
+	tail []agentruntime.Event
+}
+
+func (*steerWhileToolNeverResolvesRunner) Capabilities() capability.Capabilities {
+	return capability.Capabilities{}
+}
+
+func (r *steerWhileToolNeverResolvesRunner) Run(_ context.Context, _ agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.live = make(chan agentruntime.Event, 16)
+	r.live <- agentruntime.ToolCall{ID: "tu-1", Name: "AskUserQuestion", Input: []byte(`{"q":"which"}`)}
+	return r.live, &agentruntime.RunResult{}, nil
+}
+
+func (r *steerWhileToolNeverResolvesRunner) Steer(_ context.Context, _ int64, queuedID, text string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.live == nil {
+		return nil
+	}
+	r.live <- agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{QueuedID: queuedID, Text: text}}}
+	for _, ev := range r.tail {
+		r.live <- ev
+	}
+	close(r.live)
+	r.live = nil
+	return nil
+}
+
+func (*steerWhileToolNeverResolvesRunner) Abort(context.Context, int64, uint64) (agentruntime.AbortOutcome, error) {
+	return agentruntime.AbortOutcome{}, nil
+}
+
+// Given 挂着一个结果永远不入流的 tool_use(AskUserQuestion 这类),插话在此刻被消费,
+//
+//	随后到的是普通正文而不是 tool_result;
+//
+// When  这一轮跑完;
+// Then  分段最多推迟一个事件就落地:tool_use 那一段就此收口,插话排在它后面,后半段
+//
+//	正文落进新开的那条 assistant。
+//
+// 桌面端做宿主时这条规则早就有(chat_svc.turnRun.applyLive 的「推迟至多一个事件」,
+// 用例 TestSend_SteerConsumedSplitsAnywayWhenPendingToolNeverResolves),而 agentred
+// 只在「工具收口」那一刻才 flush —— 结果不止是分段位置不同:插话被一路拖到轮末,再由
+// turnTranscript.finish 连同 pendingSteers 一起丢掉,用户自己打的字哪儿都找不回来。
+// 同一件事两台宿主两种结果,正是 8012c2b3 要治的那条(决策 1)。
+func TestIntegration_SteerWhileToolNeverResolves_SegmentsAnyway(t *testing.T) {
+	rt := &steerWhileToolNeverResolvesRunner{
+		tail: []agentruntime.Event{agentruntime.TextDelta{Text: "after-steer"}, agentruntime.Done{}},
+	}
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+
+	events, _ := rig.startRun(t, 792)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	require.NoError(t, rig.runner.Steer(ctx, 792, "q-1", "never-resolving-steer"))
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(792))
+		return len(messages) >= 2 &&
+			strings.Contains(messages[len(messages)-1].BlocksJSON, "after-steer")
+	}, 5*time.Second, 20*time.Millisecond, "等这一轮在 daemon 侧落完")
+	require.Len(t, messages, 4,
+		"插话要把这一轮切成四行(提问 / 前半段 / 插话 / 后半段),实际落成 %s",
+		daemonRoleSummary(messages))
+
+	assert.Equal(t,
+		`[{"type":"tool_use","data":{"id":"tu-1","name":"AskUserQuestion","input":{"q":"which"}}}]`,
+		messages[1].BlocksJSON,
+		"永远等不到 tool_result 的那一段就此收口,推迟必须是有界的")
+	assert.Equal(t,
+		`[{"type":"text","data":{"sourceDevice":"`+string(rigDeviceFingerprint)+`","sourceDeviceName":"test-mac",`+
+			`"text":"never-resolving-steer"}}]`,
+		messages[2].BlocksJSON,
+		"插话落成一行用户消息 —— 拖到轮末就会被 finish 连同 pendingSteers 一起丢掉")
+	assert.Equal(t, `[{"type":"text","data":{"text":"after-steer"}}]`, messages[3].BlocksJSON,
+		"分段之后的正文落在新 assistant 上,说明推迟是有界的")
+
+	for i, m := range messages {
+		assert.NotZero(t, daemonMessageFrameSeqs(t, rig.d, m.SessionID, m.ID),
+			"第 %d 行(role=%s)的持久帧必须已经取号发布", i, m.Role)
+	}
+}
+
+// Given 同样挂着一个结果永远不入流的 tool_use,而插话就是事件流上的**最后**一件事
+//
+//	(子进程随即消失 / 生成号作废,通道直接关掉,没有第二个事件来触发「推迟至多
+//	一个事件」);
+//
+// When  这一轮收口;
+// Then  收口那一刻仍要把它落下 —— 插话已经被后端消费进这一轮的上下文了,不落就是
+//
+//	用户打的字进了模型却没进转录,谁也找不回来。桌面端做宿主时是落的
+//	(chat_svc.turnRun.finalize 开头无条件 flushPendingSteers)。
+func TestIntegration_SteerAsTheLastEventOfTheTurn_StillLandsAtFinish(t *testing.T) {
+	rt := &steerWhileToolNeverResolvesRunner{}
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+
+	events, _ := rig.startRun(t, 793)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	require.NoError(t, rig.runner.Steer(ctx, 793, "q-1", "last-word"))
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(793))
+		return len(messages) >= 4
+	}, 5*time.Second, 20*time.Millisecond, "等这一轮在 daemon 侧收口")
+	require.Len(t, messages, 4,
+		"收口那一刻插话要落进转录(提问 / 前半段 / 插话 / 新开的一段),实际落成 %s",
+		daemonRoleSummary(messages))
+
+	assert.Equal(t,
+		`[{"type":"text","data":{"sourceDevice":"`+string(rigDeviceFingerprint)+`","sourceDeviceName":"test-mac",`+
+			`"text":"last-word"}}]`,
+		messages[2].BlocksJSON,
+		"轮末那一刻仍要落下插话那一行")
+	assert.NotZero(t, daemonMessageFrameSeqs(t, rig.d, messages[2].SessionID, messages[2].ID),
+		"插话那一行的持久帧必须已经取号发布 —— 没有号的内容补齐交不出去")
+}
+
+// Given agentred 起完;
+// When  去问 claudecode runtime 拿没拿到投递插话的信箱;
+// Then  拿到了 —— 否则这台宿主上的 runtime.steer 一律失败
+//
+//	（"steer inbox not configured"，claudecode/runtime.go:171），而桌面端
+//	（internal/bootstrap/cago.go）是注入了的：同一条「轮中插话」在两台宿主上
+//	一个能用一个不能，且没有任何编译期或静态检查会提醒。
+//
+// 实测过它坏着（2026-09-07 运行时验证）：桌面端 → agentred(claudecode) 会话在
+// status=running 时插话，报 "插入消息失败"，daemon 侧真因就是这一条。
+// hook 那一侧 agentred 本来就是通的（claudecode/hookcli.go:11 回落到当前可执行
+// 文件，agentred 自带 claudecode 子命令），缺的只有这一次注入。
+func TestIntegration_DaemonBoot_WiresTheClaudecodeSteerInbox(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	_ = rig
+
+	assert.True(t, claudecode.Default().SteerInboxConfigured(),
+		"agentred 起完必须把 gateway 的 SteerInbox 注入 claudecode runtime,否则这台宿主上的轮中插话一律失败")
 }

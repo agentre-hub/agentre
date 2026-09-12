@@ -1,0 +1,13 @@
+{
+  "portForward": {
+    "title": "端口转发",
+    "empty": "这台设备上还没有端口映射。",
+    "offline": "已离线——转发不可用。",
+    "addMapping": "新增映射",
+    "open": "打开",
+    "copyAddress": "复制访问地址",
+    "moreActions": "更多操作",
+    "remove": "删除",
+    "toggleEnabled": "启用映射"
+  }
+}

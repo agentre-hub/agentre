@@ -2,8 +2,7 @@ import * as React from "react";
 import { Boxes, RefreshCw, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Button, Dialog, DialogContent } from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 
 import { TriStateToggle } from "./tri-state-toggle";
@@ -67,7 +66,7 @@ export function CapabilityPicker(props: Props) {
           <div className="flex flex-col gap-1.5 border-b border-border px-[18px] py-3.5">
             <div className="flex items-center gap-2">
               <Boxes className="size-4 text-primary-text" aria-hidden="true" />
-              <span className="text-[15px] font-semibold">{props.title}</span>
+              <span className="text-prose font-semibold">{props.title}</span>
               <div className="flex-1" />
               <button
                 type="button"
@@ -217,7 +216,7 @@ export function CapabilityPicker(props: Props) {
                           )}
                           aria-hidden="true"
                         >
-                          {it.enabled && <span className="text-[10px]">✓</span>}
+                          {it.enabled && <span className="text-3xs">✓</span>}
                         </span>
                         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                           <span className="truncate text-xs font-semibold">

@@ -11,7 +11,6 @@ package remote
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -20,9 +19,13 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/jsonrpc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 // ConnState 是一条远端会话此刻的**通道**状态。它是运行态之上的一层修饰,不是第五种
@@ -50,19 +53,19 @@ type SessionConnState struct {
 }
 
 // ReconnectPort 重新拨通**同一台** daemon,返回一条已鉴权的新连接与该 daemon 的实例
-// 标识("sha256:<hex>" 指纹形,与 chat_sessions.exec_daemon_fingerprint 同形)。
+// 标识("sha256:<hex>" 指纹形,与 chat_sessions.exec_device_fingerprint 同形)。
 //
 // 按 DIP 声明在消费方:internal/pkg 是叶子层,拨号要用的设备行 / keychain / 连接池
 // 都在 service 层,实现由 chat_svc 在构造 Runtime 时注入。
 type ReconnectPort interface {
-	Reconnect(ctx context.Context) (agentruntime.DaemonClientPort, string, error)
+	Reconnect(ctx context.Context) (client.ProtobufConnection, devicefp.Carrier, error)
 }
 
 // ReconnectFunc 是 ReconnectPort 的函数式实现。
-type ReconnectFunc func(ctx context.Context) (agentruntime.DaemonClientPort, string, error)
+type ReconnectFunc func(ctx context.Context) (client.ProtobufConnection, devicefp.Carrier, error)
 
 // Reconnect 实现 ReconnectPort。
-func (f ReconnectFunc) Reconnect(ctx context.Context) (agentruntime.DaemonClientPort, string, error) {
+func (f ReconnectFunc) Reconnect(ctx context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 	return f(ctx)
 }
 
@@ -77,39 +80,44 @@ type ConnStateFunc func(sessionID int64, st SessionConnState)
 // OnSessionConnState 实现 ConnStateObserver。
 func (f ConnStateFunc) OnSessionConnState(sessionID int64, st SessionConnState) { f(sessionID, st) }
 
+// PreviewSink 接收**预览帧**里那条事件:逐片段增量与过场状态,即时呈现用。
+//
+// 它与 Run 交回的那条事件流是两件事,而这正是规格 2026-09-05「两级帧与补齐」定下的
+// 分工:预览帧只用于即时呈现,**不得进转录**;转录与游标的唯一来源是持久帧。两者
+// 走同一条 channel 的话,消费方就分不出「这一段该不该累积」——它今天只有追加语义,
+// 于是同一段内容既按预览追加一次、又随持久帧再来一次,重连补齐就重发对端已经看过
+// 的内容(硬不变量 1 的「重」)。
+//
+// 没接 sink 时预览帧就地丢弃:它按定义丢失即丢失、不补。宿主要逐 token 呈现就接一只
+// (桌面端在 chat_svc 接,见 previewSink)。
+type PreviewSink interface {
+	OnPreviewEvent(sessionID int64, ev agentruntime.Event)
+}
+
+// PreviewSinkFunc 是 PreviewSink 的函数式实现。
+type PreviewSinkFunc func(sessionID int64, ev agentruntime.Event)
+
+// OnPreviewEvent 实现 PreviewSink。
+func (f PreviewSinkFunc) OnPreviewEvent(sessionID int64, ev agentruntime.Event) { f(sessionID, ev) }
+
 // Option 是 New 的可选配置。
 type Option func(*Runtime)
+
+// WithPreviewSink 注入预览帧的呈现出口。不接则预览帧就地丢弃(见 PreviewSink)。
+func WithPreviewSink(sink PreviewSink) Option {
+	return func(r *Runtime) { r.previewSink = sink }
+}
 
 // WithReconnect 注入重连端口。**没有它就没有重连**:断连一律回落到今天的
 // 「注入 ErrDaemonDisconnected 并 close events」。
 func WithReconnect(p ReconnectPort) Option { return func(r *Runtime) { r.reconnect = p } }
 
 // WithDaemonFingerprint 声明当前这条连接背后的 daemon 实例标识(指纹形)。
-func WithDaemonFingerprint(fp string) Option { return func(r *Runtime) { r.daemonFP = fp } }
+func WithDaemonFingerprint(fp devicefp.Carrier) Option { return func(r *Runtime) { r.daemonFP = fp } }
 
 // WithConnStateObserver 注入连接态观察者。
 func WithConnStateObserver(o ConnStateObserver) Option {
 	return func(r *Runtime) { r.connObserver = o }
-}
-
-// DurabilityObserver 接收 R18 的能力探测结论:对面这台 daemon 认不认补齐族 RPC。
-//
-// 探测结果只活在 *remote.Runtime 里,而 R18 要求「配对设备状态里说明该 daemon 版本
-// 过旧」—— 设备行在 service 层,internal/pkg 是叶子层够不着它。按 DIP 在消费方声明
-// 这个窄端口,由构造 Runtime 的一方(chat_svc)注入实现,结论才出得去。
-type DurabilityObserver interface {
-	OnDaemonDurability(supported bool)
-}
-
-// DurabilityFunc 是 DurabilityObserver 的函数式实现。
-type DurabilityFunc func(supported bool)
-
-// OnDaemonDurability 实现 DurabilityObserver。
-func (f DurabilityFunc) OnDaemonDurability(supported bool) { f(supported) }
-
-// WithDurabilityObserver 注入能力探测的观察者。
-func WithDurabilityObserver(o DurabilityObserver) Option {
-	return func(r *Runtime) { r.durabilityObs = o }
 }
 
 // WithSessionCursor 覆盖游标端口(默认取 agentruntime.SessionCursor())。
@@ -138,27 +146,10 @@ var defaultReconnectBackoff = []time.Duration{
 // updatetime,而它落在通知热路径上(每条通知一次)—— 按间隔合并写。
 const defaultCursorFlushInterval = 2 * time.Second
 
-// durabilityState 是「这台 daemon 认不认补齐族 RPC」的三态探测结果(R18)。
-// 探测失败(网络抖动之类)保持 unknown:一次拨不通不该把持久化关掉。
-type durabilityState int
-
-const (
-	durabilityUnknown durabilityState = iota
-	durabilitySupported
-	durabilityUnsupported
-)
-
 // ErrReconnectAbandoned 让重连端口宣告「不必再试了」:设备已被解除配对、凭据已撤销、
 // 连接池已关停 —— 这类失败重试多少次都是同一个结果,继续按退避表试只会把会话在
 // 「重连中」多吊几十秒。返回它(或 wrap 它)会立刻走「注入 ErrDaemonDisconnected」。
 var ErrReconnectAbandoned = errors.New("agentruntime/runtimes/remote: reconnect abandoned")
-
-// ErrCatchUpUnsupported 补齐族 RPC 回 method-not-found —— 对面是老 daemon(R18)。
-//
-// 它是导出的:CatchUpSessions 的调用方(chat_svc)必须把它与「这一次没问到」分开 ——
-// 后者等设备回来再问一遍就有答案,而这台 daemon 这辈子都答不了,那些会话只能当场按
-// R18 的回落收尾(老 daemon 上断连即结束该轮)。
-var ErrCatchUpUnsupported = errors.New("agentruntime/runtimes/remote: daemon does not support session catch-up")
 
 // errSessionUnrecoverable 这条会话接不回去了(daemon 侧已中断 / 不存在 / 游标失效),
 // 但连接本身是好的:只收尾这一条会话,别的会话照常补齐。
@@ -245,8 +236,8 @@ func (r *Runtime) ensureCursorLoaded(ctx context.Context, sid int64, ss *session
 	}
 	seq, ok, err := port.LoadCursor(ctx, sid, r.fingerprint())
 	if err != nil {
-		logger.Ctx(ctx).Warn("remote runtime: load session cursor failed",
-			zap.Int64("sid", sid), zap.Error(err))
+		logger.Ctx(ctx).Warn("remote.Runtime: load session cursor failed",
+			zap.Int64("sessionId", sid), zap.Error(err))
 		return
 	}
 	if ok && seq > ss.cursor {
@@ -256,34 +247,43 @@ func (r *Runtime) ensureCursorLoaded(ctx context.Context, sid int64, ss *session
 
 // ── 通知分发(实时 + 补齐共用)────────────────────────────────────────────────
 
-// dispatchNotification 是五类通知的统一入口。R6 的三条规则都在这里:
+// dispatchNotification 是五类通知的统一入口。R6 的三条规则都在这里,而它们**只**
+// 管持久帧(spec 2026-09-05 决策 4):
 //   - seq == 游标 + 1  → 消费并推进游标
 //   - seq >  游标 + 1  → **不消费**,改从游标发起一次增量拉取,拉平后再继续
 //   - seq <= 游标      → 丢弃(重复投递)
 //
-// seq == 0 表示对面是不盖 seq 的老 daemon(帧上是 omitempty 的可选追加字段),
-// 此时没有游标可言,直接消费,行为与今天完全一致。
+// 预览帧在闸门**之前**放行:它按定义不属于这条编号时间线,既不推进游标也不参与去重,
+// 只为即时呈现而来(覆盖同一内容的持久帧随后到达时以持久帧为准)。判别取帧上显式的
+// preview 这一格,不看 seq —— 预览帧本就不带 seq,若拿 seq=0 当判据,一条恰好带上
+// 编号的预览帧就会被读成「不大于游标」而整条吞掉,正是决策 4 点名要避免的形态。
+//
+// 剩下的 seq == 0 是「这条帧没有序号」:没有游标可言,直接消费。
 func (r *Runtime) dispatchNotification(
 	ctx context.Context,
 	method string,
 	h notifyHandler,
-	raw json.RawMessage,
+	frame any,
 ) (any, error) {
-	var head struct {
-		SessionID int64 `json:"sessionId"`
-		Seq       int64 `json:"seq"`
+	head, ok := frameRoute(frame)
+	if !ok || head.Preview || head.Seq == 0 {
+		return h(r, ctx, frame)
 	}
-	if err := json.Unmarshal(raw, &head); err != nil || head.Seq == 0 {
-		return h(r, ctx, raw)
+	// 序号闸门按**本进程认识的那条会话**记游标:线上身份是 conversation_id,进程内
+	// 的游标表仍按 int64 索引(决策 6)。翻不出来的对话本进程从未为它发过请求,没有
+	// 游标可言 —— 交给 handler 自己按未知会话处理。
+	sid := r.localSessionID(head.ConversationID)
+	if sid == 0 {
+		return h(r, ctx, frame)
 	}
-	ss := r.syncFor(ctx, head.SessionID)
+	ss := r.syncFor(ctx, sid)
 
 	ss.mu.Lock()
 	switch {
 	case head.Seq <= ss.cursor:
 		ss.mu.Unlock()
-		logger.Ctx(ctx).Debug("remote runtime: duplicate notification dropped",
-			zap.Int64("sid", head.SessionID), zap.Int64("seq", head.Seq),
+		logger.Ctx(ctx).Debug("remote.Runtime: duplicate notification dropped",
+			zap.Int64("sessionId", sid), zap.Int64("seq", head.Seq),
 			zap.String("method", method))
 		return nil, nil
 	case head.Seq > ss.cursor+1:
@@ -291,17 +291,17 @@ func (r *Runtime) dispatchNotification(
 		ss.mu.Unlock()
 		// 只在真的起了一次拉取时打一行:一个洞后面跟着的每一条实时帧都会走到这里,
 		// 按帧打就是在通知循环里打日志(observability.md:「不要在循环内打日志」)。
-		if r.scheduleGapFill(head.SessionID, ss) {
-			logger.Ctx(ctx).Warn("remote runtime: notification seq gap, pulling",
-				zap.Int64("sid", head.SessionID), zap.Int64("cursor", cursor),
+		if r.scheduleGapFill(sid, ss) {
+			logger.Ctx(ctx).Warn("remote.Runtime: notification seq gap, pulling",
+				zap.Int64("sessionId", sid), zap.Int64("cursor", cursor),
 				zap.Int64("seq", head.Seq), zap.String("method", method))
 		}
 		return nil, nil
 	}
-	res, err := h(r, ctx, raw)
+	res, err := h(r, ctx, frame)
 	ss.cursor = head.Seq
 	// 待落库值与内存游标在同一把 ss.mu 之下更新,见 recordCursor。
-	r.recordCursor(head.SessionID, head.Seq)
+	r.recordCursor(sid, head.Seq)
 	ss.mu.Unlock()
 	// cursorFlush<=0 是同步落库模式(测试用)。轮末那一条则不能压在防抖窗口里:用户
 	// 拿到答案随手关窗(2 秒内进程就没了),库里的游标会停在这一轮的中段,下一轮的第
@@ -341,8 +341,8 @@ func (r *Runtime) scheduleGapFill(sid int64, ss *sessionSync) bool {
 		}()
 		ctx := context.Background()
 		if _, err := r.pullUntilCaughtUp(ctx, sid, ss); err != nil {
-			logger.Default().Warn("remote runtime: gap fill failed",
-				zap.Int64("sid", sid), zap.Error(err))
+			logger.Default().Warn("remote.Runtime: gap fill failed",
+				zap.Int64("sessionId", sid), zap.Error(err))
 		}
 	}()
 	return true
@@ -358,11 +358,21 @@ func (r *Runtime) pullUntilCaughtUp(ctx context.Context, sid int64, ss *sessionS
 		before := ss.cursorNow()
 
 		// 发 RPC 时绝不持 ss.mu,见 sessionSync 的纪律注释。
-		var res wire.SessionPullResult
-		if err := r.conn().Call(ctx, wire.MethodSessionPull, wire.SessionPullParams{
-			SessionID: sid, Cursor: before, PeerFingerprint: r.originFor(sid),
-		}, &res); err != nil {
-			return replayed, wire.FromJSONRPCError(err)
+		response, err := wirecall.SessionPull(ctx, r.conn(), &agentrewire.SessionPullRequest{ConversationId: r.conversationID(sid), Cursor: before, PeerFingerprint: string(r.originFor(sid))})
+		if err != nil {
+			return replayed, fromProtobufError(err)
+		}
+		res := wire.SessionPullResult{Cursor: response.GetCursor(), HasMore: response.GetHasMore(), OldestSeq: response.GetOldestSeq()}
+		for _, item := range response.GetNotifications() {
+			protowire.SetNotificationSeq(item.GetPayload(), item.GetSeq())
+			method, params, conversionErr := protowire.ProtoNotificationToWire(item.GetPayload())
+			if conversionErr != nil {
+				logger.Ctx(ctx).Warn("remote.Runtime: replay skipped unknown Protobuf notification",
+					zap.Int64("seq", item.GetSeq()), zap.Error(conversionErr))
+				r.skipSeq(sid, ss, item.GetSeq())
+				continue
+			}
+			res.Notifications = append(res.Notifications, wire.JournaledNotification{Seq: item.GetSeq(), Method: method, Params: params})
 		}
 		// 复位必须在重放**之前**:这一页的第一条要么正是游标+1,要么就落在被回收掉的
 		// 那段之后 —— 后者不先复位,它当场被判成跳号丢弃,这一页一条也交付不出去。
@@ -402,16 +412,15 @@ func (r *Runtime) replay(ctx context.Context, sid int64, ss *sessionSync, n wire
 	if !ok {
 		// 未知 method:新版 daemon 加了第六类通知而本客户端还不认识。跳过而不是
 		// 整段补齐失败 —— 停在这里会让后面所有已知通知也丢掉。
-		logger.Ctx(ctx).Warn("remote runtime: replay skipped unknown notification method",
+		logger.Ctx(ctx).Warn("remote.Runtime: replay skipped unknown notification method",
 			zap.String("method", n.Method), zap.Int64("seq", n.Seq))
 		r.skipSeq(sid, ss, n.Seq)
 		return false, nil
 	}
-	raw, err := stampSeq(n.Method, n.Params, n.Seq)
-	if err != nil {
-		return false, fmt.Errorf("stamp seq on %s: %w", n.Method, err)
+	if !stampSeq(n.Params, n.Seq) {
+		return false, fmt.Errorf("no frame mapping for %s", n.Method)
 	}
-	if _, err := r.dispatchNotification(ctx, n.Method, h, raw); err != nil {
+	if _, err := r.dispatchNotification(ctx, n.Method, h, n.Params); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -437,50 +446,100 @@ func (r *Runtime) skipSeq(sid int64, ss *sessionSync, seq int64) {
 	}
 }
 
+// adoptDispatchedUserMessageSeq 把游标推进到宿主为**本端刚派发的那条用户消息**分配的
+// 持久帧号。那条内容是本端自己写下的,补齐不必也不该再交回来 —— 游标的含义从此是
+// 「我已经持有的内容」,而不是「宿主发过什么」(spec 2026-09-07 决策 1)。
+//
+// 一条用户消息可能占不止一帧(带附件),所以宿主回的是一个闭区间 [minSeq, maxSeq]:
+// 区间里的每一帧都是本端自己写下的那条消息。
+//
+// 闸门与 skipSeq 同一条,只是比的是**最低号**:minSeq 必须不高于「游标 + 1」——
+// 也就是它与游标之间不许有洞。一个落后的消费方(重连后补齐还没跑完就发了新一轮)
+// 若无条件跳过去,中间那几帧就被永久跳过,那是硬不变量 1 的「漏」,比「重」更糟。
+// 闸门成立时落点是 maxSeq:区间内的帧本端全都持有,游标该盖住整段
+// (spec 2026-09-07-host-transcript-user-input 决策 4)。
+//
+// 两个号任一为 0 都不推进:宿主拒绝了该轮、在落库前失败,或对端是只认最高号那一格的
+// 旧构建 —— 判不出有没有洞就不动游标,行为退回决策 4 之前。
+//
+// 「内存游标已经涵盖这个号」是**常态**,不是意外:宿主是在应答**之前**把用户那一帧
+// 作为通知推上来的(agentred 的 beginTranscript 先 publish 再 return ack),而本端的
+// 读循环同步分发通知、随后才交付应答 —— 到这里时游标通常已经被那一帧推到 seq 了。
+// 此刻没有游标可推进,但**落库照样要做**:热路径那次推进只记进了防抖批次,而本轮
+// 要治的场景就是「派发完立刻被杀」。落的是通知路径在 ss.mu 之下记下的那个值,这里
+// 不另造号,也不会把一个本端并不持有的位置写进库。
+func (r *Runtime) adoptDispatchedUserMessageSeq(ctx context.Context, sid, minSeq, maxSeq int64) {
+	if minSeq <= 0 || maxSeq < minSeq || r.cursor() == nil {
+		return
+	}
+	ss := r.syncFor(ctx, sid)
+	ss.mu.Lock()
+	if minSeq > ss.cursor+1 {
+		cursor := ss.cursor
+		ss.mu.Unlock()
+		logger.Ctx(ctx).Debug("remote.Runtime.adoptDispatchedUserMessageSeq: a hole sits before it; cursor left alone",
+			zap.Int64("sessionId", sid), zap.Int64("cursor", cursor),
+			zap.Int64("userMessageMinSeq", minSeq), zap.Int64("userMessageSeq", maxSeq))
+		return
+	}
+	// maxSeq 不高于游标是**常态**而非意外(见上面「内存游标已经涵盖」那一段):此刻
+	// 没有游标可推进,但落库照样要做。
+	if maxSeq > ss.cursor {
+		ss.cursor = maxSeq
+		r.recordCursor(sid, maxSeq)
+	}
+	ss.mu.Unlock()
+	// 这一格**当场落库**,不进防抖批次:本轮要治的场景就是「派发完立刻被杀」,进程活不到
+	// 防抖窗口到期,库里那份于是仍停在派发之前 —— 重连补齐照旧把这条自己写下的用户消息
+	// 交回来,决策 1 等于没落地。代价是一轮一次事务(通知热路径那边照旧攒批)。
+	r.flushCursors()
+}
+
 // stampSeq 按 method 把日志载荷解成对应的帧、盖上 seq、再重新序列化。
-func stampSeq(method string, params json.RawMessage, seq int64) (json.RawMessage, error) {
-	stamp, ok := seqStampers[method]
+// frameRoute 读出一条通知帧的路由信息:会话、序号,以及它属于哪一级(预览 / 持久)。
+// 四类帧都带会话与序号,但它们是各自独立的结构体、没有公共接口 —— 按 ISP 在消费方
+// 做一次类型分派,wire 那边不必为此多长出一组访问器。
+//
+// 只有事件帧分级。终态与开轮那三类帧不分级也不带编号:它们是轮次的生命周期信号,
+// 不是转录的一部分(补齐重放的是块投影出的持久事件帧),所以照旧走 seq == 0 那条
+// 「没有序号,直接消费」的路。
+func frameRoute(frame any) (struct {
+	ConversationID string
+	Seq            int64
+	Preview        bool
+}, bool) {
+	type route = struct {
+		ConversationID string
+		Seq            int64
+		Preview        bool
+	}
+	switch f := frame.(type) {
+	case *wire.EventFrame:
+		return route{f.ConversationID, f.Seq, f.Preview}, true
+	case *wire.RunResultDoneFrame:
+		return route{ConversationID: f.ConversationID, Seq: f.Seq}, true
+	case *wire.AutonomousTurnStartedFrame:
+		return route{ConversationID: f.ConversationID, Seq: f.Seq}, true
+	case *wire.TurnStartedFrame:
+		return route{ConversationID: f.ConversationID, Seq: f.Seq}, true
+	}
+	return route{}, false
+}
+
+// stampSeq 把日志行自己的 seq 盖到帧上。
+//
+// 日志里存的 params **不含 seq**(落库时还没分配),所以补齐重放必须先盖再喂,
+// 否则每一帧都解出 seq=0,被「不大于游标就丢弃」的规则整段吞掉(R6)。
+//
+// 从前这一步要 json.Unmarshal 出帧、盖上、再 json.Marshal 回去;帧现在就是帧,
+// 盖一下即可。
+func stampSeq(frame any, seq int64) bool {
+	f, ok := frame.(interface{ SetSeq(int64) })
 	if !ok {
-		return nil, fmt.Errorf("no frame mapping for %s", method)
-	}
-	return stamp(params, seq)
-}
-
-// seqStampers 是 method → 帧 的映射。wire 包只定义帧类型,不知道哪个 method 对应
-// 哪个帧,所以映射建在使用方。它必须与 notifyHandlers 同集合(见 guard 测试)。
-var seqStampers = map[string]func(json.RawMessage, int64) (json.RawMessage, error){
-	wire.NotifyEvent:                 stampEventFrame,
-	wire.NotifyAutonomousTurnEvent:   stampEventFrame,
-	wire.NotifyRunResultDone:         stampDoneFrame,
-	wire.NotifyAutonomousTurnDone:    stampDoneFrame,
-	wire.NotifyAutonomousTurnStarted: stampStartedFrame,
-}
-
-func stampEventFrame(params json.RawMessage, seq int64) (json.RawMessage, error) {
-	var f wire.EventFrame
-	if err := json.Unmarshal(params, &f); err != nil {
-		return nil, err
+		return false
 	}
 	f.SetSeq(seq)
-	return json.Marshal(f)
-}
-
-func stampDoneFrame(params json.RawMessage, seq int64) (json.RawMessage, error) {
-	var f wire.RunResultDoneFrame
-	if err := json.Unmarshal(params, &f); err != nil {
-		return nil, err
-	}
-	f.SetSeq(seq)
-	return json.Marshal(f)
-}
-
-func stampStartedFrame(params json.RawMessage, seq int64) (json.RawMessage, error) {
-	var f wire.AutonomousTurnStartedFrame
-	if err := json.Unmarshal(params, &f); err != nil {
-		return nil, err
-	}
-	f.SetSeq(seq)
-	return json.Marshal(f)
+	return true
 }
 
 // ── 重连状态机 ──────────────────────────────────────────────────────────────
@@ -513,15 +572,8 @@ func (r *Runtime) watchClose(closed <-chan struct{}) {
 	}
 }
 
-// canReconnect 有没有重连的资格:装了重连端口,且这台 daemon 没被证伪过(R18)。
-func (r *Runtime) canReconnect() bool {
-	if r.reconnect == nil {
-		return false
-	}
-	r.connMu.Lock()
-	defer r.connMu.Unlock()
-	return r.durability != durabilityUnsupported
-}
+// canReconnect 有没有重连的资格:装了重连端口就有。
+func (r *Runtime) canReconnect() bool { return r.reconnect != nil }
 
 // hasLiveRun 有没有在飞的一轮 —— per-Run 的那一轮,或某条会话上正在流的自主续轮。
 // 没有就不值得重连:连接池在 refcount 归零后会主动 idle 回收连接,那时重连只会再借
@@ -567,7 +619,7 @@ func (r *Runtime) hasLiveRun() bool {
 // reconnectAndCatchUp 按退避表重连并补齐。成功返回新连接的 Closed() 通道。
 func (r *Runtime) reconnectAndCatchUp() (<-chan struct{}, bool) {
 	ctx := context.Background()
-	for _, delay := range r.backoff {
+	for attempt, delay := range r.backoff {
 		select {
 		case <-time.After(delay):
 		case <-r.stopped:
@@ -575,20 +627,20 @@ func (r *Runtime) reconnectAndCatchUp() (<-chan struct{}, bool) {
 		}
 		cli, fp, err := r.reconnect.Reconnect(ctx)
 		if errors.Is(err, ErrReconnectAbandoned) {
-			logger.Default().Warn("remote runtime: reconnect abandoned by port", zap.Error(err))
+			logger.Default().Warn("remote.Runtime: reconnect abandoned by port",
+				zap.Int("attempt", attempt+1), zap.Int64s("sessionIds", r.liveSessionIDs()), zap.Error(err))
 			return nil, false
 		}
 		if err != nil || cli == nil {
-			logger.Default().Warn("remote runtime: reconnect attempt failed", zap.Error(err))
+			logger.Default().Warn("remote.Runtime: reconnect attempt failed",
+				zap.Int("attempt", attempt+1), zap.Int64s("sessionIds", r.liveSessionIDs()), zap.Error(err))
 			continue
 		}
 		r.adoptConn(cli, fp)
 		if err := r.catchUpAll(ctx); err != nil {
-			if errors.Is(err, ErrCatchUpUnsupported) {
-				logger.Default().Warn("remote runtime: daemon has no catch-up RPCs, ending turn on disconnect")
-				return nil, false
-			}
-			logger.Default().Warn("remote runtime: catch-up failed, retrying", zap.Error(err))
+			logger.Default().Warn("remote.Runtime: catch-up failed, retrying",
+				zap.Int("attempt", attempt+1), zap.String("daemonFingerprint", string(fp)),
+				zap.Int64s("sessionIds", r.liveSessionIDs()), zap.Error(err))
 			continue
 		}
 		closed := cli.Closed()
@@ -597,20 +649,19 @@ func (r *Runtime) reconnectAndCatchUp() (<-chan struct{}, bool) {
 		}
 		return closed, true
 	}
-	logger.Default().Warn("remote runtime: reconnect attempts exhausted",
-		zap.Int("attempts", len(r.backoff)))
+	logger.Default().Warn("remote.Runtime: reconnect attempts exhausted",
+		zap.Int("attempts", len(r.backoff)), zap.Int64s("sessionIds", r.liveSessionIDs()))
 	return nil, false
 }
 
 // adoptConn 换上新连接:五类通知 + MCP 隧道的 handler 要在新连接上原样再挂一遍
-// (新连接自带一张空的 handler 表),能力探测结果按代重置。
-func (r *Runtime) adoptConn(cli agentruntime.DaemonClientPort, fp string) {
+// (新连接自带一张空的 handler 表)。
+func (r *Runtime) adoptConn(cli client.ProtobufConnection, fp devicefp.Carrier) {
 	r.connMu.Lock()
 	r.client = cli
 	if fp != "" {
 		r.daemonFP = fp
 	}
-	r.durability = durabilityUnknown
 	// 连接代 +1:开轮位置的那份已知(sessionSync.floorSeq)只在探到它的那条连接上作数
 	// —— 断连期间 daemon 可能又落了几行,旧值会偏小(见 turnStartFloor)。
 	r.connGen++
@@ -624,19 +675,16 @@ func (r *Runtime) catchUpAll(ctx context.Context) error {
 	return r.catchUpEach(ctx, r.catchUpSessionIDs())
 }
 
-// catchUpEach 逐条补齐,并按错误种类分流:整条连接不支持就整体放弃,单条会话接不
-// 回去只收尾它。
+// catchUpEach 逐条补齐:单条会话接不回去只收尾它,别的错误整体放弃这一次补齐。
 func (r *Runtime) catchUpEach(ctx context.Context, sids []int64) error {
 	for _, sid := range sids {
 		err := r.catchUpSession(ctx, sid)
 		switch {
 		case err == nil:
-		case errors.Is(err, ErrCatchUpUnsupported):
-			return err
 		case errors.Is(err, errSessionUnrecoverable):
 			// 只这一条接不回去:按今天的语义收尾它,别的会话照常补齐。
-			logger.Ctx(ctx).Warn("remote runtime: session cannot be resumed, ending it",
-				zap.Int64("sid", sid))
+			logger.Ctx(ctx).Warn("remote.Runtime: session cannot be resumed, ending it",
+				zap.Int64("sessionId", sid))
 			r.failSession(sid)
 		default:
 			return err
@@ -669,17 +717,16 @@ func (r *Runtime) catchUpSession(ctx context.Context, sid int64) error {
 	if err != nil {
 		return err
 	}
-	var pend wire.SessionPendingWaitersResult
-	if err := r.conn().Call(ctx, wire.MethodSessionPendingWaiters,
-		wire.SessionPendingWaitersParams{SessionID: sid, PeerFingerprint: r.originFor(sid)}, &pend); err != nil {
+	pend, err := r.PendingWaiters(ctx, sid)
+	if err != nil {
 		// 待决策查询失败不推翻已经补齐的转录:重放已经落定,卡片最差是少一张,
 		// 用户仍可看到全部历史。
-		logger.Ctx(ctx).Warn("remote runtime: pending waiters query failed",
-			zap.Int64("sid", sid), zap.Error(err))
+		logger.Ctx(ctx).Warn("remote.Runtime: pending waiters query failed",
+			zap.Int64("sessionId", sid), zap.Error(err))
 	}
 	pending := len(pend.ToolPermissions) + len(pend.AskUserQuestions)
-	logger.Ctx(ctx).Info("remote runtime: session caught up",
-		zap.Int64("sid", sid), zap.Int("replayed", replayed),
+	logger.Ctx(ctx).Info("remote.Runtime: session caught up",
+		zap.Int64("sessionId", sid), zap.Int("replayed", replayed),
 		zap.Int("pendingDecisions", pending))
 	r.setSessionConnState(sid, SessionConnState{
 		State: ConnStateConnected, Replayed: replayed, PendingDecisions: pending,
@@ -694,20 +741,11 @@ func (r *Runtime) catchUpSession(ctx context.Context, sid int64) error {
 // 返回接管时 daemon 交回的高水位(该会话通知日志里此刻的 MAX(seq)),补齐据它校验
 // 本地游标有没有越界(见 dropCursorAboveHighWater)。失败时返 0。
 func (r *Runtime) attachSession(ctx context.Context, sid int64) (int64, error) {
-	var att wire.SessionAttachResult
-	err := r.conn().Call(ctx, wire.MethodSessionAttach, wire.SessionAttachParams{
-		SessionID: sid, PeerFingerprint: r.originFor(sid),
-	}, &att)
+	att, err := wirecall.SessionAttach(ctx, r.conn(), &agentrewire.SessionAttachRequest{ConversationId: r.conversationID(sid), PeerFingerprint: string(r.originFor(sid))})
 	if err == nil {
-		r.setDurability(durabilitySupported)
-		return att.LatestSeq, nil
+		return att.GetLatestSeq(), nil
 	}
-	if isMethodNotFound(err) {
-		r.setDurability(durabilityUnsupported)
-		return 0, ErrCatchUpUnsupported
-	}
-	r.setDurability(durabilitySupported)
-	sentinel := wire.FromJSONRPCError(err)
+	sentinel := wire.FromRPCError(err)
 	if errors.Is(sentinel, agentruntime.ErrSessionNotFound) || errors.Is(sentinel, agentruntime.ErrNoActiveTurn) {
 		// daemon 侧已把它标成中断态(进程重启),或它根本不在这台 daemon 上。
 		return 0, errSessionUnrecoverable
@@ -751,8 +789,8 @@ func (r *Runtime) pinCursorFor(ctx context.Context, sid int64) (*sessionSync, in
 	}
 	seq, valid, err := port.LoadCursor(ctx, sid, r.fingerprint())
 	if err != nil {
-		logger.Ctx(ctx).Warn("remote runtime: load session cursor failed on reconnect",
-			zap.Int64("sid", sid), zap.Error(err))
+		logger.Ctx(ctx).Warn("remote.Runtime: load session cursor failed on reconnect",
+			zap.Int64("sessionId", sid), zap.Error(err))
 		return nil, 0, fmt.Errorf("load session cursor: %w", err)
 	}
 	if !valid {
@@ -793,21 +831,21 @@ func (r *Runtime) dropCursorAboveHighWater(ctx context.Context, sid int64, ss *s
 	ss.cursor = 0
 	r.recordCursor(sid, 0)
 	ss.mu.Unlock()
-	logger.Ctx(ctx).Warn("remote runtime: cursor beyond daemon high-water, restarting catch-up from scratch",
-		zap.Int64("sid", sid), zap.Int64("cursor", pinned), zap.Int64("latestSeq", highWater))
+	logger.Ctx(ctx).Warn("remote.Runtime: cursor beyond daemon high-water, restarting catch-up from scratch",
+		zap.Int64("sessionId", sid), zap.Int64("cursor", pinned), zap.Int64("latestSeq", highWater))
 	r.flushCursors()
 }
 
-// dropCursorBelowOldest 把落在「已被回收掉的那一段」里的游标抬到现存最老的一行之前。
+// dropCursorBelowOldest 把落在「已经不存在的那一段」里的游标抬到现存最老的一行之前。
 //
-// daemon 的日志留存会回收终态会话高水位以下的老前缀(见 daemon.collectJournal)。一个
-// 离线时间超过整个留存窗口、且落后不止一格的客户端,它的游标正指向那段已经不存在的区间:
+// agentred 不回收转录(规格 2026-08-18 决策 8,2026-09-05 未改),但它的库可能被从外部
+// 恢复或截断,老前缀因此仍可能消失。落后不止一格的客户端,它的游标正指向那段已经不存在的区间:
 // 拉回来的每一页第一条都比 游标+1 大,在 dispatchNotification 的第二条规则里被判成跳号
 // 丢弃并触发补洞拉取,而补洞原样拉回同一页 —— 游标永远推不动,此后连实时通知也全被当成
 // 跳号,会话没有错误、没有跳号地冻住(与 dropCursorAboveHighWater 处理的越界冻结同类)。
 //
 // 那截尾巴是真的没有了,拿不回来。所以按 daemon 交回的下界复位,从现存最老的一行接着补,
-// 并留一条 Warn 让「这段转录是被留存回收掉的」在日志里看得见。
+// 并留一条 Warn 让「这段转录已经不在 daemon 那边了」在日志里看得见。
 //
 // 只在游标真的落在下界之下时动它:正常补齐里 oldest == 游标+1(甚至更小),一动就是把
 // 已经交付过的通知再重放一遍。oldest 为 0 表示 daemon 没报(老 daemon / 读不出来),
@@ -825,8 +863,8 @@ func (r *Runtime) dropCursorBelowOldest(ctx context.Context, sid int64, ss *sess
 	ss.cursor = oldest - 1
 	r.recordCursor(sid, oldest-1)
 	ss.mu.Unlock()
-	logger.Ctx(ctx).Warn("remote runtime: cursor below daemon's oldest surviving seq, that range was reclaimed",
-		zap.Int64("sid", sid), zap.Int64("cursor", stale), zap.Int64("oldestSeq", oldest))
+	logger.Ctx(ctx).Warn("remote.Runtime: cursor below daemon's oldest surviving seq, that range was reclaimed",
+		zap.Int64("sessionId", sid), zap.Int64("cursor", stale), zap.Int64("oldestSeq", oldest))
 	r.flushCursors()
 }
 
@@ -849,11 +887,11 @@ func (r *Runtime) failAllSessions() {
 	// 让运维事后能在日志里看到"哪几个 session 是被断连兜底关掉的"。
 	if len(live) > 0 {
 		// goroutine 无请求 ctx,按 observability.md 用 logger.Default()。
-		logger.Default().Warn("remote runtime: giving up on daemon, injecting StopErr to live sessions",
+		logger.Default().Warn("remote.Runtime: giving up on daemon, injecting StopErr to live sessions",
 			zap.Int("liveCount", len(live)),
-			zap.Int64s("sids", liveSids))
+			zap.Int64s("sessionIds", liveSids))
 	} else {
-		logger.Default().Debug("remote runtime: daemon disconnected, no live sessions")
+		logger.Default().Debug("remote.Runtime: daemon disconnected, no live sessions")
 	}
 	for i, sess := range live {
 		closeSessionWithErr(sess, ErrDaemonDisconnected)
@@ -908,7 +946,7 @@ func closeSessionWithErr(sess *remoteSession, cause error) {
 	if sess.result != nil && sess.result.StopErr == nil {
 		sess.result.StopErr = cause
 	}
-	close(sess.events)
+	sess.events.Close()
 }
 
 // ── 连接态 ──────────────────────────────────────────────────────────────────
@@ -916,8 +954,8 @@ func closeSessionWithErr(sess *remoteSession, cause error) {
 // enterReconnecting 把所有还活着的会话翻成重连态并播给观察者。
 func (r *Runtime) enterReconnecting() {
 	sids := r.liveSessionIDs()
-	logger.Default().Warn("remote runtime: daemon connection dropped, reconnecting",
-		zap.Int64s("sids", sids))
+	logger.Default().Warn("remote.Runtime: daemon connection dropped, reconnecting",
+		zap.Int64s("sessionIds", sids))
 	r.flushCursors()
 	for _, sid := range sids {
 		r.setSessionConnState(sid, SessionConnState{State: ConnStateReconnecting})
@@ -1008,11 +1046,8 @@ func (r *Runtime) turnStartFloor(ctx context.Context, sid int64) int64 {
 		return 0
 	}
 	r.connMu.Lock()
-	st, gen := r.durability, r.connGen
+	gen := r.connGen
 	r.connMu.Unlock()
-	if st == durabilityUnsupported {
-		return 0
-	}
 	// 只取状态、不惰性读库:这里要的是「本连接上探过没有」,而游标该由谁读、什么时候读
 	// 自有它的路径(第一条通知 / 补齐前的 pinCursorFor)。
 	ss := r.stateFor(sid)
@@ -1021,94 +1056,70 @@ func (r *Runtime) turnStartFloor(ctx context.Context, sid int64) int64 {
 	}
 	summaries, err := r.sessionSummaries(ctx)
 	if err != nil {
-		if errors.Is(err, ErrCatchUpUnsupported) {
-			logger.Ctx(ctx).Warn("remote runtime: daemon predates session durability, disconnect will end the turn")
-			return 0
-		}
-		// 网络抖动之类:留在 unknown,下一轮再探。一次拨不通不该把持久化关掉。
-		logger.Ctx(ctx).Debug("remote runtime: session list before turn inconclusive", zap.Error(err))
+		// 网络抖动之类:这一轮不设下限,下一轮再问。一次拨不通不该把持久化关掉。
+		logger.Ctx(ctx).Debug("remote.Runtime: session list before turn inconclusive", zap.Error(err))
 		return 0
 	}
 	// 清单里没有这条会话:它在这台 daemon 上还一条通知都没发过,高水位就是 0。
-	return ss.rememberFloor(gen, summaries[sid].LatestSeq)
+	return ss.rememberFloor(gen, summaries[r.conversationID(sid)].LatestSeq)
 }
 
 // sessionSummaries 是补齐三步的第一步:问一眼这个对端在这台 daemon 上有哪些会话、
-// 各自的生命周期状态、是否正在等输入、日志高水位到哪。规格明写它无副作用,所以它
-// 同时充当 R18 的能力探测入口(attach 会改推送目标、pull 会推游标,都不能拿来探)。
-//
-// 老 daemon 回 method-not-found → ErrCatchUpUnsupported,并就地记下证伪结果。
-func (r *Runtime) sessionSummaries(ctx context.Context) (map[int64]wire.SessionSummary, error) {
-	var res wire.SessionListResult
-	if err := r.conn().Call(ctx, wire.MethodSessionList, struct{}{}, &res); err != nil {
-		if isMethodNotFound(err) {
-			r.setDurability(durabilityUnsupported)
-			return nil, ErrCatchUpUnsupported
-		}
-		return nil, wire.FromJSONRPCError(err)
+// 各自的生命周期状态、是否正在等输入、日志高水位到哪。规格明写它无副作用。
+func (r *Runtime) sessionSummaries(ctx context.Context) (map[string]wire.SessionSummary, error) {
+	res, err := wirecall.SessionList(ctx, r.conn(), &agentrewire.SessionListRequest{})
+	if err != nil {
+		return nil, wire.FromRPCError(err)
 	}
-	r.setDurability(durabilitySupported)
-	out := make(map[int64]wire.SessionSummary, len(res.Sessions))
-	for _, s := range res.Sessions {
-		// 账号级清单(R12)里两个对端各有一条**同号**会话是常态而非例外:会话 id 是各
-		// 客户端本地自增的主键。这张表按裸 id 索引,所以同号时必须让**自己**那条(daemon
-		// 在清单里把它的 origin 留空)胜出,别的对端那条不得覆盖它 —— R12 放宽的是可见性
-		// 的过滤条件,「会话主键结构不变」,主键仍是 (对端指纹, 会话 id) 两段。
-		//
-		// 覆盖了会同时坏两处:turnStartFloor 把别人的高水位当成自己会话的下限,自己此后
-		// 每一条通知都低于下限被判成重复丢弃(会话不报错地冻住);补齐三步则会带着别人的
-		// origin 去 attach / pull,把别人的通知日志重放进自己的转录。
-		if _, dup := out[s.SessionID]; dup && s.PeerFingerprint != "" {
+	out := make(map[string]wire.SessionSummary, len(res.GetSessions()))
+	for _, value := range res.GetSessions() {
+		s := summaryFromProto(value)
+		if s.ConversationID == "" {
+			// 没有身份的行没法索引,也没法为它发 attach / pull。跳过它而不是让它顶掉
+			// 表里的零值格。
 			continue
 		}
-		out[s.SessionID] = s
-		r.rememberOrigin(s.SessionID, s.PeerFingerprint)
+		// 这张表按 conversation_id 索引。账号级清单(R12)里两个对端各有一条**同号**
+		// 会话曾经是常态,靠"自己那条胜出"的特判躲开并轨;对话身份全局唯一之后,那类
+		// 并轨由构造消失 —— 不是被更好地防住了,是没有了。
+		out[s.ConversationID] = s
+		r.rememberOrigin(s.ConversationID, s.PeerFingerprint)
 	}
 	return out, nil
 }
 
+// summaryFromProto 保留成一层薄转发,字段映射本身住在 protowire 里。摘要的编解码此前
+// 被手抄了四份,而 proto3 分辨不了「没发这一格」与「发了零值」—— 漏解一格在整条补齐
+// 链路上是静默的,只有用户的清单会露面。真相源因此只留一处,见
+// protowire/session_summary.go。
+func summaryFromProto(value *agentrewire.SessionSummary) wire.SessionSummary {
+	return protowire.SessionSummaryFromProto(value)
+}
+
 // rememberOrigin 记下清单里学到的会话发起对端(R12 桌面侧)。下游的 attach / pull /
 // pendingWaiters / 控制请求都要按它把 PeerFingerprint 原样带过去,daemon 据此解析到
-// 发起对端;记到空值 = 未认领 daemon / 自己对端,请求省略该字段(向后兼容)。
-func (r *Runtime) rememberOrigin(sid int64, fp string) {
+// 发起对端;记到空值 = 未登录 daemon / 自己对端,请求省略该字段(向后兼容)。
+func (r *Runtime) rememberOrigin(conversationID string, fp devicefp.Initiator) {
+	if conversationID == "" {
+		return
+	}
 	r.originMu.Lock()
-	r.origins[sid] = fp
+	r.origins[conversationID] = fp
 	r.originMu.Unlock()
 }
 
 // originFor 交出这条会话学到的发起对端;没学过(本地 Run 起的会话、清单还没含它)返
 // 空串,调用方据此省略 PeerFingerprint —— 空 origin 在 daemon 侧解析为调用方自己对端,
 // 正好是自己发的会话,天然向后兼容。
-func (r *Runtime) originFor(sid int64) string {
+func (r *Runtime) originFor(sid int64) devicefp.Initiator {
+	return r.originForConversation(r.conversationID(sid))
+}
+
+// originForConversation 同上,但直接按对话身份问。
+func (r *Runtime) originForConversation(conversationID string) devicefp.Initiator {
 	r.originMu.Lock()
 	defer r.originMu.Unlock()
-	return r.origins[sid]
-}
-
-// setDurability 记下能力探测的结论,并在结论**翻转**时播报给观察者(R18)。
-//
-// 只播翻转:探测落在每一轮开轮前的热路径上,结论不变时重复播报只会让上层一遍遍重写
-// 同一条设备状态。unknown 不播 —— 它是「还没探」而不是结论(adoptConn 按连接代重置
-// 它),把它当结论播会在每次重连时先把设备面板上那条说明撤下来又装回去。
-//
-// 播报在锁外:观察者是上层注入的,持着 connMu 回调它等于把 service 层的锁序拽进
-// 这条连接的临界区。
-func (r *Runtime) setDurability(st durabilityState) {
-	r.connMu.Lock()
-	prev := r.durability
-	r.durability = st
-	obs := r.durabilityObs
-	r.connMu.Unlock()
-	if obs == nil || st == durabilityUnknown || st == prev {
-		return
-	}
-	obs.OnDaemonDurability(st == durabilitySupported)
-}
-
-// isMethodNotFound 判定 daemon 回的是 JSON-RPC 标准的 -32601。
-func isMethodNotFound(err error) bool {
-	var rpcErr *jsonrpc.Error
-	return errors.As(err, &rpcErr) && rpcErr.Code == jsonrpc.ErrMethodNotFound.Code
+	return r.origins[conversationID]
 }
 
 // ── 游标落库(防抖)─────────────────────────────────────────────────────────
@@ -1167,8 +1178,8 @@ func (r *Runtime) saveCursor(sid, seq int64) {
 	}
 	ctx := context.Background()
 	if err := port.SaveCursor(ctx, sid, r.fingerprint(), seq); err != nil {
-		logger.Default().Warn("remote runtime: save session cursor failed",
-			zap.Int64("sid", sid), zap.Int64("seq", seq), zap.Error(err))
+		logger.Default().Warn("remote.Runtime: save session cursor failed",
+			zap.Int64("sessionId", sid), zap.Int64("seq", seq), zap.Error(err))
 	}
 }
 
@@ -1181,14 +1192,14 @@ func (r *Runtime) cursor() agentruntime.SessionCursorPort {
 }
 
 // fingerprint 当前连上的 daemon 实例标识。
-func (r *Runtime) fingerprint() string {
+func (r *Runtime) fingerprint() devicefp.Carrier {
 	r.connMu.Lock()
 	defer r.connMu.Unlock()
 	return r.daemonFP
 }
 
 // conn 当前这条连接。重连会换掉它,所以每次用都要重新取,不能捕获。
-func (r *Runtime) conn() agentruntime.DaemonClientPort {
+func (r *Runtime) conn() client.ProtobufConnection {
 	r.connMu.Lock()
 	defer r.connMu.Unlock()
 	return r.client

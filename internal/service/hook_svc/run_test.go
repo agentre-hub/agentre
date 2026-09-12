@@ -8,10 +8,10 @@ import (
 
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/hook_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/hookexec"
-	"github.com/agentre-ai/agentre/internal/repository/hook_repo"
-	"github.com/agentre-ai/agentre/internal/repository/hook_repo/mock_hook_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/hook_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/hookexec"
+	"github.com/agentre-hub/agentre/internal/repository/hook_repo"
+	"github.com/agentre-hub/agentre/internal/repository/hook_repo/mock_hook_repo"
 )
 
 // buildEnv 必须按脚本契约(spec §4.1 + MCP hook_create schema)注入 HOOK_STATE / HOOK_NAME /

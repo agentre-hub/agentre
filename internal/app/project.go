@@ -1,10 +1,9 @@
 package app
 
 import (
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/service/project_location_svc"
-	"github.com/agentre-ai/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/service/project_location_svc"
+	"github.com/agentre-hub/agentre/internal/service/project_svc"
 )
 
 // ProjectCreateRequest 前端新建项目入参，与 project_svc.CreateProjectRequest
@@ -91,17 +90,6 @@ type ProjectDetailResponse struct {
 	InheritedMembers []*ProjectMemberItem `json:"inheritedMembers"`
 }
 
-// ProjectSessionItem 项目下会话摘要。
-type ProjectSessionItem struct {
-	ID             int64  `json:"id"`
-	AgentID        int64  `json:"agentID"`
-	Title          string `json:"title"`
-	AgentStatus    string `json:"agentStatus"`
-	LastMessageAt  int64  `json:"lastMessageAt"`
-	LastReadAt     int64  `json:"lastReadAt"`
-	NeedsAttention bool   `json:"needsAttention"`
-}
-
 // ProjectGitRepoInfo 路径下 git 探测结果。
 type ProjectGitRepoInfo struct {
 	IsGitRepo     bool   `json:"isGitRepo"`
@@ -135,6 +123,25 @@ func (a *App) ProjectUpdate(req *ProjectUpdateRequest) (*ProjectItem, error) {
 		Color:       req.Color,
 		Description: req.Description,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return toProjectItem(p), nil
+}
+
+// ProjectMoveRequest 把项目挂到另一个父项目下（parentID = 0 即挂到根上）。
+type ProjectMoveRequest struct {
+	ID       int64 `json:"id"`
+	ParentID int64 `json:"parentID"`
+}
+
+// ProjectMove 改父项目。与 ProjectReorder 分开：那一条只在同一个父下排序。
+func (a *App) ProjectMove(req *ProjectMoveRequest) (*ProjectItem, error) {
+	var svcReq *project_svc.MoveProjectRequest
+	if req != nil {
+		svcReq = &project_svc.MoveProjectRequest{ID: req.ID, NewParentID: req.ParentID}
+	}
+	p, err := project_svc.Default().Move(a.ctx, svcReq)
 	if err != nil {
 		return nil, err
 	}
@@ -206,14 +213,6 @@ func (a *App) ProjectLocationRemove(projectID int64, deviceID string) error {
 }
 
 // ProjectListSessions 项目下未软删除的会话列表。
-func (a *App) ProjectListSessions(projectID int64) ([]*ProjectSessionItem, error) {
-	rows, err := project_svc.Default().ListSessions(a.ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	return toProjectSessionItems(rows), nil
-}
-
 // ProjectSetLocalPath 就地指定本机路径，解除「本机未配置路径」状态（R10）。
 func (a *App) ProjectSetLocalPath(req *ProjectSetLocalPathRequest) (*ProjectItem, error) {
 	var id int64
@@ -299,22 +298,6 @@ func toProjectTreeNodes(nodes []*project_svc.ProjectNode) []*ProjectTreeNode {
 		out = append(out, &ProjectTreeNode{
 			Project:  toProjectItem(n.Project),
 			Children: toProjectTreeNodes(n.Children),
-		})
-	}
-	return out
-}
-
-func toProjectSessionItems(rows []*chat_entity.Session) []*ProjectSessionItem {
-	out := make([]*ProjectSessionItem, 0, len(rows))
-	for _, s := range rows {
-		out = append(out, &ProjectSessionItem{
-			ID:             s.ID,
-			AgentID:        s.AgentID,
-			Title:          s.Title,
-			AgentStatus:    s.AgentStatus,
-			LastMessageAt:  s.LastMessageAt,
-			LastReadAt:     s.LastReadAt,
-			NeedsAttention: s.IsWaitingForUser(),
 		})
 	}
 	return out

@@ -1,0 +1,454 @@
+package peer
+
+import (
+	"context"
+	"errors"
+	"io"
+	"sync"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
+	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
+	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+)
+
+type peerProtoPipe struct {
+	in, out chan []byte
+	done    chan struct{}
+	once    *sync.Once
+}
+
+func peerProtoPipePair() (*peerProtoPipe, *peerProtoPipe) {
+	a, b := make(chan []byte, 4), make(chan []byte, 4)
+	done := make(chan struct{})
+	once := &sync.Once{}
+	return &peerProtoPipe{a, b, done, once}, &peerProtoPipe{b, a, done, once}
+}
+func (p *peerProtoPipe) ReadFrame() ([]byte, error) {
+	select {
+	case b := <-p.in:
+		return b, nil
+	case <-p.done:
+		return nil, io.EOF
+	}
+}
+func (p *peerProtoPipe) WriteFrame(b []byte) error {
+	select {
+	case p.out <- append([]byte(nil), b...):
+		return nil
+	case <-p.done:
+		return io.EOF
+	}
+}
+func (p *peerProtoPipe) Close() error          { p.once.Do(func() { close(p.done) }); return nil }
+func (p *peerProtoPipe) Done() <-chan struct{} { return p.done }
+
+func TestProtobufInboundRegistryAuthenticatesAndReusesPeripheralAdapters(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
+		Peripheral:              wireinbound.PeripheralDeps{RemoteFS: remotefs.NewHandlers(remotefs.Options{})},
+		VerifyAccountCredential: func(context.Context, string) (string, error) { return "peer-1", nil },
+	})
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	_, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_REMOTE_FS_LIST_DIR), &agentrewire.RemoteFsListDirRequest{}, func() *agentrewire.RemoteFsListDirResponse { return &agentrewire.RemoteFsListDirResponse{} })
+	var unauthorized *protorpc.Error
+	require.ErrorAs(t, err, &unauthorized)
+	require.Equal(t, int32(-32001), unauthorized.Code)
+
+	auth, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT),
+		&agentrewire.AuthAccountRequest{Credential: "credential", ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported}, func() *agentrewire.AuthAccountResponse { return &agentrewire.AuthAccountResponse{} })
+	require.NoError(t, err)
+	require.True(t, auth.Ok)
+	// 身份来自验证器交出的那个值(请求体里已经没有可自报的字段),并原样回写给调用方。
+	require.Equal(t, "peer-1", server.Auth().DeviceFingerprint)
+	require.Equal(t, "peer-1", auth.GetPeerFingerprint())
+
+	_, err = protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_REMOTE_FS_LIST_DIR), &agentrewire.RemoteFsListDirRequest{}, func() *agentrewire.RemoteFsListDirResponse { return &agentrewire.RemoteFsListDirResponse{} })
+	require.NoError(t, err)
+}
+
+func TestProtobufInboundRegistryRejectsIncompleteAccountAuth(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
+		VerifyAccountCredential: func(context.Context, string) (string, error) { return "peer-1", nil },
+	})
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	_, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT),
+		&agentrewire.AuthAccountRequest{ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported}, func() *agentrewire.AuthAccountResponse { return &agentrewire.AuthAccountResponse{} })
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	require.Equal(t, protorpc.CodeInvalidParams, rpcErr.Code)
+	require.False(t, server.Auth().Authenticated)
+}
+
+func TestProtobufInboundRegistryServesPeerSessionList(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{ListSessions: func(context.Context, remotewire.SessionListParams) (*remotewire.SessionListResult, error) {
+		return &remotewire.SessionListResult{Sessions: []remotewire.SessionSummary{{ConversationID: convID(7), Title: "remote"}}}, nil
+	}})
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	response, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST), &agentrewire.SessionListRequest{}, func() *agentrewire.SessionListResponse { return &agentrewire.SessionListResponse{} })
+	require.NoError(t, err)
+	require.Len(t, response.Sessions, 1)
+	require.Equal(t, convID(7), response.Sessions[0].ConversationId)
+}
+
+// TestProtobufInboundRegistryPagesTheSessionList 覆盖分页这一格真的过线:请求里的
+// limit/cursor 得进到服务方,应答里的 cursor/hasMore/total 得回到调用方。少任何一头,
+// 浏览器的机器轴就只能整份取 —— 那正是这条协议改动要解决的事。
+func TestProtobufInboundRegistryPagesTheSessionList(t *testing.T) {
+	var got remotewire.SessionListParams
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{ListSessions: func(_ context.Context, params remotewire.SessionListParams) (*remotewire.SessionListResult, error) {
+		got = params
+		return &remotewire.SessionListResult{
+			Sessions: []remotewire.SessionSummary{{ConversationID: convID(7), Title: "remote"}},
+			Cursor:   "20", HasMore: true, Total: 44,
+		}, nil
+	}})
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	response, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST),
+		&agentrewire.SessionListRequest{Keyword: "happy", Limit: 20, Cursor: "0"},
+		func() *agentrewire.SessionListResponse { return &agentrewire.SessionListResponse{} })
+	require.NoError(t, err)
+	require.Equal(t, remotewire.SessionListParams{Keyword: "happy", Limit: 20, Cursor: "0"}, got)
+	require.Equal(t, "20", response.GetCursor())
+	require.True(t, response.GetHasMore())
+	require.Equal(t, int64(44), response.GetTotal())
+}
+
+// TestProtobufInboundRegistryNarrowsTheSessionListByConversationIDs 覆盖点名收窄
+// 过线:详情页要的是**一条**会话的摘要,此前只能把整台机器的清单翻一遍去找它。
+func TestProtobufInboundRegistryNarrowsTheSessionListByConversationIDs(t *testing.T) {
+	var got remotewire.SessionListParams
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{ListSessions: func(_ context.Context, params remotewire.SessionListParams) (*remotewire.SessionListResult, error) {
+		got = params
+		return &remotewire.SessionListResult{Sessions: []remotewire.SessionSummary{{ConversationID: convID(7)}}}, nil
+	}})
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	_, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST),
+		&agentrewire.SessionListRequest{ConversationIds: []string{convID(7)}},
+		func() *agentrewire.SessionListResponse { return &agentrewire.SessionListResponse{} })
+	require.NoError(t, err)
+	require.Equal(t, []string{convID(7)}, got.ConversationIDs)
+}
+
+// TestProtobufInboundRegistryServesSessionCounts 覆盖计数这条 RPC:设备卡片上那三个
+// 数此前是把整台机器的清单拉过去数出来的,现在问三个数就只回三个数。
+func TestProtobufInboundRegistryServesSessionCounts(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{CountSessions: func(context.Context) (*remotewire.SessionCountsResult, error) {
+		return &remotewire.SessionCountsResult{Total: 3500, Running: 2, Waiting: 1}, nil
+	}})
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	response, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_COUNTS),
+		&agentrewire.SessionCountsRequest{},
+		func() *agentrewire.SessionCountsResponse { return &agentrewire.SessionCountsResponse{} })
+	require.NoError(t, err)
+	require.Equal(t, int64(3500), response.GetTotal())
+	require.Equal(t, int64(2), response.GetRunning())
+	require.Equal(t, int64(1), response.GetWaiting())
+}
+
+// 桌面端自己的会话清单也要把会话级思考力度这一列过线：它与 provider_key/model_key
+// 同一形态的显示镜像，浏览器靠它渲染那颗控件；这里少一格，web 控制台看到的就永远是
+// 「默认」（agentred 那一侧已经在发了）。
+func TestProtobufInboundRegistryServesSessionReasoningEffort(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{ListSessions: func(context.Context, remotewire.SessionListParams) (*remotewire.SessionListResult, error) {
+		return &remotewire.SessionListResult{Sessions: []remotewire.SessionSummary{{
+			ConversationID: convID(7), Title: "remote",
+			ProviderKey: "prov-anthropic", ModelKey: "sonnet-4-6", ReasoningEffort: "xhigh",
+		}}}, nil
+	}})
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	response, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST), &agentrewire.SessionListRequest{}, func() *agentrewire.SessionListResponse { return &agentrewire.SessionListResponse{} })
+	require.NoError(t, err)
+	require.Len(t, response.Sessions, 1)
+	require.Equal(t, "prov-anthropic", response.Sessions[0].ProviderKey)
+	require.Equal(t, "sonnet-4-6", response.Sessions[0].ModelKey)
+	require.Equal(t, "xhigh", response.Sessions[0].ReasoningEffort)
+}
+
+// 浏览器插话之后要能管理自己那份排队清单:它拿自己造的号去对 SteerConsumed 是对不
+// 上的 —— 桌面端的 chat_svc 入队时会另造一个号(chat.go 的 newQueuedID)。所以这条路
+// 的应答必须把**桌面端认的那个号**连同「撤不撤得掉」一起交回去。
+func TestProtobufInboundRegistrySteerReturnsQueuedHandle(t *testing.T) {
+	deps := ProtobufInboundDeps{
+		SteerSession: func(_ context.Context, p remotewire.SteerParams, _ chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error) {
+			require.Equal(t, "browser-local-1", p.QueuedID)
+			// chat_svc 自己造号,调用方给的那个此刻仍被丢弃 —— 应答回的正是这一个。
+			return &chat_svc.EnqueueResponse{SessionID: 7, Queued: true, QueuedID: "desktop-42", Cancellable: true}, nil
+		},
+	}
+	client, ctx := peerControlClient(t, deps)
+
+	res, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), &agentrewire.RuntimeSteerRequest{ConversationId: convID(7), QueuedId: "browser-local-1", Text: "continue"}, func() *agentrewire.RuntimeSteerResponse { return &agentrewire.RuntimeSteerResponse{} })
+	require.NoError(t, err)
+	require.Equal(t, "desktop-42", res.QueuedId)
+	require.True(t, res.Cancellable)
+}
+
+// 撤回排队消息此前在这一侧**根本没注册**:浏览器上那颗撤回键无论怎么点都只会撞
+// method not found,而 chat_svc.CancelQueued 早就在了(桌面端自己的前端一直在用)。
+func TestProtobufInboundRegistryServesCancelSteer(t *testing.T) {
+	var got remotewire.CancelSteerParams
+	deps := ProtobufInboundDeps{
+		CancelSteerSession: func(_ context.Context, p remotewire.CancelSteerParams) (*chat_svc.CancelQueuedResponse, error) {
+			got = p
+			return &chat_svc.CancelQueuedResponse{Removed: []string{"desktop-42"}}, nil
+		},
+	}
+	client, ctx := peerControlClient(t, deps)
+
+	res, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER), &agentrewire.RuntimeCancelSteerRequest{ConversationId: convID(7), QueuedId: "desktop-42"}, func() *agentrewire.RuntimeCancelSteerResponse { return &agentrewire.RuntimeCancelSteerResponse{} })
+	require.NoError(t, err)
+	require.Equal(t, []string{"desktop-42"}, res.Removed)
+	require.Equal(t, convID(7), got.ConversationID)
+	require.Equal(t, "desktop-42", got.QueuedID)
+}
+
+// 撤回与入队同一档:没认证的连接一个字都别想改动这台机器上的会话。
+func TestProtobufInboundRegistryCancelSteerRequiresAuth(t *testing.T) {
+	deps := ProtobufInboundDeps{
+		CancelSteerSession: func(context.Context, remotewire.CancelSteerParams) (*chat_svc.CancelQueuedResponse, error) {
+			t.Fatal("未认证的连接不该走到撤回")
+			return nil, nil
+		},
+	}
+	registry := NewProtobufInboundRegistry(deps)
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	_, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER), &agentrewire.RuntimeCancelSteerRequest{ConversationId: convID(7)}, func() *agentrewire.RuntimeCancelSteerResponse { return &agentrewire.RuntimeCancelSteerResponse{} })
+	require.Error(t, err)
+}
+
+// peerControlClient 起一条已认证的 pipe 连接,交出客户端一侧。
+func peerControlClient(t *testing.T, deps ProtobufInboundDeps) (*protorpc.Conn, context.Context) {
+	t.Helper()
+	registry := NewProtobufInboundRegistry(deps)
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+	return client, ctx
+}
+
+func TestProtobufInboundRegistryServesPeerSessionControlMethods(t *testing.T) {
+	var steered remotewire.SteerParams
+	deps := ProtobufInboundDeps{
+		AttachSession: func(_ context.Context, p remotewire.SessionAttachParams, _ chat_svc.PeerSessionSubscriber) (remotewire.SessionAttachResult, error) {
+			require.Equal(t, convID(7), p.ConversationID)
+			return remotewire.SessionAttachResult{ConversationID: convID(7), LatestSeq: 12}, nil
+		},
+		PullSession: func(_ context.Context, p remotewire.SessionPullParams, _ chat_svc.PeerSessionSubscriber) (remotewire.SessionPullResult, error) {
+			require.Equal(t, int64(3), p.Cursor)
+			return remotewire.SessionPullResult{Cursor: 4, OldestSeq: 1}, nil
+		},
+		RunSession: func(_ context.Context, p remotewire.RunParams, source chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error) {
+			require.True(t, p.FreshSession)
+			require.Equal(t, devicefp.Initiator("sha256:caller"), source.Device)
+			return &chat_svc.SendResponse{SessionID: 42}, nil
+		},
+		SteerSession: func(_ context.Context, p remotewire.SteerParams, _ chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error) {
+			steered = p
+			return &chat_svc.EnqueueResponse{Queued: true, QueuedID: "desktop-1"}, nil
+		},
+		SubmitAnswer: func(_ context.Context, p remotewire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error) {
+			require.Equal(t, "answer", p.RequestID)
+			return chat_svc.PeerSessionControlResult{AlreadyHandled: true}, nil
+		},
+		SubmitToolPermission: func(_ context.Context, p remotewire.SubmitToolPermissionParams) (chat_svc.PeerSessionControlResult, error) {
+			require.True(t, p.Allow)
+			return chat_svc.PeerSessionControlResult{AlreadyHandled: true}, nil
+		},
+	}
+	registry := NewProtobufInboundRegistry(deps)
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	attach, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), &agentrewire.SessionAttachRequest{ConversationId: convID(7)}, func() *agentrewire.SessionAttachResponse { return &agentrewire.SessionAttachResponse{} })
+	require.NoError(t, err)
+	require.Equal(t, int64(12), attach.LatestSeq)
+	pull, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), &agentrewire.SessionPullRequest{ConversationId: convID(7), Cursor: 3}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
+	require.NoError(t, err)
+	require.Equal(t, int64(4), pull.Cursor)
+	run, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), &agentrewire.RuntimeRunRequest{ConversationId: convID(99), FreshSession: true, UserText: "go"}, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+	require.NoError(t, err)
+	require.Equal(t, convID(99), run.ConversationId, "对话身份是发起端铸的那一个,对端不得改写")
+	_, err = protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), &agentrewire.RuntimeSteerRequest{ConversationId: convID(7), Text: "continue"}, func() *agentrewire.Empty { return &agentrewire.Empty{} })
+	require.NoError(t, err)
+	require.Equal(t, "continue", steered.Text)
+	answer, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER), &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: convID(7), RequestId: "answer"}, func() *agentrewire.PeerSessionControlResponse { return &agentrewire.PeerSessionControlResponse{} })
+	require.NoError(t, err)
+	require.True(t, answer.AlreadyHandled)
+	permission, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION), &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(7), RequestId: "permission", Allow: true}, func() *agentrewire.PeerSessionControlResponse { return &agentrewire.PeerSessionControlResponse{} })
+	require.NoError(t, err)
+	require.True(t, permission.AlreadyHandled)
+}
+
+// TestProtobufInboundRegistry_GivenAnUnverifiableCredential_ThenRejectsTheHandshake
+// 钉住决策 8 在**入站对端**这条 Mode C 上的形态:凭据非空不等于凭据成立。没有验证
+// 能力(没装配 VerifyAccountCredential)的注册表必须拒绝握手 —— 而不是采信请求体里
+// 那个自报指纹,把一个谁都能编出来的字符串写进 AuthState。
+func TestProtobufInboundRegistry_GivenAnUnverifiableCredential_ThenRejectsTheHandshake(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{})
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	_, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT),
+		&agentrewire.AuthAccountRequest{Credential: "not-a-real-credential", ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported}, //nolint:gosec // G101: 这就是本用例的主角——一个编出来的凭据。
+		func() *agentrewire.AuthAccountResponse { return &agentrewire.AuthAccountResponse{} })
+
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	require.Equal(t, int32(-32001), rpcErr.Code)
+	require.False(t, server.Auth().Authenticated)
+	require.Empty(t, server.Auth().DeviceFingerprint)
+}
+
+// TestProtobufInboundRegistry_GivenAVerifierThatRejects_ThenRefusesTheHandshake
+// 验证器说不行就是不行:与「没有验证器」同一形态被拒,连接不留任何身份。
+func TestProtobufInboundRegistry_GivenAVerifierThatRejects_ThenRefusesTheHandshake(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
+		VerifyAccountCredential: func(context.Context, string) (string, error) {
+			return "", errors.New("account credential signature invalid")
+		},
+	})
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	_, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT),
+		&agentrewire.AuthAccountRequest{Credential: "forged", ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported},
+		func() *agentrewire.AuthAccountResponse { return &agentrewire.AuthAccountResponse{} })
+
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	require.Equal(t, int32(-32001), rpcErr.Code)
+	require.False(t, server.Auth().Authenticated)
+	require.Empty(t, server.Auth().DeviceFingerprint)
+}
+
+// TestProtobufInbound_Run_GivenHostNumberedTheUserMessage_ThenResponseCarriesItsHighestFrameSeq
+// —— 桌面端做宿主时也要把「这一轮用户消息的最高持久帧号」交回发起方,发起方据它把
+// 游标推进到「我已经持有的内容」(spec 2026-09-07 决策 1、决策 4 的两宿主对称)。
+// 宿主没给号(拒绝该轮 / 落库前失败)时这一格保持 0,发起方据此不推进游标。
+func TestProtobufInbound_Run_GivenHostNumberedTheUserMessage_ThenResponseCarriesItsHighestFrameSeq(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		resp    *chat_svc.SendResponse
+		want    int64
+		wantMin int64
+	}{
+		{name: "宿主给了号(单帧)", resp: &chat_svc.SendResponse{SessionID: 42, UserMessageSeq: 7, UserMessageMinSeq: 7}, want: 7, wantMin: 7},
+		{name: "带附件:一段两帧", resp: &chat_svc.SendResponse{SessionID: 42, UserMessageSeq: 8, UserMessageMinSeq: 7}, want: 8, wantMin: 7},
+		{name: "宿主没给号", resp: &chat_svc.SendResponse{SessionID: 42}, want: 0, wantMin: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			deps := ProtobufInboundDeps{
+				RunSession: func(_ context.Context, _ remotewire.RunParams, _ chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error) {
+					return tc.resp, nil
+				},
+			}
+			registry := NewProtobufInboundRegistry(deps)
+			clientTransport, serverTransport := peerProtoPipePair()
+			client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+			server := protorpc.NewConn(serverTransport, registry)
+			server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go client.Serve(ctx)
+			go server.Serve(ctx)
+
+			run, err := protorpc.CallMethod(ctx, client,
+				uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN),
+				&agentrewire.RuntimeRunRequest{ConversationId: convID(99), UserText: "go"},
+				func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+			require.NoError(t, err)
+			require.Equal(t, tc.want, run.UserMessageSeq)
+			require.Equal(t, tc.wantMin, run.UserMessageMinSeq,
+				"闸门要比的最低号必须一起交回去,否则带附件的那一轮游标推不动")
+		})
+	}
+}

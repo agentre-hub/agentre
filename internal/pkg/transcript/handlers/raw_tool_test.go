@@ -1,0 +1,193 @@
+package handlers
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	cagoblocks "github.com/cago-frame/agents/agent/blocks"
+	. "github.com/smartystreets/goconvey/convey"
+
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
+)
+
+func TestToolCallHandler_Outer(t *testing.T) {
+	Convey("外层 ToolCall → cago.ToolUseBlock + emit tool_use", t, func() {
+		acc := turn.New()
+		emit := &fakeEmit{}
+		input, _ := json.Marshal(map[string]any{"a": 1})
+		err := ToolCallHandler{}.Apply(
+			context.Background(),
+			agentruntime.ToolCall{ID: "tu-1", Name: "X", Input: input},
+			acc, emit, nil, nil,
+		)
+		So(err, ShouldBeNil)
+		So(acc.HasToolUse("tu-1"), ShouldBeTrue)
+		So(emit.events, ShouldHaveLength, 1)
+		p := emit.events[0].payload.(map[string]any)
+		So(p["kind"], ShouldEqual, "tool_use")
+		So(p["toolUseId"], ShouldEqual, "tu-1")
+	})
+}
+
+func TestToolCallHandler_Nested(t *testing.T) {
+	Convey("内层 ToolCall (ParentToolCallID 非空) → 带运行分组的 NestedToolUseBlock + stream", t, func() {
+		acc := turn.New()
+		emit := &fakeEmit{}
+		err := ToolCallHandler{}.Apply(
+			context.Background(),
+			agentruntime.ToolCall{ID: "n-1", Name: "Read", ParentToolCallID: "task-1", SubagentRunID: "run-1"},
+			acc, emit, nil, nil,
+		)
+		So(err, ShouldBeNil)
+		final := acc.Finalize()
+		So(final, ShouldHaveLength, 1)
+		nested, isNested := final[0].(*blocks.NestedToolUseBlock)
+		So(isNested, ShouldBeTrue)
+		So(nested.SubagentRunID, ShouldEqual, "run-1")
+		payload := emit.events[0].payload.(map[string]any)
+		So(payload["subagentRunId"], ShouldEqual, "run-1")
+	})
+
+	Convey("缺失运行 ID 的内层 ToolCall 保留为 fallback step 且不合成结果", t, func() {
+		acc := turn.New()
+		err := ToolCallHandler{}.Apply(
+			context.Background(),
+			agentruntime.ToolCall{ID: "n-unknown", Name: "Read", ParentToolCallID: "task-1"},
+			acc, nil, nil, nil,
+		)
+		So(err, ShouldBeNil)
+		final := acc.Finalize()
+		So(final, ShouldHaveLength, 1)
+		nested := final[0].(*blocks.NestedToolUseBlock)
+		So(nested.SubagentRunID, ShouldEqual, "")
+	})
+}
+
+func TestToolCallHandler_CanonicalKindInEmit(t *testing.T) {
+	Convey("Canonical 非空时 emit 携带 canonicalKind", t, func() {
+		acc := turn.New()
+		emit := &fakeEmit{}
+		err := ToolCallHandler{}.Apply(
+			context.Background(),
+			agentruntime.ToolCall{
+				ID: "tu-1", Name: "Write",
+				Canonical: canonical.FileWrite{Path: "/tmp/a", Content: "x"},
+			},
+			acc, emit, nil, nil,
+		)
+		So(err, ShouldBeNil)
+		p := emit.events[0].payload.(map[string]any)
+		So(p["canonicalKind"], ShouldEqual, string(canonical.KindFileWrite))
+	})
+}
+
+// claudecode v2.1.x:ExitPlanMode 的 input={},plan markdown 在前一个 Write 工具
+// 写到 ~/.claude/plans/<slug>.md 里。ToolCallHandler 见到 Write→plan 路径时把
+// content 寄存到 tc.LastPlanWriteContent,buildToolPermissionCanonical 兜底用。
+func TestToolCallHandler_CapturesPlanWrite(t *testing.T) {
+	Convey("Write canonical 到 .claude/plans/*.md 把 content 寄到 tc.LastPlanWriteContent", t, func() {
+		acc := turn.New()
+		tc := &turn.TurnContext{}
+		err := ToolCallHandler{}.Apply(
+			context.Background(),
+			agentruntime.ToolCall{
+				ID: "tu-plan", Name: "Write",
+				Canonical: canonical.FileWrite{
+					Path:    "/Users/x/.claude/plans/happy-cooking-alpaca.md",
+					Content: "# Plan\n1. step a\n",
+				},
+			},
+			acc, nil, nil, tc,
+		)
+		So(err, ShouldBeNil)
+		So(tc.LastPlanWriteContent, ShouldEqual, "# Plan\n1. step a\n")
+	})
+	Convey("Write 到非 plan 路径不动 tc.LastPlanWriteContent", t, func() {
+		acc := turn.New()
+		tc := &turn.TurnContext{LastPlanWriteContent: "prev"}
+		err := ToolCallHandler{}.Apply(
+			context.Background(),
+			agentruntime.ToolCall{
+				ID: "tu-other", Name: "Write",
+				Canonical: canonical.FileWrite{Path: "/tmp/a.md", Content: "noise"},
+			},
+			acc, nil, nil, tc,
+		)
+		So(err, ShouldBeNil)
+		So(tc.LastPlanWriteContent, ShouldEqual, "prev")
+	})
+	Convey("tc == nil 不 panic", t, func() {
+		acc := turn.New()
+		err := ToolCallHandler{}.Apply(
+			context.Background(),
+			agentruntime.ToolCall{
+				ID: "tu-plan2", Name: "Write",
+				Canonical: canonical.FileWrite{Path: "/x/.claude/plans/y.md", Content: "p"},
+			},
+			acc, nil, nil, nil,
+		)
+		So(err, ShouldBeNil)
+	})
+}
+
+func TestToolResultHandler_OrphanDropped(t *testing.T) {
+	Convey("孤儿外层 ToolResult 丢弃 (spec §1.2)", t, func() {
+		acc := turn.New()
+		err := ToolResultHandler{}.Apply(
+			context.Background(),
+			agentruntime.ToolResult{ToolCallID: "orphan", Content: "x"},
+			acc, nil, nil, nil,
+		)
+		So(err, ShouldBeNil)
+		So(acc.Finalize(), ShouldHaveLength, 0)
+	})
+}
+
+func TestToolResultHandler_WithPriorToolUse(t *testing.T) {
+	Convey("先 ToolCall 再 ToolResult → 同时落 acc + emit", t, func() {
+		acc := turn.New()
+		emit := &fakeEmit{}
+		_ = ToolCallHandler{}.Apply(
+			context.Background(),
+			agentruntime.ToolCall{ID: "tu-1", Name: "Bash"},
+			acc, emit, nil, nil,
+		)
+		err := ToolResultHandler{}.Apply(
+			context.Background(),
+			agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"},
+			acc, emit, nil, nil,
+		)
+		So(err, ShouldBeNil)
+		// emit 应该有 tool_use + tool_result 2 条
+		So(emit.events, ShouldHaveLength, 2)
+		// final 应该有 ToolUseBlock + ToolResultBlock
+		final := acc.Finalize()
+		_, isUse := final[0].(*cagoblocks.ToolUseBlock)
+		So(isUse, ShouldBeTrue)
+		_, isResult := final[1].(*cagoblocks.ToolResultBlock)
+		So(isResult, ShouldBeTrue)
+	})
+
+	Convey("内层 ToolResult 保留父调用与运行分组到 block 和 stream", t, func() {
+		acc := turn.New()
+		emit := &fakeEmit{}
+		err := ToolResultHandler{}.Apply(
+			context.Background(),
+			agentruntime.ToolResult{
+				ToolCallID: "n-1", Content: "ok", ParentToolCallID: "task-1", SubagentRunID: "run-1",
+			},
+			acc, emit, nil, nil,
+		)
+		So(err, ShouldBeNil)
+		final := acc.Finalize()
+		So(final, ShouldHaveLength, 1)
+		nested := final[0].(*blocks.NestedToolResultBlock)
+		So(nested.SubagentRunID, ShouldEqual, "run-1")
+		payload := emit.events[0].payload.(map[string]any)
+		So(payload["subagentRunId"], ShouldEqual, "run-1")
+	})
+}

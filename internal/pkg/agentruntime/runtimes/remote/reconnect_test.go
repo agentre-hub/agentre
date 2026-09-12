@@ -11,10 +11,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/jsonrpc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/protorpctest"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // ── fakes ───────────────────────────────────────────────────────────────────
@@ -30,6 +34,8 @@ type fakeConn struct {
 
 	closed    chan struct{}
 	closeOnce sync.Once
+	protoOnce sync.Once
+	protoConn *protorpc.Conn
 }
 
 type fakeCall struct {
@@ -62,8 +68,12 @@ func (f *fakeConn) Call(_ context.Context, method string, params, result any) er
 }
 
 func (f *fakeConn) Notify(string, any) error { return nil }
-func (f *fakeConn) Closed() <-chan struct{}  { return f.closed }
-func (f *fakeConn) Close() error             { f.closeOnce.Do(func() { close(f.closed) }); return nil }
+func (f *fakeConn) Conn() *protorpc.Conn {
+	f.protoOnce.Do(func() { f.protoConn = protorpctest.WrapConnection(f).Conn() })
+	return f.protoConn
+}
+func (f *fakeConn) Closed() <-chan struct{} { return f.closed }
+func (f *fakeConn) Close() error            { f.closeOnce.Do(func() { close(f.closed) }); return nil }
 func (f *fakeConn) script(fn func(method string, params, result any) error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -81,6 +91,7 @@ func (f *fakeConn) deliver(t *testing.T, method string, payload any) {
 	require.NoError(t, err)
 	_, err = fn(context.Background(), raw)
 	require.NoError(t, err)
+	require.NoError(t, protorpctest.Barrier(t.Context(), f))
 }
 
 // dispatchRaw 从**另一个 goroutine** 投递一条 server-push。刻意不碰 *testing.T:
@@ -93,6 +104,7 @@ func (f *fakeConn) dispatchRaw(method string, raw json.RawMessage) {
 		return
 	}
 	_, _ = fn(context.Background(), raw)
+	_ = protorpctest.Barrier(context.Background(), f)
 }
 
 func (f *fakeConn) methodCalls(method string) []fakeCall {
@@ -124,23 +136,23 @@ func (f *fakeConn) catchUpOrder() []string {
 // fakeCursorPort 是 agentruntime.SessionCursorPort 的测试替身。
 type fakeCursorPort struct {
 	mu    sync.Mutex
-	load  func(sessionID int64, fp string) (int64, bool, error)
+	load  func(sessionID int64, fp devicefp.Carrier) (int64, bool, error)
 	saved []savedCursor
 }
 
 type savedCursor struct {
 	SessionID   int64
-	Fingerprint string
+	Fingerprint devicefp.Carrier
 	Seq         int64
 }
 
-func (f *fakeCursorPort) setLoad(fn func(sessionID int64, fp string) (int64, bool, error)) {
+func (f *fakeCursorPort) setLoad(fn func(sessionID int64, fp devicefp.Carrier) (int64, bool, error)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.load = fn
 }
 
-func (f *fakeCursorPort) LoadCursor(_ context.Context, sessionID int64, fp string) (int64, bool, error) {
+func (f *fakeCursorPort) LoadCursor(_ context.Context, sessionID int64, fp devicefp.Carrier) (int64, bool, error) {
 	f.mu.Lock()
 	fn := f.load
 	f.mu.Unlock()
@@ -150,7 +162,7 @@ func (f *fakeCursorPort) LoadCursor(_ context.Context, sessionID int64, fp strin
 	return fn(sessionID, fp)
 }
 
-func (f *fakeCursorPort) SaveCursor(_ context.Context, sessionID int64, fp string, seq int64) error {
+func (f *fakeCursorPort) SaveCursor(_ context.Context, sessionID int64, fp devicefp.Carrier, seq int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.saved = append(f.saved, savedCursor{SessionID: sessionID, Fingerprint: fp, Seq: seq})
@@ -225,56 +237,82 @@ type reconnectRig struct {
 	conn1    *fakeConn
 	cursor   *fakeCursorPort
 	observer *connStateRecorder
+	previews *previewRecorder
 	events   <-chan agentruntime.Event
 	result   *agentruntime.RunResult
 
 	mu       sync.Mutex
-	nextConn []agentruntime.DaemonClientPort
-	nextFP   []string
+	nextConn []client.ProtobufConnection
+	nextFP   []devicefp.Carrier
 	nextErr  []error
 	attempts int
 }
 
-const rigFingerprint = "sha256:daemon-a"
+const rigFingerprint devicefp.Carrier = "sha256:daemon-a"
 
 const rigSessionID int64 = 42
 
 // newReconnectRig 构造 rig 并跑起一轮会话。supported 决定能力探测(runtime.session.list)
 // 是回正常结果还是回 method-not-found。
-func newReconnectRig(t *testing.T, supported bool) *reconnectRig {
+// previewRecorder 是预览帧的呈现出口:预览帧不进事件流(它不是转录),用例靠它证明
+// 「呈现得到、但没进转录」这两件事同时成立。
+type previewRecorder struct {
+	mu  sync.Mutex
+	got []agentruntime.Event
+}
+
+func (p *previewRecorder) OnPreviewEvent(_ int64, ev agentruntime.Event) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.got = append(p.got, ev)
+}
+
+func (p *previewRecorder) texts() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, 0, len(p.got))
+	for _, ev := range p.got {
+		if td, ok := ev.(agentruntime.TextDelta); ok {
+			out = append(out, td.Text)
+		}
+	}
+	return out
+}
+
+func newReconnectRig(t *testing.T) *reconnectRig {
 	t.Helper()
-	return newReconnectRigWithBackoff(t, supported, []time.Duration{time.Millisecond, time.Millisecond})
+	return newReconnectRigWithBackoff(t, []time.Duration{time.Millisecond, time.Millisecond})
 }
 
 // newReconnectRigWithBackoff 同上,但由调用方决定退避节奏(用来把会话稳定停在
 // 某一档上供断言)。
-func newReconnectRigWithBackoff(t *testing.T, supported bool, backoff []time.Duration) *reconnectRig {
+func newReconnectRigWithBackoff(t *testing.T, backoff []time.Duration) *reconnectRig {
 	t.Helper()
 	rig := &reconnectRig{
 		conn1:    newFakeConn(),
 		cursor:   &fakeCursorPort{},
 		observer: &connStateRecorder{},
+		previews: &previewRecorder{},
 	}
 	rig.conn1.script(func(method string, _, result any) error {
 		switch method {
 		case wire.MethodSessionList:
-			if !supported {
-				return &jsonrpc.Error{Code: jsonrpc.ErrMethodNotFound.Code, Message: "Method not found"}
-			}
 			return nil
 		case wire.MethodRun:
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rigSessionID}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(rigSessionID)}
 			return nil
 		}
 		return nil
 	})
 	rig.rt = New(rig.conn1,
+		WithConversationIDResolver(convOf),
 		WithReconnect(ReconnectFunc(rig.reconnect)),
 		WithDaemonFingerprint(rigFingerprint),
 		WithSessionCursor(rig.cursor),
 		WithConnStateObserver(rig.observer),
 		WithReconnectBackoff(backoff),
 		WithCursorFlushInterval(0),
+		WithPreviewSink(rig.previews),
 	)
 	t.Cleanup(func() { _ = rig.rt.Close() })
 
@@ -289,7 +327,7 @@ func newReconnectRigWithBackoff(t *testing.T, supported bool, backoff []time.Dur
 }
 
 // queue 排入下一次重连的结果。
-func (r *reconnectRig) queue(c agentruntime.DaemonClientPort, fp string, err error) {
+func (r *reconnectRig) queue(c client.ProtobufConnection, fp devicefp.Carrier, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.nextConn = append(r.nextConn, c)
@@ -297,7 +335,7 @@ func (r *reconnectRig) queue(c agentruntime.DaemonClientPort, fp string, err err
 	r.nextErr = append(r.nextErr, err)
 }
 
-func (r *reconnectRig) reconnect(context.Context) (agentruntime.DaemonClientPort, string, error) {
+func (r *reconnectRig) reconnect(context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.attempts++
@@ -327,7 +365,7 @@ func catchUpConn(latestSeq int64, journaled []wire.JournaledNotification, waiter
 		switch method {
 		case wire.MethodSessionAttach:
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID:      rigSessionID,
+				ConversationID: convOf(rigSessionID),
 				LifecycleState: wire.SessionLifecycleRunning,
 				LatestSeq:      latestSeq,
 			}
@@ -350,27 +388,25 @@ func catchUpConn(latestSeq int64, journaled []wire.JournaledNotification, waiter
 }
 
 func journaledEvent(seq int64, text string) wire.JournaledNotification {
-	ev, _ := json.Marshal(agentruntime.TextDelta{Text: text})
-	// 日志里的 payload **不含 seq** —— seq 是日志行自己的列。
-	params, _ := json.Marshal(wire.EventFrame{SessionID: rigSessionID, Event: ev})
-	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyEvent, Params: params}
+	// 日志行上的帧 **不含 seq** —— seq 是日志行自己的列,补齐时才盖上去。
+	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyEvent,
+		Params: &wire.EventFrame{ConversationID: convOf(rigSessionID), Event: agentruntime.TextDelta{Text: text}}}
 }
 
 func journaledDone(seq int64, model string) wire.JournaledNotification {
-	params, _ := json.Marshal(wire.RunResultDoneFrame{SessionID: rigSessionID, Model: model})
-	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyRunResultDone, Params: params}
+	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyRunResultDone,
+		Params: &wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Model: model}}
 }
 
 // journaledAutoEvent / journaledAutoDone 是自主续轮那两类通知的日志行。
 func journaledAutoEvent(seq int64, text string) wire.JournaledNotification {
-	ev, _ := json.Marshal(agentruntime.TextDelta{Text: text})
-	params, _ := json.Marshal(wire.EventFrame{SessionID: rigSessionID, Event: ev})
-	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyAutonomousTurnEvent, Params: params}
+	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyAutonomousTurnEvent,
+		Params: &wire.EventFrame{ConversationID: convOf(rigSessionID), Event: agentruntime.TextDelta{Text: text}}}
 }
 
 func journaledAutoDone(seq int64, model string) wire.JournaledNotification {
-	params, _ := json.Marshal(wire.RunResultDoneFrame{SessionID: rigSessionID, Model: model})
-	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyAutonomousTurnDone, Params: params}
+	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyAutonomousTurnDone,
+		Params: &wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Model: model}}
 }
 
 // drainTexts 读到 channel 关闭为止,收集 TextDelta 文本。
@@ -399,7 +435,7 @@ func drainTexts(t *testing.T, ch <-chan agentruntime.Event, deadline time.Durati
 // 注入 ErrDaemonDisconnected、events channel 不关闭,连接态转入 reconnecting。
 func TestDisconnect_DoesNotEndSession_EntersReconnecting(t *testing.T) {
 	// 第一档 1ms 后失败,第二档要等很久 —— 会话因此稳定停在 reconnecting 态供断言。
-	rig := newReconnectRigWithBackoff(t, true, []time.Duration{time.Millisecond, time.Hour})
+	rig := newReconnectRigWithBackoff(t, []time.Duration{time.Millisecond, time.Hour})
 	rig.queue(nil, "", assertErr("dial refused"))
 
 	_ = rig.conn1.Close()
@@ -426,8 +462,8 @@ func TestDisconnect_DoesNotEndSession_EntersReconnecting(t *testing.T) {
 // handler** 交付给会话,游标推进到最新 seq,补齐三步按 attach → pull →
 // pendingWaiters 的顺序发出。
 func TestReconnect_CatchUpReplaysJournaledNotifications(t *testing.T) {
-	rig := newReconnectRig(t, true)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 	conn2 := catchUpConn(5, []wire.JournaledNotification{
 		journaledEvent(4, "caught-up"),
 		journaledDone(5, "sonnet"),
@@ -441,8 +477,9 @@ func TestReconnect_CatchUpReplaysJournaledNotifications(t *testing.T) {
 	assert.Equal(t, "sonnet", rig.result.Model, "终态帧同样走补齐")
 
 	// 三步顺序:先 attach 认领实时流与控制面,再 pull,最后 pendingWaiters。
+	require.Eventually(t, func() bool { return len(conn2.catchUpOrder()) >= 3 }, time.Second, time.Millisecond,
+		"终态事件关闭 events 后，补齐流程仍必须完成 pendingWaiters 阶段")
 	order := conn2.catchUpOrder()
-	require.GreaterOrEqual(t, len(order), 3)
 	assert.Equal(t, wire.MethodSessionAttach, order[0])
 	assert.Equal(t, wire.MethodSessionPull, order[1])
 	assert.Equal(t, wire.MethodSessionPendingWaiters, order[len(order)-1])
@@ -458,8 +495,8 @@ func TestReconnect_CatchUpReplaysJournaledNotifications(t *testing.T) {
 // 两次 —— 「补齐的尾巴」与「新到的实时帧」交接是硬不变量最容易破的那一处,而集成
 // 用例把第三阶段闸在补齐落定之后,恰恰绕开了它。
 func TestCatchUp_LiveFrameDuringReplay_KeepsOrderAndDoesNotDuplicate(t *testing.T) {
-	rig := newReconnectRig(t, true)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 0, true, nil })
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 0, true, nil })
 
 	journal := []wire.JournaledNotification{
 		journaledEvent(1, "one"), journaledEvent(2, "two"),
@@ -472,7 +509,7 @@ func TestCatchUp_LiveFrameDuringReplay_KeepsOrderAndDoesNotDuplicate(t *testing.
 		switch method {
 		case wire.MethodSessionAttach:
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID: rigSessionID, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 5,
+				ConversationID: convOf(rigSessionID), LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 5,
 			}
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
@@ -483,8 +520,8 @@ func TestCatchUp_LiveFrameDuringReplay_KeepsOrderAndDoesNotDuplicate(t *testing.
 				done := make(chan struct{})
 				go func() {
 					defer close(done)
-					ev, _ := json.Marshal(agentruntime.TextDelta{Text: "four"})
-					raw, _ := json.Marshal(wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 4})
+					ev := agentruntime.TextDelta{Text: "four"}
+					raw, _ := json.Marshal(wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 4})
 					conn2.dispatchRaw(wire.NotifyEvent, raw)
 				}()
 				<-done
@@ -518,8 +555,8 @@ func TestCatchUp_LiveFrameDuringReplay_KeepsOrderAndDoesNotDuplicate(t *testing.
 // 跳号丢弃,补洞拉取又会把同一条认不得的通知再拉回来 —— 每条后续通知都触发一次
 // 拉取且一条也交付不出去,会话卡死在「生成中」直到超时。
 func TestReplay_UnknownNotificationMethod_DoesNotStallCatchUp(t *testing.T) {
-	rig := newReconnectRig(t, true)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 	unknown := wire.JournaledNotification{
 		Seq:    4,
 		Method: "runtime.somethingTheClientDoesNotKnow",
@@ -545,8 +582,8 @@ func TestReplay_UnknownNotificationMethod_DoesNotStallCatchUp(t *testing.T) {
 // Given 本地游标为 3,When 实时帧带着 seq=6 到达(跳号),Then 该帧不被消费,
 // 客户端改从游标发起增量拉取,拉平后按序交付 4/5/6。
 func TestLiveFrame_SeqGap_TriggersPull(t *testing.T) {
-	rig := newReconnectRig(t, true)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 	rig.conn1.script(func(method string, params, result any) error {
 		switch method {
 		case wire.MethodSessionPull:
@@ -565,9 +602,8 @@ func TestLiveFrame_SeqGap_TriggersPull(t *testing.T) {
 		return nil
 	})
 
-	ev, err := json.Marshal(agentruntime.TextDelta{Text: "gap-frame"})
-	require.NoError(t, err)
-	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 6})
+	ev := agentruntime.TextDelta{Text: "gap-frame"}
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 6})
 
 	var texts []string
 	require.Eventually(t, func() bool {
@@ -590,12 +626,11 @@ func TestLiveFrame_SeqGap_TriggersPull(t *testing.T) {
 
 // Given 本地游标为 5,When 实时帧带着 seq=5(重复投递)到达,Then 丢弃。
 func TestLiveFrame_SeqNotNewerThanCursor_Discarded(t *testing.T) {
-	rig := newReconnectRig(t, true)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 5, true, nil })
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 5, true, nil })
 
-	ev, err := json.Marshal(agentruntime.TextDelta{Text: "dup"})
-	require.NoError(t, err)
-	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 5})
+	ev := agentruntime.TextDelta{Text: "dup"}
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 5})
 
 	select {
 	case got := <-rig.events:
@@ -603,6 +638,86 @@ func TestLiveFrame_SeqNotNewerThanCursor_Discarded(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 	assert.Empty(t, rig.conn1.methodCalls(wire.MethodSessionPull), "重复帧不该触发补洞")
+}
+
+// ── 两级帧:预览帧不进闸门,持久帧才进 ────────────────────────────────────────
+
+// collectTexts 在若干次同步投递之后把已经交付的 TextDelta 收齐(channel 不关,
+// 所以不能用 drainTexts)。want 是期待的条数,收满即返回。
+func collectTexts(t *testing.T, ch <-chan agentruntime.Event, want int) []string {
+	t.Helper()
+	var out []string
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case ev := <-ch:
+				if td, ok := ev.(agentruntime.TextDelta); ok {
+					out = append(out, td.Text)
+				}
+			default:
+				return len(out) >= want
+			}
+		}
+	}, 3*time.Second, 5*time.Millisecond, "只收到 %v", out)
+	return out
+}
+
+// Given 本地游标为 5;
+// When  预览帧到达 —— 而且刻意各带一个「走闸门必被吞掉」的 seq(5 撞去重、9 撞跳号);
+// Then  它们只走呈现出口、**不进事件流**,游标不动,也不触发补洞拉取。
+//
+// 两件事在这一条里一起钉住(规格 2026-09-05「两级帧与补齐」修订后的第 1/2 条):
+//
+//   - 判别的是帧上的 preview 这一格,不是编号:预览帧按契约本就不带 seq,而这里给它
+//     带上一个,是要证明**任何** seq 取值都不能把一条预览帧送进「seq 不大于游标即
+//     重复」那条路(决策 4:预览帧必须在协议上可区分,不能靠 seq=0 表达);
+//   - 预览帧不进 Run 交回的那条事件流:那条流就是消费方的转录来源。进去了就会被
+//     追加进转录,而同一段内容随后还会以持久帧的身份再来一次 —— 重连补齐因此重发
+//     对端已经看过的内容(硬不变量 1 的「重」)。
+//
+// 收尾那条持久帧 seq=6 仍然被当作「游标 + 1」交付,正是"游标没被预览帧动过"的判据
+// —— 预览帧若推进了游标(到 5 或 9),它要么被判重复丢掉、要么触发一次白拉取。
+func TestPreviewFrame_NeitherAdvancesTheCursorNorEntersDedup(t *testing.T) {
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 5, true, nil })
+
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Preview: true, Seq: 5, Event: agentruntime.TextDelta{Text: "预览-撞去重"}})
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Preview: true, Seq: 9, Event: agentruntime.TextDelta{Text: "预览-撞跳号"}})
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Seq: 6, Event: agentruntime.TextDelta{Text: "持久"}})
+
+	assert.Equal(t, []string{"持久"}, collectTexts(t, rig.events, 1),
+		"事件流里只有持久帧:预览帧不进转录,而随后的持久帧仍是游标 + 1")
+	assert.Equal(t, []string{"预览-撞去重", "预览-撞跳号"}, rig.previews.texts(),
+		"预览帧照常呈现 —— 它只是不进转录,不是被丢掉")
+	assert.Empty(t, rig.conn1.methodCalls(wire.MethodSessionPull),
+		"预览帧的 seq 不该被读成跳号")
+}
+
+// Given 一条预览帧刚把同一段内容呈现过(按契约不带 seq);
+// When  覆盖它的持久帧带着 seq = 游标 + 1 到达,随后同一条持久帧被重复投递;
+// Then  持久帧那一条推进游标并进转录,重复的那条进去重路径被丢弃,而预览的那一条
+//
+//	只呈现过、没有进转录 —— 同一段内容在转录里恰好一份。
+//
+// 这是上一条的对照面:同样的内容,持久帧**要**参与补齐与去重,而且它是转录的唯一来源。
+func TestDurableFrame_CoveringPreviewContent_AdvancesCursorAndDedups(t *testing.T) {
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 5, true, nil })
+
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Preview: true, Event: agentruntime.TextDelta{Text: "同一段内容"}})
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Seq: 6, Event: agentruntime.TextDelta{Text: "同一段内容"}})
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Seq: 6, Event: agentruntime.TextDelta{Text: "同一段内容"}})
+
+	assert.Equal(t, []string{"同一段内容"}, collectTexts(t, rig.events, 1),
+		"转录里只留持久帧那一份:预览的那一条只呈现,重投的同号持久帧被去重丢弃")
+	assert.Equal(t, []string{"同一段内容"}, rig.previews.texts(), "预览的那一条呈现过")
+	assert.Empty(t, rig.conn1.methodCalls(wire.MethodSessionPull), "重复的持久帧不该触发补洞")
 }
 
 // ── 回放到的旧轮次终态帧不得终结当前这一轮 ───────────────────────────────────
@@ -632,13 +747,13 @@ func TestGapFill_ReplayedEndedTurns_LandInCatchUpTurns_NotTheCurrentOne(t *testi
 		case wire.MethodSessionList:
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{
 				Sessions: []wire.SessionSummary{{
-					SessionID:      rigSessionID,
+					ConversationID: convOf(rigSessionID),
 					LifecycleState: wire.SessionLifecycleIdle,
 					LatestSeq:      9,
 				}},
 			}
 		case wire.MethodRun:
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rigSessionID}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(rigSessionID)}
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
 			out := wire.SessionPullResult{Cursor: p.Cursor}
@@ -653,9 +768,10 @@ func TestGapFill_ReplayedEndedTurns_LandInCatchUpTurns_NotTheCurrentOne(t *testi
 		return nil
 	})
 	cursor := &fakeCursorPort{}
-	cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 	rt := New(conn,
-		WithReconnect(ReconnectFunc(func(context.Context) (agentruntime.DaemonClientPort, string, error) {
+		WithConversationIDResolver(convOf),
+		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 			return nil, "", ErrReconnectAbandoned
 		})),
 		WithDaemonFingerprint(rigFingerprint),
@@ -675,9 +791,8 @@ func TestGapFill_ReplayedEndedTurns_LandInCatchUpTurns_NotTheCurrentOne(t *testi
 	turns := rt.AutonomousTurns(rigSessionID)
 
 	// 新这一轮的第一条实时帧:对着停在 3 的游标是跳号,整段区间因此被重放回来。
-	ev, err := json.Marshal(agentruntime.TextDelta{Text: "new-a"})
-	require.NoError(t, err)
-	conn.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 10})
+	ev := agentruntime.TextDelta{Text: "new-a"}
+	conn.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 10})
 
 	var texts []string
 	closedEarly := false
@@ -717,7 +832,7 @@ func TestGapFill_ReplayedEndedTurns_LandInCatchUpTurns_NotTheCurrentOne(t *testi
 
 	// 只有新这一轮自己的终态帧才收尾。
 	conn.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID: rigSessionID, Model: "new-turn", Seq: 12,
+		ConversationID: convOf(rigSessionID), Model: "new-turn", Seq: 12,
 	})
 	select {
 	case _, ok := <-events:
@@ -736,20 +851,23 @@ func TestGapFill_ReplayedEndedTurns_LandInCatchUpTurns_NotTheCurrentOne(t *testi
 // 的中段。下一轮换了新的 *remote.Runtime,第一条实时帧对着旧游标判成跳号,从旧游标
 // 整段补齐 —— 上一轮的尾巴被重放进新的一轮,硬不变量的「无重复」当场破掉。
 func TestTerminalNotification_FlushesCursorImmediately(t *testing.T) {
-	rig := newReconnectRigWithBackoff(t, true, []time.Duration{time.Hour})
+	rig := newReconnectRigWithBackoff(t, []time.Duration{time.Hour})
 	// 防抖窗口设成一小时:任何落库都只可能来自轮末的主动 flush。
 	rig.rt.cursorFlush = time.Hour
 
-	ev, err := json.Marshal(agentruntime.TextDelta{Text: "x"})
-	require.NoError(t, err)
-	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 1})
+	ev := agentruntime.TextDelta{Text: "x"}
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 1})
 	_, ok := rig.cursor.lastSaved()
 	require.False(t, ok, "轮中的每一条不该各写一次库 —— 那正是防抖要省掉的")
 
-	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 2})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 2})
 
+	require.Eventually(t, func() bool {
+		_, saved := rig.cursor.lastSaved()
+		return saved
+	}, time.Second, time.Millisecond, "轮末必须把攒下的游标落库")
 	last, ok := rig.cursor.lastSaved()
-	require.True(t, ok, "轮末必须把攒下的游标落库")
+	require.True(t, ok)
 	assert.Equal(t, int64(2), last.Seq)
 	assert.Equal(t, rigFingerprint, last.Fingerprint)
 }
@@ -760,9 +878,9 @@ func TestTerminalNotification_FlushesCursorImmediately(t *testing.T) {
 // 增量拉取,会话按已中断处理(注入 ErrRunInterrupted 并关闭 events)—— R12 说的就是
 // 「按已中断处理」,所以它拿的是「被打断」那个理由,不是「连不上了」。
 func TestReconnect_DaemonIdentityMismatch_InvalidatesCursor(t *testing.T) {
-	rig := newReconnectRig(t, true)
-	rig.cursor.setLoad(func(_ int64, fp string) (int64, bool, error) {
-		assert.Equal(t, "sha256:daemon-b", fp, "校验必须用重连后观察到的指纹")
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(_ int64, fp devicefp.Carrier) (int64, bool, error) {
+		assert.Equal(t, devicefp.Carrier("sha256:daemon-b"), fp, "校验必须用重连后观察到的指纹")
 		return 0, false, nil
 	})
 	conn2 := catchUpConn(9, []wire.JournaledNotification{journaledEvent(4, "should-not-appear")},
@@ -784,9 +902,9 @@ func TestReconnect_DaemonIdentityMismatch_InvalidatesCursor(t *testing.T) {
 // R12 说的失效只有一种:daemon 实例标识不匹配。把一次瞬时读错误也算进去,等于让一次
 // sqlite busy 就杀掉一条远端还在跑的会话,正是 R4 要消灭的行为。
 func TestReconnect_CursorLoadError_RetriesInsteadOfEndingSession(t *testing.T) {
-	rig := newReconnectRig(t, true)
+	rig := newReconnectRig(t)
 	var loads int32
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) {
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) {
 		if atomic.AddInt32(&loads, 1) == 1 {
 			return 0, false, assertErr("database is locked")
 		}
@@ -817,9 +935,9 @@ func TestReconnect_CursorLoadError_RetriesInsteadOfEndingSession(t *testing.T) {
 // 不作废的后果不是少几条:此后每一条实时帧都满足 seq <= 游标,在 dispatchNotification
 // 的第一条规则里被静默丢弃 —— 会话没有跳号、没有错误、Debug 以上没有任何日志地冻住。
 func TestReconnect_CursorAboveDaemonHighWater_InvalidatesCursorAndCatchesUpFromScratch(t *testing.T) {
-	rig := newReconnectRig(t, true)
+	rig := newReconnectRig(t)
 	// 本地游标停在 7,而 daemon 恢复出来的日志只到 3。
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 7, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 7, true, nil })
 	conn2 := catchUpConn(3, []wire.JournaledNotification{
 		journaledEvent(1, "restored-1"),
 		journaledEvent(2, "restored-2"),
@@ -837,9 +955,8 @@ func TestReconnect_CursorAboveDaemonHighWater_InvalidatesCursorAndCatchesUpFromS
 		"补齐完成后要播回「已连接」,前端才把断连指示器换回打字指示器")
 
 	// 补齐落定之后 daemon 推来的下一条实时帧:高水位 3 之后就是 seq=4。
-	ev, err := json.Marshal(agentruntime.TextDelta{Text: "live-after-restore"})
-	require.NoError(t, err)
-	conn2.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 4})
+	ev := agentruntime.TextDelta{Text: "live-after-restore"}
+	conn2.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 4})
 
 	var texts []string
 	require.Eventually(t, func() bool {
@@ -865,8 +982,8 @@ func TestReconnect_CursorAboveDaemonHighWater_InvalidatesCursorAndCatchesUpFromS
 // 接管,Then 游标原样保留 —— 越界守卫只在**严格大于**时开火,不能把正常的「已拉平」
 // 当成越界,那会把整段转录重放一遍(硬不变量的「无重复」当场破掉)。
 func TestReconnect_CursorEqualsDaemonHighWater_KeepsCursor(t *testing.T) {
-	rig := newReconnectRig(t, true)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 	conn2 := catchUpConn(3, []wire.JournaledNotification{
 		journaledEvent(1, "old-1"),
 		journaledEvent(2, "old-2"),
@@ -892,10 +1009,9 @@ func TestReconnect_CursorEqualsDaemonHighWater_KeepsCursor(t *testing.T) {
 func deliverLiveTexts(t *testing.T, c *fakeConn, texts []string) {
 	t.Helper()
 	for i, text := range texts {
-		ev, err := json.Marshal(agentruntime.TextDelta{Text: text})
-		require.NoError(t, err)
+		ev := agentruntime.TextDelta{Text: text}
 		c.deliver(t, wire.NotifyEvent, wire.EventFrame{
-			SessionID: rigSessionID, Event: ev, Seq: int64(i + 1),
+			ConversationID: convOf(rigSessionID), Event: ev, Seq: int64(i + 1),
 		})
 	}
 }
@@ -918,7 +1034,11 @@ func attachPushingLiveFrame(
 				done := make(chan struct{})
 				go func() {
 					defer close(done)
-					raw, err := stampSeq(live.Method, live.Params, live.Seq)
+					if !stampSeq(live.Params, live.Seq) {
+						return
+					}
+					// dispatchRaw 模拟的是对端真的发一帧过来,走 fake 的 JSON 入口。
+					raw, err := json.Marshal(live.Params)
 					if err != nil {
 						return
 					}
@@ -927,7 +1047,7 @@ func attachPushingLiveFrame(
 				<-done
 			})
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID: rigSessionID, LifecycleState: wire.SessionLifecycleRunning,
+				ConversationID: convOf(rigSessionID), LifecycleState: wire.SessionLifecycleRunning,
 				LatestSeq: highWater,
 			}
 		case wire.MethodSessionPull:
@@ -955,10 +1075,10 @@ func attachPushingLiveFrame(
 // 下次启动照着 0 再来一遍。既有的 TestReconnect_CursorAboveDaemonHighWater_* 全序执行,
 // 结构上看不见这一条。
 func TestReconnect_LiveFrameDuringAttach_DoesNotInvalidateCursor(t *testing.T) {
-	rig := newReconnectRig(t, true)
+	rig := newReconnectRig(t)
 	// 断连前:一轮正在流式输出,游标已经被实时帧推到 3。
 	deliverLiveTexts(t, rig.conn1, []string{"one", "two", "three"})
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 
 	// daemon 侧接管快照是 3;认领之后紧接着落下并推来 seq=4(它也进了日志)。
 	journal := []wire.JournaledNotification{
@@ -973,7 +1093,7 @@ func TestReconnect_LiveFrameDuringAttach_DoesNotInvalidateCursor(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return len(conn2.methodCalls(wire.MethodSessionPendingWaiters)) > 0
 	}, 3*time.Second, 5*time.Millisecond, "补齐应完成")
-	conn2.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 5})
+	conn2.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 5})
 
 	texts := drainTexts(t, rig.events, 3*time.Second)
 	assert.Equal(t, []string{"one", "two", "three", "live-four"}, texts,
@@ -993,13 +1113,13 @@ func TestReconnect_LiveFrameDuringAttach_DoesNotInvalidateCursor(t *testing.T) {
 // 落下去,库里就停在一个已经被作废的值上,而内存里是 0 —— 下次启动读回那个值,同一段
 // 转录再重放一遍(F11 顺带要收的那条未证疑点)。
 func TestCursorInvalidation_OutlivesPendingDebouncedWrite(t *testing.T) {
-	rig := newReconnectRig(t, true)
+	rig := newReconnectRig(t)
 	// 防抖窗口设成一小时:落库只可能来自主动 flush,攒批与作废的定序因此是确定的。
 	rig.rt.cursorFlush = time.Hour
 
 	deliverLiveTexts(t, rig.conn1, []string{"a", "b", "c", "d", "e", "f", "g"})
 	require.Empty(t, rig.cursor.savedSeqs(), "轮中的每一条不该各写一次库")
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 7, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 7, true, nil })
 
 	// daemon 的日志被恢复成空(高水位 0),接管后又推来一条 seq=8 —— 它把一个新的脏
 	// 条目记进防抖表,而紧接着的越界守卫要把游标作废掉。
@@ -1020,45 +1140,11 @@ func TestCursorInvalidation_OutlivesPendingDebouncedWrite(t *testing.T) {
 		"作废之后不得再把旧游标写回库,否则下次启动重放整段")
 }
 
-// ── R18: 老 daemon 回落 ─────────────────────────────────────────────────────
-
-// Given 一台不认识补齐族 RPC 的老 daemon,When 连接断开,Then 立即回落到今天的
-// 「断连即终止」:注入 ErrDaemonDisconnected 并 close events,不发起任何重连。
-func TestDisconnect_DaemonWithoutCatchUpRPCs_FallsBackToEndingTurn(t *testing.T) {
-	rig := newReconnectRig(t, false)
-
-	_ = rig.conn1.Close()
-
-	texts := drainTexts(t, rig.events, 3*time.Second)
-	assert.Empty(t, texts)
-	assert.ErrorIs(t, rig.result.StopErr, ErrDaemonDisconnected)
-	assert.Equal(t, 0, rig.reconnectAttempts(), "老 daemon 不该触发重连")
-}
-
-// Given 重连成功但这台 daemon 不认识 runtime.session.attach,When 补齐,
-// Then 同样回落到断连即终止。
-func TestReconnect_AttachMethodNotFound_FallsBackToEndingTurn(t *testing.T) {
-	rig := newReconnectRig(t, true)
-	conn2 := newFakeConn()
-	conn2.script(func(method string, _, _ any) error {
-		if method == wire.MethodSessionAttach {
-			return &jsonrpc.Error{Code: jsonrpc.ErrMethodNotFound.Code, Message: "Method not found"}
-		}
-		return nil
-	})
-	rig.queue(conn2, rigFingerprint, nil)
-
-	_ = rig.conn1.Close()
-
-	_ = drainTexts(t, rig.events, 3*time.Second)
-	assert.ErrorIs(t, rig.result.StopErr, ErrDaemonDisconnected)
-}
-
 // ── 重连超上限 ──────────────────────────────────────────────────────────────
 
 // Given 重连一直失败,When 退避重试次数用尽,Then 才注入 ErrDaemonDisconnected。
 func TestReconnect_AttemptsExhausted_InjectsDisconnected(t *testing.T) {
-	rig := newReconnectRig(t, true)
+	rig := newReconnectRig(t)
 	rig.queue(nil, "", assertErr("dial refused"))
 	rig.queue(nil, "", assertErr("dial refused"))
 
@@ -1079,11 +1165,11 @@ func TestReconnect_AttemptsExhausted_InjectsDisconnected(t *testing.T) {
 // 同一句文案,「被打断」「连不上了」在会话里长得一模一样 —— R15 要求的正是「由消息文案
 // 区分」,而文案的唯一依据就是这里交出去的理由。
 func TestReconnect_DaemonRestartedInterrupt_InjectsInterruptedNotDisconnected(t *testing.T) {
-	rig := newReconnectRig(t, true)
+	rig := newReconnectRig(t)
 	conn2 := newFakeConn()
 	conn2.script(func(method string, _, _ any) error {
 		if method == wire.MethodSessionAttach {
-			return &jsonrpc.Error{Code: wire.ErrCodeNoActiveTurn, Message: "no active turn"}
+			return &rpcerror.Error{Code: wire.ErrCodeNoActiveTurn, Message: "no active turn"}
 		}
 		return nil
 	})
@@ -1106,15 +1192,15 @@ func TestReconnect_DaemonRestartedInterrupt_InjectsInterruptedNotDisconnected(t 
 // nil,chat_svc.driveAutonomousTurn 于是把一条**被截断的**助手消息当作正常跑完的轮次
 // 落库 —— 用户看到的是一条戛然而止却「成功」的回答。
 func TestReconnectGiveUp_AutonomousTurnInFlight_MarksTurnTerminated(t *testing.T) {
-	rig := newReconnectRig(t, true)
+	rig := newReconnectRig(t)
 	turns := rig.rt.AutonomousTurns(rigSessionID)
 
 	// 这一轮 Run 正常收尾 —— 只剩自主轮还在跑。
-	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 1})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 1})
 	_ = drainTexts(t, rig.events, time.Second)
 
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{
-		SessionID: rigSessionID, Trigger: "background_task", Seq: 2,
+		ConversationID: convOf(rigSessionID), Trigger: "background_task", Seq: 2,
 	})
 	var turn agentruntime.AutonomousTurn
 	select {
@@ -1122,10 +1208,9 @@ func TestReconnectGiveUp_AutonomousTurnInFlight_MarksTurnTerminated(t *testing.T
 	case <-time.After(time.Second):
 		t.Fatal("自主轮没有交付给 watcher")
 	}
-	ev, err := json.Marshal(agentruntime.TextDelta{Text: "partial"})
-	require.NoError(t, err)
+	ev := agentruntime.TextDelta{Text: "partial"}
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnEvent, wire.EventFrame{
-		SessionID: rigSessionID, Event: ev, Seq: 3,
+		ConversationID: convOf(rigSessionID), Event: ev, Seq: 3,
 	})
 
 	rig.queue(nil, "", assertErr("dial refused"))
@@ -1143,20 +1228,20 @@ func TestReconnectGiveUp_AutonomousTurnInFlight_MarksTurnTerminated(t *testing.T
 // Given 自主续轮在飞而这条会话在 daemon 上已经接不回去了(接管回 ErrNoActiveTurn),
 // When 补齐,Then 这一轮同样被标成终止,且理由是「被打断」而不是「连不上了」。
 func TestReconnect_AutonomousTurnUnrecoverable_MarksTurnInterrupted(t *testing.T) {
-	rig := newReconnectRig(t, true)
+	rig := newReconnectRig(t)
 	turns := rig.rt.AutonomousTurns(rigSessionID)
 
-	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 1})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 1})
 	_ = drainTexts(t, rig.events, time.Second)
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{
-		SessionID: rigSessionID, Trigger: "background_task", Seq: 2,
+		ConversationID: convOf(rigSessionID), Trigger: "background_task", Seq: 2,
 	})
 	turn := <-turns
 
 	conn2 := newFakeConn()
 	conn2.script(func(method string, _, _ any) error {
 		if method == wire.MethodSessionAttach {
-			return &jsonrpc.Error{Code: wire.ErrCodeNoActiveTurn, Message: "no active turn"}
+			return &rpcerror.Error{Code: wire.ErrCodeNoActiveTurn, Message: "no active turn"}
 		}
 		return nil
 	})
@@ -1176,13 +1261,13 @@ func TestReconnect_AutonomousTurnUnrecoverable_MarksTurnInterrupted(t *testing.T
 // Given 补齐后另一条同指纹连接把 daemon 侧的接管悄悄还原了,When 客户端提交一个
 // 待决策,Then 客户端重新 attach 并重试,而不是把 ErrNoActiveTurn 交给上层。
 func TestControlCall_NoActiveTurn_ReAttachesAndRetries(t *testing.T) {
-	rig := newReconnectRig(t, true)
+	rig := newReconnectRig(t)
 	var submits int
 	rig.conn1.script(func(method string, _, _ any) error {
 		if method == wire.MethodSubmitToolPermission {
 			submits++
 			if submits == 1 {
-				return &jsonrpc.Error{Code: wire.ErrCodeNoActiveTurn, Message: "no active turn"}
+				return &rpcerror.Error{Code: wire.ErrCodeNoActiveTurn, Message: "no active turn"}
 			}
 		}
 		return nil
@@ -1198,39 +1283,44 @@ func TestControlCall_NoActiveTurn_ReAttachesAndRetries(t *testing.T) {
 
 // 补齐重放要把日志里不含 seq 的载荷解成帧、盖上 seq 再喂回 handler。少一个映射,
 // 那一类通知就会在补齐时整条丢掉(解出 seq=0 → 不大于游标 → 丢弃),而实时路径
-// 一切正常 —— 只有断连过才看得出来。所以两张表必须同集合。
-func TestSeqStampersCoverEveryNotifyHandler(t *testing.T) {
+// 一切正常 —— 只有断连过才看得出来。所以每一个 handler 都必须解得出帧、盖得上 seq。
+func TestEveryNotifyHandlerHasAStampableFrame(t *testing.T) {
 	for method := range notifyHandlers {
-		assert.Contains(t, seqStampers, method, "%s 缺少 method→帧 映射", method)
-	}
-	for method := range seqStampers {
-		assert.Contains(t, notifyHandlers, method, "%s 有映射却没有 handler", method)
+		t.Run(method, func(t *testing.T) {
+			frame, err := wire.DecodeNotificationParams(method, json.RawMessage(`{"conversationId":"`+convOf(7)+`"}`))
+			require.NoError(t, err)
+			require.NotNil(t, frame, "%s 解不出帧", method)
+			require.True(t, stampSeq(frame, 11), "%s 的帧盖不上 seq", method)
+
+			route, ok := frameRoute(frame)
+			require.True(t, ok, "%s 的帧读不出路由", method)
+			assert.Equal(t, convOf(7), route.ConversationID)
+			assert.Equal(t, int64(11), route.Seq)
+		})
 	}
 }
 
 // 盖 seq 必须保留载荷的其余字节:补齐与实时投递的必须是同一份内容。
+//
+// 从前这一步是 unmarshal → 改 → marshal,一趟下来任何一个没写进中转结构的字段
+// 都会悄悄消失;现在帧就是帧,盖一下即可 —— 这条用例守的是「别再走回去」。
 func TestStampSeq_PreservesPayloadAndSetsSeq(t *testing.T) {
-	ev, err := json.Marshal(agentruntime.TextDelta{Text: "x"})
-	require.NoError(t, err)
-	params, err := json.Marshal(wire.EventFrame{SessionID: 7, Event: ev})
-	require.NoError(t, err)
+	ev := agentruntime.TextDelta{Text: "x"}
+	frame := &wire.EventFrame{ConversationID: convOf(7), Event: ev}
 
-	raw, err := stampSeq(wire.NotifyEvent, params, 11)
-	require.NoError(t, err)
+	require.True(t, stampSeq(frame, 11))
 
-	var got wire.EventFrame
-	require.NoError(t, json.Unmarshal(raw, &got))
-	assert.Equal(t, int64(7), got.SessionID)
-	assert.Equal(t, int64(11), got.Seq)
-	assert.JSONEq(t, string(ev), string(got.Event))
+	assert.Equal(t, convOf(7), frame.ConversationID)
+	assert.Equal(t, int64(11), frame.Seq)
+	assert.Equal(t, ev, frame.Event)
 }
 
 // Given 这一轮已经跑完(没有在飞会话),When 池化连接被 idle 回收,Then 不重连 ——
 // 重连会再借一条谁也不会归还的连接,把套接字永久钉住,连接池的 idle 回收就此失效。
 func TestDisconnect_NoLiveRun_DoesNotReconnect(t *testing.T) {
-	rig := newReconnectRig(t, true)
+	rig := newReconnectRig(t)
 	// 轮末终态帧:会话正常收尾,本地不再有在飞会话。
-	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 1})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 1})
 	_ = drainTexts(t, rig.events, time.Second)
 
 	_ = rig.conn1.Close()
@@ -1247,15 +1337,15 @@ func TestDisconnect_NoLiveRun_DoesNotReconnect(t *testing.T) {
 // driveAutonomousTurn 于是把一条**被截断的**助手消息当作正常完成的轮次持久化,
 // 远端已经产出并落库的尾巴永远不会被回放。
 func TestDisconnect_AutonomousTurnInFlight_ReconnectsInsteadOfTruncating(t *testing.T) {
-	rig := newReconnectRig(t, true)
+	rig := newReconnectRig(t)
 	turns := rig.rt.AutonomousTurns(rigSessionID)
 
 	// 这一轮 Run 正常收尾 —— r.sessions 就此清空,只剩自主轮还在跑。
-	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 1})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 1})
 	_ = drainTexts(t, rig.events, time.Second)
 
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{
-		SessionID: rigSessionID, Trigger: "background_task", Seq: 2,
+		ConversationID: convOf(rigSessionID), Trigger: "background_task", Seq: 2,
 	})
 	var turn agentruntime.AutonomousTurn
 	select {
@@ -1263,10 +1353,9 @@ func TestDisconnect_AutonomousTurnInFlight_ReconnectsInsteadOfTruncating(t *test
 	case <-time.After(time.Second):
 		t.Fatal("自主轮没有交付给 watcher")
 	}
-	ev, err := json.Marshal(agentruntime.TextDelta{Text: "partial"})
-	require.NoError(t, err)
+	ev := agentruntime.TextDelta{Text: "partial"}
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnEvent, wire.EventFrame{
-		SessionID: rigSessionID, Event: ev, Seq: 3,
+		ConversationID: convOf(rigSessionID), Event: ev, Seq: 3,
 	})
 
 	conn2 := catchUpConn(5, []wire.JournaledNotification{
@@ -1290,17 +1379,17 @@ func TestDisconnect_AutonomousTurnInFlight_ReconnectsInsteadOfTruncating(t *test
 // 运行时在空闲之后永远重连下去,每次都再借一条谁也不会归还的连接 —— 闸必须看的是那条
 // 自主会话上有没有**在飞的一轮**。
 func TestDisconnect_AutonomousTurnFinished_DoesNotReconnect(t *testing.T) {
-	rig := newReconnectRig(t, true)
+	rig := newReconnectRig(t)
 	turns := rig.rt.AutonomousTurns(rigSessionID)
 
-	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 1})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 1})
 	_ = drainTexts(t, rig.events, time.Second)
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{
-		SessionID: rigSessionID, Trigger: "background_task", Seq: 2,
+		ConversationID: convOf(rigSessionID), Trigger: "background_task", Seq: 2,
 	})
 	turn := <-turns
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnDone, wire.RunResultDoneFrame{
-		SessionID: rigSessionID, Model: "sonnet", Seq: 3,
+		ConversationID: convOf(rigSessionID), Model: "sonnet", Seq: 3,
 	})
 	_ = drainTexts(t, turn.Events, time.Second)
 
@@ -1314,7 +1403,7 @@ func TestDisconnect_AutonomousTurnFinished_DoesNotReconnect(t *testing.T) {
 // ErrDaemonDisconnected,而不是把会话在退避表上再吊几十秒 —— 凭据已经撤销,
 // 重试多少次都是同一个结果。
 func TestReconnect_PortAbandons_InjectsDisconnectedImmediately(t *testing.T) {
-	rig := newReconnectRigWithBackoff(t, true, []time.Duration{time.Millisecond, time.Hour})
+	rig := newReconnectRigWithBackoff(t, []time.Duration{time.Millisecond, time.Hour})
 	rig.queue(nil, "", ErrReconnectAbandoned)
 
 	_ = rig.conn1.Close()
@@ -1324,58 +1413,7 @@ func TestReconnect_PortAbandons_InjectsDisconnectedImmediately(t *testing.T) {
 	assert.Equal(t, 1, rig.reconnectAttempts(), "宣告放弃后不该再退避重试")
 }
 
-// ── R18:能力探测的结论要交得出去 ────────────────────────────────────────────
-
-// durabilityRecorder 收下 R18 能力探测交出来的结论。
-type durabilityRecorder struct {
-	mu  sync.Mutex
-	got []bool
-}
-
-func (d *durabilityRecorder) OnDaemonDurability(supported bool) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.got = append(d.got, supported)
-}
-
-func (d *durabilityRecorder) results() []bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return append([]bool(nil), d.got...)
-}
-
-// newProbeRuntime 起一个只关心开轮探测的 runtime:supported 决定 runtime.session.list
-// 回正常结果还是回 method-not-found。
-func newProbeRuntime(t *testing.T, supported bool, obs DurabilityObserver) *Runtime {
-	t.Helper()
-	conn := newFakeConn()
-	conn.script(func(method string, _, result any) error {
-		switch method {
-		case wire.MethodSessionList:
-			if !supported {
-				return &jsonrpc.Error{Code: jsonrpc.ErrMethodNotFound.Code, Message: "Method not found"}
-			}
-			return nil
-		case wire.MethodRun:
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rigSessionID}
-			return nil
-		}
-		return nil
-	})
-	rt := New(conn,
-		WithReconnect(ReconnectFunc(func(context.Context) (agentruntime.DaemonClientPort, string, error) {
-			return nil, "", ErrReconnectAbandoned
-		})),
-		WithDaemonFingerprint(rigFingerprint),
-		WithSessionCursor(&fakeCursorPort{}),
-		WithDurabilityObserver(obs),
-		WithCursorFlushInterval(0),
-	)
-	t.Cleanup(func() { _ = rt.Close() })
-	return rt
-}
-
-// startProbeTurn 开一轮 —— 开轮前的那次 runtime.session.list 就是 R18 的能力探测。
+// startProbeTurn 开一轮 —— 开轮前会发那次 runtime.session.list 探开轮位置。
 func startProbeTurn(t *testing.T, rt *Runtime) {
 	t.Helper()
 	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -1384,22 +1422,6 @@ func startProbeTurn(t *testing.T, rt *Runtime) {
 		UserText:  "hi",
 	})
 	require.NoError(t, err)
-}
-
-// Given 对面 daemon 版本过旧(补齐族 RPC 回 method-not-found),When 桌面端在开轮前
-// 探测它,Then 结论必须经 DurabilityObserver 交到上层去。
-//
-// R18 除了「断连即结束该轮」的回落行为,还要求**配对设备状态里说明该 daemon 版本过旧**。
-// 探测结果只活在 *remote.Runtime 里,而 internal/pkg 是叶子层够不到设备行 —— 结论只能
-// 由消费方注入的端口带出去(DIP),否则用户能看到的就只剩一行 Warn 日志。
-func TestTurnStartProbe_OldDaemon_ReportsUnsupportedToObserver(t *testing.T) {
-	obs := &durabilityRecorder{}
-	rt := newProbeRuntime(t, false, obs)
-
-	startProbeTurn(t, rt)
-
-	assert.Equal(t, []bool{false}, obs.results(),
-		"探到老 daemon 必须播报一次「不支持」,配对设备面板才有东西可说")
 }
 
 // Given 同一条连接上连开两轮,When 第二轮开轮,Then 不再发第二次 runtime.session.list,
@@ -1425,13 +1447,13 @@ func TestTurnStartFloor_SecondTurnOnSameConn_DoesNotRelist(t *testing.T) {
 		case wire.MethodSessionList:
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{
 				Sessions: []wire.SessionSummary{{
-					SessionID:      rigSessionID,
+					ConversationID: convOf(rigSessionID),
 					LifecycleState: wire.SessionLifecycleIdle,
 					LatestSeq:      9,
 				}},
 			}
 		case wire.MethodRun:
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rigSessionID}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(rigSessionID)}
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
 			out := wire.SessionPullResult{Cursor: p.Cursor}
@@ -1446,9 +1468,10 @@ func TestTurnStartFloor_SecondTurnOnSameConn_DoesNotRelist(t *testing.T) {
 		return nil
 	})
 	cursor := &fakeCursorPort{}
-	cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 	rt := New(conn,
-		WithReconnect(ReconnectFunc(func(context.Context) (agentruntime.DaemonClientPort, string, error) {
+		WithConversationIDResolver(convOf),
+		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 			return nil, "", ErrReconnectAbandoned
 		})),
 		WithDaemonFingerprint(rigFingerprint),
@@ -1470,9 +1493,8 @@ func TestTurnStartFloor_SecondTurnOnSameConn_DoesNotRelist(t *testing.T) {
 
 	// 第二轮的第一条实时帧对着停在 3 的游标是跳号,整段区间因此被重放回来:4..9 是
 	// 三条已结束的轮次(各自进补齐轮),10/11 才是这一轮自己的。
-	ev, err := json.Marshal(agentruntime.TextDelta{Text: "new-a"})
-	require.NoError(t, err)
-	conn.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 10})
+	ev := agentruntime.TextDelta{Text: "new-a"}
+	conn.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 10})
 
 	var texts []string
 	closedEarly := false
@@ -1500,17 +1522,187 @@ func TestTurnStartFloor_SecondTurnOnSameConn_DoesNotRelist(t *testing.T) {
 	assert.Empty(t, result.Model, "旧轮次的结果不得覆盖这一轮的 RunResult")
 }
 
-// Given 用户把那台 daemon 升级了,When 开轮前的探测这次通过,Then 同一个端口要交出
-// 「支持」—— 否则设备面板上那条「版本过旧」再也撤不下来。
+// SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
+// 这个假连接从没握过手,所以是空 —— 与生产里未鉴权的直连一致。
+func (c *fakeConn) SelfFingerprint() string { return "" }
+
+// Given daemon 现在会在客户端要的一轮开始时先发一条 runtime.turnStarted(seq 1);
+// When 本轮第一条事件跟在它后面(seq 2)到达;
+// Then 它照常投递 —— 序号闸门必须把开始通知也算进游标。
 //
-// 并且结论没翻转就不该重复播报(每条连接第一轮探一次,此后由游标接着跟)。
-func TestTurnStartProbe_UpToDateDaemon_ReportsSupportedOnce(t *testing.T) {
-	obs := &durabilityRecorder{}
-	rt := newProbeRuntime(t, true, obs)
+// 这一条不认它就是每一轮都跳一号:闸门看到 seq 2 > 游标 0 + 1,判成漏帧、起一次
+// 补齐拉取,而拉回来的正是它刚丢掉的那一帧。轮轮如此,每一轮的第一个 token 都要
+// 多等一个往返。
+func TestNotify_TurnStarted_CountsTowardTheSeqGate(t *testing.T) {
+	rig := newReconnectRig(t)
 
-	startProbeTurn(t, rt)
-	startProbeTurn(t, rt)
+	rig.conn1.deliver(t, wire.NotifyTurnStarted, wire.TurnStartedFrame{ConversationID: convOf(rigSessionID), Seq: 1})
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{
+		ConversationID: convOf(rigSessionID), Seq: 2, Event: agentruntime.TextDelta{Text: "第一句"},
+	})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 3})
 
-	assert.Equal(t, []bool{true}, obs.results(),
-		"结论没翻转就不该再播一遍")
+	assert.Equal(t, []string{"第一句"}, drainTexts(t, rig.events, time.Second))
+	assert.Empty(t, rig.conn1.methodCalls(wire.MethodSessionPull), "开始通知被算进游标就不该起补齐")
+}
+
+// 发起方派发一轮时,宿主在应答里回该轮用户消息的最高持久帧号。发起方据它把游标推进到
+// 「我已经持有的内容」—— 那条用户消息是它自己写下的,补齐不必也不该再交回来
+// (spec 2026-09-07 决策 1)。
+//
+// 推进有闸门,与 skipSeq 同一条:**最低号必须接在游标之后**(不留洞),推进的落点则是
+// 最高号。落后的消费方(重连后补齐还没跑完就发了新一轮)若无条件跳过去,中间那几帧
+// 就被永久跳过 —— 那是硬不变量 1 的「漏」,比「重」更糟。闸门不成立时游标不动。
+//
+// 最低号是本轮(2026-09-07-host-transcript-user-input 决策 4)加的:带附件的一条用户
+// 消息占不止一帧,只拿最高号比闸门时「最高号 == 游标 + 1」再也不成立,带附件的那一轮
+// 于是退回补齐重放自己提问的老毛病。
+func TestRun_GivenAckCarriesUserMessageSeq_ThenCursorAdvancesOnlyWhenItIsTheVeryNextFrame(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		loaded     int64
+		ackMinSeq  int64
+		ackSeq     int64
+		wantSaved  []int64
+		wantReason string
+	}{
+		{name: "单帧:正好是游标+1,推进并落库", loaded: 4, ackMinSeq: 5, ackSeq: 5, wantSaved: []int64{5}},
+		{name: "宿主没给号:不推进", loaded: 4, ackMinSeq: 0, ackSeq: 0, wantSaved: nil,
+			wantReason: "拿不到号时不得推进到一个自己并不持有的位置"},
+		{name: "号之前有洞:不推进", loaded: 4, ackMinSeq: 7, ackSeq: 7, wantSaved: nil,
+			wantReason: "跳过 5、6 会让它们永远补不回来 —— 不变量 1 的「漏」"},
+		{name: "号不高于游标:不推进", loaded: 9, ackMinSeq: 5, ackSeq: 5, wantSaved: nil,
+			wantReason: "游标只前进"},
+		{name: "多帧(带附件):最低号接在游标之后,推进到最高号", loaded: 4, ackMinSeq: 5, ackSeq: 6,
+			wantSaved:  []int64{6},
+			wantReason: "带附件的用户消息占两帧,两帧都是本端自己写下的,游标该盖住整段"},
+		{name: "多帧:最低号之前有洞,不推进", loaded: 4, ackMinSeq: 6, ackSeq: 7, wantSaved: nil,
+			wantReason: "5 号还没拿到,跳过去它就永远补不回来"},
+		{name: "多帧:头一帧已实时到达,仍推进到最高号", loaded: 5, ackMinSeq: 5, ackSeq: 6,
+			wantSaved:  []int64{6},
+			wantReason: "游标已经盖住最低号,后面那一帧同样是本端持有的内容"},
+		{name: "旧宿主只给最高号:不推进", loaded: 4, ackMinSeq: 0, ackSeq: 5, wantSaved: nil,
+			wantReason: "拿不到最低号就判不出有没有洞,退回本轮之前的行为"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := newFakeConn()
+			cursor := &fakeCursorPort{}
+			cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return tc.loaded, true, nil })
+			ackSeq, ackMinSeq := tc.ackSeq, tc.ackMinSeq
+			conn.script(func(method string, _, result any) error {
+				if method == wire.MethodRun {
+					*(result.(*wire.RunAck)) = wire.RunAck{
+						ConversationID:    convOf(rigSessionID),
+						UserMessageSeq:    ackSeq,
+						UserMessageMinSeq: ackMinSeq,
+					}
+				}
+				return nil
+			})
+			rt := New(conn,
+				WithConversationIDResolver(convOf),
+				WithDaemonFingerprint(rigFingerprint),
+				WithSessionCursor(cursor),
+				WithCursorFlushInterval(0),
+			)
+			t.Cleanup(func() { _ = rt.Close() })
+
+			_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "x"},
+				SessionID: rigSessionID,
+				UserText:  "hi",
+			})
+			require.NoError(t, err)
+			if len(tc.wantSaved) == 0 {
+				assert.Empty(t, cursor.savedSeqs(), tc.wantReason)
+				return
+			}
+			assert.Equal(t, tc.wantSaved, cursor.savedSeqs(), tc.wantReason)
+		})
+	}
+}
+
+// 派发时推进的那一格游标必须**当场落库**,不进防抖批次:本轮要治的场景就是「派发完
+// 立刻被杀」(spec 2026-09-07「补齐与本地在飞的那一轮」的前置),进程活不到防抖窗口
+// 到期,库里那份就仍停在派发之前 —— 重连补齐照旧把这条自己写下的用户消息交回来,
+// 决策 1 等于没落地。热路径上的每帧推进仍照旧攒批:这一发一轮只有一次。
+func TestRun_GivenAckCarriesUserMessageSeq_ThenTheCursorIsPersistedBeforeTheDebounceWindow(t *testing.T) {
+	conn := newFakeConn()
+	cursor := &fakeCursorPort{}
+	cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 4, true, nil })
+	conn.script(func(method string, _, result any) error {
+		if method == wire.MethodRun {
+			*(result.(*wire.RunAck)) = wire.RunAck{
+				ConversationID:    convOf(rigSessionID),
+				UserMessageSeq:    5,
+				UserMessageMinSeq: 5,
+			}
+		}
+		return nil
+	})
+	rt := New(conn,
+		WithConversationIDResolver(convOf),
+		WithDaemonFingerprint(rigFingerprint),
+		WithSessionCursor(cursor),
+		// 生产用的就是这一档(防抖):落库不能只在测试的同步档下发生。
+		WithCursorFlushInterval(time.Minute),
+	)
+	t.Cleanup(func() { _ = rt.Close() })
+
+	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
+		Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "x"},
+		SessionID: rigSessionID,
+		UserText:  "hi",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{5}, cursor.savedSeqs(),
+		"派发即对齐的游标要在 Run 返回时就已经在库里,进程此后被杀也不丢")
+}
+
+// 宿主是在**应答之前**把用户那一帧推上来的:agentred 的 beginTranscript 先 publish
+// 再 return ack,而本端读循环同步分发通知、随后才交付应答。所以到 Run 返回时,内存
+// 游标通常已经被那一帧推到了那个号 —— 派发即对齐于是无号可推。
+//
+// 但落库这件事不能跟着一起放弃:热路径那次推进只记进了防抖批次,而本轮要治的场景
+// 正是「派发完立刻被杀」。这一条钉住的就是这个次序下的落库(它是决策 1 在真实次序
+// 上唯一起作用的地方 —— 缺了它,派发对齐只在「通知比应答晚到」的次序下成立,而那
+// 个次序在 agentred 这一路上根本不发生)。
+func TestRun_GivenTheUserFrameArrivesBeforeTheAck_ThenTheCursorIsStillPersisted(t *testing.T) {
+	conn := newFakeConn()
+	cursor := &fakeCursorPort{}
+	cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 4, true, nil })
+	conn.script(func(method string, _, result any) error {
+		if method != wire.MethodRun {
+			return nil
+		}
+		// 宿主的真实次序:用户那一帧先作为通知出去(取到 5 号),Run 才应答。
+		conn.deliver(t, wire.NotifyEvent, wire.EventFrame{
+			ConversationID: convOf(rigSessionID),
+			Event:          agentruntime.TextDelta{Text: "用户那一帧"},
+			Seq:            5,
+		})
+		*(result.(*wire.RunAck)) = wire.RunAck{
+			ConversationID:    convOf(rigSessionID),
+			UserMessageSeq:    5,
+			UserMessageMinSeq: 5,
+		}
+		return nil
+	})
+	rt := New(conn,
+		WithConversationIDResolver(convOf),
+		WithDaemonFingerprint(rigFingerprint),
+		WithSessionCursor(cursor),
+		// 生产用的就是这一档(防抖):落库不能只在测试的同步档下发生。
+		WithCursorFlushInterval(time.Minute),
+	)
+	t.Cleanup(func() { _ = rt.Close() })
+
+	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
+		Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "x"},
+		SessionID: rigSessionID,
+		UserText:  "hi",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{5}, cursor.savedSeqs(),
+		"通知先到时游标已经在内存里对齐了,Run 返回前必须把它落进库 —— 否则派发完立刻被杀,补齐照旧重放这条自己写下的用户消息")
 }

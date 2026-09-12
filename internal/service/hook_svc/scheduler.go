@@ -9,8 +9,8 @@ import (
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/hook_entity"
-	"github.com/agentre-ai/agentre/internal/repository/hook_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/hook_entity"
+	"github.com/agentre-hub/agentre/internal/repository/hook_repo"
 )
 
 const (
@@ -116,11 +116,11 @@ func (s *hookSvc) computeNextRun(h *hook_entity.Hook, now int64) int64 {
 	sched, err := cronParser.Parse(h.ScheduleExpr)
 	if err != nil {
 		logger.Ctx(context.Background()).Warn("hook_svc.computeNextRun: bad cron", zap.String("expr", h.ScheduleExpr))
-		return now + int64(fallbackInterval.Seconds())
+		return now + fallbackInterval.Milliseconds()
 	}
 	loc, lerr := time.LoadLocation(orDefault(h.Timezone, "UTC"))
 	if lerr != nil {
 		loc = time.UTC
 	}
-	return sched.Next(time.Unix(now, 0).In(loc)).Unix()
+	return sched.Next(time.UnixMilli(now).In(loc)).UnixMilli()
 }

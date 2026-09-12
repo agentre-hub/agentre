@@ -27,7 +27,7 @@ export type { SessionStatusPatch };
 // chat-panel 通过 useSessionStatus(sid)?.lastDoneEvent 拉取做副作用。
 //
 // 字段含义与 ChatStreamEvent 对齐（仅保留 done 路径需要的最小子集）：
-//   - message: done/error 时后端随事件附带的最终 ChatMessage（可选）
+//   - message: done/error/aborted 时后端随事件附带的最终（或 partial）ChatMessage（可选）
 //   - error:   error 事件的错误文案
 //   - steer_consumed 携带所有 ChatStreamEvent 字段（queuedIds / assistantMessage 等）
 export type DoneEvent =
@@ -38,7 +38,7 @@ export type DoneEvent =
       message?: chat_svc.ChatMessage;
       [key: string]: unknown;
     }
-  | { kind: "aborted"; [key: string]: unknown }
+  | { kind: "aborted"; message?: chat_svc.ChatMessage; [key: string]: unknown }
   | { kind: "closed"; [key: string]: unknown }
   | { kind: "steer_consumed"; [key: string]: unknown };
 

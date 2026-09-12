@@ -8,16 +8,18 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // R13 的运行期认领（agent_backend_svc.ClaimRelativeBackends）把本机 backend 的
@@ -36,10 +38,12 @@ func registerSelfDeviceMocks(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 
-	msgMock := mock_chat_repo.NewMockMessageRepo(ctrl)
-	prevMessage := chat_repo.Message()
-	chat_repo.RegisterMessage(msgMock)
+	msgMock := mock_transcript_repo.NewMockMessageRepo(ctrl)
+	prevMessage := transcript_repo.Message()
+	transcript_repo.RegisterMessage(msgMock)
 	msgMock.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	msgMock.EXPECT().ListMeta(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	msgMock.EXPECT().FillBlocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	provMock := mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl)
 	prevProvider := llm_provider_repo.LLMProvider()
@@ -50,12 +54,12 @@ func registerSelfDeviceMocks(t *testing.T) {
 	rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
 	prevRDS := remote_device_svc.Default()
 	remote_device_svc.SetDefault(rds)
-	rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+	rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 	// 本机指纹不在配对表里——这正是 bug 的触发条件，桩要如实反映。
 	rds.EXPECT().List(gomock.Any()).Return(nil, nil).AnyTimes()
 
 	t.Cleanup(func() {
-		chat_repo.RegisterMessage(prevMessage)
+		transcript_repo.RegisterMessage(prevMessage)
 		llm_provider_repo.RegisterLLMProvider(prevProvider)
 		remote_device_svc.SetDefault(prevRDS)
 	})
@@ -79,12 +83,12 @@ func TestLoadSession_GivenSelfFingerprintBackend_ThenSessionViewReportsLocalDevi
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(234)).Return(&agent_backend_entity.AgentBackend{
 		ID: 234, Type: string(agent_backend_entity.TypePiAgent), Status: 1,
-		DeviceID: "sha256:self",
+		DeviceFingerprint: "sha256:self",
 	}, nil).AnyTimes()
 
 	resp, err := svc.LoadSession(ctx, &LoadSessionRequest{SessionID: 2912})
 	require.NoError(t, err)
-	assert.Equal(t, "", resp.Session.DeviceID,
+	assert.Equal(t, devicefp.Carrier(""), resp.Session.DeviceID,
 		"本机档的会话视图必须报空 DeviceID，否则聊天头按远端渲染成离线")
 	assert.Equal(t, "", resp.Session.DeviceName,
 		"本机档没有远端设备名——空 DeviceID 档的既有零值口径")
@@ -98,7 +102,7 @@ func TestListAgents_GivenSelfFingerprintBackend_ThenAgentItemReportsLocalDevice(
 
 	be := &agent_backend_entity.AgentBackend{
 		ID: 234, Type: string(agent_backend_entity.TypePiAgent), Status: 1,
-		DeviceID: "sha256:self",
+		DeviceFingerprint: "sha256:self",
 	}
 	m.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{
 		{ID: 8, Name: "pi", AgentBackendID: 234, Status: 1},
@@ -106,15 +110,15 @@ func TestListAgents_GivenSelfFingerprintBackend_ThenAgentItemReportsLocalDevice(
 	m.backend.EXPECT().BatchFind(ctx, []int64{234}).Return(
 		map[int64]*agent_backend_entity.AgentBackend{234: be}, nil)
 	m.session.EXPECT().CountRunningByAgents(ctx, []int64{8}).Return(map[int64]int{}, nil)
-	m.session.EXPECT().CountByAgentsIncludingGroups(ctx, []int64{8}).Return(map[int64]int64{}, nil)
-	m.session.EXPECT().ListIDsByAgentsIncludingGroups(ctx, []int64{8}).Return(map[int64][]int64{}, nil)
-	m.session.EXPECT().ListByAgentIncludingGroups(ctx, int64(8), gomock.Any()).Return(nil, nil)
-	m.session.EXPECT().ListAttentionByAgentIncludingGroups(ctx, int64(8), gomock.Any()).Return(nil, nil)
+	m.session.EXPECT().CountByAgents(ctx, []int64{8}).Return(map[int64]int64{}, nil)
+	m.session.EXPECT().ListIDsByAgents(ctx, []int64{8}).Return(map[int64][]int64{}, nil)
+	m.session.EXPECT().ListByAgent(ctx, int64(8), gomock.Any()).Return(nil, nil)
+	m.session.EXPECT().ListAttentionByAgent(ctx, int64(8), gomock.Any()).Return(nil, nil)
 
 	resp, err := svc.ListAgents(ctx, &ListAgentsRequest{})
 	require.NoError(t, err)
 	require.Len(t, resp.Agents, 1)
-	assert.Equal(t, "", resp.Agents[0].DeviceID,
+	assert.Equal(t, devicefp.Carrier(""), resp.Agents[0].DeviceID,
 		"本机档的 Agent 列表项必须报空 DeviceID，否则设备 chip 按远端渲染")
 	assert.Equal(t, "", resp.Agents[0].DeviceName)
 }
@@ -125,12 +129,12 @@ func TestListAgents_GivenSelfFingerprintBackend_ThenAgentItemReportsLocalDevice(
 func TestBeTargetsRemote_NilSemantics(t *testing.T) {
 	registerSelfDeviceMocks(t)
 
-	assert.False(t, beTargetsRemote(nil), "nil backend 与空 DeviceID 一样是本机")
-	assert.False(t, beTargetsRemote(&agent_backend_entity.AgentBackend{DeviceID: ""}))
-	assert.False(t, beTargetsRemote(&agent_backend_entity.AgentBackend{DeviceID: "sha256:self"}),
+	assert.False(t, exec_target_svc.BackendTargetsRemote(nil), "nil backend 与空 DeviceID 一样是本机")
+	assert.False(t, exec_target_svc.BackendTargetsRemote(&agent_backend_entity.AgentBackend{DeviceFingerprint: ""}))
+	assert.False(t, exec_target_svc.BackendTargetsRemote(&agent_backend_entity.AgentBackend{DeviceFingerprint: "sha256:self"}),
 		"R13 认领后本机 backend 带的就是本机指纹")
-	assert.True(t, beTargetsRemote(&agent_backend_entity.AgentBackend{DeviceID: "sha256:other"}))
-	assert.True(t, beTargetsRemote(&agent_backend_entity.AgentBackend{DeviceID: "7"}))
+	assert.True(t, exec_target_svc.BackendTargetsRemote(&agent_backend_entity.AgentBackend{DeviceFingerprint: "sha256:other"}))
+	assert.True(t, exec_target_svc.BackendTargetsRemote(&agent_backend_entity.AgentBackend{DeviceFingerprint: "7"}))
 }
 
 // effectiveLLMForNonRemoteTurn 的名字就是契约：**非远端**的轮要在本机解析出完整
@@ -145,7 +149,7 @@ func TestEffectiveLLMForNonRemoteTurn_GivenSelfFingerprintBackend_ThenResolvesPr
 
 	be := &agent_backend_entity.AgentBackend{
 		ID: 234, Type: string(agent_backend_entity.TypeClaudeCode),
-		DeviceID: "sha256:self", LLMProviderKey: "pk-local",
+		DeviceFingerprint: "sha256:self", LLMProviderKey: "pk-local",
 	}
 	prov := &llm_provider_entity.LLMProvider{
 		ProviderKey: "pk-local", Type: string(llm_provider_entity.TypeAnthropic),

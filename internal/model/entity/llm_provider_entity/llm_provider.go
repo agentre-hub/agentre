@@ -15,7 +15,8 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 // ProviderType 供应商实现类型。值与 cago agents/provider.Provider.Name() 对齐。
@@ -56,6 +57,10 @@ type LLMProvider struct {
 	Status          int    `gorm:"column:status;type:int;not null;default:1"`
 	Createtime      int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
 	Updatetime      int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	// SyncMeta uses ProviderKey as the account-sync identity. Models travel nested
+	// in the provider payload, so their local rows deliberately have no separate
+	// sync identity.
+	syncmeta_entity.SyncMeta `gorm:"embedded"`
 }
 
 // TableName 绑定表名。

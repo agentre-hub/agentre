@@ -45,6 +45,11 @@ func TestSessionTitleFromFirstMessageRendersMentionXmlAsReadableLabel(t *testing
 			want: "@Web",
 		},
 		{
+			name: "device tag with fp attr becomes @label",
+			text: `<device fp="sha256:ab12">工作站</device>`,
+			want: `@工作站`,
+		},
+		{
 			name: "surrounding text is preserved",
 			text: "ping <agent id=\"1\">CEO \u52a9\u624b</agent> now",
 			want: "ping @CEO \u52a9\u624b now",

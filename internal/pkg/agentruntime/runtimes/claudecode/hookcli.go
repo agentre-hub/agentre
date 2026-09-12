@@ -14,3 +14,12 @@ func (r *Runtime) hookBin() (string, error) {
 	}
 	return os.Executable()
 }
+
+// SteerInboxConfigured 回答「这份 runtime 拿到投递插话的信箱了没有」。
+//
+// 它是**接线的可观测缝**：注入发生在各自的进程启动路径上（桌面端
+// internal/bootstrap、agentred internal/daemon），而漏注入的表现是
+// runtime.steer 一律返回「steer inbox not configured」——别处一个编译错误都没有，
+// 静态检查也看不出来。agentred 上就这么坏了很久：桌面端注入了、它没有，同一条
+// 「轮中插话」在两台宿主上一个能用一个不能。两处启动路径各有一条回归测试盯着它。
+func (r *Runtime) SteerInboxConfigured() bool { return r.steer != nil }

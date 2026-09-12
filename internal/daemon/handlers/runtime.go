@@ -12,18 +12,16 @@
 // map 摘除,gateway token revoke。所有控制方法（Steer / Abort / ...）按
 // sessionID 查 backendType,再 type-assert backend runtime 拿对应的子接口,
 // 没实现就返 ErrUnsupported,session 不在就返 ErrNoActiveTurn —— 两者都被
-// wire.ToJSONRPCError 翻译成稳定 JSON-RPC error code 跨进程传递。
+// 协议适配层翻译成稳定的类型化 RPC error code 跨进程传递。
 package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,12 +30,18 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	piagentrt "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/connection"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	"github.com/agentre-hub/agentre/internal/pkg/turnstats"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // RuntimeDeps are the explicit constructor inputs for RuntimeHandlers. All
@@ -47,9 +51,10 @@ type RuntimeDeps struct {
 	// 不是一个 NotifierPort,因为 RuntimeHandlers 是 per-connection 构造的,而 fanout /
 	// forwardAutonomousTurn 的 goroutine 会活过那条连接:静态捕获的端口在客户端重连后
 	// 仍指向已死的旧连接,通知就再也发不出去了(见 daemon.bindConn 注释)。
-	NotifyFor func(peerFingerprint string) NotifierPort
-	// Journal 是通知日志,Daemon 级(每个 daemon 一份),不随连接生灭。
-	Journal JournalPort
+	NotifyFor func(peerFingerprint devicefp.Initiator) NotifierPort
+	// Transcript 是转录的写入口(消息行 + 块行),Daemon 级(每个 daemon 一份),
+	// 不随连接生灭。它取代了从前的通知日志(决策 1)。
+	Transcript TranscriptPort
 	// Sessions 是会话生命周期的写入口,同样 Daemon 级。它落的那一行是重连客户端
 	// 拿会话清单的唯一来源,也是 daemon 启动时把非终态会话标成中断(R10)的对象。
 	Sessions SessionLifecyclePort
@@ -61,9 +66,13 @@ type RuntimeDeps struct {
 	Gateway      GatewayPort
 	Lookup       LLMProviderLookupPort
 	RuntimeFor   func(agent_backend_entity.BackendType) agentruntime.Runtime
-	// ClaimedAccountID returns the daemon account authorized to target a
+	// CLIPathForBackend resolves the claimed daemon's in-memory per-device
+	// overlay by account backend SyncID. false preserves paired-desktop behavior
+	// before any account snapshot exists; true with an empty path means PATH.
+	CLIPathForBackend func(backendSyncID string) (cliPath string, authoritative bool)
+	// LoggedInAccountID returns the daemon account authorized to target a
 	// non-caller origin peer in control requests.
-	ClaimedAccountID func() string
+	LoggedInAccountID func() string
 	// SteerSource 是「queuedID → 提交方对端」的映射(R17),Daemon 级共享(见
 	// SteerSourcePort 注释)。nil 时 NewRuntimeHandlers 兜成 no-op,单测/旧调用不炸。
 	SteerSource SteerSourcePort
@@ -77,11 +86,11 @@ type RuntimeDeps struct {
 // generation. The concrete in-memory sessions registry implements it without
 // adding a wire field or persistent state.
 type RuntimeGenerationRegistry interface {
-	ClaimRuntimeGeneration(connection *rpc.Conn, sessionID int64, generation string) bool
-	ReleaseRuntimeGeneration(connection *rpc.Conn, sessionID int64, generation string) bool
+	ClaimConnection(connection connection.Conn, sessionID int64, generation string) bool
+	ReleaseConnection(connection connection.Conn, sessionID int64, generation string) bool
 }
 
-// RuntimeHandlers groups the runtime.* JSON-RPC handlers and owns the
+// RuntimeHandlers groups the runtime.* RPC handlers and owns the
 // per-connection session map so control RPCs can resolve sessionID → backend.
 //
 // Lock invariant: h.mu is the only lock guarding h.sessions and every mutable
@@ -105,13 +114,15 @@ type RuntimeHandlers struct {
 	// SwapRuntimeFor (used by tests that need to flip the runtime registry
 	// after a session is already live).
 	runtimeFor func(agent_backend_entity.BackendType) agentruntime.Runtime
-	// sessionTokens 缓存每个 session 的常驻 gateway token(sessionID int64 → token string)。
+	// sessionTokens 是每个 session 的常驻 gateway token 缓存(与桌面共用
+	// agentruntime.SessionTokenCache:签一次 / 改道 / 撤销只有那一份实现)。
 	// 该 token 在 spawn 时烤进 daemon spawn 的 claude 子进程 env,子进程跨轮复用时
 	// env 不重建 —— 所以 token 必须签成永久(ttl=0)、跨轮稳定、且 **不在轮末撤销**。
 	// 旧实现每轮签 time.Hour token 并在 fanout 轮末撤销,而子进程手里还是首轮那个
 	// (已撤销)token → 第二轮起 PostToolUse hook 撞 401、SteerInbox drain 不到。
-	// daemon 侧没有 session 关闭钩子,token 随 daemon 进程退出释放(内存级、有界)。
-	sessionTokens sync.Map
+	// daemon 侧没有 session 关闭钩子(故不调用 Revoke),token 随 daemon 进程退出释放
+	// (内存级、有界)。
+	sessionTokens *agentruntime.SessionTokenCache
 	// autoSubs 防同一 session 重复起「自主续轮转发」goroutine(每会话一个)。
 	// goroutine 在真实 runtime 的 AutonomousTurns(sid) channel close(子进程 evict)时
 	// 退出并清这条,下次 Run 复用 / 重 spawn 时再起。
@@ -122,12 +133,16 @@ type runtimeSession struct {
 	backendType agent_backend_entity.BackendType
 	ctx         context.Context
 	cancel      context.CancelFunc
-	connection  *rpc.Conn
+	connection  connection.Conn
 	// adopted 标记这是 Adopt 放进来的**占位行**:它只为了让重连后的这条连接解得出
 	// 会话(见 Adopt),背后并没有一轮在跑。它必须与真正的 generation 属主区分开 ——
 	// 否则 Pi 那道「一条会话同时只有一个 generation」的闸门会把占位行当成在跑的一轮,
 	// 重连之后再也开不出新一轮。
 	adopted bool
+	// streaming 标记这个属主背后**有一轮正在往外发事件**(fanout 已经起来了)。
+	// 接管(Adopt)据它决定要不要顶替:占位行顶掉一个正在跑的属主,那一轮剩下的事件
+	// 会在 fanout 里被判成 stale 逐条丢弃 —— 不报错、不跳号、日志只有 Debug 一行。
+	streaming bool
 
 	prepared          piagentrt.PreparedRun
 	providerSessionID string
@@ -150,6 +165,10 @@ const (
 	runtimePiTerminalWaitTimeout    = 2 * time.Second
 )
 
+// GatewayPort 必须满足共享令牌缓存的路由端口 —— 编译期钉死,避免端口方法漂移后
+// 才在运行期发现会话 token 签不出来。
+var _ agentruntime.SessionTokenRouter = (GatewayPort)(nil)
+
 // NewRuntimeHandlers wires the dependencies and prepares the session map.
 func NewRuntimeHandlers(deps RuntimeDeps) *RuntimeHandlers {
 	if deps.RuntimeFor == nil {
@@ -158,12 +177,22 @@ func NewRuntimeHandlers(deps RuntimeDeps) *RuntimeHandlers {
 	if deps.SteerSource == nil {
 		deps.SteerSource = noopSteerSource{}
 	}
-	return &RuntimeHandlers{
+	h := &RuntimeHandlers{
 		deps:        deps,
 		sessions:    map[int64]*runtimeSession{},
 		runtimeFor:  deps.RuntimeFor,
 		cleanupDone: make(chan struct{}),
 	}
+	h.sessionTokens = agentruntime.NewSessionTokenCache(
+		"handlers.ensureSessionToken",
+		func() agentruntime.SessionTokenRouter {
+			if h.deps.Gateway == nil {
+				return nil
+			}
+			return h.deps.Gateway
+		},
+	)
+	return h
 }
 
 // noopSteerSource 是未注入 SteerSourcePort 时的空实现:单测 / 旧调用不记录任何来源,
@@ -186,17 +215,38 @@ func (noopSteerSource) Forget(string)                           {}
 //
 // 认下的是**这个对端**的那条会话:内存会话表与 backend 一样按隔离后的会话键存放,
 // 否则同号会话会在这张表里互相顶掉(见 runtimeSessionID)。
-func (h *RuntimeHandlers) Adopt(ctx context.Context, sessionID int64, backendType agent_backend_entity.BackendType) {
-	h.AdoptForPeer(peerFingerprint(ctx), sessionID, backendType)
+func (h *RuntimeHandlers) Adopt(ctx context.Context, conversationID string, backendType agent_backend_entity.BackendType) {
+	h.AdoptForPeer(peerFingerprint(ctx), conversationID, backendType)
 }
 
 // AdoptForPeer remembers a session under its persisted origin after an
 // authorized account-level attach.
-func (h *RuntimeHandlers) AdoptForPeer(peer string, sessionID int64, backendType agent_backend_entity.BackendType) {
-	if sessionID == 0 || backendType == "" {
+//
+// 已经有一轮在往外发事件时**不顶替**它。占位行背后没有任何一轮,顶掉的代价是那一轮
+// 剩下的事件在 fanout 里逐条被判成 stale 丢光(既不报错也不跳号),而接管想要的东西
+// 一样不缺 —— 控制 RPC 靠 resolveSession 解 backend,那一格里放着的真属主同样解得出。
+//
+// 这不是假想的次序:浏览器从草稿页落到详情页走的就是「同一条中继通道上先 runtime.run
+// 再 session.attach」。RuntimeHandlers 是 per-conn 构造的,真正的断连重连拿到的是一张
+// 空表,那一路本来就顶不掉谁 —— 会顶掉的只有「自己顶自己」这一种。
+func (h *RuntimeHandlers) AdoptForPeer(_ devicefp.Initiator, conversationID string, backendType agent_backend_entity.BackendType) {
+	if conversationID == "" || backendType == "" {
 		return
 	}
-	h.register(runtimeSessionID(peer, sessionID), &runtimeSession{backendType: backendType, adopted: true})
+	sid := runtimeSessionID(conversationID)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if existing := h.sessions[sid]; existing != nil && existing.streaming {
+		return
+	}
+	h.sessions[sid] = &runtimeSession{backendType: backendType, adopted: true}
+}
+
+// markStreaming 记下这个属主背后的那一轮已经开始往外发事件了。
+func (h *RuntimeHandlers) markStreaming(owner *runtimeSession) {
+	h.mu.Lock()
+	owner.streaming = true
+	h.mu.Unlock()
 }
 
 // SwapRuntimeFor replaces the runtime lookup at runtime — test seam only.
@@ -281,32 +331,60 @@ func (h *RuntimeHandlers) cleanupConnectionPiGenerations() error {
 
 // ── Capabilities ────────────────────────────────────────────────────────────
 
-func (h *RuntimeHandlers) Capabilities(_ context.Context, p wire.CapabilitiesParams) (wire.CapabilitiesResult, error) {
-	rt := h.lookupRuntimeByType(agent_backend_entity.BackendType(p.BackendType))
+func (h *RuntimeHandlers) Capabilities(_ context.Context, req *agentrewire.RuntimeCapabilitiesRequest) (*agentrewire.RuntimeCapabilitiesResponse, error) {
+	rt := h.lookupRuntimeByType(agent_backend_entity.BackendType(req.GetBackendType()))
 	if rt == nil {
-		return wire.CapabilitiesResult{}, fmt.Errorf("no runtime registered for backend type %q", p.BackendType)
+		return nil, fmt.Errorf("no runtime registered for backend type %q", req.GetBackendType())
 	}
-	return wire.CapabilitiesResult{Capabilities: rt.Capabilities()}, nil
+	return protowire.CapabilitiesToProto(rt.Capabilities()), nil
 }
 
 // ── Run ─────────────────────────────────────────────────────────────────────
 
-func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAck, error) {
-	var be agent_backend_entity.AgentBackend
-	if err := json.Unmarshal(p.Backend, &be); err != nil {
-		return wire.RunAck{}, fmt.Errorf("parse backend: %w", err)
+func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeRunRequest) (*agentrewire.RuntimeRunResponse, error) {
+	// 身份键收缩到 conversation_id 之后,daemon_sessions 的主键就是它:线上给来的
+	// 空串是一个人人都写得进的合法主键,每个这么发的对端都会落在同一行上,通知日志
+	// 也共用 ('' , seq) 那一串序号。与另外八个按对话寻址的处理器一样,在边界上拒掉。
+	if err := ErrInvalidConversationID(request.GetConversationId()); err != nil {
+		return nil, err
 	}
+	backend := protowire.BackendFromProto(request.GetBackend())
+	if backend == nil {
+		backend = &agent_backend_entity.AgentBackend{}
+	}
+	be := *backend
 	bt := agent_backend_entity.BackendType(be.Type)
 	if bt == agent_backend_entity.TypeBuiltin {
-		return wire.RunAck{}, errors.New("builtin backend not supported in agentred")
+		return nil, errors.New("builtin backend not supported in agentred")
 	}
 	if bt == agent_backend_entity.TypeOpenClaw {
-		return wire.RunAck{}, errors.New("openclaw backend not supported in agentred: remote secret enrollment is unavailable")
+		return nil, errors.New("openclaw backend not supported in agentred: remote secret enrollment is unavailable")
+	}
+	// 本轮有效思考力度作为**独立 run 参数**过线(规格决策 4):浏览器发的是空壳
+	// backend,塞进负载里那条路上恒为空。非空即胜过负载上那一格,合成结果落在**本轮
+	// backend 副本**上(决策 3),下游 launchIdentity 与各 runtime 的 session 构造
+	// 一字不改就同时拿到它。
+	//
+	// 缺省**不**视为「用户选了默认」(硬不变量 6)。受众不是「老桌面端」:方法集变更
+	// 已按 wireversion 的既有守卫把协议窗口收成单点 0.3.0,跨代对端在握手期就被拒,
+	// 根本走不到这里。留空的是**同代**调用方 —— 没有会话级覆盖的那些轮次(绝大多数),
+	// 以及尚未接线该字段的浏览器派发;把它们的缺省读成空档,等于让这些轮次集体丢掉
+	// 后端配置。
+	if effort := strings.TrimSpace(request.GetReasoningEffort()); effort != "" {
+		be.ReasoningEffort = effort
+	}
+	if h.deps.CLIPathForBackend != nil {
+		if cliPath, authoritative := h.deps.CLIPathForBackend(be.SyncID); authoritative {
+			// Account snapshots own the execution-side per-device overlay. An
+			// absent overlay authoritatively means PATH, so it also clears a
+			// desktop machine's absolute path from the wire payload.
+			be.CLIPath = cliPath
+		}
 	}
 
 	rt := h.lookupRuntimeByType(bt)
 	if rt == nil {
-		return wire.RunAck{}, fmt.Errorf("backend %q not registered", be.Type)
+		return nil, fmt.Errorf("backend %q not registered", be.Type)
 	}
 	// 通知出口必须在这里建:对端指纹只有请求 ctx 上有,而 fanout / forwardAutonomousTurn
 	// 跑在脱离 ctx 的 goroutine 里(见 sessionEmitter 注释)。它同时定下这一轮的 backend
@@ -316,17 +394,11 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 	// 新消息)。会话归属因此由点名的 origin 决定,而不是调用方自己的指纹 —— 与控制族
 	// 走同一条 ResolveSessionPeer 约定:省略 = 调用方自己的对端,点名别人是账号级能力
 	// (配对身份点名一律 ErrUnauthorized)。
-	runPeer, err := ResolveSessionPeer(ctx, p.PeerFingerprint, h.deps.ClaimedAccountID)
+	runPeer, err := ResolveSessionPeer(ctx, devicefp.Initiator(request.GetPeerFingerprint()), h.deps.LoggedInAccountID)
 	if err != nil {
-		return wire.RunAck{}, err
+		return nil, err
 	}
-	em := h.newEmitterFor(ctx, p.SessionID, runPeer)
-
-	// R18:「开新一轮」的发起方标记。浏览器在空闲会话上发消息时随 runtime.run 声明自己的
-	// 设备身份(SourceDevice 非空),daemon 据此在事件流开头注入一条 user_message 事件,
-	// 扇出给同一条会话的其余订阅者 —— 桌面端据此把这一轮落成一行带来源标识的用户消息。
-	// 桌面端自己发消息不带 SourceDevice(单端零变化),不注入,事件流与今天逐帧一致。
-	userMsg := userMessageFor(p)
+	em := h.newEmitterFor(ctx, request.GetConversationId(), runPeer)
 
 	var (
 		piPreparer piagentrt.RunPreparer
@@ -339,12 +411,12 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 			// 占位行不是一轮:重连接管只是把这条会话认到这条连接名下,新一轮照常从
 			// 注册 generation 开始(注册时把占位行顶掉)。
 			if piOwner == nil || piOwner.adopted {
-				return h.registerPiGeneration(ctx, em, p, &be)
+				return h.registerPiGeneration(ctx, em, request, &be)
 			}
-			ownsGeneration := piOwner.generationToken == strings.TrimSpace(p.PermissionMode)
-			ownsConnection := piOwner.connection == nil || piOwner.connection == rpc.ConnFromContext(ctx)
+			ownsGeneration := piOwner.generationToken == strings.TrimSpace(request.GetPermissionMode())
+			ownsConnection := piOwner.connection == nil || piOwner.connection == connection.FromContext(ctx)
 			if !ownsGeneration || !ownsConnection {
-				return wire.RunAck{}, errors.New("runtime.run: stale Pi generation request")
+				return nil, errors.New("runtime.run: stale Pi generation request")
 			}
 		}
 	}
@@ -358,9 +430,9 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 	// provider_key/model_key 优先),daemon 按它们从自家目录自解。provider-default
 	// 的 Provider 缺失保留 #39 回退 agent 绑定;fixed-model 缺失/停用/Provider 缺失
 	// 一律严格阻止,绝不静默降级为默认模型(决策 7)。
-	provider, effective, providerFallbackKey, err := h.resolveTarget(ctx, p.LLMProviderKey, p.LLMModelKey, &be)
+	provider, effective, providerFallbackKey, err := h.resolveTarget(ctx, request.GetLlmProviderKey(), request.GetLlmModelKey(), &be)
 	if err != nil {
-		return wire.RunAck{}, err
+		return nil, err
 	}
 
 	var gatewayURL, gatewayToken string
@@ -373,47 +445,48 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 		// 下一轮 wire 带的是新的 effective key,这条常驻 token 的上游要跟着变(决策 3/12)。
 		gatewayURL, gatewayToken, terr = h.ensureSessionToken(ctx, em.rid, &be, provider.ProviderKey, effective.ModelKey)
 		if terr != nil {
-			return wire.RunAck{}, terr
+			return nil, terr
 		}
 	}
 
-	history, err := decodeHistory(p.History)
+	history, err := decodeHistory(protowire.HistoryMessagesFromProto(request.GetHistory()))
 	if err != nil {
-		return wire.RunAck{}, fmt.Errorf("decode history: %w", err)
+		return nil, fmt.Errorf("decode history: %w", err)
 	}
-	userBlocks, err := decodeUserBlocks(p.UserBlocks)
+	userBlocks, err := decodeUserBlocks(protowire.StoredBlocksFromProto(request.GetUserBlocks()))
 	if err != nil {
-		return wire.RunAck{}, fmt.Errorf("decode user blocks: %w", err)
+		return nil, fmt.Errorf("decode user blocks: %w", err)
 	}
 
 	req := agentruntime.RunRequest{
 		Backend:           &be,
 		Provider:          provider,
 		Effective:         effective,
-		AgentID:           p.AgentID,
+		AgentID:           request.GetAgentId(),
+		AgentSyncID:       request.GetAgentSyncId(),
 		SessionID:         em.rid,
-		Cwd:               p.Cwd,
-		SystemPrompt:      p.SystemPrompt,
-		ProviderSessionID: p.ProviderSessionID,
-		UserText:          p.UserText,
+		Cwd:               request.GetCwd(),
+		SystemPrompt:      request.GetSystemPrompt(),
+		ProviderSessionID: request.GetProviderSessionId(),
+		UserText:          request.GetUserText(),
 		UserBlocks:        userBlocks,
 		History:           history,
-		Compact:           p.Compact,
+		Compact:           request.GetCompact(),
 		GatewayURL:        gatewayURL,
 		GatewayToken:      gatewayToken,
-		ForkAnchor:        p.ForkAnchor,
-		PermissionMode:    p.PermissionMode,
-		CollaborationMode: p.CollaborationMode,
+		ForkAnchor:        request.GetForkAnchor(),
+		PermissionMode:    request.GetPermissionMode(),
+		CollaborationMode: request.GetCollaborationMode(),
 		// 内置工具 MCP server 的 URL 是 desktop 的 127.0.0.1(在 daemon 主机拨不到),
 		// 改写成 daemon 本机 gateway base → CLI 打到本地 /mcp/ 隧道入口,再反向请求回
 		// desktop 执行。Headers(desktop 签的 token)/ Tools / Name 原样保留。
 		MCPServers: rewriteMCPServersForDaemon(
-			p.MCPServers,
+			protowire.MCPServersFromProto(request.GetMcpServers()),
 			func() string { return daemonGatewayBase(h.deps.Gateway) },
-			em.peer,
-			em.sid,
+			string(em.peer),
+			em.conversationID,
 		),
-		EnabledPlugins: p.EnabledPlugins,
+		EnabledPlugins: request.GetEnabledPlugins(),
 	}
 	if piPreparer != nil {
 		// PermissionMode carries only the remote transport generation owner for
@@ -426,9 +499,9 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 		prepared := h.sessions[em.rid] == piOwner && piOwner.prepared != nil
 		h.mu.RUnlock()
 		if prepared {
-			return h.startPreparedPi(em, p, &be, piOwner, bt, providerFallbackKey)
+			return h.startPreparedPi(em, request, &be, piOwner, bt, providerFallbackKey)
 		}
-		return h.preparePi(em, p, &be, piOwner, piPreparer, req)
+		return h.preparePi(em, request, &be, piOwner, piPreparer, req)
 	}
 
 	// 续话(决策 8):provider_session_id 已由上一轮在这台 daemon 上落库,调用方不再需要
@@ -438,34 +511,60 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 	// 挂账修复(2026-08-11):FreshSession=true 声明这一轮**必须全新**(regenerate 无锚点
 	// 时 / provider 会话失效恢复),即使落库有旧 id 也不许续 —— 否则这两条路径的空字段
 	// 被重载成「续话」,regenerate 退化成续旧上下文、gone 恢复永远撞同一个失效 id。
-	if !p.FreshSession && strings.TrimSpace(req.ProviderSessionID) == "" && h.deps.SessionQuery != nil {
+	if !request.GetFreshSession() && strings.TrimSpace(req.ProviderSessionID) == "" && h.deps.SessionQuery != nil {
 		if row, err := h.deps.SessionQuery.Find(ctx, em.peer, em.peerSessionID); err == nil && row != nil && row.ProviderSessionID != "" {
 			req.ProviderSessionID = row.ProviderSessionID
 		}
 	}
 
-	events, result, err := rt.Run(ctx, req)
+	// Protobuf 请求在 RunAck 写出后就会取消 ctx；真实 CLI 的 assistant/usage
+	// 事件在 ACK 之后才持续到达，不能把一轮 turn 的寿命绑在这次请求上。
+	// 保留账号、连接与日志等 value，由 runtime 的结果/Abort/daemon shutdown 收尾。
+	runCtx := context.WithoutCancel(ctx)
+	events, result, err := rt.Run(runCtx, req)
 	if err != nil {
-		return wire.RunAck{}, err
+		return nil, err
 	}
-	owner := &runtimeSession{backendType: bt}
+	// streaming 在**登记那一刻**就置上,不等下面那句 go h.fanout:登记与起 fanout
+	// 之间落进来的一次 attach 同样顶得掉它,而那一轮的事件已经在路上了。
+	owner := &runtimeSession{backendType: bt, streaming: true}
 	h.register(em.rid, owner)
-	ack := wire.RunAck{SessionID: p.SessionID}
+	ack := &agentrewire.RuntimeRunResponse{ConversationId: request.GetConversationId()}
 	if providerFallbackKey != "" {
 		ack.ProviderFallbackKey = providerFallbackKey
 	}
 	if result != nil {
 		ack.LaunchPermissionMode = result.LaunchPermissionMode
 		if be.IsPiAgent() {
-			ack.ProviderSessionID = result.ProviderSessionID
+			ack.ProviderSessionId = result.ProviderSessionID
 		}
 	}
 	// backendKey 是这条会话在 backend 那边的键(按对端隔离):claudecode / codex 的日志
 	// 里报的 sessionID 是它,这一行是把两边对上号的唯一地方。
-	log.Printf("runtime.run: session started sid=%d backendKey=%d backend=%s agentId=%d userTextBytes=%d",
-		p.SessionID, em.rid, be.Type, p.AgentID, len(p.UserText))
-	h.startSession(em, p, bt, providerSessionIDOf(result))
-	go h.fanout(em, owner, events, result, userMsg) //nolint:gosec // G118: turn fanout outlives the Run RPC and owns terminal cleanup.
+	logger.Ctx(ctx).Info("handlers.RuntimeHandlers.Run: session started",
+		zap.String("conversationId", request.GetConversationId()),
+		zap.Int64("runtimeSessionId", em.rid),
+		zap.String("backendType", be.Type),
+		zap.Int64("agentId", request.GetAgentId()),
+		zap.String("peerFingerprint", string(runPeer)),
+		zap.Int("userTextBytes", len(request.GetUserText())))
+	h.startSession(em, request, bt, providerSessionIDOf(result))
+	// 「这一轮开始了」照自主续轮那一路的次序发:startSession 先把会话行标成 running,
+	// 这一帧才出去 —— 收到它的一方立刻去查清单必须已经看到 running。
+	//
+	// 它补的是订阅者里**不是发起方**的那些:账号镜像、第二台桌面端、手机。发起方自己
+	// 知道这一轮开了(它就是发的那个),而其余订阅者此前只看得到轮次结束,整轮里都把
+	// 这条对话显示成闲着。
+	em.emit(wire.NotifyTurnStarted, &wire.TurnStartedFrame{ConversationID: em.conversationID})
+	// 转录起手必须在**这里**、在同步段:用户那一行的最高持久帧号要随应答交回发起方,
+	// 发起方据它把游标推进到「我已经持有的内容」(spec 2026-09-07 决策 1)。放进下面
+	// 那个协程就等于 ack 先返回、号后取,发起方永远拿不到它。
+	//
+	// 位置也不是随便挑的:startSession 之后(会话行得先在,StartTurn 才解得出本机主键),
+	// turnStarted 之后(用户那一帧要排在开轮帧后面,与本轮之前的帧序一字不差)。
+	scribe, userMessageMinSeq, userMessageSeq := h.beginTranscript(em, request.GetUserText(), userBlocks, userSourceFor(request))
+	ack.UserMessageMinSeq, ack.UserMessageSeq = userMessageMinSeq, userMessageSeq
+	go h.fanout(em, owner, events, result, scribe) //nolint:gosec // G118: turn fanout outlives the Run RPC and owns terminal cleanup.
 	// 真实 runtime 若支持自主续轮(claudecode),起每会话一个转发 goroutine 把
 	// AutonomousTurns(sid) 推到 client。session 已 spawn,此刻订阅才拿得到 channel。
 	if src, ok := rt.(agentruntime.AutonomousTurnSource); ok {
@@ -477,44 +576,50 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 func (h *RuntimeHandlers) registerPiGeneration(
 	ctx context.Context,
 	em *sessionEmitter,
-	p wire.RunParams,
+	request *agentrewire.RuntimeRunRequest,
 	be *agent_backend_entity.AgentBackend,
-) (wire.RunAck, error) {
-	generationToken := strings.TrimSpace(p.PermissionMode)
+) (*agentrewire.RuntimeRunResponse, error) {
+	generationToken := strings.TrimSpace(request.GetPermissionMode())
 	if generationToken == "" {
-		return wire.RunAck{}, errors.New("runtime.run: Pi generation owner is empty")
+		return nil, errors.New("runtime.run: Pi generation owner is empty")
 	}
-	generationCtx, cancel := context.WithCancel(ctx)
+	// The generation outlives this RPC response. Protobuf request contexts are
+	// canceled as soon as the response frame is written, so retain values while
+	// giving the generation its own lifecycle.
+	generationCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	owner := &runtimeSession{
 		backendType:     agent_backend_entity.TypePiAgent,
 		ctx:             generationCtx,
 		cancel:          cancel,
-		connection:      rpc.ConnFromContext(ctx),
+		connection:      connection.FromContext(ctx),
 		generationToken: generationToken,
 		terminalDone:    make(chan struct{}),
 	}
 	if !h.registerPiIfAbsent(em.rid, owner) {
 		cancel()
-		return wire.RunAck{}, errors.New("runtime.run: session already has an active generation")
+		return nil, errors.New("runtime.run: session already has an active generation")
 	}
-	log.Printf("runtime.run: Pi generation registered sid=%d backend=%s", p.SessionID, be.Type)
-	return wire.RunAck{SessionID: p.SessionID}, nil
+	logger.Ctx(ctx).Debug("handlers.RuntimeHandlers.Run: Pi generation registered",
+		zap.String("conversationId", request.GetConversationId()),
+		zap.String("backendType", be.Type),
+		zap.String("peerFingerprint", string(em.peer)))
+	return &agentrewire.RuntimeRunResponse{ConversationId: request.GetConversationId()}, nil
 }
 
 func (h *RuntimeHandlers) preparePi(
 	em *sessionEmitter,
-	p wire.RunParams,
+	request *agentrewire.RuntimeRunRequest,
 	be *agent_backend_entity.AgentBackend,
 	owner *runtimeSession,
 	preparer piagentrt.RunPreparer,
 	req agentruntime.RunRequest,
-) (wire.RunAck, error) {
+) (*agentrewire.RuntimeRunResponse, error) {
 	h.mu.Lock()
 	if h.sessions[em.rid] != owner || owner.backendType != agent_backend_entity.TypePiAgent ||
 		owner.cancelRequested || owner.preparing || owner.starting || owner.started ||
 		owner.prepared != nil || owner.finalizing {
 		h.mu.Unlock()
-		return wire.RunAck{}, errors.New("runtime.run: Pi preparation does not own the registered generation")
+		return nil, errors.New("runtime.run: Pi preparation does not own the registered generation")
 	}
 	owner.preparing = true
 	generationCtx := owner.ctx
@@ -526,7 +631,7 @@ func (h *RuntimeHandlers) preparePi(
 		owner.preparing = false
 		h.mu.Unlock()
 		cleanupErr := h.finalizePiGeneration(context.Background(), em.rid, owner)
-		return wire.RunAck{}, errors.Join(err, cleanupErr)
+		return nil, errors.Join(err, cleanupErr)
 	}
 	identity, hasIdentity := prepared.(piagentrt.PreparedRunIdentity)
 	providerSessionID := ""
@@ -553,29 +658,32 @@ func (h *RuntimeHandlers) preparePi(
 	}
 	if prepareErr != nil {
 		cleanupErr := h.finalizePiGeneration(context.Background(), em.rid, owner)
-		return wire.RunAck{}, errors.Join(prepareErr, cleanupErr)
+		return nil, errors.Join(prepareErr, cleanupErr)
 	}
-	log.Printf("runtime.run: Pi generation prepared sid=%d backend=%s providerSessionId=%s",
-		p.SessionID, be.Type, providerSessionID)
-	return wire.RunAck{SessionID: p.SessionID, ProviderSessionID: providerSessionID}, nil
+	logger.Ctx(em.ctx).Debug("handlers.RuntimeHandlers.Run: Pi generation prepared",
+		zap.String("conversationId", request.GetConversationId()),
+		zap.String("backendType", be.Type),
+		zap.String("providerSessionId", providerSessionID),
+		zap.String("peerFingerprint", string(em.peer)))
+	return &agentrewire.RuntimeRunResponse{ConversationId: request.GetConversationId(), ProviderSessionId: providerSessionID}, nil
 }
 
 func (h *RuntimeHandlers) startPreparedPi(
 	em *sessionEmitter,
-	p wire.RunParams,
+	request *agentrewire.RuntimeRunRequest,
 	be *agent_backend_entity.AgentBackend,
 	owner *runtimeSession,
 	bt agent_backend_entity.BackendType,
 	providerFallbackKey string,
-) (wire.RunAck, error) {
+) (*agentrewire.RuntimeRunResponse, error) {
 	h.mu.Lock()
 	providerSessionID := owner.providerSessionID
 	prepared := owner.prepared
 	if h.sessions[em.rid] != owner || owner.backendType != agent_backend_entity.TypePiAgent ||
 		owner.cancelRequested || owner.starting || owner.started || owner.finalizing || prepared == nil ||
-		strings.TrimSpace(p.ProviderSessionID) != providerSessionID {
+		strings.TrimSpace(request.GetProviderSessionId()) != providerSessionID {
 		h.mu.Unlock()
-		return wire.RunAck{}, errors.New("runtime.run: Pi start does not own the prepared generation")
+		return nil, errors.New("runtime.run: Pi start does not own the prepared generation")
 	}
 	owner.starting = true
 	h.mu.Unlock()
@@ -592,31 +700,50 @@ func (h *RuntimeHandlers) startPreparedPi(
 	if err != nil {
 		cleanupErr := h.finalizePiGeneration(context.Background(), em.rid, owner)
 		if cleanupErr != nil {
-			log.Printf("runtime.run: close failed sid=%d backend=%s errorType=%T", p.SessionID, be.Type, cleanupErr)
+			logger.Ctx(em.ctx).Warn("handlers.RuntimeHandlers.Run: generation close failed",
+				zap.String("conversationId", request.GetConversationId()),
+				zap.String("backendType", be.Type),
+				zap.String("peerFingerprint", string(em.peer)),
+				zap.String("errorType", fmt.Sprintf("%T", cleanupErr)),
+				zap.Error(cleanupErr))
 		}
-		return wire.RunAck{}, errors.Join(err, cleanupErr)
+		return nil, errors.Join(err, cleanupErr)
 	}
 	if canceled {
 		if events != nil {
 			go drainRuntimeEvents(events)
 		}
 		cleanupErr := h.finalizePiGeneration(context.Background(), em.rid, owner)
-		return wire.RunAck{}, errors.Join(context.Canceled, cleanupErr)
+		return nil, errors.Join(context.Canceled, cleanupErr)
 	}
-	ack := wire.RunAck{SessionID: p.SessionID, ProviderSessionID: providerSessionID}
+	ack := &agentrewire.RuntimeRunResponse{ConversationId: request.GetConversationId(), ProviderSessionId: providerSessionID}
 	if providerFallbackKey != "" {
 		ack.ProviderFallbackKey = providerFallbackKey
 	}
 	if result != nil {
 		ack.LaunchPermissionMode = result.LaunchPermissionMode
 		if strings.TrimSpace(result.ProviderSessionID) != "" {
-			ack.ProviderSessionID = strings.TrimSpace(result.ProviderSessionID)
+			ack.ProviderSessionId = strings.TrimSpace(result.ProviderSessionID)
 		}
 	}
-	log.Printf("runtime.run: Pi generation started sid=%d backendKey=%d backend=%s",
-		p.SessionID, em.rid, be.Type)
-	h.startSession(em, p, bt, providerSessionID)
-	go h.fanout(em, owner, events, result, userMessageFor(p))
+	logger.Ctx(em.ctx).Info("handlers.RuntimeHandlers.Run: Pi generation started",
+		zap.String("conversationId", request.GetConversationId()),
+		zap.Int64("runtimeSessionId", em.rid),
+		zap.String("backendType", be.Type),
+		zap.String("peerFingerprint", string(em.peer)))
+	h.startSession(em, request, bt, providerSessionID)
+	h.markStreaming(owner)
+	// 与非 Pi 那一路同一条纪律:转录起手留在同步段,用户那一行的最高持久帧号随应答
+	// 交回发起方(spec 2026-09-07 决策 1)。
+	// 附件与非 Pi 那一路同一条:解不开就拒绝整轮,而不是丢掉附件照跑 —— 静默跑一轮
+	// 「用户以为发了图、模型没看见」的对话,比一个明确的错误更糟(决策 3)。
+	piUserBlocks, err := decodeUserBlocks(protowire.StoredBlocksFromProto(request.GetUserBlocks()))
+	if err != nil {
+		return nil, fmt.Errorf("decode user blocks: %w", err)
+	}
+	scribe, userMessageMinSeq, userMessageSeq := h.beginTranscript(em, request.GetUserText(), piUserBlocks, userSourceFor(request))
+	ack.UserMessageMinSeq, ack.UserMessageSeq = userMessageMinSeq, userMessageSeq
+	go h.fanout(em, owner, events, result, scribe)
 	return ack, nil
 }
 
@@ -634,20 +761,26 @@ func drainRuntimeEvents(events <-chan agentruntime.Event) {
 // startSession 在一轮起手时建行并置 running。providerSessionID 是 daemon 这一轮从
 // result 收回的 provider 原生会话身份(决策 8):首轮新建后落库,后续轮续用;空串 =
 // runtime 还没给出身份(这一轮就是新建)。标题与 Agent 同步标识(R7)随 p 携带、幂等覆盖。
-func (h *RuntimeHandlers) startSession(em *sessionEmitter, p wire.RunParams, bt agent_backend_entity.BackendType, providerSessionID string) {
+func (h *RuntimeHandlers) startSession(em *sessionEmitter, request *agentrewire.RuntimeRunRequest, bt agent_backend_entity.BackendType, providerSessionID string) {
 	err := h.deps.Sessions.Start(em.ctx, SessionRecord{
 		PeerFingerprint:   em.peer,
 		PeerSessionID:     em.peerSessionID,
-		AgentID:           p.AgentID,
-		Cwd:               p.Cwd,
+		AgentID:           request.GetAgentId(),
+		Cwd:               request.GetCwd(),
 		BackendType:       string(bt),
 		LifecycleState:    wire.SessionLifecycleRunning,
-		Title:             p.Title,
-		AgentSyncID:       p.AgentSyncID,
+		Title:             request.GetTitle(),
+		AgentSyncID:       request.GetAgentSyncId(),
+		ProjectSyncID:     request.GetProjectSyncId(),
 		ProviderSessionID: providerSessionID,
 	})
 	if err != nil {
-		log.Printf("runtime.run: record session failed sid=%d peer=%q err=%v", em.sid, em.peer, err)
+		logger.Ctx(em.ctx).Error("handlers.RuntimeHandlers.startSession: record session failed",
+			zap.String("conversationId", em.conversationID),
+			zap.String("peerFingerprint", string(em.peer)),
+			zap.String("backendType", string(bt)),
+			zap.Int64("agentId", request.GetAgentId()),
+			zap.Error(err))
 	}
 }
 
@@ -663,81 +796,82 @@ func providerSessionIDOf(result *agentruntime.RunResult) string {
 // runningSession 把会话推回 running(自主续轮开始)。
 func (h *RuntimeHandlers) runningSession(em *sessionEmitter) {
 	if err := h.deps.Sessions.Running(em.ctx, em.peer, em.peerSessionID); err != nil {
-		log.Printf("runtime.autonomousTurn: mark session running failed sid=%d err=%v", em.sid, err)
+		logger.Ctx(em.ctx).Error("handlers.RuntimeHandlers.runningSession: mark session running failed",
+			zap.String("conversationId", em.conversationID),
+			zap.String("peerFingerprint", string(em.peer)),
+			zap.Error(err))
+	}
+}
+
+// settleSession 按这一轮**怎么收的场**落会话行:正常收场落 idle,故障收场落 failed。
+//
+// 判据走 wire.IsTurnFailure 那一处 —— 重建转录的一侧据同一句话决定画不画错误卡,
+// 两处分头写的话,同一轮在列表里和在转录里会给出两种说法(而用户自己按的停止是
+// 两边都最容易误伤的那一档)。
+func (h *RuntimeHandlers) settleSession(em *sessionEmitter, frame wire.RunResultDoneFrame) {
+	if wire.IsTurnFailure(frame) {
+		h.failSession(em)
+		return
+	}
+	h.finishSession(em)
+}
+
+// failSession 把会话落成 failed(这一轮以故障收场)。
+func (h *RuntimeHandlers) failSession(em *sessionEmitter) {
+	if err := h.deps.Sessions.Fail(em.ctx, em.peer, em.peerSessionID); err != nil {
+		logger.Ctx(em.ctx).Error("handlers.RuntimeHandlers.failSession: mark session failed failed",
+			zap.String("conversationId", em.conversationID),
+			zap.String("peerFingerprint", string(em.peer)),
+			zap.Error(err))
 	}
 }
 
 // finishSession 把会话落回 idle(一轮结束,等下一轮)。
 func (h *RuntimeHandlers) finishSession(em *sessionEmitter) {
 	if err := h.deps.Sessions.Finish(em.ctx, em.peer, em.peerSessionID); err != nil {
-		log.Printf("runtime.run: mark session idle failed sid=%d err=%v", em.sid, err)
+		logger.Ctx(em.ctx).Error("handlers.RuntimeHandlers.finishSession: mark session idle failed",
+			zap.String("conversationId", em.conversationID),
+			zap.String("peerFingerprint", string(em.peer)),
+			zap.Error(err))
 	}
 }
 
-// userMessageFor 从 RunParams 推出「开新一轮」的发起方标记(R18):发起方声明了设备身份
-// (SourceDevice 非空)且有用户文本时返回标记,否则 nil。桌面端自己发消息不传 SourceDevice,
-// 返回 nil 即事件流与今天逐帧一致。
-func userMessageFor(p wire.RunParams) *agentruntime.UserMessageEvent {
-	if text := strings.TrimSpace(p.UserText); text != "" && p.SourceDevice != "" {
-		return &agentruntime.UserMessageEvent{
-			Text:             text,
-			SourceDevice:     p.SourceDevice,
-			SourceDeviceName: p.SourceDeviceName,
-		}
-	}
-	return nil
-}
-
-// emitPrelude 把发起方标记(UserMessageEvent)按与事件流同一条纪律发出:marshal →
-// 判 generation 是否仍归本属主(stale 丢弃,与循环里一致)→ em.emit 落库 + 推送。
-// 返回是否真的作为一条事件发出。
-func (h *RuntimeHandlers) emitPrelude(em *sessionEmitter, owner *runtimeSession, rid int64, prelude *agentruntime.UserMessageEvent) bool {
-	raw, err := json.Marshal(prelude)
-	if err != nil {
-		log.Printf("runtime.event: prelude marshal failed sid=%d err=%v", em.sid, err)
-		return false
-	}
-	current := h.isCurrent(rid, owner)
-	if owner.backendType == agent_backend_entity.TypePiAgent && owner.ctx != nil {
-		current = h.canDeliverPiEvent(rid, owner)
-	}
-	if !current {
-		log.Printf("runtime.event: stale prelude dropped sid=%d", em.sid)
-		return false
-	}
-	return em.emit(wire.NotifyEvent, &wire.EventFrame{
-		SessionID: em.sid,
-		Event:     json.RawMessage(raw),
-	})
+// userSourceFor 从 RunParams 取出提交这一轮的对端身份(R18/R19)。桌面端自己发消息不传
+// SourceDevice,交回空值 —— 用户那一行因此不盖任何来源,与本机发送逐字节一致。
+//
+// 它从前的形状是「在事件流开头注入一条 user_message 标记事件」。那条标记现在是多余的:
+// 用户那一行起手就落库并作为**持久帧**发布(beginTranscript),而拿帧重建转录的消费方
+// 对每一条 user_message 都新建一条用户消息、不去重 —— 一句话于是画出两条(持久那条
+// 进转录,预览那条挂在预览尾巴上,要等下一个持久帧才消失)。留下的是持久帧那一条:
+// 它带号、进转录、参与补齐,标记这三样一样都没有。
+func userSourceFor(request *agentrewire.RuntimeRunRequest) transcript.UserSource {
+	return transcript.UserSource{Device: devicefp.Initiator(request.GetSourceDevice()), Name: request.GetSourceDeviceName()}
 }
 
 // fanout 把 backend events channel 抽干推到 runtime.event,channel close 后再发
 // runtime.runResultDone 终态帧。日志按事件 kind 计数,turn 结束时打一条汇总,
 // 排查 stuck-turn / 漏事件时方便对账 client 端实际收到几条。
-func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <-chan agentruntime.Event, result *agentruntime.RunResult, prelude *agentruntime.UserMessageEvent) {
-	sid, rid := em.sid, em.rid
+func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <-chan agentruntime.Event, result *agentruntime.RunResult, scribe *turnTranscript) {
+	startedAt := time.Now()
+	cid, rid := em.conversationID, em.rid
 	count := 0
 	kindHist := map[string]int{}
-	// R18:把发起方标记作为**第一条**事件注入,保证订阅者先把这一轮的用户消息落成转录行,
-	// 再接收后端真正的事件。
-	if prelude != nil {
-		if h.emitPrelude(em, owner, rid, prelude) {
-			count++
-			kindHist["UserMessage"]++
-		}
-	}
+	// 本轮的表。按帧重建转录的消费方(浏览器控制台 / peer 视图)拿不到 chat_svc
+	// 落库的那三个数,只能由这里就着同一条事件流量出来盖在终态帧上。口径与
+	// 「哪条事件动哪一下表」归 internal/pkg/turnstats,与 chat_svc 共用一份。
+	meter := turnMeter{}
+	meter.clock.StartGenerationAt(startedAt)
+	// 本轮的转录由调用方起手(beginTranscript)并传进来:用户那一行的取号要随应答
+	// 交给发起方,所以它必须发生在 Run 的同步段,而这里是协程(spec 2026-09-07 决策 1)。
+	// 它与推送是两件事:推出去的是即时呈现用的预览帧,落进库的是块(2026-09-05 决策 1/4);
+	// 轮内每个定稿时刻 checkpoint 一次。
 	for ev := range ch {
+		meter.observe(ev)
 		// R17:SteerConsumed 里的每条 steer 都带着它的提交方来源 —— 实时消费路径
 		// 在这里把 Steer RPC 时记下的对端盖回去(轮末残留的走 DrainPending 同表消费)。
 		// 盖在**密封事件内部**:远端 runtime 把 EventFrame 原样传递、会丢外层字段。
 		if sc, ok := ev.(agentruntime.SteerConsumed); ok {
 			ev = stampSteerSources(h.deps.SteerSource, sc)
-		}
-		raw, err := json.Marshal(ev)
-		if err != nil {
-			log.Printf("runtime.event: marshal failed sid=%d kind=%T errClass=%T errBytes=%d",
-				sid, ev, err, len(err.Error()))
-			continue
 		}
 		count++
 		kind := reflect.TypeOf(ev).Name()
@@ -747,18 +881,29 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 			current = h.canDeliverPiEvent(rid, owner)
 		}
 		if !current {
-			log.Printf("runtime.event: stale generation dropped sid=%d n=%d kind=%s", sid, count, kind)
+			logger.Ctx(em.ctx).Debug("handlers.RuntimeHandlers.fanout: stale generation dropped",
+				zap.String("conversationId", cid),
+				zap.String("peerFingerprint", string(em.peer)),
+				zap.Int("eventNumber", count),
+				zap.String("eventKind", kind))
 			continue
 		}
+		scribe.observe(em.ctx, ev)
 		if em.emit(wire.NotifyEvent, &wire.EventFrame{
-			SessionID: sid,
-			Event:     json.RawMessage(raw),
+			ConversationID: cid,
+			Event:          ev,
+			Preview:        true,
 		}) && !isNoisyEventKind(kind) {
 			// text/thinking/usage 频率极高,kindHist 汇总即可,不逐条 log。
-			log.Printf("runtime.event: sid=%d n=%d kind=%s eventBytes=%d", sid, count, kind, len(raw))
+			logger.Ctx(em.ctx).Debug("handlers.RuntimeHandlers.fanout: event delivered",
+				zap.String("conversationId", cid),
+				zap.String("peerFingerprint", string(em.peer)),
+				zap.Int("eventNumber", count),
+				zap.String("eventKind", kind))
 		}
 	}
-	frame := runResultToFrame(sid, result)
+	frame := runResultToFrame(cid, result)
+	meter.stamp(&frame)
 	if owner.backendType != agent_backend_entity.TypePiAgent || owner.ctx == nil {
 		// 生命周期落回 idle 必须在终态帧**之前**:终态帧是客户端得知这一轮结束的那一刻,
 		// 它随后立刻查清单时必须已经看到 idle,而不是一个正在收尾的 running。
@@ -767,14 +912,14 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 		// 落库抢锁时能拖到几十毫秒以上)落进来的决策提交会看到「内存表里没有 + 行还在跑」,
 		// 被 idempotentSubmitResult 判成真错误,给用户一个假失败。这个顺序下它解得出会话、
 		// 照旧走到 backend,由「waiter 已经不在了」按 R8 折成成功。
-		h.finishSession(em)
+		h.settleSession(em, frame)
+		scribe.finish(em.ctx, frame)
 		// 只清 active-turn 记录;**不撤销 gateway token** —— token 是会话级常驻,
 		// 跨轮复用,寿命跟随子进程(见 sessionTokens 注释),轮末撤销会让下一轮复用
 		// 的子进程手里 token 失效。
 		removed := h.unregister(rid, owner)
 		em.emit(wire.NotifyRunResultDone, &frame)
-		log.Printf("runtime.run: session ended sid=%d currentGeneration=%t totalEvents=%d kinds=%v hasStopErr=%t stopErrBytes=%d stopErrCode=%d",
-			sid, removed, count, kindHist, frame.StopErrMsg != "", len(frame.StopErrMsg), frame.StopErrCode)
+		h.logFanoutSummary(em, owner, startedAt, removed, count, kindHist, frame)
 		return
 	}
 
@@ -785,14 +930,33 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 	// frame is emitted, so Abort cannot permit a retry before it is settled.
 	current := h.claimPiTerminal(rid, owner)
 	if current {
-		h.finishSession(em)
+		h.settleSession(em, frame)
+		scribe.finish(em.ctx, frame)
 		em.emit(wire.NotifyRunResultDone, &frame)
 		if cleanupErr := h.finalizePiGeneration(context.Background(), rid, owner); cleanupErr != nil {
-			log.Printf("runtime.run: finalization failed sid=%d currentGeneration=true errorType=%T", sid, cleanupErr)
+			logger.Ctx(em.ctx).Error("handlers.RuntimeHandlers.fanout: generation finalization failed",
+				zap.String("conversationId", cid),
+				zap.String("peerFingerprint", string(em.peer)),
+				zap.String("errorType", fmt.Sprintf("%T", cleanupErr)),
+				zap.Error(cleanupErr))
 		}
 	}
-	log.Printf("runtime.run: session ended sid=%d currentGeneration=%t totalEvents=%d kinds=%v hasStopErr=%t stopErrBytes=%d stopErrCode=%d",
-		sid, current, count, kindHist, frame.StopErrMsg != "", len(frame.StopErrMsg), frame.StopErrCode)
+	h.logFanoutSummary(em, owner, startedAt, current, count, kindHist, frame)
+}
+
+func (h *RuntimeHandlers) logFanoutSummary(em *sessionEmitter, owner *runtimeSession, startedAt time.Time, current bool, count int, kindHist map[string]int, frame wire.RunResultDoneFrame) {
+	logger.Ctx(em.ctx).Info("handlers.RuntimeHandlers.fanout: session ended",
+		zap.String("conversationId", em.conversationID),
+		zap.Int64("runtimeSessionId", em.rid),
+		zap.String("peerFingerprint", string(em.peer)),
+		zap.String("backendType", string(owner.backendType)),
+		zap.Bool("currentGeneration", current),
+		zap.Int("totalEvents", count),
+		zap.Any("eventKinds", kindHist),
+		zap.Bool("hasStopError", frame.StopErrMsg != ""),
+		zap.Int("stopErrorBytes", len(frame.StopErrMsg)),
+		zap.Int("stopErrorCode", frame.StopErrCode),
+		zap.Duration("duration", time.Since(startedAt)))
 }
 
 // stampSteerSources 把 Steer RPC 时记下的提交方来源盖回被消费的 steer 上(R17)。
@@ -835,7 +999,7 @@ func (h *RuntimeHandlers) startAutonomousFanout(em *sessionEmitter, src agentrun
 		for at := range src.AutonomousTurns(rid) {
 			h.forwardAutonomousTurn(em, at)
 		}
-		log.Printf("runtime.autonomousTurn: source closed sid=%d", em.sid)
+		log.Printf("runtime.autonomousTurn: source closed conversation=%s", em.conversationID)
 	}()
 }
 
@@ -845,45 +1009,50 @@ func (h *RuntimeHandlers) startAutonomousFanout(em *sessionEmitter, src agentrun
 // 生命周期同 fanout 一样两端推进:自主续轮同样是「一轮执行中」,不这么做的话一条正在
 // 产出事件的会话会在清单里显示成闲置。
 func (h *RuntimeHandlers) forwardAutonomousTurn(em *sessionEmitter, at agentruntime.AutonomousTurn) {
-	sid := em.sid
+	cid := em.conversationID
 	h.runningSession(em)
 	em.emit(wire.NotifyAutonomousTurnStarted, &wire.AutonomousTurnStartedFrame{
-		SessionID: sid,
-		Trigger:   at.Trigger,
-		TurnToken: at.TurnToken,
+		ConversationID: cid,
+		Trigger:        at.Trigger,
+		TurnToken:      at.TurnToken,
 	})
 	count := 0
+	// 自主续轮同样是一轮转录,只是没有用户那一行 —— 它不是任何人发起的。
+	scribe, _, _ := h.beginTranscript(em, "", nil, transcript.UserSource{})
 	for ev := range at.Events {
-		raw, err := json.Marshal(ev)
-		if err != nil {
-			log.Printf("runtime.autonomousTurn.event: marshal failed sid=%d kind=%T errClass=%T errBytes=%d",
-				sid, ev, err, len(err.Error()))
-			continue
-		}
 		count++
+		scribe.observe(em.ctx, ev)
 		em.emit(wire.NotifyAutonomousTurnEvent, &wire.EventFrame{
-			SessionID: sid,
-			Event:     json.RawMessage(raw),
+			ConversationID: cid,
+			Event:          ev,
+			Preview:        true,
 		})
 	}
-	frame := runResultToFrame(sid, at.Result)
-	h.finishSession(em) // 同 fanout:先落回 idle,再发终态帧
+	frame := runResultToFrame(cid, at.Result)
+	h.settleSession(em, frame) // 同 fanout:先落行,再发终态帧
+	scribe.finish(em.ctx, frame)
 	em.emit(wire.NotifyAutonomousTurnDone, &frame)
-	log.Printf("runtime.autonomousTurn: forwarded sid=%d trigger=%s events=%d hasStopErr=%t stopErrBytes=%d stopErrCode=%d",
-		sid, at.Trigger, count, frame.StopErrMsg != "", len(frame.StopErrMsg), frame.StopErrCode)
+	log.Printf("runtime.autonomousTurn: forwarded conversation=%s trigger=%s events=%d hasStopErr=%t stopErrBytes=%d stopErrCode=%d",
+		cid, at.Trigger, count, frame.StopErrMsg != "", len(frame.StopErrMsg), frame.StopErrCode)
 }
 
-// ── 会话通知出口(先落库,后推送)────────────────────────────────────────────
+// ── 会话通知出口(实时推送)──────────────────────────────────────────────────
 
-// seqFrame 是能被盖上 seq 的通知帧。wire 的三个通知帧(EventFrame /
-// RunResultDoneFrame / AutonomousTurnStartedFrame)的指针都满足它。
-// 按 ISP 在消费方声明,wire 那边只留三个 SetSeq 方法。
-type seqFrame interface {
-	SetSeq(seq int64)
-}
-
-// sessionEmitter 是某个 (对端, 会话) 的通知出口:一条通知先落进 daemon 的通知日志拿到
-// seq,落库成功后才盖上 seq 推给此刻活着的那条连接。
+// sessionEmitter 是某个 (对端, 会话) 的通知出口:把一帧推给此刻活着的那条连接。
+//
+// 它**不再落库**。从前每一帧都先写进通知日志拿一个 seq 再推出去,于是同一段内容在
+// 这台机器上存了两份(块 + 事件级日志)、编号也有两套。现在落库的是块(见
+// runtime_transcript.go),这个出口只负责推。
+//
+// 两级帧都从这里出去(规格 2026-09-05「两级帧与补齐」):
+//   - **预览帧**(fanout / forwardAutonomousTurn 逐条推的那些):即时呈现用,不带
+//     编号、不参与游标推进与去重,丢失即丢失。逐 token 的生成过程靠它实时可见;
+//   - **持久帧**(turnTranscript.publishDurable 在块落库之后推的那些):带着台账里
+//     取到的 seq,是对端转录与游标的唯一来源。宿主必须**实时**发它,不得只在补齐时
+//     才交出 —— 否则一条持续在线的对端游标永不前进,重连补齐会从头重放它已经看过的
+//     内容。
+//
+// 编号一律不在这里现编:号由 transcript_repo.FrameSeq 的台账发,出口只是把它带出去。
 //
 // 它按**会话**构造(而不是按连接)有两个原因:
 //   - 对端指纹只在 runtime.run 的请求 ctx 上拿得到,而 fanout / forwardAutonomousTurn
@@ -892,17 +1061,17 @@ type seqFrame interface {
 //     重连之后的通知一直发往那条死连接(见 daemon.bindConn 注释),所以推送目标每次
 //     发送时才解析。
 type sessionEmitter struct {
-	// ctx 派生自 runtime.run 的请求 ctx 但去掉了取消:落库要活过发起它的那次请求
+	// ctx 派生自 runtime.run 的请求 ctx 但去掉了取消:转录落库要活过发起它的那次请求
 	// (fanout 的寿命是整轮执行),但 ctx 上的值(daemon 自己的 db 句柄)必须留着。
 	ctx           context.Context
-	journal       JournalPort
-	notifyFor     func(peerFingerprint string) NotifierPort
-	peer          string
+	notifyFor     func(peerFingerprint devicefp.Initiator) NotifierPort
+	peer          devicefp.Initiator
 	peerSessionID string
-	// sid 是客户端自己那个会话 id:落库的会话身份、以及推给客户端的每一帧带的都是它。
-	sid int64
-	// rid 是同一条会话在 backend runtime 那边的会话键(按对端隔离,见
-	// runtimeSessionID)。fanout / 自主续轮订阅一律用它,它永远不过线。
+	// conversationID 是这条对话的全局身份:落库的会话身份、以及推给客户端的每一帧
+	// 带的都是它。
+	conversationID string
+	// rid 是同一条对话在 backend runtime 那边的进程内会话键(见 runtimeSessionID)。
+	// fanout / 自主续轮订阅一律用它,它永远不过线。
 	rid int64
 }
 
@@ -910,51 +1079,55 @@ type sessionEmitter struct {
 // backend 会话键。归属由调用方给定 —— runtime.run 用它把一轮落在**点名的 origin**
 // 名下(R9),而不是调用方自己名下那条同号会话;省略 origin 时调用方传
 // peerFingerprint(ctx),即「调用方自己的对端」。
-func (h *RuntimeHandlers) newEmitterFor(ctx context.Context, sid int64, peer string) *sessionEmitter {
+func (h *RuntimeHandlers) newEmitterFor(ctx context.Context, conversationID string, peer devicefp.Initiator) *sessionEmitter {
 	return &sessionEmitter{
-		ctx:           context.WithoutCancel(ctx),
-		journal:       h.deps.Journal,
-		notifyFor:     h.deps.NotifyFor,
-		peer:          peer,
-		peerSessionID: strconv.FormatInt(sid, 10),
-		sid:           sid,
-		rid:           runtimeSessionID(peer, sid),
+		ctx:       context.WithoutCancel(ctx),
+		notifyFor: h.deps.NotifyFor,
+		peer:      peer,
+		// daemon_sessions.peer_session_id 本来就是 TEXT:对话身份原样落进去,
+		// 从前那一圈 int64↔string 往返随之消失。
+		peerSessionID:  conversationID,
+		conversationID: conversationID,
+		rid:            runtimeSessionID(conversationID),
 	}
 }
 
-// emit 先落库、后推送一条会话通知,返回是否真的推出去了(只给调用方决定要不要打
-// 成功日志)。三条硬规则:
-//   - 落库成功之后才推,推出去的帧带着库分配的 seq(R1 / R6);
-//   - 落库失败:不推、seq 不推进,记 error 日志 —— 日志里因此不会出现空洞,客户端拉到
-//     的连续 seq 就是完整序列(R3);
-//   - 推送失败:通知已经落库、seq 已经推进,记一条日志就继续下一条,不回滚不重试(R2)。
-func (e *sessionEmitter) emit(method string, frame seqFrame) bool {
-	payload, err := json.Marshal(frame)
+// emit 推送一条会话通知,返回是否真的推出去了(只给调用方决定要不要打成功日志)。
+//
+// 推送失败只记一条日志就继续下一条,不重试:内容的事实在块表里 —— 预览帧按定义丢失
+// 即丢失,持久帧的号已经落了台账,对端重连后按 seq 从补齐读回同一份。
+func (e *sessionEmitter) emit(method string, frame any) bool {
+	notification, err := protowire.WireNotificationToProto(method, frame)
 	if err != nil {
-		log.Printf("%s: marshal failed sid=%d err=%v", method, e.sid, err)
+		logger.Ctx(e.ctx).Error("handlers.sessionEmitter.emit: protobuf conversion failed",
+			zap.String("conversationId", e.conversationID),
+			zap.String("peerFingerprint", string(e.peer)),
+			zap.String("notificationMethod", method),
+			zap.Error(err))
 		return false
 	}
-	if e.journal == nil {
-		// 没接日志就没有「事实」可言,只能连推送一起停:宁可整条出口静默失败被一眼看见,
-		// 也不能一边推一边丢事实(那样断连补齐会缺条,而没人会发现)。
-		log.Printf("%s: journal not wired sid=%d; notification dropped", method, e.sid)
-		return false
-	}
-	seq, err := e.journal.Append(e.ctx, e.peer, e.peerSessionID, method, payload)
-	if err != nil {
-		log.Printf("%s: journal append failed sid=%d peer=%q err=%v", method, e.sid, e.peer, err)
-		return false
-	}
-	frame.SetSeq(seq)
 	n := e.pushTarget()
 	if n == nil {
-		// 对端不在线:通知已经落库,等它重连后按游标补齐。
-		log.Printf("%s: no live peer sid=%d seq=%d; journaled only", method, e.sid, seq)
+		// 对端不在线:这一帧就此丢失,内容由块表保住,等它重连后补齐。
+		logger.Ctx(e.ctx).Debug("handlers.sessionEmitter.emit: no live peer to push to",
+			zap.String("conversationId", e.conversationID),
+			zap.String("peerFingerprint", string(e.peer)),
+			zap.String("notificationMethod", method))
 		return false
 	}
-	if err := n.Notify(method, frame); err != nil {
-		log.Printf("%s: notify failed sid=%d seq=%d err=%v", method, e.sid, seq, err)
+	if err := n.Notify(notification); err != nil {
+		logger.Ctx(e.ctx).Warn("handlers.sessionEmitter.emit: notification push failed",
+			zap.String("conversationId", e.conversationID),
+			zap.String("peerFingerprint", string(e.peer)),
+			zap.String("notificationMethod", method),
+			zap.Error(err))
 		return false
+	}
+	if method != wire.NotifyEvent && method != wire.NotifyAutonomousTurnEvent {
+		logger.Ctx(e.ctx).Debug("handlers.sessionEmitter.emit: notification pushed",
+			zap.String("conversationId", e.conversationID),
+			zap.String("peerFingerprint", string(e.peer)),
+			zap.String("notificationMethod", method))
 	}
 	return true
 }
@@ -968,11 +1141,14 @@ func (e *sessionEmitter) pushTarget() NotifierPort {
 }
 
 // peerFingerprint 取发起这轮的对端设备指纹 —— 会话身份的前半段(R16)。它只在请求
-// ctx 上有(auth.pair / auth.connect 成功后写进 rpc.AuthState),所以必须在 runtime.run
+// ctx 上有(auth.pair / auth.connect 成功后写进 rpcerror.AuthState),所以必须在 runtime.run
 // 处理期间取,fanout 的 goroutine 里已经拿不到连接了。
-func peerFingerprint(ctx context.Context) string {
-	if c := rpc.ConnFromContext(ctx); c != nil {
-		return c.Auth().DeviceFingerprint
+// 交出的是**发起方**:这条 RPC 是哪一端把活交过来的。连接上那一格在 auth 里叫
+// DeviceFingerprint(握手时它回答的是「谁在请求被授权」),到了派发这一侧它回答的
+// 已经是另一个问题 —— 所以这里显式换一次角色,而不是让它顺着流下去。
+func peerFingerprint(ctx context.Context) devicefp.Initiator {
+	if c := connection.FromContext(ctx); c != nil {
+		return devicefp.Initiator(c.Auth().DeviceFingerprint)
 	}
 	return ""
 }
@@ -980,7 +1156,7 @@ func peerFingerprint(ctx context.Context) string {
 // peerName 取发起这条 RPC 的对端设备名(auth.pair 时上报;auth.account 路径为空)。
 // 与 peerFingerprint 一样只在请求 ctx 上有,必须在 RPC 处理期间取。
 func peerName(ctx context.Context) string {
-	if c := rpc.ConnFromContext(ctx); c != nil {
+	if c := connection.FromContext(ctx); c != nil {
 		return c.Auth().DeviceName
 	}
 	return ""
@@ -988,30 +1164,25 @@ func peerName(ctx context.Context) string {
 
 // ── backend 会话键(按对端隔离)──────────────────────────────────────────────
 
-// runtimeSessionID 把「客户端报的会话 id」翻成本 daemon 进程内唯一的 backend 会话键。
+// runtimeSessionID 把线上的 conversation_id 翻成本 daemon 进程内唯一的 backend 会话键。
 //
-// 会话 id 是各客户端本地自增的主键:两台设备各自的 42 号会话是两条毫不相干的会话。而
-// backend runtime 的会话表是**进程内一份、只按这个数字索引**的(claudecode 的
-// sessionKey(id)、codex 的 r.active[sessionID]),把裸 id 交给它,两个对端的同号会话就
-// 并成了一条 —— 待决策是同一批,子进程也是同一个。表现出来就是一条跨对端的信息泄漏:
-// 一台设备读得到另一台的 requestID / 工具名 / 完整工具入参,还能照着那个 requestID 替
-// 对方提交审批。
+// backend runtime 的会话表是**进程内一份、只按 int64 索引**的(claudecode 的
+// sessionKey(id)、codex 的 r.active[sessionID]),而对话身份是一个 uuid 字符串,
+// 所以调用 backend 之前必须折一次。翻译只发生在这一处:落库的会话身份、推给客户端的
+// 每一帧带的都是 conversation_id —— 客户端不知道、也不需要知道这层翻译。
 //
-// 所以 daemon 在**调用 backend 的那一刻**把对端指纹揉进会话键。翻译只发生在这一处:
-// 落库的会话身份仍是 (对端指纹, 客户端会话 id),推给客户端的每一帧带的也仍是客户端
-// 自己那个 id —— 客户端不知道、也不需要知道这层翻译,协议一字未改。桌面端进程内不做这层
-// 翻译:那里只有一个「对端」(本机用户),会话 id 本来就唯一。
+// 从前这里还要把对端指纹揉进去:会话 id 曾经是各客户端本地自增的主键,两个对端的
+// 42 号会话会在 backend 那边并成一条(跨对端读到别人的 requestID / 工具入参、还能替
+// 对方提交审批)。对话身份全局唯一之后,那条泄漏路径**由构造消失** —— 不是被更好地
+// 防住了,是没有了,所以这个函数不再接受 peer。
 //
-// 两种情况原样返回:没有对端(未鉴权的直连单测)时没有可隔离的第二方;非正数会话 id
-// 要留给 backend 自己那条 "invalid sessionID" 校验去拒。
-func runtimeSessionID(peer string, sessionID int64) int64 {
-	if peer == "" || sessionID <= 0 {
-		return sessionID
+// 空 id 返回 0:调用方据此让 backend 自己那条 "invalid sessionID" 校验去拒。
+func runtimeSessionID(conversationID string) int64 {
+	if conversationID == "" {
+		return 0
 	}
 	sum := fnv.New64a()
-	_, _ = sum.Write([]byte(peer))
-	_, _ = sum.Write([]byte{0})
-	_, _ = sum.Write([]byte(strconv.FormatInt(sessionID, 10)))
+	_, _ = sum.Write([]byte(conversationID))
 	// 右移一位清掉符号位:backend 一律拒绝非正数会话 id。0 让位给 1 —— 会话键只要求
 	// 唯一,不要求可逆。
 	if v := int64(sum.Sum64() >> 1); v > 0 {
@@ -1024,18 +1195,44 @@ func runtimeSessionID(peer string, sessionID int64) int64 {
 // 它们仍计入 fanout 汇总(kindHist),只是不展开。
 func isNoisyEventKind(kind string) bool {
 	switch kind {
-	case "TextDelta", "ThinkingDelta", "UsageUpdate", "ContextWindowUpdated":
+	case "TextDelta", "ThinkingDelta", "OutputActivity", "UsageUpdate", "ContextWindowUpdated":
 		return true
 	}
 	return false
 }
 
-func runResultToFrame(sid int64, r *agentruntime.RunResult) wire.RunResultDoneFrame {
+// turnMeter 量这一轮:计时交给共用的 turnstats.Clock,分子(completion token)按
+// usage 帧逐跳累加 —— 与 chat_svc 的 usageWriterAdapter 同语义,Done 那一跳的 usage
+// 是最后一跳的值,不是合计,拿它当分子会把 tok/s 压成十几分之一。
+type turnMeter struct {
+	clock      turnstats.Clock
+	completion int
+}
+
+func (m *turnMeter) observe(ev agentruntime.Event) {
+	now := time.Now()
+	m.clock.ObserveAt(ev, now)
+	if u, ok := ev.(agentruntime.UsageUpdate); ok && u.Usage != nil {
+		m.completion += u.Usage.CompletionTokens
+	}
+}
+
+// stamp 收口并把三个数盖在终态帧上。一个 usage 帧都没来过时分子为 0,tok/s 随之
+// 为 0 —— 前端把 0 读作「没这个数」,不显示,而不是显示成 0 tok/s。
+func (m *turnMeter) stamp(frame *wire.RunResultDoneFrame) {
+	now := time.Now()
+	m.clock.PauseGenerationAt(now)
+	frame.DurationMs = m.clock.DurationMs(now)
+	frame.FirstTokenMs = m.clock.FirstTokenMs()
+	frame.TokensPerSec = m.clock.TokensPerSec(m.completion)
+}
+
+func runResultToFrame(conversationID string, r *agentruntime.RunResult) wire.RunResultDoneFrame {
 	if r == nil {
-		return wire.RunResultDoneFrame{SessionID: sid}
+		return wire.RunResultDoneFrame{ConversationID: conversationID}
 	}
 	f := wire.RunResultDoneFrame{
-		SessionID:         sid,
+		ConversationID:    conversationID,
 		ProviderSessionID: r.ProviderSessionID,
 		UserAnchor:        r.UserAnchor,
 		Model:             r.Model,
@@ -1054,23 +1251,30 @@ func runResultToFrame(sid int64, r *agentruntime.RunResult) wire.RunResultDoneFr
 	}
 	if r.StopErr != nil {
 		f.StopErrMsg = r.StopErr.Error()
-		if rpcErr := wire.ToJSONRPCError(r.StopErr); rpcErr != nil {
-			f.StopErrCode = rpcErr.Code
+		if rpcErr := wire.ToRPCError(r.StopErr); rpcErr != nil {
+			f.StopErrCode = int(rpcErr.Code)
 		}
 	}
 	return f
 }
 
 // resolveSessionCapability 解出该会话的 backend 能力,并**一并交回要用来调用它的那个
-// 会话键**(按对端隔离,见 runtimeSessionID)。两样东西一起返回是有意的:控制 RPC 全都
-// 「先解会话,再调 backend」,分两次各取一次就有机会解的是隔离键、调的却是客户端裸 id。
-func resolveSessionCapability[T any](ctx context.Context, h *RuntimeHandlers, sessionID int64, originPeer string) (T, int64, error) {
+// 会话键**(runtimeSessionID)。两样东西一起返回是有意的:控制 RPC 全都「先解会话,再调
+// backend」,分两次各取一次就有机会解的是折算键、调的却是客户端裸 id。
+//
+// 会话键**不再含对端**:身份收缩到 conversation_id 之后它只由那个 uuid 折出来。因此
+// 对端隔离不在这一层,而在 h.sessions 只认本连接接管过的会话 —— 而接管的唯一入口
+// session.attach 走的是按对端收窄的 catchup.findSession(Sessions.Find(peer, cid))。
+// 一个对端摸不到别人那一轮,靠的是那道闸;删掉或放宽它,这里就没有第二道了。
+func resolveSessionCapability[T any](ctx context.Context, h *RuntimeHandlers, conversationID string, originPeer devicefp.Initiator) (T, int64, error) {
 	var zero T
-	peer, err := ResolveSessionPeer(ctx, originPeer, h.deps.ClaimedAccountID)
-	if err != nil {
+	if err := ErrInvalidConversationID(conversationID); err != nil {
 		return zero, 0, err
 	}
-	rid := runtimeSessionID(peer, sessionID)
+	if _, err := ResolveSessionPeer(ctx, originPeer, h.deps.LoggedInAccountID); err != nil {
+		return zero, 0, err
+	}
+	rid := runtimeSessionID(conversationID)
 	rt, err := h.resolveSession(rid)
 	if err != nil {
 		return zero, rid, err
@@ -1085,47 +1289,50 @@ func resolveSessionCapability[T any](ctx context.Context, h *RuntimeHandlers, se
 // ── Control RPCs (Steer / CancelSteer / DrainPending / Abort / SetPM /
 //                  SubmitAnswer / SubmitToolPermission) ─────────────────────
 
-func (h *RuntimeHandlers) Steer(ctx context.Context, p wire.SteerParams) (wire.OK, error) {
-	s, rid, err := resolveSessionCapability[agentruntime.Steerer](ctx, h, p.SessionID, p.PeerFingerprint)
+func (h *RuntimeHandlers) Steer(ctx context.Context, req *agentrewire.RuntimeSteerRequest) (*agentrewire.RuntimeSteerResponse, error) {
+	s, rid, err := resolveSessionCapability[agentruntime.Steerer](ctx, h, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()))
 	if err != nil {
-		return wire.OK{}, err
+		return nil, err
 	}
-	if err := s.Steer(ctx, rid, p.QueuedID, p.Text); err != nil {
-		return wire.OK{}, err
+	if err := s.Steer(ctx, rid, req.GetQueuedId(), req.GetText()); err != nil {
+		return nil, err
 	}
 	// R17:记下这条 steer 的**提交方**(调用连接自己的对端 —— 他端接管别人的会话时,
 	// 提交方 ≠ 会话发起方,而来源标识要标的是「谁发的」)。等 backend 把这条 steer
 	// 消费掉、SteerConsumed 事件经 fanout 流出时,盖回 ConsumedSteer.SourcePeer。
-	if p.QueuedID != "" {
-		h.deps.SteerSource.Record(p.QueuedID, SteerSourceEntry{
+	if req.GetQueuedId() != "" {
+		h.deps.SteerSource.Record(req.GetQueuedId(), SteerSourceEntry{
 			Peer: peerFingerprint(ctx),
 			Name: peerName(ctx),
 		})
 	}
-	return wire.OK{}, nil
+	// 句柄原样回显:这一路把调用方给的号直接交给了 runner,SteerConsumed 里回来的
+	// 也是它。撤不撤得掉问 runner 自己 —— 与 chat_svc 入队时的判据同一个。
+	_, cancellable := s.(agentruntime.SteerCanceler)
+	return &agentrewire.RuntimeSteerResponse{QueuedId: req.GetQueuedId(), Cancellable: cancellable}, nil
 }
 
-func (h *RuntimeHandlers) CancelSteer(ctx context.Context, p wire.CancelSteerParams) (wire.CancelSteerResult, error) {
-	c, rid, err := resolveSessionCapability[agentruntime.SteerCanceler](ctx, h, p.SessionID, p.PeerFingerprint)
+func (h *RuntimeHandlers) CancelSteer(ctx context.Context, req *agentrewire.RuntimeCancelSteerRequest) (*agentrewire.RuntimeCancelSteerResponse, error) {
+	c, rid, err := resolveSessionCapability[agentruntime.SteerCanceler](ctx, h, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()))
 	if err != nil {
-		return wire.CancelSteerResult{}, err
+		return nil, err
 	}
-	removed, err := c.CancelSteer(ctx, rid, p.QueuedID)
+	removed, err := c.CancelSteer(ctx, rid, req.GetQueuedId())
 	if err != nil {
-		return wire.CancelSteerResult{}, err
+		return nil, err
 	}
 	// 被撤回的 steer 不会再被消费,清掉它的来源映射避免无界增长。
-	h.deps.SteerSource.Forget(p.QueuedID)
+	h.deps.SteerSource.Forget(req.GetQueuedId())
 	for _, id := range removed {
 		h.deps.SteerSource.Forget(id)
 	}
-	return wire.CancelSteerResult{Removed: removed}, nil
+	return &agentrewire.RuntimeCancelSteerResponse{Removed: removed}, nil
 }
 
-func (h *RuntimeHandlers) DrainPending(ctx context.Context, p wire.DrainParams) (wire.DrainResult, error) {
-	d, rid, err := resolveSessionCapability[agentruntime.SteerDrainer](ctx, h, p.SessionID, p.PeerFingerprint)
+func (h *RuntimeHandlers) DrainPending(ctx context.Context, req *agentrewire.RuntimeDrainPendingRequest) (*agentrewire.RuntimeDrainPendingResponse, error) {
+	d, rid, err := resolveSessionCapability[agentruntime.SteerDrainer](ctx, h, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()))
 	if err != nil {
-		return wire.DrainResult{}, err
+		return nil, err
 	}
 	steers := d.DrainPending(ctx, rid)
 	// R17:轮末残留的 pending steer 同样带来源 —— 它们和实时消费的 SteerConsumed 走
@@ -1136,27 +1343,29 @@ func (h *RuntimeHandlers) DrainPending(ctx context.Context, p wire.DrainParams) 
 			steers[i].SourceName = entry.Name
 		}
 	}
-	return wire.DrainResult{Steers: steers}, nil
+	return &agentrewire.RuntimeDrainPendingResponse{Steers: protowire.ConsumedSteersToProto(steers)}, nil
 }
 
-func (h *RuntimeHandlers) Abort(ctx context.Context, p wire.AbortParams) (wire.AbortResult, error) {
+func (h *RuntimeHandlers) Abort(ctx context.Context, req *agentrewire.RuntimeAbortRequest) (*agentrewire.RuntimeAbortResponse, error) {
 	// 会话键按对端隔离,而这里要处理的可能是他端(账号)接管后的会话:先解析
 	// 提交方对端(省略 = 调用方自己),再按隔离后的键查本 handler 的内存会话表。
-	peer, err := ResolveSessionPeer(ctx, p.PeerFingerprint, h.deps.ClaimedAccountID)
-	if err != nil {
-		return wire.AbortResult{}, err
+	if err := ErrInvalidConversationID(req.GetConversationId()); err != nil {
+		return nil, err
 	}
-	rid := runtimeSessionID(peer, p.SessionID)
+	if _, err := ResolveSessionPeer(ctx, devicefp.Initiator(req.GetPeerFingerprint()), h.deps.LoggedInAccountID); err != nil {
+		return nil, err
+	}
+	rid := runtimeSessionID(req.GetConversationId())
 	h.mu.Lock()
 	owner := h.sessions[rid]
 	if owner == nil {
 		h.mu.Unlock()
-		return wire.AbortResult{}, agentruntime.ErrNoActiveTurn
+		return nil, agentruntime.ErrNoActiveTurn
 	}
 	if owner.backendType == agent_backend_entity.TypePiAgent && owner.ctx != nil {
 		if owner.terminalClaimed || owner.finalizing || owner.aborting {
 			h.mu.Unlock()
-			return wire.AbortResult{}, h.waitPiFinalization(ctx, owner)
+			return nil, h.waitPiFinalization(ctx, owner)
 		}
 		owner.cancelRequested = true
 		owner.aborting = true
@@ -1169,10 +1378,10 @@ func (h *RuntimeHandlers) Abort(ctx context.Context, p wire.AbortParams) (wire.A
 			owner.cancel()
 		}
 		if preparing || starting {
-			return wire.AbortResult{}, h.waitPiFinalization(ctx, owner)
+			return nil, h.waitPiFinalization(ctx, owner)
 		}
 		if !accepted {
-			return wire.AbortResult{}, h.finalizePiGeneration(ctx, rid, owner)
+			return nil, h.finalizePiGeneration(ctx, rid, owner)
 		}
 
 		// An acknowledged prompt owns one terminal settlement. Runtime Abort is
@@ -1180,78 +1389,80 @@ func (h *RuntimeHandlers) Abort(ctx context.Context, p wire.AbortParams) (wire.A
 		// does, this RPC waits only for the bounded exact-owner finalization.
 		var abortErr error
 		if aborter, ok := h.lookupRuntimeByType(owner.backendType).(agentruntime.Aborter); ok {
-			_, abortErr = aborter.Abort(ctx, rid, p.TurnToken)
+			_, abortErr = aborter.Abort(ctx, rid, req.GetTurnToken())
 			if errors.Is(abortErr, agentruntime.ErrNoActiveTurn) {
 				abortErr = nil
 			}
 		}
 		if abortErr != nil {
 			cleanupErr := h.finalizePiGeneration(ctx, rid, owner)
-			return wire.AbortResult{}, errors.Join(abortErr, cleanupErr)
+			return nil, errors.Join(abortErr, cleanupErr)
 		}
 		waitErr := h.waitPiFinalization(ctx, owner)
 		if waitErr == nil {
-			return wire.AbortResult{}, nil
+			return nil, nil
 		}
 		h.mu.RLock()
 		terminalOwned := owner.terminalClaimed || owner.finalizing
 		h.mu.RUnlock()
 		if terminalOwned {
-			return wire.AbortResult{}, waitErr
+			return nil, waitErr
 		}
 		cleanupErr := h.finalizePiGeneration(ctx, rid, owner)
-		return wire.AbortResult{}, errors.Join(waitErr, cleanupErr)
+		return nil, errors.Join(waitErr, cleanupErr)
 	}
 	h.mu.Unlock()
-	a, rid, err := resolveSessionCapability[agentruntime.Aborter](ctx, h, p.SessionID, p.PeerFingerprint)
+	a, rid, err := resolveSessionCapability[agentruntime.Aborter](ctx, h, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()))
 	if err != nil {
-		return wire.AbortResult{}, err
+		return nil, err
 	}
-	outcome, err := a.Abort(ctx, rid, p.TurnToken)
+	outcome, err := a.Abort(ctx, rid, req.GetTurnToken())
 	if err != nil {
-		return wire.AbortResult{}, err
+		return nil, err
 	}
-	return wire.AbortResult{TurnKind: outcome.TurnKind}, nil
+	return &agentrewire.RuntimeAbortResponse{TurnKind: string(outcome.TurnKind)}, nil
 }
 
-func (h *RuntimeHandlers) StopBackgroundTask(ctx context.Context, p wire.StopBackgroundTaskParams) (wire.OK, error) {
-	s, rid, err := resolveSessionCapability[agentruntime.BackgroundTaskStopper](ctx, h, p.SessionID, p.PeerFingerprint)
+func (h *RuntimeHandlers) StopBackgroundTask(ctx context.Context, req *agentrewire.RuntimeStopBackgroundTaskRequest) (*agentrewire.Empty, error) {
+	s, rid, err := resolveSessionCapability[agentruntime.BackgroundTaskStopper](ctx, h, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()))
 	if err != nil {
-		return wire.OK{}, err
+		return nil, err
 	}
-	if err := s.StopBackgroundTask(ctx, rid, p.TaskID); err != nil {
-		return wire.OK{}, err
+	if err := s.StopBackgroundTask(ctx, rid, req.GetTaskId()); err != nil {
+		return nil, err
 	}
-	return wire.OK{}, nil
+	return &agentrewire.Empty{}, nil
 }
 
-func (h *RuntimeHandlers) SetPermissionMode(ctx context.Context, p wire.SetPermissionModeParams) (wire.OK, error) {
-	m, rid, err := resolveSessionCapability[agentruntime.PermissionModeSetter](ctx, h, p.SessionID, p.PeerFingerprint)
+func (h *RuntimeHandlers) SetPermissionMode(ctx context.Context, req *agentrewire.RuntimeSetPermissionModeRequest) (*agentrewire.Empty, error) {
+	m, rid, err := resolveSessionCapability[agentruntime.PermissionModeSetter](ctx, h, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()))
 	if err != nil {
-		return wire.OK{}, err
+		return nil, err
 	}
-	if err := m.SetPermissionMode(ctx, rid, p.Mode); err != nil {
-		return wire.OK{}, err
+	if err := m.SetPermissionMode(ctx, rid, req.GetMode()); err != nil {
+		return nil, err
 	}
-	return wire.OK{}, nil
+	return &agentrewire.Empty{}, nil
 }
 
-func (h *RuntimeHandlers) SubmitAnswer(ctx context.Context, p wire.SubmitAnswerParams) (wire.OK, error) {
-	s, rid, err := resolveSessionCapability[agentruntime.AskAnswerSink](ctx, h, p.SessionID, p.PeerFingerprint)
+func (h *RuntimeHandlers) SubmitAnswer(ctx context.Context, req *agentrewire.RuntimeSubmitAnswerRequest) (*agentrewire.PeerSessionControlResponse, error) {
+	s, rid, err := resolveSessionCapability[agentruntime.AskAnswerSink](ctx, h, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()))
 	if err != nil {
-		return h.idempotentSubmitResult(ctx, p.SessionID, p.PeerFingerprint, err)
+		return h.idempotentSubmitResult(ctx, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()), err)
 	}
-	return h.idempotentSubmitResult(ctx, p.SessionID, p.PeerFingerprint,
-		s.SubmitAnswer(ctx, rid, p.RequestID, p.Questions, p.Answers, p.Skipped))
+	return h.idempotentSubmitResult(ctx, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()),
+		s.SubmitAnswer(ctx, rid, req.GetRequestId(),
+			protowire.AskQuestionsFromProto(req.GetQuestions()),
+			protowire.AskAnswersFromProto(req.GetAnswers()), req.GetSkipped()))
 }
 
-func (h *RuntimeHandlers) SubmitToolPermission(ctx context.Context, p wire.SubmitToolPermissionParams) (wire.OK, error) {
-	s, rid, err := resolveSessionCapability[agentruntime.ToolPermissionSink](ctx, h, p.SessionID, p.PeerFingerprint)
+func (h *RuntimeHandlers) SubmitToolPermission(ctx context.Context, req *agentrewire.RuntimeSubmitToolPermissionRequest) (*agentrewire.PeerSessionControlResponse, error) {
+	s, rid, err := resolveSessionCapability[agentruntime.ToolPermissionSink](ctx, h, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()))
 	if err != nil {
-		return h.idempotentSubmitResult(ctx, p.SessionID, p.PeerFingerprint, err)
+		return h.idempotentSubmitResult(ctx, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()), err)
 	}
-	return h.idempotentSubmitResult(ctx, p.SessionID, p.PeerFingerprint,
-		s.SubmitToolPermission(ctx, rid, p.RequestID, p.Allow, p.AlwaysAllowSession, p.DenyReason))
+	return h.idempotentSubmitResult(ctx, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()),
+		s.SubmitToolPermission(ctx, rid, req.GetRequestId(), req.GetAllow(), req.GetAlwaysAllowSession(), req.GetDenyReason()))
 }
 
 // idempotentSubmitResult folds "waiter no longer exists" errors into a
@@ -1279,102 +1490,104 @@ func (h *RuntimeHandlers) SubmitToolPermission(ctx context.Context, p wire.Submi
 //
 // 判别依据是 daemon 自己的会话生命周期行(sessionRunningHere):它是 Daemon 级的、
 // 不随连接生灭,正好答得了内存会话表答不了的那个问题。
-func (h *RuntimeHandlers) idempotentSubmitResult(ctx context.Context, sid int64, originPeer string, err error) (wire.OK, error) {
+func (h *RuntimeHandlers) idempotentSubmitResult(ctx context.Context, conversationID string, originPeer devicefp.Initiator, err error) (*agentrewire.PeerSessionControlResponse, error) {
 	if err == nil {
-		return wire.OK{}, nil
+		return &agentrewire.PeerSessionControlResponse{}, nil
 	}
 	if errors.Is(err, errBackendUnwired) {
-		return wire.OK{}, err
+		return nil, err
 	}
 	if errors.Is(err, agentruntime.ErrWaiterNotFound) {
-		return wire.OK{}, nil
+		return &agentrewire.PeerSessionControlResponse{}, nil
 	}
 	if errors.Is(err, agentruntime.ErrNoActiveTurn) {
-		if h.sessionRunningHere(ctx, sid, originPeer) {
-			return wire.OK{}, err
+		if h.sessionRunningHere(ctx, conversationID, originPeer) {
+			return nil, err
 		}
-		return wire.OK{}, nil
+		return &agentrewire.PeerSessionControlResponse{}, nil
 	}
-	return wire.OK{}, err
+	return nil, err
 }
 
 // sessionRunningHere 回答「这条会话此刻在本 daemon 上是不是还在跑一轮」。
 //
 // 只认 running:idle(那一轮已经结束)、interrupted(子进程随上一个 daemon 进程消亡,
-// R10)、以及查无此行(从没在这台 daemon 上跑过,或属于别的对端 —— 会话 id 是各客户端
-// 本地自增的、必然重号,所以查询一律带对端指纹,R16)都是 R8 说的「没什么可做的了」。
+// R10)、以及查无此行(从没在这台 daemon 上跑过,或属于别的对端)都是 R8 说的
+// 「没什么可做的了」。
 //
 // 无判别依据时(没接查询出口 / 读不出来)一律回 false:只有能**证明**会话仍在跑时才
 // 把错误抛给客户端,证不了就维持 R8 的幂等,不拿一个读不出来的库去换用户面前一个假失败。
-func (h *RuntimeHandlers) sessionRunningHere(ctx context.Context, sid int64, originPeer string) bool {
+func (h *RuntimeHandlers) sessionRunningHere(ctx context.Context, conversationID string, originPeer devicefp.Initiator) bool {
 	if h.deps.SessionQuery == nil {
 		return false
 	}
-	peer, err := ResolveSessionPeer(ctx, originPeer, h.deps.ClaimedAccountID)
+	peer, err := ResolveSessionPeer(ctx, originPeer, h.deps.LoggedInAccountID)
 	if err != nil {
 		return false
 	}
-	row, err := h.deps.SessionQuery.Find(ctx, peer, strconv.FormatInt(sid, 10))
+	row, err := h.deps.SessionQuery.Find(ctx, peer, conversationID)
 	if err != nil {
-		log.Printf("runtime.submit: read session lifecycle failed sid=%d peer=%q err=%v", sid, peer, err)
+		log.Printf("runtime.submit: read session lifecycle failed conversation=%q peer=%q err=%v", conversationID, peer, err)
 		return false
 	}
 	return row != nil && row.LifecycleState == wire.SessionLifecycleRunning
 }
 
-func (h *RuntimeHandlers) GetGoal(ctx context.Context, p wire.GoalParams) (wire.GoalResult, error) {
-	g, req, release, err := h.resolveGoalController(ctx, p)
+func (h *RuntimeHandlers) GetGoal(ctx context.Context, request *agentrewire.RuntimeGoalRequest) (*agentrewire.RuntimeGoalResponse, error) {
+	g, req, release, err := h.resolveGoalController(ctx, request)
 	if err != nil {
-		return wire.GoalResult{}, err
+		return nil, err
 	}
 	defer release()
 	goal, err := g.GetGoal(ctx, req)
 	if err != nil {
-		return wire.GoalResult{}, err
+		return nil, err
 	}
-	return wire.GoalResult{Goal: goal}, nil
+	return &agentrewire.RuntimeGoalResponse{Goal: protowire.GoalToProto(goal)}, nil
 }
 
-func (h *RuntimeHandlers) SetGoal(ctx context.Context, p wire.GoalParams) (wire.GoalResult, error) {
-	g, req, release, err := h.resolveGoalController(ctx, p)
+func (h *RuntimeHandlers) SetGoal(ctx context.Context, request *agentrewire.RuntimeGoalRequest) (*agentrewire.RuntimeGoalResponse, error) {
+	g, req, release, err := h.resolveGoalController(ctx, request)
 	if err != nil {
-		return wire.GoalResult{}, err
+		return nil, err
 	}
 	defer release()
 	goal, err := g.SetGoal(ctx, req)
 	if err != nil {
-		return wire.GoalResult{}, err
+		return nil, err
 	}
-	return wire.GoalResult{Goal: goal}, nil
+	return &agentrewire.RuntimeGoalResponse{Goal: protowire.GoalToProto(goal)}, nil
 }
 
-func (h *RuntimeHandlers) ClearGoal(ctx context.Context, p wire.GoalParams) (wire.GoalClearResult, error) {
-	g, req, release, err := h.resolveGoalController(ctx, p)
+func (h *RuntimeHandlers) ClearGoal(ctx context.Context, request *agentrewire.RuntimeGoalRequest) (*agentrewire.RuntimeGoalClearResponse, error) {
+	g, req, release, err := h.resolveGoalController(ctx, request)
 	if err != nil {
-		return wire.GoalClearResult{}, err
+		return nil, err
 	}
 	defer release()
 	cleared, err := g.ClearGoal(ctx, req)
 	if err != nil {
-		return wire.GoalClearResult{}, err
+		return nil, err
 	}
-	return wire.GoalClearResult{Cleared: cleared}, nil
+	return &agentrewire.RuntimeGoalClearResponse{Cleared: cleared}, nil
 }
 
-func (h *RuntimeHandlers) resolveGoalController(ctx context.Context, p wire.GoalParams) (agentruntime.GoalController, agentruntime.GoalRequest, func(), error) {
-	req, err := goalRequestFromWire(p)
+func (h *RuntimeHandlers) resolveGoalController(ctx context.Context, p *agentrewire.RuntimeGoalRequest) (agentruntime.GoalController, agentruntime.GoalRequest, func(), error) {
+	req, err := protowire.GoalRequestToDomain(p)
 	if err != nil {
 		return nil, agentruntime.GoalRequest{}, func() {}, err
 	}
+	req.SessionID = runtimeSessionID(p.GetConversationId())
 	// goal 也按会话键落到 backend 的会话表上(codex 的 goalSession 走的正是
-	// r.active[sessionID] / sessionKey(sessionID)),所以同样要按对端隔离。
-	peer, err := ResolveSessionPeer(ctx, p.PeerFingerprint, h.deps.ClaimedAccountID)
-	if err != nil {
+	// r.active[sessionID] / sessionKey(sessionID)),所以同样要折成进程内会话键。
+	if err := ErrInvalidConversationID(p.GetConversationId()); err != nil {
 		return nil, agentruntime.GoalRequest{}, func() {}, err
 	}
-	req.SessionID = runtimeSessionID(peer, req.SessionID)
+	if _, err := ResolveSessionPeer(ctx, devicefp.Initiator(p.GetPeerFingerprint()), h.deps.LoggedInAccountID); err != nil {
+		return nil, agentruntime.GoalRequest{}, func() {}, err
+	}
 	if req.Backend != nil {
-		release, err := h.hydrateGoalTarget(ctx, &req, p.LLMProviderKey, p.LLMModelKey)
+		release, err := h.hydrateGoalTarget(ctx, &req, p.GetLlmProviderKey(), p.GetLlmModelKey())
 		if err != nil {
 			return nil, agentruntime.GoalRequest{}, func() {}, err
 		}
@@ -1390,14 +1603,14 @@ func (h *RuntimeHandlers) resolveGoalController(ctx context.Context, p wire.Goal
 		}
 		return g, req, release, nil
 	}
-	g, _, err := resolveSessionCapability[agentruntime.GoalController](ctx, h, p.SessionID, p.PeerFingerprint)
+	g, _, err := resolveSessionCapability[agentruntime.GoalController](ctx, h, p.GetConversationId(), devicefp.Initiator(p.GetPeerFingerprint()))
 	if err != nil {
 		return nil, agentruntime.GoalRequest{}, func() {}, err
 	}
 	return g, req, func() {}, nil
 }
 
-// hydrateGoalTarget 按 wire 的 effective target（决策 11：GoalParams 携带
+// hydrateGoalTarget 按 wire 的 effective target（决策 11：goal 请求携带
 // ProviderKey+ModelKey，与 Run 同形）从 daemon 自家目录解析 provider + 执行侧配置，
 // 并签 gateway token。与 Run 走同一 resolveTarget：goal 与 turn 共用同一个 CLI
 // 会话池，两边解析不一致会让启动期比对键反复翻转。
@@ -1426,27 +1639,6 @@ func (h *RuntimeHandlers) hydrateGoalTarget(
 		}
 	}
 	return release, nil
-}
-
-func goalRequestFromWire(p wire.GoalParams) (agentruntime.GoalRequest, error) {
-	var be *agent_backend_entity.AgentBackend
-	if len(p.Backend) > 0 {
-		var parsed agent_backend_entity.AgentBackend
-		if err := json.Unmarshal(p.Backend, &parsed); err != nil {
-			return agentruntime.GoalRequest{}, fmt.Errorf("parse backend: %w", err)
-		}
-		be = &parsed
-	}
-	return agentruntime.GoalRequest{
-		SessionID:         p.SessionID,
-		AgentID:           p.AgentID,
-		ProviderSessionID: p.ProviderSessionID,
-		Backend:           be,
-		Cwd:               p.Cwd,
-		Objective:         p.Objective,
-		Status:            p.Status,
-		TokenBudget:       p.TokenBudget,
-	}, nil
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -1527,8 +1719,8 @@ func (h *RuntimeHandlers) resolveTarget(
 	}
 	if modelKey != "" {
 		// fixed-model：Provider 缺失/非 active → 严格阻止，不降级、不回退。
-		return nil, nil, "", &rpc.Error{
-			Code:    rpc.ErrProviderMissing.Code,
+		return nil, nil, "", &rpcerror.Error{
+			Code:    rpcerror.ErrProviderMissing.Code,
 			Message: fmt.Sprintf("LLM provider %q not configured on remote daemon: %v", effectiveKey, err),
 		}
 	}
@@ -1537,8 +1729,8 @@ func (h *RuntimeHandlers) resolveTarget(
 	if be != nil && be.LLMProviderKey != "" && effectiveKey != be.LLMProviderKey {
 		bpv, berr := h.deps.Lookup.FindByKey(ctx, be.LLMProviderKey)
 		if berr != nil {
-			return nil, nil, "", &rpc.Error{
-				Code:    rpc.ErrProviderMissing.Code,
+			return nil, nil, "", &rpcerror.Error{
+				Code:    rpcerror.ErrProviderMissing.Code,
 				Message: fmt.Sprintf("LLM provider %q not configured on remote daemon: %v", be.LLMProviderKey, berr),
 			}
 		}
@@ -1553,8 +1745,8 @@ func (h *RuntimeHandlers) resolveTarget(
 	if be == nil || be.LLMProviderKey == "" {
 		return nil, nil, providerFallbackKey, nil
 	}
-	return nil, nil, "", &rpc.Error{
-		Code:    rpc.ErrProviderMissing.Code,
+	return nil, nil, "", &rpcerror.Error{
+		Code:    rpcerror.ErrProviderMissing.Code,
 		Message: fmt.Sprintf("LLM provider %q not configured on remote daemon: %v", effectiveKey, err),
 	}
 }
@@ -1562,28 +1754,29 @@ func (h *RuntimeHandlers) resolveTarget(
 // resolveEffectiveModel 在已解析的 provider 之上解析执行侧配置（EffectiveLLMConfig
 // v1 seam）：provider-default 取当前默认模型，fixed-model 取指定模型。模型缺失/停用
 // 由 Lookup.ResolveModel 报错，这里原样透出（调用方据此严格阻止本轮）。
+//
+// 装配本身走共享构造口 agentruntime.NewEffectiveLLMConfig —— 桌面与 daemon 同一套输入
+// 必须得到逐字段相同的配置，daemon 自己手写那份曾漏填 ContextWindow / MaxOutput。
 func (h *RuntimeHandlers) resolveEffectiveModel(
 	ctx context.Context, provider *llm_provider_entity.LLMProvider, modelKey string,
 ) (*agentruntime.EffectiveLLMConfig, error) {
-	mode := agentruntime.EffectiveModeProviderDefault
-	if strings.TrimSpace(modelKey) != "" {
-		mode = agentruntime.EffectiveModeFixedModel
-	}
 	eff, err := h.deps.Lookup.ResolveModel(ctx, provider.ProviderKey, modelKey)
 	if err != nil {
 		return nil, fmt.Errorf("resolve model for provider %q: %w", provider.ProviderKey, err)
 	}
-	return &agentruntime.EffectiveLLMConfig{
-		Mode:         mode,
-		ProviderKey:  provider.ProviderKey,
-		ModelKey:     eff.ModelKey,
-		ProviderType: provider.Type,
-		ProviderName: provider.Name,
-		ModelID:      eff.ModelID,
-		BaseURL:      provider.BaseURL,
-		APIKey:       provider.APIKey,
-		HasAPIKey:    provider.APIKey != "",
-	}, nil
+	return agentruntime.NewEffectiveLLMConfig(agentruntime.EffectiveLLMConfigInput{
+		ProviderKey:      provider.ProviderKey,
+		ProviderType:     provider.Type,
+		ProviderName:     provider.Name,
+		TargetModelKey:   modelKey,
+		ResolvedModelKey: eff.ModelKey,
+		ResolvedModelID:  eff.ModelID,
+		ContextWindow:    eff.ContextWindow,
+		MaxOutput:        eff.MaxOutput,
+		BaseURL:          provider.BaseURL,
+		APIKey:           provider.APIKey,
+		HasAPIKey:        provider.APIKey != "",
+	}), nil
 }
 
 // ensureSessionToken 返回某 session 的 gateway URL + 常驻 token:首轮签一个永久
@@ -1594,7 +1787,9 @@ func (h *RuntimeHandlers) resolveEffectiveModel(
 //
 // providerKey 是本轮解析出来的供应商(wire 的 effectiveProviderKey 自解、必要时已回退):
 // 首轮按它签发,之后每轮把既有 token 的路由目标对齐到它 —— 桌面端换供应商后,同一个
-// token 字符串继续有效,只是上游变了(决策 3/12)。
+// token 字符串继续有效,只是上游变了(决策 3/12)。签一次 / 改道 / 撤销的实现在
+// agentruntime.SessionTokenCache,与桌面共用;这里只保留 daemon 自己的可用性判据
+// (URL 为空 = 不签)。
 func (h *RuntimeHandlers) ensureSessionToken(
 	ctx context.Context, sid int64, be *agent_backend_entity.AgentBackend, providerKey, modelKey string,
 ) (string, string, error) {
@@ -1605,44 +1800,11 @@ func (h *RuntimeHandlers) ensureSessionToken(
 	if url == "" {
 		return "", "", nil
 	}
-	if sid > 0 {
-		if v, ok := h.sessionTokens.Load(sid); ok {
-			tok := v.(string)
-			h.routeSessionToken(ctx, sid, tok, providerKey, modelKey)
-			return url, tok, nil
-		}
-	}
-	tok, err := h.deps.Gateway.IssueTokenFor(ctx, be, providerKey, modelKey, 0)
+	tok, err := h.sessionTokens.EnsureToken(ctx, sid, be, providerKey, modelKey)
 	if err != nil {
-		return "", "", fmt.Errorf("gateway token: %w", err)
-	}
-	if sid > 0 {
-		// 并发首轮兜底:别的 goroutine 抢先签好就用它的,撤掉自己这条避免泄漏。
-		if actual, loaded := h.sessionTokens.LoadOrStore(sid, tok); loaded {
-			h.deps.Gateway.RevokeToken(tok)
-			return url, actual.(string), nil
-		}
+		return "", "", err
 	}
 	return url, tok, nil
-}
-
-// routeSessionToken 把会话常驻 token 的路由目标对齐到本轮的 ModelTarget;token 字符串
-// 不变,已烤进子进程 env 的那份继续可用。真的换了才记一条日志;找不到 entry = gateway 重启过
-// (token 表只在内存里),子进程手里那个也已失效,记 warn 供排查。
-func (h *RuntimeHandlers) routeSessionToken(ctx context.Context, sid int64, token, providerKey, modelKey string) {
-	previous, ok := h.deps.Gateway.SetTokenTarget(token, providerKey, modelKey)
-	if !ok {
-		logger.Ctx(ctx).Warn("handlers.routeSessionToken: session token missing from gateway",
-			zap.Int64("sessionId", sid),
-			zap.String("providerKey", providerKey))
-		return
-	}
-	if previous != providerKey {
-		logger.Ctx(ctx).Info("handlers.routeSessionToken: gateway token rerouted to new provider",
-			zap.Int64("sessionId", sid),
-			zap.String("previousProviderKey", previous),
-			zap.String("providerKey", providerKey))
-	}
 }
 
 func (h *RuntimeHandlers) lookupSession(sid int64) *runtimeSession {
@@ -1666,7 +1828,7 @@ func (h *RuntimeHandlers) register(sid int64, row *runtimeSession) {
 func (h *RuntimeHandlers) registerPiIfAbsent(sid int64, row *runtimeSession) bool {
 	claimed := false
 	if h.deps.GenerationRegistry != nil {
-		claimed = h.deps.GenerationRegistry.ClaimRuntimeGeneration(row.connection, sid, row.generationToken)
+		claimed = h.deps.GenerationRegistry.ClaimConnection(row.connection, sid, row.generationToken)
 		if !claimed {
 			return false
 		}
@@ -1708,7 +1870,7 @@ func (h *RuntimeHandlers) releaseGeneration(sid int64, owner *runtimeSession) {
 	if owner == nil || h.deps.GenerationRegistry == nil {
 		return
 	}
-	h.deps.GenerationRegistry.ReleaseRuntimeGeneration(owner.connection, sid, owner.generationToken)
+	h.deps.GenerationRegistry.ReleaseConnection(owner.connection, sid, owner.generationToken)
 }
 
 func (h *RuntimeHandlers) canDeliverPiEvent(sid int64, owner *runtimeSession) bool {
@@ -1815,5 +1977,15 @@ func decodeUserBlocks(in []blocks.StoredBlock) ([]blocks.ContentBlock, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
-	return blocks.DecodeAll(in)
+	out, err := blocks.DecodeAll(in)
+	if err != nil {
+		return nil, err
+	}
+	// 总量兜底:客户端那一侧拦过一道,但宿主不能信客户端。撞破链路读上限的后果不是
+	// 这一次请求失败,是整条物理连接被拆掉、这台机器上所有会话一起重连,所以闸门落在
+	// 参数解出来之后、这一轮真的开跑之前。拒的是整轮,不截断附件(理由见该函数注释)。
+	if err := transcript.CheckAttachmentBudget(out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

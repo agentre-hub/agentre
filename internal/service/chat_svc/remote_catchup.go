@@ -2,18 +2,16 @@ package chat_svc
 
 import (
 	"context"
-	"errors"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 )
 
 // CatchUpRemoteSessions 是桌面 App 启动后的远端补齐入口:把「这段时间远端上发生的
@@ -94,25 +92,25 @@ func (s *chatSvc) CatchUpRemoteDevice(ctx context.Context, deviceID int64) error
 // 上线由 CatchUpRemoteDevice 重来),一行都不碰。反过来做是个**永久**的假失败 ——
 // blanket 的 ResetStaleActiveSessions 已经不碰远端行,这条路是该状态此后唯一的写方,
 // 而一条在桌面端离线期间没产出新内容的会话也不会被重放改写。
-//
-// 但「这一次没问到」与「这台永远答不了」是两回事:老 daemon(补齐族 RPC 回
-// method-not-found)等它回来问一万遍也是同一个答案,把它记成待补齐等于把那些会话
-// 永久钉在 running 上。R18 议定的回落是「老 daemon 上断连即结束该轮」,所以那一支
-// 当场按 daemon 交回的(空)名单收尾,并把这台设备从待补齐里摘掉。
 func (s *chatSvc) catchUpDevice(ctx context.Context, deviceID int64, sessions []*chat_entity.Session) {
 	sids := make([]int64, 0, len(sessions))
 	for _, sess := range sessions {
 		sids = append(sids, sess.ID)
 	}
-	rt, _, err := s.remoteRuntimeForDevice(ctx, deviceID, sids, nil)
+	rt, _, err := s.remotePool().ForDevice(ctx, deviceID, sids, nil)
 	if err != nil {
 		logger.Ctx(ctx).Warn("chat_svc.catchUpDevice: daemon unreachable, deferring catch-up",
 			zap.Int64("deviceId", deviceID), zap.Int64s("sessionIds", sids), zap.Error(err))
 		s.catchUpPending.Store(deviceID, struct{}{})
 		return
 	}
-	// 消费方必须在补齐**之前**接上:重放出来的内容以「没有 user 行的一轮」交付,
-	// 没人 drain 就会把通知读循环顶住,内容也永远进不了转录。
+	// 消费方必须在补齐**之前**接上:没人 drain 就会把通知读循环顶住,内容也永远进不了
+	// 转录。
+	//
+	// 重放交付的形状分两种(spec 2026-09-07「补齐与本地在飞的那一轮」):头一帧是带
+	// 他方设备身份的用户消息时(R18)落成「用户行 + assistant 行」;否则是一轮没有
+	// user 行的 assistant —— 而这一路里,若本地还留着派发那一轮时建下的在飞 assistant
+	// 行,补齐续写它而不是另起一行。
 	ready := make([]int64, 0, len(sessions))
 	for _, sess := range sessions {
 		if !s.watchCatchUpTurns(ctx, sess, rt) {
@@ -121,19 +119,11 @@ func (s *chatSvc) catchUpDevice(ctx context.Context, deviceID int64, sessions []
 		ready = append(ready, sess.ID)
 	}
 	live, err := rt.CatchUpSessions(ctx, ready)
-	if err != nil && !errors.Is(err, remote.ErrCatchUpUnsupported) {
+	if err != nil {
 		logger.Ctx(ctx).Warn("chat_svc.catchUpDevice: catch-up failed, deferring",
 			zap.Int64("deviceId", deviceID), zap.Int64s("sessionIds", ready), zap.Error(err))
 		s.catchUpPending.Store(deviceID, struct{}{})
 		return
-	}
-	if err != nil {
-		// 老 daemon(R18):它没有通知日志,也答不了「这条会话还在不在跑」——等它回来
-		// 再问一遍拿到的还是同一个答案。按议定的回落当场收尾:那台 daemon 上断连即结束
-		// 该轮,所以库里这些 running / waiting 行必然已经没有对应的一轮在跑。留成待补齐
-		// 才是错的 —— 此后没有任何东西会再改写它们(见 failSessionsNotLiveOnDaemon)。
-		logger.Ctx(ctx).Warn("chat_svc.catchUpDevice: daemon predates session durability, ending its sessions",
-			zap.Int64("deviceId", deviceID), zap.Int64s("sessionIds", ready))
 	}
 	s.catchUpPending.Delete(deviceID)
 	// 判据只覆盖**真的问过 daemon 的那批**:解析不出后端的会话没进 ready,daemon 也就
@@ -209,10 +199,16 @@ func (s *chatSvc) failSessionsNotLiveOnDaemon(ctx context.Context, all, live []i
 	}
 }
 
-// watchCatchUpTurns 给一条待补齐的会话接上轮次消费方(与自主续轮同一条:补齐重放出来
-// 的内容与自主续轮是同一种东西 —— 一轮没有 user 行的 assistant 轮,driveAutonomousTurn
-// 已经会把它落成消息)。解析不出后端就跳过这条会话:没有后端就没法落库,补齐它只会
-// 把内容重放进一个没人收的 channel。
+// watchCatchUpTurns 给一条待补齐的会话接上轮次消费方(与自主续轮同一条通道:
+// driveAutonomousTurn 已经会把一轮内容落成消息)。
+//
+// 两者**不是**同一种东西,这一点曾经写错过:自主续轮恒是一轮没有 user 行的 assistant,
+// 而补齐重放的一轮既可能带着发起方标记(R18,要落用户行),也可能正是本端自己派发过、
+// 本地已经建了一行 assistant 的那一轮(要续写那一行,见 adoptInFlightAssistant)。
+// 消费方据 Trigger 与本地状态分路,判据在 spec 2026-09-07「补齐与本地在飞的那一轮」。
+//
+// 解析不出后端就跳过这条会话:没有后端就没法落库,补齐它只会把内容重放进一个没人收的
+// channel。
 func (s *chatSvc) watchCatchUpTurns(ctx context.Context, sess *chat_entity.Session, src agentruntime.AutonomousTurnSource) bool {
 	be := s.sessionBackend(ctx, sess)
 	if be == nil {

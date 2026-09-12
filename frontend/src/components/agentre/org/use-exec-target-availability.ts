@@ -1,7 +1,7 @@
 import * as React from "react";
 
 import { ListAgentExecTargetAvailability } from "@/../wailsjs/go/app/App";
-import type { chat_svc } from "@/../wailsjs/go/models";
+import type { exec_target_svc } from "@/../wailsjs/go/models";
 
 // useExecTargetAvailability 逐档判定一个 Agent 的执行目标列表可用性（R15），供
 // 组织架构页展示每档的「当前生效 / 在线 / 离线 / 未配对 / 需指定 LLM Provider…」
@@ -20,7 +20,7 @@ import type { chat_svc } from "@/../wailsjs/go/models";
 // 界面上没有「账号默认顺序」这个概念，「有没有覆盖」也就没有可讲的区别。
 export function useExecTargetAvailability(agentId: number, targetsKey: string) {
   const [byBackendId, setByBackendId] = React.useState<
-    Map<number, chat_svc.ExecTargetAvailabilityView>
+    Map<number, exec_target_svc.ExecTargetAvailabilityView>
   >(new Map());
   const [orderedTargets, setOrderedTargets] = React.useState<
     { agentBackendId: number }[]

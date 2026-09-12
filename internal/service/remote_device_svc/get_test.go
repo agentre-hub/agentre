@@ -8,7 +8,7 @@ import (
 	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
 )
 
 func TestGet(t *testing.T) {

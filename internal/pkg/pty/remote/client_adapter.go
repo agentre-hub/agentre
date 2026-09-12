@@ -2,12 +2,13 @@ package remote
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"sync"
 
-	"github.com/agentre-ai/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 // DaemonClient is the subset of internal/daemon/client.Client and
@@ -15,24 +16,21 @@ import (
 // to avoid this package depending on daemon/client; production wires the
 // real *client.Client.
 type DaemonClient interface {
-	Call(ctx context.Context, method string, params any, result any) error
-	Handle(method string, fn func(ctx context.Context, params json.RawMessage) (any, error))
+	Conn() *protorpc.Conn
 	Closed() <-chan struct{}
+	Close() error
 }
 
 const (
 	// terminalQueueCapacity mirrors the daemon-side throttle queue. With the
-	// daemon's 8 KiB PTY reads, 256 pending base64 frames cap one terminal near
+	// daemon's 8 KiB PTY reads, 256 pending binary frames cap one terminal near
 	// 2.7 MiB, plus at most one frame already handed to the delivery worker.
 	terminalQueueCapacity = 256
 	terminalQueueLowWater = terminalQueueCapacity / 2
 )
 
 var (
-	terminalThrottleData = base64.StdEncoding.EncodeToString(
-		[]byte("\r\n[--- output throttled ---]\r\n"),
-	)
-	errAbortUnsupported = errors.New("remote terminal client does not support abort")
+	terminalThrottleData = []byte("\r\n[--- output throttled ---]\r\n")
 )
 
 // ClientAdapter wraps a single daemon client and demuxes per-terminal push
@@ -93,8 +91,7 @@ func NewClientAdapter(c DaemonClient) *ClientAdapter {
 		connectionClosed: closed,
 		subs:             map[string]*terminalSubscription{},
 	}
-	c.Handle("terminal.data", a.handleData)
-	c.Handle("terminal.exit", a.handleExit)
+	c.Conn().Registry().SubscribeNotification(a.handleNotification)
 	if closed != nil {
 		go a.watchClose(closed)
 	}
@@ -103,7 +100,41 @@ func NewClientAdapter(c DaemonClient) *ClientAdapter {
 
 // Call passes through to the underlying client.
 func (a *ClientAdapter) Call(ctx context.Context, method string, params any, out any) error {
-	return a.client.Call(ctx, method, params, out)
+	switch method {
+	case "terminal.open":
+		request := params.(protocol.TerminalOpenParams)
+		// conversation_id 不置:LAN 直连这条路上的终端不挂在任何一条对话下(它一直是
+		// 零值,daemon 侧也从不读它),没有身份可报就如实留空,而不是编一个。
+		response, err := wirecall.TerminalOpen(ctx, a.client, &agentrewire.TerminalOpenRequest{TerminalId: request.TerminalID, Cwd: request.Cwd, Shell: request.Shell, Command: request.Command, Env: request.Env, Cols: uint32(request.Cols), Rows: uint32(request.Rows)})
+		if err == nil {
+			out.(*protocol.TerminalOpenResult).TerminalID = response.TerminalId
+		}
+		return err
+	case "terminal.write":
+		request := params.(protocol.TerminalWriteParams)
+		_, err := wirecall.TerminalWrite(ctx, a.client, &agentrewire.TerminalWriteRequest{TerminalId: request.TerminalID, Data: []byte(request.Data)})
+		return err
+	case "terminal.resize":
+		request := params.(protocol.TerminalResizeParams)
+		_, err := wirecall.TerminalResize(ctx, a.client, &agentrewire.TerminalResizeRequest{TerminalId: request.TerminalID, Cols: uint32(request.Cols), Rows: uint32(request.Rows)})
+		return err
+	case "terminal.close":
+		request := params.(protocol.TerminalCloseParams)
+		_, err := wirecall.TerminalClose(ctx, a.client, &agentrewire.TerminalCloseRequest{TerminalId: request.TerminalID, CancelPendingOpen: request.CancelPendingOpen})
+		return err
+	default:
+		return errors.New("remote terminal: unsupported method")
+	}
+}
+
+func (a *ClientAdapter) handleNotification(_ context.Context, notification *agentrewire.RpcNotification) error {
+	if event := notification.GetTerminalData(); event != nil {
+		a.enqueueData(protocol.TerminalDataEvent{TerminalID: event.TerminalId, Data: append([]byte(nil), event.Data...)})
+	}
+	if event := notification.GetTerminalExit(); event != nil {
+		a.enqueueExit(protocol.TerminalExitEvent{TerminalID: event.TerminalId, Code: int(event.Code), Reason: event.Reason, Msg: event.Message})
+	}
+	return nil
 }
 
 // Closed exposes the stable connection-generation signal used by cleanup
@@ -164,11 +195,7 @@ func (a *ClientAdapter) Unsubscribe(terminalID string, subscription Subscription
 // optional narrow assertion avoids coupling the demux interface to unrelated
 // client operations while still reporting whether the safety fallback ran.
 func (a *ClientAdapter) Abort() error {
-	closer, ok := a.client.(interface{ Close() error })
-	if !ok {
-		return errAbortUnsupported
-	}
-	return closer.Close()
+	return a.client.Close()
 }
 
 func newTerminalSubscription() *terminalSubscription {
@@ -185,11 +212,7 @@ func subscriptionView(sub *terminalSubscription) Subscription {
 	return Subscription{Data: sub.data, Exit: sub.exit}
 }
 
-func (a *ClientAdapter) handleData(_ context.Context, raw json.RawMessage) (any, error) {
-	var ev protocol.TerminalDataEvent
-	if err := json.Unmarshal(raw, &ev); err != nil {
-		return nil, nil //nolint:nilerr // push-event handler; malformed events are silently discarded
-	}
+func (a *ClientAdapter) enqueueData(ev protocol.TerminalDataEvent) {
 	a.mu.Lock()
 	sub := a.subs[ev.TerminalID]
 	if sub != nil && !sub.ending && !sub.canceled {
@@ -197,21 +220,15 @@ func (a *ClientAdapter) handleData(_ context.Context, raw json.RawMessage) (any,
 		signalSubscription(sub)
 	}
 	a.mu.Unlock()
-	return nil, nil
 }
 
-func (a *ClientAdapter) handleExit(_ context.Context, raw json.RawMessage) (any, error) {
-	var ev protocol.TerminalExitEvent
-	if err := json.Unmarshal(raw, &ev); err != nil {
-		return nil, nil //nolint:nilerr // push-event handler; malformed events are silently discarded
-	}
+func (a *ClientAdapter) enqueueExit(ev protocol.TerminalExitEvent) {
 	a.mu.Lock()
 	sub := a.subs[ev.TerminalID]
 	if sub != nil {
 		a.finishSubscriptionLocked(sub, &ev)
 	}
 	a.mu.Unlock()
-	return nil, nil
 }
 
 func (a *ClientAdapter) watchClose(closed <-chan struct{}) {

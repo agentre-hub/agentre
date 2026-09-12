@@ -1,18 +1,19 @@
 // Package wire 定义 agentre ↔ agentred 的 remotefs.* RPC 协议:参数 / 结果 /
-// 错误 sentinel 与 JSON-RPC error code 的双向翻译。daemon 端 handler 与 host
-// 端 svc 共享这一份类型,避免 JSON shape 漂移。
+// 错误 sentinel 与 typed RPC error code 的双向翻译。daemon 端 handler 与 host
+// 端 svc 共享这一份类型,避免 Protobuf shape 漂移。
 //
 // 命名约定与 internal/pkg/agentruntime/runtimes/remote/wire 一致:
 //   - 方法在 "remotefs.*" 命名空间下
 //   - 字段名 lowerCamelCase
 //   - 错误码 -32030..-32035 是稳定 wire 值,wrapGuarded handler 返回
-//     *rpc.Error 由本包翻译,客户端用 FromJSONRPCError rehydrate。
+//     *rpcerror.Error 由本包翻译,客户端用 FromRPCError rehydrate。数值本身住在
+//     共享 module 的 pkg/wire/rpcerror(全段位撞号守卫在那里),本包只留别名。
 package wire
 
 import (
 	"errors"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // ── RPC method names ────────────────────────────────────────────────────────
@@ -24,13 +25,15 @@ const (
 
 // ── Error codes ─────────────────────────────────────────────────────────────
 
+// 码值的主人是 pkg/wire/rpcerror —— 那里一份表登记了全部方法族的段位,撞号守卫
+// 因此看得见整条协议;这里只是本族用得顺手的短名字。
 const (
-	ErrCodePathRefused = -32030
-	ErrCodePermDenied  = -32031
-	ErrCodeNotFound    = -32032
-	ErrCodeNotDir      = -32033
-	ErrCodeMkdirExists = -32034
-	ErrCodeInvalidName = -32035
+	ErrCodePathRefused = rpcerror.CodeRemoteFSPathRefused
+	ErrCodePermDenied  = rpcerror.CodeRemoteFSPermDenied
+	ErrCodeNotFound    = rpcerror.CodeRemoteFSNotFound
+	ErrCodeNotDir      = rpcerror.CodeRemoteFSNotDir
+	ErrCodeMkdirExists = rpcerror.CodeRemoteFSMkdirExists
+	ErrCodeInvalidName = rpcerror.CodeRemoteFSInvalidName
 )
 
 // ── Sentinel errors ─────────────────────────────────────────────────────────
@@ -44,30 +47,30 @@ var (
 	ErrInvalidName = errors.New("remotefs: invalid name")
 )
 
-// ToJSONRPCError 把 remotefs sentinel 包成 *rpc.Error,daemon handler 返回。
+// ToRPCError 把 remotefs sentinel 包成 *rpcerror.Error,daemon handler 返回。
 // 非 sentinel 返 nil,调用方应自己包装(ErrInternal 之类)。
-func ToJSONRPCError(err error) *rpc.Error {
+func ToRPCError(err error) *rpcerror.Error {
 	switch {
 	case errors.Is(err, ErrPathRefused):
-		return &rpc.Error{Code: ErrCodePathRefused, Message: err.Error()}
+		return &rpcerror.Error{Code: ErrCodePathRefused, Message: err.Error()}
 	case errors.Is(err, ErrPermDenied):
-		return &rpc.Error{Code: ErrCodePermDenied, Message: err.Error()}
+		return &rpcerror.Error{Code: ErrCodePermDenied, Message: err.Error()}
 	case errors.Is(err, ErrNotFound):
-		return &rpc.Error{Code: ErrCodeNotFound, Message: err.Error()}
+		return &rpcerror.Error{Code: ErrCodeNotFound, Message: err.Error()}
 	case errors.Is(err, ErrNotDir):
-		return &rpc.Error{Code: ErrCodeNotDir, Message: err.Error()}
+		return &rpcerror.Error{Code: ErrCodeNotDir, Message: err.Error()}
 	case errors.Is(err, ErrMkdirExists):
-		return &rpc.Error{Code: ErrCodeMkdirExists, Message: err.Error()}
+		return &rpcerror.Error{Code: ErrCodeMkdirExists, Message: err.Error()}
 	case errors.Is(err, ErrInvalidName):
-		return &rpc.Error{Code: ErrCodeInvalidName, Message: err.Error()}
+		return &rpcerror.Error{Code: ErrCodeInvalidName, Message: err.Error()}
 	}
 	return nil
 }
 
-// FromJSONRPCError 反向把 *rpc.Error 翻成 sentinel。未知 code 返原 err。
+// FromRPCError 反向把 *rpcerror.Error 翻成 sentinel。未知 code 返原 err。
 // host svc 拿到后再 i18n.NewError(ctx, code.RemoteFsXxx) 包给前端。
-func FromJSONRPCError(err error) error {
-	var rpcErr *rpc.Error
+func FromRPCError(err error) error {
+	var rpcErr *rpcerror.Error
 	if !errors.As(err, &rpcErr) {
 		return err
 	}

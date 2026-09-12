@@ -13,31 +13,67 @@ const openPathMock = vi.fn();
 const revealPathMock = vi.fn();
 const listDirMock = vi.fn();
 vi.mock("@/../wailsjs/go/app/App", () => ({
+  // 多工作根：本组用例都是单根会话，认领集合恒为空 → 根切换器不渲染，
+  // 分支状态条整条收起，chrome 与本轮之前一致。
+  WorkspaceFsWorkRoots: () => Promise.resolve([]),
+  WorkspaceFsGitState: () =>
+    Promise.resolve({
+      branch: "",
+      worktree: "",
+      dirty: 0,
+      ahead: 0,
+      behind: 0,
+      hasUpstream: false,
+      notARepo: true,
+      commonDir: "",
+    }),
   OpenPath: (p: string) => openPathMock(p),
   RevealPath: (p: string) => revealPathMock(p),
-  WorkspaceFsListDir: (sessionId: number, relPath: string, ignored: boolean) =>
-    listDirMock(sessionId, relPath, ignored),
+  WorkspaceFsListDir: (
+    sessionId: number,
+    _root: string,
+    relPath: string,
+    ignored: boolean,
+  ) => listDirMock(sessionId, relPath, ignored),
 }));
 
 import {
   selectActivePreviewTab,
-  useChatSidebarStore,
-} from "@/stores/chat-sidebar-store";
+  useFilePreviewTabsStore,
+} from "@/stores/file-preview-tabs-store";
+import {
+  DEFAULT_FILE_SETTINGS,
+  useFileSettingsStore,
+} from "@/stores/file-settings-store";
 
 import { DirectoryView } from "../views/directory-view";
-import { FilesView } from "../views/files-view";
 import { GitView } from "../views/git-view";
+import { SessionChangesView } from "../views/session-changes-view";
 
-import type { FileEntry } from "../derive";
+import type { ChangeRow } from "../derive";
 import type { GitChangesState } from "../views/use-git-changes";
 
 const CWD = "/Users/me/proj";
 
-const files: FileEntry[] = [
-  { path: "internal/service/chat.go", plus: 5, minus: 2, lastTurn: 3 },
-  { path: "README.md", plus: 0, minus: 0, lastTurn: 1 },
-  { path: "assets/logo.png", plus: 0, minus: 0, lastTurn: 1 },
-  { path: "archive.zip", plus: 0, minus: 0, lastTurn: 2 },
+function sessionRow(path: string, extra: Partial<ChangeRow> = {}): ChangeRow {
+  const cut = path.lastIndexOf("/");
+  return {
+    path,
+    name: cut < 0 ? path : path.slice(cut + 1),
+    dir: cut < 0 ? "" : path.slice(0, cut),
+    status: "modified",
+    plus: 0,
+    minus: 0,
+    lastTurn: 1,
+    ...extra,
+  };
+}
+
+const rows: ChangeRow[] = [
+  sessionRow("internal/service/chat.go", { plus: 5, minus: 2, lastTurn: 3 }),
+  sessionRow("README.md"),
+  sessionRow("assets/logo.png"),
+  sessionRow("archive.zip", { lastTurn: 2 }),
 ];
 
 // Radix 的菜单在 happy-dom 里要关掉 pointerEvents 检查。
@@ -45,11 +81,13 @@ function setupUser() {
   return userEvent.setup({ pointerEventsCheck: 0 });
 }
 
-function renderChanges(props: Partial<React.ComponentProps<typeof FilesView>>) {
+function renderChanges(
+  props: Partial<React.ComponentProps<typeof SessionChangesView>>,
+) {
   return render(
-    <FilesView
+    <SessionChangesView
       sessionId={1}
-      files={files}
+      rows={rows}
       cwd={CWD}
       remote={false}
       onJumpToTurn={() => {}}
@@ -64,8 +102,6 @@ function renderGit(props: Partial<React.ComponentProps<typeof GitView>>) {
       sessionId={1}
       cwd={CWD}
       remote={false}
-      scope="uncommitted"
-      baseRef=""
       state={
         {
           status: "loaded",
@@ -126,38 +162,44 @@ beforeEach(() => {
   listDirMock.mockResolvedValue({ path: CWD, entries: [], truncated: false });
   sonnerMocks.toast.error.mockReset();
   sonnerMocks.toast.success.mockReset();
-  useChatSidebarStore.setState({ previewTabsBySession: {} });
+  useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
+  useFileSettingsStore.setState({ settings: { ...DEFAULT_FILE_SETTINGS } });
 });
 
+/** 把「单击文件时」这个设置切到「用外部应用打开」。 */
+function setOpenActionExternal() {
+  useFileSettingsStore.setState({ settings: { openAction: "external" } });
+}
+
 describe("行的统一点击语义", () => {
-  it("变动模式：单击可预览文件行开出临时标签，不再跳到对应轮次", async () => {
+  it("本次会话档：单击可预览文件行开出临时标签，不再跳到对应轮次", async () => {
     const onJump = vi.fn();
     renderChanges({ onJumpToTurn: onJump });
 
     await setupUser().click(screen.getByRole("button", { name: /chat\.go/ }));
 
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 1),
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1),
     ).toMatchObject({
       path: "internal/service/chat.go",
-      sourceMode: "changes",
+      sourceMode: "session",
       isPreview: true,
     });
     expect(onJump).not.toHaveBeenCalled();
   });
 
-  it("Git 模式：单击行开预览，不再用系统默认应用打开", async () => {
+  it("未提交档：单击行开预览，不再用系统默认应用打开", async () => {
     renderGit({});
 
     await setupUser().click(screen.getByRole("button", { name: /chat\.go/ }));
 
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 1),
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1),
     ).toMatchObject({ path: "internal/service/chat.go", sourceMode: "git" });
     expect(openPathMock).not.toHaveBeenCalled();
   });
 
-  it("目录模式：文件行可单击预览，目录行单击展开收起", async () => {
+  it("目录页：文件行可单击预览，目录行单击展开收起", async () => {
     const user = setupUser();
     listDirMock.mockImplementation((_id: number, relPath: string) =>
       Promise.resolve({
@@ -188,14 +230,20 @@ describe("行的统一点击语义", () => {
       }),
     );
     render(
-      <DirectoryView sessionId={1} cwd={CWD} remote={false} showIgnored />,
+      <DirectoryView
+        sessionId={1}
+        cwd={CWD}
+        root=""
+        remote={false}
+        showIgnored
+      />,
     );
 
     await user.click(await screen.findByRole("button", { name: /internal/ }));
     await user.click(await screen.findByRole("button", { name: /chat\.go/ }));
 
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 1),
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1),
     ).toMatchObject({ path: "internal/chat.go", sourceMode: "directory" });
   });
 
@@ -214,7 +262,7 @@ describe("行的统一点击语义", () => {
     );
 
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 1),
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1),
     ).toMatchObject({ path: "README.md", isPreview: false });
   });
 
@@ -232,7 +280,7 @@ describe("行的统一点击语义", () => {
     await user.click(screen.getByRole("button", { name: /README\.md/ }));
     await user.dblClick(screen.getByRole("button", { name: /logo\.png/ }));
 
-    const entry = useChatSidebarStore.getState().previewTabsBySession[1];
+    const entry = useFilePreviewTabsStore.getState().previewTabsBySession[1];
     expect(entry?.tabs).toHaveLength(2);
     expect(entry?.tabs.find((tab) => tab.path === "README.md")).toMatchObject({
       isPreview: true,
@@ -255,27 +303,49 @@ describe("行的统一点击语义", () => {
     // 落在"已经开着的行"上、没有替换掉任何东西，所以没有需要补回的标签。
     await user.dblClick(screen.getByRole("button", { name: /README\.md/ }));
 
-    const entry = useChatSidebarStore.getState().previewTabsBySession[1];
+    const entry = useFilePreviewTabsStore.getState().previewTabsBySession[1];
     expect(entry?.tabs.map((tab) => tab.path)).toEqual(["README.md"]);
     expect(entry?.tabs[0]).toMatchObject({ isPreview: false });
   });
 });
 
 describe("不可预览的行", () => {
-  it("不响应单击、不出 hover 高亮，但仍有 ⋯ 菜单按钮", async () => {
+  it("本地会话下可点，单击交给外部应用而不是开预览", async () => {
     renderChanges({});
     const row = rowOf("archive.zip");
 
-    // 名称不是按钮：整行不可点。
+    // 预览渲染不了它,但系统能打开它——这一行因此与其余文件行同形。
+    expect(row.className).toContain("hover:bg-muted");
+
+    await setupUser().click(
+      within(row).getByRole("button", { name: /archive\.zip/ }),
+    );
+
+    expect(openPathMock).toHaveBeenCalledWith(`${CWD}/archive.zip`);
+    expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1)).toBe(
+      null,
+    );
+    expect(
+      within(row).getByRole("button", { name: /more actions/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("远端会话下仍不响应单击、不出 hover 高亮，但仍有 ⋯ 菜单按钮", async () => {
+    // 既预览不了、本机也碰不到对端路径:渲染成可点的按钮等于给一个注定失败的
+    // 目标(spec「行的可交互性与键盘」)。
+    renderChanges({ remote: true });
+    const row = rowOf("archive.zip");
+
     expect(within(row).queryByRole("button", { name: /archive\.zip/ })).toBe(
       null,
     );
     expect(row.className).not.toContain("hover:bg-muted");
 
     await setupUser().click(within(row).getByText("archive.zip"));
-    expect(selectActivePreviewTab(useChatSidebarStore.getState(), 1)).toBe(
+    expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1)).toBe(
       null,
     );
+    expect(openPathMock).not.toHaveBeenCalled();
 
     expect(
       within(row).getByRole("button", { name: /more actions/i }),
@@ -294,6 +364,137 @@ describe("不可预览的行", () => {
       "Copy absolute path",
       "Copy file name",
     ]);
+  });
+});
+
+describe("单击去向跟随 files.open_action", () => {
+  it("设置为外部应用时,可预览的文件行单击也交给外部应用", async () => {
+    setOpenActionExternal();
+    renderChanges({});
+
+    await setupUser().click(screen.getByRole("button", { name: /chat\.go/ }));
+
+    expect(openPathMock).toHaveBeenCalledWith(
+      `${CWD}/internal/service/chat.go`,
+    );
+    expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1)).toBe(
+      null,
+    );
+  });
+
+  it("设置为外部应用但拼不出绝对路径时退回预览", async () => {
+    setOpenActionExternal();
+    renderChanges({ remote: true });
+
+    await setupUser().click(screen.getByRole("button", { name: /chat\.go/ }));
+
+    expect(openPathMock).not.toHaveBeenCalled();
+    expect(
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1),
+    ).toMatchObject({ path: "internal/service/chat.go", isPreview: true });
+  });
+
+  it("设置为外部应用时,Enter 与单击执行同一个动作", async () => {
+    setOpenActionExternal();
+    renderChanges({});
+    const user = setupUser();
+
+    await user.tab();
+    await user.keyboard("{Enter}");
+
+    expect(openPathMock).toHaveBeenCalledTimes(1);
+    expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1)).toBe(
+      null,
+    );
+  });
+
+  it("目录行不受这个设置影响,单击仍是展开收起", async () => {
+    setOpenActionExternal();
+    listDirMock.mockResolvedValue({
+      path: CWD,
+      entries: [{ name: "internal", isDir: true }],
+      truncated: false,
+    });
+    render(
+      <DirectoryView
+        sessionId={1}
+        cwd={CWD}
+        root=""
+        remote={false}
+        showIgnored
+      />,
+    );
+
+    const dir = await screen.findByRole("button", { name: /internal/ });
+    await setupUser().click(dir);
+
+    expect(openPathMock).not.toHaveBeenCalled();
+    expect(rowOf("internal")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("双击语义不受这个设置影响,可预览的行仍是转常驻预览标签", async () => {
+    // 双击是预览标签条自己的语义,与「单击去哪」是两件事(spec 决策 7,双击语义
+    // 的任何改动都在 Out of scope 里)。
+    setOpenActionExternal();
+    renderChanges({});
+
+    await setupUser().dblClick(
+      screen.getByRole("button", { name: /README\.md/ }),
+    );
+
+    expect(
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1),
+    ).toMatchObject({ path: "README.md", isPreview: false });
+  });
+
+  it("设置为外部应用时,双击只交给系统打开一次", async () => {
+    // 真实鼠标双击在派发 dblclick 前会先各打一次 click:两次都调外部打开等于同
+    // 一个手势里把系统应用拉起两遍。
+    setOpenActionExternal();
+    renderChanges({});
+
+    await setupUser().dblClick(
+      screen.getByRole("button", { name: /README\.md/ }),
+    );
+
+    expect(openPathMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("设置为外部应用时,双击不会把之前被替换掉的临时标签复活出来", async () => {
+    // 外部打开不产生临时标签,这一次单击因此没有「被原地替换掉的标签」需要补
+    // 回;沿用上一次「预览」入口记下的槽位会凭空多出一个早就被替换掉的标签。
+    setOpenActionExternal();
+    renderChanges({});
+    const user = setupUser();
+
+    // 先经菜单开出临时标签 chat.go,再预览 README.md 把它原地替换掉。
+    await user.click(
+      within(await openRowMenu("chat.go")).getByRole("menuitem", {
+        name: "Preview",
+      }),
+    );
+    await user.click(
+      within(await openRowMenu("README.md")).getByRole("menuitem", {
+        name: "Preview",
+      }),
+    );
+
+    await user.dblClick(screen.getByRole("button", { name: /README\.md/ }));
+
+    expect(
+      useFilePreviewTabsStore
+        .getState()
+        .previewTabsBySession[1]?.tabs.map((tab) => tab.path),
+    ).toEqual(["README.md"]);
+  });
+
+  it("右键菜单不受这个设置影响:「预览」仍按可预览性出现", async () => {
+    setOpenActionExternal();
+    renderChanges({});
+    const menu = await openRowMenu("chat.go");
+
+    expect(menuItemNames(menu)).toContain("Preview");
+    expect(menuItemNames(menu)).toContain("Preview in a new tab");
   });
 });
 
@@ -319,7 +520,7 @@ describe("⋯ 槽位", () => {
 });
 
 describe("行的右键菜单", () => {
-  it("变动模式的文件行：预览两项 / 跳到对应轮次 / 打开两项 / 复制三项，按序分组", async () => {
+  it("本次会话档的文件行：预览两项 / 跳到对应轮次 / 打开两项 / 复制三项，按序分组", async () => {
     const menu = await (async () => {
       renderChanges({});
       return openRowMenu("chat.go");
@@ -358,7 +559,7 @@ describe("行的右键菜单", () => {
     ]);
   });
 
-  it("「跳到对应轮次」只在变动模式出现，且触发跳转回调", async () => {
+  it("「跳到对应轮次」只在「本次会话」档出现，且触发跳转回调", async () => {
     const onJump = vi.fn();
     renderChanges({ onJumpToTurn: onJump });
     const menu = await openRowMenu("chat.go");
@@ -368,7 +569,7 @@ describe("行的右键菜单", () => {
     expect(onJump).toHaveBeenCalledWith(3);
   });
 
-  it("Git 模式的文件行没有「跳到对应轮次」", async () => {
+  it("未提交档的文件行没有「跳到对应轮次」", async () => {
     renderGit({});
     const menu = await openRowMenu("chat.go");
     expect(menuItemNames(menu)).toEqual([
@@ -389,7 +590,7 @@ describe("行的右键菜单", () => {
       within(menu).getByRole("menuitem", { name: "Preview in a new tab" }),
     );
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 1),
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1),
     ).toMatchObject({ path: "README.md", isPreview: false });
   });
 
@@ -414,7 +615,13 @@ describe("行的右键菜单", () => {
       }),
     );
     render(
-      <DirectoryView sessionId={1} cwd={CWD} remote={false} showIgnored />,
+      <DirectoryView
+        sessionId={1}
+        cwd={CWD}
+        root=""
+        remote={false}
+        showIgnored
+      />,
     );
     await screen.findByRole("button", { name: /internal/ });
 

@@ -1,7 +1,7 @@
 // Package agent_svc 暴露 Agent 的应用服务接口与请求/响应类型。
 package agent_svc
 
-import "github.com/agentre-ai/agentre/internal/service/department_svc"
+import "github.com/agentre-hub/agentre/internal/service/department_svc"
 
 // 复用 department_svc 里的 AgentItem 作为 service 返回 — 避免重复定义。
 type AgentItem = department_svc.AgentItem

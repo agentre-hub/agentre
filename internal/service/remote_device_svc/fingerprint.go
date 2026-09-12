@@ -1,6 +1,10 @@
 package remote_device_svc
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+)
 
 // IsSelfDevice reports whether deviceID is this installation's own canonical
 // device fingerprint (the agentre-device-fingerprint keychain account, R5 —
@@ -8,10 +12,10 @@ import "strings"
 // local backend's DeviceID is the desktop's own fingerprint, so every branch
 // that once keyed off be.IsLocal()/be.IsRemote() must also treat a self
 // fingerprint as local. Only sha256:-prefixed named fingerprints can match;
-// empty / legacy numeric values short-circuit without a keychain read. Safe to
-// call before bootstrap (returns false).
-func IsSelfDevice(deviceID string) bool {
-	if !strings.HasPrefix(deviceID, "sha256:") {
+// anything else short-circuits without a keychain read. Safe to call before
+// bootstrap (returns false).
+func IsSelfDevice(deviceID devicefp.Carrier) bool {
+	if !strings.HasPrefix(string(deviceID), "sha256:") {
 		return false
 	}
 	if defaultSvc == nil {
@@ -36,7 +40,7 @@ func IsSelfDevice(deviceID string) bool {
 // a paired agentred, another desktop, or a fingerprint this installation has never
 // seen — means "somewhere else". Unpaired is deliberately still "somewhere else":
 // whether we can reach that machine is a separate question from whether it is ours.
-func TargetsAnotherMachine(deviceID string) bool {
+func TargetsAnotherMachine(deviceID devicefp.Carrier) bool {
 	return deviceID != "" && !IsSelfDevice(deviceID)
 }
 
@@ -53,7 +57,7 @@ func TargetsAnotherMachine(deviceID string) bool {
 // the bundle and rejects the whole backend as a dangling reference. Dispatch applies
 // the same collapse (chat_svc.execDeviceID); this is that rule's single home for
 // everything else.
-func ExternalDeviceID(deviceID string) string {
+func ExternalDeviceID(deviceID devicefp.Carrier) devicefp.Carrier {
 	if !TargetsAnotherMachine(deviceID) {
 		return ""
 	}

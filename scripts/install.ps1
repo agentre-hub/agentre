@@ -7,7 +7,7 @@ function Fail([string]$Message) {
 $ReleaseBaseUrl = if ($env:AGENTRED_RELEASE_BASE_URL) {
     $env:AGENTRED_RELEASE_BASE_URL.TrimEnd('/')
 } else {
-    "https://github.com/agentre-ai/agentre/releases/latest/download"
+    "https://github.com/agentre-hub/agentre/releases/latest/download"
 }
 $Arch = switch ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()) {
     "X64" { "amd64" }

@@ -2,17 +2,16 @@ package handlers_test
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/daemon/handlers/mock_handlers"
-	"github.com/agentre-ai/agentre/internal/pkg/pty"
-	"github.com/agentre-ai/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers/mock_handlers"
+	"github.com/agentre-hub/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -152,11 +151,9 @@ func TestTerminal_Pump_EmitsDataEvent(t *testing.T) {
 	events := rec.snapshot()
 	require.Len(t, events, 1)
 	assert.Equal(t, handlers.EventNameTerminalData, events[0].Name)
-	pay := events[0].Payload.(protocol.TerminalDataEvent)
+	pay := events[0].Payload.(handlers.TerminalDataEvent)
 	assert.Equal(t, res.TerminalID, pay.TerminalID)
-	decoded, err := base64.StdEncoding.DecodeString(pay.Data)
-	require.NoError(t, err)
-	assert.Equal(t, "hello", string(decoded))
+	assert.Equal(t, "hello", string(pay.Data))
 }
 
 func TestTerminal_Pump_EmitsExitAndClearsMap(t *testing.T) {
@@ -283,10 +280,8 @@ func TestTerminal_Pump_DropsOldestAndInsertsThrottleMarkerWhenBufferFull(t *test
 	events := blockEmit.snapshot()
 	var sawThrottle bool
 	for _, ev := range events {
-		if pay, ok := ev.Payload.(protocol.TerminalDataEvent); ok {
-			decoded, err := base64.StdEncoding.DecodeString(pay.Data)
-			require.NoError(t, err, "terminal data event must be valid base64")
-			if strings.Contains(string(decoded), "--- output throttled ---") {
+		if pay, ok := ev.Payload.(handlers.TerminalDataEvent); ok {
+			if strings.Contains(string(pay.Data), "--- output throttled ---") {
 				sawThrottle = true
 				break
 			}

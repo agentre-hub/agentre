@@ -39,9 +39,12 @@ func TestBuildRPCArgsResumesSession(t *testing.T) {
 	}, args)
 }
 
-func TestBuildRPCArgsClampsUnsupportedMaxThinking(t *testing.T) {
+// TestBuildRPCArgsPassesThroughMaxThinking 锁住 spec 2026-09-01「三后端下发档位的
+// 收敛」:max 原样下发 --thinking max,不再被本地兼容折叠成 xhigh —— pi --help 明写
+// --thinking 支持 max。
+func TestBuildRPCArgsPassesThroughMaxThinking(t *testing.T) {
 	args := buildRPCArgs(&Client{thinking: "max"})
-	assert.Equal(t, []string{"--mode", "rpc", "--thinking", "xhigh"}, args)
+	assert.Equal(t, []string{"--mode", "rpc", "--thinking", "max"}, args)
 }
 
 func TestBuildRPCArgsOmitsInvalidThinking(t *testing.T) {

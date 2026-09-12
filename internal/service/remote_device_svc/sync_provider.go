@@ -8,12 +8,11 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/daemon/state"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // SyncProvider copies a local provider's metadata, API key and model catalog to
@@ -56,8 +55,7 @@ func (s *service) SyncProvider(ctx context.Context, deviceID int64, providerKey 
 	}
 	defer lease.Release()
 
-	var ok handlers.OK
-	if err := lease.Client().Call(ctx, "llm.upsert", providerToUpsertParams(p, defaultModelID, models), &ok); err != nil {
+	if _, err := lease.LLMUpsert(ctx, providerToUpsertRequest(p, defaultModelID, models)); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return i18n.NewError(ctx, code.RemoteDeviceTimeout)
 		}
@@ -81,32 +79,29 @@ func defaultModelIDOf(p *llm_provider_entity.LLMProvider, models []*llm_provider
 	return ""
 }
 
-func providerToUpsertParams(
+func providerToUpsertRequest(
 	p *llm_provider_entity.LLMProvider,
 	defaultModelID string,
 	models []*llm_provider_model_entity.LLMProviderModel,
-) handlers.LLMUpsertParams {
-	metas := make([]state.LLMModelMeta, 0, len(models))
+) *agentrewire.LLMUpsertRequest {
+	metas := make([]*agentrewire.LLMModel, 0, len(models))
 	for _, m := range models {
 		if m == nil {
 			continue
 		}
-		metas = append(metas, state.LLMModelMeta{
-			ModelKey: m.ModelKey,
-			ModelID:  m.ModelID,
-			Name:     m.Name,
-			Enabled:  m.IsEnabled(),
+		metas = append(metas, &agentrewire.LLMModel{
+			ModelKey: m.ModelKey, ModelId: m.ModelID, Name: m.Name, Enabled: m.IsEnabled(),
 		})
 	}
-	return handlers.LLMUpsertParams{
+	return &agentrewire.LLMUpsertRequest{
 		ProviderKey:     p.ProviderKey,
 		Name:            p.Name,
 		Type:            p.Type,
-		BaseURL:         p.BaseURL,
+		BaseUrl:         p.BaseURL,
 		Model:           defaultModelID,
 		DefaultModelKey: p.DefaultModelKey,
 		Models:          metas,
-		APIKey:          p.APIKey,
+		ApiKey:          p.APIKey,
 		UpdatedAt:       p.Updatetime,
 	}
 }

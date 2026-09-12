@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/agentre-ai/agentre/internal/pkg/ccoauth"
+	"github.com/agentre-hub/agentre/internal/pkg/ccoauth"
 )
 
 // CCUsageFetcher 是 ccusage handler 注入 OAuth usage 拉取的钩子。

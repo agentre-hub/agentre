@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/internal/pkg/pty"
 
 	"github.com/stretchr/testify/require"
 )

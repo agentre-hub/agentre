@@ -3,6 +3,8 @@ package builtin
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,9 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // TestRun_HappyPath_EmitsTextDelta 验证 Run() 把 cago provider 的 stream 翻成
@@ -246,4 +248,41 @@ func (f *fakeSteerable) RemovePendingSteer(id string) bool {
 }
 func (f *fakeSteerable) ClearPendingSteers() []string {
 	return f.clearReturns
+}
+
+// TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID 与 claudecode / codex / piagent
+// 那三条同源(2026-08-22 的 AgentCwd(0) 报错):web 发起的对话在这里同样是 AgentID=0 +
+// Cwd 空,兜底目录改由账号级 AgentSyncID 定。本包没有观察 cwd 的接缝,因此看落地结果 ——
+// ResolveAgentCwd 会把目录建出来。
+func TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+
+	fp := providertest.New().
+		QueueStream(provider.StreamChunk{ContentDelta: "ok"},
+			provider.StreamChunk{FinishReason: provider.FinishStop})
+	SetBuiltinProviderBuilderForTest(func(_ *llm_provider_entity.LLMProvider) (provider.Provider, error) {
+		return fp, nil
+	})
+	t.Cleanup(ResetBuiltinProviderBuilderForTest)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	events, _, err := New().Run(ctx, agentruntime.RunRequest{
+		Backend:     &agent_backend_entity.AgentBackend{ID: 7, Type: "builtin", LLMProviderKey: "key-11"},
+		Provider:    &llm_provider_entity.LLMProvider{ID: 11, Type: string(llm_provider_entity.TypeAnthropic)},
+		Effective:   &agentruntime.EffectiveLLMConfig{ProviderKey: "key-11", ProviderType: string(llm_provider_entity.TypeAnthropic), ModelID: "claude-test"},
+		AgentID:     0,
+		AgentSyncID: "01KZNE7YKJQ6A79YVDCMW1A63R",
+		SessionID:   42,
+		UserText:    "ping",
+	})
+	require.NoError(t, err)
+	for range events { //nolint:revive // drain
+	}
+
+	info, err := os.Stat(filepath.Join(dataDir, "agents", "sync-01KZNE7YKJQ6A79YVDCMW1A63R"))
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
 }

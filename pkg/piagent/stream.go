@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,15 +15,21 @@ type Stream struct {
 	proc      *rpcProcess
 	killGrace time.Duration
 	events    chan Event
+	// ownsProcess 决定这一轮收尾时要不要连 RPC 进程一起终止。一次性用法(Client.Stream)
+	// 归这一轮所有;跨轮复用(Session)时进程归会话,轮末只收这一轮。
+	ownsProcess bool
 
-	mu                  sync.RWMutex
-	sessionID           string
-	userAnchorBoundary  string
-	userAnchor          string
-	captureUserAnchor   bool
-	model               string
-	contextWindow       int
-	usageObserved       bool
+	mu                 sync.RWMutex
+	sessionID          string
+	userAnchorBoundary string
+	userAnchor         string
+	captureUserAnchor  bool
+	model              string
+	contextWindow      int
+	usageObserved      bool
+	// usageRecorded 是「这条 assistant 消息的用量已经 emit 过」的账本,键见
+	// assistantMessageKey。agent_end 重发本轮消息时靠它不重复计数。
+	usageRecorded       map[string]bool
 	initialStatsPending bool
 	err                 error
 	diagnostics         StreamDiagnostics
@@ -54,8 +62,10 @@ type agentEndOutcome struct {
 	err  error
 }
 
+// newStream 默认让这一轮拥有进程 —— 一次性用法(Client.Stream / Text / Compact)的
+// 既有语义。跨轮复用由 prepareStreamOn 显式改成 false。
 func newStream(proc *rpcProcess, killGrace time.Duration) *Stream {
-	return &Stream{proc: proc, killGrace: killGrace, events: make(chan Event, 64)}
+	return &Stream{proc: proc, killGrace: killGrace, ownsProcess: true, events: make(chan Event, 64)}
 }
 
 func (s *Stream) send(ctx context.Context, cmd map[string]any) error {
@@ -172,6 +182,9 @@ func (s *Stream) Diagnostics() StreamDiagnostics {
 func (s *Stream) Close(ctx context.Context) error {
 	var err error
 	s.closeOnce.Do(func() {
+		if !s.ownsProcess {
+			return
+		}
 		err = s.proc.terminate(ctx, s.killGrace)
 	})
 	if err != nil {
@@ -244,7 +257,7 @@ func (s *Stream) drain(ctx context.Context, pendingFrames ...[][]byte) {
 }
 
 func (s *Stream) terminateCanceledProcess(ctx context.Context) {
-	if s == nil || s.proc == nil || ctx.Err() == nil {
+	if s == nil || s.proc == nil || ctx.Err() == nil || !s.ownsProcess {
 		return
 	}
 	// Settlement has either completed or exhausted its bound. Kill the whole
@@ -705,6 +718,13 @@ func (s *Stream) handleMessageEnd(raw json.RawMessage) {
 	s.recordAssistantMessage(msg)
 }
 
+// recordAssistantMessage 把一条 assistant 消息的 model / usage 收下,并按「每次内部
+// API call 一条 usage」的口径 emit。
+//
+// 同一条消息会到达两次:message_end 一次,agent_end.messages 把本轮每条 assistant
+// 消息连同 usage 原样重发时又一次。下游对 completion / reasoning 是累加的,重发那条
+// 会把最后一跳的 output 记两遍(单跳的轮直接翻倍)。按 responseId 认身份,记过的不再
+// emit —— agent_end 仍是兜底:message_end 没带 usage 时,用量只能从它那里捡回来。
 func (s *Stream) recordAssistantMessage(msg *assistantMessage) {
 	s.mu.Lock()
 	if strings.TrimSpace(msg.Model) != "" {
@@ -713,8 +733,16 @@ func (s *Stream) recordAssistantMessage(msg *assistantMessage) {
 	u := usageFromMessage(msg)
 	contextWindow := s.contextWindow
 	hasUsage := u.PromptTokens > 0 || u.CompletionTokens > 0
+	if hasUsage && s.usageRecorded[assistantMessageKey(msg)] {
+		s.mu.Unlock()
+		return
+	}
 	if hasUsage {
 		s.usageObserved = true
+		if s.usageRecorded == nil {
+			s.usageRecorded = map[string]bool{}
+		}
+		s.usageRecorded[assistantMessageKey(msg)] = true
 	}
 	s.mu.Unlock()
 	if hasUsage {
@@ -726,6 +754,19 @@ func (s *Stream) recordAssistantMessage(msg *assistantMessage) {
 		}
 		s.emit(Event{Kind: EventUsage, Usage: u, Model: msg.Model, ContextWindow: contextWindow})
 	}
+}
+
+// assistantMessageKey 是一条 assistant 消息的身份。responseId 优先;缺省时退回
+// 「时间戳 + 这次调用的用量」——agent_end 重发的是同一个对象,逐字段相同。
+func assistantMessageKey(msg *assistantMessage) string {
+	if id := strings.TrimSpace(msg.ResponseID); id != "" {
+		return id
+	}
+	u := msg.Usage
+	if u == nil {
+		return strconv.FormatInt(msg.Timestamp, 10)
+	}
+	return fmt.Sprintf("%d/%d/%d/%d/%d", msg.Timestamp, u.Input, u.Output, u.CacheRead, u.CacheWrite)
 }
 
 func (s *Stream) observeAgentEnd(ev rpcEvent, rawLine string) {

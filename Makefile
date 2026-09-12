@@ -15,7 +15,7 @@ EXE :=
 endif
 COMMIT_ID := $(shell git rev-parse --short HEAD 2>$(NULLDEV) || echo unknown)
 VERSION_PKG := github.com/cago-frame/cago/configs
-BUILDINFO_PKG := github.com/agentre-ai/agentre/internal/buildinfo
+BUILDINFO_PKG := github.com/agentre-hub/agentre/internal/buildinfo
 LDFLAGS := -s -w -X $(VERSION_PKG).Version=$(VERSION) -X $(BUILDINFO_PKG).CommitID=$(COMMIT_ID)
 FRONTEND_DIR := frontend
 BACKEND_PKGS := . ./cmd/... ./e2e/... ./internal/... ./migrations ./pkg/...
@@ -146,8 +146,13 @@ endif
 test: test-backend test-frontend
 
 # 运行后端测试
+# pkg/wire 与 pkg/syncwire 都是独立 module（分别是 wire 协议生成代码与同步契约的唯一
+# 来源），父 module 的 ./pkg/... 不会走进它们，因此各自单独跑一次，否则 wire 的
+# descriptor 守卫与同步载荷守卫的共享向量永远不会被执行。
 test-backend:
 	go test $(BACKEND_PKGS)
+	go test -C pkg/wire ./...
+	go test -C pkg/syncwire ./...
 
 # 运行前端测试
 test-frontend: generate
@@ -186,9 +191,8 @@ test-cover:
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "覆盖率报告已生成: coverage.html"
 
-# 发布资产、安装脚本与 workflow 契约的聚焦测试。
+# 发布资产与安装脚本的聚焦测试。
 test-agentred-packaging:
-	python3 scripts/test-release-workflows.py
 	bash scripts/test-install.sh
 	@if command -v pwsh >/dev/null 2>&1; then pwsh -NoProfile -File scripts/test-install.ps1; else echo "pwsh not found; install.ps1 runs on the Windows CI job"; fi
 

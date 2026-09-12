@@ -42,7 +42,7 @@ func TestStreamEmitsInitialContextWindowBeforeFirstTurnUsage(t *testing.T) {
 	remaining := collectUntilTerminal(t, s)
 	kinds := eventKinds(remaining)
 	require.Contains(t, kinds, EventContextWindow,
-		"the compatibility event remains for older desktop consumers")
+		"the stream surfaces an explicit context-window update")
 	var usages []Event
 	for _, ev := range remaining {
 		if ev.Kind == EventUsage {

@@ -11,16 +11,13 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/department_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agenttool"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
 
 const (
@@ -40,9 +37,22 @@ type DepartmentSvc interface {
 
 type departmentSvc struct {
 	now func() int64
+
+	// 非属主仓储的窄端口(ISP,决策 5):本包只调这几个方法,不该整包依赖
+	// agent_repo.AgentRepo / llm_provider_repo.LLMProviderRepo 等胖接口。
+	agents           AgentPort
+	agentExecTargets AgentExecTargetPort
+	agentBackends    AgentBackendPort
+	llmProviders     LLMProviderPort
 }
 
-var defaultDepartment DepartmentSvc = &departmentSvc{now: func() int64 { return time.Now().Unix() }}
+var defaultDepartment DepartmentSvc = &departmentSvc{
+	now:              func() int64 { return time.Now().UnixMilli() },
+	agents:           agentRepoDelegate{},
+	agentExecTargets: agentExecTargetRepoDelegate{},
+	agentBackends:    agentBackendRepoDelegate{},
+	llmProviders:     llmProviderRepoDelegate{},
+}
 
 // Department 取默认服务单例。
 func Department() DepartmentSvc { return defaultDepartment }
@@ -53,15 +63,15 @@ func (s *departmentSvc) Load(ctx context.Context, _ *LoadOrgRequest) (*LoadOrgRe
 	if err != nil {
 		return nil, err
 	}
-	agents, err := agent_repo.Agent().List(ctx)
+	agents, err := s.agents.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	backends, err := agent_backend_repo.AgentBackend().List(ctx)
+	backends, err := s.agentBackends.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	providers, err := llm_provider_repo.LLMProvider().List(ctx)
+	providers, err := s.llmProviders.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +79,7 @@ func (s *departmentSvc) Load(ctx context.Context, _ *LoadOrgRequest) (*LoadOrgRe
 	for _, a := range agents {
 		agentIDs = append(agentIDs, a.ID)
 	}
-	execTargetsByAgent, err := agent_repo.AgentExecTarget().ListByAgents(ctx, agentIDs)
+	execTargetsByAgent, err := s.agentExecTargets.ListByAgents(ctx, agentIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +93,7 @@ func (s *departmentSvc) Load(ctx context.Context, _ *LoadOrgRequest) (*LoadOrgRe
 		// Provider 1→N 后 Provider 行不再有单模型投影，默认模型由 default_model_key
 		// 指向的启用 Model 决定（provider-default 展示口径）。查不到/无默认时留空。
 		if p.DefaultModelKey != "" {
-			if m, merr := llm_provider_repo.LLMProvider().FindModelByKey(ctx, p.DefaultModelKey); merr == nil && m != nil {
+			if m, merr := s.llmProviders.FindModelByKey(ctx, p.DefaultModelKey); merr == nil && m != nil {
 				providerModelByKey[p.ProviderKey] = m.ModelID
 			}
 		}
@@ -168,25 +178,21 @@ func (s *departmentSvc) Load(ctx context.Context, _ *LoadOrgRequest) (*LoadOrgRe
 	for _, a := range agents {
 		execTargets := toAgentExecTargetItems(execTargetsByAgent[a.ID])
 		item := &AgentItem{
-			ID:             a.ID,
-			Name:           a.Name,
-			Description:    a.Description,
-			AvatarColor:    a.AvatarColor,
-			AvatarIcon:     a.AvatarIcon,
-			AvatarDataURL:  a.AvatarDataURL,
-			SystemBadge:    a.SystemBadge,
-			DepartmentID:   a.DepartmentID,
-			AgentBackendID: a.AgentBackendID,
-			ParentAgentID:  a.ParentAgentID,
-			SortOrder:      a.SortOrder,
-			Prompt:         a.GetPrompt(),
-			// 技能授权已下沉到执行目标行（R15e / 决策 33），agents.skills_json 不再被
-			// 读取；Skills 是执行目标列表的历史兼容视图（= ①），见 primaryTargetSkills。
-			Skills:      primaryTargetSkills(execTargets),
-			ExecTargets: execTargets,
-			Tools:       toAgentToolDTO(a.GetTools()),
-			Createtime:  a.Createtime,
-			Updatetime:  a.Updatetime,
+			ID:            a.ID,
+			Name:          a.Name,
+			Description:   a.Description,
+			AvatarColor:   a.AvatarColor,
+			AvatarIcon:    a.AvatarIcon,
+			AvatarDataURL: a.AvatarDataURL,
+			SystemBadge:   a.SystemBadge,
+			DepartmentID:  a.DepartmentID,
+			ParentAgentID: a.ParentAgentID,
+			SortOrder:     a.SortOrder,
+			Prompt:        a.GetPrompt(),
+			ExecTargets:   execTargets,
+			Tools:         toAgentToolDTO(a.GetTools()),
+			Createtime:    a.Createtime,
+			Updatetime:    a.Updatetime,
 		}
 		if d := deptByID[a.DepartmentID]; d != nil {
 			item.DepartmentName = d.Name
@@ -215,17 +221,6 @@ func toAgentExecTargetItems(rows []*agent_entity.AgentExecTarget) []AgentExecTar
 		})
 	}
 	return out
-}
-
-// primaryTargetSkills 取 ①（sort_order 最小的那一档）的技能授权。AgentItem.Skills
-// 与 AgentItem.AgentBackendID 是同一个视图的两半——列表页那一行的「后端」列已经只
-// 展示 ①（AgentBackendID 由 agent_repo 的 hydrate 取自 ①），技能列跟着它走；多档的
-// 逐档授权在详情页一档一块地呈现，这里不做跨档并集（决策 33）。列表为空时为空。
-func primaryTargetSkills(targets []AgentExecTargetItem) []AgentSkillDTO {
-	if len(targets) == 0 {
-		return []AgentSkillDTO{}
-	}
-	return targets[0].Skills
 }
 
 func toAgentSkillDTO(items []agent_entity.AgentSkillItem) []AgentSkillDTO {
@@ -320,7 +315,7 @@ func (s *departmentSvc) Update(ctx context.Context, req *UpdateDepartmentRequest
 		return nil, err
 	}
 	if existing.LeadAgentID > 0 {
-		lead, err := agent_repo.Agent().Find(ctx, existing.LeadAgentID)
+		lead, err := s.agents.Find(ctx, existing.LeadAgentID)
 		if err != nil {
 			return nil, err
 		}
@@ -444,13 +439,13 @@ func (s *departmentSvc) Delete(ctx context.Context, req *DeleteDepartmentRequest
 			if err := department_repo.Department().ReparentChildren(txCtx, existing.ID, existing.ParentID); err != nil {
 				return err
 			}
-			agents, err := agent_repo.Agent().ListByDepartment(txCtx, existing.ID)
+			agents, err := s.agents.ListByDepartment(txCtx, existing.ID)
 			if err != nil {
 				return err
 			}
 			var rootAgentID int64
 			if existing.ParentID == 0 && len(agents) > 0 {
-				rootAgent, err := agent_repo.Agent().FindSystem(txCtx)
+				rootAgent, err := s.agents.FindSystem(txCtx)
 				if err != nil {
 					return err
 				}
@@ -461,12 +456,12 @@ func (s *departmentSvc) Delete(ctx context.Context, req *DeleteDepartmentRequest
 			}
 			for _, a := range agents {
 				if existing.ParentID == 0 {
-					if err := agent_repo.Agent().UpdatePlacement(txCtx, a.ID, 0, rootAgentID, a.SortOrder); err != nil {
+					if err := s.agents.UpdatePlacement(txCtx, a.ID, 0, rootAgentID, a.SortOrder); err != nil {
 						return err
 					}
 					continue
 				}
-				if err := agent_repo.Agent().UpdatePlacement(txCtx, a.ID, existing.ParentID, 0, a.SortOrder); err != nil {
+				if err := s.agents.UpdatePlacement(txCtx, a.ID, existing.ParentID, 0, a.SortOrder); err != nil {
 					return err
 				}
 			}
@@ -477,7 +472,7 @@ func (s *departmentSvc) Delete(ctx context.Context, req *DeleteDepartmentRequest
 				return err
 			}
 			subtree := collectSubtree(all, existing.ID)
-			allAgents, err := agent_repo.Agent().List(txCtx)
+			allAgents, err := s.agents.List(txCtx)
 			if err != nil {
 				return err
 			}
@@ -487,7 +482,7 @@ func (s *departmentSvc) Delete(ctx context.Context, req *DeleteDepartmentRequest
 				byID[a.ID] = a
 			}
 			for _, agentID := range inSubtree {
-				if err := agent_repo.Agent().Delete(txCtx, agentID); err != nil {
+				if err := s.agents.Delete(txCtx, agentID); err != nil {
 					return err
 				}
 				if a := byID[agentID]; a != nil {

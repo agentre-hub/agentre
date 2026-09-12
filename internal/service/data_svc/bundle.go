@@ -1,5 +1,7 @@
 package data_svc
 
+import "github.com/agentre-hub/agentre/pkg/wire/devicefp"
+
 // BundleFormat 是 bundle JSON 的固定标识。
 const BundleFormat = "agentre-data-bundle"
 
@@ -104,28 +106,19 @@ type BundleDepartment struct {
 }
 
 // BundleAgent 一条 Agent 记录。
-//
-// AgentBackendKey 与 SkillsJSON 是 R15f 之前的单 backend / 单份技能形状，为兼容
-// 与回滚窗口继续写在导出侧，但导入侧不再读——现在的读口是 ExecTargets。ExecTargets
-// 为 nil（JSON 里整个不带 execTargets 这个 key）标记"老 bundle"，导入侧据此回落到
-// AgentBackendKey + SkillsJSON 的单元素转换（与迁移共用同一份代码，见
-// import_apply.go 的 execTargetsFromBundle）；哪怕是显式空数组也算"新 bundle"，
-// 不会触发回落。
 type BundleAgent struct {
-	ExportKey       string             `json:"exportKey"`
-	Name            string             `json:"name"`
-	Description     string             `json:"description"`
-	AvatarColor     string             `json:"avatarColor"`
-	AvatarIcon      string             `json:"avatarIcon"`
-	AvatarDataURL   string             `json:"avatarDataURL"`
-	SystemBadge     string             `json:"systemBadge"`
-	DepartmentKey   string             `json:"departmentKey"`
-	ParentAgentKey  string             `json:"parentAgentKey"`
-	AgentBackendKey string             `json:"agentBackendKey"`
-	SortOrder       int                `json:"sortOrder"`
-	PromptJSON      string             `json:"promptJSON"`
-	SkillsJSON      string             `json:"skillsJSON"`
-	ExecTargets     []BundleExecTarget `json:"execTargets"`
+	ExportKey      string             `json:"exportKey"`
+	Name           string             `json:"name"`
+	Description    string             `json:"description"`
+	AvatarColor    string             `json:"avatarColor"`
+	AvatarIcon     string             `json:"avatarIcon"`
+	AvatarDataURL  string             `json:"avatarDataURL"`
+	SystemBadge    string             `json:"systemBadge"`
+	DepartmentKey  string             `json:"departmentKey"`
+	ParentAgentKey string             `json:"parentAgentKey"`
+	SortOrder      int                `json:"sortOrder"`
+	PromptJSON     string             `json:"promptJSON"`
+	ExecTargets    []BundleExecTarget `json:"execTargets"`
 }
 
 // BundleExecTarget Agent 有序执行目标列表里的一档（R15f）：它指向 backend 的稳定
@@ -138,13 +131,13 @@ type BundleExecTarget struct {
 
 // BundleRemoteDevice 一条远端设备记录。
 type BundleRemoteDevice struct {
-	InstanceUUID      string `json:"instanceUUID"`
-	Name              string `json:"name"`
-	URL               string `json:"url"`
-	DaemonFingerprint string `json:"daemonFingerprint"`
-	TLSMode           string `json:"tlsMode"`
-	TLSCertPEM        string `json:"tlsCertPEM"`
-	PairedAt          int64  `json:"pairedAt"`
+	InstanceUUID      string           `json:"instanceUUID"`
+	Name              string           `json:"name"`
+	URL               string           `json:"url"`
+	DaemonFingerprint devicefp.Carrier `json:"daemonFingerprint"`
+	TLSMode           string           `json:"tlsMode"`
+	TLSCertPEM        string           `json:"tlsCertPEM"`
+	PairedAt          int64            `json:"pairedAt"`
 }
 
 // ExportRequest 导出请求。

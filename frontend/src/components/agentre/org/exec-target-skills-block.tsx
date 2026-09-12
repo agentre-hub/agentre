@@ -1,12 +1,12 @@
 import * as React from "react";
-import { Ban, Boxes, Copy } from "lucide-react";
+import { Boxes, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
+} from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -16,7 +16,6 @@ import type {
 
 import type { TriState } from "../capability/catalog";
 import { CapabilityPicker } from "../capability/capability-picker";
-import { useBackendCapabilities } from "../capability/use-backend-capabilities";
 
 import { useSkillCatalog } from "./use-skill-catalog";
 
@@ -50,21 +49,19 @@ function backendTypeLabel(type: string): string {
   return BACKEND_TYPE_LABEL[type] ?? type;
 }
 
-// ExecTargetSkillsBlock 是 R15e「一档一块」的一块：技能发现来源与授权都钉死在
+// ExecTargetSkillsBlock 是折在执行目标行内的技能块：技能发现来源与授权都钉死在
 // props.backend 这一档，不与 Agent 名下别的档合并（不需要并集,不需要"几台装了"的
 // 分母)。GrantedChips/CapabilityPicker 两个既有组件的内部渲染逻辑不动——这里的
 // chip 行是按同一套 tone 规则(inherit/on/off)自行渲染,因为这一块的标题行要放
 // 档位序号 + 机器·后端,不是 GrantedChips 那个通用的"技能 · SKILL PACKS"标题。
 export function ExecTargetSkillsBlock(props: Props) {
   const { t } = useTranslation();
-  const { caps } = useBackendCapabilities(props.backend?.type);
-  const skillsCapOn = caps?.has("skills") ?? false;
   const isRemote = Boolean(props.backend?.deviceId);
   const online = !isRemote || Boolean(props.backend?.online);
   const skillCatalog = useSkillCatalog(
     props.agentId,
     props.backend?.id ?? 0,
-    skillsCapOn && online,
+    online,
   );
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [copyOpen, setCopyOpen] = React.useState(false);
@@ -174,12 +171,7 @@ export function ExecTargetSkillsBlock(props: Props) {
           </span>
         )}
         <div className="flex-1" />
-        {!skillsCapOn && (
-          <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
-            {t("org.agent.skillsGate.pill")}
-          </span>
-        )}
-        {skillsCapOn && online && (
+        {online && (
           <span className="shrink-0 font-mono text-2xs text-muted-foreground">
             {t("org.agent.skills.countCompact", {
               inherit: inheritedIds.length,
@@ -190,147 +182,133 @@ export function ExecTargetSkillsBlock(props: Props) {
         )}
       </div>
 
-      {!skillsCapOn ? (
-        <div className="flex items-start gap-2.5 rounded-md border border-border bg-secondary/30 px-3 py-2.5">
-          <Ban
-            className="mt-0.5 size-3.5 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <div className="space-y-0.5">
-            <p className="text-2xs font-semibold text-foreground">
-              {t("org.agent.skillsGate.title")}
-            </p>
-            <p className="font-mono text-2xs text-muted-foreground">
-              {t("org.agent.skillsGate.description")}
-            </p>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {chips.length === 0 && (
-              <span className="text-2xs text-muted-foreground">
-                {t("org.agent.skills.empty")}
-              </span>
-            )}
-            {chips.map((chip) => {
-              const toneClass =
-                chip.tone === "inherit"
-                  ? "border-border bg-secondary/60 text-muted-foreground"
-                  : chip.tone === "off"
-                    ? "border-destructive/30 bg-destructive/10 text-destructive"
-                    : "border-border bg-card";
-              return (
-                <span
-                  key={chip.id}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {chips.length === 0 && (
+            <span className="text-2xs text-muted-foreground">
+              {t("org.agent.skills.empty")}
+            </span>
+          )}
+          {chips.map((chip) => {
+            const toneClass =
+              chip.tone === "inherit"
+                ? "border-border bg-secondary/60 text-muted-foreground"
+                : chip.tone === "off"
+                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  : "border-border bg-card";
+            return (
+              <span
+                key={chip.id}
+                className={cn(
+                  "inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1",
+                  toneClass,
+                )}
+              >
+                <Boxes
                   className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md border px-2 py-1",
-                    toneClass,
+                    "size-3",
+                    chip.tone === "off"
+                      ? "text-destructive"
+                      : "text-primary-text",
                   )}
+                  aria-hidden="true"
+                />
+                {/* 包 id 是一串不可断的路径：窄栏下必须能收缩，否则芯片把行撑出
+                    栏宽，外层滚动容器再把溢出藏起来（谁都不报错）。 */}
+                <span
+                  className={cn(
+                    "min-w-0 truncate font-mono text-2xs font-medium",
+                    chip.tone === "off" && "line-through",
+                  )}
+                  title={chip.label}
                 >
-                  <Boxes
-                    className={cn(
-                      "size-3",
-                      chip.tone === "off"
-                        ? "text-destructive"
-                        : "text-primary-text",
-                    )}
-                    aria-hidden="true"
-                  />
-                  <span
-                    className={cn(
-                      "font-mono text-2xs font-medium",
-                      chip.tone === "off" && "line-through",
-                    )}
-                  >
-                    {chip.label}
-                  </span>
-                  {typeof chip.count === "number" && (
-                    <span className="rounded bg-secondary px-1 font-mono text-2xs text-muted-foreground">
-                      {chip.count}
-                    </span>
-                  )}
-                  {chip.tone !== "inherit" && (
-                    <button
-                      type="button"
-                      aria-label={t("capability.picker.remove", {
-                        name: chip.label,
-                      })}
-                      onClick={() => removeOverride(chip.id)}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      ✕
-                    </button>
-                  )}
+                  {chip.label}
                 </span>
-              );
-            })}
-            <button
-              type="button"
-              aria-label={t("org.agent.skills.manage")}
-              disabled={!online}
-              onClick={openPicker}
-              className={cn(
-                "inline-flex items-center gap-1 rounded-md border px-2 py-1 font-mono text-2xs font-semibold",
-                online
-                  ? "border-primary/30 bg-primary-soft text-primary-text"
-                  : "cursor-not-allowed border-border text-muted-foreground",
-              )}
-            >
-              + {t("org.agent.skills.manage")}
-            </button>
-            {props.copySources.length > 0 && (
-              <Popover open={copyOpen} onOpenChange={setCopyOpen}>
-                <PopoverTrigger asChild>
+                {typeof chip.count === "number" && (
+                  <span className="rounded bg-secondary px-1 font-mono text-2xs text-muted-foreground">
+                    {chip.count}
+                  </span>
+                )}
+                {chip.tone !== "inherit" && (
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 font-mono text-2xs text-muted-foreground hover:bg-accent"
+                    aria-label={t("capability.picker.remove", {
+                      name: chip.label,
+                    })}
+                    onClick={() => removeOverride(chip.id)}
+                    className="text-muted-foreground hover:text-foreground"
                   >
-                    <Copy className="size-3" aria-hidden="true" />
-                    {t("org.agent.skills.copyFrom")}
+                    ✕
                   </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-64 p-2">
-                  <p className="px-1 pb-1 font-mono text-2xs font-semibold text-muted-foreground">
-                    {t("org.agent.skills.copyFrom")}
-                  </p>
-                  <div className="flex flex-col gap-0.5">
-                    {props.copySources.map((src) => (
-                      <button
-                        type="button"
-                        key={src.index}
-                        disabled={!src.sameType}
-                        onClick={() => {
-                          props.onSkillsChange(src.skills);
-                          setCopyOpen(false);
-                        }}
-                        className={cn(
-                          "flex flex-col gap-0.5 rounded-sm px-1.5 py-1 text-left text-xs",
-                          src.sameType
-                            ? "hover:bg-accent"
-                            : "cursor-not-allowed opacity-40",
-                        )}
-                      >
-                        <span>{src.label}</span>
-                        {!src.sameType && (
-                          <span className="font-mono text-2xs text-muted-foreground">
-                            {t("org.agent.skills.copyFromDisabledHint")}
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
+                )}
+              </span>
+            );
+          })}
+          <button
+            type="button"
+            aria-label={t("org.agent.skills.manage")}
+            disabled={!online}
+            onClick={openPicker}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-md border px-2 py-1 font-mono text-2xs font-semibold",
+              online
+                ? "border-primary/30 bg-primary-soft text-primary-text"
+                : "cursor-not-allowed border-border text-muted-foreground",
             )}
-          </div>
-          {!online && (
-            <p className="font-mono text-2xs text-muted-foreground">
-              {t("org.agent.skills.offlineNote")}
-            </p>
+          >
+            + {t("org.agent.skills.manage")}
+          </button>
+          {props.copySources.length > 0 && (
+            <Popover open={copyOpen} onOpenChange={setCopyOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 font-mono text-2xs text-muted-foreground hover:bg-accent"
+                >
+                  <Copy className="size-3" aria-hidden="true" />
+                  {t("org.agent.skills.copyFrom")}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-2">
+                <p className="px-1 pb-1 font-mono text-2xs font-semibold text-muted-foreground">
+                  {t("org.agent.skills.copyFrom")}
+                </p>
+                <div className="flex flex-col gap-0.5">
+                  {props.copySources.map((src) => (
+                    <button
+                      type="button"
+                      key={src.index}
+                      disabled={!src.sameType}
+                      onClick={() => {
+                        props.onSkillsChange(src.skills);
+                        setCopyOpen(false);
+                      }}
+                      className={cn(
+                        "flex flex-col gap-0.5 rounded-sm px-1.5 py-1 text-left text-xs",
+                        src.sameType
+                          ? "hover:bg-accent"
+                          : "cursor-not-allowed opacity-40",
+                      )}
+                    >
+                      <span>{src.label}</span>
+                      {!src.sameType && (
+                        <span className="font-mono text-2xs text-muted-foreground">
+                          {t("org.agent.skills.copyFromDisabledHint")}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
           )}
-        </>
-      )}
+        </div>
+        {!online && (
+          <p className="font-mono text-2xs text-muted-foreground">
+            {t("org.agent.skills.offlineNote")}
+          </p>
+        )}
+      </div>
 
       <CapabilityPicker
         open={pickerOpen}

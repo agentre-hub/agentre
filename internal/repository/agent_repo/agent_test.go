@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 )
 
 func setupRepo(t *testing.T) (context.Context, sqlmock.Sqlmock, agent_repo.AgentRepo) {
@@ -87,19 +87,6 @@ func TestListByParent(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestListByBackend(t *testing.T) {
-	ctx, mock, repo := setupRepo(t)
-	mock.ExpectQuery("SELECT \\* FROM `agents` WHERE id IN \\(SELECT agent_id FROM agent_exec_targets WHERE agent_backend_id = \\?\\) AND status = \\?").
-		WithArgs(int64(3), consts.ACTIVE).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(11)))
-	expectExecTargetHydration(mock, int64(11))
-
-	rows, err := repo.ListByBackend(ctx, 3)
-	require.NoError(t, err)
-	assert.Len(t, rows, 1)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 func TestCountByBackends(t *testing.T) {
 	ctx, mock, repo := setupRepo(t)
 	mock.ExpectQuery("SELECT agent_exec_targets.agent_backend_id AS agent_backend_id, COUNT\\(DISTINCT agent_exec_targets.agent_id\\) AS cnt FROM `agent_exec_targets` JOIN agents ON agents.id = agent_exec_targets.agent_id WHERE agent_exec_targets.agent_backend_id IN \\(\\?,\\?\\) AND agents.status = \\? GROUP BY `agent_exec_targets`.`agent_backend_id`").
@@ -119,18 +106,6 @@ func TestCountByBackends_Empty(t *testing.T) {
 	counts, err := repo.CountByBackends(ctx, nil)
 	require.NoError(t, err)
 	assert.Empty(t, counts)
-}
-
-func TestUpdateDepartment(t *testing.T) {
-	ctx, mock, repo := setupRepo(t)
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `agents` SET `department_id`=\\?,`parent_agent_id`=\\?,`sort_order`=\\?").
-		WithArgs(int64(8), int64(0), 3, int64(42)).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
-
-	require.NoError(t, repo.UpdateDepartment(ctx, 42, 8, 3))
-	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestUpdatePlacement(t *testing.T) {
@@ -178,18 +153,6 @@ func TestClearLeadOfDepartment(t *testing.T) {
 	mock.ExpectCommit()
 
 	require.NoError(t, repo.ClearLeadOfDepartment(ctx, 42))
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestDeleteByDepartment(t *testing.T) {
-	ctx, mock, repo := setupRepo(t)
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `agents` SET `status`").
-		WithArgs(consts.DELETE, int64(7), consts.ACTIVE).
-		WillReturnResult(sqlmock.NewResult(0, 5))
-	mock.ExpectCommit()
-
-	require.NoError(t, repo.DeleteByDepartment(ctx, 7))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

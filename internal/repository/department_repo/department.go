@@ -11,7 +11,7 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
 )
 
 //go:generate mockgen -source department.go -destination mock_department_repo/mock_department.go
@@ -116,7 +116,7 @@ func (r *departmentRepo) NextSortOrder(ctx context.Context, parentID int64) (int
 }
 
 func (r *departmentRepo) ReorderSiblings(ctx context.Context, parentID int64, orderedIDs []int64) error {
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		for idx, id := range orderedIDs {
 			sortOrder := idx + 1

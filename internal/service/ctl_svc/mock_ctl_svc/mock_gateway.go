@@ -13,9 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	agent_entity "github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	chat_svc "github.com/agentre-ai/agentre/internal/service/chat_svc"
-	ctl_svc "github.com/agentre-ai/agentre/internal/service/ctl_svc"
+	agent_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	ctl_svc "github.com/agentre-hub/agentre/internal/service/ctl_svc"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -125,103 +124,4 @@ func (m *MockProjectGateway) List(ctx context.Context) ([]ctl_svc.ProjectInfo, e
 func (mr *MockProjectGatewayMockRecorder) List(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockProjectGateway)(nil).List), ctx)
-}
-
-// MockChatGateway is a mock of ChatGateway interface.
-type MockChatGateway struct {
-	ctrl     *gomock.Controller
-	recorder *MockChatGatewayMockRecorder
-	isgomock struct{}
-}
-
-// MockChatGatewayMockRecorder is the mock recorder for MockChatGateway.
-type MockChatGatewayMockRecorder struct {
-	mock *MockChatGateway
-}
-
-// NewMockChatGateway creates a new mock instance.
-func NewMockChatGateway(ctrl *gomock.Controller) *MockChatGateway {
-	mock := &MockChatGateway{ctrl: ctrl}
-	mock.recorder = &MockChatGatewayMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockChatGateway) EXPECT() *MockChatGatewayMockRecorder {
-	return m.recorder
-}
-
-// EnsureSession mocks base method.
-func (m *MockChatGateway) EnsureSession(ctx context.Context, req *chat_svc.EnsureSessionRequest) (*chat_svc.EnsureSessionResponse, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "EnsureSession", ctx, req)
-	ret0, _ := ret[0].(*chat_svc.EnsureSessionResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// EnsureSession indicates an expected call of EnsureSession.
-func (mr *MockChatGatewayMockRecorder) EnsureSession(ctx, req any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureSession", reflect.TypeOf((*MockChatGateway)(nil).EnsureSession), ctx, req)
-}
-
-// FinalAssistantText mocks base method.
-func (m *MockChatGateway) FinalAssistantText(ctx context.Context, messageID int64) (string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FinalAssistantText", ctx, messageID)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// FinalAssistantText indicates an expected call of FinalAssistantText.
-func (mr *MockChatGatewayMockRecorder) FinalAssistantText(ctx, messageID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinalAssistantText", reflect.TypeOf((*MockChatGateway)(nil).FinalAssistantText), ctx, messageID)
-}
-
-// ObserveTurn mocks base method.
-func (m *MockChatGateway) ObserveTurn(sessionID int64) (<-chan chat_svc.TurnResult, func()) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ObserveTurn", sessionID)
-	ret0, _ := ret[0].(<-chan chat_svc.TurnResult)
-	ret1, _ := ret[1].(func())
-	return ret0, ret1
-}
-
-// ObserveTurn indicates an expected call of ObserveTurn.
-func (mr *MockChatGatewayMockRecorder) ObserveTurn(sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ObserveTurn", reflect.TypeOf((*MockChatGateway)(nil).ObserveTurn), sessionID)
-}
-
-// Send mocks base method.
-func (m *MockChatGateway) Send(ctx context.Context, req *chat_svc.SendRequest) (*chat_svc.SendResponse, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Send", ctx, req)
-	ret0, _ := ret[0].(*chat_svc.SendResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Send indicates an expected call of Send.
-func (mr *MockChatGatewayMockRecorder) Send(ctx, req any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Send", reflect.TypeOf((*MockChatGateway)(nil).Send), ctx, req)
-}
-
-// Stop mocks base method.
-func (m *MockChatGateway) Stop(ctx context.Context, req *chat_svc.StopRequest) (*chat_svc.StopResponse, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Stop", ctx, req)
-	ret0, _ := ret[0].(*chat_svc.StopResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Stop indicates an expected call of Stop.
-func (mr *MockChatGatewayMockRecorder) Stop(ctx, req any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockChatGateway)(nil).Stop), ctx, req)
 }

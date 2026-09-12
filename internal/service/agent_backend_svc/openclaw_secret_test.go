@@ -13,10 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 type failingOpenClawKeychain struct {
@@ -231,13 +232,13 @@ func TestResolveOpenClawRuntimeConfig(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 		prevSvc := remote_device_svc.Default()
 		remote_device_svc.SetDefault(rds)
 		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
 
 		selfBackend := savedOpenClawBackend(99)
-		selfBackend.DeviceID = "sha256:self"
+		selfBackend.DeviceFingerprint = "sha256:self"
 		backendMock.EXPECT().Find(gomock.Any(), int64(99)).Return(selfBackend, nil)
 
 		config, err := svc.resolveOpenClawRuntimeConfig(ctx, 99)
@@ -272,7 +273,7 @@ func TestResolveOpenClawRuntimeConfig(t *testing.T) {
 		ctx, backendMock, _, _, _, svc := setupSvcTest(t)
 		svc.secrets = keychain.NewMemory()
 		remote := savedOpenClawBackend(97)
-		remote.DeviceID = "7"
+		remote.DeviceFingerprint = "7"
 		backendMock.EXPECT().Find(gomock.Any(), int64(97)).Return(remote, nil)
 
 		config, err := svc.resolveOpenClawRuntimeConfig(ctx, 97)

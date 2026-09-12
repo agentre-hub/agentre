@@ -35,12 +35,10 @@ type TerminalCloseParams struct {
 	CancelPendingOpen bool   `json:"cancelPendingOpen,omitempty"`
 }
 
-// TerminalDataEvent is the daemon→client push for stdout chunks. Data is
-// base64-encoded raw PTY bytes — not a UTF-8 string — so multibyte sequences
-// split across PTY reads survive the JSON hop instead of being mangled to U+FFFD.
+// TerminalDataEvent is the daemon→client push for raw stdout chunks.
 type TerminalDataEvent struct {
 	TerminalID string `json:"terminalId"`
-	Data       string `json:"data"`
+	Data       []byte `json:"data"`
 }
 
 // TerminalExitEvent — Reason is one of:

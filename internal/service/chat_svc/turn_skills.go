@@ -3,7 +3,7 @@ package chat_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 )
 
 // EnabledPluginsProvider 按「这一轮落到的那一档」给 turn 返回技能包覆盖 map(仅显式

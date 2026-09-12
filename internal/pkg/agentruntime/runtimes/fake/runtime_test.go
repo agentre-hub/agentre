@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 )
 
 func TestRun_EchoesPromptThenDone(t *testing.T) {
@@ -143,6 +143,37 @@ func TestRun_ReportsMissingSystemPromptNeedle(t *testing.T) {
 		}
 	}
 	assert.Contains(t, text, "e2e-system-missing:E2E_SYSTEM_SENTINEL")
+}
+
+func TestRun_ReportsWhetherCwdMatchesDirective(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		cwd      string
+		expected string
+	}{
+		{name: "when cwd matches, then reports the resolved project path", cwd: "/work/project", expected: "e2e-cwd-ok:/work/project"},
+		{name: "when cwd differs, then reports the actual runtime path", cwd: "/work/other", expected: "e2e-cwd-mismatch:/work/other"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			events, _, err := New().Run(ctx, agentruntime.RunRequest{
+				SessionID: 22,
+				UserText:  "e2e-assert-cwd:/work/project",
+				Cwd:       tc.cwd,
+			})
+			require.NoError(t, err)
+
+			var text string
+			for ev := range events {
+				if delta, ok := ev.(agentruntime.TextDelta); ok {
+					text += delta.Text
+				}
+			}
+			assert.Contains(t, text, tc.expected)
+		})
+	}
 }
 
 // e2e-ask:<question> → fake emit 一条未答的 UserAskRequest(带问题/选项)后 Done。

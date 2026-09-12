@@ -11,8 +11,8 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // TestHandleControlRequest_BypassExitPlanMode 回归「bypass 快照吞掉计划审批」:

@@ -14,7 +14,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 const (
@@ -153,6 +155,9 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 	defer c.removePending(id)
 
 	frame := requestFrame{Type: "req", ID: id, Method: method, Params: params}
+	if raw, marshalErr := json.Marshal(frame); marshalErr == nil {
+		logger.Default().Debug("openclawgateway.Client.Call: raw frame", zap.ByteString("frame", raw))
+	}
 	c.writeMu.Lock()
 	c.connMu.RLock()
 	current := c.conn
@@ -243,6 +248,9 @@ func (c *Client) readLoop(conn *websocket.Conn, lastSeq int64) error {
 		if err := conn.ReadJSON(&frame); err != nil {
 			return err
 		}
+		if raw, marshalErr := json.Marshal(frame); marshalErr == nil {
+			logger.Default().Debug("openclawgateway.Client.readLoop: raw frame", zap.ByteString("frame", raw))
+		}
 		switch frame.Type {
 		case "res":
 			c.routeResponse(frame)
@@ -286,6 +294,9 @@ func (c *Client) dialAndHandshake(ctx context.Context) (*websocket.Conn, Hello, 
 	var challenge gatewayFrame
 	if err := conn.ReadJSON(&challenge); err != nil {
 		return fail(fmt.Errorf("read openclaw connect challenge: %w", err))
+	}
+	if raw, marshalErr := json.Marshal(challenge); marshalErr == nil {
+		logger.Default().Debug("openclawgateway.Client.dialAndHandshake: raw frame", zap.ByteString("frame", raw))
 	}
 	if challenge.Type != "event" || challenge.Event != "connect.challenge" {
 		return fail(fmt.Errorf("openclaw gateway first frame is not connect.challenge"))
@@ -339,12 +350,19 @@ func (c *Client) dialAndHandshake(ctx context.Context) (*websocket.Conn, Hello, 
 	connectParams.Auth.Token = c.config.Token
 
 	requestID := fmt.Sprintf("agentre-connect-%d", c.nextID.Add(1))
-	if err := conn.WriteJSON(requestFrame{Type: "req", ID: requestID, Method: "connect", Params: connectParams}); err != nil {
+	connectFrame := requestFrame{Type: "req", ID: requestID, Method: "connect", Params: connectParams}
+	if raw, marshalErr := json.Marshal(connectFrame); marshalErr == nil {
+		logger.Default().Debug("openclawgateway.Client.dialAndHandshake: raw frame", zap.ByteString("frame", raw))
+	}
+	if err := conn.WriteJSON(connectFrame); err != nil {
 		return fail(fmt.Errorf("write openclaw connect request: %w", err))
 	}
 	var response gatewayFrame
 	if err := conn.ReadJSON(&response); err != nil {
 		return fail(fmt.Errorf("read openclaw connect response: %w", err))
+	}
+	if raw, marshalErr := json.Marshal(response); marshalErr == nil {
+		logger.Default().Debug("openclawgateway.Client.dialAndHandshake: raw frame", zap.ByteString("frame", raw))
 	}
 	if response.Type != "res" || response.ID != requestID {
 		return fail(fmt.Errorf("invalid openclaw connect response"))

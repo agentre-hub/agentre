@@ -3,7 +3,7 @@ package chat_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 )
 
 // PublishTurnResultForTest 仅供单测直接驱动 publish。

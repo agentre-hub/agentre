@@ -1,5 +1,7 @@
+import { isLocalCommandCollapsed } from "@agentre-hub/agentre-ui";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { useLocalCommandsStore, isCollapsed } from "../local-commands-store";
+
+import { useLocalCommandsStore } from "../local-commands-store";
 
 describe("useLocalCommandsStore", () => {
   beforeEach(() => useLocalCommandsStore.setState({ entries: {} }));
@@ -50,14 +52,16 @@ describe("useLocalCommandsStore", () => {
     spy.mockRestore();
   });
 
-  it("isCollapsed: running expanded by default, finished collapsed by default", () => {
+  it("isLocalCommandCollapsed: running expanded by default, finished collapsed by default", () => {
     const s = useLocalCommandsStore.getState();
     s.start({ id: "c1", sessionId: 1, command: "ls", createdAt: 1 });
-    expect(isCollapsed(useLocalCommandsStore.getState().get("c1")!)).toBe(
-      false,
-    );
+    expect(
+      isLocalCommandCollapsed(useLocalCommandsStore.getState().get("c1")!),
+    ).toBe(false);
     s.finish("c1", "done", 0);
-    expect(isCollapsed(useLocalCommandsStore.getState().get("c1")!)).toBe(true);
+    expect(
+      isLocalCommandCollapsed(useLocalCommandsStore.getState().get("c1")!),
+    ).toBe(true);
   });
 
   it("toggleExpanded flips the collapsed state and survives re-read", () => {
@@ -65,10 +69,12 @@ describe("useLocalCommandsStore", () => {
     s.start({ id: "c2", sessionId: 1, command: "ls", createdAt: 1 });
     s.finish("c2", "done", 0);
     s.toggleExpanded("c2"); // collapsed(true) → expanded
-    expect(isCollapsed(useLocalCommandsStore.getState().get("c2")!)).toBe(
-      false,
-    );
+    expect(
+      isLocalCommandCollapsed(useLocalCommandsStore.getState().get("c2")!),
+    ).toBe(false);
     s.toggleExpanded("c2"); // → collapsed again
-    expect(isCollapsed(useLocalCommandsStore.getState().get("c2")!)).toBe(true);
+    expect(
+      isLocalCommandCollapsed(useLocalCommandsStore.getState().get("c2")!),
+    ).toBe(true);
   });
 });

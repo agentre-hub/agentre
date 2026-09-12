@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/pkg/claudecode"
-	"github.com/agentre-ai/agentre/pkg/codex"
-	"github.com/agentre-ai/agentre/pkg/piagent"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/pkg/codex"
+	"github.com/agentre-hub/agentre/pkg/piagent"
 )
 
 func TestProbe_UnknownType(t *testing.T) {
@@ -65,12 +65,11 @@ func TestFormatCLIProberError(t *testing.T) {
 		assert.Contains(t, msg, "fatal: token revoked")
 	})
 
-	t.Run("piagent ExitError → 含 piagent 进程退出 + stderr", func(t *testing.T) {
-		err := &piagent.ExitError{Err: errors.New("killed"), Stderr: "fatal: pi auth expired"}
+	t.Run("piagent ExitError → 含 piagent 进程退出", func(t *testing.T) {
+		err := &piagent.ExitError{Err: errors.New("killed")}
 		msg, ok := formatCLIProberError(err)
 		require.True(t, ok)
 		assert.Contains(t, msg, "piagent 进程退出")
-		assert.Contains(t, msg, "fatal: pi auth expired")
 	})
 
 	t.Run("普通 error → 不识别为 CLI 错误，调用方应保留原 err", func(t *testing.T) {

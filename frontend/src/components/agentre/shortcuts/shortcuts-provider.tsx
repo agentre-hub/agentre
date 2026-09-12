@@ -1,6 +1,9 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 
+import type { IndexAxis } from "@/lib/session-axis";
+import { useSidebarAxisStore } from "@/stores/sidebar-axis-store";
+
 import type { DesktopPlatform } from "../chrome";
 
 import { findConflict, sameChord } from "./conflict";
@@ -28,11 +31,18 @@ import type {
 
 const NAV_PATHS: Record<string, string> = {
   "nav.chat": "/chat",
-  "nav.projects": "/projects",
+  // 「项目」合并进会话索引之后不再是一个页面，而是索引的一个分组维度：⌘D 落到
+  // 索引，再由下面的 NAV_AXES 把轴切过去。
+  "nav.projects": "/chat",
   "nav.issues": "/issues",
   "nav.org": "/org",
   "nav.hooks": "/hooks",
   "nav.settings": "/settings",
+};
+
+/** 落到索引后还要把分组维度切过去的导航动作。 */
+const NAV_AXES: Record<string, IndexAxis> = {
+  "nav.projects": "project",
 };
 
 // SessionScope —— 提供 ⌘1..9 历史侧边栏会话跳转的当前路由 scope。
@@ -183,6 +193,8 @@ export function ShortcutsProvider({
         return { matched: true, consumed: true };
       }
 
+      const axis = NAV_AXES[id];
+      if (axis) useSidebarAxisStore.getState().setAxis(axis);
       const path = NAV_PATHS[id];
       if (path) navigateRef.current(path);
       return { matched: true, consumed: true };

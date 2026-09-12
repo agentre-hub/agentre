@@ -1,0 +1,17 @@
+version: v2
+clean: true
+plugins:
+  # 生成的 Go 落在本 module 内：schema 与产物同住，pkg/wire 因此能自解释地回答「这份
+  # 协议长什么样」。module= 把 go_package 前缀从输出文件名里剥掉，使产物就是
+  # <out>/wire.pb.go；out 必须是只含生成物的目录，因为上面的 clean: true 会先清空它。
+  - remote: buf.build/protocolbuffers/go:v1.36.12
+    out: agentrewire
+    opt:
+      - module=github.com/agentre-hub/agentre/pkg/wire/agentrewire
+  # TS 侧是同一份 schema 的第二个消费方，生成物直接落进那个 npm 包的 src/gen。
+  # 跑这个模板需要 protoc-gen-es 在 PATH 上，因此入口是那个包的 `pnpm proto:generate`
+  # （pnpm 先把它的 node_modules/.bin 放进 PATH，再 cd 到这里跑 buf）。
+  - local: protoc-gen-es
+    out: ../../frontend/packages/agentre-wire/src/gen
+    opt:
+      - target=ts

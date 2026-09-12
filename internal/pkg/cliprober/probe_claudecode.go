@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // fixedTestPrompt 与 service/agent_backend_svc/agent_backend.go 中保持字面一致；

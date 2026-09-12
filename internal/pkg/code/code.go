@@ -24,12 +24,12 @@ const (
 	LLMProviderFetchModels                         // 拉取模型列表失败
 	LLMProviderDisabled                            // LLM 供应商已停用
 	LLMProviderNoEnabledDefault                    // 启用前必须设置属于该供应商的启用默认模型
-	LLMProviderReferenced                          // 供应商被 Backend/Session/Route 引用，不能删除
+	LLMProviderReferenced                          // 供应商被 Backend/Session/Route 引用，删除需二次确认
 	LLMProviderModelNotFound                       // 模型不存在
 	LLMProviderModelNotOwned                       // 模型不属于该供应商
 	LLMProviderModelDisabled                       // 模型已停用
 	LLMProviderModelIsDefault                      // 默认模型不能停用或删除，请先指定其它默认模型
-	LLMProviderModelReferenced                     // 模型被 Backend/Session/Route 引用，不能删除
+	LLMProviderModelReferenced                     // 模型被 Backend/Session/Route 引用，删除需二次确认
 	LLMProviderModelConfirmRequired                // 修改被引用模型的 model_id 需要二次确认
 	LLMProviderDefaultModelInvalid                 // 供应商未配置可用的默认模型
 	LLMProviderModelTargetInvalid                  // 固定模型目标已失效（Provider/模型缺失/停用/不兼容）
@@ -253,12 +253,13 @@ const (
 
 // Issue 18200~18999
 const (
-	IssueNotFound          = iota + 18200 // issue 不存在
-	IssueTitleRequired                    // issue 标题不能为空
-	IssueInvalidState                     // issue 状态非法
-	IssueLabelNameRequired                // 标签名不能为空
-	IssueLabelInvalidTone                 // 标签色调非法
-	IssueLabelNotFound                    // 引用的标签不存在
+	IssueNotFound            = iota + 18200 // issue 不存在
+	IssueTitleRequired                      // issue 标题不能为空
+	IssueInvalidState                       // issue 状态非法
+	IssueLabelNameRequired                  // 标签名不能为空
+	IssueLabelInvalidTone                   // 标签色调非法
+	IssueLabelNotFound                      // 引用的标签不存在
+	IssueLabelNameDuplicated                // 标签名已存在
 )
 
 // Server 接入 20300~20399
@@ -287,6 +288,10 @@ const (
 	RemoteDeviceTimeout          // RPC 超时（远端响应慢 / 卡死）
 	RemoteCLIDetectFailed        // 远端 cli.resolvePath 返回错（PATH 扫描失败等）
 	RemoteCLIProbeFailed         // 远端 cli.probe 返回错（CLI 子进程失败 / 验证失败等）
+	// RemoteDeviceProtocolUnsupported 远端根本不说 agentre 的 Protobuf 子协议
+	RemoteDeviceProtocolUnsupported
+	// RemoteDeviceProtocolVersionMismatch 远端说这套协议但版本对不上（含「没报版本」的更老 agentred）
+	RemoteDeviceProtocolVersionMismatch
 )
 
 // Remote Runner / 跨端审批 20500~
@@ -330,5 +335,38 @@ const (
 	WorkspaceFsReadFailed                      // 目录 / git 读取失败
 	WorkspaceFsBaselineRequired                // 「本分支」档缺少对比基线
 	WorkspaceFsDeviceOffline                   // 远端设备不在线 / pool borrow 失败
-	WorkspaceFsDaemonOutdated                  // 远端 agentred 不认识 workspacefs.* 方法族
+	WorkspaceFsNotFound                        // 目标文件在那台机器上不存在(仅 readFile 的远端分支产出,随即被翻成视图态)
+)
+
+// 导入本地会话(chat import)20900~
+const (
+	ChatImportBackendUnavailable     = iota + 20900 // 这台机器上没有这个后端的会话档案
+	ChatImportBackendMismatch                       // 选中的 Agent 后端与这条会话的后端不一致
+	ChatImportTranscriptOpenFailed                  // 转录打不开(文件已删或已损坏)
+	ChatImportTranscriptReplayFailed                // 转录回放失败
+	ChatImportTranscriptEmpty                       // 这条转录解不出任何一轮
+	ChatImportAgentNoBackend                        // 这个 Agent 还没配置后端
+	// 下面五条是**转录内的就地说明块**文案(不是错误):思维链 / 子代理内部过程 /
+	// 截断 / 未闭合工具调用 / 坏行。走 i18n.T 落进 NoticeBlock 的正文,同
+	// ChatExecTargetHint* 的用法。
+	ChatImportGapThinking
+	ChatImportGapSubagentInternals
+	ChatImportGapTruncated
+	ChatImportGapUnclosedToolCall
+	ChatImportGapUnparsableRecords
+	// 远端设备(agentred)那一半:三态里的两个非 ok 档各有各的出路。
+	ChatImportDeviceOffline // 远端设备此刻连不上 / 租约借不出来
+)
+
+// 设备端口转发(port forward)21000~
+//
+// 这一段是**声明族**(列举 / 新增 / 启停 / 删除)在桌面端这一侧的落点:设备侧
+// 用 rpcerror 的 -32070 段答复,服务层照码(不照文案)把它翻成这里的业务码,
+// 再由 internal/app/coded_error.go 写成 `agentre-code:<码>` 过 wails 桥。视图层
+// 因此分得开「等机器回来」与「把端口改一改」这两类完全不同的出路。
+const (
+	PortForwardDeviceOffline = iota + 21000 // 设备够不着(租约借不出 / 连接断了):列表出离线态,不出新增入口
+	PortForwardNotDeclared                  // 要改 / 要删的那条声明在设备上已经没有了(别的客户端刚删掉)
+	PortForwardPortTaken                    // 新增时这个端口在那台设备上已经声明过——用户改得动
+	PortForwardInvalidPort                  // 端口号不在 1..65535 内——用户改得动
 )

@@ -2,162 +2,50 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import {
-  Braces,
   CheckCircle2,
   KeyRound,
   Loader2,
-  MoreHorizontal,
-  Play,
   Plus,
-  Power,
-  PowerOff,
   Save,
-  Search,
   Terminal,
   Timer,
   Trash2,
   XCircle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
+  Badge,
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import {
+  Input,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+  Switch,
+  Textarea,
+} from "@agentre-hub/agentre-ui";
+
 import { cn } from "@/lib/utils";
 
-// ── Domain types (mirror wailsjs/go/models hook_svc.*) ───────────────────────
-
-type EnvVar = { key: string; value: string; secret: boolean };
-
-type InterpreterOption = { key: string; path: string; installed: boolean };
-
-type HookItem = {
-  id: number;
-  name: string;
-  interpreter: string;
-  interpreterPath: string;
-  command: string;
-  scheduleExpr: string;
-  timezone: string;
-  env: EnvVar[];
-  enabled: boolean;
-  nextRunAt: number;
-  lastRunAt: number;
-  lastStatus: string;
-  lastError: string;
-  lastDurationMs: number;
-  totalCount: number;
-  createtime: number;
-  updatetime: number;
-};
-
-type HookEventItem = {
-  id: number;
-  hookId: number;
-  kind: string; // "output" (script-produced) | "failure" (run-failure log)
-  title: string;
-  dedupeKey: string;
-  payloadJson: string;
-  receivedAt: number;
-  createtime: number;
-};
-
-type LoadHooksResponse = { hooks: HookItem[]; events: HookEventItem[] };
-
-type RunHookResult = {
-  exitCode: number;
-  durationMs: number;
-  timedOut: boolean;
-  stdout: string;
-  stderr: string;
-  parseError: string;
-  events: HookEventItem[];
-  newCount: number;
-  dupCount: number;
-  persisted: boolean;
-};
-
-type HookWriteRequest = {
-  name: string;
-  interpreter: string;
-  interpreterPath: string;
-  command: string;
-  scheduleExpr: string;
-  timezone: string;
-  env: EnvVar[];
-  enabled: boolean;
-};
-
-type HookBridge = {
-  LoadHooks: (req: {
-    hookId?: number;
-    limit?: number;
-  }) => Promise<LoadHooksResponse>;
-  CreateHook: (req: HookWriteRequest) => Promise<HookItem>;
-  UpdateHook: (req: HookWriteRequest & { id: number }) => Promise<HookItem>;
-  DeleteHook: (id: number) => Promise<void>;
-  ToggleHook: (id: number, enabled: boolean) => Promise<HookItem>;
-  RunHook: (req: { id: number; dryRun: boolean }) => Promise<RunHookResult>;
-  ProbeInterpreters: () => Promise<InterpreterOption[]>;
-};
-
-type Draft = {
-  id: number | null; // null = creating a new hook
-  name: string;
-  interpreter: string;
-  interpreterPath: string;
-  command: string;
-  scheduleExpr: string;
-  timezone: string;
-  env: EnvVar[];
-  enabled: boolean;
-};
-
-type FlashState = { kind: "ok" | "err"; text: string } | null;
-type HookTab = "script" | "runLog";
-type HookStatus = "ok" | "failed" | "running" | "disabled" | "idle";
-
-// ── Constants ────────────────────────────────────────────────────────────────
-
-// Secret env values come back from the backend as "********" and round-trip
-// unchanged through CreateHook/UpdateHook, where preserveSecrets keeps the
-// stored value — so the UI never needs the plaintext.
-
-const INTERP_META: Record<
-  string,
-  { abbrev: string; icon: LucideIcon; color: string }
-> = {
-  bash: { abbrev: "SH", icon: Terminal, color: "agent-8" },
-  sh: { abbrev: "SH", icon: Terminal, color: "agent-8" },
-  node: { abbrev: "JS", icon: Braces, color: "agent-1" },
-  python: { abbrev: "PY", icon: Terminal, color: "agent-4" },
-  pwsh: { abbrev: "PS7", icon: Terminal, color: "agent-3" },
-  powershell: { abbrev: "PS", icon: Terminal, color: "agent-5" },
-  cmd: { abbrev: "CMD", icon: Terminal, color: "agent-15" },
-};
+import {
+  formatRelativeTime,
+  runOk,
+  type Draft,
+  type EnvVar,
+  type HookEventItem,
+  type InterpreterOption,
+  type RunHookResult,
+} from "./hooks-page-model";
+import { HookDetailHeader } from "./hooks-page-header";
+import { HooksSidebar } from "./hooks-page-sidebar";
+import { useHooksPage } from "./use-hooks-page";
 
 const TZ_OPTIONS = [
   "Asia/Shanghai",
@@ -166,155 +54,6 @@ const TZ_OPTIONS = [
   "Europe/London",
   "Asia/Tokyo",
 ];
-
-function interpMeta(interpreter: string) {
-  return (
-    INTERP_META[interpreter] ?? {
-      abbrev: interpreter.toUpperCase(),
-      icon: Terminal,
-      color: "agent-15",
-    }
-  );
-}
-
-// ── Bridge to the Wails App bindings ─────────────────────────────────────────
-
-function getBridge() {
-  return (window as unknown as { go?: { app?: { App?: HookBridge } } }).go?.app
-    ?.App;
-}
-
-function getBridgeMethod<K extends keyof HookBridge>(name: K): HookBridge[K] {
-  const bridge = getBridge();
-  const method = bridge?.[name];
-  if (typeof method !== "function") {
-    throw new Error(`Wails method ${String(name)} is unavailable`);
-  }
-  return method.bind(bridge) as HookBridge[K];
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatRelativeTime(seconds: number, t: TFunction): string {
-  if (!seconds) return t("hooks.time.never");
-  const diff = Math.max(0, Math.floor(Date.now() / 1000) - seconds);
-  if (diff < 60) return t("hooks.time.secondsAgo", { count: diff });
-  if (diff < 3600)
-    return t("hooks.time.minutesAgo", { count: Math.floor(diff / 60) });
-  if (diff < 86400)
-    return t("hooks.time.hoursAgo", { count: Math.floor(diff / 3600) });
-  return t("hooks.time.daysAgo", { count: Math.floor(diff / 86400) });
-}
-
-function hookStatus(h: HookItem): HookStatus {
-  if (!h.enabled) return "disabled";
-  if (h.lastStatus === "failed") return "failed";
-  if (h.lastStatus === "running") return "running";
-  if (h.lastStatus === "ok") return "ok";
-  return "idle";
-}
-
-function draftFromHook(h: HookItem): Draft {
-  return {
-    id: h.id,
-    name: h.name,
-    interpreter: h.interpreter,
-    interpreterPath: h.interpreterPath ?? "",
-    command: h.command,
-    scheduleExpr: h.scheduleExpr,
-    timezone: h.timezone || "Asia/Shanghai",
-    env: (h.env ?? []).map((e) => ({ ...e })),
-    enabled: h.enabled,
-  };
-}
-
-function emptyDraft(t: TFunction): Draft {
-  return {
-    id: null,
-    name: t("hooks.create.defaultName"),
-    interpreter: "bash",
-    interpreterPath: "",
-    command: "",
-    scheduleExpr: "*/5 * * * *",
-    timezone: "Asia/Shanghai",
-    env: [],
-    enabled: true,
-  };
-}
-
-function hookMatchesQuery(h: HookItem, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-  return `${h.name} ${h.interpreter} ${h.scheduleExpr}`
-    .toLowerCase()
-    .includes(q);
-}
-
-function runOk(result: RunHookResult): boolean {
-  return result.exitCode === 0 && !result.parseError && !result.timedOut;
-}
-
-// ── Left list ────────────────────────────────────────────────────────────────
-
-function HookListItem({
-  hook,
-  selected,
-  onSelect,
-  t,
-}: {
-  hook: HookItem;
-  selected: boolean;
-  onSelect: () => void;
-  t: TFunction;
-}) {
-  const meta = interpMeta(hook.interpreter);
-  const Icon = meta.icon;
-  const status = hookStatus(hook);
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-current={selected ? "true" : undefined}
-      className={cn(
-        "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors",
-        selected
-          ? "border-l-2 border-primary bg-primary/5"
-          : "hover:bg-muted/60",
-      )}
-    >
-      <span
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white"
-        style={{ backgroundColor: `var(--color-${meta.color})` }}
-      >
-        <Icon className="h-[15px] w-[15px]" />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-xs font-semibold text-foreground">
-          {hook.name}
-        </span>
-        <span className="truncate font-mono text-[10px] text-muted-foreground">
-          {meta.abbrev} · {hook.scheduleExpr}
-        </span>
-      </span>
-      {status === "disabled" ? (
-        <span className="font-mono text-[10px] font-bold text-muted-foreground/70">
-          {t("hooks.list.disabled")}
-        </span>
-      ) : (
-        <span
-          className={cn(
-            "h-[7px] w-[7px] shrink-0 rounded-full",
-            status === "failed"
-              ? "bg-status-error"
-              : status === "idle"
-                ? "bg-muted-foreground/40"
-                : "bg-status-running",
-          )}
-        />
-      )}
-    </button>
-  );
-}
 
 // ── Run result (inline dry-run / run-now output) ─────────────────────────────
 
@@ -355,7 +94,7 @@ function RunResultCard({ result, t }: { result: RunHookResult; t: TFunction }) {
               : t("hooks.run.failed", { code: result.exitCode })}
         </span>
         <span className="flex-1" />
-        <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="font-mono text-3xs text-muted-foreground">
           {t("hooks.run.meta", {
             ms: result.durationMs,
             persist: result.persisted
@@ -380,12 +119,12 @@ function RunResultCard({ result, t }: { result: RunHookResult; t: TFunction }) {
         )}
         {result.stdout ? (
           <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="font-mono text-3xs text-muted-foreground">
               {t("hooks.run.stdout")}
             </span>
             <pre
               data-selectable-text="true"
-              className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-[11px] leading-relaxed text-code-muted-foreground"
+              className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-2xs leading-relaxed text-code-muted-foreground"
             >
               {result.stdout}
             </pre>
@@ -393,12 +132,12 @@ function RunResultCard({ result, t }: { result: RunHookResult; t: TFunction }) {
         ) : null}
         {result.stderr ? (
           <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="font-mono text-3xs text-muted-foreground">
               {t("hooks.run.stderr")}
             </span>
             <pre
               data-selectable-text="true"
-              className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-[11px] leading-relaxed text-status-error"
+              className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-2xs leading-relaxed text-status-error"
             >
               {result.stderr}
             </pre>
@@ -431,10 +170,10 @@ function SectionCard({
           <Icon className="h-4 w-4" />
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-[13px] font-semibold text-foreground">
+          <span className="text-aux font-semibold text-foreground">
             {title}
           </span>
-          <span className="font-mono text-[10px] text-muted-foreground">
+          <span className="font-mono text-3xs text-muted-foreground">
             {subtitle}
           </span>
         </span>
@@ -481,7 +220,7 @@ function ScriptTab({
       >
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-2xs text-muted-foreground">
               {t("hooks.trigger.cronLabel")}
             </span>
             <Input
@@ -494,7 +233,7 @@ function ScriptTab({
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-2xs text-muted-foreground">
               {t("hooks.trigger.interpreter")}
             </span>
             <Select
@@ -516,7 +255,7 @@ function ScriptTab({
                   >
                     {t(`hooks.interp.${opt.key}`)}
                     {!opt.installed && (
-                      <span className="ml-1.5 text-[10px] text-muted-foreground">
+                      <span className="ml-1.5 text-3xs text-muted-foreground">
                         {t("hooks.interp.notInstalled")}
                       </span>
                     )}
@@ -526,7 +265,7 @@ function ScriptTab({
             </Select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-2xs text-muted-foreground">
               {t("hooks.trigger.interpreterPath")}
             </span>
             <Input
@@ -546,7 +285,7 @@ function ScriptTab({
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-2xs text-muted-foreground">
               {t("hooks.trigger.timezone")}
             </span>
             <Select
@@ -577,7 +316,7 @@ function ScriptTab({
         subtitle={t("hooks.script.subtitle")}
       >
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-2xs text-muted-foreground">
             {t("hooks.script.name")}
           </span>
           <Input
@@ -606,7 +345,7 @@ function ScriptTab({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 font-mono text-[11px]"
+            className="h-7 font-mono text-2xs"
             onClick={() =>
               setEnv([...draft.env, { key: "", value: "", secret: false }])
             }
@@ -650,7 +389,7 @@ function ScriptTab({
                 aria-label={t("hooks.env.valuePlaceholder")}
                 className="flex-1 font-mono text-xs"
               />
-              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <label className="flex items-center gap-1.5 text-2xs text-muted-foreground">
                 <Switch
                   checked={row.secret}
                   onCheckedChange={(checked) =>
@@ -737,7 +476,7 @@ function RunLogTab({
                 {ev.title}
               </span>
             </span>
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="font-mono text-3xs text-muted-foreground">
               {t("hooks.log.receivedAt", {
                 time: formatRelativeTime(ev.receivedAt, t),
               })}
@@ -769,19 +508,19 @@ function RunLogTab({
               {selected.dedupeKey ? (
                 <span
                   data-selectable-text="true"
-                  className="font-mono text-[10px] text-muted-foreground"
+                  className="font-mono text-3xs text-muted-foreground"
                 >
                   {t("hooks.log.dedupeKey")}: {selected.dedupeKey}
                 </span>
               ) : null}
             </div>
             <div className="flex flex-col gap-1">
-              <span className="font-mono text-[10px] text-muted-foreground">
+              <span className="font-mono text-3xs text-muted-foreground">
                 {t("hooks.log.payload")}
               </span>
               <pre
                 data-selectable-text="true"
-                className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-[11px] leading-relaxed text-code-muted-foreground"
+                className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-2xs leading-relaxed text-code-muted-foreground"
               >
                 {selected.payloadJson}
               </pre>
@@ -801,206 +540,36 @@ function RunLogTab({
 
 export function HooksPage() {
   const { t } = useTranslation();
-  const [hooks, setHooks] = React.useState<HookItem[]>([]);
-  const [events, setEvents] = React.useState<HookEventItem[]>([]);
-  const [selectedId, setSelectedId] = React.useState<number | null>(null);
-  const [draft, setDraft] = React.useState<Draft | null>(null);
-  const [activeTab, setActiveTab] = React.useState<HookTab>("script");
-  const [loading, setLoading] = React.useState(true);
-  const [busy, setBusy] = React.useState(false);
-  const [running, setRunning] = React.useState(false);
-  const [flash, setFlash] = React.useState<FlashState>(null);
-  const [query, setQuery] = React.useState("");
-  const [runResult, setRunResult] = React.useState<RunHookResult | null>(null);
-  const [selectedEventId, setSelectedEventId] = React.useState<number | null>(
-    null,
-  );
-  const [deleteTarget, setDeleteTarget] = React.useState<HookItem | null>(null);
-  const [interpreters, setInterpreters] = React.useState<InterpreterOption[]>(
-    [],
-  );
-
-  const flashOk = React.useCallback(
-    (text: string) => setFlash({ kind: "ok", text }),
-    [],
-  );
-  const flashErr = React.useCallback(
-    (text: string) => setFlash({ kind: "err", text }),
-    [],
-  );
-
-  const loadEvents = React.useCallback(async (hookId: number) => {
-    try {
-      const resp = await getBridgeMethod("LoadHooks")({ hookId, limit: 50 });
-      setEvents(resp.events ?? []);
-      setSelectedEventId(resp.events?.[0]?.id ?? null);
-    } catch {
-      setEvents([]);
-    }
-  }, []);
-
-  const selectHook = React.useCallback(
-    (hook: HookItem) => {
-      setSelectedId(hook.id);
-      setDraft(draftFromHook(hook));
-      setRunResult(null);
-      void loadEvents(hook.id);
-    },
-    [loadEvents],
-  );
-
-  const reload = React.useCallback(
-    async (preferId?: number | null) => {
-      const resp = await getBridgeMethod("LoadHooks")({
-        hookId: 0,
-        limit: 100,
-      });
-      const list = resp.hooks ?? [];
-      setHooks(list);
-      const target = list.find((h) => h.id === preferId) ?? list[0] ?? null;
-      if (target) {
-        setSelectedId(target.id);
-        setDraft(draftFromHook(target));
-        void loadEvents(target.id);
-      } else {
-        setSelectedId(null);
-        setDraft(null);
-      }
-      return list;
-    },
-    [loadEvents],
-  );
-
-  React.useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const resp = await getBridgeMethod("LoadHooks")({
-          hookId: 0,
-          limit: 100,
-        });
-        if (!alive) return;
-        const list = resp.hooks ?? [];
-        setHooks(list);
-        if (list[0]) {
-          setSelectedId(list[0].id);
-          setDraft(draftFromHook(list[0]));
-          void loadEvents(list[0].id);
-        }
-      } catch {
-        if (alive) flashErr(t("hooks.flash.saveFailed", { error: "load" }));
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [loadEvents, flashErr, t]);
-
-  React.useEffect(() => {
-    getBridgeMethod("ProbeInterpreters")()
-      .then(setInterpreters)
-      .catch(() => setInterpreters([]));
-  }, []);
-
-  const startCreate = () => {
-    setSelectedId(null);
-    setDraft(emptyDraft(t));
-    setRunResult(null);
-    setActiveTab("script");
-  };
-
-  const save = async () => {
-    if (!draft) return;
-    const payload: HookWriteRequest = {
-      name: draft.name,
-      interpreter: draft.interpreter,
-      interpreterPath: draft.interpreterPath,
-      command: draft.command,
-      scheduleExpr: draft.scheduleExpr,
-      timezone: draft.timezone,
-      env: draft.env,
-      enabled: draft.enabled,
-    };
-    setBusy(true);
-    try {
-      let saved: HookItem;
-      if (draft.id == null) {
-        saved = await getBridgeMethod("CreateHook")(payload);
-        flashOk(t("hooks.flash.created", { name: saved.name }));
-      } else {
-        saved = await getBridgeMethod("UpdateHook")({
-          ...payload,
-          id: draft.id,
-        });
-        flashOk(t("hooks.flash.updated", { name: saved.name }));
-      }
-      await reload(saved.id);
-    } catch (err) {
-      flashErr(t("hooks.flash.saveFailed", { error: String(err) }));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggle = async (hook: HookItem) => {
-    setBusy(true);
-    try {
-      await getBridgeMethod("ToggleHook")(hook.id, !hook.enabled);
-      flashOk(
-        hook.enabled ? t("hooks.flash.disabled") : t("hooks.flash.enabled"),
-      );
-      await reload(hook.id);
-    } catch (err) {
-      flashErr(t("hooks.flash.saveFailed", { error: String(err) }));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    const target = deleteTarget;
-    setDeleteTarget(null);
-    setBusy(true);
-    try {
-      await getBridgeMethod("DeleteHook")(target.id);
-      flashOk(t("hooks.flash.deleted", { name: target.name }));
-      await reload(null);
-    } catch (err) {
-      flashErr(t("hooks.flash.saveFailed", { error: String(err) }));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const run = async () => {
-    if (selectedId == null) return;
-    setRunning(true);
-    try {
-      const result = await getBridgeMethod("RunHook")({
-        id: selectedId,
-        dryRun: true,
-      });
-      setRunResult(result);
-      if (!runOk(result))
-        flashErr(
-          t("hooks.flash.runFailed", {
-            error:
-              result.parseError || result.stderr || `exit ${result.exitCode}`,
-          }),
-        );
-    } catch (err) {
-      flashErr(t("hooks.flash.runFailed", { error: String(err) }));
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  const filtered = hooks.filter((h) => hookMatchesQuery(h, query));
-  const selectedHook = hooks.find((h) => h.id === selectedId) ?? null;
-  const headerMeta = draft ? interpMeta(draft.interpreter) : null;
+  const {
+    hooks,
+    events,
+    selectedId,
+    draft,
+    setDraft,
+    activeTab,
+    setActiveTab,
+    loading,
+    busy,
+    running,
+    flash,
+    query,
+    setQuery,
+    runResult,
+    selectedEventId,
+    setSelectedEventId,
+    deleteTarget,
+    setDeleteTarget,
+    interpreters,
+    filtered,
+    selectedHook,
+    headerMeta,
+    selectHook,
+    startCreate,
+    save,
+    toggle,
+    confirmDelete,
+    run,
+  } = useHooksPage();
 
   if (loading) {
     return (
@@ -1013,67 +582,16 @@ export function HooksPage() {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1">
-      {/* Left list */}
-      <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-sidebar">
-        <div className="flex flex-col gap-2.5 border-b border-border p-3.5">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground">
-              {t("hooks.title")}
-            </span>
-            <span className="font-mono text-[11px] text-muted-foreground">
-              {hooks.length}
-            </span>
-            <span className="flex-1" />
-            <Button
-              type="button"
-              size="icon"
-              className="h-6 w-6"
-              aria-label={t("hooks.list.addAria")}
-              data-testid="hook-create"
-              onClick={startCreate}
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-          <div className="flex items-center gap-2 rounded-md border border-input bg-input-bg px-2.5">
-            <Search className="h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("hooks.list.search")}
-              aria-label={t("hooks.list.search")}
-              className="h-8 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-            />
-          </div>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {filtered.length === 0 ? (
-            <div className="flex flex-col items-center gap-1 px-3 py-10 text-center">
-              <p className="text-xs text-muted-foreground">
-                {t("hooks.list.empty")}
-              </p>
-              <p className="text-[11px] text-muted-foreground/70">
-                {t("hooks.list.emptyHint")}
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-0.5">
-              <span className="px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase text-muted-foreground">
-                {t("hooks.list.groupScheduled")}
-              </span>
-              {filtered.map((hook) => (
-                <HookListItem
-                  key={hook.id}
-                  hook={hook}
-                  selected={hook.id === selectedId}
-                  onSelect={() => selectHook(hook)}
-                  t={t}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </aside>
+      <HooksSidebar
+        hooks={hooks}
+        filtered={filtered}
+        query={query}
+        selectedId={selectedId}
+        onQueryChange={setQuery}
+        onSelect={selectHook}
+        onCreate={startCreate}
+        t={t}
+      />
 
       {/* Main */}
       <main className="flex min-w-0 flex-1 flex-col">
@@ -1101,123 +619,18 @@ export function HooksPage() {
           </div>
         ) : (
           <>
-            {/* Header */}
-            <div className="flex flex-col gap-2.5 border-b border-border px-7 py-4">
-              <div className="flex items-center gap-3.5">
-                {headerMeta ? (
-                  <span
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white"
-                    style={{
-                      backgroundColor: `var(--color-${headerMeta.color})`,
-                    }}
-                  >
-                    <headerMeta.icon className="h-[18px] w-[18px]" />
-                  </span>
-                ) : null}
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-lg font-semibold text-foreground">
-                      {draft.name}
-                    </span>
-                    <span className="text-muted-foreground">·</span>
-                    <span className="text-[13px] font-medium text-muted-foreground">
-                      {t("hooks.header.kindLabel", {
-                        interp: t(`hooks.interp.${draft.interpreter}`),
-                      })}
-                    </span>
-                    {selectedHook ? (
-                      <Badge
-                        variant="secondary"
-                        className="font-mono text-[10px]"
-                      >
-                        {t(`hooks.status.${hookStatus(selectedHook)}`)}
-                      </Badge>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
-                    <span>{draft.scheduleExpr}</span>
-                    {selectedHook ? (
-                      <>
-                        <span>·</span>
-                        <span>
-                          {selectedHook.lastRunAt
-                            ? t("hooks.header.lastRun", {
-                                time: formatRelativeTime(
-                                  selectedHook.lastRunAt,
-                                  t,
-                                ),
-                              })
-                            : t("hooks.header.neverRun")}
-                        </span>
-                        <span>·</span>
-                        <span>
-                          {t("hooks.header.totalEvents", {
-                            count: selectedHook.totalCount,
-                          })}
-                        </span>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={run}
-                    disabled={running || selectedId == null}
-                  >
-                    {running ? (
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Play className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    {t("hooks.header.run")}
-                  </Button>
-                  {selectedHook ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => toggle(selectedHook)}
-                      disabled={busy}
-                    >
-                      {selectedHook.enabled ? (
-                        <PowerOff className="mr-1.5 h-3.5 w-3.5" />
-                      ) : (
-                        <Power className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      {selectedHook.enabled
-                        ? t("hooks.header.disable")
-                        : t("hooks.header.enable")}
-                    </Button>
-                  ) : null}
-                  {selectedHook ? (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8"
-                          aria-label={t("hooks.header.more")}
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          className="text-status-error"
-                          onClick={() => setDeleteTarget(selectedHook)}
-                        >
-                          <Trash2 className="mr-2 h-3.5 w-3.5" />
-                          {t("hooks.header.delete")}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ) : null}
-                </div>
-              </div>
-            </div>
+            <HookDetailHeader
+              draft={draft}
+              headerMeta={headerMeta}
+              selectedHook={selectedHook}
+              selectedId={selectedId}
+              running={running}
+              busy={busy}
+              onRun={run}
+              onToggle={toggle}
+              onDelete={setDeleteTarget}
+              t={t}
+            />
 
             {/* Tabs */}
             <div className="flex gap-1 border-b border-border px-7">
@@ -1229,7 +642,7 @@ export function HooksPage() {
                   aria-selected={activeTab === tab}
                   onClick={() => setActiveTab(tab)}
                   className={cn(
-                    "flex items-center gap-1.5 border-b-2 px-1.5 pb-2.5 pt-3 text-[13px] font-medium transition-colors",
+                    "flex items-center gap-1.5 border-b-2 px-1.5 pb-2.5 pt-3 text-aux font-medium transition-colors",
                     activeTab === tab
                       ? "border-primary text-foreground"
                       : "border-transparent text-muted-foreground",
@@ -1237,10 +650,7 @@ export function HooksPage() {
                 >
                   {t(`hooks.tabs.${tab}`)}
                   {tab === "runLog" && events.length > 0 ? (
-                    <Badge
-                      variant="secondary"
-                      className="font-mono text-[10px]"
-                    >
+                    <Badge variant="secondary" className="font-mono text-3xs">
                       {events.length}
                     </Badge>
                   ) : null}

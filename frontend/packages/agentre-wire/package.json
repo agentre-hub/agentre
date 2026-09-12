@@ -1,0 +1,35 @@
+{
+  "name": "@agentre-hub/agentre-wire",
+  "version": "0.5.0",
+  "description": "Agentre wire 协议的 TS 侧：从协议 module github.com/agentre-hub/agentre/pkg/wire 的 schema 生成的编解码与黄金样本",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./fixtures/*.json": "./fixtures/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "fixtures",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
+    "proto:generate": "cd ../../../pkg/wire && buf generate",
+    "proto:check": "cd ../../../pkg/wire && buf lint && buf breaking --against proto/baseline.binpb && buf generate && git diff --exit-code -- . ../../frontend/packages/agentre-wire/src/gen",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.14.0"
+  },
+  "devDependencies": {
+    "@bufbuild/protobuf": "2.14.0",
+    "@bufbuild/buf": "1.72.0",
+    "@bufbuild/protoc-gen-es": "2.14.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.1"
+  }
+}

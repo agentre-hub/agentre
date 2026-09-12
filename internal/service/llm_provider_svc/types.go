@@ -55,7 +55,8 @@ type ModelItem struct {
 }
 
 // ReferenceCounts 一个 Provider / Model 被 Backend / Session / Route 引用的影响计数。
-// 修改默认模型、编辑被引用 Model 的 ModelID 前，前端先展示该计数再二次确认。
+// 修改默认模型、编辑被引用 Model 的 ModelID、删除被引用的 Provider / Model 前，
+// 前端先展示该计数再二次确认。
 type ReferenceCounts struct {
 	Backends int64 `json:"backends"`
 	Sessions int64 `json:"sessions"`
@@ -137,9 +138,11 @@ type SetProviderEnabledResponse struct {
 	Item *ProviderItem `json:"item"`
 }
 
-// DeleteProviderRequest 软删除供应商（被引用时拒绝）。
+// DeleteProviderRequest 软删除供应商。被 Backend / Session / Route 引用时需要
+// ConfirmReference=true —— 引用不阻止删除，只要求调用方先看过影响。
 type DeleteProviderRequest struct {
-	ID int64 `json:"id" binding:"required"`
+	ID               int64 `json:"id" binding:"required"`
+	ConfirmReference bool  `json:"confirmReference"`
 }
 
 // DeleteProviderResponse 占位返回。
@@ -219,9 +222,11 @@ type SetModelEnabledResponse struct {
 	Item *ModelItem `json:"item"`
 }
 
-// DeleteModelRequest 软删除一个模型（默认或被引用模型拒绝）。
+// DeleteModelRequest 软删除一个模型。默认模型始终拒绝；被引用时需要
+// ConfirmReference=true —— 引用不阻止删除，只要求调用方先看过影响。
 type DeleteModelRequest struct {
-	ID int64 `json:"id" binding:"required"`
+	ID               int64 `json:"id" binding:"required"`
+	ConfirmReference bool  `json:"confirmReference"`
 }
 
 // DeleteModelResponse 占位返回。

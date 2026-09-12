@@ -6,15 +6,15 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
-func newPreToolUse(toolUseID, name, input string) claudecode.Event {
+func newPreToolUse(toolCallID, name, input string) claudecode.Event {
 	return claudecode.Event{
 		Kind: claudecode.EventPreToolUse,
 		Tool: &claudecode.ToolEvent{
-			ID:    toolUseID,
+			ID:    toolCallID,
 			Name:  name,
 			Input: json.RawMessage(input),
 		},
@@ -26,11 +26,11 @@ func newPreToolUse(toolUseID, name, input string) claudecode.Event {
 // 早期 helper 会塞一个 name 进来,导致聚合器单测看起来过了,但生产里所有
 // PostToolUse 的 Name=="",task_aggregator 按 Name 过滤就把 TaskCreate 的真实
 // task.id 全吃掉了。helper 不再接受 name 参数,强制和 SDK 对齐。
-func newPostToolUse(toolUseID, resultMeta string) claudecode.Event {
+func newPostToolUse(toolCallID, resultMeta string) claudecode.Event {
 	return claudecode.Event{
 		Kind: claudecode.EventPostToolUse,
 		Tool: &claudecode.ToolEvent{
-			ID:         toolUseID,
+			ID:         toolCallID,
 			ResultMeta: json.RawMessage(resultMeta),
 		},
 	}
@@ -144,7 +144,7 @@ func TestTaskAggregator_IgnoresOtherTools(t *testing.T) {
 		So(ta.observePreToolUse(newPreToolUse(
 			"tu-x", "TodoWrite", `{"todos":[]}`,
 		)), ShouldBeNil)
-		// PostToolUse 的 Tool.Name 在 SDK 里恒为空,聚合器靠"toolUseID 是否在
+		// PostToolUse 的 Tool.Name 在 SDK 里恒为空,聚合器靠"toolCallID 是否在
 		// pending"识别 TaskCreate 的回结果。这里的 tu-y 没经过 TaskCreate Pre
 		// 阶段(Bash 之类的普通工具走 translator),pending 里没有 → 丢弃,
 		// 即便 meta 里硬塞了 task.id 也不入列表。

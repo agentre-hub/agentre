@@ -34,6 +34,9 @@ export type ChatStreamEvent = {
   kind:
     | "chunk"
     | "thinking"
+    // output_activity 是纯计时信号（模型开始产出一个输出块，含工具入参这类看不见
+    // 的输出），不带任何载荷，只用来记首 token。
+    | "output_activity"
     | "tool_use"
     | "tool_result"
     | "steer_consumed"

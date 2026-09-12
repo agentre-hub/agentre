@@ -34,7 +34,7 @@ import (
 const (
 	// githubRepo agentre 的 GitHub 仓库路径（owner/name）。
 	// 若仓库迁移需同步修改 release.yml 里的 gh api 路径。
-	githubRepo = "agentre-ai/agentre"
+	githubRepo = "agentre-hub/agentre"
 	apiBaseURL = "https://api.github.com/repos/" + githubRepo
 
 	// ChannelStable 稳定版更新通道
@@ -890,8 +890,11 @@ func parseChecksums(content string) map[string]string {
 	return result
 }
 
-// FetchChecksums 从 release assets 下载并解析 SHA256SUMS.txt
-// 如果 release 中没有 SHA256SUMS.txt，返回 nil（跳过校验，兼容旧版本 release）
+// FetchChecksums 从 release assets 下载并解析 SHA256SUMS.txt。
+//
+// 缺这个资产是错误而不是「跳过校验」:调用方拿到 nil 校验表就不校验,于是一个没带
+// 校验文件的 release 会被无声地装上去。跳过校验只能是用户看到 ChecksumFetchError
+// 之后显式按下的那一下(skipChecksum),不是这里替他做的默认。
 func FetchChecksums(assets []ReleaseAsset) (map[string]string, error) {
 	var checksumURL string
 	for _, asset := range assets {
@@ -901,7 +904,7 @@ func FetchChecksums(assets []ReleaseAsset) (map[string]string, error) {
 		}
 	}
 	if checksumURL == "" {
-		return nil, nil
+		return nil, errors.New("release 里没有 SHA256SUMS.txt")
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}

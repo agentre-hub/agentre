@@ -1,0 +1,25 @@
+// `agentreUi` remains one i18next namespace. These files are physical domain
+// modules only, so callers keep using the existing keys without a module prefix.
+import chat from "./chat.json";
+import common from "./common.json";
+import filePreview from "./file-preview.json";
+import llm from "./llm.json";
+import onboarding from "./onboarding.json";
+import org from "./org.json";
+import portForward from "./port-forward.json";
+import projects from "./projects.json";
+import session from "./session.json";
+import transcript from "./transcript.json";
+
+export default {
+  ...chat,
+  ...common,
+  ...filePreview,
+  ...llm,
+  ...onboarding,
+  ...org,
+  ...portForward,
+  ...projects,
+  ...session,
+  ...transcript,
+};

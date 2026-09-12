@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 )
 
 func TestAgentCheck(t *testing.T) {
@@ -61,6 +63,21 @@ func TestAgentHelpers(t *testing.T) {
 	assert.True(t, (&Agent{Status: 1}).IsActive())
 	assert.True(t, (&Agent{SystemBadge: "DEFAULT"}).IsSystem())
 	assert.False(t, (&Agent{}).IsSystem())
+}
+
+func TestAgentEnsureSyncID(t *testing.T) {
+	t.Run("默认 CEO 使用固定同步身份", func(t *testing.T) {
+		a := &Agent{SystemBadge: SystemBadgeDefault, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "random-id"}}
+		a.EnsureSyncID()
+		assert.Equal(t, DefaultAgentSyncID, a.SyncID)
+	})
+
+	t.Run("普通 Agent 仍生成独立同步身份", func(t *testing.T) {
+		a := &Agent{}
+		a.EnsureSyncID()
+		assert.NotEmpty(t, a.SyncID)
+		assert.NotEqual(t, DefaultAgentSyncID, a.SyncID)
+	})
 }
 
 func TestAgent_PinnedField(t *testing.T) {

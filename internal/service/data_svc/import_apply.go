@@ -14,18 +14,20 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/department_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ApplyImport 按 actions 写入,整批事务。
@@ -473,7 +475,7 @@ func applyAgentBackends(ctx context.Context, b BundleV1, actions map[string]Item
 	return nil
 }
 
-func importBackendDeviceID(ctx context.Context, bk BundleAgentBackend, km *keyMap, deviceRefs *deviceRefResolver) (string, error) {
+func importBackendDeviceID(ctx context.Context, bk BundleAgentBackend, km *keyMap, deviceRefs *deviceRefResolver) (devicefp.Carrier, error) {
 	if bk.DeviceID == "" {
 		return "", nil
 	}
@@ -485,10 +487,13 @@ func importBackendDeviceID(ctx context.Context, bk BundleAgentBackend, km *keyMa
 	if !ok {
 		return "", i18n.NewError(ctx, code.DataImportDanglingRef)
 	}
-	return strconv.FormatInt(id, 10), nil
+	// 注意：这里回的是 paired_agentreds 的**数字 id**，却会被写进 device_fingerprint
+	// 列。这不是指纹（就是 be367651 那一类的键混用），行为照旧不动；export 侧的
+	// deviceUUIDByRowID 与它配对，只认得这种老值。
+	return devicefp.Carrier(strconv.FormatInt(id, 10)), nil
 }
 
-func newBackendEntity(bk BundleAgentBackend, now int64, deviceID string) (*agent_backend_entity.AgentBackend, error) {
+func newBackendEntity(bk BundleAgentBackend, now int64, deviceID devicefp.Carrier) (*agent_backend_entity.AgentBackend, error) {
 	modelRoutes, err := marshalBundleRoutes(bk.ModelRoutes)
 	if err != nil {
 		return nil, err
@@ -498,7 +503,7 @@ func newBackendEntity(bk BundleAgentBackend, now int64, deviceID string) (*agent
 		Name:                  bk.Name,
 		LLMProviderKey:        bk.LLMProviderKey,
 		LLMModelKey:           bk.LLMModelKey,
-		DeviceID:              deviceID,
+		DeviceFingerprint:     deviceID,
 		CLIPath:               bk.CLIPath,
 		ModelRoutes:           modelRoutes,
 		Sandbox:               bk.Sandbox,
@@ -512,7 +517,7 @@ func newBackendEntity(bk BundleAgentBackend, now int64, deviceID string) (*agent
 	}, nil
 }
 
-func assignBackendFields(ctx context.Context, local *agent_backend_entity.AgentBackend, bk BundleAgentBackend, now int64, deviceID string) error {
+func assignBackendFields(ctx context.Context, local *agent_backend_entity.AgentBackend, bk BundleAgentBackend, now int64, deviceID devicefp.Carrier) error {
 	modelRoutes, err := marshalBundleRoutes(bk.ModelRoutes)
 	if err != nil {
 		return i18n.NewError(ctx, code.DataBundleFormatInvalid)
@@ -521,7 +526,7 @@ func assignBackendFields(ctx context.Context, local *agent_backend_entity.AgentB
 	local.Name = bk.Name
 	local.LLMProviderKey = bk.LLMProviderKey
 	local.LLMModelKey = bk.LLMModelKey
-	local.DeviceID = deviceID
+	local.DeviceFingerprint = deviceID
 	local.CLIPath = bk.CLIPath
 	local.ModelRoutes = modelRoutes
 	local.Sandbox = bk.Sandbox
@@ -681,9 +686,8 @@ func applyAgents(ctx context.Context, b BundleV1, actions map[string]ItemAction,
 		if a.DepartmentKey != "" {
 			deptID = km.depts[a.DepartmentKey]
 		}
-		// 执行目标列表是导入侧唯一的真相来源（R15f）：新 bundle 直接用 execTargets
-		// 数组，老 bundle（整个没有这个 key）才回落到 agentBackendKey + skillsJSON 的
-		// 单元素转换。agents 行上的 AgentBackendID/SkillsJSON 两个保留列只作为 ① 的
+		// 执行目标列表是导入侧唯一的真相来源（R15f）。agents 行上的
+		// AgentBackendID/SkillsJSON 两个保留列只作为 ① 的
 		// 镜像写入（与 agent_svc.Update 同一条约定），不参与任何决策。
 		targets := execTargetsFromBundle(a, km)
 		primaryBackendID, primarySkills := primaryTargetMirror(targets)
@@ -813,21 +817,8 @@ func applyAgents(ctx context.Context, b BundleV1, actions map[string]ItemAction,
 }
 
 // execTargetsFromBundle 给出这个 Agent 待写入的完整执行目标列表(下标即 sort_order)。
-// BackendKey 通过 keymap 解析成本地 backend id(与遗留 AgentBackendKey 现有的
-// 非强校验风格一致——解不出来退化成 0,不在这里报错)。
-//
-// execTargets 数组存在时(哪怕是显式空数组),agentBackendKey / skillsJSON 这两个
-// 遗留字段不再被读取(R15f 守卫);整个数组不存在才是老 bundle,按 agentBackendKey +
-// skillsJSON 落成单元素列表(agentBackendKey 为空则是空列表),这一步与迁移、与仓储
-// 的单档写入共用 agent_entity.PrimaryExecTargets 同一份转换。
+// BackendKey 通过 keymap 解析成本地 backend id；解不出来退化成 0。
 func execTargetsFromBundle(a BundleAgent, km *keyMap) []*agent_entity.AgentExecTarget {
-	if a.ExecTargets == nil {
-		backendID := int64(0)
-		if a.AgentBackendKey != "" {
-			backendID = km.backends[a.AgentBackendKey]
-		}
-		return agent_entity.PrimaryExecTargets(backendID, a.SkillsJSON)
-	}
 	ordered := append([]BundleExecTarget(nil), a.ExecTargets...)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].SortOrder < ordered[j].SortOrder })
 

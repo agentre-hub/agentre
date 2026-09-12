@@ -10,23 +10,24 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/agents/provider"
 	"github.com/cago-frame/agents/provider/providertest"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 // peerRunAdapter 是从 web 把新对话派到这台桌面端上（R17）的入口形状：runtime.run
@@ -43,6 +44,7 @@ type peerRunAdapter interface {
 // path, returning the newly created session id — the browser then follows that id.
 func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRunsFirstTurn(t *testing.T) {
 	m := setupChatTest(t)
+	wirePeerConversations(t, m.session, 41)
 	ctx := m.ctx
 
 	ctrl := gomock.NewController(t)
@@ -65,12 +67,11 @@ func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRun
 	project_repo.RegisterProjectAgent(projAgentMock)
 	t.Cleanup(func() { project_repo.RegisterProjectAgent(prevProjAgent) })
 
-	const cwd = "/Users/wyz/agentre-server"
+	const cwd = "/Users/me/agentre-server"
 	proj := &project_entity.Project{ID: 5, Name: "agentre-server", Path: cwd, Status: consts.ACTIVE}
 	projMock.EXPECT().List(ctx).Return([]*project_entity.Project{proj}, nil)
 
 	// 对端点的是一条桌面端上还不存在的会话（全新会话 id）→ RunPeerSession 走建会话分支。
-	m.session.EXPECT().Find(gomock.Any(), int64(90001)).Return(nil, nil)
 
 	// send（SessionID=0）内部：解析 agent → backend → provider。
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
@@ -105,6 +106,10 @@ func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRun
 	t.Cleanup(chat_svc.ResetProviderBuilderForTest)
 
 	// send（SessionID=0）内部：resolveProjectContext 校验项目 + agent 成员。
+	projMock.EXPECT().Find(gomock.Any(), int64(5)).Return(proj, nil)
+	// 第二次是 buildRunRequest 取项目的同步标识——远端一轮要带着它，好让对端把项目
+	// 记进自己的会话行。刻意不与上面那次合并：resolveProjectContext 只在 SessionID=0
+	// 的首轮跑，而续轮同样要报项目，合并会让续轮报空。
 	projMock.EXPECT().Find(gomock.Any(), int64(5)).Return(proj, nil)
 	projAgentMock.EXPECT().ListByProjects(gomock.Any(), []int64{5}).
 		Return(map[int64][]*project_entity.ProjectAgent{5: {{ProjectID: 5, AgentID: 7}}}, nil)
@@ -147,7 +152,7 @@ func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRun
 	adapter, ok := m.svc.(peerRunAdapter)
 	require.True(t, ok, "chatSvc must implement the peer run adapter")
 	resp, err := adapter.RunPeerSession(ctx, wire.RunParams{
-		SessionID:      90001,
+		ConversationID: convID(90001),
 		AgentSyncID:    "01HXAGENTIDENTITY0000000000",
 		Cwd:            cwd,
 		Title:          "帮我看看这个项目",
@@ -179,6 +184,7 @@ func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRun
 // creating a phantom session or silently running in a wrong directory.
 func TestRunPeerSession_GivenCwdMatchesNoLocalProject_ThenRejectsWithoutCreatingSession(t *testing.T) {
 	m := setupChatTest(t)
+	wirePeerConversations(t, m.session, 41)
 	ctx := m.ctx
 
 	ctrl := gomock.NewController(t)
@@ -197,18 +203,16 @@ func TestRunPeerSession_GivenCwdMatchesNoLocalProject_ThenRejectsWithoutCreating
 	t.Cleanup(func() { project_repo.RegisterProject(prevProj) })
 	// 本机项目行里没有 /Users/old/removed 这条路径（项目刚被删/改路径）。
 	projMock.EXPECT().List(ctx).Return([]*project_entity.Project{
-		{ID: 5, Name: "agentre-server", Path: "/Users/wyz/agentre-server", Status: consts.ACTIVE},
+		{ID: 5, Name: "agentre-server", Path: "/Users/me/agentre-server", Status: consts.ACTIVE},
 	}, nil)
-
-	m.session.EXPECT().Find(gomock.Any(), int64(90003)).Return(nil, nil)
 
 	adapter, ok := m.svc.(peerRunAdapter)
 	require.True(t, ok)
 	_, err := adapter.RunPeerSession(ctx, wire.RunParams{
-		SessionID:   90003,
-		AgentSyncID: "01HXAGENTIDENTITY0000000000",
-		Cwd:         "/Users/old/removed",
-		UserText:    "hi",
+		ConversationID: convID(90003),
+		AgentSyncID:    "01HXAGENTIDENTITY0000000000",
+		Cwd:            "/Users/old/removed",
+		UserText:       "hi",
 	}, chat_svc.PeerSessionSource{Device: "fp-web", Name: "Chrome"})
 	require.ErrorIs(t, err, chat_svc.ErrPeerProjectNotFound)
 }
@@ -220,6 +224,7 @@ func TestRunPeerSession_GivenCwdMatchesNoLocalProject_ThenRejectsWithoutCreating
 // fresh-session creation would fail the mock).
 func TestRunPeerSession_GivenExistingSession_ThenContinuesThatSession(t *testing.T) {
 	m := setupChatTest(t)
+	wirePeerConversations(t, m.session, 41)
 	ctx := m.ctx
 
 	runner := &recordingRunner{requests: make(chan agentruntime.RunRequest, 1)}
@@ -264,8 +269,8 @@ func TestRunPeerSession_GivenExistingSession_ThenContinuesThatSession(t *testing
 	adapter, ok := m.svc.(peerRunAdapter)
 	require.True(t, ok)
 	resp, err := adapter.RunPeerSession(ctx, wire.RunParams{
-		SessionID: 41,
-		UserText:  "再帮我看看",
+		ConversationID: convID(41),
+		UserText:       "再帮我看看",
 	}, chat_svc.PeerSessionSource{Device: "fp-web", Name: "Chrome · macOS"})
 	require.NoError(t, err)
 	assert.Equal(t, int64(41), resp.SessionID)
@@ -285,6 +290,7 @@ func TestRunPeerSession_GivenExistingSession_ThenContinuesThatSession(t *testing
 // session is created and no silent fallback to another agent happens.
 func TestRunPeerSession_GivenUnknownAgentSyncId_ThenRejectsWithoutCreatingSession(t *testing.T) {
 	m := setupChatTest(t)
+	wirePeerConversations(t, m.session, 41)
 	ctx := m.ctx
 
 	ctrl := gomock.NewController(t)
@@ -298,16 +304,274 @@ func TestRunPeerSession_GivenUnknownAgentSyncId_ThenRejectsWithoutCreatingSessio
 		Return(int64(0), nil)
 
 	// 会话不存在 → 走建会话分支；解析不出 agent → 拒绝。
-	m.session.EXPECT().Find(gomock.Any(), int64(90002)).Return(nil, nil)
 
 	// 解析不出 agent：不得创建会话行、不得发起任何轮次。一旦误建了会话，gomock
 	// 会因 session.Create / agent.Find 未设期望直接判失败。
 	adapter, ok := m.svc.(peerRunAdapter)
 	require.True(t, ok)
 	_, err := adapter.RunPeerSession(ctx, wire.RunParams{
-		SessionID:   90002,
-		AgentSyncID: "sync-id-not-here",
-		UserText:    "hi",
+		ConversationID: convID(90002),
+		AgentSyncID:    "sync-id-not-here",
+		UserText:       "hi",
 	}, chat_svc.PeerSessionSource{Device: "fp-web", Name: "Chrome"})
 	require.Error(t, err)
+}
+
+// Given 对端把一条新对话派到这台桌面端上并带着草稿态选中的思考力度，When 这台机器
+// 建出会话行，Then 那一档钉在**这条会话自己**的那一列上（与 LLMProviderKey /
+// LLMModelKey 同一条规则，spec 2026-09-01「新建会话」）。
+//
+// 空串是有含义的取值：对端什么都没选时这一列留空 = 跟随后端配置，绝不把后端配的
+// 档位写成「这条会话自己选的」——那会让此后改后端配置对它失效。
+func TestRunPeerSession_GivenFreshDispatchReasoningEffort_ThenPinsItOnTheCreatedRow(t *testing.T) {
+	cases := []struct {
+		name      string
+		dispatch  string
+		wantOnRow string
+	}{
+		{name: "dispatch carries a level", dispatch: "xhigh", wantOnRow: "xhigh"},
+		{name: "dispatch carries nothing", dispatch: "", wantOnRow: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := setupChatTest(t)
+			wirePeerConversations(t, m.session, 41)
+			ctx := m.ctx
+
+			ctrl := gomock.NewController(t)
+			t.Cleanup(ctrl.Finish)
+			syncMock := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+			prevSync := syncstate_repo.SyncState()
+			syncstate_repo.RegisterSyncState(syncMock)
+			t.Cleanup(func() { syncstate_repo.RegisterSyncState(prevSync) })
+			syncMock.EXPECT().FindLocalID(ctx, syncwire.KindAgent, "01HXAGENTIDENTITY0000000000").
+				Return(int64(7), nil)
+
+			runner := &recordingRunner{requests: make(chan agentruntime.RunRequest, 1)}
+			restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, runner)
+			t.Cleanup(restore)
+
+			m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(newBuiltinAgent(7, 12), nil)
+			// 后端自己配着 medium：会话行仍只记「这条会话自己的选择」，不抄后端那一格。
+			m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+				ID: 12, Type: string(agent_backend_entity.TypeBuiltin), LLMProviderKey: "key-21",
+				ReasoningEffort: "medium", Status: consts.ACTIVE,
+			}, nil)
+			expectResolvableProvider(m, "key-21", string(llm_provider_entity.TypeAnthropic))
+
+			var created *chat_entity.Session
+			m.session.EXPECT().Create(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, s *chat_entity.Session) error {
+					created = s
+					s.ID = 100
+					return nil
+				})
+			expectFirstTurnWrites(m, 100)
+
+			adapter, ok := m.svc.(peerRunAdapter)
+			require.True(t, ok, "chatSvc must implement the peer run adapter")
+			resp, err := adapter.RunPeerSession(ctx, wire.RunParams{
+				ConversationID:  convID(90002),
+				AgentSyncID:     "01HXAGENTIDENTITY0000000000",
+				Title:           "hi",
+				UserText:        "hi",
+				ReasoningEffort: tc.dispatch,
+				SourceDevice:    "fp-peer-desktop",
+			}, chat_svc.PeerSessionSource{Device: "fp-peer-desktop", Name: "Peer Desktop"})
+			require.NoError(t, err)
+			chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
+
+			require.NotNil(t, created)
+			assert.Equal(t, tc.wantOnRow, created.ReasoningEffort,
+				"派过来的档位必须钉在建出的这条会话行上，空则留空（跟随后端配置）")
+		})
+	}
+}
+
+// peerRunUserText 是下面这一族用例发的那句话。
+const peerRunUserText = "这张图里是什么"
+
+// Given 对端在 runtime.run 里带上附件(userBlocks);
+// When  这台桌面端**做宿主**接下这一轮;
+// Then  附件既落进它转录里的那一行用户消息,也随这一轮送去执行 ——
+//
+//	此前 RunPeerSession 只把 params.UserText 交给 send,UserBlocks 整个丢掉:
+//	那一侧的图既不落转录,也不进模型(spec 2026-09-07-host-transcript-user-input 决策 3)。
+//
+// 这一格的两个真实调用方填法不同,两种都要试:浏览器控制台只放图
+// (agentre-server 的 useSessionSend.encodeUserBlocks),而桌面端派过来的是那条用户
+// 消息的**全部**块(chat_svc.buildRunRequest),里面已经含着与 userText 同一句话的
+// 文本块 —— 后一种若把两者直接相加,同一句话就会落成两个文本块。
+func TestRunPeerSession_GivenUserBlocks_ThenAttachmentsLandInTheTranscriptAndReachTheModel(t *testing.T) {
+	image := blocks.ImageBlock{MediaType: "image/png", Source: blocks.BlobSource{Inline: []byte("PNGDATA")}}
+	for _, tc := range []struct {
+		name string
+		sent []blocks.ContentBlock
+	}{
+		{name: "浏览器控制台:userBlocks 只放图", sent: []blocks.ContentBlock{image}},
+		{
+			name: "桌面端:userBlocks 是那条用户消息的全部块",
+			sent: []blocks.ContentBlock{&blocks.TextBlock{Text: peerRunUserText}, image},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertPeerRunLandsTheAttachment(t, tc.sent)
+		})
+	}
+}
+
+func assertPeerRunLandsTheAttachment(t *testing.T, sent []blocks.ContentBlock) {
+	t.Helper()
+	m := setupChatTest(t)
+	wirePeerConversations(t, m.session, 41)
+	ctx := m.ctx
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	syncMock := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	prevSync := syncstate_repo.SyncState()
+	syncstate_repo.RegisterSyncState(syncMock)
+	t.Cleanup(func() { syncstate_repo.RegisterSyncState(prevSync) })
+	syncMock.EXPECT().FindLocalID(ctx, syncwire.KindAgent, "01HXAGENTIDENTITY0000000000").
+		Return(int64(7), nil)
+
+	projMock := mock_project_repo.NewMockProjectRepo(ctrl)
+	prevProj := project_repo.Project()
+	project_repo.RegisterProject(projMock)
+	t.Cleanup(func() { project_repo.RegisterProject(prevProj) })
+	projAgentMock := mock_project_repo.NewMockProjectAgentRepo(ctrl)
+	prevProjAgent := project_repo.ProjectAgent()
+	project_repo.RegisterProjectAgent(projAgentMock)
+	t.Cleanup(func() { project_repo.RegisterProjectAgent(prevProjAgent) })
+
+	const cwd = "/Users/me/agentre-server"
+	proj := &project_entity.Project{ID: 5, Name: "agentre-server", Path: cwd, Status: consts.ACTIVE}
+	projMock.EXPECT().List(ctx).Return([]*project_entity.Project{proj}, nil)
+
+	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
+		ID: 7, Name: "Eng", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
+	}, nil)
+	m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+		ID: 12, Type: "builtin", LLMProviderKey: "key-21", Status: consts.ACTIVE,
+	}, nil)
+	m.provider.EXPECT().FindByKey(gomock.Any(), "key-21").Return(&llm_provider_entity.LLMProvider{
+		ID: 21, ProviderKey: "key-21", Type: string(llm_provider_entity.TypeAnthropic),
+		Enabled: llm_provider_entity.EnabledOn, DefaultModelKey: "mk-key-21", Status: consts.ACTIVE,
+	}, nil).AnyTimes()
+	m.provider.EXPECT().FindModelByKey(gomock.Any(), "mk-key-21").Return(
+		&llm_provider_model_entity.LLMProviderModel{
+			ProviderID: 21, ModelKey: "mk-key-21", ModelID: "claude-opus-4-1",
+			Enabled: llm_provider_model_entity.EnabledOn, Status: consts.ACTIVE,
+		}, nil).AnyTimes()
+
+	fp := providertest.New().
+		QueueStream(
+			provider.StreamChunk{ContentDelta: "seen"},
+			provider.StreamChunk{FinishReason: provider.FinishStop, Usage: &provider.Usage{PromptTokens: 5, CompletionTokens: 1}},
+		)
+	chat_svc.SetProviderBuilderForTest(func(_ *llm_provider_entity.LLMProvider) (provider.Provider, error) {
+		return fp, nil
+	})
+	t.Cleanup(chat_svc.ResetProviderBuilderForTest)
+
+	projMock.EXPECT().Find(gomock.Any(), int64(5)).Return(proj, nil).AnyTimes()
+	projAgentMock.EXPECT().ListByProjects(gomock.Any(), []int64{5}).
+		Return(map[int64][]*project_entity.ProjectAgent{5: {{ProjectID: 5, AgentID: 7}}}, nil)
+
+	m.session.EXPECT().Create(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, s *chat_entity.Session) error {
+			s.ID = 100
+			return nil
+		})
+
+	const userText = peerRunUserText
+	var userBlocksJSON string
+	m.dbMock.ExpectBegin()
+	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(1, nil)
+	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			if msg.Role == "user" {
+				userBlocksJSON = msg.BlocksJSON
+				msg.ID = 1000
+			} else {
+				msg.ID = 1001
+			}
+			return nil
+		}).Times(2)
+	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	m.dbMock.ExpectCommit()
+
+	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+		{ID: 1000, SessionID: 100, Role: "user", BlocksJSON: encodeText(userText), Seq: 1},
+		{ID: 1001, SessionID: 100, Role: "assistant", BlocksJSON: "[]", Seq: 2},
+	}, nil).AnyTimes()
+	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+
+	stored, err := blocks.EncodeAll(sent)
+	require.NoError(t, err)
+
+	adapter, ok := m.svc.(peerRunAdapter)
+	require.True(t, ok, "chatSvc must implement the peer run adapter")
+	resp, err := adapter.RunPeerSession(ctx, wire.RunParams{
+		ConversationID: convID(90007),
+		AgentSyncID:    "01HXAGENTIDENTITY0000000000",
+		Cwd:            cwd,
+		UserText:       userText,
+		UserBlocks:     stored,
+		SourceDevice:   "fp-web",
+	}, chat_svc.PeerSessionSource{Device: "fp-web", Name: "Chrome · macOS"})
+	require.NoError(t, err)
+	chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
+
+	// 逐字节钉:一个文本块(带提交方来源)+ 那一个附件块。「含 image」这种松断言
+	// 放得过「同一句话落了两个文本块」——桌面端派过来的那一种正是这样。
+	assert.Equal(t,
+		`[{"type":"text","data":{"sourceDevice":"fp-web","sourceDeviceName":"Chrome · macOS",`+
+			`"text":"`+userText+`"}},`+
+			`{"type":"image","data":{"media_type":"image/png","source":{"inline":"UE5HREFUQQ=="}}}]`,
+		userBlocksJSON,
+		"对端带来的附件要落进本机转录里那一行用户消息,而这句话只占一个文本块")
+
+	var sawImagePart bool
+	for _, req := range fp.Received() {
+		for _, msg := range req.Messages {
+			for _, part := range msg.MultiContent {
+				if part.Image != nil {
+					sawImagePart = true
+				}
+			}
+		}
+	}
+	assert.True(t, sawImagePart, "对端带来的附件还要随这一轮送去执行")
+}
+
+// Given 对端在 runtime.run 里带来一个解不开的附件块;
+// When  这台桌面端做宿主接下这一轮;
+// Then  整轮被拒,而且**不留下**为它新建的会话 —— 静默丢掉附件照跑会跑出一轮
+//
+//	「用户以为发了图、模型没看见」的对话,比一个明确的错误更难交代
+//	(spec 2026-09-07-host-transcript-user-input「附件进转录」的失败分支)。
+func TestRunPeerSession_GivenUndecodableUserBlock_ThenRejectsWithoutCreatingSession(t *testing.T) {
+	m := setupChatTest(t)
+	wirePeerConversations(t, m.session, 41)
+
+	// 一个字都不该落库:会话行、消息行都不建。
+	m.session.EXPECT().Create(gomock.Any(), gomock.Any()).Times(0)
+	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).Times(0)
+
+	adapter, ok := m.svc.(peerRunAdapter)
+	require.True(t, ok, "chatSvc must implement the peer run adapter")
+	_, err := adapter.RunPeerSession(m.ctx, wire.RunParams{
+		ConversationID: convID(90008),
+		AgentSyncID:    "01HXAGENTIDENTITY0000000000",
+		UserText:       "这张图里是什么",
+		UserBlocks: []blocks.StoredBlock{
+			{Type: "not-a-registered-block-type", Data: []byte(`{}`)},
+		},
+		SourceDevice: "fp-web",
+	}, chat_svc.PeerSessionSource{Device: "fp-web", Name: "Chrome · macOS"})
+	require.Error(t, err, "解不开的附件必须让整轮失败")
+	assert.Contains(t, err.Error(), "decode user blocks")
 }

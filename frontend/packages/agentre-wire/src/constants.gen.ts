@@ -1,0 +1,383 @@
+/**
+ * wire 协议常量:RPC 方法名 / 通知名 / 错误码 / 会话生命周期 / 拉取上限。
+ *
+ * 本文件由 Go 生成器产出,**不要手改** —— 手改会被下一次重新生成覆盖,
+ * 而且 TestGeneratedTSFresh 会立刻变红。
+ *
+ * 真理源:  internal/pkg/agentruntime/runtimes/remote/wire/wire.go
+ *          错误码出自 pkg/wire/rpcerror(见文件里的错误码段头)
+ * 生成器:  internal/pkg/agentruntime/runtimes/remote/wire/tsgen_test.go
+ * 重新生成:
+ *
+ *   WIRE_TS_WRITE=1 go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestWriteTSCodec
+ *
+ * 边界:wire 包**之外**的类型一律映射成 unknown。它们大多没有 JSON tag
+ * (按 Go 字段名裸序列化,如 agentruntime.MCPServerSpec 的 Name/URL),
+ * TS 侧从未为它们建过类型;追进去等于凭空发明一份新契约。
+ *
+ * 格式:生成器直接输出 Prettier(printWidth 80,本仓默认配置)的形态,
+ * 与手写代码同一套 ESLint 规则,没有整文件豁免。格式化是产物的一部分 ——
+ * 若放到生成之后当外部工序,「重新生成 → 逐字节比对」的守卫会永久误报。
+ */
+
+export const MethodCapabilities = "runtime.capabilities";
+
+export const MethodRun = "runtime.run";
+
+export const MethodSteer = "runtime.steer";
+
+export const MethodCancelSteer = "runtime.cancelSteer";
+
+export const MethodDrainPending = "runtime.drainPending";
+
+export const MethodAbort = "runtime.abort";
+
+export const MethodStopBackgroundTask = "runtime.stopBackgroundTask";
+
+export const MethodSetPermissionMode = "runtime.setPermissionMode";
+
+export const MethodSetModelTarget = "runtime.setModelTarget";
+
+/**
+ * MethodSetSessionReasoningEffort 改这条会话钉的思考力度,与 setModelTarget 同族:
+ * 都是「改这条会话下一轮的 spawn 参数」,不影响正在跑的那一轮。
+ */
+export const MethodSetSessionReasoningEffort =
+  "runtime.setSessionReasoningEffort";
+
+export const MethodSubmitAnswer = "runtime.submitAnswer";
+
+export const MethodSubmitToolPermission = "runtime.submitToolPermission";
+
+export const MethodGetGoal = "runtime.goal.get";
+
+export const MethodSetGoal = "runtime.goal.set";
+
+export const MethodClearGoal = "runtime.goal.clear";
+
+/**
+ * 断连重连的补齐族。客户端重连后的三步是 list → attach → pull(→ pendingWaiters),
+ * 每一步都限定在调用方自己的对端范围内(R16),对端身份取自那条连接的鉴权状态,
+ * 不由参数携带 —— 参数里的对端标识等于让任何已配对设备点名读别人的会话。
+ */
+export const MethodSessionList = "runtime.session.list";
+
+/**
+ * MethodSessionCounts 只问三个数:这台机器上有多少条、多少条正在跑、多少条在等
+ * 用户。它与 list 分开,是因为调用方(设备卡片)要的从来不是清单 —— 拿 list 数出
+ * 这三个数,就得先把整台机器的摘要搬过线。
+ */
+export const MethodSessionCounts = "runtime.session.counts";
+
+/**
+ * SessionListMaxLimit 是 session.list 一页的上限。对端一律收口到它:分页是为了让
+ * 「机器轴一打开就把整台机器搬回来」不再发生,一个手写的大 limit 不该把这件事绕过去。
+ * 与桌面端索引那条路的 listAgentSessionsMaxLimit 同值,两处翻页的口径因此一致。
+ */
+export const SessionListMaxLimit = 100;
+
+/**
+ * SessionListMaxIDs 是一次按对话身份收窄最多点名几条。
+ *
+ * 比一页的上限宽:点名是调用方拿着自己手上那份名单来问的(账号保存的那些、屏幕上
+ * 那一条),它本来就有界;而收窄之后对端读的是主键点查,不是扫表。仍然设上限,是因为
+ * 一个无界的 IN 列表会把 SQL 撑成另一种全表扫描。超过的由调用方分批。
+ */
+export const SessionListMaxIDs = 200;
+
+export const MethodSessionPull = "runtime.session.pull";
+
+export const MethodSessionPendingWaiters = "runtime.session.pendingWaiters";
+
+/**
+ * MethodSessionAttach 是**显式接管**:客户端声明「这条会话此后由我消费」,daemon
+ * 受理后才把该会话的通知推送目标改到这条连接上。
+ *
+ * 它必须独立存在,不能并进 list / pull:list 只是看一眼有哪些会话(看一眼不该改变
+ * 任何东西),pull 是只读补齐(它在补齐**完成前**就改推送目标才对,不然补齐期间的
+ * 实时通知会只落库不推送)。今天 daemon 侧的认领是隐式的 —— 任何被受理的 runtime.*
+ * 都会把流指向发起它的那条连接,哪怕那条连接根本不打算消费它。补齐族不走这条隐式
+ * 路径,所以重连的客户端需要一个不含副作用的入口明说这件事。
+ */
+export const MethodSessionAttach = "runtime.session.attach";
+
+/**
+ * MethodSessionDelete 删掉这一端上的那条会话:agentred 上是会话行与它的整段通知
+ * 日志,桌面端上是**那台电脑自己那条对话本体**。两种端一视同仁地受理它 —— 会话
+ * 在哪台机器上执行,删除就在哪台机器上生效。
+ */
+export const MethodSessionDelete = "runtime.session.delete";
+
+/**
+ * MethodSkillsCatalog 列出**这台机器上**某一档执行目标的技能目录:已装包(含全局
+ * 启用态)并上 agentre 的推荐包,逐行标注这一档授权了没有。它替掉浏览器控制台里
+ * 「手打 skill id」——浏览器此前没有任何办法知道那台机器上到底装了什么。
+ *
+ * 它**不在** runtime.* 下:技能装在机器上,与任何一轮执行无关,问它不需要、也不该
+ * 需要一条会话。
+ *
+ * 授权集由**调用方随请求带上**(SkillCatalogParams.Authorized),而不是执行端自己去
+ * 查:执行目标与它的技能授权(R15e「一档一块」)存在组织架构库里,agentred 上没有
+ * 那个库 —— 让它猜等于让它拿别的档、或者干脆拿空授权来答。谁掌握那一档的授权谁
+ * 就得说出来,这样「一档一块」在协议上就是显式的,不靠两边默契。
+ */
+export const MethodSkillsCatalog = "skills.catalog";
+
+/**
+ * MethodSkillsCommands 列出**这台机器上**某一档执行目标此刻叫得动的 skill 命令。
+ *
+ * 它与 skills.catalog 是两件事,不是同一件事的两种粒度:catalog 答的是**可配置的
+ * plugin 包**(组织架构页拿它画那张授权表),commands 答的是**输入框里打得出来的
+ * 名字** —— 后者除了包里的 skill,还含 CLI 自己解析的 user / project / system
+ * skill(`~/.claude/skills`、`<cwd>/.claude/skills`)。那一半不是包、配不了、也不
+ * 该出现在授权表里,但它恰恰是日常打得最多的那一半。
+ *
+ * 少了这个方法,远端档的 skill 命令就只剩包里那一半:桌面端对远端档如此(它的
+ * 本机发现器看不到对面机器上的目录),浏览器控制台更是一条都列不出。
+ *
+ * 授权集同样由调用方带上,理由与 skills.catalog 逐字相同(组织架构库不在执行端)。
+ * Cwd 也由调用方带:项目级 skill 要靠它才解析得出,而「这一轮在哪个目录跑」是
+ * 会话的事实,执行端不该去猜。
+ */
+export const MethodSkillsCommands = "skills.commands";
+
+/**
+ * MethodProjectSetLocalPath / MethodProjectClearLocalPath 配置**这台机器上**某个
+ * 项目的本机路径（规格 agentre-server 2026-08-21「桌面端的项目路径也能从 web 配」）。
+ *
+ * 它们同样**不在** runtime.* 下,理由与 skills.catalog 同一条:项目落在机器上,
+ * 与任何一轮执行无关。
+ *
+ * **为什么必须由这台机器自己写**:桌面端的本机路径不参与同步,只按 30 秒内容指纹
+ * 单向上报给 server(整份快照替换)。server 往那份快照里直写一行,这台机器下一次
+ * 上报就把它冲掉——所以浏览器要改它,只能经中转喊到这里来。agentred 不同,它的
+ * 路径是账号级同步对象,server 直写即可,那条路不经过这两个方法。
+ *
+ * 项目按**同步标识**指代,不按本地自增 id:后者是各端私有的,而载荷里不出现任何
+ * 一端的本地 id 是同步协议本来就写死的边界(见 internal/pkg/syncwire 包注释)。
+ */
+export const MethodProjectSetLocalPath = "project.setLocalPath";
+
+export const MethodProjectClearLocalPath = "project.clearLocalPath";
+
+/** daemon → client 通知。 */
+export const NotifyEvent = "runtime.event";
+
+export const NotifyRunResultDone = "runtime.runResultDone";
+
+/**
+ * MethodMCPProxy 是 daemon → client 的反向请求(request/response):daemon 上的 CLI
+ * 子进程访问内置工具 MCP(org/subagent/group/workflow)时,这些 /mcp/* handler 的真身
+ * 在 desktop。daemon 把 CLI 打到本地的 HTTP 请求原样隧道回 desktop 执行,应答原路返回,
+ * 修「remote 不支持内置工具(URL 是 desktop 的 127.0.0.1)」。鉴权靠 Header 里 desktop
+ * 轮起手时签的 MCP token(随 RunRequest.MCPServers 下发),在 desktop 侧校验。
+ */
+export const MethodMCPProxy = "runtime.mcpProxy";
+
+/**
+ * 自主续轮(AutonomousTurnSource):backend 自发跑的一轮,daemon 转发给 client。
+ * 一轮 = Started → Event* → Done(同一 sessionID,串行,无重叠);Event 复用
+ * EventFrame、Done 复用 RunResultDoneFrame,只是走各自的 notify 方法区分归属
+ * (普通 Run 流 vs 自主续轮流),sessionID 仍负责会话路由。
+ */
+export const NotifyAutonomousTurnStarted = "runtime.autonomousTurn.started";
+
+/**
+ * NotifyTurnStarted 是「客户端要的这一轮开始了」。
+ *
+ * 自主续轮那一路一直有开始通知,客户端发起的这一路此前没有,而缺的这一半是看得
+ * 见的:不是自己发起这一轮的订阅者 —— 账号镜像、第二台桌面端、手机 —— 无从知道
+ * 这条会话回到了 running。它只看得到轮次**结束**(NotifyRunResultDone),于是整轮
+ * 里都把这条对话显示成闲着,等它跑完了才承认它刚才忙过。
+ */
+export const NotifyTurnStarted = "runtime.turnStarted";
+
+export const NotifyAutonomousTurnEvent = "runtime.autonomousTurn.event";
+
+export const NotifyAutonomousTurnDone = "runtime.autonomousTurn.done";
+
+/**
+ * CapLLMModelTargetV1 是 daemon 在 health.ping 里公布的能力位：本 daemon 支持
+ * 按 ModelKey 解析 fixed-model（决策 11）。桌面端据此在 Picker 里禁用不支持
+ * fixed-model 的旧 daemon 上的固定模型选项 —— 旧 daemon 即使收到 ModelKey 也会
+ * 静默按 provider-default 执行，正是规格禁止的降级，所以必须先查能力位再允许选择。
+ */
+export const CapLLMModelTargetV1 = "llm-model-target-v1";
+
+export const SessionLifecycleRunning = "running";
+
+export const SessionLifecycleIdle = "idle";
+
+export const SessionLifecycleFailed = "failed";
+
+export const SessionLifecycleInterrupted = "interrupted";
+
+export const DefaultSessionPullLimit = 200;
+
+export const MaxSessionPullLimit = 1000;
+
+/** SkillDiscoveryOK 目录是问出来的,可以照它增删。 */
+export const SkillDiscoveryOK = "ok";
+
+/**
+ * SkillDiscoveryUnavailable 这台机器此刻答不出:CLI 找不到、枚举失败。
+ * 目录为空**不代表**没有包,调用方不得据此认为可添加集是空的。
+ */
+export const SkillDiscoveryUnavailable = "unavailable";
+
+/**
+ * SkillDiscoveryUnsupported 这个 backend 类型没有技能这一说(builtin / piagent /
+ * openclaw 都不声明 CapSkills)。与 unavailable 不同,它是**稳定**的答案:再问一次、
+ * 等机器空闲了再问,结果都一样。
+ */
+export const SkillDiscoveryUnsupported = "unsupported";
+
+/**
+ * ── RPC 错误码 ──
+ *
+ * 这一段的真理源是 pkg/wire/rpcerror(codes.go + error.go),不是 wire.go:
+ * 错误码由同一条连接上的多个方法族共用一张段位表,而 wire 包只给其中两族起了
+ * 别名。从别名生成等于只导出「恰好有人起过别名的那几族」。
+ *
+ * 名字:TS 侧统一 ErrCode<族><短名>,Go 侧是 Code<族><短名>。两边的对应写在
+ * 生成器的 tsRPCErrorDecls() 里、由 TestTSGenCoversRPCErrorCodes 钉住 —— 下面
+ * 每条的文档注释是 Go 侧原文,所以里面出现的是 Go 名字。
+ */
+
+export const ErrCodeNoActiveTurn = -32010;
+
+export const ErrCodeSteerNotFound = -32011;
+
+export const ErrCodeUnsupported = -32012;
+
+/**
+ * CodeRuntimeAborted 是「用户自己按了停止」。turnstate.AbortedCode 是同一个
+ * 数字的另一处声明 —— 那个包判定一轮是否故障收场时不该反向依赖本包,两者由
+ * segments_test.go 里的一条断言钉在一起,谁也漂不走。
+ */
+export const ErrCodeAborted = -32013;
+
+export const ErrCodeSessionNotFound = -32014;
+
+/**
+ * CodeRuntimePeerExecutionUnavailable:会话钉住的执行目标(agentred)当前
+ * 不可用。它与上面五个不同,不对应任何 agentruntime sentinel —— 那条链路是
+ * daemon 回给 remote 客户端,而这一条是桌面端 peer 回给浏览器。浏览器靠它把
+ * 「执行目标不可用」与普通拒绝分开。
+ */
+export const ErrCodePeerExecutionUnavailable = -32015;
+
+export const ErrCodeRemoteFSPathRefused = -32030;
+
+export const ErrCodeRemoteFSPermDenied = -32031;
+
+export const ErrCodeRemoteFSNotFound = -32032;
+
+export const ErrCodeRemoteFSNotDir = -32033;
+
+export const ErrCodeRemoteFSMkdirExists = -32034;
+
+export const ErrCodeRemoteFSInvalidName = -32035;
+
+export const ErrCodeWorkspaceFSPathRefused = -32040;
+
+export const ErrCodeWorkspaceFSBaselineRequired = -32041;
+
+/**
+ * CodeWorkspaceFSNoCwd:调用方没给工作目录。与「越界」分开 —— cwd 为空是
+ * 会话配置问题,不是路径问题。
+ */
+export const ErrCodeWorkspaceFSNoCwd = -32042;
+
+/**
+ * CodeWorkspaceFSNotFound:relPath 所指的文件在那台机器上不存在。越界判定
+ * 在前,所以 root 之外的路径无论存不存在都只会得到 PathRefused ——
+ * 这个码不能成为「那台机器上有没有这个文件」的探测器。
+ */
+export const ErrCodeWorkspaceFSNotFound = -32043;
+
+/**
+ * CodeProjectNotSynced:这台机器上没有这个同步标识的项目。它与「写失败了」
+ * 必须分得开 —— 项目可以先在 web 上建出来,那一刻目标机器可能还没拉到这一行,
+ * 等一会儿就好;折进通用失败会让用户去查权限和磁盘。
+ */
+export const ErrCodeProjectNotSynced = -32050;
+
+export const ErrCodeProjectInvalidPath = -32051;
+
+export const ErrCodeProjectPathNotFound = -32052;
+
+/**
+ * 这三个码此前住在桌面仓 internal/pkg/transcriptimport/wire 里,自己声明的是
+ * -32050..-32052 —— 与上面 project.* 那一段逐个撞上,而那个包在本包的守卫视野
+ * 之外,所以没有任何地方会红。搬进来的第一次运行,守卫就点名了这次撞号,这一段
+ * 因此改到 -32060 起。
+ *
+ * 改的是**过线的值**。它安全,是因为今天没有任何消费方在解这三个码:产出侧经
+ * wireinbound 的 transcriptImportError → ToRPCError 折上线,而反向的 FromRPCError
+ * 一个调用点都没有(agentre-server 也不解)。混版本期最坏的后果是「认不出来,
+ * 落回泛化错误」,与今天的行为一致。
+ */
+export const ErrCodeTranscriptImportBackendUnavailable = -32060;
+
+export const ErrCodeTranscriptImportTranscriptOpen = -32061;
+
+export const ErrCodeTranscriptImportSessionInUse = -32062;
+
+/**
+ * CodePortForwardNotDeclared:这台设备上没有这个端口的声明(从没建过,或已被
+ * 删除)。端口白名单只由设备判定,调用方不持有授权。
+ */
+export const ErrCodePortForwardNotDeclared = -32070;
+
+/**
+ * CodePortForwardDisabled:声明还在,但被停用了。与上一个分开 —— 停用是一次
+ * 可撤销的开关,界面据此提示「把它打开」而不是「重新建一条」。
+ */
+export const ErrCodePortForwardDisabled = -32071;
+
+/**
+ * CodePortForwardNoListener:端口通过了声明集判定,但那台设备的环回地址上
+ * 没有服务在监听(端口写错了,或服务还没起)。
+ */
+export const ErrCodePortForwardNoListener = -32072;
+
+/**
+ * CodePortForwardStreamNotFound:write / close / ack 指向的流不存在 —— 它已经
+ * 收尾,或从没 open 过。与「设备拒绝了这次 open」必须分得开:前者是调用方的
+ * 状态机落后了一步,后者是这次访问根本不被允许。
+ */
+export const ErrCodePortForwardStreamNotFound = -32073;
+
+/**
+ * CodePortForwardPortTaken:新增声明时这个端口在这台设备上已经声明过。端口
+ * 在一台设备下唯一,所以它是一次可以就地改正的输入错误,不是写失败。
+ */
+export const ErrCodePortForwardPortTaken = -32074;
+
+/** CodePortForwardInvalidPort:端口号不在 1..65535 内。 */
+export const ErrCodePortForwardInvalidPort = -32075;
+
+export const ErrCodeUnauthorized = -32001;
+
+export const ErrCodeSessionMissing = -32002;
+
+export const ErrCodeProviderMissing = -32003;
+
+export const ErrCodePairing = -32004;
+
+export const ErrCodeShuttingDown = -32005;
+
+/**
+ * CodeProtocolVersion is returned by a handshake handler whose peer
+ * advertised a wire protocol version it does not accept.
+ */
+export const ErrCodeProtocolVersion = -32006;
+
+export const ErrCodeMethodNotFound = -32601;
+
+export const ErrCodeInvalidParams = -32602;
+
+export const ErrCodeInternal = -32603;
+
+export const ErrCodeCanceled = -32800;

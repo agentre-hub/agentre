@@ -45,7 +45,7 @@ function TaskRow({ index, task }: { index: number; task: Task }) {
   return (
     <li
       className={cn(
-        "flex items-center gap-2 border-b border-border px-3 py-1.5 last:border-b-0 font-mono text-[11px]",
+        "flex items-center gap-2 border-b border-border px-3 py-1.5 last:border-b-0 font-mono text-2xs",
         isRunning && "bg-primary-soft",
       )}
     >
@@ -117,19 +117,17 @@ export function TaskProgressBar({ progress }: Props) {
           className="size-3.5 shrink-0 text-primary-text"
           aria-hidden
         />
-        <span className="shrink-0 text-[11px] font-bold text-primary-text">
+        <span className="shrink-0 text-2xs font-bold text-primary-text">
           {t("taskProgress.title")}
         </span>
         <span className="inline-flex items-baseline gap-0.5 tabular-nums">
-          <span className="text-[13px] font-bold text-status-running">
-            {done}
-          </span>
+          <span className="text-aux font-bold text-status-running">{done}</span>
           <span className="text-xs text-muted-foreground">/</span>
-          <span className="text-[13px] font-semibold text-foreground">
+          <span className="text-aux font-semibold text-foreground">
             {total}
           </span>
         </span>
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-3xs text-muted-foreground">
           {allCompleted
             ? t("taskProgress.allCompleted")
             : t("taskProgress.completed")}
@@ -146,7 +144,7 @@ export function TaskProgressBar({ progress }: Props) {
             style={{ width: `${pct}%` }}
           />
         </span>
-        <span className="text-[11px] font-semibold text-status-running">
+        <span className="text-2xs font-semibold text-status-running">
           {pct}%
         </span>
         <span className="ml-auto inline-flex shrink-0 items-center text-muted-foreground">
@@ -164,12 +162,12 @@ export function TaskProgressBar({ progress }: Props) {
           ))}
         </ul>
       ) : running ? (
-        <div className="flex items-center gap-2 px-3 py-1.5 font-mono text-[11px]">
+        <div className="flex items-center gap-2 px-3 py-1.5 font-mono text-2xs">
           <LoaderCircle
             className="size-3 shrink-0 animate-spin text-status-waiting motion-reduce:animate-none"
             aria-hidden
           />
-          <span className="font-sans text-[10px] font-bold text-muted-foreground">
+          <span className="font-sans text-3xs font-bold text-muted-foreground">
             {t("taskProgress.current")}
           </span>
           <span className="text-muted-foreground">·</span>

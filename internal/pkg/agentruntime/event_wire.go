@@ -7,7 +7,8 @@ import (
 
 	"github.com/cago-frame/agents/provider"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // Event wire 编解码。Event 是 sealed interface，无法靠 stdlib 默认反序列化跨线传递；
@@ -78,6 +79,12 @@ func (e ThinkingDelta) MarshalJSON() ([]byte, error) {
 		Kind EventKind `json:"kind"`
 		Text string    `json:"text"`
 	}{EventThinkingDelta, e.Text})
+}
+
+func (e OutputActivity) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Kind EventKind `json:"kind"`
+	}{EventOutputActivity})
 }
 
 func (e ToolCall) MarshalJSON() ([]byte, error) {
@@ -286,10 +293,31 @@ func (e PlanUpdated) MarshalJSON() ([]byte, error) {
 	}{EventPlanUpdated, e.Plan})
 }
 
+func (e UnrecognizedBlock) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Kind      EventKind       `json:"kind"`
+		BlockType string          `json:"blockType,omitempty"`
+		Data      json.RawMessage `json:"data,omitempty"`
+	}{EventUnrecognizedBlock, e.BlockType, e.Data})
+}
+
+func (e ImageBlockEvent) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Kind      EventKind `json:"kind"`
+		MediaType string    `json:"mediaType,omitempty"`
+		Inline    []byte    `json:"inline,omitempty"`
+		URL       string    `json:"url,omitempty"`
+	}{EventImage, e.MediaType, e.Inline, e.URL})
+}
+
 func (e Done) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Kind EventKind `json:"kind"`
-	}{EventDone})
+		Kind         EventKind `json:"kind"`
+		Model        string    `json:"model,omitempty"`
+		DurationMs   int       `json:"durationMs,omitempty"`
+		FirstTokenMs int       `json:"firstTokenMs,omitempty"`
+		TokensPerSec float64   `json:"tokensPerSec,omitempty"`
+	}{EventDone, e.Model, e.DurationMs, e.FirstTokenMs, e.TokensPerSec})
 }
 
 func (e ErrorEvent) MarshalJSON() ([]byte, error) {
@@ -309,7 +337,7 @@ func (e UserMessageEvent) MarshalJSON() ([]byte, error) {
 		Text             string    `json:"text,omitempty"`
 		SourceDevice     string    `json:"sourceDevice,omitempty"`
 		SourceDeviceName string    `json:"sourceDeviceName,omitempty"`
-	}{EventUserMessage, e.Text, e.SourceDevice, e.SourceDeviceName})
+	}{EventUserMessage, e.Text, string(e.SourceDevice), e.SourceDeviceName})
 }
 
 // EventContextWindowUpdated 给 ContextWindowUpdated 事件做 wire discriminator。
@@ -338,6 +366,8 @@ func UnmarshalEvent(data []byte) (Event, error) {
 		return nil, errors.New("agentruntime: UnmarshalEvent: missing kind")
 	}
 	switch head.Kind {
+	case EventOutputActivity:
+		return OutputActivity{}, nil
 	case EventTextDelta:
 		var w struct {
 			Text string `json:"text"`
@@ -620,8 +650,36 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			return nil, err
 		}
 		return PlanUpdated{Plan: w.Plan}, nil
+	case EventUnrecognizedBlock:
+		var w struct {
+			BlockType string          `json:"blockType"`
+			Data      json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return UnrecognizedBlock{BlockType: w.BlockType, Data: w.Data}, nil
+	case EventImage:
+		var w struct {
+			MediaType string `json:"mediaType"`
+			Inline    []byte `json:"inline"`
+			URL       string `json:"url"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return ImageBlockEvent{MediaType: w.MediaType, Inline: w.Inline, URL: w.URL}, nil
 	case EventDone:
-		return Done{}, nil
+		var w struct {
+			Model        string  `json:"model"`
+			DurationMs   int     `json:"durationMs"`
+			FirstTokenMs int     `json:"firstTokenMs"`
+			TokensPerSec float64 `json:"tokensPerSec"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return Done{Model: w.Model, DurationMs: w.DurationMs, FirstTokenMs: w.FirstTokenMs, TokensPerSec: w.TokensPerSec}, nil
 	case EventUserMessage:
 		var w struct {
 			Text             string `json:"text"`
@@ -633,7 +691,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 		}
 		return UserMessageEvent{
 			Text:             w.Text,
-			SourceDevice:     w.SourceDevice,
+			SourceDevice:     devicefp.Initiator(w.SourceDevice),
 			SourceDeviceName: w.SourceDeviceName,
 		}, nil
 	case EventError:

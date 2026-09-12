@@ -6,13 +6,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/app_setting_entity"
-	"github.com/agentre-ai/agentre/internal/repository/app_setting_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
+
+	"github.com/agentre-hub/agentre/internal/pkg/logfile"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
 // LogsDir 返回 Agentre 写日志的目录（<dataDir>/logs）。
@@ -25,52 +25,16 @@ func LogsDir() (string, error) {
 	return filepath.Join(dataDir, "logs"), nil
 }
 
-const (
-	logFileMaxSizeMB  = 30
-	logFileMaxBackups = 10
-	logFileMaxAgeDays = 30
-)
-
 // rebuildLogger 用给定 level 重建全局 cago logger，保留 控制台 + agentre.log/error.log
-// 三个 core。控制台 core 刻意与 logger.Logger 启动时的非 debug 分支逐字对齐
-// （生产 JSON 编码 + Lock(os.Stdout) + 当前 level），这样运行时切 Debug 开关即可改变
-// 日志详尽度而无需重启，且控制台输出格式不漂移。
+// 三个 core（编码、轮转与保留策略由 internal/pkg/logfile 统一持有，与 agentred 同源），
+// 这样运行时切 Debug 开关即可改变日志详尽度而无需重启。
 func rebuildLogger(level, logsDir string) error {
-	lvl := logger.ToLevel(level)
-	l, err := logger.New(
-		logger.AppendCore(
-			zapcore.NewCore(
-				zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
-				zapcore.Lock(os.Stdout),
-				lvl,
-			),
-			newRotatingFileCore(lvl, filepath.Join(logsDir, "agentre.log")),
-			newRotatingFileCore(logger.ToLevel("error"), filepath.Join(logsDir, "error.log")),
-		),
-	)
+	l, err := logfile.New(os.Stdout, logsDir, "agentre", level)
 	if err != nil {
 		return err
 	}
 	logger.SetLogger(l)
 	return nil
-}
-
-func newRotatingFileCore(level zapcore.Level, filename string) zapcore.Core {
-	writer := &lumberjack.Logger{
-		Filename:   filename,
-		MaxSize:    logFileMaxSizeMB,
-		MaxBackups: logFileMaxBackups,
-		MaxAge:     logFileMaxAgeDays,
-		LocalTime:  true,
-		Compress:   false,
-	}
-	encoderConfig := zap.NewProductionEncoderConfig()
-	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	return zapcore.NewCore(
-		zapcore.NewJSONEncoder(encoderConfig),
-		zapcore.AddSync(writer),
-		level,
-	)
 }
 
 // applyLogLevel 把布尔开关翻译成 level 并重建 logger。
@@ -107,7 +71,7 @@ func SetDebugLogging(ctx context.Context, enabled bool) error {
 	if err := app_setting_repo.AppSetting().Set(ctx, &app_setting_entity.AppSetting{
 		Key:        app_setting_entity.KeyDebugLogging,
 		Value:      val,
-		Updatetime: time.Now().Unix(),
+		Updatetime: time.Now().UnixMilli(),
 	}); err != nil {
 		return err
 	}

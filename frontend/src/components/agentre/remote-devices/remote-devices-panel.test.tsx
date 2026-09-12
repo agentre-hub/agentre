@@ -61,6 +61,7 @@ import {
   ServerLogout,
   ServerOffline,
 } from "../../../../wailsjs/go/app/App";
+import { INITIAL_UPDATE_STATE, useUpdateStore } from "@/stores/update-store";
 import { RemoteDevicesPanel } from "./remote-devices-panel";
 import type { DeviceView } from "./use-remote-devices";
 
@@ -80,6 +81,7 @@ const mockOffline = ServerOffline as unknown as ReturnType<typeof vi.fn>;
 
 describe("RemoteDevicesPanel", () => {
   beforeEach(() => {
+    useUpdateStore.setState(INITIAL_UPDATE_STATE);
     mockList.mockReset();
     mockAdd.mockReset();
     mockServerList.mockReset();
@@ -139,11 +141,11 @@ describe("RemoteDevicesPanel", () => {
     expect(
       await screen.findByRole("heading", { name: "Install agentred" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Start the remote service")).toBeInTheDocument();
-    expect(screen.getByText("Pair and verify")).toBeInTheDocument();
+    expect(screen.getByText("Keep it running")).toBeInTheDocument();
+    expect(screen.getByText("Pair")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "curl -fsSL https://github.com/agentre-ai/agentre/releases/latest/download/install.sh | sh",
+        "curl -fsSL https://github.com/agentre-hub/agentre/releases/latest/download/install.sh | sh",
       ),
     ).toHaveAttribute("data-selectable-text", "true");
     // 零设备:引导本身就是这一页,没有可回退的地方 —— 不给收起控件,
@@ -154,6 +156,40 @@ describe("RemoteDevicesPanel", () => {
     expect(
       screen.queryByRole("button", { name: "Add agentred" }),
     ).not.toBeInTheDocument();
+  });
+
+  // 「最新版是哪一个」由桌面端既有的更新检查回答(update store),面板只负责把它
+  // 交给设备行 —— 少了这一步,劝升的判定在真实宿主里永远拿不到比较对象。
+  it("hands the latest known release down to the device rows", async () => {
+    useUpdateStore.setState({
+      phase: {
+        kind: "available",
+        info: {
+          hasUpdate: true,
+          currentVersion: "0.6.0",
+          latestVersion: "0.6.0",
+          releaseNotes: "",
+          releaseURL: "",
+          publishedAt: "",
+        },
+      },
+    });
+    mockList.mockResolvedValueOnce([
+      {
+        id: 1,
+        name: "linux-srv",
+        url: "ws://linux-srv.local:7456/rpc",
+        tlsMode: "default",
+        online: true,
+        lastSeenAt: Date.now(),
+        daemonVersion: "0.5.2",
+        daemonCommit: "a1b2c3d",
+      },
+    ] as Partial<DeviceView>[]);
+
+    render(<RemoteDevicesPanel />);
+
+    expect(await screen.findByText("Upgradable to 0.6.0")).toBeInTheDocument();
   });
 
   // 决策 1/3:第 N 台从唯一入口召唤出同一份引导,列表保持可见,可收起。
@@ -200,7 +236,7 @@ describe("RemoteDevicesPanel", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "curl -fsSL https://github.com/agentre-ai/agentre/releases/latest/download/install.sh | sh",
+        "curl -fsSL https://github.com/agentre-hub/agentre/releases/latest/download/install.sh | sh",
       ),
     ).toHaveAttribute("data-selectable-text", "true");
     expect(screen.getByTestId("device-row")).toBeInTheDocument();
@@ -227,16 +263,16 @@ describe("RemoteDevicesPanel", () => {
     mockGetState.mockResolvedValue(LOGGED_IN_SERVER_STATE);
     mockServerList.mockResolvedValue([
       {
-        ID: 11,
-        Name: "studio-mac",
-        Kind: "desktop",
-        Platform: "darwin",
-        Version: "0.3.0",
-        Fingerprint: "fp-desktop-2",
-        LastSeenAt: 1_700_000_000_000,
-        Status: 1,
-        Online: true,
-        IsThisDevice: false,
+        id: 11,
+        name: "studio-mac",
+        kind: "desktop",
+        platform: "darwin",
+        version: "0.3.0",
+        fingerprint: "fp-desktop-2",
+        lastSeenAt: 1_700_000_000_000,
+        status: 1,
+        online: true,
+        isThisDevice: false,
       },
     ]);
 
@@ -269,16 +305,16 @@ describe("RemoteDevicesPanel", () => {
     mockGetState.mockResolvedValue(LOGGED_IN_SERVER_STATE);
     mockServerList.mockResolvedValue([
       {
-        ID: 7,
-        Name: "this-mac",
-        Kind: "desktop",
-        Platform: "darwin",
-        Version: "0.3.0",
-        Fingerprint: "sha256:abc",
-        LastSeenAt: 1_700_000_000_000,
-        Status: 1,
-        Online: true,
-        IsThisDevice: true,
+        id: 7,
+        name: "this-mac",
+        kind: "desktop",
+        platform: "darwin",
+        version: "0.3.0",
+        fingerprint: "sha256:abc",
+        lastSeenAt: 1_700_000_000_000,
+        status: 1,
+        online: true,
+        isThisDevice: true,
       },
     ]);
 
@@ -333,10 +369,8 @@ describe("RemoteDevicesPanel", () => {
     await screen.findByTestId("device-row");
 
     await user.click(screen.getByRole("button", { name: "Add agentred" }));
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.type(
       screen.getByLabelText("Address"),
       "ws://build-box.local:7456/rpc",
@@ -380,10 +414,8 @@ describe("RemoteDevicesPanel", () => {
     await screen.findByTestId("device-row");
 
     await user.click(screen.getByRole("button", { name: "Add agentred" }));
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.type(
       screen.getByLabelText("Address"),
       "ws://build-box.local:7456/rpc",
@@ -393,7 +425,7 @@ describe("RemoteDevicesPanel", () => {
 
     expect(await screen.findByText("Pairing code expired")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Connect this remote machine" }),
+      screen.getByRole("heading", { name: "Pair this remote machine" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Address")).toHaveValue(
       "ws://build-box.local:7456/rpc",
@@ -430,10 +462,8 @@ describe("RemoteDevicesPanel", () => {
     await screen.findByTestId("device-row");
 
     await user.click(screen.getByRole("button", { name: "Add agentred" }));
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.type(
       screen.getByLabelText("Address"),
       "ws://build-box.local:7456/rpc",
@@ -458,39 +488,36 @@ describe("RemoteDevicesPanel", () => {
     render(<RemoteDevicesPanel />);
     await screen.findByRole("heading", { name: "Install agentred" });
 
-    await user.click(screen.getByRole("radio", { name: "macOS" }));
+    await user.click(screen.getByRole("button", { name: "macOS" }));
     expect(
       screen.getByText(
-        "curl -fsSL https://github.com/agentre-ai/agentre/releases/latest/download/install.sh | sh",
+        "curl -fsSL https://github.com/agentre-hub/agentre/releases/latest/download/install.sh | sh",
       ),
     ).toHaveAttribute("data-selectable-text", "true");
 
-    await user.click(screen.getByRole("radio", { name: "Windows" }));
+    await user.click(screen.getByRole("button", { name: "Windows" }));
     expect(
       screen.getByText(
-        "irm https://github.com/agentre-ai/agentre/releases/latest/download/install.ps1 | iex",
+        "irm https://github.com/agentre-hub/agentre/releases/latest/download/install.ps1 | iex",
       ),
     ).toHaveAttribute("data-selectable-text", "true");
 
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     expect(
       screen.getByText("agentred service install --start"),
     ).toHaveAttribute("data-selectable-text", "true");
-    expect(screen.getByText("Daemon running")).toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("radio", { name: "Temporary foreground" }),
+      screen.getByRole("button", { name: "Temporary foreground" }),
     );
     expect(screen.getByText("agentred run")).toHaveAttribute(
       "data-selectable-text",
       "true",
     );
 
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
     expect(
-      screen.getByRole("heading", { name: "Connect this remote machine" }),
+      screen.getByRole("heading", { name: "Pair this remote machine" }),
     ).toBeInTheDocument();
     expect(screen.getByText("agentred pair")).toHaveAttribute(
       "data-selectable-text",
@@ -505,10 +532,8 @@ describe("RemoteDevicesPanel", () => {
 
     render(<RemoteDevicesPanel />);
     await screen.findByRole("heading", { name: "Install agentred" });
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.type(
       screen.getByLabelText("Address"),
       "ws://linux-srv.local:7456/rpc",
@@ -540,10 +565,8 @@ describe("RemoteDevicesPanel", () => {
 
     render(<RemoteDevicesPanel onOpenAgentBackends={onOpenAgentBackends} />);
     await screen.findByRole("heading", { name: "Install agentred" });
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.type(
       screen.getByLabelText("Address"),
       "ws://linux-srv.local:7456/rpc",
@@ -627,17 +650,17 @@ describe("RemoteDevicesPanel", () => {
     ] as Partial<DeviceView>[]);
     mockServerList.mockResolvedValueOnce([
       {
-        ID: 10,
-        Name: "home-server",
-        Kind: "agentred",
-        Platform: "linux",
-        Version: "0.3.0",
-        Fingerprint: "fp-1",
-        LastSeenAt: 1_700_000_000_000,
-        Status: 1,
+        id: 10,
+        name: "home-server",
+        kind: "agentred",
+        platform: "linux",
+        version: "0.3.0",
+        fingerprint: "fp-1",
+        lastSeenAt: 1_700_000_000_000,
+        status: 1,
         // 中转路径可达 = daemon 的中继在线登记(R20),不是账号侧授权标志。
-        Online: true,
-        IsThisDevice: false,
+        online: true,
+        isThisDevice: false,
       },
     ]);
     render(<RemoteDevicesPanel />);
@@ -657,16 +680,16 @@ describe("RemoteDevicesPanel", () => {
     mockList.mockResolvedValueOnce([]);
     mockServerList.mockResolvedValueOnce([
       {
-        ID: 21,
-        Name: "cloud-box",
-        Kind: "agentred",
-        Platform: "linux",
-        Version: "0.3.0",
-        Fingerprint: "fp-cloud",
-        LastSeenAt: 1_700_000_000_000,
-        Status: 1,
-        Online: true,
-        IsThisDevice: false,
+        id: 21,
+        name: "cloud-box",
+        kind: "agentred",
+        platform: "linux",
+        version: "0.3.0",
+        fingerprint: "fp-cloud",
+        lastSeenAt: 1_700_000_000_000,
+        status: 1,
+        online: true,
+        isThisDevice: false,
       },
     ]);
 
@@ -679,8 +702,8 @@ describe("RemoteDevicesPanel", () => {
     // 没有配对行 → 不给那组作用在配对行上的动作,也没有 TLS 徽章。
     expect(screen.queryByLabelText("More actions")).not.toBeInTheDocument();
     expect(screen.queryByText("OS Default")).not.toBeInTheDocument();
-    // 它在账号清单里 → 不是「未认领」。
-    expect(screen.queryByText("Unclaimed")).not.toBeInTheDocument();
+    // 它在账号清单里 → 不是「未登录账号」。
+    expect(screen.queryByText("Not signed in")).not.toBeInTheDocument();
   });
 
   it("lists an account-only agentred alongside the LAN-paired ones", async () => {
@@ -697,16 +720,16 @@ describe("RemoteDevicesPanel", () => {
     ] as Partial<DeviceView>[]);
     mockServerList.mockResolvedValueOnce([
       {
-        ID: 21,
-        Name: "cloud-box",
-        Kind: "agentred",
-        Platform: "linux",
-        Version: "0.3.0",
-        Fingerprint: "fp-cloud",
-        LastSeenAt: 1_700_000_000_000,
-        Status: 1,
-        Online: true,
-        IsThisDevice: false,
+        id: 21,
+        name: "cloud-box",
+        kind: "agentred",
+        platform: "linux",
+        version: "0.3.0",
+        fingerprint: "fp-cloud",
+        lastSeenAt: 1_700_000_000_000,
+        status: 1,
+        online: true,
+        isThisDevice: false,
       },
     ]);
 
@@ -720,6 +743,75 @@ describe("RemoteDevicesPanel", () => {
     // LAN 那台仍留着自己的地址位与配对动作。
     expect(screen.getByText(/192\.168\.1\.50/)).toBeInTheDocument();
     expect(screen.getByLabelText("More actions")).toBeInTheDocument();
+  });
+
+  // 账号收编来的那一行(paired_agentred_entity.IsRelayOnly)有配对行、却没有 LAN
+  // 地址:「刷新直连」拨不出去,「TLS 信任」也没有可信任的直连端点。判据是 url 有没有
+  // 值,不是 lan 这一行在不在 —— 后者对收编行恒为真,正是它让这两个动作出现在一台
+  // 没有直连地址的机器上,点「刷新直连」只会得到一个无意义的失败。
+  it("hides the direct-connection actions on an adopted row that has no LAN address", async () => {
+    const user = userEvent.setup();
+    mockList.mockResolvedValueOnce([
+      {
+        id: 5,
+        name: "cloud-box",
+        url: "",
+        daemonFingerprint: "fp-cloud",
+        tlsMode: "default",
+        online: true,
+        lastSeenAt: 1_700_000_000_000,
+      },
+    ] as Partial<DeviceView>[]);
+    mockServerList.mockResolvedValueOnce([
+      {
+        id: 21,
+        name: "cloud-box",
+        kind: "agentred",
+        platform: "linux",
+        version: "0.3.0",
+        fingerprint: "fp-cloud",
+        lastSeenAt: 1_700_000_000_000,
+        status: 1,
+        online: true,
+        isThisDevice: false,
+      },
+    ]);
+
+    render(<RemoteDevicesPanel />);
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("device-row")).toHaveLength(1),
+    );
+    await user.click(screen.getByLabelText("More actions"));
+    // 改名与解除配对作用在这一行本身,收编行照样要有。
+    expect(await screen.findByText("Rename")).toBeInTheDocument();
+    expect(screen.getByText("Unpair")).toBeInTheDocument();
+    expect(screen.queryByText("Refresh Status")).not.toBeInTheDocument();
+    expect(screen.queryByText("Edit TLS Trust")).not.toBeInTheDocument();
+  });
+
+  it("keeps the direct-connection actions on a row that really has a LAN address", async () => {
+    const user = userEvent.setup();
+    mockList.mockResolvedValueOnce([
+      {
+        id: 6,
+        name: "linux-srv",
+        url: "ws://192.168.1.50:7456/rpc",
+        daemonFingerprint: "fp-lan",
+        tlsMode: "default",
+        online: true,
+        lastSeenAt: 1_700_000_000_000,
+      },
+    ] as Partial<DeviceView>[]);
+
+    render(<RemoteDevicesPanel />);
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("device-row")).toHaveLength(1),
+    );
+    await user.click(screen.getByLabelText("More actions"));
+    expect(await screen.findByText("Refresh Status")).toBeInTheDocument();
+    expect(screen.getByText("Edit TLS Trust")).toBeInTheDocument();
   });
 
   describe("unpair & rename use dialogs, never native window.*", () => {
@@ -854,16 +946,16 @@ describe("RemoteDevicesPanel", () => {
     it("driving the full device flow through the dialog updates the panel to signed-in without further action", async () => {
       mockList.mockResolvedValueOnce([]);
       mockStartLogin.mockResolvedValueOnce({
-        DeviceCode: "device-abc",
-        UserCode: "ABCD-1234",
-        VerificationURI: "https://hub.example.com/device",
-        VerificationURIComplete:
+        deviceCode: "device-abc",
+        userCode: "ABCD-1234",
+        verificationURI: "https://hub.example.com/device",
+        verificationURIComplete:
           "https://hub.example.com/device?code=ABCD-1234",
         // Short interval keeps this wiring test fast and deterministic
         // without fake timers (timing precision is covered separately in
         // login-dialog.test.tsx).
-        Interval: 1,
-        ExpiresIn: 900,
+        interval: 1,
+        expiresIn: 900,
       });
       mockPollLoginToken.mockResolvedValueOnce(true);
       // Second GetState call (after onLoggedIn refresh) reports signed-in.

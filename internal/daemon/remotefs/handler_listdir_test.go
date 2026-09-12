@@ -2,7 +2,6 @@ package remotefs_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,9 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/daemon/remotefs"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/pkg/remotefs/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
+	"github.com/agentre-hub/agentre/internal/pkg/remotefs/wire"
 )
 
 func setupHandlers(t *testing.T) (*remotefs.Handlers, string) {
@@ -150,22 +148,4 @@ func TestListDir_HiddenNotFiltered(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
-}
-
-func TestRegister_TranslatesSentinel(t *testing.T) {
-	reg := rpc.NewRegistry()
-	home := t.TempDir()
-	h := remotefs.NewHandlers(remotefs.Options{
-		HomeFn:     func() (string, error) { return home, nil },
-		MaxEntries: 2000,
-	})
-	// wrap 透传 = 等价于不做 auth 检查,方便单测;生产由 daemon 传 requireAuth 闭包。
-	remotefs.Register(reg, h, func(fn rpc.HandlerFunc) rpc.HandlerFunc { return fn })
-
-	// 通过 dispatch 触发一次 PathRefused,验证客户端能拿到 *rpc.Error 而不是裸 sentinel
-	raw, _ := json.Marshal(wire.ListDirReq{Path: "/proc"})
-	_, err := reg.Dispatch(context.Background(), wire.MethodListDir, raw)
-	var rpcErr *rpc.Error
-	require.ErrorAs(t, err, &rpcErr)
-	assert.Equal(t, wire.ErrCodePathRefused, rpcErr.Code)
 }

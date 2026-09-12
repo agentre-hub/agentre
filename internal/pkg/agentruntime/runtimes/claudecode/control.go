@@ -9,12 +9,12 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // toolNameExitPlanMode CLI 计划审批 control_request 的 tool_name。
-// 与 chat_svc/handlers 的同名常量各自归属(包间不互相 import)。
+// 与 internal/pkg/transcript/handlers 的同名常量各自归属(包间不互相 import)。
 const toolNameExitPlanMode = "ExitPlanMode"
 
 // SubmitAnswer 把前端提交的 AskUserQuestion 答案反向投回 CLI。语义同顶层

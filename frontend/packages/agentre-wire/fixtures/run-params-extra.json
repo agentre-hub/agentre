@@ -1,0 +1,15 @@
+{
+  "agentId": 7,
+  "agentSyncId": "01JZ7W2A8KZ4R5T6Y7U8I9O0P1Q",
+  "backend": {
+    "backendType": "claudecode"
+  },
+  "clientNote": "来自浏览器的自定义字段",
+  "conversationId": "00000000-0000-7000-8000-000000000042",
+  "futureField": {
+    "nested": true
+  },
+  "sourceDevice": "fp-web-1",
+  "sourceDeviceName": "Chrome · macOS",
+  "title": "重构登录页"
+}

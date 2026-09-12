@@ -1,6 +1,6 @@
 import type { NavigateFunction } from "react-router-dom";
 
-import type { ChatAgentItem } from "@/hooks/use-chat-agents";
+import type { AgentSlim } from "@/hooks/use-chat-agents";
 
 import type { PaletteMode } from "./mode";
 
@@ -15,8 +15,6 @@ export type CommandItemBase = {
 };
 
 // onSelect 时注入的依赖，避免 source 直接 import store / router。
-// pathname 用来让 source 根据当前路由显式分支（如 /projects vs /chat），
-// 不依赖 store 状态推断「现在是不是项目页」。
 // chat tab 写入用显式动作:openSession 打开/复用已有会话 tab(可选 newTab=true
 // 在新 tab 里);openNewSession 打开 kind:"new" 占位 tab(新建会话首发上下文)。
 // openNotChattableDialog 供不可对话分支打开引导弹窗（面板宿主负责渲染弹窗）。
@@ -25,16 +23,15 @@ export type OnSelectCtx = {
   close: () => void;
   openSession: (sessionId: number, opts?: { newTab?: boolean }) => void;
   openNewSession: (agentId: number) => void;
-  openNotChattableDialog: (agent: ChatAgentItem) => void;
-  pathname: string;
+  openNotChattableDialog: (agent: AgentSlim) => void;
 };
 
 // 单个命令源契约：
 //   - id：组标识（cmdk CommandGroup 的 value）。
 //   - heading：分组标题文案。
 //   - modes：该源在哪些模式下激活（"default" = ⌘P 搜索；"command" = ">" 前缀命令）。
-//   - activeFor：可选路由门 —— 未提供则永远 active；提供时 false 会被 SOURCES.filter 跳过。
-//     用于路由互斥的命令（如 /chat 路由用 "New chat with"、/projects 路由用 "New project chat with"）。
+//   - activeFor：可选上下文门 —— 未提供则永远 active；提供时 false 会被 SOURCES.filter 跳过。
+//     用于互斥的命令（选了项目上下文用 "New project chat with"，否则用 "New chat with"）。
 //   - useItems：React hook，返回最终要渲染的 items + loading 状态。
 //   - getScore：传入 query 与 item，返回评分（0=不命中，>0 排序权重）。
 //   - renderItem：渲染单行（包括 Avatar / Title / Meta / Right）。
@@ -45,7 +42,7 @@ export type CommandSource<T extends CommandItemBase> = {
   id: string;
   heading: string;
   modes: readonly PaletteMode[];
-  activeFor?: (ctx: { pathname: string }) => boolean;
+  activeFor?: (ctx: { hasProjectContext: boolean }) => boolean;
   useItems: () => { items: T[]; loading: boolean };
   getScore: (query: string, item: T) => number;
   renderItem: (item: T, opts: { active: boolean }) => React.ReactNode;

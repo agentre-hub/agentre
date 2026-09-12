@@ -5,8 +5,8 @@ import (
 	"io"
 	"os/exec"
 
-	"github.com/agentre-ai/agentre/internal/pkg/clienv"
-	"github.com/agentre-ai/agentre/internal/pkg/procattr"
+	"github.com/agentre-hub/agentre/internal/pkg/clienv"
+	"github.com/agentre-hub/agentre/internal/pkg/procattr"
 )
 
 type processSpec struct {
@@ -38,6 +38,11 @@ type process struct {
 const maxStderrBytes = 64 << 10 // 64KB；超出后丢弃前面内容
 
 func startProcess(ctx context.Context, spec processSpec) (*process, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
 	searchEnv := clienv.BuildEnv(spec.env, spec.binary)
 	binary, ok := clienv.ResolveBinaryForEnv(spec.binary, searchEnv)
 	if !ok {
@@ -45,7 +50,11 @@ func startProcess(ctx context.Context, spec processSpec) (*process, error) {
 	}
 	// #nosec G204 -- binary/args come from agent backend config (CLIPath + flags
 	// 由 agentruntime 装配)，不接受用户输入。
-	cmd := exec.CommandContext(ctx, binary, spec.args...)
+	//
+	// 刻意用 exec.Command 而非 CommandContext:ctx 只守 spawn 阶段(上面那道取消
+	// 检查),进程一旦起来寿命就归调用方 —— 会话跨轮常驻,而开它的那一轮 ctx 会在
+	// 轮末 cancel,绑上去就是每轮结束都 SIGKILL 掉池里留着复用的进程。
+	cmd := exec.Command(binary, spec.args...)
 	procattr.ApplyNoConsoleWindow(cmd)
 	setProcessGroup(cmd)
 	if spec.cwd != "" {
@@ -141,6 +150,14 @@ func (p *process) exitErrIfDone() error {
 		return nil
 	}
 	return p.exitErr
+}
+
+// pid 交出子进程号;进程还没起来 / 已经没了时为 0。
+func (p *process) pid() int {
+	if p == nil || p.cmd == nil || p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
 }
 
 // kill 给子进程所在进程组发 SIGKILL（不可被忽略），用于子进程卡死、优雅 Close(关 stdin)

@@ -9,8 +9,9 @@ import (
 	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/agents/provider"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // EventKind 统一事件离散类型。chat_svc 按这个枚举做 switch。
@@ -19,13 +20,16 @@ type EventKind string
 const (
 	EventTextDelta     EventKind = "text_delta"
 	EventThinkingDelta EventKind = "thinking_delta"
-	EventToolUseStart  EventKind = "tool_use_start"
-	EventToolUseEnd    EventKind = "tool_use_end"
-	EventToolResult    EventKind = "tool_result"
-	EventSteerConsumed EventKind = "steer_consumed"
+	// EventOutputActivity 模型开始产出一个输出块(含工具入参这类不可见输出)。
+	// 纯计时信号,只用于记首 token,见 event.go 的 OutputActivity。
+	EventOutputActivity EventKind = "output_activity"
+	EventToolUseStart   EventKind = "tool_use_start"
+	EventToolUseEnd     EventKind = "tool_use_end"
+	EventToolResult     EventKind = "tool_result"
+	EventSteerConsumed  EventKind = "steer_consumed"
 	// subagent 生命周期（claudecode 与 Pi runtime 产生；codex 不发）。
 	// Pi 的 stateful drain 在这里承载 parallel/chain 的 mode + runs 全量快照；
-	// claudecode 的 legacy 单运行生产者可继续不填 Runs。
+	// claudecode 是单运行生产者，不填 Runs。
 	EventSubagentStarted  EventKind = "subagent_started"
 	EventSubagentProgress EventKind = "subagent_progress"
 	EventSubagentDone     EventKind = "subagent_done"
@@ -80,10 +84,29 @@ const (
 	EventRuntimeStatus EventKind = "runtime_status"
 	EventError         EventKind = "error"
 	EventDone          EventKind = "done"
-	// EventUserMessage (R18):daemon 在「开新一轮」事件流开头注入的发起方标记(见
-	// event.go 的 UserMessageEvent)。它是 wire 事件流的一部分,走既有的
-	// runtime.event 通知 / journal / 补齐,不需要额外的通知通道。
+	// EventUserMessage (R18):一轮的用户消息(见 event.go 的 UserMessageEvent)。宿主
+	// 把用户那一行落库后当场作为**持久帧**投影发布,它因此走既有的 runtime.event 通知
+	// 与补齐,不需要额外的通知通道。从前它还有第二个来源(事件流开头另注入的一条预览
+	// 标记),那条已经撤掉 —— 同一句话发两遍,拿帧重建转录的消费方就画出两条。
 	EventUserMessage EventKind = "user_message"
+	// EventUnrecognizedBlock 携带一条发送方投射不出来的转录块,原样。
+	//
+	// 它存在是为了让「我投射不出这一块」本身过得了 wire,而不是被悄悄丢掉:
+	// 历史合成的投影器只覆盖它认得的那几种块,而落库的块类型比它多(tool_approval、
+	// nested_tool_use / nested_tool_result 今天就走这条路),摆一块不透明的内容
+	// 好过转录里凭空少一段(R8)。
+	//
+	// 只有历史合成会产出它 —— 实时事件流里的一切本来就是密封事件。
+	EventUnrecognizedBlock EventKind = "unrecognized_block"
+	// EventImage 一条用户消息里的图片附件(见 event.go 的 ImageBlockEvent)。
+	//
+	// 它与 EventUnrecognizedBlock 的分工是「认得出 / 认不出」:图片块此前只能走后者
+	// 兜底,消费方那一侧于是只画得出一段 base64 文本、还挂在助手名下。有了自己的判别值
+	// 之后,消费方才认得出「这是一张图,而且是用户贴的」。
+	//
+	// 判别值与块类型同名(cago blocks.ImageBlock.Type() == "image"):两张词表本就不同,
+	// 而同一样东西在两处叫同一个名字,比为了避嫌另起一个更不容易读错。
+	EventImage EventKind = "image"
 )
 
 // ToolUseEvent EventToolUseStart / End 携带。Input 是原始 JSON；chat_svc 自己 unmarshal 到 map。
@@ -108,7 +131,7 @@ type ToolUseEvent struct {
 // 顶层 tool_use_result；codex 当前不发）。原始 JSON,留给 chat_svc 落 ChatBlock,
 // 前端按工具语义 Unmarshal。无 meta 的工具留 nil。
 type ToolResultEvent struct {
-	ToolUseID        string
+	ToolCallID       string
 	Content          string
 	IsError          bool
 	ParentToolCallID string
@@ -134,6 +157,11 @@ type SubagentInfo struct {
 	Status          string        `json:"status,omitempty"` // aggregate: waiting | running | completed | partial | failed | canceled | skipped | unknown
 	Mode            string        `json:"mode,omitempty"`
 	Runs            []SubagentRun `json:"runs,omitempty"`
+	// Summary 是该 task 收尾时生产者给出的整体结论:claudecode 的
+	// task_notification.summary(成功时是子代理交回的报告全文,失败时是中断原因,
+	// 如 "Agent terminated early due to an API error: ...")。不填 Runs 的单运行
+	// 生产者只有这一处承载结论。
+	Summary string `json:"summary,omitempty"`
 }
 
 // SubagentRun is one normalized child execution scoped by the outer tool call.
@@ -167,8 +195,8 @@ type ConsumedSteer struct {
 	Text     string
 	// 新增字段走 lowerCamelCase(现有 QueuedID/Text 无 tag、线上是 PascalCase,不能改:
 	// 老桌面端按字段名解,改名会让老客户端把 QueuedID/Text 解成空)。
-	SourcePeer string `json:"sourcePeer,omitempty"`
-	SourceName string `json:"sourceName,omitempty"`
+	SourcePeer devicefp.Initiator `json:"sourcePeer,omitempty"`
+	SourceName string             `json:"sourceName,omitempty"`
 }
 
 // RetryEvent is a non-terminal backend retry notification. It is surfaced to
@@ -190,9 +218,9 @@ type RuntimeEvent struct {
 	Retry      *RetryEvent
 	Err        error
 
-	// EventSubagent* 携带：Subagent 元数据；外层 Agent.tool_use_id 放在 ToolUseID。
-	Subagent  *SubagentInfo
-	ToolUseID string
+	// EventSubagent* 携带：Subagent 元数据；外层 Agent.tool_use_id 放在 ToolCallID。
+	Subagent   *SubagentInfo
+	ToolCallID string
 
 	// EventAskUserQuestion 携带：解析后的 question 列表 + backend 提供的
 	// requestID（claudecode 走 control_request.request_id；codex 走
@@ -274,11 +302,11 @@ type ToolPermissionSink interface {
 // RequestID 是 backend 私有的回写句柄（claudecode = control_request.request_id），
 // service 在调 AskAnswerSink.SubmitAnswer 时按它定位 waiter。
 //
-// ToolUseID 关联到 assistant 流里的 tool_use 块；race 时（control_request 比
+// ToolCallID 关联到 assistant 流里的 tool_use 块；race 时（control_request 比
 // tool_use 先到）允许为空，前端 merge 时按 RequestID 占位。
 type AskUserQuestionEvent struct {
 	RequestID        string
-	ToolUseID        string
+	ToolCallID       string
 	ParentToolCallID string
 	Questions        []AskQuestion
 	// Answered / Skipped / Answers 仅 EventAskUserQuestionAnswered 时填:
@@ -414,7 +442,11 @@ type RunRequest struct {
 	Title string
 	// AgentSyncID 是该会话所属 Agent 的账号级同步标识（块 1 决策 3 的 ULID，不是本地
 	// 自增 agent_id）。远端 daemon 落库并在会话列表里回传（R5 / R7）；本地 runner 不用它。
-	AgentSyncID       string
+	AgentSyncID string
+	// ProjectSyncID 是该会话所属项目的账号级同步标识。只有远端 runtime 用得上：它
+	// 随一轮过线，让对端把项目记进自己的会话行（本地 runtime 的会话行就在本机，
+	// 项目归属查得到，不需要携带）。空串 = 自由会话或项目还没认领标识。
+	ProjectSyncID     string
 	SystemPrompt      string
 	ProviderSessionID string // 空 = 新建；非空 = resume
 	// FreshSession 声明这一轮**必须起全新会话**(挂账修复 2026-08-11):即使远端 daemon
@@ -673,6 +705,25 @@ type BackgroundTaskStopper interface {
 	StopBackgroundTask(ctx context.Context, sessionID int64, taskID string) error
 }
 
+// BackgroundTaskResolver 由「自己知道某张派遣卡此刻对应哪个后台任务」的 runner 实现:
+// 把 transcript 上的 tool_use id 反查成 StopBackgroundTask 认得的后台任务标识。
+//
+// 这是「活着的子进程此刻真能停什么」的第一手来源 —— claudecode 由 CLI 的
+// system{subtype:"task_started"} 帧(同时带 tool_use_id 与 task_id)填出这张表,比持久化
+// 的 subagent_state overlay 权威:overlay 可能压根没写(帧丢了 / 老会话),也可能留着上一个
+// 子进程的旧值。chat_svc.StopBackgroundTask 先问这里,拿不到才退回 overlay。
+//
+// 声明成独立的窄接口(ISP)而不是塞进 BackgroundTaskStopper:能停任务与能反查 tool_use
+// 是两件事,remote / 未来的 backend 可能只具备前者;不实现本接口的 runner 一律退回
+// overlay 那条既有路径,行为不变。
+//
+// 返回 ErrBackgroundTaskUnknown 表示这个 runner 认不出该 tool_use id(不是后台任务、
+// 子进程从没报过它、或子进程已 evict)。实现**不得**用空字符串 + nil error 表达
+// 「不认识」,那会让调用方拿一个空标识去下发 stop。
+type BackgroundTaskResolver interface {
+	ResolveBackgroundTask(ctx context.Context, sessionID int64, toolUseID string) (taskID string, err error)
+}
+
 // PermissionModeSetter 由支持运行时切换 permission mode 的 runner 实现。
 // 当前只有 claudecode runner 实现；codex / builtin 不参与权限门概念。
 //
@@ -718,22 +769,22 @@ type AutonomousTurn struct {
 
 // CompletedBackgroundTask 见 AutonomousTurn.CompletedTask。
 type CompletedBackgroundTask struct {
-	ToolUseID string
-	TaskID    string
-	Status    string // "completed" | "failed"; 空 → 视为 completed（见 pkg/claudecode.CompletedBackgroundTask）
-	Summary   string // CLI task_notification.summary 透传；空 = CLI 没下发或 remote 路径暂不携带
+	ToolCallID string
+	TaskID     string
+	Status     string // "completed" | "failed"; 空 → 视为 completed（见 pkg/claudecode.CompletedBackgroundTask）
+	Summary    string // CLI task_notification.summary 透传；空 = CLI 没下发或 remote 路径暂不携带
 }
 
 // SubagentActivitySource 由能在轮间(空闲)产生「后台 subagent 内部活动流」的 runtime 实现
-// —— 当前仅 claudecode。事件流与 Run 同形,ToolUseID 是发起该 subagent 的 Agent 工具 tool_use_id。
+// —— 当前仅 claudecode。事件流与 Run 同形,ToolCallID 是发起该 subagent 的 Agent 工具 tool_use_id。
 type SubagentActivitySource interface {
 	SubagentActivity(sessionID int64) <-chan SubagentActivity
 }
 
 // SubagentActivity 镜像 claudecode.SubagentActivity:一轮后台 subagent 内部活动的事件流。
 type SubagentActivity struct {
-	ToolUseID string
-	Events    <-chan Event
+	ToolCallID string
+	Events     <-chan Event
 	// TurnToken 是本活动轮的 per-turn token,供 Abort 精确寻址(决策 1)。
 	TurnToken uint64
 }

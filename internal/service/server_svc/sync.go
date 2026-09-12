@@ -2,14 +2,13 @@ package server_svc
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 )
 
 // 本文件是工作区多端同步的网络出入口：只做 HTTP 与编解码，一切判定（冲突、墓碑、
@@ -18,44 +17,17 @@ import (
 //
 // 载荷内容一律不进日志：里面有项目路径、prompt 与 EnvJSON。
 
-type syncPushReqItem struct {
-	Kind                string `json:"kind"`
-	SyncID              string `json:"sync_id"`
-	BaseVersion         int64  `json:"base_version"`
-	UpdatedAt           int64  `json:"updated_at"`
-	Deleted             bool   `json:"deleted"`
-	AgentredFingerprint string `json:"agentred_fingerprint"`
-	ProjectSyncID       string `json:"project_sync_id"`
-	// Payload 必须 omitempty：墓碑不带正文（buildPushItem 的 delete 分支），而
-	// json.RawMessage 的零值编码出来是 JSON null——null 不是对象，server 的
-	// ValidatePayload 会整批拒（30501），一次删除就把出站队列永久堵死（R6/R7）。
-	Payload json.RawMessage `json:"payload,omitempty"`
-}
+// 线上结构不再在这里另写一份:契约归共享 module pkg/syncwire 所有,桌面端与服务端
+// 消费同一份定义。这一份从前存在的唯一理由是补 json 标签 —— 领域侧那份 Payload 是
+// []byte,直接 Marshal 会被编成 base64,所以编码只能另找地方做。共享定义把 Payload
+// 声明成 json.RawMessage 之后,这个理由没有了,两个方向的转换循环也一并成了恒等。
 
 type syncPushReq struct {
-	Items []syncPushReqItem `json:"items"`
+	Items []syncwire.PushItem `json:"items"`
 }
 
 type syncPushResp struct {
 	Results []syncwire.PushResult `json:"results"`
-}
-
-type syncPullRespItem struct {
-	Kind                string          `json:"kind"`
-	SyncID              string          `json:"sync_id"`
-	ProjectSyncID       string          `json:"project_sync_id"`
-	AgentredFingerprint string          `json:"agentred_fingerprint"`
-	Payload             json.RawMessage `json:"payload"`
-	Version             int64           `json:"version"`
-	UpdatedAt           int64           `json:"updated_at"`
-	SourceDeviceID      int64           `json:"source_device_id"`
-	Deleted             bool            `json:"deleted"`
-}
-
-type syncPullResp struct {
-	Items      []syncPullRespItem `json:"items"`
-	NextCursor int64              `json:"next_cursor"`
-	HasMore    bool               `json:"has_more"`
 }
 
 // SyncPush 把一批本地改动上行。未登录时不发任何网络请求（R12）。
@@ -70,19 +42,7 @@ func (s *service) SyncPush(ctx context.Context, items []syncwire.PushItem) ([]sy
 		return nil, err
 	}
 
-	req := syncPushReq{Items: make([]syncPushReqItem, 0, len(items))}
-	for _, it := range items {
-		req.Items = append(req.Items, syncPushReqItem{
-			Kind:                it.Kind,
-			SyncID:              it.SyncID,
-			BaseVersion:         it.BaseVersion,
-			UpdatedAt:           it.UpdatedAt,
-			Deleted:             it.Deleted,
-			AgentredFingerprint: it.AgentredFingerprint,
-			ProjectSyncID:       it.ProjectSyncID,
-			Payload:             json.RawMessage(it.Payload),
-		})
-	}
+	req := syncPushReq{Items: items}
 
 	var out []syncwire.PushResult
 	err := s.withAuth(ctx, func(ctx context.Context) error {
@@ -107,6 +67,11 @@ func (s *service) SyncPush(ctx context.Context, items []syncwire.PushItem) ([]sy
 }
 
 // SyncPull 按版本游标增量下行；cursor = 0 拉全量（R6a 的重同步用它）。
+//
+// server 判「这个游标超出本账号版本序列的头」时返回 CodeCursorUnknown，这里翻成
+// syncwire.ErrCursorUnknown——调用方据此重建整份历史并把 server 不认识的本地行重新
+// 上行。不翻的话它只是一句「rejected with code 30505」，与网络抖动无从区分，那台机器
+// 会安静地一直重试同一个死游标。
 func (s *service) SyncPull(ctx context.Context, cursor int64, limit int) (*syncwire.PullPage, error) {
 	if err := s.requireLogin(ctx); err != nil {
 		return nil, err
@@ -119,31 +84,22 @@ func (s *service) SyncPull(ctx context.Context, cursor int64, limit int) (*syncw
 
 	page := &syncwire.PullPage{}
 	err := s.withAuth(ctx, func(ctx context.Context) error {
-		var env envelope[syncPullResp]
+		var env envelope[syncwire.PullPage]
 		_, doErr := s.getClient().do(ctx, http.MethodGet, path, nil, &env)
+		if env.Code == syncwire.CodeCursorUnknown {
+			return syncwire.ErrCursorUnknown
+		}
 		if doErr != nil {
 			return doErr
 		}
 		if env.Code != 0 {
 			return fmt.Errorf("server: sync pull rejected with code %d", env.Code)
 		}
-		items := make([]syncwire.PullItem, 0, len(env.Data.Items))
-		for _, it := range env.Data.Items {
-			items = append(items, syncwire.PullItem{
-				Kind:                it.Kind,
-				SyncID:              it.SyncID,
-				ProjectSyncID:       it.ProjectSyncID,
-				AgentredFingerprint: it.AgentredFingerprint,
-				Payload:             []byte(it.Payload),
-				Version:             it.Version,
-				UpdatedAt:           it.UpdatedAt,
-				SourceDeviceID:      it.SourceDeviceID,
-				Deleted:             it.Deleted,
-			})
+		*page = env.Data
+		// 空页交回空切片而不是 nil:从前那个转换循环用 make 起头,一直是这个形状。
+		if page.Items == nil {
+			page.Items = []syncwire.PullItem{}
 		}
-		page.Items = items
-		page.NextCursor = env.Data.NextCursor
-		page.HasMore = env.Data.HasMore
 		return nil
 	})
 	if err != nil {
@@ -154,13 +110,8 @@ func (s *service) SyncPull(ctx context.Context, cursor int64, limit int) (*syncw
 
 // ---------- 上报组：本机路径 ----------
 
-type localPathReqItem struct {
-	ProjectSyncID string `json:"project_sync_id"`
-	Path          string `json:"path"`
-}
-
 type reportLocalPathsReq struct {
-	Items []localPathReqItem `json:"items"`
+	Items []syncwire.LocalPathItem `json:"items"`
 }
 
 // ReportLocalPaths 把本机路径整份快照上报给 server（R16）；未登录不发任何请求
@@ -169,10 +120,7 @@ func (s *service) ReportLocalPaths(ctx context.Context, items []syncwire.LocalPa
 	if err := s.requireLogin(ctx); err != nil {
 		return err
 	}
-	req := reportLocalPathsReq{Items: make([]localPathReqItem, 0, len(items))}
-	for _, it := range items {
-		req.Items = append(req.Items, localPathReqItem{ProjectSyncID: it.ProjectSyncID, Path: it.Path})
-	}
+	req := reportLocalPathsReq{Items: items}
 	return s.withAuth(ctx, func(ctx context.Context) error {
 		var env envelope[struct{}]
 		_, doErr := s.getClient().do(ctx, http.MethodPost, "/v1/sync/local-paths", req, &env)

@@ -13,9 +13,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 func TestRewriteMCPServersForDaemon(t *testing.T) {
@@ -29,11 +31,11 @@ func TestRewriteMCPServersForDaemon(t *testing.T) {
 		{Name: "group", URL: "http://127.0.0.1:52401/mcp/group/", Tools: []string{"group_send"}},
 	}
 
-	out := rewriteMCPServersForDaemon(specs, func() string { return "http://127.0.0.1:7777" }, "sha256:peer-a", 42)
+	out := rewriteMCPServersForDaemon(specs, func() string { return "http://127.0.0.1:7777" }, "sha256:peer-a", testConversationID)
 
 	// 只换 scheme+host,保留 path,使 CLI 打到 daemon 本地隧道。
-	require.Equal(t, "http://127.0.0.1:7777/mcp/org/?peerFingerprint=sha256%3Apeer-a&sessionId=42", out[0].URL)
-	require.Equal(t, "http://127.0.0.1:7777/mcp/group/?peerFingerprint=sha256%3Apeer-a&sessionId=42", out[1].URL)
+	require.Equal(t, "http://127.0.0.1:7777/mcp/org/?conversationId=00000000-0000-7000-8000-000000000042&peerFingerprint=sha256%3Apeer-a", out[0].URL)
+	require.Equal(t, "http://127.0.0.1:7777/mcp/group/?conversationId=00000000-0000-7000-8000-000000000042&peerFingerprint=sha256%3Apeer-a", out[1].URL)
 	// desktop 签的 token(Headers)+ tools + name 原样保留(token 在 desktop 侧校验)。
 	require.Equal(t, "Bearer tok", out[0].Headers["Authorization"])
 	require.Equal(t, []string{"org_get"}, out[0].Tools)
@@ -42,9 +44,9 @@ func TestRewriteMCPServersForDaemon(t *testing.T) {
 	require.Equal(t, "http://127.0.0.1:52401/mcp/org/", specs[0].URL)
 
 	// 空 base / 空 specs / nil baseFn:原样返回,不炸。
-	require.Equal(t, specs, rewriteMCPServersForDaemon(specs, func() string { return "" }, "sha256:peer-a", 42))
-	require.Equal(t, specs, rewriteMCPServersForDaemon(specs, nil, "sha256:peer-a", 42))
-	require.Nil(t, rewriteMCPServersForDaemon(nil, func() string { return "http://127.0.0.1:7777" }, "sha256:peer-a", 42))
+	require.Equal(t, specs, rewriteMCPServersForDaemon(specs, func() string { return "" }, "sha256:peer-a", testConversationID))
+	require.Equal(t, specs, rewriteMCPServersForDaemon(specs, nil, "sha256:peer-a", testConversationID))
+	require.Nil(t, rewriteMCPServersForDaemon(nil, func() string { return "http://127.0.0.1:7777" }, "sha256:peer-a", testConversationID))
 }
 
 // fakeTunnelNotifier 实现 NotifierPort:记录反向 Request 的 method/params,按预置应答回填 result。
@@ -55,7 +57,7 @@ type fakeTunnelNotifier struct {
 	err       error
 }
 
-func (f *fakeTunnelNotifier) Notify(string, any) error { return nil }
+func (f *fakeTunnelNotifier) Notify(*agentrewire.RpcNotification) error { return nil }
 func (f *fakeTunnelNotifier) Request(_ context.Context, method string, params, result any) error {
 	f.gotMethod = method
 	f.gotParams = params
@@ -74,15 +76,15 @@ func TestMCPTunnelHandler_ForwardsRequestAndWritesResponse(t *testing.T) {
 		Headers: map[string][]string{"Content-Type": {"application/json"}},
 		Body:    []byte(`{"ok":true}`),
 	}}
-	var gotPeer string
-	var gotSessionID int64
-	h := NewMCPTunnelHandler(func(peer string, sessionID int64) NotifierPort {
-		gotPeer, gotSessionID = peer, sessionID
+	var gotPeer devicefp.Initiator
+	var gotConversationID string
+	h := NewMCPTunnelHandler(func(peer devicefp.Initiator, conversationID string) NotifierPort {
+		gotPeer, gotConversationID = peer, conversationID
 		return fn
 	})
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
-	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7777/mcp/org/?peerFingerprint=sha256%3Apeer-a&sessionId=42", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7777/mcp/org/?conversationId=00000000-0000-7000-8000-000000000042&peerFingerprint=sha256%3Apeer-a", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer tok")
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -96,8 +98,9 @@ func TestMCPTunnelHandler_ForwardsRequestAndWritesResponse(t *testing.T) {
 
 	// The local URL's explicit origin selects the peer/session, not a global
 	// newest-connection heuristic.
-	require.Equal(t, "sha256:peer-a", gotPeer)
-	require.Equal(t, int64(42), gotSessionID)
+	require.Equal(t, devicefp.Initiator("sha256:peer-a"), gotPeer)
+	require.Equal(t, testConversationID, gotConversationID,
+		"写进隧道 URL 的对话身份必须原样解回来 —— 这是本轮唯一一处身份离开进程边界的地方")
 	// 经 MethodMCPProxy 反向请求转发,且请求保真(path/method/body/鉴权头)。
 	require.Equal(t, wire.MethodMCPProxy, fn.gotMethod)
 	fwd, ok := fn.gotParams.(wire.MCPProxyRequest)
@@ -120,7 +123,7 @@ func TestMCPTunnelHandler_ForwardsRequestAndWritesResponse(t *testing.T) {
 // unavailable capability, states the dependency on the originating client being
 // online, and tells the model not to retry.
 func TestMCPTunnelHandler_NoActiveConn_ReturnsReadableToolError(t *testing.T) {
-	h := NewMCPTunnelHandler(func(string, int64) NotifierPort { return nil })
+	h := NewMCPTunnelHandler(func(devicefp.Initiator, string) NotifierPort { return nil })
 
 	body := `{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"org_get"}}`
 	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7777/mcp/org/", strings.NewReader(body))
@@ -167,7 +170,7 @@ func TestMCPTunnelHandler_NoActiveConn_LogsTheDegradation(t *testing.T) {
 	log.SetOutput(&buf)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
-	h := NewMCPTunnelHandler(func(string, int64) NotifierPort { return nil })
+	h := NewMCPTunnelHandler(func(devicefp.Initiator, string) NotifierPort { return nil })
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7777/mcp/org/",
 		strings.NewReader(`{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"org_get"}}`)))
@@ -192,11 +195,11 @@ func TestMCPTunnelHandler_TargetLostMidCall_ReturnsReadableToolError(t *testing.
 	log.SetOutput(&buf)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
-	fn := &fakeTunnelNotifier{err: rpc.ErrConnClosed}
-	h := NewMCPTunnelHandler(func(string, int64) NotifierPort { return fn })
+	fn := &fakeTunnelNotifier{err: protorpc.ErrConnClosed}
+	h := NewMCPTunnelHandler(func(devicefp.Initiator, string) NotifierPort { return fn })
 
 	body := `{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"org_get"}}`
-	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7777/mcp/org/?peerFingerprint=sha256%3Apeer-a&sessionId=42", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7777/mcp/org/?conversationId=00000000-0000-7000-8000-000000000042&peerFingerprint=sha256%3Apeer-a", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -241,7 +244,7 @@ func TestMCPTunnelHandler_TargetLostMidCall_ReturnsReadableToolError(t *testing.
 // answer with a well-formed JSON-RPC error (id degrades to null) instead of panicking
 // or falling back to the old bare-503 behavior.
 func TestMCPTunnelHandler_NoActiveConn_UnparsableBodyStillAnswers(t *testing.T) {
-	h := NewMCPTunnelHandler(func(string, int64) NotifierPort { return nil })
+	h := NewMCPTunnelHandler(func(devicefp.Initiator, string) NotifierPort { return nil })
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7777/mcp/org/", strings.NewReader("not json")))
 
@@ -254,3 +257,7 @@ func TestMCPTunnelHandler_NoActiveConn_UnparsableBodyStillAnswers(t *testing.T) 
 	require.Equal(t, json.RawMessage("null"), resp.ID)
 	require.NotNil(t, resp.Error)
 }
+
+// testConversationID 是这些用例里那条对话的身份。写死一个可读的合法 uuid:隧道 URL
+// 这一跳要证的是"写进去的与解回来的逐字相同",不是它长什么样。
+const testConversationID = "00000000-0000-7000-8000-000000000042"

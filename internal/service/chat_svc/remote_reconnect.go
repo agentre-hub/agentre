@@ -8,10 +8,12 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/remotepool"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ConnStateEventPrefix 是会话级「连接态」流的前缀。连接态是运行态之上的一层修饰,
@@ -35,20 +37,6 @@ func (s *chatSvc) onRemoteConnState(sessionID int64, st remote.SessionConnState)
 		CaughtUpCount:    st.Replayed,
 		PendingDecisions: st.PendingDecisions,
 	})
-}
-
-// onRemoteDaemonDurability 是 remote.DurabilityObserver 的实现:把 R18 的能力探测
-// 结论交给配对设备状态。
-//
-// 为什么落在设备而不是会话:daemon 版本是**设备属性**,不是会话事件 —— 同一台设备上
-// 每条会话得到的都是同一个结论,而用户要在配对设备面板上看到「这台为什么一断连整轮
-// 就没了」。回落行为(断连即结束该轮)本来就有,这里补的是那句说明。
-func (s *chatSvc) onRemoteDaemonDurability(deviceID int64, supported bool) {
-	rds := remote_device_svc.Default()
-	if rds == nil {
-		return
-	}
-	rds.RecordDaemonOutdated(deviceID, !supported)
 }
 
 // rememberConnState 维护「每会话最新连接态」缓存。
@@ -105,32 +93,19 @@ func (s *chatSvc) sessionConnState(sessionID int64) remote.ConnState {
 // 同一条池化连接上抢注同名 handler —— 在飞会话的事件从此被路由到不认识它的那个,静默
 // 丢弃,既没有错误也没有 seq 跳号。
 func (s *chatSvc) reconnectRemote(
-	ctx context.Context, deviceID int64, entry *remoteRuntimeEntry,
-) (agentruntime.DaemonClientPort, string, error) {
+	ctx context.Context, deviceID int64, entry *remotepool.Entry,
+) (client.ProtobufConnection, devicefp.Carrier, error) {
 	lease, err := s.pool().Borrow(ctx, deviceID)
 	if err != nil {
 		return nil, "", terminalBorrowError(err)
 	}
 	fp := s.daemonFingerprint(ctx, deviceID)
 
-	s.remoteMu.Lock()
-	old := entry.lease
-	entry.lease = lease
-	entry.leased = true
-	if cur, ok := s.remoteCache[deviceID]; !ok || cur == entry {
-		if s.remoteCache == nil {
-			s.remoteCache = map[int64]*remoteRuntimeEntry{}
-		}
-		s.remoteCache[deviceID] = entry
-	}
-	s.remoteMu.Unlock()
-
-	// 旧那条还回去。引用早已归零的 entry 在 releaseRemoteRuntimeGeneration 里就还过
-	// 一次了,这里再还是 no-op —— Lease.Release() 按契约幂等。
-	if old != nil {
+	// 旧那条还回去。引用早已归零的 entry 在 ReleaseGeneration 里就还过一次了,
+	// 这里再还是 no-op —— Lease.Release() 按契约幂等。
+	if old := s.remotePool().Reattach(deviceID, entry, lease); old != nil {
 		old.Release()
 	}
-	go s.watchLeaseClosed(deviceID, entry, lease)
 	logger.Ctx(ctx).Info("chat_svc.reconnectRemote: re-leased daemon connection",
 		zap.Int64("deviceId", deviceID))
 	return lease.Client(), fp, nil
@@ -153,7 +128,7 @@ func terminalBorrowError(err error) error {
 // daemonFingerprint 取该配对设备的 daemon 实例标识(sha256:<hex>)。取不到返回空串 ——
 // 空标识让游标端口一律判失效(chat_entity.Session.CursorValidFor),补齐因此退化成
 // 「断连即终止」,而不是拿一个来路不明的标识去拉别人的日志。
-func (s *chatSvc) daemonFingerprint(ctx context.Context, deviceID int64) string {
+func (s *chatSvc) daemonFingerprint(ctx context.Context, deviceID int64) devicefp.Carrier {
 	rds := remote_device_svc.Default()
 	if rds == nil {
 		return ""
@@ -174,7 +149,7 @@ func (s *chatSvc) daemonFingerprint(ctx context.Context, deviceID int64) string 
 // 就退化回「断连即终止」。标识为空说明这台设备还没配对出实例标识,此时没有可记录的
 // 身份,写进去等于给游标伪造一个来路不明的归属。agentBackendID 与设备/实例标识
 // 走同一条 UpdateExecDaemon 语句一并写入 —— 三列同生共死,不拆成两个写入点。
-func (s *chatSvc) recordExecDaemon(ctx context.Context, sessionID, deviceID int64, fingerprint string, agentBackendID int64) {
+func (s *chatSvc) recordExecDaemon(ctx context.Context, sessionID, deviceID int64, fingerprint devicefp.Carrier, agentBackendID int64) {
 	if fingerprint == "" || sessionID <= 0 {
 		return
 	}

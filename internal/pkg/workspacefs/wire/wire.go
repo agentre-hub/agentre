@@ -1,6 +1,6 @@
 // Package wire 定义 agentre ↔ agentred 的 workspacefs.* RPC 协议:参数 / 结果 /
-// 错误 sentinel 与 JSON-RPC error code 的双向翻译。daemon 端 handler 与(后续
-// 切片的)host 端 svc 共享这一份类型,避免 JSON shape 漂移。
+// 错误 sentinel 与 typed RPC error code 的双向翻译。daemon 端 handler 与(后续
+// 切片的)host 端 svc 共享这一份类型,避免 Protobuf shape 漂移。
 //
 // 与 internal/pkg/remotefs/wire 是刻意分开的独立方法族(spec 设计决策 5):
 // remotefs.* 面向"浏览远端机器任意绝对路径"(带 $HOME 兜底与路径黑名单);
@@ -12,16 +12,16 @@
 // 命名约定与 internal/pkg/remotefs/wire 一致:
 //   - 方法在 "workspacefs.*" 命名空间下
 //   - 字段名 lowerCamelCase
-//   - 错误码 -32040..-32042 是稳定 wire 值,与既有方法族的 code 段不重叠
-//     (remotefs.* 占 -32030..-32035,agentruntime remote wire 占
-//     -32010..-32014),wrapGuarded handler 返回 *rpc.Error 由本包翻译,
-//     客户端用 FromJSONRPCError rehydrate。
+//   - 错误码 -32040..-32043 是稳定 wire 值,与既有方法族的 code 段不重叠。
+//     数值本身与那张全族段位表都住在共享 module 的 pkg/wire/rpcerror,本包只留
+//     别名;wrapGuarded handler 返回 *rpcerror.Error 由本包翻译,客户端用
+//     FromRPCError rehydrate。
 package wire
 
 import (
 	"errors"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // ── RPC method names ────────────────────────────────────────────────────────
@@ -33,14 +33,18 @@ const (
 	MethodReadFile       = "workspacefs.readFile"
 	MethodGitFileContent = "workspacefs.gitFileContent"
 	MethodSearchFiles    = "workspacefs.searchFiles"
+	MethodGitState       = "workspacefs.gitState"
 )
 
 // ── Error codes ─────────────────────────────────────────────────────────────
 
+// 码值的主人是 pkg/wire/rpcerror —— 那里一份表登记了全部方法族的段位,撞号守卫
+// 因此看得见整条协议;这里只是本族用得顺手的短名字。
 const (
-	ErrCodePathRefused      = -32040
-	ErrCodeBaselineRequired = -32041
-	ErrCodeNoCwd            = -32042
+	ErrCodePathRefused      = rpcerror.CodeWorkspaceFSPathRefused
+	ErrCodeBaselineRequired = rpcerror.CodeWorkspaceFSBaselineRequired
+	ErrCodeNoCwd            = rpcerror.CodeWorkspaceFSNoCwd
+	ErrCodeNotFound         = rpcerror.CodeWorkspaceFSNotFound
 )
 
 // ── Sentinel errors ─────────────────────────────────────────────────────────
@@ -56,26 +60,35 @@ var (
 	// (root 为空)。与"越界"的 ErrPathRefused 区分开——cwd 为空是会话配置问题,
 	// 不是路径问题。
 	ErrNoCwd = errors.New("workspacefs: no cwd")
+	// ErrNotFound 表示 relPath 所指的文件在那台机器上不存在(含路径中间某一段
+	// 不存在、以及符号链接断链)。
+	//
+	// 它与"越界"的 ErrPathRefused 有明确的先后:越界判定在前,因此 root 之外的
+	// 路径无论存不存在都只会得到 ErrPathRefused ——这个码不能成为"那台机器上有
+	// 没有这个文件"的探测器。
+	ErrNotFound = errors.New("workspacefs: not found")
 )
 
-// ToJSONRPCError 把 workspacefs sentinel 包成 *rpc.Error,daemon handler 返回。
+// ToRPCError 把 workspacefs sentinel 包成 *rpcerror.Error,daemon handler 返回。
 // 非 sentinel 返 nil,调用方应自己包装(ErrInternal 之类)。
-func ToJSONRPCError(err error) *rpc.Error {
+func ToRPCError(err error) *rpcerror.Error {
 	switch {
 	case errors.Is(err, ErrPathRefused):
-		return &rpc.Error{Code: ErrCodePathRefused, Message: err.Error()}
+		return &rpcerror.Error{Code: ErrCodePathRefused, Message: err.Error()}
 	case errors.Is(err, ErrBaselineRequired):
-		return &rpc.Error{Code: ErrCodeBaselineRequired, Message: err.Error()}
+		return &rpcerror.Error{Code: ErrCodeBaselineRequired, Message: err.Error()}
 	case errors.Is(err, ErrNoCwd):
-		return &rpc.Error{Code: ErrCodeNoCwd, Message: err.Error()}
+		return &rpcerror.Error{Code: ErrCodeNoCwd, Message: err.Error()}
+	case errors.Is(err, ErrNotFound):
+		return &rpcerror.Error{Code: ErrCodeNotFound, Message: err.Error()}
 	}
 	return nil
 }
 
-// FromJSONRPCError 反向把 *rpc.Error 翻成 sentinel。未知 code 返原 err。
+// FromRPCError 反向把 *rpcerror.Error 翻成 sentinel。未知 code 返原 err。
 // host 侧 svc 拿到后再 i18n.NewError(ctx, code.WorkspaceFsXxx) 包给前端。
-func FromJSONRPCError(err error) error {
-	var rpcErr *rpc.Error
+func FromRPCError(err error) error {
+	var rpcErr *rpcerror.Error
 	if !errors.As(err, &rpcErr) {
 		return err
 	}
@@ -86,6 +99,8 @@ func FromJSONRPCError(err error) error {
 		return ErrBaselineRequired
 	case ErrCodeNoCwd:
 		return ErrNoCwd
+	case ErrCodeNotFound:
+		return ErrNotFound
 	}
 	return err
 }
@@ -209,6 +224,30 @@ type GitFileContentResp struct {
 	Content  string `json:"content"`
 	NotARepo bool   `json:"notARepo,omitempty"` // true 时其余字段恒为零值
 	HasHead  bool   `json:"hasHead,omitempty"`  // false 表示空基线(未跟踪/不在 HEAD)
+}
+
+// ── GitState ────────────────────────────────────────────────────────────────
+
+// GitStateReq.Root 契约同 GitBranchesReq:调用方已解析出的绝对工作目录。
+type GitStateReq struct {
+	Root string `json:"root"`
+}
+
+// GitStateResp 镜像 internal/pkg/workspacefs.GitStateResult:只读 git 状态快照
+// (分支 / worktree 短名 / 未提交数 / 领先落后 / common git dir)。NotARepo 为
+// true 时其余字段恒为零值。
+//
+// CommonDir 单独过 wire——它是下游任务(工作根认领)判定"两个 root 指回同一
+// 主仓库"的依据,只能在仓库所在机器上算出,host 侧远端会话没有别的途径拿到它。
+type GitStateResp struct {
+	NotARepo    bool   `json:"notARepo,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	Worktree    string `json:"worktree,omitempty"`
+	Dirty       int    `json:"dirty,omitempty"`
+	Ahead       int    `json:"ahead,omitempty"`
+	Behind      int    `json:"behind,omitempty"`
+	HasUpstream bool   `json:"hasUpstream,omitempty"`
+	CommonDir   string `json:"commonDir,omitempty"`
 }
 
 // ── SearchFiles ─────────────────────────────────────────────────────────────

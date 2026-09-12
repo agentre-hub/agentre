@@ -2,8 +2,9 @@ import * as React from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
-import { Badge } from "@/components/ui/badge";
-import { useChatAgents, type ChatAgentItem } from "@/hooks/use-chat-agents";
+import { Badge, groupAgentsForPicking } from "@agentre-hub/agentre-ui";
+
+import { useChatAgents, type AgentSlim } from "@/hooks/use-chat-agents";
 import i18n from "@/i18n";
 import { cn } from "@/lib/utils";
 import {
@@ -24,7 +25,7 @@ import type { CommandSource, OnSelectCtx } from "../types";
 export type NewChatItem = {
   key: string;
   agentId: number;
-  agent: ChatAgentItem;
+  agent: AgentSlim;
   // 自由会话版总把 agent 视为"成员"（无项目分组概念）；保留字段是为了 renderItem 同构。
   isMember: true;
   // 不可对话 agent 带「需要先配置」次级分组标签（复用 subHeading 机制）。
@@ -34,35 +35,34 @@ export type NewChatItem = {
 // 排序：可对话组 lastAgent → pinned → others（历史行为不变）；
 // 不可对话组 pinned → others（lastAgentId 只在可对话组内冒泡）。
 // 两组同属 newChatSource，不可对话组用 subHeading 单列「需要先配置」。
+//
+// 分组与排序本身走共享包的 `groupAgentsForPicking`：agentre-server 的新对话列表
+// 是同一条规则（判据是 has_available_target 而不是 chattable，结论同名），两端
+// 此前各写了一份。呈现仍留在这里 —— 那边把「最近用过」单列一组带标题，这里冒泡
+// 进同一组，这是两个产品面的决定，不是同一条规则的两种写法。
 export function flattenAgents(
-  agents: ChatAgentItem[],
+  agents: AgentSlim[],
   lastAgentId: number | null = null,
 ): NewChatItem[] {
-  const chattable = agents.filter((a) => a.chattable);
-  const pinned = chattable.filter((a) => a.pinned);
-  const others = chattable.filter((a) => !a.pinned);
-  let ordered = [...pinned, ...others];
-  if (lastAgentId != null) {
-    const idx = ordered.findIndex((a) => a.id === lastAgentId);
-    if (idx > 0) {
-      const [last] = ordered.splice(idx, 1);
-      ordered = [last, ...ordered];
-    }
-  }
-
-  const needSetup = agents.filter((a) => !a.chattable);
-  const needSetupPinned = needSetup.filter((a) => a.pinned);
-  const needSetupOthers = needSetup.filter((a) => !a.pinned);
+  const { recent, available, unavailable } = groupAgentsForPicking({
+    agents,
+    key: (a) => String(a.id),
+    available: (a) => a.chattable,
+    pinned: (a) => a.pinned,
+    // 本面只认「上次选过的那一个」，所以 recentKeys 至多一项 —— 它在这里的作用
+    // 就是冒泡到最前，与 server 那边「最近用过」是同一格。
+    recentKeys: lastAgentId != null ? [String(lastAgentId)] : [],
+  });
   const needSetupHeading = i18n.t("commandPalette.newChat.needSetup");
 
   return [
-    ...ordered.map((agent) => ({
+    ...[...recent, ...available].map((agent) => ({
       key: `new-chat-agent-${agent.id}`,
       agentId: agent.id,
       agent,
       isMember: true as const,
     })),
-    ...[...needSetupPinned, ...needSetupOthers].map((agent) => ({
+    ...unavailable.map((agent) => ({
       key: `new-chat-agent-${agent.id}`,
       agentId: agent.id,
       agent,
@@ -122,7 +122,7 @@ type AgentRowProps = { item: NewChatItem };
 
 // 不可对话行：原因优先取 blockReason 映射的短文案（复用 task 2 的 copyKey），
 // blockReason 缺失时兜底用 chattableHint（后端总在同一点位设置二者）。
-function reasonText(agent: ChatAgentItem, t: TFunction): string {
+function reasonText(agent: AgentSlim, t: TFunction): string {
   if (agent.blockReason) {
     const key = `${blockReasonToCta(agent.blockReason).copyKey}.short`;
     const resolved = t(key);
@@ -211,15 +211,6 @@ function AgentRow({ item }: AgentRowProps) {
   );
 }
 
-export const PROJECTS_PATH_PREFIX = "/projects";
-
-function isProjectsRoute(pathname: string): boolean {
-  return (
-    pathname === PROJECTS_PATH_PREFIX ||
-    pathname.startsWith(`${PROJECTS_PATH_PREFIX}/`)
-  );
-}
-
 function onSelect(item: NewChatItem, ctx: OnSelectCtx): void {
   ctx.close();
   // 不可对话：不建会话，打开任务 2 的引导弹窗（面板关闭、弹窗接管）。
@@ -240,7 +231,7 @@ export const newChatSource: CommandSource<NewChatItem> = {
   id: "new-chat",
   heading: i18n.t("commandPalette.newChat.heading"),
   modes: ["command"],
-  activeFor: (ctx) => !isProjectsRoute(ctx.pathname),
+  activeFor: (ctx) => !ctx.hasProjectContext,
   useItems,
   getScore,
   renderItem,

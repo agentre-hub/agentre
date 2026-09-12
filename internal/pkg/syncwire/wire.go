@@ -1,5 +1,13 @@
-// Package syncwire 定义桌面端与 server 之间工作区同步协议的线上结构、状态字面量
-// 与载荷守卫（docs/specs/2026-08-07-workspace-sync.md「双向同步的行为」）。
+// Package syncwire 是桌面端**本端**对工作区同步协议的入口（规格
+// docs/specs/2026-08-07-workspace-sync.md「双向同步的行为」）。
+//
+// 工作区里有两个叫 syncwire 的包，分工是清楚的：
+//   - github.com/agentre-hub/agentre/pkg/syncwire（独立 module）拥有协议本身——线上
+//     结构、对象类型词表、状态字面量、上限与载荷守卫。桌面端与 agentre-server 消费
+//     的是同一份定义。
+//   - 本包（internal/pkg/syncwire）是桌面端对它的**别名再导出层**，外加本端专属的
+//     那几样东西：业务码的客户端表达（ErrResyncRequired / ErrCursorUnknown）与账号级
+//     实时通道的解码。契约本身一律不在这里另起一份。
 //
 // 它是一个叶子包：同步引擎（internal/service/sync_svc）与网络出入口
 // （internal/service/server_svc）都依赖它，因此两者之间不需要互相 import。
@@ -9,111 +17,163 @@
 package syncwire
 
 import (
-	"encoding/json"
 	"errors"
+	"fmt"
+
+	"google.golang.org/protobuf/proto"
+
+	wire "github.com/agentre-hub/agentre/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
-// 同步组承载的对象类型，与 server 的 sync_entity 逐字一致。
+// 线上契约归共享 module github.com/agentre-hub/agentre/pkg/syncwire 所有 —— 服务端
+// 与桌面端消费的是同一份定义。本包对它做别名再导出:五十多个调用点因此一行不用改,
+// 而「谁拥有这份契约」这个问题只有一个答案。
+//
+// 留在本包的是**本端专属**的东西:业务码的客户端表达(ErrResyncRequired /
+// ErrCursorUnknown)与账号级实时通道的解码。载荷守卫从前也在这里,现已归契约所有
+// (guard.go 只剩别名再导出)。
 const (
-	KindProject         = "project"
-	KindDepartment      = "department"
-	KindAgent           = "agent"
-	KindAgentBackend    = "agent_backend"
-	KindAgentExecTarget = "agent_exec_target"
-	KindProjectAgent    = "project_agent"
-	KindProjectLocation = "project_location"
+	KindProject         = wire.KindProject
+	KindDepartment      = wire.KindDepartment
+	KindAgent           = wire.KindAgent
+	KindAgentBackend    = wire.KindAgentBackend
+	KindAgentExecTarget = wire.KindAgentExecTarget
+	KindProjectAgent    = wire.KindProjectAgent
+	KindProjectLocation = wire.KindProjectLocation
+	KindLLMProvider     = wire.KindLLMProvider
+	KindAgentBackendCLI = wire.KindAgentBackendCLI
+	KindLabel           = wire.KindLabel
+	KindIssue           = wire.KindIssue
+	KindIssueLabel      = wire.KindIssueLabel
 )
 
-// 一条上行的处置结果（server 的 sync_svc 常量）。
+// Kinds 是同步组的全部对象类型,按「被引用者在前」排列;KindValid 按它判定成员资格。
+// 两者与常量一样归契约所有 —— 「哪些 kind 存在」在整个工作区只有一个答案。
+var Kinds = wire.Kinds
+
+// KindValid 见 pkg/syncwire.KindValid。
+func KindValid(kind string) bool { return wire.KindValid(kind) }
+
 const (
-	// PushStatusAccepted 基版本与该行当前版本相符，或该同步标识 server 从未见过。
-	PushStatusAccepted = "accepted"
-	// PushStatusConflict 基版本与当前版本不符，或基版本为空但同步标识已存在。
-	// 本次上行按后到者胜照常生效，应答里回报被覆盖的版本与来源设备，上行端
-	// 据此落一条「被覆盖」记录。
-	PushStatusConflict = "conflict"
-	// PushStatusRejected 这一条没有生效，原因见 Reason。
-	PushStatusRejected = "rejected"
+	PushStatusAccepted = wire.PushStatusAccepted
+	PushStatusConflict = wire.PushStatusConflict
+	PushStatusRejected = wire.PushStatusRejected
 )
 
-// PushRejectReasonDeleted 是唯一的单条拒绝原因：该对象在 server 上已是墓碑。
-// 删除不会被复活，恢复动作因此明确失败。
-const PushRejectReasonDeleted = "deleted"
+// 单条拒绝的三个原因。本端从前只认得 deleted 一个,另外两个走的是兜底分支 ——
+// 行为是对的,但契约里少了名字。
+const (
+	PushRejectReasonDeleted = wire.PushRejectReasonDeleted
+	PushRejectReasonKind    = wire.PushRejectReasonKind
+	PushRejectReasonPayload = wire.PushRejectReasonPayload
+)
 
-// CodeResyncRequired 是 server 在「设备距上次成功同步已超过墓碑保留窗口」时返回的
-// 业务码（agentre-server internal/pkg/code.SyncResyncRequired）。
-const CodeResyncRequired = 30500
+// CodeResyncRequired / CodeCursorUnknown 是 server 的两个业务码。
+const (
+	CodeResyncRequired = wire.CodeResyncRequired
+	CodeCursorUnknown  = wire.CodeCursorUnknown
+)
 
-// ErrResyncRequired 是 CodeResyncRequired 的客户端表达：上行一律被拒，必须先拉一份
+// PushItem / PushResult / PullItem / PullPage 是线上结构本身。
+//
+// Payload 从 []byte 换成了 json.RawMessage(别名指向共享定义):这正是本包从前不带
+// json 标签的原因 —— []byte 会被 encoding/json 编成 base64,于是编码只能另找地方做,
+// server_svc 因此又抄了一份私有结构。换成 RawMessage 之后那一份也没有存在理由了。
+type (
+	PushItem   = wire.PushItem
+	PushResult = wire.PushResult
+	PullItem   = wire.PullItem
+	PullPage   = wire.PullPage
+)
+
+// 十二个 kind 的载荷类型,同样归契约所有 —— 同步对象 payload 的形状在整个工作区
+// 只有一份定义。
+//
+// 它们从前是 internal/service/sync_svc 的私有结构体,而 server 同时是这些对象的
+// 一等写入方,那一侧只能拿字符串字面量读写同一份 JSON。字段含义、跨机引用规则与
+// 每个 omitempty 的理由都写在 pkg/syncwire/payload.go,别在这里另起一份。
+type (
+	ProjectPayload         = wire.ProjectPayload
+	ProjectAgentPayload    = wire.ProjectAgentPayload
+	ProjectLocationPayload = wire.ProjectLocationPayload
+	DepartmentPayload      = wire.DepartmentPayload
+	AgentPayload           = wire.AgentPayload
+	AgentBackendPayload    = wire.AgentBackendPayload
+	AgentBackendCLIPayload = wire.AgentBackendCLIPayload
+	AgentExecTargetPayload = wire.AgentExecTargetPayload
+	LLMProviderPayload     = wire.LLMProviderPayload
+	LLMProviderModel       = wire.LLMProviderModel
+	LabelPayload           = wire.LabelPayload
+	IssuePayload           = wire.IssuePayload
+	IssueLabelPayload      = wire.IssueLabelPayload
+)
+
+// PayloadFor 见 pkg/syncwire.PayloadFor:「哪种 kind 对应哪个载荷类型」的唯一答案。
+func PayloadFor(kind string) (any, bool) { return wire.PayloadFor(kind) }
+
+// ErrResyncRequired 是 CodeResyncRequired 的客户端表达:上行一律被拒,必须先拉一份
 // 全量快照并以之为准。
 var ErrResyncRequired = errors.New("sync: resync required")
 
-// PushItem 是一次上行里的一条改动。
+// ErrCursorUnknown 是 CodeCursorUnknown 的客户端表达。
 //
-// 没有 json 标签是刻意的：Payload 是一份**已经序列化好的 JSON 文档**，直接
-// json.Marshal 这个结构会把它编成 base64。上下行的线上编码只在 server_svc 里做，
-// 那里把它换成 json.RawMessage。
-type PushItem struct {
-	Kind   string
-	SyncID string
-	// BaseVersion 是本端最后一次见到的同步版本号；本端新建、server 从未见过的行填 0。
-	BaseVersion int64
-	// UpdatedAt 是本端的最后修改时间，只用于展示与 30 天窗口计算，不参与冲突裁决。
-	UpdatedAt           int64
-	Deleted             bool
-	AgentredFingerprint string
-	ProjectSyncID       string
-	Payload             []byte
-}
-
-// PushResult 是一条上行的处置结果。
-type PushResult struct {
-	SyncID string `json:"sync_id"`
-	Kind   string `json:"kind"`
-	// Version 是 server 为这次上行分配的新版本号；被拒时是 server 上的当前版本。
-	Version int64  `json:"version"`
-	Status  string `json:"status"`
-	Reason  string `json:"reason"`
-	// OverwrittenVersion / OverwrittenDeviceID / OverwrittenPayload 只在 Status 为
-	// conflict 时有值：被这次上行覆盖掉的是哪一版、来自哪台设备、正文是什么。
-	//
-	// 正文只有 server 有：本端手上那一份是**覆盖别人的**那一份。为了能够追回被
-	// 覆盖的那一版」靠它，落一条「被覆盖」记录时记的必须是这一份。
-	OverwrittenVersion  int64           `json:"overwritten_version"`
-	OverwrittenDeviceID int64           `json:"overwritten_device_id"`
-	OverwrittenPayload  json.RawMessage `json:"overwritten_payload"`
-	// MergedSyncID / MergedVersion / MergedDeviceID 只在自然键合并发生时有值：
-	// 落败那一份的同步标识、版本与来源设备，它已在 server 落墓碑。
-	MergedSyncID   string `json:"merged_sync_id"`
-	MergedVersion  int64  `json:"merged_version"`
-	MergedDeviceID int64  `json:"merged_device_id"`
-}
-
-// PullItem 是下行的一行，墓碑也在其中（Deleted = true），删除靠它到达各端。
-// 与 PushItem 同理，线上编码在 server_svc 里做，这里不带 json 标签。
-type PullItem struct {
-	Kind                string
-	SyncID              string
-	ProjectSyncID       string
-	AgentredFingerprint string
-	Payload             []byte
-	Version             int64
-	UpdatedAt           int64
-	SourceDeviceID      int64
-	Deleted             bool
-}
-
-// PullPage 是一次下行的一页。
-type PullPage struct {
-	Items      []PullItem
-	NextCursor int64
-	HasMore    bool
-}
+// 它与 ErrResyncRequired **不是**一回事,处置也相反:
+//
+//   - ErrResyncRequired(上行时)＝「你离线太久」。server 的历史是全的、本端的不全,
+//     以快照为准,队列里基版本对不上的一律拦下(R6a)—— 那正是防复活的那一条。
+//   - ErrCursorUnknown(下行时)＝「我不认识你说的那段历史」。server 的历史没了、
+//     本端的才是全的,因此必须把 server 不认识的本地行**重新上行**,否则整个工作区
+//     静默留在本机,而界面上待同步是 0、没有任何错误可循。
+var ErrCursorUnknown = errors.New("sync: server does not recognize this cursor")
 
 // LocalPathReportItem 是上报组的一条：某个项目在这台设备上的真实本机路径。
-// 与同步组的七张表无关——本机路径不在桌面端之间流动，只单向上报给
+// 与同步组的那些表无关——本机路径不在桌面端之间流动，只单向上报给
 // server，按设备分命名空间存放。
-type LocalPathReportItem struct {
-	ProjectSyncID string
-	Path          string
+// LocalPathReportItem 是上报组的一条。LocalPathItem 是契约里的名字,本包这个别名
+// 是历史称呼,调用点因此不用改。
+type LocalPathReportItem = wire.LocalPathItem
+
+// LocalPathItem 与 LocalPathReportItem 同物,按契约里的名字再导出一次。
+type LocalPathItem = wire.LocalPathItem
+
+// ── 账号级实时通道 ─────────────────────────────────────────────────────────
+
+// AccountChannelSyncVersion 是账号级实时通道上目前唯一的一种信号：这个账号的
+// 同步版本推进到了 AccountChannelFrame.Version。
+const AccountChannelSyncVersion = "sync_version"
+
+// AccountChannelFrame 是账号级实时通道交给同步引擎的业务信号。线上由统一
+// Protobuf Codec 承载，transport 与业务结构不直接依赖线上表示。
+//
+// 通道**只送信号，不送对象内容**：收到之后照常走 Pull。因此漏帧、乱序、重复都
+// 无害，通道断了也只退化成 30 秒轮询（规格「账号级实时通道 · 失败处理」）。
+type AccountChannelFrame struct {
+	// Type 是信号种类，取值见 AccountChannelSyncVersion。不认识的种类一律忽略：
+	// 通道日后会承载别的通知，旧客户端不该因此断连。
+	Type string `json:"type"`
+	// Version 是该账号同步版本序列推进到的位置。它**只**用于「该拉了」的判断——
+	// 拉哪些由本端自己的游标决定，绝不拿它当游标用，否则乱序信号就会跳过变更。
+	Version int64 `json:"version"`
+}
+
+// DecodeAccountChannelFrame 解账号通知。未知通知返回 known=false，调用方应忽略
+// 该帧但保持连接。Protobuf 未知字段由运行时忽略，以允许新端向旧端追加字段。
+func DecodeAccountChannelFrame(payload []byte) (frame AccountChannelFrame, known bool, err error) {
+	var envelope agentrewire.WireFrame
+	if err := proto.Unmarshal(payload, &envelope); err != nil {
+		return frame, false, fmt.Errorf("decode account channel envelope: %w", err)
+	}
+	notification := envelope.GetNotification()
+	if notification == nil {
+		return frame, false, nil
+	}
+	syncVersion := notification.GetAccountSyncVersion()
+	if syncVersion == nil {
+		return frame, false, nil
+	}
+	if syncVersion.Version > uint64(^uint64(0)>>1) {
+		return frame, false, fmt.Errorf("decode account sync version: version overflows int64")
+	}
+	return AccountChannelFrame{Type: AccountChannelSyncVersion, Version: int64(syncVersion.Version)}, true, nil
 }

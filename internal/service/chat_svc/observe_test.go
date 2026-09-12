@@ -9,9 +9,11 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 func TestObserveTurn_ReceivesTerminalOnce(t *testing.T) {
@@ -45,10 +47,10 @@ func TestFailTurn_PublishesExactlyOneErrTerminal(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 
-		msgRepo := mock_chat_repo.NewMockMessageRepo(ctrl)
-		prevMsg := chat_repo.Message()
-		chat_repo.RegisterMessage(msgRepo)
-		t.Cleanup(func() { chat_repo.RegisterMessage(prevMsg) })
+		msgRepo := mock_transcript_repo.NewMockMessageRepo(ctrl)
+		prevMsg := transcript_repo.Message()
+		transcript_repo.RegisterMessage(msgRepo)
+		t.Cleanup(func() { transcript_repo.RegisterMessage(prevMsg) })
 
 		sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
 		prevSess := chat_repo.Session()
