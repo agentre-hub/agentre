@@ -99,6 +99,19 @@ type ClaimedRow struct {
 	Version int64
 }
 
+// whereSyncID 是「按同步标识定位单行」的 WHERE 子句：sync_id 等于给定值，且非空。
+// 非空这个条件不是多余的守卫，它是这条查询能走 uniq_*_sync_id 部分唯一索引的
+// **前提**：那些索引都是 CREATE UNIQUE INDEX ... WHERE sync_id != 空串，而 SQLite
+// 只在能证明查询蕴含索引谓词时才肯用部分索引——sync_id = ? 里的绑定变量证不出
+// ? != 空串。少了这一句，EXPLAIN QUERY PLAN 退回 SCAN 全表。调用方一律先挡掉
+// syncID == "" 的情况，因此它不改变结果集。
+const whereSyncID = "sync_id = ? AND sync_id != ''"
+
+// claimBatchSize 是集合 UPDATE 一批带的 rowid 上限：SQLite 对单条语句里的绑定
+// 变量数有上限（SQLITE_MAX_VARIABLE_NUMBER，默认较低），认领批量可能上千行，
+// 因此分片而不是一条语句打包所有 rowid。
+const claimBatchSize = 500
+
 var defaultSyncState SyncStateRepo
 
 // SyncState 取默认仓储单例。
@@ -157,7 +170,7 @@ func (r *syncStateRepo) FindLocalID(ctx context.Context, kind, syncID string) (i
 	}
 	var id int64
 	err = db.Ctx(ctx).Table(table).
-		Where("sync_id = ?", syncID).
+		Where(whereSyncID, syncID).
 		Select("id").Row().Scan(&id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) || isNoRows(err) {
@@ -178,7 +191,7 @@ func (r *syncStateRepo) FindVersion(ctx context.Context, kind, syncID string) (i
 	}
 	var version, deletedAt int64
 	err = db.Ctx(ctx).Table(table).
-		Where("sync_id = ?", syncID).
+		Where(whereSyncID, syncID).
 		Select("sync_version", "sync_deleted_at").Row().Scan(&version, &deletedAt)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) || isNoRows(err) {
@@ -196,7 +209,7 @@ func (r *syncStateRepo) FindRow(ctx context.Context, kind, syncID string, dest a
 	if syncID == "" {
 		return false, nil
 	}
-	err := db.Ctx(ctx).Where("sync_id = ?", syncID).Take(dest).Error
+	err := db.Ctx(ctx).Where(whereSyncID, syncID).Take(dest).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return false, nil
 	}
@@ -215,7 +228,7 @@ func (r *syncStateRepo) SaveMeta(ctx context.Context, kind, syncID string, meta 
 		return nil
 	}
 	return db.Ctx(ctx).Table(table).
-		Where("sync_id = ?", syncID).
+		Where(whereSyncID, syncID).
 		Updates(map[string]any{
 			"sync_account_id":         meta.SyncAccountID,
 			"sync_version":            meta.SyncVersion,
@@ -247,7 +260,7 @@ func (r *syncStateRepo) ClaimForAccount(ctx context.Context, kind string, accoun
 
 	// 只认领**存活**的行：本机已经软删的行不该被当成一次新建推上账号（R6）。
 	// rowid 是 SQLite 给每张普通表的隐式主键，成员关系那张联合主键表也有——用它
-	// 逐行补标识与清版本号，每张表一套 SQL。
+	// 定位要改归属、补标识与清版本号的行，每张表一套 SQL。
 	//
 	// sync_account_id 一并取出来：它决定这一行是「还没上过云」还是「属于上一个
 	// 账号」，而后者的版本号必须清零（见接口注释）。
@@ -270,37 +283,81 @@ func (r *syncStateRepo) ClaimForAccount(ctx context.Context, kind string, accoun
 		return nil, nil
 	}
 
-	// 逐行的 UPDATE 全在**同一个事务**里：认领是「改归属」与「入队上行」两件事的
-	// 第一半，而调用方只凭本次的返回值入队（claimForCurrentAccount）。中途失败却让
-	// 前几行的归属留在库里，那几行此后一次取数都碰不到——下一轮 ClaimForAccount 按
-	// 归属过滤已经收不到它们，ListUnversioned 只在 rebase 那条路径上被问——于是它们
-	// 静默地再也不上行。一起回滚，重跑才真的是幂等的。
-	out := make([]ClaimedRow, 0, len(rows))
+	// 全部写入在**同一个事务**里：认领是「改归属」与「入队上行」两件事的第一半，
+	// 而调用方只凭本次的返回值入队（claimForCurrentAccount）。中途失败却让前面
+	// 已经执行的那部分归属留在库里，它们此后一次取数都碰不到——下一轮 ClaimForAccount
+	// 按归属过滤已经收不到它们，ListUnversioned 只在 rebase 那条路径上被问——于是
+	// 它们静默地再也不上行。一起回滚，重跑才真的是幂等的。
+	//
+	// 已经有同步标识的行按「未归属」/「属于别的账号」分两组，各自收进一条
+	// `WHERE rowid IN (...)` 集合 UPDATE——认领一轮可能有成百上千行，逐行一条
+	// UPDATE 是这条路径的读写放大来源。没有同步标识的历史行现铸的标识各不相同，
+	// 凑不进一条集合 UPDATE，只能保留逐行处理。
+	out := make([]ClaimedRow, len(rows))
+	var unowned, fromOtherAccount []int64
+	for _, row := range rows {
+		switch {
+		case row.SyncID == "":
+			// 逐行处理，见下方循环。
+		case row.SyncAccountID != 0:
+			fromOtherAccount = append(fromOtherAccount, row.Rowid)
+		default:
+			unowned = append(unowned, row.Rowid)
+		}
+	}
+
 	if err := db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
-		for _, row := range rows {
-			syncID := row.SyncID
-			version := row.SyncVersion
-			updates := map[string]any{"sync_account_id": accountID}
-			if syncID == "" {
-				syncID = syncmeta_entity.NewSyncID()
-				updates["sync_id"] = syncID
+		if err := claimRowidsInBatches(tx, table, unowned,
+			map[string]any{"sync_account_id": accountID}); err != nil {
+			return err
+		}
+		// 上一个账号那套序列里的坐标：清零，并按 0 交回去当基版本（R4a 新建）。
+		if err := claimRowidsInBatches(tx, table, fromOtherAccount,
+			map[string]any{"sync_account_id": accountID, "sync_version": 0}); err != nil {
+			return err
+		}
+		for i, row := range rows {
+			if row.SyncID != "" {
+				version := row.SyncVersion
+				if row.SyncAccountID != 0 {
+					version = 0
+				}
+				out[i] = ClaimedRow{SyncID: row.SyncID, Version: version}
+				continue
 			}
+			syncID := syncmeta_entity.NewSyncID()
+			updates := map[string]any{"sync_account_id": accountID, "sync_id": syncID}
 			if row.SyncAccountID != 0 {
-				// 上一个账号那套序列里的坐标：清零，并按 0 交回去当基版本（R4a 新建）。
+				// 与 fromOtherAccount 那一批同一条理由：库里的版本号也要清，不止交回去的基版本。
 				updates["sync_version"] = 0
-				version = 0
 			}
-			if err := tx.Table(table).
-				Where("rowid = ?", row.Rowid).Updates(updates).Error; err != nil {
+			if err := tx.Table(table).Where("rowid = ?", row.Rowid).Updates(updates).Error; err != nil {
 				return err
 			}
-			out = append(out, ClaimedRow{SyncID: syncID, Version: version})
+			out[i] = ClaimedRow{SyncID: syncID, Version: 0}
 		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// claimRowidsInBatches 把 rowids 收进若干条 `WHERE rowid IN (...)` 集合 UPDATE，
+// 每条最多带 claimBatchSize 个 rowid。空切片不发 SQL。
+func claimRowidsInBatches(tx *gorm.DB, table string, rowids []int64, updates map[string]any) error {
+	for len(rowids) > 0 {
+		n := claimBatchSize
+		if n > len(rowids) {
+			n = len(rowids)
+		}
+		chunk := rowids[:n]
+		rowids = rowids[n:]
+		if err := tx.Table(table).Where("rowid IN ?", chunk).Updates(updates).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *syncStateRepo) ResetVersions(ctx context.Context, kind string) error {

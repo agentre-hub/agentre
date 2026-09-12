@@ -202,29 +202,55 @@ func (s *agentBackendSvc) List(ctx context.Context, _ *ListBackendsRequest) (*Li
 		return nil, err
 	}
 	ids := make([]int64, 0, len(rows))
+	providerKeys := newKeySet[string](len(rows))
 	for _, row := range rows {
 		ids = append(ids, row.ID)
+		// LLMProviderKey == "" 表示 claudecode/codex 后端走 CLI 自身登录，无需查 provider。
+		providerKeys.add(row.LLMProviderKey)
 	}
 	counts, err := agent_repo.Agent().CountByBackends(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
+	// 查询条数与行数无关（要求 19）：provider 一次取齐。不过滤 status —— 软删的 provider
+	// 仍显示名字、Active=false（决策 7），与逐行 FindByKey 同口径。
+	providers := map[string]*llm_provider_entity.LLMProvider{}
+	if len(providerKeys.keys) > 0 {
+		providers, err = llm_provider_repo.LLMProvider().ListByKeysAnyStatus(ctx, providerKeys.keys)
+		if err != nil {
+			return nil, err
+		}
+	}
+	lookup := prefetchItemLookup(ctx, rows, providers)
 	items := make([]*BackendItem, 0, len(rows))
 	for _, row := range rows {
-		// LLMProviderKey == "" 表示 claudecode/codex 后端走 CLI 自身登录，无需查 provider。
-		var provider *llm_provider_entity.LLMProvider
-		if row.LLMProviderKey != "" {
-			p, err := llm_provider_repo.LLMProvider().FindByKey(ctx, row.LLMProviderKey)
-			if err != nil {
-				return nil, err
-			}
-			provider = p
-		}
-		item := s.toItem(ctx, row, provider)
+		item := s.buildItem(row, providers[row.LLMProviderKey], lookup)
 		item.AgentCount = counts[row.ID]
 		items = append(items, item)
 	}
 	return &ListBackendsResponse{Items: items}, nil
+}
+
+// keySet 按首次出现顺序收集去重后的非零值 key，供批量查询的 IN 列表使用。
+type keySet[K comparable] struct {
+	keys []K
+	seen map[K]struct{}
+}
+
+func newKeySet[K comparable](capacity int) *keySet[K] {
+	return &keySet[K]{keys: make([]K, 0, capacity), seen: make(map[K]struct{}, capacity)}
+}
+
+func (k *keySet[K]) add(key K) {
+	var zero K
+	if key == zero {
+		return
+	}
+	if _, ok := k.seen[key]; ok {
+		return
+	}
+	k.seen[key] = struct{}{}
+	k.keys = append(k.keys, key)
 }
 
 func (s *agentBackendSvc) Create(ctx context.Context, req *CreateBackendRequest) (*CreateBackendResponse, error) {
@@ -1044,11 +1070,30 @@ func (s *agentBackendSvc) requireOwnedEnabledModel(
 // 与 llm_provider_svc.ResolveTarget 的默认分支同一规则：Provider 未启用、未配置默认模型、
 // 或默认模型缺失 / 停用时返回空串。只取 ModelID，不透出 BaseURL / APIKey 等凭证。
 func providerDefaultModelID(ctx context.Context, p *llm_provider_entity.LLMProvider) string {
+	return defaultModelID(p, repoModelLookup(ctx))
+}
+
+// modelLookup 按 model_key 取模型（查不到 / 查询失败都回 nil —— 展示与默认模型解析
+// 两处都把失败当「无可解析模型」）。
+type modelLookup func(modelKey string) *llm_provider_model_entity.LLMProviderModel
+
+// repoModelLookup 逐次查库的 modelLookup，供单行路径（Test / Create / Update）使用。
+func repoModelLookup(ctx context.Context) modelLookup {
+	return func(modelKey string) *llm_provider_model_entity.LLMProviderModel {
+		m, err := llm_provider_repo.LLMProvider().FindModelByKey(ctx, modelKey)
+		if err != nil {
+			return nil
+		}
+		return m
+	}
+}
+
+func defaultModelID(p *llm_provider_entity.LLMProvider, model modelLookup) string {
 	if p == nil || !p.IsEnabled() || !p.HasDefaultModel() {
 		return ""
 	}
-	m, err := llm_provider_repo.LLMProvider().FindModelByKey(ctx, p.DefaultModelKey)
-	if err != nil || m == nil || !m.IsEnabled() {
+	m := model(p.DefaultModelKey)
+	if m == nil || !m.IsEnabled() {
 		return ""
 	}
 	return m.ModelID
@@ -1086,9 +1131,71 @@ func (s *agentBackendSvc) validateRouteProviders(ctx context.Context, b *agent_b
 	return nil
 }
 
-// toItem 把 entity + 关联 provider（可能为 nil）打平成前端 DTO。
-// ctx 用于查询关联远端设备信息（DeviceName / Online）。
+// backendItemLookup 是 buildItem 解析「模型 ID / 配对设备」的两个查询口。单行路径
+// （Create / Update）逐次查；List 预先批量取好，逐行只读 map（要求 19）。
+type backendItemLookup struct {
+	model  modelLookup
+	device func(fingerprint devicefp.Carrier) *remote_device_svc.DeviceView
+}
+
+// toItem 把单个 entity + 关联 provider（可能为 nil）打平成前端 DTO，模型与设备逐次查。
 func (s *agentBackendSvc) toItem(ctx context.Context, b *agent_backend_entity.AgentBackend, p *llm_provider_entity.LLMProvider) *BackendItem {
+	return s.buildItem(b, p, backendItemLookup{
+		model: repoModelLookup(ctx),
+		device: func(fingerprint devicefp.Carrier) *remote_device_svc.DeviceView {
+			dv, err := pairedDeviceView(ctx, fingerprint)
+			if err != nil {
+				return nil
+			}
+			return dv
+		},
+	})
+}
+
+// prefetchItemLookup 为一整页 backend 预取展示所需的模型与配对设备：模型按各行的
+// effectiveModelKey 一次批量取（ACTIVE-only，与 FindModelByKey 同口径），配对表只列
+// 一次并按指纹建索引。两者都是展示口径的尽力而为——与逐行解析一致，查询失败只让
+// 模型 ID / 设备名留空，不让整张列表报错。
+func prefetchItemLookup(
+	ctx context.Context, rows []*agent_backend_entity.AgentBackend, providers map[string]*llm_provider_entity.LLMProvider,
+) backendItemLookup {
+	modelKeys := newKeySet[string](len(rows))
+	needDevices := false
+	for _, row := range rows {
+		modelKeys.add(effectiveModelKey(row, providers[row.LLMProviderKey]))
+		if remote_device_svc.ExternalDeviceID(row.DeviceFingerprint) != "" {
+			needDevices = true
+		}
+	}
+	models := map[string]*llm_provider_model_entity.LLMProviderModel{}
+	if len(modelKeys.keys) > 0 {
+		if got, err := llm_provider_repo.LLMProvider().BatchFindModelsByKey(ctx, modelKeys.keys); err == nil {
+			models = got
+		}
+	}
+	devices := map[devicefp.Carrier]*remote_device_svc.DeviceView{}
+	if rds := remote_device_svc.Default(); needDevices && rds != nil {
+		if views, err := rds.List(ctx); err == nil {
+			for _, view := range views {
+				if view == nil {
+					continue
+				}
+				// 同一指纹取第一条:与 pairedDeviceView、exec_target_svc 的取法一致。
+				if _, seen := devices[view.DaemonFingerprint]; !seen {
+					devices[view.DaemonFingerprint] = view
+				}
+			}
+		}
+	}
+	return backendItemLookup{
+		model:  func(modelKey string) *llm_provider_model_entity.LLMProviderModel { return models[modelKey] },
+		device: func(fingerprint devicefp.Carrier) *remote_device_svc.DeviceView { return devices[fingerprint] },
+	}
+}
+
+// buildItem 把 entity + 关联 provider（可能为 nil）打平成前端 DTO；模型 ID 与设备
+// 信息（DeviceName / Online）经 lookup 解析。
+func (s *agentBackendSvc) buildItem(b *agent_backend_entity.AgentBackend, p *llm_provider_entity.LLMProvider, lookup backendItemLookup) *BackendItem {
 	item := &BackendItem{
 		ID:                    b.ID,
 		SyncID:                b.SyncID,
@@ -1119,7 +1226,7 @@ func (s *agentBackendSvc) toItem(ctx context.Context, b *agent_backend_entity.Ag
 	if p != nil {
 		item.LLMProviderName = p.Name
 		item.LLMProviderType = p.Type
-		item.LLMProviderModel = s.effectiveModelID(ctx, b, p)
+		item.LLMProviderModel = effectiveModelID(b, p, lookup.model)
 		item.LLMProviderActive = p.IsActive()
 	}
 	// 展示口径的设备标识：本机档（空 DeviceID / R13 认领后的本机指纹）一律空串，
@@ -1127,7 +1234,7 @@ func (s *agentBackendSvc) toItem(ctx context.Context, b *agent_backend_entity.Ag
 	// 解析只会得到「没名字 + 离线」，组织架构页据此渲染成「这台电脑未配对它」。
 	if deviceID := remote_device_svc.ExternalDeviceID(b.DeviceFingerprint); deviceID != "" {
 		item.DeviceID = deviceID
-		if dv, err := pairedDeviceView(ctx, deviceID); err == nil && dv != nil {
+		if dv := lookup.device(deviceID); dv != nil {
 			item.DeviceName = dv.Name
 			item.Online = dv.Online
 		}
@@ -1164,21 +1271,36 @@ func routeTargetsFromEntity(s string) map[string]RouteTarget {
 	return out
 }
 
-// effectiveModelID 返回后端解析出的实际模型 ID（展示口径）：fixed-model 取指定模型，
-// 否则取 Provider 当前默认模型。只取 ModelID，不透出凭证。
-func (s *agentBackendSvc) effectiveModelID(ctx context.Context, b *agent_backend_entity.AgentBackend, p *llm_provider_entity.LLMProvider) string {
+// effectiveModelKey 返回展示口径要解析的 model_key：fixed-model 取指定模型，否则取
+// Provider 当前默认模型；Provider 未启用或没有可解析的目标时为空串。
+func effectiveModelKey(b *agent_backend_entity.AgentBackend, p *llm_provider_entity.LLMProvider) string {
+	if b == nil || p == nil || !p.IsEnabled() {
+		return ""
+	}
+	if key := strings.TrimSpace(b.LLMModelKey); key != "" {
+		return key
+	}
+	if p.HasDefaultModel() {
+		return p.DefaultModelKey
+	}
+	return ""
+}
+
+// effectiveModelID 返回后端解析出的实际模型 ID（展示口径）：fixed-model 取指定模型且
+// 要求属于该 Provider，否则取 Provider 当前默认模型。只取 ModelID，不透出凭证。
+func effectiveModelID(b *agent_backend_entity.AgentBackend, p *llm_provider_entity.LLMProvider, model modelLookup) string {
 	if b == nil || p == nil || !p.IsEnabled() {
 		return ""
 	}
 	key := strings.TrimSpace(b.LLMModelKey)
-	if key != "" {
-		m, err := llm_provider_repo.LLMProvider().FindModelByKey(ctx, key)
-		if err != nil || m == nil || !m.IsEnabled() || m.ProviderID != p.ID {
-			return ""
-		}
-		return m.ModelID
+	if key == "" {
+		return defaultModelID(p, model)
 	}
-	return providerDefaultModelID(ctx, p)
+	m := model(key)
+	if m == nil || !m.IsEnabled() || m.ProviderID != p.ID {
+		return ""
+	}
+	return m.ModelID
 }
 
 func (s *agentBackendSvc) secretStore() keychain.Keychain {

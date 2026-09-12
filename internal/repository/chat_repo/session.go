@@ -38,10 +38,18 @@ type SessionRepo interface {
 	// 索引,一次查询;没有这一行时交回 (nil, nil) —— 「不是一条对话身份」由调用方
 	// 在 RPC 边界上先行校验,与「这条对话不在本机」是两个错误码。
 	FindByConversationID(ctx context.Context, conversationID string) (*chat_entity.Session, error)
-	ListByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error)
 	ListByAgentPaged(ctx context.Context, agentID int64, offset, limit int) ([]*chat_entity.Session, error)
 	ListIDsByAgents(ctx context.Context, agentIDs []int64) (map[int64][]int64, error)
-	ListAttentionByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error)
+	// ListRecentByAgents 批量返回每个 agent 最近 perAgent 条会话 —— 取代逐 agent 调用的
+	// ListByAgent(已删除),ListChatAgents 侧栏原先在 agent 数上线性发 SQL(要求 18 /
+	// A14)。口径不变:未软删、非子 agent 委派、按 last_message_at DESC, id DESC 排序、
+	// 每 agent 截断 perAgent 条;换成窗口函数一次查完,SQL 条数与 agent 数无关(只随
+	// agentIDs 按 resetIDChunk 分批增长)。空 agentIDs 不发 SQL。
+	ListRecentByAgents(ctx context.Context, agentIDs []int64, perAgent int) (map[int64][]*chat_entity.Session, error)
+	// ListAttentionByAgents 是已删除的 ListAttentionByAgent 的批量版本,同一理由(要求
+	// 18):口径同原方法 —— 再叠 agent_status IN (running, waiting, error),其余同
+	// ListRecentByAgents。
+	ListAttentionByAgents(ctx context.Context, agentIDs []int64, perAgent int) (map[int64][]*chat_entity.Session, error)
 	// ListIndexPaged 是会话索引全部收窄方式共用的分页查询：可见性口径（未软删 + 非
 	// 子 agent 委派）与排序（最近活动优先）恒定，变的只有 SessionIndexFilter。
 	// 「按时间」是空 filter，「随手对话」是 ProjectID = 0，机器轴是 DeviceID，
@@ -213,26 +221,6 @@ func (r *sessionRepo) FindByConversationID(ctx context.Context, conversationID s
 	return out, nil
 }
 
-func (r *sessionRepo) ListByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error) {
-	return r.listByAgent(ctx, agentID, limit)
-}
-
-func (r *sessionRepo) listByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error) {
-	if limit <= 0 {
-		limit = 5
-	}
-	var rows []*chat_entity.Session
-	q := db.Ctx(ctx).
-		Where("agent_id = ? AND status = ?", agentID, consts.ACTIVE).
-		Scopes(nonSubagentScope)
-	err := q.
-		Order("last_message_at DESC, id DESC").
-		Limit(limit).
-		Find(&rows).Error
-	applySessionDerivedFields(rows)
-	return rows, err
-}
-
 // ListByAgentPaged 按 last_message_at DESC 翻页返回 agent 的未删除会话。
 // 服务层负责对 offset/limit 做边界裁剪；repo 只忠实按参数查。
 func (r *sessionRepo) ListByAgentPaged(ctx context.Context, agentID int64, offset, limit int) ([]*chat_entity.Session, error) {
@@ -283,25 +271,62 @@ func (r *sessionRepo) listIDsByAgents(ctx context.Context, agentIDs []int64) (ma
 	return out, nil
 }
 
-// ListAttentionByAgent 给 sidebar 折叠态的 attention bubble 用：返回该 agent 下
-// 当前需要用户关注的会话 —— 跑步中、等待用户输入/审批、或出错的。
-// 按 last_message_at DESC 排序；limit 由 service 传入（典型 20，防止异常数据撑爆 UI）。
-func (r *sessionRepo) ListAttentionByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error) {
-	return r.listAttentionByAgent(ctx, agentID, limit)
+// sessionsWindowSQL 是 ListRecentByAgents / ListAttentionByAgents 共用的窗口查询:按
+// agent_id 分区、组内 last_message_at DESC, id DESC 排序,取每个 agent 的前 N
+// 条 —— 这与已删除的 ListByAgent / ListAttentionByAgent 逐 agent LIMIT 是同一个排序
+// 语义,只是把 N 次查询压成 1 次(要求 18)。extraWhere 是 ListAttentionByAgents 在
+// ListRecentByAgents 的口径之上叠的 agent_status 收窄(" AND agent_status IN
+// (?)"),ListRecentByAgents 传空串。外层 ORDER BY 与内层分区序一致,好按 agent_id
+// 分组收进 map 且组内顺序与原先逐 agent 查询一致。
+func sessionsWindowSQL(extraWhere string) string {
+	return "SELECT * FROM `chat_sessions` WHERE id IN (" +
+		"SELECT id FROM (" +
+		"SELECT id, ROW_NUMBER() OVER (PARTITION BY agent_id ORDER BY last_message_at DESC, id DESC) AS rn " +
+		"FROM `chat_sessions` WHERE agent_id IN (?) AND status = ? AND purpose <> ?" + extraWhere +
+		") t WHERE rn <= ?" +
+		") ORDER BY agent_id ASC, last_message_at DESC, id DESC"
 }
 
-func (r *sessionRepo) listAttentionByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error) {
-	var rows []*chat_entity.Session
-	q := db.Ctx(ctx).
-		Where("agent_id = ? AND status = ? AND agent_status IN ?",
-			agentID, consts.ACTIVE, []string{"running", "waiting", "error"}).
-		Scopes(nonSubagentScope)
-	err := q.
-		Order("last_message_at DESC, id DESC").
-		Limit(limit).
-		Find(&rows).Error
-	applySessionDerivedFields(rows)
-	return rows, err
+func (r *sessionRepo) ListRecentByAgents(ctx context.Context, agentIDs []int64, perAgent int) (map[int64][]*chat_entity.Session, error) {
+	return r.listByAgentsWindow(ctx, agentIDs, perAgent, false)
+}
+
+func (r *sessionRepo) ListAttentionByAgents(ctx context.Context, agentIDs []int64, perAgent int) (map[int64][]*chat_entity.Session, error) {
+	return r.listByAgentsWindow(ctx, agentIDs, perAgent, true)
+}
+
+// listByAgentsWindow 按 resetIDChunk 分批发窗口查询,把每批结果按 agent_id 分组追加进
+// map。空 agentIDs 一条 SQL 都不发,与其余批量方法(CountByAgents / ListIDsByAgents)
+// 同一口径。
+func (r *sessionRepo) listByAgentsWindow(
+	ctx context.Context, agentIDs []int64, perAgent int, attentionOnly bool,
+) (map[int64][]*chat_entity.Session, error) {
+	out := make(map[int64][]*chat_entity.Session, len(agentIDs))
+	if len(agentIDs) == 0 {
+		return out, nil
+	}
+	extraWhere := ""
+	if attentionOnly {
+		extraWhere = " AND agent_status IN (?)"
+	}
+	sqlStr := sessionsWindowSQL(extraWhere)
+	for start := 0; start < len(agentIDs); start += resetIDChunk {
+		chunk := agentIDs[start:min(start+resetIDChunk, len(agentIDs))]
+		args := []any{chunk, consts.ACTIVE, chat_entity.SessionPurposeSubagent}
+		if attentionOnly {
+			args = append(args, []string{"running", "waiting", "error"})
+		}
+		args = append(args, perAgent)
+		var rows []*chat_entity.Session
+		if err := db.Ctx(ctx).Raw(sqlStr, args...).Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		applySessionDerivedFields(rows)
+		for _, row := range rows {
+			out[row.AgentID] = append(out[row.AgentID], row)
+		}
+	}
+	return out, nil
 }
 
 // CountByAgents 批量统计每个 agent 的未删除会话数。

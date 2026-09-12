@@ -61,17 +61,60 @@ func TestPairedAgentredRepo_Get(t *testing.T) {
 }
 
 func TestPairedAgentredRepo_FindByURL(t *testing.T) {
-	convey.Convey("FindByURL only returns active rows", t, func() {
+	// `AND url != ''` 不是多余的守卫：迁移里的部分唯一索引是
+	// `ON paired_agentreds(url) WHERE status = 1 AND url != ''`，SQLite 只在能
+	// 证明查询蕴含索引谓词时才用得上它——绑定变量 `url = ?` 证不出 `? != ''`。
+	// 少了这一句 EXPLAIN QUERY PLAN 退回 SCAN 全表。
+	convey.Convey("FindByURL only returns active rows and uses the partial index predicate", t, func() {
 		ctx, _, mock := testutils.Database(t)
 		rows := sqlmock.NewRows([]string{"id", "name", "url", "daemon_fingerprint", "instance_uuid", "tls_mode", "tls_cert_pem", "paired_at", "last_seen_at", "last_error", "status", "createtime", "updatetime"}).
 			AddRow(int64(3), "x", "ws://h/rpc", "fp", "u", "default", "", int64(1), int64(0), "", 1, int64(0), int64(0))
-		mock.ExpectQuery("SELECT \\* FROM `paired_agentreds` WHERE url = \\? AND status = \\? ORDER BY `paired_agentreds`.`id` LIMIT").
+		mock.ExpectQuery("SELECT \\* FROM `paired_agentreds` WHERE url = \\? AND url != '' AND status = \\? ORDER BY `paired_agentreds`.`id` LIMIT").
 			WithArgs("ws://h/rpc", 1, 1).
 			WillReturnRows(rows)
 
 		got, err := remote_device_repo.NewPairedAgentred().FindByURL(ctx, "ws://h/rpc")
 		assert.NoError(t, err)
 		assert.NotNil(t, got)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	// 空 URL 不是「匹配所有空 URL 行」而是「无从判断」，与 FindByFingerprint 的空
+	// 指纹守卫同理；空 URL 也不该发出一条注定用不上索引的查询。
+	convey.Convey("FindByURL given an empty url issues no SQL", t, func() {
+		ctx, _, mock := testutils.Database(t)
+
+		got, err := remote_device_repo.NewPairedAgentred().FindByURL(ctx, "  ")
+		assert.NoError(t, err)
+		assert.Nil(t, got)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestPairedAgentredRepo_FindByFingerprint(t *testing.T) {
+	// `AND daemon_fingerprint != ''` 不是多余的守卫：迁移里的部分唯一索引是
+	// `ON paired_agentreds(daemon_fingerprint) WHERE status = 1 AND
+	// daemon_fingerprint != ''`，同 FindByURL 的道理——绑定变量证不出 `!= ''`。
+	convey.Convey("FindByFingerprint only returns active rows and uses the partial index predicate", t, func() {
+		ctx, _, mock := testutils.Database(t)
+		rows := sqlmock.NewRows([]string{"id", "name", "url", "daemon_fingerprint", "instance_uuid", "tls_mode", "tls_cert_pem", "paired_at", "last_seen_at", "last_error", "status", "createtime", "updatetime"}).
+			AddRow(int64(3), "x", "ws://h/rpc", "fp", "u", "default", "", int64(1), int64(0), "", 1, int64(0), int64(0))
+		mock.ExpectQuery("SELECT \\* FROM `paired_agentreds` WHERE daemon_fingerprint = \\? AND daemon_fingerprint != '' AND status = \\? ORDER BY `paired_agentreds`.`id` LIMIT").
+			WithArgs("fp", 1, 1).
+			WillReturnRows(rows)
+
+		got, err := remote_device_repo.NewPairedAgentred().FindByFingerprint(ctx, "fp")
+		assert.NoError(t, err)
+		assert.NotNil(t, got)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	convey.Convey("FindByFingerprint given an empty fingerprint issues no SQL", t, func() {
+		ctx, _, mock := testutils.Database(t)
+
+		got, err := remote_device_repo.NewPairedAgentred().FindByFingerprint(ctx, "  ")
+		assert.NoError(t, err)
+		assert.Nil(t, got)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 }

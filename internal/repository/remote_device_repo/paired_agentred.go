@@ -79,8 +79,18 @@ func (r *pairedAgentredRepo) Get(ctx context.Context, id int64) (*paired_agentre
 }
 
 func (r *pairedAgentredRepo) FindByURL(ctx context.Context, url string) (*paired_agentred_entity.PairedAgentred, error) {
+	// 空 URL 不是「匹配所有空 URL 行」而是「无从判断」，与 FindByFingerprint 的
+	// 空指纹守卫同理；拿空串去查也注定用不上下面的部分索引。
+	if strings.TrimSpace(url) == "" {
+		return nil, nil
+	}
 	out := &paired_agentred_entity.PairedAgentred{}
-	err := db.Ctx(ctx).Where("url = ? AND status = ?", url, consts.ACTIVE).First(out).Error
+	// `AND url != ''` 不是多余的守卫：迁移里的部分唯一索引是
+	// `ON paired_agentreds(url) WHERE status = 1 AND url != ''`，SQLite 只在能
+	// 证明查询蕴含索引谓词时才用得上它——绑定变量 `url = ?` 证不出 `? != ''`。
+	// 少了这一句，EXPLAIN QUERY PLAN 退回 SCAN 全表。上面已经挡掉空 URL，它不
+	// 改变结果集。
+	err := db.Ctx(ctx).Where("url = ? AND url != '' AND status = ?", url, consts.ACTIVE).First(out).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -99,8 +109,13 @@ func (r *pairedAgentredRepo) FindByFingerprint(
 		return nil, nil
 	}
 	out := &paired_agentred_entity.PairedAgentred{}
+	// `AND daemon_fingerprint != ''` 不是多余的守卫：迁移里的部分唯一索引是
+	// `ON paired_agentreds(daemon_fingerprint) WHERE status = 1 AND
+	// daemon_fingerprint != ''`，同 FindByURL 的道理——绑定变量证不出 `!= ''`。
+	// 上面已经挡掉空指纹，它不改变结果集。
 	err := db.Ctx(ctx).
-		Where("daemon_fingerprint = ? AND status = ?", fingerprint, consts.ACTIVE).First(out).Error
+		Where("daemon_fingerprint = ? AND daemon_fingerprint != '' AND status = ?", fingerprint, consts.ACTIVE).
+		First(out).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

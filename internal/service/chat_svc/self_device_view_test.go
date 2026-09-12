@@ -111,8 +111,8 @@ func TestListAgents_GivenSelfFingerprintBackend_ThenAgentItemReportsLocalDevice(
 	m.session.EXPECT().CountRunningByAgents(ctx, []int64{8}).Return(map[int64]int{}, nil)
 	m.session.EXPECT().CountByAgents(ctx, []int64{8}).Return(map[int64]int64{}, nil)
 	m.session.EXPECT().ListIDsByAgents(ctx, []int64{8}).Return(map[int64][]int64{}, nil)
-	m.session.EXPECT().ListByAgent(ctx, int64(8), gomock.Any()).Return(nil, nil)
-	m.session.EXPECT().ListAttentionByAgent(ctx, int64(8), gomock.Any()).Return(nil, nil)
+	m.session.EXPECT().ListRecentByAgents(ctx, []int64{8}, gomock.Any()).Return(map[int64][]*chat_entity.Session{}, nil)
+	m.session.EXPECT().ListAttentionByAgents(ctx, []int64{8}, gomock.Any()).Return(map[int64][]*chat_entity.Session{}, nil)
 
 	resp, err := svc.ListAgents(ctx, &ListAgentsRequest{})
 	require.NoError(t, err)

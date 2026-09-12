@@ -115,6 +115,21 @@ func (mr *MockIssueRepoMockRecorder) List(ctx, filter any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockIssueRepo)(nil).List), ctx, filter)
 }
 
+// MaxPosition mocks base method.
+func (m *MockIssueRepo) MaxPosition(ctx context.Context, stage string) (float64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MaxPosition", ctx, stage)
+	ret0, _ := ret[0].(float64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MaxPosition indicates an expected call of MaxPosition.
+func (mr *MockIssueRepoMockRecorder) MaxPosition(ctx, stage any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MaxPosition", reflect.TypeOf((*MockIssueRepo)(nil).MaxPosition), ctx, stage)
+}
+
 // ReassignProject mocks base method.
 func (m *MockIssueRepo) ReassignProject(ctx context.Context, fromProjectID, toProjectID int64) error {
 	m.ctrl.T.Helper()

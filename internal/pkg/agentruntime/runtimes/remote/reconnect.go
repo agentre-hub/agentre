@@ -1036,8 +1036,8 @@ func (r *Runtime) sessionIDsLocked(withTracked bool) []int64 {
 // 调用都不发:那些调用方没有重连,凭空给每一轮加一次 RPC 只是纯开销。
 //
 // 一条会话在**同一代连接**上只问一次,之后由游标接着跟(见 floorOnConn):清单在 daemon
-// 侧是一次 LatestSeqByPeer 的 GROUP BY 加上对该对端**每条**会话的 PendingWaiters 探测,
-// 成本随这个对端历史上跑过的会话数增长,而这里唯一消费的只是这条会话的 LatestSeq。
+// 侧要对返回的**每条**会话各读一遍转录求最新 seq(LatestSeqs),外加逐条的 PendingWaiters
+// 探测,成本随返回的会话数增长,而这里唯一消费的只是这条会话的 LatestSeq。
 // 探过之后游标追得上高水位:本连接是该会话的推送属主,daemon 新增的每一行都推给它,
 // 推不动的那一刻这条连接就死了 —— 而换代重连(adoptConn)会把这份已知作废、重新探。
 func (r *Runtime) turnStartFloor(ctx context.Context, sid int64) int64 {

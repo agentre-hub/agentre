@@ -309,7 +309,12 @@ type DurableFrameRow struct {
 type DurableFrameReaderPort interface {
 	ListSince(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string, cursor int64, limit int) (rows []DurableFrameRow, hasMore bool, err error)
 	LatestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error)
-	LatestSeqByPeer(ctx context.Context, peerFingerprint devicefp.Initiator) (map[string]int64, error)
+	// LatestSeqs 只对给定的这些行求最新 seq(决策 1 / 要求 8):session.list 传的是它
+	// 刚查出来的**这一页**,而不是这个对端全部会话 —— 取代此前的 LatestSeqByPeer,
+	// 后者会把整个对端重新 ListByPeer 一遍(offset=0/limit=0 = 全表)再逐条投影整段
+	// 转录求 seq,是清单分页时最大的一次白读。返回的 map 按 SessionRecord.PeerSessionID
+	// 键出。
+	LatestSeqs(ctx context.Context, rows []SessionRecord) (map[string]int64, error)
 	// OldestSeq 是该会话现存最老那一帧的 seq,一条都没有时 0。agentred 不回收转录(规格
 	// 2026-08-18 决策 8),所以当前实现有帧就报 1;补齐的客户端拿它当下界,分辨「游标之后
 	// 那一条还没写」与「它已经不在了」。库被从外部恢复或截断的情形,这个实现并不检测。

@@ -210,21 +210,18 @@ func (c *PermissionModeController) CanContinuePlanWaiting(
 	if !allow || sess == nil || be == nil || sess.AgentStatus != "waiting" || !be.IsCodex() {
 		return false, nil
 	}
-	msgs, err := c.messages.List(ctx, sess.ID)
+	latest, err := c.messages.LatestAssistant(ctx, sess.ID)
 	if err != nil {
 		return false, c.fail(ctx, err)
 	}
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i] == nil || msgs[i].Role != "assistant" {
-			continue
-		}
-		bs, err := msgs[i].GetBlocks()
-		if err != nil {
-			return false, i18n.NewError(ctx, code.ChatBlocksMalformed)
-		}
-		return c.plans.HasActionablePlan(bs), nil
+	if latest == nil {
+		return false, nil
 	}
-	return false, nil
+	bs, err := latest.GetBlocks()
+	if err != nil {
+		return false, i18n.NewError(ctx, code.ChatBlocksMalformed)
+	}
+	return c.plans.HasActionablePlan(bs), nil
 }
 
 // Persist 校验 mode、写库、再下发给正在跑的 runtime(实现了 PermissionModeSetter 的

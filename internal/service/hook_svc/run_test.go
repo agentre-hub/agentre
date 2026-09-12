@@ -86,9 +86,8 @@ func TestRunHook_RealPersistsDedupAndState(t *testing.T) {
 		ID: 1, Name: "j", Interpreter: "bash", Command: "x", EnvJSON: "[]", StateJSON: "{}",
 		ScheduleExpr: "*/5 * * * *",
 	}, nil)
-	// 第一条新事件 → 查重未命中 → 落库；hook 状态回写。
-	me.EXPECT().FindByDedupeKey(gomock.Any(), int64(1), "K1").Return(nil, nil)
-	me.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
+	// 第一条新事件 → 插入未撞 key → 落库；hook 状态回写。
+	me.EXPECT().CreateIfAbsent(gomock.Any(), gomock.Any()).Return(true, nil)
 	mh.EXPECT().Update(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, h *hook_entity.Hook) error {
 			if h.LastStatus != "ok" || h.TotalCount != 1 {
@@ -192,6 +191,71 @@ func TestRunHook_ThreadsInterpreterPath(t *testing.T) {
 	}
 	if cr.spec.InterpreterPath != "/opt/py/bin/python3" {
 		t.Errorf("spec.InterpreterPath = %q, want threaded path", cr.spec.InterpreterPath)
+	}
+}
+
+// 竞态：本次运行与并发的另一次运行（或调度器 tick）同时产出同一个 dedupe key，本次
+// 读到"未存在"、插入时却撞上对方已经提交的行。此前的 FindByDedupeKey→Create 两步不是
+// 原子的，撞车时 Create 报 UNIQUE 冲突、RunHook 直接返回错误——运行不会正常结束，
+// last_run/next_run_at 不回写，第二条事件也不会再落库。要求 5：应计入重复数、正常结束、
+// 其余事件照常写入。
+func TestRunHook_ConcurrentDuplicateDoesNotAbortRun(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mh := mock_hook_repo.NewMockHookRepo(ctrl)
+	me := mock_hook_repo.NewMockHookEventRepo(ctrl)
+	hook_repo.RegisterHook(mh)
+	hook_repo.RegisterHookEvent(me)
+
+	mh.EXPECT().Find(gomock.Any(), int64(1)).Return(&hook_entity.Hook{
+		ID: 1, Name: "j", Interpreter: "bash", Command: "x", EnvJSON: "[]", StateJSON: "{}",
+		ScheduleExpr: "*/5 * * * *",
+	}, nil)
+	// K1 撞上了对方已经提交的同一行（部分唯一索引 ux_hook_events_dedupe），
+	// INSERT ... ON CONFLICT DO NOTHING 影响行数为 0 → created=false。
+	me.EXPECT().CreateIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, e *hook_entity.HookEvent) (bool, error) {
+			if e.DedupeKey != "K1" {
+				t.Errorf("first CreateIfAbsent call dedupe key = %q, want K1", e.DedupeKey)
+			}
+			return false, nil
+		})
+	// 其余事件必须照常写入。
+	me.EXPECT().CreateIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, e *hook_entity.HookEvent) (bool, error) {
+			if e.DedupeKey != "K2" {
+				t.Errorf("second CreateIfAbsent call dedupe key = %q, want K2", e.DedupeKey)
+			}
+			return true, nil
+		})
+	// 运行必须正常结束并回写 last_run / next_run_at（finishRun 跑到底）。
+	mh.EXPECT().Update(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, h *hook_entity.Hook) error {
+			if h.LastStatus != "ok" || h.LastRunAt != 1000 || h.NextRunAt == 0 {
+				t.Errorf("finishRun did not write back last_run/next_run_at: %+v", h)
+			}
+			if h.TotalCount != 1 {
+				t.Errorf("TotalCount = %d, want 1 (only the non-duplicate event counts)", h.TotalCount)
+			}
+			return nil
+		})
+
+	svc := &hookSvc{
+		now: func() int64 { return 1000 },
+		runner: fakeRunner{res: &hookexec.RunResult{ExitCode: 0,
+			Stdout: []byte(`{"events":[{"title":"t1","dedupeKey":"K1"},{"title":"t2","dedupeKey":"K2"}]}`)}},
+	}
+	out, err := svc.RunHook(context.Background(), &RunHookRequest{ID: 1, DryRun: false})
+	if err != nil {
+		t.Fatalf("lost race on dedupe insert must not fail the run, got err=%v", err)
+	}
+	if out.DupCount != 1 {
+		t.Fatalf("DupCount = %d, want 1", out.DupCount)
+	}
+	if out.NewCount != 1 || len(out.Events) != 1 || out.Events[0].DedupeKey != "K2" {
+		t.Fatalf("second event must still be written, out=%+v", out)
+	}
+	if !out.Persisted {
+		t.Fatalf("run must finish normally (last_run/next_run_at written back), out=%+v", out)
 	}
 }
 

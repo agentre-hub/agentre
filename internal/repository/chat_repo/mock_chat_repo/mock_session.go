@@ -177,34 +177,19 @@ func (mr *MockSessionRepoMockRecorder) FindByConversationID(ctx, conversationID 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByConversationID", reflect.TypeOf((*MockSessionRepo)(nil).FindByConversationID), ctx, conversationID)
 }
 
-// ListAttentionByAgent mocks base method.
-func (m *MockSessionRepo) ListAttentionByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error) {
+// ListAttentionByAgents mocks base method.
+func (m *MockSessionRepo) ListAttentionByAgents(ctx context.Context, agentIDs []int64, perAgent int) (map[int64][]*chat_entity.Session, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListAttentionByAgent", ctx, agentID, limit)
-	ret0, _ := ret[0].([]*chat_entity.Session)
+	ret := m.ctrl.Call(m, "ListAttentionByAgents", ctx, agentIDs, perAgent)
+	ret0, _ := ret[0].(map[int64][]*chat_entity.Session)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListAttentionByAgent indicates an expected call of ListAttentionByAgent.
-func (mr *MockSessionRepoMockRecorder) ListAttentionByAgent(ctx, agentID, limit any) *gomock.Call {
+// ListAttentionByAgents indicates an expected call of ListAttentionByAgents.
+func (mr *MockSessionRepoMockRecorder) ListAttentionByAgents(ctx, agentIDs, perAgent any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttentionByAgent", reflect.TypeOf((*MockSessionRepo)(nil).ListAttentionByAgent), ctx, agentID, limit)
-}
-
-// ListByAgent mocks base method.
-func (m *MockSessionRepo) ListByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListByAgent", ctx, agentID, limit)
-	ret0, _ := ret[0].([]*chat_entity.Session)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListByAgent indicates an expected call of ListByAgent.
-func (mr *MockSessionRepoMockRecorder) ListByAgent(ctx, agentID, limit any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAgent", reflect.TypeOf((*MockSessionRepo)(nil).ListByAgent), ctx, agentID, limit)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttentionByAgents", reflect.TypeOf((*MockSessionRepo)(nil).ListAttentionByAgents), ctx, agentIDs, perAgent)
 }
 
 // ListByAgentPaged mocks base method.
@@ -295,6 +280,21 @@ func (m *MockSessionRepo) ListIndexPaged(ctx context.Context, filter chat_repo.S
 func (mr *MockSessionRepoMockRecorder) ListIndexPaged(ctx, filter, offset, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListIndexPaged", reflect.TypeOf((*MockSessionRepo)(nil).ListIndexPaged), ctx, filter, offset, limit)
+}
+
+// ListRecentByAgents mocks base method.
+func (m *MockSessionRepo) ListRecentByAgents(ctx context.Context, agentIDs []int64, perAgent int) (map[int64][]*chat_entity.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRecentByAgents", ctx, agentIDs, perAgent)
+	ret0, _ := ret[0].(map[int64][]*chat_entity.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRecentByAgents indicates an expected call of ListRecentByAgents.
+func (mr *MockSessionRepoMockRecorder) ListRecentByAgents(ctx, agentIDs, perAgent any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRecentByAgents", reflect.TypeOf((*MockSessionRepo)(nil).ListRecentByAgents), ctx, agentIDs, perAgent)
 }
 
 // ListRemoteExecSessions mocks base method.

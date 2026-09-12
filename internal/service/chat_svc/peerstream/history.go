@@ -53,7 +53,8 @@ type peerSessionPublication struct {
 	publisher *transcript.FramePublisher
 
 	// publishMu 串行化「取号 → 发布」这一整段。取号要落库(不能在 mu 里做网络/磁盘
-	// IO),而两次发布若交错,后取到的号可能先进 history,对端就会看到乱序。
+	// IO),而两次发布若交错,后取到的号可能先进 history,对端就会看到乱序。首次 attach
+	// 的初始化(读转录 → 编号 → 装入前缀)也在它下面做,见 initializePeerPublication。
 	publishMu sync.Mutex
 
 	// wake carries a single-slot non-blocking signal for the flush worker;
@@ -264,31 +265,13 @@ func clampPeerPullLimit(limit int) int {
 // agentred 的补齐读侧都是同一行代码(transcript.WithoutUnsettledTail)。
 func (s *Publisher) attachPeerTranscript(ctx context.Context, sessionID int64, conversationID string, running bool, subscriber PeerSessionSubscriber) (int64, func(), error) {
 	publication := s.peerPublication(sessionID, conversationID)
-	key := peerSubscriberKey(subscriber)
-	// Holding this lock across the initial repository read makes the synthesized
-	// prefix and registration one publication boundary: a live event is either
-	// in 1..H or assigned after H and buffered for this subscriber.
-	publication.mu.Lock()
-	if !publication.initialized {
-		messages, err := transcript_repo.Message().List(ctx, sessionID)
-		if err != nil {
-			publication.mu.Unlock()
-			return 0, nil, operationFailedWithCause(ctx, err)
-		}
-		keyed, err := transcript.ProjectKeyedMessages(conversationID, messages)
-		if err != nil {
-			publication.mu.Unlock()
-			return 0, nil, fmt.Errorf("synthesize desktop peer history: %w", err)
-		}
-		if running && len(messages) > 0 {
-			keyed = transcript.WithoutUnsettledTail(keyed, messages[len(messages)-1].ID)
-		}
-		if err := numberPeerFramesLocked(ctx, publication, keyed); err != nil {
-			publication.mu.Unlock()
-			return 0, nil, operationFailedWithCause(ctx, err)
-		}
-		publication.initialized = true
+	if err := initializePeerPublication(ctx, publication, running); err != nil {
+		return 0, nil, err
 	}
+	key := peerSubscriberKey(subscriber)
+	// 高水位与注册在同一把锁下取:一条持久帧要么已经在 1..H 里,要么在 H 之后才装入
+	// 并排给这个订阅者。
+	publication.mu.Lock()
 	highWater := publication.nextSeq
 	subscription := &peerSessionSubscription{subscriber: subscriber, highWater: highWater}
 	publication.subscribers[key] = subscription
@@ -307,16 +290,55 @@ func (s *Publisher) attachPeerTranscript(ctx context.Context, sessionID int64, c
 	return highWater, detach, nil
 }
 
-// numberPeerFramesLocked 给一整条转录的持久帧配编号,并把它装成这份宇宙的初始前缀。
-// 调用方持 publication.mu。
+// initializePeerPublication 用落库的转录给这份宇宙装上初始前缀;每个进程里每条会话只装一次。
 //
-// 编号本身归共用的那一份(transcript_repo.NumberFrames):已有编号原样沿用、存量惰性
-// 补齐、按 seq 重排,两个宿主一字不差。这里只做桌面端自己的事 —— 把配好号的帧装进
-// 这份内存宇宙。
-func numberPeerFramesLocked(ctx context.Context, publication *peerSessionPublication, keyed []transcript.KeyedFrame) error {
-	if err := transcript_repo.NumberFrames(ctx, publication.sessionID, keyed); err != nil {
-		return err
+// 读整条转录、投影、编号(含一次取号写事务)都在 publication.mu **之外**做:mu 同时是
+// 逐 token 预览帧入队的那把锁,读库多久,同会话的本地 turn 就会在发布上卡多久
+// (spec 2026-09-11 要求 10)。
+//
+// 串行化交给 publishMu —— 它本来就串行「取号 → 发布」:初始化期间没有持久帧能插进来
+// 取号,前缀与之后的实时持久帧因此不会交错编号;两个并发的首次 attach 也在这里排队,
+// 后到的那个复查 initialized 后直接跳过。任何一步失败都在装入之前返回,不留半份宇宙。
+func initializePeerPublication(ctx context.Context, publication *peerSessionPublication, running bool) error {
+	if publication.isInitialized() {
+		return nil
 	}
+	publication.publishMu.Lock()
+	defer publication.publishMu.Unlock()
+	if publication.isInitialized() {
+		return nil
+	}
+	messages, err := transcript_repo.Message().List(ctx, publication.sessionID)
+	if err != nil {
+		return operationFailedWithCause(ctx, err)
+	}
+	keyed, err := transcript.ProjectKeyedMessages(publication.conversationID, messages)
+	if err != nil {
+		return fmt.Errorf("synthesize desktop peer history: %w", err)
+	}
+	if running && len(messages) > 0 {
+		keyed = transcript.WithoutUnsettledTail(keyed, messages[len(messages)-1].ID)
+	}
+	// 编号本身归共用的那一份(transcript_repo.NumberFrames):已有编号原样沿用、存量惰性
+	// 补齐、按 seq 重排,两个宿主一字不差。
+	if err := transcript_repo.NumberFrames(ctx, publication.sessionID, keyed); err != nil {
+		return operationFailedWithCause(ctx, err)
+	}
+	publication.mu.Lock()
+	installPeerPrefixLocked(publication, keyed)
+	publication.initialized = true
+	publication.mu.Unlock()
+	return nil
+}
+
+func (p *peerSessionPublication) isInitialized() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.initialized
+}
+
+// installPeerPrefixLocked 把配好号的帧装成这份宇宙的初始前缀。调用方持 publication.mu。
+func installPeerPrefixLocked(publication *peerSessionPublication, keyed []transcript.KeyedFrame) {
 	publication.history = make([]wire.EventFrame, 0, len(keyed))
 	publication.createtimes = make([]int64, 0, len(keyed))
 	for i, frame := range keyed {
@@ -327,7 +349,6 @@ func numberPeerFramesLocked(ctx context.Context, publication *peerSessionPublica
 			publication.nextSeq = frame.Frame.Seq
 		}
 	}
-	return nil
 }
 
 // PublishEvent 把一条密封事件当作**预览帧**挂进该会话的对端通知宇宙。
@@ -432,7 +453,7 @@ func (s *Publisher) PublishMessageFrames(
 		highest = max(highest, seqs[index])
 		publication.history = append(publication.history, pending[index].Frame)
 		// 时刻取投影器配给的那一个(= 所属消息的 createtime),不是「此刻」。这一格由
-		// PullPeerSession 交出去,而重启之后同一条转录是由 numberPeerFramesLocked 从
+		// PullPeerSession 交出去,而重启之后同一条转录是由 installPeerPrefixLocked 从
 		// 投影重建的 —— 那边取的就是投影器给的值。写「此刻」会让同一个 seq 在重启前后
 		// 报出两个时刻:一轮里消息建行与块定稿隔着整趟工具往返,对端那条转录的 HH:mm
 		// 会在重连之后整体跳回本轮起点。时刻的归属在 transcript.ProjectMessages 说死。

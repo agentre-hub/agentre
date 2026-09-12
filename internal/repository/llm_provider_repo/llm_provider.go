@@ -45,6 +45,10 @@ type LLMProviderRepo interface {
 	Find(ctx context.Context, id int64) (*llm_provider_entity.LLMProvider, error)
 	FindByKey(ctx context.Context, key string) (*llm_provider_entity.LLMProvider, error)
 	BatchFindByKey(ctx context.Context, keys []string) (map[string]*llm_provider_entity.LLMProvider, error)
+	// ListByKeysAnyStatus 是 FindByKey 的批量形态，同样**不过滤 status**：软删的 provider
+	// 仍按 provider_key 返回，供展示侧保留名字、判定侧给出 ProviderInactive（spec 决策 7）。
+	// 与只取 ACTIVE 的 BatchFindByKey 刻意不同口径。空 keys 不发 SQL。
+	ListByKeysAnyStatus(ctx context.Context, keys []string) (map[string]*llm_provider_entity.LLMProvider, error)
 	FindByName(ctx context.Context, name string) (*llm_provider_entity.LLMProvider, error)
 	List(ctx context.Context) ([]*llm_provider_entity.LLMProvider, error)
 	// DeleteWithModels 在同一事务内软删除一个 Provider 及其全部 Models（spec 决策 17：
@@ -69,6 +73,9 @@ type LLMProviderRepo interface {
 	FindModel(ctx context.Context, id int64) (*llm_provider_model_entity.LLMProviderModel, error)
 	// FindModelByKey 按稳定 model_key 查（含 enabled=0 的停用模型，供 fixed-model 失效提示）。
 	FindModelByKey(ctx context.Context, modelKey string) (*llm_provider_model_entity.LLMProviderModel, error)
+	// BatchFindModelsByKey 是 FindModelByKey 的批量形态，同口径只取 ACTIVE（含 enabled=0），
+	// 按 model_key 索引。空 keys 不发 SQL。
+	BatchFindModelsByKey(ctx context.Context, keys []string) (map[string]*llm_provider_model_entity.LLMProviderModel, error)
 	ListModels(ctx context.Context, providerID int64) ([]*llm_provider_model_entity.LLMProviderModel, error)
 	// CountModelsByProvider 按 provider 分组统计 ACTIVE 模型数（status=ACTIVE，不含软删除），
 	// 只查给定 providerIDs；空列表直接返回空 map，不发 SQL。
@@ -136,6 +143,21 @@ func (r *llmProviderRepo) FindByKey(ctx context.Context, key string) (*llm_provi
 	}
 	if err != nil {
 		return nil, err
+	}
+	return out, nil
+}
+
+func (r *llmProviderRepo) ListByKeysAnyStatus(ctx context.Context, keys []string) (map[string]*llm_provider_entity.LLMProvider, error) {
+	out := make(map[string]*llm_provider_entity.LLMProvider, len(keys))
+	if len(keys) == 0 {
+		return out, nil
+	}
+	var rows []*llm_provider_entity.LLMProvider
+	if err := db.Ctx(ctx).Where("provider_key IN ?", keys).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.ProviderKey] = row
 	}
 	return out, nil
 }
@@ -290,6 +312,12 @@ func (r *llmProviderRepo) FindModelByKey(ctx context.Context, modelKey string) (
 		return nil, err
 	}
 	return out, nil
+}
+
+func (r *llmProviderRepo) BatchFindModelsByKey(ctx context.Context, keys []string) (map[string]*llm_provider_model_entity.LLMProviderModel, error) {
+	return repoquery.ActiveMap[llm_provider_model_entity.LLMProviderModel](ctx, "model_key", keys, func(m *llm_provider_model_entity.LLMProviderModel) string {
+		return m.ModelKey
+	})
 }
 
 func (r *llmProviderRepo) ListModels(ctx context.Context, providerID int64) ([]*llm_provider_model_entity.LLMProviderModel, error) {

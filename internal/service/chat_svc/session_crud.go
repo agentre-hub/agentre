@@ -19,6 +19,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
 )
 
@@ -68,6 +69,10 @@ func (s *chatSvc) Rename(ctx context.Context, req *RenameRequest) (*RenameRespon
 	return &RenameResponse{}, nil
 }
 
+// Delete 软删会话行，并物理清除它的转录（消息/块）、帧编号台账与替换恢复状态
+// （规格「可观察的要求」6）：会话删除后不留可恢复的转录残余，只有 chat_sessions 行
+// 本身保持软删（不回填历史上已软删的会话，见决策 6）。任一清理步骤失败都直接把错误
+// 返回给调用方，不吞掉——调用方（含 server 侧的删除重试）据此重放。
 func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteResponse, error) {
 	if err := chat_repo.Session().SoftDelete(ctx, req.SessionID); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
@@ -78,7 +83,51 @@ func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteRespon
 	agentruntime.CloseSessionEverywhere(ctx, req.SessionID)
 	// 子进程已关，撤销并清掉它的常驻 gateway token（token 寿命跟随子进程）。
 	s.revokeChatToken(req.SessionID)
+
+	if err := s.cancelAndAwaitTurn(ctx, req.SessionID); err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+
+	if _, err := transcript_repo.FrameSeq().DeleteBySession(ctx, req.SessionID); err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	if _, err := transcript_repo.Message().DeleteFromSeq(ctx, req.SessionID, 0); err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	if _, err := chat_repo.ReplacementRecoveryCleanup().DeleteReplacementRecovery(ctx, req.SessionID); err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
 	return &DeleteResponse{}, nil
+}
+
+// turnSettlePollInterval 是 cancelAndAwaitTurn 两次尝试拿会话锁之间的间隔。
+const turnSettlePollInterval = 20 * time.Millisecond
+
+// cancelAndAwaitTurn 取消会话在飞的那一轮，并等它收尾、放开会话锁之后才返回。
+//
+// CloseSessionEverywhere 只是尽力终止子进程；它返回时，仍在飞的那一轮的 goroutine
+// 可能还在把收尾写入(assistant 消息/块、会话状态)落库——它从起手到收尾全程持有
+// s.lockFor(sessionID)（见 acquireTurnGate / chat.go 的 defer lock.Unlock()）。借同一把
+// 锁跟它串行：拿到锁即意味着它已经收尾完，清理才不会跟它的最后一次写入交错。
+//
+// 只等不取消不行：CloseSessionEverywhere 管不到的后端(builtin / remote / openclaw)上，
+// 一轮在等工具审批或一段很长的回答时，删除会一直挂着。每次拿不到锁都重新取消一次——
+// 起手的同步段已经占住锁、却还没登记控制柄时，前一次取消会扑空。ctx 结束就不再等：
+// 会话行已经软删，重试会重新走到这里和后面的清理。
+func (s *chatSvc) cancelAndAwaitTurn(ctx context.Context, sessionID int64) error {
+	lock := s.lockFor(sessionID)
+	for !lock.TryLock() {
+		if control, ok := s.takeActiveTurn(sessionID); ok && control != nil && control.cancel != nil {
+			control.cancel()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(turnSettlePollInterval):
+		}
+	}
+	lock.Unlock()
+	return nil
 }
 
 // MarkSessionRead 推进会话 last_read_at 到至少 req.Timestamp (unix ms)。

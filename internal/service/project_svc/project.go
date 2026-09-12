@@ -58,6 +58,7 @@ type projectSvc struct {
 	now      func() int64
 	sessions SessionPort
 	agents   AgentPort
+	tx       TxRunner
 }
 
 var defaultProject ProjectSvc = New()
@@ -77,12 +78,16 @@ func WithSessionPort(p SessionPort) Option { return func(s *projectSvc) { s.sess
 // WithAgentPort 供测试注入窄 agent_repo.AgentRepo mock。
 func WithAgentPort(p AgentPort) Option { return func(s *projectSvc) { s.agents = p } }
 
+// WithTxRunner 供测试注入不连库的事务假实现。
+func WithTxRunner(r TxRunner) Option { return func(s *projectSvc) { s.tx = r } }
+
 // New 构造默认实现。
 func New(opts ...Option) ProjectSvc {
 	s := &projectSvc{
 		now:      func() int64 { return time.Now().UnixMilli() },
 		sessions: sessionRepoDelegate{},
 		agents:   agentRepoDelegate{},
+		tx:       dbTxRunner{},
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -370,27 +375,38 @@ func (s *projectSvc) Reorder(ctx context.Context, req *ReorderProjectsRequest) e
 }
 
 func (s *projectSvc) Delete(ctx context.Context, id int64) error {
-	existing, err := project_repo.Project().Find(ctx, id)
+	deleted, err := s.deleteRows(ctx, id)
 	if err != nil {
 		return err
 	}
+	sync_svc.Notify(ctx, deleted)
+	return nil
+}
+
+// deleteRows 是 Delete 的落库部分：守卫、摘会话、软删项目行。它返回落库成功后该发
+// 的那条删除通知，自己不发——Merge 在事务里复用它，通知要等事务提交之后。
+func (s *projectSvc) deleteRows(ctx context.Context, id int64) (sync_svc.LocalChange, error) {
+	existing, err := project_repo.Project().Find(ctx, id)
+	if err != nil {
+		return sync_svc.LocalChange{}, err
+	}
 	if existing == nil {
-		return i18n.NewError(ctx, code.ProjectNotFound)
+		return sync_svc.LocalChange{}, i18n.NewError(ctx, code.ProjectNotFound)
 	}
 	hasChildren, err := project_repo.Project().HasActiveChildren(ctx, id)
 	if err != nil {
-		return err
+		return sync_svc.LocalChange{}, err
 	}
 	if hasChildren {
-		return i18n.NewError(ctx, code.ProjectHasChildren)
+		return sync_svc.LocalChange{}, i18n.NewError(ctx, code.ProjectHasChildren)
 	}
 	// 还有 running / waiting 会话时拒绝；idle / error 等允许（用户主动归档）。
 	n, err := s.sessions.CountActiveByProject(ctx, id, []string{"running", "waiting"})
 	if err != nil {
-		return err
+		return sync_svc.LocalChange{}, err
 	}
 	if n > 0 {
-		return i18n.NewError(ctx, code.ProjectHasActiveSessions)
+		return sync_svc.LocalChange{}, i18n.NewError(ctx, code.ProjectHasActiveSessions)
 	}
 	// 名下幸存的（idle / error）会话改挂成自由会话，而不是留下指向已删项目的悬空
 	// project_id。ReassignProject 刻意不带 status / purpose 过滤（见 chat_repo 那边
@@ -399,14 +415,15 @@ func (s *projectSvc) Delete(ctx context.Context, id int64) error {
 	// 顺序是「先摘引用、再删项目行」：中途失败时项目还在，用户可以重试；反过来会
 	// 留下一批指向不存在项目的会话。失败即整体失败，不留半个状态。
 	if err := s.sessions.ReassignProject(ctx, id, 0); err != nil {
-		return err
+		return sync_svc.LocalChange{}, err
 	}
 	if err := project_repo.Project().Delete(ctx, id); err != nil {
-		return err
+		return sync_svc.LocalChange{}, err
 	}
 	// 名下的路径记录与成员关系随它一并落墓碑，级联在同步层展开（R6）。
-	sync_svc.NotifyDelete(ctx, syncwire.KindProject, existing.ID, existing.SyncMeta)
-	return nil
+	return sync_svc.LocalChange{
+		Kind: syncwire.KindProject, LocalID: existing.ID, Op: sync_svc.OpDelete, Meta: existing.SyncMeta,
+	}, nil
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

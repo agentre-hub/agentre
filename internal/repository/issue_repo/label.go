@@ -8,6 +8,7 @@ import (
 	"github.com/cago-frame/cago/database/db"
 	"github.com/cago-frame/cago/pkg/consts"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
 )
@@ -240,26 +241,24 @@ func (r *issueLabelRepo) UpsertFromSync(ctx context.Context, row *issue_entity.I
 		// 没有同步标识就不是一次下行落地：本地路径走 SetLabels。
 		return nil
 	}
-	existing := &issue_entity.IssueLabel{}
-	err := db.Ctx(ctx).Where("issue_id = ? AND label_id = ?", row.IssueID, row.LabelID).
-		First(existing).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
-	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return db.Ctx(ctx).Create(row).Error
-	}
-	// 自然键就是身份：本机那一行接管账号里胜出的同步标识，不为同一件事再插一行。
-	return db.Ctx(ctx).Model(&issue_entity.IssueLabel{}).
-		Where("issue_id = ? AND label_id = ?", row.IssueID, row.LabelID).
-		Update("sync_id", row.SyncID).Error
+	// 自然键就是身份：同一对 (issue, label) 已经有行时只把标识对上，不再插一
+	// 行——联合主键上硬插会撞。ON CONFLICT 把「先查一次现状、再决定 Create 还是
+	// Update」的两条语句收成一条（要求 17）。
+	return db.Ctx(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "issue_id"}, {Name: "label_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"sync_id"}),
+	}).Create(row).Error
 }
 
 func (r *issueLabelRepo) DeleteBySyncID(ctx context.Context, syncID string) error {
 	if syncID == "" {
 		return nil
 	}
-	return db.Ctx(ctx).Where("sync_id = ?", syncID).
+	// `AND sync_id != ''` 不是多余的守卫：uniq_issue_labels_sync_id 是
+	// `WHERE sync_id != ''` 的部分唯一索引，SQLite 只在能证明查询蕴含索引谓词时
+	// 才用得上它——`sync_id = ?` 里的绑定变量证不出 `? != ''`。少了这一句，
+	// EXPLAIN QUERY PLAN 退回 SCAN 全表。上面已经挡掉空标识，它不改变结果集。
+	return db.Ctx(ctx).Where("sync_id = ? AND sync_id != ''", syncID).
 		Delete(&issue_entity.IssueLabel{}).Error
 }
 

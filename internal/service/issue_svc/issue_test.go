@@ -37,8 +37,7 @@ func setupIssueSvc(t *testing.T) (
 
 func TestIssueSvcCreate_Happy(t *testing.T) {
 	ctx, mi, ml, mil, svc := setupIssueSvc(t)
-	mi.EXPECT().List(ctx, issue_repo.ListFilter{Stage: issue_entity.StageTodo, Sort: "position"}).
-		Return(nil, nil)
+	mi.EXPECT().MaxPosition(ctx, issue_entity.StageTodo).Return(0.0, nil)
 	ml.EXPECT().ListByIDs(ctx, []int64{2}).
 		Return([]*issue_entity.Label{{ID: 2, Name: "bug", Tone: "bug"}}, nil)
 	mi.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, i *issue_entity.Issue) error {
@@ -63,8 +62,7 @@ func TestIssueSvcCreate_EmptyTitleRejected(t *testing.T) {
 func TestIssueSvcCreate_LabelNotFound(t *testing.T) {
 	ctx, mi, ml, _, svc := setupIssueSvc(t)
 	// appendPosition 先于 resolveLabels 调用。
-	mi.EXPECT().List(ctx, issue_repo.ListFilter{Stage: issue_entity.StageTodo, Sort: "position"}).
-		Return(nil, nil)
+	mi.EXPECT().MaxPosition(ctx, issue_entity.StageTodo).Return(0.0, nil)
 	// 请求两个 label，仓储只返回一个 → resolveLabels 报错，且不触达 Create/SetLabels。
 	ml.EXPECT().ListByIDs(ctx, []int64{2, 3}).
 		Return([]*issue_entity.Label{{ID: 2, Name: "bug", Tone: "bug"}}, nil)
@@ -75,8 +73,7 @@ func TestIssueSvcCreate_LabelNotFound(t *testing.T) {
 
 func TestIssueSvcCreate_DeduplicatesLabelIDs(t *testing.T) {
 	ctx, mi, ml, mil, svc := setupIssueSvc(t)
-	mi.EXPECT().List(ctx, issue_repo.ListFilter{Stage: issue_entity.StageTodo, Sort: "position"}).
-		Return(nil, nil)
+	mi.EXPECT().MaxPosition(ctx, issue_entity.StageTodo).Return(0.0, nil)
 	ml.EXPECT().ListByIDs(ctx, []int64{2, 3}).
 		Return([]*issue_entity.Label{
 			{ID: 2, Name: "bug", Tone: "bug"},
@@ -190,8 +187,7 @@ func TestIssueSvcList_RepoError(t *testing.T) {
 // Create 已落库后 SetLabels 失败，错误必须透传给调用方。
 func TestIssueSvcCreate_SetLabelsFail(t *testing.T) {
 	ctx, mi, ml, mil, svc := setupIssueSvc(t)
-	mi.EXPECT().List(ctx, issue_repo.ListFilter{Stage: issue_entity.StageTodo, Sort: "position"}).
-		Return(nil, nil)
+	mi.EXPECT().MaxPosition(ctx, issue_entity.StageTodo).Return(0.0, nil)
 	ml.EXPECT().ListByIDs(ctx, []int64{2}).
 		Return([]*issue_entity.Label{{ID: 2, Name: "bug", Tone: "bug"}}, nil)
 	mi.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, i *issue_entity.Issue) error {
@@ -252,9 +248,10 @@ func TestIssueSvcDelete_Happy(t *testing.T) {
 
 func TestIssueSvcCreate_DefaultsStageAndAppendsPosition(t *testing.T) {
 	ctx, mi, _, mil, svc := setupIssueSvc(t)
-	// 该 stage 已有末位 position=100 → 新卡 position=100+step。
-	mi.EXPECT().List(ctx, issue_repo.ListFilter{Stage: issue_entity.StageTodo, Sort: "position"}).
-		Return([]*issue_entity.Issue{{ID: 1, Stage: issue_entity.StageTodo, Position: 100}}, nil)
+	// 要求 20：该 stage 末位 position=100 由一次聚合取得 → 新卡 position=100+step；
+	// 不再把整列读回来只取最后一张。
+	mi.EXPECT().MaxPosition(ctx, issue_entity.StageTodo).Return(100.0, nil).Times(1)
+	mi.EXPECT().List(gomock.Any(), gomock.Any()).Times(0)
 	mi.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, i *issue_entity.Issue) error {
 		assert.Equal(t, issue_entity.StageTodo, i.Stage)
 		assert.Equal(t, float64(100+65536), i.Position)
@@ -266,6 +263,28 @@ func TestIssueSvcCreate_DefaultsStageAndAppendsPosition(t *testing.T) {
 	got, err := svc.Create(ctx, &issue_svc.CreateIssueRequest{Title: "demo"})
 	require.NoError(t, err)
 	assert.Equal(t, int64(9), got.Issue.ID)
+}
+
+func TestIssueSvcCreate_GivenAnEmptyStage_ThenFirstCardTakesOneStep(t *testing.T) {
+	ctx, mi, _, mil, svc := setupIssueSvc(t)
+	mi.EXPECT().MaxPosition(ctx, issue_entity.StageDoing).Return(0.0, nil).Times(1)
+	mi.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, i *issue_entity.Issue) error {
+		assert.Equal(t, float64(65536), i.Position)
+		i.ID = 9
+		return nil
+	})
+	mil.EXPECT().SetLabels(ctx, int64(9), []int64(nil)).Return(nil)
+
+	_, err := svc.Create(ctx, &issue_svc.CreateIssueRequest{Title: "demo", Stage: issue_entity.StageDoing})
+	require.NoError(t, err)
+}
+
+func TestIssueSvcCreate_GivenMaxPositionFails_ThenNothingIsCreated(t *testing.T) {
+	ctx, mi, _, _, svc := setupIssueSvc(t)
+	mi.EXPECT().MaxPosition(ctx, issue_entity.StageTodo).Return(0.0, assert.AnError)
+
+	_, err := svc.Create(ctx, &issue_svc.CreateIssueRequest{Title: "demo"})
+	require.ErrorIs(t, err, assert.AnError)
 }
 
 func TestIssueSvcMove_MidpointBetweenNeighbors(t *testing.T) {

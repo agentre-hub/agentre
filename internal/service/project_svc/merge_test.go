@@ -35,6 +35,32 @@ type mergeMocks struct {
 	session  *mock_project_svc.MockSessionPort
 	issue    *mock_issue_repo.MockIssueRepo
 	location *mock_project_location_repo.MockProjectLocationRepo
+	tx       *fakeTx
+}
+
+// txMarkerKey 标出「事务交给回调的那个 ctx」。
+type txMarkerKey struct{}
+
+// fakeTx 顶替 project_svc.TxRunner（服务单测不连库）：回调返回错误记作回滚，否则
+// 记作提交。txCtx 非 nil 时把它交给回调，断言才分得清一次调用走的是事务里的 ctx
+// 还是外层 ctx；为 nil 时原样透传外层 ctx。
+type fakeTx struct {
+	txCtx     context.Context
+	committed bool
+	fnErr     error
+}
+
+func (f *fakeTx) RunInTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	inner := ctx
+	if f.txCtx != nil {
+		inner = f.txCtx
+	}
+	if err := fn(inner); err != nil {
+		f.fnErr = err
+		return err
+	}
+	f.committed = true
+	return nil
 }
 
 func setupMergeTest(t *testing.T) (context.Context, *mergeMocks, project_svc.ProjectSvc) {
@@ -47,12 +73,14 @@ func setupMergeTest(t *testing.T) (context.Context, *mergeMocks, project_svc.Pro
 		session:  mock_project_svc.NewMockSessionPort(ctrl),
 		issue:    mock_issue_repo.NewMockIssueRepo(ctrl),
 		location: mock_project_location_repo.NewMockProjectLocationRepo(ctrl),
+		tx:       &fakeTx{},
 	}
 	project_repo.RegisterProject(m.project)
 	project_repo.RegisterProjectAgent(m.pa)
 	issue_repo.RegisterIssue(m.issue)
 	project_location_repo.RegisterProjectLocation(m.location)
-	return context.Background(), m, project_svc.New(project_svc.WithSessionPort(m.session))
+	svc := project_svc.New(project_svc.WithSessionPort(m.session), project_svc.WithTxRunner(m.tx))
+	return context.Background(), m, svc
 }
 
 // expectCleanDelete 给「合并已经把 dropID 名下的东西清空」之后、Merge 复用既有

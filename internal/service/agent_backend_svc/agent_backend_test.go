@@ -698,10 +698,11 @@ func TestListBackends(t *testing.T) {
 		backendMock.EXPECT().List(gomock.Any()).Return(rows, nil)
 		agentMock.EXPECT().CountByBackends(gomock.Any(), []int64{1, 2, 3}).
 			Return(map[int64]int64{1: 3}, nil)
-		providerMock.EXPECT().FindByKey(gomock.Any(), "key-1").Return(activeProvider("key-1"), nil)
-		expectDefaultModelResolution(providerMock, "key-1", 1)
-		providerMock.EXPECT().FindByKey(gomock.Any(), "key-7").Return(nil, nil)
-		// LLMProviderKey == "" 不应触发 FindByKey；如果调用则 mock 严格模式会失败。
+		// LLMProviderKey == "" 不进批量查询的 keys；key-7 查不到即 map 里没有。
+		providerMock.EXPECT().ListByKeysAnyStatus(gomock.Any(), gomock.InAnyOrder([]string{"key-1", "key-7"})).
+			Return(map[string]*llm_provider_entity.LLMProvider{"key-1": activeProvider("key-1")}, nil)
+		providerMock.EXPECT().BatchFindModelsByKey(gomock.Any(), []string{"model-key-key-1"}).
+			Return(map[string]*llm_provider_model_entity.LLMProviderModel{"model-key-key-1": activeDefaultModel("key-1")}, nil)
 
 		resp, err := svc.List(ctx, &ListBackendsRequest{})
 		assert.NoError(t, err)
@@ -721,6 +722,134 @@ func TestListBackends(t *testing.T) {
 		assert.Equal(t, "", resp.Items[2].LLMProviderKey)
 		assert.False(t, resp.Items[2].LLMProviderActive)
 		assert.Equal(t, "", resp.Items[2].LLMProviderName)
+	})
+}
+
+// 表征（改前改后都绿，spec 决策 7）：软删的 provider 在 backend 列表里仍显示名字，
+// 只是 Active=false —— 界面据此提示「供应商已停用」，而不是把绑定渲染成空白。
+func TestListBackends_GivenSoftDeletedProvider_ThenItemKeepsNameAndInactive(t *testing.T) {
+	ctx, backendMock, providerMock, agentMock, _, svc := setupSvcTest(t)
+	deleted := activeProvider("key-gone")
+	deleted.Name = "Retired"
+	deleted.Status = consts.DELETE
+
+	backendMock.EXPECT().List(gomock.Any()).Return([]*agent_backend_entity.AgentBackend{
+		{ID: 11, Type: string(agent_backend_entity.TypeBuiltin), Name: "a", LLMProviderKey: "key-gone", Status: consts.ACTIVE},
+	}, nil)
+	agentMock.EXPECT().CountByBackends(gomock.Any(), []int64{11}).Return(map[int64]int64{}, nil)
+	providerMock.EXPECT().ListByKeysAnyStatus(gomock.Any(), []string{"key-gone"}).
+		Return(map[string]*llm_provider_entity.LLMProvider{"key-gone": deleted}, nil)
+	providerMock.EXPECT().BatchFindModelsByKey(gomock.Any(), gomock.Any()).
+		Return(map[string]*llm_provider_model_entity.LLMProviderModel{}, nil).AnyTimes()
+
+	resp, err := svc.List(ctx, &ListBackendsRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.Items, 1)
+	assert.Equal(t, "Retired", resp.Items[0].LLMProviderName)
+	assert.False(t, resp.Items[0].LLMProviderActive)
+}
+
+// 要求 19：backend 列表的查询条数与 backend 行数无关。三行共享两个 provider、两行
+// 指向同一台配对机器：provider / model 各批量查一次，配对表只列一次，逐行方法一次不调。
+func TestListBackends_GivenBackendsSharingProvidersAndDevices_ThenLooksUpEachSourceOnce(t *testing.T) {
+	ctx, backendMock, providerMock, agentMock, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
+	rd.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
+		{ID: 5, DaemonFingerprint: "sha256:box-a", Name: "box-a", Online: true},
+	}, nil).Times(1)
+
+	anthropic := activeProvider("key-1")
+	anthropic.ID = 101
+	openai := activeProviderWithType("key-2", llm_provider_entity.TypeOpenAIResponse)
+	openai.ID = 102
+	openai.Name = "OpenAI"
+	backendMock.EXPECT().List(gomock.Any()).Return([]*agent_backend_entity.AgentBackend{
+		{ID: 1, Type: string(agent_backend_entity.TypeBuiltin), Name: "a", LLMProviderKey: "key-1", DeviceFingerprint: "sha256:box-a", Status: consts.ACTIVE},
+		{ID: 2, Type: string(agent_backend_entity.TypeClaudeCode), Name: "b", LLMProviderKey: "key-1", LLMModelKey: "mk-fixed", DeviceFingerprint: "sha256:box-a", Status: consts.ACTIVE},
+		{ID: 3, Type: string(agent_backend_entity.TypeCodex), Name: "c", LLMProviderKey: "key-2", DeviceFingerprint: "sha256:box-b", Status: consts.ACTIVE},
+	}, nil)
+	agentMock.EXPECT().CountByBackends(gomock.Any(), []int64{1, 2, 3}).Return(map[int64]int64{}, nil)
+	providerMock.EXPECT().ListByKeysAnyStatus(gomock.Any(), gomock.InAnyOrder([]string{"key-1", "key-2"})).
+		Return(map[string]*llm_provider_entity.LLMProvider{"key-1": anthropic, "key-2": openai}, nil).Times(1)
+	fixed := &llm_provider_model_entity.LLMProviderModel{
+		ProviderID: 101, ModelKey: "mk-fixed", ModelID: "claude-opus", Enabled: llm_provider_model_entity.EnabledOn, Status: consts.ACTIVE,
+	}
+	openaiDefault := defaultModelWithState("key-2", "gpt-5", llm_provider_model_entity.EnabledOn)
+	providerMock.EXPECT().BatchFindModelsByKey(gomock.Any(), gomock.InAnyOrder([]string{"model-key-key-1", "mk-fixed", "model-key-key-2"})).
+		Return(map[string]*llm_provider_model_entity.LLMProviderModel{
+			"model-key-key-1": activeDefaultModel("key-1"), "mk-fixed": fixed, "model-key-key-2": openaiDefault,
+		}, nil).Times(1)
+	providerMock.EXPECT().FindByKey(gomock.Any(), gomock.Any()).Times(0)
+	providerMock.EXPECT().FindModelByKey(gomock.Any(), gomock.Any()).Times(0)
+
+	resp, err := svc.List(ctx, &ListBackendsRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.Items, 3)
+	assert.Equal(t, "Production", resp.Items[0].LLMProviderName)
+	assert.Equal(t, "claude-sonnet-4-6", resp.Items[0].LLMProviderModel)
+	assert.Equal(t, "box-a", resp.Items[0].DeviceName)
+	assert.True(t, resp.Items[0].Online)
+	assert.Equal(t, "claude-opus", resp.Items[1].LLMProviderModel)
+	assert.Equal(t, "box-a", resp.Items[1].DeviceName)
+	assert.Equal(t, "OpenAI", resp.Items[2].LLMProviderName)
+	assert.Equal(t, "gpt-5", resp.Items[2].LLMProviderModel)
+	assert.Equal(t, devicefp.Carrier("sha256:box-b"), resp.Items[2].DeviceID)
+	assert.Equal(t, "", resp.Items[2].DeviceName)
+	assert.False(t, resp.Items[2].Online)
+}
+
+// 边界：fixed-model 指向别家 provider 的模型时不展示（与逐行 effectiveModelID 同一口径）；
+// 模型批量查询失败只让模型 ID 留空（展示尽力而为，与逐行解析吞错同口径）；
+// provider 批量查询失败时整个列表报错，不渲染半截数据。
+func TestListBackends_GivenLookupEdgeCases_ThenKeepsPerRowSemantics(t *testing.T) {
+	t.Run("model lookup error leaves model id empty", func(t *testing.T) {
+		ctx, backendMock, providerMock, agentMock, _, svc := setupSvcTest(t)
+		backendMock.EXPECT().List(gomock.Any()).Return([]*agent_backend_entity.AgentBackend{
+			{ID: 1, Type: string(agent_backend_entity.TypeBuiltin), Name: "a", LLMProviderKey: "key-1", Status: consts.ACTIVE},
+		}, nil)
+		agentMock.EXPECT().CountByBackends(gomock.Any(), []int64{1}).Return(map[int64]int64{}, nil)
+		providerMock.EXPECT().ListByKeysAnyStatus(gomock.Any(), []string{"key-1"}).
+			Return(map[string]*llm_provider_entity.LLMProvider{"key-1": activeProvider("key-1")}, nil)
+		providerMock.EXPECT().BatchFindModelsByKey(gomock.Any(), []string{"model-key-key-1"}).Return(nil, errors.New("db down"))
+
+		resp, err := svc.List(ctx, &ListBackendsRequest{})
+		require.NoError(t, err)
+		require.Len(t, resp.Items, 1)
+		assert.Equal(t, "Production", resp.Items[0].LLMProviderName)
+		assert.Equal(t, "", resp.Items[0].LLMProviderModel)
+	})
+	t.Run("foreign fixed model is not shown", func(t *testing.T) {
+		ctx, backendMock, providerMock, agentMock, _, svc := setupSvcTest(t)
+		p := activeProvider("key-1")
+		p.ID = 101
+		backendMock.EXPECT().List(gomock.Any()).Return([]*agent_backend_entity.AgentBackend{
+			{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "a", LLMProviderKey: "key-1", LLMModelKey: "mk-foreign", Status: consts.ACTIVE},
+		}, nil)
+		agentMock.EXPECT().CountByBackends(gomock.Any(), []int64{1}).Return(map[int64]int64{}, nil)
+		providerMock.EXPECT().ListByKeysAnyStatus(gomock.Any(), []string{"key-1"}).
+			Return(map[string]*llm_provider_entity.LLMProvider{"key-1": p}, nil)
+		providerMock.EXPECT().BatchFindModelsByKey(gomock.Any(), []string{"mk-foreign"}).
+			Return(map[string]*llm_provider_model_entity.LLMProviderModel{"mk-foreign": {
+				ProviderID: 999, ModelKey: "mk-foreign", ModelID: "other", Enabled: llm_provider_model_entity.EnabledOn, Status: consts.ACTIVE,
+			}}, nil)
+
+		resp, err := svc.List(ctx, &ListBackendsRequest{})
+		require.NoError(t, err)
+		require.Len(t, resp.Items, 1)
+		assert.Equal(t, "", resp.Items[0].LLMProviderModel)
+		assert.True(t, resp.Items[0].LLMProviderActive)
+	})
+	t.Run("provider lookup error fails the list", func(t *testing.T) {
+		ctx, backendMock, providerMock, agentMock, _, svc := setupSvcTest(t)
+		backendMock.EXPECT().List(gomock.Any()).Return([]*agent_backend_entity.AgentBackend{
+			{ID: 1, Type: string(agent_backend_entity.TypeBuiltin), Name: "a", LLMProviderKey: "key-1", Status: consts.ACTIVE},
+		}, nil)
+		agentMock.EXPECT().CountByBackends(gomock.Any(), []int64{1}).Return(map[int64]int64{}, nil)
+		providerMock.EXPECT().ListByKeysAnyStatus(gomock.Any(), []string{"key-1"}).Return(nil, errors.New("db down"))
+
+		resp, err := svc.List(ctx, &ListBackendsRequest{})
+		require.EqualError(t, err, "db down")
+		assert.Nil(t, resp)
 	})
 }
 

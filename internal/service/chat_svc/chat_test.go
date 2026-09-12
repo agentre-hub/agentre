@@ -68,16 +68,18 @@ import (
 )
 
 type chatMocks struct {
-	agent      *mock_agent_repo.MockAgentRepo
-	backend    *mock_agent_backend_repo.MockAgentBackendRepo
-	provider   *mock_llm_provider_repo.MockLLMProviderRepo
-	session    *mock_chat_repo.MockSessionRepo
-	message    *mock_transcript_repo.MockMessageRepo
-	execTarget *mock_agent_repo.MockAgentExecTargetRepo
-	dbMock     sqlmock.Sqlmock
-	ctx        context.Context
-	events     []recorded
-	svc        chat_svc.ChatSvc
+	agent               *mock_agent_repo.MockAgentRepo
+	backend             *mock_agent_backend_repo.MockAgentBackendRepo
+	provider            *mock_llm_provider_repo.MockLLMProviderRepo
+	session             *mock_chat_repo.MockSessionRepo
+	message             *mock_transcript_repo.MockMessageRepo
+	frameSeq            *mock_transcript_repo.MockFrameSeqRepo
+	replacementRecovery *mock_chat_repo.MockReplacementRecoveryCleanupRepo
+	execTarget          *mock_agent_repo.MockAgentExecTargetRepo
+	dbMock              sqlmock.Sqlmock
+	ctx                 context.Context
+	events              []recorded
+	svc                 chat_svc.ChatSvc
 }
 
 type recorded struct {
@@ -127,20 +129,24 @@ func setupChatTest(t *testing.T) *chatMocks {
 	dbCtx, _, dbMock := testutils.Database(t)
 
 	m := &chatMocks{
-		agent:      mock_agent_repo.NewMockAgentRepo(ctrl),
-		backend:    mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl),
-		provider:   mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl),
-		session:    mock_chat_repo.NewMockSessionRepo(ctrl),
-		message:    mock_transcript_repo.NewMockMessageRepo(ctrl),
-		execTarget: mock_agent_repo.NewMockAgentExecTargetRepo(ctrl),
-		dbMock:     dbMock,
-		ctx:        dbCtx,
+		agent:               mock_agent_repo.NewMockAgentRepo(ctrl),
+		backend:             mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl),
+		provider:            mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl),
+		session:             mock_chat_repo.NewMockSessionRepo(ctrl),
+		message:             mock_transcript_repo.NewMockMessageRepo(ctrl),
+		frameSeq:            mock_transcript_repo.NewMockFrameSeqRepo(ctrl),
+		replacementRecovery: mock_chat_repo.NewMockReplacementRecoveryCleanupRepo(ctrl),
+		execTarget:          mock_agent_repo.NewMockAgentExecTargetRepo(ctrl),
+		dbMock:              dbMock,
+		ctx:                 dbCtx,
 	}
 	agent_repo.RegisterAgent(m.agent)
 	agent_backend_repo.RegisterAgentBackend(m.backend)
 	llm_provider_repo.RegisterLLMProvider(m.provider)
 	chat_repo.RegisterSession(m.session)
 	transcript_repo.RegisterMessage(m.message)
+	transcript_repo.RegisterFrameSeq(m.frameSeq)
+	chat_repo.RegisterReplacementRecoveryCleanup(m.replacementRecovery)
 	// pi 恢复标记落在 app_settings,用真实现走同一份 sqlmock,标记 SQL 才进得了断言。
 	app_setting_repo.RegisterAppSetting(app_setting_repo.NewAppSetting())
 	agent_repo.RegisterAgentExecTarget(m.execTarget)
@@ -180,6 +186,26 @@ func setupChatTest(t *testing.T) *chatMocks {
 // 元数据」的用例在 read_path_test.go。
 func expectTranscriptWindowFilled(m *chatMocks) {
 	m.message.EXPECT().FillBlocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+}
+
+// expectTranscriptReads 让一个会话的各个转录读口都按同一份 fixture 作答:regenerate 找
+// user 锚点的 LatestBeforeSeq、fork 锚点判断的 ListMeta(+ 对单条补正文的 FillBlocks)、
+// builtin 历史重放的 List。fixture 里的消息本就带着正文,补正文对它们是 no-op。用例因此只
+// 描述「会话里有什么」,不绑定生产代码走哪个读口;读口本身的约束由专门的严格用例钉住。
+func expectTranscriptReads(m *chatMocks, sessionID int64, msgs []*chat_entity.Message) {
+	m.message.EXPECT().List(gomock.Any(), sessionID).Return(msgs, nil).AnyTimes()
+	m.message.EXPECT().ListMeta(gomock.Any(), sessionID).Return(msgs, nil).AnyTimes()
+	m.message.EXPECT().FillBlocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	m.message.EXPECT().LatestBeforeSeq(gomock.Any(), sessionID, gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ int64, role string, beforeSeq int) (*chat_entity.Message, error) {
+			var hit *chat_entity.Message
+			for _, msg := range msgs {
+				if msg.Role == role && msg.Seq < beforeSeq && (hit == nil || msg.Seq > hit.Seq) {
+					hit = msg
+				}
+			}
+			return hit, nil
+		}).AnyTimes()
 }
 
 // capturedArg 是「先放行、事后断言」的 sqlmock 参数匹配器:参数本身要做结构化校验时,
@@ -389,8 +415,8 @@ func TestRegisterGatewayBeforeNewChatMakesCLIBackendsChattable(t *testing.T) {
 	m.session.EXPECT().CountRunningByAgents(ctx, []int64{7}).Return(map[int64]int{}, nil)
 	m.session.EXPECT().CountByAgents(ctx, []int64{7}).Return(map[int64]int64{}, nil)
 	m.session.EXPECT().ListIDsByAgents(ctx, []int64{7}).Return(map[int64][]int64{}, nil)
-	m.session.EXPECT().ListByAgent(ctx, int64(7), 5).Return(nil, nil)
-	m.session.EXPECT().ListAttentionByAgent(ctx, int64(7), 20).Return(nil, nil)
+	m.session.EXPECT().ListRecentByAgents(ctx, []int64{7}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+	m.session.EXPECT().ListAttentionByAgents(ctx, []int64{7}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 	resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 	assert.NoError(t, err)
@@ -415,10 +441,8 @@ func TestListAgentsOpenClawAvailability(t *testing.T) {
 	m.session.EXPECT().CountRunningByAgents(ctx, []int64{31, 32}).Return(map[int64]int{}, nil)
 	m.session.EXPECT().CountByAgents(ctx, []int64{31, 32}).Return(map[int64]int64{}, nil)
 	m.session.EXPECT().ListIDsByAgents(ctx, []int64{31, 32}).Return(map[int64][]int64{}, nil)
-	for _, id := range []int64{31, 32} {
-		m.session.EXPECT().ListByAgent(ctx, id, 5).Return(nil, nil)
-		m.session.EXPECT().ListAttentionByAgent(ctx, id, 20).Return(nil, nil)
-	}
+	m.session.EXPECT().ListRecentByAgents(ctx, []int64{31, 32}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+	m.session.EXPECT().ListAttentionByAgents(ctx, []int64{31, 32}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 	response, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 	assert.NoError(t, err)
@@ -460,8 +484,8 @@ func listSingleAgentItem(
 	m.session.EXPECT().CountRunningByAgents(ctx, []int64{a.ID}).Return(map[int64]int{}, nil)
 	m.session.EXPECT().CountByAgents(ctx, []int64{a.ID}).Return(map[int64]int64{}, nil)
 	m.session.EXPECT().ListIDsByAgents(ctx, []int64{a.ID}).Return(map[int64][]int64{}, nil)
-	m.session.EXPECT().ListByAgent(ctx, a.ID, 5).Return(nil, nil)
-	m.session.EXPECT().ListAttentionByAgent(ctx, a.ID, 20).Return(nil, nil)
+	m.session.EXPECT().ListRecentByAgents(ctx, []int64{a.ID}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+	m.session.EXPECT().ListAttentionByAgents(ctx, []int64{a.ID}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 	resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 	require.NoError(t, err)
@@ -654,8 +678,8 @@ func TestListAgents(t *testing.T) {
 			m.session.EXPECT().CountRunningByAgents(ctx, []int64{3}).Return(map[int64]int{}, nil)
 			m.session.EXPECT().CountByAgents(ctx, []int64{3}).Return(map[int64]int64{}, nil)
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{3}).Return(map[int64][]int64{}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(3), 5).Return(nil, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(3), 20).Return(nil, nil)
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{3}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{3}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 			assert.NoError(t, err)
@@ -681,8 +705,8 @@ func TestListAgents(t *testing.T) {
 			m.session.EXPECT().CountRunningByAgents(ctx, []int64{4}).Return(map[int64]int{}, nil)
 			m.session.EXPECT().CountByAgents(ctx, []int64{4}).Return(map[int64]int64{}, nil)
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{4}).Return(map[int64][]int64{}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(4), 5).Return(nil, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(4), 20).Return(nil, nil)
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{4}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{4}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 			assert.NoError(t, err)
@@ -707,13 +731,11 @@ func TestListAgents(t *testing.T) {
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{1, 2}).Return(map[int64][]int64{
 				2: {99, 50, 49, 48, 47, 46},
 			}, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(1), 20).Return(nil, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(2), 20).Return([]*chat_entity.Session{
-				{ID: 50, AgentID: 2, Title: "approve me", AgentStatus: "waiting", LastMessageAt: 1700000005000},
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{1, 2}, 20).Return(map[int64][]*chat_entity.Session{
+				2: {{ID: 50, AgentID: 2, Title: "approve me", AgentStatus: "waiting", LastMessageAt: 1700000005000}},
 			}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(1), 5).Return(nil, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(2), 5).Return([]*chat_entity.Session{
-				{ID: 99, AgentID: 2, Title: "支付小队 / 工程师", AgentStatus: "running", LastMessageAt: 1700000000000},
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{1, 2}, 5).Return(map[int64][]*chat_entity.Session{
+				2: {{ID: 99, AgentID: 2, Title: "支付小队 / 工程师", AgentStatus: "running", LastMessageAt: 1700000000000}},
 			}, nil)
 
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
@@ -745,14 +767,16 @@ func TestListAgents(t *testing.T) {
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{9}).Return(map[int64][]int64{
 				9: {6, 5, 4, 3, 2, 1},
 			}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(9), 5).Return([]*chat_entity.Session{
-				{ID: 6, AgentID: 9, Title: "s6", AgentStatus: "idle"},
-				{ID: 5, AgentID: 9, Title: "s5", AgentStatus: "idle"},
-				{ID: 4, AgentID: 9, Title: "s4", AgentStatus: "idle"},
-				{ID: 3, AgentID: 9, Title: "s3", AgentStatus: "idle"},
-				{ID: 2, AgentID: 9, Title: "s2", AgentStatus: "idle"},
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{9}, 5).Return(map[int64][]*chat_entity.Session{
+				9: {
+					{ID: 6, AgentID: 9, Title: "s6", AgentStatus: "idle"},
+					{ID: 5, AgentID: 9, Title: "s5", AgentStatus: "idle"},
+					{ID: 4, AgentID: 9, Title: "s4", AgentStatus: "idle"},
+					{ID: 3, AgentID: 9, Title: "s3", AgentStatus: "idle"},
+					{ID: 2, AgentID: 9, Title: "s2", AgentStatus: "idle"},
+				},
 			}, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(9), 20).Return(nil, nil)
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{9}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 			assert.NoError(t, err)
@@ -762,6 +786,55 @@ func TestListAgents(t *testing.T) {
 			}
 		})
 	})
+}
+
+// TestListAgents_BatchesRecentAndAttentionAcrossAgents 是要求 18 / A14 的表征测试:
+// ListChatAgents 侧栏原来在循环体里逐 agent 各发一次 ListByAgent / ListAttentionByAgent,
+// SQL 条数随 agent 数线性增长。mockgen 的 EXPECT() 默认要求方法被恰好调用一次 ——
+// 3 个 agent 场景下 ListRecentByAgents / ListAttentionByAgents 各只设了一条期望,
+// 如果生产代码退回逐 agent 调用(调 3 次,或仍调已被接口删除的 ListByAgent /
+// ListAttentionByAgent),要么编译不过要么 ctrl.Finish() 报「未满足的期望」/「意外调用」。
+// 同时断言每个 agent 仍从批量返回的 map 里各自拿到自己的最近/关注会话、顺序不变 ——
+// 查询次数变了，但结果与今天一致。
+func TestListAgents_BatchesRecentAndAttentionAcrossAgents(t *testing.T) {
+	m := setupChatTest(t)
+	ctx := context.Background()
+
+	m.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{
+		{ID: 101, Name: "A1", Status: consts.ACTIVE},
+		{ID: 102, Name: "A2", Status: consts.ACTIVE},
+		{ID: 103, Name: "A3", Status: consts.ACTIVE},
+	}, nil)
+	m.backend.EXPECT().BatchFind(ctx, []int64{}).Return(map[int64]*agent_backend_entity.AgentBackend{}, nil)
+	m.provider.EXPECT().BatchFindByKey(ctx, []string{}).Return(map[string]*llm_provider_entity.LLMProvider{}, nil)
+	ids := []int64{101, 102, 103}
+	m.session.EXPECT().CountRunningByAgents(ctx, ids).Return(map[int64]int{}, nil)
+	m.session.EXPECT().CountByAgents(ctx, ids).Return(map[int64]int64{}, nil)
+	m.session.EXPECT().ListIDsByAgents(ctx, ids).Return(map[int64][]int64{}, nil)
+	m.session.EXPECT().ListRecentByAgents(ctx, ids, 5).Return(map[int64][]*chat_entity.Session{
+		101: {{ID: 1, AgentID: 101, Title: "r1", AgentStatus: "idle", LastMessageAt: 3}},
+		103: {{ID: 3, AgentID: 103, Title: "r3", AgentStatus: "idle", LastMessageAt: 1}},
+	}, nil)
+	m.session.EXPECT().ListAttentionByAgents(ctx, ids, 20).Return(map[int64][]*chat_entity.Session{
+		102: {{ID: 2, AgentID: 102, Title: "waiting", AgentStatus: "waiting", LastMessageAt: 2}},
+	}, nil)
+
+	resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
+	assert.NoError(t, err)
+	require.Len(t, resp.Agents, 3)
+	byID := map[int64]chat_svc.ChatAgentItem{}
+	for _, item := range resp.Agents {
+		byID[item.ID] = item
+	}
+	if assert.Len(t, byID[101].Sessions, 1) {
+		assert.Equal(t, int64(1), byID[101].Sessions[0].ID, "agent 101 只从批量结果里认领自己的最近会话")
+	}
+	assert.Empty(t, byID[102].Sessions, "agent 102 在 ListRecentByAgents 结果里没有条目,保持空")
+	if assert.Len(t, byID[102].AttentionSessions, 1) {
+		assert.Equal(t, int64(2), byID[102].AttentionSessions[0].ID)
+	}
+	assert.Empty(t, byID[101].AttentionSessions, "agent 101 在 ListAttentionByAgents 结果里没有条目,保持空")
+	assert.Empty(t, byID[103].AttentionSessions, "agent 103 同理")
 }
 
 func TestListAgents_PopulatesDeviceFields(t *testing.T) {
@@ -790,8 +863,8 @@ func TestListAgents_PopulatesDeviceFields(t *testing.T) {
 			m.session.EXPECT().CountRunningByAgents(ctx, []int64{5}).Return(map[int64]int{}, nil)
 			m.session.EXPECT().CountByAgents(ctx, []int64{5}).Return(map[int64]int64{}, nil)
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{5}).Return(map[int64][]int64{}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(5), 5).Return(nil, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(5), 20).Return(nil, nil)
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{5}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{5}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 			// 本地 backend 不触发 remote_device_svc.Get
 
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
@@ -814,8 +887,8 @@ func TestListAgents_PopulatesDeviceFields(t *testing.T) {
 			m.session.EXPECT().CountRunningByAgents(ctx, []int64{6}).Return(map[int64]int{}, nil)
 			m.session.EXPECT().CountByAgents(ctx, []int64{6}).Return(map[int64]int64{}, nil)
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{6}).Return(map[int64][]int64{}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(6), 5).Return(nil, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(6), 20).Return(nil, nil)
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{6}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{6}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 			mockRDS.EXPECT().List(ctx).Return([]*remote_device_svc.DeviceView{
 				{ID: 7, DaemonFingerprint: "sha256:device-7", Name: "linux-srv", Online: true},
 			}, nil)
@@ -840,8 +913,8 @@ func TestListAgents_PopulatesDeviceFields(t *testing.T) {
 			m.session.EXPECT().CountRunningByAgents(ctx, []int64{7}).Return(map[int64]int{}, nil)
 			m.session.EXPECT().CountByAgents(ctx, []int64{7}).Return(map[int64]int64{}, nil)
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{7}).Return(map[int64][]int64{}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(7), 5).Return(nil, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(7), 20).Return(nil, nil)
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{7}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{7}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 			mockRDS.EXPECT().List(ctx).Return(nil, errors.New("device not found"))
 
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
@@ -4359,10 +4432,15 @@ func TestResolvePlanAction_CodexExecuteContinuesWaitingPlan(t *testing.T) {
 	m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
 		ID: 12, Type: string(agent_backend_entity.TypeCodex), LLMProviderKey: "", Status: consts.ACTIVE,
 	}, nil)
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+	// 「能否继续」只点查末条 assistant;清 actions 只按 plan 块定位(List 没有期望,被调用即失败)。
+	m.message.EXPECT().LatestAssistant(gomock.Any(), int64(100)).Return(planMsg, nil).Times(1)
+	m.message.EXPECT().ListMeta(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
 		{ID: 1000, SessionID: 100, Role: "user", Seq: 1},
 		planMsg,
-	}, nil).Times(2)
+	}, nil).Times(1)
+	m.message.EXPECT().FillBlocksByType(gomock.Any(), gomock.Any(), []string{"plan"}).Return(nil).Times(1)
+	// 写回前只给命中的那一条补全文(planMsg 本就带着正文)。
+	m.message.EXPECT().FillBlocks(gomock.Any(), gomock.Len(1)).Return(nil).Times(1)
 	m.session.EXPECT().UpdatePermissionMode(gomock.Any(), int64(100), "default").Return(nil)
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
@@ -4379,9 +4457,11 @@ func TestResolvePlanAction_CodexExecuteContinuesWaitingPlan(t *testing.T) {
 		}).Times(2)
 	m.dbMock.ExpectCommit()
 	var clearedPlanActions bool
-	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+	var planCheckpoints int
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
 			if msg.ID == planMsg.ID {
+				planCheckpoints++
 				bs, err := msg.GetBlocks()
 				require.NoError(t, err)
 				require.Len(t, bs, 1)
@@ -4393,6 +4473,13 @@ func TestResolvePlanAction_CodexExecuteContinuesWaitingPlan(t *testing.T) {
 				default:
 					t.Fatalf("expected PlanBlock, got %T", bs[0])
 				}
+			}
+			return nil
+		}).AnyTimes()
+	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			if msg.ID == planMsg.ID {
+				t.Errorf("清 plan actions 不得整条重写 plan 所在消息的块行")
 			}
 			return nil
 		}).AnyTimes()
@@ -4413,6 +4500,7 @@ func TestResolvePlanAction_CodexExecuteContinuesWaitingPlan(t *testing.T) {
 	assert.Equal(t, "Implement the plan.", req.UserText)
 	assert.Equal(t, "default", req.CollaborationMode)
 	assert.True(t, clearedPlanActions)
+	assert.Equal(t, 1, planCheckpoints, "plan 所在消息只差分写回一次")
 }
 
 func TestSend_CodexPlanEmptyTurnPersistsFallbackText(t *testing.T) {
@@ -5449,10 +5537,10 @@ func TestRegenerate_PersistFailureDoesNotPersistRunning(t *testing.T) {
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 		ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 	}, nil)
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+	expectTranscriptReads(m, 100, []*chat_entity.Message{
 		{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("hi")},
 		{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
-	}, nil).AnyTimes()
+	})
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Eng", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil)
@@ -6530,13 +6618,227 @@ func TestRenameAndDelete(t *testing.T) {
 			assert.Error(t, err)
 		})
 
-		convey.Convey("Delete 只软删 session，不清理 Agent cwd", func() {
+		convey.Convey("Delete 软删 session 并物理清除转录/台账/替换恢复状态（要求 6）", func() {
 			m := setupChatTest(t)
 			m.session.EXPECT().SoftDelete(ctx, int64(5)).Return(nil)
+			m.frameSeq.EXPECT().DeleteBySession(ctx, int64(5)).Return(int64(3), nil)
+			m.message.EXPECT().DeleteFromSeq(ctx, int64(5), 0).Return(int64(2), nil)
+			m.replacementRecovery.EXPECT().DeleteReplacementRecovery(ctx, int64(5)).Return(int64(1), nil)
 			_, err := m.svc.Delete(ctx, &chat_svc.DeleteRequest{SessionID: 5})
 			assert.NoError(t, err)
 		})
+
+		convey.Convey("Delete 帧台账清理失败 → 返回错误，会话行仍软删", func() {
+			m := setupChatTest(t)
+			m.session.EXPECT().SoftDelete(ctx, int64(5)).Return(nil)
+			m.frameSeq.EXPECT().DeleteBySession(ctx, int64(5)).Return(int64(0), errors.New("frame seq ledger boom"))
+			_, err := m.svc.Delete(ctx, &chat_svc.DeleteRequest{SessionID: 5})
+			assert.Error(t, err)
+		})
+
+		convey.Convey("Delete 转录清理失败 → 返回错误", func() {
+			m := setupChatTest(t)
+			m.session.EXPECT().SoftDelete(ctx, int64(5)).Return(nil)
+			m.frameSeq.EXPECT().DeleteBySession(ctx, int64(5)).Return(int64(0), nil)
+			m.message.EXPECT().DeleteFromSeq(ctx, int64(5), 0).Return(int64(0), errors.New("transcript purge boom"))
+			_, err := m.svc.Delete(ctx, &chat_svc.DeleteRequest{SessionID: 5})
+			assert.Error(t, err)
+		})
+
+		convey.Convey("Delete 替换恢复清理失败 → 返回错误", func() {
+			m := setupChatTest(t)
+			m.session.EXPECT().SoftDelete(ctx, int64(5)).Return(nil)
+			m.frameSeq.EXPECT().DeleteBySession(ctx, int64(5)).Return(int64(0), nil)
+			m.message.EXPECT().DeleteFromSeq(ctx, int64(5), 0).Return(int64(0), nil)
+			m.replacementRecovery.EXPECT().DeleteReplacementRecovery(ctx, int64(5)).Return(int64(0), errors.New("replacement recovery cleanup boom"))
+			_, err := m.svc.Delete(ctx, &chat_svc.DeleteRequest{SessionID: 5})
+			assert.Error(t, err)
+		})
 	})
+}
+
+// TestDeleteWaitsForInFlightTurnBeforePurging 证明 Delete 取消在飞的那一轮之后,仍等它把
+// 收尾写入落完、放开会话锁才清理转录:取消只让流停下,那一轮的 goroutine 仍持有
+// s.lockFor(sessionID) 在写 assistant 消息/会话状态。一个错误实现(取消后不等锁就 purge)
+// 会让 frameSeq.DeleteBySession 跑在收尾写入之前 —— 这里把收尾那次 assistant 落库卡住,
+// 断言 purge 在它放行前不会发生,放行后才发生。流只在被取消时结束:不取消的实现连收尾
+// 那次落库都走不到。
+func TestDeleteWaitsForInFlightTurnBeforePurging(t *testing.T) {
+	m := setupChatTest(t)
+	armed := make(chan struct{})
+	finalWriteEntered := make(chan struct{}, 1)
+	releaseFinalWrite := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-releaseFinalWrite:
+		default:
+			close(releaseFinalWrite)
+		}
+	})
+	resp := startBlockingBuiltinTurn(t, m,
+		func(pCtx context.Context) <-chan provider.StreamChunk {
+			ch := make(chan provider.StreamChunk)
+			go func() {
+				<-pCtx.Done()
+				close(ch)
+			}()
+			return ch
+		},
+		func(_ context.Context, msg *chat_entity.Message) error {
+			select {
+			case <-armed:
+			default:
+				return nil
+			}
+			if msg.ID == 2 {
+				select {
+				case finalWriteEntered <- struct{}{}:
+				default:
+				}
+				<-releaseFinalWrite
+			}
+			return nil
+		})
+	purgeCalled := expectSessionPurge(m)
+
+	close(armed)
+	deleteDone := make(chan error, 1)
+	go func() {
+		_, err := m.svc.Delete(context.Background(), &chat_svc.DeleteRequest{SessionID: 100})
+		deleteDone <- err
+	}()
+
+	select {
+	case <-finalWriteEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the canceled turn never reached its final assistant write")
+	}
+	select {
+	case <-purgeCalled:
+		t.Fatal("purge ran while the in-flight turn was still writing its final state")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(releaseFinalWrite)
+	chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
+	select {
+	case err := <-deleteDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Delete did not return after the in-flight turn released its lock")
+	}
+	select {
+	case <-purgeCalled:
+	default:
+		t.Fatal("purge never ran")
+	}
+}
+
+// startBlockingBuiltinTurn 在会话 100 上开一轮 builtin,流何时结束由 stream 决定;返回时
+// 这一轮的 goroutine 已经进了流、持着会话锁。messageUpdate 非 nil 时由它应答消息的
+// Update(收尾那次 assistant 落库就走这里),为 nil 时直接成功。
+func startBlockingBuiltinTurn(
+	t *testing.T, m *chatMocks, stream func(pCtx context.Context) <-chan provider.StreamChunk,
+	messageUpdate func(context.Context, *chat_entity.Message) error,
+) *chat_svc.SendResponse {
+	t.Helper()
+	providerCalled := make(chan struct{})
+	fp := providertest.New().QueueStreamFunc(stream)
+	chat_svc.SetProviderBuilderForTest(func(p *llm_provider_entity.LLMProvider) (provider.Provider, error) {
+		select {
+		case <-providerCalled:
+		default:
+			close(providerCalled)
+		}
+		return fp, nil
+	})
+	t.Cleanup(chat_svc.ResetProviderBuilderForTest)
+
+	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
+		ID: 7, AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
+	}, nil).AnyTimes()
+	m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+		ID: 12, Type: "builtin", LLMProviderKey: "key-21", Status: consts.ACTIVE,
+	}, nil).AnyTimes()
+	m.provider.EXPECT().FindByKey(gomock.Any(), "key-21").Return(&llm_provider_entity.LLMProvider{ProviderKey: "key-21", Enabled: llm_provider_entity.EnabledOn, DefaultModelKey: "mk-key-21", ID: 21, Type: string(llm_provider_entity.TypeAnthropic), Status: consts.ACTIVE}, nil).AnyTimes()
+	expectProviderResolvable(m, "key-21")
+	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(&chat_entity.Session{
+		ID: 100, AgentID: 7, AgentStatus: "idle", Status: consts.ACTIVE,
+	}, nil).AnyTimes()
+	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	m.dbMock.ExpectBegin()
+	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(1, nil)
+	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			msg.ID = map[string]int64{"user": 1, "assistant": 2}[msg.Role]
+			return nil
+		}).Times(2)
+	m.dbMock.ExpectCommit()
+	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
+	if messageUpdate == nil {
+		messageUpdate = func(context.Context, *chat_entity.Message) error { return nil }
+	}
+	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(messageUpdate).AnyTimes()
+
+	resp, err := m.svc.Send(m.ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
+	require.NoError(t, err)
+	select {
+	case <-providerCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for providerBuilder to be called")
+	}
+	return resp
+}
+
+// expectSessionPurge 期望 Delete 软删会话 100 并清掉它的转录;返回的通道在帧台账清理
+// 那一步关闭。
+func expectSessionPurge(m *chatMocks) <-chan struct{} {
+	m.session.EXPECT().SoftDelete(gomock.Any(), int64(100)).Return(nil)
+	purgeCalled := make(chan struct{})
+	m.frameSeq.EXPECT().DeleteBySession(gomock.Any(), int64(100)).DoAndReturn(
+		func(context.Context, int64) (int64, error) {
+			close(purgeCalled)
+			return 0, nil
+		})
+	m.message.EXPECT().DeleteFromSeq(gomock.Any(), int64(100), 0).Return(int64(0), nil)
+	m.replacementRecovery.EXPECT().DeleteReplacementRecovery(gomock.Any(), int64(100)).Return(int64(0), nil)
+	return purgeCalled
+}
+
+// Given 会话上一轮 builtin 在飞,它的流只有被取消才会结束(等工具审批、一段很长的回答
+// 都是这个形状);When 删除这条会话;Then Delete 取消这一轮、等它收尾后清理并返回。
+//
+// 只等会话锁而不取消时,CloseSessionEverywhere 管不到的后端(builtin / remote /
+// openclaw)上在飞的一轮会让 Delete 一直挂着:Wails 调用不返回,对端的删除 RPC 也不返回。
+func TestDelete_GivenAnInFlightTurnThatOnlyEndsWhenCancelled_ThenDeleteCancelsItAndReturns(t *testing.T) {
+	m := setupChatTest(t)
+	resp := startBlockingBuiltinTurn(t, m, func(pCtx context.Context) <-chan provider.StreamChunk {
+		ch := make(chan provider.StreamChunk)
+		go func() {
+			<-pCtx.Done()
+			close(ch)
+		}()
+		return ch
+	}, nil)
+	purgeCalled := expectSessionPurge(m)
+
+	deleteDone := make(chan error, 1)
+	go func() {
+		_, err := m.svc.Delete(context.Background(), &chat_svc.DeleteRequest{SessionID: 100})
+		deleteDone <- err
+	}()
+	select {
+	case err := <-deleteDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Delete kept waiting for an in-flight turn that only ends when canceled")
+	}
+	chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
+	select {
+	case <-purgeCalled:
+	default:
+		t.Fatal("purge never ran")
+	}
 }
 
 // encodeText helper: pack a text block into StoredBlock-envelope JSON for fixtures.
@@ -6565,10 +6867,10 @@ func TestRegenerate_BuiltinTruncatesAndRestartsTurn(t *testing.T) {
 		m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 			ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 		}, nil)
-		m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+		expectTranscriptReads(m, 100, []*chat_entity.Message{
 			{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("hi")},
 			{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
-		}, nil).AnyTimes()
+		})
 		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 			ID: 7, Name: "Eng", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 		}, nil)
@@ -6631,10 +6933,10 @@ func TestRegenerate_BuiltinWithProviderSessionStillRestartsTurn(t *testing.T) {
 		m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 			ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 		}, nil)
-		m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+		expectTranscriptReads(m, 100, []*chat_entity.Message{
 			{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("hi")},
 			{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
-		}, nil).AnyTimes()
+		})
 		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 			ID: 7, Name: "Eng", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 		}, nil)
@@ -6691,12 +6993,12 @@ func TestRegenerate_CodexRollsBackProviderTurns(t *testing.T) {
 		m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 			ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 		}, nil)
-		m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+		expectTranscriptReads(m, 100, []*chat_entity.Message{
 			{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("first")},
 			{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
 			{ID: 1002, SessionID: 100, Role: "user", Seq: 3, BlocksJSON: encodeText("second")},
 			{ID: 1003, SessionID: 100, Role: "assistant", Seq: 4, BlocksJSON: encodeText("v2")},
-		}, nil).AnyTimes()
+		})
 		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 			ID: 7, Name: "Eng", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 		}, nil)
@@ -6734,6 +7036,107 @@ func TestRegenerate_CodexRollsBackProviderTurns(t *testing.T) {
 	})
 }
 
+// twoTurnCodexTranscript 是「user first → v1 → user second → v2」两轮的 codex 会话。
+func twoTurnCodexTranscript() []*chat_entity.Message {
+	return []*chat_entity.Message{
+		{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("first")},
+		{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
+		{ID: 1002, SessionID: 100, Role: "user", Seq: 3, BlocksJSON: encodeText("second")},
+		{ID: 1003, SessionID: 100, Role: "assistant", Seq: 4, BlocksJSON: encodeText("v2")},
+	}
+}
+
+// arrangeCodexRegenerate 搭好 codex 会话里重新生成 targetID 那条 assistant 的会话/agent/后端;
+// 转录怎么读由 arrangeReads 决定。
+func arrangeCodexRegenerate(t *testing.T, m *chatMocks, target *chat_entity.Message) *recordingRunner {
+	t.Helper()
+	runner := &recordingRunner{requests: make(chan agentruntime.RunRequest, 1)}
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeCodex, runner)
+	t.Cleanup(restore)
+	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(&chat_entity.Session{
+		ID: 100, AgentID: 7, ProviderSessionID: "cx-abc", AgentStatus: "idle", Status: consts.ACTIVE,
+	}, nil)
+	m.message.EXPECT().Find(gomock.Any(), target.ID).Return(target, nil)
+	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
+		ID: 7, Name: "Eng", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
+	}, nil)
+	m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+		ID: 12, Type: string(agent_backend_entity.TypeCodex), Status: consts.ACTIVE,
+	}, nil)
+	return runner
+}
+
+// expectRegeneratedFromSeq 期望事务里从 fromSeq 截断,再以新 id 写回 user + assistant。
+func expectRegeneratedFromSeq(m *chatMocks, fromSeq int, deleted int64) {
+	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.dbMock.ExpectBegin()
+	m.message.EXPECT().DeleteFromSeq(gomock.Any(), int64(100), fromSeq).Return(deleted, nil)
+	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(fromSeq, nil)
+	newIDs := []int64{2000, 2001}
+	var calls int
+	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			msg.ID = newIDs[calls]
+			calls++
+			return nil
+		}).Times(2)
+	m.dbMock.ExpectCommit()
+	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+}
+
+func requireRegeneratedCodexTurn(t *testing.T, m *chatMocks, runner *recordingRunner, resp *chat_svc.SendResponse, wantText, wantAnchor string) {
+	t.Helper()
+	select {
+	case req := <-runner.requests:
+		assert.Equal(t, wantText, req.UserText)
+		assert.Equal(t, wantAnchor, req.ForkAnchor)
+	case <-time.After(2 * time.Second):
+		t.Fatal("runtime never received the regenerated codex turn")
+	}
+	chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
+}
+
+func TestRegenerate_UserAnchorSelection(t *testing.T) {
+	t.Run("Given two user turns, When the latest assistant is regenerated, Then the anchor is the last user message before it", func(t *testing.T) {
+		m := setupChatTest(t)
+		msgs := twoTurnCodexTranscript()
+		runner := arrangeCodexRegenerate(t, m, msgs[3])
+		expectTranscriptReads(m, 100, msgs)
+		expectRegeneratedFromSeq(m, 3, 2)
+
+		resp, err := m.svc.Regenerate(m.ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1003})
+		require.NoError(t, err)
+		requireRegeneratedCodexTurn(t, m, runner, resp, "second", "1")
+	})
+	t.Run("Given no user message precedes the target, When it is regenerated, Then it reports a missing user anchor without truncating", func(t *testing.T) {
+		m := setupChatTest(t)
+		orphan := &chat_entity.Message{ID: 1001, SessionID: 100, Role: "assistant", Seq: 1, BlocksJSON: encodeText("v1")}
+		arrangeCodexRegenerate(t, m, orphan)
+		expectTranscriptReads(m, 100, []*chat_entity.Message{orphan})
+
+		resp, err := m.svc.Regenerate(m.ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
+		require.Nil(t, resp)
+		var httpErr *httputils.Error
+		require.ErrorAs(t, err, &httpErr)
+		assert.Equal(t, code.ChatRegenerateNoUserAnchor, httpErr.Code)
+	})
+}
+
+// TestRegenerate_ReadsOnlyTheUserAnchorAndMessageMetadata 钉住要求 13:regenerate 找 user
+// 锚点只点查那一条,codex 的 rollback 轮数只读元数据 —— List 没有期望,读回整条转录即失败。
+func TestRegenerate_ReadsOnlyTheUserAnchorAndMessageMetadata(t *testing.T) {
+	m := setupChatTest(t)
+	msgs := twoTurnCodexTranscript()
+	runner := arrangeCodexRegenerate(t, m, msgs[3])
+	m.message.EXPECT().LatestBeforeSeq(gomock.Any(), int64(100), "user", 4).Return(msgs[2], nil).Times(1)
+	m.message.EXPECT().ListMeta(gomock.Any(), int64(100)).Return(msgs, nil).Times(1)
+	expectRegeneratedFromSeq(m, 3, 2)
+
+	resp, err := m.svc.Regenerate(m.ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1003})
+	require.NoError(t, err)
+	requireRegeneratedCodexTurn(t, m, runner, resp, "second", "1")
+}
+
 func TestPiRestart_PassesExactStoredAnchorToRunner(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -6748,10 +7151,10 @@ func TestPiRestart_PassesExactStoredAnchorToRunner(t *testing.T) {
 				m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 					ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 				}, nil)
-				m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+				expectTranscriptReads(m, 100, []*chat_entity.Message{
 					{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"), ForkAnchor: "pi-user-entry-exact"},
 					{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
-				}, nil).AnyTimes()
+				})
 			},
 			invoke: func(svc chat_svc.ChatSvc, ctx context.Context) (*chat_svc.SendResponse, error) {
 				return svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
@@ -6766,10 +7169,10 @@ func TestPiRestart_PassesExactStoredAnchorToRunner(t *testing.T) {
 					ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"),
 					ForkAnchor: "pi-user-entry-exact",
 				}, nil)
-				m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+				expectTranscriptReads(m, 100, []*chat_entity.Message{
 					{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"), ForkAnchor: "pi-user-entry-exact"},
 					{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("answer")},
-				}, nil).AnyTimes()
+				})
 			},
 			invoke: func(svc chat_svc.ChatSvc, ctx context.Context) (*chat_svc.SendResponse, error) {
 				return svc.Edit(ctx, &chat_svc.EditRequest{SessionID: 100, MessageID: 1000, Text: "replacement"})
@@ -7008,10 +7411,10 @@ func TestPiRestart_ForkStartupFailurePreservesExistingHistory(t *testing.T) {
 				m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 					ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 				}, nil)
-				m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+				expectTranscriptReads(m, 100, []*chat_entity.Message{
 					{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"), ForkAnchor: "pi-user-entry-exact"},
 					{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
-				}, nil).AnyTimes()
+				})
 			},
 			invoke: func(svc chat_svc.ChatSvc, ctx context.Context) (*chat_svc.SendResponse, error) {
 				return svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
@@ -7119,10 +7522,10 @@ func TestPiRestart_RemotePreparationPersistsForkIdentityBeforePromptStart(t *tes
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 		ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("answer"),
 	}, nil)
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+	expectTranscriptReads(m, 100, []*chat_entity.Message{
 		{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"), ForkAnchor: "pi-entry-old"},
 		{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("answer")},
-	}, nil).AnyTimes()
+	})
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Pi Remote", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil)
@@ -7166,10 +7569,10 @@ func TestPiRestart_OldPreparedCleanupDoesNotUseSessionWideAbortBeforeRetry(t *te
 	}
 	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(originalAssistant, nil).Times(2)
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+	expectTranscriptReads(m, 100, []*chat_entity.Message{
 		{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"), ForkAnchor: "pi-user-entry"},
 		originalAssistant,
-	}, nil).AnyTimes()
+	})
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Pi", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil).AnyTimes()
@@ -7206,10 +7609,10 @@ func TestPiRestart_TranscriptFailureDoesNotSendPrompt(t *testing.T) {
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 		ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("answer"),
 	}, nil)
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+	expectTranscriptReads(m, 100, []*chat_entity.Message{
 		{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"), ForkAnchor: "pi-user-entry"},
 		{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("answer")},
-	}, nil).AnyTimes()
+	})
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Pi", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil)
@@ -7248,10 +7651,10 @@ func TestPiRestart_RecoveryNamespaceCollisionIsNonDestructive(t *testing.T) {
 	}
 	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil)
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(originalAssistant, nil)
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+	expectTranscriptReads(m, 100, []*chat_entity.Message{
 		{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"), ForkAnchor: "pi-user-entry"},
 		originalAssistant,
-	}, nil).AnyTimes()
+	})
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Pi", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil)
@@ -7297,7 +7700,7 @@ func TestPiRestart_FirstRestoreFailureRecoversExactRowsAndSessionOnRetry(t *test
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(originalAssistant, nil)
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&hiddenAssistant, nil)
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&restoredAssistant, nil)
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{originalUser, originalAssistant}, nil).AnyTimes()
+	expectTranscriptReads(m, 100, []*chat_entity.Message{originalUser, originalAssistant})
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Pi", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil).AnyTimes()
@@ -7967,7 +8370,7 @@ func TestPiRestart_UnresolvedAcknowledgementStopsTurnAndRestoresPendingGeneratio
 	}
 	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil)
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(originalAssistant, nil)
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{originalUser, originalAssistant}, nil).AnyTimes()
+	expectTranscriptReads(m, 100, []*chat_entity.Message{originalUser, originalAssistant})
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Pi", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil)
@@ -8083,7 +8486,7 @@ func TestPiRestart_AcknowledgedPromptActivatesTranscriptWithForkedSessionAtomica
 	}
 	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil)
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(originalAssistant, nil)
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{originalUser, originalAssistant}, nil).AnyTimes()
+	expectTranscriptReads(m, 100, []*chat_entity.Message{originalUser, originalAssistant})
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Pi", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil)
@@ -8231,7 +8634,7 @@ func TestPiRestart_PromptRejectionRestoresOriginalRowsAndProviderIdentity(t *tes
 	}
 	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil)
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(originalAssistant, nil)
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{originalUser, originalAssistant}, nil).AnyTimes()
+	expectTranscriptReads(m, 100, []*chat_entity.Message{originalUser, originalAssistant})
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Pi", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil)
@@ -8323,7 +8726,7 @@ func expectCancelablePiRegenerate(m *chatMocks) (*chat_entity.Message, *chat_ent
 		ID: 100, AgentID: 7, ProviderSessionID: "pi-session-old", AgentStatus: "idle", Status: consts.ACTIVE,
 	}, nil).AnyTimes()
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(originalAssistant, nil).AnyTimes()
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{originalUser, originalAssistant}, nil).AnyTimes()
+	expectTranscriptReads(m, 100, []*chat_entity.Message{originalUser, originalAssistant})
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Pi", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil).AnyTimes()
@@ -8566,10 +8969,10 @@ func TestPiRestart_StopCancelsActivationSQLBeforeDoingStopLookups(t *testing.T) 
 		ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("answer"),
 	}
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(originalAssistant, nil)
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+	expectTranscriptReads(m, 100, []*chat_entity.Message{
 		{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"), ForkAnchor: "pi-user-entry"},
 		originalAssistant,
-	}, nil).AnyTimes()
+	})
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Pi", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil).AnyTimes()
@@ -8702,10 +9105,10 @@ func TestPiRestart_RejectsEmptyAnchorBeforeTruncationOrRunnerStart(t *testing.T)
 				m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 					ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 				}, nil)
-				m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+				expectTranscriptReads(m, 100, []*chat_entity.Message{
 					{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"), ForkAnchor: anchor},
 					{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
-				}, nil)
+				})
 			},
 			invoke: func(svc chat_svc.ChatSvc, ctx context.Context) (*chat_svc.SendResponse, error) {
 				return svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
@@ -8718,10 +9121,10 @@ func TestPiRestart_RejectsEmptyAnchorBeforeTruncationOrRunnerStart(t *testing.T)
 				m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 					ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 				}, nil)
-				m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+				expectTranscriptReads(m, 100, []*chat_entity.Message{
 					{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"), ForkAnchor: anchor},
 					{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
-				}, nil)
+				})
 			},
 			invoke: func(svc chat_svc.ChatSvc, ctx context.Context) (*chat_svc.SendResponse, error) {
 				return svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
@@ -8734,10 +9137,10 @@ func TestPiRestart_RejectsEmptyAnchorBeforeTruncationOrRunnerStart(t *testing.T)
 				m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 					ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 				}, nil)
-				m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+				expectTranscriptReads(m, 100, []*chat_entity.Message{
 					{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"), ForkAnchor: anchor},
 					{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
-				}, nil)
+				})
 			},
 			invoke: func(svc chat_svc.ChatSvc, ctx context.Context) (*chat_svc.SendResponse, error) {
 				return svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
@@ -8831,10 +9234,10 @@ func TestPiRestart_LostProviderSessionFailsClosed(t *testing.T) {
 				m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 					ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("answer"),
 				}, nil)
-				m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+				expectTranscriptReads(m, 100, []*chat_entity.Message{
 					{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original"), ForkAnchor: "pi-user-entry"},
 					{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("answer")},
-				}, nil).AnyTimes()
+				})
 			},
 			invoke: func(svc chat_svc.ChatSvc, ctx context.Context) (*chat_svc.SendResponse, error) {
 				return svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
@@ -8847,10 +9250,10 @@ func TestPiRestart_LostProviderSessionFailsClosed(t *testing.T) {
 				m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 					ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("partial answer"), ErrorText: "provider failed",
 				}, nil)
-				m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+				expectTranscriptReads(m, 100, []*chat_entity.Message{
 					{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original")},
 					{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("partial answer"), ErrorText: "provider failed"},
-				}, nil).AnyTimes()
+				})
 			},
 			invoke: func(svc chat_svc.ChatSvc, ctx context.Context) (*chat_svc.SendResponse, error) {
 				return svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
@@ -8863,10 +9266,10 @@ func TestPiRestart_LostProviderSessionFailsClosed(t *testing.T) {
 				m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 					ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: "{", ErrorText: "startup failed",
 				}, nil)
-				m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+				expectTranscriptReads(m, 100, []*chat_entity.Message{
 					{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("original")},
 					{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: "{", ErrorText: "startup failed"},
-				}, nil).AnyTimes()
+				})
 			},
 			invoke: func(svc chat_svc.ChatSvc, ctx context.Context) (*chat_svc.SendResponse, error) {
 				return svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
@@ -8943,7 +9346,7 @@ func TestPiRestart_FailedFirstTurnCanRetryWithoutFork(t *testing.T) {
 		ID: 100, AgentID: 7, AgentStatus: "error", Status: consts.ACTIVE,
 	}, nil)
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(failedAssistant, nil)
-	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{failedUser, failedAssistant}, nil).AnyTimes()
+	expectTranscriptReads(m, 100, []*chat_entity.Message{failedUser, failedAssistant})
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Pi", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil)
@@ -8982,10 +9385,10 @@ func TestRegenerate_ClaudeCodeForksViaAnchor(t *testing.T) {
 		m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 			ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 		}, nil)
-		m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+		expectTranscriptReads(m, 100, []*chat_entity.Message{
 			{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("hi"), ForkAnchor: "anchor-uuid"},
 			{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
-		}, nil).AnyTimes()
+		})
 		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 			ID: 7, Name: "Eng", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 		}, nil)
@@ -9074,10 +9477,10 @@ func TestRegenerate_ClaudeCodeFailedForkKeepsOldProviderSession(t *testing.T) {
 		m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 			ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 		}, nil)
-		m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+		expectTranscriptReads(m, 100, []*chat_entity.Message{
 			{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("hi"), ForkAnchor: "anchor-uuid"},
 			{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
-		}, nil).AnyTimes()
+		})
 		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 			ID: 7, Name: "Eng", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 		}, nil)
@@ -9144,10 +9547,10 @@ func TestRegenerate_ClaudeCodeWithoutAnchorDropsSession(t *testing.T) {
 		m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 			ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 		}, nil)
-		m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+		expectTranscriptReads(m, 100, []*chat_entity.Message{
 			{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("hi") /* ForkAnchor: "" */},
 			{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
-		}, nil).AnyTimes()
+		})
 		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 			ID: 7, Name: "Eng", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 		}, nil)
@@ -9274,12 +9677,12 @@ func TestEdit_CodexRollsBackProviderTurns(t *testing.T) {
 		m.message.EXPECT().Find(gomock.Any(), int64(1002)).Return(&chat_entity.Message{
 			ID: 1002, SessionID: 100, Role: "user", Seq: 3, BlocksJSON: encodeText("second"),
 		}, nil)
-		m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+		expectTranscriptReads(m, 100, []*chat_entity.Message{
 			{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("first")},
 			{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
 			{ID: 1002, SessionID: 100, Role: "user", Seq: 3, BlocksJSON: encodeText("second")},
 			{ID: 1003, SessionID: 100, Role: "assistant", Seq: 4, BlocksJSON: encodeText("v2")},
-		}, nil).AnyTimes()
+		})
 		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 			ID: 7, Name: "Eng", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 		}, nil)

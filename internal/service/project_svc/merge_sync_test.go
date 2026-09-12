@@ -1,6 +1,7 @@
 package project_svc_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -73,9 +74,128 @@ func TestProjectSvcMerge_NotifiesEachReassignedIssue(t *testing.T) {
 		"基版本是改挂之前行上的那一版（R4a）")
 }
 
+// txAwareSync 记下每条通知发出的那一刻：事务提交了没有、手里拿的是不是事务的 ctx。
+type txAwareSync struct {
+	sync_svc.SyncSvc
+	tx   *fakeTx
+	seen []seenNotice
+}
+
+type seenNotice struct {
+	change      sync_svc.LocalChange
+	afterCommit bool
+	withTxCtx   bool
+}
+
+func (r *txAwareSync) NotifyLocalChange(ctx context.Context, ch sync_svc.LocalChange) {
+	r.seen = append(r.seen, seenNotice{
+		change:      ch,
+		afterCommit: r.tx.committed,
+		withTxCtx:   ctx.Value(txMarkerKey{}) != nil,
+	})
+}
+
+func registerTxAwareSync(t *testing.T, tx *fakeTx) *txAwareSync {
+	t.Helper()
+	rec := &txAwareSync{tx: tx}
+	sync_svc.SetDefault(rec)
+	t.Cleanup(func() { sync_svc.SetDefault(nil) })
+	return rec
+}
+
+// 要求 4：合并的任一步失败时，库里不留下已执行步骤的改动，也不发出任何同步通知。
+// 这里前五步都已经执行（任务也已整批改挂），第六步读路径记录时失败。
+func TestProjectSvcMerge_GivenALaterStepFails_ThenTheTxRollsBackAndNothingIsAnnounced(t *testing.T) {
+	ctx, m, svc := setupMergeTest(t)
+	rec := registerTxAwareSync(t, m.tx)
+
+	older := &project_entity.Project{ID: 5, Name: "older", Createtime: 100, Path: "/p1"}
+	newer := &project_entity.Project{
+		ID: 6, Name: "newer", Createtime: 200, Path: "/p2",
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "proj-drop"},
+	}
+	m.project.EXPECT().Find(ctx, int64(6)).Return(newer, nil)
+	m.project.EXPECT().Find(ctx, int64(5)).Return(older, nil)
+	m.project.EXPECT().Update(ctx, gomock.Any()).Return(nil)
+	m.session.EXPECT().ReassignProject(ctx, int64(6), int64(5)).Return(nil)
+	m.pa.EXPECT().ListByProject(ctx, int64(5)).Return(nil, nil)
+	m.pa.EXPECT().ListByProject(ctx, int64(6)).Return(nil, nil)
+	m.project.EXPECT().ListByParent(ctx, int64(6)).Return(nil, nil)
+	m.project.EXPECT().ReassignParent(ctx, int64(6), int64(5)).Return(nil)
+	m.issue.EXPECT().List(ctx, issue_repo.ListFilter{ProjectIDs: []int64{6}}).
+		Return([]*issue_entity.Issue{
+			{ID: 11, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "issue-a", SyncVersion: 3}},
+		}, nil)
+	m.issue.EXPECT().ReassignProject(ctx, int64(6), int64(5)).Return(nil)
+	boom := errors.New("database is locked")
+	m.location.EXPECT().ListByProject(ctx, int64(6)).Return(nil, boom)
+
+	keep, err := svc.Merge(ctx, &project_svc.MergeProjectsRequest{SourceID: 6, TargetID: 5})
+	require.ErrorIs(t, err, boom)
+	assert.Nil(t, keep)
+	assert.ErrorIs(t, m.tx.fnErr, boom, "失败必须从事务回调里返回，前五步的写入才会随之回滚")
+	assert.False(t, m.tx.committed)
+	assert.Empty(t, rec.seen, "合并没有成功，已改挂的任务一条都不能上行")
+}
+
+// 要求 4：合并成功时，每一步读写都在同一个事务里，同步通知在提交之后、用外层 ctx
+// 发出，次序与逐条发出时一致（先各条被改挂的任务，再是被合并掉的项目）。
+//
+// 用外层 ctx 是硬约束：NotifyLocalChange 用 ctx 写出站队列，再以
+// context.WithoutCancel(ctx) 起后台同步，事务的 ctx 会把一个已提交的 tx 带进去。
+func TestProjectSvcMerge_GivenItSucceeds_ThenNotificationsFollowTheCommitOutsideTheTx(t *testing.T) {
+	ctx, m, svc := setupMergeTest(t)
+	txCtx := context.WithValue(ctx, txMarkerKey{}, "merge-tx")
+	m.tx.txCtx = txCtx
+	rec := registerTxAwareSync(t, m.tx)
+
+	older := &project_entity.Project{
+		ID: 5, Name: "older", Createtime: 100, Path: "/p1",
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "proj-keep"},
+	}
+	newer := &project_entity.Project{
+		ID: 6, Name: "newer", Createtime: 200, Path: "/p2",
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "proj-drop", SyncVersion: 2},
+	}
+	// 期望全部挂在 txCtx 上：哪一步拿外层 ctx 去读写，它就不在事务里，gomock 当场报错。
+	m.project.EXPECT().Find(txCtx, int64(6)).Return(newer, nil)
+	m.project.EXPECT().Find(txCtx, int64(5)).Return(older, nil)
+	m.project.EXPECT().Update(txCtx, gomock.Any()).Return(nil)
+	m.session.EXPECT().ReassignProject(txCtx, int64(6), int64(5)).Return(nil)
+	m.pa.EXPECT().ListByProject(txCtx, int64(5)).Return(nil, nil)
+	m.pa.EXPECT().ListByProject(txCtx, int64(6)).Return(nil, nil)
+	m.project.EXPECT().ListByParent(txCtx, int64(6)).Return(nil, nil)
+	m.project.EXPECT().ReassignParent(txCtx, int64(6), int64(5)).Return(nil)
+	m.issue.EXPECT().List(txCtx, issue_repo.ListFilter{ProjectIDs: []int64{6}}).
+		Return([]*issue_entity.Issue{
+			{ID: 11, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "issue-a", SyncVersion: 3}},
+			{ID: 12, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "issue-b", SyncVersion: 4}},
+		}, nil)
+	m.issue.EXPECT().ReassignProject(txCtx, int64(6), int64(5)).Return(nil)
+	m.location.EXPECT().ListByProject(txCtx, int64(6)).Return(nil, nil)
+	m.location.EXPECT().ReassignProject(txCtx, int64(6), int64(5)).Return(nil)
+	expectCleanDelete(txCtx, m, 6, newer)
+
+	keep, err := svc.Merge(ctx, &project_svc.MergeProjectsRequest{SourceID: 6, TargetID: 5})
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), keep.ID)
+	require.True(t, m.tx.committed)
+
+	got := make([]sync_svc.LocalChange, 0, len(rec.seen))
+	for _, n := range rec.seen {
+		assert.True(t, n.afterCommit, "%s %s 在提交之前就发出了", n.change.Kind, n.change.Meta.SyncID)
+		assert.False(t, n.withTxCtx, "%s %s 拿着事务的 ctx 发出", n.change.Kind, n.change.Meta.SyncID)
+		got = append(got, n.change)
+	}
+	assert.Equal(t, []sync_svc.LocalChange{
+		{Kind: syncwire.KindIssue, LocalID: 11, Op: sync_svc.OpUpdate, Meta: syncmeta_entity.SyncMeta{SyncID: "issue-a", SyncVersion: 3}},
+		{Kind: syncwire.KindIssue, LocalID: 12, Op: sync_svc.OpUpdate, Meta: syncmeta_entity.SyncMeta{SyncID: "issue-b", SyncVersion: 4}},
+		{Kind: syncwire.KindProject, LocalID: 6, Op: sync_svc.OpDelete, Meta: syncmeta_entity.SyncMeta{SyncID: "proj-drop", SyncVersion: 2}},
+	}, got)
+}
+
 // TestProjectSvcMerge_GivenTheIssueListFails_StillCompletesTheMerge 那一次读取只为
-// 同步层服务（同步未装配时压根不发生），因此它失败时不能否决用户的合并：此刻项目、
-// 会话、成员与子项目都已经改挂完毕，在那里返回错误只会留下一个半合并的库（R8，与
+// 同步层服务（同步未装配时压根不发生），因此它失败时不能否决用户的合并（R8，与
 // project_svc.memberSyncMeta / issue_svc.labelLinksBefore 同一口径）。
 func TestProjectSvcMerge_GivenTheIssueListFails_StillCompletesTheMerge(t *testing.T) {
 	ctx, m, svc := setupMergeTest(t)

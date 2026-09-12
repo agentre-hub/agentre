@@ -33,8 +33,13 @@ func SessionWrittenPaths(ctx context.Context, sessionID int64) ([]string, error)
 	if sessionID <= 0 {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
-	msgs, err := transcript_repo.Message().List(ctx, sessionID)
+	repo := transcript_repo.Message()
+	msgs, err := repo.ListMeta(ctx, sessionID)
 	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	// 写入路径只会出现在工具调用块里:按类型点查,其余正文不进内存。
+	if err := repo.FillBlocksByType(ctx, msgs, toolUseBlockTypes); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
 
@@ -76,6 +81,9 @@ func SessionWrittenPaths(ctx context.Context, sessionID int64) ([]string, error)
 	}
 	return paths, nil
 }
+
+// toolUseBlockTypes 是 toolUseOfBlock 认得的两类块的存储类型,两处须同步。
+var toolUseBlockTypes = []string{blocks.ToolUseBlock{}.Type(), chatblocks.NestedToolUseBlock{}.Type()}
 
 // toolUseOfBlock 把一个持久化块还原成 (工具名, 入参)。外层 tool_use 与
 // subagent 的 nested_tool_use 都算 —— 值/指针两种形态都要认,持久化解码出来

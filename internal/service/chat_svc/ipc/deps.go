@@ -25,9 +25,9 @@ type SessionPort interface {
 }
 
 // MessagePort is ipc's narrow view of transcript_repo.MessageRepo:只用来回看末条 assistant
-// 有没有可操作的 plan 块。
+// 有没有可操作的 plan 块 —— 点查那一条,不读回整条转录。
 type MessagePort interface {
-	List(ctx context.Context, sessionID int64) ([]*chat_entity.Message, error)
+	LatestAssistant(ctx context.Context, sessionID int64) (*chat_entity.Message, error)
 }
 
 // AgentPort is ipc's narrow view of agent_repo.AgentRepo。
@@ -54,8 +54,8 @@ func (sessionRepoDelegate) UpdatePermissionMode(ctx context.Context, id int64, m
 
 type messageRepoDelegate struct{}
 
-func (messageRepoDelegate) List(ctx context.Context, sessionID int64) ([]*chat_entity.Message, error) {
-	return transcript_repo.Message().List(ctx, sessionID)
+func (messageRepoDelegate) LatestAssistant(ctx context.Context, sessionID int64) (*chat_entity.Message, error) {
+	return transcript_repo.Message().LatestAssistant(ctx, sessionID)
 }
 
 type agentRepoDelegate struct{}

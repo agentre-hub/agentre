@@ -38,7 +38,7 @@ func lockForSession(sessionID int64) *sync.Mutex {
 
 type MessageRepo interface {
 	// List 取回整条会话的消息**连同全部正文**。它是 ListMeta + FillBlocks 的合体,
-	// 留给「本来就要读整条转录」的调用方(如导出、written paths);读路径(LoadSession)
+	// 留给「本来就要读整条转录」的调用方(如导出、builtin 历史重放);读路径(LoadSession)
 	// 不再走它 —— 见 ListMeta 的说明。
 	List(ctx context.Context, sessionID int64) ([]*transcript_entity.Message, error)
 	// ListMeta 只取消息元数据,不碰块表。读路径是「元数据全量 + 块按需取」(决策 6):
@@ -46,6 +46,11 @@ type MessageRepo interface {
 	// 正文则由 FillBlocks 按窗口补,一条 8k 块的会话不再整条搬进内存。
 	// 返回的实体 BlocksJSON 是空串,表示「这条消息的正文没补过」。
 	ListMeta(ctx context.Context, sessionID int64) ([]*transcript_entity.Message, error)
+	// ListMetaBefore 取 seq < beforeSeq 的消息元数据,按 seq 降序最多 limit 条(供上翻分页,
+	// 决策见要求 12)。调用方传 limit+1 探测「是否还有更早的」,自己按 HasMore 截断/反转。
+	// 走 (session_id, seq) 索引的 keyset 分页:只读末尾这一段,不再把整条会话的元数据
+	// 读回内存再切片 —— 长会话（几千条消息）打开一次向上滚动不再是 O(会话长度)。
+	ListMetaBefore(ctx context.Context, sessionID int64, beforeSeq, limit int) ([]*transcript_entity.Message, error)
 	// FillBlocks 给点名的这几条消息补上全部正文(一次 IN 查询)。就地改写传入的实体。
 	FillBlocks(ctx context.Context, msgs []*transcript_entity.Message) error
 	// FillBlocksByType 只补指定类型的块。派生视图(后台任务面板 / 大纲 / 变更)按类型
@@ -55,6 +60,14 @@ type MessageRepo interface {
 	Find(ctx context.Context, id int64) (*transcript_entity.Message, error)
 	NextSeq(ctx context.Context, sessionID int64) (int, error)
 	Create(ctx context.Context, m *transcript_entity.Message) error
+	// CreateAtNextSeq 在一个事务里取号并建行:SELECT MAX(seq) 与各条消息(连同块行)的
+	// INSERT 同处一个写事务,msgs 依次拿到连续的 seq。取号与建行分开做(NextSeq 后再
+	// Create)时,另一个事务可以插进两步之间拿到同一个号 —— (session_id, seq) 索引不是
+	// 唯一索引,重号会静默落库。msgs 必须属于同一会话;为空时不发任何语句。
+	CreateAtNextSeq(ctx context.Context, msgs ...*transcript_entity.Message) error
+	// LatestBeforeSeq 取某会话里 seq < beforeSeq、角色为 role 的最后一条消息(连同全部
+	// 正文);没有 → (nil, nil)。重新生成找 user 锚点只要这一条,不必读回整条转录。
+	LatestBeforeSeq(ctx context.Context, sessionID int64, role string, beforeSeq int) (*transcript_entity.Message, error)
 	Update(ctx context.Context, m *transcript_entity.Message) error
 	// CheckpointBlocks 把消息推进到 m 的当前状态,正文按差分只写变化的块行。
 	// prevBlocksJSON 是上一次落库的那份正文(调用方在 SetBlocks 覆写前留下来的)。
@@ -142,6 +155,18 @@ func (r *messageRepo) ListMeta(ctx context.Context, sessionID int64) ([]*transcr
 	return rows, nil
 }
 
+func (r *messageRepo) ListMetaBefore(ctx context.Context, sessionID int64, beforeSeq, limit int) ([]*transcript_entity.Message, error) {
+	var rows []*transcript_entity.Message
+	if err := db.Ctx(ctx).
+		Where("session_id = ? AND seq < ?", sessionID, beforeSeq).
+		Order("seq DESC").
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 func (r *messageRepo) FillBlocks(ctx context.Context, msgs []*transcript_entity.Message) error {
 	return fillBlocks(ctx, msgs, nil)
 }
@@ -174,19 +199,71 @@ func (r *messageRepo) NextSeq(ctx context.Context, sessionID int64) (int, error)
 }
 
 func (r *messageRepo) Create(ctx context.Context, m *transcript_entity.Message) error {
+	// 元数据行与它的块行必须一起成立:半条消息(有元数据、没正文)对上层是不可修复的。
+	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
+		return insertMessage(db.WithContextDB(ctx, tx), m, time.Now().UnixMilli())
+	})
+}
+
+// CreateAtNextSeq 见接口注释。取号直接复用 NextSeq 的语句,只是跑在同一个事务里;
+// 桌面端 DSN 带 _txlock=immediate,BEGIN 即取写锁,事务内的 MAX(seq) 不会被别的写者抢号。
+func (r *messageRepo) CreateAtNextSeq(ctx context.Context, msgs ...*transcript_entity.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	sessionID := msgs[0].SessionID
+	for _, m := range msgs[1:] {
+		if m.SessionID != sessionID {
+			return errors.New("transcript_repo.CreateAtNextSeq: messages span more than one session")
+		}
+	}
 	now := time.Now().UnixMilli()
+	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
+		txCtx := db.WithContextDB(ctx, tx)
+		next, err := r.NextSeq(txCtx, sessionID)
+		if err != nil {
+			return err
+		}
+		for i, m := range msgs {
+			m.Seq = next + i
+			if err := insertMessage(txCtx, m, now); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// insertMessage 在调用方已经开好的事务里写一条消息的元数据行与全部块行。
+// 不自己开事务:Create / CreateAtNextSeq 各自持有外层事务,这里再嵌套只会多出 SAVEPOINT。
+func insertMessage(txCtx context.Context, m *transcript_entity.Message, now int64) error {
 	if m.Createtime == 0 {
 		m.Createtime = now
 	}
 	m.Updatetime = now
-	// 元数据行与它的块行必须一起成立:半条消息(有元数据、没正文)对上层是不可修复的。
-	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
-		txCtx := db.WithContextDB(ctx, tx)
-		if err := tx.Create(m).Error; err != nil {
-			return err
-		}
-		return insertBlocks(txCtx, m.ID, m.BlocksJSON)
-	})
+	if err := db.Ctx(txCtx).Create(m).Error; err != nil {
+		return err
+	}
+	return insertBlocks(txCtx, m.ID, m.BlocksJSON)
+}
+
+func (r *messageRepo) LatestBeforeSeq(ctx context.Context, sessionID int64, role string, beforeSeq int) (*transcript_entity.Message, error) {
+	var m transcript_entity.Message
+	err := db.Ctx(ctx).
+		Where("session_id = ? AND role = ? AND seq < ?", sessionID, role, beforeSeq).
+		Order("seq DESC").
+		Limit(1).
+		First(&m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := fillBlocks(ctx, []*transcript_entity.Message{&m}, nil); err != nil {
+		return nil, err
+	}
+	return &m, nil
 }
 
 // CheckpointBlocks 见接口注释:元数据整行 Save,正文只写差分。
@@ -532,6 +609,10 @@ func AppendNestedToolCallIDsInBlockData(data []byte, childIDs []string) ([]byte,
 	})
 }
 
+// AppendSubagentChildren 见接口注释。父块的 nested_tool_call_ids 改写与子块追加必须
+// 「同时生效,要么都不生效」(要求 3):两步原本是各自 autocommit 的独立语句,子块追加
+// 失败时父块的改写已经落库,留下「父块说有这个子块,但块表里没有」的不一致。这里把
+// 定位查询 + UPDATE + 子块的 SELECT MAX + INSERT 全部包进一个事务。
 func (r *messageRepo) AppendSubagentChildren(ctx context.Context, sessionID int64, parentToolCallID, childBlocksJSON string, childIDs []string) error {
 	if parentToolCallID == "" || childBlocksJSON == "" {
 		return nil
@@ -541,24 +622,27 @@ func (r *messageRepo) AppendSubagentChildren(ctx context.Context, sessionID int6
 	mu.Lock()
 	defer mu.Unlock()
 
-	row, err := findSubagentStateBlock(ctx, sessionID, parentToolCallID)
-	if err != nil || row == nil {
-		return err
-	}
-	data, err := transcript_entity.DecodeBlockData(row.Codec, row.Data)
-	if err != nil {
-		return err
-	}
-	rewritten, changed, err := AppendNestedToolCallIDsInBlockData(data, childIDs)
-	if err != nil {
-		return err
-	}
-	if changed {
-		if err := updateBlockData(ctx, row, rewritten); err != nil {
+	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
+		txCtx := db.WithContextDB(ctx, tx)
+		row, err := findSubagentStateBlock(txCtx, sessionID, parentToolCallID)
+		if err != nil || row == nil {
 			return err
 		}
-	}
-	return appendBlocks(ctx, row.MessageID, childBlocksJSON)
+		data, err := transcript_entity.DecodeBlockData(row.Codec, row.Data)
+		if err != nil {
+			return err
+		}
+		rewritten, changed, err := AppendNestedToolCallIDsInBlockData(data, childIDs)
+		if err != nil {
+			return err
+		}
+		if changed {
+			if err := updateBlockData(txCtx, row, rewritten); err != nil {
+				return err
+			}
+		}
+		return appendBlocks(txCtx, row.MessageID, childBlocksJSON)
+	})
 }
 
 func (r *messageRepo) FindAssistantBySubagentToolCallID(ctx context.Context, sessionID int64, toolCallID string) (*transcript_entity.Message, error) {

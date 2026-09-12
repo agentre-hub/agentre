@@ -41,32 +41,46 @@ func (m *MockInboundQueueRepo) EXPECT() *MockInboundQueueRepoMockRecorder {
 	return m.recorder
 }
 
-// Create mocks base method.
-func (m *MockInboundQueueRepo) Create(ctx context.Context, row *syncqueue_entity.InboundQueueItem) error {
+// DeleteByEntity mocks base method.
+func (m *MockInboundQueueRepo) DeleteByEntity(ctx context.Context, accountID int64, kind, syncID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Create", ctx, row)
+	ret := m.ctrl.Call(m, "DeleteByEntity", ctx, accountID, kind, syncID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Create indicates an expected call of Create.
-func (mr *MockInboundQueueRepoMockRecorder) Create(ctx, row any) *gomock.Call {
+// DeleteByEntity indicates an expected call of DeleteByEntity.
+func (mr *MockInboundQueueRepoMockRecorder) DeleteByEntity(ctx, accountID, kind, syncID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockInboundQueueRepo)(nil).Create), ctx, row)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteByEntity", reflect.TypeOf((*MockInboundQueueRepo)(nil).DeleteByEntity), ctx, accountID, kind, syncID)
 }
 
-// Delete mocks base method.
-func (m *MockInboundQueueRepo) Delete(ctx context.Context, id int64) error {
+// DeleteMany mocks base method.
+func (m *MockInboundQueueRepo) DeleteMany(ctx context.Context, ids []int64) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Delete", ctx, id)
+	ret := m.ctrl.Call(m, "DeleteMany", ctx, ids)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Delete indicates an expected call of Delete.
-func (mr *MockInboundQueueRepoMockRecorder) Delete(ctx, id any) *gomock.Call {
+// DeleteMany indicates an expected call of DeleteMany.
+func (mr *MockInboundQueueRepoMockRecorder) DeleteMany(ctx, ids any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockInboundQueueRepo)(nil).Delete), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteMany", reflect.TypeOf((*MockInboundQueueRepo)(nil).DeleteMany), ctx, ids)
+}
+
+// DiscardToLostChanges mocks base method.
+func (m *MockInboundQueueRepo) DiscardToLostChanges(ctx context.Context, ids []int64, lost []*syncqueue_entity.LostChange) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DiscardToLostChanges", ctx, ids, lost)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DiscardToLostChanges indicates an expected call of DiscardToLostChanges.
+func (mr *MockInboundQueueRepoMockRecorder) DiscardToLostChanges(ctx, ids, lost any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscardToLostChanges", reflect.TypeOf((*MockInboundQueueRepo)(nil).DiscardToLostChanges), ctx, ids, lost)
 }
 
 // ListByAccount mocks base method.
@@ -82,4 +96,33 @@ func (m *MockInboundQueueRepo) ListByAccount(ctx context.Context, accountID int6
 func (mr *MockInboundQueueRepoMockRecorder) ListByAccount(ctx, accountID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAccount", reflect.TypeOf((*MockInboundQueueRepo)(nil).ListByAccount), ctx, accountID)
+}
+
+// ListExpired mocks base method.
+func (m *MockInboundQueueRepo) ListExpired(ctx context.Context, accountID, cutoff int64) ([]*syncqueue_entity.InboundQueueItem, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExpired", ctx, accountID, cutoff)
+	ret0, _ := ret[0].([]*syncqueue_entity.InboundQueueItem)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExpired indicates an expected call of ListExpired.
+func (mr *MockInboundQueueRepoMockRecorder) ListExpired(ctx, accountID, cutoff any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExpired", reflect.TypeOf((*MockInboundQueueRepo)(nil).ListExpired), ctx, accountID, cutoff)
+}
+
+// ReplaceForEntity mocks base method.
+func (m *MockInboundQueueRepo) ReplaceForEntity(ctx context.Context, row *syncqueue_entity.InboundQueueItem) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceForEntity", ctx, row)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReplaceForEntity indicates an expected call of ReplaceForEntity.
+func (mr *MockInboundQueueRepoMockRecorder) ReplaceForEntity(ctx, row any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceForEntity", reflect.TypeOf((*MockInboundQueueRepo)(nil).ReplaceForEntity), ctx, row)
 }

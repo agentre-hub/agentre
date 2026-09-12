@@ -44,6 +44,24 @@ func expectSwitchBackend(
 	}, nil)
 }
 
+// noticeCapture 收下 notice 落库时交给仓储的那条消息。
+type noticeCapture struct{ msg *chat_entity.Message }
+
+// expectNoticeAppended 期望 notice 恰好经 CreateAtNextSeq 落库一次、一次只带一条消息：
+// 取号与建行在仓储的同一个事务里完成（要求 2）。mock 上没有 NextSeq / Create 期望，
+// 事务外先取号再建行的旧形态会直接撞上意外调用。
+func expectNoticeAppended(t *testing.T, m *chatMocks) *noticeCapture {
+	t.Helper()
+	captured := &noticeCapture{}
+	m.message.EXPECT().CreateAtNextSeq(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, msgs ...*chat_entity.Message) error {
+			require.Len(t, msgs, 1, "一次切换只落一条 notice 消息")
+			captured.msg = msgs[0]
+			return nil
+		}).Times(1)
+	return captured
+}
+
 // noticeTextOf 取出一条消息里唯一那个 notice 块的 Text（持久化的结构化负载原文）。
 func noticeTextOf(t *testing.T, msg *chat_entity.Message) string {
 	t.Helper()
@@ -83,13 +101,7 @@ func TestSetChatSessionModelTarget_PersistsAndAppendsNotice(t *testing.T) {
 		Enabled: llm_provider_entity.EnabledOn, Status: consts.ACTIVE,
 	}, nil)
 	m.session.EXPECT().UpdateModelTarget(ctx, int64(100), "session-key", "").Return(nil)
-	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(7, nil)
-	var created *chat_entity.Message
-	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, msg *chat_entity.Message) error {
-			created = msg
-			return nil
-		})
+	notice := expectNoticeAppended(t, m)
 
 	resp, err := m.svc.SetChatSessionModelTarget(ctx, &chat_svc.SetChatSessionModelTargetRequest{
 		SessionID: 100, ProviderKey: "session-key",
@@ -98,7 +110,8 @@ func TestSetChatSessionModelTarget_PersistsAndAppendsNotice(t *testing.T) {
 	assert.Equal(t, "session-key", resp.ProviderKey)
 	assert.Empty(t, resp.ModelKey, "provider-default 落库的 modelKey 恒为空")
 	assert.Equal(t, "agent-bound", resp.AgentProviderKey, "回传 agent 绑定 key 供 pill 渲染回落标签")
-	assert.Equal(t, 7, created.Seq)
+	created := notice.msg
+	assert.Equal(t, int64(100), created.SessionID)
 	assert.Equal(t, `{"providerKey":"session-key","kind":"switch"}`, noticeTextOf(t, created))
 }
 
@@ -120,13 +133,7 @@ func TestSetChatSessionModelTarget_FixedModelPersistsAndAppendsNotice(t *testing
 		Enabled: llm_provider_model_entity.EnabledOn, Status: consts.ACTIVE,
 	}, nil)
 	m.session.EXPECT().UpdateModelTarget(ctx, int64(100), "session-key", "mk-haiku").Return(nil)
-	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(7, nil)
-	var created *chat_entity.Message
-	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, msg *chat_entity.Message) error {
-			created = msg
-			return nil
-		})
+	notice := expectNoticeAppended(t, m)
 
 	resp, err := m.svc.SetChatSessionModelTarget(ctx, &chat_svc.SetChatSessionModelTargetRequest{
 		SessionID: 100, ProviderKey: "session-key", ModelKey: "mk-haiku",
@@ -134,7 +141,7 @@ func TestSetChatSessionModelTarget_FixedModelPersistsAndAppendsNotice(t *testing
 	require.NoError(t, err)
 	assert.Equal(t, "session-key", resp.ProviderKey)
 	assert.Equal(t, "mk-haiku", resp.ModelKey)
-	assert.Equal(t, `{"providerKey":"session-key","providerName":"中转 · GLM 5.2","modelKey":"mk-haiku","modelName":"GLM 5.2","kind":"switch"}`, noticeTextOf(t, created))
+	assert.Equal(t, `{"providerKey":"session-key","providerName":"中转 · GLM 5.2","modelKey":"mk-haiku","modelName":"GLM 5.2","kind":"switch"}`, noticeTextOf(t, notice.msg))
 }
 
 // TestSetChatSessionModelTarget_ClearsBackToAgentBinding：双空 = 改回跟随 agent 绑定
@@ -146,13 +153,7 @@ func TestSetChatSessionModelTarget_ClearsBackToAgentBinding(t *testing.T) {
 	sess := &chat_entity.Session{ID: 100, AgentID: 7, Status: consts.ACTIVE, ProviderKey: "session-key", ModelKey: "mk-haiku"}
 	expectSwitchBackend(m, ctx, sess, agent_backend_entity.TypeClaudeCode, "")
 	m.session.EXPECT().UpdateModelTarget(ctx, int64(100), "", "").Return(nil)
-	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(3, nil)
-	var created *chat_entity.Message
-	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, msg *chat_entity.Message) error {
-			created = msg
-			return nil
-		})
+	notice := expectNoticeAppended(t, m)
 
 	resp, err := m.svc.SetChatSessionModelTarget(ctx, &chat_svc.SetChatSessionModelTargetRequest{
 		SessionID: 100, ProviderKey: "", ModelKey: "",
@@ -160,7 +161,7 @@ func TestSetChatSessionModelTarget_ClearsBackToAgentBinding(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, resp.ProviderKey)
 	assert.Empty(t, resp.ModelKey)
-	assert.Equal(t, `{"kind":"switch"}`, noticeTextOf(t, created))
+	assert.Equal(t, `{"kind":"switch"}`, noticeTextOf(t, notice.msg))
 }
 
 // TestSetChatSessionModelTarget_NoOpWhenUnchanged：选中当前已生效的同一**完整组合**
@@ -197,8 +198,7 @@ func TestSetChatSessionModelTarget_NoOpComparesCompletePair(t *testing.T) {
 		Enabled: llm_provider_entity.EnabledOn, Status: consts.ACTIVE,
 	}, nil)
 	m.session.EXPECT().UpdateModelTarget(ctx, int64(100), "session-key", "").Return(nil)
-	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(7, nil)
-	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
+	expectNoticeAppended(t, m)
 
 	resp, err := m.svc.SetChatSessionModelTarget(ctx, &chat_svc.SetChatSessionModelTargetRequest{
 		SessionID: 100, ProviderKey: "session-key", ModelKey: "",
@@ -457,20 +457,15 @@ func TestSetChatSessionReasoningEffort_PersistsAndAppendsNotice(t *testing.T) {
 	sess := &chat_entity.Session{ID: 100, AgentID: 7, AgentStatus: "running", Status: consts.ACTIVE}
 	expectSwitchBackend(m, ctx, sess, agent_backend_entity.TypeCodex, "agent-bound")
 	m.session.EXPECT().UpdateReasoningEffort(ctx, int64(100), "max").Return(nil)
-	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(7, nil)
-	var created *chat_entity.Message
-	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, msg *chat_entity.Message) error {
-			created = msg
-			return nil
-		})
+	notice := expectNoticeAppended(t, m)
 
 	resp, err := m.svc.SetChatSessionReasoningEffort(ctx, &chat_svc.SetChatSessionReasoningEffortRequest{
 		SessionID: 100, ReasoningEffort: "max",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "max", resp.ReasoningEffort)
-	assert.Equal(t, 7, created.Seq)
+	created := notice.msg
+	assert.Equal(t, int64(100), created.SessionID)
 	assert.Equal(t, `{"kind":"reasoning_effort","reasoningEffort":"max"}`, noticeTextOf(t, created),
 		"notice 负载必须带上切换到的档位，且走既有 notice 通道的结构化形态")
 	assert.Equal(t, "info", noticeLevelOf(t, created))
@@ -492,13 +487,7 @@ func TestSetChatSessionReasoningEffort_ClearsBackToBackendDefault(t *testing.T) 
 		ID: 12, Type: string(agent_backend_entity.TypeCodex), ReasoningEffort: "medium", Status: consts.ACTIVE,
 	}, nil)
 	m.session.EXPECT().UpdateReasoningEffort(ctx, int64(100), "").Return(nil)
-	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(3, nil)
-	var created *chat_entity.Message
-	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, msg *chat_entity.Message) error {
-			created = msg
-			return nil
-		})
+	notice := expectNoticeAppended(t, m)
 
 	resp, err := m.svc.SetChatSessionReasoningEffort(ctx, &chat_svc.SetChatSessionReasoningEffortRequest{
 		SessionID: 100, ReasoningEffort: "",
@@ -506,7 +495,7 @@ func TestSetChatSessionReasoningEffort_ClearsBackToBackendDefault(t *testing.T) 
 	require.NoError(t, err)
 	assert.Empty(t, resp.ReasoningEffort)
 	assert.Equal(t, "medium", resp.BackendReasoningEffort, "回传后端配置档位供「跟随后端配置」解析副行")
-	assert.Equal(t, `{"kind":"reasoning_effort"}`, noticeTextOf(t, created),
+	assert.Equal(t, `{"kind":"reasoning_effort"}`, noticeTextOf(t, notice.msg),
 		"改回跟随后端配置照样落痕迹：空档由 kind 承载，不退化成看不出来的空 notice")
 }
 
@@ -543,8 +532,7 @@ func TestSetChatSessionReasoningEffort_ComparesSessionRowNotEffective(t *testing
 		ID: 12, Type: string(agent_backend_entity.TypeCodex), ReasoningEffort: "high", Status: consts.ACTIVE,
 	}, nil)
 	m.session.EXPECT().UpdateReasoningEffort(ctx, int64(100), "high").Return(nil)
-	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(4, nil)
-	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
+	expectNoticeAppended(t, m)
 
 	resp, err := m.svc.SetChatSessionReasoningEffort(ctx, &chat_svc.SetChatSessionReasoningEffortRequest{
 		SessionID: 100, ReasoningEffort: "high",
@@ -592,7 +580,7 @@ func TestSetChatSessionReasoningEffort_NoticeFailureStillSucceeds(t *testing.T) 
 	sess := &chat_entity.Session{ID: 100, AgentID: 7, Status: consts.ACTIVE}
 	expectSwitchBackend(m, ctx, sess, agent_backend_entity.TypeCodex, "agent-bound")
 	m.session.EXPECT().UpdateReasoningEffort(ctx, int64(100), "low").Return(nil)
-	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(0, errors.New("boom"))
+	m.message.EXPECT().CreateAtNextSeq(gomock.Any(), gomock.Any()).Return(errors.New("boom")).Times(1)
 
 	resp, err := m.svc.SetChatSessionReasoningEffort(ctx, &chat_svc.SetChatSessionReasoningEffortRequest{
 		SessionID: 100, ReasoningEffort: "low",

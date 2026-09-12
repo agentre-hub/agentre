@@ -374,11 +374,13 @@ func TestUpsertFromSync_MovesTheOccupantOfThatSortOrderAside(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestDeleteBySyncID 墓碑到达时按同步标识删掉那一行(R6)。
+// TestDeleteBySyncID 墓碑到达时按同步标识删掉那一行(R6)。sync_id 非空这个条件不是
+// 多余的守卫:uniq_agent_exec_targets_sync_id 是 sync_id 非空的部分唯一索引,SQLite
+// 证不出绑定变量 sync_id = ? 蕴含非空,少了这一句 EXPLAIN QUERY PLAN 退回 SCAN 全表。
 func TestDeleteBySyncID(t *testing.T) {
 	ctx, mock, repo := setupExecTargetRepo(t)
 	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM `agent_exec_targets` WHERE sync_id = \\?").
+	mock.ExpectExec("DELETE FROM `agent_exec_targets` WHERE sync_id = \\? AND sync_id != ''$").
 		WithArgs("tgt-remote").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()

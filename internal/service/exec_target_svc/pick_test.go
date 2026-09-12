@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,6 +43,28 @@ type pickExecTargetMocks struct {
 	project            *mock_project_repo.MockProjectRepo
 	projectLocation    *mock_project_location_repo.MockProjectLocationRepo
 	remoteDevice       *mock_remote_device_svc.MockRemoteDeviceSvc
+
+	// listed 是可用性列表路径（ListExecTargetAvailability）批量取到的 backend。
+	listed map[int64]*agent_backend_entity.AgentBackend
+}
+
+// listedBackend 为可用性列表路径登记一行 backend：列表只 BatchFind 一次（要求 19），
+// 首次登记时注册那一次批量取数的桩，按请求的 id 从已登记的行里回。
+func (m *pickExecTargetMocks) listedBackend(be *agent_backend_entity.AgentBackend) {
+	if m.listed == nil {
+		m.listed = map[int64]*agent_backend_entity.AgentBackend{}
+		m.backend.EXPECT().BatchFind(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, ids []int64) (map[int64]*agent_backend_entity.AgentBackend, error) {
+				out := make(map[int64]*agent_backend_entity.AgentBackend, len(ids))
+				for _, id := range ids {
+					if row, ok := m.listed[id]; ok {
+						out[id] = row
+					}
+				}
+				return out, nil
+			}).Times(1)
+	}
+	m.listed[be.ID] = be
 }
 
 func setupPickExecTargetTest(t *testing.T) (context.Context, *pickExecTargetMocks, exec_target_svc.ExecTargetSvc) {
@@ -287,6 +310,29 @@ func TestPickExecTarget_GivenProjectBoundSession_WhenRemoteLocationMissing_ThenU
 	var httpErr *httputils.Error
 	require.True(t, errors.As(err, &httpErr))
 	assert.Equal(t, code.ChatAgentNoAvailableExecTarget, httpErr.Code)
+}
+
+// 表征（改前改后都绿，spec 决策 7）：绑定的 provider 已软删时，拦截原因是
+// ProviderInactive（「供应商存在但未激活」），不能漂成 BackendRequiresProvider（「没绑」）。
+func TestPickExecTarget_GivenSoftDeletedProvider_ThenReasonProviderInactive(t *testing.T) {
+	ctx, m, svc := setupPickExecTargetTest(t)
+	m.execTarget.EXPECT().ListByAgent(ctx, int64(343)).Return([]*agent_entity.AgentExecTarget{
+		{ID: 74, AgentID: 343, AgentBackendID: 814, SortOrder: 0},
+	}, nil)
+	m.backend.EXPECT().Find(ctx, int64(814)).Return(&agent_backend_entity.AgentBackend{
+		ID: 814, Type: string(agent_backend_entity.TypeBuiltin), LLMProviderKey: "deleted-key",
+	}, nil)
+	deleted := activeProvider("deleted-key")
+	deleted.Status = consts.DELETE
+	m.provider.EXPECT().FindByKey(ctx, "deleted-key").Return(deleted, nil)
+
+	choice, err := svc.PickExecTarget(ctx, 343, 0)
+	require.Error(t, err)
+	assert.Nil(t, choice)
+	var noneErr *exec_target_svc.ExecTargetNoneAvailableError
+	require.ErrorAs(t, err, &noneErr)
+	require.Len(t, noneErr.Reasons, 1)
+	assert.Equal(t, exec_target_svc.BlockReasonProviderInactive, noneErr.Reasons[0].Reason)
 }
 
 // ── 会话不绑项目时不受路径这一项约束 ────────────────────────────────────────

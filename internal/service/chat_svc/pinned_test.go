@@ -9,6 +9,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
@@ -35,10 +36,8 @@ func TestListAgents_PinnedDerivation(t *testing.T) {
 	m.session.EXPECT().CountRunningByAgents(ctx, ids).Return(map[int64]int{}, nil)
 	m.session.EXPECT().CountByAgents(ctx, ids).Return(map[int64]int64{}, nil)
 	m.session.EXPECT().ListIDsByAgents(ctx, ids).Return(map[int64][]int64{}, nil)
-	for _, id := range ids {
-		m.session.EXPECT().ListByAgent(ctx, id, 5).Return(nil, nil)
-		m.session.EXPECT().ListAttentionByAgent(ctx, id, 20).Return(nil, nil)
-	}
+	m.session.EXPECT().ListRecentByAgents(ctx, ids, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+	m.session.EXPECT().ListAttentionByAgents(ctx, ids, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 	resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 	assert.NoError(t, err)

@@ -1,6 +1,7 @@
 package hook_repo_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -8,8 +9,8 @@ import (
 	"github.com/cago-frame/cago/pkg/utils/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/hook_entity"
 	"github.com/agentre-hub/agentre/internal/repository/hook_repo"
 )
 
@@ -28,29 +29,55 @@ func TestHookRepo_ListDue(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestHookEventRepo_FindByDedupeKey_Found(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-	rows := sqlmock.NewRows([]string{"id", "hook_id", "dedupe_key", "status"}).
-		AddRow(5, 7, "K1", consts.ACTIVE)
-	mock.ExpectQuery(`SELECT \* FROM .hook_events. WHERE hook_id = \? AND dedupe_key = \? AND status = \?`).
-		WithArgs(int64(7), "K1", consts.ACTIVE, 1).
-		WillReturnRows(rows)
+func newHookEventForDedupe() *hook_entity.HookEvent {
+	return &hook_entity.HookEvent{
+		HookID: 7, Kind: hook_entity.HookEventKindOutput, Title: "t", DedupeKey: "K1",
+		PayloadJSON: "{}", ReceivedAt: 1000, Status: consts.ACTIVE, Createtime: 1000, Updatetime: 1000,
+	}
+}
 
-	got, err := hook_repo.NewHookEvent().FindByDedupeKey(ctx, 7, "K1")
+// hookEventInsertIfAbsentSQL 钉住冲突子句本身：少了它，撞上 ux_hook_events_dedupe 的
+// 插入会报 UNIQUE 错误让整次运行失败。sqlmock 走 MySQL 方言，ON CONFLICT DO NOTHING
+// 在这里渲染成 ON DUPLICATE KEY UPDATE。
+const hookEventInsertIfAbsentSQL = "INSERT INTO `hook_events` .* ON DUPLICATE KEY UPDATE"
+
+func TestHookEventRepo_CreateIfAbsent_Created(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	mock.ExpectBegin()
+	mock.ExpectExec(hookEventInsertIfAbsentSQL).
+		WillReturnResult(sqlmock.NewResult(5, 1))
+	mock.ExpectCommit()
+
+	created, err := hook_repo.NewHookEvent().CreateIfAbsent(ctx, newHookEventForDedupe())
 	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, int64(5), got.ID)
+	assert.True(t, created, "no existing row for this (hook_id, dedupe_key) → insert must land")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestHookEventRepo_FindByDedupeKey_NotFound(t *testing.T) {
+// 撞上部分唯一索引 ux_hook_events_dedupe：ON CONFLICT DO NOTHING 影响行数为 0，
+// 不报错——本次运行内重复或与另一次并发运行撞车都走这条路径。
+func TestHookEventRepo_CreateIfAbsent_DuplicateKey(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
-	mock.ExpectQuery(`SELECT \* FROM .hook_events.`).
-		WithArgs(int64(7), "K1", consts.ACTIVE, 1).
-		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectBegin()
+	mock.ExpectExec(hookEventInsertIfAbsentSQL).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
 
-	got, err := hook_repo.NewHookEvent().FindByDedupeKey(ctx, 7, "K1")
+	created, err := hook_repo.NewHookEvent().CreateIfAbsent(ctx, newHookEventForDedupe())
 	require.NoError(t, err)
-	assert.Nil(t, got, "record-not-found should map to (nil, nil)")
+	assert.False(t, created, "existing (hook_id, dedupe_key) row must not error, just report not-created")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestHookEventRepo_CreateIfAbsent_Error(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	mock.ExpectBegin()
+	mock.ExpectExec(hookEventInsertIfAbsentSQL).
+		WillReturnError(errors.New("disk I/O error"))
+	mock.ExpectRollback()
+
+	created, err := hook_repo.NewHookEvent().CreateIfAbsent(ctx, newHookEventForDedupe())
+	assert.Error(t, err)
+	assert.False(t, created)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

@@ -365,7 +365,8 @@ func isFailedFirstPiTurn(
 	if sess == nil || userMsg == nil || hasForkAnchor {
 		return false, nil
 	}
-	messages, err := transcript_repo.Message().List(ctx, sess.ID)
+	// 判定只看元数据;唯一要看正文的是那条失败的 assistant,下面单独补。
+	messages, err := transcript_repo.Message().ListMeta(ctx, sess.ID)
 	if err != nil {
 		return false, operationFailedWithCause(ctx, err)
 	}
@@ -393,6 +394,9 @@ func isFailedFirstPiTurn(
 		firstUser.Seq >= failedAssistant.Seq || strings.TrimSpace(failedAssistant.ErrorText) == "" {
 		return false, nil
 	}
+	if err := transcript_repo.Message().FillBlocks(ctx, []*chat_entity.Message{failedAssistant}); err != nil {
+		return false, operationFailedWithCause(ctx, err)
+	}
 	assistantBlocks, err := failedAssistant.GetBlocks()
 	if err != nil {
 		return false, i18n.NewError(ctx, code.ChatBlocksMalformed)
@@ -404,7 +408,8 @@ func isFailedFirstPiTurn(
 }
 
 func codexRollbackAnchor(ctx context.Context, sess *chat_entity.Session, userMsg *chat_entity.Message) (string, error) {
-	msgs, err := transcript_repo.Message().List(ctx, sess.ID)
+	// 只数 user 轮次,元数据就够,不补正文。
+	msgs, err := transcript_repo.Message().ListMeta(ctx, sess.ID)
 	if err != nil {
 		return "", operationFailedWithCause(ctx, err)
 	}

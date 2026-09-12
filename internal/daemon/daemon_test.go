@@ -173,13 +173,13 @@ func TestDaemon_DatabaseUsesWALSoCatchUpReadsDoNotStallTheStreamingWriter(t *tes
 	seedSession(t, ctx, d.sessionStore, "peerA", "s1", wire.SessionLifecycleIdle)
 	require.NoError(t, seedTranscriptTurn(ctx, d, "s1", "first"))
 
-	// 补齐侧:一次翻页拉取是一个开着的读事务(整段期间都持有读锁)。
-	reader := d.db.Begin()
-	require.NoError(t, reader.Error)
-	t.Cleanup(func() { _ = reader.Rollback() })
-	var rows []*transcript_entity.Message
-	require.NoError(t, reader.Find(&rows).Error)
-	require.NotEmpty(t, rows)
+	// 补齐侧:一次翻页拉取是一段开着的读 —— 游标没读完,它的读锁(WAL 下是读快照)就
+	// 一直持有着。用游标而不是 d.db.Begin() 建模:库以 _txlock=immediate 打开,Begin
+	// 当场取写锁,那建模的是另一个写者,不是读者。
+	cursor, err := d.db.Model(&transcript_entity.Message{}).Rows()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cursor.Close() })
+	require.True(t, cursor.Next(), "种子那一轮落了两行,游标停在第一行上仍是一段在飞的读")
 
 	// 流式侧:同一时刻的下一条通知必须照常落库。
 	done := make(chan error, 1)
@@ -190,6 +190,45 @@ func TestDaemon_DatabaseUsesWALSoCatchUpReadsDoNotStallTheStreamingWriter(t *tes
 	case <-time.After(2 * time.Second):
 		t.Fatal("streaming append is stuck behind an open catch-up read — the daemon database must be opened in WAL mode")
 	}
+}
+
+// Given agentred 自己开的库上一个先读后写的事务(取号就是这个形状:SELECT MAX(seq) → INSERT);
+// When  它读完之后、写之前,另一条连接提交了一次写入;
+// Then  这个事务照样提交成功,另一次写入也落了库。
+//
+// 默认的 deferred 事务读时只拿快照,写时才升级取锁;快照已经过期的升级 SQLite 不走
+// busy handler,当场报 database is locked —— 流式取号与补齐编号撞在一起时,那一批帧
+// 就取不到号、发不出去。immediate 事务在 BEGIN 时就取写锁,另一个写者排队等它。
+func TestDaemon_GivenReadThenWriteTx_WhenAnotherConnCommitsInBetween_ThenBothCommit(t *testing.T) {
+	d, err := New(Options{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+
+	const sessionID = 1
+	other := make(chan error, 1)
+	txErr := d.db.Transaction(func(tx *gorm.DB) error {
+		var latest int64
+		if err := tx.Model(&transcript_repo.FrameSeqRow{}).Where("session_id = ?", sessionID).
+			Select("COALESCE(MAX(seq), 0)").Scan(&latest).Error; err != nil {
+			return err
+		}
+		go func() {
+			other <- d.db.Create(&transcript_repo.FrameSeqRow{SessionID: sessionID, MessageID: 2, Seq: 100}).Error
+		}()
+		// 读写互不排队时另一个写者转眼就提交完;要排队时它得等本事务提交,这里就不再等它。
+		select {
+		case otherErr := <-other:
+			other <- otherErr
+		case <-time.After(200 * time.Millisecond):
+		}
+		return tx.Create(&transcript_repo.FrameSeqRow{SessionID: sessionID, MessageID: 1, Seq: latest + 1}).Error
+	})
+	require.NoError(t, txErr, "读与写之间别的连接提交了写入,先读后写的事务仍必须提交成功")
+	require.NoError(t, <-other, "排队的那次写入也必须落库")
+
+	var count int64
+	require.NoError(t, d.db.Model(&transcript_repo.FrameSeqRow{}).Where("session_id = ?", sessionID).Count(&count).Error)
+	assert.EqualValues(t, 2, count)
 }
 
 // TestDaemon_DatabaseUsesSynchronousNormalSoCommitsDoNotFsync 钉死 daemon 库的
@@ -1411,6 +1450,30 @@ func TestDaemon_StartTurn_StampsTheSubmittingPeerOntoTheUserRow(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, own)
 	assert.JSONEq(t, `[{"type":"text","data":{"text":"本机发的"}}]`, own.BlocksJSON)
+}
+
+// Given 一条会话,库里的 assistant 那一行写不进去(触发器注入写失败);
+// When  带着用户那一句开一轮;
+// Then  StartTurn 报错,且转录里一行都没留下。
+//
+// 半截开轮留下的用户那一行没有下文,而这一轮已经不会再有人给它发帧:下一次开轮补齐
+// 编号时它被编进转录、补齐时重放给对端 —— 一句没被执行过的提问。
+func TestDaemon_GivenAssistantWriteFails_WhenStartingATurn_ThenNoMessageRowOfThatTurnRemains(t *testing.T) {
+	d, err := New(Options{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+
+	ctx := dbpkg.WithContextDB(context.Background(), d.db)
+	seedSession(t, ctx, d.sessionStore, "peerA", "s1", wire.SessionLifecycleRunning)
+	require.NoError(t, d.db.Exec(`CREATE TRIGGER fail_assistant_insert BEFORE INSERT ON chat_messages
+		WHEN NEW.role = 'assistant' BEGIN SELECT RAISE(ABORT, 'assistant write failed'); END`).Error)
+
+	_, _, err = d.transcript.StartTurn(ctx, "s1", "看看目录", nil, transcript.UserSource{})
+	require.Error(t, err)
+
+	var count int64
+	require.NoError(t, d.db.Model(&transcript_entity.Message{}).Count(&count).Error)
+	assert.Zero(t, count, "开轮任一写入失败时,这一轮的消息行必须一行都不留")
 }
 
 func TestDaemon_VerificationKeysGivenEmergencyRetirementWhenRefreshedThenDropsOldKey(t *testing.T) {

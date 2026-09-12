@@ -152,16 +152,6 @@ func (q *countingOutboundQueue) createCount() int {
 	return q.created
 }
 
-func (q *countingOutboundQueue) Create(_ context.Context, row *syncqueue_entity.OutboundQueueItem) error {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.created++
-	q.nextID++
-	row.ID = q.nextID
-	q.rows = append(q.rows, row)
-	return nil
-}
-
 func (q *countingOutboundQueue) ListByAccount(context.Context, int64) ([]*syncqueue_entity.OutboundQueueItem, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -170,16 +160,43 @@ func (q *countingOutboundQueue) ListByAccount(context.Context, int64) ([]*syncqu
 	return out, nil
 }
 
-func (q *countingOutboundQueue) Delete(context.Context, int64) error       { return nil }
 func (q *countingOutboundQueue) DeleteMany(context.Context, []int64) error { return nil }
+
+// CreateMany 是入队的唯一写入口(要求 15)：计数 + 记行,本文件里「改动留在出站队列里」
+// 的断言读的就是这两样。
+func (q *countingOutboundQueue) CreateMany(_ context.Context, rows []*syncqueue_entity.OutboundQueueItem) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(rows) == 0 {
+		return nil
+	}
+	q.created++
+	for _, row := range rows {
+		q.nextID++
+		row.ID = q.nextID
+		q.rows = append(q.rows, row)
+	}
+	return nil
+}
+
+func (q *countingOutboundQueue) ReassignAccount(context.Context, int64, int64) error { return nil }
 
 type noopInboundQueue struct{}
 
-func (noopInboundQueue) Create(context.Context, *syncqueue_entity.InboundQueueItem) error { return nil }
 func (noopInboundQueue) ListByAccount(context.Context, int64) ([]*syncqueue_entity.InboundQueueItem, error) {
 	return nil, nil
 }
-func (noopInboundQueue) Delete(context.Context, int64) error { return nil }
+func (noopInboundQueue) DiscardToLostChanges(context.Context, []int64, []*syncqueue_entity.LostChange) error {
+	return nil
+}
+func (noopInboundQueue) ListExpired(context.Context, int64, int64) ([]*syncqueue_entity.InboundQueueItem, error) {
+	return nil, nil
+}
+func (noopInboundQueue) ReplaceForEntity(context.Context, *syncqueue_entity.InboundQueueItem) error {
+	return nil
+}
+func (noopInboundQueue) DeleteByEntity(context.Context, int64, string, string) error { return nil }
+func (noopInboundQueue) DeleteMany(context.Context, []int64) error                   { return nil }
 
 type noopLostChange struct{}
 
@@ -188,6 +205,10 @@ func (noopLostChange) ListByAccount(context.Context, int64) ([]*syncqueue_entity
 	return nil, nil
 }
 func (noopLostChange) Delete(context.Context, int64) error { return nil }
+func (noopLostChange) ListExpired(context.Context, int64, int64) ([]*syncqueue_entity.LostChange, error) {
+	return nil, nil
+}
+func (noopLostChange) DeleteMany(context.Context, []int64) error { return nil }
 
 type emptySyncState struct{}
 

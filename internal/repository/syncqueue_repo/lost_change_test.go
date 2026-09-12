@@ -60,3 +60,56 @@ func TestLostChangeRepo_Delete(t *testing.T) {
 	require.NoError(t, repo.Delete(ctx, 1))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// TestLostChangeRepo_ListExpired 30 天回收只把到期的行读回来：条件落在 SQL 里
+// （命中 idx_sync_lost_changes_account），而不是全表读回来再在 Go 里比。
+func TestLostChangeRepo_ListExpired(t *testing.T) {
+	ctx, mock, repo := setupLostChangeRepo(t)
+	mock.ExpectQuery("SELECT \\* FROM `sync_lost_changes` WHERE sync_account_id = \\? AND createtime <= \\? ORDER BY createtime ASC, id ASC").
+		WithArgs(int64(1), int64(1000)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "sync_account_id", "entity_type", "createtime"}).
+			AddRow(int64(2), int64(1), "project", int64(1000)))
+
+	rows, err := repo.ListExpired(ctx, 1, 1000)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, int64(1000), rows[0].Createtime)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestLostChangeRepo_ListExpired_GivenQueryFails_ReturnsTheError(t *testing.T) {
+	ctx, mock, repo := setupLostChangeRepo(t)
+	mock.ExpectQuery("SELECT \\* FROM `sync_lost_changes`").WillReturnError(assert.AnError)
+
+	_, err := repo.ListExpired(ctx, 1, 1000)
+	require.ErrorIs(t, err, assert.AnError)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestLostChangeRepo_DeleteMany(t *testing.T) {
+	ctx, mock, repo := setupLostChangeRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `sync_lost_changes` WHERE id IN \\(\\?,\\?\\)").
+		WithArgs(int64(1), int64(2)).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.DeleteMany(ctx, []int64{1, 2}))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestLostChangeRepo_DeleteMany_GivenNoIDs_SendsNothing(t *testing.T) {
+	ctx, mock, repo := setupLostChangeRepo(t)
+	require.NoError(t, repo.DeleteMany(ctx, nil))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestLostChangeRepo_DeleteMany_GivenExecFails_ReturnsTheError(t *testing.T) {
+	ctx, mock, repo := setupLostChangeRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `sync_lost_changes`").WillReturnError(assert.AnError)
+	mock.ExpectRollback()
+
+	require.ErrorIs(t, repo.DeleteMany(ctx, []int64{1, 2}), assert.AnError)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

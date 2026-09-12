@@ -42,7 +42,7 @@ func (s *chatSvc) Stop(ctx context.Context, req *StopRequest) (*StopResponse, er
 	if req == nil || req.SessionID <= 0 {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
-	raw, ok := s.activeCancels.LoadAndDelete(req.SessionID)
+	control, ok := s.takeActiveTurn(req.SessionID)
 	if !ok {
 		// 内存里没有活跃 turn,两种情况:
 		//   (a) turn 自然刚跑完、Stop 与收尾 race —— DB 已是 idle/error,无害。
@@ -53,8 +53,6 @@ func (s *chatSvc) Stop(ctx context.Context, req *StopRequest) (*StopResponse, er
 		//      被前端静默吞掉 → 会话永远停不掉。这里 reconcile 回 idle 让停止生效。
 		return s.reconcileOrphanStop(ctx, req.SessionID)
 	}
-	control, _ := raw.(*activeTurnControl)
-	s.aborted.Store(req.SessionID, struct{}{})
 	logger.Ctx(ctx).Info("chat_svc.Stop: aborting turn",
 		zap.Int64("sessionId", req.SessionID))
 
@@ -90,6 +88,19 @@ func (s *chatSvc) Stop(ctx context.Context, req *StopRequest) (*StopResponse, er
 		}
 	}
 	return &StopResponse{Stopped: true}, nil
+}
+
+// takeActiveTurn 摘下会话在飞那一轮的控制柄，并把这一轮标成用户中止：它收尾时走
+// abort 路径（StreamAborted、不自动接续）。没有在飞的一轮时返回 false，也不留标记。
+// 取消由调用方决定何时做——Stop 要在取消前后安排 Pi 的 graceful abort。
+func (s *chatSvc) takeActiveTurn(sessionID int64) (*activeTurnControl, bool) {
+	raw, ok := s.activeCancels.LoadAndDelete(sessionID)
+	if !ok {
+		return nil, false
+	}
+	s.aborted.Store(sessionID, struct{}{})
+	control, _ := raw.(*activeTurnControl)
+	return control, true
 }
 
 // reconcileOrphanStop 处理「Stop 时内存里没有活跃**用户**轮」的情况:

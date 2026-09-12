@@ -199,8 +199,7 @@ func TestIssueSvcList_ProjectCountsRollUpTheSubtree(t *testing.T) {
 // 本轮没有任何路径读它们，写丢了不会有别的用例变红。
 func TestIssueSvcCreate_RoundTripsExecutionAssignment(t *testing.T) {
 	ctx, mi, _, mil, _, svc := setupBoard(t)
-	mi.EXPECT().List(ctx, issue_repo.ListFilter{Stage: issue_entity.StageTodo, Sort: "position"}).
-		Return(nil, nil)
+	mi.EXPECT().MaxPosition(ctx, issue_entity.StageTodo).Return(0.0, nil)
 	mi.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, i *issue_entity.Issue) error {
 		i.ID = 9
 		assert.Equal(t, int64(3), i.AssigneeAgentID)

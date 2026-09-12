@@ -8,6 +8,7 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
@@ -152,45 +153,78 @@ func (d planActionDispatch) clearsPlanActions(req *ResolvePlanActionRequest) boo
 	return actionID == canonical.PlanActionIDExecute || actionID == canonical.PlanActionIDRefine
 }
 
+// clearLatestActionablePlanActions 清掉最新一条带可操作 plan 的 assistant 上的 actions。
+//
+// 定位只读元数据 + plan 块:一条长会话的其余正文不进内存。写回走 CheckpointBlocks,
+// 只 upsert 真正变了的 plan 块行 —— 整表替换会为了清两个字段把一条 MB 级消息的全部块行
+// 删了重插,还会用读出那一刻的旧快照盖掉之后才追加进来的 subagent 子块。
 func (s *chatSvc) clearLatestActionablePlanActions(ctx context.Context, sessionID int64) error {
-	msgs, err := transcript_repo.Message().List(ctx, sessionID)
+	repo := transcript_repo.Message()
+	msgs, err := repo.ListMeta(ctx, sessionID)
 	if err != nil {
 		return err
 	}
-	for i := len(msgs) - 1; i >= 0; i-- {
-		msg := msgs[i]
-		if msg == nil || msg.Role != "assistant" {
-			continue
+	assistants := make([]*chat_entity.Message, 0, len(msgs))
+	for _, msg := range msgs {
+		if msg != nil && msg.Role == "assistant" {
+			assistants = append(assistants, msg)
 		}
-		bs, err := msg.GetBlocks()
+	}
+	if len(assistants) == 0 {
+		return nil
+	}
+	if err := repo.FillBlocksByType(ctx, assistants, []string{PlanBlock{}.Type()}); err != nil {
+		return err
+	}
+	for i := len(assistants) - 1; i >= 0; i-- {
+		plans, err := assistants[i].GetBlocks()
 		if err != nil {
 			return err
 		}
-		changed := false
-		for idx, b := range bs {
-			switch p := b.(type) {
-			case PlanBlock:
-				if len(p.Actions) > 0 {
-					p.Actions = nil
-					bs[idx] = p
-					changed = true
-				}
-			case *PlanBlock:
-				if p != nil && len(p.Actions) > 0 {
-					p.Actions = nil
-					changed = true
-				}
-			}
+		if hasActionablePlanBlock(plans) {
+			return clearPlanActions(ctx, repo, assistants[i])
 		}
-		if !changed {
-			continue
-		}
-		if err := msg.SetBlocks(bs); err != nil {
-			return err
-		}
-		return transcript_repo.Message().Update(ctx, msg)
 	}
 	return nil
+}
+
+// clearPlanActions 把一条消息里 plan 块的 actions 清空并差分写回。
+//
+// 定位时只补了 plan 块,而 CheckpointBlocks 按块在正文里的位置做差分:拿那份只有 plan 块
+// 的正文写回,plan 块会被当成第 0 块写到别的块行上、其余块被截掉。所以写回前先把这一条
+// 换成整条正文,上一版正文也取自这里。
+func clearPlanActions(ctx context.Context, repo transcript_repo.MessageRepo, msg *chat_entity.Message) error {
+	if err := repo.FillBlocks(ctx, []*chat_entity.Message{msg}); err != nil {
+		return err
+	}
+	prev := msg.BlocksJSON
+	bs, err := msg.GetBlocks()
+	if err != nil {
+		return err
+	}
+	changed := false
+	for idx, b := range bs {
+		switch p := b.(type) {
+		case PlanBlock:
+			if len(p.Actions) > 0 {
+				p.Actions = nil
+				bs[idx] = p
+				changed = true
+			}
+		case *PlanBlock:
+			if p != nil && len(p.Actions) > 0 {
+				p.Actions = nil
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return nil
+	}
+	if err := msg.SetBlocks(bs); err != nil {
+		return err
+	}
+	return repo.CheckpointBlocks(ctx, msg, prev)
 }
 
 // mapPlanApproveAction 把 plan.approve.* 映射成

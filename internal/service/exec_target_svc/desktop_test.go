@@ -144,9 +144,9 @@ func TestListExecTargetAvailability_GivenRunningNamedDesktop_ThenSelectableAndKi
 	m.execTarget.EXPECT().ListByAgent(ctx, int64(40)).Return([]*agent_entity.AgentExecTarget{
 		{ID: 1, AgentID: 40, AgentBackendID: 71, SortOrder: 0},
 	}, nil)
-	m.backend.EXPECT().Find(ctx, int64(71)).Return(&agent_backend_entity.AgentBackend{
+	m.listedBackend(&agent_backend_entity.AgentBackend{
 		ID: 71, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:desktop-b",
-	}, nil)
+	})
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 40, 0)
 	require.NoError(t, err)
@@ -166,9 +166,9 @@ func TestListExecTargetAvailability_GivenNamedDesktopAppNotRunning_ThenDesktopNo
 	m.execTarget.EXPECT().ListByAgent(ctx, int64(41)).Return([]*agent_entity.AgentExecTarget{
 		{ID: 1, AgentID: 41, AgentBackendID: 72, SortOrder: 0},
 	}, nil)
-	m.backend.EXPECT().Find(ctx, int64(72)).Return(&agent_backend_entity.AgentBackend{
+	m.listedBackend(&agent_backend_entity.AgentBackend{
 		ID: 72, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:desktop-b",
-	}, nil)
+	})
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 41, 0)
 	require.NoError(t, err)
@@ -188,9 +188,9 @@ func TestListExecTargetAvailability_GivenSelfFingerprint_ThenKindLocalAndAvailab
 	m.execTarget.EXPECT().ListByAgent(ctx, int64(42)).Return([]*agent_entity.AgentExecTarget{
 		{ID: 1, AgentID: 42, AgentBackendID: 73, SortOrder: 0},
 	}, nil)
-	m.backend.EXPECT().Find(ctx, int64(73)).Return(&agent_backend_entity.AgentBackend{
+	m.listedBackend(&agent_backend_entity.AgentBackend{
 		ID: 73, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:self",
-	}, nil)
+	})
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 42, 0)
 	require.NoError(t, err)
@@ -209,10 +209,10 @@ func TestListExecTargetAvailability_GivenSelfFingerprintAndProjectBound_ThenLoca
 	m.execTarget.EXPECT().ListByAgent(ctx, int64(45)).Return([]*agent_entity.AgentExecTarget{
 		{ID: 1, AgentID: 45, AgentBackendID: 76, SortOrder: 0},
 	}, nil)
-	m.backend.EXPECT().Find(ctx, int64(76)).Return(&agent_backend_entity.AgentBackend{
+	m.listedBackend(&agent_backend_entity.AgentBackend{
 		ID: 76, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:self",
-	}, nil)
-	m.project.EXPECT().Find(ctx, int64(403)).Return(&project_entity.Project{ID: 403, LocalPathMissing: false, Path: "/local/proj"}, nil).Times(2)
+	})
+	m.project.EXPECT().Find(ctx, int64(403)).Return(&project_entity.Project{ID: 403, LocalPathMissing: false, Path: "/local/proj"}, nil)
 	// 不注册 projectLocation 的任何 EXPECT：本机档一次都不该查 project_locations。
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 45, 403)
@@ -231,9 +231,9 @@ func TestListExecTargetAvailability_GivenUnknownDesktopFingerprint_ThenUnpaired(
 	m.execTarget.EXPECT().ListByAgent(ctx, int64(43)).Return([]*agent_entity.AgentExecTarget{
 		{ID: 1, AgentID: 43, AgentBackendID: 74, SortOrder: 0},
 	}, nil)
-	m.backend.EXPECT().Find(ctx, int64(74)).Return(&agent_backend_entity.AgentBackend{
+	m.listedBackend(&agent_backend_entity.AgentBackend{
 		ID: 74, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:desktop-b",
-	}, nil)
+	})
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 43, 0)
 	require.NoError(t, err)
@@ -251,9 +251,9 @@ func TestListExecTargetAvailability_GivenServerListError_ThenUnpaired(t *testing
 	m.execTarget.EXPECT().ListByAgent(ctx, int64(44)).Return([]*agent_entity.AgentExecTarget{
 		{ID: 1, AgentID: 44, AgentBackendID: 75, SortOrder: 0},
 	}, nil)
-	m.backend.EXPECT().Find(ctx, int64(75)).Return(&agent_backend_entity.AgentBackend{
+	m.listedBackend(&agent_backend_entity.AgentBackend{
 		ID: 75, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:desktop-b",
-	}, nil)
+	})
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 44, 0)
 	require.NoError(t, err)

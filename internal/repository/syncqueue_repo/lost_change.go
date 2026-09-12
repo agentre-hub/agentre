@@ -19,7 +19,11 @@ import (
 type LostChangeRepo interface {
 	Create(ctx context.Context, row *syncqueue_entity.LostChange) error
 	ListByAccount(ctx context.Context, accountID int64) ([]*syncqueue_entity.LostChange, error)
+	// ListExpired 只取落库时间不晚于 cutoff 的行（30 天回收）：未到期的一行都不读回来。
+	ListExpired(ctx context.Context, accountID, cutoff int64) ([]*syncqueue_entity.LostChange, error)
 	Delete(ctx context.Context, id int64) error
+	// DeleteMany 一条语句删一批（超过 DeleteManyChunkSize 自动分批）。
+	DeleteMany(ctx context.Context, ids []int64) error
 }
 
 var defaultLostChange LostChangeRepo
@@ -57,6 +61,20 @@ func (r *lostChangeRepo) ListByAccount(ctx context.Context, accountID int64) ([]
 	return rows, err
 }
 
+func (r *lostChangeRepo) ListExpired(ctx context.Context, accountID, cutoff int64) ([]*syncqueue_entity.LostChange, error) {
+	var rows []*syncqueue_entity.LostChange
+	err := db.Ctx(ctx).
+		Where("sync_account_id = ?", accountID).
+		Where("createtime <= ?", cutoff).
+		Order("createtime ASC, id ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
 func (r *lostChangeRepo) Delete(ctx context.Context, id int64) error {
 	return db.Ctx(ctx).Where("id = ?", id).Delete(&syncqueue_entity.LostChange{}).Error
+}
+
+func (r *lostChangeRepo) DeleteMany(ctx context.Context, ids []int64) error {
+	return deleteByIDs(ctx, &syncqueue_entity.LostChange{}, ids)
 }

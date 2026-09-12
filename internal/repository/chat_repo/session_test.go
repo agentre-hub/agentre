@@ -3,6 +3,8 @@ package chat_repo_test
 import (
 	"context"
 	"database/sql/driver"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -49,20 +51,98 @@ func TestSessionRepo_Find(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestSessionRepo_ListByAgent(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
+// recentWindowSQL / attentionWindowSQL 是 ListRecentByAgents / ListAttentionByAgents
+// 生产代码里 sessionsWindowSQL(...) 的正则化版本：按 agent_id 分区、组内
+// last_message_at DESC, id DESC 取前 N 条，外层再按 agent_id 排回好分组。
+const recentWindowSQL = "SELECT \\* FROM `chat_sessions` WHERE id IN \\(SELECT id FROM \\(SELECT id, ROW_NUMBER\\(\\) OVER " +
+	"\\(PARTITION BY agent_id ORDER BY last_message_at DESC, id DESC\\) AS rn FROM `chat_sessions` " +
+	"WHERE agent_id IN \\(%s\\) AND status = \\? AND purpose <> \\?\\) t WHERE rn <= \\?\\) " +
+	"ORDER BY agent_id ASC, last_message_at DESC, id DESC"
 
-	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .agent_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
-		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "title", "agent_status", "last_message_at", "status"}).
-			AddRow(2, 7, "later", "idle", 1700000020000, consts.ACTIVE).
-			AddRow(1, 7, "earlier", "idle", 1700000010000, consts.ACTIVE))
+const attentionWindowSQL = "SELECT \\* FROM `chat_sessions` WHERE id IN \\(SELECT id FROM \\(SELECT id, ROW_NUMBER\\(\\) OVER " +
+	"\\(PARTITION BY agent_id ORDER BY last_message_at DESC, id DESC\\) AS rn FROM `chat_sessions` " +
+	"WHERE agent_id IN \\(%s\\) AND status = \\? AND purpose <> \\? AND agent_status IN \\(\\?,\\?,\\?\\)\\) t WHERE rn <= \\?\\) " +
+	"ORDER BY agent_id ASC, last_message_at DESC, id DESC"
 
-	got, err := chat_repo.NewSession().ListByAgent(ctx, 7, 5)
-	assert.NoError(t, err)
-	assert.Len(t, got, 2)
-	assert.Equal(t, int64(2), got[0].ID)
-	assert.NoError(t, mock.ExpectationsWereMet())
+// qmarks 生成 "?,?,...,?"(n 个),配 recentWindowSQL / attentionWindowSQL 的 %s。
+func qmarks(n int) string {
+	s := strings.Repeat("\\?,", n)
+	return strings.TrimSuffix(s, ",")
+}
+
+func TestSessionRepo_ListRecentByAgents(t *testing.T) {
+	t.Run("Given multiple agents, When listing recent sessions, Then groups by agent_id preserving last_message_at DESC order and truncates to perAgent", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery(fmt.Sprintf(recentWindowSQL, qmarks(2))).
+			WithArgs(int64(7), int64(8), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "title", "agent_status", "last_message_at", "status"}).
+				AddRow(2, 7, "later", "idle", 1700000020000, consts.ACTIVE).
+				AddRow(1, 7, "earlier", "idle", 1700000010000, consts.ACTIVE).
+				AddRow(21, 8, "only", "idle", 1700000005000, consts.ACTIVE))
+
+		got, err := chat_repo.NewSession().ListRecentByAgents(ctx, []int64{7, 8}, 5)
+		assert.NoError(t, err)
+		if assert.Len(t, got[7], 2) {
+			assert.Equal(t, int64(2), got[7][0].ID, "agent 7 内按 last_message_at DESC 排序,最新的在前")
+			assert.Equal(t, int64(1), got[7][1].ID)
+		}
+		if assert.Len(t, got[8], 1) {
+			assert.Equal(t, int64(21), got[8][0].ID)
+		}
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given no agent ids, When listing recent sessions, Then it returns empty map without SQL", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		got, err := chat_repo.NewSession().ListRecentByAgents(ctx, nil, 5)
+		assert.NoError(t, err)
+		assert.Empty(t, got)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given more agent ids than resetIDChunk, When listing recent sessions, Then it batches the query and merges results", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		ids := make([]int64, 0, 401)
+		for i := 0; i < 401; i++ {
+			ids = append(ids, int64(1000+i))
+		}
+		// 第一批 400 个 agent id。
+		firstArgs := make([]driver.Value, 0, 403)
+		for _, id := range ids[:400] {
+			firstArgs = append(firstArgs, id)
+		}
+		firstArgs = append(firstArgs, consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5)
+		mock.ExpectQuery(fmt.Sprintf(recentWindowSQL, qmarks(400))).
+			WithArgs(firstArgs...).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "title", "agent_status", "last_message_at", "status"}).
+				AddRow(1, ids[0], "s", "idle", 1700000000000, consts.ACTIVE))
+		// 第二批剩下的 1 个,证明批次数按 agentIDs 数量分片,而不是随 agent 数线性发一条条查询。
+		mock.ExpectQuery(fmt.Sprintf(recentWindowSQL, qmarks(1))).
+			WithArgs(ids[400], consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "title", "agent_status", "last_message_at", "status"}).
+				AddRow(2, ids[400], "s2", "idle", 1700000000000, consts.ACTIVE))
+
+		got, err := chat_repo.NewSession().ListRecentByAgents(ctx, ids, 5)
+		assert.NoError(t, err)
+		assert.Len(t, got, 2, "两批结果合并进同一个 map")
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given the query errors, When listing recent sessions, Then it propagates the error", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery(fmt.Sprintf(recentWindowSQL, qmarks(1))).
+			WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5).
+			WillReturnError(errors.New("boom"))
+
+		got, err := chat_repo.NewSession().ListRecentByAgents(ctx, []int64{7}, 5)
+		assert.Error(t, err)
+		assert.Nil(t, got)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
 }
 
 func TestSessionRepo_CountRunningByAgents(t *testing.T) {
@@ -82,37 +162,87 @@ func TestSessionRepo_CountRunningByAgents(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestSessionRepo_ListAttentionByAgent(t *testing.T) {
-	t.Run("running / waiting / error 三种各 1 行", func(t *testing.T) {
+func TestSessionRepo_ListAttentionByAgents(t *testing.T) {
+	t.Run("Given running/waiting/error sessions across agents, When listing attention sessions, Then groups by agent_id preserving order and filters out idle", func(t *testing.T) {
 		ctx, _, mock := testutils.Database(t)
 
-		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .agent_id = \\? AND status = \\? AND agent_status IN \\(\\?,\\?,\\?\\). AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
-			WithArgs(int64(7), consts.ACTIVE, "running", "waiting", "error", chat_entity.SessionPurposeSubagent, 20).
+		mock.ExpectQuery(fmt.Sprintf(attentionWindowSQL, qmarks(1))).
+			WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, "running", "waiting", "error", 20).
 			WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "title", "agent_status", "last_message_at", "status"}).
 				AddRow(3, 7, "approve me", "waiting", 1700000030000, consts.ACTIVE).
 				AddRow(2, 7, "boom", "error", 1700000020000, consts.ACTIVE).
 				AddRow(1, 7, "live", "running", 1700000010000, consts.ACTIVE))
 
-		got, err := chat_repo.NewSession().ListAttentionByAgent(ctx, 7, 20)
+		got, err := chat_repo.NewSession().ListAttentionByAgents(ctx, []int64{7}, 20)
 		assert.NoError(t, err)
-		assert.Len(t, got, 3)
-		assert.Equal(t, int64(3), got[0].ID)
-		assert.True(t, got[0].NeedsAttention)
-		assert.Equal(t, "error", got[1].AgentStatus)
-		assert.Equal(t, "running", got[2].AgentStatus)
+		if assert.Len(t, got[7], 3) {
+			assert.Equal(t, int64(3), got[7][0].ID)
+			assert.True(t, got[7][0].NeedsAttention)
+			assert.Equal(t, "error", got[7][1].AgentStatus)
+			assert.Equal(t, "running", got[7][2].AgentStatus)
+		}
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 
-	t.Run("全部 idle → 返回空", func(t *testing.T) {
+	t.Run("Given all sessions are idle, When listing attention sessions, Then the agent is absent from the map", func(t *testing.T) {
 		ctx, _, mock := testutils.Database(t)
 
-		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .agent_id = \\? AND status = \\? AND agent_status IN \\(\\?,\\?,\\?\\). AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
-			WithArgs(int64(7), consts.ACTIVE, "running", "waiting", "error", chat_entity.SessionPurposeSubagent, 20).
+		mock.ExpectQuery(fmt.Sprintf(attentionWindowSQL, qmarks(1))).
+			WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, "running", "waiting", "error", 20).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
-		got, err := chat_repo.NewSession().ListAttentionByAgent(ctx, 7, 20)
+		got, err := chat_repo.NewSession().ListAttentionByAgents(ctx, []int64{7}, 20)
 		assert.NoError(t, err)
 		assert.Empty(t, got)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given no agent ids, When listing attention sessions, Then it returns empty map without SQL", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		got, err := chat_repo.NewSession().ListAttentionByAgents(ctx, nil, 20)
+		assert.NoError(t, err)
+		assert.Empty(t, got)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given more agent ids than resetIDChunk, When listing attention sessions, Then it batches the query and merges results", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		ids := make([]int64, 0, 401)
+		for i := 0; i < 401; i++ {
+			ids = append(ids, int64(2000+i))
+		}
+		firstArgs := make([]driver.Value, 0, 404)
+		for _, id := range ids[:400] {
+			firstArgs = append(firstArgs, id)
+		}
+		firstArgs = append(firstArgs, consts.ACTIVE, chat_entity.SessionPurposeSubagent, "running", "waiting", "error", 20)
+		mock.ExpectQuery(fmt.Sprintf(attentionWindowSQL, qmarks(400))).
+			WithArgs(firstArgs...).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "title", "agent_status", "last_message_at", "status"}).
+				AddRow(1, ids[0], "s", "waiting", 1700000000000, consts.ACTIVE))
+		mock.ExpectQuery(fmt.Sprintf(attentionWindowSQL, qmarks(1))).
+			WithArgs(ids[400], consts.ACTIVE, chat_entity.SessionPurposeSubagent, "running", "waiting", "error", 20).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "title", "agent_status", "last_message_at", "status"}).
+				AddRow(2, ids[400], "s2", "error", 1700000000000, consts.ACTIVE))
+
+		got, err := chat_repo.NewSession().ListAttentionByAgents(ctx, ids, 20)
+		assert.NoError(t, err)
+		assert.Len(t, got, 2, "两批结果合并进同一个 map")
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given the query errors, When listing attention sessions, Then it propagates the error", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery(fmt.Sprintf(attentionWindowSQL, qmarks(1))).
+			WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, "running", "waiting", "error", 20).
+			WillReturnError(errors.New("boom"))
+
+		got, err := chat_repo.NewSession().ListAttentionByAgents(ctx, []int64{7}, 20)
+		assert.Error(t, err)
+		assert.Nil(t, got)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 }

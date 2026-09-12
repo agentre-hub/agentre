@@ -352,6 +352,9 @@ func TestRegenerate_ExistingSession_ProviderKeyOverridesAgentBinding(t *testing.
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 		ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
 	}, nil)
+	m.message.EXPECT().LatestBeforeSeq(gomock.Any(), int64(100), "user", 2).Return(&chat_entity.Message{
+		ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("hi"),
+	}, nil)
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
 		{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("hi")},
 		{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},

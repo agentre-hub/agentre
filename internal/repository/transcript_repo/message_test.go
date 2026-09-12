@@ -346,11 +346,16 @@ func TestMessageRepo_FlipSubagentStatus_EmptyArgsShortCircuit(t *testing.T) {
 	require.NoError(t, transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "tu1", "", ""))
 }
 
+// TestMessageRepo_AppendSubagentChildren_AppendsBlocks 钉住要求 3:父块的 nested_tool_call_ids
+// 改写与子块追加必须同一事务 —— 一条 BEGIN…COMMIT 包住「定位 → UPDATE → SELECT MAX → INSERT」
+// 全部四步,不再是两条各自 autocommit 的语句(旧形态下父块更新成功、子块追加失败会留下
+// 「父块说有这几个子块,但块表里没有」的不一致)。
 func TestMessageRepo_AppendSubagentChildren_AppendsBlocks(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 
 	childBlocksJSON := `[{"type":"tool_use","data":{"id":"sub_bash","name":"Bash","input":{"command":"ls"}}}]`
 
+	mock.ExpectBegin()
 	expectSubagentBlockLookup(mock, 3, "toolu_agent", subagentBlockRows(42, "toolu_agent",
 		`{"parent_tool_call_id":"toolu_agent","kind":"local_bash","status":"running","nested_tool_call_ids":[]}`))
 	mock.ExpectExec("UPDATE `chat_message_blocks` SET `codec`=\\?,`data`=\\? WHERE message_id = \\? AND idx = \\?").
@@ -360,7 +365,6 @@ func TestMessageRepo_AppendSubagentChildren_AppendsBlocks(t *testing.T) {
 	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(idx\\), -1\\) \\+ 1 FROM `chat_message_blocks` WHERE message_id = \\?").
 		WithArgs(int64(42)).
 		WillReturnRows(sqlmock.NewRows([]string{"next"}).AddRow(2))
-	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO `chat_message_blocks`").
 		WithArgs(int64(42), 2, "tool_use", "sub_bash", transcript_entity.BlockCodecRaw, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -371,10 +375,41 @@ func TestMessageRepo_AppendSubagentChildren_AppendsBlocks(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestMessageRepo_AppendSubagentChildren_ChildInsertFailureRollsBackParentUpdate 证明
+// 「要么同时生效,要么都不生效」:子块追加的 INSERT 失败时,同一事务里已经执行的父块
+// UPDATE(改写 nested_tool_call_ids)必须回滚 —— 不允许父块说「有这个子块」而块表里
+// 其实没有。sqlmock 的 ExpectRollback 只有在两条语句共用同一个 BEGIN 时才可能被触发到;
+// 分开的两条 autocommit 语句里,父块的 UPDATE 一旦提交就没有回滚的余地。
+func TestMessageRepo_AppendSubagentChildren_ChildInsertFailureRollsBackParentUpdate(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	childBlocksJSON := `[{"type":"tool_use","data":{"id":"sub_bash","name":"Bash","input":{"command":"ls"}}}]`
+
+	mock.ExpectBegin()
+	expectSubagentBlockLookup(mock, 3, "toolu_agent", subagentBlockRows(42, "toolu_agent",
+		`{"parent_tool_call_id":"toolu_agent","kind":"local_bash","status":"running","nested_tool_call_ids":[]}`))
+	mock.ExpectExec("UPDATE `chat_message_blocks` SET `codec`=\\?,`data`=\\? WHERE message_id = \\? AND idx = \\?").
+		WithArgs(transcript_entity.BlockCodecRaw, blockDataContains{substrings: []string{`"sub_bash"`}}, int64(42), 0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(idx\\), -1\\) \\+ 1 FROM `chat_message_blocks` WHERE message_id = \\?").
+		WithArgs(int64(42)).
+		WillReturnRows(sqlmock.NewRows([]string{"next"}).AddRow(2))
+	mock.ExpectExec("INSERT INTO `chat_message_blocks`").
+		WithArgs(int64(42), 2, "tool_use", "sub_bash", transcript_entity.BlockCodecRaw, sqlmock.AnyArg()).
+		WillReturnError(assert.AnError)
+	mock.ExpectRollback()
+
+	err := transcript_repo.NewMessage().AppendSubagentChildren(ctx, 3, "toolu_agent", childBlocksJSON, []string{"sub_bash"})
+	assert.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet(), "父块 UPDATE 必须和子块 INSERT 一起回滚,不能只留下前者已提交")
+}
+
 func TestMessageRepo_AppendSubagentChildren_NoMatchSilentNil(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 
+	mock.ExpectBegin()
 	expectSubagentBlockLookup(mock, 3, "toolu_missing", emptyBlockRows())
+	mock.ExpectCommit()
 
 	err := transcript_repo.NewMessage().AppendSubagentChildren(ctx, 3, "toolu_missing", `[{"type":"tool_use","data":{}}]`, []string{"x"})
 	assert.NoError(t, err)
@@ -472,6 +507,140 @@ func TestMessageRepo_LatestAssistant_None(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, got)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// latestBeforeSeqQuery 是 LatestBeforeSeq 的定位语句:按 (session_id, seq) 索引倒着找
+// seq < beforeSeq 的第一条该角色消息,只取一行(gorm 的 First 会在 ORDER BY 后补主键)。
+const latestBeforeSeqQuery = "SELECT \\* FROM `chat_messages` WHERE session_id = \\? AND role = \\? AND seq < \\? " +
+	"ORDER BY seq DESC,`chat_messages`.`id` LIMIT \\?"
+
+// TestMessageRepo_LatestBeforeSeq 钉住重新生成找 user 锚点的读法(要求 13):只取 target
+// 之前最后一条 user 消息这一行,并只给这一条补正文 —— 不再读回整条转录再在内存里挑。
+func TestMessageRepo_LatestBeforeSeq(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery(latestBeforeSeqQuery).
+		WithArgs(int64(7), "user", 5, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "session_id", "role", "seq"}).
+			AddRow(40, 7, "user", 3))
+	mock.ExpectQuery("SELECT \\* FROM `chat_message_blocks` WHERE message_id IN \\(\\?\\)").
+		WithArgs(int64(40)).
+		WillReturnRows(sqlmock.NewRows([]string{"message_id", "idx", "type", "tool_call_id", "codec", "data"}).
+			AddRow(40, 0, "text", "", transcript_entity.BlockCodecRaw, []byte(`{"text":"second"}`)))
+
+	got, err := transcript_repo.NewMessage().LatestBeforeSeq(ctx, 7, "user", 5)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, int64(40), got.ID)
+	assert.Equal(t, 3, got.Seq)
+	assert.Equal(t, `[{"type":"text","data":{"text":"second"}}]`, got.BlocksJSON, "命中的那一条带全部正文")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMessageRepo_LatestBeforeSeq_NoneReturnsNil(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery(latestBeforeSeqQuery).
+		WithArgs(int64(7), "user", 1, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	got, err := transcript_repo.NewMessage().LatestBeforeSeq(ctx, 7, "user", 1)
+	require.NoError(t, err, "没有更早的该角色消息不是错误,由调用方决定怎么报")
+	assert.Nil(t, got)
+	assert.NoError(t, mock.ExpectationsWereMet(), "无命中时不再发块查询")
+}
+
+func TestMessageRepo_LatestBeforeSeq_QueryErrorPropagates(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery(latestBeforeSeqQuery).
+		WithArgs(int64(7), "user", 5, 1).
+		WillReturnError(assert.AnError)
+
+	got, err := transcript_repo.NewMessage().LatestBeforeSeq(ctx, 7, "user", 5)
+	require.ErrorIs(t, err, assert.AnError)
+	assert.Nil(t, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// expectMessageInsert 是一条消息元数据行的 INSERT 期望,seq 是这一行应当拿到的号。
+func expectMessageInsert(mock sqlmock.Sqlmock, sessionID int64, seq int) *sqlmock.ExpectedExec {
+	return mock.ExpectExec("INSERT INTO `chat_messages`").
+		WithArgs(
+			sessionID, "", "assistant", "",
+			0, 0, 0, 0, 0, 0, 0,
+			0, 0.0, // first_token_ms, tokens_per_sec
+			"", "", "", seq, // fork_anchor, error_text, turn_trigger, seq
+			sqlmock.AnyArg(), sqlmock.AnyArg(),
+		)
+}
+
+// TestMessageRepo_CreateAtNextSeq 钉住「取号与建行同事务」(要求 2 桌面端):SELECT MAX(seq)
+// 与每条消息及其块行的 INSERT 共用同一个 BEGIN…COMMIT,多条消息拿到连续的号。取号若在
+// 事务外做,另一个写事务可以插进取号与建行之间拿到同一个号 —— (session_id, seq) 不是唯一索引。
+func TestMessageRepo_CreateAtNextSeq(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(seq\\), 0\\) \\+ 1 FROM `chat_messages` WHERE session_id = \\?").
+		WithArgs(int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"next"}).AddRow(5))
+	expectMessageInsert(mock, 3, 5).WillReturnResult(sqlmock.NewResult(42, 1))
+	mock.ExpectExec("INSERT INTO `chat_message_blocks`").
+		WithArgs(int64(42), 0, "notice", "", transcript_entity.BlockCodecRaw, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectMessageInsert(mock, 3, 6).WillReturnResult(sqlmock.NewResult(43, 1))
+	mock.ExpectCommit()
+
+	first := &transcript_entity.Message{
+		SessionID: 3, Role: "assistant",
+		BlocksJSON: `[{"type":"notice","data":{"level":"info","text":"switched"}}]`,
+	}
+	second := &transcript_entity.Message{SessionID: 3, Role: "assistant", BlocksJSON: "[]"}
+	err := transcript_repo.NewMessage().CreateAtNextSeq(ctx, first, second)
+	require.NoError(t, err)
+	assert.Equal(t, 5, first.Seq)
+	assert.Equal(t, 6, second.Seq, "同一批消息拿到连续的号")
+	assert.Equal(t, int64(42), first.ID)
+	assert.Equal(t, int64(43), second.ID)
+	assert.NotZero(t, first.Createtime)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMessageRepo_CreateAtNextSeq_InsertFailureRollsBack(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(seq\\), 0\\) \\+ 1 FROM `chat_messages` WHERE session_id = \\?").
+		WithArgs(int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"next"}).AddRow(5))
+	expectMessageInsert(mock, 3, 5).WillReturnResult(sqlmock.NewResult(42, 1))
+	expectMessageInsert(mock, 3, 6).WillReturnError(assert.AnError)
+	mock.ExpectRollback()
+
+	err := transcript_repo.NewMessage().CreateAtNextSeq(ctx,
+		&transcript_entity.Message{SessionID: 3, Role: "assistant", BlocksJSON: "[]"},
+		&transcript_entity.Message{SessionID: 3, Role: "assistant", BlocksJSON: "[]"},
+	)
+	require.ErrorIs(t, err, assert.AnError)
+	assert.NoError(t, mock.ExpectationsWereMet(), "任一行写失败,整批连同已写的行一起回滚")
+}
+
+func TestMessageRepo_CreateAtNextSeq_Boundaries(t *testing.T) {
+	t.Run("Given no messages, When CreateAtNextSeq runs, Then it issues no statement", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+		require.NoError(t, transcript_repo.NewMessage().CreateAtNextSeq(ctx))
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+	t.Run("Given messages of two sessions, When CreateAtNextSeq runs, Then it rejects them before any statement", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+		err := transcript_repo.NewMessage().CreateAtNextSeq(ctx,
+			&transcript_entity.Message{SessionID: 3, Role: "assistant", BlocksJSON: "[]"},
+			&transcript_entity.Message{SessionID: 4, Role: "assistant", BlocksJSON: "[]"},
+		)
+		require.Error(t, err, "一个号段只属于一个会话,混进别的会话会拿到错误的 seq")
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
 }
 
 // TestPatchSubagentProgressInBlockData 单测进度快照的就地改写:后台 subagent 在会话
@@ -644,6 +813,29 @@ func TestMessageRepo_ListMeta(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestMessageRepo_ListMetaBefore 钉住上翻分页的 SQL 侧 keyset(要求 12):只读
+// `seq < beforeSeq` 的末尾 limit 条元数据,SQL 层面就把窗口收窄到 (session_id, seq)
+// 索引能命中的一段 —— 不再是 ListMeta 读回整条会话再在内存里切片。
+func TestMessageRepo_ListMetaBefore(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT \\* FROM `chat_messages` WHERE session_id = \\? AND seq < \\? ORDER BY seq DESC LIMIT \\?").
+		WithArgs(int64(3), 6, 4).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "session_id", "role", "seq"}).
+			AddRow(5, 3, "assistant", 5).
+			AddRow(4, 3, "user", 4).
+			AddRow(3, 3, "assistant", 3).
+			AddRow(2, 3, "user", 2))
+
+	got, err := transcript_repo.NewMessage().ListMetaBefore(ctx, 3, 6, 4)
+	require.NoError(t, err)
+	require.Len(t, got, 4)
+	assert.Equal(t, []int{5, 4, 3, 2}, []int{got[0].Seq, got[1].Seq, got[2].Seq, got[3].Seq},
+		"按 seq 降序返回,调用方据此判断 HasMore 并反转成正序")
+	assert.Equal(t, "", got[0].BlocksJSON, "元数据查询不取正文")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 // TestMessageRepo_FillBlocks 钉住读路径的第二步:只给点名的那几条消息补正文,
 // 一次 IN 查询。窗口外的消息不进 IN 列表,也拿不到正文。
 func TestMessageRepo_FillBlocks(t *testing.T) {
@@ -697,9 +889,13 @@ func TestMessageRepo_FillBlocksByType_NoTypes(t *testing.T) {
 // expectSubagentBlocksByType 是「按 task_id 找」用的定位期望:task_id 不是列、它在
 // 块正文的 JSON 里,只能按 (type, message_id) 索引把本会话的 subagent_state 块取出来
 // 逐条解。会话里这种块数量有限(一次派遣一条),不是全表扫。
+// expectSubagentBlocksByType 是 findSubagentStateBlocks 的定位期望:先按会话收窄到一个
+// message id 子查询(走 idx_chat_messages_session_seq),再用 (type, message_id) 索引点查
+// 本会话的 subagent_state 块 —— 不再 JOIN chat_messages 后扫全库同类型块。
 func expectSubagentBlocksByType(mock sqlmock.Sqlmock, sessionID int64, rows *sqlmock.Rows) {
-	mock.ExpectQuery("SELECT .* FROM `chat_message_blocks` JOIN `chat_messages`.*`chat_message_blocks`.`type` = \\?").
-		WithArgs(sessionID, "subagent_state").
+	mock.ExpectQuery("SELECT \\* FROM `chat_message_blocks` WHERE `type` = \\? AND message_id IN "+
+		"\\(SELECT `id` FROM `chat_messages` WHERE session_id = \\?\\) ORDER BY message_id DESC").
+		WithArgs("subagent_state", sessionID).
 		WillReturnRows(rows)
 }
 

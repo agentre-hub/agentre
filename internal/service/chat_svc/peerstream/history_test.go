@@ -2,12 +2,15 @@ package peerstream
 
 import (
 	"context"
+	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
@@ -255,6 +258,189 @@ func TestPeerSessionLive_GivenWorkerStalledOnEarlierFrame_ThenPullDoesNotDeliver
 	release()
 	require.Eventually(t, func() bool { return len(subscriber.seenSeqs()) == 2 }, time.Second, time.Millisecond)
 	assert.Equal(t, []int64{1, 2}, subscriber.seenSeqs(), "live frames must deliver in monotonic seq order")
+}
+
+// Given 对端首次 attach 正在读整条转录(读库很慢),When 同一会话的本地 turn 逐 token
+// 发布预览帧,Then 发布在限时内返回 —— 读转录不能占着 publication 锁(spec 要求 10)。
+func TestAttachPeerSession_GivenTranscriptReadInFlight_ThenSameSessionPublishEventDoesNotWait(t *testing.T) {
+	deps := setupPeerSessionTest(t)
+	ctx := context.Background()
+	messages := []*chat_entity.Message{
+		{ID: 91, SessionID: 41, Role: "user", Seq: 1, BlocksJSON: `[{"type":"text","data":{"text":"hello"}}]`},
+		{ID: 92, SessionID: 41, Role: "assistant", Seq: 2, BlocksJSON: `[{"type":"text","data":{"text":"world"}}]`},
+	}
+	expectPeerAttachLookups(ctx, deps)
+	read := blockTranscriptRead(t, deps, messages)
+
+	attached := attachPeerInBackground(ctx, deps.svc, newRecordingPeerSubscriber())
+	read.waitEntered(t)
+
+	published := make(chan struct{})
+	go func() {
+		deps.svc.PublishEvent(41, agentruntime.TextDelta{Text: "token"})
+		close(published)
+	}()
+	select {
+	case <-published:
+	case <-time.After(time.Second):
+		t.Fatal("PublishEvent waited for a peer's initial transcript read; the local turn stalls while a peer attaches")
+	}
+
+	read.release()
+	got := attached.wait(t)
+	require.NoError(t, got.err)
+	assert.Equal(t, int64(3), got.result.LatestSeq, "初始化照常完成:user_message、text、done 三帧")
+}
+
+// Given 两个对端几乎同时首次 attach 同一会话,When 第一个还在读转录,Then 第二个不再
+// 读一遍、编一遍号:它等初始化装好后挂在同一份前缀上,两者高水位相同、日志不重复。
+func TestAttachPeerSession_GivenTwoFirstAttachesRace_ThenTranscriptIsInitializedOnce(t *testing.T) {
+	deps := setupPeerSessionTest(t)
+	ctx := context.Background()
+	messages := []*chat_entity.Message{
+		{ID: 91, SessionID: 41, Role: "user", Seq: 1, BlocksJSON: `[{"type":"text","data":{"text":"hello"}}]`},
+		{ID: 92, SessionID: 41, Role: "assistant", Seq: 2, BlocksJSON: `[{"type":"text","data":{"text":"world"}}]`},
+	}
+	expectPeerAttachLookups(ctx, deps)
+	read := blockTranscriptRead(t, deps, messages)
+
+	firstSub, secondSub := newRecordingPeerSubscriber(), newRecordingPeerSubscriber()
+	first := attachPeerInBackground(ctx, deps.svc, firstSub)
+	read.waitEntered(t)
+	second := attachPeerInBackground(ctx, deps.svc, secondSub)
+	assert.Never(t, func() bool { return read.calls.Load() > 1 }, 100*time.Millisecond, time.Millisecond,
+		"第二个 attach 趁第一个读库时又读了一遍转录")
+
+	read.release()
+	for _, got := range []peerAttachOutcome{first.wait(t), second.wait(t)} {
+		require.NoError(t, got.err)
+		assert.Equal(t, int64(3), got.result.LatestSeq)
+	}
+	assert.Equal(t, int32(1), read.calls.Load(), "整条转录只读一遍")
+	assert.Equal(t, 2, deps.svc.SubscriberCount(41))
+	assert.Equal(t, 3, deps.ledger.rowCount(), "只编一遍号")
+	page, err := deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41), Limit: 100}, secondSub)
+	require.NoError(t, err)
+	assertPeerNotificationSeqs(t, page.Notifications, 1, 2, 3)
+}
+
+// Given 首次 attach 的初始化在读转录或编号时失败,When 对端随后重试,Then 失败那一次
+// 没留下半份宇宙:没挂上订阅者、持久帧发布仍认为没有编号宇宙,重试重新读库并装出完整
+// 且不重复的前缀 —— 也不会因为失败路径没放锁而卡住。
+func TestAttachPeerSession_GivenInitializationFails_ThenLeavesNoHalfInitializedPublication(t *testing.T) {
+	messages := []*chat_entity.Message{
+		{ID: 91, SessionID: 41, Role: "user", Seq: 1, BlocksJSON: `[{"type":"text","data":{"text":"hello"}}]`},
+		{ID: 92, SessionID: 41, Role: "assistant", Seq: 2, BlocksJSON: `[{"type":"text","data":{"text":"world"}}]`},
+	}
+	for name, arrange := range map[string]func(ctx context.Context, deps *peerSessionTestDeps) (restore func()){
+		"transcript read fails": func(ctx context.Context, deps *peerSessionTestDeps) func() {
+			gomock.InOrder(
+				deps.message.EXPECT().List(ctx, int64(41)).Return(nil, errors.New("database is gone")),
+				deps.message.EXPECT().List(ctx, int64(41)).Return(messages, nil),
+			)
+			return func() {}
+		},
+		"frame numbering fails": func(ctx context.Context, deps *peerSessionTestDeps) func() {
+			deps.message.EXPECT().List(ctx, int64(41)).Return(messages, nil).Times(2)
+			deps.ledger.failAllocate(errors.New("ledger write failed"))
+			return func() { deps.ledger.failAllocate(nil) }
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			deps := setupPeerSessionTest(t)
+			ctx := context.Background()
+			expectPeerAttachLookups(ctx, deps)
+			recoverStore := arrange(ctx, deps)
+
+			failed := attachPeerInBackground(ctx, deps.svc, newRecordingPeerSubscriber()).wait(t)
+			require.Error(t, failed.err)
+			assert.Zero(t, deps.svc.SubscriberCount(41), "失败的 attach 不得留下订阅者")
+			lowest, highest := deps.svc.PublishMessageFrames(ctx, 41, &chat_entity.Message{
+				ID: 93, SessionID: 41, Role: "user", Seq: 3, BlocksJSON: `[{"type":"text","data":{"text":"live"}}]`,
+			}, true)
+			assert.Zero(t, lowest, "失败的初始化不算建立了编号宇宙")
+			assert.Zero(t, highest)
+
+			recoverStore()
+			subscriber := newRecordingPeerSubscriber()
+			retried := attachPeerInBackground(ctx, deps.svc, subscriber).wait(t)
+			require.NoError(t, retried.err)
+			assert.Equal(t, int64(3), retried.result.LatestSeq)
+			page, err := deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41), Limit: 100}, subscriber)
+			require.NoError(t, err)
+			assertPeerNotificationSeqs(t, page.Notifications, 1, 2, 3)
+		})
+	}
+}
+
+// expectPeerAttachLookups 摆好 attach 在读转录之前要查的那几行(会话 41、Agent 7、后端 11)。
+func expectPeerAttachLookups(ctx context.Context, deps *peerSessionTestDeps) {
+	deps.session.EXPECT().Find(ctx, int64(41)).Return(&chat_entity.Session{ID: 41, AgentID: 7, AgentStatus: "idle"}, nil).AnyTimes()
+	deps.agent.EXPECT().Find(ctx, int64(7)).Return(agentForPeerSession(), nil).AnyTimes()
+	deps.backend.EXPECT().Find(ctx, int64(11)).Return(nil, nil).AnyTimes()
+}
+
+// blockedTranscriptRead 让会话 41 的 Message().List 停在读库里,直到 release;calls 记它
+// 被读了几次。
+type blockedTranscriptRead struct {
+	entered     chan struct{}
+	enteredOnce sync.Once
+	released    chan struct{}
+	releaseOnce sync.Once
+	calls       atomic.Int32
+}
+
+func blockTranscriptRead(t *testing.T, deps *peerSessionTestDeps, messages []*chat_entity.Message) *blockedTranscriptRead {
+	t.Helper()
+	read := &blockedTranscriptRead{entered: make(chan struct{}), released: make(chan struct{})}
+	deps.message.EXPECT().List(gomock.Any(), int64(41)).DoAndReturn(
+		func(context.Context, int64) ([]*chat_entity.Message, error) {
+			read.calls.Add(1)
+			read.enteredOnce.Do(func() { close(read.entered) })
+			<-read.released
+			return messages, nil
+		}).AnyTimes()
+	// 用例中途失败也要放行,否则卡在读库里的 goroutine 会活过这个用例。
+	t.Cleanup(read.release)
+	return read
+}
+
+func (r *blockedTranscriptRead) release() { r.releaseOnce.Do(func() { close(r.released) }) }
+
+func (r *blockedTranscriptRead) waitEntered(t *testing.T) {
+	t.Helper()
+	select {
+	case <-r.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("attach never started reading the transcript")
+	}
+}
+
+type peerAttachOutcome struct {
+	result wire.SessionAttachResult
+	err    error
+}
+
+type backgroundPeerAttach chan peerAttachOutcome
+
+func attachPeerInBackground(ctx context.Context, svc *Publisher, subscriber PeerSessionSubscriber) backgroundPeerAttach {
+	out := make(backgroundPeerAttach, 1)
+	go func() {
+		result, err := svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, subscriber)
+		out <- peerAttachOutcome{result: result, err: err}
+	}()
+	return out
+}
+
+func (a backgroundPeerAttach) wait(t *testing.T) peerAttachOutcome {
+	t.Helper()
+	select {
+	case got := <-a:
+		return got
+	case <-time.After(2 * time.Second):
+		t.Fatal("attach did not return")
+		return peerAttachOutcome{}
+	}
 }
 
 // blockingPeerSubscriber 的 Notify 阻塞到 released 关闭，用于证明本地发布不会被

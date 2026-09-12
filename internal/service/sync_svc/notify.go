@@ -70,23 +70,13 @@ func (s *service) NotifyLocalChange(ctx context.Context, ch LocalChange) {
 // logged out to the account that has just authenticated. It reuses the normal
 // outbound queue: account 0 is only a temporary local holding key and is never
 // sent to the server.
+//
+// 一条集合 UPDATE（要求 15）：此前是先 ListByAccount(0) 整批读出来，再逐行
+// Create + Delete，M 行就是 1 次读 + 2M 次写事务，且这一对不是原子的。改成
+// ReassignAccount 后原行的 id / EntitySyncID / Op / QueuedAt 都不变，只有
+// SyncAccountID 换了主人。
 func (s *service) claimAnonymousQueue(ctx context.Context, accountID int64) error {
-	rows, err := syncqueue_repo.OutboundQueue().ListByAccount(ctx, 0)
-	if err != nil {
-		return err
-	}
-	for _, row := range rows {
-		moved := *row
-		moved.ID = 0
-		moved.SyncAccountID = accountID
-		if err := syncqueue_repo.OutboundQueue().Create(ctx, &moved); err != nil {
-			return err
-		}
-		if err := syncqueue_repo.OutboundQueue().Delete(ctx, row.ID); err != nil {
-			return err
-		}
-	}
-	return nil
+	return syncqueue_repo.OutboundQueue().ReassignAccount(ctx, 0, accountID)
 }
 
 // claimForCurrentAccount 把本机**不属于当前账号**的存活行归入它，并**带着各自那个
@@ -118,17 +108,26 @@ func (s *service) claimForCurrentAccount(ctx context.Context, accountID int64) e
 			// 看板刚被并进这个账号：合并的后果要说在前面（一次性说明）。
 			s.markBoardJoinNotice(ctx)
 		}
+		// 同一 kind 的这些行合成一次批量写入（要求 15）：先把每一行（连同各自的
+		// 从属行）构建成队列行，凑齐整个 kind 再落库一次，而不是每行单独一次
+		// BEGIN IMMEDIATE。
+		var queueRows []*syncqueue_entity.OutboundQueueItem
 		for _, row := range rows {
 			// 基版本沿用仓储交回来的那一个：server 从没见过的行、以及刚从上一个
 			// 账号收过来的行都是 0，按 R4a 当新建处理。
-			if err := s.enqueue(ctx, accountID, LocalChange{
+			built, err := s.buildQueueRows(ctx, accountID, LocalChange{
 				Kind: kind, Op: OpCreate,
 				Meta: syncmeta_entity.SyncMeta{
 					SyncID: row.SyncID, SyncAccountID: accountID, SyncVersion: row.Version,
 				},
-			}); err != nil {
+			})
+			if err != nil {
 				return err
 			}
+			queueRows = append(queueRows, built...)
+		}
+		if err := syncqueue_repo.OutboundQueue().CreateMany(ctx, queueRows); err != nil {
+			return err
 		}
 		logger.Ctx(ctx).Info("sync_svc.claimForCurrentAccount: claimed rows that did not belong to this account",
 			zap.String("kind", kind), zap.Int("count", len(rows)))
@@ -153,32 +152,56 @@ func (s *service) reconcileLostTombstones(ctx context.Context, accountID int64) 
 		if err != nil {
 			return err
 		}
+		if len(rows) == 0 {
+			continue
+		}
+		// 同一 kind 的这些墓碑合成一次批量写入（要求 15），道理同 claimForCurrentAccount。
+		var queueRows []*syncqueue_entity.OutboundQueueItem
 		for _, row := range rows {
-			if err := s.enqueue(ctx, accountID, LocalChange{
+			built, err := s.buildQueueRows(ctx, accountID, LocalChange{
 				Kind: kind, Op: OpDelete,
 				Meta: syncmeta_entity.SyncMeta{
 					SyncID: row.SyncID, SyncAccountID: accountID, SyncVersion: row.Version,
 				},
-			}); err != nil {
+			})
+			if err != nil {
 				return err
 			}
+			queueRows = append(queueRows, built...)
 			logger.Ctx(ctx).Info("sync_svc.reconcileLostTombstones: queued a delete that never reached the server",
 				zap.String("kind", kind), zap.String("syncId", row.SyncID))
+		}
+		if err := syncqueue_repo.OutboundQueue().CreateMany(ctx, queueRows); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// enqueue 把一条本地改动（连同它的从属行 / 子行）写进出站队列。
+// enqueue 把一条本地改动（连同它的从属行 / 子行）写进出站队列，一次批量写入
+// （要求 15）。
+func (s *service) enqueue(ctx context.Context, accountID int64, ch LocalChange) error {
+	rows, err := s.buildQueueRows(ctx, accountID, ch)
+	if err != nil {
+		return err
+	}
+	return syncqueue_repo.OutboundQueue().CreateMany(ctx, rows)
+}
+
+// buildQueueRows 把一条本地改动（连同它的从属行 / 子行）构建成待写入出站队列的行，
+// 不做任何 I/O 写入——只读它的从属行 / 子行。调用方决定何时、以什么粒度批量落库：
+// 单条编辑（NotifyLocalChange）当场写一次；同一 kind 认领 / 补齐的多条改动
+// （claimForCurrentAccount / reconcileLostTombstones）先把各行构建好的队列行拼在
+// 一起，整个 kind 只落库一次。
 //
 //   - 增改：Agent 的执行目标随 Agent 一起入队——它们是独立的同步对象，却只跟着
 //     Agent 的写入路径变化（agent_repo 在同一个事务里落两张表）。
 //   - 删除：子行一并落墓碑（R6）——删项目连它的路径记录与成员关系，删 Agent 连
 //     它的成员关系与执行目标，删 backend 连引用它的执行目标（Agent 本身不删）。
-func (s *service) enqueue(ctx context.Context, accountID int64, ch LocalChange) error {
+func (s *service) buildQueueRows(ctx context.Context, accountID int64, ch LocalChange) ([]*syncqueue_entity.OutboundQueueItem, error) {
 	ad := s.adapters[ch.Kind]
 	if ad == nil {
-		return nil
+		return nil, nil
 	}
 
 	var related []relatedRow
@@ -189,7 +212,7 @@ func (s *service) enqueue(ctx context.Context, accountID int64, ch LocalChange) 
 		related, err = ad.dependents(ctx, ch.Meta.SyncID)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	now := s.now()
@@ -221,11 +244,5 @@ func (s *service) enqueue(ctx context.Context, accountID int64, ch LocalChange) 
 			QueuedAt:      now,
 		})
 	}
-
-	for _, row := range rows {
-		if err := syncqueue_repo.OutboundQueue().Create(ctx, row); err != nil {
-			return err
-		}
-	}
-	return nil
+	return rows, nil
 }

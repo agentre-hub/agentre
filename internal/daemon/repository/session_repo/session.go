@@ -342,7 +342,7 @@ func (r *sessionRepo) ListByPeer(ctx context.Context, peerFingerprint devicefp.I
 	err := db.Ctx(ctx).
 		Where("peer_fingerprint = ?", peerFingerprint).
 		Scopes(filterScope(filter), pageScope(offset, limit)).
-		Order("last_message_at DESC").
+		Order("last_message_at DESC, id DESC").
 		Find(&rows).Error
 	if err != nil {
 		return nil, err
@@ -366,7 +366,7 @@ func (r *sessionRepo) ListAll(ctx context.Context, filter ListFilter, offset, li
 	var rows []*DaemonSession
 	err := db.Ctx(ctx).
 		Scopes(filterScope(filter), pageScope(offset, limit)).
-		Order("last_message_at DESC").
+		Order("last_message_at DESC, id DESC").
 		Find(&rows).Error
 	if err != nil {
 		return nil, err
@@ -390,7 +390,7 @@ func (r *sessionRepo) ListByPeerLifecycle(ctx context.Context, peerFingerprint d
 	err := db.Ctx(ctx).
 		Where("peer_fingerprint = ? AND lifecycle_state = ?", peerFingerprint, state).
 		Scopes(pageScope(0, limit)).
-		Order("last_message_at DESC").
+		Order("last_message_at DESC, id DESC").
 		Find(&rows).Error
 	if err != nil {
 		return nil, err
@@ -403,7 +403,7 @@ func (r *sessionRepo) ListAllByLifecycle(ctx context.Context, state string, limi
 	err := db.Ctx(ctx).
 		Where("lifecycle_state = ?", state).
 		Scopes(pageScope(0, limit)).
-		Order("last_message_at DESC").
+		Order("last_message_at DESC, id DESC").
 		Find(&rows).Error
 	if err != nil {
 		return nil, err
@@ -417,7 +417,11 @@ func (r *sessionRepo) ListCreatedSince(ctx context.Context, createdFromMs int64)
 	if createdFromMs > 0 {
 		q = q.Where("createtime >= ?", createdFromMs)
 	}
-	if err := q.Order("last_message_at DESC").Find(&rows).Error; err != nil {
+	// 无 ORDER BY:唯一调用方(handlers.ActivityHandlers.ActivityRollup)把整份结果直接
+	// 喂进 activityrollup.Aggregate 按天/维度计数,从不读行的返回顺序 —— 排序的输出没有
+	// 消费者,留着只是白算一次 TEMP B-TREE(决策 5 之外的另一处「不是活动」:这里干脆
+	// 是不需要顺序)。
+	if err := q.Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -453,11 +457,13 @@ func (r *sessionRepo) Delete(ctx context.Context, peerFingerprint devicefp.Initi
 }
 
 func (r *sessionRepo) InterruptAll(ctx context.Context, interruptedState string) (int64, error) {
+	// 只写 lifecycle_state(决策 5,用户决定):启动清扫不是「活动」。写 last_message_at
+	// 会把这一批会话真实的活动顺序拍平到重启那一毫秒,清单排序与「最后活动」的展示都会
+	// 因为一次重启而失真(要求 7)。
 	tx := db.Ctx(ctx).Model(&DaemonSession{}).
 		Where("lifecycle_state <> ?", interruptedState).
 		Updates(map[string]any{
 			"lifecycle_state": interruptedState,
-			"last_message_at": time.Now().UnixMilli(),
 		})
 	return tx.RowsAffected, tx.Error
 }

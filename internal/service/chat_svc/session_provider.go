@@ -332,7 +332,7 @@ func (s *chatSvc) appendProviderSwitchNotice(
 }
 
 // appendSessionNotice 是这类「自此改了某个会话级设置」持久 notice 的唯一落库骨架：
-// 建一条只带一个 info 级 NoticeBlock 的 assistant 消息、取 seq、落库。text 是结构化
+// 建一条只带一个 info 级 NoticeBlock 的 assistant 消息，取 seq 与落库同一事务。text 是结构化
 // 负载（view.EncodeXxx），前端解回字段后走 t() 渲染，不把原始 JSON 泄漏出去。
 //
 // where 是调用方的 package.Method 名，只用于日志前缀 —— 三处降级日志因此仍指得出是
@@ -361,14 +361,9 @@ func appendSessionNotice(
 			zap.Int64("sessionId", sess.ID), zap.Error(err))
 		return
 	}
-	seq, err := transcript_repo.Message().NextSeq(ctx, sess.ID)
-	if err != nil {
-		logger.Ctx(ctx).Warn(where+": next seq failed",
-			zap.Int64("sessionId", sess.ID), zap.Error(err))
-		return
-	}
-	msg.Seq = seq
-	if err := transcript_repo.Message().Create(ctx, msg); err != nil {
+	// 取号与建行必须在同一个事务里:这条 notice 可能与轮内事务的 NextSeq 交错,
+	// 事务外先取号再建行会与之拿到同一个 seq。
+	if err := transcript_repo.Message().CreateAtNextSeq(ctx, msg); err != nil {
 		logger.Ctx(ctx).Warn(where+": persist notice failed",
 			zap.Int64("sessionId", sess.ID), zap.Error(err))
 	}

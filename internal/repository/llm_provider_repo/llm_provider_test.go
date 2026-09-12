@@ -271,6 +271,89 @@ func TestLLMProviderRepo_BatchFindByKey(t *testing.T) {
 	})
 }
 
+func TestLLMProviderRepo_ListByKeysAnyStatus(t *testing.T) {
+	convey.Convey("ListByKeysAnyStatus", t, func() {
+		ctx, mock, repo := setupLLMProviderRepoTest(t)
+
+		convey.Convey("空 keys 不发 SQL，返回空 map", func() {
+			got, err := repo.ListByKeysAnyStatus(ctx, nil)
+			assert.NoError(t, err)
+			assert.Empty(t, got)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+
+		convey.Convey("与 FindByKey 同口径不过滤 status：软删行照样按 provider_key 索引返回", func() {
+			rows := sqlmock.NewRows([]string{"id", "provider_key", "type", "name", "enabled", "status"}).
+				AddRow(int64(1), "key-1", "anthropic", "prov-1", 1, consts.ACTIVE).
+				AddRow(int64(2), "key-2", "openai-chat", "retired", 1, consts.DELETE)
+			mock.ExpectQuery("SELECT \\* FROM `llm_providers` WHERE provider_key IN \\(\\?,\\?\\)$").
+				WithArgs("key-1", "key-2").
+				WillReturnRows(rows)
+
+			got, err := repo.ListByKeysAnyStatus(ctx, []string{"key-1", "key-2"})
+			assert.NoError(t, err)
+			assert.Len(t, got, 2)
+			assert.Equal(t, "prov-1", got["key-1"].Name)
+			assert.Equal(t, "retired", got["key-2"].Name)
+			assert.False(t, got["key-2"].IsActive())
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+
+		convey.Convey("驱动报错时透传", func() {
+			mock.ExpectQuery("SELECT \\* FROM `llm_providers` WHERE provider_key IN \\(\\?\\)").
+				WithArgs("key-1").
+				WillReturnError(errors.New("db error"))
+
+			got, err := repo.ListByKeysAnyStatus(ctx, []string{"key-1"})
+			assert.EqualError(t, err, "db error")
+			assert.Nil(t, got)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	})
+}
+
+func TestLLMProviderRepo_BatchFindModelsByKey(t *testing.T) {
+	convey.Convey("BatchFindModelsByKey", t, func() {
+		ctx, mock, repo := setupLLMProviderRepoTest(t)
+
+		convey.Convey("空 keys 不发 SQL，返回空 map", func() {
+			got, err := repo.BatchFindModelsByKey(ctx, []string{})
+			assert.NoError(t, err)
+			assert.Empty(t, got)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+
+		convey.Convey("与 FindModelByKey 同口径只取 ACTIVE（含 enabled=0），按 model_key 索引", func() {
+			rows := modelRows().
+				AddRow(9, 3, "mk-1", "claude-sonnet-4-6", "sonnet", 200000, 4096,
+					llm_provider_model_entity.EnabledOn, consts.ACTIVE, int64(0), int64(0)).
+				AddRow(10, 3, "mk-2", "claude-haiku", "haiku", 200000, 4096,
+					llm_provider_model_entity.EnabledOff, consts.ACTIVE, int64(0), int64(0))
+			mock.ExpectQuery("SELECT \\* FROM `llm_provider_models` WHERE model_key IN \\(\\?,\\?\\) AND status = \\?").
+				WithArgs("mk-1", "mk-2", consts.ACTIVE).
+				WillReturnRows(rows)
+
+			got, err := repo.BatchFindModelsByKey(ctx, []string{"mk-1", "mk-2"})
+			assert.NoError(t, err)
+			assert.Len(t, got, 2)
+			assert.Equal(t, "claude-sonnet-4-6", got["mk-1"].ModelID)
+			assert.Equal(t, llm_provider_model_entity.EnabledOff, got["mk-2"].Enabled)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+
+		convey.Convey("驱动报错时透传", func() {
+			mock.ExpectQuery("SELECT \\* FROM `llm_provider_models` WHERE model_key IN \\(\\?\\) AND status = \\?").
+				WithArgs("mk-1", consts.ACTIVE).
+				WillReturnError(errors.New("db error"))
+
+			got, err := repo.BatchFindModelsByKey(ctx, []string{"mk-1"})
+			assert.EqualError(t, err, "db error")
+			assert.Nil(t, got)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	})
+}
+
 func TestLLMProviderRepo_Update(t *testing.T) {
 	convey.Convey("Update", t, func() {
 		ctx, mock, repo := setupLLMProviderRepoTest(t)
