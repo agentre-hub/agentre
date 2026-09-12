@@ -120,7 +120,7 @@ Merging requires the nine jobs in [`.github/workflows/ci.yml`](../.github/workfl
 | `Go Lint` | `golangci-lint` (CI-pinned to v2.12.2) |
 | `Go Test` | `make test-backend` |
 | `Frontend Lint` | `cd frontend && pnpm run lint` |
-| `Frontend Test` | wails binding generation + `pnpm run test` |
+| `Frontend Test` | wails binding generation + `pnpm run typecheck` + `pnpm run test` |
 | `Wire Proto` | `cd frontend/packages/agentre-wire && pnpm run proto:check` |
 | `Mocks` | `make mock` regenerates them, then `git diff --exit-code` requires the checked-in output to already match (CI installs `mockgen@v0.6.0`) |
 | `agentred Packaging` | POSIX installer contract test (`bash scripts/test-install.sh`) |

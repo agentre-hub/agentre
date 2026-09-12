@@ -75,7 +75,7 @@ make install          # build + install app bundle (macOS: /Applications/Agentre
 make generate         # wails generate module — refresh frontend/wailsjs/ bindings
 make test             # backend Go tests + frontend Vitest (runs `generate` first)
 make test-backend     # Go tests excluding /frontend/
-make test-frontend    # wails generate + frontend Vitest
+make test-frontend    # wails generate + frontend tsc typecheck + Vitest
 make test-cover       # coverage.out + coverage.html
 make lint / lint-fix  # golangci-lint + frontend ESLint (runs `generate` first)
 make check            # lint + test
@@ -99,7 +99,7 @@ go test -race -run TestName ./internal/service/chat_svc/...
 go test -race ./internal/repository/llm_provider_repo -run TestName
 go test -race ./pkg/codex -run TestName
 cd frontend && pnpm test -- path/to/file.test.tsx
-cd frontend && pnpm exec tsc -b --noEmit     # typecheck — vitest does NOT check types
+cd frontend && pnpm typecheck                # tsc -b --noEmit — vitest does NOT check types
 cd frontend && pnpm install                  # pnpm is source of truth, not npm
 ```
 

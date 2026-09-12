@@ -11,7 +11,8 @@
     "lint:fix": "eslint . --fix",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

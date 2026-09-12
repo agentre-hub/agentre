@@ -147,6 +147,10 @@ jobs:
           wails generate module
       - name: Install dependencies
         run: cd frontend && pnpm install --frozen-lockfile
+      # vitest 走 esbuild，只转译不查类型。tsc 此前只挂在 build 上，类型错误要到
+      # 打包那一刻才炸。这一步跟 Test 同一个 job，因为它要上面生成的 wailsjs 绑定。
+      - name: Typecheck
+        run: cd frontend && pnpm run typecheck
       - name: Test
         run: cd frontend && pnpm run test
 

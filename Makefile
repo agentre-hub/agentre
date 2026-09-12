@@ -158,8 +158,10 @@ test-backend:
 	go test -C pkg/syncwire ./...
 
 # 运行前端测试
+# typecheck 与 vitest 一起跑：vitest 走 esbuild 只转译不查类型，而 tsc 此前只挂在
+# build 上 —— 于是 make test / make lint 全绿、打包那一刻才红，类型闸形同虚设。
 test-frontend: generate
-	cd $(FRONTEND_DIR) && pnpm test
+	cd $(FRONTEND_DIR) && pnpm typecheck && pnpm test
 
 # Build only the dedicated E2E composition root. Production build/package targets
 # remain rooted at main.go and never import e2e/composition or fake runtimes.
