@@ -20,7 +20,13 @@
     "header": {
       "remote": "在 {{device}} 上"
     },
-    "sendFailed": "发送失败，请重试",
+    "send": {
+      "appNotRunning": "对方电脑上的 Agentre 没有在运行，这条消息没送出去",
+      "rejected": "对端没有收下这条消息",
+      "sessionGone": "对端上已经没有这条会话了",
+      "turnEnded": "对端那一轮刚刚结束了，再发一次会开新的一轮",
+      "unknownConversation": "对端不认这条会话"
+    },
     "status": {
       "connecting": "连接中…",
       "ready": "已接入",

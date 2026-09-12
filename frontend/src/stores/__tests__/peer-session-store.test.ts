@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   PeerAttach: vi.fn(),
   PeerPull: vi.fn(),
   PeerSteer: vi.fn(),
+  PeerRun: vi.fn(),
   PeerSubmitAnswer: vi.fn(),
   PeerSubmitToolPermission: vi.fn(),
   PeerDetach: vi.fn().mockResolvedValue(undefined),
@@ -26,6 +27,7 @@ vi.mock("../../../wailsjs/runtime/runtime", () => ({
 import {
   PeerAttach,
   PeerPull,
+  PeerRun,
   PeerSteer,
   PeerSubmitAnswer,
   PeerSubmitToolPermission,
@@ -361,6 +363,131 @@ describe("peer-session-store", () => {
         text: "接着干",
       }),
     );
+  });
+
+  // ── 空闲会话上也要发得出去 ────────────────────────────────────────────────
+  //
+  // steer 只能给**正在进行的轮次**插话:对端会话闲着的时候它必然失败
+  // (agentruntime: no active turn for session)。会话状态从 attach 回来,store 记着
+  // 它,发送方据此分流 —— 不是靠匹配错误串事后补救。
+
+  it("attach 把对端会话此刻的生命周期状态记下来", async () => {
+    (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      latestSeq: 0,
+      lifecycleState: "running",
+    });
+    (PeerPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      notifications: [],
+      cursor: 0,
+      hasMore: false,
+    });
+    await usePeerSessionsStore.getState().attach({
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      title: "t",
+      deviceName: "d",
+    });
+    expect(
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ].lifecycleState,
+    ).toBe("running");
+  });
+
+  it("那一轮跑完(done)之后,会话状态跟着落回 idle", async () => {
+    (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      latestSeq: 0,
+      lifecycleState: "running",
+    });
+    (PeerPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      notifications: [],
+      cursor: 0,
+      hasMore: false,
+    });
+    await usePeerSessionsStore.getState().attach({
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      title: "t",
+      deviceName: "d",
+    });
+    eventsOn.holder.handler!([frame(1, "done")]);
+    expect(
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ].lifecycleState,
+    ).toBe("idle");
+  });
+
+  it("run 经 PeerRun 在同一条对话上起新一轮,并把本地状态推到 running", async () => {
+    (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      latestSeq: 0,
+      lifecycleState: "idle",
+    });
+    (PeerPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      notifications: [],
+      cursor: 0,
+      hasMore: false,
+    });
+    (PeerRun as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      conversationId: conv(7),
+    });
+    await usePeerSessionsStore.getState().attach({
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      title: "t",
+      deviceName: "d",
+    });
+
+    const ok = await usePeerSessionsStore
+      .getState()
+      .run("sha256:peer-desktop", conv(7), "空闲时也要发得出去");
+    expect(ok).toBe(true);
+    expect(PeerRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fingerprint: "sha256:peer-desktop",
+        conversationId: conv(7),
+        text: "空闲时也要发得出去",
+      }),
+    );
+    expect(PeerSteer).not.toHaveBeenCalled();
+    expect(
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ].lifecycleState,
+    ).toBe("running");
+  });
+
+  it("run 失败时把对端说的原因记进 lastError(而不是吞掉)", async () => {
+    (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      latestSeq: 0,
+      lifecycleState: "idle",
+    });
+    (PeerPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      notifications: [],
+      cursor: 0,
+      hasMore: false,
+    });
+    (PeerRun as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("relay: Agentre App is not running on the target desktop"),
+    );
+    await usePeerSessionsStore.getState().attach({
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      title: "t",
+      deviceName: "d",
+    });
+
+    const ok = await usePeerSessionsStore
+      .getState()
+      .run("sha256:peer-desktop", conv(7), "发不出去");
+    expect(ok).toBe(false);
+    const s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
+    expect(s.lastError).toContain("Agentre App is not running");
+    expect(s.sending).toBe(false);
+    expect(s.lifecycleState).not.toBe("running");
   });
 
   it("submitAnswer surfaces alreadyHandled (R10)", async () => {

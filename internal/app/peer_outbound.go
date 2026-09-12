@@ -105,6 +105,15 @@ func (a *App) PeerRunFresh(req peer_svc.RunFreshRequest) (wire.RunAck, error) {
 	return wire.RunAck{}, errPeerServiceUnavailable
 }
 
+// PeerRun 在对端一条**已经存在**的会话上起新一轮。会话空闲时 PeerSteer 没有轮次可
+// 插（对端一律回 ErrNoActiveTurn），Peer Tab 按会话状态在这两条路之间分流。
+func (a *App) PeerRun(req peer_svc.RunRequest) (wire.RunAck, error) {
+	if svc := peerSvcAccessor(); svc != nil {
+		return svc.Run(a.ctx, req)
+	}
+	return wire.RunAck{}, errPeerServiceUnavailable
+}
+
 // PeerAttach 接入远端会话并开始接收实时流（R19），返回高水位游标。
 func (a *App) PeerAttach(req peer_svc.AttachRequest) (*wire.SessionAttachResult, error) {
 	if svc := peerSvcAccessor(); svc != nil {

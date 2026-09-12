@@ -206,6 +206,33 @@ function nextWaiting(current: boolean, kind: string | undefined): boolean {
   }
 }
 
+/**
+ * 「对端这条会话此刻在不在跑」这枚状态灯，由实时帧推进。
+ *
+ * 初值来自 attach 交回的 lifecycleState；这里只认三种会改变它的帧，其余（增量、
+ * 工具、遥测）一概不动。取值与 wire 的 SessionLifecycle* 同词表。
+ *
+ * 为什么 user_message 就是「跑起来了」：一轮的用户消息由执行端在**轮次开始时**
+ * 落库并当场作为持久帧发布（见 wire 的 EventUserMessage），它到达即意味着那条
+ * 会话上有一轮正在跑。
+ */
+export function nextLifecycleState(
+  current: string,
+  kind: string | undefined,
+): string {
+  switch (kind) {
+    case EventUserMessage:
+      return "running";
+    case EventDone:
+      return "idle";
+    case EventError:
+      // 故障收场也是收场：那一轮已经不在跑了，下一条消息要开新的一轮。
+      return "failed";
+    default:
+      return current;
+  }
+}
+
 const HOSTED_BY_PANEL = new Set([
   "ask_user_question",
   "tool_permission_request",

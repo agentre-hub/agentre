@@ -18,10 +18,12 @@ type stubPeerSvc struct {
 	lastListFingerprint devicefp.Carrier
 	lastAttach          peer_svc.AttachRequest
 	lastSteer           peer_svc.SteerRequest
+	lastRun             peer_svc.RunRequest
 	lastAnswer          peer_svc.SubmitAnswerRequest
 	lastPermission      peer_svc.SubmitToolPermissionRequest
 	lastDetachSession   string
 	runFreshResult      wire.RunAck
+	runResult           wire.RunAck
 	listResult          *wire.SessionListResult
 	lastListLimit       int
 	attachResult        *wire.SessionAttachResult
@@ -36,6 +38,10 @@ func (s *stubPeerSvc) ListSessions(_ context.Context, req peer_svc.ListSessionsR
 }
 func (s *stubPeerSvc) RunFresh(_ context.Context, _ peer_svc.RunFreshRequest) (wire.RunAck, error) {
 	return s.runFreshResult, s.err
+}
+func (s *stubPeerSvc) Run(_ context.Context, req peer_svc.RunRequest) (wire.RunAck, error) {
+	s.lastRun = req
+	return s.runResult, s.err
 }
 func (s *stubPeerSvc) Attach(_ context.Context, req peer_svc.AttachRequest) (*wire.SessionAttachResult, error) {
 	s.lastAttach = req
@@ -70,6 +76,7 @@ func TestAppPeerBindings_GivenWiredService_WhenCalled_ThenPassThrough(t *testing
 		listResult:    &wire.SessionListResult{Sessions: []wire.SessionSummary{{ConversationID: convID(7)}}},
 		attachResult:  &wire.SessionAttachResult{ConversationID: convID(7), LatestSeq: 12},
 		controlResult: &wire.PeerSessionControlResult{AlreadyHandled: true},
+		runResult:     wire.RunAck{ConversationID: convID(7)},
 	}
 	previous := peerSvcAccessor
 	peerSvcAccessor = func() peer_svc.PeerSvc { return stub }
@@ -90,6 +97,13 @@ func TestAppPeerBindings_GivenWiredService_WhenCalled_ThenPassThrough(t *testing
 
 	require.NoError(t, a.PeerSteer(peer_svc.SteerRequest{Fingerprint: "sha256:peer-desktop", ConversationID: convID(7), Text: "接着干"}))
 	assert.Equal(t, "接着干", stub.lastSteer.Text)
+
+	// 空闲会话上开新一轮:与 Steer 并列的另一条路,同样只是穿透。
+	ack, err := a.PeerRun(peer_svc.RunRequest{Fingerprint: "sha256:peer-desktop", ConversationID: convID(7), UserText: "空闲时也要发得出去"})
+	require.NoError(t, err)
+	assert.Equal(t, convID(7), stub.lastRun.ConversationID)
+	assert.Equal(t, "空闲时也要发得出去", stub.lastRun.UserText)
+	assert.Equal(t, convID(7), ack.ConversationID)
 
 	res, err := a.PeerSubmitAnswer(peer_svc.SubmitAnswerRequest{Fingerprint: "sha256:peer-desktop", ConversationID: convID(7), RequestID: "req-1"})
 	require.NoError(t, err)

@@ -24,6 +24,7 @@ import {
   usePeerSessionsStore,
 } from "../../../stores/peer-session-store";
 import type { PeerDecision, PeerChatMessage } from "./peer-transcript";
+import { classifyPeerSendFailure } from "./send-failure";
 import type { chat_svc } from "../../../../wailsjs/go/models";
 
 export type PeerPanelProps = {
@@ -62,6 +63,7 @@ export function PeerPanel({
   const attach = usePeerSessionsStore((s) => s.attach);
   const detach = usePeerSessionsStore((s) => s.detach);
   const steer = usePeerSessionsStore((s) => s.steer);
+  const run = usePeerSessionsStore((s) => s.run);
   const submitAnswer = usePeerSessionsStore((s) => s.submitAnswer);
   const submitToolPermission = usePeerSessionsStore(
     (s) => s.submitToolPermission,
@@ -70,6 +72,8 @@ export function PeerPanel({
   const [notice, setNotice] = React.useState<{
     text: string;
     kind: "error" | "info";
+    /** 认不出来的机器原话。证据，不是说给用户听的那一句。 */
+    detail?: string;
   } | null>(null);
 
   React.useEffect(() => {
@@ -96,6 +100,8 @@ export function PeerPanel({
   const decisions = session?.transcript.decisions ?? [];
   const status = session?.status ?? "attaching";
   const sending = session?.sending ?? false;
+  // 「对端这条会话此刻在不在跑」——attach 交回的初值 + 实时帧推进（见 store）。
+  const turnRunning = session?.lifecycleState === "running";
 
   const handleSubmit = React.useCallback(
     (message: ChatComposerSubmit) => {
@@ -103,17 +109,27 @@ export function PeerPanel({
       if (!text) return;
       setNotice(null);
       void (async () => {
-        const ok = await steer(fingerprint, conversationId, text);
-        if (!ok) {
-          composerRef.current?.restoreDraft(text, message.images ?? []);
-          setNotice({
-            kind: "error",
-            text: t("peerPanel.sendFailed"),
-          });
-        }
+        // 插话只插得进**正在进行的轮次**；会话闲着的时候要开新的一轮（与控制台
+        // 同一口径）。判据是已接入拿到的会话状态，不是发出去撞了墙再看错误串 ——
+        // 后者等于让每条空闲会话的第一次发送必然失败一次。
+        const ok = turnRunning
+          ? await steer(fingerprint, conversationId, text)
+          : await run(fingerprint, conversationId, text);
+        if (ok) return;
+        // 草稿不能跟着一起丢。
+        composerRef.current?.restoreDraft(text, message.images ?? []);
+        // 真实原因 store 已经记下了（lastError）；这里把机器原话解析成一句事实。
+        const failure = classifyPeerSendFailure(
+          usePeerSessionsStore.getState().sessions[key]?.lastError,
+        );
+        setNotice({
+          kind: "error",
+          text: t(failure.key),
+          detail: failure.detail,
+        });
       })();
     },
-    [steer, fingerprint, conversationId, t],
+    [steer, run, turnRunning, fingerprint, conversationId, key, t],
   );
 
   const handleAnswer = React.useCallback(
@@ -207,6 +223,9 @@ export function PeerPanel({
           data-testid="peer-notice"
         >
           {notice.text}
+          {notice.detail ? (
+            <div className="mt-1 break-all opacity-70">{notice.detail}</div>
+          ) : null}
         </div>
       ) : null}
 

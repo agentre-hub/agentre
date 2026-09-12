@@ -13,6 +13,7 @@ import { create } from "zustand";
 import {
   PeerAttach,
   PeerPull,
+  PeerRun,
   PeerSteer,
   PeerSubmitAnswer,
   PeerSubmitToolPermission,
@@ -22,6 +23,7 @@ import { EventsOn } from "../../wailsjs/runtime/runtime";
 import type { wire } from "../../wailsjs/go/models";
 import {
   createPeerTranscript,
+  nextLifecycleState,
   reducePeerEvent,
   reducePeerPullPage,
   type PeerEventFrame,
@@ -66,6 +68,14 @@ export type PeerSessionView = {
   deviceName: string;
   status: "attaching" | "ready" | "error";
   error?: string;
+  /**
+   * 对端那条会话此刻的生命周期状态（wire 的 running / idle / failed /
+   * interrupted）。attach 交回初值，之后由实时帧推进。
+   *
+   * 它决定「发送」走哪条路：插话只插得进**正在进行的轮次**，闲着的会话要用
+   * run 起新一轮。空串 = 还不知道（attach 没成功）。
+   */
+  lifecycleState: string;
   /** attach 返回的高水位；attaching 期间 ≤ 高水位的实时帧由 pull 覆盖、直接丢弃。 */
   highWater: number;
   transcript: PeerTranscriptState;
@@ -83,6 +93,12 @@ type State = {
   }) => Promise<void>;
   detach: (fingerprint: string, conversationId: string) => void;
   steer: (
+    fingerprint: string,
+    conversationId: string,
+    text: string,
+  ) => Promise<boolean>;
+  /** 在对端这条**已有**会话上起新一轮（会话空闲时的发送路径）。 */
+  run: (
     fingerprint: string,
     conversationId: string,
     text: string,
@@ -128,6 +144,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
           title,
           deviceName,
           status: "attaching",
+          lifecycleState: "",
           highWater: 0,
           transcript: createPeerTranscript(),
           sending: false,
@@ -153,7 +170,11 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
       set((state) => ({
         sessions: {
           ...state.sessions,
-          [key]: { ...state.sessions[key], highWater },
+          [key]: {
+            ...state.sessions[key],
+            highWater,
+            lifecycleState: att?.lifecycleState ?? "",
+          },
         },
       }));
     } catch {
@@ -259,7 +280,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
     set((state) => ({
       sessions: {
         ...state.sessions,
-        [key]: { ...state.sessions[key], sending: true },
+        [key]: { ...state.sessions[key], sending: true, lastError: undefined },
       },
     }));
     try {
@@ -276,6 +297,51 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
             sending: false,
             lastError: errorMessage(e),
           },
+        },
+      }));
+      return false;
+    } finally {
+      set((state) => ({
+        sessions: {
+          ...state.sessions,
+          [key]: { ...state.sessions[key], sending: false },
+        },
+      }));
+    }
+  },
+
+  // run 在对端这条**已有**的会话上起新一轮。
+  //
+  // 它与 steer 的分工就是「那一轮在不在」：插话插不进一条闲着的会话（对端一律回
+  // agentruntime: no active turn for session），闲着的会话要开新的一轮。选哪一条
+  // 由调用方按 lifecycleState 决定 —— 不是拿错误串事后补救。
+  run: async (fingerprint, conversationId, text) => {
+    const key = peerKeyOf(fingerprint, conversationId);
+    if (!get().sessions[key]) return false;
+    set((state) => ({
+      sessions: {
+        ...state.sessions,
+        [key]: { ...state.sessions[key], sending: true, lastError: undefined },
+      },
+    }));
+    try {
+      await PeerRun({ fingerprint, conversationId, text } as Parameters<
+        typeof PeerRun
+      >[0]);
+      // 这一轮是本端刚起的：不等对端那条 user_message 帧回来就把灯点上，免得
+      // 紧接着的第二条消息又被当成「空闲」再开一轮。对端的帧到达时是同一个值。
+      set((state) => ({
+        sessions: {
+          ...state.sessions,
+          [key]: { ...state.sessions[key], lifecycleState: "running" },
+        },
+      }));
+      return true;
+    } catch (e) {
+      set((state) => ({
+        sessions: {
+          ...state.sessions,
+          [key]: { ...state.sessions[key], lastError: errorMessage(e) },
         },
       }));
       return false;
@@ -372,6 +438,10 @@ function ensureSubscribed() {
         }
         sessions[key] = {
           ...session,
+          lifecycleState: nextLifecycleState(
+            session.lifecycleState,
+            frame.event?.kind,
+          ),
           transcript: reducePeerEvent(session.transcript, frame),
         };
       }

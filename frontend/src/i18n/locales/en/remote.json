@@ -20,7 +20,13 @@
     "header": {
       "remote": "on {{device}}"
     },
-    "sendFailed": "Send failed, please retry",
+    "send": {
+      "appNotRunning": "Agentre is not running on that computer, so the message was not delivered.",
+      "rejected": "The other computer did not accept the message.",
+      "sessionGone": "That session no longer exists on the other computer.",
+      "turnEnded": "That turn just ended on the other computer. Send again to start a new one.",
+      "unknownConversation": "The other computer does not recognize this conversation."
+    },
     "status": {
       "connecting": "Connecting…",
       "ready": "Attached",
