@@ -219,12 +219,20 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
               {lan && !device.viaRelay
                 ? lan.url
                 : t("remoteDevices.status.viaRelay")}
-              <span className="mx-2">·</span>
-              {device.lastSeenAt > 0
-                ? t("remoteDevices.status.lastConnected", {
-                    time: relativeTime(device.lastSeenAt, now, t),
-                  })
-                : t("remoteDevices.status.neverConnected")}
+              {/* 在线时不报时间：在线徽标来自服务端 30 秒 TTL 的中继在线登记，而
+                  lastSeenAt 是中继保持着连接期间根本不刷新的库字段 —— 并排摆出来
+                  就成了「在线 · 1 小时前」。够得着这台机器时它上次什么时候连上的
+                  没人要问；够不着时这才是仅有的线索。 */}
+              {device.online ? null : (
+                <>
+                  <span className="mx-2">·</span>
+                  {device.lastSeenAt > 0
+                    ? t("remoteDevices.status.lastConnected", {
+                        time: relativeTime(device.lastSeenAt, now, t),
+                      })
+                    : t("remoteDevices.status.neverConnected")}
+                </>
+              )}
             </span>
             <VersionBadge state={versionState} t={t} />
           </div>

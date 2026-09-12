@@ -223,4 +223,49 @@ describe("DesktopDeviceRow", () => {
     // 聊天侧 effectiveTarget.kind==="local" 保证的）。
     expect(screen.getByRole("button", { name: /expand/i })).toBeTruthy();
   });
+
+  // 刚走完设备流登录的那一刻，服务端还没把这台机器登记成在线，而设备清单也不会
+  // 自己再拉一次 —— 于是自己那一行会说「这台电脑上的 Agentre 没有运行」，可它正
+  // 由这台桌面端渲染着。本机那一行不拿服务端的在线登记当判据。
+  it("given this device not yet registered online by the server, still renders it as running", () => {
+    render(
+      <MemoryRouter>
+        <DesktopDeviceRow
+          device={runningDesktop({ isThisDevice: true, online: false })}
+          now={1_700_000_100_000}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByTestId("desktop-not-running")).toBeNull();
+    // 本机在跑，就照常展得开它的会话。
+    expect(screen.getByRole("button", { name: /expand/i })).toBeTruthy();
+  });
+
+  // 在线徽标来自服务端 30 秒 TTL 的中继在线登记，「上次在线」却取自一个中继保持
+  // 着连接期间根本不刷新的库字段 —— 两者并排就成了「正在运行 · 1 小时前」这种自相
+  // 矛盾的说法。在线时只说在线，不报时间。
+  it("given a running desktop, does not pair Running with a stale last-seen time", () => {
+    render(
+      <MemoryRouter>
+        <DesktopDeviceRow
+          device={runningDesktop({ online: true })}
+          now={1_700_003_700_000}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText(/Last seen/)).toBeNull();
+  });
+
+  // 反过来，离线时「上次在线」是这一行仅有的时间线索，必须还在。
+  it("given a desktop that is not running, still says when it was last seen", () => {
+    render(
+      <MemoryRouter>
+        <DesktopDeviceRow
+          device={runningDesktop({ online: false })}
+          now={1_700_003_700_000}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/Last seen/)).toBeTruthy();
+  });
 });
