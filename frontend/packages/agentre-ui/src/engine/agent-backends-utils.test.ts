@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { agentreUiResources } from "../i18n";
+
 import { routeConclusion } from "./agent-backends-shared";
-import { resolveModelTarget, truncateFlashText } from "./agent-backends-utils";
+import {
+  messageFromError,
+  resolveModelTarget,
+  truncateFlashText,
+} from "./agent-backends-utils";
 import type { PickerProvider } from "./model-target-picker";
 
 describe("truncateFlashText", () => {
@@ -98,5 +104,51 @@ describe("routeConclusion", () => {
         catalog,
       ),
     ).toBe("agentBackends.modelRoutes.fixedSummary:Sonnet 4.6");
+  });
+});
+
+/**
+ * 判据是包自己的语言包，而且是 **zh-CN** 那一份：这个 helper 的输出直接进 flash
+ * 条给用户看，写死读 en 的实现会让中文界面上冒出一句英文。
+ */
+function translator(language: "zh-CN" | "en") {
+  return (key: string) => {
+    const value = key
+      .split(".")
+      .reduce<unknown>(
+        (node, part) => (node as Record<string, unknown>)?.[part],
+        agentreUiResources[language],
+      );
+    return typeof value === "string" ? value : key;
+  };
+}
+
+describe("messageFromError", () => {
+  it("Error 取 message 原文，不进 i18n", () => {
+    expect(messageFromError(new Error("boom"), translator("zh-CN"))).toBe(
+      "boom",
+    );
+  });
+
+  it("字符串原样返回", () => {
+    expect(messageFromError("plain", translator("zh-CN"))).toBe("plain");
+  });
+
+  it("可序列化的对象序列化后返回", () => {
+    expect(messageFromError({ code: 7 }, translator("zh-CN"))).toBe(
+      '{"code":7}',
+    );
+  });
+
+  it("Given 序列化不了的错误值, When 界面语言是 zh-CN, Then 兜底文案是中文", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(messageFromError(circular, translator("zh-CN"))).toBe("未知错误");
+  });
+
+  it("Given 同一个错误值, When 界面语言是 en, Then 兜底文案跟着宿主语言走", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(messageFromError(circular, translator("en"))).toBe("Unknown error");
   });
 });

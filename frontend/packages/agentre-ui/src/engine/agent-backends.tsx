@@ -11,21 +11,11 @@ import {
 } from "../ui/dropdown-menu";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { agentreUiResources } from "../i18n";
-
-const i18n = {
-  t: (key: string, _options?: Record<string, unknown>) =>
-    (key
-      .split(".")
-      .reduce<unknown>(
-        (value, part) => (value as Record<string, unknown>)?.[part],
-        agentreUiResources.en,
-      ) as string) ?? key,
-};
 import { cn } from "../lib/utils";
 
 import {
   accountDeviceOptions,
+  messageFromError,
   type DeviceOption,
 } from "./agent-backends-utils";
 import { agent_backend_svc, httpgateway } from "./port-bridge";
@@ -207,7 +197,7 @@ function AgentBackendsPanelBody({
       flashFromTestResponse(res);
     } catch (err) {
       if (testReqIdRef.current !== requestId) return;
-      setFlash({ kind: "err", text: messageFromError(err) });
+      setFlash({ kind: "err", text: messageFromError(err, t) });
     } finally {
       if (testReqIdRef.current === requestId) {
         testReqIdRef.current = null;
@@ -299,7 +289,7 @@ function AgentBackendsPanelBody({
         });
       }
     } catch (err) {
-      setFlash({ kind: "err", text: onDevice(messageFromError(err)) });
+      setFlash({ kind: "err", text: onDevice(messageFromError(err, t)) });
     } finally {
       setScanning(false);
     }
@@ -315,11 +305,11 @@ function AgentBackendsPanelBody({
       setBackends(b?.items ?? []);
       setProviders(p?.items ?? []);
     } catch (err) {
-      setFlash({ kind: "err", text: messageFromError(err) });
+      setFlash({ kind: "err", text: messageFromError(err, t) });
     } finally {
       setLoading(false);
     }
-  }, [ListAgentBackends, ListLLMProviders]);
+  }, [ListAgentBackends, ListLLMProviders, t]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -331,7 +321,7 @@ function AgentBackendsPanelBody({
       })
       .catch((err: unknown) => {
         if (!mounted) return;
-        setFlash({ kind: "err", text: messageFromError(err) });
+        setFlash({ kind: "err", text: messageFromError(err, t) });
       })
       .finally(() => {
         if (!mounted) return;
@@ -340,7 +330,9 @@ function AgentBackendsPanelBody({
     return () => {
       mounted = false;
     };
-    // reload is for explicit refreshes only; initial load runs directly
+    // reload is for explicit refreshes only; initial load runs directly.
+    // `t` 只在兜底文案里用到，切语言不该把首屏再拉一次。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ListAgentBackends, ListLLMProviders]);
 
   // 没有本机可扫的宿主要先点名一台机器，候选就是账号里的执行端设备。
@@ -871,7 +863,7 @@ function BackendEditor({
       }
     } catch (err) {
       if (testReqIdRef.current !== requestId) return;
-      setTestResult({ kind: "err", text: messageFromError(err) });
+      setTestResult({ kind: "err", text: messageFromError(err, t) });
     } finally {
       if (testReqIdRef.current === requestId) {
         testReqIdRef.current = null;
@@ -948,7 +940,7 @@ function BackendEditor({
       }
       await saveDraft(draft);
     } catch (err) {
-      setSaveResult({ kind: "err", text: messageFromError(err) });
+      setSaveResult({ kind: "err", text: messageFromError(err, t) });
     } finally {
       setSubmitting(false);
     }
@@ -994,7 +986,7 @@ function BackendEditor({
         });
       }
     } catch (err) {
-      setProviderSyncError(providerSyncMessageFromError(err));
+      setProviderSyncError(messageFromError(err, t));
     } finally {
       setSyncingProvider(false);
       setSubmitting(false);
@@ -1232,7 +1224,7 @@ function BackendEditor({
                 void addIsSandbox(editing.syncId)
                   .then(() => setAddedIsSandbox(true))
                   .catch((err: unknown) =>
-                    setAddIsSandboxError(messageFromError(err)),
+                    setAddIsSandboxError(messageFromError(err, t)),
                   );
                 return;
               }
@@ -1423,7 +1415,7 @@ function DeleteDialog({
                 } as agent_backend_svc.DeleteBackendRequest);
                 await onConfirmed();
               } catch (err) {
-                onError(messageFromError(err));
+                onError(messageFromError(err, t));
               } finally {
                 setSubmitting(false);
               }
@@ -1435,31 +1427,6 @@ function DeleteDialog({
       }
     />
   );
-}
-
-function messageFromError(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return i18n.t("common.unknownError");
-  }
-}
-
-function providerSyncMessageFromError(err: unknown): string {
-  const message = messageFromError(err);
-  if (
-    message.includes("org.freedesktop.secrets") ||
-    message.includes("Secret Service")
-  ) {
-    return [
-      i18n.t("agentBackends.providerSync.secretServiceMissing"),
-      i18n.t("agentBackends.providerSync.secretServiceAction"),
-      i18n.t("agentBackends.providerSync.originalError", { message }),
-    ].join("\n");
-  }
-  return message;
 }
 
 // newRequestId 为一次 Test 调用分配 uuid；优先用 crypto.randomUUID，

@@ -419,6 +419,36 @@ describe("agentre-ui locale bundles", () => {
       "这些 key 在包内与宿主都没有读者，删掉它们，或把「哪段代码在拼」写进白名单",
     ).toEqual([]);
   });
+
+  /**
+   * 语言包是**交给宿主 i18next 实例**的原料，不是取文案的入口。
+   *
+   * 曾经有人在包内自建过一个 `{ t: (key) => …reduce(…, agentreUiResources.en) }`
+   * 的影子对象充当 `t`：它编译得过、单测全绿、en 界面上看起来也对，代价是中文
+   * 界面冒出英文，而且没有插值 —— `{{message}}` 会原样打给用户。这条守卫盯的就是
+   * 那个入口，而不是它当时造成的那一处文案。
+   */
+  it("Given package production sources, When bundle reads are inspected, Then only the i18n barrel touches a single language bundle", () => {
+    const sourceRoot = join(locatePackageRoot(), "src");
+    const allowed = new Set([
+      join(sourceRoot, "i18n", "index.ts"),
+      join(sourceRoot, "index.ts"),
+    ]);
+    const offenders = walkSourceFiles(sourceRoot)
+      .filter((file) => !allowed.has(file))
+      .flatMap((file) =>
+        readFileSync(file, "utf8")
+          .split("\n")
+          .map((text, index) => ({ text, line: index + 1 }))
+          .filter(({ text }) => text.includes("agentreUiResources"))
+          .map(({ line }) => `${relative(sourceRoot, file)}:${line}`),
+      );
+
+    expect(
+      offenders,
+      "包内文案一律走 useUiTranslation()/注入的 t，不许直接读某一种语言的 bundle",
+    ).toEqual([]);
+  });
 });
 
 describe("useUiTranslation", () => {
