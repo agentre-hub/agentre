@@ -91,4 +91,49 @@ describe("TLSTrustDialog", () => {
     );
     expect(onApply).not.toHaveBeenCalled();
   });
+
+  // 可及性:四个信任模式是 <button role="radio">,内容为空,包裹式 <label> 对 button
+  // 不生效 —— 名称必须显式指到旁边那行标题(与登录对话框同一缺陷、同一改法)。
+  describe("accessibility", () => {
+    it("gives every trust mode an accessible name", () => {
+      render(
+        <TLSTrustDialog
+          open
+          initialMode="default"
+          initialPEM=""
+          onClose={() => {}}
+          onApply={() => {}}
+        />,
+      );
+      for (const name of [
+        "OS Default",
+        "Pin Certificate",
+        "CA Bundle",
+        "Skip Verification",
+      ]) {
+        expect(screen.getByRole("radio", { name })).toBeInTheDocument();
+      }
+      expect(screen.getByRole("radio", { name: "OS Default" })).toBeChecked();
+    });
+
+    it("labels the PEM field", async () => {
+      const user = userEvent.setup();
+      render(
+        <TLSTrustDialog
+          open
+          initialMode="pin-cert"
+          initialPEM=""
+          onClose={() => {}}
+          onApply={() => {}}
+        />,
+      );
+      expect(
+        screen.getByRole("textbox", { name: "Certificate (PEM)" }),
+      ).toBeInTheDocument();
+      await user.click(screen.getByRole("radio", { name: "CA Bundle" }));
+      expect(
+        screen.getByRole("textbox", { name: "CA Bundle (PEM)" }),
+      ).toBeInTheDocument();
+    });
+  });
 });
