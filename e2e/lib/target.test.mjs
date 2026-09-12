@@ -22,13 +22,21 @@ import {
   assertSanctionedURL,
   assertWipeAllowed,
   isRecordedTargetLive,
+  portListening,
   productionRoots,
   launchEnv,
   prepareDirs,
   resolveTarget,
   sessionPath,
 } from "./target.mjs";
-import { waitForExit } from "./procs.mjs";
+import {
+  describePid,
+  orphanProcessesOnPort,
+  reapOrphanVite,
+  reapOwnPortHolders,
+  runsCheckoutVite,
+  waitForExit,
+} from "./procs.mjs";
 
 test("Given formal verification, when its target is resolved, then storage and ports belong only to this checkout", () => {
   const target = resolveTarget();
@@ -248,4 +256,261 @@ test("Given a process that ignores SIGTERM, when the wait runs out of budget, th
   } finally {
     killGroup(child.pid);
   }
+});
+
+// ── 孤儿 vite 的回收边界 ─────────────────────────────────────────────────────
+//
+// `vite` 是 `vitest` 的子串。旧判据 `pkill -f "<repo>/frontend.*vite"` 因此必然命中同一个
+// checkout 里正在跑的 `pnpm test`(实测:一个命令行为
+// `node <repo>/frontend/node_modules/.bin/../vitest/vitest.mjs run` 的进程会被 `pgrep -f`
+// 那条模式列出来),于是每一次 `make verify-down` 都会当场打死别人的测试。
+//
+// 新判据只认「解析之后落在本 checkout frontend 里的 vite 可执行文件」:先按可执行名筛
+// (vitest / vite-node / vite.config.ts 都不是 vite),再按路径确认归属。
+
+const FRONTEND = join(REPO_ROOT, "frontend");
+
+test("Given processes whose command lines merely contain \"vite\", when the orphan reaper decides, then only this checkout's real vite dev server matches", () => {
+  const reap = {
+    "pnpm 的 .bin 跳板(线上实测形状)": {
+      command: `node ${FRONTEND}/node_modules/.bin/../vite/bin/vite.js`,
+      cwd: FRONTEND,
+    },
+    "pnpm 虚拟 store 里的真身": {
+      command: `node ${FRONTEND}/node_modules/.pnpm/vite@7.1.0/node_modules/vite/bin/vite.js --port 5173`,
+      cwd: FRONTEND,
+    },
+    "相对路径起的 vite(只有靠 cwd 才解析得出归属)": {
+      command: "node ./node_modules/.bin/../vite/bin/vite.js --config vite.config.ts",
+      cwd: FRONTEND,
+    },
+  };
+  for (const [shape, proc] of Object.entries(reap)) {
+    assert.equal(runsCheckoutVite(proc, REPO_ROOT), true, `${shape}: 真 vite 漏掉就会一直占着端口`);
+  }
+
+  const spare = {
+    "vitest 的 .bin 跳板(线上实测形状)": {
+      command: `node ${FRONTEND}/node_modules/.bin/vitest run`,
+      cwd: FRONTEND,
+    },
+    "vitest 的 mjs 入口": {
+      command: `node ${FRONTEND}/node_modules/.bin/../vitest/vitest.mjs run`,
+      cwd: FRONTEND,
+    },
+    "vitest 的 worker(线上实测形状)": {
+      command: `node --require ${FRONTEND}/node_modules/vitest/suppress-warnings.cjs ${FRONTEND}/node_modules/vitest/dist/workers/forks.js`,
+      cwd: FRONTEND,
+    },
+    "vitest --ui": {
+      command: `node ${FRONTEND}/node_modules/vitest/vitest.mjs --ui`,
+      cwd: FRONTEND,
+    },
+    "vite-node": {
+      command: `node ${FRONTEND}/node_modules/vite-node/vite-node.mjs`,
+      cwd: FRONTEND,
+    },
+    "只是命令行里提到了 vite 配置": {
+      command: `node ${FRONTEND}/node_modules/foo/bar.js --config ${FRONTEND}/vite.config.ts`,
+      cwd: FRONTEND,
+    },
+    "路径只是以本 checkout 开头的隔壁 worktree": {
+      command: `node ${REPO_ROOT}-worktree/frontend/node_modules/vite/bin/vite.js`,
+      cwd: `${REPO_ROOT}-worktree/frontend`,
+    },
+    "别人仓库的 vite": {
+      command: "node /Users/somebody/other/frontend/node_modules/vite/bin/vite.js",
+      cwd: "/Users/somebody/other/frontend",
+    },
+    "相对路径,但 cwd 不在本 checkout 里": {
+      command: "node ./node_modules/vite/bin/vite.js",
+      cwd: tmpdir(),
+    },
+    "连 cwd 都问不出来的相对路径": {
+      command: "node ./node_modules/vite/bin/vite.js",
+      cwd: "",
+    },
+  };
+  for (const [shape, proc] of Object.entries(spare)) {
+    assert.equal(runsCheckoutVite(proc, REPO_ROOT), false, `${shape}: 不是本 checkout 的 vite,一根汗毛都不能动`);
+  }
+});
+
+// Given 本 checkout 的 vite dev server 与 vitest 同时在跑, When 回收孤儿 vite,
+// Then 信号只发给 vite —— 这就是被 `make verify-down` 打死过的那个 `pnpm test`。
+test("Given this checkout's vite beside a running vitest, when leftovers are reaped, then the signal reaches vite alone", () => {
+  const processes = [
+    { pid: 11, command: `node ${FRONTEND}/node_modules/.bin/../vite/bin/vite.js` },
+    { pid: 12, command: `node ${FRONTEND}/node_modules/.bin/vitest run` },
+    { pid: 13, command: `node ${FRONTEND}/node_modules/vitest/dist/workers/forks.js` },
+    { pid: 14, command: "node /Users/somebody/other/frontend/node_modules/vite/bin/vite.js" },
+  ];
+  const cwds = { 11: FRONTEND, 12: FRONTEND, 13: FRONTEND, 14: "/Users/somebody/other/frontend" };
+  const killed = [];
+
+  const reaped = reapOrphanVite(REPO_ROOT, {
+    list: () => processes,
+    describe: (pid) => ({ pid, command: "", cwd: cwds[pid] }),
+    kill: (pid) => killed.push(pid),
+  });
+
+  assert.deepEqual(killed, [11]);
+  assert.deepEqual(reaped, [11]);
+});
+
+// 上面用注入的进程表钉判据,这里用**真** `ps` 枚举钉探针:判据再对,枚举读不出完整命令行
+// 也白搭。动手那一下仍然是假的 —— 守卫用例不许对本机真进程发信号。
+function spawnDecoy(t, marker) {
+  const child = spawn(
+    process.execPath,
+    ["-e", 'process.stdout.write("ready\\n"); setInterval(() => {}, 1000);', marker],
+    { cwd: REPO_ROOT, detached: true, stdio: ["ignore", "pipe", "ignore"] },
+  );
+  t.after(() => killGroup(child.pid));
+  return child;
+}
+
+test("Given a real vitest of this checkout beside a real vite, when the reaper enumerates this machine, then vitest is never selected", async (t) => {
+  const vite = spawnDecoy(t, join(FRONTEND, "node_modules", ".bin", "..", "vite", "bin", "vite.js"));
+  const vitest = spawnDecoy(t, join(FRONTEND, "node_modules", ".bin", "..", "vitest", "vitest.mjs"));
+  await ready(vite);
+  await ready(vitest);
+
+  const killed = [];
+  const reaped = reapOrphanVite(REPO_ROOT, { kill: (pid) => killed.push(pid) });
+
+  assert.equal(killed.includes(vite.pid), true, "真 vite 必须被枚举出来");
+  assert.equal(killed.includes(vitest.pid), false, "vitest 被当成 vite 打死过一次,不许再有第二次");
+  assert.deepEqual(reaped, killed);
+  assert.doesNotThrow(() => process.kill(vitest.pid, 0), "vitest 必须还活着");
+});
+
+// ── devserver 端口上的孤儿 ──────────────────────────────────────────────────
+//
+// `kill -9` 掉 `make verify-status` 记的 app pid(模拟桌面端崩溃)之后端口并不放开:实测
+// 占着它的是编译出来的 `build/bin/Agentre.app/Contents/MacOS/Agentre`,`wails dev` 只是它的
+// 父进程。于是 `verify-up` 撞上「端口被没记录在案的进程占着」直接拒绝,必须先插一条
+// `verify-down` 才能重起 —— 而那恰好毁掉要验的「崩溃后重启」。
+//
+// 判据只认证据确凿:命令行里有本 checkout 的绝对路径,且工作目录也在本 checkout 里面。
+// 任何一条判不准(拿不到进程信息、混着陌生进程、平台上没有 lsof)就维持拒绝,一个信号都不发。
+function heldBy(entries) {
+  return {
+    listeners: () => entries.map((entry) => entry.pid),
+    describe: (pid) => {
+      const entry = entries.find((candidate) => candidate.pid === pid);
+      // 命令行/工作目录读不出来的进程,操作系统给的就是「说不上来」。
+      return entry && entry.command && entry.cwd ? entry : null;
+    },
+  };
+}
+
+const OWN_APP_BINARY = {
+  pid: 73367,
+  command: join(REPO_ROOT, "build", "bin", "Agentre.app", "Contents", "MacOS", "Agentre"),
+  cwd: REPO_ROOT,
+};
+const OWN_VITE = {
+  pid: 73263,
+  command: `node ${join(REPO_ROOT, "frontend", "node_modules", ".bin", "..", "vite", "bin", "vite.js")}`,
+  cwd: join(REPO_ROOT, "frontend"),
+};
+
+test("Given the devserver port held by this checkout's own orphans, when ownership is probed, then every holder is named", () => {
+  assert.deepEqual(orphanProcessesOnPort(34616, REPO_ROOT, heldBy([OWN_APP_BINARY])), [OWN_APP_BINARY]);
+  assert.deepEqual(orphanProcessesOnPort(34616, REPO_ROOT, heldBy([OWN_APP_BINARY, OWN_VITE])), [
+    OWN_APP_BINARY,
+    OWN_VITE,
+  ]);
+});
+
+test("Given a port holder this checkout cannot prove it owns, when ownership is probed, then it refuses instead of guessing", () => {
+  const cases = {
+    "没人在监听": [],
+    "路径只是以本 checkout 开头的隔壁 worktree": [
+      { pid: 1, command: `${REPO_ROOT}-worktree/build/bin/Agentre`, cwd: `${REPO_ROOT}-worktree` },
+    ],
+    "完全是另一个仓库": [
+      {
+        pid: 2,
+        command: "node /Users/somebody/other-repo/frontend/node_modules/vite/bin/vite.js",
+        cwd: "/Users/somebody/other-repo/frontend",
+      },
+    ],
+    "命令行里有我们的路径,但工作目录是别人的": [
+      { pid: 3, command: `node ${FRONTEND}/vite.js`, cwd: tmpdir() },
+    ],
+    "工作目录是我们的,但命令行里没有我们的任何东西": [
+      { pid: 4, command: "nc -l 34616", cwd: REPO_ROOT },
+    ],
+    "操作系统不肯描述的进程": [{ pid: 5, command: "", cwd: "" }],
+    "我们的一个,外加一个陌生进程": [
+      OWN_VITE,
+      { pid: 6, command: "node /Users/somebody/other-repo/server.js", cwd: "/Users/somebody/other-repo" },
+    ],
+  };
+  for (const [why, entries] of Object.entries(cases)) {
+    const probes = heldBy(entries);
+    assert.equal(orphanProcessesOnPort(34616, REPO_ROOT, probes), null, `${why}: 判不准就必须拒绝`);
+  }
+});
+
+function spawnPortHolder(t, { cwd, marker }) {
+  const code =
+    'require("net").createServer().listen(0, "127.0.0.1", function () {' +
+    ' process.stdout.write(String(this.address().port) + "\\n"); });';
+  const child = spawn(process.execPath, ["-e", code, marker], {
+    cwd,
+    detached: true,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  t.after(() => killGroup(child.pid));
+  return child;
+}
+
+async function listeningPortOf(child) {
+  const [chunk] = await once(child.stdout, "data");
+  return Number(String(chunk).trim());
+}
+
+function probeAvailable() {
+  const self = describePid(process.pid);
+  return Boolean(self && self.command && self.cwd);
+}
+
+test("Given a real orphan of this checkout holding a loopback port, when the launcher reclaims it, then the OS probe names it and the port comes back", async (t) => {
+  if (!probeAvailable()) {
+    t.skip("lsof/ps 探针在本机不可用,端口归属判据无法验证");
+    return;
+  }
+  const child = spawnPortHolder(t, {
+    cwd: REPO_ROOT,
+    marker: join(REPO_ROOT, "build", "bin", "Agentre.app", "Contents", "MacOS", "Agentre"),
+  });
+  const port = await listeningPortOf(child);
+  assert.equal(await portListening(port), true);
+
+  assert.deepEqual(
+    orphanProcessesOnPort(port, REPO_ROOT)?.map((holder) => holder.pid),
+    [child.pid],
+  );
+
+  const reaped = await reapOwnPortHolders(port, REPO_ROOT);
+  assert.deepEqual(reaped?.map((holder) => holder.pid), [child.pid]);
+  assert.throws(() => process.kill(child.pid, 0), /ESRCH/);
+  assert.equal(await portListening(port), false);
+});
+
+test("Given a real process from outside this checkout holding the port, when the launcher looks at it, then it is left running", async (t) => {
+  if (!probeAvailable()) {
+    t.skip("lsof/ps 探针在本机不可用,端口归属判据无法验证");
+    return;
+  }
+  const child = spawnPortHolder(t, { cwd: tmpdir(), marker: "somebody-elses-server" });
+  const port = await listeningPortOf(child);
+
+  assert.equal(orphanProcessesOnPort(port, REPO_ROOT), null);
+  assert.equal(await reapOwnPortHolders(port, REPO_ROOT), null);
+  assert.doesNotThrow(() => process.kill(child.pid, 0), "不属于本 checkout 的进程一根汗毛都不能动");
+  assert.equal(await portListening(port), true);
 });

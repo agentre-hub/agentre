@@ -20,7 +20,7 @@ import {
   writeSession,
 } from "./lib/target.mjs";
 import { verificationBrowserArgs } from "./lib/browser.mjs";
-import { reapOrphanVite, waitForExit } from "./lib/procs.mjs";
+import { reapOrphanVite, reapOwnPortHolders, waitForExit } from "./lib/procs.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
@@ -111,13 +111,7 @@ async function up(flags) {
     return 0;
   }
 
-  if (portTaken) {
-    console.error(
-      `:${target.devserverPort} is already serving an unrecorded process. ` +
-        "Refusing to adopt or stop it; free the port and retry.",
-    );
-    return 1;
-  }
+  if (portTaken && !(await reclaimDevserverPort(target))) return 1;
 
   if (existing) {
     stopPid(existing.browserPid);
@@ -173,6 +167,39 @@ async function up(flags) {
   console.log(`up: ${target.baseURL}  data=${target.dataDir}`);
   printNext(target);
   return 0;
+}
+
+// 应用进程死掉不等于端口跟着放开:`kill -9` 掉 `wails dev`(比如桌面端崩溃)之后,它编出来
+// 的应用二进制还在同一个进程组里活着、继续持有 devserver 端口,vite 则在另一个组里。此前这里
+// 一律拒绝,于是必须先插一条 `verify-down` 才能重起 —— 而那正好毁掉「崩溃后重启」这类要验的
+// 现场。只收走能被证明属于本 checkout 的孤儿:证不出来就还是拒绝,而且那条路上一个信号都不发。
+async function reclaimDevserverPort(target) {
+  const holders = await reapOwnPortHolders(target.devserverPort, repoRoot);
+  if (!holders) {
+    console.error(
+      `:${target.devserverPort} is already serving an unrecorded process. ` +
+        "Refusing to adopt or stop it; free the port and retry.",
+    );
+    return false;
+  }
+  console.log(
+    `:${target.devserverPort} was still held by this checkout's orphaned ` +
+      `${holders.map((holder) => `pid ${holder.pid}`).join(", ")}; reaped it`,
+  );
+  // 同一场崩溃留下的 vite 不占这个端口,但会占着它自己那个,顺带一起收走。
+  reapOrphanVite(repoRoot);
+  const freed = await waitFor(async () => !(await portListening(target.devserverPort)), {
+    timeoutMs: 10_000,
+    everyMs: 200,
+  });
+  if (!freed) {
+    console.error(
+      `:${target.devserverPort} is still held after reaping this checkout's orphans; ` +
+        "free the port and retry.",
+    );
+    return false;
+  }
+  return true;
 }
 
 async function attachBrowser(target, flags, session) {
