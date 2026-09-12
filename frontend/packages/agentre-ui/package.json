@@ -2,7 +2,7 @@
   "name": "@agentre-hub/agentre-ui",
   "version": "0.1.0",
   "description": "Agentre 跨端共享前端层：design tokens + AI 对话流渲染器",
-  "license": "MIT",
+  "license": "GPL-3.0",
   "type": "module",
   "sideEffects": [
     "*.css"
