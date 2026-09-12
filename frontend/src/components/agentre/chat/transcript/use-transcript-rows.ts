@@ -22,6 +22,7 @@ import {
   type TranscriptRow,
 } from "@agentre-hub/agentre-ui";
 
+import { useDeviceListStore } from "@/stores/device-list-store";
 import { useLocalCommandsStore } from "@/stores/local-commands-store";
 import { RemoteDeviceFingerprint } from "../../../../../wailsjs/go/app/App";
 import { chat_svc } from "../../../../../wailsjs/go/models";
@@ -74,6 +75,49 @@ function useLocalDeviceFingerprint(): string | undefined {
     };
   }, []);
   return fp;
+}
+
+// useResolveSourceDeviceName 交出「指纹 → 这台机器在本机看来叫什么」。
+//
+// 发送端**经常报不出名字**:对端插话的入站只填得出提交方指纹(见 internal/peer 的
+// Steer),消息上的 sourceDeviceName 因此是空的。而收下这条消息的这一端往往认识
+// 这台机器 —— 账号设备清单与 LAN 配对行里都写着它的名字。
+//
+// 查表是**宿主状态**,所以它留在宿主这一侧:共享包只收一个解析函数,自己不碰任何
+// 一个宿主的 store(见 buildSourceByMessageId)。
+//
+// 取数复用 device-list-store:所有已打开 tab 的输入框本来就共享它那一次拉取,
+// 转录再挂一个消费方不增加 IPC(reload 拉过一次就不再打)。
+function useResolveSourceDeviceName(): (
+  fingerprint: string,
+) => string | undefined {
+  const lanDevices = useDeviceListStore((s) => s.lanDevices);
+  const accountDevices = useDeviceListStore((s) => s.accountDevices);
+  const reload = useDeviceListStore((s) => s.reload);
+
+  React.useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const byFingerprint = React.useMemo(() => {
+    const out = new Map<string, string>();
+    // 账号清单先落:跨机器的那条消息多半来自账号里的另一台桌面端,而账号上的名字
+    // 是用户自己在设置里改的那一个。LAN 配对行只补账号给不出名字的那几台。
+    for (const d of accountDevices) {
+      if (d.fingerprint && d.name) out.set(d.fingerprint, d.name);
+    }
+    for (const d of lanDevices) {
+      if (d.daemonFingerprint && d.name && !out.has(d.daemonFingerprint)) {
+        out.set(d.daemonFingerprint, d.name);
+      }
+    }
+    return out;
+  }, [accountDevices, lanDevices]);
+
+  return React.useCallback(
+    (fingerprint: string) => byFingerprint.get(fingerprint),
+    [byFingerprint],
+  );
 }
 
 export function useTranscriptRows({
@@ -178,9 +222,15 @@ export function useTranscriptRows({
   // R17:非本机发出的用户消息的来源标识。本机指纹与本机消息的 sourceDevice 相等,
   // 全部被 buildSourceByMessageId 跳过 → 单客户端恒为空表,界面零变化。
   const localFingerprint = useLocalDeviceFingerprint();
+  const resolveSourceDeviceName = useResolveSourceDeviceName();
   const sourceByMessageId = React.useMemo(
-    () => buildSourceByMessageId(displayMessages, localFingerprint),
-    [displayMessages, localFingerprint],
+    () =>
+      buildSourceByMessageId(
+        displayMessages,
+        localFingerprint,
+        resolveSourceDeviceName,
+      ),
+    [displayMessages, localFingerprint, resolveSourceDeviceName],
   );
   // settled:只依赖 messages(流式中引用稳定),整体 memoize —— 每 chunk 不再全量
   // 重建 rows + 两张索引图。live 内容变化时只走 applyLiveTranscriptRows 的 O(live)
