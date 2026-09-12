@@ -68,6 +68,21 @@ func TestRestore(t *testing.T) {
 		So(err, ShouldBeNil)
 	})
 
+	// 移除记录里的指纹带着空白时，ListRemoved 交给界面的是去掉空白的那一份（与
+	// adopt.go 的 tombstonedFingerprints 同一口径），用户点「恢复」回传的也是它。
+	// Restore 若拿它去比对没去空白的库值，就一条记录也删不掉，却照样报成功：那台机器
+	// 会永远留在「已移除」里，墓碑也继续挡着收编。
+	Convey("a removal record whose stored fingerprint carries whitespace is still purged", t, func() {
+		repo, _, _, _, svc := setupSvc(t)
+		repo.EXPECT().ListDeleted(gomock.Any()).Return([]*paired_agentred_entity.PairedAgentred{
+			{ID: 9, DaemonFingerprint: " sha256:aaa\n"},
+		}, nil)
+		repo.EXPECT().Purge(gomock.Any(), int64(9)).Return(nil)
+
+		err := svc.Restore(context.Background(), "sha256:aaa")
+		So(err, ShouldBeNil)
+	})
+
 	Convey("a machine with no removal record: nothing to do, no error", t, func() {
 		repo, _, _, _, svc := setupSvc(t)
 		repo.EXPECT().ListDeleted(gomock.Any()).Return([]*paired_agentred_entity.PairedAgentred{

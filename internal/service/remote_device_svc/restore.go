@@ -65,7 +65,10 @@ func (s *service) Restore(ctx context.Context, fingerprint devicefp.Carrier) err
 		return err
 	}
 	for _, row := range deleted {
-		if row == nil || row.DaemonFingerprint != fp {
+		// 库值同样去掉空白再比：ListRemoved 交给界面的就是去空白的那一份（adopt.go 的
+		// tombstonedFingerprints 也是这个口径），拿它去比对没去空白的库值会一条也删不掉，
+		// 却照样报成功 —— 那台机器永远留在「已移除」里，墓碑还继续挡着收编。
+		if row == nil || devicefp.Carrier(strings.TrimSpace(string(row.DaemonFingerprint))) != fp {
 			continue
 		}
 		if err := s.repo.Purge(ctx, row.ID); err != nil {
