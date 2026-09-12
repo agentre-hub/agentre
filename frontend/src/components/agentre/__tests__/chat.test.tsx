@@ -12,7 +12,7 @@ import {
   TranscriptPortsProvider,
 } from "@agentre-hub/agentre-ui";
 import * as React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { desktopLocalCommandsAccess } from "@/components/agentre/local-commands-access-desktop";
 
@@ -88,8 +88,9 @@ import {
   useChatStreamsStore,
   type ChatBlockData,
 } from "@/stores/chat-streams-store";
+import { useDeviceListStore } from "@/stores/device-list-store";
 import { useLocalCommandsStore } from "@/stores/local-commands-store";
-import type { chat_svc } from "../../../../wailsjs/go/models";
+import type { chat_svc, server_svc } from "../../../../wailsjs/go/models";
 
 function renderTranscriptWithSubagent() {
   render(
@@ -623,6 +624,11 @@ describe("ChatTranscript source device pill (R17)", () => {
   // 测试 mock 里 RemoteDeviceFingerprint 返回 "sha256:test-local-device"(wailsApp.ts)。
   const LOCAL_FP = "sha256:test-local-device";
 
+  // 设备清单是**跨用例共享**的 store(每个输入框共用同一次拉取),用例之间要清干净。
+  afterEach(() => {
+    useDeviceListStore.getState().__reset();
+  });
+
   it("renders the source pill after the role label for a foreign user message", async () => {
     render(
       <ChatTranscript
@@ -655,6 +661,66 @@ describe("ChatTranscript source device pill (R17)", () => {
       />,
     );
     expect(await screen.findByText("From sha256:other-device")).toBeTruthy();
+  });
+
+  // 对端插话(桌面端 B 经 peer 面板发来的那一条)在入站时只填得出提交方指纹,
+  // sourceDeviceName 恒空(见 internal/peer 的 Steer)。此前转录因此把 64 位指纹原样
+  // 印成「来自 sha256:753e…4b4b0」:占满一行,还认不出是谁 —— 而这台机器在账号设备
+  // 清单里明明是有名字的。
+  const PEER_FP =
+    "sha256:753e6318a9374d906452a833bcbb242427d4ad91b12846b9c796dd04fdf4b4b0";
+
+  it("resolves the device name from the account device list when the message carries none", async () => {
+    useDeviceListStore.setState({
+      selfFingerprint: LOCAL_FP,
+      lanDevices: [],
+      accountDevices: [
+        {
+          fingerprint: PEER_FP,
+          name: "codfrm 的 MacBook",
+          kind: "desktop",
+        } as unknown as server_svc.Device,
+      ],
+      accountKnown: true,
+      loaded: true,
+    });
+    render(
+      <ChatTranscript
+        agentColor="agent-1"
+        agentName="CEO 助手"
+        messages={[
+          {
+            ...textMessage(1, "user", "跑吧"),
+            sourceDevice: PEER_FP,
+          } as chat_svc.ChatMessage,
+        ]}
+      />,
+    );
+    expect(await screen.findByText("From codfrm 的 MacBook")).toBeTruthy();
+  });
+
+  it("shows a short fingerprint prefix, never the full 64 hex, for an unknown device", async () => {
+    useDeviceListStore.setState({
+      selfFingerprint: LOCAL_FP,
+      lanDevices: [],
+      accountDevices: [],
+      accountKnown: true,
+      loaded: true,
+    });
+    render(
+      <ChatTranscript
+        agentColor="agent-1"
+        agentName="CEO 助手"
+        messages={[
+          {
+            ...textMessage(1, "user", "跑吧"),
+            sourceDevice: PEER_FP,
+          } as chat_svc.ChatMessage,
+        ]}
+      />,
+    );
+    expect(await screen.findByText("From sha256:753e6318a937")).toBeTruthy();
+    expect(document.body.textContent ?? "").not.toContain(PEER_FP);
   });
 
   it("never renders the pill for this device's own messages (single-client zero change)", async () => {

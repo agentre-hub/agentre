@@ -29,8 +29,16 @@ type LANOpts struct {
 	// connections when no certificate was configured, so it cannot be combined
 	// with TLSCertFile/TLSKeyFile.
 	DirectCertificate *tls.Certificate
-	Registry          *Registry
-	OnConn            func(*Conn)
+	// AdvertiseAddr is the address this server publishes to other machines —
+	// both what a person pastes into a peer and what an automatic direct
+	// connection dials — instead of the ones it can see on its own interfaces.
+	// A host behind NAT — a container on a bridge network, a published port —
+	// cannot derive either from the inside, so the operator states it. Empty
+	// keeps the automatic behavior; a value without a port keeps the port this
+	// server listens on.
+	AdvertiseAddr string
+	Registry      *Registry
+	OnConn        func(*Conn)
 }
 
 type LANServer struct {
@@ -132,7 +140,7 @@ func (s *LANServer) URL() string {
 // a certificate was configured, ws otherwise — including when DirectCertificate
 // is served beside it.
 func (s *LANServer) AdvertiseURLs() []string {
-	return s.peerURLs(s.advertisedScheme())
+	return s.publishedURLs(s.advertisedScheme())
 }
 
 // DirectURLs lists the wss addresses of this same port that an automatic
@@ -142,7 +150,30 @@ func (s *LANServer) DirectURLs() []string {
 	if s.CertificatePEM() == "" {
 		return nil
 	}
-	return s.peerURLs("wss")
+	return s.publishedURLs("wss")
+}
+
+// publishedURLs is the one address list other machines are given: the operator's
+// AdvertiseAddr when there is one, the routable interface addresses otherwise.
+func (s *LANServer) publishedURLs(scheme string) []string {
+	if advertise := strings.TrimSpace(s.opts.AdvertiseAddr); advertise != "" {
+		return []string{lanURL(scheme, s.advertiseAddress(advertise))}
+	}
+	return s.peerURLs(scheme)
+}
+
+// advertiseAddress keeps the listening port when the operator named only a
+// host: only a remapped port has to be repeated, and a bare IPv6 literal still
+// ends up bracketed.
+func (s *LANServer) advertiseAddress(advertise string) string {
+	if _, _, err := net.SplitHostPort(advertise); err == nil {
+		return advertise
+	}
+	_, port, err := net.SplitHostPort(s.Addr())
+	if err != nil {
+		return advertise
+	}
+	return net.JoinHostPort(strings.Trim(advertise, "[]"), port)
 }
 
 // CertificatePEM is the PEM of the leaf certificate this server presents to

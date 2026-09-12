@@ -483,20 +483,20 @@ func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string)
 	if p.relay == nil {
 		return direct(ctx)
 	}
-	return client.RaceProtobuf(ctx,
-		client.ProtobufPath{
-			Name:        "direct",
-			Fingerprint: args.DeviceFingerprint,
-			Dial:        direct,
+	// 胜负偏向直连(racePreferringDirect):中转是在一条早已连着的常驻链路上开一条
+	// 虚拟通道,先答上来几乎是必然的——谁先答谁赢会把每一台局域网里的机器都钉死在
+	// 账号服务上。这里没有「直连赢下的地址」可言(LAN 行的地址位就是用户配的那个 URL,
+	// 不由最近一次成功改写),所以地址一律丢弃。
+	c, _, err := racePreferringDirect(ctx,
+		func(ctx context.Context) (client.ProtobufConnection, string, error) {
+			conn, err := direct(ctx)
+			return conn, "", err
 		},
-		client.ProtobufPath{
-			Name:        "relay",
-			Fingerprint: args.DeviceFingerprint,
-			Dial: func(ctx context.Context) (client.ProtobufConnection, error) {
-				return p.relay.Open(ctx, args.ExpectedDaemonFingerprint, devicefp.Initiator(args.DeviceFingerprint))
-			},
+		func(ctx context.Context) (client.ProtobufConnection, error) {
+			return p.relay.Open(ctx, args.ExpectedDaemonFingerprint, devicefp.Initiator(args.DeviceFingerprint))
 		},
 	)
+	return c, err
 }
 
 // recordAccountDirect 把一次成功的 auth.account 握手带回的自动直连下发内容

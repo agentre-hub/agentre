@@ -320,10 +320,15 @@ func (s stubRelayDial) Open(ctx context.Context, daemonFP devicefp.Carrier, peer
 
 func TestPool_Borrow_RelayConfigured_LANWinsWhenRelayUnavailable(t *testing.T) {
 	Convey("relay configured but unavailable: LAN path wins (one path down is not failure, R6)", t, func() {
-		var gotDaemonFP devicefp.Carrier
-		var gotPeerFP devicefp.Initiator
+		// 直连赢下时 Borrow 不再等中转那条 goroutine 收场(它可能一直挂着),所以
+		// 中转看到的参数要经由 channel 交接,不能在两条 goroutine 之间裸读一个变量。
+		type relayCall struct {
+			daemonFP devicefp.Carrier
+			peerFP   devicefp.Initiator
+		}
+		calls := make(chan relayCall, 1)
 		f := newPoolFixture(t, remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, daemonFP devicefp.Carrier, peerFP devicefp.Initiator) (client.ProtobufConnection, error) {
-			gotDaemonFP, gotPeerFP = daemonFP, peerFP
+			calls <- relayCall{daemonFP: daemonFP, peerFP: peerFP}
 			return nil, errors.New("relay unreachable")
 		}}))
 		c := stubClient()
@@ -335,8 +340,14 @@ func TestPool_Borrow_RelayConfigured_LANWinsWhenRelayUnavailable(t *testing.T) {
 		So(lease, ShouldNotBeNil)
 		So(lease.Client(), ShouldNotBeNil)
 		// R5 硬不变量:relay 目标 = daemon 指纹;对端标识 = 桌面端 keychain 指纹。
-		So(gotDaemonFP, ShouldEqual, devicefp.Carrier("sha256:abc"))
-		So(gotPeerFP, ShouldEqual, devicefp.Initiator("fp-x"))
+		var got relayCall
+		select {
+		case got = <-calls:
+		case <-time.After(2 * time.Second):
+			t.Fatal("R6:中转那条路径必须与直连一起发起")
+		}
+		So(got.daemonFP, ShouldEqual, devicefp.Carrier("sha256:abc"))
+		So(got.peerFP, ShouldEqual, devicefp.Initiator("fp-x"))
 	})
 }
 

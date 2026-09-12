@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
@@ -67,6 +67,10 @@ export function TLSTrustDialog({
   const [mode, setMode] = useState(initialMode || "default");
   const [pem, setPem] = useState(initialPEM ?? "");
   const [error, setError] = useState<string | null>(null);
+  // RadioGroupItem 渲染成内容为空的 <button role="radio">,button 的可及名称按
+  // 「名称来自内容」算,包裹它的 <label> 并不会给它命名 —— 每一项都显式把名称指到
+  // 自己那行标题,说明文字挂 aria-describedby(hook 不能进 map,故用同一个前缀派生)。
+  const modeIdPrefix = useId();
 
   useEffect(() => {
     if (open) {
@@ -121,10 +125,20 @@ export function TLSTrustDialog({
                 : "border-border"
             }`}
           >
-            <RadioGroupItem value={m.value} className="mt-1" />
+            <RadioGroupItem
+              value={m.value}
+              className="mt-1"
+              aria-labelledby={`${modeIdPrefix}-${m.value}-label`}
+              aria-describedby={`${modeIdPrefix}-${m.value}-desc`}
+            />
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{t(m.labelKey)}</span>
+                <span
+                  id={`${modeIdPrefix}-${m.value}-label`}
+                  className="text-sm font-medium"
+                >
+                  {t(m.labelKey)}
+                </span>
                 {m.badgeKey ? (
                   <span
                     className={`text-3xs uppercase tracking-wide px-1.5 py-0.5 rounded ${
@@ -137,7 +151,10 @@ export function TLSTrustDialog({
                   </span>
                 ) : null}
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p
+                id={`${modeIdPrefix}-${m.value}-desc`}
+                className="text-xs text-muted-foreground"
+              >
                 {t(m.descriptionKey)}
               </p>
             </div>

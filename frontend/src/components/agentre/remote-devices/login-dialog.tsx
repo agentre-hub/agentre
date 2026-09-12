@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Copy } from "lucide-react";
 
@@ -82,6 +82,11 @@ function ServerOption({
   onSelect: (value: ServerMode) => void;
 }) {
   const selected = mode === value;
+  // RadioGroupItem 渲染成 <button role="radio">,内容为空;button 的可及名称按
+  // 「名称来自内容」算,包裹它的 <label> 并不会给它命名 —— 必须用 aria-labelledby
+  // 显式指到旁边那行标题(说明文字同理挂 aria-describedby)。
+  const titleId = useId();
+  const descId = useId();
   return (
     <label
       onClick={() => onSelect(value)}
@@ -93,10 +98,19 @@ function ServerOption({
         disabled && "pointer-events-none opacity-60",
       )}
     >
-      <RadioGroupItem value={value} className="shrink-0" />
+      <RadioGroupItem
+        value={value}
+        className="shrink-0"
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+      />
       <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-sm font-semibold">{title}</span>
-        <span className="text-xs text-muted-foreground">{desc}</span>
+        <span id={titleId} className="text-sm font-semibold">
+          {title}
+        </span>
+        <span id={descId} className="text-xs text-muted-foreground">
+          {desc}
+        </span>
       </span>
       {badge ? (
         <span className="ml-auto shrink-0 rounded-full bg-status-running-bg px-2 py-0.5 text-2xs font-semibold text-status-running">

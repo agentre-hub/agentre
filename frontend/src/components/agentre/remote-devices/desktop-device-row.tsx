@@ -54,7 +54,11 @@ export function DesktopDeviceRow({ device, now }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const isThis = device.isThisDevice;
-  const running = device.online;
+  // 本机那一行不拿服务端的在线登记当判据：这个界面此刻正由这台桌面端画着，它必然
+  // 在跑。刚走完设备流登录的那一瞬服务端还没把本机登记成在线，而设备清单也不会
+  // 自己再拉一次 —— 照 device.online 说下去，自己那一行就会说自己没运行，直到
+  // 离开这一页再回来。
+  const running = isThis || device.online;
 
   /**
    * 取一页。`from` 是上一页给的游标（空 = 第一页，替换而不是追加）。
@@ -140,25 +144,26 @@ export function DesktopDeviceRow({ device, now }: Props) {
             ) : null}
           </div>
           <div className="truncate text-xs text-muted-foreground">
+            {/* 在跑就只说在跑，不报时间：「正在运行」来自服务端 30 秒 TTL 的中继
+                在线登记，而 lastSeenAt 是一个中继连着期间根本不刷新的库字段，两个
+                并排就写出了「正在运行 · 1 小时前」这种自相矛盾的话。时间只有在这台
+                机器不在跑、它是仅有的线索时才有意义。 */}
             {running ? (
-              t("remoteDevices.desktop.running", {
-                time:
-                  device.lastSeenAt > 0
-                    ? relativeTime(device.lastSeenAt, now, t)
-                    : "",
-              })
+              t("remoteDevices.desktop.running")
             ) : (
-              <span data-testid="desktop-not-running">
-                {t("remoteDevices.desktop.notRunning")}
-              </span>
+              <>
+                <span data-testid="desktop-not-running">
+                  {t("remoteDevices.desktop.notRunning")}
+                </span>
+                {device.lastSeenAt > 0 ? (
+                  <span className="ml-2">
+                    {t("remoteDevices.desktop.lastSeen", {
+                      time: relativeTime(device.lastSeenAt, now, t),
+                    })}
+                  </span>
+                ) : null}
+              </>
             )}
-            {device.lastSeenAt > 0 ? (
-              <span className="ml-2">
-                {t("remoteDevices.desktop.lastSeen", {
-                  time: relativeTime(device.lastSeenAt, now, t),
-                })}
-              </span>
-            ) : null}
           </div>
         </div>
         {running ? (

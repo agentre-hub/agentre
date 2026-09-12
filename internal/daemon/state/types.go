@@ -32,6 +32,11 @@ type ListenPrefs struct {
 	TLS         bool   `json:"tls,omitempty"`
 	TLSCertFile string `json:"tlsCertFile,omitempty"`
 	TLSKeyFile  string `json:"tlsKeyFile,omitempty"`
+	// AdvertiseAddr is the address other machines reach this daemon at —
+	// pairing and automatic direct alike — instead of the ones it sees on its
+	// own interfaces, for a daemon behind NAT that can derive neither the
+	// reachable host nor the mapped port from the inside.
+	AdvertiseAddr string `json:"advertiseAddr,omitempty"`
 }
 
 type PairedPeer struct {

@@ -333,6 +333,23 @@ test("Given the explicit guard entry, when it invokes the suite, then it request
   assert.match(guardRunner, /runNodeGuards\(\{\s*tests:\s*FULL_GUARD_TESTS\s*\}\)/);
 });
 
+// `vite` 是 `vitest` 的子串,而收尾用的是 `pkill -f "<repo>/frontend.*vite"` —— 那条模式必然
+// 命中同一个 checkout 里正在跑的 `pnpm test`,于是每一次 `make verify-down` 都当场打死别人的
+// 测试。回收必须是「枚举 → 逐个核实归属 → 逐个发信号」,不许再把一条模式交给批量杀手。
+// 这条钉在自动化守卫里:`lib/target.test.mjs` 的行为用例不在 `make e2e` 的射程内。
+test("Given the leftover process reaper, when its source is inspected, then no pattern-matching bulk kill remains", () => {
+  const procs = read("e2e/lib/procs.mjs");
+  assert.doesNotMatch(procs, /["'`]pkill["'`]/, "e2e/lib/procs.mjs still invokes pkill");
+  for (const bulkKiller of ["Stop-Process", "taskkill"]) {
+    assert.equal(
+      procs.includes(bulkKiller),
+      false,
+      `e2e/lib/procs.mjs still hands a pattern to ${bulkKiller}`,
+    );
+  }
+  assert.match(procs, /export function runsCheckoutVite\(/);
+});
+
 test("Given the dedicated E2E app generates ignored Wails bindings, when Wails appends its wailsjs output directory, then the files land in the root frontend imported by Vite", () => {
   const config = JSON.parse(read("e2e/app/wails.json"));
   const generatedBindingsDir = resolve(
@@ -374,6 +391,10 @@ test("Given the replacement suite, when its public entries are inspected, then o
   assert.match(verify, /spawn\(wailsBin\(\), wailsArgs, \{[\s\S]*cwd: repoRoot,/);
   assert.equal(verify.includes("e2e/app"), false);
   assert.equal(verify.includes("AGENTRE_E2E_MANIFEST"), false);
+  // 占着 devserver 端口的进程,只有被证明属于本 checkout 时才会被收走;证不出来就维持拒绝,
+  // 而且拒绝这条路上一个信号都不发 —— 判据与动作都在 reapOwnPortHolders 里。
+  assert.match(verify, /await reapOwnPortHolders\(target\.devserverPort, repoRoot\)/);
+  assert.match(verify, /if \(!holders\) \{\n\s*console\.error\(\n[\s\S]*?Refusing to adopt or stop it/);
 
   const workflow = read(".github/workflows/ci.yml");
   const e2eJob = workflow.slice(workflow.indexOf("  e2e:"));

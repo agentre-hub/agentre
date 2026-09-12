@@ -665,12 +665,19 @@ export type TranscriptRowsResult = {
  * 本机指纹 —— 三者都满足才进表。本机发出的消息 sourceDevice 恒等于本机指纹,被跳过,
  * 输出与不传逐项一致(单客户端界面零变化);localFingerprint 未就绪时保守输出空表。
  *
- * 显示名优先取 daemon 上报的设备名(sourceDeviceName);没名字就回退到指纹本身 ——
- * 它仍是这台设备的标识。
+ * 显示名按三档取:
+ *   1. 消息自带的 `sourceDeviceName` —— 发送端当场报的名字,最权威;
+ *   2. `resolveDeviceName(指纹)` —— 宿主自己那份设备清单。发送端**经常报不出名字**
+ *      (对端插话的入站只填得出提交方指纹),而收这条消息的这一端往往认识这台机器;
+ *      查名字要读宿主的设备清单 / 会话,那是宿主状态,所以以能力的形式传进来,包
+ *      自己不去碰任何一个宿主的 store;
+ *   3. 指纹的**短前缀** —— 两头都说不出名字时的兜底。指纹是 `sha256:` + 64 位十六进制,
+ *      原样印出来占满一行还认不出是谁;截短之后它仍是同一台机器的标识。
  */
 export function buildSourceByMessageId(
   messages: readonly TranscriptMessage[],
   localFingerprint: string | undefined,
+  resolveDeviceName?: (fingerprint: string) => string | undefined,
 ): Map<number, string> {
   const out = new Map<number, string>();
   if (!localFingerprint) return out;
@@ -678,9 +685,30 @@ export function buildSourceByMessageId(
     if (m.role !== "user") continue;
     const dev = m.sourceDevice;
     if (!dev || dev === localFingerprint) continue;
-    out.set(m.id, m.sourceDeviceName || dev);
+    out.set(
+      m.id,
+      m.sourceDeviceName || resolveDeviceName?.(dev) || shortFingerprint(dev),
+    );
   }
   return out;
+}
+
+/** 短前缀保留的十六进制位数:够认人、又不至于占满一行。 */
+const FINGERPRINT_PREFIX_HEX = 12;
+
+/**
+ * shortFingerprint 把 `sha256:<64 位十六进制>` 截成 `sha256:<前 12 位>`。
+ *
+ * 算法前缀留着:同一台机器在别处(日志 / 设备页)也是带 `sha256:` 露面的,掐掉它
+ * 反而让人认不出这串东西是个指纹。本来就短的(测试替身、未来别的算法)原样交出 ——
+ * 截断是为了别占满一行,不是为了藏信息。
+ */
+function shortFingerprint(fingerprint: string): string {
+  const sep = fingerprint.indexOf(":");
+  const scheme = sep >= 0 ? fingerprint.slice(0, sep + 1) : "";
+  const digest = fingerprint.slice(sep + 1);
+  if (digest.length <= FINGERPRINT_PREFIX_HEX) return fingerprint;
+  return `${scheme}${digest.slice(0, FINGERPRINT_PREFIX_HEX)}`;
 }
 
 export type BuildTranscriptRowsArgs = {

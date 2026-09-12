@@ -466,4 +466,26 @@ describe("LoginDialog", () => {
       expect(pollLoginToken).not.toHaveBeenCalled();
     });
   });
+
+  // 可及性:表单控件必须有可及名称(读屏用户靠它分辨字段),名称沿用界面上的文字。
+  describe("accessibility", () => {
+    it("gives both server options an accessible name", () => {
+      renderDialog();
+      expect(
+        screen.getByRole("radio", { name: "Agentre Cloud" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("radio", { name: "Custom server" }),
+      ).toBeInTheDocument();
+    });
+
+    // URL 输入框由包裹它的 <label> 命名(原生关联),这条钉住它不被 placeholder 顶替。
+    it("labels the custom server URL field", () => {
+      renderDialog();
+      fireEvent.click(screen.getByText("Custom server"));
+      expect(
+        screen.getByRole("textbox", { name: "Server URL" }),
+      ).toBeInTheDocument();
+    });
+  });
 });

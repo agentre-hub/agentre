@@ -59,10 +59,10 @@ The launcher and driver enforce these rules:
 - **File keychain only for the run.** The launcher creates a private keychain directory before startup. An unsafe or missing configured directory makes bootstrap fail; it never falls back to the system keychain.
 - **Own origin only.** The driver accepts only the recorded loopback bridge and rejects the normal development bridge and external origins.
 - **Read-only DB oracle.** Only `SELECT`, `WITH`, `PRAGMA`, and `EXPLAIN` statements are accepted.
-- **No process adoption.** A process already holding the checkout's verification port without the recorded session is refused, not driven or killed.
+- **No process adoption.** A process holding the checkout's verification port is never driven. It is stopped only when every holder is proven to be this checkout's own orphan — this checkout's path on its command line and a working directory inside the checkout — which is what a killed `wails dev` leaves behind, since the app binary it launched keeps the port. Anything else, including a holder the operating system will not describe or a platform without `lsof`, is refused with no signal sent at all.
 - **Worktree isolation.** Target paths, session file, and ports derive from the checkout path, so distinct worktrees do not share verification state.
 - **Real dependency honesty.** There is no fake mode or fallback. An unavailable external dependency means the corresponding criterion failed or was not observed.
-- **Scoped cleanup.** Stop acts on recorded process IDs. Wipe deletes only target directories that pass the isolation allow-list.
+- **Scoped cleanup.** Stop acts on recorded process IDs, plus leftover processes checked one at a time and kept only when they run a `vite` executable that resolves inside this checkout's `frontend/`. A name that merely contains `vite`, such as a `vitest` run of this checkout, is never signalled. Wipe deletes only target directories that pass the isolation allow-list.
 
 ## Safety, authorization, and privacy
 

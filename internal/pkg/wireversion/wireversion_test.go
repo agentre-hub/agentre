@@ -85,8 +85,8 @@ func TestReject_GivenAMismatchedPeer_WhenTheReasonIsRendered_ThenItNamesBothVers
 		"拒绝理由不能再渲染成一个区间 —— 判据是相等,句子也要这么说")
 }
 
-// Given MinSupported 是宿主策略(「本 build 只接受自己这一版」)而不是协议事实,
-//       所以它被写成字面量而不是读协议模块 —— 代价是没有任何东西钉住它,
+// Given MinSupported 是宿主策略(「本 build 只接受自己这一版」)而不是协议事实,所以它被写成
+// 字面量而不是读协议模块 —— 代价是没有任何东西钉住它,
 // When  有人抬了 wire.proto 里的 protocol_version 却忘了同步这个字面量,
 // Then  这条守卫变红。
 //

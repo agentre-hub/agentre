@@ -105,6 +105,19 @@ func (o *Outbound) Pull(ctx context.Context, params wire.SessionPullParams) (wir
 // FreshSession 恒置 true：即便对端落库里有旧上下文也不许续，杜绝派活撞上挂账残留。
 func (o *Outbound) RunFresh(ctx context.Context, params wire.RunParams) (wire.RunAck, error) {
 	params.FreshSession = true
+	return o.Run(ctx, params)
+}
+
+// Run 是同一条 runtime.run，但**不替调用方声明 FreshSession**。
+//
+// 它服务的是另一件事：对端一条**已经存在**的会话此刻空闲，要在它上面起新一轮。
+// 插话(runtime.steer)在这里没有轮次可插，对端只会回 ErrNoActiveTurn；对端的
+// RunPeerSession 则按 ConversationID 解析得出这条对话、原样续上去。
+//
+// 这一档绝不能借 RunFresh：那个 true 的含义是「即便对端有旧上下文也不许续」，
+// 对一条要接着往下说的对话而言是**反向**的声明。桌面端接收侧今天按对话号解析、
+// 不看这一格，但一个说反了的声明迟早会被某个执行端当真。
+func (o *Outbound) Run(ctx context.Context, params wire.RunParams) (wire.RunAck, error) {
 	request, err := protowire.RunRequestToProto(params)
 	if err != nil {
 		return wire.RunAck{}, err

@@ -143,6 +143,9 @@ type PeerSvc interface {
 	ListSessions(ctx context.Context, req ListSessionsRequest) (*wire.SessionListResult, error)
 	// RunFresh 在远端桌面端上新建一条会话并跑首轮（R18），返回对端真实会话 id。
 	RunFresh(ctx context.Context, req RunFreshRequest) (wire.RunAck, error)
+	// Run 在对端一条**已经存在**的会话上起新一轮（长连接）。对端会话空闲时 Steer
+	// 无轮次可插，这一条是它的出路，见 run.go。
+	Run(ctx context.Context, req RunRequest) (wire.RunAck, error)
 	// Attach 接入对端会话并开始接收实时流，返回高水位游标（短连接建立常驻连接）。
 	Attach(ctx context.Context, req AttachRequest) (*wire.SessionAttachResult, error)
 	// Pull 拉一页游标之后的历史（长连接，会话需已 Attach）。

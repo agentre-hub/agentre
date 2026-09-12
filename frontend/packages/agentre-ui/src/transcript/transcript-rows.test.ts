@@ -590,7 +590,49 @@ describe("buildSourceByMessageId (R17 caller side)", () => {
     expect(out.get(1)).toBe("iPhone");
   });
 
-  it("falls back to the fingerprint when no device name is available", () => {
+  // 真实指纹是 sha256: + 64 位十六进制。发送端报不出设备名是常态(peer steer 的入站
+  // 只填得出提交方指纹,见 internal/peer 的 Steer),所以这两条是**主路径**而不是边角:
+  // 一条盖着 64 位指纹的用户消息在转录里占满一行,而且认不出是谁。
+  const longFingerprint =
+    "sha256:753e6318a9374d906452a833bcbb242427d4ad91b12846b9c796dd04fdf4b4b0";
+
+  it("消息没带设备名时,用宿主给的解析器把指纹翻成设备名", () => {
+    const out = buildSourceByMessageId(
+      [foreign(2, longFingerprint)],
+      "sha256:self",
+      (fp) => (fp === longFingerprint ? "codfrm 的 MacBook" : undefined),
+    );
+    expect(out.get(2)).toBe("codfrm 的 MacBook");
+  });
+
+  it("宿主也查不到名字时回退成短前缀,不把 64 位指纹原样印进转录", () => {
+    const out = buildSourceByMessageId(
+      [foreign(2, longFingerprint)],
+      "sha256:self",
+      () => undefined,
+    );
+    expect(out.get(2)).toBe("sha256:753e6318a937");
+  });
+
+  it("没有解析器时同样只回退到短前缀(宿主未接线也不该印全量指纹)", () => {
+    const out = buildSourceByMessageId(
+      [foreign(2, longFingerprint)],
+      "sha256:self",
+    );
+    expect(out.get(2)).toBe("sha256:753e6318a937");
+  });
+
+  it("消息自带的设备名优先于宿主解析器", () => {
+    const out = buildSourceByMessageId(
+      [foreign(2, longFingerprint, "iPhone")],
+      "sha256:self",
+      () => "别的名字",
+    );
+    expect(out.get(2)).toBe("iPhone");
+  });
+
+  // 指纹短到没得截时原样交出:截断是为了别占满一行,不是为了藏信息。
+  it("指纹本来就短时原样交出", () => {
     const out = buildSourceByMessageId(
       [foreign(2, "sha256:other")],
       "sha256:self",

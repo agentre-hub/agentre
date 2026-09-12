@@ -91,6 +91,24 @@ describe("DeviceRow", () => {
     renderRow(baseDevice);
     expect(screen.getByText(/Never connected/)).toBeInTheDocument();
   });
+  // 在线徽标来自服务端 30 秒 TTL 的中继在线登记，而「上次连接」取的是中继保持着
+  // 连接期间不会刷新的库字段 —— 并排摆出来就是「在线 · 1 小时前」这种自相矛盾的
+  // 说法。在线时只说在线，不报时间。
+  it("given an online device, does not contradict Online with a stale last-connected time", () => {
+    renderRow({
+      ...baseDevice,
+      online: true,
+      lastSeenAt: 700_000,
+      lan: { ...baseLan, online: true, lastSeenAt: 700_000 },
+      paths: [{ kind: "lan", state: "in-use" }],
+    });
+    expect(screen.queryByText(/Last connected/)).toBeNull();
+  });
+  // 反过来，离线时「上次连接」是这一行仅有的时间线索，必须还在。
+  it("given an offline device that has connected before, says when it last connected", () => {
+    renderRow({ ...baseDevice, lastSeenAt: 700_000 });
+    expect(screen.getByText(/Last connected/)).toBeInTheDocument();
+  });
   it("renders friendly error for tofu_mismatch in destructive style", () => {
     const d = {
       ...baseDevice,

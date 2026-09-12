@@ -29,6 +29,7 @@ func clearRunEnvironment(t *testing.T) {
 		"AGENTRED_TLS_KEY",
 		"AGENTRED_SERVER_URL",
 		"AGENTRED_LOG_LEVEL",
+		"AGENTRED_ADVERTISE_ADDR",
 	} {
 		value, exists := os.LookupEnv(name)
 		require.NoError(t, os.Unsetenv(name))
@@ -426,4 +427,72 @@ func TestGivenLoggedOutDaemonWhenRunPointsAtAnotherServerThenItStarts(t *testing
 	got, err := executeRunForOptions(t, dir, "--server", "https://b.example")
 	require.NoError(t, err)
 	assert.Equal(t, "https://b.example", got.AccountServerURL)
+}
+
+// 跑在 NAT 后面的 daemon(容器网桥、宿主端口映射)自己推不出对外地址,这个值是运维
+// 直接说出来的;和其余运行配置一样,命令行盖过环境变量,环境变量盖过状态文件,并且
+// 落盘留给下一次 service 启动。
+func TestGivenAdvertiseAddressWhenRunStartsThenItReachesTheDaemonAndIsPersisted(t *testing.T) {
+	clearRunEnvironment(t)
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Mutate(func(s *state.State) { s.Listen = state.ListenPrefs{AdvertiseAddr: "state.example:7456"} })
+	require.NoError(t, st.Save())
+	t.Setenv("AGENTRED_ADVERTISE_ADDR", "env.example:7456")
+
+	got, err := executeRunForOptions(t, dir, "--advertise-addr", "203.0.113.7:9443")
+	require.NoError(t, err)
+	assert.Equal(t, "203.0.113.7:9443", got.AdvertiseAddr, "flag must override environment and state")
+
+	reloaded, err := state.Load(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "203.0.113.7:9443", reloaded.Listen.AdvertiseAddr)
+}
+
+func TestGivenPersistedAdvertiseAddressWhenRunHasNoOverridesThenItIsRestored(t *testing.T) {
+	clearRunEnvironment(t)
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Mutate(func(s *state.State) { s.Listen = state.ListenPrefs{AdvertiseAddr: "203.0.113.7:9443"} })
+	require.NoError(t, st.Save())
+
+	got, err := executeRunForOptions(t, dir)
+	require.NoError(t, err)
+	assert.Equal(t, "203.0.113.7:9443", got.AdvertiseAddr)
+}
+
+// 一个别的机器够不着的地址是配错了,不是「先跑起来再说」:直连会被静默丢掉,现场只剩
+// 「这台就是连不上直连」。启动时就拒。
+func TestGivenUnreachableAdvertiseAddressWhenRunStartsThenItReturnsUsageErrorWithoutStartingDaemon(t *testing.T) {
+	for name, address := range map[string]string{
+		"localhost":      "localhost:7456",
+		"loopback":       "127.0.0.1:7456",
+		"unspecified":    "0.0.0.0:7456",
+		"link local":     "169.254.10.1:7456",
+		"port not a num": "203.0.113.7:not-a-port",
+		"port out of ra": "203.0.113.7:70000",
+	} {
+		t.Run(name, func(t *testing.T) {
+			clearRunEnvironment(t)
+			started := false
+			cmd := newRunCmdWithDeps(runDeps{
+				dataDir: func() (string, error) { return t.TempDir(), nil },
+				newDaemon: func(daemon.Options) (runDaemon, error) {
+					started = true
+					return fakeRunDaemon{}, nil
+				},
+			})
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs([]string{"--advertise-addr", address})
+
+			err := cmd.Execute()
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "--advertise-addr")
+			assert.False(t, started, "a rejected address must not start the daemon")
+		})
+	}
 }
