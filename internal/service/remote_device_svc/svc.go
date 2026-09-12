@@ -74,6 +74,21 @@ type RemoteDeviceSvc interface {
 	// DiscardAdoptedDevices 去掉全部收编来的行，返回台数。登出时调用：那些行的依据
 	// 就是「账号说有这台机器」，账号断了依据就没了（见 adopt.go）。
 	DiscardAdoptedDevices(ctx context.Context) (int, error)
+	// RecordAccountDirect 记录一次账号握手下发的自动直连内容（D3/D6）：按 daemon
+	// 指纹落地为「来自账号的直连」的设备行——保存下发的全部地址与 pin-cert 模式的
+	// 证书，凭据存进系统钥匙串。已有的账号直连行按新下发内容整体覆盖（换证书/换
+	// 地址的场景，如 D16）；已有的手动配对行原样不动，手动永远赢（D14 的另一半）；
+	// 这台机器被用户手动移除过时（今天的移除记录），拒绝落地，同 AdoptAccountDevices
+	// 的墓碑判据（D15）。见 record_account_direct.go。
+	RecordAccountDirect(ctx context.Context, d AccountDirectDelivery) error
+	// RecordDirectSuccess 记录一次直连成功所用的地址，供设备面板"地址位"展示最近
+	// 一次直连成功的地址（D6）。只对「来自账号的直连」行生效，且地址必须在这一行
+	// 下发的地址列表内；其余情况静默忽略。
+	RecordDirectSuccess(ctx context.Context, deviceID int64, address string) error
+	// ClearAccountDirect 登出时把全部「来自账号的直连」行清回收编行的形状（D10）：
+	// 地址、证书与钥匙串里的本地直连凭据一并清掉，行本身留着，此后按 IsRelayOnly
+	// 的收编行处理。返回本次清掉的台数。见 clear_account_direct.go。
+	ClearAccountDirect(ctx context.Context) (int, error)
 	Remove(ctx context.Context, id int64) error
 	UpdateTLS(ctx context.Context, id int64, mode, pem string) (*DeviceView, error)
 	Refresh(ctx context.Context, id int64) (*DeviceView, error)

@@ -11,7 +11,7 @@ package rpcerror
 // 客户端就会把别人的失败 rehydrate 成自己的 sentinel,所以每个族占一段互不重叠
 // 的连续码:
 //
-//	-32001..-32006   daemon 会话 / 鉴权(见 error.go)
+//	-32001..-32007   daemon 会话 / 鉴权(见 error.go)
 //	-32010..-32015   runtime.*
 //	-32030..-32035   remotefs.*
 //	-32040..-32043   workspacefs.*

@@ -62,6 +62,7 @@ func newRunCmd() *cobra.Command {
 
 func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 	var (
+		tlsOn     bool
 		tlsCert   string
 		tlsKey    string
 		host      string
@@ -89,7 +90,7 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			config, err := resolveRunConfig(cmd, st.Snapshot(), host, port, tlsCert, tlsKey, serverURL)
+			config, err := resolveRunConfig(cmd, st.Snapshot(), host, port, tlsOn, tlsCert, tlsKey, serverURL)
 			if err != nil {
 				return err
 			}
@@ -111,6 +112,7 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 			logger.Ctx(ctx).Debug("agentred.run: resolved configuration",
 				zap.String("lanHost", config.listen.LanHost),
 				zap.Int("lanPort", config.listen.LanPort),
+				zap.Bool("tls", config.listen.TLS),
 				zap.String("tlsCertFile", config.listen.TLSCertFile),
 				zap.String("tlsKeyFile", config.listen.TLSKeyFile),
 				zap.String("serverURL", config.serverURL),
@@ -120,6 +122,7 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 				DataDir:          dir,
 				LANHost:          config.listen.LanHost,
 				LANPort:          config.listen.LanPort,
+				TLS:              config.listen.TLS,
 				TLSCertFile:      config.listen.TLSCertFile,
 				TLSKeyFile:       config.listen.TLSKeyFile,
 				AccountServerURL: config.serverURL,
@@ -131,7 +134,7 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 			logger.Ctx(ctx).Info("agentred.run: daemon starting",
 				zap.String("lanHost", config.listen.LanHost),
 				zap.Int("lanPort", config.listen.LanPort),
-				zap.Bool("tlsEnabled", config.listen.TLSCertFile != ""),
+				zap.Bool("tlsEnabled", config.listen.TLS || config.listen.TLSCertFile != ""),
 				zap.String("logLevel", level))
 			if err := d.Run(ctx); err != nil {
 				logger.Ctx(ctx).Error("agentred.run: daemon stopped", zap.Error(err))
@@ -141,6 +144,8 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&tlsOn, "tls", false,
+		"serve only wss:// (or AGENTRED_TLS); without --tls-cert/--tls-key uses a certificate generated in the data directory")
 	cmd.Flags().StringVar(&tlsCert, "tls-cert", "", "PEM certificate path (or AGENTRED_TLS_CERT); enables wss://")
 	cmd.Flags().StringVar(&tlsKey, "tls-key", "", "PEM private key path (or AGENTRED_TLS_KEY); required with --tls-cert")
 	cmd.Flags().StringVar(&host, "host", defaultAgentredHost, "LAN listen host (or AGENTRED_HOST)")
@@ -185,7 +190,7 @@ func resolveLogLevel(cmd *cobra.Command, flagValue string) (string, error) {
 
 // requireServerMatchesLogin 挡住「已登录的 daemon 被 run 指到另一套 server」。
 //
-// 登录是一整套属于某个账号的东西：凭据、验签公钥、吊销表。把地址换掉而不动这些，
+// 登录是一整套属于某个账号的东西：账号标识与它的凭据。把地址换掉而不动这些，
 // daemon 会拿 A 的凭据去 B 登记，B 一律拒；而拒绝的收场是
 // credentialRefresher 停掉中继续期并写一行日志（daemon.go），daemon 自己仍然认为
 // 「我已登录」，LAN 也照常——用户看到的只有「这台机器就是不上线」。
@@ -208,7 +213,7 @@ func requireServerMatchesLogin(st *state.State, serverURL string) error {
 		loggedInURL, serverURL)
 }
 
-func resolveRunConfig(cmd *cobra.Command, persisted state.State, flagHost string, flagPort int,
+func resolveRunConfig(cmd *cobra.Command, persisted state.State, flagHost string, flagPort int, flagTLS bool,
 	flagTLSCert, flagTLSKey, flagServerURL string) (resolvedRunConfig, error) {
 	config := resolvedRunConfig{}
 	config.listen.LanHost, config.hasOverrides = resolveString(
@@ -221,6 +226,13 @@ func resolveRunConfig(cmd *cobra.Command, persisted state.State, flagHost string
 	}
 	config.listen.LanPort = port
 	config.hasOverrides = config.hasOverrides || portOverride
+
+	tls, tlsOverride, err := resolveTLS(cmd.Flags().Changed("tls"), flagTLS, persisted.Listen.TLS)
+	if err != nil {
+		return resolvedRunConfig{}, err
+	}
+	config.listen.TLS = tls
+	config.hasOverrides = config.hasOverrides || tlsOverride
 
 	config.listen.TLSCertFile, portOverride = resolveString(
 		cmd.Flags().Changed("tls-cert"), flagTLSCert, "AGENTRED_TLS_CERT", persisted.Listen.TLSCertFile, "",
@@ -242,6 +254,11 @@ func resolveRunConfig(cmd *cobra.Command, persisted state.State, flagHost string
 	if (config.listen.TLSCertFile == "") != (config.listen.TLSKeyFile == "") {
 		return resolvedRunConfig{}, newUsageError("both --tls-cert and --tls-key must be set or neither")
 	}
+	if tlsOverride && !config.listen.TLS && config.listen.TLSCertFile != "" {
+		// A configured certificate always serves wss only, so an explicit false
+		// could never take effect; clearing the certificate is what turns TLS off.
+		return resolvedRunConfig{}, newUsageError("--tls=false (or AGENTRED_TLS=false) cannot be combined with --tls-cert/--tls-key")
+	}
 	if config.serverURL != "" {
 		config.serverURL, err = validServerURL(config.serverURL)
 		if err != nil {
@@ -262,6 +279,20 @@ func resolveString(flagChanged bool, flagValue, envName, persisted, fallback str
 		return persisted, false
 	}
 	return fallback, false
+}
+
+func resolveTLS(flagChanged, flagValue, persisted bool) (bool, bool, error) {
+	if flagChanged {
+		return flagValue, true, nil
+	}
+	if raw, ok := os.LookupEnv("AGENTRED_TLS"); ok {
+		value, err := strconv.ParseBool(strings.TrimSpace(raw))
+		if err != nil {
+			return false, false, newUsageError("AGENTRED_TLS must be true or false")
+		}
+		return value, true, nil
+	}
+	return persisted, false, nil
 }
 
 func resolvePort(flagChanged bool, flagValue, persisted int) (int, bool, error) {

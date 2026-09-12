@@ -40,6 +40,18 @@ type PairedAgentredRepo interface {
 	UpdateLastSeen(ctx context.Context, id, ts int64, lastError string) error
 	Rename(ctx context.Context, id int64, name string) error
 	Delete(ctx context.Context, id int64) error
+	// UpsertAccountDirect 把一行既有记录写成「来自账号的直连」的内容（D6）：地址位
+	// address（首次下发或再下发都从第一个地址起，见 remote_device_svc.RecordAccountDirect）、
+	// 账号一次下发的全部地址 urlsJSON、pin-cert 证书 tlsCertPEM，来源标记为 account。
+	// 只更新既有行——首次记录一台从未见过的机器走 Create，不走本方法。
+	UpsertAccountDirect(ctx context.Context, id int64, address, urlsJSON, tlsCertPEM string) error
+	// ClearAccountDirect 把一行「来自账号的直连」的痕迹清空，退回收编行的形状
+	// （D10 桌面端登出 / D14 手动配对覆盖前先清）：地址、pin-cert 证书、下发的地址
+	// 列表与来源标记一并清空；keychain 里的凭据不归这里管，由调用方另外删除。
+	ClearAccountDirect(ctx context.Context, id int64) error
+	// UpdateDirectAddress 只更新地址位（D6：设备面板显示最近一次直连成功的地址），
+	// 不动下发的全部地址列表与证书。
+	UpdateDirectAddress(ctx context.Context, id int64, address string) error
 }
 
 var defaultRepo PairedAgentredRepo
@@ -162,6 +174,41 @@ func (r *pairedAgentredRepo) UpdateEndpoint(ctx context.Context, id int64, url s
 			"url":                url,
 			"daemon_fingerprint": daemonFingerprint,
 			"updatetime":         nowMs(),
+		}).Error
+}
+
+func (r *pairedAgentredRepo) UpsertAccountDirect(ctx context.Context, id int64, address, urlsJSON, tlsCertPEM string) error {
+	return db.Ctx(ctx).Model(&paired_agentred_entity.PairedAgentred{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"url":              address,
+			"direct_urls_json": urlsJSON,
+			"tls_mode":         "pin-cert",
+			"tls_cert_pem":     tlsCertPEM,
+			"origin":           "account",
+			"updatetime":       nowMs(),
+		}).Error
+}
+
+func (r *pairedAgentredRepo) ClearAccountDirect(ctx context.Context, id int64) error {
+	return db.Ctx(ctx).Model(&paired_agentred_entity.PairedAgentred{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"url":              "",
+			"tls_mode":         "default",
+			"tls_cert_pem":     "",
+			"direct_urls_json": "[]",
+			"origin":           "manual",
+			"updatetime":       nowMs(),
+		}).Error
+}
+
+func (r *pairedAgentredRepo) UpdateDirectAddress(ctx context.Context, id int64, address string) error {
+	return db.Ctx(ctx).Model(&paired_agentred_entity.PairedAgentred{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"url":        address,
+			"updatetime": nowMs(),
 		}).Error
 }
 

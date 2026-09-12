@@ -200,10 +200,31 @@ type ProtobufClient struct {
 	// 握手是唯一说了算的地方(见 remote.Runtime.conversationID)。
 	// 空表示这条连接没做过带指纹的握手(未鉴权的直连单测)。
 	selfFP string
+
+	// accountDirectURLs/CertPEM/Credential 是 D3 的自动直连下发内容——只有
+	// auth.account 握手、且对端应答携带时才非空;auth.pair / auth.connect 从不
+	// 写它们。这里只负责"接住并原样交出"(AccountDirectDelivery),校验与落地由
+	// 调用方(remote_device_svc 的连接池)决定,见该包 conn_pool.go 的
+	// accountDirectDeliverer 注释。
+	accountDirectURLs       []string
+	accountDirectCertPEM    string
+	accountDirectCredential string
 }
 
 // SelfFingerprint 交出本端在这条连接上出示过的设备指纹。
 func (c *ProtobufClient) SelfFingerprint() string { return c.selfFP }
+
+// AccountDirectDelivery 交出这条连接的 auth.account 握手应答里携带的自动直连内容
+// （D3:agentred 当前可路由的 wss 地址列表、它正在用的证书、为这台桌面端签发或
+// 沿用的本地直连凭据）。ok 为 false 表示这条连接没做过 auth.account 握手（例如
+// auth.pair / auth.connect），或者对端应答里没有下发内容（D5:agentred 没有可路由
+// 地址）——两种情况调用方都不应该记录任何东西。
+func (c *ProtobufClient) AccountDirectDelivery() (urls []string, certPEM, credential string, ok bool) {
+	if c == nil || len(c.accountDirectURLs) == 0 {
+		return nil, "", "", false
+	}
+	return c.accountDirectURLs, c.accountDirectCertPEM, c.accountDirectCredential, true
+}
 
 type ProtobufConnection interface {
 	Conn() *protorpc.Conn
@@ -290,6 +311,28 @@ func (c *ProtobufClient) AuthAccount(ctx context.Context, request *agentrewire.A
 	// Mode C 的本端身份**由对端认定**:请求体里已经没有指纹可报,对端从已验签的凭据
 	// 取出身份后在应答里回写(决策 8)。这里不去自解自己的凭据 —— 那假定两端对 pfp
 	// claim 的读法永远一致,一旦不一致 conversation_id 会静默算错。
+	c.selfFP = response.GetPeerFingerprint()
+	c.accountDirectURLs = response.GetDirectUrls()
+	c.accountDirectCertPEM = response.GetTlsCertPem()
+	c.accountDirectCredential = response.GetDirectCredential()
+	return response, nil
+}
+
+// AuthDirect presents the local direct credential an account handshake
+// delivered (auth.direct). It knows nothing about TLS: the caller must only
+// reach it on a connection whose certificate already matched the pin, because
+// this is the moment the credential leaves the desktop. As with auth.account,
+// this connection's own identity is the one the responder states.
+func (c *ProtobufClient) AuthDirect(ctx context.Context, request *agentrewire.AuthDirectRequest) (*agentrewire.AuthDirectResponse, error) {
+	request.ProtocolVersion = wireversion.Protocol
+	request.MinSupportedProtocolVersion = wireversion.MinSupported
+	response, err := wirecall.AuthDirect(ctx, wirecall.On(c.conn), request)
+	if err != nil {
+		return nil, ClassifyHandshakeError(err)
+	}
+	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
+		return nil, versionErr
+	}
 	c.selfFP = response.GetPeerFingerprint()
 	return response, nil
 }

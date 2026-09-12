@@ -1,17 +1,11 @@
 package auth
 
 import (
-	"bytes"
 	"context"
-	"crypto"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/json"
-	"encoding/pem"
-	"strings"
 	"time"
+
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/daemon/identity"
 	"github.com/agentre-hub/agentre/internal/daemon/pairing"
@@ -51,9 +45,10 @@ type ConnectResult struct {
 }
 
 // AccountParams is the payload of an auth.account request (Mode C).
-// Credential is the account access-token JWT issued by agentre-server.
+// Credential is an opaque account credential issued by agentre-server; only
+// the server can say whose it is (spec H1).
 //
-// 它**没有**对端指纹字段:Mode C 的对端身份只从已验签凭据的 pfp claim 取(决策 8)。
+// 它**没有**对端指纹字段:Mode C 的对端身份只从 server 对凭据的核验结论取(决策 8)。
 // 请求体里自报的那个字符串从来没有被任何东西验证过,留着就等于「说了不算」。
 type AccountParams struct {
 	Credential string `json:"credential"`
@@ -67,37 +62,68 @@ type AccountParams struct {
 type AccountResult struct {
 	OK           bool   `json:"ok"`
 	InstanceUUID string `json:"instanceUUID"`
-	// PeerFingerprint 是凭据 pfp claim 里那个已验签的对端身份 —— 对端会话落进
+	// PeerFingerprint 是 server 核验凭据后给出的对端身份 —— 对端会话落进
 	// peer_fingerprint 的那个值,也回写给调用方(AuthAccountResponse.peer_fingerprint)。
 	PeerFingerprint string `json:"peerFingerprint"`
+	// Direct is the auto-direct delivery for a desktop caller (D3); nil when the
+	// caller is not a desktop or the daemon has no address to offer (D5).
+	Direct *DirectDelivery `json:"-"`
 }
 
-const (
-	accountCredentialKeyUnavailable = "account credential rejected: cached verification key unavailable"
-	accountCredentialInvalid        = "account credential invalid"
-	accountCredentialExpired        = "account credential expired"
-	accountCredentialSignature      = "account credential signature invalid"
-	accountCredentialMismatch       = "account credential account mismatch"
-	accountCredentialRevoked        = "account credential revoked"
-	// 缺 pfp claim 与签名不合法同一形态(ErrUnauthorized),只是原因说得更准。
-	accountCredentialMissingPeerFingerprint = "account credential missing peer fingerprint"
+// DirectDelivery is what an account handshake hands a desktop so it can later
+// connect directly: the daemon's current wss addresses, the certificate they
+// present, and the local direct credential issued for that desktop.
+type DirectDelivery struct {
+	URLs       []string
+	CertPEM    string
+	Credential string
+}
 
-	accountCredentialClockSkew = time.Minute
-)
+// DirectEndpoint reports how another machine reaches this daemon directly: its
+// routable wss addresses and the PEM certificate those addresses present. No
+// addresses means none another machine could reach.
+type DirectEndpoint func() (urls []string, certPEM string)
+
+// DirectParams is the payload of an auth.direct request. It names no peer:
+// the credential alone identifies the desktop it was issued to.
+type DirectParams struct {
+	Credential string
+}
+
+// DirectResult is returned after a successful auth.direct handshake. Its peer
+// identity is the fingerprint the credential was issued under — the value a
+// relayed auth.account named for that same desktop.
+type DirectResult struct {
+	OK              bool
+	InstanceUUID    string
+	PeerFingerprint string
+}
+
+// deviceKindDesktop is the introspection kind of a desktop's device token —
+// the only caller auto-direct is delivered to. Browser relay tickets
+// (relay_client) and server-issued credentials (server_mirror) are not.
+const deviceKindDesktop = "desktop"
+
+// ErrDirectCredentialInvalid rejects a local direct credential agentred does
+// not hold for its current account: the same -32001 "credential rejected".
+var ErrDirectCredentialInvalid = &rpcerror.Error{Code: rpcerror.CodeUnauthorized, Message: "local direct credential rejected"}
 
 // AuthHandlers owns the pre-authentication gate. The daemon wires these
 // into the registry under method names "auth.pair" / "auth.connect" /
-// "auth.account" / "auth.revoke".
+// "auth.account" / "auth.direct" / "auth.revoke".
 type AuthHandlers struct {
-	st      *state.State
-	pairing *pairing.Manager
-	rl      *pairing.RateLimiter
+	st       *state.State
+	pairing  *pairing.Manager
+	rl       *pairing.RateLimiter
+	accounts AccountVerifier
+	direct   DirectEndpoint
 }
 
 // NewAuthHandlers constructs an AuthHandlers wired to the given state,
-// pairing manager, and rate limiter.
-func NewAuthHandlers(st *state.State, pm *pairing.Manager, rl *pairing.RateLimiter) *AuthHandlers {
-	return &AuthHandlers{st: st, pairing: pm, rl: rl}
+// pairing manager, rate limiter, account verifier and direct endpoint (nil
+// means auto-direct is never delivered).
+func NewAuthHandlers(st *state.State, pm *pairing.Manager, rl *pairing.RateLimiter, accounts AccountVerifier, direct DirectEndpoint) *AuthHandlers {
+	return &AuthHandlers{st: st, pairing: pm, rl: rl, accounts: accounts, direct: direct}
 }
 
 // HandlePair implements Mode A. The ip arg is the source remote address
@@ -156,284 +182,100 @@ func (a *AuthHandlers) HandleConnect(ctx context.Context, p ConnectParams) (*Con
 	return &ConnectResult{OK: true, InstanceUUID: a.st.DaemonInstanceUUID}, nil
 }
 
-// HandleAccount implements Mode C. It verifies an account credential entirely
-// from the daemon's cached public key and cached revocation list, without
-// contacting agentre-server.
+// HandleAccount implements Mode C. The daemon must itself belong to an account;
+// the presented credential is then verified online by the account server
+// (AccountVerifier) and accepted only when it belongs to that same account.
+// The connection's peer identity is the one the server's verdict names.
 func (a *AuthHandlers) HandleAccount(ctx context.Context, p AccountParams) (*AccountResult, error) {
 	snapshot := a.st.Snapshot()
-	if snapshot.AccountID == "" || snapshot.VerificationPublicKeyPEM == "" {
-		return nil, accountCredentialError(accountCredentialKeyUnavailable)
+	if snapshot.AccountID == "" {
+		return nil, ErrReceiverNotReady
 	}
-	verified, err := VerifyAccountCredential(p.Credential, KeySet{
-		CurrentPEM:  snapshot.VerificationPublicKeyPEM,
-		ByKID:       snapshot.VerificationPublicKeys,
-		MaxLifetime: time.Duration(snapshot.MaxTokenLifetimeSeconds) * time.Second,
-	})
+	verified, err := a.accounts.Verify(ctx, p.Credential)
 	if err != nil {
 		return nil, err
 	}
 	if verified.AccountID != snapshot.AccountID {
-		return nil, accountCredentialError(accountCredentialMismatch)
-	}
-	// The revocation list is consulted from the cached snapshot only. A jti the
-	// daemon has not pulled yet still authenticates — that is R4's acknowledged
-	// delay (R19), and it is what keeps the handshake free of network round
-	// trips when the account server is unreachable (R3).
-	if isRevokedCredential(verified.JTI, snapshot.RevokedJTIs) {
-		return nil, accountCredentialError(accountCredentialRevoked)
+		logger.Ctx(ctx).Info("auth.HandleAccount: rejected a credential that belongs to another account",
+			zap.String("accountId", snapshot.AccountID), zap.String("credentialAccountId", verified.AccountID))
+		return nil, ErrCredentialInvalid
 	}
 	return &AccountResult{
 		OK: true, InstanceUUID: snapshot.DaemonInstanceUUID,
 		PeerFingerprint: verified.PeerFingerprint,
+		Direct:          a.deliverDirect(ctx, verified, snapshot.AccountID),
 	}, nil
 }
 
-// KeySet 是验证一枚账号凭据所需的全部公开材料。ByKID 非空时按凭据头里的 kid 选钥,
-// 否则用 CurrentPEM(单钥时代的形态)。MaxLifetime 为零表示不额外限制凭据寿命。
-type KeySet struct {
-	CurrentPEM  string
-	ByKID       map[string]string
-	MaxLifetime time.Duration
-}
-
-// VerifyAccountCredential 是**两个 Mode C 入口共用的**凭据验证:agentred 的
-// HandleAccount 与桌面端入站对端注册表(internal/peer)都从这里出来,两条路上
-// 「什么算验过了」因此只有一处定义,两条路不会各判各的。
-//
-// 它验签名、算法、过期(±60s)、寿命上限,并交出凭据说了算的三样:账号、jti、以及
-// 决策 8 的对端身份。缺 pfp 的凭据在这里就被拒:它名不指人,而调用方绝不允许退回
-// 去采信请求体。
-//
-// 它**不查吊销列表**:吊销面是调用方各自的缓存(agentred 有 R4 的轮询快照,
-// 桌面端没有),由调用方在拿到 jti 后自己判定。
-func VerifyAccountCredential(credential string, keys KeySet) (VerifiedAccountCredential, error) {
-	publicKeyPEM := keys.CurrentPEM
-	if len(keys.ByKID) != 0 {
-		kid, err := accountCredentialKID(credential)
-		if err != nil {
-			return VerifiedAccountCredential{}, err
-		}
-		publicKeyPEM = keys.ByKID[kid]
-		if publicKeyPEM == "" {
-			return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
-		}
+// deliverDirect issues (or reuses, D4) the local direct credential of a
+// verified desktop and pairs it with the daemon's current addresses and
+// certificate. A failure here only withholds the delivery: the account
+// handshake itself has already succeeded.
+func (a *AuthHandlers) deliverDirect(ctx context.Context, verified Introspection, accountID string) *DirectDelivery {
+	if verified.Kind != deviceKindDesktop || a.direct == nil {
+		return nil
 	}
-	if publicKeyPEM == "" {
-		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialKeyUnavailable)
+	urls, certPEM := a.direct()
+	if len(urls) == 0 {
+		return nil
 	}
-	publicKey, err := accountPublicKey(publicKeyPEM)
+	candidate, err := pairing.NewDeviceToken()
 	if err != nil {
-		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialKeyUnavailable)
+		logger.Ctx(ctx).Warn("auth.HandleAccount: could not mint a local direct credential, delivering none",
+			zap.String("peerFingerprint", verified.PeerFingerprint), zap.Error(err))
+		return nil
 	}
-	verified, err := verifyAccountCredentialWithMaxLifetime(credential, publicKey, keys.MaxLifetime)
+	credential, issued, err := a.st.EnsureDirectCredential(verified.PeerFingerprint, accountID, candidate)
 	if err != nil {
-		return VerifiedAccountCredential{}, err
+		logger.Ctx(ctx).Warn("auth.HandleAccount: could not record a local direct credential, delivering none",
+			zap.String("peerFingerprint", verified.PeerFingerprint), zap.Error(err))
+		return nil
 	}
-	// 决策 8:身份来自凭据。缺 pfp 与签名不合法同一形态被拒 —— 不回退到请求体,
-	// 回退等于这条要求不存在。
-	if verified.PeerFingerprint == "" {
-		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialMissingPeerFingerprint)
+	if issued {
+		logger.Ctx(ctx).Info("auth.HandleAccount: issued a local direct credential",
+			zap.String("peerFingerprint", verified.PeerFingerprint), zap.String("accountId", accountID))
 	}
-	return verified, nil
+	return &DirectDelivery{URLs: urls, CertPEM: certPEM, Credential: credential}
 }
 
-func isRevokedCredential(jti string, revoked []string) bool {
-	if jti == "" {
-		return false
+// HandleDirect implements auth.direct (D8). It never contacts the account
+// server: the presented credential must be one this daemon issued, and the
+// account it was issued under must be the account the daemon belongs to now.
+func (a *AuthHandlers) HandleDirect(ctx context.Context, p DirectParams) (*DirectResult, error) {
+	snapshot := a.st.Snapshot()
+	if snapshot.AccountID == "" {
+		return nil, ErrReceiverNotReady
 	}
-	for _, candidate := range revoked {
-		if candidate == jti {
-			return true
-		}
-	}
-	return false
-}
-
-func accountCredentialError(reason string) *rpcerror.Error {
-	return &rpcerror.Error{Code: rpcerror.ErrUnauthorized.Code, Message: reason}
-}
-
-func accountPublicKey(publicKeyPEM string) (*rsa.PublicKey, error) {
-	block, rest := pem.Decode([]byte(publicKeyPEM))
-	if block == nil || strings.TrimSpace(string(rest)) != "" {
-		return nil, accountCredentialError(accountCredentialKeyUnavailable)
-	}
-	key, err := x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil {
-		return x509.ParsePKCS1PublicKey(block.Bytes)
-	}
-	publicKey, ok := key.(*rsa.PublicKey)
+	fingerprint, record, ok := matchDirectCredential(snapshot.DirectCredentials, p.Credential)
 	if !ok {
-		return nil, accountCredentialError(accountCredentialKeyUnavailable)
+		logger.Ctx(ctx).Info("auth.HandleDirect: rejected a local direct credential this daemon does not hold")
+		return nil, ErrDirectCredentialInvalid
 	}
-	return publicKey, nil
+	if record.AccountID != snapshot.AccountID {
+		logger.Ctx(ctx).Info("auth.HandleDirect: rejected a local direct credential issued under another account",
+			zap.String("peerFingerprint", fingerprint), zap.String("accountId", snapshot.AccountID),
+			zap.String("credentialAccountId", record.AccountID))
+		return nil, ErrDirectCredentialInvalid
+	}
+	return &DirectResult{OK: true, InstanceUUID: snapshot.DaemonInstanceUUID, PeerFingerprint: fingerprint}, nil
 }
 
-// VerifiedAccountCredential 是一枚已验签凭据里那几样说了算的东西:账号、吊销列表
-// 认的 jti,以及决策 8 的对端身份(pfp claim)。
-type VerifiedAccountCredential struct {
-	AccountID       string
-	JTI             string
-	PeerFingerprint string
-}
-
-// verifyAccountCredential returns the credential's account id, its jti (the
-// identity the account's revocation list refers to) and the peer identity its
-// pfp claim states, once signature and expiry hold. Verification is purely
-// local — see HandleAccount.
-func verifyAccountCredentialWithMaxLifetime(credential string, publicKey *rsa.PublicKey,
-	maxLifetime time.Duration) (VerifiedAccountCredential, error) {
-	parts := strings.Split(credential, ".")
-	if len(parts) != 3 {
-		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
-	}
-	var header map[string]json.RawMessage
-	headerJSON, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil || json.Unmarshal(headerJSON, &header) != nil {
-		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
-	}
-	var algorithm string
-	if json.Unmarshal(header["alg"], &algorithm) != nil || algorithm != "RS256" {
-		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
-	}
-	var claims map[string]json.RawMessage
-	if json.Unmarshal(payload, &claims) != nil {
-		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
-	}
-	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
-	if err != nil {
-		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
-	}
-	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-	if rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, digest[:], signature) != nil {
-		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialSignature)
-	}
-	expiresAt, err := accountCredentialExpiry(claims)
-	if err != nil {
-		return VerifiedAccountCredential{}, err
-	}
-	if time.Now().After(expiresAt.Add(accountCredentialClockSkew)) {
-		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialExpired)
-	}
-	if maxLifetime > 0 {
-		issuedAt, err := accountCredentialTime(claims, "iat")
-		if err != nil || expiresAt.Sub(issuedAt) > maxLifetime {
-			return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
+// matchDirectCredential finds the desktop a presented credential was issued
+// to. Every record is compared in constant time and the scan never stops
+// early, so neither a byte position nor a record's place in the map is
+// revealed by timing.
+func matchDirectCredential(records map[string]state.DirectCredential, presented string) (string, state.DirectCredential, bool) {
+	var (
+		fingerprint string
+		found       state.DirectCredential
+		ok          bool
+	)
+	for candidate, record := range records {
+		if pairing.VerifyDeviceToken(record.Credential, presented) && !ok {
+			fingerprint, found, ok = candidate, record, true
 		}
 	}
-	accountID, err := accountIDFromCredentialClaims(claims)
-	if err != nil {
-		return VerifiedAccountCredential{}, err
-	}
-	return VerifiedAccountCredential{
-		AccountID:       accountID,
-		JTI:             accountCredentialJTI(claims),
-		PeerFingerprint: accountCredentialPeerFingerprint(claims),
-	}, nil
-}
-
-// accountCredentialPeerFingerprint reads the pfp claim — the peer identity
-// agentre-server signed into this credential (decision 8). A credential without
-// one names nobody, and HandleAccount rejects it rather than falling back to
-// anything the caller said about itself.
-func accountCredentialPeerFingerprint(claims map[string]json.RawMessage) string {
-	raw, ok := claims["pfp"]
-	if !ok {
-		return ""
-	}
-	var fingerprint string
-	if json.Unmarshal(raw, &fingerprint) != nil {
-		return ""
-	}
-	return fingerprint
-}
-
-func accountCredentialKID(credential string) (string, error) {
-	parts := strings.Split(credential, ".")
-	if len(parts) != 3 {
-		return "", accountCredentialError(accountCredentialInvalid)
-	}
-	headerJSON, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return "", accountCredentialError(accountCredentialInvalid)
-	}
-	var header struct {
-		KID string `json:"kid"`
-	}
-	if json.Unmarshal(headerJSON, &header) != nil || header.KID == "" {
-		return "", accountCredentialError(accountCredentialInvalid)
-	}
-	return header.KID, nil
-}
-
-// accountCredentialJTI reads the standard JWT jti claim (agentre-server signs a
-// ULID there). A credential without one is simply never on the revocation list;
-// its short expiry remains the only thing that ends it.
-func accountCredentialJTI(claims map[string]json.RawMessage) string {
-	rawJTI, ok := claims["jti"]
-	if !ok {
-		return ""
-	}
-	var jti string
-	if json.Unmarshal(rawJTI, &jti) != nil {
-		return ""
-	}
-	return jti
-}
-
-func accountCredentialExpiry(claims map[string]json.RawMessage) (time.Time, error) {
-	return accountCredentialTime(claims, "exp")
-}
-
-func accountCredentialTime(claims map[string]json.RawMessage, name string) (time.Time, error) {
-	rawExpiry, ok := claims[name]
-	if !ok {
-		return time.Time{}, accountCredentialError(accountCredentialInvalid)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(rawExpiry))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return time.Time{}, accountCredentialError(accountCredentialInvalid)
-	}
-	expiresAt, ok := value.(json.Number)
-	if !ok {
-		return time.Time{}, accountCredentialError(accountCredentialInvalid)
-	}
-	seconds, err := expiresAt.Int64()
-	if err != nil {
-		return time.Time{}, accountCredentialError(accountCredentialInvalid)
-	}
-	return time.Unix(seconds, 0), nil
-}
-
-func accountIDFromCredentialClaims(claims map[string]json.RawMessage) (string, error) {
-	rawAccountID, ok := claims["uid"]
-	if !ok {
-		return "", accountCredentialError(accountCredentialInvalid)
-	}
-	var accountID string
-	if err := json.Unmarshal(rawAccountID, &accountID); err == nil {
-		if accountID != "" && accountID != "0" {
-			return accountID, nil
-		}
-		return "", accountCredentialError(accountCredentialInvalid)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(rawAccountID))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return "", accountCredentialError(accountCredentialInvalid)
-	}
-	accountNumber, ok := value.(json.Number)
-	if !ok || accountNumber.String() == "" || accountNumber.String() == "0" {
-		return "", accountCredentialError(accountCredentialInvalid)
-	}
-	return accountNumber.String(), nil
+	return fingerprint, found, ok
 }
 
 // HandleRevoke removes a paired peer from state. Used by future "remove

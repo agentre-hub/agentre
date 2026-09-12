@@ -79,6 +79,10 @@ func advertisedVersion(t *testing.T, request *agentrewire.Request) string {
 		value := &agentrewire.AuthConnectRequest{}
 		require.NoError(t, proto.Unmarshal(request.GetEncodedPayload(), value))
 		return value.GetProtocolVersion()
+	case agentrewire.RpcMethod_RPC_METHOD_AUTH_DIRECT:
+		value := &agentrewire.AuthDirectRequest{}
+		require.NoError(t, proto.Unmarshal(request.GetEncodedPayload(), value))
+		return value.GetProtocolVersion()
 	default:
 		value := &agentrewire.AuthAccountRequest{}
 		require.NoError(t, proto.Unmarshal(request.GetEncodedPayload(), value))
@@ -95,6 +99,8 @@ func replyWithVersion(version string) func(uint32) proto.Message {
 			return &agentrewire.AuthPairResponse{DeviceToken: "token", DaemonFingerprint: "sha256:daemon", ProtocolVersion: version, MinSupportedProtocolVersion: wireversion.MinSupported}
 		case agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT:
 			return &agentrewire.AuthConnectResponse{Ok: true, ProtocolVersion: version, MinSupportedProtocolVersion: wireversion.MinSupported}
+		case agentrewire.RpcMethod_RPC_METHOD_AUTH_DIRECT:
+			return &agentrewire.AuthDirectResponse{Ok: true, InstanceUuid: "uuid-1", ProtocolVersion: version, MinSupportedProtocolVersion: wireversion.MinSupported, PeerFingerprint: "sha256:as-the-peer-sees-me"}
 		default:
 			return &agentrewire.AuthAccountResponse{Ok: true, InstanceUuid: "uuid-1", ProtocolVersion: version, MinSupportedProtocolVersion: wireversion.MinSupported}
 		}
@@ -152,6 +158,39 @@ func TestAuthAccount_GivenPeerOmitsTheProtocolVersion_WhenAuthenticating_ThenRej
 	assert.ErrorIs(t, err, ErrPeerProtocolVersionMismatch)
 	assert.Contains(t, err.Error(), wireversion.MinSupported)
 	assert.Contains(t, err.Error(), wireversion.Protocol)
+}
+
+// Given an agentred of the same revision, When the desktop presents its local
+// direct credential with auth.direct, Then the request advertises this build's
+// version and the connection's own identity is the one the responder states —
+// conversation_id derives from it, exactly as for auth.account.
+func TestAuthDirect_GivenPeerSpeaksTheSameProtocolVersion_WhenAuthenticating_ThenAdvertisesOurVersionAndTakesSelfFingerprintFromTheResponse(t *testing.T) {
+	peer := newAuthPeer(t, replyWithVersion(wireversion.Protocol))
+
+	c, err := DialProtobuf(t.Context(), Options{URL: peer.url()})
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	result, err := c.AuthDirect(t.Context(), &agentrewire.AuthDirectRequest{Credential: "direct-cred"})
+	require.NoError(t, err)
+	assert.Equal(t, "uuid-1", result.GetInstanceUuid())
+	assert.Equal(t, wireversion.Protocol, <-peer.requested)
+	assert.Equal(t, "sha256:as-the-peer-sees-me", c.SelfFingerprint())
+}
+
+// Given an agentred from another revision, When auth.direct answers, Then the
+// same version-mismatch sentinel as every other handshake comes back.
+func TestAuthDirect_GivenPeerSpeaksAnotherProtocolVersion_WhenAuthenticating_ThenFailsWithVersionMismatch(t *testing.T) {
+	peer := newAuthPeer(t, replyWithVersion("0.0.9"))
+
+	c, err := DialProtobuf(t.Context(), Options{URL: peer.url()})
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	_, err = c.AuthDirect(t.Context(), &agentrewire.AuthDirectRequest{Credential: "direct-cred"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrPeerProtocolVersionMismatch)
+	assert.Contains(t, err.Error(), "0.0.9")
 }
 
 // Given a peer that does not offer the agentre-protobuf subprotocol at all,

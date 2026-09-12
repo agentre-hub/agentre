@@ -6,7 +6,7 @@ import "errors"
 //
 // daemon 在内存里持有一份完整的 state.State，`state.Save` 是把那一整份序列化后原子
 // 替换掉文件（internal/daemon/state/state.go）——没有 merge。而它在正常干活时就会存盘：
-// 对端握手 / lastSeen（internal/daemon/auth/auth.go）、吊销拉取与凭据续期
+// 对端握手 / lastSeen（internal/daemon/auth/auth.go）、凭据续期
 // （internal/daemon/daemon.go）。
 //
 // login / logout 是**另外的进程**，各自 load → mutate → save。两边并存就是一个典型的

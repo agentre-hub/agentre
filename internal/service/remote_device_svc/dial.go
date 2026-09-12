@@ -3,9 +3,11 @@ package remote_device_svc
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
@@ -105,6 +107,72 @@ func (realDial) OpenAccount(ctx context.Context, args AccountArgs) (client.Proto
 	return c, nil
 }
 
+// OpenDirect 见 DaemonDialPort 上的注释。地址之间并发竞速（client.RaceProtobuf），
+// 一个地址拨不通、证书不符或不应答，都不耽误其它地址。
+func (realDial) OpenDirect(ctx context.Context, args DirectArgs) (client.ProtobufConnection, string, error) {
+	if len(args.URLs) == 0 {
+		return nil, "", errors.New("no direct address to dial")
+	}
+	tlsCfg, err := client.BuildTLSConfig(client.TLSPinCert, args.CertPEM)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: %v", ErrTLSConfig, err)
+	}
+	// conns[i] 由第 i 条路径的拨号 goroutine 写入；RaceProtobuf 收齐全部结果才返回，
+	// 所以返回之后读它是安全的。赢家是哪个地址只能这样对回去。
+	conns := make([]client.ProtobufConnection, len(args.URLs))
+	paths := make([]client.ProtobufPath, len(args.URLs))
+	for i, address := range args.URLs {
+		paths[i] = client.ProtobufPath{
+			Name: address,
+			Dial: func(ctx context.Context) (client.ProtobufConnection, error) {
+				c, err := openDirectAt(ctx, address, tlsCfg.Clone(), args)
+				conns[i] = c
+				return c, err
+			},
+		}
+	}
+	winner, err := client.RaceProtobuf(ctx, paths...)
+	if err != nil {
+		return nil, "", err
+	}
+	for i, c := range conns {
+		if c != nil && c == winner {
+			return winner, args.URLs[i], nil
+		}
+	}
+	return winner, "", nil
+}
+
+// openDirectAt 对单个地址做「固定证书的 TLS → auth.direct → TOFU 复核」。
+//
+// 凭据只在 TLS 握手成功之后才发出：证书与固定值不一致时 BuildTLSConfig 的校验在握手里
+// 就失败，DialProtobuf 连 WebSocket 升级都不会发。这是一次普通的连接失败，**不是**
+// ErrTOFUMismatch——IP 变了、证书换了都长这样（D16），不该拉响 TOFU 告警。
+func openDirectAt(ctx context.Context, address string, tlsCfg *tls.Config, args DirectArgs) (client.ProtobufConnection, error) {
+	u, err := url.Parse(address)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme != "wss" {
+		// 没有 TLS 就没有证书可以对固定值，凭据绝不能明文发出去。
+		return nil, errors.New("direct address is not wss, refusing to present the credential without a pinned TLS peer")
+	}
+	c, err := client.DialProtobuf(ctx, client.Options{URL: address, TLSConfig: tlsCfg})
+	if err != nil {
+		return nil, translateProtocolError(err)
+	}
+	res, err := c.AuthDirect(ctx, &agentrewire.AuthDirectRequest{Credential: args.Credential})
+	if err != nil {
+		_ = c.Close()
+		return nil, translateAccountRPCError(err)
+	}
+	if identity.DaemonFingerprint(res.GetInstanceUuid()) != args.ExpectedDaemonFingerprint {
+		_ = c.Close()
+		return nil, ErrTOFUMismatch
+	}
+	return c, nil
+}
+
 // translateProtocolError 把 client 层的协议哨兵折成 svc 自己的一套。
 //
 // 单独一层是因为它与凭据无关:握手在协议这一层就没谈成,后面的 -32001 / -32004
@@ -174,11 +242,15 @@ func translateConnectRPCError(err error) error {
 	return err
 }
 
-// translateAccountRPCError maps the daemon's auth.account rejection to
-// ErrUnauthorized so ConnPool keeps classifying it as terminal. HandleAccount
-// has six distinguishable reasons (expired / bad signature / account mismatch /
-// revoked / missing key / malformed) and returns them all under -32001 — the
-// desktop classifies by code, never by message.
+// translateAccountRPCError maps the daemon's auth.account / auth.direct
+// rejection to ErrUnauthorized so ConnPool keeps classifying it as terminal.
+// HandleAccount has six distinguishable reasons (expired / bad signature /
+// account mismatch / revoked / missing key / malformed) and returns them all
+// under -32001 — the desktop classifies by code, never by message.
+//
+// -32007 (account server unreachable) deliberately passes through untouched:
+// the credential was never rejected, so it must neither trigger a credential
+// refresh nor read as "retrying is pointless" (spec H3).
 func translateAccountRPCError(err error) error {
 	if protocolErr := translateProtocolError(err); protocolErr != err {
 		return protocolErr

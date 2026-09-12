@@ -40,7 +40,7 @@ type daemonBuild struct {
 // New constructs a service. Production wiring lives in bootstrap; tests
 // inject mock ports directly. pool 由 bootstrap 用 NewConnPool 构造后注入。
 func New(repo remote_device_repo.PairedAgentredRepo, dial DaemonDialPort, kc KeychainPort, pool ConnPool) RemoteDeviceSvc {
-	return &service{
+	s := &service{
 		repo:          repo,
 		dial:          dial,
 		keychain:      kc,
@@ -49,6 +49,16 @@ func New(repo remote_device_repo.PairedAgentredRepo, dial DaemonDialPort, kc Key
 		capabilities:  make(map[int64][]string),
 		builds:        make(map[int64]daemonBuild),
 	}
+	// pool 由 bootstrap 先于 service 构造完成（NewConnPool 在 New 之前调用），
+	// 账号握手下发内容（D3/D4,task 9）的落地端口就是 service 自己——用一次性
+	// 类型断言接进去，不必改动 bootstrap 的构造顺序或新增导出 setter。测试用的
+	// 假 ConnPool（不是这个包自己的 *pool）不实现这个未导出接口，断言直接跳过。
+	if p, ok := pool.(interface {
+		setAccountDirectRecorder(AccountDirectRecorderPort)
+	}); ok {
+		p.setAccountDirectRecorder(s)
+	}
+	return s
 }
 
 // RecordDeviceProviders overwrites the cached provider list for deviceID.

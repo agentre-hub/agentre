@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
 
 type inboundPeerStub struct {
@@ -274,5 +276,57 @@ func TestAppOnServerStateEvent_GivenLoggedOut_ThenDiscardsAdoptedDevices(t *test
 	app.onServerStateEvent(map[string]any{"kind": "logged_out"})
 	if discards != 1 {
 		t.Fatalf("登出必须清掉收编行；discards = %d", discards)
+	}
+}
+
+// stubClearAccountDirectSvc 覆盖 DiscardAdoptedDevices 与 ClearAccountDirect 两个
+// 方法：discardAdoptedDevices 的真实实现在登出时两个都调，嵌入的
+// remote_device_svc.RemoteDeviceSvc 零值不覆盖会在调用时 nil 解引用 panic。
+type stubClearAccountDirectSvc struct {
+	remote_device_svc.RemoteDeviceSvc
+	discardCalls int
+	clearCalls   int
+}
+
+func (s *stubClearAccountDirectSvc) DiscardAdoptedDevices(context.Context) (int, error) {
+	s.discardCalls++
+	return 0, nil
+}
+
+func (s *stubClearAccountDirectSvc) ClearAccountDirect(context.Context) (int, error) {
+	s.clearCalls++
+	return 0, nil
+}
+
+// D10：桌面端登出不止要清收编行（上面那条用例），还要把「来自账号的直连」行退回
+// 收编行的形状——地址、证书、keychain 里的凭据清掉，行本身留着
+// （remote_device_svc.ClearAccountDirect）。
+func TestAppOnServerStateEvent_GivenLoggedOut_ThenClearsAccountDirectRows(t *testing.T) {
+	previousPeer := newInboundPeer
+	newInboundPeer = func(context.Context) (inboundPeer, error) {
+		return &inboundPeerStub{started: make(chan struct{}), stopped: make(chan struct{})}, nil
+	}
+	t.Cleanup(func() { newInboundPeer = previousPeer })
+	previousDrop := dropAccountChannel
+	dropAccountChannel = func() {}
+	t.Cleanup(func() { dropAccountChannel = previousDrop })
+
+	original := remote_device_svc.Default()
+	t.Cleanup(func() { remote_device_svc.SetDefault(original) })
+	stub := &stubClearAccountDirectSvc{}
+	remote_device_svc.SetDefault(stub)
+
+	app := &App{}
+	app.onServerStateEvent(map[string]any{"kind": "logged_in"})
+	if stub.clearCalls != 0 {
+		t.Fatalf("登录时账号还在，不该清账号直连行；clearCalls = %d", stub.clearCalls)
+	}
+
+	app.onServerStateEvent(map[string]any{"kind": "logged_out"})
+	if stub.clearCalls != 1 {
+		t.Fatalf("登出必须清掉账号直连行；clearCalls = %d", stub.clearCalls)
+	}
+	if stub.discardCalls != 1 {
+		t.Fatalf("登出必须仍然清掉收编行；discardCalls = %d", stub.discardCalls)
 	}
 }

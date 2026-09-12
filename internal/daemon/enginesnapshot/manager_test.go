@@ -26,7 +26,7 @@ func loggedInState(t *testing.T) *state.State {
 	t.Helper()
 	st, err := state.Load(t.TempDir())
 	require.NoError(t, err)
-	st.Login("account-1", "PEM", state.AccountCredential{AccessToken: testAccessToken})
+	st.Login("account-1", state.AccountCredential{AccessToken: testAccessToken})
 	require.NoError(t, st.Save())
 	return st
 }

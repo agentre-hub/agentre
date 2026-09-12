@@ -2,158 +2,90 @@ package peer
 
 import (
 	"context"
-	"crypto"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/json"
-	"encoding/pem"
-	"net/http"
-	"net/http/httptest"
-	"sync/atomic"
+	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-hub/agentre/internal/daemon/auth"
 )
 
-func testVerifierKeyPair(t *testing.T) (*rsa.PrivateKey, string) {
-	t.Helper()
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
-	require.NoError(t, err)
-	return key, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
-}
+func TestAccountCredentialVerifier_GivenTheServerConfirmsTheSameAccount_ThenReturnsItsIntrospection(t *testing.T) {
+	verifier := newAccountCredentialVerifier(
+		func(context.Context) (string, error) { return "7", nil },
+		func(context.Context, string) (auth.Introspection, error) {
+			return auth.Introspection{AccountID: "7", PeerFingerprint: "sha256:web-peer-7"}, nil
+		},
+	)
 
-func testVerifierCredential(t *testing.T, key *rsa.PrivateKey, kid string, claims map[string]any) string {
-	t.Helper()
-	headerJSON, err := json.Marshal(map[string]any{"alg": "RS256", "typ": "JWT", "kid": kid})
-	require.NoError(t, err)
-	claimsJSON, err := json.Marshal(claims)
-	require.NoError(t, err)
-	signingInput := base64.RawURLEncoding.EncodeToString(headerJSON) + "." +
-		base64.RawURLEncoding.EncodeToString(claimsJSON)
-	digest := sha256.Sum256([]byte(signingInput))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
-	require.NoError(t, err)
-	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
-}
-
-// keysServer 冒充 server 的 /v1/keys（cago 信封形态），并记录被抓了几次。
-func keysServer(t *testing.T, publicKeyPEM string, hits *atomic.Int32) *httptest.Server {
-	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/v1/keys", r.URL.Path)
-		if hits != nil {
-			hits.Add(1)
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
-			"current_kid": "current", "keys": map[string]string{"current": publicKeyPEM},
-			"max_token_lifetime_seconds": 3600,
-		}})
-	}))
-	t.Cleanup(server.Close)
-	return server
-}
-
-func TestAccountCredentialVerifier_GivenAValidCredential_ThenIdentityComesFromThePfpClaim(t *testing.T) {
-	key, publicKeyPEM := testVerifierKeyPair(t)
-	server := keysServer(t, publicKeyPEM, nil)
-	verifier := newAccountCredentialVerifier(func(context.Context) (string, string, error) {
-		return server.URL, "7", nil
-	})
-	credential := testVerifierCredential(t, key, "current", map[string]any{
-		"uid": 7, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(), "pfp": "sha256:web-peer-7",
-	})
-
-	fingerprint, err := verifier.Verify(context.Background(), credential)
+	verified, err := verifier.Verify(context.Background(), "credential")
 
 	require.NoError(t, err)
-	require.Equal(t, "sha256:web-peer-7", fingerprint)
+	require.Equal(t, "sha256:web-peer-7", verified.PeerFingerprint)
 }
 
-func TestAccountCredentialVerifier_GivenAForgedSignature_ThenRefuses(t *testing.T) {
-	_, publicKeyPEM := testVerifierKeyPair(t)
-	otherKey, _ := testVerifierKeyPair(t)
-	server := keysServer(t, publicKeyPEM, nil)
-	verifier := newAccountCredentialVerifier(func(context.Context) (string, string, error) {
-		return server.URL, "7", nil
-	})
-	credential := testVerifierCredential(t, otherKey, "current", map[string]any{
-		"uid": 7, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(), "pfp": "sha256:attacker",
-	})
+// TestAccountCredentialVerifier_GivenAnotherAccountsCredential_ThenRejectsAsCredentialInvalid
+// 钉住 H1:server 核验通过不等于是这台桌面端的对端 —— 账号必须一致,不一致时以
+// 今天「凭据被拒」的同一错误(ErrCredentialInvalid)拒绝,不额外泄露它属于谁。
+func TestAccountCredentialVerifier_GivenAnotherAccountsCredential_ThenRejectsAsCredentialInvalid(t *testing.T) {
+	verifier := newAccountCredentialVerifier(
+		func(context.Context) (string, error) { return "7", nil },
+		func(context.Context, string) (auth.Introspection, error) {
+			return auth.Introspection{AccountID: "99", PeerFingerprint: "sha256:other-account"}, nil
+		},
+	)
 
-	_, err := verifier.Verify(context.Background(), credential)
+	_, err := verifier.Verify(context.Background(), "credential")
 
-	require.Error(t, err)
+	require.ErrorIs(t, err, auth.ErrCredentialInvalid)
 }
 
-func TestAccountCredentialVerifier_GivenAnotherAccountsCredential_ThenRefuses(t *testing.T) {
-	key, publicKeyPEM := testVerifierKeyPair(t)
-	server := keysServer(t, publicKeyPEM, nil)
-	verifier := newAccountCredentialVerifier(func(context.Context) (string, string, error) {
-		return server.URL, "7", nil
-	})
-	credential := testVerifierCredential(t, key, "current", map[string]any{
-		"uid": 99, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(), "pfp": "sha256:other-account",
-	})
-
-	_, err := verifier.Verify(context.Background(), credential)
-
-	require.ErrorContains(t, err, "not 7")
-}
-
-func TestAccountCredentialVerifier_GivenACredentialWithoutPfp_ThenRefuses(t *testing.T) {
-	key, publicKeyPEM := testVerifierKeyPair(t)
-	server := keysServer(t, publicKeyPEM, nil)
-	verifier := newAccountCredentialVerifier(func(context.Context) (string, string, error) {
-		return server.URL, "7", nil
-	})
-	credential := testVerifierCredential(t, key, "current", map[string]any{
-		"uid": 7, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(),
-	})
-
-	_, err := verifier.Verify(context.Background(), credential)
-
-	require.ErrorContains(t, err, "missing peer fingerprint")
-}
-
-func TestAccountCredentialVerifier_GivenNoLogin_ThenRefusesWithoutTouchingTheNetwork(t *testing.T) {
-	var hits atomic.Int32
-	_, publicKeyPEM := testVerifierKeyPair(t)
-	server := keysServer(t, publicKeyPEM, &hits)
-	verifier := newAccountCredentialVerifier(func(context.Context) (string, string, error) {
-		return "", "", nil
-	})
-	_ = server
+// TestAccountCredentialVerifier_GivenNoLogin_ThenRejectsAsReceiverNotReadyWithoutTouchingTheNetwork
+// H4:这台桌面端自己都不知道登录了哪个账号,没有账号可比,握手按「接收方未就绪」
+// 拒绝 —— 且不必打一次 server 就知道答案。
+func TestAccountCredentialVerifier_GivenNoLogin_ThenRejectsAsReceiverNotReadyWithoutTouchingTheNetwork(t *testing.T) {
+	introspectCalls := 0
+	verifier := newAccountCredentialVerifier(
+		func(context.Context) (string, error) { return "", nil },
+		func(context.Context, string) (auth.Introspection, error) {
+			introspectCalls++
+			return auth.Introspection{}, nil
+		},
+	)
 
 	_, err := verifier.Verify(context.Background(), "anything")
 
-	require.ErrorIs(t, err, errNotSignedIn)
-	require.Zero(t, hits.Load())
+	require.ErrorIs(t, err, auth.ErrReceiverNotReady)
+	require.Zero(t, introspectCalls)
 }
 
-// TestAccountCredentialVerifier_GivenRepeatedBadCredentials_ThenDoesNotHammerTheKeysEndpoint
-// 一串验不过的凭据不该把桌面端变成 /v1/keys 的压测客户端:补抓有频率下限。
-func TestAccountCredentialVerifier_GivenRepeatedBadCredentials_ThenDoesNotHammerTheKeysEndpoint(t *testing.T) {
-	var hits atomic.Int32
-	_, publicKeyPEM := testVerifierKeyPair(t)
-	otherKey, _ := testVerifierKeyPair(t)
-	server := keysServer(t, publicKeyPEM, &hits)
-	verifier := newAccountCredentialVerifier(func(context.Context) (string, string, error) {
-		return server.URL, "7", nil
-	})
-	credential := testVerifierCredential(t, otherKey, "current", map[string]any{
-		"uid": 7, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(), "pfp": "sha256:attacker",
-	})
+// TestAccountCredentialVerifier_GivenTheIntrospectorRejectsTheCredential_ThenPropagatesItsVerdict
+// 核验本体(在线核验、缓存、错误分类)全在 auth.Introspector —— 这里只钉住结论
+// 原样传回,不重新分类。
+func TestAccountCredentialVerifier_GivenTheIntrospectorRejectsTheCredential_ThenPropagatesItsVerdict(t *testing.T) {
+	verifier := newAccountCredentialVerifier(
+		func(context.Context) (string, error) { return "7", nil },
+		func(context.Context, string) (auth.Introspection, error) {
+			return auth.Introspection{}, auth.ErrAccountServerUnreachable
+		},
+	)
 
-	for range 5 {
-		_, err := verifier.Verify(context.Background(), credential)
-		require.Error(t, err)
-	}
+	_, err := verifier.Verify(context.Background(), "credential")
 
-	require.Equal(t, int32(1), hits.Load())
+	require.ErrorIs(t, err, auth.ErrAccountServerUnreachable)
+}
+
+func TestAccountCredentialVerifier_GivenTheAccountLookupFails_ThenPropagatesTheError(t *testing.T) {
+	lookupErr := errors.New("server_state read failed")
+	verifier := newAccountCredentialVerifier(
+		func(context.Context) (string, error) { return "", lookupErr },
+		func(context.Context, string) (auth.Introspection, error) {
+			t.Fatal("must not introspect when this device's own account cannot be resolved")
+			return auth.Introspection{}, nil
+		},
+	)
+
+	_, err := verifier.Verify(context.Background(), "anything")
+
+	require.ErrorIs(t, err, lookupErr)
 }

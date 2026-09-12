@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,13 +61,6 @@ type deviceTokenResponse struct {
 	RefreshToken     string `json:"refresh_token"`
 	RefreshExpiresIn int    `json:"refresh_expires_in"`
 	DeviceID         int64  `json:"device_id"`
-}
-
-type publicKeyResponse struct {
-	CurrentKID              string            `json:"current_kid"`
-	Keys                    map[string]string `json:"keys"`
-	PublicKey               string            `json:"public_key"`
-	MaxTokenLifetimeSeconds int64             `json:"max_token_lifetime_seconds"`
 }
 
 type oauthErrorResponse struct {
@@ -208,20 +201,12 @@ func login(cmd *cobra.Command, deps loginDeps, st *state.State, serverURL string
 	if token.AccessToken == "" || token.RefreshToken == "" || token.ExpiresIn <= 0 || token.RefreshExpiresIn <= 0 {
 		return fmt.Errorf("poll device authorization: invalid token response")
 	}
-	accountID, err := accountIDFromAccessToken(token.AccessToken)
+	accountID, err := fetchAccountID(cmd, deps.http, serverURL, token.AccessToken)
 	if err != nil {
 		return err
 	}
-
-	key := publicKeyResponse{}
-	if _, err := doLoginJSON(cmd, deps.http, http.MethodGet, serverURL+"/v1/keys", nil, &key); err != nil {
-		return fmt.Errorf("fetch verification public key: %w", err)
-	}
-	if key.CurrentKID == "" || key.Keys[key.CurrentKID] == "" || key.MaxTokenLifetimeSeconds <= 0 {
-		return fmt.Errorf("fetch verification public key: invalid response")
-	}
 	now := time.Now()
-	st.LoginWithKeySet(accountID, key.CurrentKID, key.Keys, key.MaxTokenLifetimeSeconds, state.AccountCredential{
+	st.Login(accountID, state.AccountCredential{
 		DeviceID:              token.DeviceID,
 		AccessToken:           token.AccessToken,
 		AccessTokenExpiresAt:  now.Add(time.Duration(token.ExpiresIn) * time.Second).Unix(),
@@ -307,35 +292,37 @@ func decodeLoginResponse(payload []byte, target any) error {
 	return json.Unmarshal(payload, target)
 }
 
-func accountIDFromAccessToken(accessToken string) (string, error) {
-	parts := strings.Split(accessToken, ".")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("device token does not contain an account identifier")
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+// fetchAccountID asks the account server whose freshly issued device token this
+// is (GET /v1/auth/me). The token is opaque: nothing about the account can be
+// read from it locally (spec H5).
+func fetchAccountID(cmd *cobra.Command, client loginHTTPDoer, serverURL, accessToken string) (string, error) {
+	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, serverURL+"/v1/auth/me", nil)
 	if err != nil {
-		return "", fmt.Errorf("decode device token account identifier: %w", err)
+		return "", fmt.Errorf("identify account: %w", err)
 	}
-	var claims struct {
-		UID json.RawMessage `json:"uid"`
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("identify account: %w", err)
 	}
-	if err := json.Unmarshal(payload, &claims); err != nil || len(claims.UID) == 0 {
-		return "", fmt.Errorf("device token does not contain an account identifier")
+	defer func() { _ = resp.Body.Close() }()
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", fmt.Errorf("identify account: %w", err)
 	}
-	var accountID string
-	if err := json.Unmarshal(claims.UID, &accountID); err != nil {
-		var accountNumber json.Number
-		decoder := json.NewDecoder(bytes.NewReader(claims.UID))
-		decoder.UseNumber()
-		if err := decoder.Decode(&accountNumber); err != nil {
-			return "", fmt.Errorf("device token does not contain an account identifier")
-		}
-		accountID = accountNumber.String()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("identify account: server returned %s", resp.Status)
 	}
-	if accountID == "" || accountID == "0" {
-		return "", fmt.Errorf("device token does not contain an account identifier")
+	var me struct {
+		UserID int64 `json:"user_id"`
 	}
-	return accountID, nil
+	if err := decodeLoginResponse(payload, &me); err != nil {
+		return "", fmt.Errorf("identify account: %w", err)
+	}
+	if me.UserID <= 0 {
+		return "", fmt.Errorf("identify account: server returned no account identifier")
+	}
+	return strconv.FormatInt(me.UserID, 10), nil
 }
 
 func validServerURL(raw string) (string, error) {

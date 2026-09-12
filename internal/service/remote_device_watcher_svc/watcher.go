@@ -149,22 +149,34 @@ func (w *Watcher) dialOnce(ctx context.Context) (client.ProtobufConnection, *pai
 	if row == nil {
 		return nil, nil, errPermanentDeviceGone
 	}
-	var token string
+	args := OpenArgs{
+		DeviceID: w.deviceID,
+		URL:      row.URL, TLSMode: row.TLSMode, TLSCertPEM: row.TLSCertPEM,
+		ExpectedDaemonFingerprint: row.DaemonFingerprint,
+	}
 	if !row.IsRelayOnly() {
-		token, err = w.keychain.Get(keychainTokenAccount(w.deviceID))
-		if err != nil || token == "" {
+		token, tokenErr := w.keychain.Get(keychainTokenAccount(w.deviceID))
+		switch {
+		case row.IsAccountDirect():
+			// 这一槽里是本地直连凭据(task 8),不是配对令牌。缺了它只是少了直连这条路
+			// ——中转照样能探活、并在账号握手里重新下发——所以不判未授权。
+			args.AccountDirect = true
+			args.DirectURLs = row.DirectURLs()
+			if tokenErr == nil {
+				args.DirectCredential = token
+			}
+		case tokenErr != nil || token == "":
 			return nil, row, errPermanentUnauthorized
+		default:
+			args.DeviceToken = token
 		}
 	}
 	fp, err := w.keychain.Get(deviceidentity.KeychainAccount)
 	if err != nil || fp == "" {
 		return nil, row, errPermanentUnauthorized
 	}
-	c, err := w.dial.Open(ctx, OpenArgs{
-		URL: row.URL, TLSMode: row.TLSMode, TLSCertPEM: row.TLSCertPEM,
-		DeviceFingerprint: fp, DeviceToken: token,
-		ExpectedDaemonFingerprint: row.DaemonFingerprint,
-	})
+	args.DeviceFingerprint = fp
+	c, err := w.dial.Open(ctx, args)
 	if err != nil {
 		return nil, row, err
 	}

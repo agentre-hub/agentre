@@ -52,7 +52,7 @@ var Protocol = protocolversion.Protocol()
 // pins it is the conservation law above, not an external file — while the
 // window is a single point, methodset_test.go requires it to equal Protocol,
 // and Protocol is the schema's own value.
-const MinSupported = "0.1.0"
+const MinSupported = "0.2.0"
 
 // version is a parsed MAJOR.MINOR.PATCH triple. Handshake versions in this
 // protocol are never pre-release or build-metadata strings, so a minimal

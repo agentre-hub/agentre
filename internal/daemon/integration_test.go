@@ -2,15 +2,11 @@ package daemon
 
 import (
 	"context"
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"encoding/pem"
@@ -34,6 +30,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/identity"
+	"github.com/agentre-hub/agentre/internal/daemon/lancert"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
@@ -143,11 +140,21 @@ func startTestDaemon(t *testing.T) (*Daemon, func()) {
 // readLocalPair dials the daemon's unix socket and calls /local/pair.
 func readLocalPair(t *testing.T, d *Daemon) map[string]any {
 	t.Helper()
+	return readLocalJSON(t, d, "/local/pair")
+}
+
+func readLocalStatus(t *testing.T, d *Daemon) map[string]any {
+	t.Helper()
+	return readLocalJSON(t, d, "/local/status")
+}
+
+func readLocalJSON(t *testing.T, d *Daemon, path string) map[string]any {
+	t.Helper()
 	tr := &http.Transport{DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 		return net.Dial("unix", d.SocketPath())
 	}}
 	c := &http.Client{Transport: tr}
-	resp, err := c.Get("http://daemon/local/pair")
+	resp, err := c.Get("http://daemon" + path)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
@@ -339,9 +346,17 @@ func TestIntegration_TLS_AllModes(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 
 	d.mu.RLock()
-	wssURL := d.lan.URL()
+	lan := d.lan
 	d.mu.RUnlock()
+	wssURL := lan.URL()
 	require.True(t, strings.HasPrefix(wssURL, "wss://"), "expected wss URL, got %q", wssURL)
+	// D2:配了证书就不生成,自动直连固定的就是这张证书。
+	assert.Equal(t, certPEM, lan.CertificatePEM(), "auto-direct pins the configured certificate")
+	assert.Equal(t, lan.AdvertiseURLs(), lan.DirectURLs())
+	generatedCert, generatedKey := lancert.Paths(dir)
+	assert.NoFileExists(t, generatedCert, "a configured certificate is never joined by a generated one")
+	assert.NoFileExists(t, generatedKey)
+	assert.Equal(t, certPath, readLocalStatus(t, d)["certificateFile"], "status names the configured certificate to pin")
 
 	cases := []struct {
 		mode    client.TLSMode
@@ -370,6 +385,157 @@ func TestIntegration_TLS_AllModes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// D1:未配证书的 agentred 首次启动生成自签证书并落在数据目录,重启沿用同一张;同一 LAN
+// 端口 ws 与 wss 都能用(bootRigInDir 就是经 ws:// 配对的),status / pair 仍只印 ws://。
+func TestIntegration_LANCertificate_GeneratedOnFirstBootReusedOnRestartAndServedBesideWS(t *testing.T) {
+	// 短前缀:t.TempDir() 的长路径会超过 macOS 104 字节的 unix socket 上限。
+	dir, err := os.MkdirTemp("", "ard-lancert")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	first := bootRigInDir(t, dir)
+	first.d.mu.RLock()
+	lan := first.d.lan
+	first.d.mu.RUnlock()
+	certPEM := lan.CertificatePEM()
+	require.NotEmpty(t, certPEM, "an agentred without a configured certificate serves a generated one")
+	certFile, _ := lancert.Paths(dir)
+	assert.FileExists(t, certFile)
+
+	wsURL := lan.URL()
+	require.True(t, strings.HasPrefix(wsURL, "ws://"), "manual pairing keeps the ws address, got %q", wsURL)
+	require.Equal(t, []string{"wss://" + strings.TrimPrefix(wsURL, "ws://")}, lan.DirectURLs(), "wss is served on the ws port")
+	connectPinnedOverWSS(t, lan.DirectURLs()[0], certPEM, first.token)
+
+	for name, body := range map[string]map[string]any{"status": readLocalStatus(t, first.d), "pair": readLocalPair(t, first.d)} {
+		listen, _ := body["listenURLs"].([]any)
+		require.NotEmpty(t, listen, name)
+		for _, u := range listen {
+			assert.True(t, strings.HasPrefix(u.(string), "ws://"), "%s keeps printing ws addresses, got %v", name, u)
+		}
+		assert.NotContains(t, body, "certificateFile", "%s names no certificate for a ws address", name)
+	}
+
+	first.stop()
+	second := bootRigInDir(t, dir)
+	second.d.mu.RLock()
+	restarted := second.d.lan
+	second.d.mu.RUnlock()
+	assert.Equal(t, certPEM, restarted.CertificatePEM(), "a restart presents the certificate desktops already pinned")
+	require.NotEmpty(t, restarted.DirectURLs())
+	connectPinnedOverWSS(t, restarted.DirectURLs()[0], certPEM, second.token)
+}
+
+// 证书落不了盘时不拿一张每次启动都变的临时证书去服务(桌面端固定了也会在重启后失配):
+// LAN 退回只有 ws,手动配对照常可用,也不下发直连地址。
+func TestIntegration_LANCertificate_UnpersistableCertificateLeavesWSOnly(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-lancert")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	_, keyFile := lancert.Paths(dir)
+	require.NoError(t, os.Mkdir(keyFile, 0o700))
+
+	rig := bootRigInDir(t, dir)
+	rig.d.mu.RLock()
+	lan := rig.d.lan
+	rig.d.mu.RUnlock()
+	assert.Empty(t, lan.CertificatePEM())
+	assert.Empty(t, lan.DirectURLs())
+}
+
+// --tls 且未配证书:LAN 端口只接受 wss,出示的就是数据目录里生成的那张证书(自动直连
+// 固定的也是它);status / pair 印 wss:// 地址并给出证书路径,手动配对时拿去固定。
+func TestIntegration_TLSFlag_ServesGeneratedCertificateOverWSSOnly(t *testing.T) {
+	// 短前缀:t.TempDir() 的长路径会超过 macOS 104 字节的 unix socket 上限。
+	dir, err := os.MkdirTemp("", "ard-tlsflag")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, TLS: true})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- d.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-errCh:
+		case <-time.After(3 * time.Second):
+			t.Log("daemon did not shut down within 3s")
+		}
+	})
+	require.Eventually(t, func() bool {
+		d.mu.RLock()
+		ready := d.lan != nil && d.lan.Addr() != ""
+		d.mu.RUnlock()
+		return ready
+	}, 2*time.Second, 10*time.Millisecond)
+	d.mu.RLock()
+	lan := d.lan
+	d.mu.RUnlock()
+
+	certFile, _ := lancert.Paths(dir)
+	certPEM, err := os.ReadFile(certFile) //nolint:gosec // G304: the path lancert owns inside this test's data directory
+	require.NoError(t, err, "--tls without a configured certificate generates one in the data directory")
+	assert.Equal(t, string(certPEM), lan.CertificatePEM())
+
+	wssURL := lan.URL()
+	require.True(t, strings.HasPrefix(wssURL, "wss://"), "expected wss URL, got %q", wssURL)
+	assert.Equal(t, lan.AdvertiseURLs(), lan.DirectURLs(), "auto-direct pins the certificate manual pairing pins")
+	cfg, err := client.BuildTLSConfig(client.TLSPinCert, string(certPEM))
+	require.NoError(t, err)
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer dialCancel()
+	wss, err := client.DialProtobuf(dialCtx, client.Options{URL: wssURL, TLSConfig: cfg})
+	require.NoError(t, err, "a desktop pinning the generated certificate connects over wss")
+	_ = wss.Close()
+	_, err = client.DialProtobuf(dialCtx, client.Options{URL: "ws://" + strings.TrimPrefix(wssURL, "wss://")})
+	assert.Error(t, err, "--tls keeps the port TLS-only")
+
+	for name, body := range map[string]map[string]any{"status": readLocalStatus(t, d), "pair": readLocalPair(t, d)} {
+		listen, _ := body["listenURLs"].([]any)
+		require.NotEmpty(t, listen, name)
+		for _, u := range listen {
+			assert.True(t, strings.HasPrefix(u.(string), "wss://"), "%s prints wss addresses, got %v", name, u)
+		}
+		assert.Equal(t, certFile, body["certificateFile"], "%s names the certificate to pin", name)
+	}
+}
+
+// --tls 承诺端口只接受 wss:证书落不了盘就拒绝启动,而不是像默认模式那样退回 ws。
+func TestIntegration_TLSFlag_UnpersistableCertificateRefusesToStart(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-tlsflag")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	_, keyFile := lancert.Paths(dir)
+	require.NoError(t, os.Mkdir(keyFile, 0o700))
+
+	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, TLS: true})
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err = d.Run(ctx)
+	require.Error(t, err, "--tls must not fall back to serving ws")
+	assert.Contains(t, err.Error(), "tls")
+	d.mu.RLock()
+	lan := d.lan
+	d.mu.RUnlock()
+	assert.Nil(t, lan, "no LAN listener is left serving")
+}
+
+func connectPinnedOverWSS(t *testing.T, wssURL, certPEM, token string) {
+	t.Helper()
+	cfg, err := client.BuildTLSConfig(client.TLSPinCert, certPEM)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cli, err := client.DialProtobuf(ctx, client.Options{URL: wssURL, TLSConfig: cfg})
+	require.NoError(t, err)
+	defer func() { _ = cli.Close() }()
+	res, err := cli.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: string(rigDeviceFingerprint), DeviceToken: token})
+	require.NoError(t, err)
+	require.True(t, res.GetOk(), "a paired device authenticates over the pinned wss address")
 }
 
 func TestIntegration_UnauthGuard(t *testing.T) {
@@ -607,9 +773,25 @@ func bootRemoteRig(t *testing.T, script []agentruntime.Event) *pairedTestRig {
 // 留下的那个库(R10 的启动清扫要扫的就是它)。
 func bootRigInDir(t *testing.T, dir string) *pairedTestRig {
 	t.Helper()
-	d, err := New(Options{
+	return bootRigWithOptions(t, Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0})
+}
+
+// bootDirectRigInDir 同 bootRigInDir,但把回环地址当作他机可达:集成用例的 daemon 只
+// 监听 127.0.0.1,生产判定下它没有可下发的直连地址(D5)。换上这个判定,自动直连的
+// 下发、证书固定与 auth.direct 才能在真实连接上走完。
+func bootDirectRigInDir(t *testing.T, dir string) *pairedTestRig {
+	t.Helper()
+	return bootRigWithOptions(t, Options{
 		DataDir: dir, LANHost: "127.0.0.1", LANPort: 0,
+		directAddressReachable: func(string) bool { return true },
 	})
+}
+
+// bootRigWithOptions 是 bootRigInDir 的本体,数据目录取 opts.DataDir。
+func bootRigWithOptions(t *testing.T, opts Options) *pairedTestRig {
+	t.Helper()
+	dir := opts.DataDir
+	d, err := New(opts)
 	require.NoError(t, err)
 	dCtx, dCancel := context.WithCancel(context.Background())
 	dErrCh := make(chan error, 1)
@@ -2128,34 +2310,409 @@ func pairSecondDevice(t *testing.T, d *Daemon, fingerprint string) *client.Proto
 	return cli
 }
 
-// mintAccountCredential 为一个具名对端铸一枚该账号的凭据。决策 8 之后对端身份写在
-// 凭据的 pfp claim 里,不再由请求体自报 —— 因此「两个不同对端」在测试里也必须是
-// 两枚不同的凭据,而不是同一枚凭据配两个自报字符串。
+// mintAccountCredential 为一个具名对端铸一枚该账号的凭据。凭据是不透明的:它指谁、
+// 对端身份是什么,全由 server 的核验端点说了算(H1),daemon 自己读不出任何东西 ——
+// 因此「两个不同对端」在测试里也必须是两枚不同的凭据。
 type mintAccountCredential func(peerFingerprint string) string
+
+// fakeAccountService 是 agentre-server 核验端点(POST /v1/credentials/introspect)的
+// 测试替身:只认它签过的不透明凭据,只接受它当前认可的那枚接收方自己的 Bearer。
+type fakeAccountService struct {
+	mu             sync.Mutex
+	bearer         string
+	credentials    map[string]fakeIntrospection
+	introspections atomic.Int32
+}
+
+type fakeIntrospection struct {
+	AccountID       string `json:"account_id"`
+	DeviceID        int64  `json:"device_id"`
+	Kind            string `json:"kind"`
+	PeerFingerprint string `json:"peer_fingerprint"`
+	ExpiresIn       int    `json:"expires_in"`
+}
+
+func newFakeAccountService(receiverBearer string) *fakeAccountService {
+	return &fakeAccountService{bearer: receiverBearer, credentials: map[string]fakeIntrospection{}}
+}
+
+func (s *fakeAccountService) mint(accountID, peerFingerprint string) string {
+	return s.mintKind(accountID, peerFingerprint, "desktop")
+}
+
+// mintKind 铸一枚指定类型的凭据:desktop 设备令牌、浏览器票据 relay_client、server 自用
+// 的 server_mirror —— 自动直连只对第一种下发。
+func (s *fakeAccountService) mintKind(accountID, peerFingerprint, kind string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	credential := fmt.Sprintf("opaque-credential-%d", len(s.credentials)+1)
+	s.credentials[credential] = fakeIntrospection{
+		AccountID: accountID, DeviceID: int64(len(s.credentials) + 1), Kind: kind,
+		PeerFingerprint: peerFingerprint, ExpiresIn: 900,
+	}
+	return credential
+}
+
+// serveIntrospect 答核验端点并返回 true;别的路径原样返回 false 交给调用方。
+func (s *fakeAccountService) serveIntrospect(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path != "/v1/credentials/introspect" {
+		return false
+	}
+	s.introspections.Add(1)
+	s.mu.Lock()
+	bearer := s.bearer
+	s.mu.Unlock()
+	if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+bearer {
+		http.Error(w, `{"code":401,"msg":"unauthorized"}`, http.StatusUnauthorized)
+		return true
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"code":400,"msg":"bad request"}`, http.StatusBadRequest)
+		return true
+	}
+	s.mu.Lock()
+	found, ok := s.credentials[body.Token]
+	s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"code":10401,"msg":"credential invalid"}`))
+		return true
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "msg": "ok", "data": found})
+	return true
+}
 
 func loginDaemonForIntegration(t *testing.T, d *Daemon, accountID string) mintAccountCredential {
 	t.Helper()
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-	der, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	require.NoError(t, err)
-	d.state.Login(accountID, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), state.AccountCredential{})
-	require.NoError(t, d.state.Save())
-
+	accounts, _ := accountServerForIntegration(t, d, accountID)
 	return func(peerFingerprint string) string {
-		t.Helper()
-		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-		claims, err := json.Marshal(map[string]any{
-			"uid": accountID, "exp": time.Now().Add(time.Hour).Unix(), "pfp": peerFingerprint,
-		})
-		require.NoError(t, err)
-		payload := base64.RawURLEncoding.EncodeToString(claims)
-		signingInput := header + "." + payload
-		digest := sha256.Sum256([]byte(signingInput))
-		signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
-		require.NoError(t, err)
-		return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+		return accounts.mint(accountID, peerFingerprint)
 	}
+}
+
+// accountServerForIntegration 把 daemon 登录进 accountID,并交回它背后那台假的账号
+// server —— 自动直连的用例要铸别的设备类型的凭据,还要把 server 停掉。
+func accountServerForIntegration(t *testing.T, d *Daemon, accountID string) (*fakeAccountService, *httptest.Server) {
+	t.Helper()
+	accounts := newFakeAccountService("integration-device-token")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !accounts.serveIntrospect(w, r) {
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	d.state.Login(accountID, state.AccountCredential{AccessToken: "integration-device-token"})
+	d.state.Mutate(func(s *state.State) { s.AccountServerURL = server.URL })
+	require.NoError(t, d.state.Save())
+	return accounts, server
+}
+
+// accountDeliveryForIntegration 以一枚账号凭据经 LAN 的 ws 地址完成一次 auth.account,
+// 交回应答(其中带不带自动直连的下发内容正是用例要看的),然后断开。
+func accountDeliveryForIntegration(t *testing.T, d *Daemon, credential string) *agentrewire.AuthAccountResponse {
+	t.Helper()
+	d.mu.RLock()
+	url := d.lan.URL()
+	d.mu.RUnlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cli, err := client.DialProtobuf(ctx, client.Options{URL: url})
+	require.NoError(t, err)
+	defer func() { _ = cli.Close() }()
+	response, err := cli.AuthAccount(ctx, &agentrewire.AuthAccountRequest{Credential: credential})
+	require.NoError(t, err)
+	require.True(t, response.GetOk())
+	return response
+}
+
+// directClientForIntegration 按桌面端的做法走自动直连:对下发的 wss 地址固定下发的
+// 证书,再出示下发的本地直连凭据。
+func directClientForIntegration(t *testing.T, url, certPEM, credential string) (*client.ProtobufClient, *agentrewire.AuthDirectResponse, error) {
+	t.Helper()
+	cfg, err := client.BuildTLSConfig(client.TLSPinCert, certPEM)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	cli, err := client.DialProtobuf(ctx, client.Options{URL: url, TLSConfig: cfg})
+	require.NoError(t, err, "the delivered certificate pins the delivered address")
+	t.Cleanup(func() { _ = cli.Close() })
+	response, err := cli.AuthDirect(ctx, &agentrewire.AuthDirectRequest{Credential: credential})
+	return cli, response, err
+}
+
+func requireCredentialRejected(t *testing.T, err error) {
+	t.Helper()
+	var rpcErr *rpcerror.Error
+	require.ErrorAs(t, err, &rpcErr)
+	require.Equal(t, rpcerror.CodeUnauthorized, rpcErr.Code)
+}
+
+func liveDirectEndpoint(d *Daemon) ([]string, string) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.lan.DirectURLs(), d.lan.CertificatePEM()
+}
+
+// D3 + D8:桌面端在 server 可达时经 auth.account 拿到下发内容;server 停掉之后,两台
+// 桌面端各自对下发地址固定证书、出示本地直连凭据完成 auth.direct —— 不访问 server,
+// 得到与中转 auth.account 相同的对端指纹与账号身份:一台起的会话被另一台接管并回答
+// 待决策,已不是属主的发起端仍从扇出里看到它被解决(扇出只认同账号的连接)。
+func TestIntegration_AutoDirect_GivenDesktopsHoldTheirDelivery_WhenTheAccountServerIsDown_ThenAuthDirectCarriesTheAccountIdentityThroughFanOut(t *testing.T) {
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, &twoClientApprovalRunner{}))
+	dir, err := os.MkdirTemp("", "ard-direct")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	rig := bootDirectRigInDir(t, dir)
+	const accountID = "account-42"
+	accounts, server := accountServerForIntegration(t, rig.d, accountID)
+	const desk1, desk2 = "sha256:direct-desk-1", "sha256:direct-desk-2"
+	delivery1 := accountDeliveryForIntegration(t, rig.d, accounts.mint(accountID, desk1))
+	delivery2 := accountDeliveryForIntegration(t, rig.d, accounts.mint(accountID, desk2))
+
+	urls, certPEM := liveDirectEndpoint(rig.d)
+	require.NotEmpty(t, urls)
+	assert.Equal(t, urls, delivery1.GetDirectUrls(), "the delivery names the daemon's current wss addresses")
+	assert.Equal(t, certPEM, delivery1.GetTlsCertPem(), "and the certificate those addresses present")
+	require.NotEmpty(t, delivery1.GetDirectCredential())
+	require.NotEmpty(t, delivery2.GetDirectCredential())
+	assert.NotEqual(t, delivery1.GetDirectCredential(), delivery2.GetDirectCredential(), "each desktop gets its own credential")
+
+	server.Close()
+	introspectionsBefore := accounts.introspections.Load()
+
+	direct1, response1, err := directClientForIntegration(t, delivery1.GetDirectUrls()[0], delivery1.GetTlsCertPem(), delivery1.GetDirectCredential())
+	require.NoError(t, err, "auth.direct succeeds with the account server unreachable")
+	assert.True(t, response1.GetOk())
+	assert.Equal(t, desk1, response1.GetPeerFingerprint(), "the same peer identity auth.account assigned")
+	assert.Equal(t, desk1, direct1.SelfFingerprint())
+	direct2, _, err := directClientForIntegration(t, delivery2.GetDirectUrls()[0], delivery2.GetTlsCertPem(), delivery2.GetDirectCredential())
+	require.NoError(t, err)
+
+	frames1 := subscribeEventFrames(t, direct1)
+	frames2 := subscribeEventFrames(t, direct2)
+	startRunAs(t, direct1, rig.dir, 601, "offline-direct")
+	awaitEventOfType[agentruntime.ToolPermissionRequest](t, frames1, convID(601), "发起会话的那条直连")
+
+	var attached wire.SessionAttachResult
+	require.NoError(t, callRig(t, direct2, wire.MethodSessionAttach, wire.SessionAttachParams{
+		ConversationID: convID(601), PeerFingerprint: desk1,
+	}, &attached), "an account-level operation on another desktop's session")
+	var ok wire.OK
+	require.NoError(t, callRig(t, direct2, wire.MethodSubmitToolPermission, wire.SubmitToolPermissionParams{
+		ConversationID: convID(601), PeerFingerprint: desk1, RequestID: twoClientRequestID, Allow: true,
+	}, &ok))
+	awaitEventOfType[agentruntime.ToolPermissionResolved](t, frames2, convID(601), "回答的那一方")
+	awaitEventOfType[agentruntime.ToolPermissionResolved](t, frames1, convID(601),
+		"已不是属主的发起端必须经扇出看到这条待决策被解决")
+	awaitLifecycle(t, direct1, 601, wire.SessionLifecycleIdle)
+
+	assert.Equal(t, introspectionsBefore, accounts.introspections.Load(), "auth.direct never asked the account server")
+}
+
+// D3 + D4:只有桌面端的账号握手带下发内容并记账;daemon 重启(端口换了)之后同一台
+// 桌面端再握手,凭据沿用重启前落盘的那一张,地址取此刻的值。
+func TestIntegration_AutoDirect_GivenAccountHandshakes_ThenOnlyADesktopIsDeliveredAndARestartReusesItsCredentialAtTheCurrentAddress(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-direct")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	first := bootDirectRigInDir(t, dir)
+	const accountID = "account-42"
+	accounts, _ := accountServerForIntegration(t, first.d, accountID)
+	const desk = "sha256:direct-desk"
+
+	delivered := accountDeliveryForIntegration(t, first.d, accounts.mint(accountID, desk))
+	require.NotEmpty(t, delivered.GetDirectCredential())
+	for _, kind := range []string{"relay_client", "server_mirror"} {
+		response := accountDeliveryForIntegration(t, first.d, accounts.mintKind(accountID, "sha256:"+kind, kind))
+		assert.Empty(t, response.GetDirectUrls(), kind)
+		assert.Empty(t, response.GetTlsCertPem(), kind)
+		assert.Empty(t, response.GetDirectCredential(), kind)
+	}
+	assert.Equal(t, map[string]state.DirectCredential{desk: {Credential: delivered.GetDirectCredential(), AccountID: accountID}},
+		first.d.state.Snapshot().DirectCredentials, "agentred records the desktop's fingerprint and the issuing account, nothing else")
+
+	first.stop()
+	second := bootDirectRigInDir(t, dir)
+	again := accountDeliveryForIntegration(t, second.d, accounts.mint(accountID, desk))
+
+	urls, certPEM := liveDirectEndpoint(second.d)
+	assert.Equal(t, delivered.GetDirectCredential(), again.GetDirectCredential(), "the credential on file is reused, not reissued")
+	assert.Equal(t, urls, again.GetDirectUrls(), "addresses are the restarted daemon's current ones")
+	assert.Equal(t, certPEM, again.GetTlsCertPem())
+	_, _, err = directClientForIntegration(t, again.GetDirectUrls()[0], again.GetTlsCertPem(), delivered.GetDirectCredential())
+	require.NoError(t, err, "the credential issued before the restart still authenticates")
+}
+
+// D5:找不到可被他机访问的直连地址(这里是证书落不了盘,LAN 只剩 ws)时,桌面端的账号
+// 握手照常成功,但不下发地址,也不签发凭据。
+func TestIntegration_AutoDirect_GivenNoDirectAddress_WhenADesktopHandshakes_ThenNothingIsDeliveredOrIssued(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-direct")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	_, keyFile := lancert.Paths(dir)
+	require.NoError(t, os.Mkdir(keyFile, 0o700))
+	// 回环当作可达:这条用例要看的是「没有证书就没有直连地址」,不是回环过滤。
+	rig := bootDirectRigInDir(t, dir)
+	mint := loginDaemonForIntegration(t, rig.d, "account-42")
+
+	response := accountDeliveryForIntegration(t, rig.d, mint("sha256:direct-desk"))
+
+	assert.Empty(t, response.GetDirectUrls())
+	assert.Empty(t, response.GetTlsCertPem())
+	assert.Empty(t, response.GetDirectCredential())
+	assert.Empty(t, rig.d.state.Snapshot().DirectCredentials)
+}
+
+// D5:LAN 显式监听回环地址时,LAN server 自己仍列得出 wss://127.0.0.1 —— 但别的机器
+// 一个也够不着。桌面端的账号握手照常成功,不下发地址、证书,也不签发凭据。
+func TestIntegration_AutoDirect_GivenTheLANListensOnLoopbackOnly_WhenADesktopHandshakes_ThenNothingIsDeliveredOrIssued(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-direct")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	rig := bootRigInDir(t, dir)
+	urls, _ := liveDirectEndpoint(rig.d)
+	require.NotEmpty(t, urls, "the LAN server itself lists its loopback wss address")
+	mint := loginDaemonForIntegration(t, rig.d, "account-42")
+
+	response := accountDeliveryForIntegration(t, rig.d, mint("sha256:direct-desk"))
+
+	assert.Empty(t, response.GetDirectUrls())
+	assert.Empty(t, response.GetTlsCertPem())
+	assert.Empty(t, response.GetDirectCredential())
+	assert.Empty(t, rig.d.state.Snapshot().DirectCredentials)
+}
+
+// D5 的判定本身:只有他机够得着的地址才下发。回环、未指定、链路本地与 localhost 都不算,
+// 与主机是通配还是显式无关;局域网、唯一本地与运维给的主机名算。
+func TestReachableDirectURLs_GivenCandidateAddresses_ThenOnlyThoseAnotherMachineCanReachRemain(t *testing.T) {
+	candidates := []string{
+		"wss://127.0.0.1:7456/rpc", "wss://[::1]:7456/rpc", "wss://localhost:7456/rpc", "wss://0.0.0.0:7456/rpc",
+		"wss://169.254.10.1:7456/rpc", "wss://[fe80::1]:7456/rpc", "wss://[fe80::1%25en0]:7456/rpc",
+		"wss://192.168.1.5:7456/rpc", "wss://[fd00::5]:7456/rpc", "wss://agentred.lan:7456/rpc",
+	}
+
+	assert.Equal(t, []string{"wss://192.168.1.5:7456/rpc", "wss://[fd00::5]:7456/rpc", "wss://agentred.lan:7456/rpc"},
+		reachableDirectURLs(candidates, reachableFromAnotherMachine))
+	assert.Empty(t, reachableDirectURLs([]string{"wss://127.0.0.1:7456/rpc", "wss://[::1]:7456/rpc"}, reachableFromAnotherMachine))
+}
+
+// D11:agentred 登出(与 `agentred logout` 同一条路:daemon 停着时读盘、Logout、写盘)
+// 之后,它签发过的凭据被拒;再登录另一个账号,那张凭据仍被拒。
+func TestIntegration_AutoDirect_GivenTheDaemonLoggedOutAndThenIntoAnotherAccount_WhenAnIssuedCredentialIsPresented_ThenItIsRejected(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-direct")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	first := bootDirectRigInDir(t, dir)
+	accounts, _ := accountServerForIntegration(t, first.d, "account-42")
+	delivered := accountDeliveryForIntegration(t, first.d, accounts.mint("account-42", "sha256:direct-desk"))
+	require.NotEmpty(t, delivered.GetDirectCredential())
+	first.stop()
+
+	onDisk, err := state.Load(dir)
+	require.NoError(t, err)
+	onDisk.Logout()
+	require.NoError(t, onDisk.Save())
+	loggedOut := bootRigInDir(t, dir)
+	urls, certPEM := liveDirectEndpoint(loggedOut.d)
+	_, _, err = directClientForIntegration(t, urls[0], certPEM, delivered.GetDirectCredential())
+	requireCredentialRejected(t, err)
+	loggedOut.stop()
+
+	onDisk, err = state.Load(dir)
+	require.NoError(t, err)
+	onDisk.Login("account-77", state.AccountCredential{AccessToken: "other-token"})
+	require.NoError(t, onDisk.Save())
+	switched := bootRigInDir(t, dir)
+	urls, certPEM = liveDirectEndpoint(switched.d)
+	_, _, err = directClientForIntegration(t, urls[0], certPEM, delivered.GetDirectCredential())
+	requireCredentialRejected(t, err)
+}
+
+// auth.direct 与另外几种握手过同一道协议版本闸门,先于任何凭据判定。
+func TestAuthDirect_GivenCallerOmitsTheProtocolVersion_WhenAuthenticating_ThenRefusedAsTooOld(t *testing.T) {
+	client, _, ctx := protobufHandshakeConns(t)
+
+	_, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_DIRECT),
+		&agentrewire.AuthDirectRequest{Credential: "token"},
+		func() *agentrewire.AuthDirectResponse { return &agentrewire.AuthDirectResponse{} })
+
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	require.Equal(t, rpcerror.CodeProtocolVersion, rpcErr.Code)
+	require.Contains(t, rpcErr.Message, wireversion.MinSupported)
+}
+
+// TestIntegration_AccountHandshake_GivenTheDaemonsOwnTokenIsRejected_WhenRefreshSucceeds_ThenRetriesOnceAndAuthenticates
+// 是 H4 的 daemon 接线:核验端点对 daemon **自己的**访问令牌答 401,说明坏的是接收方
+// 而不是对端出示的凭据。daemon 走与中继同一个单飞刷新入口,带新令牌重试一次,握手照常
+// 成功 —— 对端感知不到接收方的令牌刚刚轮换过。
+func TestIntegration_AccountHandshake_GivenTheDaemonsOwnTokenIsRejected_WhenRefreshSucceeds_ThenRetriesOnceAndAuthenticates(t *testing.T) {
+	accounts := newFakeAccountService("access-2")
+	credential := accounts.mint("account-42", "sha256:refresh-peer")
+	var refreshCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if accounts.serveIntrospect(w, r) {
+			return
+		}
+		if r.URL.Path == "/v1/oauth/token/refresh" {
+			refreshCalls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"access-2","expires_in":900,"refresh_token":"refresh-2","refresh_expires_in":3600}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(server.Close)
+
+	dir, err := os.MkdirTemp("", "ard-intro")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Login("account-42", state.AccountCredential{
+		AccessToken: "access-1", AccessTokenExpiresAt: time.Now().Add(15 * time.Minute).Unix(),
+		RefreshToken: "refresh-1", RefreshTokenExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+	})
+	require.NoError(t, st.Save())
+
+	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, AccountServerURL: server.URL})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- d.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-errCh:
+		case <-time.After(3 * time.Second):
+			t.Error("daemon did not shut down within 3s")
+		}
+	})
+	require.Eventually(t, func() bool {
+		d.mu.RLock()
+		defer d.mu.RUnlock()
+		return d.lan != nil && d.lan.Addr() != ""
+	}, 2*time.Second, 10*time.Millisecond)
+	d.mu.RLock()
+	url := d.lan.URL()
+	d.mu.RUnlock()
+
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(dialCancel)
+	cli, err := client.DialProtobuf(dialCtx, client.Options{URL: url})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cli.Close() })
+
+	result, err := cli.AuthAccount(dialCtx, &agentrewire.AuthAccountRequest{Credential: credential})
+	require.NoError(t, err)
+	assert.Equal(t, "sha256:refresh-peer", result.GetPeerFingerprint())
+	assert.Equal(t, int32(1), refreshCalls.Load(), "an introspect 401 must refresh the daemon's own credential exactly once")
+	assert.Equal(t, int32(2), accounts.introspections.Load(), "one rejected introspection plus one retry with the fresh token")
+	assert.Equal(t, "access-2", d.state.Snapshot().Credential.AccessToken)
 }
 
 func accountClientForIntegration(t *testing.T, d *Daemon, fingerprint devicefp.Initiator, mint mintAccountCredential) *client.ProtobufClient {
@@ -2187,21 +2744,16 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, fake)
 	t.Cleanup(restore)
 
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-	der, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	require.NoError(t, err)
-
 	dir, err := os.MkdirTemp("", "ard-relay")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	st, err := state.Load(dir)
 	require.NoError(t, err)
 	accountID := "relay-account"
-	st.Login(accountID, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})),
-		state.AccountCredential{AccessToken: "relay-access-token"})
+	st.Login(accountID, state.AccountCredential{AccessToken: "relay-access-token"})
 	require.NoError(t, st.Save())
-	credential := signedAccountCredential(t, privateKey, accountID, "sha256:relay-client")
+	accounts := newFakeAccountService("relay-access-token")
+	credential := accounts.mint(accountID, "sha256:relay-client")
 
 	connections := make(chan *websocket.Conn, 1)
 	closeRelay := make(chan struct{})
@@ -2209,8 +2761,12 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	var relayAttempts atomic.Int32
 	upgrader := websocket.Upgrader{}
 	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 同一台 fake server 也会收到 daemon 的吊销列表轮询(R4)。它与本测试无关,
-		// 但绝不能占掉下面「只接受第一次中转拨号」的那个计数。
+		// 中继与账号核验是同一台 server:握手时 daemon 会回头来问这枚凭据(H1)。
+		if accounts.serveIntrospect(w, r) {
+			return
+		}
+		// 其余请求(例如连上之后的引擎快照拉取)与本测试无关,但绝不能占掉下面
+		// 「只接受第一次中转拨号」的那个计数。
 		if r.URL.Path != "/v1/relay/daemon" {
 			http.NotFound(w, r)
 			return
@@ -2257,7 +2813,7 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	authResult := &agentrewire.AuthAccountResponse{}
 	relayProtoRequest(t, relayConn, channelID, 1, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT), &agentrewire.AuthAccountRequest{Credential: credential, ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported}, authResult)
 	assert.True(t, authResult.GetOk())
-	// 中转这条路上同样:身份来自凭据,daemon 把它认定的那个值回写。
+	// 中转这条路上同样:身份来自 server 的核验结论,daemon 把它认定的那个值回写。
 	assert.Equal(t, "sha256:relay-client", authResult.GetPeerFingerprint())
 
 	runtimeResult := &agentrewire.RuntimeCapabilitiesResponse{}
@@ -2276,20 +2832,6 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 		defer d.conns.mu.Unlock()
 		return len(d.conns.live) == 0 && len(d.conns.claims) == 0
 	}, time.Second, 10*time.Millisecond, "closed relay channel must be removed like a LAN connection")
-}
-
-func signedAccountCredential(t *testing.T, privateKey *rsa.PrivateKey, accountID, peerFingerprint string) string {
-	t.Helper()
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	claims := mustMarshal(t, map[string]any{
-		"uid": accountID, "exp": time.Now().Add(time.Hour).Unix(), "pfp": peerFingerprint,
-	})
-	payload := base64.RawURLEncoding.EncodeToString(claims)
-	signingInput := header + "." + payload
-	digest := sha256.Sum256([]byte(signingInput))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
-	require.NoError(t, err)
-	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
 func relayProtoRequest(t *testing.T, conn *websocket.Conn, channelID string, id uint64, methodID uint32, request, response proto.Message) {
@@ -2328,13 +2870,6 @@ func unpackRelayEnvelope(t *testing.T, payload []byte) (string, []byte) {
 	require.Greater(t, channelIDLength, 0)
 	require.Greater(t, len(payload), 2+channelIDLength)
 	return string(payload[2 : 2+channelIDLength]), payload[2+channelIDLength:]
-}
-
-func mustMarshal(t *testing.T, value any) []byte {
-	t.Helper()
-	encoded, err := json.Marshal(value)
-	require.NoError(t, err)
-	return encoded
 }
 
 // TestIntegration_MultiClientVisibility_GatesAllPeerAccessByLoggedInAccount covers R10–R13:

@@ -19,11 +19,26 @@ import (
 //     调用方，由调用方负责 defer Close。给 DialOnce 这类短 RPC 场景用。
 //   - OpenAccount 与 Open 同为长连接语义，但出示的是账号凭据（auth.account）：
 //     本机对这台 daemon 没有配对时走它。
+//   - OpenDirect 同为长连接语义，给「来自账号的直连」行用（D7）：对 DirectArgs.URLs
+//     的全部地址并发拨号，每个地址先按固定证书完成 TLS，才发出本地直连凭据
+//     （auth.direct）；交回赢下的连接与它所用的地址。
 type DaemonDialPort interface {
 	Pair(ctx context.Context, args PairArgs) (PairResult, error)
 	Connect(ctx context.Context, args ConnectArgs) (ConnectResult, error)
 	Open(ctx context.Context, args ConnectArgs) (client.ProtobufConnection, error)
 	OpenAccount(ctx context.Context, args AccountArgs) (client.ProtobufConnection, error)
+	OpenDirect(ctx context.Context, args DirectArgs) (client.ProtobufConnection, string, error)
+}
+
+// DirectArgs 是自动直连 auth.direct 的入参（D7/D16）。URLs 是账号下发的全部地址，
+// CertPEM 是固定校验用的证书（任何地址出示的证书与它不一致，这个地址就在 TLS 握手
+// 里失败、凭据不发出）；Credential 是钥匙串里的本地直连凭据；ExpectedDaemonFingerprint
+// 与 auth.account 一样把连接钉死在本地登记的那台 daemon 上。
+type DirectArgs struct {
+	URLs                      []string
+	CertPEM                   string
+	Credential                string
+	ExpectedDaemonFingerprint devicefp.Carrier
 }
 
 // PairArgs 是 auth.pair 的入参。
@@ -104,6 +119,18 @@ type KeychainPort interface {
 	Get(account string) (string, error)
 	Set(account, secret string) error
 	Delete(account string) error
+}
+
+// AccountDirectRecorderPort 接收一次 auth.account 握手带回的自动直连下发内容
+// （D3/D4,task 9），按这次借用已经解析出的 daemon 指纹落地。真实现是
+// RemoteDeviceSvc.RecordAccountDirect（task 8）；ConnPool 依赖这个窄接口而不是
+// 直接调 Default(),既保住 DIP,也让 pool 自身的单测能注入一个假记录器——生产
+// 装配不需要显式接线,New()拿到已构造好的 pool 后会把 service 自己接进去
+// (impl.go,pool 与 service 的构造顺序由 bootstrap.InitRemoteDevice 决定)。
+type AccountDirectRecorderPort interface {
+	RecordAccountDirect(ctx context.Context, d AccountDirectDelivery) error
+	// RecordDirectSuccess 记下直连赢下竞速时所用的地址——设备面板的「最近地址」（D6）。
+	RecordDirectSuccess(ctx context.Context, deviceID int64, address string) error
 }
 
 // WatcherPort 是 remote_device_svc 反向消费 watcher_svc 的窄接口。SetWatcher 注入;

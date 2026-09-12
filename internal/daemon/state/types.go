@@ -6,35 +6,30 @@ import "sync"
 
 // State is the on-disk shape persisted to <AppDataDir>/state.json.
 type State struct {
-	SchemaVersion            int                        `json:"schemaVersion"`
-	DaemonInstanceUUID       string                     `json:"daemonInstanceUUID"`
-	AccountServerURL         string                     `json:"accountServerURL,omitempty"`
-	Listen                   ListenPrefs                `json:"listen"`
-	PairedPeers              map[string]PairedPeer      `json:"pairedPeers"`
-	LLMProviders             map[string]LLMProviderMeta `json:"llmProviders"`
-	Preferences              Preferences                `json:"preferences"`
-	AccountID                string                     `json:"accountId,omitempty"`
-	VerificationPublicKeyPEM string                     `json:"verificationPublicKeyPEM,omitempty"`
-	VerificationCurrentKID   string                     `json:"verificationCurrentKID,omitempty"`
-	VerificationPublicKeys   map[string]string          `json:"verificationPublicKeys,omitempty"`
-	MaxTokenLifetimeSeconds  int64                      `json:"maxTokenLifetimeSeconds,omitempty"`
-	Credential               AccountCredential          `json:"credential,omitempty"`
-
-	// RevokedJTIs is the account's revoked access-token jti list as last pulled
-	// from the account server, and RevocationsAsOf is when the server generated
-	// it (unix ms). They are persisted because the check must keep working while
-	// the daemon is offline and across restarts: revocation takes effect locally
-	// from this cached list alone, never from a lookup at handshake time (R3/R4).
-	RevokedJTIs     []string `json:"revokedJTIs,omitempty"`
-	RevocationsAsOf int64    `json:"revocationsAsOf,omitempty"`
+	SchemaVersion      int                        `json:"schemaVersion"`
+	DaemonInstanceUUID string                     `json:"daemonInstanceUUID"`
+	AccountServerURL   string                     `json:"accountServerURL,omitempty"`
+	Listen             ListenPrefs                `json:"listen"`
+	PairedPeers        map[string]PairedPeer      `json:"pairedPeers"`
+	LLMProviders       map[string]LLMProviderMeta `json:"llmProviders"`
+	Preferences        Preferences                `json:"preferences"`
+	AccountID          string                     `json:"accountId,omitempty"`
+	Credential         AccountCredential          `json:"credential,omitempty"`
+	// DirectCredentials are the local direct credentials this daemon issued,
+	// keyed by the desktop fingerprint the account server named at issuance.
+	// Account-bound: Logout drops them with the claim (D11).
+	DirectCredentials map[string]DirectCredential `json:"directCredentials,omitempty"`
 
 	mu  *sync.RWMutex `json:"-"`
 	dir string        `json:"-"`
 }
 
 type ListenPrefs struct {
-	LanHost     string `json:"lanHost"`
-	LanPort     int    `json:"lanPort"`
+	LanHost string `json:"lanHost"`
+	LanPort int    `json:"lanPort"`
+	// TLS keeps the LAN port wss-only. Without TLSCertFile/TLSKeyFile the
+	// daemon serves the certificate it generates in its data directory.
+	TLS         bool   `json:"tls,omitempty"`
 	TLSCertFile string `json:"tlsCertFile,omitempty"`
 	TLSKeyFile  string `json:"tlsKeyFile,omitempty"`
 }
@@ -82,6 +77,14 @@ type AccountCredential struct {
 	AccessTokenExpiresAt  int64  `json:"accessTokenExpiresAt,omitempty"`
 	RefreshToken          string `json:"refreshToken,omitempty"`
 	RefreshTokenExpiresAt int64  `json:"refreshTokenExpiresAt,omitempty"`
+}
+
+// DirectCredential is one desktop's local direct credential: the opaque value
+// the desktop presents on auth.direct, and the account the daemon belonged to
+// when it issued it.
+type DirectCredential struct {
+	Credential string `json:"credential"`
+	AccountID  string `json:"accountId"`
 }
 
 type Preferences struct {

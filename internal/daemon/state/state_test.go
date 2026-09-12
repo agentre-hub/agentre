@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -135,8 +136,7 @@ func TestStateLoadSave(t *testing.T) {
 			// 另一个进程完成登录。
 			other, _ := Load(dir)
 			other.Mutate(func(s *State) { s.AccountServerURL = "https://server.example" })
-			other.LoginWithKeySet("42", "kid-1", map[string]string{"kid-1": "PEM"}, 900,
-				AccountCredential{DeviceID: 7, AccessToken: "at", RefreshToken: "rt"})
+			other.Login("42", AccountCredential{DeviceID: 7, AccessToken: "at", RefreshToken: "rt"})
 			require.NoError(t, other.Save())
 
 			adopted, err := st.AdoptLoginFromDisk()
@@ -150,19 +150,16 @@ func TestStateLoadSave(t *testing.T) {
 			assert.Equal(t, "at", snap.Credential.AccessToken)
 			assert.Equal(t, "rt", snap.Credential.RefreshToken)
 			assert.Equal(t, int64(7), snap.Credential.DeviceID)
-			assert.Equal(t, "kid-1", snap.VerificationCurrentKID)
-			assert.Equal(t, "PEM", snap.VerificationPublicKeys["kid-1"])
-			assert.Equal(t, int64(900), snap.MaxTokenLifetimeSeconds)
 		})
 
 		convey.Convey("AdoptLoginFromDisk leaves an already-claimed state alone", func() {
 			st, _ := Load(dir)
-			st.Login("mine", "PEM-mine", AccountCredential{AccessToken: "mine-at"})
+			st.Login("mine", AccountCredential{AccessToken: "mine-at"})
 			require.NoError(t, st.Save())
 
 			// 盘上换成了另一个账号（例如 logout + 重新登录留下的残留）。
 			other, _ := Load(dir)
-			other.Login("theirs", "PEM-theirs", AccountCredential{AccessToken: "theirs-at"})
+			other.Login("theirs", AccountCredential{AccessToken: "theirs-at"})
 			require.NoError(t, other.Save())
 
 			adopted, err := st.AdoptLoginFromDisk()
@@ -192,6 +189,39 @@ func TestStateLoadSave(t *testing.T) {
 			assert.Equal(t, "orig", st.LLMProviders["a"].Name)
 		})
 	})
+}
+
+// H6:升级前的 state.json 还带着本地验签时代的公钥集与吊销列表。升级后的 daemon 必须
+// 照常读它 —— 已登录的机器不用重新登录 —— 并在下一次写盘时丢掉这些再没有人读的字段。
+func TestState_GivenPreUpgradeStateWithVerificationAndRevocationFields_WhenLoadedAndSaved_ThenKeepsTheLoginAndDropsThem(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `{"schemaVersion":1,"daemonInstanceUUID":"uuid-1","accountServerURL":"https://a.example",` +
+		`"listen":{"lanHost":"0.0.0.0","lanPort":7456},"pairedPeers":{},"llmProviders":{},"preferences":{},` +
+		`"accountId":"42","verificationPublicKeyPEM":"pem","verificationCurrentKID":"kid-1",` +
+		`"verificationPublicKeys":{"kid-1":"pem"},"maxTokenLifetimeSeconds":900,` +
+		`"credential":{"deviceId":7,"accessToken":"at","refreshToken":"rt"},` +
+		`"revokedJTIs":["jti-1"],"revocationsAsOf":1700}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "state.json"), []byte(legacy), 0o600))
+
+	st, err := Load(dir)
+	require.NoError(t, err)
+	snap := st.Snapshot()
+	assert.Equal(t, "42", snap.AccountID, "an upgraded daemon stays logged in")
+	assert.Equal(t, "at", snap.Credential.AccessToken)
+	require.NoError(t, st.Save())
+
+	raw, err := os.ReadFile(filepath.Join(dir, "state.json")) //nolint:gosec // G304: dir is this test's t.TempDir.
+	require.NoError(t, err)
+	var onDisk map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &onDisk))
+	for _, stale := range []string{
+		"verificationPublicKeyPEM", "verificationCurrentKID", "verificationPublicKeys",
+		"maxTokenLifetimeSeconds", "revokedJTIs", "revocationsAsOf",
+	} {
+		assert.NotContains(t, onDisk, stale, "state.json must no longer carry %s", stale)
+	}
+	assert.Contains(t, onDisk, "accountId")
+	assert.Contains(t, onDisk, "credential")
 }
 
 // ── Logout 的语义：留下什么，而不是删掉什么 ────────────────────────────────
@@ -245,7 +275,7 @@ func TestLogout_ClearsTheAccountServerURLAndItsProviderSnapshot(t *testing.T) {
 		})
 		convey.Convey("so does the provider snapshot pulled from that account", func() {
 			// enginesnapshot 从账号拉下来的整份配置，含 API key：一台已经离开账号的
-			// 机器上不该留着上一个账号的凭证（与 revokedJTIs 同一条理由，R19）。
+			// 机器上不该留着上一个账号的凭证（R19）。
 			assert.Empty(t, st.LLMProviders)
 		})
 		convey.Convey("but the LAN pairings stay: logout returns to the pairing-only state", func() {
@@ -281,13 +311,115 @@ func fullyPopulatedState(t *testing.T) *State {
 		s.LLMProviders = map[string]LLMProviderMeta{"p": {Name: "OpenAI", APIKey: "sk-secret"}}
 		s.Preferences = Preferences{LogLevel: "info", LogRotateMB: 50}
 		s.AccountID = "account-a"
-		s.VerificationPublicKeyPEM = "pem"
-		s.VerificationCurrentKID = "kid-1"
-		s.VerificationPublicKeys = map[string]string{"kid-1": "pem"}
-		s.MaxTokenLifetimeSeconds = 3600
 		s.Credential = AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"}
-		s.RevokedJTIs = []string{"jti-1"}
-		s.RevocationsAsOf = 1700
+		s.DirectCredentials = map[string]DirectCredential{"sha256:desk": {Credential: "c", AccountID: "account-a"}}
 	})
 	return st
+}
+
+// ── 本地直连凭据:按桌面端指纹记账,记下签发时的账号 ─────────────────────────
+
+// D3:第一次为一台桌面端确保凭据时,记下候选值与账号并**原子落盘** —— daemon 重启后
+// 桌面端手里那一张必须仍然认得,而写不下来的凭据不该被发出去。
+func TestState_EnsureDirectCredential_GivenTheDesktopHoldsNone_WhenEnsured_ThenRecordsTheCandidateUnderTheAccountOnDisk(t *testing.T) {
+	dir := setupStateTest(t)
+	st, err := Load(dir)
+	require.NoError(t, err)
+	st.Login("account-a", AccountCredential{AccessToken: "at"})
+
+	credential, issued, err := st.EnsureDirectCredential("sha256:desk", "account-a", "candidate-1")
+
+	require.NoError(t, err)
+	assert.True(t, issued)
+	assert.Equal(t, "candidate-1", credential)
+	reloaded, err := Load(dir)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]DirectCredential{"sha256:desk": {Credential: "candidate-1", AccountID: "account-a"}},
+		reloaded.Snapshot().DirectCredentials)
+	info, err := os.Stat(filepath.Join(dir, "state.json"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "state.json holds credentials and stays owner-only")
+}
+
+// D4:同一台桌面端再次握手沿用已有那一张,候选值被丢弃。
+func TestState_EnsureDirectCredential_GivenTheDesktopAlreadyHoldsOne_WhenEnsuredAgain_ThenReturnsTheExistingOne(t *testing.T) {
+	st, err := Load(setupStateTest(t))
+	require.NoError(t, err)
+	st.Login("account-a", AccountCredential{AccessToken: "at"})
+	_, _, err = st.EnsureDirectCredential("sha256:desk", "account-a", "candidate-1")
+	require.NoError(t, err)
+
+	credential, issued, err := st.EnsureDirectCredential("sha256:desk", "account-a", "candidate-2")
+
+	require.NoError(t, err)
+	assert.False(t, issued)
+	assert.Equal(t, "candidate-1", credential)
+}
+
+// 记在别的账号名下的那一张对当前账号不算「已有」:它在 auth.direct 上本来就会被拒。
+func TestState_EnsureDirectCredential_GivenTheRecordIsUnderAnotherAccount_WhenEnsured_ThenReplacesIt(t *testing.T) {
+	st, err := Load(setupStateTest(t))
+	require.NoError(t, err)
+	st.Login("account-a", AccountCredential{AccessToken: "at"})
+	st.Mutate(func(s *State) {
+		s.DirectCredentials = map[string]DirectCredential{"sha256:desk": {Credential: "stale", AccountID: "account-z"}}
+	})
+
+	credential, issued, err := st.EnsureDirectCredential("sha256:desk", "account-a", "candidate-1")
+
+	require.NoError(t, err)
+	assert.True(t, issued)
+	assert.Equal(t, "candidate-1", credential)
+	assert.Equal(t, DirectCredential{Credential: "candidate-1", AccountID: "account-a"}, st.Snapshot().DirectCredentials["sha256:desk"])
+}
+
+// 核验与记账之间 daemon 可能已经离开了那个账号:此时一张都不记,免得登出后留下残余。
+func TestState_EnsureDirectCredential_GivenTheStateNoLongerBelongsToThatAccount_WhenEnsured_ThenRecordsNothing(t *testing.T) {
+	for name, login := range map[string]string{"logged out": "", "another account": "account-b"} {
+		t.Run(name, func(t *testing.T) {
+			st, err := Load(setupStateTest(t))
+			require.NoError(t, err)
+			if login != "" {
+				st.Login(login, AccountCredential{AccessToken: "at"})
+			}
+
+			_, _, err = st.EnsureDirectCredential("sha256:desk", "account-a", "candidate-1")
+
+			require.Error(t, err)
+			assert.Empty(t, st.Snapshot().DirectCredentials)
+		})
+	}
+}
+
+// 按桌面端指纹删:只删点名的那几台,并落盘。
+func TestState_DeleteDirectCredentials_GivenSeveralDesktops_WhenSomeAreDeleted_ThenOnlyThoseAreGoneOnDisk(t *testing.T) {
+	dir := setupStateTest(t)
+	st, err := Load(dir)
+	require.NoError(t, err)
+	st.Login("account-a", AccountCredential{AccessToken: "at"})
+	for _, fingerprint := range []string{"sha256:desk-1", "sha256:desk-2", "sha256:desk-3"} {
+		_, _, err := st.EnsureDirectCredential(fingerprint, "account-a", "credential-"+fingerprint)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, st.DeleteDirectCredentials("sha256:desk-1", "sha256:desk-3", "sha256:unknown"))
+
+	reloaded, err := Load(dir)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]DirectCredential{"sha256:desk-2": {Credential: "credential-sha256:desk-2", AccountID: "account-a"}},
+		reloaded.Snapshot().DirectCredentials)
+}
+
+// Snapshot 是只读数据袋:改它手里的表不得改到活的状态。
+func TestState_Snapshot_GivenDirectCredentials_WhenTheSnapshotIsMutated_ThenTheLiveStateIsUntouched(t *testing.T) {
+	st, err := Load(setupStateTest(t))
+	require.NoError(t, err)
+	st.Login("account-a", AccountCredential{AccessToken: "at"})
+	_, _, err = st.EnsureDirectCredential("sha256:desk", "account-a", "candidate-1")
+	require.NoError(t, err)
+
+	snapshot := st.Snapshot()
+	delete(snapshot.DirectCredentials, "sha256:desk")
+
+	assert.Contains(t, st.Snapshot().DirectCredentials, "sha256:desk")
 }

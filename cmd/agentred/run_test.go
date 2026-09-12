@@ -24,6 +24,7 @@ func clearRunEnvironment(t *testing.T) {
 	for _, name := range []string{
 		"AGENTRED_HOST",
 		"AGENTRED_PORT",
+		"AGENTRED_TLS",
 		"AGENTRED_TLS_CERT",
 		"AGENTRED_TLS_KEY",
 		"AGENTRED_SERVER_URL",
@@ -199,6 +200,101 @@ func TestGivenOnlyOneTLSPathWhenRunStartsThenItReturnsUsageErrorWithoutPersistin
 	assert.Equal(t, original.Listen, reloaded.Listen)
 }
 
+// --tls 不必配证书;它和其它监听参数一样记进 state.json,之后不带参数的 run(包括
+// service start)照样只接受 wss。
+func TestGivenTLSFlagWithoutCertificateWhenRunStartsThenTLSReachesDaemonAndIsRestoredLater(t *testing.T) {
+	clearRunEnvironment(t)
+	dir := t.TempDir()
+
+	got, err := executeRunForOptions(t, dir, "--tls")
+	require.NoError(t, err)
+	assert.True(t, got.TLS)
+	assert.Empty(t, got.TLSCertFile)
+	assert.Empty(t, got.TLSKeyFile)
+
+	restored, err := executeRunForOptions(t, dir)
+	require.NoError(t, err)
+	assert.True(t, restored.TLS, "a run without flags keeps the persisted --tls")
+}
+
+func TestGivenTLSEnvironmentWhenRunStartsThenItSelectsTLS(t *testing.T) {
+	clearRunEnvironment(t)
+	t.Setenv("AGENTRED_TLS", "true")
+
+	got, err := executeRunForOptions(t, t.TempDir())
+	require.NoError(t, err)
+	assert.True(t, got.TLS)
+}
+
+func TestGivenPersistedTLSWhenRunPassesTLSFalseThenTLSIsTurnedOffAndRemembered(t *testing.T) {
+	clearRunEnvironment(t)
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Mutate(func(s *state.State) { s.Listen = state.ListenPrefs{LanHost: "192.0.2.10", LanPort: 8123, TLS: true} })
+	require.NoError(t, st.Save())
+
+	got, err := executeRunForOptions(t, dir, "--tls=false")
+	require.NoError(t, err)
+	assert.False(t, got.TLS, "an explicit false must override the persisted true")
+
+	reloaded, err := state.Load(dir)
+	require.NoError(t, err)
+	assert.False(t, reloaded.Listen.TLS)
+}
+
+func TestGivenUnparsableTLSEnvironmentWhenRunStartsThenItReturnsUsageErrorWithoutStartingDaemon(t *testing.T) {
+	clearRunEnvironment(t)
+	t.Setenv("AGENTRED_TLS", "sometimes")
+	started := false
+	cmd := newRunCmdWithDeps(runDeps{
+		dataDir: func() (string, error) { return t.TempDir(), nil },
+		newDaemon: func(daemon.Options) (runDaemon, error) {
+			started = true
+			return fakeRunDaemon{}, nil
+		},
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	var usage *usageError
+	assert.ErrorAs(t, err, &usage)
+	assert.Contains(t, err.Error(), "AGENTRED_TLS")
+	assert.False(t, started)
+}
+
+func TestGivenTLSDisabledWithCertificateWhenRunStartsThenItReturnsUsageErrorWithoutPersistingConfiguration(t *testing.T) {
+	clearRunEnvironment(t)
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	original := st.Snapshot()
+	started := false
+	cmd := newRunCmdWithDeps(runDeps{
+		dataDir: func() (string, error) { return dir, nil },
+		newDaemon: func(daemon.Options) (runDaemon, error) {
+			started = true
+			return fakeRunDaemon{}, nil
+		},
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--tls=false", "--tls-cert", "/tmp/cert.pem", "--tls-key", "/tmp/key.pem"})
+
+	err = cmd.Execute()
+	require.Error(t, err)
+	var usage *usageError
+	assert.ErrorAs(t, err, &usage)
+	assert.Contains(t, err.Error(), "--tls=false")
+	assert.False(t, started)
+
+	reloaded, err := state.Load(dir)
+	require.NoError(t, err)
+	assert.Equal(t, original.Listen, reloaded.Listen)
+}
+
 // Given 一个数据目录，When agentred run 启动守护进程，
 // Then 日志落到 <dataDir>/logs/agentred.log（此前 agentred 全程用 zap 的 no-op logger，
 // 什么都不写，launchd 也没接管 stdout）。
@@ -276,7 +372,7 @@ func TestGivenRunWhenStdlibLogIsUsedThenItAlsoLandsInTheLogFile(t *testing.T) {
 
 // ── 已登录的 daemon 不许被 run 悄悄指到另一套 server ─────────────────────────
 //
-// 凭据、验签公钥、吊销表全都是**上一套 server 签发的**：指到另一套之后，中继登记
+// 账号标识与凭据全都是**上一套 server 签发的**：指到另一套之后，中继登记
 // 与刷新一律被拒，而 credentialRefresher 拿到 invalid_grant 只是停掉中继续期并写
 // 一行日志，daemon 自己仍然认为「我已登录」，LAN 照常。用户看到的只有「这台机器
 // 就是不上线」，线索全在日志里。
@@ -288,8 +384,7 @@ func TestGivenLoggedInDaemonWhenRunPointsAtAnotherServerThenItRefusesWithoutRepo
 	dir := t.TempDir()
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.LoginWithKeySet("account-a", "kid-1", map[string]string{"kid-1": "pem"}, 3600,
-		state.AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"})
+	st.Login("account-a", state.AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"})
 	st.Mutate(func(s *state.State) { s.AccountServerURL = "https://a.example" })
 	require.NoError(t, st.Save())
 
@@ -310,8 +405,7 @@ func TestGivenLoggedInDaemonWhenRunKeepsTheSameServerThenItStarts(t *testing.T) 
 	dir := t.TempDir()
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.LoginWithKeySet("account-a", "kid-1", map[string]string{"kid-1": "pem"}, 3600,
-		state.AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"})
+	st.Login("account-a", state.AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"})
 	st.Mutate(func(s *state.State) { s.AccountServerURL = "https://a.example" })
 	require.NoError(t, st.Save())
 

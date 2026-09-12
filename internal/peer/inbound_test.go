@@ -361,7 +361,9 @@ func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisCompute
 func authorizeAccountCredentials(t *testing.T) {
 	t.Helper()
 	restore := peer.SwapAccountCredentialVerifierForTest(
-		func(context.Context, string) (string, error) { return "sha256:peer", nil })
+		func(context.Context, string) (auth.Introspection, error) {
+			return auth.Introspection{PeerFingerprint: "sha256:peer"}, nil
+		})
 	t.Cleanup(restore)
 }
 

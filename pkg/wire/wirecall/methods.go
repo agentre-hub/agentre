@@ -16,6 +16,9 @@ var AuthAccount = Define[*agentrewire.AuthAccountRequest](agentrewire.RpcMethod_
 var AuthConnect = Define[*agentrewire.AuthConnectRequest](agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT,
 	func() *agentrewire.AuthConnectResponse { return &agentrewire.AuthConnectResponse{} })
 
+var AuthDirect = Define[*agentrewire.AuthDirectRequest](agentrewire.RpcMethod_RPC_METHOD_AUTH_DIRECT,
+	func() *agentrewire.AuthDirectResponse { return &agentrewire.AuthDirectResponse{} })
+
 var AuthPair = Define[*agentrewire.AuthPairRequest](agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR,
 	func() *agentrewire.AuthPairResponse { return &agentrewire.AuthPairResponse{} })
 

@@ -8,6 +8,7 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
+	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/pkg/activityrollup"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
@@ -35,12 +36,13 @@ type ProtobufInboundDeps struct {
 	CountSessions func(ctx context.Context) (*remotewire.SessionCountsResult, error)
 	// ActivityRollup 交出按天 × 维度的会话计数。回包里没有标题、路径与内容。
 	ActivityRollup func(context.Context, string, string) ([]activityrollup.Bucket, error)
-	// VerifyAccountCredential 验证入站对端出示的账号凭据,交出凭据里那个**已验签的**
-	// 对端身份(pfp claim,决策 8)。生产装配是 newAccountCredentialVerifier。
+	// VerifyAccountCredential 向 server 在线核验入站对端出示的账号凭据(H1),交出
+	// server 的核验结论:账号身份与决策 8 的对端身份(pfp)。生产装配是
+	// newAccountCredentialVerifier,核验本体(缓存、错误分类)是 auth.Introspector。
 	//
-	// 它是 nil 表示本进程此刻没有验证能力(未登录、公钥取不到、单测未装配):那时
-	// 握手一律拒绝:凭据只需非空、指纹只需自报的话,任何人都能自称任何对端。
-	VerifyAccountCredential func(ctx context.Context, credential string) (string, error)
+	// 它是 nil 表示本进程此刻没有验证能力(未登录、单测未装配):那时握手一律拒绝 ——
+	// 凭据只需非空、指纹只需自报的话,任何人都能自称任何对端。
+	VerifyAccountCredential func(ctx context.Context, credential string) (auth.Introspection, error)
 	AttachSession           func(context.Context, remotewire.SessionAttachParams, chat_svc.PeerSessionSubscriber) (remotewire.SessionAttachResult, error)
 	PullSession             func(context.Context, remotewire.SessionPullParams, chat_svc.PeerSessionSubscriber) (remotewire.SessionPullResult, error)
 	PendingWaiters          func(context.Context, remotewire.SessionPendingWaitersParams) (remotewire.SessionPendingWaitersResult, error)
@@ -96,6 +98,21 @@ func protobufPeerError(err error) error {
 	return &protorpc.Error{Code: protorpc.CodeInternal, Message: err.Error()}
 }
 
+// authAccountError maps a VerifyAccountCredential failure onto the wire.
+// auth.Introspector always returns an already-classified *rpcerror.Error
+// (-32001 invalid/not-ready or -32007 unreachable, H1/H3/H4) and that
+// classification is honored verbatim. Anything else — a verifier double in a
+// test, or a defensive change that returns a plain error later — falls back
+// to today's single "credential rejected" shape rather than leaking an
+// internal error or defaulting to a code that claims more than is known.
+func authAccountError(err error) error {
+	var rpcErr *rpcerror.Error
+	if errors.As(err, &rpcErr) {
+		return rpcErr
+	}
+	return auth.ErrCredentialInvalid
+}
+
 func NewProtobufInboundRegistry(deps ProtobufInboundDeps) *protorpc.Registry {
 	registry := protorpc.NewRegistry()
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT),
@@ -120,22 +137,30 @@ func NewProtobufInboundRegistry(deps ProtobufInboundDeps) *protorpc.Registry {
 			if conn == nil {
 				return nil, &protorpc.Error{Code: -32001, Message: "unauthorized"}
 			}
-			// 决策 8:先验凭据,再从验过的凭据里取身份。没有验证能力就没有握手 ——
-			// 采信一个没验过的字符串,和不鉴权是同一件事。
+			// H1/决策 8:先向 server 在线核验凭据,再从核验结论里取身份。没有验证
+			// 能力就没有握手 —— 采信一个没验过的字符串,和不鉴权是同一件事;这台
+			// 机器自己都验不了任何人时,按 H4「接收方未就绪」拒绝。
 			if deps.VerifyAccountCredential == nil {
 				logger.Ctx(ctx).Warn("peer.authAccount: no credential verifier configured, refusing handshake")
-				return nil, &protorpc.Error{Code: -32001, Message: "unauthorized"}
+				return nil, auth.ErrReceiverNotReady
 			}
-			fingerprint, err := deps.VerifyAccountCredential(ctx, request.Credential)
-			if err != nil || fingerprint == "" {
+			verified, err := deps.VerifyAccountCredential(ctx, request.Credential)
+			if err != nil {
 				logger.Ctx(ctx).Warn("peer.authAccount: credential rejected", zap.Error(err))
-				return nil, &protorpc.Error{Code: -32001, Message: "unauthorized"}
+				return nil, authAccountError(err)
 			}
-			conn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: fingerprint})
+			if verified.PeerFingerprint == "" {
+				// 决策 8:名不指人的核验结论不可用,不回退到请求体。
+				logger.Ctx(ctx).Warn("peer.authAccount: verified credential carries no peer fingerprint")
+				return nil, auth.ErrCredentialInvalid
+			}
+			conn.SetAuth(protorpc.AuthState{
+				Authenticated: true, DeviceFingerprint: verified.PeerFingerprint, AccountID: verified.AccountID,
+			})
 			// 回写对端认定的身份:调用方在请求体里已经报不了自己是谁,它在这条连接上
 			// 的身份(conversation_id 的派生输入)只能由这里说了算。
 			return &agentrewire.AuthAccountResponse{
-				Ok: true, PeerFingerprint: fingerprint,
+				Ok: true, PeerFingerprint: verified.PeerFingerprint,
 				ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported,
 			}, nil
 		})

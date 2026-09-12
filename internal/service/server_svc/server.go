@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
@@ -56,6 +57,12 @@ type ServerSvc interface {
 	PutAvatar(ctx context.Context, contentHash, contentType, content string) error
 	// GetAvatar 取一份尚未持有的头像正文（R16a）。
 	GetAvatar(ctx context.Context, contentHash string) (content, contentType string, err error)
+	// IntrospectCredential 问 agentre-server 一枚凭据是否属于本机当前登录的账号
+	// (H1,桌面端入站侧)。成功缓存 60 秒、失败不缓存、server 够不着答
+	// auth.ErrAccountServerUnreachable —— 全部由 auth.Introspector 承担;这个方法
+	// 只把它接到本机自己的 server 地址、access token 与一次性刷新上(internal/peer
+	// 的 auth.account 消费它)。
+	IntrospectCredential(ctx context.Context, token string) (auth.Introspection, error)
 }
 
 var defaultSvc ServerSvc
@@ -78,6 +85,11 @@ type service struct {
 	// relay 是这台桌面端唯一的常驻中继客户端连接（决策 13），懒创建，见 relayclient.go
 	// 的 ensureRelay。受 s.mu 保护，与 client / loginInFlight / emitState 同一把锁。
 	relay *residentRelay
+	// introspectOnce/introspector 懒建这台桌面端唯一的 auth.Introspector 实例
+	// (introspect.go 的 accountIntrospector)。必须只建一份：H2 的 60 秒成功缓存
+	// 挂在实例内部，每次调用都新建就等于从不命中缓存。
+	introspectOnce sync.Once
+	introspector   *auth.Introspector
 }
 
 // New 构造一个 service。client + emit 由 bootstrap 装配。

@@ -3485,6 +3485,97 @@ func TestStartGoal_CreatesCodexSessionAndSetsGoalBeforeFirstTurn(t *testing.T) {
 	})
 }
 
+// TestStartGoal_NewSessionPersistsDraftSelections 钉死「草稿态的瞬态选择随首次建会话
+// 一起落库」对 /goal 同样成立（spec 2026-08-11「新建与已有会话流程」、2026-09-01
+// 「新建会话」）：用 /goal 起头的新会话与首条 Send 建出的会话是同一件事，所选
+// ModelTarget / 思考力度不能在这条路上被丢掉。
+func TestStartGoal_NewSessionPersistsDraftSelections(t *testing.T) {
+	convey.Convey("Given a new Codex chat with a provider and effort picked in the draft, when /goal starts it, then both are persisted with the session and the goal runs on that provider", t, func() {
+		m := setupChatTest(t)
+		ctx := m.ctx
+		runner := &goalRecordingRunner{recordingRunner: &recordingRunner{requests: make(chan agentruntime.RunRequest, 1)}}
+		restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeCodex, runner)
+		t.Cleanup(restore)
+
+		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
+			ID: 7, Name: "Codex", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
+		}, nil)
+		m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+			ID: 12, Type: string(agent_backend_entity.TypeCodex), LLMProviderKey: "", Status: consts.ACTIVE,
+		}, nil)
+		m.provider.EXPECT().FindByKey(gomock.Any(), "key-99").Return(newActiveProvider("key-99", string(llm_provider_entity.TypeOpenAIResponse)), nil).AnyTimes()
+		expectProviderResolvable(m, "key-99")
+		m.session.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, sess *chat_entity.Session) error {
+				assert.Equal(t, "key-99", sess.ProviderKey, "草稿选的供应商必须与 Session 一起落库")
+				assert.Empty(t, sess.ModelKey)
+				assert.Equal(t, agent_backend_entity.ReasoningEffortHigh, sess.ReasoningEffort, "草稿选的思考力度必须与 Session 一起落库")
+				sess.ID = 100
+				return nil
+			})
+		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+
+		objective := "ship goal rpc"
+		status := "active"
+		resp, err := m.svc.StartGoal(ctx, &chat_svc.StartGoalRequest{
+			AgentID:         7,
+			Objective:       &objective,
+			Status:          &status,
+			ProviderKey:     "key-99",
+			ReasoningEffort: agent_backend_entity.ReasoningEffortHigh,
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Equal(t, int64(100), resp.SessionID)
+		require.NotNil(t, runner.setReq.Provider, "goal 必须打在草稿选的那家供应商上")
+		assert.Equal(t, "key-99", runner.setReq.Provider.ProviderKey)
+	})
+
+	convey.Convey("Given the draft picked a provider the Codex backend cannot use, when /goal starts it, then it is rejected before creating a session", t, func() {
+		m := setupChatTest(t)
+		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
+			ID: 7, Name: "Codex", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
+		}, nil)
+		m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+			ID: 12, Type: string(agent_backend_entity.TypeCodex), LLMProviderKey: "", Status: consts.ACTIVE,
+		}, nil)
+		m.provider.EXPECT().FindByKey(gomock.Any(), "key-99").Return(newActiveProvider("key-99", string(llm_provider_entity.TypeAnthropic)), nil).AnyTimes()
+		m.session.EXPECT().Create(gomock.Any(), gomock.Any()).Times(0)
+
+		objective := "ship goal rpc"
+		resp, err := m.svc.StartGoal(m.ctx, &chat_svc.StartGoalRequest{
+			AgentID:     7,
+			Objective:   &objective,
+			ProviderKey: "key-99",
+		})
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+	})
+
+	convey.Convey("Given the draft carries an unknown reasoning effort, when /goal starts it, then it is rejected before creating a session", t, func() {
+		m := setupChatTest(t)
+		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
+			ID: 7, Name: "Codex", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
+		}, nil).AnyTimes()
+		m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+			ID: 12, Type: string(agent_backend_entity.TypeCodex), LLMProviderKey: "", Status: consts.ACTIVE,
+		}, nil).AnyTimes()
+		m.session.EXPECT().Create(gomock.Any(), gomock.Any()).Times(0)
+
+		objective := "ship goal rpc"
+		resp, err := m.svc.StartGoal(m.ctx, &chat_svc.StartGoalRequest{
+			AgentID:         7,
+			Objective:       &objective,
+			ReasoningEffort: "turbo",
+		})
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+	})
+}
+
 func TestGoal_RequiresCodexProviderSessionAndCapability(t *testing.T) {
 	t.Run("missing provider session", func(t *testing.T) {
 		m := setupChatTest(t)

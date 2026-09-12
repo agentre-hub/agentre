@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -25,7 +24,8 @@ func TestLoginCompletesDeviceFlowAndPersistsOpaqueAccountState(t *testing.T) {
 	st, err := state.Load(dir)
 	require.NoError(t, err)
 
-	accessToken := unsignedJWT(t, map[string]any{"uid": 42})
+	// 设备令牌是不透明的:login 从中读不出任何东西,账号标识只能向 server 要(H5)。
+	issued := "opaque-device-access-token"
 	var polls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -57,14 +57,14 @@ func TestLoginCompletesDeviceFlowAndPersistsOpaqueAccountState(t *testing.T) {
 				_, _ = io.WriteString(w, `{"error":"authorization_pending"}`)
 				return
 			}
-			_, _ = io.WriteString(w, `{"access_token":"`+accessToken+`","token_type":"Bearer","expires_in":3600,"refresh_token":"refresh-token","refresh_expires_in":7200,"device_id":9}`)
-		case "/v1/keys":
+			_, _ = io.WriteString(w, `{"access_token":"`+issued+`","token_type":"Bearer","expires_in":3600,"refresh_token":"refresh-token","refresh_expires_in":7200,"device_id":9}`)
+		case "/v1/auth/me":
 			assert.Equal(t, http.MethodGet, r.Method)
-			assert.Empty(t, r.Header.Get("Authorization"), "public key distribution is unauthenticated")
-			_, _ = io.WriteString(w, `{"version":1,"current_kid":"current","keys":{"old":"old-key","current":"-----BEGIN PUBLIC KEY-----\ncached-key"},"public_key":"-----BEGIN PUBLIC KEY-----\ncached-key","max_token_lifetime_seconds":900}`)
+			assert.Equal(t, "Bearer "+issued, r.Header.Get("Authorization"), "the account is identified with the freshly issued device token")
+			_, _ = io.WriteString(w, `{"code":0,"msg":"ok","data":{"user_id":42,"device_id":9}}`)
 		case "/v1/engine/snapshot":
 			assert.Equal(t, http.MethodGet, r.Method)
-			assert.Equal(t, "Bearer "+accessToken, r.Header.Get("Authorization"))
+			assert.Equal(t, "Bearer "+issued, r.Header.Get("Authorization"))
 			_, _ = io.WriteString(w, `{"providers":[{"provider_key":"provider-login","name":"Login Provider","type":"anthropic","base_url":"https://api.example","api_key":"login-key","default_model_key":"model-login","models":[{"model_key":"model-login","model_id":"claude-login","name":"Claude Login","enabled":true}]}],"cli_overlays":[{"backend_sync_id":"backend-login","cli_path":"/private/bin/claude"}]}`)
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -100,12 +100,8 @@ func TestLoginCompletesDeviceFlowAndPersistsOpaqueAccountState(t *testing.T) {
 	got, err := state.Load(dir)
 	require.NoError(t, err)
 	assert.Equal(t, "42", got.AccountID)
-	assert.Equal(t, "-----BEGIN PUBLIC KEY-----\ncached-key", got.VerificationPublicKeyPEM)
-	assert.Equal(t, "current", got.VerificationCurrentKID)
-	assert.Equal(t, map[string]string{"old": "old-key", "current": "-----BEGIN PUBLIC KEY-----\ncached-key"}, got.VerificationPublicKeys)
-	assert.Equal(t, int64(900), got.MaxTokenLifetimeSeconds)
 	assert.Equal(t, int64(9), got.Credential.DeviceID)
-	assert.Equal(t, accessToken, got.Credential.AccessToken)
+	assert.Equal(t, issued, got.Credential.AccessToken)
 	assert.Equal(t, "refresh-token", got.Credential.RefreshToken)
 	assert.NotZero(t, got.Credential.AccessTokenExpiresAt)
 	assert.NotZero(t, got.Credential.RefreshTokenExpiresAt)
@@ -127,7 +123,7 @@ func TestLogin_GivenEngineSnapshotFailure_WhenLoginSucceeds_ThenKeepsPreviousPro
 		s.LLMProviders["provider-old"] = state.LLMProviderMeta{Name: "Old", APIKey: "old-key"}
 	})
 	require.NoError(t, st.Save())
-	accessToken := unsignedJWT(t, map[string]any{"uid": 42})
+	issued := "opaque-device-access-token"
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		status := http.StatusOK
 		body := ""
@@ -135,9 +131,9 @@ func TestLogin_GivenEngineSnapshotFailure_WhenLoginSucceeds_ThenKeepsPreviousPro
 		case "/v1/oauth/device/authorize":
 			body = `{"device_code":"code-1","user_code":"ABCD","verification_uri":"https://verify.example/device","verification_uri_complete":"https://verify.example/device?user_code=ABCD","interval":1,"expires_in":60}`
 		case "/v1/oauth/device/token":
-			body = `{"access_token":"` + accessToken + `","token_type":"Bearer","expires_in":3600,"refresh_token":"refresh-token","refresh_expires_in":7200,"device_id":9}`
-		case "/v1/keys":
-			body = `{"current_kid":"current","keys":{"current":"PEM"},"max_token_lifetime_seconds":900}`
+			body = `{"access_token":"` + issued + `","token_type":"Bearer","expires_in":3600,"refresh_token":"refresh-token","refresh_expires_in":7200,"device_id":9}`
+		case "/v1/auth/me":
+			body = `{"code":0,"msg":"ok","data":{"user_id":42,"device_id":9}}`
 		case "/v1/engine/snapshot":
 			status = http.StatusServiceUnavailable
 			body = `{"code":503,"msg":"temporarily unavailable"}`
@@ -275,13 +271,56 @@ func TestLoginProceedsWhenNoDaemonHoldsTheStateFile(t *testing.T) {
 	assert.Positive(t, networkCalls, "with no daemon holding the file, login must run normally")
 }
 
-func unsignedJWT(t *testing.T, claims map[string]any) string {
-	t.Helper()
-	payload, err := json.Marshal(claims)
-	require.NoError(t, err)
-	return strings.Join([]string{
-		base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256"}`)),
-		base64.RawURLEncoding.EncodeToString(payload),
-		"signature",
-	}, ".")
+// 设备流已经批准,但 server 认不出这枚令牌属于谁(或答不出账号):账号标识拿不到,
+// 这次登录就不能落盘 —— 一台 accountId 为空却带着凭据的 daemon 既不算登录、也不算没登录。
+func TestLogin_GivenTheAccountServerCannotIdentifyTheAccount_WhenLoginFinishes_ThenFailsWithoutPersistingALogin(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "the device token is rejected", status: http.StatusUnauthorized, body: `{"code":401,"msg":"unauthorized"}`},
+		{name: "the answer carries no account", status: http.StatusOK, body: `{"code":0,"msg":"ok","data":{"user_id":0}}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				status := http.StatusOK
+				body := ""
+				switch r.URL.Path {
+				case "/v1/oauth/device/authorize":
+					body = `{"device_code":"code-1","user_code":"ABCD","verification_uri":"https://verify.example/device","verification_uri_complete":"https://verify.example/device?user_code=ABCD","interval":1,"expires_in":60}`
+				case "/v1/oauth/device/token":
+					body = `{"access_token":"opaque-device-access-token","token_type":"Bearer","expires_in":3600,"refresh_token":"refresh-token","refresh_expires_in":7200,"device_id":9}`
+				case "/v1/auth/me":
+					status, body = tc.status, tc.body
+				default:
+					t.Errorf("unexpected request %s", r.URL.Path)
+					status = http.StatusNotFound
+				}
+				return &http.Response{
+					StatusCode: status, Status: http.StatusText(status), Header: make(http.Header),
+					Body: io.NopCloser(strings.NewReader(body)), Request: r,
+				}, nil
+			})}
+			cmd := newLoginCmdWithDeps(loginDeps{
+				dataDir: func() (string, error) { return dir, nil }, http: client,
+				openBrowser: func(string) error { return nil }, wait: func(time.Duration) error { return nil },
+				platform: "linux", version: "dev", hostname: func() (string, error) { return "devbox", nil },
+			})
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs([]string{"--server", "http://account.example"})
+
+			err := cmd.Execute()
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "identify account")
+			got, loadErr := state.Load(dir)
+			require.NoError(t, loadErr)
+			assert.False(t, got.IsLoggedIn())
+			assert.Equal(t, state.AccountCredential{}, got.Credential, "no credential may be persisted without its account")
+		})
+	}
 }

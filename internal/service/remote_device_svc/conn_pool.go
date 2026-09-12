@@ -103,6 +103,13 @@ func WithAccountCredential(credentials AccountCredentialPort) Option {
 	return func(p *pool) { p.credentials = credentials }
 }
 
+// WithAccountDirectRecorder 注入账号握手下发内容的落地端口（D3/D4,task 9）。
+// 生产装配不必调它——New() 拿到已构造的 pool 后会把 service 自己接进去（见
+// impl.go）；这里导出主要给 pool 自身的单测直接构造一个假记录器。
+func WithAccountDirectRecorder(r AccountDirectRecorderPort) Option {
+	return func(p *pool) { p.recorder = r }
+}
+
 // NewConnPool 构造一个生产 ConnPool。
 //   - repo: 查 device row(URL / TLS / fingerprint)
 //   - kc:   读 keychain 的 token + device fingerprint(用本包窄接口 KeychainPort)
@@ -132,8 +139,9 @@ type pool struct {
 	repo        remote_device_repo.PairedAgentredRepo
 	kc          KeychainPort
 	dial        DaemonDialPort
-	relay       RelayDialPort         // 可空:未注入时 Borrow 纯 LAN
-	credentials AccountCredentialPort // 可空:未注入时直连只认配对令牌
+	relay       RelayDialPort             // 可空:未注入时 Borrow 纯 LAN
+	credentials AccountCredentialPort     // 可空:未注入时直连只认配对令牌
+	recorder    AccountDirectRecorderPort // 可空:未注入时账号握手下发内容不落地（task 9）
 	idleTimeout time.Duration
 
 	// refreshMu 让「换一张账号凭据」在这个池子里单飞，见 retryWithFreshCredential。
@@ -142,6 +150,25 @@ type pool struct {
 	mu      sync.Mutex
 	entries map[int64]*entry
 	closed  bool
+}
+
+// setAccountDirectRecorder 供 impl.go 的 New() 在拿到已构造的 pool 后把 service
+// 自己接进去用:bootstrap.InitRemoteDevice 里 pool 先于 service 构造完成
+// （NewConnPool 在 New 之前调用），落地端口偏偏就是 service 自己——用一次性类型
+// 断言接进去，不必改动 bootstrap 的构造顺序，也不必新增导出 setter。
+func (p *pool) setAccountDirectRecorder(r AccountDirectRecorderPort) {
+	p.recorder = r
+}
+
+// accountDirectDeliverer 是 client.ProtobufConnection 的一个可选接口:一条连接
+// 若是由 auth.account 握手产生（direct 路径的 client.ProtobufClient、relay 路径
+// server_svc 的 relayChannelConn 都实现它），就能原样交出应答里的自动直连下发内容
+// （D3）。LAN 配对的 auth.connect 连接、单测里的普通假连接都不实现它——类型断言
+// 失败时 recordAccountDirect 直接跳过，不必让 client.ProtobufConnection 这个到处
+// 都有实现者的接口多长一个方法（见该接口自己的注释:测试假连接、watcher 的探活
+// 连接等广泛实现者都不该被迫跟着长出这个方法）。
+type accountDirectDeliverer interface {
+	AccountDirectDelivery() (urls []string, certPEM, credential string, ok bool)
 }
 
 // pooledClient 是 entry.client 的窄接口,允许 internal test 用 fake 替身。
@@ -253,17 +280,29 @@ func (p *pool) Borrow(ctx context.Context, deviceID int64) (Lease, error) {
 		logger.Ctx(ctx).Info("conn pool: no local pairing, dialing with the account credential",
 			zap.Int64("deviceID", deviceID))
 	}
-	args := ConnectArgs{
+	target := dialTarget{ConnectArgs: ConnectArgs{
 		URL:                       row.URL,
 		TLSMode:                   row.TLSMode,
 		TLSCertPEM:                row.TLSCertPEM,
 		DeviceFingerprint:         fp,
 		DeviceToken:               token,
 		ExpectedDaemonFingerprint: row.DaemonFingerprint,
+	}}
+	if row.IsAccountDirect() && token != "" {
+		// task 8 把本地直连凭据存在与配对令牌同一个钥匙串槽里:先按行的来源分流,否则它
+		// 会被当成配对令牌去做 auth.connect、必然被拒。槽为空时没有直连凭据可发,落回
+		// 下面「本机没有配对」的既有路径。
+		target.DeviceToken = ""
+		target.direct = &DirectArgs{
+			URLs:                      row.DirectURLs(),
+			CertPEM:                   row.TLSCertPEM,
+			Credential:                token,
+			ExpectedDaemonFingerprint: row.DaemonFingerprint,
+		}
 	}
-	c, err := p.openAny(ctx, args, credential)
+	c, directAddress, err := p.openTarget(ctx, target, credential)
 	if err != nil && credential != "" && credentialRejected(err) {
-		c, err = p.retryWithFreshCredential(ctx, args, credential, err)
+		c, directAddress, err = p.retryWithFreshCredential(ctx, target, credential, err)
 	}
 	if err != nil {
 		if errors.Is(err, ErrUnauthorized) {
@@ -275,6 +314,13 @@ func (p *pool) Borrow(ctx context.Context, deviceID int64) (Lease, error) {
 			return nil, fmt.Errorf("%w: %w", ErrDeviceUnauthorized, err)
 		}
 		return nil, err
+	}
+
+	if p.recorder != nil {
+		p.recordAccountDirect(ctx, target.ExpectedDaemonFingerprint, c)
+		if directAddress != "" {
+			p.recordDirectSuccess(ctx, deviceID, directAddress)
+		}
 	}
 
 	p.mu.Lock()
@@ -320,10 +366,10 @@ func (p *pool) Borrow(ctx context.Context, deviceID int64) (Lease, error) {
 // 换不到新票(server 够不着)时**不能**宣告终止:那正是 R3 这条路径存在的理由——
 // server 挂了,而它一挂,刷新也就没了。此时说「重试也没用」是错的,server 回来就好了。
 func (p *pool) retryWithFreshCredential(
-	ctx context.Context, args ConnectArgs, stale string, cause error,
-) (client.ProtobufConnection, error) {
+	ctx context.Context, target dialTarget, stale string, cause error,
+) (client.ProtobufConnection, string, error) {
 	if p.credentials == nil {
-		return nil, cause
+		return nil, "", cause
 	}
 	// 换票单飞。server_svc.refresh 会**轮换 refresh_token**(响应里带新的、覆盖
 	// keychain)而它自己没有串行化:同时刷两次,后写的那次可能把已经作废的那张存回
@@ -333,25 +379,25 @@ func (p *pool) retryWithFreshCredential(
 	p.refreshMu.Lock()
 	defer p.refreshMu.Unlock()
 	if current := p.accountCredential(); current != "" && current != stale {
-		return p.openAny(ctx, args, current)
+		return p.openTarget(ctx, target, current)
 	}
 	if err := p.credentials.Refresh(ctx); err != nil {
 		logger.Ctx(ctx).Warn("conn pool: account credential rejected and cannot be renewed",
-			zap.String("daemonFingerprint", string(args.ExpectedDaemonFingerprint)), zap.Error(err))
+			zap.String("daemonFingerprint", string(target.ExpectedDaemonFingerprint)), zap.Error(err))
 		// 原因用 %v 而不是 %w:这条**不能**再带着 ErrUnauthorized 往上走,否则
 		// Borrow 照样把它折成 ErrDeviceUnauthorized,上层照样判「重试也没用」——
 		// 而我们恰恰还不知道凭据是不是真的被撤销了,只知道换不到新的。文字照留。
-		return nil, fmt.Errorf("account credential rejected (%v) and could not be renewed: %w", cause, err)
+		return nil, "", fmt.Errorf("account credential rejected (%v) and could not be renewed: %w", cause, err)
 	}
 	fresh := p.accountCredential()
 	if fresh == "" {
 		// 刷完没票 = 已经登出。没有身份可出示,这确实是终止条件(与 Borrow 开头
 		// 「既没有配对令牌、账号也没登录」同一句话)。
-		return nil, fmt.Errorf("%w: %w", ErrUnauthorized, cause)
+		return nil, "", fmt.Errorf("%w: %w", ErrUnauthorized, cause)
 	}
 	logger.Ctx(ctx).Info("conn pool: account credential rejected, retrying once with a fresh one",
-		zap.String("daemonFingerprint", string(args.ExpectedDaemonFingerprint)))
-	return p.openAny(ctx, args, fresh)
+		zap.String("daemonFingerprint", string(target.ExpectedDaemonFingerprint)))
+	return p.openTarget(ctx, target, fresh)
 }
 
 // credentialRejected 判「对端拒的是我们出示的凭据」。
@@ -369,6 +415,32 @@ func credentialRejected(err error) bool {
 	}
 	var protobufErr *protorpc.Error
 	return errors.As(err, &protobufErr) && protobufErr.Code == rpcerror.ErrUnauthorized.Code
+}
+
+// dialTarget 是一次 Borrow 解析出的拨号材料。direct 非 nil 表示这是来自账号的直连行、
+// 且钥匙串槽里有本地直连凭据:直连路径走 auth.direct(RaceAccountDirect),ConnectArgs
+// 里的配对令牌恒空。
+type dialTarget struct {
+	ConnectArgs
+	direct *DirectArgs
+}
+
+// openTarget 按行的来源选路,交回连接与直连赢下时所用的地址(否则为空)。
+func (p *pool) openTarget(ctx context.Context, target dialTarget, credential string) (client.ProtobufConnection, string, error) {
+	if target.direct != nil {
+		return RaceAccountDirect(ctx, p.dial, p.relay, *target.direct, devicefp.Initiator(target.DeviceFingerprint))
+	}
+	c, err := p.openAny(ctx, target.ConnectArgs, credential)
+	return c, "", err
+}
+
+// recordDirectSuccess 把直连赢下的地址记成设备面板的最近地址(D6)。与
+// recordAccountDirect 同理:记录失败只记日志,不让已经成功的连接失败。
+func (p *pool) recordDirectSuccess(ctx context.Context, deviceID int64, address string) {
+	if err := p.recorder.RecordDirectSuccess(ctx, deviceID, address); err != nil {
+		logger.Ctx(ctx).Warn("conn_pool.recordDirectSuccess: recording the winning direct address failed",
+			zap.Int64("deviceID", deviceID), zap.String("address", address), zap.Error(err))
+	}
 }
 
 // accountCredential 返回当前账号凭据；未注入凭据来源或未登录时是空串。
@@ -425,6 +497,37 @@ func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string)
 			},
 		},
 	)
+}
+
+// recordAccountDirect 把一次成功的 auth.account 握手带回的自动直连下发内容
+// （D3/task 9）落到设备行，daemon 指纹就是这次 Borrow 已经解析出的那个
+// （args.ExpectedDaemonFingerprint）——不必再猜是哪一台，这正是把它放在 pool 这层
+// 而不是 dial.go / relayclient.go 的理由。c 不实现 accountDirectDeliverer（LAN
+// 配对的 auth.connect 连接、单测里的普通假连接）或对端应答没带下发内容（D5：
+// agentred 没有可路由地址）时，ok 为 false，什么都不记——这正是任务 9 的另一半：
+// 「应答无下发内容时不记录」。
+//
+// 记录失败只记日志、不让这次已经成功的连接失败：这份内容是锦上添花的自动直连，
+// 缺了它这次借用照样该把连接交给调用方（账号握手本身已经成功，凭据/协议层面
+// 没有任何问题）。
+func (p *pool) recordAccountDirect(ctx context.Context, daemonFingerprint devicefp.Carrier, c client.ProtobufConnection) {
+	deliverer, ok := c.(accountDirectDeliverer)
+	if !ok {
+		return
+	}
+	urls, certPEM, credential, delivered := deliverer.AccountDirectDelivery()
+	if !delivered {
+		return
+	}
+	if err := p.recorder.RecordAccountDirect(ctx, AccountDirectDelivery{
+		DaemonFingerprint: daemonFingerprint,
+		URLs:              urls,
+		CertPEM:           certPEM,
+		Credential:        credential,
+	}); err != nil {
+		logger.Ctx(ctx).Warn("conn_pool.recordAccountDirect: recording delivery failed",
+			zap.String("daemonFingerprint", string(daemonFingerprint)), zap.Error(err))
+	}
 }
 
 // watchClient 在 entry 建好后启,监听底层 conn 死亡 → evict。

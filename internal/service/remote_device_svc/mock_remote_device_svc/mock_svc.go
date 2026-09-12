@@ -72,6 +72,21 @@ func (mr *MockRemoteDeviceSvcMockRecorder) AdoptAccountDevices(ctx, devices any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdoptAccountDevices", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).AdoptAccountDevices), ctx, devices)
 }
 
+// ClearAccountDirect mocks base method.
+func (m *MockRemoteDeviceSvc) ClearAccountDirect(ctx context.Context) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearAccountDirect", ctx)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearAccountDirect indicates an expected call of ClearAccountDirect.
+func (mr *MockRemoteDeviceSvcMockRecorder) ClearAccountDirect(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearAccountDirect", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).ClearAccountDirect), ctx)
+}
+
 // DeviceBuild mocks base method.
 func (m *MockRemoteDeviceSvc) DeviceBuild(deviceID int64) (string, string) {
 	m.ctrl.T.Helper()
@@ -175,6 +190,20 @@ func (mr *MockRemoteDeviceSvcMockRecorder) Pool() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Pool", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).Pool))
 }
 
+// RecordAccountDirect mocks base method.
+func (m *MockRemoteDeviceSvc) RecordAccountDirect(ctx context.Context, d remote_device_svc.AccountDirectDelivery) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordAccountDirect", ctx, d)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordAccountDirect indicates an expected call of RecordAccountDirect.
+func (mr *MockRemoteDeviceSvcMockRecorder) RecordAccountDirect(ctx, d any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordAccountDirect", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).RecordAccountDirect), ctx, d)
+}
+
 // RecordDeviceBuild mocks base method.
 func (m *MockRemoteDeviceSvc) RecordDeviceBuild(deviceID int64, version, commit string) {
 	m.ctrl.T.Helper()
@@ -209,6 +238,20 @@ func (m *MockRemoteDeviceSvc) RecordDeviceProviders(deviceID int64, ps []remote_
 func (mr *MockRemoteDeviceSvcMockRecorder) RecordDeviceProviders(deviceID, ps any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordDeviceProviders", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).RecordDeviceProviders), deviceID, ps)
+}
+
+// RecordDirectSuccess mocks base method.
+func (m *MockRemoteDeviceSvc) RecordDirectSuccess(ctx context.Context, deviceID int64, address string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordDirectSuccess", ctx, deviceID, address)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordDirectSuccess indicates an expected call of RecordDirectSuccess.
+func (mr *MockRemoteDeviceSvcMockRecorder) RecordDirectSuccess(ctx, deviceID, address any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordDirectSuccess", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).RecordDirectSuccess), ctx, deviceID, address)
 }
 
 // Refresh mocks base method.

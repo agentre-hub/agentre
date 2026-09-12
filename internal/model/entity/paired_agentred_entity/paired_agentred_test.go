@@ -75,6 +75,50 @@ func TestPairedAgentred_Check(t *testing.T) {
 	})
 }
 
+// D6：一行「来自账号的直连」只由 Origin=="account" 判定，与 IsRelayOnly 正交——
+// 一台账号下发过地址的机器 url 非空、IsRelayOnly()==false，但它不是手动配对来的。
+func TestPairedAgentred_IsAccountDirect(t *testing.T) {
+	Convey("Origin==account is an account-direct row", t, func() {
+		p := &PairedAgentred{Origin: "account", URL: "wss://h:7456/rpc"}
+		So(p.IsAccountDirect(), ShouldBeTrue)
+	})
+	Convey("Origin==manual (today's LAN-paired shape) is not account-direct", t, func() {
+		p := &PairedAgentred{Origin: "manual", URL: "ws://h/rpc"}
+		So(p.IsAccountDirect(), ShouldBeFalse)
+	})
+	Convey("zero-value Origin (legacy rows built before this column existed) is not account-direct", t, func() {
+		p := &PairedAgentred{URL: "ws://h/rpc"}
+		So(p.IsAccountDirect(), ShouldBeFalse)
+	})
+	Convey("nil receiver is not account-direct", t, func() {
+		var p *PairedAgentred
+		So(p.IsAccountDirect(), ShouldBeFalse)
+	})
+}
+
+// D6：DirectURLsJSON 装的是账号一次下发的全部地址；地址位（URL 字段）单独跟着
+// 「最近一次直连成功」的语义走，不与这个列表混同。
+func TestPairedAgentred_DirectURLs(t *testing.T) {
+	Convey("round-trips through Set/Get", t, func() {
+		p := &PairedAgentred{}
+		p.SetDirectURLs([]string{"wss://a:7456/rpc", "wss://b:7456/rpc"})
+		So(p.DirectURLs(), ShouldResemble, []string{"wss://a:7456/rpc", "wss://b:7456/rpc"})
+	})
+	Convey("empty JSON gives an empty (non-nil) slice", t, func() {
+		p := &PairedAgentred{}
+		So(p.DirectURLs(), ShouldResemble, []string{})
+	})
+	Convey("garbage JSON gives an empty (non-nil) slice instead of panicking", t, func() {
+		p := &PairedAgentred{DirectURLsJSON: "not json"}
+		So(p.DirectURLs(), ShouldResemble, []string{})
+	})
+	Convey("SetDirectURLs(nil) stores an empty array, not null", t, func() {
+		p := &PairedAgentred{}
+		p.SetDirectURLs(nil)
+		So(p.DirectURLsJSON, ShouldEqual, "[]")
+	})
+}
+
 func TestPairedAgentred_IsOnline(t *testing.T) {
 	Convey("IsOnline true when last_seen within 5 min", t, func() {
 		p := &PairedAgentred{LastSeenAt: 1_000_000}

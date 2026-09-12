@@ -83,6 +83,32 @@ func TestAdd(t *testing.T) {
 		So(view.ID, ShouldEqual, 7)
 		So(view.URL, ShouldEqual, validAddReq().URL)
 	})
+	// D14：这一行是「来自账号的直连」（有地址、pin-cert、账号凭据），用户对它手动
+	// LAN 配对，转成手动配对行——先清掉账号直连的痕迹（地址/证书/来源标记），
+	// 再按今天的升级流程写入新的手动地址与 TLS，行不重建（同一台机器只有一行）。
+	Convey("manually pairing an account-direct row converts it to a manually paired row", t, func() {
+		repo, dial, kc, w, svc := setupSvc(t)
+		accountDirect := &paired_agentred_entity.PairedAgentred{
+			ID: 7, Name: "devbox", DaemonFingerprint: "sha256:abc",
+			URL: "wss://old-account:7456/rpc", TLSMode: "pin-cert", TLSCertPEM: "OLD-PEM",
+			Origin: "account", Status: 1,
+		}
+		repo.EXPECT().FindByURL(gomock.Any(), validAddReq().URL).Return(nil, nil)
+		kc.EXPECT().Get("agentre-device-fingerprint").Return("existing-fp", nil)
+		dial.EXPECT().Pair(gomock.Any(), gomock.Any()).Return(validPairResult(), nil)
+		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(accountDirect, nil)
+		repo.EXPECT().ClearAccountDirect(gomock.Any(), int64(7)).Return(nil)
+		repo.EXPECT().UpdateEndpoint(gomock.Any(), int64(7), validAddReq().URL, devicefp.Carrier("sha256:abc")).Return(nil)
+		repo.EXPECT().UpdateTLS(gomock.Any(), int64(7), "default", "").Return(nil)
+		kc.EXPECT().Set("agentre-daemon-token-7", "tok-256bit").Return(nil)
+		w.EXPECT().Restart(gomock.Any(), int64(7)).Return(nil)
+		// 没有 Create 的 EXPECT：新建任何一行都是失败。
+
+		view, err := svc.Add(context.Background(), validAddReq())
+		So(err, ShouldBeNil)
+		So(view.ID, ShouldEqual, 7)
+		So(view.URL, ShouldEqual, validAddReq().URL)
+	})
 	// 已经有 LAN 路径的机器再配一次，仍然是「已配对」，不该被上面那条路径悄悄改掉地址。
 	Convey("pairing a machine that already has a LAN row is still rejected as already paired", t, func() {
 		repo, dial, kc, _, svc := setupSvc(t)

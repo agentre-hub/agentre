@@ -88,6 +88,22 @@ func (mr *MockDaemonDialPortMockRecorder) OpenAccount(ctx, args any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenAccount", reflect.TypeOf((*MockDaemonDialPort)(nil).OpenAccount), ctx, args)
 }
 
+// OpenDirect mocks base method.
+func (m *MockDaemonDialPort) OpenDirect(ctx context.Context, args remote_device_svc.DirectArgs) (client.ProtobufConnection, string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OpenDirect", ctx, args)
+	ret0, _ := ret[0].(client.ProtobufConnection)
+	ret1, _ := ret[1].(string)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// OpenDirect indicates an expected call of OpenDirect.
+func (mr *MockDaemonDialPortMockRecorder) OpenDirect(ctx, args any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenDirect", reflect.TypeOf((*MockDaemonDialPort)(nil).OpenDirect), ctx, args)
+}
+
 // Pair mocks base method.
 func (m *MockDaemonDialPort) Pair(ctx context.Context, args remote_device_svc.PairArgs) (remote_device_svc.PairResult, error) {
 	m.ctrl.T.Helper()
@@ -259,6 +275,58 @@ func (m *MockKeychainPort) Set(account, secret string) error {
 func (mr *MockKeychainPortMockRecorder) Set(account, secret any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockKeychainPort)(nil).Set), account, secret)
+}
+
+// MockAccountDirectRecorderPort is a mock of AccountDirectRecorderPort interface.
+type MockAccountDirectRecorderPort struct {
+	ctrl     *gomock.Controller
+	recorder *MockAccountDirectRecorderPortMockRecorder
+	isgomock struct{}
+}
+
+// MockAccountDirectRecorderPortMockRecorder is the mock recorder for MockAccountDirectRecorderPort.
+type MockAccountDirectRecorderPortMockRecorder struct {
+	mock *MockAccountDirectRecorderPort
+}
+
+// NewMockAccountDirectRecorderPort creates a new mock instance.
+func NewMockAccountDirectRecorderPort(ctrl *gomock.Controller) *MockAccountDirectRecorderPort {
+	mock := &MockAccountDirectRecorderPort{ctrl: ctrl}
+	mock.recorder = &MockAccountDirectRecorderPortMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockAccountDirectRecorderPort) EXPECT() *MockAccountDirectRecorderPortMockRecorder {
+	return m.recorder
+}
+
+// RecordAccountDirect mocks base method.
+func (m *MockAccountDirectRecorderPort) RecordAccountDirect(ctx context.Context, d remote_device_svc.AccountDirectDelivery) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordAccountDirect", ctx, d)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordAccountDirect indicates an expected call of RecordAccountDirect.
+func (mr *MockAccountDirectRecorderPortMockRecorder) RecordAccountDirect(ctx, d any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordAccountDirect", reflect.TypeOf((*MockAccountDirectRecorderPort)(nil).RecordAccountDirect), ctx, d)
+}
+
+// RecordDirectSuccess mocks base method.
+func (m *MockAccountDirectRecorderPort) RecordDirectSuccess(ctx context.Context, deviceID int64, address string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordDirectSuccess", ctx, deviceID, address)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordDirectSuccess indicates an expected call of RecordDirectSuccess.
+func (mr *MockAccountDirectRecorderPortMockRecorder) RecordDirectSuccess(ctx, deviceID, address any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordDirectSuccess", reflect.TypeOf((*MockAccountDirectRecorderPort)(nil).RecordDirectSuccess), ctx, deviceID, address)
 }
 
 // MockWatcherPort is a mock of WatcherPort interface.

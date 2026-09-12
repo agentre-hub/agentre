@@ -22,6 +22,22 @@ func TestGivenAdvertisedURLsWhenPrintingPairThenShowsCodeAndEveryURL(t *testing.
 	assert.Contains(t, out, "120")
 	assert.Contains(t, out, "ws://192.168.1.9:7456/rpc")
 	assert.Contains(t, out, "ws://[fd00::1]:7456/rpc")
+	assert.NotContains(t, out, "Certificate", "a ws daemon has no certificate to pin")
+}
+
+// --tls 下桌面端要固定证书才连得上,所以地址之后给出证书在这台机器上的路径。
+func TestGivenCertificateFileWhenPrintingPairThenShowsItAfterTheURLs(t *testing.T) {
+	var buf bytes.Buffer
+
+	printPair(&buf, map[string]any{
+		"code":            "123456",
+		"ttlSeconds":      float64(120),
+		"listenURLs":      []any{"wss://192.168.1.9:7456/rpc"},
+		"certificateFile": "/var/lib/agentred/lan-cert.pem",
+	})
+
+	assert.Contains(t, buf.String(), "wss://192.168.1.9:7456/rpc\n")
+	assert.Contains(t, buf.String(), "Certificate: /var/lib/agentred/lan-cert.pem\n")
 }
 
 // daemon 在通配地址上监听、却一个可路由地址都找不到时,listenURLs 是空的 —— 它宁可

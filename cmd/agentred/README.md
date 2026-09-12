@@ -109,11 +109,11 @@ listen or account-server settings.
 | `agentred llm remove --key=<uuid>` | Delete an LLM provider. |
 | `agentred claudecode <args...>` | Internal Claude Code hook passthrough used by spawned subprocesses. |
 
-`agentred run` accepts `--host`, `--port`, `--tls-cert`, `--tls-key`,
+`agentred run` accepts `--host`, `--port`, `--tls`, `--tls-cert`, `--tls-key`,
 `--server`, and `--log-level`. Resolution order is explicit flag, environment,
 persisted state, then default. The corresponding environment variables are
-`AGENTRED_HOST`, `AGENTRED_PORT`, `AGENTRED_TLS_CERT`, `AGENTRED_TLS_KEY`,
-`AGENTRED_SERVER_URL`, and `AGENTRED_LOG_LEVEL`.
+`AGENTRED_HOST`, `AGENTRED_PORT`, `AGENTRED_TLS`, `AGENTRED_TLS_CERT`,
+`AGENTRED_TLS_KEY`, `AGENTRED_SERVER_URL`, and `AGENTRED_LOG_LEVEL`.
 
 ## Logs
 
@@ -152,6 +152,8 @@ Important files are:
 <AppDataDir>/
   state.json    runtime state, listen preferences, account claim, and LLM providers
   agentred.db   SQLite sessions and their transcripts
+  lan-cert.pem  generated LAN certificate (only when no --tls-cert is configured)
+  lan-key.pem   its private key, mode 0600
   logs/         rolling agentred.log and error.log (see Logs above)
 ```
 
@@ -161,7 +163,16 @@ Windows. Override the data directory for testing or operations with
 
 ## Encryption
 
-By default the LAN endpoint uses `ws://`. Supply both `--tls-cert` and
-`--tls-key` to use `wss://`. A locally trusted certificate can be generated with
+By default the LAN endpoint uses `ws://`, and `agentred status` / `agentred pair`
+print `ws://` addresses. Without a configured certificate, agentred also
+generates a self-signed certificate on first start, keeps it in the data
+directory, and accepts `wss://` with it on the same port; desktops signed in to
+the same account pin it for automatic direct connections. Delete both files to
+rotate it. Pass `--tls` to serve only `wss://` with that generated certificate;
+agentred then refuses to start if it cannot persist the certificate, and
+`agentred status` / `agentred pair` print `wss://` addresses followed by the
+certificate path to pin on the desktop. Supply both `--tls-cert` and `--tls-key` to serve only `wss://` with
+your own certificate, which is then also the one direct connections pin and the
+path `status` / `pair` print; `--tls=false` cannot be combined with them. A locally trusted certificate can be generated with
 `mkcert`; the desktop supports OS trust, leaf-certificate pinning, a custom CA
 bundle, and an explicit development-only skip-verification mode.

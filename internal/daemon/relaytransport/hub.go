@@ -118,6 +118,31 @@ type HubLinkOptions struct {
 	// Hooks must return promptly because they run on the link's goroutine.
 	OnDial       func()
 	OnDisconnect func(error)
+
+	// RefreshCredential lets the daemon attempt one credential refresh when a
+	// dial is rejected with HTTP 401 (P2, upgrade behavior: 升级后首次出示旧
+	// access token 被拒时先刷新重试,只有刷新本身被拒才进入今天的永久状态). Without
+	// it (nil, the zero value), a 401 behaves exactly as before: it is
+	// immediately the permanent "needs re-login" state.
+	//
+	// Run calls it at most once per rejection episode — a fresh attempt is
+	// made again only after a physical connection has succeeded in between,
+	// the same reset points that clear rejectedLogged. This keeps a
+	// concurrent or repeated 401 from re-triggering the refresh (the daemon's
+	// credentialRefresher single-flights RefreshCredential itself, so two
+	// overlapping 401s share one HTTP round trip), and keeps a confirmed
+	// rejection from hammering the refresh endpoint on every retry forever.
+	//
+	// nil means the credential was rotated: Run redials immediately, without
+	// counting it as a failure or waiting for backoff (AccessTokenProvider
+	// must read the rotated token, not a value captured earlier). An error
+	// that wraps ErrRelayCredentialRejected means the refresh itself was
+	// rejected by the server: Run falls into today's permanent state exactly
+	// as an unrefreshed 401 would. Any other error is treated as transient
+	// (network blip, 5xx) — Run neither claims the permanent state nor stops
+	// attempting a refresh on the next 401, it simply retries with backoff
+	// like an ordinary dial failure.
+	RefreshCredential func(context.Context) error
 }
 
 // defaultMaxFrameBytes 是链路的载荷预算加一个信封头 —— 中继这条线上收到的是服务端
@@ -203,6 +228,13 @@ func (l *HubLink) Run(ctx context.Context) error {
 	// 401 同理，而且更该压制：它是个**永久**状态（要人来 logout + login），退避封顶
 	// 60s 也照样是每天上千行。说清楚一次，比重复一千遍有用。
 	rejectedLogged := false
+	// refreshTried gates RefreshCredential to at most one attempt per rejection
+	// episode (P2): set once we know the outcome of that attempt (success, or a
+	// confirmed permanent rejection), so a repeated 401 in the same episode
+	// falls straight to the existing permanent branch instead of calling the
+	// refresher again. A transient refresh failure leaves it false so the next
+	// 401 tries again — see RefreshCredential's doc comment.
+	refreshTried := false
 	for {
 		if ctx.Err() != nil {
 			// Shutdown is Run's normal termination, not a relay failure.
@@ -224,6 +256,37 @@ func (l *HubLink) Run(ctx context.Context) error {
 				}
 			} else if errors.Is(err, ErrRelayCredentialRejected) {
 				unresolvedLogged = false
+				if l.opts.RefreshCredential != nil && !refreshTried {
+					refreshErr := l.opts.RefreshCredential(ctx)
+					switch {
+					case refreshErr == nil:
+						// The credential was rotated: redial right now. This is not a
+						// failure, so it must not count against the backoff or wait for
+						// one — that would turn "refresh once and retry" into "refresh
+						// once and then wait up to a minute anyway".
+						refreshTried = true
+						failures = 0
+						l.opts.Logf("rpc.HubLink: the server rejected this daemon's credential (HTTP 401); " +
+							"refreshed it and is retrying the dial")
+						continue
+					case errors.Is(refreshErr, ErrRelayCredentialRejected):
+						// The refresh itself was rejected: this is now confirmed
+						// permanent, same as an unrefreshed 401. Fall through to the
+						// existing permanent branch below instead of duplicating it.
+						refreshTried = true
+					default:
+						// Transient refresh failure (network blip, 5xx): must not be
+						// reported as the permanent state, and must be retried on the
+						// next 401 rather than given up on — so refreshTried stays false.
+						l.opts.Logf("rpc.HubLink: the server rejected this daemon's credential (HTTP 401) "+
+							"and the credential refresh failed; retrying: %v", refreshErr)
+						if err := l.wait(ctx, failures); err != nil {
+							return l.stopRetrying(ctx, err)
+						}
+						failures++
+						continue
+					}
+				}
 				if !rejectedLogged {
 					l.opts.Logf("rpc.HubLink: the server rejected this daemon's credential (HTTP 401); " +
 						"retrying cannot fix it — this device was deauthorized, or the account it is logged " +
@@ -261,9 +324,12 @@ func (l *HubLink) Run(ctx context.Context) error {
 		if renewed {
 			failures = 0
 		}
-		// 连上过就说明凭据当时是好的：两个抑制位都复位，之后再出现同样的状态要重新说一次。
+		// 连上过就说明凭据当时是好的：抑制位都复位，之后再出现同样的状态要重新说一次、
+		// 也允许再刷新一次（refreshTried 是「这一段拒绝期间」的状态，不是「这条链路一
+		// 辈子」的状态）。
 		unresolvedLogged = false
 		rejectedLogged = false
+		refreshTried = false
 		l.notifyDisconnect(err)
 		l.opts.Logf("rpc.HubLink: relay disconnected; retrying: %v", err)
 		if err := l.wait(ctx, failures); err != nil {

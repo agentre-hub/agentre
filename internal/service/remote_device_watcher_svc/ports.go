@@ -19,12 +19,22 @@ type DaemonDialPort interface {
 // OpenArgs 复用 remote_device_svc 的 ConnectArgs 字段集。watcher 单独命名是为了
 // 防止跨包字段漂移时被静默打中。生产 adapter 把这两个结构互相平铺。
 type OpenArgs struct {
+	// DeviceID 是被探活的那一行;适配器用它记下直连赢下的地址(RecordDirectSuccess)。
+	DeviceID                  int64
 	URL                       string
 	TLSMode                   string
 	TLSCertPEM                string
 	DeviceFingerprint         string
 	DeviceToken               string
 	ExpectedDaemonFingerprint devicefp.Carrier
+
+	// AccountDirect 标记「来自账号的直连」行(PairedAgentred.IsAccountDirect)。这类行的
+	// 钥匙串槽里放的是本地直连凭据而不是配对令牌,所以 DeviceToken 恒空、凭据在
+	// DirectCredential(槽为空时也为空);DirectURLs 是账号下发的全部地址,TLSCertPEM
+	// 是固定校验用的证书。
+	AccountDirect    bool
+	DirectURLs       []string
+	DirectCredential string
 }
 
 // KeychainPort 抽象 OS keychain 读取(与 remote_device_svc.KeychainPort 同语义)。

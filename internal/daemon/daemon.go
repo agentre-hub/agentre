@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,13 +20,17 @@ import (
 
 	"github.com/cago-frame/agents/agent/blocks"
 	dbpkg "github.com/cago-frame/cago/database/db"
+	"github.com/cago-frame/cago/pkg/consts"
+	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/glebarez/sqlite"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
 	"github.com/agentre-hub/agentre/internal/daemon/enginesnapshot"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/lancert"
 	daemonmigrations "github.com/agentre-hub/agentre/internal/daemon/migrations"
 	"github.com/agentre-hub/agentre/internal/daemon/pairing"
 	"github.com/agentre-hub/agentre/internal/daemon/portforward"
@@ -57,9 +63,13 @@ const dbFileName = "agentred.db"
 
 // Options configures the Daemon at construction time.
 type Options struct {
-	DataDir     string
-	LANHost     string
-	LANPort     int
+	DataDir string
+	LANHost string
+	LANPort int
+	// TLS keeps the LAN port wss-only. Without TLSCertFile/TLSKeyFile it serves
+	// the certificate lancert persists in DataDir, and Run fails when that
+	// certificate cannot be persisted.
+	TLS         bool
 	TLSCertFile string
 	TLSKeyFile  string
 	// AccountServerURL is the account server base URL used for the daemon's
@@ -70,6 +80,12 @@ type Options struct {
 	// 留空 → 走 ccoauth.NewLocalFetcher()(从当前机器环境读 token + 调真实 endpoint);
 	// 集成测试传入 stub 屏蔽真实网络 / 真实 keychain。
 	CCUsageFetcher handlers.CCUsageFetcher
+
+	// directAddressReachable decides whether another machine can reach a direct
+	// address host; nil means reachableFromAnotherMachine. Unexported on purpose:
+	// only this package's tests replace it, so a daemon bound to 127.0.0.1 can
+	// still deliver auto-direct over a real connection.
+	directAddressReachable func(host string) bool
 }
 
 // Daemon assembles and runs all agentred sub-systems.
@@ -116,8 +132,27 @@ type Daemon struct {
 
 	mu  sync.RWMutex
 	lan *protorpc.LANServer
-	hub *relaytransport.HubLink
-	mux *relaytransport.Multiplexer
+	// lanCertFile is the certificate a wss-only lan serves, reported to the
+	// local CLI for manual pinning; empty while lan also accepts ws.
+	lanCertFile string
+	hub         *relaytransport.HubLink
+	mux         *relaytransport.Multiplexer
+	// credRefresher backs both hub's RefreshCredential hook (P2/task 2: one
+	// single-flighted refresh on a relay 401, not the permanent state right
+	// away) and the scheduled renewal loop started by runCredentialRefresh —
+	// same instance, so the two triggers single-flight against each other too.
+	credRefresher *credentialRefresher
+
+	// directReconciler reconciles agentred's local direct credentials
+	// (state.DirectCredentials) against the account server's device list
+	// (D12/D13, task 7): a desktop fingerprint that was revoked or removed
+	// from the account loses its local direct credential once this
+	// reconciliation actually observes that, never before — a pull that
+	// cannot reach the server always keeps what is on file. It runs on the
+	// same one-minute cadence the retired revocation poller used, plus
+	// immediately on every successful relay (re)connect (see
+	// startEngineSnapshotPulls's lifecycle listener).
+	directReconciler *directCredentialReconciler
 
 	// conns 是 daemon 的推送路由表:会话通知按**会话**解析到发起它的那条连接,
 	// MCP 反向隧道从同一份状态里解析目标,daemon 上没有第二个「当前连接」的全局。
@@ -795,7 +830,6 @@ func New(opts Options) (*Daemon, error) {
 		rlOpts.Window = time.Duration(st.Preferences.PairingRateLimit.WindowSeconds) * time.Second
 	}
 	rl := pairing.NewRateLimiter(rlOpts)
-	auth := auth.NewAuthHandlers(st, pm, rl)
 
 	backlog := newBacklogMemo()
 	d := &Daemon{
@@ -803,7 +837,7 @@ func New(opts Options) (*Daemon, error) {
 		transcript:   transcriptStore{db: gormDB, backlog: backlog},
 		sessionStore: daemonSessionStore{db: gormDB},
 		pairing:      pm, ratelim: rl,
-		auth: auth, protobufRegistry: protorpc.NewRegistry(),
+		protobufRegistry: protorpc.NewRegistry(),
 		// 拨号恒为环回,端口必须已在这台设备上声明过 —— 目标主机不由请求携带。
 		portForward: portforward.NewHandlers(portforward.Options{
 			Repo: port_forward_repo.NewPortForward(), Dial: portforward.DialLoopback,
@@ -817,9 +851,31 @@ func New(opts Options) (*Daemon, error) {
 	// 中转链路无条件构造：登录状态改由每次 dial 时重新解析（relayServerURL），
 	// 不在这里判一次。判一次的后果是未登录启动的进程即使之后登录了也永远没有链路
 	// —— login 是另一个进程，写完 state.json 就退出，没有东西会回来建它。
+	// Constructed here (not lazily inside runCredentialRefresh, which only starts
+	// after login) so hub's RefreshCredential hook and the scheduled renewal loop
+	// share one credentialRefresher — and therefore one refreshNow single flight
+	// — from the moment the link can start dialing.
+	d.credRefresher = newCredentialRefresher(st, opts.AccountServerURL)
+	// Task 7: reconciliation reuses the relay link's own server-URL/access-token
+	// resolution (relayServerURL re-reads state.json until logged in, then the
+	// live account server) and the same single-flighted refresh, so a 401 from
+	// GET /v1/devices refreshes at most once and shares an in-flight refresh a
+	// concurrent 401 on the relay or introspection path may already be running.
+	d.directReconciler = newDirectCredentialReconciler(st, d.relayServerURL, d.currentAccessToken, d.credRefresher.refreshNow)
+	// Mode C 握手在线核验(H1-H4):向这台 daemon 所属的账号 server 出示对端凭据,
+	// 用的是 daemon 自己那份与中继共用的设备凭据;401 走同一个单飞刷新入口。
+	// 超时由 Introspector 按次施加,客户端本身不设。
+	// 自动直连的下发(D3/D5)读 LAN server 此刻的直连地址与证书。
+	d.auth = auth.NewAuthHandlers(st, pm, rl, auth.NewIntrospector(auth.IntrospectorOptions{
+		HTTP:              &http.Client{},
+		ServerURL:         d.relayServerURL,
+		AccessToken:       d.currentAccessToken,
+		RefreshCredential: d.refreshAccountCredential,
+	}), d.directEndpoint)
 	hubOpts := relayLinkOptions()
 	hubOpts.ServerURLProvider = d.relayServerURL
 	hubOpts.AccessTokenProvider = d.currentAccessToken
+	hubOpts.RefreshCredential = d.credRefresher.refreshNow
 	d.hub = relaytransport.NewHubLink(hubOpts)
 	d.mux = relaytransport.NewMultiplexer(d.hub)
 	d.engineSnapshot = enginesnapshot.New(enginesnapshot.Options{
@@ -865,6 +921,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// repository calling db.Ctx(ctx) anywhere below this point resolves to this
 	// instance's database, never another Daemon's.
 	ctx = dbpkg.WithContextDB(ctx, d.db)
+	// A wss-only port resolves its certificate before anything starts, so one
+	// that cannot be persisted stops the daemon instead of leaving it on ws.
+	lanCertFile, lanKeyFile, err := d.lanTLSFiles(ctx)
+	if err != nil {
+		return err
+	}
 	// Outbound relay failures are deliberately isolated from the LAN server and
 	// running sessions. HubLink owns logging, heartbeats, and retry for Run's
 	// whole lifetime; the multiplexer consumes its raw-frame seam separately.
@@ -874,10 +936,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	agentruntime.DefaultCLISessionPool().StartIdleSweeper(ctx,
 		agentruntime.DefaultIdleSessionTTL, cliSessionSweepInterval)
 	go func() { _ = d.hub.Run(hubCtx) }()
-	// 凭据续期与吊销拉取都以「手上已经有凭据」为前提,所以要等登录落地再挂起来 ——
+	// 凭据续期以「手上已经有凭据」为前提,所以要等登录落地再挂起来 ——
 	// 见 runAccountJobsWhenLoggedIn。中转链路本身不必等:它每次 dial 重新解析端点,
 	// 解析不出来就退避重试。
-	go d.runAccountJobsWhenLoggedIn(ctx, hubCtx, hubCancel)
+	go d.runAccountJobsWhenLoggedIn(ctx, hubCancel)
 	defer d.mux.Close()
 	go d.serveRelayChannels(ctx, d.mux)
 	if err := d.gateway.Start(ctx); err != nil {
@@ -903,15 +965,17 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return fmt.Errorf("ipc: %w", err)
 	}
 	lan := protorpc.NewLANServer(protorpc.LANOpts{
-		Host:        d.opts.LANHost,
-		Port:        d.opts.LANPort,
-		TLSCertFile: d.opts.TLSCertFile,
-		TLSKeyFile:  d.opts.TLSKeyFile,
-		Registry:    d.protobufRegistry,
-		OnConn:      d.bindProtobufConn,
+		Host:              d.opts.LANHost,
+		Port:              d.opts.LANPort,
+		TLSCertFile:       lanCertFile,
+		TLSKeyFile:        lanKeyFile,
+		DirectCertificate: d.lanDirectCertificate(ctx),
+		Registry:          d.protobufRegistry,
+		OnConn:            d.bindProtobufConn,
 	})
 	d.mu.Lock()
 	d.lan = lan
+	d.lanCertFile = lanCertFile
 	d.mu.Unlock()
 	runErr := lan.Run(ctx)
 	cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), daemonConnectionCleanupTimeout)
@@ -920,13 +984,102 @@ func (d *Daemon) Run(ctx context.Context) error {
 	return runErr
 }
 
+// lanTLSFiles resolves the certificate pair a wss-only LAN port serves: the
+// configured pair, or with TLS alone the pair lancert persists in DataDir.
+// Empty paths mean the port is not wss-only.
+func (d *Daemon) lanTLSFiles(ctx context.Context) (certFile, keyFile string, err error) {
+	if !d.opts.TLS || d.opts.TLSCertFile != "" || d.opts.TLSKeyFile != "" {
+		return d.opts.TLSCertFile, d.opts.TLSKeyFile, nil
+	}
+	if _, err := lancert.LoadOrCreate(ctx, d.opts.DataDir); err != nil {
+		return "", "", fmt.Errorf("tls: %w", err)
+	}
+	certFile, keyFile = lancert.Paths(d.opts.DataDir)
+	return certFile, keyFile, nil
+}
+
+// lanDirectCertificate returns the certificate served beside ws on the LAN port
+// for automatic direct connections. A wss-only port (a configured certificate
+// or TLS) already serves that certificate, so nothing is served beside it then.
+// When none can be persisted the port keeps serving ws only: manual pairing
+// still works and no direct address is offered, rather than serving a
+// certificate that changes on every start.
+func (d *Daemon) lanDirectCertificate(ctx context.Context) *tls.Certificate {
+	if d.opts.TLS || d.opts.TLSCertFile != "" || d.opts.TLSKeyFile != "" {
+		return nil
+	}
+	certificate, err := lancert.LoadOrCreate(ctx, d.opts.DataDir)
+	if err != nil {
+		logger.Ctx(ctx).Warn("daemon.Run: lan certificate unavailable, serving ws only",
+			zap.String("dataDir", d.opts.DataDir), zap.Error(err))
+		return nil
+	}
+	return &certificate
+}
+
+// directEndpoint reports the LAN server's wss addresses another machine can
+// reach and the certificate they present. The LAN server lists an explicit
+// listen host verbatim, loopback included, so reachability is decided here for
+// wildcard and explicit hosts alike. With no such address — or before the LAN
+// server runs — there is nothing to offer, and an account handshake then
+// delivers no auto-direct (D5).
+func (d *Daemon) directEndpoint() (urls []string, certPEM string) {
+	d.mu.RLock()
+	lan := d.lan
+	d.mu.RUnlock()
+	if lan == nil {
+		return nil, ""
+	}
+	reachable := d.opts.directAddressReachable
+	if reachable == nil {
+		reachable = reachableFromAnotherMachine
+	}
+	urls = reachableDirectURLs(lan.DirectURLs(), reachable)
+	if len(urls) == 0 {
+		return nil, ""
+	}
+	return urls, lan.CertificatePEM()
+}
+
+// reachableDirectURLs keeps the addresses whose host reachable accepts.
+func reachableDirectURLs(candidates []string, reachable func(host string) bool) []string {
+	var out []string
+	for _, candidate := range candidates {
+		parsed, err := url.Parse(candidate)
+		if err != nil || !reachable(parsed.Hostname()) {
+			continue
+		}
+		out = append(out, candidate)
+	}
+	return out
+}
+
+// reachableFromAnotherMachine rejects hosts only this machine can reach:
+// loopback, unspecified and link-local addresses, and localhost. Any other
+// host name is the operator's explicit choice and is kept.
+func reachableFromAnotherMachine(host string) bool {
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return false
+	}
+	// A zoned IPv6 literal (fe80::1%en0) only parses without its zone, and a
+	// zone only exists on link-local addresses.
+	if zone := strings.IndexByte(host, '%'); zone >= 0 {
+		host = host[:zone]
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return true
+	}
+	return ip.IsGlobalUnicast()
+}
+
 // loginPollInterval 是未登录时重读 state.json 的间隔。只在没有账号期间生效,
 // 登录一落地就不再轮询。
 const loginPollInterval = 5 * time.Second
 
-// runAccountJobsWhenLoggedIn 等到这台 daemon 登录之后,再启动凭据续期与吊销拉取。
+// runAccountJobsWhenLoggedIn 等到这台 daemon 登录之后,再启动凭据续期。
 //
-// 两者都以「手上已经有凭据」为前提:refresher 见到空的 refresh token 会记一行日志
+// 它以「手上已经有凭据」为前提:refresher 见到空的 refresh token 会记一行日志
 // 后**永久返回**。未登录时直接起等于把它废掉 —— 之后即使登录成功,访问令牌也没人
 // 续期,15 分钟后链路带着过期令牌掉线,再也回不来。
 func (d *Daemon) startEngineSnapshotPulls(ctx context.Context) {
@@ -938,6 +1091,13 @@ func (d *Daemon) startEngineSnapshotPulls(ctx context.Context) {
 	// relay registration or an in-flight round.
 	d.hub.AddLifecycleListener(func() {
 		d.engineSnapshot.PullAsync(ctx, "relay_connected")
+		// D12: reconcile local direct credentials immediately on every
+		// (re)connect, not just on the next one-minute tick — a desktop
+		// revoked while this daemon was offline must not stay reachable for
+		// up to a minute after connectivity comes back. Async for the same
+		// reason PullAsync is: a slow or stuck account server must not block
+		// relay registration or an in-flight round.
+		go d.directReconciler.reconcileOnce(ctx)
 	}, nil)
 	// 账号信号(决策 13)不再是一条独立连接:它现在是同一条中继连接上的保留通道,
 	// 由 serveRelayChannels → serveAccountSignal 消费,天然只在 auth.account 握手
@@ -946,7 +1106,7 @@ func (d *Daemon) startEngineSnapshotPulls(ctx context.Context) {
 	// 保留通道自然也不会出现。
 }
 
-func (d *Daemon) runAccountJobsWhenLoggedIn(ctx, hubCtx context.Context, stopRelay context.CancelFunc) {
+func (d *Daemon) runAccountJobsWhenLoggedIn(ctx context.Context, stopRelay context.CancelFunc) {
 	if !d.awaitLogin(ctx) {
 		return
 	}
@@ -955,11 +1115,12 @@ func (d *Daemon) runAccountJobsWhenLoggedIn(ctx, hubCtx context.Context, stopRel
 	// doomed relay is not kept alive forever (R4/R14). It never propagates
 	// to Run — local sessions and LAN stay healthy either way.
 	go d.runCredentialRefresh(ctx, stopRelay)
-	// R4 的另一半:定期把账号的吊销列表拉到本地。挂在 hubCtx 上是因为它与中转
-	// 链路共用同一份设备凭据 —— 凭据永久失效时两者一起停,最后拉到的那份列表
-	// 留在 state.json 里继续本地生效(R19 承认的延迟),本地会话与 LAN 直连
-	// 全程不受影响。
-	go d.runRevocationPoll(hubCtx)
+	// Task 7 (D12): the periodic direct-credential reconciliation. Started
+	// only once this daemon is logged in — before that, DirectCredentials is
+	// always empty and relayServerURL()/currentAccessToken() resolve empty,
+	// so an earlier start would still be a no-op, but starting it here keeps
+	// it symmetric with the credential refresher above.
+	go d.directReconciler.run(ctx)
 }
 
 // awaitLogin 阻塞到这台 daemon 登录,返回 false 表示 ctx 先结束了。未登录期间
@@ -989,14 +1150,21 @@ func (d *Daemon) awaitLogin(ctx context.Context) bool {
 // longer be renewed, so the hub link is canceled rather than kept retrying a
 // dead connection forever. Local sessions and the LAN server are unaffected.
 func (d *Daemon) runCredentialRefresh(ctx context.Context, stopRelay context.CancelFunc) {
-	newCredentialRefresher(d.state, d.opts.AccountServerURL).run(ctx, stopRelay)
+	d.credRefresher.run(ctx, stopRelay)
 }
 
-// runRevocationPoll launches the R4 revocation-list poller for the daemon's
-// relay lifetime. Nothing it does can fail the daemon: a pull failure keeps the
-// previously cached list, logs, and retries with backoff.
-func (d *Daemon) runRevocationPoll(ctx context.Context) {
-	newRevocationPoller(d.state, d.opts.AccountServerURL, d.currentAccessToken).run(ctx)
+// refreshAccountCredential is the Mode C introspection's refresh hook: when the
+// account server rejects the daemon's own token (HTTP 401), it goes through the
+// same single-flighted refreshNow as the relay link. A permanently rejected
+// refresh leaves this daemon unable to verify anyone until it logs in again,
+// which the handshake reports as auth.ErrReceiverNotReady; any other failure is
+// transient.
+func (d *Daemon) refreshAccountCredential(ctx context.Context) error {
+	err := d.credRefresher.refreshNow(ctx)
+	if errors.Is(err, relaytransport.ErrRelayCredentialRejected) {
+		return fmt.Errorf("%w: %w", auth.ErrReceiverNotReady, err)
+	}
+	return err
 }
 
 // defaultRefreshMargin is how long before AccessTokenExpiresAt the daemon
@@ -1037,6 +1205,21 @@ type credentialRefresher struct {
 	backoff func(int) time.Duration
 	margin  time.Duration
 	logf    func(format string, args ...any)
+
+	// refreshNowMu/refreshNowCall single-flight refreshNow (P2/task 2): a
+	// concurrent second caller — e.g. two 401s racing on the relay link, or a
+	// 401 landing while the scheduled loop in run() already has a refresh in
+	// flight — must not fire a second HTTP round trip against the same refresh
+	// token. It waits for the one in flight and shares its result instead.
+	refreshNowMu   sync.Mutex
+	refreshNowCall *refreshNowCall
+}
+
+// refreshNowCall is the in-flight/most-recent call shared by refreshNow's
+// single flight: every caller that joins it waits on done, then reads err.
+type refreshNowCall struct {
+	done chan struct{}
+	err  error
 }
 
 func newCredentialRefresher(st *state.State, serverURL string) *credentialRefresher {
@@ -1081,15 +1264,17 @@ func (r *credentialRefresher) run(ctx context.Context, stopRelay context.CancelF
 
 		// Retry transient failures with backoff without re-entering the schedule
 		// wait: the access token is still due until a refresh succeeds. Only a
-		// permanent grant rejection (invalid_grant) stops the loop.
-		token, permanent, err := r.refreshOnce(ctx, credential.RefreshToken)
-		for err != nil && !permanent {
+		// permanent grant rejection (invalid_grant) stops the loop. refreshNow
+		// does the HTTP round trip, the single-flighting shared with the relay
+		// link's 401 path (P2/task 2), and — on success — the persistence.
+		err := r.refreshNow(ctx)
+		for err != nil && !errors.Is(err, relaytransport.ErrRelayCredentialRejected) {
 			r.logf("daemon.refresh: refresh failed; retrying: %v", err)
 			if err := r.wait(ctx, r.backoff(failures)); err != nil {
 				return
 			}
 			failures++
-			token, permanent, err = r.refreshOnce(ctx, credential.RefreshToken)
+			err = r.refreshNow(ctx)
 		}
 		if err != nil {
 			r.logf("daemon.refresh: refresh token rejected by server; relay renewal stopped (LAN unaffected): %v", err)
@@ -1097,18 +1282,76 @@ func (r *credentialRefresher) run(ctx context.Context, stopRelay context.CancelF
 			return
 		}
 		failures = 0
-		rotated := state.AccountCredential{
-			DeviceID:              credential.DeviceID,
-			AccessToken:           token.AccessToken,
-			AccessTokenExpiresAt:  r.now().Add(time.Duration(token.ExpiresIn) * time.Second).Unix(),
-			RefreshToken:          token.RefreshToken,
-			RefreshTokenExpiresAt: r.now().Add(time.Duration(token.RefreshExpiresIn) * time.Second).Unix(),
-		}
-		r.state.Mutate(func(s *state.State) { s.Credential = rotated })
-		if err := r.state.Save(); err != nil {
-			r.logf("daemon.refresh: persist refreshed credential: %v", err)
-		}
 	}
+}
+
+// refreshNow performs a single, single-flighted credential refresh (P2/task
+// 2). It is the shared entry point for two triggers that must never race each
+// other over the same stored refresh token: the relay link calls it once when
+// a dial is rejected with HTTP 401, instead of falling straight into the
+// permanent "needs re-login" state; run's scheduled loop above calls it too.
+// A concurrent second caller — two 401s racing, or a 401 landing while the
+// scheduled refresh is already in flight — waits for the one in flight and
+// shares its result instead of spending a second, possibly already-rotated,
+// refresh token.
+//
+// nil means the credential was rotated and persisted: the caller may retry
+// (redial) immediately. An error wrapping relaytransport.ErrRelayCredentialRejected
+// means the refresh grant was permanently rejected (expired/revoked/replay, or
+// there was no refresh token to try) — the caller must treat this exactly like
+// an unrefreshed 401: relay renewal is dead until a human logs in again. Any
+// other error is transient (network/5xx) and must be retried, never treated as
+// permanent.
+func (r *credentialRefresher) refreshNow(ctx context.Context) error {
+	r.refreshNowMu.Lock()
+	if call := r.refreshNowCall; call != nil {
+		r.refreshNowMu.Unlock()
+		<-call.done
+		return call.err
+	}
+	call := &refreshNowCall{done: make(chan struct{})}
+	r.refreshNowCall = call
+	r.refreshNowMu.Unlock()
+
+	call.err = r.doRefreshNow(ctx)
+
+	r.refreshNowMu.Lock()
+	r.refreshNowCall = nil
+	r.refreshNowMu.Unlock()
+	close(call.done)
+	return call.err
+}
+
+// doRefreshNow is refreshNow's actual work, run by exactly one caller per
+// single-flighted round trip.
+func (r *credentialRefresher) doRefreshNow(ctx context.Context) error {
+	credential := r.state.Snapshot().Credential
+	if credential.RefreshToken == "" {
+		return fmt.Errorf("%w: no refresh token to retry with", relaytransport.ErrRelayCredentialRejected)
+	}
+	if credential.RefreshTokenExpiresAt > 0 && r.now().Unix() >= credential.RefreshTokenExpiresAt {
+		return fmt.Errorf("%w: refresh token expired at %d", relaytransport.ErrRelayCredentialRejected,
+			credential.RefreshTokenExpiresAt)
+	}
+	token, permanent, err := r.refreshOnce(ctx, credential.RefreshToken)
+	if err != nil {
+		if permanent {
+			return fmt.Errorf("%w: %v", relaytransport.ErrRelayCredentialRejected, err)
+		}
+		return err
+	}
+	rotated := state.AccountCredential{
+		DeviceID:              credential.DeviceID,
+		AccessToken:           token.AccessToken,
+		AccessTokenExpiresAt:  r.now().Add(time.Duration(token.ExpiresIn) * time.Second).Unix(),
+		RefreshToken:          token.RefreshToken,
+		RefreshTokenExpiresAt: r.now().Add(time.Duration(token.RefreshExpiresIn) * time.Second).Unix(),
+	}
+	r.state.Mutate(func(s *state.State) { s.Credential = rotated })
+	if err := r.state.Save(); err != nil {
+		r.logf("daemon.refresh: persist refreshed credential: %v", err)
+	}
+	return nil
 }
 
 // nextRefreshIn schedules the next proactive refresh well before the access
@@ -1204,180 +1447,183 @@ func waitForRefresh(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-// defaultRevocationPollInterval is how often a claimed daemon pulls its account's
-// revocation list. It has to stay well under the server's 15m access TTL for the
-// pull to add anything: a credential revoked right after a pull is refused
-// locally at most one interval later, and its short expiry is the backstop (R4).
-const defaultRevocationPollInterval = time.Minute
+// directReconcileInterval is the reconciliation cadence (D12): the same
+// one-minute period the retired revocation poller ran on.
+const directReconcileInterval = time.Minute
 
-// revocationsResponse mirrors agentre-server's GET /v1/devices/revocations body
-// (device JWT bearer). RevokedJTI is every revoked access-token jti under the
-// caller device's account that was issued inside the server's access-TTL window;
-// older ones are omitted because expiry alone already invalidates them.
-type revocationsResponse struct {
-	RevokedJTI []string `json:"revoked_jti"`
-	AsOf       int64    `json:"as_of"`
+// directReconcileDesktopKind is the GET /v1/devices item kind that vouches
+// for a desktop's local direct credential; any other kind reporting the same
+// fingerprint (which should not happen — fingerprints are unique per device)
+// is not evidence the desktop itself is still active.
+const directReconcileDesktopKind = "desktop"
+
+// directDeviceListResponseLimit bounds one GET /v1/devices response body.
+const directDeviceListResponseLimit = 1 << 20
+
+// errDirectReconcileUnauthorized marks a 401 from GET /v1/devices: the
+// daemon's own device access token was rejected, distinct from every other
+// failure shape because it alone is worth one refresh-and-retry.
+var errDirectReconcileUnauthorized = errors.New("daemon.directReconcile: account server rejected the daemon's own access token")
+
+// deviceListItem is one entry of the account server's GET /v1/devices
+// response, mirroring the fields internal/service/server_svc/devices.go
+// decodes on the desktop side. Only the fields task 7 consumes are declared.
+type deviceListItem struct {
+	Fingerprint string `json:"fingerprint"`
+	Kind        string `json:"kind"`
+	Status      int    `json:"status"`
 }
 
-type verificationKeysResponse struct {
-	CurrentKID              string            `json:"current_kid"`
-	Keys                    map[string]string `json:"keys"`
-	MaxTokenLifetimeSeconds int64             `json:"max_token_lifetime_seconds"`
-}
-
-// revocationPoller keeps the daemon's cached copy of that list fresh (R4
-// consumer). The account handshake is verified entirely from cached material
-// with zero network round trips (R3), so this loop is the only thing that can
-// make a revocation take effect on this machine. A failed or offline pull
-// deliberately keeps the previous list and keeps enforcing it — that is R4's
-// acknowledged revocation delay (R19), not a fallback — and it never touches
-// local sessions or LAN serving.
-type revocationPoller struct {
+// directCredentialReconciler implements D12/D13: it periodically compares
+// state.DirectCredentials against the account server's device list and
+// deletes the local direct credential of any desktop fingerprint that is no
+// longer listed, or listed but not active. A pull that cannot reach or
+// authenticate to the server changes nothing (D13) — the caller always
+// retries on the next tick rather than treating "unreachable" as "revoked".
+type directCredentialReconciler struct {
 	state       *state.State
-	serverURL   string
-	httpClient  *http.Client
+	http        *http.Client
+	serverURL   func() string
 	accessToken func() string
-
+	// refresh refreshes the daemon's own device credential once, after the
+	// account server rejected it with HTTP 401 — the same single-flighted
+	// entry point the relay link's 401 path and Mode C introspection share.
+	refresh  func(context.Context) error
+	wait     func(context.Context, time.Duration) error
 	interval time.Duration
-	// wait is the clock seam shared with the credential refresher: the loop asks
-	// for a delay, production sleeps it out, a test releases it immediately.
-	wait    func(context.Context, time.Duration) error
-	backoff func(int) time.Duration
-	logf    func(format string, args ...any)
+	logf     func(format string, args ...any)
 }
 
-func newRevocationPoller(st *state.State, serverURL string, accessToken func() string) *revocationPoller {
-	return &revocationPoller{
+// newDirectCredentialReconciler wires a directCredentialReconciler to its
+// host: serverURL/accessToken resolve the daemon's own identity at every
+// tick (never captured once), and refresh is the shared single-flighted
+// refresh entry point (task 2's (*credentialRefresher).refreshNow).
+func newDirectCredentialReconciler(st *state.State, serverURL, accessToken func() string, refresh func(context.Context) error) *directCredentialReconciler {
+	return &directCredentialReconciler{
 		state:       st,
+		http:        &http.Client{Timeout: 15 * time.Second},
 		serverURL:   serverURL,
-		httpClient:  &http.Client{Timeout: 15 * time.Second},
 		accessToken: accessToken,
-		interval:    defaultRevocationPollInterval,
+		refresh:     refresh,
 		wait:        waitForRefresh,
-		backoff:     defaultRefreshBackoff, // the daemon's shared transient-retry ladder
+		interval:    directReconcileInterval,
 		logf:        log.Printf,
 	}
 }
 
-// run pulls until ctx is canceled, starting with an immediate pull so a daemon
-// that was offline (or just restarted) re-syncs as soon as it can reach server.
-func (p *revocationPoller) run(ctx context.Context) {
-	failures := 0
+// run reconciles once every r.interval until ctx is canceled. It never stops
+// permanently on its own (unlike the credential refresher): a logged-out
+// daemon simply resolves an empty server URL/access token at every tick and
+// reconcileOnce makes no request at all, per D13's "no server, no change".
+func (r *directCredentialReconciler) run(ctx context.Context) {
 	for {
-		if ctx.Err() != nil {
+		if err := r.wait(ctx, r.interval); err != nil {
 			return
 		}
-		if len(p.state.Snapshot().VerificationPublicKeys) != 0 {
-			if err := p.refreshVerificationKeys(ctx); err != nil {
-				p.logf("daemon.verificationKeys: refresh failed; keeping the last key set: err=%v", err)
-			}
-		}
-		list, err := p.pullOnce(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			kept := p.state.Snapshot()
-			p.logf("daemon.revocations: pull failed; keeping the last list: revokedCount=%d asOf=%d err=%v",
-				len(kept.RevokedJTIs), kept.RevocationsAsOf, err)
-			if err := p.wait(ctx, p.backoff(failures)); err != nil {
-				return
-			}
-			failures++
-			continue
-		}
-		failures = 0
-		p.state.Mutate(func(s *state.State) {
-			s.RevokedJTIs = list.RevokedJTI
-			s.RevocationsAsOf = list.AsOf
-		})
-		// Persisted on every pull: the check has to survive a restart, and it is
-		// the only copy an offline daemon has left to enforce.
-		if err := p.state.Save(); err != nil {
-			p.logf("daemon.revocations: persist revocation list: revokedCount=%d err=%v",
-				len(list.RevokedJTI), err)
-		}
-		if err := p.wait(ctx, p.interval); err != nil {
-			return
-		}
+		r.reconcileOnce(ctx)
 	}
 }
 
-func (p *revocationPoller) refreshVerificationKeys(ctx context.Context) error {
-	endpoint := strings.TrimRight(p.serverURL, "/") + "/v1/keys"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+// reconcileOnce performs one GET /v1/devices round trip and applies it.
+// Any failure to reach a usable answer — network error, timeout, non-2xx
+// status other than 401, a malformed body, or a 401 whose single refresh
+// attempt also fails — leaves every stored direct credential untouched and
+// logs at Warn; the next tick or reconnect tries again (D13). Credentials and
+// tokens are never logged, only counts and error shapes.
+func (r *directCredentialReconciler) reconcileOnce(ctx context.Context) {
+	devices, err := r.fetchDevices(ctx)
+	if errors.Is(err, errDirectReconcileUnauthorized) {
+		if refreshErr := r.refresh(ctx); refreshErr != nil {
+			r.logf("daemon.directReconcile: own access token rejected and refresh failed; keeping local direct credentials: %v", refreshErr)
+			return
+		}
+		devices, err = r.fetchDevices(ctx)
+	}
 	if err != nil {
-		return fmt.Errorf("build verification keys request: %w", err)
+		r.logf("daemon.directReconcile: account server unreachable; keeping local direct credentials: %v", err)
+		return
 	}
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("verification keys request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return fmt.Errorf("read verification keys response: %w", err)
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("verification keys endpoint returned %s", resp.Status)
-	}
-	var keys verificationKeysResponse
-	if err := decodeServerEnvelope(payload, &keys); err != nil {
-		return fmt.Errorf("parse verification keys response: %w", err)
-	}
-	if keys.CurrentKID == "" || keys.Keys[keys.CurrentKID] == "" || keys.MaxTokenLifetimeSeconds <= 0 {
-		return errors.New("verification keys endpoint returned an invalid key set")
-	}
-	p.state.Mutate(func(s *state.State) {
-		s.VerificationCurrentKID = keys.CurrentKID
-		s.VerificationPublicKeys = keys.Keys
-		s.VerificationPublicKeyPEM = keys.Keys[keys.CurrentKID]
-		s.MaxTokenLifetimeSeconds = keys.MaxTokenLifetimeSeconds
-	})
-	if err := p.state.Save(); err != nil {
-		return fmt.Errorf("persist verification keys: %w", err)
-	}
-	return nil
+	r.apply(ctx, devices)
 }
 
-// pullOnce fetches the account's revocation list with the daemon's device
-// credential. Every failure — including the 401 a revoked device itself gets —
-// is transient here: the caller keeps the last list and retries with backoff.
-func (p *revocationPoller) pullOnce(ctx context.Context) (*revocationsResponse, error) {
-	token := p.accessToken()
-	if token == "" {
-		return nil, errors.New("no account access token")
+// fetchDevices resolves the daemon's current server/token and performs one
+// GET /v1/devices round trip. Returning errDirectReconcileUnauthorized lets
+// reconcileOnce distinguish "worth one refresh-and-retry" from every other
+// failure, which is otherwise handled identically (keep everything, retry
+// later).
+func (r *directCredentialReconciler) fetchDevices(ctx context.Context) ([]deviceListItem, error) {
+	serverURL := ""
+	if r.serverURL != nil {
+		serverURL = strings.TrimRight(strings.TrimSpace(r.serverURL()), "/")
 	}
-	endpoint := strings.TrimRight(p.serverURL, "/") + "/v1/devices/revocations"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	token := ""
+	if r.accessToken != nil {
+		token = r.accessToken()
+	}
+	if serverURL == "" || token == "" {
+		// Not logged in (or no server configured yet): nothing to reconcile
+		// against, and no request is made — D13 extends to "no answer at all".
+		return nil, errors.New("daemon.directReconcile: no account server or access token available")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serverURL+"/v1/devices", http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("build revocations request: %w", err)
+		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := p.httpClient.Do(req)
+	resp, err := r.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("revocations request: %w", err)
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, directDeviceListResponseLimit))
 	if err != nil {
-		return nil, fmt.Errorf("read revocations response: %w", err)
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, errDirectReconcileUnauthorized
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("revocations endpoint returned %s", resp.Status)
+		return nil, fmt.Errorf("daemon.directReconcile: account server returned status %d", resp.StatusCode)
 	}
-	var list revocationsResponse
-	if err := decodeServerEnvelope(payload, &list); err != nil {
-		return nil, fmt.Errorf("parse revocations response: %w", err)
+	var body struct {
+		Devices []deviceListItem `json:"devices"`
 	}
-	// as_of is always set by the endpoint, so its absence means this is not the
-	// contract's payload (a captive portal or proxy answering 200, say). Treat
-	// it as a failed pull: replacing the cached list with an empty one would
-	// silently un-revoke everything.
-	if list.AsOf <= 0 {
-		return nil, errors.New("revocations endpoint returned a payload without as_of")
+	if err := decodeServerEnvelope(payload, &body); err != nil {
+		return nil, fmt.Errorf("daemon.directReconcile: malformed device list response: %w", err)
 	}
-	return &list, nil
+	return body.Devices, nil
+}
+
+// apply deletes the local direct credential of every desktop fingerprint that
+// fetched does not vouch for (D12). It names only the fingerprints to delete
+// rather than replacing the whole map, so a fingerprint EnsureDirectCredential
+// issues concurrently — for a desktop this fetch never asked about — is never
+// named here and survives untouched; State's own mutex still serializes the
+// two calls against whichever DirectCredentials is current at the time each
+// one runs.
+func (r *directCredentialReconciler) apply(ctx context.Context, fetched []deviceListItem) {
+	active := make(map[string]bool, len(fetched))
+	for _, device := range fetched {
+		if device.Kind == directReconcileDesktopKind && device.Status == consts.ACTIVE {
+			active[device.Fingerprint] = true
+		}
+	}
+	snapshot := r.state.Snapshot()
+	var stale []string
+	for fingerprint := range snapshot.DirectCredentials {
+		if !active[fingerprint] {
+			stale = append(stale, fingerprint)
+		}
+	}
+	if len(stale) == 0 {
+		return
+	}
+	if err := r.state.DeleteDirectCredentials(stale...); err != nil {
+		r.logf("daemon.directReconcile: delete stale direct credentials failed: %v", err)
+		return
+	}
+	logger.Ctx(ctx).Info("daemon.directReconcile: removed local direct credentials for desktops revoked or removed from the account",
+		zap.Int("count", len(stale)))
 }
 
 // serveRelayChannels turns server-initiated virtual channels into the same

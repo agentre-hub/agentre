@@ -1010,6 +1010,12 @@ type StartGoalRequest struct {
 	Objective      *string `json:"objective,omitempty"`
 	Status         *string `json:"status,omitempty"`
 	TokenBudget    *int    `json:"tokenBudget,omitempty"`
+	// ProviderKey / ModelKey / ReasoningEffort 是草稿态的瞬态选择，与 SendRequest 同名
+	// 三格同一条规则：随这次建会话一起校验并落库；双空 key = 跟随 agent 绑定，空力度 =
+	// 跟随后端配置。
+	ProviderKey     string `json:"providerKey,omitempty"`
+	ModelKey        string `json:"modelKey,omitempty"`
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 }
 
 type StartGoalResponse struct {

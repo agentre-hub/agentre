@@ -24,19 +24,46 @@ type dialAdapter struct {
 	inner remote_device_svc.DaemonDialPort
 	// relay 可空(未登录 / 单机构建):此时只有 LAN 一条路。
 	relay remote_device_svc.RelayDialPort
+	// recorder 可空:记下来自账号的直连行在探活里由直连赢下的地址(设备面板的最近地址)。
+	recorder directSuccessRecorder
+}
+
+// directSuccessRecorder 是 remote_device_svc.RemoteDeviceSvc 的一个窄子集。
+type directSuccessRecorder interface {
+	RecordDirectSuccess(ctx context.Context, deviceID int64, address string) error
 }
 
 func (a *dialAdapter) Open(ctx context.Context, args watcher.OpenArgs) (client.ProtobufConnection, error) {
+	// 来自账号的直连行:与 ConnPool.Borrow 共用 RaceAccountDirect —— 全部地址的
+	// auth.direct 与中转同时发起。直连路由不到时中转胜出,设备照常在线(D17)。
+	if args.AccountDirect && args.DirectCredential != "" {
+		c, address, err := remote_device_svc.RaceAccountDirect(ctx, a.inner, a.relay, remote_device_svc.DirectArgs{
+			URLs:                      args.DirectURLs,
+			CertPEM:                   args.TLSCertPEM,
+			Credential:                args.DirectCredential,
+			ExpectedDaemonFingerprint: args.ExpectedDaemonFingerprint,
+		}, devicefp.Initiator(args.DeviceFingerprint))
+		if err != nil {
+			return nil, err
+		}
+		if address != "" && a.recorder != nil {
+			if recErr := a.recorder.RecordDirectSuccess(ctx, args.DeviceID, address); recErr != nil {
+				logger.Ctx(ctx).Warn("bootstrap.dialAdapter.Open: recording the winning direct address failed",
+					zap.Int64("deviceId", args.DeviceID), zap.String("address", address), zap.Error(recErr))
+			}
+		}
+		return c, nil
+	}
+	// 来自账号的直连行、钥匙串槽为空:没有直连凭据可发,只剩中转(它的账号握手会重新下发)。
+	if args.AccountDirect {
+		return a.openRelay(ctx, args, "has no direct credential")
+	}
 	// URL 为空 = 账号来源收编的行(paired_agentred_entity.IsRelayOnly),没有 LAN 路径。
 	// 与 ConnPool.openAny 同一条判定:拿空地址去拨只会换来一句
 	// 「malformed ws or wss URL」,而 watcher 更新的 last_seen_at 决定 DeviceView.online,
 	// 「运行设备」下拉又按 online 禁用选项 —— 收编来的机器会永远是灰的。
 	if strings.TrimSpace(args.URL) == "" {
-		if a.relay == nil {
-			return nil, fmt.Errorf("device %s has no LAN address and no relay is configured",
-				args.ExpectedDaemonFingerprint)
-		}
-		return a.relay.Open(ctx, args.ExpectedDaemonFingerprint, devicefp.Initiator(args.DeviceFingerprint))
+		return a.openRelay(ctx, args, "has no LAN address")
 	}
 	return a.inner.Open(ctx, remote_device_svc.ConnectArgs{
 		URL:                       args.URL,
@@ -46,6 +73,14 @@ func (a *dialAdapter) Open(ctx context.Context, args watcher.OpenArgs) (client.P
 		DeviceToken:               args.DeviceToken,
 		ExpectedDaemonFingerprint: args.ExpectedDaemonFingerprint,
 	})
+}
+
+// openRelay 只经中转探活;relay 未装配时说清缺的是哪条路。
+func (a *dialAdapter) openRelay(ctx context.Context, args watcher.OpenArgs, missing string) (client.ProtobufConnection, error) {
+	if a.relay == nil {
+		return nil, fmt.Errorf("device %s %s and no relay is configured", args.ExpectedDaemonFingerprint, missing)
+	}
+	return a.relay.Open(ctx, args.ExpectedDaemonFingerprint, devicefp.Initiator(args.DeviceFingerprint))
 }
 
 // repoAdapter 把 remote_device_repo.PairedAgentredRepo 的方法集暴露给 watcher
@@ -106,7 +141,7 @@ func InitRemoteDeviceWatcher(_ context.Context, emit watcher.Emitter) {
 		// 中转拨号与 InitRemoteDevice 注入连接池的是同一个适配器：收编来的行没有
 		// LAN 地址，健康探活只能走中转（见 dialAdapter.Open）。server_svc 未装配
 		// （单机构建 / 未登录）时留 nil，行为退回纯 LAN。
-		&dialAdapter{inner: remote_device_svc.NewDaemonDial(), relay: watcherRelayDial()},
+		&dialAdapter{inner: remote_device_svc.NewDaemonDial(), relay: watcherRelayDial(), recorder: devSvc},
 		keychain.Default(),
 		emit,
 		watcher.DefaultWatcherConfig(),
