@@ -93,7 +93,8 @@ commit。
    枚举值有且只有一个 typed 调用函数,命名守卫还会核对请求/响应类型符合约定。
 3. 在宿主里注册 handler(agentred 侧 `internal/daemon/protobuf_*`,桌面端
    `internal/peer/protobuf_inbound.go`)。
-4. 方法集变了就要考虑 `wireversion.MinSupported` —— 见那个包的注释里的守恒律。
+4. 方法集变了就要抬协议版本号 —— 握手判据是版本号相等,版本号因此必须代表方法集,
+   由 `internal/pkg/wireversion/methodset_test.go` 的方法集指纹守卫钉住。
 
 ## 版本与 pin
 
@@ -105,11 +106,11 @@ TS 走 `src/protocol-version.ts` —— 谁 import 这个 module 谁就拿到了
 
 抬版本就是改 `.proto` 上那一格再重新生成。`package.json` 的 `version` 仍要跟着改
 (它是个真的 npm 包,消费方按它 pin),但它现在是**复述**,由
-`src/__tests__/protocol-version.test.ts` 钉住;方法集变了还要一并抬
-`wireversion.MinSupported`(见宿主 `wireversion` 包注释里的守恒律)。
+`src/__tests__/protocol-version.test.ts` 钉住;各宿主 `wireversion.MinSupported`
+(本 build 填进握手那一格的号)跟着抬到同一个新号。
 
-窗口的另一端 `MinSupported` **不在这里**:那是「这个 build 还接受多老的对端」,是宿主
-的策略而不是协议的属性,留在各宿主自己的 `wireversion` 包里。
+**兼容判据是相等**:两端的 `protocol_version` 逐字相同才握得上手,没有区间可谈。判定本身
+不在这里,在各宿主自己的 `wireversion` 包里(`Match` / `Reject`)。
 
 跨仓库升级的顺序是固定的:**先在本仓改完、验证、推送**,消费方才能钉到那个不可变
 revision。绝不能在共享包的 revision 可用之前先删掉消费方那份能跑的实现。

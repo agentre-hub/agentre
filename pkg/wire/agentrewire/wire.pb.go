@@ -1215,9 +1215,8 @@ type AuthAccountRequest struct {
 	// .protocol_version) file option this schema declares above.
 	ProtocolVersion string `protobuf:"bytes,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
 	// The oldest wire protocol version the caller still accepts from the peer.
-	// Together with protocol_version this names the caller's [min_supported,
-	// protocol] window; wireversion.Match checks each side's protocol_version
-	// falls within the other side's window.
+	// Compatibility is exact equality of protocol_version, so a host fills this
+	// with its own version and no receiver reads it to reach a verdict.
 	MinSupportedProtocolVersion string `protobuf:"bytes,4,opt,name=min_supported_protocol_version,json=minSupportedProtocolVersion,proto3" json:"min_supported_protocol_version,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
@@ -16838,7 +16837,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"2AGENTRED_SELF_UPDATE_REJECT_REASON_DOWNLOAD_FAILED\x10\x05:>\n" +
 	"\n" +
 	"event_kind\x12\x1d.google.protobuf.FieldOptions\x18\xe1\xd4\x03 \x01(\tR\teventKind:I\n" +
-	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.2.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
+	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.1.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
 
 var (
 	file_agentre_wire_wire_proto_rawDescOnce sync.Once

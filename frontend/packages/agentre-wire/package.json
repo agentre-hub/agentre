@@ -1,6 +1,6 @@
 {
   "name": "@agentre-hub/agentre-wire",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "Agentre wire 协议的 TS 侧：从协议 module github.com/agentre-hub/agentre/pkg/wire 的 schema 生成的编解码与黄金样本",
   "license": "MIT",
   "type": "module",

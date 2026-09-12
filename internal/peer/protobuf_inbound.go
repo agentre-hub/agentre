@@ -122,7 +122,7 @@ func NewProtobufInboundRegistry(deps ProtobufInboundDeps) *protorpc.Registry {
 			// the daemon's, and gates on it first for the same reason: two
 			// desktops on different revisions must say so, not fail as
 			// "unauthorized".
-			if reason := wireversion.Reject(request.ProtocolVersion, request.MinSupportedProtocolVersion); reason != "" {
+			if reason := wireversion.Reject(request.ProtocolVersion); reason != "" {
 				logger.Ctx(ctx).Warn("peer.authAccount: rejected handshake",
 					zap.String("peerProtocolVersion", request.ProtocolVersion),
 					zap.String("peerMinSupportedProtocolVersion", request.MinSupportedProtocolVersion),

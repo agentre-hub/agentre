@@ -45,75 +45,34 @@ func TestAuthPair_GivenCallerAdvertisesTheSameProtocolVersion_WhenPairing_ThenAc
 	require.Equal(t, wireversion.MinSupported, response.GetMinSupportedProtocolVersion())
 }
 
-// oneMinorAhead / twoMinorsAhead 是**相对本 build 的 Protocol** 往上的两档,用来演
-// 「对端比我新」的两种局面。它们写死成字面量(与 previousProtocol 同一条理由:推算出来
-// 的值会随 Protocol 一起漂),所以每次抬协议版本都要跟着抬 —— 忘了抬,oneMinorAhead
-// 就等于本 build 自己的版本,那条「领先一档仍放行」的用例照旧绿着,却不再验它声称的
-// 东西。下面 TestProtocolVersionFixtures_... 是防止这件事静默发生的守卫。
-const (
-	oneMinorAhead  = "0.6.0"
-	twoMinorsAhead = "0.7.0"
-)
+// newerThanThisBuild 是**相对本 build 的 Protocol** 往上的一档,用来演「对端比我新」。
+// 它写死成字面量(推算出来的值会随 Protocol 一起漂),所以每次抬协议版本都要跟着抬 ——
+// 忘了抬就等于本 build 自己的版本,下面那条用例会从「拒绝」退化成同义反复,因此用例里
+// 先断言它确实不等于本 build 的号。
+const newerThanThisBuild = "0.9.0"
 
-// 这两个 fixture 必须真的高于本 build 的 Protocol,否则上下两条用例都退化成同义反复。
-func TestProtocolVersionFixtures_MustStayAheadOfThisBuild(t *testing.T) {
-	require.NotEqual(t, wireversion.Protocol, oneMinorAhead,
-		"抬协议版本时要把 oneMinorAhead 一并抬:与本 build 相等就不再是「领先一档」")
-	require.NotEqual(t, wireversion.Protocol, twoMinorsAhead,
-		"抬协议版本时要把 twoMinorsAhead 一并抬")
-	require.True(t, wireversion.Match(oneMinorAhead, wireversion.MinSupported),
-		"oneMinorAhead 配本 build 的 floor 必须仍在窗口内 —— 这一条是「领先一档仍放行」的前提")
-	require.False(t, wireversion.Match(twoMinorsAhead, oneMinorAhead),
-		"twoMinorsAhead 配 oneMinorAhead 这个 floor 必须落在窗口外 —— 这是「floor 把我关在门外」的前提")
-}
-
-// Given a desktop one minor ahead of the daemon but still declaring a floor
-// that covers the daemon's Protocol, When it pairs, Then the handshake
-// succeeds even though the two sides report different protocol_version
-// strings — this is the version window's whole point: `make agentred-deploy`
-// makes skew routine, and a window lets routine skew through instead of
-// treating every mismatch as fatal.
-func TestAuthPair_GivenCallerAdvertisesADifferentButCompatibleWindow_WhenPairing_ThenAccepted(t *testing.T) {
+// Given 一台比 daemon 新一档的桌面端,它出示的 min_supported 还能覆盖 daemon 的版本
+// (这正是从前的区间协商会放行的那一形态),When 它来配对,Then daemon 照样拒绝 ——
+// 本轮判据降成相等,`make agentred-deploy` 造成的版本漂移不再被悄悄放过,而是在握手处
+// 说出来。
+func TestAuthPair_GivenCallerAdvertisesANewerProtocolVersion_WhenPairing_ThenRefusedWithProtocolVersionCode(t *testing.T) {
 	client, daemon, ctx := protobufHandshakeConns(t)
 	code, err := daemon.pairing.Generate()
 	require.NoError(t, err)
-
-	response, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR),
-		&agentrewire.AuthPairRequest{
-			// One minor ahead of this build's own Protocol, but declaring a
-			// floor (wireversion.MinSupported) that still covers it.
-			Code: code, DeviceName: "desktop", DeviceFingerprint: "device-1",
-			ProtocolVersion: oneMinorAhead, MinSupportedProtocolVersion: wireversion.MinSupported,
-		},
-		func() *agentrewire.AuthPairResponse { return &agentrewire.AuthPairResponse{} })
-
-	require.NoError(t, err)
-	require.NotEmpty(t, response.GetDeviceToken())
-}
-
-// Given a desktop whose declared floor already excludes the daemon's Protocol
-// — it moved past a breaking change the daemon predates — When it pairs, Then
-// the handshake is refused even though the caller's protocol_version alone
-// would have fallen inside the daemon's own window: Match requires both
-// directions, not just one.
-func TestAuthPair_GivenCallerFloorExcludesTheDaemon_WhenPairing_ThenRefusedWithProtocolVersionCode(t *testing.T) {
-	client, daemon, ctx := protobufHandshakeConns(t)
-	code, err := daemon.pairing.Generate()
-	require.NoError(t, err)
+	require.NotEqual(t, wireversion.Protocol, newerThanThisBuild,
+		"抬协议版本时要把 newerThanThisBuild 一并抬:与本 build 相等就不再是「更新的对端」")
 
 	_, err = protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR),
 		&agentrewire.AuthPairRequest{
-			// Floor one minor ahead of this build's own Protocol
-			// (wireversion.Protocol), so it no longer covers this build.
 			Code: code, DeviceName: "desktop", DeviceFingerprint: "device-1",
-			ProtocolVersion: twoMinorsAhead, MinSupportedProtocolVersion: oneMinorAhead,
+			ProtocolVersion: newerThanThisBuild, MinSupportedProtocolVersion: wireversion.MinSupported,
 		},
 		func() *agentrewire.AuthPairResponse { return &agentrewire.AuthPairResponse{} })
 
 	var rpcErr *protorpc.Error
 	require.ErrorAs(t, err, &rpcErr)
 	require.Equal(t, rpcerror.CodeProtocolVersion, rpcErr.Code)
-	require.Contains(t, rpcErr.Message, twoMinorsAhead)
+	require.Contains(t, rpcErr.Message, newerThanThisBuild)
 }
 
 // Given a desktop from another revision, When it pairs, Then the daemon refuses
@@ -133,9 +92,8 @@ func TestAuthPair_GivenCallerAdvertisesAnotherProtocolVersion_WhenPairing_ThenRe
 	require.ErrorAs(t, err, &rpcErr)
 	require.Equal(t, rpcerror.CodeProtocolVersion, rpcErr.Code)
 	require.Contains(t, rpcErr.Message, "0.0.9")
-	require.Contains(t, rpcErr.Message, wireversion.Protocol)
-	require.Contains(t, rpcErr.Message, wireversion.MinSupported,
-		"the rejection must name this build's whole window, not just its Protocol")
+	require.Contains(t, rpcErr.Message, wireversion.Protocol,
+		"the rejection must name this build's own version, so the operator knows which release to deploy")
 }
 
 // Given a caller that leaves the protocol version field unset, When it

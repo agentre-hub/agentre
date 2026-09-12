@@ -95,8 +95,8 @@ func classifyRelayDialError(err error, resp *http.Response) error {
 // 它是导出的,因为并非每一次握手都走本包:server_svc 的中继客户端在一条虚拟通道上
 // 手工收发 auth.account(要拿到通道级错误码),它同样必须过这个窗口。窗口的判法只
 // 该有一处定义 —— 复制一份就是让两条握手路各有各的「算不算兼容」。
-func PeerProtocolVersionError(peerProtocol, peerMinSupported string) error {
-	reason := wireversion.Reject(peerProtocol, peerMinSupported)
+func PeerProtocolVersionError(peerProtocol string) error {
+	reason := wireversion.Reject(peerProtocol)
 	if reason == "" {
 		return nil
 	}
@@ -112,7 +112,7 @@ func PeerProtocolVersionError(peerProtocol, peerMinSupported string) error {
 func ClassifyHandshakeError(err error) error {
 	var rpcErr *rpcerror.Error
 	if errors.As(err, &rpcErr) && rpcErr.Code == rpcerror.CodeProtocolVersion {
-		return fmt.Errorf("%w: %s (this build accepts protocol versions %s to %s)", ErrPeerProtocolVersionMismatch, rpcErr.Message, wireversion.MinSupported, wireversion.Protocol)
+		return fmt.Errorf("%w: %s (this build speaks wire protocol version %s)", ErrPeerProtocolVersionMismatch, rpcErr.Message, wireversion.Protocol)
 	}
 	return err
 }
@@ -305,7 +305,7 @@ func (c *ProtobufClient) AuthAccount(ctx context.Context, request *agentrewire.A
 	if err != nil {
 		return nil, ClassifyHandshakeError(err)
 	}
-	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
+	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion()); versionErr != nil {
 		return nil, versionErr
 	}
 	// Mode C 的本端身份**由对端认定**:请求体里已经没有指纹可报,对端从已验签的凭据
@@ -330,7 +330,7 @@ func (c *ProtobufClient) AuthDirect(ctx context.Context, request *agentrewire.Au
 	if err != nil {
 		return nil, ClassifyHandshakeError(err)
 	}
-	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
+	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion()); versionErr != nil {
 		return nil, versionErr
 	}
 	c.selfFP = response.GetPeerFingerprint()
@@ -345,7 +345,7 @@ func (c *ProtobufClient) AuthPair(ctx context.Context, request *agentrewire.Auth
 	if err != nil {
 		return nil, ClassifyHandshakeError(err)
 	}
-	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
+	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion()); versionErr != nil {
 		return nil, versionErr
 	}
 	return response, nil
@@ -359,7 +359,7 @@ func (c *ProtobufClient) AuthConnect(ctx context.Context, request *agentrewire.A
 	if err != nil {
 		return nil, ClassifyHandshakeError(err)
 	}
-	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
+	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion()); versionErr != nil {
 		return nil, versionErr
 	}
 	return response, nil
