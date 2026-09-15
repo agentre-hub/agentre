@@ -13,8 +13,8 @@ import (
 
 // TestHermesKind 钉死 hermes 的 kind 槽位：Hermes 自带 provider/model 配置，
 // 因此永不参与 Agentre 的 new-session provider pill（ProviderTypeMatch 恒 false）。
-// Stage 2 起 hermes 不再 spawn 子进程，而是连一个已在运行的 `hermes serve`，
-// 所以它既不接受 cli_path，也不接受 HERMES_HOME / 解释器参数，只接受 Server URL。
+// hermes 连一个已在运行的 `hermes serve`，所以它既不接受 cli_path，也不接受
+// HERMES_HOME / 解释器参数，只接受 Server URL。
 func TestHermesKind(t *testing.T) {
 	Convey("Given the hermes backend type", t, func() {
 		kind := KindFor(TypeHermes)

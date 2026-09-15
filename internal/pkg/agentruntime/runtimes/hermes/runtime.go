@@ -85,7 +85,7 @@ func NewWithCredentials(factory SessionFactory, creds CredentialSource) *Runtime
 	}
 }
 
-// Capabilities declares only what Stage 2 actually implements: abort via
+// Capabilities declares only what this runtime actually implements: abort via
 // session.interrupt. Steer, approvals, permissions, compaction, fork, image
 // input and native session reuse are not wired yet and must honestly report
 // unsupported.

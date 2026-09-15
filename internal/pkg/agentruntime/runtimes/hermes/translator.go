@@ -1,14 +1,15 @@
 // Package hermes drives a running Hermes Agent `serve` through its TUI-gateway
 // JSON-RPC protocol (newline-delimited JSON over a WebSocket).
 //
-// The wire protocol is identical to the stdio transport (`tui_gateway.ws`
-// reuses `tui_gateway.server.dispatch`): the server accepts the WebSocket and
-// immediately sends `gateway.ready`. Transport-independent frame coding lives in
-// frame.go; client.go owns the WebSocket dial, loopback token handshake and
-// error classification. A turn covers create/resume session, prompt.submit,
-// streaming the frames into sealed agentruntime events, and abort via
-// session.interrupt. See docs/agent-backend.md and the Hermes source under
-// tui_gateway/ for the method/event catalog.
+// Hermes serves that protocol over both stdio and WebSocket — its
+// `tui_gateway/ws.py` reuses `tui_gateway/server.py`'s dispatch — so the method
+// and event catalog below is the gateway's own, not a transport-specific subset.
+// The server accepts the WebSocket and immediately sends `gateway.ready`.
+// Transport-independent frame coding lives in frame.go; client.go owns the
+// WebSocket dial, token handshake and error classification. A turn covers
+// create/resume session, prompt.submit, streaming the frames into sealed
+// agentruntime events, and abort via session.interrupt. See docs/agent-backend.md
+// and the Hermes source under tui_gateway/ for the method/event catalog.
 package hermes
 
 import (
@@ -257,9 +258,9 @@ func translate(ev Event) (events []agentruntime.Event, usage *provider.Usage, st
 		}
 	}
 
-	// approval.request / clarify.request and every unknown frame are Stage 2 /
-	// out of scope: they produce no events so an unrelated card can never wedge
-	// the turn. They are logged by the runtime's raw-frame sink.
+	// approval.request / clarify.request and every unknown frame are out of
+	// scope for this runtime: they produce no events, so a frame we do not
+	// understand can never wedge the turn. The raw-frame sink logs them.
 	return nil, nil, nil
 }
 

@@ -615,7 +615,7 @@ function useChatActions({
         });
         return;
       }
-      // runtime 不认 steer（Hermes Stage 1 只声明 abort）时不能假装能插：
+      // runtime 不认 steer（Hermes 只声明 abort）时不能假装能插：
       // 排进去也永远等不到安全点。提示用户等本轮结束再发。
       if (!canSteer) {
         setNotice({

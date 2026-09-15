@@ -1435,8 +1435,7 @@ describe("AgentBackendsPanel", () => {
       within(dialog).getByRole("radio", { name: /Hermes Agent/ }),
     );
 
-    // Stage 2 起 hermes 连一个已在运行的 `hermes serve`：不再有解释器路径、
-    // 也不再探测 CLI。
+    // hermes 连一个已在运行的 `hermes serve`：新建表单里没有解释器路径，也不探测 CLI。
     expect(within(dialog).queryByText("CLI Path")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("HERMES_HOME")).not.toBeInTheDocument();
 

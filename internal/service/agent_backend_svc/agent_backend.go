@@ -60,7 +60,7 @@ type AgentBackendSvc interface {
 	GetCLIOverlay(ctx context.Context, req *GetCLIOverlayRequest) (*GetCLIOverlayResponse, error)
 	SetCLIOverlay(ctx context.Context, req *SetCLIOverlayRequest) (*SetCLIOverlayResponse, error)
 	ListCLIOverlays(ctx context.Context, req *ListCLIOverlaysRequest) (*ListCLIOverlaysResponse, error)
-	// Hermes gated serve 认证（Stage 4，只存 refresh token）。
+	// Hermes gated serve 认证（只存 refresh token）。
 	ListHermesAuthProviders(ctx context.Context, req *ListHermesAuthProvidersRequest) (*ListHermesAuthProvidersResponse, error)
 	LoginHermes(ctx context.Context, req *LoginHermesRequest) (*LoginHermesResponse, error)
 	LogoutHermes(ctx context.Context, req *LogoutHermesRequest) (*LogoutHermesResponse, error)

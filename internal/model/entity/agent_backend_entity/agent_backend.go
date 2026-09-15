@@ -38,9 +38,9 @@ const (
 	TypePiAgent BackendType = "piagent"
 	// TypeOpenClaw 通过 OpenClaw Gateway WebSocket RPC protocol 4 运行 agent。
 	TypeOpenClaw BackendType = "openclaw"
-	// TypeHermes 通过连接一个已在运行的 `hermes serve`（WebSocket JSON-RPC，与 stdio
-	// 同一套 dispatch/线协议）运行 agent。Hermes 自带 provider/model/凭证配置，
-	// 不受 Agentre LLMProvider 绑定，URL 由 backend 自身持有。
+	// TypeHermes 通过连接一个已在运行的 `hermes serve`（WebSocket JSON-RPC）运行
+	// agent。Hermes 自带 provider/model/凭证配置，不受 Agentre LLMProvider 绑定，
+	// URL 由 backend 自身持有。
 	TypeHermes BackendType = "hermes"
 )
 
@@ -100,8 +100,8 @@ type AgentBackend struct {
 	// OpenClawSessionMode MVP 固定为 per-agentre-session。
 	OpenClawSessionMode string `gorm:"-"`
 	// HermesURL 仅 hermes 使用：一个已在运行的 `hermes serve` 的地址，规范形式为
-	// http(s)://host:port（接 WS 时运行时再换 scheme）。同一台机器想要不同 HERMES_HOME，
-	// 就起两个 serve、建两条后端。
+	// http(s)://host:port（接 WS 时运行时再换 scheme）。地址也是后端身份的一部分：
+	// 同一台机器想连两个 serve，就填两个地址、建两条后端。
 	HermesURL string `gorm:"-"`
 	// HermesAuthProvider 仅 hermes 使用：gated serve 的认证 provider 名（如 basic）。
 	// 非敏感展示字段，落 config_json，不参与同步之外的安全边界。

@@ -15,7 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 )
 
-// 本文件锁住 hermes 在「可对话判定」里的插槽语义（Stage 3）：
+// 本文件锁住 hermes 在「可对话判定」里的插槽语义：
 //   - 本机 hermes 自带 provider/model/凭证，且不经本地网关 → 不查 provider 是否
 //     激活、不查 gateway 是否在跑，直接判可对话；URL 连不上由轮次启动时报错。
 //   - 远端（agentred）hermes 没有执行通道 → 明确拒绝，并给 hermes 自己的结构化

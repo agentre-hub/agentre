@@ -301,7 +301,7 @@ func TestTranslate_FrameKinds(t *testing.T) {
 			},
 		},
 		{
-			name:    "approval.request is deferred to stage 2 (no events, no crash)",
+			name:    "approval.request produces no events and does not crash the turn",
 			kind:    EventApprovalRequest,
 			payload: `{"session_id":"live-1","request_id":"req-1","command":"rm -rf /"}`,
 			check: func(t *testing.T, events []agentruntime.Event, _ *provider.Usage, err error) {

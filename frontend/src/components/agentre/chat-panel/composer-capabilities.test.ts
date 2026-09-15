@@ -13,7 +13,7 @@ function capsWith(names: string[]) {
 }
 
 describe("deriveComposerCapabilities", () => {
-  // Hermes Stage 1 只声明了 abort：steer / permission mode / 反向提问 / 图片 /
+  // Hermes 只声明了 abort：steer / permission mode / 反向提问 / 图片 /
   // 思考力度 / 压缩都还没实现，UI 必须诚实地一并关掉。
   it("Given the hermes runtime advertises only abort, Then every unfinished control stays off", () => {
     const caps = deriveComposerCapabilities(capsWith(["abort"]));

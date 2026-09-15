@@ -143,7 +143,7 @@ func TestHermesCapabilities(t *testing.T) {
 	rt := NewWithSessionFactory(nil)
 	caps := rt.Capabilities()
 
-	assert.True(t, caps.Has(capability.CapAbort), "stage 1 implements abort via session.interrupt")
+	assert.True(t, caps.Has(capability.CapAbort), "abort is declared because session.interrupt is wired")
 	_, implementsAborter := interface{}(rt).(agentruntime.Aborter)
 	assert.True(t, implementsAborter, "CapAbort=true requires Aborter")
 
@@ -164,7 +164,7 @@ func TestHermesCapabilities(t *testing.T) {
 		capability.CapAutonomousTurn,
 		capability.CapReasoningEffort,
 	} {
-		assert.False(t, caps.Has(cap), "stage 1 must not declare %s", cap)
+		assert.False(t, caps.Has(cap), "the runtime must not declare %s", cap)
 	}
 	// The runtime must NOT accidentally satisfy the reverse-channel interfaces.
 	_, isSteerer := interface{}(rt).(agentruntime.Steerer)

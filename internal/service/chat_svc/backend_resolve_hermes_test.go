@@ -15,7 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
-// 本文件锁住 hermes 在「轮次解析」里的插槽语义（Stage 3）：
+// 本文件锁住 hermes 在「轮次解析」里的插槽语义：
 //   - 本机 hermes 能解析成一轮可执行的 backend，且不解析 Agentre LLMProvider、
 //     不要求本地网关（它自带模型配置并自持 URL）。
 //   - 远端 hermes 明确拒绝，给结构化错误码，而不是让它悄悄走 agentred 通道。

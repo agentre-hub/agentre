@@ -507,8 +507,7 @@ export function HermesFields({
   const { t } = useTranslation();
   return (
     <div data-testid="hermes-fields" className="flex flex-col gap-3">
-      {/* hermes 连接一个已在运行的 `hermes serve`：只需要一个 Server URL，不再
-          spawn 子进程，因此没有解释器路径 / HERMES_HOME。 */}
+      {/* hermes 连一个已在运行的 `hermes serve`：只需要一个 Server URL。 */}
       <div className="flex flex-col gap-1.5 text-xs">
         <div className="flex items-center justify-between">
           <span className="font-medium">

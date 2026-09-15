@@ -498,7 +498,7 @@ func TestEffectiveLLMForProbe(t *testing.T) {
 }
 
 // TestHermesProber 钉死 Test 与 chat run 的共享装配：hermesProber 把实体上的
-// Server URL 原样交给 hermes.Probe（不再 spawn 解释器、不再拼 env）。
+// Server URL 原样交给 hermes.Probe（hermes 不读解释器、也不拼 env）。
 func TestHermesProber(t *testing.T) {
 	Convey("Given a hermes backend", t, func() {
 		captured := make(chan hermes.ProbeRequest, 1)

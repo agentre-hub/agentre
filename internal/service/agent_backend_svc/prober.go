@@ -130,8 +130,8 @@ func buildPiAgentEnv(b *agent_backend_entity.AgentBackend) (map[string]string, e
 var hermesProbe = hermes.Probe
 
 // hermesProber 探测一个已在运行的 `hermes serve`：拿到 loopback token、完成 WS
-// 握手并收到 gateway.ready。它不再 spawn 子进程，也不跑 agent turn——「测试连接」
-// 问的就是这个 URL 连不连得上。
+// 握手并收到 gateway.ready。它不跑 agent turn——「测试连接」问的就是这个 URL
+// 连不连得上。
 type hermesProber struct{ creds hermes.CredentialSource }
 
 func (p hermesProber) Run(ctx context.Context, b *agent_backend_entity.AgentBackend, _ ProbeDeps) (string, error) {

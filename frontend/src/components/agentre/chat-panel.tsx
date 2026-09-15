@@ -377,7 +377,7 @@ function ChatPanel({
     sessionId > 0 ? undefined : newSessionBackendType || undefined,
   );
   const caps = sessionCaps ?? backendCaps;
-  // 控件可见性的判定收敛在 deriveComposerCapabilities：Hermes Stage 1 只声明
+  // 控件可见性的判定收敛在 deriveComposerCapabilities：Hermes 只声明
   // abort，于是 steer / permission mode / 反向提问 / 图片 / 思考力度 / 压缩
   // 一并关掉，不靠 JSX 里散落的 `caps?.has(...)` 各自记账。
   const composerCaps = deriveComposerCapabilities(caps, activeBackendType);

@@ -235,8 +235,8 @@ func (openClawKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 
 // hermesKind 连接一个已在运行的 Hermes `serve`（WebSocket JSON-RPC）。
 // Hermes 自带 provider/model/凭证，因此 ProviderTypeMatch 恒 false、New-session
-// provider pill 对它永远不渲染；它只接受一个 Server URL（不接受 cli_path，也不再
-// 接受以前 spawn 子进程用的 HERMES_HOME / 解释器参数）。
+// provider pill 对它永远不渲染；它只接受一个 Server URL，不接受 cli_path /
+// 解释器参数这类本地进程旋钮。
 type hermesKind struct{}
 
 func (hermesKind) Type() BackendType      { return TypeHermes }

@@ -212,7 +212,7 @@ type OpenClawModelOption struct {
 	Available bool   `json:"available"`
 }
 
-// ---- Hermes gated serve 登录（Stage 4）----
+// ---- Hermes gated serve 登录 ----
 
 // HermesAuthProviderItem 是 GET /api/auth/providers 的一条 provider。
 // SupportsPassword=false 的 provider（OAuth）在当前阶段不可用。

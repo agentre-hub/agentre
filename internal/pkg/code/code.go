@@ -71,7 +71,7 @@ const (
 	AgentBackendProviderModelRequired = iota + 12019 // 绑定供应商的 backend 要求 provider.Model 非空（--model 必须能选中模型）
 )
 
-// Hermes gated serve 认证 12030~（Stage 4：原生 PKCE 登录，只存 refresh token）
+// Hermes gated serve 认证 12030~（原生 PKCE 登录，只存 refresh token）
 //
 // 这些码会经 internal/app 的 codedError 前缀过 Wails 桥，前端据此把失败分成
 // 「去登录」「登录过期」等不同出路，而不是笼统一句连接失败。
