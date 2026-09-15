@@ -163,6 +163,9 @@ const DYNAMIC_KEY_PREFIXES = [
   // engine/backend-editor/draft.ts: translate(`agentBackends.openclaw.errors.${key}`)
   // （宿主把 `t` 注进来，键仍是包自己的 namespace）
   "agentBackends.openclaw.errors.",
+  // engine/backend-editor/draft.ts: translate(`agentBackends.hermes.errors.${normalized}`)
+  // 登录/测试连接受结构化 Code，这里按码拼 key。
+  "agentBackends.hermes.errors.",
   // project/directory-picker.tsx: t(`directoryPicker.failure.${key}`)
   "directoryPicker.failure.",
   // org/icon-registry.ts: t(`${AGENTRE_UI_NAMESPACE}:iconRegistry.categories.${key}`)

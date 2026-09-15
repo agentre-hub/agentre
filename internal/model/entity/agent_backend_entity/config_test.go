@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMarshalConfig_RoundTripsEveryTypeExclusiveSetting 是这一层的主契约：九个
+// TestMarshalConfig_RoundTripsEveryTypeExclusiveSetting 是这一层的主契约：十个
 // 单类型独占设置整组进一列 JSON、再整组回到同样的字段上。
 //
 // 它挡住的坏实现是「只加了一半」——某个字段进了 MarshalConfig 却漏了
@@ -26,6 +26,9 @@ func TestMarshalConfig_RoundTripsEveryTypeExclusiveSetting(t *testing.T) {
 		OpenClawAgentID:       "main",
 		OpenClawDefaultModel:  "anthropic/claude-sonnet-4-6",
 		OpenClawSessionMode:   OpenClawSessionPerAgentRESession,
+		HermesURL:             "http://127.0.0.1:9119",
+		HermesAuthProvider:    "basic",
+		HermesUserID:          "user-7",
 	}
 	require.NoError(t, original.MarshalConfig())
 
@@ -41,6 +44,9 @@ func TestMarshalConfig_RoundTripsEveryTypeExclusiveSetting(t *testing.T) {
 	assert.Equal(t, original.OpenClawAgentID, restored.OpenClawAgentID)
 	assert.Equal(t, original.OpenClawDefaultModel, restored.OpenClawDefaultModel)
 	assert.Equal(t, original.OpenClawSessionMode, restored.OpenClawSessionMode)
+	assert.Equal(t, original.HermesURL, restored.HermesURL)
+	assert.Equal(t, original.HermesAuthProvider, restored.HermesAuthProvider)
+	assert.Equal(t, original.HermesUserID, restored.HermesUserID)
 }
 
 // TestMarshalConfig_GivenTypeThatOwnsNothing_WritesEmptyObject 大多数行是这一档：

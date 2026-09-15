@@ -71,6 +71,21 @@ const (
 	AgentBackendProviderModelRequired = iota + 12019 // 绑定供应商的 backend 要求 provider.Model 非空（--model 必须能选中模型）
 )
 
+// Hermes gated serve 认证 12030~（Stage 4：原生 PKCE 登录，只存 refresh token）
+//
+// 这些码会经 internal/app 的 codedError 前缀过 Wails 桥，前端据此把失败分成
+// 「去登录」「登录过期」等不同出路，而不是笼统一句连接失败。
+const (
+	HermesLoginRequired       = iota + 12030 // 该 serve 需要登录，但本机还没存凭据
+	HermesLoginExpired                       // 存着的 refresh token 已被服务端拒绝，需要重新登录
+	HermesLoginRejected                      // 用户名或密码错误
+	HermesRateLimited                        // 登录尝试过于频繁，稍后再试
+	HermesProviderUnsupported                // 该 provider 需要浏览器授权，本阶段不支持
+	HermesProviderUnavailable                // 身份提供方暂时不可用
+	HermesProviderNotFound                   // 服务端不认识的 provider
+	HermesUnreachable                        // 登录端点不可达
+)
+
 // App 设置 15000~15999
 const (
 	AppSettingNotFound      = iota + 15000 // 设置项不存在
@@ -129,28 +144,29 @@ const (
 
 // Chat 会话 / 消息 17000~17999
 const (
-	ChatSessionNotFound               = iota + 17000 // 会话不存在
-	ChatAgentNotChattable                            // Agent 未绑定可对话的内置后端
-	ChatBlocksMalformed                              // 消息内容块解码失败
-	ChatSendInFlight                                 // 该会话已有进行中的对话
-	ChatProviderFailed                               // LLM 供应商调用失败
-	ChatInvalidRole                                  // 消息 role 不合法
-	ChatTextTooLong                                  // 单条消息文本过长
-	ChatTitleTooLong                                 // 会话标题过长
-	ChatBackendGatewayUnavailable                    // claudecode / codex 后端关联了 LLM 供应商但本地网关未就绪
-	ChatMessageNotFound                              // 消息不存在
-	ChatRegenerateNotAssistant                       // 重新生成只能作用于 assistant 消息
-	ChatRegenerateNoUserAnchor                       // 目标 assistant 之前找不到 user 消息（不可恢复的脏数据）
-	ChatRegenerateUnsupported                        // 该后端尚未支持中段重新生成（Step 1 仅 builtin）
-	ChatEditNotUser                                  // 编辑只能作用于 user 消息
-	ChatProviderSessionGone                          // CLI 的 provider 原生 Session 已不存在，本会话已重置
-	ChatRemoteProviderNotConfigured                  // 远端 agentred 未配置该 provider key
-	ChatAgentNoBackend                               // Agent 还没配置后端，对话前请先选择
-	ChatRemoteRunInterrupted                         // 远端 agentred 重启/会话已中断，本轮被打断（不是运行失败）
-	ChatRemoteDaemonUnreachable                      // 与远端 agentred 断连且重连未成功，本轮到此为止
-	ChatAgentNoAvailableExecTarget                   // Agent 的有序执行目标列表非空，但逐档判定全部不可用（R15）
-	ChatExecTargetOverrideUnavailable                // 手动指定的执行目标此刻不可用，拒绝钉住（R15a）
-	ChatExecTargetOverrideNotInList                  // 手动指定的 agentBackendID 不在这个 Agent 的执行目标列表里
+	ChatSessionNotFound                = iota + 17000 // 会话不存在
+	ChatAgentNotChattable                             // Agent 未绑定可对话的内置后端
+	ChatBlocksMalformed                               // 消息内容块解码失败
+	ChatSendInFlight                                  // 该会话已有进行中的对话
+	ChatProviderFailed                                // LLM 供应商调用失败
+	ChatInvalidRole                                   // 消息 role 不合法
+	ChatTextTooLong                                   // 单条消息文本过长
+	ChatTitleTooLong                                  // 会话标题过长
+	ChatBackendGatewayUnavailable                     // claudecode / codex 后端关联了 LLM 供应商但本地网关未就绪
+	ChatMessageNotFound                               // 消息不存在
+	ChatRegenerateNotAssistant                        // 重新生成只能作用于 assistant 消息
+	ChatRegenerateNoUserAnchor                        // 目标 assistant 之前找不到 user 消息（不可恢复的脏数据）
+	ChatRegenerateUnsupported                         // 该后端尚未支持中段重新生成（Step 1 仅 builtin）
+	ChatEditNotUser                                   // 编辑只能作用于 user 消息
+	ChatProviderSessionGone                           // CLI 的 provider 原生 Session 已不存在，本会话已重置
+	ChatRemoteProviderNotConfigured                   // 远端 agentred 未配置该 provider key
+	ChatAgentNoBackend                                // Agent 还没配置后端，对话前请先选择
+	ChatRemoteRunInterrupted                          // 远端 agentred 重启/会话已中断，本轮被打断（不是运行失败）
+	ChatRemoteDaemonUnreachable                       // 与远端 agentred 断连且重连未成功，本轮到此为止
+	ChatAgentNoAvailableExecTarget                    // Agent 的有序执行目标列表非空，但逐档判定全部不可用（R15）
+	ChatExecTargetOverrideUnavailable                 // 手动指定的执行目标此刻不可用，拒绝钉住（R15a）
+	ChatExecTargetOverrideNotInList                   // 手动指定的 agentBackendID 不在这个 Agent 的执行目标列表里
+	ChatBackendRemoteHermesUnavailable                // hermes 后端绑到了远端设备，但 hermes 不能派发到 agentred
 )
 
 // Chat 排队消息（Enqueue / Steer / Cancel）17050~ 留段
@@ -218,6 +234,7 @@ const (
 	ChatBackendHintUnknownType                          // 未知 Agent 后端类型
 	ChatAgentNoBackendHint                              // 这个 Agent 还没有任何执行目标
 	ChatSystemAgentNoBackendHint                        // CEO 助手还没有任何执行目标
+	ChatBackendHintRemoteHermes                         // 远端 Hermes 暂不可用：Hermes 后端不能在 agentred 上运行
 )
 
 // Project 18000~18999

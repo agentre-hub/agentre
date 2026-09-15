@@ -38,6 +38,10 @@ const (
 	TypePiAgent BackendType = "piagent"
 	// TypeOpenClaw 通过 OpenClaw Gateway WebSocket RPC protocol 4 运行 agent。
 	TypeOpenClaw BackendType = "openclaw"
+	// TypeHermes 通过连接一个已在运行的 `hermes serve`（WebSocket JSON-RPC，与 stdio
+	// 同一套 dispatch/线协议）运行 agent。Hermes 自带 provider/model/凭证配置，
+	// 不受 Agentre LLMProvider 绑定，URL 由 backend 自身持有。
+	TypeHermes BackendType = "hermes"
 )
 
 const (
@@ -95,7 +99,16 @@ type AgentBackend struct {
 	OpenClawDefaultModel string `gorm:"-"`
 	// OpenClawSessionMode MVP 固定为 per-agentre-session。
 	OpenClawSessionMode string `gorm:"-"`
-	// ConfigJSON 存放上面九个单类型独占设置（见 config.go）。它们各自不落列。
+	// HermesURL 仅 hermes 使用：一个已在运行的 `hermes serve` 的地址，规范形式为
+	// http(s)://host:port（接 WS 时运行时再换 scheme）。同一台机器想要不同 HERMES_HOME，
+	// 就起两个 serve、建两条后端。
+	HermesURL string `gorm:"-"`
+	// HermesAuthProvider 仅 hermes 使用：gated serve 的认证 provider 名（如 basic）。
+	// 非敏感展示字段，落 config_json，不参与同步之外的安全边界。
+	HermesAuthProvider string `gorm:"-"`
+	// HermesUserID 仅 hermes 使用：登录成功后的用户标识，用于界面显示「已登录为 xxx」。
+	HermesUserID string `gorm:"-"`
+	// ConfigJSON 存放上面这些单类型独占设置（见 config.go）。它们各自不落列。
 	ConfigJSON string `gorm:"column:config_json;type:text;not null;default:'{}'"`
 	Status     int    `gorm:"column:status;type:int;not null;default:1"`
 	Createtime int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
@@ -149,6 +162,10 @@ func (b *AgentBackend) IsOpenClaw() bool {
 	return b != nil && BackendType(b.Type) == TypeOpenClaw
 }
 
+func (b *AgentBackend) IsHermes() bool {
+	return b != nil && BackendType(b.Type) == TypeHermes
+}
+
 // IsLocal DeviceFingerprint 为空时为本地模式；nil receiver 返回 false。
 func (b *AgentBackend) IsLocal() bool { return b != nil && b.DeviceFingerprint == "" }
 
@@ -186,6 +203,9 @@ func (b *AgentBackend) Check(ctx context.Context) error {
 		return i18n.NewError(ctx, code.AgentBackendInvalidType)
 	}
 	if !b.IsOpenClaw() && b.hasOpenClawConfig() {
+		return i18n.NewError(ctx, code.InvalidParameter)
+	}
+	if !b.IsHermes() && b.hasHermesConfig() {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
 
@@ -251,6 +271,12 @@ func (b *AgentBackend) hasOpenClawConfig() bool {
 		strings.TrimSpace(b.OpenClawSessionMode) != ""
 }
 
+func (b *AgentBackend) hasHermesConfig() bool {
+	return strings.TrimSpace(b.HermesURL) != "" ||
+		strings.TrimSpace(b.HermesAuthProvider) != "" ||
+		strings.TrimSpace(b.HermesUserID) != ""
+}
+
 // validPermissionModes 与 pkg/claudecode/session.go::validPermissionModes 对齐。
 // 空串单独由 caller 处理（claudecode 允许 "" = 走 acceptEdits 默认）。
 var validPermissionModes = map[string]struct{}{
@@ -282,6 +308,70 @@ var (
 	ErrOpenClawGatewayURLPlaintextRemote = errors.New("plaintext openclaw gateway URL is limited to loopback")
 	ErrOpenClawSessionModeInvalid        = errors.New("openclaw session mode is unsupported")
 )
+
+// NormalizeHermesURL validates and normalizes a Hermes `serve` URL.
+//
+// Accepted inputs are `http(s)://host:port` and `ws(s)://host:port`; the canonical
+// stored form is always `http(s)://host:port` (the runtime swaps in ws/wss when it
+// dials). A port is mandatory: `hermes serve --port` always binds one, and an
+// implicit 80/443 hides a typo behind a connection that silently fails. User info,
+// query, fragment and non-root paths are rejected so credentials cannot be smuggled
+// into a persisted URL or leak into logs/errors.
+//
+// Each rejection reason is its own sentinel so the service layer can turn it into a
+// structured code instead of one opaque InvalidParameter.
+var (
+	ErrHermesURLRequired    = errors.New("hermes server URL is required")
+	ErrHermesURLInvalid     = errors.New("hermes server URL is invalid")
+	ErrHermesURLScheme      = errors.New("hermes server URL must use http, https, ws, or wss")
+	ErrHermesURLHost        = errors.New("hermes server URL must include a host")
+	ErrHermesURLPort        = errors.New("hermes server URL must include a port")
+	ErrHermesURLCredentials = errors.New("hermes server URL cannot contain credentials, query, or fragment")
+	ErrHermesURLPath        = errors.New("hermes server URL cannot contain a path")
+)
+
+func NormalizeHermesURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ErrHermesURLRequired
+	}
+	// A missing scheme is the common typo (`127.0.0.1:9119`) and url.Parse would call
+	// the colon an invalid path segment; classify it as the scheme problem it is.
+	if !strings.Contains(raw, "://") {
+		return "", ErrHermesURLScheme
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrHermesURLInvalid, err)
+	}
+	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
+	switch scheme {
+	case "http", "ws":
+		scheme = "http"
+	case "https", "wss":
+		scheme = "https"
+	default:
+		return "", ErrHermesURLScheme
+	}
+	if u.Opaque != "" || u.Hostname() == "" {
+		return "", ErrHermesURLHost
+	}
+	port := u.Port()
+	if port == "" {
+		return "", ErrHermesURLPort
+	}
+	if u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return "", ErrHermesURLCredentials
+	}
+	if strings.Trim(u.Path, "/") != "" {
+		return "", ErrHermesURLPath
+	}
+	hostname := strings.ToLower(strings.TrimSpace(u.Hostname()))
+	u.Scheme = scheme
+	u.Host = net.JoinHostPort(hostname, port)
+	u.Path = ""
+	return u.String(), nil
+}
 
 func NormalizeOpenClawGatewayURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)

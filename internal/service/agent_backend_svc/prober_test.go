@@ -14,12 +14,14 @@ import (
 	"github.com/cago-frame/agents/provider"
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
 )
@@ -493,4 +495,50 @@ func TestEffectiveLLMForProbe(t *testing.T) {
 		assert.Equal(t, 64000, cfg.ContextWindow)
 		assert.Equal(t, 4096, cfg.MaxOutput)
 	})
+}
+
+// TestHermesProber 钉死 Test 与 chat run 的共享装配：hermesProber 把实体上的
+// Server URL 原样交给 hermes.Probe（不再 spawn 解释器、不再拼 env）。
+func TestHermesProber(t *testing.T) {
+	Convey("Given a hermes backend", t, func() {
+		captured := make(chan hermes.ProbeRequest, 1)
+		orig := hermesProbe
+		hermesProbe = func(_ context.Context, req hermes.ProbeRequest) (string, error) {
+			captured <- req
+			return "http://127.0.0.1:9119", nil
+		}
+		t.Cleanup(func() { hermesProbe = orig })
+
+		Convey("When probing Then it shares the chat path's Server URL", func() {
+			b := &agent_backend_entity.AgentBackend{
+				Type:      string(agent_backend_entity.TypeHermes),
+				Name:      "hermes",
+				HermesURL: "http://127.0.0.1:9119",
+			}
+			reply, err := hermesProber{}.Run(context.Background(), b, ProbeDeps{})
+			So(err, ShouldBeNil)
+			So(reply, ShouldEqual, "http://127.0.0.1:9119")
+
+			req := <-captured
+			So(req.URL, ShouldEqual, "http://127.0.0.1:9119")
+		})
+
+		Convey("When the probe fails Then the error propagates", func() {
+			hermesProbe = func(context.Context, hermes.ProbeRequest) (string, error) {
+				return "", errors.New("gateway refused")
+			}
+			_, err := hermesProber{}.Run(context.Background(), &agent_backend_entity.AgentBackend{
+				Type: string(agent_backend_entity.TypeHermes), Name: "h",
+			}, ProbeDeps{})
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldContainSubstring, "gateway refused")
+		})
+	})
+}
+
+func TestProberRegistry_RegistersHermes(t *testing.T) {
+	p := proberFor(agent_backend_entity.TypeHermes)
+	require.NotNil(t, p)
+	_, ok := p.(hermesProber)
+	assert.True(t, ok, "TypeHermes must dispatch to hermesProber")
 }

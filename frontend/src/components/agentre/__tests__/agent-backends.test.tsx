@@ -1414,6 +1414,54 @@ describe("AgentBackendsPanel", () => {
     });
   });
 
+  it("新建 hermes 时只展示 Server URL 一格，不展示解释器路径 / provider 绑定，保存时原样提交", async () => {
+    const user = userEvent.setup();
+    const mocks = installAppMock({
+      ResolveAgentBackendCLIPath: vi.fn(() =>
+        Promise.resolve({ path: "", found: false }),
+      ),
+    });
+    render(<AgentBackendsPanel />);
+
+    await screen.findByRole("list", { name: "Agent backend list" });
+    await user.click(screen.getByRole("button", { name: /New Backend/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(
+      within(dialog).getByPlaceholderText("Example: Local · Claude Code"),
+      { target: { value: "本机 Hermes" } },
+    );
+    await user.click(
+      within(dialog).getByRole("radio", { name: /Hermes Agent/ }),
+    );
+
+    // Stage 2 起 hermes 连一个已在运行的 `hermes serve`：不再有解释器路径、
+    // 也不再探测 CLI。
+    expect(within(dialog).queryByText("CLI Path")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("HERMES_HOME")).not.toBeInTheDocument();
+
+    // Hermes 自带 provider/model：编辑器不摆任何 provider 绑定入口。
+    expect(
+      within(dialog).queryByRole("button", { name: "Model binding" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText("Server URL"), {
+      target: { value: "ws://127.0.0.1:9119" },
+    });
+
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mocks.CreateAgentBackend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "hermes",
+          name: "本机 Hermes",
+          hermesUrl: "ws://127.0.0.1:9119",
+        }),
+      );
+    });
+  });
+
   it("piagent 编辑器列出三类 LLM 供应商，可选其一保存绑定", async () => {
     const user = userEvent.setup();
     const mocks = installAppMock({
@@ -3164,14 +3212,14 @@ describe("Agent backend type picker", () => {
     return screen.findByRole("dialog");
   }
 
-  it("Given the create dialog, When it opens, Then the five types render as a single-choice radiogroup with the current type checked", async () => {
+  it("Given the create dialog, When it opens, Then the six types render as a single-choice radiogroup with the current type checked", async () => {
     const user = userEvent.setup();
     installAppMock();
 
     const dialog = await openCreateDialog(user);
     const group = within(dialog).getByRole("radiogroup", { name: "Type" });
 
-    expect(within(group).getAllByRole("radio")).toHaveLength(5);
+    expect(within(group).getAllByRole("radio")).toHaveLength(6);
     expect(
       within(group).getByRole("radio", { name: /Built-in Agent/ }),
     ).toBeChecked();
@@ -3505,7 +3553,7 @@ describe("Agent backend type picker", () => {
 
     await user.keyboard("{ArrowUp}{ArrowUp}");
     expect(
-      within(group).getByRole("radio", { name: /Pi Agent CLI/ }),
+      within(group).getByRole("radio", { name: /Hermes Agent/ }),
     ).toBeChecked();
   });
 });

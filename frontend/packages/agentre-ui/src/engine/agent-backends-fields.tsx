@@ -450,15 +450,15 @@ export function CliPathField({
 }) {
   const { t } = useTranslation();
   const bin = cliBinaryName(type);
+  const hint =
+    value.trim() !== ""
+      ? t("agentBackends.cli.explicitHint")
+      : t("agentBackends.cli.emptyHint", { bin });
   return (
     <div className="flex flex-col gap-1.5 text-xs">
       <div className="flex items-center justify-between">
         <span className="font-medium">{t("agentBackends.cli.label")}</span>
-        <span className="font-mono text-2xs text-muted-foreground">
-          {value.trim() === ""
-            ? t("agentBackends.cli.emptyHint", { bin })
-            : t("agentBackends.cli.explicitHint")}
-        </span>
+        <span className="font-mono text-2xs text-muted-foreground">{hint}</span>
       </div>
       <div className="flex items-center gap-1.5">
         <Input
@@ -489,6 +489,217 @@ export function CliPathField({
         <span className="font-mono text-2xs text-status-waiting">
           {missMessage}
         </span>
+      ) : null}
+    </div>
+  );
+}
+
+export function HermesFields({
+  url,
+  onUrlChange,
+  auth,
+}: {
+  url: string;
+  onUrlChange: (v: string) => void;
+  // 认证控件是可插槽：loopback 场景不需要它，gated 场景由编辑器装配。
+  auth?: React.ReactNode;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div data-testid="hermes-fields" className="flex flex-col gap-3">
+      {/* hermes 连接一个已在运行的 `hermes serve`：只需要一个 Server URL，不再
+          spawn 子进程，因此没有解释器路径 / HERMES_HOME。 */}
+      <div className="flex flex-col gap-1.5 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="font-medium">
+            {t("agentBackends.hermes.urlLabel")}
+          </span>
+          <span className="font-mono text-2xs text-muted-foreground">
+            http(s)://host:port
+          </span>
+        </div>
+        <Input
+          aria-label={t("agentBackends.hermes.urlLabel")}
+          value={url}
+          onChange={(e) => onUrlChange(e.target.value)}
+          placeholder={t("agentBackends.hermes.urlPlaceholder")}
+          className="font-mono"
+        />
+        <span className="text-2xs text-muted-foreground">
+          {t("agentBackends.hermes.urlHint")}
+        </span>
+      </div>
+      {auth}
+    </div>
+  );
+}
+
+// HermesAuthProviderOption is one provider row the editor renders. It mirrors
+// the host port shape structurally so the shared package needs no host import.
+export type HermesAuthProviderOption = {
+  name: string;
+  displayName: string;
+  supportsPassword: boolean;
+};
+
+// HermesAuthFields renders the gated-serve sign-in controls. Password copy is
+// cleared by the parent on success; this component never renders a password
+// back into a field once userId is present.
+export function HermesAuthFields({
+  provider,
+  onProviderChange,
+  username,
+  onUsernameChange,
+  password,
+  onPasswordChange,
+  userId,
+  providers,
+  providersLoading,
+  providersError,
+  loggingIn,
+  error,
+  onLogin,
+  onLogout,
+}: {
+  provider: string;
+  onProviderChange: (v: string) => void;
+  username: string;
+  onUsernameChange: (v: string) => void;
+  password: string;
+  onPasswordChange: (v: string) => void;
+  userId: string;
+  providers: HermesAuthProviderOption[];
+  providersLoading: boolean;
+  providersError: string;
+  loggingIn: boolean;
+  error: string;
+  onLogin: () => void;
+  onLogout: () => void;
+}) {
+  const { t } = useTranslation();
+  if (userId.trim() !== "") {
+    return (
+      <div
+        data-testid="hermes-auth"
+        className="flex items-center justify-between gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2 text-xs"
+      >
+        <span className="min-w-0 truncate">
+          {t("agentBackends.hermes.authLoggedInAs", { userId })}
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 shrink-0 px-2.5 text-2xs"
+          onClick={onLogout}
+        >
+          {t("agentBackends.hermes.authLogout")}
+        </Button>
+      </div>
+    );
+  }
+
+  const selected = providers.find((p) => p.name === provider);
+  const canPassword = selected?.supportsPassword === true;
+  const showUnsupported = provider !== "" && selected != null && !canPassword;
+
+  return (
+    <div
+      data-testid="hermes-auth"
+      className="flex flex-col gap-2 rounded-md border border-border bg-secondary/30 p-3 text-xs"
+    >
+      <span className="font-semibold">
+        {t("agentBackends.hermes.authTitle")}
+      </span>
+      <span className="text-2xs text-muted-foreground">
+        {t("agentBackends.hermes.authHint")}
+      </span>
+
+      <div className="flex flex-col gap-1">
+        <span className="font-medium">
+          {t("agentBackends.hermes.authProvider")}
+        </span>
+        {providersLoading ? (
+          <span className="text-2xs text-muted-foreground">
+            {t("agentBackends.hermes.authProvidersLoading")}
+          </span>
+        ) : null}
+        <Select value={provider} onValueChange={onProviderChange}>
+          <SelectTrigger
+            aria-label={t("agentBackends.hermes.authProvider")}
+            className="h-9"
+          >
+            <SelectValue
+              placeholder={t("agentBackends.hermes.authProviderPlaceholder")}
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {providers.map((p) => (
+              <SelectItem
+                key={p.name}
+                value={p.name}
+                disabled={!p.supportsPassword}
+              >
+                {p.displayName || p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {providersError ? (
+          <span className="text-2xs text-destructive">{providersError}</span>
+        ) : null}
+      </div>
+
+      {showUnsupported ? (
+        <span className="text-2xs text-status-waiting">
+          {t("agentBackends.hermes.authProviderUnsupported")}
+        </span>
+      ) : null}
+
+      <div className="flex flex-col gap-1">
+        <span className="font-medium">
+          {t("agentBackends.hermes.authUsername")}
+        </span>
+        <Input
+          aria-label={t("agentBackends.hermes.authUsername")}
+          value={username}
+          autoComplete="username"
+          onChange={(e) => onUsernameChange(e.target.value)}
+          className="h-9"
+        />
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <span className="font-medium">
+          {t("agentBackends.hermes.authPassword")}
+        </span>
+        <Input
+          aria-label={t("agentBackends.hermes.authPassword")}
+          type="password"
+          value={password}
+          autoComplete="current-password"
+          onChange={(e) => onPasswordChange(e.target.value)}
+          className="h-9"
+        />
+      </div>
+
+      <Button
+        type="button"
+        size="sm"
+        className="self-start gap-1.5"
+        onClick={onLogin}
+        disabled={loggingIn || !canPassword}
+      >
+        {loggingIn ? (
+          <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+        ) : null}
+        {loggingIn
+          ? t("agentBackends.hermes.authLoggingIn")
+          : t("agentBackends.hermes.authLogin")}
+      </Button>
+
+      {error ? (
+        <span className="text-2xs text-destructive">{error}</span>
       ) : null}
     </div>
   );

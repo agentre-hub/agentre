@@ -60,6 +60,10 @@ type AgentBackendSvc interface {
 	GetCLIOverlay(ctx context.Context, req *GetCLIOverlayRequest) (*GetCLIOverlayResponse, error)
 	SetCLIOverlay(ctx context.Context, req *SetCLIOverlayRequest) (*SetCLIOverlayResponse, error)
 	ListCLIOverlays(ctx context.Context, req *ListCLIOverlaysRequest) (*ListCLIOverlaysResponse, error)
+	// Hermes gated serve 认证（Stage 4，只存 refresh token）。
+	ListHermesAuthProviders(ctx context.Context, req *ListHermesAuthProvidersRequest) (*ListHermesAuthProvidersResponse, error)
+	LoginHermes(ctx context.Context, req *LoginHermesRequest) (*LoginHermesResponse, error)
+	LogoutHermes(ctx context.Context, req *LogoutHermesRequest) (*LogoutHermesResponse, error)
 }
 
 type agentBackendSvc struct {
@@ -67,6 +71,9 @@ type agentBackendSvc struct {
 	prober  Prober
 	gateway httpgateway.TokenIssuer
 	secrets keychain.Keychain
+	// hermes 是 gated serve 的凭据存储（login 写 keychain、runtime 取 bearer）。
+	// nil → 统一回落到进程内单例 defaultHermesCredentials。
+	hermes *hermesCredentialStore
 
 	openClawProbe openClawProbeFunc
 	identityMu    sync.Mutex
@@ -288,6 +295,9 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 		OpenClawAgentID:       strings.TrimSpace(req.OpenClawAgentID),
 		OpenClawDefaultModel:  strings.TrimSpace(req.OpenClawDefaultModel),
 		OpenClawSessionMode:   strings.TrimSpace(req.OpenClawSessionMode),
+		HermesURL:             strings.TrimSpace(req.HermesURL),
+		HermesAuthProvider:    strings.TrimSpace(req.HermesAuthProvider),
+		HermesUserID:          strings.TrimSpace(req.HermesUserID),
 		DeviceFingerprint:     devicefp.Carrier(strings.TrimSpace(req.DeviceID)),
 		Status:                consts.ACTIVE,
 		Createtime:            now,
@@ -310,6 +320,13 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 		if b.OpenClawSessionMode == "" {
 			b.OpenClawSessionMode = agent_backend_entity.OpenClawSessionPerAgentRESession
 		}
+	}
+	if b.IsHermes() {
+		normalized, err := agent_backend_entity.NormalizeHermesURL(b.HermesURL)
+		if err != nil {
+			return nil, i18n.NewError(ctx, code.InvalidParameter)
+		}
+		b.HermesURL = normalized
 	}
 	if err := b.Check(ctx); err != nil {
 		return nil, err
@@ -410,6 +427,9 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	existing.OpenClawAgentID = strings.TrimSpace(req.OpenClawAgentID)
 	existing.OpenClawDefaultModel = strings.TrimSpace(req.OpenClawDefaultModel)
 	existing.OpenClawSessionMode = strings.TrimSpace(req.OpenClawSessionMode)
+	existing.HermesURL = strings.TrimSpace(req.HermesURL)
+	existing.HermesAuthProvider = strings.TrimSpace(req.HermesAuthProvider)
+	existing.HermesUserID = strings.TrimSpace(req.HermesUserID)
 	existing.DeviceFingerprint = devicefp.Carrier(strings.TrimSpace(req.DeviceID))
 	var deviceErr error
 	existing.DeviceFingerprint, deviceErr = normalizeDeviceID(existing.DeviceFingerprint)
@@ -426,6 +446,13 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 		if existing.OpenClawSessionMode == "" {
 			existing.OpenClawSessionMode = agent_backend_entity.OpenClawSessionPerAgentRESession
 		}
+	}
+	if existing.IsHermes() {
+		normalized, err := agent_backend_entity.NormalizeHermesURL(existing.HermesURL)
+		if err != nil {
+			return nil, i18n.NewError(ctx, code.InvalidParameter)
+		}
+		existing.HermesURL = normalized
 	}
 
 	if err := existing.Check(ctx); err != nil {
@@ -587,6 +614,16 @@ func (s *agentBackendSvc) test(ctx context.Context, req *TestBackendRequest, tra
 	reply, err := prober.Run(probeCtx, entity, deps)
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
+		// hermes gated serve 的失败要能分辨「去登录 / 登录过期」等出路，不能塌成
+		// 一句笼统的连接失败：结构化 Code 交前端本地化，Message 只作兜底。
+		if entity.IsHermes() {
+			if bizCode, frontendCode, ok := hermesAuthCode(err); ok {
+				return &TestBackendResponse{
+					OK: false, Code: frontendCode,
+					Message: i18n.NewError(ctx, bizCode).Error(), LatencyMs: latency,
+				}, nil
+			}
+		}
 		msg := err.Error()
 		switch {
 		case errors.Is(err, context.Canceled):
@@ -935,12 +972,20 @@ func (s *agentBackendSvc) resolveBackendForTest(ctx context.Context, req *TestBa
 	out.OpenClawAgentID = strings.TrimSpace(req.OpenClawAgentID)
 	out.OpenClawDefaultModel = strings.TrimSpace(req.OpenClawDefaultModel)
 	out.OpenClawSessionMode = strings.TrimSpace(req.OpenClawSessionMode)
+	out.HermesURL = strings.TrimSpace(req.HermesURL)
+	out.HermesAuthProvider = strings.TrimSpace(req.HermesAuthProvider)
+	out.HermesUserID = strings.TrimSpace(req.HermesUserID)
 	if out.IsOpenClaw() {
 		if out.OpenClawSessionMode == "" {
 			out.OpenClawSessionMode = agent_backend_entity.OpenClawSessionPerAgentRESession
 		}
 		if normalized, err := agent_backend_entity.NormalizeOpenClawGatewayURL(out.OpenClawGatewayURL); err == nil {
 			out.OpenClawGatewayURL = normalized
+		}
+	}
+	if out.IsHermes() {
+		if normalized, err := agent_backend_entity.NormalizeHermesURL(out.HermesURL); err == nil {
+			out.HermesURL = normalized
 		}
 	}
 	return out, nil
@@ -982,6 +1027,8 @@ func (s *agentBackendSvc) Delete(ctx context.Context, req *DeleteBackendRequest)
 		return nil, err
 	}
 	// 引用它的执行目标项一并落墓碑，Agent 本身不删（R6）。
+	// hermes 的 gated serve 凭据挂在 URL 派生的 keychain 账号下，随删除一起清。
+	s.deleteHermesCredential(ctx, existing)
 	sync_svc.NotifyDelete(ctx, syncwire.KindAgentBackend, existing.ID, existing.SyncMeta)
 	return &DeleteBackendResponse{}, nil
 }
@@ -1223,6 +1270,9 @@ func (s *agentBackendSvc) buildItem(b *agent_backend_entity.AgentBackend, p *llm
 		OpenClawAgentID:       b.OpenClawAgentID,
 		OpenClawDefaultModel:  b.OpenClawDefaultModel,
 		OpenClawSessionMode:   b.OpenClawSessionMode,
+		HermesURL:             b.HermesURL,
+		HermesAuthProvider:    b.HermesAuthProvider,
+		HermesUserID:          b.HermesUserID,
 		Createtime:            b.Createtime,
 		Updatetime:            b.Updatetime,
 	}
