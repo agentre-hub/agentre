@@ -216,6 +216,15 @@ describe("provider compatibility gate（与后端 ProviderTypeMatch 对齐）", 
     expect(isProviderSelectableBackend("")).toBe(false);
   });
 
+  // Hermes 自带 provider/model/凭证配置（kinds.go 的 ProviderTypeMatch 恒 false），
+  // 不消费 Agentre 的 LLMProvider，因此不列供应商也不拉供应商列表。
+  it("hermes 不渲染供应商选择器，也不声明任何兼容供应商", () => {
+    expect(isProviderSelectableBackend("hermes")).toBe(false);
+    expect(isProviderCompatible("hermes", "anthropic")).toBe(false);
+    expect(isProviderCompatible("hermes", "openai-chat")).toBe(false);
+    expect(isProviderCompatible("hermes", "openai-response")).toBe(false);
+  });
+
   it("builtin / claudecode / codex / piagent 均可选供应商", () => {
     expect(isProviderSelectableBackend("builtin")).toBe(true);
     expect(isProviderSelectableBackend("claudecode")).toBe(true);

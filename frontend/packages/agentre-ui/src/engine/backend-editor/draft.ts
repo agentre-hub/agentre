@@ -8,6 +8,7 @@ import type { EngineSettingsBridge } from "../port-bridge";
 import type { agent_backend_svc } from "../port-bridge";
 import {
   CLAUDE_TIERS,
+  isCLIPathBackend,
   isCliBackend,
   type ApprovalValue,
   type Backend,
@@ -42,6 +43,11 @@ export type BackendDraft = {
   openClawAgentId: string;
   openClawDefaultModel: string;
   openClawSessionMode: string;
+  // HermesURL 仅 hermes 使用（一个已在运行的 `hermes serve` 地址）。
+  hermesUrl: string;
+  // hermes gated serve 的非敏感展示字段（登录成功后的 provider / userId）。
+  hermesAuthProvider: string;
+  hermesUserId: string;
 };
 
 export type PendingProviderSync = {
@@ -156,6 +162,65 @@ export function openClawProbeErrorMessage(
     : fallback || translate("agentBackends.openclaw.errors.connectionFailed");
 }
 
+// Hermes test-connection codes emitted by the Go service. Unlike OpenClaw they
+// share the backend's own copy namespace, so the key is the code itself.
+const HERMES_ERROR_CODES = new Set([
+  "HERMES_LOGIN_REQUIRED",
+  "HERMES_LOGIN_EXPIRED",
+  "HERMES_INVALID_CREDENTIALS",
+  "HERMES_RATE_LIMITED",
+  "HERMES_PROVIDER_UNSUPPORTED",
+  "HERMES_PROVIDER_UNAVAILABLE",
+  "HERMES_PROVIDER_NOT_FOUND",
+  "HERMES_UNREACHABLE",
+]);
+
+// hermesProbeErrorMessage localizes a structured hermes test failure so the UI
+// can say "login required" / "login expired" instead of the raw backend text.
+export function hermesProbeErrorMessage(
+  code: string,
+  fallback: string,
+  translate: (key: string) => string,
+): string {
+  const normalized = code.trim().toUpperCase();
+  if (HERMES_ERROR_CODES.has(normalized)) {
+    return translate(`agentBackends.hermes.errors.${normalized}`);
+  }
+  return fallback;
+}
+
+// 登录动作走 Wails 的 codedError 前缀（`agentre-code:<业务码> <原文>`）。把这些
+// 数值码映回同一份前端文案，登录失败与 Test Connection 就同一套说法。
+const HERMES_ERROR_CODE_NUMBERS: Record<string, string> = {
+  "12030": "HERMES_LOGIN_REQUIRED",
+  "12031": "HERMES_LOGIN_EXPIRED",
+  "12032": "HERMES_INVALID_CREDENTIALS",
+  "12033": "HERMES_RATE_LIMITED",
+  "12034": "HERMES_PROVIDER_UNSUPPORTED",
+  "12035": "HERMES_PROVIDER_UNAVAILABLE",
+  "12036": "HERMES_PROVIDER_NOT_FOUND",
+  "12037": "HERMES_UNREACHABLE",
+};
+
+const CODED_ERROR_PREFIX = /^agentre-code:(\d+)\s?([\s\S]*)$/;
+
+// hermesErrorMessage turns a thrown login/logout error into a readable sentence,
+// preferring the localized copy over the raw `agentre-code:` envelope.
+export function hermesErrorMessage(
+  err: unknown,
+  translate: (key: string) => string,
+): string {
+  const raw =
+    err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  const match = CODED_ERROR_PREFIX.exec(raw);
+  if (match) {
+    const key = HERMES_ERROR_CODE_NUMBERS[match[1]];
+    if (key) return translate(`agentBackends.hermes.errors.${key}`);
+    return match[2] || translate("common.unknownError");
+  }
+  return raw || translate("common.unknownError");
+}
+
 // buildBackendDraft 把编辑器的表单字段收成一份提交草稿：每种 backend 只保留自己
 // 用得上的字段，其余按类型清空，避免跨类型残留被写进库。
 export type BackendDraftFields = {
@@ -176,6 +241,9 @@ export type BackendDraftFields = {
   openClawGatewayURL: string;
   openClawAgentID: string;
   openClawDefaultModel: string;
+  hermesUrl: string;
+  hermesAuthProvider: string;
+  hermesUserId: string;
 };
 
 export function buildBackendDraft(f: BackendDraftFields): BackendDraft {
@@ -192,7 +260,7 @@ export function buildBackendDraft(f: BackendDraftFields): BackendDraft {
     llmProviderKey: f.type === "openclaw" ? "" : f.llmProviderKey,
     // openclaw 不绑定 Agentre ProviderModel（spec 决策 4/22）。
     llmModelKey: f.type === "openclaw" ? "" : f.llmModelKey.trim(),
-    cliPath: isCliBackend(f.type) ? f.cliPath.trim() : "",
+    cliPath: isCLIPathBackend(f.type) ? f.cliPath.trim() : "",
     modelRoutes:
       f.type === "claudecode" ? routeTargetsForRequest(f.routes) : {},
     sandbox: f.type === "codex" ? f.sandbox : "",
@@ -208,6 +276,9 @@ export function buildBackendDraft(f: BackendDraftFields): BackendDraft {
     openClawDefaultModel:
       f.type === "openclaw" ? f.openClawDefaultModel.trim() : "",
     openClawSessionMode: f.type === "openclaw" ? OPENCLAW_SESSION_MODE : "",
+    hermesUrl: f.type === "hermes" ? f.hermesUrl.trim() : "",
+    hermesAuthProvider: f.type === "hermes" ? f.hermesAuthProvider.trim() : "",
+    hermesUserId: f.type === "hermes" ? f.hermesUserId.trim() : "",
   };
 }
 
@@ -268,6 +339,9 @@ export async function saveBackendDraft(args: {
       openClawAgentId: draft.openClawAgentId,
       openClawDefaultModel: draft.openClawDefaultModel,
       openClawSessionMode: draft.openClawSessionMode,
+      hermesUrl: draft.hermesUrl,
+      hermesAuthProvider: draft.hermesAuthProvider,
+      hermesUserId: draft.hermesUserId,
     } as unknown as agent_backend_svc.UpdateBackendRequest;
     if (draft.type === "openclaw") {
       await bridge.UpdateOpenClawAgentBackend(

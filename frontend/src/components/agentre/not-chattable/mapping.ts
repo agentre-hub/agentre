@@ -5,6 +5,7 @@ export type BlockReason =
   | "remote-provider-missing"
   | "gateway-not-running"
   | "remote-openclaw-unavailable"
+  | "remote-hermes-unavailable"
   | "unknown-backend";
 
 export type GuidanceTarget =
@@ -56,6 +57,12 @@ const ctaByReason: Record<BlockReason, BlockReasonCta> = {
     primaryTarget: "settings:remote-devices",
     secondaryLabel: "chatPage.notChattable.actions.backendSettings",
     copyKey: "chatPage.notChattable.reasons.remoteOpenclawUnavailable",
+  },
+  "remote-hermes-unavailable": {
+    primaryLabel: "chatPage.notChattable.actions.backendSettings",
+    primaryTarget: "settings:agent-backend",
+    secondaryLabel: "chatPage.notChattable.actions.backendSettings",
+    copyKey: "chatPage.notChattable.reasons.remoteHermesUnavailable",
   },
   "unknown-backend": {
     primaryLabel: "chatPage.notChattable.actions.backendSettings",

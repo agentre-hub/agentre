@@ -73,6 +73,7 @@
           "remoteProviderMissing": "The remote device is missing this LLM provider",
           "gatewayNotRunning": "Local gateway is not running",
           "remoteOpenclawUnavailable": "Remote OpenClaw is unavailable",
+          "remoteHermesUnavailable": "Remote Hermes is unavailable",
           "unknownBackend": "Unknown backend type",
           "unpaired": "This computer isn't paired with it",
           "offline": "Offline",

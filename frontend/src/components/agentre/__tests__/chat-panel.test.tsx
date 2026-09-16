@@ -337,8 +337,11 @@ vi.mock("../permission-mode", async () => {
 // 路径走 useBackendCapabilities 分支。
 function makeCapsStub(backendType?: string | null) {
   const supportsCompact = backendType === "codex" || backendType === "piagent";
+  // Hermes 与 openclaw 不声明 steer；其余后端都得按能力位走排队通路。
+  const supportsSteer = backendType !== "openclaw" && backendType !== "hermes";
   return {
     has: (c: string) =>
+      (c === "steer" && supportsSteer) ||
       c === "set_permission_mode" ||
       (c === "image_input" && componentMocks.capsImageInput) ||
       (c === "compact" && supportsCompact) ||

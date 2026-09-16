@@ -210,6 +210,11 @@
           "description": "当前 Agent 的远端 OpenClaw 网关暂不可用，请检查远端设备连接和配置。",
           "short": "远端 OpenClaw 不可用"
         },
+        "remoteHermesUnavailable": {
+          "title": "远端 Hermes 暂不可用",
+          "description": "Hermes 后端运行在 Agentre 桌面端，无法派发到远端 agentred。请把该后端指向本机运行的 `hermes serve`。",
+          "short": "远端 Hermes 不可用"
+        },
         "unknownBackend": {
           "title": "Agent 后端暂不可用",
           "description": "当前 Agent 使用了无法识别的后端类型，请检查 Agent 后端配置。",
@@ -245,6 +250,7 @@
       "regenerate": "重新生成失败：{{msg}}",
       "rename": "重命名失败：{{msg}}",
       "send": "发送失败：{{msg}}",
+      "steerUnsupported": "当前引擎不支持在生成中追加消息，请等本轮结束后再发送",
       "stop": "停止失败：{{msg}}",
       "stopBackgroundTask": "停止后台任务失败：{{msg}}"
     },
@@ -265,6 +271,7 @@
         "remoteProviderMissing": "远端缺少 LLM 供应商",
         "gatewayNotRunning": "本地网关未启动",
         "remoteOpenclawUnavailable": "远端 OpenClaw 暂不可用",
+        "remoteHermesUnavailable": "远端 Hermes 暂不可用",
         "unknownBackend": "未知后端类型",
         "unpaired": "这台电脑未配对它",
         "offline": "离线",
