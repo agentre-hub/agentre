@@ -15,6 +15,7 @@ describe("AI brand logos", () => {
         <AgentBackendLogo backendType="claudecode" />
         <AgentBackendLogo backendType="codex" />
         <AgentBackendLogo backendType="piagent" />
+        <AgentBackendLogo backendType="hermes" />
         <AgentBackendLogo backendType="openclaw" />
       </>,
     );
@@ -23,6 +24,20 @@ describe("AI brand logos", () => {
     expect(screen.getByRole("img", { name: "Codex" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Pi" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "OpenClaw" })).toBeInTheDocument();
+
+    // Hermes 的 mark 是位图徽章，不是单色 mask，所以它必须真的渲染出 img。
+    expect(
+      screen.getByRole("img", { name: "Hermes" }).querySelector("img"),
+    ).toBeInTheDocument();
+  });
+
+  // 没有随仓品牌素材的后端才退成文字 logo，而不是画一个假商标。
+  it("Given an unregistered backend type, when rendered, then it falls back to a text logo", () => {
+    render(<AgentBackendLogo backendType="unknown-backend" />);
+
+    const logo = screen.getByRole("img", { name: "Unknown backend" });
+    expect(logo).toHaveTextContent("U");
+    expect(logo.querySelector("img")).not.toBeInTheDocument();
   });
 
   it.each([

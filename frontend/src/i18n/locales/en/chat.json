@@ -210,6 +210,11 @@
           "description": "The remote OpenClaw gateway for this Agent is unavailable. Check the remote device connection and configuration.",
           "short": "Remote OpenClaw unavailable"
         },
+        "remoteHermesUnavailable": {
+          "title": "Remote Hermes is unavailable",
+          "description": "Hermes backends run on an Agentre desktop and cannot be dispatched to a remote agentred. Point this backend at a Hermes server running on this computer.",
+          "short": "Remote Hermes unavailable"
+        },
         "unknownBackend": {
           "title": "The Agent backend is unavailable",
           "description": "This Agent uses an unrecognized backend type. Check the Agent backend configuration.",
@@ -245,6 +250,7 @@
       "regenerate": "Regeneration failed: {{msg}}",
       "rename": "Rename failed: {{msg}}",
       "send": "Send failed: {{msg}}",
+      "steerUnsupported": "This engine cannot accept messages mid-turn. Wait for the current turn to finish.",
       "stop": "Stop failed: {{msg}}",
       "stopBackgroundTask": "Failed to stop background task: {{msg}}"
     },
@@ -265,6 +271,7 @@
         "remoteProviderMissing": "Remote is missing this LLM provider",
         "gatewayNotRunning": "Local gateway is not running",
         "remoteOpenclawUnavailable": "Remote OpenClaw is not available yet",
+        "remoteHermesUnavailable": "Remote Hermes is not available",
         "unknownBackend": "Unknown backend type",
         "unpaired": "This computer isn't paired with it",
         "offline": "Offline",

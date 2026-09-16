@@ -40,6 +40,9 @@ export const agent_backend_svc = {
   GetCLIOverlayRequest: ModelClass,
   SetCLIOverlayRequest: ModelClass,
   ResolveCLIPathRequest: ModelClass,
+  ListHermesAuthProvidersRequest: ModelClass,
+  LoginHermesRequest: ModelClass,
+  LogoutHermesRequest: ModelClass,
 };
 
 export const agent_svc = {

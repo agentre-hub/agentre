@@ -18,7 +18,9 @@ export type OutlineItem = {
 };
 
 // 工具名按后端各自的原样大小写收录:claudecode 用 PascalCase,codex 用
-// file_change(历史消息可能仍是 apply_patch),pi agent 全小写(edit / write / read)。
+// file_change(历史消息可能仍是 apply_patch),pi agent 全小写(edit / write / read),
+// hermes 是 write_file / patch(路径都在 input.path)。read_file 同样带 input.path,
+// 但它是只读工具，绝不能计进「改动」。
 const EDIT_TOOLS = new Set([
   "Edit",
   "Write",
@@ -27,6 +29,8 @@ const EDIT_TOOLS = new Set([
   "apply_patch",
   "edit",
   "write",
+  "write_file",
+  "patch",
 ]);
 
 function textOf(m: Msg): string {

@@ -153,6 +153,7 @@ const REASON_I18N_KEY: Record<string, string> = {
   "remote-provider-missing": "remoteProviderMissing",
   "gateway-not-running": "gatewayNotRunning",
   "remote-openclaw-unavailable": "remoteOpenclawUnavailable",
+  "remote-hermes-unavailable": "remoteHermesUnavailable",
   "unknown-backend": "unknownBackend",
   "exec-target-unpaired": "unpaired",
   "exec-target-offline": "offline",

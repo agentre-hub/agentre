@@ -7,7 +7,7 @@ import { agent_backend_svc } from "../port-bridge";
 import type { EngineSettingsBridge } from "../port-bridge";
 import {
   cliBinaryName,
-  isCliBackend,
+  isCLIPathBackend,
   type BackendType,
   type CLIProbe,
   type Translate,
@@ -15,7 +15,8 @@ import {
 
 import type { EditorState } from "./editor-types";
 
-// 打开新建对话框时会对这三个类型各探一次目标机的 $PATH。
+// 打开新建对话框时会对这几个类型各探一次目标机的 $PATH。hermes 不在其中：它连接
+// 一个已在运行的 `hermes serve`，没有 CLI 路径可探。
 const CLI_BACKEND_TYPES: BackendType[] = ["claudecode", "codex", "piagent"];
 
 // 在「目标机」的 $PATH 里找 t 对应的可执行文件。deviceId 空串 = 本机，
@@ -62,7 +63,7 @@ export function useCliProbes(args: {
     nextType: BackendType,
     dev: string = "",
   ): Promise<string | null> {
-    if (!isCliBackend(nextType)) return null;
+    if (!isCLIPathBackend(nextType)) return null;
     const r = await probeCLIPath(resolveCliPath, nextType, dev);
     return r.found ? r.path : null;
   }

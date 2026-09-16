@@ -656,6 +656,8 @@ const (
 	BlockReasonGatewayNotRunning = exec_target_svc.BlockReasonGatewayNotRunning
 	// BlockReasonRemoteOpenClawUnavailable 远端 OpenClaw 暂不可用。
 	BlockReasonRemoteOpenClawUnavailable = exec_target_svc.BlockReasonRemoteOpenClawUnavailable
+	// BlockReasonRemoteHermesUnavailable 远端 Hermes 暂不可用（不能在 agentred 上运行）。
+	BlockReasonRemoteHermesUnavailable = exec_target_svc.BlockReasonRemoteHermesUnavailable
 	// BlockReasonUnknownBackend 未知 Agent 后端类型。
 	BlockReasonUnknownBackend = exec_target_svc.BlockReasonUnknownBackend
 )

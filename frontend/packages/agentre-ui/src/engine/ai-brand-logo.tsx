@@ -7,6 +7,9 @@ import codexLogo from "./assets/brands/codex.svg";
 import deepSeekLogo from "./assets/brands/deepseek.svg";
 import glmLogo from "./assets/brands/glm.svg";
 import geminiLogo from "./assets/brands/gemini.svg";
+// Hermes 的官方 mark 是那张圆角徽章插画（桌面端 app 图标），不是单色矢量符号，
+// 所以这里用位图而不是 mask：徽章自带的浅色底在深色主题下同样成立。
+import hermesLogo from "./assets/brands/hermes.png";
 import kimiLogo from "./assets/brands/kimi.svg";
 import metaLogo from "./assets/brands/meta.svg";
 import minimaxLogo from "./assets/brands/minimax.svg";
@@ -26,6 +29,7 @@ type Brand =
   | "deepseek"
   | "gemini"
   | "glm"
+  | "hermes"
   | "kimi"
   | "meta"
   | "minimax"
@@ -88,6 +92,7 @@ const brandRegistry: Record<Brand, BrandDefinition> = {
     modelPatterns: [/^(?:glm|codegeex)(?:-|$)/],
     identityPatterns: [/\b(?:glm|zhipu|bigmodel)\b/],
   },
+  hermes: { label: "Hermes", src: hermesLogo },
   kimi: {
     label: "Kimi",
     src: kimiLogo,
@@ -152,6 +157,7 @@ const backendBrands: Record<string, Brand> = {
   claudecode: "claude",
   codex: "codex",
   piagent: "pi",
+  hermes: "hermes",
   openclaw: "openclaw",
 };
 

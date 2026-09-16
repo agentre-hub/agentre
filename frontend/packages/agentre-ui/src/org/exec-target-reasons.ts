@@ -16,6 +16,7 @@ const REASON_I18N_KEY: Record<string, string> = {
   "remote-provider-missing": "remoteProviderMissing",
   "gateway-not-running": "gatewayNotRunning",
   "remote-openclaw-unavailable": "remoteOpenclawUnavailable",
+  "remote-hermes-unavailable": "remoteHermesUnavailable",
   "unknown-backend": "unknownBackend",
   "exec-target-unpaired": "unpaired",
   "exec-target-offline": "offline",
@@ -37,6 +38,7 @@ export const ORG_EXEC_TARGET_DESTRUCTIVE_REASONS = new Set([
   "remote-provider-missing",
   "gateway-not-running",
   "remote-openclaw-unavailable",
+  "remote-hermes-unavailable",
   "unknown-backend",
 ]);
 
