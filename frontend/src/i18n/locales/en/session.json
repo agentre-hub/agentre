@@ -100,7 +100,6 @@
       "pickDirectoryTitle": "Choose a working directory for the imported session"
     },
     "machine": {
-      "empty": "No conversations on this machine yet",
       "local": "This machine"
     },
     "search": {

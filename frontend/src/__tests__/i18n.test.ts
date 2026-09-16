@@ -501,6 +501,25 @@ describe("i18n resources", () => {
     }
   });
 
+  it.each([
+    ["en", "No conversations on this machine yet"],
+    ["zh-CN", "这台机器上还没有对话"],
+  ] as const)(
+    "Given machine-empty copy is shared presentation, When the desktop host resolves %s resources, Then agentreUi owns it and common does not duplicate it",
+    (language, expected) => {
+      expect(
+        i18n.getResource(
+          language,
+          AGENTRE_UI_NAMESPACE,
+          "sessionIndex.machine.empty",
+        ),
+      ).toBe(expected);
+      expect(
+        i18n.getResource(language, "common", "sessionIndex.machine.empty"),
+      ).toBeUndefined();
+    },
+  );
+
   it("Given App shell and settings UI translation keys, When locales are checked, Then both languages provide every key", () => {
     expect(
       shellAndSettingsKeys.filter((key) => !hasLocaleKey(zhCommon, key)),

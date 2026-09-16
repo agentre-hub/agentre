@@ -45,6 +45,7 @@
       "toggle": "Toggle {{name}} sessions"
     },
     "machine": {
+      "empty": "No conversations on this machine yet",
       "offline": "Offline"
     },
     "filter": {

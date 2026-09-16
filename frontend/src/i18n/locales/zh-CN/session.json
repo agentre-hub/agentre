@@ -100,7 +100,6 @@
       "pickDirectoryTitle": "为导入的会话选择工作目录"
     },
     "machine": {
-      "empty": "这台机器上还没有对话",
       "local": "本机"
     },
     "search": {
