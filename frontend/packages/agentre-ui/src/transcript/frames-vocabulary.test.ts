@@ -141,7 +141,7 @@ const PAYLOADS: Partial<Record<EventKind, Record<string, unknown>>> = {
 const kinds = Object.keys(LANDINGS) as EventKind[];
 
 function frame(kind: EventKind): TranscriptFrame {
-  return { sessionId: SID, event: { kind, ...(PAYLOADS[kind] ?? {}) }, seq: 1 };
+  return { event: { kind, ...(PAYLOADS[kind] ?? {}) }, seq: 1 };
 }
 
 describe("EventKind 词表的归宿", () => {
@@ -182,7 +182,6 @@ describe("EventKind 词表的归宿", () => {
     const [msg] = reduceFrames(
       [
         {
-          sessionId: SID,
           event: { kind: "kind_from_a_newer_daemon", payload: 42 },
           seq: 1,
         },

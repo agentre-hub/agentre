@@ -3,8 +3,11 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
 import {
-  AgentreDialog,
   Button,
+  DialogShell,
+  DialogShellBody,
+  DialogShellFooter,
+  DialogShellHeader,
   RadioGroup,
   RadioGroupItem,
   Textarea,
@@ -95,91 +98,92 @@ export function TLSTrustDialog({
   };
 
   return (
-    <AgentreDialog
+    <DialogShell
       open={open}
       onOpenChange={(o) => {
         if (!o) onClose();
       }}
-      title={t("remoteDevices.tls.title")}
-      description={t("remoteDevices.tls.description")}
-      contentClassName="sm:max-w-[540px]"
-      bodyClassName="flex flex-col gap-3.5"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
-          <Button onClick={apply}>{t("remoteDevices.tls.apply")}</Button>
-        </>
-      }
     >
-      <RadioGroup value={mode} onValueChange={setMode} className="gap-3">
-        {MODES.map((m) => (
-          <label
-            key={m.value}
-            className={`flex items-start gap-3 rounded-md border p-3 cursor-pointer ${
-              mode === m.value
-                ? m.danger
-                  ? "border-destructive bg-destructive/5"
-                  : "border-primary bg-primary/5"
-                : "border-border"
-            }`}
-          >
-            <RadioGroupItem
-              value={m.value}
-              className="mt-1"
-              aria-labelledby={`${modeIdPrefix}-${m.value}-label`}
-              aria-describedby={`${modeIdPrefix}-${m.value}-desc`}
-            />
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
-                <span
-                  id={`${modeIdPrefix}-${m.value}-label`}
-                  className="text-sm font-medium"
-                >
-                  {t(m.labelKey)}
-                </span>
-                {m.badgeKey ? (
+      <DialogShellHeader
+        title={t("remoteDevices.tls.title")}
+        subtitle={t("remoteDevices.tls.description")}
+        onClose={onClose}
+      />
+      <DialogShellBody className="flex flex-col gap-3.5">
+        <RadioGroup value={mode} onValueChange={setMode} className="gap-3">
+          {MODES.map((m) => (
+            <label
+              key={m.value}
+              className={`flex items-start gap-3 rounded-md border p-3 cursor-pointer ${
+                mode === m.value
+                  ? m.danger
+                    ? "border-destructive bg-destructive/5"
+                    : "border-primary bg-primary/5"
+                  : "border-border"
+              }`}
+            >
+              <RadioGroupItem
+                value={m.value}
+                className="mt-1"
+                aria-labelledby={`${modeIdPrefix}-${m.value}-label`}
+                aria-describedby={`${modeIdPrefix}-${m.value}-desc`}
+              />
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
                   <span
-                    className={`text-3xs uppercase tracking-wide px-1.5 py-0.5 rounded ${
-                      m.danger
-                        ? "bg-destructive/20 text-destructive"
-                        : "bg-secondary text-secondary-foreground"
-                    }`}
+                    id={`${modeIdPrefix}-${m.value}-label`}
+                    className="text-sm font-medium"
                   >
-                    {t(m.badgeKey)}
+                    {t(m.labelKey)}
                   </span>
-                ) : null}
+                  {m.badgeKey ? (
+                    <span
+                      className={`text-3xs uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                        m.danger
+                          ? "bg-destructive/20 text-destructive"
+                          : "bg-secondary text-secondary-foreground"
+                      }`}
+                    >
+                      {t(m.badgeKey)}
+                    </span>
+                  ) : null}
+                </div>
+                <p
+                  id={`${modeIdPrefix}-${m.value}-desc`}
+                  className="text-xs text-muted-foreground"
+                >
+                  {t(m.descriptionKey)}
+                </p>
               </div>
-              <p
-                id={`${modeIdPrefix}-${m.value}-desc`}
-                className="text-xs text-muted-foreground"
-              >
-                {t(m.descriptionKey)}
-              </p>
-            </div>
+            </label>
+          ))}
+        </RadioGroup>
+
+        {needsPEM ? (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium">
+              {mode === "pin-cert"
+                ? t("remoteDevices.tls.pem.cert")
+                : t("remoteDevices.tls.pem.caBundle")}
+            </span>
+            <Textarea
+              value={pem}
+              onChange={(e) => setPem(e.target.value)}
+              placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+              rows={8}
+              className="font-mono text-xs"
+            />
           </label>
-        ))}
-      </RadioGroup>
+        ) : null}
 
-      {needsPEM ? (
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">
-            {mode === "pin-cert"
-              ? t("remoteDevices.tls.pem.cert")
-              : t("remoteDevices.tls.pem.caBundle")}
-          </span>
-          <Textarea
-            value={pem}
-            onChange={(e) => setPem(e.target.value)}
-            placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-            rows={8}
-            className="font-mono text-xs"
-          />
-        </label>
-      ) : null}
-
-      {error ? <div className="text-sm text-destructive">{error}</div> : null}
-    </AgentreDialog>
+        {error ? <div className="text-sm text-destructive">{error}</div> : null}
+      </DialogShellBody>
+      <DialogShellFooter>
+        <Button variant="ghost" onClick={onClose}>
+          {t("common.cancel")}
+        </Button>
+        <Button onClick={apply}>{t("remoteDevices.tls.apply")}</Button>
+      </DialogShellFooter>
+    </DialogShell>
   );
 }

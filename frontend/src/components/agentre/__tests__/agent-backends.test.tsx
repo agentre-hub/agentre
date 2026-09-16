@@ -1220,10 +1220,10 @@ describe("AgentBackendsPanel", () => {
 
     const pong = await within(dialog).findByText(/pong/);
     const footer = dialog.querySelector(
-      '[data-slot="dialog-footer"]',
+      '[data-slot="dialog-shell-footer"]',
     ) as HTMLElement | null;
     const body = dialog.querySelector(
-      '[data-slot="dialog-body"]',
+      '[data-slot="dialog-shell-body"]',
     ) as HTMLElement | null;
     expect(footer).not.toBeNull();
     expect(body).not.toBeNull();

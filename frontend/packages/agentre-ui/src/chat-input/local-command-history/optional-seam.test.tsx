@@ -29,8 +29,6 @@ function fakeAccess(
     deriveScopeKey: ({ deviceId, cwd }) => `${deviceId}:${cwd}`,
     list: () => entries,
     subscribe: () => () => {},
-    reserveLastUsedAt: () => 1,
-    releaseLastUsedAt: () => {},
     record: vi.fn(),
     clear: () => true,
   };

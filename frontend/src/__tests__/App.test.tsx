@@ -1041,8 +1041,8 @@ describe("App", () => {
     let dialog = await screen.findByRole("dialog");
     let body = within(dialog)
       .getByLabelText("Name")
-      .closest("[data-slot='dialog-body']");
-    let footer = dialog.querySelector("[data-slot='dialog-footer']");
+      .closest("[data-slot='dialog-shell-body']");
+    let footer = dialog.querySelector("[data-slot='dialog-shell-footer']");
 
     expect(body).toHaveClass("px-5", "py-4");
     expect(footer).toHaveClass("border-t", "border-border");
@@ -1057,8 +1057,8 @@ describe("App", () => {
     dialog = await screen.findByRole("dialog");
     body = within(dialog)
       .getByLabelText("Name")
-      .closest("[data-slot='dialog-body']");
-    footer = dialog.querySelector("[data-slot='dialog-footer']");
+      .closest("[data-slot='dialog-shell-body']");
+    footer = dialog.querySelector("[data-slot='dialog-shell-footer']");
 
     expect(body).toHaveClass("px-5", "py-4");
     expect(footer).toHaveClass("border-t", "border-border");

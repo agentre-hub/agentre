@@ -8,10 +8,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 
 import { Button } from "@agentre-hub/agentre-ui";
-import {
-  consumeNewAgentDialogIntent,
-  subscribeNewAgentIntent,
-} from "@/stores/new-agent-intent-store";
+import { useNewAgentIntentStore } from "@/stores/new-agent-intent-store";
 
 import { agent_svc, department_svc } from "../../../wailsjs/go/models";
 import {
@@ -72,13 +69,17 @@ export function OrgChartPage() {
   const [newSubDeptParentId, setNewSubDeptParentId] = React.useState<number>(0);
   React.useEffect(() => {
     const openFromIntent = () => {
-      if (!consumeNewAgentDialogIntent()) return;
+      if (!useNewAgentIntentStore.getState().consume()) return;
       setNewAgentParentDeptId(0);
       setNewAgentFromIntent(true);
       setNewAgentOpen(true);
     };
     openFromIntent();
-    return subscribeNewAgentIntent(openFromIntent);
+    // 只认「又来了一条 request」：consume 清 pending 时不叫醒这个 effect。
+    return useNewAgentIntentStore.subscribe(
+      (state) => state.revision,
+      openFromIntent,
+    );
   }, []);
 
   const agentById = React.useMemo(

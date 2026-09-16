@@ -2,7 +2,7 @@ import type { TFunction } from "i18next";
 import { Bot } from "lucide-react";
 
 import i18n from "@/i18n";
-import { requestNewAgentDialog } from "@/stores/new-agent-intent-store";
+import { useNewAgentIntentStore } from "@/stores/new-agent-intent-store";
 
 import { scoreSuggestion as scoreItem } from "@agentre-hub/agentre-ui";
 import type { CommandSource, OnSelectCtx } from "../types";
@@ -52,7 +52,7 @@ function renderItem(): React.ReactNode {
 
 function onSelect(_item: NewAgentItem, ctx: OnSelectCtx): void {
   ctx.close();
-  requestNewAgentDialog();
+  useNewAgentIntentStore.getState().request();
   ctx.navigate("/org");
 }
 

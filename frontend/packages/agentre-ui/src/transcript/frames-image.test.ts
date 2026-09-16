@@ -34,7 +34,7 @@ const SID = 7;
 const PNG_B64 = "iVBORw0KGgoAAAANSUhEUg";
 
 function frame(event: Record<string, unknown>): TranscriptFrame {
-  return { sessionId: SID, createtime: 0, event } as TranscriptFrame;
+  return { createtime: 0, event } as TranscriptFrame;
 }
 
 /** 新形态:宿主投影 image 块发出来的那一帧。 */

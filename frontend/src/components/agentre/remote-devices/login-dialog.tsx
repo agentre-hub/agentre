@@ -3,8 +3,11 @@ import { useTranslation } from "react-i18next";
 import { Check, Copy } from "lucide-react";
 
 import {
-  AgentreDialog,
   Button,
+  DialogShell,
+  DialogShellBody,
+  DialogShellFooter,
+  DialogShellHeader,
   Input,
   RadioGroup,
   RadioGroupItem,
@@ -287,131 +290,132 @@ export function LoginDialog({
     (mode === "official" || url.trim().length > 0) && phase !== "starting";
 
   return (
-    <AgentreDialog
+    <DialogShell
       open={open}
       onOpenChange={(o) => {
         if (!o) handleClose();
       }}
-      title={t("remoteDevices.login.title")}
-      description={t("remoteDevices.login.description")}
-      contentClassName="sm:max-w-[480px]"
-      bodyClassName="flex flex-col gap-3.5"
-      footer={
-        <>
-          <Button
-            variant="ghost"
-            onClick={handleClose}
-            disabled={phase === "starting"}
-          >
-            {t("common.cancel")}
-          </Button>
-          {phase !== "waiting" ? (
-            <Button onClick={start} disabled={!canSubmit}>
-              {phase === "starting"
-                ? t("remoteDevices.login.actions.connecting")
-                : t("remoteDevices.login.actions.continue")}
-            </Button>
-          ) : null}
-        </>
-      }
     >
-      {phase === "waiting" && login ? (
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col items-center gap-2 rounded-md bg-secondary/50 py-4">
-            <span className="text-xs text-muted-foreground">
-              {t("remoteDevices.login.waiting.userCode")}
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-2xl font-semibold tracking-widest">
-                {login.userCode}
+      <DialogShellHeader
+        title={t("remoteDevices.login.title")}
+        subtitle={t("remoteDevices.login.description")}
+        onClose={handleClose}
+      />
+      <DialogShellBody className="flex flex-col gap-3.5">
+        {phase === "waiting" && login ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col items-center gap-2 rounded-md bg-secondary/50 py-4">
+              <span className="text-xs text-muted-foreground">
+                {t("remoteDevices.login.waiting.userCode")}
               </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={copyCode}
-                className="gap-1 text-muted-foreground"
-              >
-                {copied ? (
-                  <Check className="h-3.5 w-3.5 text-status-running" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-                {copied
-                  ? t("remoteDevices.login.actions.copied")
-                  : t("remoteDevices.login.actions.copyCode")}
-              </Button>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-2xl font-semibold tracking-widest">
+                  {login.userCode}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={copyCode}
+                  className="gap-1 text-muted-foreground"
+                >
+                  {copied ? (
+                    <Check className="h-3.5 w-3.5 text-status-running" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                  {copied
+                    ? t("remoteDevices.login.actions.copied")
+                    : t("remoteDevices.login.actions.copyCode")}
+                </Button>
+              </div>
             </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs text-muted-foreground">
-              {t("remoteDevices.login.waiting.verificationUrl")}
-            </span>
-            <code className="break-all text-xs">{login.verificationURI}</code>
-          </div>
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full"
-            onClick={() =>
-              BrowserOpenURL(
-                login.verificationURIComplete || login.verificationURI,
-              )
-            }
-          >
-            {t("remoteDevices.login.actions.openBrowser")}
-          </Button>
-          <p className="text-center text-xs text-muted-foreground">
-            {t("remoteDevices.login.waiting.expiresIn", {
-              time: formatCountdown(remaining),
-            })}
-          </p>
-          <p className="text-center text-xs text-muted-foreground">
-            {t("remoteDevices.login.waiting.autoClose")}
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          <RadioGroup
-            value={mode}
-            onValueChange={(v) => setMode(v as ServerMode)}
-            className="gap-2"
-          >
-            <ServerOption
-              value="official"
-              mode={mode}
-              title={t("remoteDevices.login.servers.official")}
-              desc={t("remoteDevices.login.servers.officialDesc")}
-              badge={t("remoteDevices.login.servers.recommended")}
-              disabled={phase === "starting"}
-              onSelect={setMode}
-            />
-            <ServerOption
-              value="custom"
-              mode={mode}
-              title={t("remoteDevices.login.servers.custom")}
-              desc={t("remoteDevices.login.servers.customDesc")}
-              disabled={phase === "starting"}
-              onSelect={setMode}
-            />
-          </RadioGroup>
-          {mode === "custom" ? (
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium">
-                {t("remoteDevices.login.fields.url")}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-muted-foreground">
+                {t("remoteDevices.login.waiting.verificationUrl")}
               </span>
-              <Input
-                value={url}
-                onChange={(e) => setUrl(e.target.value.trim())}
-                placeholder="https://hub.example.com"
+              <code className="break-all text-xs">{login.verificationURI}</code>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={() =>
+                BrowserOpenURL(
+                  login.verificationURIComplete || login.verificationURI,
+                )
+              }
+            >
+              {t("remoteDevices.login.actions.openBrowser")}
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              {t("remoteDevices.login.waiting.expiresIn", {
+                time: formatCountdown(remaining),
+              })}
+            </p>
+            <p className="text-center text-xs text-muted-foreground">
+              {t("remoteDevices.login.waiting.autoClose")}
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <RadioGroup
+              value={mode}
+              onValueChange={(v) => setMode(v as ServerMode)}
+              className="gap-2"
+            >
+              <ServerOption
+                value="official"
+                mode={mode}
+                title={t("remoteDevices.login.servers.official")}
+                desc={t("remoteDevices.login.servers.officialDesc")}
+                badge={t("remoteDevices.login.servers.recommended")}
                 disabled={phase === "starting"}
+                onSelect={setMode}
               />
-            </label>
-          ) : null}
-        </div>
-      )}
+              <ServerOption
+                value="custom"
+                mode={mode}
+                title={t("remoteDevices.login.servers.custom")}
+                desc={t("remoteDevices.login.servers.customDesc")}
+                disabled={phase === "starting"}
+                onSelect={setMode}
+              />
+            </RadioGroup>
+            {mode === "custom" ? (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium">
+                  {t("remoteDevices.login.fields.url")}
+                </span>
+                <Input
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value.trim())}
+                  placeholder="https://hub.example.com"
+                  disabled={phase === "starting"}
+                />
+              </label>
+            ) : null}
+          </div>
+        )}
 
-      {error ? <div className="text-sm text-destructive">{error}</div> : null}
-    </AgentreDialog>
+        {error ? <div className="text-sm text-destructive">{error}</div> : null}
+      </DialogShellBody>
+      <DialogShellFooter>
+        <Button
+          variant="ghost"
+          onClick={handleClose}
+          disabled={phase === "starting"}
+        >
+          {t("common.cancel")}
+        </Button>
+        {phase !== "waiting" ? (
+          <Button onClick={start} disabled={!canSubmit}>
+            {phase === "starting"
+              ? t("remoteDevices.login.actions.connecting")
+              : t("remoteDevices.login.actions.continue")}
+          </Button>
+        ) : null}
+      </DialogShellFooter>
+    </DialogShell>
   );
 }

@@ -9,7 +9,13 @@ import { LogOut, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { AgentreDialog, Button } from "@agentre-hub/agentre-ui";
+import {
+  Button,
+  DialogShell,
+  DialogShellBody,
+  DialogShellFooter,
+  DialogShellHeader,
+} from "@agentre-hub/agentre-ui";
 import { AgentAvatar, StatusPill } from "@/components/agentre/primitives";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
@@ -74,29 +80,19 @@ export function QuitConfirmDialog() {
   };
 
   return (
-    <AgentreDialog
-      open={open}
-      onOpenChange={setOpen}
-      title={
-        <span className="flex items-center gap-2">
-          <TriangleAlert className="size-[18px] text-status-waiting" />
-          {t("quitConfirm.title")}
-        </span>
-      }
-      description={t("quitConfirm.description", { count })}
-      footer={
-        <>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            {t("quitConfirm.cancel")}
-          </Button>
-          <Button variant="destructive" onClick={handleConfirm}>
-            <LogOut />
-            {t("quitConfirm.quitAnyway")}
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-2">
+    <DialogShell open={open} onOpenChange={setOpen} size="sm" danger>
+      <DialogShellHeader
+        title={
+          <span className="flex items-center gap-2">
+            <TriangleAlert className="size-[18px] text-status-waiting" />
+            {t("quitConfirm.title")}
+          </span>
+        }
+        subtitle={t("quitConfirm.description", { count })}
+        danger
+        onClose={() => setOpen(false)}
+      />
+      <DialogShellBody className="flex flex-col gap-2">
         <p className="font-mono text-2xs font-semibold tracking-wide text-muted-foreground">
           {t("quitConfirm.runningSessions", { count })}
         </p>
@@ -137,7 +133,16 @@ export function QuitConfirmDialog() {
             </p>
           ) : null}
         </div>
-      </div>
-    </AgentreDialog>
+      </DialogShellBody>
+      <DialogShellFooter>
+        <Button variant="outline" onClick={() => setOpen(false)}>
+          {t("quitConfirm.cancel")}
+        </Button>
+        <Button variant="destructive" onClick={handleConfirm}>
+          <LogOut />
+          {t("quitConfirm.quitAnyway")}
+        </Button>
+      </DialogShellFooter>
+    </DialogShell>
   );
 }

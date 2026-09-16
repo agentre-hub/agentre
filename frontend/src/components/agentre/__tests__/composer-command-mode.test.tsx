@@ -153,7 +153,7 @@ describe("ChatComposer command mode", () => {
   });
 
   it("Given an execution scope, When ! mode opens, Then ChatComposer passes that scope to the history menu", async () => {
-    const historyBase = localCommandHistoryStore.reserveLastUsedAt();
+    const historyBase = Date.now();
     localCommandHistoryStore.record(
       historyScope,
       "pnpm test",
@@ -181,7 +181,7 @@ describe("ChatComposer command mode", () => {
   });
 
   it("Given open history in ChatComposer, When Shift+Tab is pressed from the focused combobox, Then the draft, selection, highlighted row, and history stay intact while permission cycles exactly once", async () => {
-    const historyBase = localCommandHistoryStore.reserveLastUsedAt();
+    const historyBase = Date.now();
     localCommandHistoryStore.record(
       historyScope,
       "pnpm test --filter composer",
@@ -284,7 +284,7 @@ describe("ChatComposer command mode", () => {
   });
 
   it("Given ChatComposer history Clear is keyboard-focused, When Shift+Tab is pressed, Then native reverse focus bypasses permission cycling", async () => {
-    const historyBase = localCommandHistoryStore.reserveLastUsedAt();
+    const historyBase = Date.now();
     const lastUsedAt = historyBase + 10;
     localCommandHistoryStore.record(historyScope, "pnpm test", lastUsedAt);
     const editorRef: RefObject<Editor | null> = { current: null };
@@ -386,10 +386,6 @@ describe("ChatComposer command mode", () => {
 
   it("Given history persistence fails, When a command is submitted, Then execution still starts", async () => {
     const editorRef: RefObject<Editor | null> = { current: null };
-    const submittedAt = 1_000;
-    vi.spyOn(localCommandHistoryStore, "reserveLastUsedAt").mockReturnValue(
-      submittedAt,
-    );
     const onRunCommand = vi.fn().mockReturnValue(resolvedRemoteProjectScope);
     const recordSpy = vi
       .spyOn(localCommandHistoryStore, "record")
@@ -417,7 +413,7 @@ describe("ChatComposer command mode", () => {
       expect(recordSpy).toHaveBeenCalledWith(
         resolvedRemoteProjectScope,
         "pwd",
-        submittedAt,
+        expect.any(Number),
       );
     });
   });

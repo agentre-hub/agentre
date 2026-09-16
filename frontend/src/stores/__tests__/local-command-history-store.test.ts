@@ -16,12 +16,6 @@ const remoteRepo: LocalCommandHistoryScope = {
   deviceId: "device-1",
   cwd: "/repo",
 };
-const ECMASCRIPT_DATE_MAX_TIMESTAMP = 8_640_000_000_000_000;
-const TIMESTAMP_RESERVATION_HEADROOM = 1_000_000;
-const MAX_TIMESTAMP_RESERVATION_SEED =
-  ECMASCRIPT_DATE_MAX_TIMESTAMP - TIMESTAMP_RESERVATION_HEADROOM;
-const FIRST_TIMESTAMP_WITHOUT_RESERVATION_HEADROOM =
-  MAX_TIMESTAMP_RESERVATION_SEED + 1;
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -83,127 +77,61 @@ describe("local command history scope and persistence", () => {
     });
   });
 
-  it("Given persisted timestamps across scopes and a rolled-back clock, when submission order is reserved after reconstruction, then every reservation stays above persisted history and prior reservations", () => {
-    localStorage.setItem(
-      LOCAL_COMMAND_HISTORY_STORAGE_KEY,
-      JSON.stringify({
-        version: 1,
-        scopes: {
-          [deriveLocalCommandHistoryScopeKey(localRepo)]: [
-            { command: "pnpm test", lastUsedAt: 900 },
-          ],
-          [deriveLocalCommandHistoryScopeKey(remoteRepo)]: [
-            { command: "make deploy", lastUsedAt: 1_200 },
-          ],
-        },
-      }),
-    );
-    vi.spyOn(Date, "now").mockReturnValue(500);
-
-    const reconstructed = createLocalCommandHistoryStore({
-      storage: localStorage,
-    });
-    const firstReservation = reconstructed.reserveLastUsedAt();
-    vi.mocked(Date.now).mockReturnValue(100);
-
-    expect(firstReservation).toBe(1_201);
-    expect(reconstructed.reserveLastUsedAt()).toBe(1_202);
-  });
-
-  it("Given repeated reservations and a newer explicit record, when the clock does not advance, then reservations are cross-call monotonic and the accepted record advances their floor", () => {
+  it("Given repeated records at one millisecond, when listed, then the later record wins the same-timestamp tie and persists in that order", () => {
     vi.spyOn(Date, "now").mockReturnValue(100);
     const store = createLocalCommandHistoryStore({ storage: localStorage });
 
-    expect(store.reserveLastUsedAt()).toBe(101);
-    expect(store.reserveLastUsedAt()).toBe(102);
-
-    store.record(localRepo, "new floor", 500);
-    expect(store.reserveLastUsedAt()).toBe(501);
-
-    store.record(localRepo, "new floor", 400);
-    expect(store.list(localRepo)).toEqual([
-      { command: "new floor", lastUsedAt: 500 },
-    ]);
-    expect(store.reserveLastUsedAt()).toBe(502);
-    expect(Array.from({ length: 4 }, () => store.reserveLastUsedAt())).toEqual([
-      503, 504, 505, 506,
-    ]);
-  });
-
-  it("Given history reaches the exact accepted timestamp boundary, when it is reserved and recorded, then crossing fails closed and the existing MRU reconstructs unchanged", () => {
-    vi.spyOn(Date, "now").mockReturnValue(MAX_TIMESTAMP_RESERVATION_SEED - 1);
-    const store = createLocalCommandHistoryStore({ storage: localStorage });
-    store.record(
-      localRepo,
-      "older command",
-      MAX_TIMESTAMP_RESERVATION_SEED - 2,
-    );
-
-    const boundaryReservation = store.reserveLastUsedAt();
-    expect(boundaryReservation).toBe(MAX_TIMESTAMP_RESERVATION_SEED);
-    store.record(localRepo, "boundary command", boundaryReservation);
-    const persistedAtBoundary = localStorage.getItem(
-      LOCAL_COMMAND_HISTORY_STORAGE_KEY,
-    );
-
-    expect(() => store.reserveLastUsedAt()).toThrow(
-      "Local command history timestamp budget exhausted",
-    );
-    expect(() =>
-      store.record(
-        localRepo,
-        "must not fabricate newer recency",
-        FIRST_TIMESTAMP_WITHOUT_RESERVATION_HEADROOM,
-      ),
-    ).toThrow("Local command history timestamp budget exhausted");
-    expect(localStorage.getItem(LOCAL_COMMAND_HISTORY_STORAGE_KEY)).toBe(
-      persistedAtBoundary,
-    );
+    store.record(localRepo, "first");
+    store.record(localRepo, "second");
+    store.record(localRepo, "third");
 
     const expected = [
-      {
-        command: "boundary command",
-        lastUsedAt: MAX_TIMESTAMP_RESERVATION_SEED,
-      },
-      {
-        command: "older command",
-        lastUsedAt: MAX_TIMESTAMP_RESERVATION_SEED - 2,
-      },
+      { command: "third", lastUsedAt: 100 },
+      { command: "second", lastUsedAt: 100 },
+      { command: "first", lastUsedAt: 100 },
     ];
     expect(store.list(localRepo)).toEqual(expected);
+    // 重建读回的是持久化的数组序，同毫秒的插入序不能被归一化打乱。
     expect(
       createLocalCommandHistoryStore({ storage: localStorage }).list(localRepo),
     ).toEqual(expected);
   });
 
+  it("Given explicit same-millisecond records, when a later one is recorded, then it is prepended ahead of the equal-timestamp one", () => {
+    const store = createLocalCommandHistoryStore({ storage: localStorage });
+
+    store.record(localRepo, "alpha", 50);
+    store.record(localRepo, "beta", 50);
+
+    expect(store.list(localRepo)).toEqual([
+      { command: "beta", lastUsedAt: 50 },
+      { command: "alpha", lastUsedAt: 50 },
+    ]);
+  });
+
   it.each([
-    ["the ECMAScript Date ceiling", ECMASCRIPT_DATE_MAX_TIMESTAMP],
-    [
-      "the first timestamp without one-million-reservation headroom",
-      FIRST_TIMESTAMP_WITHOUT_RESERVATION_HEADROOM,
-    ],
     ["the safe-integer ceiling", Number.MAX_SAFE_INTEGER],
     ["an unsafe integer", Number.MAX_SAFE_INTEGER + 1],
     ["a negative integer", -1],
     ["a fractional number", 100.5],
   ])(
-    "Given %s as an explicit timestamp, when a command is recorded, then a valid monotonic timestamp is persisted without poisoning later reservations",
+    "Given %s as an explicit timestamp, when a command is recorded, then it falls back to now without poisoning later records",
     (_label, invalidTimestamp) => {
       vi.spyOn(Date, "now").mockReturnValue(100);
       const store = createLocalCommandHistoryStore({ storage: localStorage });
-      store.record(localRepo, "older valid command", 100);
+      store.record(localRepo, "older valid command", 90);
 
       store.record(localRepo, "invalid timestamp command", invalidTimestamp);
 
       expect(store.list(localRepo)).toEqual([
-        { command: "invalid timestamp command", lastUsedAt: 101 },
-        { command: "older valid command", lastUsedAt: 100 },
+        { command: "invalid timestamp command", lastUsedAt: 100 },
+        { command: "older valid command", lastUsedAt: 90 },
       ]);
-      expect([
-        store.reserveLastUsedAt(),
-        store.reserveLastUsedAt(),
-        store.reserveLastUsedAt(),
-      ]).toEqual([102, 103, 104]);
+      store.record(localRepo, "later command", 101);
+      expect(store.list(localRepo)[0]).toEqual({
+        command: "later command",
+        lastUsedAt: 101,
+      });
       expect(
         createLocalCommandHistoryStore({ storage: localStorage }).list(
           localRepo,
@@ -310,7 +238,7 @@ describe("local command history scope and persistence", () => {
     ]);
   });
 
-  it("Given thousands of unseen scopes and no outstanding reservations, when each is cleared, then no lasting barrier rejects a later explicit record", () => {
+  it("Given thousands of unseen scopes, when each is cleared and then recorded, then the later record is accepted", () => {
     vi.spyOn(Date, "now").mockReturnValue(100);
     const store = createLocalCommandHistoryStore({ storage: null });
     const unseenScopes = Array.from({ length: 2_000 }, (_, index) => ({
@@ -321,7 +249,7 @@ describe("local command history scope and persistence", () => {
     expect(store.clear(unseenScopes[0]!)).toBe(true);
     for (const scope of unseenScopes.slice(1)) store.clear(scope);
     for (const [index, scope] of unseenScopes.entries()) {
-      store.record(scope, `command-${index}`, 0);
+      store.record(scope, `command-${index}`, Date.now());
     }
 
     expect(
@@ -331,165 +259,21 @@ describe("local command history scope and persistence", () => {
     ).toBe(true);
   });
 
-  it("Given a tracked pre-clear reservation, when it records after clear, then it stays deleted and consuming it removes the obsolete barrier", () => {
-    vi.spyOn(Date, "now").mockReturnValue(100);
+  it("Given a command submitted before a clear settles after it, when recorded, then the cleared scope stays deleted", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(100);
     const store = createLocalCommandHistoryStore({ storage: localStorage });
-    const preClear = store.reserveLastUsedAt();
+    const submittedAt = 100;
 
+    now.mockReturnValue(200);
     store.clear(localRepo);
-    store.record(localRepo, "private command", preClear);
+    store.record(localRepo, "in flight", submittedAt);
 
     expect(store.list(localRepo)).toEqual([]);
 
-    store.record(localRepo, "allowed after settlement", preClear);
+    store.record(localRepo, "allowed after clear", 201);
     expect(store.list(localRepo)).toEqual([
-      { command: "allowed after settlement", lastUsedAt: preClear },
+      { command: "allowed after clear", lastUsedAt: 201 },
     ]);
-  });
-
-  it("Given two pre-clear reservations, when one records another scope, then the barrier remains until the other is released", () => {
-    vi.spyOn(Date, "now").mockReturnValue(100);
-    const store = createLocalCommandHistoryStore({ storage: localStorage });
-    const firstPending = store.reserveLastUsedAt();
-    const secondPending = store.reserveLastUsedAt();
-
-    store.clear(localRepo);
-    store.record(remoteRepo, "remote command", firstPending);
-    store.record(localRepo, "still private", firstPending);
-
-    expect(store.list(localRepo)).toEqual([]);
-    expect(store.list(remoteRepo)).toEqual([
-      { command: "remote command", lastUsedAt: firstPending },
-    ]);
-
-    store.releaseLastUsedAt(secondPending);
-    store.record(localRepo, "allowed after both settle", firstPending);
-    expect(store.list(localRepo)).toEqual([
-      { command: "allowed after both settle", lastUsedAt: firstPending },
-    ]);
-  });
-
-  it("Given a tracked reservation becomes an older duplicate, when its record is a no-op, then it still releases the last protected barrier", () => {
-    vi.spyOn(Date, "now").mockReturnValue(100);
-    const store = createLocalCommandHistoryStore({ storage: localStorage });
-    const olderDuplicate = store.reserveLastUsedAt();
-    store.record(localRepo, "duplicate command", olderDuplicate + 1);
-
-    store.clear(remoteRepo);
-    store.record(localRepo, "duplicate command", olderDuplicate);
-    store.record(remoteRepo, "allowed after no-op", olderDuplicate);
-
-    expect(store.list(localRepo)).toEqual([
-      {
-        command: "duplicate command",
-        lastUsedAt: olderDuplicate + 1,
-      },
-    ]);
-    expect(store.list(remoteRepo)).toEqual([
-      { command: "allowed after no-op", lastUsedAt: olderDuplicate },
-    ]);
-  });
-
-  it("Given a reserved submission is rejected after clear, when its timestamp is released repeatedly, then the barrier is pruned idempotently", () => {
-    vi.spyOn(Date, "now").mockReturnValue(100);
-    const store = createLocalCommandHistoryStore({ storage: localStorage });
-    const rejectedSubmission = store.reserveLastUsedAt();
-
-    store.clear(localRepo);
-    store.releaseLastUsedAt(rejectedSubmission);
-    store.releaseLastUsedAt(rejectedSubmission);
-    store.record(localRepo, "allowed after rejection", rejectedSubmission);
-
-    expect(store.list(localRepo)).toEqual([
-      {
-        command: "allowed after rejection",
-        lastUsedAt: rejectedSubmission,
-      },
-    ]);
-  });
-
-  it("Given a pre-clear reservation remains pending, when a post-clear reservation records, then only the newer command is accepted", () => {
-    vi.spyOn(Date, "now").mockReturnValue(100);
-    const store = createLocalCommandHistoryStore({ storage: localStorage });
-    const preClear = store.reserveLastUsedAt();
-
-    store.clear(localRepo);
-    const postClear = store.reserveLastUsedAt();
-    store.record(localRepo, "new command", postClear);
-    store.record(localRepo, "private command", preClear);
-
-    expect(store.list(localRepo)).toEqual([
-      { command: "new command", lastUsedAt: postClear },
-    ]);
-  });
-
-  it("Given a scope was cleared behind a pending reservation, when a direct record omits its timestamp, then it is reserved after the barrier while the tracked pre-clear record stays deleted", () => {
-    vi.spyOn(Date, "now").mockReturnValue(100);
-    const store = createLocalCommandHistoryStore({ storage: localStorage });
-    const preClear = store.reserveLastUsedAt();
-
-    store.clear(localRepo);
-    store.record(localRepo, "new command");
-    store.record(localRepo, "private command", preClear);
-
-    expect(store.list(localRepo)).toEqual([
-      { command: "new command", lastUsedAt: preClear + 1 },
-    ]);
-  });
-
-  it("Given reserved submissions settle after repeated scope clears, when records arrive out of order, then pre-clear commands stay deleted while post-clear and other-scope commands persist", () => {
-    vi.spyOn(Date, "now").mockReturnValue(100);
-    const setItem = vi.fn(localStorage.setItem.bind(localStorage));
-    const store = createLocalCommandHistoryStore({
-      storage: {
-        getItem: localStorage.getItem.bind(localStorage),
-        setItem,
-      },
-    });
-    const preClearLocal = store.reserveLastUsedAt();
-    const preClearRemote = store.reserveLastUsedAt();
-
-    store.clear(localRepo);
-    const persistedAfterClear = localStorage.getItem(
-      LOCAL_COMMAND_HISTORY_STORAGE_KEY,
-    );
-    const writesAfterClear = setItem.mock.calls.length;
-    store.record(localRepo, "private command", preClearLocal);
-
-    expect(store.list(localRepo)).toEqual([]);
-    expect(setItem).toHaveBeenCalledTimes(writesAfterClear);
-    expect(localStorage.getItem(LOCAL_COMMAND_HISTORY_STORAGE_KEY)).toBe(
-      persistedAfterClear,
-    );
-
-    store.record(remoteRepo, "remote command", preClearRemote);
-    const postClearLocal = store.reserveLastUsedAt();
-    store.record(localRepo, "new command", postClearLocal);
-    const preSecondClearLocal = store.reserveLastUsedAt();
-    store.clear(localRepo);
-    store.record(localRepo, "second private command", preSecondClearLocal);
-    const postSecondClearLocal = store.reserveLastUsedAt();
-    store.record(localRepo, "newest command", postSecondClearLocal);
-
-    expect(store.list(localRepo)).toEqual([
-      { command: "newest command", lastUsedAt: postSecondClearLocal },
-    ]);
-    expect(store.list(remoteRepo)).toEqual([
-      { command: "remote command", lastUsedAt: preClearRemote },
-    ]);
-    expect(
-      JSON.parse(localStorage.getItem(LOCAL_COMMAND_HISTORY_STORAGE_KEY)!),
-    ).toEqual({
-      version: 1,
-      scopes: {
-        [deriveLocalCommandHistoryScopeKey(localRepo)]: [
-          { command: "newest command", lastUsedAt: postSecondClearLocal },
-        ],
-        [deriveLocalCommandHistoryScopeKey(remoteRepo)]: [
-          { command: "remote command", lastUsedAt: preClearRemote },
-        ],
-      },
-    });
   });
 });
 
@@ -553,50 +337,36 @@ describe("local command history mutation subscriptions", () => {
 });
 
 describe("local command history storage failures", () => {
-  it.each([
-    ["the exact ECMAScript Date ceiling", ECMASCRIPT_DATE_MAX_TIMESTAMP],
-    [
-      "the first timestamp without one-million-reservation headroom",
-      FIRST_TIMESTAMP_WITHOUT_RESERVATION_HEADROOM,
-    ],
-  ])(
-    "Given persisted history at %s, when reconstructed and used again, then it is rejected before multiple reservations can poison new storage",
-    (_label, poisonTimestamp) => {
-      localStorage.setItem(
-        LOCAL_COMMAND_HISTORY_STORAGE_KEY,
-        JSON.stringify({
-          version: 1,
-          scopes: {
-            [deriveLocalCommandHistoryScopeKey(localRepo)]: [
-              { command: "must not partially survive", lastUsedAt: 40 },
-            ],
-            [deriveLocalCommandHistoryScopeKey(remoteRepo)]: [
-              { command: "poisoned", lastUsedAt: poisonTimestamp },
-            ],
-          },
-        }),
-      );
-      vi.spyOn(Date, "now").mockReturnValue(100);
+  it("Given a persisted safe-integer-ceiling timestamp, when reconstructed and used again, then the whole history is rejected before it can poison new storage", () => {
+    localStorage.setItem(
+      LOCAL_COMMAND_HISTORY_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        scopes: {
+          [deriveLocalCommandHistoryScopeKey(localRepo)]: [
+            { command: "must not partially survive", lastUsedAt: 40 },
+          ],
+          [deriveLocalCommandHistoryScopeKey(remoteRepo)]: [
+            { command: "poisoned", lastUsedAt: Number.MAX_SAFE_INTEGER },
+          ],
+        },
+      }),
+    );
+    vi.spyOn(Date, "now").mockReturnValue(100);
 
-      const store = createLocalCommandHistoryStore({ storage: localStorage });
+    const store = createLocalCommandHistoryStore({ storage: localStorage });
 
-      expect(store.list(localRepo)).toEqual([]);
-      expect(store.list(remoteRepo)).toEqual([]);
-      const reservations = Array.from({ length: 3 }, () =>
-        store.reserveLastUsedAt(),
-      );
-      expect(reservations).toEqual([101, 102, 103]);
+    expect(store.list(localRepo)).toEqual([]);
+    expect(store.list(remoteRepo)).toEqual([]);
 
-      store.record(localRepo, "safe command", reservations[2]);
-      const reconstructed = createLocalCommandHistoryStore({
-        storage: localStorage,
-      });
-      expect(reconstructed.list(localRepo)).toEqual([
-        { command: "safe command", lastUsedAt: 103 },
-      ]);
-      expect(reconstructed.reserveLastUsedAt()).toBe(104);
-    },
-  );
+    store.record(localRepo, "safe command", 103);
+    const reconstructed = createLocalCommandHistoryStore({
+      storage: localStorage,
+    });
+    expect(reconstructed.list(localRepo)).toEqual([
+      { command: "safe command", lastUsedAt: 103 },
+    ]);
+  });
 
   it.each([
     ["invalid JSON", "not-json"],
@@ -692,7 +462,7 @@ describe("local command history storage failures", () => {
     ]);
   });
 
-  it("Given durable scoped history and a pending reservation, when deletion persistence fails, then clear rolls back without a privacy boundary or mutation notification", () => {
+  it("Given durable scoped history, when deletion persistence fails, then clear rolls back without a mutation notification", () => {
     const seeded = createLocalCommandHistoryStore({ storage: localStorage });
     seeded.record(localRepo, "sensitive command", 10);
     const rawBeforeClear = localStorage.getItem(
@@ -707,7 +477,6 @@ describe("local command history storage failures", () => {
         setItem,
       },
     });
-    const preClearReservation = store.reserveLastUsedAt();
     const listener = vi.fn();
     store.subscribe(listener);
 
@@ -724,9 +493,9 @@ describe("local command history storage failures", () => {
       createLocalCommandHistoryStore({ storage: localStorage }).list(localRepo),
     ).toEqual([{ command: "sensitive command", lastUsedAt: 10 }]);
 
-    store.record(localRepo, "reservation still valid", preClearReservation);
+    store.record(localRepo, "record still valid", 11);
     expect(store.list(localRepo)).toEqual([
-      { command: "reservation still valid", lastUsedAt: preClearReservation },
+      { command: "record still valid", lastUsedAt: 11 },
       { command: "sensitive command", lastUsedAt: 10 },
     ]);
   });
