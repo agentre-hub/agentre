@@ -285,3 +285,50 @@ describe("useIndexGroups", () => {
     expect(result.current[0].total).toBe(42);
   });
 });
+
+describe("useIndexGroups —— 机器轴", () => {
+  const roster = [
+    { deviceId: 0, name: "本机", online: true },
+    { deviceId: 7, name: "aaa", online: true },
+  ];
+
+  beforeEach(() => {
+    listIndex.mockReset();
+    useSessionIndexStore.getState().__reset();
+    useSessionMetaStore.getState().__reset();
+  });
+
+  it("Given the machine axis and no page loaded yet, When groups are built, Then every roster machine has a group and the local one leads (decision 10)", () => {
+    // 名单里的机器即使一页都没有也得看得见 —— 刚配好的 daemon 靠组头确认配对生效；
+    // 共享投影的在线优先名次压不过 roster 的本机第一。
+    listIndex.mockResolvedValue({ sessions: [], total: 0, hasMore: false });
+
+    const { result } = renderHook(() => useIndexGroups("machine", [], roster));
+
+    expect(result.current.map((g) => [g.key, g.sessionIDs])).toEqual([
+      ["machine:0", []],
+      ["machine:7", []],
+    ]);
+  });
+
+  it("Given only one machine has a loaded page, When groups are built, Then the page lands in its own machine and the empty one stays (empty)", async () => {
+    listIndex.mockImplementation((req: { deviceId: number }) =>
+      Promise.resolve({
+        sessions:
+          req.deviceId === 0
+            ? [{ id: 5, agentId: 1, projectId: 0, title: "本机那条" }]
+            : [],
+        total: req.deviceId === 0 ? 1 : 0,
+        hasMore: false,
+      }),
+    );
+
+    const { result } = renderHook(() => useIndexGroups("machine", [], roster));
+
+    await waitFor(() => expect(result.current[0]?.sessionIDs).toEqual([5]));
+    expect(result.current.map((g) => [g.key, g.sessionIDs])).toEqual([
+      ["machine:0", [5]],
+      ["machine:7", []],
+    ]);
+  });
+});

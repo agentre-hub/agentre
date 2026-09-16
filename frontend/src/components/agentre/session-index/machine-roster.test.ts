@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildMachineRoster, LOCAL_DEVICE_ID } from "./machine-roster";
+import {
+  buildMachineRoster,
+  machineRosterRank,
+  LOCAL_DEVICE_ID,
+} from "./machine-roster";
 
 const local = "本机";
 
@@ -49,5 +53,29 @@ describe("buildMachineRoster", () => {
     );
 
     expect(roster[1]).toEqual({ deviceId: 5, name: "", online: true });
+  });
+});
+
+describe("machineRosterRank", () => {
+  it("本机是第一（位次 0），其余按 roster 顺序——共享投影的在线优先名次压不过本机", () => {
+    // “aaa” 在共享默认顺序里排在本机名前面;桌面端的 rank 必须把它换回本机第一。
+    const roster = buildMachineRoster(
+      [
+        { id: 3, name: "aaa", online: true },
+        { id: 4, name: "bbb", online: true },
+      ],
+      local,
+    );
+
+    const rank = machineRosterRank(roster);
+    expect(rank.get(LOCAL_DEVICE_ID)).toBe(0);
+    expect(rank.get(3)).toBe(1);
+    expect(rank.get(4)).toBe(2);
+  });
+
+  it("名单外的设备没有位次——由调用方自己决定把它摆到最后，而不是撞上一个同号的位次", () => {
+    const rank = machineRosterRank(buildMachineRoster([], local));
+
+    expect(rank.get(9)).toBeUndefined();
   });
 });

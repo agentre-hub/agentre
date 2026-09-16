@@ -88,10 +88,12 @@ type AgentGroupProps = React.ComponentProps<"article"> & {
   // 由父组件提供，避免 agent-list 依赖 chat 业务（依赖反转）。
   renderSessionsPopover?: (close: () => void) => React.ReactNode;
   // 会话行右键菜单（可选）：任一 handler 提供才渲染 ContextMenu；
-  // 不传时 SessionGroup / SessionRow 保持旧行为（项目页等）。
-  onOpenInNewTab?: (sessionId: number) => void;
-  onRenameSession?: (sessionId: number, title: string) => void;
-  onDeleteSession?: (sessionId: number) => void;
+  // 不传时 SessionGroup / SessionRow 保持旧行为（项目页等）。ID 是组件的**原始字符串
+  // 身份** —— AgentGroup 只是 SessionGroup 的桌面包装，本地数字主键的转换发生在
+  // 调用方（index-group-row 的 rowHandlers）。
+  onOpenInNewTab?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, title: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
 };
 
 function AgentGroup({

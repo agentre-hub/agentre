@@ -16,6 +16,8 @@ import {
 } from "@dnd-kit/sortable";
 import {
   ResizableSidebar,
+  SessionGroupList,
+  SessionIndexEmpty,
   type ImportDialogPrefill,
   type ProjectGlyphInfo,
 } from "@agentre-hub/agentre-ui";
@@ -143,6 +145,35 @@ export function SessionIndexPage() {
   );
   const { statusFilter, setStatusFilter, unreadCount, visibleSessionIDs } =
     useIndexFilter({ sessionIDs: allSessionIDs });
+  const visibleSessionCount = React.useMemo(() => {
+    if (!visibleSessionIDs) {
+      return groups.reduce(
+        (count, group) => count + group.sessionIDs.length,
+        0,
+      );
+    }
+    return groups.reduce(
+      (count, group) =>
+        count +
+        group.sessionIDs.filter((sessionID) => visibleSessionIDs.has(sessionID))
+          .length,
+      0,
+    );
+  }, [groups, visibleSessionIDs]);
+  const accountTotal = React.useMemo(
+    () => groups.reduce((count, group) => count + group.total, 0),
+    [groups],
+  );
+  const narrowed = statusFilter !== null || searching;
+  const hasKnownGroupContext =
+    axis === "project"
+      ? tree.length > 0
+      : axis === "agent" || axis === "machine"
+        ? groups.length > 0
+        : false;
+  const noVisibleRows = visibleSessionCount === 0;
+  const showPageEmpty = noVisibleRows && (narrowed || !hasKnownGroupContext);
+  const showGroupList = hasKnownGroupContext || !noVisibleRows;
 
   // ── 命令面板的「新会话上下文」桥接 ─────────────────────────────────────────
   //
@@ -387,6 +418,9 @@ export function SessionIndexPage() {
   const projectVisible = React.useCallback(
     (projectID: number): boolean => {
       if (!searching && !visibleSessionIDs) return true;
+      // 全部行都被搜索 / 筛选收窄掉时，页面级空态负责解释原因，项目组头继续
+      // 提供原有结构上下文。
+      if (noVisibleRows) return true;
       const ids = subtreeSessionIDs.get(projectID) ?? [];
       // 搜索时列表本身已是过滤后的，所以「子树里还剩下行」就等于命中；状态 chip 是
       // 前端派生态，得逐条比。
@@ -400,7 +434,14 @@ export function SessionIndexPage() {
         (projectByID.get(projectID)?.name ?? "").toLowerCase().includes(needle)
       );
     },
-    [searching, visibleSessionIDs, subtreeSessionIDs, needle, projectByID],
+    [
+      searching,
+      visibleSessionIDs,
+      noVisibleRows,
+      subtreeSessionIDs,
+      needle,
+      projectByID,
+    ],
   );
 
   const renderGroup = React.useCallback(
@@ -474,16 +515,6 @@ export function SessionIndexPage() {
     renderGroup,
   ]);
 
-  // 空态：三个轴各自「一条都渲染不出来」时给一句话，而不是一片空白。
-  // 项目轴永远有「随手对话」组，所以只有它自己空、且没有项目时才算空。
-  const isEmpty =
-    axis === "agent"
-      ? groups.length === 0
-      : axis === "time"
-        ? groups[0]?.sessionIDs.length === 0
-        : tree.length === 0 &&
-          (groupByKey.get("free")?.sessionIDs.length ?? 0) === 0;
-
   return (
     <>
       <IndexDialogs
@@ -546,15 +577,16 @@ export function SessionIndexPage() {
         ) : null}
 
         <div className="min-h-0 flex-1 overflow-auto px-2 py-3">
-          {isEmpty ? (
-            <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-              {searching || visibleSessionIDs
-                ? t("sessionIndex.empty.noMatch")
-                : t("sessionIndex.empty.nothing")}
-            </p>
-          ) : (
-            list
-          )}
+          {showPageEmpty ? (
+            <SessionIndexEmpty
+              filter={statusFilter ?? "all"}
+              searching={searching}
+              total={statusFilter ? accountTotal : undefined}
+              onShowAll={statusFilter ? () => setStatusFilter(null) : undefined}
+              onClearSearch={searching ? () => setQuery("") : undefined}
+            />
+          ) : null}
+          {showGroupList ? <SessionGroupList>{list}</SessionGroupList> : null}
         </div>
       </ResizableSidebar>
     </>

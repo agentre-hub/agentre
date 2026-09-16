@@ -20,6 +20,12 @@ import { StatusDot } from "../ui/status-dot";
  * `<Link href>`、或者什么都不给用原生 `<a>`）。
  */
 type SessionRowLinkProps = {
+  /**
+   * 这一行的**原始字符串身份**（`SessionRowModel.id`）。宿主用它算自己的导航目标
+   * （server 的 `device:3/session:42` 复合键就是这个形状）；包不认识它的语义，
+   * 也不会把它写进 DOM —— 原生 `<a>` 那条路只取几何与可访问性属性。
+   */
+  sessionId: string;
   href: string;
   className: string;
   children: React.ReactNode;
@@ -33,6 +39,11 @@ type SessionRowLinkProps = {
 type SessionRowLinkRenderer = (props: SessionRowLinkProps) => React.ReactNode;
 
 type SessionRowProps = Omit<React.ComponentProps<"button">, "onClick"> & {
+  /**
+   * 这一行的原始字符串身份。桌面端从数字主键投影成字符串，server 直接用复合键。
+   * 有 `href` 时它会随 `renderLink` 交给宿主，让宿主编得出自己的路由地址。
+   */
+  sessionId?: string;
   selected?: boolean;
   status: AgentStatus;
   title: string;
@@ -108,6 +119,7 @@ function SessionRow({
   "aria-hidden": ariaHidden,
   className,
   disabled,
+  sessionId,
   selected = false,
   status,
   title,
@@ -223,6 +235,7 @@ function SessionRow({
     // 链接没有 `disabled` 可倚靠：折叠分组里的行必须靠 aria-disabled + tabIndex=-1
     // 退出可达性与 Tab 序，否则一条看不见的行照样能被键盘走到、被回车激活。
     const linkProps: SessionRowLinkProps = {
+      sessionId: sessionId ?? "",
       href,
       className: rowClassName,
       children: content,
@@ -236,26 +249,55 @@ function SessionRow({
           }
         : { onClick }),
     };
-    row = renderLink ? renderLink(linkProps) : <a {...linkProps} />;
+    // 原生 `<a>` 只取行自己的属性：`sessionId` 是给宿主路由用的，落到 DOM 上只会
+    // 多出一个不认识的属性（正是「不向共享 DOM 注入宿主约定」那条要挡的）。
+    row = renderLink ? (
+      renderLink(linkProps)
+    ) : (
+      <a
+        href={linkProps.href}
+        className={linkProps.className}
+        aria-current={linkProps["aria-current"]}
+        aria-hidden={linkProps["aria-hidden"]}
+        aria-disabled={linkProps["aria-disabled"]}
+        tabIndex={linkProps.tabIndex}
+        onClick={linkProps.onClick}
+      >
+        {linkProps.children}
+      </a>
+    );
   }
 
   const withMenu = hasContextMenu ? (
     <ContextMenu>
       <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+      {/* 只摆宿主真的给了 handler 的能力：没有 rename 就没这一项，而不是摆一个
+          按下去什么都不发生的死项。分隔线只在它真的隔开两项时才画 —— delete 是
+          第一项时，那条线只是凭空多出来的一行。 */}
       <ContextMenuContent>
-        <ContextMenuItem onSelect={onRenameSession}>
-          <Pencil className="size-4" aria-hidden="true" />
-          <span>{t("sessionRow.menu.rename")}</span>
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={onOpenInNewTab}>
-          <ExternalLink className="size-4" aria-hidden="true" />
-          <span>{t("sessionRow.menu.openInNewTab")}</span>
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem variant="destructive" onSelect={onDeleteSession}>
-          <Trash2 className="size-4" aria-hidden="true" />
-          <span>{t("sessionRow.menu.delete")}</span>
-        </ContextMenuItem>
+        {onRenameSession ? (
+          <ContextMenuItem onSelect={onRenameSession}>
+            <Pencil className="size-4" aria-hidden="true" />
+            <span>{t("sessionRow.menu.rename")}</span>
+          </ContextMenuItem>
+        ) : null}
+        {onOpenInNewTab ? (
+          <ContextMenuItem onSelect={onOpenInNewTab}>
+            <ExternalLink className="size-4" aria-hidden="true" />
+            <span>{t("sessionRow.menu.openInNewTab")}</span>
+          </ContextMenuItem>
+        ) : null}
+        {onDeleteSession ? (
+          <>
+            {onRenameSession || onOpenInNewTab ? (
+              <ContextMenuSeparator />
+            ) : null}
+            <ContextMenuItem variant="destructive" onSelect={onDeleteSession}>
+              <Trash2 className="size-4" aria-hidden="true" />
+              <span>{t("sessionRow.menu.delete")}</span>
+            </ContextMenuItem>
+          </>
+        ) : null}
       </ContextMenuContent>
     </ContextMenu>
   ) : (

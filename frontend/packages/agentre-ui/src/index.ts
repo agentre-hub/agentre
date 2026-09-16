@@ -223,7 +223,31 @@ export { StatusDot } from "./ui/status-dot";
 // 进来：组怎么分、怎么排、兜底组摆在哪只该有一份实现）。留在宿主的是各端的取数与
 // 装配，以及**可选轴清单**——桌面端三档、server 控制台四档（决策 17）。
 export { SessionGroup } from "./session-index/session-group";
+export { SessionGroupOverflow } from "./session-index/session-group-overflow";
+export type {
+  SessionGroupOverflowPage,
+  SessionGroupOverflowProps,
+} from "./session-index/session-group-overflow";
+// 紧凑列表容器：控制区与组集合之间的唯一列表边界（只拥有「组怎么连续排列」）。
+export { SessionGroupList } from "./session-index/session-group-list";
+export type { SessionGroupListProps } from "./session-index/session-group-list";
+export { SessionFilterChips } from "./session-index/session-filter-chips";
+export type {
+  SessionFilterChipsProps,
+  SessionFilterValue,
+} from "./session-index/session-filter-chips";
+export { SessionIndexEmpty } from "./session-index/session-index-empty";
+export type { SessionIndexEmptyProps } from "./session-index/session-index-empty";
 export { SessionRow } from "./session-index/session-row";
+// 行的链接渲染端口：宿主拿到行的原始字符串身份，自己算导航目标；包不把宿主约定
+// 注入 DOM。
+export type {
+  SessionRowLinkProps,
+  SessionRowLinkRenderer,
+} from "./session-index/session-row";
+// 会话行骨架：宿主取数时顶位，并抑制组内空态。
+export { SessionRowSkeleton } from "./session-index/session-row-skeleton";
+export type { SessionRowSkeletonProps } from "./session-index/session-row-skeleton";
 export type {
   SessionAttentionRank,
   SessionRowModel,

@@ -7,6 +7,14 @@
   },
   "sessionGroup": {
     "empty": "No sessions",
+    "overflow": {
+      "empty": "No sessions",
+      "loadFailed": "Could not load sessions",
+      "loaded": "Loaded {{loaded}} / {{total}}",
+      "loadMore": "Load more",
+      "retry": "Retry",
+      "total": "{{count}} sessions"
+    },
     "viewAll": "View all {{count}} sessions"
   },
   "sessionRow": {
@@ -38,6 +46,21 @@
     },
     "machine": {
       "offline": "Offline"
+    },
+    "filter": {
+      "aria": "Filter sessions",
+      "all": "All",
+      "running": "Running",
+      "unread": "Unread"
+    },
+    "empty": {
+      "running": "No running sessions",
+      "unread": "No unread sessions",
+      "outside": "{{count}} sessions are outside this filter.",
+      "search": "No matching sessions",
+      "true": "No conversations yet",
+      "showAll": "View all sessions",
+      "clearSearch": "Clear search"
     }
   },
   "sessionStatus": {

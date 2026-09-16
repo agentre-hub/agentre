@@ -555,6 +555,33 @@ describe("SessionIndexPage project tree rendering", () => {
 
 // ── 搜索与筛选 chips ────────────────────────────────────────────────────────
 
+describe("SessionIndexPage compact group list", () => {
+  it("Given the project axis, When the tree renders, Then every top-level group shares one compact list container instead of repeating the control area's spacing", async () => {
+    seedTree([
+      projectNode({ id: 1, name: "Agentre" }),
+      projectNode({ id: 2, name: "Web" }),
+    ]);
+    const { container } = renderIndex();
+
+    const list = await waitFor(() => {
+      const el = container.querySelector<HTMLElement>(
+        '[data-slot="session-group-list"]',
+      );
+      expect(el).not.toBeNull();
+      return el!;
+    });
+
+    const project = (await screen.findByText("Agentre")).closest("article");
+    const free = screen.getByText("Quick chats").closest("article");
+    expect(list.contains(project)).toBe(true);
+    expect(list.contains(free)).toBe(true);
+    // 紧凑 = 容器不再叠加一层纵向间距；项目树、拖拽与组折叠都不受它接管。
+    expect(list.className).not.toMatch(/(^|\s)gap-/);
+    expect(list.className).not.toMatch(/space-y-/);
+    expect(screen.getByText("Agentre")).toBeTruthy();
+  });
+});
+
 describe("SessionIndexPage search and filter chips", () => {
   const sessions: SeedSession[] = [
     {
@@ -637,8 +664,12 @@ describe("SessionIndexPage search and filter chips", () => {
     );
 
     // 搜索是一次取数（去抖 + RPC），不再是敲下去当帧就算完的前端过滤。
-    await waitFor(() => expect(querySessionRow("Running one")).toBeNull());
-    expect(sessionRow("Visual pass")).toBeInTheDocument();
+    // 同步点是**目标行出现**：去抖后 scope 先换掉、旧页整组清空，新页还在路上，
+    // 只等旧行消失会在目标页提交之前读到空列表。两件事在同一个等待里判定。
+    await waitFor(() => {
+      expect(sessionRow("Visual pass")).toBeInTheDocument();
+      expect(querySessionRow("Running one")).toBeNull();
+    });
 
     await user.click(screen.getByRole("button", { name: "Clear search" }));
     expect(
@@ -774,6 +805,59 @@ describe("SessionIndexPage search and filter chips", () => {
     expect(screen.getByTestId("filter-chip-unread")).toHaveTextContent(
       /Unread\s*1/,
     );
+    expect(
+      screen.getByRole("group", { name: "Filter sessions" }),
+    ).toContainElement(screen.getByTestId("filter-chip-all"));
+  });
+
+  it("Given a running filter and a search whose only hit is idle, When the index is empty, Then the shared filter reason wins and its restore port reveals the matching row", async () => {
+    const user = setupUser();
+    renderIndex();
+    await screen.findByRole("button", { name: /Visual pass/ });
+
+    await user.click(screen.getByTestId("filter-chip-running"));
+    await user.type(
+      screen.getByLabelText("Search sessions, projects or agents"),
+      "Visual",
+    );
+
+    expect(await screen.findByText("No running sessions")).toBeInTheDocument();
+    expect(screen.getByText("Agentre")).toBeInTheDocument();
+    expect(screen.getByText("Quick chats")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "View all sessions" }));
+    expect(
+      await screen.findByRole("button", { name: /Visual pass/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given a search with no matches, When the shared empty-state action clears it, Then the host query and rows recover", async () => {
+    const user = setupUser();
+    renderIndex();
+    await screen.findByRole("button", { name: /Visual pass/ });
+
+    await user.type(
+      screen.getByLabelText("Search sessions, projects or agents"),
+      "missing",
+    );
+
+    const empty = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(
+        '[data-slot="session-index-empty"]',
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    expect(within(empty).getByRole("status")).toHaveAccessibleName(
+      "No matching sessions",
+    );
+
+    await user.click(
+      within(empty).getByRole("button", { name: "Clear search" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: /Visual pass/ }),
+    ).toBeInTheDocument();
   });
 
   it("Given a status chip and a query together, When both are active, Then only rows satisfying both survive", async () => {
@@ -795,15 +879,74 @@ describe("SessionIndexPage search and filter chips", () => {
   it("Given the 320px sidebar, When the filter row renders, Then the picker and three chips share one non-wrapping line (decision 3)", async () => {
     renderIndex();
 
-    const row = (await screen.findByTestId("filter-chip-all")).parentElement!;
-    // happy-dom 不做布局，所以守的是「能不能换行」这两个结构事实：一行装不下时
-    // flex 默认是压缩/溢出而不是折行 —— 只要没人加上 flex-wrap，也没人往这行里
-    // 塞第五个控件，决策 3 说的那条第二行就不会出现。
+    const group = await screen.findByRole("group", {
+      name: "Filter sessions",
+    });
+    const row = group.parentElement!;
+    // happy-dom 不做布局，所以守的是「能不能换行」这两个结构事实：外层仍只有
+    // 轴选择器与共享 chip 组，组内固定三档，任一层都不允许折行。
     expect(row.className).not.toMatch(/flex-wrap/);
+    expect(group.className).not.toMatch(/flex-wrap/);
     expect(row).toContainElement(screen.getByTestId("axis-picker"));
-    expect(row).toContainElement(screen.getByTestId("filter-chip-running"));
-    expect(row).toContainElement(screen.getByTestId("filter-chip-unread"));
-    expect(row.childElementCount).toBe(4);
+    expect(row).toContainElement(group);
+    expect(group).toContainElement(screen.getByTestId("filter-chip-running"));
+    expect(group).toContainElement(screen.getByTestId("filter-chip-unread"));
+    expect(row.childElementCount).toBe(2);
+    expect(group.childElementCount).toBe(3);
+  });
+});
+
+// ── 页面级空态判据 ──────────────────────────────────────────────────────────
+
+describe("SessionIndexPage empty-state ownership", () => {
+  it("Given an account with no projects or sessions, When the project axis renders, Then the page-level true empty replaces the permanent Quick chats group", async () => {
+    renderIndex();
+
+    expect(
+      await screen.findByRole("status", { name: "No conversations yet" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("free-group-header")).toBeNull();
+  });
+
+  it("Given a known empty project, When the project axis renders, Then its project and Quick chats context remain instead of claiming the whole account is empty", async () => {
+    seedTree([projectNode({ id: 1, name: "Agentre" })]);
+    renderIndex();
+
+    expect(await screen.findByText("Agentre")).toBeInTheDocument();
+    expect(screen.getByText("Quick chats")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("status", { name: "No conversations yet" }),
+    ).toBeNull();
+  });
+
+  it("Given a known empty Agent, When the Agent axis renders, Then its group remains available for starting a conversation", async () => {
+    useSidebarAxisStore.getState().setAxis("agent");
+    seedAgents([{ id: 7, name: "Eng" }]);
+    renderIndex();
+
+    expect(await screen.findByText("Eng")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("status", { name: "No conversations yet" }),
+    ).toBeNull();
+  });
+
+  it("Given the known local machine has no sessions, When the machine axis renders, Then its group remains instead of a page-level true empty", async () => {
+    useSidebarAxisStore.getState().setAxis("machine");
+    renderIndex();
+
+    expect(await screen.findByText("This machine")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("status", { name: "No conversations yet" }),
+    ).toBeNull();
+  });
+
+  it("Given the time axis has no rows and no known groups, When it renders, Then it uses the page-level true empty", async () => {
+    useSidebarAxisStore.getState().setAxis("time");
+    renderIndex();
+
+    expect(
+      await screen.findByRole("status", { name: "No conversations yet" }),
+    ).toBeInTheDocument();
   });
 });
 

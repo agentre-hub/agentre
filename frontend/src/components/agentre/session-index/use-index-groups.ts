@@ -5,7 +5,7 @@
 //
 // 三个轴的组**来源不同**，这是有意的 —— 每个轴各自有一条能给出完整答案的查询：
 //   - 项目：组顺序 = 项目树摊平；每组的会话 = ListChatIndexSessions(scope=project)
-//           末尾常驻「随手对话」组 = scope=free（决策 6，空态也在）
+//           末尾常驻「随手对话」组 = scope=free（决策 12，空态也在）
 //   - Agent：组顺序 = 置顶优先 + 最近活动；每组的会话 = ListChatAgents 的
 //           前 5 条 + attention（其余走「查看全部 N」翻页）
 //   - 时间：无分组，单个平铺组 = scope=recent
@@ -13,9 +13,12 @@
 // 本 hook 只产出「组 → 有序的会话 id」。**行长什么样不在这里**：行的字段一律从
 // session-meta-store / session-status-store / attention 现算，与对话侧同一套投影。
 //
-// 组骨架摆好之后，**组内的分配与排序交给共享投影**（`@agentre-hub/agentre-ui` 的
-// buildAxisGroups，经 index-projection.ts 适配）—— 桌面端与 agentre-server 的
-// 「组怎么分、行怎么排」只该有一份实现（规格 2026-08-18「共享包承载什么」）。
+// 组骨架摆好之后，**哪些组存在与组内的分配、排序都交给共享投影**
+// （`@agentre-hub/agentre-ui` 的 buildAxisGroups，经 index-projection.ts 适配）——
+// 桌面端与 agentre-server 的「组怎么分、行怎么排」只该有一份实现，已知空机器 /
+// 空 Agent / 常驻「随手对话」也一样（规格 2026-08-18「共享包承载什么」，
+// 规格 2026-09-16 决策 10-12）。宿主留下的只有自己那几维：项目树递归、逐轴取数、
+// agent 轴的置顶/活动排序与机器 roster。
 import * as React from "react";
 
 import { flattenProjectTree, type IndexAxis } from "@/lib/session-axis";
@@ -158,6 +161,17 @@ export function useIndexGroups(
     [machines],
   );
   const agentIDs = React.useMemo(() => agents.map((a) => a.id), [agents]);
+  // 共享投影的已知 Agent 名单：它只影响「哪些空组存在」，名字与颜色仍由宿主按
+  // refID 查（index-page 的 agentInfoOf）。
+  const agentInfos = React.useMemo(
+    () =>
+      agents.map((a) => ({
+        syncId: String(a.id),
+        name: a.name,
+        color: a.avatarColor || undefined,
+      })),
+    [agents],
+  );
 
   // 按需拉取当前轴要用到的 scope。已经有页缓存的不重拉 —— 刷新走
   // reloadSidebarSources，不由渲染驱动。
@@ -192,9 +206,9 @@ export function useIndexGroups(
   ]);
 
   return React.useMemo(() => {
-    // 先摆这一轴的**组骨架**：有哪些组、按什么顺序、每组已取到哪一页。这一段留在
-    // 宿主，因为它就是「每轴一条查询」本身 —— 空项目组照摆、「随手对话」常驻
-    // （决策 6）也只有宿主说得出，共享投影按决策 10 只摆有会话的组。
+    // 先摆这一轴的**取数骨架**：每组已取到哪一页。这一段留在宿主，因为它就是
+    // 「每轴一条查询」本身 —— 已知空组（空机器 / 空 Agent / 「随手对话」）不再
+    // 由宿主补，而是由共享投影按已知名单成组（决策 10-12）。
     const buildSlots = (): IndexGroup[] => {
       if (axis === "time") {
         const page = pages.get(scopeKey(recentScope(keyword)));
@@ -211,18 +225,22 @@ export function useIndexGroups(
       }
 
       if (axis === "machine") {
-        // 名单顺序说了算（本机最前，其余在线优先）—— 投影不重排组。
-        // 一条会话都没有的机器照样摆出来（决策 10）：刚配好的 daemon 得看得见。
-        return machines.map((m) => {
+        // 宿主只交出**已经取回来的那些页**：名单里的机器即使一页都没有也由共享
+        // 投影从 roster 成组（决策 10），不再由宿主按名单补空组骨架；顺序也由
+        // 投影回来后再按 roster 的本机优先名次排（见 index-projection.ts）。
+        return machines.flatMap((m) => {
           const page = pages.get(scopeKey(machineScope(m.deviceId, keyword)));
-          return {
-            key: `machine:${m.deviceId}`,
-            kind: "machine" as const,
-            refID: m.deviceId,
-            depth: 0,
-            sessionIDs: page?.ids ?? [],
-            total: page?.total ?? 0,
-          };
+          if (!page) return [];
+          return [
+            {
+              key: `machine:${m.deviceId}`,
+              kind: "machine" as const,
+              refID: m.deviceId,
+              depth: 0,
+              sessionIDs: page.ids,
+              total: page.total,
+            },
+          ];
         });
       }
 
@@ -276,8 +294,8 @@ export function useIndexGroups(
           total: page?.total ?? 0,
         };
       });
-      // 「随手对话」常驻，空态也在（决策 6）：否则一条自由会话都没有的用户，在项目
-      // 轴下看不到任何「不属于项目」的入口。它排在全部项目之后。
+      // 「随手对话」常驻（决策 12）：宿主这里只负责它的取数页；组本身即使一条自由
+      // 会话都没有也由共享投影常驻成组。它排在全部项目之后。
       const free = pages.get(scopeKey(freeScope(keyword)));
       groups.push({
         key: "free",
@@ -290,7 +308,12 @@ export function useIndexGroups(
       return groups;
     };
 
-    // 组内的分配、补齐与排序过共享投影，桌面端不再自己排一遍。
-    return projectIndexGroups(axis, buildSlots(), metas);
-  }, [axis, agents, metas, pages, projectOrder, machines, keyword]);
+    // 组内的分配、补齐与排序过共享投影，桌面端不再自己排一遍。已知机器与 Agent
+    // 名单一起递进去：名单里的空组由投影成组（决策 10 / 11），宿主只把机器组按
+    // roster 的本机优先名次排回来。
+    return projectIndexGroups(axis, buildSlots(), metas, {
+      machines,
+      agents: agentInfos,
+    });
+  }, [axis, agents, agentInfos, metas, pages, projectOrder, machines, keyword]);
 }
