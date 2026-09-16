@@ -207,6 +207,9 @@ const DYNAMIC_KEY_PREFIXES = [
 const HOST_CONSUMER_KEYS = [
   // frontend/src/components/agentre/file-preview/file-preview-panel.tsx: uiT("filePreview.panelAria")
   "filePreview.panelAria",
+  // frontend/src/components/agentre/session-index/index-group-row.tsx:
+  //   uiT("sessionIndex.machine.empty")
+  "sessionIndex.machine.empty",
   // frontend/src/components/agentre/org/exec-target-list.tsx:
   //   uiT("org.agent.execTargets.localMachine") / uiT("org.agent.execTargets.reasons.unpaired")
   "org.agent.execTargets.localMachine",
@@ -468,6 +471,22 @@ describe("useUiTranslation", () => {
     expect(screen.getByTestId("package").textContent).toBe("已复制代码");
     expect(screen.getByTestId("host").textContent).toBe("宿主的已复制代码");
   });
+
+  it.each([
+    ["en", "No conversations on this machine yet"],
+    ["zh-CN", "这台机器上还没有对话"],
+  ] as const)(
+    "Given the shared session index copy, When the host resolves machine.empty in %s, Then it returns package-owned copy instead of the literal key",
+    (language, expected) => {
+      const instance = createHostInstance(language);
+
+      expect(
+        instance.t("sessionIndex.machine.empty", {
+          ns: AGENTRE_UI_NAMESPACE,
+        }),
+      ).toBe(expected);
+    },
+  );
 
   it("Given the host switches language, When the package renders, Then it follows the host instance instead of keeping its own state", () => {
     const instance = createHostInstance("en");

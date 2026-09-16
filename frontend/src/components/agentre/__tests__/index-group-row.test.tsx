@@ -104,6 +104,18 @@ describe("IndexGroupRow regressions", () => {
     localStorage.clear();
   });
 
+  it("Given a known machine has confirmed no sessions, When its expanded group renders, Then the exact machine-specific empty copy remains visible", () => {
+    renderRow({
+      group: group({ key: "machine:3", kind: "machine", refID: 3 }),
+      axis: "machine",
+      machine: { deviceId: 3, name: "Build box", online: true },
+    });
+
+    expect(
+      screen.getByText("No conversations on this machine yet"),
+    ).toBeInTheDocument();
+  });
+
   it("Given a project group, When it first renders, Then it is expanded — a tree of closed folders on first launch is a regression from the old project page", () => {
     seed(1, { projectId: 1, lastMessageAt: 100 });
 

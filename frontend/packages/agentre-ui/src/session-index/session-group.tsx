@@ -42,7 +42,10 @@ type SessionGroupProps = React.ComponentProps<"article"> & {
   // 溢出 Popover：超过常规列表上限时显示「查看全部 N」入口，content 由调用方提供。
   // 只在打开时渲染 content —— 见下方渲染处的注释（常驻会把那一页钉死）。
   totalSessions?: number;
-  renderSessionsPopover?: (close: () => void) => React.ReactNode;
+  renderSessionsPopover?: (
+    close: () => void,
+    trigger: HTMLButtonElement | null,
+  ) => React.ReactNode;
 
   // Attention 气泡（折叠态也始终可见；展开态过滤掉 unread/selected 这类「软」rank）
   attentionSessions?: SessionRowModel[];
@@ -103,6 +106,8 @@ function SessionGroup({
   const { t } = useUiTranslation();
   const resolvedEmptyLabel = emptyLabel ?? t("sessionGroup.empty");
   const [popoverOpen, setPopoverOpen] = React.useState(false);
+  const [overflowTrigger, setOverflowTrigger] =
+    React.useState<HTMLButtonElement | null>(null);
   const [expanded, setExpanded] = React.useState(
     () => readSidebarExpanded(persistenceKey ?? "") ?? defaultExpanded ?? false,
   );
@@ -260,6 +265,7 @@ function SessionGroup({
               <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
                 <PopoverTrigger asChild>
                   <button
+                    ref={setOverflowTrigger}
                     type="button"
                     disabled={!expanded}
                     tabIndex={expanded ? undefined : -1}
@@ -274,7 +280,10 @@ function SessionGroup({
                     这一页会在**组渲染的那一刻**拉一次并从此不再更新，之后每次
                     点开看到的都是那份旧快照（计数也一起旧）。 */}
                 {popoverOpen && renderSessionsPopover
-                  ? renderSessionsPopover(() => setPopoverOpen(false))
+                  ? renderSessionsPopover(
+                      () => setPopoverOpen(false),
+                      overflowTrigger,
+                    )
                   : null}
               </Popover>
             ) : null}

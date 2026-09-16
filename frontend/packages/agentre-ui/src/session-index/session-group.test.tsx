@@ -521,6 +521,31 @@ describe("SessionGroup 「查看全部 N」溢出弹层", () => {
     expect(trigger).not.toHaveAttribute("tabindex", "-1");
   });
 
+  it("Given an overflow renderer needs host geometry, When the trigger opens, Then it receives the actual trigger button as its second argument", async () => {
+    const user = userEvent.setup();
+    const renderSessionsPopover = vi.fn(
+      (_close: () => void, _trigger?: HTMLButtonElement | null) => null,
+    );
+
+    render(
+      <SessionGroup
+        defaultExpanded
+        sessions={[ordinarySession(1)]}
+        totalSessions={12}
+        renderSessionsPopover={renderSessionsPopover}
+        renderHeader={() => <div data-testid="header" />}
+      />,
+    );
+
+    const trigger = viewAllTrigger();
+    await user.click(trigger);
+
+    expect(renderSessionsPopover).toHaveBeenCalledWith(
+      expect.any(Function),
+      trigger,
+    );
+  });
+
   it("Given 弹层已经开过一次, When 关掉再打开, Then 内容重新挂载（每次打开都拿最新的一页，而不是复用上次那份）", async () => {
     const user = userEvent.setup();
     const mounted = vi.fn();

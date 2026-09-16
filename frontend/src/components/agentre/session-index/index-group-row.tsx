@@ -13,6 +13,7 @@ import {
   RowLeadingSlot,
   RowSecondaryLine,
   SessionGroup,
+  useUiTranslation,
   type ImportDialogPrefill,
   type ProjectGlyphInfo,
 } from "@agentre-hub/agentre-ui";
@@ -122,6 +123,7 @@ export function IndexGroupRow({
   children,
 }: IndexGroupRowProps) {
   const { t } = useTranslation();
+  const { t: uiT } = useUiTranslation();
   const metas = useSessionMetaStore((s) => s.metas);
 
   // 常规列表只铺「最近会话」（agent 轴 = 前 5 条，recentIDs）；attention 池单独喂气泡。
@@ -462,7 +464,7 @@ export function IndexGroupRow({
           : // 空机器组照摆（决策 10），组内如实说一句：刚配好的一台 daemon
             // 上没有会话，它也得在索引里看得见。
             group.kind === "machine"
-            ? t("sessionIndex.machine.empty")
+            ? uiT("sessionIndex.machine.empty")
             : undefined
       }
       {...rowHandlers}

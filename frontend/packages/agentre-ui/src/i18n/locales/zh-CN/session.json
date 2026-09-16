@@ -45,6 +45,7 @@
       "toggle": "展开/收起 {{name}} 的会话"
     },
     "machine": {
+      "empty": "这台机器上还没有对话",
       "offline": "离线"
     },
     "filter": {
