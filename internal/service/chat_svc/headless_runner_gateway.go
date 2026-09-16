@@ -16,28 +16,9 @@ type HeadlessRunnerGateway interface {
 	SessionProjectID(ctx context.Context, sessionID int64) (int64, error)
 }
 
-// headlessRunnerGateway 委托给 chat_svc 默认单例(懒解析 Chat(),兼容 bootstrap 接线早于
-// RegisterChat 的时序)。
-type headlessRunnerGateway struct{}
-
-func (headlessRunnerGateway) EnsureSession(ctx context.Context, req *EnsureSessionRequest) (*EnsureSessionResponse, error) {
-	return Chat().EnsureSession(ctx, req)
-}
-func (headlessRunnerGateway) Send(ctx context.Context, req *SendRequest) (*SendResponse, error) {
-	return Chat().Send(ctx, req)
-}
-func (headlessRunnerGateway) ObserveTurn(sessionID int64) (<-chan TurnResult, func()) {
-	return Chat().ObserveTurn(sessionID)
-}
-func (headlessRunnerGateway) Stop(ctx context.Context, req *StopRequest) (*StopResponse, error) {
-	return Chat().Stop(ctx, req)
-}
-func (headlessRunnerGateway) FinalAssistantText(ctx context.Context, messageID int64) (string, error) {
-	return Chat().FinalAssistantText(ctx, messageID)
-}
-func (headlessRunnerGateway) SessionProjectID(ctx context.Context, sessionID int64) (int64, error) {
-	return Chat().SessionProjectID(ctx, sessionID)
-}
-
-// HeadlessRunnerSvcGateway 生产用无头运行端口实现(供 ctl_svc / subagent_svc bootstrap 接线)。
-func HeadlessRunnerSvcGateway() HeadlessRunnerGateway { return headlessRunnerGateway{} }
+// HeadlessRunnerSvcGateway 生产用无头运行端口实现(供 ctl_svc / subagent_svc bootstrap
+// 接线)。Chat() 直接满足这套方法集,所以这里只是取当前单例。
+//
+// 调用方必须把接线放在 RegisterChat 之后(app.go registerChatService):RegisterChat
+// 之前 Chat() 为 nil,拿到的端口会在调用时 panic。
+func HeadlessRunnerSvcGateway() HeadlessRunnerGateway { return Chat() }

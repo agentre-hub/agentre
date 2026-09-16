@@ -394,7 +394,7 @@ func piUserModelID(req agentruntime.RunRequest, reported string) string {
 var sessionFactory = func(req agentruntime.RunRequest, env map[string]string, cwd string) (sessionHandle, error) {
 	binary := strings.TrimSpace(req.Backend.CLIPath)
 	if binary == "" {
-		binary = DefaultBinary()
+		binary = defaultBinary
 	}
 	model := ""
 	var providerExtPath string

@@ -393,7 +393,6 @@ func TestClientEventsGapTimeoutAndReconnect(t *testing.T) {
 		})
 		client, err := NewClient(Config{
 			URL: gatewayURL, Identity: testIdentity(t), Platform: "linux",
-			ReconnectInitial: 5 * time.Millisecond, ReconnectMax: 20 * time.Millisecond,
 		})
 		require.NoError(t, err)
 		defer client.Close()

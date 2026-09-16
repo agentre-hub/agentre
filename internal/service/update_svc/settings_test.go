@@ -32,7 +32,7 @@ func TestGetChannel(t *testing.T) {
 
 		convey.Convey("未设置时返回 DefaultUpdateChannel", func() {
 			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyUpdateChannel).Return(nil, nil)
-			got, err := GetChannel(ctx)
+			got, err := getChannel(ctx)
 			assert.NoError(t, err)
 			assert.Equal(t, app_setting_entity.DefaultUpdateChannel, got)
 		})
@@ -40,7 +40,7 @@ func TestGetChannel(t *testing.T) {
 		convey.Convey("值为空白时返回 DefaultUpdateChannel", func() {
 			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyUpdateChannel).
 				Return(&app_setting_entity.AppSetting{Key: app_setting_entity.KeyUpdateChannel, Value: "   "}, nil)
-			got, err := GetChannel(ctx)
+			got, err := getChannel(ctx)
 			assert.NoError(t, err)
 			assert.Equal(t, app_setting_entity.DefaultUpdateChannel, got)
 		})
@@ -48,14 +48,14 @@ func TestGetChannel(t *testing.T) {
 		convey.Convey("已设置时返回 trim 后值", func() {
 			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyUpdateChannel).
 				Return(&app_setting_entity.AppSetting{Key: app_setting_entity.KeyUpdateChannel, Value: " nightly "}, nil)
-			got, err := GetChannel(ctx)
+			got, err := getChannel(ctx)
 			assert.NoError(t, err)
 			assert.Equal(t, "nightly", got)
 		})
 
 		convey.Convey("repo 报错向上透出", func() {
 			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyUpdateChannel).Return(nil, errors.New("db down"))
-			_, err := GetChannel(ctx)
+			_, err := getChannel(ctx)
 			assert.Error(t, err)
 		})
 	})
@@ -73,15 +73,15 @@ func TestSetChannel(t *testing.T) {
 					assert.Greater(t, s.Updatetime, int64(0))
 					return nil
 				})
-			assert.NoError(t, SetChannel(ctx, "beta"))
+			assert.NoError(t, setChannel(ctx, "beta"))
 		})
 
 		convey.Convey("非法通道返回错误，不调用 repo", func() {
-			assert.Error(t, SetChannel(ctx, "weekly"))
+			assert.Error(t, setChannel(ctx, "weekly"))
 		})
 
 		convey.Convey("空串非法", func() {
-			assert.Error(t, SetChannel(ctx, ""))
+			assert.Error(t, setChannel(ctx, ""))
 		})
 	})
 }
@@ -92,7 +92,7 @@ func TestGetMirror(t *testing.T) {
 
 		convey.Convey("未设置返回空串（直连）", func() {
 			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyDownloadMirror).Return(nil, nil)
-			got, err := GetMirror(ctx)
+			got, err := getMirror(ctx)
 			assert.NoError(t, err)
 			assert.Equal(t, "", got)
 		})
@@ -100,7 +100,7 @@ func TestGetMirror(t *testing.T) {
 		convey.Convey("已设置返回 trim 后值", func() {
 			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyDownloadMirror).
 				Return(&app_setting_entity.AppSetting{Value: "https://ghfast.top/"}, nil)
-			got, err := GetMirror(ctx)
+			got, err := getMirror(ctx)
 			assert.NoError(t, err)
 			assert.Equal(t, "https://ghfast.top/", got)
 		})
@@ -118,7 +118,7 @@ func TestSetMirror(t *testing.T) {
 					assert.Equal(t, "https://ghfast.top/", s.Value)
 					return nil
 				})
-			assert.NoError(t, SetMirror(ctx, "https://ghfast.top/"))
+			assert.NoError(t, setMirror(ctx, "https://ghfast.top/"))
 		})
 
 		convey.Convey("空串清空", func() {
@@ -127,7 +127,7 @@ func TestSetMirror(t *testing.T) {
 					assert.Equal(t, "", s.Value)
 					return nil
 				})
-			assert.NoError(t, SetMirror(ctx, "   "))
+			assert.NoError(t, setMirror(ctx, "   "))
 		})
 	})
 }
@@ -138,7 +138,7 @@ func TestGetSetLastUpdateCheck(t *testing.T) {
 
 		convey.Convey("未设置返回 0", func() {
 			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyLastUpdateCheck).Return(nil, nil)
-			ts, err := GetLastUpdateCheck(ctx)
+			ts, err := getLastUpdateCheck(ctx)
 			assert.NoError(t, err)
 			assert.Equal(t, int64(0), ts)
 		})
@@ -146,7 +146,7 @@ func TestGetSetLastUpdateCheck(t *testing.T) {
 		convey.Convey("非数字值容错返回 0", func() {
 			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyLastUpdateCheck).
 				Return(&app_setting_entity.AppSetting{Value: "not-a-number"}, nil)
-			ts, err := GetLastUpdateCheck(ctx)
+			ts, err := getLastUpdateCheck(ctx)
 			assert.NoError(t, err)
 			assert.Equal(t, int64(0), ts)
 		})
@@ -154,7 +154,7 @@ func TestGetSetLastUpdateCheck(t *testing.T) {
 		convey.Convey("正常时间戳解析", func() {
 			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyLastUpdateCheck).
 				Return(&app_setting_entity.AppSetting{Value: "1700000000"}, nil)
-			ts, err := GetLastUpdateCheck(ctx)
+			ts, err := getLastUpdateCheck(ctx)
 			assert.NoError(t, err)
 			assert.Equal(t, int64(1700000000), ts)
 		})
@@ -166,7 +166,7 @@ func TestGetSetLastUpdateCheck(t *testing.T) {
 					assert.Equal(t, "1700000000", s.Value)
 					return nil
 				})
-			assert.NoError(t, SetLastUpdateCheck(ctx, 1700000000))
+			assert.NoError(t, setLastUpdateCheck(ctx, 1700000000))
 		})
 	})
 }

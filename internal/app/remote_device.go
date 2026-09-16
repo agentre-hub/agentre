@@ -7,6 +7,9 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
+// errRemoteDeviceServiceUnavailable 是 remote_device_svc 未接线时守卫返回的哨兵。
+var errRemoteDeviceServiceUnavailable = errors.New("remote device service unavailable")
+
 // RemoteDeviceList 返回当前已配对的全部 agentred（不含 keychain 秘密）。
 func (a *App) RemoteDeviceList() ([]*remote_device_svc.DeviceView, error) {
 	return remote_device_svc.Default().List(a.ctx)
@@ -71,7 +74,7 @@ func (a *App) RemoteDeviceFingerprint() (string, error) {
 		fp, err := svc.DeviceFingerprint()
 		return string(fp), err
 	}
-	return "", errors.New("remote device service unavailable")
+	return "", errRemoteDeviceServiceUnavailable
 }
 
 // RemoteDeviceListProviders 返回该 device 上 daemon 已配置的 LLM provider key 列表
@@ -89,7 +92,7 @@ func (a *App) RemoteDeviceSyncProvider(id int64, providerKey string) error {
 	if svc := remote_device_svc.Default(); svc != nil {
 		return svc.SyncProvider(a.ctx, id, providerKey)
 	}
-	return errors.New("remote device service unavailable")
+	return errRemoteDeviceServiceUnavailable
 }
 
 // RemoteDeviceUpgrade 触发远程一键升级 RPC(spec「远程一键升级」)。channel 留空
@@ -100,7 +103,7 @@ func (a *App) RemoteDeviceUpgrade(id int64, channel string, force bool) (*remote
 	if svc := remote_device_svc.Default(); svc != nil {
 		return svc.Upgrade(a.ctx, id, channel, force)
 	}
-	return nil, errors.New("remote device service unavailable")
+	return nil, errRemoteDeviceServiceUnavailable
 }
 
 // RemoteDeviceGet 返回一份只读的 DeviceView,不做任何网络探活。升级流程用它按
@@ -110,5 +113,5 @@ func (a *App) RemoteDeviceGet(id int64) (*remote_device_svc.DeviceView, error) {
 	if svc := remote_device_svc.Default(); svc != nil {
 		return svc.Get(a.ctx, id)
 	}
-	return nil, errors.New("remote device service unavailable")
+	return nil, errRemoteDeviceServiceUnavailable
 }

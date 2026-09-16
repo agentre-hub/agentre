@@ -394,7 +394,7 @@ func TestServiceInterface(t *testing.T) {
 
 		convey.Convey("GetAvailableMirrors 转发到包级函数", func() {
 			mirrors := svc.GetAvailableMirrors()
-			expected := GetAvailableMirrors()
+			expected := getAvailableMirrors()
 			assert.Equal(t, len(expected), len(mirrors))
 			assert.Equal(t, expected[0].ID, mirrors[0].ID)
 		})

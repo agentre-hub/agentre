@@ -17,7 +17,7 @@ import (
 // 因为 agentred 的 fanout 要在没有 chat_svc 的前提下算出同一份数。
 type OutputActivityHandler struct{}
 
-func (OutputActivityHandler) Apply(ctx context.Context, _ agentruntime.Event, _ *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (OutputActivityHandler) Apply(ctx context.Context, _ agentruntime.Event, _ *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	if emit != nil {
 		emit.Emit(ctx, streamOf(tc), map[string]any{"kind": "output_activity"})
 	}

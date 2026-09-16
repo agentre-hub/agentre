@@ -1641,7 +1641,7 @@ func TestIntegration_MCPReverseTunnel(t *testing.T) {
 	_ = drainRuntimeEvents(t, events, 5*time.Second)
 
 	// daemon 本机 gateway 的隧道入口(真机上 CLI 子进程被改写后打的就是这个 base)。
-	base := rig.d.gateway.BaseURL()
+	base := rig.d.gateway.URL()
 	require.NotEmpty(t, base, "daemon gateway must be running for the /mcp/ tunnel entry")
 
 	// 模拟 daemon 上的 CLI 子进程:POST /mcp/org/,带 desktop 轮起手时签的 token。
@@ -1684,7 +1684,7 @@ func TestIntegration_MCPReverseTunnel_NoDispatcher(t *testing.T) {
 	t.Cleanup(func() { remote.RegisterMCPProxyDispatcher(nil) })
 
 	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
-	base := rig.d.gateway.BaseURL()
+	base := rig.d.gateway.URL()
 	require.NotEmpty(t, base)
 
 	httpReq, err := http.NewRequest(http.MethodPost, base+"/mcp/org/",
@@ -1745,7 +1745,7 @@ func TestIntegration_MCPReverseTunnel_NoTarget(t *testing.T) {
 	_, _ = rig.startRun(t, 950)
 	awaitText(t, rig.previews, "before") // 会话确实在跑
 
-	base := rig.d.gateway.BaseURL()
+	base := rig.d.gateway.URL()
 	require.NotEmpty(t, base)
 
 	// 断开承载会话的 Protobuf 连接,并等 daemon 真的把它从活连接表里摘掉(bindConn 的
@@ -1830,7 +1830,7 @@ func TestIntegration_MCPReverseTunnel_TargetLostMidCall(t *testing.T) {
 	rig = bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
 	close(ready)
 
-	base := rig.d.gateway.BaseURL()
+	base := rig.d.gateway.URL()
 	require.NotEmpty(t, base)
 
 	reqBody := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"org_get"}}`
@@ -4275,7 +4275,7 @@ func desktopBlocksJSON(t *testing.T, script []agentruntime.Event) string {
 	acc := turn.New()
 	turnCtx := &turn.TurnContext{Waits: turn.NewWaitTracker()}
 	for _, ev := range script {
-		require.NoError(t, dispatcher.Apply(context.Background(), ev, acc, discardTurnEmitter{}, nil, turnCtx))
+		require.NoError(t, dispatcher.Apply(context.Background(), ev, acc, discardTurnEmitter{}, turnCtx))
 	}
 	msg := &transcript_entity.Message{}
 	require.NoError(t, msg.SetBlocks(acc.Finalize()))

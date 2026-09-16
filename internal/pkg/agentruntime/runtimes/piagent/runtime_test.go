@@ -35,7 +35,7 @@ import (
 
 func TestPiAgentCapabilities(t *testing.T) {
 	Convey("Given pi-agent runtime", t, func() {
-		caps := New().Capabilities()
+		caps := NewWithPool(nil).Capabilities()
 
 		Convey("When checking supported controls Then it mirrors implemented Pi RPC controls", func() {
 			So(caps.Has(capability.CapSteer), ShouldBeTrue)
@@ -55,7 +55,7 @@ func TestPiAgentCapabilities(t *testing.T) {
 		})
 
 		Convey("When comparing optional interfaces Then advertised controls match implementations", func() {
-			r := any(New())
+			r := any(NewWithPool(nil))
 			_, steerer := r.(agentruntime.Steerer)
 			_, aborter := r.(agentruntime.Aborter)
 			_, setter := r.(agentruntime.PermissionModeSetter)
@@ -83,7 +83,7 @@ func TestRun_ForksAndReturnsNativeSessionState(t *testing.T) {
 		defer restore()
 
 		Convey("When the runtime runs the prompt Then it forwards the anchor and returns native session state", func() {
-			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend:           &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				SessionID:         1,
 				ProviderSessionID: "session-old",
@@ -123,7 +123,7 @@ func TestRun_CanceledAcceptedTurnReturnsSettledUserAnchor(t *testing.T) {
 		return sess, nil
 	})
 	defer restore()
-	runtime := New()
+	runtime := NewWithPool(nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	events, result, err := runtime.Run(ctx, agentruntime.RunRequest{
 		Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
@@ -165,7 +165,7 @@ func TestPrepareRunWithholdsPromptUntilStart(t *testing.T) {
 		}
 		restore := SetSessionFactoryForTest(runtimeRPCSessionFactory(proc))
 		defer restore()
-		runtime := New()
+		runtime := NewWithPool(nil)
 
 		Convey("When the service preflights Then the forked ID is available while prompt waits for Start", func() {
 			prepared, err := runtime.PrepareRun(context.Background(), agentruntime.RunRequest{
@@ -210,7 +210,7 @@ func TestPreparedRunCloseBeforeStartSendsNoPrompt(t *testing.T) {
 		}
 		restore := SetSessionFactoryForTest(runtimeRPCSessionFactory(proc))
 		defer restore()
-		prepared, err := New().PrepareRun(context.Background(), agentruntime.RunRequest{
+		prepared, err := NewWithPool(nil).PrepareRun(context.Background(), agentruntime.RunRequest{
 			Backend:           &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 			SessionID:         4,
 			ProviderSessionID: "session-old",
@@ -239,7 +239,7 @@ func TestRun_PreservesCompletedAnswerWhenUserAnchorMetadataFails(t *testing.T) {
 		defer restore()
 
 		Convey("When the runtime drains Then it keeps Done and leaves the user anchor empty", func() {
-			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend:           &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				SessionID:         2,
 				ProviderSessionID: "session-old",
@@ -300,7 +300,7 @@ func TestPiResultModelPlaceholder(t *testing.T) {
 		defer restore()
 
 		Convey("When 绑 provider Then 占位 = 解析出的 ModelID", func() {
-			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				Effective: &agentruntime.EffectiveLLMConfig{ModelID: "gpt-5.4", ProviderType: string(llm_provider_entity.TypeOpenAIChat), ProviderKey: "provabc", APIKey: "tok-super-secret"},
 				SessionID: 1,
@@ -351,7 +351,7 @@ func TestRun_DefaultModelWhenProviderMissing(t *testing.T) {
 		defer restore()
 
 		Convey("When running without provider Then result has Pi default model and session id", func() {
-			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				SessionID: 1,
 				Cwd:       t.TempDir(),
@@ -375,7 +375,7 @@ func TestRun_MapsMissingNativeSession(t *testing.T) {
 		defer restore()
 
 		Convey("When the runtime starts the turn Then it returns the backend-neutral sentinel", func() {
-			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend:           &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				SessionID:         1,
 				ProviderSessionID: "pi-native-gone",
@@ -488,7 +488,7 @@ func TestRun_StaleCleanupCannotUnregisterNewerGeneration(t *testing.T) {
 		return second, nil
 	})
 	defer restore()
-	runtime := New()
+	runtime := NewWithPool(nil)
 	req := agentruntime.RunRequest{
 		Backend:           &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 		SessionID:         91,
@@ -603,7 +603,7 @@ func TestRun_ClosesOutputAfterSessionClose(t *testing.T) {
 		defer restore()
 
 		Convey("When the stream has drained Then output remains open until session cleanup returns", func() {
-			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, _, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				SessionID: 1,
 				Cwd:       t.TempDir(),
@@ -641,7 +641,7 @@ func TestRun_ForwardsUserBlockImagesToStream(t *testing.T) {
 		defer restore()
 
 		Convey("When Run executes Then the image reaches Pi as a multimodal attachment", func() {
-			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, _, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				SessionID: 1,
 				Cwd:       t.TempDir(),
@@ -733,7 +733,7 @@ func TestRun_PiFailuresStayRedactedAtStartupAndDownstream(t *testing.T) {
 			core, logs := observer.New(zapcore.DebugLevel)
 			ctx := logger.WithContextLogger(context.Background(), zap.New(core))
 
-			events, result, err := New().Run(ctx, agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(ctx, agentruntime.RunRequest{
 				Backend:           &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				SessionID:         689,
 				AgentID:           8,
@@ -853,7 +853,7 @@ func TestRun_LogsPiStreamFailureDiagnostics(t *testing.T) {
 		ctx := logger.WithContextLogger(context.Background(), zap.New(core))
 
 		Convey("When the turn drains Then diagnostics remain available to the result stream but not operational logs", func() {
-			events, result, err := New().Run(ctx, agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(ctx, agentruntime.RunRequest{
 				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				SessionID: 689,
 				AgentID:   8,
@@ -928,7 +928,7 @@ func TestRun_ProviderInjectsAPIKeyEnvAndBareModel(t *testing.T) {
 		defer restore()
 
 		Convey("When running Then the APIKey reaches the factory env and result.Model stays bare", func() {
-			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				Effective: prov,
 				SessionID: 1,
@@ -956,7 +956,7 @@ func TestRun_ProviderAPIKeyEmpty_ReturnsConfigErrorWithoutSpawning(t *testing.T)
 		defer restore()
 
 		Convey("When running Then Run returns a config error naming the provider and never spawns", func() {
-			_, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+			_, _, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				Effective: &agentruntime.EffectiveLLMConfig{ProviderKey: "provx", APIKey: "", ModelID: "m1"},
 				SessionID: 1,
@@ -982,7 +982,7 @@ func TestRun_NativeEffectiveConfig_UsesCLILoginWithoutProviderAPIKey(t *testing.
 		defer restore()
 
 		Convey("When running Then Pi uses CLI login without requiring or injecting a provider API key", func() {
-			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, _, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				Effective: &agentruntime.EffectiveLLMConfig{Mode: agentruntime.EffectiveModeNative},
 				SessionID: 1,
@@ -1010,7 +1010,7 @@ func TestRun_NoProvider_NoEnvInjection(t *testing.T) {
 		defer restore()
 
 		Convey("When running Then no provider env key is injected and model stays default", func() {
-			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				SessionID: 1,
 				Cwd:       t.TempDir(),
@@ -1417,7 +1417,7 @@ func TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
 		defer restore()
 
 		Convey("When 起这一轮, Then 起得来,工作目录落在该 Agent 的账号级同步标识下", func() {
-			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, _, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend: &agent_backend_entity.AgentBackend{
 					Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}",
 				},
@@ -1449,7 +1449,7 @@ func TestCloseAllSessions_GivenInFlightRun_WhenHostShutsDown_ThenTheRPCProcessIs
 		})
 		defer restore()
 
-		r := New()
+		r := NewWithPool(nil)
 		_, err := r.PrepareRun(context.Background(), agentruntime.RunRequest{
 			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 			SessionID: 11,
@@ -1478,7 +1478,7 @@ func TestCloseSession_GivenDeletedSession_WhenReleasing_ThenOnlyThatSessionIsRel
 		})
 		defer restore()
 
-		r := New()
+		r := NewWithPool(nil)
 		for id := range sessions {
 			_, err := r.PrepareRun(context.Background(), agentruntime.RunRequest{
 				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},

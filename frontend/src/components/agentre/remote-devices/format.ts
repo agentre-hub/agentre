@@ -1,19 +1,6 @@
 import type { TFunction } from "i18next";
 
-import { formatRelativeTime } from "@agentre-hub/agentre-ui";
-
 // frontend/src/components/agentre/remote-devices/format.ts
-/**
- * 档位阶梯与文案都在共享包里（`formatRelativeTime`）。设备列表要的是「刚刚」这一
- * 档：秒级精度对「上次见到这台机器」没有意义。
- */
-export function relativeTime(
-  thenMs: number,
-  nowMs: number,
-  t: TFunction,
-): string {
-  return formatRelativeTime(thenMs, nowMs, t);
-}
 
 const IP_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
 

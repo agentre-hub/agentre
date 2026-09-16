@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 )
 
 const ProtocolVersion = 4
@@ -30,14 +29,6 @@ type Config struct {
 	Identity      *DeviceIdentity
 	ClientVersion string
 	Platform      string
-	DeviceFamily  string
-
-	RequiredScopes   []string
-	HandshakeTimeout time.Duration
-	RequestTimeout   time.Duration
-	ReconnectInitial time.Duration
-	ReconnectMax     time.Duration
-	Now              func() time.Time
 }
 
 type Hello struct {

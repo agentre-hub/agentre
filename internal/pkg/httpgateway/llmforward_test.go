@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/llmurl"
 )
 
 // fakeLookup 测试用 provider+model lookup，返回构造时 inject 的 map，同时实现
@@ -444,7 +445,7 @@ func TestBuildTargetURL(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			u, err := buildTargetURL(tc.baseURL, tc.path, llm_provider_entity.TypeAnthropic)
+			u, err := llmurl.Build(tc.baseURL, tc.path)
 			assert.NoError(t, err)
 			if assert.NotNil(t, u) {
 				assert.Equal(t, tc.want, u.String())
@@ -454,7 +455,7 @@ func TestBuildTargetURL(t *testing.T) {
 }
 
 func TestBuildTargetURL_RejectsEmpty(t *testing.T) {
-	_, err := buildTargetURL("", "/v1/messages", llm_provider_entity.TypeAnthropic)
+	_, err := llmurl.Build("", "/v1/messages")
 	assert.Error(t, err)
 }
 

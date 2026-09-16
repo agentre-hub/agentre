@@ -24,6 +24,11 @@ const (
 	clientID   = "cli"
 	clientMode = "cli"
 	clientRole = "operator"
+
+	defaultHandshakeTimeout = 15 * time.Second
+	defaultRequestTimeout   = 30 * time.Second
+	defaultReconnectInitial = time.Second
+	defaultReconnectMax     = 30 * time.Second
 )
 
 type webSocketDialer interface {
@@ -72,29 +77,6 @@ func NewClient(config Config) (*Client, error) {
 	if strings.TrimSpace(config.Platform) == "" {
 		config.Platform = runtime.GOOS
 	}
-	if len(config.RequiredScopes) == 0 {
-		config.RequiredScopes = slices.Clone(RequiredOperatorScopes)
-	} else {
-		config.RequiredScopes = slices.Clone(config.RequiredScopes)
-	}
-	if config.HandshakeTimeout <= 0 {
-		config.HandshakeTimeout = 15 * time.Second
-	}
-	if config.RequestTimeout <= 0 {
-		config.RequestTimeout = 30 * time.Second
-	}
-	if config.ReconnectInitial <= 0 {
-		config.ReconnectInitial = time.Second
-	}
-	if config.ReconnectMax <= 0 {
-		config.ReconnectMax = 30 * time.Second
-	}
-	if config.ReconnectMax < config.ReconnectInitial {
-		config.ReconnectMax = config.ReconnectInitial
-	}
-	if config.Now == nil {
-		config.Now = time.Now
-	}
 	return &Client{
 		config:  config,
 		dialer:  websocket.DefaultDialer,
@@ -136,7 +118,7 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 	}
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.config.RequestTimeout)
+		ctx, cancel = context.WithTimeout(ctx, defaultRequestTimeout)
 		defer cancel()
 	}
 
@@ -211,7 +193,7 @@ func (c *Client) Close() {
 }
 
 func (c *Client) supervise(conn *websocket.Conn, challengeSeq int64) {
-	backoff := c.config.ReconnectInitial
+	backoff := defaultReconnectInitial
 	for {
 		err := c.readLoop(conn, challengeSeq)
 		c.clearConnection(conn)
@@ -231,13 +213,13 @@ func (c *Client) supervise(conn *websocket.Conn, challengeSeq int64) {
 				challengeSeq = newChallengeSeq
 				c.setConnection(conn)
 				c.publishReady(hello)
-				backoff = c.config.ReconnectInitial
+				backoff = defaultReconnectInitial
 				break
 			}
 			c.publishError(dialErr)
 			backoff *= 2
-			if backoff > c.config.ReconnectMax {
-				backoff = c.config.ReconnectMax
+			if backoff > defaultReconnectMax {
+				backoff = defaultReconnectMax
 			}
 		}
 	}
@@ -275,7 +257,7 @@ func (c *Client) readLoop(conn *websocket.Conn, lastSeq int64) error {
 }
 
 func (c *Client) dialAndHandshake(ctx context.Context) (*websocket.Conn, Hello, int64, error) {
-	handshakeCtx, cancel := context.WithTimeout(ctx, c.config.HandshakeTimeout)
+	handshakeCtx, cancel := context.WithTimeout(ctx, defaultHandshakeTimeout)
 	defer cancel()
 	conn, dialResponse, err := c.dialer.DialContext(handshakeCtx, c.config.URL, nil)
 	if err != nil {
@@ -310,10 +292,10 @@ func (c *Client) dialAndHandshake(ctx context.Context) (*websocket.Conn, Hello, 
 		return fail(fmt.Errorf("invalid openclaw connect challenge"))
 	}
 
-	signedAt := c.config.Now().UnixMilli()
+	signedAt := time.Now().UnixMilli()
 	proof, err := c.config.Identity.proof(
-		clientID, clientMode, clientRole, c.config.RequiredScopes, signedAt,
-		c.config.Token, challengePayload.Nonce, c.config.Platform, c.config.DeviceFamily,
+		clientID, clientMode, clientRole, slices.Clone(RequiredOperatorScopes), signedAt,
+		c.config.Token, challengePayload.Nonce, c.config.Platform, "",
 	)
 	if err != nil {
 		return fail(err)
@@ -322,12 +304,11 @@ func (c *Client) dialAndHandshake(ctx context.Context) (*websocket.Conn, Hello, 
 		MinProtocol int `json:"minProtocol"`
 		MaxProtocol int `json:"maxProtocol"`
 		Client      struct {
-			ID           string `json:"id"`
-			DisplayName  string `json:"displayName"`
-			Version      string `json:"version"`
-			Platform     string `json:"platform"`
-			DeviceFamily string `json:"deviceFamily,omitempty"`
-			Mode         string `json:"mode"`
+			ID          string `json:"id"`
+			DisplayName string `json:"displayName"`
+			Version     string `json:"version"`
+			Platform    string `json:"platform"`
+			Mode        string `json:"mode"`
 		} `json:"client"`
 		Role   string      `json:"role"`
 		Scopes []string    `json:"scopes"`
@@ -339,14 +320,13 @@ func (c *Client) dialAndHandshake(ctx context.Context) (*websocket.Conn, Hello, 
 		MinProtocol: ProtocolVersion,
 		MaxProtocol: ProtocolVersion,
 		Role:        clientRole,
-		Scopes:      slices.Clone(c.config.RequiredScopes),
+		Scopes:      slices.Clone(RequiredOperatorScopes),
 		Device:      proof,
 	}
 	connectParams.Client.ID = clientID
 	connectParams.Client.DisplayName = "AgentRE"
 	connectParams.Client.Version = c.config.ClientVersion
 	connectParams.Client.Platform = strings.ToLower(strings.TrimSpace(c.config.Platform))
-	connectParams.Client.DeviceFamily = strings.ToLower(strings.TrimSpace(c.config.DeviceFamily))
 	connectParams.Client.Mode = clientMode
 	connectParams.Auth.Token = c.config.Token
 
@@ -378,7 +358,7 @@ func (c *Client) dialAndHandshake(ctx context.Context) (*websocket.Conn, Hello, 
 	if hello.Type != "hello-ok" || hello.Protocol != ProtocolVersion {
 		return fail(fmt.Errorf("%w: negotiated %d, required %d", ErrProtocolMismatch, hello.Protocol, ProtocolVersion))
 	}
-	for _, required := range c.config.RequiredScopes {
+	for _, required := range RequiredOperatorScopes {
 		if !slices.Contains(hello.Auth.Scopes, required) {
 			return fail(fmt.Errorf("%w: %s", ErrRequiredScopeMissing, required))
 		}

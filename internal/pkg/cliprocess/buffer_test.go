@@ -21,7 +21,7 @@ func TestLockedBuffer_GivenMoreBytesThanTheCap_WhenReading_ThenOnlyTheRecentTail
 	_, err := buf.Write([]byte(strings.Repeat("x", 80*1024) + "diagnostic-tail"))
 	require.NoError(t, err)
 
-	assert.LessOrEqual(t, len(buf.String()), MaxDiagnosticBytes)
+	assert.LessOrEqual(t, len(buf.String()), maxDiagnosticBytes)
 	assert.True(t, strings.HasSuffix(buf.String(), "diagnostic-tail"), "保留的必须是最近的尾巴")
 }
 
@@ -36,6 +36,6 @@ func TestLockedBuffer_GivenManySmallWritesPastTheCap_WhenReading_ThenOnlyTheRece
 	_, err := buf.Write([]byte("last-line"))
 	require.NoError(t, err)
 
-	assert.LessOrEqual(t, len(buf.String()), MaxDiagnosticBytes)
+	assert.LessOrEqual(t, len(buf.String()), maxDiagnosticBytes)
 	assert.True(t, strings.HasSuffix(buf.String(), "last-line"))
 }

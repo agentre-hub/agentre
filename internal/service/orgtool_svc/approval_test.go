@@ -36,7 +36,7 @@ func newWriteSvc(ctrl *gomock.Controller) (*orgtoolSvc, *writeDeps) {
 		agent:  mock_orgtool_svc.NewMockAgentCommand(ctrl),
 		apv:    mock_orgtool_svc.NewMockApprovalGateway(ctrl),
 	}
-	s := &orgtoolSvc{approvalTimeout: 4 * time.Minute}
+	s := newOrgtoolSvc()
 	s.RegisterDeps(d.query, d.dept, d.agent, d.lookup, d.apv)
 	return s, d
 }
@@ -88,7 +88,7 @@ func TestOrgApproval_ApprovedExecutes(t *testing.T) {
 			&department_svc.CreateDepartmentResponse{Item: &department_svc.DepartmentItem{ID: 7, Name: "市场部"}}, nil)
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "approved", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_create_department","arguments":{"name":"市场部"}}}`, token)
 
 		apvCh <- true
@@ -124,7 +124,7 @@ func TestOrgApproval_ApprovedButExecError(t *testing.T) {
 				return nil
 			})
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_create_department","arguments":{"name":"x"}}}`, token)
 
 		apvCh <- true
@@ -149,7 +149,7 @@ func TestOrgApproval_Denied(t *testing.T) {
 		// 无 dept.Create EXPECT:拒绝不该执行
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "denied", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_create_department","arguments":{"name":"x"}}}`, token)
 
 		apvCh <- false
@@ -171,7 +171,7 @@ func TestOrgApproval_Timeout(t *testing.T) {
 		beginCh(d, 99) // 返回 channel 但故意不 push,触发超时分支
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "expired", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_create_department","arguments":{"name":"x"}}}`, token)
 
 		<-done
@@ -190,7 +190,7 @@ func TestOrgApproval_BeginFails(t *testing.T) {
 		d.apv.EXPECT().BeginToolApproval(gomock.Any(), int64(99), gomock.Any()).Return((<-chan bool)(nil), assertErr("no active turn"))
 		// 无 Finish / 无 exec EXPECT
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		req := httptest.NewRequest("POST", "/mcp/org/", strings.NewReader(
 			`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_create_department","arguments":{"name":"x"}}}`))
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -242,7 +242,7 @@ func TestOrgApproval_UpdateDepartmentMove(t *testing.T) {
 			})
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "approved", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_update_department","arguments":{"id":5,"name":"新名","parentId":9}}}`, token)
 		apvCh <- true
 		<-done
@@ -285,7 +285,7 @@ func TestOrgApproval_CreateAgentInheritsBackend(t *testing.T) {
 			})
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "approved", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_create_agent","arguments":{"name":"新人","departmentId":1}}}`, token)
 		apvCh <- true
 		<-done

@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
+	"github.com/agentre-hub/agentre/internal/repository/repoquery"
 )
 
 //go:generate mockgen -source issue.go -destination mock_issue_repo/mock_issue.go
@@ -148,7 +149,7 @@ func (r *issueRepo) scoped(ctx context.Context, filter ListFilter) *gorm.DB {
 		q = q.Where("project_id = ?", filter.ProjectID)
 	}
 	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
-		like := "%" + escapeLike(keyword) + "%"
+		like := "%" + repoquery.EscapeLike(keyword) + "%"
 		if number, ok := issueNumber(keyword); ok {
 			q = q.Where(`title LIKE ? ESCAPE '\' OR body LIKE ? ESCAPE '\' OR id = ?`, like, like, number)
 		} else {
@@ -188,14 +189,6 @@ func (r *issueRepo) scoped(ctx context.Context, filter ListFilter) *gorm.DB {
 	}
 	return q
 }
-
-// escapeLike 把用户输入里的 LIKE 通配符转义成字面量（配合 ESCAPE '\'）：搜一个
-// `_` 不该把整个库都搜出来。
-func escapeLike(s string) string {
-	return likeEscaper.Replace(s)
-}
-
-var likeEscaper = strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
 
 // issueNumber 从关键词里解析 `#编号`：`#179` 与 `179` 都解析成 179，其余返回 false。
 func issueNumber(keyword string) (int64, bool) {

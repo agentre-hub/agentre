@@ -20,6 +20,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
+	"github.com/agentre-hub/agentre/internal/repository/repoquery"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -224,10 +225,6 @@ func (r *sessionRepo) FindByConversationID(ctx context.Context, conversationID s
 // ListByAgentPaged 按 last_message_at DESC 翻页返回 agent 的未删除会话。
 // 服务层负责对 offset/limit 做边界裁剪；repo 只忠实按参数查。
 func (r *sessionRepo) ListByAgentPaged(ctx context.Context, agentID int64, offset, limit int) ([]*chat_entity.Session, error) {
-	return r.listByAgentPaged(ctx, agentID, offset, limit)
-}
-
-func (r *sessionRepo) listByAgentPaged(ctx context.Context, agentID int64, offset, limit int) ([]*chat_entity.Session, error) {
 	var rows []*chat_entity.Session
 	q := db.Ctx(ctx).
 		Where("agent_id = ? AND status = ?", agentID, consts.ACTIVE).
@@ -242,10 +239,6 @@ func (r *sessionRepo) listByAgentPaged(ctx context.Context, agentID int64, offse
 }
 
 func (r *sessionRepo) ListIDsByAgents(ctx context.Context, agentIDs []int64) (map[int64][]int64, error) {
-	return r.listIDsByAgents(ctx, agentIDs)
-}
-
-func (r *sessionRepo) listIDsByAgents(ctx context.Context, agentIDs []int64) (map[int64][]int64, error) {
 	out := make(map[int64][]int64, len(agentIDs))
 	if len(agentIDs) == 0 {
 		return out, nil
@@ -333,10 +326,6 @@ func (r *sessionRepo) listByAgentsWindow(
 // 用于 ListAgents 一次把侧栏「查看全部 N 个会话」需要的总数都查出来，
 // 避免每个 agent 单独发一条 COUNT。
 func (r *sessionRepo) CountByAgents(ctx context.Context, agentIDs []int64) (map[int64]int64, error) {
-	return r.countByAgents(ctx, agentIDs)
-}
-
-func (r *sessionRepo) countByAgents(ctx context.Context, agentIDs []int64) (map[int64]int64, error) {
 	out := make(map[int64]int64, len(agentIDs))
 	if len(agentIDs) == 0 {
 		return out, nil
@@ -364,10 +353,6 @@ func (r *sessionRepo) countByAgents(ctx context.Context, agentIDs []int64) (map[
 
 // CountByAgent 给 popover 拼 hasMore / "已加载 X / Y" 用。
 func (r *sessionRepo) CountByAgent(ctx context.Context, agentID int64) (int64, error) {
-	return r.countByAgent(ctx, agentID)
-}
-
-func (r *sessionRepo) countByAgent(ctx context.Context, agentID int64) (int64, error) {
 	var n int64
 	q := db.Ctx(ctx).
 		Model(&chat_entity.Session{}).
@@ -435,13 +420,6 @@ type SessionIndexFilter struct {
 	Keyword string
 }
 
-// escapeLike 把用户输入里的 LIKE 元字符转成字面量。不转的话「100%」会退化成
-// 「1、0、0 加任意后缀」—— 搜得越具体反而命中越宽。
-func escapeLike(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return r.Replace(s)
-}
-
 // indexScope 是索引全部查询共用的 WHERE。列名一律带 `chat_sessions.` 前缀：
 // 关键词分支会 JOIN 上 agents / projects，而这两张表同样有 name / status / id 列，
 // 不限定表名的话 SQLite 直接报 ambiguous column。
@@ -467,7 +445,7 @@ func indexScope(f SessionIndexFilter) func(*gorm.DB) *gorm.DB {
 		if kw == "" {
 			return d
 		}
-		like := "%" + escapeLike(kw) + "%"
+		like := "%" + repoquery.EscapeLike(kw) + "%"
 		// LEFT JOIN 而不是 INNER：agent / 项目档被删掉的会话照样要能按标题搜到。
 		return d.
 			Joins("LEFT JOIN agents ON agents.id = chat_sessions.agent_id").

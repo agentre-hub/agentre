@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/agentre-hub/agentre/internal/pkg/cliprocess"
 )
 
 type osScriptRunner struct{}
@@ -17,7 +19,7 @@ type osScriptRunner struct{}
 func NewOSRunner() ScriptRunner { return &osScriptRunner{} }
 
 func (osScriptRunner) Run(ctx context.Context, spec RunSpec) (*RunResult, error) {
-	in, err := Resolve(spec.Interpreter, spec.InterpreterPath)
+	in, err := resolve(spec.Interpreter, spec.InterpreterPath)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +44,7 @@ func (osScriptRunner) Run(ctx context.Context, spec RunSpec) (*RunResult, error)
 	//nolint:gosec // G204: 按设计执行用户自定义脚本；解释器经 Resolve allowlist 校验,脚本本就是 Hook 的功能本体。
 	cmd := exec.CommandContext(runCtx, in.Bin, args...)
 	cmd.Env = append(os.Environ(), envSlice(spec.Env)...)
-	setSysProcAttr(cmd) // 平台钩子：独立进程组
+	cliprocess.ApplyProcessGroup(cmd) // 平台钩子：独立进程组
 
 	limit := spec.MaxOutputBytes
 	if limit <= 0 {
@@ -54,7 +56,7 @@ func (osScriptRunner) Run(ctx context.Context, spec RunSpec) (*RunResult, error)
 	cmd.Stderr = &cappedWriter{w: &errBuf, max: limit}
 
 	start := time.Now()
-	cmd.Cancel = func() error { return killGroup(cmd) } // 超时/取消时杀整组
+	cmd.Cancel = func() error { return cliprocess.KillProcessTree(cmd.Process) } // 超时/取消时杀整组
 	runErr := cmd.Run()
 	dur := time.Since(start)
 

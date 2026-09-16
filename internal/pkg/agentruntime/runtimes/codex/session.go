@@ -372,7 +372,7 @@ func codexEffectiveModelKey(req agentruntime.RunRequest) string {
 func buildLaunchSpec(req agentruntime.RunRequest, env map[string]string, cwd string) codexLaunchSpec {
 	binary := strings.TrimSpace(req.Backend.CLIPath)
 	if binary == "" {
-		binary = DefaultBinary()
+		binary = defaultBinary
 	}
 	spec := codexLaunchSpec{
 		binary:            binary,

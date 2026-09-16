@@ -124,6 +124,50 @@ function backendView(item: agent_backend_svc.BackendItem): BackendView {
   };
 }
 
+// listBackendsWithOverlays 列出全部 backend,并把每台的 CLI overlay 合并进
+// cliByDevice(缺本机那行时补一行 path 档)。listBackends / scanBackends 只差
+// scan 前是否先跑一次 ScanAndCreate。
+async function listBackendsWithOverlays(): Promise<BackendView[]> {
+  const [backendResponse, overlayResponse, localFingerprint] =
+    await Promise.all([
+      ListAgentBackends(),
+      ListAgentBackendCLIOverlays(),
+      RemoteDeviceFingerprint(),
+    ]);
+  const overlaysByBackend = new Map<
+    string,
+    Array<{
+      fingerprint: string;
+      status: "recognized" | "path" | "unchecked";
+    }>
+  >();
+  for (const overlay of overlayResponse.items ?? []) {
+    const rows = overlaysByBackend.get(overlay.backendSyncId) ?? [];
+    rows.push({
+      fingerprint: overlay.fingerprint,
+      status: overlay.status as "recognized" | "path" | "unchecked",
+    });
+    overlaysByBackend.set(overlay.backendSyncId, rows);
+  }
+  return (backendResponse.items ?? []).map((item) => ({
+    ...backendView(item),
+    cliByDevice: (() => {
+      const rows = (overlaysByBackend.get(item.syncId) ?? []).map(
+        (overlay) => ({
+          deviceId: overlay.fingerprint,
+          status: overlay.status,
+        }),
+      );
+      if (!rows.some((row) => row.deviceId === localFingerprint))
+        rows.push({
+          deviceId: localFingerprint || "desktop",
+          status: "path",
+        });
+      return rows;
+    })(),
+  }));
+}
+
 /** Wails-only wiring for the shared engine UI. */
 export function createDesktopEngineSettingsPorts(
   options: {
@@ -254,44 +298,7 @@ export function createDesktopEngineSettingsPorts(
         : null;
     },
     async listBackends() {
-      const [backendResponse, overlayResponse, localFingerprint] =
-        await Promise.all([
-          ListAgentBackends(),
-          ListAgentBackendCLIOverlays(),
-          RemoteDeviceFingerprint(),
-        ]);
-      const overlaysByBackend = new Map<
-        string,
-        Array<{
-          fingerprint: string;
-          status: "recognized" | "path" | "unchecked";
-        }>
-      >();
-      for (const overlay of overlayResponse.items ?? []) {
-        const rows = overlaysByBackend.get(overlay.backendSyncId) ?? [];
-        rows.push({
-          fingerprint: overlay.fingerprint,
-          status: overlay.status as "recognized" | "path" | "unchecked",
-        });
-        overlaysByBackend.set(overlay.backendSyncId, rows);
-      }
-      return (backendResponse.items ?? []).map((item) => ({
-        ...backendView(item),
-        cliByDevice: (() => {
-          const rows = (overlaysByBackend.get(item.syncId) ?? []).map(
-            (overlay) => ({
-              deviceId: overlay.fingerprint,
-              status: overlay.status,
-            }),
-          );
-          if (!rows.some((row) => row.deviceId === localFingerprint))
-            rows.push({
-              deviceId: localFingerprint || "desktop",
-              status: "path",
-            });
-          return rows;
-        })(),
-      }));
+      return listBackendsWithOverlays();
     },
     async createBackend(input) {
       const response = await CreateAgentBackend(
@@ -354,44 +361,7 @@ export function createDesktopEngineSettingsPorts(
     },
     async scanBackends() {
       await ScanAndCreateAgentBackends();
-      const [backendResponse, overlayResponse, localFingerprint] =
-        await Promise.all([
-          ListAgentBackends(),
-          ListAgentBackendCLIOverlays(),
-          RemoteDeviceFingerprint(),
-        ]);
-      const overlaysByBackend = new Map<
-        string,
-        Array<{
-          fingerprint: string;
-          status: "recognized" | "path" | "unchecked";
-        }>
-      >();
-      for (const overlay of overlayResponse.items ?? []) {
-        const rows = overlaysByBackend.get(overlay.backendSyncId) ?? [];
-        rows.push({
-          fingerprint: overlay.fingerprint,
-          status: overlay.status as "recognized" | "path" | "unchecked",
-        });
-        overlaysByBackend.set(overlay.backendSyncId, rows);
-      }
-      return (backendResponse.items ?? []).map((item) => ({
-        ...backendView(item),
-        cliByDevice: (() => {
-          const rows = (overlaysByBackend.get(item.syncId) ?? []).map(
-            (overlay) => ({
-              deviceId: overlay.fingerprint,
-              status: overlay.status,
-            }),
-          );
-          if (!rows.some((row) => row.deviceId === localFingerprint))
-            rows.push({
-              deviceId: localFingerprint || "desktop",
-              status: "path",
-            });
-          return rows;
-        })(),
-      }));
+      return listBackendsWithOverlays();
     },
     async scanBackendResults() {
       return (await ScanAndCreateAgentBackends()).results ?? [];

@@ -156,12 +156,7 @@ func restartService(ctx context.Context, manager ServiceManager, load serviceSta
 }
 
 func requiresRestartPIDChange(status ServiceStatus) bool {
-	for _, detail := range status.Details {
-		if strings.HasPrefix(detail, "Manager: launchd") || strings.HasPrefix(detail, "Manager: systemd") {
-			return true
-		}
-	}
-	return false
+	return strings.HasPrefix(status.Manager, "launchd") || strings.HasPrefix(status.Manager, "systemd")
 }
 
 func waitForLocalDaemonPIDChange(ctx context.Context, manager ServiceManager, status ServiceStatus,
@@ -206,10 +201,8 @@ func waitForLocalDaemonPIDChange(ctx context.Context, manager ServiceManager, st
 }
 
 func serviceReadinessDiagnostic(status ServiceStatus) string {
-	for _, detail := range status.Details {
-		if target, ok := strings.CutPrefix(detail, "Target: "); ok {
-			return fmt.Sprintf("launchctl target %s; Run manually: launchctl print %s", target, target)
-		}
+	if status.Target != "" {
+		return fmt.Sprintf("launchctl target %s; Run manually: launchctl print %s", status.Target, status.Target)
 	}
 	return "Run manually: agentred service status"
 }

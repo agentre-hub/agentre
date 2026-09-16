@@ -4,7 +4,6 @@ package enginesnapshot
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/pkg/cagoenvelope"
 )
 
 const (
@@ -128,7 +128,7 @@ func (m *Manager) Pull(ctx context.Context) error {
 		return fmt.Errorf("engine snapshot endpoint returned %s", resp.Status)
 	}
 	var snapshot snapshotResponse
-	if err := decodeEnvelope(payload, &snapshot); err != nil {
+	if err := cagoenvelope.Decode(payload, &snapshot); err != nil {
 		return fmt.Errorf("parse engine snapshot response: %w", err)
 	}
 
@@ -197,19 +197,6 @@ func (m *Manager) credentials() (string, string) {
 		token = strings.TrimSpace(m.accessToken())
 	}
 	return baseURL, token
-}
-
-func decodeEnvelope(payload []byte, target any) error {
-	var envelope struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(payload, &envelope); err != nil {
-		return err
-	}
-	if len(envelope.Data) != 0 && string(envelope.Data) != "null" {
-		return json.Unmarshal(envelope.Data, target)
-	}
-	return json.Unmarshal(payload, target)
 }
 
 func appendEndpoint(baseURL, endpoint string) string {

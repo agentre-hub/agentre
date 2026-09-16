@@ -11,7 +11,7 @@ import (
 
 type ExecApprovalRequestedHandler struct{}
 
-func (ExecApprovalRequestedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (ExecApprovalRequestedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	request := ev.(agentruntime.ExecApprovalRequested)
 	block := &blocks.ExecApprovalBlock{
 		ID: request.ID, CommandText: request.CommandText, CommandPreview: request.CommandPreview,
@@ -31,7 +31,7 @@ func (ExecApprovalRequestedHandler) Apply(ctx context.Context, ev agentruntime.E
 
 type ExecApprovalResolvedHandler struct{}
 
-func (ExecApprovalResolvedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (ExecApprovalResolvedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	resolved := ev.(agentruntime.ExecApprovalResolved)
 	var captured *blocks.ExecApprovalBlock
 	if !turn.Mutate[blocks.ExecApprovalBlock](acc, "exec_approval:"+resolved.ID, func(block *blocks.ExecApprovalBlock) {

@@ -28,12 +28,12 @@ import (
 )
 
 const (
-	// PluginName 插件名，同时是技能目录名。
-	PluginName = "agrctl"
-	// MarketplaceName 承载该插件的本地 marketplace 名。
-	MarketplaceName = "agentre"
-	// PluginID Claude Code 用来标识插件的 `<plugin>@<marketplace>` 键。
-	PluginID = PluginName + "@" + MarketplaceName
+	// pluginName 插件名，同时是技能目录名。
+	pluginName = "agrctl"
+	// marketplaceName 承载该插件的本地 marketplace 名。
+	marketplaceName = "agentre"
+	// pluginID Claude Code 用来标识插件的 `<plugin>@<marketplace>` 键。
+	pluginID = pluginName + "@" + marketplaceName
 	// stampName 版本标记文件名，落在每种形态的根目录下。
 	stampName = ".agentre-install.json"
 )
@@ -57,19 +57,19 @@ type Info struct {
 	UniversalPath      string `json:"universalPath"`
 }
 
-// MarketplaceDir 本地 marketplace 根 ~/.claude/plugins/marketplaces/agentre。
-func MarketplaceDir(home string) string {
-	return filepath.Join(home, ".claude", "plugins", "marketplaces", MarketplaceName)
+// marketplaceDir 本地 marketplace 根 ~/.claude/plugins/marketplaces/agentre。
+func marketplaceDir(home string) string {
+	return filepath.Join(home, ".claude", "plugins", "marketplaces", marketplaceName)
 }
 
-// PluginDir 插件根 ~/.claude/plugins/marketplaces/agentre/agrctl。
-func PluginDir(home string) string {
-	return filepath.Join(MarketplaceDir(home), PluginName)
+// pluginDir 插件根 ~/.claude/plugins/marketplaces/agentre/agrctl。
+func pluginDir(home string) string {
+	return filepath.Join(marketplaceDir(home), pluginName)
 }
 
-// UniversalDir 通用技能目录 ~/.agents/skills/agrctl。
-func UniversalDir(home string) string {
-	return filepath.Join(home, ".agents", "skills", PluginName)
+// universalDir 通用技能目录 ~/.agents/skills/agrctl。
+func universalDir(home string) string {
+	return filepath.Join(home, ".agents", "skills", pluginName)
 }
 
 // pluginsDir ~/.claude/plugins，三份注册文件里的两份住在这里。
@@ -105,7 +105,7 @@ func Install(opts Options) error {
 
 // installUniversal 写 ~/.agents/skills/agrctl（SKILL.md + references），不写任何注册文件。
 func installUniversal(home string, opts Options) error {
-	root := UniversalDir(home)
+	root := universalDir(home)
 	if traversesSymlink(home, root) {
 		logger.Default().Info("ctlskill.Install: skip universal skill, target traverses symlink",
 			zap.String("path", root))
@@ -126,8 +126,8 @@ func installUniversal(home string, opts Options) error {
 
 // installPlugin 写 marketplace 清单 + 插件根，再把插件登记进三份用户级 JSON。
 func installPlugin(home string, opts Options) error {
-	marketplace := MarketplaceDir(home)
-	root := PluginDir(home)
+	marketplace := marketplaceDir(home)
+	root := pluginDir(home)
 	// root 在 marketplace 之下，这一趟检查连 marketplace 那一段路径一起看了。
 	if traversesSymlink(home, root) {
 		logger.Default().Info("ctlskill.Install: skip claude plugin, target traverses symlink",
@@ -140,7 +140,7 @@ func installPlugin(home string, opts Options) error {
 	if stampCurrent(root, opts) && registryComplete(home) {
 		return nil
 	}
-	skillDir := filepath.Join(root, "skills", PluginName)
+	skillDir := filepath.Join(root, "skills", pluginName)
 	files := map[string]string{
 		filepath.Join(marketplace, ".claude-plugin", "marketplace.json"): render(assetMarketplaceJSON(), opts.AgrctlPath, opts.Version),
 		filepath.Join(root, ".claude-plugin", "plugin.json"):             render(assetPluginJSON(), opts.AgrctlPath, opts.Version),
@@ -163,10 +163,10 @@ func Uninstall(home string) error {
 	if home == "" {
 		return errors.New("ctlskill: home directory is required")
 	}
-	if err := removeOwnedDir(home, MarketplaceDir(home), MarketplaceName); err != nil {
+	if err := removeOwnedDir(home, marketplaceDir(home), marketplaceName); err != nil {
 		return err
 	}
-	if err := removeOwnedDir(home, UniversalDir(home), PluginName); err != nil {
+	if err := removeOwnedDir(home, universalDir(home), pluginName); err != nil {
 		return err
 	}
 	return unregisterPlugin(home)
@@ -176,15 +176,15 @@ func Uninstall(home string) error {
 func Status(home string) Info {
 	home = strings.TrimSpace(home)
 	info := Info{
-		PluginID:      PluginID,
-		PluginPath:    PluginDir(home),
-		UniversalPath: UniversalDir(home),
+		PluginID:      pluginID,
+		PluginPath:    pluginDir(home),
+		UniversalPath: universalDir(home),
 	}
 	if home == "" {
 		return info
 	}
-	info.PluginInstalled = fileExists(filepath.Join(PluginDir(home), ".claude-plugin", "plugin.json"))
-	info.UniversalInstalled = fileExists(filepath.Join(UniversalDir(home), "SKILL.md"))
+	info.PluginInstalled = fileExists(filepath.Join(pluginDir(home), ".claude-plugin", "plugin.json"))
+	info.UniversalInstalled = fileExists(filepath.Join(universalDir(home), "SKILL.md"))
 	return info
 }
 

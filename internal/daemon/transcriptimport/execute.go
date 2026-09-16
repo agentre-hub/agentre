@@ -258,7 +258,7 @@ func (h *Handlers) importTurn(
 	acc := turn.New()
 	turnCtx := &turn.TurnContext{Waits: turn.NewWaitTracker()}
 	for _, event := range t.Events {
-		if err := dispatcher.Apply(ctx, event, acc, discardEmitter{}, nil, turnCtx); err != nil {
+		if err := dispatcher.Apply(ctx, event, acc, discardEmitter{}, turnCtx); err != nil {
 			return fmt.Errorf("transcriptimport: apply event: %w", err)
 		}
 	}

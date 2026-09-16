@@ -94,10 +94,6 @@ func launchIdentity(req agentruntime.RunRequest) string {
 	}, "\x00")
 }
 
-func New() *Runtime {
-	return NewWithPool(agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap))
-}
-
 func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
 	if pool == nil {
 		pool = agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap)

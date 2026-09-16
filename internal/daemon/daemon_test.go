@@ -2565,7 +2565,7 @@ func loadDirectCredentialTestState(t *testing.T, credentials map[string]string) 
 }
 
 // writeDeviceListResponse answers a GET /v1/devices request through cago's
-// {code, data} envelope, matching decodeServerEnvelope's contract.
+// {code, data} envelope, matching cagoenvelope.Decode's contract.
 func writeDeviceListResponse(t *testing.T, w http.ResponseWriter, devices []deviceListItem) {
 	t.Helper()
 	body := struct {

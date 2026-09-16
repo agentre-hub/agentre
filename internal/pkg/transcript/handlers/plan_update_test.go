@@ -26,9 +26,7 @@ func TestPlanUpdatedHandler_EmitsCanonicalPlanUpdate(t *testing.T) {
 			}},
 			acc,
 			emit,
-			nil,
-			&turn.TurnContext{Stream: "chat:event:1:2"},
-		)
+			&turn.TurnContext{Stream: "chat:event:1:2"})
 
 		So(err, ShouldBeNil)
 		So(emit.events, ShouldHaveLength, 1)
@@ -59,9 +57,8 @@ func TestPlanUpdatedHandler_PreservesPlanActions(t *testing.T) {
 		err := PlanUpdatedHandler{}.Apply(
 			context.Background(),
 			agentruntime.PlanUpdated{Plan: input},
-			acc, emit, nil,
-			&turn.TurnContext{Stream: "chat:event:1:2"},
-		)
+			acc, emit,
+			&turn.TurnContext{Stream: "chat:event:1:2"})
 		So(err, ShouldBeNil)
 		plan := emit.events[0].payload.(map[string]any)["canonical"].(canonical.PlanUpdate)
 		So(plan.Actions, ShouldHaveLength, 2)
@@ -74,9 +71,8 @@ func TestPlanUpdatedHandler_PreservesPlanActions(t *testing.T) {
 		err = PlanUpdatedHandler{Writer: writer}.Apply(
 			context.Background(),
 			agentruntime.PlanUpdated{Plan: input},
-			acc, emit, nil,
-			&turn.TurnContext{Stream: "chat:event:1:2"},
-		)
+			acc, emit,
+			&turn.TurnContext{Stream: "chat:event:1:2"})
 		So(err, ShouldBeNil)
 		So(writer.plan.Actions, ShouldHaveLength, 2)
 	})
@@ -89,9 +85,8 @@ func TestPlanUpdatedHandler_NoSyntheticActions(t *testing.T) {
 		_ = PlanUpdatedHandler{}.Apply(
 			context.Background(),
 			agentruntime.PlanUpdated{Plan: canonical.PlanUpdate{Text: "## P"}},
-			acc, emit, nil,
-			&turn.TurnContext{Stream: "chat:event:1:2"},
-		)
+			acc, emit,
+			&turn.TurnContext{Stream: "chat:event:1:2"})
 		plan := emit.events[0].payload.(map[string]any)["canonical"].(canonical.PlanUpdate)
 		So(plan.Actions, ShouldBeNil)
 	})
@@ -106,9 +101,8 @@ func TestPlanUpdatedHandler_ClaudecodeBackendNoActions(t *testing.T) {
 			agentruntime.PlanUpdated{Plan: canonical.PlanUpdate{Steps: []canonical.PlanStep{
 				{Step: "a", Status: canonical.StepPending},
 			}}},
-			acc, emit, nil,
-			&turn.TurnContext{Stream: "chat:event:1:2"},
-		)
+			acc, emit,
+			&turn.TurnContext{Stream: "chat:event:1:2"})
 		plan := emit.events[0].payload.(map[string]any)["canonical"].(canonical.PlanUpdate)
 		So(plan.Actions, ShouldBeNil)
 	})

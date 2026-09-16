@@ -133,7 +133,7 @@ func trackSubagentState(acc *turn.Accumulator, toolCallID, kind string) bool {
 
 type SubagentStartedHandler struct{}
 
-func (SubagentStartedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (SubagentStartedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.SubagentStarted)
 	if !trackSubagentState(acc, r.ToolCallID, r.Info.Kind) {
 		return nil // 前台 bash:不建 overlay,也不 emit(后续 progress/done 经 Mutate 未命中自然静默)
@@ -251,7 +251,7 @@ func adoptCrossTurnResume(
 
 type SubagentProgressHandler struct{}
 
-func (SubagentProgressHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (SubagentProgressHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.SubagentProgress)
 	owner := r.ToolCallID
 	// task_progress 帧不带 task_type,无法自己判前台/后台;靠 Mutate 是否命中既有
@@ -296,7 +296,7 @@ func (SubagentProgressHandler) Apply(ctx context.Context, ev agentruntime.Event,
 // 模型的 SubagentInfo 会把已累计的进度清零(R4)。
 type SubagentModelHandler struct{}
 
-func (SubagentModelHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (SubagentModelHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.SubagentModel)
 	if r.Model == "" {
 		// 这不是同进程内对生产者契约的重复判空(那一层已在 translator.go 删除,见
@@ -337,7 +337,7 @@ func (SubagentModelHandler) Apply(ctx context.Context, ev agentruntime.Event, ac
 
 type SubagentDoneHandler struct{}
 
-func (SubagentDoneHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (SubagentDoneHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.SubagentDone)
 	owner := r.ToolCallID
 	hit := turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:"+r.ToolCallID, func(b *blocks.SubagentStateBlock) {

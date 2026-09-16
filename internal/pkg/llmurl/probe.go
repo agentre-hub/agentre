@@ -217,7 +217,7 @@ func newJSONRequest(ctx context.Context, endpoint string, body any) (*http.Reque
 func (c *Client) doJSON(req *http.Request, output any) error {
 	response, err := c.http.Do(req)
 	if err != nil {
-		return errors.New("upstream request failed")
+		return fmt.Errorf("upstream request failed: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(response.Body)

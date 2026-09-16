@@ -16,19 +16,19 @@ func TestSubagentLifecycle(t *testing.T) {
 	Convey("Started → Progress → Done 累计状态", t, func() {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
-			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil, nil)
+			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil)
 		_ = SubagentProgressHandler{}.Apply(context.Background(),
 			agentruntime.SubagentProgress{
 				ToolCallID: "task-1",
 				Info:       agentruntime.SubagentInfo{ToolUses: 3, LastToolName: "Read", TotalTokens: 1000},
 			},
-			acc, nil, nil, nil)
+			acc, nil, nil)
 		_ = SubagentDoneHandler{}.Apply(context.Background(),
 			agentruntime.SubagentDone{
 				ToolCallID: "task-1",
 				Info:       agentruntime.SubagentInfo{Status: "completed", DurationMs: 1234},
 			},
-			acc, nil, nil, nil)
+			acc, nil, nil)
 
 		got := acc.Finalize()[0].(*blocks.SubagentStateBlock)
 		So(got.Status, ShouldEqual, "completed")
@@ -46,7 +46,7 @@ func TestSubagentStarted_PersistsKindAndDescription(t *testing.T) {
 					Kind:            "local_bash",
 					TaskDescription: "sleep 20",
 				},
-			}, acc, nil, nil, &turn.TurnContext{})
+			}, acc, nil, &turn.TurnContext{})
 		So(err, ShouldBeNil)
 
 		blks := acc.Finalize()
@@ -69,7 +69,7 @@ func TestSubagentStarted_PersistsTaskID(t *testing.T) {
 					Kind:            "local_agent",
 					TaskDescription: "background subagent",
 				},
-			}, acc, nil, nil, &turn.TurnContext{})
+			}, acc, nil, &turn.TurnContext{})
 		So(err, ShouldBeNil)
 
 		sb := acc.Finalize()[0].(*blocks.SubagentStateBlock)
@@ -84,12 +84,12 @@ func TestSubagentProgress_BackfillsTaskID(t *testing.T) {
 			agentruntime.SubagentStarted{
 				ToolCallID: "tu1",
 				Info:       agentruntime.SubagentInfo{Kind: "local_agent"},
-			}, acc, nil, nil, &turn.TurnContext{})
+			}, acc, nil, &turn.TurnContext{})
 		_ = SubagentProgressHandler{}.Apply(context.Background(),
 			agentruntime.SubagentProgress{
 				ToolCallID: "tu1",
 				Info:       agentruntime.SubagentInfo{TaskID: "b0n82mqaj", ToolUses: 2},
-			}, acc, nil, nil, &turn.TurnContext{})
+			}, acc, nil, &turn.TurnContext{})
 
 		sb := acc.Finalize()[0].(*blocks.SubagentStateBlock)
 		So(sb.TaskID, ShouldEqual, "b0n82mqaj")
@@ -109,7 +109,7 @@ func TestSubagentStarted_ForegroundBash_NoOverlay(t *testing.T) {
 			agentruntime.SubagentStarted{
 				ToolCallID: "tu-fg",
 				Info:       agentruntime.SubagentInfo{Kind: "local_bash", TaskDescription: "Stash"},
-			}, acc, nil, nil, &turn.TurnContext{})
+			}, acc, nil, &turn.TurnContext{})
 		So(err, ShouldBeNil)
 
 		blks := acc.Finalize()
@@ -134,7 +134,7 @@ func TestSubagentStarted_BackgroundBash_CreatesOverlay(t *testing.T) {
 			agentruntime.SubagentStarted{
 				ToolCallID: "tu-bg",
 				Info:       agentruntime.SubagentInfo{Kind: "local_bash", TaskDescription: "sleep 20"},
-			}, acc, nil, nil, &turn.TurnContext{})
+			}, acc, nil, &turn.TurnContext{})
 		So(err, ShouldBeNil)
 
 		var sb *blocks.SubagentStateBlock
@@ -154,10 +154,10 @@ func TestSubagentDone_DefaultStatus(t *testing.T) {
 	Convey("SubagentDone info.Status 空时默认 completed", t, func() {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
-			agentruntime.SubagentStarted{ToolCallID: "t-2"}, acc, nil, nil, nil)
+			agentruntime.SubagentStarted{ToolCallID: "t-2"}, acc, nil, nil)
 		_ = SubagentDoneHandler{}.Apply(context.Background(),
 			agentruntime.SubagentDone{ToolCallID: "t-2", Info: agentruntime.SubagentInfo{}},
-			acc, nil, nil, nil)
+			acc, nil, nil)
 		got := acc.Finalize()[0].(*blocks.SubagentStateBlock)
 		So(got.Status, ShouldEqual, "completed")
 	})
@@ -171,12 +171,12 @@ func TestSubagentModelHandler_RecordsModelAndEmits(t *testing.T) {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
 			agentruntime.SubagentStarted{ToolCallID: "task-1", Info: agentruntime.SubagentInfo{Kind: "local_agent"}},
-			acc, nil, nil, &turn.TurnContext{})
+			acc, nil, &turn.TurnContext{})
 
 		emit := &fakeEmit{}
 		err := SubagentModelHandler{}.Apply(context.Background(),
 			agentruntime.SubagentModel{ToolCallID: "task-1", Model: "claude-haiku-4-5-20251001"},
-			acc, emit, nil, &turn.TurnContext{Stream: "chat:event:1:2"})
+			acc, emit, &turn.TurnContext{Stream: "chat:event:1:2"})
 		So(err, ShouldBeNil)
 
 		got := acc.Finalize()[0].(*blocks.SubagentStateBlock)
@@ -203,15 +203,15 @@ func TestSubagentModelHandler_FirstWins(t *testing.T) {
 	Convey("同一 ToolCallID 第二个模型事件不改写已记录模型", t, func() {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
-			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil, nil)
+			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil)
 
 		emit := &fakeEmit{}
 		_ = SubagentModelHandler{}.Apply(context.Background(),
 			agentruntime.SubagentModel{ToolCallID: "task-1", Model: "claude-opus-5"},
-			acc, emit, nil, nil)
+			acc, emit, nil)
 		err := SubagentModelHandler{}.Apply(context.Background(),
 			agentruntime.SubagentModel{ToolCallID: "task-1", Model: "claude-haiku-4-5-20251001"},
-			acc, emit, nil, nil)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 
 		got := acc.Finalize()[0].(*blocks.SubagentStateBlock)
@@ -230,12 +230,12 @@ func TestSubagentModelHandler_EmptyModelNoOp(t *testing.T) {
 	Convey("Model 为空 → 不写入、不 emit", t, func() {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
-			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil, nil)
+			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil)
 
 		emit := &fakeEmit{}
 		err := SubagentModelHandler{}.Apply(context.Background(),
 			agentruntime.SubagentModel{ToolCallID: "task-1", Model: ""},
-			acc, emit, nil, nil)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 		So(emit.events, ShouldHaveLength, 0)
 
@@ -253,7 +253,7 @@ func TestSubagentModelHandler_OrphanNoEmit(t *testing.T) {
 		emit := &fakeEmit{}
 		err := SubagentModelHandler{}.Apply(context.Background(),
 			agentruntime.SubagentModel{ToolCallID: "no-such-task", Model: "claude-opus-5"},
-			acc, emit, nil, nil)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 		So(emit.events, ShouldHaveLength, 0)
 		So(acc.Finalize(), ShouldHaveLength, 0)
@@ -266,16 +266,16 @@ func TestSubagentModelHandler_DoesNotClobberProgress(t *testing.T) {
 	Convey("模型事件到达前后,既有累计态原样保留", t, func() {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
-			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil, nil)
+			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil)
 		_ = SubagentProgressHandler{}.Apply(context.Background(),
 			agentruntime.SubagentProgress{
 				ToolCallID: "task-1",
 				Info:       agentruntime.SubagentInfo{ToolUses: 3, TotalTokens: 14500},
-			}, acc, nil, nil, nil)
+			}, acc, nil, nil)
 
 		_ = SubagentModelHandler{}.Apply(context.Background(),
 			agentruntime.SubagentModel{ToolCallID: "task-1", Model: "claude-opus-5"},
-			acc, nil, nil, nil)
+			acc, nil, nil)
 
 		got := acc.Finalize()[0].(*blocks.SubagentStateBlock)
 		So(got.ToolUses, ShouldEqual, 3)
@@ -292,12 +292,12 @@ func TestSubagentProgressHandler_CopiesDurationMs(t *testing.T) {
 	Convey("Progress 帧的 DurationMs 写入累计态", t, func() {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
-			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil, nil)
+			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil)
 		_ = SubagentProgressHandler{}.Apply(context.Background(),
 			agentruntime.SubagentProgress{
 				ToolCallID: "task-1",
 				Info:       agentruntime.SubagentInfo{TotalTokens: 12056, ToolUses: 1, DurationMs: 1959},
-			}, acc, nil, nil, nil)
+			}, acc, nil, nil)
 
 		got := acc.Finalize()[0].(*blocks.SubagentStateBlock)
 		So(got.DurationMs, ShouldEqual, 1959)
@@ -311,17 +311,17 @@ func TestSubagentProgressHandler_ZeroDurationMsDoesNotClobber(t *testing.T) {
 	Convey("后续 Progress 帧 DurationMs=0 不清空已记录耗时", t, func() {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
-			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil, nil)
+			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil)
 		_ = SubagentProgressHandler{}.Apply(context.Background(),
 			agentruntime.SubagentProgress{
 				ToolCallID: "task-1",
 				Info:       agentruntime.SubagentInfo{DurationMs: 1959},
-			}, acc, nil, nil, nil)
+			}, acc, nil, nil)
 		_ = SubagentProgressHandler{}.Apply(context.Background(),
 			agentruntime.SubagentProgress{
 				ToolCallID: "task-1",
 				Info:       agentruntime.SubagentInfo{DurationMs: 0, ToolUses: 2},
-			}, acc, nil, nil, nil)
+			}, acc, nil, nil)
 
 		got := acc.Finalize()[0].(*blocks.SubagentStateBlock)
 		So(got.DurationMs, ShouldEqual, 1959)
@@ -339,17 +339,17 @@ func TestSubagentDoneHandler_ZeroDurationMsDoesNotClobber(t *testing.T) {
 	Convey("Done 帧 DurationMs=0 不清空 Progress 阶段已累计的耗时", t, func() {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
-			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil, nil)
+			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil)
 		_ = SubagentProgressHandler{}.Apply(context.Background(),
 			agentruntime.SubagentProgress{
 				ToolCallID: "task-1",
 				Info:       agentruntime.SubagentInfo{DurationMs: 1959},
-			}, acc, nil, nil, nil)
+			}, acc, nil, nil)
 		_ = SubagentDoneHandler{}.Apply(context.Background(),
 			agentruntime.SubagentDone{
 				ToolCallID: "task-1",
 				Info:       agentruntime.SubagentInfo{Status: "completed", DurationMs: 0},
-			}, acc, nil, nil, nil)
+			}, acc, nil, nil)
 
 		got := acc.Finalize()[0].(*blocks.SubagentStateBlock)
 		So(got.Status, ShouldEqual, "completed")
@@ -367,18 +367,18 @@ func TestSubagentProgressHandler_ZeroTotalTokensAndToolUsesDoesNotClobber(t *tes
 	Convey("后续 Progress 帧 TotalTokens/ToolUses=0 不清空已记录的累计态", t, func() {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
-			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil, nil)
+			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil)
 		_ = SubagentProgressHandler{}.Apply(context.Background(),
 			agentruntime.SubagentProgress{
 				ToolCallID: "task-1",
 				Info:       agentruntime.SubagentInfo{TotalTokens: 14096, ToolUses: 1, DurationMs: 4254},
-			}, acc, nil, nil, nil)
+			}, acc, nil, nil)
 		// 下一帧不带 usage(如 task_notification),解码成零值 —— 不该清空。
 		_ = SubagentProgressHandler{}.Apply(context.Background(),
 			agentruntime.SubagentProgress{
 				ToolCallID: "task-1",
 				Info:       agentruntime.SubagentInfo{TotalTokens: 0, ToolUses: 0, DurationMs: 0},
-			}, acc, nil, nil, nil)
+			}, acc, nil, nil)
 
 		got := acc.Finalize()[0].(*blocks.SubagentStateBlock)
 		So(got.TotalTokens, ShouldEqual, 14096)
@@ -394,17 +394,17 @@ func TestSubagentDoneHandler_ZeroTotalTokensAndToolUsesDoesNotClobber(t *testing
 	Convey("Done 帧 TotalTokens/ToolUses=0 不清空 Progress 阶段已累计的值", t, func() {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
-			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil, nil)
+			agentruntime.SubagentStarted{ToolCallID: "task-1"}, acc, nil, nil)
 		_ = SubagentProgressHandler{}.Apply(context.Background(),
 			agentruntime.SubagentProgress{
 				ToolCallID: "task-1",
 				Info:       agentruntime.SubagentInfo{TotalTokens: 14096, ToolUses: 1, DurationMs: 4254},
-			}, acc, nil, nil, nil)
+			}, acc, nil, nil)
 		_ = SubagentDoneHandler{}.Apply(context.Background(),
 			agentruntime.SubagentDone{
 				ToolCallID: "task-1",
 				Info:       agentruntime.SubagentInfo{Status: "completed", TotalTokens: 0, ToolUses: 0, DurationMs: 0},
-			}, acc, nil, nil, nil)
+			}, acc, nil, nil)
 
 		got := acc.Finalize()[0].(*blocks.SubagentStateBlock)
 		So(got.Status, ShouldEqual, "completed")
@@ -427,7 +427,7 @@ func TestSubagentLifecycle_NormalizedSnapshotsReplaceAtomically(t *testing.T) {
 		_ = SubagentStartedHandler{}.Apply(context.Background(), agentruntime.SubagentStarted{
 			ToolCallID: "outer",
 			Info:       agentruntime.SubagentInfo{Mode: "parallel", Runs: startedRuns, Status: "running"},
-		}, acc, nil, nil, nil)
+		}, acc, nil, nil)
 
 		state := acc.Finalize()[0].(*blocks.SubagentStateBlock)
 		So(state.Mode, ShouldEqual, "parallel")
@@ -442,7 +442,7 @@ func TestSubagentLifecycle_NormalizedSnapshotsReplaceAtomically(t *testing.T) {
 		_ = SubagentProgressHandler{}.Apply(context.Background(), agentruntime.SubagentProgress{
 			ToolCallID: "outer",
 			Info:       agentruntime.SubagentInfo{Mode: "parallel", Runs: progressRuns, Status: "running"},
-		}, acc, nil, nil, nil)
+		}, acc, nil, nil)
 		So(state.Runs, ShouldResemble, progressRuns)
 		progressRuns[1].Status = "failed"
 		So(state.Runs[1].Status, ShouldEqual, "running")
@@ -451,7 +451,7 @@ func TestSubagentLifecycle_NormalizedSnapshotsReplaceAtomically(t *testing.T) {
 		_ = SubagentProgressHandler{}.Apply(context.Background(), agentruntime.SubagentProgress{
 			ToolCallID: "outer",
 			Info:       agentruntime.SubagentInfo{ToolUses: 9},
-		}, acc, nil, nil, nil)
+		}, acc, nil, nil)
 		So(state.Mode, ShouldEqual, "parallel")
 		So(state.Runs, ShouldResemble, progressRuns)
 
@@ -459,13 +459,13 @@ func TestSubagentLifecycle_NormalizedSnapshotsReplaceAtomically(t *testing.T) {
 		_ = SubagentProgressHandler{}.Apply(context.Background(), agentruntime.SubagentProgress{
 			ToolCallID: "outer",
 			Info:       agentruntime.SubagentInfo{Runs: emptyRuns},
-		}, acc, nil, nil, nil)
+		}, acc, nil, nil)
 		So(state.Runs, ShouldNotBeNil)
 		So(state.Runs, ShouldHaveLength, 0)
 		_ = SubagentProgressHandler{}.Apply(context.Background(), agentruntime.SubagentProgress{
 			ToolCallID: "outer",
 			Info:       agentruntime.SubagentInfo{Runs: progressRuns},
-		}, acc, nil, nil, nil)
+		}, acc, nil, nil)
 
 		doneRuns := []agentruntime.SubagentRun{
 			{ID: "run-0", Index: 0, Task: "inspect", Status: "completed", Summary: "done"},
@@ -474,7 +474,7 @@ func TestSubagentLifecycle_NormalizedSnapshotsReplaceAtomically(t *testing.T) {
 		_ = SubagentDoneHandler{}.Apply(context.Background(), agentruntime.SubagentDone{
 			ToolCallID: "outer",
 			Info:       agentruntime.SubagentInfo{Mode: "parallel", Runs: doneRuns, Status: "failed"},
-		}, acc, nil, nil, nil)
+		}, acc, nil, nil)
 		So(state.Status, ShouldEqual, "failed")
 		So(state.Runs, ShouldResemble, doneRuns)
 	})
@@ -513,15 +513,15 @@ func TestMarkRunningSubagentsCancelled(t *testing.T) {
 	Convey("abort 时将 running 改成 canceled,其它终态不动", t, func() {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
-			agentruntime.SubagentStarted{ToolCallID: "running-1"}, acc, nil, nil, nil)
+			agentruntime.SubagentStarted{ToolCallID: "running-1"}, acc, nil, nil)
 		_ = SubagentStartedHandler{}.Apply(context.Background(),
-			agentruntime.SubagentStarted{ToolCallID: "done-1"}, acc, nil, nil, nil)
+			agentruntime.SubagentStarted{ToolCallID: "done-1"}, acc, nil, nil)
 		_ = SubagentDoneHandler{}.Apply(context.Background(),
 			agentruntime.SubagentDone{
 				ToolCallID: "done-1",
 				Info:       agentruntime.SubagentInfo{Status: "completed"},
 			},
-			acc, nil, nil, nil)
+			acc, nil, nil)
 
 		final := acc.Finalize()
 		MarkRunningSubagentsCancelled(final)
@@ -603,7 +603,7 @@ func TestSubagentDone_CrossTurn_FlipsEarlierMessage(t *testing.T) {
 					ToolCallID: "toolu-earlier-msg",
 					Info:       agentruntime.SubagentInfo{Kind: "local_agent", Status: "completed"},
 				},
-				acc, emit, nil, &turn.TurnContext{
+				acc, emit, &turn.TurnContext{
 					Stream:          "chat:event:1:2",
 					SubagentFlipper: flipper,
 				})
@@ -628,7 +628,7 @@ func TestSubagentDone_CrossTurn_DefaultsStatusWhenEmpty(t *testing.T) {
 		flipper := &fakeSubagentFlipper{}
 		err := SubagentDoneHandler{}.Apply(context.Background(),
 			agentruntime.SubagentDone{ToolCallID: "toolu-earlier-msg"},
-			turn.New(), nil, nil, &turn.TurnContext{SubagentFlipper: flipper})
+			turn.New(), nil, &turn.TurnContext{SubagentFlipper: flipper})
 		So(err, ShouldBeNil)
 		So(flipper.calls, ShouldHaveLength, 1)
 		So(flipper.calls[0].status, ShouldEqual, "completed")
@@ -651,14 +651,14 @@ func TestSubagentDone_ForegroundBash_NoCrossTurnFlip(t *testing.T) {
 			agentruntime.SubagentStarted{
 				ToolCallID: "tu-fg",
 				Info:       agentruntime.SubagentInfo{Kind: "local_bash"},
-			}, acc, nil, nil, &turn.TurnContext{})
+			}, acc, nil, &turn.TurnContext{})
 
 		flipper := &fakeSubagentFlipper{}
 		err := SubagentDoneHandler{}.Apply(context.Background(),
 			agentruntime.SubagentDone{
 				ToolCallID: "tu-fg",
 				Info:       agentruntime.SubagentInfo{Kind: "local_bash", Status: "completed"},
-			}, acc, nil, nil, &turn.TurnContext{SubagentFlipper: flipper})
+			}, acc, nil, &turn.TurnContext{SubagentFlipper: flipper})
 
 		So(err, ShouldBeNil)
 		So(flipper.calls, ShouldHaveLength, 0)
@@ -672,10 +672,10 @@ func TestSubagentDone_CrossTurn_NilFlipperNoPanic(t *testing.T) {
 		So(func() {
 			_ = SubagentDoneHandler{}.Apply(context.Background(),
 				agentruntime.SubagentDone{ToolCallID: "toolu-earlier-msg"},
-				turn.New(), nil, nil, &turn.TurnContext{})
+				turn.New(), nil, &turn.TurnContext{})
 			_ = SubagentDoneHandler{}.Apply(context.Background(),
 				agentruntime.SubagentDone{ToolCallID: "toolu-earlier-msg"},
-				turn.New(), nil, nil, nil)
+				turn.New(), nil, nil)
 		}, ShouldNotPanic)
 	})
 }
@@ -786,14 +786,14 @@ func TestSubagentStarted_GivenSameTaskIDUnderANewToolCall_ResumesTheOriginalOver
 			Info: agentruntime.SubagentInfo{
 				TaskID: "T", Kind: "local_agent", TaskDescription: "Fact-check spec citations",
 			},
-		}, acc, nil, nil, &turn.TurnContext{})
+		}, acc, nil, &turn.TurnContext{})
 		_ = SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
 			ToolCallID: "A",
 			Info: agentruntime.SubagentInfo{
 				Status: "failed", ToolUses: 61, TotalTokens: 95694,
 				Summary: "Agent terminated early due to an API error",
 			},
-		}, acc, nil, nil, &turn.TurnContext{})
+		}, acc, nil, &turn.TurnContext{})
 
 		Convey("When CLI 用同一个 task_id、新的 tool call B 重开(SendMessage 恢复)", func() {
 			err := SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
@@ -801,7 +801,7 @@ func TestSubagentStarted_GivenSameTaskIDUnderANewToolCall_ResumesTheOriginalOver
 				Info: agentruntime.SubagentInfo{
 					TaskID: "T", Kind: "local_agent", TaskDescription: "Fact-check spec citations",
 				},
-			}, acc, nil, nil, &turn.TurnContext{})
+			}, acc, nil, &turn.TurnContext{})
 			So(err, ShouldBeNil)
 
 			Convey("Then 不另起第二块,原卡回到运行态,既有累计与中断证据都保留", func() {
@@ -819,11 +819,11 @@ func TestSubagentStarted_GivenSameTaskIDUnderANewToolCall_ResumesTheOriginalOver
 				_ = SubagentProgressHandler{}.Apply(ctx, agentruntime.SubagentProgress{
 					ToolCallID: "B",
 					Info:       agentruntime.SubagentInfo{ToolUses: 64, LastToolName: "Bash"},
-				}, acc, nil, nil, &turn.TurnContext{})
+				}, acc, nil, &turn.TurnContext{})
 				_ = SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
 					ToolCallID: "B",
 					Info:       agentruntime.SubagentInfo{Status: "completed", Summary: "# 规格核查报告"},
-				}, acc, nil, nil, &turn.TurnContext{})
+				}, acc, nil, &turn.TurnContext{})
 
 				states := subagentStates(acc.Finalize())
 				So(states, ShouldHaveLength, 1)
@@ -843,13 +843,13 @@ func TestSubagentStarted_GivenADifferentTaskID_KeepsASeparateOverlay(t *testing.
 		_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
 			ToolCallID: "A",
 			Info:       agentruntime.SubagentInfo{TaskID: "T1", Kind: "local_agent"},
-		}, acc, nil, nil, &turn.TurnContext{})
+		}, acc, nil, &turn.TurnContext{})
 
 		Convey("When 另一个 task T2 在新的 tool call B 上开跑", func() {
 			_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
 				ToolCallID: "B",
 				Info:       agentruntime.SubagentInfo{TaskID: "T2", Kind: "local_agent"},
-			}, acc, nil, nil, &turn.TurnContext{})
+			}, acc, nil, &turn.TurnContext{})
 
 			Convey("Then 两张卡各自独立", func() {
 				states := subagentStates(acc.Finalize())
@@ -869,12 +869,12 @@ func TestSubagentStarted_GivenNoTaskID_KeepsASeparateOverlay(t *testing.T) {
 		acc := turn.New()
 		_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
 			ToolCallID: "A", Info: agentruntime.SubagentInfo{Kind: "local_agent"},
-		}, acc, nil, nil, &turn.TurnContext{})
+		}, acc, nil, &turn.TurnContext{})
 
 		Convey("When 又来一个同样不带 task_id 的 overlay", func() {
 			_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
 				ToolCallID: "B", Info: agentruntime.SubagentInfo{Kind: "local_agent"},
-			}, acc, nil, nil, &turn.TurnContext{})
+			}, acc, nil, &turn.TurnContext{})
 
 			Convey("Then 各自成卡,不归一", func() {
 				So(subagentStates(acc.Finalize()), ShouldHaveLength, 2)
@@ -893,20 +893,20 @@ func TestSubagentResume_EmitsTheOriginalToolUseID(t *testing.T) {
 		tc := &turn.TurnContext{Stream: "chat:event:1:2"}
 		_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
 			ToolCallID: "A", Info: agentruntime.SubagentInfo{TaskID: "T", Kind: "local_agent"},
-		}, acc, nil, nil, tc)
+		}, acc, nil, tc)
 
 		emit := &fakeEmit{}
 		_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
 			ToolCallID: "B", Info: agentruntime.SubagentInfo{TaskID: "T", Kind: "local_agent"},
-		}, acc, emit, nil, tc)
+		}, acc, emit, tc)
 
 		Convey("When 恢复段的 started/progress/done 事件发出", func() {
 			_ = SubagentProgressHandler{}.Apply(ctx, agentruntime.SubagentProgress{
 				ToolCallID: "B", Info: agentruntime.SubagentInfo{ToolUses: 3},
-			}, acc, emit, nil, tc)
+			}, acc, emit, tc)
 			_ = SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
 				ToolCallID: "B", Info: agentruntime.SubagentInfo{Status: "completed"},
-			}, acc, emit, nil, tc)
+			}, acc, emit, tc)
 
 			Convey("Then 三条事件报的都是原卡的 tool_use_id", func() {
 				So(emit.events, ShouldHaveLength, 3)
@@ -938,7 +938,7 @@ func TestSubagentStarted_CrossTurnResume_ReopensTheEarlierCard(t *testing.T) {
 			err := SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
 				ToolCallID: "tu-B",
 				Info:       agentruntime.SubagentInfo{TaskID: "T", Kind: "local_agent"},
-			}, acc, nil, nil, tc)
+			}, acc, nil, tc)
 			So(err, ShouldBeNil)
 
 			Convey("Then 不在本轮另起 overlay,改为把更早那张卡推回运行态", func() {
@@ -952,7 +952,7 @@ func TestSubagentStarted_CrossTurnResume_ReopensTheEarlierCard(t *testing.T) {
 				_ = SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
 					ToolCallID: "tu-B",
 					Info:       agentruntime.SubagentInfo{Status: "completed", Summary: "报告"},
-				}, acc, nil, nil, tc)
+				}, acc, nil, tc)
 				So(flipper.calls, ShouldHaveLength, 1)
 				So(flipper.calls[0].toolCallID, ShouldEqual, "tu-A")
 				So(flipper.calls[0].status, ShouldEqual, "completed")
@@ -973,7 +973,7 @@ func TestSubagentStarted_CrossTurnResume_NoEarlierCardFallsBackToNewOverlay(t *t
 			_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
 				ToolCallID: "tu-new",
 				Info:       agentruntime.SubagentInfo{TaskID: "T", Kind: "local_agent"},
-			}, acc, nil, nil, &turn.TurnContext{SubagentFlipper: flipper})
+			}, acc, nil, &turn.TurnContext{SubagentFlipper: flipper})
 
 			Convey("Then 照常在本轮建 overlay", func() {
 				states := subagentStates(acc.Finalize())

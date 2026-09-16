@@ -14,7 +14,7 @@ const toolNameExitPlanMode = "ExitPlanMode"
 
 type ToolPermissionRequestHandler struct{}
 
-func (ToolPermissionRequestHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (ToolPermissionRequestHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.ToolPermissionRequest)
 	var input map[string]any
 	if len(r.Input) > 0 {
@@ -57,7 +57,7 @@ func (ToolPermissionRequestHandler) Apply(ctx context.Context, ev agentruntime.E
 
 type ToolPermissionResolvedHandler struct{}
 
-func (ToolPermissionResolvedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (ToolPermissionResolvedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.ToolPermissionResolved)
 	// captured 暴露 Mutate 闭包内的 *block,emit 时一并下发 toolName/toolInput,
 	// 否则 dispatcher_emitter 据空 toolName 把 ExitPlanMode 误切到 tool.permission

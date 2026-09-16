@@ -33,7 +33,7 @@ func TestApplyMirror(t *testing.T) {
 
 func TestGetAvailableMirrors(t *testing.T) {
 	convey.Convey("可用镜像列表", t, func() {
-		mirrors := GetAvailableMirrors()
+		mirrors := getAvailableMirrors()
 
 		convey.Convey("第一个是 GitHub 默认（无前缀）", func() {
 			assert.Equal(t, "github", mirrors[0].ID)
@@ -68,7 +68,7 @@ func TestGetAvailableMirrors(t *testing.T) {
 
 		convey.Convey("返回切片副本不影响内部状态", func() {
 			mirrors[0].URL = "tampered"
-			fresh := GetAvailableMirrors()
+			fresh := getAvailableMirrors()
 			assert.Equal(t, "", fresh[0].URL)
 		})
 	})

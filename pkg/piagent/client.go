@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -893,7 +894,7 @@ func (p *rpcProcess) terminate(ctx context.Context, grace time.Duration) error {
 		// Cancellation settlement has already exhausted its grace window. Kill the
 		// tree while both process pipes still keep the group leader addressable;
 		// tearing either pipe down first can strand a descendant in the old group.
-		_ = p.handle.Signal(interruptSignal())
+		_ = p.handle.Signal(os.Interrupt)
 		_ = p.handle.Kill()
 		stopLines()
 		p.stopWriter()
@@ -906,7 +907,7 @@ func (p *rpcProcess) terminate(ctx context.Context, grace time.Duration) error {
 		}
 	}
 	stopLines()
-	_ = p.handle.Signal(interruptSignal())
+	_ = p.handle.Signal(os.Interrupt)
 	p.stopWriter()
 	p.waitForWrites()
 	timer := time.NewTimer(grace)

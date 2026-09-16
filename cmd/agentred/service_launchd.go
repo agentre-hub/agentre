@@ -54,6 +54,8 @@ func (m *launchdServiceManager) Stop(ctx context.Context) (ServiceStatus, error)
 	}
 	return ServiceStatus{
 		Installed: true,
+		Manager:   "launchd LaunchAgent",
+		Target:    m.target,
 		Details: []string{
 			"Manager: launchd LaunchAgent",
 			"Plist: " + m.plistPath,
@@ -135,6 +137,8 @@ func (m *launchdServiceManager) inspectOutput(ctx context.Context) (ServiceStatu
 	return ServiceStatus{
 		Installed: true,
 		Running:   running,
+		Manager:   "launchd LaunchAgent",
+		Target:    m.target,
 		Details: []string{
 			"Manager: launchd LaunchAgent",
 			"Plist: " + m.plistPath,

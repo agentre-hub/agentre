@@ -21,6 +21,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/service/agent_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/ctl_svc"
 	"github.com/agentre-hub/agentre/internal/service/data_svc"
 	"github.com/agentre-hub/agentre/internal/service/department_svc"
 	"github.com/agentre-hub/agentre/internal/service/hook_svc"
@@ -403,6 +404,10 @@ func (a *App) registerChatService() {
 	// subagent_svc 同样需 chat_svc.Chat() 非 nil(起子 agent 轮),故也在 RegisterChat 之后接线。
 	// agent_repo.Agent() 直接满足 AgentGateway(Find/FindByName/List)。
 	subagent_svc.Default().RegisterDeps(agent_repo.Agent(), subagent_svc.ChatSvcGateway())
+
+	// ctl_svc 控制 API 的 chat 依赖也必须在 RegisterChat 之后:ctl_svc 直接持有
+	// chat_svc.Chat(),不再懒解析(bootstrap 里只挂 ControlHandler,这里补齐 deps)。
+	ctl_svc.Default().RegisterDeps(agent_repo.Agent(), ctl_svc.ProjectSvcGateway(), ctl_svc.ChatSvcGateway())
 
 	// hooktool_svc 依赖:hook_svc.Hook() 满足 HookService;agent_repo.Agent() 满足 AgentLookup;
 	// chat_svc.Chat() 满足 ApprovalGateway。须在 RegisterChat 之后(chat_svc.Chat() 非 nil)。

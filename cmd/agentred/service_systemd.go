@@ -112,6 +112,8 @@ func (m *systemdServiceManager) Status(ctx context.Context) (ServiceStatus, erro
 	return ServiceStatus{
 		Installed: true,
 		Running:   state == "active",
+		Manager:   "systemd --user",
+		State:     state,
 		Details:   []string{"Manager: systemd --user", "Unit: " + m.unitPath, "State: " + state},
 	}, nil
 }
@@ -124,10 +126,7 @@ func (m *systemdServiceManager) waitForState(ctx context.Context, running bool) 
 		if err != nil {
 			return ServiceStatus{}, err
 		}
-		state := ""
-		if len(status.Details) != 0 {
-			state = strings.TrimPrefix(status.Details[len(status.Details)-1], "State: ")
-		}
+		state := status.State
 		if running && state == "failed" {
 			return ServiceStatus{}, fmt.Errorf("wait for systemd unit %s to become active: state failed; Run manually: systemctl --user status %s", systemdServiceName, systemdServiceName)
 		}

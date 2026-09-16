@@ -50,8 +50,7 @@ func RecommendedFor(t agent_backend_entity.BackendType) []SkillPack {
 
 // DiscoverQuery 发现入参。
 type DiscoverQuery struct {
-	BackendType agent_backend_entity.BackendType
-	CLIPath     string // 定位该 claude 安装(空 = 默认 binary)
+	CLIPath string // 定位该 claude 安装(空 = 默认 binary)
 }
 
 // Discoverer 按 backend 枚举已安装技能包(消费者侧窄接口)。
@@ -69,7 +68,6 @@ type SkillCommand struct {
 // CommandDiscoverQuery carries the launch context needed for a CLI to resolve
 // its effective user/project/plugin skill set without mutating shared config.
 type CommandDiscoverQuery struct {
-	BackendType    agent_backend_entity.BackendType
 	CLIPath        string
 	Cwd            string
 	EnabledPlugins map[string]bool

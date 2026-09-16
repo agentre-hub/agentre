@@ -26,7 +26,7 @@ type PlanUpdatedHandler struct {
 //
 // Actions 由 runtime translator 自己决定是否携带;handler 不按 backend 类型合成,
 // 只负责透传、持久化和 emit。无 actions 的计划更新只做进度/只读展示。
-func (h PlanUpdatedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (h PlanUpdatedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.PlanUpdated)
 	plan := r.Plan
 	text := strings.TrimSpace(plan.Text)

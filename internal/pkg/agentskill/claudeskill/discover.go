@@ -5,13 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
-	"github.com/agentre-hub/agentre/internal/pkg/clienv"
 )
 
 func init() {
@@ -19,7 +17,7 @@ func init() {
 }
 
 // commandRunner 执行 CLI 并返回 stdout。注入接缝:单测替换为假命令,免依赖真实 claude 二进制。
-type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
+type commandRunner = agentskill.CommandRunner
 
 // Discoverer 用 claude CLI 枚举已安装技能包。run 为 nil 时走真实 exec(生产默认)。
 type Discoverer struct {
@@ -29,27 +27,11 @@ type Discoverer struct {
 }
 
 // runner 取命令执行器:未注入 → 真实 exec 调用(生产默认)。
-//
-// 必须经 clienv 解析 binary 并补齐 PATH,不能把裸名字丢给 exec:Finder / Dock 起的
-// app bundle 只继承 launchd 的最小 PATH,而 claude 常装在 ~/.local/bin、Homebrew、
-// volta 之类的目录里。本进程 PATH 查不到 → Discover 软降级成空发现 → 插件包整段
-// 消失。真正跑 CLI 的 pkg/claudecode 早就是这么解析的,发现这条路必须同源。
 func (d Discoverer) runner() commandRunner {
 	if d.run != nil {
 		return d.run
 	}
-	return func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		searchEnv := clienv.BuildEnv(nil, name)
-		binary, ok := clienv.ResolveBinaryForEnv(name, searchEnv)
-		if !ok {
-			return nil, exec.ErrNotFound
-		}
-		// #nosec G204 -- binary 来自 agent backend 配置的 CLIPath(或类型默认名),
-		// 经 clienv 解析,不接受用户输入。
-		cmd := exec.CommandContext(ctx, binary, args...)
-		cmd.Env = clienv.BuildEnv(nil, binary)
-		return cmd.Output()
-	}
+	return agentskill.ExecRunner()
 }
 
 // rawPlugin 映射 `claude plugin list --json` 单元素。Enabled = CLI 全局启用态
@@ -60,42 +42,9 @@ type rawPlugin struct {
 	InstallPath string `json:"installPath"` // 用于枚举包内 skill
 }
 
-// scanSkills 枚举 plugin 安装目录下 skills/*/SKILL.md,返回 skill 名(目录名,
-// os.ReadDir 已按名排序)。installPath 为空 / 无 skills 目录 / 不可读 → nil,不阻断发现。
+// scanSkills 枚举 plugin 安装目录下 skills/*/SKILL.md。
 func scanSkills(installPath string) []string {
-	if installPath == "" {
-		return nil
-	}
-	return scanSkillRoot(filepath.Join(installPath, "skills"))
-}
-
-func scanSkillRoot(skillsDir string) []string {
-	entries, err := os.ReadDir(skillsDir)
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, e := range entries {
-		dir := filepath.Join(skillsDir, e.Name())
-		if !isDir(dir) {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err != nil {
-			continue // 没有 SKILL.md 的子目录不是 skill
-		}
-		out = append(out, e.Name())
-	}
-	return out
-}
-
-// isDir 判断路径是否为目录。必须用 os.Stat(跟随软链):os.ReadDir 给的
-// DirEntry.IsDir() 是 lstat 语义,会把软链装进来的 skill 目录判成非目录。
-func isDir(path string) bool {
-	if strings.TrimSpace(path) == "" {
-		return false
-	}
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
+	return agentskill.ScanSkills(installPath)
 }
 
 func defaultSkillRoots(cwd string) []string {
@@ -119,11 +68,10 @@ func (d Discoverer) DiscoverCommands(_ context.Context, q agentskill.CommandDisc
 	seen := map[string]struct{}{}
 	commands := []agentskill.SkillCommand{}
 	for _, root := range roots {
-		for _, name := range scanSkillRoot(root) {
-			if _, ok := seen[name]; ok {
+		for _, name := range agentskill.ScanSkillRoot(root) {
+			if !agentskill.AppendUniqueName(seen, name) {
 				continue
 			}
-			seen[name] = struct{}{}
 			commands = append(commands, agentskill.SkillCommand{Name: name})
 		}
 	}
@@ -155,13 +103,5 @@ func (d Discoverer) parsePluginList(b []byte) ([]agentskill.SkillPack, error) {
 
 // Discover 调用 claude plugin list --json 枚举已安装技能包。CLI 不可用时软降级返回空。
 func (d Discoverer) Discover(ctx context.Context, q agentskill.DiscoverQuery) ([]agentskill.SkillPack, error) {
-	bin := strings.TrimSpace(q.CLIPath)
-	if bin == "" {
-		bin = "claude"
-	}
-	b, err := d.runner()(ctx, bin, "plugin", "list", "--json")
-	if err != nil {
-		return []agentskill.SkillPack{}, nil // CLI 不可用 → 软降级(空发现)
-	}
-	return d.parsePluginList(b)
+	return agentskill.DiscoverPluginList(ctx, d.runner(), q.CLIPath, "claude", d.parsePluginList)
 }

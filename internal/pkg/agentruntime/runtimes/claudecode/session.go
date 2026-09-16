@@ -388,7 +388,7 @@ func ccRawFrameSink(sessionID int64, providerSessionUUID string) func([]byte) {
 var ccSessionFactory = func(spec ccLaunchSpec) (ccSessionHandle, error) {
 	binary := strings.TrimSpace(spec.Req.Backend.CLIPath)
 	if binary == "" {
-		binary = DefaultBinary()
+		binary = defaultBinary
 	}
 	client := claudecode.New(ccBuildClientOpts(spec, binary)...)
 

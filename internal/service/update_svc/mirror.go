@@ -16,8 +16,8 @@ var availableMirrors = []MirrorInfo{
 	{ID: "gh-proxy", Name: "gh-proxy.com", URL: "https://gh-proxy.com/"},
 }
 
-// GetAvailableMirrors 返回可用的下载镜像列表
-func GetAvailableMirrors() []MirrorInfo {
+// getAvailableMirrors 返回可用的下载镜像列表
+func getAvailableMirrors() []MirrorInfo {
 	result := make([]MirrorInfo, len(availableMirrors))
 	copy(result, availableMirrors)
 	return result

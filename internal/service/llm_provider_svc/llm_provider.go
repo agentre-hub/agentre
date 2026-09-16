@@ -10,12 +10,9 @@
 package llm_provider_svc
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -36,17 +33,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
-)
-
-// 默认 endpoint。BaseURL 留空时使用。
-const (
-	defaultAnthropicBaseURL = "https://api.anthropic.com"
-	defaultOpenAIBaseURL    = "https://api.openai.com/v1"
-	testConnectionPrompt    = "hi"
-	testConnectionMaxTokens = 16
-	// anthropicVersion Anthropic Messages / Models API 必填的版本头。
-	// 与 cago agents/provider/anthropics 当前 SDK 使用的版本对齐。
-	anthropicVersion = "2023-06-01"
 )
 
 // httpDoer 抽象 http.Client，方便在单测里替换实现。
@@ -813,39 +799,17 @@ func mergeProviderDraft(saved *llm_provider_entity.LLMProvider, typ, apiKey, bas
 
 // fetchModelIDs 调 provider 的 /v1/models endpoint，返回原始 id 列表。
 // openai-chat 与 openai-response 共用 /v1/models —— OpenAI 的 models 接口不区分
-// 是给 chat 还是 responses API 用的。
+// 是给 chat 还是 responses API 用的。探测协议与执行端共享 llmurl.Client。
 func (s *llmProviderSvc) fetchModelIDs(ctx context.Context, p *llm_provider_entity.LLMProvider) ([]string, error) {
-	switch llm_provider_entity.ProviderType(p.Type) {
-	case llm_provider_entity.TypeAnthropic:
-		return s.fetchAnthropicModels(ctx, p)
-	case llm_provider_entity.TypeOpenAIChat, llm_provider_entity.TypeOpenAIResponse:
-		return s.fetchOpenAIModels(ctx, p)
-	default:
-		return nil, i18n.NewError(ctx, code.LLMProviderInvalidType)
-	}
-}
-
-func (s *llmProviderSvc) fetchAnthropicModels(ctx context.Context, p *llm_provider_entity.LLMProvider) ([]string, error) {
-	endpoint, err := llmurl.Build(firstNonEmpty(p.BaseURL, defaultAnthropicBaseURL), "/v1/models")
+	models, err := llmurl.NewClient(s.http).Discover(ctx, probeProvider(p))
 	if err != nil {
 		return nil, err
 	}
-	return s.fetchModelList(ctx, endpoint.String(), func(h http.Header) {
-		h.Set("x-api-key", p.APIKey)
-		h.Set("anthropic-version", anthropicVersion)
-	})
-}
-
-func (s *llmProviderSvc) fetchOpenAIModels(ctx context.Context, p *llm_provider_entity.LLMProvider) ([]string, error) {
-	endpoint, err := llmurl.Build(firstNonEmpty(p.BaseURL, defaultOpenAIBaseURL), "/models")
-	if err != nil {
-		return nil, err
+	ids := make([]string, 0, len(models))
+	for _, m := range models {
+		ids = append(ids, m.ModelID)
 	}
-	return s.fetchModelList(ctx, endpoint.String(), func(h http.Header) {
-		if p.APIKey != "" {
-			h.Set("Authorization", "Bearer "+p.APIKey)
-		}
-	})
+	return ids, nil
 }
 
 // sendTestMessage 发送一条最小用户消息，验证模型不只是凭证可列，而是真的能完成一次 LLM 调用。
@@ -854,206 +818,16 @@ func (s *llmProviderSvc) sendTestMessage(ctx context.Context, p *llm_provider_en
 		return errors.New("请先选择默认模型")
 	}
 	switch llm_provider_entity.ProviderType(p.Type) {
-	case llm_provider_entity.TypeAnthropic:
-		return s.sendAnthropicTestMessage(ctx, p, modelID)
-	case llm_provider_entity.TypeOpenAIChat:
-		return s.sendOpenAITestMessage(ctx, p, modelID)
-	case llm_provider_entity.TypeOpenAIResponse:
-		return s.sendOpenAIResponseTestMessage(ctx, p, modelID)
+	case llm_provider_entity.TypeAnthropic, llm_provider_entity.TypeOpenAIChat, llm_provider_entity.TypeOpenAIResponse:
 	default:
 		return i18n.NewError(ctx, code.LLMProviderInvalidType)
 	}
+	return llmurl.NewClient(s.http).Test(ctx, probeProvider(p), modelID)
 }
 
-func (s *llmProviderSvc) sendAnthropicTestMessage(ctx context.Context, p *llm_provider_entity.LLMProvider, modelID string) error {
-	endpoint, err := llmurl.Build(firstNonEmpty(p.BaseURL, defaultAnthropicBaseURL), "/v1/messages")
-	if err != nil {
-		return err
-	}
-	payload := struct {
-		Model     string `json:"model"`
-		MaxTokens int    `json:"max_tokens"`
-		Messages  []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"messages"`
-	}{
-		Model:     modelID,
-		MaxTokens: testConnectionMaxTokens,
-		Messages: []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		}{
-			{Role: "user", Content: testConnectionPrompt},
-		},
-	}
-	req, err := newJSONRequest(ctx, endpoint.String(), payload)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("x-api-key", p.APIKey)
-	req.Header.Set("anthropic-version", anthropicVersion)
-
-	var resp struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		StopReason string `json:"stop_reason"`
-	}
-	if err := s.doJSON(req, &resp); err != nil {
-		return err
-	}
-	if len(resp.Content) == 0 && resp.StopReason == "" {
-		return errors.New("empty completion response")
-	}
-	return nil
-}
-
-func (s *llmProviderSvc) sendOpenAITestMessage(ctx context.Context, p *llm_provider_entity.LLMProvider, modelID string) error {
-	endpoint, err := llmurl.Build(firstNonEmpty(p.BaseURL, defaultOpenAIBaseURL), "/chat/completions")
-	if err != nil {
-		return err
-	}
-	payload := struct {
-		Model    string `json:"model"`
-		Messages []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"messages"`
-	}{
-		Model: modelID,
-		Messages: []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		}{
-			{Role: "user", Content: testConnectionPrompt},
-		},
-	}
-	req, err := newJSONRequest(ctx, endpoint.String(), payload)
-	if err != nil {
-		return err
-	}
-	if p.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+p.APIKey)
-	}
-
-	var resp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-				Role    string `json:"role"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		} `json:"choices"`
-	}
-	if err := s.doJSON(req, &resp); err != nil {
-		return err
-	}
-	if len(resp.Choices) == 0 {
-		return errors.New("empty completion choices")
-	}
-	return nil
-}
-
-// sendOpenAIResponseTestMessage 走 /v1/responses，验证 openai-response 凭证 + 模型可用。
-// 请求体只带 model + input（字符串形式），最大输出限到 testConnectionMaxTokens 减少花费。
-// 响应里 output[].content[].text 是模型回答；空回也认为成功（part of empty 200）。
-func (s *llmProviderSvc) sendOpenAIResponseTestMessage(ctx context.Context, p *llm_provider_entity.LLMProvider, modelID string) error {
-	endpoint, err := llmurl.Build(firstNonEmpty(p.BaseURL, defaultOpenAIBaseURL), "/responses")
-	if err != nil {
-		return err
-	}
-	payload := struct {
-		Model           string `json:"model"`
-		Input           string `json:"input"`
-		MaxOutputTokens int    `json:"max_output_tokens"`
-	}{
-		Model:           modelID,
-		Input:           testConnectionPrompt,
-		MaxOutputTokens: testConnectionMaxTokens,
-	}
-	req, err := newJSONRequest(ctx, endpoint.String(), payload)
-	if err != nil {
-		return err
-	}
-	if p.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+p.APIKey)
-	}
-
-	var resp struct {
-		Status string `json:"status"`
-		Output []struct {
-			Type    string `json:"type"`
-			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"output"`
-	}
-	if err := s.doJSON(req, &resp); err != nil {
-		return err
-	}
-	// 200 + 空 output 也认为联通；只要 doJSON 没抛 http error，凭证 + 模型就 OK。
-	return nil
-}
-
-// fetchModelList Anthropic 与 OpenAI 的 /models 接口同享 `{"data":[{"id":"..."}]}`
-// 形状，差异仅在 endpoint 与认证头；setAuth 负责注入特定 provider 需要的请求头。
-func (s *llmProviderSvc) fetchModelList(ctx context.Context, url string, setAuth func(http.Header)) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	setAuth(req.Header)
-
-	var payload struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := s.doJSON(req, &payload); err != nil {
-		return nil, err
-	}
-	out := make([]string, 0, len(payload.Data))
-	for _, m := range payload.Data {
-		if m.ID != "" {
-			out = append(out, m.ID)
-		}
-	}
-	return out, nil
-}
-
-func newJSONRequest(ctx context.Context, url string, payload any) (*http.Request, error) {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	return req, nil
-}
-
-func (s *llmProviderSvc) doJSON(req *http.Request, out any) error {
-	resp, err := s.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("http %d: %s", resp.StatusCode, truncate(string(body), 200))
-	}
-	if len(body) == 0 {
-		return errors.New("empty response body")
-	}
-	return json.Unmarshal(body, out)
+// probeProvider 把实体里的执行侧字段投影成 llmurl 探测输入。
+func probeProvider(p *llm_provider_entity.LLMProvider) llmurl.Provider {
+	return llmurl.Provider{Type: p.Type, BaseURL: p.BaseURL, APIKey: p.APIKey}
 }
 
 // ── DTO 转换（展示侧只带掩码 / 布尔，不含明文凭证） ──
@@ -1139,20 +913,4 @@ func toStrings(ms []models.Modality) []string {
 		out = append(out, string(m))
 	}
 	return out
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
 }

@@ -8,7 +8,7 @@ import (
 )
 
 func TestOSRunner_EchoJSON(t *testing.T) {
-	if _, err := Resolve("sh", ""); err != nil {
+	if _, err := resolve("sh", ""); err != nil {
 		t.Skip("sh unavailable")
 	}
 	r := NewOSRunner()
@@ -28,7 +28,7 @@ func TestOSRunner_EchoJSON(t *testing.T) {
 }
 
 func TestOSRunner_NonZeroExit(t *testing.T) {
-	if _, err := Resolve("sh", ""); err != nil {
+	if _, err := resolve("sh", ""); err != nil {
 		t.Skip("sh unavailable")
 	}
 	r := NewOSRunner()
@@ -44,7 +44,7 @@ func TestOSRunner_NonZeroExit(t *testing.T) {
 }
 
 func TestOSRunner_Timeout(t *testing.T) {
-	if _, err := Resolve("sh", ""); err != nil {
+	if _, err := resolve("sh", ""); err != nil {
 		t.Skip("sh unavailable")
 	}
 	r := NewOSRunner()

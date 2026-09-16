@@ -11,30 +11,17 @@ import (
 var ErrNoCredentials = errors.New("ccoauth: no OAuth credentials available")
 
 // Credentials 是从 Keychain / 文件 fallback 读到的 OAuth 凭证。
-// ExpiresAtMs 是 Unix 毫秒时间戳；为 0 时视为"未知 / 不过期"，参见 OMC 的处理。
 type Credentials struct {
-	AccessToken  string
-	RefreshToken string
-	ExpiresAtMs  int64
-}
-
-// IsExpired 当 ExpiresAtMs > 0 且小于等于 nowMs 时返回 true。
-// 为 0 视为未知，按 OMC 行为不主动判定为过期。
-func (c Credentials) IsExpired(nowMs int64) bool {
-	return c.ExpiresAtMs > 0 && c.ExpiresAtMs <= nowMs
+	AccessToken string
 }
 
 // fileShape 兼容 OMC 看到的两种结构：嵌套 {claudeAiOauth:{…}} 和扁平 {accessToken:…}
 type fileShape struct {
 	ClaudeAiOauth *struct {
-		AccessToken  string `json:"accessToken"`
-		RefreshToken string `json:"refreshToken"`
-		ExpiresAt    int64  `json:"expiresAt"`
+		AccessToken string `json:"accessToken"`
 	} `json:"claudeAiOauth,omitempty"`
 
-	AccessToken  string `json:"accessToken,omitempty"`
-	RefreshToken string `json:"refreshToken,omitempty"`
-	ExpiresAt    int64  `json:"expiresAt,omitempty"`
+	AccessToken string `json:"accessToken,omitempty"`
 }
 
 // ReadFileCredentials 从 .credentials.json 文件读 OAuth 凭证。
@@ -60,18 +47,10 @@ func parseCredentialsBlob(b []byte) (*Credentials, error) {
 		return nil, err
 	}
 	if shape.ClaudeAiOauth != nil && shape.ClaudeAiOauth.AccessToken != "" {
-		return &Credentials{
-			AccessToken:  shape.ClaudeAiOauth.AccessToken,
-			RefreshToken: shape.ClaudeAiOauth.RefreshToken,
-			ExpiresAtMs:  shape.ClaudeAiOauth.ExpiresAt,
-		}, nil
+		return &Credentials{AccessToken: shape.ClaudeAiOauth.AccessToken}, nil
 	}
 	if shape.AccessToken != "" {
-		return &Credentials{
-			AccessToken:  shape.AccessToken,
-			RefreshToken: shape.RefreshToken,
-			ExpiresAtMs:  shape.ExpiresAt,
-		}, nil
+		return &Credentials{AccessToken: shape.AccessToken}, nil
 	}
 	return nil, ErrNoCredentials
 }

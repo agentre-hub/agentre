@@ -120,10 +120,10 @@ func envListToMap(items []string) map[string]string {
 	return out
 }
 
-// MaxDiagnosticBytes 是诊断缓冲区保留的字节上限。
-const MaxDiagnosticBytes = 64 << 10
+// maxDiagnosticBytes 是诊断缓冲区保留的字节上限。
+const maxDiagnosticBytes = 64 << 10
 
-// LockedBuffer 是并发安全的诊断缓冲区,只保留最近 MaxDiagnosticBytes 字节。
+// LockedBuffer 是并发安全的诊断缓冲区,只保留最近 maxDiagnosticBytes 字节。
 //
 // 只留尾巴不是省内存的小聪明:常驻 app-server / RPC 进程可以活几个小时,把整个
 // 生命周期的 stderr 留在内存里是无界增长,还让后来的退出错误更可能把很久以前的
@@ -136,11 +136,11 @@ type LockedBuffer struct {
 func (b *LockedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if len(p) >= MaxDiagnosticBytes {
-		b.b = append(b.b[:0], p[len(p)-MaxDiagnosticBytes:]...)
+	if len(p) >= maxDiagnosticBytes {
+		b.b = append(b.b[:0], p[len(p)-maxDiagnosticBytes:]...)
 		return len(p), nil
 	}
-	if over := len(b.b) + len(p) - MaxDiagnosticBytes; over > 0 {
+	if over := len(b.b) + len(p) - maxDiagnosticBytes; over > 0 {
 		b.b = b.b[:copy(b.b, b.b[over:])]
 	}
 	b.b = append(b.b, p...)

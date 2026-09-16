@@ -45,7 +45,6 @@ func TestSkillsHandler_List_RunsDaemonDiscoverer(t *testing.T) {
 	require.Equal(t, "superpowers@claude-plugins-official", res.Packs[0].ID)
 	require.True(t, res.Packs[0].GloballyEnabled)
 	require.Equal(t, "/daemon/bin/claude", fd.gotQuery.CLIPath)
-	require.Equal(t, agent_backend_entity.TypeClaudeCode, fd.gotQuery.BackendType)
 }
 
 func TestSkillsHandler_List_ExplicitCLIPathWins(t *testing.T) {

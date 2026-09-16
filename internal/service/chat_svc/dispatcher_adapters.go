@@ -17,20 +17,8 @@ import (
 // dispatcher_adapters.go 给 turn dispatcher 注入持久化 + 数据写入能力。
 //
 // 设计意图:handlers/ 包不能依赖 chat_svc(避免循环);它声明几组小接口
-// (SessionUpdater / UsageWriter / ErrorWriter / ContextWindowWriter),
+// (UsageWriter / ErrorWriter / ContextWindowWriter / PermissionModeWriter),
 // chat_svc 在这里实现并通过 TurnContext / handler 字段注入。
-
-// sessionUpdaterAdapter 实现 turn.SessionUpdater。
-// PermissionModeChangedHandler 调它时,assistantMsg 是 *chat_entity.Session。
-type sessionUpdaterAdapter struct{}
-
-func (sessionUpdaterAdapter) Update(ctx context.Context, sess any) error {
-	s, ok := sess.(*chat_entity.Session)
-	if !ok || s == nil {
-		return nil
-	}
-	return chat_repo.Session().Update(ctx, s)
-}
 
 // usageWriterAdapter 实现 handlers.UsageWriter:把 agentruntime.UsageUpdate
 // patch 到 *chat_entity.Message 的 token 列,再单列落库。
@@ -282,7 +270,6 @@ func (s *chatSvc) newTurnContext(
 		Session:              sess,
 		Stream:               stream,
 		LaunchPermissionMode: launch,
-		SessionUpdater:       sessionUpdaterAdapter{},
 		SessionTransitioner:  sessionTransitionerAdapter{svc: s},
 		Waits:                turn.NewWaitTracker(),
 		SubagentFlipper:      subagentFlipperAdapter{svc: s, sess: sess, stream: stream},

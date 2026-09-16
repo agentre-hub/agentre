@@ -329,7 +329,7 @@ func (t *autonomousTurnRun) consumeEvents(ctx context.Context) {
 		case t.previews != nil:
 			t.applyDurable(ctx, t.first)
 		case !t.consumeSteer(ctx, t.first, false):
-			if err := t.svc.dispatcher.Apply(ctx, t.first, t.acc, t.dispEmit, nil, t.turnCtx); err != nil {
+			if err := t.svc.dispatcher.Apply(ctx, t.first, t.acc, t.dispEmit, t.turnCtx); err != nil {
 				logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
 					zap.String("eventType", fmt.Sprintf("%T", t.first)), zap.Error(err))
 			}
@@ -416,7 +416,7 @@ func (t *autonomousTurnRun) applyDurable(ctx context.Context, ev agentruntime.Ev
 	if t.durableCtx == nil {
 		t.durableCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
 	}
-	if err := t.svc.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, nil, t.durableCtx); err != nil {
+	if err := t.svc.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, t.durableCtx); err != nil {
 		logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
 			zap.String("eventType", fmt.Sprintf("%T", ev)), zap.Error(err))
 	}
@@ -433,7 +433,7 @@ func (t *autonomousTurnRun) applyLive(ctx context.Context, ev agentruntime.Event
 		return
 	}
 	acc := t.liveAcc(preview)
-	if err := t.svc.dispatcher.Apply(ctx, ev, acc, t.dispEmit, nil, t.turnCtx); err != nil {
+	if err := t.svc.dispatcher.Apply(ctx, ev, acc, t.dispEmit, t.turnCtx); err != nil {
 		logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
 			zap.String("eventType", fmt.Sprintf("%T", ev)), zap.Error(err))
 	}

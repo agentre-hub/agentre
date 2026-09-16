@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,17 +57,9 @@ func ReadFile(ctx context.Context, root, relPath string) (*ReadFileResult, error
 
 	// 跟随符号链接后再校验仍落在 root 之内:链接逃逸出 cwd 的文件内容不能经本
 	// 接口读出。root 自身可能含链接,故两侧都 EvalSymlinks 再比较。
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := resolveWithinRoot(root, path, relPath, false)
 	if err != nil {
-		// 不存在 / 断链:无法读取,按读取失败处理,不当作越界。
-		return nil, fmt.Errorf("workspacefs: resolve %q: %w", relPath, err)
-	}
-	rootResolved, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return nil, fmt.Errorf("workspacefs: resolve cwd: %w", err)
-	}
-	if !pathWithin(rootResolved, resolved) {
-		return nil, ErrPathRefused
+		return nil, err
 	}
 
 	info, err := os.Stat(resolved)
@@ -86,7 +79,7 @@ func ReadFile(ctx context.Context, root, relPath string) (*ReadFileResult, error
 		return &ReadFileResult{TooLarge: true}, nil
 	}
 
-	data, err := os.ReadFile(resolved)
+	data, err := os.ReadFile(resolved) //nolint:gosec // G304: resolved 已由 resolveWithinRoot 校验落在 root 内
 	if err != nil {
 		return nil, fmt.Errorf("workspacefs: read %q: %w", relPath, err)
 	}
@@ -108,6 +101,29 @@ func pathWithin(root, path string) bool {
 		return true
 	}
 	return strings.HasPrefix(path, root+string(filepath.Separator))
+}
+
+// resolveWithinRoot 跟随 path 的符号链接后校验结果仍落在 root 之内,返回解析后
+// 的路径。ReadFile 与 GitFileContent 共用这同一道链接逃逸闸门。
+//
+// allowMissing 为 true 时,EvalSymlinks 报 ENOENT(工作区已删除、只在 HEAD 里
+// 存在的文件)不算越界,返回空串交由调用方跳过重校验。
+func resolveWithinRoot(root, path, relPath string, allowMissing bool) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		if allowMissing && errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("workspacefs: resolve %q: %w", relPath, err)
+	}
+	rootResolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("workspacefs: resolve cwd: %w", err)
+	}
+	if !pathWithin(rootResolved, resolved) {
+		return "", ErrPathRefused
+	}
+	return resolved, nil
 }
 
 // imageMIME 按扩展名 allowlist 判定文件是否为图片,并返回其 MIME。判定基于

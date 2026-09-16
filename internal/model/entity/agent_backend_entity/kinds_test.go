@@ -14,13 +14,13 @@ func TestKindForReturnsCorrectKind(t *testing.T) {
 	cases := []struct {
 		name      string
 		input     BackendType
-		wantType  BackendType
+		wantKind  BackendKind
 		wantNilOK bool
 	}{
-		{"builtin", TypeBuiltin, TypeBuiltin, false},
-		{"claudecode", TypeClaudeCode, TypeClaudeCode, false},
-		{"piagent", TypePiAgent, TypePiAgent, false},
-		{"unknown", BackendType("foo"), "", true},
+		{"builtin", TypeBuiltin, builtinKind{}, false},
+		{"claudecode", TypeClaudeCode, claudeCodeKind{}, false},
+		{"piagent", TypePiAgent, piAgentKind{}, false},
+		{"unknown", BackendType("foo"), nil, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -29,9 +29,7 @@ func TestKindForReturnsCorrectKind(t *testing.T) {
 				assert.Nil(t, k)
 				return
 			}
-			if assert.NotNil(t, k) {
-				assert.Equal(t, tc.wantType, k.Type())
-			}
+			assert.IsType(t, tc.wantKind, k)
 		})
 	}
 }

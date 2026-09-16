@@ -4,7 +4,12 @@ import { Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
-import { Badge, Button, copyTextWithToast } from "@agentre-hub/agentre-ui";
+import {
+  Badge,
+  Button,
+  copyTextWithToast,
+  formatRelativeTime,
+} from "@agentre-hub/agentre-ui";
 import { cn } from "@agentre-hub/agentre-ui";
 
 import { agentredVersionState, isProtocolRefusal } from "./agentred-version";
@@ -22,7 +27,7 @@ import {
 } from "./device-row-upgrade";
 import { DevicePortForward } from "./device-port-forward";
 import { DeviceProvidersSync } from "./device-providers-sync";
-import { relativeTime, friendlyLastError } from "./format";
+import { friendlyLastError } from "./format";
 import { useDeviceUpgrade } from "./use-device-upgrade";
 import type { DevicePath, DeviceRowModel } from "./use-remote-devices";
 
@@ -228,7 +233,7 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
                   <span className="mx-2">·</span>
                   {device.lastSeenAt > 0
                     ? t("remoteDevices.status.lastConnected", {
-                        time: relativeTime(device.lastSeenAt, now, t),
+                        time: formatRelativeTime(device.lastSeenAt, now, t),
                       })
                     : t("remoteDevices.status.neverConnected")}
                 </>
@@ -279,7 +284,7 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
           offlineDetail={
             device.lastSeenAt > 0
               ? t("remoteDevices.status.lastConnected", {
-                  time: relativeTime(device.lastSeenAt, now, t),
+                  time: formatRelativeTime(device.lastSeenAt, now, t),
                 })
               : undefined
           }

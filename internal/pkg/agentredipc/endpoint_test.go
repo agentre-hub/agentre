@@ -12,15 +12,15 @@ import (
 func TestGivenDataDirectoryWhenDerivingEndpointsThenUnixPathIsPreservedAndWindowsPipeIsOpaque(t *testing.T) {
 	dataDir := filepath.Join("tmp", "agentred", "alice-private")
 
-	assert.Equal(t, filepath.Join(dataDir, "agentred.sock"), UnixSocketPath(dataDir))
+	assert.Equal(t, filepath.Join(dataDir, "agentred.sock"), unixSocketPath(dataDir))
 
-	first := WindowsPipePath(`C:\Users\Alice\AppData\Roaming\agentred`)
-	second := WindowsPipePath(`c:/users/alice/appdata/roaming/agentred/`)
+	first := windowsPipePath(`C:\Users\Alice\AppData\Roaming\agentred`)
+	second := windowsPipePath(`c:/users/alice/appdata/roaming/agentred/`)
 	require.Equal(t, first, second, "equivalent Windows data-directory spellings must address the same daemon")
 	assert.True(t, strings.HasPrefix(first, `\\.\pipe\agentred-`))
 	assert.NotContains(t, strings.ToLower(first), "alice")
 	assert.NotContains(t, strings.ToLower(first), "appdata")
-	assert.NotEqual(t, first, WindowsPipePath(`C:\Users\Alice\AppData\Roaming\agentred-other`))
+	assert.NotEqual(t, first, windowsPipePath(`C:\Users\Alice\AppData\Roaming\agentred-other`))
 }
 
 func TestGivenCurrentUserSIDWhenBuildingPipeACLThenOnlyThatSIDGetsFullAccess(t *testing.T) {

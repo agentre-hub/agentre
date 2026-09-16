@@ -16,24 +16,23 @@ import (
 
 //go:generate mockgen -source llm_provider.go -destination mock_llm_provider_repo/mock_llm_provider.go
 
-// ProviderRefCounts 一个 Provider 的引用影响计数（Backend / Session / Route 三路）。
-// 用于「改默认模型」或「删除 Provider」前的引用保护确认。
-type ProviderRefCounts struct {
-	// Backends 主绑定到该 provider_key 的 agent_backends 数。
+// RefCounts 引用影响计数(Backend / Session / Route 三路),Provider 与 Model 共用同一形状。
+type RefCounts struct {
+	// Backends 主绑定到该 key 的 agent_backends 数。
 	Backends int64
-	// Sessions 会话级钉住该 provider_key 的 chat_sessions 数。
+	// Sessions 会话级钉住该 key 的 chat_sessions 数。
 	Sessions int64
-	// Routes 其 model_routes 结构化 target 引用了该 provider_key 的 agent_backends 数。
+	// Routes 其 model_routes 结构化 target 引用了该 key 的 agent_backends 数。
 	Routes int64
 }
 
-// ModelRefCounts 一个 Model（model_key）的引用影响计数。
+// ProviderRefCounts 一个 Provider 的引用影响计数(Backend / Session / Route 三路)。
+// 用于「改默认模型」或「删除 Provider」前的引用保护确认。
+type ProviderRefCounts = RefCounts
+
+// ModelRefCounts 一个 Model(model_key)的引用影响计数。
 // 用于「编辑被引用 Model 的 model_id」或「删除 Model」前的引用保护确认。
-type ModelRefCounts struct {
-	Backends int64
-	Sessions int64
-	Routes   int64
-}
+type ModelRefCounts = RefCounts
 
 // LLMProviderRepo LLM 供应商 + 模型仓储。单一口子覆盖 Provider CRUD、Model
 // CRUD/list/find、原子 create/import/default 变更与 Backend/Session/Route
@@ -363,40 +362,29 @@ func (r *llmProviderRepo) DeleteModel(ctx context.Context, id int64) error {
 // Route 引用按结构化 target 中出现的 provider_key 字符串匹配（provider_key 是稳定
 // UUID，LIKE 无歧义）。
 func (r *llmProviderRepo) CountProviderReferences(ctx context.Context, providerKey string) (ProviderRefCounts, error) {
-	var out ProviderRefCounts
-	if err := db.Ctx(ctx).Table("agent_backends").
-		Where("llm_provider_key = ? AND status = ?", providerKey, consts.ACTIVE).
-		Count(&out.Backends).Error; err != nil {
-		return out, err
-	}
-	if err := db.Ctx(ctx).Table("chat_sessions").
-		Where("provider_key = ? AND status = ?", providerKey, consts.ACTIVE).
-		Count(&out.Sessions).Error; err != nil {
-		return out, err
-	}
-	if err := db.Ctx(ctx).Table("agent_backends").
-		Where("status = ? AND model_routes LIKE ?", consts.ACTIVE, "%"+providerKey+"%").
-		Count(&out.Routes).Error; err != nil {
-		return out, err
-	}
-	return out, nil
+	return r.countRefs(ctx, "llm_provider_key", "provider_key", providerKey)
 }
 
 // CountModelReferences 统计某 Model（model_key）被 Backend / Session / Route 引用的数量。
 func (r *llmProviderRepo) CountModelReferences(ctx context.Context, modelKey string) (ModelRefCounts, error) {
-	var out ModelRefCounts
+	return r.countRefs(ctx, "model_key", "model_key", modelKey)
+}
+
+// countRefs 按各表自己的列名（agent_backends / chat_sessions）统计三路引用。
+func (r *llmProviderRepo) countRefs(ctx context.Context, backendColumn, sessionColumn, key string) (RefCounts, error) {
+	var out RefCounts
 	if err := db.Ctx(ctx).Table("agent_backends").
-		Where("model_key = ? AND status = ?", modelKey, consts.ACTIVE).
+		Where(backendColumn+" = ? AND status = ?", key, consts.ACTIVE).
 		Count(&out.Backends).Error; err != nil {
 		return out, err
 	}
 	if err := db.Ctx(ctx).Table("chat_sessions").
-		Where("model_key = ? AND status = ?", modelKey, consts.ACTIVE).
+		Where(sessionColumn+" = ? AND status = ?", key, consts.ACTIVE).
 		Count(&out.Sessions).Error; err != nil {
 		return out, err
 	}
 	if err := db.Ctx(ctx).Table("agent_backends").
-		Where("status = ? AND model_routes LIKE ?", consts.ACTIVE, "%"+modelKey+"%").
+		Where("status = ? AND model_routes LIKE ?", consts.ACTIVE, "%"+key+"%").
 		Count(&out.Routes).Error; err != nil {
 		return out, err
 	}

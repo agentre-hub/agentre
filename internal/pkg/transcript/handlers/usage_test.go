@@ -35,7 +35,7 @@ func TestUsageUpdateHandler(t *testing.T) {
 				TotalInputTokens: 130,
 				ContextWindow:    258000,
 			},
-			acc, emit, nil, tc)
+			acc, emit, tc)
 		So(err, ShouldBeNil)
 		So(wr.written, ShouldNotBeNil)
 		So(wr.written.TotalInputTokens, ShouldEqual, 130)
@@ -57,7 +57,7 @@ func TestUsageUpdateHandler_NilUsageNoOp(t *testing.T) {
 		acc := turn.New()
 		emit := &fakeEmit{}
 		err := UsageUpdateHandler{}.Apply(context.Background(),
-			agentruntime.UsageUpdate{Usage: nil}, acc, emit, nil, nil)
+			agentruntime.UsageUpdate{Usage: nil}, acc, emit, nil)
 		So(err, ShouldBeNil)
 		So(emit.events, ShouldHaveLength, 0)
 	})

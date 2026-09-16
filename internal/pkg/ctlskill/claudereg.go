@@ -34,21 +34,21 @@ func registerPlugin(home string, opts Options) error {
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	marketplace := MarketplaceDir(home)
+	marketplace := marketplaceDir(home)
 	source := map[string]any{"source": "directory", "path": marketplace}
 
-	mergeInstalledPlugin(installed, PluginDir(home), opts.Version, now)
-	known[MarketplaceName] = map[string]any{
+	mergeInstalledPlugin(installed, pluginDir(home), opts.Version, now)
+	known[marketplaceName] = map[string]any{
 		"source":          source,
 		"installLocation": marketplace,
 		"lastUpdated":     now,
 	}
 	// 全局默认关闭（逐档授权由各 agent 的 skills_json 决定），但只在这个键还不存在时写：
 	// 用户后来自己在 CLI 里打开过，版本升级重新登记不能把他的选择拍回 false。
-	if enabled := subObject(config, "enabledPlugins"); !hasKey(enabled, PluginID) {
-		enabled[PluginID] = false
+	if enabled := subObject(config, "enabledPlugins"); !hasKey(enabled, pluginID) {
+		enabled[pluginID] = false
 	}
-	subObject(config, "extraKnownMarketplaces")[MarketplaceName] = map[string]any{"source": source}
+	subObject(config, "extraKnownMarketplaces")[marketplaceName] = map[string]any{"source": source}
 
 	if err := writeJSONFile(installedPath, installed); err != nil {
 		return err
@@ -71,25 +71,25 @@ func unregisterPlugin(home string) error {
 		if !ok {
 			return
 		}
-		if kept := withoutUserScope(plugins[PluginID]); len(kept) > 0 {
-			plugins[PluginID] = kept
+		if kept := withoutUserScope(plugins[pluginID]); len(kept) > 0 {
+			plugins[pluginID] = kept
 		} else {
-			delete(plugins, PluginID)
+			delete(plugins, pluginID)
 		}
 	}); err != nil {
 		return err
 	}
 	if err := editJSONObject(knownPath, func(known map[string]any) {
-		delete(known, MarketplaceName)
+		delete(known, marketplaceName)
 	}); err != nil {
 		return err
 	}
 	return editJSONObject(settings, func(config map[string]any) {
 		if enabled, ok := config["enabledPlugins"].(map[string]any); ok {
-			delete(enabled, PluginID)
+			delete(enabled, pluginID)
 		}
 		if extra, ok := config["extraKnownMarketplaces"].(map[string]any); ok {
-			delete(extra, MarketplaceName)
+			delete(extra, marketplaceName)
 		}
 	})
 }
@@ -102,7 +102,7 @@ func registryComplete(home string) bool {
 		return false
 	}
 	known, err := loadJSONObject(filepath.Join(pluginsDir(home), "known_marketplaces.json"))
-	if err != nil || known[MarketplaceName] == nil {
+	if err != nil || known[marketplaceName] == nil {
 		return false
 	}
 	config, err := loadJSONObject(settingsPath(home))
@@ -111,13 +111,13 @@ func registryComplete(home string) bool {
 	}
 	enabled, _ := config["enabledPlugins"].(map[string]any)
 	extra, _ := config["extraKnownMarketplaces"].(map[string]any)
-	return hasKey(enabled, PluginID) && extra[MarketplaceName] != nil
+	return hasKey(enabled, pluginID) && extra[marketplaceName] != nil
 }
 
 // hasUserScopeEntry installed_plugins.json 里本插件已有一条 user 档条目。
 func hasUserScopeEntry(installed map[string]any) bool {
 	plugins, _ := installed["plugins"].(map[string]any)
-	entries, _ := plugins[PluginID].([]any)
+	entries, _ := plugins[pluginID].([]any)
 	for _, raw := range entries {
 		if entry, ok := raw.(map[string]any); ok && entry["scope"] == "user" {
 			return true
@@ -139,7 +139,7 @@ func mergeInstalledPlugin(installed map[string]any, pluginPath, version, now str
 		installed["version"] = 2
 	}
 	plugins := subObject(installed, "plugins")
-	entries, _ := plugins[PluginID].([]any)
+	entries, _ := plugins[pluginID].([]any)
 	for i, raw := range entries {
 		entry, ok := raw.(map[string]any)
 		if !ok || entry["scope"] != "user" {
@@ -152,10 +152,10 @@ func mergeInstalledPlugin(installed map[string]any, pluginPath, version, now str
 			entry["installedAt"] = now
 		}
 		entries[i] = entry
-		plugins[PluginID] = entries
+		plugins[pluginID] = entries
 		return
 	}
-	plugins[PluginID] = append(entries, map[string]any{
+	plugins[pluginID] = append(entries, map[string]any{
 		"scope":       "user",
 		"installPath": pluginPath,
 		"version":     version,
