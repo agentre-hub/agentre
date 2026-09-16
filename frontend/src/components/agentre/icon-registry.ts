@@ -1,8 +1,6 @@
 import {
   hasIcon,
-  iconCategories as sharedIconCategories,
   iconForKey,
-  iconList as sharedIconList,
   iconMeta as sharedIconMeta,
   iconsByCategory as sharedIconsByCategory,
   searchIcons as sharedSearchIcons,
@@ -28,16 +26,6 @@ function translate(key: string): string {
 
 export type { IconCategory, IconMeta };
 export { hasIcon, iconForKey };
-
-/** 按当前语言取整张图标表。语言切换后再调一次即得新文案。 */
-export function iconList(): IconMeta[] {
-  return sharedIconList(translate);
-}
-
-/** 按当前语言取分类表。 */
-export function iconCategories(): { key: IconCategory; label: string }[] {
-  return sharedIconCategories(translate);
-}
 
 /** 按 key 取单个图标的当前语言元数据。 */
 export function iconMeta(key: string | null | undefined): IconMeta | undefined {

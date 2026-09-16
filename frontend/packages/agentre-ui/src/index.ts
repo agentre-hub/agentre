@@ -474,8 +474,7 @@ export type {
 // store，以及身份怎么画（头像 / 图标注册表，经 slot 注入）。
 export { buildOrgIndex, buildOrgReportsToOptions } from "./org/org-index-model";
 export type { OrgIndexGroup, OrgIndexRow } from "./org/org-index-model";
-export { buildOrgReportToMap, resolveOrgReportTo } from "./org/reporting";
-export { computeOrgReorder } from "./org/reorder";
+export { resolveOrgReportTo } from "./org/reporting";
 export {
   isValidOrgDepartmentDrop,
   isValidOrgDrop,

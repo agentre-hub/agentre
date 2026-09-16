@@ -10,11 +10,6 @@
  * 的**，还是宿主自己算的？后者应该留在宿主。
  */
 
-/** 行尾那枚后端徽标读的就这一个字段（桌面端是 `AgentItem.backend` 的摘要）。 */
-export type OrgAgentBackendSummary = {
-  name: string;
-};
-
 export type OrgAgentModel = {
   id: number;
   name: string;
@@ -29,7 +24,8 @@ export type OrgAgentModel = {
   parentAgentName?: string;
   agentBackendId?: number;
   sortOrder?: number;
-  backend?: OrgAgentBackendSummary;
+  /** 行尾那枚后端徽标读的就这一个字段（桌面端是 `AgentItem.backend` 的摘要）。 */
+  backend?: { name: string };
   /**
    * 这个 Agent **确定**一档执行目标都没有 —— 行尾因此画成拒绝色的「无目标」。
    *

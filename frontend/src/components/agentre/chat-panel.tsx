@@ -38,8 +38,10 @@ import { useQueuedMessagesStore } from "@/stores/queued-messages-store";
 import { useSessionConnectionState } from "@/stores/session-conn-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
 
-import { useBackendCapabilities } from "./capability/use-backend-capabilities";
-import { useSessionCapabilities } from "./capability/use-session-capabilities";
+import {
+  useBackendCapabilities,
+  useSessionCapabilities,
+} from "./capability/use-capabilities";
 import {
   ChatComposer,
   ChatTranscript,

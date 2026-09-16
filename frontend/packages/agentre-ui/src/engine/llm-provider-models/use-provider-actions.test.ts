@@ -7,7 +7,7 @@ import {
   removeClipboard,
   restoreClipboardEnv,
 } from "../../lib/__testing__/clipboard";
-import type { PanelFlash } from "./use-provider-catalog";
+import type { FlashState } from "../agent-backends-shared";
 import type { Provider } from ".";
 import { useProviderActions } from "./use-provider-actions";
 
@@ -25,7 +25,7 @@ describe("useProviderActions · handleCopyProviderKey", () => {
   });
 
   function mountActions() {
-    const setFlash = vi.fn<(flash: PanelFlash) => void>();
+    const setFlash = vi.fn<(flash: FlashState) => void>();
     const { result } = renderHook(() =>
       useProviderActions({
         bridge: {

@@ -38,22 +38,6 @@ export function isProviderType(value: string): value is ProviderType {
   return value in providerTypeMeta;
 }
 
-export function errMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  return "Unknown error";
-}
-
-export function formatTokens(n: number): string {
-  if (n >= 1_000_000) {
-    return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
-  }
-  if (n >= 1_000) {
-    return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}K`;
-  }
-  return n > 0 ? String(n) : "—";
-}
-
 export function totalReferences(
   counts: ReferenceCounts | null | undefined,
 ): number {
@@ -70,7 +54,6 @@ export type ModelDeleteability = { kind: "ok" } | { kind: "default" };
 export function modelDeleteability(
   model: Model,
   defaultModelKey: string,
-  _modelRefCounts: Map<string, ReferenceCounts>,
 ): ModelDeleteability {
   if (model.modelKey === defaultModelKey) return { kind: "default" };
   return { kind: "ok" };

@@ -21,12 +21,6 @@ export type OrgIndexFilters = {
   reportsToId: number;
 };
 
-export const EMPTY_ORG_FILTERS: OrgIndexFilters = {
-  search: "",
-  backendId: 0,
-  reportsToId: 0,
-};
-
 export type OrgIndexRow = {
   agent: OrgAgentModel;
   /** 该行现在挂在哪 —— 也就是 reorderAgents 的两个桶键。 */
@@ -52,7 +46,6 @@ export type OrgIndexModel = {
   topRows: OrgIndexRow[];
   groups: OrgIndexGroup[];
   matchedAgents: number;
-  totalAgents: number;
 };
 
 export type OrgIndexInput = {
@@ -169,7 +162,6 @@ export function buildOrgIndex(input: OrgIndexInput): OrgIndexModel {
     topRows,
     groups,
     matchedAgents: matched.size,
-    totalAgents: agents.length,
   };
 }
 

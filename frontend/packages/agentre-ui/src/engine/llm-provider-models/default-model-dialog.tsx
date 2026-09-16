@@ -20,9 +20,9 @@ import {
   type Model,
   type Provider,
   type ReferenceCounts,
-  errMessage,
   totalReferences,
 } from "./index";
+import { messageFromError } from "../agent-backends-utils";
 
 // DefaultModelTarget 一次「把某模型设为供应商默认模型」的确认请求。spec 2026-08-11
 // 「Provider management」：修改 Provider 默认模型前，界面先展示将动态影响的
@@ -92,13 +92,13 @@ export function DefaultModelDialog({
         };
         setState({ phase: "confirm", counts });
       } catch (err) {
-        if (!cancelled) setError(errMessage(err));
+        if (!cancelled) setError(messageFromError(err, t));
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [LLMProviderRefCounts, target]);
+  }, [LLMProviderRefCounts, target, t]);
 
   const confirm = React.useCallback(async () => {
     if (!target) return;
@@ -113,13 +113,13 @@ export function DefaultModelDialog({
       onSaved();
       onClose();
     } catch (err) {
-      setError(errMessage(err));
+      setError(messageFromError(err, t));
       setState({
         phase: "confirm",
         counts: { backends: 0, sessions: 0, routes: 0 },
       });
     }
-  }, [SetLLMModelDefault, onClose, onSaved, target]);
+  }, [SetLLMModelDefault, onClose, onSaved, target, t]);
 
   const saving = state.phase === "saving";
   const counts =

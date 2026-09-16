@@ -20,9 +20,9 @@ import {
   type Model,
   type Provider,
   type ReferenceCounts,
-  errMessage,
   totalReferences,
 } from "./index";
+import { messageFromError } from "../agent-backends-utils";
 
 export type DeleteTarget =
   | { kind: "provider"; provider: Provider }
@@ -146,10 +146,10 @@ export function DeleteDialog({
       onDeleted(target);
       onClose();
     } catch (err) {
-      setError(errMessage(err));
+      setError(messageFromError(err, t));
       setState({ phase: "confirm" });
     }
-  }, [DeleteLLMModel, DeleteLLMProvider, onClose, onDeleted, target]);
+  }, [DeleteLLMModel, DeleteLLMProvider, onClose, onDeleted, target, t]);
 
   // 删除之外的另一条路：停用保留全部引用且可恢复，适合「只是暂时不用」。
   const disableInstead = React.useCallback(async () => {
@@ -175,10 +175,17 @@ export function DeleteDialog({
       onDisabled?.(target);
       onClose();
     } catch (err) {
-      setError(errMessage(err));
+      setError(messageFromError(err, t));
       setState({ phase: "confirm" });
     }
-  }, [SetLLMModelEnabled, SetLLMProviderEnabled, onClose, onDisabled, target]);
+  }, [
+    SetLLMModelEnabled,
+    SetLLMProviderEnabled,
+    onClose,
+    onDisabled,
+    target,
+    t,
+  ]);
 
   const name = provider ? provider.name : model ? modelDisplayName(model) : "";
   const deleting = state.phase === "deleting";

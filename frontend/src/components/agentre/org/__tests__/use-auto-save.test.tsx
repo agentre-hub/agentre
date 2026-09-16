@@ -25,9 +25,7 @@ describe("useAutoSave", () => {
 
   it("debounced patches coalesce into one save with the latest value", () => {
     const save = vi.fn().mockResolvedValue(undefined);
-    const { result } = renderHook(() =>
-      useAutoSave({ initial, save, debounceMs: 600 }),
-    );
+    const { result } = renderHook(() => useAutoSave({ initial, save }));
 
     act(() => result.current.patch({ name: "AB" }));
     act(() => result.current.patch({ name: "ABC" }));

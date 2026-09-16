@@ -18,12 +18,8 @@ import { Input } from "../../ui/input";
 import { modelDisplayName } from "../model-display-name";
 import { useEngineSettingsBridge } from "../port-bridge";
 import { llm_provider_svc } from "../port-bridge";
-import {
-  type Model,
-  type ReferenceCounts,
-  errMessage,
-  totalReferences,
-} from "./index";
+import { type Model, type ReferenceCounts, totalReferences } from "./index";
+import { messageFromError } from "../agent-backends-utils";
 
 export function ModelEditDialog({
   model,
@@ -65,12 +61,12 @@ export function ModelEditDialog({
         }
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(errMessage(err));
+        if (!cancelled) setError(messageFromError(err, t));
       });
     return () => {
       cancelled = true;
     };
-  }, [LLMModelRefCounts, model]);
+  }, [LLMModelRefCounts, model, t]);
 
   const referenced = counts ? totalReferences(counts) > 0 : false;
   const modelIdChanged = model !== null && modelId.trim() !== model.modelId;
@@ -101,7 +97,7 @@ export function ModelEditDialog({
         if (resp.item) onSaved(resp.item);
         onClose();
       } catch (err) {
-        setError(errMessage(err));
+        setError(messageFromError(err, t));
       } finally {
         setSaving(false);
       }

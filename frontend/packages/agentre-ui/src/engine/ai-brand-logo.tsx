@@ -152,6 +152,13 @@ const brandEntries = Object.entries(brandRegistry) as Array<
   [Brand, BrandDefinition]
 >;
 
+/** vendor 小写标识 → 品牌显示名；未收录的按「首字母大写」读，空值原样返回。 */
+export function brandLabel(vendor: string): string {
+  const definition = brandRegistry[vendor as Brand];
+  if (definition) return definition.label;
+  return vendor ? vendor.charAt(0).toUpperCase() + vendor.slice(1) : "";
+}
+
 const backendBrands: Record<string, Brand> = {
   builtin: "agentre",
   claudecode: "claude",

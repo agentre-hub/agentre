@@ -13,8 +13,9 @@ import type { EngineSettingsBridge } from "../port-bridge";
 
 import type { BatchDeleteResult } from "./batch-delete-dialog";
 import type { DeleteTarget } from "./delete-dialog";
-import { type Model, type Provider, errMessage } from ".";
-import type { PanelFlash } from "./use-provider-catalog";
+import { type Model, type Provider } from ".";
+import type { FlashState } from "../agent-backends-shared";
+import { messageFromError } from "../agent-backends-utils";
 
 export type ProviderActionsBridge = Pick<
   EngineSettingsBridge,
@@ -24,7 +25,7 @@ export type ProviderActionsBridge = Pick<
 export function useProviderActions(args: {
   bridge: ProviderActionsBridge;
   selectedProvider: Provider | null;
-  setFlash: (flash: PanelFlash) => void;
+  setFlash: (flash: FlashState) => void;
   refreshProviders: () => Promise<void>;
   refreshModels: () => Promise<void>;
 }) {
@@ -80,7 +81,7 @@ export function useProviderActions(args: {
         setFlash({
           kind: "err",
           text: t("llmProviders.flash.testFailed", {
-            message: errMessage(err),
+            message: messageFromError(err, t),
           }),
         });
       } finally {
@@ -142,7 +143,7 @@ export function useProviderActions(args: {
         setFlash({
           kind: "err",
           text: t("llmProviders.flash.testFailed", {
-            message: errMessage(err),
+            message: messageFromError(err, t),
           }),
         });
       } finally {
@@ -173,7 +174,7 @@ export function useProviderActions(args: {
         });
         await refreshModels();
       } catch (err) {
-        setFlash({ kind: "err", text: errMessage(err) });
+        setFlash({ kind: "err", text: messageFromError(err, t) });
       }
     },
     [SetLLMModelEnabled, refreshModels, setFlash, t],
@@ -196,7 +197,7 @@ export function useProviderActions(args: {
         });
         await refreshProviders();
       } catch (err) {
-        setFlash({ kind: "err", text: errMessage(err) });
+        setFlash({ kind: "err", text: messageFromError(err, t) });
       }
     },
     [SetLLMProviderEnabled, refreshProviders, setFlash, t],
@@ -225,7 +226,7 @@ export function useProviderActions(args: {
           );
           done += 1;
         } catch (err) {
-          error = errMessage(err);
+          error = messageFromError(err, t);
           break;
         }
       }

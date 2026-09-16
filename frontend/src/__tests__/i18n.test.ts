@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
@@ -25,37 +25,17 @@ function flattenKeys(value: unknown, prefix = ""): string[] {
   });
 }
 
-function writableStorageWithLanguage(language: string | null): Storage & {
-  writes: [string, string][];
-} {
-  let stored = language;
-  const writes: [string, string][] = [];
-
-  return {
-    writes,
-    get length() {
-      return stored === null ? 0 : 1;
-    },
-    clear() {
-      stored = null;
-    },
-    getItem(key: string) {
-      return key === LANGUAGE_STORAGE_KEY ? stored : null;
-    },
-    key(index: number) {
-      return index === 0 && stored !== null ? LANGUAGE_STORAGE_KEY : null;
-    },
-    removeItem(key: string) {
-      if (key === LANGUAGE_STORAGE_KEY) stored = null;
-    },
-    setItem(key: string, value: string) {
-      writes.push([key, value]);
-      if (key === LANGUAGE_STORAGE_KEY) stored = value;
-    },
-  };
+function hasLocaleKey(locale: LocaleTree, key: string): boolean {
+  if (hasPlainLocaleKey(locale, key)) return true;
+  // i18next 复数：`t(key, { count })` 实际查的是 `key_one` / `key_other`，
+  // 被引用的基线 key 本身并不在语言包里。
+  return (
+    hasPlainLocaleKey(locale, `${key}_one`) ||
+    hasPlainLocaleKey(locale, `${key}_other`)
+  );
 }
 
-function hasLocaleKey(locale: LocaleTree, key: string): boolean {
+function hasPlainLocaleKey(locale: LocaleTree, key: string): boolean {
   return key.split(".").every((part, index, parts) => {
     const parent = parts.slice(0, index).reduce<unknown>((node, segment) => {
       return node && typeof node === "object"
@@ -623,58 +603,54 @@ describe("i18n resources", () => {
 });
 
 describe("detectInitialLanguage", () => {
-  it("Given a supported stored language, When language is detected, Then the stored preference wins and is not overwritten", () => {
-    const storage = writableStorageWithLanguage("en");
-    const detected = detectInitialLanguage({
-      navigatorLanguage: "zh-CN",
-      storage,
-    });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
-    expect(detected).toBe("en");
-    expect(storage.writes).toEqual([]);
+  function stubNavigator(language?: string, languages?: string[]) {
+    vi.stubGlobal("navigator", {
+      ...(language ? { language } : {}),
+      ...(languages ? { languages } : {}),
+    });
+  }
+
+  it("Given a supported stored language, When language is detected, Then the stored preference wins and is not overwritten", () => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    stubNavigator("zh-CN", ["zh-CN"]);
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+
+    expect(detectInitialLanguage()).toBe("en");
+    expect(setItem).not.toHaveBeenCalled();
   });
 
   it("Given zh-CN is the stored language, When language is detected, Then the explicit Chinese preference wins", () => {
-    const storage = writableStorageWithLanguage("zh-CN");
-    const detected = detectInitialLanguage({
-      navigatorLanguage: "en-US",
-      storage,
-    });
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, "zh-CN");
+    stubNavigator("en-US", ["en-US"]);
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
 
-    expect(detected).toBe("zh-CN");
-    expect(storage.writes).toEqual([]);
+    expect(detectInitialLanguage()).toBe("zh-CN");
+    expect(setItem).not.toHaveBeenCalled();
   });
 
   it("Given no stored language and a supported Chinese system locale, When language is detected, Then zh-CN is selected and stored", () => {
-    const storage = writableStorageWithLanguage(null);
-    const detected = detectInitialLanguage({
-      navigatorLanguages: ["zh-CN", "en-US"],
-      storage,
-    });
+    stubNavigator(undefined, ["zh-CN", "en-US"]);
 
-    expect(detected).toBe("zh-CN");
-    expect(storage.writes).toEqual([[LANGUAGE_STORAGE_KEY, "zh-CN"]]);
+    expect(detectInitialLanguage()).toBe("zh-CN");
+    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("zh-CN");
   });
 
   it("Given no stored language and an unsupported Chinese system locale, When language is detected, Then English is selected and stored", () => {
-    const storage = writableStorageWithLanguage(null);
-    const detected = detectInitialLanguage({
-      navigatorLanguage: "zh-Hant-HK",
-      storage,
-    });
+    stubNavigator("zh-Hant-HK");
 
-    expect(detected).toBe("en");
-    expect(storage.writes).toEqual([[LANGUAGE_STORAGE_KEY, "en"]]);
+    expect(detectInitialLanguage()).toBe("en");
+    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("en");
   });
 
   it("Given an unsupported stored language and a non-supported system locale, When language is detected, Then English is used and stored", () => {
-    const storage = writableStorageWithLanguage("ja");
-    const detected = detectInitialLanguage({
-      navigatorLanguage: "fr-FR",
-      storage,
-    });
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, "ja");
+    stubNavigator("fr-FR", ["fr-FR"]);
 
-    expect(detected).toBe("en");
-    expect(storage.writes).toEqual([[LANGUAGE_STORAGE_KEY, "en"]]);
+    expect(detectInitialLanguage()).toBe("en");
+    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("en");
   });
 });

@@ -18,10 +18,10 @@ import { llm_provider_svc } from "../port-bridge";
 import {
   type Model,
   type ReferenceCounts,
-  errMessage,
   modelDeleteability,
   totalReferences,
 } from "./index";
+import { messageFromError } from "../agent-backends-utils";
 
 export type BatchDeleteResult = {
   deleted: number;
@@ -63,7 +63,7 @@ export function BatchDeleteDialog({
     const deletable: { model: Model; note: string | null }[] = [];
     const protectedItems: { model: Model; reason: string }[] = [];
     for (const model of list) {
-      const del = modelDeleteability(model, defaultModelKey, modelRefCounts);
+      const del = modelDeleteability(model, defaultModelKey);
       if (del.kind === "default") {
         protectedItems.push({
           model,
@@ -99,13 +99,13 @@ export function BatchDeleteDialog({
         );
         deleted += 1;
       } catch (err) {
-        failure = errMessage(err);
+        failure = messageFromError(err, t);
         break;
       }
     }
     const unprocessed = groups.deletable.length - deleted;
     onDone({ deleted, unprocessed, error: failure });
-  }, [DeleteLLMModel, groups.deletable, onDone]);
+  }, [DeleteLLMModel, groups.deletable, onDone, t]);
 
   const deletableCount = groups.deletable.length;
   const protectedCount = groups.protectedItems.length;

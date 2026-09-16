@@ -33,8 +33,6 @@ function probeCLIPath(
   } as unknown as agent_backend_svc.ResolveCLIPathRequest);
 }
 
-export type CliProbes = ReturnType<typeof useCliProbes>;
-
 export function useCliProbes(args: {
   stateKind: EditorState["kind"];
   initialCliPath: string;

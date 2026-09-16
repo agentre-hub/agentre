@@ -40,8 +40,8 @@ import {
   useModelTargetCatalog,
   type PickerProvider,
 } from "./model-target-picker";
-import { OPENCLAW_SESSION_MODE } from "./openclaw-backend-fields";
-import { openClawDraftIssue } from "./openclaw-validation";
+import { OPENCLAW_SESSION_MODE } from "./openclaw-validation";
+import { isLoopbackHostname, openClawDraftIssue } from "./openclaw-validation";
 import {
   BackendTypePicker,
   BackendTypeReadonly,
@@ -826,7 +826,7 @@ function BackendEditor({
       if (
         (u.protocol === "http:" || u.protocol === "https:") &&
         u.port !== "" &&
-        !isLoopbackHost(u.hostname)
+        !isLoopbackHostname(u.hostname)
       ) {
         return raw;
       }
@@ -1641,11 +1641,4 @@ function newRequestId(): string {
   return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-// isLoopbackHost 与 Go 侧 loopback 形状检查同口径：loopback 的 `hermes serve` 不需要
-// 登录，所以不为它去拉 /api/auth/providers（那里的 404 是预期，不是错误）。
-function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost")) return true;
-  if (host === "::1") return true;
-  return /^127(?:\.\d{1,3}){3}$/.test(host);
-}
+// isLoopbackHostname 与 Go 侧 loopback 形状检查同口径（见 openclaw-validation）。

@@ -41,8 +41,5 @@ export function buildOrgToolList(
       approval: granted && ORG_APPROVAL_TOOLS.has(key),
     };
   });
-  return [
-    ...items.filter((it) => it.granted),
-    ...items.filter((it) => !it.granted),
-  ];
+  return [...items].sort((a, b) => Number(b.granted) - Number(a.granted));
 }

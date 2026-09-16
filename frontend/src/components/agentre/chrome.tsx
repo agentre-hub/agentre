@@ -400,21 +400,10 @@ function AppStatusBar({
 
   const attentionParts: string[] = [];
   if (approvalCount > 0) {
-    attentionParts.push(
-      t(
-        approvalCount === 1
-          ? "statusBar.approval_one"
-          : "statusBar.approval_other",
-        { count: approvalCount },
-      ),
-    );
+    attentionParts.push(t("statusBar.approval", { count: approvalCount }));
   }
   if (unreadCount > 0) {
-    attentionParts.push(
-      t(unreadCount === 1 ? "statusBar.unread_one" : "statusBar.unread_other", {
-        count: unreadCount,
-      }),
-    );
+    attentionParts.push(t("statusBar.unread", { count: unreadCount }));
   }
 
   const attentionSummary =

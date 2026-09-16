@@ -6,14 +6,10 @@ import { useUiTranslation as useTranslation } from "../../i18n";
 
 import { llm_provider_svc } from "../port-bridge";
 import type { EngineSettingsBridge } from "../port-bridge";
+import type { FlashState } from "../agent-backends-shared";
 
-import { type Model, type Provider, type ReferenceCounts, errMessage } from ".";
-
-// PanelFlash 面板顶部那条结果横幅；读写两条路径共用同一个槽位。
-export type PanelFlash =
-  | { kind: "ok"; text: string }
-  | { kind: "err"; text: string }
-  | null;
+import { type Model, type Provider, type ReferenceCounts } from ".";
+import { messageFromError } from "../agent-backends-utils";
 
 export type ProviderCatalogBridge = Pick<
   EngineSettingsBridge,
@@ -25,7 +21,7 @@ export type ProviderCatalogBridge = Pick<
 
 export function useProviderCatalog(args: {
   bridge: ProviderCatalogBridge;
-  setFlash: (flash: PanelFlash) => void;
+  setFlash: (flash: FlashState) => void;
 }) {
   const { setFlash } = args;
   const {
@@ -65,7 +61,7 @@ export function useProviderCatalog(args: {
       setFlash({
         kind: "err",
         text: t("llmProviders.flash.loadFailed", {
-          message: errMessage(err),
+          message: messageFromError(err, t),
         }),
       });
     }
@@ -80,9 +76,9 @@ export function useProviderCatalog(args: {
       setModels(resp.items ?? []);
       setModelsError(null);
     } catch (err) {
-      setModelsError(errMessage(err));
+      setModelsError(messageFromError(err, t));
     }
-  }, [ListLLMModels, selectedId]);
+  }, [ListLLMModels, selectedId, t]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -97,7 +93,7 @@ export function useProviderCatalog(args: {
           setFlash({
             kind: "err",
             text: t("llmProviders.flash.loadFailed", {
-              message: errMessage(err),
+              message: messageFromError(err, t),
             }),
           });
         }
@@ -127,7 +123,7 @@ export function useProviderCatalog(args: {
         );
         if (!cancelled) setModels(resp.items ?? []);
       } catch (err) {
-        if (!cancelled) setModelsError(errMessage(err));
+        if (!cancelled) setModelsError(messageFromError(err, t));
       } finally {
         if (!cancelled) setModelsLoading(false);
       }
@@ -135,7 +131,7 @@ export function useProviderCatalog(args: {
     return () => {
       cancelled = true;
     };
-  }, [ListLLMModels, selectedId]);
+  }, [ListLLMModels, selectedId, t]);
 
   // 元信息行的「被引用」计数：切换供应商时按 providerKey 拉取，失败降级为 0。
   React.useEffect(() => {

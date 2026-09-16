@@ -18,17 +18,7 @@ import { useUpdateStore } from "@/stores/update-store";
 
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
 import { getUpdateChannel, type UpdateChannel } from "./update-api";
-
-const CHANNEL_LABEL: Record<UpdateChannel, string> = {
-  stable: "update.channel.stable.label",
-  beta: "update.channel.beta.label",
-  nightly: "update.channel.nightly.label",
-};
-
-function formatVersion(v: string, unknown: string): string {
-  if (!v) return unknown;
-  return v.startsWith("v") ? v : `v${v}`;
-}
+import { CHANNEL_LABEL, formatVersion } from "./update-section/format";
 
 /**
  * formatBytes 给下载进度配一行「已下载/总量」。

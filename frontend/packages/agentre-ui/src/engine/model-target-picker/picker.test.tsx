@@ -452,7 +452,7 @@ describe("ModelTargetPicker", () => {
     expect(opus).toHaveTextContent("Opus");
     expect(opus).toHaveTextContent("claude-opus-4-8");
     expect(opus).not.toHaveTextContent("Anthropic");
-    expect(opus).toHaveTextContent(/400K ctx · 64K out/);
+    expect(opus).toHaveTextContent(/400k ctx · 64\.0k out/);
     // 组头承载品牌标识 + 供应商名。
     expect(within(list).getByText("Anthropic")).toBeInTheDocument();
     expect(
