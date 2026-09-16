@@ -62,6 +62,8 @@ type SessionGroupProps = React.ComponentProps<"article"> & {
   onOpenInNewTab?: (sessionId: string) => void;
   onRenameSession?: (sessionId: string, title: string) => void;
   onDeleteSession?: (sessionId: string) => void;
+  // 逐行限制 Delete 能力；仅与 onDeleteSession 组合生效。不传时所有行保持可删除。
+  canDeleteSession?: (sessionId: string) => boolean;
 
   // Pending 内容槽：宿主还在取这个组的会话时用它顶位（共享行骨架，或骨架+
   // 重试动作）。有它时它**替代**组内空态——“暂无会话”在数据在路上时是假话。
@@ -94,6 +96,7 @@ function SessionGroup({
   onOpenInNewTab,
   onRenameSession,
   onDeleteSession,
+  canDeleteSession,
   attentionAriaLabel,
   ...props
 }: SessionGroupProps) {
@@ -110,6 +113,14 @@ function SessionGroup({
       return next;
     });
   }, [persistenceKey]);
+
+  const deleteHandlerFor = (sessionId: string) => {
+    const deleteSession = onDeleteSession;
+    if (!deleteSession || (canDeleteSession && !canDeleteSession(sessionId))) {
+      return undefined;
+    }
+    return () => deleteSession(sessionId);
+  };
 
   // 展开态下仅把 selected 从 bubble 过滤掉（让它回到常规列表它本来的时间序位置）。
   // unread 保留在 bubble 里 —— 这样按住 ⌘ 时未读会话也能拿到 ⌘N chip,
@@ -192,9 +203,7 @@ function SessionGroup({
                   ? () => onRenameSession(session.id, session.title)
                   : undefined
               }
-              onDeleteSession={
-                onDeleteSession ? () => onDeleteSession(session.id) : undefined
-              }
+              onDeleteSession={deleteHandlerFor(session.id)}
             />
           ))}
         </div>
@@ -241,11 +250,7 @@ function SessionGroup({
                         ? () => onRenameSession(session.id, session.title)
                         : undefined
                     }
-                    onDeleteSession={
-                      onDeleteSession
-                        ? () => onDeleteSession(session.id)
-                        : undefined
-                    }
+                    onDeleteSession={deleteHandlerFor(session.id)}
                   />
                 ))}
               </div>

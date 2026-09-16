@@ -187,6 +187,69 @@ describe("SessionGroup session row context menu", () => {
     await user.pointer({ keys: "[MouseRight]", target: row });
     expect(screen.queryByRole("menuitem", { name: "Rename" })).toBeNull();
   });
+
+  it("Given saved and unsaved rows share a group, When delete capability is checked per session, Then only the saved row exposes a working Delete action with its original string id", async () => {
+    const unsaved = { ...ordinarySession(1), id: "draft:local" };
+    const saved = {
+      ...ordinarySession(2),
+      id: "device:3/session:42",
+      title: "saved-row",
+    };
+    const onDeleteSession = vi.fn();
+    const canDeleteSession = vi.fn(
+      (sessionId: string) => sessionId === saved.id,
+    );
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+
+    render(
+      <SessionGroup
+        defaultExpanded
+        sessions={[unsaved, saved]}
+        renderHeader={() => <div data-testid="header" />}
+        onDeleteSession={onDeleteSession}
+        canDeleteSession={canDeleteSession}
+      />,
+    );
+
+    await user.pointer({
+      keys: "[MouseRight]",
+      target: screen.getByRole("button", { name: /idle-1/ }),
+    });
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+
+    await user.pointer({
+      keys: "[MouseRight]",
+      target: screen.getByRole("button", { name: /saved-row/ }),
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+
+    expect(canDeleteSession).toHaveBeenCalledWith("draft:local");
+    expect(canDeleteSession).toHaveBeenCalledWith("device:3/session:42");
+    expect(onDeleteSession).toHaveBeenCalledTimes(1);
+    expect(onDeleteSession).toHaveBeenCalledWith("device:3/session:42");
+  });
+
+  it("Given a collapsed attention row cannot be deleted, When it is right-clicked, Then the attention-bubble path exposes no Delete menu", async () => {
+    const attention = needsAttentionSession(3);
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+
+    render(
+      <SessionGroup
+        defaultExpanded={false}
+        sessions={[attention]}
+        attentionSessions={[attention]}
+        renderHeader={() => <div data-testid="header" />}
+        onDeleteSession={vi.fn()}
+        canDeleteSession={() => false}
+      />,
+    );
+
+    await user.pointer({
+      keys: "[MouseRight]",
+      target: screen.getByRole("button", { name: /approve-3/ }),
+    });
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+  });
 });
 
 describe("SessionGroup string row identity", () => {
