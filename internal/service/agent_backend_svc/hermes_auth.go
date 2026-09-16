@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -50,10 +49,9 @@ type cachedHermesAccess struct {
 // the access token, the runtime asks for a bearer without ever touching the
 // keychain itself, and a rejected access token forces exactly one refresh.
 type hermesCredentialStore struct {
-	mu     sync.Mutex
-	cache  map[string]cachedHermesAccess
-	kc     func() keychain.Keychain
-	client *http.Client
+	mu    sync.Mutex
+	cache map[string]cachedHermesAccess
+	kc    func() keychain.Keychain
 }
 
 func newHermesCredentialStore(kc func() keychain.Keychain) *hermesCredentialStore {
@@ -97,7 +95,7 @@ func (c *hermesCredentialStore) Logout(normalizedURL string) error {
 
 // AccessToken implements hermes.CredentialSource.
 func (c *hermesCredentialStore) AccessToken(ctx context.Context, baseURL, provider string) (string, error) {
-	base, err := normalizeHermesURLForAuth(baseURL)
+	base, err := agent_backend_entity.NormalizeHermesURL(baseURL)
 	if err != nil {
 		return "", err
 	}
@@ -122,7 +120,6 @@ func (c *hermesCredentialStore) AccessToken(ctx context.Context, baseURL, provid
 		BaseURL:      base,
 		Provider:     resolvedProvider,
 		RefreshToken: refresh,
-		HTTPClient:   c.client,
 	})
 	if err != nil {
 		return "", err
@@ -141,7 +138,7 @@ func (c *hermesCredentialStore) AccessToken(ctx context.Context, baseURL, provid
 // Invalidate implements hermes.CredentialSource: the next access request must
 // refresh instead of trusting the cache.
 func (c *hermesCredentialStore) Invalidate(baseURL string) {
-	base, err := normalizeHermesURLForAuth(baseURL)
+	base, err := agent_backend_entity.NormalizeHermesURL(baseURL)
 	if err != nil {
 		return
 	}
@@ -176,7 +173,7 @@ func (c *hermesCredentialStore) resolveProvider(ctx context.Context, base, hint 
 	if p := strings.TrimSpace(hint); p != "" {
 		return p, nil
 	}
-	providers, err := hermes.ListAuthProviders(ctx, base, c.client)
+	providers, err := hermes.ListAuthProviders(ctx, base, nil)
 	if err != nil {
 		return "", err
 	}
@@ -186,14 +183,6 @@ func (c *hermesCredentialStore) resolveProvider(ctx context.Context, base, hint 
 		}
 	}
 	return "", hermes.ErrPasswordLoginUnsupported
-}
-
-func normalizeHermesURLForAuth(raw string) (string, error) {
-	normalized, err := agent_backend_entity.NormalizeHermesURL(raw)
-	if err != nil {
-		return "", err
-	}
-	return normalized, nil
 }
 
 // defaultHermesCredentials is the singleton the registered runtime reaches
@@ -242,8 +231,6 @@ func hermesAuthCode(err error) (int, string, bool) {
 		return code.HermesProviderUnsupported, HermesCodeProviderUnsupported, true
 	case errors.Is(err, hermes.ErrAuthProviderUnavailable):
 		return code.HermesProviderUnavailable, HermesCodeProviderUnavailable, true
-	case errors.Is(err, hermes.ErrAuthProviderNotFound):
-		return code.HermesProviderNotFound, HermesCodeProviderNotFound, true
 	case errors.Is(err, hermes.ErrAuthUnreachable):
 		return code.HermesUnreachable, HermesCodeUnreachable, true
 	default:
@@ -267,11 +254,11 @@ func (s *agentBackendSvc) ListHermesAuthProviders(ctx context.Context, req *List
 	if req == nil {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
-	base, err := normalizeHermesURLForAuth(req.URL)
+	base, err := agent_backend_entity.NormalizeHermesURL(req.URL)
 	if err != nil {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
-	providers, err := hermes.ListAuthProviders(ctx, base, s.credentialStore().client)
+	providers, err := hermes.ListAuthProviders(ctx, base, nil)
 	if err != nil {
 		return nil, hermesAuthError(ctx, err)
 	}
@@ -293,7 +280,7 @@ func (s *agentBackendSvc) LoginHermes(ctx context.Context, req *LoginHermesReque
 	if req == nil {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
-	base, err := normalizeHermesURLForAuth(req.URL)
+	base, err := agent_backend_entity.NormalizeHermesURL(req.URL)
 	if err != nil {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
@@ -306,11 +293,10 @@ func (s *agentBackendSvc) LoginHermes(ctx context.Context, req *LoginHermesReque
 		}
 	}
 	tokens, err := hermes.PasswordLogin(ctx, hermes.PasswordLoginRequest{
-		BaseURL:    base,
-		Provider:   provider,
-		Username:   req.Username,
-		Password:   req.Password,
-		HTTPClient: store.client,
+		BaseURL:  base,
+		Provider: provider,
+		Username: req.Username,
+		Password: req.Password,
 	})
 	if err != nil {
 		return nil, hermesAuthError(ctx, err)
@@ -353,7 +339,7 @@ func (s *agentBackendSvc) LogoutHermes(ctx context.Context, req *LogoutHermesReq
 			sync_svc.NotifyUpdate(ctx, syncwire.KindAgentBackend, row.ID, row.SyncMeta)
 		}
 	}
-	if base, err := normalizeHermesURLForAuth(rawURL); err == nil && base != "" {
+	if base, err := agent_backend_entity.NormalizeHermesURL(rawURL); err == nil && base != "" {
 		if err := s.credentialStore().Logout(base); err != nil {
 			return nil, err
 		}
@@ -367,7 +353,7 @@ func (s *agentBackendSvc) deleteHermesCredential(ctx context.Context, backend *a
 	if backend == nil || !backend.IsHermes() || strings.TrimSpace(backend.HermesURL) == "" {
 		return
 	}
-	base, err := normalizeHermesURLForAuth(backend.HermesURL)
+	base, err := agent_backend_entity.NormalizeHermesURL(backend.HermesURL)
 	if err != nil {
 		return
 	}

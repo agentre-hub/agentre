@@ -29,11 +29,7 @@ func Probe(ctx context.Context, req ProbeRequest) (string, error) {
 	if baseURL == "" {
 		return "", errors.New("hermes probe: server URL is required")
 	}
-	creds := req.Credentials
-	if creds == nil {
-		creds = DefaultCredentialSource()
-	}
-	sess, err := dialGatewayWithAuth(ctx, baseURL, req.AuthProvider, creds, nil, nil)
+	sess, err := dialGatewayWithAuth(ctx, baseURL, req.AuthProvider, req.Credentials, nil, nil)
 	if err != nil {
 		return "", err
 	}

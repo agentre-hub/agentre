@@ -102,30 +102,6 @@ func (builtinProber) Run(ctx context.Context, b *agent_backend_entity.AgentBacke
 	return lastAssistantText(conv), nil
 }
 
-// buildClaudeCodeEnv 委托到 agentruntime.BuildClaudeCodeEnv。
-// 保留包级 helper 以维持现有调用点与测试的命名稳定；逻辑与文档全部迁到
-// internal/pkg/agentruntime/clienv.go，与 chat path 的 CLI runner 共享同一份装配规则，
-// 避免两处漂移。
-func buildClaudeCodeEnv(b *agent_backend_entity.AgentBackend, deps ProbeDeps) (map[string]string, error) {
-	return agentruntime.BuildClaudeCodeEnv(b, agentruntime.CLIDeps{
-		Token:      deps.Token,
-		GatewayURL: deps.GatewayURL,
-	})
-}
-
-// buildCodexEnv 委托到 agentruntime.BuildCodexEnv；同 buildClaudeCodeEnv。
-func buildCodexEnv(b *agent_backend_entity.AgentBackend, deps ProbeDeps) (map[string]string, error) {
-	return agentruntime.BuildCodexEnv(b, agentruntime.CLIDeps{
-		Token:      deps.Token,
-		GatewayURL: deps.GatewayURL,
-	})
-}
-
-// buildPiAgentEnv 委托到 agentruntime.BuildPiAgentEnv；同其它 CLI env builder。
-func buildPiAgentEnv(b *agent_backend_entity.AgentBackend) (map[string]string, error) {
-	return agentruntime.BuildPiAgentEnv(b)
-}
-
 // hermesProbe 是 hermes.Probe 的间接引用，让单测能跳过真实网络。
 var hermesProbe = hermes.Probe
 
@@ -185,7 +161,7 @@ func (cliProber) Run(ctx context.Context, b *agent_backend_entity.AgentBackend, 
 // agent-backend.md §2.3 不变量：Test 与 chat run 同一装配规则，不漂移）：
 //   - provider 必须存在且 active（仿 builtinProber 的校验）；
 //   - 物化 provider 扩展（piagent.MaterializeProviderExtension，与 chat run 同源）；
-//   - env 在 buildPiAgentEnv 产出的 base 之上叠加 AGENTRE_PI_API_KEY_*；
+//   - env 在 agentruntime.BuildPiAgentEnv 产出的 base 之上叠加 AGENTRE_PI_API_KEY_*；
 //   - --model 覆盖为 agentre-<key>/<model>（盖掉默认空串）。
 //
 // 未绑定供应商的 piagent 保持现状：原样返回入参，不注入任何东西。
@@ -270,18 +246,19 @@ func resolveCLIProbeModel(b *agent_backend_entity.AgentBackend, deps ProbeDeps) 
 }
 
 func buildCLIProbeEnv(b *agent_backend_entity.AgentBackend, deps ProbeDeps) (map[string]string, []string, error) {
+	cliDeps := agentruntime.CLIDeps{Token: deps.Token, GatewayURL: deps.GatewayURL}
 	switch agent_backend_entity.BackendType(b.Type) {
 	case agent_backend_entity.TypeClaudeCode:
-		env, err := buildClaudeCodeEnv(b, deps)
+		env, err := agentruntime.BuildClaudeCodeEnv(b, cliDeps)
 		return env, nil, err
 	case agent_backend_entity.TypeCodex:
-		env, err := buildCodexEnv(b, deps)
+		env, err := agentruntime.BuildCodexEnv(b, cliDeps)
 		if err != nil {
 			return nil, nil, err
 		}
-		return env, agentruntime.BuildCodexConfig(agentruntime.CLIDeps{Token: deps.Token, GatewayURL: deps.GatewayURL}), nil
+		return env, agentruntime.BuildCodexConfig(cliDeps), nil
 	case agent_backend_entity.TypePiAgent:
-		env, err := buildPiAgentEnv(b)
+		env, err := agentruntime.BuildPiAgentEnv(b)
 		return env, nil, err
 	default:
 		return nil, nil, errors.New("unsupported CLI backend")

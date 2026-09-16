@@ -55,7 +55,7 @@ func newFakeSession() *fakeSession {
 	}
 }
 
-func (f *fakeSession) Create(_ context.Context, _ string, _ int) (string, string, error) {
+func (f *fakeSession) Create(_ context.Context, _ string) (string, string, error) {
 	f.createCalls.Add(1)
 	if f.createErr != nil {
 		return "", "", f.createErr
@@ -140,7 +140,7 @@ func collect(t *testing.T, events <-chan agentruntime.Event) []agentruntime.Even
 // TestHermesCapabilities is the capability matrix: every declared cap=true must
 // have its interface implemented, and nothing else may be declared.
 func TestHermesCapabilities(t *testing.T) {
-	rt := NewWithSessionFactory(nil)
+	rt := NewWithCredentials(nil, nil)
 	caps := rt.Capabilities()
 
 	assert.True(t, caps.Has(capability.CapAbort), "abort is declared because session.interrupt is wired")
@@ -182,7 +182,7 @@ func TestHermesCapabilities(t *testing.T) {
 func TestHermesRun_StreamsTurnAndFillsResult(t *testing.T) {
 	Convey("Given a fake gateway and a fresh session", t, func() {
 		fake := newFakeSession()
-		rt := NewWithSessionFactory(func(context.Context, sessionSpec) (Session, error) { return fake, nil })
+		rt := NewWithCredentials(func(context.Context, sessionSpec) (Session, error) { return fake, nil }, nil)
 
 		out, result, err := rt.Run(context.Background(), runRequest(7))
 		require.NoError(t, err)
@@ -232,7 +232,7 @@ func TestHermesRun_StreamsTurnAndFillsResult(t *testing.T) {
 func TestHermesRun_ResumesStoredSession(t *testing.T) {
 	Convey("Given a persisted provider session id", t, func() {
 		fake := newFakeSession()
-		rt := NewWithSessionFactory(func(context.Context, sessionSpec) (Session, error) { return fake, nil })
+		rt := NewWithCredentials(func(context.Context, sessionSpec) (Session, error) { return fake, nil }, nil)
 		req := runRequest(8)
 		req.ProviderSessionID = "stored-old"
 
@@ -252,12 +252,13 @@ func TestHermesRun_ResumesStoredSession(t *testing.T) {
 func TestHermesRun_RefusedSubmitSurfacesOwnershipFence(t *testing.T) {
 	Convey("Given the gateway refuses prompt.submit with SESSION_NOT_OWNED", t, func() {
 		fake := newFakeSession()
-		fake.submitErr = ErrSessionNotOwned
-		rt := NewWithSessionFactory(func(context.Context, sessionSpec) (Session, error) { return fake, nil })
+		submitErr := errors.New("hermes gateway: prompt.submit failed (4090): session is owned by another client")
+		fake.submitErr = submitErr
+		rt := NewWithCredentials(func(context.Context, sessionSpec) (Session, error) { return fake, nil }, nil)
 
 		out, result, err := rt.Run(context.Background(), runRequest(9))
 
-		require.ErrorIs(t, err, ErrSessionNotOwned)
+		require.ErrorIs(t, err, submitErr)
 		assert.Nil(t, out)
 		assert.Nil(t, result)
 		assert.GreaterOrEqual(t, fake.closeCalls.Load(), int64(1), "a refused turn must not leak the child")
@@ -267,7 +268,7 @@ func TestHermesRun_RefusedSubmitSurfacesOwnershipFence(t *testing.T) {
 func TestHermesRun_ContextCancelUnblocks(t *testing.T) {
 	Convey("Given an in-flight turn and no terminal frame", t, func() {
 		fake := newFakeSession()
-		rt := NewWithSessionFactory(func(context.Context, sessionSpec) (Session, error) { return fake, nil })
+		rt := NewWithCredentials(func(context.Context, sessionSpec) (Session, error) { return fake, nil }, nil)
 		ctx, cancel := context.WithCancel(context.Background())
 
 		out, result, err := rt.Run(ctx, runRequest(10))
@@ -287,7 +288,7 @@ func TestHermesRun_ContextCancelUnblocks(t *testing.T) {
 func TestHermesAbort_InterruptsAndThreadsToken(t *testing.T) {
 	Convey("Given an active turn", t, func() {
 		fake := newFakeSession()
-		rt := NewWithSessionFactory(func(context.Context, sessionSpec) (Session, error) { return fake, nil })
+		rt := NewWithCredentials(func(context.Context, sessionSpec) (Session, error) { return fake, nil }, nil)
 		out, result, err := rt.Run(context.Background(), runRequest(11))
 		require.NoError(t, err)
 		token := result.TurnToken
@@ -313,7 +314,7 @@ func TestHermesAbort_InterruptsAndThreadsToken(t *testing.T) {
 
 func TestHermesAbort_NoActiveTurn(t *testing.T) {
 	Convey("Given no in-flight turn", t, func() {
-		rt := NewWithSessionFactory(func(context.Context, sessionSpec) (Session, error) { return newFakeSession(), nil })
+		rt := NewWithCredentials(func(context.Context, sessionSpec) (Session, error) { return newFakeSession(), nil }, nil)
 		_, err := rt.Abort(context.Background(), 123, 0)
 		require.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
 	})
@@ -327,7 +328,7 @@ func TestHermesAbort_GivenChildAlreadyClosed_ThenNoActiveTurn(t *testing.T) {
 	Convey("Given the turn's gateway child has already shut down", t, func() {
 		fake := newFakeSession()
 		fake.interruptErr = errSessionClosed
-		rt := NewWithSessionFactory(func(context.Context, sessionSpec) (Session, error) { return fake, nil })
+		rt := NewWithCredentials(func(context.Context, sessionSpec) (Session, error) { return fake, nil }, nil)
 		_, result, err := rt.Run(context.Background(), runRequest(21))
 		require.NoError(t, err)
 
@@ -345,7 +346,7 @@ func TestHermesAbort_GivenInterruptFails_ThenErrorPropagates(t *testing.T) {
 	Convey("Given session.interrupt fails while the child is alive", t, func() {
 		fake := newFakeSession()
 		fake.interruptErr = errors.New("interrupt exploded")
-		rt := NewWithSessionFactory(func(context.Context, sessionSpec) (Session, error) { return fake, nil })
+		rt := NewWithCredentials(func(context.Context, sessionSpec) (Session, error) { return fake, nil }, nil)
 		_, result, err := rt.Run(context.Background(), runRequest(22))
 		require.NoError(t, err)
 
@@ -365,12 +366,12 @@ func TestHermesAbort_GivenRealConnectionClosed_ThenNoActiveTurn(t *testing.T) {
 			writeReady(t, conn)
 			holdConn(conn)
 		})
-		sess, err := dialGateway(context.Background(), server.URL, nil, nil)
+		sess, err := dialGatewayWithAuth(context.Background(), server.URL, "", nil, nil, nil)
 		require.NoError(t, err)
 		require.NoError(t, sess.WaitReady(context.Background()))
 		require.NoError(t, sess.Close(context.Background()))
 
-		rt := NewWithSessionFactory(nil)
+		rt := NewWithCredentials(nil, nil)
 		active := &activeTurn{sess: sess, liveSID: "live-1"}
 		active.token.Store(5)
 		rt.register(31, active)
@@ -384,7 +385,7 @@ func TestHermesAbort_GivenRealConnectionClosed_ThenNoActiveTurn(t *testing.T) {
 func TestHermesRun_FallsBackToCompleteTextWhenNoDeltas(t *testing.T) {
 	Convey("Given the gateway only sends the final text on message.complete", t, func() {
 		fake := newFakeSession()
-		rt := NewWithSessionFactory(func(context.Context, sessionSpec) (Session, error) { return fake, nil })
+		rt := NewWithCredentials(func(context.Context, sessionSpec) (Session, error) { return fake, nil }, nil)
 		out, _, err := rt.Run(context.Background(), runRequest(12))
 		require.NoError(t, err)
 		fake.push(Event{Kind: EventMessageComplete, Session: fake.liveSID, Payload: []byte(`{"text":"only-final","status":"complete"}`)})
@@ -400,7 +401,7 @@ func TestHermesRun_FallsBackToCompleteTextWhenNoDeltas(t *testing.T) {
 func TestHermesRun_StreamEndsBeforeCompletion(t *testing.T) {
 	Convey("Given the gateway dies before a terminal frame", t, func() {
 		fake := newFakeSession()
-		rt := NewWithSessionFactory(func(context.Context, sessionSpec) (Session, error) { return fake, nil })
+		rt := NewWithCredentials(func(context.Context, sessionSpec) (Session, error) { return fake, nil }, nil)
 		out, result, err := rt.Run(context.Background(), runRequest(13))
 		require.NoError(t, err)
 		fake.closeEvents(io.EOF)

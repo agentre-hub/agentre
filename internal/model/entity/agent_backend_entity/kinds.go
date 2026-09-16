@@ -231,7 +231,6 @@ func (openClawKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 // 解释器参数这类本地进程旋钮。
 type hermesKind struct{}
 
-func (hermesKind) Type() BackendType      { return TypeHermes }
 func (hermesKind) KnownAliases() []string { return nil }
 
 // ProviderTypeMatch 恒 false：Hermes 的模型来自它自己的配置，Agentre 不参与。
