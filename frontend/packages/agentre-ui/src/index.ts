@@ -227,6 +227,13 @@ export { SessionGroup } from "./session-index/session-group";
 // 紧凑列表容器：控制区与组集合之间的唯一列表边界（只拥有「组怎么连续排列」）。
 export { SessionGroupList } from "./session-index/session-group-list";
 export type { SessionGroupListProps } from "./session-index/session-group-list";
+export { SessionFilterChips } from "./session-index/session-filter-chips";
+export type {
+  SessionFilterChipsProps,
+  SessionFilterValue,
+} from "./session-index/session-filter-chips";
+export { SessionIndexEmpty } from "./session-index/session-index-empty";
+export type { SessionIndexEmptyProps } from "./session-index/session-index-empty";
 export { SessionRow } from "./session-index/session-row";
 // 行的链接渲染端口：宿主拿到行的原始字符串身份，自己算导航目标；包不把宿主约定
 // 注入 DOM。

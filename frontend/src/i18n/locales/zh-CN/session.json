@@ -92,15 +92,6 @@
       "time": "时间",
       "title": "分组方式"
     },
-    "empty": {
-      "noMatch": "没有匹配的会话",
-      "nothing": "还没有任何对话"
-    },
-    "filter": {
-      "all": "全部",
-      "running": "运行中",
-      "unread": "未读"
-    },
     "free": {
       "empty": "还没有随手对话",
       "name": "随手对话"

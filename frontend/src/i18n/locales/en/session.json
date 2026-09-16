@@ -92,15 +92,6 @@
       "time": "Time",
       "title": "Group by"
     },
-    "empty": {
-      "noMatch": "No matching sessions",
-      "nothing": "No conversations yet"
-    },
-    "filter": {
-      "all": "All",
-      "running": "Running",
-      "unread": "Unread"
-    },
     "free": {
       "empty": "No quick chats yet",
       "name": "Quick chats"

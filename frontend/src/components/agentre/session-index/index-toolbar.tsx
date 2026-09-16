@@ -10,10 +10,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
+  SessionFilterChips,
 } from "@agentre-hub/agentre-ui";
 
 import { INDEX_AXES, type IndexAxis } from "@/lib/session-axis";
-import { cn } from "@/lib/utils";
 
 import type { StatusFilter } from "./use-index-filter";
 
@@ -132,67 +132,13 @@ function IndexToolbar({
           // 的窄类型，而不是把窄类型放宽到包的全集。
           onChange={(next) => setAxis(next as IndexAxis)}
         />
-        <Chip
-          testID="filter-chip-all"
-          active={statusFilter === null}
-          onClick={() => setStatusFilter(null)}
-        >
-          {t("sessionIndex.filter.all")}
-        </Chip>
-        <Chip
-          testID="filter-chip-running"
-          active={statusFilter === "running"}
-          onClick={() =>
-            setStatusFilter((p) => (p === "running" ? null : "running"))
-          }
-        >
-          {t("sessionIndex.filter.running")}
-        </Chip>
-        <Chip
-          testID="filter-chip-unread"
-          active={statusFilter === "unread"}
-          onClick={() =>
-            setStatusFilter((p) => (p === "unread" ? null : "unread"))
-          }
-        >
-          {t("sessionIndex.filter.unread")}
-          {unreadCount > 0 ? (
-            <span className="rounded-full bg-status-waiting-bg px-1 font-medium text-status-waiting">
-              {unreadCount}
-            </span>
-          ) : null}
-        </Chip>
+        <SessionFilterChips
+          value={statusFilter ?? "all"}
+          unreadCount={unreadCount}
+          onChange={(next) => setStatusFilter(next === "all" ? null : next)}
+        />
       </div>
     </div>
-  );
-}
-
-function Chip({
-  testID,
-  active,
-  onClick,
-  children,
-}: {
-  testID: string;
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      data-testid={testID}
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        "inline-flex cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-2xs outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50",
-        active
-          ? "bg-primary-soft font-medium text-primary-text"
-          : "bg-sidebar-active-bg text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 

@@ -37,6 +37,9 @@ describe("会话索引的对外契约", () => {
       // 会话行骨架，server 之后也要经唯一 barrel 拿到同一个实现。
       "SessionGroupList",
       "SessionRowSkeleton",
+      // 共享筛选与索引级空态（规格 2026-09-16 决策 6-7 / 13-14）。
+      "SessionFilterChips",
+      "SessionIndexEmpty",
     ].filter((name) => !(name in pkg));
 
     expect(missing).toEqual([]);

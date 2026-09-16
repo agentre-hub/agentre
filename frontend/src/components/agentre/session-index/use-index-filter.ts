@@ -1,9 +1,10 @@
 import * as React from "react";
+import type { SessionFilterValue } from "@agentre-hub/agentre-ui";
 
 import { useSessionAttentionList } from "@/stores/attention-store";
 
 /** 筛选 chips：单选。null = 全部（决策 8）。 */
-type StatusFilter = "running" | "unread" | null;
+type StatusFilter = Exclude<SessionFilterValue, "all"> | null;
 
 /**
  * 搜索态。它与状态 chip 拆成两个 hook，因为改完之后两者落在取数的**两侧**：
