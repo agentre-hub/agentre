@@ -13,8 +13,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // Import 把一条磁盘会话落成一条 agentre 会话 + 逐轮消息。

@@ -18,7 +18,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
@@ -33,6 +32,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 

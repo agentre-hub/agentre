@@ -15,9 +15,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 const (

@@ -21,7 +21,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 //go:generate mockgen -source syncstate.go -destination mock_syncstate_repo/mock_syncstate.go

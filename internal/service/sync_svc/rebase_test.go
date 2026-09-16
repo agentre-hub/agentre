@@ -11,7 +11,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // ── server 不认识本端的游标（库被重建 / 换了一套自建服务端） ─────────────────
@@ -38,7 +39,7 @@ func TestSyncOnce_GivenServerDoesNotKnowOurCursor_RebasesAndRepushes(t *testing.
 	require.NoError(t, h.svc.saveCursor(ctx, cursorState{AccountID: 7, Cursor: 500}))
 
 	// 新库空空如也：第一次下行被判「不认识这个游标」。
-	h.transport.pullErrs = []error{syncwire.ErrCursorUnknown}
+	h.transport.pullErrs = []error{localsync.ErrCursorUnknown}
 
 	require.NoError(t, h.svc.SyncOnce(ctx))
 
@@ -73,7 +74,7 @@ func TestRebase_GivenServerTombstone_DoesNotResurrectDeletedRow(t *testing.T) {
 	}
 	require.NoError(t, h.svc.saveCursor(ctx, cursorState{AccountID: 7, Cursor: 500}))
 
-	h.transport.pullErrs = []error{syncwire.ErrCursorUnknown}
+	h.transport.pullErrs = []error{localsync.ErrCursorUnknown}
 	h.transport.pages = []*syncwire.PullPage{{
 		Items:      []syncwire.PullItem{{Kind: "project", SyncID: "p-gone", Version: 2, DeletedAt: 1700}},
 		NextCursor: 2,
@@ -99,7 +100,7 @@ func TestRebase_GivenSnapshotVersionsBelowLocalOnes_StillLands(t *testing.T) {
 	}
 	require.NoError(t, h.svc.saveCursor(ctx, cursorState{AccountID: 7, Cursor: 500}))
 
-	h.transport.pullErrs = []error{syncwire.ErrCursorUnknown}
+	h.transport.pullErrs = []error{localsync.ErrCursorUnknown}
 	h.transport.pages = []*syncwire.PullPage{{
 		Items: []syncwire.PullItem{
 			{Kind: "project", SyncID: "p-1", Version: 3, Payload: []byte(`{"name":"新库这一份"}`)},
@@ -132,7 +133,7 @@ func TestRebase_InvalidatesTheLocalPathReportFingerprint(t *testing.T) {
 	require.Len(t, h.transport.localPathReports, 1, "内容没变就不发")
 
 	require.NoError(t, h.svc.saveCursor(ctx, cursorState{AccountID: 7, Cursor: 500}))
-	h.transport.pullErrs = []error{syncwire.ErrCursorUnknown}
+	h.transport.pullErrs = []error{localsync.ErrCursorUnknown}
 	require.NoError(t, h.svc.SyncOnce(ctx))
 
 	require.NoError(t, h.svc.reportLocalPathsOnce(ctx))
@@ -153,7 +154,7 @@ func TestRebase_GivenRowsOfAnotherAccount_ClaimsThemIntoTheCurrentAccount(t *tes
 		SyncID: "p-theirs", SyncAccountID: 999, SyncVersion: 500,
 	}
 	require.NoError(t, h.svc.saveCursor(ctx, cursorState{AccountID: 7, Cursor: 500}))
-	h.transport.pullErrs = []error{syncwire.ErrCursorUnknown}
+	h.transport.pullErrs = []error{localsync.ErrCursorUnknown}
 
 	require.NoError(t, h.svc.SyncOnce(ctx))
 
@@ -222,7 +223,7 @@ func TestFlush_GivenResyncRequired_DoesNotRepushRowsTheSnapshotDoesNotKnow(t *te
 	h.transport.results = func(items []syncwire.PushItem) ([]syncwire.PushResult, error) {
 		attempted++
 		if attempted == 1 {
-			return nil, syncwire.ErrResyncRequired
+			return nil, localsync.ErrResyncRequired
 		}
 		out := make([]syncwire.PushResult, 0, len(items))
 		for _, it := range items {

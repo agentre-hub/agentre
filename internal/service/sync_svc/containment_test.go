@@ -11,7 +11,8 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // applyErr 把 applyInbound 的两个返回值收成一个 error。第一个返回值是「本机有没有
@@ -179,7 +180,7 @@ func TestFlush_GivenResyncRequired_LostChangeKeepsTheContentTheUserPushed(t *tes
 	h.transport.results = func([]syncwire.PushItem) ([]syncwire.PushResult, error) {
 		attempted++
 		if attempted == 1 {
-			return nil, syncwire.ErrResyncRequired
+			return nil, localsync.ErrResyncRequired
 		}
 		return nil, nil
 	}

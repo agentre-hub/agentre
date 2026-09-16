@@ -30,9 +30,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/llmcatalog"
 	"github.com/agentre-hub/agentre/internal/pkg/llmurl"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // httpDoer 抽象 http.Client，方便在单测里替换实现。

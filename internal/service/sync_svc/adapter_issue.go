@@ -7,11 +7,11 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/issue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // 看板的三个适配器（规格 2026-08-27-issues-board-project-scope「数据与迁移 ›

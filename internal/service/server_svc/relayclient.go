@@ -10,7 +10,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
@@ -79,7 +79,7 @@ type residentRelay struct {
 	stop context.CancelFunc
 
 	subMu sync.Mutex
-	subs  map[chan syncwire.AccountChannelFrame]struct{}
+	subs  map[chan localsync.AccountChannelFrame]struct{}
 
 	// connMu / connectedCh 让 openTarget 等到物理连接真的建起来再开通道:
 	// newResidentRelay 立刻返回(HubLink.Run 在后台异步重拨),而旧实现
@@ -104,7 +104,7 @@ func newResidentRelay(ctx context.Context, hubOpts relaytransport.HubLinkOptions
 	mux := relaytransport.NewMultiplexer(link)
 	r := &residentRelay{
 		link: link, mux: mux,
-		subs:        map[chan syncwire.AccountChannelFrame]struct{}{},
+		subs:        map[chan localsync.AccountChannelFrame]struct{}{},
 		connectedCh: make(chan struct{}),
 	}
 	// 断线之后是全新的一批订阅者:旧物理连接上还没送达的信号本来就无害地丢弃
@@ -194,7 +194,7 @@ func (r *residentRelay) serveSignal(channel relaytransport.PayloadChannel) {
 		if len(payload) == 0 {
 			return
 		}
-		frame, known, err := syncwire.DecodeAccountChannelFrame(payload)
+		frame, known, err := localsync.DecodeAccountChannelFrame(payload)
 		if err != nil || !known {
 			continue
 		}
@@ -202,7 +202,7 @@ func (r *residentRelay) serveSignal(channel relaytransport.PayloadChannel) {
 	}
 }
 
-func (r *residentRelay) broadcast(frame syncwire.AccountChannelFrame) {
+func (r *residentRelay) broadcast(frame localsync.AccountChannelFrame) {
 	r.subMu.Lock()
 	defer r.subMu.Unlock()
 	for sub := range r.subs {
@@ -216,8 +216,8 @@ func (r *residentRelay) broadcast(frame syncwire.AccountChannelFrame) {
 
 // subscribe 登记一个信号收件口。closeAllSubs(断线)会把它连同其它订阅者一起关掉;
 // unsubscribe 在调用方自己收工(ctx.Done)时摘除,不影响其它订阅者与物理连接本身。
-func (r *residentRelay) subscribe() (chan syncwire.AccountChannelFrame, func()) {
-	sub := make(chan syncwire.AccountChannelFrame, accountChannelBuffer)
+func (r *residentRelay) subscribe() (chan localsync.AccountChannelFrame, func()) {
+	sub := make(chan localsync.AccountChannelFrame, accountChannelBuffer)
 	r.subMu.Lock()
 	r.subs[sub] = struct{}{}
 	r.subMu.Unlock()
@@ -231,7 +231,7 @@ func (r *residentRelay) subscribe() (chan syncwire.AccountChannelFrame, func()) 
 func (r *residentRelay) closeAllSubs() {
 	r.subMu.Lock()
 	subs := r.subs
-	r.subs = map[chan syncwire.AccountChannelFrame]struct{}{}
+	r.subs = map[chan localsync.AccountChannelFrame]struct{}{}
 	r.subMu.Unlock()
 	for sub := range subs {
 		close(sub)
@@ -241,13 +241,13 @@ func (r *residentRelay) closeAllSubs() {
 // DialAccountChannel 实现 sync_svc.AccountChannelDialer:向这条常驻连接的保留通道订阅
 // 一份信号流。返回的 channel 在 ctx 结束或物理连接断线时关闭,调用方据此重连
 // (sync_svc.watchAccountChannel 的重试循环)。
-func (s *service) DialAccountChannel(ctx context.Context) (<-chan syncwire.AccountChannelFrame, error) {
+func (s *service) DialAccountChannel(ctx context.Context) (<-chan localsync.AccountChannelFrame, error) {
 	relay, err := s.ensureRelay(ctx)
 	if err != nil {
 		return nil, err
 	}
 	sub, unsubscribe := relay.subscribe()
-	out := make(chan syncwire.AccountChannelFrame, accountChannelBuffer)
+	out := make(chan localsync.AccountChannelFrame, accountChannelBuffer)
 	go func() {
 		defer close(out)
 		defer unsubscribe()

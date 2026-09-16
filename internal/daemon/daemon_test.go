@@ -388,7 +388,7 @@ func TestDaemon_GivenLoggedInAccount_WhenRelayConnectsAndReconnects_ThenPullsEng
 }
 
 // accountSyncVersionFrame 编一帧账号信号(sync_version),与 accountchan_svc 广播、
-// syncwire.DecodeAccountChannelFrame 解码的是同一份 WireFrame 编码。
+// internal/pkg/syncwire.DecodeAccountChannelFrame 解码的是同一份 WireFrame 编码。
 func accountSyncVersionFrame(t *testing.T, version uint64) []byte {
 	t.Helper()
 	payload, err := proto.Marshal(&agentrewire.WireFrame{

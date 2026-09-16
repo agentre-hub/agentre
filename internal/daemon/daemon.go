@@ -48,7 +48,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/pty"
 	"github.com/agentre-hub/agentre/internal/pkg/pty/local"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/port_forward_repo"
@@ -1707,7 +1707,7 @@ func (d *Daemon) serveAccountSignal(ctx context.Context, channel relaytransport.
 		if len(payload) == 0 {
 			return
 		}
-		if _, known, err := syncwire.DecodeAccountChannelFrame(payload); err != nil || !known {
+		if _, known, err := localsync.DecodeAccountChannelFrame(payload); err != nil || !known {
 			continue
 		}
 		d.engineSnapshot.PullAsync(ctx, "account_signal")

@@ -12,7 +12,8 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 func loggedInState(url string) *server_state_entity.ServerState {
@@ -102,7 +103,7 @@ func TestSyncPush(t *testing.T) {
 		mRepo.EXPECT().Get(gomock.Any()).Return(loggedInState(srv.URL), nil)
 
 		_, err := svc.SyncPush(context.Background(), []syncwire.PushItem{{Kind: "project", SyncID: "p-1"}})
-		So(err, ShouldEqual, syncwire.ErrResyncRequired)
+		So(err, ShouldEqual, localsync.ErrResyncRequired)
 	})
 
 	Convey("未登录时一个网络请求都不发（R12）", t, func() {
@@ -163,7 +164,7 @@ func TestSyncPull(t *testing.T) {
 		mRepo.EXPECT().Get(gomock.Any()).Return(loggedInState(srv.URL), nil)
 
 		page, err := svc.SyncPull(context.Background(), 500, 200)
-		So(err, ShouldEqual, syncwire.ErrCursorUnknown)
+		So(err, ShouldEqual, localsync.ErrCursorUnknown)
 		So(page, ShouldBeNil)
 	})
 }

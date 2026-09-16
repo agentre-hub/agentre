@@ -12,7 +12,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -561,7 +561,7 @@ func (s *service) takeRedialNow() bool {
 }
 
 // consumeAccountSignals 消费一条已经建起来的信号流，直到它断开或收工。
-func (s *service) consumeAccountSignals(ctx context.Context, signals <-chan syncwire.AccountChannelFrame) {
+func (s *service) consumeAccountSignals(ctx context.Context, signals <-chan localsync.AccountChannelFrame) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -571,7 +571,7 @@ func (s *service) consumeAccountSignals(ctx context.Context, signals <-chan sync
 				// 断开。回到外层重连，重连成功会再主动 Pull 一次补齐这段空窗。
 				return
 			}
-			if frame.Type != syncwire.AccountChannelSyncVersion {
+			if frame.Type != localsync.AccountChannelSyncVersion {
 				// 通道日后会承载别的通知，帧上带类型标记正是为此：不认识的种类忽略，
 				// 但**不断连**——旧客户端不该被一条新通知踢下线。
 				continue

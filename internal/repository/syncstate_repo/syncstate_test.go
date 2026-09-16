@@ -14,7 +14,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // TestFindLocalID 按同步标识取本机主键——跨机引用落地时靠它翻回本地 ID（R2）。
