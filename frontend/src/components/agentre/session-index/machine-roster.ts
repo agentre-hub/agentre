@@ -47,6 +47,18 @@ export function buildMachineRoster(
 }
 
 /**
+ * 名单顺序（设备标识 → 位次）。共享投影自己按「在线优先、名称、设备号」排机器组；
+ * 桌面端再按这份位次把共享结果排回 roster 的顺序 —— 本机必须压过在线段里那些名字
+ * 排在它前面的 daemon（见 index-projection.ts）。不在名单里的设备没有位次，由调用方
+ * 摆到最后。
+ */
+export function machineRosterRank(
+  roster: readonly MachineRosterEntry[],
+): Map<number, number> {
+  return new Map(roster.map((m, index) => [m.deviceId, index]));
+}
+
+/**
  * 机器名单。`enabled` 为假时不发 RPC —— 别的轴不需要这份清单。
  *
  * 只读一次：配对与上下线由设备面板那条路（`use-remote-devices`）管，索引这边不订阅

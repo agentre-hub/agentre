@@ -16,8 +16,10 @@
  * server 控制台四档全给。所以这里只有轴的**词汇表**，没有「选择器里摆几档」——
  * 那一条各端自己说了算（见 `AxisPicker` 的 `axes`）。
  *
- * 组头只代表「这里真有东西」（决策 10）：四个轴都只摆有会话的组，因此一条会话
- * 都没有时这里交白卷，由宿主的空态承接。项目轴的祖先组是例外，见 projectGroups。
+ * 组头代表「这个组存在」：`AxisInput.agents` / `AxisInput.machines` 是各自轴的已知
+ * 名单，名单里的组即使一条会话都没有也成组（决策 10 / 11），项目轴的「随手对话」
+ * 常驻（决策 12）。剩下的两个兜底组——认不出 Agent / 机器的行——仍只在真有行时出现，
+ * 且排最后；一条组都不剩时由宿主的页面级空态承接。
  *
  * 每一行都带齐三维（决策 8）：分组说了哪一维，行首字形与第二行就补另外两维。
  * 补齐在这里做，调用方直接拿 row.agent / row.project / row.machine 渲染。
@@ -274,9 +276,9 @@ function projectGroups(
 }
 
 /**
- * Agent 轴：只摆有会话的 Agent（决策 10）。账号 Agent 名单在这里只是一张「标识 →
- * 名字 / 头像色」的查询表，不是组的来源。名单外但被会话引用到的标识如实自成一组，
- * 名字就用标识本身，不猜。
+ * Agent 轴：`agents` 是这一轴的**已知组名单**（决策 11）—— 名单里的 Agent 即使
+ * 一条会话都没有也成组，组头（与它上面的新建入口）本身就是答案的一部分。名单外但
+ * 被会话引用到的标识如实自成一组，名字就用标识本身，不猜。
  */
 function agentGroups(rows: IndexGroupRow[], agents: AgentInfo[]): IndexGroup[] {
   const known = new Map(agents.map((a) => [a.syncId, a]));
@@ -288,7 +290,9 @@ function agentGroups(rows: IndexGroupRow[], agents: AgentInfo[]): IndexGroup[] {
       row,
     ]);
   }
-  return [...rowsByAgent.keys()]
+  // 已知名单与行引用标识的并集：名单决定有哪些组，行保证名单外的标识不丢。
+  const ids = new Set([...known.keys(), ...rowsByAgent.keys()]);
+  return [...ids]
     .map((syncId) => known.get(syncId) ?? { syncId, name: syncId })
     .sort(
       (a, b) =>
@@ -306,11 +310,14 @@ function agentGroups(rows: IndexGroupRow[], agents: AgentInfo[]): IndexGroup[] {
 }
 
 /**
- * 机器轴：一台机器一组。在线的排前面，各自按名字——离线机器沉底，而不是按名字
- * 混在中间让人一台台去看哪台还连得上。有会话的机器才出现。
+ * 机器轴：一台机器一组。`machines` 是这一轴的**已知机器名单**（决策 10）——
+ * 名单里的机器即使一条会话都没有也成组，刚配对还没有对话的 daemon 因此看得见。
+ * 在线的排前面，各自按名字——离线机器沉底，而不是按名字混在中间让人一台台去看
+ * 哪台还连得上。
  *
- * 认不出机器的行（发起端指纹不在设备名单里）自成最后一组：本体在 server 上，
- * 读它跟机器在不在没关系，因此这些行不能从索引里消失。
+ * 与行的并集：名单外但被行引用到的设备标识也成组（否则历史会话会消失）。认不出
+ * 机器的行（根本没有设备标识）自成最后一组：本体在 server 上，读它跟机器在不在
+ * 没关系。
  */
 function machineGroups(
   rows: IndexGroupRow[],
@@ -330,7 +337,9 @@ function machineGroups(
       row,
     ]);
   }
-  const groups = [...rowsByDevice.keys()]
+  // 已知名单与行引用设备标识的并集：名单决定有哪些组，行保证名单外的设备不丢。
+  const deviceIds = new Set([...byDevice.keys(), ...rowsByDevice.keys()]);
+  const groups = [...deviceIds]
     .map((deviceId) => ({
       deviceId,
       machine: byDevice.get(deviceId),
@@ -383,8 +392,8 @@ export function buildAxisGroups(
   const rows = input.rows.map((r) => enrich(r, byAgent, byProject, byMachine));
 
   if (axis === "time") {
-    // 一条会话都没有时连这一组都不摆：组里空无一物时它只是一个空壳，
-    // 由宿主的空态承接（决策 10 在没有组头的这一轴上的同一条规则）。
+    // 一条会话都没有时连这一组都不摆：时间轴没有已知组可提供上下文，组里空无一物
+    // 时它只是一个空壳，直接由宿主的页面级空态承接。
     return rows.length === 0
       ? []
       : withTotals(
@@ -400,23 +409,21 @@ export function buildAxisGroups(
   }
 
   let groups: IndexGroup[];
-  let orphans: IndexGroupRow[];
   if (axis === "project") {
     groups = projectGroups(rows, input.projects);
-    orphans = rows.filter((r) => !r.projectSyncId);
-    if (orphans.length > 0) {
-      groups.push(
-        emptyGroup({
-          key: UNASSIGNED_PROJECT_KEY,
-          kind: "unassignedProject",
-          label: input.labels?.unassignedProject ?? UNASSIGNED_PROJECT_KEY,
-          rows: orphans,
-        }),
-      );
-    }
+    // 「随手对话」常驻（决策 12）：它是一条直接入口，不该等有了自由会话才出现。
+    // 账号完全为空时由宿主的页面级真空态替代整份列表，那是宿主的事。
+    groups.push(
+      emptyGroup({
+        key: UNASSIGNED_PROJECT_KEY,
+        kind: "unassignedProject",
+        label: input.labels?.unassignedProject ?? UNASSIGNED_PROJECT_KEY,
+        rows: rows.filter((r) => !r.projectSyncId),
+      }),
+    );
   } else if (axis === "agent") {
     groups = agentGroups(rows, input.agents);
-    orphans = rows.filter((r) => !r.agentSyncId);
+    const orphans = rows.filter((r) => !r.agentSyncId);
     if (orphans.length > 0) {
       groups.push(
         emptyGroup({

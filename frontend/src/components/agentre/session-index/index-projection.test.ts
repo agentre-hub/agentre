@@ -179,6 +179,87 @@ describe("projectIndexGroups", () => {
   });
 });
 
+describe("projectIndexGroups —— 共享投影是已知组的权威", () => {
+  it("Given a machine roster, When a roster machine has no page yet, Then the shared projection still builds its empty group (decision 10)", () => {
+    const out = projectIndexGroups(
+      "machine",
+      [machineSlot(0, [1])],
+      metasOf([1, 100]),
+      {
+        machines: [
+          { deviceId: 0, name: "本机", online: true },
+          { deviceId: 9, name: "刚配好的", online: true },
+        ],
+      },
+    );
+
+    expect(out.map((g) => [g.key, g.sessionIDs])).toEqual([
+      ["machine:0", [1]],
+      ["machine:9", []],
+    ]);
+  });
+
+  it("Given a machine roster, When the slots are not in roster order, Then the host's local-first rank decides, not the shared online-first order", () => {
+    const out = projectIndexGroups(
+      "machine",
+      [machineSlot(7, [2]), machineSlot(0, [1])],
+      metasOf([1, 100], [2, 200]),
+      {
+        machines: [
+          { deviceId: 0, name: "本机", online: true },
+          { deviceId: 7, name: "aaa", online: true },
+        ],
+      },
+    );
+
+    expect(out.map((g) => g.refID)).toEqual([0, 7]);
+    expect(out[0].key).toBe("machine:0");
+  });
+
+  it("Given a row that references a device outside the roster, When the projection runs, Then that group is kept and ranked last", () => {
+    const out = projectIndexGroups(
+      "machine",
+      [machineSlot(0, [1]), machineSlot(99, [2])],
+      metasOf([1, 100], [2, 200]),
+      { machines: [{ deviceId: 0, name: "本机", online: true }] },
+    );
+
+    expect(out.map((g) => g.refID)).toEqual([0, 99]);
+  });
+
+  it("Given an agent roster, When a known agent has no sessions at all, Then its empty group still comes back (decision 11)", () => {
+    const out = projectIndexGroups(
+      "agent",
+      [agentSlot(1, [10])],
+      metasOf([10, 100]),
+      {
+        agents: [
+          { syncId: "1", name: "a1" },
+          { syncId: "2", name: "a2" },
+        ],
+      },
+    );
+
+    expect(out.map((g) => [g.key, g.sessionIDs])).toEqual([
+      ["agent:1", [10]],
+      ["agent:2", []],
+    ]);
+  });
+
+  it("Given no free slot at all, When the project axis projects, Then 随手对话 is still there (decision 12)", () => {
+    const out = projectIndexGroups(
+      "project",
+      [projectSlot(1, 0, [10])],
+      metasOf([10, 100]),
+    );
+
+    expect(out.map((g) => [g.key, g.sessionIDs])).toEqual([
+      ["project:1", [10]],
+      ["free", []],
+    ]);
+  });
+});
+
 describe("projectIndexGroups —— 机器轴", () => {
   it("组骨架的顺序原样保留：本机在最前，投影不重排组", () => {
     const out = projectIndexGroups(
