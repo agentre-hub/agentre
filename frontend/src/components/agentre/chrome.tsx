@@ -37,6 +37,8 @@ import { StatusDot } from "./primitives";
 import { UpdatePanel } from "./update-panel";
 import { formatChord } from "./shortcuts/format";
 import { useOptionalShortcutsContext } from "./shortcuts/shortcuts-provider";
+import type { KeyChord } from "./shortcuts/types";
+import { detectBrowserPlatform } from "@/lib/platform";
 
 type DesktopPlatform = "darwin" | "windows" | "linux" | "unknown";
 
@@ -127,10 +129,15 @@ function CommandPaletteTrigger({
   const { t } = useTranslation();
   const openPalette = useCommandPaletteStore((s) => s.setOpen);
   // kbd 文案跟随用户重绑：从 shortcuts 上下文拿 palette.open 的当前绑定。
-  // 浮在 ShortcutsProvider 之外（极少数测试场景）时退回默认 ⌘P。
+  // 浮在 ShortcutsProvider 之外（极少数测试场景）时按探测到的平台退回默认
+  // ⌘P / Ctrl+P。
   const shortcuts = useOptionalShortcutsContext();
-  const chord = shortcuts?.bindings.get("palette.open");
-  const shortcutLabel = chord ? formatChord(chord, shortcuts!.platform) : "⌘P";
+  const platform = shortcuts?.platform ?? detectBrowserPlatform();
+  const chord: KeyChord = shortcuts?.bindings.get("palette.open") ?? {
+    mod: "primary",
+    key: "P",
+  };
+  const shortcutLabel = formatChord(chord, platform);
   const resolvedPlaceholder =
     placeholder ?? t("app.commandPalette.placeholder");
   const openLabel = t("app.commandPalette.open");

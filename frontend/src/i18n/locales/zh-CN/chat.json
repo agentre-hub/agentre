@@ -379,16 +379,27 @@
       },
       "title": "选一个 Agent 或项目下的会话开始",
       "setupGuide": {
-        "title": "开始前，先完成两步配置",
-        "stepBackend": {
-          "title": "配置 Agent 后端",
-          "description": "给 Agent 选一个执行后端（内置 SDK / Claude Code / Codex…）",
-          "action": "去设置 → Agent 后端"
+        "title": "两步就能开始第一轮对话",
+        "description": "Agentre 只连接你自己启动的服务，不代你拉起任何东西。",
+        "backend": {
+          "title": "连接一个 Agent 后端",
+          "description": "还没有 Agent 接上后端",
+          "descriptionDone": "已有 Agent 接上后端"
         },
-        "stepProvider": {
-          "title": "配置 LLM 供应商",
-          "description": "内置后端需要一个已激活的供应商（API Key + 默认模型）",
-          "action": "去设置 → LLM 供应商"
+        "provider": {
+          "title": "选择 LLM 供应商",
+          "description": "这一步决定用哪个模型回答",
+          "descriptionDone": "已选好供应商"
+        },
+        "start": {
+          "title": "发出第一轮对话",
+          "description": "前两步完成后就能开始"
+        },
+        "actions": {
+          "configure": "去配置",
+          "view": "查看",
+          "waiting": "等待前置",
+          "start": "开始对话"
         }
       },
       "unconfigured": {

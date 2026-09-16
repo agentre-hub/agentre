@@ -474,9 +474,9 @@ describe("骨架与空态", () => {
     renderBoard(viewModel({ columns: {} }), ports({ onCreateTask }));
 
     const empty = screen.getByTestId("board-empty-state");
-    expect(
-      within(empty).getByText("No tasks in this project yet"),
-    ).toBeInTheDocument();
+    // 空态不限定「这个项目」：scope 可能是「全部项目」或「未归属」，
+    // 一句无范围的「还没有任务」在每种范围下都成立。
+    expect(within(empty).getByText("No tasks yet")).toBeInTheDocument();
 
     await user.click(within(empty).getByRole("button", { name: "New task" }));
     expect(onCreateTask).toHaveBeenCalled();

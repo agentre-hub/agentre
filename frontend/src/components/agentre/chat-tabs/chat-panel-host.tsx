@@ -1,17 +1,23 @@
 // frontend/src/components/agentre/chat-tabs/chat-panel-host.tsx
 import * as React from "react";
-import { Sparkles } from "lucide-react";
+import { Check, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
   Badge,
   Button,
   TerminalPanel,
+  cn,
   pruneChatPanelScrollState,
 } from "@agentre-hub/agentre-ui";
 
 import { ChatPanel } from "../chat-panel";
 import { PeerPanel } from "../peer/peer-panel";
+import { formatChord, formatPrimaryModifier } from "../shortcuts/format";
+import { TAB_CHIP_IDS, TAB_CLOSE_ID } from "../shortcuts/registry";
+import { useOptionalShortcutsContext } from "../shortcuts/shortcuts-provider";
+import type { KeyChord } from "../shortcuts/types";
+import { detectBrowserPlatform } from "@/lib/platform";
 import { reloadSidebarSources } from "@/stores/sidebar-reload";
 import type { ChatTab, TabKind } from "@/stores/chat-tabs-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
@@ -115,35 +121,16 @@ function ChatEmptyState() {
   if (!loading && !error && !hasChattable) {
     return (
       <main className="flex flex-1 flex-col items-center justify-center gap-3 overflow-auto bg-background px-8 py-10 text-center">
+        <span className="inline-flex size-14 items-center justify-center rounded-lg border border-border bg-primary-soft">
+          <Sparkles className="size-6 text-primary" aria-hidden="true" />
+        </span>
         <div className="text-base font-semibold">
           {t("chatTabs.empty.setupGuide.title")}
         </div>
-        <div className="flex w-full max-w-lg flex-col gap-2.5 text-left">
-          <SetupStepCard
-            index={1}
-            title={t("chatTabs.empty.setupGuide.stepBackend.title")}
-            description={t("chatTabs.empty.setupGuide.stepBackend.description")}
-            actionLabel={t("chatTabs.empty.setupGuide.stepBackend.action")}
-            onAction={() =>
-              navigate("/settings", {
-                state: { settingsPage: "agent-backend" },
-              })
-            }
-          />
-          <SetupStepCard
-            index={2}
-            title={t("chatTabs.empty.setupGuide.stepProvider.title")}
-            description={t(
-              "chatTabs.empty.setupGuide.stepProvider.description",
-            )}
-            actionLabel={t("chatTabs.empty.setupGuide.stepProvider.action")}
-            onAction={() =>
-              navigate("/settings", {
-                state: { settingsPage: "llm-providers" },
-              })
-            }
-          />
+        <div className="max-w-md text-xs text-muted-foreground">
+          {t("chatTabs.empty.setupGuide.description")}
         </div>
+        <SetupChecklist />
         <ChatShortcuts />
       </main>
     );
@@ -185,47 +172,192 @@ function ChatEmptyState() {
 
 function ChatShortcuts() {
   const { t } = useTranslation();
+  // kbd 文案按平台生成：有 Provider 就跟它的 platform，没有（极少数测试场景）
+  // 才退回浏览器探测。绑定优先读用户重绑后的值，没有才用注册表默认值。
+  const shortcuts = useOptionalShortcutsContext();
+  const platform = shortcuts?.platform ?? detectBrowserPlatform();
+  const chordFor = (id: string, fallback: KeyChord): KeyChord =>
+    shortcuts?.bindings.get(id) ?? fallback;
+
+  const firstTabChord = chordFor(TAB_CHIP_IDS[0], {
+    mod: "primary",
+    key: "1",
+  });
+  const lastTabChord = chordFor(TAB_CHIP_IDS[TAB_CHIP_IDS.length - 1], {
+    mod: "primary",
+    key: String(TAB_CHIP_IDS.length),
+  });
+  // macOS 习惯在区间两端都写出修饰键（⌘1..⌘9）；其它平台只在开头写一次
+  // （Ctrl+1..9）。
+  const firstTabLabel = formatChord(firstTabChord, platform);
+  const lastTabLabel = formatChord(lastTabChord, platform);
+  const tabsLabel =
+    platform === "darwin"
+      ? `${firstTabLabel}..${lastTabLabel}`
+      : `${firstTabLabel}..${lastTabChord.key}`;
+  const closeLabel = formatChord(
+    chordFor(TAB_CLOSE_ID, { mod: "primary", key: "W" }),
+    platform,
+  );
+  // 「Click」是词不是键：macOS 沿用原样的空格（⌘ Click），其它平台与
+  // formatChord 一致用「+」（Ctrl+Click）。
+  const clickLabel = `${formatPrimaryModifier(platform)}${
+    platform === "darwin" ? " " : "+"
+  }Click`;
+
   return (
     <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
       <kbd className="rounded-md border border-border bg-card px-2 py-1 font-mono">
-        ⌘1..⌘9
+        {tabsLabel}
       </kbd>
       {t("chatTabs.empty.shortcuts.switch")}
       <kbd className="rounded-md border border-border bg-card px-2 py-1 font-mono">
-        ⌘W
+        {closeLabel}
       </kbd>
       {t("chatTabs.empty.shortcuts.close")}
       <kbd className="rounded-md border border-border bg-card px-2 py-1 font-mono">
-        ⌘ Click
+        {clickLabel}
       </kbd>
       {t("chatTabs.empty.shortcuts.openInNewTab")}
     </div>
   );
 }
 
-function SetupStepCard({
+type SetupStepStatus = "done" | "current" | "waiting";
+
+// 1B 引导清单：三行按 store 的真实状态排出「已完成 / 当前该做 / 等待前置」。
+// 后端完成 ⇔ 有 agent 的 blockReason 不是 no-backend；provider 完成 ⇔ 有 chattable
+// 的 agent；第一步与第二步都完成，第三行（发出第一轮对话）才可点。
+function SetupChecklist() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const agents = useChatAgentsStore((s) => s.agents);
+
+  const backendDone = agents.some((a) => a.blockReason !== "no-backend");
+  const providerDone = agents.some((a) => a.chattable);
+  const canStart = backendDone && providerDone;
+
+  const goBackend = () =>
+    navigate("/settings", { state: { settingsPage: "agent-backend" } });
+  const goProvider = () =>
+    navigate("/settings", { state: { settingsPage: "llm-providers" } });
+  const startFirstChat = () => {
+    const agent = agents.find((a) => a.chattable);
+    if (agent) useChatTabsStore.getState().openNewSession(0, agent.id, "");
+  };
+
+  const steps: Array<{
+    id: string;
+    index: number;
+    title: string;
+    description: string;
+    status: SetupStepStatus;
+    actionLabel: string;
+    onAction: () => void;
+  }> = [
+    {
+      id: "backend",
+      index: 1,
+      title: t("chatTabs.empty.setupGuide.backend.title"),
+      description: backendDone
+        ? t("chatTabs.empty.setupGuide.backend.descriptionDone")
+        : t("chatTabs.empty.setupGuide.backend.description"),
+      status: backendDone ? "done" : "current",
+      actionLabel: backendDone
+        ? t("chatTabs.empty.setupGuide.actions.view")
+        : t("chatTabs.empty.setupGuide.actions.configure"),
+      onAction: goBackend,
+    },
+    {
+      id: "provider",
+      index: 2,
+      title: t("chatTabs.empty.setupGuide.provider.title"),
+      description: providerDone
+        ? t("chatTabs.empty.setupGuide.provider.descriptionDone")
+        : t("chatTabs.empty.setupGuide.provider.description"),
+      status: providerDone ? "done" : backendDone ? "current" : "waiting",
+      actionLabel: providerDone
+        ? t("chatTabs.empty.setupGuide.actions.view")
+        : backendDone
+          ? t("chatTabs.empty.setupGuide.actions.configure")
+          : t("chatTabs.empty.setupGuide.actions.waiting"),
+      onAction: goProvider,
+    },
+    {
+      id: "start",
+      index: 3,
+      title: t("chatTabs.empty.setupGuide.start.title"),
+      description: t("chatTabs.empty.setupGuide.start.description"),
+      status: canStart ? "current" : "waiting",
+      actionLabel: canStart
+        ? t("chatTabs.empty.setupGuide.actions.start")
+        : t("chatTabs.empty.setupGuide.actions.waiting"),
+      onAction: startFirstChat,
+    },
+  ];
+
+  return (
+    <div className="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-card text-left">
+      {steps.map((step) => (
+        <SetupChecklistRow key={step.id} {...step} />
+      ))}
+    </div>
+  );
+}
+
+function SetupChecklistRow({
+  id,
   index,
   title,
   description,
+  status,
   actionLabel,
   onAction,
 }: {
+  id: string;
   index: number;
   title: string;
   description: string;
+  status: SetupStepStatus;
   actionLabel: string;
   onAction: () => void;
 }) {
+  const done = status === "done";
+  const waiting = status === "waiting";
+
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-2.5">
-      <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-secondary text-2xs font-semibold text-muted-foreground">
-        {index}
+    <div
+      data-testid={`setup-step-${id}`}
+      data-status={status}
+      className={cn(
+        "flex items-center gap-3 border-b border-border px-3.5 py-2.5 last:border-b-0",
+        waiting && "bg-secondary/50",
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "inline-flex size-5 shrink-0 items-center justify-center rounded-full border text-2xs font-semibold",
+          done &&
+            "border-status-running bg-status-running text-status-running-foreground",
+          status === "current" && "border-status-waiting text-status-waiting",
+          waiting &&
+            "border-dashed border-control-border text-muted-foreground",
+        )}
+      >
+        {done ? <Check className="size-3" /> : index}
       </span>
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium">{title}</div>
         <div className="text-xs text-muted-foreground">{description}</div>
       </div>
-      <Button type="button" variant="outline" size="sm" onClick={onAction}>
+      <Button
+        type="button"
+        size="sm"
+        variant={status === "current" ? "default" : "outline"}
+        disabled={waiting}
+        onClick={onAction}
+      >
         {actionLabel}
       </Button>
     </div>

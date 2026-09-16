@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MessageSquare } from "lucide-react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // ChatComposer 现在通过 useFileDropZone → file-drop → OnFileDrop 间接依赖 wailsjs runtime。
@@ -24,6 +25,7 @@ import {
   ApprovalGate,
   ChatComposer,
   SessionRow,
+  ShortcutsProvider,
   SidebarButton,
   StatusPill,
 } from "@/components/agentre";
@@ -273,20 +275,30 @@ describe("Agentre foundation components", () => {
 
   it("renders the shared chrome from the Pencil design", () => {
     const onAttentionClick = vi.fn();
+    // 包一层 ShortcutsProvider 固定平台：命令面板 kbd 的兜底值现在按平台生成，
+    // 不固定的话会跟着 happy-dom 的 UA 变（本机 Linux / CI macOS 不同）。
     const { container } = render(
-      <div>
-        <AppTopBar appName="Agentre" breadcrumb="CEO 助手" platform="windows" />
-        <AppStatusBar
-          agentCount={7}
-          runningCount={12}
-          approvalCount={1}
-          unreadCount={2}
-          attentionIds={[101, 202]}
-          status="waiting"
-          version="0.1.0"
-          onAttentionClick={onAttentionClick}
-        />
-      </div>,
+      <MemoryRouter>
+        <ShortcutsProvider platform="darwin">
+          <div>
+            <AppTopBar
+              appName="Agentre"
+              breadcrumb="CEO 助手"
+              platform="windows"
+            />
+            <AppStatusBar
+              agentCount={7}
+              runningCount={12}
+              approvalCount={1}
+              unreadCount={2}
+              attentionIds={[101, 202]}
+              status="waiting"
+              version="0.1.0"
+              onAttentionClick={onAttentionClick}
+            />
+          </div>
+        </ShortcutsProvider>
+      </MemoryRouter>,
     );
 
     expect(screen.getByText("Agentre")).toBeInTheDocument();
@@ -326,6 +338,23 @@ describe("Agentre foundation components", () => {
     expect(screen.queryByText("main · ~/Code/agentre")).not.toBeInTheDocument();
     expect(screen.queryByText("synced 2s ago")).not.toBeInTheDocument();
     expect(screen.getByText("0.1.0")).toBeInTheDocument();
+  });
+
+  it("uses the singular agent summary when only one Agent is tracked", () => {
+    render(
+      <AppStatusBar
+        agentCount={1}
+        runningCount={0}
+        approvalCount={0}
+        unreadCount={0}
+        attentionIds={[]}
+        status="idle"
+        version="0.1.0"
+        onAttentionClick={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("1 agent · 0 running")).toBeInTheDocument();
   });
 
   it("opens the first attention session when the status bar segment is clicked", async () => {
