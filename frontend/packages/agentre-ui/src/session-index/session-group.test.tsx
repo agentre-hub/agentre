@@ -158,17 +158,17 @@ describe("SessionGroup session row context menu", () => {
 
     await user.pointer({ keys: "[MouseRight]", target: row });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
-    expect(onRenameSession).toHaveBeenCalledWith(2, "idle-2");
+    expect(onRenameSession).toHaveBeenCalledWith("2", "idle-2");
 
     await user.pointer({ keys: "[MouseRight]", target: row });
     fireEvent.click(
       await screen.findByRole("menuitem", { name: "Open in new tab" }),
     );
-    expect(onOpenInNewTab).toHaveBeenCalledWith(2);
+    expect(onOpenInNewTab).toHaveBeenCalledWith("2");
 
     await user.pointer({ keys: "[MouseRight]", target: row });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
-    expect(onDeleteSession).toHaveBeenCalledWith(2);
+    expect(onDeleteSession).toHaveBeenCalledWith("2");
   });
 
   it("does not render a context menu when no handlers are provided (projects page keeps old behavior)", async () => {
@@ -186,6 +186,212 @@ describe("SessionGroup session row context menu", () => {
     const row = screen.getByRole("button", { name: /idle-2/ });
     await user.pointer({ keys: "[MouseRight]", target: row });
     expect(screen.queryByRole("menuitem", { name: "Rename" })).toBeNull();
+  });
+});
+
+describe("SessionGroup string row identity", () => {
+  const composite: SessionRowModel = {
+    id: "device:3/session:42",
+    status: "idle",
+    title: "composite-row",
+    trailingLabel: "5m ago",
+  };
+
+  it("Given composite string row ids, When selection and row-menu actions fire, Then every port receives the id verbatim (a number cast corrupts server identities)", async () => {
+    const onSessionSelect = vi.fn();
+    const onOpenInNewTab = vi.fn();
+    const onRenameSession = vi.fn();
+    const onDeleteSession = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+
+    render(
+      <SessionGroup
+        defaultExpanded
+        sessions={[composite]}
+        renderHeader={() => <div data-testid="header" />}
+        onSessionSelect={onSessionSelect}
+        onOpenInNewTab={onOpenInNewTab}
+        onRenameSession={onRenameSession}
+        onDeleteSession={onDeleteSession}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /composite-row/ }));
+    expect(onSessionSelect).toHaveBeenCalledWith("device:3/session:42", {
+      newTab: false,
+    });
+
+    const row = screen.getByRole("button", { name: /composite-row/ });
+    await user.pointer({ keys: "[MouseRight]", target: row });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+    expect(onRenameSession).toHaveBeenCalledWith(
+      "device:3/session:42",
+      "composite-row",
+    );
+
+    await user.pointer({ keys: "[MouseRight]", target: row });
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Open in new tab" }),
+    );
+    expect(onOpenInNewTab).toHaveBeenCalledWith("device:3/session:42");
+
+    await user.pointer({ keys: "[MouseRight]", target: row });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    expect(onDeleteSession).toHaveBeenCalledWith("device:3/session:42");
+  });
+
+  it("Given a collapsed group whose row lives in the attention bubble, When an action fires, Then the bubble path preserves the raw string id too", async () => {
+    const attention: SessionRowModel = {
+      id: "device:3/session:42",
+      status: "waiting",
+      title: "composite-attn",
+      attentionRank: "needs_attention",
+    };
+    const onDeleteSession = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+
+    render(
+      <SessionGroup
+        defaultExpanded={false}
+        sessions={[attention]}
+        attentionSessions={[attention]}
+        renderHeader={() => <div data-testid="header" />}
+        onDeleteSession={onDeleteSession}
+      />,
+    );
+
+    await user.pointer({
+      keys: "[MouseRight]",
+      target: screen.getByRole("button", { name: /composite-attn/ }),
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    expect(onDeleteSession).toHaveBeenCalledWith("device:3/session:42");
+  });
+
+  it("Given href rows with a host link renderer, When the group renders, Then every row's link props carry that row's raw string id", () => {
+    const renderLink = vi.fn(({ href, className, children }) => (
+      <a data-testid={`link-${href}`} href={href} className={className}>
+        {children}
+      </a>
+    ));
+
+    render(
+      <SessionGroup
+        defaultExpanded
+        sessions={[
+          { ...ordinarySession(1), href: "/s/1" },
+          { ...composite, href: "/s/42" },
+        ]}
+        renderLink={renderLink}
+        renderHeader={() => <div data-testid="header" />}
+      />,
+    );
+
+    expect(renderLink).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "1", href: "/s/1" }),
+    );
+    expect(renderLink).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "device:3/session:42",
+        href: "/s/42",
+      }),
+    );
+    expect(screen.getByTestId("link-/s/1")).toBeTruthy();
+    expect(screen.getByTestId("link-/s/42")).toBeTruthy();
+  });
+
+  it("Given an href row without a host renderer, When it renders, Then the raw identity stays out of the DOM (it is host routing data, not a host convention)", () => {
+    render(
+      <SessionGroup
+        defaultExpanded
+        sessions={[{ ...composite, href: "/s/42" }]}
+        renderHeader={() => <div data-testid="header" />}
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: /composite-row/ });
+    expect(link.hasAttribute("sessionid")).toBe(false);
+  });
+});
+
+describe("SessionGroup pending content", () => {
+  it("Given pending content, When the group renders, Then it replaces the in-group empty state (a skeleton must not stand next to a claim that there are no sessions)", () => {
+    render(
+      <SessionGroup
+        defaultExpanded
+        sessions={[]}
+        pending={<div data-testid="pending-rows" />}
+        renderHeader={() => <div data-testid="header" />}
+      />,
+    );
+
+    expect(screen.getByTestId("pending-rows")).toBeTruthy();
+    expect(screen.queryByText("No sessions")).toBeNull();
+  });
+
+  it("Given no sessions and no pending content, When the group renders, Then the empty state stays", () => {
+    render(
+      <SessionGroup
+        defaultExpanded
+        sessions={[]}
+        renderHeader={() => <div data-testid="header" />}
+      />,
+    );
+
+    expect(screen.getByText("No sessions")).toBeTruthy();
+  });
+
+  it("Given a host that passes a falsy conditional pending node, When the fetch has settled, Then the empty state comes back instead of being swallowed", () => {
+    render(
+      <SessionGroup
+        defaultExpanded
+        sessions={[]}
+        pending={false}
+        renderHeader={() => <div data-testid="header" />}
+      />,
+    );
+
+    expect(screen.getByText("No sessions")).toBeTruthy();
+  });
+
+  it("Given a group with rows and an overflow trigger, When it renders, Then the trigger follows the rows it extends", () => {
+    render(
+      <SessionGroup
+        defaultExpanded
+        sessions={[ordinarySession(1)]}
+        totalSessions={12}
+        renderSessionsPopover={() => null}
+        renderHeader={() => <div data-testid="header" />}
+      />,
+    );
+
+    const row = screen.getByText("idle-1");
+    const trigger = screen.getByRole("button", { name: /View all/ });
+    expect(
+      row.compareDocumentPosition(trigger) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+});
+
+describe("SessionGroup expansion persistence namespace", () => {
+  it("Given a persistence key, When the group is toggled, Then the write stays under the historical agentre.agentExpanded namespace", async () => {
+    const user = userEvent.setup();
+    render(
+      <SessionGroup
+        persistenceKey="project:7"
+        defaultExpanded
+        sessions={[]}
+        renderHeader={({ toggle }) => (
+          <button type="button" onClick={toggle}>
+            header
+          </button>
+        )}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "header" }));
+
+    expect(localStorage.getItem("agentre.agentExpanded.project:7")).toBe("0");
   });
 });
 

@@ -33,6 +33,10 @@ describe("会话索引的对外契约", () => {
       // interrupted 折成了出错而桌面端没有（2026-09-04）。
       "lifecycleToAgentStatus",
       "SessionLifecycle",
+      // 共享组基础合同（规格 2026-09-16 决策 2-5 / 14）：紧凑列表容器与
+      // 会话行骨架，server 之后也要经唯一 barrel 拿到同一个实现。
+      "SessionGroupList",
+      "SessionRowSkeleton",
     ].filter((name) => !(name in pkg));
 
     expect(missing).toEqual([]);

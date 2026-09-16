@@ -555,6 +555,33 @@ describe("SessionIndexPage project tree rendering", () => {
 
 // ── 搜索与筛选 chips ────────────────────────────────────────────────────────
 
+describe("SessionIndexPage compact group list", () => {
+  it("Given the project axis, When the tree renders, Then every top-level group shares one compact list container instead of repeating the control area's spacing", async () => {
+    seedTree([
+      projectNode({ id: 1, name: "Agentre" }),
+      projectNode({ id: 2, name: "Web" }),
+    ]);
+    const { container } = renderIndex();
+
+    const list = await waitFor(() => {
+      const el = container.querySelector<HTMLElement>(
+        '[data-slot="session-group-list"]',
+      );
+      expect(el).not.toBeNull();
+      return el!;
+    });
+
+    const project = (await screen.findByText("Agentre")).closest("article");
+    const free = screen.getByText("Quick chats").closest("article");
+    expect(list.contains(project)).toBe(true);
+    expect(list.contains(free)).toBe(true);
+    // 紧凑 = 容器不再叠加一层纵向间距；项目树、拖拽与组折叠都不受它接管。
+    expect(list.className).not.toMatch(/(^|\s)gap-/);
+    expect(list.className).not.toMatch(/space-y-/);
+    expect(screen.getByText("Agentre")).toBeTruthy();
+  });
+});
+
 describe("SessionIndexPage search and filter chips", () => {
   const sessions: SeedSession[] = [
     {

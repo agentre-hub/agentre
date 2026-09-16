@@ -16,6 +16,7 @@ import {
 } from "@dnd-kit/sortable";
 import {
   ResizableSidebar,
+  SessionGroupList,
   type ImportDialogPrefill,
   type ProjectGlyphInfo,
 } from "@agentre-hub/agentre-ui";
@@ -553,7 +554,7 @@ export function SessionIndexPage() {
                 : t("sessionIndex.empty.nothing")}
             </p>
           ) : (
-            list
+            <SessionGroupList>{list}</SessionGroupList>
           )}
         </div>
       </ResizableSidebar>

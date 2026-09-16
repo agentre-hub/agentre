@@ -233,12 +233,15 @@ export function IndexGroupRow({
     ? sessions.length
     : Math.max(group.total, sessions.length);
 
+  // Shared 组件把行的**原始字符串身份**交回来（规格 2026-09-16 决策 3）；
+  // desktop 只在这一处 adapter 边界转回本地数字主键，包内不再做身份强转。
   const rowHandlers = {
     onSessionSelect: (id: string, opts?: { newTab?: boolean }) =>
       handlers.onSessionSelect(Number(id), opts),
-    onOpenInNewTab: handlers.onOpenInNewTab,
-    onRenameSession: handlers.onRenameSession,
-    onDeleteSession: handlers.onDeleteSession,
+    onOpenInNewTab: (id: string) => handlers.onOpenInNewTab(Number(id)),
+    onRenameSession: (id: string, title: string) =>
+      handlers.onRenameSession(Number(id), title),
+    onDeleteSession: (id: string) => handlers.onDeleteSession(Number(id)),
   };
 
   const selectedSessionIDStr =

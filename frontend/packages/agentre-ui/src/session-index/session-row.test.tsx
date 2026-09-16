@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { SessionGroup } from "./session-group";
@@ -345,6 +346,99 @@ describe("SessionRow trailing slots", () => {
  * 标题 + 时间、设备 · 后端。第一行不能用 `leading` —— 那是**行内**槽，在窄屏上会把
  * 标题挤没，而设计稿（48b / 屏 20）当初让它独占一行正是为了避免这件事。
  */
+describe("SessionRow capability-driven context menu", () => {
+  async function openMenu(handlers: {
+    onOpenInNewTab?: () => void;
+    onRenameSession?: () => void;
+    onDeleteSession?: () => void;
+  }) {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <SessionRow
+        status="idle"
+        title="session-1"
+        trailingLabel="5m"
+        {...handlers}
+      />,
+    );
+    await user.pointer({
+      keys: "[MouseRight]",
+      target: screen.getByRole("button", { name: /session-1/ }),
+    });
+    return user;
+  }
+
+  it("Given only a delete handler, When the menu opens, Then delete is the only item and carries no leading separator", async () => {
+    await openMenu({ onDeleteSession: vi.fn() });
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Delete" }),
+    ).toBeTruthy();
+    // 缺 handler ≠ 禁用的能力，而是不存在的能力：按下没反应的死项比没有更糟。
+    expect(screen.queryByRole("menuitem", { name: "Rename" })).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: "Open in new tab" }),
+    ).toBeNull();
+    // 分隔线只在它真的分开两项时才画。
+    expect(screen.queryByRole("separator")).toBeNull();
+    // 删除仍是破坏性呈现，且仍是最后一项。
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toHaveAttribute(
+      "data-variant",
+      "destructive",
+    );
+  });
+
+  it("Given rename and delete but no open handler, When the menu opens, Then the missing action is absent and the separator still divides the present ones", async () => {
+    await openMenu({ onRenameSession: vi.fn(), onDeleteSession: vi.fn() });
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Rename" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: "Open in new tab" }),
+    ).toBeNull();
+    expect(screen.getByRole("separator")).toBeTruthy();
+    // 顺序仍是「其余能力… → 删除」，删除保持破坏性呈现并在末尾。
+    const items = screen.getAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual(["Rename", "Delete"]);
+    expect(items[1]).toHaveAttribute("data-variant", "destructive");
+  });
+
+  it("Given no handlers at all, When the row renders, Then no menu shell is emitted", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<SessionRow status="idle" title="session-1" trailingLabel="5m" />);
+
+    await user.pointer({
+      keys: "[MouseRight]",
+      target: screen.getByRole("button", { name: /session-1/ }),
+    });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("Given a row identity, When the host link renderer runs, Then it receives the raw string id so the host can build its own navigation target", () => {
+    const renderLink = vi.fn(({ href, className, children }) => (
+      <a data-testid="host-link" data-to={href} className={className}>
+        {children}
+      </a>
+    ));
+
+    render(
+      <SessionRow
+        sessionId="device:3/session:42"
+        status="idle"
+        title="session-1"
+        trailingLabel="5m"
+        href="/s/42"
+        renderLink={renderLink}
+      />,
+    );
+
+    expect(renderLink).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "device:3/session:42" }),
+    );
+  });
+});
+
 describe("SessionRow overline", () => {
   it("Given an overline, When the row renders, Then it sits above the title inside the title column, not inline with the status dot", () => {
     const { container } = render(
