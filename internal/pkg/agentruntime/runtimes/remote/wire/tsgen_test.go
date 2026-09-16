@@ -315,7 +315,6 @@ func tsRPCErrorDecls() []tsRPCErrorDecl {
 		{"ErrCodeSessionMissing", "CodeSessionMissing", rpcerror.CodeSessionMissing},
 		{"ErrCodeProviderMissing", "CodeProviderMissing", rpcerror.CodeProviderMissing},
 		{"ErrCodePairing", "CodePairing", rpcerror.CodePairing},
-		{"ErrCodeShuttingDown", "CodeShuttingDown", rpcerror.CodeShuttingDown},
 		{"ErrCodeProtocolVersion", "CodeProtocolVersion", rpcerror.CodeProtocolVersion},
 		{"ErrCodeAccountServerUnreachable", "CodeAccountServerUnreachable", rpcerror.CodeAccountServerUnreachable},
 		{"ErrCodeMethodNotFound", "CodeMethodNotFound", rpcerror.CodeMethodNotFound},

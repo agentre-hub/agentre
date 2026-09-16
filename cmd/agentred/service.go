@@ -38,11 +38,7 @@ func newServiceCmd() *cobra.Command {
 }
 
 func newServiceCmdWithManager(manager ServiceManager) *cobra.Command {
-	return newServiceCmdWithFactory(func() (ServiceManager, error) { return manager, nil })
-}
-
-func newServiceCmdWithFactory(factory serviceManagerFactory) *cobra.Command {
-	return newServiceCmdWithDeps(serviceCommandDeps{managerFactory: factory})
+	return newServiceCmdWithDeps(serviceCommandDeps{managerFactory: func() (ServiceManager, error) { return manager, nil }})
 }
 
 func newServiceCmdWithDeps(deps serviceCommandDeps) *cobra.Command {
@@ -137,7 +133,7 @@ func startService(ctx context.Context, manager ServiceManager, load serviceStatu
 	if err != nil {
 		return ServiceStatus{}, err
 	}
-	return waitForLocalDaemon(ctx, manager, status, load)
+	return waitForLocalDaemonPIDChange(ctx, manager, status, load, "")
 }
 
 func restartService(ctx context.Context, manager ServiceManager, load serviceStatusLoader) (ServiceStatus, error) {
@@ -166,11 +162,6 @@ func requiresRestartPIDChange(status ServiceStatus) bool {
 		}
 	}
 	return false
-}
-
-func waitForLocalDaemon(ctx context.Context, manager ServiceManager, status ServiceStatus,
-	load serviceStatusLoader) (ServiceStatus, error) {
-	return waitForLocalDaemonPIDChange(ctx, manager, status, load, "")
 }
 
 func waitForLocalDaemonPIDChange(ctx context.Context, manager ServiceManager, status ServiceStatus,

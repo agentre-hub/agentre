@@ -13,7 +13,7 @@ import {
 } from "@agentre-hub/agentre-ui";
 
 import { INDEX_AXES, type IndexAxis } from "@/lib/session-axis";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import type { StatusFilter } from "./use-index-filter";
 

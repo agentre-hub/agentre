@@ -90,7 +90,7 @@ func TestPlanUpdatedHandler_NoSyntheticActions(t *testing.T) {
 			context.Background(),
 			agentruntime.PlanUpdated{Plan: canonical.PlanUpdate{Text: "## P"}},
 			acc, emit, nil,
-			&turn.TurnContext{Stream: "chat:event:1:2", BackendType: "codex"},
+			&turn.TurnContext{Stream: "chat:event:1:2"},
 		)
 		plan := emit.events[0].payload.(map[string]any)["canonical"].(canonical.PlanUpdate)
 		So(plan.Actions, ShouldBeNil)
@@ -107,7 +107,7 @@ func TestPlanUpdatedHandler_ClaudecodeBackendNoActions(t *testing.T) {
 				{Step: "a", Status: canonical.StepPending},
 			}}},
 			acc, emit, nil,
-			&turn.TurnContext{Stream: "chat:event:1:2", BackendType: "claudecode"},
+			&turn.TurnContext{Stream: "chat:event:1:2"},
 		)
 		plan := emit.events[0].payload.(map[string]any)["canonical"].(canonical.PlanUpdate)
 		So(plan.Actions, ShouldBeNil)

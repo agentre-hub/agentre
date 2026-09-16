@@ -9,8 +9,8 @@ import {
 } from "@agentre-hub/agentre-ui";
 
 import { useEffectiveSessionStatus } from "@/hooks/use-live-session-status";
-import { relativeTime } from "@/lib/relative-time";
-import { cn } from "@/lib/utils";
+import { formatCompactRelativeTime as relativeTime } from "@agentre-hub/agentre-ui";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { AgentAvatar, StatusDot } from "./primitives";
 import type { AgentColor, AgentStatus } from "./types";

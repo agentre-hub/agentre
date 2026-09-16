@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/agentre-hub/agentre/internal/pkg/agentredipc"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
@@ -11,7 +12,7 @@ import (
 // can use the same HTTP routes on Unix sockets and Windows named pipes.
 func localClient() *http.Client {
 	dir, _ := paths.AgentredDataDir()
-	return &http.Client{Transport: &http.Transport{DialContext: localDialContext(dir)}}
+	return &http.Client{Transport: &http.Transport{DialContext: agentredipc.DialContext(dir)}}
 }
 
 func localGET(path string) ([]byte, error) {

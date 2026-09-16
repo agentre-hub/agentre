@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/agentre-hub/agentre/internal/daemon"
 	"github.com/agentre-hub/agentre/internal/daemon/enginesnapshot"
 	"github.com/agentre-hub/agentre/internal/daemon/identity"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
@@ -78,7 +79,7 @@ func newLoginCmd() *cobra.Command {
 			return nil
 		},
 		platform:      runtime.GOOS,
-		version:       agentredBuildIdentity(),
+		version:       daemon.BuildIdentity(),
 		hostname:      os.Hostname,
 		daemonRunning: daemonIsRunning,
 	})

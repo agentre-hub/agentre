@@ -236,7 +236,7 @@ func (r *Runtime) goalSession(ctx context.Context, req agentruntime.GoalRequest,
 		GatewayURL:        req.GatewayURL,
 		GatewayToken:      req.GatewayToken,
 	}
-	env, err := BuildCodexEnv(runReq.Backend, gatewayDeps(runReq))
+	env, err := agentruntime.BuildCodexEnv(runReq.Backend, gatewayDeps(runReq))
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +305,7 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 			return nil, nil, err
 		}
 	}
-	env, err := BuildCodexEnv(req.Backend, gatewayDeps(req))
+	env, err := agentruntime.BuildCodexEnv(req.Backend, gatewayDeps(req))
 	if err != nil {
 		logger.Ctx(ctx).Error("codex runtime: BuildCodexEnv failed",
 			zap.Int64("sessionID", req.SessionID), zap.Error(err))

@@ -1,7 +1,8 @@
 package app
 
 import (
-	"sort"
+	"maps"
+	"slices"
 
 	"github.com/agentre-hub/agentre/internal/service/issue_svc"
 )
@@ -154,11 +155,7 @@ func toIssueListResponse(resp *issue_svc.ListIssuesResponse) *IssueListResponse 
 		items = append(items, toIssueItem(d))
 	}
 	// map 的遍历序不定，按 projectID 排一下，前端拿到的顺序才是稳定的。
-	projectIDs := make([]int64, 0, len(resp.ProjectCounts))
-	for id := range resp.ProjectCounts {
-		projectIDs = append(projectIDs, id)
-	}
-	sort.Slice(projectIDs, func(i, j int) bool { return projectIDs[i] < projectIDs[j] })
+	projectIDs := slices.Sorted(maps.Keys(resp.ProjectCounts))
 	counts := make([]*ProjectIssueCount, 0, len(projectIDs))
 	for _, id := range projectIDs {
 		counts = append(counts, &ProjectIssueCount{ProjectID: id, Count: resp.ProjectCounts[id]})

@@ -642,7 +642,7 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 			return nil, "", err
 		}
 	}
-	env, err := BuildClaudeCodeEnv(req.Backend, CLIDeps{
+	env, err := agentruntime.BuildClaudeCodeEnv(req.Backend, agentruntime.CLIDeps{
 		Token: req.GatewayToken, GatewayURL: req.GatewayURL, ProviderKey: req.EffectiveProviderKey(),
 	})
 	if err != nil {

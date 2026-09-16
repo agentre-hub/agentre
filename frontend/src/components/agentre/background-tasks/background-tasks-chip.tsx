@@ -7,7 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { BackgroundTasksPopoverContent } from "./background-tasks-popover";
 import type { BackgroundTask } from "./types";

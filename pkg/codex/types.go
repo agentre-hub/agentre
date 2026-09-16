@@ -23,7 +23,6 @@ const (
 	appMethodInitialized     = "initialized"
 	appMethodThreadStart     = "thread/start"
 	appMethodThreadResume    = "thread/resume"
-	appMethodThreadFork      = "thread/fork"
 	appMethodThreadRevert    = "thread/revert"
 	appMethodThreadTurnsList = "thread/turns/list"
 	appMethodThreadCompact   = "thread/compact/start"

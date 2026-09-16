@@ -1,6 +1,9 @@
 package diff
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // FromClaudeCodeEdit 把 Edit 工具的 (filePath, oldString, newString) 转成 Payload。
 // replaceAll 时不知道每个实际位置在原文里的行号,统一从 1 起算,前端只用行号显示。
@@ -99,9 +102,6 @@ func diffLines(oldLines, newLines []string) ([]Line, int, int) {
 	}
 
 	// 反转
-	out := make([]Line, len(rev))
-	for k := range rev {
-		out[k] = rev[len(rev)-1-k]
-	}
-	return out, plus, minus
+	slices.Reverse(rev)
+	return rev, plus, minus
 }

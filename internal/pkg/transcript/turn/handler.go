@@ -50,12 +50,6 @@ type TurnContext struct {
 	Session      any // *chat_entity.ChatSession
 	Stream       string
 
-	// BackendType 是当前 turn 跑的 runtime 类型("claudecode" / "codex" / "builtin"
-	// 等,字符串值与 agent_backend_entity.BackendType 一致)。handler 装配
-	// canonical.Actions 时按这个分支(plan_update 的 Codex 路径要装 [execute,
-	// refine],Claude 路径要 nil)。chat_svc.newTurnContext 注入。
-	BackendType string
-
 	// LaunchPermissionMode 是 session.PermissionModeAtLaunch 快照(claudecode 专用)。
 	// ExitPlanMode 审批卡的 actions 列表按这个分支:bypass launch → 第一项给 bypass,
 	// 否则给 acceptEdits。handler 不需要再 reach session 实体。

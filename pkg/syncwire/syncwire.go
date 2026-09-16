@@ -13,7 +13,10 @@
 // 本 module 因此零外部依赖。
 package syncwire
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"slices"
+)
 
 // ── 对象类型词表 ────────────────────────────────────────────────────────────
 
@@ -63,12 +66,7 @@ var Kinds = []string{
 // KindValid 报告某个对象类型是否属于同步组。取值域是闭合的:不认识的类型一律按
 // 单条拒绝处置(PushRejectReasonKind),不会连累整批。
 func KindValid(kind string) bool {
-	for _, k := range Kinds {
-		if k == kind {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(Kinds, kind)
 }
 
 // ── 处置结果词表 ────────────────────────────────────────────────────────────

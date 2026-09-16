@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -90,9 +91,7 @@ func BuildClaudeCodeEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map
 	if err != nil {
 		return nil, fmt.Errorf("parse env_json: %w", err)
 	}
-	for k, v := range user {
-		env[k] = v
-	}
+	maps.Copy(env, user)
 	return env, nil
 }
 
@@ -110,9 +109,7 @@ func BuildCodexEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map[stri
 	if err != nil {
 		return nil, fmt.Errorf("parse env_json: %w", err)
 	}
-	for k, v := range user {
-		env[k] = v
-	}
+	maps.Copy(env, user)
 	return env, nil
 }
 
@@ -126,9 +123,7 @@ func BuildPiAgentEnv(b *agent_backend_entity.AgentBackend) (map[string]string, e
 	if err != nil {
 		return nil, fmt.Errorf("parse env_json: %w", err)
 	}
-	for k, v := range user {
-		env[k] = v
-	}
+	maps.Copy(env, user)
 	return env, nil
 }
 

@@ -10,9 +10,9 @@ import {
 } from "lucide-react";
 
 import i18n from "@/i18n";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
-import { scoreItem } from "../score";
+import { scoreSuggestion as scoreItem } from "@agentre-hub/agentre-ui";
 import type { CommandSource, OnSelectCtx } from "../types";
 
 export type NavigationItem = {

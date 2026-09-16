@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -34,12 +35,11 @@ type RunSpec struct {
 
 // RunResult 是一次脚本执行的采集结果。
 type RunResult struct {
-	Stdout    []byte
-	Stderr    []byte
-	ExitCode  int
-	Duration  time.Duration
-	TimedOut  bool
-	Truncated bool
+	Stdout   []byte
+	Stderr   []byte
+	ExitCode int
+	Duration time.Duration
+	TimedOut bool
 }
 
 // Interp 描述一个解释器如何被调用。
@@ -80,12 +80,7 @@ func appliesTo(def interpDef, goos string) bool {
 	if len(def.goos) == 0 {
 		return true
 	}
-	for _, g := range def.goos {
-		if g == goos {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(def.goos, goos)
 }
 
 // Probe 列出在 goos 平台下适用的解释器及其安装情况。

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -72,9 +73,9 @@ func NewClient(config Config) (*Client, error) {
 		config.Platform = runtime.GOOS
 	}
 	if len(config.RequiredScopes) == 0 {
-		config.RequiredScopes = append([]string(nil), RequiredOperatorScopes...)
+		config.RequiredScopes = slices.Clone(RequiredOperatorScopes)
 	} else {
-		config.RequiredScopes = append([]string(nil), config.RequiredScopes...)
+		config.RequiredScopes = slices.Clone(config.RequiredScopes)
 	}
 	if config.HandshakeTimeout <= 0 {
 		config.HandshakeTimeout = 15 * time.Second
@@ -260,13 +261,13 @@ func (c *Client) readLoop(conn *websocket.Conn, lastSeq int64) error {
 					continue
 				}
 				if lastSeq > 0 && frame.Seq > lastSeq+1 {
-					if !c.publishGap(EventGap{Expected: lastSeq + 1, Received: frame.Seq}) {
+					if !c.publishGap(EventGap{}) {
 						return c.ctx.Err()
 					}
 				}
 				lastSeq = frame.Seq
 			}
-			if !c.publishEvent(Event{Name: frame.Event, Payload: frame.Payload, Seq: frame.Seq}) {
+			if !c.publishEvent(Event{Name: frame.Event, Payload: frame.Payload}) {
 				return c.ctx.Err()
 			}
 		}
@@ -338,7 +339,7 @@ func (c *Client) dialAndHandshake(ctx context.Context) (*websocket.Conn, Hello, 
 		MinProtocol: ProtocolVersion,
 		MaxProtocol: ProtocolVersion,
 		Role:        clientRole,
-		Scopes:      append([]string(nil), c.config.RequiredScopes...),
+		Scopes:      slices.Clone(c.config.RequiredScopes),
 		Device:      proof,
 	}
 	connectParams.Client.ID = clientID
@@ -377,12 +378,8 @@ func (c *Client) dialAndHandshake(ctx context.Context) (*websocket.Conn, Hello, 
 	if hello.Type != "hello-ok" || hello.Protocol != ProtocolVersion {
 		return fail(fmt.Errorf("%w: negotiated %d, required %d", ErrProtocolMismatch, hello.Protocol, ProtocolVersion))
 	}
-	granted := make(map[string]struct{}, len(hello.Auth.Scopes))
-	for _, scope := range hello.Auth.Scopes {
-		granted[scope] = struct{}{}
-	}
 	for _, required := range c.config.RequiredScopes {
-		if _, ok := granted[required]; !ok {
+		if !slices.Contains(hello.Auth.Scopes, required) {
 			return fail(fmt.Errorf("%w: %s", ErrRequiredScopeMissing, required))
 		}
 	}

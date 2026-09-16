@@ -11,7 +11,7 @@ import {
   TooltipTrigger,
 } from "@agentre-hub/agentre-ui";
 
-import { relativeTime } from "@/lib/relative-time";
+import { formatCompactRelativeTime as relativeTime } from "@agentre-hub/agentre-ui";
 
 type Props = {
   title: string;

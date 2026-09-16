@@ -30,7 +30,7 @@ import {
   useUiTranslation,
 } from "@agentre-hub/agentre-ui";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import type {
   agent_backend_svc,

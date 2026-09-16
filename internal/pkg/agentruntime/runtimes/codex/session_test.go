@@ -22,7 +22,7 @@ func TestGatewayDeps(t *testing.T) {
 			deps := gatewayDeps(agentruntime.RunRequest{
 				Backend: backend, GatewayToken: "tok", GatewayURL: "http://127.0.0.1:60080",
 			})
-			So(deps, ShouldResemble, CLIDeps{})
+			So(deps, ShouldResemble, agentruntime.CLIDeps{})
 		})
 
 		Convey("When 会话选了 agentre 供应商(req.Effective 非空), Then deps 装配 token/url(登录态可被接管)", func() {
@@ -37,7 +37,7 @@ func TestGatewayDeps(t *testing.T) {
 
 	Convey("Given backend nil, Then deps 为空", t, func() {
 		deps := gatewayDeps(agentruntime.RunRequest{GatewayToken: "tok", GatewayURL: "http://127.0.0.1:60080"})
-		So(deps, ShouldResemble, CLIDeps{})
+		So(deps, ShouldResemble, agentruntime.CLIDeps{})
 	})
 }
 

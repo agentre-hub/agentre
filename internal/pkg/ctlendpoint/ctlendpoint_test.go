@@ -63,9 +63,3 @@ func TestFilePathUsesDataDir(t *testing.T) {
 		t.Fatalf("FilePath = %q, want %q", got, want)
 	}
 }
-
-func TestRemoveMissingIsNil(t *testing.T) {
-	if err := Remove(t.TempDir()); err != nil {
-		t.Fatalf("Remove on missing file must be nil, got %v", err)
-	}
-}

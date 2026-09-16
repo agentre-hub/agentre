@@ -116,7 +116,7 @@ var resetStaleActiveSessions = bootstrap.ResetStaleActiveSessions
 // the runtime methods.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-	a.RegisterNotificationHandlers()
+	a.registerNotificationHandlers()
 	a.resetStaleSessionsOnStartup(ctx)
 	a.registerChatService()
 	a.hookPollerCancel = hook_svc.StartScheduler(ctx)
@@ -267,7 +267,7 @@ const cliSessionQuitKillTimeout = 50 * time.Millisecond
 func (a *App) cleanupResources(ctx context.Context) {
 	a.stopInboundPeer(ctx)
 	// 关闭全部出站对端中继连接（R19：本端退出即结束接入，对端会话不受影响）。
-	if err := a.PeerClose(); err != nil {
+	if err := a.peerClose(); err != nil {
 		logger.Ctx(ctx).Warn("app.Shutdown: close outbound peer relay", zap.Error(err))
 	}
 	if a.hookPollerCancel != nil {

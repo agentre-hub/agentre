@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
 import { Badge, Button, copyTextWithToast } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { agentredVersionState, isProtocolRefusal } from "./agentred-version";
 import { DeviceActionMenu } from "./device-action-menu";

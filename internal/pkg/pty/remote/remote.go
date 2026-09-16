@@ -89,10 +89,6 @@ type Backend struct {
 	operationTimeout time.Duration
 }
 
-func NewBackend(c Client) *Backend {
-	return newBackend(c, nil, terminalOperationTimeout)
-}
-
 // NewBackendWithLease binds one successful daemon-client borrow to one Open.
 // Authoritatively rejected opens release immediately; uncertain interrupted or
 // mismatched opens retain the lease until cleanup ownership is confirmed. A

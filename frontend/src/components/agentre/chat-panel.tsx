@@ -24,8 +24,8 @@ import {
   findProjectPath,
   projectChain,
 } from "@/lib/project-chain";
-import { relativeTime } from "@/lib/relative-time";
-import { cn } from "@/lib/utils";
+import { formatCompactRelativeTime as relativeTime } from "@agentre-hub/agentre-ui";
+import { cn } from "@agentre-hub/agentre-ui";
 import { useSessionAttention } from "@/stores/attention-store";
 import { useClearedBackgroundTasksStore } from "@/stores/cleared-background-tasks-store";
 import {

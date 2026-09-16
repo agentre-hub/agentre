@@ -23,7 +23,7 @@ import {
 } from "@agentre-hub/agentre-ui";
 import type { AppTheme, AppThemePreference } from "@agentre-hub/agentre-ui";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useUpdateStore } from "@/stores/update-store";
 import type { AgentStatus } from "@/stores/types";

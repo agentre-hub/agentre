@@ -21,7 +21,7 @@ import {
   lifecycleToAgentStatus,
   SessionLifecycle,
 } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { PeerListSessions } from "../../../../wailsjs/go/app/App";
 import type { peer_svc, server_svc, wire } from "../../../../wailsjs/go/models";

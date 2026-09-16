@@ -189,7 +189,6 @@ func (s *chatImportSvc) replayTurn(
 	turnCtx := &turn.TurnContext{
 		AssistantMsg: assistantMsg,
 		Session:      sess,
-		BackendType:  backend,
 		Waits:        turn.NewWaitTracker(),
 	}
 	for _, ev := range t.Events {

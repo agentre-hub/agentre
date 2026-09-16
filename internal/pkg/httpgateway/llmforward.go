@@ -42,9 +42,6 @@ func NewForwarder(tokens *TokenRegistry, lookup ProviderLookup) *Forwarder {
 	return &Forwarder{tokens: tokens, lookup: lookup}
 }
 
-// Tokens 返回转发器持有的 token registry。
-func (f *Forwarder) Tokens() *TokenRegistry { return f.tokens }
-
 // AnthropicHandler /v1/messages → 严格匹配 type=anthropic。
 func (f *Forwarder) AnthropicHandler() http.HandlerFunc {
 	return f.handle(llm_provider_entity.TypeAnthropic)

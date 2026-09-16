@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@agentre-hub/agentre-ui";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { HookDetailHeader } from "./hooks-page-header";
 import { HooksSidebar } from "./hooks-page-sidebar";

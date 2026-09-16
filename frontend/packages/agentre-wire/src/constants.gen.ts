@@ -355,8 +355,6 @@ export const ErrCodeProviderMissing = -32003;
 
 export const ErrCodePairing = -32004;
 
-export const ErrCodeShuttingDown = -32005;
-
 /**
  * CodeProtocolVersion is returned by a handshake handler whose peer
  * advertised a wire protocol version it does not accept.

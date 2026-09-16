@@ -281,7 +281,6 @@ func (s *chatSvc) newTurnContext(
 		AssistantMsg:         assistantMsg,
 		Session:              sess,
 		Stream:               stream,
-		BackendType:          backendType,
 		LaunchPermissionMode: launch,
 		SessionUpdater:       sessionUpdaterAdapter{},
 		SessionTransitioner:  sessionTransitionerAdapter{svc: s},

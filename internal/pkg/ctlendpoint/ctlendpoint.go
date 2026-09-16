@@ -52,11 +52,3 @@ func Read(dataDir string) (Endpoint, error) {
 	}
 	return ep, nil
 }
-
-// Remove 删除握手文件（桌面退出时清理），文件不存在视为成功。
-func Remove(dataDir string) error {
-	if err := os.Remove(FilePath(dataDir)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}

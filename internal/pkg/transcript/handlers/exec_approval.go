@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"slices"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
@@ -14,7 +15,7 @@ func (ExecApprovalRequestedHandler) Apply(ctx context.Context, ev agentruntime.E
 	request := ev.(agentruntime.ExecApprovalRequested)
 	block := &blocks.ExecApprovalBlock{
 		ID: request.ID, CommandText: request.CommandText, CommandPreview: request.CommandPreview,
-		AllowedDecisions: append([]string(nil), request.AllowedDecisions...),
+		AllowedDecisions: slices.Clone(request.AllowedDecisions),
 		Host:             request.Host, NodeID: request.NodeID, AgentID: request.AgentID,
 		Status: "pending", CreatedAtMs: request.CreatedAtMs, ExpiresAtMs: request.ExpiresAtMs,
 	}

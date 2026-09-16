@@ -14,7 +14,6 @@ type Source string
 const (
 	SourceRecommended Source = "recommended" // agentre 精选、当前未安装
 	SourceInstalled   Source = "installed"   // 该 backend 安装命中
-	SourceAvailable   Source = "available"   // marketplace 可装、未装
 )
 
 // SkillPack 一个技能包(= 一个 Claude Code plugin)。ID = "name@marketplace"。

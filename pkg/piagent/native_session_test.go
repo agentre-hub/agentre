@@ -228,7 +228,11 @@ func TestCompactDiscoversNativeSessionBeforeCommand(t *testing.T) {
 	client, proc := newCaptureClient(script)
 	client.session = "pi-native-compact"
 
-	stream, err := client.Compact(context.Background(), "pi-native-compact")
+	session, err := client.OpenSession(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close(context.Background()) })
+
+	stream, err := session.Compact(context.Background())
 	require.NoError(t, err)
 	for stream.Next() {
 	}

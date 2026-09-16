@@ -14,7 +14,7 @@ import {
   type UsageLevel,
   usageLevel,
 } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 // formatResetIn 把"距离 ISO 时间点还有多久"渲染成紧凑的 XdYh / Xh / Xm 形式
 // (e.g. "4d21h", "3h", "40m"),用于 QuotaMeter tooltip。

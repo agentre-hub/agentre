@@ -2,7 +2,7 @@ import type { TFunction } from "i18next";
 import { Plus, Search } from "lucide-react";
 
 import { Button } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { hookStatus, interpMeta, type HookItem } from "./hooks-page-model";
 

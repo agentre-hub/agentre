@@ -10,7 +10,7 @@ import {
   RadioGroupItem,
   copyTextWithToast,
 } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { BrowserOpenURL } from "../../../../wailsjs/runtime/runtime";
 import type { server_svc } from "../../../../wailsjs/go/models";

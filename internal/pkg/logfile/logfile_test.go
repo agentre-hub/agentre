@@ -90,7 +90,9 @@ func TestGivenRotatorWhenBuiltThenRetentionPolicyIsPinned(t *testing.T) {
 
 func TestRotatingFileCoreUsesThirtyMegabyteFiles(t *testing.T) {
 	logFile := filepath.Join(t.TempDir(), "app.log")
-	log := zap.New(NewCore(zap.DebugLevel, logFile))
+	core, closer := newFileCore(zap.DebugLevel, logFile)
+	defer func() { _ = closer.Close() }()
+	log := zap.New(core)
 	chunk := strings.Repeat("x", 1<<20)
 
 	// Given 29 one-megabyte debug records, When they are written, Then the

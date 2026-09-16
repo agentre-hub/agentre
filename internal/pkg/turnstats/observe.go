@@ -6,9 +6,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
-// Observe 按当前时刻观察一条事件。见 ObserveAt。
-func (c *Clock) Observe(ev agentruntime.Event) { c.ObserveAt(ev, time.Now()) }
-
 // ObserveAt 是「哪条事件动哪一下表」这条映射的唯一实现。
 //
 // 它刻意与算术分开:算术(Clock 的那几只方法)回答「怎么算」,这里回答「什么时候

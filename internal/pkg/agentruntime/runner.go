@@ -109,36 +109,6 @@ const (
 	EventImage EventKind = "image"
 )
 
-// ToolUseEvent EventToolUseStart / End 携带。Input 是原始 JSON；chat_svc 自己 unmarshal 到 map。
-//
-// ParentToolCallID：当前 tool_use 是 subagent 内部调用时指向外层 Agent.tool_use_id；
-// SubagentRunID：同一外层 parallel/chain 中稳定的输入槽 ID。主 agent 自己的工具留空。
-// 注:JSON wire 字段仍叫 parentToolUseId（来自 Anthropic CLI 协议），仅 Go field 重命名。
-//
-// Subagent：仅外层 Agent / Task 父调用上填，透传 claudecode.SubagentMeta 元数据。
-type ToolUseEvent struct {
-	ID               string
-	Name             string
-	Input            []byte
-	ParentToolCallID string
-	SubagentRunID    string
-	Subagent         *SubagentInfo
-}
-
-// ToolResultEvent EventToolResult 携带。
-//
-// ResultMeta 透传 backend 在 tool_result 旁吐的工具结构化元数据（claudecode 走 CLI
-// 顶层 tool_use_result；codex 当前不发）。原始 JSON,留给 chat_svc 落 ChatBlock,
-// 前端按工具语义 Unmarshal。无 meta 的工具留 nil。
-type ToolResultEvent struct {
-	ToolCallID       string
-	Content          string
-	IsError          bool
-	ParentToolCallID string
-	SubagentRunID    string
-	ResultMeta       []byte
-}
-
 // SubagentInfo 是 runtime 层的 backend-neutral subagent 快照，由 EventSubagent*
 // 事件以及外层 Agent 工具的 ToolUseEvent 携带。legacy 字段镜像
 // claudecode.SubagentMeta；Mode/Runs 承载 Pi 的 normalized 单/并行/链式运行模型。
@@ -199,85 +169,6 @@ type ConsumedSteer struct {
 	SourceName string             `json:"sourceName,omitempty"`
 }
 
-// RetryEvent is a non-terminal backend retry notification. It is surfaced to
-// the UI while the turn keeps running.
-type RetryEvent struct {
-	Message           string
-	AdditionalDetails string
-	Attempt           int
-	MaxAttempts       int
-}
-
-// RuntimeEvent 统一流事件。
-type RuntimeEvent struct {
-	Kind       EventKind
-	Text       string
-	ToolUse    *ToolUseEvent
-	ToolResult *ToolResultEvent
-	Steers     []ConsumedSteer
-	Retry      *RetryEvent
-	Err        error
-
-	// EventSubagent* 携带：Subagent 元数据；外层 Agent.tool_use_id 放在 ToolCallID。
-	Subagent   *SubagentInfo
-	ToolCallID string
-
-	// EventAskUserQuestion 携带：解析后的 question 列表 + backend 提供的
-	// requestID（claudecode 走 control_request.request_id；codex 走
-	// item/tool/requestUserInput 的 JSON-RPC request id）。
-	AskUserQuestion *AskUserQuestionEvent
-
-	// EventPlanUpdated 携带：Codex app-server 上报的当前计划步骤。
-	Plan []PlanStep
-	// PlanText 携带 Codex app-server 以 plan item 形式输出的完整 Markdown plan。
-	// 新版 app-server 在 plan mode 下发 item/plan/delta + item/completed{type:"plan"}，
-	// 不再一定发 turn/plan/updated。
-	PlanText string
-
-	// EventToolPermissionRequest / EventToolPermissionResolved 携带。
-	ToolPermission *ToolPermissionEvent
-
-	// EventPermissionModeChanged 携带：CLI 通报切换后的新 mode 值。
-	// 合法值同 pkg/claudecode PermissionMode 白名单（default/plan/acceptEdits/bypassPermissions）。
-	PermissionMode string
-
-	// EventUsage 携带：本次 API call 之后模型当前看到的输入大小（per-call usage）。
-	// 非 nil 才有效；chat_svc 据此 patch assistantMsg.PromptTokens 等列并 emit StreamUsage。
-	Usage *provider.Usage
-
-	// TotalInputTokens EventUsage 携带:由 runtime translator 按 family 已聚合的
-	// 总输入(Anthropic = prompt + cached + cacheCreation;OpenAI = prompt)。
-	// 新 sealed Event 必填;老 RuntimeEvent 路径靠 chat.go 自己做家族数学兜底。
-	TotalInputTokens int
-}
-
-// ToolPermissionEvent EventToolPermission{Request,Resolved} 携带。
-//
-// RequestID 是 backend 私有的回写句柄（claudecode = control_request.request_id），
-// service 在调 ToolPermissionSink.SubmitToolPermission 时按它定位 waiter。
-//
-// Resolved 字段仅 EventToolPermissionResolved 时填：SubmitToolPermission 完成
-// 反向投回后 emit 一帧带这些字段，让 service 把终态 patch 回 acc 里那条
-// ToolPermissionRequestBlock，确保 turn finalize 时落盘正确。
-type ToolPermissionEvent struct {
-	RequestID string
-	// ToolCallID 关联到 assistant 流里的 tool_use 块；race 时（control_request 比
-	// tool_use 先到）允许为空。claudecode emitter 不填(走 RequestID 单 key 索引);
-	// 新 sealed Event 直填。
-	ToolCallID string
-	ToolName   string
-	Input      []byte // 原 control_request.input 透传字节；前端自己 JSON.parse
-	// Resolved 状态：
-	Resolved    bool
-	Allowed     bool
-	AlwaysAllow bool // 是否勾选了 "Allow for this session"
-	// DenyReason 仅 Resolved=true && Allowed=false 时有意义,记录用户在审批卡上
-	// 输入的拒绝理由(claudecode 把它塞进 PermissionResult.Message 回灌给 LLM)。
-	// 老 RuntimeEvent 路径不回填(deny reason 直接走 SubmitToolPermission 入参);
-	// 新 sealed Event 携带 reason 字段。
-	DenyReason string
-}
-
 // ToolPermissionSink 由具体 backend runner 在 Run 启动时把 session-scoped 句柄
 // 注入到 service；service 拿到前端 AnswerToolPermission 请求后调
 // SubmitToolPermission 把决策投回该 session 当前阻塞的 control 协议。
@@ -295,26 +186,6 @@ type ToolPermissionEvent struct {
 // 当前只有 claudecode 走这条；其它 backend 还没有等价工具审批协议，留接口扩展。
 type ToolPermissionSink interface {
 	SubmitToolPermission(ctx context.Context, sessionID int64, requestID string, allow, alwaysAllowSession bool, denyReason string) error
-}
-
-// AskUserQuestionEvent EventAskUserQuestion 携带。
-//
-// RequestID 是 backend 私有的回写句柄（claudecode = control_request.request_id），
-// service 在调 AskAnswerSink.SubmitAnswer 时按它定位 waiter。
-//
-// ToolCallID 关联到 assistant 流里的 tool_use 块；race 时（control_request 比
-// tool_use 先到）允许为空，前端 merge 时按 RequestID 占位。
-type AskUserQuestionEvent struct {
-	RequestID        string
-	ToolCallID       string
-	ParentToolCallID string
-	Questions        []AskQuestion
-	// Answered / Skipped / Answers 仅 EventAskUserQuestionAnswered 时填:
-	// SubmitAnswer 完成后 emit 一帧带这些字段,让 service 层把终态 patch 回
-	// acc 里那条 AskUserQuestionBlock,确保 turn finalize 时落盘正确。
-	Answered bool
-	Skipped  bool
-	Answers  []AskAnswer
 }
 
 // AskAnswerSink 由具体 backend runner 在 Run 启动时把 session-scoped
@@ -391,11 +262,6 @@ type WaiterSnapshot struct {
 // report either.
 type WaiterLister interface {
 	PendingWaiters(ctx context.Context, sessionID int64) WaiterSnapshot
-}
-
-type PlanStep struct {
-	Step   string
-	Status string
 }
 
 // HistoryMessage builtin 用，CLI runner 忽略（它们的 history 在 cliagent Session 内）。

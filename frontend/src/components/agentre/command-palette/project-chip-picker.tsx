@@ -10,7 +10,7 @@ import {
   PopoverTrigger,
 } from "@agentre-hub/agentre-ui";
 import { useProjectList } from "@/hooks/use-project-list";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 import { useNewChatContextStore } from "@/stores/new-chat-context-store";
 
 export type ProjectChipPickerProps = {

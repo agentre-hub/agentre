@@ -31,13 +31,6 @@ var registry = []Definition{
 	}},
 }
 
-// Registry 返回全部内置工具定义(只读副本)。
-func Registry() []Definition {
-	out := make([]Definition, len(registry))
-	copy(out, registry)
-	return out
-}
-
 // Lookup 按 key 找定义。
 func Lookup(key string) (Definition, bool) {
 	for _, d := range registry {

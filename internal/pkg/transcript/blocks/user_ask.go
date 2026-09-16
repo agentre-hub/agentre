@@ -7,6 +7,8 @@
 package blocks
 
 import (
+	"slices"
+
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
@@ -90,7 +92,7 @@ func AnswersFromRuntime(ans []agentruntime.AskAnswer) []AskAnswerDTO {
 	for _, a := range ans {
 		out = append(out, AskAnswerDTO{
 			QuestionIndex: a.QuestionIndex,
-			Labels:        append([]string(nil), a.Labels...),
+			Labels:        slices.Clone(a.Labels),
 			OtherText:     a.OtherText,
 		})
 	}
@@ -105,7 +107,7 @@ func AnswersToRuntime(ans []AskAnswerDTO) []agentruntime.AskAnswer {
 	for _, a := range ans {
 		out = append(out, agentruntime.AskAnswer{
 			QuestionIndex: a.QuestionIndex,
-			Labels:        append([]string(nil), a.Labels...),
+			Labels:        slices.Clone(a.Labels),
 			OtherText:     a.OtherText,
 		})
 	}

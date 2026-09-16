@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cn } from "../utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 // Task 1 在 globals.css 的 @theme inline 里新增了三个自定义字号 token:
 // text-prose / text-aux / text-meta。tailwind-merge 不认识这些自定义类,

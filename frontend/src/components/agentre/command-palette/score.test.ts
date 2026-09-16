@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { scoreItem } from "./score";
+import { scoreSuggestion as scoreItem } from "@agentre-hub/agentre-ui";
 
 describe("scoreItem — Chinese + English + Pinyin matching", () => {
   it("empty query returns 1 (preserve original order)", () => {

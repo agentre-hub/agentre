@@ -43,7 +43,7 @@ func TestPackageDispatcher_AllEventTypesRegistered(t *testing.T) {
 		for _, ev := range events {
 			acc := turn.New()
 			// Apply 不应 panic;handler 可能因为 nil emit/view/turnCtx 走 no-op,但不能 crash。
-			err := packageDispatcher.Apply(context.Background(), ev, acc, nil, nil, nil)
+			err := newPackageDispatcher(nil).Apply(context.Background(), ev, acc, nil, nil, nil)
 			So(err, ShouldBeNil)
 		}
 	})

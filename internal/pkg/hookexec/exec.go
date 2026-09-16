@@ -59,11 +59,10 @@ func (osScriptRunner) Run(ctx context.Context, spec RunSpec) (*RunResult, error)
 	dur := time.Since(start)
 
 	res := &RunResult{
-		Stdout:    outBuf.Bytes(),
-		Stderr:    errBuf.Bytes(),
-		Duration:  dur,
-		Truncated: outW.truncated,
-		TimedOut:  errors.Is(runCtx.Err(), context.DeadlineExceeded),
+		Stdout:   outBuf.Bytes(),
+		Stderr:   errBuf.Bytes(),
+		Duration: dur,
+		TimedOut: errors.Is(runCtx.Err(), context.DeadlineExceeded),
 	}
 	var exitErr *exec.ExitError
 	switch {
@@ -90,20 +89,17 @@ func envSlice(m map[string]string) []string {
 
 // cappedWriter 截断超限输出但继续吞剩余字节避免子进程阻塞。
 type cappedWriter struct {
-	w         io.Writer
-	max       int
-	written   int
-	truncated bool
+	w       io.Writer
+	max     int
+	written int
 }
 
 func (c *cappedWriter) Write(p []byte) (int, error) {
 	if c.written >= c.max {
-		c.truncated = true
 		return len(p), nil
 	}
 	room := c.max - c.written
 	if len(p) > room {
-		c.truncated = true
 		_, _ = c.w.Write(p[:room])
 		c.written = c.max
 		return len(p), nil

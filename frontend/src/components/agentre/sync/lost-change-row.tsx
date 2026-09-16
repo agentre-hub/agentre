@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge, Button } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { relativeTime } from "../remote-devices/format";
 import {

@@ -116,8 +116,8 @@ func parsePluginList(b []byte) ([]agentskill.SkillPack, error) {
 		name := strings.TrimSpace(r.Name)
 		if name == "" {
 			name = id
-			if i := strings.Index(id, "@"); i > 0 {
-				name = id[:i]
+			if before, _, ok := strings.Cut(id, "@"); ok && before != "" {
+				name = before
 			}
 		}
 		out = append(out, agentskill.SkillPack{

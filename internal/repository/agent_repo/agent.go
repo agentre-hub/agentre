@@ -64,7 +64,7 @@ func (r *agentRepo) Create(ctx context.Context, a *agent_entity.Agent) error {
 		if err := tx.Create(a).Error; err != nil {
 			return err
 		}
-		return insertExecTargets(tx, a.ID, primaryTargetList(a.AgentBackendID, a.SkillsJSON))
+		return insertExecTargets(tx, a.ID, agent_entity.PrimaryExecTargets(a.AgentBackendID, a.SkillsJSON))
 	})
 }
 

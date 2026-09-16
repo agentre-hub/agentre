@@ -62,7 +62,7 @@ func (r *rig) expectGitState(states map[string]wire.GitStateResp) *[]string {
 	r.pool.EXPECT().Borrow(gomock.Any(), gomock.Any()).Return(r.lease, nil).AnyTimes()
 	r.lease.EXPECT().Client().Return(r.client).AnyTimes()
 	r.lease.EXPECT().Release().AnyTimes()
-	r.fallback[wire.MethodGitState] = func(_ context.Context, _ string, req any, out any) error {
+	r.fallback["workspacefs.gitState"] = func(_ context.Context, _ string, req any, out any) error {
 		root := req.(wire.GitStateReq).Root
 		*seen = append(*seen, root)
 		resp, ok := states[root]
@@ -284,7 +284,7 @@ func TestRootParam_RemoteSessionRunsSameJudgement(t *testing.T) {
 			assert.True(t, roots[1].IsWorktree)
 
 			// 认领之后,这个 root 才被允许发进 workspacefs.listDir RPC。
-			r.expectProto(wire.MethodListDir, wire.ListDirReq{Root: "/remote/wt", RelPath: "pkg"}).
+			r.expectProto("workspacefs.listDir", wire.ListDirReq{Root: "/remote/wt", RelPath: "pkg"}).
 				DoAndReturn(func(_ context.Context, _ string, _ any, out any) error {
 					out.(*wire.ListDirResp).Path = "/remote/wt/pkg"
 					return nil

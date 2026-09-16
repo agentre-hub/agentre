@@ -25,8 +25,8 @@ type marketplaceManifest struct {
 // splitPluginID 拆 `<plugin>@<marketplace>`。裸 id(无 @)→ 名即 id,marketplace 为空。
 func splitPluginID(id string) (name, marketplace string) {
 	id = strings.TrimSpace(id)
-	if i := strings.Index(id, "@"); i > 0 {
-		return id[:i], id[i+1:]
+	if name, marketplace, ok := strings.Cut(id, "@"); ok && name != "" {
+		return name, marketplace
 	}
 	return id, ""
 }

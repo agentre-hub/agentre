@@ -4,7 +4,7 @@ import { Bot } from "lucide-react";
 import i18n from "@/i18n";
 import { requestNewAgentDialog } from "@/stores/new-agent-intent-store";
 
-import { scoreItem } from "../score";
+import { scoreSuggestion as scoreItem } from "@agentre-hub/agentre-ui";
 import type { CommandSource, OnSelectCtx } from "../types";
 
 type NewAgentItem = {

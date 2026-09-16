@@ -53,11 +53,10 @@ func (d Discoverer) runner() commandRunner {
 }
 
 // rawPlugin 映射 `claude plugin list --json` 单元素。Enabled = CLI 全局启用态
-// (透出到 SkillPack.GloballyEnabled,供"继承"模型判定);Scope 暂不消费。
+// (透出到 SkillPack.GloballyEnabled,供"继承"模型判定)。
 type rawPlugin struct {
 	ID          string `json:"id"`
 	Enabled     bool   `json:"enabled"`
-	Scope       string `json:"scope"`
 	InstallPath string `json:"installPath"` // 用于枚举包内 skill
 }
 

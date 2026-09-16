@@ -3,7 +3,7 @@ import { ChevronRight, CornerDownRight, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { agentColorClassNames, type AgentColor } from "../types";
 

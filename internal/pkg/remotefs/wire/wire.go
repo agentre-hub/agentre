@@ -16,13 +16,6 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
-// ── RPC method names ────────────────────────────────────────────────────────
-
-const (
-	MethodListDir = "remotefs.listDir"
-	MethodMkdir   = "remotefs.mkdir"
-)
-
 // ── Error codes ─────────────────────────────────────────────────────────────
 
 // 码值的主人是 pkg/wire/rpcerror —— 那里一份表登记了全部方法族的段位,撞号守卫

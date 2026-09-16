@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRealCodexCLIStartResumeRollbackFork(t *testing.T) {
+func TestRealCodexCLIStartResume(t *testing.T) {
 	if os.Getenv("CODEX_REAL_CLI") != "1" {
 		t.Skip("set CODEX_REAL_CLI=1 to run against the local codex CLI")
 	}
@@ -39,23 +39,6 @@ func TestRealCodexCLIStartResumeRollbackFork(t *testing.T) {
 	secondText, resumedThreadID := collectRealCodexTurn(t, ctx, client, "Reply exactly with: wrapperpong2", Resume(sourceThreadID))
 	assert.Equal(t, sourceThreadID, resumedThreadID)
 	assert.Equal(t, "wrapperpong2", strings.TrimSpace(secondText))
-
-	rolled, err := client.RollbackThread(ctx, sourceThreadID, 1)
-	require.NoError(t, err)
-	assert.Equal(t, sourceThreadID, rolled.ThreadID)
-	rolledText, rolledThreadID := collectRealCodexTurn(t, ctx, client, "Reply exactly with: wrapperrolled", Resume(sourceThreadID))
-	assert.Equal(t, sourceThreadID, rolledThreadID)
-	assert.Equal(t, "wrapperrolled", strings.TrimSpace(rolledText))
-
-	fork, err := client.ForkThread(ctx, sourceThreadID)
-	require.NoError(t, err)
-	require.NotEmpty(t, fork.ThreadID)
-	assert.Equal(t, sourceThreadID, fork.ForkedFromID)
-	assert.NotEqual(t, sourceThreadID, fork.ThreadID)
-
-	thirdText, forkThreadID := collectRealCodexTurn(t, ctx, client, "Reply exactly with: wrapperfork", Resume(fork.ThreadID))
-	assert.Equal(t, fork.ThreadID, forkThreadID)
-	assert.Equal(t, "wrapperfork", strings.TrimSpace(thirdText))
 }
 
 func TestRealCodexCLIPlanModeEmitsPlanText(t *testing.T) {

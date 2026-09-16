@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -35,13 +36,12 @@ func piProviderAPIByType(t string) (string, bool) {
 // sanitizeProviderKey 去掉 providerKey 中的非字母数字字符（如 UUID 的 '-'），
 // 使拼出的 env 变量名合法。provider 注册名 / --model 值仍用原始 key（见下）。
 func sanitizeProviderKey(s string) string {
-	var b strings.Builder
-	for _, r := range s {
+	return strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
+			return r
 		}
-	}
-	return b.String()
+		return -1
+	}, s)
 }
 
 // PiAgentProviderEnvKey 返回 provider 扩展子进程 env 里承载 APIKey 的键名：
@@ -180,9 +180,7 @@ func PiAgentProviderExtension(cfg *EffectiveLLMConfig) (string, error) {
 //   - provider config → PiAgentProviderRegistryEnvKey，让子进程自己也注册 provider。
 func BuildPiAgentProviderEnv(base map[string]string, cfg *EffectiveLLMConfig) map[string]string {
 	out := make(map[string]string, len(base)+2)
-	for k, v := range base {
-		out[k] = v
-	}
+	maps.Copy(out, base)
 	if cfg == nil || cfg.ProviderKey == "" {
 		return out
 	}

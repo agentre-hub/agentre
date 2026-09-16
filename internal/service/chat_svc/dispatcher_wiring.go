@@ -15,7 +15,3 @@ import (
 func newPackageDispatcher(svc *chatSvc) *turn.Dispatcher {
 	return transcript.NewTurnDispatcher(buildAdapters(svc))
 }
-
-// packageDispatcher 用零值 svc(nil)注册;运行时调用方应当用 newPackageDispatcher(svc)
-// 拿到 svc-bound 实例(Steer/Usage 等才能落库)。本变量留作脚手架 + 单测用。
-var packageDispatcher = newPackageDispatcher(nil)

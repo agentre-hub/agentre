@@ -166,8 +166,8 @@ func (a *App) PeerDetach(fingerprint string, conversationID string) error {
 	return errPeerServiceUnavailable
 }
 
-// PeerClose 关闭全部对端中继连接（App 退出时调用）。
-func (a *App) PeerClose() error {
+// peerClose 关闭全部对端中继连接（App 退出时调用）。
+func (a *App) peerClose() error {
 	if svc := peerSvcAccessor(); svc != nil {
 		return svc.Close()
 	}

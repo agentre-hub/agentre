@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"slices"
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/cago/pkg/logger"
@@ -90,12 +91,7 @@ func isNonTerminalSubagentStatus(status string) bool {
 }
 
 func cloneSubagentRuns(runs []agentruntime.SubagentRun) []agentruntime.SubagentRun {
-	if runs == nil {
-		return nil
-	}
-	out := make([]agentruntime.SubagentRun, len(runs))
-	copy(out, runs)
-	return out
+	return slices.Clone(runs)
 }
 
 func mergeNormalizedSnapshot(b *blocks.SubagentStateBlock, info agentruntime.SubagentInfo) {

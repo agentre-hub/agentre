@@ -15,7 +15,7 @@ import {
 import { toast } from "sonner";
 
 import { Badge, Button } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { Info as FetchAppInfo } from "../../../wailsjs/go/app/App";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";

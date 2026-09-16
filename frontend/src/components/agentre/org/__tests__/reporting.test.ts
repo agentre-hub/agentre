@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { buildReportToMap, resolveReportTo } from "../reporting";
+import { buildOrgReportToMap as buildReportToMap } from "@agentre-hub/agentre-ui";
+
+import { resolveReportTo } from "../reporting";
 import type { OrgAgent, OrgDepartment } from "../types";
 
 const ceoOf = (overrides: Partial<OrgAgent> = {}): OrgAgent =>

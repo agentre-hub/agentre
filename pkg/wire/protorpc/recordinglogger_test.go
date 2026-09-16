@@ -2,6 +2,7 @@ package protorpc_test
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -9,31 +10,33 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
-// recordingLogger 是本包日志出口的测试替身。
+// recordingHandler 是本包日志出口的测试替身。
 //
-// 本包在共享 module 里,不能依赖任何一个日志框架(宿主两边各用各的),诊断出口因此是
-// protorpc.Logger —— 替身直接实现它,断言的是那一行到底有没有留下来。
-type recordingLogger struct {
+// 本包在共享 module 里,诊断出口是标准库的 slog,替身实现 slog.Handler,断言的是
+// 那一行到底有没有留下来。
+type recordingHandler struct {
 	mu       sync.Mutex
 	messages []string
 }
 
-func (l *recordingLogger) record(msg string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.messages = append(l.messages, msg)
+func (h *recordingHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *recordingHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.messages = append(h.messages, r.Message)
+	return nil
 }
 
-func (l *recordingLogger) Debug(_ context.Context, msg string, _ ...protorpc.Field) { l.record(msg) }
-func (l *recordingLogger) Warn(_ context.Context, msg string, _ ...protorpc.Field)  { l.record(msg) }
-func (l *recordingLogger) Error(_ context.Context, msg string, _ ...protorpc.Field) { l.record(msg) }
+func (h *recordingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *recordingHandler) WithGroup(string) slog.Handler      { return h }
 
 // count 数记下过多少条消息含 snippet。
-func (l *recordingLogger) count(snippet string) int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+func (h *recordingHandler) count(snippet string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	var n int
-	for _, msg := range l.messages {
+	for _, msg := range h.messages {
 		if strings.Contains(msg, snippet) {
 			n++
 		}
@@ -43,10 +46,10 @@ func (l *recordingLogger) count(snippet string) int {
 
 // captureLogs 把替身装进包级出口,并在用例结束时恢复。日志出口是包级的(见
 // log.go 的说明),所以装了它的用例不能与别的用例并行 —— 本包没有 t.Parallel。
-func captureLogs(t *testing.T) *recordingLogger {
+func captureLogs(t *testing.T) *recordingHandler {
 	t.Helper()
-	recorder := &recordingLogger{}
-	protorpc.SetLogger(recorder)
+	recorder := &recordingHandler{}
+	protorpc.SetLogger(slog.New(recorder))
 	t.Cleanup(func() { protorpc.SetLogger(nil) })
 	return recorder
 }

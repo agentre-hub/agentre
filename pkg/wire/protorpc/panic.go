@@ -3,6 +3,7 @@ package protorpc
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
 )
 
@@ -21,8 +22,8 @@ import (
 // 对端只能看到这一句。stack trace 只进本地日志。
 func recoverHandler(what string, errOut *error) {
 	if r := recover(); r != nil {
-		log().Error(context.Background(), "protorpc: rpc handler panic",
-			String("what", what), Any("panic", r), ByteString("stack", debug.Stack()))
+		log().ErrorContext(context.Background(), "protorpc: rpc handler panic",
+			slog.String("what", what), slog.Any("panic", r), slog.String("stack", string(debug.Stack())))
 		if errOut != nil {
 			*errOut = &Error{Code: CodeInternal, Message: fmt.Sprintf("rpc handler panic: %v", r)}
 		}

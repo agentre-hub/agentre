@@ -354,10 +354,10 @@ func providerRunConfig(cfg *agentruntime.EffectiveLLMConfig, env map[string]stri
 }
 
 // piModelFallback 未绑 provider（或解析出的 ModelID 空）时的 --model 兜底：
-// effectiveModel = defaultModelForBackend。裸 CLI 模型 id 直接作 --model 下发（走 pi
+// effectiveModel = 空。裸 CLI 模型 id 直接作 --model 下发（走 pi
 // 自身登录/配置），不经 agentre 网关。
 func piModelFallback(req agentruntime.RunRequest) string {
-	return defaultModelForBackend(req.Backend)
+	return ""
 }
 
 // piResultModelPlaceholder 是 RunResult.Model 在 pi 真实 usage 帧上报前的占位：
@@ -370,7 +370,7 @@ func piResultModelPlaceholder(req agentruntime.RunRequest) string {
 			return pm
 		}
 	}
-	return defaultModelForBackend(req.Backend)
+	return ""
 }
 
 // piUserModelID 把 pi 上报的模型 id 归一为面向用户的原始模型 id。

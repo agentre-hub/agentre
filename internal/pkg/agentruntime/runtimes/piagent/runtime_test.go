@@ -275,20 +275,6 @@ func TestRun_PreservesCompletedAnswerWhenUserAnchorMetadataFails(t *testing.T) {
 	})
 }
 
-func TestDefaultModelForBackend(t *testing.T) {
-	Convey("Given a pi-agent backend using ~/.pi/agent config", t, func() {
-		Convey("When reasoning_effort is set, then Agentre leaves model empty so pi uses user defaultProvider/defaultModel and thinking stays separate", func() {
-			model := defaultModelForBackend(&agent_backend_entity.AgentBackend{
-				Type:            string(agent_backend_entity.TypePiAgent),
-				ReasoningEffort: "high",
-			})
-
-			So(model, ShouldEqual, fallbackModelID)
-			So(model, ShouldEqual, "")
-		})
-	})
-}
-
 func TestPiModelFallback(t *testing.T) {
 	Convey("Given 未绑 provider(CLI 登录态)的 pi-agent 后端", t, func() {
 		Convey("Then 回落默认(空 = pi 用自身配置;#26 override 已移除)", func() {
@@ -374,7 +360,7 @@ func TestRun_DefaultModelWhenProviderMissing(t *testing.T) {
 			So(err, ShouldBeNil)
 			for range events {
 			}
-			So(result.Model, ShouldEqual, fallbackModelID)
+			So(result.Model, ShouldEqual, "")
 			So(result.ProviderSessionID, ShouldEqual, "pi-session")
 		})
 	})
@@ -1037,7 +1023,7 @@ func TestRun_NoProvider_NoEnvInjection(t *testing.T) {
 			for k := range gotEnv {
 				So(strings.HasPrefix(k, "AGENTRE_PI_API_KEY_"), ShouldBeFalse)
 			}
-			So(result.Model, ShouldEqual, fallbackModelID)
+			So(result.Model, ShouldEqual, "")
 		})
 	})
 }

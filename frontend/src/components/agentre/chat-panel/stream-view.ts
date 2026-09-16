@@ -1,5 +1,5 @@
 import type { ChatStreamEvent } from "@/hooks/use-chat-stream";
-import { isNoticeOnlyMessage } from "@/lib/notice-message";
+import { isNoticeOnlyMessage } from "@agentre-hub/agentre-ui";
 import type { LiveStream } from "@/stores/chat-streams-store";
 
 import type { SvcChatMessage } from "./optimistic";
