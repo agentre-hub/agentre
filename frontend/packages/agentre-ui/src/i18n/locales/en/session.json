@@ -7,6 +7,14 @@
   },
   "sessionGroup": {
     "empty": "No sessions",
+    "overflow": {
+      "empty": "No sessions",
+      "loadFailed": "Could not load sessions",
+      "loaded": "Loaded {{loaded}} / {{total}}",
+      "loadMore": "Load more",
+      "retry": "Retry",
+      "total": "{{count}} sessions"
+    },
     "viewAll": "View all {{count}} sessions"
   },
   "sessionRow": {

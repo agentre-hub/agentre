@@ -1,10 +1,7 @@
 import * as React from "react";
-import { ChevronDown, Loader2, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
-  Button,
-  Input,
-  PopoverContent,
+  SessionGroupOverflow,
   isOpenInNewTabModifier,
 } from "@agentre-hub/agentre-ui";
 
@@ -17,8 +14,6 @@ import type { AgentColor, AgentStatus } from "./types";
 import { statusConfig } from "./types";
 
 const PAGE_SIZE = 20;
-/** Load the next page before the list reaches its end. */
-const NEAR_BOTTOM_PX = 96;
 
 // SessionsPopoverItem —— popover 内列表行需要的最小字段。
 // chat 用 ChatSessionLite（status 字段）直接满足；项目侧用 ProjectSessionItem 时
@@ -46,8 +41,6 @@ type HeaderInfo = {
   avatarColor?: string;
   avatarIcon?: string;
   avatarDataUrl?: string;
-  // 头部右侧的「N 运行中」灯：可选。
-  activeCount?: number;
 };
 
 type SessionsPopoverProps = {
@@ -120,72 +113,31 @@ function SessionsPopover({
   onClose,
   onSelectSession,
 }: SessionsPopoverProps) {
-  const { t } = useTranslation();
-  const [sessions, setSessions] = React.useState<SessionsPopoverItem[]>([]);
-  const [total, setTotal] = React.useState(0);
-  const [hasMore, setHasMore] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [filter, setFilter] = React.useState("");
-
-  const loadingRef = React.useRef(false);
-
-  const fetchPage = React.useCallback(
-    async (offset: number) => {
-      if (loadingRef.current) return;
-      loadingRef.current = true;
-      setLoading(true);
-      setError(null);
-      try {
-        const resp = await loader({ offset, limit: PAGE_SIZE });
-        setSessions((prev) =>
-          offset === 0 ? resp.sessions : [...prev, ...resp.sessions],
-        );
-        setTotal(resp.total);
-        setHasMore(resp.hasMore);
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setLoading(false);
-        loadingRef.current = false;
-      }
-    },
-    [loader],
-  );
-
-  // Radix Popover 通过 Portal 在打开时挂载、关闭时卸载；
-  // 所以挂载即首次拉取，关闭后下次重开会重新拉（保持数据最新）。
+  const loaderRef = React.useRef(loader);
   React.useEffect(() => {
-    void fetchPage(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only fetch initial page on mount
+    loaderRef.current = loader;
+  }, [loader]);
+
+  // The group scope is fixed for this mounted popover. Parent rerenders may allocate a
+  // new adapter function, but only close/reopen should reset the shared paging cycle.
+  const loadPage = React.useCallback(async (cursor: string | null) => {
+    const offset = cursor === null ? 0 : Number(cursor);
+    if (!Number.isSafeInteger(offset) || offset < 0) {
+      throw new Error("invalid desktop session offset cursor");
+    }
+
+    const page = await loaderRef.current({ offset, limit: PAGE_SIZE });
+    return {
+      rows: page.sessions,
+      total: page.total,
+      nextCursor: page.hasMore ? String(offset + page.sessions.length) : null,
+    };
   }, []);
 
-  const listRef = React.useRef<HTMLDivElement>(null);
-
-  /** Fetch one page; fetchPage deduplicates concurrent requests. */
-  const handleScroll = React.useCallback(() => {
-    const el = listRef.current;
-    if (!el || !hasMore || loading) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight > NEAR_BOTTOM_PX)
-      return;
-    void fetchPage(sessions.length);
-  }, [fetchPage, hasMore, loading, sessions.length]);
-
-  const filterValue = filter.trim().toLowerCase();
-  const visibleSessions = filterValue
-    ? sessions.filter((s) => s.title.toLowerCase().includes(filterValue))
-    : sessions;
-
   return (
-    <PopoverContent
-      side="right"
-      align="start"
-      sideOffset={8}
-      className="flex h-[480px] w-[340px] flex-col gap-0 p-0"
-      onEscapeKeyDown={onClose}
-      onInteractOutside={onClose}
-    >
-      <header className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+    <SessionGroupOverflow
+      title={header.name}
+      avatar={
         <AgentAvatar
           name={header.name}
           initials={header.name.charAt(0)}
@@ -194,114 +146,23 @@ function SessionsPopover({
           avatarIcon={header.avatarIcon}
           size="sm"
         />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-semibold">{header.name}</div>
-          <div className="mt-0.5 flex items-center gap-1.5 font-mono text-2xs text-muted-foreground">
-            <span>{t("sessionsPopover.total", { count: total })}</span>
-            {(header.activeCount ?? 0) > 0 ? (
-              <>
-                <span className="text-border-strong">·</span>
-                <StatusDot status="running" size="xs" />
-                <span className="font-semibold text-status-running">
-                  {t("sessionsPopover.running", {
-                    count: header.activeCount,
-                  })}
-                </span>
-              </>
-            ) : null}
-          </div>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={t("common.close")}
-          onClick={onClose}
-        >
-          <X data-icon="only" aria-hidden="true" />
-        </Button>
-      </header>
-
-      <div className="border-b border-border px-3 py-2">
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <Input
-            aria-label={t("sessionsPopover.search.aria")}
-            placeholder={t("sessionsPopover.search.placeholder")}
-            className="h-7 bg-input-bg pl-7 pr-2 text-xs"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-        </div>
-      </div>
-
-      <div
-        ref={listRef}
-        data-testid="sessions-popover-list"
-        onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-auto px-1.5 py-1.5"
-      >
-        {error ? (
-          <div className="px-3 py-4 text-center text-2xs text-status-error">
-            {t("sessionsPopover.loadFailed", { error })}
-          </div>
-        ) : null}
-        {!error && sessions.length === 0 && !loading ? (
-          <div className="px-3 py-6 text-center text-2xs text-muted-foreground">
-            {t("sessionsPopover.empty")}
-          </div>
-        ) : null}
-        {visibleSessions.map((s) => (
-          <SessionRow
-            key={s.id}
-            session={s}
-            onSelect={(id, opts) => {
-              onSelectSession(id, opts);
-              onClose();
-            }}
-          />
-        ))}
-        {filterValue && visibleSessions.length === 0 && sessions.length > 0 ? (
-          <div className="px-3 py-4 text-center text-2xs text-muted-foreground">
-            {t("sessionsPopover.noMatches", { query: filter.trim() })}
-          </div>
-        ) : null}
-      </div>
-
-      {hasMore || loading ? (
-        <footer className="flex items-center justify-center gap-2 border-t border-border bg-muted/40 px-3 py-1.5">
-          <span className="font-mono text-2xs text-muted-foreground">
-            {t("sessionsPopover.loaded", {
-              loaded: sessions.length,
-              total,
-            })}
-          </span>
-          {hasMore ? (
-            <>
-              <span className="font-mono text-2xs text-border-strong">·</span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-2xs"
-                disabled={loading}
-                onClick={() => void fetchPage(sessions.length)}
-              >
-                {loading ? (
-                  <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-                ) : (
-                  <ChevronDown className="size-3" aria-hidden="true" />
-                )}
-                {t("sessionsPopover.loadMore")}
-              </Button>
-            </>
-          ) : null}
-        </footer>
-      ) : null}
-    </PopoverContent>
+      }
+      loadPage={loadPage}
+      getRowKey={(session) => session.id}
+      renderRow={(session, close) => (
+        <SessionRow
+          session={session}
+          onSelect={(id, opts) => {
+            onSelectSession(id, opts);
+            close();
+          }}
+        />
+      )}
+      onClose={onClose}
+      side="right"
+      align="start"
+      sideOffset={8}
+    />
   );
 }
 

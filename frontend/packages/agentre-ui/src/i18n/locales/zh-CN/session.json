@@ -7,6 +7,14 @@
   },
   "sessionGroup": {
     "empty": "暂无会话",
+    "overflow": {
+      "empty": "暂无会话",
+      "loadFailed": "无法加载会话",
+      "loaded": "已加载 {{loaded}} / {{total}}",
+      "loadMore": "加载更多",
+      "retry": "重试",
+      "total": "{{count}} 个会话"
+    },
     "viewAll": "查看全部 {{count}} 个会话"
   },
   "sessionRow": {

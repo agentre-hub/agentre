@@ -112,17 +112,6 @@
     "untitledSession": "Untitled session"
   },
   "sessionsPopover": {
-    "empty": "No sessions",
-    "loadFailed": "Load failed: {{error}}",
-    "loaded": "Loaded {{loaded}} / {{total}}",
-    "loadMore": "Load More",
-    "noMatches": "No matches for \"{{query}}\"",
-    "running": "{{count}} running",
-    "search": {
-      "aria": "Filter sessions by title",
-      "placeholder": "Search titles..."
-    },
-    "total": "{{count}} sessions",
     "untitled": "(Untitled)"
   },
   "shortcuts": {

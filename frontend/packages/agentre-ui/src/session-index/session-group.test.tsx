@@ -432,6 +432,32 @@ describe("SessionGroup 「查看全部 N」溢出弹层", () => {
     expect(mounted).not.toHaveBeenCalled();
   });
 
+  it("Given a group is collapsed, When its overflow trigger is hidden, Then it leaves keyboard navigation until the group expands again", async () => {
+    const user = userEvent.setup();
+    render(
+      <SessionGroup
+        defaultExpanded={false}
+        sessions={[ordinarySession(1)]}
+        totalSessions={12}
+        renderSessionsPopover={() => null}
+        renderHeader={({ toggle }) => (
+          <button type="button" onClick={toggle}>
+            header
+          </button>
+        )}
+      />,
+    );
+
+    const trigger = screen.getByText(/View all|查看全部/).closest("button");
+    expect(trigger).not.toBeNull();
+    expect(trigger).toBeDisabled();
+    expect(trigger).toHaveAttribute("tabindex", "-1");
+
+    await user.click(screen.getByRole("button", { name: "header" }));
+    expect(trigger).toBeEnabled();
+    expect(trigger).not.toHaveAttribute("tabindex", "-1");
+  });
+
   it("Given 弹层已经开过一次, When 关掉再打开, Then 内容重新挂载（每次打开都拿最新的一页，而不是复用上次那份）", async () => {
     const user = userEvent.setup();
     const mounted = vi.fn();

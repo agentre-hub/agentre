@@ -40,6 +40,8 @@ describe("会话索引的对外契约", () => {
       // 共享筛选与索引级空态（规格 2026-09-16 决策 6-7 / 13-14）。
       "SessionFilterChips",
       "SessionIndexEmpty",
+      // 组内全量弹层与不透明 cursor 页合同（规格 2026-09-16 决策 8 / 15）。
+      "SessionGroupOverflow",
     ].filter((name) => !(name in pkg));
 
     expect(missing).toEqual([]);

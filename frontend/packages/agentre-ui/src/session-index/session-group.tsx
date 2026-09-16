@@ -257,6 +257,7 @@ function SessionGroup({
                   <button
                     type="button"
                     disabled={!expanded}
+                    tabIndex={expanded ? undefined : -1}
                     className="flex cursor-pointer items-center gap-1 px-2 py-1.5 text-left text-2xs font-medium text-primary-text outline-none transition-colors hover:text-primary focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-default"
                   >
                     {t("sessionGroup.viewAll", { count: totalSessions })}
