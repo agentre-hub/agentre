@@ -26,7 +26,7 @@ make verify-down                    # retain isolated state for investigation
 make verify-down VERIFY_FLAGS=--wipe
 ```
 
-Use `make verify-up VERIFY_FLAGS=--headed` when the attached Chromium itself must be visible. Chromium is otherwise headless; both modes keep the established 1440×900 driven viewport for comparable evidence. The formal native desktop window keeps product behavior; the verification launcher does not hide or otherwise alter it.
+Use `make verify-up VERIFY_FLAGS=--headed` when the attached Chromium itself must be visible. Chromium is otherwise headless; both modes keep the established 1440×900 driven viewport for comparable evidence. The formal native desktop window keeps product behavior; the verification launcher does not hide or otherwise alter it. When the launcher runs as root it also passes `--no-sandbox` — Chromium cannot start its sandbox as root and would otherwise never expose the CDP port the driver attaches to.
 
 1. Run the narrow committed tests and type checks first. Run broader backend/frontend gates when the blast radius or repository gate requires them.
 2. Create `e2e/scratch/<scenario>/report.md` from [references/verification-report-template.md](references/verification-report-template.md) **before** starting acceptance/reproduction evidence.
