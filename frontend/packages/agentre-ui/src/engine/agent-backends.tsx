@@ -26,7 +26,11 @@ import {
 } from "./agent-backends-utils";
 import { agent_backend_svc, httpgateway } from "./port-bridge";
 import { useEngineSettingsBridge } from "./port-bridge";
-import type { AccountDeviceView, EngineSettingsPorts } from "./ports";
+import type {
+  AccountDeviceView,
+  EngineSettingsPorts,
+  HermesAuthProviderView,
+} from "./ports";
 import {
   EngineSettingsPortsProvider,
   useEngineSettingsPorts,
@@ -49,12 +53,16 @@ import {
   CliPathField,
   DefaultPermissionModeField,
   EnvJsonField,
+  HermesAuthFields,
+  HermesFields,
   ModelBindingSection,
   ReasoningEffortField,
   SandboxField,
 } from "./agent-backends-fields";
 import {
   RESERVED_ENV_KEYS,
+  consumesAgentreProvider,
+  isCLIPathBackend,
   isCliBackend,
   type ApprovalValue,
   type Backend,
@@ -79,6 +87,8 @@ import { DeviceField } from "./backend-editor/device-field";
 import {
   buildBackendDraft,
   emptyRoutes,
+  hermesErrorMessage,
+  hermesProbeErrorMessage,
   matchingProviders,
   openClawProbeErrorMessage,
   parseRoutes,
@@ -162,14 +172,21 @@ function AgentBackendsPanelBody({
   // 用 ref 而不是 state，避免 await TestAgentBackend 拿到的是闭包里的旧值。
   const testReqIdRef = React.useRef<string | null>(null);
 
-  function flashFromTestResponse(res: agent_backend_svc.TestBackendResponse) {
+  function flashFromTestResponse(
+    res: agent_backend_svc.TestBackendResponse,
+    backendType: string,
+  ) {
     if (res.ok) {
       setFlash({
         kind: "ok",
         text: `✅ ${res.latencyMs}ms · ${res.message}`,
       });
     } else {
-      setFlash({ kind: "err", text: `❌ ${res.message}` });
+      const text =
+        backendType === "hermes"
+          ? hermesProbeErrorMessage(res.code ?? "", res.message ?? "", t)
+          : res.message;
+      setFlash({ kind: "err", text: `❌ ${text}` });
     }
   }
 
@@ -199,7 +216,7 @@ function AgentBackendsPanelBody({
           : await TestAgentBackend(request);
       // 用户在等待期间点了取消 → testReqIdRef 已被清掉，丢弃 stale 响应。
       if (testReqIdRef.current !== requestId) return;
-      flashFromTestResponse(res);
+      flashFromTestResponse(res, backend.type);
     } catch (err) {
       if (testReqIdRef.current !== requestId) return;
       setFlash({ kind: "err", text: messageFromError(err, t) });
@@ -605,6 +622,34 @@ function BackendEditor({
   const [defaultModel, setDefaultModel] = React.useState<string>(
     editing?.defaultModel || "",
   );
+  // hermes 独占字段：DTO 上的 Server URL，保存时随草稿一并提交。
+  const [hermesUrl, setHermesUrl] = React.useState<string>(
+    (editing as unknown as { hermesUrl?: string } | null)?.hermesUrl ?? "",
+  );
+  // hermes gated serve 的认证状态：provider / userId 随草稿落 config_json；
+  // username / password 只在这一次登录里存在，成功后清空密码。
+  const [hermesAuthProvider, setHermesAuthProvider] = React.useState<string>(
+    (editing as unknown as { hermesAuthProvider?: string } | null)
+      ?.hermesAuthProvider ?? "",
+  );
+  const [hermesUserId, setHermesUserId] = React.useState<string>(
+    (editing as unknown as { hermesUserId?: string } | null)?.hermesUserId ??
+      "",
+  );
+  const [hermesUsername, setHermesUsername] = React.useState("");
+  const [hermesPassword, setHermesPassword] = React.useState("");
+  const [hermesProviders, setHermesProviders] = React.useState<
+    HermesAuthProviderView[]
+  >([]);
+  const [hermesProvidersLoading, setHermesProvidersLoading] =
+    React.useState(false);
+  const [hermesProvidersError, setHermesProvidersError] = React.useState("");
+  const [hermesLoggingIn, setHermesLoggingIn] = React.useState(false);
+  const [hermesAuthError, setHermesAuthError] = React.useState("");
+  const ports = useEngineSettingsPorts();
+  const listHermesAuthProviders = ports.listHermesAuthProviders;
+  const loginHermesBackend = ports.loginHermesBackend;
+  const logoutHermesBackend = ports.logoutHermesBackend;
   const openClaw = useOpenClawFields(editing);
   const deviceState = useBackendDevices({
     stateKind: state.kind,
@@ -705,12 +750,19 @@ function BackendEditor({
       setDefaultPermissionMode("");
       setDefaultModel("");
     }
+    // hermes 独占参数不跨类型残留（hermesKind.ValidateExtra 会拒入其它类型）。
+    setHermesUrl("");
+    setHermesAuthProvider("");
+    setHermesUserId("");
+    setHermesUsername("");
+    setHermesPassword("");
+    setHermesAuthError("");
     // 切类型时清空 cliPath，避免 claude / codex 两个不同的可执行文件串台。
     cli.setCliPath("");
     cli.setCliProbeMiss(null);
     // create 模式下切到 CLI 类型要把识别到的路径自动填进去；用户随时可手改/清空。
     // edit 模式不渲染选择器，所以这里不会跑；编辑场景只靠 Input 旁的「自动识别」按钮。
-    if (state.kind === "create" && isCliBackend(nextType)) {
+    if (state.kind === "create" && isCLIPathBackend(nextType)) {
       const probed = cli.cliProbes[nextType];
       if (probed?.state === "installed") {
         // 打开对话框时那一轮探测已经给出结论，直接复用 —— 远端设备上这能省掉一次真实往返，
@@ -764,6 +816,102 @@ function BackendEditor({
 
   const open = state.kind !== "closed";
 
+  // 只有形状完整的 http(s)://host:port 才去拉 provider 列表，避免每敲一个字符就发
+  // 一次网络请求；loopback 场景用户可能什么都不填，那就不发请求。
+  const hermesAuthURL = React.useMemo(() => {
+    const raw = hermesUrl.trim();
+    if (raw === "") return "";
+    try {
+      const u = new URL(raw);
+      if (
+        (u.protocol === "http:" || u.protocol === "https:") &&
+        u.port !== "" &&
+        !isLoopbackHost(u.hostname)
+      ) {
+        return raw;
+      }
+    } catch {
+      // 还没敲完的地址
+    }
+    return "";
+  }, [hermesUrl]);
+
+  React.useEffect(() => {
+    if (type !== "hermes") return;
+    if (!listHermesAuthProviders || hermesAuthURL === "") {
+      setHermesProviders([]);
+      setHermesProvidersError("");
+      return;
+    }
+    let cancelled = false;
+    setHermesProvidersLoading(true);
+    setHermesProvidersError("");
+    void listHermesAuthProviders(hermesAuthURL)
+      .then((providers) => {
+        if (cancelled) return;
+        const rows = providers ?? [];
+        setHermesProviders(rows);
+        // 默认选第一个支持密码的 provider（不硬编码 basic）。
+        setHermesAuthProvider((current) =>
+          current && rows.some((p) => p.name === current)
+            ? current
+            : (rows.find((p) => p.supportsPassword)?.name ?? ""),
+        );
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setHermesProviders([]);
+        setHermesProvidersError(messageFromError(err, t));
+      })
+      .finally(() => {
+        if (!cancelled) setHermesProvidersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [type, hermesAuthURL, listHermesAuthProviders, t]);
+
+  async function handleHermesLogin() {
+    if (!loginHermesBackend || hermesLoggingIn) return;
+    if (hermesAuthURL === "" || hermesAuthProvider === "") return;
+    setHermesLoggingIn(true);
+    setHermesAuthError("");
+    try {
+      const result = await loginHermesBackend({
+        url: hermesAuthURL,
+        provider: hermesAuthProvider,
+        username: hermesUsername,
+        password: hermesPassword,
+      });
+      setHermesUserId(result.userId);
+      if (result.provider) setHermesAuthProvider(result.provider);
+      // 成功后立即清掉密码输入，绝不留在一个可读回的表单里。
+      setHermesPassword("");
+      setHermesUsername("");
+    } catch (err) {
+      setHermesAuthError(hermesErrorMessage(err, t));
+    } finally {
+      setHermesLoggingIn(false);
+    }
+  }
+
+  async function handleHermesLogout() {
+    if (!logoutHermesBackend) return;
+    setHermesAuthError("");
+    try {
+      await logoutHermesBackend({
+        ...(editing ? { id: editing.id } : {}),
+        url: hermesAuthURL || hermesUrl.trim(),
+      });
+    } catch (err) {
+      setHermesAuthError(hermesErrorMessage(err, t));
+      return;
+    }
+    setHermesUserId("");
+    setHermesAuthProvider("");
+    setHermesPassword("");
+  }
+
   function buildDraft(): BackendDraft {
     return buildBackendDraft({
       type,
@@ -782,6 +930,9 @@ function BackendEditor({
       openClawGatewayURL: openClaw.gatewayURL,
       openClawAgentID: openClaw.agentID,
       openClawDefaultModel: openClaw.defaultModel,
+      hermesUrl,
+      hermesAuthProvider,
+      hermesUserId,
     });
   }
 
@@ -863,7 +1014,9 @@ function BackendEditor({
           text:
             type === "openclaw"
               ? openClawProbeErrorMessage(res.code ?? "", res.message ?? "", t)
-              : res.message,
+              : type === "hermes"
+                ? hermesProbeErrorMessage(res.code ?? "", res.message ?? "", t)
+                : res.message,
         });
       }
     } catch (err) {
@@ -1037,6 +1190,8 @@ function BackendEditor({
     name,
     llmProviderKey: effectiveLlmProviderKey,
     llmModelKey,
+    cliPath: cli.cliPath,
+    hermesUrl,
     openClawGatewayURL: openClaw.gatewayURL,
     targetCatalog,
     filteredProviders,
@@ -1123,7 +1278,7 @@ function BackendEditor({
             }
           />
 
-          {type !== "openclaw" ? (
+          {consumesAgentreProvider(type) ? (
             <ModelBindingSection
               type={type}
               providers={filteredProviders}
@@ -1155,13 +1310,13 @@ function BackendEditor({
               resolvedMainTarget={resolvedMainTarget}
               openPickerOnMount={state.kind === "edit" && !!state.openBinding}
             />
-          ) : (
+          ) : type === "openclaw" ? (
             <OpenClawSection
               fields={openClaw}
               canEditToken={canEditOpenClawToken}
               hasToken={editing?.hasToken ?? false}
             />
-          )}
+          ) : null}
 
           {showManualProviderSync ? (
             <ManualProviderSyncAlert
@@ -1170,7 +1325,7 @@ function BackendEditor({
             />
           ) : null}
 
-          {cliBased && canEditCliPath ? (
+          {isCLIPathBackend(type) && canEditCliPath ? (
             <CliPathField
               type={type}
               value={cli.cliPath}
@@ -1181,6 +1336,31 @@ function BackendEditor({
               onDetect={cli.handleDetectCli}
               detecting={cli.cliProbing}
               missMessage={cli.cliProbeMiss}
+            />
+          ) : null}
+
+          {type === "hermes" ? (
+            <HermesFields
+              url={hermesUrl}
+              onUrlChange={setHermesUrl}
+              auth={
+                <HermesAuthFields
+                  provider={hermesAuthProvider}
+                  onProviderChange={setHermesAuthProvider}
+                  username={hermesUsername}
+                  onUsernameChange={setHermesUsername}
+                  password={hermesPassword}
+                  onPasswordChange={setHermesPassword}
+                  userId={hermesUserId}
+                  providers={hermesProviders}
+                  providersLoading={hermesProvidersLoading}
+                  providersError={hermesProvidersError}
+                  loggingIn={hermesLoggingIn}
+                  error={hermesAuthError}
+                  onLogin={() => void handleHermesLogin()}
+                  onLogout={() => void handleHermesLogout()}
+                />
+              }
             />
           ) : null}
 
@@ -1249,7 +1429,13 @@ function BackendEditor({
           <EffectiveConfigSummary
             type={type}
             deviceName={deviceState.deviceDisplayName(deviceId)}
-            cliPath={cliBased ? cli.cliPath : ""}
+            cliPath={
+              type === "hermes"
+                ? hermesUrl
+                : isCLIPathBackend(type)
+                  ? cli.cliPath
+                  : ""
+            }
             resolvedMainTarget={resolvedMainTarget}
             customModel={defaultModel}
             routes={routes}
@@ -1259,7 +1445,7 @@ function BackendEditor({
             openClawModel={openClaw.defaultModel || openClaw.agentID}
           />
 
-          {type !== "openclaw" ? (
+          {consumesAgentreProvider(type) ? (
             <ReasoningEffortField
               value={reasoningEffort}
               onChange={setReasoningEffort}
@@ -1276,7 +1462,7 @@ function BackendEditor({
             />
           ) : null}
 
-          {cliBased ? (
+          {cliBased && consumesAgentreProvider(type) ? (
             <ProxyNote
               status={gatewayStatus}
               providerLinked={llmProviderKey !== ""}
@@ -1453,4 +1639,13 @@ function newRequestId(): string {
     return crypto.randomUUID.call(crypto);
   }
   return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// isLoopbackHost 与 Go 侧 loopback 形状检查同口径：loopback 的 `hermes serve` 不需要
+// 登录，所以不为它去拉 /api/auth/providers（那里的 404 是预期，不是错误）。
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host === "::1") return true;
+  return /^127(?:\.\d{1,3}){3}$/.test(host);
 }

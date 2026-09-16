@@ -51,7 +51,15 @@ type BackendItem struct {
 	OpenClawAgentID      string `json:"openClawAgentId"`
 	OpenClawDefaultModel string `json:"openClawDefaultModel"`
 	OpenClawSessionMode  string `json:"openClawSessionMode"`
-	HasToken             bool   `json:"hasToken"`
+	// HermesURL 仅 hermes 使用（entity 侧落在 config_json，不走迁移）：一个已在运行的
+	// `hermes serve` 的地址，规范形式 http(s)://host:port。非敏感配置，可随 DTO 出入。
+	HermesURL string `json:"hermesUrl"`
+	// HermesAuthProvider 仅 hermes 使用：gated serve 的认证 provider 名（如 basic）。
+	// 非敏感展示字段；密码与 refresh token 绝不出现在任何 DTO 里。
+	HermesAuthProvider string `json:"hermesAuthProvider"`
+	// HermesUserID 仅 hermes 使用：登录成功后的用户标识，用于界面「已登录为 xxx」。
+	HermesUserID string `json:"hermesUserId"`
+	HasToken     bool   `json:"hasToken"`
 	// DeviceID 是目标机器的 canonical fingerprint。当前安装自己的 fingerprint 表示
 	// 本机，跨机展示/编辑必须保留原值；只有调用本地 daemon RPC 时才翻译成
 	// paired row ID。
@@ -92,6 +100,9 @@ type CreateBackendRequest struct {
 	OpenClawAgentID       string                 `json:"openClawAgentId"`
 	OpenClawDefaultModel  string                 `json:"openClawDefaultModel"`
 	OpenClawSessionMode   string                 `json:"openClawSessionMode"`
+	HermesURL             string                 `json:"hermesUrl"`
+	HermesAuthProvider    string                 `json:"hermesAuthProvider"`
+	HermesUserID          string                 `json:"hermesUserId"`
 	DeviceID              string                 `json:"deviceId"`
 }
 
@@ -118,6 +129,9 @@ type UpdateBackendRequest struct {
 	OpenClawAgentID       string                 `json:"openClawAgentId"`
 	OpenClawDefaultModel  string                 `json:"openClawDefaultModel"`
 	OpenClawSessionMode   string                 `json:"openClawSessionMode"`
+	HermesURL             string                 `json:"hermesUrl"`
+	HermesAuthProvider    string                 `json:"hermesAuthProvider"`
+	HermesUserID          string                 `json:"hermesUserId"`
 	DeviceID              string                 `json:"deviceId"`
 }
 
@@ -160,6 +174,9 @@ type TestBackendRequest struct {
 	OpenClawAgentID       string                 `json:"openClawAgentId"`
 	OpenClawDefaultModel  string                 `json:"openClawDefaultModel"`
 	OpenClawSessionMode   string                 `json:"openClawSessionMode"`
+	HermesURL             string                 `json:"hermesUrl"`
+	HermesAuthProvider    string                 `json:"hermesAuthProvider"`
+	HermesUserID          string                 `json:"hermesUserId"`
 	RequestID             string                 `json:"requestId"`
 }
 
@@ -194,6 +211,50 @@ type OpenClawModelOption struct {
 	Provider  string `json:"provider"`
 	Available bool   `json:"available"`
 }
+
+// ---- Hermes gated serve 登录 ----
+
+// HermesAuthProviderItem 是 GET /api/auth/providers 的一条 provider。
+// SupportsPassword=false 的 provider（OAuth）在当前阶段不可用。
+type HermesAuthProviderItem struct {
+	Name             string `json:"name"`
+	DisplayName      string `json:"displayName"`
+	SupportsPassword bool   `json:"supportsPassword"`
+}
+
+// ListHermesAuthProvidersRequest 查询一个 hermes serve 支持的认证 provider。
+// URL 可以是还没保存的地址。
+type ListHermesAuthProvidersRequest struct {
+	URL string `json:"url" binding:"required"`
+}
+
+type ListHermesAuthProvidersResponse struct {
+	Providers []HermesAuthProviderItem `json:"providers"`
+}
+
+// LoginHermesRequest 跑一次原生 PKCE 登录。后端可能还没保存：凭据按 URL 派生存 keychain。
+// Password 只在这一次调用里存在，绝不落库。
+type LoginHermesRequest struct {
+	URL      string `json:"url" binding:"required"`
+	Provider string `json:"provider"`
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
+// LoginHermesResponse 只回非敏感展示字段；refresh token 留在 keychain。
+type LoginHermesResponse struct {
+	Provider string `json:"provider"`
+	UserID   string `json:"userId"`
+}
+
+// LogoutHermesRequest 退出登录。ID>0 时清后端 config_json 里的两个展示字段；
+// URL 用于还没保存的草稿。
+type LogoutHermesRequest struct {
+	ID  int64  `json:"id"`
+	URL string `json:"url"`
+}
+
+type LogoutHermesResponse struct{}
 
 // CancelTestBackendRequest 中断一个还在跑的 Test。
 //

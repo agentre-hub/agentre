@@ -13,8 +13,10 @@ import {
   LLMProviderRefCounts,
   ListAgentBackendCLIOverlays,
   ListAgentBackends,
+  ListHermesAuthProviders,
   ListLLMModels,
   ListLLMProviders,
+  LoginHermesBackend,
   LookupLLMModel,
   PreviewLLMModels,
   RemoteDeviceFingerprint,
@@ -35,6 +37,7 @@ import {
   UpdateOpenClawAgentBackend,
   UpdateLLMModel,
   UpdateLLMProvider,
+  LogoutHermesBackend,
 } from "../../../wailsjs/go/app/App";
 import {
   agent_backend_svc,
@@ -118,6 +121,9 @@ function backendView(item: agent_backend_svc.BackendItem): BackendView {
     openClawGatewayUrl: item.openClawGatewayUrl,
     openClawAgentId: item.openClawAgentId,
     openClawDefaultModel: item.openClawDefaultModel,
+    hermesUrl: item.hermesUrl,
+    hermesAuthProvider: item.hermesAuthProvider,
+    hermesUserId: item.hermesUserId,
     hasToken: item.hasToken,
     deviceId: item.deviceId,
     cliByDevice: [],
@@ -418,6 +424,26 @@ export function createDesktopEngineSettingsPorts(
         openClawModels: response.openClawModels ?? [],
         grantedScopes: response.grantedScopes ?? [],
       };
+    },
+    async listHermesAuthProviders(url) {
+      const response = await ListHermesAuthProviders(
+        new agent_backend_svc.ListHermesAuthProvidersRequest({ url }),
+      );
+      return response.providers ?? [];
+    },
+    async loginHermesBackend(input) {
+      const response = await LoginHermesBackend(
+        new agent_backend_svc.LoginHermesRequest(input),
+      );
+      return { provider: response.provider, userId: response.userId };
+    },
+    async logoutHermesBackend(input) {
+      await LogoutHermesBackend(
+        new agent_backend_svc.LogoutHermesRequest({
+          id: Number(input.id ?? 0),
+          url: input.url ?? "",
+        }),
+      );
     },
     async gatewayStatus() {
       return (await GetGatewayStatus()) as unknown as Record<string, unknown>;

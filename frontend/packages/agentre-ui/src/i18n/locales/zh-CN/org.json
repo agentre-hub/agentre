@@ -73,6 +73,7 @@
           "remoteProviderMissing": "远端缺少 LLM 供应商",
           "gatewayNotRunning": "本地网关未启动",
           "remoteOpenclawUnavailable": "远端 OpenClaw 暂不可用",
+          "remoteHermesUnavailable": "远端 Hermes 暂不可用",
           "unknownBackend": "未知后端类型",
           "unpaired": "这台电脑未配对它",
           "offline": "离线",

@@ -64,6 +64,7 @@ import { useTurnSettledCleanup } from "./chat-panel/use-turn-settled-cleanup";
 import { useMessageActions } from "./chat-panel/use-message-actions";
 import { FilePreviewPanel } from "./file-preview/file-preview-panel";
 import { computeComposerContextUsage } from "./chat-panel-context-usage";
+import { deriveComposerCapabilities } from "./chat-panel/composer-capabilities";
 import { usePermissionMode } from "./permission-mode";
 import { ProviderPill, useProviderPill } from "./model-pill";
 import {
@@ -376,14 +377,17 @@ function ChatPanel({
     sessionId > 0 ? undefined : newSessionBackendType || undefined,
   );
   const caps = sessionCaps ?? backendCaps;
-  const isModeSwitchable = !!caps?.has("set_permission_mode");
+  // 控件可见性的判定收敛在 deriveComposerCapabilities：Hermes 只声明
+  // abort，于是 steer / permission mode / 反向提问 / 图片 / 思考力度 / 压缩
+  // 一并关掉，不靠 JSX 里散落的 `caps?.has(...)` 各自记账。
+  const composerCaps = deriveComposerCapabilities(caps, activeBackendType);
+  const isModeSwitchable = composerCaps.canSetPermissionMode;
   // reasoning_effort 能力位为假时(openclaw)整颗控件不渲染,不是置灰(spec 决策 6)。
-  const supportsReasoningEffort = !!caps?.has("reasoning_effort");
-  const canStopBackgroundTask = !!caps?.has("stop_background_task");
-  const supportsImageInput = !!caps?.has("image_input");
-  const supportsCompactRPC = caps
-    ? caps.has("compact")
-    : activeBackendType === "codex" || activeBackendType === "piagent";
+  const supportsReasoningEffort = composerCaps.supportsReasoningEffort;
+  const canStopBackgroundTask = composerCaps.canStopBackgroundTask;
+  const supportsImageInput = composerCaps.supportsImageInput;
+  const supportsCompactRPC = composerCaps.supportsCompact;
+  const canSteer = composerCaps.canSteer;
 
   // composerContextUsage：当前会话 inputBox 底栏的「上下文用量」数据。
   //   - max  = session.contextWindow（解析顺序见 chat_svc.resolveContextWindowWithRuntime；为 0 时整块隐藏）。
@@ -581,6 +585,7 @@ function ChatPanel({
     onSidebarShouldReload,
     streaming,
     activeBackendType,
+    canSteer,
     isModeSwitchable,
     permissionModeValue: permissionMode.mode,
     supportsImageInput,
@@ -935,7 +940,8 @@ function ChatPanel({
                               hasActiveSession={permissionMode.hasActiveSession}
                             />
                           ) : null}
-                          {activeBackendType ? (
+                          {activeBackendType &&
+                          activeBackendType !== "hermes" ? (
                             <ProviderPill {...providerPill} />
                           ) : null}
                         </div>

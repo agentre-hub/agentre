@@ -16,7 +16,8 @@ export type BackendType =
   | "claudecode"
   | "codex"
   | "piagent"
-  | "openclaw";
+  | "openclaw"
+  | "hermes";
 export type Translate = ReturnType<typeof useTranslation>["t"];
 
 // probing → 请求在飞；installed/missing → 目标机 $PATH 的结论；
@@ -68,12 +69,29 @@ export const RESERVED_ENV_KEYS = new Set([
 ]);
 
 export function isCliBackend(t: BackendType): boolean {
+  return (
+    t === "claudecode" || t === "codex" || t === "piagent" || t === "hermes"
+  );
+}
+
+// isCLIPathBackend 回答「这个后端会不会 spawn 一个本地 CLI，从而需要探测 / 填写
+// 可执行文件路径」。hermes 属于 isCliBackend（走设备前缀、仍可编辑 env_json），
+// 但它连的是一个已在运行的 `hermes serve`，没有 CLI 路径可探。
+export function isCLIPathBackend(t: BackendType): boolean {
   return t === "claudecode" || t === "codex" || t === "piagent";
+}
+
+// consumesAgentreProvider 回答「这个后端会不会读 Agentre 的 LLMProvider」。
+// openclaw 走 Gateway 自身认证，hermes 自带 provider/model/凭证配置，两者不参与
+// 供应商绑定；其余四个后端至少可以关联一个 Agentre provider。
+export function consumesAgentreProvider(t: BackendType): boolean {
+  return t !== "openclaw" && t !== "hermes";
 }
 
 export function cliBinaryName(t: BackendType): string {
   if (t === "claudecode") return "claude";
   if (t === "piagent") return "pi";
+  if (t === "hermes") return "hermes";
   return "codex";
 }
 

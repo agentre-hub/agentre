@@ -13,7 +13,7 @@ import {
 } from "./agent-backends-utils";
 import {
   CLAUDE_TIERS,
-  isCliBackend,
+  isCLIPathBackend,
   routeConclusion,
   type BackendType,
   type CLIProbe,
@@ -24,12 +24,13 @@ import {
 import { AgentBackendLogo } from "./ai-brand-logo";
 import type { PickerProvider } from "./model-target-picker";
 
-// 选择器里的展示顺序：三个 CLI 引擎在前（最常用且需要装命令行），内置与网关收尾。
-// openclaw 排最后是因为它在两列网格里独占整行，避免出现空格子。
+// 选择器里的展示顺序：三个 CLI 引擎在前（最常用且需要装命令行），Hermes 同属
+// CLI 子进程后端紧随其后，内置与网关收尾。
 const BACKEND_TYPE_ORDER: BackendType[] = [
   "claudecode",
   "codex",
   "piagent",
+  "hermes",
   "builtin",
   "openclaw",
 ];
@@ -50,6 +51,9 @@ const backendTypeMeta: Record<
     disabled: false,
   },
   piagent: {
+    disabled: false,
+  },
+  hermes: {
     disabled: false,
   },
   openclaw: {
@@ -126,9 +130,6 @@ export function BackendTypePicker({
               checked
                 ? "border-primary bg-primary-soft"
                 : "border-border bg-card hover:border-border-strong hover:bg-accent/60",
-              // 5 个选项排两列会空一格,让网关独占末行收尾。单列时不能加 span-2:
-              // 那会在 1 列的网格里撑出一条隐式列,把整行顶出容器。
-              backendType === "openclaw" && "sm:col-span-2",
             )}
           >
             <span aria-hidden="true">
@@ -162,7 +163,7 @@ function BackendTypeBadge({
     );
   }
   // 网关不给徽标：它要填什么，选中之后表单自己会说。
-  if (!isCliBackend(type) || !probe) return null;
+  if (!isCLIPathBackend(type) || !probe) return null;
 
   const tone =
     probe.state === "installed"
@@ -238,28 +239,34 @@ export function EffectiveConfigSummary({
   const source =
     type === "openclaw"
       ? t("agentBackends.summary.sources.openclaw")
-      : resolvedMainTarget.mode === "native"
-        ? t("agentBackends.summary.sources.cli")
-        : t("agentBackends.summary.sources.agentre", {
-            provider: resolvedMainTarget.providerName,
-          });
+      : type === "hermes"
+        ? t("agentBackends.summary.sources.hermes")
+        : resolvedMainTarget.mode === "native"
+          ? t("agentBackends.summary.sources.cli")
+          : t("agentBackends.summary.sources.agentre", {
+              provider: resolvedMainTarget.providerName,
+            });
   const effectiveModel =
     type === "openclaw"
       ? openClawModel || t("agentBackends.openclaw.modelGatewayDefault")
-      : resolvedMainTarget.mode === "native"
-        ? customModel || t("agentBackends.summary.cliAccountModel")
-        : resolvedMainTarget.modelLabel ||
-          t("agentBackends.summary.unresolvedModel");
+      : type === "hermes"
+        ? t("agentBackends.summary.hermesModel")
+        : resolvedMainTarget.mode === "native"
+          ? customModel || t("agentBackends.summary.cliAccountModel")
+          : resolvedMainTarget.modelLabel ||
+            t("agentBackends.summary.unresolvedModel");
   const mode =
     type === "openclaw"
       ? t("agentBackends.summary.modeGateway")
-      : resolvedMainTarget.mode === "provider-default"
-        ? t("agentBackends.binding.modeFollow")
-        : resolvedMainTarget.mode === "fixed"
-          ? t("agentBackends.binding.modeFixed")
-          : resolvedMainTarget.mode === "invalid"
-            ? t("agentBackends.summary.modeInvalid")
-            : t("agentBackends.summary.modeCli");
+      : type === "hermes"
+        ? t("agentBackends.summary.modeHermes")
+        : resolvedMainTarget.mode === "provider-default"
+          ? t("agentBackends.binding.modeFollow")
+          : resolvedMainTarget.mode === "fixed"
+            ? t("agentBackends.binding.modeFixed")
+            : resolvedMainTarget.mode === "invalid"
+              ? t("agentBackends.summary.modeInvalid")
+              : t("agentBackends.summary.modeCli");
   return (
     <section
       data-testid="effective-config-summary"
