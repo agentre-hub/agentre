@@ -664,8 +664,12 @@ describe("SessionIndexPage search and filter chips", () => {
     );
 
     // 搜索是一次取数（去抖 + RPC），不再是敲下去当帧就算完的前端过滤。
-    await waitFor(() => expect(querySessionRow("Running one")).toBeNull());
-    expect(sessionRow("Visual pass")).toBeInTheDocument();
+    // 同步点是**目标行出现**：去抖后 scope 先换掉、旧页整组清空，新页还在路上，
+    // 只等旧行消失会在目标页提交之前读到空列表。两件事在同一个等待里判定。
+    await waitFor(() => {
+      expect(sessionRow("Visual pass")).toBeInTheDocument();
+      expect(querySessionRow("Running one")).toBeNull();
+    });
 
     await user.click(screen.getByRole("button", { name: "Clear search" }));
     expect(
