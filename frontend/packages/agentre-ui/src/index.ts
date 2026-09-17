@@ -288,6 +288,10 @@ export type {
   SessionImportPorts,
 } from "./session-import/ports";
 export { OwnSessionsHeader } from "./session-index/own-sessions-header";
+export { ProjectSessionGroup } from "./session-index/project-session-group";
+export type { ProjectSessionGroupProps } from "./session-index/project-session-group";
+export { nestProjectGroups } from "./session-index/project-group-tree";
+export type { IndexGroupNode } from "./session-index/project-group-tree";
 export { ProjectGlyph } from "./session-index/project-glyph";
 export type { ProjectGlyphInfo } from "./session-index/project-glyph";
 export {

@@ -42,6 +42,9 @@ describe("会话索引的对外契约", () => {
       "SessionIndexEmpty",
       // 组内全量弹层与不透明 cursor 页合同（规格 2026-09-16 决策 8 / 15）。
       "SessionGroupOverflow",
+      // 项目树：平铺深度列表还原成树，父项目自己的会话下沉进子分组（两端同一份）。
+      "nestProjectGroups",
+      "ProjectSessionGroup",
     ].filter((name) => !(name in pkg));
 
     expect(missing).toEqual([]);
