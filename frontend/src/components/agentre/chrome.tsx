@@ -222,9 +222,7 @@ function AppTopBar({
         <span className="text-sm font-semibold">{appName}</span>
         {breadcrumb ? (
           <>
-            <span className="font-mono text-sm text-decorative-foreground">
-              /
-            </span>
+            <span className="font-mono text-sm text-muted-foreground">/</span>
             <span className="min-w-0 truncate text-sm text-muted-foreground">
               {breadcrumb}
             </span>

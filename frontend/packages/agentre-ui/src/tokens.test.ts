@@ -87,13 +87,8 @@ const THEME_INVARIANT = new Set([
   "--traffic-close",
   "--traffic-minimize",
   "--traffic-zoom",
-  // 项目 / Agent 字形上那个首字：底色是 --agent-1…16 调色板，深浅两套压的都是白字。
-  "--agent-foreground",
   // 实心琥珀 Badge 上的深棕字。深浅两色都是亮琥珀，同一个值都可读。
   "--status-waiting-foreground",
-  // 身份色板的中性档：它是「没有身份色」的墨色而不是一种色相，白字形压在上面，
-  // 暗色下调浅反而会把字形吃掉。见下面「身份色板覆盖到中性档」。
-  "--agent-neutral",
 ]);
 
 /**
@@ -256,9 +251,45 @@ describe("正文色对它落到的每个表面都达标", () => {
   });
 });
 
+/**
+ * 状态**填充色**上的前景。
+ *
+ * 和「文字 vs 填充」那条是一对：那条管「状态当文字写在纸上」，这条管「写在状态
+ * 实底上的字」。实底亮度的任何变化（比如降饱和）都会直接改这里的对比度——没有
+ * 这条守卫，把 --status-running 调暗一点、前景字就会悄悄掉到 2.54 也没人拦。
+ */
+describe("状态填充色上的前景读得出", () => {
+  it.each(THEMES)(
+    "%s(%s)下 --status-running-foreground 在 --status-running 实底上达标",
+    (_scope, _label, get) => {
+      const t = get();
+      // 不随主题变的 token（waiting-foreground）只在 :root 声明，按级联取有效值。
+      const effective = (name: string) => t[name] ?? root[name];
+      const fg = effective("--status-running-foreground");
+      expect(
+        contrast(fg, t["--status-running"]),
+        `${fg} 落在 ${t["--status-running"]} 上`,
+      ).toBeGreaterThanOrEqual(TEXT_MIN);
+    },
+  );
+
+  it.each(THEMES)(
+    "%s(%s)下 --status-waiting-foreground 在 --status-waiting 实底上达标",
+    (_scope, _label, get) => {
+      const t = get();
+      const effective = (name: string) => t[name] ?? root[name];
+      const fg = effective("--status-waiting-foreground");
+      expect(
+        contrast(fg, t["--status-waiting"]),
+        `${fg} 落在 ${t["--status-waiting"]} 上`,
+      ).toBeGreaterThanOrEqual(TEXT_MIN);
+    },
+  );
+});
+
 describe("状态色的『文字』角色与『填充』角色分开", () => {
   // --status-running / --status-waiting 是饱和色，当点和底色是对的，当文字读不出来：
-  // 亮色下它们在自己的胶囊底上只有 2.41 / 2.07。所以文字另立 --status-*-text。
+  // 亮色下它们在自己的胶囊底上只有 2.51 / 2.23。所以文字另立 --status-*-text。
   it.each(THEMES)(
     "%s(%s)下 RUNNING 文字在胶囊底和卡片上都达标",
     (_s, _t, get) => {
@@ -293,19 +324,54 @@ describe("状态色的『文字』角色与『填充』角色分开", () => {
  * 宿主各写各的，改一处也流不到另一处。
  */
 describe("身份色板覆盖到中性档", () => {
-  it("--agent-neutral 有声明与 --color-* 映射，且白色字形压得住", () => {
+  it("--agent-neutral 有声明与 --color-* 映射，且亮色的白色字形压得住", () => {
     expect(
       root["--agent-neutral"],
       "tokens.css 里没有 --agent-neutral",
     ).toBeDefined();
     expect(theme["--color-agent-neutral"]).toBe("var(--agent-neutral)");
-    // 字形是白的（--agent-foreground 主题无关），所以中性档也必须是深到读得出白字
-    // 的那一端——这正是它不跟随主题变浅的原因。
+    // 亮色前景是白的（深色另有墨字覆写，见 .dark），所以中性档在亮色里必须
+    // 深到读得出白字。#525252 压白 7.81。两套主题的完整配对由下面「身份色上
+    // 的前景在两个主题都读得出」那条守卫统一把关。
     expect(
       contrast(root["--agent-foreground"], root["--agent-neutral"]),
       `--agent-foreground ${root["--agent-foreground"]} 落在 --agent-neutral ${root["--agent-neutral"]} 上`,
     ).toBeGreaterThanOrEqual(TEXT_MIN);
   });
+});
+
+/**
+ * 身份色上的前景。
+ *
+ * `--agent-foreground` 曾被当成主题无关，注释断言「字形在两个主题下都压白字」。
+ * 那是错的：深色身份色是提亮过的 300-400 档，白字最差只有 2.54:1（agent-1）；
+ * 浅色也有 600 档压白只到 2.94（agent-14）。前景必须跟主题走，而中性档
+ * `--agent-neutral` 又必须跟着前景一起换——只改前景不改它，深色就变成深字压
+ * 深灰底（2.42:1）。17 档 × 两主题一起算。
+ */
+const AGENT_COLOR_TOKENS = [
+  ...Array.from({ length: 16 }, (_, i) => `--agent-${i + 1}`),
+  "--agent-neutral",
+];
+
+describe("身份色上的前景在两个主题都读得出", () => {
+  it.each(THEMES)(
+    "%s(%s)下 --agent-foreground 压得住全部 17 档身份色",
+    (_scope, _label, get) => {
+      const t = get();
+      // 深色若不覆写，CSS 会沿用到 :root 的值——那正是旧的 bug，所以按级联后的
+      // 有效值算，而不是只看 .dark 块。
+      const effective = (name: string) => t[name] ?? root[name];
+      const fg = effective("--agent-foreground");
+      for (const token of AGENT_COLOR_TOKENS) {
+        const fill = effective(token);
+        expect(
+          contrast(fg, fill),
+          `${fg} 落在 ${token} ${fill} 上`,
+        ).toBeGreaterThanOrEqual(TEXT_MIN);
+      }
+    },
+  );
 });
 
 describe("token 声明完整性", () => {

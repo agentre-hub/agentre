@@ -303,6 +303,9 @@ describe("Agentre foundation components", () => {
 
     expect(screen.getByText("Agentre")).toBeInTheDocument();
     expect(screen.getByText("CEO 助手")).toBeInTheDocument();
+    // 「/」骑在 --rail 上，且分隔应用名与面包屑（承载信息），必须用正文色：
+    // --decorative-foreground 在 rail 上只有 2.70，连 §1.4.11 的 3:1 都不到。
+    expect(screen.getByText("/")).toHaveClass("text-muted-foreground");
     expect(screen.getByText("⌘P")).toBeInTheDocument();
     expect(screen.getByRole("banner")).toHaveClass("wails-drag");
     expect(

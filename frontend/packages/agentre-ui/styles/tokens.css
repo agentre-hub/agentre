@@ -111,17 +111,17 @@
        --status-X-foreground  text sitting ON the saturated fill
        --status-X-text        the state rendered AS text (on --status-X-bg or a card)
      The last one exists because the saturated fill is unreadable as text in light:
-     #10b981 on its own pill is 2.41, #f59e0b is 2.07. Guarded by src/tokens.test.ts. */
-  --status-running: #10b981;
-  --status-running-foreground: #ffffff;
+     #14b580 on its own pill is 2.51, #e69a1a is 2.23. Guarded by src/tokens.test.ts. */
+  --status-running: #14b580;
+  --status-running-foreground: #04140c;
   --status-running-bg: #ecfdf5;
-  --status-running-text: #047857;
-  --status-waiting: #f59e0b;
+  --status-running-text: #0c7053;
+  --status-waiting: #e69a1a;
   /* Deep brown on the bright amber fill. Both themes keep a bright amber, so the
      same value reads on either — hence no .dark override. */
   --status-waiting-foreground: #402b06;
-  --status-waiting-bg: #fffbeb;
-  --status-waiting-text: #b45309;
+  --status-waiting-bg: #fdfaed;
+  --status-waiting-text: #aa5413;
   /* 状态记号（圆点 / 状态图标）。它落在 --secondary #f4f4f5 上——会话索引的机器
      分组头把圆点放进 bg-secondary 的槽里——所以最坏表面不是 --card：#8c8c93
      在那里 3.04，对 --card 3.34。仍亮于 --muted-foreground #65656d，不破坏
@@ -139,8 +139,10 @@
   --destructive-text: #b91c1c;
 
   /* The initial glyph on a project / agent avatar. The fill underneath comes from
-     the --agent-1…16 palette; the letter is white on every one of them, in both
-     themes — so this is theme-invariant and has no .dark override. */
+     the --agent-1…16 palette. Light identity colors are the 600-700 band, where
+     white holds on all 17 (≥4.6); dark raises them to the 300-400 band, where
+     white falls to 2.54, so .dark swaps in an ink. Not theme-invariant — see the
+     .dark override and the pairing note on --agent-neutral. */
   --agent-foreground: #ffffff;
 
   /* Elevation for detached overlays (Dialog / Sheet) and the scrim behind them.
@@ -157,27 +159,29 @@
   --code-foreground: #3f3f46;
   --code-muted-foreground: #65656d;
 
-  /* Agent palette — 600-700 saturated shades hold up on light bg.
-     agent-3 sky / agent-6 cyan avoid clash with status-running & primary teal. */
-  --agent-1: #2563eb;
-  --agent-2: #7c3aed;
-  --agent-3: #0284c7;
+  /* Agent palette — 600-700 shades, saturation capped at 80%, hold up under the
+     white glyph on light bg. agent-3 sky / agent-6 cyan avoid clash with
+     status-running & primary teal. */
+  --agent-1: #2964e7;
+  --agent-2: #7d3ee9;
+  --agent-3: #147cb3;
   --agent-4: #e11d48;
-  --agent-5: #d97706;
-  --agent-6: #0891b2;
+  --agent-5: #ab6413;
+  --agent-6: #117d97;
   --agent-7: #c026d3;
-  --agent-8: #65a30d;
+  --agent-8: #507e0e;
   --agent-9: #4f46e5;
-  --agent-10: #ea580c;
-  --agent-11: #059669;
-  --agent-12: #0d9488;
-  --agent-13: #db2777;
-  --agent-14: #ca8a04;
+  --agent-10: #c15015;
+  --agent-11: #0e825f;
+  --agent-12: #0e8076;
+  --agent-13: #d92474;
+  --agent-14: #996d11;
   --agent-15: #64748b;
-  --agent-16: #9333ea;
+  --agent-16: #9334e9;
   /* The 17th slot of AgentColor: "no identity color". It is an ink, not a hue,
-     so it has no .dark override — the glyph on top is --agent-foreground white
-     in both themes, and lightening the fill for dark mode would sink it. */
+     but it MUST pair with --agent-foreground: light keeps white on #525252, dark
+     needs a lighter fill for the ink glyph (#a3a3a3, 7.50). Leaving it theme-
+     invariant while the foreground flips would render 2.42 in dark. */
   --agent-neutral: #525252;
 
   /* Label tones — the two hues in the issue-label vocabulary that have no
@@ -348,6 +352,13 @@
   --agent-14: #fde047;
   --agent-15: #94a3b8;
   --agent-16: #c084fc;
+
+  /* See :root. Dark identity colors are the 300-400 band; the white glyph in
+     :root only reaches 2.54 there, so the letter flips to the same ink the
+     running status uses. --agent-neutral flips the other way — from the light
+     ink fill to a light grey — so the ink glyph still reads. */
+  --agent-foreground: #04140c;
+  --agent-neutral: #a3a3a3;
 
   /* Label tones — see :root. Fills mirror the old agent-N/10 tint over --card. */
   --tone-blue-bg: #242d3a;
