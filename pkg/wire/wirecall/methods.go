@@ -245,3 +245,25 @@ var SetSessionReasoningEffort = Define[*agentrewire.SetSessionReasoningEffortReq
 	func() *agentrewire.SetSessionReasoningEffortResponse {
 		return &agentrewire.SetSessionReasoningEffortResponse{}
 	})
+
+// ── 设备本地后端凭据:由后端绑定的设备应答,凭据只朝设备一个方向走 ──
+
+var BackendCredentialStatus = Define[*agentrewire.BackendCredentialStatusRequest](agentrewire.RpcMethod_RPC_METHOD_BACKEND_CREDENTIAL_STATUS,
+	func() *agentrewire.BackendCredentialStatusResponse {
+		return &agentrewire.BackendCredentialStatusResponse{}
+	})
+
+var OpenClawTokenSet = Define[*agentrewire.OpenClawTokenSetRequest](agentrewire.RpcMethod_RPC_METHOD_OPENCLAW_TOKEN_SET,
+	func() *agentrewire.OpenClawTokenSetResponse { return &agentrewire.OpenClawTokenSetResponse{} })
+
+var HermesAuthProviders = Define[*agentrewire.HermesAuthProvidersRequest](agentrewire.RpcMethod_RPC_METHOD_HERMES_AUTH_PROVIDERS,
+	func() *agentrewire.HermesAuthProvidersResponse { return &agentrewire.HermesAuthProvidersResponse{} })
+
+var HermesLogin = Define[*agentrewire.HermesLoginRequest](agentrewire.RpcMethod_RPC_METHOD_HERMES_LOGIN,
+	func() *agentrewire.HermesLoginResponse { return &agentrewire.HermesLoginResponse{} })
+
+var HermesLogout = Define[*agentrewire.HermesLogoutRequest](agentrewire.RpcMethod_RPC_METHOD_HERMES_LOGOUT,
+	func() *agentrewire.HermesLogoutResponse { return &agentrewire.HermesLogoutResponse{} })
+
+var BackendConnectionTest = Define[*agentrewire.BackendConnectionTestRequest](agentrewire.RpcMethod_RPC_METHOD_BACKEND_CONNECTION_TEST,
+	func() *agentrewire.BackendConnectionTestResponse { return &agentrewire.BackendConnectionTestResponse{} })

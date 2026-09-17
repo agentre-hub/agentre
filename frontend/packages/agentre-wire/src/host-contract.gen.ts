@@ -123,4 +123,10 @@ export const agentredAnsweredMethods: readonly string[] = [
   "workspaceFsGitBranches",
   "workspaceFsGitState",
   "workspaceFsGitChanges",
+  "backendCredentialStatus",
+  "openClawTokenSet",
+  "hermesAuthProviders",
+  "hermesLogin",
+  "hermesLogout",
+  "backendConnectionTest",
 ];

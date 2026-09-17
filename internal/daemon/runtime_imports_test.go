@@ -23,6 +23,14 @@ func TestBackendRuntimesRegistered(t *testing.T) {
 		assert.NotNil(t, agentruntime.RuntimeFor(bt),
 			"backend %q must be registered by runtime_imports.go", bt)
 	}
-	assert.Nil(t, agentruntime.RuntimeFor(agent_backend_entity.TypeOpenClaw),
-		"OpenClaw must remain unavailable in agentred until secret enrollment/reference is implemented")
+	// agentred 登记 Hermes / OpenClaw 的设备本地凭据并能测试连接(handlers 经无副作用的
+	// backendcred / hermesgateway / openclawgateway),但并不在本机跑这两种 runtime:
+	// 这条守卫钉住凭据那一族没有把 runtime 包连同它的 init 一起拖进来。
+	for _, bt := range []agent_backend_entity.BackendType{
+		agent_backend_entity.TypeOpenClaw,
+		agent_backend_entity.TypeHermes,
+	} {
+		assert.Nil(t, agentruntime.RuntimeFor(bt),
+			"backend %q must not be registered in agentred: its credential handlers must stay runtime-free", bt)
+	}
 }

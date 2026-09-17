@@ -31,6 +31,46 @@ func RegisterPeripheralMethods(registry *protorpc.Registry, deps PeripheralDeps)
 	registerProtobufWorkspaceFS(registry, deps.WorkspaceFS)
 	registerProtobufTranscriptImport(registry, deps.TranscriptImport)
 	registerProtobufPortForward(registry, deps.PortForward)
+	registerProtobufBackendCredentials(registry, deps.BackendCredentials)
+}
+
+// registerProtobufBackendCredentials 把设备本地后端凭据一族挂上。端口缺席就不注册。
+func registerProtobufBackendCredentials(registry *protorpc.Registry, credentials BackendCredentialPort) {
+	if credentials == nil {
+		return
+	}
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_BACKEND_CREDENTIAL_STATUS),
+		func() *agentrewire.BackendCredentialStatusRequest {
+			return &agentrewire.BackendCredentialStatusRequest{}
+		},
+		Authenticated(converted(credentials.Status)))
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_OPENCLAW_TOKEN_SET),
+		func() *agentrewire.OpenClawTokenSetRequest { return &agentrewire.OpenClawTokenSetRequest{} },
+		Authenticated(converted(credentials.SetOpenClawToken)))
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_HERMES_AUTH_PROVIDERS),
+		func() *agentrewire.HermesAuthProvidersRequest { return &agentrewire.HermesAuthProvidersRequest{} },
+		Authenticated(converted(credentials.HermesAuthProviders)))
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_HERMES_LOGIN),
+		func() *agentrewire.HermesLoginRequest { return &agentrewire.HermesLoginRequest{} },
+		Authenticated(converted(credentials.HermesLogin)))
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_HERMES_LOGOUT),
+		func() *agentrewire.HermesLogoutRequest { return &agentrewire.HermesLogoutRequest{} },
+		Authenticated(converted(credentials.HermesLogout)))
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_BACKEND_CONNECTION_TEST),
+		func() *agentrewire.BackendConnectionTestRequest { return &agentrewire.BackendConnectionTestRequest{} },
+		Authenticated(converted(credentials.TestConnection)))
+}
+
+// converted 让端口的错误按 ConvertError 折上线:领域错误(*protorpc.Error)原样保留。
+func converted[Req any, Resp any](port func(context.Context, Req) (Resp, error)) func(context.Context, Req) (Resp, error) {
+	return func(ctx context.Context, request Req) (Resp, error) {
+		response, err := port(ctx, request)
+		if err != nil {
+			var zero Resp
+			return zero, ConvertError(err)
+		}
+		return response, nil
+	}
 }
 
 // registerProtobufPortForward 挂上 portforward.* 的**声明族**四个方法。流族

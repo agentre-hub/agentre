@@ -19,6 +19,15 @@ type State struct {
 	// keyed by the desktop fingerprint the account server named at issuance.
 	// Account-bound: Logout drops them with the claim (D11).
 	DirectCredentials map[string]DirectCredential `json:"directCredentials,omitempty"`
+	// BackendCredentials are the device-local secrets of the network agent
+	// backends bound to this daemon (OpenClaw Gateway tokens keyed by sync_id,
+	// Hermes refresh tokens keyed by serve URL, the OpenClaw identity seed),
+	// keyed by the backendcred slot name. They belong to the account's
+	// backends, so Logout drops them with the claim.
+	BackendCredentials map[string]string `json:"backendCredentials,omitempty"`
+	// HermesIdentities are the non-sensitive display identities of the Hermes
+	// serves this daemon is logged into, keyed by normalized serve URL.
+	HermesIdentities map[string]HermesIdentity `json:"hermesIdentities,omitempty"`
 
 	mu  *sync.RWMutex `json:"-"`
 	dir string        `json:"-"`
@@ -90,6 +99,13 @@ type AccountCredential struct {
 type DirectCredential struct {
 	Credential string `json:"credential"`
 	AccountID  string `json:"accountId"`
+}
+
+// HermesIdentity is what a Hermes login reports about who logged in. It is
+// shown to the user and carries no secret.
+type HermesIdentity struct {
+	Provider string `json:"provider"`
+	UserID   string `json:"userId"`
 }
 
 type Preferences struct {

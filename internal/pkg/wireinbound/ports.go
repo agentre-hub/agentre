@@ -73,6 +73,21 @@ type PortForwardPort interface {
 	Delete(ctx context.Context, request *agentrewire.PortForwardDeleteRequest) (*agentrewire.PortForwardDeleteResponse, error)
 }
 
+// BackendCredentialPort 是这台设备上 Hermes / OpenClaw 后端的**设备本地凭据面**:
+// 查询状态、存/清 OpenClaw token、列 Hermes 提供方、登录、登出、测试连接。
+//
+// 直接收发线上的载体,与 PortForwardPort 同一条判据:凭据只存在后端绑定的那台设备上,
+// 两种执行端各自交出按本机存储(agentred 的 state.json、桌面端的 keychain)实现的这一面,
+// 线形状只有这一份。实现方承担「明文凭据不出现在应答里」这条不变量。
+type BackendCredentialPort interface {
+	Status(ctx context.Context, request *agentrewire.BackendCredentialStatusRequest) (*agentrewire.BackendCredentialStatusResponse, error)
+	SetOpenClawToken(ctx context.Context, request *agentrewire.OpenClawTokenSetRequest) (*agentrewire.OpenClawTokenSetResponse, error)
+	HermesAuthProviders(ctx context.Context, request *agentrewire.HermesAuthProvidersRequest) (*agentrewire.HermesAuthProvidersResponse, error)
+	HermesLogin(ctx context.Context, request *agentrewire.HermesLoginRequest) (*agentrewire.HermesLoginResponse, error)
+	HermesLogout(ctx context.Context, request *agentrewire.HermesLogoutRequest) (*agentrewire.HermesLogoutResponse, error)
+	TestConnection(ctx context.Context, request *agentrewire.BackendConnectionTestRequest) (*agentrewire.BackendConnectionTestResponse, error)
+}
+
 // PeripheralDeps 是宿主交出的那一份能力。
 //
 // **缺席就是一种回答。** 某一格为 nil 表示这台机器没有这个能力,本包据此**不注册**
@@ -92,4 +107,7 @@ type PeripheralDeps struct {
 	WorkspaceFS      WorkspaceFSPort
 	TranscriptImport TranscriptImportPort
 	PortForward      PortForwardPort
+	// BackendCredentials 的闸门与其余外围方法相同(Authenticated):调用方是已经能在
+	// 这台设备上发起对话的对端 —— 同账号认证的桌面端与控制台、与它配对的桌面端。
+	BackendCredentials BackendCredentialPort
 }

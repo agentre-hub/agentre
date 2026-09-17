@@ -242,6 +242,44 @@ export const rpcMethods = {
     pb.PortForwardDeleteRequestSchema,
     pb.PortForwardDeleteResponseSchema,
   ),
+  // 设备本地后端凭据:凭据只存在后端绑定的那台设备上,控制台经中继把操作送到那台设备。
+  // token 与密码只出现在请求里,应答从不带回凭据。
+  backendCredentialStatus: method(
+    "backendCredentialStatus",
+    70,
+    pb.BackendCredentialStatusRequestSchema,
+    pb.BackendCredentialStatusResponseSchema,
+  ),
+  openClawTokenSet: method(
+    "openClawTokenSet",
+    71,
+    pb.OpenClawTokenSetRequestSchema,
+    pb.OpenClawTokenSetResponseSchema,
+  ),
+  hermesAuthProviders: method(
+    "hermesAuthProviders",
+    72,
+    pb.HermesAuthProvidersRequestSchema,
+    pb.HermesAuthProvidersResponseSchema,
+  ),
+  hermesLogin: method(
+    "hermesLogin",
+    73,
+    pb.HermesLoginRequestSchema,
+    pb.HermesLoginResponseSchema,
+  ),
+  hermesLogout: method(
+    "hermesLogout",
+    74,
+    pb.HermesLogoutRequestSchema,
+    pb.HermesLogoutResponseSchema,
+  ),
+  backendConnectionTest: method(
+    "backendConnectionTest",
+    75,
+    pb.BackendConnectionTestRequestSchema,
+    pb.BackendConnectionTestResponseSchema,
+  ),
   remoteFsListDir: method(
     "remoteFsListDir",
     29,

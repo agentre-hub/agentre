@@ -421,6 +421,12 @@ func tsHostMethodDecls() []tsHostMethodDecl {
 		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES, "workspaceFsGitBranches"},
 		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_STATE, "workspaceFsGitState"},
 		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_CHANGES, "workspaceFsGitChanges"},
+		{agentrewire.RpcMethod_RPC_METHOD_BACKEND_CREDENTIAL_STATUS, "backendCredentialStatus"},
+		{agentrewire.RpcMethod_RPC_METHOD_OPENCLAW_TOKEN_SET, "openClawTokenSet"},
+		{agentrewire.RpcMethod_RPC_METHOD_HERMES_AUTH_PROVIDERS, "hermesAuthProviders"},
+		{agentrewire.RpcMethod_RPC_METHOD_HERMES_LOGIN, "hermesLogin"},
+		{agentrewire.RpcMethod_RPC_METHOD_HERMES_LOGOUT, "hermesLogout"},
+		{agentrewire.RpcMethod_RPC_METHOD_BACKEND_CONNECTION_TEST, "backendConnectionTest"},
 
 		{agentrewire.RpcMethod_RPC_METHOD_PROJECT_SET_LOCAL_PATH, "projectSetLocalPath"},
 		{agentrewire.RpcMethod_RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH, "projectClearLocalPath"},

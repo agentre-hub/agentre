@@ -74,6 +74,9 @@ func TestPairing_GivenAMethod_ThenItsRequestTypeFollowsTheNamingConvention(t *te
 		// 同上:命令清单的消息叫 SkillCommands,方法叫 SKILLS_COMMANDS。
 		// 逐字照约定会得到 SkillsCommandsRequest —— 与同族的 SkillCommand 一项对不上。
 		agentrewire.RpcMethod_RPC_METHOD_SKILLS_COMMANDS: "SkillCommandsRequest",
+		// 产品名写作 OpenClaw(两个大写词首),而枚举名里 OPENCLAW 是一个词,逐字照约定
+		// 会得到 OpenclawTokenSetRequest —— 与仓库里所有 OpenClaw 标识符对不上。
+		agentrewire.RpcMethod_RPC_METHOD_OPENCLAW_TOKEN_SET: "OpenClawTokenSetRequest",
 	}
 
 	for method, pairing := range wirecall.Covered() {
@@ -118,6 +121,7 @@ func TestPairing_GivenAMethod_ThenItsResponseTypeFollowsTheNamingConvention(t *t
 	exceptions[agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_CLEAR] = "RuntimeGoalClearResponse"
 	exceptions[agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG] = "SkillCatalogResponse"
 	exceptions[agentrewire.RpcMethod_RPC_METHOD_SKILLS_COMMANDS] = "SkillCommandsResponse"
+	exceptions[agentrewire.RpcMethod_RPC_METHOD_OPENCLAW_TOKEN_SET] = "OpenClawTokenSetResponse"
 
 	for method, pairing := range wirecall.Covered() {
 		want, ok := exceptions[method]

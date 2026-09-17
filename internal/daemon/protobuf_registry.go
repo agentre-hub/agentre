@@ -382,6 +382,10 @@ func (d *Daemon) registerProtobufMethods() {
 		// 流族不在这里:它挂在每条连接上(bindProtobufConn),用的是**同一个** d.portForward
 		// —— 声明表与闸门只有一个答复处。
 		PortForward: d.portForward,
+		// 设备本地后端凭据:绑到本机的 Hermes / OpenClaw 后端的凭据写 state.json。闸门与
+		// 发起对话同一道(已鉴权的连接:同账号认证的对端,或配对过的桌面端)。本机并不
+		// 注册这两种 runtime,这一族只登记凭据、实际连一次做测试。
+		BackendCredentials: handlers.NewBackendCredentialHandlers(handlers.BackendCredentialDeps{State: d.state}),
 	})
 }
 

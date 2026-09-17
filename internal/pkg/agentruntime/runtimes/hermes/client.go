@@ -5,42 +5,26 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
-	"net/url"
-	"regexp"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/cago-frame/agents/provider"
 	"github.com/gorilla/websocket"
+
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes/hermesgateway"
 )
 
-// ErrGatewayUnreachable marks a failure to reach the `hermes serve` endpoint at
-// all: a refused connection, a DNS failure, or a request that never completed.
-var ErrGatewayUnreachable = errors.New("hermes gateway: unreachable")
-
-// ErrGatewayUnauthorized marks a server that has authentication enabled. Hermes
-// only injects `__HERMES_SESSION_TOKEN__` into the root page for loopback /
-// insecure serves; a gated serve answers 401/403 or a token-less page. A gated
-// dial recovers through the native PKCE credential + ws-ticket flow when a
-// CredentialSource is injected; otherwise this error is surfaced as-is.
-var ErrGatewayUnauthorized = errors.New("hermes gateway: authentication required")
-
-// ErrGatewayProtocol marks a reachable server that did not speak the expected
-// handshake (e.g. the root page carried no session token).
-var ErrGatewayProtocol = errors.New("hermes gateway: unexpected protocol")
-
-// ErrGatewayClosed marks a connection the server closed cleanly: the turn it
-// carried is over.
-var ErrGatewayClosed = errors.New("hermes gateway: connection closed")
-
-// ErrGatewayLost marks a connection that died abnormally (reset, restart, a
-// half-open socket). Distinct from ErrGatewayClosed so callers can tell "the
-// server went away" from "this turn ended".
-var ErrGatewayLost = errors.New("hermes gateway: connection lost")
+// The transport handshake lives in the side-effect-free hermesgateway package
+// so a host that must not register this runtime can still probe a serve. The
+// sentinels are the same values, so errors.Is matches across both packages.
+var (
+	ErrGatewayUnreachable  = hermesgateway.ErrGatewayUnreachable
+	ErrGatewayUnauthorized = hermesgateway.ErrGatewayUnauthorized
+	ErrGatewayProtocol     = hermesgateway.ErrGatewayProtocol
+	ErrGatewayClosed       = hermesgateway.ErrGatewayClosed
+	ErrGatewayLost         = hermesgateway.ErrGatewayLost
+)
 
 // Session is the per-turn gateway contract. Production is *gatewaySession; tests
 // inject a fake through SessionFactory. The Runtime owns the Session for exactly
@@ -82,21 +66,12 @@ type sessionSpec struct {
 
 // webSocketDialer is the injectable dial seam (gorilla's *websocket.Dialer in
 // production, a scripted fake in tests).
-type webSocketDialer interface {
-	DialContext(ctx context.Context, urlStr string, requestHeader http.Header) (*websocket.Conn, *http.Response, error)
-}
+type webSocketDialer = hermesgateway.WebSocketDialer
 
 const (
-	gatewayEventsBuffer  = 64
-	gatewayReadyTimeout  = 60 * time.Second
-	gatewayHTTPTimeout   = 15 * time.Second
-	gatewayDialTimeout   = 15 * time.Second
-	gatewayWSMessageSize = 8 * 1024 * 1024
+	gatewayEventsBuffer = 64
+	gatewayReadyTimeout = hermesgateway.ReadyTimeout
 )
-
-// hermesSessionTokenRe extracts the loopback token Hermes injects into the root
-// page: `window.__HERMES_SESSION_TOKEN__="<token>"`.
-var hermesSessionTokenRe = regexp.MustCompile(`__HERMES_SESSION_TOKEN__\s*=\s*"([^"]+)"`)
 
 // gatewaySession owns one WebSocket connection to a `hermes serve` and speaks
 // newline-delimited JSON-RPC 2.0 over it. The codec (rpcConn) is transport
@@ -122,52 +97,16 @@ func defaultSessionFactory(ctx context.Context, spec sessionSpec) (Session, erro
 	return sess, nil
 }
 
-// dialGatewayWithAuth dials a `hermes serve`. It first tries the loopback token
-// path; a gated serve (no token in the page) falls back to the bearer/ws-ticket
-// flow when creds is non-nil. The returned session is connected but not
-// necessarily ready; callers wait on WaitReady.
+// dialGatewayWithAuth dials a `hermes serve` (see hermesgateway.Dial) and wraps
+// the upgraded connection in the JSON-RPC session. The returned session is
+// connected but not necessarily ready; callers wait on WaitReady.
 func dialGatewayWithAuth(ctx context.Context, baseURL, provider string, creds CredentialSource, dialer webSocketDialer, client *http.Client) (*gatewaySession, error) {
-	parsed, err := url.Parse(strings.TrimSpace(baseURL))
-	if err != nil || parsed.Host == "" {
-		return nil, fmt.Errorf("%w: invalid server URL %q", ErrGatewayUnreachable, baseURL)
-	}
-	scheme := "ws"
-	if parsed.Scheme == "https" || parsed.Scheme == "wss" {
-		scheme = "wss"
-	}
-
-	token, tokenErr := fetchSessionToken(ctx, baseURL, client)
-	var wsURL string
-	switch {
-	case tokenErr == nil:
-		wsURL = scheme + "://" + parsed.Host + "/api/ws?token=" + url.QueryEscape(token)
-	case errors.Is(tokenErr, ErrGatewayUnauthorized) && creds != nil:
-		ticket, ticketErr := gatedWSTicket(ctx, baseURL, provider, creds, client)
-		if ticketErr != nil {
-			return nil, ticketErr
-		}
-		wsURL = scheme + "://" + parsed.Host + "/api/ws?ticket=" + url.QueryEscape(ticket)
-	default:
-		return nil, tokenErr
-	}
-
-	if dialer == nil {
-		dialer = &websocket.Dialer{HandshakeTimeout: gatewayDialTimeout}
-	}
-	dialCtx, cancel := context.WithTimeout(ctx, gatewayDialTimeout)
-	defer cancel()
-	conn, resp, err := dialer.DialContext(dialCtx, wsURL, nil)
+	conn, err := hermesgateway.Dial(ctx, hermesgateway.DialRequest{
+		URL: baseURL, AuthProvider: provider, Credentials: creds, Dialer: dialer, HTTPClient: client,
+	})
 	if err != nil {
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
-			return nil, fmt.Errorf("%w: websocket upgrade returned %s", ErrGatewayUnauthorized, resp.Status)
-		}
-		return nil, fmt.Errorf("%w: %v", ErrGatewayUnreachable, err)
+		return nil, err
 	}
-	conn.SetReadLimit(gatewayWSMessageSize)
-
 	s := &gatewaySession{
 		conn: conn,
 		done: make(chan struct{}),
@@ -179,71 +118,10 @@ func dialGatewayWithAuth(ctx context.Context, baseURL, provider string, creds Cr
 	return s, nil
 }
 
-// gatedWSTicket mints a ws-ticket from the injected credential source. An
-// access token the server rejects is refreshed exactly once before giving up;
-// a still-rejected ticket is reported as an expired login so the UI can say
-// "log in again" instead of a generic failure.
-func gatedWSTicket(ctx context.Context, baseURL, provider string, creds CredentialSource, client *http.Client) (string, error) {
-	access, err := creds.AccessToken(ctx, baseURL, provider)
-	if err != nil {
-		return "", err
-	}
-	ticket, err := FetchWSTicket(ctx, baseURL, access, client)
-	if errors.Is(err, ErrAccessTokenRejected) {
-		creds.Invalidate(baseURL)
-		if access, err = creds.AccessToken(ctx, baseURL, provider); err != nil {
-			return "", err
-		}
-		ticket, err = FetchWSTicket(ctx, baseURL, access, client)
-	}
-	if err != nil {
-		if errors.Is(err, ErrAccessTokenRejected) {
-			return "", fmt.Errorf("%w: ws-ticket rejected even after refresh", ErrLoginExpired)
-		}
-		return "", err
-	}
-	return ticket, nil
-}
-
-// fetchSessionToken GETs the Hermes root page and extracts the loopback session
-// token. Failures are classified so the UI can say "the server has auth enabled"
-// instead of a generic connection error.
+// fetchSessionToken reads the loopback session token; see
+// hermesgateway.FetchSessionToken.
 func fetchSessionToken(ctx context.Context, baseURL string, client *http.Client) (string, error) {
-	if client == nil {
-		client = &http.Client{Timeout: gatewayHTTPTimeout}
-	}
-	root := strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, root, nil)
-	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrGatewayUnreachable, err)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrGatewayUnreachable, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return "", fmt.Errorf("%w: server returned %s", ErrGatewayUnauthorized, resp.Status)
-	}
-	if m := hermesSessionTokenRe.FindSubmatch(body); len(m) == 2 {
-		return string(m[1]), nil
-	}
-	// A gated `hermes serve` never puts the token in the page: a live one
-	// redirects "/" to /login and serves the sign-in form there, and a headless
-	// one answers 404. Both mean "auth provider configured", so the caller can
-	// take the credential path instead of reporting a broken protocol.
-	if strings.Contains(string(body), "__HERMES_AUTH_REQUIRED__=true") || resp.StatusCode == http.StatusNotFound || isHTML(resp) {
-		return "", fmt.Errorf("%w: the server has an auth provider configured", ErrGatewayUnauthorized)
-	}
-	return "", fmt.Errorf("%w: no session token at %s", ErrGatewayProtocol, root)
-}
-
-// isHTML reports whether the response is an HTML document (the sign-in page a
-// gated serve answers with after following its "/" redirect).
-func isHTML(resp *http.Response) bool {
-	return strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html")
+	return hermesgateway.FetchSessionToken(ctx, baseURL, client)
 }
 
 // readLoop pumps WebSocket messages into the codec. A single message may carry
@@ -274,23 +152,7 @@ func (s *gatewaySession) classifyReadError(err error) error {
 	return classifyReadError(err)
 }
 
-func classifyReadError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) ||
-		strings.Contains(err.Error(), "use of closed network connection") {
-		return fmt.Errorf("%w: %v", ErrGatewayClosed, err)
-	}
-	if websocket.IsCloseError(err,
-		websocket.CloseNormalClosure,
-		websocket.CloseGoingAway,
-		websocket.CloseNoStatusReceived,
-	) {
-		return fmt.Errorf("%w: %v", ErrGatewayClosed, err)
-	}
-	return fmt.Errorf("%w: %v", ErrGatewayLost, err)
-}
+func classifyReadError(err error) error { return hermesgateway.ClassifyReadError(err) }
 
 func (s *gatewaySession) WaitReady(ctx context.Context) error { return s.codec.WaitReady(ctx) }
 func (s *gatewaySession) Events() <-chan Event                { return s.codec.Events() }

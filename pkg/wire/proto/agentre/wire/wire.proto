@@ -42,7 +42,7 @@ extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-option (agentre.wire.protocol_version) = "0.1.0";
+option (agentre.wire.protocol_version) = "0.2.0";
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -115,6 +115,12 @@ enum RpcMethod {
   RPC_METHOD_PORT_FORWARD_CLOSE = 67;
   RPC_METHOD_PORT_FORWARD_ACK = 68;
   RPC_METHOD_AUTH_DIRECT = 69;
+  RPC_METHOD_BACKEND_CREDENTIAL_STATUS = 70;
+  RPC_METHOD_OPENCLAW_TOKEN_SET = 71;
+  RPC_METHOD_HERMES_AUTH_PROVIDERS = 72;
+  RPC_METHOD_HERMES_LOGIN = 73;
+  RPC_METHOD_HERMES_LOGOUT = 74;
+  RPC_METHOD_BACKEND_CONNECTION_TEST = 75;
 }
 
 message WireFrame {
@@ -1508,4 +1514,114 @@ message PortForwardRevokedNotification {
   // reason 与 PortForwardClosedNotification 取同一套 token(mapping_disabled /
   // mapping_removed):同一件事在两条通知上不该有两套词汇。消费者按 token 分支。
   string reason = 2;
+}
+
+// ── 设备本地后端凭据 ──────────────────────────────────────────────────────────
+//
+// Hermes / OpenClaw 后端的凭据只存在后端绑定的那台设备上(agentred 写 state.json,
+// 桌面端写系统 keychain)。下面六个操作由那台设备应答,调用方是已经能在它上面发起
+// 对话的对端。
+//
+// **明文凭据只朝设备一个方向走。** token 与密码只出现在请求里,并且只用于这一次请求
+// (OpenClawTokenSetRequest.token 是唯一会被保存的那一格);任何应答都不带回凭据,
+// 查询只说「有没有」。失败以结构化 code 表达(与桌面端测试连接的 code 同一套词汇),
+// 调用方按 code 本地化,不展示服务端原话。
+
+// BackendCredentialStatusRequest 问这台设备上某个后端的凭据状态。
+// backend_type 取 "openclaw"(按 sync_id 查)或 "hermes"(按 hermes_url 查)。
+message BackendCredentialStatusRequest {
+  string backend_type = 1;
+  string sync_id = 2;
+  string hermes_url = 3;
+}
+// 登录是否过期只在测试连接或发起对话时得知,这里不答。
+message BackendCredentialStatusResponse {
+  bool openclaw_token_saved = 1;
+  bool hermes_logged_in = 2;
+  string hermes_provider = 3;
+  string hermes_user_id = 4;
+}
+
+// OpenClawTokenSetRequest 保存(token 非空)或清除(clear=true)一个 OpenClaw 后端的
+// Gateway token,槽位按 sync_id 取。
+message OpenClawTokenSetRequest {
+  string sync_id = 1;
+  string token = 2;
+  bool clear = 3;
+}
+message OpenClawTokenSetResponse { bool token_saved = 1; }
+
+message HermesAuthProvidersRequest { string hermes_url = 1; }
+message HermesAuthProvider {
+  string name = 1;
+  string display_name = 2;
+  bool supports_password = 3;
+}
+// code 非空表示这台设备没能读到提供方目录(如 HERMES_UNREACHABLE)。
+message HermesAuthProvidersResponse {
+  repeated HermesAuthProvider providers = 1;
+  string code = 2;
+}
+
+// HermesLoginRequest 的密码只用于这一次登录;设备只保存 refresh token。
+// provider 为空时取该 serve 唯一支持密码的提供方。
+message HermesLoginRequest {
+  string hermes_url = 1;
+  string provider = 2;
+  string username = 3;
+  string password = 4;
+}
+// 成功时 code 为空,provider / user_id 是可展示的非敏感字段;失败时 code 是
+// HERMES_UNREACHABLE / HERMES_INVALID_CREDENTIALS / HERMES_PROVIDER_UNSUPPORTED /
+// HERMES_PROVIDER_UNAVAILABLE / HERMES_RATE_LIMITED 之一。
+message HermesLoginResponse {
+  string provider = 1;
+  string user_id = 2;
+  string code = 3;
+}
+
+message HermesLogoutRequest { string hermes_url = 1; }
+message HermesLogoutResponse {}
+
+// BackendConnectionTestRequest 让设备按本机凭据实际连一次后端。
+// openclaw_token 是编辑器里尚未保存的草稿 token:只用于这一次连接,不写入存储;
+// 为空时用该 sync_id 已保存的 token。
+message BackendConnectionTestRequest {
+  string backend_type = 1;
+  string sync_id = 2;
+  string hermes_url = 3;
+  string hermes_auth_provider = 4;
+  string openclaw_gateway_url = 5;
+  string openclaw_agent_id = 6;
+  string openclaw_default_model = 7;
+  string openclaw_token = 8;
+}
+message OpenClawAgentOption {
+  string id = 1;
+  string name = 2;
+  string primary_model = 3;
+  repeated string fallbacks = 4;
+  bool is_default = 5;
+}
+message OpenClawModelOption {
+  string id = 1;
+  string name = 2;
+  string provider = 3;
+  bool available = 4;
+}
+// ok=false 时 code 是桌面端测试连接的同一套结构化结果(HERMES_LOGIN_REQUIRED /
+// HERMES_LOGIN_EXPIRED / HERMES_UNREACHABLE / AUTH_FAILED / OPENCLAW_CONNECTION_FAILED …),
+// message 只作兜底。gateway_version 之后的字段只在 OpenClaw 连通时给出。
+message BackendConnectionTestResponse {
+  bool ok = 1;
+  string code = 2;
+  string message = 3;
+  int64 latency_ms = 4;
+  string gateway_version = 5;
+  int32 protocol = 6;
+  repeated string granted_scopes = 7;
+  repeated string methods = 8;
+  repeated string events = 9;
+  repeated OpenClawAgentOption openclaw_agents = 10;
+  repeated OpenClawModelOption openclaw_models = 11;
 }

@@ -194,6 +194,17 @@ func Contract() []Requirement {
 		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "workspace_fs_svc/svc.go:459"},
 		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_STATE, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "workspace_fs_svc/svc.go:506"},
 		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_CHANGES, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "workspace_fs_svc/svc.go:567"},
+		// 设备本地后端凭据:凭据只存在后端绑定的那台设备上,绑到 agentred 的后端由 agentred
+		// 应答。义务不是从已存在的调用点推出来的(桌面端与控制台的调用落在后续任务),而是
+		// 从规格 2026-09-17-device-local-backend-credentials「设备操作」推出来的。绑到桌面端
+		// 的后端同样要答,那一侧的实现随桌面端任务一起补进 Hosts。
+		{agentrewire.RpcMethod_RPC_METHOD_BACKEND_CREDENTIAL_STATUS, []Caller{CallerConsole, CallerDesktopToAgentred}, []HostKind{HostAgentred},
+			"规格 2026-09-17-device-local-backend-credentials「设备操作」:编辑器打开时向绑定设备查询凭据状态"},
+		{agentrewire.RpcMethod_RPC_METHOD_OPENCLAW_TOKEN_SET, []Caller{CallerConsole, CallerDesktopToAgentred}, []HostKind{HostAgentred}, "同 status"},
+		{agentrewire.RpcMethod_RPC_METHOD_HERMES_AUTH_PROVIDERS, []Caller{CallerConsole, CallerDesktopToAgentred}, []HostKind{HostAgentred}, "同 status"},
+		{agentrewire.RpcMethod_RPC_METHOD_HERMES_LOGIN, []Caller{CallerConsole, CallerDesktopToAgentred}, []HostKind{HostAgentred}, "同 status"},
+		{agentrewire.RpcMethod_RPC_METHOD_HERMES_LOGOUT, []Caller{CallerConsole, CallerDesktopToAgentred}, []HostKind{HostAgentred}, "同 status"},
+		{agentrewire.RpcMethod_RPC_METHOD_BACKEND_CONNECTION_TEST, []Caller{CallerConsole, CallerDesktopToAgentred}, []HostKind{HostAgentred}, "同 status"},
 
 		// ── 只有桌面端会被问到的 ──
 		{agentrewire.RpcMethod_RPC_METHOD_PROJECT_SET_LOCAL_PATH, []Caller{CallerConsole}, []HostKind{HostDesktop},

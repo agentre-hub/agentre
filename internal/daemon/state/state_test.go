@@ -313,6 +313,8 @@ func fullyPopulatedState(t *testing.T) *State {
 		s.AccountID = "account-a"
 		s.Credential = AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"}
 		s.DirectCredentials = map[string]DirectCredential{"sha256:desk": {Credential: "c", AccountID: "account-a"}}
+		s.BackendCredentials = map[string]string{"agentre.openclaw.backend.sync-1.token": "gateway-token"}
+		s.HermesIdentities = map[string]HermesIdentity{"http://127.0.0.1:9119": {Provider: "basic", UserID: "7"}}
 	})
 	return st
 }
@@ -422,4 +424,98 @@ func TestState_Snapshot_GivenDirectCredentials_WhenTheSnapshotIsMutated_ThenTheL
 	delete(snapshot.DirectCredentials, "sha256:desk")
 
 	assert.Contains(t, st.Snapshot().DirectCredentials, "sha256:desk")
+}
+
+// ── 设备本地后端凭据:按槽位存在 state.json,属于账号的后端,logout 一并清掉 ─────────
+
+// 写入的凭据必须落盘:agentred 重启后 Hermes 登录与 OpenClaw token 都还在。
+func TestState_SetBackendCredential_GivenASecret_WhenSet_ThenItIsReadableAfterReload(t *testing.T) {
+	dir := setupStateTest(t)
+	st, err := Load(dir)
+	require.NoError(t, err)
+
+	require.NoError(t, st.SetBackendCredential("agentre.openclaw.backend.sync-1.token", "gateway-token"))
+
+	reloaded, err := Load(dir)
+	require.NoError(t, err)
+	secret, ok := reloaded.BackendCredential("agentre.openclaw.backend.sync-1.token")
+	assert.True(t, ok)
+	assert.Equal(t, "gateway-token", secret)
+	_, ok = reloaded.BackendCredential("agentre.openclaw.backend.sync-2.token")
+	assert.False(t, ok, "别的槽位不能读出这份凭据")
+}
+
+// 删掉的槽位落盘后也不在;删一个不存在的槽位不是错误。
+func TestState_DeleteBackendCredential_GivenAStoredSecret_WhenDeleted_ThenItIsGoneOnDisk(t *testing.T) {
+	dir := setupStateTest(t)
+	st, err := Load(dir)
+	require.NoError(t, err)
+	require.NoError(t, st.SetBackendCredential("slot-a", "secret-a"))
+	require.NoError(t, st.SetBackendCredential("slot-b", "secret-b"))
+
+	require.NoError(t, st.DeleteBackendCredential("slot-a"))
+	require.NoError(t, st.DeleteBackendCredential("slot-unknown"))
+
+	reloaded, err := Load(dir)
+	require.NoError(t, err)
+	_, ok := reloaded.BackendCredential("slot-a")
+	assert.False(t, ok)
+	secret, ok := reloaded.BackendCredential("slot-b")
+	assert.True(t, ok)
+	assert.Equal(t, "secret-b", secret)
+}
+
+// 写盘失败时内存不能先变:否则这一刻报「已保存」,重启后却读不到。
+func TestState_SetBackendCredential_GivenTheWriteFails_ThenMemoryIsUnchanged(t *testing.T) {
+	dir := setupStateTest(t)
+	st, err := Load(dir)
+	require.NoError(t, err)
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "state.json.tmp"), 0o700))
+
+	require.Error(t, st.SetBackendCredential("slot-a", "secret-a"))
+
+	_, ok := st.BackendCredential("slot-a")
+	assert.False(t, ok)
+}
+
+// Hermes 登录的展示身份(provider / userId)按规范化 URL 记,登出即删。
+func TestState_HermesIdentity_GivenALogin_WhenRecordedAndForgotten_ThenDiskFollows(t *testing.T) {
+	dir := setupStateTest(t)
+	st, err := Load(dir)
+	require.NoError(t, err)
+
+	require.NoError(t, st.SetHermesIdentity("http://127.0.0.1:9119", HermesIdentity{Provider: "basic", UserID: "7"}))
+	reloaded, err := Load(dir)
+	require.NoError(t, err)
+	identity, ok := reloaded.HermesIdentity("http://127.0.0.1:9119")
+	assert.True(t, ok)
+	assert.Equal(t, HermesIdentity{Provider: "basic", UserID: "7"}, identity)
+
+	require.NoError(t, st.DeleteHermesIdentity("http://127.0.0.1:9119"))
+	reloaded, err = Load(dir)
+	require.NoError(t, err)
+	_, ok = reloaded.HermesIdentity("http://127.0.0.1:9119")
+	assert.False(t, ok)
+}
+
+// 后端凭据属于该账号的后端:离开账号的机器上不留上一个账号的 Gateway token 与 Hermes 登录。
+func TestLogout_ClearsBackendCredentials(t *testing.T) {
+	st := fullyPopulatedState(t)
+
+	st.Logout()
+
+	assert.Empty(t, st.Snapshot().BackendCredentials)
+	assert.Empty(t, st.Snapshot().HermesIdentities)
+}
+
+// Snapshot 的凭据表是拷贝:改它不得改到活的状态。
+func TestState_Snapshot_GivenBackendCredentials_WhenTheSnapshotIsMutated_ThenTheLiveStateIsUntouched(t *testing.T) {
+	st := fullyPopulatedState(t)
+
+	snapshot := st.Snapshot()
+	delete(snapshot.BackendCredentials, "agentre.openclaw.backend.sync-1.token")
+	delete(snapshot.HermesIdentities, "http://127.0.0.1:9119")
+
+	assert.Contains(t, st.Snapshot().BackendCredentials, "agentre.openclaw.backend.sync-1.token")
+	assert.Contains(t, st.Snapshot().HermesIdentities, "http://127.0.0.1:9119")
 }

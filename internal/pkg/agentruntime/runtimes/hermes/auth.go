@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes/hermesauth"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes/hermesgateway"
 )
 
 // The native auth client lives in the side-effect-free hermesauth package so
@@ -38,17 +39,8 @@ type (
 //
 // The runtime never touches the keychain or the database itself: production
 // wires an implementation backed by the credential service, tests inject a
-// scripted fake.
-type CredentialSource interface {
-	// AccessToken returns a valid bearer token for baseURL. provider is the
-	// optional persisted provider name. It returns ErrLoginRequired when no
-	// credential is stored and ErrLoginExpired when the stored refresh token
-	// has been rejected.
-	AccessToken(ctx context.Context, baseURL, provider string) (string, error)
-	// Invalidate drops the cached access token for baseURL so the next
-	// AccessToken refreshes it.
-	Invalidate(baseURL string)
-}
+// scripted fake. See hermesgateway.CredentialSource.
+type CredentialSource = hermesgateway.CredentialSource
 
 var defaultCredentialSource CredentialSource
 
