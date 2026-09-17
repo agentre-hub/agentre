@@ -130,11 +130,14 @@ type RemoteDeviceSvc interface {
 	// The raw API key is sent only for this explicit sync operation.
 	SyncProvider(ctx context.Context, deviceID int64, providerKey string) error
 	// Upgrade triggers the remote one-click upgrade RPC on deviceID(spec「远程
-	// 一键升级」). channel 留空按 daemon 当前配置的通道解读;force 越过活跃轮次
-	// 闸门,必须由调用方在得到 UpgradeRejectActiveTurns 之后、经过一次显式确认
-	// 才能置真(决策 8/21:二次确认承担拦截,主动作本身不禁用)。应答只回受理
-	// 结果,升级过程由调用方从版本号变化推断(不在这次调用里等重启)。
-	Upgrade(ctx context.Context, deviceID int64, channel string, force bool) (*UpgradeResult, error)
+	// 一键升级」)。渠道不再由调用方传入,而是取桌面端自己的构建渠道
+	// (paths.CurrentChannel,决策 10:设置删除后这是唯一的渠道来源):正式版 /
+	// Beta / Nightly 发送自身渠道;Dev 没有发布(决策 9),在借连接之前拒绝且不
+	// 发任何请求;渠道标记非法时同样拒绝(启动期本应已挡住,这里是最后一道)。
+	// force 越过活跃轮次闸门,必须由调用方在得到 UpgradeRejectActiveTurns 之后、
+	// 经过一次显式确认才能置真(决策 8/21:二次确认承担拦截,主动作本身不禁用)。
+	// 应答只回受理结果,升级过程由调用方从版本号变化推断(不在这次调用里等重启)。
+	Upgrade(ctx context.Context, deviceID int64, force bool) (*UpgradeResult, error)
 }
 
 var defaultSvc RemoteDeviceSvc

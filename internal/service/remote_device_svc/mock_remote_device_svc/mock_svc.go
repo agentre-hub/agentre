@@ -382,16 +382,16 @@ func (mr *MockRemoteDeviceSvcMockRecorder) UpdateTLS(ctx, id, mode, pem any) *go
 }
 
 // Upgrade mocks base method.
-func (m *MockRemoteDeviceSvc) Upgrade(ctx context.Context, deviceID int64, channel string, force bool) (*remote_device_svc.UpgradeResult, error) {
+func (m *MockRemoteDeviceSvc) Upgrade(ctx context.Context, deviceID int64, force bool) (*remote_device_svc.UpgradeResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Upgrade", ctx, deviceID, channel, force)
+	ret := m.ctrl.Call(m, "Upgrade", ctx, deviceID, force)
 	ret0, _ := ret[0].(*remote_device_svc.UpgradeResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Upgrade indicates an expected call of Upgrade.
-func (mr *MockRemoteDeviceSvcMockRecorder) Upgrade(ctx, deviceID, channel, force any) *gomock.Call {
+func (mr *MockRemoteDeviceSvcMockRecorder) Upgrade(ctx, deviceID, force any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upgrade", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).Upgrade), ctx, deviceID, channel, force)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upgrade", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).Upgrade), ctx, deviceID, force)
 }

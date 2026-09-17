@@ -42,6 +42,18 @@ function renderStatusBar(onOpenUpdateSettings?: () => void) {
 
 beforeEach(() => {
   useUpdateStore.setState({ ...INITIAL_UPDATE_STATE });
+  useUpdateStore.getState().setChannel("stable");
+});
+
+describe("状态栏 · Dev 构建", () => {
+  it("Given Dev 构建, When 渲染状态栏, Then 只剩版本号文字、没有可点开的更新胶囊", () => {
+    useUpdateStore.getState().setChannel("dev");
+
+    renderStatusBar();
+
+    expect(screen.getByText("v0.9.1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /v0\.9\.1/ })).toBeNull();
+  });
 });
 
 describe("状态栏更新胶囊", () => {

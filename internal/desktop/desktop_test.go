@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"path/filepath"
 	"testing"
 	"testing/fstest"
 
 	"github.com/agentre-hub/agentre/internal/app"
 	"github.com/agentre-hub/agentre/internal/bootstrap"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
 )
@@ -132,14 +134,81 @@ func TestNewWailsOptionsPreservesInteractiveDesktopBehavior(t *testing.T) {
 		}
 	})
 
-	t.Run("Given Wails dev Then title is marked and the lock is omitted", func(t *testing.T) {
+	t.Run("Given Wails dev Then the lock is omitted", func(t *testing.T) {
 		t.Setenv("devserver", "localhost:34115")
 		opts := newWailsOptions(app.NewApp(app.RuntimeModeInteractive), assets, "darwin", "/tmp/agentre-test")
-		if opts.Title != "Agentre (Dev)" {
-			t.Fatalf("Title = %q", opts.Title)
-		}
 		if opts.SingleInstanceLock != nil {
 			t.Fatal("SingleInstanceLock should be nil in Wails dev mode")
+		}
+	})
+}
+
+func TestNewWailsOptionsTitleComesFromChannelIdentity(t *testing.T) {
+	var assets fs.FS = fstest.MapFS{}
+
+	for _, tc := range []struct {
+		channel   paths.Channel
+		devserver string
+		want      string
+	}{
+		{paths.ChannelStable, "", "Agentre"},
+		{paths.ChannelBeta, "", "Agentre Beta"},
+		{paths.ChannelNightly, "", "Agentre Nightly"},
+		{paths.ChannelDev, "", "Agentre Dev"},
+		// Wails dev is a run mode, not a channel: it must not rename a stable build.
+		{paths.ChannelStable, "localhost:34115", "Agentre"},
+	} {
+		t.Run("Given channel "+string(tc.channel)+" and devserver "+tc.devserver+" Then title is "+tc.want, func(t *testing.T) {
+			t.Setenv("devserver", tc.devserver)
+			paths.SetBuildChannelForTest(t, string(tc.channel))
+			opts := newWailsOptions(app.NewApp(app.RuntimeModeInteractive), assets, "darwin", "/tmp/agentre-test")
+			if opts.Title != tc.want {
+				t.Fatalf("Title = %q, want %q", opts.Title, tc.want)
+			}
+		})
+	}
+}
+
+func TestNewWailsOptionsSeparatesWebView2StoragePerChannel(t *testing.T) {
+	var assets fs.FS = fstest.MapFS{}
+	original := userConfigDir
+	t.Cleanup(func() { userConfigDir = original })
+	root := filepath.Join(t.TempDir(), "Roaming")
+	userConfigDir = func() (string, error) { return root, nil }
+
+	seen := map[string]paths.Channel{}
+	for _, c := range paths.AllChannels() {
+		t.Run("Given channel "+string(c)+" on windows Then WebView2 data lives under the channel data dir name", func(t *testing.T) {
+			paths.SetBuildChannelForTest(t, string(c))
+			// A data-dir override only moves the database, not the channel's other identity.
+			opts := newWailsOptions(app.NewApp(app.RuntimeModeInteractive), assets, "windows", "/tmp/override")
+			if opts.Windows == nil {
+				t.Fatal("Windows options are nil")
+			}
+			want := filepath.Join(root, c.Identity().DataDirName, "WebView2")
+			if opts.Windows.WebviewUserDataPath != want {
+				t.Fatalf("WebviewUserDataPath = %q, want %q", opts.Windows.WebviewUserDataPath, want)
+			}
+			if other, dup := seen[want]; dup {
+				t.Fatalf("channels %s and %s share WebView2 storage %q", other, c, want)
+			}
+			seen[want] = c
+		})
+	}
+
+	t.Run("Given the config root cannot be resolved Then Wails falls back to its default instead of a relative path", func(t *testing.T) {
+		paths.SetBuildChannelForTest(t, string(paths.ChannelBeta))
+		userConfigDir = func() (string, error) { return "", errors.New("no home") }
+		opts := newWailsOptions(app.NewApp(app.RuntimeModeInteractive), assets, "windows", "/tmp/x")
+		if opts.Windows.WebviewUserDataPath != "" {
+			t.Fatalf("WebviewUserDataPath = %q, want empty", opts.Windows.WebviewUserDataPath)
+		}
+	})
+
+	t.Run("Given darwin Then no Windows options are set", func(t *testing.T) {
+		opts := newWailsOptions(app.NewApp(app.RuntimeModeInteractive), assets, "darwin", "/tmp/x")
+		if opts.Windows != nil {
+			t.Fatalf("Windows options = %#v, want nil", opts.Windows)
 		}
 	})
 }

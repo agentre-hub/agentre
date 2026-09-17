@@ -29,6 +29,7 @@ import {
   RemoteDeviceGet,
   PortForwardList,
 } from "../../../../wailsjs/go/app/App";
+import { INITIAL_UPDATE_STATE, useUpdateStore } from "@/stores/update-store";
 import { DeviceRow } from "./device-row";
 import type { DeviceRowModel, DeviceView } from "./use-remote-devices";
 
@@ -388,6 +389,7 @@ describe("DeviceRow", () => {
 
     afterEach(() => {
       vi.useRealTimers();
+      useUpdateStore.setState(INITIAL_UPDATE_STATE);
     });
 
     async function flush() {
@@ -419,7 +421,7 @@ describe("DeviceRow", () => {
 
       await openMenuAndClickUpgrade();
 
-      expect(mockUpgrade).toHaveBeenCalledWith(1, "", false);
+      expect(mockUpgrade).toHaveBeenCalledWith(1, false);
       expect(screen.getByText(/Upgrading to 0.6.0/)).toBeInTheDocument();
 
       mockGet.mockResolvedValue({ daemonVersion: "0.6.0" });
@@ -532,7 +534,7 @@ describe("DeviceRow", () => {
 
       await openMenuAndClickUpgrade();
       expect(mockUpgrade).toHaveBeenCalledTimes(1);
-      expect(mockUpgrade).toHaveBeenLastCalledWith(1, "", false);
+      expect(mockUpgrade).toHaveBeenLastCalledWith(1, false);
 
       // 选中一项会关掉菜单(Radix 默认行为);拒绝之后主动作重新可点、文案改口,
       // 不是禁用态 —— 重新打开菜单看到的就是这个新态。
@@ -572,7 +574,7 @@ describe("DeviceRow", () => {
       await flush();
 
       expect(mockUpgrade).toHaveBeenCalledTimes(2);
-      expect(mockUpgrade).toHaveBeenLastCalledWith(1, "", true);
+      expect(mockUpgrade).toHaveBeenLastCalledWith(1, true);
     });
 
     /**
@@ -686,6 +688,27 @@ describe("DeviceRow", () => {
         "data-disabled",
       );
       expect(mockUpgrade).not.toHaveBeenCalled();
+    });
+
+    // 决策 9:Dev 没有发布,不提供远端一键升级 —— 入口本身不出现(而不是禁用态)。
+    // 远端版本信息(行上的版本号)不受影响,继续照常显示。
+    it("hides the one-click upgrade menu entry in a Dev build, while remote version info still renders", async () => {
+      useUpdateStore.setState({ channel: "dev" });
+      render(
+        <DeviceRow
+          device={upgradable}
+          now={1_000_000}
+          actions={noopActions}
+          latestVersion="0.6.0"
+        />,
+      );
+
+      fireEvent.pointerDown(screen.getByLabelText("More actions"), {
+        button: 0,
+      });
+      await flush();
+      expect(screen.queryByText("Upgrade agentred")).not.toBeInTheDocument();
+      expect(screen.getByText("0.5.2")).toBeInTheDocument();
     });
   });
 

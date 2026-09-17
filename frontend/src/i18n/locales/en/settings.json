@@ -233,20 +233,10 @@
       "reportBug": "Report Bug",
       "restartNow": "Restart Now"
     },
-    "channel": {
-      "beta": {
-        "description": "Try new features early. May include a few known issues.",
-        "label": "Beta"
-      },
-      "nightly": {
-        "description": "Daily builds with the fastest updates and the lowest stability.",
-        "label": "Nightly"
-      },
-      "stable": {
-        "description": "Official releases for all users, with the lowest update frequency.",
-        "label": "Stable"
-      },
-      "title": "Update Channel"
+    "buildChannel": {
+      "beta": "Beta",
+      "dev": "Dev",
+      "nightly": "Nightly"
     },
     "currentVersion": {
       "description": "Check GitHub Releases and install a new version.",
@@ -262,7 +252,7 @@
       "title": "Operation Failed"
     },
     "header": {
-      "description": "Agentre automatically checks for new versions in the background on startup. You can also switch channels or choose a download mirror for faster access.",
+      "description": "Agentre automatically checks for new versions in the background on startup. You can also choose a download mirror for faster access.",
       "title": "Version & Updates"
     },
     "installed": {
@@ -275,7 +265,7 @@
       "title": "Download Mirror"
     },
     "panel": {
-      "availableMeta": "Released {{time}} · {{channel}} · current {{current}}",
+      "availableMeta": "Released {{time}} · current {{current}}",
       "availableTitle": "Agentre {{version}} available",
       "checkAgain": "Check again",
       "checkedAt": "Checked {{time}}",
@@ -283,7 +273,7 @@
       "downloadingTitle": "Downloading {{version}}",
       "errorMeta": "You can switch to a download mirror in Settings → Version & Updates.",
       "errorTitle": "Update check failed",
-      "idleMeta": "Current {{current}} · {{channel}}",
+      "idleMeta": "Current {{current}}",
       "idleTitle": "Check for updates",
       "installedMeta": "Takes effect after a restart. Running sessions will be ended, so you can wrap up first.",
       "installedTitle": "{{version}} installed",
@@ -293,7 +283,7 @@
       "releasePage": "Release page",
       "retry": "Retry",
       "skipVersion": "Skip this version",
-      "upToDateMeta": "Current {{current}} · {{channel}}",
+      "upToDateMeta": "Current {{current}}",
       "upToDateTitle": "You are up to date"
     },
     "pill": {

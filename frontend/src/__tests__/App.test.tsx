@@ -571,6 +571,7 @@ beforeEach(async () => {
     commit: "dev",
     env: "test",
     runtimeMode: "interactive",
+    channel: "stable",
   });
   // Baseline full runtime so <App/> startup (Environment/Window*) and the
   // always-mounted QuitConfirmDialog's "app:quit-blocked" subscription both
@@ -587,6 +588,58 @@ afterEach(() => {
 });
 
 describe("App", () => {
+  it("Given a Dev build, When the app boots, Then the status bar offers no update pill and focus triggers no check", async () => {
+    const info = vi.mocked((await import("../../wailsjs/go/app/App")).Info);
+    info.mockResolvedValue({
+      name: "agentre",
+      version: "0.9.1",
+      commit: "dev",
+      env: "test",
+      runtimeMode: "interactive",
+      channel: "dev",
+    });
+    const maybeCheck = vi.fn(() => Promise.resolve(null));
+    Object.defineProperty(window, "go", {
+      configurable: true,
+      value: {
+        app: {
+          App: {
+            ...(window.go?.app?.App ?? {}),
+            MaybeCheckForUpdate: maybeCheck,
+          },
+        },
+      },
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("0.9.1")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /open update panel/i }),
+    ).toBeNull();
+    fireEvent(window, new Event("focus"));
+    await act(async () => {});
+    expect(maybeCheck).not.toHaveBeenCalled();
+  });
+
+  it("Given a Beta build, When the app boots, Then the update pill is offered", async () => {
+    const info = vi.mocked((await import("../../wailsjs/go/app/App")).Info);
+    info.mockResolvedValue({
+      name: "agentre",
+      version: "0.9.1",
+      commit: "dev",
+      env: "test",
+      runtimeMode: "interactive",
+      channel: "beta",
+    });
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("button", { name: /open update panel/i }),
+    ).toBeInTheDocument();
+  });
+
   it("boots into the chat page and surfaces settings from the rail", async () => {
     const user = userEvent.setup();
 
@@ -760,6 +813,7 @@ describe("App", () => {
         commit: "dev",
         env: "test",
         runtimeMode,
+        channel: "stable",
       });
 
       localStorage.setItem(

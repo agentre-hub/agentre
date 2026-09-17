@@ -9,6 +9,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	remoterepomock "github.com/agentre-hub/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	svcmock "github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
@@ -29,22 +30,59 @@ func TestRemoteDeviceSvc_Upgrade(t *testing.T) {
 		pool := svcmock.NewMockConnPool(ctrl)
 		svc := remote_device_svc.New(deviceRepo, dial, kc, pool)
 
-		Convey("accepted: reports target version, no reject reason", func() {
+		Convey("accepted: sends the desktop's own channel, no reject reason", func() {
+			paths.SetBuildChannelForTest(t, string(paths.ChannelStable))
 			lease := svcmock.NewMockLease(ctrl)
 			pool.EXPECT().Borrow(gomock.Any(), int64(42)).Return(lease, nil)
 			lease.EXPECT().SelfUpdate(gomock.Any(), gomock.Any()).
 				DoAndReturn(func(_ context.Context, req *agentrewire.AgentredSelfUpdateRequest) (*agentrewire.AgentredSelfUpdateResponse, error) {
-					So(req.Channel, ShouldEqual, "")
+					So(req.Channel, ShouldEqual, "stable")
 					So(req.Force, ShouldBeFalse)
 					return &agentrewire.AgentredSelfUpdateResponse{Accepted: true, TargetVersion: "0.6.0"}, nil
 				})
 			lease.EXPECT().Release()
 
-			got, err := svc.Upgrade(context.Background(), 42, "", false)
+			got, err := svc.Upgrade(context.Background(), 42, false)
 			So(err, ShouldBeNil)
 			So(got.Accepted, ShouldBeTrue)
 			So(got.RejectReason, ShouldEqual, remote_device_svc.UpgradeRejectNone)
 			So(got.TargetVersion, ShouldEqual, "0.6.0")
+		})
+
+		Convey("stable/beta/nightly each send their own channel string", func() {
+			for _, channel := range []paths.Channel{paths.ChannelStable, paths.ChannelBeta, paths.ChannelNightly} {
+				paths.SetBuildChannelForTest(t, string(channel))
+				lease := svcmock.NewMockLease(ctrl)
+				pool.EXPECT().Borrow(gomock.Any(), int64(42)).Return(lease, nil)
+				lease.EXPECT().SelfUpdate(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, req *agentrewire.AgentredSelfUpdateRequest) (*agentrewire.AgentredSelfUpdateResponse, error) {
+						So(req.Channel, ShouldEqual, string(channel))
+						return &agentrewire.AgentredSelfUpdateResponse{Accepted: true}, nil
+					})
+				lease.EXPECT().Release()
+
+				_, err := svc.Upgrade(context.Background(), 42, false)
+				So(err, ShouldBeNil)
+			}
+		})
+
+		// 决策 9:Dev 没有发布,不提供远端一键升级。拒绝必须在借连接**之前**发生 ——
+		// pool 上不设 Borrow 的期望,gomock 会在它意外被调用时让用例失败,这就是
+		// 「不发请求」的证明,而不是靠人读实现猜。
+		Convey("Dev refuses before borrowing a connection and sends nothing", func() {
+			paths.SetBuildChannelForTest(t, string(paths.ChannelDev))
+
+			got, err := svc.Upgrade(context.Background(), 42, false)
+			So(got, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+		})
+
+		Convey("an unparseable build marker refuses before borrowing a connection", func() {
+			paths.SetBuildChannelForTest(t, "not-a-real-channel")
+
+			got, err := svc.Upgrade(context.Background(), 42, false)
+			So(got, ShouldBeNil)
+			So(err, ShouldNotBeNil)
 		})
 
 		// daemon 的受理判定把解析发布、下载、校验、替换**全部**跑完才应答(见
@@ -54,6 +92,7 @@ func TestRemoteDeviceSvc_Upgrade(t *testing.T) {
 		// 桌面端把它翻成 RemoteDeviceTimeout,而那台机器照样升完重启,界面从此
 		// 停在一个假的失败上。
 		Convey("the call carries a budget sized for a download, not the 60s fallback", func() {
+			paths.SetBuildChannelForTest(t, string(paths.ChannelStable))
 			lease := svcmock.NewMockLease(ctrl)
 			pool.EXPECT().Borrow(gomock.Any(), int64(42)).Return(lease, nil)
 			var budget time.Duration
@@ -66,13 +105,14 @@ func TestRemoteDeviceSvc_Upgrade(t *testing.T) {
 				})
 			lease.EXPECT().Release()
 
-			_, err := svc.Upgrade(context.Background(), 42, "", false)
+			_, err := svc.Upgrade(context.Background(), 42, false)
 			So(err, ShouldBeNil)
 			So(budget, ShouldBeGreaterThan, protorpc.DefaultCallTimeout)
 			So(budget.Round(time.Second), ShouldEqual, remote_device_svc.UpgradeCallTimeout)
 		})
 
 		Convey("force flag is passed through to the wire request unchanged", func() {
+			paths.SetBuildChannelForTest(t, string(paths.ChannelStable))
 			lease := svcmock.NewMockLease(ctrl)
 			pool.EXPECT().Borrow(gomock.Any(), int64(42)).Return(lease, nil)
 			lease.EXPECT().SelfUpdate(gomock.Any(), gomock.Any()).
@@ -82,11 +122,12 @@ func TestRemoteDeviceSvc_Upgrade(t *testing.T) {
 				})
 			lease.EXPECT().Release()
 
-			_, err := svc.Upgrade(context.Background(), 42, "", true)
+			_, err := svc.Upgrade(context.Background(), 42, true)
 			So(err, ShouldBeNil)
 		})
 
 		Convey("active-turns rejection surfaces the daemon's own wording and count", func() {
+			paths.SetBuildChannelForTest(t, string(paths.ChannelStable))
 			lease := svcmock.NewMockLease(ctrl)
 			pool.EXPECT().Borrow(gomock.Any(), int64(42)).Return(lease, nil)
 			lease.EXPECT().SelfUpdate(gomock.Any(), gomock.Any()).Return(&agentrewire.AgentredSelfUpdateResponse{
@@ -96,7 +137,7 @@ func TestRemoteDeviceSvc_Upgrade(t *testing.T) {
 			}, nil)
 			lease.EXPECT().Release()
 
-			got, err := svc.Upgrade(context.Background(), 42, "", false)
+			got, err := svc.Upgrade(context.Background(), 42, false)
 			So(err, ShouldBeNil)
 			So(got.Accepted, ShouldBeFalse)
 			So(got.RejectReason, ShouldEqual, remote_device_svc.UpgradeRejectActiveTurns)
@@ -105,6 +146,7 @@ func TestRemoteDeviceSvc_Upgrade(t *testing.T) {
 		})
 
 		Convey("other reject reasons map one-to-one", func() {
+			paths.SetBuildChannelForTest(t, string(paths.ChannelStable))
 			cases := []struct {
 				wire agentrewire.AgentredSelfUpdateRejectReason
 				want remote_device_svc.UpgradeRejectReason
@@ -122,16 +164,17 @@ func TestRemoteDeviceSvc_Upgrade(t *testing.T) {
 				}, nil)
 				lease.EXPECT().Release()
 
-				got, err := svc.Upgrade(context.Background(), 42, "", false)
+				got, err := svc.Upgrade(context.Background(), 42, false)
 				So(err, ShouldBeNil)
 				So(got.RejectReason, ShouldEqual, c.want)
 			}
 		})
 
 		Convey("borrow failure is mapped, not passed through raw", func() {
+			paths.SetBuildChannelForTest(t, string(paths.ChannelStable))
 			pool.EXPECT().Borrow(gomock.Any(), int64(42)).Return(nil, remote_device_svc.ErrDeviceNotFound)
 
-			_, err := svc.Upgrade(context.Background(), 42, "", false)
+			_, err := svc.Upgrade(context.Background(), 42, false)
 			So(err, ShouldNotBeNil)
 			So(errors.Is(err, remote_device_svc.ErrDeviceNotFound), ShouldBeFalse)
 		})

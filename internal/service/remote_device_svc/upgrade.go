@@ -9,6 +9,7 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
@@ -78,7 +79,17 @@ type UpgradeResult struct {
 // Upgrade 借一条到 deviceID 的连接,发起远程一键升级 RPC。它只负责发这一次调用
 // 并把应答翻成 UpgradeResult——升级中→成功/超时失败的推断留给调用方(桌面端从
 // 版本号变化判定,spec「远程一键升级」)。
-func (s *service) Upgrade(ctx context.Context, deviceID int64, channel string, force bool) (*UpgradeResult, error) {
+//
+// 渠道取桌面端自己的构建渠道(paths.CurrentChannel,决策 10):设置已经删除,
+// 这是唯一的渠道来源,调用方不再传入也不再选择。Dev 没有发布(决策 9)、渠道
+// 标记非法时同样拒绝——两种情况都在借连接**之前**返回,既不占用连接池也不向
+// daemon 发任何请求。
+func (s *service) Upgrade(ctx context.Context, deviceID int64, force bool) (*UpgradeResult, error) {
+	channel, err := paths.CurrentChannel()
+	if err != nil || channel == paths.ChannelDev {
+		return nil, i18n.NewError(ctx, code.RemoteDeviceUpgradeUnavailable)
+	}
+
 	if s.pool == nil {
 		return nil, errors.New("remote device connection pool unavailable")
 	}
@@ -93,7 +104,7 @@ func (s *service) Upgrade(ctx context.Context, deviceID int64, channel string, f
 	// 说出来。
 	ctx, cancel := context.WithTimeout(ctx, UpgradeCallTimeout)
 	defer cancel()
-	resp, err := lease.SelfUpdate(ctx, &agentrewire.AgentredSelfUpdateRequest{Channel: channel, Force: force})
+	resp, err := lease.SelfUpdate(ctx, &agentrewire.AgentredSelfUpdateRequest{Channel: string(channel), Force: force})
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return nil, i18n.NewError(ctx, code.RemoteDeviceTimeout)

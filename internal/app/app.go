@@ -17,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/internal/pkg/portforward"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/service/agent_svc"
@@ -90,6 +91,9 @@ type AppInfo struct {
 	Commit      string      `json:"commit"`
 	Env         string      `json:"env"`
 	RuntimeMode RuntimeMode `json:"runtimeMode"`
+	// Channel 是构建渠道（stable / beta / nightly / dev），前端据此显示渠道标签、
+	// 决定是否提供检查更新。
+	Channel paths.Channel `json:"channel"`
 }
 
 // NewApp creates a new App application struct. Omitted or invalid modes remain
@@ -422,6 +426,10 @@ func (a *App) Info() AppInfo {
 		Commit:      buildinfo.ShortCommitID(),
 		Env:         string(configs.DEV),
 		RuntimeMode: a.runtimeMode,
+	}
+	// 标记非法的构建在启动期就被拒绝，走不到这里；取不到时留空，前端按未知渠道处理。
+	if channel, err := paths.CurrentChannel(); err == nil {
+		info.Channel = channel
 	}
 
 	if runtime := bootstrap.Default(); runtime != nil && runtime.Config() != nil {

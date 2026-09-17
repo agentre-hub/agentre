@@ -17,8 +17,7 @@ import { cn } from "@agentre-hub/agentre-ui";
 import { useUpdateStore } from "@/stores/update-store";
 
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
-import { getUpdateChannel, type UpdateChannel } from "./update-api";
-import { CHANNEL_LABEL, formatVersion } from "./update-section/format";
+import { formatVersion } from "./update-section/format";
 
 /**
  * formatBytes 给下载进度配一行「已下载/总量」。
@@ -79,7 +78,7 @@ function PanelHeader({
 /**
  * UpdatePanel 是状态栏胶囊点开后的就地更新去处：看清楚是什么版本、直接装完。
  *
- * 它**不**承载通道 / 镜像 / 调试日志 —— 那些仍归「设置 → 版本 & 更新」，
+ * 它**不**承载镜像 / 调试日志 —— 那些仍归「设置 → 版本 & 更新」，
  * 面板只提供一个通往那里的入口。
  */
 export function UpdatePanel({
@@ -99,25 +98,8 @@ export function UpdatePanel({
   const restart = useUpdateStore((s) => s.restart);
   const setPanelOpen = useUpdateStore((s) => s.setPanelOpen);
 
-  // 通道不进 store：后端才是它的真源，设置页与这里各自读一次，不做第二份状态。
-  const [channel, setChannel] = React.useState<UpdateChannel>("stable");
-  React.useEffect(() => {
-    let cancelled = false;
-    void getUpdateChannel()
-      .then((c) => {
-        if (!cancelled) setChannel(c);
-      })
-      .catch(() => {
-        // 读不到通道不该让整个面板打不开，退回默认展示。
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const unknownVersion = t("update.version.unknown");
   const unknownTime = t("update.release.unknownTime");
-  const channelLabel = t(CHANNEL_LABEL[channel]);
 
   // 深链只是换路由，状态栏（以及挂在它上面的这层浮层）不会重挂，面板得跟「稍后」
   // 一样自己收起来，否则它会一直浮在刚打开的设置页上面。
@@ -158,7 +140,6 @@ export function UpdatePanel({
               ? t("update.panel.downloadingMeta")
               : t("update.panel.availableMeta", {
                   time: formatPublished(info.publishedAt, unknownTime),
-                  channel: channelLabel,
                   current: formatVersion(info.currentVersion, unknownVersion),
                 })
           }
@@ -305,11 +286,9 @@ export function UpdatePanel({
             {checked
               ? t("update.panel.upToDateMeta", {
                   current: formatVersion(version, unknownVersion),
-                  channel: channelLabel,
                 })
               : t("update.panel.idleMeta", {
                   current: formatVersion(version, unknownVersion),
-                  channel: channelLabel,
                 })}
             <br />
             {lastCheckedAt === null

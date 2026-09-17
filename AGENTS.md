@@ -69,9 +69,11 @@ For every code change, read [docs/develop.md](docs/develop.md) for SOLID, cohesi
 ```bash
 make install-deps     # pnpm install in frontend/
 make dev              # wails dev — hot reload
-make build            # wails build with version/commit ldflags (current platform)
+make build            # wails build with version/commit/channel ldflags (current platform)
 make run              # build and launch production app
-make install          # build + install app bundle (macOS: /Applications/Agentre.app)
+make install          # build + install app bundle (default Dev: /Applications/Agentre Dev.app)
+# dev/build/run/install take CHANNEL=stable|beta|nightly|dev (default dev; anything else fails
+# before building); e.g. `make install CHANNEL=stable` installs /Applications/Agentre.app
 make generate         # wails generate module — refresh frontend/wailsjs/ bindings
 make test             # backend Go tests + frontend Vitest (runs `generate` first)
 make test-backend     # Go tests excluding /frontend/

@@ -13,6 +13,8 @@ import (
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
 func TestCompareVersions(t *testing.T) {
@@ -415,13 +417,13 @@ type fakeService struct {
 	mirrors []MirrorInfo
 }
 
-func (f *fakeService) CheckForUpdate(_, _ string) (*UpdateInfo, error) { return nil, nil }
-func (f *fakeService) DownloadAndUpdate(_, _ string, _ func(int64, int64)) error {
+func (f *fakeService) CheckForUpdate(_ paths.Channel, _ string) (*UpdateInfo, error) {
+	return nil, nil
+}
+func (f *fakeService) DownloadAndUpdate(_ paths.Channel, _ string, _ func(int64, int64)) error {
 	return nil
 }
 func (f *fakeService) GetAvailableMirrors() []MirrorInfo                   { return f.mirrors }
-func (f *fakeService) GetChannel(_ context.Context) (string, error)        { return "stable", nil }
-func (f *fakeService) SetChannel(_ context.Context, _ string) error        { return nil }
 func (f *fakeService) GetMirror(_ context.Context) (string, error)         { return "", nil }
 func (f *fakeService) SetMirror(_ context.Context, _ string) error         { return nil }
 func (f *fakeService) GetLastUpdateCheck(_ context.Context) (int64, error) { return 0, nil }
@@ -580,5 +582,251 @@ func TestAuthoritativeChecksumURL(t *testing.T) {
 				assert.Empty(t, url)
 			})
 		}
+	})
+}
+
+// TestPickLatestDesktopBetaRelease 钉住桌面端 Beta 通道只更新到 vX.Y.Z-beta.N 的非
+// draft 预发布，取最新一个；没有这样的发布时不回落到正式版（与 agentred 共用的
+// fetchLatestBetaRelease/pickLatestStableRelease 刻意保留回落，这里必须是另一条路）。
+func TestPickLatestDesktopBetaRelease(t *testing.T) {
+	convey.Convey("桌面端 Beta 通道发布选择", t, func() {
+		convey.Convey("跳过 nightly 与正式版 tag，取最新的 vX.Y.Z-beta.N", func() {
+			release, err := pickLatestDesktopBetaRelease([]ReleaseInfo{
+				{TagName: "nightly", Name: "v1.0.0-nightly.20260528", Prerelease: true},
+				{TagName: "v1.0.0-beta.2", Prerelease: true},
+				{TagName: "v0.9.0", Prerelease: false},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "v1.0.0-beta.2", release.TagName)
+		})
+
+		convey.Convey("跳过 draft 的 beta tag", func() {
+			release, err := pickLatestDesktopBetaRelease([]ReleaseInfo{
+				{TagName: "v1.0.0-beta.3", Draft: true, Prerelease: true},
+				{TagName: "v1.0.0-beta.2", Draft: false, Prerelease: true},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "v1.0.0-beta.2", release.TagName)
+		})
+
+		convey.Convey("只有正式版 tag 时不回落，返回明确的「无 beta 发布」错误", func() {
+			release, err := pickLatestDesktopBetaRelease([]ReleaseInfo{
+				{TagName: "v1.0.0", Prerelease: false},
+			})
+			assert.Nil(t, release)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, errNoBetaRelease))
+		})
+
+		convey.Convey("没有任何发布时同样返回「无 beta 发布」错误", func() {
+			release, err := pickLatestDesktopBetaRelease(nil)
+			assert.Nil(t, release)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, errNoBetaRelease))
+		})
+
+		convey.Convey("beta tag 但没标预发布的 release 不被接受（只看预发布）", func() {
+			release, err := pickLatestDesktopBetaRelease([]ReleaseInfo{
+				{TagName: "v1.0.0-beta.3", Prerelease: false},
+			})
+			assert.Nil(t, release)
+			assert.True(t, errors.Is(err, errNoBetaRelease))
+		})
+
+		convey.Convey("形似 beta 但不是 vX.Y.Z-beta.N 的 tag 不被接受", func() {
+			for _, tag := range []string{
+				"v1.0.0-beta", "v1.0.0-beta.x", "v1.0.0-rc.1", "beta-1.0.0",
+				// 基于 beta 打的 nightly（nightly.yml VERSION 计算的形状）不是
+				// 「-beta tag 的发布」，Beta 通道不接受。
+				"v1.0.0-beta.1.nightly.20260917",
+			} {
+				release, err := pickLatestDesktopBetaRelease([]ReleaseInfo{{TagName: tag, Prerelease: true}})
+				assert.Nil(t, release, "tag=%s", tag)
+				assert.True(t, errors.Is(err, errNoBetaRelease), "tag=%s", tag)
+			}
+		})
+	})
+}
+
+// TestFetchReleaseForChannel 钉住 Dev 渠道不发起任何网络请求、也选不中任何发布 ——
+// 决定 9「Dev 没有发布」。stable/beta/nightly 的网络分支复用上面已单测过的纯函数
+// (pickLatestStableRelease/pickLatestDesktopBetaRelease)，这里不重复用真实网络断言。
+func TestFetchReleaseForChannel(t *testing.T) {
+	convey.Convey("按渠道取 release", t, func() {
+		convey.Convey("Dev 直接返回错误，不发请求、不选中任何发布", func() {
+			release, err := fetchReleaseForChannel(paths.ChannelDev)
+			assert.Nil(t, release)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, errDevNoRelease))
+		})
+	})
+}
+
+// TestPickDesktopAsset 钉住「选包」规则：名字必须是 本渠道前缀 + 版本号形状 + -goos-arch
+// + 扩展名；agentred- 归档与其他渠道的包（agentre- 是 agentre-beta- 的前缀）永远不会被
+// 选中；没有匹配时报出「该版本没有适用于本平台的安装包」，不选任何资产。
+func TestPickDesktopAsset(t *testing.T) {
+	assets := []ReleaseAsset{
+		{Name: "agentred-v1.2.3-darwin-arm64.tar.gz", BrowserDownloadURL: "agentred"},
+		{Name: "agentre-v1.2.3-darwin-arm64.dmg", BrowserDownloadURL: "stable-darwin-arm64"},
+		{Name: "agentre-v1.2.3-linux-amd64.tar.gz", BrowserDownloadURL: "stable-linux-amd64"},
+		{Name: "agentre-beta-v1.2.3-beta.4-darwin-arm64.dmg", BrowserDownloadURL: "beta-darwin-arm64"},
+		{Name: "agentre-nightly-v1.2.3-nightly.20260917-darwin-arm64.dmg", BrowserDownloadURL: "nightly-darwin-arm64"},
+	}
+
+	convey.Convey("按渠道前缀 + 版本形状 + 平台精确选包", t, func() {
+		convey.Convey("stable 只选自己的包，不选 agentred-，也不选更长前缀的 beta 包", func() {
+			asset, err := pickDesktopAsset(assets, paths.ChannelStable.Identity().ReleaseAssetPrefix, "darwin", "arm64")
+			require.NoError(t, err)
+			assert.Equal(t, "stable-darwin-arm64", asset.BrowserDownloadURL)
+		})
+
+		convey.Convey("beta 只选带 agentre-beta- 前缀的包", func() {
+			asset, err := pickDesktopAsset(assets, paths.ChannelBeta.Identity().ReleaseAssetPrefix, "darwin", "arm64")
+			require.NoError(t, err)
+			assert.Equal(t, "beta-darwin-arm64", asset.BrowserDownloadURL)
+		})
+
+		convey.Convey("nightly 只选带 agentre-nightly- 前缀的包", func() {
+			asset, err := pickDesktopAsset(assets, paths.ChannelNightly.Identity().ReleaseAssetPrefix, "darwin", "arm64")
+			require.NoError(t, err)
+			assert.Equal(t, "nightly-darwin-arm64", asset.BrowserDownloadURL)
+		})
+
+		convey.Convey("平台不匹配时不选任何东西，报「该版本没有适用于本平台的安装包」", func() {
+			asset, err := pickDesktopAsset(assets, paths.ChannelStable.Identity().ReleaseAssetPrefix, "windows", "amd64")
+			assert.Nil(t, asset)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "该版本没有适用于本平台的安装包")
+		})
+
+		convey.Convey("Windows 选中本渠道 NSIS 安装器（CI 产出 <前缀><版本>-windows-<arch>-installer.exe）", func() {
+			winAssets := []ReleaseAsset{
+				{Name: "agentred-v1.2.3-windows-amd64.zip", BrowserDownloadURL: "agentred"},
+				{Name: "agentre-beta-v1.2.3-beta.4-windows-amd64-installer.exe", BrowserDownloadURL: "beta-windows-amd64"},
+				{Name: "agentre-v1.2.3-windows-amd64-installer.exe", BrowserDownloadURL: "stable-windows-amd64"},
+			}
+			asset, err := pickDesktopAsset(winAssets, paths.ChannelStable.Identity().ReleaseAssetPrefix, "windows", "amd64")
+			require.NoError(t, err)
+			assert.Equal(t, "stable-windows-amd64", asset.BrowserDownloadURL)
+
+			asset, err = pickDesktopAsset(winAssets, paths.ChannelBeta.Identity().ReleaseAssetPrefix, "windows", "amd64")
+			require.NoError(t, err)
+			assert.Equal(t, "beta-windows-amd64", asset.BrowserDownloadURL)
+		})
+
+		convey.Convey("Dev 没有发布包前缀，永远选不中任何东西", func() {
+			asset, err := pickDesktopAsset(assets, paths.ChannelDev.Identity().ReleaseAssetPrefix, "darwin", "arm64")
+			assert.Nil(t, asset)
+			require.Error(t, err)
+		})
+
+		convey.Convey("agentred- 归档即使平台匹配也不会被任何桌面渠道选中", func() {
+			for _, prefix := range []string{
+				paths.ChannelStable.Identity().ReleaseAssetPrefix,
+				paths.ChannelBeta.Identity().ReleaseAssetPrefix,
+				paths.ChannelNightly.Identity().ReleaseAssetPrefix,
+			} {
+				asset, err := pickDesktopAsset(
+					[]ReleaseAsset{{Name: "agentred-v1.2.3-darwin-arm64.tar.gz"}},
+					prefix, "darwin", "arm64")
+				assert.Nil(t, asset, "prefix=%s", prefix)
+				assert.Error(t, err, "prefix=%s", prefix)
+			}
+		})
+	})
+}
+
+// TestDesktopBundleFileName 钉住 macOS 安装取的是本渠道 bundle 名，例如 Beta 取
+// "Agentre Beta.app"，与渠道身份表一致。
+func TestDesktopBundleFileName(t *testing.T) {
+	convey.Convey("macOS bundle 文件名取自渠道身份", t, func() {
+		assert.Equal(t, "Agentre.app", desktopBundleFileName(paths.ChannelStable))
+		assert.Equal(t, "Agentre Beta.app", desktopBundleFileName(paths.ChannelBeta))
+		assert.Equal(t, "Agentre Nightly.app", desktopBundleFileName(paths.ChannelNightly))
+		assert.Equal(t, "Agentre Dev.app", desktopBundleFileName(paths.ChannelDev))
+	})
+}
+
+// TestCheckForUpdateForChannelWithFetch 钉住桌面端按渠道检查更新的分流：Beta 无
+// 匹配发布时是「暂无更新」而不是报错或回落；Dev 完全不发请求；网络失败时正式版仍
+// 走镜像回落（与现状一致）。
+func TestCheckForUpdateForChannelWithFetch(t *testing.T) {
+	convey.Convey("按渠道检查更新", t, func() {
+		convey.Convey("Beta 没有匹配发布时结果是「暂无更新」，不报错", func() {
+			fetch := func(paths.Channel) (*ReleaseInfo, error) { return nil, errNoBetaRelease }
+			info, err := checkForUpdateForChannelWithFetch(paths.ChannelBeta, "", fetch)
+			require.NoError(t, err)
+			require.NotNil(t, info)
+			assert.False(t, info.HasUpdate)
+		})
+
+		convey.Convey("Dev 不调用 fetch，直接返回错误", func() {
+			called := false
+			fetch := func(paths.Channel) (*ReleaseInfo, error) {
+				called = true
+				return nil, nil
+			}
+			info, err := checkForUpdateForChannelWithFetch(paths.ChannelDev, "", fetch)
+			assert.Nil(t, info)
+			require.Error(t, err)
+			assert.False(t, called, "Dev 不应该发起任何请求")
+		})
+
+		convey.Convey("正式版权威来源失败时走镜像回落，与现状一致", func() {
+			mirror := newRecordingServer(t, map[string][]byte{
+				"/release-info.json": mustJSON(t, ReleaseInfo{TagName: "v9.9.9", Name: "v9.9.9"}),
+			})
+			fetch := func(paths.Channel) (*ReleaseInfo, error) {
+				return nil, errors.New("api.github.com unreachable")
+			}
+			info, err := checkForUpdateForChannelWithFetch(paths.ChannelStable, mirror.URL+"/", fetch)
+			require.NoError(t, err)
+			require.NotNil(t, info)
+			assert.Equal(t, "v9.9.9", info.LatestVersion)
+			assert.True(t, mirror.asked("release-info.json"))
+		})
+
+		convey.Convey("nightly 用 release title 作版本号，与现状一致", func() {
+			fetch := func(paths.Channel) (*ReleaseInfo, error) {
+				return &ReleaseInfo{TagName: "nightly", Name: "v1.0.0-nightly.20260917"}, nil
+			}
+			info, err := checkForUpdateForChannelWithFetch(paths.ChannelNightly, "", fetch)
+			require.NoError(t, err)
+			assert.Equal(t, "v1.0.0-nightly.20260917", info.LatestVersion)
+		})
+	})
+}
+
+// TestResolveInstallReleaseNoChannelRelease 钉住「Beta/Dev 取不到发布」时
+// resolveInstallRelease 原样透出哨兵错误，不裹成通用的「获取 GitHub 官方版本信息失败」，
+// 也不下载任何东西。
+func TestResolveInstallReleaseNoChannelRelease(t *testing.T) {
+	convey.Convey("取不到本渠道发布时原样透出", t, func() {
+		sources := releaseSources{checksumBaseURL: githubDownloadBaseURL}
+
+		convey.Convey("Beta 没有匹配发布", func() {
+			sources.fetchRelease = func(string) (*ReleaseInfo, error) { return nil, errNoBetaRelease }
+			release, err := resolveInstallRelease(sources, ChannelBeta)
+			assert.Nil(t, release)
+			assert.True(t, errors.Is(err, errNoBetaRelease))
+		})
+
+		convey.Convey("Dev 没有发布", func() {
+			sources.fetchRelease = func(string) (*ReleaseInfo, error) { return nil, errDevNoRelease }
+			release, err := resolveInstallRelease(sources, string(paths.ChannelDev))
+			assert.Nil(t, release)
+			assert.True(t, errors.Is(err, errDevNoRelease))
+		})
+	})
+}
+
+// TestDownloadAndUpdateForChannelDevGuard 钉住 Dev 渠道的 DownloadAndUpdate 不选中
+// 任何 release / 安装包：还没到「按渠道取哪个 release」这一步就先失败。
+func TestDownloadAndUpdateForChannelDevGuard(t *testing.T) {
+	convey.Convey("Dev 渠道下载更新直接失败", t, func() {
+		err := downloadAndUpdateForChannel(paths.ChannelDev, "", nil)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, errDevNoRelease))
 	})
 }

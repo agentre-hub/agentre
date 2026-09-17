@@ -9,7 +9,9 @@ const runtimeMocks = vi.hoisted(() => ({
 
 vi.mock("../../../wailsjs/runtime/runtime", () => runtimeMocks);
 
+import { Info } from "../../../wailsjs/go/app/App";
 import { UpdateSection } from "./update-section";
+import { INITIAL_UPDATE_STATE, useUpdateStore } from "@/stores/update-store";
 
 const REPOSITORY_URL = "https://github.com/agentre-hub/agentre";
 
@@ -23,17 +25,25 @@ const BUG_REPORT_INFO = {
 
 type AppMock = Record<string, ReturnType<typeof vi.fn>>;
 
+// Info 走 vite 别名到共享 wails mock（src/__tests__/mocks/wailsApp.ts），按渠道改它的返回值。
+function mockInfo(channel: string) {
+  vi.mocked(Info).mockResolvedValue({
+    name: "agentre",
+    version: "1.2.3",
+    commit: "abc1234",
+    env: "test",
+    runtimeMode: "interactive",
+    channel,
+  });
+}
+
 function installUpdateBindings(overrides?: {
-  getUpdateChannel?: () => Promise<unknown>;
   getDownloadMirror?: () => Promise<unknown>;
   getAvailableMirrors?: () => Promise<unknown>;
   getDebugLogging?: () => Promise<unknown>;
   getBugReportInfo?: () => Promise<unknown>;
 }): AppMock {
   const app: AppMock = {
-    GetUpdateChannel:
-      (overrides?.getUpdateChannel as ReturnType<typeof vi.fn>) ??
-      vi.fn(() => Promise.resolve("stable")),
     GetDownloadMirror:
       (overrides?.getDownloadMirror as ReturnType<typeof vi.fn>) ??
       vi.fn(() => Promise.resolve("")),
@@ -60,6 +70,8 @@ beforeEach(() => {
   runtimeMocks.BrowserOpenURL.mockReset();
   runtimeMocks.EventsOff.mockReset();
   runtimeMocks.EventsOn.mockReset();
+  useUpdateStore.setState({ ...INITIAL_UPDATE_STATE });
+  mockInfo("stable");
   installUpdateBindings();
 });
 
@@ -77,7 +89,9 @@ describe("UpdateSection repository address", () => {
 
   it("Given update settings fail to load, When the page settles, Then the repository address remains available", async () => {
     installUpdateBindings({
-      getUpdateChannel: vi.fn(() => Promise.reject(new Error("settings down"))),
+      getDownloadMirror: vi.fn(() =>
+        Promise.reject(new Error("settings down")),
+      ),
     });
 
     render(<UpdateSection />);
@@ -158,24 +172,67 @@ describe("UpdateSection debug logging", () => {
   });
 });
 
-describe("UpdateSection channel switch", () => {
-  it("Given the user switches update channel, When it persists, Then a fresh check runs against the new channel", async () => {
-    const app = installUpdateBindings();
-    app.SetUpdateChannel = vi.fn(() => Promise.resolve());
-    app.CheckForUpdate = vi.fn(() =>
-      Promise.resolve({ hasUpdate: false, currentVersion: "1.2.3" }),
+describe("UpdateSection build channel", () => {
+  it("Given the update page loads, When users look for an update channel, Then there is no channel selector to change", async () => {
+    render(<UpdateSection />);
+
+    expect(
+      await screen.findByRole("link", { name: REPOSITORY_URL }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText(/v1\.2\.3/)).toBeInTheDocument(),
     );
+    expect(screen.queryByRole("combobox", { name: /channel/i })).toBeNull();
+    expect(screen.queryByText(/update channel/i)).toBeNull();
+  });
+
+  it.each([
+    ["beta", "Beta"],
+    ["nightly", "Nightly"],
+    ["dev", "Dev"],
+  ])(
+    "Given a %s build, When the version shows, Then the %s label sits beside it",
+    async (channel, label) => {
+      mockInfo(channel);
+
+      render(<UpdateSection />);
+
+      const version = await screen.findByText(/v1\.2\.3/);
+      const badge = await screen.findByTestId("update-build-channel");
+      expect(badge).toHaveTextContent(new RegExp(`^${label}$`));
+      expect(version.parentElement).toContainElement(badge);
+    },
+  );
+
+  it("Given a stable build, When the version shows, Then no channel label is shown", async () => {
+    render(<UpdateSection />);
+
+    await screen.findByText(/v1\.2\.3/);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /check for updates/i }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("update-build-channel")).toBeNull();
+  });
+
+  it("Given a Dev build, When the page settles, Then there is no Check for Updates entry and no check is requested", async () => {
+    mockInfo("dev");
+    const app = installUpdateBindings();
+    app.CheckForUpdate = vi.fn(() => Promise.resolve({ hasUpdate: false }));
+    app.MaybeCheckForUpdate = vi.fn(() => Promise.resolve(null));
 
     render(<UpdateSection />);
-    await waitFor(() => expect(app.GetUpdateChannel).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole("combobox", { name: /channel/i }));
-    fireEvent.click(await screen.findByRole("option", { name: /beta/i }));
-
-    await waitFor(() =>
-      expect(app.SetUpdateChannel).toHaveBeenCalledWith("beta"),
-    );
-    // 切完通道不该把结果清成「未知」让用户自己再点一次——他此刻就在等结果。
-    await waitFor(() => expect(app.CheckForUpdate).toHaveBeenCalled());
+    await screen.findByTestId("update-build-channel");
+    expect(
+      screen.queryByRole("button", { name: /check for updates/i }),
+    ).toBeNull();
+    // 镜像设置保留；诊断入口与版本号无关，照常可用。
+    expect(
+      screen.getByRole("button", { name: /report bug/i }),
+    ).toBeInTheDocument();
+    expect(app.CheckForUpdate).not.toHaveBeenCalled();
+    expect(app.MaybeCheckForUpdate).not.toHaveBeenCalled();
   });
 });

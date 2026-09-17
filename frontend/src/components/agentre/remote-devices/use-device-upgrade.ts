@@ -3,6 +3,10 @@
 // 桌面端这一侧的取数适配：状态机本身归共享包
 // (`useAgentredUpgrade` —— 两端的态与迁移只该有一份实现),这里只把它接到 Wails
 // 绑定上:发起受理调用走 RemoteDeviceUpgrade,轮询期间的版本读本机缓存的远端快照。
+//
+// 渠道不再由这里选择或传入:RemoteDeviceUpgrade 已经不接受渠道参数,桌面端自己
+// 的构建渠道由 remote_device_svc 在 Go 侧解析(决策 10 —— 设置删除后这是唯一的
+// 渠道来源)。
 
 import { useMemo } from "react";
 
@@ -26,9 +30,8 @@ export function useDeviceUpgrade(
 ): AgentredUpgrade {
   const ports = useMemo(
     () => ({
-      // channel 留空 = 「那台机器自己配着的那个通道」,桌面端不替它选。
       requestUpgrade: async (force: boolean) => {
-        const result = await RemoteDeviceUpgrade(deviceId, "", force);
+        const result = await RemoteDeviceUpgrade(deviceId, force);
         return {
           accepted: result.accepted,
           rejectReason: result.rejectReason,

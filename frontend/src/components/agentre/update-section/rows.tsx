@@ -1,5 +1,5 @@
 // 更新区块里的几行设置项(都长成「左边说明 + 右边控件」的样子):
-// 标题行、仓库行、渠道行、镜像行、调试行。
+// 标题行、仓库行、镜像行、调试行。
 
 import * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -17,14 +17,9 @@ import {
 
 import { BrowserOpenURL } from "../../../../wailsjs/runtime/runtime";
 
-import { type MirrorInfo, type UpdateChannel } from "../update-api";
+import { type MirrorInfo } from "../update-api";
 
-import {
-  CHANNEL_LABEL,
-  CHANNEL_DESC,
-  REPOSITORY_URL,
-  MIRROR_CUSTOM_ID,
-} from "./format";
+import { REPOSITORY_URL, MIRROR_CUSTOM_ID } from "./format";
 
 export function SectionHeader() {
   const { t } = useTranslation();
@@ -99,45 +94,6 @@ export function DebugRow({
         onCheckedChange={onToggle}
         aria-labelledby={labelId}
       />
-    </div>
-  );
-}
-
-export function ChannelRow({
-  channel,
-  onChange,
-  disabled,
-}: {
-  channel: UpdateChannel;
-  onChange: (next: string) => void;
-  disabled: boolean;
-}) {
-  const { t } = useTranslation();
-  const labelId = React.useId();
-  return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span id={labelId} className="text-sm font-medium">
-          {t("update.channel.title")}
-        </span>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          {t(CHANNEL_DESC[channel])}
-        </p>
-      </div>
-      <div className="w-full sm:w-[220px]">
-        <Select value={channel} onValueChange={onChange} disabled={disabled}>
-          <SelectTrigger aria-labelledby={labelId}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(["stable", "beta", "nightly"] as const).map((c) => (
-              <SelectItem key={c} value={c}>
-                {t(CHANNEL_LABEL[c])}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
     </div>
   );
 }

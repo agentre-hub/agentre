@@ -25,7 +25,7 @@ import type { AppTheme, AppThemePreference } from "@agentre-hub/agentre-ui";
 
 import { cn } from "@agentre-hub/agentre-ui";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
-import { useUpdateStore } from "@/stores/update-store";
+import { updatesOffered, useUpdateStore } from "@/stores/update-store";
 import type { AgentStatus } from "@/stores/types";
 import {
   Quit,
@@ -249,6 +249,8 @@ function AppTopBar({
  *
  * 没有更新时它退回今天的灰色版本号：「有更新」要是一次真的状态跃迁，
  * 而不是一直挂在那的装饰。
+ *
+ * 不提供更新的构建（Dev，或渠道还不知道）没有胶囊，只留一段不可点的版本号。
  */
 function UpdateStatusPill({
   version,
@@ -262,6 +264,11 @@ function UpdateStatusPill({
   // 面板开合放在 store 里:到达提示的「查看更新」要能把它拉开。
   const open = useUpdateStore((s) => s.panelOpen);
   const setPanelOpen = useUpdateStore((s) => s.setPanelOpen);
+  const offered = useUpdateStore(updatesOffered);
+
+  if (!offered) {
+    return <span className="px-1.5 py-0.5 font-medium">{version}</span>;
+  }
 
   const base =
     "wails-no-drag inline-flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50";

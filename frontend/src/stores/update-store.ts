@@ -7,8 +7,10 @@ import {
   downloadAndInstallUpdate,
   getSkippedUpdateVersion,
   maybeCheckForUpdate,
+  parseBuildChannel,
   restartApp,
   setSkippedUpdateVersion,
+  type BuildChannel,
   type UpdateInfo,
 } from "../components/agentre/update-api";
 
@@ -47,6 +49,12 @@ export type UpdatePhase =
   | { kind: "error"; message: string };
 
 export type UpdateSnapshot = {
+  /**
+   * 本进程的构建渠道（来自 AppInfo.channel）；拿到之前为 null。
+   *
+   * Dev 没有发布，渠道未知时也不替它发请求——两者都不提供检查更新。
+   */
+  channel: BuildChannel | null;
   phase: UpdatePhase;
   /** 最近一次结果的来源；决定「要不要主动通告」。 */
   lastTrigger: CheckTrigger | null;
@@ -66,6 +74,7 @@ export type UpdateSnapshot = {
 };
 
 export const INITIAL_UPDATE_STATE: UpdateSnapshot = {
+  channel: null,
   phase: { kind: "idle" },
   lastTrigger: null,
   lastCheckedAt: null,
@@ -73,6 +82,13 @@ export const INITIAL_UPDATE_STATE: UpdateSnapshot = {
   announcedVersion: "",
   panelOpen: false,
 };
+
+/**
+ * updatesOffered 判断本构建是否提供更新：检查更新入口、状态栏胶囊与检查请求都认它。
+ */
+export function updatesOffered(s: UpdateSnapshot): boolean {
+  return s.channel !== null && s.channel !== "dev";
+}
 
 /**
  * unskippedUpdate 返回「有一个用户还没跳过的新版本」时的版本信息。
@@ -125,6 +141,8 @@ function errorMessage(err: unknown): string {
 type UpdateStore = UpdateSnapshot & {
   /** 挂事件订阅并载入持久化的跳过版本；返回解绑函数。 */
   init: () => Promise<() => void>;
+  /** 写入 AppInfo.channel；不认识的值记为未知（null）。 */
+  setChannel: (raw: unknown) => void;
   check: (trigger: "manual" | "focus") => Promise<void>;
   download: () => Promise<void>;
   /** 记下「这一版已经主动提示过了」，同一版本不再自动弹。 */
@@ -185,7 +203,11 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     };
   },
 
+  setChannel: (raw) => set({ channel: parseBuildChannel(raw) }),
+
   check: async (trigger) => {
+    // Dev 与渠道未知时一个请求都不发（后端 RunCheck 对 Dev 同样直接返回）。
+    if (!updatesOffered(get())) return;
     const phase = get().phase;
     if (phase.kind === "checking" || !acceptsCheckResult(phase)) return;
 
@@ -265,7 +287,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
 
 /**
  * useUpdateWatch 把「更新这件事」接上宿主：挂事件订阅，并在窗口重新获得焦点时
- * 补一次受节流的检查。
+ * 补一次受节流的检查（Dev 构建由 check 自己拦下，不发请求）。
  *
  * 挂在 App 层而不是胶囊里：胶囊只负责显示，订阅是宿主职责——否则每个渲染状态栏的
  * 测试都要先造一套 wails runtime。回窗刷新的写法与 use-remote-devices.ts 一致。

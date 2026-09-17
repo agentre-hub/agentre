@@ -1,4 +1,4 @@
-// update-api.ts —— 桌面端"检查更新 / 下载安装 / 通道-镜像设置"的 Wails 调用封装。
+// update-api.ts —— 桌面端"检查更新 / 下载安装 / 镜像设置"的 Wails 调用封装。
 //
 // 没有直接从 wailsjs/go/app/App 里 import，是因为这些方法是新加的，需要 wails generate
 // 重新跑一遍才会出现。这里走 window.go.app.App.<name>(...) 直接路径，与 wailsjs 生成文件
@@ -14,7 +14,22 @@ declare global {
   }
 }
 
-export type UpdateChannel = "stable" | "beta" | "nightly";
+// BuildChannel 与后端 paths.Channel（AppInfo.channel）一致：渠道只由构建标记决定，
+// 运行时不可更改。
+export type BuildChannel = "stable" | "beta" | "nightly" | "dev";
+
+const BUILD_CHANNELS: readonly BuildChannel[] = [
+  "stable",
+  "beta",
+  "nightly",
+  "dev",
+];
+
+// parseBuildChannel 把 AppInfo.channel 收窄成已知渠道；取不到或不认识时返回 null，
+// 调用方按「渠道未知」处理（不提供更新）。
+export function parseBuildChannel(raw: unknown): BuildChannel | null {
+  return BUILD_CHANNELS.find((c) => c === raw) ?? null;
+}
 
 export type UpdateInfo = {
   hasUpdate: boolean;
@@ -64,14 +79,6 @@ export function downloadAndInstallUpdate(): Promise<void> {
 
 export function getAvailableMirrors(): Promise<MirrorInfo[]> {
   return call<MirrorInfo[]>("GetAvailableMirrors");
-}
-
-export function getUpdateChannel(): Promise<UpdateChannel> {
-  return call<UpdateChannel>("GetUpdateChannel");
-}
-
-export function setUpdateChannel(channel: UpdateChannel): Promise<void> {
-  return call<void>("SetUpdateChannel", channel);
 }
 
 export function getDownloadMirror(): Promise<string> {

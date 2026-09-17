@@ -6,17 +6,30 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
-// serviceName 是 keychain 里的「应用程序」槽位。同一台机器上 agentre 所有账号都挂在它下面。
-const serviceName = "agentre"
+// keyringGet/keyringSet/keyringDelete are the go-keyring package functions systemKC
+// calls through. They're package-level vars (not direct calls) so tests can replace
+// them via SetSystemKeyringForTest and never touch the real OS keychain.
+var (
+	keyringGet    = keyring.Get
+	keyringSet    = keyring.Set
+	keyringDelete = keyring.Delete
+)
 
-type systemKC struct{}
+type systemKC struct {
+	// service is the keychain "application" slot this instance reads and writes.
+	// Each build channel gets its own service name (see Channel.Identity().
+	// KeychainService) so stable/beta/nightly/dev never share credentials.
+	service string
+}
 
-// NewSystem 返回 OS 原生 keychain 实现：macOS Keychain / Windows Credential Manager /
-// Linux Secret Service。生产构建挂这个；headless / 部分容器环境若不可用，应改挂 NewFile()。
-func NewSystem() Keychain { return &systemKC{} }
+// NewSystem returns an OS-native keychain implementation scoped to service:
+// macOS Keychain / Windows Credential Manager / Linux Secret Service. Production
+// builds pass the current build channel's Identity().KeychainService; headless /
+// some container environments should opt into NewFile() instead.
+func NewSystem(service string) Keychain { return &systemKC{service: service} }
 
 func (s *systemKC) Get(account string) (string, error) {
-	v, err := keyring.Get(serviceName, account)
+	v, err := keyringGet(s.service, account)
 	if errors.Is(err, keyring.ErrNotFound) {
 		return "", ErrNotFound
 	}
@@ -24,11 +37,11 @@ func (s *systemKC) Get(account string) (string, error) {
 }
 
 func (s *systemKC) Set(account, secret string) error {
-	return keyring.Set(serviceName, account, secret)
+	return keyringSet(s.service, account, secret)
 }
 
 func (s *systemKC) Delete(account string) error {
-	err := keyring.Delete(serviceName, account)
+	err := keyringDelete(s.service, account)
 	if errors.Is(err, keyring.ErrNotFound) {
 		return ErrNotFound
 	}

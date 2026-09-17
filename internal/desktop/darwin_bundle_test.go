@@ -4,8 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"testing"
+
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
 // TestDarwinDevBundleIdentityIsDistinctFromProduction pins the macOS identity
@@ -19,21 +20,18 @@ func TestDarwinDevBundleIdentityIsDistinctFromProduction(t *testing.T) {
 	devName := plistString(t, darwinPlist("Info.dev.plist"), "CFBundleName")
 	devDisplay := plistString(t, darwinPlist("Info.dev.plist"), "CFBundleDisplayName")
 
-	t.Run("Given the darwin Info templates When compared Then dev uses production identifier plus .dev", func(t *testing.T) {
-		if prodID == devID {
-			t.Fatalf("dev CFBundleIdentifier %q collides with production", devID)
+	t.Run("Given the darwin Info templates When compared Then they carry the stable and dev channel bundle ids", func(t *testing.T) {
+		if prodID != paths.ChannelStable.Identity().BundleID {
+			t.Fatalf("production CFBundleIdentifier = %q, want %q", prodID, paths.ChannelStable.Identity().BundleID)
 		}
-		if strings.HasSuffix(prodID, ".dev") {
-			t.Fatalf("production CFBundleIdentifier %q must not use the .dev suffix", prodID)
-		}
-		if devID != prodID+".dev" {
-			t.Fatalf("dev CFBundleIdentifier = %q, want %q", devID, prodID+".dev")
+		if devID != paths.ChannelDev.Identity().BundleID {
+			t.Fatalf("dev CFBundleIdentifier = %q, want %q", devID, paths.ChannelDev.Identity().BundleID)
 		}
 	})
 
-	t.Run("Given Info.dev.plist When read Then Dock name is marked (Dev)", func(t *testing.T) {
-		if !strings.Contains(devName, "(Dev)") {
-			t.Fatalf("dev CFBundleName = %q, want a (Dev) marker for Dock/Cmd+Tab", devName)
+	t.Run("Given Info.dev.plist When read Then Dock name is the Dev channel display name", func(t *testing.T) {
+		if want := paths.ChannelDev.Identity().DisplayName; devName != want {
+			t.Fatalf("dev CFBundleName = %q, want %q for Dock/Cmd+Tab", devName, want)
 		}
 		if devDisplay != devName {
 			t.Fatalf("dev CFBundleDisplayName = %q, want %q so Dock matches the app menu", devDisplay, devName)
