@@ -2,12 +2,10 @@ package agent_backend_svc
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"maps"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/backendcred"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
@@ -40,6 +39,11 @@ const (
 )
 
 var ErrOpenClawRemoteSecretUnavailable = errors.New("openclaw remote secret enrollment is unavailable")
+
+// errOpenClawTokenSlotMissing guards a token write for a row that has no sync_id:
+// the slot is keyed by sync_id, and a blank key would let unrelated backends
+// share one token.
+var errOpenClawTokenSlotMissing = errors.New("openclaw token slot requires a backend sync_id")
 
 // AgentBackendSvc Agent 后端应用服务。
 type AgentBackendSvc interface {
@@ -75,10 +79,9 @@ type agentBackendSvc struct {
 	secrets keychain.Keychain
 	// hermes 是 gated serve 的凭据存储（login 写 keychain、runtime 取 bearer）。
 	// nil → 统一回落到进程内单例 defaultHermesCredentials。
-	hermes *hermesCredentialStore
+	hermes *backendcred.HermesCredentials
 
 	openClawProbe openClawProbeFunc
-	identityMu    sync.Mutex
 
 	// remoteCLI 用于 device 非空场景拨远端 daemon 调 cli.* RPC。
 	// nil → 走 realRemoteCLI 默认实现（dial → call → close）；单测注入 fake。
@@ -343,9 +346,14 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 		store := s.secretStore()
 		if store == nil {
 			_ = agent_backend_repo.AgentBackend().Delete(ctx, b.ID)
-			return nil, errors.New("openclaw secret store unavailable")
+			return nil, backendcred.ErrStoreUnavailable
 		}
-		if err := store.Set(openClawTokenAccount(b.ID), token); err != nil {
+		account := backendcred.OpenClawTokenAccount(b.SyncID)
+		if account == "" {
+			rollbackErr := agent_backend_repo.AgentBackend().Delete(ctx, b.ID)
+			return nil, errors.Join(errOpenClawTokenSlotMissing, rollbackErr)
+		}
+		if err := store.Set(account, token); err != nil {
 			rollbackErr := agent_backend_repo.AgentBackend().Delete(ctx, b.ID)
 			return nil, errors.Join(err, rollbackErr)
 		}
@@ -460,18 +468,20 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	}
 	if existing.IsOpenClaw() && (token != "" || clearToken) {
 		store := s.secretStore()
-		if store == nil {
-			rollbackErr := agent_backend_repo.AgentBackend().Update(ctx, &before)
-			return nil, errors.Join(errors.New("openclaw secret store unavailable"), rollbackErr)
-		}
+		account := backendcred.OpenClawTokenAccount(existing.SyncID)
 		var secretErr error
-		if clearToken {
-			secretErr = store.Delete(openClawTokenAccount(existing.ID))
-			if errors.Is(secretErr, keychain.ErrNotFound) {
+		switch {
+		case store == nil:
+			secretErr = backendcred.ErrStoreUnavailable
+		case account == "":
+			secretErr = errOpenClawTokenSlotMissing
+		case clearToken:
+			secretErr = store.Delete(account)
+			if errors.Is(secretErr, backendcred.ErrNotFound) {
 				secretErr = nil
 			}
-		} else {
-			secretErr = store.Set(openClawTokenAccount(existing.ID), token)
+		default:
+			secretErr = store.Set(account, token)
 		}
 		if secretErr != nil {
 			rollbackErr := agent_backend_repo.AgentBackend().Update(ctx, &before)
@@ -624,8 +634,6 @@ type openClawProbeFunc func(
 	selection openclawgateway.ProbeSelection,
 ) (*openclawgateway.ProbeResult, error)
 
-const openClawIdentityAccount = "agentre.openclaw.device.identity.seed"
-
 func (s *agentBackendSvc) testOpenClaw(
 	ctx context.Context,
 	req *TestBackendRequest,
@@ -637,17 +645,17 @@ func (s *agentBackendSvc) testOpenClaw(
 		return &TestBackendResponse{OK: false, Code: "OPENCLAW_SECRET_UNAVAILABLE"}, nil
 	}
 	token := transientToken
-	if token == "" && backend.ID > 0 {
-		stored, err := store.Get(openClawTokenAccount(backend.ID))
+	if account := backendcred.OpenClawTokenAccount(backend.SyncID); token == "" && account != "" {
+		stored, err := store.Get(account)
 		switch {
 		case err == nil:
 			token = stored
-		case errors.Is(err, keychain.ErrNotFound):
+		case errors.Is(err, backendcred.ErrNotFound):
 		default:
 			return &TestBackendResponse{OK: false, Code: "OPENCLAW_SECRET_UNAVAILABLE", Message: err.Error()}, nil
 		}
 	}
-	identity, err := s.openClawIdentity()
+	identity, err := backendcred.OpenClawIdentity(store)
 	if err != nil {
 		return &TestBackendResponse{OK: false, Code: "OPENCLAW_SECRET_UNAVAILABLE", Message: err.Error()}, nil
 	}
@@ -739,35 +747,6 @@ func openClawDraftIssue(backend *agent_backend_entity.AgentBackend) *TestBackend
 	return nil
 }
 
-func (s *agentBackendSvc) openClawIdentity() (*openclawgateway.DeviceIdentity, error) {
-	s.identityMu.Lock()
-	defer s.identityMu.Unlock()
-	store := s.secretStore()
-	if store == nil {
-		return nil, errors.New("openclaw secret store unavailable")
-	}
-	encoded, err := store.Get(openClawIdentityAccount)
-	if err == nil {
-		seed, decodeErr := base64.RawURLEncoding.DecodeString(encoded)
-		if decodeErr != nil {
-			return nil, errors.New("openclaw device identity is invalid")
-		}
-		return openclawgateway.NewDeviceIdentityFromSeed(seed)
-	}
-	if !errors.Is(err, keychain.ErrNotFound) {
-		return nil, err
-	}
-	identity, err := openclawgateway.GenerateDeviceIdentity()
-	if err != nil {
-		return nil, err
-	}
-	encoded = base64.RawURLEncoding.EncodeToString(identity.Seed())
-	if err := store.Set(openClawIdentityAccount, encoded); err != nil {
-		return nil, err
-	}
-	return identity, nil
-}
-
 // resolveOpenClawRuntimeConfig is the only boundary that turns persisted
 // non-sensitive backend configuration plus keychain state into a live Gateway
 // client config. The returned token must never cross DTO or daemon wire types.
@@ -787,17 +766,20 @@ func (s *agentBackendSvc) resolveOpenClawRuntimeConfig(ctx context.Context, back
 	}
 	store := s.secretStore()
 	if store == nil {
-		return openclawgateway.Config{}, errors.New("openclaw secret store unavailable")
+		return openclawgateway.Config{}, backendcred.ErrStoreUnavailable
 	}
-	token, err := store.Get(openClawTokenAccount(backend.ID))
-	if errors.Is(err, keychain.ErrNotFound) {
-		token = ""
-		err = nil
+	token := ""
+	if account := backendcred.OpenClawTokenAccount(backend.SyncID); account != "" {
+		token, err = store.Get(account)
+		if errors.Is(err, backendcred.ErrNotFound) {
+			token = ""
+			err = nil
+		}
+		if err != nil {
+			return openclawgateway.Config{}, err
+		}
 	}
-	if err != nil {
-		return openclawgateway.Config{}, err
-	}
-	identity, err := s.openClawIdentity()
+	identity, err := backendcred.OpenClawIdentity(store)
 	if err != nil {
 		return openclawgateway.Config{}, err
 	}
@@ -983,27 +965,28 @@ func (s *agentBackendSvc) Delete(ctx context.Context, req *DeleteBackendRequest)
 	}
 	var restoreToken string
 	var removedToken bool
-	if existing.IsOpenClaw() {
+	tokenAccount := backendcred.OpenClawTokenAccount(existing.SyncID)
+	if existing.IsOpenClaw() && tokenAccount != "" {
 		store := s.secretStore()
 		if store == nil {
-			return nil, errors.New("openclaw secret store unavailable")
+			return nil, backendcred.ErrStoreUnavailable
 		}
-		value, getErr := store.Get(openClawTokenAccount(existing.ID))
+		value, getErr := store.Get(tokenAccount)
 		switch {
 		case getErr == nil:
 			restoreToken = value
-			if err := store.Delete(openClawTokenAccount(existing.ID)); err != nil && !errors.Is(err, keychain.ErrNotFound) {
+			if err := store.Delete(tokenAccount); err != nil && !errors.Is(err, backendcred.ErrNotFound) {
 				return nil, err
 			}
 			removedToken = true
-		case errors.Is(getErr, keychain.ErrNotFound):
+		case errors.Is(getErr, backendcred.ErrNotFound):
 		default:
 			return nil, getErr
 		}
 	}
 	if err := agent_backend_repo.AgentBackend().Delete(ctx, existing.ID); err != nil {
 		if removedToken {
-			restoreErr := s.secretStore().Set(openClawTokenAccount(existing.ID), restoreToken)
+			restoreErr := s.secretStore().Set(tokenAccount, restoreToken)
 			return nil, errors.Join(err, restoreErr)
 		}
 		return nil, err
@@ -1256,9 +1239,9 @@ func (s *agentBackendSvc) buildItem(b *agent_backend_entity.AgentBackend, p *llm
 		Createtime:            b.Createtime,
 		Updatetime:            b.Updatetime,
 	}
-	if b.IsOpenClaw() {
+	if account := backendcred.OpenClawTokenAccount(b.SyncID); b.IsOpenClaw() && account != "" {
 		if store := s.secretStore(); store != nil {
-			_, err := store.Get(openClawTokenAccount(b.ID))
+			_, err := store.Get(account)
 			item.HasToken = err == nil
 		}
 	}
@@ -1347,10 +1330,6 @@ func (s *agentBackendSvc) secretStore() keychain.Keychain {
 		return s.secrets
 	}
 	return keychain.Default()
-}
-
-func openClawTokenAccount(backendID int64) string {
-	return "agentre.openclaw.backend." + strconv.FormatInt(backendID, 10) + ".token"
 }
 
 // normalizeDeviceID converts the UI's empty local selection to this
