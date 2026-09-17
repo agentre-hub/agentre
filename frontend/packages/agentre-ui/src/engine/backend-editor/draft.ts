@@ -365,8 +365,11 @@ export async function saveBackendDraft(args: {
     state.kind === "create" ? null : args.baseline,
     draft,
   );
+  // 路径没改就不写：覆盖行按 (后端, 设备) 各自同步，把打开时读到的值原样写回会撤回
+  // 其它设备在此期间对这一行的改动（规格「web 前端」：未改动字段保持服务端当前值）。
   async function writeCliOverlay(backendSyncId: string) {
     if (!args.setCliOverlay || !isCLIPathBackend(draft.type)) return;
+    if (!changedFields.includes("cliPath")) return;
     await args.setCliOverlay(backendSyncId, draft.deviceId, draft.cliPath);
   }
   if (state.kind === "create") {

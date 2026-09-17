@@ -488,16 +488,20 @@ describe("engine settings CLI path overlay by device", () => {
     );
     await user.click(await screen.findByRole("option", { name: /laptop/ }));
 
-    await within(dialog).findByDisplayValue("/usr/bin/claude-laptop");
+    const pathField = await within(dialog).findByDisplayValue(
+      "/usr/bin/claude-laptop",
+    );
     expect(get).toHaveBeenCalledWith("backend-1", "fp-laptop");
 
+    await user.clear(pathField);
+    await user.type(pathField, "/opt/claude-laptop");
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
       expect(set).toHaveBeenCalledWith(
         "backend-1",
         "fp-laptop",
-        "/usr/bin/claude-laptop",
+        "/opt/claude-laptop",
       ),
     );
     expect(set).not.toHaveBeenCalledWith(
@@ -507,15 +511,60 @@ describe("engine settings CLI path overlay by device", () => {
     );
   });
 
+  it("Given an editor open on an existing CLI backend, When only the name changes and it is saved, Then the stored CLI path overlay is not written back", async () => {
+    const user = userEvent.setup();
+    const get = vi.fn().mockResolvedValue("/usr/bin/claude-build");
+    const set = vi.fn().mockResolvedValue(undefined);
+    const updateBackend = vi.fn().mockResolvedValue(
+      backendRow({
+        syncId: "backend-1",
+        type: "claudecode",
+        deviceId: "fp-build",
+      }),
+    );
+
+    renderPanel(
+      createPorts({
+        listAccountDevices: vi.fn().mockResolvedValue(ACCOUNT_DEVICES),
+        listBackends: vi.fn().mockResolvedValue([
+          backendRow({
+            syncId: "backend-1",
+            name: "Claude Code",
+            type: "claudecode",
+            deviceId: "fp-build",
+          }),
+        ]),
+        cliPath: { get, set },
+        updateBackend,
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edit Claude Code" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByDisplayValue("/usr/bin/claude-build");
+    const name = within(dialog).getByLabelText(/name/i);
+    await user.clear(name);
+    await user.type(name, "Claude Renamed");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateBackend).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(set).not.toHaveBeenCalled();
+  });
+
   it("Given a backend type without a CLI executable, When it is saved, Then no CLI overlay row is written", async () => {
     const user = userEvent.setup();
     const set = vi.fn().mockResolvedValue(undefined);
     renderPanel(
       createPorts({
         cliPath: { get: vi.fn().mockResolvedValue(null), set },
-        createOpenClawBackend: vi.fn().mockResolvedValue(
-          backendRow({ syncId: "backend-2", type: "openclaw" }),
-        ),
+        createOpenClawBackend: vi
+          .fn()
+          .mockResolvedValue(
+            backendRow({ syncId: "backend-2", type: "openclaw" }),
+          ),
       }),
     );
 
@@ -523,10 +572,7 @@ describe("engine settings CLI path overlay by device", () => {
     await user.click(
       within(dialog).getByRole("radio", { name: /OpenClaw Gateway/ }),
     );
-    await user.type(
-      within(dialog).getByLabelText(/name/i),
-      "OpenClaw Local",
-    );
+    await user.type(within(dialog).getByLabelText(/name/i), "OpenClaw Local");
     await user.type(
       await within(dialog).findByLabelText(/Gateway WebSocket URL/i),
       "ws://127.0.0.1:18789",
@@ -534,9 +580,7 @@ describe("engine settings CLI path overlay by device", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
-      expect(
-        within(dialog).queryByRole("dialog"),
-      ).toBeNull(),
+      expect(within(dialog).queryByRole("dialog")).toBeNull(),
     );
     expect(set).not.toHaveBeenCalled();
   });
