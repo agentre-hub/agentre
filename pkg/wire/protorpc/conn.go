@@ -5,12 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
@@ -258,8 +259,8 @@ func (c *Conn) Serve(ctx context.Context) {
 	var badFrames, unknownFrames int
 	var exitErr error
 	defer func() {
-		log().DebugContext(ctx, "protorpc.Conn.Serve: read loop exited",
-			slog.Any("error", exitErr), slog.Int("badFrames", badFrames), slog.Int("unknownFrames", unknownFrames))
+		logger.Ctx(ctx).Debug("protorpc.Conn.Serve: read loop exited",
+			zap.Error(exitErr), zap.Int("badFrames", badFrames), zap.Int("unknownFrames", unknownFrames))
 	}()
 	for {
 		b, err := c.transport.ReadFrame()
@@ -273,8 +274,8 @@ func (c *Conn) Serve(ctx context.Context) {
 			// 读循环里打日志。总数进退出那一行。
 			badFrames++
 			if badFrames == 1 {
-				log().WarnContext(ctx, "protorpc.Conn.Serve: dropped an undecodable frame",
-					slog.Any("error", unmarshalErr), slog.Int("frameBytes", len(b)))
+				logger.Ctx(ctx).Warn("protorpc.Conn.Serve: dropped an undecodable frame",
+					zap.Error(unmarshalErr), zap.Int("frameBytes", len(b)))
 			}
 			continue
 		}
@@ -294,8 +295,8 @@ func (c *Conn) Serve(ctx context.Context) {
 			// 对端发来了本版本不认识的帧类型(协议漂移)。同样只报第一条。
 			unknownFrames++
 			if unknownFrames == 1 {
-				log().WarnContext(ctx, "protorpc.Conn.Serve: dropped a frame with an unknown body",
-					slog.Uint64("frameId", f.GetId()))
+				logger.Ctx(ctx).Warn("protorpc.Conn.Serve: dropped a frame with an unknown body",
+					zap.Uint64("frameId", f.GetId()))
 			}
 		}
 	}
@@ -398,8 +399,8 @@ func (c *Conn) deliver(id uint64, r result) {
 		// 没人等这个 id:调用方已经超时走了(应答其实回来了,只是晚了),或者对端
 		// 发了一条我们从没发过的应答。Debug 够用,但它必须留下来 —— 「超时了」和
 		// 「超时后其实答了」是两个不同的结论。
-		log().DebugContext(context.Background(), "protorpc.Conn.deliver: dropped a response nobody is waiting for",
-			slog.Uint64("requestId", id))
+		logger.Default().Debug("protorpc.Conn.deliver: dropped a response nobody is waiting for",
+			zap.Uint64("requestId", id))
 		return
 	}
 	select {
