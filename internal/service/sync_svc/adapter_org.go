@@ -293,6 +293,14 @@ func (*agentAdapter) dependents(ctx context.Context, syncID string) ([]relatedRo
 	return agentExecTargetRows(ctx, syncID)
 }
 
+// dependentsOnClaim Agent 这一侧没有要补发的东西：引用它的成员关系在拼载荷时
+// （flush）读的就是它**已经被认领之后**的那一行——认领排在每一轮 flush 之前，所以
+// 表达不出来的情况根本不会发生；真发生（行被标记删除之类）时那条载荷不会发出去，
+// 也就不会在 server 上留下一条引用的孤儿行。
+func (*agentAdapter) dependentsOnClaim(context.Context, string) ([]relatedRow, error) {
+	return nil, nil
+}
+
 // children 删 Agent 时它的成员关系与执行目标列表项一并落墓碑（R6）。
 func (*agentAdapter) children(ctx context.Context, syncID string) ([]relatedRow, error) {
 	out, err := agentExecTargetRows(ctx, syncID)

@@ -391,6 +391,95 @@ func TestProjectAgentAdapter_TranslatesBothEnds(t *testing.T) {
 	assert.NoError(t, syncwire.GuardPayload(syncwire.KindProjectAgent, out.Payload))
 }
 
+// TestProjectAgentAdapter_GivenProjectWithoutSyncID_SkipsTheRow 项目行还在、但它还没
+// 拿到同步标识（R12a 的认领失效时就是这样，本机上 21 个项目因此在库里盖着空标识）。
+// 此刻这条成员关系**表达不出**它属于哪个项目：照发就是一条 `project_sync_id` 为空串
+// 的载荷，server 上那条成员关系此后不属于任何项目——它既不进任何一个项目的成员清单，
+// 也不会再被认领（它已经是那个账号的行）。本机不发，等本行拿到标识后的重发。
+func TestProjectAgentAdapter_GivenProjectWithoutSyncID_SkipsTheRow(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	state.EXPECT().FindRow(gomock.Any(), syncwire.KindProjectAgent, "pa-1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
+			row := dest.(*project_entity.ProjectAgent)
+			*row = project_entity.ProjectAgent{
+				ProjectID: 4, AgentID: 2, JoinedAt: 999,
+				SyncMeta: syncmeta_entity.SyncMeta{SyncID: "pa-1"},
+			}
+			return true, nil
+		})
+	syncstate_repo.RegisterSyncState(state)
+	projects := mock_project_repo.NewMockProjectRepo(ctrl)
+	projects.EXPECT().Find(gomock.Any(), int64(4)).Return(&project_entity.Project{
+		ID: 4, Name: "Agentre",
+	}, nil)
+	project_repo.RegisterProject(projects)
+	agents := mock_agent_repo.NewMockAgentRepo(ctrl)
+	agents.EXPECT().Find(gomock.Any(), int64(2)).Return(&agent_entity.Agent{
+		ID: 2, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "agent-1"},
+	}, nil)
+	agent_repo.RegisterAgent(agents)
+
+	out, err := projectAgentAdapter{}.load(context.Background(), "pa-1")
+	require.NoError(t, err)
+	assert.Nil(t, out, "引用表达不出来时一条都不发")
+}
+
+// TestProjectAgentAdapter_GivenAgentWithoutSyncID_SkipsTheRow 同一个口子的另一半：
+// Agent 那一行在、但没有同步标识。空引用的成员关系在 server 上是一个不入任何清单的
+// 孤儿行，宁可先不发。
+func TestProjectAgentAdapter_GivenAgentWithoutSyncID_SkipsTheRow(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	state.EXPECT().FindRow(gomock.Any(), syncwire.KindProjectAgent, "pa-1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
+			row := dest.(*project_entity.ProjectAgent)
+			*row = project_entity.ProjectAgent{
+				ProjectID: 4, AgentID: 2, JoinedAt: 999,
+				SyncMeta: syncmeta_entity.SyncMeta{SyncID: "pa-1"},
+			}
+			return true, nil
+		})
+	syncstate_repo.RegisterSyncState(state)
+	projects := mock_project_repo.NewMockProjectRepo(ctrl)
+	projects.EXPECT().Find(gomock.Any(), int64(4)).Return(&project_entity.Project{
+		ID: 4, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "proj-1"},
+	}, nil)
+	project_repo.RegisterProject(projects)
+	agents := mock_agent_repo.NewMockAgentRepo(ctrl)
+	agents.EXPECT().Find(gomock.Any(), int64(2)).Return(&agent_entity.Agent{ID: 2, Name: "CEO"}, nil)
+	agent_repo.RegisterAgent(agents)
+
+	out, err := projectAgentAdapter{}.load(context.Background(), "pa-1")
+	require.NoError(t, err)
+	assert.Nil(t, out, "引用表达不出来时一条都不发")
+}
+
+// TestProjectLocationAdapter_GivenProjectWithoutSyncID_SkipsTheRow 同一条规则用在
+// 路径记录上：项目没有同步标识时，它的**自然键**（项目标识 × 指纹）只能退化成空串，
+// 而 server 那边空作用域的行会彼此碰撞（同指纹的第二条被自然键合并掉）——不发。
+func TestProjectLocationAdapter_GivenProjectWithoutSyncID_SkipsTheRow(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	state.EXPECT().FindRow(gomock.Any(), syncwire.KindProjectLocation, "loc-1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
+			row := dest.(*project_location_entity.ProjectLocation)
+			*row = project_location_entity.ProjectLocation{
+				ID: 6, ProjectID: 4, DeviceFingerprint: "fp-builder", Path: "/srv/repo",
+				SyncMeta: syncmeta_entity.SyncMeta{SyncID: "loc-1"},
+			}
+			return true, nil
+		})
+	syncstate_repo.RegisterSyncState(state)
+	projects := mock_project_repo.NewMockProjectRepo(ctrl)
+	projects.EXPECT().Find(gomock.Any(), int64(4)).Return(&project_entity.Project{ID: 4, Name: "Agentre"}, nil)
+	project_repo.RegisterProject(projects)
+
+	out, err := projectLocationAdapter{}.load(context.Background(), "loc-1")
+	require.NoError(t, err)
+	assert.Nil(t, out, "引用表达不出来时一条都不发")
+}
+
 // TestProjectLocationAdapter_CarriesNaturalKeyOutsidePayload R4b/决策 26：路径记录的
 // 账号内自然键（项目同步标识, agentred 指纹）走上行项的顶层字段，server 据此合并。
 func TestProjectLocationAdapter_CarriesNaturalKeyOutsidePayload(t *testing.T) {

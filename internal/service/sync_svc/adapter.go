@@ -51,6 +51,11 @@ type adapter interface {
 	// dependents 列出随本行一并上行的从属行：Agent 的执行目标是独立的同步对象，
 	// 但它们只跟着 Agent 的写入路径变化。
 	dependents(ctx context.Context, syncID string) ([]relatedRow, error)
+	// dependentsOnClaim 列出那些**引用本行、却在本行还没有同步标识时上过行**的行。
+	// 它们那份载荷把引用写成了空串（server 上是不属于任何东西的孤儿行），而它们
+	// 自己已经同步过（版本非 0），不会随下一次变更自己重发——本行刚被认领（R12a）
+	// 是它们唯一能把引用补正的机会。
+	dependentsOnClaim(ctx context.Context, syncID string) ([]relatedRow, error)
 	// children 列出本行被删除时一并落墓碑的子行（R6）。
 	children(ctx context.Context, syncID string) ([]relatedRow, error)
 }
@@ -60,6 +65,9 @@ type baseAdapter struct{}
 
 func (baseAdapter) dependents(context.Context, string) ([]relatedRow, error) { return nil, nil }
 func (baseAdapter) children(context.Context, string) ([]relatedRow, error)   { return nil, nil }
+
+// dependentsOnClaim 没有引用者的对象类型兜底：认领时不必额外重发什么。
+func (baseAdapter) dependentsOnClaim(context.Context, string) ([]relatedRow, error) { return nil, nil }
 
 // defaultAdapters 装配账号级表的适配器。avatar 是头像内容存取的窄接口，只有
 // agentAdapter 用到（R16a）；单机模式下 New(nil) 传进来的是真正的 nil 接口，
