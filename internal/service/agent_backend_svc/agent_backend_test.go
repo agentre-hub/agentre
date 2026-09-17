@@ -17,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
@@ -1343,6 +1344,76 @@ func TestCLIOverlay_GivenMissingOverlay_ReportsPATH(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, response.CLIPath)
 	assert.Equal(t, "path", response.Status)
+}
+
+// TestCLIOverlay_GivenExplicitDeviceID_SetWritesThatDeviceNotLocal reproduces
+// Problem 5's device-identity half: SetCLIOverlay used to always resolve to
+// this installation's own fingerprint (rd.DeviceFingerprint()), ignoring which
+// device the backend actually targets. A remote-device save would silently
+// write the path onto the wrong (local) row. No EXPECT is set on
+// rd.DeviceFingerprint(): if the fix regresses to always calling it, the
+// gomock controller fails this test for an unexpected call.
+func TestCLIOverlay_GivenExplicitDeviceID_SetWritesThatDeviceNotLocal(t *testing.T) {
+	ctx, backendMock, _, _, _, _, svc := setupSvcTestWithRemoteDevice(t)
+	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", devicefp.Carrier("sha256:remote")).Return(nil, nil)
+	backendMock.EXPECT().CreateCLIOverlay(ctx, gomock.AssignableToTypeOf(&agent_backend_entity.CLIOverlay{})).DoAndReturn(
+		func(_ context.Context, overlay *agent_backend_entity.CLIOverlay) error {
+			assert.Equal(t, "backend-1", overlay.BackendSyncID)
+			assert.Equal(t, devicefp.Carrier("sha256:remote"), overlay.AgentredFingerprint)
+			assert.Equal(t, "/opt/claude", overlay.CLIPath)
+			return nil
+		})
+
+	_, err := svc.SetCLIOverlay(ctx, &SetCLIOverlayRequest{
+		BackendSyncID: "backend-1", DeviceID: "sha256:remote", CLIPath: "/opt/claude",
+	})
+	require.NoError(t, err)
+}
+
+// TestCLIOverlay_GivenExplicitDeviceID_GetReadsThatDeviceNotLocal is GetCLIOverlay's
+// counterpart: reading a remote device's overlay must not consult this
+// installation's own fingerprint.
+func TestCLIOverlay_GivenExplicitDeviceID_GetReadsThatDeviceNotLocal(t *testing.T) {
+	ctx, backendMock, _, _, _, _, svc := setupSvcTestWithRemoteDevice(t)
+	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", devicefp.Carrier("sha256:remote")).
+		Return(&agent_backend_entity.CLIOverlay{CLIPath: "/opt/remote/claude"}, nil)
+
+	resp, err := svc.GetCLIOverlay(ctx, &GetCLIOverlayRequest{BackendSyncID: "backend-1", DeviceID: "sha256:remote"})
+	require.NoError(t, err)
+	assert.Equal(t, "/opt/remote/claude", resp.CLIPath)
+	assert.Equal(t, "recognized", resp.Status)
+}
+
+// TestUpdateBackend_GivenNonCLIType_WritesNoOverlayRow reproduces Problem 5's
+// other half: Update called setCLIOverlayIfAvailable unconditionally, so
+// openclaw/hermes/builtin saves fabricated a spurious empty CLI overlay row.
+// AllowsCLIPath (kinds.go) is the existing per-kind capability metadata; no
+// FindCLIOverlay/CreateCLIOverlay/UpdateCLIOverlay expectation is set, so the
+// strict gomock backendMock fails this test if the fix regresses.
+func TestUpdateBackend_GivenNonCLIType_WritesNoOverlayRow(t *testing.T) {
+	ctx, backendMock, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+	// update() 的设备规范化与 toItem 的本机展示判定都会读本机指纹（与 CLI 覆盖无关
+	// 的既有行为），这里不关心调用几次；只断言不会去碰 CLI 覆盖表的读写方法。
+	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
+	existing := &agent_backend_entity.AgentBackend{
+		ID:                  81,
+		SyncMeta:            syncmeta_entity.SyncMeta{SyncID: "backend-81"},
+		Type:                string(agent_backend_entity.TypeOpenClaw),
+		Name:                "OpenClaw Local",
+		OpenClawGatewayURL:  "ws://127.0.0.1:18789",
+		OpenClawSessionMode: agent_backend_entity.OpenClawSessionPerAgentRESession,
+		Status:              consts.ACTIVE,
+	}
+	backendMock.EXPECT().Find(gomock.Any(), int64(81)).Return(existing, nil)
+	backendMock.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, err := svc.Update(ctx, &UpdateBackendRequest{
+		ID:                  81,
+		Name:                "OpenClaw Local",
+		OpenClawGatewayURL:  "ws://127.0.0.1:18789",
+		OpenClawSessionMode: agent_backend_entity.OpenClawSessionPerAgentRESession,
+	})
+	require.NoError(t, err)
 }
 
 func TestBackend_GivenCanonicalFingerprint_ResolvesPairedRowForRemoteProbe(t *testing.T) {

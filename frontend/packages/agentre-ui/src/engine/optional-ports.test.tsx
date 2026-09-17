@@ -439,6 +439,142 @@ describe("engine settings host-writable fields", () => {
 });
 
 /**
+ * 可执行文件路径覆盖是按 (backend, device) 存的一行，不是按 backend 存一行。
+ * 编辑器只在打开时取过一次值，换设备不重读就会把旧设备的路径原样提交，写进
+ * 新设备那一行 —— 这条测试锚住换设备必须重读、保存必须只带上当前设备。
+ */
+describe("engine settings CLI path overlay by device", () => {
+  it("Given an editor open on an existing backend, When the runtime device changes, Then the CLI path field shows the new device's stored path and save writes only that device's overlay", async () => {
+    const user = userEvent.setup();
+    const get = vi.fn(async (_backendSyncId: string, deviceId: string) => {
+      if (deviceId === "fp-build") return "/usr/bin/claude-build";
+      if (deviceId === "fp-laptop") return "/usr/bin/claude-laptop";
+      return null;
+    });
+    const set = vi.fn().mockResolvedValue(undefined);
+    const updateBackend = vi.fn().mockResolvedValue(
+      backendRow({
+        syncId: "backend-1",
+        type: "claudecode",
+        deviceId: "fp-laptop",
+      }),
+    );
+
+    renderPanel(
+      createPorts({
+        listAccountDevices: vi.fn().mockResolvedValue(ACCOUNT_DEVICES),
+        listBackends: vi.fn().mockResolvedValue([
+          backendRow({
+            syncId: "backend-1",
+            name: "Claude Code",
+            type: "claudecode",
+            deviceId: "fp-build",
+          }),
+        ]),
+        cliPath: { get, set },
+        updateBackend,
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edit Claude Code" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByDisplayValue("/usr/bin/claude-build");
+    expect(get).toHaveBeenCalledWith("backend-1", "fp-build");
+
+    await user.click(
+      within(dialog).getByRole("combobox", { name: "Runtime Device" }),
+    );
+    await user.click(await screen.findByRole("option", { name: /laptop/ }));
+
+    await within(dialog).findByDisplayValue("/usr/bin/claude-laptop");
+    expect(get).toHaveBeenCalledWith("backend-1", "fp-laptop");
+
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(set).toHaveBeenCalledWith(
+        "backend-1",
+        "fp-laptop",
+        "/usr/bin/claude-laptop",
+      ),
+    );
+    expect(set).not.toHaveBeenCalledWith(
+      "backend-1",
+      "fp-build",
+      expect.anything(),
+    );
+  });
+
+  it("Given a backend type without a CLI executable, When it is saved, Then no CLI overlay row is written", async () => {
+    const user = userEvent.setup();
+    const set = vi.fn().mockResolvedValue(undefined);
+    renderPanel(
+      createPorts({
+        cliPath: { get: vi.fn().mockResolvedValue(null), set },
+        createOpenClawBackend: vi.fn().mockResolvedValue(
+          backendRow({ syncId: "backend-2", type: "openclaw" }),
+        ),
+      }),
+    );
+
+    const dialog = await openCreateDialog(user);
+    await user.click(
+      within(dialog).getByRole("radio", { name: /OpenClaw Gateway/ }),
+    );
+    await user.type(
+      within(dialog).getByLabelText(/name/i),
+      "OpenClaw Local",
+    );
+    await user.type(
+      await within(dialog).findByLabelText(/Gateway WebSocket URL/i),
+      "ws://127.0.0.1:18789",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(
+        within(dialog).queryByRole("dialog"),
+      ).toBeNull(),
+    );
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it("Given a new CLI backend being created, When it is saved, Then the overlay is written under the created backend's own syncId", async () => {
+    const user = userEvent.setup();
+    const set = vi.fn().mockResolvedValue(undefined);
+    const createBackend = vi
+      .fn()
+      .mockResolvedValue(
+        backendRow({ syncId: "backend-new", type: "claudecode" }),
+      );
+    renderPanel(
+      createPorts({
+        cliPath: { get: vi.fn().mockResolvedValue(null), set },
+        createBackend,
+      }),
+    );
+
+    const dialog = await openCreateDialog(user);
+    await user.type(within(dialog).getByLabelText(/name/i), "My Claude");
+    await user.type(
+      within(dialog).getByPlaceholderText("/usr/local/bin/claude"),
+      "/usr/local/bin/claude",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(set).toHaveBeenCalledWith(
+        "backend-new",
+        "",
+        "/usr/local/bin/claude",
+      ),
+    );
+  });
+});
+
+/**
  * `addIsSandbox` 是给**编辑不了 env 表**的宿主准备的口子。
  *
  * 桌面端不用它：env_json 就在它手里，一键按钮改本地 entries 再随整体保存落盘。

@@ -280,9 +280,13 @@ type ListCLIOverlaysResponse struct {
 	Items []*CLIOverlayItem `json:"items"`
 }
 
-// GetCLIOverlayRequest reads the current desktop's per-device CLI override.
+// GetCLIOverlayRequest reads the per-device CLI override for BackendSyncID on
+// DeviceID's row. DeviceID empty means the local installation's own
+// fingerprint (normalizeDeviceID's fallback), keeping the pre-device-aware
+// call shape working unchanged.
 type GetCLIOverlayRequest struct {
 	BackendSyncID string `json:"backendSyncId" binding:"required"`
+	DeviceID      string `json:"deviceId"`
 }
 
 type GetCLIOverlayResponse struct {
@@ -290,9 +294,12 @@ type GetCLIOverlayResponse struct {
 	Status  string `json:"status"`
 }
 
-// SetCLIOverlayRequest updates the current desktop's per-device CLI override.
+// SetCLIOverlayRequest updates the per-device CLI override for
+// BackendSyncID on DeviceID's row. DeviceID empty means the local
+// installation's own fingerprint (normalizeDeviceID's fallback).
 type SetCLIOverlayRequest struct {
 	BackendSyncID string `json:"backendSyncId" binding:"required"`
+	DeviceID      string `json:"deviceId"`
 	CLIPath       string `json:"cliPath"`
 }
 

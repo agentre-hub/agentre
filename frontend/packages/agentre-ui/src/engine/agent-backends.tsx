@@ -197,7 +197,9 @@ function AgentBackendsPanelBody({
   }
 
   async function openEditor(backend: Backend, openBinding = false) {
-    const cliPath = (await ports.cliPath?.get(backend.syncId)) ?? "";
+    const cliPath =
+      (await ports.cliPath?.get(backend.syncId, backend.deviceId ?? "")) ??
+      "";
     setEditor({ kind: "edit", backend, cliPath, openBinding });
   }
 
@@ -682,6 +684,8 @@ function BackendEditor({
     initialCliPath: state.kind === "edit" ? (state.cliPath ?? "") : "",
     type,
     deviceId,
+    backendSyncId: editing?.syncId,
+    getCliOverlay: ports.cliPath?.get,
     resolveCliPath: ResolveAgentBackendCLIPath,
     t,
   });
@@ -969,6 +973,7 @@ function BackendEditor({
       openClawToken: openClaw.token,
       clearOpenClawToken: openClaw.clearToken,
       bridge,
+      setCliOverlay: ports.cliPath?.set,
       onSaved,
       t,
     });

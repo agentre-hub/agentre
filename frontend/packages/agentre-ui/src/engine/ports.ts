@@ -242,9 +242,14 @@ export interface EngineSettingsPorts {
   addIsSandbox?(backendSyncId: string): Promise<void>;
   /** Browser hosts disable local-only built-in backend creation. */
   canCreateBuiltin?: boolean;
+  /**
+   * Per-(backend, device) CLI executable override. deviceId is the same value
+   * as BackendView.deviceId / the editor's selected runtime device ("" = the
+   * host's own local machine); switching device reads/writes a different row.
+   */
   cliPath?: {
-    get(backendSyncId: string): Promise<string | null>;
-    set(backendSyncId: string, path: string): Promise<void>;
+    get(backendSyncId: string, deviceId: string): Promise<string | null>;
+    set(backendSyncId: string, deviceId: string, path: string): Promise<void>;
   };
 
   /** Desktop-only runtime capabilities. Browser hosts omit these methods. */

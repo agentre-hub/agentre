@@ -38,10 +38,26 @@ export function useCliProbes(args: {
   initialCliPath: string;
   type: BackendType;
   deviceId: string;
+  // backendSyncId + getCliOverlay 只在 edit 态有意义：换设备后重读该 (backend,
+  // device) 已存的可执行文件覆盖路径，不是探测目标机 $PATH（那是 detectCLIPath
+  // 的事）。宿主没接 cliPath 端口（getCliOverlay 缺席）时不重读，字段保持不可编辑。
+  backendSyncId?: string;
+  getCliOverlay?: (
+    backendSyncId: string,
+    deviceId: string,
+  ) => Promise<string | null>;
   resolveCliPath: EngineSettingsBridge["ResolveAgentBackendCLIPath"];
   t: Translate;
 }) {
-  const { stateKind, type, deviceId, resolveCliPath, t } = args;
+  const {
+    stateKind,
+    type,
+    deviceId,
+    backendSyncId,
+    getCliOverlay,
+    resolveCliPath,
+    t,
+  } = args;
   const [cliPath, setCliPath] = React.useState(args.initialCliPath);
   const [cliProbing, setCliProbing] = React.useState(false);
   // 「$PATH 没挂到 binary」的提示文案；命中后清空。
@@ -51,6 +67,28 @@ export function useCliProbes(args: {
     Partial<Record<BackendType, CLIProbe>>
   >({});
   const cliProbeGenerationRef = React.useRef(0);
+  // edit 态打开时调用方已经用打开那一刻的设备预取过一次 cliPath（避免弹窗首帧
+  // 空白闪一下），所以这里只在 deviceId 真的变化时才重读，跳过挂载时那一轮。
+  const lastFetchedDeviceRef = React.useRef(args.deviceId);
+  const cliOverlayGenerationRef = React.useRef(0);
+  React.useEffect(() => {
+    if (stateKind !== "edit" || !backendSyncId || !getCliOverlay) return;
+    if (!isCLIPathBackend(type)) return;
+    if (deviceId === lastFetchedDeviceRef.current) return;
+    lastFetchedDeviceRef.current = deviceId;
+    const generation = ++cliOverlayGenerationRef.current;
+    void getCliOverlay(backendSyncId, deviceId)
+      .then((path) => {
+        if (cliOverlayGenerationRef.current !== generation) return;
+        setCliPath(path ?? "");
+      })
+      .catch(() => {
+        // 换设备时读覆盖失败（宿主离线/出错）：按「这台没存过」呈现，而不是留着
+        // 上一台设备的路径误导用户以为它也适用于新设备。
+        if (cliOverlayGenerationRef.current !== generation) return;
+        setCliPath("");
+      });
+  }, [stateKind, backendSyncId, getCliOverlay, type, deviceId]);
 
   // detectCLIPath 调后端 ResolveAgentBackendCLIPath；非 CLI 类型直接返回 null。
   // 选了远端 device 时把 deviceId 一起传过去，让 agent_backend_svc 按 device 派发到远端 daemon。

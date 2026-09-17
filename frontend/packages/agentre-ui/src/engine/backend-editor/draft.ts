@@ -291,21 +291,37 @@ export async function saveBackendDraft(args: {
   openClawToken: string;
   clearOpenClawToken: boolean;
   bridge: SaveBackendDraftBridge;
+  // 可执行文件覆盖走独立的 per-device 端口，不随 create/update 的整份草稿一起编码
+  // （web 宿主日后也实现同一个端口，见 agentBackends.cliPath 的文档）。宿主没接
+  // 这个端口，或本类型根本不用 CLI（isCLIPathBackend）时都不调用。
+  setCliOverlay?: (
+    backendSyncId: string,
+    deviceId: string,
+    path: string,
+  ) => Promise<void>;
   onSaved: (message: string) => Promise<void> | void;
   t: Translate;
 }): Promise<void> {
   const { draft, state, editing, bridge, t } = args;
+  async function writeCliOverlay(backendSyncId: string) {
+    if (!args.setCliOverlay || !isCLIPathBackend(draft.type)) return;
+    await args.setCliOverlay(backendSyncId, draft.deviceId, draft.cliPath);
+  }
   if (state.kind === "create") {
+    let created: Backend | undefined;
     if (draft.type === "openclaw") {
-      await bridge.CreateOpenClawAgentBackend(
+      const response = await bridge.CreateOpenClawAgentBackend(
         { ...draft } as agent_backend_svc.CreateBackendRequest,
         args.openClawToken,
       );
+      created = response.item;
     } else {
-      await bridge.CreateAgentBackend({
+      const response = await bridge.CreateAgentBackend({
         ...draft,
       } as agent_backend_svc.CreateBackendRequest);
+      created = response.item;
     }
+    if (created) await writeCliOverlay(created.syncId);
     // 最近使用只在 target 成功持久化后记录（spec 决策 19）；native/inherit 不进入。
     recordRecentTarget("backend", draft.deviceId, {
       providerKey: draft.llmProviderKey,
@@ -346,6 +362,7 @@ export async function saveBackendDraft(args: {
     } else {
       await bridge.UpdateAgentBackend(request);
     }
+    await writeCliOverlay(editing.syncId);
     // 最近使用只在 target 成功持久化后记录（spec 决策 19）；native/inherit 不进入。
     recordRecentTarget("backend", draft.deviceId, {
       providerKey: draft.llmProviderKey,
