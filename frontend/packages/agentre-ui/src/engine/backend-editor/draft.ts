@@ -5,6 +5,7 @@ import { recordRecentTarget } from "../model-target-picker";
 import { OPENCLAW_SESSION_MODE } from "../openclaw-validation";
 import { OPENCLAW_ERROR_KEY_BY_CODE } from "../openclaw-validation";
 import type { EngineSettingsBridge } from "../port-bridge";
+import type { BackendChangedField } from "../ports";
 import type { agent_backend_svc } from "../port-bridge";
 import {
   CLAUDE_TIERS,
@@ -274,6 +275,60 @@ export function buildBackendDraft(f: BackendDraftFields): BackendDraft {
   };
 }
 
+// 草稿键 → 对外的改动字段名（ports.ts 的 BackendChangedField）。顺序即输出顺序。
+const CHANGED_FIELD_BY_DRAFT_KEY: ReadonlyArray<
+  readonly [keyof BackendDraft, BackendChangedField]
+> = [
+  ["type", "type"],
+  ["name", "name"],
+  ["deviceId", "deviceId"],
+  ["llmProviderKey", "llmProviderKey"],
+  ["llmModelKey", "llmModelKey"],
+  ["cliPath", "cliPath"],
+  ["envJson", "envJson"],
+  ["reasoningEffort", "reasoningEffort"],
+  ["modelRoutes", "config.modelRoutes"],
+  ["sandbox", "config.sandbox"],
+  ["approval", "config.approval"],
+  ["defaultPermissionMode", "config.defaultPermissionMode"],
+  ["defaultModel", "config.defaultModel"],
+  ["openClawGatewayUrl", "config.openClawGatewayUrl"],
+  ["openClawAgentId", "config.openClawAgentId"],
+  ["openClawDefaultModel", "config.openClawDefaultModel"],
+  ["openClawSessionMode", "config.openClawSessionMode"],
+  ["hermesUrl", "config.hermesUrl"],
+  ["hermesAuthProvider", "config.hermesAuthProvider"],
+  ["hermesUserId", "config.hermesUserId"],
+];
+
+// 两份草稿都出自 buildBackendDraft，已按同一规则整形（trim、按类型清空、env 序列化、
+// 路由按 tier 顺序），所以逐键比较序列化结果即可。
+function draftValueKey(value: BackendDraft[keyof BackendDraft]): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function isPopulated(
+  key: keyof BackendDraft,
+  value: BackendDraft[keyof BackendDraft],
+): boolean {
+  if (key === "envJson") return value !== "" && value !== "{}";
+  if (typeof value === "string") return value !== "";
+  return Object.keys(value).length > 0;
+}
+
+// changedBackendFields：baseline 为 null（新建）时列出所有有值的字段；否则列出与
+// 打开时那份草稿不同的字段 —— 改了又改回去不算。
+export function changedBackendFields(
+  baseline: BackendDraft | null,
+  draft: BackendDraft,
+): BackendChangedField[] {
+  return CHANGED_FIELD_BY_DRAFT_KEY.filter(([key]) =>
+    baseline === null
+      ? isPopulated(key, draft[key])
+      : draftValueKey(baseline[key]) !== draftValueKey(draft[key]),
+  ).map(([, field]) => field);
+}
+
 export type SaveBackendDraftBridge = Pick<
   EngineSettingsBridge,
   | "CreateAgentBackend"
@@ -286,6 +341,9 @@ export type SaveBackendDraftBridge = Pick<
 // 的入口），成功后记一次「最近使用」并把成功文案交回宿主。
 export async function saveBackendDraft(args: {
   draft: BackendDraft;
+  // baseline：编辑器打开时那份草稿（cliPath 换成保存时所选设备已存的值），据此算
+  // changedFields；新建传 null，按有值字段计。
+  baseline: BackendDraft | null;
   state: EditorState;
   editing: Backend | null;
   openClawToken: string;
@@ -303,6 +361,10 @@ export async function saveBackendDraft(args: {
   t: Translate;
 }): Promise<void> {
   const { draft, state, editing, bridge, t } = args;
+  const changedFields = changedBackendFields(
+    state.kind === "create" ? null : args.baseline,
+    draft,
+  );
   async function writeCliOverlay(backendSyncId: string) {
     if (!args.setCliOverlay || !isCLIPathBackend(draft.type)) return;
     await args.setCliOverlay(backendSyncId, draft.deviceId, draft.cliPath);
@@ -311,13 +373,14 @@ export async function saveBackendDraft(args: {
     let created: Backend | undefined;
     if (draft.type === "openclaw") {
       const response = await bridge.CreateOpenClawAgentBackend(
-        { ...draft } as agent_backend_svc.CreateBackendRequest,
+        { ...draft, changedFields } as agent_backend_svc.CreateBackendRequest,
         args.openClawToken,
       );
       created = response.item;
     } else {
       const response = await bridge.CreateAgentBackend({
         ...draft,
+        changedFields,
       } as agent_backend_svc.CreateBackendRequest);
       created = response.item;
     }
@@ -352,6 +415,7 @@ export async function saveBackendDraft(args: {
       hermesUrl: draft.hermesUrl,
       hermesAuthProvider: draft.hermesAuthProvider,
       hermesUserId: draft.hermesUserId,
+      changedFields,
     };
     if (draft.type === "openclaw") {
       await bridge.UpdateOpenClawAgentBackend(

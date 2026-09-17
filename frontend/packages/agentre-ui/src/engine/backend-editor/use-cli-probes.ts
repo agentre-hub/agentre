@@ -59,6 +59,9 @@ export function useCliProbes(args: {
     t,
   } = args;
   const [cliPath, setCliPath] = React.useState(args.initialCliPath);
+  // storedCliPath：当前所选设备上已存的覆盖路径（打开时预取的值，换设备后重读的值）。
+  // 保存时拿它当 cliPath 的比较基线，换设备读回来的旧值不算用户改动。
+  const [storedCliPath, setStoredCliPath] = React.useState(args.initialCliPath);
   const [cliProbing, setCliProbing] = React.useState(false);
   // 「$PATH 没挂到 binary」的提示文案；命中后清空。
   const [cliProbeMiss, setCliProbeMiss] = React.useState<string | null>(null);
@@ -81,12 +84,14 @@ export function useCliProbes(args: {
       .then((path) => {
         if (cliOverlayGenerationRef.current !== generation) return;
         setCliPath(path ?? "");
+        setStoredCliPath(path ?? "");
       })
       .catch(() => {
         // 换设备时读覆盖失败（宿主离线/出错）：按「这台没存过」呈现，而不是留着
         // 上一台设备的路径误导用户以为它也适用于新设备。
         if (cliOverlayGenerationRef.current !== generation) return;
         setCliPath("");
+        setStoredCliPath("");
       });
   }, [stateKind, backendSyncId, getCliOverlay, type, deviceId]);
 
@@ -163,6 +168,7 @@ export function useCliProbes(args: {
   return {
     cliPath,
     setCliPath,
+    storedCliPath,
     cliProbing,
     cliProbeMiss,
     setCliProbeMiss,

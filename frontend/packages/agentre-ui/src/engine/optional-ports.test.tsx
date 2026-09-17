@@ -657,3 +657,209 @@ describe("engine settings IS_SANDBOX 一键补键", () => {
     ).toBeNull();
   });
 });
+
+/**
+ * 保存只带「本次编辑里用户改过的字段」（规格 web 前端：未改动字段保持服务端当前值）。
+ * 宿主拿 changedFields 决定 PATCH 里放哪些键；编辑器打开时那份整稿里其余的值可能
+ * 早已被别的设备改掉，整份发回去就会把它们撤回。
+ */
+describe("engine settings backend save changedFields", () => {
+  const claudeBackend = backendRow({
+    syncId: "backend-1",
+    name: "Claude Code",
+    type: "claudecode",
+    defaultPermissionMode: "acceptEdits",
+    reasoningEffort: "high",
+  });
+
+  it("Given an existing backend, When only the default permission mode changes, Then the update names only config.defaultPermissionMode", async () => {
+    const user = userEvent.setup();
+    const updateBackend = vi.fn().mockResolvedValue(claudeBackend);
+    renderPanel(
+      createPorts({
+        listBackends: vi.fn().mockResolvedValue([claudeBackend]),
+        updateBackend,
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edit Claude Code" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("combobox", {
+        name: "Default Permission Mode",
+      }),
+    );
+    await user.click(
+      await screen.findByRole("option", { name: /plan · Read-only/ }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateBackend).toHaveBeenCalled());
+    const input = updateBackend.mock.calls[0][1];
+    expect(input.changedFields).toEqual(["config.defaultPermissionMode"]);
+    expect(input.defaultPermissionMode).toBe("plan");
+  });
+
+  it("Given an existing backend, When the name is edited and then restored, Then the update names no field", async () => {
+    const user = userEvent.setup();
+    const updateBackend = vi.fn().mockResolvedValue(claudeBackend);
+    renderPanel(
+      createPorts({
+        listBackends: vi.fn().mockResolvedValue([claudeBackend]),
+        updateBackend,
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edit Claude Code" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const nameInput = within(dialog).getByDisplayValue("Claude Code");
+    await user.type(nameInput, "X");
+    expect(nameInput).toHaveValue("Claude CodeX");
+    await user.type(nameInput, "{Backspace}");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateBackend).toHaveBeenCalled());
+    expect(updateBackend.mock.calls[0][1].changedFields).toEqual([]);
+  });
+
+  it("Given an existing backend, When only the runtime device changes, Then the new device's stored CLI path is not reported as a change", async () => {
+    const user = userEvent.setup();
+    const updateBackend = vi.fn().mockResolvedValue(claudeBackend);
+    renderPanel(
+      createPorts({
+        listAccountDevices: vi.fn().mockResolvedValue(ACCOUNT_DEVICES),
+        listBackends: vi
+          .fn()
+          .mockResolvedValue([{ ...claudeBackend, deviceId: "fp-build" }]),
+        cliPath: {
+          get: vi.fn(async (_syncId: string, deviceId: string) =>
+            deviceId === "fp-build"
+              ? "/usr/bin/claude-build"
+              : "/usr/bin/claude-laptop",
+          ),
+          set: vi.fn().mockResolvedValue(undefined),
+        },
+        updateBackend,
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edit Claude Code" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByDisplayValue("/usr/bin/claude-build");
+    await user.click(
+      within(dialog).getByRole("combobox", { name: "Runtime Device" }),
+    );
+    await user.click(await screen.findByRole("option", { name: /laptop/ }));
+    await within(dialog).findByDisplayValue("/usr/bin/claude-laptop");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateBackend).toHaveBeenCalled());
+    expect(updateBackend.mock.calls[0][1].changedFields).toEqual(["deviceId"]);
+  });
+
+  it("Given a new backend, When it is created, Then changedFields names every populated field", async () => {
+    const user = userEvent.setup();
+    const createBackend = vi
+      .fn()
+      .mockResolvedValue(backendRow({ syncId: "backend-new" }));
+    renderPanel(createPorts({ createBackend }));
+
+    const dialog = await openCreateDialog(user);
+    await user.type(within(dialog).getByLabelText(/name/i), "My Claude");
+    await user.click(
+      within(dialog).getByRole("combobox", {
+        name: "Default Permission Mode",
+      }),
+    );
+    await user.click(
+      await screen.findByRole("option", { name: /plan · Read-only/ }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(createBackend).toHaveBeenCalled());
+    expect(createBackend.mock.calls[0][0].changedFields).toEqual([
+      "type",
+      "name",
+      "config.defaultPermissionMode",
+    ]);
+  });
+});
+
+/**
+ * 宿主在账号通道提示同步变化时递增 refreshSignal：面板经既有端口重拉清单，
+ * 已打开的编辑弹窗里用户敲到一半的内容不能被冲掉。
+ */
+describe("engine settings refreshSignal", () => {
+  function renderWithSignal(build: (signal: number) => React.ReactElement) {
+    const i18n = createInstance();
+    void i18n.use(initReactI18next).init({
+      lng: "en",
+      fallbackLng: "en",
+      resources: { en: { [AGENTRE_UI_NAMESPACE]: agentreUiResources.en } },
+      react: { useSuspense: false },
+    });
+    const view = render(
+      <I18nextProvider i18n={i18n}>{build(1)}</I18nextProvider>,
+    );
+    return (signal: number) =>
+      view.rerender(
+        <I18nextProvider i18n={i18n}>{build(signal)}</I18nextProvider>,
+      );
+  }
+
+  it("Given an open backend editor with typed values, When refreshSignal changes, Then the list is fetched again and the typed name stays", async () => {
+    const user = userEvent.setup();
+    const ports = createPorts();
+    const setSignal = renderWithSignal((signal) => (
+      <AgentBackendsPanel
+        ports={ports}
+        refreshSignal={signal}
+        renderHeader={(actions) => <div>{actions}</div>}
+      />
+    ));
+
+    const dialog = await openCreateDialog(user);
+    await user.type(within(dialog).getByLabelText(/name/i), "Half typed");
+    expect(ports.listBackends).toHaveBeenCalledTimes(1);
+
+    setSignal(2);
+
+    await waitFor(() => expect(ports.listBackends).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(ports.listProviders).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/name/i)).toHaveValue("Half typed");
+  });
+
+  it("Given an open provider form with typed values, When refreshSignal changes, Then providers are fetched again and the typed name stays", async () => {
+    const user = userEvent.setup();
+    const ports = createPorts();
+    const setSignal = renderWithSignal((signal) => (
+      <LlmProvidersPanel
+        ports={ports}
+        refreshSignal={signal}
+        renderHeader={(actions) => <div>{actions}</div>}
+      />
+    ));
+
+    await screen.findAllByText("Anthropic");
+    await user.click(screen.getByRole("button", { name: "New Provider" }));
+    const dialog = await screen.findByRole("dialog");
+    const nameInput = within(dialog).getByPlaceholderText(
+      "Example: production / local Ollama",
+    );
+    await user.type(nameInput, "Half typed");
+    expect(ports.listProviders).toHaveBeenCalledTimes(1);
+
+    setSignal(2);
+
+    await waitFor(() => expect(ports.listProviders).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(nameInput).toHaveValue("Half typed");
+  });
+});
