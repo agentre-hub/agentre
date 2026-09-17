@@ -7,8 +7,9 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // 本文件是工作区多端同步的网络出入口：只做 HTTP 与编解码，一切判定（冲突、墓碑、
@@ -31,7 +32,7 @@ type syncPushResp struct {
 // SyncPush 把一批本地改动上行。未登录时不发任何网络请求（R12）。
 //
 // server 判「设备距上次成功同步已超过墓碑保留窗口」时返回 CodeResyncRequired，
-// 这里翻成 syncwire.ErrResyncRequired——调用方据此先拉一份全量快照（R6a）。
+// 这里翻成 localsync.ErrResyncRequired——调用方据此先拉一份全量快照（R6a）。
 func (s *service) SyncPush(ctx context.Context, items []syncwire.PushItem) ([]syncwire.PushResult, error) {
 	if len(items) == 0 {
 		return nil, nil
@@ -47,7 +48,7 @@ func (s *service) SyncPush(ctx context.Context, items []syncwire.PushItem) ([]sy
 		var env envelope[syncPushResp]
 		_, doErr := s.getClient().do(ctx, http.MethodPost, "/v1/sync/push", req, &env)
 		if env.Code == syncwire.CodeResyncRequired {
-			return syncwire.ErrResyncRequired
+			return localsync.ErrResyncRequired
 		}
 		if doErr != nil {
 			return doErr
@@ -67,7 +68,7 @@ func (s *service) SyncPush(ctx context.Context, items []syncwire.PushItem) ([]sy
 // SyncPull 按版本游标增量下行；cursor = 0 拉全量（R6a 的重同步用它）。
 //
 // server 判「这个游标超出本账号版本序列的头」时返回 CodeCursorUnknown，这里翻成
-// syncwire.ErrCursorUnknown——调用方据此重建整份历史并把 server 不认识的本地行重新
+// localsync.ErrCursorUnknown——调用方据此重建整份历史并把 server 不认识的本地行重新
 // 上行。不翻的话它只是一句「rejected with code 30505」，与网络抖动无从区分，那台机器
 // 会安静地一直重试同一个死游标。
 func (s *service) SyncPull(ctx context.Context, cursor int64, limit int) (*syncwire.PullPage, error) {
@@ -85,7 +86,7 @@ func (s *service) SyncPull(ctx context.Context, cursor int64, limit int) (*syncw
 		var env envelope[syncwire.PullPage]
 		_, doErr := s.getClient().do(ctx, http.MethodGet, path, nil, &env)
 		if env.Code == syncwire.CodeCursorUnknown {
-			return syncwire.ErrCursorUnknown
+			return localsync.ErrCursorUnknown
 		}
 		if doErr != nil {
 			return doErr
@@ -114,7 +115,7 @@ type reportLocalPathsReq struct {
 
 // ReportLocalPaths 把本机路径整份快照上报给 server（R16）；未登录不发任何请求
 // （R12）。路径本身不进日志，出错时只把 server 的错误原样透出，调用方据此重试。
-func (s *service) ReportLocalPaths(ctx context.Context, items []syncwire.LocalPathReportItem) error {
+func (s *service) ReportLocalPaths(ctx context.Context, items []syncwire.LocalPathItem) error {
 	if err := s.requireLogin(ctx); err != nil {
 		return err
 	}

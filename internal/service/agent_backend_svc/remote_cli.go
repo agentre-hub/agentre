@@ -49,15 +49,11 @@ func (realRemoteCLI) ResolveCLIPath(ctx context.Context, deviceID int64, backend
 	}
 	defer lease.Release()
 
-	resp, err := resolveRemoteCLIPath(ctx, lease.Client(), backendType)
+	resp, err := wirecall.CLIResolvePath(ctx, lease.Client(), &agentrewire.CLIResolvePathRequest{Type: backendType})
 	if err != nil {
 		return nil, fmt.Errorf("rpc cli.resolvePath: %w", err)
 	}
 	return &ResolveCLIPathResponse{Path: resp.Path, Found: resp.Found}, nil
-}
-
-func resolveRemoteCLIPath(ctx context.Context, conn wirecall.Caller, backendType string) (*agentrewire.CLIResolvePathResponse, error) {
-	return wirecall.CLIResolvePath(ctx, conn, &agentrewire.CLIResolvePathRequest{Type: backendType})
 }
 
 func (realRemoteCLI) Probe(ctx context.Context, deviceID int64, req handlers.CLIProbeParams) (*handlers.CLIProbeResult, error) {
@@ -70,18 +66,14 @@ func (realRemoteCLI) Probe(ctx context.Context, deviceID int64, req handlers.CLI
 	}
 	defer lease.Release()
 
-	resp, err := probeRemoteCLI(ctx, lease.Client(), req)
+	resp, err := wirecall.CLIProbe(ctx, lease.Client(), &agentrewire.CLIProbeRequest{
+		BackendType: req.BackendType, LlmProviderKey: req.LLMProviderKey, CliPath: req.CLIPath,
+		Sandbox: req.Sandbox, Approval: req.Approval, Model: req.Model,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("rpc cli.probe: %w", err)
 	}
 	return &handlers.CLIProbeResult{Text: resp.Text}, nil
-}
-
-func probeRemoteCLI(ctx context.Context, conn wirecall.Caller, request handlers.CLIProbeParams) (*agentrewire.CLIProbeResponse, error) {
-	return wirecall.CLIProbe(ctx, conn, &agentrewire.CLIProbeRequest{
-		BackendType: request.BackendType, LlmProviderKey: request.LLMProviderKey, CliPath: request.CLIPath,
-		Sandbox: request.Sandbox, Approval: request.Approval, Model: request.Model,
-	})
 }
 
 // probeRemote 在远端 device 上跑一次 cli.probe，把结果折叠回主进程 Test 的

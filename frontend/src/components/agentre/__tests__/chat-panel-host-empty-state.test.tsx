@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanelHost } from "../chat-tabs/chat-panel-host";
+import { ShortcutsProvider } from "../shortcuts/shortcuts-provider";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 
@@ -65,41 +66,124 @@ function renderHost() {
   );
 }
 
-describe("ChatPanelHost empty chat state — setup guidance (task 5)", () => {
+/**
+ * 标题里的步数必须与清单实际行数一致。
+ * 这条守卫是有来历的：标题原写死「Two steps…」，清单从两行加到三行后标题没跟着改，
+ * 界面上就成了「两步」配三行（真实缺陷）。改成从 steps 数组算之后，这里同时钉住
+ * 两件事：文案里的数字、以及它跟渲染出来的行数对得上。
+ */
+function expectSetupTitleToMatchRows() {
+  const rows = screen.getAllByTestId(/^setup-step-/);
+  const title = screen.getByText(
+    new RegExp(`^${rows.length} steps? to your first conversation$`),
+  );
+  expect(title).toBeInTheDocument();
+}
+
+describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
   beforeEach(() => {
     useChatTabsStore.setState({ tabs: [], activeTabId: null });
     useChatAgentsStore.getState().__reset();
     vi.spyOn(useChatAgentsStore.getState(), "reload").mockResolvedValue();
   });
 
-  it("1B: no chattable Agent shows the two-step setup guide with both action buttons and the note", () => {
+  it("1B: with no backend configured, the checklist marks the backend step current and the rest waiting", () => {
     seedAgents([
       { id: 1, name: "CEO", chattable: false, blockReason: "no-backend" },
     ]);
     renderHost();
 
+    expectSetupTitleToMatchRows();
+
+    const backend = screen.getByTestId("setup-step-backend");
+    expect(backend).toHaveAttribute("data-status", "current");
     expect(
-      screen.getByText("Before you start, complete two setup steps"),
+      within(backend).getByRole("button", { name: "Configure" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Configure Agent backend")).toBeInTheDocument();
+
+    const provider = screen.getByTestId("setup-step-provider");
+    expect(provider).toHaveAttribute("data-status", "waiting");
     expect(
-      screen.getByRole("button", { name: "Go to settings → Agent backend" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Configure LLM provider")).toBeInTheDocument();
+      within(provider).getByRole("button", { name: "Waiting" }),
+    ).toBeDisabled();
+
+    const start = screen.getByTestId("setup-step-start");
+    expect(start).toHaveAttribute("data-status", "waiting");
     expect(
-      screen.getByRole("button", { name: "Go to settings → LLM provider" }),
-    ).toBeInTheDocument();
+      within(start).getByRole("button", { name: "Waiting" }),
+    ).toBeDisabled();
+
     // 保留快捷键提示 (文本节点与 kbd 混排, 用正则匹配)
     expect(screen.getByText(/Close Tab/)).toBeInTheDocument();
     expect(screen.getByText(/Switch Tab/)).toBeInTheDocument();
   });
 
-  it("does not show setup guidance before the agent snapshot has loaded", () => {
+  it("1B: with a backend but no provider, the backend step is done and the provider step becomes the only primary action", () => {
+    seedAgents([
+      {
+        id: 1,
+        name: "CEO",
+        chattable: false,
+        blockReason: "backend-requires-provider",
+      },
+    ]);
     renderHost();
 
+    const backend = screen.getByTestId("setup-step-backend");
+    expect(backend).toHaveAttribute("data-status", "done");
     expect(
-      screen.queryByText("Before you start, complete two setup steps"),
-    ).not.toBeInTheDocument();
+      within(backend).getByRole("button", { name: "View" }),
+    ).toBeInTheDocument();
+
+    const provider = screen.getByTestId("setup-step-provider");
+    expect(provider).toHaveAttribute("data-status", "current");
+    expect(
+      within(provider).getByRole("button", { name: "Configure" }),
+    ).toBeInTheDocument();
+
+    const start = screen.getByTestId("setup-step-start");
+    expect(start).toHaveAttribute("data-status", "waiting");
+    expect(
+      within(start).getByRole("button", { name: "Waiting" }),
+    ).toBeDisabled();
+  });
+
+  it("1B: shortcut hints follow the desktop platform", () => {
+    seedAgents([]);
+
+    render(
+      <MemoryRouter initialEntries={["/chat"]}>
+        <ShortcutsProvider platform="darwin">
+          <ChatPanelHost />
+        </ShortcutsProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("⌘1..⌘9")).toBeInTheDocument();
+    expect(screen.getByText("⌘W")).toBeInTheDocument();
+    expect(screen.getByText("⌘ Click")).toBeInTheDocument();
+  });
+
+  it("1B: shortcut hints use Ctrl on non-macOS platforms", () => {
+    seedAgents([]);
+
+    render(
+      <MemoryRouter initialEntries={["/chat"]}>
+        <ShortcutsProvider platform="windows">
+          <ChatPanelHost />
+        </ShortcutsProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Ctrl+1..9")).toBeInTheDocument();
+    expect(screen.getByText("Ctrl+W")).toBeInTheDocument();
+    expect(screen.getByText("Ctrl+Click")).toBeInTheDocument();
+  });
+
+  it("does not show the checklist before the agent snapshot has loaded", () => {
+    renderHost();
+
+    expect(screen.queryByTestId("setup-step-backend")).not.toBeInTheDocument();
     expect(
       screen.getByText("Choose an Agent or project session to start"),
     ).toBeInTheDocument();
@@ -113,30 +197,34 @@ describe("ChatPanelHost empty chat state — setup guidance (task 5)", () => {
     });
     renderHost();
 
-    expect(
-      screen.queryByText("Before you start, complete two setup steps"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("setup-step-backend")).not.toBeInTheDocument();
     expect(
       screen.getByText("Choose an Agent or project session to start"),
     ).toBeInTheDocument();
   });
 
-  it("1B: no Agents at all also shows the two-step setup guide", () => {
+  it("1B: no Agents at all also shows the checklist with the backend step current", () => {
     seedAgents([]);
     renderHost();
 
-    expect(
-      screen.getByText("Before you start, complete two setup steps"),
-    ).toBeInTheDocument();
+    expectSetupTitleToMatchRows();
+    expect(screen.getByTestId("setup-step-backend")).toHaveAttribute(
+      "data-status",
+      "current",
+    );
   });
 
-  it("1B: the backend step button navigates to /settings on the agent-backend page", () => {
-    seedAgents([{ id: 1, name: "CEO", chattable: false }]);
+  it("1B: the backend step action navigates to /settings on the agent-backend page", () => {
+    seedAgents([
+      { id: 1, name: "CEO", chattable: false, blockReason: "no-backend" },
+    ]);
     renderHost();
 
     act(() => {
       fireEvent.click(
-        screen.getByRole("button", { name: "Go to settings → Agent backend" }),
+        within(screen.getByTestId("setup-step-backend")).getByRole("button", {
+          name: "Configure",
+        }),
       );
     });
 
@@ -145,19 +233,40 @@ describe("ChatPanelHost empty chat state — setup guidance (task 5)", () => {
     );
   });
 
-  it("1B: the provider step button navigates to /settings on the llm-providers page", () => {
-    seedAgents([{ id: 1, name: "CEO", chattable: false }]);
+  it("1B: the provider step action navigates to /settings on the llm-providers page", () => {
+    seedAgents([
+      {
+        id: 1,
+        name: "CEO",
+        chattable: false,
+        blockReason: "backend-requires-provider",
+      },
+    ]);
     renderHost();
 
     act(() => {
       fireEvent.click(
-        screen.getByRole("button", { name: "Go to settings → LLM provider" }),
+        within(screen.getByTestId("setup-step-provider")).getByRole("button", {
+          name: "Configure",
+        }),
       );
     });
 
     expect(screen.getByTestId("location")).toHaveTextContent(
       "/settings|llm-providers",
     );
+  });
+
+  // 全部就绪 = 存在 chattable 的 agent。按 spec §7 这一档交给 1C 占位, 1B 清单
+  // 自行退场 —— 因此第三行「发出第一轮对话」在 1B 里永远停在等待前置。
+  it("1B hands off to the ready placeholder once a chattable Agent exists", () => {
+    seedAgents([{ id: 1, name: "CEO", chattable: true }]);
+    renderHost();
+
+    expect(screen.queryByTestId("setup-step-backend")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Choose an Agent or project session to start"),
+    ).toBeInTheDocument();
   });
 
   it("1C: keeps the current placeholder and adds the unconfigured row when some Agents cannot chat", () => {
@@ -171,7 +280,7 @@ describe("ChatPanelHost empty chat state — setup guidance (task 5)", () => {
       screen.getByText("Choose an Agent or project session to start"),
     ).toBeInTheDocument();
     expect(
-      screen.queryByText(/complete two setup steps/i),
+      screen.queryByText(/steps? to your first conversation/),
     ).not.toBeInTheDocument();
     expect(
       screen.getByText("1 Agent(s) without a backend"),

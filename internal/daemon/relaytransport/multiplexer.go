@@ -339,7 +339,14 @@ func (c *VirtualChannel) ReadPayload() ([]byte, error) {
 	case payload := <-c.inbound:
 		return payload, nil
 	case <-c.done:
-		return nil, io.EOF
+		// 两个 case 同时就绪时 select 随机挑:对端「先写错误帧、再关通道」,错误帧
+		// 已经在缓冲里,不先取走它就把关闭的原因换成了一句 EOF。
+		select {
+		case payload := <-c.inbound:
+			return payload, nil
+		default:
+			return nil, io.EOF
+		}
 	}
 }
 func (c *VirtualChannel) Close() error          { c.mux.closeChannel(c); return nil }

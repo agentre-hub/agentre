@@ -1,12 +1,8 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -103,7 +99,7 @@ func refreshAccessTokenForRevoke(
 	cmd *cobra.Command, client loginHTTPDoer, serverURL, refreshToken string,
 ) (string, error) {
 	var token deviceTokenResponse
-	oauthErr, err := doLogoutJSON(cmd, client, serverURL+"/v1/oauth/token/refresh", "",
+	oauthErr, err := doJSON(cmd, client, http.MethodPost, serverURL+"/v1/oauth/token/refresh", "",
 		map[string]string{"refresh_token": refreshToken}, &token)
 	if err != nil {
 		return "", err
@@ -118,7 +114,7 @@ func refreshAccessTokenForRevoke(
 }
 
 func postRevoke(cmd *cobra.Command, client loginHTTPDoer, serverURL, accessToken string) error {
-	oauthErr, err := doLogoutJSON(cmd, client, serverURL+"/v1/oauth/token/revoke", accessToken,
+	oauthErr, err := doJSON(cmd, client, http.MethodPost, serverURL+"/v1/oauth/token/revoke", accessToken,
 		map[string]any{}, nil)
 	if err != nil {
 		return err
@@ -127,47 +123,4 @@ func postRevoke(cmd *cobra.Command, client loginHTTPDoer, serverURL, accessToken
 		return fmt.Errorf("revoke rejected: %s: %s", oauthErr.Code, oauthErr.Description)
 	}
 	return nil
-}
-
-// doLogoutJSON 是 doLoginJSON 的带鉴权变体：同样兼容裸载荷与 cago 的 {data: …} 响应壳，
-// 只多一个 Authorization 头。两者不合并——登录那条路径按约定从不带凭据。
-func doLogoutJSON(
-	cmd *cobra.Command, client loginHTTPDoer, endpoint, accessToken string,
-	requestBody any, responseBody any,
-) (*oauthErrorResponse, error) {
-	encoded, err := json.Marshal(requestBody)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodPost, endpoint, bytes.NewReader(encoded))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if accessToken != "" {
-		req.Header.Set("Authorization", "Bearer "+accessToken)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		oauthErr := oauthErrorResponse{}
-		if err := decodeLoginResponse(payload, &oauthErr); err == nil && oauthErr.Code != "" {
-			return &oauthErr, nil
-		}
-		return nil, fmt.Errorf("server returned %s: %s", resp.Status, strings.TrimSpace(string(payload)))
-	}
-	if responseBody == nil {
-		return nil, nil
-	}
-	if err := decodeLoginResponse(payload, responseBody); err != nil {
-		return nil, err
-	}
-	return nil, nil
 }

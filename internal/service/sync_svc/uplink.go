@@ -9,9 +9,10 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -107,7 +108,7 @@ func (s *service) pushBatch(
 
 	results, err := s.getTransport().SyncPush(ctx, items)
 	if err != nil {
-		if allowResync && errors.Is(err, syncwire.ErrResyncRequired) {
+		if allowResync && errors.Is(err, localsync.ErrResyncRequired) {
 			logger.Ctx(ctx).Info("sync_svc.pushBatch: resync required, pulling full snapshot")
 			if rerr := s.resync(ctx, accountID); rerr != nil {
 				return rerr

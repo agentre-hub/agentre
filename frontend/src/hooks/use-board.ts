@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import {
+  type BoardEmptyScope,
   type BoardQuery,
   type BoardStage,
   type BoardViewModel,
@@ -145,15 +146,28 @@ export function useBoard(
     [],
   );
 
-  const viewModel = React.useMemo<BoardViewModel>(
-    () => ({
+  const viewModel = React.useMemo<BoardViewModel>(() => {
+    // 空态那句的范围：`unassigned` 是范围本身说死的；`project` 的名字从
+    // `projectOf` 取，取不到（例如宿主为别的判据让它返回 null）就不给 scope，
+    // 退化为泛化文案 —— 宁可不点名，也不编一个名字。
+    const scope = query.scope;
+    const scopedProject =
+      scope.kind === "project" ? projectOf(scope.projectId) : null;
+    const emptyScope: BoardEmptyScope | undefined =
+      scope.kind === "unassigned"
+        ? { kind: "unassigned" }
+        : scopedProject
+          ? { kind: "project", name: scopedProject.name }
+          : undefined;
+
+    return {
       columns: toBoardColumns(response, projectOf),
       filtering: isFiltering(query),
       keyword: query.keyword.trim(),
       loading: !loaded,
-    }),
-    [loaded, projectOf, query, response],
-  );
+      emptyScope,
+    };
+  }, [loaded, projectOf, query, response]);
 
   const taskOf = React.useCallback(
     (id: number) => {

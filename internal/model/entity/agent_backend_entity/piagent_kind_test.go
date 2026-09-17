@@ -15,7 +15,6 @@ func TestPiAgentKind(t *testing.T) {
 
 		Convey("When resolving kind metadata Then it is a CLI backend that can couple to any of the three provider types", func() {
 			So(kind, ShouldNotBeNil)
-			So(kind.Type(), ShouldEqual, TypePiAgent)
 			So(kind.KnownAliases(), ShouldBeEmpty)
 			So(kind.AllowsCLIPath(), ShouldBeTrue)
 			So(kind.RequiresProviderModel(), ShouldBeTrue)

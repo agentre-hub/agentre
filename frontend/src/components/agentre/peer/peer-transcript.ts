@@ -153,14 +153,14 @@ function advance(
   state: PeerTranscriptState,
   incoming: PeerEventFrame[],
 ): PeerTranscriptState {
-  // 共享归约器按**本机**会话号索引帧(TranscriptFrame.sessionId)。Peer Tab 渲染的
-  // 是另一台机器上的那条对话,本机根本没有这条会话,所以这里一律盖 0 —— 那个号只
-  // 用来读本机工作区文件 / 问本机流状态,拿远端的身份去填就是答错人。对话自己的
-  // 身份留在 PeerEventFrame.conversationId 上,由 store 用来路由到这枚 Tab。
+  // 共享归约器的会话身份来自**调用**（`reduceFrames(frames, sessionId)` /
+  // `createTranscriptProjector(sessionId)`），帧自己不带号。Peer Tab 渲染的是另一台
+  // 机器上的那条对话，本机根本没有这条会话，所以本机会话号一律盖 0 —— 那个号只
+  // 用来读本机工作区文件 / 问本机流状态，拿远端的身份去填就是答错人。对话自己的
+  // 身份留在 PeerEventFrame.conversationId 上，由 store 用来路由到这枚 Tab。
   const frames: TranscriptFrame[] = [
     ...state.frames,
     ...incoming.map((f) => ({
-      sessionId: peerLocalSessionID,
       event: f.event,
       seq: f.seq,
     })),

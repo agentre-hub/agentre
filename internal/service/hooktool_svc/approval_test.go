@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"go.uber.org/mock/gomock"
 
@@ -31,7 +30,7 @@ func newWriteSvc(ctrl *gomock.Controller) (*hooktoolSvc, *writeDeps) {
 		hooks:  mock_hooktool_svc.NewMockHookService(ctrl),
 		apv:    mock_hooktool_svc.NewMockApprovalGateway(ctrl),
 	}
-	s := &hooktoolSvc{approvalTimeout: 4 * time.Minute}
+	s := newHooktoolSvc()
 	s.RegisterDeps(d.hooks, d.lookup, d.apv)
 	return s, d
 }
@@ -68,7 +67,7 @@ func TestHookApproval_CreateApproved(t *testing.T) {
 		d.hooks.EXPECT().CreateHook(gomock.Any(), gomock.Any()).Return(&hook_svc.HookItem{ID: 5, Name: "巡检"}, nil)
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "approved", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_create","arguments":{"name":"巡检","interpreter":"bash","command":"echo {}","scheduleExpr":"*/5 * * * *"}}}`, token)
 		apvCh <- true
 		<-done
@@ -93,7 +92,7 @@ func TestHookApproval_Denied(t *testing.T) {
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "denied", "").Return(nil)
 		// 不 EXPECT CreateHook → 若被调用即 ctrl.Finish 报错
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_create","arguments":{"name":"x","interpreter":"bash","command":"echo {}","scheduleExpr":"* * * * *"}}}`, token)
 		apvCh <- false
 		<-done
@@ -113,7 +112,7 @@ func TestHookApproval_CreateApprovedButExecFails(t *testing.T) {
 		d.hooks.EXPECT().CreateHook(gomock.Any(), gomock.Any()).Return(nil, context.DeadlineExceeded)
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "approved", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_create","arguments":{"name":"x","interpreter":"bash","command":"echo {}","scheduleExpr":"* * * * *"}}}`, token)
 		apvCh <- true
 		<-done
@@ -150,7 +149,7 @@ func TestHookApproval_UpdateMergesUnsetFields(t *testing.T) {
 			})
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "approved", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_update","arguments":{"id":3,"command":"new"}}}`, token)
 		apvCh <- true
 		<-done
@@ -180,7 +179,7 @@ func TestHookApproval_RunDryApproved(t *testing.T) {
 			Return(&hook_svc.RunHookResult{ExitCode: 0, Persisted: false, NewCount: 2}, nil)
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "approved", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_run","arguments":{"id":3}}}`, token)
 		apvCh <- true
 		<-done
@@ -199,7 +198,7 @@ func TestHookApproval_RunDryApproved(t *testing.T) {
 			Return(&hook_svc.RunHookResult{ExitCode: 0, Persisted: true, NewCount: 1}, nil)
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "approved", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_run","arguments":{"id":3,"dryRun":false}}}`, token)
 		apvCh <- true
 		<-done
@@ -227,7 +226,7 @@ func TestHookApproval_CreateWithInterpreterPath(t *testing.T) {
 			})
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "approved", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_create","arguments":{"name":"自定义解释器","interpreter":"python","interpreterPath":"/opt/homebrew/bin/python3","command":"echo {}","scheduleExpr":"*/10 * * * *"}}}`, token)
 		apvCh <- true
 		<-done
@@ -265,7 +264,7 @@ func TestHookApproval_UpdateInterpreterPath(t *testing.T) {
 			})
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "approved", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		// 传新的 interpreterPath
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_update","arguments":{"id":5,"interpreterPath":"/opt/homebrew/bin/python3.12"}}}`, token)
 		apvCh <- true
@@ -302,7 +301,7 @@ func TestHookApproval_UpdateInterpreterPath(t *testing.T) {
 			})
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "approved", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		// 不传 interpreterPath,只改 command
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_update","arguments":{"id":5,"command":"new echo {}"}}}`, token)
 		apvCh <- true
@@ -327,7 +326,7 @@ func TestHookApproval_DeleteApproved(t *testing.T) {
 		d.hooks.EXPECT().DeleteHook(gomock.Any(), int64(3)).Return(nil)
 		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "approved", gomock.Any()).Return(nil)
 
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_delete","arguments":{"id":3}}}`, token)
 		apvCh <- true
 		<-done

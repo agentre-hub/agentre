@@ -12,7 +12,7 @@ import (
 
 type UserAskRequestHandler struct{}
 
-func (UserAskRequestHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (UserAskRequestHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.UserAskRequest)
 	blk := &blocks.UserAskBlock{
 		RequestID:  r.RequestID,
@@ -36,7 +36,7 @@ func (UserAskRequestHandler) Apply(ctx context.Context, ev agentruntime.Event, a
 
 type UserAskResolvedHandler struct{}
 
-func (UserAskResolvedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (UserAskResolvedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.UserAskResolved)
 	var blkPtr *blocks.UserAskBlock
 	hit := turn.Mutate[blocks.UserAskBlock](acc, "user_ask:"+r.RequestID, func(b *blocks.UserAskBlock) {

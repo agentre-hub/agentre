@@ -48,7 +48,7 @@ func (h *SkillsHandlers) List(ctx context.Context, p SkillsListParams) (SkillsLi
 			cliPath = path
 		}
 	}
-	packs, err := d.Discover(ctx, agentskill.DiscoverQuery{BackendType: bt, CLIPath: cliPath})
+	packs, err := d.Discover(ctx, agentskill.DiscoverQuery{CLIPath: cliPath})
 	if err != nil {
 		return SkillsListResult{}, err
 	}
@@ -182,7 +182,7 @@ func (h *SkillsHandlers) discoverInstalled(
 		path = resolved
 	}
 
-	installed, err := d.Discover(ctx, agentskill.DiscoverQuery{BackendType: bt, CLIPath: path})
+	installed, err := d.Discover(ctx, agentskill.DiscoverQuery{CLIPath: path})
 	if err != nil {
 		logger.Ctx(ctx).Warn("handlers.SkillsHandlers: discover failed",
 			zap.String("backendType", backendType), zap.Error(err))

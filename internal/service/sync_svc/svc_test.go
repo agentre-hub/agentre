@@ -9,7 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // 本文件守规格里最重的那一条判据：**把通道整个关掉，所有功能仍然正确，只是变慢到
@@ -57,7 +58,7 @@ func TestStart_GivenAccountChannelUnreachable_KeepsPollingAndLosesNothing(t *tes
 	registerProjects(t, nil) // ticker 同时驱动本机路径上报（R16）
 	h.transport.pages = serverOnlyChange()
 	unreachable := errors.New("account channel: dial failed")
-	tr := h.withAccountChannel(func(int) (<-chan syncwire.AccountChannelFrame, error) {
+	tr := h.withAccountChannel(func(int) (<-chan localsync.AccountChannelFrame, error) {
 		return nil, unreachable
 	})
 	h.svc.channelRetryWait = slowRetry

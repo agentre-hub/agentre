@@ -15,18 +15,7 @@ import zhCommon from "./locales/zh-CN";
 
 export const LANGUAGE_STORAGE_KEY = "agentre.language";
 
-export const supportedLanguages = ["zh-CN", "en"] as const;
-
-export type SupportedLanguage = (typeof supportedLanguages)[number];
-
-type LanguageStorage = Pick<Storage, "getItem"> &
-  Partial<Pick<Storage, "setItem">>;
-
-type DetectInitialLanguageOptions = {
-  navigatorLanguage?: string | null;
-  navigatorLanguages?: readonly string[] | null;
-  storage?: LanguageStorage | null;
-};
+export type SupportedLanguage = "zh-CN" | "en";
 
 /**
  * 共享包 `@agentre-hub/agentre-ui` 自带语言包，但**不建自己的 i18next 实例** ——
@@ -51,66 +40,7 @@ function normalizeStoredLanguage(value: string | null | undefined) {
   return null;
 }
 
-function normalizeNavigatorLanguage(value: string | null | undefined) {
-  if (!value) return null;
-
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized === "zh" ||
-    normalized === "zh-cn" ||
-    normalized.startsWith("zh-hans")
-  ) {
-    return "zh-CN";
-  }
-  if (normalized === "en" || normalized.startsWith("en-")) return "en";
-
-  return null;
-}
-
-function languageFromNavigator({
-  navigatorLanguage,
-  navigatorLanguages,
-}: Pick<
-  DetectInitialLanguageOptions,
-  "navigatorLanguage" | "navigatorLanguages"
->): SupportedLanguage {
-  const candidates = [
-    ...(navigatorLanguages ?? []),
-    ...(navigatorLanguage ? [navigatorLanguage] : []),
-  ];
-
-  for (const candidate of candidates) {
-    const supportedLanguage = normalizeNavigatorLanguage(candidate);
-    if (supportedLanguage) return supportedLanguage;
-  }
-
-  return "en";
-}
-
-function readStoredLanguage(storage: LanguageStorage | null) {
-  if (!storage) return null;
-
-  try {
-    return normalizeStoredLanguage(storage.getItem(LANGUAGE_STORAGE_KEY));
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredLanguage(
-  storage: LanguageStorage | null,
-  language: SupportedLanguage,
-) {
-  if (!storage?.setItem) return;
-
-  try {
-    storage.setItem(LANGUAGE_STORAGE_KEY, language);
-  } catch {
-    return;
-  }
-}
-
-function getBrowserStorage() {
+function getBrowserStorage(): Storage | null {
   if (typeof window === "undefined") return null;
 
   try {
@@ -120,32 +50,53 @@ function getBrowserStorage() {
   }
 }
 
-function getNavigatorLanguage() {
-  if (typeof navigator === "undefined") return null;
+function readStoredLanguage(): SupportedLanguage | null {
+  const storage = getBrowserStorage();
+  if (!storage) return null;
 
-  return navigator.language;
+  try {
+    return normalizeStoredLanguage(storage.getItem(LANGUAGE_STORAGE_KEY));
+  } catch {
+    return null;
+  }
 }
 
-function getNavigatorLanguages() {
-  if (typeof navigator === "undefined") return null;
+function writeStoredLanguage(language: SupportedLanguage): void {
+  const storage = getBrowserStorage();
+  if (!storage) return;
 
-  return navigator.languages.length > 0 ? navigator.languages : null;
+  try {
+    storage.setItem(LANGUAGE_STORAGE_KEY, language);
+  } catch {
+    // localStorage 不可写（隐私模式 / 配额）不影响本次选择。
+  }
 }
 
-export function detectInitialLanguage({
-  navigatorLanguage,
-  navigatorLanguages,
-  storage,
-}: DetectInitialLanguageOptions = {}): SupportedLanguage {
-  const languageStorage = storage ?? null;
-  const storedLanguage = readStoredLanguage(languageStorage);
+function detectNavigatorLanguage(): SupportedLanguage {
+  if (typeof navigator === "undefined") return "en";
+
+  const candidates = [...(navigator.languages ?? []), navigator.language];
+  for (const candidate of candidates) {
+    const normalized = (candidate ?? "").trim().toLowerCase();
+    if (
+      normalized === "zh" ||
+      normalized === "zh-cn" ||
+      normalized.startsWith("zh-hans")
+    ) {
+      return "zh-CN";
+    }
+    if (normalized === "en" || normalized.startsWith("en-")) return "en";
+  }
+
+  return "en";
+}
+
+export function detectInitialLanguage(): SupportedLanguage {
+  const storedLanguage = readStoredLanguage();
   if (storedLanguage) return storedLanguage;
 
-  const detectedLanguage = languageFromNavigator({
-    navigatorLanguage,
-    navigatorLanguages,
-  });
-  writeStoredLanguage(languageStorage, detectedLanguage);
+  const detectedLanguage = detectNavigatorLanguage();
+  writeStoredLanguage(detectedLanguage);
   return detectedLanguage;
 }
 
@@ -155,11 +106,7 @@ i18n.use(initReactI18next).init({
   interpolation: {
     escapeValue: false,
   },
-  lng: detectInitialLanguage({
-    navigatorLanguage: getNavigatorLanguage(),
-    navigatorLanguages: getNavigatorLanguages(),
-    storage: getBrowserStorage(),
-  }),
+  lng: detectInitialLanguage(),
   resources,
   react: {
     useSuspense: false,

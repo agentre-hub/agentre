@@ -24,7 +24,7 @@ func TestUserAskRequestHandler_AddsBlock(t *testing.T) {
 					{ID: "q1", Question: "ok?", Options: []agentruntime.AskOption{{Label: "Y"}}},
 				},
 			},
-			acc, emit, nil, nil)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 
 		final := acc.Finalize()
@@ -46,14 +46,14 @@ func TestUserAskResolvedHandler_MutatesAnswered(t *testing.T) {
 		acc := turn.New()
 		emit := &fakeEmit{}
 		_ = UserAskRequestHandler{}.Apply(context.Background(),
-			agentruntime.UserAskRequest{RequestID: "r-1"}, acc, emit, nil, nil)
+			agentruntime.UserAskRequest{RequestID: "r-1"}, acc, emit, nil)
 
 		err := UserAskResolvedHandler{}.Apply(context.Background(),
 			agentruntime.UserAskResolved{
 				RequestID: "r-1",
 				Answers:   []agentruntime.AskAnswer{{QuestionIndex: 0, Labels: []string{"Y"}}},
 			},
-			acc, emit, nil, nil)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 
 		final := acc.Finalize()
@@ -68,11 +68,11 @@ func TestUserAskResolvedHandler_SkippedFlow(t *testing.T) {
 	Convey("Skipped=true → Answered=false + Skipped=true", t, func() {
 		acc := turn.New()
 		_ = UserAskRequestHandler{}.Apply(context.Background(),
-			agentruntime.UserAskRequest{RequestID: "r-2"}, acc, nil, nil, nil)
+			agentruntime.UserAskRequest{RequestID: "r-2"}, acc, nil, nil)
 
 		err := UserAskResolvedHandler{}.Apply(context.Background(),
 			agentruntime.UserAskResolved{RequestID: "r-2", Skipped: true},
-			acc, nil, nil, nil)
+			acc, nil, nil)
 		So(err, ShouldBeNil)
 
 		got := acc.Finalize()[0].(*blocks.UserAskBlock)
@@ -95,14 +95,14 @@ func TestUserAskResolvedHandler_EmitsBlockPointer(t *testing.T) {
 				Questions: []agentruntime.AskQuestion{
 					{ID: "q1", Question: "ok?", Options: []agentruntime.AskOption{{Label: "Y"}}},
 				},
-			}, acc, emit, nil, nil)
+			}, acc, emit, nil)
 
 		emit.events = nil // 只关心 resolved 那帧
 		err := UserAskResolvedHandler{}.Apply(context.Background(),
 			agentruntime.UserAskResolved{
 				RequestID: "r-3",
 				Answers:   []agentruntime.AskAnswer{{QuestionIndex: 0, Labels: []string{"Y"}}},
-			}, acc, emit, nil, nil)
+			}, acc, emit, nil)
 		So(err, ShouldBeNil)
 		So(emit.events, ShouldHaveLength, 1)
 

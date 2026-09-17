@@ -452,7 +452,7 @@ describe("ModelTargetPicker", () => {
     expect(opus).toHaveTextContent("Opus");
     expect(opus).toHaveTextContent("claude-opus-4-8");
     expect(opus).not.toHaveTextContent("Anthropic");
-    expect(opus).toHaveTextContent(/400K ctx · 64K out/);
+    expect(opus).toHaveTextContent(/400k ctx · 64\.0k out/);
     // 组头承载品牌标识 + 供应商名。
     expect(within(list).getByText("Anthropic")).toBeInTheDocument();
     expect(
@@ -1669,7 +1669,11 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
       />,
     );
     const trigger = screen.getByRole("button", { name: "LLM Provider" });
-    expect(trigger).toHaveClass("rounded-lg", "border-input", "bg-input-bg");
+    expect(trigger).toHaveClass(
+      "rounded-lg",
+      "border-control-border",
+      "bg-input-bg",
+    );
 
     await user.click(trigger);
     const pop = await screen.findByTestId("model-target-popover");

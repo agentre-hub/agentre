@@ -94,8 +94,8 @@ func (h *RuntimeHandlers) beginTranscript(
 		port:       h.deps.Transcript,
 		dispatcher: transcript.NewTurnDispatcher(transcript.Adapters{}),
 		acc:        turn.New(),
-		// Waits 是待决策 handler 要的那本账;宿主那几格(AssistantMsg / Session /
-		// SessionUpdater ...)留空 —— 它们是桌面端的接线,不共用(规格「复用边界」)。
+		// Waits 是待决策 handler 要的那本账;宿主那几格(AssistantMsg / Session)
+		// 留空 —— 它们是桌面端的接线,不共用(规格「复用边界」)。
 		turnCtx:        &turn.TurnContext{Waits: turn.NewWaitTracker()},
 		msg:            msg,
 		conversationID: em.conversationID,
@@ -194,7 +194,7 @@ func (t *turnTranscript) observe(ctx context.Context, ev agentruntime.Event) {
 			t.flushPendingSteers(ctx)
 		}
 	}
-	if err := t.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, nil, t.turnCtx); err != nil {
+	if err := t.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, t.turnCtx); err != nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.observe: dispatcher apply failed",
 			zap.Int64("messageId", t.msg.ID), zap.Error(err))
 	}

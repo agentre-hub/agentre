@@ -299,17 +299,13 @@ func (d *Daemon) registerProtobufMethods() {
 	if ccFetcher == nil {
 		ccFetcher = ccoauth.NewLocalFetcher()
 	}
-	usageHandlers := handlers.NewCCUsageHandlers(ccFetcher)
 	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_CLAUDE_CODE_USAGE),
 		func() *agentrewire.ClaudeCodeUsageRequest { return &agentrewire.ClaudeCodeUsageRequest{} },
 		func(ctx context.Context, _ *agentrewire.ClaudeCodeUsageRequest) (*agentrewire.ClaudeCodeUsageResponse, error) {
 			if err := requireProtobufAuth(ctx); err != nil {
 				return nil, err
 			}
-			result, err := usageHandlers.Get(ctx)
-			if err != nil {
-				return nil, protobufError(err)
-			}
+			result := handlers.CCUsage(ctx, ccFetcher)
 			response := &agentrewire.ClaudeCodeUsageResponse{Reason: result.Reason}
 			if result.Data != nil {
 				response.Data = &agentrewire.ClaudeCodeRateLimits{FiveHourPercent: result.Data.FiveHourPercent, WeeklyPercent: result.Data.WeeklyPercent, SonnetWeeklyPercent: result.Data.SonnetWeeklyPercent, OpusWeeklyPercent: result.Data.OpusWeeklyPercent}

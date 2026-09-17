@@ -23,6 +23,8 @@ const TOKENS_CSS = path.resolve(__dirname, "../styles/tokens.css");
 const FEEDBACK_MIN = 1.15;
 /** 正文门槛，见 docs/design.md §10。 */
 const TEXT_MIN = 4.5;
+/** 非文字图形（圆点 / 进度条 / 实心标记）门槛，见 WCAG 2.2 §1.4.11 与 docs/design.md §10。 */
+const GRAPHIC_MIN = 3;
 
 const css = fs
   .readFileSync(TOKENS_CSS, "utf8")
@@ -87,13 +89,8 @@ const THEME_INVARIANT = new Set([
   "--traffic-close",
   "--traffic-minimize",
   "--traffic-zoom",
-  // 项目 / Agent 字形上那个首字：底色是 --agent-1…16 调色板，深浅两套压的都是白字。
-  "--agent-foreground",
   // 实心琥珀 Badge 上的深棕字。深浅两色都是亮琥珀，同一个值都可读。
   "--status-waiting-foreground",
-  // 身份色板的中性档：它是「没有身份色」的墨色而不是一种色相，白字形压在上面，
-  // 暗色下调浅反而会把字形吃掉。见下面「身份色板覆盖到中性档」。
-  "--agent-neutral",
 ]);
 
 /**
@@ -194,8 +191,8 @@ describe("选中面比 hover 面更强", () => {
  * 看着很健康，但状态栏和窗口控制按钮的标签坐在 --rail #e4e4e7 上，那里只有 3.81。
  *
  * `--decorative-foreground` **刻意不在这张表里**：它按定义就不承载信息（分隔点、
- * 行号、aria-hidden 的伴随图标），2.5:1 是它的设计意图。凡是要读的东西都不该用它
- * ——真要往这张表里加它，说明用错 token 了。
+ * 行号、aria-hidden 的伴随图标），现在满足 §1.4.11 的 3:1 但够不到正文的 4.5。
+ * 凡是要读的东西都不该用它——真要往这张表里加它，说明用错 token 了。
  */
 const TEXT_SURFACES: Array<[string, string[]]> = [
   ["--foreground", ["--background", "--card", "--popover"]],
@@ -248,17 +245,53 @@ describe("正文色对它落到的每个表面都达标", () => {
   });
 
   it("装饰色没有混进正文表", () => {
-    // 它对每个表面都在 2.5 附近，进了这张表必然全红——真出现说明有人把
-    // 「要读的东西」判成了装饰，或者反过来。
+    // 它不承载信息，只保证 3:1 的非文本对比度，进不了要 4.5 的正文表——真出现
+    // 说明有人把「要读的东西」判成了装饰，或者反过来。
     expect(TEXT_SURFACES.map(([t]) => t)).not.toContain(
       "--decorative-foreground",
     );
   });
 });
 
+/**
+ * 状态**填充色**上的前景。
+ *
+ * 和「文字 vs 填充」那条是一对：那条管「状态当文字写在纸上」，这条管「写在状态
+ * 实底上的字」。实底亮度的任何变化（比如降饱和）都会直接改这里的对比度——没有
+ * 这条守卫，把 --status-running 调暗一点、前景字就会悄悄掉到 2.54 也没人拦。
+ */
+describe("状态填充色上的前景读得出", () => {
+  it.each(THEMES)(
+    "%s(%s)下 --status-running-foreground 在 --status-running 实底上达标",
+    (_scope, _label, get) => {
+      const t = get();
+      // 不随主题变的 token（waiting-foreground）只在 :root 声明，按级联取有效值。
+      const effective = (name: string) => t[name] ?? root[name];
+      const fg = effective("--status-running-foreground");
+      expect(
+        contrast(fg, t["--status-running"]),
+        `${fg} 落在 ${t["--status-running"]} 上`,
+      ).toBeGreaterThanOrEqual(TEXT_MIN);
+    },
+  );
+
+  it.each(THEMES)(
+    "%s(%s)下 --status-waiting-foreground 在 --status-waiting 实底上达标",
+    (_scope, _label, get) => {
+      const t = get();
+      const effective = (name: string) => t[name] ?? root[name];
+      const fg = effective("--status-waiting-foreground");
+      expect(
+        contrast(fg, t["--status-waiting"]),
+        `${fg} 落在 ${t["--status-waiting"]} 上`,
+      ).toBeGreaterThanOrEqual(TEXT_MIN);
+    },
+  );
+});
+
 describe("状态色的『文字』角色与『填充』角色分开", () => {
   // --status-running / --status-waiting 是饱和色，当点和底色是对的，当文字读不出来：
-  // 亮色下它们在自己的胶囊底上只有 2.41 / 2.07。所以文字另立 --status-*-text。
+  // 亮色下它们在自己的胶囊底上只有 2.51 / 2.23。所以文字另立 --status-*-text。
   it.each(THEMES)(
     "%s(%s)下 RUNNING 文字在胶囊底和卡片上都达标",
     (_s, _t, get) => {
@@ -287,25 +320,96 @@ describe("状态色的『文字』角色与『填充』角色分开", () => {
 });
 
 /**
+ * 状态**填充色**当「非文字图形」用（圆点、进度条、实心标记）时对静止表面的对比度。
+ *
+ * 既有守卫只覆盖了另外两种角色：`--status-*-text` 是「状态当文字」、
+ * `--status-*-foreground` 是「实底上的字」。填充色本身画成的点/图形压在
+ * `--card` / `--secondary` 上这一角色一直没有守卫，所以浅色下 `--status-running` /
+ * `--status-waiting` 掉到 3:1 以下也无人拦（2026-09-17 审计）。
+ * 门槛取 WCAG 2.2 §1.4.11 的非文本对比度 3:1。
+ *
+ * 必须按 effective() 取级联后的有效值：旧缺陷的形态正是「深色没覆写、沿用到
+ * :root」，只比对当前主题块里声明的 hex 会正好漏掉它。
+ */
+describe("状态填充色当非文字图形用时对表面达标", () => {
+  it.each(
+    THEMES.flatMap(([scope, label, get]) =>
+      ["--status-running", "--status-waiting"].map(
+        (token) => [scope, label, token, get] as const,
+      ),
+    ),
+  )(
+    "%s(%s)下 %s 对 --card 与 --secondary 都 ≥3.0",
+    (_scope, _label, token, get) => {
+      const t = get();
+      // 深色没有覆写时会沿用到 :root——按级联后的有效值算，而不是只看 .dark 块。
+      const effective = (name: string) => t[name] ?? root[name];
+      const fill = effective(token);
+      for (const surface of ["--card", "--secondary"] as const) {
+        expect(
+          contrast(fill, effective(surface)),
+          `${token} ${fill} 落在 ${surface} ${effective(surface)} 上`,
+        ).toBeGreaterThanOrEqual(GRAPHIC_MIN);
+      }
+    },
+  );
+});
+
+/**
  * 身份色板的第 17 档。`AgentColor` 从一开始就有 `neutral`（「没有身份色」这一档），
  * 但 tokens.css 只到 --agent-16，于是宿主只能在 agentColorClassNames 里写字面色
  * （桌面端曾经是 bg-neutral-600 + 一条 eslint 豁免）——字面色不进 token 层，两个
  * 宿主各写各的，改一处也流不到另一处。
  */
 describe("身份色板覆盖到中性档", () => {
-  it("--agent-neutral 有声明与 --color-* 映射，且白色字形压得住", () => {
+  it("--agent-neutral 有声明与 --color-* 映射，且亮色的白色字形压得住", () => {
     expect(
       root["--agent-neutral"],
       "tokens.css 里没有 --agent-neutral",
     ).toBeDefined();
     expect(theme["--color-agent-neutral"]).toBe("var(--agent-neutral)");
-    // 字形是白的（--agent-foreground 主题无关），所以中性档也必须是深到读得出白字
-    // 的那一端——这正是它不跟随主题变浅的原因。
+    // 亮色前景是白的（深色另有墨字覆写，见 .dark），所以中性档在亮色里必须
+    // 深到读得出白字。#525252 压白 7.81。两套主题的完整配对由下面「身份色上
+    // 的前景在两个主题都读得出」那条守卫统一把关。
     expect(
       contrast(root["--agent-foreground"], root["--agent-neutral"]),
       `--agent-foreground ${root["--agent-foreground"]} 落在 --agent-neutral ${root["--agent-neutral"]} 上`,
     ).toBeGreaterThanOrEqual(TEXT_MIN);
   });
+});
+
+/**
+ * 身份色上的前景。
+ *
+ * `--agent-foreground` 曾被当成主题无关，注释断言「字形在两个主题下都压白字」。
+ * 那是错的：深色身份色是提亮过的 300-400 档，白字最差只有 2.54:1（agent-1）；
+ * 浅色也有 600 档压白只到 2.94（agent-14）。前景必须跟主题走，而中性档
+ * `--agent-neutral` 又必须跟着前景一起换——只改前景不改它，深色就变成深字压
+ * 深灰底（2.42:1）。17 档 × 两主题一起算。
+ */
+const AGENT_COLOR_TOKENS = [
+  ...Array.from({ length: 16 }, (_, i) => `--agent-${i + 1}`),
+  "--agent-neutral",
+];
+
+describe("身份色上的前景在两个主题都读得出", () => {
+  it.each(THEMES)(
+    "%s(%s)下 --agent-foreground 压得住全部 17 档身份色",
+    (_scope, _label, get) => {
+      const t = get();
+      // 深色若不覆写，CSS 会沿用到 :root 的值——那正是旧的 bug，所以按级联后的
+      // 有效值算，而不是只看 .dark 块。
+      const effective = (name: string) => t[name] ?? root[name];
+      const fg = effective("--agent-foreground");
+      for (const token of AGENT_COLOR_TOKENS) {
+        const fill = effective(token);
+        expect(
+          contrast(fg, fill),
+          `${fg} 落在 ${token} ${fill} 上`,
+        ).toBeGreaterThanOrEqual(TEXT_MIN);
+      }
+    },
+  );
 });
 
 describe("token 声明完整性", () => {

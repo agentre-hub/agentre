@@ -1,9 +1,8 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { Badge, Button } from "@agentre-hub/agentre-ui";
+import { Badge, Button, formatRelativeTime } from "@agentre-hub/agentre-ui";
 
-import { relativeTime } from "../remote-devices/format";
 import type { SyncStatusView } from "./use-sync-status";
 
 // server_svc.ErrServerUnreachable —— 网络层失败统一归一到这个哨兵串
@@ -119,7 +118,7 @@ export function SyncStatusCard({ status, onRetry, now }: SyncStatusCardProps) {
               {t("sync.status.lastSuccess")}
             </span>
             <span className="text-sm tabular-nums text-muted-foreground">
-              {relativeTime(status.lastSuccessAt, now, t)}
+              {formatRelativeTime(status.lastSuccessAt, now, t)}
             </span>
           </div>
           {kind === "up-to-date" ? (

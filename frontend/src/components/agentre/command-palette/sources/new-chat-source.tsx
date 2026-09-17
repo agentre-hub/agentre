@@ -6,7 +6,7 @@ import { Badge, groupAgentsForPicking } from "@agentre-hub/agentre-ui";
 
 import { useChatAgents, type AgentSlim } from "@/hooks/use-chat-agents";
 import i18n from "@/i18n";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 import {
   readLastAgentId,
   writeLastAgentId,
@@ -15,7 +15,7 @@ import {
 import { blockReasonToCta } from "../../not-chattable";
 import { AgentAvatar } from "../../primitives";
 import type { AgentColor } from "../../types";
-import { scoreItem } from "../score";
+import { scoreSuggestion as scoreItem } from "@agentre-hub/agentre-ui";
 import type { CommandSource, OnSelectCtx } from "../types";
 
 // 命令面板的 "New chat with <agent>" 命令源 —— 自由会话版。

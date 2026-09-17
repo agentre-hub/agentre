@@ -3,7 +3,7 @@
 // 保存按钮的禁用，所以只算一次。
 import { resolveModelTarget } from "../agent-backends-utils";
 import type { PickerProvider } from "../model-target-picker";
-import { OPENCLAW_SESSION_MODE } from "../openclaw-backend-fields";
+import { OPENCLAW_SESSION_MODE } from "../openclaw-validation";
 import { openClawDraftIssue } from "../openclaw-validation";
 import {
   isCliBackend,
@@ -13,8 +13,6 @@ import {
 } from "../agent-backends-shared";
 
 import { openClawProbeErrorMessage } from "./draft";
-
-export type SaveValidation = ReturnType<typeof computeSaveValidation>;
 
 export function computeSaveValidation(args: {
   type: BackendType;

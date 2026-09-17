@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -296,15 +297,6 @@ func (c *Client) Text(ctx context.Context, prompt string, opts ...RunOption) (st
 		return "", stopErr
 	}
 	return b.String(), nil
-}
-
-func (c *Client) Compact(ctx context.Context, _ string) (*Stream, error) {
-	proc, err := c.startRPC(ctx)
-	if err != nil {
-		return nil, err
-	}
-	// 一次性用法:进程归这一轮所有,收尾时一起关掉。
-	return c.compactOn(ctx, proc, true)
 }
 
 // compactOn 在一个**已经起来的** RPC 进程上做一次压缩。ownsProcess 的含义同
@@ -902,7 +894,7 @@ func (p *rpcProcess) terminate(ctx context.Context, grace time.Duration) error {
 		// Cancellation settlement has already exhausted its grace window. Kill the
 		// tree while both process pipes still keep the group leader addressable;
 		// tearing either pipe down first can strand a descendant in the old group.
-		_ = p.handle.Signal(interruptSignal())
+		_ = p.handle.Signal(os.Interrupt)
 		_ = p.handle.Kill()
 		stopLines()
 		p.stopWriter()
@@ -915,7 +907,7 @@ func (p *rpcProcess) terminate(ctx context.Context, grace time.Duration) error {
 		}
 	}
 	stopLines()
-	_ = p.handle.Signal(interruptSignal())
+	_ = p.handle.Signal(os.Interrupt)
 	p.stopWriter()
 	p.waitForWrites()
 	timer := time.NewTimer(grace)

@@ -202,7 +202,7 @@ func (t *turnRun) applyDurable(ctx context.Context, ev agentruntime.Event) {
 	if t.durableCtx == nil {
 		t.durableCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
 	}
-	if err := t.svc.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, nil, t.durableCtx); err != nil {
+	if err := t.svc.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, t.durableCtx); err != nil {
 		logger.Ctx(ctx).Warn("chat dispatcher Apply failed",
 			zap.String("eventType", fmt.Sprintf("%T", ev)),
 			zap.Error(err))
@@ -317,7 +317,7 @@ func (t *turnRun) applyLive(ctx context.Context, ev agentruntime.Event, preview 
 			t.flushPendingSteers(ctx)
 		}
 	}
-	if err := t.svc.dispatcher.Apply(ctx, ev, t.liveAcc(preview), t.dispEmit, nil, t.turnCtx); err != nil {
+	if err := t.svc.dispatcher.Apply(ctx, ev, t.liveAcc(preview), t.dispEmit, t.turnCtx); err != nil {
 		logger.Ctx(ctx).Warn("chat dispatcher Apply failed",
 			zap.String("eventType", fmt.Sprintf("%T", ev)),
 			zap.Error(err))
@@ -342,7 +342,7 @@ func (t *turnRun) finalize(ctx context.Context) {
 		t.acc.AddText("Plan mode completed without executable changes.")
 	}
 	if t.compact && t.streamStopErr == nil && !hasCompactBoundaryBlock(t.acc.Snapshot()) {
-		if err := t.svc.dispatcher.Apply(ctx, agentruntime.CompactBoundary{Trigger: "manual"}, t.acc, t.dispEmit, nil, t.turnCtx); err != nil {
+		if err := t.svc.dispatcher.Apply(ctx, agentruntime.CompactBoundary{Trigger: "manual"}, t.acc, t.dispEmit, t.turnCtx); err != nil {
 			logger.Ctx(ctx).Warn("chat compact fallback boundary failed", zap.Error(err))
 		}
 	}

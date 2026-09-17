@@ -23,7 +23,7 @@ import (
 // CapReportContextWindow=true;PermissionModeMeta 仅 default/plan,SwitchableDuringTurn=false。
 func TestCodexCapabilities(t *testing.T) {
 	Convey("codex Capabilities 矩阵", t, func() {
-		r := New()
+		r := NewWithPool(nil)
 		caps := r.Capabilities()
 		So(caps.Has(capability.CapSteer), ShouldBeTrue)
 		So(caps.Has(capability.CapCancelSteer), ShouldBeFalse) // codex fire-and-forget
@@ -43,7 +43,7 @@ func TestCodexCapabilities(t *testing.T) {
 	})
 
 	Convey("codex PermissionModeMeta", t, func() {
-		caps := New().Capabilities()
+		caps := NewWithPool(nil).Capabilities()
 		So(caps.PermissionModeMeta.AllowedModes, ShouldResemble, []string{"default", "plan"})
 		So(caps.PermissionModeMeta.DefaultMode, ShouldEqual, "default")
 		So(caps.PermissionModeMeta.SwitchableDuringTurn, ShouldBeFalse)
@@ -69,7 +69,7 @@ func TestSubmitToolPermission(t *testing.T) {
 		})
 		defer restore()
 
-		r := New()
+		r := NewWithPool(nil)
 		events, _, err := r.Run(context.Background(), agentruntime.RunRequest{
 			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}"},
 			SessionID: 42,
@@ -102,7 +102,7 @@ func TestSubmitToolPermission(t *testing.T) {
 	})
 
 	Convey("Given no active Codex approval request, when user answers, then no active turn is returned", t, func() {
-		err := New().SubmitToolPermission(context.Background(), 42, "missing", true, false, "")
+		err := NewWithPool(nil).SubmitToolPermission(context.Background(), 42, "missing", true, false, "")
 		So(err, ShouldEqual, agentruntime.ErrNoActiveTurn)
 	})
 }
@@ -114,7 +114,7 @@ func TestRun_DefaultModelWhenProviderMissing(t *testing.T) {
 		})
 		defer restore()
 
-		events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+		events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 			Backend: &agent_backend_entity.AgentBackend{
 				Type:    string(agent_backend_entity.TypeCodex),
 				EnvJSON: "{}",
@@ -141,7 +141,7 @@ func TestRun_ModelResolution(t *testing.T) {
 			})
 			defer restore()
 
-			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend: &agent_backend_entity.AgentBackend{
 					Type:    string(agent_backend_entity.TypeCodex),
 					EnvJSON: "{}",
@@ -163,7 +163,7 @@ func TestRun_ModelResolution(t *testing.T) {
 			})
 			defer restore()
 
-			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend: &agent_backend_entity.AgentBackend{
 					Type:    string(agent_backend_entity.TypeCodex),
 					EnvJSON: "{}",
@@ -191,7 +191,7 @@ func TestRun_ModelResolution(t *testing.T) {
 			})
 			defer restore()
 
-			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend: &agent_backend_entity.AgentBackend{
 					Type:    string(agent_backend_entity.TypeCodex),
 					EnvJSON: "{}",
@@ -214,7 +214,7 @@ func TestRun_ModelResolution(t *testing.T) {
 			})
 			defer restore()
 
-			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend: &agent_backend_entity.AgentBackend{
 					Type:    string(agent_backend_entity.TypeCodex),
 					EnvJSON: "{}",
@@ -251,7 +251,7 @@ func TestRun_ModelChangeEvictsAndRespawns(t *testing.T) {
 		})
 		defer restore()
 
-		r := New()
+		r := NewWithPool(nil)
 		run := func(providerModel string) *agentruntime.RunResult {
 			events, result, err := r.Run(context.Background(), agentruntime.RunRequest{
 				Backend: &agent_backend_entity.AgentBackend{
@@ -303,7 +303,7 @@ func TestRun_ProviderChangeEvictsAndRespawns(t *testing.T) {
 		})
 		defer restore()
 
-		r := New()
+		r := NewWithPool(nil)
 		run := func(providerKey string) {
 			events, _, err := r.Run(context.Background(), agentruntime.RunRequest{
 				Backend: &agent_backend_entity.AgentBackend{
@@ -351,7 +351,7 @@ func TestRun_ModelKeyChangeEvictsAndResumes(t *testing.T) {
 		})
 		defer restore()
 
-		r := New()
+		r := NewWithPool(nil)
 		run := func(modelKey, providerSessionID string) {
 			events, _, err := r.Run(context.Background(), agentruntime.RunRequest{
 				Backend:           &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}"},
@@ -386,7 +386,7 @@ func TestSetGoal_CreatesProviderThreadBeforeFirstTurn(t *testing.T) {
 
 		objective := "ship before first turn"
 		status := "active"
-		goal, err := New().SetGoal(context.Background(), agentruntime.GoalRequest{
+		goal, err := NewWithPool(nil).SetGoal(context.Background(), agentruntime.GoalRequest{
 			Backend: &agent_backend_entity.AgentBackend{
 				Type:    string(agent_backend_entity.TypeCodex),
 				EnvJSON: "{}",
@@ -708,7 +708,7 @@ func TestRun_EmitsContextWindowUpdateFromTokenUsage(t *testing.T) {
 		})
 		defer restore()
 
-		events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+		events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 			Backend: &agent_backend_entity.AgentBackend{
 				Type:    string(agent_backend_entity.TypeCodex),
 				EnvJSON: "{}",
@@ -750,7 +750,7 @@ func TestRun_ErrorFollowedByProgressClearsStopErr(t *testing.T) {
 		})
 		defer restore()
 
-		events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+		events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 			Backend: &agent_backend_entity.AgentBackend{
 				Type:    string(agent_backend_entity.TypeCodex),
 				EnvJSON: "{}",
@@ -786,7 +786,7 @@ func TestRun_ErrorFollowedOnlyByMetadataKeepsStopErr(t *testing.T) {
 		})
 		defer restore()
 
-		events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+		events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 			Backend: &agent_backend_entity.AgentBackend{
 				Type:    string(agent_backend_entity.TypeCodex),
 				EnvJSON: "{}",
@@ -842,7 +842,7 @@ func TestRun_DuplicateSessionTurnDoesNotReplaceActiveOwner(t *testing.T) {
 
 func TestRuntimeUnregister_StaleOwnerCannotDeleteReplacement(t *testing.T) {
 	Convey("Given a replacement owner is installed, when an old turn defers unregister, then only the expected owner can be removed", t, func() {
-		r := New()
+		r := NewWithPool(nil)
 		oldOwner := &codexActive{}
 		newOwner := &codexActive{}
 		r.active[11] = newOwner
@@ -870,7 +870,7 @@ func TestRun_ControlCallsAreRaceFreeWhileActiveOwnerInitializes(t *testing.T) {
 	})
 	defer restore()
 
-	r := New()
+	r := NewWithPool(nil)
 	type runResult struct {
 		events <-chan agentruntime.Event
 		err    error
@@ -980,7 +980,7 @@ func TestSubmitResolution_DoesNotAnswerAfterRuntimeOutputClosed(t *testing.T) {
 		backend := &recordingUserInputStream{}
 		active := &codexActive{userInput: backend}
 		active.registerAskWaiter("input-closed", []agentruntime.AskQuestion{{ID: "q1", Question: "Continue?"}})
-		r := New()
+		r := NewWithPool(nil)
 		r.active[911] = active
 
 		err := r.SubmitAnswer(context.Background(), 911, "input-closed", nil, nil, true)
@@ -994,7 +994,7 @@ func TestSubmitResolution_DoesNotAnswerAfterRuntimeOutputClosed(t *testing.T) {
 		backend := newApprovalRuntimeStream(pkgcodex.Event{})
 		active := &codexActive{approval: backend}
 		active.registerPermWaiter("approval-closed", "shell", json.RawMessage(`{}`))
-		r := New()
+		r := NewWithPool(nil)
 		r.active[912] = active
 
 		err := r.SubmitToolPermission(context.Background(), 912, "approval-closed", true, false, "")
@@ -1368,7 +1368,7 @@ func (s *recordingUserInputStream) SubmitUserInput(context.Context, string, map[
 // (不设过期)就是会话永久卡在等待输入。
 func TestCodexPendingWaiters(t *testing.T) {
 	Convey("Given 一个审批和一个提问都在阻塞, When PendingWaiters, Then 快照带够重建卡片的载荷", t, func() {
-		r := New()
+		r := NewWithPool(nil)
 		a := &codexActive{}
 		r.mu.Lock()
 		r.active[7001] = a
@@ -1390,7 +1390,7 @@ func TestCodexPendingWaiters(t *testing.T) {
 	})
 
 	Convey("Given 已经回答过的 requestID, When PendingWaiters, Then 它不再出现在快照里", t, func() {
-		r := New()
+		r := NewWithPool(nil)
 		a := &codexActive{}
 		r.mu.Lock()
 		r.active[7002] = a
@@ -1403,7 +1403,7 @@ func TestCodexPendingWaiters(t *testing.T) {
 	})
 
 	Convey("Given sessionID 不在 active 表里(未起轮 / 已结束), When PendingWaiters, Then 返回空快照不报错不 panic", t, func() {
-		r := New()
+		r := NewWithPool(nil)
 		So(func() {
 			snap := r.PendingWaiters(context.Background(), 9999)
 			So(snap.ToolPermissions, ShouldBeEmpty)
@@ -1429,7 +1429,7 @@ func TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
 		defer restore()
 
 		Convey("When 起这一轮, Then 起得来,工作目录落在该 Agent 的账号级同步标识下", func() {
-			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+			events, _, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
 				Backend: &agent_backend_entity.AgentBackend{
 					Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}",
 				},
@@ -1558,7 +1558,7 @@ func TestSetGoal_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
 
 		Convey("When 给它设一个目标, Then 设得上,工作目录落在该 Agent 的账号级同步标识下", func() {
 			objective := "ship it"
-			goal, err := New().SetGoal(context.Background(), agentruntime.GoalRequest{
+			goal, err := NewWithPool(nil).SetGoal(context.Background(), agentruntime.GoalRequest{
 				Backend: &agent_backend_entity.AgentBackend{
 					Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}",
 				},

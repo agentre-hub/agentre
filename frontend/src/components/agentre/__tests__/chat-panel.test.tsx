@@ -355,18 +355,15 @@ function makeCapsStub(backendType?: string | null) {
   };
 }
 
-vi.mock("../capability/use-session-capabilities", () => ({
+vi.mock("../capability/use-capabilities", () => ({
   useSessionCapabilities: (sessionId?: number | null) => ({
     caps:
       sessionId && sessionId > 0
         ? makeCapsStub(String(mockSessionStore.session?.backendType ?? ""))
         : null,
   }),
-}));
-
-// useBackendCapabilities 桩 — 新对话(sessionId<=0)按 backendType 拉 caps,
-// 让 PermissionModePill 在首发前就能渲染。
-vi.mock("../capability/use-backend-capabilities", () => ({
+  // useBackendCapabilities 桩 — 新对话(sessionId<=0)按 backendType 拉 caps,
+  // 让 PermissionModePill 在首发前就能渲染。
   useBackendCapabilities: (backendType?: string | null) => ({
     caps: backendType ? makeCapsStub(backendType) : null,
   }),

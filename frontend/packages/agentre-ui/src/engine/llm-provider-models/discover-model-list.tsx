@@ -8,7 +8,7 @@ import { useUiTranslation as useTranslation } from "../../i18n";
 import { Checkbox } from "../../ui/checkbox";
 
 import { LlmModelLogo } from "../ai-brand-logo";
-import { formatTokens } from "./index";
+import { formatTokens } from "../../lib/format-tokens";
 import type { VendorGroup } from "./discover-failure";
 
 export interface DiscoverModelListProps {
@@ -86,8 +86,9 @@ export function DiscoverModelList({
                 </span>
                 {m.contextWindow > 0 || m.maxOutput > 0 ? (
                   <span className="shrink-0 font-mono text-2xs text-muted-foreground">
-                    {formatTokens(m.contextWindow)} ctx ·{" "}
-                    {formatTokens(m.maxOutput)} out
+                    {m.contextWindow > 0 ? formatTokens(m.contextWindow) : "—"}{" "}
+                    ctx · {m.maxOutput > 0 ? formatTokens(m.maxOutput) : "—"}{" "}
+                    out
                   </span>
                 ) : null}
                 <span

@@ -9,7 +9,7 @@ import {
   type SessionRowModel,
 } from "@agentre-hub/agentre-ui";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 import type { AttentionReason } from "@/stores/attention-store";
 
 import { AgentAvatar, StatusDot } from "./primitives";

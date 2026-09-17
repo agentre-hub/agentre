@@ -17,12 +17,12 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	remotefswire "github.com/agentre-hub/agentre/internal/pkg/remotefs/wire"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -250,7 +250,7 @@ func TestInbound_GivenAuthorizedPeer_WhenBrowsingDirectories_ThenAnswersLikeAgen
 	require.NoError(t, os.Mkdir(filepath.Join(dir, "child"), 0o755))
 
 	unauthenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
-		ID: json.RawMessage(`1`), Method: remotefswire.MethodListDir,
+		ID: json.RawMessage(`1`), Method: "remotefs.listDir",
 		Params: mustJSON(t, remotefswire.ListDirReq{Path: dir}),
 	})
 	require.NotNil(t, unauthenticated.Error, "目录浏览不能绕过账号鉴权")
@@ -259,7 +259,7 @@ func TestInbound_GivenAuthorizedPeer_WhenBrowsingDirectories_ThenAnswersLikeAgen
 	authorizePeer(t, ws, `2`)
 
 	listed := relayRequest(t, ws, "desktop-peer", relayTestFrame{
-		ID: json.RawMessage(`3`), Method: remotefswire.MethodListDir,
+		ID: json.RawMessage(`3`), Method: "remotefs.listDir",
 		Params: mustJSON(t, remotefswire.ListDirReq{Path: dir}),
 	})
 	require.Nil(t, listed.Error, "桌面端必须认识 remotefs.listDir，不能回 method-not-found")
@@ -271,7 +271,7 @@ func TestInbound_GivenAuthorizedPeer_WhenBrowsingDirectories_ThenAnswersLikeAgen
 	assert.True(t, resp.Entries[0].IsDir)
 
 	made := relayRequest(t, ws, "desktop-peer", relayTestFrame{
-		ID: json.RawMessage(`4`), Method: remotefswire.MethodMkdir,
+		ID: json.RawMessage(`4`), Method: "remotefs.mkdir",
 		Params: mustJSON(t, remotefswire.MkdirReq{Parent: dir, Name: "fresh"}),
 	})
 	require.Nil(t, made.Error)
@@ -281,7 +281,7 @@ func TestInbound_GivenAuthorizedPeer_WhenBrowsingDirectories_ThenAnswersLikeAgen
 
 	// 与 agentred 同一份错误分类：重名不是「写失败了」，它有自己的码。
 	again := relayRequest(t, ws, "desktop-peer", relayTestFrame{
-		ID: json.RawMessage(`5`), Method: remotefswire.MethodMkdir,
+		ID: json.RawMessage(`5`), Method: "remotefs.mkdir",
 		Params: mustJSON(t, remotefswire.MkdirReq{Parent: dir, Name: "fresh"}),
 	})
 	require.NotNil(t, again.Error)

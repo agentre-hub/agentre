@@ -17,9 +17,6 @@ export const desktopLocalCommandHistoryAccess: LocalCommandHistoryAccess = {
   deriveScopeKey: deriveLocalCommandHistoryScopeKey,
   list: (scope) => localCommandHistoryStore.list(scope),
   subscribe: (listener) => localCommandHistoryStore.subscribe(listener),
-  reserveLastUsedAt: () => localCommandHistoryStore.reserveLastUsedAt(),
-  releaseLastUsedAt: (timestamp) =>
-    localCommandHistoryStore.releaseLastUsedAt(timestamp),
   record: (scope, command, lastUsedAt) =>
     localCommandHistoryStore.record(scope, command, lastUsedAt),
   clear: (scope) => localCommandHistoryStore.clear(scope),

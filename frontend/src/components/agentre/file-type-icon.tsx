@@ -46,7 +46,7 @@ import iconTerminal from "@iconify-icons/tabler/terminal";
 import iconVideo from "@iconify-icons/tabler/video";
 
 import { monacoLanguageForPath } from "@/lib/file-preview/monaco-language";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 /** 文件身份色调——语义色 token（`file-<tone>`），与代理调色板/状态色无关。 */
 export type FileTypeTone =

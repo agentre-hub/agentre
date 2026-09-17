@@ -660,7 +660,7 @@ func TestIntegration_WorkspaceFsListDir_EndToEnd(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("hi"), 0o644))
 
 	var resp workspacefswire.ListDirResp
-	require.NoError(t, callRig(t, rig.cli, workspacefswire.MethodListDir, workspacefswire.ListDirReq{Root: root}, &resp))
+	require.NoError(t, callRig(t, rig.cli, "workspacefs.listDir", workspacefswire.ListDirReq{Root: root}, &resp))
 	assert.Equal(t, root, resp.Path)
 	names := map[string]workspacefswire.Entry{}
 	for _, e := range resp.Entries {
@@ -685,7 +685,7 @@ func TestIntegration_WorkspaceFsReadFile_EndToEnd(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world"), 0o644))
 
 	var resp workspacefswire.ReadFileResp
-	require.NoError(t, callRig(t, rig.cli, workspacefswire.MethodReadFile, workspacefswire.ReadFileReq{Root: root, RelPath: "a.txt"}, &resp))
+	require.NoError(t, callRig(t, rig.cli, "workspacefs.readFile", workspacefswire.ReadFileReq{Root: root, RelPath: "a.txt"}, &resp))
 	assert.Equal(t, "hello world", resp.Content)
 	assert.False(t, resp.Binary)
 	assert.False(t, resp.TooLarge)
@@ -707,7 +707,7 @@ func TestIntegration_WorkspaceFsSearchFiles_EndToEnd(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "other.txt"), []byte("x"), 0o644))
 
 	var resp workspacefswire.SearchFilesResp
-	require.NoError(t, callRig(t, rig.cli, workspacefswire.MethodSearchFiles,
+	require.NoError(t, callRig(t, rig.cli, "workspacefs.searchFiles",
 		workspacefswire.SearchFilesReq{Root: root, Query: "target"}, &resp))
 	assert.False(t, resp.Truncated)
 	require.Len(t, resp.Hits, 1)
@@ -1641,7 +1641,7 @@ func TestIntegration_MCPReverseTunnel(t *testing.T) {
 	_ = drainRuntimeEvents(t, events, 5*time.Second)
 
 	// daemon 本机 gateway 的隧道入口(真机上 CLI 子进程被改写后打的就是这个 base)。
-	base := rig.d.gateway.BaseURL()
+	base := rig.d.gateway.URL()
 	require.NotEmpty(t, base, "daemon gateway must be running for the /mcp/ tunnel entry")
 
 	// 模拟 daemon 上的 CLI 子进程:POST /mcp/org/,带 desktop 轮起手时签的 token。
@@ -1684,7 +1684,7 @@ func TestIntegration_MCPReverseTunnel_NoDispatcher(t *testing.T) {
 	t.Cleanup(func() { remote.RegisterMCPProxyDispatcher(nil) })
 
 	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
-	base := rig.d.gateway.BaseURL()
+	base := rig.d.gateway.URL()
 	require.NotEmpty(t, base)
 
 	httpReq, err := http.NewRequest(http.MethodPost, base+"/mcp/org/",
@@ -1745,7 +1745,7 @@ func TestIntegration_MCPReverseTunnel_NoTarget(t *testing.T) {
 	_, _ = rig.startRun(t, 950)
 	awaitText(t, rig.previews, "before") // 会话确实在跑
 
-	base := rig.d.gateway.BaseURL()
+	base := rig.d.gateway.URL()
 	require.NotEmpty(t, base)
 
 	// 断开承载会话的 Protobuf 连接,并等 daemon 真的把它从活连接表里摘掉(bindConn 的
@@ -1830,7 +1830,7 @@ func TestIntegration_MCPReverseTunnel_TargetLostMidCall(t *testing.T) {
 	rig = bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
 	close(ready)
 
-	base := rig.d.gateway.BaseURL()
+	base := rig.d.gateway.URL()
 	require.NotEmpty(t, base)
 
 	reqBody := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"org_get"}}`
@@ -2163,7 +2163,7 @@ func callRig(t *testing.T, cli client.ProtobufConnection, method string, params,
 		*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: response.GetConversationId(), ProviderSessionID: response.GetProviderSessionId(), LaunchPermissionMode: response.GetLaunchPermissionMode(), ProviderFallbackKey: response.GetProviderFallbackKey()}
 		return nil
 	}
-	if method == workspacefswire.MethodReadFile {
+	if method == "workspacefs.readFile" {
 		value := params.(workspacefswire.ReadFileReq)
 		response, err := protorpc.CallMethod(ctx, cli.Conn(), 34, &agentrewire.WorkspaceFsReadFileRequest{Root: value.Root, RelPath: value.RelPath}, func() *agentrewire.WorkspaceFsReadFileResponse { return &agentrewire.WorkspaceFsReadFileResponse{} })
 		if err != nil {
@@ -2172,7 +2172,7 @@ func callRig(t *testing.T, cli client.ProtobufConnection, method string, params,
 		*(result.(*workspacefswire.ReadFileResp)) = protowire.WorkspaceReadFileResponseFromProto(response)
 		return nil
 	}
-	if method == workspacefswire.MethodListDir {
+	if method == "workspacefs.listDir" {
 		value := params.(workspacefswire.ListDirReq)
 		response, err := protorpc.CallMethod(ctx, cli.Conn(), 31, &agentrewire.WorkspaceFsListDirRequest{Root: value.Root, RelPath: value.RelPath}, func() *agentrewire.WorkspaceFsListDirResponse { return &agentrewire.WorkspaceFsListDirResponse{} })
 		if err != nil {
@@ -2287,11 +2287,11 @@ func integrationProtoMethod(method string) (uint32, proto.Message, proto.Message
 		return 5, &agentrewire.SessionPendingWaitersRequest{}, &agentrewire.SessionPendingWaitersResponse{}, true
 	case wire.MethodSessionDelete:
 		return 6, &agentrewire.SessionDeleteRequest{}, &agentrewire.SessionDeleteResponse{}, true
-	case workspacefswire.MethodListDir:
+	case "workspacefs.listDir":
 		return 31, &agentrewire.WorkspaceFsListDirRequest{}, &agentrewire.WorkspaceFsListDirResponse{}, true
-	case workspacefswire.MethodReadFile:
+	case "workspacefs.readFile":
 		return 34, &agentrewire.WorkspaceFsReadFileRequest{}, &agentrewire.WorkspaceFsReadFileResponse{}, true
-	case workspacefswire.MethodSearchFiles:
+	case "workspacefs.searchFiles":
 		return 36, &agentrewire.WorkspaceFsSearchFilesRequest{}, &agentrewire.WorkspaceFsSearchFilesResponse{}, true
 	case wire.MethodSkillsCatalog:
 		return 28, &agentrewire.SkillCatalogRequest{}, &agentrewire.SkillCatalogResponse{}, true
@@ -4275,7 +4275,7 @@ func desktopBlocksJSON(t *testing.T, script []agentruntime.Event) string {
 	acc := turn.New()
 	turnCtx := &turn.TurnContext{Waits: turn.NewWaitTracker()}
 	for _, ev := range script {
-		require.NoError(t, dispatcher.Apply(context.Background(), ev, acc, discardTurnEmitter{}, nil, turnCtx))
+		require.NoError(t, dispatcher.Apply(context.Background(), ev, acc, discardTurnEmitter{}, turnCtx))
 	}
 	msg := &transcript_entity.Message{}
 	require.NoError(t, msg.SetBlocks(acc.Finalize()))

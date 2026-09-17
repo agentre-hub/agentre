@@ -2,7 +2,7 @@ import type { TFunction } from "i18next";
 import { Plus, Search } from "lucide-react";
 
 import { Button } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { hookStatus, interpMeta, type HookItem } from "./hooks-page-model";
 
@@ -48,7 +48,7 @@ export function HooksSidebar({
             <Plus className="h-3.5 w-3.5" />
           </Button>
         </div>
-        <div className="flex items-center gap-2 rounded-md border border-input bg-input-bg px-2.5">
+        <div className="flex items-center gap-2 rounded-md border border-control-border bg-input-bg px-2.5">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <input
             value={query}

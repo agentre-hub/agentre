@@ -30,18 +30,6 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
-// ── RPC method names ────────────────────────────────────────────────────────
-
-const (
-	MethodScan  = "transcriptimport.scan"
-	MethodOpen  = "transcriptimport.open"
-	MethodTurns = "transcriptimport.turns"
-	// MethodExecute 在**这台机器上**执行一次导入:读转录、建会话身份行、把回放出的
-	// 轮次落进转录。它与前三个只读方法分开,是因为它是这一族里唯一一个写库的 ——
-	// 而写在哪台机器上,决定了这条会话此后归谁执行。
-	MethodExecute = "transcriptimport.execute"
-)
-
 // ── Error codes ─────────────────────────────────────────────────────────────
 
 // 值住在共享 module 里,这里只留短名字给本族的 switch 用 —— 消费方

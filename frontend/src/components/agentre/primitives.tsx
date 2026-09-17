@@ -11,7 +11,7 @@ import {
   iconNode,
 } from "@agentre-hub/agentre-ui";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { DeviceTag } from "./device-tag";
 import { type AgentColor, type AgentStatus, statusConfig } from "./types";

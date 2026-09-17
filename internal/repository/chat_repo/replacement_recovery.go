@@ -73,20 +73,7 @@ func (replacementRecoveryCleanupRepo) DeleteReplacementRecovery(ctx context.Cont
 // rows retain their IDs and contents under RecoverySessionID until Start is
 // acknowledged; the active IDs prevent stale restoration from deleting a retry.
 type ReplacementRecovery struct {
-	RecoverySessionID    int64
-	SessionID            int64
-	FromSeq              int
-	RequestMessageID     int64
-	UserMessageID        int64
-	AssistantMessageID   int64
-	OldProviderSessionID string
-	NewProviderSessionID string
-	OldAgentStatus       string
-	OldLastMessageAt     int64
-	State                ReplacementRecoveryState
-}
-
-type replacementRecoveryPayload struct {
+	RecoverySessionID    int64                    `json:"-"`
 	SessionID            int64                    `json:"sessionId"`
 	FromSeq              int                      `json:"fromSeq"`
 	RequestMessageID     int64                    `json:"requestMessageId"`
@@ -123,18 +110,7 @@ func NewReplacementRecoveryMarker(recovery *ReplacementRecovery) (*app_setting_e
 	if recovery.State != ReplacementRecoveryPending && recovery.State != ReplacementRecoveryAcknowledged {
 		return nil, errors.New("invalid replacement recovery state")
 	}
-	payload, err := json.Marshal(replacementRecoveryPayload{
-		SessionID:            recovery.SessionID,
-		FromSeq:              recovery.FromSeq,
-		RequestMessageID:     recovery.RequestMessageID,
-		UserMessageID:        recovery.UserMessageID,
-		AssistantMessageID:   recovery.AssistantMessageID,
-		OldProviderSessionID: recovery.OldProviderSessionID,
-		NewProviderSessionID: recovery.NewProviderSessionID,
-		OldAgentStatus:       recovery.OldAgentStatus,
-		OldLastMessageAt:     recovery.OldLastMessageAt,
-		State:                recovery.State,
-	})
+	payload, err := json.Marshal(recovery)
 	if err != nil {
 		return nil, err
 	}
@@ -151,38 +127,27 @@ func ParseReplacementRecoveryMarker(marker *app_setting_entity.AppSetting) (*Rep
 	if marker == nil || marker.Key == "" {
 		return nil, errors.New("invalid replacement recovery marker")
 	}
-	var payload replacementRecoveryPayload
-	if err := json.Unmarshal([]byte(marker.Value), &payload); err != nil {
+	var recovery ReplacementRecovery
+	if err := json.Unmarshal([]byte(marker.Value), &recovery); err != nil {
 		return nil, fmt.Errorf("decode replacement recovery marker: %w", err)
 	}
-	if payload.State != ReplacementRecoveryPending && payload.State != ReplacementRecoveryAcknowledged {
+	if recovery.State != ReplacementRecoveryPending && recovery.State != ReplacementRecoveryAcknowledged {
 		return nil, errors.New("invalid replacement recovery marker state")
 	}
-	if marker.Key != replacementRecoveryKey(payload.SessionID) {
+	if marker.Key != replacementRecoveryKey(recovery.SessionID) {
 		return nil, errors.New("replacement recovery namespace does not own marker")
 	}
-	if payload.SessionID <= 0 || payload.FromSeq < 0 || payload.RequestMessageID <= 0 ||
-		payload.UserMessageID <= 0 || payload.AssistantMessageID <= 0 ||
-		payload.UserMessageID == payload.AssistantMessageID || payload.NewProviderSessionID == "" {
+	if recovery.SessionID <= 0 || recovery.FromSeq < 0 || recovery.RequestMessageID <= 0 ||
+		recovery.UserMessageID <= 0 || recovery.AssistantMessageID <= 0 ||
+		recovery.UserMessageID == recovery.AssistantMessageID || recovery.NewProviderSessionID == "" {
 		return nil, errors.New("invalid replacement recovery ownership")
 	}
-	recoverySessionID, err := ReplacementRecoverySessionID(payload.SessionID)
+	recoverySessionID, err := ReplacementRecoverySessionID(recovery.SessionID)
 	if err != nil {
 		return nil, err
 	}
-	return &ReplacementRecovery{
-		RecoverySessionID:    recoverySessionID,
-		SessionID:            payload.SessionID,
-		FromSeq:              payload.FromSeq,
-		RequestMessageID:     payload.RequestMessageID,
-		UserMessageID:        payload.UserMessageID,
-		AssistantMessageID:   payload.AssistantMessageID,
-		OldProviderSessionID: payload.OldProviderSessionID,
-		NewProviderSessionID: payload.NewProviderSessionID,
-		OldAgentStatus:       payload.OldAgentStatus,
-		OldLastMessageAt:     payload.OldLastMessageAt,
-		State:                payload.State,
-	}, nil
+	recovery.RecoverySessionID = recoverySessionID
+	return &recovery, nil
 }
 
 // SaveReplacementRecovery 落一条恢复标记(按 key upsert)。

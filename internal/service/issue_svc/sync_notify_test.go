@@ -11,9 +11,9 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/service/issue_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // recordingSync 记下域服务在改动落库成功之后交出来的每一条 LocalChange。

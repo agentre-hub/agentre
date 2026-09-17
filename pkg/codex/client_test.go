@@ -354,18 +354,13 @@ func TestSessionStream_GoalTurnUsesStartedTurnID(t *testing.T) {
 	assert.Equal(t, EventDone, events[1].Kind)
 }
 
-func TestClientCompact_SendsThreadCompactStartRPC(t *testing.T) {
+func TestSessionCompact_SendsThreadCompactStartRPC(t *testing.T) {
 	// Given an existing Codex app-server thread.
 	runner := &fakeAppServerRunner{t: t}
 	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
 		sc := bufio.NewScanner(h.stdinR)
-		respondRPC(h, readRPCReq(t, sc), map[string]any{})
-		_ = readRPCReq(t, sc) // initialized
-
-		resumeReq := readRPCReq(t, sc)
-		assert.Equal(t, "thread/resume", resumeReq.Method)
-		assert.JSONEq(t, `{"threadId":"thread-old","excludeTurns":true,"cwd":"/tmp/work","approvalPolicy":"never"}`, string(resumeReq.Params))
-		respondRPC(h, resumeReq, map[string]any{"thread": map[string]any{"id": "thread-old", "cwd": "/tmp/work"}})
+		respondAppServerInit(t, h, sc)
+		respondThreadResume(t, h, sc, `{"threadId":"thread-old","excludeTurns":true,"cwd":"/tmp/work","approvalPolicy":"never"}`, "thread-old")
 
 		compactReq := readRPCReq(t, sc)
 		assert.Equal(t, "thread/compact/start", compactReq.Method)
@@ -384,10 +379,13 @@ func TestClientCompact_SendsThreadCompactStartRPC(t *testing.T) {
 		WithAppServerRunnerForTesting(runner),
 	)
 
-	// When Compact runs.
+	// When Compact runs on the persistent session.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	stream, err := client.Compact(ctx, "thread-old")
+	sess, err := client.OpenSession(ctx, Resume("thread-old"))
+	require.NoError(t, err)
+	defer func() { _ = sess.Close(context.Background()) }()
+	stream, err := sess.Compact(ctx)
 	require.NoError(t, err)
 
 	// Then a manual compact boundary and done event are exposed.
@@ -404,87 +402,6 @@ func TestClientCompact_SendsThreadCompactStartRPC(t *testing.T) {
 	assert.Equal(t, EventDone, events[1].Kind)
 	assert.Equal(t, "thread-old", stream.SessionID())
 	assert.Equal(t, TurnStateCompleted, stream.State())
-}
-
-func TestClientGoal_SendsThreadGoalRPCs(t *testing.T) {
-	// Given an existing Codex app-server thread.
-	runner := &fakeAppServerRunner{t: t}
-	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
-		sc := bufio.NewScanner(h.stdinR)
-		respondRPC(h, readRPCReq(t, sc), map[string]any{})
-		_ = readRPCReq(t, sc) // initialized
-
-		resumeReq := readRPCReq(t, sc)
-		assert.Equal(t, "thread/resume", resumeReq.Method)
-		assert.JSONEq(t, `{"threadId":"thread-goal","excludeTurns":true,"cwd":"/tmp/work","approvalPolicy":"never"}`, string(resumeReq.Params))
-		respondRPC(h, resumeReq, map[string]any{"thread": map[string]any{"id": "thread-goal", "cwd": "/tmp/work"}})
-
-		goalReq := readRPCReq(t, sc)
-		switch goalReq.Method {
-		case "thread/goal/set":
-			assert.JSONEq(t, `{"threadId":"thread-goal","objective":"ship goal rpc","status":"active","tokenBudget":1234}`, string(goalReq.Params))
-			respondRPC(h, goalReq, map[string]any{"goal": map[string]any{
-				"threadId":        "thread-goal",
-				"objective":       "ship goal rpc",
-				"status":          "active",
-				"tokenBudget":     1234,
-				"tokensUsed":      0,
-				"timeUsedSeconds": 0,
-				"createdAt":       11,
-				"updatedAt":       12,
-			}})
-		case "thread/goal/get":
-			assert.JSONEq(t, `{"threadId":"thread-goal"}`, string(goalReq.Params))
-			respondRPC(h, goalReq, map[string]any{"goal": map[string]any{
-				"threadId":        "thread-goal",
-				"objective":       "ship goal rpc",
-				"status":          "active",
-				"tokenBudget":     1234,
-				"tokensUsed":      5,
-				"timeUsedSeconds": 6,
-				"createdAt":       11,
-				"updatedAt":       12,
-			}})
-		case "thread/goal/clear":
-			assert.JSONEq(t, `{"threadId":"thread-goal"}`, string(goalReq.Params))
-			respondRPC(h, goalReq, map[string]any{"cleared": true})
-		default:
-			t.Fatalf("unexpected goal method %q", goalReq.Method)
-		}
-	}
-
-	client := New(
-		WithCwd("/tmp/work"),
-		WithApproval(ApprovalNever),
-		WithAppServerRunnerForTesting(runner),
-	)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	// When goal metadata is set, read, and cleared.
-	objective := "ship goal rpc"
-	status := GoalStatusActive
-	budget := 1234
-	setGoal, err := client.SetGoal(ctx, "thread-goal", GoalUpdate{
-		Objective:   &objective,
-		Status:      &status,
-		TokenBudget: &budget,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, setGoal)
-	assert.Equal(t, "ship goal rpc", setGoal.Objective)
-	assert.Equal(t, GoalStatusActive, setGoal.Status)
-	require.NotNil(t, setGoal.TokenBudget)
-	assert.Equal(t, 1234, *setGoal.TokenBudget)
-
-	gotGoal, err := client.GetGoal(ctx, "thread-goal")
-	require.NoError(t, err)
-	require.NotNil(t, gotGoal)
-	assert.Equal(t, 5, gotGoal.TokensUsed)
-
-	cleared, err := client.ClearGoal(ctx, "thread-goal")
-	require.NoError(t, err)
-	assert.True(t, cleared)
 }
 
 func TestSessionSetGoal_StartsThreadBeforeFirstTurn(t *testing.T) {
@@ -587,24 +504,6 @@ func TestSessionClearGoal_ResumesThreadAndSendsGoalClearRPC(t *testing.T) {
 	cleared, err := sess.ClearGoal(ctx)
 	require.NoError(t, err)
 	assert.True(t, cleared)
-}
-
-func TestClientGoal_RequiresThreadID(t *testing.T) {
-	client := New()
-	ctx := context.Background()
-
-	_, err := client.GetGoal(ctx, "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "thread id is required")
-
-	objective := "x"
-	_, err = client.SetGoal(ctx, "", GoalUpdate{Objective: &objective})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "thread id is required")
-
-	_, err = client.ClearGoal(ctx, "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "thread id is required")
 }
 
 func TestClientStream_PassesModelAndConfigOverrides(t *testing.T) {
@@ -861,114 +760,6 @@ func TestClientStream_EmitsCompletedPlanItemAsPlanText(t *testing.T) {
 	assert.Equal(t, EventDone, events[2].Kind)
 }
 
-func TestClientForkThread(t *testing.T) {
-	// Given a source Codex thread with at least one rollout.
-	runner := &fakeAppServerRunner{t: t}
-	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
-		sc := bufio.NewScanner(h.stdinR)
-		respondRPC(h, readRPCReq(t, sc), map[string]any{})
-		_ = readRPCReq(t, sc) // initialized
-
-		forkReq := readRPCReq(t, sc)
-		assert.Equal(t, "thread/fork", forkReq.Method)
-		assert.JSONEq(t, `{"threadId":"thread-source","cwd":"/tmp/work","sandbox":"workspace-write","approvalPolicy":"never"}`, string(forkReq.Params))
-		respondRPC(h, forkReq, map[string]any{
-			"thread": map[string]any{"id": "thread-forked", "forkedFromId": "thread-source", "cwd": "/tmp/work"},
-		})
-	}
-
-	client := New(
-		WithCwd("/tmp/work"),
-		WithSandbox(SandboxWorkspaceWrite),
-		WithApproval(ApprovalNever),
-		WithAppServerRunnerForTesting(runner),
-	)
-
-	// When thread/fork is called.
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	res, err := client.ForkThread(ctx, "thread-source")
-
-	// Then the new thread id and source thread id are returned.
-	require.NoError(t, err)
-	assert.Equal(t, "thread-forked", res.ThreadID)
-	assert.Equal(t, "thread-source", res.ForkedFromID)
-}
-
-func TestClientRollbackThread(t *testing.T) {
-	// Given a paginated Codex thread with multiple turns.
-	runner := &fakeAppServerRunner{t: t}
-	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
-		sc := bufio.NewScanner(h.stdinR)
-		respondRPC(h, readRPCReq(t, sc), map[string]any{})
-		_ = readRPCReq(t, sc) // initialized
-
-		resumeReq := readRPCReq(t, sc)
-		assert.Equal(t, "thread/resume", resumeReq.Method)
-		assert.JSONEq(t, `{"threadId":"thread-source","excludeTurns":true,"cwd":"/tmp/work","approvalPolicy":"never"}`, string(resumeReq.Params))
-		respondRPC(h, resumeReq, map[string]any{"thread": map[string]any{"id": "thread-source", "cwd": "/tmp/work"}})
-
-		listReq := readRPCReq(t, sc)
-		assert.Equal(t, "thread/turns/list", listReq.Method)
-		assert.JSONEq(t, `{"threadId":"thread-source","limit":2,"sortDirection":"desc","itemsView":"summary"}`, string(listReq.Params))
-		respondRPC(h, listReq, map[string]any{
-			"data": []map[string]any{
-				{"id": "turn-newest"},
-				{"id": "turn-boundary"},
-			},
-			"nextCursor": nil,
-		})
-
-		revertReq := readRPCReq(t, sc)
-		assert.Equal(t, "thread/revert", revertReq.Method)
-		assert.JSONEq(t, `{"threadId":"thread-source","beforeTurnId":"turn-boundary"}`, string(revertReq.Params))
-		respondRPC(h, revertReq, map[string]any{
-			"thread": map[string]any{"id": "thread-source", "cwd": "/tmp/work"},
-		})
-	}
-
-	client := New(
-		WithCwd("/tmp/work"),
-		WithAppServerRunnerForTesting(runner),
-	)
-
-	// When the caller requests the last two turns be removed.
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	res, err := client.RollbackThread(ctx, "thread-source", 2)
-
-	// Then the paginated history is reverted from the second-newest turn onward.
-	require.NoError(t, err)
-	assert.Equal(t, "thread-source", res.ThreadID)
-}
-
-func TestClientRollbackThreadRejectsInsufficientHistory(t *testing.T) {
-	// Given a paginated Codex thread with fewer turns than the requested rollback count.
-	runner := &fakeAppServerRunner{t: t}
-	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
-		sc := bufio.NewScanner(h.stdinR)
-		respondRPC(h, readRPCReq(t, sc), map[string]any{})
-		_ = readRPCReq(t, sc) // initialized
-
-		respondThreadResume(t, h, sc, `{"threadId":"thread-source","excludeTurns":true,"cwd":"/tmp/work","approvalPolicy":"never"}`, "thread-source")
-		listReq := readRPCReq(t, sc)
-		assert.Equal(t, "thread/turns/list", listReq.Method)
-		respondRPC(h, listReq, map[string]any{
-			"data":       []map[string]any{{"id": "only-turn"}},
-			"nextCursor": nil,
-		})
-	}
-
-	client := New(WithCwd("/tmp/work"), WithAppServerRunnerForTesting(runner))
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	res, err := client.RollbackThread(ctx, "thread-source", 2)
-
-	require.ErrorContains(t, err, "cannot revert 2 turns: thread contains 1")
-	assert.Nil(t, res)
-}
-
 func TestSessionRewindToRevertsPaginatedTurns(t *testing.T) {
 	// Given the persistent session used by the runtime resumes a paginated thread.
 	runner := &fakeAppServerRunner{t: t}
@@ -1123,42 +914,6 @@ func TestClientStream_ErrorsWhenTurnStartResponseMissesID(t *testing.T) {
 	defer cancel()
 	_, err := client.Stream(ctx, "hello")
 	assert.ErrorContains(t, err, "turn/start response missing id")
-}
-
-func TestClientForkThread_ErrorsWhenResponseMissesID(t *testing.T) {
-	// Given app-server returns an invalid thread/fork response.
-	runner := &fakeAppServerRunner{t: t}
-	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
-		sc := bufio.NewScanner(h.stdinR)
-		respondRPC(h, readRPCReq(t, sc), map[string]any{})
-		_ = readRPCReq(t, sc) // initialized
-		respondRPC(h, readRPCReq(t, sc), map[string]any{"thread": map[string]any{"forkedFromId": "source"}})
-	}
-
-	client := New(WithAppServerRunnerForTesting(runner))
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	_, err := client.ForkThread(ctx, "source")
-	assert.ErrorContains(t, err, "thread/fork response missing id")
-}
-
-func TestClientRollbackThread_ErrorsWhenResponseMissesID(t *testing.T) {
-	// Given app-server returns an invalid thread/revert response.
-	runner := &fakeAppServerRunner{t: t}
-	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
-		sc := bufio.NewScanner(h.stdinR)
-		respondRPC(h, readRPCReq(t, sc), map[string]any{})
-		_ = readRPCReq(t, sc) // initialized
-		respondRPC(h, readRPCReq(t, sc), map[string]any{"thread": map[string]any{"id": "source"}})
-		respondRPC(h, readRPCReq(t, sc), map[string]any{"data": []map[string]any{{"id": "turn-1"}}})
-		respondRPC(h, readRPCReq(t, sc), map[string]any{"thread": map[string]any{}})
-	}
-
-	client := New(WithAppServerRunnerForTesting(runner))
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	_, err := client.RollbackThread(ctx, "source", 1)
-	assert.ErrorContains(t, err, "thread/revert response missing id")
 }
 
 func TestClientStream_MapsToolLifecycle(t *testing.T) {

@@ -16,8 +16,7 @@ import type { exec_target_svc } from "@/../wailsjs/go/models";
 //
 // R14：后端按解析后的顺序返回（本端覆盖 / 无覆盖时本机自己提前），所以响应数组
 // 本身**就是本端当前生效顺序**——orderedTargets 原样交回数组顺序，它就是执行目标区
-// 那一份列表。hasOverride 标注是否处于本端覆盖，服务端照常返回，但界面不消费它：
-// 界面上没有「账号默认顺序」这个概念，「有没有覆盖」也就没有可讲的区别。
+// 那一份列表。响应里的 hasOverride 界面上没有「账号默认顺序」这个概念，故不消费。
 export function useExecTargetAvailability(agentId: number, targetsKey: string) {
   const [byBackendId, setByBackendId] = React.useState<
     Map<number, exec_target_svc.ExecTargetAvailabilityView>
@@ -25,7 +24,6 @@ export function useExecTargetAvailability(agentId: number, targetsKey: string) {
   const [orderedTargets, setOrderedTargets] = React.useState<
     { agentBackendId: number }[]
   >([]);
-  const [hasOverride, setHasOverride] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   // settled 在第一次请求**落定**（成功或失败）后为真。它回答的是「这一轮读完了吗」，
   // 而 orderedTargets 回答「读到了什么」——两者必须分开：读失败时 orderedTargets 照样
@@ -41,7 +39,6 @@ export function useExecTargetAvailability(agentId: number, targetsKey: string) {
     if (!agentId) {
       setByBackendId(new Map());
       setOrderedTargets([]);
-      setHasOverride(false);
       setSettled(true);
       return;
     }
@@ -54,7 +51,6 @@ export function useExecTargetAvailability(agentId: number, targetsKey: string) {
       setOrderedTargets(
         rows.map((s) => ({ agentBackendId: s.agentBackendId })),
       );
-      setHasOverride(rows.length > 0 && rows[0].hasOverride);
     } catch (e) {
       if (req !== reqRef.current) return;
       console.error("[org] exec target availability load failed", e);
@@ -79,5 +75,5 @@ export function useExecTargetAvailability(agentId: number, targetsKey: string) {
     [],
   );
 
-  return { byBackendId, orderedTargets, hasOverride, loading, settled, reload };
+  return { byBackendId, orderedTargets, loading, settled, reload };
 }

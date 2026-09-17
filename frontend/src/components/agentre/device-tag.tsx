@@ -2,7 +2,7 @@ import * as React from "react";
 import { MapPin, Server, ServerOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 type DeviceTagProps = React.ComponentProps<"span"> & {
   deviceId: string;

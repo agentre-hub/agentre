@@ -82,7 +82,6 @@ func BuildCommands(ctx context.Context, q CommandsQuery) ([]SkillCommand, error)
 	// 冒充答案的话,用户会以为那些 skill 不存在。
 	if discoverer, ok := CommandDiscovererFor(q.BackendType); ok {
 		native, err := discoverer.DiscoverCommands(ctx, CommandDiscoverQuery{
-			BackendType:    q.BackendType,
 			CLIPath:        q.CLIPath,
 			Cwd:            strings.TrimSpace(q.Cwd),
 			EnabledPlugins: EnabledPluginsMap(q.Authorized),

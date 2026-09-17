@@ -52,6 +52,7 @@ export function DialogShell({
   busy = false,
   danger = false,
   className,
+  onSubmit,
   children,
 }: {
   open: boolean;
@@ -61,6 +62,11 @@ export function DialogShell({
   busy?: boolean;
   danger?: boolean;
   className?: string;
+  /**
+   * 给了就把整段内容包进一个 `display: contents` 的表单，脚部的
+   * `type="submit"` 按钮因此能提交。外壳不替调用点决定这件事。
+   */
+  onSubmit?: React.FormEventHandler<HTMLFormElement>;
   children: React.ReactNode;
 }) {
   const blockWhileBusy = React.useCallback(
@@ -104,7 +110,13 @@ export function DialogShell({
           >
             <span className="h-1 w-9 rounded-full bg-border-strong" />
           </div>
-          {children}
+          {onSubmit ? (
+            <form className="contents" onSubmit={onSubmit}>
+              {children}
+            </form>
+          ) : (
+            children
+          )}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
@@ -120,8 +132,8 @@ export function DialogShellHeader({
   busy = false,
   actions,
 }: {
-  title: string;
-  subtitle?: string;
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
   danger?: boolean;
   saveState?: DialogShellSaveState;
   onClose?: () => void;
@@ -219,29 +231,44 @@ export function DialogShellBody({
 export function DialogShellFooter({
   error,
   left,
+  stack = false,
   children,
 }: {
   /** 整窗级错误：与按钮同一行、在它们左边（规范 4）。 */
   error?: string | null;
   /** 没有错误时这块摆什么（如目录选择器里当前选中的路径）。**错误优先**。 */
   left?: React.ReactNode;
+  /**
+   * 纵向排布：内容自己成列、占满整条（如后端编辑器的测试结果条 + 动作行）。
+   * 不给就是规范 4/5 的那一行：错误（或 left）在左、按钮在右。
+   */
+  stack?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div
       data-slot="dialog-shell-footer"
-      className="flex shrink-0 items-center gap-3 border-t border-border bg-secondary/40 px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      className={cn(
+        "shrink-0 border-t border-border bg-secondary/40 px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+        stack ? "flex flex-col items-stretch gap-2" : "flex items-center gap-3",
+      )}
     >
-      <div className="min-w-0 flex-1">
-        {error ? (
-          <p role="alert" className="truncate text-xs text-destructive">
-            {error}
-          </p>
-        ) : (
-          (left ?? null)
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-2">{children}</div>
+      {stack ? (
+        children
+      ) : (
+        <>
+          <div className="min-w-0 flex-1">
+            {error ? (
+              <p role="alert" className="truncate text-xs text-destructive">
+                {error}
+              </p>
+            ) : (
+              (left ?? null)
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">{children}</div>
+        </>
+      )}
     </div>
   );
 }

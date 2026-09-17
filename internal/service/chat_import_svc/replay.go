@@ -189,14 +189,13 @@ func (s *chatImportSvc) replayTurn(
 	turnCtx := &turn.TurnContext{
 		AssistantMsg: assistantMsg,
 		Session:      sess,
-		BackendType:  backend,
 		Waits:        turn.NewWaitTracker(),
 	}
 	for _, ev := range t.Events {
 		if err := ctx.Err(); err != nil {
 			return turnPair{}, err
 		}
-		if err := s.dispatcher.Apply(ctx, ev, acc, nil, nil, turnCtx); err != nil {
+		if err := s.dispatcher.Apply(ctx, ev, acc, nil, turnCtx); err != nil {
 			return turnPair{}, err
 		}
 	}

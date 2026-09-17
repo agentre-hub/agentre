@@ -19,7 +19,7 @@ import (
 
 // newTestSvc 构造一个全新的 hooktoolSvc(避免 Default() 单例跨测试串台),只接 AgentLookup + HookService。
 func newTestSvc(lookup AgentLookup, hooks HookService) *hooktoolSvc {
-	s := &hooktoolSvc{}
+	s := newHooktoolSvc()
 	s.RegisterDeps(hooks, lookup, nil)
 	return s
 }
@@ -58,7 +58,7 @@ func TestHookMCP_TokenRoundTrip(t *testing.T) {
 		hooks.EXPECT().Load(gomock.Any(), gomock.Any()).Return(&hook_svc.LoadHooksResponse{}, nil)
 
 		s := newTestSvc(lookup, hooks)
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 
 		Convey("合法 token + hook_list → 200", func() {
 			w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_list"}}`, token)
@@ -71,7 +71,7 @@ func TestHookMCP_TokenRoundTrip(t *testing.T) {
 		defer ctrl.Finish()
 		lookup := mock_hooktool_svc.NewMockAgentLookup(ctrl) // 无 EXPECT
 		s := newTestSvc(lookup, mock_hooktool_svc.NewMockHookService(ctrl))
-		good := s.mcpHandlerInit().MintToken(7, 99)
+		good := s.Server().MintToken(7, 99)
 
 		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_list"}}`
 		So(rpcCall(s.MCPHandler(), body, good+"tampered").Code, ShouldEqual, http.StatusUnauthorized)
@@ -89,7 +89,7 @@ func TestHookMCP_SwitchOffForbids(t *testing.T) {
 		lookup.EXPECT().Find(gomock.Any(), int64(7)).Return(hookDisabledAgent(7), nil)
 
 		s := newTestSvc(lookup, hooks)
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_list"}}`, token)
 		So(w.Code, ShouldEqual, http.StatusForbidden)
 	})
@@ -100,7 +100,7 @@ func TestHookMCP_SwitchOffForbids(t *testing.T) {
 		lookup := mock_hooktool_svc.NewMockAgentLookup(ctrl)
 		lookup.EXPECT().Find(gomock.Any(), int64(7)).Return(nil, nil)
 		s := newTestSvc(lookup, mock_hooktool_svc.NewMockHookService(ctrl))
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_list"}}`, token)
 		So(w.Code, ShouldEqual, http.StatusForbidden)
 	})
@@ -108,8 +108,8 @@ func TestHookMCP_SwitchOffForbids(t *testing.T) {
 
 func TestHookMCP_DepsNotRegistered(t *testing.T) {
 	Convey("bootstrap 窗口期(RegisterDeps 未执行)tools/call → 503,不 panic", t, func() {
-		s := &hooktoolSvc{}
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		s := newHooktoolSvc()
+		token := s.Server().MintToken(7, 99)
 		w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_list"}}`, token)
 		So(w.Code, ShouldEqual, http.StatusServiceUnavailable)
 		So(w.Body.String(), ShouldContainSubstring, "service unavailable")
@@ -153,7 +153,7 @@ func TestHookMCP_ListReturnsCompactRows(t *testing.T) {
 		}, nil)
 
 		s := newTestSvc(lookup, hooks)
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_list"}}`, token)
 		So(w.Code, ShouldEqual, http.StatusOK)
 		body := w.Body.String()
@@ -182,7 +182,7 @@ func TestHookMCP_GetReturnsFullHookAndEvents(t *testing.T) {
 		}, nil)
 
 		s := newTestSvc(lookup, hooks)
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_get","arguments":{"id":3}}}`, token)
 		So(w.Code, ShouldEqual, http.StatusOK)
 		body := w.Body.String()
@@ -200,7 +200,7 @@ func TestHookMCP_GetReturnsFullHookAndEvents(t *testing.T) {
 		hooks.EXPECT().Load(gomock.Any(), gomock.Any()).Return(&hook_svc.LoadHooksResponse{Hooks: []*hook_svc.HookItem{{ID: 1}}}, nil)
 
 		s := newTestSvc(lookup, hooks)
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_get","arguments":{"id":999}}}`, token)
 		So(w.Code, ShouldEqual, http.StatusOK) // JSON-RPC error 仍是 HTTP 200
 		So(w.Body.String(), ShouldContainSubstring, "不存在")
@@ -214,7 +214,7 @@ func TestHookMCP_GetMissingID(t *testing.T) {
 		lookup := mock_hooktool_svc.NewMockAgentLookup(ctrl)
 		lookup.EXPECT().Find(gomock.Any(), int64(7)).Return(hookEnabledAgent(7), nil)
 		s := newTestSvc(lookup, mock_hooktool_svc.NewMockHookService(ctrl)) // 无 Load EXPECT
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_get","arguments":{}}}`, token)
 		So(w.Code, ShouldEqual, http.StatusOK) // JSON-RPC error 仍是 HTTP 200
 		So(w.Body.String(), ShouldContainSubstring, "-32602")
@@ -229,7 +229,7 @@ func TestHookMCP_UnknownTool(t *testing.T) {
 		lookup := mock_hooktool_svc.NewMockAgentLookup(ctrl)
 		lookup.EXPECT().Find(gomock.Any(), int64(7)).Return(hookEnabledAgent(7), nil)
 		s := newTestSvc(lookup, mock_hooktool_svc.NewMockHookService(ctrl))
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"not_a_hook_tool","arguments":{}}}`, token)
 		So(w.Code, ShouldEqual, http.StatusOK)
 		So(w.Body.String(), ShouldContainSubstring, "unknown tool")
@@ -249,7 +249,7 @@ func TestHookMCP_BuildTurnMCP(t *testing.T) {
 			So(specs[0].Headers["Authorization"], ShouldStartWith, "Bearer ")
 			So(len(specs[0].Tools), ShouldEqual, 6)
 			tok := strings.TrimPrefix(specs[0].Headers["Authorization"], "Bearer ")
-			ref, ok := s.mcpHandlerInit().Lookup(tok)
+			ref, ok := s.Server().Lookup(tok)
 			So(ok, ShouldBeTrue)
 			So(ref, ShouldResemble, agenttool.Ref{AgentID: 7, SessionID: 99})
 		})

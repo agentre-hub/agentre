@@ -250,6 +250,31 @@ func receiveFrame(t *testing.T, hub *multiplexerHubStub) HubFrame {
 	}
 }
 
+// 对端「先写一帧错误、再发空载荷关通道」是中继报通道级错误的固定写法(relay_ctr.fail)。
+// 两帧先后到达后,读者必须先拿到那帧错误,而不是被已关闭的 done 抢先换成 io.EOF ——
+// ReadPayload 若在两个都就绪的 case 间随机选,半数情况下错误原因就丢了。
+func TestMultiplexer_GivenAPayloadThenAnEmptyEnvelope_WhenReadAfterClose_ThenTheBufferedPayloadComesFirst(t *testing.T) {
+	hub := newMultiplexerHubStub()
+	mux := newMultiplexer(hub)
+	t.Cleanup(mux.Close)
+	hub.dial()
+	want := []byte("channel error frame")
+	// select 的随机性让单次尝试只有一半概率踩中,多开几条通道把漏检概率压到可以忽略。
+	for range 64 {
+		channel, err := mux.Open()
+		require.NoError(t, err)
+		hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: testEnvelope(channel.ID(), want)}
+		hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: testEnvelope(channel.ID(), nil)}
+		assertChannelClosed(t, channel.Done())
+
+		got, err := channel.ReadPayload()
+		require.NoError(t, err, "通道关闭前已送达的载荷必须先交给读者")
+		assert.Equal(t, want, got)
+		_, err = channel.ReadPayload()
+		assert.ErrorIs(t, err, io.EOF)
+	}
+}
+
 func assertChannelClosed(t *testing.T, done <-chan struct{}) {
 	t.Helper()
 	select {

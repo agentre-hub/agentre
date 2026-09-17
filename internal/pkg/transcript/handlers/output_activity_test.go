@@ -25,8 +25,7 @@ func TestOutputActivityHandler(t *testing.T) {
 
 		err := OutputActivityHandler{}.Apply(
 			context.Background(), agentruntime.OutputActivity{},
-			acc, emit, nil, tc,
-		)
+			acc, emit, tc)
 
 		So(err, ShouldBeNil)
 		So(acc.Empty(), ShouldBeTrue)

@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
@@ -64,10 +63,10 @@ func TestRemoteCLIAndSkillsUseTypedProtobufMethods(t *testing.T) {
 	go clientConn.Serve(ctx)
 	go serverConn.Serve(ctx)
 
-	resolved, err := resolveRemoteCLIPath(ctx, wirecall.On(clientConn), "claudecode")
+	resolved, err := wirecall.CLIResolvePath(ctx, wirecall.On(clientConn), &agentrewire.CLIResolvePathRequest{Type: "claudecode"})
 	require.NoError(t, err)
 	require.Equal(t, "/remote/claude", resolved.Path)
-	probed, err := probeRemoteCLI(ctx, wirecall.On(clientConn), handlers.CLIProbeParams{BackendType: "codex"})
+	probed, err := wirecall.CLIProbe(ctx, wirecall.On(clientConn), &agentrewire.CLIProbeRequest{BackendType: "codex"})
 	require.NoError(t, err)
 	require.Equal(t, "pong", probed.Text)
 	packs, err := listRemoteSkills(ctx, wirecall.On(clientConn), "claudecode")

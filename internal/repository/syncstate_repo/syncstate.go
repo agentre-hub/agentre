@@ -12,6 +12,7 @@ package syncstate_repo
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -20,7 +21,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 //go:generate mockgen -source syncstate.go -destination mock_syncstate_repo/mock_syncstate.go
@@ -447,7 +448,7 @@ func (r *syncStateRepo) ListUnversioned(ctx context.Context, kind string, accoun
 
 // isNoRows 兼容 database/sql 的 sql.ErrNoRows —— Row().Scan 不经过 GORM 的错误翻译。
 func isNoRows(err error) bool {
-	return err != nil && err.Error() == "sql: no rows in result set"
+	return errors.Is(err, sql.ErrNoRows)
 }
 
 func (r *syncStateRepo) ListUnsyncedTombstones(

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+
+	"github.com/agentre-hub/agentre/internal/pkg/pathdepth"
 )
 
 var (
@@ -44,19 +46,8 @@ func ResolvePath(raw string, homeFn HomeFunc) (string, error) {
 	// filepath.Clean 在 POSIX 上会把 /../etc 解析为 /etc(无残留 ..)，
 	// 所以必须在 Clean 之前对原始路径做安全检查。
 	// 允许 //a/./b/c/.. → /a/b(深度不归零),拒绝 /../etc(根处 .. 归零)。
-	depth := 0
-	for _, seg := range strings.Split(raw, "/") {
-		switch seg {
-		case "", ".":
-			// 空段(来自 / 或 //)和 . 段不改变深度
-		case "..":
-			if depth == 0 {
-				return "", ErrPathRefused
-			}
-			depth--
-		default:
-			depth++
-		}
+	if pathdepth.EscapesRoot(raw) {
+		return "", ErrPathRefused
 	}
 	cleaned := filepath.Clean(raw)
 	for _, p := range refusedPrefixes {

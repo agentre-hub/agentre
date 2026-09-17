@@ -23,7 +23,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/ctlendpoint"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
-	"github.com/agentre-hub/agentre/internal/pkg/protorpclog"
 	"github.com/agentre-hub/agentre/internal/pkg/sysnotify"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
@@ -100,9 +99,6 @@ func Init(ctx context.Context) (*Runtime, error) {
 	if err := logger.Logger(ctx, cfg); err != nil {
 		return nil, fmt.Errorf("init cago logger: %w", err)
 	}
-	// 协议引擎住在共享 module 里、不依赖 cago,它的诊断出口要由宿主装配一次。
-	protorpclog.Install()
-
 	// 注册 SQLite 数据库组件。cago 启动 db 失败时会 panic，由调用方 recover/log。
 	cago.New(ctx, cfg).Registry(db.Database())
 
@@ -192,27 +188,26 @@ func Init(ctx context.Context) (*Runtime, error) {
 	// 注意:RegisterDeps(含 chat_svc.Chat() 作为 ApprovalGateway)延迟到 app.go
 	// registerChatService() 中 RegisterChat 之后执行——此时 chat_svc.Chat() 已非 nil。
 	gw.RegisterMCP("/mcp/org/", orgtool_svc.Default().MCPHandler())
-	orgtool_svc.Default().SetGatewayBaseURL(gw.BaseURL())
+	orgtool_svc.Default().SetGatewayBaseURL(gw.URL())
 	chat_svc.RegisterTurnMCPProvider(orgtool_svc.Default().BuildTurnMCP)
 	// 挂「调用子 agent」工具 MCP handler(/mcp/subagent/) + 注册 TurnMCPProvider:
 	// agent 开了 subagent 工具的会话 turn 注入该 MCP server(无审批门, 见 subagent_svc)。
 	gw.RegisterMCP("/mcp/subagent/", subagent_svc.Default().MCPHandler())
-	subagent_svc.Default().SetGatewayBaseURL(gw.BaseURL())
+	subagent_svc.Default().SetGatewayBaseURL(gw.URL())
 	chat_svc.RegisterTurnMCPProvider(subagent_svc.Default().BuildTurnMCP)
 	// 挂脚本 Hook 工具 MCP handler(/mcp/hook/) + 注册 TurnMCPProvider:agent 开了 hook 工具
 	// 的会话 turn 注入该 MCP server(写操作/执行审批在服务端,见 hooktool_svc)。RegisterDeps
 	// (含 chat_svc.Chat())延迟到 app.go registerChatService() 中 RegisterChat 之后执行。
 	gw.RegisterMCP("/mcp/hook/", hooktool_svc.Default().MCPHandler())
-	hooktool_svc.Default().SetGatewayBaseURL(gw.BaseURL())
+	hooktool_svc.Default().SetGatewayBaseURL(gw.URL())
 	chat_svc.RegisterTurnMCPProvider(hooktool_svc.Default().BuildTurnMCP)
 
 	// 本地控制 API(/ctl/*):供外部 `agrctl ctl` CLI 驱动——列 agent/项目、给指定 agent
-	// 建会话并派发任务(等价于「@ 某 agent 发消息」),无需注入 MCP。deps 走 repo/svc 单例
-	// (chat 网关懒解析 chat_svc.Chat(),兼容 RegisterChat 尚未执行的时序)。BaseURL 就绪后把
-	// 「实际 URL + 控制 token」写进 AppDataDir 的握手文件,CLI 据此定位并鉴权。
-	ctl_svc.Default().RegisterDeps(agent_repo.Agent(), ctl_svc.ProjectSvcGateway(), ctl_svc.ChatSvcGateway())
+	// 建会话并派发任务(等价于「@ 某 agent 发消息」),无需注入 MCP。这里只挂 handler;
+	// deps(含 chat_svc.Chat())在 app.go registerChatService 的 RegisterChat 之后接线。
+	// BaseURL 就绪后把「实际 URL + 控制 token」写进 AppDataDir 的握手文件,CLI 据此定位并鉴权。
 	gw.RegisterControl(ctl_svc.Default().ControlHandler())
-	if base := gw.BaseURL(); base != "" {
+	if base := gw.URL(); base != "" {
 		if err := ctlendpoint.Write(dataDir, ctlendpoint.Endpoint{URL: base, Token: ctl_svc.Default().Token()}); err != nil {
 			logger.Default().Warn("ctl endpoint file write", zap.Error(err))
 		}
@@ -221,7 +216,7 @@ func Init(ctx context.Context) (*Runtime, error) {
 	// hook)会被 daemon 改写成 daemon 本地 URL,再经 WS 反向请求隧道回 desktop。这里
 	// 装配把隧道请求重放到 desktop 本机 gateway 的 dispatcher。无 client 超时:approval 类
 	// 工具可挂几分钟,由 MCP handler 自身上限收口(见 approvalTimeout)。
-	remote.RegisterMCPProxyDispatcher(remote.NewLocalGatewayDispatcher(gw.BaseURL, &http.Client{}))
+	remote.RegisterMCPProxyDispatcher(remote.NewLocalGatewayDispatcher(gw.URL, &http.Client{}))
 
 	// 技能包(skill pack)注入:skill_svc 组合 agent 授权 + 发现,chat_svc 按 CapSkills
 	// 在 runTurn 注入 RunRequest.EnabledPlugins(runtime 各自渲染到 CLI 配置)。

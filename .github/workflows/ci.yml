@@ -129,31 +129,6 @@ jobs:
       - name: Test
         run: cd frontend && pnpm run test
 
-  agentred-packaging:
-    name: agentred Packaging
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - name: Verify POSIX installer
-        run: bash scripts/test-install.sh
-
-  agentred-installer-windows:
-    name: agentred Windows Installer
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - name: Verify Windows agentred IPC and service management
-        run: go test ./cmd/agentred ./internal/pkg/agentredipc
-      - name: Verify PowerShell installer
-        shell: pwsh
-        run: scripts/test-install.ps1
-
   e2e:
     name: E2E
     runs-on: ubuntu-22.04

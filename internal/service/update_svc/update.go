@@ -270,8 +270,8 @@ func defaultReleaseSources() releaseSources {
 	}
 }
 
-// CheckForUpdate 检查指定通道的最新版本
-func CheckForUpdate(channel, mirrorPrefix string) (*UpdateInfo, error) {
+// checkForUpdate 检查指定通道的最新版本
+func checkForUpdate(channel, mirrorPrefix string) (*UpdateInfo, error) {
 	if channel == "" {
 		channel = ChannelStable
 	}
@@ -379,10 +379,10 @@ func installChecksums(sources releaseSources, release *ReleaseInfo) (map[string]
 	return fetchChecksumsFrom(context.Background(), url)
 }
 
-// DownloadAndUpdate 下载指定通道的最新版本并替换当前二进制。
+// downloadAndUpdate 下载指定通道的最新版本并替换当前二进制。
 //
 // 校验是无条件的：取不到权威校验和就不装，没有「跳过校验继续」的入参。
-func DownloadAndUpdate(channel, mirrorPrefix string, onProgress func(downloaded, total int64)) error {
+func downloadAndUpdate(channel, mirrorPrefix string, onProgress func(downloaded, total int64)) error {
 	if channel == "" {
 		channel = ChannelStable
 	}

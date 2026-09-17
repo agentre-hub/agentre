@@ -23,7 +23,7 @@ import {
 } from "@agentre-hub/agentre-ui";
 import type { AppTheme, AppThemePreference } from "@agentre-hub/agentre-ui";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useUpdateStore } from "@/stores/update-store";
 import type { AgentStatus } from "@/stores/types";
@@ -37,6 +37,8 @@ import { StatusDot } from "./primitives";
 import { UpdatePanel } from "./update-panel";
 import { formatChord } from "./shortcuts/format";
 import { useOptionalShortcutsContext } from "./shortcuts/shortcuts-provider";
+import type { KeyChord } from "./shortcuts/types";
+import { detectBrowserPlatform } from "@/lib/platform";
 
 type DesktopPlatform = "darwin" | "windows" | "linux" | "unknown";
 
@@ -127,10 +129,15 @@ function CommandPaletteTrigger({
   const { t } = useTranslation();
   const openPalette = useCommandPaletteStore((s) => s.setOpen);
   // kbd 文案跟随用户重绑：从 shortcuts 上下文拿 palette.open 的当前绑定。
-  // 浮在 ShortcutsProvider 之外（极少数测试场景）时退回默认 ⌘P。
+  // 浮在 ShortcutsProvider 之外（极少数测试场景）时按探测到的平台退回默认
+  // ⌘P / Ctrl+P。
   const shortcuts = useOptionalShortcutsContext();
-  const chord = shortcuts?.bindings.get("palette.open");
-  const shortcutLabel = chord ? formatChord(chord, shortcuts!.platform) : "⌘P";
+  const platform = shortcuts?.platform ?? detectBrowserPlatform();
+  const chord: KeyChord = shortcuts?.bindings.get("palette.open") ?? {
+    mod: "primary",
+    key: "P",
+  };
+  const shortcutLabel = formatChord(chord, platform);
   const resolvedPlaceholder =
     placeholder ?? t("app.commandPalette.placeholder");
   const openLabel = t("app.commandPalette.open");
@@ -215,9 +222,7 @@ function AppTopBar({
         <span className="text-sm font-semibold">{appName}</span>
         {breadcrumb ? (
           <>
-            <span className="font-mono text-sm text-decorative-foreground">
-              /
-            </span>
+            <span className="font-mono text-sm text-muted-foreground">/</span>
             <span className="min-w-0 truncate text-sm text-muted-foreground">
               {breadcrumb}
             </span>
@@ -400,21 +405,10 @@ function AppStatusBar({
 
   const attentionParts: string[] = [];
   if (approvalCount > 0) {
-    attentionParts.push(
-      t(
-        approvalCount === 1
-          ? "statusBar.approval_one"
-          : "statusBar.approval_other",
-        { count: approvalCount },
-      ),
-    );
+    attentionParts.push(t("statusBar.approval", { count: approvalCount }));
   }
   if (unreadCount > 0) {
-    attentionParts.push(
-      t(unreadCount === 1 ? "statusBar.unread_one" : "statusBar.unread_other", {
-        count: unreadCount,
-      }),
-    );
+    attentionParts.push(t("statusBar.unread", { count: unreadCount }));
   }
 
   const attentionSummary =

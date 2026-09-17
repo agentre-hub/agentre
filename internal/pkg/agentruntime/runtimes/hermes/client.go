@@ -47,7 +47,7 @@ var ErrGatewayLost = errors.New("hermes gateway: connection lost")
 // one turn and closes it when the turn ends.
 type Session interface {
 	// Create opens a fresh gateway session and returns (liveSID, storedKey).
-	Create(ctx context.Context, cwd string, cols int) (liveSID, storedKey string, err error)
+	Create(ctx context.Context, cwd string) (liveSID, storedKey string, err error)
 	// Resume reopens a stored session and returns its new live runtime id.
 	Resume(ctx context.Context, storedKey string) (liveSID string, err error)
 	// Usage snapshots the gateway's cumulative session usage (pre-submit baseline).
@@ -102,9 +102,8 @@ var hermesSessionTokenRe = regexp.MustCompile(`__HERMES_SESSION_TOKEN__\s*=\s*"(
 // newline-delimited JSON-RPC 2.0 over it. The codec (rpcConn) is transport
 // agnostic; this type only moves bytes and classifies transport errors.
 type gatewaySession struct {
-	baseURL string
-	conn    *websocket.Conn
-	codec   *rpcConn
+	conn  *websocket.Conn
+	codec *rpcConn
 
 	closeOnce sync.Once
 	done      chan struct{}
@@ -121,13 +120,6 @@ func defaultSessionFactory(ctx context.Context, spec sessionSpec) (Session, erro
 		return nil, err
 	}
 	return sess, nil
-}
-
-// dialGateway is the loopback-only entry point: it fetches the session token
-// injected into the root page and upgrades with `?token=`. Kept for callers
-// (and tests) that do not deal with gated serves.
-func dialGateway(ctx context.Context, baseURL string, dialer webSocketDialer, client *http.Client) (*gatewaySession, error) {
-	return dialGatewayWithAuth(ctx, baseURL, "", nil, dialer, client)
 }
 
 // dialGatewayWithAuth dials a `hermes serve`. It first tries the loopback token
@@ -177,9 +169,8 @@ func dialGatewayWithAuth(ctx context.Context, baseURL, provider string, creds Cr
 	conn.SetReadLimit(gatewayWSMessageSize)
 
 	s := &gatewaySession{
-		baseURL: strings.TrimSpace(baseURL),
-		conn:    conn,
-		done:    make(chan struct{}),
+		conn: conn,
+		done: make(chan struct{}),
 	}
 	s.codec = newRPCConn(func(line []byte) error {
 		return conn.WriteMessage(websocket.TextMessage, line)
@@ -321,11 +312,8 @@ func (s *gatewaySession) Close(ctx context.Context) error {
 	}
 }
 
-func (s *gatewaySession) Create(ctx context.Context, cwd string, cols int) (string, string, error) {
-	if cols <= 0 {
-		cols = 80
-	}
-	params := map[string]any{"cols": cols}
+func (s *gatewaySession) Create(ctx context.Context, cwd string) (string, string, error) {
+	params := map[string]any{"cols": 80}
 	if strings.TrimSpace(cwd) != "" {
 		params["cwd"] = cwd
 	}
@@ -381,13 +369,6 @@ func (s *gatewaySession) Usage(ctx context.Context, liveSID string) (*provider.U
 
 func (s *gatewaySession) Submit(ctx context.Context, liveSID, text string) error {
 	_, err := s.codec.call(ctx, "prompt.submit", map[string]any{"session_id": liveSID, "text": text})
-	if err == nil {
-		return nil
-	}
-	var rpcErr *rpcCallError
-	if errors.As(err, &rpcErr) && rpcErr.reason() == "SESSION_NOT_OWNED" {
-		return fmt.Errorf("%w: %s", ErrSessionNotOwned, rpcErr.Message)
-	}
 	return err
 }
 

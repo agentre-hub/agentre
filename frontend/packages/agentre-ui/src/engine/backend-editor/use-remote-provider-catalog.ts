@@ -4,15 +4,14 @@ import * as React from "react";
 
 import type { PickerProvider } from "../model-target-picker";
 import type { EngineSettingsBridge } from "../port-bridge";
+import type { RuntimeDeviceView } from "../ports";
 
-import type { DeviceView, EditorState, ProviderSummary } from "./editor-types";
-
-export type RemoteProviderCatalog = ReturnType<typeof useRemoteProviderCatalog>;
+import type { EditorState, ProviderSummary } from "./editor-types";
 
 export function useRemoteProviderCatalog(args: {
   stateKind: EditorState["kind"];
   remoteDeviceID: number;
-  devices: DeviceView[];
+  devices: RuntimeDeviceView[];
   listRemoteProviders: EngineSettingsBridge["RemoteDeviceListProviders"];
 }) {
   const { stateKind, remoteDeviceID, devices, listRemoteProviders } = args;

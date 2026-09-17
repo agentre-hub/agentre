@@ -181,7 +181,7 @@ func newWorkspaceProtoClient(t *testing.T, r *rig) *workspaceProtoClient {
 func registerWorkspaceTestMethods(registry *protorpc.Registry, r *rig) {
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_LIST_DIR), func() *agentrewire.WorkspaceFsListDirRequest { return &agentrewire.WorkspaceFsListDirRequest{} }, func(ctx context.Context, p *agentrewire.WorkspaceFsListDirRequest) (*agentrewire.WorkspaceFsListDirResponse, error) {
 		out := &wire.ListDirResp{}
-		err := r.invoke(ctx, wire.MethodListDir, wire.ListDirReq{Root: p.Root, RelPath: p.RelPath, IncludeIgnored: p.IncludeIgnored}, out)
+		err := r.invoke(ctx, "workspacefs.listDir", wire.ListDirReq{Root: p.Root, RelPath: p.RelPath, IncludeIgnored: p.IncludeIgnored}, out)
 		resp := &agentrewire.WorkspaceFsListDirResponse{Path: out.Path, Truncated: out.Truncated}
 		for _, e := range out.Entries {
 			resp.Entries = append(resp.Entries, &agentrewire.WorkspaceFsEntry{Name: e.Name, IsDir: e.IsDir, Size: e.Size, ModTime: e.ModTime, Symlink: e.Symlink, GitIgnored: e.GitIgnored})
@@ -190,7 +190,7 @@ func registerWorkspaceTestMethods(registry *protorpc.Registry, r *rig) {
 	})
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES), func() *agentrewire.WorkspaceFsGitBranchesRequest { return &agentrewire.WorkspaceFsGitBranchesRequest{} }, func(ctx context.Context, p *agentrewire.WorkspaceFsGitBranchesRequest) (*agentrewire.WorkspaceFsGitBranchesResponse, error) {
 		out := &wire.GitBranchesResp{}
-		err := r.invoke(ctx, wire.MethodGitBranches, wire.GitBranchesReq{Root: p.Root}, out)
+		err := r.invoke(ctx, "workspacefs.gitBranches", wire.GitBranchesReq{Root: p.Root}, out)
 		resp := &agentrewire.WorkspaceFsGitBranchesResponse{NotARepo: out.NotARepo, CurrentBranch: out.CurrentBranch, DefaultBaseline: out.DefaultBaseline}
 		for _, b := range out.Branches {
 			resp.Branches = append(resp.Branches, &agentrewire.WorkspaceFsBranch{Name: b.Name, Remote: b.Remote})
@@ -199,17 +199,17 @@ func registerWorkspaceTestMethods(registry *protorpc.Registry, r *rig) {
 	})
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_STATE), func() *agentrewire.WorkspaceFsGitStateRequest { return &agentrewire.WorkspaceFsGitStateRequest{} }, func(ctx context.Context, p *agentrewire.WorkspaceFsGitStateRequest) (*agentrewire.WorkspaceFsGitStateResponse, error) {
 		out := &wire.GitStateResp{}
-		err := r.invoke(ctx, wire.MethodGitState, wire.GitStateReq{Root: p.Root}, out)
+		err := r.invoke(ctx, "workspacefs.gitState", wire.GitStateReq{Root: p.Root}, out)
 		return protowire.WorkspaceGitStateResponseToProto(*out), protoTestErr(err)
 	})
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_CHANGES), func() *agentrewire.WorkspaceFsGitChangesRequest { return &agentrewire.WorkspaceFsGitChangesRequest{} }, func(ctx context.Context, p *agentrewire.WorkspaceFsGitChangesRequest) (*agentrewire.WorkspaceFsGitChangesResponse, error) {
 		out := &wire.GitChangesResp{}
-		err := r.invoke(ctx, wire.MethodGitChanges, wire.GitChangesReq{Root: p.Root, Scope: p.Scope, BaseRef: p.BaseRef}, out)
+		err := r.invoke(ctx, "workspacefs.gitChanges", wire.GitChangesReq{Root: p.Root, Scope: p.Scope, BaseRef: p.BaseRef}, out)
 		return protowire.WorkspaceGitChangesResponseToProto(*out), protoTestErr(err)
 	})
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_READ_FILE), func() *agentrewire.WorkspaceFsReadFileRequest { return &agentrewire.WorkspaceFsReadFileRequest{} }, func(ctx context.Context, p *agentrewire.WorkspaceFsReadFileRequest) (*agentrewire.WorkspaceFsReadFileResponse, error) {
 		out := &wire.ReadFileResp{}
-		err := r.invoke(ctx, wire.MethodReadFile, wire.ReadFileReq{Root: p.Root, RelPath: p.RelPath}, out)
+		err := r.invoke(ctx, "workspacefs.readFile", wire.ReadFileReq{Root: p.Root, RelPath: p.RelPath}, out)
 		resp, convErr := protowire.WorkspaceReadFileResponseToProto(*out)
 		if convErr != nil {
 			return nil, convErr
@@ -220,12 +220,12 @@ func registerWorkspaceTestMethods(registry *protorpc.Registry, r *rig) {
 		return &agentrewire.WorkspaceFsGitFileContentRequest{}
 	}, func(ctx context.Context, p *agentrewire.WorkspaceFsGitFileContentRequest) (*agentrewire.WorkspaceFsGitFileContentResponse, error) {
 		out := &wire.GitFileContentResp{}
-		err := r.invoke(ctx, wire.MethodGitFileContent, wire.GitFileContentReq{Root: p.Root, RelPath: p.RelPath}, out)
+		err := r.invoke(ctx, "workspacefs.gitFileContent", wire.GitFileContentReq{Root: p.Root, RelPath: p.RelPath}, out)
 		return &agentrewire.WorkspaceFsGitFileContentResponse{Content: []byte(out.Content), NotARepo: out.NotARepo, HasHead: out.HasHead}, protoTestErr(err)
 	})
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_SEARCH_FILES), func() *agentrewire.WorkspaceFsSearchFilesRequest { return &agentrewire.WorkspaceFsSearchFilesRequest{} }, func(ctx context.Context, p *agentrewire.WorkspaceFsSearchFilesRequest) (*agentrewire.WorkspaceFsSearchFilesResponse, error) {
 		out := &wire.SearchFilesResp{}
-		err := r.invoke(ctx, wire.MethodSearchFiles, wire.SearchFilesReq{Root: p.Root, Query: p.Query, IncludeIgnored: p.IncludeIgnored}, out)
+		err := r.invoke(ctx, "workspacefs.searchFiles", wire.SearchFilesReq{Root: p.Root, Query: p.Query, IncludeIgnored: p.IncludeIgnored}, out)
 		resp := &agentrewire.WorkspaceFsSearchFilesResponse{Truncated: out.Truncated}
 		for _, h := range out.Hits {
 			resp.Hits = append(resp.Hits, &agentrewire.WorkspaceFsSearchHit{Path: h.Path, IsDir: h.IsDir})
@@ -289,7 +289,7 @@ func TestListDir_RoutesByDeviceID(t *testing.T) {
 
 		convey.Convey("deviceID≠0 → 走 RPC,root 用服务解析出的 cwd", func() {
 			r := newRig(t, 7, "/remote/work")
-			r.expectCall(wire.MethodListDir, wire.ListDirReq{
+			r.expectCall("workspacefs.listDir", wire.ListDirReq{
 				Root: "/remote/work", RelPath: "sub", IncludeIgnored: true,
 			}).DoAndReturn(func(_ context.Context, _ string, _ any, out any) error {
 				resp := out.(*wire.ListDirResp)
@@ -372,7 +372,7 @@ func TestListDir_PathRefused(t *testing.T) {
 
 		convey.Convey("远端:wire code → 同一个 WorkspaceFsPathRefused", func() {
 			r := newRig(t, 7, "/remote/work")
-			r.expectCall(wire.MethodListDir, wire.ListDirReq{Root: "/remote/work", RelPath: "../etc"}).
+			r.expectCall("workspacefs.listDir", wire.ListDirReq{Root: "/remote/work", RelPath: "../etc"}).
 				Return(&rpcerror.Error{Code: wire.ErrCodePathRefused, Message: "refused"})
 			_, err := r.svc.ListDir(r.ctx, 42, "", "../etc", false)
 			require.Error(t, err)
@@ -407,7 +407,7 @@ func TestRemote_BorrowFailure_IsDeviceOffline(t *testing.T) {
 func TestGitBranches_RemoteCarriesCurrentBranchAndDefaultBaseline(t *testing.T) {
 	convey.Convey("远端会话拿得到当前分支与推断出的默认基线", t, func() {
 		r := newRig(t, 7, "/remote/work")
-		r.expectCall(wire.MethodGitBranches, wire.GitBranchesReq{Root: "/remote/work"}).
+		r.expectCall("workspacefs.gitBranches", wire.GitBranchesReq{Root: "/remote/work"}).
 			DoAndReturn(func(_ context.Context, _ string, _ any, out any) error {
 				resp := out.(*wire.GitBranchesResp)
 				resp.Branches = []wire.Branch{{Name: "main"}, {Name: "origin/main", Remote: true}}
@@ -451,7 +451,7 @@ func TestGitBranches_LocalUsesLeafPackage(t *testing.T) {
 func TestGitState_RemoteCarriesRealSnapshot(t *testing.T) {
 	convey.Convey("远端会话拿到与本地同形的 git 状态快照", t, func() {
 		r := newRig(t, 7, "/remote/work")
-		r.expectCall(wire.MethodGitState, wire.GitStateReq{Root: "/remote/work"}).
+		r.expectCall("workspacefs.gitState", wire.GitStateReq{Root: "/remote/work"}).
 			DoAndReturn(func(_ context.Context, _ string, _ any, out any) error {
 				resp := out.(*wire.GitStateResp)
 				resp.Branch = "main"
@@ -539,7 +539,7 @@ func TestGitChanges_ScopeValidation(t *testing.T) {
 func TestGitChanges_UncommittedScope_SkipsBaselineLookup(t *testing.T) {
 	convey.Convey("未提交档不需要基线 → 只发一次 RPC", t, func() {
 		r := newRig(t, 7, "/remote/work")
-		r.expectCall(wire.MethodGitChanges, wire.GitChangesReq{
+		r.expectCall("workspacefs.gitChanges", wire.GitChangesReq{
 			Root: "/remote/work", Scope: wire.ScopeUncommitted,
 		}).DoAndReturn(func(_ context.Context, _ string, _ any, out any) error {
 			resp := out.(*wire.GitChangesResp)
@@ -570,9 +570,9 @@ func TestGitChanges_BranchScope_BaselineResolution(t *testing.T) {
 
 	convey.Convey("baseRef 为空 → 用远端推断出的默认基线,并回报实际用的那个", t, func() {
 		r := newRig(t, 7, "/remote/work")
-		r.expectCall(wire.MethodGitBranches, wire.GitBranchesReq{Root: "/remote/work"}).
+		r.expectCall("workspacefs.gitBranches", wire.GitBranchesReq{Root: "/remote/work"}).
 			DoAndReturn(branchesResp("origin/main", "main", "origin/main"))
-		r.expectCall(wire.MethodGitChanges, wire.GitChangesReq{
+		r.expectCall("workspacefs.gitChanges", wire.GitChangesReq{
 			Root: "/remote/work", Scope: wire.ScopeBranch, BaseRef: "origin/main",
 		}).Return(nil)
 
@@ -583,9 +583,9 @@ func TestGitChanges_BranchScope_BaselineResolution(t *testing.T) {
 
 	convey.Convey("用户选过的基线仍在清单里 → 优先于默认推断", t, func() {
 		r := newRig(t, 7, "/remote/work")
-		r.expectCall(wire.MethodGitBranches, wire.GitBranchesReq{Root: "/remote/work"}).
+		r.expectCall("workspacefs.gitBranches", wire.GitBranchesReq{Root: "/remote/work"}).
 			DoAndReturn(branchesResp("main", "main", "develop"))
-		r.expectCall(wire.MethodGitChanges, wire.GitChangesReq{
+		r.expectCall("workspacefs.gitChanges", wire.GitChangesReq{
 			Root: "/remote/work", Scope: wire.ScopeBranch, BaseRef: "develop",
 		}).Return(nil)
 
@@ -596,9 +596,9 @@ func TestGitChanges_BranchScope_BaselineResolution(t *testing.T) {
 
 	convey.Convey("持久化的基线已不存在 → 回落默认推断(设计决策 9)", t, func() {
 		r := newRig(t, 7, "/remote/work")
-		r.expectCall(wire.MethodGitBranches, wire.GitBranchesReq{Root: "/remote/work"}).
+		r.expectCall("workspacefs.gitBranches", wire.GitBranchesReq{Root: "/remote/work"}).
 			DoAndReturn(branchesResp("main", "main"))
-		r.expectCall(wire.MethodGitChanges, wire.GitChangesReq{
+		r.expectCall("workspacefs.gitChanges", wire.GitChangesReq{
 			Root: "/remote/work", Scope: wire.ScopeBranch, BaseRef: "main",
 		}).Return(nil)
 
@@ -609,7 +609,7 @@ func TestGitChanges_BranchScope_BaselineResolution(t *testing.T) {
 
 	convey.Convey("推断不出基线 → 成功返回空基线的空结果,由前端出 C5 空态", t, func() {
 		r := newRig(t, 7, "/remote/work")
-		r.expectCall(wire.MethodGitBranches, wire.GitBranchesReq{Root: "/remote/work"}).
+		r.expectCall("workspacefs.gitBranches", wire.GitBranchesReq{Root: "/remote/work"}).
 			DoAndReturn(branchesResp("", "trunk"))
 		// 不再发 gitChanges:空基线送过去只会换回 ErrBaselineRequired。
 
@@ -622,7 +622,7 @@ func TestGitChanges_BranchScope_BaselineResolution(t *testing.T) {
 
 	convey.Convey("非 git 仓库 → NotARepo,不再问变动", t, func() {
 		r := newRig(t, 7, "/remote/work")
-		r.expectCall(wire.MethodGitBranches, wire.GitBranchesReq{Root: "/remote/work"}).
+		r.expectCall("workspacefs.gitBranches", wire.GitBranchesReq{Root: "/remote/work"}).
 			DoAndReturn(func(_ context.Context, _ string, _ any, out any) error {
 				out.(*wire.GitBranchesResp).NotARepo = true
 				return nil
@@ -686,7 +686,7 @@ func TestReadFile_RoutesByDeviceID(t *testing.T) {
 
 		convey.Convey("deviceID≠0 → 走 RPC,root 用服务解析出的 cwd", func() {
 			r := newRig(t, 7, "/remote/work")
-			r.expectCall(wire.MethodReadFile, wire.ReadFileReq{Root: "/remote/work", RelPath: "a.txt"}).
+			r.expectCall("workspacefs.readFile", wire.ReadFileReq{Root: "/remote/work", RelPath: "a.txt"}).
 				DoAndReturn(func(_ context.Context, _ string, _ any, out any) error {
 					resp := out.(*wire.ReadFileResp)
 					resp.Content = "remote body\n"
@@ -717,7 +717,7 @@ func TestReadFile_ViewFlagsPassThrough(t *testing.T) {
 
 		convey.Convey("远端:wire 字段原样透传(图片 base64 + contentType)", func() {
 			r := newRig(t, 7, "/remote/work")
-			r.expectCall(wire.MethodReadFile, wire.ReadFileReq{Root: "/remote/work", RelPath: "img.png"}).
+			r.expectCall("workspacefs.readFile", wire.ReadFileReq{Root: "/remote/work", RelPath: "img.png"}).
 				DoAndReturn(func(_ context.Context, _ string, _ any, out any) error {
 					resp := out.(*wire.ReadFileResp)
 					resp.Content = "aGVsbG8="
@@ -751,7 +751,7 @@ func TestReadFile_ErrorMapping(t *testing.T) {
 
 		convey.Convey("远端越界 → 同一个 WorkspaceFsPathRefused", func() {
 			r := newRig(t, 7, "/remote/work")
-			r.expectCall(wire.MethodReadFile, gomock.Any()).
+			r.expectCall("workspacefs.readFile", gomock.Any()).
 				Return(&rpcerror.Error{Code: wire.ErrCodePathRefused, Message: "refused"})
 			_, err := r.svc.ReadFile(r.ctx, 42, "", "../etc/passwd")
 			require.Error(t, err)
@@ -812,7 +812,7 @@ func TestGitFileContent_RoutesByDeviceID(t *testing.T) {
 
 		convey.Convey("deviceID≠0 → 走 RPC,root 用服务解析出的 cwd", func() {
 			r := newRig(t, 7, "/remote/work")
-			r.expectCall(wire.MethodGitFileContent, wire.GitFileContentReq{Root: "/remote/work", RelPath: "a.txt"}).
+			r.expectCall("workspacefs.gitFileContent", wire.GitFileContentReq{Root: "/remote/work", RelPath: "a.txt"}).
 				DoAndReturn(func(_ context.Context, _ string, _ any, out any) error {
 					resp := out.(*wire.GitFileContentResp)
 					resp.Content = "head body\n"
@@ -841,7 +841,7 @@ func TestGitFileContent_ErrorMapping(t *testing.T) {
 
 		convey.Convey("远端越界 → 同一个 WorkspaceFsPathRefused", func() {
 			r := newRig(t, 7, "/remote/work")
-			r.expectCall(wire.MethodGitFileContent, gomock.Any()).
+			r.expectCall("workspacefs.gitFileContent", gomock.Any()).
 				Return(&rpcerror.Error{Code: wire.ErrCodePathRefused, Message: "refused"})
 			_, err := r.svc.GitFileContent(r.ctx, 42, "", "../etc/passwd")
 			require.Error(t, err)
@@ -881,7 +881,7 @@ func TestSearchFiles_RoutesByDeviceID(t *testing.T) {
 
 		convey.Convey("deviceID≠0 → 走 RPC,root 用服务解析出的 cwd,截断标志透传", func() {
 			r := newRig(t, 7, "/remote/work")
-			r.expectCallCtx(wire.MethodSearchFiles, wire.SearchFilesReq{
+			r.expectCallCtx("workspacefs.searchFiles", wire.SearchFilesReq{
 				Root: "/remote/work", Query: "target", IncludeIgnored: true,
 			}).DoAndReturn(func(_ context.Context, _ string, _ any, out any) error {
 				resp := out.(*wire.SearchFilesResp)
@@ -994,7 +994,7 @@ func TestReadFile_UnavailableReasonIsAViewField(t *testing.T) {
 
 		convey.Convey("远端:那台机器回「文件不存在」→ unavailable=not-found,不报错", func() {
 			r := newRig(t, 7, "/remote/work")
-			r.expectCall(wire.MethodReadFile, gomock.Any()).
+			r.expectCall("workspacefs.readFile", gomock.Any()).
 				Return(&rpcerror.Error{Code: wire.ErrCodeNotFound, Message: "workspacefs: not found"})
 
 			view, err := r.svc.ReadFile(r.ctx, 42, "", "ghost.md")
@@ -1026,7 +1026,7 @@ func TestReadFile_UnavailableReasonIsAViewField(t *testing.T) {
 
 		convey.Convey("远端:认不出的码仍是错误,不被当成「不存在」", func() {
 			r := newRig(t, 7, "/remote/work")
-			r.expectCall(wire.MethodReadFile, gomock.Any()).
+			r.expectCall("workspacefs.readFile", gomock.Any()).
 				Return(&rpcerror.Error{Code: -32999, Message: "boom"})
 
 			_, err := r.svc.ReadFile(r.ctx, 42, "", "a.txt")

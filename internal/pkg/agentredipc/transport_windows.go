@@ -12,7 +12,7 @@ import (
 
 // Endpoint returns the current data directory's opaque named-pipe path.
 func Endpoint(dataDir string) string {
-	return WindowsPipePath(dataDir)
+	return windowsPipePath(dataDir)
 }
 
 // Listen creates a named pipe whose protected DACL grants full access only to

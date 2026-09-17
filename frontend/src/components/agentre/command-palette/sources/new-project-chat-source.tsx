@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { useChatAgents, type AgentSlim } from "@/hooks/use-chat-agents";
 import i18n from "@/i18n";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 import {
   readLastAgentId,
   writeLastAgentId,
@@ -18,7 +18,7 @@ import {
 import { DeviceTag } from "../../device-tag";
 import { AgentAvatar } from "../../primitives";
 import type { AgentColor } from "../../types";
-import { scoreItem } from "../score";
+import { scoreSuggestion as scoreItem } from "@agentre-hub/agentre-ui";
 import type { CommandSource, OnSelectCtx } from "../types";
 
 // 命令面板的 "New project chat with <agent>" 命令源 —— 选了项目上下文时激活

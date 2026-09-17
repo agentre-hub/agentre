@@ -9,7 +9,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -47,12 +47,12 @@ type ServerSvc interface {
 	// registered desktop with no live App maps to ErrDesktopAppNotRunning,
 	// distinct from the existing agentred offline result.
 	DialDesktopRelay(ctx context.Context, desktopFingerprint devicefp.Carrier, peerFingerprint devicefp.Initiator) (client.ProtobufConnection, error)
-	// SyncPush 上行一批本地改动；超窗口设备返回 syncwire.ErrResyncRequired（R6a）。
+	// SyncPush 上行一批本地改动；超窗口设备返回 internal/pkg/syncwire.ErrResyncRequired（R6a）。
 	SyncPush(ctx context.Context, items []syncwire.PushItem) ([]syncwire.PushResult, error)
 	// SyncPull 按版本游标增量下行；cursor = 0 拉全量快照。
 	SyncPull(ctx context.Context, cursor int64, limit int) (*syncwire.PullPage, error)
 	// ReportLocalPaths 上报本机路径整份快照（R16）。
-	ReportLocalPaths(ctx context.Context, items []syncwire.LocalPathReportItem) error
+	ReportLocalPaths(ctx context.Context, items []syncwire.LocalPathItem) error
 	// PutAvatar 把本机持有的头像正文按内容哈希推给对端（R16a）。
 	PutAvatar(ctx context.Context, contentHash, contentType, content string) error
 	// GetAvatar 取一份尚未持有的头像正文（R16a）。

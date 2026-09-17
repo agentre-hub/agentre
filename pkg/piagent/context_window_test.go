@@ -251,7 +251,11 @@ func TestCompactStreamEmitsContextWindowFromSessionStats(t *testing.T) {
 	}, "\n")
 	client, proc := newCaptureClient(script)
 
-	s, err := client.Compact(context.Background(), "/data/pi-sessions/agentre-7.jsonl")
+	session, err := client.OpenSession(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close(context.Background()) })
+
+	s, err := session.Compact(context.Background())
 	require.NoError(t, err)
 
 	var kinds []EventKind

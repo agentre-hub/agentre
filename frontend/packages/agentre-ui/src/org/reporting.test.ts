@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { buildReportToMap, resolveReportTo } from "../reporting";
-import type { OrgAgent, OrgDepartment } from "../types";
+import {
+  buildOrgReportToMap as buildReportToMap,
+  resolveOrgReportTo as resolveReportTo,
+} from "./reporting";
+import type { OrgAgentModel, OrgDepartmentModel } from "./types";
 
-const ceoOf = (overrides: Partial<OrgAgent> = {}): OrgAgent =>
+const ceoOf = (overrides: Partial<OrgAgentModel> = {}): OrgAgentModel =>
   ({
     id: 1,
     name: "CEO 助手",
@@ -11,9 +14,9 @@ const ceoOf = (overrides: Partial<OrgAgent> = {}): OrgAgent =>
     departmentId: 0,
     parentAgentId: 0,
     ...overrides,
-  }) as OrgAgent;
+  }) as OrgAgentModel;
 
-const agentOf = (overrides: Partial<OrgAgent>): OrgAgent =>
+const agentOf = (overrides: Partial<OrgAgentModel>): OrgAgentModel =>
   ({
     id: 0,
     name: "",
@@ -21,16 +24,16 @@ const agentOf = (overrides: Partial<OrgAgent>): OrgAgent =>
     departmentId: 0,
     parentAgentId: 0,
     ...overrides,
-  }) as OrgAgent;
+  }) as OrgAgentModel;
 
-const deptOf = (overrides: Partial<OrgDepartment>): OrgDepartment =>
+const deptOf = (overrides: Partial<OrgDepartmentModel>): OrgDepartmentModel =>
   ({
     id: 0,
     name: "",
     parentId: 0,
     leadAgentId: 0,
     ...overrides,
-  }) as OrgDepartment;
+  }) as OrgDepartmentModel;
 
 describe("resolveReportTo", () => {
   it("returns the explicit parent when set and valid", () => {

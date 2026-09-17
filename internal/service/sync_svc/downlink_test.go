@@ -9,7 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // 本文件守的是账号级实时通道这个**第二个**下行触发源（规格「账号级实时通道 ·
@@ -30,14 +31,14 @@ import (
 // 供断言——直接读 fakeTransport.pulledAt 会与后台 goroutine 抢同一个切片。
 type channelTransport struct {
 	*fakeTransport
-	dial     func(attempt int) (<-chan syncwire.AccountChannelFrame, error)
+	dial     func(attempt int) (<-chan localsync.AccountChannelFrame, error)
 	attempts atomic.Int64
 	// dialErrs 记下每一次拨号的结果，供「通道确实一次都没连上」这类断言。
 	dialErrs atomic.Int64
 	pulls    chan int64
 }
 
-func (c *channelTransport) DialAccountChannel(context.Context) (<-chan syncwire.AccountChannelFrame, error) {
+func (c *channelTransport) DialAccountChannel(context.Context) (<-chan localsync.AccountChannelFrame, error) {
 	signals, err := c.dial(int(c.attempts.Add(1)))
 	if err != nil {
 		c.dialErrs.Add(1)
@@ -57,7 +58,7 @@ func (c *channelTransport) SyncPull(ctx context.Context, cursor int64, limit int
 }
 
 // withAccountChannel 把引擎的出入口换成带通道的那一个。必须在 Start 之前调用。
-func (h *harness) withAccountChannel(dial func(attempt int) (<-chan syncwire.AccountChannelFrame, error)) *channelTransport {
+func (h *harness) withAccountChannel(dial func(attempt int) (<-chan localsync.AccountChannelFrame, error)) *channelTransport {
 	tr := &channelTransport{fakeTransport: h.transport, dial: dial, pulls: make(chan int64, 256)}
 	h.svc.transport = tr
 	return tr
@@ -86,8 +87,8 @@ func expectNoPull(t *testing.T, pulls <-chan int64, why string) {
 }
 
 // openChannel 给出一条「连上了就不断」的信号流：拨号成功，帧由测试自己塞。
-func openChannel(signals chan syncwire.AccountChannelFrame) func(int) (<-chan syncwire.AccountChannelFrame, error) {
-	return func(int) (<-chan syncwire.AccountChannelFrame, error) { return signals, nil }
+func openChannel(signals chan localsync.AccountChannelFrame) func(int) (<-chan localsync.AccountChannelFrame, error) {
+	return func(int) (<-chan localsync.AccountChannelFrame, error) { return signals, nil }
 }
 
 // TestStart_GivenAccountChannelSignal_PullsImmediately （a）通道在时收到信号立刻
@@ -96,7 +97,7 @@ func TestStart_GivenAccountChannelSignal_PullsImmediately(t *testing.T) {
 	h := newHarness(t, true)
 	require.Equal(t, PollInterval, h.svc.tickEvery(),
 		"轮询周期保持 30 秒——本用例里看到的 Pull 都不可能是它带来的")
-	signals := make(chan syncwire.AccountChannelFrame)
+	signals := make(chan localsync.AccountChannelFrame)
 	tr := h.withAccountChannel(openChannel(signals))
 
 	h.svc.Start(context.Background())
@@ -105,8 +106,8 @@ func TestStart_GivenAccountChannelSignal_PullsImmediately(t *testing.T) {
 	// 建连本身那一次先消化掉（b 在下一个用例里单独守）。
 	awaitPull(t, tr.pulls, "建连之后应当主动拉一次")
 
-	signals <- syncwire.AccountChannelFrame{
-		Type: syncwire.AccountChannelSyncVersion, Version: 42,
+	signals <- localsync.AccountChannelFrame{
+		Type: localsync.AccountChannelSyncVersion, Version: 42,
 	}
 	assert.Equal(t, int64(0), awaitPull(t, tr.pulls, "信号到达之后应当立刻拉一次"),
 		"拉哪些由本端游标决定，与信号里的版本号无关")
@@ -117,10 +118,10 @@ func TestStart_GivenAccountChannelSignal_PullsImmediately(t *testing.T) {
 func TestStart_GivenAccountChannelReconnect_PullsOnEveryConnect(t *testing.T) {
 	h := newHarness(t, true)
 	// 第一次拨号给一条**当场就断**的流，第二次给一条常连的；两次都一帧不发。
-	first := make(chan syncwire.AccountChannelFrame)
+	first := make(chan localsync.AccountChannelFrame)
 	close(first)
-	second := make(chan syncwire.AccountChannelFrame)
-	tr := h.withAccountChannel(func(attempt int) (<-chan syncwire.AccountChannelFrame, error) {
+	second := make(chan localsync.AccountChannelFrame)
+	tr := h.withAccountChannel(func(attempt int) (<-chan localsync.AccountChannelFrame, error) {
 		if attempt == 1 {
 			return first, nil
 		}
@@ -147,7 +148,7 @@ func TestStart_GivenDuplicateAndOutOfOrderSignals_PullsFromTheLocalCursor(t *tes
 		}},
 		NextCursor: 11,
 	}}
-	signals := make(chan syncwire.AccountChannelFrame)
+	signals := make(chan localsync.AccountChannelFrame)
 	tr := h.withAccountChannel(openChannel(signals))
 
 	h.svc.Start(context.Background())
@@ -161,8 +162,8 @@ func TestStart_GivenDuplicateAndOutOfOrderSignals_PullsFromTheLocalCursor(t *tes
 	// 乱序（比已见过的版本还旧）、重复：每一条都照常触发一次拉取，且都从**本端
 	// 游标 11** 继续——拿信号里的版本号当游标会把 11 之后的变更整段跳过。
 	for _, version := range []int64{5, 11, 11} {
-		signals <- syncwire.AccountChannelFrame{
-			Type: syncwire.AccountChannelSyncVersion, Version: version,
+		signals <- localsync.AccountChannelFrame{
+			Type: localsync.AccountChannelSyncVersion, Version: version,
 		}
 		assert.Equal(t, int64(11), awaitPull(t, tr.pulls, "重复/乱序信号也照常拉一次"))
 	}
@@ -180,19 +181,19 @@ func TestStart_GivenDuplicateAndOutOfOrderSignals_PullsFromTheLocalCursor(t *tes
 // 也不断连。
 func TestStart_GivenUnknownSignalType_IgnoresIt(t *testing.T) {
 	h := newHarness(t, true)
-	signals := make(chan syncwire.AccountChannelFrame)
+	signals := make(chan localsync.AccountChannelFrame)
 	tr := h.withAccountChannel(openChannel(signals))
 
 	h.svc.Start(context.Background())
 	t.Cleanup(h.svc.Stop)
 	awaitPull(t, tr.pulls, "建连之后应当主动拉一次")
 
-	signals <- syncwire.AccountChannelFrame{Type: "some_future_notification", Version: 9}
+	signals <- localsync.AccountChannelFrame{Type: "some_future_notification", Version: 9}
 	expectNoPull(t, tr.pulls, "不认识的信号种类不该触发下行")
 
 	// 连接还在：随后的正经信号照常生效。
-	signals <- syncwire.AccountChannelFrame{
-		Type: syncwire.AccountChannelSyncVersion, Version: 9,
+	signals <- localsync.AccountChannelFrame{
+		Type: localsync.AccountChannelSyncVersion, Version: 9,
 	}
 	awaitPull(t, tr.pulls, "忽略未知种类之后，通道仍然可用")
 }
@@ -214,9 +215,9 @@ func immediateRetry(ctx context.Context) bool { return ctx.Err() == nil }
 // 第二次拨号只可能来自 Drop 本身，而不是等到了下一个重连窗口。
 func TestDropAccountChannel_GivenIdentityChanged_RedialsWithoutWaiting(t *testing.T) {
 	h := newHarness(t, true)
-	first := make(chan syncwire.AccountChannelFrame)
-	second := make(chan syncwire.AccountChannelFrame)
-	tr := h.withAccountChannel(func(attempt int) (<-chan syncwire.AccountChannelFrame, error) {
+	first := make(chan localsync.AccountChannelFrame)
+	second := make(chan localsync.AccountChannelFrame)
+	tr := h.withAccountChannel(func(attempt int) (<-chan localsync.AccountChannelFrame, error) {
 		if attempt == 1 {
 			return first, nil
 		}

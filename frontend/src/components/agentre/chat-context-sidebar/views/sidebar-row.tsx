@@ -14,7 +14,7 @@ import {
 } from "@agentre-hub/agentre-ui";
 
 import { resolveRowOpenAction } from "@/lib/file-open-action";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
 

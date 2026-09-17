@@ -21,7 +21,7 @@ func TestRuntimeStatusHandler_CompactingEmits(t *testing.T) {
 
 		err := RuntimeStatusHandler{}.Apply(context.Background(),
 			agentruntime.RuntimeStatus{Status: "compacting"},
-			acc, emit, nil, tc)
+			acc, emit, tc)
 		So(err, ShouldBeNil)
 		So(acc.Empty(), ShouldBeTrue) // runtime status 不应落 block
 
@@ -43,7 +43,7 @@ func TestRuntimeStatusHandler_OtherStatus(t *testing.T) {
 
 		err := RuntimeStatusHandler{}.Apply(context.Background(),
 			agentruntime.RuntimeStatus{Status: "requesting"},
-			turn.New(), emit, nil, tc)
+			turn.New(), emit, tc)
 		So(err, ShouldBeNil)
 		So(emit.events, ShouldHaveLength, 1)
 		p := emit.events[0].payload.(map[string]any)
@@ -58,7 +58,7 @@ func TestRuntimeStatusHandler_EmptyStatusNoOp(t *testing.T) {
 	Convey("Status 空 → no-op", t, func() {
 		emit := &fakeEmit{}
 		err := RuntimeStatusHandler{}.Apply(context.Background(),
-			agentruntime.RuntimeStatus{}, turn.New(), emit, nil, nil)
+			agentruntime.RuntimeStatus{}, turn.New(), emit, nil)
 		So(err, ShouldBeNil)
 		So(emit.events, ShouldBeEmpty)
 	})

@@ -53,6 +53,7 @@ export function IssueBoard({
       ) : isEmpty ? (
         <BoardEmptyState
           kind={viewModel.filtering ? "noMatches" : "noTasks"}
+          scope={viewModel.emptyScope}
           onCreateTask={ports.onCreateTask}
           onClearFilters={ports.onClearFilters}
         />

@@ -492,7 +492,7 @@ describe("TerminalPanel", () => {
       );
       const term = vi.mocked(Terminal).mock.results[0].value;
       expect(term.options.theme).toBeTruthy();
-      expect(term.options.theme.background).toBe("#17191c");
+      expect(term.options.theme.background).toBe("#18191b");
     } finally {
       document.documentElement.classList.remove("dark");
     }

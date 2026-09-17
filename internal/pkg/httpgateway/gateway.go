@@ -249,13 +249,6 @@ func (g *Gateway) URL() string {
 	return g.actualURL
 }
 
-// BaseURL 返回 gateway 实际绑定的 base URL(如 http://127.0.0.1:<port>); 未启动/绑定失败时返回空串。
-func (g *Gateway) BaseURL() string {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.actualURL
-}
-
 // Steer returns the in-process Steer message inbox. agentruntime pushes into
 // it; the /hook/v1/inbox handler drains on hook GET.
 func (g *Gateway) Steer() *SteerInbox { return g.steer }
@@ -330,7 +323,7 @@ func (g *Gateway) RegisterControl(h http.Handler) {
 
 // IssueToken 给一个 backend 申请 token，路由到 backend 自身绑定的供应商；
 // ttl <= 0 视作永久（chat flow 用）。
-// State=stopped 时返回 ErrGatewayNotRunning，调用方据此返回软失败给前端。
+// State=stopped 时返回 errGatewayNotRunning，调用方据此返回软失败给前端。
 //
 // 会话可能覆盖供应商的场景（chat turn）用 IssueTokenFor 显式传 effective key。
 func (g *Gateway) IssueToken(ctx context.Context, backend *agent_backend_entity.AgentBackend, ttl time.Duration) (string, error) {
@@ -353,7 +346,7 @@ func (g *Gateway) IssueTokenFor(
 	running := g.state == stateRunning
 	g.mu.RUnlock()
 	if !running {
-		return "", ErrGatewayNotRunning
+		return "", errGatewayNotRunning
 	}
 	return g.tokens.Issue(backend, providerKey, modelKey, ttl)
 }
@@ -370,5 +363,5 @@ func (g *Gateway) RevokeToken(token string) {
 	g.tokens.Revoke(token)
 }
 
-// ErrGatewayNotRunning 在 gateway 未启动时 IssueToken / Prober.Run 看到的哨兵错误。
-var ErrGatewayNotRunning = errors.New("httpgateway: not running")
+// errGatewayNotRunning 在 gateway 未启动时 IssueToken 看到的哨兵错误。
+var errGatewayNotRunning = errors.New("httpgateway: not running")

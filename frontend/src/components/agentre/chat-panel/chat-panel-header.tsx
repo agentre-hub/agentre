@@ -20,7 +20,7 @@ import {
 } from "@agentre-hub/agentre-ui";
 
 import type { ChatSessionDetail } from "@/hooks/use-chat-session";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { BackgroundTasksChip } from "../background-tasks/background-tasks-chip";
 import type { BackgroundTask } from "../background-tasks/types";

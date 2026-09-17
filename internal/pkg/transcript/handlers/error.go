@@ -20,7 +20,7 @@ type ErrorHandler struct {
 
 // Apply 把错误信息写到 assistantMsg.ErrorText 并 emit StreamError。
 // dispatcher 调完后,chat.go runTurn 会断开 stream(dispatcher 不直接负责关闭)。
-func (h ErrorHandler) Apply(ctx context.Context, ev agentruntime.Event, _ *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (h ErrorHandler) Apply(ctx context.Context, ev agentruntime.Event, _ *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	e := ev.(agentruntime.ErrorEvent)
 	msg := ""
 	if e.Err != nil {

@@ -68,7 +68,7 @@ func gitIgnoredSet(ctx context.Context, dir string, names []string) map[string]b
 		// exit==1: 合法的"无匹配", out 为空, 落到下面的正常解析。
 	}
 
-	for _, n := range strings.Split(strings.TrimRight(out, "\x00"), "\x00") {
+	for _, n := range splitNulTokens(out) {
 		if n != "" {
 			ignored[n] = true
 		}

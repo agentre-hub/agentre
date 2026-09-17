@@ -15,7 +15,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
@@ -25,6 +24,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // recordingSync 记下域服务交出来的每一条改动，并按脚本失败。
@@ -122,7 +122,7 @@ func (unreachableTransport) SyncPull(context.Context, int64, int) (*syncwire.Pul
 	return nil, errors.New("dial tcp: connection refused")
 }
 
-func (unreachableTransport) ReportLocalPaths(context.Context, []syncwire.LocalPathReportItem) error {
+func (unreachableTransport) ReportLocalPaths(context.Context, []syncwire.LocalPathItem) error {
 	return errors.New("dial tcp: connection refused")
 }
 

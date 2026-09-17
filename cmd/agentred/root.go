@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/agentre-hub/agentre/internal/daemon"
 )
 
 // usageError marks an error as caused by bad CLI usage (missing args, unknown
@@ -21,7 +23,7 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:     "agentred",
 		Short:   "Headless agent compute daemon",
-		Version: agentredBuildIdentity(),
+		Version: daemon.BuildIdentity(),
 		Long: `agentred — headless agent compute daemon.
 
 Stateless executor that runs claude-code / codex subprocesses on behalf of

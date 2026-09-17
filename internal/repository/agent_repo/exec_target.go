@@ -267,13 +267,6 @@ func insertExecTargets(tx *gorm.DB, agentID int64, targets []*agent_entity.Agent
 	return tx.Create(&rows).Error
 }
 
-// primaryTargetList 把「Agent 当前的那一个 backend + 它这一档的技能授权」表达成
-// 执行目标列表：0 = 空列表。转换本身住在实体层，导入侧的老 bundle 回落共用同一份
-// （R15f）。
-func primaryTargetList(backendID int64, skillsJSON string) []*agent_entity.AgentExecTarget {
-	return agent_entity.PrimaryExecTargets(backendID, skillsJSON)
-}
-
 // hydrateOne 补齐单个 Agent 的派生值；补不齐就不交出这个 Agent —— 交出去的话
 // 调用方会拿着零值当真，把有后端的 Agent 当成「未配置后端」。
 func hydrateOne(ctx context.Context, a *agent_entity.Agent) (*agent_entity.Agent, error) {

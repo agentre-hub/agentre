@@ -3,16 +3,6 @@
 // import 装配根（那会成环）。
 import type { Backend } from "../agent-backends-shared";
 
-// DeviceView — local shim matching remote_device_svc.DeviceView.
-// Device DTO is defined locally to keep the package host-independent.
-export type DeviceView = {
-  id: number;
-  name: string;
-  online: boolean;
-  daemonFingerprint?: string;
-  supportsLLMModelTarget?: boolean;
-};
-
 export type ProviderSummary = {
   key?: string;
   name?: string;

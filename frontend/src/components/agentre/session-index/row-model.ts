@@ -17,7 +17,7 @@ import {
 import type { TFunction } from "i18next";
 
 import { uiT } from "@/lib/attention-display";
-import { relativeTime } from "@/lib/relative-time";
+import { formatCompactRelativeTime as relativeTime } from "@agentre-hub/agentre-ui";
 import type { AgentStatus } from "@/stores/types";
 
 import type { AgentSession } from "../agent-list";

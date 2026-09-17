@@ -26,8 +26,7 @@ func TestTextDeltaHandler(t *testing.T) {
 		emit := &fakeEmit{}
 		err := TextDeltaHandler{}.Apply(
 			context.Background(), agentruntime.TextDelta{Text: "hi"},
-			acc, emit, nil, &turn.TurnContext{Stream: "chat:event:1:2"},
-		)
+			acc, emit, &turn.TurnContext{Stream: "chat:event:1:2"})
 		So(err, ShouldBeNil)
 		So(emit.events, ShouldHaveLength, 1)
 		So(emit.events[0].stream, ShouldEqual, "chat:event:1:2")
@@ -44,8 +43,7 @@ func TestThinkingDeltaHandler(t *testing.T) {
 		emit := &fakeEmit{}
 		err := ThinkingDeltaHandler{}.Apply(
 			context.Background(), agentruntime.ThinkingDelta{Text: "thought"},
-			acc, emit, nil, nil,
-		)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 		So(emit.events, ShouldHaveLength, 1)
 		payload := emit.events[0].payload.(map[string]any)

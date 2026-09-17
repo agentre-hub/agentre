@@ -22,7 +22,7 @@ func TestGivenUnixDataDirectoryWhenServingLocalHTTPThenSocketModeAndRoundTripSta
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = listener.Close() })
 
-	info, err := os.Stat(UnixSocketPath(dataDir))
+	info, err := os.Stat(unixSocketPath(dataDir))
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 
@@ -70,7 +70,7 @@ func TestGivenSocketTakenOverByASecondListenerWhenTheFirstOneClosesThenTheLiveSo
 	// 先起的那个 daemon 这时才收尾。
 	require.NoError(t, previous.Close())
 
-	assert.FileExists(t, UnixSocketPath(dataDir), "后起的 daemon 的 socket 不该被先起的那个收尾删掉")
+	assert.FileExists(t, unixSocketPath(dataDir), "后起的 daemon 的 socket 不该被先起的那个收尾删掉")
 	client := &http.Client{Transport: &http.Transport{DialContext: DialContext(dataDir)}}
 	response, err := client.Get("http://daemon/local/status")
 	require.NoError(t, err, "本机 IPC 必须仍然拨得通")
@@ -108,7 +108,7 @@ func TestGivenAStaleListenerClosingWhileTheNextOneStartsWhenTheyRaceThenTheLiveS
 		current, err := Listen(dataDir)
 		require.NoErrorf(t, err, "第 %d 轮:上一台 daemon 的收尾把新 daemon 的启动搞挂了", round)
 		<-closed
-		assert.FileExistsf(t, UnixSocketPath(dataDir),
+		assert.FileExistsf(t, unixSocketPath(dataDir),
 			"第 %d 轮:活着的 socket 被上一台 daemon 的收尾删掉了", round)
 
 		_ = current.Close()

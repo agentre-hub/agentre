@@ -5,7 +5,7 @@ import { Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button, Input } from "@agentre-hub/agentre-ui";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { iconsByCategory, searchIcons, type IconMeta } from "../icon-registry";
 

@@ -105,3 +105,12 @@ type GitBranchesResult struct {
 	// DefaultBaseline 是 DefaultBaseline() 推断出的默认基线,三级都不命中时为空。
 	DefaultBaseline string
 }
+
+// truncateEntries 把 items 截到 limit 条( limit<=0 表示不设上限),并报告是否发生
+// 了截断。目录列举与 git 变动列举共用同一条截断口径。
+func truncateEntries[T any](items []T, limit int) ([]T, bool) {
+	if limit > 0 && len(items) > limit {
+		return items[:limit], true
+	}
+	return items, false
+}

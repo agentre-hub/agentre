@@ -197,7 +197,6 @@ func runtimeResolver(t *testing.T, gatewayURL string) ConfigResolver {
 	return ConfigResolverFunc(func(context.Context, int64) (openclawgateway.Config, error) {
 		return openclawgateway.Config{
 			URL: gatewayURL, Identity: runtimeIdentity(t), Platform: "linux",
-			ReconnectInitial: 5 * time.Millisecond, ReconnectMax: 20 * time.Millisecond,
 		}, nil
 	})
 }

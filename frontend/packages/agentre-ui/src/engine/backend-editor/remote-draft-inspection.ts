@@ -4,9 +4,10 @@ import type { PickerProvider } from "../model-target-picker";
 import type { EngineSettingsBridge } from "../port-bridge";
 import type { RouteTarget, Translate } from "../agent-backends-shared";
 import { resolveExecutionDevice } from "../device-identity";
+import type { RuntimeDeviceView } from "../ports";
 
 import { referencedProviderKeys, type BackendDraft } from "./draft";
-import type { DeviceView, ProviderSummary } from "./editor-types";
+import type { ProviderSummary } from "./editor-types";
 
 export type RemoteDraftInspection = {
   missingProviderKeys: string[];
@@ -16,7 +17,7 @@ export type RemoteDraftInspection = {
 export async function inspectRemoteDraft(args: {
   draft: BackendDraft;
   localFingerprint: string;
-  devices: DeviceView[];
+  devices: RuntimeDeviceView[];
   targetCatalog: PickerProvider[];
   listRemoteProviders: EngineSettingsBridge["RemoteDeviceListProviders"];
 }): Promise<RemoteDraftInspection> {

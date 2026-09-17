@@ -9,7 +9,7 @@ import {
   PopoverTrigger,
 } from "@agentre-hub/agentre-ui";
 import { ChevronDown, MapPin, Server, ServerOff } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import {
   ListAgentBackends,

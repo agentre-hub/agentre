@@ -16,7 +16,7 @@ import (
 
 type ToolCallHandler struct{}
 
-func (ToolCallHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (ToolCallHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	tc2 := ev.(agentruntime.ToolCall)
 	// 停表(与随后 ToolResult 的开表)不在这里:计时归 turn.Dispatcher,口径与
 	// 「哪条事件动哪一下表」的映射在 internal/pkg/turnstats。
@@ -70,7 +70,7 @@ func isPlanFilePath(p string) bool {
 
 type ToolResultHandler struct{}
 
-func (ToolResultHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (ToolResultHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	tr := ev.(agentruntime.ToolResult)
 
 	// 孤儿 tool_result 丢弃(spec §1.2): 没对应的 tool_use 直接忽略。

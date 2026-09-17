@@ -2,10 +2,12 @@ import * as React from "react";
 
 export type AutoSaveStatus = "idle" | "saving" | "saved" | "error";
 
+// 防抖窗口:保存前等用户停手;所有调用方都用同一个值,不再开成选项。
+const AUTO_SAVE_DEBOUNCE_MS = 600;
+
 export interface UseAutoSaveOptions<T> {
   initial: T;
   save: (values: T) => Promise<unknown>;
-  debounceMs?: number;
   isValid?: (values: T) => boolean;
 }
 
@@ -22,8 +24,6 @@ export interface UseAutoSaveResult<T> {
 export function useAutoSave<T extends object>(
   opts: UseAutoSaveOptions<T>,
 ): UseAutoSaveResult<T> {
-  const debounceMs = opts.debounceMs ?? 600;
-
   const [values, setValues] = React.useState<T>(opts.initial);
   const [status, setStatus] = React.useState<AutoSaveStatus>("idle");
   const [pendingInvalid, setPendingInvalid] = React.useState(false);
@@ -137,10 +137,10 @@ export function useAutoSave<T extends object>(
         saveNow();
       } else {
         clearTimer();
-        timerRef.current = setTimeout(saveNow, debounceMs);
+        timerRef.current = setTimeout(saveNow, AUTO_SAVE_DEBOUNCE_MS);
       }
     },
-    [clearTimer, debounceMs, saveNow],
+    [clearTimer, saveNow],
   );
 
   // flush 以「有没有没落库的编辑」为准，而不是「有没有排着定时器」：值不合法时保存被

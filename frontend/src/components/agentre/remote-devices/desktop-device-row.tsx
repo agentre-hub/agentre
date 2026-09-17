@@ -18,15 +18,15 @@ import { useNavigate } from "react-router-dom";
 import {
   Badge,
   Button,
+  formatRelativeTime,
   lifecycleToAgentStatus,
   SessionLifecycle,
 } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { PeerListSessions } from "../../../../wailsjs/go/app/App";
 import type { peer_svc, server_svc, wire } from "../../../../wailsjs/go/models";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
-import { relativeTime } from "./format";
 import { splitErrorDetail } from "@/lib/error-detail";
 
 type Props = {
@@ -158,7 +158,7 @@ export function DesktopDeviceRow({ device, now }: Props) {
                 {device.lastSeenAt > 0 ? (
                   <span className="ml-2">
                     {t("remoteDevices.desktop.lastSeen", {
-                      time: relativeTime(device.lastSeenAt, now, t),
+                      time: formatRelativeTime(device.lastSeenAt, now, t),
                     })}
                   </span>
                 ) : null}

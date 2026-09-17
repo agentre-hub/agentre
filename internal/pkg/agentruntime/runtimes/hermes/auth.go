@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -35,8 +34,6 @@ var (
 	ErrAuthRateLimited = errors.New("hermes auth: too many attempts, try again later")
 	// ErrAuthProviderUnavailable means the identity provider is down (HTTP 503).
 	ErrAuthProviderUnavailable = errors.New("hermes auth: identity provider unavailable")
-	// ErrAuthProviderNotFound means the server does not know the provider (HTTP 404).
-	ErrAuthProviderNotFound = errors.New("hermes auth: provider not found")
 	// ErrAuthUnreachable means the auth endpoint could not be reached at all.
 	ErrAuthUnreachable = errors.New("hermes auth: server unreachable")
 	// ErrAccessTokenRejected means the bearer token was refused by a protected
@@ -122,16 +119,6 @@ func authClient(client *http.Client) *http.Client {
 	return &http.Client{Timeout: gatewayHTTPTimeout}
 }
 
-// newCodeVerifier returns an RFC 7636 verifier: 32 random bytes, base64url
-// (unpadded), which lands at 43 characters.
-func newCodeVerifier() (string, error) {
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("hermes auth: generate code verifier: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(buf), nil
-}
-
 // codeChallenge derives the S256 challenge for a verifier.
 func codeChallenge(verifier string) string {
 	sum := sha256.Sum256([]byte(verifier))
@@ -144,23 +131,6 @@ func randomToken(bytesLen int) (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
-}
-
-// isLoopbackRedirect mirrors the server-side shape check: only a loopback host
-// is a valid native callback.
-func isLoopbackRedirect(u *url.URL) bool {
-	if u == nil {
-		return false
-	}
-	host := strings.TrimSpace(u.Hostname())
-	if host == "" {
-		return false
-	}
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 // ListAuthProviders reads GET /api/auth/providers.
@@ -181,9 +151,9 @@ func PasswordLogin(ctx context.Context, req PasswordLoginRequest) (*AuthTokens, 
 	base := authBaseURL(req.BaseURL)
 	client := authClient(req.HTTPClient)
 
-	verifier, err := newCodeVerifier()
+	verifier, err := randomToken(32)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("hermes auth: generate code verifier: %w", err)
 	}
 	state, err := randomToken(24)
 	if err != nil {

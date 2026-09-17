@@ -13,11 +13,11 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // stubAvatarTransport 是 avatarTransport 的替身：记下每一次 Put / Get，按脚本回应。

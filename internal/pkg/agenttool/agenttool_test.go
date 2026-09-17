@@ -9,19 +9,17 @@ import (
 )
 
 func TestRegistry(t *testing.T) {
-	defs := Registry()
-	require.Len(t, defs, 3)
-	require.Equal(t, "org", defs[0].Key)
-	require.Equal(t, "/mcp/org/", defs[0].MCPPath)
-	require.Contains(t, defs[0].ToolNames, "org_get")
-	require.Len(t, defs[0].ToolNames, 7)
-
-	d, ok := Lookup("org")
+	d, ok := Lookup(KeyOrg)
 	require.True(t, ok)
-	require.Equal(t, KeyOrg, d.Key)
+	require.Equal(t, "org", d.Key)
+	require.Equal(t, "/mcp/org/", d.MCPPath)
+	require.Contains(t, d.ToolNames, "org_get")
+	require.Len(t, d.ToolNames, 7)
+
 	_, ok = Lookup("nope")
 	require.False(t, ok)
 
+	require.Len(t, Keys(), 3)
 	require.Equal(t, []string{"org", "subagent", "hook"}, Keys())
 }
 

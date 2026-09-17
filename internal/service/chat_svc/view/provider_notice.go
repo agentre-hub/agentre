@@ -5,13 +5,10 @@ package view
 
 import (
 	"encoding/json"
-	"strings"
 
 	"github.com/cago-frame/agents/agent/blocks"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
 )
 
 // NoticeOnlyMessage 报告一条消息是不是「只承载供应商切换 notice 的旁白行」。
@@ -122,22 +119,6 @@ func isSessionSwitchKind(kind string) bool {
 	return kind == NoticeKindSwitch || kind == NoticeKindReasoningEffort
 }
 
-// ProviderDisplayName 取供应商展示名。prov 为 nil(查不到实体 / 未选任何供应商)时
-// 返回空串,由调用方据此决定 notice 前端渲染时回退到 key 还是「跟随 agent 绑定」的
-// 专用文案(2026-08-10 显示缺陷修复决策 1/2)。
-func ProviderDisplayName(prov *llm_provider_entity.LLMProvider) string {
-	if prov == nil {
-		return ""
-	}
-	return prov.Name
-}
-
-// ModelDisplayName 取模型展示名（没填展示名回落 ModelID）。model 为 nil（未解析 /
-// 非 fixed-model）时返回空串。
-func ModelDisplayName(model *llm_provider_model_entity.LLMProviderModel) string {
-	return model.DisplayName()
-}
-
 func EncodeProviderFallback(providerKey, providerName string) string {
 	b, _ := json.Marshal(ProviderNotice{ProviderKey: providerKey, ProviderName: providerName})
 	return string(b)
@@ -179,15 +160,4 @@ func DecodeProviderNotice(text string) (payload ProviderNotice, ok bool) {
 		return ProviderNotice{}, false
 	}
 	return p, true
-}
-
-// FirstNonEmpty 返回第一个非空白参数(全空白 → "")。会话级 provider_key 优先于
-// agent 绑定取 effectiveProviderKey 用(决策 3/9)。
-func FirstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
 }

@@ -40,28 +40,28 @@ func RegisterUpdate(svc Service) {
 type service struct{}
 
 func (s *service) CheckForUpdate(channel, mirrorPrefix string) (*UpdateInfo, error) {
-	return CheckForUpdate(channel, mirrorPrefix)
+	return checkForUpdate(channel, mirrorPrefix)
 }
 
 func (s *service) DownloadAndUpdate(channel, mirrorPrefix string, onProgress func(downloaded, total int64)) error {
-	return DownloadAndUpdate(channel, mirrorPrefix, onProgress)
+	return downloadAndUpdate(channel, mirrorPrefix, onProgress)
 }
 
 func (s *service) GetAvailableMirrors() []MirrorInfo {
-	return GetAvailableMirrors()
+	return getAvailableMirrors()
 }
 
-func (s *service) GetChannel(ctx context.Context) (string, error) { return GetChannel(ctx) }
+func (s *service) GetChannel(ctx context.Context) (string, error) { return getChannel(ctx) }
 func (s *service) SetChannel(ctx context.Context, channel string) error {
-	return SetChannel(ctx, channel)
+	return setChannel(ctx, channel)
 }
-func (s *service) GetMirror(ctx context.Context) (string, error) { return GetMirror(ctx) }
+func (s *service) GetMirror(ctx context.Context) (string, error) { return getMirror(ctx) }
 func (s *service) SetMirror(ctx context.Context, mirror string) error {
-	return SetMirror(ctx, mirror)
+	return setMirror(ctx, mirror)
 }
 func (s *service) GetLastUpdateCheck(ctx context.Context) (int64, error) {
-	return GetLastUpdateCheck(ctx)
+	return getLastUpdateCheck(ctx)
 }
 func (s *service) SetLastUpdateCheck(ctx context.Context, ts int64) error {
-	return SetLastUpdateCheck(ctx, ts)
+	return setLastUpdateCheck(ctx, ts)
 }

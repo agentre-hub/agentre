@@ -86,17 +86,17 @@ func TestGateway_TokenLifecycle(t *testing.T) {
 	// State=stopped 时 IssueToken 直接拒绝
 	_, err := g.IssueToken(context.Background(),
 		&agent_backend_entity.AgentBackend{ID: 1, LLMProviderKey: "key-1"}, time.Minute)
-	assert.ErrorIs(t, err, ErrGatewayNotRunning)
+	assert.ErrorIs(t, err, errGatewayNotRunning)
 
 	assert.NoError(t, g.Start(context.Background()))
 	tok, err := g.IssueToken(context.Background(),
 		&agent_backend_entity.AgentBackend{ID: 1, LLMProviderKey: "key-1"}, time.Minute)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, tok)
-	assert.Equal(t, 1, g.tokens.Size())
+	assert.Equal(t, 1, g.tokens.size())
 
 	g.RevokeToken(tok)
-	assert.Equal(t, 0, g.tokens.Size())
+	assert.Equal(t, 0, g.tokens.size())
 	assert.NoError(t, g.Stop(context.Background()))
 }
 
@@ -108,7 +108,7 @@ func TestGateway_IssueTokenForAndSetTokenTarget(t *testing.T) {
 	be := &agent_backend_entity.AgentBackend{ID: 1, LLMProviderKey: "agent-bound"}
 
 	_, err := g.IssueTokenFor(context.Background(), be, "session-picked", "", 0)
-	assert.ErrorIs(t, err, ErrGatewayNotRunning)
+	assert.ErrorIs(t, err, errGatewayNotRunning)
 
 	assert.NoError(t, g.Start(context.Background()))
 	defer func() { _ = g.Stop(context.Background()) }()
@@ -124,7 +124,7 @@ func TestGateway_IssueTokenForAndSetTokenTarget(t *testing.T) {
 	prev, ok := g.SetTokenTarget(tok, "switched", "fixed-mk")
 	assert.True(t, ok)
 	assert.Equal(t, "session-picked", prev)
-	assert.Equal(t, 1, g.tokens.Size(), "切换不得多签一条 token")
+	assert.Equal(t, 1, g.tokens.size(), "切换不得多签一条 token")
 	entry, _ = g.tokens.Resolve(tok)
 	assert.Equal(t, "switched", entry.Main.ProviderKey)
 	assert.Equal(t, "fixed-mk", entry.Main.ModelKey)
@@ -136,12 +136,12 @@ func TestGateway_IssueTokenForAndSetTokenTarget(t *testing.T) {
 func TestGateway_BaseURL(t *testing.T) {
 	// 未启动时 BaseURL 为空。
 	g := New("127.0.0.1", 0, newFakeLookup())
-	assert.Empty(t, g.BaseURL())
+	assert.Empty(t, g.URL())
 
 	// 启动后 BaseURL 非空且带 http:// 前缀。
 	assert.NoError(t, g.Start(context.Background()))
 	defer func() { _ = g.Stop(context.Background()) }()
-	base := g.BaseURL()
+	base := g.URL()
 	assert.NotEmpty(t, base)
 	assert.True(t, strings.HasPrefix(base, "http://"), "BaseURL 应以 http:// 开头: %s", base)
 }

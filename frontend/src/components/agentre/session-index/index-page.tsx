@@ -30,7 +30,7 @@ import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useNewChatContextStore } from "@/stores/new-chat-context-store";
-import { requestNewAgentDialog } from "@/stores/new-agent-intent-store";
+import { useNewAgentIntentStore } from "@/stores/new-agent-intent-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 
 import { SessionsPopover } from "../sessions-popover";
@@ -545,7 +545,7 @@ export function SessionIndexPage() {
           }
           onCreateProject={() => openCreateDialog(0)}
           onNewAgent={() => {
-            requestNewAgentDialog();
+            useNewAgentIntentStore.getState().request();
             navigate("/org");
           }}
         />

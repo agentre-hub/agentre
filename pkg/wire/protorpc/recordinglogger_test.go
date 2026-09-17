@@ -3,50 +3,35 @@ package protorpc_test
 import (
 	"context"
 	"strings"
-	"sync"
-	"testing"
 
-	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
-// recordingLogger 是本包日志出口的测试替身。
-//
-// 本包在共享 module 里,不能依赖任何一个日志框架(宿主两边各用各的),诊断出口因此是
-// protorpc.Logger —— 替身直接实现它,断言的是那一行到底有没有留下来。
+// recordingLogger 是本包日志出口的测试替身:本包直接写 cago 的全局 logger,替身把
+// 那个全局 logger 换成 zap observer,断言的是那一行到底有没有留下来。
 type recordingLogger struct {
-	mu       sync.Mutex
-	messages []string
+	logs *observer.ObservedLogs
 }
-
-func (l *recordingLogger) record(msg string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.messages = append(l.messages, msg)
-}
-
-func (l *recordingLogger) Debug(_ context.Context, msg string, _ ...protorpc.Field) { l.record(msg) }
-func (l *recordingLogger) Warn(_ context.Context, msg string, _ ...protorpc.Field)  { l.record(msg) }
-func (l *recordingLogger) Error(_ context.Context, msg string, _ ...protorpc.Field) { l.record(msg) }
 
 // count 数记下过多少条消息含 snippet。
 func (l *recordingLogger) count(snippet string) int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	var n int
-	for _, msg := range l.messages {
-		if strings.Contains(msg, snippet) {
+	for _, entry := range l.logs.All() {
+		if strings.Contains(entry.Message, snippet) {
 			n++
 		}
 	}
 	return n
 }
 
-// captureLogs 把替身装进包级出口,并在用例结束时恢复。日志出口是包级的(见
-// log.go 的说明),所以装了它的用例不能与别的用例并行 —— 本包没有 t.Parallel。
-func captureLogs(t *testing.T) *recordingLogger {
-	t.Helper()
-	recorder := &recordingLogger{}
-	protorpc.SetLogger(recorder)
-	t.Cleanup(func() { protorpc.SetLogger(nil) })
-	return recorder
+// captureLogs 返回一个挂着 observer logger 的 ctx:本包按 cago 惯例用 logger.Ctx(ctx)
+// 取 logger,所以替身走 ctx 注入,不碰进程级的全局 logger —— 那是一个没有同步的包级
+// 变量,换它会与别的用例遗留的 goroutine 竞争。
+func captureLogs() (*recordingLogger, context.Context) {
+	core, logs := observer.New(zapcore.DebugLevel)
+	ctx := logger.WithContextLogger(context.Background(), zap.New(core))
+	return &recordingLogger{logs: logs}, ctx
 }

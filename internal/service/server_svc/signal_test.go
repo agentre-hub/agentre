@@ -18,7 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
@@ -28,7 +28,7 @@ import (
 )
 
 // accountSignalFrame 编一帧账号信号（sync_version），与服务端广播、
-// syncwire.DecodeAccountChannelFrame 解码的是同一份 WireFrame 编码。
+// localsync.DecodeAccountChannelFrame 解码的是同一份 WireFrame 编码。
 func accountSignalFrame(t *testing.T, version uint64) []byte {
 	t.Helper()
 	payload, err := proto.Marshal(&agentrewire.WireFrame{
@@ -165,7 +165,7 @@ func TestDialAccountChannel_GivenTheReservedChannelIsClosedByTheServer_ThenTheSt
 
 		// 正路先立住：账号信号确实从保留通道抵达（决策 13 在桌面端这一侧唯一的
 		// 端到端覆盖）。
-		var got syncwire.AccountChannelFrame
+		var got localsync.AccountChannelFrame
 		select {
 		case frame, ok := <-signals:
 			So(ok, ShouldBeTrue)
@@ -173,7 +173,7 @@ func TestDialAccountChannel_GivenTheReservedChannelIsClosedByTheServer_ThenTheSt
 		case <-time.After(5 * time.Second):
 			t.Fatal("保留通道上的信号没有抵达")
 		}
-		So(got.Type, ShouldEqual, syncwire.AccountChannelSyncVersion)
+		So(got.Type, ShouldEqual, localsync.AccountChannelSyncVersion)
 		So(got.Version, ShouldEqual, int64(7))
 
 		close(closeChannel)

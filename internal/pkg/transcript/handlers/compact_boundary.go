@@ -28,7 +28,7 @@ type CompactBoundaryHandler struct {
 	Inspector CompactInspector
 }
 
-func (h CompactBoundaryHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (h CompactBoundaryHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.CompactBoundary)
 	at := time.Now().UnixMilli()
 	blk := &blocks.CompactBoundaryBlock{PreTokens: r.PreTokens, Trigger: r.Trigger, At: at}

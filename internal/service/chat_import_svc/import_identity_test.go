@@ -10,7 +10,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // import_identity_test.go 钉住导入的**身份**这一半:这条对话的号谁铸的、这个 Agent

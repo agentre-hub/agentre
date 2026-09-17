@@ -11,8 +11,10 @@ import {
   ORG_INDENT_STEP,
   ORG_RAIL_OFFSET,
 } from "./org-indent";
-import { buildOrgIndex, EMPTY_ORG_FILTERS } from "./org-index-model";
+import { buildOrgIndex } from "./org-index-model";
 import type { OrgAgentModel, OrgDepartmentModel } from "./types";
+
+const EMPTY_FILTERS = { search: "", backendId: 0, reportsToId: 0 };
 
 /**
  * 这一组用例扮演的是 **agentre-server**：没有 Wails、没有桌面端 store、没有 dnd-kit，
@@ -33,7 +35,7 @@ const agents: OrgAgentModel[] = [
 ];
 
 function model() {
-  return buildOrgIndex({ agents, departments, filters: EMPTY_ORG_FILTERS });
+  return buildOrgIndex({ agents, departments, filters: EMPTY_FILTERS });
 }
 
 describe("OrgAgentRow（只吃 props）", () => {

@@ -25,10 +25,7 @@ func ClampSessionListLimit(limit int) int {
 	if limit <= 0 {
 		return 0
 	}
-	if limit > SessionListMaxLimit {
-		return SessionListMaxLimit
-	}
-	return limit
+	return min(limit, SessionListMaxLimit)
 }
 
 // EncodeSessionListCursor 把一页的起点编成游标。

@@ -30,7 +30,7 @@ import {
   useUiTranslation,
 } from "@agentre-hub/agentre-ui";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import type {
   agent_backend_svc,
@@ -38,7 +38,7 @@ import type {
   exec_target_svc,
 } from "../../../../wailsjs/go/models";
 
-import { useBackendCapabilities } from "../capability/use-backend-capabilities";
+import { useBackendCapabilities } from "../capability/use-capabilities";
 
 import { moveItem } from "./exec-target-reorder";
 import {

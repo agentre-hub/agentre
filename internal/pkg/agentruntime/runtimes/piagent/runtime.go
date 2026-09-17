@@ -80,12 +80,6 @@ type preparedRun struct {
 	close   sync.Once
 }
 
-// New 造一个自带独立池的 runtime。默认实例用的是进程级共享池(见 defaultRuntime),
-// 单测要的是互不干扰。
-func New() *Runtime {
-	return NewWithPool(agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap))
-}
-
 func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
 	if pool == nil {
 		pool = agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap)
@@ -200,7 +194,7 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 			return nil, err
 		}
 	}
-	env, err := BuildPiAgentEnv(req.Backend)
+	env, err := agentruntime.BuildPiAgentEnv(req.Backend)
 	if err != nil {
 		logger.Ctx(ctx).Error("piagent runtime: BuildPiAgentEnv failed", zap.Int64("sessionID", req.SessionID), zap.Error(err))
 		return nil, err

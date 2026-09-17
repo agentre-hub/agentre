@@ -18,7 +18,6 @@ import { Switch } from "../ui/switch";
 import type { agent_backend_svc } from "./port-bridge";
 
 export const OPENCLAW_DEFAULT_GATEWAY_URL = "ws://127.0.0.1:18789";
-export const OPENCLAW_SESSION_MODE = "per-agentre-session";
 
 export function OpenClawBackendFields({
   gatewayURL,

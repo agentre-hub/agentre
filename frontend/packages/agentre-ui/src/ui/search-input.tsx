@@ -46,7 +46,7 @@ export interface SearchInputProps extends Omit<
 
 const FRAME: Record<SearchInputVariant, string> = {
   outline:
-    "rounded-md border border-input bg-transparent focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+    "rounded-md border border-control-border bg-transparent focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
   muted:
     "rounded-md bg-muted focus-within:ring-[3px] focus-within:ring-ring/50",
   bare: "bg-transparent",

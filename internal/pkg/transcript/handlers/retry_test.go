@@ -16,7 +16,7 @@ func TestRetryHandler(t *testing.T) {
 		emit := &fakeEmit{}
 		err := RetryHandler{}.Apply(context.Background(),
 			agentruntime.Retry{Message: "rate limit", Attempt: 2, Max: 5},
-			acc, emit, nil, nil)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 		So(acc.Empty(), ShouldBeTrue)
 

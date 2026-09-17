@@ -13,13 +13,6 @@ import (
 	"time"
 )
 
-// ErrSessionNotOwned is returned when the gateway refuses prompt.submit because
-// another live gateway connection holds the per-session lease. Hermes reports
-// this as error code 4090 with `data.reason == "SESSION_NOT_OWNED"`. The fence is
-// checked before the agent is built, so a refused submit leaves the session
-// untouched; the caller may retry once the owning client has released it.
-var ErrSessionNotOwned = errors.New("hermes gateway: session is owned by another client")
-
 // errSessionClosed marks an RPC attempted on a gateway connection that has
 // already been torn down (explicit Close or a lost socket). It is not a protocol
 // failure: the turn it belonged to is over. Control paths translate it into
@@ -62,8 +55,7 @@ func (e *rpcError) Error() string {
 }
 
 // rpcCallError carries the JSON-RPC error so callers can recognize machine
-// readable data (e.g. data.reason == "SESSION_NOT_OWNED") rather than string
-// matching the message.
+// readable data (e.g. data.reason) rather than string matching the message.
 type rpcCallError struct {
 	Code    int
 	Message string
@@ -73,19 +65,6 @@ type rpcCallError struct {
 
 func (e *rpcCallError) Error() string {
 	return fmt.Sprintf("hermes gateway: %s failed (%d): %s", e.Method, e.Code, e.Message)
-}
-
-func (e *rpcCallError) reason() string {
-	if len(e.Data) == 0 {
-		return ""
-	}
-	var d struct {
-		Reason string `json:"reason"`
-	}
-	if err := json.Unmarshal(e.Data, &d); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(d.Reason)
 }
 
 // rpcConn is the transport-agnostic JSON-RPC 2.0 codec shared by every Hermes
@@ -301,9 +280,6 @@ func (c *rpcConn) failPending(err error) {
 func (c *rpcConn) writeLine(payload []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	if c.write == nil {
-		return errors.New("hermes gateway: transport is not writable")
-	}
 	return c.write(payload)
 }
 

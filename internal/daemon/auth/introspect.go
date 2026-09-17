@@ -15,6 +15,7 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
+	"github.com/agentre-hub/agentre/internal/pkg/cagoenvelope"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -288,7 +289,7 @@ func (i *Introspector) verdict(ctx context.Context, status int, payload []byte) 
 	switch {
 	case status >= http.StatusOK && status < http.StatusMultipleChoices:
 		var answer introspectResponse
-		if err := decodeIntrospectResponse(payload, &answer); err != nil || answer.AccountID == "" {
+		if err := cagoenvelope.Decode(payload, &answer); err != nil || answer.AccountID == "" {
 			// 语法上是 200、却不是契约的形状(中间设备塞回来的页面最常见):这不是 server
 			// 对凭据的结论,当作没有应答,绝不当作「有效」或「无效」。
 			logger.Ctx(ctx).Warn("auth.Introspector.Verify: account server answered outside the introspection contract",
@@ -324,15 +325,3 @@ func (i *Introspector) verdict(ctx context.Context, status int, payload []byte) 
 
 // decodeIntrospectResponse accepts both the raw contract body and cago's
 // {code, msg, data} envelope.
-func decodeIntrospectResponse(payload []byte, target *introspectResponse) error {
-	var envelope struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(payload, &envelope); err != nil {
-		return err
-	}
-	if len(envelope.Data) != 0 && string(envelope.Data) != "null" {
-		return json.Unmarshal(envelope.Data, target)
-	}
-	return json.Unmarshal(payload, target)
-}

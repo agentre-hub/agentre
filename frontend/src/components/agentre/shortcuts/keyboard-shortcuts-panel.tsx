@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { chordFromEvent, formatChord } from "./format";
 import { REGISTRY, TAB_CHIP_IDS, TAB_CLOSE_ID, getDef } from "./registry";

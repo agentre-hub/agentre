@@ -4,7 +4,7 @@ import { Hammer } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { Badge } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 type UnderConstructionPageProps = React.ComponentProps<"section"> & {
   description: string;

@@ -411,7 +411,7 @@ func operationIndex(operations []string, want string) int {
 func TestRemoteBackend_GivenFastDataAndExitDuringOpenCallWhenOpenedThenPreSubscriptionCapturesBoth(t *testing.T) {
 	client := newSynchronousOpenClient()
 
-	h, err := remote.NewBackend(client).Open(context.Background(), pty.Spec{
+	h, err := remote.NewBackendWithLease(client, nil).Open(context.Background(), pty.Spec{
 		TerminalID: "fast-terminal-1",
 		Cwd:        "/r",
 	})
@@ -456,7 +456,7 @@ func TestRemoteBackend_GivenMoreThanThirtyTwoFramesSynchronouslyEmittedBeforeOpe
 		return nil
 	})
 
-	h, err := remote.NewBackend(adapter).Open(context.Background(), pty.Spec{
+	h, err := remote.NewBackendWithLease(adapter, nil).Open(context.Background(), pty.Spec{
 		TerminalID: "fast-terminal-burst",
 		Cwd:        "/r",
 	})
@@ -482,7 +482,7 @@ func TestRemoteBackend_GivenEmptyRuntimeIDWhenOpenedDirectlyThenGeneratesAndSend
 		exitPush:   make(chan protocol.TerminalExitEvent),
 	}
 
-	h, err := remote.NewBackend(client).Open(context.Background(), pty.Spec{Cwd: "/r"})
+	h, err := remote.NewBackendWithLease(client, nil).Open(context.Background(), pty.Spec{Cwd: "/r"})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = h.Close() })
 	op := <-client.openParams
@@ -797,7 +797,7 @@ func TestRemoteBackend_Open_RPC_RoundTrip(t *testing.T) {
 		dataPush:   make(chan protocol.TerminalDataEvent, 1),
 		exitPush:   make(chan protocol.TerminalExitEvent, 1),
 	}
-	be := remote.NewBackend(fc)
+	be := remote.NewBackendWithLease(fc, nil)
 
 	h, err := be.Open(context.Background(), pty.Spec{
 		TerminalID: "desktop-terminal-1", Cwd: "/r", Shell: "/bin/sh", Cols: 80, Rows: 24,
@@ -831,7 +831,7 @@ func TestRemoteBackend_Data_RawBytesPreservedAcrossSplit(t *testing.T) {
 		dataPush:   make(chan protocol.TerminalDataEvent, 2),
 		exitPush:   make(chan protocol.TerminalExitEvent, 1),
 	}
-	be := remote.NewBackend(fc)
+	be := remote.NewBackendWithLease(fc, nil)
 	h, err := be.Open(context.Background(), pty.Spec{Cwd: "/r"})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = h.Close() })
@@ -863,7 +863,7 @@ func TestRemoteBackend_GivenOpenSubscriptionsWhenClosedThenEmitsKilledAndClosesC
 		dataPush:   make(chan protocol.TerminalDataEvent),
 		exitPush:   make(chan protocol.TerminalExitEvent),
 	}
-	be := remote.NewBackend(fc)
+	be := remote.NewBackendWithLease(fc, nil)
 	h, err := be.Open(context.Background(), pty.Spec{Cwd: "/r"})
 	require.NoError(t, err)
 	<-fc.openParams
@@ -888,7 +888,7 @@ func TestRemoteBackend_GivenConcurrentCloseWaitersWhenRPCFailsThenOneRPCReturnsS
 		releaseClose: releaseClose,
 		closeResults: []error{rpcErr},
 	}
-	h, err := remote.NewBackend(client).Open(context.Background(), pty.Spec{Cwd: "/r"})
+	h, err := remote.NewBackendWithLease(client, nil).Open(context.Background(), pty.Spec{Cwd: "/r"})
 	require.NoError(t, err)
 	<-client.openParams
 	t.Cleanup(func() { _ = h.Close() })
@@ -938,7 +938,7 @@ func TestRemoteBackend_GivenFirstCloseRPCFailsWhenRetriedThenPublishesKilledOnly
 		},
 		closeResults: []error{rpcErr, nil},
 	}
-	h, err := remote.NewBackend(client).Open(context.Background(), pty.Spec{Cwd: "/r"})
+	h, err := remote.NewBackendWithLease(client, nil).Open(context.Background(), pty.Spec{Cwd: "/r"})
 	require.NoError(t, err)
 	<-client.openParams
 	t.Cleanup(func() { _ = h.Close() })
@@ -973,7 +973,7 @@ func TestRemoteBackend_GivenNaturalExitWhileCloseRPCIsPendingThenNaturalOutcomeI
 		releaseClose: releaseClose,
 		closeResults: []error{rpcErr},
 	}
-	h, err := remote.NewBackend(client).Open(context.Background(), pty.Spec{Cwd: "/r"})
+	h, err := remote.NewBackendWithLease(client, nil).Open(context.Background(), pty.Spec{Cwd: "/r"})
 	require.NoError(t, err)
 	<-client.openParams
 	var releaseOnce sync.Once
@@ -1022,7 +1022,7 @@ func TestRemoteBackend_GivenBufferedFinalFramesBeforeDaemonExit_WhenPumped_ThenD
 		close(fc.exitPush)
 		close(fc.dataPush)
 
-		h, err := remote.NewBackend(fc).Open(context.Background(), pty.Spec{Cwd: "/r"})
+		h, err := remote.NewBackendWithLease(fc, nil).Open(context.Background(), pty.Spec{Cwd: "/r"})
 		require.NoError(t, err)
 		<-fc.openParams
 
@@ -1067,7 +1067,7 @@ func TestRemoteBackend_GivenMoreThanHandleBufferFinalFramesQueuedBeforeHandleExi
 		close(fc.exitPush)
 	}()
 
-	h, err := remote.NewBackend(fc).Open(context.Background(), pty.Spec{Cwd: "/r"})
+	h, err := remote.NewBackendWithLease(fc, nil).Open(context.Background(), pty.Spec{Cwd: "/r"})
 	require.NoError(t, err)
 	<-fc.openParams
 	select {
@@ -1107,7 +1107,7 @@ func TestRemoteBackend_GivenAcceptedAdapterFramesWhenConnectionClosesThenDrainsA
 		}
 		return nil
 	})
-	h, err := remote.NewBackend(adapter).Open(context.Background(), pty.Spec{
+	h, err := remote.NewBackendWithLease(adapter, nil).Open(context.Background(), pty.Spec{
 		TerminalID: "connection-lost-burst",
 		Cwd:        "/r",
 	})
@@ -1137,7 +1137,7 @@ func TestRemoteBackend_ExitEvent_DeliveredAndChannelsClose(t *testing.T) {
 		dataPush:   make(chan protocol.TerminalDataEvent, 1),
 		exitPush:   make(chan protocol.TerminalExitEvent, 1),
 	}
-	be := remote.NewBackend(fc)
+	be := remote.NewBackendWithLease(fc, nil)
 	h, err := be.Open(context.Background(), pty.Spec{Cwd: "/r"})
 	require.NoError(t, err)
 	<-fc.openParams
@@ -1155,7 +1155,7 @@ func TestRemoteBackend_ExitSubscriptionLost_EmitsConnectionLostAndClosesChannels
 		dataPush:   make(chan protocol.TerminalDataEvent, 1),
 		exitPush:   make(chan protocol.TerminalExitEvent), // unbuffered + closed = connection lost
 	}
-	be := remote.NewBackend(fc)
+	be := remote.NewBackendWithLease(fc, nil)
 	h, err := be.Open(context.Background(), pty.Spec{Cwd: "/r"})
 	require.NoError(t, err)
 	<-fc.openParams
@@ -1171,7 +1171,7 @@ func TestRemoteBackend_DataSubscriptionLost_EmitsConnectionLostAndClosesChannels
 		dataPush:   make(chan protocol.TerminalDataEvent),
 		exitPush:   make(chan protocol.TerminalExitEvent),
 	}
-	be := remote.NewBackend(fc)
+	be := remote.NewBackendWithLease(fc, nil)
 	h, err := be.Open(context.Background(), pty.Spec{Cwd: "/r"})
 	require.NoError(t, err)
 	<-fc.openParams
@@ -1189,7 +1189,7 @@ func TestRemoteBackend_GivenCloseRacingDaemonExitThenPublishesOneAuthoritativeOu
 			dataPush:   make(chan protocol.TerminalDataEvent),
 			exitPush:   make(chan protocol.TerminalExitEvent, 1),
 		}
-		be := remote.NewBackend(fc)
+		be := remote.NewBackendWithLease(fc, nil)
 		h, err := be.Open(context.Background(), pty.Spec{Cwd: "/r"})
 		require.NoError(t, err)
 		<-fc.openParams
@@ -1297,7 +1297,7 @@ func TestRemoteBackend_GivenProtobufRejectionRacingCancellation_WhenOpened_ThenK
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	h, err := remote.NewBackend(fc).Open(ctx, pty.Spec{TerminalID: "rejected-terminal", Cwd: "/r"})
+	h, err := remote.NewBackendWithLease(fc, nil).Open(ctx, pty.Spec{TerminalID: "rejected-terminal", Cwd: "/r"})
 
 	require.Nil(t, h)
 	require.ErrorIs(t, err, openErr)
@@ -1395,7 +1395,7 @@ func TestRemoteBackend_Open_GivenEarlierParentCancellationOrDeadlineThenPreserve
 			ctx, cancel := tt.ctx()
 			defer cancel()
 
-			_, err := remote.NewBackend(fc).Open(ctx, pty.Spec{
+			_, err := remote.NewBackendWithLease(fc, nil).Open(ctx, pty.Spec{
 				TerminalID: "parent-interruption-terminal",
 				Cwd:        "/r",
 			})

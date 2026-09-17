@@ -21,14 +21,12 @@ func TestTokenRegistry_IssueResolveRevoke(t *testing.T) {
 	tok, err := r.Issue(b, b.LLMProviderKey, "", 60*time.Second)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, tok)
-	assert.Equal(t, 1, r.Size())
+	assert.Equal(t, 1, r.size())
 
 	got, ok := r.Resolve(tok)
 	if assert.True(t, ok) {
-		assert.Equal(t, int64(7), got.BackendID)
 		assert.Equal(t, "key-3", got.Main.ProviderKey)
 		assert.Equal(t, "", got.Main.ModelKey, "未传 modelKey → provider-default")
-		assert.Equal(t, agent_backend_entity.TypeClaudeCode, got.BackendType)
 		// alias 已规范成大写；tier target 携带完整 ProviderKey+ModelKey
 		assert.Equal(t, "key-5", got.Routes["OPUS"].ProviderKey)
 		assert.Empty(t, got.Routes["OPUS"].ModelKey)
@@ -39,7 +37,7 @@ func TestTokenRegistry_IssueResolveRevoke(t *testing.T) {
 	r.Revoke(tok)
 	_, ok = r.Resolve(tok)
 	assert.False(t, ok)
-	assert.Equal(t, 0, r.Size())
+	assert.Equal(t, 0, r.size())
 }
 
 func TestTokenRegistry_RejectInvalidBackend(t *testing.T) {
@@ -75,7 +73,6 @@ func TestTokenRegistry_IssueWithoutProvider(t *testing.T) {
 
 	entry, ok := r.Resolve(tok)
 	if assert.True(t, ok) {
-		assert.Equal(t, int64(42), entry.BackendID)
 		assert.Equal(t, "", entry.Main.ProviderKey, "hook-only token: provider key is empty")
 		assert.Empty(t, entry.Routes)
 	}
@@ -88,7 +85,7 @@ func TestTokenRegistry_ExpireOnResolve(t *testing.T) {
 
 	tok, err := r.Issue(&agent_backend_entity.AgentBackend{ID: 1}, "key-1", "", 30*time.Second)
 	assert.NoError(t, err)
-	assert.Equal(t, 1, r.Size())
+	assert.Equal(t, 1, r.size())
 
 	// 还没到点：命中
 	_, ok := r.Resolve(tok)
@@ -98,7 +95,7 @@ func TestTokenRegistry_ExpireOnResolve(t *testing.T) {
 	r.now = func() time.Time { return frozen.Add(31 * time.Second) }
 	_, ok = r.Resolve(tok)
 	assert.False(t, ok)
-	assert.Equal(t, 0, r.Size())
+	assert.Equal(t, 0, r.size())
 }
 
 func TestTokenRegistry_ZeroTTLNeverExpires(t *testing.T) {
@@ -127,7 +124,6 @@ func TestTokenRegistry_IssueUsesEffectiveProviderKey(t *testing.T) {
 	entry, ok := r.Resolve(tok)
 	if assert.True(t, ok) {
 		assert.Equal(t, "session-picked", entry.Main.ProviderKey, "签发时传入的 effective key 说了算")
-		assert.Equal(t, int64(7), entry.BackendID, "身份仍来自 backend")
 		tgt, hit := entry.ResolveModel("")
 		assert.Equal(t, "session-picked", tgt.ProviderKey)
 		assert.False(t, hit)
@@ -150,13 +146,12 @@ func TestTokenRegistry_SetTokenTargetKeepsTokenString(t *testing.T) {
 	prev, ok := r.SetTokenTarget(tok, "switched", "fixed-mk")
 	assert.True(t, ok)
 	assert.Equal(t, "agent-bound", prev, "返回旧 key，调用方据此判断是否真的换了")
-	assert.Equal(t, 1, r.Size(), "不得多出一条 token")
+	assert.Equal(t, 1, r.size(), "不得多出一条 token")
 
 	entry, found := r.Resolve(tok)
 	if assert.True(t, found, "token 字符串不变，仍能解出来") {
 		assert.Equal(t, "switched", entry.Main.ProviderKey)
 		assert.Equal(t, "fixed-mk", entry.Main.ModelKey, "固定模型切换后 Main 携带完整 ModelKey")
-		assert.Equal(t, int64(7), entry.BackendID, "身份不变")
 		assert.Equal(t, "tier-key", entry.Routes["OPUS"].ProviderKey, "tier 路由来自 backend 配置，不受切换影响")
 		assert.Equal(t, "tier-mk", entry.Routes["OPUS"].ModelKey, "tier 路由携带完整 ModelKey")
 	}
@@ -168,7 +163,7 @@ func TestTokenRegistry_SetTokenTargetUnknownToken(t *testing.T) {
 	r := NewTokenRegistry()
 	_, ok := r.SetTokenTarget("never-issued", "x", "")
 	assert.False(t, ok)
-	assert.Equal(t, 0, r.Size())
+	assert.Equal(t, 0, r.size())
 
 	frozen := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
 	r.now = func() time.Time { return frozen }

@@ -12,9 +12,9 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // localPathReportSettingKey 是「上次成功上报的内容指纹」的存放位置——与
@@ -68,12 +68,12 @@ func (s *service) saveLocalPathReportState(ctx context.Context, st localPathRepo
 // 账号级对象上行的门（notify.go 的 EligibleForSync）是同一条边界，且在这里分量更
 // 重——快照带的是那台机器上的绝对路径，隐私一节写明「一台共用机器上换账号登录，
 // 不应把上一个账号的项目名、Agent 与路径发到新账号下」。
-func (s *service) buildLocalPathSnapshot(ctx context.Context, accountID int64) ([]syncwire.LocalPathReportItem, error) {
+func (s *service) buildLocalPathSnapshot(ctx context.Context, accountID int64) ([]syncwire.LocalPathItem, error) {
 	rows, err := project_repo.Project().List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]syncwire.LocalPathReportItem, 0, len(rows))
+	items := make([]syncwire.LocalPathItem, 0, len(rows))
 	for _, p := range rows {
 		if p == nil || p.LocalPathMissing || p.SyncID == "" {
 			continue
@@ -85,7 +85,7 @@ func (s *service) buildLocalPathSnapshot(ctx context.Context, accountID int64) (
 		if path == "" {
 			continue
 		}
-		items = append(items, syncwire.LocalPathReportItem{ProjectSyncID: p.SyncID, Path: p.Path})
+		items = append(items, syncwire.LocalPathItem{ProjectSyncID: p.SyncID, Path: p.Path})
 	}
 	// 排序让指纹只取决于内容、不取决于 project_repo.List 的行序——否则同一份快照
 	// 可能因为无关的排序波动被判成「变了」，白发一次网络请求。
@@ -95,7 +95,7 @@ func (s *service) buildLocalPathSnapshot(ctx context.Context, accountID int64) (
 
 // localPathSnapshotFingerprint 是整份快照的内容指纹（R16）：本机路径的修改不触及
 // 任何一张表的 Updatetime 之外的痕迹，判「发不发」只能靠对内容取哈希，不能靠时间戳。
-func localPathSnapshotFingerprint(items []syncwire.LocalPathReportItem) string {
+func localPathSnapshotFingerprint(items []syncwire.LocalPathItem) string {
 	h := sha256.New()
 	for _, it := range items {
 		h.Write([]byte(it.ProjectSyncID))

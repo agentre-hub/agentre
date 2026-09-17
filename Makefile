@@ -199,7 +199,7 @@ test-cover:
 # 发布资产与安装脚本的聚焦测试。
 test-agentred-packaging:
 	bash scripts/test-install.sh
-	@if command -v pwsh >/dev/null 2>&1; then pwsh -NoProfile -File scripts/test-install.ps1; else echo "pwsh not found; install.ps1 runs on the Windows CI job"; fi
+	@if command -v pwsh >/dev/null 2>&1; then pwsh -NoProfile -File scripts/test-install.ps1; else echo "本机没有 pwsh，跳过了 install.ps1（要验它就找一台 Windows 手动跑这个目标）"; fi
 
 # 前后端代码检查
 lint: lint-backend lint-frontend

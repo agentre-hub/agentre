@@ -379,16 +379,28 @@
       },
       "title": "Choose an Agent or project session to start",
       "setupGuide": {
-        "title": "Before you start, complete two setup steps",
-        "stepBackend": {
-          "title": "Configure Agent backend",
-          "description": "Pick an execution backend for your Agent (Built-in SDK / Claude Code / Codex…)",
-          "action": "Go to settings → Agent backend"
+        "title_one": "One step to your first conversation",
+        "title_other": "{{count}} steps to your first conversation",
+        "description": "Agentre only connects to services you run yourself — it never starts them for you.",
+        "backend": {
+          "title": "Connect an Agent backend",
+          "description": "No Agent is connected to a backend yet",
+          "descriptionDone": "An Agent is connected to a backend"
         },
-        "stepProvider": {
-          "title": "Configure LLM provider",
-          "description": "The built-in backend needs an active provider (API Key + default model)",
-          "action": "Go to settings → LLM provider"
+        "provider": {
+          "title": "Choose an LLM provider",
+          "description": "This step decides which model answers",
+          "descriptionDone": "A provider is selected"
+        },
+        "start": {
+          "title": "Send your first message",
+          "description": "Available once the first two steps are done"
+        },
+        "actions": {
+          "configure": "Configure",
+          "view": "View",
+          "waiting": "Waiting",
+          "start": "Start"
         }
       },
       "unconfigured": {

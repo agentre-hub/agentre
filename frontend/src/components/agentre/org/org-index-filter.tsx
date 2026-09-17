@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 // 筛选是**一个**入口，两维都收在里面（决策 12「筛选不常驻占位」明确否决了
 // 「常驻两个下拉」：未筛选时它们既不说明用途也占掉一整行）。命中之后说话的是

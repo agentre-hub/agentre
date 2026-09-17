@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSlim } from "@/hooks/use-chat-agents";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
-import { consumeNewAgentDialogIntent } from "@/stores/new-agent-intent-store";
+import { useNewAgentIntentStore } from "@/stores/new-agent-intent-store";
 
 // 直接 mock 整个 useChatAgents hook —— 避开 Wails 模块多层 mock 的解析路径风险。
 const hookMocks = vi.hoisted(() => ({
@@ -131,14 +131,14 @@ describe("CommandPalette", () => {
   });
 
   it("Given command mode, when New agent is selected, then it navigates to org and requests the dialog", async () => {
-    consumeNewAgentDialogIntent();
+    useNewAgentIntentStore.getState().consume();
     renderPalette();
     act(() => useCommandPaletteStore.getState().openWith("> New agent"));
 
     await userEvent.click(await screen.findByText("New agent"));
 
     expect(screen.getByTestId("location")).toHaveTextContent("/org");
-    expect(consumeNewAgentDialogIntent()).toBe(true);
+    expect(useNewAgentIntentStore.getState().consume()).toBe(true);
   });
 });
 

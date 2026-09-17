@@ -47,7 +47,13 @@ func effectiveProviderKey(sess *chat_entity.Session, be *agent_backend_entity.Ag
 	if be != nil {
 		agentKey = be.LLMProviderKey
 	}
-	return view.FirstNonEmpty(sessKey, agentKey)
+	if strings.TrimSpace(sessKey) != "" {
+		return sessKey
+	}
+	if strings.TrimSpace(agentKey) != "" {
+		return agentKey
+	}
+	return ""
 }
 
 // providerKeyOf 是「本轮解析出来的这家供应商的 key」，nil（CLI 自身登录态，没有任何
@@ -165,7 +171,11 @@ func (s *chatSvc) SetChatSessionModelTarget(ctx context.Context, req *SetChatSes
 		zap.String("modelKey", modelKey),
 		zap.String("agentProviderKey", be.LLMProviderKey),
 		zap.String("backendType", be.Type))
-	s.appendProviderSwitchNotice(ctx, sess, be, providerKey, modelKey, view.ProviderDisplayName(prov), view.ModelDisplayName(model))
+	providerName := ""
+	if prov != nil {
+		providerName = prov.Name
+	}
+	s.appendProviderSwitchNotice(ctx, sess, be, providerKey, modelKey, providerName, model.DisplayName())
 	return &SetChatSessionModelTargetResponse{
 		ProviderKey: providerKey, ModelKey: modelKey,
 		AgentProviderKey: be.LLMProviderKey, AgentModelKey: be.LLMModelKey,

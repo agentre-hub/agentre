@@ -20,9 +20,9 @@ import {
   type Model,
   type Provider,
   type ReferenceCounts,
-  errMessage,
   totalReferences,
 } from "./index";
+import { messageFromError } from "../agent-backends-utils";
 
 export type DeleteTarget =
   | { kind: "provider"; provider: Provider }
@@ -30,8 +30,8 @@ export type DeleteTarget =
 
 export type DeleteState =
   | { phase: "loading" }
-  // counts === null：引用影响没查到。它只是知情材料，不再是删除的前提。
-  | { phase: "confirm"; counts: ReferenceCounts | null }
+  // 引用影响单独存在 counts state 里:它只是知情材料,不再是删除的前提,查不到也走 confirm。
+  | { phase: "confirm" }
   | { phase: "deleting" }
   | { phase: "disabling" };
 
@@ -109,12 +109,12 @@ export function DeleteDialog({
         if (cancelled) return;
         const next = fetched ?? { backends: 0, sessions: 0, routes: 0 };
         setCounts(next);
-        setState({ phase: "confirm", counts: next });
+        setState({ phase: "confirm" });
       } catch (err) {
         // 查不到引用影响不挡删除：只把这个缺口写在弹窗里，让用户自己判断。
         if (cancelled) return;
         setCounts(null);
-        setState({ phase: "confirm", counts: null });
+        setState({ phase: "confirm" });
         void err;
       }
     })();
@@ -146,10 +146,10 @@ export function DeleteDialog({
       onDeleted(target);
       onClose();
     } catch (err) {
-      setError(errMessage(err));
-      setState({ phase: "confirm", counts });
+      setError(messageFromError(err, t));
+      setState({ phase: "confirm" });
     }
-  }, [DeleteLLMModel, DeleteLLMProvider, counts, onClose, onDeleted, target]);
+  }, [DeleteLLMModel, DeleteLLMProvider, onClose, onDeleted, target, t]);
 
   // 删除之外的另一条路：停用保留全部引用且可恢复，适合「只是暂时不用」。
   const disableInstead = React.useCallback(async () => {
@@ -175,16 +175,16 @@ export function DeleteDialog({
       onDisabled?.(target);
       onClose();
     } catch (err) {
-      setError(errMessage(err));
-      setState({ phase: "confirm", counts });
+      setError(messageFromError(err, t));
+      setState({ phase: "confirm" });
     }
   }, [
     SetLLMModelEnabled,
     SetLLMProviderEnabled,
-    counts,
     onClose,
     onDisabled,
     target,
+    t,
   ]);
 
   const name = provider ? provider.name : model ? modelDisplayName(model) : "";

@@ -26,7 +26,7 @@ func TestErrorHandler(t *testing.T) {
 
 		err := ErrorHandler{Writer: wr}.Apply(context.Background(),
 			agentruntime.ErrorEvent{Err: errors.New("boom")},
-			nil, emit, nil, tc)
+			nil, emit, tc)
 		So(err, ShouldBeNil)
 		So(wr.text, ShouldEqual, "boom")
 		// 同 usage:error_text 走单列写,不整行回写 —— TurnContext 上那个通用的

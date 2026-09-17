@@ -15,7 +15,8 @@ func enabledAgent(id int64) *agent_entity.Agent {
 }
 
 func TestBuildTurnMCP(t *testing.T) {
-	s := &subagentSvc{gatewayBaseURL: "http://127.0.0.1:9/", chains: map[int64][]int64{}}
+	s := newSubagentSvc()
+	s.SetGatewayBaseURL("http://127.0.0.1:9/")
 
 	if got := s.BuildTurnMCP(context.Background(), &agent_entity.Agent{ID: 1}, 5); got != nil {
 		t.Fatalf("disabled agent should get no spec, got %v", got)
@@ -30,14 +31,14 @@ func TestBuildTurnMCP(t *testing.T) {
 	if specs[0].Headers["Authorization"] == "" {
 		t.Fatal("missing Authorization header")
 	}
-	s.gatewayBaseURL = ""
+	s.SetGatewayBaseURL("")
 	if got := s.BuildTurnMCP(context.Background(), enabledAgent(1), 5); got != nil {
 		t.Fatalf("no gateway should get nil, got %v", got)
 	}
 }
 
 func TestResolveChain_Cycle(t *testing.T) {
-	s := &subagentSvc{chains: map[int64][]int64{}}
+	s := newSubagentSvc()
 
 	// 顶层调用(父会话无链)放行
 	chain, _, ok := s.resolveChain(100, 10, 20)

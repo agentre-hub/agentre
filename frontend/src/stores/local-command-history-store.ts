@@ -12,13 +12,12 @@ export const LOCAL_COMMAND_HISTORY_STORAGE_KEY = "agentre.localCommandHistory";
 
 const LOCAL_COMMAND_HISTORY_VERSION = 1;
 const MAX_ENTRIES_PER_SCOPE = 100;
-const MAX_ECMASCRIPT_DATE_TIMESTAMP = 8_640_000_000_000_000;
-// Persisted timestamps use a ceiling one million ticks below ECMAScript Date's.
-// The decoder, explicit writes, and reservations enforce this same ceiling;
-// once reached, reservation fails closed so existing MRU stays reconstructable.
-const TIMESTAMP_RESERVATION_HEADROOM = 1_000_000;
-const MAX_TIMESTAMP_RESERVATION_SEED =
-  MAX_ECMASCRIPT_DATE_TIMESTAMP - TIMESTAMP_RESERVATION_HEADROOM;
+/**
+ * 时间戳的上界取 ECMAScript `Date` 能表示的最大值：`lastUsedAt` 会被 JSON 往返、
+ * 也会被 `new Date(...)` 读。越界的数据（坏存储、旧版本写的脏值）整份丢弃，
+ * 不让它把后续记录一起带坏。
+ */
+const MAX_TIMESTAMP = 8_640_000_000_000_000;
 
 type PersistedLocalCommandHistory = {
   version: typeof LOCAL_COMMAND_HISTORY_VERSION;
@@ -37,8 +36,10 @@ export type LocalCommandHistoryStore = {
   subscribe(
     listener: (mutation: LocalCommandHistoryMutation) => void,
   ): () => void;
-  reserveLastUsedAt(): number;
-  releaseLastUsedAt(timestamp: number): void;
+  /**
+   * 记一条命令。`lastUsedAt` 省略时取 `Date.now()`；调用方在**提交那一刻**取好的
+   * 时间戳可以传进来，这样并发的两条命令即使先后 resolve，MRU 仍按提交顺序排。
+   */
   record(
     scope: LocalCommandHistoryScope,
     command: string,
@@ -105,26 +106,8 @@ function isValidHistoryTimestamp(value: unknown): value is number {
     typeof value === "number" &&
     Number.isSafeInteger(value) &&
     value >= 0 &&
-    value <= MAX_ECMASCRIPT_DATE_TIMESTAMP
+    value <= MAX_TIMESTAMP
   );
-}
-
-function hasTimestampReservationHeadroom(value: unknown): value is number {
-  return (
-    isValidHistoryTimestamp(value) && value <= MAX_TIMESTAMP_RESERVATION_SEED
-  );
-}
-
-function ensurePersistableHistoryTimestamp(value: number): number {
-  if (!hasTimestampReservationHeadroom(value)) {
-    throw new RangeError("Local command history timestamp budget exhausted");
-  }
-  return value;
-}
-
-function reservationClockTimestamp(): number {
-  const now = Date.now();
-  return hasTimestampReservationHeadroom(now) ? now : 0;
 }
 
 function isHistoryEntry(value: unknown): value is LocalCommandHistoryEntry {
@@ -133,10 +116,17 @@ function isHistoryEntry(value: unknown): value is LocalCommandHistoryEntry {
   return (
     typeof entry.command === "string" &&
     entry.command.length > 0 &&
-    hasTimestampReservationHeadroom(entry.lastUsedAt)
+    isValidHistoryTimestamp(entry.lastUsedAt)
   );
 }
 
+/**
+ * 去重（同一条命令只留最新那次）+ 截断（每档最多 100 条）。
+ *
+ * 排序是**稳定**的，且新记录总是插在数组最前（见 `record`）—— 所以同一毫秒内的
+ * 多条记录就按插入序破平：后记的那条排在前面。这正是去掉那套「预留时间戳」协议
+ * 之后仍要守住的那条顺序。
+ */
 function normalizeEntries(
   entries: readonly LocalCommandHistoryEntry[],
 ): LocalCommandHistoryEntry[] {
@@ -196,16 +186,6 @@ function decodePersistedHistory(
   return { version: LOCAL_COMMAND_HISTORY_VERSION, scopes };
 }
 
-function maximumLastUsedAt(history: PersistedLocalCommandHistory): number {
-  let maximum = Number.NEGATIVE_INFINITY;
-  for (const entries of Object.values(history.scopes)) {
-    for (const { lastUsedAt } of entries) {
-      maximum = Math.max(maximum, lastUsedAt);
-    }
-  }
-  return maximum;
-}
-
 function readPersistedHistory(
   storage: LocalCommandHistoryStorage | null,
 ): PersistedLocalCommandHistory {
@@ -249,38 +229,12 @@ export function createLocalCommandHistoryStore(
   const notify = (mutation: LocalCommandHistoryMutation) => {
     for (const listener of [...listeners]) listener(mutation);
   };
-  let lastReservedAt = Math.max(
-    reservationClockTimestamp(),
-    maximumLastUsedAt(history),
-  );
-  // Barriers only protect reservations that can still resolve in this renderer lifetime.
-  const clearBarriers = new Map<string, number>();
-  const outstandingReservations = new Set<number>();
-  const minimumOutstandingReservation = () => {
-    let minimum = Number.POSITIVE_INFINITY;
-    for (const reservation of outstandingReservations) {
-      minimum = Math.min(minimum, reservation);
-    }
-    return minimum;
-  };
-  const pruneClearBarriers = () => {
-    const minimumReservation = minimumOutstandingReservation();
-    for (const [scopeKey, barrier] of clearBarriers) {
-      if (minimumReservation > barrier) clearBarriers.delete(scopeKey);
-    }
-  };
-  const reserveLastUsedAt = () => {
-    const reservation = ensurePersistableHistoryTimestamp(
-      Math.max(lastReservedAt, reservationClockTimestamp()) + 1,
-    );
-    lastReservedAt = reservation;
-    outstandingReservations.add(reservation);
-    return reservation;
-  };
-  const releaseLastUsedAt = (timestamp: number) => {
-    outstandingReservations.delete(timestamp);
-    pruneClearBarriers();
-  };
+  /**
+   * 每个作用域最后一次被清掉的时刻。一条**清空前就提交**、清空后才 resolve 的命令
+   * 带着更早的时间戳回来时，就落在这里挡下 —— 否则「清空历史」会被一条在途命令
+   * 悄悄复活。同毫秒（`usedAt === clearedAt`）放行，免得清完紧接着记的第一条被误伤。
+   */
+  const clearedAt = new Map<string, number>();
 
   return {
     list(scope) {
@@ -294,48 +248,26 @@ export function createLocalCommandHistoryStore(
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    reserveLastUsedAt,
-    releaseLastUsedAt,
     record(scope, command, lastUsedAt) {
-      let reservationToRelease =
-        lastUsedAt !== undefined && outstandingReservations.has(lastUsedAt)
+      if (!command) return;
+      const key = deriveLocalCommandHistoryScopeKey(scope);
+      const usedAt =
+        lastUsedAt !== undefined && isValidHistoryTimestamp(lastUsedAt)
           ? lastUsedAt
-          : undefined;
-      try {
-        if (!command) return;
-        const key = deriveLocalCommandHistoryScopeKey(scope);
-        let usedAt: number;
-        if (
-          lastUsedAt !== undefined &&
-          hasTimestampReservationHeadroom(lastUsedAt)
-        ) {
-          usedAt = lastUsedAt;
-        } else {
-          usedAt = reserveLastUsedAt();
-          reservationToRelease = usedAt;
-        }
-        ensurePersistableHistoryTimestamp(usedAt);
-        const clearBarrier = clearBarriers.get(key);
-        if (clearBarrier !== undefined && usedAt <= clearBarrier) return;
+          : Date.now();
+      const cleared = clearedAt.get(key);
+      if (cleared !== undefined && usedAt < cleared) return;
 
-        const entries = history.scopes[key] ?? [];
-        const existingEntry = entries.find(
-          (entry) => entry.command === command,
-        );
-        if (existingEntry && existingEntry.lastUsedAt >= usedAt) return;
+      const entries = history.scopes[key] ?? [];
+      const existingEntry = entries.find((entry) => entry.command === command);
+      if (existingEntry && existingEntry.lastUsedAt >= usedAt) return;
 
-        history.scopes[key] = normalizeEntries([
-          { command, lastUsedAt: usedAt },
-          ...entries,
-        ]);
-        lastReservedAt = Math.max(lastReservedAt, usedAt);
-        writePersistedHistory(storage, history);
-        notify({ type: "record", scopeKey: key });
-      } finally {
-        if (reservationToRelease !== undefined) {
-          releaseLastUsedAt(reservationToRelease);
-        }
-      }
+      history.scopes[key] = normalizeEntries([
+        { command, lastUsedAt: usedAt },
+        ...entries,
+      ]);
+      writePersistedHistory(storage, history);
+      notify({ type: "record", scopeKey: key });
     },
     clear(scope) {
       const key = deriveLocalCommandHistoryScopeKey(scope);
@@ -348,11 +280,7 @@ export function createLocalCommandHistoryStore(
       if (!writePersistedHistory(storage, nextHistory)) return false;
 
       history.scopes = nextScopes;
-      if (minimumOutstandingReservation() <= lastReservedAt) {
-        clearBarriers.set(key, lastReservedAt);
-      } else {
-        clearBarriers.delete(key);
-      }
+      clearedAt.set(key, Date.now());
       notify({ type: "clear", scopeKey: key });
       return true;
     },

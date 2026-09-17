@@ -96,7 +96,6 @@ func TestBuildCommands(t *testing.T) {
 		})
 		So(stub.got.Cwd, ShouldEqual, "/tmp/project")
 		So(stub.got.CLIPath, ShouldEqual, "/usr/local/bin/claude")
-		So(stub.got.BackendType, ShouldEqual, bt)
 		// 授权表逐条透传:CLI 要靠它决定这一轮把哪些 plugin 挂上去。
 		So(stub.got.EnabledPlugins, ShouldResemble, map[string]bool{"muted@mine": false})
 	})

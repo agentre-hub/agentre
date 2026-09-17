@@ -13,17 +13,15 @@ import {
   resolveExecutionDevice,
 } from "../device-identity";
 import type { EngineSettingsBridge } from "../port-bridge";
-import type { AccountDeviceView } from "../ports";
+import type { AccountDeviceView, RuntimeDeviceView } from "../ports";
 import type { Translate } from "../agent-backends-shared";
 
-import type { DeviceView, EditorState } from "./editor-types";
+import type { EditorState } from "./editor-types";
 
 // remote_device_watcher_svc 的在线态推送通道（与 session-exec-target / 设备面板同一条）。
 const REMOTE_DEVICE_STATE_EVENT = "remote.device.state";
 
 export const LOCAL_DEVICE_SELECT_VALUE = "__local_device__";
-
-export type BackendDevices = ReturnType<typeof useBackendDevices>;
 
 export function useBackendDevices(args: {
   stateKind: EditorState["kind"];
@@ -47,7 +45,7 @@ export function useBackendDevices(args: {
   } = args.bridge;
 
   const [deviceId, setDeviceId] = React.useState<string>(args.initialDeviceId);
-  const [devices, setDevices] = React.useState<DeviceView[]>([]);
+  const [devices, setDevices] = React.useState<RuntimeDeviceView[]>([]);
   const [localFingerprint, setLocalFingerprint] = React.useState("");
   const [accountDevices, setAccountDevices] = React.useState<
     AccountDeviceView[]
@@ -71,7 +69,7 @@ export function useBackendDevices(args: {
         ]);
         const rows = await RemoteDeviceList();
         if (cancelled) return;
-        setDevices((rows ?? []) as unknown as DeviceView[]);
+        setDevices(rows ?? []);
         setLocalFingerprint(fingerprint ?? "");
         setAccountDevices(rowsFromAccount ?? []);
       } catch {

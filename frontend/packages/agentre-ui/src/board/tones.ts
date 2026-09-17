@@ -15,7 +15,7 @@ export { ISSUE_TONES };
  * 的 `-text` 角色，而不是那个当点、当填充的饱和值（见 docs/design.md §3.5）。
  *
  * 中性档是这里唯一**不填充**的一档：暗色下 `--secondary` 与 `--popover` 是同一个
- * 字节（#262931），填充的中性标签落进任何弹层都只剩文字。描边不依赖表面色。
+ * 字节（#292a2e），填充的中性标签落进任何弹层都只剩文字。描边不依赖表面色。
  */
 export const toneClassNames: Record<IssueTone, string> = {
   gray: "border border-border-strong text-muted-foreground",

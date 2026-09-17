@@ -3,7 +3,7 @@ import type { TFunction } from "i18next";
 
 import { FileTypeIcon } from "@/components/agentre/file-type-icon";
 import { Spinner } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import type { workspace_fs_svc } from "@/../wailsjs/go/models";
 

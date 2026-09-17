@@ -42,15 +42,6 @@ func (h *execHandle) Stdout() io.Reader { return h.stdout }
 func (h *execHandle) Stderr() io.Reader { return h.stderr }
 func (h *execHandle) Wait() error       { return h.cmd.Wait() }
 
-// PID 交出子进程号,进程还没起来 / 已经没了时为 0。排查用:把机器上的 CLI 进程和
-// 界面上的会话对上,靠的就是这个号。
-func (h *execHandle) PID() int {
-	if h.cmd.Process == nil {
-		return 0
-	}
-	return h.cmd.Process.Pid
-}
-
 // Kill 收掉整棵进程树:CLI 自己派生的孙进程握着 stdout 写端,只杀父进程会让读端
 // 永远等不到 EOF。
 func (h *execHandle) Kill() error {
@@ -129,10 +120,10 @@ func envListToMap(items []string) map[string]string {
 	return out
 }
 
-// MaxDiagnosticBytes 是诊断缓冲区保留的字节上限。
-const MaxDiagnosticBytes = 64 << 10
+// maxDiagnosticBytes 是诊断缓冲区保留的字节上限。
+const maxDiagnosticBytes = 64 << 10
 
-// LockedBuffer 是并发安全的诊断缓冲区,只保留最近 MaxDiagnosticBytes 字节。
+// LockedBuffer 是并发安全的诊断缓冲区,只保留最近 maxDiagnosticBytes 字节。
 //
 // 只留尾巴不是省内存的小聪明:常驻 app-server / RPC 进程可以活几个小时,把整个
 // 生命周期的 stderr 留在内存里是无界增长,还让后来的退出错误更可能把很久以前的
@@ -145,11 +136,11 @@ type LockedBuffer struct {
 func (b *LockedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if len(p) >= MaxDiagnosticBytes {
-		b.b = append(b.b[:0], p[len(p)-MaxDiagnosticBytes:]...)
+	if len(p) >= maxDiagnosticBytes {
+		b.b = append(b.b[:0], p[len(p)-maxDiagnosticBytes:]...)
 		return len(p), nil
 	}
-	if over := len(b.b) + len(p) - MaxDiagnosticBytes; over > 0 {
+	if over := len(b.b) + len(p) - maxDiagnosticBytes; over > 0 {
 		b.b = b.b[:copy(b.b, b.b[over:])]
 	}
 	b.b = append(b.b, p...)

@@ -928,9 +928,9 @@ describe("App", () => {
       screen.getByPlaceholderText("Search sessions, projects, agents"),
     ).toBeInTheDocument();
     // 空聊天态: 测试环境没有可对话 Agent (ListChatAgents 未 mock, agents=[]),
-    // 因此显示 spec §7 组 1B 的两步配置引导空态而非旧占位。
+    // 因此显示 spec §7 组 1B 的带状态引导清单而非旧占位。
     expect(
-      screen.getByText("Before you start, complete two setup steps"),
+      screen.getByText("3 steps to your first conversation"),
     ).toBeInTheDocument();
     // TabStrip + ChatPanelHost right pane is visible on /chat
     expect(
@@ -969,9 +969,7 @@ describe("App", () => {
     );
     // Real data layer: the default IssueList mock returns no issues, so the
     // workspace renders its empty state rather than the old static placeholder.
-    expect(
-      await within(main).findByText("No tasks in this project yet"),
-    ).toBeInTheDocument();
+    expect(await within(main).findByText("No tasks yet")).toBeInTheDocument();
     expect(
       within(main).getByText("0 tasks · 0 in progress"),
     ).toBeInTheDocument();
@@ -1041,8 +1039,8 @@ describe("App", () => {
     let dialog = await screen.findByRole("dialog");
     let body = within(dialog)
       .getByLabelText("Name")
-      .closest("[data-slot='dialog-body']");
-    let footer = dialog.querySelector("[data-slot='dialog-footer']");
+      .closest("[data-slot='dialog-shell-body']");
+    let footer = dialog.querySelector("[data-slot='dialog-shell-footer']");
 
     expect(body).toHaveClass("px-5", "py-4");
     expect(footer).toHaveClass("border-t", "border-border");
@@ -1057,8 +1055,8 @@ describe("App", () => {
     dialog = await screen.findByRole("dialog");
     body = within(dialog)
       .getByLabelText("Name")
-      .closest("[data-slot='dialog-body']");
-    footer = dialog.querySelector("[data-slot='dialog-footer']");
+      .closest("[data-slot='dialog-shell-body']");
+    footer = dialog.querySelector("[data-slot='dialog-shell-footer']");
 
     expect(body).toHaveClass("px-5", "py-4");
     expect(footer).toHaveClass("border-t", "border-border");

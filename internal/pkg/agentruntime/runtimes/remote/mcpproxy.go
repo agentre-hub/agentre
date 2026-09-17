@@ -34,7 +34,7 @@ func RegisterMCPProxyDispatcher(d MCPProxyDispatcher) { mcpProxyDispatcher = d }
 // NewLocalGatewayDispatcher 构造一个把隧道请求重放到 desktop 本机 gateway 的 dispatcher:
 // 用 baseURL()(desktop gateway base,如 http://127.0.0.1:52401)+ req.Path 拼目标,带上原
 // headers(含 desktop 签的 token)+ body 发 HTTP,把应答装回 MCPProxyResponse。bootstrap 用
-// gw.BaseURL 装配。baseURL 取值时机推迟到每次请求(端口 0 晚绑定也拿得到实际地址)。
+// gw.URL 装配。baseURL 取值时机推迟到每次请求(端口 0 晚绑定也拿得到实际地址)。
 func NewLocalGatewayDispatcher(baseURL func() string, client *http.Client) MCPProxyDispatcher {
 	if client == nil {
 		client = http.DefaultClient

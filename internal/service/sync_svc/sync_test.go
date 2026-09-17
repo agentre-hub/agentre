@@ -17,7 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo/mock_project_location_repo"
@@ -28,6 +28,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -45,7 +46,7 @@ type fakeTransport struct {
 	pullErrs []error
 
 	// 本机路径上报（R16）与头像（R16a）的替身状态。
-	localPathReports [][]syncwire.LocalPathReportItem
+	localPathReports [][]syncwire.LocalPathItem
 	localPathErr     error
 	avatarsPut       []avatarPutCall
 	avatarsGet       map[string]avatarGetResult
@@ -100,11 +101,11 @@ func (f *fakeTransport) SyncPull(_ context.Context, cursor int64, _ int) (*syncw
 	return page, nil
 }
 
-func (f *fakeTransport) ReportLocalPaths(_ context.Context, items []syncwire.LocalPathReportItem) error {
+func (f *fakeTransport) ReportLocalPaths(_ context.Context, items []syncwire.LocalPathItem) error {
 	if f.localPathErr != nil {
 		return f.localPathErr
 	}
-	cp := make([]syncwire.LocalPathReportItem, len(items))
+	cp := make([]syncwire.LocalPathItem, len(items))
 	copy(cp, items)
 	f.localPathReports = append(f.localPathReports, cp)
 	return nil
@@ -1267,7 +1268,7 @@ func TestFlush_GivenResyncRequired_PullsSnapshotThenFiltersQueue(t *testing.T) {
 	h.transport.results = func(items []syncwire.PushItem) ([]syncwire.PushResult, error) {
 		attempted++
 		if attempted == 1 {
-			return nil, syncwire.ErrResyncRequired
+			return nil, localsync.ErrResyncRequired
 		}
 		out := make([]syncwire.PushResult, 0, len(items))
 		for _, it := range items {

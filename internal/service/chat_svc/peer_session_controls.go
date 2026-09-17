@@ -23,13 +23,13 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // ErrPeerExecutionUnavailable is deliberately narrower than a generic remote

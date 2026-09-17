@@ -65,10 +65,9 @@ export type {
   ModelView,
   ProviderView,
 } from "./engine/ports";
-// 引擎设置面的公共零件：对话框外壳、执行设备判据、后端 flash 文本截断。桌面此前
-// 各留一份逐行同构的副本，收敛后两端同取包里这一份（见 src/components/agentre/
-// __tests__/shared-package-single-source.test.ts）。
-export { AgentreDialog } from "./engine/app-dialog";
+// 引擎设置面的公共零件：执行设备判据、后端 flash 文本截断。桌面此前各留一份逐行
+// 同构的副本，收敛后两端同取包里这一份（见 src/components/agentre/__tests__/
+// shared-package-single-source.test.ts）。
 export { resolveExecutionDevice } from "./engine/device-identity";
 // agent 调色板的 token 词汇表（与 tokens.css 同源）+ token → css 变量。
 export { agentColorOrder, tokenToCssColor } from "./lib/agent-color";
@@ -500,8 +499,7 @@ export type {
 // store，以及身份怎么画（头像 / 图标注册表，经 slot 注入）。
 export { buildOrgIndex, buildOrgReportsToOptions } from "./org/org-index-model";
 export type { OrgIndexGroup, OrgIndexRow } from "./org/org-index-model";
-export { buildOrgReportToMap, resolveOrgReportTo } from "./org/reporting";
-export { computeOrgReorder } from "./org/reorder";
+export { resolveOrgReportTo } from "./org/reporting";
 export {
   isValidOrgDepartmentDrop,
   isValidOrgDrop,
@@ -605,6 +603,7 @@ export type {
   BoardCardView,
   BoardColumnView,
   BoardDragBindings,
+  BoardEmptyScope,
   BoardStage,
   BoardViewModel,
   IssueTone,

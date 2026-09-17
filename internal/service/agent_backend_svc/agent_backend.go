@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"maps"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,12 +23,12 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/pkg/openclawgateway"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
@@ -209,11 +211,13 @@ func (s *agentBackendSvc) List(ctx context.Context, _ *ListBackendsRequest) (*Li
 		return nil, err
 	}
 	ids := make([]int64, 0, len(rows))
-	providerKeys := newKeySet[string](len(rows))
+	providerKeySet := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		ids = append(ids, row.ID)
 		// LLMProviderKey == "" 表示 claudecode/codex 后端走 CLI 自身登录，无需查 provider。
-		providerKeys.add(row.LLMProviderKey)
+		if key := row.LLMProviderKey; key != "" {
+			providerKeySet[key] = struct{}{}
+		}
 	}
 	counts, err := agent_repo.Agent().CountByBackends(ctx, ids)
 	if err != nil {
@@ -222,8 +226,8 @@ func (s *agentBackendSvc) List(ctx context.Context, _ *ListBackendsRequest) (*Li
 	// 查询条数与行数无关（要求 19）：provider 一次取齐。不过滤 status —— 软删的 provider
 	// 仍显示名字、Active=false（决策 7），与逐行 FindByKey 同口径。
 	providers := map[string]*llm_provider_entity.LLMProvider{}
-	if len(providerKeys.keys) > 0 {
-		providers, err = llm_provider_repo.LLMProvider().ListByKeysAnyStatus(ctx, providerKeys.keys)
+	if len(providerKeySet) > 0 {
+		providers, err = llm_provider_repo.LLMProvider().ListByKeysAnyStatus(ctx, slices.Collect(maps.Keys(providerKeySet)))
 		if err != nil {
 			return nil, err
 		}
@@ -236,28 +240,6 @@ func (s *agentBackendSvc) List(ctx context.Context, _ *ListBackendsRequest) (*Li
 		items = append(items, item)
 	}
 	return &ListBackendsResponse{Items: items}, nil
-}
-
-// keySet 按首次出现顺序收集去重后的非零值 key，供批量查询的 IN 列表使用。
-type keySet[K comparable] struct {
-	keys []K
-	seen map[K]struct{}
-}
-
-func newKeySet[K comparable](capacity int) *keySet[K] {
-	return &keySet[K]{keys: make([]K, 0, capacity), seen: make(map[K]struct{}, capacity)}
-}
-
-func (k *keySet[K]) add(key K) {
-	var zero K
-	if key == zero {
-		return
-	}
-	if _, ok := k.seen[key]; ok {
-		return
-	}
-	k.seen[key] = struct{}{}
-	k.keys = append(k.keys, key)
 }
 
 func (s *agentBackendSvc) Create(ctx context.Context, req *CreateBackendRequest) (*CreateBackendResponse, error) {
@@ -1117,7 +1099,10 @@ func (s *agentBackendSvc) requireOwnedEnabledModel(
 // 与 llm_provider_svc.ResolveTarget 的默认分支同一规则：Provider 未启用、未配置默认模型、
 // 或默认模型缺失 / 停用时返回空串。只取 ModelID，不透出 BaseURL / APIKey 等凭证。
 func providerDefaultModelID(ctx context.Context, p *llm_provider_entity.LLMProvider) string {
-	return defaultModelID(p, repoModelLookup(ctx))
+	if m := enabledDefaultModel(p, repoModelLookup(ctx)); m != nil {
+		return m.ModelID
+	}
+	return ""
 }
 
 // modelLookup 按 model_key 取模型（查不到 / 查询失败都回 nil —— 展示与默认模型解析
@@ -1133,13 +1118,6 @@ func repoModelLookup(ctx context.Context) modelLookup {
 		}
 		return m
 	}
-}
-
-func defaultModelID(p *llm_provider_entity.LLMProvider, model modelLookup) string {
-	if m := enabledDefaultModel(p, model); m != nil {
-		return m.ModelID
-	}
-	return ""
 }
 
 // enabledDefaultModel 按 provider-default 语义解析 Provider 当前可执行的默认模型：
@@ -1215,17 +1193,19 @@ func (s *agentBackendSvc) toItem(ctx context.Context, b *agent_backend_entity.Ag
 func prefetchItemLookup(
 	ctx context.Context, rows []*agent_backend_entity.AgentBackend, providers map[string]*llm_provider_entity.LLMProvider,
 ) backendItemLookup {
-	modelKeys := newKeySet[string](len(rows))
+	modelKeySet := make(map[string]struct{}, len(rows))
 	needDevices := false
 	for _, row := range rows {
-		modelKeys.add(effectiveModelKey(row, providers[row.LLMProviderKey]))
+		if key := effectiveModelKey(row, providers[row.LLMProviderKey]); key != "" {
+			modelKeySet[key] = struct{}{}
+		}
 		if remote_device_svc.ExternalDeviceID(row.DeviceFingerprint) != "" {
 			needDevices = true
 		}
 	}
 	models := map[string]*llm_provider_model_entity.LLMProviderModel{}
-	if len(modelKeys.keys) > 0 {
-		if got, err := llm_provider_repo.LLMProvider().BatchFindModelsByKey(ctx, modelKeys.keys); err == nil {
+	if len(modelKeySet) > 0 {
+		if got, err := llm_provider_repo.LLMProvider().BatchFindModelsByKey(ctx, slices.Collect(maps.Keys(modelKeySet))); err == nil {
 			models = got
 		}
 	}

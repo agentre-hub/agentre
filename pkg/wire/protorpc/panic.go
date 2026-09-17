@@ -1,9 +1,11 @@
 package protorpc
 
 import (
-	"context"
 	"fmt"
 	"runtime/debug"
+
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // recoverHandler 是 RPC handler 的最后一道防线:把 panic 翻成 CodeInternal 交给对端,
@@ -21,8 +23,8 @@ import (
 // 对端只能看到这一句。stack trace 只进本地日志。
 func recoverHandler(what string, errOut *error) {
 	if r := recover(); r != nil {
-		log().Error(context.Background(), "protorpc: rpc handler panic",
-			String("what", what), Any("panic", r), ByteString("stack", debug.Stack()))
+		logger.Default().Error("protorpc: rpc handler panic",
+			zap.String("what", what), zap.Any("panic", r), zap.ByteString("stack", debug.Stack()))
 		if errOut != nil {
 			*errOut = &Error{Code: CodeInternal, Message: fmt.Sprintf("rpc handler panic: %v", r)}
 		}

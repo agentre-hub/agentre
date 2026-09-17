@@ -388,7 +388,7 @@ func TestDaemon_GivenLoggedInAccount_WhenRelayConnectsAndReconnects_ThenPullsEng
 }
 
 // accountSyncVersionFrame 编一帧账号信号(sync_version),与 accountchan_svc 广播、
-// syncwire.DecodeAccountChannelFrame 解码的是同一份 WireFrame 编码。
+// internal/pkg/syncwire.DecodeAccountChannelFrame 解码的是同一份 WireFrame 编码。
 func accountSyncVersionFrame(t *testing.T, version uint64) []byte {
 	t.Helper()
 	payload, err := proto.Marshal(&agentrewire.WireFrame{
@@ -2565,7 +2565,7 @@ func loadDirectCredentialTestState(t *testing.T, credentials map[string]string) 
 }
 
 // writeDeviceListResponse answers a GET /v1/devices request through cago's
-// {code, data} envelope, matching decodeServerEnvelope's contract.
+// {code, data} envelope, matching cagoenvelope.Decode's contract.
 func writeDeviceListResponse(t *testing.T, w http.ResponseWriter, devices []deviceListItem) {
 	t.Helper()
 	body := struct {

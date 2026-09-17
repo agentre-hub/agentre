@@ -15,7 +15,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
@@ -26,6 +25,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // indexOfSyncKind 报告某个对象类型在 syncKinds 里的位置；不在其中返回 -1。

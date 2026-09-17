@@ -1468,10 +1468,10 @@ func (s *chatSvc) sessionProviderOverride(
 		return prov, nil, nil
 	}
 	// 展示名(决策 2):实体查到了(只是停用/类型不兼容)就带上它的名字;查询失败或
-	// 实体本身不存在(供应商已删)则 view.ProviderDisplayName 返回空串,notice 保持只显示 key。
+	// 实体本身不存在(供应商已删)则留空,notice 保持只显示 key。
 	name := ""
-	if err == nil {
-		name = view.ProviderDisplayName(prov)
+	if err == nil && prov != nil {
+		name = prov.Name
 	}
 	// fixed-model：严格阻止下一轮，绝不回退（spec 2026-08-11 决策 7 / Failure）。
 	if strings.TrimSpace(sessModelKey) != "" {

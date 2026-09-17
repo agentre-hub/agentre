@@ -28,7 +28,7 @@ type UsageUpdateHandler struct {
 
 // Apply 把 per-call usage 写回 assistantMsg 并 emit StreamUsage 中间形态。
 // 落库由 Writer 自己完成(context.WithoutCancel 抗 abort,spec §1.4)。
-func (h UsageUpdateHandler) Apply(ctx context.Context, ev agentruntime.Event, _ *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (h UsageUpdateHandler) Apply(ctx context.Context, ev agentruntime.Event, _ *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	u := ev.(agentruntime.UsageUpdate)
 	if u.Usage == nil {
 		return nil

@@ -2,7 +2,7 @@
 // （env/route 的序列化、供应商筛选与标签、OpenClaw 错误码到文案）。
 // 这一层不碰 React，只做数据整形，方便单独推理与测试。
 import { recordRecentTarget } from "../model-target-picker";
-import { OPENCLAW_SESSION_MODE } from "../openclaw-backend-fields";
+import { OPENCLAW_SESSION_MODE } from "../openclaw-validation";
 import { OPENCLAW_ERROR_KEY_BY_CODE } from "../openclaw-validation";
 import type { EngineSettingsBridge } from "../port-bridge";
 import type { agent_backend_svc } from "../port-bridge";
@@ -162,18 +162,23 @@ export function openClawProbeErrorMessage(
     : fallback || translate("agentBackends.openclaw.errors.connectionFailed");
 }
 
+// 登录动作走 Wails 的 codedError 前缀（`agentre-code:<业务码> <原文>`）。数值码 →
+// 前端文案名；Test Connection 回的是文案名本身，名集合由这张表派生，避免两张表
+// 各自维护。
+const HERMES_ERROR_CODE_NUMBERS: Record<string, string> = {
+  "12030": "HERMES_LOGIN_REQUIRED",
+  "12031": "HERMES_LOGIN_EXPIRED",
+  "12032": "HERMES_INVALID_CREDENTIALS",
+  "12033": "HERMES_RATE_LIMITED",
+  "12034": "HERMES_PROVIDER_UNSUPPORTED",
+  "12035": "HERMES_PROVIDER_UNAVAILABLE",
+  "12036": "HERMES_PROVIDER_NOT_FOUND",
+  "12037": "HERMES_UNREACHABLE",
+};
+
 // Hermes test-connection codes emitted by the Go service. Unlike OpenClaw they
 // share the backend's own copy namespace, so the key is the code itself.
-const HERMES_ERROR_CODES = new Set([
-  "HERMES_LOGIN_REQUIRED",
-  "HERMES_LOGIN_EXPIRED",
-  "HERMES_INVALID_CREDENTIALS",
-  "HERMES_RATE_LIMITED",
-  "HERMES_PROVIDER_UNSUPPORTED",
-  "HERMES_PROVIDER_UNAVAILABLE",
-  "HERMES_PROVIDER_NOT_FOUND",
-  "HERMES_UNREACHABLE",
-]);
+const HERMES_ERROR_CODES = new Set(Object.values(HERMES_ERROR_CODE_NUMBERS));
 
 // hermesProbeErrorMessage localizes a structured hermes test failure so the UI
 // can say "login required" / "login expired" instead of the raw backend text.
@@ -188,19 +193,6 @@ export function hermesProbeErrorMessage(
   }
   return fallback;
 }
-
-// 登录动作走 Wails 的 codedError 前缀（`agentre-code:<业务码> <原文>`）。把这些
-// 数值码映回同一份前端文案，登录失败与 Test Connection 就同一套说法。
-const HERMES_ERROR_CODE_NUMBERS: Record<string, string> = {
-  "12030": "HERMES_LOGIN_REQUIRED",
-  "12031": "HERMES_LOGIN_EXPIRED",
-  "12032": "HERMES_INVALID_CREDENTIALS",
-  "12033": "HERMES_RATE_LIMITED",
-  "12034": "HERMES_PROVIDER_UNSUPPORTED",
-  "12035": "HERMES_PROVIDER_UNAVAILABLE",
-  "12036": "HERMES_PROVIDER_NOT_FOUND",
-  "12037": "HERMES_UNREACHABLE",
-};
 
 const CODED_ERROR_PREFIX = /^agentre-code:(\d+)\s?([\s\S]*)$/;
 

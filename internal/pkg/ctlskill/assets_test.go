@@ -16,8 +16,8 @@ func TestAssets_ManifestsMatchConstants(t *testing.T) {
 	if err := json.Unmarshal([]byte(assetPluginJSON()), &plugin); err != nil {
 		t.Fatalf("plugin.json is not valid JSON: %v", err)
 	}
-	if plugin.Name != PluginName {
-		t.Fatalf("plugin.json name = %q, want %q", plugin.Name, PluginName)
+	if plugin.Name != pluginName {
+		t.Fatalf("plugin.json name = %q, want %q", plugin.Name, pluginName)
 	}
 	if plugin.Version != versionPlaceholder {
 		t.Fatalf("plugin.json version = %q, want the %q placeholder", plugin.Version, versionPlaceholder)
@@ -34,16 +34,16 @@ func TestAssets_ManifestsMatchConstants(t *testing.T) {
 	if err := json.Unmarshal([]byte(assetMarketplaceJSON()), &marketplace); err != nil {
 		t.Fatalf("marketplace.json is not valid JSON: %v", err)
 	}
-	if marketplace.Name != MarketplaceName {
-		t.Fatalf("marketplace.json name = %q, want %q", marketplace.Name, MarketplaceName)
+	if marketplace.Name != marketplaceName {
+		t.Fatalf("marketplace.json name = %q, want %q", marketplace.Name, marketplaceName)
 	}
 	if len(marketplace.Plugins) != 1 {
 		t.Fatalf("marketplace.json declares %d plugins, want exactly 1", len(marketplace.Plugins))
 	}
-	if marketplace.Plugins[0].Name != PluginName {
-		t.Fatalf("marketplace plugin name = %q, want %q", marketplace.Plugins[0].Name, PluginName)
+	if marketplace.Plugins[0].Name != pluginName {
+		t.Fatalf("marketplace plugin name = %q, want %q", marketplace.Plugins[0].Name, pluginName)
 	}
-	if want := "./" + PluginName; marketplace.Plugins[0].Source != want {
+	if want := "./" + pluginName; marketplace.Plugins[0].Source != want {
 		t.Fatalf("marketplace plugin source = %q, want %q", marketplace.Plugins[0].Source, want)
 	}
 }

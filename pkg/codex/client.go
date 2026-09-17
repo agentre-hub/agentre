@@ -111,43 +111,6 @@ func (c *Client) StreamInput(ctx context.Context, input []UserInput, opts ...Run
 	return stream, nil
 }
 
-func (c *Client) Compact(ctx context.Context, threadID string) (*Stream, error) {
-	if strings.TrimSpace(threadID) == "" {
-		return nil, errors.New("codex: compact thread id is required")
-	}
-	app, err := c.startApp(ctx)
-	if err != nil {
-		return nil, err
-	}
-	cleanup := func() {
-		_ = app.terminate(context.Background(), c.killGrace)
-	}
-	if err := initializeApp(ctx, app); err != nil {
-		cleanup()
-		return nil, err
-	}
-	thread, err := c.startOrResumeThread(ctx, app, runSpec{
-		resumeID: strings.TrimSpace(threadID),
-		cwd:      c.cwd,
-		sandbox:  c.sandbox,
-		approval: c.approval,
-	})
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	if _, err := app.Call(ctx, appMethodThreadCompact, map[string]any{
-		"threadId": thread.ThreadID,
-	}); err != nil {
-		cleanup()
-		return nil, err
-	}
-	stream := newStream(app, c.killGrace, thread.ThreadID, "", "manual")
-	// Compaction follows the caller's context; cancellation must stop the app-server stream.
-	go stream.drain(ctx) //nolint:gosec // G118: request context defines this goroutine's lifecycle.
-	return stream, nil
-}
-
 func (c *Client) OpenSession(ctx context.Context, opts ...RunOption) (*Session, error) {
 	spec := c.defaultRunSpec()
 	for _, o := range opts {
@@ -349,63 +312,6 @@ func (c *Client) Text(ctx context.Context, prompt string, opts ...RunOption) (st
 		return "", stopErr
 	}
 	return b.String(), nil
-}
-
-type ForkThreadResult struct {
-	ThreadID     string
-	ForkedFromID string
-}
-
-func (c *Client) ForkThread(ctx context.Context, sourceThreadID string) (*ForkThreadResult, error) {
-	spec := c.defaultRunSpec()
-	app, err := c.startApp(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = app.terminate(context.Background(), c.killGrace) }()
-	if err := initializeApp(ctx, app); err != nil {
-		return nil, err
-	}
-	params := threadParams(c, spec)
-	params["threadId"] = sourceThreadID
-	raw, err := app.Call(ctx, appMethodThreadFork, params)
-	if err != nil {
-		return nil, err
-	}
-	var res appThreadResponse
-	if err := json.Unmarshal(raw, &res); err != nil {
-		return nil, err
-	}
-	if res.Thread.ID == "" {
-		return nil, errors.New("codex: thread/fork response missing id")
-	}
-	return &ForkThreadResult{ThreadID: res.Thread.ID, ForkedFromID: res.Thread.ForkedFromID}, nil
-}
-
-type RollbackThreadResult struct {
-	ThreadID string
-}
-
-func (c *Client) RollbackThread(ctx context.Context, threadID string, numTurns int) (*RollbackThreadResult, error) {
-	if numTurns <= 0 {
-		return nil, errors.New("codex: thread/rollback numTurns must be >= 1")
-	}
-	app, err := c.startApp(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = app.terminate(context.Background(), c.killGrace) }()
-	if err := initializeApp(ctx, app); err != nil {
-		return nil, err
-	}
-	if _, err := c.startOrResumeThread(ctx, app, runSpec{resumeID: threadID, cwd: c.cwd, sandbox: c.sandbox, approval: c.approval}); err != nil {
-		return nil, err
-	}
-	res, err := revertLastTurns(ctx, app, threadID, numTurns)
-	if err != nil {
-		return nil, err
-	}
-	return &RollbackThreadResult{ThreadID: res.Thread.ID}, nil
 }
 
 type appThreadTurnsListResponse struct {
