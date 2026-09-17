@@ -379,7 +379,8 @@
       },
       "title": "选一个 Agent 或项目下的会话开始",
       "setupGuide": {
-        "title": "两步就能开始第一轮对话",
+        "title_one": "一步就能开始第一轮对话",
+        "title_other": "{{count}} 步就能开始第一轮对话",
         "description": "Agentre 只连接你自己启动的服务，不代你拉起任何东西。",
         "backend": {
           "title": "连接一个 Agent 后端",

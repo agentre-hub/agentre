@@ -124,12 +124,6 @@ function ChatEmptyState() {
         <span className="inline-flex size-14 items-center justify-center rounded-lg border border-border bg-primary-soft">
           <Sparkles className="size-6 text-primary" aria-hidden="true" />
         </span>
-        <div className="text-base font-semibold">
-          {t("chatTabs.empty.setupGuide.title")}
-        </div>
-        <div className="max-w-md text-xs text-muted-foreground">
-          {t("chatTabs.empty.setupGuide.description")}
-        </div>
         <SetupChecklist />
         <ChatShortcuts />
       </main>
@@ -297,11 +291,22 @@ function SetupChecklist() {
   ];
 
   return (
-    <div className="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-card text-left">
-      {steps.map((step) => (
-        <SetupChecklistRow key={step.id} {...step} />
-      ))}
-    </div>
+    <>
+      {/* 标题与说明跟着清单一起渲染：步数取自 steps 数组，加减一步文案自己跟着变，
+          不会像写死的「两步」那样跟实际行数对不上。Fragment 不产生额外节点，
+          DOM 结构与原先一致。 */}
+      <div className="text-base font-semibold">
+        {t("chatTabs.empty.setupGuide.title", { count: steps.length })}
+      </div>
+      <div className="max-w-md text-xs text-muted-foreground">
+        {t("chatTabs.empty.setupGuide.description")}
+      </div>
+      <div className="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-card text-left">
+        {steps.map((step) => (
+          <SetupChecklistRow key={step.id} {...step} />
+        ))}
+      </div>
+    </>
   );
 }
 

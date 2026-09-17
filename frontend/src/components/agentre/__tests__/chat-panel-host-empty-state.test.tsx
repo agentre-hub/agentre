@@ -66,6 +66,20 @@ function renderHost() {
   );
 }
 
+/**
+ * 标题里的步数必须与清单实际行数一致。
+ * 这条守卫是有来历的：标题原写死「Two steps…」，清单从两行加到三行后标题没跟着改，
+ * 界面上就成了「两步」配三行（真实缺陷）。改成从 steps 数组算之后，这里同时钉住
+ * 两件事：文案里的数字、以及它跟渲染出来的行数对得上。
+ */
+function expectSetupTitleToMatchRows() {
+  const rows = screen.getAllByTestId(/^setup-step-/);
+  const title = screen.getByText(
+    new RegExp(`^${rows.length} steps? to your first conversation$`),
+  );
+  expect(title).toBeInTheDocument();
+}
+
 describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
   beforeEach(() => {
     useChatTabsStore.setState({ tabs: [], activeTabId: null });
@@ -79,9 +93,7 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
     ]);
     renderHost();
 
-    expect(
-      screen.getByText("Two steps to your first conversation"),
-    ).toBeInTheDocument();
+    expectSetupTitleToMatchRows();
 
     const backend = screen.getByTestId("setup-step-backend");
     expect(backend).toHaveAttribute("data-status", "current");
@@ -195,9 +207,7 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
     seedAgents([]);
     renderHost();
 
-    expect(
-      screen.getByText("Two steps to your first conversation"),
-    ).toBeInTheDocument();
+    expectSetupTitleToMatchRows();
     expect(screen.getByTestId("setup-step-backend")).toHaveAttribute(
       "data-status",
       "current",
@@ -270,7 +280,7 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
       screen.getByText("Choose an Agent or project session to start"),
     ).toBeInTheDocument();
     expect(
-      screen.queryByText("Two steps to your first conversation"),
+      screen.queryByText(/steps? to your first conversation/),
     ).not.toBeInTheDocument();
     expect(
       screen.getByText("1 Agent(s) without a backend"),

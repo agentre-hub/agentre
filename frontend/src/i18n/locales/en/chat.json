@@ -379,7 +379,8 @@
       },
       "title": "Choose an Agent or project session to start",
       "setupGuide": {
-        "title": "Two steps to your first conversation",
+        "title_one": "One step to your first conversation",
+        "title_other": "{{count}} steps to your first conversation",
         "description": "Agentre only connects to services you run yourself — it never starts them for you.",
         "backend": {
           "title": "Connect an Agent backend",

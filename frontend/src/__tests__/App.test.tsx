@@ -930,7 +930,7 @@ describe("App", () => {
     // 空聊天态: 测试环境没有可对话 Agent (ListChatAgents 未 mock, agents=[]),
     // 因此显示 spec §7 组 1B 的带状态引导清单而非旧占位。
     expect(
-      screen.getByText("Two steps to your first conversation"),
+      screen.getByText("3 steps to your first conversation"),
     ).toBeInTheDocument();
     // TabStrip + ChatPanelHost right pane is visible on /chat
     expect(
