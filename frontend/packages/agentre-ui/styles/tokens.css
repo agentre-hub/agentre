@@ -111,15 +111,19 @@
        --status-X-foreground  text sitting ON the saturated fill
        --status-X-text        the state rendered AS text (on --status-X-bg or a card)
      The last one exists because the saturated fill is unreadable as text in light:
-     #14b580 on its own pill is 2.51, #e69a1a is 2.23. Guarded by src/tokens.test.ts. */
-  --status-running: #14b580;
+     #109066 on its own pill is 3.83, #b07513 is 3.72 — both still far under 4.5.
+     The fill role is itself guarded as a non-text graphic: it must clear 3:1 on
+     --card and --secondary in every theme (WCAG 2.2 §1.4.11), which is why light
+     running / waiting are darker than the old #14b580 / #e69a1a. src/tokens.test.ts. */
+  --status-running: #109066;
   --status-running-foreground: #04140c;
   --status-running-bg: #ecfdf5;
   --status-running-text: #0c7053;
-  --status-waiting: #e69a1a;
-  /* Deep brown on the bright amber fill. Both themes keep a bright amber, so the
-     same value reads on either — hence no .dark override. */
-  --status-waiting-foreground: #402b06;
+  --status-waiting: #b07513;
+  /* Near-black ink on the amber fills. Theme-invariant (#04140c): it reads 4.86 on
+     the darker light fill #b07513 and 11.33 on the dark fill #fbbf24, so one value
+     serves both without a .dark override. */
+  --status-waiting-foreground: #04140c;
   --status-waiting-bg: #fdfaed;
   --status-waiting-text: #aa5413;
   /* 状态记号（圆点 / 状态图标）。它落在 --secondary #f4f4f5 上——会话索引的机器
@@ -237,14 +241,16 @@
 }
 
 .dark {
-  /* Surfaces — neutral cool gray, 5-level elevation: rail < sidebar < bg < card < popover */
-  --background: #17191c;
+  /* Surfaces — neutral cool gray, 5-level elevation: rail < sidebar < bg < card < popover.
+     2026-09-17：色度（HSL S）从 9.8–13% 降到 3–6%，对齐浅色的中性家族（0–5.9%）；
+     明度（HSL L）一格未动，所以下面这条层级关系不变。 */
+  --background: #18191b;
   --foreground: #e6e8eb;
-  --card: #1d2025;
+  --card: #202122;
   --card-foreground: #e6e8eb;
   --popover: #262931;
   --popover-foreground: #e6e8eb;
-  --rail: #0a0b0d;
+  --rail: #0b0b0c;
 
   /* Brand — steel-blue, muted cool tone distinct from the bright agent blues */
   --primary: #5b8dbf;
@@ -254,31 +260,31 @@
   --ring: #5b8dbf;
 
   /* Semantic surfaces & text hierarchy */
-  --secondary: #262931;
+  --secondary: #292a2e;
   --secondary-foreground: #c4c7cd;
   --muted: #1d2025;
   /* 暗色最暗的落点是 --popover #262931（下拉里的分组标题），#8a8d94 在那里 4.38。 */
   --muted-foreground: #909399;
-  /* See :root. Worst surface here is --secondary/--popover #262931（agent-backends-list
-     的绑定分隔符骑在 bg-secondary 上）：#70757f 在那里 3.14，而更暗的 #6a6d74
+  /* See :root. Worst surface here is --secondary #292a2e（agent-backends-list
+     的绑定分隔符骑在 bg-secondary 上）：#71757e 在那里 3.10，而更暗的 #6a6d74
      只有 2.81。取与 --control-border 同一档。 */
-  --decorative-foreground: #70757f;
+  --decorative-foreground: #71757e;
   --accent: #383d47;
   --accent-foreground: #e6e8eb;
-  /* 1.27 on the dark --rail #0a0b0d. */
+  /* 1.26 on the dark --rail #0b0b0c. */
   --rail-accent: #212429;
 
   /* Border / Input */
-  --border: #2a2d34;
+  --border: #2d2e31;
   --border-strong: #3a3e47;
   /* Control fill — see :root. Retained only for the dark field fill
      (`dark:bg-input/30`) and the unchecked switch track; boundaries use
      --control-border. */
   --input: #4a4f59;
   --input-bg: #17191c;
-  /* 3.14 on --secondary #262931, 3.53 on --card. Sits between --status-idle
+  /* 3.10 on --secondary #292a2e, 3.49 on --card. Sits between --status-idle
      #6a6d74 and --muted-foreground #8a8d94 on the existing neutral ladder. */
-  --control-border: #70757f;
+  --control-border: #71757e;
 
   /* Sidebar — deepest level, with elevated active items */
   --sidebar: #111316;
@@ -299,7 +305,12 @@
   --sidebar-selected-muted: #a8adb7;
   --sidebar-border: #2a2d34;
   --sidebar-icon: #8a8d94;
-  --sidebar-icon-active: #5b8dbf;
+  /* 选中态的 rail 图标落在 --primary-soft (#1a2738) 上。原来跟 --primary 同值 #5b8dbf，
+     4.32 在 3:1 之上（图标不过 4.5 那条线），但和仓里「落在 --primary-soft 上就用
+     text 角色的主色」的写法（icon-grid-panel / mode-chip / filter-panel 等十余处都是
+     --primary-text）不一致。改用深色的 primary-text 量级：--primary-soft 上 7.10、
+     --sidebar-accent 上 6.84、rail 上 9.25。--sidebar-ring 是焦点环，角色不同，保持不动。 */
+  --sidebar-icon-active: #8eb6dc;
   --sidebar-ring: #5b8dbf;
 
   /* Status */

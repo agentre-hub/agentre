@@ -23,6 +23,8 @@ const TOKENS_CSS = path.resolve(__dirname, "../styles/tokens.css");
 const FEEDBACK_MIN = 1.15;
 /** 正文门槛，见 docs/design.md §10。 */
 const TEXT_MIN = 4.5;
+/** 非文字图形（圆点 / 进度条 / 实心标记）门槛，见 WCAG 2.2 §1.4.11 与 docs/design.md §10。 */
+const GRAPHIC_MIN = 3;
 
 const css = fs
   .readFileSync(TOKENS_CSS, "utf8")
@@ -312,6 +314,42 @@ describe("状态色的『文字』角色与『填充』角色分开", () => {
           contrast(t["--status-waiting-text"], t[surface]),
           `--status-waiting-text ${t["--status-waiting-text"]} 落在 ${surface} ${t[surface]} 上`,
         ).toBeGreaterThanOrEqual(TEXT_MIN);
+      }
+    },
+  );
+});
+
+/**
+ * 状态**填充色**当「非文字图形」用（圆点、进度条、实心标记）时对静止表面的对比度。
+ *
+ * 既有守卫只覆盖了另外两种角色：`--status-*-text` 是「状态当文字」、
+ * `--status-*-foreground` 是「实底上的字」。填充色本身画成的点/图形压在
+ * `--card` / `--secondary` 上这一角色一直没有守卫，所以浅色下 `--status-running` /
+ * `--status-waiting` 掉到 3:1 以下也无人拦（2026-09-17 审计）。
+ * 门槛取 WCAG 2.2 §1.4.11 的非文本对比度 3:1。
+ *
+ * 必须按 effective() 取级联后的有效值：旧缺陷的形态正是「深色没覆写、沿用到
+ * :root」，只比对当前主题块里声明的 hex 会正好漏掉它。
+ */
+describe("状态填充色当非文字图形用时对表面达标", () => {
+  it.each(
+    THEMES.flatMap(([scope, label, get]) =>
+      ["--status-running", "--status-waiting"].map(
+        (token) => [scope, label, token, get] as const,
+      ),
+    ),
+  )(
+    "%s(%s)下 %s 对 --card 与 --secondary 都 ≥3.0",
+    (_scope, _label, token, get) => {
+      const t = get();
+      // 深色没有覆写时会沿用到 :root——按级联后的有效值算，而不是只看 .dark 块。
+      const effective = (name: string) => t[name] ?? root[name];
+      const fill = effective(token);
+      for (const surface of ["--card", "--secondary"] as const) {
+        expect(
+          contrast(fill, effective(surface)),
+          `${token} ${fill} 落在 ${surface} ${effective(surface)} 上`,
+        ).toBeGreaterThanOrEqual(GRAPHIC_MIN);
       }
     },
   );
