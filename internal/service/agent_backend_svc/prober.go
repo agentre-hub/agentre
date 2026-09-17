@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentprovider"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/cliprober"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
@@ -30,6 +31,7 @@ var proberRegistry = map[agent_backend_entity.BackendType]Prober{
 	agent_backend_entity.TypeClaudeCode: cliProber{},
 	agent_backend_entity.TypeCodex:      cliProber{},
 	agent_backend_entity.TypePiAgent:    cliProber{},
+	agent_backend_entity.TypeHermes:     hermesProber{creds: defaultHermesCredentials},
 }
 
 // providerBuilder 是 agentprovider.Build 的间接引用，让单测能把 fake provider
@@ -122,6 +124,29 @@ func buildCodexEnv(b *agent_backend_entity.AgentBackend, deps ProbeDeps) (map[st
 // buildPiAgentEnv 委托到 agentruntime.BuildPiAgentEnv；同其它 CLI env builder。
 func buildPiAgentEnv(b *agent_backend_entity.AgentBackend) (map[string]string, error) {
 	return agentruntime.BuildPiAgentEnv(b)
+}
+
+// hermesProbe 是 hermes.Probe 的间接引用，让单测能跳过真实网络。
+var hermesProbe = hermes.Probe
+
+// hermesProber 探测一个已在运行的 `hermes serve`：拿到 loopback token、完成 WS
+// 握手并收到 gateway.ready。它不跑 agent turn——「测试连接」问的就是这个 URL
+// 连不连得上。
+type hermesProber struct{ creds hermes.CredentialSource }
+
+func (p hermesProber) Run(ctx context.Context, b *agent_backend_entity.AgentBackend, _ ProbeDeps) (string, error) {
+	if b == nil {
+		return "", errors.New("nil backend")
+	}
+	creds := p.creds
+	if creds == nil {
+		creds = hermes.DefaultCredentialSource()
+	}
+	return hermesProbe(ctx, hermes.ProbeRequest{
+		URL:          b.HermesURL,
+		AuthProvider: b.HermesAuthProvider,
+		Credentials:  creds,
+	})
 }
 
 // cliProber 通过 cliprober fork 对应 CLI 子进程跑固定 ping。

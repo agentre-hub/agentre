@@ -42,7 +42,10 @@ type SessionGroupProps = React.ComponentProps<"article"> & {
   // 溢出 Popover：超过常规列表上限时显示「查看全部 N」入口，content 由调用方提供。
   // 只在打开时渲染 content —— 见下方渲染处的注释（常驻会把那一页钉死）。
   totalSessions?: number;
-  renderSessionsPopover?: (close: () => void) => React.ReactNode;
+  renderSessionsPopover?: (
+    close: () => void,
+    trigger: HTMLButtonElement | null,
+  ) => React.ReactNode;
 
   // Attention 气泡（折叠态也始终可见；展开态过滤掉 unread/selected 这类「软」rank）
   attentionSessions?: SessionRowModel[];
@@ -54,11 +57,21 @@ type SessionGroupProps = React.ComponentProps<"article"> & {
   // 主要给项目树的子项目递归用。
   renderAfterSessions?: React.ReactNode;
 
-  // 会话行右键菜单（可选）：任一 handler 提供才在 SessionRow 上渲染 ContextMenu。
+  // 会话行右键菜单（可选）：任一 handler 提供才在 SessionRow 上渲染对应菜单项。
   // 项目页（ProjectCard）不传 → 保持旧行为（无右键菜单）。
-  onOpenInNewTab?: (sessionId: number) => void;
-  onRenameSession?: (sessionId: number, title: string) => void;
-  onDeleteSession?: (sessionId: number) => void;
+  //
+  // ID 是**原始字符串身份**：desktop 在自己的 adapter 里转本地数字主键，server
+  // 直接用复合键。包内不再做身份强转（规格 2026-09-16 决策 3）。
+  onOpenInNewTab?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, title: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  // 逐行限制 Delete 能力；仅与 onDeleteSession 组合生效。不传时所有行保持可删除。
+  canDeleteSession?: (sessionId: string) => boolean;
+
+  // Pending 内容槽：宿主还在取这个组的会话时用它顶位（共享行骨架，或骨架+
+  // 重试动作）。有它时它**替代**组内空态——“暂无会话”在数据在路上时是假话。
+  // aria-busy / 连接状态 / 重试动作仍由宿主决定。
+  pending?: React.ReactNode;
 
   // 空态可定制（无会话时显示），传 null 关闭空态渲染。默认「暂无会话」。
   emptyLabel?: React.ReactNode;
@@ -81,16 +94,20 @@ function SessionGroup({
   attentionSessions = [],
   collapsedAttentionSessions,
   renderAfterSessions,
+  pending,
   emptyLabel,
   onOpenInNewTab,
   onRenameSession,
   onDeleteSession,
+  canDeleteSession,
   attentionAriaLabel,
   ...props
 }: SessionGroupProps) {
   const { t } = useUiTranslation();
   const resolvedEmptyLabel = emptyLabel ?? t("sessionGroup.empty");
   const [popoverOpen, setPopoverOpen] = React.useState(false);
+  const [overflowTrigger, setOverflowTrigger] =
+    React.useState<HTMLButtonElement | null>(null);
   const [expanded, setExpanded] = React.useState(
     () => readSidebarExpanded(persistenceKey ?? "") ?? defaultExpanded ?? false,
   );
@@ -101,6 +118,14 @@ function SessionGroup({
       return next;
     });
   }, [persistenceKey]);
+
+  const deleteHandlerFor = (sessionId: string) => {
+    const deleteSession = onDeleteSession;
+    if (!deleteSession || (canDeleteSession && !canDeleteSession(sessionId))) {
+      return undefined;
+    }
+    return () => deleteSession(sessionId);
+  };
 
   // 展开态下仅把 selected 从 bubble 过滤掉（让它回到常规列表它本来的时间序位置）。
   // unread 保留在 bubble 里 —— 这样按住 ⌘ 时未读会话也能拿到 ⌘N chip,
@@ -126,10 +151,18 @@ function SessionGroup({
 
   const hasAfter =
     renderAfterSessions !== undefined && renderAfterSessions !== null;
-  // isEmpty 仅决定空态文案是否渲染。有 totalSessions（「查看全部」）或 renderAfterSessions
-  // （子节点插槽）时不算空 —— 避免项目树空 session 但有子项目时显示「暂无会话」。
+  // 只把真有内容的节点当作 pending：宿主常见的写法是 `pending={loading && <…/>}`，
+  // 取数结束时那是 `false` —— 它必须回到空态，而不是把空态一起吞掉却什么都不画。
+  const hasPending = Boolean(pending);
+  // isEmpty 仅决定空态文案是否渲染。有 totalSessions（「查看全部」）、renderAfterSessions
+  // （子节点插槽）或 pending 内容（骨架顶位）时不算空 —— 避免项目树空 session 但有
+  // 子项目时显示「暂无会话」，也避免数据还在路上时先说一句“没有”。
   const isEmpty =
-    sessions.length === 0 && !totalSessions && !hasAfter && emptyLabel !== null;
+    sessions.length === 0 &&
+    !totalSessions &&
+    !hasAfter &&
+    !hasPending &&
+    emptyLabel !== null;
 
   return (
     <article
@@ -152,6 +185,7 @@ function SessionGroup({
             <SessionRow
               key={`attn-${session.id}`}
               {...session}
+              sessionId={session.id}
               renderLink={renderLink}
               selected={
                 selectedSessionId
@@ -167,20 +201,14 @@ function SessionGroup({
                   : undefined
               }
               onOpenInNewTab={
-                onOpenInNewTab
-                  ? () => onOpenInNewTab(Number(session.id))
-                  : undefined
+                onOpenInNewTab ? () => onOpenInNewTab(session.id) : undefined
               }
               onRenameSession={
                 onRenameSession
-                  ? () => onRenameSession(Number(session.id), session.title)
+                  ? () => onRenameSession(session.id, session.title)
                   : undefined
               }
-              onDeleteSession={
-                onDeleteSession
-                  ? () => onDeleteSession(Number(session.id))
-                  : undefined
-              }
+              onDeleteSession={deleteHandlerFor(session.id)}
             />
           ))}
         </div>
@@ -200,6 +228,7 @@ function SessionGroup({
                   <SessionRow
                     key={session.id}
                     {...session}
+                    sessionId={session.id}
                     renderLink={renderLink}
                     aria-hidden={!expanded}
                     disabled={!expanded}
@@ -218,20 +247,15 @@ function SessionGroup({
                     }
                     onOpenInNewTab={
                       onOpenInNewTab
-                        ? () => onOpenInNewTab(Number(session.id))
+                        ? () => onOpenInNewTab(session.id)
                         : undefined
                     }
                     onRenameSession={
                       onRenameSession
-                        ? () =>
-                            onRenameSession(Number(session.id), session.title)
+                        ? () => onRenameSession(session.id, session.title)
                         : undefined
                     }
-                    onDeleteSession={
-                      onDeleteSession
-                        ? () => onDeleteSession(Number(session.id))
-                        : undefined
-                    }
+                    onDeleteSession={deleteHandlerFor(session.id)}
                   />
                 ))}
               </div>
@@ -241,8 +265,10 @@ function SessionGroup({
               <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
                 <PopoverTrigger asChild>
                   <button
+                    ref={setOverflowTrigger}
                     type="button"
                     disabled={!expanded}
+                    tabIndex={expanded ? undefined : -1}
                     className="flex cursor-pointer items-center gap-1 px-2 py-1.5 text-left text-2xs font-medium text-primary-text outline-none transition-colors hover:text-primary focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-default"
                   >
                     {t("sessionGroup.viewAll", { count: totalSessions })}
@@ -254,12 +280,17 @@ function SessionGroup({
                     这一页会在**组渲染的那一刻**拉一次并从此不再更新，之后每次
                     点开看到的都是那份旧快照（计数也一起旧）。 */}
                 {popoverOpen && renderSessionsPopover
-                  ? renderSessionsPopover(() => setPopoverOpen(false))
+                  ? renderSessionsPopover(
+                      () => setPopoverOpen(false),
+                      overflowTrigger,
+                    )
                   : null}
               </Popover>
             ) : null}
 
             {hasAfter ? renderAfterSessions : null}
+
+            {hasPending ? pending : null}
 
             {isEmpty ? (
               <div

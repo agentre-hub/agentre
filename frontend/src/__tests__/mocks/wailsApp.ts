@@ -127,6 +127,16 @@ export const ScanAndCreateAgentBackends = windowBackedMock(
   "ScanAndCreateAgentBackends",
   () => Promise.resolve({ results: [] }),
 );
+export const ListHermesAuthProviders = windowBackedMock(
+  "ListHermesAuthProviders",
+  () => Promise.resolve({ providers: [] }),
+);
+export const LoginHermesBackend = windowBackedMock("LoginHermesBackend", () =>
+  Promise.resolve({ provider: "", userId: "" }),
+);
+export const LogoutHermesBackend = windowBackedMock("LogoutHermesBackend", () =>
+  Promise.resolve({}),
+);
 export const GetGatewayStatus = windowBackedMock("GetGatewayStatus", () =>
   Promise.resolve({ status: "stopped", listenURL: "", reason: "", routes: [] }),
 );

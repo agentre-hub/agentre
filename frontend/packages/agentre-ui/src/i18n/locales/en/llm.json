@@ -404,6 +404,10 @@
         "label": "Codex CLI",
         "shortLabel": "Codex"
       },
+      "hermes": {
+        "label": "Hermes Agent",
+        "shortLabel": "Hermes"
+      },
       "openclaw": {
         "label": "OpenClaw Gateway"
       },
@@ -464,6 +468,33 @@
       "empty": "No key-value pairs. Use + Add below to create one.",
       "reservedDisabled": "Reserved keys disabled: {{keys}}",
       "title": "Advanced · Custom Environment Variables"
+    },
+    "hermes": {
+      "urlHint": "The address of a running `hermes serve` (loopback needs no login). Start it yourself; Agentre never spawns it.",
+      "urlLabel": "Server URL",
+      "urlPlaceholder": "e.g. http://127.0.0.1:9119",
+      "authTitle": "Authentication",
+      "authHint": "A non-loopback serve requires signing in. Only the refresh token is stored, never the password.",
+      "authProvider": "Provider",
+      "authProviderPlaceholder": "Select a provider",
+      "authProvidersLoading": "Loading providers…",
+      "authUsername": "Username",
+      "authPassword": "Password",
+      "authLogin": "Sign in",
+      "authLoggingIn": "Signing in…",
+      "authLogout": "Sign out",
+      "authLoggedInAs": "Signed in as {{userId}}",
+      "authProviderUnsupported": "This provider requires browser authorization, which is not supported yet",
+      "errors": {
+        "HERMES_LOGIN_REQUIRED": "This Hermes server requires signing in; enter a username and password",
+        "HERMES_LOGIN_EXPIRED": "Your Hermes session expired; please sign in again",
+        "HERMES_INVALID_CREDENTIALS": "Incorrect username or password",
+        "HERMES_RATE_LIMITED": "Too many sign-in attempts; please try again later",
+        "HERMES_PROVIDER_UNSUPPORTED": "This provider requires browser authorization, which is not supported yet",
+        "HERMES_PROVIDER_UNAVAILABLE": "The identity provider is temporarily unavailable; try again later",
+        "HERMES_PROVIDER_NOT_FOUND": "The server does not know this auth provider",
+        "HERMES_UNREACHABLE": "Cannot reach the Hermes server; check the URL and network"
+      }
     },
     "fields": {
       "device": "Runtime Device",
@@ -609,6 +640,7 @@
       "needsAction": "Needs action",
       "unused": "Not used by any agent",
       "bindingCliLogin": "Use CLI login state",
+      "bindingHermes": "Hermes owns its model config",
       "bindingInvalid": "Model binding is invalid",
       "bindingInvalidReason": "{{provider}} · {{model}} is disabled or no longer available"
     },
@@ -627,15 +659,19 @@
       "modeGateway": "Gateway selection",
       "modeInvalid": "Invalid",
       "modeCli": "CLI login",
+      "modeHermes": "Hermes-managed",
+      "hermesModel": "Determined by Hermes' own config",
       "sources": {
         "cli": "CLI login state",
         "agentre": "Agentre provider · {{provider}}",
-        "openclaw": "OpenClaw Gateway"
+        "openclaw": "OpenClaw Gateway",
+        "hermes": "Hermes' own config"
       },
       "reasons": {
         "nameRequired": "Enter a backend name",
         "invalidTarget": "Choose a valid model binding",
-        "bindingRequired": "No compatible provider is available; configure one and select a model binding"
+        "bindingRequired": "No compatible provider is available; configure one and select a model binding",
+        "hermesUrlRequired": "Enter the Hermes Server URL"
       }
     },
     "sandbox": {

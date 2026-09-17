@@ -92,15 +92,6 @@
       "time": "时间",
       "title": "分组方式"
     },
-    "empty": {
-      "noMatch": "没有匹配的会话",
-      "nothing": "还没有任何对话"
-    },
-    "filter": {
-      "all": "全部",
-      "running": "运行中",
-      "unread": "未读"
-    },
     "free": {
       "empty": "还没有随手对话",
       "name": "随手对话"
@@ -109,7 +100,6 @@
       "pickDirectoryTitle": "为导入的会话选择工作目录"
     },
     "machine": {
-      "empty": "这台机器上还没有对话",
       "local": "本机"
     },
     "search": {
@@ -121,17 +111,6 @@
     "untitledSession": "未命名会话"
   },
   "sessionsPopover": {
-    "empty": "暂无会话",
-    "loadFailed": "加载失败：{{error}}",
-    "loaded": "已加载 {{loaded}} / {{total}}",
-    "loadMore": "加载更多",
-    "noMatches": "未匹配到「{{query}}」",
-    "running": "{{count}} 运行中",
-    "search": {
-      "aria": "按标题筛选会话",
-      "placeholder": "标题搜索…"
-    },
-    "total": "{{count}} 个会话",
     "untitled": "(未命名)"
   },
   "shortcuts": {

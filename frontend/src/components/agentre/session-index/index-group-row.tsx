@@ -13,6 +13,7 @@ import {
   RowLeadingSlot,
   RowSecondaryLine,
   SessionGroup,
+  useUiTranslation,
   type ImportDialogPrefill,
   type ProjectGlyphInfo,
 } from "@agentre-hub/agentre-ui";
@@ -122,6 +123,7 @@ export function IndexGroupRow({
   children,
 }: IndexGroupRowProps) {
   const { t } = useTranslation();
+  const { t: uiT } = useUiTranslation();
   const metas = useSessionMetaStore((s) => s.metas);
 
   // 常规列表只铺「最近会话」（agent 轴 = 前 5 条，recentIDs）；attention 池单独喂气泡。
@@ -233,12 +235,15 @@ export function IndexGroupRow({
     ? sessions.length
     : Math.max(group.total, sessions.length);
 
+  // Shared 组件把行的**原始字符串身份**交回来（规格 2026-09-16 决策 3）；
+  // desktop 只在这一处 adapter 边界转回本地数字主键，包内不再做身份强转。
   const rowHandlers = {
     onSessionSelect: (id: string, opts?: { newTab?: boolean }) =>
       handlers.onSessionSelect(Number(id), opts),
-    onOpenInNewTab: handlers.onOpenInNewTab,
-    onRenameSession: handlers.onRenameSession,
-    onDeleteSession: handlers.onDeleteSession,
+    onOpenInNewTab: (id: string) => handlers.onOpenInNewTab(Number(id)),
+    onRenameSession: (id: string, title: string) =>
+      handlers.onRenameSession(Number(id), title),
+    onDeleteSession: (id: string) => handlers.onDeleteSession(Number(id)),
   };
 
   const selectedSessionIDStr =
@@ -459,7 +464,7 @@ export function IndexGroupRow({
           : // 空机器组照摆（决策 10），组内如实说一句：刚配好的一台 daemon
             // 上没有会话，它也得在索引里看得见。
             group.kind === "machine"
-            ? t("sessionIndex.machine.empty")
+            ? uiT("sessionIndex.machine.empty")
             : undefined
       }
       {...rowHandlers}

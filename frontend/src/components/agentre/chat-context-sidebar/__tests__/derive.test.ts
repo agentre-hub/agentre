@@ -135,6 +135,43 @@ describe("deriveOutline", () => {
     expect(out[1].edits).toBe(1);
   });
 
+  // Hermes 的写文件工具用的是自己那套 wire 形状（`input.path`），与 claudecode 的
+  // PascalCase / file_path 不同。read_file 同样是 input.path，但它是只读工具，
+  // 不能计进「改动」；terminal 只有 command/workdir，连路径都没有。
+  it("counts Hermes write_file and patch as edits but ignores read_file and terminal", () => {
+    const msgs = [
+      userMsg(1, "do hermes edits"),
+      assistantWithBlocks(2, [
+        {
+          type: "tool_use",
+          toolName: "write_file",
+          toolInput: { path: "/tmp/a.txt", content: "OK\n" },
+        },
+        {
+          type: "tool_use",
+          toolName: "patch",
+          toolInput: {
+            path: "/tmp/a.txt",
+            old_string: "OK",
+            new_string: "DONE",
+          },
+        },
+        {
+          type: "tool_use",
+          toolName: "read_file",
+          toolInput: { path: "/tmp/a.txt" },
+        },
+        {
+          type: "tool_use",
+          toolName: "terminal",
+          toolInput: { command: "ls -l", workdir: "/tmp" },
+        },
+      ]),
+    ];
+
+    expect(deriveOutline(msgs)[0].edits).toBe(2);
+  });
+
   it("marks err=true if the following assistant has errorText", () => {
     const msgs = [userMsg(1, "trigger"), assistantWithEdits(2, [], true)];
     const out = deriveOutline(msgs);
@@ -297,6 +334,65 @@ describe("deriveSessionChanges", () => {
       status: "modified",
       plus: 42,
       minus: 1,
+    });
+  });
+
+  it("surfaces Hermes write_file as a written row and patch as a modified row using the real ChatBlock shape", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        {
+          type: "tool_use",
+          toolName: "write_file",
+          toolInput: { path: "new.txt", content: "OK\n" },
+          canonical: {
+            kind: "file.write",
+            fileWrite: { path: "new.txt", content: "OK", lines: 1, bytes: 3 },
+          },
+        },
+        {
+          type: "tool_use",
+          toolName: "patch",
+          toolInput: {
+            path: "hello.txt",
+            old_string: "OK",
+            new_string: "DONE",
+          },
+          canonical: {
+            kind: "file.edit",
+            fileEdit: {
+              files: [
+                {
+                  kind: "modified",
+                  hunks: [],
+                  path: "hello.txt",
+                  plus: 1,
+                  minus: 1,
+                },
+              ],
+            },
+          },
+        },
+        {
+          type: "tool_use",
+          toolName: "read_file",
+          toolInput: { path: "hello.txt" },
+        },
+      ]),
+    ];
+
+    const rows = deriveSessionChanges(msgs, ROOT);
+    expect(rows).toHaveLength(2);
+    const byPath = new Map(rows.map((r) => [r.path, r]));
+    expect(byPath.get("hello.txt")).toMatchObject({
+      status: "modified",
+      plus: 1,
+      minus: 1,
+    });
+    expect(byPath.get("new.txt")).toMatchObject({
+      status: "written",
+      plus: 1,
+      minus: 0,
     });
   });
 

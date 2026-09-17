@@ -10,6 +10,7 @@ import {
   AgentBackendsPanel,
   agentreUiResources,
   LlmProvidersPanel,
+  type BackendType,
   type BackendView,
   type EngineSettingsPorts,
 } from "../index";
@@ -130,6 +131,58 @@ describe("engine settings optional ports", () => {
     await screen.findByText("Claude Code");
     expect(screen.queryByRole("button", { name: /auto-detect/i })).toBeNull();
     expect(screen.queryByLabelText(/cli path/i)).toBeNull();
+  });
+});
+
+describe("engine settings backend capabilities", () => {
+  const browserBackendTypes: readonly BackendType[] = [
+    "claudecode",
+    "codex",
+    "piagent",
+    "openclaw",
+  ];
+
+  it("hides existing backends whose type the host does not support", async () => {
+    renderPanel(
+      createPorts({
+        supportedBackendTypes: browserBackendTypes,
+        listBackends: vi.fn().mockResolvedValue([
+          backendRow({ name: "Claude Code", type: "claudecode" }),
+          backendRow({
+            id: 2,
+            syncId: "backend-2",
+            name: "Hermes",
+            type: "hermes",
+          }),
+        ]),
+      }),
+    );
+
+    expect(await screen.findByText("Claude Code")).toBeTruthy();
+    expect(screen.queryByText("Hermes")).toBeNull();
+  });
+
+  it("limits pointer and arrow-key selection to the host's supported backend types", async () => {
+    const user = userEvent.setup();
+    renderPanel(createPorts({ supportedBackendTypes: browserBackendTypes }));
+    const dialog = await openCreateDialog(user);
+
+    expect(within(dialog).queryByRole("radio", { name: /^Hermes/ })).toBeNull();
+    const pi = within(dialog).getByRole("radio", { name: /Pi Agent/ });
+    await user.click(pi);
+    await user.keyboard("{ArrowRight}");
+
+    expect(
+      within(dialog).getByRole("radio", { name: /OpenClaw Gateway/ }),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("keeps all backend types when the host does not declare a restriction", async () => {
+    const user = userEvent.setup();
+    renderPanel(createPorts());
+    const dialog = await openCreateDialog(user);
+
+    expect(within(dialog).getByRole("radio", { name: /^Hermes/ })).toBeTruthy();
   });
 });
 

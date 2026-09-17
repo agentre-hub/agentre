@@ -24,6 +24,10 @@ const (
 	BlockReasonGatewayNotRunning BlockReason = "gateway-not-running"
 	// BlockReasonRemoteOpenClawUnavailable 远端 OpenClaw 暂不可用。
 	BlockReasonRemoteOpenClawUnavailable BlockReason = "remote-openclaw-unavailable"
+	// BlockReasonRemoteHermesUnavailable 远端 Hermes 暂不可用：Hermes 自带
+	// provider/model/凭证，只在运行 `hermes serve` 的那台桌面端本机工作，没有
+	// 派发到 agentred 的执行通道。
+	BlockReasonRemoteHermesUnavailable BlockReason = "remote-hermes-unavailable"
 	// BlockReasonUnknownBackend 未知 Agent 后端类型。
 	BlockReasonUnknownBackend BlockReason = "unknown-backend"
 

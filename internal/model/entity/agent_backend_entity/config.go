@@ -6,19 +6,20 @@ import (
 	"strings"
 )
 
-// backendConfig 是九个**单类型独占**设置的持久化形态。
+// backendConfig 是十二个**单类型独占**设置的持久化形态。
 //
 // 为什么它们合成一列而不是各占一列：agent_backends 是所有后端类型共用的一张表，
-// 而这九格里没有一格被两种类型同时认领 —— model_routes / default_permission_mode /
+// 而这十格里没有一格被两种类型同时认领 —— model_routes / default_permission_mode /
 // default_model 只有 claudecode 认，sandbox / approval 只有 codex 认，四个 openclaw_*
-// 只有 openclaw 认。其余四种类型的行上它们恒为空串，且 kinds.go 的 ValidateExtra
+// 只有 openclaw 认，hermes_url 只有 hermes 认。其余类型的行上它们恒为空串，
+// 且 kinds.go 的 ValidateExtra
 // 会逐条拒绝写入。列的形态因此表达不出任何约束，只是把「谁认识哪些字段」这件事
 // 在 schema 里又抄了一遍 —— 而那件事的真相源是 BackendKind。
 //
-// 代价是这九格不能再当查询条件（JSON 列上没有索引）。这不损失任何东西：全仓没有
-// 一处按它们查询或排序，它们只在「取出这条后端 → 起子进程」这一条路上被读。
+// 代价是这十格不能再当查询条件（JSON 列上没有索引）。这不损失任何东西：全仓没有
+// 一处按它们查询或排序，它们只在「取出这条后端 → 发起一轮」这一条路上被读。
 //
-// 跨机同步与导入导出**不经过这里**：它们读写的是 AgentBackend 上那九个 Go 字段
+// 跨机同步与导入导出**不经过这里**：它们读写的是 AgentBackend 上那十个 Go 字段
 // （adapter_org.go 的 model_routes / sandbox / … 与 data_svc 的 bundle），线格式
 // 一个字节都没变。改的只是本机怎么存。
 type backendConfig struct {
@@ -33,6 +34,11 @@ type backendConfig struct {
 	OpenClawAgentID       string          `json:"openclawAgentId,omitempty"`
 	OpenClawDefaultModel  string          `json:"openclawDefaultModel,omitempty"`
 	OpenClawSessionMode   string          `json:"openclawSessionMode,omitempty"`
+	HermesURL             string          `json:"hermesUrl,omitempty"`
+	// HermesAuthProvider / HermesUserID 是 gated serve 的非敏感展示字段。refresh
+	// token 绝不进这里（它只在 keychain 里）。
+	HermesAuthProvider string `json:"hermesAuthProvider,omitempty"`
+	HermesUserID       string `json:"hermesUserId,omitempty"`
 }
 
 // emptyModelRoutes 是 model_routes 这一格的「没配」形态。历史列带
@@ -41,7 +47,7 @@ type backendConfig struct {
 // 而不是 ""，让换存储这件事对上层完全不可见。
 const emptyModelRoutes = "{}"
 
-// MarshalConfig 把九个独占字段收进 b.ConfigJSON。写库前调用（见
+// MarshalConfig 把十个独占字段收进 b.ConfigJSON。写库前调用（见
 // agent_backend_repo 的 Create / Update）。
 //
 // 全空时给出 "{}" 而不是 "null"：列是 NOT NULL DEFAULT '{}'，而 "null" 会让下一次
@@ -59,6 +65,9 @@ func (b *AgentBackend) MarshalConfig() error {
 		OpenClawAgentID:       b.OpenClawAgentID,
 		OpenClawDefaultModel:  b.OpenClawDefaultModel,
 		OpenClawSessionMode:   b.OpenClawSessionMode,
+		HermesURL:             b.HermesURL,
+		HermesAuthProvider:    b.HermesAuthProvider,
+		HermesUserID:          b.HermesUserID,
 	}
 	// 空路由不留键：否则每一行非 claudecode 后端都平白带一个 {"modelRoutes":{}}。
 	if routes := strings.TrimSpace(b.ModelRoutes); !isEmptyJSONObject(routes) {
@@ -73,10 +82,10 @@ func (b *AgentBackend) MarshalConfig() error {
 	return nil
 }
 
-// UnmarshalConfig 把 b.ConfigJSON 摊回九个独占字段。读库后调用（见
+// UnmarshalConfig 把 b.ConfigJSON 摊回十个独占字段。读库后调用（见
 // agent_backend_repo 的 hydrateConfig）。
 //
-// 坏 JSON 报错而不是静默清零：这九格的零值都是**合法取值**（空 sandbox = 走 CLI
+// 坏 JSON 报错而不是静默清零：这十格的零值都是**合法取值**（空 sandbox = 走 CLI
 // 默认，空网关地址 = 还没配），清零之后没有任何一处会觉得不对。
 func (b *AgentBackend) UnmarshalConfig() error {
 	if b == nil {
@@ -102,5 +111,8 @@ func (b *AgentBackend) UnmarshalConfig() error {
 	b.OpenClawAgentID = cfg.OpenClawAgentID
 	b.OpenClawDefaultModel = cfg.OpenClawDefaultModel
 	b.OpenClawSessionMode = cfg.OpenClawSessionMode
+	b.HermesURL = cfg.HermesURL
+	b.HermesAuthProvider = cfg.HermesAuthProvider
+	b.HermesUserID = cfg.HermesUserID
 	return nil
 }

@@ -80,8 +80,9 @@ export function AgentBackendsEmptyState({
   );
 }
 
-// 一行后端的绑定面包屑有四种形态：网关托管 / 走 CLI 自身登录 / 绑定失效 / 正常绑定。
-type BindingVariant = "openclaw" | "cli-login" | "invalid" | "bound";
+// 一行后端的绑定面包屑分五种形态：网关托管 / 走 CLI 自身登录 / 绑定失效 / 正常
+// 绑定，以及 Hermes 自带模型配置——它既不走 CLI 登录也不绑 Agentre 供应商。
+type BindingVariant = "openclaw" | "hermes" | "cli-login" | "invalid" | "bound";
 
 // 绑定长在元数据行上（供应商 › 模型 + 跟随默认/固定），不再独立成块 —— 一眼看清绑了什么。
 function BackendRowBinding({
@@ -122,6 +123,13 @@ function BackendRowBinding({
             {backend.openClawDefaultModel ||
               backend.openClawAgentId ||
               t("agentBackends.openclaw.modelGatewayDefault")}
+          </span>
+        </>
+      ) : variant === "hermes" ? (
+        <>
+          <Lock className="size-3 shrink-0" aria-hidden="true" />
+          <span className="truncate">
+            {t("agentBackends.row.bindingHermes")}
           </span>
         </>
       ) : variant === "cli-login" ? (
@@ -236,11 +244,13 @@ export function BackendRow({
   const warning = !openClaw && !unlinkedCli && !backend.llmProviderActive;
   const bindingVariant: BindingVariant = openClaw
     ? "openclaw"
-    : unlinkedCli
-      ? "cli-login"
-      : warning
-        ? "invalid"
-        : "bound";
+    : typ === "hermes"
+      ? "hermes"
+      : unlinkedCli
+        ? "cli-login"
+        : warning
+          ? "invalid"
+          : "bound";
 
   // 类型回到名字旁的 chip;元数据行只留「绑定面包屑 · 运行位置 · 引用数」，一行说清
   // 「绑了谁、在哪跑、谁在用」。
@@ -309,7 +319,7 @@ export function BackendRow({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {!openClaw ? (
+          {!openClaw && typ !== "hermes" ? (
             <Button
               type="button"
               variant={warning ? "default" : "outline"}

@@ -74,3 +74,27 @@ func (a *App) ResolveAgentBackendCLIPath(req *agent_backend_svc.ResolveCLIPathRe
 func (a *App) ScanAndCreateAgentBackends() (*agent_backend_svc.ScanAndCreateAgentBackendsResponse, error) {
 	return agent_backend_svc.AgentBackend().ScanAndCreateAgentBackends(a.ctx, &agent_backend_svc.ScanAndCreateAgentBackendsRequest{})
 }
+
+// ListHermesAuthProviders 读取一个 hermes serve 支持的认证 provider（供弹窗下拉，不硬编码）。
+func (a *App) ListHermesAuthProviders(req *agent_backend_svc.ListHermesAuthProvidersRequest) (*agent_backend_svc.ListHermesAuthProvidersResponse, error) {
+	return agent_backend_svc.AgentBackend().ListHermesAuthProviders(a.ctx, req)
+}
+
+// LoginHermesBackend 跑原生 PKCE 登录：只把 refresh token 写入 keychain，绝不存密码。
+// 失败带业务码（codedError），前端据此区分「密码错 / 限速 / 需要浏览器」等出路。
+func (a *App) LoginHermesBackend(req *agent_backend_svc.LoginHermesRequest) (*agent_backend_svc.LoginHermesResponse, error) {
+	resp, err := agent_backend_svc.AgentBackend().LoginHermes(a.ctx, req)
+	if err != nil {
+		return nil, codedError(err)
+	}
+	return resp, nil
+}
+
+// LogoutHermesBackend 删除凭据并清掉后端上两个展示字段。
+func (a *App) LogoutHermesBackend(req *agent_backend_svc.LogoutHermesRequest) (*agent_backend_svc.LogoutHermesResponse, error) {
+	resp, err := agent_backend_svc.AgentBackend().LogoutHermes(a.ctx, req)
+	if err != nil {
+		return nil, codedError(err)
+	}
+	return resp, nil
+}

@@ -404,6 +404,10 @@
         "label": "Codex CLI",
         "shortLabel": "Codex"
       },
+      "hermes": {
+        "label": "Hermes Agent",
+        "shortLabel": "Hermes"
+      },
       "openclaw": {
         "label": "OpenClaw Gateway"
       },
@@ -464,6 +468,33 @@
       "empty": "暂无键值；点下方「+ 新增」加一行。",
       "reservedDisabled": "保留键禁用：{{keys}}",
       "title": "高级 · 自定义环境变量"
+    },
+    "hermes": {
+      "urlHint": "一个已在运行的 `hermes serve` 地址（loopback 无需登录）。服务端由你自己拉起，Agentre 不代起。",
+      "urlLabel": "Server URL",
+      "urlPlaceholder": "如 http://127.0.0.1:9119",
+      "authTitle": "认证",
+      "authHint": "非 loopback 的 serve 需要登录。凭据只保存 refresh token，不保存密码。",
+      "authProvider": "认证方式",
+      "authProviderPlaceholder": "选择认证方式",
+      "authProvidersLoading": "正在获取认证方式…",
+      "authUsername": "用户名",
+      "authPassword": "密码",
+      "authLogin": "登录",
+      "authLoggingIn": "登录中…",
+      "authLogout": "退出登录",
+      "authLoggedInAs": "已登录为 {{userId}}",
+      "authProviderUnsupported": "该认证方式需要浏览器授权，当前版本暂不支持",
+      "errors": {
+        "HERMES_LOGIN_REQUIRED": "该 Hermes 服务需要登录，请先输入账号密码登录",
+        "HERMES_LOGIN_EXPIRED": "Hermes 登录已过期，请重新登录",
+        "HERMES_INVALID_CREDENTIALS": "用户名或密码错误",
+        "HERMES_RATE_LIMITED": "登录尝试过于频繁，请稍后再试",
+        "HERMES_PROVIDER_UNSUPPORTED": "该认证方式需要浏览器授权，当前版本暂不支持",
+        "HERMES_PROVIDER_UNAVAILABLE": "身份提供方暂时不可用，请稍后再试",
+        "HERMES_PROVIDER_NOT_FOUND": "服务端不存在该认证 provider",
+        "HERMES_UNREACHABLE": "无法连接到 Hermes 服务，请检查地址与网络"
+      }
     },
     "fields": {
       "device": "运行设备",
@@ -609,6 +640,7 @@
       "needsAction": "需处理",
       "unused": "暂未被 Agent 使用",
       "bindingCliLogin": "走 CLI 自身登录态",
+      "bindingHermes": "Hermes 自带模型配置",
       "bindingInvalid": "模型绑定已失效",
       "bindingInvalidReason": "{{provider}} · {{model}} 已停用或不存在"
     },
@@ -627,15 +659,19 @@
       "modeGateway": "Gateway 选择",
       "modeInvalid": "失效",
       "modeCli": "CLI 登录态",
+      "modeHermes": "Hermes 管理",
+      "hermesModel": "由 Hermes 自身配置决定",
       "sources": {
         "cli": "CLI 自身登录态",
         "agentre": "Agentre 供应商 · {{provider}}",
-        "openclaw": "OpenClaw Gateway"
+        "openclaw": "OpenClaw Gateway",
+        "hermes": "Hermes 自带配置"
       },
       "reasons": {
         "nameRequired": "请填写后端名称",
         "invalidTarget": "请选择有效的模型绑定",
-        "bindingRequired": "当前没有兼容供应商，请先配置并选择模型绑定"
+        "bindingRequired": "当前没有兼容供应商，请先配置并选择模型绑定",
+        "hermesUrlRequired": "请填写 Hermes Server URL"
       }
     },
     "sandbox": {

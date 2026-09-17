@@ -49,6 +49,7 @@ var backendKinds = map[BackendType]BackendKind{
 	TypeCodex:      codexKind{},
 	TypePiAgent:    piAgentKind{},
 	TypeOpenClaw:   openClawKind{},
+	TypeHermes:     hermesKind{},
 }
 
 // KindFor 查表，找不到返 nil。Service 在 Test/Create/Update 前用它分派 Prober。
@@ -227,6 +228,40 @@ func (openClawKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
 	if strings.TrimSpace(b.OpenClawSessionMode) != OpenClawSessionPerAgentRESession {
+		return i18n.NewError(ctx, code.InvalidParameter)
+	}
+	return nil
+}
+
+// hermesKind 连接一个已在运行的 Hermes `serve`（WebSocket JSON-RPC）。
+// Hermes 自带 provider/model/凭证，因此 ProviderTypeMatch 恒 false、New-session
+// provider pill 对它永远不渲染；它只接受一个 Server URL，不接受 cli_path /
+// 解释器参数这类本地进程旋钮。
+type hermesKind struct{}
+
+func (hermesKind) Type() BackendType      { return TypeHermes }
+func (hermesKind) KnownAliases() []string { return nil }
+
+// ProviderTypeMatch 恒 false：Hermes 的模型来自它自己的配置，Agentre 不参与。
+func (hermesKind) ProviderTypeMatch(llm_provider_entity.ProviderType) bool { return false }
+func (hermesKind) RequiresProviderModel() bool                             { return false }
+func (hermesKind) AllowsCLIPath() bool                                     { return false }
+
+func (hermesKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
+	// Hermes 拥有自己的 provider/model/凭证，因此 claudecode / codex / piagent 的
+	// 绑定与档位字段一律拒绝；它只用一个 Server URL。
+	if strings.TrimSpace(b.LLMProviderKey) != "" ||
+		strings.TrimSpace(b.LLMModelKey) != "" ||
+		strings.TrimSpace(b.CLIPath) != "" ||
+		!isEmptyJSONObject(b.ModelRoutes) ||
+		strings.TrimSpace(b.Sandbox) != "" ||
+		strings.TrimSpace(b.Approval) != "" ||
+		strings.TrimSpace(b.DefaultPermissionMode) != "" ||
+		strings.TrimSpace(b.DefaultModel) != "" ||
+		strings.TrimSpace(b.ReasoningEffort) != "" {
+		return i18n.NewError(ctx, code.InvalidParameter)
+	}
+	if _, err := NormalizeHermesURL(b.HermesURL); err != nil {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
 	return nil

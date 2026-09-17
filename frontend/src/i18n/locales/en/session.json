@@ -92,15 +92,6 @@
       "time": "Time",
       "title": "Group by"
     },
-    "empty": {
-      "noMatch": "No matching sessions",
-      "nothing": "No conversations yet"
-    },
-    "filter": {
-      "all": "All",
-      "running": "Running",
-      "unread": "Unread"
-    },
     "free": {
       "empty": "No quick chats yet",
       "name": "Quick chats"
@@ -109,7 +100,6 @@
       "pickDirectoryTitle": "Choose a working directory for the imported session"
     },
     "machine": {
-      "empty": "No conversations on this machine yet",
       "local": "This machine"
     },
     "search": {
@@ -121,17 +111,6 @@
     "untitledSession": "Untitled session"
   },
   "sessionsPopover": {
-    "empty": "No sessions",
-    "loadFailed": "Load failed: {{error}}",
-    "loaded": "Loaded {{loaded}} / {{total}}",
-    "loadMore": "Load More",
-    "noMatches": "No matches for \"{{query}}\"",
-    "running": "{{count}} running",
-    "search": {
-      "aria": "Filter sessions by title",
-      "placeholder": "Search titles..."
-    },
-    "total": "{{count}} sessions",
     "untitled": "(Untitled)"
   },
   "shortcuts": {

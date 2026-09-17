@@ -37,6 +37,7 @@ import (
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/builtin"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/codex"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/openclaw"
 	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
@@ -1325,6 +1326,14 @@ func (s *chatSvc) resolveAgentBackend(ctx context.Context, sess *chat_entity.Ses
 			}
 		}
 		// LLMProviderKey == "" → CLI 自身 login 状态生效，不强制 gateway。
+	case agent_backend_entity.TypeHermes:
+		if exec_target_svc.BackendTargetsRemote(be) {
+			// Hermes 只在运行 `hermes serve` 的那台桌面端本机工作，没有派发到
+			// agentred 的执行通道；明确拒绝，而不是让它悄悄走远端池。
+			return nil, nil, nil, i18n.NewError(ctx, code.ChatBackendRemoteHermesUnavailable)
+		}
+		// 本机 hermes 自带 provider/model/凭证，不绑定 Agentre LLMProvider，也不经
+		// 本地网关转发：不查 provider、不要求 gateway。URL 连不上由轮次启动时报错。
 	case agent_backend_entity.TypeOpenClaw:
 		if exec_target_svc.BackendTargetsRemote(be) {
 			return nil, nil, nil, fmt.Errorf("openclaw remote secret enrollment is unavailable")
@@ -2508,6 +2517,11 @@ func (s *chatSvc) buildRunRequest(
 		req.PermissionMode = ipc.NormalizeStoredPermissionMode(agent_backend_entity.TypeClaudeCode, sess.PermissionMode)
 	case agent_backend_entity.TypeCodex:
 		req.CollaborationMode = ipc.NormalizeStoredPermissionMode(agent_backend_entity.TypeCodex, sess.PermissionMode)
+	case agent_backend_entity.TypeHermes:
+		// 故意什么都不下发：Hermes 的权限/审批由它自己的 `serve` 配置决定，Agentre
+		// 没有对应字段。历史也不经 RunRequest.History（那是 builtin 专用），它自带
+		// provider 会话、由 ProviderSessionID 续话，因此这里保持空值是正确语义，
+		// 不是遗漏。
 	}
 	return req, nil
 }

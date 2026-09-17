@@ -22,6 +22,8 @@ export function computeSaveValidation(args: {
   // llmProviderKey 传 effectiveLlmProviderKey（含 builtin 的自动选中）。
   llmProviderKey: string;
   llmModelKey: string;
+  cliPath: string;
+  hermesUrl: string;
   openClawGatewayURL: string;
   targetCatalog: PickerProvider[];
   filteredProviders: Provider[];
@@ -80,20 +82,22 @@ export function computeSaveValidation(args: {
   const saveBlockedReason =
     name.trim() === ""
       ? t("agentBackends.summary.reasons.nameRequired")
-      : mainTargetInvalid
-        ? t("agentBackends.summary.reasons.invalidTarget")
-        : piAgentModelMissing
-          ? t("agentBackends.provider.modelRequiredTitle")
-          : !providerOptional &&
-              (filteredProviders.length === 0 || llmProviderKey === "")
-            ? t("agentBackends.summary.reasons.bindingRequired")
-            : isCliBackend(type) && reservedOffenders.length > 0
-              ? t("agentBackends.env.reservedDisabled", {
-                  keys: reservedOffenders.join(", "),
-                })
-              : openClawIssue
-                ? openClawProbeErrorMessage(openClawIssue, "", t)
-                : null;
+      : type === "hermes" && args.hermesUrl.trim() === ""
+        ? t("agentBackends.summary.reasons.hermesUrlRequired")
+        : mainTargetInvalid
+          ? t("agentBackends.summary.reasons.invalidTarget")
+          : piAgentModelMissing
+            ? t("agentBackends.provider.modelRequiredTitle")
+            : !providerOptional &&
+                (filteredProviders.length === 0 || llmProviderKey === "")
+              ? t("agentBackends.summary.reasons.bindingRequired")
+              : isCliBackend(type) && reservedOffenders.length > 0
+                ? t("agentBackends.env.reservedDisabled", {
+                    keys: reservedOffenders.join(", "),
+                  })
+                : openClawIssue
+                  ? openClawProbeErrorMessage(openClawIssue, "", t)
+                  : null;
   const effectiveSaveBlockedReason =
     type !== "openclaw" && resolvedMainTarget.mode === "invalid"
       ? t("agentBackends.summary.reasons.invalidTarget")

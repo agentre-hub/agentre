@@ -78,6 +78,8 @@ type UseChatActionsOptions = {
   onSidebarShouldReload?: () => void;
   streaming: boolean;
   activeBackendType: string;
+  /** 当前 runtime 支持生成中插入消息（steer）。false 时不排队，提示等本轮结束。 */
+  canSteer: boolean;
   isModeSwitchable: boolean;
   permissionModeValue: string;
   supportsImageInput: boolean;
@@ -129,6 +131,7 @@ function useChatActions({
   onSidebarShouldReload,
   streaming,
   activeBackendType,
+  canSteer,
   isModeSwitchable,
   permissionModeValue,
   supportsImageInput,
@@ -609,6 +612,15 @@ function useChatActions({
         setNotice({
           kind: "error",
           text: t("chatPanel.errors.imageWhileStreaming"),
+        });
+        return;
+      }
+      // runtime 不认 steer（Hermes 只声明 abort）时不能假装能插：
+      // 排进去也永远等不到安全点。提示用户等本轮结束再发。
+      if (!canSteer) {
+        setNotice({
+          kind: "info",
+          text: t("chatPanel.errors.steerUnsupported"),
         });
         return;
       }

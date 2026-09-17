@@ -64,7 +64,7 @@ describe("SessionsPopover paging", () => {
     expect(await screen.findByText("session 20")).toBeInTheDocument();
     expect(screen.queryByText("session 21")).toBeNull();
 
-    scrollToBottom(screen.getByTestId("sessions-popover-list"));
+    scrollToBottom(screen.getByTestId("session-group-overflow-list"));
 
     expect(await screen.findByText("session 21")).toBeInTheDocument();
     // 首屏 + 滚到底那一次，一次一页 —— 滚动不该退化成「把剩下的全取回来」。
@@ -78,7 +78,7 @@ describe("SessionsPopover paging", () => {
     const loader = renderPopover(20);
     expect(await screen.findByText("session 20")).toBeInTheDocument();
 
-    scrollToBottom(screen.getByTestId("sessions-popover-list"));
+    scrollToBottom(screen.getByTestId("session-group-overflow-list"));
 
     await waitFor(() => expect(loader).toHaveBeenCalledTimes(1));
   });
@@ -105,12 +105,81 @@ describe("SessionsPopover paging", () => {
     );
     await screen.findByText("session 20");
 
-    const list = screen.getByTestId("sessions-popover-list");
+    const list = screen.getByTestId("session-group-overflow-list");
     scrollToBottom(list);
     scrollToBottom(list);
 
     await waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
     release(page(20, 20, 44));
     expect(await screen.findByText("session 21")).toBeInTheDocument();
+  });
+
+  it("Given the desktop backend returns a short page with more rows available, When Load more is pressed, Then the opaque shared cursor converts back to the loaded-row offset", async () => {
+    const loader = vi
+      .fn<
+        (request: {
+          offset: number;
+          limit: number;
+        }) => Promise<SessionsPopoverPage>
+      >()
+      .mockResolvedValueOnce({
+        sessions: page(0, 2, 4).sessions,
+        total: 4,
+        hasMore: true,
+      })
+      .mockResolvedValueOnce({
+        sessions: page(2, 2, 4).sessions,
+        total: 4,
+        hasMore: false,
+      });
+    render(
+      <Popover open>
+        <PopoverAnchor />
+        <SessionsPopover
+          header={{ name: "Eng" }}
+          loader={loader}
+          onClose={() => {}}
+          onSelectSession={() => {}}
+        />
+      </Popover>,
+    );
+
+    await screen.findByText("session 2");
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+
+    expect(await screen.findByText("session 3")).toBeInTheDocument();
+    expect(loader).toHaveBeenNthCalledWith(2, { offset: 2, limit: 20 });
+  });
+
+  it("Given the full group overflow is open, Then desktop does not present a title search that can only filter already-loaded pages", async () => {
+    renderPopover(1);
+    await screen.findByText("session 1");
+
+    expect(
+      screen.queryByRole("textbox", { name: "Filter sessions by title" }),
+    ).toBeNull();
+  });
+
+  it("Given a desktop-rendered overflow row, When it is modifier-clicked, Then its numeric identity and new-tab action remain host-owned", async () => {
+    const onClose = vi.fn();
+    const onSelectSession = vi.fn();
+    render(
+      <Popover open>
+        <PopoverAnchor />
+        <SessionsPopover
+          header={{ name: "Eng" }}
+          loader={() => Promise.resolve(page(0, 1, 1))}
+          onClose={onClose}
+          onSelectSession={onSelectSession}
+        />
+      </Popover>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /session 1/ }), {
+      ctrlKey: true,
+    });
+
+    expect(onSelectSession).toHaveBeenCalledWith(1, { newTab: true });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

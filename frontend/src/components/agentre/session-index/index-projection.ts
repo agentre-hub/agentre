@@ -13,18 +13,25 @@
 //   - **总数**：桌面端每个轴各有一条分页查询，「查看全部 N」的 N 只有宿主数得出来。
 //     它经 `AxisInput.totals`（组键 → 总数）进去，再从 `IndexGroup.total` 回来。
 //
-// **组骨架仍归宿主**：哪些组存在、按什么顺序排，是「每轴一条查询」这件事决定的
-// （项目轴按项目树摊平、Agent 轴置顶优先 + 最近活动、时间轴单组），而且桌面端要摆
-// 空项目组、要常驻「随手对话」（决策 6）—— 共享投影按决策 10 只摆有会话的组，
-// 它给不出这些空组。所以这里是「骨架由宿主给、组内的分配 / 补齐 / 排序由投影做」：
-// 投影没给出的组（= 一条会话都没有）落回空列表，宿主的总数照旧。
+// **组的存亡归共享投影，宿主只摆骨架与排序**：`AxisInput.machines` / `agents` 是
+// 共享投影的**已知组名单**（决策 10 / 11），名单里的机器 / Agent 即使没有行也成组，
+// 「随手对话」更是常驻（决策 12）。宿主交来的 `slots` 只承载「每轴一条查询」取到的
+// 页与只属于宿主的维度（项目树的缩进、agent 轴的 recentIDs）；名单里还没有页的机器
+// 由投影自己成组。机器轴的排序是唯一的例外：投影按「在线优先、名字、设备号」排，
+// 桌面端再按 roster 的「本机第一、其余在线优先」名次排回去（machine-roster.ts 的
+// `machineRosterRank`）。
 import {
   buildAxisGroups,
   UNASSIGNED_PROJECT_KEY,
+  type AgentInfo,
   type AxisInput,
   type IndexAxis,
+  type IndexGroup as SharedIndexGroup,
   type IndexRow,
+  type MachineInfo,
 } from "@agentre-hub/agentre-ui";
+
+import { machineRosterRank } from "./machine-roster";
 
 export type IndexGroupKind = "project" | "agent" | "free" | "flat" | "machine";
 
@@ -89,15 +96,90 @@ function rowKey(rank: number, sessionID: number): string {
 }
 
 /**
- * 把宿主的组骨架过一遍共享投影：组内的会话由投影分配与排序，组本身原样保留。
+ * 共享投影的已知组名单：机器用宿主的 roster（顺序也是本机优先的 rank 依据），
+ * Agent 用宿主的 name / 头像色，两者都只影响「哪些空组存在」。
+ */
+export type ProjectionRoster = {
+  machines?: readonly MachineInfo[];
+  agents?: readonly AgentInfo[];
+};
+
+/**
+ * 共享组 → 桌面端那一套词汇（`project:<id>` / `agent:<id>` / `machine:<id>` / free /
+ * flat）。认不出的组交回 null —— 宁愿不摆，也不造一个没有宿主事实可渲染的空壳。
+ */
+function desktopGroupFrom(shared: SharedIndexGroup): IndexGroup | null {
+  const sessionIDs = shared.rows.map((row) => row.sessionId);
+  const total = shared.total ?? 0;
+  switch (shared.kind) {
+    case "project":
+      return {
+        key: `project:${shared.key}`,
+        kind: "project",
+        refID: Number(shared.key),
+        depth: shared.depth,
+        sessionIDs,
+        total,
+      };
+    case "agent":
+      return {
+        key: `agent:${shared.key}`,
+        kind: "agent",
+        refID: Number(shared.key),
+        depth: 0,
+        sessionIDs,
+        total,
+      };
+    case "machine": {
+      const deviceID = Number(shared.key.slice("device-".length));
+      if (!Number.isFinite(deviceID)) return null;
+      return {
+        key: `machine:${deviceID}`,
+        kind: "machine",
+        refID: deviceID,
+        depth: 0,
+        sessionIDs,
+        total,
+      };
+    }
+    case "unassignedProject":
+      return {
+        key: "free",
+        kind: "free",
+        refID: 0,
+        depth: 0,
+        sessionIDs,
+        total,
+      };
+    case "all":
+      return {
+        key: "flat",
+        kind: "flat",
+        refID: 0,
+        depth: 0,
+        sessionIDs,
+        total,
+      };
+    case "unnamedAgent":
+      // 桌面端 Agent 轴的每一行都来自一个按 agent 取数的组，认不出 Agent 的兜底组
+      // 不会出现；真出现了也不在这里造一个 refID 0 的空组头。
+      return null;
+  }
+}
+
+/**
+ * 把宿主的组骨架过一遍共享投影：哪些组存在、组内的分配与排序都听投影的，宿主留下的
+ * 只有自己那几维（项目树缩进、agent 轴的 recentIDs、机器轴的本机优先名次）。
  *
- * `axis` 用桌面端的三档（`@/lib/session-axis` 的 IndexAxis，是共享词汇表的子集），
- * `slots` 的 `sessionIDs` 是各轴查询刚取回来的那一页。
+ * `axis` 用桌面端的四档（`@/lib/session-axis` 的 IndexAxis，是共享词汇表的子集），
+ * `slots` 的 `sessionIDs` 是各轴查询刚取回来的那一页；`roster` 是已知机器 / Agent
+ * 名单，名单里的空组因此不靠宿主补。
  */
 export function projectIndexGroups(
   axis: IndexAxis,
   slots: readonly IndexGroup[],
   metas: ReadonlyMap<number, IndexRowFacts>,
+  roster: ProjectionRoster = {},
 ): IndexGroup[] {
   const rows: IndexRow[] = [];
   const totals: Record<string, number> = {};
@@ -131,29 +213,52 @@ export function projectIndexGroups(
 
   const input: AxisInput = {
     rows,
-    // 项目 / Agent 名单在投影里只用来给组**起名字、上色、排序**，而这三件事桌面端
-    // 都不从这里拿：名字与颜色由 index-page 按 refID 查树与 agent 列表，顺序是下面
-    // 那句「骨架说了算」。机器名单同理：组头的机器名与在线态由 index-group-row 从
-    // 名单（machine-roster.ts）自己查，投影只需要把行分进 `device-<id>` 里。
+    // 项目轴仍用宿主自己的树骨架（`projects: []`）：共享投影只负责把行按同步标识
+    // 归组，树的顺序与缩进由 slots 给出。机器 / Agent 名单则是权威的已知组名单。
     projects: [],
-    agents: [],
-    machines: [],
+    agents: [...(roster.agents ?? [])],
+    machines: [...(roster.machines ?? [])],
     totals,
   };
-  const projected = new Map(
-    buildAxisGroups(axis, input).map((group) => [group.key, group]),
-  );
+  const projected = buildAxisGroups(axis, input);
+  const bySharedKey = new Map(projected.map((group) => [group.key, group]));
 
-  return slots.map((slot) => {
-    const group = projected.get(sharedGroupKey(slot.kind, slot.refID));
-    // 投影里没有这一组 = 这一组一条会话都没有（决策 10）。宿主照摆，空着，
-    // 总数用宿主自己那一份 —— 只有这一种情况回退，别的情况总数一律**从投影回来**，
-    // 这样 totals 没接上时会当场变成 0（「查看全部 N」消失），而不是悄悄退回宿主值。
-    if (!group) return { ...slot, sessionIDs: [] };
-    return {
-      ...slot,
-      sessionIDs: group.rows.map((row) => row.sessionId),
-      total: group.total ?? 0,
-    };
-  });
+  // 1. 宿主骨架先落座：投影认得的组用投影分好的行，认不得的（空项目组、时间轴零行）
+  //    原样空着 —— 这些组是宿主的事实（项目树 / 单组平铺），不是「有行才有组」。
+  const out: IndexGroup[] = [];
+  const seen = new Set<string>();
+  for (const slot of slots) {
+    const group = bySharedKey.get(sharedGroupKey(slot.kind, slot.refID));
+    const resolved = group
+      ? {
+          ...slot,
+          sessionIDs: group.rows.map((row) => row.sessionId),
+          total: group.total ?? 0,
+        }
+      : { ...slot, sessionIDs: [] };
+    out.push(resolved);
+    seen.add(resolved.key);
+  }
+
+  // 2. 投影给出的、宿主骨架里没有的组由投影自己补（决策 10 / 11 / 12）：名单里还没
+  //    取到页的机器、还没有会话的已知 Agent、常驻的「随手对话」。
+  for (const group of projected) {
+    const desk = desktopGroupFrom(group);
+    if (!desk || seen.has(desk.key)) continue;
+    out.push(desk);
+    seen.add(desk.key);
+  }
+
+  // 3. 机器轴：投影按「在线优先、名字、设备号」排，桌面端再按 roster 的名次排回去 ——
+  //    本机必须压过在线段里那些名字排在它前面的 daemon；名单外的设备沉到最后。
+  if (axis === "machine") {
+    const rank = machineRosterRank(roster.machines ?? []);
+    out.sort(
+      (a, b) =>
+        (rank.get(a.refID) ?? Number.MAX_SAFE_INTEGER) -
+        (rank.get(b.refID) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }
+
+  return out;
 }

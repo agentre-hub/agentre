@@ -1,3 +1,5 @@
+import type { BackendType } from "./agent-backends-shared";
+
 /**
  * Host boundary for the shared engine-settings panels.
  *
@@ -60,6 +62,12 @@ export type BackendView = {
   openClawGatewayUrl?: string;
   openClawAgentId?: string;
   openClawDefaultModel?: string;
+  // hermes 独占：一个已在运行的 `hermes serve` 的 Server URL（规范形式 http(s)://host:port）。
+  // 这里漏一个字段不会报错，只会让编辑弹窗把已保存的值显示成空。
+  hermesUrl?: string;
+  // hermes gated serve 的非敏感展示字段（write-read 回归的同一族）。
+  hermesAuthProvider?: string;
+  hermesUserId?: string;
   hasToken?: boolean;
   deviceId?: string;
   modelRoutes?: Record<string, { providerKey: string; modelKey: string }>;
@@ -108,6 +116,24 @@ export type RuntimeDeviceView = {
 };
 
 export type CliProbeResult = { path: string; found: boolean };
+
+/** One GET /api/auth/providers entry. */
+export type HermesAuthProviderView = {
+  name: string;
+  displayName: string;
+  supportsPassword: boolean;
+};
+
+export type HermesLoginInput = {
+  url: string;
+  provider: string;
+  username: string;
+  password: string;
+};
+
+export type HermesLoginResult = { provider: string; userId: string };
+
+export type HermesLogoutInput = { id?: EngineID; url?: string };
 
 export type BackendScanResult = {
   name: string;
@@ -187,6 +213,11 @@ export interface EngineSettingsPorts {
   ): Promise<DiscoveredModel | null>;
 
   listBackends(): Promise<BackendView[]>;
+  /**
+   * Backend types whose full read/write/test contract this host implements.
+   * Missing means every shared-package type is supported.
+   */
+  supportedBackendTypes?: readonly BackendType[];
   createBackend(input: BackendInput): Promise<BackendView>;
   updateBackend(id: EngineID, input: BackendInput): Promise<BackendView>;
   deleteBackend(id: EngineID): Promise<void>;
@@ -233,6 +264,10 @@ export interface EngineSettingsPorts {
     clearToken: boolean,
   ): Promise<BackendView>;
   testOpenClawBackend?(input: BackendInput, token: string): Promise<TestResult>;
+  /** Hermes gated-serve login. Missing means the host cannot sign in. */
+  listHermesAuthProviders?(url: string): Promise<HermesAuthProviderView[]>;
+  loginHermesBackend?(input: HermesLoginInput): Promise<HermesLoginResult>;
+  logoutHermesBackend?(input: HermesLogoutInput): Promise<void>;
   gatewayStatus?(): Promise<GatewayStatusView>;
   localDeviceFingerprint?(): Promise<string>;
   listAccountDevices?(): Promise<AccountDeviceView[]>;

@@ -52,6 +52,7 @@ func ScanAllCLIs() []CLIProbeResult {
 //
 // 行为:
 //   - type 不在 claudecode / codex / piagent 范围 → ErrInvalidType
+//     （hermes 不在此列：它连一个已在运行的 `hermes serve`，没有 CLI 路径可探）
 //   - 找到 → (path, true, nil)
 //   - 找不到 → ("", false, nil)(非错误 —— 让调用方决定是否提示用户)
 //

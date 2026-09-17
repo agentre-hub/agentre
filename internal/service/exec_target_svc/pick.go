@@ -671,6 +671,15 @@ func blockReasonForBackend(
 			return false, BlockReasonRemoteOpenClawUnavailable, i18n.T(ctx, code.ChatBackendHintRemoteOpenClaw)
 		}
 		return true, "", ""
+	case agent_backend_entity.TypeHermes:
+		// Hermes 自带 provider/model/凭证，也不经本地网关转发，因此两样都不查；它的
+		// 可达性只由 backend 自己的 URL 决定，连不上由轮次启动时报出可读错误，不在
+		// 这里静默放行或误报 gateway 缺失。它只在运行 `hermes serve` 的那台桌面端本机
+		// 工作，没有派发到 agentred 的执行通道，所以远端档明确拒绝。
+		if BackendTargetsRemote(be) {
+			return false, BlockReasonRemoteHermesUnavailable, i18n.T(ctx, code.ChatBackendHintRemoteHermes)
+		}
+		return true, "", ""
 	default:
 		return false, BlockReasonUnknownBackend, i18n.T(ctx, code.ChatBackendHintUnknownType)
 	}
