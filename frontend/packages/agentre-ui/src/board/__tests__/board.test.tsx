@@ -468,25 +468,52 @@ describe("骨架与空态", () => {
     expect(screen.queryByTestId("board-empty-state")).not.toBeInTheDocument();
   });
 
-  it("Given nothing to show and no filter, When the board renders, Then the way out is 新建任务", async () => {
+  it("Given nothing to show and no scope, When the board renders, Then the way out is 新建任务 and the copy stays generic", async () => {
     const user = userEvent.setup();
     const onCreateTask = vi.fn();
     renderBoard(viewModel({ columns: {} }), ports({ onCreateTask }));
 
     const empty = screen.getByTestId("board-empty-state");
-    // 空态不限定「这个项目」：scope 可能是「全部项目」或「未归属」，
-    // 一句无范围的「还没有任务」在每种范围下都成立。
+    // 没有 emptyScope = 全部项目，不说「这个项目」。
     expect(within(empty).getByText("No tasks yet")).toBeInTheDocument();
 
     await user.click(within(empty).getByRole("button", { name: "New task" }));
     expect(onCreateTask).toHaveBeenCalled();
   });
 
-  it("Given nothing matches an active filter, When the board renders, Then the way out is 清除筛选", async () => {
+  it("Given a project scope, When the board is empty, Then the copy names that project", () => {
+    renderBoard(
+      viewModel({
+        columns: {},
+        emptyScope: { kind: "project", name: "Apollo" },
+      }),
+    );
+
+    expect(
+      within(screen.getByTestId("board-empty-state")).getByText(
+        "No tasks in Apollo yet",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("Given the unassigned scope, When the board is empty, Then the copy says so without naming a project", () => {
+    renderBoard(viewModel({ columns: {}, emptyScope: { kind: "unassigned" } }));
+    expect(
+      within(screen.getByTestId("board-empty-state")).getByText(
+        "No tasks without a project yet",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("Given nothing matches an active filter, When the board renders, Then the way out is 清除筛选 and the scope does not change the copy", async () => {
     const user = userEvent.setup();
     const onClearFilters = vi.fn();
     renderBoard(
-      viewModel({ filtering: true, columns: {} }),
+      viewModel({
+        filtering: true,
+        columns: {},
+        emptyScope: { kind: "project", name: "Apollo" },
+      }),
       ports({ onClearFilters }),
     );
 
@@ -494,6 +521,8 @@ describe("骨架与空态", () => {
     expect(
       within(empty).getByText("No tasks match your filters"),
     ).toBeInTheDocument();
+    // 筛选筛没了与范围无关：即便范围是某个项目，也不说「这个项目里没有任务」。
+    expect(within(empty).queryByText(/No tasks in Apollo yet/)).toBeNull();
 
     await user.click(
       within(empty).getByRole("button", { name: "Clear filters" }),

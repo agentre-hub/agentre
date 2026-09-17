@@ -602,6 +602,7 @@ export type {
   BoardCardView,
   BoardColumnView,
   BoardDragBindings,
+  BoardEmptyScope,
   BoardStage,
   BoardViewModel,
   IssueTone,

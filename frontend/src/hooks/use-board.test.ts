@@ -119,6 +119,34 @@ describe("useBoard", () => {
     );
   });
 
+  it("Given each scope, When the board builds its view model, Then the empty state names only the scopes it can pin down", async () => {
+    const projectOf = (id: number) =>
+      id === 4 ? { name: "Apollo", color: "agent-1" } : null;
+    const { rerender, result } = renderHook(
+      ({ q }: { q: BoardQuery }) => useBoard(q, projectOf),
+      { initialProps: { q: query() } },
+    );
+    await waitFor(() => expect(result.current.viewModel.loading).toBe(false));
+
+    // 全部项目：没有可点名的范围 —— 退化为泛化文案，而不是编一个名字。
+    expect(result.current.viewModel.emptyScope).toBeUndefined();
+
+    rerender({ q: query({ scope: { kind: "unassigned" } }) });
+    await waitFor(() =>
+      expect(result.current.viewModel.emptyScope).toEqual({
+        kind: "unassigned",
+      }),
+    );
+
+    rerender({ q: query({ scope: { kind: "project", projectId: 4 } }) });
+    await waitFor(() =>
+      expect(result.current.viewModel.emptyScope).toEqual({
+        kind: "project",
+        name: "Apollo",
+      }),
+    );
+  });
+
   it("Given an unchanged query object identity, When the host re-renders, Then no second request is fired", async () => {
     const { rerender, result } = renderHook(
       ({ q }: { q: BoardQuery }) => useBoard(q, () => null),
