@@ -27,7 +27,7 @@ const DIMENSION_SEPARATOR = "·";
 /** 两维同形同尺寸：都是 14px 的方块，只是里面的身份不同。 */
 const GLYPH_SLOT_CLASS_NAME =
   "inline-flex size-3.5 shrink-0 items-center justify-center";
-const GLYPH_CLASS_NAME = "size-full rounded-sm text-[8px]";
+const GLYPH_CLASS_NAME = "size-full";
 
 export type RowSecondaryLineProps = {
   axis: IndexAxis;

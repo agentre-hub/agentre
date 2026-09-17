@@ -169,9 +169,9 @@ describe("Tab · 状态点与身份方块来自共享原语", () => {
     render(<Tab {...baseProps} />);
 
     const avatar = screen.getByTestId("tab-avatar");
-    // xs 档的签名：size-3.5 + rounded-sm。
+    // xs 档的签名：size-3.5 + rounded-[3.5px]。
     expect(avatar).toHaveClass("size-3.5");
-    expect(avatar).toHaveClass("rounded-sm");
+    expect(avatar).toHaveClass("rounded-[3.5px]");
     expect(avatar).toHaveTextContent("C");
   });
 });

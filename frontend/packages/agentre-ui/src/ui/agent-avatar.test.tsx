@@ -163,4 +163,33 @@ describe("AgentAvatar", () => {
       expect(screen.getByTestId("override").className).toContain("size-full");
     });
   });
+
+  describe("xs 档只放一个字", () => {
+    // xs 是 20px 以下那一档（会话行 14px、组织行 18px、归属选择 20px）。两个字母
+    // 在这里量出来占宽 78%–111%，`MW` 直接撑出方块。
+    it("拉丁多词名在 xs 只取第一个字母", () => {
+      render(<AgentAvatar name="code reviewer" size="xs" testId="xs" />);
+
+      expect(screen.getByTestId("xs")).toHaveTextContent(/^C$/);
+    });
+
+    it("sm 及以上仍取两个字母", () => {
+      render(<AgentAvatar name="code reviewer" size="sm" testId="sm" />);
+
+      expect(screen.getByTestId("sm")).toHaveTextContent(/^CR$/);
+    });
+
+    it("调用方显式给的 initials 在 xs 也原样画，不替它截断", () => {
+      render(
+        <AgentAvatar
+          name="Agentre"
+          initials="ab"
+          size="xs"
+          testId="explicit"
+        />,
+      );
+
+      expect(screen.getByTestId("explicit")).toHaveTextContent(/^ab$/);
+    });
+  });
 });

@@ -201,7 +201,7 @@ export function OrgPlacementField(props: OrgPlacementFieldProps) {
         )}
       >
         {option.agent
-          ? avatarOf(option.agent, "size-5 shrink-0 rounded-sm text-2xs")
+          ? avatarOf(option.agent, "size-5 shrink-0 rounded-[5px] text-xs")
           : glyphOf(option.department)}
         <span className="min-w-0 flex-1 truncate text-xs">{option.label}</span>
         {option.disabledReason && (
@@ -238,7 +238,7 @@ export function OrgPlacementField(props: OrgPlacementFieldProps) {
             )}
           >
             {selectedAgent
-              ? avatarOf(selectedAgent, "size-5 shrink-0 rounded-sm text-2xs")
+              ? avatarOf(selectedAgent, "size-5 shrink-0 rounded-[5px] text-xs")
               : glyphOf(selectedDepartment ?? undefined)}
             <span className="min-w-0 flex-1 truncate text-xs">
               {selectedAgent
@@ -311,7 +311,7 @@ export function OrgPlacementField(props: OrgPlacementFieldProps) {
             <CornerDownRight className="size-3 shrink-0" aria-hidden="true" />
             <span>{t("org.agent.reportsTo")}</span>
             <span className="inline-flex min-w-0 items-center gap-1.5 rounded-sm bg-secondary px-1.5 py-0.5 font-mono text-foreground">
-              {avatarOf(props.reportTarget, "size-5 rounded-sm text-2xs")}
+              {avatarOf(props.reportTarget, "size-5 rounded-[5px] text-xs")}
               <span className="truncate">{props.reportTarget.name}</span>
             </span>
             <span className="opacity-60">

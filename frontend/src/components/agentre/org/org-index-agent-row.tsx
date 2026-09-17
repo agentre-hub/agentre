@@ -75,10 +75,10 @@ export function AgentRow({
         <AgentAvatar
           name={agent.name}
           color={safeAgentColor(agent.avatarColor ?? "")}
-          size="sm"
+          size="xs"
           avatarDataUrl={agent.avatarDataUrl}
           avatarIcon={agent.avatarIcon}
-          className="size-4.5 shrink-0 rounded-[5px] text-3xs"
+          className="size-4.5 shrink-0 rounded-[4.5px] text-2xs"
         />
       }
     />
