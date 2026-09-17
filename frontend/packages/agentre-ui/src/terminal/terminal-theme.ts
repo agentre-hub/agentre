@@ -1,7 +1,7 @@
 import type { ITheme } from "@xterm/xterm";
 
 // 跟随应用主题：background/foreground 对齐 globals.css 的 --background/--foreground
-// (light #fafafa/#18181b, dark #17191c/#e6e8eb)，其余 16 色 ANSI + selection 显式
+// (light #fafafa/#18181b, dark #18191b/#e8e8e9)，其余 16 色 ANSI + selection 显式
 // 配齐。xterm 默认调色板是给黑底调的，只设 bg/fg 会让浅色模式下亮色文字发白看不清。
 // selectionForeground/selectionInactiveBackground 显式设置让选区走"统一 selectionFg"
 // 渲染路径，避免选中文字被重新栅格化成另一种字重。
@@ -33,21 +33,21 @@ const LIGHT_TERMINAL_THEME: ITheme = {
 };
 
 const DARK_TERMINAL_THEME: ITheme = {
-  background: "#17191c",
-  foreground: "#e6e8eb",
-  cursor: "#e6e8eb",
-  cursorAccent: "#17191c",
+  background: "#18191b",
+  foreground: "#e8e8e9",
+  cursor: "#e8e8e9",
+  cursorAccent: "#18191b",
   selectionBackground: "#1e3050",
-  selectionForeground: "#e6e8eb",
+  selectionForeground: "#e8e8e9",
   selectionInactiveBackground: "#27344a",
-  black: "#17191c",
+  black: "#18191b",
   red: "#f07178",
   green: "#a6d189",
   yellow: "#e5c07b",
   blue: "#7b93f5",
   magenta: "#c78ddd",
   cyan: "#89dceb",
-  white: "#e6e8eb",
+  white: "#e8e8e9",
   brightBlack: "#4e5569",
   brightRed: "#f38ba8",
   brightGreen: "#a6e3a1",

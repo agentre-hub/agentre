@@ -68,17 +68,17 @@ The "why" behind the constraints — apply these when shaping a screen.
 
 | Token / class | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `background` | `#fafafa` | `#17191c` | Page / content background |
-| `foreground` | `#18181b` | `#e6e8eb` | Primary text |
-| `card` | `#ffffff` | `#1d2025` | Card / raised surface |
-| `card-foreground` | `#18181b` | `#e6e8eb` | Text on cards |
-| `popover` | `#ffffff` | `#262931` | Floating layers (dropdown / tooltip / toast) surface |
-| `popover-foreground` | `#18181b` | `#e6e8eb` | Text in floating layers |
-| `rail` | `#e4e4e7` | `#0a0b0d` | Window chrome bands — title bar, icon rail, status bar (the recessed frame) |
+| `background` | `#fafafa` | `#18191b` | Page / content background |
+| `foreground` | `#18181b` | `#e8e8e9` | Primary text |
+| `card` | `#ffffff` | `#202122` | Card / raised surface |
+| `card-foreground` | `#18181b` | `#e8e8e9` | Text on cards |
+| `popover` | `#ffffff` | `#292a2e` | Floating layers (dropdown / tooltip / toast) surface |
+| `popover-foreground` | `#18181b` | `#e8e8e9` | Text in floating layers |
+| `rail` | `#e4e4e7` | `#0b0b0c` | Window chrome bands — title bar, icon rail, status bar (the recessed frame) |
 | `muted-foreground` | `#65656d` | `#909399` | De-emphasized / descriptive text — timestamps, counts, metadata labels, section headings. **This is the floor for anything a user has to read.** Its value is set by the *darkest* surface it lands on, not by `card`: the status bar and window controls put it on `rail`, where the old `#71717a` was only 3.81. Now 4.55 on `rail`, 5.26 on `secondary`/`code-surface`, 5.78 on `card`. Guarded per-surface by [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) |
-| `decorative-foreground` | `#a1a1aa` | `#5a5d64` | **Glyphs that never carry information** — separator dots (`·` `/` `›`), diff/file line numbers, `aria-hidden` icons that merely accompany adjacent text, fallback glyphs. At ~2.5:1 it misses 3:1 in both themes **by design**. Was named `subtle-foreground`; that name read like "a weaker body text", so 97 metadata labels quietly ended up on it (2026-08-19 audit) — they all moved to `muted-foreground`. If the thing has to be *read*, it does not belong here |
+| `decorative-foreground` | `#8a8a91` | `#71757e` | **Glyphs that never carry information** — separator dots (`·` `/` `›`), diff/file line numbers, `aria-hidden` icons that merely accompany adjacent text, fallback glyphs. Now 3.43 light / 3.49 dark on `card` and 3.12 / 3.10 on `secondary`; the one place it still dips under 3:1 is the light `rail` (2.70), which is why it stays limited to glyphs that carry no information. Was named `subtle-foreground`; that name read like "a weaker body text", so 97 metadata labels quietly ended up on it (2026-08-19 audit) — they all moved to `muted-foreground`. If the thing has to be *read*, it does not belong here |
 
-> Dark mode is a deliberate **5-level surface ladder**: `rail #0a0b0d` < `sidebar #111316` < `background #17191c` < `card #1d2025` < `popover #262931`. Pick the surface that matches the layer's height (§3.12).
+> Dark mode is a deliberate **5-level surface ladder**: `rail #0b0b0c` < `sidebar #131314` < `background #18191b` < `card #202122` < `popover #292a2e`. Pick the surface that matches the layer's height (§3.12).
 
 ### 3.2 Brand primary (steel-blue)
 
@@ -100,22 +100,22 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 
 | Token / class | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `secondary` | `#f4f4f5` | `#262931` | Secondary buttons / fills; the tab-strip band |
-| `secondary-foreground` | `#3f3f46` | `#c4c7cd` | Text on secondary |
-| `muted` | `#f4f4f5` | `#1d2025` | Muted background (group fills, placeholders) |
-| `accent` | `#e0e0e3` | `#383d47` | **交互反馈** —— 内容表面上的 hover / 选中填充。刻意不等于任何静止表面：曾经是 `#f4f4f5`，与 `secondary`/`muted`/`sidebar` 同字节，86 处 `hover:bg-accent` 在那些面上渲染成 1.00:1。实测 card/popover 1.32、background 1.26、secondary 1.20。**外壳带上的 hover 用 `rail-accent`，不要用它** |
-| `rail-accent` | `#f7f7f8` | `#212429` | 窗口外壳带（标题栏 / 图标栏 / 状态栏，即所有 `bg-rail` 之上）的 hover / focus 反馈。`rail` 亮色是 `#e4e4e7`，比任何内容表面都暗得多，**一个值无法同时服务两边**：在白卡片上够深的填充落到 rail 上会被吃掉（2026-08-19 就这么把 rail 的 hover 压到过 1.028）。rail 是下沉的一层，所以 hover 是提亮而非压暗，与 `sidebar-active-bg` 一致。实测 rail 上 1.19 / 1.27 |
-| `accent-foreground` | `#18181b` | `#e6e8eb` | Text on accent |
+| `secondary` | `#f4f4f5` | `#292a2e` | Secondary buttons / fills; the tab-strip band |
+| `secondary-foreground` | `#3f3f46` | `#c6c8cb` | Text on secondary |
+| `muted` | `#f4f4f5` | `#202122` | Muted background (group fills, placeholders) |
+| `accent` | `#e0e0e3` | `#3c3e43` | **交互反馈** —— 内容表面上的 hover / 选中填充。刻意不等于任何静止表面：曾经是 `#f4f4f5`，与 `secondary`/`muted`/`sidebar` 同字节，86 处 `hover:bg-accent` 在那些面上渲染成 1.00:1。实测 card 1.51、popover 1.34、background 1.64、secondary 1.34。**外壳带上的 hover 用 `rail-accent`，不要用它** |
+| `rail-accent` | `#f7f7f8` | `#232427` | 窗口外壳带（标题栏 / 图标栏 / 状态栏，即所有 `bg-rail` 之上）的 hover / focus 反馈。`rail` 亮色是 `#e4e4e7`，比任何内容表面都暗得多，**一个值无法同时服务两边**：在白卡片上够深的填充落到 rail 上会被吃掉（2026-08-19 就这么把 rail 的 hover 压到过 1.028）。rail 是下沉的一层，所以 hover 是提亮而非压暗，与 `sidebar-active-bg` 一致。实测 rail 上 1.19 / 1.27 |
+| `accent-foreground` | `#18181b` | `#e8e8e9` | Text on accent |
 
 ### 3.4 Borders, inputs, ring
 
 | Token / class | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `border` | `#e4e4e7` | `#2a2d34` | Global borders (the `@layer base` reset gives every element `border-border`) |
-| `border-strong` | `#d4d4d8` | `#3a3e47` | Emphasized dividers / drag handles where `border` is too faint |
-| `input` | `#cbcbd0` | `#4a4f59` | Field edges (`Input` / `Textarea` / `Select` / outline `Button`). Split off from `border` so a divider can stay quiet while a field edge stays legible. Target is "clearly visible", **not** WCAG's 3:1 — these controls carry their own fill and text, so the border is a supporting cue; controls whose border *is* the control use `control-border` below |
-| `input-bg` | `#ffffff` | `#17191c` | Form-control fill |
-| `control-border` | `#8a8a91` | `#70757f` | **Controls whose outline *is* the control** — an unchecked `Checkbox` has no fill, so losing the border loses the control. Sized to clear WCAG 3:1 on the worst surface a control lands on (`secondary`: 3.12 light / 3.14 dark). Do **not** reach for `border`/`input` here: they are quiet dividers/field edges at ~1.1:1 against every surface, which is why the model table's header select-all used to vanish. Guarded by [`src/ui/checkbox.test.tsx`](../frontend/packages/agentre-ui/src/ui/checkbox.test.tsx) |
+| `border` | `#e4e4e7` | `#2d2e31` | Global borders (the `@layer base` reset gives every element `border-border`) |
+| `border-strong` | `#d4d4d8` | `#3d3f44` | Emphasized dividers / drag handles where `border` is too faint |
+| `input` | `#cbcbd0` | `#4d5056` | Field edges (`Input` / `Textarea` / `Select` / outline `Button`). Split off from `border` so a divider can stay quiet while a field edge stays legible. Target is "clearly visible", **not** WCAG's 3:1 — these controls carry their own fill and text, so the border is a supporting cue; controls whose border *is* the control use `control-border` below |
+| `input-bg` | `#ffffff` | `#18191b` | Form-control fill |
+| `control-border` | `#8a8a91` | `#71757e` | **Controls whose outline *is* the control** — an unchecked `Checkbox` has no fill, so losing the border loses the control. Sized to clear WCAG 3:1 on the worst surface a control lands on (`secondary`: 3.12 light / 3.10 dark). Do **not** reach for `border`/`input` here: they are quiet dividers/field edges at ~1.1:1 against every surface, which is why the model table's header select-all used to vanish. Guarded by [`src/ui/checkbox.test.tsx`](../frontend/packages/agentre-ui/src/ui/checkbox.test.tsx) |
 
 ### 3.5 Status colors (agent run state)
 
@@ -139,10 +139,10 @@ The heart of agentre's state language. Four states, each with a solid color (dot
 
 | Token | Light | Dark | Why it exists |
 | --- | --- | --- | --- |
-| `status-running-foreground` | `#ffffff` | `#04140c` | Text on the solid green |
-| `status-waiting-foreground` | `#402b06` | *(same)* | Deep brown on the bright amber fill. Both themes keep a bright amber, so one value reads on either |
-| `status-running-text` | `#047857` | `#34d399` | The saturated fill is unreadable **as text** in light: `#10b981` on its own pill is 2.41. Dark already cleared the bar, so it reuses the fill value |
-| `status-waiting-text` | `#b45309` | `#fbbf24` | Same story: `#f59e0b` on its own pill is 2.07 |
+| `status-running-foreground` | `#04140c` | `#04140c` | Text on the solid green |
+| `status-waiting-foreground` | `#04140c` | *(same)* | Near-black ink on the amber fills. Both themes keep an amber fill — light `#b07513` (4.86) and dark `#fbbf24` (11.33) — so one value reads on either |
+| `status-running-text` | `#0c7053` | `#34d399` | The saturated fill is unreadable **as text** in light: `#109066` on its own pill is 3.83. Dark already cleared the bar, so it reuses the fill value |
+| `status-waiting-text` | `#aa5413` | `#fbbf24` | Same story: `#b07513` on its own pill is 3.72 |
 
 The `-text` split is guarded by [`packages/agentre-ui/src/tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) (≥4.5 on both the pill and `card`, both themes). Render status only through `StatusDot` / `StatusPill` (§6.4) so the dot/pill/label stay in lockstep; labels are uppercase (`RUNNING`).
 
@@ -152,14 +152,14 @@ Sixteen fixed hues give concurrent agents distinct, stable identities. Light use
 
 | Token | Light | Dark | | Token | Light | Dark |
 | --- | --- | --- | --- | --- | --- | --- |
-| `agent-1` | `#2563eb` | `#60a5fa` | | `agent-9` | `#4f46e5` | `#818cf8` |
-| `agent-2` | `#7c3aed` | `#a78bfa` | | `agent-10` | `#ea580c` | `#fdba74` |
-| `agent-3` | `#0284c7` | `#38bdf8` | | `agent-11` | `#059669` | `#34d399` |
+| `agent-1` | `#2964e7` | `#60a5fa` | | `agent-9` | `#4f46e5` | `#818cf8` |
+| `agent-2` | `#7d3ee9` | `#a78bfa` | | `agent-10` | `#ea580c` | `#fdba74` |
+| `agent-3` | `#147cb3` | `#38bdf8` | | `agent-11` | `#059669` | `#34d399` |
 | `agent-4` | `#e11d48` | `#fb7185` | | `agent-12` | `#0d9488` | `#2dd4bf` |
-| `agent-5` | `#d97706` | `#fbbf24` | | `agent-13` | `#db2777` | `#f472b6` |
-| `agent-6` | `#0891b2` | `#22d3ee` | | `agent-14` | `#ca8a04` | `#fde047` |
+| `agent-5` | `#ab6413` | `#fbbf24` | | `agent-13` | `#db2777` | `#f472b6` |
+| `agent-6` | `#117d97` | `#22d3ee` | | `agent-14` | `#ca8a04` | `#fde047` |
 | `agent-7` | `#c026d3` | `#e879f9` | | `agent-15` | `#64748b` | `#94a3b8` |
-| `agent-8` | `#65a30d` | `#a3e635` | | `agent-16` | `#9333ea` | `#c084fc` |
+| `agent-8` | `#507e0e` | `#a3e635` | | `agent-16` | `#9333ea` | `#c084fc` |
 
 > The initial glyph sitting **on** an agent fill uses `agent-foreground` (`#ffffff`, theme-invariant — the letter is white on all sixteen hues in both themes). Use `text-agent-foreground`, not a literal `text-white`.
 
@@ -206,13 +206,13 @@ A dedicated family so the navigation rail and context sidebars theme independent
 
 | Token / class | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `sidebar` | `#f4f4f5` | `#111316` | Context-sidebar background (chat/projects lists) |
-| `sidebar-foreground` | `#18181b` | `#e6e8eb` | Sidebar text |
-| `sidebar-accent` | `#f4f4f5` | `#262931` | Hover/selected background |
-| `sidebar-active-bg` | `#ffffff` | `#262931` | Active item fill |
-| `sidebar-border` | `#e4e4e7` | `#2a2d34` | Sidebar border |
+| `sidebar` | `#f4f4f5` | `#131314` | Context-sidebar background (chat/projects lists) |
+| `sidebar-foreground` | `#18181b` | `#e8e8e9` | Sidebar text |
+| `sidebar-accent` | `#f4f4f5` | `#292a2e` | Hover/selected background |
+| `sidebar-active-bg` | `#ffffff` | `#292a2e` | Active item fill |
+| `sidebar-border` | `#e4e4e7` | `#2d2e31` | Sidebar border |
 | `sidebar-icon` | `#71717a` | `#8a8d94` | Rail icon (resting) |
-| `sidebar-icon-active` | `#3b6896` | `#5b8dbf` | Rail icon (active) |
+| `sidebar-icon-active` | `#3b6896` | `#8eb6dc` | Rail icon (active) |
 
 (Also `sidebar-primary` / `-primary-foreground` / `-accent-foreground` / `-ring`, equal to the corresponding primary / text values.)
 
@@ -256,9 +256,9 @@ Monospace **console output** surfaces (hook stdout/stderr, local-command output)
 
 | Token / class | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `code-surface` | `#f4f4f5` | `#121418` | Console/output box fill (`bg-code-surface`) |
-| `code-foreground` | `#3f3f46` | `#e6e8eb` | Primary monospace text on `code-surface` |
-| `code-muted-foreground` | `#65656d` | `#9aa0ab` | De-emphasized monospace text (stdout) |
+| `code-surface` | `#f4f4f5` | `#141516` | Console/output box fill (`bg-code-surface`) |
+| `code-foreground` | `#3f3f46` | `#e8e8e9` | Primary monospace text on `code-surface` |
+| `code-muted-foreground` | `#65656d` | `#9da1a8` | De-emphasized monospace text (stdout) |
 
 ### 3.12 Elevation (surfaces & shadows)
 
