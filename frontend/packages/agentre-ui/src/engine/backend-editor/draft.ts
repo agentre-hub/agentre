@@ -313,8 +313,10 @@ export async function saveBackendDraft(args: {
     });
     await args.onSaved(t("agentBackends.flash.created"));
   } else if (state.kind === "edit" && editing) {
-    const request = {
+    // 类型不可改，但端口契约要求带上：宿主据此判断这类后端能不能落（浏览器控制台就判）。
+    const request: agent_backend_svc.UpdateBackendRequest = {
       id: editing.id,
+      type: draft.type,
       name: draft.name,
       deviceId: draft.deviceId,
       llmProviderKey: draft.llmProviderKey,
@@ -334,7 +336,7 @@ export async function saveBackendDraft(args: {
       hermesUrl: draft.hermesUrl,
       hermesAuthProvider: draft.hermesAuthProvider,
       hermesUserId: draft.hermesUserId,
-    } as unknown as agent_backend_svc.UpdateBackendRequest;
+    };
     if (draft.type === "openclaw") {
       await bridge.UpdateOpenClawAgentBackend(
         request,
