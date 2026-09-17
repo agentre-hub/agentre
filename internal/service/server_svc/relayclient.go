@@ -405,12 +405,20 @@ func authAccountOverChannel(ctx context.Context, channel relaytransport.PayloadC
 	if err != nil {
 		return nil, err
 	}
-	if err := channel.WritePayload(reqFrame); err != nil {
-		return nil, abort(err)
+	// 通道已关导致的写失败不立刻返回:中继判定目标不可达时,会紧跟在目标帧之后写错误帧
+	// 并关通道,本端接收协程可能抢在这次写之前处理完关闭 —— 那帧错误此刻已经在缓冲里,
+	// 它才是调用方要的原因(ErrDesktopAppNotRunning 等就靠它翻译),写错误只是它的后果。
+	// 通道已关,下面的读一定会走到头;其余写错误(如链路断开而通道仍在)照旧立刻返回。
+	writeErr := channel.WritePayload(reqFrame)
+	if writeErr != nil && !errors.Is(writeErr, relaytransport.ErrClosed) {
+		return nil, abort(writeErr)
 	}
 	for {
 		raw, err := channel.ReadPayload()
 		if err != nil {
+			if writeErr != nil {
+				return nil, abort(writeErr)
+			}
 			return nil, abort(err)
 		}
 		if len(raw) == 0 {
