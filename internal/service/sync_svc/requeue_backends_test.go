@@ -162,3 +162,28 @@ func TestRequeueBackendConfigs_MarkerIsPerAccount(t *testing.T) {
 		})
 	})
 }
+
+// TestRequeueBackendConfigs_GivenRepositoriesNotBootstrapped_DoesNotPanic 复现
+// project_svc 那类最小同步测试踩到的真实故障：它们用 sync_svc.New（生产形态，
+// defaultAdapters 恒定装配 agentBackendAdapter）装引擎，却只关心自己那个域对象，
+// 从没调用过 RegisterAgentBackend / RegisterAppSetting——这两个仓储单例照样是
+// nil。这一步真正依赖的是**仓储有没有装配**，不是适配器表里有没有这个 kind；
+// 后者只是「引擎装了哪些同步对象类型」，两件事在这类测试里刚好对不上号。
+func TestRequeueBackendConfigs_GivenRepositoriesNotBootstrapped_DoesNotPanic(t *testing.T) {
+	convey.Convey("Given 引擎按生产形态装配了全部适配器，但仓储层还没 bootstrap（如 project_svc 的域测试）", t, func() {
+		agent_backend_repo.RegisterAgentBackend(nil)
+		app_setting_repo.RegisterAppSetting(nil)
+		svc := &service{
+			adapters: defaultAdapters(nil),
+			now:      func() int64 { return 1_700_000_000_000 },
+		}
+
+		convey.Convey("When 跑这一步", func() {
+			err := svc.requeueBackendConfigs(context.Background(), 7)
+
+			convey.Convey("Then 安静跳过，既不 panic 也不报错", func() {
+				assert.NoError(t, err)
+			})
+		})
+	})
+}

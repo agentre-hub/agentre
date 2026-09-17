@@ -45,14 +45,36 @@ func backendRequeueKey(accountID int64) string {
 // 「已经修复过」，这个账号就永远补不回这一次——下次启动看到标记已经是 done，
 // 不会再试。失败因此原样返回，让调用方（SyncOnce）按现有的重试节奏下一轮再来。
 func (s *service) requeueBackendConfigs(ctx context.Context, accountID int64) error {
-	// 引擎没装配 agent_backend 适配器（单机构建 / 只装了子集的测试）：这一步没有
-	// 落点，与 claimForCurrentAccount 对未知 kind 的处理同一条纪律。
+	// 两条前提都要成立，各自守着这一步真正踩到的一类装配缺口，缺一不可：
+	//
+	//  1. 引擎的适配器表要真的装了 agent_backend 这个 kind——与
+	//     claimForCurrentAccount 对未知 kind 的处理同一条纪律。只关心别的对象类型
+	//     的最小引擎（本包多数用 newHarness 拼出来的测试，只装一两个 fakeAdapter）
+	//     没有这个 kind，本来就不该碰 agent_backend_repo：它们的仓储单例可能是
+	//     nil，也可能是**上一个测试用例留下、controller 早已收尾的陈旧 mock**
+	//     （包级单例跨用例存活，docs/testing.md「Package-level globals leak across
+	//     cases」）——后一种情况一个 repo != nil 判断看不出来，唯有先看适配器表。
+	//  2. 三个仓储单例要真的被 bootstrap 注册过，不是 nil——与 account() 对
+	//     sync_account_repo 未装配时的处理同一条纪律。装了全套生产适配器表
+	//     （sync_svc.New 的 defaultAdapters 恒定包含 agentBackendAdapter）却只关心
+	//     自己那个域对象的单测（如 project_svc）符合前一条，却从没调用过
+	//     RegisterAgentBackend / RegisterAppSetting，这时候只看适配器表判断不出
+	//     仓储没装配。
+	//
+	// 两条合起来才是这一步真正依赖的生产前提：适配器表回答「这个引擎实例管不管
+	// agent_backend」，仓储是否注册回答「管的话，它的仓储装没装好」。
 	if s.adapters[syncwire.KindAgentBackend] == nil {
+		return nil
+	}
+	settingsRepo := app_setting_repo.AppSetting()
+	backendRepo := agent_backend_repo.AgentBackend()
+	outboundRepo := syncqueue_repo.OutboundQueue()
+	if settingsRepo == nil || backendRepo == nil || outboundRepo == nil {
 		return nil
 	}
 
 	key := backendRequeueKey(accountID)
-	marker, err := app_setting_repo.AppSetting().Get(ctx, key)
+	marker, err := settingsRepo.Get(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -63,7 +85,7 @@ func (s *service) requeueBackendConfigs(ctx context.Context, accountID int64) er
 	// 「已绑定、未删除」的判据整段交给仓储（ListSyncedForAccount）：活着
 	// （status=ACTIVE）、有同步标识、归属这个账号、且没有落过跨机墓碑
 	// （sync_deleted_at=0）——四条同时成立才算「这个账号还在用的后端」。
-	rows, err := agent_backend_repo.AgentBackend().ListSyncedForAccount(ctx, accountID)
+	rows, err := backendRepo.ListSyncedForAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -85,12 +107,12 @@ func (s *service) requeueBackendConfigs(ctx context.Context, accountID int64) er
 		queueRows = append(queueRows, built...)
 	}
 	if len(queueRows) > 0 {
-		if err := syncqueue_repo.OutboundQueue().CreateMany(ctx, queueRows); err != nil {
+		if err := outboundRepo.CreateMany(ctx, queueRows); err != nil {
 			return err
 		}
 	}
 
-	if err := app_setting_repo.AppSetting().Set(ctx, &app_setting_entity.AppSetting{
+	if err := settingsRepo.Set(ctx, &app_setting_entity.AppSetting{
 		Key: key, Value: backendRequeueDone, Updatetime: s.now(),
 	}); err != nil {
 		return err
