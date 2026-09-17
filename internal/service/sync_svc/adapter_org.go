@@ -369,22 +369,18 @@ func (agentBackendAdapter) load(ctx context.Context, syncID string) (*outbound, 
 	if err != nil || !found {
 		return nil, err
 	}
+	// FindRow 是裸读：独占设置只在 config_json 列里，Go 字段未经解码恒为零。
+	if err := row.UnmarshalConfig(); err != nil {
+		return nil, err
+	}
 	payload, err := json.Marshal(syncwire.AgentBackendPayload{
-		Type:                  row.Type,
-		Name:                  row.Name,
-		ProviderKey:           row.LLMProviderKey,
-		ModelKey:              row.LLMModelKey,
-		ModelRoutes:           row.ModelRoutes,
-		Sandbox:               row.Sandbox,
-		Approval:              row.Approval,
-		EnvJSON:               row.EnvJSON,
-		ReasoningEffort:       row.ReasoningEffort,
-		DefaultPermissionMode: row.DefaultPermissionMode,
-		DefaultModel:          row.DefaultModel,
-		OpenClawGatewayURL:    row.OpenClawGatewayURL,
-		OpenClawAgentID:       row.OpenClawAgentID,
-		OpenClawDefaultModel:  row.OpenClawDefaultModel,
-		OpenClawSessionMode:   row.OpenClawSessionMode,
+		Type:            row.Type,
+		Name:            row.Name,
+		ProviderKey:     row.LLMProviderKey,
+		ModelKey:        row.LLMModelKey,
+		EnvJSON:         row.EnvJSON,
+		ReasoningEffort: row.ReasoningEffort,
+		Config:          row.Config(),
 	})
 	if err != nil {
 		return nil, err
@@ -421,13 +417,15 @@ func (agentBackendAdapter) apply(ctx context.Context, in *inbound, resolved map[
 	// same machine on every other end and on the server. cli_path stays a
 	// per-device overlay applied separately by agentBackendCLIAdapter.
 	row.DeviceFingerprint = in.AgentredFingerprint
-	row.ModelRoutes = p.ModelRoutes
-	row.Sandbox, row.Approval, row.EnvJSON = p.Sandbox, p.Approval, p.EnvJSON
-	row.ReasoningEffort = p.ReasoningEffort
-	row.DefaultPermissionMode, row.DefaultModel = p.DefaultPermissionMode, p.DefaultModel
-	row.OpenClawGatewayURL, row.OpenClawAgentID = p.OpenClawGatewayURL, p.OpenClawAgentID
-	row.OpenClawDefaultModel, row.OpenClawSessionMode = p.OpenClawDefaultModel, p.OpenClawSessionMode
+	row.EnvJSON, row.ReasoningEffort = p.EnvJSON, p.ReasoningEffort
+	// config 整体替换本地那一份：缺席的键变空，缺整个 config 等同 {}。仓储写口
+	// 从这些字段重编 config_json，列与字段因此一致。
+	row.SetConfig(p.Config)
 	row.Status = consts.ACTIVE
+	// 过不了既有后端校验的载荷不落库，本地原值不变。
+	if err := row.Check(ctx); err != nil {
+		return err
+	}
 	if !found {
 		row.SyncID = in.SyncID
 		return agent_backend_repo.AgentBackend().Create(ctx, row)
