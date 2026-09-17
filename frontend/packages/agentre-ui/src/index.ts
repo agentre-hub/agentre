@@ -57,6 +57,7 @@ export type {
   ModelTarget,
   PickerProvider,
 } from "./engine/model-target-picker/types";
+export type { BackendType } from "./engine/agent-backends-shared";
 export type {
   BackendView,
   EngineID,

@@ -69,22 +69,30 @@ export function BackendTypePicker({
   onChange,
   probes,
   canCreateBuiltin,
+  supportedBackendTypes,
 }: {
   value: BackendType;
   onChange: (v: BackendType) => void;
   probes: Partial<Record<BackendType, CLIProbe>>;
   canCreateBuiltin: boolean;
+  supportedBackendTypes?: readonly BackendType[];
 }) {
   const { t } = useTranslation();
   const groupRef = React.useRef<HTMLDivElement>(null);
-  const backendTypes = canCreateBuiltin
-    ? BACKEND_TYPE_ORDER
-    : BACKEND_TYPE_ORDER.filter((backendType) => backendType !== "builtin");
+  const allowed = supportedBackendTypes
+    ? new Set<BackendType>(supportedBackendTypes)
+    : null;
+  const backendTypes = BACKEND_TYPE_ORDER.filter(
+    (backendType) =>
+      (canCreateBuiltin || backendType !== "builtin") &&
+      (!allowed || allowed.has(backendType)),
+  );
 
   // radiogroup 的键盘契约：方向键换选项并把焦点带过去（Tab 只进出整组）。
   function moveSelection(delta: number) {
     const from = backendTypes.indexOf(value);
     const total = backendTypes.length;
+    if (total === 0) return;
     const next = backendTypes[(from + delta + total) % total];
     onChange(next);
     groupRef.current
