@@ -1,3 +1,5 @@
+import type { BackendType } from "./agent-backends-shared";
+
 /**
  * Host boundary for the shared engine-settings panels.
  *
@@ -211,6 +213,11 @@ export interface EngineSettingsPorts {
   ): Promise<DiscoveredModel | null>;
 
   listBackends(): Promise<BackendView[]>;
+  /**
+   * Backend types whose full read/write/test contract this host implements.
+   * Missing means every shared-package type is supported.
+   */
+  supportedBackendTypes?: readonly BackendType[];
   createBackend(input: BackendInput): Promise<BackendView>;
   updateBackend(id: EngineID, input: BackendInput): Promise<BackendView>;
   deleteBackend(id: EngineID): Promise<void>;

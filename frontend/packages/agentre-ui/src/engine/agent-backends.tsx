@@ -152,6 +152,12 @@ function AgentBackendsPanelBody({
   // 没接：既没有「本地」项，扫描也必须先点名一台机器。
   const hasLocalDevice = Boolean(ports.localDeviceFingerprint);
   const [backends, setBackends] = React.useState<Backend[]>([]);
+  const visibleBackends = React.useMemo(() => {
+    const supported = ports.supportedBackendTypes;
+    if (!supported) return backends;
+    const allowed = new Set<string>(supported);
+    return backends.filter((backend) => allowed.has(backend.type));
+  }, [backends, ports.supportedBackendTypes]);
   const [providers, setProviders] = React.useState<Provider[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [editor, setEditor] = React.useState<EditorState>({ kind: "closed" });
@@ -429,7 +435,7 @@ function AgentBackendsPanelBody({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-      {loading || backends.length === 0 ? null : (
+      {loading || visibleBackends.length === 0 ? null : (
         <Button
           type="button"
           size="sm"
@@ -457,7 +463,7 @@ function AgentBackendsPanelBody({
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
               {t("common.loading")}
             </div>
-          ) : backends.length === 0 ? (
+          ) : visibleBackends.length === 0 ? (
             <AgentBackendsEmptyState
               onCreate={() => setEditor({ kind: "create" })}
               onOpenLlmProviders={onOpenLlmProviders}
@@ -468,7 +474,7 @@ function AgentBackendsPanelBody({
               aria-label={t("agentBackends.list.ariaLabel")}
               className="flex min-w-0 flex-col"
             >
-              {backends.map((b) => (
+              {visibleBackends.map((b) => (
                 <BackendRow
                   key={b.id}
                   backend={b}
@@ -502,6 +508,7 @@ function AgentBackendsPanelBody({
             // 编辑不了整张 env 表的宿主靠这个端口补 IS_SANDBOX=1（服务端合并）。
             addIsSandbox={ports.addIsSandbox}
             canCreateBuiltin={ports.canCreateBuiltin === true}
+            supportedBackendTypes={ports.supportedBackendTypes}
             // CLI 路径与 Gateway token 都是「只存在于那台机器上」的东西：前者是
             // 按设备的可执行文件覆盖，后者进的是本机安全存储。宿主没有对应端口就
             // 意味着它既写不进也读不回 —— 那就别把框摆出来让人白填一次。
@@ -545,6 +552,7 @@ function BackendEditor({
   canEditEnvJSON,
   addIsSandbox,
   canCreateBuiltin,
+  supportedBackendTypes,
   canEditCliPath,
   canEditOpenClawToken,
   hasLocalDevice,
@@ -558,6 +566,7 @@ function BackendEditor({
   canEditEnvJSON: boolean;
   addIsSandbox?: (backendSyncId: string) => Promise<void>;
   canCreateBuiltin: boolean;
+  supportedBackendTypes?: readonly BackendType[];
   canEditCliPath: boolean;
   canEditOpenClawToken: boolean;
   hasLocalDevice: boolean;
@@ -574,9 +583,15 @@ function BackendEditor({
   } = bridge;
   const { t } = useTranslation();
   const editing = state.kind === "edit" ? state.backend : null;
+  const firstSupportedType = supportedBackendTypes?.find(
+    (backendType) => canCreateBuiltin || backendType !== "builtin",
+  );
   const initialType: BackendType =
     (editing?.type as BackendType) ??
-    (canCreateBuiltin ? "builtin" : "claudecode");
+    (canCreateBuiltin &&
+    (!supportedBackendTypes || supportedBackendTypes.includes("builtin"))
+      ? "builtin"
+      : (firstSupportedType ?? "claudecode"));
 
   const [type, setType] = React.useState<BackendType>(initialType);
   const [name, setName] = React.useState(editing?.name ?? "");
@@ -1243,6 +1258,7 @@ function BackendEditor({
               onChange={handleTypeChange}
               probes={cli.cliProbes}
               canCreateBuiltin={canCreateBuiltin}
+              supportedBackendTypes={supportedBackendTypes}
             />
           </div>
         )}
