@@ -74,6 +74,29 @@ func TestBuildClaudeCodeEnv_Basic(t *testing.T) {
 	})
 }
 
+// TestBuildClaudeCodeEnv_ContextWindow Claude Code 不认识的模型名(glm-5.3 等)一律按
+// 200k 窗口自动压缩;只有 CLAUDE_CODE_MAX_CONTEXT_TOKENS 能告诉它真实窗口。供应商模型上
+// 配了窗口就必须随 env 带下去,否则配置只停留在 agentre 自己的展示里(sess-4039)。
+func TestBuildClaudeCodeEnv_ContextWindow(t *testing.T) {
+	t.Run("配置了窗口 → 注入 CLAUDE_CODE_MAX_CONTEXT_TOKENS", func(t *testing.T) {
+		env, err := BuildClaudeCodeEnv(&agent_backend_entity.AgentBackend{}, CLIDeps{ContextWindow: 400000})
+		require.NoError(t, err)
+		assert.Equal(t, "400000", env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"])
+	})
+	t.Run("未配置窗口 → 不注入,让 CLI 用自己的默认", func(t *testing.T) {
+		env, err := BuildClaudeCodeEnv(&agent_backend_entity.AgentBackend{}, CLIDeps{})
+		require.NoError(t, err)
+		_, has := env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]
+		assert.False(t, has)
+	})
+	t.Run("用户 env_json 显式写了同名变量 → 用户值优先", func(t *testing.T) {
+		b := &agent_backend_entity.AgentBackend{EnvJSON: `{"CLAUDE_CODE_MAX_CONTEXT_TOKENS":"300000"}`}
+		env, err := BuildClaudeCodeEnv(b, CLIDeps{ContextWindow: 400000})
+		require.NoError(t, err)
+		assert.Equal(t, "300000", env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"])
+	})
+}
+
 func TestBuildCodexEnv_Basic(t *testing.T) {
 	t.Run("有 gateway 时只注入 OPENAI_API_KEY", func(t *testing.T) {
 		b := &agent_backend_entity.AgentBackend{EnvJSON: `{"Z":"q"}`}

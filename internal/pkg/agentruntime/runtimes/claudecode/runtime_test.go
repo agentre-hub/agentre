@@ -180,6 +180,79 @@ func TestRun_ModelKeyChangeEvictsAndResumes(t *testing.T) {
 	})
 }
 
+// TestRun_ConfiguredContextWindowReachesCLIAndDisplay 锁住 sess-4039:供应商模型配了
+// 400k 窗口,Claude Code 却不认识 glm-5.3 这个名字 —— 它自己按 200k 自动压缩,
+// translator 又按 llmcatalog 前缀把 glm-5.3 当成 glm-5 报 203k。配置的窗口必须同时
+// 进子进程 env(CLI 实际窗口)和 ContextWindowUpdated(展示),两边是同一个数。
+func TestRun_ConfiguredContextWindowReachesCLIAndDisplay(t *testing.T) {
+	Convey("Given 配了 400k 窗口的 glm-5.3,CLI init 帧报 model=glm-5.3", t, func() {
+		var spawnEnvs []map[string]string
+		restore := SetSessionFactoryForTest(func(spec ccLaunchSpec) (ccSessionHandle, error) {
+			spawnEnvs = append(spawnEnvs, spec.Env)
+			return &fakeCCHandle{
+				id: "native-claude-session",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventInit, Model: "glm-5.3"},
+					{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		run := func(r *Runtime, backend *agent_backend_entity.AgentBackend, contextWindow int) []int {
+			events, _, err := r.Run(context.Background(), agentruntime.RunRequest{
+				Backend:   backend,
+				Effective: &agentruntime.EffectiveLLMConfig{ProviderKey: "pk", ModelKey: "mk", ProviderType: "anthropic", ModelID: "glm-5.3", ContextWindow: contextWindow},
+				SessionID: 4039,
+				Cwd:       t.TempDir(),
+				UserText:  "hi",
+			})
+			So(err, ShouldBeNil)
+			var windows []int
+			for ev := range events {
+				if cw, ok := ev.(agentruntime.ContextWindowUpdated); ok {
+					windows = append(windows, cw.Tokens)
+				}
+			}
+			return windows
+		}
+		claudeBackend := func() *agent_backend_entity.AgentBackend {
+			return &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+		}
+
+		Convey("子进程 env 带上 400000,上报的窗口也是 400000", func() {
+			windows := run(New(), claudeBackend(), 400000)
+			So(spawnEnvs, ShouldHaveLength, 1)
+			So(spawnEnvs[0]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], ShouldEqual, "400000")
+			So(windows, ShouldResemble, []int{400000})
+		})
+
+		Convey("用户 env_json 覆盖了窗口 → 上报 CLI 实际拿到的那个值", func() {
+			b := claudeBackend()
+			b.EnvJSON = `{"CLAUDE_CODE_MAX_CONTEXT_TOKENS":"300000"}`
+			windows := run(New(), b, 400000)
+			So(windows, ShouldResemble, []int{300000})
+		})
+
+		Convey("窗口未配置 → 不注入 env,仍按 catalog 兜底", func() {
+			windows := run(New(), claudeBackend(), 0)
+			_, has := spawnEnvs[0]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]
+			So(has, ShouldBeFalse)
+			So(windows, ShouldHaveLength, 1)
+		})
+
+		Convey("同一会话改了窗口配置 → 重开子进程,env 是启动期参数", func() {
+			r := New()
+			run(r, claudeBackend(), 400000)
+			windows := run(r, claudeBackend(), 500000)
+			So(spawnEnvs, ShouldHaveLength, 2)
+			So(spawnEnvs[1]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], ShouldEqual, "500000")
+			So(windows, ShouldResemble, []int{500000})
+		})
+	})
+}
+
 // TestClaudeCodeCapabilities 钉死 claudecode runtime 的能力矩阵 + permission
 // mode 元数据。这些值与 chat_svc / 前端 UI gating 的硬编码 switch 一一对应,
 // 任何一项偏移都意味着 Plan B 切 dispatcher 后会有 UI/dispatch 错乱。

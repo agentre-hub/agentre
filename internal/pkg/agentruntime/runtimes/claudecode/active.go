@@ -66,6 +66,10 @@ type claudeActive struct {
 	modeMu         sync.Mutex
 	permissionMode string
 
+	// contextWindow 是 spawn 时下发给 CLI 的 CLAUDE_CODE_MAX_CONTEXT_TOKENS(0 = 未下发)。
+	// 发布前直赋、之后只读;drainStream 在 init 帧上以它为准上报窗口。
+	contextWindow int
+
 	// outMu/liveOuts 当前仍在 drain 的事件出口 channel 集合。一个 session 上可以
 	// 同时有多条:user turn 一条,自主续轮 / 后台 subagent 活动轮各自一条。
 	// 异步应答(SubmitAnswer / SubmitToolPermission)按 waiter 记下的通道回投,
