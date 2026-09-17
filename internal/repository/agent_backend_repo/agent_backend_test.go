@@ -202,6 +202,43 @@ func TestAgentBackendRepo_List(t *testing.T) {
 	})
 }
 
+func TestAgentBackendRepo_ListSyncedForAccount(t *testing.T) {
+	convey.Convey("ListSyncedForAccount", t, func() {
+		ctx, mock, repo := setupAgentBackendRepoTest(t)
+
+		convey.Convey("按账号过滤活着且有同步标识的行，按 id 升序", func() {
+			rows := sqlmock.NewRows([]string{
+				"id", "type", "name", "llm_provider_key", "cli_path", "status",
+				"createtime", "updatetime", "sync_id", "sync_account_id",
+			}).
+				AddRow(1, string(agent_backend_entity.TypeBuiltin), "a", "test-key-uuid-1", "", consts.ACTIVE, int64(0), int64(0), "sync-1", int64(9)).
+				AddRow(2, string(agent_backend_entity.TypeBuiltin), "b", "test-key-uuid-1", "", consts.ACTIVE, int64(0), int64(0), "sync-2", int64(9))
+			mock.ExpectQuery("SELECT \\* FROM `agent_backends` WHERE status = \\? AND sync_id != '' AND sync_account_id = \\? AND sync_deleted_at = 0 ORDER BY id ASC").
+				WithArgs(consts.ACTIVE, int64(9)).
+				WillReturnRows(rows)
+
+			got, err := repo.ListSyncedForAccount(ctx, 9)
+			assert.NoError(t, err)
+			if assert.Len(t, got, 2) {
+				assert.Equal(t, "sync-1", got[0].SyncID)
+				assert.Equal(t, "sync-2", got[1].SyncID)
+			}
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+
+		convey.Convey("驱动报错时透传", func() {
+			mock.ExpectQuery("SELECT \\* FROM `agent_backends` WHERE status = \\? AND sync_id != '' AND sync_account_id = \\? AND sync_deleted_at = 0").
+				WithArgs(consts.ACTIVE, int64(9)).
+				WillReturnError(sql.ErrConnDone)
+
+			got, err := repo.ListSyncedForAccount(ctx, 9)
+			assert.ErrorIs(t, err, sql.ErrConnDone)
+			assert.Nil(t, got)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	})
+}
+
 func TestAgentBackendRepo_Delete(t *testing.T) {
 	convey.Convey("Delete", t, func() {
 		ctx, mock, repo := setupAgentBackendRepoTest(t)

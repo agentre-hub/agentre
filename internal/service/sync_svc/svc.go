@@ -421,6 +421,13 @@ func (s *service) SyncOnce(ctx context.Context) error {
 		s.setLastErr(err)
 		return err
 	}
+	// 同样排在 flush 之前，且只在这个账号第一次跑到这里时真的做事（存量修复，
+	// requeue_backends.go）：升级后带着真实 config 的这一次入队要跟上这一轮上行，
+	// 而不是要求用户再等一轮或者手动碰一下每个后端。
+	if err := s.requeueBackendConfigs(ctx, accountID); err != nil {
+		s.setLastErr(err)
+		return err
+	}
 	if err := s.flush(ctx, accountID, devicefp.LastWriter(fingerprint)); err != nil {
 		s.setLastErr(err)
 		return err
