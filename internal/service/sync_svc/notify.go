@@ -113,6 +113,12 @@ func (s *service) claimForCurrentAccount(ctx context.Context, accountID int64) e
 		// BEGIN IMMEDIATE。
 		var queueRows []*syncqueue_entity.OutboundQueueItem
 		for _, row := range rows {
+			ad := s.adapters[kind]
+			if ad == nil {
+				// 引擎没装配这一类的适配器（单机构建 / 只装了子集的测试）：这一行
+				// 入不了队，归属也不改，与 buildQueueRows 对未知 kind 的处理一致。
+				continue
+			}
 			// 基版本沿用仓储交回来的那一个：server 从没见过的行、以及刚从上一个
 			// 账号收过来的行都是 0，按 R4a 当新建处理。
 			built, err := s.buildQueueRows(ctx, accountID, LocalChange{
@@ -125,6 +131,14 @@ func (s *service) claimForCurrentAccount(ctx context.Context, accountID int64) e
 				return err
 			}
 			queueRows = append(queueRows, built...)
+			// 本行刚拿到身份：引用它的那些行此前上过行，但引用只能写成空串——
+			// 它们在本机已经同步过，不会自己重发，这是唯一能把引用补正的机会
+			// （见 adapter.dependentsOnClaim）。
+			holders, err := ad.dependentsOnClaim(ctx, row.SyncID)
+			if err != nil {
+				return err
+			}
+			queueRows = append(queueRows, s.queueRowsForRelated(accountID, OpUpdate, holders)...)
 		}
 		if err := syncqueue_repo.OutboundQueue().CreateMany(ctx, queueRows); err != nil {
 			return err
@@ -226,23 +240,33 @@ func (s *service) buildQueueRows(ctx context.Context, accountID int64, ch LocalC
 		BaseVersion:   ch.Meta.SyncVersion,
 		QueuedAt:      now,
 	})
+	return append(rows, s.queueRowsForRelated(accountID, ch.Op, related)...), nil
+}
+
+// queueRowsForRelated 把一批从属行 / 子行翻成队列行。op 是 Delete 时它们是跟着落碑
+// 的子行（R6），否则是一次重发（基版本取它们在本机那一版，server 才把它当更新）。
+func (s *service) queueRowsForRelated(
+	accountID int64, op string, related []relatedRow,
+) []*syncqueue_entity.OutboundQueueItem {
+	now := s.now()
+	rows := make([]*syncqueue_entity.OutboundQueueItem, 0, len(related))
 	for _, r := range related {
 		if r.SyncID == "" {
 			continue
 		}
-		op := OpUpdate
-		if ch.Op == OpDelete {
-			op = OpDelete
+		rowOp := OpUpdate
+		if op == OpDelete {
+			rowOp = OpDelete
 		}
 		rows = append(rows, &syncqueue_entity.OutboundQueueItem{
 			SyncAccountID: accountID,
 			EntityType:    r.Kind,
 			LocalID:       r.LocalID,
 			EntitySyncID:  r.SyncID,
-			Op:            op,
+			Op:            rowOp,
 			BaseVersion:   r.Version,
 			QueuedAt:      now,
 		})
 	}
-	return rows, nil
+	return rows
 }

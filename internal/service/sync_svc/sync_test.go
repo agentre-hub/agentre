@@ -12,11 +12,17 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo/mock_project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
 	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo"
@@ -182,6 +188,12 @@ func (f *fakeAdapter) remove(_ context.Context, in *inbound) error {
 
 func (f *fakeAdapter) dependents(context.Context, string) ([]relatedRow, error) {
 	return f.deps, nil
+}
+
+// dependentsOnClaim 默认什么都不重发：只有项目那一种适配器有「引用它、却在本行还没
+// 有标识时上过行」的行（见 TestClaimForCurrentAccount_GivenClaimedProject_RequeuesItsRefHolders）。
+func (f *fakeAdapter) dependentsOnClaim(context.Context, string) ([]relatedRow, error) {
+	return nil, nil
 }
 
 func (f *fakeAdapter) children(context.Context, string) ([]relatedRow, error) {
@@ -1330,6 +1342,73 @@ func TestSyncOnce_GivenRowsFromBeforeLogin_ClaimsThemAndUploadsOnce(t *testing.T
 	require.NoError(t, h.svc.SyncOnce(ctx))
 	assert.Len(t, h.transport.pushed, 1)
 	assert.Empty(t, h.outbound.rows)
+}
+
+// TestClaimForCurrentAccount_GivenClaimedProject_RequeuesItsRefHolders 项目刚被认领
+// （它此前没有同步标识）时，**引用它的那些行**要跟着重发一次。
+//
+// 它们上行时项目还没有标识，引用只能写成空串：server 上那份因此是不属于任何项目的
+// 孤儿成员行（web 控制台的项目成员清单靠引用归集，孤儿行一个都不显示——「这个项目
+// 还没有成员」）。而它们在本机已经同步过（版本非 0），不会再自己上行，也不是认领的
+// 对象（它们早就属于这个账号了）。认领是它们唯一能被重发的机会。
+func TestClaimForCurrentAccount_GivenClaimedProject_RequeuesItsRefHolders(t *testing.T) {
+	h := newHarness(t, true)
+	// 真项目适配器：重发名单由它报出（认领本身也走它）。
+	h.svc.adapters[syncwire.KindProject] = projectAdapter{}
+	h.state.unowned[syncwire.KindProject] = []syncstate_repo.ClaimedRow{{SyncID: "p-legacy"}}
+	// 本机 11 就是 "p-legacy" 那一行的自增主键。重发名单由项目适配器自己拿同步标识
+	// 去查（与 dependents / children 同一个形状）。
+	h.state.ids["project:p-legacy"] = 11
+
+	ctrl := gomock.NewController(t)
+	members := mock_project_repo.NewMockProjectAgentRepo(ctrl)
+	members.EXPECT().ListByProject(gomock.Any(), int64(11)).Return([]*project_entity.ProjectAgent{{
+		ID: 21, ProjectID: 11, AgentID: 2,
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "pa-1", SyncVersion: 43},
+	}}, nil)
+	project_repo.RegisterProjectAgent(members)
+
+	locations := mock_project_location_repo.NewMockProjectLocationRepo(ctrl)
+	locations.EXPECT().ListByProject(gomock.Any(), int64(11)).Return([]*project_location_entity.ProjectLocation{{
+		ID: 31, ProjectID: 11, DeviceFingerprint: "fp-builder", Path: "/srv/repo",
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "pl-1", SyncVersion: 12},
+	}}, nil)
+	project_location_repo.RegisterProjectLocation(locations)
+
+	// 子项目：父项目还没有标识时，它上行只能把 parent_sync_id 写成空串。
+	children := mock_project_repo.NewMockProjectRepo(ctrl)
+	children.EXPECT().ListByParent(gomock.Any(), int64(11)).Return([]*project_entity.Project{{
+		ID: 41, ParentID: 11, Name: "grayeye-server",
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "p-child", SyncVersion: 14},
+	}}, nil)
+	project_repo.RegisterProject(children)
+
+	require.NoError(t, h.svc.claimForCurrentAccount(context.Background(), 7))
+
+	bySyncID := map[string]*syncqueue_entity.OutboundQueueItem{}
+	for _, row := range h.outbound.rows {
+		bySyncID[row.EntitySyncID] = row
+	}
+	member, ok := bySyncID["pa-1"]
+	require.True(t, ok, "成员关系跟着项目一起重发")
+	assert.Equal(t, syncwire.KindProjectAgent, member.EntityType)
+	assert.Equal(t, int64(43), member.BaseVersion,
+		"基版本是它在本机那一版：server 才把它当一次更新，而不是把别人的版本盖掉")
+
+	location, ok := bySyncID["pl-1"]
+	require.True(t, ok, "路径记录同理：它的自然键一半就是项目标识")
+	assert.Equal(t, syncwire.KindProjectLocation, location.EntityType)
+	assert.Equal(t, int64(12), location.BaseVersion)
+
+	// 子项目：父项目还没有标识时，它上行只能把 parent_sync_id 写成空串，server 上
+	// 就这样被落成了**顶层项目**——控制台的项目树里那一层父子关系整个消失，挂在
+	// 父项目上的成员也就继承不到子项目（「这个项目还没有成员」）。父项目拿到标识
+	// 之后不重发一次，这个层级永远接不回去。
+	child, ok := bySyncID["p-child"]
+	require.True(t, ok, "子项目跟着父项目一起重发，parent_sync_id 这次才写得出来")
+	assert.Equal(t, syncwire.KindProject, child.EntityType)
+	assert.Equal(t, int64(14), child.BaseVersion,
+		"基版本是它在本机那一版：server 收到的是一次更新，不是一条新建")
 }
 
 // TestSyncOnce_GivenManyRowsFromBeforeLogin_ClaimsThemInOneWrite 要求 15：同一 kind

@@ -28,6 +28,14 @@ import (
 // ErrUnknownKind 表示调用方给了一个不属于同步组的对象类型。
 var ErrUnknownKind = errors.New("syncstate: unknown sync kind")
 
+// ErrClaimNotApplied 表示认领的 UPDATE 一行都没写进去：这一批的归属没有改。
+//
+// 它存在的理由是「静默空转」真的发生过：回写用的行定位值全是 0（取数列的名字与驱动
+// 回报的名字不一致，见 ClaimForAccount 里的注释），每一条 UPDATE 都命中 0 行、SQLite
+// 不报错，于是「认领了 N 行」的日志与「库里一行没动」的现实并存了几个月。命中行数
+// 不等于预期就必须报出来。
+var ErrClaimNotApplied = errors.New("syncstate: claim did not apply")
+
 // SyncStateRepo 账号级各表同步元数据列的访问接口。
 type SyncStateRepo interface {
 	// FindLocalID 按同步标识取本机自增主键；查不到返回 (0, nil)。
@@ -107,9 +115,9 @@ type ClaimedRow struct {
 // syncID == "" 的情况，因此它不改变结果集。
 const whereSyncID = "sync_id = ? AND sync_id != ''"
 
-// claimBatchSize 是集合 UPDATE 一批带的 rowid 上限：SQLite 对单条语句里的绑定
+// claimBatchSize 是集合 UPDATE 一批带的主键上限：SQLite 对单条语句里的绑定
 // 变量数有上限（SQLITE_MAX_VARIABLE_NUMBER，默认较低），认领批量可能上千行，
-// 因此分片而不是一条语句打包所有 rowid。
+// 因此分片而不是一条语句打包所有主键。
 const claimBatchSize = 500
 
 var defaultSyncState SyncStateRepo
@@ -259,8 +267,13 @@ func (r *syncStateRepo) ClaimForAccount(ctx context.Context, kind string, accoun
 	}
 
 	// 只认领**存活**的行：本机已经软删的行不该被当成一次新建推上账号（R6）。
-	// rowid 是 SQLite 给每张普通表的隐式主键，成员关系那张联合主键表也有——用它
-	// 定位要改归属、补标识与清版本号的行，每张表一套 SQL。
+	//
+	// 行定位用**声明出来的主键列 id**，不用 SQLite 的 rowid 伪列：这些表的 rowid 是
+	// `id INTEGER PRIMARY KEY` 的**别名**，驱动把它的列名回报成声明列的名字（`id`），
+	// 于是扫进一个标着 `column:rowid` 的字段只会得到 0——每一条回写都成了
+	// `WHERE rowid = 0`，命中 0 行且不报错。这个失效在真库上活了几个月，而用例全绿：
+	// sqlmock 让用例随手编了个叫 rowid 的列名（见 syncstate_test.go 的
+	// TestClaimForAccount_GivenDriverReportsTheRowidUnderItsDeclaredName）。
 	//
 	// sync_account_id 一并取出来：它决定这一行是「还没上过云」还是「属于上一个
 	// 账号」，而后者的版本号必须清零（见接口注释）。
@@ -270,12 +283,12 @@ func (r *syncStateRepo) ClaimForAccount(ctx context.Context, kind string, accoun
 		query = query.Where("status = ?", consts.ACTIVE)
 	}
 	var rows []struct {
-		Rowid         int64  `gorm:"column:rowid"`
+		LocalID       int64  `gorm:"column:id"`
 		SyncID        string `gorm:"column:sync_id"`
 		SyncVersion   int64  `gorm:"column:sync_version"`
 		SyncAccountID int64  `gorm:"column:sync_account_id"`
 	}
-	if err := query.Select("rowid", "sync_id", "sync_version", "sync_account_id").Scan(&rows).Error; err != nil {
+	if err := query.Select("id", "sync_id", "sync_version", "sync_account_id").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
@@ -290,7 +303,7 @@ func (r *syncStateRepo) ClaimForAccount(ctx context.Context, kind string, accoun
 	// 它们静默地再也不上行。一起回滚，重跑才真的是幂等的。
 	//
 	// 已经有同步标识的行按「未归属」/「属于别的账号」分两组，各自收进一条
-	// `WHERE rowid IN (...)` 集合 UPDATE——认领一轮可能有成百上千行，逐行一条
+	// `WHERE id IN (...)` 集合 UPDATE——认领一轮可能有成百上千行，逐行一条
 	// UPDATE 是这条路径的读写放大来源。没有同步标识的历史行现铸的标识各不相同，
 	// 凑不进一条集合 UPDATE，只能保留逐行处理。
 	out := make([]ClaimedRow, len(rows))
@@ -300,19 +313,19 @@ func (r *syncStateRepo) ClaimForAccount(ctx context.Context, kind string, accoun
 		case row.SyncID == "":
 			// 逐行处理，见下方循环。
 		case row.SyncAccountID != 0:
-			fromOtherAccount = append(fromOtherAccount, row.Rowid)
+			fromOtherAccount = append(fromOtherAccount, row.LocalID)
 		default:
-			unowned = append(unowned, row.Rowid)
+			unowned = append(unowned, row.LocalID)
 		}
 	}
 
 	if err := db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := claimRowidsInBatches(tx, table, unowned,
+		if err := claimLocalIDsInBatches(tx, table, unowned,
 			map[string]any{"sync_account_id": accountID}); err != nil {
 			return err
 		}
 		// 上一个账号那套序列里的坐标：清零，并按 0 交回去当基版本（R4a 新建）。
-		if err := claimRowidsInBatches(tx, table, fromOtherAccount,
+		if err := claimLocalIDsInBatches(tx, table, fromOtherAccount,
 			map[string]any{"sync_account_id": accountID, "sync_version": 0}); err != nil {
 			return err
 		}
@@ -331,7 +344,7 @@ func (r *syncStateRepo) ClaimForAccount(ctx context.Context, kind string, accoun
 				// 与 fromOtherAccount 那一批同一条理由：库里的版本号也要清，不止交回去的基版本。
 				updates["sync_version"] = 0
 			}
-			if err := tx.Table(table).Where("rowid = ?", row.Rowid).Updates(updates).Error; err != nil {
+			if err := updateClaimedRow(tx, table, row.LocalID, updates); err != nil {
 				return err
 			}
 			out[i] = ClaimedRow{SyncID: syncID, Version: 0}
@@ -343,19 +356,41 @@ func (r *syncStateRepo) ClaimForAccount(ctx context.Context, kind string, accoun
 	return out, nil
 }
 
-// claimRowidsInBatches 把 rowids 收进若干条 `WHERE rowid IN (...)` 集合 UPDATE，
-// 每条最多带 claimBatchSize 个 rowid。空切片不发 SQL。
-func claimRowidsInBatches(tx *gorm.DB, table string, rowids []int64, updates map[string]any) error {
-	for len(rowids) > 0 {
+// claimLocalIDsInBatches 把本机主键收进若干条 `WHERE id IN (...)` 集合 UPDATE，
+// 每条最多带 claimBatchSize 个主键。空切片不发 SQL。
+func claimLocalIDsInBatches(tx *gorm.DB, table string, localIDs []int64, updates map[string]any) error {
+	for len(localIDs) > 0 {
 		n := claimBatchSize
-		if n > len(rowids) {
-			n = len(rowids)
+		if n > len(localIDs) {
+			n = len(localIDs)
 		}
-		chunk := rowids[:n]
-		rowids = rowids[n:]
-		if err := tx.Table(table).Where("rowid IN ?", chunk).Updates(updates).Error; err != nil {
+		chunk := localIDs[:n]
+		localIDs = localIDs[n:]
+		if err := updateClaimedRows(tx.Table(table).Where("id IN ?", chunk), len(chunk), updates); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// updateClaimedRow 改一行认领。
+func updateClaimedRow(tx *gorm.DB, table string, localID int64, updates map[string]any) error {
+	return updateClaimedRows(tx.Table(table).Where("id = ?", localID), 1, updates)
+}
+
+// updateClaimedRows 落实一条认领 UPDATE，并守住「命中行数等于预期」这条底线：
+// 认领是「归属改了」与「入队了」两件事的第一半，而调用方**只凭本次的返回值入队**。
+// 一条命中 0 行的 UPDATE 不报错，于是库里没改、日志里却说认领了——那个形状真的发生
+// 过（见 ClaimForAccount 里关于行定位的那段注释）。
+//
+// SQLite 的 changes() 计的是**命中**行数（值没变也算命中），所以这个判据是精确的。
+func updateClaimedRows(query *gorm.DB, want int, updates map[string]any) error {
+	res := query.Updates(updates)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != int64(want) {
+		return fmt.Errorf("%w: updated %d rows, want %d", ErrClaimNotApplied, res.RowsAffected, want)
 	}
 	return nil
 }
