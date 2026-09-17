@@ -50,7 +50,7 @@ export const ProjectScopeTrigger = React.forwardRef<
       aria-expanded={open}
       aria-haspopup="dialog"
       className={cn(
-        "inline-flex h-8 min-w-0 max-w-[18rem] cursor-pointer items-center gap-1.5 rounded-lg border border-input bg-input-bg px-2 text-xs transition-colors",
+        "inline-flex h-8 min-w-0 max-w-[18rem] cursor-pointer items-center gap-1.5 rounded-lg border border-control-border bg-input-bg px-2 text-xs transition-colors",
         "hover:bg-secondary/60",
         "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
         className,

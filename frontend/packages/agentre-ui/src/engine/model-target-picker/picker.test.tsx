@@ -1669,7 +1669,11 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
       />,
     );
     const trigger = screen.getByRole("button", { name: "LLM Provider" });
-    expect(trigger).toHaveClass("rounded-lg", "border-input", "bg-input-bg");
+    expect(trigger).toHaveClass(
+      "rounded-lg",
+      "border-control-border",
+      "bg-input-bg",
+    );
 
     await user.click(trigger);
     const pop = await screen.findByTestId("model-target-popover");

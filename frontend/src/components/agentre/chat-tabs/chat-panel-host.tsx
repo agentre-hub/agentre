@@ -340,7 +340,8 @@ function SetupChecklistRow({
           "inline-flex size-5 shrink-0 items-center justify-center rounded-full border text-2xs font-semibold",
           done &&
             "border-status-running bg-status-running text-status-running-foreground",
-          status === "current" && "border-status-waiting text-status-waiting",
+          status === "current" &&
+            "border-status-waiting-text text-status-waiting-text",
           waiting &&
             "border-dashed border-control-border text-muted-foreground",
         )}
