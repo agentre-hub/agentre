@@ -120,7 +120,7 @@ export function OrgAgentRow({
             name={agent.name}
             color={agent.avatarColor}
             size="xs"
-            className="size-4.5 shrink-0 rounded-[5px] text-3xs"
+            className="size-4.5 shrink-0 rounded-[4.5px] text-2xs"
           />
         )}
         <span

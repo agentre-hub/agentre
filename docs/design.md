@@ -148,18 +148,18 @@ The `-text` split is guarded by [`packages/agentre-ui/src/tokens.test.ts`](../fr
 
 ### 3.6 Agent palette (16 identity colors)
 
-Sixteen fixed hues give concurrent agents distinct, stable identities. Light uses saturated **600–700** shades that hold up on light surfaces; dark uses lighter **300–400** shades. `agent-3` (sky) and `agent-6` (cyan) are tuned to avoid clashing with `status-running` green and the steel `primary`.
+Sixteen fixed hues give concurrent agents distinct, stable identities. Light uses **600–700** shades; dark keeps the **300–400** hues but darkens each until the white glyph holds (≥4.6), so avatars read as blocks without glaring on the dark shell. `agent-3` (sky) and `agent-6` (cyan) are tuned to avoid clashing with `status-running` green and the steel `primary`.
 
 | Token | Light | Dark | | Token | Light | Dark |
 | --- | --- | --- | --- | --- | --- | --- |
-| `agent-1` | `#2964e7` | `#60a5fa` | | `agent-9` | `#4f46e5` | `#818cf8` |
-| `agent-2` | `#7d3ee9` | `#a78bfa` | | `agent-10` | `#ea580c` | `#fdba74` |
-| `agent-3` | `#147cb3` | `#38bdf8` | | `agent-11` | `#059669` | `#34d399` |
-| `agent-4` | `#e11d48` | `#fb7185` | | `agent-12` | `#0d9488` | `#2dd4bf` |
-| `agent-5` | `#ab6413` | `#fbbf24` | | `agent-13` | `#db2777` | `#f472b6` |
-| `agent-6` | `#117d97` | `#22d3ee` | | `agent-14` | `#ca8a04` | `#fde047` |
-| `agent-7` | `#c026d3` | `#e879f9` | | `agent-15` | `#64748b` | `#94a3b8` |
-| `agent-8` | `#507e0e` | `#a3e635` | | `agent-16` | `#9333ea` | `#c084fc` |
+| `agent-1` | `#2964e7` | `#1972e0` | | `agent-9` | `#4f46e5` | `#5866ec` |
+| `agent-2` | `#7d3ee9` | `#7e59ed` | | `agent-10` | `#c15015` | `#ae6213` |
+| `agent-3` | `#147cb3` | `#137dad` | | `agent-11` | `#0e825f` | `#1d845f` |
+| `agent-4` | `#e11d48` | `#e51937` | | `agent-12` | `#0e8076` | `#1b8376` |
+| `agent-5` | `#ab6413` | `#946f10` | | `agent-13` | `#d92474` | `#de1980` |
+| `agent-6` | `#117d97` | `#108091` | | `agent-14` | `#996d11` | `#88740f` |
+| `agent-7` | `#c026d3` | `#c419de` | | `agent-15` | `#64748b` | `#617693` |
+| `agent-8` | `#507e0e` | `#568110` | | `agent-16` | `#9334e9` | `#9a4aeb` |
 
 > The initial glyph sitting **on** an agent fill uses `agent-foreground` (`#ffffff`, theme-invariant — the letter is white on all sixteen hues in both themes). Use `text-agent-foreground`, not a literal `text-white`.
 
@@ -415,7 +415,7 @@ Project blocks in [`components/agentre/primitives.tsx`](../frontend/src/componen
 
 | Component | Use |
 | --- | --- |
-| `AgentAvatar` | Agent identity avatar. Sizes `sm`/`md`/`lg` (`size-6`/`8`/`10`). Renders, in priority: a custom image (`avatarDataUrl`), a registry icon (`avatarIcon`), else initials — on the `agentColorClassNames[color]` fill with white text. Defaults: `color="agent-1"`, `size="md"`. |
+| `AgentAvatar` | Agent identity avatar. Sizes `xs`/`sm`/`md`/`lg` (`size-3.5`/`6`/`8`/`10`); `xs` is the sub-20px tier and draws a single initial. Renders, in priority: a custom image (`avatarDataUrl`), a registry icon (`avatarIcon`), else initials — on the `agentColorClassNames[color]` fill with white text. Defaults: `color="agent-1"`, `size="md"`. |
 | `StatusDot` | Colored run-state dot. Sizes `xs`/`sm`/`md` (`size-1.5`/`2`/`2.5`); `aria-label` = `"<status> status"`. |
 | `StatusPill` | Dot + uppercase label pill — `font-mono text-2xs`, `rounded-sm`, on the status' tinted bg. The canonical "agent is RUNNING/WAITING/…" chip. |
 | `SidebarButton` | Icon rail button — `ghost`/`icon`, `size-10 rounded-lg`, `sidebar-icon` color; active = `bg-primary-soft text-sidebar-icon-active shadow-xs`; ships its own hover/focus tooltip (300ms hover delay) and `aria-current`. |

@@ -143,10 +143,10 @@
   --destructive-text: #b91c1c;
 
   /* The initial glyph on a project / agent avatar. The fill underneath comes from
-     the --agent-1…16 palette. Light identity colors are the 600-700 band, where
-     white holds on all 17 (≥4.6); dark raises them to the 300-400 band, where
-     white falls to 2.54, so .dark swaps in an ink. Not theme-invariant — see the
-     .dark override and the pairing note on --agent-neutral. */
+     the --agent-1…16 palette. White in both themes: each theme's 17 fills are
+     darkened until white holds (≥4.6). Dark once lifted the fills to the
+     300-400 band and flipped this to an ink, which made avatars glare on the
+     dark shell and the glyph read thin — so the fills move, not the letter. */
   --agent-foreground: #ffffff;
 
   /* Elevation for detached overlays (Dialog / Sheet) and the scrim behind them.
@@ -183,9 +183,8 @@
   --agent-15: #64748b;
   --agent-16: #9334e9;
   /* The 17th slot of AgentColor: "no identity color". It is an ink, not a hue,
-     but it MUST pair with --agent-foreground: light keeps white on #525252, dark
-     needs a lighter fill for the ink glyph (#a3a3a3, 7.50). Leaving it theme-
-     invariant while the foreground flips would render 2.42 in dark. */
+     but it MUST pair with --agent-foreground: white on #525252 here (7.81), and
+     .dark lifts it to #737373 (4.74) so it stays apart from the dark card. */
   --agent-neutral: #525252;
 
   /* Label tones — the two hues in the issue-label vocabulary that have no
@@ -348,31 +347,29 @@
   --code-foreground: #e8e8e9;
   --code-muted-foreground: #9da1a8;
 
-  /* Agent palette — 300-400 light shades for dark bg.
+  /* Agent palette — the 300-400 dark-theme hues, saturation capped at 80% and each
+     darkened until the white glyph holds (4.60-4.65). They sit ≈3.5 on --card, so
+     an avatar stays a distinct block without glaring on the dark shell.
      agent-3 sky / agent-6 cyan avoid clash with status-running & primary teal. */
-  --agent-1: #60a5fa;
-  --agent-2: #a78bfa;
-  --agent-3: #38bdf8;
-  --agent-4: #fb7185;
-  --agent-5: #fbbf24;
-  --agent-6: #22d3ee;
-  --agent-7: #e879f9;
-  --agent-8: #a3e635;
-  --agent-9: #818cf8;
-  --agent-10: #fdba74;
-  --agent-11: #34d399;
-  --agent-12: #2dd4bf;
-  --agent-13: #f472b6;
-  --agent-14: #fde047;
-  --agent-15: #94a3b8;
-  --agent-16: #c084fc;
+  --agent-1: #1972e0;
+  --agent-2: #7e59ed;
+  --agent-3: #137dad;
+  --agent-4: #e51937;
+  --agent-5: #946f10;
+  --agent-6: #108091;
+  --agent-7: #c419de;
+  --agent-8: #568110;
+  --agent-9: #5866ec;
+  --agent-10: #ae6213;
+  --agent-11: #1d845f;
+  --agent-12: #1b8376;
+  --agent-13: #de1980;
+  --agent-14: #88740f;
+  --agent-15: #617693;
+  --agent-16: #9a4aeb;
 
-  /* See :root. Dark identity colors are the 300-400 band; the white glyph in
-     :root only reaches 2.54 there, so the letter flips to the same ink the
-     running status uses. --agent-neutral flips the other way — from the light
-     ink fill to a light grey — so the ink glyph still reads. */
-  --agent-foreground: #04140c;
-  --agent-neutral: #a3a3a3;
+  /* See :root: --agent-foreground stays white; the neutral fill pairs with it. */
+  --agent-neutral: #737373;
 
   /* Label tones — see :root. Fills mirror the old agent-N/10 tint over --card. */
   --tone-blue-bg: #242d3a;
