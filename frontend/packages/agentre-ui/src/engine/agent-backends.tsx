@@ -202,8 +202,7 @@ function AgentBackendsPanelBody({
 
   async function openEditor(backend: Backend, openBinding = false) {
     const cliPath =
-      (await ports.cliPath?.get(backend.syncId, backend.deviceId ?? "")) ??
-      "";
+      (await ports.cliPath?.get(backend.syncId, backend.deviceId ?? "")) ?? "";
     setEditor({ kind: "edit", backend, cliPath, openBinding });
   }
 

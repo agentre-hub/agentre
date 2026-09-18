@@ -83,12 +83,15 @@ type ListBackendsResponse struct {
 }
 
 // CreateBackendRequest 新建后端。不同 Type 的字段约束由 agent_backend_entity.BackendKind 校验。
+//
+// **没有 cliPath**：可执行文件路径是每（后端, 设备）一行的覆盖，走 SetCLIOverlay
+// 那个端口写，不随身份一起编码——身份写一次就顺手把路径写回去，会撤回另一台设备
+// 在这期间对那一行的改动（见 agent_backend.go 里 ListCLIOverlays 一族的注释）。
 type CreateBackendRequest struct {
 	Type                  string                 `json:"type" binding:"required"`
 	Name                  string                 `json:"name" binding:"required"`
 	LLMProviderKey        string                 `json:"llmProviderKey"`
 	LLMModelKey           string                 `json:"llmModelKey"`
-	CLIPath               string                 `json:"cliPath"`
 	ModelRoutes           map[string]RouteTarget `json:"modelRoutes"`
 	Sandbox               string                 `json:"sandbox"`
 	Approval              string                 `json:"approval"`
@@ -117,7 +120,6 @@ type UpdateBackendRequest struct {
 	Name                  string                 `json:"name" binding:"required"`
 	LLMProviderKey        string                 `json:"llmProviderKey"`
 	LLMModelKey           string                 `json:"llmModelKey"`
-	CLIPath               string                 `json:"cliPath"`
 	ModelRoutes           map[string]RouteTarget `json:"modelRoutes"`
 	Sandbox               string                 `json:"sandbox"`
 	Approval              string                 `json:"approval"`

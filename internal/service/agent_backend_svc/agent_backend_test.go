@@ -197,7 +197,6 @@ func TestCreateBackend(t *testing.T) {
 				Type:           string(agent_backend_entity.TypeClaudeCode),
 				Name:           "cc",
 				LLMProviderKey: "key-1",
-				CLIPath:        "/usr/local/bin/claude",
 			})
 			assert.NoError(t, err)
 			assert.Equal(t, int64(43), resp.Item.ID)
@@ -1384,34 +1383,62 @@ func TestCLIOverlay_GivenExplicitDeviceID_GetReadsThatDeviceNotLocal(t *testing.
 	assert.Equal(t, "recognized", resp.Status)
 }
 
-// TestUpdateBackend_GivenNonCLIType_WritesNoOverlayRow reproduces Problem 5's
-// other half: Update called setCLIOverlayIfAvailable unconditionally, so
-// openclaw/hermes/builtin saves fabricated a spurious empty CLI overlay row.
-// AllowsCLIPath (kinds.go) is the existing per-kind capability metadata; no
+// TestUpdateBackend_WritesNoCLIOverlayRow is the seam that owns the executable
+// path: the per-device overlay is written **only** through SetCLIOverlay, never
+// as a side effect of saving the backend identity.
+//
+// Create/Update used to write it from the request's own cli_path field. That
+// made 4098e722's rule ("path unchanged → don't write the overlay row") inert on
+// the desktop: the shared editor sends the whole draft on save, so a rename
+// alone still wrote back the path read when the editor opened, reverting
+// whatever another device had set on that (backend, device) row in between.
+// The browser host already routes the path through the same cliPath port only
+// (enginePorts.ts's createBackendBody / updateBackendBody deliberately omit
+// cli_path), so one writer is now the rule on both hosts.
+//
+// claudecode is the kind that used to get a row here; no
 // FindCLIOverlay/CreateCLIOverlay/UpdateCLIOverlay expectation is set, so the
-// strict gomock backendMock fails this test if the fix regresses.
-func TestUpdateBackend_GivenNonCLIType_WritesNoOverlayRow(t *testing.T) {
-	ctx, backendMock, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+// strict gomock backendMock fails this test if a second writer comes back.
+func TestUpdateBackend_WritesNoCLIOverlayRow(t *testing.T) {
+	ctx, backendMock, providerMock, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
 	// update() 的设备规范化与 toItem 的本机展示判定都会读本机指纹（与 CLI 覆盖无关
 	// 的既有行为），这里不关心调用几次；只断言不会去碰 CLI 覆盖表的读写方法。
 	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 	existing := &agent_backend_entity.AgentBackend{
-		ID:                  81,
-		SyncMeta:            syncmeta_entity.SyncMeta{SyncID: "backend-81"},
-		Type:                string(agent_backend_entity.TypeOpenClaw),
-		Name:                "OpenClaw Local",
-		OpenClawGatewayURL:  "ws://127.0.0.1:18789",
-		OpenClawSessionMode: agent_backend_entity.OpenClawSessionPerAgentRESession,
-		Status:              consts.ACTIVE,
+		ID:       81,
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "backend-81"},
+		Type:     string(agent_backend_entity.TypeClaudeCode),
+		Name:     "Claude Code",
+		Status:   consts.ACTIVE,
 	}
 	backendMock.EXPECT().Find(gomock.Any(), int64(81)).Return(existing, nil)
+	backendMock.EXPECT().FindByName(gomock.Any(), "Claude Code 2").Return(nil, nil)
+	providerMock.EXPECT().FindByKey(gomock.Any(), "key-1").Return(activeProvider("key-1"), nil)
+	expectDefaultModelResolution(providerMock, "key-1", 1)
 	backendMock.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 
 	_, err := svc.Update(ctx, &UpdateBackendRequest{
-		ID:                  81,
-		Name:                "OpenClaw Local",
-		OpenClawGatewayURL:  "ws://127.0.0.1:18789",
-		OpenClawSessionMode: agent_backend_entity.OpenClawSessionPerAgentRESession,
+		ID: 81, Name: "Claude Code 2", LLMProviderKey: "key-1",
+	})
+	require.NoError(t, err)
+}
+
+// TestCreateBackend_WritesNoCLIOverlayRow 是 Create 那一半的同一条不变量。
+func TestCreateBackend_WritesNoCLIOverlayRow(t *testing.T) {
+	ctx, backendMock, providerMock, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
+	backendMock.EXPECT().FindByName(gomock.Any(), "Claude Code").Return(nil, nil)
+	providerMock.EXPECT().FindByKey(gomock.Any(), "key-1").Return(activeProvider("key-1"), nil)
+	expectDefaultModelResolution(providerMock, "key-1", 1)
+	backendMock.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
+			b.ID, b.SyncID = 82, "backend-82"
+			return nil
+		})
+
+	_, err := svc.Create(ctx, &CreateBackendRequest{
+		Type: string(agent_backend_entity.TypeClaudeCode), Name: "Claude Code",
+		LLMProviderKey: "key-1",
 	})
 	require.NoError(t, err)
 }
