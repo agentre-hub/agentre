@@ -41,6 +41,21 @@ func (m *MockChatGateway) EXPECT() *MockChatGatewayMockRecorder {
 	return m.recorder
 }
 
+// AnswerToolPermission mocks base method.
+func (m *MockChatGateway) AnswerToolPermission(ctx context.Context, req *chat_svc.AnswerToolPermissionRequest) (*chat_svc.AnswerToolPermissionResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AnswerToolPermission", ctx, req)
+	ret0, _ := ret[0].(*chat_svc.AnswerToolPermissionResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AnswerToolPermission indicates an expected call of AnswerToolPermission.
+func (mr *MockChatGatewayMockRecorder) AnswerToolPermission(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AnswerToolPermission", reflect.TypeOf((*MockChatGateway)(nil).AnswerToolPermission), ctx, req)
+}
+
 // EnsureSession mocks base method.
 func (m *MockChatGateway) EnsureSession(ctx context.Context, req *chat_svc.EnsureSessionRequest) (*chat_svc.EnsureSessionResponse, error) {
 	m.ctrl.T.Helper()

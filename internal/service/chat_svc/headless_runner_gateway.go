@@ -13,6 +13,9 @@ type HeadlessRunnerGateway interface {
 	// SubscribeSessionEvents 订阅某会话的流事件(进程内扇出);ctl_svc 的 SSE 端点用它。
 	SubscribeSessionEvents(sessionID int64) (<-chan ChatStreamEvent, func())
 	Stop(ctx context.Context, req *StopRequest) (*StopResponse, error)
+	// AnswerToolPermission 把一次工具审批决策投回正在等审批的目标 agent;
+	// ctl_svc 的 /ctl/v1/answer-permission 端点用它接 agrctl acp 的 ACP 权限往返。
+	AnswerToolPermission(ctx context.Context, req *AnswerToolPermissionRequest) (*AnswerToolPermissionResponse, error)
 	FinalAssistantText(ctx context.Context, messageID int64) (string, error)
 	// SessionProjectID 返回某会话所属的 project id(0=未挂项目);子 agent 工具用它继承调用方项目/cwd。
 	SessionProjectID(ctx context.Context, sessionID int64) (int64, error)

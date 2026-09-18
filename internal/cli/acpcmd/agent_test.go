@@ -1,12 +1,17 @@
 package acpcmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,13 +43,23 @@ type fakeCtl struct {
 	order     atomic.Int64
 	streamSeq atomic.Int64
 	sendSeq   atomic.Int64
+	permSeq   atomic.Int64
 
 	streamCh chan streamEvent
+
+	// afterPermission 是可选的事件尾巴:仅在收到该轮的 answer-permission 之后才推。
+	// 用来模拟「目标 agent 卡在等审批、批准后才继续」的真实时序。
+	afterPermission []streamEvent
+
+	permissions []map[string]any
+	permCh      chan map[string]any
+	// failPermission=true 时 answer-permission 返回 500,用于模拟取消与回灌竞争。
+	failPermission atomic.Bool
 }
 
 func newFakeCtl(t *testing.T) *fakeCtl {
 	t.Helper()
-	f := &fakeCtl{newSessionID: 100, streamCh: make(chan streamEvent, 64)}
+	f := &fakeCtl{newSessionID: 100, streamCh: make(chan streamEvent, 64), permCh: make(chan map[string]any, 8)}
 	mux := http.NewServeMux()
 	auth := func(w http.ResponseWriter, r *http.Request) bool {
 		if r.Header.Get("Authorization") != "Bearer "+testToken {
@@ -76,13 +91,42 @@ func newFakeCtl(t *testing.T) *fakeCtl {
 		f.sends = append(f.sends, body)
 		f.sendSeq.Store(f.order.Add(1))
 		events := append([]streamEvent(nil), f.events...)
+		tail := append([]streamEvent(nil), f.afterPermission...)
 		f.mu.Unlock()
 		go func() {
 			for _, ev := range events {
 				f.streamCh <- ev
 			}
+			if len(tail) > 0 {
+				// 模拟目标 agent 在等审批:没有 answer-permission 就不继续推。
+				select {
+				case <-f.permCh:
+				case <-time.After(5 * time.Second):
+				}
+			}
+			for _, ev := range tail {
+				f.streamCh <- ev
+			}
 		}()
 		_, _ = io.WriteString(w, `{"sessionId":100,"assistantMessageId":200,"done":false}`)
+	})
+	mux.HandleFunc("/ctl/v1/answer-permission", func(w http.ResponseWriter, r *http.Request) {
+		if !auth(w, r) {
+			return
+		}
+		if f.failPermission.Load() {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"error":"permission sink gone"}`)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		f.permissions = append(f.permissions, body)
+		f.permSeq.Store(f.order.Add(1))
+		f.mu.Unlock()
+		f.permCh <- body
+		_, _ = io.WriteString(w, `{"answered":true}`)
 	})
 	mux.HandleFunc("/ctl/v1/stop", func(w http.ResponseWriter, r *http.Request) {
 		if !auth(w, r) {
@@ -133,6 +177,24 @@ func (f *fakeCtl) setEvents(events ...streamEvent) {
 	f.events = events
 }
 
+// setEventsWithTail 设置「立即推的事件」与「批准后才推的事件尾巴」。
+func (f *fakeCtl) setEventsWithTail(head, tail []streamEvent) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events = head
+	f.afterPermission = tail
+}
+
+func (f *fakeCtl) lastPermission(t *testing.T) map[string]any {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.permissions) == 0 {
+		t.Fatal("no /ctl/v1/answer-permission call recorded")
+	}
+	return f.permissions[len(f.permissions)-1]
+}
+
 func (f *fakeCtl) streamQueries() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -152,8 +214,10 @@ func (f *fakeCtl) lastSend(t *testing.T) map[string]any {
 // ---- recording ACP client ----
 
 type recordingClient struct {
-	mu      sync.Mutex
-	updates []acpsdk.SessionNotification
+	mu       sync.Mutex
+	updates  []acpsdk.SessionNotification
+	permFunc func(context.Context, acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error)
+	permReqs []acpsdk.RequestPermissionRequest
 }
 
 func (c *recordingClient) ReadTextFile(context.Context, acpsdk.ReadTextFileRequest) (acpsdk.ReadTextFileResponse, error) {
@@ -162,7 +226,14 @@ func (c *recordingClient) ReadTextFile(context.Context, acpsdk.ReadTextFileReque
 func (c *recordingClient) WriteTextFile(context.Context, acpsdk.WriteTextFileRequest) (acpsdk.WriteTextFileResponse, error) {
 	return acpsdk.WriteTextFileResponse{}, nil
 }
-func (c *recordingClient) RequestPermission(context.Context, acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
+func (c *recordingClient) RequestPermission(ctx context.Context, req acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
+	c.mu.Lock()
+	c.permReqs = append(c.permReqs, req)
+	fn := c.permFunc
+	c.mu.Unlock()
+	if fn != nil {
+		return fn(ctx, req)
+	}
 	return acpsdk.RequestPermissionResponse{}, nil
 }
 func (c *recordingClient) SessionUpdate(_ context.Context, n acpsdk.SessionNotification) error {
@@ -197,6 +268,30 @@ func (c *recordingClient) agentMessageText() string {
 		}
 	}
 	return b.String()
+}
+
+func (c *recordingClient) permissionRequests() []acpsdk.RequestPermissionRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]acpsdk.RequestPermissionRequest(nil), c.permReqs...)
+}
+
+// updateKinds 按到达顺序给每条 session/update 打一个标签,用来断言流顺序。
+func (c *recordingClient) updateKinds() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var kinds []string
+	for _, n := range c.updates {
+		switch {
+		case n.Update.ToolCall != nil:
+			kinds = append(kinds, "tool_call")
+		case n.Update.ToolCallUpdate != nil:
+			kinds = append(kinds, "tool_result")
+		case n.Update.AgentMessageChunk != nil:
+			kinds = append(kinds, "chunk")
+		}
+	}
+	return kinds
 }
 
 // startAgent wires the agrctl ACP agent to the SDK's ClientSideConnection over
@@ -556,6 +651,447 @@ func TestRun_UnknownFlagFails(t *testing.T) {
 	if code == 0 {
 		t.Fatal("run must not succeed on an unknown flag")
 	}
+}
+
+// ---- permission: option kind -> decision ----
+
+func TestResolvePermissionDecision_MapsByOptionKind(t *testing.T) {
+	cases := []struct {
+		name string
+		kind acpsdk.PermissionOptionKind
+		want permissionDecision
+	}{
+		{"allow_once", acpsdk.PermissionOptionKindAllowOnce, permissionDecision{Allow: true}},
+		{"allow_always", acpsdk.PermissionOptionKindAllowAlways, permissionDecision{Allow: true, AlwaysAllowSession: true}},
+		{"reject_once", acpsdk.PermissionOptionKindRejectOnce, permissionDecision{Allow: false}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			options := []acpsdk.PermissionOption{{OptionId: "opt-1", Name: "x", Kind: tc.kind}}
+			got := resolvePermissionDecision(options, acpsdk.NewRequestPermissionOutcomeSelected("opt-1"))
+			if got != tc.want {
+				t.Fatalf("decision = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// optionId 字面与 kind 语义相反时必须按 kind 走 —— 决策语义由 kind 定义,
+// optionId 只是回传句柄。
+func TestResolvePermissionDecision_KindWinsOverOptionId(t *testing.T) {
+	// optionId 叫 reject-once,但 kind 是 allow_once:必须放行。
+	options := []acpsdk.PermissionOption{
+		{OptionId: "reject-once", Name: "actually allow", Kind: acpsdk.PermissionOptionKindAllowOnce},
+	}
+	got := resolvePermissionDecision(options, acpsdk.NewRequestPermissionOutcomeSelected("reject-once"))
+	if !got.Allow || got.AlwaysAllowSession {
+		t.Fatalf("decision = %+v, want allow once (kind governs)", got)
+	}
+	// 反向:optionId 叫 allow-once,但 kind 是 reject_once:必须拒绝。
+	options = []acpsdk.PermissionOption{
+		{OptionId: "allow-once", Name: "actually reject", Kind: acpsdk.PermissionOptionKindRejectOnce},
+	}
+	got = resolvePermissionDecision(options, acpsdk.NewRequestPermissionOutcomeSelected("allow-once"))
+	if got.Allow {
+		t.Fatalf("decision = %+v, want deny (kind governs)", got)
+	}
+}
+
+func TestResolvePermissionDecision_DeniesWhenCancelledOrUnknown(t *testing.T) {
+	options := permissionOptions()
+	if got := resolvePermissionDecision(options, acpsdk.NewRequestPermissionOutcomeCancelled()); got.Allow {
+		t.Fatalf("canceled -> %+v, want deny", got)
+	}
+	// client 选了一个我们没发过的 optionId:不能猜,直接拒绝。
+	if got := resolvePermissionDecision(options, acpsdk.NewRequestPermissionOutcomeSelected("bogus")); got.Allow {
+		t.Fatalf("unknown option -> %+v, want deny", got)
+	}
+	// 未映射的 kind(reject_always)也不放行。
+	weird := []acpsdk.PermissionOption{{OptionId: "ra", Name: "x", Kind: acpsdk.PermissionOptionKindRejectAlways}}
+	if got := resolvePermissionDecision(weird, acpsdk.NewRequestPermissionOutcomeSelected("ra")); got.Allow {
+		t.Fatalf("reject_always -> %+v, want deny", got)
+	}
+}
+
+// ---- permission: round-trip through Prompt ----
+
+func permissionEvent(requestID, tool, input string) streamEvent {
+	return streamEvent{
+		Kind: kindToolPermissionRequest,
+		ToolPermission: &streamToolPermission{
+			RequestID: requestID,
+			ToolName:  tool,
+			ToolInput: json.RawMessage(input),
+		},
+	}
+}
+
+// decideWithKind 是测试用 ACP client:在 agent 给出的选项里选指定 kind 的那一项。
+func decideWithKind(kind acpsdk.PermissionOptionKind) func(context.Context, acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
+	return func(_ context.Context, req acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
+		for _, o := range req.Options {
+			if o.Kind == kind {
+				return acpsdk.RequestPermissionResponse{Outcome: acpsdk.NewRequestPermissionOutcomeSelected(o.OptionId)}, nil
+			}
+		}
+		return acpsdk.RequestPermissionResponse{}, fmt.Errorf("no option with kind %q", kind)
+	}
+}
+
+func TestPrompt_PermissionApprovedForwardsAllow(t *testing.T) {
+	ctl := newFakeCtl(t)
+	ctl.setEvents(permissionEvent("req-1", "Bash", `{"cmd":"ls"}`), streamEvent{Kind: kindDone})
+	client, rec := startAgent(t, ctl)
+	rec.permFunc = decideWithKind(acpsdk.PermissionOptionKindAllowOnce)
+
+	sess := newSession(t, client)
+	resp, err := client.Prompt(context.Background(), acpsdk.PromptRequest{
+		SessionId: sess,
+		Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock("run ls")},
+	})
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if resp.StopReason != acpsdk.StopReasonEndTurn {
+		t.Fatalf("stopReason = %q, want end_turn", resp.StopReason)
+	}
+
+	body := ctl.lastPermission(t)
+	if body["sessionId"] != float64(100) || body["requestId"] != "req-1" || body["allow"] != true {
+		t.Fatalf("answer-permission body = %#v", body)
+	}
+	if _, ok := body["alwaysAllowSession"]; ok {
+		t.Fatalf("allow_once must not set alwaysAllowSession: %#v", body)
+	}
+
+	// 发给 client 的 RequestPermissionRequest:绑定 ACP session,带上工具信息与三个标准选项。
+	reqs := rec.permissionRequests()
+	if len(reqs) != 1 {
+		t.Fatalf("permission requests = %d, want 1", len(reqs))
+	}
+	got := reqs[0]
+	if got.SessionId != sess {
+		t.Fatalf("sessionId = %q, want %q", got.SessionId, sess)
+	}
+	if got.ToolCall.Title == nil || *got.ToolCall.Title != "Bash" {
+		t.Fatalf("toolCall.title = %v, want Bash", got.ToolCall.Title)
+	}
+	kinds := map[acpsdk.PermissionOptionKind]bool{}
+	for _, o := range got.Options {
+		kinds[o.Kind] = true
+	}
+	for _, want := range []acpsdk.PermissionOptionKind{
+		acpsdk.PermissionOptionKindAllowOnce,
+		acpsdk.PermissionOptionKindAllowAlways,
+		acpsdk.PermissionOptionKindRejectOnce,
+	} {
+		if !kinds[want] {
+			t.Fatalf("options missing kind %q: %+v", want, got.Options)
+		}
+	}
+}
+
+func TestPrompt_PermissionAlwaysAllowForwardsAlwaysAllowSession(t *testing.T) {
+	ctl := newFakeCtl(t)
+	ctl.setEvents(permissionEvent("req-always", "Write", `{}`), streamEvent{Kind: kindDone})
+	client, rec := startAgent(t, ctl)
+	rec.permFunc = decideWithKind(acpsdk.PermissionOptionKindAllowAlways)
+
+	sess := newSession(t, client)
+	if _, err := client.Prompt(context.Background(), acpsdk.PromptRequest{
+		SessionId: sess,
+		Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock("write")},
+	}); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	body := ctl.lastPermission(t)
+	if body["allow"] != true || body["alwaysAllowSession"] != true {
+		t.Fatalf("answer-permission body = %#v, want allow + alwaysAllowSession", body)
+	}
+}
+
+func TestPrompt_PermissionClientErrorDenies(t *testing.T) {
+	ctl := newFakeCtl(t)
+	ctl.setEvents(permissionEvent("req-err", "Bash", `{"cmd":"rm"}`), streamEvent{Kind: kindDone})
+	client, rec := startAgent(t, ctl)
+	rec.permFunc = func(context.Context, acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
+		return acpsdk.RequestPermissionResponse{}, errors.New("client exploded")
+	}
+
+	sess := newSession(t, client)
+	resp, err := client.Prompt(context.Background(), acpsdk.PromptRequest{
+		SessionId: sess,
+		Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock("go")},
+	})
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if resp.StopReason != acpsdk.StopReasonEndTurn {
+		t.Fatalf("stopReason = %q, want end_turn (deny must not kill the turn)", resp.StopReason)
+	}
+	body := ctl.lastPermission(t)
+	if body["allow"] != false || body["requestId"] != "req-err" {
+		t.Fatalf("answer-permission body = %#v, want allow=false", body)
+	}
+}
+
+func TestPrompt_PermissionClientCancelledDenies(t *testing.T) {
+	ctl := newFakeCtl(t)
+	ctl.setEvents(permissionEvent("req-cancel", "Bash", `{}`), streamEvent{Kind: kindDone})
+	client, rec := startAgent(t, ctl)
+	rec.permFunc = func(context.Context, acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
+		return acpsdk.RequestPermissionResponse{Outcome: acpsdk.NewRequestPermissionOutcomeCancelled()}, nil
+	}
+
+	sess := newSession(t, client)
+	if _, err := client.Prompt(context.Background(), acpsdk.PromptRequest{
+		SessionId: sess,
+		Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock("go")},
+	}); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if body := ctl.lastPermission(t); body["allow"] != false {
+		t.Fatalf("answer-permission body = %#v, want allow=false", body)
+	}
+}
+
+// client 完全不回时,靠 prompt 的 ctx 取消把等待打断,并且必须补一条 deny ——
+// 目标 agent 不能因为 client 装死而永远停在审批。
+func TestPrompt_PermissionClientSilentDeniesOnCancel(t *testing.T) {
+	ctl := newFakeCtl(t)
+	ctl.setEvents(permissionEvent("req-silent", "Bash", `{}`))
+	client, rec := startAgent(t, ctl)
+	started := make(chan struct{})
+	rec.permFunc = func(ctx context.Context, _ acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
+		close(started)
+		<-ctx.Done()
+		return acpsdk.RequestPermissionResponse{}, ctx.Err()
+	}
+	sess := newSession(t, client)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.Prompt(context.Background(), acpsdk.PromptRequest{
+			SessionId: sess,
+			Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock("go")},
+		})
+		done <- err
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("client never received the permission request")
+	}
+	if err := client.Cancel(context.Background(), acpsdk.CancelNotification{SessionId: sess}); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("prompt hung after cancel with a silent permission client")
+	}
+	body := ctl.lastPermission(t)
+	if body["allow"] != false || body["requestId"] != "req-silent" {
+		t.Fatalf("answer-permission body = %#v, want allow=false", body)
+	}
+}
+
+// 取消与 deny 回灌会竞争:即使回灌本身失败(目标端 waiter 已被 stop 拆掉),
+// prompt 也必须以 canceled 收尾而不是报错 —— 否则 client 收到的是 JSON-RPC 错误
+// 而不是 stopReason=canceled。
+func TestPrompt_PermissionAnswerFailureOnCancelStillReturnsCancelled(t *testing.T) {
+	ctl := newFakeCtl(t)
+	ctl.setEvents(permissionEvent("req-race", "Bash", `{}`))
+	ctl.failPermission.Store(true)
+	client, rec := startAgent(t, ctl)
+	started := make(chan struct{})
+	rec.permFunc = func(ctx context.Context, _ acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
+		close(started)
+		<-ctx.Done()
+		return acpsdk.RequestPermissionResponse{}, ctx.Err()
+	}
+	sess := newSession(t, client)
+
+	type result struct {
+		resp acpsdk.PromptResponse
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		resp, err := client.Prompt(context.Background(), acpsdk.PromptRequest{
+			SessionId: sess,
+			Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock("go")},
+		})
+		done <- result{resp, err}
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("client never received the permission request")
+	}
+	if err := client.Cancel(context.Background(), acpsdk.CancelNotification{SessionId: sess}); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("cancel with a failed deny must not surface an error: %v", r.err)
+		}
+		if r.resp.StopReason != acpsdk.StopReasonCancelled {
+			t.Fatalf("stopReason = %q, want canceled", r.resp.StopReason)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("prompt hung")
+	}
+}
+
+// resolved 帧是审批完成后的状态切换:必须跳过,绝不能拿它再问 client。
+// 目标端 waiter 已消失,二次 answer-permission 会直接报错把整轮弄挂。
+func TestPrompt_ResolvedPermissionEventIsSkipped(t *testing.T) {
+	ctl := newFakeCtl(t)
+	resolved := permissionEvent("req-done", "Bash", `{}`)
+	resolved.ToolPermission.Resolved = true
+	ctl.setEvents(resolved, streamEvent{Kind: kindDone})
+	client, rec := startAgent(t, ctl)
+	sess := newSession(t, client)
+
+	resp, err := client.Prompt(context.Background(), acpsdk.PromptRequest{
+		SessionId: sess,
+		Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock("go")},
+	})
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if resp.StopReason != acpsdk.StopReasonEndTurn {
+		t.Fatalf("stopReason = %q, want end_turn", resp.StopReason)
+	}
+	if got := rec.permissionRequests(); len(got) != 0 {
+		t.Fatalf("resolved permission must not be re-asked: %+v", got)
+	}
+	ctl.mu.Lock()
+	answered := len(ctl.permissions)
+	ctl.mu.Unlock()
+	if answered != 0 {
+		t.Fatalf("resolved permission must not be answered again (answered=%d)", answered)
+	}
+}
+
+// ---- subprocess integration: real agrctl acp process ----
+
+func TestIntegration_AgrctlSubprocessForwardsToolPermission(t *testing.T) {
+	if testing.Short() {
+		t.Skip("subprocess integration test skipped in -short mode")
+	}
+	bin := buildAgrctl(t)
+	ctl := newFakeCtl(t)
+	ctl.setEventsWithTail(
+		[]streamEvent{
+			{Kind: kindToolUse, ToolCallID: "call-1", ToolName: "Bash", ToolInput: json.RawMessage(`{"cmd":"ls"}`)},
+			permissionEvent("req-1", "Bash", `{"cmd":"ls"}`),
+		},
+		[]streamEvent{
+			// 审批完成后 chat_svc 会再推一条 resolved 帧:必须被跳过,不能二次提问。
+			{Kind: kindToolPermissionRequest, ToolPermission: &streamToolPermission{RequestID: "req-1", ToolName: "Bash", Resolved: true}},
+			{Kind: kindToolResult, ToolCallID: "call-1", ToolResult: "file.txt"},
+			{Kind: kindChunk, Delta: "all done"},
+			{Kind: kindDone},
+		},
+	)
+
+	client, rec, _ := startSubprocessAgent(t, bin, ctl)
+	rec.permFunc = decideWithKind(acpsdk.PermissionOptionKindAllowOnce)
+	sess := newSession(t, client)
+
+	resp, err := client.Prompt(context.Background(), acpsdk.PromptRequest{
+		SessionId: sess,
+		Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock("list files")},
+	})
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if resp.StopReason != acpsdk.StopReasonEndTurn {
+		t.Fatalf("stopReason = %q, want end_turn", resp.StopReason)
+	}
+	if got := rec.agentMessageText(); got != "all done" {
+		t.Fatalf("streamed text = %q, want %q", got, "all done")
+	}
+	if got := rec.updateKinds(); !reflect.DeepEqual(got, []string{"tool_call", "tool_result", "chunk"}) {
+		t.Fatalf("update order = %v, want [tool_call tool_result chunk]", got)
+	}
+	body := ctl.lastPermission(t)
+	if body["sessionId"] != float64(100) || body["requestId"] != "req-1" || body["allow"] != true {
+		t.Fatalf("answer-permission body = %#v", body)
+	}
+	if _, ok := body["alwaysAllowSession"]; ok {
+		t.Fatalf("allow_once must not set alwaysAllowSession: %#v", body)
+	}
+	if s, e, p := ctl.streamSeq.Load(), ctl.sendSeq.Load(), ctl.permSeq.Load(); s <= 0 || s >= e || e >= p {
+		t.Fatalf("arrival order stream/send/permission = %d/%d/%d, want increasing", s, e, p)
+	}
+	// resolved 帧不得触发第二次 ACP 提问 / 回灌。
+	if got := rec.permissionRequests(); len(got) != 1 {
+		t.Fatalf("permission requests = %d, want exactly 1 (resolved frame must be skipped)", len(got))
+	}
+	ctl.mu.Lock()
+	answered := len(ctl.permissions)
+	ctl.mu.Unlock()
+	if answered != 1 {
+		t.Fatalf("answer-permission calls = %d, want exactly 1", answered)
+	}
+}
+
+// buildAgrctl 编译真实的 agrctl 二进制,供子进程集成测试使用。
+func buildAgrctl(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}").Output()
+	if err != nil {
+		t.Fatalf("locate module root: %v", err)
+	}
+	root := strings.TrimSpace(string(out))
+	bin := filepath.Join(t.TempDir(), "agrctl")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/agrctl") //nolint:gosec // G204: fixed args, bin is a t.TempDir path
+	build.Dir = root
+	if b, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build agrctl: %v\n%s", err, b)
+	}
+	return bin
+}
+
+// startSubprocessAgent 以 "agrctl acp" 形态起真实子进程,并把它的 stdio 接到
+// SDK 的 ClientSideConnection 上。
+func startSubprocessAgent(t *testing.T, bin string, ctl *fakeCtl) (*acpsdk.ClientSideConnection, *recordingClient, *exec.Cmd) {
+	t.Helper()
+	clientToAgentR, clientToAgentW := io.Pipe()
+	agentToClientR, agentToClientW := io.Pipe()
+
+	cmd := exec.Command(bin, "acp", "--agent", "planner", "--endpoint", ctl.srv.URL, "--token", testToken) //nolint:gosec // G204: bin is the test-built agrctl binary
+	cmd.Stdin = clientToAgentR
+	cmd.Stdout = agentToClientW
+	cmd.WaitDelay = 3 * time.Second
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start agrctl acp: %v", err)
+	}
+
+	rec := &recordingClient{}
+	clientConn := acpsdk.NewClientSideConnection(rec, clientToAgentW, agentToClientR)
+	t.Cleanup(func() {
+		// 先关管道再等子进程:否则 exec 的 stdin/stdout 拷贝 goroutine 会卡在
+		// 永不 EOF 的 io.Pipe 上,cmd.Wait 永不返回。
+		_ = clientToAgentW.Close()
+		_ = clientToAgentR.Close()
+		_ = agentToClientW.Close()
+		_ = agentToClientR.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		if t.Failed() {
+			t.Logf("agrctl acp stderr:\n%s", stderr.String())
+		}
+	})
+	return clientConn, rec, cmd
 }
 
 func waitFor(t *testing.T, cond func() bool) {

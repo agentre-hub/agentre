@@ -46,6 +46,8 @@ func (h *ctlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveSend(w, r)
 	case "stop":
 		h.serveStop(w, r)
+	case "answer-permission":
+		h.serveAnswerPermission(w, r)
 	case "stream":
 		h.serveStream(w, r)
 	default:
@@ -354,6 +356,54 @@ func (h *ctlHandler) serveStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"stopped": true})
+}
+
+// ---- answer-permission ----
+
+// answerPermissionRequest 是 agrctl acp 把 ACP client 的权限决策回灌给目标 agent 的
+// 入参。Allow=false 时 AlwaysAllowSession 被忽略(deny 永远单次);DenyReason 非空时
+// 作为用户反馈注入目标 agent。
+type answerPermissionRequest struct {
+	SessionID          int64  `json:"sessionId"`
+	RequestID          string `json:"requestId"`
+	Allow              bool   `json:"allow"`
+	AlwaysAllowSession bool   `json:"alwaysAllowSession,omitempty"`
+	DenyReason         string `json:"denyReason,omitempty"`
+}
+
+func (h *ctlHandler) serveAnswerPermission(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "answer-permission requires POST")
+		return
+	}
+	if h.chat == nil {
+		writeErr(w, http.StatusServiceUnavailable, "control service not ready")
+		return
+	}
+	var req answerPermissionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if req.SessionID <= 0 {
+		writeErr(w, http.StatusBadRequest, "sessionId is required")
+		return
+	}
+	if strings.TrimSpace(req.RequestID) == "" {
+		writeErr(w, http.StatusBadRequest, "requestId is required")
+		return
+	}
+	if _, err := h.chat.AnswerToolPermission(r.Context(), &chat_svc.AnswerToolPermissionRequest{
+		SessionID:          req.SessionID,
+		RequestID:          req.RequestID,
+		Allow:              req.Allow,
+		AlwaysAllowSession: req.AlwaysAllowSession,
+		DenyReason:         req.DenyReason,
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"answered": true})
 }
 
 // ---- stream (SSE) ----

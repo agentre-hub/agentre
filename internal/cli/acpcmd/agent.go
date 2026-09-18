@@ -34,6 +34,10 @@ const (
 	kindDone       = "done"
 	kindError      = "error"
 	kindAborted    = "aborted"
+	// kindToolPermissionRequest 是目标 agent 等审批时 chat_svc emit 的事件 kind。
+	// 收到它必须完成一次 ACP session/request_permission 往返,否则目标 agent
+	// 会永远停在 waiting 状态,prompt 永不返回。
+	kindToolPermissionRequest = "tool_permission_request"
 )
 
 // streamEvent 是 /ctl/v1/stream 推来的 ChatStreamEvent 的最小投影:只保留翻译成
@@ -48,6 +52,30 @@ type streamEvent struct {
 	ToolInput  json.RawMessage `json:"toolInput,omitempty"`
 	ToolResult string          `json:"toolResult,omitempty"`
 	IsError    bool            `json:"isError,omitempty"`
+
+	// ToolPermission 是 tool_permission_request 事件的最小投影。Agentre 不提供候选
+	// 选项(选项由本包按 ACP 标准构造),所以这里只要审批句柄 + 工具信息。
+	ToolPermission *streamToolPermission `json:"toolPermission,omitempty"`
+}
+
+// streamToolPermission 只解 acpcmd 需要的审批字段,刻意不 import chat_svc ——
+// 那个包会拖入 DB/gorm 依赖,agrctl 要的是精简与快速启动。
+type streamToolPermission struct {
+	RequestID string          `json:"requestId"`
+	ToolName  string          `json:"toolName"`
+	ToolInput json.RawMessage `json:"toolInput,omitempty"`
+	// Resolved=true 是审批完成后的状态切换事件(Agentre 同一条 kind 会再发一
+	// resolved 帧)。已审批的请求不能再问 / 不能再答:目标端的 waiter 已消失,
+	// 二次提交只会报错。
+	Resolved bool `json:"resolved,omitempty"`
+}
+
+// answerPermissionBody 是 POST /ctl/v1/answer-permission 的请求体(acpcmd 侧投影)。
+type answerPermissionBody struct {
+	SessionID          int64  `json:"sessionId"`
+	RequestID          string `json:"requestId"`
+	Allow              bool   `json:"allow"`
+	AlwaysAllowSession bool   `json:"alwaysAllowSession,omitempty"`
 }
 
 // sendBody 是 POST /ctl/v1/send 的请求体(acpcmd 侧投影)。
@@ -204,8 +232,8 @@ func (a *agentHandler) Prompt(ctx context.Context, p acpsdk.PromptRequest) (acps
 
 // handleEvent 翻译单条事件。terminal=true 表示本轮已定论(resp 即返回值)。
 // 其余 kind(output_activity / message_end / retry / plan_update / subagent_* /
-// steer_consumed / ask_user_question / tool_permission_request / closed)本版不翻译,
-// 直接跳过 —— 它们绝不能卡住轮次。
+// steer_consumed / ask_user_question / closed)本版不翻译,直接跳过 ——
+// 它们绝不能卡住轮次。
 func (a *agentHandler) handleEvent(ctx context.Context, session acpsdk.SessionId, ev streamEvent) (bool, acpsdk.PromptResponse, error) {
 	switch ev.Kind {
 	case kindChunk:
@@ -233,6 +261,10 @@ func (a *agentHandler) handleEvent(ctx context.Context, session acpsdk.SessionId
 			if err := a.update(ctx, session, toolCallResult(ev)); err != nil {
 				return true, acpsdk.PromptResponse{}, err
 			}
+		}
+	case kindToolPermissionRequest:
+		if err := a.handleToolPermission(ctx, session, ev.ToolPermission); err != nil {
+			return true, acpsdk.PromptResponse{}, err
 		}
 	case kindDone:
 		return true, acpsdk.PromptResponse{StopReason: acpsdk.StopReasonEndTurn}, nil
@@ -286,6 +318,138 @@ func toolCallResult(ev streamEvent) acpsdk.SessionUpdate {
 		opts = append(opts, acpsdk.WithUpdateRawOutput(ev.ToolResult))
 	}
 	return acpsdk.UpdateToolCall(acpsdk.ToolCallId(ev.ToolCallID), opts...)
+}
+
+// ---- tool permission (session/request_permission round-trip) ----
+
+// answerPermissionTimeout 是回灌决策的等待上限。即使 prompt ctx 已被取消, deny
+// 也必须送出去,否则目标 agent 会永远等审批。
+const answerPermissionTimeout = 5 * time.Second
+
+// permissionDecision 是本次审批映射出的目标 agent 决策。
+type permissionDecision struct {
+	Allow              bool
+	AlwaysAllowSession bool
+}
+
+// permissionOptions 是发给 ACP client 的标准三选项:一次允许 / 始终允许 / 拒绝。
+//
+// kind 定义语义,optionId 只是回传句柄 —— 决策映射永远按 kind 走。
+// 不给 reject_always:Agentre 的 AnswerToolPermission 只有单次决策语义
+// (Allow=false 永远单次),没有「永久拒绝」这一档。
+func permissionOptions() []acpsdk.PermissionOption {
+	return []acpsdk.PermissionOption{
+		{OptionId: "allow-once", Name: "Allow once", Kind: acpsdk.PermissionOptionKindAllowOnce},
+		{OptionId: "allow-always", Name: "Allow always", Kind: acpsdk.PermissionOptionKindAllowAlways},
+		{OptionId: "reject-once", Name: "Reject", Kind: acpsdk.PermissionOptionKindRejectOnce},
+	}
+}
+
+// decisionForOptionKind 按 ACP 选项 kind 映射;未知 kind 返回 ok=false。
+func decisionForOptionKind(kind acpsdk.PermissionOptionKind) (permissionDecision, bool) {
+	switch kind {
+	case acpsdk.PermissionOptionKindAllowOnce:
+		return permissionDecision{Allow: true}, true
+	case acpsdk.PermissionOptionKindAllowAlways:
+		return permissionDecision{Allow: true, AlwaysAllowSession: true}, true
+	case acpsdk.PermissionOptionKindRejectOnce:
+		return permissionDecision{Allow: false}, true
+	default:
+		return permissionDecision{}, false
+	}
+}
+
+// resolvePermissionDecision 把 client 的 outcome 解析成决策。选中的 option 先按
+// optionId 找回我们发出的那一项,再按它的 kind 定语义 —— 不信任 optionId 的字面。
+// canceled / 未知 optionId / 未映射 kind 一律 deny:宁可拒绝,也不能让目标 agent
+// 永远等。
+func resolvePermissionDecision(options []acpsdk.PermissionOption, outcome acpsdk.RequestPermissionOutcome) permissionDecision {
+	deny := permissionDecision{Allow: false}
+	if outcome.Selected == nil {
+		return deny
+	}
+	for _, opt := range options {
+		if opt.OptionId != outcome.Selected.OptionId {
+			continue
+		}
+		if d, ok := decisionForOptionKind(opt.Kind); ok {
+			return d
+		}
+		return deny
+	}
+	return deny
+}
+
+// handleToolPermission 完成一次 ACP 权限往返:向 client 发 session/request_permission,
+// 按选中 option 的 kind 得到决策,再回灌 /ctl/v1/answer-permission。目标 agent 会一直
+// 停在等审批,直到这条回答到达。
+func (a *agentHandler) handleToolPermission(ctx context.Context, session acpsdk.SessionId, perm *streamToolPermission) error {
+	// 没有句柄 / 已审批:无从严回答,跳过即可,不卡住读循环。resolved 帧尤其不能
+	// 再回灌 —— 目标端 waiter 已消失,二次提交会直接报错。
+	if perm == nil || perm.Resolved || strings.TrimSpace(perm.RequestID) == "" {
+		return nil
+	}
+	sessionID, ok := a.sessionOf(session)
+	if !ok {
+		return fmt.Errorf("acp: unknown session %q", session)
+	}
+	decision := a.requestPermission(ctx, session, perm)
+	if err := a.answerPermission(ctx, sessionID, perm.RequestID, decision); err != nil {
+		// 本轮已被取消:目标轮的收尾由 Cancel 的 /ctl/v1/stop 负责。deny 已尽力
+		// 投递,投递失败不该把「取消」变成「错误」—— SDK 会把错误当 JSON-RPC
+		// 错误回给 client,而不是 stopReason=canceled。
+		if ctx.Err() != nil {
+			return nil //nolint:nilerr // 取消路径:deny 回灌失败必须吞掉,让 Prompt 以 canceled 收尾
+		}
+		return fmt.Errorf("acp: answer tool permission: %w", err)
+	}
+	return nil
+}
+
+// requestPermission 向 ACP client 发起 session/request_permission 并等待决策。
+// client 报错/取消/prompt ctx 结束时返回 deny,把「拿不到回答」收敛成一次明确的拒绝。
+func (a *agentHandler) requestPermission(ctx context.Context, session acpsdk.SessionId, perm *streamToolPermission) permissionDecision {
+	if a.conn == nil {
+		return permissionDecision{Allow: false}
+	}
+	options := permissionOptions()
+	title := strings.TrimSpace(perm.ToolName)
+	if title == "" {
+		title = "tool"
+	}
+	// ToolCall 用已有信息尽力填:requestId 是唯一句柄,拿它当 toolCallId;
+	// title/rawInput 来自事件,SDK 不强制校验这些字段。
+	callID := strings.TrimSpace(perm.RequestID)
+	var rawInput any
+	if len(perm.ToolInput) > 0 {
+		rawInput = perm.ToolInput
+	}
+	resp, err := a.conn.RequestPermission(ctx, acpsdk.RequestPermissionRequest{
+		SessionId: session,
+		ToolCall: acpsdk.ToolCallUpdate{
+			ToolCallId: acpsdk.ToolCallId(callID),
+			Title:      &title,
+			RawInput:   rawInput,
+		},
+		Options: options,
+	})
+	if err != nil {
+		return permissionDecision{Allow: false}
+	}
+	return resolvePermissionDecision(options, resp.Outcome)
+}
+
+// answerPermission 把决策回灌目标 agent。用「去取消但带超时」的 ctx:即便本轮刚被
+// Cancel(prompt ctx 已 done),这次 deny 也必须发出去,否则目标 agent 卡在等审批。
+func (a *agentHandler) answerPermission(ctx context.Context, sessionID int64, requestID string, d permissionDecision) error {
+	postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), answerPermissionTimeout)
+	defer cancel()
+	return a.endpoint.PostContext(postCtx, "/ctl/v1/answer-permission", answerPermissionBody{
+		SessionID:          sessionID,
+		RequestID:          requestID,
+		Allow:              d.Allow,
+		AlwaysAllowSession: d.AlwaysAllowSession,
+	}, nil)
 }
 
 // promptPayload 拆 prompt content block:text 按顺序拼成任务文本,image 转 data URL。

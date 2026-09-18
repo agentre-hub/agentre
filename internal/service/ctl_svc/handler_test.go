@@ -50,6 +50,9 @@ type fakeChat struct {
 	streamCh        chan chat_svc.ChatStreamEvent
 	streamSessionID int64
 	streamCancelled bool
+
+	answerPermissionReq *chat_svc.AnswerToolPermissionRequest
+	answerPermissionErr error
 }
 
 func (f *fakeChat) EnsureSession(_ context.Context, req *chat_svc.EnsureSessionRequest) (*chat_svc.EnsureSessionResponse, error) {
@@ -73,6 +76,13 @@ func (f *fakeChat) Stop(_ context.Context, req *chat_svc.StopRequest) (*chat_svc
 }
 func (f *fakeChat) SessionProjectID(context.Context, int64) (int64, error) {
 	return 0, nil
+}
+func (f *fakeChat) AnswerToolPermission(_ context.Context, req *chat_svc.AnswerToolPermissionRequest) (*chat_svc.AnswerToolPermissionResponse, error) {
+	f.answerPermissionReq = req
+	if f.answerPermissionErr != nil {
+		return nil, f.answerPermissionErr
+	}
+	return &chat_svc.AnswerToolPermissionResponse{}, nil
 }
 func (f *fakeChat) SubscribeSessionEvents(sessionID int64) (<-chan chat_svc.ChatStreamEvent, func()) {
 	f.streamSessionID = sessionID
@@ -457,6 +467,66 @@ func TestControl_Stream_BadSessionID_400(t *testing.T) {
 func TestControl_Stream_RequiresGet(t *testing.T) {
 	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, &fakeChat{})
 	rec := do(t, h, http.MethodPost, "/ctl/v1/stream?sessionId=1", testToken, "")
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", rec.Code)
+	}
+}
+
+// ---- answer-permission ----
+
+// TestControl_AnswerPermission_ForwardsDecision 覆盖 agrctl acp 的权限回灌:
+// 桌面侧把 ACP client 选中的 option 决策落到 chat_svc.AnswerToolPermission,
+// 字段必须逐字透传(sessionId / requestId / allow / alwaysAllowSession)。
+func TestControl_AnswerPermission_ForwardsDecision(t *testing.T) {
+	chat := &fakeChat{}
+	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, chat)
+	rec := do(t, h, http.MethodPost, "/ctl/v1/answer-permission", testToken,
+		`{"sessionId":100,"requestId":"req-1","allow":true,"alwaysAllowSession":true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	req := chat.answerPermissionReq
+	if req == nil {
+		t.Fatal("AnswerToolPermission was not called")
+	}
+	if req.SessionID != 100 || req.RequestID != "req-1" || !req.Allow || !req.AlwaysAllowSession {
+		t.Fatalf("req = %+v, want sessionId=100 requestId=req-1 allow=true alwaysAllow=true", req)
+	}
+}
+
+func TestControl_AnswerPermission_ValidatesParams(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"missing sessionId", `{"requestId":"req-1","allow":true}`},
+		{"missing requestId", `{"sessionId":100,"allow":true}`},
+		{"blank requestId", `{"sessionId":100,"requestId":"  ","allow":true}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHandler(&fakeAgents{}, &fakeProjects{}, &fakeChat{})
+			rec := do(t, h, http.MethodPost, "/ctl/v1/answer-permission", testToken, tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("code = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestControl_AnswerPermission_UnavailableWithoutDeps(t *testing.T) {
+	// 直接传 nil ChatGateway(而不是 (*fakeChat)(nil) 这种 typed-nil),后者会让
+	// h.chat != nil 恒成立,测不到 503。
+	h := newCtlHandler(testToken, &fakeAgents{}, &fakeProjects{}, nil)
+	rec := do(t, h, http.MethodPost, "/ctl/v1/answer-permission", testToken, `{"sessionId":1,"requestId":"req-1"}`)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("code = %d, want 503 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestControl_AnswerPermission_RequiresPost(t *testing.T) {
+	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, &fakeChat{})
+	rec := do(t, h, http.MethodGet, "/ctl/v1/answer-permission", testToken, "")
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("code = %d, want 405", rec.Code)
 	}
