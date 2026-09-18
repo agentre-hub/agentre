@@ -37,9 +37,10 @@ export function credentialDeviceGate(args: {
 }
 
 /**
- * 三条提示复用 agentre-server 既有的 `settings.errors.device*` 文案（控制台侧
- * 后续会改接这一份，见 spec 决策与 task 5），只是把「保存前」的语境放宽成
- * 「这个凭据操作前」。
+ * 三条提示是共享编辑器自己的一份（`agentBackends.credential.*`）：两个宿主都渲染
+ * 这个编辑器，文案得跟着组件走。宿主各自的 `settings.errors.device*` 说的是另一件
+ * 事——那是宿主自己那条路（保存前校验、扫描、CLI 路径解析）被拒时的话，语境是
+ * 「保存前」而不是「这个凭据操作前」，两份各自留在自己那一侧。
  */
 export function credentialGateMessage(
   gate: CredentialDeviceGate,

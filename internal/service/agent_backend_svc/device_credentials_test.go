@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes"
 	"github.com/agentre-hub/agentre/internal/pkg/backendcred"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/pkg/openclawgateway"
@@ -675,6 +677,27 @@ func TestDeviceCredentialsPort_AnswersForBackendsBoundHere(t *testing.T) {
 		raw, err := json.Marshal(resp)
 		require.NoError(t, err)
 		assert.NotContains(t, string(raw), token)
+	})
+
+	// 「连不上」是规格列出的结构化结果之一(设备操作表「测试连接」),而这台桌面端被
+	// 控制台当作绑定设备问到时,答的必须与 agentred 的同族应答是同一个码 —— 不能一边
+	// 回 HERMES_UNREACHABLE、一边把 dial 的机器原话当正文递上去。
+	t.Run("an unreachable serve answers with the unreachable code, not the dial text", func(t *testing.T) {
+		port, _ := newPort(t)
+		orig := hermesProbe
+		hermesProbe = func(context.Context, hermes.ProbeRequest) (string, error) {
+			return "", fmt.Errorf("%w: dial tcp 127.0.0.1:9119: connect: connection refused", hermes.ErrGatewayUnreachable)
+		}
+		t.Cleanup(func() { hermesProbe = orig })
+
+		resp, err := port.TestConnection(context.Background(), &agentrewire.BackendConnectionTestRequest{
+			BackendType: string(agent_backend_entity.TypeHermes), HermesUrl: "http://10.0.0.7:9119",
+		})
+
+		require.NoError(t, err)
+		assert.False(t, resp.GetOk())
+		assert.Equal(t, HermesCodeUnreachable, resp.GetCode())
+		assert.NotContains(t, resp.GetMessage(), "dial tcp", "界面不贴机器原话")
 	})
 
 	t.Run("a draft token wins over the saved one and is not persisted", func(t *testing.T) {

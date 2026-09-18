@@ -56,11 +56,16 @@ const (
 	HermesCodeUnreachable         = "HERMES_UNREACHABLE"
 )
 
-// hermesAuthReasons 是 Hermes 认证失败的**唯一**一张对照表:哨兵 → 业务码 → 前端码。
+// hermesAuthReasons 是桌面端这一侧 Hermes 认证失败的对照表:哨兵 → 业务码 → 前端码。
 //
-// 三者必须一一对应:同一个失败,本机路径回业务码(中文一句话)、设备操作回前端码
-// (线上传的那个串),而收到前端码的一侧还要翻回业务码。表散成两份的话,某一个原因
-// 迟早会在一条路径上说成另一句话。
+// 同一个失败,本机路径回业务码(中文一句话)、设备操作回前端码(线上传的那个串),
+// 而收到前端码的一侧还要翻回业务码 —— 三条路径读同一行,某一个原因才不会在其中一条
+// 上说成另一句话。多个哨兵可以落在同一个原因上(认证 HTTP 与 gateway 拨号都是「连不
+// 上」),反过来不行。
+//
+// agentred 不能 import 本包(会把桌面端服务连同它的 init 拖进 daemon),所以
+// handlers.hermesResultCode 持有同一组**前端码字符串**的另一份:那些串必须逐字相同,
+// 改这里就要改那里。
 var hermesAuthReasons = []struct {
 	sentinel error
 	bizCode  int
@@ -73,6 +78,11 @@ var hermesAuthReasons = []struct {
 	{hermes.ErrPasswordLoginUnsupported, code.HermesProviderUnsupported, HermesCodeProviderUnsupported},
 	{hermes.ErrAuthProviderUnavailable, code.HermesProviderUnavailable, HermesCodeProviderUnavailable},
 	{hermes.ErrAuthUnreachable, code.HermesUnreachable, HermesCodeUnreachable},
+	// 「连不上」有两个来源:认证 HTTP 打不通(上一行)与 gateway 拨不上。对用户是同
+	// 一件事,也必须与 agentred 那一侧(handlers.hermesResultCode)说同一个码 ——
+	// 否则同一次「serve 没起来」,绑到本机时是一行 dial 原话,绑到 agentred 时是
+	// 「连不上这个 Hermes 服务」。
+	{hermes.ErrGatewayUnreachable, code.HermesUnreachable, HermesCodeUnreachable},
 }
 
 // hermesAuthCode maps the auth-layer sentinels to (business code, frontend code).
