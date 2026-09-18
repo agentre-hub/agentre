@@ -33,11 +33,13 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/acp"
 	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
@@ -722,6 +724,20 @@ func setupRuntimeTestWithCLIOverlay(t *testing.T, rt agentruntime.Runtime,
 	return context.Background(), notif, h
 }
 
+func setupRuntimeTestWithBackendConfig(t *testing.T, rt agentruntime.Runtime,
+	resolve func(string) (syncwire.AgentBackendConfig, bool),
+) (context.Context, *recordingOutbound, *handlers.RuntimeHandlers) {
+	t.Helper()
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
+		RuntimeFor:             func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+		BackendConfigForSyncID: resolve,
+	})
+	return context.Background(), notif, h
+}
+
 // setupRuntimeTestWithSessions 同 setupRuntimeTest,但把会话生命周期出口也交回来
 // 供断言用(其余用例不关心它,免得每个都多接一个返回值)。
 func setupRuntimeTestWithSessions(t *testing.T, rt agentruntime.Runtime) (
@@ -794,6 +810,118 @@ func TestRuntime_Run_GivenNoSuccessfulAccountSnapshot_WhenExecuting_ThenKeepsPai
 	require.Len(t, runReqs, 1)
 	assert.Equal(t, "/paired/bin/claude", runReqs[0].req.Backend.CLIPath,
 		"logged-out daemons and pre-snapshot paired desktop calls keep their existing execution path")
+}
+
+func TestRuntime_Run_GivenBrowserDispatchBySyncID_WhenSnapshotHasACPConfig_ThenAppliesConfigBeforeRuntimeStarts(t *testing.T) {
+	rt := &fullRT{}
+	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(syncID string) (syncwire.AgentBackendConfig, bool) {
+		assert.Equal(t, "be-acp", syncID)
+		return syncwire.AgentBackendConfig{
+			ACPCommand: "npx",
+			ACPArgs:    []string{"-y", "@agentclientprotocol/codex-acp"},
+		}, true
+	})
+	// 浏览器/云派发只带 type + sync_id:身份在,启动配置不在。
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeACP)}
+	be.SyncID = "be-acp"
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(81)})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 1)
+	rt.mu.Lock()
+	runReqs := append([]runCall(nil), rt.runReqs...)
+	rt.mu.Unlock()
+	require.Len(t, runReqs, 1)
+	require.NotNil(t, runReqs[0].req.Backend)
+	assert.Equal(t, "npx", runReqs[0].req.Backend.ACPCommand)
+	assert.Equal(t, []string{"-y", "@agentclientprotocol/codex-acp"}, runReqs[0].req.Backend.ACPArgs)
+}
+
+// TestRuntime_Run_GivenSnapshotConfig_WhenApplying_ThenReplacesWholeConfigNotOneField
+// 快照里的 config 是「整份替换」而不是逐字段补空:缺席的独占键必须变空,否则
+// 直接桌面调用残留在本轮副本上的旧值会把账号配置盖回去。
+func TestRuntime_Run_GivenSnapshotConfig_WhenApplying_ThenReplacesWholeConfigNotOneField(t *testing.T) {
+	rt := &fullRT{}
+	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(string) (syncwire.AgentBackendConfig, bool) {
+		return syncwire.AgentBackendConfig{Sandbox: "read-only"}, true
+	})
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex), Approval: "never"}
+	be.SyncID = "be-codex"
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(82)})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 1)
+	rt.mu.Lock()
+	runReqs := append([]runCall(nil), rt.runReqs...)
+	rt.mu.Unlock()
+	require.Len(t, runReqs, 1)
+	require.NotNil(t, runReqs[0].req.Backend)
+	assert.Equal(t, "read-only", runReqs[0].req.Backend.Sandbox)
+	assert.Empty(t, runReqs[0].req.Backend.Approval, "fields absent from the snapshot config must be cleared")
+}
+
+func TestRuntime_Run_GivenNoSnapshotEntry_WhenRequestAlreadyHasBackendConfig_ThenLeavesItUnchanged(t *testing.T) {
+	rt := &fullRT{}
+	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(string) (syncwire.AgentBackendConfig, bool) {
+		return syncwire.AgentBackendConfig{}, false
+	})
+	be := agent_backend_entity.AgentBackend{
+		Type: string(agent_backend_entity.TypeACP), ACPCommand: "desktop-agent", ACPArgs: []string{"--desktop"},
+	}
+	be.SyncID = "be-acp"
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(83)})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 1)
+	rt.mu.Lock()
+	runReqs := append([]runCall(nil), rt.runReqs...)
+	rt.mu.Unlock()
+	require.Len(t, runReqs, 1)
+	require.NotNil(t, runReqs[0].req.Backend)
+	assert.Equal(t, "desktop-agent", runReqs[0].req.Backend.ACPCommand)
+	assert.Equal(t, []string{"--desktop"}, runReqs[0].req.Backend.ACPArgs)
+}
+
+// TestRuntime_Run_GivenNoSnapshotEntryAndNoCommand_WhenDispatchingACP_ThenReturnsReadableMissingCommandError
+// 空快照条目不是崩溃条件:空壳请求交给真实 ACP runtime,得到的是既有的可读错误。
+func TestRuntime_Run_GivenNoSnapshotEntryAndNoCommand_WhenDispatchingACP_ThenReturnsReadableMissingCommandError(t *testing.T) {
+	ctx, _, h := setupRuntimeTestWithBackendConfig(t, acp.New(), func(string) (syncwire.AgentBackendConfig, bool) {
+		return syncwire.AgentBackendConfig{}, false
+	})
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeACP)}
+	be.SyncID = "be-acp"
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(84)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no acpCommand configured")
+}
+
+func TestRuntime_Run_GivenBackendConfigAndCLIPathOverlay_WhenExecuting_ThenKeepsOverlaySeparate(t *testing.T) {
+	rt := &fullRT{}
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
+		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+		BackendConfigForSyncID: func(string) (syncwire.AgentBackendConfig, bool) {
+			return syncwire.AgentBackendConfig{DefaultPermissionMode: "plan"}, true
+		},
+		CLIPathForBackend: func(string) (string, bool) { return "/private/bin/claude", true },
+	})
+	ctx := context.Background()
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), CLIPath: "/desktop/bin/claude"}
+	be.SyncID = "be-1"
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(85)})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 1)
+	rt.mu.Lock()
+	runReqs := append([]runCall(nil), rt.runReqs...)
+	rt.mu.Unlock()
+	require.Len(t, runReqs, 1)
+	require.NotNil(t, runReqs[0].req.Backend)
+	assert.Equal(t, "plan", runReqs[0].req.Backend.DefaultPermissionMode)
+	assert.Equal(t, "/private/bin/claude", runReqs[0].req.Backend.CLIPath)
 }
 
 func TestRuntime_Capabilities_Found(t *testing.T) {
