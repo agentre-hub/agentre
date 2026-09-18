@@ -2,7 +2,6 @@ import type { OrgAgent, OrgDepartment } from "./types";
 
 // 排序落点的算法在共享包里（落点 → 写操作那一步要用它），宿主这一层留的是
 // 「把新次序写回本地状态」的两个投影 —— 它们吃的是 Wails 的实体对象。
-export { computeOrgReorder as computeReorder } from "@agentre-hub/agentre-ui";
 
 /**
  * Applies a new sortOrder to agents that belong to the given

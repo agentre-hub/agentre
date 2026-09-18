@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -642,8 +643,9 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 			return nil, "", err
 		}
 	}
-	env, err := BuildClaudeCodeEnv(req.Backend, CLIDeps{
+	env, err := agentruntime.BuildClaudeCodeEnv(req.Backend, agentruntime.CLIDeps{
 		Token: req.GatewayToken, GatewayURL: req.GatewayURL, ProviderKey: req.EffectiveProviderKey(),
+		ContextWindow: effectiveContextWindow(req),
 	})
 	if err != nil {
 		return nil, "", err
@@ -689,6 +691,7 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 		pool:           r.cache,
 		poolKey:        key,
 		permissionMode: runtimeMode,
+		contextWindow:  launchContextWindow(env),
 		tasks:          newTaskAggregator(),
 	}
 	if req.SessionID > 0 {
@@ -700,7 +703,7 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 }
 
 // launchIdentity 拼出 claudecode 的启动身份:--effort、--model(effectiveModel)、
-// 稳定 ModelKey 与 effectiveProviderKey 都是 spawn 时一次性下发、运行时改不掉的参数
+// 稳定 ModelKey、effectiveProviderKey 与上下文窗口(CLAUDE_CODE_MAX_CONTEXT_TOKENS)都是 spawn 时一次性下发、运行时改不掉的参数
 // (ANTHROPIC_BASE_URL/AUTH_TOKEN 是启动期 env),而 CLI 子进程会被池跨轮复用 ——
 // 任何一项变了就必须重开一个,否则这一轮跑的是拿旧参数起来的进程:换了供应商仍打旧
 // 的、换了模型仍是旧模型(spec 2026-08-10 决策 4)。ModelKey 单列一项,因为两行不同的
@@ -714,7 +717,25 @@ func launchIdentity(req agentruntime.RunRequest) string {
 		claudeEffectiveModel(req),
 		effectiveModelKey(req),
 		req.EffectiveProviderKey(),
+		strconv.Itoa(effectiveContextWindow(req)),
 	}, "\x00")
+}
+
+func effectiveContextWindow(req agentruntime.RunRequest) int {
+	if req.Effective == nil {
+		return 0
+	}
+	return req.Effective.ContextWindow
+}
+
+// launchContextWindow 取子进程最终 env 里的 CLAUDE_CODE_MAX_CONTEXT_TOKENS —— 配置值或
+// 用户 env_json 覆盖后的值,也就是 CLI 实际按它自动压缩的窗口。没设 / 非法 → 0。
+func launchContextWindow(env map[string]string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(env[agentruntime.ClaudeCodeMaxContextTokensEnv]))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 func effectiveModelKey(req agentruntime.RunRequest) string {
@@ -765,6 +786,11 @@ func drainStream(stream ccStream, out chan<- agentruntime.Event, result *agentru
 			active.setPermissionModeSnapshot(ev.PermissionMode)
 		}
 		translated, usage, stopErr := translate(ev)
+		if ev.Kind == claudecode.EventInit && active != nil && active.contextWindow > 0 {
+			// 启动时下发了 CLAUDE_CODE_MAX_CONTEXT_TOKENS:CLI 按这个窗口压缩,
+			// 展示也报它,不再用 catalog 按模型名猜(glm-5.3 会被前缀匹配成 glm-5)。
+			translated = []agentruntime.Event{agentruntime.ContextWindowUpdated{Tokens: active.contextWindow}}
+		}
 		for _, t := range translated {
 			out <- t
 		}

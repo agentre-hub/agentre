@@ -13,7 +13,7 @@ import {
   ProviderPillResolution,
   ProviderPillTrigger,
 } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import type { UseProviderPillReturn } from "./use-provider-pill";
 import { ModelTargetPicker } from "@agentre-hub/agentre-ui";

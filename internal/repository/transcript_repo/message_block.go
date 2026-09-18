@@ -119,21 +119,17 @@ func fillBlocks(ctx context.Context, msgs []*transcript_entity.Message, types []
 	return nil
 }
 
-// deleteBlocksOfMessages 按宿主消息的筛选条件删块行。where 是作用在 chat_messages
+// DeleteBlocksOfMessages 按宿主消息的筛选条件删块行。where 是作用在 chat_messages
 // 上的条件片段,必须与随后删消息的条件完全一致,块行才不会变成孤儿。
-func deleteBlocksOfMessages(ctx context.Context, where string, args ...any) error {
+//
+// 供仓外调用方(如 chat_repo 的会话级恢复流程 replacement_recovery.go)按同一条筛选
+// 条件删块行,不必各自重写一份「先删块再删消息」的顺序(块行必须先于宿主消息删除，
+// 否则会在两条语句之间短暂变成孤儿)。
+func DeleteBlocksOfMessages(ctx context.Context, where string, args ...any) error {
 	return db.Ctx(ctx).Exec(
 		"DELETE FROM `chat_message_blocks` WHERE message_id IN (SELECT id FROM `chat_messages` WHERE "+where+")",
 		args...,
 	).Error
-}
-
-// DeleteBlocksOfMessages 是 deleteBlocksOfMessages 的导出形式,供仓外调用方（如
-// chat_repo 的会话级恢复流程 replacement_recovery.go）按同一条筛选条件删块行,不必
-// 各自重写一份「先删块再删消息」的顺序（块行必须先于宿主消息删除，否则会在两条语句
-// 之间短暂变成孤儿）。
-func DeleteBlocksOfMessages(ctx context.Context, where string, args ...any) error {
-	return deleteBlocksOfMessages(ctx, where, args...)
 }
 
 // findSubagentStateBlock 按定位键点查本会话里的 subagent_state 块,取 message_id 最大的

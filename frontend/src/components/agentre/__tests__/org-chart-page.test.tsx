@@ -3,10 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  consumeNewAgentDialogIntent,
-  requestNewAgentDialog,
-} from "@/stores/new-agent-intent-store";
+import { useNewAgentIntentStore } from "@/stores/new-agent-intent-store";
 
 const mocks = vi.hoisted(() => ({
   useOrgData: vi.fn(),
@@ -145,7 +142,7 @@ async function moveUntil(
 }
 
 beforeEach(() => {
-  consumeNewAgentDialogIntent();
+  useNewAgentIntentStore.getState().consume();
   mocks.useOrgIndexView.mockReturnValue({
     selected: null,
     setSelected: vi.fn(),
@@ -355,7 +352,7 @@ describe("OrgChartPage navigation intents", () => {
     mocks.useOrgData.mockReturnValue(
       orgData({ departments: [], agents: [CEO] }),
     );
-    requestNewAgentDialog();
+    useNewAgentIntentStore.getState().request();
 
     renderPage();
 
@@ -372,7 +369,9 @@ describe("OrgChartPage navigation intents", () => {
     expect(screen.getByRole("combobox", { name: "Backend" })).toHaveTextContent(
       "Backend",
     );
-    await waitFor(() => expect(consumeNewAgentDialogIntent()).toBe(false));
+    await waitFor(() =>
+      expect(useNewAgentIntentStore.getState().consume()).toBe(false),
+    );
   });
 
   it("Given no departments and an unordered agent list, when a pending intent opens the dialog, then CEO remains the selected parent", async () => {
@@ -385,7 +384,7 @@ describe("OrgChartPage navigation intents", () => {
         ],
       }),
     );
-    requestNewAgentDialog();
+    useNewAgentIntentStore.getState().request();
 
     renderPage();
 

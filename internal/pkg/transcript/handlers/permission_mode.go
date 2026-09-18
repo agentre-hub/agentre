@@ -26,7 +26,7 @@ type PermissionModeChangedHandler struct {
 // emit StreamSessionStatus patch。
 //
 // 幂等:r.Mode == sess.PermissionMode 时不写 / 不 emit。
-func (h PermissionModeChangedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (h PermissionModeChangedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.PermissionModeChanged)
 	if r.Mode == "" {
 		return nil

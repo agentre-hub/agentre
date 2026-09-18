@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { consumeNewAgentDialogIntent } from "@/stores/new-agent-intent-store";
+import { useNewAgentIntentStore } from "@/stores/new-agent-intent-store";
 
 import { newAgentSource } from "./new-agent-source";
 
@@ -21,7 +21,7 @@ describe("newAgentSource", () => {
   });
 
   it("Given the New agent command, when selected, then it navigates to org and writes the intent", () => {
-    consumeNewAgentDialogIntent();
+    useNewAgentIntentStore.getState().consume();
     const navigate = vi.fn();
     const close = vi.fn();
 
@@ -35,6 +35,6 @@ describe("newAgentSource", () => {
 
     expect(close).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith("/org");
-    expect(consumeNewAgentDialogIntent()).toBe(true);
+    expect(useNewAgentIntentStore.getState().consume()).toBe(true);
   });
 });

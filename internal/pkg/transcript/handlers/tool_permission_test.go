@@ -22,7 +22,7 @@ func TestToolPermissionRequestHandler(t *testing.T) {
 			agentruntime.ToolPermissionRequest{
 				RequestID: "perm-1", ToolName: "Bash", Input: input,
 			},
-			acc, emit, nil, nil)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 
 		got := acc.Finalize()[0].(*blocks.ToolPermissionBlock)
@@ -39,11 +39,11 @@ func TestToolPermissionResolvedHandler_Allow(t *testing.T) {
 		acc := turn.New()
 		_ = ToolPermissionRequestHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionRequest{RequestID: "perm-1", ToolName: "Bash"},
-			acc, nil, nil, nil)
+			acc, nil, nil)
 
 		err := ToolPermissionResolvedHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionResolved{RequestID: "perm-1", Allowed: true, AlwaysAllow: true},
-			acc, nil, nil, nil)
+			acc, nil, nil)
 		So(err, ShouldBeNil)
 
 		got := acc.Finalize()[0].(*blocks.ToolPermissionBlock)
@@ -57,10 +57,10 @@ func TestToolPermissionResolvedHandler_DenyReason(t *testing.T) {
 	Convey("Resolved Allow=false 带 DenyReason", t, func() {
 		acc := turn.New()
 		_ = ToolPermissionRequestHandler{}.Apply(context.Background(),
-			agentruntime.ToolPermissionRequest{RequestID: "perm-2"}, acc, nil, nil, nil)
+			agentruntime.ToolPermissionRequest{RequestID: "perm-2"}, acc, nil, nil)
 		_ = ToolPermissionResolvedHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionResolved{RequestID: "perm-2", Allowed: false, DenyReason: "user refused"},
-			acc, nil, nil, nil)
+			acc, nil, nil)
 
 		got := acc.Finalize()[0].(*blocks.ToolPermissionBlock)
 		So(got.Allowed, ShouldBeFalse)
@@ -78,13 +78,13 @@ func TestToolPermissionResolvedHandler_EmitCarriesToolNameAndBlock(t *testing.T)
 		input, _ := json.Marshal(map[string]any{"plan": "## Plan\n1. a"})
 		_ = ToolPermissionRequestHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionRequest{RequestID: "perm-3", ToolName: "ExitPlanMode", Input: input},
-			acc, emit, nil, nil)
+			acc, emit, nil)
 		// 清掉 request emit,只看 resolved emit。
 		emit.events = nil
 
 		err := ToolPermissionResolvedHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionResolved{RequestID: "perm-3", Allowed: true},
-			acc, emit, nil, nil)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 		So(len(emit.events), ShouldEqual, 1)
 
@@ -115,7 +115,7 @@ func TestToolPermissionRequestHandler_ExitPlanMode_CanonicalActions(t *testing.T
 		tc := &turn.TurnContext{LaunchPermissionMode: "bypassPermissions"}
 		err := ToolPermissionRequestHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionRequest{RequestID: "perm-x", ToolName: "ExitPlanMode", Input: input},
-			acc, emit, nil, tc)
+			acc, emit, tc)
 		So(err, ShouldBeNil)
 		p := emit.events[0].payload.(map[string]any)
 		c, ok := p["canonical"].(canonical.PlanApproveRequest)
@@ -134,7 +134,7 @@ func TestToolPermissionRequestHandler_ExitPlanMode_CanonicalActions(t *testing.T
 		tc := &turn.TurnContext{LaunchPermissionMode: "acceptEdits"}
 		_ = ToolPermissionRequestHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionRequest{RequestID: "perm-y", ToolName: "ExitPlanMode", Input: input},
-			acc, emit, nil, tc)
+			acc, emit, tc)
 		p := emit.events[0].payload.(map[string]any)
 		c := p["canonical"].(canonical.PlanApproveRequest)
 		So(c.Actions[0].ID, ShouldEqual, "plan.approve.accept_edits")
@@ -145,7 +145,7 @@ func TestToolPermissionRequestHandler_ExitPlanMode_CanonicalActions(t *testing.T
 		input, _ := json.Marshal(map[string]any{"command": "ls"})
 		_ = ToolPermissionRequestHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionRequest{RequestID: "perm-z", ToolName: "Bash", Input: input},
-			acc, emit, nil, nil)
+			acc, emit, nil)
 		p := emit.events[0].payload.(map[string]any)
 		c, ok := p["canonical"].(canonical.ToolPermission)
 		So(ok, ShouldBeTrue)
@@ -166,7 +166,7 @@ func TestToolPermissionRequestHandler_ExitPlanMode_FallbackToWriteCapture(t *tes
 		}
 		err := ToolPermissionRequestHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionRequest{RequestID: "perm-fb1", ToolName: "ExitPlanMode", Input: input},
-			acc, emit, nil, tc)
+			acc, emit, tc)
 		So(err, ShouldBeNil)
 		p := emit.events[0].payload.(map[string]any)
 		c := p["canonical"].(canonical.PlanApproveRequest)
@@ -186,7 +186,7 @@ func TestToolPermissionRequestHandler_ExitPlanMode_FallbackToWriteCapture(t *tes
 		}
 		_ = ToolPermissionRequestHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionRequest{RequestID: "perm-fb2", ToolName: "ExitPlanMode", Input: input},
-			acc, emit, nil, tc)
+			acc, emit, tc)
 		p := emit.events[0].payload.(map[string]any)
 		c := p["canonical"].(canonical.PlanApproveRequest)
 		So(c.PlanText, ShouldEqual, "## legacy")
@@ -198,7 +198,7 @@ func TestToolPermissionRequestHandler_ExitPlanMode_FallbackToWriteCapture(t *tes
 		tc := &turn.TurnContext{LaunchPermissionMode: "acceptEdits"}
 		_ = ToolPermissionRequestHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionRequest{RequestID: "perm-fb3", ToolName: "ExitPlanMode", Input: input},
-			acc, emit, nil, tc)
+			acc, emit, tc)
 		p := emit.events[0].payload.(map[string]any)
 		c := p["canonical"].(canonical.PlanApproveRequest)
 		So(c.PlanText, ShouldEqual, "")
@@ -214,11 +214,11 @@ func TestToolPermissionResolvedHandler_ExitPlanMode_CanonicalNoActions(t *testin
 		tc := &turn.TurnContext{LaunchPermissionMode: "bypassPermissions"}
 		_ = ToolPermissionRequestHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionRequest{RequestID: "perm-r", ToolName: "ExitPlanMode", Input: input},
-			acc, emit, nil, tc)
+			acc, emit, tc)
 		emit.events = nil
 		_ = ToolPermissionResolvedHandler{}.Apply(context.Background(),
 			agentruntime.ToolPermissionResolved{RequestID: "perm-r", Allowed: true},
-			acc, emit, nil, tc)
+			acc, emit, tc)
 		p := emit.events[0].payload.(map[string]any)
 		c := p["canonical"].(canonical.PlanApproveRequest)
 		So(c.Resolved, ShouldBeTrue)

@@ -4,7 +4,7 @@ import type { TFunction } from "i18next";
 import { XCircle } from "lucide-react";
 import { Badge } from "@agentre-hub/agentre-ui";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { formatRelativeTime, type HookEventItem } from "../hooks-page-model";
 

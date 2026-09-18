@@ -15,6 +15,7 @@ package wire
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 
 	"github.com/cago-frame/agents/agent/blocks"
 
@@ -246,12 +247,7 @@ const CapLLMModelTargetV1 = "llm-model-target-v1"
 
 // HasCapability 判断 capability 列表是否包含指定能力位。
 func HasCapability(caps []string, name string) bool {
-	for _, c := range caps {
-		if c == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(caps, name)
 }
 
 // ModelSummary describes a single model configured for a daemon provider.

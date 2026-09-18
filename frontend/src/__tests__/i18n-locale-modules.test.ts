@@ -2,22 +2,13 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-import enCommon from "@/i18n/locales/en";
-import zhCommon from "@/i18n/locales/zh-CN";
-
 // `common` 命名空间被物理拆成按功能域切分的模块文件,逻辑上仍是一棵树 ——
-// 拆分本身引入了两种只在运行时才暴露的新失败模式,这里把它们钉住:
-// 新增模块文件却忘了在 barrel 里合并(整块文案静默消失),以及两个模块
-// 抢同一个顶层 key(后合并的那个静默覆盖前一个)。
+// 拆分本身引入的失败模式(两个模块抢同一个顶层 key,后合并的那个静默覆盖前一个)
+// 在这里钉住。barrel 的漏注册已由 glob 现算消除,对应的守卫随之删去。
 const LOCALES_DIR = path.resolve(process.cwd(), "src/i18n/locales");
 const LANGUAGES = ["en", "zh-CN"] as const;
 
 type LocaleTree = Record<string, unknown>;
-
-const bundles: Record<(typeof LANGUAGES)[number], LocaleTree> = {
-  en: enCommon,
-  "zh-CN": zhCommon,
-};
 
 function moduleFileNames(language: string): string[] {
   return fs
@@ -53,17 +44,6 @@ describe("i18n locale modules", () => {
         .map(([key, files]) => `${key}: ${files.join(", ")}`);
 
       expect(duplicated).toEqual([]);
-    },
-  );
-
-  it.each(LANGUAGES)(
-    "Given the %s locale barrel, When it is compared with the module files on disk, Then every module is merged in",
-    (language) => {
-      const onDisk = moduleFileNames(language)
-        .flatMap((fileName) => Object.keys(readModule(language, fileName)))
-        .sort();
-
-      expect(Object.keys(bundles[language]).sort()).toEqual(onDisk);
     },
   );
 

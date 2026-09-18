@@ -56,7 +56,7 @@ func TestAccumulate_GivenOneEventSequence_ThenBlocksJSONIsByteIdentical(t *testi
 		agentruntime.TextDelta{Text: "done"},
 	}
 	for _, event := range events {
-		require.NoError(t, dispatcher.Apply(context.Background(), event, acc, emit, nil, turnCtx))
+		require.NoError(t, dispatcher.Apply(context.Background(), event, acc, emit, turnCtx))
 	}
 
 	message := &transcript_entity.Message{}

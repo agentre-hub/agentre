@@ -64,7 +64,7 @@ export function DiscoverDialog({
   } = state;
 
   const providerName = provider ? provider.name : "";
-  const failure = fetchError ? discoverFailure(fetchError) : null;
+  const failure = fetchError ? discoverFailure(fetchError, t) : null;
 
   return (
     <Dialog

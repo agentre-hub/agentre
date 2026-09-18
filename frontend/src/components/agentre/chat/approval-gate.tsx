@@ -7,7 +7,7 @@ import { TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { TranscriptCard } from "@agentre-hub/agentre-ui";
 

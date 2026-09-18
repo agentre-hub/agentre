@@ -7,7 +7,7 @@ import {
   type OrgDepartmentModel,
   type OrgPlacement,
 } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { AgentAvatarPicker, AgentAvatarUploadActions } from "../icon-picker";
 import { AgentAvatar } from "../primitives";
@@ -150,6 +150,7 @@ export function OrgDetailAgentIdentity({
           <AgentAvatar
             name={a.name}
             color={safeAgentColor(a.avatarColor ?? "")}
+            size="xs"
             avatarDataUrl={a.avatarDataUrl}
             avatarIcon={a.avatarIcon}
             className={className}

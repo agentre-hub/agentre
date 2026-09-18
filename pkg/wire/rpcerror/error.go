@@ -10,7 +10,6 @@ const (
 	CodeSessionMissing  int32 = -32002
 	CodeProviderMissing int32 = -32003
 	CodePairing         int32 = -32004
-	CodeShuttingDown    int32 = -32005
 	// CodeProtocolVersion is returned by a handshake handler whose peer
 	// advertised a wire protocol version it does not accept.
 	CodeProtocolVersion int32 = -32006
@@ -45,6 +44,5 @@ var (
 	ErrSessionNotFound          = &Error{Code: CodeSessionMissing, Message: "Session not found"}
 	ErrProviderMissing          = &Error{Code: CodeProviderMissing, Message: "LLM provider not configured"}
 	ErrPairing                  = &Error{Code: CodePairing, Message: "Pairing code invalid / expired / rate-limited"}
-	ErrShuttingDown             = &Error{Code: CodeShuttingDown, Message: "Daemon shutting down"}
 	ErrAccountServerUnreachable = &Error{Code: CodeAccountServerUnreachable, Message: "Account server unreachable"}
 )

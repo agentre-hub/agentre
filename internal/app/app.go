@@ -17,10 +17,12 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/internal/pkg/portforward"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/service/agent_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/ctl_svc"
 	"github.com/agentre-hub/agentre/internal/service/data_svc"
 	"github.com/agentre-hub/agentre/internal/service/department_svc"
 	"github.com/agentre-hub/agentre/internal/service/hook_svc"
@@ -89,6 +91,9 @@ type AppInfo struct {
 	Commit      string      `json:"commit"`
 	Env         string      `json:"env"`
 	RuntimeMode RuntimeMode `json:"runtimeMode"`
+	// Channel 是构建渠道（stable / beta / nightly / dev），前端据此显示渠道标签、
+	// 决定是否提供检查更新。
+	Channel paths.Channel `json:"channel"`
 }
 
 // NewApp creates a new App application struct. Omitted or invalid modes remain
@@ -116,7 +121,7 @@ var resetStaleActiveSessions = bootstrap.ResetStaleActiveSessions
 // the runtime methods.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-	a.RegisterNotificationHandlers()
+	a.registerNotificationHandlers()
 	a.resetStaleSessionsOnStartup(ctx)
 	a.registerChatService()
 	a.hookPollerCancel = hook_svc.StartScheduler(ctx)
@@ -267,7 +272,7 @@ const cliSessionQuitKillTimeout = 50 * time.Millisecond
 func (a *App) cleanupResources(ctx context.Context) {
 	a.stopInboundPeer(ctx)
 	// 关闭全部出站对端中继连接（R19：本端退出即结束接入，对端会话不受影响）。
-	if err := a.PeerClose(); err != nil {
+	if err := a.peerClose(); err != nil {
 		logger.Ctx(ctx).Warn("app.Shutdown: close outbound peer relay", zap.Error(err))
 	}
 	if a.hookPollerCancel != nil {
@@ -404,6 +409,10 @@ func (a *App) registerChatService() {
 	// agent_repo.Agent() 直接满足 AgentGateway(Find/FindByName/List)。
 	subagent_svc.Default().RegisterDeps(agent_repo.Agent(), subagent_svc.ChatSvcGateway())
 
+	// ctl_svc 控制 API 的 chat 依赖也必须在 RegisterChat 之后:ctl_svc 直接持有
+	// chat_svc.Chat(),不再懒解析(bootstrap 里只挂 ControlHandler,这里补齐 deps)。
+	ctl_svc.Default().RegisterDeps(agent_repo.Agent(), ctl_svc.ProjectSvcGateway(), ctl_svc.ChatSvcGateway())
+
 	// hooktool_svc 依赖:hook_svc.Hook() 满足 HookService;agent_repo.Agent() 满足 AgentLookup;
 	// chat_svc.Chat() 满足 ApprovalGateway。须在 RegisterChat 之后(chat_svc.Chat() 非 nil)。
 	hooktool_svc.Default().RegisterDeps(hook_svc.Hook(), agent_repo.Agent(), chat_svc.Chat())
@@ -417,6 +426,10 @@ func (a *App) Info() AppInfo {
 		Commit:      buildinfo.ShortCommitID(),
 		Env:         string(configs.DEV),
 		RuntimeMode: a.runtimeMode,
+	}
+	// 标记非法的构建在启动期就被拒绝，走不到这里；取不到时留空，前端按未知渠道处理。
+	if channel, err := paths.CurrentChannel(); err == nil {
+		info.Channel = channel
 	}
 
 	if runtime := bootstrap.Default(); runtime != nil && runtime.Config() != nil {

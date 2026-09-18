@@ -3,10 +3,13 @@ package agentruntime
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 )
 
 func TestAgentCwd_UsesAgentDirectory(t *testing.T) {
@@ -76,6 +79,9 @@ func TestResolveAgentCwd_RejectsUnsafeAgentSyncID(t *testing.T) {
 
 	for _, bad := range []string{
 		"", "   ", ".", "..", "../../etc", "a/b", `a\b`, "a\x00b", "a b", "sync id",
+		// 词表放宽到容纳系统 Agent 的冒号之后,冒号仍然不许把别的东西夹带进来。
+		":", ":a", "C:/Windows", `C:\Windows`, "a:../..", "../agent:system:default-ceo",
+		"agent:system:default-ceo/../..", "agent:system:default ceo",
 	} {
 		got, err := ResolveAgentCwd(0, bad)
 		assert.Error(t, err, "agentSyncID %q 必须被拒", bad)
@@ -85,4 +91,53 @@ func TestResolveAgentCwd_RejectsUnsafeAgentSyncID(t *testing.T) {
 	entries, err := os.ReadDir(dataDir)
 	require.NoError(t, err)
 	assert.Empty(t, entries, "被拒的标识不许在数据目录里建出任何东西")
+}
+
+// 系统 Agent(默认 CEO 助手)的同步标识是全仓唯一一个非随机的:
+// agent_entity.DefaultAgentSyncID = "agent:system:default-ceo",里面带冒号。控制台
+// 对它发起「不指定项目」的自由对话时 AgentID=0、Cwd 空,兜底解析恒定报
+// "needs agentID > 0 or a syntactically valid agentSyncID",界面上是「Agent 启动失败」。
+// 这一类标识必须解得出目录,且目录名里不许留下冒号——Windows 上冒号是盘符/备用数据流
+// 分隔符,带冒号的目录在 NTFS 上根本建不出来。
+func TestResolveAgentCwd_AcceptsSystemAgentSyncID(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+
+	got, err := ResolveAgentCwd(0, agent_entity.DefaultAgentSyncID)
+	require.NoError(t, err)
+
+	assert.Equal(t, filepath.Join(dataDir, "agents", "sync-agent~3Asystem~3Adefault-ceo"), got)
+	info, err := os.Stat(got)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+
+	seg := filepath.Base(got)
+	assert.NotContains(t, seg, ":", "目录名里不许留冒号——Windows 上建不出来")
+	assert.Equal(t, filepath.Join(dataDir, "agents"), filepath.Dir(got),
+		"目录必须正好落在 agents/ 下一层,不许被标识里的字符带偏")
+
+	// 同一 Agent 的多条自由会话复用同一个目录(与 ULID 那一类同口径)。
+	again, err := ResolveAgentCwd(0, agent_entity.DefaultAgentSyncID)
+	require.NoError(t, err)
+	assert.Equal(t, got, again)
+}
+
+// 老标识的目录不许搬家:词表里能直接当目录名用的那一部分逐字保留,转义对它们是恒等。
+// ULID 是 [0-9A-Z],落在这一档里。
+func TestResolveAgentCwd_PathSafeSyncIDsKeepTheirDirectory(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+
+	for _, id := range []string{
+		"01KZNE7YKJQ6A79YVDCMW1A63R",
+		"01KZQPHK6Q55AKRHWFX5EM0YWH",
+		"a",
+		"A1_b-c",
+		strings.Repeat("z", 64),
+	} {
+		got, err := ResolveAgentCwd(0, id)
+		require.NoError(t, err, "agentSyncID %q", id)
+		assert.Equal(t, filepath.Join(dataDir, "agents", "sync-"+id), got,
+			"agentSyncID %q 的目录必须与改动前逐字相同", id)
+	}
 }

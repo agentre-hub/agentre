@@ -48,7 +48,7 @@ func TestService_GivenRunningRemoteCommandWhenCloseSucceedsThenPreventsFuturePum
 		data: make(chan protocol.TerminalDataEvent),
 		exit: make(chan protocol.TerminalExitEvent),
 	}
-	remoteBackend := remote.NewBackend(client)
+	remoteBackend := remote.NewBackendWithLease(client, nil)
 	emitter := &recordingEmitter{}
 	svc := terminal_svc.NewService(
 		terminal_svc.NewBackendSelector(nil, func(deviceID string) (terminal_svc.PTYBackend, error) {
@@ -78,7 +78,7 @@ func TestService_GivenRemoteCloseRPCFailsWhenRetriedThenRetainsSameSessionUntilS
 		exit:         make(chan protocol.TerminalExitEvent),
 		closeResults: []error{rpcErr, nil},
 	}
-	remoteBackend := remote.NewBackend(client)
+	remoteBackend := remote.NewBackendWithLease(client, nil)
 	emitter := &recordingEmitter{}
 	svc := terminal_svc.NewService(
 		terminal_svc.NewBackendSelector(nil, func(string) (terminal_svc.PTYBackend, error) {

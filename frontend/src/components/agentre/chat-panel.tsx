@@ -24,8 +24,8 @@ import {
   findProjectPath,
   projectChain,
 } from "@/lib/project-chain";
-import { relativeTime } from "@/lib/relative-time";
-import { cn } from "@/lib/utils";
+import { formatCompactRelativeTime as relativeTime } from "@agentre-hub/agentre-ui";
+import { cn } from "@agentre-hub/agentre-ui";
 import { useSessionAttention } from "@/stores/attention-store";
 import { useClearedBackgroundTasksStore } from "@/stores/cleared-background-tasks-store";
 import {
@@ -38,8 +38,10 @@ import { useQueuedMessagesStore } from "@/stores/queued-messages-store";
 import { useSessionConnectionState } from "@/stores/session-conn-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
 
-import { useBackendCapabilities } from "./capability/use-backend-capabilities";
-import { useSessionCapabilities } from "./capability/use-session-capabilities";
+import {
+  useBackendCapabilities,
+  useSessionCapabilities,
+} from "./capability/use-capabilities";
 import {
   ChatComposer,
   ChatTranscript,

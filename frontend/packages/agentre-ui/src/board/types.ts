@@ -72,6 +72,13 @@ export interface BoardColumnView {
   matched?: number;
 }
 
+/**
+ * 空态那句话说的是哪个范围。缺省 = 没指定范围（全部项目），用泛化文案。
+ */
+export type BoardEmptyScope =
+  | { kind: "project"; name: string }
+  | { kind: "unassigned" };
+
 export interface BoardViewModel {
   /** 缺哪一列就画成空列 —— 四列固定这件事由呈现件保证，不赌宿主每次都给全。 */
   columns: Partial<Record<BoardStage, BoardColumnView>>;
@@ -81,6 +88,8 @@ export interface BoardViewModel {
   keyword?: string;
   /** 首屏取数中：四列骨架卡片就地占位，不是屏幕中央一个转圈。 */
   loading?: boolean;
+  /** 当前范围；只影响空态那句文案的说法，缺省时退化为泛化文案。 */
+  emptyScope?: BoardEmptyScope;
 }
 
 /**

@@ -11,9 +11,9 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // registerProjects 装配一个 project_repo 桩，只期望 List 被调用一次——本机路径
@@ -62,7 +62,7 @@ func TestReportLocalPathsOnce_GivenRowsOfAnotherAccount_ThenExcludedFromSnapshot
 	require.NoError(t, h.svc.reportLocalPathsOnce(context.Background()))
 
 	require.Len(t, h.transport.localPathReports, 1)
-	assert.Equal(t, []syncwire.LocalPathReportItem{
+	assert.Equal(t, []syncwire.LocalPathItem{
 		{ProjectSyncID: "mine", Path: "/Users/me/mine"},
 		{ProjectSyncID: "unclaimed", Path: "/Users/me/unclaimed"},
 	}, h.transport.localPathReports[0])
@@ -83,7 +83,7 @@ func TestReportLocalPathsOnce_GivenSnapshot_ThenServerListMatchesLocal(t *testin
 	require.NoError(t, err)
 
 	require.Len(t, h.transport.localPathReports, 1)
-	assert.Equal(t, []syncwire.LocalPathReportItem{{ProjectSyncID: "proj-a", Path: "/Users/me/a"}},
+	assert.Equal(t, []syncwire.LocalPathItem{{ProjectSyncID: "proj-a", Path: "/Users/me/a"}},
 		h.transport.localPathReports[0])
 }
 
@@ -180,7 +180,7 @@ func TestReportLocalPathsNow_GivenChangedSnapshot_ThenReportsImmediately(t *test
 	require.NoError(t, h.svc.ReportLocalPathsNow(context.Background()))
 
 	require.Len(t, h.transport.localPathReports, 1)
-	assert.Equal(t, []syncwire.LocalPathReportItem{{ProjectSyncID: "proj-a", Path: "/Users/me/a"}},
+	assert.Equal(t, []syncwire.LocalPathItem{{ProjectSyncID: "proj-a", Path: "/Users/me/a"}},
 		h.transport.localPathReports[0])
 }
 

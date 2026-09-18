@@ -26,8 +26,8 @@ const ANSI_KEYS = [
 describe("resolveTerminalTheme", () => {
   it("Given dark mode, Then it returns the dark background with a full ANSI palette", () => {
     const theme = resolveTerminalTheme(true);
-    expect(theme.background).toBe("#17191c");
-    expect(theme.foreground).toBe("#e6e8eb");
+    expect(theme.background).toBe("#18191b");
+    expect(theme.foreground).toBe("#e8e8e9");
     for (const key of ANSI_KEYS) {
       expect(theme[key], `dark theme missing ${key}`).toBeTruthy();
     }

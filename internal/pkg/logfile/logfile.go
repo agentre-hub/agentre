@@ -56,13 +56,6 @@ func New(console io.Writer, logsDir, name, level string) (*zap.Logger, io.Closer
 	return l, files{appFile, errFile}, nil
 }
 
-// NewCore 构造单个轮转文件 core,供需要自己拼 core 列表的调用方使用。这样拿到的
-// 文件跟着进程活到退出;需要在中途交还文件的调用方走 New。
-func NewCore(level zapcore.Level, filename string) zapcore.Core {
-	core, _ := newFileCore(level, filename)
-	return core
-}
-
 func newFileCore(level zapcore.Level, filename string) (zapcore.Core, io.Closer) {
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 )
 
 func prepareSettings(value string, env map[string]string) (string, func(), error) {
@@ -36,7 +35,7 @@ func prepareSettings(value string, env map[string]string) (string, func(), error
 		return "", func() {}, fmt.Errorf("claudecode: create temporary settings: %w", err)
 	}
 	path := f.Name()
-	cleanup := idempotentRemove(path)
+	cleanup := func() { _ = os.Remove(path) }
 	if err := f.Chmod(0o600); err != nil {
 		_ = f.Close()
 		cleanup()
@@ -84,11 +83,4 @@ func settingsEnvironment(settings map[string]any) (map[string]any, error) {
 		return nil, errors.New("claudecode: settings env must be an object")
 	}
 	return env, nil
-}
-
-func idempotentRemove(path string) func() {
-	var once sync.Once
-	return func() {
-		once.Do(func() { _ = os.Remove(path) })
-	}
 }

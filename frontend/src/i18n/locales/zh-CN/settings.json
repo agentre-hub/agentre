@@ -233,20 +233,10 @@
       "reportBug": "Bug 反馈",
       "restartNow": "立即重启"
     },
-    "channel": {
-      "beta": {
-        "description": "尝鲜新特性，可能含少量已知问题。",
-        "label": "测试版"
-      },
-      "nightly": {
-        "description": "每日构建，更新最快，稳定性最低。",
-        "label": "每夜构建"
-      },
-      "stable": {
-        "description": "面向所有用户的正式版本，更新频率最低。",
-        "label": "稳定版"
-      },
-      "title": "更新通道"
+    "buildChannel": {
+      "beta": "Beta",
+      "dev": "Dev",
+      "nightly": "Nightly"
     },
     "currentVersion": {
       "description": "通过 GitHub Releases 检查并安装新版本。",
@@ -262,7 +252,7 @@
       "title": "操作失败"
     },
     "header": {
-      "description": "启动时会自动后台检查一次新版本。也可以手动切换通道或选择下载镜像加速国内访问。",
+      "description": "启动时会自动后台检查一次新版本。也可以选择下载镜像加速国内访问。",
       "title": "版本 & 更新"
     },
     "installed": {
@@ -275,7 +265,7 @@
       "title": "下载镜像"
     },
     "panel": {
-      "availableMeta": "{{time}} 发布 · {{channel}} · 当前 {{current}}",
+      "availableMeta": "{{time}} 发布 · 当前 {{current}}",
       "availableTitle": "Agentre {{version}} 可更新",
       "checkAgain": "重新检查",
       "checkedAt": "{{time}} 检查过",
@@ -283,7 +273,7 @@
       "downloadingTitle": "正在下载 {{version}}",
       "errorMeta": "可在「设置 → 版本 & 更新」改用下载镜像。",
       "errorTitle": "检查更新失败",
-      "idleMeta": "当前 {{current}} · {{channel}}",
+      "idleMeta": "当前 {{current}}",
       "idleTitle": "检查新版本",
       "installedMeta": "重启后生效。正在运行的会话会被结束，可以先收尾再重启。",
       "installedTitle": "{{version}} 已安装",
@@ -293,7 +283,7 @@
       "releasePage": "发布页",
       "retry": "重试",
       "skipVersion": "跳过此版本",
-      "upToDateMeta": "当前 {{current}} · {{channel}}",
+      "upToDateMeta": "当前 {{current}}",
       "upToDateTitle": "已是最新版本"
     },
     "pill": {

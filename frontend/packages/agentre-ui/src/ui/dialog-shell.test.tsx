@@ -133,6 +133,51 @@ describe("DialogShell 的错误落点", () => {
   });
 });
 
+describe("DialogShell 的表单与纵向脚部", () => {
+  it("给了 onSubmit 时整段内容包进表单，type=submit 的按钮因此能提交", () => {
+    const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    render(
+      <DialogShell open onOpenChange={vi.fn()} onSubmit={onSubmit}>
+        <DialogShellHeader title="新建部门" />
+        <DialogShellBody>正文</DialogShellBody>
+        <DialogShellFooter>
+          <button type="submit">创建</button>
+        </DialogShellFooter>
+      </DialogShell>,
+    );
+    // display:contents 让表单不参与 flex 布局，头/身/脚仍是浮卡自己的子项。
+    const form = content()?.querySelector("form");
+    expect(form).toHaveClass("contents");
+    fireEvent.submit(form as HTMLFormElement);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("没给 onSubmit 时没有表单包裹，按钮的 onSubmit 不会被误触发", () => {
+    renderShell();
+    expect(content()?.querySelector("form")).toBeNull();
+  });
+
+  it("stack 档把脚部改成整宽纵列（后端编辑器的测试结果条 + 动作行）", () => {
+    render(
+      <DialogShell open onOpenChange={vi.fn()}>
+        <DialogShellBody>正文</DialogShellBody>
+        <DialogShellFooter stack>
+          <span>保存成功</span>
+          <button type="submit">保存</button>
+        </DialogShellFooter>
+      </DialogShell>,
+    );
+    const footer = document.querySelector('[data-slot="dialog-shell-footer"]');
+    expect(footer).toHaveClass("flex-col");
+    expect(footer).toHaveClass("items-stretch");
+    // 内容直接是脚部的子项，不再套一层右侧按钮容器 —— 否则纵列里只有一列。
+    expect(
+      footer?.querySelector(".flex.shrink-0.items-center.gap-2"),
+    ).toBeNull();
+    expect(screen.getByText("保存成功").parentElement).toBe(footer);
+  });
+});
+
 describe("DialogShellSubmit 自带 busy", () => {
   it("busy 时禁用且出转圈，点不动", () => {
     const onClick = vi.fn();

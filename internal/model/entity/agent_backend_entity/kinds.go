@@ -18,9 +18,6 @@ import (
 // agent_backend_entity.AgentBackend.Check 会自动按类型分派。**禁止 init() 副作用**——
 // 静态 map 让测试可以在不重置全局状态的情况下并行跑。
 type BackendKind interface {
-	// Type 该 kind 对应的字符串类型常量。
-	Type() BackendType
-
 	// KnownAliases 列出本 kind 支持的 model_routes alias 键（claudecode = OPUS/SONNET/HAIKU；
 	// codex 暂为空集，强制 routes == "{}"）。
 	KnownAliases() []string
@@ -91,7 +88,6 @@ func IsReservedEnvKey(key string) bool {
 // builtinKind builtin 不接受新列，所有四项必须保持默认空值。
 type builtinKind struct{}
 
-func (builtinKind) Type() BackendType                                         { return TypeBuiltin }
 func (builtinKind) KnownAliases() []string                                    { return nil }
 func (builtinKind) ProviderTypeMatch(t llm_provider_entity.ProviderType) bool { return true }
 func (builtinKind) RequiresProviderModel() bool                               { return false }
@@ -119,7 +115,6 @@ func (builtinKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 // claudeCodeKind 走 claude CLI，匹配 anthropic provider，支持 OPUS/SONNET/HAIKU 三级路由。
 type claudeCodeKind struct{}
 
-func (claudeCodeKind) Type() BackendType      { return TypeClaudeCode }
 func (claudeCodeKind) KnownAliases() []string { return []string{"OPUS", "SONNET", "HAIKU"} }
 func (claudeCodeKind) ProviderTypeMatch(t llm_provider_entity.ProviderType) bool {
 	return t == llm_provider_entity.TypeAnthropic
@@ -142,7 +137,6 @@ func (claudeCodeKind) ValidateExtra(ctx context.Context, b *AgentBackend) error 
 // model_routes 必须为空（codex 没有 tier 概念）。
 type codexKind struct{}
 
-func (codexKind) Type() BackendType      { return TypeCodex }
 func (codexKind) KnownAliases() []string { return nil }
 func (codexKind) ProviderTypeMatch(t llm_provider_entity.ProviderType) bool {
 	return t == llm_provider_entity.TypeOpenAIResponse
@@ -176,7 +170,6 @@ func (codexKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 // 未绑定供应商时 Pi 自己读取 ~/.pi/agent 的模型与认证配置，Agentre 不干预。
 type piAgentKind struct{}
 
-func (piAgentKind) Type() BackendType      { return TypePiAgent }
 func (piAgentKind) KnownAliases() []string { return nil }
 func (piAgentKind) ProviderTypeMatch(t llm_provider_entity.ProviderType) bool {
 	return t == llm_provider_entity.TypeAnthropic ||
@@ -204,7 +197,6 @@ func (piAgentKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 // 由专用 keychain 管理，不进入 entity 或通用 env_json。
 type openClawKind struct{}
 
-func (openClawKind) Type() BackendType      { return TypeOpenClaw }
 func (openClawKind) KnownAliases() []string { return nil }
 func (openClawKind) ProviderTypeMatch(llm_provider_entity.ProviderType) bool {
 	return false
@@ -240,7 +232,6 @@ func (openClawKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 // 解释器参数这类本地进程旋钮。
 type hermesKind struct{}
 
-func (hermesKind) Type() BackendType      { return TypeHermes }
 func (hermesKind) KnownAliases() []string { return nil }
 
 // ProviderTypeMatch 恒 false：Hermes 的模型来自它自己的配置，Agentre 不参与。
@@ -277,7 +268,6 @@ func (hermesKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 // 只接受 ACPCommand + ACPArgs。
 type acpKind struct{}
 
-func (acpKind) Type() BackendType      { return TypeACP }
 func (acpKind) KnownAliases() []string { return nil }
 
 // ProviderTypeMatch 恒 false：ACP Agent 的模型与凭证来自它自己的配置。

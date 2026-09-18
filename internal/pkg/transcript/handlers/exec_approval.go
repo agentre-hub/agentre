@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"slices"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
@@ -10,11 +11,11 @@ import (
 
 type ExecApprovalRequestedHandler struct{}
 
-func (ExecApprovalRequestedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (ExecApprovalRequestedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	request := ev.(agentruntime.ExecApprovalRequested)
 	block := &blocks.ExecApprovalBlock{
 		ID: request.ID, CommandText: request.CommandText, CommandPreview: request.CommandPreview,
-		AllowedDecisions: append([]string(nil), request.AllowedDecisions...),
+		AllowedDecisions: slices.Clone(request.AllowedDecisions),
 		Host:             request.Host, NodeID: request.NodeID, AgentID: request.AgentID,
 		Status: "pending", CreatedAtMs: request.CreatedAtMs, ExpiresAtMs: request.ExpiresAtMs,
 	}
@@ -30,7 +31,7 @@ func (ExecApprovalRequestedHandler) Apply(ctx context.Context, ev agentruntime.E
 
 type ExecApprovalResolvedHandler struct{}
 
-func (ExecApprovalResolvedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (ExecApprovalResolvedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	resolved := ev.(agentruntime.ExecApprovalResolved)
 	var captured *blocks.ExecApprovalBlock
 	if !turn.Mutate[blocks.ExecApprovalBlock](acc, "exec_approval:"+resolved.ID, func(block *blocks.ExecApprovalBlock) {

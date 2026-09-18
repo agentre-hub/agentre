@@ -7,9 +7,9 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // agentBackendCLIAdapter mirrors project_location's split identity: the

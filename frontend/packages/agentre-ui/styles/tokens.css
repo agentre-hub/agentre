@@ -34,11 +34,13 @@
      rail 上 4.55、secondary / code-surface 上 5.26、card 上 5.78。
      由 src/tokens.test.ts 的 TEXT_SURFACES 表逐面把关。 */
   --muted-foreground: #65656d;
-  /* 纯装饰字形——分隔点、行号、aria-hidden 的伴随图标。**它永远不该承载信息**：
-     对 card 只有 2.56 / 2.48，两个主题都够不到 3:1。它此前的名字读起来像
-     「更弱的正文色」，于是 97 处元信息标签顺手用了它（2026-08-19 审计）。
-     改名就是为了让下一个写时间戳的人停一下。 */
-  --decorative-foreground: #a1a1aa;
+  /* 纯装饰字形——分隔点、行号、aria-hidden 的伴随图标。**它永远不该承载信息**。
+     它此前两个主题都够不到 3:1（对 card 2.56 / 2.48），违反 WCAG 2.2 §1.4.11；
+     现在取与 --control-border 同一档（最坏表面是 --secondary #f4f4f5，3.12），
+     仍进不了正文表——正文要的是 4.5。它此前的名字读起来像「更弱的正文色」，
+     于是 97 处元信息标签顺手用了它（2026-08-19 审计）。改名就是为了让下一个写
+     时间戳的人停一下。 */
+  --decorative-foreground: #8a8a91;
   /* Interaction feedback (hover / selected fills) on the content surfaces —
      deliberately NOT equal to any resting surface. It used to be #f4f4f5, i.e.
      the same byte as --secondary, --muted and --sidebar, so all 86
@@ -59,19 +61,20 @@
   /* Border / Input */
   --border: #e4e4e7;
   --border-strong: #d4d4d8;
-  /* Field edges (input / textarea / select / outline button). Split off from
-     --border so a divider can stay quiet while a field edge stays legible.
-     Target here is "clearly visible", not WCAG's 3:1 — these controls carry
-     their own fill and text, so the border is a supporting cue. Controls whose
-     border IS the control use --control-border below. */
+  /* Control fill — all that is left of the old field-edge role here. Field
+     edges (input / textarea / select / outline button) now use --control-border,
+     so a boundary never falls below 3:1; this token only feeds the soft dark-mode
+     field fill (`dark:bg-input/30`) and the unchecked switch track. Kept under
+     its old name because the shadcn-derived call sites spell it that way. */
   --input: #cbcbd0;
   --input-bg: #ffffff;
   /* Control boundary — for controls whose outline IS the whole control
-     (unchecked checkbox has no fill: lose the border and the control is gone).
-     Deliberately NOT --border/--input: those are quiet dividers/field edges and
-     sit at ~1.1:1 against every surface. This one is picked to clear WCAG 2.2
-     §1.4.11's 3:1 on the worst surface a control lands on (--secondary):
-     3.12 there, 3.43 on --card. */
+     (unchecked checkbox has no fill: lose the border and the control is gone),
+     and for every field edge (input / textarea / select / outline button).
+     Deliberately NOT --border: that is a quiet divider and sits at ~1.1:1
+     against every surface. This one clears WCAG 2.2 §1.4.11's 3:1 on the worst
+     surface a control lands on (--secondary): 3.12 there, 3.43 on --card,
+     3.28 on --background. */
   --control-border: #8a8a91;
 
   /* Sidebar — zinc-100 base with white active items */
@@ -108,18 +111,26 @@
        --status-X-foreground  text sitting ON the saturated fill
        --status-X-text        the state rendered AS text (on --status-X-bg or a card)
      The last one exists because the saturated fill is unreadable as text in light:
-     #10b981 on its own pill is 2.41, #f59e0b is 2.07. Guarded by src/tokens.test.ts. */
-  --status-running: #10b981;
-  --status-running-foreground: #ffffff;
+     #109066 on its own pill is 3.83, #b07513 is 3.72 — both still far under 4.5.
+     The fill role is itself guarded as a non-text graphic: it must clear 3:1 on
+     --card and --secondary in every theme (WCAG 2.2 §1.4.11), which is why light
+     running / waiting are darker than the old #14b580 / #e69a1a. src/tokens.test.ts. */
+  --status-running: #109066;
+  --status-running-foreground: #04140c;
   --status-running-bg: #ecfdf5;
-  --status-running-text: #047857;
-  --status-waiting: #f59e0b;
-  /* Deep brown on the bright amber fill. Both themes keep a bright amber, so the
-     same value reads on either — hence no .dark override. */
-  --status-waiting-foreground: #402b06;
-  --status-waiting-bg: #fffbeb;
-  --status-waiting-text: #b45309;
-  --status-idle: #a1a1aa;
+  --status-running-text: #0c7053;
+  --status-waiting: #b07513;
+  /* Near-black ink on the amber fills. Theme-invariant (#04140c): it reads 4.86 on
+     the darker light fill #b07513 and 11.33 on the dark fill #fbbf24, so one value
+     serves both without a .dark override. */
+  --status-waiting-foreground: #04140c;
+  --status-waiting-bg: #fdfaed;
+  --status-waiting-text: #aa5413;
+  /* 状态记号（圆点 / 状态图标）。它落在 --secondary #f4f4f5 上——会话索引的机器
+     分组头把圆点放进 bg-secondary 的槽里——所以最坏表面不是 --card：#8c8c93
+     在那里 3.04，对 --card 3.34。仍亮于 --muted-foreground #65656d，不破坏
+     中性阶梯。 */
+  --status-idle: #8c8c93;
   --status-error: #dc2626;
 
   /* Destructive */
@@ -132,8 +143,10 @@
   --destructive-text: #b91c1c;
 
   /* The initial glyph on a project / agent avatar. The fill underneath comes from
-     the --agent-1…16 palette; the letter is white on every one of them, in both
-     themes — so this is theme-invariant and has no .dark override. */
+     the --agent-1…16 palette. White in both themes: each theme's 17 fills are
+     darkened until white holds (≥4.6). Dark once lifted the fills to the
+     300-400 band and flipped this to an ink, which made avatars glare on the
+     dark shell and the glyph read thin — so the fills move, not the letter. */
   --agent-foreground: #ffffff;
 
   /* Elevation for detached overlays (Dialog / Sheet) and the scrim behind them.
@@ -150,27 +163,28 @@
   --code-foreground: #3f3f46;
   --code-muted-foreground: #65656d;
 
-  /* Agent palette — 600-700 saturated shades hold up on light bg.
-     agent-3 sky / agent-6 cyan avoid clash with status-running & primary teal. */
-  --agent-1: #2563eb;
-  --agent-2: #7c3aed;
-  --agent-3: #0284c7;
+  /* Agent palette — 600-700 shades, saturation capped at 80%, hold up under the
+     white glyph on light bg. agent-3 sky / agent-6 cyan avoid clash with
+     status-running & primary teal. */
+  --agent-1: #2964e7;
+  --agent-2: #7d3ee9;
+  --agent-3: #147cb3;
   --agent-4: #e11d48;
-  --agent-5: #d97706;
-  --agent-6: #0891b2;
+  --agent-5: #ab6413;
+  --agent-6: #117d97;
   --agent-7: #c026d3;
-  --agent-8: #65a30d;
+  --agent-8: #507e0e;
   --agent-9: #4f46e5;
-  --agent-10: #ea580c;
-  --agent-11: #059669;
-  --agent-12: #0d9488;
-  --agent-13: #db2777;
-  --agent-14: #ca8a04;
+  --agent-10: #c15015;
+  --agent-11: #0e825f;
+  --agent-12: #0e8076;
+  --agent-13: #d92474;
+  --agent-14: #996d11;
   --agent-15: #64748b;
-  --agent-16: #9333ea;
+  --agent-16: #9334e9;
   /* The 17th slot of AgentColor: "no identity color". It is an ink, not a hue,
-     so it has no .dark override — the glyph on top is --agent-foreground white
-     in both themes, and lightening the fill for dark mode would sink it. */
+     but it MUST pair with --agent-foreground: white on #525252 here (7.81), and
+     .dark lifts it to #737373 (4.74) so it stays apart from the dark card. */
   --agent-neutral: #525252;
 
   /* Label tones — the two hues in the issue-label vocabulary that have no
@@ -226,14 +240,19 @@
 }
 
 .dark {
-  /* Surfaces — neutral cool gray, 5-level elevation: rail < sidebar < bg < card < popover */
-  --background: #17191c;
-  --foreground: #e6e8eb;
-  --card: #1d2025;
-  --card-foreground: #e6e8eb;
-  --popover: #262931;
-  --popover-foreground: #e6e8eb;
-  --rail: #0a0b0d;
+  /* Surfaces — neutral cool gray, 5-level elevation: rail < sidebar < bg < card < popover.
+     2026-09-17：色度（HSL S）从 9.8–13% 降到 3–6%，对齐浅色的中性家族（0–5.9%）；
+     明度（HSL L）一格未动，所以下面这条层级关系不变。
+     对齐范围是整个深色中性家族：表面、边框、填充、以及落在表面上的文字色。
+     有意带色的不在内（tone-* / heat-* / file-* / 选中态蓝底 sidebar-selected-bg /
+     品牌色 sidebar-icon-active、primary、ring）。 */
+  --background: #18191b;
+  --foreground: #e8e8e9;
+  --card: #202122;
+  --card-foreground: #e8e8e9;
+  --popover: #292a2e;
+  --popover-foreground: #e8e8e9;
+  --rail: #0b0b0c;
 
   /* Brand — steel-blue, muted cool tone distinct from the bright agent blues */
   --primary: #5b8dbf;
@@ -243,35 +262,40 @@
   --ring: #5b8dbf;
 
   /* Semantic surfaces & text hierarchy */
-  --secondary: #262931;
-  --secondary-foreground: #c4c7cd;
-  --muted: #1d2025;
-  /* 暗色最暗的落点是 --popover #262931（下拉里的分组标题），#8a8d94 在那里 4.38。 */
+  --secondary: #292a2e;
+  --secondary-foreground: #c6c8cb;
+  --muted: #202122;
+  /* 暗色最暗的落点是 --popover #292a2e（下拉里的分组标题），#8a8d94 在那里 4.31。 */
   --muted-foreground: #909399;
-  --decorative-foreground: #5a5d64;
-  --accent: #383d47;
-  --accent-foreground: #e6e8eb;
-  /* 1.27 on the dark --rail #0a0b0d. */
-  --rail-accent: #212429;
+  /* See :root. Worst surface here is --secondary #292a2e（agent-backends-list
+     的绑定分隔符骑在 bg-secondary 上）：#71757e 在那里 3.10，而更暗的 #6a6d74
+     只有 2.81。取与 --control-border 同一档。 */
+  --decorative-foreground: #71757e;
+  --accent: #3c3e43;
+  --accent-foreground: #e8e8e9;
+  /* 1.26 on the dark --rail #0b0b0c. */
+  --rail-accent: #232427;
 
   /* Border / Input */
-  --border: #2a2d34;
-  --border-strong: #3a3e47;
-  /* Field edges — see :root. 1.99 on --card, 1.77 on --secondary. */
-  --input: #4a4f59;
-  --input-bg: #17191c;
-  /* 3.14 on --secondary #262931, 3.53 on --card. Sits between --status-idle
+  --border: #2d2e31;
+  --border-strong: #3d3f44;
+  /* Control fill — see :root. Retained only for the dark field fill
+     (`dark:bg-input/30`) and the unchecked switch track; boundaries use
+     --control-border. */
+  --input: #4d5056;
+  --input-bg: #18191b;
+  /* 3.10 on --secondary #292a2e, 3.49 on --card. Sits between --status-idle
      #6a6d74 and --muted-foreground #8a8d94 on the existing neutral ladder. */
-  --control-border: #70757f;
+  --control-border: #71757e;
 
   /* Sidebar — deepest level, with elevated active items */
-  --sidebar: #111316;
-  --sidebar-foreground: #e6e8eb;
+  --sidebar: #131314;
+  --sidebar-foreground: #e8e8e9;
   --sidebar-primary: #5b8dbf;
   --sidebar-primary-foreground: #0a1420;
-  --sidebar-accent: #262931;
-  --sidebar-accent-foreground: #e6e8eb;
-  --sidebar-active-bg: #262931;
+  --sidebar-accent: #292a2e;
+  --sidebar-accent-foreground: #e8e8e9;
+  --sidebar-active-bg: #292a2e;
   /* See :root. Dark has more room: 1.75 on --sidebar, 1.37 against the hover fill. */
   --sidebar-selected-bg: #27405c;
   /* Dark is where this token becomes unavoidable rather than merely tidy:
@@ -280,10 +304,15 @@
      of "1.28-1.33 against --sidebar", i.e. a selected row indistinguishable from a
      hovered one. Freeing the muted role frees the fill. 4.72 on the fill, and still
      1.9x dimmer than --foreground, so it still reads as the quiet line. */
-  --sidebar-selected-muted: #a8adb7;
-  --sidebar-border: #2a2d34;
+  --sidebar-selected-muted: #abaeb4;
+  --sidebar-border: #2d2e31;
   --sidebar-icon: #8a8d94;
-  --sidebar-icon-active: #5b8dbf;
+  /* 选中态的 rail 图标落在 --primary-soft (#1a2738) 上。原来跟 --primary 同值 #5b8dbf，
+     4.32 在 3:1 之上（图标不过 4.5 那条线），但和仓里「落在 --primary-soft 上就用
+     text 角色的主色」的写法（icon-grid-panel / mode-chip / filter-panel 等十余处都是
+     --primary-text）不一致。改用深色的 primary-text 量级：--primary-soft 上 7.10、
+     --sidebar-accent 上 6.84、rail 上 9.25。--sidebar-ring 是焦点环，角色不同，保持不动。 */
+  --sidebar-icon-active: #8eb6dc;
   --sidebar-ring: #5b8dbf;
 
   /* Status */
@@ -314,28 +343,33 @@
   --overlay-scrim: rgba(0, 0, 0, 0.7);
 
   /* Code / console surfaces */
-  --code-surface: #121418;
-  --code-foreground: #e6e8eb;
-  --code-muted-foreground: #9aa0ab;
+  --code-surface: #141516;
+  --code-foreground: #e8e8e9;
+  --code-muted-foreground: #9da1a8;
 
-  /* Agent palette — 300-400 light shades for dark bg.
+  /* Agent palette — the 300-400 dark-theme hues, saturation capped at 80% and each
+     darkened until the white glyph holds (4.60-4.65). They sit ≈3.5 on --card, so
+     an avatar stays a distinct block without glaring on the dark shell.
      agent-3 sky / agent-6 cyan avoid clash with status-running & primary teal. */
-  --agent-1: #60a5fa;
-  --agent-2: #a78bfa;
-  --agent-3: #38bdf8;
-  --agent-4: #fb7185;
-  --agent-5: #fbbf24;
-  --agent-6: #22d3ee;
-  --agent-7: #e879f9;
-  --agent-8: #a3e635;
-  --agent-9: #818cf8;
-  --agent-10: #fdba74;
-  --agent-11: #34d399;
-  --agent-12: #2dd4bf;
-  --agent-13: #f472b6;
-  --agent-14: #fde047;
-  --agent-15: #94a3b8;
-  --agent-16: #c084fc;
+  --agent-1: #1972e0;
+  --agent-2: #7e59ed;
+  --agent-3: #137dad;
+  --agent-4: #e51937;
+  --agent-5: #946f10;
+  --agent-6: #108091;
+  --agent-7: #c419de;
+  --agent-8: #568110;
+  --agent-9: #5866ec;
+  --agent-10: #ae6213;
+  --agent-11: #1d845f;
+  --agent-12: #1b8376;
+  --agent-13: #de1980;
+  --agent-14: #88740f;
+  --agent-15: #617693;
+  --agent-16: #9a4aeb;
+
+  /* See :root: --agent-foreground stays white; the neutral fill pairs with it. */
+  --agent-neutral: #737373;
 
   /* Label tones — see :root. Fills mirror the old agent-N/10 tint over --card. */
   --tone-blue-bg: #242d3a;
@@ -355,7 +389,7 @@
   --file-neutral: #8a8d94;
 
   /* Activity heat scale — dark half. Known blemish: --heat-0 (#23262c) on the
-     popover surface (#262931) is nearly contrast-free, so the lowest level's
+     popover surface (#292a2e) is nearly contrast-free, so the lowest level's
      dot reads as an empty ring. The sequence still holds (empty ring → solid),
      and the values must not be touched to fix it — the server heat grid renders
      from this same pair; treat it in the popover if it ever has to be treated. */

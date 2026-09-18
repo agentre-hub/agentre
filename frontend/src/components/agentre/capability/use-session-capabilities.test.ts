@@ -1,7 +1,7 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { useSessionCapabilities } from "./use-session-capabilities";
+import { useSessionCapabilities } from "./use-capabilities";
 
 const getSessionCapabilities = vi.fn();
 

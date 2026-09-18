@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { AgentAvatar, StatusDot } from "@agentre-hub/agentre-ui";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 export type TabStatus = "idle" | "running" | "waiting" | "error";
 

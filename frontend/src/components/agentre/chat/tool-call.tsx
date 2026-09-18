@@ -10,7 +10,7 @@
 import * as React from "react";
 import { Check, LoaderCircle, Wrench } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { TranscriptCard } from "@agentre-hub/agentre-ui";
 import type { AgentStatus } from "../types";

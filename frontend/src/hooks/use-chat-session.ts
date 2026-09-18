@@ -7,7 +7,7 @@ import {
 } from "../../wailsjs/go/app/App";
 import type { chat_svc } from "../../wailsjs/go/models";
 import { clientLog } from "@/lib/client-log";
-import { isNoticeOnlyMessage } from "@/lib/notice-message";
+import { isNoticeOnlyMessage } from "@agentre-hub/agentre-ui";
 import { samePayload } from "@/lib/same-payload";
 import {
   hasSessionStream,

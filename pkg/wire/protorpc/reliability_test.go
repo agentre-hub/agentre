@@ -187,8 +187,8 @@ func TestConnServe_GivenAnUndecodableFrame_WhenReceived_ThenItIsRecordedAndTheCo
 		func(context.Context, *agentrewire.Empty) (*agentrewire.Empty, error) {
 			return &agentrewire.Empty{}, nil
 		})
-	logs := captureLogs(t)
-	ctx, cancel := context.WithCancel(context.Background())
+	logs, logCtx := captureLogs()
+	ctx, cancel := context.WithCancel(logCtx)
 	defer cancel()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
 	server := protorpc.NewConn(serverTransport, serverRegistry)
@@ -210,8 +210,8 @@ func TestConnServe_GivenAnUndecodableFrame_WhenReceived_ThenItIsRecordedAndTheCo
 // 之后到底发生过什么,日志里一个字也没有。
 func TestConnServe_GivenTheTransportFails_WhenTheReadLoopExits_ThenTheReasonIsRecorded(t *testing.T) {
 	clientTransport, serverTransport := pipePair()
-	logs := captureLogs(t)
-	ctx, cancel := context.WithCancel(context.Background())
+	logs, logCtx := captureLogs()
+	ctx, cancel := context.WithCancel(logCtx)
 	defer cancel()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
 	done := make(chan struct{})

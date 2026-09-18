@@ -16,6 +16,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/migrations"
 )
@@ -366,6 +367,30 @@ func TestInitIgnoresAGENTREDebugEnv(t *testing.T) {
 	}
 	if loggerCfg.Level != "info" {
 		t.Fatalf("logger level = %q, want info", loggerCfg.Level)
+	}
+}
+
+// TestInitRefusesInvalidBuildChannel: a binary built with a channel flag outside
+// stable/beta/nightly/dev must refuse to start with the reason, instead of
+// silently reading or writing some channel's data.
+func TestInitRefusesInvalidBuildChannel(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+	paths.SetBuildChannelForTest(t, "release")
+
+	runtime, err := Init(context.Background())
+	if err == nil {
+		runtime.Close()
+		t.Fatal("Init() succeeded with an invalid build channel, want failure")
+	}
+	for _, want := range []string{`"release"`, "stable, beta, nightly, dev"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Init() error = %q, want it to mention %s", err, want)
+		}
+	}
+	if _, statErr := os.Stat(filepath.Join(dataDir, "agentre.db")); !os.IsNotExist(statErr) {
+		t.Fatalf("database must not be created for an invalid channel, stat error = %v", statErr)
 	}
 }
 

@@ -1,6 +1,9 @@
 package claudecode
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
 
 // cliFlag 是 Claude Code CLI 的 argv flag 字面量。集中放这里逐字对齐 CLI 协议。
 type cliFlag string
@@ -92,10 +95,10 @@ func buildArgs(spec runSpec) []string {
 	}
 	args = append(args, string(flagPermissionMode), mode)
 	if len(spec.allowedTools) > 0 {
-		args = append(args, string(flagAllowedTools), joinComma(spec.allowedTools))
+		args = append(args, string(flagAllowedTools), strings.Join(spec.allowedTools, ","))
 	}
 	if len(spec.disallowedTools) > 0 {
-		args = append(args, string(flagDisallowedTools), joinComma(spec.disallowedTools))
+		args = append(args, string(flagDisallowedTools), strings.Join(spec.disallowedTools, ","))
 	}
 	if spec.maxTurns > 0 {
 		args = append(args, string(flagMaxTurns), strconv.Itoa(spec.maxTurns))
@@ -113,15 +116,4 @@ func buildArgs(spec runSpec) []string {
 		args = append(args, spec.extraArgs...)
 	}
 	return args
-}
-
-func joinComma(xs []string) string {
-	out := ""
-	for i, v := range xs {
-		if i > 0 {
-			out += ","
-		}
-		out += v
-	}
-	return out
 }

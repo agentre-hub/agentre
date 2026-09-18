@@ -30,7 +30,7 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "group/select-trigger flex w-full min-w-0 items-center justify-between gap-2 rounded-md border border-input bg-transparent text-left text-sm font-medium text-foreground shadow-xs outline-none transition-[color,box-shadow,border-color] dark:bg-input/30",
+        "group/select-trigger flex w-full min-w-0 items-center justify-between gap-2 rounded-md border border-control-border bg-transparent text-left text-sm font-medium text-foreground shadow-xs outline-none transition-[color,box-shadow,border-color] dark:bg-input/30",
         "data-[size=sm]:h-9 data-[size=sm]:px-3 data-[size=md]:h-10 data-[size=md]:px-3.5",
         "placeholder:text-muted-foreground data-[placeholder]:text-muted-foreground",
         "hover:border-border-strong",

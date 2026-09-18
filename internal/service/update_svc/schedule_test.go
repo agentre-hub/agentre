@@ -8,6 +8,8 @@ import (
 
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
 func TestShouldCheck(t *testing.T) {
@@ -16,7 +18,6 @@ func TestShouldCheck(t *testing.T) {
 	convey.Convey("ShouldCheck 按触发源与上次检查时间判定是否真的发起检查", t, func() {
 		convey.Convey("用户主动触发的检查绕过节流", func() {
 			// 刚查过 1 分钟,自动触发会被挡掉;用户此刻在等结果,必须放行。
-			// 切换更新通道后的重查也走这一条(前端切完通道即调 CheckForUpdate)。
 			justChecked := now.Add(-time.Minute)
 
 			assert.True(t, ShouldCheck(TriggerManual, justChecked, now),
@@ -76,31 +77,26 @@ type scheduleFake struct {
 
 	lastCheck    int64
 	lastCheckErr error
-	channel      string
 	mirror       string
 	info         *UpdateInfo
 	checkErr     error
 	setErr       error
 
-	checkedChannel string
+	checkedChannel paths.Channel
 	checkedMirror  string
 	checkCalls     int
-	channelCalls   int
+	lastCheckCalls int
 	persisted      []int64
 }
 
 func (f *scheduleFake) GetLastUpdateCheck(_ context.Context) (int64, error) {
+	f.lastCheckCalls++
 	return f.lastCheck, f.lastCheckErr
-}
-
-func (f *scheduleFake) GetChannel(_ context.Context) (string, error) {
-	f.channelCalls++
-	return f.channel, nil
 }
 
 func (f *scheduleFake) GetMirror(_ context.Context) (string, error) { return f.mirror, nil }
 
-func (f *scheduleFake) CheckForUpdate(channel, mirror string) (*UpdateInfo, error) {
+func (f *scheduleFake) CheckForUpdate(channel paths.Channel, mirror string) (*UpdateInfo, error) {
 	f.checkCalls++
 	f.checkedChannel, f.checkedMirror = channel, mirror
 	return f.info, f.checkErr
@@ -111,8 +107,11 @@ func (f *scheduleFake) SetLastUpdateCheck(_ context.Context, ts int64) error {
 	return f.setErr
 }
 
+// setupRunCheck 默认把构建标记钉成正式版：测试二进制不带 ldflags，未打标记即 Dev，
+// 而 Dev 根本不检查。需要别的渠道的用例在调用之后再 SetBuildChannelForTest 覆盖。
 func setupRunCheck(t *testing.T, at time.Time, f *scheduleFake) {
 	t.Helper()
+	paths.SetBuildChannelForTest(t, string(paths.ChannelStable))
 
 	originalSvc := Update()
 	t.Cleanup(func() { RegisterUpdate(originalSvc) })
@@ -129,7 +128,7 @@ func TestRunCheck(t *testing.T) {
 	convey.Convey("RunCheck 判定→检查→落上次检查时间", t, func() {
 		ctx := context.Background()
 
-		convey.Convey("被节流挡住时不读通道、不发请求、不写时间戳", func() {
+		convey.Convey("被节流挡住时不发请求、不写时间戳", func() {
 			// lastCheck 与全库其它时间列同为毫秒 epoch。按秒解读会把这个毫秒值
 			// 看成公元 58000 年,落进 lastCheck.After(now) 的「时钟不可信」分支
 			// 直接放行——节流形同虚设,每个 tick 都会真发一次检查请求。
@@ -140,26 +139,25 @@ func TestRunCheck(t *testing.T) {
 
 			assert.NoError(t, err)
 			assert.Nil(t, info, "跳过时返回 nil,调用方据此不广播任何东西")
-			assert.Zero(t, f.channelCalls)
 			assert.Zero(t, f.checkCalls)
 			assert.Empty(t, f.persisted)
 		})
 
-		convey.Convey("放行时按当前通道与镜像检查,并写回时间戳", func() {
+		convey.Convey("放行时按构建渠道与镜像检查,并写回时间戳", func() {
 			want := &UpdateInfo{HasUpdate: true, LatestVersion: "v0.9.2"}
 			f := &scheduleFake{
 				lastCheck: 0,
-				channel:   ChannelBeta,
 				mirror:    "https://mirror.example/",
 				info:      want,
 			}
 			setupRunCheck(t, now, f)
+			paths.SetBuildChannelForTest(t, string(paths.ChannelBeta))
 
 			info, err := RunCheck(ctx, TriggerStartup)
 
 			assert.NoError(t, err)
 			assert.Equal(t, want, info)
-			assert.Equal(t, ChannelBeta, f.checkedChannel)
+			assert.Equal(t, paths.ChannelBeta, f.checkedChannel)
 			assert.Equal(t, "https://mirror.example/", f.checkedMirror)
 			assert.Equal(t, []int64{now.UnixMilli()}, f.persisted)
 		})
@@ -167,7 +165,6 @@ func TestRunCheck(t *testing.T) {
 		convey.Convey("用户主动检查绕过节流", func() {
 			f := &scheduleFake{
 				lastCheck: now.Add(-time.Minute).UnixMilli(),
-				channel:   ChannelStable,
 				info:      &UpdateInfo{},
 			}
 			setupRunCheck(t, now, f)
@@ -181,13 +178,42 @@ func TestRunCheck(t *testing.T) {
 		convey.Convey("检查失败时把错误交出去,且不推进节流窗口", func() {
 			// 失败也写时间戳的话,一次网络抖动会让接下来 24h 都不再尝试。
 			boom := errors.New("dial tcp: i/o timeout")
-			f := &scheduleFake{channel: ChannelStable, checkErr: boom}
+			f := &scheduleFake{checkErr: boom}
 			setupRunCheck(t, now, f)
 
 			info, err := RunCheck(ctx, TriggerTick)
 
 			assert.ErrorIs(t, err, boom)
 			assert.Nil(t, info)
+			assert.Empty(t, f.persisted)
+		})
+
+		convey.Convey("Dev 构建不发起任何检查:连节流时间都不读,也不写", func() {
+			f := &scheduleFake{info: &UpdateInfo{}}
+			setupRunCheck(t, now, f)
+			paths.SetBuildChannelForTest(t, "")
+
+			for _, trigger := range []CheckTrigger{TriggerStartup, TriggerTick, TriggerFocus, TriggerManual} {
+				info, err := RunCheck(ctx, trigger)
+
+				assert.NoError(t, err, trigger)
+				assert.Nil(t, info, "Dev 没有发布:返回 nil,调用方什么都不广播")
+			}
+			assert.Zero(t, f.lastCheckCalls)
+			assert.Zero(t, f.checkCalls)
+			assert.Empty(t, f.persisted)
+		})
+
+		convey.Convey("构建标记非法时报错且不发请求", func() {
+			f := &scheduleFake{info: &UpdateInfo{}}
+			setupRunCheck(t, now, f)
+			paths.SetBuildChannelForTest(t, "weekly")
+
+			info, err := RunCheck(ctx, TriggerManual)
+
+			assert.Error(t, err)
+			assert.Nil(t, info)
+			assert.Zero(t, f.checkCalls)
 			assert.Empty(t, f.persisted)
 		})
 
@@ -204,7 +230,7 @@ func TestRunCheck(t *testing.T) {
 
 		convey.Convey("时间戳写失败不影响本次结果", func() {
 			want := &UpdateInfo{HasUpdate: false}
-			f := &scheduleFake{channel: ChannelStable, info: want, setErr: errors.New("db closed")}
+			f := &scheduleFake{info: want, setErr: errors.New("db closed")}
 			setupRunCheck(t, now, f)
 
 			info, err := RunCheck(ctx, TriggerFocus)

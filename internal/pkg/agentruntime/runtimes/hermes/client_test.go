@@ -138,7 +138,7 @@ func TestDialGateway_SendsSessionTokenQuery(t *testing.T) {
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 
-	sess, err := dialGateway(context.Background(), server.URL, nil, nil)
+	sess, err := dialGatewayWithAuth(context.Background(), server.URL, "", nil, nil, nil)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close(context.Background()) }()
 	require.NoError(t, sess.WaitReady(context.Background()))
@@ -161,7 +161,7 @@ func TestDialGateway_MultiLineMessageIsSplitIntoFrames(t *testing.T) {
 		holdConn(conn)
 	})
 
-	sess, err := dialGateway(context.Background(), server.URL, nil, nil)
+	sess, err := dialGatewayWithAuth(context.Background(), server.URL, "", nil, nil, nil)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close(context.Background()) }()
 	require.NoError(t, sess.WaitReady(context.Background()))
@@ -193,7 +193,7 @@ func TestDialGateway_HandshakeRejectedClassifiesUnauthorized(t *testing.T) {
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 
-	_, err := dialGateway(context.Background(), server.URL, nil, nil)
+	_, err := dialGatewayWithAuth(context.Background(), server.URL, "", nil, nil, nil)
 
 	require.ErrorIs(t, err, ErrGatewayUnauthorized)
 }
@@ -204,7 +204,7 @@ func TestGatewaySession_GivenCleanServerClose_ThenGatewayClosed(t *testing.T) {
 		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"))
 	})
 
-	sess, err := dialGateway(context.Background(), server.URL, nil, nil)
+	sess, err := dialGatewayWithAuth(context.Background(), server.URL, "", nil, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, sess.WaitReady(context.Background()))
 
@@ -220,7 +220,7 @@ func TestGatewaySession_GivenAbruptClose_ThenGatewayLost(t *testing.T) {
 		_ = conn.UnderlyingConn().Close()
 	})
 
-	sess, err := dialGateway(context.Background(), server.URL, nil, nil)
+	sess, err := dialGatewayWithAuth(context.Background(), server.URL, "", nil, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, sess.WaitReady(context.Background()))
 
@@ -236,7 +236,7 @@ func TestGatewaySession_InterruptAfterCloseIsSessionClosed(t *testing.T) {
 		holdConn(conn)
 	})
 
-	sess, err := dialGateway(context.Background(), server.URL, nil, nil)
+	sess, err := dialGatewayWithAuth(context.Background(), server.URL, "", nil, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, sess.WaitReady(context.Background()))
 	require.NoError(t, sess.Close(context.Background()))
@@ -253,7 +253,7 @@ func TestDialGateway_GivenDialFailure_ThenUnreachable(t *testing.T) {
 		return nil, nil, errors.New("connection refused")
 	})
 
-	_, err := dialGateway(context.Background(), server.URL, scripted, nil)
+	_, err := dialGatewayWithAuth(context.Background(), server.URL, "", nil, scripted, nil)
 
 	require.ErrorIs(t, err, ErrGatewayUnreachable)
 }
@@ -264,7 +264,7 @@ func TestDialGateway_GivenDialUnauthorized_ThenUnauthorized(t *testing.T) {
 		return nil, &http.Response{StatusCode: http.StatusUnauthorized, Status: "401 Unauthorized"}, errors.New("bad handshake")
 	})
 
-	_, err := dialGateway(context.Background(), server.URL, scripted, nil)
+	_, err := dialGatewayWithAuth(context.Background(), server.URL, "", nil, scripted, nil)
 
 	require.ErrorIs(t, err, ErrGatewayUnauthorized)
 }

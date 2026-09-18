@@ -145,15 +145,17 @@ Tests come first at each layer, per [testing.md](testing.md) — repo through sq
 
 ## Storage and paths
 
-All desktop persistence is centralized in **AppDataDir**:
+All desktop persistence is centralized in **AppDataDir**, which is `<platform config root>/<channel data dir name>`:
 
-| Platform | AppDataDir                                              |
+| Platform | AppDataDir (stable channel)                             |
 | ------- | ------------------------------------------------------- |
 | macOS   | `~/Library/Application Support/agentre/`                |
 | Windows | `%LOCALAPPDATA%\agentre\`                               |
 | Linux   | `~/.config/agentre/`                                    |
 
-The table is the installed-app default. `wails dev` / `make dev` uses the sibling leaf `agentre-dev/` instead, so development never touches production state. `AGENTRE_DATA_DIR` has highest precedence and overrides both during testing or troubleshooting. On macOS it is also a different app: `build/darwin/Info.dev.plist` sets `CFBundleIdentifier` to `com.agentrehub.agentre.dev` and marks `CFBundleName` / `CFBundleDisplayName` with `(Dev)`, so Dock, Spaces and fullscreen do not treat it as `/Applications/Agentre.app`.
+The channel is a build-time identity, not a run mode. `internal/pkg/paths` reads it from the linker flag `-X github.com/agentre-hub/agentre/internal/pkg/paths.buildChannel=<stable|beta|nightly|dev>`; a build without the flag is **Dev**, so a bare `wails dev` or `go run` lands in `agentre-dev/`, and only an explicit `stable` build touches `agentre/`. `make dev|build|run|install` (and `make agrctl`) take `CHANNEL=stable|beta|nightly|dev`, default `dev`, inject the flag into the app and its bundled `agrctl`, and fail before building on any other value. Beta and Nightly use `agentre-beta/` and `agentre-nightly/`. Any other flag value makes `paths.AppDataDir` fail with the bad value and the allowed values, so `bootstrap.Init` refuses to start instead of reading some channel's data. `AGENTRE_DATA_DIR` has highest precedence and only replaces the data directory; it changes no other part of the channel identity.
+
+`paths.Channel.Identity()` is the single table of per-channel names — display name (window title, bundle / product name), macOS bundle id, data dir name, keychain service, release asset prefix (empty for Dev, which is never published) and Linux command — so the four channels can be installed and run side by side. Build tooling never repeats that table: `scripts/channel-identity.sh <channel> get|wails-json|macos-bundle`, shared by `make build` and CI, reads it through `go run ./internal/desktop/channelidentity`, sets `wails.json` `info.productName` for the duration of a build (the Windows NSIS product name, install dir and uninstall key) and renames/re-identifies/re-signs the macOS bundle to `<display name>.app`. On Windows every channel's executable is `Agentre.exe`, so `internal/desktop` sets the WebView2 user data path to `<config root>/<data dir name>/WebView2` from the identity (not from `AGENTRE_DATA_DIR`). `wails dev` on macOS renders its bundle from `build/darwin/Info.dev.plist` (checked in as `Agentre Dev`, `com.agentrehub.agentre.dev`); `make dev` rewrites that file's bundle name and id to the `CHANNEL` identity (`channel-identity.sh <channel> dev-plist`) for the session and restores it on exit, because the bundle id also keys the macOS WKWebView storage. `paths.IsDevMode()` (the `devserver` variable Wails dev injects) only drives Wails dev mechanics — skipping the single-instance lock and the dev asset-proxy retry — and decides neither the data dir nor the window title.
 
 ```text
 <AppDataDir>/

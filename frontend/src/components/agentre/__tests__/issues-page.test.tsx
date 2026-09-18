@@ -167,9 +167,7 @@ describe("IssuesPage", () => {
     );
     render(<IssuesPage />);
 
-    expect(
-      await screen.findByText("No tasks in this project yet"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("No tasks yet")).toBeInTheDocument();
   });
 
   it("Given a filter that matches nothing, When it renders, Then it offers to clear the filter instead", async () => {

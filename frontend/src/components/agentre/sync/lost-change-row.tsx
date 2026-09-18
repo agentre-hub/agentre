@@ -4,9 +4,8 @@ import { ChevronDown, ChevronRight, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge, Button } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@agentre-hub/agentre-ui";
 
-import { relativeTime } from "../remote-devices/format";
 import {
   entityLabel,
   formatPayload,
@@ -60,7 +59,7 @@ export function LostChangeRow({
   const [busy, setBusy] = React.useState<Busy>(null);
 
   const title = lostChangeTitle(row, t);
-  const time = relativeTime(row.occurredAt, now, t);
+  const time = formatRelativeTime(row.occurredAt, now, t);
   const reason = reasonLabel(row.reason, t);
 
   const originDevice = SERVER_ORIGIN_DEVICES.has(row.originDevice)

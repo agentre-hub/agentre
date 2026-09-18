@@ -1,5 +1,5 @@
 import { FileTypeIcon } from "@/components/agentre/file-type-icon";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import type { PreviewSourceMode } from "@/stores/file-preview-tabs-store";
 

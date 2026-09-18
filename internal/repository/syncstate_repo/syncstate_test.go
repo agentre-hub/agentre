@@ -14,7 +14,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // TestFindLocalID 按同步标识取本机主键——跨机引用落地时靠它翻回本地 ID（R2）。
@@ -109,18 +109,18 @@ func TestSaveMeta(t *testing.T) {
 func TestClaimForAccount_GivenUnownedRows(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := NewSyncState()
-	mock.ExpectQuery("SELECT rowid,sync_id,sync_version,sync_account_id FROM `projects` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
+	mock.ExpectQuery("SELECT id,sync_id,sync_version,sync_account_id FROM `projects` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
 		WithArgs(int64(7), consts.ACTIVE).
-		WillReturnRows(sqlmock.NewRows([]string{"rowid", "sync_id", "sync_version", "sync_account_id"}).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"}).
 			AddRow(int64(1), "p-known", int64(0), int64(0)).
 			AddRow(int64(2), "", int64(0), int64(0)))
 	// 整批一个事务：认领了却没能入队的半截状态此后没有任何取数会看见（见
 	// TestClaimForAccount_GivenOneUpdateFails_RollsBackTheWholeBatch）。已有 sync_id
 	// 的行按集合 UPDATE 归户；没有 sync_id 的历史行现铸一个标识，只能逐行处理。
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE rowid IN \\(\\?\\)").
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE id IN \\(\\?\\)").
 		WithArgs(int64(7), int64(1)).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\?,`sync_id`=\\? WHERE rowid = \\?").
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\?,`sync_id`=\\? WHERE id = \\?").
 		WithArgs(int64(7), sqlmock.AnyArg(), int64(2)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -130,6 +130,63 @@ func TestClaimForAccount_GivenUnownedRows(t *testing.T) {
 	assert.Equal(t, "p-known", rows[0].SyncID)
 	assert.Zero(t, rows[0].Version, "未归属的行从没拿过版本号")
 	assert.NotEmpty(t, rows[1].SyncID, "历史行就地补一个标识")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestClaimForAccount_GivenDriverReportsTheRowidUnderItsDeclaredName 用**真驱动回报的
+// 列名**驱动这条用例。
+//
+// 这些表的 rowid 是声明出来的 `id INTEGER PRIMARY KEY` 的别名，SQLite 于是把它回报成
+// 声明列的名字 `id`（拿真库 + 真驱动验过：`SELECT rowid, sync_id …` 回报的列名是
+// `id,sync_id,…`）。按名字映射的 GORM 因此只会把 `id` 那一列填进带 `column:id` 的
+// 字段——过去这里标的是 `column:rowid`，每一行都扫成 0，接着整批 `WHERE id IN (0)`
+// 一条 UPDATE 都打空：认领**每 30 秒报一次成功、库里一个字节没动**。
+//
+// sqlmock 允许任意编造列名，过去这里编的正是 "rowid"，于是这条链在真库上的失效在用例
+// 里完全看不见。列名照驱动回报的写，才是这条取数真正的契约。
+func TestClaimForAccount_GivenDriverReportsTheRowidUnderItsDeclaredName(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := NewSyncState()
+	// 取数列照**驱动真回报的名字**写。取数列本身故意用宽松匹配：这一条判的是
+	// 「回写时用的是不是真读回来的那个值」，而不是 SQL 的字面形状。
+	mock.ExpectQuery("SELECT .* FROM `projects` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
+		WithArgs(int64(7), consts.ACTIVE).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"}).
+			AddRow(int64(21), "p-known", int64(0), int64(0)).
+			AddRow(int64(22), "", int64(0), int64(0)))
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE id IN \\(\\?\\)").
+		WithArgs(int64(7), int64(21)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\?,`sync_id`=\\? WHERE id = \\?$").
+		WithArgs(int64(7), sqlmock.AnyArg(), int64(22)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	rows, err := repo.ClaimForAccount(ctx, syncwire.KindProject, 7)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	assert.Equal(t, "p-known", rows[0].SyncID, "行序不动：两条 UPDATE 发的正是这两行的主键")
+	assert.NotEmpty(t, rows[1].SyncID, "历史行就地补一个标识")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestClaimForAccount_GivenUpdateTouchesNoRow_FailsLoudly 一条 UPDATE 命中 0 行时
+// 必须报错。这一条正是上面那个失效的形状：SQL 形态对、参数全错，SQLite 不报错，
+// 于是「认领了 21 行」的日志与「库里一行没动」的现实可以并存好几个月。
+func TestClaimForAccount_GivenUpdateTouchesNoRow_FailsLoudly(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := NewSyncState()
+	mock.ExpectQuery("SELECT .* FROM `projects`").
+		WithArgs(int64(7), consts.ACTIVE).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"}).
+			AddRow(int64(21), "p-known", int64(0), int64(0)))
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE id IN \\(\\?\\)").
+		WithArgs(int64(7), int64(21)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+
+	rows, err := repo.ClaimForAccount(ctx, syncwire.KindProject, 7)
+	require.Error(t, err, "写不进去就必须报错，不能照原样把「认领成功」交出去")
+	assert.Empty(t, rows)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -145,15 +202,15 @@ func TestClaimForAccount_GivenUnownedRows(t *testing.T) {
 func TestClaimForAccount_GivenOneUpdateFails_RollsBackTheWholeBatch(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := NewSyncState()
-	mock.ExpectQuery("SELECT rowid,sync_id,sync_version,sync_account_id FROM `projects` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
+	mock.ExpectQuery("SELECT id,sync_id,sync_version,sync_account_id FROM `projects` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
 		WithArgs(int64(7), consts.ACTIVE).
-		WillReturnRows(sqlmock.NewRows([]string{"rowid", "sync_id", "sync_version", "sync_account_id"}).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"}).
 			AddRow(int64(1), "p-first", int64(0), int64(0)).
 			AddRow(int64(2), "p-second", int64(4200), int64(3)))
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE rowid IN \\(\\?\\)").
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE id IN \\(\\?\\)").
 		WithArgs(int64(7), int64(1)).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\?,`sync_version`=\\? WHERE rowid IN \\(\\?\\)").
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\?,`sync_version`=\\? WHERE id IN \\(\\?\\)").
 		WithArgs(int64(7), 0, int64(2)).WillReturnError(errors.New("database is locked"))
 	mock.ExpectRollback()
 
@@ -170,12 +227,12 @@ func TestClaimForAccount_GivenOneUpdateFails_RollsBackTheWholeBatch(t *testing.T
 func TestClaimForAccount_GivenRowOfAnotherAccount_ClaimsItAndZeroesTheVersion(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := NewSyncState()
-	mock.ExpectQuery("SELECT rowid,sync_id,sync_version,sync_account_id FROM `projects` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
+	mock.ExpectQuery("SELECT id,sync_id,sync_version,sync_account_id FROM `projects` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
 		WithArgs(int64(9), consts.ACTIVE).
-		WillReturnRows(sqlmock.NewRows([]string{"rowid", "sync_id", "sync_version", "sync_account_id"}).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"}).
 			AddRow(int64(5), "p-from-a", int64(4200), int64(7)))
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\?,`sync_version`=\\? WHERE rowid IN \\(\\?\\)").
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\?,`sync_version`=\\? WHERE id IN \\(\\?\\)").
 		WithArgs(int64(9), 0, int64(5)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -189,18 +246,18 @@ func TestClaimForAccount_GivenRowOfAnotherAccount_ClaimsItAndZeroesTheVersion(t 
 
 // TestClaimForAccount_GivenSeveralUnattributedRows_UsesOneSetUpdate 认领跑在每次
 // 同步周期，行数可能上千：已经有同步标识、只是还没归属账号的行必须收进**一条**
-// 集合 UPDATE，而不是每行一条 `WHERE rowid = ?`——否则认领的读写放大随行数线性增长。
+// 集合 UPDATE，而不是每行一条 `WHERE id = ?`——否则认领的读写放大随行数线性增长。
 func TestClaimForAccount_GivenSeveralUnattributedRows_UsesOneSetUpdate(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := NewSyncState()
-	mock.ExpectQuery("SELECT rowid,sync_id,sync_version,sync_account_id FROM `projects` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
+	mock.ExpectQuery("SELECT id,sync_id,sync_version,sync_account_id FROM `projects` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
 		WithArgs(int64(7), consts.ACTIVE).
-		WillReturnRows(sqlmock.NewRows([]string{"rowid", "sync_id", "sync_version", "sync_account_id"}).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"}).
 			AddRow(int64(1), "p-1", int64(0), int64(0)).
 			AddRow(int64(2), "p-2", int64(0), int64(0)).
 			AddRow(int64(3), "p-3", int64(0), int64(0)))
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE rowid IN \\(\\?,\\?,\\?\\)").
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE id IN \\(\\?,\\?,\\?\\)").
 		WithArgs(int64(7), int64(1), int64(2), int64(3)).
 		WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectCommit()
@@ -221,12 +278,12 @@ func TestClaimForAccount_GivenSeveralUnattributedRows_UsesOneSetUpdate(t *testin
 func TestClaimForAccount_GivenRowOfAnotherAccountWithoutSyncID_MintsAnIDAndZeroesTheVersion(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := NewSyncState()
-	mock.ExpectQuery("SELECT rowid,sync_id,sync_version,sync_account_id FROM `projects` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
+	mock.ExpectQuery("SELECT id,sync_id,sync_version,sync_account_id FROM `projects` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
 		WithArgs(int64(9), consts.ACTIVE).
-		WillReturnRows(sqlmock.NewRows([]string{"rowid", "sync_id", "sync_version", "sync_account_id"}).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"}).
 			AddRow(int64(6), "", int64(4200), int64(3)))
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\?,`sync_id`=\\?,`sync_version`=\\? WHERE rowid = \\?$").
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\?,`sync_id`=\\?,`sync_version`=\\? WHERE id = \\?$").
 		WithArgs(int64(9), sqlmock.AnyArg(), 0, int64(6)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -244,20 +301,20 @@ func TestClaimForAccount_GivenRowOfAnotherAccountWithoutSyncID_MintsAnIDAndZeroe
 func TestClaimForAccount_GivenMoreRowsThanOneBatch_ClaimsTheTailInASecondUpdate(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := NewSyncState()
-	result := sqlmock.NewRows([]string{"rowid", "sync_id", "sync_version", "sync_account_id"})
+	result := sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"})
 	for i := 1; i <= claimBatchSize+1; i++ {
 		result.AddRow(int64(i), "p-"+strconv.Itoa(i), int64(0), int64(0))
 	}
-	mock.ExpectQuery("SELECT rowid,sync_id,sync_version,sync_account_id FROM `projects`").
+	mock.ExpectQuery("SELECT id,sync_id,sync_version,sync_account_id FROM `projects`").
 		WithArgs(int64(7), consts.ACTIVE).WillReturnRows(result)
 	firstBatch := []driver.Value{int64(7)}
 	for i := 1; i <= claimBatchSize; i++ {
 		firstBatch = append(firstBatch, int64(i))
 	}
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE rowid IN \\(").
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE id IN \\(").
 		WithArgs(firstBatch...).WillReturnResult(sqlmock.NewResult(0, int64(claimBatchSize)))
-	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE rowid IN \\(\\?\\)$").
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE id IN \\(\\?\\)$").
 		WithArgs(int64(7), int64(claimBatchSize+1)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -272,9 +329,9 @@ func TestClaimForAccount_GivenMoreRowsThanOneBatch_ClaimsTheTailInASecondUpdate(
 func TestClaimForAccount_GivenTableWithoutStatus_SkipsStatusFilter(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := NewSyncState()
-	mock.ExpectQuery("SELECT rowid,sync_id,sync_version,sync_account_id FROM `project_agents` WHERE \\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0").
+	mock.ExpectQuery("SELECT id,sync_id,sync_version,sync_account_id FROM `project_agents` WHERE \\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0").
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"rowid", "sync_id", "sync_version", "sync_account_id"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"}))
 
 	rows, err := repo.ClaimForAccount(ctx, syncwire.KindProjectAgent, 7)
 	require.NoError(t, err)
@@ -403,10 +460,10 @@ func TestClaimForAccount_GivenTheBoardKinds_ResolvesEveryTable(t *testing.T) {
 		{syncwire.KindIssue, "issues"},
 	} {
 		ctx, _, mock := testutils.Database(t)
-		mock.ExpectQuery("SELECT rowid,sync_id,sync_version,sync_account_id FROM `"+tc.table+
+		mock.ExpectQuery("SELECT id,sync_id,sync_version,sync_account_id FROM `"+tc.table+
 			"` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
 			WithArgs(int64(7), consts.ACTIVE).
-			WillReturnRows(sqlmock.NewRows([]string{"rowid", "sync_id", "sync_version", "sync_account_id"}))
+			WillReturnRows(sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"}))
 
 		rows, err := NewSyncState().ClaimForAccount(ctx, tc.kind, 7)
 		require.NoError(t, err, tc.kind)
@@ -419,9 +476,9 @@ func TestClaimForAccount_GivenTheBoardKinds_ResolvesEveryTable(t *testing.T) {
 // ——把它拼进 SQL 会让认领在这张表上直接报错。
 func TestClaimForAccount_GivenIssueLabels_SkipsStatusFilter(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
-	mock.ExpectQuery("SELECT rowid,sync_id,sync_version,sync_account_id FROM `issue_labels` WHERE \\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0").
+	mock.ExpectQuery("SELECT id,sync_id,sync_version,sync_account_id FROM `issue_labels` WHERE \\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0").
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"rowid", "sync_id", "sync_version", "sync_account_id"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"}))
 
 	rows, err := NewSyncState().ClaimForAccount(ctx, syncwire.KindIssueLabel, 7)
 	require.NoError(t, err)

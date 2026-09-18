@@ -9,7 +9,7 @@ import {
   LoaderCircle,
 } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import type { Task, TaskProgress } from "./types";
 

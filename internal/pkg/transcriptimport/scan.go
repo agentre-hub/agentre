@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -143,8 +144,6 @@ func WalkChain[T any](nodes map[string]T, leaf string, parentOf func(T) string) 
 		chain = append(chain, cur)
 		cur = parentOf(node)
 	}
-	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
-		chain[i], chain[j] = chain[j], chain[i]
-	}
+	slices.Reverse(chain)
 	return chain
 }

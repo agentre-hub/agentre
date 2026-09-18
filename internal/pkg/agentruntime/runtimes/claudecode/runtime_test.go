@@ -3,6 +3,7 @@ package claudecode
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
@@ -177,6 +179,79 @@ func TestRun_ModelKeyChangeEvictsAndResumes(t *testing.T) {
 
 		So(atomic.LoadInt32(&spawnCount), ShouldEqual, 2)
 		So(resumeIDs, ShouldResemble, []string{"", "native-claude-session"})
+	})
+}
+
+// TestRun_ConfiguredContextWindowReachesCLIAndDisplay 锁住 sess-4039:供应商模型配了
+// 400k 窗口,Claude Code 却不认识 glm-5.3 这个名字 —— 它自己按 200k 自动压缩,
+// translator 又按 llmcatalog 前缀把 glm-5.3 当成 glm-5 报 203k。配置的窗口必须同时
+// 进子进程 env(CLI 实际窗口)和 ContextWindowUpdated(展示),两边是同一个数。
+func TestRun_ConfiguredContextWindowReachesCLIAndDisplay(t *testing.T) {
+	Convey("Given 配了 400k 窗口的 glm-5.3,CLI init 帧报 model=glm-5.3", t, func() {
+		var spawnEnvs []map[string]string
+		restore := SetSessionFactoryForTest(func(spec ccLaunchSpec) (ccSessionHandle, error) {
+			spawnEnvs = append(spawnEnvs, spec.Env)
+			return &fakeCCHandle{
+				id: "native-claude-session",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventInit, Model: "glm-5.3"},
+					{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		run := func(r *Runtime, backend *agent_backend_entity.AgentBackend, contextWindow int) []int {
+			events, _, err := r.Run(context.Background(), agentruntime.RunRequest{
+				Backend:   backend,
+				Effective: &agentruntime.EffectiveLLMConfig{ProviderKey: "pk", ModelKey: "mk", ProviderType: "anthropic", ModelID: "glm-5.3", ContextWindow: contextWindow},
+				SessionID: 4039,
+				Cwd:       t.TempDir(),
+				UserText:  "hi",
+			})
+			So(err, ShouldBeNil)
+			var windows []int
+			for ev := range events {
+				if cw, ok := ev.(agentruntime.ContextWindowUpdated); ok {
+					windows = append(windows, cw.Tokens)
+				}
+			}
+			return windows
+		}
+		claudeBackend := func() *agent_backend_entity.AgentBackend {
+			return &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+		}
+
+		Convey("子进程 env 带上 400000,上报的窗口也是 400000", func() {
+			windows := run(New(), claudeBackend(), 400000)
+			So(spawnEnvs, ShouldHaveLength, 1)
+			So(spawnEnvs[0]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], ShouldEqual, "400000")
+			So(windows, ShouldResemble, []int{400000})
+		})
+
+		Convey("用户 env_json 覆盖了窗口 → 上报 CLI 实际拿到的那个值", func() {
+			b := claudeBackend()
+			b.EnvJSON = `{"CLAUDE_CODE_MAX_CONTEXT_TOKENS":"300000"}`
+			windows := run(New(), b, 400000)
+			So(windows, ShouldResemble, []int{300000})
+		})
+
+		Convey("窗口未配置 → 不注入 env,仍按 catalog 兜底", func() {
+			windows := run(New(), claudeBackend(), 0)
+			_, has := spawnEnvs[0]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]
+			So(has, ShouldBeFalse)
+			So(windows, ShouldHaveLength, 1)
+		})
+
+		Convey("同一会话改了窗口配置 → 重开子进程,env 是启动期参数", func() {
+			r := New()
+			run(r, claudeBackend(), 400000)
+			windows := run(r, claudeBackend(), 500000)
+			So(spawnEnvs, ShouldHaveLength, 2)
+			So(spawnEnvs[1]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], ShouldEqual, "500000")
+			So(windows, ShouldResemble, []int{500000})
+		})
 	})
 }
 
@@ -1300,6 +1375,56 @@ func TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
 			}
 			So(gotCwd, ShouldEqual,
 				filepath.Join(dataDir, "agents", "sync-01KZNE7YKJQ6A79YVDCMW1A63R"))
+		})
+	})
+}
+
+// TestRun_WebInitiatedFreeSessionWithSystemAgentResolvesCwd 是 2026-09-18 那条报错的
+// 回归:上一条钉的是随机 ULID,系统 Agent(默认 CEO 助手)的同步标识却是固定值
+// agent_entity.DefaultAgentSyncID = "agent:system:default-ceo",带冒号 —— 它恒定过不了
+// 兜底解析的词表,于是控制台对系统 Agent 发起的每一条「不指定项目」的自由对话都死在
+// 这里:acquireSession failed,界面上是「docker 已连接,但 Agent 启动失败:
+// agentruntime: ResolveAgentCwd needs agentID > 0 or a syntactically valid agentSyncID」。
+// 选了项目时 req.Cwd 非空、不走兜底,所以这条路径此前一直没人踩到。
+func TestRun_WebInitiatedFreeSessionWithSystemAgentResolvesCwd(t *testing.T) {
+	Convey("Given 一条 web 发起、不钉项目的对话,对面是系统 Agent(同步标识带冒号)", t, func() {
+		dataDir := t.TempDir()
+		t.Setenv("AGENTRE_DATA_DIR", dataDir)
+
+		var gotCwd string
+		restore := SetSessionFactoryForTest(func(spec ccLaunchSpec) (ccSessionHandle, error) {
+			gotCwd = spec.Cwd
+			return &fakeCCHandle{
+				id: "fake-sid",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		Convey("When 起这一轮, Then 起得来,工作目录是一个真实存在、没有冒号的目录", func() {
+			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+				Backend: &agent_backend_entity.AgentBackend{
+					Type: string(agent_backend_entity.TypeClaudeCode),
+				},
+				SessionID:   100,
+				AgentID:     0,
+				AgentSyncID: agent_entity.DefaultAgentSyncID,
+				UserText:    "hi",
+				Effective: &agentruntime.EffectiveLLMConfig{
+					ProviderKey: "pk", ProviderType: "anthropic", ModelID: "claude-haiku-4-5",
+				},
+			})
+			So(err, ShouldBeNil)
+			for range events { //nolint:revive // drain
+			}
+			So(gotCwd, ShouldEqual,
+				filepath.Join(dataDir, "agents", "sync-agent~3Asystem~3Adefault-ceo"))
+			info, statErr := os.Stat(gotCwd)
+			So(statErr, ShouldBeNil)
+			So(info.IsDir(), ShouldBeTrue)
 		})
 	})
 }

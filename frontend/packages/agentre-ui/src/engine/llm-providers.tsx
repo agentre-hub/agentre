@@ -40,21 +40,22 @@ import {
 import { ProviderNav } from "./llm-provider-models/provider-nav";
 import { ProviderWorkspace } from "./llm-provider-models/provider-workspace";
 import { useProviderActions } from "./llm-provider-models/use-provider-actions";
-import {
-  useProviderCatalog,
-  type PanelFlash,
-} from "./llm-provider-models/use-provider-catalog";
+import { useProviderCatalog } from "./llm-provider-models/use-provider-catalog";
 import {
   type Model,
   type Provider,
   type ReferenceCounts,
 } from "./llm-provider-models/index";
+import type { FlashState } from "./agent-backends-shared";
 
 type LlmProvidersPanelProps = {
   onOpenAgentBackends?: () => void;
   // 页头由宿主渲染，面板把自己的页级操作（新增供应商）交进去：按钮要落在 H1
   // 行，而它开的创建弹窗仍归面板持有。
   renderHeader?: (actions: React.ReactNode) => React.ReactNode;
+  // 宿主在得知账号数据有同步变化时换一个新值：面板经端口重拉供应商与当前模型表，
+  // 已打开的弹窗保留用户正在编辑的内容。首次挂载时的值不触发额外拉取。
+  refreshSignal?: number | string;
 };
 
 // 宿主传进来的那一份端口只覆盖本面板的子树：两个面板同时挂载时各用各的，
@@ -73,11 +74,12 @@ export function LlmProvidersPanel({
 function LlmProvidersPanelBody({
   onOpenAgentBackends,
   renderHeader,
+  refreshSignal,
 }: LlmProvidersPanelProps) {
   const ports = useEngineSettingsPorts();
   const bridge = useEngineSettingsBridge();
   const { t } = useTranslation();
-  const [flash, setFlash] = React.useState<PanelFlash>(null);
+  const [flash, setFlash] = React.useState<FlashState>(null);
   // 读路径（清单 / 模型表 / 引用计数）与写路径（测试、启停、播报）各自成钩子，
   // 中间只靠 flash 槽位与两个 refresh 相连。
   const catalog = useProviderCatalog({ bridge, setFlash });
@@ -95,6 +97,15 @@ function LlmProvidersPanelBody({
     refreshProviders,
     refreshModels,
   } = catalog;
+  const lastRefreshSignalRef = React.useRef(refreshSignal);
+  React.useEffect(() => {
+    if (Object.is(lastRefreshSignalRef.current, refreshSignal)) return;
+    lastRefreshSignalRef.current = refreshSignal;
+    void (async () => {
+      await refreshProviders();
+      await refreshModels();
+    })();
+  }, [refreshSignal, refreshProviders, refreshModels]);
   const [formMode, setFormMode] = React.useState<ProviderFormMode | null>(null);
   const [discoverProvider, setDiscoverProvider] =
     React.useState<Provider | null>(null);

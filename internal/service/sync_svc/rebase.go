@@ -10,7 +10,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
-// 本文件只处置一种失效：**server 不认识本端的下行游标**（syncwire.ErrCursorUnknown）。
+// 本文件只处置一种失效：**server 不认识本端的下行游标**（internal/pkg/syncwire.ErrCursorUnknown）。
 //
 // 它发生在账号的版本序列被从头开始的时候——服务端数据库被重建，或用户换了一套自建
 // 服务端。这与 R6a 的「离线超窗口」是**相反**的两件事，因此走两条不同的路：

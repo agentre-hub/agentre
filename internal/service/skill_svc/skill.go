@@ -54,8 +54,7 @@ func (s *Service) discoverForBackend(ctx context.Context, be *agent_backend_enti
 		return discoveryResult{backendType: backendType, backend: be, packs: []agentskill.SkillPack{}}, nil
 	}
 	packs, err := d.Discover(ctx, agentskill.DiscoverQuery{
-		BackendType: backendType,
-		CLIPath:     be.CLIPath,
+		CLIPath: be.CLIPath,
 	})
 	return discoveryResult{backendType: backendType, backend: be, packs: packs}, err
 }
@@ -227,7 +226,7 @@ func (s *Service) discoverCommands(
 	backendType := agent_backend_entity.BackendType(be.Type)
 	var installed []agentskill.SkillPack
 	if d, ok := agentskill.DiscovererFor(backendType); ok {
-		packs, err := d.Discover(ctx, agentskill.DiscoverQuery{BackendType: backendType, CLIPath: be.CLIPath})
+		packs, err := d.Discover(ctx, agentskill.DiscoverQuery{CLIPath: be.CLIPath})
 		if err != nil {
 			return nil, err
 		}

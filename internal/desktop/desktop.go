@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/agentre-hub/agentre/internal/app"
@@ -43,6 +45,7 @@ type Options struct {
 var (
 	bootstrapDesktop = bootstrap.Init
 	runWails         = wails.Run
+	userConfigDir    = os.UserConfigDir
 )
 
 // Run initializes persistent production services, optionally installs entrypoint
@@ -77,8 +80,11 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 func newWailsOptions(a *app.App, assets fs.FS, goos, dataDir string) *options.App {
+	// bootstrap.Init 已经在渠道标记非法时拒绝启动，走到这里渠道必然合法。
+	channel, _ := paths.CurrentChannel()
+
 	appOptions := &options.App{
-		Title:            windowTitle(),
+		Title:            channel.Identity().DisplayName,
 		Width:            defaultWindowWidth,
 		Height:           defaultWindowHeight,
 		MinWidth:         minWindowWidth,
@@ -112,15 +118,8 @@ func newWailsOptions(a *app.App, assets fs.FS, goos, dataDir string) *options.Ap
 		appOptions.AssetServer.Middleware = devProxyRetryMiddleware
 	}
 
-	configurePlatformWindowOptions(appOptions, goos)
+	configurePlatformWindowOptions(appOptions, goos, channel.Identity())
 	return appOptions
-}
-
-func windowTitle() string {
-	if paths.IsDevMode() {
-		return "Agentre (Dev)"
-	}
-	return "Agentre"
 }
 
 func singleInstanceUniqueID(dataDir string) string {
@@ -128,7 +127,7 @@ func singleInstanceUniqueID(dataDir string) string {
 	return "agentre-" + hex.EncodeToString(sum[:8])
 }
 
-func configurePlatformWindowOptions(appOptions *options.App, goos string) {
+func configurePlatformWindowOptions(appOptions *options.App, goos string, id paths.Identity) {
 	if goos != "windows" {
 		return
 	}
@@ -136,5 +135,20 @@ func configurePlatformWindowOptions(appOptions *options.App, goos string) {
 	appOptions.Windows = &windows.Options{
 		Theme:                             windows.SystemDefault,
 		DisableFramelessWindowDecorations: false,
+		WebviewUserDataPath:               webviewUserDataPath(id),
 	}
+}
+
+// webviewUserDataPath keeps each channel's WebView2 storage apart. Every channel's
+// executable is Agentre.exe, so Wails' default (%AppData%\<exe name>) would be shared.
+// It follows the channel identity, not AGENTRE_DATA_DIR: an override only moves the
+// data dir. An unresolvable config root leaves the Wails default rather than a
+// relative path.
+func webviewUserDataPath(id paths.Identity) string {
+	root, err := userConfigDir()
+	if err != nil || root == "" {
+		logger.Default().Warn("desktop.webviewUserDataPath: user config dir unavailable, using WebView2 default", zap.Error(err))
+		return ""
+	}
+	return filepath.Join(root, id.DataDirName, "WebView2")
 }

@@ -37,7 +37,7 @@ function f(
   event: Record<string, unknown>,
   createtime?: number,
 ): TranscriptFrame {
-  return { sessionId: 1, event, seq: ++seq, createtime };
+  return { event, seq: ++seq, createtime };
 }
 
 const SID = 1;
@@ -533,7 +533,7 @@ describe("reduceFrames:真正不认识的才算未知", () => {
   });
 
   it("给定载荷压根不是对象，当归约，则同样如实落 unknown 而不是抛错", () => {
-    const msgs = reduceFrames([{ sessionId: SID, event: "坏帧", seq: 1 }], SID);
+    const msgs = reduceFrames([{ event: "坏帧", seq: 1 }], SID);
 
     expect(msgs[0].blocks[0].type).toBe("notice");
     expect(msgs[0].blocks[0].text).toContain("坏帧");
@@ -1485,13 +1485,11 @@ describe("reduceFrames:消息的时刻", () => {
     const msgs = reduceFrames(
       [
         {
-          sessionId: SID,
           seq: 1,
           createtime: 1700000000111,
           event: { kind: "user_message", text: "在吗" },
         },
         {
-          sessionId: SID,
           seq: 2,
           createtime: 1700000005222,
           event: { kind: "text_delta", text: "在" },
@@ -1499,7 +1497,6 @@ describe("reduceFrames:消息的时刻", () => {
         // 同一条助手消息的后续帧不改它的时刻：createtime 说的是「这条消息从什么时候
         // 开始」，不是「最后一次被追加是什么时候」。
         {
-          sessionId: SID,
           seq: 3,
           createtime: 1700000009333,
           event: { kind: "text_delta", text: "的" },

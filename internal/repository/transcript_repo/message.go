@@ -658,7 +658,7 @@ func (r *messageRepo) DeleteFromSeq(ctx context.Context, sessionID int64, fromSe
 	err := db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		txCtx := db.WithContextDB(ctx, tx)
 		// 先删块行,再删宿主消息 —— 反过来会让块行在两条语句之间成为孤儿。
-		if err := deleteBlocksOfMessages(txCtx, "session_id = ? AND seq >= ?", sessionID, fromSeq); err != nil {
+		if err := DeleteBlocksOfMessages(txCtx, "session_id = ? AND seq >= ?", sessionID, fromSeq); err != nil {
 			return err
 		}
 		res := tx.Where("session_id = ? AND seq >= ?", sessionID, fromSeq).Delete(&transcript_entity.Message{})

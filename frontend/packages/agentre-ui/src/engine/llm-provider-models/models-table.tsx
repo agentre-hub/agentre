@@ -31,11 +31,11 @@ import {
 import { cn } from "../../lib/utils";
 
 import { LlmModelLogo } from "../ai-brand-logo";
+import { formatTokens } from "../../lib/format-tokens";
 import {
   type Model,
   type Provider,
   type ReferenceCounts,
-  formatTokens,
   modelDeleteability,
   totalReferences,
 } from "./index";
@@ -123,11 +123,7 @@ export function ModelsTable({
           const canSetDefault = model.enabled && !isDefault;
           const refCount = totalReferences(modelRefCounts.get(model.modelKey));
           const passedDuration = passedModelTests.get(model.id);
-          const del = modelDeleteability(
-            model,
-            provider.defaultModelKey,
-            modelRefCounts,
-          );
+          const del = modelDeleteability(model, provider.defaultModelKey);
           const deleteBlocked = del.kind === "default";
           const deleteBlockedReason = deleteBlocked
             ? t("llmProviders.modelsTable.deleteBlockedDefault")
@@ -219,10 +215,12 @@ export function ModelsTable({
                 </div>
               </TableCell>
               <TableCell className="py-2.5 @max-[640px]:hidden font-mono text-2xs text-muted-foreground">
-                {formatTokens(model.contextWindow)}
+                {model.contextWindow > 0
+                  ? formatTokens(model.contextWindow)
+                  : "—"}
               </TableCell>
               <TableCell className="py-2.5 @max-[640px]:hidden font-mono text-2xs text-muted-foreground">
-                {formatTokens(model.maxOutput)}
+                {model.maxOutput > 0 ? formatTokens(model.maxOutput) : "—"}
               </TableCell>
               <TableCell className="py-2.5 font-mono text-2xs text-muted-foreground">
                 {refCount > 0 ? refCount : "—"}

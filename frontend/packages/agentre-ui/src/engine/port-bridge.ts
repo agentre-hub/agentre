@@ -24,12 +24,6 @@ class Request {
   constructor(init: Record<string, unknown> = {}) {
     Object.assign(this, init);
   }
-  static createFrom<T extends typeof Request>(
-    this: T,
-    init: Record<string, unknown> = {},
-  ) {
-    return new this(init);
-  }
 }
 
 export namespace llm_provider_svc {

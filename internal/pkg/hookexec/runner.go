@@ -8,13 +8,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
 
 var (
-	ErrUnknownInterpreter      = errors.New("hookexec: unknown interpreter")
-	ErrInterpreterNotInstalled = errors.New("hookexec: interpreter not installed")
+	errUnknownInterpreter      = errors.New("hookexec: unknown interpreter")
+	errInterpreterNotInstalled = errors.New("hookexec: interpreter not installed")
 )
 
 // ScriptRunner 执行一段脚本并返回采集到的输出。
@@ -34,16 +35,15 @@ type RunSpec struct {
 
 // RunResult 是一次脚本执行的采集结果。
 type RunResult struct {
-	Stdout    []byte
-	Stderr    []byte
-	ExitCode  int
-	Duration  time.Duration
-	TimedOut  bool
-	Truncated bool
+	Stdout   []byte
+	Stderr   []byte
+	ExitCode int
+	Duration time.Duration
+	TimedOut bool
 }
 
-// Interp 描述一个解释器如何被调用。
-type Interp struct {
+// interp 描述一个解释器如何被调用。
+type interp struct {
 	Bin  string   // 已 LookPath 解析的绝对/可执行名
 	Args []string // 脚本文件路径之前的固定参数
 	Ext  string   // 临时脚本文件扩展名
@@ -80,12 +80,7 @@ func appliesTo(def interpDef, goos string) bool {
 	if len(def.goos) == 0 {
 		return true
 	}
-	for _, g := range def.goos {
-		if g == goos {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(def.goos, goos)
 }
 
 // Probe 列出在 goos 平台下适用的解释器及其安装情况。
@@ -109,21 +104,21 @@ func Probe(goos string) []Available {
 }
 
 // Resolve 校验解释器并解析其二进制路径;interpreterPath 非空时覆盖二进制(args/ext 仍取预设)。
-func Resolve(interpreter, interpreterPath string) (*Interp, error) {
+func resolve(interpreter, interpreterPath string) (*interp, error) {
 	def, ok := registry[interpreter]
 	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrUnknownInterpreter, interpreter)
+		return nil, fmt.Errorf("%w: %q", errUnknownInterpreter, interpreter)
 	}
 	if p := strings.TrimSpace(interpreterPath); p != "" {
 		if info, err := os.Stat(p); err != nil || info.IsDir() {
-			return nil, fmt.Errorf("%w: %q", ErrInterpreterNotInstalled, p)
+			return nil, fmt.Errorf("%w: %q", errInterpreterNotInstalled, p)
 		}
-		return &Interp{Bin: p, Args: def.args, Ext: def.ext}, nil
+		return &interp{Bin: p, Args: def.args, Ext: def.ext}, nil
 	}
 	for _, name := range def.candidates {
 		if bin, err := exec.LookPath(name); err == nil {
-			return &Interp{Bin: bin, Args: def.args, Ext: def.ext}, nil
+			return &interp{Bin: bin, Args: def.args, Ext: def.ext}, nil
 		}
 	}
-	return nil, fmt.Errorf("%w: %q", ErrInterpreterNotInstalled, interpreter)
+	return nil, fmt.Errorf("%w: %q", errInterpreterNotInstalled, interpreter)
 }

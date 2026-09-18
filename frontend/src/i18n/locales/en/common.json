@@ -105,7 +105,8 @@
     "unknownSession": "Untitled session"
   },
   "statusBar": {
-    "agentSummary": "{{count}} agents · {{running}} running",
+    "agentSummary_one": "{{count}} agent · {{running}} running",
+    "agentSummary_other": "{{count}} agents · {{running}} running",
     "approval_one": "{{count}} approval",
     "approval_other": "{{count}} approvals",
     "unread_one": "{{count}} unread",

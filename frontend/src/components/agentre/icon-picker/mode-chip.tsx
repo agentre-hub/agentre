@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Image as ImageIcon } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { hasIcon, iconForKey } from "../icon-registry";
 

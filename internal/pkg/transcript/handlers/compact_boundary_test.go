@@ -28,7 +28,7 @@ func TestCompactBoundaryHandler_AddsBlockAndEmits(t *testing.T) {
 
 		err := CompactBoundaryHandler{Inspector: insp}.Apply(context.Background(),
 			agentruntime.CompactBoundary{PreTokens: 12345, Trigger: "auto"},
-			acc, emit, nil, tc)
+			acc, emit, tc)
 		So(err, ShouldBeNil)
 
 		got, ok := acc.Finalize()[0].(*blocks.CompactBoundaryBlock)
@@ -56,7 +56,7 @@ func TestCompactBoundaryHandler_ManualZeroMetadata(t *testing.T) {
 		tc := &turn.TurnContext{Stream: "s"}
 
 		err := CompactBoundaryHandler{}.Apply(context.Background(),
-			agentruntime.CompactBoundary{}, acc, emit, nil, tc)
+			agentruntime.CompactBoundary{}, acc, emit, tc)
 		So(err, ShouldBeNil)
 
 		got := acc.Finalize()[0].(*blocks.CompactBoundaryBlock)

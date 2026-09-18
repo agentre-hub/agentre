@@ -4,9 +4,9 @@
         <key>CFBundlePackageType</key>
         <string>APPL</string>
         <key>CFBundleName</key>
-        <string>{{.Info.ProductName}} (Dev)</string>
+        <string>Agentre Dev</string>
         <key>CFBundleDisplayName</key>
-        <string>{{.Info.ProductName}} (Dev)</string>
+        <string>Agentre Dev</string>
         <key>CFBundleExecutable</key>
         <string>{{.OutputFilename}}</string>
         <key>CFBundleIdentifier</key>

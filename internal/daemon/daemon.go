@@ -44,10 +44,11 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/cagoenvelope"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/pty"
 	"github.com/agentre-hub/agentre/internal/pkg/pty/local"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/port_forward_repo"
@@ -1437,14 +1438,14 @@ func (r *credentialRefresher) refreshOnce(ctx context.Context, refreshToken stri
 			Code        string `json:"error"`
 			Description string `json:"error_description"`
 		}
-		if decodeServerEnvelope(payload, &oauthErr) == nil && oauthErr.Code != "" {
+		if cagoenvelope.Decode(payload, &oauthErr) == nil && oauthErr.Code != "" {
 			return nil, oauthErr.Code == "invalid_grant",
 				fmt.Errorf("refresh rejected: %s: %s", oauthErr.Code, oauthErr.Description)
 		}
 		return nil, false, fmt.Errorf("refresh endpoint returned %s", resp.Status)
 	}
 	var token refreshTokenResponse
-	if err := decodeServerEnvelope(payload, &token); err != nil {
+	if err := cagoenvelope.Decode(payload, &token); err != nil {
 		return nil, false, fmt.Errorf("parse refresh response: %w", err)
 	}
 	if token.AccessToken == "" || token.RefreshToken == "" || token.ExpiresIn <= 0 || token.RefreshExpiresIn <= 0 {
@@ -1456,18 +1457,6 @@ func (r *credentialRefresher) refreshOnce(ctx context.Context, refreshToken stri
 // decodeServerEnvelope handles both the raw JSON payload and cago's
 // {data: ...} response envelope, mirroring the login flow's decoder. Agentre
 // must not import agentre-server; this keeps the daemon-side contract in sync.
-func decodeServerEnvelope(payload []byte, target any) error {
-	var envelope struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(payload, &envelope); err != nil {
-		return err
-	}
-	if len(envelope.Data) != 0 && string(envelope.Data) != "null" {
-		return json.Unmarshal(envelope.Data, target)
-	}
-	return json.Unmarshal(payload, target)
-}
 
 func waitForRefresh(ctx context.Context, delay time.Duration) error {
 	timer := time.NewTimer(delay)
@@ -1630,7 +1619,7 @@ func (r *directCredentialReconciler) fetchDevices(ctx context.Context) ([]device
 		// an empty one (the account has no devices).
 		Devices *[]deviceListItem `json:"devices"`
 	}
-	if err := decodeServerEnvelope(payload, &body); err != nil {
+	if err := cagoenvelope.Decode(payload, &body); err != nil {
 		return nil, fmt.Errorf("daemon.directReconcile: malformed device list response: %w", err)
 	}
 	if body.Devices == nil {
@@ -1718,7 +1707,7 @@ func (d *Daemon) serveAccountSignal(ctx context.Context, channel relaytransport.
 		if len(payload) == 0 {
 			return
 		}
-		if _, known, err := syncwire.DecodeAccountChannelFrame(payload); err != nil || !known {
+		if _, known, err := localsync.DecodeAccountChannelFrame(payload); err != nil || !known {
 			continue
 		}
 		d.engineSnapshot.PullAsync(ctx, "account_signal")

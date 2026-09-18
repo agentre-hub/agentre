@@ -7,6 +7,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"go.uber.org/zap"
 
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/internal/service/update_svc"
 )
 
@@ -18,8 +19,8 @@ const autoUpdateCheckDelay = 5 * time.Second
 // 也能在窗口到期后尽快查一次，而不是等下次启动。
 const autoUpdateCheckTick = 4 * time.Hour
 
-// CheckForUpdate 用户主动检查最新版本，绕过节流。前端切换更新通道后也调它 ——
-// 用户此刻在等结果。channel / mirror 从持久化设置读取。
+// CheckForUpdate 用户主动检查最新版本，绕过节流。渠道取构建渠道，mirror 从持久化
+// 设置读取；Dev 构建不检查，返回 (nil, nil)。
 func (a *App) CheckForUpdate() (*update_svc.UpdateInfo, error) {
 	return update_svc.RunCheck(a.ctx, update_svc.TriggerManual)
 }
@@ -30,11 +31,11 @@ func (a *App) MaybeCheckForUpdate() (*update_svc.UpdateInfo, error) {
 	return update_svc.RunCheck(a.ctx, update_svc.TriggerFocus)
 }
 
-// DownloadAndInstallUpdate 下载并安装最新版本；进度通过 "update:progress" 事件推送。
+// DownloadAndInstallUpdate 下载并安装本构建渠道的最新版本；进度通过 "update:progress" 事件推送。
 //
 // 没有「跳过校验」入参：校验和取不到就装不上，绑定层不给前端这个开关。
 func (a *App) DownloadAndInstallUpdate() error {
-	channel, err := update_svc.Update().GetChannel(a.ctx)
+	channel, err := paths.CurrentChannel()
 	if err != nil {
 		return err
 	}
@@ -55,16 +56,6 @@ func (a *App) DownloadAndInstallUpdate() error {
 // GetAvailableMirrors 返回内置可用下载镜像列表。
 func (a *App) GetAvailableMirrors() []update_svc.MirrorInfo {
 	return update_svc.Update().GetAvailableMirrors()
-}
-
-// GetUpdateChannel 返回当前更新通道。
-func (a *App) GetUpdateChannel() (string, error) {
-	return update_svc.Update().GetChannel(a.ctx)
-}
-
-// SetUpdateChannel 更新通道（stable / beta / nightly）。
-func (a *App) SetUpdateChannel(channel string) error {
-	return update_svc.Update().SetChannel(a.ctx, channel)
 }
 
 // GetDownloadMirror 返回当前下载镜像前缀；空串表示直连 GitHub。

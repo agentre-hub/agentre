@@ -19,25 +19,12 @@ Usage:
   agrctl ctl <command> [flags]        control a running Agentre desktop (agents/projects/send)
   agrctl claudecode hook post-tool    (internal) Claude Code PostToolUse hook helper`
 
-// route maps the first argument to a subcommand kind. Kept separate so it is
-// unit-testable without the os.Exit-ing Main dispatch.
-func route(arg string) string {
-	switch arg {
-	case "claudecode":
-		return "claudecode"
-	case "ctl":
-		return "ctl"
-	default:
-		return "unknown"
-	}
-}
-
 func main() {
 	if len(os.Args) < 2 {
 		_, _ = fmt.Fprintln(os.Stderr, usageText)
 		os.Exit(2)
 	}
-	switch route(os.Args[1]) {
+	switch os.Args[1] {
 	case "claudecode":
 		claudecodecmd.Main(os.Args[2:]) // calls os.Exit
 	case "ctl":

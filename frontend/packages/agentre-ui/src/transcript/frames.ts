@@ -82,9 +82,15 @@ import {
   type EventKind,
 } from "../event-kinds.gen";
 
-/** 一帧 relay 事件。`event` 在 Go 侧是 json.RawMessage，对 wire 完全不透明。 */
+/**
+ * 一帧 relay 事件。`event` 在 Go 侧是 json.RawMessage，对 wire 完全不透明。
+ *
+ * **会话身份不在这里**：帧流只描述「发生了什么」，它属于哪条会话由调用方在
+ * `reduceFrames(frames, sessionId)` / `createTranscriptProjector(sessionId)` 时说。
+ * 每帧都带一份会话号时，只能拿到 wire 帧的那两个面（server 的 relay、桌面端 Peer Tab）
+ * 就得为一个它们根本没有的本机会话号编一个值去满足形状。
+ */
 export interface TranscriptFrame {
-  sessionId: number;
   event?: unknown;
   seq?: number;
   /**

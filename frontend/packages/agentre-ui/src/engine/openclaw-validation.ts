@@ -47,14 +47,13 @@ export const OPENCLAW_ERROR_KEY_BY_CODE: Record<string, string> = {
   NOT_PAIRED: "notPaired",
 };
 
-function isLoopbackHostname(hostname: string): boolean {
-  const host = hostname.toLowerCase();
-  if (host === "localhost" || host === "::1" || host === "[::1]") return true;
-  if (host === "0.0.0.0") return false;
-  // IPv4 环回段 127.0.0.0/8。
-  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (v4) return v4[1] === "127";
-  return false;
+// 与 Go 侧 loopback 形状检查同口径：loopback 的 `hermes serve` 不需要登录，明文 ws
+// 也只允许连到环回。`[::1]` 这样的方括号形式先剥掉再判。
+export function isLoopbackHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host === "::1") return true;
+  return /^127(?:\.\d{1,3}){3}$/.test(host);
 }
 
 // 校验 Gateway URL,返回错误码;合法返回 null。规则与后端一致:

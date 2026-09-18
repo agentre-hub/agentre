@@ -12,12 +12,9 @@ import * as React from "react";
 import { useUiTranslation as useTranslation } from "../../i18n";
 import { llm_provider_svc } from "../port-bridge";
 import { useEngineSettingsBridge } from "../port-bridge";
-import {
-  type Provider,
-  errMessage,
-  isProviderType,
-  providerTypeMeta,
-} from "./index";
+import { type Provider, isProviderType, providerTypeMeta } from "./index";
+import type { FlashState } from "../agent-backends-shared";
+import { messageFromError } from "../agent-backends-utils";
 
 export type ProviderFormMode =
   | { kind: "create" }
@@ -36,11 +33,6 @@ export type ProviderFormValues = {
   name: string;
   type: string;
 };
-
-export type FlashState =
-  | { kind: "ok"; text: string }
-  | { kind: "err"; text: string }
-  | null;
 
 type PreviewLLMModelsFn = ReturnType<
   typeof useEngineSettingsBridge
@@ -151,7 +143,7 @@ export function useProviderForm({
             : "",
       );
     } catch (err) {
-      setError(errMessage(err));
+      setError(messageFromError(err, t));
     } finally {
       setFetching(false);
     }
@@ -241,7 +233,7 @@ export function useProviderForm({
           defaultModelId,
         });
       } catch (err) {
-        setFlash({ kind: "err", text: errMessage(err) });
+        setFlash({ kind: "err", text: messageFromError(err, t) });
       } finally {
         setSubmitting(false);
       }
@@ -298,5 +290,3 @@ export function useProviderForm({
     submit,
   };
 }
-
-export type ProviderFormState = ReturnType<typeof useProviderForm>;

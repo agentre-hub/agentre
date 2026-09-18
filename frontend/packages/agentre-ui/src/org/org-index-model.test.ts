@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  buildOrgIndex,
-  buildOrgReportsToOptions,
-  EMPTY_ORG_FILTERS,
-} from "./org-index-model";
+import { buildOrgIndex, buildOrgReportsToOptions } from "./org-index-model";
 import type { OrgAgentModel, OrgDepartmentModel } from "./types";
+
+const EMPTY_FILTERS = { search: "", backendId: 0, reportsToId: 0 };
 
 function dept(
   p: Partial<OrgDepartmentModel> & { id: number },
@@ -59,7 +57,7 @@ describe("buildOrgIndex 部门轴", () => {
         dept({ id: 2, name: "平台组", parentId: 1 }),
         dept({ id: 3, name: "产品部", sortOrder: 2 }),
       ],
-      filters: EMPTY_ORG_FILTERS,
+      filters: EMPTY_FILTERS,
     });
 
     expect(
@@ -77,7 +75,7 @@ describe("buildOrgIndex 部门轴", () => {
     const model = buildOrgIndex({
       agents: [ceo, eva, bob],
       departments: [dept({ id: 1, name: "工程部", leadAgentId: 2 })],
-      filters: EMPTY_ORG_FILTERS,
+      filters: EMPTY_FILTERS,
     });
 
     const group = model.groups[0];
@@ -98,7 +96,7 @@ describe("buildOrgIndex 部门轴", () => {
     const model = buildOrgIndex({
       agents: [ceo, eva, bob, cid],
       departments: [dept({ id: 1 })],
-      filters: EMPTY_ORG_FILTERS,
+      filters: EMPTY_FILTERS,
     });
 
     expect(model.groups[0].rows.map((r) => r.agent.name)).toEqual([
@@ -118,7 +116,7 @@ describe("buildOrgIndex 部门轴", () => {
     const model = buildOrgIndex({
       agents: [ceo, solo],
       departments: [dept({ id: 1 })],
-      filters: EMPTY_ORG_FILTERS,
+      filters: EMPTY_FILTERS,
     });
 
     expect(model.topRows.map((r) => r.agent.name)).toEqual([
@@ -138,7 +136,7 @@ describe("buildOrgIndex 部门轴", () => {
         agent({ id: 6, name: "E6", departmentId: 1, sortOrder: 2 }),
       ],
       departments: [dept({ id: 1 })],
-      filters: EMPTY_ORG_FILTERS,
+      filters: EMPTY_FILTERS,
     });
 
     const rows = model.groups[0].rows;
@@ -154,7 +152,7 @@ describe("buildOrgIndex 部门轴", () => {
         agent({ id: 8, name: "R", parentAgentId: 7 }),
       ],
       departments: [],
-      filters: EMPTY_ORG_FILTERS,
+      filters: EMPTY_FILTERS,
     });
 
     expect(model.topRows.map((r) => r.agent.name).sort()).toEqual(["L", "R"]);
@@ -182,21 +180,20 @@ describe("buildOrgIndex 筛选", () => {
     const model = buildOrgIndex({
       agents,
       departments,
-      filters: { ...EMPTY_ORG_FILTERS, search: "工程总监" },
+      filters: { ...EMPTY_FILTERS, search: "工程总监" },
     });
 
     expect(model.groups).toHaveLength(1);
     expect(model.groups[0].rows.map((r) => r.agent.name)).toEqual(["Eva"]);
     expect(model.topRows).toEqual([]);
     expect(model.matchedAgents).toBe(1);
-    expect(model.totalAgents).toBe(3);
   });
 
   it("按后端筛选", () => {
     const model = buildOrgIndex({
       agents,
       departments,
-      filters: { ...EMPTY_ORG_FILTERS, backendId: 6 },
+      filters: { ...EMPTY_FILTERS, backendId: 6 },
     });
 
     expect(model.groups[0].rows.map((r) => r.agent.name)).toEqual(["Bob"]);
@@ -208,7 +205,7 @@ describe("buildOrgIndex 筛选", () => {
     const model = buildOrgIndex({
       agents: [...agents, carol],
       departments,
-      filters: { ...EMPTY_ORG_FILTERS, reportsToId: 2 },
+      filters: { ...EMPTY_FILTERS, reportsToId: 2 },
     });
 
     // Bob 显式挂在 Eva 下；Carol 挂在 Eva 当 leader 的部门里 —— 两条都算汇报给 Eva
@@ -226,7 +223,7 @@ describe("buildOrgIndex 筛选", () => {
         agent({ id: 5, name: "E5", departmentId: 1, sortOrder: 2 }),
       ],
       departments: [dept({ id: 1 })],
-      filters: { ...EMPTY_ORG_FILTERS, search: "E5" },
+      filters: { ...EMPTY_FILTERS, search: "E5" },
     });
 
     const rows = model.groups[0].rows;

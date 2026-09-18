@@ -60,35 +60,19 @@ function findDepartment(
   return ctx.departments.find((d) => d.id === id);
 }
 
-// 从 from 沿显式上级链往上走，看看会不会走回 selfId。
-function agentChainReaches(
-  ctx: OrgDropContext,
-  from: OrgAgentModel,
+// 从 from 沿父链往上走，看看会不会走回 selfId。agent 走显式 parentAgentId、
+// department 走 parentId，两者只差一个取父节点的闭包。
+function chainReaches<T extends { id: number }>(
+  from: T,
   selfId: number,
+  parentOf: (node: T) => T | undefined,
 ): boolean {
-  let current: OrgAgentModel | undefined = from;
+  let current: T | undefined = from;
   const seen = new Set<number>();
   while (current && !seen.has(current.id)) {
     if (current.id === selfId) return true;
     seen.add(current.id);
-    const parentId: number = current.parentAgentId ?? 0;
-    current = parentId > 0 ? findAgent(ctx, parentId) : undefined;
-  }
-  return false;
-}
-
-function departmentChainReaches(
-  ctx: OrgDropContext,
-  from: OrgDepartmentModel,
-  selfId: number,
-): boolean {
-  let current: OrgDepartmentModel | undefined = from;
-  const seen = new Set<number>();
-  while (current && !seen.has(current.id)) {
-    if (current.id === selfId) return true;
-    seen.add(current.id);
-    const parentId: number = current.parentId ?? 0;
-    current = parentId > 0 ? findDepartment(ctx, parentId) : undefined;
+    current = parentOf(current);
   }
   return false;
 }
@@ -117,7 +101,10 @@ export function isValidOrgDrop(
       // 挂到它下面在索引里读起来像顶层，实际却是一条普通的上下级边。回到顶层走
       // 详情的「归属」下拉，不走拖拽。
       if (parent.systemBadge === ORG_SYSTEM_BADGE) return false;
-      return !agentChainReaches(ctx, parent, agent.id);
+      return !chainReaches(parent, agent.id, (node) => {
+        const parentId = node.parentAgentId ?? 0;
+        return parentId > 0 ? findAgent(ctx, parentId) : undefined;
+      });
     }
     case "department":
       return Boolean(findDepartment(ctx, target.departmentId));
@@ -134,7 +121,10 @@ export function isValidOrgDepartmentDrop(
   const moving = findDepartment(ctx, departmentId);
   const destination = findDepartment(ctx, target.departmentId);
   if (!moving || !destination || moving.id === destination.id) return false;
-  return !departmentChainReaches(ctx, destination, moving.id);
+  return !chainReaches(destination, moving.id, (node) => {
+    const parentId = node.parentId ?? 0;
+    return parentId > 0 ? findDepartment(ctx, parentId) : undefined;
+  });
 }
 
 /** 落点 → 写操作。非法落点不产出任何写操作。 */

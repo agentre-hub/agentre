@@ -16,7 +16,8 @@ import { Input } from "../../ui/input";
 
 import { useEngineSettingsBridge } from "../port-bridge";
 import { llm_provider_svc } from "../port-bridge";
-import { type Provider, errMessage } from "./index";
+import { type Provider } from "./index";
+import { messageFromError } from "../agent-backends-utils";
 
 function Field({
   children,
@@ -114,7 +115,7 @@ export function AddModelDialog({
         onImported(resp);
         onClose();
       } catch (err) {
-        setError(errMessage(err));
+        setError(messageFromError(err, t));
       } finally {
         setSubmitting(false);
       }

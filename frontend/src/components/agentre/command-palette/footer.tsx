@@ -3,6 +3,8 @@
 import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { cn } from "@agentre-hub/agentre-ui";
+
 import { formatChord } from "../shortcuts/format";
 import { CMD_NEW_CHAT_ID } from "../shortcuts/registry";
 import { useOptionalShortcutsContext } from "../shortcuts/shortcuts-provider";
@@ -23,8 +25,13 @@ export function Footer({ mode }: { mode: PaletteMode }) {
     : "⌘N";
   return (
     <div className="flex h-9 shrink-0 items-center gap-3 overflow-hidden border-t border-border bg-muted px-4">
-      <FooterHint kbd="↑↓" label={t("commandPalette.footer.navigate")} />
-      <FooterHint
+      <KbdHint
+        className="h-[18px] min-w-[18px] bg-card px-1.5"
+        kbd="↑↓"
+        label={t("commandPalette.footer.navigate")}
+      />
+      <KbdHint
+        className="h-[18px] min-w-[18px] bg-card px-1.5"
         kbd="↵"
         label={
           isCommand
@@ -33,9 +40,17 @@ export function Footer({ mode }: { mode: PaletteMode }) {
         }
       />
       {isCommand ? (
-        <FooterHint kbd="⌫" label={t("commandPalette.footer.clearContext")} />
+        <KbdHint
+          className="h-[18px] min-w-[18px] bg-card px-1.5"
+          kbd="⌫"
+          label={t("commandPalette.footer.clearContext")}
+        />
       ) : null}
-      <FooterHint kbd="Esc" label={t("common.close")} />
+      <KbdHint
+        className="h-[18px] min-w-[18px] bg-card px-1.5"
+        kbd="Esc"
+        label={t("common.close")}
+      />
       <div className="flex-1" />
       {isCommand ? (
         <span className="flex shrink-0 items-center gap-1 text-2xs font-medium text-muted-foreground">
@@ -52,14 +67,24 @@ export function Footer({ mode }: { mode: PaletteMode }) {
   );
 }
 
-// 默认搜索模式右侧的“新建对话”教学提示（占用原“✦ 命令面板”状态标识位）。
-// 按键胶囊用轻量品牌色强调，但仍是次级信息，不抢列表焦点；纯教学，无点击行为。
-
-export function KbdHint({ kbd, label }: { kbd: string; label: string }) {
+// 底部提示行与上下文条共用的一枚「按键胶囊 + 文案」:两者只差胶囊尺寸/底色,
+// 由 `className` 透传(tailwind-merge 合并)。
+export function KbdHint({
+  kbd,
+  label,
+  className,
+}: {
+  kbd: string;
+  label: string;
+  className?: string;
+}) {
   return (
     <span className="flex items-center gap-1.5">
       <kbd
-        className="inline-flex h-[16px] min-w-[16px] items-center justify-center rounded-sm border border-border bg-secondary px-1 font-mono text-2xs font-medium text-muted-foreground"
+        className={cn(
+          "inline-flex h-[16px] min-w-[16px] items-center justify-center rounded-sm border border-border bg-secondary px-1 font-mono text-2xs font-medium text-muted-foreground",
+          className,
+        )}
         aria-hidden="true"
       >
         {kbd}
@@ -87,19 +112,5 @@ export function NewChatHint({ kbd, label }: { kbd: string; label: string }) {
         </span>
       </span>
     </>
-  );
-}
-
-export function FooterHint({ kbd, label }: { kbd: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <kbd
-        className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-sm border border-border bg-card px-1.5 font-mono text-2xs font-medium text-muted-foreground"
-        aria-hidden="true"
-      >
-        {kbd}
-      </kbd>
-      <span className="text-2xs text-muted-foreground">{label}</span>
-    </span>
   );
 }

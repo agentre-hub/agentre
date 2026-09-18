@@ -13,8 +13,7 @@ import (
 // Event 是 sealed interface,所有 typed event case 必须实现 isEvent()。
 // chat_svc 用 type switch 处理;不再有"Kind discriminator + 15 个可选字段"的胖 struct。
 //
-// 旧 RuntimeEvent 仍在 runner.go 保留(daemon wire format + 旧 fixture 模板用);
-// 新代码统一通过 Event 直流。
+// 旧 RuntimeEvent 胖 struct 已删除;新代码统一通过 Event 直流。
 type Event interface {
 	isEvent()
 }

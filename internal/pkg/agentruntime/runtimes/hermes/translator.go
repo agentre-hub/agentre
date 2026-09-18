@@ -300,29 +300,17 @@ func usageDelta(cur, prev *provider.Usage) *provider.Usage {
 	if cur == nil {
 		return nil
 	}
-	d := &provider.Usage{
-		PromptTokens:        nonNegative(cur.PromptTokens - prevInt(prev, func(u *provider.Usage) int { return u.PromptTokens })),
-		CompletionTokens:    nonNegative(cur.CompletionTokens - prevInt(prev, func(u *provider.Usage) int { return u.CompletionTokens })),
-		ReasoningTokens:     nonNegative(cur.ReasoningTokens - prevInt(prev, func(u *provider.Usage) int { return u.ReasoningTokens })),
-		CachedTokens:        nonNegative(cur.CachedTokens - prevInt(prev, func(u *provider.Usage) int { return u.CachedTokens })),
-		CacheCreationTokens: nonNegative(cur.CacheCreationTokens - prevInt(prev, func(u *provider.Usage) int { return u.CacheCreationTokens })),
-		TotalTokens:         nonNegative(cur.TotalTokens - prevInt(prev, func(u *provider.Usage) int { return u.TotalTokens })),
-	}
-	return d
-}
-
-func prevInt(prev *provider.Usage, get func(*provider.Usage) int) int {
 	if prev == nil {
-		return 0
+		prev = new(provider.Usage)
 	}
-	return get(prev)
-}
-
-func nonNegative(v int) int {
-	if v < 0 {
-		return 0
+	return &provider.Usage{
+		PromptTokens:        max(0, cur.PromptTokens-prev.PromptTokens),
+		CompletionTokens:    max(0, cur.CompletionTokens-prev.CompletionTokens),
+		ReasoningTokens:     max(0, cur.ReasoningTokens-prev.ReasoningTokens),
+		CachedTokens:        max(0, cur.CachedTokens-prev.CachedTokens),
+		CacheCreationTokens: max(0, cur.CacheCreationTokens-prev.CacheCreationTokens),
+		TotalTokens:         max(0, cur.TotalTokens-prev.TotalTokens),
 	}
-	return v
 }
 
 func addUsage(dst *provider.Usage, add *provider.Usage) {
@@ -444,15 +432,9 @@ func recognizeCanonical(name string, rawInput json.RawMessage) canonical.Canonic
 	}
 	switch name {
 	case "write_file":
-		if c := fileWriteCanonical(m); c != nil {
-			return c
-		}
-		return nil
+		return fileWriteCanonical(m)
 	case "patch":
-		if c := patchCanonical(m); c != nil {
-			return c
-		}
-		return nil
+		return patchCanonical(m)
 	}
 	if c, ok := canonical.FromToolUse(name, m); ok {
 		return c

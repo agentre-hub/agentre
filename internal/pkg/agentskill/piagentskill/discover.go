@@ -57,10 +57,9 @@ func (d Discoverer) DiscoverCommands(ctx context.Context, q agentskill.CommandDi
 		if command.Source != "skill" || name == "" {
 			continue
 		}
-		if _, exists := seen[name]; exists {
+		if !agentskill.AppendUniqueName(seen, name) {
 			continue
 		}
-		seen[name] = struct{}{}
 		commands = append(commands, agentskill.SkillCommand{
 			Name:        name,
 			Description: strings.TrimSpace(command.Description),

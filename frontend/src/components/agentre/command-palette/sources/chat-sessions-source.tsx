@@ -4,8 +4,8 @@ import { useTranslation } from "react-i18next";
 import { useChatAgents, type AgentSlim } from "@/hooks/use-chat-agents";
 import i18n from "@/i18n";
 import { reasonToDisplayStatus } from "@/lib/attention-display";
-import { relativeTime } from "@/lib/relative-time";
-import { cn } from "@/lib/utils";
+import { formatCompactRelativeTime as relativeTime } from "@agentre-hub/agentre-ui";
+import { cn } from "@agentre-hub/agentre-ui";
 import {
   useSessionAttentionList,
   type AttentionReason,
@@ -13,7 +13,7 @@ import {
 
 import { AgentAvatar, StatusDot } from "../../primitives";
 import type { AgentColor, AgentStatus } from "../../types";
-import { scoreItem } from "../score";
+import { scoreSuggestion as scoreItem } from "@agentre-hub/agentre-ui";
 import type { CommandSource, OnSelectCtx } from "../types";
 
 const ATTENTION_SCORE_BOOST = 5;

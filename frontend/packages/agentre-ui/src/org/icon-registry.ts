@@ -344,20 +344,17 @@ const ENTRY_BY_KEY = new Map(
   ICON_VOCABULARY.map((entry) => [entry.key, entry]),
 );
 
-/** key 带包的 namespace 前缀：宿主传进来的 `t` 绑在它自己的默认 namespace 上。 */
-function resolve(source: IconTextSource, t: IconTranslate): string {
-  return "text" in source
-    ? source.text
-    : t(`${AGENTRE_UI_NAMESPACE}:${source.labelKey}`);
-}
-
 function localize(entry: IconVocabularyEntry, t: IconTranslate): IconMeta {
   return {
     key: entry.key,
     label: t(`${AGENTRE_UI_NAMESPACE}:${entry.labelKey}`),
     icon: entry.icon,
     category: entry.category,
-    aliases: entry.aliases.map((alias) => resolve(alias, t)),
+    aliases: entry.aliases.map((alias) =>
+      "text" in alias
+        ? alias.text
+        : t(`${AGENTRE_UI_NAMESPACE}:${alias.labelKey}`),
+    ),
   };
 }
 

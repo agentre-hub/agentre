@@ -11,7 +11,8 @@ import * as pkg from "../index";
  * 「同一批共享组件」），所以钉在这里。
  *
  * 0.1.0 收窄：`EMPTY_ORG_FILTERS` / `buildOrgToolList` / `ORG_APPROVAL_TOOLS`
- * 已从 barrel 摘除（实现仍在各自模块，只是不再是对外契约）。
+ * 已从 barrel 摘除；本轮再摘 `buildOrgReportToMap` / `computeOrgReorder`
+ * （实现仍在各自模块，只是不再是对外契约）。
  */
 describe("组织索引与详情的对外契约", () => {
   it("投影、落点判据与呈现件都从 barrel 出得去", () => {
@@ -19,9 +20,7 @@ describe("组织索引与详情的对外契约", () => {
       // 索引投影 + 落点判据（纯函数）
       "buildOrgIndex",
       "buildOrgReportsToOptions",
-      "buildOrgReportToMap",
       "resolveOrgReportTo",
-      "computeOrgReorder",
       "isValidOrgDrop",
       "isValidOrgDepartmentDrop",
       "resolveOrgDrop",

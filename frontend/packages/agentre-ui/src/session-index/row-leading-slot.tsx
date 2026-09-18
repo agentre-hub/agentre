@@ -22,7 +22,7 @@ const SLOT_CLASS_NAME =
   "inline-flex size-3.5 shrink-0 items-center justify-center";
 
 /** 两维共用的字形尺寸：同一个方块，只是里面的身份不同。 */
-const GLYPH_CLASS_NAME = "size-full rounded-sm text-[8px]";
+const GLYPH_CLASS_NAME = "size-full";
 
 export type RowLeadingSlotProps = {
   axis: IndexAxis;

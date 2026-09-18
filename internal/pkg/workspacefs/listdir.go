@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/agentre-hub/agentre/internal/pkg/pathdepth"
 )
 
 // ListDir 列出 root 下 relPath 所指目录的一层内容。
@@ -64,11 +66,7 @@ func ListDir(ctx context.Context, root, relPath string, includeIgnored bool, max
 		})
 	}
 
-	truncated := false
-	if maxEntries > 0 && len(entries) > maxEntries {
-		entries = entries[:maxEntries]
-		truncated = true
-	}
+	entries, truncated := truncateEntries(entries, maxEntries)
 
 	return &ListDirResult{
 		Path:      dir,
@@ -102,21 +100,10 @@ func resolveRelPath(root, relPath string) (string, error) {
 		return "", ErrPathRefused
 	}
 
-	// 用栈深度模拟路径遍历:相对 root 的深度从 0 开始,任何 ".." 把深度打到
-	// 负数即视为越界(在 Clean/Join 之前检查,Clean 会静默吞掉这些残留)。
-	depth := 0
-	for _, seg := range strings.Split(relPath, "/") {
-		switch seg {
-		case "", ".":
-			// 空段(连续 /)与 . 段不改变深度
-		case "..":
-			if depth == 0 {
-				return "", ErrPathRefused
-			}
-			depth--
-		default:
-			depth++
-		}
+	// 用栈深度模拟路径遍历:任何 ".." 把深度打到负数即视为越界(在 Clean/Join
+	// 之前检查,Clean 会静默吞掉这些残留)。判据与 remotefs 的绝对路径规范化同源。
+	if pathdepth.EscapesRoot(relPath) {
+		return "", ErrPathRefused
 	}
 
 	resolved := filepath.Join(root, filepath.FromSlash(relPath))

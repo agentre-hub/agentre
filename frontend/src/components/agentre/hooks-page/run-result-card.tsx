@@ -3,7 +3,7 @@
 import type { TFunction } from "i18next";
 import { CheckCircle2, XCircle } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { runOk, type RunHookResult } from "../hooks-page-model";
 

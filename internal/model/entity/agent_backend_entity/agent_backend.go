@@ -322,12 +322,10 @@ func IsValidPermissionMode(mode string) bool {
 // InvalidParameter 时,用户只会看到一句没有信息量的「参数错误」。
 var (
 	ErrOpenClawGatewayURLRequired        = errors.New("openclaw gateway URL is required")
-	ErrOpenClawGatewayURLInvalid         = errors.New("openclaw gateway URL is invalid")
 	ErrOpenClawGatewayURLScheme          = errors.New("openclaw gateway URL must use ws or wss")
 	ErrOpenClawGatewayURLHost            = errors.New("openclaw gateway URL must include a host")
 	ErrOpenClawGatewayURLCredentials     = errors.New("openclaw gateway URL cannot contain credentials, query, or fragment")
 	ErrOpenClawGatewayURLPlaintextRemote = errors.New("plaintext openclaw gateway URL is limited to loopback")
-	ErrOpenClawSessionModeInvalid        = errors.New("openclaw session mode is unsupported")
 )
 
 // NormalizeHermesURL validates and normalizes a Hermes `serve` URL.
@@ -339,27 +337,22 @@ var (
 // query, fragment and non-root paths are rejected so credentials cannot be smuggled
 // into a persisted URL or leak into logs/errors.
 //
-// Each rejection reason is its own sentinel so the service layer can turn it into a
-// structured code instead of one opaque InvalidParameter.
+// Every rejection reason collapses into one sentinel: nothing in production
+// matches it (the service layer maps it to code.InvalidParameter), and the
+// specific reason stays in the wrapped message for logs.
 var (
-	ErrHermesURLRequired    = errors.New("hermes server URL is required")
-	ErrHermesURLInvalid     = errors.New("hermes server URL is invalid")
-	ErrHermesURLScheme      = errors.New("hermes server URL must use http, https, ws, or wss")
-	ErrHermesURLHost        = errors.New("hermes server URL must include a host")
-	ErrHermesURLPort        = errors.New("hermes server URL must include a port")
-	ErrHermesURLCredentials = errors.New("hermes server URL cannot contain credentials, query, or fragment")
-	ErrHermesURLPath        = errors.New("hermes server URL cannot contain a path")
+	ErrHermesURLInvalid = errors.New("hermes server URL is invalid")
 )
 
 func NormalizeHermesURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", ErrHermesURLRequired
+		return "", fmt.Errorf("%w: server URL is required", ErrHermesURLInvalid)
 	}
 	// A missing scheme is the common typo (`127.0.0.1:9119`) and url.Parse would call
 	// the colon an invalid path segment; classify it as the scheme problem it is.
 	if !strings.Contains(raw, "://") {
-		return "", ErrHermesURLScheme
+		return "", fmt.Errorf("%w: must use http, https, ws, or wss", ErrHermesURLInvalid)
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -372,20 +365,20 @@ func NormalizeHermesURL(raw string) (string, error) {
 	case "https", "wss":
 		scheme = "https"
 	default:
-		return "", ErrHermesURLScheme
+		return "", fmt.Errorf("%w: must use http, https, ws, or wss", ErrHermesURLInvalid)
 	}
 	if u.Opaque != "" || u.Hostname() == "" {
-		return "", ErrHermesURLHost
+		return "", fmt.Errorf("%w: must include a host", ErrHermesURLInvalid)
 	}
 	port := u.Port()
 	if port == "" {
-		return "", ErrHermesURLPort
+		return "", fmt.Errorf("%w: must include a port", ErrHermesURLInvalid)
 	}
 	if u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
-		return "", ErrHermesURLCredentials
+		return "", fmt.Errorf("%w: cannot contain credentials, query, or fragment", ErrHermesURLInvalid)
 	}
 	if strings.Trim(u.Path, "/") != "" {
-		return "", ErrHermesURLPath
+		return "", fmt.Errorf("%w: cannot contain a path", ErrHermesURLInvalid)
 	}
 	hostname := strings.ToLower(strings.TrimSpace(u.Hostname()))
 	u.Scheme = scheme
@@ -401,7 +394,7 @@ func NormalizeOpenClawGatewayURL(raw string) (string, error) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrOpenClawGatewayURLInvalid, err)
+		return "", fmt.Errorf("openclaw gateway URL is invalid: %w", err)
 	}
 	u.Scheme = strings.ToLower(strings.TrimSpace(u.Scheme))
 	if u.Scheme != "ws" && u.Scheme != "wss" {

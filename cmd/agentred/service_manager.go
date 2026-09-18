@@ -30,7 +30,15 @@ type ServiceManager interface {
 type ServiceStatus struct {
 	Installed bool
 	Running   bool
-	Details   []string
+	// Manager 是服务管理器标签(如 "launchd LaunchAgent" / "systemd --user" /
+	// "Windows Task Scheduler"),空表示该平台未管理服务。
+	Manager string
+	// Target 是 launchd 的 launchctl target;其余管理器为空(没有对应的手工命令)。
+	Target string
+	// State 是管理器报告的原始状态文本(systemd 的 active/activating/...;
+	// Windows 的任务状态);空表示没有可读状态。
+	State   string
+	Details []string
 }
 
 type serviceCommandRunner interface {

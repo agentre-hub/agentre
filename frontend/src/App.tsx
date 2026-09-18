@@ -139,6 +139,7 @@ function AppLayout() {
         setRuntimeMode(
           mode === "interactive" || mode === "headless" ? mode : "unknown",
         );
+        useUpdateStore.getState().setChannel(info?.channel);
         const ver = info?.version?.trim();
         if (ver) setAppVersion(ver);
       } catch {

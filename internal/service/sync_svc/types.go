@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -40,7 +41,7 @@ type Transport interface {
 	SyncPush(ctx context.Context, items []syncwire.PushItem) ([]syncwire.PushResult, error)
 	SyncPull(ctx context.Context, cursor int64, limit int) (*syncwire.PullPage, error)
 	// ReportLocalPaths 上报本机路径整份快照（R16）：与同步组无关的单向投影。
-	ReportLocalPaths(ctx context.Context, items []syncwire.LocalPathReportItem) error
+	ReportLocalPaths(ctx context.Context, items []syncwire.LocalPathItem) error
 	// PutAvatar / GetAvatar 头像按内容哈希单独传（R16a），正文不进同步载荷。
 	avatarTransport
 }
@@ -58,7 +59,7 @@ type AccountChannelDialer interface {
 	// 连接断开时实现方**关闭**返回的 channel——调用方据此重连，并在重连成功后
 	// 主动 Pull 一次补齐断线期间的变更。ctx 结束时同样关闭。
 	// 建不起来时返回错误，调用方退回轮询，不重试到底、不阻塞任何操作。
-	DialAccountChannel(ctx context.Context) (<-chan syncwire.AccountChannelFrame, error)
+	DialAccountChannel(ctx context.Context) (<-chan localsync.AccountChannelFrame, error)
 }
 
 // LocalChange 是一次本地增删改的同步侧描述。域服务在改动**落库成功之后**交出它，

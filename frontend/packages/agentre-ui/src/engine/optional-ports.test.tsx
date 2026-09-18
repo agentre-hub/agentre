@@ -439,6 +439,186 @@ describe("engine settings host-writable fields", () => {
 });
 
 /**
+ * 可执行文件路径覆盖是按 (backend, device) 存的一行，不是按 backend 存一行。
+ * 编辑器只在打开时取过一次值，换设备不重读就会把旧设备的路径原样提交，写进
+ * 新设备那一行 —— 这条测试锚住换设备必须重读、保存必须只带上当前设备。
+ */
+describe("engine settings CLI path overlay by device", () => {
+  it("Given an editor open on an existing backend, When the runtime device changes, Then the CLI path field shows the new device's stored path and save writes only that device's overlay", async () => {
+    const user = userEvent.setup();
+    const get = vi.fn(async (_backendSyncId: string, deviceId: string) => {
+      if (deviceId === "fp-build") return "/usr/bin/claude-build";
+      if (deviceId === "fp-laptop") return "/usr/bin/claude-laptop";
+      return null;
+    });
+    const set = vi.fn().mockResolvedValue(undefined);
+    const updateBackend = vi.fn().mockResolvedValue(
+      backendRow({
+        syncId: "backend-1",
+        type: "claudecode",
+        deviceId: "fp-laptop",
+      }),
+    );
+
+    renderPanel(
+      createPorts({
+        listAccountDevices: vi.fn().mockResolvedValue(ACCOUNT_DEVICES),
+        listBackends: vi.fn().mockResolvedValue([
+          backendRow({
+            syncId: "backend-1",
+            name: "Claude Code",
+            type: "claudecode",
+            deviceId: "fp-build",
+          }),
+        ]),
+        cliPath: { get, set },
+        updateBackend,
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edit Claude Code" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByDisplayValue("/usr/bin/claude-build");
+    expect(get).toHaveBeenCalledWith("backend-1", "fp-build");
+
+    await user.click(
+      within(dialog).getByRole("combobox", { name: "Runtime Device" }),
+    );
+    await user.click(await screen.findByRole("option", { name: /laptop/ }));
+
+    const pathField = await within(dialog).findByDisplayValue(
+      "/usr/bin/claude-laptop",
+    );
+    expect(get).toHaveBeenCalledWith("backend-1", "fp-laptop");
+
+    await user.clear(pathField);
+    await user.type(pathField, "/opt/claude-laptop");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(set).toHaveBeenCalledWith(
+        "backend-1",
+        "fp-laptop",
+        "/opt/claude-laptop",
+      ),
+    );
+    expect(set).not.toHaveBeenCalledWith(
+      "backend-1",
+      "fp-build",
+      expect.anything(),
+    );
+  });
+
+  it("Given an editor open on an existing CLI backend, When only the name changes and it is saved, Then the stored CLI path overlay is not written back", async () => {
+    const user = userEvent.setup();
+    const get = vi.fn().mockResolvedValue("/usr/bin/claude-build");
+    const set = vi.fn().mockResolvedValue(undefined);
+    const updateBackend = vi.fn().mockResolvedValue(
+      backendRow({
+        syncId: "backend-1",
+        type: "claudecode",
+        deviceId: "fp-build",
+      }),
+    );
+
+    renderPanel(
+      createPorts({
+        listAccountDevices: vi.fn().mockResolvedValue(ACCOUNT_DEVICES),
+        listBackends: vi.fn().mockResolvedValue([
+          backendRow({
+            syncId: "backend-1",
+            name: "Claude Code",
+            type: "claudecode",
+            deviceId: "fp-build",
+          }),
+        ]),
+        cliPath: { get, set },
+        updateBackend,
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edit Claude Code" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByDisplayValue("/usr/bin/claude-build");
+    const name = within(dialog).getByLabelText(/name/i);
+    await user.clear(name);
+    await user.type(name, "Claude Renamed");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateBackend).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it("Given a backend type without a CLI executable, When it is saved, Then no CLI overlay row is written", async () => {
+    const user = userEvent.setup();
+    const set = vi.fn().mockResolvedValue(undefined);
+    renderPanel(
+      createPorts({
+        cliPath: { get: vi.fn().mockResolvedValue(null), set },
+        createOpenClawBackend: vi
+          .fn()
+          .mockResolvedValue(
+            backendRow({ syncId: "backend-2", type: "openclaw" }),
+          ),
+      }),
+    );
+
+    const dialog = await openCreateDialog(user);
+    await user.click(
+      within(dialog).getByRole("radio", { name: /OpenClaw Gateway/ }),
+    );
+    await user.type(within(dialog).getByLabelText(/name/i), "OpenClaw Local");
+    await user.type(
+      await within(dialog).findByLabelText(/Gateway WebSocket URL/i),
+      "ws://127.0.0.1:18789",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(within(dialog).queryByRole("dialog")).toBeNull(),
+    );
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it("Given a new CLI backend being created, When it is saved, Then the overlay is written under the created backend's own syncId", async () => {
+    const user = userEvent.setup();
+    const set = vi.fn().mockResolvedValue(undefined);
+    const createBackend = vi
+      .fn()
+      .mockResolvedValue(
+        backendRow({ syncId: "backend-new", type: "claudecode" }),
+      );
+    renderPanel(
+      createPorts({
+        cliPath: { get: vi.fn().mockResolvedValue(null), set },
+        createBackend,
+      }),
+    );
+
+    const dialog = await openCreateDialog(user);
+    await user.type(within(dialog).getByLabelText(/name/i), "My Claude");
+    await user.type(
+      within(dialog).getByPlaceholderText("/usr/local/bin/claude"),
+      "/usr/local/bin/claude",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(set).toHaveBeenCalledWith(
+        "backend-new",
+        "",
+        "/usr/local/bin/claude",
+      ),
+    );
+  });
+});
+
+/**
  * `addIsSandbox` 是给**编辑不了 env 表**的宿主准备的口子。
  *
  * 桌面端不用它：env_json 就在它手里，一键按钮改本地 entries 再随整体保存落盘。
@@ -519,5 +699,211 @@ describe("engine settings IS_SANDBOX 一键补键", () => {
     expect(
       within(dialog).queryByRole("button", { name: /Add IS_SANDBOX=1/ }),
     ).toBeNull();
+  });
+});
+
+/**
+ * 保存只带「本次编辑里用户改过的字段」（规格 web 前端：未改动字段保持服务端当前值）。
+ * 宿主拿 changedFields 决定 PATCH 里放哪些键；编辑器打开时那份整稿里其余的值可能
+ * 早已被别的设备改掉，整份发回去就会把它们撤回。
+ */
+describe("engine settings backend save changedFields", () => {
+  const claudeBackend = backendRow({
+    syncId: "backend-1",
+    name: "Claude Code",
+    type: "claudecode",
+    defaultPermissionMode: "acceptEdits",
+    reasoningEffort: "high",
+  });
+
+  it("Given an existing backend, When only the default permission mode changes, Then the update names only config.defaultPermissionMode", async () => {
+    const user = userEvent.setup();
+    const updateBackend = vi.fn().mockResolvedValue(claudeBackend);
+    renderPanel(
+      createPorts({
+        listBackends: vi.fn().mockResolvedValue([claudeBackend]),
+        updateBackend,
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edit Claude Code" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("combobox", {
+        name: "Default Permission Mode",
+      }),
+    );
+    await user.click(
+      await screen.findByRole("option", { name: /plan · Read-only/ }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateBackend).toHaveBeenCalled());
+    const input = updateBackend.mock.calls[0][1];
+    expect(input.changedFields).toEqual(["config.defaultPermissionMode"]);
+    expect(input.defaultPermissionMode).toBe("plan");
+  });
+
+  it("Given an existing backend, When the name is edited and then restored, Then the update names no field", async () => {
+    const user = userEvent.setup();
+    const updateBackend = vi.fn().mockResolvedValue(claudeBackend);
+    renderPanel(
+      createPorts({
+        listBackends: vi.fn().mockResolvedValue([claudeBackend]),
+        updateBackend,
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edit Claude Code" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const nameInput = within(dialog).getByDisplayValue("Claude Code");
+    await user.type(nameInput, "X");
+    expect(nameInput).toHaveValue("Claude CodeX");
+    await user.type(nameInput, "{Backspace}");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateBackend).toHaveBeenCalled());
+    expect(updateBackend.mock.calls[0][1].changedFields).toEqual([]);
+  });
+
+  it("Given an existing backend, When only the runtime device changes, Then the new device's stored CLI path is not reported as a change", async () => {
+    const user = userEvent.setup();
+    const updateBackend = vi.fn().mockResolvedValue(claudeBackend);
+    renderPanel(
+      createPorts({
+        listAccountDevices: vi.fn().mockResolvedValue(ACCOUNT_DEVICES),
+        listBackends: vi
+          .fn()
+          .mockResolvedValue([{ ...claudeBackend, deviceId: "fp-build" }]),
+        cliPath: {
+          get: vi.fn(async (_syncId: string, deviceId: string) =>
+            deviceId === "fp-build"
+              ? "/usr/bin/claude-build"
+              : "/usr/bin/claude-laptop",
+          ),
+          set: vi.fn().mockResolvedValue(undefined),
+        },
+        updateBackend,
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edit Claude Code" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByDisplayValue("/usr/bin/claude-build");
+    await user.click(
+      within(dialog).getByRole("combobox", { name: "Runtime Device" }),
+    );
+    await user.click(await screen.findByRole("option", { name: /laptop/ }));
+    await within(dialog).findByDisplayValue("/usr/bin/claude-laptop");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateBackend).toHaveBeenCalled());
+    expect(updateBackend.mock.calls[0][1].changedFields).toEqual(["deviceId"]);
+  });
+
+  it("Given a new backend, When it is created, Then changedFields names every populated field", async () => {
+    const user = userEvent.setup();
+    const createBackend = vi
+      .fn()
+      .mockResolvedValue(backendRow({ syncId: "backend-new" }));
+    renderPanel(createPorts({ createBackend }));
+
+    const dialog = await openCreateDialog(user);
+    await user.type(within(dialog).getByLabelText(/name/i), "My Claude");
+    await user.click(
+      within(dialog).getByRole("combobox", {
+        name: "Default Permission Mode",
+      }),
+    );
+    await user.click(
+      await screen.findByRole("option", { name: /plan · Read-only/ }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(createBackend).toHaveBeenCalled());
+    expect(createBackend.mock.calls[0][0].changedFields).toEqual([
+      "type",
+      "name",
+      "config.defaultPermissionMode",
+    ]);
+  });
+});
+
+/**
+ * 宿主在账号通道提示同步变化时递增 refreshSignal：面板经既有端口重拉清单，
+ * 已打开的编辑弹窗里用户敲到一半的内容不能被冲掉。
+ */
+describe("engine settings refreshSignal", () => {
+  function renderWithSignal(build: (signal: number) => React.ReactElement) {
+    const i18n = createInstance();
+    void i18n.use(initReactI18next).init({
+      lng: "en",
+      fallbackLng: "en",
+      resources: { en: { [AGENTRE_UI_NAMESPACE]: agentreUiResources.en } },
+      react: { useSuspense: false },
+    });
+    const view = render(
+      <I18nextProvider i18n={i18n}>{build(1)}</I18nextProvider>,
+    );
+    return (signal: number) =>
+      view.rerender(
+        <I18nextProvider i18n={i18n}>{build(signal)}</I18nextProvider>,
+      );
+  }
+
+  it("Given an open backend editor with typed values, When refreshSignal changes, Then the list is fetched again and the typed name stays", async () => {
+    const user = userEvent.setup();
+    const ports = createPorts();
+    const setSignal = renderWithSignal((signal) => (
+      <AgentBackendsPanel
+        ports={ports}
+        refreshSignal={signal}
+        renderHeader={(actions) => <div>{actions}</div>}
+      />
+    ));
+
+    const dialog = await openCreateDialog(user);
+    await user.type(within(dialog).getByLabelText(/name/i), "Half typed");
+    expect(ports.listBackends).toHaveBeenCalledTimes(1);
+
+    setSignal(2);
+
+    await waitFor(() => expect(ports.listBackends).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(ports.listProviders).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/name/i)).toHaveValue("Half typed");
+  });
+
+  it("Given an open provider form with typed values, When refreshSignal changes, Then providers are fetched again and the typed name stays", async () => {
+    const user = userEvent.setup();
+    const ports = createPorts();
+    const setSignal = renderWithSignal((signal) => (
+      <LlmProvidersPanel
+        ports={ports}
+        refreshSignal={signal}
+        renderHeader={(actions) => <div>{actions}</div>}
+      />
+    ));
+
+    await screen.findAllByText("Anthropic");
+    await user.click(screen.getByRole("button", { name: "New Provider" }));
+    const dialog = await screen.findByRole("dialog");
+    const nameInput = within(dialog).getByPlaceholderText(
+      "Example: production / local Ollama",
+    );
+    await user.type(nameInput, "Half typed");
+    expect(ports.listProviders).toHaveBeenCalledTimes(1);
+
+    setSignal(2);
+
+    await waitFor(() => expect(ports.listProviders).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(nameInput).toHaveValue("Half typed");
   });
 });

@@ -3,7 +3,7 @@ import { Boxes, RefreshCw, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button, Dialog, DialogContent } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { TriStateToggle } from "./tri-state-toggle";
 import {

@@ -22,11 +22,9 @@ type TokenTarget struct {
 
 // TokenEntry 一条 token → backend 路由记录。
 //
-// 持有 backend 的 ID / 类型 / 主路由目标 / model_routes 解析后的快照；
-// 不持有 provider 实体本身——转发时由 llmforward 通过 llm_provider_repo 查实时数据。
+// 持有 backend 的主路由目标 / model_routes 解析后的快照；不持有 provider 实体本身
+// ——转发时由 llmforward 通过 llm_provider_repo 查实时数据。
 type TokenEntry struct {
-	BackendID   int64
-	BackendType agent_backend_entity.BackendType
 	// Main 是主路由目标（会话级常驻 token 的可变部分：ProviderKey+ModelKey）。
 	Main TokenTarget
 	// Routes 把 alias（OPUS / SONNET / HAIKU 等，**统一大写**）映射到路由目标。
@@ -73,8 +71,8 @@ func NewTokenRegistry() *TokenRegistry {
 	}
 }
 
-// ErrInvalidBackend 内部哨兵：Issue 传 nil 时返回。
-var ErrInvalidBackend = errors.New("httpgateway: invalid backend for token issue")
+// errInvalidBackend 内部哨兵：Issue 传 nil 时返回。
+var errInvalidBackend = errors.New("httpgateway: invalid backend for token issue")
 
 // Issue 把 backend 转成 TokenEntry 并存入表，返回随机 token 字符串。
 // ttl <= 0 时视为永久（chat flow 长 token 用；TestAgentBackend 传 60s）。
@@ -91,7 +89,7 @@ var ErrInvalidBackend = errors.New("httpgateway: invalid backend for token issue
 // 排队消息没法 mid-turn 注入。
 func (r *TokenRegistry) Issue(b *agent_backend_entity.AgentBackend, providerKey, modelKey string, ttl time.Duration) (string, error) {
 	if b == nil {
-		return "", ErrInvalidBackend
+		return "", errInvalidBackend
 	}
 	routes, err := agent_backend_entity.ParseModelRoutes(b.ModelRoutes)
 	if err != nil {
@@ -102,15 +100,13 @@ func (r *TokenRegistry) Issue(b *agent_backend_entity.AgentBackend, providerKey,
 		upper[strings.ToUpper(k)] = TokenTarget{ProviderKey: v.ProviderKey, ModelKey: v.ModelKey}
 	}
 
-	tok, err := RandomToken(24)
+	tok, err := randomToken(24)
 	if err != nil {
 		return "", err
 	}
 	entry := TokenEntry{
-		BackendID:   b.ID,
-		BackendType: agent_backend_entity.BackendType(b.Type),
-		Main:        TokenTarget{ProviderKey: providerKey, ModelKey: modelKey},
-		Routes:      upper,
+		Main:   TokenTarget{ProviderKey: providerKey, ModelKey: modelKey},
+		Routes: upper,
 	}
 	if ttl > 0 {
 		entry.ExpireAt = r.now().Add(ttl)
@@ -147,8 +143,7 @@ func (r *TokenRegistry) Resolve(token string) (TokenEntry, bool) {
 // 主供应商与是否命中（未签发过 / 已过期 → ("", false)）。
 //
 // 会话中途换 target 走这里而不是重签：token 是会话级常驻、首轮就烤进 CLI 子进程 env 的，
-// 重签会让在跑的子进程手里那个立刻失效（曾经的 401 事故）。tier 路由（Routes）与 backend
-// 身份不动 —— 换的只是主路由目标这一件事。
+// 重签会让在跑的子进程手里那个立刻失效（曾经的 401 事故）。tier 路由（Routes）不动。
 func (r *TokenRegistry) SetTokenTarget(token, providerKey, modelKey string) (previous string, ok bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -169,15 +164,15 @@ func (r *TokenRegistry) Revoke(token string) {
 	r.mu.Unlock()
 }
 
-// Size 返回当前 token 数量。
-func (r *TokenRegistry) Size() int {
+// size 返回当前 token 数量。
+func (r *TokenRegistry) size() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.tokens)
 }
 
-// RandomToken 生成 n 字节随机 token 的 hex 编码字符串。
-func RandomToken(n int) (string, error) {
+// randomToken 生成 n 字节随机 token 的 hex 编码字符串。
+func randomToken(n int) (string, error) {
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err

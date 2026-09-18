@@ -12,8 +12,10 @@ import * as React from "react";
 import { useUiTranslation as useTranslation } from "../../i18n";
 import { llm_provider_svc } from "../port-bridge";
 import { useEngineSettingsBridge } from "../port-bridge";
-import { type Model, type ModelInfo, type Provider, errMessage } from "./index";
-import { type VendorGroup, vendorLabel } from "./discover-failure";
+import { type Model, type ModelInfo, type Provider } from "./index";
+import { messageFromError } from "../agent-backends-utils";
+import { type VendorGroup } from "./discover-failure";
+import { brandLabel } from "../ai-brand-logo";
 
 type EngineBridge = ReturnType<typeof useEngineSettingsBridge>;
 type TranslateFn = ReturnType<typeof useTranslation>["t"];
@@ -76,11 +78,12 @@ export function useDiscoverModels({
         new Set(list.filter((m) => !existingIds.has(m.id)).map((m) => m.id)),
       );
     } catch (err) {
-      if (requestId === requestRef.current) setFetchError(errMessage(err));
+      if (requestId === requestRef.current)
+        setFetchError(messageFromError(err, t));
     } finally {
       if (requestId === requestRef.current) setLoading(false);
     }
-  }, [PreviewLLMModels, existingIds, provider]);
+  }, [PreviewLLMModels, existingIds, provider, t]);
 
   React.useEffect(() => {
     if (open) void fetchPreview();
@@ -114,7 +117,7 @@ export function useDiscoverModels({
         label:
           key === "__unknown__"
             ? t("llmProviders.discover.otherVendor")
-            : vendorLabel(key),
+            : brandLabel(key),
         items: groupItems,
       }))
       .sort((a, b) => {
@@ -184,7 +187,7 @@ export function useDiscoverModels({
       onImported(resp);
       onClose();
     } catch (err) {
-      setImportError(errMessage(err));
+      setImportError(messageFromError(err, t));
     } finally {
       setImporting(false);
     }
@@ -197,6 +200,7 @@ export function useDiscoverModels({
     provider,
     selected,
     selectedCount,
+    t,
   ]);
 
   return {

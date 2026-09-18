@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -112,9 +113,9 @@ func Probe(ctx context.Context, config Config, selection ProbeSelection) (*Probe
 	result := &ProbeResult{
 		GatewayVersion: hello.Server.Version,
 		Protocol:       hello.Protocol,
-		GrantedScopes:  append([]string(nil), hello.Auth.Scopes...),
-		Methods:        append([]string(nil), hello.Features.Methods...),
-		Events:         append([]string(nil), hello.Features.Events...),
+		GrantedScopes:  slices.Clone(hello.Auth.Scopes),
+		Methods:        slices.Clone(hello.Features.Methods),
+		Events:         slices.Clone(hello.Features.Events),
 		Agents:         make([]AgentSummary, 0, len(agentsPayload.Agents)),
 		Models:         make([]ModelSummary, 0, len(modelsPayload.Models)),
 	}
@@ -124,7 +125,7 @@ func Probe(ctx context.Context, config Config, selection ProbeSelection) (*Probe
 			ID:           agent.ID,
 			Name:         agent.Name,
 			PrimaryModel: agent.Model.Primary,
-			Fallbacks:    append([]string(nil), agent.Model.Fallbacks...),
+			Fallbacks:    slices.Clone(agent.Model.Fallbacks),
 			Default:      agent.ID == agentsPayload.DefaultID,
 		}
 		result.Agents = append(result.Agents, summary)
@@ -170,12 +171,8 @@ func ValidateRuntimeFeatures(hello Hello) error {
 }
 
 func requireAdvertised(kind string, advertised, required []string) error {
-	available := make(map[string]struct{}, len(advertised))
-	for _, value := range advertised {
-		available[value] = struct{}{}
-	}
 	for _, value := range required {
-		if _, ok := available[value]; ok {
+		if slices.Contains(advertised, value) {
 			continue
 		}
 		if kind == "method" {

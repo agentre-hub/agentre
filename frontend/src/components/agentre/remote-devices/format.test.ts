@@ -3,7 +3,6 @@ import { describe, it, expect } from "vitest";
 import type { TFunction } from "i18next";
 
 import {
-  relativeTime,
   deriveDeviceName,
   friendlyLastError,
   hostOf,
@@ -37,24 +36,6 @@ const t = ((key: string, params?: Record<string, unknown>) => {
   };
   return values[key] ?? key;
 }) as TFunction;
-
-describe("relativeTime", () => {
-  it("returns '刚刚' for sub-minute deltas", () => {
-    const now = 1_000_000_000_000;
-    expect(relativeTime(now - 5_000, now, t)).toBe("刚刚");
-  });
-  it("formats minutes", () => {
-    const now = 1_000_000_000_000;
-    expect(relativeTime(now - 3 * 60_000, now, t)).toBe("3 分钟前");
-  });
-  it("formats days", () => {
-    const now = 1_000_000_000_000;
-    expect(relativeTime(now - 2 * 86_400_000, now, t)).toBe("2 天前");
-  });
-  it("returns '从未' for zero", () => {
-    expect(relativeTime(0, 1, t)).toBe("从未");
-  });
-});
 
 describe("deriveDeviceName", () => {
   it("returns hostname segment for FQDN", () => {

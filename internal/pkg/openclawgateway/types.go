@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 )
 
 const ProtocolVersion = 4
@@ -30,14 +29,6 @@ type Config struct {
 	Identity      *DeviceIdentity
 	ClientVersion string
 	Platform      string
-	DeviceFamily  string
-
-	RequiredScopes   []string
-	HandshakeTimeout time.Duration
-	RequestTimeout   time.Duration
-	ReconnectInitial time.Duration
-	ReconnectMax     time.Duration
-	Now              func() time.Time
 }
 
 type Hello struct {
@@ -45,37 +36,22 @@ type Hello struct {
 	Protocol int    `json:"protocol"`
 	Server   struct {
 		Version string `json:"version"`
-		ConnID  string `json:"connId"`
 	} `json:"server"`
 	Features struct {
-		Methods      []string `json:"methods"`
-		Events       []string `json:"events"`
-		Capabilities []string `json:"capabilities,omitempty"`
+		Methods []string `json:"methods"`
+		Events  []string `json:"events"`
 	} `json:"features"`
-	Snapshot json.RawMessage `json:"snapshot"`
-	Auth     struct {
-		Role        string   `json:"role"`
-		Scopes      []string `json:"scopes"`
-		DeviceToken string   `json:"deviceToken,omitempty"`
-		IssuedAtMs  int64    `json:"issuedAtMs,omitempty"`
+	Auth struct {
+		Scopes []string `json:"scopes"`
 	} `json:"auth"`
-	Policy struct {
-		MaxPayload       int64 `json:"maxPayload"`
-		MaxBufferedBytes int64 `json:"maxBufferedBytes"`
-		TickIntervalMs   int64 `json:"tickIntervalMs"`
-	} `json:"policy"`
 }
 
 type Event struct {
 	Name    string
 	Payload json.RawMessage
-	Seq     int64
 }
 
-type EventGap struct {
-	Expected int64
-	Received int64
-}
+type EventGap struct{}
 
 // RPCError is the structured Gateway response error. Message is sanitized by
 // the client before it crosses the package boundary.

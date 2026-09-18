@@ -121,6 +121,8 @@ func (m *windowsServiceManager) Status(ctx context.Context) (ServiceStatus, erro
 	return ServiceStatus{
 		Installed: true,
 		Running:   strings.EqualFold(state, "Running"),
+		Manager:   "Windows Task Scheduler",
+		State:     state,
 		Details: []string{
 			"Manager: Windows Task Scheduler",
 			"Task: " + windowsServiceTaskName,

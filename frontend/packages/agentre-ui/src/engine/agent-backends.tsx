@@ -10,6 +10,12 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Button } from "../ui/button";
+import {
+  DialogShell,
+  DialogShellBody,
+  DialogShellFooter,
+  DialogShellHeader,
+} from "../ui/dialog-shell";
 import { Input } from "../ui/input";
 import { cn } from "../lib/utils";
 
@@ -29,14 +35,13 @@ import {
   EngineSettingsPortsProvider,
   useEngineSettingsPorts,
 } from "./ports-context";
-import { AgentreDialog } from "./app-dialog";
+import { AgentBackendsEmptyState, BackendRow } from "./agent-backends-list";
 import {
   useModelTargetCatalog,
   type PickerProvider,
 } from "./model-target-picker";
-import { OPENCLAW_SESSION_MODE } from "./openclaw-backend-fields";
-import { openClawDraftIssue } from "./openclaw-validation";
-import { AgentBackendsEmptyState, BackendRow } from "./agent-backends-list";
+import { OPENCLAW_SESSION_MODE } from "./openclaw-validation";
+import { isLoopbackHostname, openClawDraftIssue } from "./openclaw-validation";
 import {
   BackendTypePicker,
   BackendTypeReadonly,
@@ -116,6 +121,9 @@ type AgentBackendsPanelProps = {
   // 页头由宿主渲染，面板把自己的页级操作（自动识别 / 新建后端）交进去：按钮要落在
   // H1 行，而它们开的创建弹窗、扫描进行态仍归面板持有。
   renderHeader?: (actions: React.ReactNode) => React.ReactNode;
+  // 宿主在得知账号数据有同步变化时换一个新值：面板经端口重拉清单，已打开的编辑弹窗
+  // 保留用户正在编辑的内容。首次挂载时的值不触发额外拉取。
+  refreshSignal?: number | string;
 };
 
 // 宿主传进来的那一份端口只覆盖本面板的子树：两个面板同时挂载时各用各的，
@@ -135,6 +143,7 @@ function AgentBackendsPanelBody({
   onOpenLlmProviders,
   onOpenProxySettings,
   renderHeader,
+  refreshSignal,
 }: AgentBackendsPanelProps) {
   const ports = useEngineSettingsPorts();
   const {
@@ -192,7 +201,8 @@ function AgentBackendsPanelBody({
   }
 
   async function openEditor(backend: Backend, openBinding = false) {
-    const cliPath = (await ports.cliPath?.get(backend.syncId)) ?? "";
+    const cliPath =
+      (await ports.cliPath?.get(backend.syncId, backend.deviceId ?? "")) ?? "";
     setEditor({ kind: "edit", backend, cliPath, openBinding });
   }
 
@@ -318,21 +328,25 @@ function AgentBackendsPanelBody({
     }
   }
 
-  const reload = React.useCallback(async () => {
-    setLoading(true);
-    try {
-      const [b, p] = await Promise.all([
-        ListAgentBackends(),
-        ListLLMProviders(),
-      ]);
-      setBackends(b?.items ?? []);
-      setProviders(p?.items ?? []);
-    } catch (err) {
-      setFlash({ kind: "err", text: messageFromError(err, t) });
-    } finally {
-      setLoading(false);
-    }
-  }, [ListAgentBackends, ListLLMProviders, t]);
+  const reload = React.useCallback(
+    async (options?: { quiet?: boolean }) => {
+      // quiet：后台刷新（同步信号）不把清单换成加载态，免得每次同步都闪一下。
+      if (!options?.quiet) setLoading(true);
+      try {
+        const [b, p] = await Promise.all([
+          ListAgentBackends(),
+          ListLLMProviders(),
+        ]);
+        setBackends(b?.items ?? []);
+        setProviders(p?.items ?? []);
+      } catch (err) {
+        setFlash({ kind: "err", text: messageFromError(err, t) });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [ListAgentBackends, ListLLMProviders, t],
+  );
 
   React.useEffect(() => {
     let mounted = true;
@@ -357,6 +371,13 @@ function AgentBackendsPanelBody({
     // `t` 只在兜底文案里用到，切语言不该把首屏再拉一次。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ListAgentBackends, ListLLMProviders]);
+
+  const lastRefreshSignalRef = React.useRef(refreshSignal);
+  React.useEffect(() => {
+    if (Object.is(lastRefreshSignalRef.current, refreshSignal)) return;
+    lastRefreshSignalRef.current = refreshSignal;
+    void reload({ quiet: true });
+  }, [refreshSignal, reload]);
 
   // 没有本机可扫的宿主要先点名一台机器，候选就是账号里的执行端设备。
   // 有本机的宿主不拉这份清单：桌面端的 ServerListDevices 内部会写库收编设备，
@@ -677,6 +698,8 @@ function BackendEditor({
     initialCliPath: state.kind === "edit" ? (state.cliPath ?? "") : "",
     type,
     deviceId,
+    backendSyncId: editing?.syncId,
+    getCliOverlay: ports.cliPath?.get,
     resolveCliPath: ResolveAgentBackendCLIPath,
     t,
   });
@@ -836,7 +859,7 @@ function BackendEditor({
       if (
         (u.protocol === "http:" || u.protocol === "https:") &&
         u.port !== "" &&
-        !isLoopbackHost(u.hostname)
+        !isLoopbackHostname(u.hostname)
       ) {
         return raw;
       }
@@ -946,6 +969,12 @@ function BackendEditor({
     });
   }
 
+  // 编辑态打开那一刻的草稿：此时各字段仍是由既有后端初始化的值，保存时据此算出
+  // 用户本次改过哪些字段（changedFields）。新建没有基线。
+  const [openedDraft] = React.useState<BackendDraft | null>(() =>
+    state.kind === "edit" ? buildDraft() : null,
+  );
+
   function inspectDraft(draft: BackendDraft) {
     return inspectRemoteDraft({
       draft,
@@ -959,11 +988,18 @@ function BackendEditor({
   function saveDraft(draft: BackendDraft) {
     return saveBackendDraft({
       draft,
+      baseline: openedDraft && {
+        ...openedDraft,
+        cliPath: isCLIPathBackend(openedDraft.type)
+          ? cli.storedCliPath.trim()
+          : "",
+      },
       state,
       editing,
       openClawToken: openClaw.token,
       clearOpenClawToken: openClaw.clearToken,
       bridge,
+      setCliOverlay: ports.cliPath?.set,
       onSaved,
       t,
     });
@@ -1217,20 +1253,271 @@ function BackendEditor({
 
   return (
     <>
-      <AgentreDialog
+      <DialogShell
         open={open}
         onOpenChange={(o) => (!o ? onClose() : undefined)}
-        title={
-          state.kind === "edit"
-            ? t("agentBackends.editor.editTitle")
-            : t("agentBackends.editor.createTitle")
-        }
-        description={t("agentBackends.editor.description")}
-        contentClassName="max-w-xl"
-        bodyClassName="flex flex-col gap-4"
         onSubmit={handleSubmit}
-        footerClassName="flex-col items-stretch gap-2"
-        footer={
+      >
+        <DialogShellHeader
+          title={
+            state.kind === "edit"
+              ? t("agentBackends.editor.editTitle")
+              : t("agentBackends.editor.createTitle")
+          }
+          subtitle={t("agentBackends.editor.description")}
+          onClose={onClose}
+        />
+        <DialogShellBody className="flex flex-col gap-4">
+          {/* 类型排在名称之前：它决定了下面出现哪些字段，也决定名称的默认值。 */}
+          {state.kind === "edit" ? (
+            <BackendTypeReadonly type={type} />
+          ) : (
+            <div className="flex flex-col gap-1.5 text-xs">
+              <span className="font-medium">
+                {t("agentBackends.fields.type")}
+              </span>
+              <BackendTypePicker
+                value={type}
+                onChange={handleTypeChange}
+                probes={cli.cliProbes}
+                canCreateBuiltin={canCreateBuiltin}
+                supportedBackendTypes={supportedBackendTypes}
+              />
+            </div>
+          )}
+
+          <label className="flex flex-col gap-1.5 text-xs">
+            <span className="font-medium">
+              {t("agentBackends.fields.name")}
+            </span>
+            <Input
+              value={name}
+              onChange={(e) => {
+                nameTouchedRef.current = true;
+                setName(e.target.value);
+              }}
+              placeholder={t("agentBackends.fields.namePlaceholder")}
+              required
+              autoFocus
+            />
+          </label>
+
+          <DeviceField
+            type={type}
+            value={deviceState.selectedDeviceValue}
+            onSelect={(v) =>
+              handleDeviceChange(
+                persistedDeviceIdForSelection(
+                  v,
+                  deviceState.localSelectValue,
+                  deviceState.localFingerprint,
+                ),
+              )
+            }
+            hasLocalDevice={hasLocalDevice}
+            deviceOptions={deviceState.deviceOptions}
+            selectedDeviceKnown={deviceState.selectedDeviceKnown}
+            deviceId={deviceId}
+            revokedFallbackName={
+              editing?.deviceName ||
+              deviceState.accountDeviceNames.get(deviceId) ||
+              t("agentBackends.device.revoked")
+            }
+          />
+
+          {consumesAgentreProvider(type) ? (
+            <ModelBindingSection
+              type={type}
+              providers={filteredProviders}
+              value={effectiveLlmProviderKey}
+              modelKey={llmModelKey}
+              onTargetChange={({ providerKey, modelKey }) => {
+                setLlmProviderKey(providerKey);
+                setLlmModelKey(modelKey);
+              }}
+              onSyncProvider={
+                canSyncProvider ? handlePickerProviderSync : undefined
+              }
+              invalid={mainTargetInvalid}
+              piAgentModelMissing={piAgentModelMissing}
+              editing={!!editing}
+              onOpenLlmProviders={onOpenLlmProviders}
+              catalog={targetCatalog}
+              catalogLoading={catalogLoading}
+              catalogError={catalogError}
+              executionLocation={remoteExecution ? deviceId : ""}
+              supportsFixedModel={
+                remoteExecution ? remoteSupportsFixedModel : true
+              }
+              remoteCatalog={remoteExecution ? remotePickerCatalog : undefined}
+              routes={routes}
+              onRoutesChange={setRoutes}
+              customModel={defaultModel}
+              onCustomModelChange={setDefaultModel}
+              resolvedMainTarget={resolvedMainTarget}
+              openPickerOnMount={state.kind === "edit" && !!state.openBinding}
+            />
+          ) : type === "openclaw" ? (
+            <OpenClawSection
+              fields={openClaw}
+              canEditToken={canEditOpenClawToken}
+              hasToken={editing?.hasToken ?? false}
+            />
+          ) : null}
+
+          {showManualProviderSync ? (
+            <ManualProviderSyncAlert
+              disabled={syncingProvider}
+              onSync={handleManualProviderSync}
+            />
+          ) : null}
+
+          {isCLIPathBackend(type) && canEditCliPath ? (
+            <CliPathField
+              type={type}
+              value={cli.cliPath}
+              onChange={(v) => {
+                cli.setCliPath(v);
+                if (cli.cliProbeMiss) cli.setCliProbeMiss(null);
+              }}
+              onDetect={cli.handleDetectCli}
+              detecting={cli.cliProbing}
+              missMessage={cli.cliProbeMiss}
+            />
+          ) : null}
+
+          {type === "hermes" ? (
+            <HermesFields
+              url={hermesUrl}
+              onUrlChange={setHermesUrl}
+              auth={
+                <HermesAuthFields
+                  provider={hermesAuthProvider}
+                  onProviderChange={setHermesAuthProvider}
+                  username={hermesUsername}
+                  onUsernameChange={setHermesUsername}
+                  password={hermesPassword}
+                  onPasswordChange={setHermesPassword}
+                  userId={hermesUserId}
+                  providers={hermesProviders}
+                  providersLoading={hermesProvidersLoading}
+                  providersError={hermesProvidersError}
+                  loggingIn={hermesLoggingIn}
+                  error={hermesAuthError}
+                  onLogin={() => void handleHermesLogin()}
+                  onLogout={() => void handleHermesLogout()}
+                />
+              }
+            />
+          ) : null}
+
+          {type === "claudecode" ? (
+            <DefaultPermissionModeField
+              value={defaultPermissionMode}
+              onChange={setDefaultPermissionMode}
+              // 这颗提示问的是「跑这个 CLI 的是不是另一台机器上的 agentred」。桌面端
+              // 靠 remoteExecution 判；而**没有本机的宿主**（浏览器控制台）从不在本地
+              // 执行，选中的任何一台都是远端——那里 localFingerprint 恒为空，而
+              // resolveExecutionDevice 把空读作「还不知道自己是谁」（桌面端 RPC 未答），
+              // 于是 remoteExecution 恒假。只在这一处纠偏，不动执行目标与模型目录那几处
+              // 的口径：它们问的是别的问题，改口径会波及远端 Picker 的门控。
+              isRemote={remoteExecution || !hasLocalDevice}
+              // 两条路，宿主有一条就摆按钮：改本地 entries（桌面端手里有 env_json），
+              // 或调服务端合并（浏览器读不到 env_json）。后者要有 sync_id，所以只在
+              // 编辑既有后端时算数——新建时那条后端还不存在，没得可合。
+              canAddIsSandbox={
+                canEditEnvJSON || (addIsSandbox != null && editing != null)
+              }
+              hasIsSandbox={
+                addedIsSandbox ||
+                envEntries.some(
+                  (e) => e.key.trim() === "IS_SANDBOX" && e.value.trim() !== "",
+                )
+              }
+              addIsSandboxError={addIsSandboxError}
+              onAddIsSandbox={() => {
+                if (!canEditEnvJSON) {
+                  if (!addIsSandbox || !editing) return;
+                  setAddIsSandboxError("");
+                  // 服务端合并完只回一句「成了」：env_json 不下发，浏览器读不回这张表，
+                  // 所以确认态记在本地。它说的是「你刚刚这一下写成了」，那是真的；
+                  // 重开弹窗回到按钮态，因为那时确实又不知道了。
+                  void addIsSandbox(editing.syncId)
+                    .then(() => setAddedIsSandbox(true))
+                    .catch((err: unknown) =>
+                      setAddIsSandboxError(messageFromError(err, t)),
+                    );
+                  return;
+                }
+                setEnvEntries((prev) => {
+                  const idx = prev.findIndex(
+                    (e) => e.key.trim() === "IS_SANDBOX",
+                  );
+                  if (idx >= 0) {
+                    const next = prev.slice();
+                    next[idx] = { key: "IS_SANDBOX", value: "1" };
+                    return next;
+                  }
+                  return [...prev, { key: "IS_SANDBOX", value: "1" }];
+                });
+                // env_json 默认折叠;一键填后展开让用户能看见结果
+                setAdvancedOpen(true);
+              }}
+            />
+          ) : null}
+
+          {type === "codex" ? (
+            <>
+              <SandboxField value={sandbox} onChange={setSandbox} />
+              <ApprovalField value={approval} onChange={setApproval} />
+            </>
+          ) : null}
+
+          <EffectiveConfigSummary
+            type={type}
+            deviceName={deviceState.deviceDisplayName(deviceId)}
+            cliPath={
+              type === "hermes"
+                ? hermesUrl
+                : isCLIPathBackend(type)
+                  ? cli.cliPath
+                  : ""
+            }
+            resolvedMainTarget={resolvedMainTarget}
+            customModel={defaultModel}
+            routes={routes}
+            catalog={targetCatalog}
+            referenceCount={editing?.agentCount ?? 0}
+            saveBlockedReason={effectiveSaveBlockedReason}
+            openClawModel={openClaw.defaultModel || openClaw.agentID}
+          />
+
+          {consumesAgentreProvider(type) ? (
+            <ReasoningEffortField
+              value={reasoningEffort}
+              onChange={setReasoningEffort}
+            />
+          ) : null}
+
+          {cliBased && canEditEnvJSON ? (
+            <EnvJsonField
+              entries={envEntries}
+              onChange={setEnvEntries}
+              open={advancedOpen}
+              onToggle={() => setAdvancedOpen((o) => !o)}
+              reservedOffenders={reservedOffenders}
+            />
+          ) : null}
+
+          {cliBased && consumesAgentreProvider(type) ? (
+            <ProxyNote
+              status={gatewayStatus}
+              providerLinked={llmProviderKey !== ""}
+              onOpenProxySettings={onOpenProxySettings}
+            />
+          ) : null}
+        </DialogShellBody>
+        <DialogShellFooter stack>
           <BackendEditorFooter
             saveResult={saveResult}
             testResult={testResult}
@@ -1243,255 +1530,8 @@ function BackendEditor({
             onCancelTest={handleCancelTest}
             onClose={onClose}
           />
-        }
-      >
-        {/* 类型排在名称之前：它决定了下面出现哪些字段，也决定名称的默认值。 */}
-        {state.kind === "edit" ? (
-          <BackendTypeReadonly type={type} />
-        ) : (
-          <div className="flex flex-col gap-1.5 text-xs">
-            <span className="font-medium">
-              {t("agentBackends.fields.type")}
-            </span>
-            <BackendTypePicker
-              value={type}
-              onChange={handleTypeChange}
-              probes={cli.cliProbes}
-              canCreateBuiltin={canCreateBuiltin}
-              supportedBackendTypes={supportedBackendTypes}
-            />
-          </div>
-        )}
-
-        <label className="flex flex-col gap-1.5 text-xs">
-          <span className="font-medium">{t("agentBackends.fields.name")}</span>
-          <Input
-            value={name}
-            onChange={(e) => {
-              nameTouchedRef.current = true;
-              setName(e.target.value);
-            }}
-            placeholder={t("agentBackends.fields.namePlaceholder")}
-            required
-            autoFocus
-          />
-        </label>
-
-        <DeviceField
-          type={type}
-          value={deviceState.selectedDeviceValue}
-          onSelect={(v) =>
-            handleDeviceChange(
-              persistedDeviceIdForSelection(
-                v,
-                deviceState.localSelectValue,
-                deviceState.localFingerprint,
-              ),
-            )
-          }
-          hasLocalDevice={hasLocalDevice}
-          deviceOptions={deviceState.deviceOptions}
-          selectedDeviceKnown={deviceState.selectedDeviceKnown}
-          deviceId={deviceId}
-          revokedFallbackName={
-            editing?.deviceName ||
-            deviceState.accountDeviceNames.get(deviceId) ||
-            t("agentBackends.device.revoked")
-          }
-        />
-
-        {consumesAgentreProvider(type) ? (
-          <ModelBindingSection
-            type={type}
-            providers={filteredProviders}
-            value={effectiveLlmProviderKey}
-            modelKey={llmModelKey}
-            onTargetChange={({ providerKey, modelKey }) => {
-              setLlmProviderKey(providerKey);
-              setLlmModelKey(modelKey);
-            }}
-            onSyncProvider={
-              canSyncProvider ? handlePickerProviderSync : undefined
-            }
-            invalid={mainTargetInvalid}
-            piAgentModelMissing={piAgentModelMissing}
-            editing={!!editing}
-            onOpenLlmProviders={onOpenLlmProviders}
-            catalog={targetCatalog}
-            catalogLoading={catalogLoading}
-            catalogError={catalogError}
-            executionLocation={remoteExecution ? deviceId : ""}
-            supportsFixedModel={
-              remoteExecution ? remoteSupportsFixedModel : true
-            }
-            remoteCatalog={remoteExecution ? remotePickerCatalog : undefined}
-            routes={routes}
-            onRoutesChange={setRoutes}
-            customModel={defaultModel}
-            onCustomModelChange={setDefaultModel}
-            resolvedMainTarget={resolvedMainTarget}
-            openPickerOnMount={state.kind === "edit" && !!state.openBinding}
-          />
-        ) : type === "openclaw" ? (
-          <OpenClawSection
-            fields={openClaw}
-            canEditToken={canEditOpenClawToken}
-            hasToken={editing?.hasToken ?? false}
-          />
-        ) : null}
-
-        {showManualProviderSync ? (
-          <ManualProviderSyncAlert
-            disabled={syncingProvider}
-            onSync={handleManualProviderSync}
-          />
-        ) : null}
-
-        {isCLIPathBackend(type) && canEditCliPath ? (
-          <CliPathField
-            type={type}
-            value={cli.cliPath}
-            onChange={(v) => {
-              cli.setCliPath(v);
-              if (cli.cliProbeMiss) cli.setCliProbeMiss(null);
-            }}
-            onDetect={cli.handleDetectCli}
-            detecting={cli.cliProbing}
-            missMessage={cli.cliProbeMiss}
-          />
-        ) : null}
-
-        {type === "hermes" ? (
-          <HermesFields
-            url={hermesUrl}
-            onUrlChange={setHermesUrl}
-            auth={
-              <HermesAuthFields
-                provider={hermesAuthProvider}
-                onProviderChange={setHermesAuthProvider}
-                username={hermesUsername}
-                onUsernameChange={setHermesUsername}
-                password={hermesPassword}
-                onPasswordChange={setHermesPassword}
-                userId={hermesUserId}
-                providers={hermesProviders}
-                providersLoading={hermesProvidersLoading}
-                providersError={hermesProvidersError}
-                loggingIn={hermesLoggingIn}
-                error={hermesAuthError}
-                onLogin={() => void handleHermesLogin()}
-                onLogout={() => void handleHermesLogout()}
-              />
-            }
-          />
-        ) : null}
-
-        {type === "claudecode" ? (
-          <DefaultPermissionModeField
-            value={defaultPermissionMode}
-            onChange={setDefaultPermissionMode}
-            // 这颗提示问的是「跑这个 CLI 的是不是另一台机器上的 agentred」。桌面端
-            // 靠 remoteExecution 判；而**没有本机的宿主**（浏览器控制台）从不在本地
-            // 执行，选中的任何一台都是远端——那里 localFingerprint 恒为空，而
-            // resolveExecutionDevice 把空读作「还不知道自己是谁」（桌面端 RPC 未答），
-            // 于是 remoteExecution 恒假。只在这一处纠偏，不动执行目标与模型目录那几处
-            // 的口径：它们问的是别的问题，改口径会波及远端 Picker 的门控。
-            isRemote={remoteExecution || !hasLocalDevice}
-            // 两条路，宿主有一条就摆按钮：改本地 entries（桌面端手里有 env_json），
-            // 或调服务端合并（浏览器读不到 env_json）。后者要有 sync_id，所以只在
-            // 编辑既有后端时算数——新建时那条后端还不存在，没得可合。
-            canAddIsSandbox={
-              canEditEnvJSON || (addIsSandbox != null && editing != null)
-            }
-            hasIsSandbox={
-              addedIsSandbox ||
-              envEntries.some(
-                (e) => e.key.trim() === "IS_SANDBOX" && e.value.trim() !== "",
-              )
-            }
-            addIsSandboxError={addIsSandboxError}
-            onAddIsSandbox={() => {
-              if (!canEditEnvJSON) {
-                if (!addIsSandbox || !editing) return;
-                setAddIsSandboxError("");
-                // 服务端合并完只回一句「成了」：env_json 不下发，浏览器读不回这张表，
-                // 所以确认态记在本地。它说的是「你刚刚这一下写成了」，那是真的；
-                // 重开弹窗回到按钮态，因为那时确实又不知道了。
-                void addIsSandbox(editing.syncId)
-                  .then(() => setAddedIsSandbox(true))
-                  .catch((err: unknown) =>
-                    setAddIsSandboxError(messageFromError(err, t)),
-                  );
-                return;
-              }
-              setEnvEntries((prev) => {
-                const idx = prev.findIndex(
-                  (e) => e.key.trim() === "IS_SANDBOX",
-                );
-                if (idx >= 0) {
-                  const next = prev.slice();
-                  next[idx] = { key: "IS_SANDBOX", value: "1" };
-                  return next;
-                }
-                return [...prev, { key: "IS_SANDBOX", value: "1" }];
-              });
-              // env_json 默认折叠;一键填后展开让用户能看见结果
-              setAdvancedOpen(true);
-            }}
-          />
-        ) : null}
-
-        {type === "codex" ? (
-          <>
-            <SandboxField value={sandbox} onChange={setSandbox} />
-            <ApprovalField value={approval} onChange={setApproval} />
-          </>
-        ) : null}
-
-        <EffectiveConfigSummary
-          type={type}
-          deviceName={deviceState.deviceDisplayName(deviceId)}
-          cliPath={
-            type === "hermes"
-              ? hermesUrl
-              : isCLIPathBackend(type)
-                ? cli.cliPath
-                : ""
-          }
-          resolvedMainTarget={resolvedMainTarget}
-          customModel={defaultModel}
-          routes={routes}
-          catalog={targetCatalog}
-          referenceCount={editing?.agentCount ?? 0}
-          saveBlockedReason={effectiveSaveBlockedReason}
-          openClawModel={openClaw.defaultModel || openClaw.agentID}
-        />
-
-        {consumesAgentreProvider(type) ? (
-          <ReasoningEffortField
-            value={reasoningEffort}
-            onChange={setReasoningEffort}
-          />
-        ) : null}
-
-        {cliBased && canEditEnvJSON ? (
-          <EnvJsonField
-            entries={envEntries}
-            onChange={setEnvEntries}
-            open={advancedOpen}
-            onToggle={() => setAdvancedOpen((o) => !o)}
-            reservedOffenders={reservedOffenders}
-          />
-        ) : null}
-
-        {cliBased && consumesAgentreProvider(type) ? (
-          <ProxyNote
-            status={gatewayStatus}
-            providerLinked={llmProviderKey !== ""}
-            onOpenProxySettings={onOpenProxySettings}
-          />
-        ) : null}
-      </AgentreDialog>
+        </DialogShellFooter>
+      </DialogShell>
       {pendingProviderSync ? (
         <ProviderSyncDialog
           pending={pendingProviderSync}
@@ -1588,46 +1628,51 @@ function DeleteDialog({
   const { t } = useTranslation();
   const [submitting, setSubmitting] = React.useState(false);
   return (
-    <AgentreDialog
+    <DialogShell
       open
       onOpenChange={(o) => (!o ? onCancel() : undefined)}
-      title={t("agentBackends.deleteDialog.title")}
-      description={t("agentBackends.deleteDialog.description", {
-        name: backend.name,
-      })}
-      footer={
-        <>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onCancel}
-            disabled={submitting}
-          >
-            {t("common.cancel")}
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={submitting}
-            onClick={async () => {
-              setSubmitting(true);
-              try {
-                await DeleteAgentBackend({
-                  id: backend.id,
-                } as agent_backend_svc.DeleteBackendRequest);
-                await onConfirmed();
-              } catch (err) {
-                onError(messageFromError(err, t));
-              } finally {
-                setSubmitting(false);
-              }
-            }}
-          >
-            {t("common.delete")}
-          </Button>
-        </>
-      }
-    />
+      size="sm"
+      danger
+    >
+      <DialogShellHeader
+        title={t("agentBackends.deleteDialog.title")}
+        subtitle={t("agentBackends.deleteDialog.description", {
+          name: backend.name,
+        })}
+        danger
+        onClose={onCancel}
+      />
+      <DialogShellFooter>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          disabled={submitting}
+        >
+          {t("common.cancel")}
+        </Button>
+        <Button
+          type="button"
+          variant="destructive"
+          disabled={submitting}
+          onClick={async () => {
+            setSubmitting(true);
+            try {
+              await DeleteAgentBackend({
+                id: backend.id,
+              } as agent_backend_svc.DeleteBackendRequest);
+              await onConfirmed();
+            } catch (err) {
+              onError(messageFromError(err, t));
+            } finally {
+              setSubmitting(false);
+            }
+          }}
+        >
+          {t("common.delete")}
+        </Button>
+      </DialogShellFooter>
+    </DialogShell>
   );
 }
 
@@ -1643,11 +1688,4 @@ function newRequestId(): string {
   return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-// isLoopbackHost 与 Go 侧 loopback 形状检查同口径：loopback 的 `hermes serve` 不需要
-// 登录，所以不为它去拉 /api/auth/providers（那里的 404 是预期，不是错误）。
-function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost")) return true;
-  if (host === "::1") return true;
-  return /^127(?:\.\d{1,3}){3}$/.test(host);
-}
+// isLoopbackHostname 与 Go 侧 loopback 形状检查同口径（见 openclaw-validation）。

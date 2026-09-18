@@ -38,11 +38,7 @@ func newServiceCmd() *cobra.Command {
 }
 
 func newServiceCmdWithManager(manager ServiceManager) *cobra.Command {
-	return newServiceCmdWithFactory(func() (ServiceManager, error) { return manager, nil })
-}
-
-func newServiceCmdWithFactory(factory serviceManagerFactory) *cobra.Command {
-	return newServiceCmdWithDeps(serviceCommandDeps{managerFactory: factory})
+	return newServiceCmdWithDeps(serviceCommandDeps{managerFactory: func() (ServiceManager, error) { return manager, nil }})
 }
 
 func newServiceCmdWithDeps(deps serviceCommandDeps) *cobra.Command {
@@ -137,7 +133,7 @@ func startService(ctx context.Context, manager ServiceManager, load serviceStatu
 	if err != nil {
 		return ServiceStatus{}, err
 	}
-	return waitForLocalDaemon(ctx, manager, status, load)
+	return waitForLocalDaemonPIDChange(ctx, manager, status, load, "")
 }
 
 func restartService(ctx context.Context, manager ServiceManager, load serviceStatusLoader) (ServiceStatus, error) {
@@ -160,17 +156,7 @@ func restartService(ctx context.Context, manager ServiceManager, load serviceSta
 }
 
 func requiresRestartPIDChange(status ServiceStatus) bool {
-	for _, detail := range status.Details {
-		if strings.HasPrefix(detail, "Manager: launchd") || strings.HasPrefix(detail, "Manager: systemd") {
-			return true
-		}
-	}
-	return false
-}
-
-func waitForLocalDaemon(ctx context.Context, manager ServiceManager, status ServiceStatus,
-	load serviceStatusLoader) (ServiceStatus, error) {
-	return waitForLocalDaemonPIDChange(ctx, manager, status, load, "")
+	return strings.HasPrefix(status.Manager, "launchd") || strings.HasPrefix(status.Manager, "systemd")
 }
 
 func waitForLocalDaemonPIDChange(ctx context.Context, manager ServiceManager, status ServiceStatus,
@@ -215,10 +201,8 @@ func waitForLocalDaemonPIDChange(ctx context.Context, manager ServiceManager, st
 }
 
 func serviceReadinessDiagnostic(status ServiceStatus) string {
-	for _, detail := range status.Details {
-		if target, ok := strings.CutPrefix(detail, "Target: "); ok {
-			return fmt.Sprintf("launchctl target %s; Run manually: launchctl print %s", target, target)
-		}
+	if status.Target != "" {
+		return fmt.Sprintf("launchctl target %s; Run manually: launchctl print %s", status.Target, status.Target)
 	}
 	return "Run manually: agentred service status"
 }

@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -11,6 +12,9 @@ import (
 const (
 	codexGatewayProviderID = "agentre-gateway"
 	codexGatewayAPIKeyEnv  = "OPENAI_API_KEY" // #nosec G101 -- env var name, not a credential value.
+	// ClaudeCodeMaxContextTokensEnv 告诉 Claude Code 它不认识的模型的真实上下文窗口;
+	// 不设时 CLI 按 200k 自动压缩(2.1.270 实测)。
+	ClaudeCodeMaxContextTokensEnv = "CLAUDE_CODE_MAX_CONTEXT_TOKENS"
 )
 
 // CLIDeps CLI runner 装配子进程 env 时需要的临时凭证。
@@ -33,6 +37,10 @@ type CLIDeps struct {
 	// 的 Test）没有会话概念，只按 backend 自身绑定探测，继续只传 Token/GatewayURL 即可，
 	// 不必每处都重复解析一遍 effective provider。
 	ProviderKey string
+	// ContextWindow 是本轮解析出模型配置的上下文窗口(tokens),0 = 未配置。
+	// 只用于 claudecode:CLI 不认识的模型名一律按 200k 自动压缩,
+	// CLAUDE_CODE_MAX_CONTEXT_TOKENS 是告诉它真实窗口的唯一入口。
+	ContextWindow int
 }
 
 // BuildClaudeCodeEnv 装配 claudecode 子进程的环境变量：
@@ -48,6 +56,8 @@ type CLIDeps struct {
 //     二者皆空才是真正的 CLI 登录态。有 effective provider 时确实希望 claude CLI 把
 //     LLM 请求路由到 gateway，gateway 按 model_routes 转发到对应 provider；CLI 登录
 //     模式留空，让 claude 自身 OAuth 直连 anthropic.com。
+//   - **CLAUDE_CODE_MAX_CONTEXT_TOKENS**：deps.ContextWindow > 0 时设置，让 CLI 按配置的
+//     窗口而不是默认 200k 自动压缩；排在 env_json 之前，用户显式写的值优先；
 //   - 用户自定义 env_json 追加（保留键已被 entity.Check 拒入）；
 //   - 如果 backend.model_routes 含 OPUS/SONNET/HAIKU，注入 ANTHROPIC_DEFAULT_*_MODEL = alias 字符串
 //     （上游识别 alias，gateway 按 alias 路由到对应 provider 后再改写成真实 model id）。
@@ -86,13 +96,14 @@ func BuildClaudeCodeEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map
 			env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = "haiku"
 		}
 	}
+	if deps.ContextWindow > 0 {
+		env[ClaudeCodeMaxContextTokensEnv] = strconv.Itoa(deps.ContextWindow)
+	}
 	user, err := agent_backend_entity.ParseEnvJSON(b.EnvJSON)
 	if err != nil {
 		return nil, fmt.Errorf("parse env_json: %w", err)
 	}
-	for k, v := range user {
-		env[k] = v
-	}
+	maps.Copy(env, user)
 	return env, nil
 }
 
@@ -110,9 +121,7 @@ func BuildCodexEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map[stri
 	if err != nil {
 		return nil, fmt.Errorf("parse env_json: %w", err)
 	}
-	for k, v := range user {
-		env[k] = v
-	}
+	maps.Copy(env, user)
 	return env, nil
 }
 
@@ -126,9 +135,7 @@ func BuildPiAgentEnv(b *agent_backend_entity.AgentBackend) (map[string]string, e
 	if err != nil {
 		return nil, fmt.Errorf("parse env_json: %w", err)
 	}
-	for k, v := range user {
-		env[k] = v
-	}
+	maps.Copy(env, user)
 	return env, nil
 }
 

@@ -11,10 +11,10 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
@@ -103,8 +103,50 @@ func (projectAdapter) children(ctx context.Context, syncID string) ([]relatedRow
 	if err != nil || id == 0 {
 		return nil, err
 	}
+	return projectRefHolders(ctx, id)
+}
+
+// dependentsOnClaim 项目刚拿到身份（R12a 认领）时，把**引用它的那些行**一并重发一次：
+// 成员关系、它在各台 agentred 上的路径记录，以及**它的子项目**。
+//
+// 它们在这之前上行时，项目还没有同步标识，引用只能写成空串：成员关系在 server 上
+// 是一条不属于任何项目的孤儿行（web 控制台按引用归集成员，孤儿行一个都不显示——
+// 「这个项目还没有成员」），路径记录的自然键则退化成空作用域（同指纹的第二条会被
+// 自然键合并掉），而子项目的 `parent_sync_id` 一空就在 server 上被落成了**顶层项目**
+// ——控制台的项目树里那一层父子关系整个消失，挂在父项目上的成员也就继承不到子项目。
+//
+// 而它们在本机已经同步过（版本非 0），不会再自己上行，其中 project_agent 还早就
+// 属于这个账号、不是认领的对象：认领是它们唯一能被重发的机会。
+func (projectAdapter) dependentsOnClaim(ctx context.Context, syncID string) ([]relatedRow, error) {
+	id, err := syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindProject, syncID)
+	if err != nil || id == 0 {
+		return nil, err
+	}
+	out, err := projectRefHolders(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	children, err := project_repo.Project().ListByParent(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range children {
+		out = append(out, relatedRow{
+			Kind: syncwire.KindProject, LocalID: row.ID,
+			SyncID: row.SyncID, Version: row.SyncVersion,
+		})
+	}
+	return out, nil
+}
+
+// projectRefHolders 报出挂在某个项目下的两样东西：它的路径记录与成员关系。
+// 删项目时它们跟着落墓碑（R6），项目第一次拿到身份时它们跟着重发（R2）。
+//
+// 与 dependents 不是一回事：那一条是「只跟着本行的写入路径变化」的行（Agent 的
+// 执行目标）。成员关系与路径记录各有自己的写入路径，平时不随项目一起上行。
+func projectRefHolders(ctx context.Context, projectID int64) ([]relatedRow, error) {
 	out := make([]relatedRow, 0, 4)
-	locations, err := project_location_repo.ProjectLocation().ListByProject(ctx, id)
+	locations, err := project_location_repo.ProjectLocation().ListByProject(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -114,13 +156,14 @@ func (projectAdapter) children(ctx context.Context, syncID string) ([]relatedRow
 			SyncID: row.SyncID, Version: row.SyncVersion,
 		})
 	}
-	members, err := project_repo.ProjectAgent().ListByProject(ctx, id)
+	members, err := project_repo.ProjectAgent().ListByProject(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
 	for _, row := range members {
 		out = append(out, relatedRow{
-			Kind: syncwire.KindProjectAgent, SyncID: row.SyncID, Version: row.SyncVersion,
+			Kind: syncwire.KindProjectAgent, LocalID: row.ID,
+			SyncID: row.SyncID, Version: row.SyncVersion,
 		})
 	}
 	return out, nil
@@ -146,9 +189,12 @@ func (projectAgentAdapter) load(ctx context.Context, syncID string) (*outbound, 
 	if err != nil {
 		return nil, err
 	}
-	if project == nil || agent == "" {
-		// 两端之一在本机已经不存在：这条成员关系没有可表达的跨机引用，交给它自己
-		// 的删除路径去落墓碑，这里不发一条带空引用的上行。
+	// 两端之一在本机**表达不出跨机引用**就算数：行不在了，或行还在、却还没有同步
+	// 标识（R12a 的认领失效时，本机的项目行就盖着空标识）。照发是一条引用为空串的
+	// 成员关系——它在 server 上不属于任何项目、也不会再被认领（它已经是那个账号的
+	// 行），只会在那边占着一个标识。得等这一行拿到标识（dependentsOnClaim 那时会
+	// 把它重发一次），这里一条都不发。
+	if project == nil || syncIDOf(project.SyncMeta) == "" || agent == "" {
 		return nil, nil
 	}
 	payload, err := json.Marshal(syncwire.ProjectAgentPayload{
@@ -236,7 +282,11 @@ func (projectLocationAdapter) load(ctx context.Context, syncID string) (*outboun
 	if err != nil {
 		return nil, err
 	}
-	if project == nil || row.DeviceFingerprint == "" {
+	// 项目行还在、却还没有同步标识时，这一行的**账号内自然键**（项目标识 × 指纹）
+	// 只能退化成空作用域：server 那边空作用域的行会彼此碰撞（同指纹的第二条被自然键
+	// 合并掉，落败的那一份还会进「没能同步的改动」），而它指的也不可能是任何一个
+	// 项目。项目拿到标识之后由 dependentsOnClaim 重发。
+	if project == nil || syncIDOf(project.SyncMeta) == "" || row.DeviceFingerprint == "" {
 		return nil, nil
 	}
 	payload, err := json.Marshal(syncwire.ProjectLocationPayload{Path: row.Path})

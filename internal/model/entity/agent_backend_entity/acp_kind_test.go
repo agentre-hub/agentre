@@ -21,7 +21,7 @@ func TestACPKind(t *testing.T) {
 
 		Convey("When resolving kind metadata Then it is a subprocess agent that never matches an Agentre provider", func() {
 			So(kind, ShouldNotBeNil)
-			So(kind.Type(), ShouldEqual, TypeACP)
+			So(kind, ShouldHaveSameTypeAs, acpKind{})
 			So(kind.KnownAliases(), ShouldBeEmpty)
 			So(kind.AllowsCLIPath(), ShouldBeFalse)
 			So(kind.RequiresProviderModel(), ShouldBeFalse)

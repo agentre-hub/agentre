@@ -13,7 +13,7 @@ func TestDoneHandler(t *testing.T) {
 	Convey("DoneHandler emit message_end", t, func() {
 		emit := &fakeEmit{}
 		err := DoneHandler{}.Apply(context.Background(),
-			agentruntime.Done{}, nil, emit, nil, nil)
+			agentruntime.Done{}, nil, emit, nil)
 		So(err, ShouldBeNil)
 		p := emit.events[0].payload.(map[string]any)
 		So(p["kind"], ShouldEqual, "message_end")

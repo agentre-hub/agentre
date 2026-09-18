@@ -236,6 +236,7 @@ var enUS = map[int]string{
 	RemoteDeviceTimeout:                 "Remote device timed out",
 	RemoteCLIDetectFailed:               "Remote CLI detection failed: %s",
 	RemoteCLIProbeFailed:                "Remote backend test failed: %s",
+	RemoteDeviceUpgradeUnavailable:      "This is a dev build with no release to upgrade to; remote agentred one-click upgrade isn't available",
 
 	// remotefs
 	RemoteFsPathRefused:      "remote path refused (system dir or invalid)",

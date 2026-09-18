@@ -22,7 +22,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -421,6 +421,13 @@ func (s *service) SyncOnce(ctx context.Context) error {
 		s.setLastErr(err)
 		return err
 	}
+	// 同样排在 flush 之前，且只在这个账号第一次跑到这里时真的做事（存量修复，
+	// requeue_backends.go）：升级后带着真实 config 的这一次入队要跟上这一轮上行，
+	// 而不是要求用户再等一轮或者手动碰一下每个后端。
+	if err := s.requeueBackendConfigs(ctx, accountID); err != nil {
+		s.setLastErr(err)
+		return err
+	}
 	if err := s.flush(ctx, accountID, devicefp.LastWriter(fingerprint)); err != nil {
 		s.setLastErr(err)
 		return err
@@ -430,7 +437,7 @@ func (s *service) SyncOnce(ctx context.Context) error {
 		// 一次可重试的失败——同一个游标下一轮还是死的——而是要求本端重建整份历史，
 		// 并把 server 不认识的本地行重新上行（rebase.go）。重推排在 rebase 之后而不是
 		// 交给下一个 30 秒周期：这条路径本来就是从「静默失联」里爬出来，没有理由再等。
-		if !errors.Is(err, syncwire.ErrCursorUnknown) {
+		if !errors.Is(err, localsync.ErrCursorUnknown) {
 			s.setLastErr(err)
 			return err
 		}

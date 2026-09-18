@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   OrgToolList,
   Textarea,
+  resolveOrgReportTo as resolveReportTo,
   type OrgPlacement,
 } from "@agentre-hub/agentre-ui";
 
@@ -13,8 +14,7 @@ import {
   type agent_backend_svc,
 } from "../../../../wailsjs/go/models";
 
-import { useBackendCapabilities } from "../capability/use-backend-capabilities";
-import { resolveReportTo } from "./reporting";
+import { useBackendCapabilities } from "../capability/use-capabilities";
 import { safeAgentColor, type OrgAgent, type OrgDepartment } from "./types";
 import { useAutoSave } from "./use-auto-save";
 import { AutoSaveStatus } from "./auto-save-status";

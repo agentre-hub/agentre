@@ -46,6 +46,7 @@ import {
 } from "./agent-backends-shared";
 import { LlmProviderLogo } from "./ai-brand-logo";
 import { ModelTargetPicker, type PickerProvider } from "./model-target-picker";
+import type { HermesAuthProviderView } from "./ports";
 
 // 六档词表是全工作区唯一的思考力度词表（spec 2026-09-01 决策 2）：claudecode / codex /
 // piagent / builtin 四个支持力度的后端在编辑器里呈现同一张表，不再按后端裁剪——本机
@@ -533,14 +534,6 @@ export function HermesFields({
   );
 }
 
-// HermesAuthProviderOption is one provider row the editor renders. It mirrors
-// the host port shape structurally so the shared package needs no host import.
-export type HermesAuthProviderOption = {
-  name: string;
-  displayName: string;
-  supportsPassword: boolean;
-};
-
 // HermesAuthFields renders the gated-serve sign-in controls. Password copy is
 // cleared by the parent on success; this component never renders a password
 // back into a field once userId is present.
@@ -567,7 +560,7 @@ export function HermesAuthFields({
   password: string;
   onPasswordChange: (v: string) => void;
   userId: string;
-  providers: HermesAuthProviderOption[];
+  providers: HermesAuthProviderView[];
   providersLoading: boolean;
   providersError: string;
   loggingIn: boolean;

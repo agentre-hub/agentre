@@ -21,8 +21,11 @@ func TestCompactStreamTerminatesOnCompactResponse(t *testing.T) {
 		"",
 	}, "\n")
 	client, _ := newCaptureClient(script)
+	session, err := client.OpenSession(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close(context.Background()) })
 
-	s, err := client.Compact(context.Background(), "/data/pi-sessions/agentre-7.jsonl")
+	s, err := session.Compact(context.Background())
 	require.NoError(t, err)
 
 	var kinds []EventKind

@@ -12,7 +12,7 @@ import (
 
 type TextDeltaHandler struct{}
 
-func (TextDeltaHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (TextDeltaHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	td := ev.(agentruntime.TextDelta)
 	acc.AddText(td.Text)
 	if emit != nil {
@@ -23,7 +23,7 @@ func (TextDeltaHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *t
 
 type ThinkingDeltaHandler struct{}
 
-func (ThinkingDeltaHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (ThinkingDeltaHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	td := ev.(agentruntime.ThinkingDelta)
 	acc.AddThinking(td.Text)
 	if emit != nil {

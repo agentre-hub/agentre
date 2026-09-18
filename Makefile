@@ -22,6 +22,20 @@ COMMIT_ID := $(shell git rev-parse --short HEAD 2>$(NULLDEV) || echo unknown)
 VERSION_PKG := github.com/cago-frame/cago/configs
 BUILDINFO_PKG := github.com/agentre-hub/agentre/internal/buildinfo
 LDFLAGS := -s -w -X $(VERSION_PKG).Version=$(APP_VERSION) -X $(BUILDINFO_PKG).CommitID=$(COMMIT_ID)
+# 构建渠道：dev / build / run / install / agrctl 接受 CHANNEL=stable|beta|nightly|dev，不传为 dev。
+# 渠道决定数据目录、钥匙串槽位、窗口标题与安装身份（bundle 名/id、Linux 命令名、Windows 产品名），
+# 四个渠道可并排安装；本地装正式版要写 CHANNEL=stable。非法取值在展开 recipe 时报错，什么都不会构建。
+# 身份取值只在 paths.Channel.Identity：这里经 scripts/channel-identity.sh（CI 共用）读取，不另抄一份。
+PATHS_PKG := github.com/agentre-hub/agentre/internal/pkg/paths
+CHANNELS := stable beta nightly dev
+CHANNEL ?= dev
+BUILD_CHANNEL = $(if $(and $(filter 1,$(words $(CHANNEL))),$(filter $(CHANNELS),$(CHANNEL))),$(strip $(CHANNEL)),$(error CHANNEL=$(CHANNEL) 无效，允许的取值：$(CHANNELS)))
+CHANNEL_LDFLAGS = -X $(PATHS_PKG).buildChannel=$(BUILD_CHANNEL)
+APP_LDFLAGS = $(LDFLAGS) $(CHANNEL_LDFLAGS)
+CHANNEL_IDENTITY := scripts/channel-identity.sh
+channel_identity = $(or $(shell bash $(CHANNEL_IDENTITY) $(BUILD_CHANNEL) get $(1)),$(error 无法读取渠道 $(BUILD_CHANNEL) 的 $(1)（需要 go）))
+CHANNEL_DISPLAY_NAME = $(call channel_identity,display-name)
+CHANNEL_LINUX_COMMAND = $(call channel_identity,linux-command)
 FRONTEND_DIR := frontend
 BACKEND_PKGS := . ./cmd/... ./e2e/... ./internal/... ./migrations ./pkg/...
 E2E_SPEC ?=
@@ -47,27 +61,42 @@ AGENTRED_RUN_ARGS ?= run
 AGENTRED_LOG_PATH ?= /tmp/agentred.log
 AGENTRED_RESTART_CMD ?= pkill -x agentred || true; sleep 1; nohup $(AGENTRED_REMOTE_PATH) $(AGENTRED_RUN_ARGS) >$(AGENTRED_LOG_PATH) 2>&1 </dev/null & sleep 1; $(AGENTRED_REMOTE_PATH) status >/dev/null
 
-# 开发模式(前后端热重载)
+# 开发模式(前后端热重载)。CHANNEL 注入渠道标记：数据目录、钥匙串与窗口标题随之切换。
+# macOS 上 wails dev 用 build/darwin/Info.dev.plist 生成临时 bundle：会话期间把其中的
+# bundle 名称与 id 改成渠道身份（id 决定 WKWebView 存储，否则不同渠道共用 localStorage），
+# 退出（含 Ctrl-C）时还原；CHANNEL=dev 时改写结果与原文件逐字节相同。
+DEV_PLIST := build/darwin/Info.dev.plist
 dev:
 	@mkdir -p $(FRONTEND_DIR)/dist && [ -e $(FRONTEND_DIR)/dist/.keep ] || touch $(FRONTEND_DIR)/dist/.keep
-	"$(WAILS)" dev
+	@backup="$$(mktemp)" && cp $(DEV_PLIST) "$$backup" && \
+	trap 'if [ -f "$$backup" ]; then cp "$$backup" $(DEV_PLIST); rm -f "$$backup"; fi' EXIT INT TERM HUP && \
+	bash $(CHANNEL_IDENTITY) $(BUILD_CHANNEL) dev-plist $(DEV_PLIST) && \
+	"$(WAILS)" dev -ldflags "$(CHANNEL_LDFLAGS)"
 
 # 构建生产版本(默认当前平台；可用 WAILS_PLATFORM 跨平台构建)。
 # wails build 之后把 agrctl 伴随 CLI 放进最终位置：mac 进 .app bundle(随 ditto 安装带走)，
 # win/linux 与主二进制同目录。app 启动时从这里拷到 <AppDataDir>/bin 并把 PostToolUse hook 指向它。
 # 注：跨平台构建(WAILS_PLATFORM)时 agrctl 仍按宿主工具链编译，跨平台打包为 follow-up。
+# 渠道身份：wails.json 的 productName 在构建期间临时改成渠道显示名（Windows 产品名、NSIS
+# 安装目录/卸载项/快捷方式都取它），无论构建成败还是被 Ctrl-C 中断都还原（dash 被信号杀死时
+# 不跑 EXIT trap，所以与 dev 一样同时 trap INT/TERM/HUP）；mac 上构建后把 bundle 改名为
+# "<显示名>.app"、改 bundle id 并重新 ad-hoc 签名。
 build:
-	"$(WAILS)" build -ldflags="$(LDFLAGS)" $(if $(strip $(WAILS_PLATFORM)),-platform "$(WAILS_PLATFORM)") $(WAILS_BUILD_FLAGS)
+	@backup="$$(mktemp)" && cp wails.json "$$backup" && \
+	trap 'if [ -f "$$backup" ]; then cp "$$backup" wails.json; rm -f "$$backup"; fi' EXIT INT TERM HUP && \
+	bash $(CHANNEL_IDENTITY) $(BUILD_CHANNEL) wails-json wails.json && \
+	"$(WAILS)" build -ldflags="$(APP_LDFLAGS)" $(if $(strip $(WAILS_PLATFORM)),-platform "$(WAILS_PLATFORM)") $(WAILS_BUILD_FLAGS)
 ifeq ($(UNAME_S),Darwin)
-	go build -ldflags="$(LDFLAGS)" -o "build/bin/$(APP_NAME).app/Contents/MacOS/agrctl" ./cmd/agrctl
+	go build -ldflags="$(APP_LDFLAGS)" -o "build/bin/$(APP_NAME).app/Contents/MacOS/agrctl" ./cmd/agrctl
+	bash $(CHANNEL_IDENTITY) $(BUILD_CHANNEL) macos-bundle "build/bin/$(APP_NAME).app"
 else
-	go build -ldflags="$(LDFLAGS)" -o "build/bin/agrctl$(EXE)" ./cmd/agrctl
+	go build -ldflags="$(APP_LDFLAGS)" -o "build/bin/agrctl$(EXE)" ./cmd/agrctl
 endif
 
 # 构建 agrctl 伴随 CLI(当前平台，独立产物，供 dev/手动)
 agrctl:
 	mkdir -p "$(AGENTRED_BUILD_DIR)"
-	go build -ldflags="$(LDFLAGS)" -o "$(AGRCTL_BINARY)" ./cmd/agrctl
+	go build -ldflags="$(APP_LDFLAGS)" -o "$(AGRCTL_BINARY)" ./cmd/agrctl
 
 # 构建 agentred(当前平台)
 agentred:
@@ -114,7 +143,7 @@ generate:
 # 直接启动应用(生产构建,不监听文件变动)
 run: build
 ifeq ($(UNAME_S),Darwin)
-	open build/bin/$(APP_NAME).app
+	open "build/bin/$(CHANNEL_DISPLAY_NAME).app"
 else ifeq ($(OS),Windows_NT)
 	./build/bin/$(APP_NAME).exe
 else
@@ -130,19 +159,21 @@ install: build
 ifeq ($(UNAME_S),Darwin)
 	@if [ -w "$(MACOS_APP_INSTALL_DIR)" ]; then \
 		mkdir -p "$(MACOS_APP_INSTALL_DIR)"; \
-		ditto "build/bin/$(APP_NAME).app" "$(MACOS_APP_INSTALL_DIR)/$(APP_NAME).app"; \
+		ditto "build/bin/$(CHANNEL_DISPLAY_NAME).app" "$(MACOS_APP_INSTALL_DIR)/$(CHANNEL_DISPLAY_NAME).app"; \
 	else \
 		sudo mkdir -p "$(MACOS_APP_INSTALL_DIR)"; \
-		sudo ditto "build/bin/$(APP_NAME).app" "$(MACOS_APP_INSTALL_DIR)/$(APP_NAME).app"; \
+		sudo ditto "build/bin/$(CHANNEL_DISPLAY_NAME).app" "$(MACOS_APP_INSTALL_DIR)/$(CHANNEL_DISPLAY_NAME).app"; \
 	fi
-	@echo "已安装到 $(MACOS_APP_INSTALL_DIR)/$(APP_NAME).app"
+	@echo "已安装到 $(MACOS_APP_INSTALL_DIR)/$(CHANNEL_DISPLAY_NAME).app"
 else ifeq ($(OS),Windows_NT)
 	@echo "Windows 安装暂未自动化；请运行 make build 后复制 build/bin/$(APP_NAME).exe。"
 	@exit 1
 else
-	install -Dm755 "build/bin/$(APP_NAME)" "$(DESTDIR)$(PREFIX)/bin/$(APP_NAME)"
-	install -Dm755 "build/bin/agrctl" "$(DESTDIR)$(PREFIX)/bin/agrctl"
-	@echo "已安装到 $(DESTDIR)$(PREFIX)/bin/$(APP_NAME)（含 agrctl 伴随 CLI）"
+	install -Dm755 "build/bin/$(APP_NAME)" "$(DESTDIR)$(PREFIX)/lib/$(CHANNEL_LINUX_COMMAND)/$(CHANNEL_LINUX_COMMAND)"
+	install -Dm755 "build/bin/agrctl" "$(DESTDIR)$(PREFIX)/lib/$(CHANNEL_LINUX_COMMAND)/agrctl"
+	mkdir -p "$(DESTDIR)$(PREFIX)/bin"
+	ln -sfn "../lib/$(CHANNEL_LINUX_COMMAND)/$(CHANNEL_LINUX_COMMAND)" "$(DESTDIR)$(PREFIX)/bin/$(CHANNEL_LINUX_COMMAND)"
+	@echo "已安装到 $(DESTDIR)$(PREFIX)/bin/$(CHANNEL_LINUX_COMMAND)（agrctl 伴随 CLI 与主程序同在 lib/$(CHANNEL_LINUX_COMMAND)，各渠道互不覆盖）"
 endif
 
 # 运行前后端测试
@@ -199,7 +230,7 @@ test-cover:
 # 发布资产与安装脚本的聚焦测试。
 test-agentred-packaging:
 	bash scripts/test-install.sh
-	@if command -v pwsh >/dev/null 2>&1; then pwsh -NoProfile -File scripts/test-install.ps1; else echo "pwsh not found; install.ps1 runs on the Windows CI job"; fi
+	@if command -v pwsh >/dev/null 2>&1; then pwsh -NoProfile -File scripts/test-install.ps1; else echo "本机没有 pwsh，跳过了 install.ps1（要验它就找一台 Windows 手动跑这个目标）"; fi
 
 # 前后端代码检查
 lint: lint-backend lint-frontend

@@ -4,8 +4,15 @@ import { Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
-import { Badge, Button, copyTextWithToast } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import {
+  Badge,
+  Button,
+  copyTextWithToast,
+  formatRelativeTime,
+} from "@agentre-hub/agentre-ui";
+import { cn } from "@agentre-hub/agentre-ui";
+
+import { useUpdateStore } from "@/stores/update-store";
 
 import { agentredVersionState, isProtocolRefusal } from "./agentred-version";
 import { DeviceActionMenu } from "./device-action-menu";
@@ -22,7 +29,7 @@ import {
 } from "./device-row-upgrade";
 import { DevicePortForward } from "./device-port-forward";
 import { DeviceProvidersSync } from "./device-providers-sync";
-import { relativeTime, friendlyLastError } from "./format";
+import { friendlyLastError } from "./format";
 import { useDeviceUpgrade } from "./use-device-upgrade";
 import type { DevicePath, DeviceRowModel } from "./use-remote-devices";
 
@@ -164,11 +171,18 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
   // deviceId=0 是账号独有行(没有 lan)的占位:菜单里不会画出升级项,状态机因此
   // 永远不会被触发,给一个稳定的非法 id 只是为了满足 Hooks 的固定调用顺序。
   const upgrade = useDeviceUpgrade(lan?.id ?? 0, lan?.daemonVersion ?? "");
+  // 桌面端自己的构建渠道(来自 AppInfo.channel,App.tsx 写入 update-store —— 单一
+  // 来源,这里不重复取数),决定一键升级这一整项在 Dev 里要不要出现(决策 9)。
+  const buildChannel = useUpdateStore((s) => s.channel);
+  const upgradeEntry = lan
+    ? upgradeMenuItem(versionState, upgrade.phase, upgrade, t, buildChannel)
+    : undefined;
   // 可复制的命令跟着升级项一起进菜单,不按状态二选一(决策 18):一键升级够不着的
-  // 那些时候它是唯一的出口,而入口时有时无会让人怀疑自己记错了位置。
-  const upgradeItem = lan
+  // 那些时候它是唯一的出口,而入口时有时无会让人怀疑自己记错了位置。Dev 没有一键
+  // 升级这个功能整体(决策 9),两者一起不出现。
+  const upgradeItem = upgradeEntry
     ? {
-        ...upgradeMenuItem(versionState, upgrade.phase, upgrade, t),
+        ...upgradeEntry,
         onCopyCommand: () => {
           void copyTextWithToast(t("remoteDevices.upgrade.command"), {
             successTitle: t("remoteDevices.upgrade.copySuccess"),
@@ -228,7 +242,7 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
                   <span className="mx-2">·</span>
                   {device.lastSeenAt > 0
                     ? t("remoteDevices.status.lastConnected", {
-                        time: relativeTime(device.lastSeenAt, now, t),
+                        time: formatRelativeTime(device.lastSeenAt, now, t),
                       })
                     : t("remoteDevices.status.neverConnected")}
                 </>
@@ -279,7 +293,7 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
           offlineDetail={
             device.lastSeenAt > 0
               ? t("remoteDevices.status.lastConnected", {
-                  time: relativeTime(device.lastSeenAt, now, t),
+                  time: formatRelativeTime(device.lastSeenAt, now, t),
                 })
               : undefined
           }

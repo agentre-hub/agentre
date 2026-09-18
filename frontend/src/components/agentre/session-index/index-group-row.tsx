@@ -9,10 +9,9 @@ import {
   FreeGroupHeader,
   ImportLocalSessionMenu,
   MachineGroupHeader,
-  OwnSessionsHeader,
+  ProjectSessionGroup,
   RowLeadingSlot,
   RowSecondaryLine,
-  SessionGroup,
   useUiTranslation,
   type ImportDialogPrefill,
   type ProjectGlyphInfo,
@@ -32,9 +31,6 @@ import type { MachineRosterEntry } from "./machine-roster";
 import { ProjectGroupHeader } from "./project-group-header";
 import type { IndexGroup } from "./use-index-groups";
 import { useGroupRows } from "./use-group-rows";
-
-/** 稳定的空列表：会话下沉进内层组时外层传它，别每次渲染新建一个数组。 */
-const NO_SESSIONS: AgentSession[] = [];
 
 export type IndexGroupHandlers = {
   onSessionSelect: (sessionID: number, opts?: { newTab?: boolean }) => void;
@@ -408,56 +404,24 @@ export function IndexGroupRow({
     return null;
   };
 
-  // 父项目同时有自己的会话和子项目时，把自己的会话下沉进一个可独立折叠的内层组
-  // （`project:<id>:sessions`）。共用父级那一个箭头会把两者绑死 —— 会话多的父项目
-  // 会把子项目整个挤出视野，而那正是这个子分组存在的理由。
-  const nestOwnSessions =
-    group.kind === "project" &&
-    children != null &&
-    decoratedSessions.length > 0;
-
+  // 父项目同时有自己的会话和子项目时，自己的会话下沉进可独立折叠的子分组 ——
+  // 判定与布局都在包的 ProjectSessionGroup 里（server 控制台用的同一份）。
   return (
-    <SessionGroup
+    <ProjectSessionGroup
       persistenceKey={group.kind === "flat" ? undefined : group.key}
       // 项目 / 随手对话 / 时间轴默认展开 —— 合并前项目页就是展开的，改成折叠等于
       // 首次启动看到一棵全关的文件夹树。只有 Agent 组保持折叠（对话页的旧行为）。
       defaultExpanded
       renderHeader={renderHeader}
       selectedSessionId={selectedSessionIDStr}
-      sessions={nestOwnSessions ? NO_SESSIONS : decoratedSessions}
-      attentionSessions={nestOwnSessions ? NO_SESSIONS : decoratedAttention}
-      // 折叠态气泡留在**外层**：把父项目整卡收起来时，要冒的是整棵子树的
-      // attention，内层那个组头这时候根本不在屏幕上。
+      sessions={decoratedSessions}
+      attentionSessions={decoratedAttention}
       collapsedAttentionSessions={collapsedAttention}
-      totalSessions={nestOwnSessions ? undefined : overflow}
-      renderSessionsPopover={nestOwnSessions ? undefined : sessionsPopover}
-      renderAfterSessions={
-        nestOwnSessions ? (
-          <>
-            <SessionGroup
-              persistenceKey={`${group.key}:sessions`}
-              defaultExpanded
-              renderHeader={({ expanded, toggle }) => (
-                <OwnSessionsHeader
-                  name={project?.name ?? ""}
-                  count={ownSessionsCount}
-                  expanded={expanded}
-                  onToggle={toggle}
-                />
-              )}
-              selectedSessionId={selectedSessionIDStr}
-              sessions={decoratedSessions}
-              attentionSessions={decoratedAttention}
-              totalSessions={overflow}
-              renderSessionsPopover={sessionsPopover}
-              {...rowHandlers}
-            />
-            {children}
-          </>
-        ) : (
-          children
-        )
-      }
+      totalSessions={overflow}
+      renderSessionsPopover={sessionsPopover}
+      subprojects={group.kind === "project" ? children : undefined}
+      ownSessionsName={project?.name ?? ""}
+      ownSessionsCount={ownSessionsCount}
       emptyLabel={
         group.kind === "free"
           ? t("sessionIndex.free.empty")

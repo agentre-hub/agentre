@@ -11,7 +11,7 @@ import { cn } from "../lib/utils";
  * 某个 Agent 或某个项目。
  */
 const NEUTRAL_GLYPH_CLASS_NAME =
-  "inline-flex size-3.5 shrink-0 items-center justify-center rounded-sm bg-secondary text-[8px] font-semibold text-secondary-foreground";
+  "inline-flex size-3.5 shrink-0 items-center justify-center rounded-[3.5px] bg-secondary text-[9px] font-semibold text-secondary-foreground";
 
 export type NeutralGlyphProps = {
   className?: string;

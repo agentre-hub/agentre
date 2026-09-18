@@ -34,7 +34,7 @@ func TestBuildClaudeCodeEnv(t *testing.T) {
 			ModelRoutes:    `{"OPUS":{"providerKey":"key-opus"}}`,
 			EnvJSON:        `{"ANTHROPIC_LOG":"info"}`,
 		}
-		env, err := buildClaudeCodeEnv(b, ProbeDeps{
+		env, err := agentruntime.BuildClaudeCodeEnv(b, agentruntime.CLIDeps{
 			Token:      "tok-1",
 			GatewayURL: "http://127.0.0.1:60080",
 		})
@@ -59,7 +59,7 @@ func TestBuildClaudeCodeEnv(t *testing.T) {
 			LLMProviderKey: "key-1",
 			ModelRoutes:    `{"OPUS":{"providerKey":"key-opus"},"SONNET":{"providerKey":"key-sonnet"},"HAIKU":{"providerKey":"key-haiku"}}`,
 		}
-		env, err := buildClaudeCodeEnv(b, ProbeDeps{
+		env, err := agentruntime.BuildClaudeCodeEnv(b, agentruntime.CLIDeps{
 			Token:      "tok",
 			GatewayURL: "http://127.0.0.1:1",
 		})
@@ -71,7 +71,7 @@ func TestBuildClaudeCodeEnv(t *testing.T) {
 
 	t.Run("model_routes 不含 alias 时不注入 ANTHROPIC_DEFAULT_* 系列", func(t *testing.T) {
 		b := &agent_backend_entity.AgentBackend{LLMProviderKey: "key-1"}
-		env, err := buildClaudeCodeEnv(b, ProbeDeps{
+		env, err := agentruntime.BuildClaudeCodeEnv(b, agentruntime.CLIDeps{
 			Token:      "tok",
 			GatewayURL: "http://127.0.0.1:1",
 		})
@@ -91,7 +91,7 @@ func TestBuildClaudeCodeEnv(t *testing.T) {
 			LLMProviderKey: "key-1",
 			EnvJSON:        `{"ANTHROPIC_LOG":"debug"}`,
 		}
-		env, err := buildClaudeCodeEnv(b, ProbeDeps{})
+		env, err := agentruntime.BuildClaudeCodeEnv(b, agentruntime.CLIDeps{})
 		assert.NoError(t, err)
 		_, hasBase := env["ANTHROPIC_BASE_URL"]
 		_, hasKey := env["ANTHROPIC_API_KEY"]
@@ -108,7 +108,7 @@ func TestBuildClaudeCodeEnv(t *testing.T) {
 	// 这才是 anthropic 文档里压 OAuth、转向自定义代理的标准开关。
 	t.Run("有 gateway 时用 AUTH_TOKEN 走 Bearer 压 OAuth，不写 API_KEY 避免 header 冲突", func(t *testing.T) {
 		b := &agent_backend_entity.AgentBackend{LLMProviderKey: "key-1"}
-		env, err := buildClaudeCodeEnv(b, ProbeDeps{
+		env, err := agentruntime.BuildClaudeCodeEnv(b, agentruntime.CLIDeps{
 			Token:      "tok-bearer",
 			GatewayURL: "http://127.0.0.1:60080",
 		})
@@ -277,7 +277,7 @@ func TestBuildPiAgentProviderProbe(t *testing.T) {
 			So(filepath.Base(ext), ShouldEndWith, ".mjs")
 			_, statErr := os.Stat(ext)
 			So(statErr, ShouldBeNil)
-			// env 在 buildPiAgentEnv 产出的 base 之上叠加 APIKey，不改入参 map。
+			// env 在 agentruntime.BuildPiAgentEnv 产出的 base 之上叠加 APIKey，不改入参 map。
 			So(envOut["BASE"], ShouldEqual, "1")
 			So(envOut["AGENTRE_PI_API_KEY_keypi"], ShouldEqual, "sk-pi-1")
 			// 决策 #4：扩展文件只含 $ENV_VAR 引用，绝不含明文 APIKey。
@@ -405,7 +405,7 @@ func TestBuildCodexEnv(t *testing.T) {
 		b := &agent_backend_entity.AgentBackend{
 			EnvJSON: `{"OPENAI_ORGANIZATION":"acme"}`,
 		}
-		env, err := buildCodexEnv(b, ProbeDeps{
+		env, err := agentruntime.BuildCodexEnv(b, agentruntime.CLIDeps{
 			Token:      "tok-2",
 			GatewayURL: "http://127.0.0.1:60080",
 		})
@@ -420,7 +420,7 @@ func TestBuildCodexEnv(t *testing.T) {
 		b := &agent_backend_entity.AgentBackend{
 			EnvJSON: `{"OPENAI_ORGANIZATION":"acme"}`,
 		}
-		env, err := buildCodexEnv(b, ProbeDeps{})
+		env, err := agentruntime.BuildCodexEnv(b, agentruntime.CLIDeps{})
 		assert.NoError(t, err)
 		_, hasBase := env["OPENAI_BASE_URL"]
 		_, hasKey := env["OPENAI_API_KEY"]

@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"strings"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
@@ -41,9 +40,6 @@ type Forwarder struct {
 func NewForwarder(tokens *TokenRegistry, lookup ProviderLookup) *Forwarder {
 	return &Forwarder{tokens: tokens, lookup: lookup}
 }
-
-// Tokens 返回转发器持有的 token registry。
-func (f *Forwarder) Tokens() *TokenRegistry { return f.tokens }
 
 // AnthropicHandler /v1/messages → 严格匹配 type=anthropic。
 func (f *Forwarder) AnthropicHandler() http.HandlerFunc {
@@ -111,7 +107,7 @@ func (f *Forwarder) handle(expected llm_provider_entity.ProviderType) http.Handl
 			return
 		}
 
-		target, err := buildTargetURL(provider.BaseURL, r.URL.Path, expected)
+		target, err := llmurl.Build(provider.BaseURL, r.URL.Path)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "build upstream URL: "+err.Error())
 			return
@@ -230,19 +226,6 @@ func rewriteModelField(body []byte, newModel string) ([]byte, error) {
 	}
 	obj["model"] = newModel
 	return json.Marshal(obj)
-}
-
-// buildTargetURL 根据 provider.BaseURL + 请求路径拼上游 URL。
-//
-// BaseURL 形态都接受：
-//   - "https://api.anthropic.com"          → + "/v1/messages" → "https://api.anthropic.com/v1/messages"
-//   - "https://api.anthropic.com/v1"       → 同上
-//   - "https://api.anthropic.com/v1/"      → 同上
-//
-// 类型兜底：openai-chat 走 chat/completions，openai-response 走 responses；
-// anthropic 仅识别 /v1/messages；若 BaseURL 已带 /v1 后缀会被剥掉再拼，避免重复。
-func buildTargetURL(baseURL, path string, _ llm_provider_entity.ProviderType) (*url.URL, error) {
-	return llmurl.Build(baseURL, path)
 }
 
 // writeJSONError 输出 `{"error":"..."}` 的 JSON 错误响应。

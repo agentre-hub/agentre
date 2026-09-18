@@ -99,6 +99,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
+      CHANNEL: nightly
     strategy:
       fail-fast: false
       matrix:
@@ -191,18 +192,37 @@ jobs:
         shell: bash
         run: echo "APP_VERSION=${VERSION#v}" >> "$GITHUB_ENV"
 
+      # 渠道身份只从 paths.Channel.Identity 读一次，脚本与本地 make build 共用同一份，
+      # 详见 scripts/channel-identity.sh。checkout 本身是一次性的，不需要还原 wails.json。
+      - name: Resolve channel identity
+        shell: bash
+        run: |
+          echo "CHANNEL_DISPLAY_NAME=$(bash scripts/channel-identity.sh "$CHANNEL" get display-name)" >> "$GITHUB_ENV"
+          echo "CHANNEL_ASSET_PREFIX=$(bash scripts/channel-identity.sh "$CHANNEL" get release-asset-prefix)" >> "$GITHUB_ENV"
+          echo "CHANNEL_LINUX_COMMAND=$(bash scripts/channel-identity.sh "$CHANNEL" get linux-command)" >> "$GITHUB_ENV"
+
+      - name: Apply channel identity to wails.json
+        shell: bash
+        run: bash scripts/channel-identity.sh "$CHANNEL" wails-json wails.json
+
       - name: Build desktop app
         if: matrix.goos != 'windows'
         run: |
           if [ -n "${{ matrix.extra_tags }}" ]; then
-            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ needs.prepare.outputs.sha }}" -tags "${{ matrix.extra_tags }}"
+            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ needs.prepare.outputs.sha }} -X github.com/agentre-hub/agentre/internal/pkg/paths.buildChannel=$CHANNEL" -tags "${{ matrix.extra_tags }}"
           else
-            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ needs.prepare.outputs.sha }}"
+            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ needs.prepare.outputs.sha }} -X github.com/agentre-hub/agentre/internal/pkg/paths.buildChannel=$CHANNEL"
           fi
 
       - name: Build desktop app (Windows)
         if: matrix.goos == 'windows'
-        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$env:APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ needs.prepare.outputs.sha }}"
+        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$env:APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ needs.prepare.outputs.sha }} -X github.com/agentre-hub/agentre/internal/pkg/paths.buildChannel=$env:CHANNEL"
+
+      # macos-bundle 把 wails 固定产出的 .app 改名/改 bundle id 为本渠道
+      # 身份并 ad-hoc 签名；下面的真证书签名在这份改名后的 bundle 上覆盖签一次。
+      - name: Apply channel identity to macOS bundle
+        if: matrix.goos == 'darwin'
+        run: bash scripts/channel-identity.sh "$CHANNEL" macos-bundle "build/bin/Agentre.app"
 
       - name: Import Apple certificate
         if: matrix.goos == 'darwin'
@@ -230,18 +250,18 @@ jobs:
         if: matrix.goos == 'darwin'
         run: |
           if [ -n "$SIGNING_IDENTITY" ]; then
-            codesign --force --deep --sign "$SIGNING_IDENTITY" --options runtime --entitlements build/darwin/entitlements.plist build/bin/Agentre.app
+            codesign --force --deep --sign "$SIGNING_IDENTITY" --options runtime --entitlements build/darwin/entitlements.plist "build/bin/$CHANNEL_DISPLAY_NAME.app"
           else
-            codesign --force --deep --sign - build/bin/Agentre.app
+            codesign --force --deep --sign - "build/bin/$CHANNEL_DISPLAY_NAME.app"
           fi
 
       - name: Package (macOS dmg)
         if: matrix.goos == 'darwin'
         run: |
           DMG_SRC=$(mktemp -d)
-          cp -R build/bin/Agentre.app "$DMG_SRC/"
+          cp -R "build/bin/$CHANNEL_DISPLAY_NAME.app" "$DMG_SRC/"
           ln -s /Applications "$DMG_SRC/Applications"
-          hdiutil create -volname "Agentre" -srcfolder "$DMG_SRC" -ov -format UDZO agentre-${VERSION}-${{ matrix.platform }}.dmg
+          hdiutil create -volname "$CHANNEL_DISPLAY_NAME" -srcfolder "$DMG_SRC" -ov -format UDZO "${CHANNEL_ASSET_PREFIX}${VERSION}-${{ matrix.platform }}.dmg"
           rm -rf "$DMG_SRC"
 
       - name: Notarize macOS DMG
@@ -255,12 +275,13 @@ jobs:
             echo "No signing identity, skipping notarization"
             exit 0
           fi
-          xcrun notarytool submit agentre-${VERSION}-${{ matrix.platform }}.dmg \
+          DMG="${CHANNEL_ASSET_PREFIX}${VERSION}-${{ matrix.platform }}.dmg"
+          xcrun notarytool submit "$DMG" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_ID_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait
-          xcrun stapler staple agentre-${VERSION}-${{ matrix.platform }}.dmg
+          xcrun stapler staple "$DMG"
 
       - name: Package (Linux deb)
         if: matrix.goos == 'linux'
@@ -270,10 +291,10 @@ jobs:
           mkdir -p ${PKG_ROOT}/usr/bin
           mkdir -p ${PKG_ROOT}/usr/share/applications
           mkdir -p ${PKG_ROOT}/usr/share/icons/hicolor/256x256/apps
-          cp build/bin/Agentre ${PKG_ROOT}/usr/bin/agentre
-          cp build/appicon.png ${PKG_ROOT}/usr/share/icons/hicolor/256x256/apps/agentre.png
+          cp build/bin/Agentre ${PKG_ROOT}/usr/bin/${CHANNEL_LINUX_COMMAND}
+          cp build/appicon.png ${PKG_ROOT}/usr/share/icons/hicolor/256x256/apps/${CHANNEL_LINUX_COMMAND}.png
           cat > ${PKG_ROOT}/DEBIAN/control << CTRL
-          Package: agentre
+          Package: ${CHANNEL_LINUX_COMMAND}
           Version: $(echo "${VERSION#v}" | tr '-' '~')
           Section: utils
           Priority: optional
@@ -282,26 +303,26 @@ jobs:
           Description: AgentRe desktop application
           CTRL
           sed -i 's/^          //' ${PKG_ROOT}/DEBIAN/control
-          cat > ${PKG_ROOT}/usr/share/applications/agentre.desktop << DESK
+          cat > ${PKG_ROOT}/usr/share/applications/${CHANNEL_LINUX_COMMAND}.desktop << DESK
           [Desktop Entry]
-          Name=Agentre
-          Exec=/usr/bin/agentre
-          Icon=agentre
+          Name=$CHANNEL_DISPLAY_NAME
+          Exec=/usr/bin/${CHANNEL_LINUX_COMMAND}
+          Icon=${CHANNEL_LINUX_COMMAND}
           Type=Application
           Categories=Utility;
           DESK
-          sed -i 's/^          //' ${PKG_ROOT}/usr/share/applications/agentre.desktop
-          dpkg-deb --build ${PKG_ROOT} agentre-${VERSION}-${{ matrix.platform }}.deb
+          sed -i 's/^          //' ${PKG_ROOT}/usr/share/applications/${CHANNEL_LINUX_COMMAND}.desktop
+          dpkg-deb --build ${PKG_ROOT} "${CHANNEL_ASSET_PREFIX}${VERSION}-${{ matrix.platform }}.deb"
 
       - name: Package (Windows installer)
         if: matrix.goos == 'windows'
         shell: pwsh
-        run: Move-Item "build\bin\Agentre-${{ matrix.goarch }}-installer.exe" "agentre-$($env:VERSION)-${{ matrix.platform }}-installer.exe"
+        run: Move-Item "build\bin\Agentre-${{ matrix.goarch }}-installer.exe" "$env:CHANNEL_ASSET_PREFIX$($env:VERSION)-${{ matrix.platform }}-installer.exe"
 
       - uses: actions/upload-artifact@v7
         with:
           name: nightly-agentre-${{ matrix.platform }}
-          path: agentre-${{ env.VERSION }}-${{ matrix.platform }}*
+          path: ${{ env.CHANNEL_ASSET_PREFIX }}${{ env.VERSION }}-${{ matrix.platform }}*
 
   build-agentred:
     name: agentred (${{ matrix.platform }})

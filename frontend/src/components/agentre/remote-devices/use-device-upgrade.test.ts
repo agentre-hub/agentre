@@ -41,7 +41,7 @@ describe("useDeviceUpgrade", () => {
     });
 
     expect(result.current.phase.kind).toBe("upgrading");
-    expect(mockUpgrade).toHaveBeenCalledWith(42, "", false);
+    expect(mockUpgrade).toHaveBeenCalledWith(42, false);
   });
 
   it("resolves to success once a poll reports a different version", async () => {
@@ -109,7 +109,7 @@ describe("useDeviceUpgrade", () => {
     });
 
     expect(mockUpgrade).toHaveBeenCalledTimes(2);
-    expect(mockUpgrade).toHaveBeenLastCalledWith(42, "", true);
+    expect(mockUpgrade).toHaveBeenLastCalledWith(42, true);
     expect(result.current.phase.kind).toBe("upgrading");
   });
 });

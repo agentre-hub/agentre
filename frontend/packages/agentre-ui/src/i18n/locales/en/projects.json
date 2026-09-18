@@ -187,7 +187,9 @@
     "moreLabels": "{{count}} more labels",
     "hasDescription": "Has a description",
     "empty": {
-      "noTasks": "No tasks in this project yet",
+      "noTasks": "No tasks yet",
+      "noTasksInProject": "No tasks in {{scope}} yet",
+      "noTasksUnassigned": "No tasks without a project yet",
       "noMatches": "No tasks match your filters",
       "newTask": "New task",
       "clearFilters": "Clear filters"

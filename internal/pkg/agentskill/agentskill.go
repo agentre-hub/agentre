@@ -14,7 +14,6 @@ type Source string
 const (
 	SourceRecommended Source = "recommended" // agentre 精选、当前未安装
 	SourceInstalled   Source = "installed"   // 该 backend 安装命中
-	SourceAvailable   Source = "available"   // marketplace 可装、未装
 )
 
 // SkillPack 一个技能包(= 一个 Claude Code plugin)。ID = "name@marketplace"。
@@ -51,8 +50,7 @@ func RecommendedFor(t agent_backend_entity.BackendType) []SkillPack {
 
 // DiscoverQuery 发现入参。
 type DiscoverQuery struct {
-	BackendType agent_backend_entity.BackendType
-	CLIPath     string // 定位该 claude 安装(空 = 默认 binary)
+	CLIPath string // 定位该 claude 安装(空 = 默认 binary)
 }
 
 // Discoverer 按 backend 枚举已安装技能包(消费者侧窄接口)。
@@ -70,7 +68,6 @@ type SkillCommand struct {
 // CommandDiscoverQuery carries the launch context needed for a CLI to resolve
 // its effective user/project/plugin skill set without mutating shared config.
 type CommandDiscoverQuery struct {
-	BackendType    agent_backend_entity.BackendType
 	CLIPath        string
 	Cwd            string
 	EnabledPlugins map[string]bool

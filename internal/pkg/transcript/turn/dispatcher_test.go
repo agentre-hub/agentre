@@ -17,7 +17,7 @@ type fakeHandler struct {
 	saw    agentruntime.Event
 }
 
-func (f *fakeHandler) Apply(_ context.Context, ev agentruntime.Event, _ *Accumulator, _ Emitter, _ View, _ *TurnContext) error {
+func (f *fakeHandler) Apply(_ context.Context, ev agentruntime.Event, _ *Accumulator, _ Emitter, _ *TurnContext) error {
 	f.called++
 	f.saw = ev
 	return f.err
@@ -31,7 +31,7 @@ func TestDispatcher_RoutesByEventType(t *testing.T) {
 		d.Register((*agentruntime.TextDelta)(nil), textH)
 		d.Register((*agentruntime.ToolCall)(nil), toolH)
 
-		err := d.Apply(context.Background(), agentruntime.TextDelta{Text: "hi"}, New(), nil, nil, nil)
+		err := d.Apply(context.Background(), agentruntime.TextDelta{Text: "hi"}, New(), nil, nil)
 		So(err, ShouldBeNil)
 		So(textH.called, ShouldEqual, 1)
 		So(toolH.called, ShouldEqual, 0)
@@ -41,7 +41,7 @@ func TestDispatcher_RoutesByEventType(t *testing.T) {
 func TestDispatcher_UnknownEventNoOp(t *testing.T) {
 	Convey("未注册 Event 类型默默丢弃(forward-compat)", t, func() {
 		d := NewDispatcher()
-		err := d.Apply(context.Background(), agentruntime.TextDelta{}, New(), nil, nil, nil)
+		err := d.Apply(context.Background(), agentruntime.TextDelta{}, New(), nil, nil)
 		So(err, ShouldBeNil)
 	})
 }
@@ -53,7 +53,7 @@ func TestDispatcher_PropagatesHandlerError(t *testing.T) {
 		h := &fakeHandler{err: boom}
 		d.Register((*agentruntime.Done)(nil), h)
 
-		err := d.Apply(context.Background(), agentruntime.Done{}, New(), nil, nil, nil)
+		err := d.Apply(context.Background(), agentruntime.Done{}, New(), nil, nil)
 		So(err, ShouldEqual, boom)
 	})
 }
@@ -61,7 +61,7 @@ func TestDispatcher_PropagatesHandlerError(t *testing.T) {
 func TestDispatcher_NilEventNoOp(t *testing.T) {
 	Convey("ev=nil 直接返 nil", t, func() {
 		d := NewDispatcher()
-		err := d.Apply(context.Background(), nil, New(), nil, nil, nil)
+		err := d.Apply(context.Background(), nil, New(), nil, nil)
 		So(err, ShouldBeNil)
 	})
 }
@@ -83,18 +83,18 @@ func TestDispatcher_DrivesTurnClock(t *testing.T) {
 
 		Convey("已注册的事件", func() {
 			d.Register((*agentruntime.TextDelta)(nil), &fakeHandler{})
-			So(d.Apply(context.Background(), agentruntime.TextDelta{Text: "hi"}, nil, nil, nil, tc), ShouldBeNil)
+			So(d.Apply(context.Background(), agentruntime.TextDelta{Text: "hi"}, nil, nil, tc), ShouldBeNil)
 			So(tc.FirstTokenAt.IsZero(), ShouldBeFalse)
 		})
 
 		Convey("未注册的事件同样动表", func() {
-			So(d.Apply(context.Background(), agentruntime.ToolCall{ID: "t1"}, nil, nil, nil, tc), ShouldBeNil)
+			So(d.Apply(context.Background(), agentruntime.ToolCall{ID: "t1"}, nil, nil, tc), ShouldBeNil)
 			So(tc.PendingTools, ShouldContainKey, "t1")
 		})
 
 		Convey("turnCtx 为 nil 不炸", func() {
 			So(func() {
-				_ = d.Apply(context.Background(), agentruntime.TextDelta{}, nil, nil, nil, nil)
+				_ = d.Apply(context.Background(), agentruntime.TextDelta{}, nil, nil, nil)
 			}, ShouldNotPanic)
 		})
 	})

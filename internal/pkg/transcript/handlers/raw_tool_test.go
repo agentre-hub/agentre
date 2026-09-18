@@ -22,8 +22,7 @@ func TestToolCallHandler_Outer(t *testing.T) {
 		err := ToolCallHandler{}.Apply(
 			context.Background(),
 			agentruntime.ToolCall{ID: "tu-1", Name: "X", Input: input},
-			acc, emit, nil, nil,
-		)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 		So(acc.HasToolUse("tu-1"), ShouldBeTrue)
 		So(emit.events, ShouldHaveLength, 1)
@@ -40,8 +39,7 @@ func TestToolCallHandler_Nested(t *testing.T) {
 		err := ToolCallHandler{}.Apply(
 			context.Background(),
 			agentruntime.ToolCall{ID: "n-1", Name: "Read", ParentToolCallID: "task-1", SubagentRunID: "run-1"},
-			acc, emit, nil, nil,
-		)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 		final := acc.Finalize()
 		So(final, ShouldHaveLength, 1)
@@ -57,8 +55,7 @@ func TestToolCallHandler_Nested(t *testing.T) {
 		err := ToolCallHandler{}.Apply(
 			context.Background(),
 			agentruntime.ToolCall{ID: "n-unknown", Name: "Read", ParentToolCallID: "task-1"},
-			acc, nil, nil, nil,
-		)
+			acc, nil, nil)
 		So(err, ShouldBeNil)
 		final := acc.Finalize()
 		So(final, ShouldHaveLength, 1)
@@ -77,8 +74,7 @@ func TestToolCallHandler_CanonicalKindInEmit(t *testing.T) {
 				ID: "tu-1", Name: "Write",
 				Canonical: canonical.FileWrite{Path: "/tmp/a", Content: "x"},
 			},
-			acc, emit, nil, nil,
-		)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 		p := emit.events[0].payload.(map[string]any)
 		So(p["canonicalKind"], ShouldEqual, string(canonical.KindFileWrite))
@@ -101,8 +97,7 @@ func TestToolCallHandler_CapturesPlanWrite(t *testing.T) {
 					Content: "# Plan\n1. step a\n",
 				},
 			},
-			acc, nil, nil, tc,
-		)
+			acc, nil, tc)
 		So(err, ShouldBeNil)
 		So(tc.LastPlanWriteContent, ShouldEqual, "# Plan\n1. step a\n")
 	})
@@ -115,8 +110,7 @@ func TestToolCallHandler_CapturesPlanWrite(t *testing.T) {
 				ID: "tu-other", Name: "Write",
 				Canonical: canonical.FileWrite{Path: "/tmp/a.md", Content: "noise"},
 			},
-			acc, nil, nil, tc,
-		)
+			acc, nil, tc)
 		So(err, ShouldBeNil)
 		So(tc.LastPlanWriteContent, ShouldEqual, "prev")
 	})
@@ -128,8 +122,7 @@ func TestToolCallHandler_CapturesPlanWrite(t *testing.T) {
 				ID: "tu-plan2", Name: "Write",
 				Canonical: canonical.FileWrite{Path: "/x/.claude/plans/y.md", Content: "p"},
 			},
-			acc, nil, nil, nil,
-		)
+			acc, nil, nil)
 		So(err, ShouldBeNil)
 	})
 }
@@ -140,8 +133,7 @@ func TestToolResultHandler_OrphanDropped(t *testing.T) {
 		err := ToolResultHandler{}.Apply(
 			context.Background(),
 			agentruntime.ToolResult{ToolCallID: "orphan", Content: "x"},
-			acc, nil, nil, nil,
-		)
+			acc, nil, nil)
 		So(err, ShouldBeNil)
 		So(acc.Finalize(), ShouldHaveLength, 0)
 	})
@@ -154,13 +146,11 @@ func TestToolResultHandler_WithPriorToolUse(t *testing.T) {
 		_ = ToolCallHandler{}.Apply(
 			context.Background(),
 			agentruntime.ToolCall{ID: "tu-1", Name: "Bash"},
-			acc, emit, nil, nil,
-		)
+			acc, emit, nil)
 		err := ToolResultHandler{}.Apply(
 			context.Background(),
 			agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"},
-			acc, emit, nil, nil,
-		)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 		// emit 应该有 tool_use + tool_result 2 条
 		So(emit.events, ShouldHaveLength, 2)
@@ -180,8 +170,7 @@ func TestToolResultHandler_WithPriorToolUse(t *testing.T) {
 			agentruntime.ToolResult{
 				ToolCallID: "n-1", Content: "ok", ParentToolCallID: "task-1", SubagentRunID: "run-1",
 			},
-			acc, emit, nil, nil,
-		)
+			acc, emit, nil)
 		So(err, ShouldBeNil)
 		final := acc.Finalize()
 		So(final, ShouldHaveLength, 1)

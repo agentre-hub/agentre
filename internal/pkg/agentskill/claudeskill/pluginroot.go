@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
 )
 
 // knownMarketplaces 映射 ~/.claude/plugins/known_marketplaces.json:
@@ -25,8 +27,8 @@ type marketplaceManifest struct {
 // splitPluginID 拆 `<plugin>@<marketplace>`。裸 id(无 @)→ 名即 id,marketplace 为空。
 func splitPluginID(id string) (name, marketplace string) {
 	id = strings.TrimSpace(id)
-	if i := strings.Index(id, "@"); i > 0 {
-		return id[:i], id[i+1:]
+	if name, marketplace, ok := strings.Cut(id, "@"); ok && name != "" {
+		return name, marketplace
 	}
 	return id, ""
 }
@@ -52,7 +54,7 @@ func (d Discoverer) pluginsRoot() string {
 // 按 id 的 @marketplace 段回落到 marketplace 清单声明的 source 目录 —— 与 CLI
 // 自己的加载口径一致。都不成立 → 空,由调用方降级成无 skill。
 func (d Discoverer) pluginRoot(r rawPlugin) string {
-	if installPath := strings.TrimSpace(r.InstallPath); isDir(installPath) {
+	if installPath := strings.TrimSpace(r.InstallPath); agentskill.IsDir(installPath) {
 		return installPath
 	}
 	return d.marketplacePluginRoot(r.ID)

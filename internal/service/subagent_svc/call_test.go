@@ -16,7 +16,7 @@ func TestCallAgent_HappyPath(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	agents := mock_subagent_svc.NewMockAgentGateway(ctrl)
 	chat := mock_subagent_svc.NewMockChatGateway(ctrl)
-	s := &subagentSvc{agents: agents, chat: chat, chains: map[int64][]int64{}}
+	s := newSubagentSvcForTest(agents, chat)
 
 	agents.EXPECT().FindByName(gomock.Any(), "Reviewer").Return(&agent_entity.Agent{ID: 20, Name: "Reviewer"}, nil)
 	// 调用方会话(100)的项目应被继承到子 agent 一次性会话。
@@ -54,7 +54,7 @@ func TestCallAgent_UnknownAgent(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	agents := mock_subagent_svc.NewMockAgentGateway(ctrl)
 	chat := mock_subagent_svc.NewMockChatGateway(ctrl)
-	s := &subagentSvc{agents: agents, chat: chat, chains: map[int64][]int64{}}
+	s := newSubagentSvcForTest(agents, chat)
 
 	agents.EXPECT().FindByName(gomock.Any(), "Ghost").Return(nil, nil)
 	if _, err := s.callAgent(context.Background(), agenttool.Ref{AgentID: 1, SessionID: 1}, "Ghost", "x"); err == nil {
@@ -66,7 +66,7 @@ func TestCallAgent_CycleRejected(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	agents := mock_subagent_svc.NewMockAgentGateway(ctrl)
 	chat := mock_subagent_svc.NewMockChatGateway(ctrl)
-	s := &subagentSvc{agents: agents, chat: chat, chains: map[int64][]int64{}}
+	s := newSubagentSvcForTest(agents, chat)
 	s.registerChain(100, []int64{20})
 	agents.EXPECT().FindByName(gomock.Any(), "Reviewer").Return(&agent_entity.Agent{ID: 20, Name: "Reviewer"}, nil)
 	// 环在建会话前拦截 —— SessionProjectID/EnsureSession 不应被调用。
@@ -79,7 +79,7 @@ func TestCallAgent_CtxCanceled(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	agents := mock_subagent_svc.NewMockAgentGateway(ctrl)
 	chat := mock_subagent_svc.NewMockChatGateway(ctrl)
-	s := &subagentSvc{agents: agents, chat: chat, chains: map[int64][]int64{}}
+	s := newSubagentSvcForTest(agents, chat)
 
 	agents.EXPECT().FindByName(gomock.Any(), "Slow").Return(&agent_entity.Agent{ID: 20, Name: "Slow"}, nil)
 	chat.EXPECT().SessionProjectID(gomock.Any(), int64(100)).Return(int64(0), nil)
@@ -100,7 +100,7 @@ func TestCallAgent_SubagentErr(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	agents := mock_subagent_svc.NewMockAgentGateway(ctrl)
 	chat := mock_subagent_svc.NewMockChatGateway(ctrl)
-	s := &subagentSvc{agents: agents, chat: chat, chains: map[int64][]int64{}}
+	s := newSubagentSvcForTest(agents, chat)
 
 	agents.EXPECT().FindByName(gomock.Any(), "R").Return(&agent_entity.Agent{ID: 20, Name: "R"}, nil)
 	chat.EXPECT().SessionProjectID(gomock.Any(), int64(100)).Return(int64(0), nil)

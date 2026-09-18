@@ -1,4 +1,4 @@
-// 设置页的「版本与更新」区块:当前版本、渠道、镜像源,以及检查更新与下载安装。
+// 设置页的「版本与更新」区块:当前版本(非正式版带渠道标签)、镜像源,以及检查更新与下载安装。
 //
 // 它的零件在 update-section/ 下:format(常量与格式化)、rows(设置行)、
 // cards(版本卡片)。
@@ -15,24 +15,21 @@ import {
 import { toast } from "sonner";
 
 import { Badge, Button } from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 
 import { Info as FetchAppInfo } from "../../../wailsjs/go/app/App";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
-import { useUpdateStore } from "@/stores/update-store";
+import { updatesOffered, useUpdateStore } from "@/stores/update-store";
 
 import {
   getAvailableMirrors,
   getBugReportInfo,
   getDebugLogging,
   getDownloadMirror,
-  getUpdateChannel,
   openLogsDir,
   setDebugLogging,
   setDownloadMirror,
-  setUpdateChannel,
   type MirrorInfo,
-  type UpdateChannel,
 } from "./update-api";
 
 import {
@@ -41,6 +38,7 @@ import {
   ErrorCard,
 } from "./update-section/cards";
 import {
+  BUILD_CHANNEL_LABEL,
   REPOSITORY_URL,
   MIRROR_CUSTOM_ID,
   formatVersion,
@@ -50,7 +48,6 @@ import {
   SectionHeader,
   RepositoryRow,
   DebugRow,
-  ChannelRow,
   MirrorRow,
 } from "./update-section/rows";
 
@@ -58,7 +55,6 @@ export function UpdateSection() {
   const { t } = useTranslation();
   const [appVersion, setAppVersion] = React.useState<string>("");
   const [appCommit, setAppCommit] = React.useState<string>("");
-  const [channel, setChannel] = React.useState<UpdateChannel>("stable");
   const [mirrors, setMirrors] = React.useState<MirrorInfo[]>([]);
   const [mirrorSelectValue, setMirrorSelectValue] =
     React.useState<string>("github");
@@ -66,6 +62,10 @@ export function UpdateSection() {
   const [debugEnabled, setDebugEnabled] = React.useState<boolean>(false);
   // 更新状态是全局唯一一份：状态栏胶囊、更新面板与本页读的是同一个 store。
   const phase = useUpdateStore((s) => s.phase);
+  // 渠道只由构建决定：与状态栏同读 store,Dev(或尚未知)不提供检查更新。
+  const channel = useUpdateStore((s) => s.channel);
+  const offered = useUpdateStore(updatesOffered);
+  const setBuildChannel = useUpdateStore((s) => s.setChannel);
   const runCheck = useUpdateStore((s) => s.check);
   const runDownload = useUpdateStore((s) => s.download);
   const runRestart = useUpdateStore((s) => s.restart);
@@ -78,18 +78,17 @@ export function UpdateSection() {
         if (cancelled) return;
         setAppVersion(info.version ?? "");
         setAppCommit(info.commit ?? "");
+        setBuildChannel(info.channel);
       } catch (err) {
         console.warn("fetch app info failed", err);
       }
 
       try {
-        const [ch, mr, ms] = await Promise.all([
-          getUpdateChannel(),
+        const [mr, ms] = await Promise.all([
           getDownloadMirror(),
           getAvailableMirrors(),
         ]);
         if (cancelled) return;
-        setChannel(ch);
         setMirrors(ms);
         const picked = pickMirrorOption(ms, mr);
         setMirrorSelectValue(picked.selectValue);
@@ -109,24 +108,7 @@ export function UpdateSection() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  const handleChannelChange = React.useCallback(
-    async (next: string) => {
-      const value = next as UpdateChannel;
-      setChannel(value);
-      try {
-        await setUpdateChannel(value);
-      } catch (err) {
-        console.warn("save update channel failed", err);
-        return;
-      }
-      // 切通道是用户主动动作,此刻他在等结果:立刻按新通道重查一次(绕过节流),
-      // 而不是把先前的结果清成「未知」让他自己再点一次。
-      await runCheck("manual");
-    },
-    [runCheck],
-  );
+  }, [setBuildChannel]);
 
   const persistMirror = React.useCallback(async (url: string) => {
     try {
@@ -237,6 +219,7 @@ export function UpdateSection() {
   })();
   const CheckIcon = checkButtonState.icon;
   const unknownVersionLabel = t("update.version.unknown");
+  const channelLabelKey = channel ? BUILD_CHANNEL_LABEL[channel] : undefined;
 
   return (
     <>
@@ -252,22 +235,28 @@ export function UpdateSection() {
               {t("update.currentVersion.description")}
             </p>
           </div>
-          <Badge
-            variant="secondary"
-            className="rounded-sm px-1.5 py-0 font-mono text-2xs font-medium"
-          >
-            {formatVersion(appVersion, unknownVersionLabel)}
-            {appCommit ? ` · ${appCommit}` : ""}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            <Badge
+              variant="secondary"
+              className="rounded-sm px-1.5 py-0 font-mono text-2xs font-medium"
+            >
+              {formatVersion(appVersion, unknownVersionLabel)}
+              {appCommit ? ` · ${appCommit}` : ""}
+            </Badge>
+            {channelLabelKey ? (
+              <Badge
+                data-testid="update-build-channel"
+                variant="outline"
+                className="rounded-sm px-1.5 py-0 text-2xs font-medium"
+              >
+                {t(channelLabelKey)}
+              </Badge>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex flex-col gap-4 p-4">
           <RepositoryRow />
-          <ChannelRow
-            channel={channel}
-            onChange={handleChannelChange}
-            disabled={phase.kind === "downloading"}
-          />
           <MirrorRow
             mirrors={mirrors}
             selectValue={mirrorSelectValue}
@@ -278,22 +267,24 @@ export function UpdateSection() {
             disabled={phase.kind === "downloading"}
           />
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              onClick={handleCheck}
-              disabled={checkButtonState.disabled}
-              variant="default"
-            >
-              <CheckIcon
-                aria-hidden="true"
-                className={cn(
-                  "size-4",
-                  checkButtonState.spin && "animate-spin",
-                )}
-              />
-              {checkButtonState.label}
-            </Button>
-            {phase.kind === "uptodate" ? (
+            {offered ? (
+              <Button
+                type="button"
+                onClick={handleCheck}
+                disabled={checkButtonState.disabled}
+                variant="default"
+              >
+                <CheckIcon
+                  aria-hidden="true"
+                  className={cn(
+                    "size-4",
+                    checkButtonState.spin && "animate-spin",
+                  )}
+                />
+                {checkButtonState.label}
+              </Button>
+            ) : null}
+            {offered && phase.kind === "uptodate" ? (
               <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                 <CheckCircle2 className="size-3.5 text-status-running" />
                 {t("update.status.upToDate")}

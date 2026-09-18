@@ -1,19 +1,16 @@
-// Package syncwire 是桌面端**本端**对工作区同步协议的入口（规格
-// docs/specs/2026-08-07-workspace-sync.md「双向同步的行为」）。
+// Package syncwire 承载桌面端**本端**对工作区同步协议的那几样东西：业务码的客户端
+// 表达（ErrResyncRequired / ErrCursorUnknown）与账号级实时通道的解码。
 //
-// 工作区里有两个叫 syncwire 的包，分工是清楚的：
-//   - github.com/agentre-hub/agentre/pkg/syncwire（独立 module）拥有协议本身——线上
-//     结构、对象类型词表、状态字面量、上限与载荷守卫。桌面端与 agentre-server 消费
-//     的是同一份定义。
-//   - 本包（internal/pkg/syncwire）是桌面端对它的**别名再导出层**，外加本端专属的
-//     那几样东西：业务码的客户端表达（ErrResyncRequired / ErrCursorUnknown）与账号级
-//     实时通道的解码。契约本身一律不在这里另起一份。
+// 协议本身——线上结构、对象类型词表、状态字面量、上限、载荷守卫与载荷类型——归共享
+// module github.com/agentre-hub/agentre/pkg/syncwire 所有，桌面端与 agentre-server
+// 消费的是同一份定义。本包不再对它做别名再导出：同步引擎
+// （internal/service/sync_svc）与网络出入口（internal/service/server_svc）直接
+// import 那个 module，载荷守卫由共享 module 在上行前与落库前分别强制执行。
 //
-// 它是一个叶子包：同步引擎（internal/service/sync_svc）与网络出入口
-// （internal/service/server_svc）都依赖它，因此两者之间不需要互相 import。
+// 它是一个叶子包：同步引擎与网络出入口都依赖它，因此两者之间不需要互相 import。
 //
 // 载荷里不出现任何桌面端的本地自增 ID：跨机引用一律是同步标识、agentred 指纹或
-// provider_key，全是字符串。GuardPayload 在上行前强制执行这条边界。
+// provider_key，全是字符串（pkg/syncwire.GuardPayload 是这条边界的唯一执行点）。
 package syncwire
 
 import (
@@ -22,94 +19,11 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	wire "github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
-// 线上契约归共享 module github.com/agentre-hub/agentre/pkg/syncwire 所有 —— 服务端
-// 与桌面端消费的是同一份定义。本包对它做别名再导出:五十多个调用点因此一行不用改,
-// 而「谁拥有这份契约」这个问题只有一个答案。
-//
-// 留在本包的是**本端专属**的东西:业务码的客户端表达(ErrResyncRequired /
-// ErrCursorUnknown)与账号级实时通道的解码。载荷守卫归契约所有(guard.go 只做别名再导出)。
-const (
-	KindProject         = wire.KindProject
-	KindDepartment      = wire.KindDepartment
-	KindAgent           = wire.KindAgent
-	KindAgentBackend    = wire.KindAgentBackend
-	KindAgentExecTarget = wire.KindAgentExecTarget
-	KindProjectAgent    = wire.KindProjectAgent
-	KindProjectLocation = wire.KindProjectLocation
-	KindLLMProvider     = wire.KindLLMProvider
-	KindAgentBackendCLI = wire.KindAgentBackendCLI
-	KindLabel           = wire.KindLabel
-	KindIssue           = wire.KindIssue
-	KindIssueLabel      = wire.KindIssueLabel
-)
-
-// Kinds 是同步组的全部对象类型,按「被引用者在前」排列;KindValid 按它判定成员资格。
-// 两者与常量一样归契约所有 —— 「哪些 kind 存在」在整个工作区只有一个答案。
-var Kinds = wire.Kinds
-
-// KindValid 见 pkg/syncwire.KindValid。
-func KindValid(kind string) bool { return wire.KindValid(kind) }
-
-const (
-	PushStatusAccepted = wire.PushStatusAccepted
-	PushStatusConflict = wire.PushStatusConflict
-	PushStatusRejected = wire.PushStatusRejected
-)
-
-// 单条拒绝的三个原因。
-const (
-	PushRejectReasonDeleted = wire.PushRejectReasonDeleted
-	PushRejectReasonKind    = wire.PushRejectReasonKind
-	PushRejectReasonPayload = wire.PushRejectReasonPayload
-)
-
-// CodeResyncRequired / CodeCursorUnknown 是 server 的两个业务码。
-const (
-	CodeResyncRequired = wire.CodeResyncRequired
-	CodeCursorUnknown  = wire.CodeCursorUnknown
-)
-
-// PushItem / PushResult / PullItem / PullPage 是线上结构本身。
-//
-// Payload 是 json.RawMessage(别名指向共享定义):[]byte 会被 encoding/json 编成 base64,
-// 编码就只能另找地方做。
-type (
-	PushItem   = wire.PushItem
-	PushResult = wire.PushResult
-	PullItem   = wire.PullItem
-	PullPage   = wire.PullPage
-)
-
-// 十二个 kind 的载荷类型,同样归契约所有 —— 同步对象 payload 的形状在整个工作区
-// 只有一份定义。
-//
-// server 同时是这些对象的一等写入方,所以载荷类型不能是某一端的私有结构体。字段含义、
-// 跨机引用规则与每个 omitempty 的理由都写在 pkg/syncwire/payload.go,别在这里另起一份。
-type (
-	ProjectPayload         = wire.ProjectPayload
-	ProjectAgentPayload    = wire.ProjectAgentPayload
-	ProjectLocationPayload = wire.ProjectLocationPayload
-	DepartmentPayload      = wire.DepartmentPayload
-	AgentPayload           = wire.AgentPayload
-	AgentBackendPayload    = wire.AgentBackendPayload
-	AgentBackendCLIPayload = wire.AgentBackendCLIPayload
-	AgentExecTargetPayload = wire.AgentExecTargetPayload
-	LLMProviderPayload     = wire.LLMProviderPayload
-	LLMProviderModel       = wire.LLMProviderModel
-	LabelPayload           = wire.LabelPayload
-	IssuePayload           = wire.IssuePayload
-	IssueLabelPayload      = wire.IssueLabelPayload
-)
-
-// PayloadFor 见 pkg/syncwire.PayloadFor:「哪种 kind 对应哪个载荷类型」的唯一答案。
-func PayloadFor(kind string) (any, bool) { return wire.PayloadFor(kind) }
-
-// ErrResyncRequired 是 CodeResyncRequired 的客户端表达:上行一律被拒,必须先拉一份
-// 全量快照并以之为准。
+// ErrResyncRequired 是共享 module 里 CodeResyncRequired 的客户端表达：上行一律被拒，
+// 必须先拉一份全量快照并以之为准。
 var ErrResyncRequired = errors.New("sync: resync required")
 
 // ErrCursorUnknown 是 CodeCursorUnknown 的客户端表达。
@@ -122,16 +36,6 @@ var ErrResyncRequired = errors.New("sync: resync required")
 //     本端的才是全的,因此必须把 server 不认识的本地行**重新上行**,否则整个工作区
 //     静默留在本机,而界面上待同步是 0、没有任何错误可循。
 var ErrCursorUnknown = errors.New("sync: server does not recognize this cursor")
-
-// LocalPathReportItem 是上报组的一条：某个项目在这台设备上的真实本机路径。
-// 与同步组的那些表无关——本机路径不在桌面端之间流动，只单向上报给
-// server，按设备分命名空间存放。
-// LocalPathReportItem 是上报组的一条。LocalPathItem 是契约里的名字,本包这个别名
-// 是历史称呼,调用点因此不用改。
-type LocalPathReportItem = wire.LocalPathItem
-
-// LocalPathItem 与 LocalPathReportItem 同物,按契约里的名字再导出一次。
-type LocalPathItem = wire.LocalPathItem
 
 // ── 账号级实时通道 ─────────────────────────────────────────────────────────
 

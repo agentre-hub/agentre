@@ -35,6 +35,35 @@ type payloadCase struct {
 	fullJSON string
 }
 
+// fullAgentBackendConfig 是一份每个键都非零的后端独占设置。键名与桌面端
+// agent_backends.config_json 列逐字相同（camelCase），modelRoutes 是嵌套对象而不是
+// 转义字符串。
+func fullAgentBackendConfig() syncwire.AgentBackendConfig {
+	return syncwire.AgentBackendConfig{
+		ModelRoutes:           json.RawMessage(`{"OPUS":{"providerKey":"anthropic-main","modelKey":"opus"}}`),
+		Sandbox:               "workspace-write",
+		Approval:              "on-request",
+		DefaultPermissionMode: "bypassPermissions",
+		DefaultModel:          "opus",
+		OpenClawGatewayURL:    "wss://gw.example/rpc",
+		OpenClawAgentID:       "oc-1",
+		OpenClawDefaultModel:  "oc-opus",
+		OpenClawSessionMode:   "per-agentre-session",
+		HermesURL:             "http://127.0.0.1:9119",
+		HermesAuthProvider:    "basic",
+		HermesUserID:          "user-7",
+		ACPCommand:            "gemini",
+		ACPArgs:               []string{"--acp"},
+	}
+}
+
+const fullAgentBackendConfigJSON = `{"modelRoutes":{"OPUS":{"providerKey":"anthropic-main","modelKey":"opus"}},` +
+	`"sandbox":"workspace-write","approval":"on-request","defaultPermissionMode":"bypassPermissions",` +
+	`"defaultModel":"opus","openclawGatewayUrl":"wss://gw.example/rpc","openclawAgentId":"oc-1",` +
+	`"openclawDefaultModel":"oc-opus","openclawSessionMode":"per-agentre-session",` +
+	`"hermesUrl":"http://127.0.0.1:9119","hermesAuthProvider":"basic","hermesUserId":"user-7",` +
+	`"acpCommand":"gemini","acpArgs":["--acp"]}`
+
 func payloadCases() []payloadCase {
 	return []payloadCase{
 		{
@@ -76,25 +105,14 @@ func payloadCases() []payloadCase {
 			kind: syncwire.KindAgentBackend,
 			full: syncwire.AgentBackendPayload{
 				Type: "claudecode", Name: "笔记本上的 Claude", ProviderKey: "anthropic-main",
-				ModelKey: "opus", ModelRoutes: `{"fast":"haiku"}`, Sandbox: "workspace-write",
-				Approval: "on-request", EnvJSON: `{"HTTP_PROXY":"http://127.0.0.1:7890"}`,
-				ReasoningEffort: "high", DefaultPermissionMode: "acceptEdits", DefaultModel: "opus",
-				OpenClawGatewayURL: "https://gw.example", OpenClawAgentID: "oc-1",
-				OpenClawDefaultModel: "oc-opus", OpenClawSessionMode: "persistent",
-				ACPCommand: "npx", ACPArgs: []string{"-y", "@agentclientprotocol/codex-acp"},
+				ModelKey: "opus", EnvJSON: `{"HTTP_PROXY":"http://127.0.0.1:7890"}`, ReasoningEffort: "high",
+				Config: fullAgentBackendConfig(),
 			},
-			zeroJSON: `{"type":"","name":"","provider_key":"","model_key":"","model_routes":"",` +
-				`"sandbox":"","approval":"","env_json":"","reasoning_effort":"",` +
-				`"default_permission_mode":"","default_model":"","openclaw_gateway_url":"",` +
-				`"openclaw_agent_id":"","openclaw_default_model":"","openclaw_session_mode":"",` +
-				`"acp_command":"","acp_args":null}`,
+			zeroJSON: `{"type":"","name":"","provider_key":"","model_key":"","env_json":"",` +
+				`"reasoning_effort":"","config":{}}`,
 			fullJSON: `{"type":"claudecode","name":"笔记本上的 Claude","provider_key":"anthropic-main",` +
-				`"model_key":"opus","model_routes":"{\"fast\":\"haiku\"}","sandbox":"workspace-write",` +
-				`"approval":"on-request","env_json":"{\"HTTP_PROXY\":\"http://127.0.0.1:7890\"}",` +
-				`"reasoning_effort":"high","default_permission_mode":"acceptEdits","default_model":"opus",` +
-				`"openclaw_gateway_url":"https://gw.example","openclaw_agent_id":"oc-1",` +
-				`"openclaw_default_model":"oc-opus","openclaw_session_mode":"persistent",` +
-				`"acp_command":"npx","acp_args":["-y","@agentclientprotocol/codex-acp"]}`,
+				`"model_key":"opus","env_json":"{\"HTTP_PROXY\":\"http://127.0.0.1:7890\"}",` +
+				`"reasoning_effort":"high","config":` + fullAgentBackendConfigJSON + `}`,
 		},
 		{
 			kind:     syncwire.KindAgentBackendCLI,
@@ -223,6 +241,32 @@ func TestPayloads_GivenEveryContractType_ThenItPassesItsOwnGuard(t *testing.T) {
 	}
 }
 
+// 后端独占设置作为嵌套对象 config 过机：编出去再解回来逐键无损（modelRoutes 仍是
+// 同一个对象），而带着这个嵌套对象的载荷照样过得了 agent_backend 的守卫。
+func TestAgentBackendPayload_GivenNestedConfig_ThenRoundTripsAndPassesGuard(t *testing.T) {
+	t.Parallel()
+
+	sent := syncwire.AgentBackendPayload{Type: "claudecode", Name: "构建机", Config: fullAgentBackendConfig()}
+	encoded, err := json.Marshal(sent)
+	require.NoError(t, err)
+	require.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackend, encoded))
+
+	var got syncwire.AgentBackendPayload
+	require.NoError(t, json.Unmarshal(encoded, &got))
+	require.JSONEq(t, string(sent.Config.ModelRoutes), string(got.Config.ModelRoutes))
+	got.Config.ModelRoutes = sent.Config.ModelRoutes
+	require.Equal(t, sent, got)
+}
+
+// 全空的 config 编成 {}：每个键都 omitempty，线上「没配」就是键不在。
+func TestAgentBackendConfig_GivenZeroValue_ThenEncodesAsEmptyObject(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := json.Marshal(syncwire.AgentBackendConfig{})
+	require.NoError(t, err)
+	require.Equal(t, `{}`, string(encoded))
+}
+
 // 「哪种 kind 对应哪个载荷类型」在整个工作区只有一个答案。
 //
 // 它从前只散落在桌面端各 adapter 的 kind() 方法里 —— 一个 kind 与一个私有结构体的
@@ -279,25 +323,4 @@ func TestPayloadFor_GivenThePayloadTypes_ThenTheyMatchTheVocabularyExactly(t *te
 		require.Equal(t, reflect.TypeOf(c.full), reflect.TypeOf(got).Elem(),
 			"PayloadFor(%s) 与用例里的类型必须是同一个", c.kind)
 	}
-}
-
-// acp 的两个启动字段是账号级身份,与 hermes_url 同形地随 backend 载荷过机:
-// marshal → unmarshal 往返一个字节不丢。GuardPayload 是黑名单守卫,acp_command /
-// acp_args 不在名单上,放行这件事靠这条测试钉住 —— 哪天守卫被改成白名单形式,
-// 这里第一个红。
-func TestAgentBackendPayload_GivenACPFields_ThenRoundTripsAndPassesGuard(t *testing.T) {
-	t.Parallel()
-
-	full := syncwire.AgentBackendPayload{
-		Type: "acp", Name: "远端 Gemini",
-		ACPCommand: "gemini", ACPArgs: []string{"--acp"},
-	}
-	encoded, err := json.Marshal(full)
-	require.NoError(t, err)
-
-	var decoded syncwire.AgentBackendPayload
-	require.NoError(t, json.Unmarshal(encoded, &decoded))
-	require.Equal(t, full, decoded)
-
-	require.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackend, encoded))
 }

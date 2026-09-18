@@ -31,6 +31,8 @@ import (
 	"github.com/cago-frame/cago/configs"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
+
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
 const (
@@ -55,6 +57,15 @@ const (
 )
 
 var errNoStableRelease = errors.New("no stable release found")
+
+// errNoBetaRelease 是桌面端 Beta 通道找不到 vX.Y.Z-beta.N 非 draft 发布时的哨兵：
+// 决定 5 要求没有这样的发布就是「暂无更新」，不回落到正式版（agentred 共用的
+// fetchLatestBetaRelease 仍保留回落，两者刻意分开，见 pickLatestDesktopBetaRelease）。
+var errNoBetaRelease = errors.New("no beta release found for desktop channel")
+
+// errDevNoRelease 是 Dev 渠道的哨兵：决定 9「Dev 没有发布」，CheckForUpdate /
+// DownloadAndUpdate 对 Dev 一律不选中任何 release 或安装包。
+var errDevNoRelease = errors.New("dev channel has no release to update to")
 
 // ReleaseAsset GitHub release 资产
 type ReleaseAsset struct {
@@ -190,6 +201,51 @@ func fetchLatestBetaRelease() (*ReleaseInfo, error) {
 	return nil, fmt.Errorf("no beta or stable release found")
 }
 
+// betaTagPattern 是桌面端 Beta 通道接受的发布号形状：vX.Y.Z-beta.N。决定 6 已经
+// 不再使用 -rc tag，这里只认这一种预发布形状。
+var betaTagPattern = regexp.MustCompile(`^v\d+\.\d+\.\d+-beta\.\d+$`)
+
+// fetchLatestDesktopBetaRelease 取桌面端 Beta 通道的最新发布：只认 vX.Y.Z-beta.N 的
+// 非 draft 预发布，没有就是 errNoBetaRelease —— 与 agentred 共用的
+// fetchLatestBetaRelease（保留正式版回落）刻意分成两条路，见该函数注释。
+func fetchLatestDesktopBetaRelease() (*ReleaseInfo, error) {
+	releases, err := fetchReleasesFromURL(apiBaseURL + "/releases?per_page=20")
+	if err != nil {
+		return nil, err
+	}
+	return pickLatestDesktopBetaRelease(releases)
+}
+
+// pickLatestDesktopBetaRelease 是 fetchLatestDesktopBetaRelease 的纯逻辑部分，
+// 抽出来是为了在不打网络请求的情况下单测「只认 vX.Y.Z-beta.N 的预发布、跳过 draft、不回落」。
+// GitHub releases 列表按创建时间倒序，第一个匹配的就是最新的。
+func pickLatestDesktopBetaRelease(releases []ReleaseInfo) (*ReleaseInfo, error) {
+	for i := range releases {
+		if releases[i].Draft || !releases[i].Prerelease {
+			continue
+		}
+		if betaTagPattern.MatchString(releases[i].TagName) {
+			return &releases[i], nil
+		}
+	}
+	return nil, errNoBetaRelease
+}
+
+// fetchReleaseForChannel 是桌面端按渠道选 release 的入口：与 agentred 共用的
+// fetchRelease 不同，Beta 走严格匹配不回落，Dev 直接拒绝、不发任何请求。
+func fetchReleaseForChannel(channel paths.Channel) (*ReleaseInfo, error) {
+	switch channel {
+	case paths.ChannelDev:
+		return nil, errDevNoRelease
+	case paths.ChannelNightly:
+		return fetchReleaseFromURL(apiBaseURL + "/releases/tags/nightly")
+	case paths.ChannelBeta:
+		return fetchLatestDesktopBetaRelease()
+	default:
+		return fetchLatestStableRelease()
+	}
+}
+
 // releaseInfoURL 返回指定通道的 release-info.json 下载地址
 // beta 通道无固定地址，返回空字符串
 func releaseInfoURL(channel string) string {
@@ -261,7 +317,9 @@ type releaseSources struct {
 	checksumBaseURL string
 }
 
-// defaultReleaseSources 是生产来路。
+// defaultReleaseSources 是生产来路，供 agentred 复用（agentred.go:241,283）——它的
+// fetchRelease 字段解析 Beta 时保留回落到最新非 nightly 发布的旧行为，decision 11
+// 要求 agentred 不按渠道拆分。
 func defaultReleaseSources() releaseSources {
 	return releaseSources{
 		fetchRelease:    fetchRelease,
@@ -270,14 +328,36 @@ func defaultReleaseSources() releaseSources {
 	}
 }
 
-// CheckForUpdate 检查指定通道的最新版本
-func CheckForUpdate(channel, mirrorPrefix string) (*UpdateInfo, error) {
-	if channel == "" {
-		channel = ChannelStable
+// defaultDesktopReleaseSources 是桌面端安装路径（downloadAndUpdateForChannel）的
+// 生产来路：fetchRelease 换成 fetchReleaseForChannel，Beta 严格匹配不回落、Dev 直接
+// 拒绝，与 agentred 共用的 defaultReleaseSources 刻意分开。
+func defaultDesktopReleaseSources() releaseSources {
+	return releaseSources{
+		fetchRelease: func(channel string) (*ReleaseInfo, error) {
+			return fetchReleaseForChannel(paths.Channel(channel))
+		},
+		checksumBaseURL: githubDownloadBaseURL,
+	}
+}
+
+// checkForUpdateForChannel 检查指定渠道的最新版本。
+func checkForUpdateForChannel(channel paths.Channel, mirrorPrefix string) (*UpdateInfo, error) {
+	return checkForUpdateForChannelWithFetch(channel, mirrorPrefix, fetchReleaseForChannel)
+}
+
+// checkForUpdateForChannelWithFetch 是 checkForUpdateForChannel 的可注入版本：fetch
+// 参数化是为了让「Beta 暂无更新 / Dev 不发请求 / 镜像回落」这几条分支能脱离真实网络
+// 单测，而不用像 fetchRelease 那样只能靠间接的纯函数（pickLatestStableRelease 等）
+// 覆盖。
+func checkForUpdateForChannelWithFetch(channel paths.Channel, mirrorPrefix string,
+	fetch func(paths.Channel) (*ReleaseInfo, error)) (*UpdateInfo, error) {
+	// Dev 没有发布（决定 9）：连一次请求都不发，不靠 fetch 内部的哨兵兜底。
+	if channel == paths.ChannelDev {
+		return nil, errDevNoRelease
 	}
 
-	release, err := fetchRelease(channel)
-	if errors.Is(err, errNoStableRelease) {
+	release, err := fetch(channel)
+	if errors.Is(err, errNoStableRelease) || errors.Is(err, errNoBetaRelease) {
 		return &UpdateInfo{
 			HasUpdate:      false,
 			CurrentVersion: configs.Version,
@@ -285,8 +365,8 @@ func CheckForUpdate(channel, mirrorPrefix string) (*UpdateInfo, error) {
 	}
 	if err != nil && mirrorPrefix != "" {
 		logger.Default().Info("GitHub API failed, trying mirror fallback",
-			zap.String("channel", channel), zap.Error(err))
-		release, err = fetchReleaseFromMirror(channel, mirrorPrefix)
+			zap.String("channel", string(channel)), zap.Error(err))
+		release, err = fetchReleaseFromMirror(string(channel), mirrorPrefix)
 	}
 	if err != nil {
 		return nil, err
@@ -294,7 +374,7 @@ func CheckForUpdate(channel, mirrorPrefix string) (*UpdateInfo, error) {
 
 	currentVersion := configs.Version
 	latestVersion := release.TagName
-	if channel == ChannelNightly {
+	if channel == paths.ChannelNightly {
 		latestVersion = release.Name // nightly 用 release title 作为版本号
 	}
 
@@ -306,7 +386,7 @@ func CheckForUpdate(channel, mirrorPrefix string) (*UpdateInfo, error) {
 		PublishedAt:    release.PublishedAt,
 	}
 
-	info.HasUpdate = hasUpdate(channel, currentVersion, latestVersion)
+	info.HasUpdate = hasUpdate(string(channel), currentVersion, latestVersion)
 	return info, nil
 }
 
@@ -354,7 +434,7 @@ func hasUpdate(channel, currentVersion, latestVersion string) bool {
 // 校验只能证明「镜像自洽」。取不到就失败，不降级（镜像仍然给资产下载用）。
 func resolveInstallRelease(sources releaseSources, channel string) (*ReleaseInfo, error) {
 	release, err := sources.fetchRelease(channel)
-	if errors.Is(err, errNoStableRelease) {
+	if errors.Is(err, errNoStableRelease) || errors.Is(err, errNoBetaRelease) || errors.Is(err, errDevNoRelease) {
 		return nil, err
 	}
 	if err != nil {
@@ -379,37 +459,65 @@ func installChecksums(sources releaseSources, release *ReleaseInfo) (map[string]
 	return fetchChecksumsFrom(context.Background(), url)
 }
 
-// DownloadAndUpdate 下载指定通道的最新版本并替换当前二进制。
+// desktopAssetShape 是桌面安装包名字里「前缀之后」那一段该有的形状：一个版本号
+// (v?数字打头，允许任意 -beta.N / -nightly.YYYYMMDD 之类的预发布后缀)，紧接
+// "-<goos>-<goarch>"，Windows NSIS 安装器另带 "-installer"，再跟扩展名。要求版本段以数字（或 v+数字）开头，是为了让
+// "agentre-" 这个较短前缀在面对 "agentre-beta-…" / "agentre-nightly-…" 这类较长
+// 前缀的资产名时匹配失败 —— 去掉 "agentre-" 后剩下的是 "beta-…"/"nightly-…"，
+// 不是版本号形状，从而不会被 stable 错选中。
+func desktopAssetShape(goos, goarch string) *regexp.Regexp {
+	return regexp.MustCompile(`^v?[0-9].*-` + regexp.QuoteMeta(goos) + `-` + regexp.QuoteMeta(goarch) + `(-installer)?\.[0-9A-Za-z.]+$`)
+}
+
+// pickDesktopAsset 从一次发布的资产列表里选出本渠道、本平台的桌面安装包：名字必须
+// 以 prefix 开头，紧跟 desktopAssetShape。prefix 为空（Dev 不发布）时永远选不中
+// 任何东西。agentred 归档的前缀是 "agentred-"，不是任何桌面渠道前缀的合法延伸，
+// 天然被排除；较长的渠道前缀（agentre-beta-/agentre-nightly-）也不会被较短的
+// "agentre-" 误选，见 desktopAssetShape 的注释。没有匹配时返回的错误就是要展示
+// 给用户的原文，不需要调用方再包一层。
+func pickDesktopAsset(assets []ReleaseAsset, prefix, goos, goarch string) (*ReleaseAsset, error) {
+	if prefix != "" {
+		shape := desktopAssetShape(goos, goarch)
+		for i := range assets {
+			if rest, ok := strings.CutPrefix(assets[i].Name, prefix); ok && shape.MatchString(rest) {
+				return &assets[i], nil
+			}
+		}
+	}
+	return nil, errors.New("该版本没有适用于本平台的安装包")
+}
+
+// desktopBundleFileName 是要从 macOS 安装包里取出的 .app 目录名：渠道显示名 + ".app"
+// （例如 Beta 取 "Agentre Beta.app"），与渠道身份表一致。抽成纯函数是为了不用跑
+// hdiutil / 解 tar.gz 就能单测这条渠道 → 文件名的映射。
+func desktopBundleFileName(channel paths.Channel) string {
+	return channel.Identity().DisplayName + ".app"
+}
+
+// downloadAndUpdateForChannel 下载指定渠道的最新版本并替换当前二进制。
 //
 // 校验是无条件的：取不到权威校验和就不装，没有「跳过校验继续」的入参。
-func DownloadAndUpdate(channel, mirrorPrefix string, onProgress func(downloaded, total int64)) error {
-	if channel == "" {
-		channel = ChannelStable
+func downloadAndUpdateForChannel(channel paths.Channel, mirrorPrefix string, onProgress func(downloaded, total int64)) error {
+	// Dev 没有发布（决定 9）：不选中任何 release，更不会走到选包这一步。
+	if channel == paths.ChannelDev {
+		return errDevNoRelease
 	}
 
-	sources := defaultReleaseSources()
-	release, err := resolveInstallRelease(sources, channel)
+	sources := defaultDesktopReleaseSources()
+	release, err := resolveInstallRelease(sources, string(channel))
 	if err != nil {
 		return err
 	}
 
-	// 找到当前平台的桌面端资产
-	platform := runtime.GOOS + "-" + runtime.GOARCH
-
-	var downloadURL string
-	var assetSize int64
-	var assetName string
-	for _, asset := range release.Assets {
-		if strings.Contains(asset.Name, platform) {
-			downloadURL = asset.BrowserDownloadURL
-			assetSize = asset.Size
-			assetName = asset.Name
-			break
-		}
+	// 找到本渠道、本平台的桌面端安装包：只接受 <本渠道前缀><版本号>-<goos>-<goarch>，
+	// agentred- 归档与其他渠道的包永远不会被选中（见 pickDesktopAsset）。
+	asset, err := pickDesktopAsset(release.Assets, channel.Identity().ReleaseAssetPrefix, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return err
 	}
-	if downloadURL == "" {
-		return fmt.Errorf("no release asset found for platform %s", platform)
-	}
+	downloadURL := asset.BrowserDownloadURL
+	assetSize := asset.Size
+	assetName := asset.Name
 
 	// 获取校验信息。取不到就在这里失败，说清这一次为什么没有镜像出路、以及还能
 	// 怎么装上，而不是给一个「跳过校验继续」的按钮。
@@ -496,16 +604,16 @@ func DownloadAndUpdate(channel, mirrorPrefix string, onProgress func(downloaded,
 	// 解压并替换
 	switch runtime.GOOS {
 	case "darwin":
-		return updateMacOS(tmpPath, execPath)
+		return updateMacOS(tmpPath, execPath, channel)
 	case "windows":
 		return updateWindows(tmpPath, execPath)
 	default:
-		return updateLinux(tmpPath, execPath)
+		return updateLinux(tmpPath, execPath, channel)
 	}
 }
 
 // updateMacOS 更新 macOS .app bundle
-func updateMacOS(archivePath, execPath string) error {
+func updateMacOS(archivePath, execPath string, channel paths.Channel) error {
 	// execPath 类似 /path/to/Agentre.app/Contents/MacOS/Agentre
 	// 需要找到 .app 目录
 	appDir := execPath
@@ -514,17 +622,18 @@ func updateMacOS(archivePath, execPath string) error {
 	}
 	if !strings.HasSuffix(appDir, ".app") {
 		// 非 .app bundle，按 Linux 方式处理
-		return updateLinux(archivePath, execPath)
+		return updateLinux(archivePath, execPath, channel)
 	}
 
+	bundleName := desktopBundleFileName(channel)
 	if strings.HasSuffix(archivePath, ".dmg") {
-		return updateMacOSFromDMG(archivePath, appDir)
+		return updateMacOSFromDMG(archivePath, appDir, bundleName)
 	}
-	return updateMacOSFromTarGz(archivePath, appDir)
+	return updateMacOSFromTarGz(archivePath, appDir, bundleName)
 }
 
 // updateMacOSFromDMG 从 DMG 文件更新 macOS .app bundle
-func updateMacOSFromDMG(dmgPath, appDir string) error {
+func updateMacOSFromDMG(dmgPath, appDir, bundleName string) error {
 	mountPoint, err := os.MkdirTemp("", "agentre-mount-*")
 	if err != nil {
 		return fmt.Errorf("create mount point failed: %w", err)
@@ -545,7 +654,7 @@ func updateMacOSFromDMG(dmgPath, appDir string) error {
 		}
 	}()
 
-	newAppPath := filepath.Join(mountPoint, "Agentre.app")
+	newAppPath := filepath.Join(mountPoint, bundleName)
 	if _, err := os.Stat(newAppPath); err != nil {
 		return fmt.Errorf("app not found in DMG: %w", err)
 	}
@@ -574,7 +683,7 @@ func updateMacOSFromDMG(dmgPath, appDir string) error {
 }
 
 // updateMacOSFromTarGz 从 tar.gz 更新 macOS .app bundle
-func updateMacOSFromTarGz(archivePath, appDir string) error {
+func updateMacOSFromTarGz(archivePath, appDir, bundleName string) error {
 	tmpExtractDir, err := os.MkdirTemp("", "agentre-extract-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir failed: %w", err)
@@ -589,7 +698,7 @@ func updateMacOSFromTarGz(archivePath, appDir string) error {
 		return fmt.Errorf("extract failed: %w", err)
 	}
 
-	newAppDir := filepath.Join(tmpExtractDir, "Agentre.app")
+	newAppDir := filepath.Join(tmpExtractDir, bundleName)
 	if _, err := os.Stat(newAppDir); err != nil {
 		return fmt.Errorf("extracted app not found: %w", err)
 	}
@@ -615,16 +724,17 @@ func updateMacOSFromTarGz(archivePath, appDir string) error {
 	return nil
 }
 
-// updateLinux 更新 Linux 二进制
-func updateLinux(archivePath, execPath string) error {
+// updateLinux 更新 Linux 二进制，取本渠道的命令名（渠道身份表 Linux 行）。
+func updateLinux(archivePath, execPath string, channel paths.Channel) error {
+	command := channel.Identity().LinuxCommand
 	if strings.HasSuffix(archivePath, ".deb") {
-		return updateLinuxFromDeb(archivePath, execPath)
+		return updateLinuxFromDeb(archivePath, execPath, command)
 	}
-	return updateLinuxFromTarGz(archivePath, execPath)
+	return updateLinuxFromTarGz(archivePath, execPath, command)
 }
 
 // updateLinuxFromDeb 从 deb 包提取二进制并替换
-func updateLinuxFromDeb(debPath, execPath string) error {
+func updateLinuxFromDeb(debPath, execPath, command string) error {
 	tmpExtractDir, err := os.MkdirTemp("", "agentre-extract-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir failed: %w", err)
@@ -639,7 +749,7 @@ func updateLinuxFromDeb(debPath, execPath string) error {
 		return fmt.Errorf("extract deb failed: %s: %w", string(output), err)
 	}
 
-	newBin := filepath.Join(tmpExtractDir, "usr", "bin", "agentre")
+	newBin := filepath.Join(tmpExtractDir, "usr", "bin", command)
 	if _, err := os.Stat(newBin); err != nil {
 		return fmt.Errorf("extracted binary not found: %w", err)
 	}
@@ -648,7 +758,7 @@ func updateLinuxFromDeb(debPath, execPath string) error {
 }
 
 // updateLinuxFromTarGz 从 tar.gz 提取二进制并替换
-func updateLinuxFromTarGz(archivePath, execPath string) error {
+func updateLinuxFromTarGz(archivePath, execPath, command string) error {
 	tmpExtractDir, err := os.MkdirTemp("", "agentre-extract-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir failed: %w", err)
@@ -663,7 +773,7 @@ func updateLinuxFromTarGz(archivePath, execPath string) error {
 		return fmt.Errorf("extract failed: %w", err)
 	}
 
-	newBin := filepath.Join(tmpExtractDir, "agentre")
+	newBin := filepath.Join(tmpExtractDir, command)
 	if _, err := os.Stat(newBin); err != nil {
 		return fmt.Errorf("extracted binary not found: %w", err)
 	}

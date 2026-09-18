@@ -116,6 +116,8 @@ func TestGivenRunningManagerButUnreadableLocalDaemonWhenStartingThenCommandFails
 	manager := &fakeServiceManager{status: ServiceStatus{
 		Installed: true,
 		Running:   true,
+		Manager:   "launchd LaunchAgent",
+		Target:    "gui/501/ai.agentre.agentred",
 		Details: []string{
 			"Manager: launchd LaunchAgent",
 			"Target: gui/501/ai.agentre.agentred",
@@ -289,6 +291,7 @@ func TestGivenRestartPreflightWhenLocalStatusStallsThenItsProbeIsBounded(t *test
 	manager := &fakeServiceManager{status: ServiceStatus{
 		Installed: true,
 		Running:   true,
+		Manager:   "systemd --user",
 		Details:   []string{"Manager: systemd --user"},
 	}}
 	attempts := 0
@@ -319,6 +322,7 @@ func TestGivenRestartWhenOldDaemonStillAnswersThenItWaitsForANewDaemonPID(t *tes
 	manager := &fakeServiceManager{status: ServiceStatus{
 		Installed: true,
 		Running:   true,
+		Manager:   "launchd LaunchAgent",
 		Details:   []string{"Manager: launchd LaunchAgent"},
 	}}
 	attempts := 0
@@ -350,6 +354,7 @@ func TestGivenWindowsRestartWhenLocalStatusIsReadableThenNoNewPIDContractIsAdded
 	manager := &fakeServiceManager{status: ServiceStatus{
 		Installed: true,
 		Running:   true,
+		Manager:   "Windows Task Scheduler",
 		Details:   []string{"Manager: Windows Task Scheduler"},
 	}}
 	attempts := 0

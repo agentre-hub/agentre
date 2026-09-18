@@ -108,11 +108,7 @@ func GitChanges(ctx context.Context, dir string, scope GitChangesScope, baseline
 	}
 	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
 
-	truncated := false
-	if maxEntries > 0 && len(changes) > maxEntries {
-		changes = changes[:maxEntries]
-		truncated = true
-	}
+	changes, truncated := truncateEntries(changes, maxEntries)
 
 	return &GitChangesResult{Changes: changes, Truncated: truncated}, nil
 }

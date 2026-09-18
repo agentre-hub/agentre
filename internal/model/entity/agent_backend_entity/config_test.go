@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // TestMarshalConfig_RoundTripsEveryTypeExclusiveSetting 是这一层的主契约：十个
@@ -88,4 +90,33 @@ func TestUnmarshalConfig_GivenBlankColumn_LeavesFieldsZeroed(t *testing.T) {
 func TestUnmarshalConfig_GivenMalformedJSON_ReturnsError(t *testing.T) {
 	b := &AgentBackend{ConfigJSON: `{"sandbox":`}
 	assert.Error(t, b.UnmarshalConfig())
+}
+
+// TestConfig_GivenHydratedRow_EqualsTheStoredColumnKeyForKey 列里存的设置与
+// Config() 交出的同步契约形状逐键相等：同步上行搬的就是这一份，键名不经任何翻译。
+func TestConfig_GivenHydratedRow_EqualsTheStoredColumnKeyForKey(t *testing.T) {
+	stored := `{"modelRoutes":{"OPUS":{"providerKey":"p-1","modelKey":"m-1"}},` +
+		`"defaultPermissionMode":"bypassPermissions","hermesUserId":"user-7"}`
+	b := &AgentBackend{ConfigJSON: stored}
+	require.NoError(t, b.UnmarshalConfig())
+
+	out, err := json.Marshal(b.Config())
+	require.NoError(t, err)
+	assert.JSONEq(t, stored, string(out))
+}
+
+// TestSetConfig_ReplacesEveryExclusiveSettingWholesale 下行的 config 是整体替换：
+// 本地原有、而新 config 里没有的键必须变空，不能沿用旧值。
+func TestSetConfig_ReplacesEveryExclusiveSettingWholesale(t *testing.T) {
+	b := &AgentBackend{
+		ModelRoutes: `{"OPUS":{"providerKey":"p-1","modelKey":"m-1"}}`,
+		Sandbox:     "read-only", HermesURL: "http://127.0.0.1:9119", HermesUserID: "user-7",
+	}
+	b.SetConfig(syncwire.AgentBackendConfig{DefaultPermissionMode: "plan"})
+
+	assert.Equal(t, "plan", b.DefaultPermissionMode)
+	assert.Equal(t, emptyModelRoutes, b.ModelRoutes, "缺席的路由还原成列的空形态 {}")
+	assert.Empty(t, b.Sandbox)
+	assert.Empty(t, b.HermesURL)
+	assert.Empty(t, b.HermesUserID)
 }

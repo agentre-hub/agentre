@@ -7,9 +7,10 @@ import { describe, expect, it } from "vitest";
 /**
  * 共享包已发布模块的「桌面不留副本」守卫。
  *
- * 这一轮清掉的五份桌面副本（`openclaw-backend-fields` / `openclaw-validation` /
- * `agent-backends-utils` / `device-identity` / `app-dialog`）全是上一次「只搬不守」
- * 的产物：搬进包之后桌面那份没删，两边逐行同构地各自演化，`git log` 各看各的。
+ * 这一轮清掉的四份桌面副本（`openclaw-backend-fields` / `openclaw-validation` /
+ * `agent-backends-utils` / `device-identity`）全是上一次「只搬不守」的产物：搬进包
+ * 之后桌面那份没删，两边逐行同构地各自演化，`git log` 各看各的。
+ * （`app-dialog` 后来整个折进了包里的 `ui/dialog-shell`，不再是一个可被复制的模块。）
  * 既有单测拦不住这种回流——它们只看渲染结果，谁在渲染无所谓。所以这里扫源码，
  * 与 `composer-single-source.test.ts` 是同一种守卫。
  *

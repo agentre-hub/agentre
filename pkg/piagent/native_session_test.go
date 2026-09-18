@@ -228,7 +228,11 @@ func TestCompactDiscoversNativeSessionBeforeCommand(t *testing.T) {
 	client, proc := newCaptureClient(script)
 	client.session = "pi-native-compact"
 
-	stream, err := client.Compact(context.Background(), "pi-native-compact")
+	session, err := client.OpenSession(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close(context.Background()) })
+
+	stream, err := session.Compact(context.Background())
 	require.NoError(t, err)
 	for stream.Next() {
 	}
@@ -442,7 +446,7 @@ func TestPrepareStreamStartupHonorsCallerDeadlineWhilePiIsSilent(t *testing.T) {
 			case result = <-resultC:
 			case <-time.After(250 * time.Millisecond):
 				t.Error("Pi startup remained blocked after its caller deadline")
-				_ = proc.Signal(interruptSignal())
+				_ = proc.Signal(os.Interrupt)
 				result = <-resultC
 			}
 
@@ -566,7 +570,7 @@ func TestPrepareStreamUsesBoundedStartupTimeoutWithoutCallerDeadline(t *testing.
 	case result = <-resultC:
 	case <-time.After(250 * time.Millisecond):
 		t.Error("Pi startup ignored its bounded default timeout")
-		_ = proc.Signal(interruptSignal())
+		_ = proc.Signal(os.Interrupt)
 		result = <-resultC
 	}
 	assert.Nil(t, result.prepared)

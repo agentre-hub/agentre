@@ -26,7 +26,7 @@ func TestExecApprovalHandlers(t *testing.T) {
 		err := ExecApprovalRequestedHandler{}.Apply(context.Background(), agentruntime.ExecApprovalRequested{
 			ID: "approval-1", CommandText: "pwd", AllowedDecisions: []string{"allow-once", "deny"},
 			SessionKey: "agentre:12:42", ExpiresAtMs: 99,
-		}, acc, emit, nil, nil)
+		}, acc, emit, nil)
 		So(err, ShouldBeNil)
 		block := acc.Finalize()[0].(*blocks.ExecApprovalBlock)
 		So(block.Status, ShouldEqual, "pending")
@@ -40,11 +40,11 @@ func TestExecApprovalHandlers(t *testing.T) {
 		acc := turn.New()
 		_ = ExecApprovalRequestedHandler{}.Apply(context.Background(), agentruntime.ExecApprovalRequested{
 			ID: "approval-2", CommandText: "false", AllowedDecisions: []string{"deny"},
-		}, acc, nil, nil, nil)
+		}, acc, nil, nil)
 		emit := &fakeEmit{}
 		err := ExecApprovalResolvedHandler{}.Apply(context.Background(), agentruntime.ExecApprovalResolved{
 			ID: "approval-2", Status: "resolved", Decision: "deny", ResolvedBy: "device-2", ResolvedAtMs: 100,
-		}, acc, emit, nil, nil)
+		}, acc, emit, nil)
 		So(err, ShouldBeNil)
 		block := acc.Finalize()[0].(*blocks.ExecApprovalBlock)
 		So(block.Status, ShouldEqual, "resolved")
@@ -66,20 +66,20 @@ func TestExecApprovalHandlers(t *testing.T) {
 		for _, id := range []string{"approval-a", "approval-b"} {
 			err := (ExecApprovalRequestedHandler{}).Apply(context.Background(), agentruntime.ExecApprovalRequested{
 				ID: id, CommandText: "pwd", AllowedDecisions: []string{"allow-once", "deny"},
-			}, acc, nil, nil, tc)
+			}, acc, nil, tc)
 			So(err, ShouldBeNil)
 		}
 		So(transitions.waiting, ShouldEqual, 2)
 
 		err := (ExecApprovalResolvedHandler{}).Apply(context.Background(), agentruntime.ExecApprovalResolved{
 			ID: "approval-a", Status: "resolved", Decision: "allow-once",
-		}, acc, nil, nil, tc)
+		}, acc, nil, tc)
 		So(err, ShouldBeNil)
 		So(transitions.running, ShouldEqual, 0)
 
 		err = (ExecApprovalResolvedHandler{}).Apply(context.Background(), agentruntime.ExecApprovalResolved{
 			ID: "approval-b", Status: "expired",
-		}, acc, nil, nil, tc)
+		}, acc, nil, tc)
 		So(err, ShouldBeNil)
 		So(transitions.running, ShouldEqual, 1)
 	})

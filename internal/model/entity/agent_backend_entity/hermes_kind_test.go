@@ -21,7 +21,8 @@ func TestHermesKind(t *testing.T) {
 
 		Convey("When resolving kind metadata Then it is a URL backend that never matches an Agentre provider", func() {
 			So(kind, ShouldNotBeNil)
-			So(kind.Type(), ShouldEqual, TypeHermes)
+			// kind 的身份由 backendKinds 的 key 承载（KindFor(t) 就是查那张表），
+			// 没有单独的 Type() 可断言——上面那行非 nil 就是「这个类型已登记」。
 			So(kind.KnownAliases(), ShouldBeEmpty)
 			So(kind.AllowsCLIPath(), ShouldBeFalse)
 			So(kind.RequiresProviderModel(), ShouldBeFalse)
@@ -165,15 +166,15 @@ func TestNormalizeHermesURL(t *testing.T) {
 		{name: "root slash is dropped", in: "http://127.0.0.1:9119/", want: "http://127.0.0.1:9119"},
 		{name: "surrounding space is trimmed", in: "  http://127.0.0.1:9119  ", want: "http://127.0.0.1:9119"},
 		{name: "ipv6 host", in: "http://[::1]:9119", want: "http://[::1]:9119"},
-		{name: "empty is required", in: "", wantErr: ErrHermesURLRequired},
-		{name: "scheme is required", in: "127.0.0.1:9119", wantErr: ErrHermesURLScheme},
-		{name: "unsupported scheme", in: "ftp://127.0.0.1:9119", wantErr: ErrHermesURLScheme},
-		{name: "port is required", in: "http://127.0.0.1", wantErr: ErrHermesURLPort},
-		{name: "host is required", in: "http://:9119", wantErr: ErrHermesURLHost},
-		{name: "credentials are rejected", in: "http://user:pass@127.0.0.1:9119", wantErr: ErrHermesURLCredentials}, //nolint:gosec // test fixture: a URL that must be rejected, not a real credential
-		{name: "query is rejected", in: "http://127.0.0.1:9119/?a=1", wantErr: ErrHermesURLCredentials},
-		{name: "fragment is rejected", in: "http://127.0.0.1:9119/#f", wantErr: ErrHermesURLCredentials},
-		{name: "path is rejected", in: "http://127.0.0.1:9119/api", wantErr: ErrHermesURLPath},
+		{name: "empty is required", in: "", wantErr: ErrHermesURLInvalid},
+		{name: "scheme is required", in: "127.0.0.1:9119", wantErr: ErrHermesURLInvalid},
+		{name: "unsupported scheme", in: "ftp://127.0.0.1:9119", wantErr: ErrHermesURLInvalid},
+		{name: "port is required", in: "http://127.0.0.1", wantErr: ErrHermesURLInvalid},
+		{name: "host is required", in: "http://:9119", wantErr: ErrHermesURLInvalid},
+		{name: "credentials are rejected", in: "http://user:pass@127.0.0.1:9119", wantErr: ErrHermesURLInvalid}, //nolint:gosec // test fixture: a URL that must be rejected, not a real credential
+		{name: "query is rejected", in: "http://127.0.0.1:9119/?a=1", wantErr: ErrHermesURLInvalid},
+		{name: "fragment is rejected", in: "http://127.0.0.1:9119/#f", wantErr: ErrHermesURLInvalid},
+		{name: "path is rejected", in: "http://127.0.0.1:9119/api", wantErr: ErrHermesURLInvalid},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

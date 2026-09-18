@@ -54,15 +54,10 @@ export interface LocalCommandHistoryAccess {
   ): () => void;
 
   /**
-   * 预定一个 MRU 时间戳。命令**提交时**先占位、**执行作用域确定后**才落库 ——
-   * 中间隔着一次 await，不预定就会让两条并发命令的先后顺序取决于谁先 resolve。
+   * 记一条命令。`lastUsedAt` 省略时由实现取 `Date.now()`；命令**提交那一刻**取好
+   * 的时间戳可以传进来 —— 中间隔着一次 await，不在提交时取号的话，两条并发命令
+   * 在历史里的先后会取决于谁先 resolve。
    */
-  reserveLastUsedAt(): number;
-
-  /** 释放一个不再会落库的预定（提交失败 / 宿主没给出执行作用域）。 */
-  releaseLastUsedAt(timestamp: number): void;
-
-  /** 记一条命令；`lastUsedAt` 省略时由实现自行取号。 */
   record(
     scope: LocalCommandHistoryScope,
     command: string,

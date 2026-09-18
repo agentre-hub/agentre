@@ -7,8 +7,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // boardJoinNoticeKey 是「看板首次并入同步组」那条一次性说明的存放位置。它是本机

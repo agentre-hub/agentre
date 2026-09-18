@@ -7,11 +7,6 @@ import (
 
 type PermissionMode string
 
-const (
-	PermissionDefault PermissionMode = "default"
-	PermissionPlan    PermissionMode = "plan"
-)
-
 type Option func(*Client)
 
 func WithBinary(path string) Option { return func(c *Client) { c.binary = path } }

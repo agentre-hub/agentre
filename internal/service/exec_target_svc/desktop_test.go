@@ -16,7 +16,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
@@ -31,6 +30,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -75,7 +75,7 @@ func (s stubServerSvc) SyncPush(context.Context, []syncwire.PushItem) ([]syncwir
 func (s stubServerSvc) SyncPull(context.Context, int64, int) (*syncwire.PullPage, error) {
 	return nil, nil
 }
-func (s stubServerSvc) ReportLocalPaths(context.Context, []syncwire.LocalPathReportItem) error {
+func (s stubServerSvc) ReportLocalPaths(context.Context, []syncwire.LocalPathItem) error {
 	return nil
 }
 func (s stubServerSvc) PutAvatar(context.Context, string, string, string) error { return nil }

@@ -15,12 +15,12 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/service/department_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 const (
@@ -504,7 +504,7 @@ func skillsFromDTO(items []department_svc.AgentSkillDTO) []agent_entity.AgentSki
 // encodeSkills 技能授权的存放位置已下沉到 AgentExecTarget（R15e），GetSkills /
 // SetSkills 也随字段一起搬了过去；agent_svc 只在**写**的方向上还经手 Agent 结构体
 // 上的 SkillsJSON 原始载荷（交给仓储层，由 agent_repo 转落到那唯一一档的执行目标
-// 行，见 agent_repo.primaryTargetList），这里借一个临时的执行目标值对象复用同一份
+// 行，见 agent_entity.PrimaryExecTargets），这里借一个临时的执行目标值对象复用同一份
 // 编码逻辑，不重复实现。**读**的方向一律走执行目标行（primaryTargetSkills）。
 func encodeSkills(items []agent_entity.AgentSkillItem) string {
 	t := agent_entity.AgentExecTarget{}

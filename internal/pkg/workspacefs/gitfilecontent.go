@@ -2,9 +2,6 @@ package workspacefs
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"io/fs"
 	"path/filepath"
 )
 
@@ -43,19 +40,8 @@ func GitFileContent(ctx context.Context, dir, relPath string) (*GitFileContentRe
 	// relPath 在工作区解析到 cwd 之外的请求一律拒绝,不因 git show 读的是对象
 	// 库就跳过。文件在 HEAD 里、工作区已删除(对比档恰要读这种)时 EvalSymlinks
 	// 报 ENOENT,此时没有链接可跟随,跳过重校验而不是让删除文件的对比读不出来。
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("workspacefs: resolve %q: %w", relPath, err)
-		}
-	} else {
-		dirResolved, rerr := filepath.EvalSymlinks(dir)
-		if rerr != nil {
-			return nil, fmt.Errorf("workspacefs: resolve cwd: %w", rerr)
-		}
-		if !pathWithin(dirResolved, resolved) {
-			return nil, ErrPathRefused
-		}
+	if _, err := resolveWithinRoot(dir, path, relPath, true); err != nil {
+		return nil, err
 	}
 
 	if !isInsideWorkTree(ctx, dir) {

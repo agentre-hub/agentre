@@ -9,6 +9,20 @@ import { describe, expect, it, vi } from "vitest";
 import enCommon from "@/i18n/locales/en";
 import zhCommon from "@/i18n/locales/zh-CN";
 
+// locale barrel 现在由 glob 现合成，导出类型退化成 Record<string, unknown>；
+// 这里按用例真正断言的那几个叶子 key 收一个窄型，不放松断言。
+type SessionIndexAxis = {
+  title: string;
+  project: string;
+  agent: string;
+  time: string;
+};
+
+function sessionIndexAxis(locale: unknown): SessionIndexAxis {
+  return (locale as { sessionIndex: { axis: SessionIndexAxis } }).sessionIndex
+    .axis;
+}
+
 import { AxisPicker } from "@agentre-hub/agentre-ui";
 
 import { INDEX_AXES } from "@/lib/session-axis";
@@ -83,13 +97,13 @@ describe("AxisPicker", () => {
     await user.click(screen.getByTestId("axis-picker"));
 
     expect(await screen.findByTestId("axis-picker-label")).toHaveTextContent(
-      enCommon.sessionIndex.axis.title,
+      sessionIndexAxis(enCommon).title,
     );
   });
 
   it("Given both locales, When the axis labels are inspected, Then no label carries the grouping noun while the tooltip still does the explaining (decision 3)", () => {
     for (const locale of [zhCommon, enCommon]) {
-      const axis = locale.sessionIndex.axis;
+      const axis = sessionIndexAxis(locale);
       for (const label of [axis.project, axis.agent, axis.time]) {
         expect(label).not.toMatch(/group/i);
         expect(label).not.toContain("分组");

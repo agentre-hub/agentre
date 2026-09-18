@@ -103,7 +103,7 @@ import { __resetProjectTreeForTesting } from "@/hooks/use-project-tree";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
-import { consumeNewAgentDialogIntent } from "@/stores/new-agent-intent-store";
+import { useNewAgentIntentStore } from "@/stores/new-agent-intent-store";
 import { useNewChatContextStore } from "@/stores/new-chat-context-store";
 import { useSessionIndexStore } from "@/stores/session-index-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
@@ -336,7 +336,7 @@ function resetAll() {
   useChatTabsStore.setState({ tabs: [], activeTabId: null });
   useCommandPaletteStore.setState({ open: false, initialQuery: "" });
   useNewChatContextStore.getState().clear();
-  consumeNewAgentDialogIntent();
+  useNewAgentIntentStore.getState().consume();
 
   seedTree([]);
   seedAgents([]);
@@ -1241,7 +1241,7 @@ describe("SessionIndexPage top + menu", () => {
     await user.click(item);
 
     expect(screen.getByTestId("location")).toHaveTextContent("/org");
-    expect(consumeNewAgentDialogIntent()).toBe(true);
+    expect(useNewAgentIntentStore.getState().consume()).toBe(true);
   });
 });
 

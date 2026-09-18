@@ -18,7 +18,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
@@ -33,6 +32,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -211,6 +211,131 @@ func TestAgentBackendAdapter_LoadUsesFingerprintAndProviderKeyOnly(t *testing.T)
 	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackend, out.Payload))
 }
 
+// TestAgentBackendAdapter_GivenSettingsOnlyInConfigColumn_ThenPayloadCarriesThem 是
+// Problem 1 的回归：FindRow 是裸读，库里只有 config_json 这一列有值，那十二个
+// `gorm:"-"` 字段恒为零。mock 因此只填数据库真会返回的东西——上行载荷必须从列里
+// 带出权限模式与 sandbox，而不是从从未解码过的 Go 字段里带出空串。
+func TestAgentBackendAdapter_GivenSettingsOnlyInConfigColumn_ThenPayloadCarriesThem(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	state.EXPECT().FindRow(gomock.Any(), syncwire.KindAgentBackend, "be-1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
+			*dest.(*agent_backend_entity.AgentBackend) = agent_backend_entity.AgentBackend{
+				ID: 9, Type: "claudecode", Name: "构建机 Claude",
+				ConfigJSON: `{"defaultPermissionMode":"bypassPermissions","sandbox":"danger-full-access"}`,
+				SyncMeta:   syncmeta_entity.SyncMeta{SyncID: "be-1"},
+			}
+			return true, nil
+		})
+	syncstate_repo.RegisterSyncState(state)
+
+	out, err := agentBackendAdapter{}.load(context.Background(), "be-1")
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	var payload struct {
+		Config map[string]any `json:"config"`
+	}
+	require.NoError(t, json.Unmarshal(out.Payload, &payload))
+	assert.Equal(t, map[string]any{
+		"defaultPermissionMode": "bypassPermissions",
+		"sandbox":               "danger-full-access",
+	}, payload.Config, "载荷 config 与列里存的设置逐键相等")
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackend, out.Payload))
+}
+
+// backendRowInDB 模拟 FindRow 的生产读法：只填数据库真有的列，config_json 之外的
+// 十二个独占字段保持零值（它们是 gorm:"-"）。
+func backendRowInDB(state *mock_syncstate_repo.MockSyncStateRepo, row agent_backend_entity.AgentBackend) {
+	state.EXPECT().FindRow(gomock.Any(), syncwire.KindAgentBackend, row.SyncID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
+			*dest.(*agent_backend_entity.AgentBackend) = row
+			return true, nil
+		})
+}
+
+// TestAgentBackendAdapter_ApplyReplacesStoredConfigWholesale 下行的 config 整体替换
+// 本地那一份：载荷里有的键落地，本地原有而载荷缺席的键变空；落库时列与字段一致。
+func TestAgentBackendAdapter_ApplyReplacesStoredConfigWholesale(t *testing.T) {
+	cases := []struct {
+		name     string
+		payload  string
+		wantCol  string
+		wantMode string
+	}{
+		{
+			name:     "config 里的键落地、缺席的键变空",
+			payload:  `{"type":"codex","name":"构建机 Codex","config":{"sandbox":"read-only"}}`,
+			wantCol:  `{"sandbox":"read-only"}`,
+			wantMode: "read-only",
+		},
+		{
+			name:    "缺整个 config 等同 {}",
+			payload: `{"type":"codex","name":"构建机 Codex"}`,
+			wantCol: `{}`,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+			backendRowInDB(state, agent_backend_entity.AgentBackend{
+				ID: 9, Type: "codex", Name: "构建机 Codex", EnvJSON: "{}",
+				ConfigJSON: `{"sandbox":"danger-full-access","approval":"never"}`,
+				SyncMeta:   syncmeta_entity.SyncMeta{SyncID: "be-1"},
+			})
+			syncstate_repo.RegisterSyncState(state)
+			backends := mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl)
+			var updated *agent_backend_entity.AgentBackend
+			backends.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, b *agent_backend_entity.AgentBackend) error { updated = b; return nil })
+			agent_backend_repo.RegisterAgentBackend(backends)
+
+			require.NoError(t, agentBackendAdapter{}.apply(context.Background(), &inbound{
+				Kind: syncwire.KindAgentBackend, SyncID: "be-1", Payload: []byte(c.payload),
+			}, nil))
+			require.NotNil(t, updated)
+			assert.Equal(t, c.wantMode, updated.Sandbox)
+			assert.Empty(t, updated.Approval, "本地原有、载荷缺席的键必须变空")
+			require.NoError(t, updated.MarshalConfig())
+			assert.JSONEq(t, c.wantCol, updated.ConfigJSON)
+		})
+	}
+}
+
+// TestAgentBackendAdapter_GivenBadConfig_ThenApplyFailsWithoutWriting config 不是
+// 对象、或替换后过不了既有后端校验时，这一条应用失败，一次写口都不碰——本地原值不变。
+// 仓储 mock 没有任何期望：Create / Update 一旦被调用 gomock 当场失败。
+func TestAgentBackendAdapter_GivenBadConfig_ThenApplyFailsWithoutWriting(t *testing.T) {
+	cases := map[string]string{
+		"config 是字符串":          `{"type":"claudecode","name":"Claude","config":"{\"sandbox\":\"read-only\"}"}`,
+		"config 是数组":           `{"type":"claudecode","name":"Claude","config":[]}`,
+		"claudecode 带 sandbox": `{"type":"claudecode","name":"Claude","config":{"sandbox":"read-only"}}`,
+		"非法权限模式":               `{"type":"claudecode","name":"Claude","config":{"defaultPermissionMode":"yolo"}}`,
+	}
+	for name, payload := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+			state.EXPECT().FindRow(gomock.Any(), syncwire.KindAgentBackend, "be-1", gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
+					*dest.(*agent_backend_entity.AgentBackend) = agent_backend_entity.AgentBackend{
+						ID: 9, Type: "claudecode", Name: "Claude",
+						ConfigJSON: `{"defaultPermissionMode":"bypassPermissions"}`,
+						SyncMeta:   syncmeta_entity.SyncMeta{SyncID: "be-1"},
+					}
+					return true, nil
+				}).AnyTimes()
+			syncstate_repo.RegisterSyncState(state)
+			agent_backend_repo.RegisterAgentBackend(mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl))
+
+			assert.Error(t, agentBackendAdapter{}.apply(context.Background(), &inbound{
+				Kind: syncwire.KindAgentBackend, SyncID: "be-1", Payload: []byte(payload),
+			}, nil))
+		})
+	}
+}
+
 // TestAgentBackendAdapter_ApplyMapsModelKeyToLLMModelKey 下行方向：载荷里的
 // model_key 字符串引用必须落回 backend 的 LLMModelKey（ModelTarget 的另一半）。
 // 与 provider_key 一样只搬字符串，不补全任何本地 LLM 配置。
@@ -271,8 +396,8 @@ func TestAgentBackendAdapter_LoadCarriesACPIdentity(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
 			*dest.(*agent_backend_entity.AgentBackend) = agent_backend_entity.AgentBackend{
 				ID: 12, Type: "acp", Name: "远端 Gemini",
-				ACPCommand: "npx", ACPArgs: []string{"-y", "@agentclientprotocol/codex-acp"},
-				SyncMeta: syncmeta_entity.SyncMeta{SyncID: "be-acp"},
+				ConfigJSON: `{"acpCommand":"npx","acpArgs":["-y","@agentclientprotocol/codex-acp"]}`,
+				SyncMeta:   syncmeta_entity.SyncMeta{SyncID: "be-acp"},
 			}
 			return true, nil
 		})
@@ -284,8 +409,8 @@ func TestAgentBackendAdapter_LoadCarriesACPIdentity(t *testing.T) {
 
 	var payload syncwire.AgentBackendPayload
 	require.NoError(t, json.Unmarshal(out.Payload, &payload))
-	assert.Equal(t, "npx", payload.ACPCommand)
-	assert.Equal(t, []string{"-y", "@agentclientprotocol/codex-acp"}, payload.ACPArgs)
+	assert.Equal(t, "npx", payload.Config.ACPCommand)
+	assert.Equal(t, []string{"-y", "@agentclientprotocol/codex-acp"}, payload.Config.ACPArgs)
 	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackend, out.Payload))
 }
 
@@ -307,7 +432,7 @@ func TestAgentBackendAdapter_ApplyLandsACPIdentity(t *testing.T) {
 	err := agentBackendAdapter{}.apply(context.Background(), &inbound{
 		Kind: syncwire.KindAgentBackend, SyncID: "be-acp",
 		Payload: []byte(`{"type":"acp","name":"远端 Gemini",` +
-			`"acp_command":"gemini","acp_args":["--acp"]}`),
+			`"config":{"acpCommand":"gemini","acpArgs":["--acp"]}}`),
 	}, map[string]int64{})
 	require.NoError(t, err)
 	require.NotNil(t, created)
@@ -443,6 +568,95 @@ func TestProjectAgentAdapter_TranslatesBothEnds(t *testing.T) {
 	assert.Equal(t, "proj-1", payload["project_sync_id"])
 	assert.Equal(t, "agent-1", payload["agent_sync_id"])
 	assert.NoError(t, syncwire.GuardPayload(syncwire.KindProjectAgent, out.Payload))
+}
+
+// TestProjectAgentAdapter_GivenProjectWithoutSyncID_SkipsTheRow 项目行还在、但它还没
+// 拿到同步标识（R12a 的认领失效时就是这样，本机上 21 个项目因此在库里盖着空标识）。
+// 此刻这条成员关系**表达不出**它属于哪个项目：照发就是一条 `project_sync_id` 为空串
+// 的载荷，server 上那条成员关系此后不属于任何项目——它既不进任何一个项目的成员清单，
+// 也不会再被认领（它已经是那个账号的行）。本机不发，等本行拿到标识后的重发。
+func TestProjectAgentAdapter_GivenProjectWithoutSyncID_SkipsTheRow(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	state.EXPECT().FindRow(gomock.Any(), syncwire.KindProjectAgent, "pa-1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
+			row := dest.(*project_entity.ProjectAgent)
+			*row = project_entity.ProjectAgent{
+				ProjectID: 4, AgentID: 2, JoinedAt: 999,
+				SyncMeta: syncmeta_entity.SyncMeta{SyncID: "pa-1"},
+			}
+			return true, nil
+		})
+	syncstate_repo.RegisterSyncState(state)
+	projects := mock_project_repo.NewMockProjectRepo(ctrl)
+	projects.EXPECT().Find(gomock.Any(), int64(4)).Return(&project_entity.Project{
+		ID: 4, Name: "Agentre",
+	}, nil)
+	project_repo.RegisterProject(projects)
+	agents := mock_agent_repo.NewMockAgentRepo(ctrl)
+	agents.EXPECT().Find(gomock.Any(), int64(2)).Return(&agent_entity.Agent{
+		ID: 2, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "agent-1"},
+	}, nil)
+	agent_repo.RegisterAgent(agents)
+
+	out, err := projectAgentAdapter{}.load(context.Background(), "pa-1")
+	require.NoError(t, err)
+	assert.Nil(t, out, "引用表达不出来时一条都不发")
+}
+
+// TestProjectAgentAdapter_GivenAgentWithoutSyncID_SkipsTheRow 同一个口子的另一半：
+// Agent 那一行在、但没有同步标识。空引用的成员关系在 server 上是一个不入任何清单的
+// 孤儿行，宁可先不发。
+func TestProjectAgentAdapter_GivenAgentWithoutSyncID_SkipsTheRow(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	state.EXPECT().FindRow(gomock.Any(), syncwire.KindProjectAgent, "pa-1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
+			row := dest.(*project_entity.ProjectAgent)
+			*row = project_entity.ProjectAgent{
+				ProjectID: 4, AgentID: 2, JoinedAt: 999,
+				SyncMeta: syncmeta_entity.SyncMeta{SyncID: "pa-1"},
+			}
+			return true, nil
+		})
+	syncstate_repo.RegisterSyncState(state)
+	projects := mock_project_repo.NewMockProjectRepo(ctrl)
+	projects.EXPECT().Find(gomock.Any(), int64(4)).Return(&project_entity.Project{
+		ID: 4, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "proj-1"},
+	}, nil)
+	project_repo.RegisterProject(projects)
+	agents := mock_agent_repo.NewMockAgentRepo(ctrl)
+	agents.EXPECT().Find(gomock.Any(), int64(2)).Return(&agent_entity.Agent{ID: 2, Name: "CEO"}, nil)
+	agent_repo.RegisterAgent(agents)
+
+	out, err := projectAgentAdapter{}.load(context.Background(), "pa-1")
+	require.NoError(t, err)
+	assert.Nil(t, out, "引用表达不出来时一条都不发")
+}
+
+// TestProjectLocationAdapter_GivenProjectWithoutSyncID_SkipsTheRow 同一条规则用在
+// 路径记录上：项目没有同步标识时，它的**自然键**（项目标识 × 指纹）只能退化成空串，
+// 而 server 那边空作用域的行会彼此碰撞（同指纹的第二条被自然键合并掉）——不发。
+func TestProjectLocationAdapter_GivenProjectWithoutSyncID_SkipsTheRow(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	state.EXPECT().FindRow(gomock.Any(), syncwire.KindProjectLocation, "loc-1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
+			row := dest.(*project_location_entity.ProjectLocation)
+			*row = project_location_entity.ProjectLocation{
+				ID: 6, ProjectID: 4, DeviceFingerprint: "fp-builder", Path: "/srv/repo",
+				SyncMeta: syncmeta_entity.SyncMeta{SyncID: "loc-1"},
+			}
+			return true, nil
+		})
+	syncstate_repo.RegisterSyncState(state)
+	projects := mock_project_repo.NewMockProjectRepo(ctrl)
+	projects.EXPECT().Find(gomock.Any(), int64(4)).Return(&project_entity.Project{ID: 4, Name: "Agentre"}, nil)
+	project_repo.RegisterProject(projects)
+
+	out, err := projectLocationAdapter{}.load(context.Background(), "loc-1")
+	require.NoError(t, err)
+	assert.Nil(t, out, "引用表达不出来时一条都不发")
 }
 
 // TestProjectLocationAdapter_CarriesNaturalKeyOutsidePayload R4b/决策 26：路径记录的

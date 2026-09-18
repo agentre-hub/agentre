@@ -16,7 +16,7 @@ import (
 // 守门:空 Status 直接 no-op (translator 已经过滤过,这里 defense in depth)。
 type RuntimeStatusHandler struct{}
 
-func (RuntimeStatusHandler) Apply(ctx context.Context, ev agentruntime.Event, _ *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (RuntimeStatusHandler) Apply(ctx context.Context, ev agentruntime.Event, _ *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.RuntimeStatus)
 	if r.Status == "" {
 		return nil

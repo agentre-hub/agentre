@@ -44,9 +44,8 @@ type activeTurn struct {
 	liveSID string
 	token   atomic.Uint64
 
-	mu              sync.Mutex
-	abortRequested  bool
-	cumulativeUsage *provider.Usage
+	abortRequested  atomic.Bool
+	cumulativeUsage atomic.Pointer[provider.Usage]
 }
 
 var defaultRuntime = New()
@@ -55,21 +54,10 @@ func init() {
 	agentruntime.RegisterRuntime(agent_backend_entity.TypeHermes, defaultRuntime)
 }
 
-// defaultSessionFactory is a package-level variable so the default runtime and
-// tests share one dial path; tests construct a Runtime with a fake factory
-// instead of mutating the global.
-var newSessionFactory SessionFactory = defaultSessionFactory
-
 // New returns a Runtime wired to the real gateway dialer and the process-wide
 // credential source.
 func New() *Runtime {
-	return NewWithCredentials(newSessionFactory, DefaultCredentialSource())
-}
-
-// NewWithSessionFactory is the test seam (and the injector the daemon would
-// wire later). A nil factory falls back to the real dialer.
-func NewWithSessionFactory(factory SessionFactory) *Runtime {
-	return NewWithCredentials(factory, DefaultCredentialSource())
+	return NewWithCredentials(defaultSessionFactory, DefaultCredentialSource())
 }
 
 // NewWithCredentials wires both seams: the dial factory and the gated-serve
@@ -147,7 +135,8 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 		return nil, nil, err
 	}
 
-	active := &activeTurn{sess: sess, liveSID: liveSID, cumulativeUsage: baseline}
+	active := &activeTurn{sess: sess, liveSID: liveSID}
+	active.cumulativeUsage.Store(baseline)
 	result := &agentruntime.RunResult{ProviderSessionID: storedKey, TurnToken: active.token.Add(1)}
 	r.register(req.SessionID, active)
 	started = true
@@ -178,7 +167,7 @@ func openGatewaySession(ctx context.Context, sess Session, req agentruntime.RunR
 		}
 		return live, stored, nil
 	}
-	live, stored, err := sess.Create(ctx, cwd, 80)
+	live, stored, err := sess.Create(ctx, cwd)
 	if err != nil {
 		return "", "", err
 	}
@@ -219,7 +208,7 @@ func drainTurn(ctx context.Context, sess Session, out chan<- agentruntime.Event,
 	for {
 		select {
 		case <-ctx.Done():
-			if active.wasAbortRequested() {
+			if active.abortRequested.Load() {
 				result.StopErr = agentruntime.ErrAborted
 			} else {
 				result.StopErr = ctx.Err()
@@ -239,8 +228,8 @@ func drainTurn(ctx context.Context, sess Session, out chan<- agentruntime.Event,
 			}
 			events, usage, stopErr := translate(ev)
 			if usage != nil {
-				delta := usageDelta(usage, active.cumulative())
-				active.setCumulative(usage)
+				delta := usageDelta(usage, active.cumulativeUsage.Load())
+				active.cumulativeUsage.Store(usage)
 				if !usageIsZero(delta) {
 					addUsage(&turnUsage, delta)
 					haveUsage = true
@@ -331,9 +320,9 @@ func (r *Runtime) Abort(ctx context.Context, sessionID int64, turnToken uint64) 
 	if turnToken != 0 && a.token.Load() != turnToken {
 		return agentruntime.AbortOutcome{TurnKind: agentruntime.TurnKindNone}, nil
 	}
-	a.setAbortRequested(true)
+	a.abortRequested.Store(true)
 	if err := a.sess.Interrupt(ctx, a.liveSID); err != nil {
-		a.setAbortRequested(false)
+		a.abortRequested.Store(false)
 		// The connection was already torn down while the map entry lingered: the
 		// turn is over, so this is "no in-flight turn", not a stop failure.
 		if errors.Is(err, errSessionClosed) {
@@ -395,28 +384,4 @@ func (r *Runtime) unregister(sessionID int64, owner *activeTurn) {
 		delete(r.active, sessionID)
 	}
 	r.mu.Unlock()
-}
-
-func (a *activeTurn) setAbortRequested(v bool) {
-	a.mu.Lock()
-	a.abortRequested = v
-	a.mu.Unlock()
-}
-
-func (a *activeTurn) wasAbortRequested() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.abortRequested
-}
-
-func (a *activeTurn) setCumulative(u *provider.Usage) {
-	a.mu.Lock()
-	a.cumulativeUsage = u
-	a.mu.Unlock()
-}
-
-func (a *activeTurn) cumulative() *provider.Usage {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.cumulativeUsage
 }

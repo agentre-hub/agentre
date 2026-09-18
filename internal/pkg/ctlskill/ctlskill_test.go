@@ -63,12 +63,12 @@ func TestInstall_WritesBothForms(t *testing.T) {
 	home := t.TempDir()
 	mustInstall(t, home, "v1")
 
-	marketplaceManifest := filepath.Join(MarketplaceDir(home), ".claude-plugin", "marketplace.json")
-	pluginManifest := filepath.Join(PluginDir(home), ".claude-plugin", "plugin.json")
-	pluginSkill := filepath.Join(PluginDir(home), "skills", PluginName, "SKILL.md")
-	pluginRef := filepath.Join(PluginDir(home), "skills", PluginName, "references", "commands.md")
-	universalSkill := filepath.Join(UniversalDir(home), "SKILL.md")
-	universalRef := filepath.Join(UniversalDir(home), "references", "commands.md")
+	marketplaceManifest := filepath.Join(marketplaceDir(home), ".claude-plugin", "marketplace.json")
+	pluginManifest := filepath.Join(pluginDir(home), ".claude-plugin", "plugin.json")
+	pluginSkill := filepath.Join(pluginDir(home), "skills", pluginName, "SKILL.md")
+	pluginRef := filepath.Join(pluginDir(home), "skills", pluginName, "references", "commands.md")
+	universalSkill := filepath.Join(universalDir(home), "SKILL.md")
+	universalRef := filepath.Join(universalDir(home), "references", "commands.md")
 
 	for _, path := range []string{marketplaceManifest, pluginManifest, pluginSkill, pluginRef, universalSkill, universalRef} {
 		if !exists(path) {
@@ -88,14 +88,14 @@ func TestInstall_WritesBothForms(t *testing.T) {
 	}
 
 	manifest := readJSONMap(t, marketplaceManifest)
-	if manifest["name"] != MarketplaceName {
-		t.Fatalf("marketplace name = %v, want %q", manifest["name"], MarketplaceName)
+	if manifest["name"] != marketplaceName {
+		t.Fatalf("marketplace name = %v, want %q", manifest["name"], marketplaceName)
 	}
-	if readJSONMap(t, pluginManifest)["name"] != PluginName {
-		t.Fatalf("plugin name = %v, want %q", readJSONMap(t, pluginManifest)["name"], PluginName)
+	if readJSONMap(t, pluginManifest)["name"] != pluginName {
+		t.Fatalf("plugin name = %v, want %q", readJSONMap(t, pluginManifest)["name"], pluginName)
 	}
 	// 通用形态不带插件专有的 commands/。
-	if exists(filepath.Join(UniversalDir(home), "commands")) {
+	if exists(filepath.Join(universalDir(home), "commands")) {
 		t.Fatal("universal form must not carry a commands/ directory")
 	}
 }
@@ -106,16 +106,16 @@ func TestInstall_RegistersPluginDisabled(t *testing.T) {
 
 	installed := readJSONMap(t, filepath.Join(home, ".claude", "plugins", "installed_plugins.json"))
 	plugins, _ := installed["plugins"].(map[string]any)
-	entries, _ := plugins[PluginID].([]any)
+	entries, _ := plugins[pluginID].([]any)
 	if len(entries) != 1 {
-		t.Fatalf("installed_plugins entries for %s = %v, want exactly one", PluginID, plugins[PluginID])
+		t.Fatalf("installed_plugins entries for %s = %v, want exactly one", pluginID, plugins[pluginID])
 	}
 	entry, _ := entries[0].(map[string]any)
 	if entry["scope"] != "user" {
 		t.Fatalf("entry scope = %v, want user", entry["scope"])
 	}
-	if entry["installPath"] != PluginDir(home) {
-		t.Fatalf("entry installPath = %v, want %q", entry["installPath"], PluginDir(home))
+	if entry["installPath"] != pluginDir(home) {
+		t.Fatalf("entry installPath = %v, want %q", entry["installPath"], pluginDir(home))
 	}
 	if entry["version"] != "v1" {
 		t.Fatalf("entry version = %v, want v1", entry["version"])
@@ -128,30 +128,30 @@ func TestInstall_RegistersPluginDisabled(t *testing.T) {
 	}
 
 	known := readJSONMap(t, filepath.Join(home, ".claude", "plugins", "known_marketplaces.json"))
-	mkt, _ := known[MarketplaceName].(map[string]any)
+	mkt, _ := known[marketplaceName].(map[string]any)
 	if mkt == nil {
-		t.Fatalf("known_marketplaces missing %s: %v", MarketplaceName, known)
+		t.Fatalf("known_marketplaces missing %s: %v", marketplaceName, known)
 	}
-	if mkt["installLocation"] != MarketplaceDir(home) {
-		t.Fatalf("installLocation = %v, want %q", mkt["installLocation"], MarketplaceDir(home))
+	if mkt["installLocation"] != marketplaceDir(home) {
+		t.Fatalf("installLocation = %v, want %q", mkt["installLocation"], marketplaceDir(home))
 	}
 	source, _ := mkt["source"].(map[string]any)
-	if source["source"] != "directory" || source["path"] != MarketplaceDir(home) {
+	if source["source"] != "directory" || source["path"] != marketplaceDir(home) {
 		t.Fatalf("marketplace source = %v", mkt["source"])
 	}
 
 	settings := readJSONMap(t, filepath.Join(home, ".claude", "settings.json"))
 	enabled, _ := settings["enabledPlugins"].(map[string]any)
-	got, ok := enabled[PluginID]
+	got, ok := enabled[pluginID]
 	if !ok {
-		t.Fatalf("enabledPlugins missing %s: %v", PluginID, settings["enabledPlugins"])
+		t.Fatalf("enabledPlugins missing %s: %v", pluginID, settings["enabledPlugins"])
 	}
 	if got != false {
-		t.Fatalf("enabledPlugins[%s] = %v, want false", PluginID, got)
+		t.Fatalf("enabledPlugins[%s] = %v, want false", pluginID, got)
 	}
 	extra, _ := settings["extraKnownMarketplaces"].(map[string]any)
-	if extra[MarketplaceName] == nil {
-		t.Fatalf("extraKnownMarketplaces missing %s: %v", MarketplaceName, settings["extraKnownMarketplaces"])
+	if extra[marketplaceName] == nil {
+		t.Fatalf("extraKnownMarketplaces missing %s: %v", marketplaceName, settings["extraKnownMarketplaces"])
 	}
 }
 
@@ -177,13 +177,13 @@ func TestInstall_KeepsForeignRegistryEntries(t *testing.T) {
 	if foreignEntry["installPath"] != "/keep" || foreignEntry["extraField"] != "keep-me" {
 		t.Fatalf("foreign plugin entry mutated: %v", foreignEntry)
 	}
-	if plugins[PluginID] == nil {
+	if plugins[pluginID] == nil {
 		t.Fatal("our plugin was not registered alongside the foreign one")
 	}
 
 	known := readJSONMap(t, filepath.Join(pluginsDir, "known_marketplaces.json"))
-	if known["shop"] == nil || known[MarketplaceName] == nil {
-		t.Fatalf("known_marketplaces = %v, want both shop and %s", known, MarketplaceName)
+	if known["shop"] == nil || known[marketplaceName] == nil {
+		t.Fatalf("known_marketplaces = %v, want both shop and %s", known, marketplaceName)
 	}
 
 	settings := readJSONMap(t, filepath.Join(home, ".claude", "settings.json"))
@@ -195,7 +195,7 @@ func TestInstall_KeepsForeignRegistryEntries(t *testing.T) {
 		t.Fatalf("foreign enabledPlugins entry lost: %v", enabled)
 	}
 	extra, _ := settings["extraKnownMarketplaces"].(map[string]any)
-	if extra["shop"] == nil || extra[MarketplaceName] == nil {
+	if extra["shop"] == nil || extra[marketplaceName] == nil {
 		t.Fatalf("extraKnownMarketplaces = %v", extra)
 	}
 }
@@ -204,8 +204,8 @@ func TestInstall_SameVersionIsNoop(t *testing.T) {
 	home := t.TempDir()
 	mustInstall(t, home, "v1")
 
-	pluginSkill := filepath.Join(PluginDir(home), "skills", PluginName, "SKILL.md")
-	universalSkill := filepath.Join(UniversalDir(home), "SKILL.md")
+	pluginSkill := filepath.Join(pluginDir(home), "skills", pluginName, "SKILL.md")
+	universalSkill := filepath.Join(universalDir(home), "SKILL.md")
 	writeFileString(t, pluginSkill, "TOUCHED-PLUGIN")
 	writeFileString(t, universalSkill, "TOUCHED-UNIVERSAL")
 
@@ -223,8 +223,8 @@ func TestInstall_VersionChangeRewrites(t *testing.T) {
 	home := t.TempDir()
 	mustInstall(t, home, "v1")
 
-	pluginSkill := filepath.Join(PluginDir(home), "skills", PluginName, "SKILL.md")
-	universalSkill := filepath.Join(UniversalDir(home), "SKILL.md")
+	pluginSkill := filepath.Join(pluginDir(home), "skills", pluginName, "SKILL.md")
+	universalSkill := filepath.Join(universalDir(home), "SKILL.md")
 	writeFileString(t, pluginSkill, "STALE")
 	writeFileString(t, universalSkill, "STALE")
 
@@ -238,9 +238,9 @@ func TestInstall_VersionChangeRewrites(t *testing.T) {
 	}
 	installed := readJSONMap(t, filepath.Join(home, ".claude", "plugins", "installed_plugins.json"))
 	plugins, _ := installed["plugins"].(map[string]any)
-	entries, _ := plugins[PluginID].([]any)
+	entries, _ := plugins[pluginID].([]any)
 	if len(entries) != 1 {
-		t.Fatalf("version bump duplicated the registry entry: %v", plugins[PluginID])
+		t.Fatalf("version bump duplicated the registry entry: %v", plugins[pluginID])
 	}
 	entry, _ := entries[0].(map[string]any)
 	if entry["version"] != "v2" {
@@ -252,23 +252,23 @@ func TestInstall_SkipsSymlinkedPluginTarget(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
 	writeFileString(t, filepath.Join(repo, "marker.txt"), "REPO-SOURCE")
-	if err := os.MkdirAll(filepath.Dir(MarketplaceDir(home)), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(marketplaceDir(home)), 0o755); err != nil {
 		t.Fatalf("mkdir marketplaces: %v", err)
 	}
-	if err := os.Symlink(repo, MarketplaceDir(home)); err != nil {
+	if err := os.Symlink(repo, marketplaceDir(home)); err != nil {
 		t.Fatalf("symlink marketplace dir: %v", err)
 	}
 
 	mustInstall(t, home, "v1")
 
-	if exists(filepath.Join(repo, ".claude-plugin")) || exists(filepath.Join(repo, PluginName)) {
+	if exists(filepath.Join(repo, ".claude-plugin")) || exists(filepath.Join(repo, pluginName)) {
 		t.Fatal("install wrote through the symlink into the source tree")
 	}
 	if exists(filepath.Join(home, ".claude", "plugins", "installed_plugins.json")) {
 		t.Fatal("skipped plugin form must not register anything")
 	}
 	// 通用形态不受影响，仍然安装。
-	if !exists(filepath.Join(UniversalDir(home), "SKILL.md")) {
+	if !exists(filepath.Join(universalDir(home), "SKILL.md")) {
 		t.Fatal("universal form must still install when only the plugin target is symlinked")
 	}
 }
@@ -328,25 +328,25 @@ func TestUninstall_RemovesTreesAndOnlyOurKeys(t *testing.T) {
 		t.Fatalf("Uninstall: %v", err)
 	}
 
-	if exists(MarketplaceDir(home)) {
+	if exists(marketplaceDir(home)) {
 		t.Fatal("marketplace tree still present after uninstall")
 	}
-	if exists(UniversalDir(home)) {
+	if exists(universalDir(home)) {
 		t.Fatal("universal skill tree still present after uninstall")
 	}
 
 	installed := readJSONMap(t, filepath.Join(pluginsDir, "installed_plugins.json"))
 	plugins, _ := installed["plugins"].(map[string]any)
-	if plugins[PluginID] != nil {
-		t.Fatalf("installed_plugins still carries %s: %v", PluginID, plugins)
+	if plugins[pluginID] != nil {
+		t.Fatalf("installed_plugins still carries %s: %v", pluginID, plugins)
 	}
 	if plugins["other@shop"] == nil {
 		t.Fatalf("uninstall dropped the foreign plugin entry: %v", plugins)
 	}
 
 	known := readJSONMap(t, filepath.Join(pluginsDir, "known_marketplaces.json"))
-	if known[MarketplaceName] != nil {
-		t.Fatalf("known_marketplaces still carries %s: %v", MarketplaceName, known)
+	if known[marketplaceName] != nil {
+		t.Fatalf("known_marketplaces still carries %s: %v", marketplaceName, known)
 	}
 	if known["shop"] == nil {
 		t.Fatalf("uninstall dropped the foreign marketplace: %v", known)
@@ -354,15 +354,15 @@ func TestUninstall_RemovesTreesAndOnlyOurKeys(t *testing.T) {
 
 	settings := readJSONMap(t, filepath.Join(home, ".claude", "settings.json"))
 	enabled, _ := settings["enabledPlugins"].(map[string]any)
-	if _, ok := enabled[PluginID]; ok {
-		t.Fatalf("enabledPlugins still carries %s: %v", PluginID, enabled)
+	if _, ok := enabled[pluginID]; ok {
+		t.Fatalf("enabledPlugins still carries %s: %v", pluginID, enabled)
 	}
 	if enabled["other@shop"] != true {
 		t.Fatalf("uninstall dropped the foreign enabledPlugins entry: %v", enabled)
 	}
 	extra, _ := settings["extraKnownMarketplaces"].(map[string]any)
-	if extra[MarketplaceName] != nil {
-		t.Fatalf("extraKnownMarketplaces still carries %s: %v", MarketplaceName, extra)
+	if extra[marketplaceName] != nil {
+		t.Fatalf("extraKnownMarketplaces still carries %s: %v", marketplaceName, extra)
 	}
 	if extra["shop"] == nil {
 		t.Fatalf("uninstall dropped the foreign extraKnownMarketplaces entry: %v", extra)
@@ -383,10 +383,10 @@ func TestUninstall_SkipsSymlinkedTree(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
 	writeFileString(t, filepath.Join(repo, "marker.txt"), "REPO-SOURCE")
-	if err := os.MkdirAll(filepath.Dir(MarketplaceDir(home)), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(marketplaceDir(home)), 0o755); err != nil {
 		t.Fatalf("mkdir marketplaces: %v", err)
 	}
-	if err := os.Symlink(repo, MarketplaceDir(home)); err != nil {
+	if err := os.Symlink(repo, marketplaceDir(home)); err != nil {
 		t.Fatalf("symlink marketplace dir: %v", err)
 	}
 
@@ -417,14 +417,14 @@ func TestInstall_KeepsUserEnabledPluginToggle(t *testing.T) {
 	settingsFile := filepath.Join(home, ".claude", "settings.json")
 	config := readJSONMap(t, settingsFile)
 	enabled, _ := config["enabledPlugins"].(map[string]any)
-	enabled[PluginID] = true
+	enabled[pluginID] = true
 	writeJSONMap(t, settingsFile, config)
 
 	mustInstall(t, home, "v2")
 
 	got, _ := readJSONMap(t, settingsFile)["enabledPlugins"].(map[string]any)
-	if got[PluginID] != true {
-		t.Fatalf("enabledPlugins[%s] = %v, want the user's own true preserved", PluginID, got[PluginID])
+	if got[pluginID] != true {
+		t.Fatalf("enabledPlugins[%s] = %v, want the user's own true preserved", pluginID, got[pluginID])
 	}
 }
 
@@ -437,22 +437,22 @@ func TestInstall_RepairsDroppedRegistryEntry(t *testing.T) {
 
 	knownPath := filepath.Join(home, ".claude", "plugins", "known_marketplaces.json")
 	known := readJSONMap(t, knownPath)
-	delete(known, MarketplaceName)
+	delete(known, marketplaceName)
 	writeJSONMap(t, knownPath, known)
 
 	settingsFile := filepath.Join(home, ".claude", "settings.json")
 	config := readJSONMap(t, settingsFile)
 	extra, _ := config["extraKnownMarketplaces"].(map[string]any)
-	delete(extra, MarketplaceName)
+	delete(extra, marketplaceName)
 	writeJSONMap(t, settingsFile, config)
 
 	mustInstall(t, home, "v1")
 
-	if readJSONMap(t, knownPath)[MarketplaceName] == nil {
+	if readJSONMap(t, knownPath)[marketplaceName] == nil {
 		t.Fatal("same-version install did not restore the dropped known_marketplaces entry")
 	}
 	restored, _ := readJSONMap(t, settingsFile)["extraKnownMarketplaces"].(map[string]any)
-	if restored[MarketplaceName] == nil {
+	if restored[marketplaceName] == nil {
 		t.Fatal("same-version install did not restore the dropped extraKnownMarketplaces entry")
 	}
 }
@@ -472,12 +472,12 @@ func TestStatus_ReportsBothForms(t *testing.T) {
 	if got.PluginInstalled || got.UniversalInstalled {
 		t.Fatalf("clean home reported installed: %+v", got)
 	}
-	if got.PluginPath != PluginDir(home) || got.UniversalPath != UniversalDir(home) {
+	if got.PluginPath != pluginDir(home) || got.UniversalPath != universalDir(home) {
 		t.Fatalf("Status paths = %+v", got)
 	}
 
 	// 半装：只有通用目录。
-	writeFileString(t, filepath.Join(UniversalDir(home), "SKILL.md"), "x")
+	writeFileString(t, filepath.Join(universalDir(home), "SKILL.md"), "x")
 	got = Status(home)
 	if got.PluginInstalled {
 		t.Fatalf("plugin reported installed with only the universal form: %+v", got)

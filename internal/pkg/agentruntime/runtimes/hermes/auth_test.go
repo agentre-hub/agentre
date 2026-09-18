@@ -63,8 +63,7 @@ func (g *gatedServe) handler() http.Handler {
 			http.Error(w, "bad pkce", http.StatusBadRequest)
 			return
 		}
-		redirect, err := url.Parse(q.Get("redirect_uri"))
-		if err != nil || !isLoopbackRedirect(redirect) {
+		if q.Get("redirect_uri") != nativeRedirectURI {
 			http.Error(w, "bad redirect", http.StatusBadRequest)
 			return
 		}
@@ -161,7 +160,7 @@ func (g *gatedServe) handler() http.Handler {
 }
 
 func TestPKCEChallengeIsS256Base64URL(t *testing.T) {
-	verifier, err := newCodeVerifier()
+	verifier, err := randomToken(32)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(verifier), 43)
 
@@ -357,19 +356,4 @@ func TestAuthErrorsNeverLeakPassword(t *testing.T) {
 
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "super-secret-42")
-}
-
-func TestIsLoopbackRedirect(t *testing.T) {
-	cases := map[string]bool{
-		"http://127.0.0.1:54999/cb": true,
-		"http://localhost:1234/cb":  true,
-		"http://[::1]:1234/cb":      true,
-		"http://10.0.0.5:80/cb":     false,
-		"https://evil.example/cb":   false,
-	}
-	for raw, want := range cases {
-		u, err := url.Parse(raw)
-		require.NoError(t, err)
-		assert.Equalf(t, want, isLoopbackRedirect(u), "%s", raw)
-	}
 }

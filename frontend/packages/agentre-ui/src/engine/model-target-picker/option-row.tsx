@@ -15,7 +15,7 @@ import { useUiTranslation as useTranslation } from "../../i18n";
 import { cn } from "../../lib/utils";
 
 import { LlmProviderLogo } from "../ai-brand-logo";
-import { formatTokens } from "../llm-provider-models";
+import { formatTokens } from "../../lib/format-tokens";
 import type { Option } from "./options";
 import type { ModelTarget, PickerProvider, PickerScenario } from "./types";
 
@@ -217,8 +217,14 @@ export function PickerOptionRow({
             {opt.kind === "fixed" && (opt.contextWindow || opt.maxOutput) ? (
               <span className="shrink-0 font-mono text-3xs text-muted-foreground">
                 {t("modelTargetPicker.contextOutput", {
-                  ctx: formatTokens(opt.contextWindow ?? 0),
-                  out: formatTokens(opt.maxOutput ?? 0),
+                  ctx:
+                    opt.contextWindow && opt.contextWindow > 0
+                      ? formatTokens(opt.contextWindow)
+                      : "—",
+                  out:
+                    opt.maxOutput && opt.maxOutput > 0
+                      ? formatTokens(opt.maxOutput)
+                      : "—",
                 })}
               </span>
             ) : null}

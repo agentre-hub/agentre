@@ -18,7 +18,7 @@ import {
 } from "@agentre-hub/agentre-ui";
 import { useProjectList } from "@/hooks/use-project-list";
 import type { AgentSlim } from "@/hooks/use-chat-agents";
-import { cn } from "@/lib/utils";
+import { cn } from "@agentre-hub/agentre-ui";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { readLastContext } from "@/stores/new-chat-context-persistence";
 import { useNewChatContextStore } from "@/stores/new-chat-context-store";

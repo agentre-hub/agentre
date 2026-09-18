@@ -16,9 +16,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/agentre-hub/agentre/internal/daemon"
 	"github.com/agentre-hub/agentre/internal/daemon/enginesnapshot"
 	"github.com/agentre-hub/agentre/internal/daemon/identity"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/pkg/cagoenvelope"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
@@ -78,7 +80,7 @@ func newLoginCmd() *cobra.Command {
 			return nil
 		},
 		platform:      runtime.GOOS,
-		version:       agentredBuildIdentity(),
+		version:       daemon.BuildIdentity(),
 		hostname:      os.Hostname,
 		daemonRunning: daemonIsRunning,
 	})
@@ -131,7 +133,7 @@ func login(cmd *cobra.Command, deps loginDeps, st *state.State, serverURL string
 			name = got
 		}
 	}
-	if _, err := doLoginJSON(cmd, deps.http, http.MethodPost, serverURL+"/v1/oauth/device/authorize", map[string]any{
+	if _, err := doJSON(cmd, deps.http, http.MethodPost, serverURL+"/v1/oauth/device/authorize", "", map[string]any{
 		"device_kind": "agentred",
 		// 账号侧的设备指纹与 auth.pair 交给桌面端做 TOFU 的那一个是同一个东西:
 		// identity.DaemonFingerprint(instance uuid)。桌面端手上只有这个形态 —— 它按本地
@@ -176,7 +178,7 @@ func login(cmd *cobra.Command, deps loginDeps, st *state.State, serverURL string
 		if err := deps.wait(interval); err != nil {
 			return fmt.Errorf("wait to poll device authorization: %w", err)
 		}
-		oauthErr, err := doLoginJSON(cmd, deps.http, http.MethodPost, serverURL+"/v1/oauth/device/token", map[string]string{
+		oauthErr, err := doJSON(cmd, deps.http, http.MethodPost, serverURL+"/v1/oauth/device/token", "", map[string]string{
 			"grant_type":  "urn:ietf:params:oauth:grant-type:device_code",
 			"device_code": authorize.DeviceCode,
 		}, &token)
@@ -239,9 +241,10 @@ func login(cmd *cobra.Command, deps loginDeps, st *state.State, serverURL string
 	return nil
 }
 
-// doLoginJSON handles both the raw endpoint payload described by the public
-// contract and cago's {data: ...} response envelope.
-func doLoginJSON(cmd *cobra.Command, client loginHTTPDoer, method, endpoint string, requestBody any, responseBody any) (*oauthErrorResponse, error) {
+// doJSON handles both the raw endpoint payload described by the public
+// contract and cago's {data: ...} response envelope. token 非空时附加
+// Authorization 头;登录那条路径按约定传空串(从不带凭据)。
+func doJSON(cmd *cobra.Command, client loginHTTPDoer, method, endpoint, token string, requestBody, responseBody any) (*oauthErrorResponse, error) {
 	var body io.Reader
 	if requestBody != nil {
 		encoded, err := json.Marshal(requestBody)
@@ -257,6 +260,9 @@ func doLoginJSON(cmd *cobra.Command, client loginHTTPDoer, method, endpoint stri
 	if requestBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -268,28 +274,18 @@ func doLoginJSON(cmd *cobra.Command, client loginHTTPDoer, method, endpoint stri
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		oauthErr := oauthErrorResponse{}
-		if err := decodeLoginResponse(payload, &oauthErr); err == nil && oauthErr.Code != "" {
+		if err := cagoenvelope.Decode(payload, &oauthErr); err == nil && oauthErr.Code != "" {
 			return &oauthErr, nil
 		}
 		return nil, fmt.Errorf("server returned %s: %s", resp.Status, strings.TrimSpace(string(payload)))
 	}
-	if err := decodeLoginResponse(payload, responseBody); err != nil {
+	if responseBody == nil {
+		return nil, nil
+	}
+	if err := cagoenvelope.Decode(payload, responseBody); err != nil {
 		return nil, err
 	}
 	return nil, nil
-}
-
-func decodeLoginResponse(payload []byte, target any) error {
-	var envelope struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(payload, &envelope); err != nil {
-		return err
-	}
-	if len(envelope.Data) != 0 && string(envelope.Data) != "null" {
-		return json.Unmarshal(envelope.Data, target)
-	}
-	return json.Unmarshal(payload, target)
 }
 
 // fetchAccountID asks the account server whose freshly issued device token this
@@ -316,7 +312,7 @@ func fetchAccountID(cmd *cobra.Command, client loginHTTPDoer, serverURL, accessT
 	var me struct {
 		UserID int64 `json:"user_id"`
 	}
-	if err := decodeLoginResponse(payload, &me); err != nil {
+	if err := cagoenvelope.Decode(payload, &me); err != nil {
 		return "", fmt.Errorf("identify account: %w", err)
 	}
 	if me.UserID <= 0 {

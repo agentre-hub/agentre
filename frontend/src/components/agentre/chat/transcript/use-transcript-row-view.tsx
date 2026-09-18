@@ -162,6 +162,11 @@ export function useTranscriptRowView({
           compacting={showIndicator && isLiveTail && liveCompacting}
           reconnecting={showIndicator && reconnecting}
           liveTurn={isLiveTail ? (live?.liveTurn ?? null) : null}
+          // 「这一轮在不在跑」如实传给包,不再让它从 liveBlocks 的存在性反推:
+          // 桌面端的真相就是 liveByMessageId 的成员资格(表里有 key 的消息就在
+          // 流式中),而那张表的每一项恒带 liveBlocks 数组 —— 所以这与旧判据
+          // 逐帧等价,只是把判据本身说清楚了。
+          turnRunning={isLiveTail}
           fallbackModel={fallbackModel}
         />
       );

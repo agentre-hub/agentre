@@ -21,58 +21,12 @@ func (tc *TurnContext) StartGenerationAt(now time.Time) {
 	tc.Clock.StartGenerationAt(now)
 }
 
-func (tc *TurnContext) NoteVisibleToken() { tc.NoteVisibleTokenAt(time.Now()) }
-
-// NoteVisibleTokenAt 记首 token(TTFT),并在表被按住时重新开表。
-func (tc *TurnContext) NoteVisibleTokenAt(now time.Time) {
-	if tc == nil {
-		return
-	}
-	tc.Clock.NoteVisibleTokenAt(now)
-}
-
-// NoteOutputToken / NoteOutputTokenAt 记首 token,**只记表不动表**。
-func (tc *TurnContext) NoteOutputToken() { tc.NoteOutputTokenAt(time.Now()) }
-
-func (tc *TurnContext) NoteOutputTokenAt(now time.Time) {
-	if tc == nil {
-		return
-	}
-	tc.Clock.NoteOutputTokenAt(now)
-}
-
-// SuspendGeneration 停表:toolCallID 这个外层工具开始执行,这段空档不算。
-func (tc *TurnContext) SuspendGeneration(toolCallID string) {
-	tc.SuspendGenerationAt(toolCallID, time.Now())
-}
-
-func (tc *TurnContext) SuspendGenerationAt(toolCallID string, now time.Time) {
-	if tc == nil {
-		return
-	}
-	tc.Clock.SuspendGenerationAt(toolCallID, now)
-}
-
-// ResumeGeneration 开表:toolCallID 的结果已回。并行工具全部回齐才真的开表。
-func (tc *TurnContext) ResumeGeneration(toolCallID string) {
-	tc.ResumeGenerationAt(toolCallID, time.Now())
-}
-
-func (tc *TurnContext) ResumeGenerationAt(toolCallID string, now time.Time) {
-	if tc == nil {
-		return
-	}
-	tc.Clock.ResumeGenerationAt(toolCallID, now)
-}
-
 // PauseGeneration 段末收口停表。
-func (tc *TurnContext) PauseGeneration() { tc.PauseGenerationAt(time.Now()) }
-
-func (tc *TurnContext) PauseGenerationAt(now time.Time) {
+func (tc *TurnContext) PauseGeneration() {
 	if tc == nil {
 		return
 	}
-	tc.Clock.PauseGenerationAt(now)
+	tc.PauseGenerationAt(time.Now())
 }
 
 func (tc *TurnContext) FirstTokenMs() int {

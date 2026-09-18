@@ -11,7 +11,7 @@ import (
 type RetryHandler struct{}
 
 // Apply 仅 emit retry 中间形态(no acc / no persist;spec §1.6)。
-func (RetryHandler) Apply(ctx context.Context, ev agentruntime.Event, _ *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+func (RetryHandler) Apply(ctx context.Context, ev agentruntime.Event, _ *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.Retry)
 	if emit != nil {
 		emit.Emit(ctx, streamOf(tc), map[string]any{

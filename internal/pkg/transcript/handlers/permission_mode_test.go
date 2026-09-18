@@ -11,10 +11,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 )
 
-type fakeSessionUpdater struct{ calls int }
-
-func (f *fakeSessionUpdater) Update(_ context.Context, _ any) error { f.calls++; return nil }
-
 type fakePermissionModeWriter struct {
 	current  string
 	setCalls int
@@ -37,7 +33,7 @@ func TestPermissionModeChangedHandler(t *testing.T) {
 
 		err := PermissionModeChangedHandler{Writer: wr}.Apply(context.Background(),
 			agentruntime.PermissionModeChanged{Mode: "plan"},
-			acc, emit, nil, tc)
+			acc, emit, tc)
 		So(err, ShouldBeNil)
 		So(wr.setCalls, ShouldEqual, 1)
 		So(wr.setMode, ShouldEqual, "plan")
@@ -57,7 +53,7 @@ func TestPermissionModeChangedHandler_SameModeIdempotent(t *testing.T) {
 		tc := &turn.TurnContext{Session: struct{}{}, Stream: "s"}
 
 		err := PermissionModeChangedHandler{Writer: wr}.Apply(context.Background(),
-			agentruntime.PermissionModeChanged{Mode: "plan"}, acc, emit, nil, tc)
+			agentruntime.PermissionModeChanged{Mode: "plan"}, acc, emit, tc)
 		So(err, ShouldBeNil)
 		So(wr.setCalls, ShouldEqual, 0)
 		So(emit.events, ShouldHaveLength, 0)
@@ -69,7 +65,7 @@ func TestPermissionModeChangedHandler_EmptyModeNoOp(t *testing.T) {
 	Convey("Mode 空时 no-op", t, func() {
 		acc := turn.New()
 		err := PermissionModeChangedHandler{}.Apply(context.Background(),
-			agentruntime.PermissionModeChanged{Mode: ""}, acc, nil, nil, nil)
+			agentruntime.PermissionModeChanged{Mode: ""}, acc, nil, nil)
 		So(err, ShouldBeNil)
 		So(acc.Empty(), ShouldBeTrue)
 	})

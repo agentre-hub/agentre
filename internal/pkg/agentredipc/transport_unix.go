@@ -11,7 +11,7 @@ import (
 
 // Endpoint returns the unchanged Unix-domain socket path.
 func Endpoint(dataDir string) string {
-	return UnixSocketPath(dataDir)
+	return unixSocketPath(dataDir)
 }
 
 // Listen creates the current-user-only Unix-domain socket used by agentred.

@@ -20,7 +20,7 @@ import (
 // newTestSvc 构造一个全新的 orgtoolSvc(避免 Default() 单例跨测试串台),只接 AgentLookup
 // 与 OrgQuery —— 本任务读路径只用到这两个依赖。
 func newTestSvc(lookup AgentLookup, query OrgQuery) *orgtoolSvc {
-	s := &orgtoolSvc{}
+	s := newOrgtoolSvc()
 	s.RegisterDeps(query, nil, nil, lookup, nil)
 	return s
 }
@@ -62,7 +62,7 @@ func TestOrgMCP_TokenRoundTrip(t *testing.T) {
 
 		s := newTestSvc(lookup, query)
 		h := s.MCPHandler()
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 
 		Convey("合法 token → 200", func() {
 			w := rpcCall(h, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_get"}}`, token)
@@ -76,7 +76,7 @@ func TestOrgMCP_TokenRoundTrip(t *testing.T) {
 		lookup := mock_orgtool_svc.NewMockAgentLookup(ctrl) // 无 EXPECT:不该被调用
 		s := newTestSvc(lookup, mock_orgtool_svc.NewMockOrgQuery(ctrl))
 		h := s.MCPHandler()
-		good := s.mcpHandlerInit().MintToken(7, 99)
+		good := s.Server().MintToken(7, 99)
 
 		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_get"}}`
 		So(rpcCall(h, body, good+"tampered").Code, ShouldEqual, http.StatusUnauthorized)
@@ -95,7 +95,7 @@ func TestOrgMCP_SwitchOffForbids(t *testing.T) {
 
 		s := newTestSvc(lookup, query)
 		h := s.MCPHandler()
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 
 		w := rpcCall(h, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_get"}}`, token)
 		So(w.Code, ShouldEqual, http.StatusForbidden)
@@ -107,7 +107,7 @@ func TestOrgMCP_SwitchOffForbids(t *testing.T) {
 		lookup := mock_orgtool_svc.NewMockAgentLookup(ctrl)
 		lookup.EXPECT().Find(gomock.Any(), int64(7)).Return(nil, nil)
 		s := newTestSvc(lookup, mock_orgtool_svc.NewMockOrgQuery(ctrl))
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_get"}}`, token)
 		So(w.Code, ShouldEqual, http.StatusForbidden)
 	})
@@ -115,8 +115,8 @@ func TestOrgMCP_SwitchOffForbids(t *testing.T) {
 
 func TestOrgMCP_DepsNotRegistered(t *testing.T) {
 	Convey("bootstrap 窗口期(RegisterDeps 未执行)tools/call → 503 service unavailable,不 panic", t, func() {
-		s := &orgtoolSvc{} // 未 RegisterDeps:gateway 已挂 handler 但 deps 还没接线
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		s := newOrgtoolSvc() // 未 RegisterDeps:gateway 已挂 handler 但 deps 还没接线
+		token := s.Server().MintToken(7, 99)
 		w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_get"}}`, token)
 		So(w.Code, ShouldEqual, http.StatusServiceUnavailable)
 		So(w.Body.String(), ShouldContainSubstring, "service unavailable")
@@ -168,7 +168,7 @@ func TestOrgMCP_OrgGetReturnsLoadResult(t *testing.T) {
 		}, nil)
 
 		s := newTestSvc(lookup, query)
-		token := s.mcpHandlerInit().MintToken(7, 99)
+		token := s.Server().MintToken(7, 99)
 		w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_get"}}`, token)
 
 		So(w.Code, ShouldEqual, http.StatusOK)
@@ -195,7 +195,7 @@ func TestOrgMCP_WriteToolRouting(t *testing.T) {
 			apvCh := beginCh(d, 99)
 			d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "denied", gomock.Any()).Return(nil)
 
-			token := s.mcpHandlerInit().MintToken(7, 99)
+			token := s.Server().MintToken(7, 99)
 			w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_create_department","arguments":{"name":"x"}}}`, token)
 			apvCh <- false // 经 chat_svc 返回的 channel 模拟前端拒绝
 			<-done
@@ -208,7 +208,7 @@ func TestOrgMCP_WriteToolRouting(t *testing.T) {
 			lookup := mock_orgtool_svc.NewMockAgentLookup(ctrl)
 			lookup.EXPECT().Find(gomock.Any(), int64(7)).Return(orgEnabledAgent(7), nil)
 			s := newTestSvc(lookup, mock_orgtool_svc.NewMockOrgQuery(ctrl))
-			token := s.mcpHandlerInit().MintToken(7, 99)
+			token := s.Server().MintToken(7, 99)
 			w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"not_an_org_tool","arguments":{}}}`, token)
 			So(w.Code, ShouldEqual, http.StatusOK) // JSON-RPC error 仍是 HTTP 200
 			So(w.Body.String(), ShouldContainSubstring, "unknown tool")
@@ -230,7 +230,7 @@ func TestOrgMCP_BuildTurnMCP(t *testing.T) {
 			So(len(specs[0].Tools), ShouldEqual, 7)
 			// header 里的 token 应能被本 handler 验签解出 (7, 99)
 			tok := strings.TrimPrefix(specs[0].Headers["Authorization"], "Bearer ")
-			ref, ok := s.mcpHandlerInit().Lookup(tok)
+			ref, ok := s.Server().Lookup(tok)
 			So(ok, ShouldBeTrue)
 			So(ref, ShouldResemble, agenttool.Ref{AgentID: 7, SessionID: 99})
 		})
