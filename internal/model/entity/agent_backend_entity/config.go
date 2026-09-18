@@ -8,14 +8,15 @@ import (
 	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
-// 十二个**单类型独占**设置落在 config_json 这一列，形状就是同步契约的
+// 十四个**单类型独占**设置落在 config_json 这一列，形状就是同步契约的
 // syncwire.AgentBackendConfig —— 键表只在契约里定义一份，本机的列、同步载荷的
 // config 对象与 web API 是同一组 camelCase 键。
 //
 // 为什么它们合成一列而不是各占一列：agent_backends 是所有后端类型共用的一张表，
 // 而这些格里没有一格被两种类型同时认领 —— model_routes / default_permission_mode /
 // default_model 只有 claudecode 认，sandbox / approval 只有 codex 认，四个 openclaw_*
-// 只有 openclaw 认，hermes_* 只有 hermes 认。其余类型的行上它们恒为空串，
+// 只有 openclaw 认，hermes_* 只有 hermes 认，acpCommand / acpArgs 只有 acp 认。
+// 其余类型的行上它们恒为空串，
 // 且 kinds.go 的 ValidateExtra 会逐条拒绝写入。列的形态因此表达不出任何约束，只是把
 // 「谁认识哪些字段」这件事在 schema 里又抄了一遍 —— 而那件事的真相源是 BackendKind。
 //
@@ -43,6 +44,8 @@ func (b *AgentBackend) Config() syncwire.AgentBackendConfig {
 		HermesURL:             b.HermesURL,
 		HermesAuthProvider:    b.HermesAuthProvider,
 		HermesUserID:          b.HermesUserID,
+		ACPCommand:            b.ACPCommand,
+		ACPArgs:               b.ACPArgs,
 	}
 	if routes := strings.TrimSpace(b.ModelRoutes); !isEmptyJSONObject(routes) {
 		cfg.ModelRoutes = json.RawMessage(routes)
@@ -67,6 +70,8 @@ func (b *AgentBackend) SetConfig(cfg syncwire.AgentBackendConfig) {
 	b.HermesURL = cfg.HermesURL
 	b.HermesAuthProvider = cfg.HermesAuthProvider
 	b.HermesUserID = cfg.HermesUserID
+	b.ACPCommand = cfg.ACPCommand
+	b.ACPArgs = cfg.ACPArgs
 }
 
 // MarshalConfig 把独占字段收进 b.ConfigJSON。写库前调用（见

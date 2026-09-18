@@ -154,3 +154,24 @@ func TestBuildCodexConfig_Basic(t *testing.T) {
 		assert.Empty(t, BuildCodexConfig(CLIDeps{GatewayURL: "http://127.0.0.1:60080"}))
 	})
 }
+
+// TestBuildACPEnv 钉死 acp 子进程 env 装配：ACP Agent 自带 provider/model/凭证，
+// 不注入任何网关变量，只透传用户自定义 env_json（保留键已被 entity.Check 拒入）。
+// prober 与 chat 路径共用这一份，避免两处漂移。
+func TestBuildACPEnv(t *testing.T) {
+	t.Run("仅透传 env_json，不注入网关变量", func(t *testing.T) {
+		b := &agent_backend_entity.AgentBackend{EnvJSON: `{"MY_TOOL_FLAGS":"--verbose"}`}
+		env, err := BuildACPEnv(b)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"MY_TOOL_FLAGS": "--verbose"}, env)
+	})
+	t.Run("空 env_json 产出空 map", func(t *testing.T) {
+		env, err := BuildACPEnv(&agent_backend_entity.AgentBackend{})
+		require.NoError(t, err)
+		assert.Empty(t, env)
+	})
+	t.Run("坏 env_json 报错", func(t *testing.T) {
+		_, err := BuildACPEnv(&agent_backend_entity.AgentBackend{EnvJSON: `{"broken"`})
+		assert.Error(t, err)
+	})
+}

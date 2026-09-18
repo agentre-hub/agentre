@@ -89,7 +89,7 @@ func runAgents(args []string, stdout, stderr io.Writer, lookupEnv func(string) (
 			SystemBadge string `json:"systemBadge"`
 		} `json:"agents"`
 	}
-	if err := ep.get("/ctl/v1/agents", &out); err != nil {
+	if err := ep.Get("/ctl/v1/agents", &out); err != nil {
 		_, _ = fmt.Fprintln(stderr, "ctl:", err)
 		return 1
 	}
@@ -125,7 +125,7 @@ func runProjects(args []string, stdout, stderr io.Writer, lookupEnv func(string)
 			Path string `json:"path"`
 		} `json:"projects"`
 	}
-	if err := ep.get("/ctl/v1/projects", &out); err != nil {
+	if err := ep.Get("/ctl/v1/projects", &out); err != nil {
 		_, _ = fmt.Fprintln(stderr, "ctl:", err)
 		return 1
 	}
@@ -175,7 +175,7 @@ func runSend(args []string, stdout, stderr io.Writer, lookupEnv func(string) (st
 		Text               string `json:"text"`
 		Done               bool   `json:"done"`
 	}
-	if err := ep.post("/ctl/v1/send", body, &out); err != nil {
+	if err := ep.Post("/ctl/v1/send", body, &out); err != nil {
 		_, _ = fmt.Fprintln(stderr, "ctl:", err)
 		return 1
 	}

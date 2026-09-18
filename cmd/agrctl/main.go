@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/agentre-hub/agentre/internal/cli/acpcmd"
 	"github.com/agentre-hub/agentre/internal/cli/claudecodecmd"
 	"github.com/agentre-hub/agentre/internal/cli/ctlcmd"
 )
@@ -17,6 +18,7 @@ const usageText = `agrctl — Agentre companion CLI
 
 Usage:
   agrctl ctl <command> [flags]        control a running Agentre desktop (agents/projects/send)
+  agrctl acp --agent <name>           run as an ACP v1 agent over stdio (for the acp backend)
   agrctl claudecode hook post-tool    (internal) Claude Code PostToolUse hook helper`
 
 func main() {
@@ -29,6 +31,8 @@ func main() {
 		claudecodecmd.Main(os.Args[2:]) // calls os.Exit
 	case "ctl":
 		ctlcmd.Main(os.Args[2:]) // calls os.Exit
+	case "acp":
+		acpcmd.Main(os.Args[2:]) // calls os.Exit
 	default:
 		_, _ = fmt.Fprintf(os.Stderr, "agrctl: unknown subcommand %q\n", os.Args[1])
 		os.Exit(2)

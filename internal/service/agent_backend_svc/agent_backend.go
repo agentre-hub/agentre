@@ -279,6 +279,8 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 		HermesURL:             strings.TrimSpace(req.HermesURL),
 		HermesAuthProvider:    strings.TrimSpace(req.HermesAuthProvider),
 		HermesUserID:          strings.TrimSpace(req.HermesUserID),
+		ACPCommand:            strings.TrimSpace(req.ACPCommand),
+		ACPArgs:               append([]string(nil), req.ACPArgs...),
 		DeviceFingerprint:     devicefp.Carrier(strings.TrimSpace(req.DeviceID)),
 		Status:                consts.ACTIVE,
 		Createtime:            now,
@@ -408,6 +410,8 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	existing.HermesURL = strings.TrimSpace(req.HermesURL)
 	existing.HermesAuthProvider = strings.TrimSpace(req.HermesAuthProvider)
 	existing.HermesUserID = strings.TrimSpace(req.HermesUserID)
+	existing.ACPCommand = strings.TrimSpace(req.ACPCommand)
+	existing.ACPArgs = append([]string(nil), req.ACPArgs...)
 	existing.DeviceFingerprint = devicefp.Carrier(strings.TrimSpace(req.DeviceID))
 	var deviceErr error
 	existing.DeviceFingerprint, deviceErr = normalizeDeviceID(existing.DeviceFingerprint)

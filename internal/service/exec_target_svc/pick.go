@@ -680,6 +680,12 @@ func blockReasonForBackend(
 			return false, BlockReasonRemoteHermesUnavailable, i18n.T(ctx, code.ChatBackendHintRemoteHermes)
 		}
 		return true, "", ""
+	case agent_backend_entity.TypeACP:
+		// acp 跑的是 backend 声明的本机 CLI 子进程，和 claudecode/codex/piagent 同档：
+		// 本地可跑，远端 agentred 也可跑（daemon 侧注册了 runtime，ACP Agent 自带
+		// 凭证，不需要 daemon 本地密钥）。可达性由子进程握手在轮次启动时如实报出，
+		// 这里不预探测。
+		return true, "", ""
 	default:
 		return false, BlockReasonUnknownBackend, i18n.T(ctx, code.ChatBackendHintUnknownType)
 	}

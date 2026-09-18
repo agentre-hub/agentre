@@ -1742,6 +1742,9 @@ func (d *Daemon) newRuntimeHandlers() *handlers.RuntimeHandlers {
 		LoggedInAccountID:  d.loggedInAccountID,
 		GenerationRegistry: d.generations,
 		CLIPathForBackend:  d.engineSnapshot.ResolveCLIPath,
+		// 账号级后端配置与每设备 CLI 覆盖是两条路:前者整份替换独占设置(浏览器/云派发
+		// 只带 {type, sync_id}),后者只改可执行文件路径。
+		BackendConfigForSyncID: d.engineSnapshot.ResolveBackendConfig,
 	})
 }
 

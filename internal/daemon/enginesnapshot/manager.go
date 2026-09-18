@@ -4,6 +4,7 @@ package enginesnapshot
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/pkg/cagoenvelope"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 const (
@@ -37,7 +39,8 @@ type Options struct {
 }
 
 // Manager owns the latest successful account snapshot. Providers are persisted
-// through state.State; per-device CLI overlays stay in memory only.
+// through state.State; per-device CLI overlays and account-level backend configs
+// stay in memory only — absolute paths and arbitrary argv never enter state.json.
 type Manager struct {
 	state       *state.State
 	serverURL   func() string
@@ -49,6 +52,9 @@ type Manager struct {
 	mu     sync.RWMutex
 	ready  bool
 	paths  map[string]string
+	// backends 是账号级后端配置,按 backend sync ID 存放。它只在内存里 ——
+	// config 可能带任意 argv(含凭据),落盘会把执行期秘密写进 state.json。
+	backends map[string]syncwire.AgentBackendConfig
 }
 
 // New constructs an engine snapshot manager.
@@ -64,6 +70,7 @@ func New(opts Options) *Manager {
 	return &Manager{
 		state: opts.State, serverURL: opts.ServerURL, accessToken: opts.AccessToken,
 		httpClient: client, logf: logf, paths: map[string]string{},
+		backends: map[string]syncwire.AgentBackendConfig{},
 	}
 }
 
@@ -91,14 +98,27 @@ type snapshotCLIOverlay struct {
 	CLIPath       string `json:"cli_path"`
 }
 
+// snapshotBackendConfig 是 /v1/engine/snapshot 里的一条后端配置:按后端同步标识
+// 寻址,正文是整份 syncwire.AgentBackendConfig。config 的键表只在共享契约里定义一次
+// (桌面端 config_json 列、同步载荷的 config 对象与这个快照条目同源),本结构体不
+// 逐键抄一遍 —— acpCommand/acpArgs 只是那一份键表里的两个键,不是这里的特例。
+//
+// 它对应 agentre-server 那份 SnapshotResponse 的 backends 数组;服务端字段名与这里
+// 逐字一致,两端共用一个形状。
+type snapshotBackendConfig struct {
+	BackendSyncID string                      `json:"backend_sync_id"`
+	Config        syncwire.AgentBackendConfig `json:"config"`
+}
+
 type snapshotResponse struct {
-	Providers   []snapshotProvider   `json:"providers"`
-	CLIOverlays []snapshotCLIOverlay `json:"cli_overlays"`
+	Providers   []snapshotProvider      `json:"providers"`
+	CLIOverlays []snapshotCLIOverlay    `json:"cli_overlays"`
+	Backends    []snapshotBackendConfig `json:"backends"`
 }
 
 // Pull fetches and atomically applies one complete snapshot. Any fetch, decode,
-// validation, or persistence failure leaves both providers and overlays at the
-// previous successful version.
+// validation, or persistence failure leaves providers, overlays, and backend
+// configs at the previous successful version.
 func (m *Manager) Pull(ctx context.Context) error {
 	m.pullMu.Lock()
 	defer m.pullMu.Unlock()
@@ -156,12 +176,19 @@ func (m *Manager) Pull(ctx context.Context) error {
 			paths[key] = overlay.CLIPath
 		}
 	}
+	backends := make(map[string]syncwire.AgentBackendConfig, len(snapshot.Backends))
+	for _, backend := range snapshot.Backends {
+		if key := strings.TrimSpace(backend.BackendSyncID); key != "" {
+			backends[key] = cloneBackendConfig(backend.Config)
+		}
+	}
 
 	if err := m.state.ReplaceLLMProviders(providers); err != nil {
 		return fmt.Errorf("persist engine snapshot: %w", err)
 	}
 	m.mu.Lock()
 	m.paths = paths
+	m.backends = backends
 	m.ready = true
 	m.mu.Unlock()
 	return nil
@@ -177,6 +204,41 @@ func (m *Manager) ResolveCLIPath(backendSyncID string) (string, bool) {
 		return "", false
 	}
 	return m.paths[strings.TrimSpace(backendSyncID)], true
+}
+
+// ResolveBackendConfig returns the authoritative account config for a backend
+// sync ID and whether the latest successful snapshot carries that entry. An
+// absent entry (or an empty sync ID, or before the first successful snapshot)
+// returns false — callers must keep a directly-supplied backend config rather
+// than clearing it, because a paired desktop request is not necessarily an
+// account-scoped browser/cloud shell request.
+//
+// The returned config is a defensive copy: the snapshot is shared across turns,
+// so a caller mutating slices or RawMessage must not reach the stored copy.
+func (m *Manager) ResolveBackendConfig(backendSyncID string) (syncwire.AgentBackendConfig, bool) {
+	key := strings.TrimSpace(backendSyncID)
+	if key == "" {
+		return syncwire.AgentBackendConfig{}, false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cfg, ok := m.backends[key]
+	if !ok {
+		return syncwire.AgentBackendConfig{}, false
+	}
+	return cloneBackendConfig(cfg), true
+}
+
+// cloneBackendConfig deep-copies the mutable fields (the argv slice and the
+// nested model-routes JSON) so a resolved config never aliases the stored one.
+func cloneBackendConfig(cfg syncwire.AgentBackendConfig) syncwire.AgentBackendConfig {
+	if len(cfg.ACPArgs) > 0 {
+		cfg.ACPArgs = append([]string(nil), cfg.ACPArgs...)
+	}
+	if len(cfg.ModelRoutes) > 0 {
+		cfg.ModelRoutes = append(json.RawMessage(nil), cfg.ModelRoutes...)
+	}
+	return cfg
 }
 
 // PullAsync isolates a trigger failure from relay handling and running rounds.
