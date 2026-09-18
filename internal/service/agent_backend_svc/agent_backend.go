@@ -53,6 +53,8 @@ type AgentBackendSvc interface {
 	Update(ctx context.Context, req *UpdateBackendRequest) (*UpdateBackendResponse, error)
 	UpdateOpenClaw(ctx context.Context, req *UpdateBackendRequest, token string, clearToken bool) (*UpdateBackendResponse, error)
 	Delete(ctx context.Context, req *DeleteBackendRequest) (*DeleteBackendResponse, error)
+	// BackendCredentialStatus 查询一个后端在它绑定设备上的凭据状态(存没存 / 登录成谁)。
+	BackendCredentialStatus(ctx context.Context, req *BackendCredentialStatusRequest) (*BackendCredentialStatusResponse, error)
 	Test(ctx context.Context, req *TestBackendRequest) (*TestBackendResponse, error)
 	TestOpenClaw(ctx context.Context, req *TestBackendRequest, token string) (*TestBackendResponse, error)
 	CancelTest(ctx context.Context, req *CancelTestBackendRequest) (*CancelTestBackendResponse, error)
@@ -86,6 +88,10 @@ type agentBackendSvc struct {
 	// remoteCLI 用于 device 非空场景拨远端 daemon 调 cli.* RPC。
 	// nil → 走 realRemoteCLI 默认实现（dial → call → close）；单测注入 fake。
 	remoteCLI remoteCLIPort
+
+	// remoteCredentials 用于把凭据操作送到后端绑定的那台设备。
+	// nil → 走 realRemoteCredentials（借连接池 → wirecall）；单测注入 fake。
+	remoteCredentials remoteCredentialsPort
 
 	// probes 维护「正在跑的测试」的 cancel 函数；key = 前端传入的 RequestID。
 	// 用于实现 CancelTest：用户在 UI 上点取消时调 cancel，prober ctx 立刻 Done。
@@ -343,17 +349,9 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 		return nil, err
 	}
 	if b.IsOpenClaw() && token != "" {
-		store := s.secretStore()
-		if store == nil {
-			_ = agent_backend_repo.AgentBackend().Delete(ctx, b.ID)
-			return nil, backendcred.ErrStoreUnavailable
-		}
-		account := backendcred.OpenClawTokenAccount(b.SyncID)
-		if account == "" {
-			rollbackErr := agent_backend_repo.AgentBackend().Delete(ctx, b.ID)
-			return nil, errors.Join(errOpenClawTokenSlotMissing, rollbackErr)
-		}
-		if err := store.Set(account, token); err != nil {
+		// token 写到后端绑定的那台设备上(本机 keychain 或那台 agentred)。写不进去就
+		// 把刚落的行撤回来:一个「配置在、凭据不在」的后端只会在下一次对话时才暴露。
+		if err := s.saveOpenClawToken(ctx, b, token, false); err != nil {
 			rollbackErr := agent_backend_repo.AgentBackend().Delete(ctx, b.ID)
 			return nil, errors.Join(err, rollbackErr)
 		}
@@ -467,25 +465,10 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 		return nil, err
 	}
 	if existing.IsOpenClaw() && (token != "" || clearToken) {
-		store := s.secretStore()
-		account := backendcred.OpenClawTokenAccount(existing.SyncID)
-		var secretErr error
-		switch {
-		case store == nil:
-			secretErr = backendcred.ErrStoreUnavailable
-		case account == "":
-			secretErr = errOpenClawTokenSlotMissing
-		case clearToken:
-			secretErr = store.Delete(account)
-			if errors.Is(secretErr, backendcred.ErrNotFound) {
-				secretErr = nil
-			}
-		default:
-			secretErr = store.Set(account, token)
-		}
-		if secretErr != nil {
+		// 写到绑定设备上;失败则把后端配置回滚成保存前的样子(规格「保存后端时写 token 失败」)。
+		if err := s.saveOpenClawToken(ctx, existing, token, clearToken); err != nil {
 			rollbackErr := agent_backend_repo.AgentBackend().Update(ctx, &before)
-			return nil, errors.Join(secretErr, rollbackErr)
+			return nil, errors.Join(err, rollbackErr)
 		}
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindAgentBackend, existing.ID, existing.SyncMeta)
@@ -520,10 +503,18 @@ func (s *agentBackendSvc) test(ctx context.Context, req *TestBackendRequest, tra
 	if err := entity.Check(ctx); err != nil {
 		return nil, err
 	}
-	if entity.IsOpenClaw() {
-		if remote_device_svc.TargetsAnotherMachine(entity.DeviceFingerprint) {
-			return &TestBackendResponse{OK: false, Code: "OPENCLAW_REMOTE_SECRET_UNAVAILABLE"}, nil
+	// Hermes / OpenClaw 的凭据只在绑定设备上:绑到别的设备就请那台设备自己连一次,
+	// 而不是在这里拿本机的凭据去连(本机根本没有它的凭据)。
+	if entity.IsOpenClaw() || entity.IsHermes() {
+		deviceID, remote, err := boundCredentialDevice(ctx, entity.DeviceFingerprint)
+		switch {
+		case err != nil:
+			return &TestBackendResponse{OK: false, Message: err.Error()}, nil
+		case remote:
+			return s.testOnBoundDevice(ctx, deviceID, entity, transientToken), nil
 		}
+	}
+	if entity.IsOpenClaw() {
 		return s.testOpenClaw(ctx, req, entity, transientToken)
 	}
 	// 远端 device → 不在本地装 deps / gateway / provider，由 daemon 自己装。
@@ -683,8 +674,10 @@ func (s *agentBackendSvc) testOpenClaw(
 	})
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
+		// Gateway 客户端自己已经抹过一遍;这里再抹一次,让「凭据不出现在任何应答里」
+		// 不依赖每一个产出方都自觉 —— 这条结果也会经设备操作发给控制台。
 		return &TestBackendResponse{
-			OK: false, Code: openClawProbeErrorCode(err), Message: err.Error(), LatencyMs: latency,
+			OK: false, Code: openClawProbeErrorCode(err), Message: redactSecret(err.Error(), token), LatencyMs: latency,
 		}, nil
 	}
 	response := &TestBackendResponse{
@@ -726,25 +719,30 @@ func openClawDraftIssue(backend *agent_backend_entity.AgentBackend) *TestBackend
 		return issue("OPENCLAW_NAME_REQUIRED")
 	}
 	if _, err := agent_backend_entity.NormalizeOpenClawGatewayURL(backend.OpenClawGatewayURL); err != nil {
-		switch {
-		case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLRequired):
-			return issue("OPENCLAW_URL_REQUIRED")
-		case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLScheme):
-			return issue("OPENCLAW_URL_SCHEME")
-		case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLHost):
-			return issue("OPENCLAW_URL_HOST")
-		case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLCredentials):
-			return issue("OPENCLAW_URL_CREDENTIALS")
-		case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLPlaintextRemote):
-			return issue("OPENCLAW_URL_PLAINTEXT_REMOTE")
-		default:
-			return issue("OPENCLAW_URL_INVALID")
-		}
+		return issue(openClawURLCode(err))
 	}
 	if strings.TrimSpace(backend.OpenClawSessionMode) != agent_backend_entity.OpenClawSessionPerAgentRESession {
 		return issue("OPENCLAW_SESSION_MODE_INVALID")
 	}
 	return nil
+}
+
+// openClawURLCode 把被拒绝的 Gateway URL 翻成前端本地化得了的结构化码。
+func openClawURLCode(err error) string {
+	switch {
+	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLRequired):
+		return "OPENCLAW_URL_REQUIRED"
+	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLScheme):
+		return "OPENCLAW_URL_SCHEME"
+	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLHost):
+		return "OPENCLAW_URL_HOST"
+	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLCredentials):
+		return "OPENCLAW_URL_CREDENTIALS"
+	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLPlaintextRemote):
+		return "OPENCLAW_URL_PLAINTEXT_REMOTE"
+	default:
+		return "OPENCLAW_URL_INVALID"
+	}
 }
 
 // resolveOpenClawRuntimeConfig is the only boundary that turns persisted
@@ -939,6 +937,11 @@ func (s *agentBackendSvc) resolveBackendForTest(ctx context.Context, req *TestBa
 	out.HermesURL = strings.TrimSpace(req.HermesURL)
 	out.HermesAuthProvider = strings.TrimSpace(req.HermesAuthProvider)
 	out.HermesUserID = strings.TrimSpace(req.HermesUserID)
+	// 草稿可以先选好绑定设备再试(还没保存时无从取保存行上的指纹)；留空表示沿用
+	// 保存行的绑定,不改写它。
+	if device := strings.TrimSpace(req.DeviceID); device != "" {
+		out.DeviceFingerprint = devicefp.Carrier(device)
+	}
 	if out.IsOpenClaw() {
 		if out.OpenClawSessionMode == "" {
 			out.OpenClawSessionMode = agent_backend_entity.OpenClawSessionPerAgentRESession
@@ -966,7 +969,9 @@ func (s *agentBackendSvc) Delete(ctx context.Context, req *DeleteBackendRequest)
 	var restoreToken string
 	var removedToken bool
 	tokenAccount := backendcred.OpenClawTokenAccount(existing.SyncID)
-	if existing.IsOpenClaw() && tokenAccount != "" {
+	// 绑在本机的 OpenClaw 槽位在删除前就取出来,删库失败时还能放回去;绑到别的设备的
+	// 凭据不在本机,删除成功后再尽力去那台设备上清(clearCredentialOnBoundDevice)。
+	if existing.IsOpenClaw() && tokenAccount != "" && !remote_device_svc.TargetsAnotherMachine(existing.DeviceFingerprint) {
 		store := s.secretStore()
 		if store == nil {
 			return nil, backendcred.ErrStoreUnavailable
@@ -992,8 +997,8 @@ func (s *agentBackendSvc) Delete(ctx context.Context, req *DeleteBackendRequest)
 		return nil, err
 	}
 	// 引用它的执行目标项一并落墓碑，Agent 本身不删（R6）。
-	// hermes 的 gated serve 凭据挂在 URL 派生的 keychain 账号下，随删除一起清。
-	s.deleteHermesCredential(ctx, existing)
+	// 凭据在后端绑定的那台设备上，尽力清除；设备离线不挡删除。
+	s.clearCredentialOnBoundDevice(ctx, existing)
 	sync_svc.NotifyDelete(ctx, syncwire.KindAgentBackend, existing.ID, existing.SyncMeta)
 	return &DeleteBackendResponse{}, nil
 }

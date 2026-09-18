@@ -236,6 +236,7 @@ var zhCN = map[int]string{
 	RemoteDeviceTimeout:                 "远端设备响应超时",
 	RemoteCLIDetectFailed:               "远端识别 CLI 失败：%s",
 	RemoteCLIProbeFailed:                "远端测试连接失败：%s",
+	RemoteDeviceAuthOpFailed:            "绑定设备上的凭据操作失败，请稍后重试",
 
 	// 远端文件系统(remotefs)
 	RemoteFsPathRefused:      "远端路径被拒绝(系统目录或非法路径)",

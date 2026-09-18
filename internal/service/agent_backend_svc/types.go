@@ -177,7 +177,11 @@ type TestBackendRequest struct {
 	HermesURL             string                 `json:"hermesUrl"`
 	HermesAuthProvider    string                 `json:"hermesAuthProvider"`
 	HermesUserID          string                 `json:"hermesUserId"`
-	RequestID             string                 `json:"requestId"`
+	// DeviceID 是草稿上选中的绑定设备(canonical fingerprint)。Hermes / OpenClaw 的
+	// 凭据只在绑定设备上,所以「还没保存就先试」也要说清在哪台机器上试。留空表示
+	// 沿用保存行的绑定(ID>0)或本机(草稿)。
+	DeviceID  string `json:"deviceId"`
+	RequestID string `json:"requestId"`
 }
 
 // TestBackendResponse 返回测试结果。
@@ -223,9 +227,10 @@ type HermesAuthProviderItem struct {
 }
 
 // ListHermesAuthProvidersRequest 查询一个 hermes serve 支持的认证 provider。
-// URL 可以是还没保存的地址。
+// URL 可以是还没保存的地址;DeviceID 指定去哪台机器上读(空 = 本机)。
 type ListHermesAuthProvidersRequest struct {
-	URL string `json:"url" binding:"required"`
+	URL      string `json:"url" binding:"required"`
+	DeviceID string `json:"deviceId"`
 }
 
 type ListHermesAuthProvidersResponse struct {
@@ -239,6 +244,8 @@ type LoginHermesRequest struct {
 	Provider string `json:"provider"`
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	// DeviceID 是要登录的那台设备(空 = 本机)。凭据只落在它上面,换绑不迁移。
+	DeviceID string `json:"deviceId"`
 }
 
 // LoginHermesResponse 只回非敏感展示字段；refresh token 留在 keychain。
@@ -252,9 +259,29 @@ type LoginHermesResponse struct {
 type LogoutHermesRequest struct {
 	ID  int64  `json:"id"`
 	URL string `json:"url"`
+	// DeviceID 只在草稿(ID==0)时使用;ID>0 时以保存行上的绑定设备为准。
+	DeviceID string `json:"deviceId"`
 }
 
 type LogoutHermesResponse struct{}
+
+// BackendCredentialStatusRequest 查询一个后端在它绑定设备上的凭据状态。
+// OpenClaw 按 SyncID 问,Hermes 按 URL 问;DeviceID 空 = 本机。
+type BackendCredentialStatusRequest struct {
+	Type      string `json:"type" binding:"required"`
+	SyncID    string `json:"syncId"`
+	HermesURL string `json:"hermesUrl"`
+	DeviceID  string `json:"deviceId"`
+}
+
+// BackendCredentialStatusResponse 只说「存没存 / 登录成谁」。登录有没有过期要等
+// 测试连接或发起对话才知道,凭据本身永远不出绑定设备。
+type BackendCredentialStatusResponse struct {
+	OpenClawTokenSaved bool   `json:"openClawTokenSaved"`
+	HermesLoggedIn     bool   `json:"hermesLoggedIn"`
+	HermesProvider     string `json:"hermesProvider"`
+	HermesUserID       string `json:"hermesUserId"`
+}
 
 // CancelTestBackendRequest 中断一个还在跑的 Test。
 //

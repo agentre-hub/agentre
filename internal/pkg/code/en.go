@@ -236,6 +236,7 @@ var enUS = map[int]string{
 	RemoteDeviceTimeout:                 "Remote device timed out",
 	RemoteCLIDetectFailed:               "Remote CLI detection failed: %s",
 	RemoteCLIProbeFailed:                "Remote backend test failed: %s",
+	RemoteDeviceAuthOpFailed:            "The credential operation failed on the bound device; please try again",
 
 	// remotefs
 	RemoteFsPathRefused:      "remote path refused (system dir or invalid)",

@@ -18,6 +18,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // defaultHermesCredentials is the singleton the registered runtime reaches
@@ -54,28 +56,49 @@ const (
 	HermesCodeUnreachable         = "HERMES_UNREACHABLE"
 )
 
+// hermesAuthReasons 是 Hermes 认证失败的**唯一**一张对照表:哨兵 → 业务码 → 前端码。
+//
+// 三者必须一一对应:同一个失败,本机路径回业务码(中文一句话)、设备操作回前端码
+// (线上传的那个串),而收到前端码的一侧还要翻回业务码。表散成两份的话,某一个原因
+// 迟早会在一条路径上说成另一句话。
+var hermesAuthReasons = []struct {
+	sentinel error
+	bizCode  int
+	result   string
+}{
+	{hermes.ErrLoginRequired, code.HermesLoginRequired, HermesCodeLoginRequired},
+	{hermes.ErrLoginExpired, code.HermesLoginExpired, HermesCodeLoginExpired},
+	{hermes.ErrInvalidCredentials, code.HermesLoginRejected, HermesCodeInvalidCredentials},
+	{hermes.ErrAuthRateLimited, code.HermesRateLimited, HermesCodeRateLimited},
+	{hermes.ErrPasswordLoginUnsupported, code.HermesProviderUnsupported, HermesCodeProviderUnsupported},
+	{hermes.ErrAuthProviderUnavailable, code.HermesProviderUnavailable, HermesCodeProviderUnavailable},
+	{hermes.ErrAuthUnreachable, code.HermesUnreachable, HermesCodeUnreachable},
+}
+
 // hermesAuthCode maps the auth-layer sentinels to (business code, frontend code).
 func hermesAuthCode(err error) (int, string, bool) {
-	switch {
-	case err == nil:
-		return 0, "", false
-	case errors.Is(err, hermes.ErrLoginRequired):
-		return code.HermesLoginRequired, HermesCodeLoginRequired, true
-	case errors.Is(err, hermes.ErrLoginExpired):
-		return code.HermesLoginExpired, HermesCodeLoginExpired, true
-	case errors.Is(err, hermes.ErrInvalidCredentials):
-		return code.HermesLoginRejected, HermesCodeInvalidCredentials, true
-	case errors.Is(err, hermes.ErrAuthRateLimited):
-		return code.HermesRateLimited, HermesCodeRateLimited, true
-	case errors.Is(err, hermes.ErrPasswordLoginUnsupported):
-		return code.HermesProviderUnsupported, HermesCodeProviderUnsupported, true
-	case errors.Is(err, hermes.ErrAuthProviderUnavailable):
-		return code.HermesProviderUnavailable, HermesCodeProviderUnavailable, true
-	case errors.Is(err, hermes.ErrAuthUnreachable):
-		return code.HermesUnreachable, HermesCodeUnreachable, true
-	default:
+	if err == nil {
 		return 0, "", false
 	}
+	for _, reason := range hermesAuthReasons {
+		if errors.Is(err, reason.sentinel) {
+			return reason.bizCode, reason.result, true
+		}
+	}
+	return 0, "", false
+}
+
+// hermesBizCode 是反向:绑定设备回的结构化结果码 → 本地化的业务码。
+func hermesBizCode(resultCode string) (int, bool) {
+	if resultCode == "" {
+		return 0, false
+	}
+	for _, reason := range hermesAuthReasons {
+		if reason.result == resultCode {
+			return reason.bizCode, true
+		}
+	}
+	return 0, false
 }
 
 // hermesAuthError turns an auth failure into the localized business error the
@@ -97,6 +120,30 @@ func (s *agentBackendSvc) ListHermesAuthProviders(ctx context.Context, req *List
 	base, err := agent_backend_entity.NormalizeHermesURL(req.URL)
 	if err != nil {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	deviceID, remote, err := boundCredentialDevice(ctx, devicefp.Carrier(strings.TrimSpace(req.DeviceID)))
+	if err != nil {
+		return nil, err
+	}
+	if remote {
+		// 目录由那台设备去读:能不能连上这个 serve 是**它**的网络说了算。
+		response, err := s.credentials().HermesAuthProviders(ctx, deviceID,
+			&agentrewire.HermesAuthProvidersRequest{HermesUrl: base})
+		if err != nil {
+			return nil, remoteCredentialError(ctx, deviceID, err)
+		}
+		if resultCode := response.GetCode(); resultCode != "" {
+			return nil, hermesCodeError(ctx, resultCode)
+		}
+		items := make([]HermesAuthProviderItem, 0, len(response.GetProviders()))
+		for _, p := range response.GetProviders() {
+			items = append(items, HermesAuthProviderItem{
+				Name:             p.GetName(),
+				DisplayName:      p.GetDisplayName(),
+				SupportsPassword: p.GetSupportsPassword(),
+			})
+		}
+		return &ListHermesAuthProvidersResponse{Providers: items}, nil
 	}
 	providers, err := hermes.ListAuthProviders(ctx, base, nil)
 	if err != nil {
@@ -124,6 +171,23 @@ func (s *agentBackendSvc) LoginHermes(ctx context.Context, req *LoginHermesReque
 	if err != nil {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
+	deviceID, remote, err := boundCredentialDevice(ctx, devicefp.Carrier(strings.TrimSpace(req.DeviceID)))
+	if err != nil {
+		return nil, err
+	}
+	if remote {
+		// 密码只以内存形态穿过中继,登录由那台设备完成,refresh token 落在它那里(决策 3)。
+		response, err := s.credentials().HermesLogin(ctx, deviceID, &agentrewire.HermesLoginRequest{
+			HermesUrl: base, Provider: req.Provider, Username: req.Username, Password: req.Password,
+		})
+		if err != nil {
+			return nil, remoteCredentialError(ctx, deviceID, err)
+		}
+		if resultCode := response.GetCode(); resultCode != "" {
+			return nil, hermesCodeError(ctx, resultCode)
+		}
+		return &LoginHermesResponse{Provider: response.GetProvider(), UserID: response.GetUserId()}, nil
+	}
 	identity, err := s.credentialStore().Login(ctx, backendcred.HermesLogin{
 		BaseURL:  base,
 		Provider: req.Provider,
@@ -144,6 +208,7 @@ func (s *agentBackendSvc) LogoutHermes(ctx context.Context, req *LogoutHermesReq
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
 	rawURL := strings.TrimSpace(req.URL)
+	device := devicefp.Carrier(strings.TrimSpace(req.DeviceID))
 	if req.ID > 0 {
 		row, err := agent_backend_repo.AgentBackend().Find(ctx, req.ID)
 		if err != nil {
@@ -155,6 +220,8 @@ func (s *agentBackendSvc) LogoutHermes(ctx context.Context, req *LogoutHermesReq
 		if strings.TrimSpace(row.HermesURL) != "" {
 			rawURL = row.HermesURL
 		}
+		// 保存行上的绑定设备说了算:凭据在那台机器上,与请求里带的草稿设备无关。
+		device = row.DeviceFingerprint
 		if strings.TrimSpace(row.HermesAuthProvider) != "" || strings.TrimSpace(row.HermesUserID) != "" {
 			row.HermesAuthProvider = ""
 			row.HermesUserID = ""
@@ -166,6 +233,17 @@ func (s *agentBackendSvc) LogoutHermes(ctx context.Context, req *LogoutHermesReq
 		}
 	}
 	if base, err := agent_backend_entity.NormalizeHermesURL(rawURL); err == nil && base != "" {
+		deviceID, remote, err := boundCredentialDevice(ctx, device)
+		if err != nil {
+			return nil, err
+		}
+		if remote {
+			if _, err := s.credentials().HermesLogout(ctx, deviceID,
+				&agentrewire.HermesLogoutRequest{HermesUrl: base}); err != nil {
+				return nil, remoteCredentialError(ctx, deviceID, err)
+			}
+			return &LogoutHermesResponse{}, nil
+		}
 		if err := s.credentialStore().Logout(base); err != nil {
 			return nil, err
 		}
@@ -187,7 +265,7 @@ func (s *agentBackendSvc) deleteHermesCredential(ctx context.Context, backend *a
 	if err != nil {
 		return
 	}
-	inUse, err := hermesURLUsedByAnotherLocalBackend(ctx, backend.ID, base)
+	inUse, err := hermesURLUsedByAnotherBackendOn(ctx, backend.ID, base, backend.DeviceFingerprint)
 	if err != nil {
 		logger.Ctx(ctx).Warn("agent_backend delete: cannot list backends; keeping the shared hermes login",
 			zap.Int64("id", backend.ID), zap.Error(err))
@@ -202,16 +280,20 @@ func (s *agentBackendSvc) deleteHermesCredential(ctx context.Context, backend *a
 	}
 }
 
-// hermesURLUsedByAnotherLocalBackend reports whether an active Hermes backend
-// other than deletedID, bound to this device, points at the normalized URL.
-func hermesURLUsedByAnotherLocalBackend(ctx context.Context, deletedID int64, base string) (bool, error) {
+// hermesURLUsedByAnotherBackendOn reports whether an active Hermes backend other
+// than deletedID, bound to the same device, points at the normalized URL. The
+// question is per device because the credential is: one serve, one device, one
+// login (decision 5), and logging out would hit every backend sharing it.
+func hermesURLUsedByAnotherBackendOn(
+	ctx context.Context, deletedID int64, base string, device devicefp.Carrier,
+) (bool, error) {
 	rows, err := agent_backend_repo.AgentBackend().List(ctx)
 	if err != nil {
 		return false, err
 	}
 	for _, row := range rows {
 		if row == nil || row.ID == deletedID || !row.IsHermes() ||
-			remote_device_svc.TargetsAnotherMachine(row.DeviceFingerprint) {
+			!sameBoundDevice(row.DeviceFingerprint, device) {
 			continue
 		}
 		if other, err := agent_backend_entity.NormalizeHermesURL(row.HermesURL); err == nil && other == base {
@@ -219,4 +301,13 @@ func hermesURLUsedByAnotherLocalBackend(ctx context.Context, deletedID int64, ba
 		}
 	}
 	return false, nil
+}
+
+// sameBoundDevice 判断两个后端是否绑在同一台设备上。空指纹与本机指纹都读作「本机」
+// (R13 认领前后的两种写法),其余按指纹逐字比。
+func sameBoundDevice(a, b devicefp.Carrier) bool {
+	if !remote_device_svc.TargetsAnotherMachine(a) && !remote_device_svc.TargetsAnotherMachine(b) {
+		return true
+	}
+	return a == b
 }

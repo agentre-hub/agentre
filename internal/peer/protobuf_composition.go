@@ -13,6 +13,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
+	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
@@ -66,6 +67,11 @@ func productionProtobufInboundDeps(portForward *portforward.Handlers) ProtobufIn
 			// 桌面端经中继),所以它同样持有自己那份声明,挂的是与 agentred 逐字
 			// 相同的那一份实现。
 			PortForward: portForward,
+			// 设备本地后端凭据:凭据只存在后端绑定的那台设备上,而这台桌面端也可能
+			// 就是那台设备(控制台按指纹拨过来,设备表里 desktop 与 agentred 混在
+			// 一起)。答话的依据是本机 keychain —— 与桌面端自己点这几个按钮时走的是
+			// 同一份存储、同一套结果码。
+			BackendCredentials: agent_backend_svc.BackendCredentials(),
 		},
 		ListSessions: func(ctx context.Context, params remotewire.SessionListParams) (*remotewire.SessionListResult, error) {
 			return adapter().ListPeerSessions(ctx, params)

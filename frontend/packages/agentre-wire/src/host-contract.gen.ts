@@ -64,6 +64,12 @@ export const desktopAnsweredMethods: readonly string[] = [
   "engineScan",
   "engineTest",
   "cliResolvePath",
+  "backendCredentialStatus",
+  "openClawTokenSet",
+  "hermesAuthProviders",
+  "hermesLogin",
+  "hermesLogout",
+  "backendConnectionTest",
   "projectSetLocalPath",
   "projectClearLocalPath",
 ];

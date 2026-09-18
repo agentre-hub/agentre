@@ -51,6 +51,18 @@ func (r *recordingSecretStore) Set(account, secret string) error {
 	return r.Keychain.Set(account, secret)
 }
 
+// countingSecretStore counts reads so a test can prove a credential on another
+// device never causes a local keychain lookup.
+type countingSecretStore struct {
+	keychain.Keychain
+	reads int
+}
+
+func (c *countingSecretStore) Get(account string) (string, error) {
+	c.reads++
+	return c.Keychain.Get(account)
+}
+
 func successfulOpenClawProbeResult() *openclawgateway.ProbeResult {
 	return &openclawgateway.ProbeResult{
 		GatewayVersion: "2026.7.1-2",
@@ -173,16 +185,22 @@ func TestOpenClawBackendProbe(t *testing.T) {
 		assert.NotEmpty(t, response.Message)
 	})
 
-	t.Run("Given an OpenClaw backend targets agentred when tested then remote execution is explicitly unavailable without sending a credential", func(t *testing.T) {
+	// 绑到别的设备的 OpenClaw 后端由那台设备自己连(规格「设备操作」)。这台机器上
+	// 既没有它的 token 也没有它的身份种子,所以连不上那台设备时只能如实说「设备不在」,
+	// 而且一次本机凭据读取都不该发生。
+	t.Run("Given an OpenClaw backend bound to a device this installation never paired when tested then the reason is readable and no local credential is read", func(t *testing.T) {
 		ctx, backendMock, _, _, _, svc := setupSvcTest(t)
-		svc.secrets = keychain.NewMemory()
+		store := &countingSecretStore{Keychain: keychain.NewMemory()}
+		svc.secrets = store
 		remote := savedOpenClawBackend(93)
-		remote.DeviceFingerprint = "7"
+		remote.DeviceFingerprint = "sha256:never-paired-device"
 		backendMock.EXPECT().Find(gomock.Any(), int64(93)).Return(remote, nil)
 
 		response, err := svc.Test(ctx, &TestBackendRequest{ID: 93})
 		require.NoError(t, err)
 		assert.False(t, response.OK)
-		assert.Equal(t, "OPENCLAW_REMOTE_SECRET_UNAVAILABLE", response.Code)
+		assert.Empty(t, response.Code)
+		assert.NotEmpty(t, response.Message)
+		assert.Zero(t, store.reads, "凭据在那台设备上,本机 keychain 不该被读")
 	})
 }

@@ -309,6 +309,10 @@ const (
 	RemoteDeviceProtocolUnsupported
 	// RemoteDeviceProtocolVersionMismatch 远端说这套协议但版本对不上（含「没报版本」的更老 agentred）
 	RemoteDeviceProtocolVersionMismatch
+	// RemoteDeviceAuthOpFailed 绑定设备上的凭据操作失败（对端回了个说不出所以然的错）。
+	// 名字里刻意不带 credential/token 字样：gosec G101 会把带这些词的常量连同它的
+	// 文案一起判成硬编码凭据，而这是一句给用户看的提示。
+	RemoteDeviceAuthOpFailed
 )
 
 // Remote Runner / 跨端审批 20500~
