@@ -1737,3 +1737,92 @@ func TestRun_UnrecordedLaunchIdentityEvictsAndRespawns(t *testing.T) {
 		})
 	})
 }
+
+// TestRun_ContextWindowReachesRunResult 锁住「窗口只活在预览帧里」这条漏:
+// agentred 做宿主时,fanout 把每一条 runtime 事件都当**预览帧**扇出去
+// (handlers/runtime.go 的 Preview:true),预览帧不带 seq、不入库、不参与补齐。
+// 于是 ContextWindowUpdated 报出去的那个窗口,浏览器一刷新就没了 —— 控制台底栏
+// 那条上下文进度条永远画不出来(桌面端不吃这个亏:它读的是 chat_sessions 那一列)。
+//
+// 终态帧是这条路上唯一带号的载体,而它本来就有 ContextWindow 这一格
+// (runResultToFrame → wire.RunResultDoneFrame.ContextWindow)。claudecode 此前
+// 一直把它留空(runner.go 的字段注释原话:"RunResult 通常留 0"),所以这里钉死:
+// **凡是报给客户端的窗口,同一个数也必须留在 RunResult 上**。
+func TestRun_ContextWindowReachesRunResult(t *testing.T) {
+	Convey("Given CLI init 帧报 model=glm-5.3 的一轮", t, func() {
+		restore := SetSessionFactoryForTest(func(_ ccLaunchSpec) (ccSessionHandle, error) {
+			return &fakeCCHandle{
+				id: "native-claude-session",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventInit, Model: "glm-5.3"},
+					{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		run := func(contextWindow int) (int, []int) {
+			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+				Effective: &agentruntime.EffectiveLLMConfig{ProviderKey: "pk", ModelKey: "mk", ProviderType: "anthropic", ModelID: "glm-5.3", ContextWindow: contextWindow},
+				SessionID: 4040,
+				Cwd:       t.TempDir(),
+				UserText:  "hi",
+			})
+			So(err, ShouldBeNil)
+			var windows []int
+			for ev := range events {
+				if cw, ok := ev.(agentruntime.ContextWindowUpdated); ok {
+					windows = append(windows, cw.Tokens)
+				}
+			}
+			return result.ContextWindow, windows
+		}
+
+		Convey("配了窗口 → 终态结果与事件报同一个数", func() {
+			got, windows := run(400000)
+			So(windows, ShouldResemble, []int{400000})
+			So(got, ShouldEqual, 400000)
+		})
+
+		Convey("没配窗口、catalog 兜出一个数 → 终态结果也是那个数", func() {
+			got, windows := run(0)
+			So(windows, ShouldHaveLength, 1)
+			So(got, ShouldEqual, windows[0])
+		})
+	})
+}
+
+// TestRun_ContextWindowAbsentStaysZero 守住反面:catalog 认不出模型、也没配窗口时
+// 一条 ContextWindowUpdated 都不该有,RunResult 那一格也必须留 0 ——
+// 0 的含义是「没探到」(runner.go 的字段注释),拿一个猜的数填进去会让消费方把
+// 进度条的分母画错,而它没有任何办法分辨。
+func TestRun_ContextWindowAbsentStaysZero(t *testing.T) {
+	Convey("Given CLI 报了一个 catalog 认不出的模型名", t, func() {
+		restore := SetSessionFactoryForTest(func(_ ccLaunchSpec) (ccSessionHandle, error) {
+			return &fakeCCHandle{
+				id: "native-claude-session",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventInit, Model: "no-such-model-xyzzy"},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+			Effective: &agentruntime.EffectiveLLMConfig{ProviderKey: "pk", ModelKey: "mk", ProviderType: "anthropic", ModelID: "no-such-model-xyzzy"},
+			SessionID: 4041,
+			Cwd:       t.TempDir(),
+			UserText:  "hi",
+		})
+		So(err, ShouldBeNil)
+		for ev := range events {
+			_, isWindow := ev.(agentruntime.ContextWindowUpdated)
+			So(isWindow, ShouldBeFalse)
+		}
+		So(result.ContextWindow, ShouldEqual, 0)
+	})
+}
