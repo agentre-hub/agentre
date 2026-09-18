@@ -452,9 +452,9 @@ func (a *agentHandler) answerPermission(ctx context.Context, sessionID int64, re
 	}, nil)
 }
 
-// promptPayload 拆 prompt content block:text 按顺序拼成任务文本,image 转 data URL。
-// audio / resource / resource_link 等本版不支持的块一律返回可读错误 —— 不静默丢弃,
-// 也不悄悄降级。
+// promptPayload 拆 prompt content block:text 按顺序拼成任务文本,image 转 data URL,
+// resource_link / resource 转成给目标 agent 的资源引用文本。audio 等本版不支持的块
+// 一律返回可读错误 —— 不静默丢弃,也不悄悄降级。
 func promptPayload(blocks []acpsdk.ContentBlock) (string, []sendImage, error) {
 	var texts []string
 	var images []sendImage
@@ -475,9 +475,20 @@ func promptPayload(blocks []acpsdk.ContentBlock) (string, []sendImage, error) {
 		case b.Audio != nil:
 			return "", nil, errors.New("acp: audio content blocks are not supported")
 		case b.ResourceLink != nil:
-			return "", nil, errors.New("acp: resource_link content blocks are not supported")
+			texts = append(texts, resourceReference(b.ResourceLink.Uri, b.ResourceLink.Name))
 		case b.Resource != nil:
-			return "", nil, errors.New("acp: embedded resource content blocks are not supported")
+			res := b.Resource.Resource
+			switch {
+			case res.TextResourceContents != nil && res.TextResourceContents.Text != "":
+				// 内嵌文本原样并入,不包 markdown 代码块。
+				texts = append(texts, res.TextResourceContents.Text)
+			case res.TextResourceContents != nil:
+				texts = append(texts, resourceReference(res.TextResourceContents.Uri, ""))
+			case res.BlobResourceContents != nil:
+				return "", nil, errors.New("acp: embedded binary resource is not supported")
+			default:
+				return "", nil, errors.New("acp: unsupported content block")
+			}
 		default:
 			return "", nil, errors.New("acp: unsupported content block")
 		}
@@ -487,6 +498,21 @@ func promptPayload(blocks []acpsdk.ContentBlock) (string, []sendImage, error) {
 		return "", nil, errors.New("acp: prompt has no text or image content")
 	}
 	return text, images, nil
+}
+
+// resourceReference 把一处资源引用转成给目标 agent 的一行文本:file:// 开头的 uri
+// 还原为本地绝对路径,其余 uri 原样引用;有 name 时在行末附上。
+func resourceReference(uri, name string) string {
+	var line string
+	if path, ok := strings.CutPrefix(uri, "file://"); ok {
+		line = "引用的文件：" + path
+	} else {
+		line = "引用的资源：" + uri
+	}
+	if name != "" {
+		line += "（" + name + "）"
+	}
+	return line
 }
 
 func (a *agentHandler) sessionOf(id acpsdk.SessionId) (int64, bool) {

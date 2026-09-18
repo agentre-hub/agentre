@@ -488,6 +488,103 @@ func TestPrompt_ImageBlockBecomesDataURLSendImage(t *testing.T) {
 	}
 }
 
+// ---- resource_link / embedded resource ----
+
+// TestPromptPayload_ResourceLinkBecomesText 锁定:client 用 resource_link / resource 引用
+// 文件或上下文时必须转成给目标 agent 的文本,而不是整轮报错。
+func TestPromptPayload_ResourceLinkBecomesText(t *testing.T) {
+	cases := []struct {
+		name  string
+		block acpsdk.ContentBlock
+		want  string
+	}{
+		{
+			name:  "file uri 还原为本地绝对路径并附 name",
+			block: acpsdk.ResourceLinkBlock("doc.pdf", "file:///home/user/doc.pdf"),
+			want:  "引用的文件：/home/user/doc.pdf（doc.pdf）",
+		},
+		{
+			name:  "非 file uri 原样引用并附 name",
+			block: acpsdk.ResourceLinkBlock("spec", "https://example.com/spec"),
+			want:  "引用的资源：https://example.com/spec（spec）",
+		},
+		{
+			name:  "无 name 时不加括号",
+			block: acpsdk.ResourceLinkBlock("", "file:///tmp/notes.md"),
+			want:  "引用的文件：/tmp/notes.md",
+		},
+		{
+			name: "内嵌 text 原样并入,不包 markdown 代码块",
+			block: acpsdk.ResourceBlock(acpsdk.EmbeddedResourceResource{
+				TextResourceContents: &acpsdk.TextResourceContents{Uri: "file:///tmp/a.go", Text: "package main\n"},
+			}),
+			want: "package main\n",
+		},
+		{
+			name: "无 text 的内嵌资源按资源链接规则降级",
+			block: acpsdk.ResourceBlock(acpsdk.EmbeddedResourceResource{
+				TextResourceContents: &acpsdk.TextResourceContents{Uri: "file:///tmp/empty.txt"},
+			}),
+			want: "引用的文件：/tmp/empty.txt",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text, images, err := promptPayload([]acpsdk.ContentBlock{tc.block})
+			if err != nil {
+				t.Fatalf("promptPayload: %v", err)
+			}
+			if text != tc.want {
+				t.Fatalf("text = %q, want %q", text, tc.want)
+			}
+			if len(images) != 0 {
+				t.Fatalf("images = %v, want none", images)
+			}
+		})
+	}
+}
+
+// TestPromptPayload_ResourceLinkOnlyHasContent 是本次修复的核心断言:只有 resource_link
+// 时转换后已有文本,不能落进「no text or image content」校验。
+func TestPromptPayload_ResourceLinkOnlyHasContent(t *testing.T) {
+	text, _, err := promptPayload([]acpsdk.ContentBlock{
+		acpsdk.ResourceLinkBlock("doc.pdf", "file:///home/user/doc.pdf"),
+	})
+	if err != nil {
+		t.Fatalf("a lone resource_link must not fail validation: %v", err)
+	}
+	if strings.TrimSpace(text) == "" {
+		t.Fatal("resource_link must contribute text")
+	}
+}
+
+// TestPromptPayload_ResourceBlocksJoinWithNewline 锁定多 block 之间仍用 \n 连接。
+func TestPromptPayload_ResourceBlocksJoinWithNewline(t *testing.T) {
+	text, _, err := promptPayload([]acpsdk.ContentBlock{
+		acpsdk.TextBlock("看这个"),
+		acpsdk.ResourceLinkBlock("doc.pdf", "file:///home/user/doc.pdf"),
+	})
+	if err != nil {
+		t.Fatalf("promptPayload: %v", err)
+	}
+	want := "看这个\n引用的文件：/home/user/doc.pdf（doc.pdf）"
+	if text != want {
+		t.Fatalf("text = %q, want %q", text, want)
+	}
+}
+
+// TestPromptPayload_EmbeddedBlobResourceIsRejected 锁定二进制内嵌资源仍然明确报错。
+func TestPromptPayload_EmbeddedBlobResourceIsRejected(t *testing.T) {
+	_, _, err := promptPayload([]acpsdk.ContentBlock{
+		acpsdk.ResourceBlock(acpsdk.EmbeddedResourceResource{
+			BlobResourceContents: &acpsdk.BlobResourceContents{Uri: "file:///tmp/a.bin", Blob: "AAEC"},
+		}),
+	})
+	if err == nil || err.Error() != "acp: embedded binary resource is not supported" {
+		t.Fatalf("err = %v, want acp: embedded binary resource is not supported", err)
+	}
+}
+
 // ---- unsupported content ----
 
 func TestPrompt_UnsupportedContentBlockReturnsReadableError(t *testing.T) {
