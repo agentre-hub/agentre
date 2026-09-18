@@ -716,13 +716,13 @@ function MessageBody({
 function RenderItemView({
   item,
   messageId,
-  live,
+  running,
   durationMs,
 }: {
   item: TranscriptRowItem;
   messageId: number;
-  /** 本行是仍在流式的那条消息的末行 —— 尾部的活动块此刻正在跑。 */
-  live: boolean;
+  /** 本行是「这一轮在跑」的末行 —— 尾部的活动块此刻正在跑。 */
+  running: boolean;
   /** 消息级耗时(块级无来源),活动块组头的耗时槽用;运行中不显示。 */
   durationMs?: number;
 }) {
@@ -764,8 +764,8 @@ function RenderItemView({
     case "activity":
       // 活动块:连续的思考 / 只读探查 / 中性 / 写 / 命令 / 失败折成一行组头。
       // 一个块仍然只占一个虚拟行 —— 折叠态不 mount 组内步骤(Hard invariant 9)。
-      // running 认「仍在流式的消息的末行」:此刻没有别的东西排在它后面,说明
-      // agent 正在这一组里干活。轮次落定 → live 变假 → 自动收起。
+      // running 认「这一轮在跑的那条消息的末行」:此刻没有别的东西排在它后面,
+      // 说明 agent 正在这一组里干活。轮次落定 → running 变假 → 自动收起。
       // item.growing 是唯一的例外:后面那行是一段**还在流的思考**,它一落定就并
       // 回这个块 —— 这一组并没有结束,不能因为暂时不是末行就收起来(行模型的
       // markGrowingActivity 负责标)。
@@ -776,7 +776,7 @@ function RenderItemView({
           uiStateKey={item.uiStateKey}
           cwd={ctx?.cwd}
           durationMs={durationMs}
-          running={live || item.growing === true}
+          running={running || item.growing === true}
         />
       );
     case "image":
@@ -949,6 +949,21 @@ export type TranscriptRowViewProps = {
   reconnecting: boolean;
   /** 流式中的本轮统计。非 live 行传 null，避免 memo 失配。 */
   liveTurn?: LiveTurnInput | null;
+  /**
+   * 本行所属的这一轮**此刻在不在跑** —— 由宿主如实告知,活动块的运行态(自动展开 +
+   * 超阈值省略中段)据此判定。
+   *
+   * 与上面那族 live* 入参不同:它们说的是「还没落库的那一段内容是什么」,这一条说
+   * 的是「这一轮的生命周期状态」。两者过去被当成一回事(从 `liveBlocks !== undefined`
+   * 反推运行中),那是**泄漏的判据** —— 只有「有未落库内容」这条分界的宿主才恒真。
+   * agentre-server 控制台是中继事件流,到一条画一条,没有这条分界,于是运行态在
+   * 它上面一次都没生效过;它手上真正有的是 daemon 的会话生命周期。
+   *
+   * 缺省(不传)= 宿主还没接这个信号,退回旧判据,消费方 pin 新版本前行为不变。
+   * memo 纪律同 live* 一族:它是标量,非运行中的行一律传 `false`(或不传),
+   * 不要让它随每个 chunk 变化。
+   */
+  turnRunning?: boolean;
   /** 占位消息 model 为空时，用会话当前模型。 */
   fallbackModel?: string;
 };
@@ -964,6 +979,7 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
   compacting,
   reconnecting,
   liveTurn = null,
+  turnRunning,
   fallbackModel = "",
 }: TranscriptRowViewProps) {
   const ctx = React.useContext(TranscriptRenderContext);
@@ -989,10 +1005,17 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
     isAssistant && row.isLastOfMessage
       ? extractAssistantOutputText(m.blocks ?? [], liveBlocks ?? [], liveTail)
       : "";
-  // live 行 = 仍在流式的那条消息的末行(宿主只给这一行喂 live* 内容)。
-  // 尾部的活动块据此判「此刻正在跑」:自动展开 + 实时尾巴,落定后自动收起。
-  const isLiveTailRow =
-    row.isLastOfMessage && (liveBlocks !== undefined || liveTail.length > 0);
+  // 「这一轮此刻在跑」的末行 —— 尾部的活动块据此自动展开,落定后自动收起。
+  //
+  // 「在不在跑」归宿主(turnRunning),「是不是这一轮的末行」归行模型 ——
+  // 只有这两件事都成立,尾部那个活动块才是 agent 此刻正在干活的那一组。
+  //
+  // 宿主没接 turnRunning 时退回旧判据「宿主给这一行喂了 live* 内容」。它只是
+  // 运行中的一个代理量,对「有未落库内容」这条分界的宿主(桌面端)恒等价,
+  // 对没有这条分界的宿主(agentre-server 控制台)恒为假 —— 留着只为兼容。
+  const isTurnRunningRow =
+    row.isLastOfMessage &&
+    (turnRunning ?? (liveBlocks !== undefined || liveTail.length > 0));
 
   const tailAttachments = row.isLastOfMessage ? (
     <>
@@ -1053,7 +1076,7 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
           <RenderItemView
             item={row.item}
             messageId={row.messageId}
-            live={isLiveTailRow}
+            running={isTurnRunningRow}
             durationMs={m.durationMs}
           />
           {tailAttachments}
@@ -1072,7 +1095,7 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
           <RenderItemView
             item={row.item}
             messageId={row.messageId}
-            live={isLiveTailRow}
+            running={isTurnRunningRow}
             durationMs={m.durationMs}
           />
           {tailAttachments}
