@@ -58,7 +58,7 @@ jq -c 'select(.sessionId == 42)' "$LOG"
 
 | Table | What lives here |
 |-------|-----------------|
-| `agents`, `agent_backends` | Agent definitions + which backend (builtin/claudecode/codex/piagent/openclaw/hermes) |
+| `agents`, `agent_backends` | Agent definitions + which backend (builtin/claudecode/codex/piagent/openclaw/hermes/acp) |
 | `chat_sessions`, `chat_messages`, `chat_message_blocks` | Conversations, their messages, and each message's blocks (text, tool calls, thinking) |
 | `llm_providers` | Provider configs (OpenAI/Anthropic/etc.) |
 | `hooks`, `hook_events` | Script-driven hook definitions, schedule/run state, output events, and failure records |

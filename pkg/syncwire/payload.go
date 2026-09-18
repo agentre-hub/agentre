@@ -153,6 +153,12 @@ type AgentBackendPayload struct {
 	OpenClawAgentID      string `json:"openclaw_agent_id"`
 	OpenClawDefaultModel string `json:"openclaw_default_model"`
 	OpenClawSessionMode  string `json:"openclaw_session_mode"`
+
+	// ACPCommand / ACPArgs 仅 acp 使用:外部 ACP Agent 的可执行文件与附加 argv。
+	// 它们是账号级身份(与 hermes_url 同形),没有每设备覆盖通路 —— acp 没有
+	// 「已知 CLI」的概念,可执行文件由 backend 自己声明。
+	ACPCommand string   `json:"acp_command"`
+	ACPArgs    []string `json:"acp_args"`
 }
 
 // AgentBackendCLIPayload 是 kind=agent_backend_cli 的载荷:某个后端在某台机器上的

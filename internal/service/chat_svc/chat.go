@@ -34,6 +34,7 @@ import (
 	// 显式 blank import 触发本地 runtime 子包 init() 把 *Runtime 注册到 RuntimeFor。
 	// remote 是显式构造,不参与全局注册;以下几种为本地后端,必须自注册才能被
 	// selectRunner 与 permissionModeMetaFor 解析到。
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/acp"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/builtin"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/codex"
@@ -1334,6 +1335,10 @@ func (s *chatSvc) resolveAgentBackend(ctx context.Context, sess *chat_entity.Ses
 		}
 		// 本机 hermes 自带 provider/model/凭证，不绑定 Agentre LLMProvider，也不经
 		// 本地网关转发：不查 provider、不要求 gateway。URL 连不上由轮次启动时报错。
+	case agent_backend_entity.TypeACP:
+		// acp 跑 backend 声明的本机 CLI 子进程，本地与远端 agentred 都可执行；
+		// ACP Agent 自带 provider/model/凭证，不查 provider、不要求 gateway。
+		// 子进程起不来 / 握手失败由轮次启动时报出可读错误。
 	case agent_backend_entity.TypeOpenClaw:
 		if exec_target_svc.BackendTargetsRemote(be) {
 			return nil, nil, nil, fmt.Errorf("openclaw remote secret enrollment is unavailable")

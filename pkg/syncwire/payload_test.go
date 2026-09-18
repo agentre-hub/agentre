@@ -81,17 +81,20 @@ func payloadCases() []payloadCase {
 				ReasoningEffort: "high", DefaultPermissionMode: "acceptEdits", DefaultModel: "opus",
 				OpenClawGatewayURL: "https://gw.example", OpenClawAgentID: "oc-1",
 				OpenClawDefaultModel: "oc-opus", OpenClawSessionMode: "persistent",
+				ACPCommand: "npx", ACPArgs: []string{"-y", "@agentclientprotocol/codex-acp"},
 			},
 			zeroJSON: `{"type":"","name":"","provider_key":"","model_key":"","model_routes":"",` +
 				`"sandbox":"","approval":"","env_json":"","reasoning_effort":"",` +
 				`"default_permission_mode":"","default_model":"","openclaw_gateway_url":"",` +
-				`"openclaw_agent_id":"","openclaw_default_model":"","openclaw_session_mode":""}`,
+				`"openclaw_agent_id":"","openclaw_default_model":"","openclaw_session_mode":"",` +
+				`"acp_command":"","acp_args":null}`,
 			fullJSON: `{"type":"claudecode","name":"笔记本上的 Claude","provider_key":"anthropic-main",` +
 				`"model_key":"opus","model_routes":"{\"fast\":\"haiku\"}","sandbox":"workspace-write",` +
 				`"approval":"on-request","env_json":"{\"HTTP_PROXY\":\"http://127.0.0.1:7890\"}",` +
 				`"reasoning_effort":"high","default_permission_mode":"acceptEdits","default_model":"opus",` +
 				`"openclaw_gateway_url":"https://gw.example","openclaw_agent_id":"oc-1",` +
-				`"openclaw_default_model":"oc-opus","openclaw_session_mode":"persistent"}`,
+				`"openclaw_default_model":"oc-opus","openclaw_session_mode":"persistent",` +
+				`"acp_command":"npx","acp_args":["-y","@agentclientprotocol/codex-acp"]}`,
 		},
 		{
 			kind:     syncwire.KindAgentBackendCLI,
@@ -276,4 +279,25 @@ func TestPayloadFor_GivenThePayloadTypes_ThenTheyMatchTheVocabularyExactly(t *te
 		require.Equal(t, reflect.TypeOf(c.full), reflect.TypeOf(got).Elem(),
 			"PayloadFor(%s) 与用例里的类型必须是同一个", c.kind)
 	}
+}
+
+// acp 的两个启动字段是账号级身份,与 hermes_url 同形地随 backend 载荷过机:
+// marshal → unmarshal 往返一个字节不丢。GuardPayload 是黑名单守卫,acp_command /
+// acp_args 不在名单上,放行这件事靠这条测试钉住 —— 哪天守卫被改成白名单形式,
+// 这里第一个红。
+func TestAgentBackendPayload_GivenACPFields_ThenRoundTripsAndPassesGuard(t *testing.T) {
+	t.Parallel()
+
+	full := syncwire.AgentBackendPayload{
+		Type: "acp", Name: "远端 Gemini",
+		ACPCommand: "gemini", ACPArgs: []string{"--acp"},
+	}
+	encoded, err := json.Marshal(full)
+	require.NoError(t, err)
+
+	var decoded syncwire.AgentBackendPayload
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	require.Equal(t, full, decoded)
+
+	require.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackend, encoded))
 }

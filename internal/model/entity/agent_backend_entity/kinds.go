@@ -50,6 +50,7 @@ var backendKinds = map[BackendType]BackendKind{
 	TypePiAgent:    piAgentKind{},
 	TypeOpenClaw:   openClawKind{},
 	TypeHermes:     hermesKind{},
+	TypeACP:        acpKind{},
 }
 
 // KindFor 查表，找不到返 nil。Service 在 Test/Create/Update 前用它分派 Prober。
@@ -262,6 +263,51 @@ func (hermesKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
 	if _, err := NormalizeHermesURL(b.HermesURL); err != nil {
+		return i18n.NewError(ctx, code.InvalidParameter)
+	}
+	return nil
+}
+
+// acpKind 连一个外部 ACP Agent 子进程（stdio JSON-RPC，Agent Client Protocol）。
+// ACP Agent 自带 provider/model/凭证，因此 ProviderTypeMatch 恒 false、
+// new-session provider pill 对它永远不渲染；LLMProviderKey 允许为空（走 agent
+// 自己的登录态），非空时不校验 ProviderType —— 「不参与供应商匹配」这个语义
+// 已由 ProviderTypeMatch 恒 false 表达，这里不再加白名单。
+// 它不是「已知 CLI」（可执行文件由 backend 自行声明），因此不接受 cli_path，
+// 只接受 ACPCommand + ACPArgs。
+type acpKind struct{}
+
+func (acpKind) Type() BackendType      { return TypeACP }
+func (acpKind) KnownAliases() []string { return nil }
+
+// ProviderTypeMatch 恒 false：ACP Agent 的模型与凭证来自它自己的配置。
+func (acpKind) ProviderTypeMatch(llm_provider_entity.ProviderType) bool { return false }
+func (acpKind) RequiresProviderModel() bool                             { return false }
+func (acpKind) AllowsCLIPath() bool                                     { return false }
+
+func (acpKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
+	// ACPCommand 是唯一必需字段：绝对路径或 exec.LookPath 能解析的裸名字。
+	// 换行 / NUL 会让它没法当一个合法 argv 元素，直接拒绝。
+	if strings.TrimSpace(b.ACPCommand) == "" {
+		return i18n.NewError(ctx, code.InvalidParameter)
+	}
+	if strings.ContainsAny(b.ACPCommand, "\n\r\x00") {
+		return i18n.NewError(ctx, code.InvalidParameter)
+	}
+	for _, arg := range b.ACPArgs {
+		if strings.ContainsAny(arg, "\n\r\x00") {
+			return i18n.NewError(ctx, code.InvalidParameter)
+		}
+	}
+	// ACP 没有 tier 路由 / sandbox / approval / 权限模式 / 默认模型这些通道，
+	// 相关字段一律拒绝，避免「配了但静默不生效」。
+	if !isEmptyJSONObject(b.ModelRoutes) {
+		return i18n.NewError(ctx, code.AgentBackendUnknownAlias)
+	}
+	if strings.TrimSpace(b.Sandbox) != "" ||
+		strings.TrimSpace(b.Approval) != "" ||
+		strings.TrimSpace(b.DefaultPermissionMode) != "" ||
+		strings.TrimSpace(b.DefaultModel) != "" {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
 	return nil

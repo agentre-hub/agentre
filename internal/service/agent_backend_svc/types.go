@@ -103,7 +103,11 @@ type CreateBackendRequest struct {
 	HermesURL             string                 `json:"hermesUrl"`
 	HermesAuthProvider    string                 `json:"hermesAuthProvider"`
 	HermesUserID          string                 `json:"hermesUserId"`
-	DeviceID              string                 `json:"deviceId"`
+	// ACPCommand / ACPArgs 仅 acp 使用：ACP Agent 可执行文件与附加 argv，随身份
+	// 落 config_json 并随后端同步；没有每设备覆盖（acp 不是「已知 CLI」）。
+	ACPCommand string   `json:"acpCommand"`
+	ACPArgs    []string `json:"acpArgs"`
+	DeviceID   string   `json:"deviceId"`
 }
 
 // CreateBackendResponse 返回创建后的实体。
@@ -132,7 +136,10 @@ type UpdateBackendRequest struct {
 	HermesURL             string                 `json:"hermesUrl"`
 	HermesAuthProvider    string                 `json:"hermesAuthProvider"`
 	HermesUserID          string                 `json:"hermesUserId"`
-	DeviceID              string                 `json:"deviceId"`
+	// ACPCommand / ACPArgs 仅 acp 使用；语义同 CreateBackendRequest。
+	ACPCommand string   `json:"acpCommand"`
+	ACPArgs    []string `json:"acpArgs"`
+	DeviceID   string   `json:"deviceId"`
 }
 
 // UpdateBackendResponse 返回更新后的实体。

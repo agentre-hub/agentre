@@ -233,6 +233,27 @@ func TestCreateBackend(t *testing.T) {
 			assert.Error(t, err)
 		})
 
+		convey.Convey("成功创建 acp 后端,启动字段随实体落库", func() {
+			backendMock.EXPECT().FindByName(gomock.Any(), "acp-1").Return(nil, nil)
+			backendMock.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&agent_backend_entity.AgentBackend{})).
+				DoAndReturn(func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
+					assert.Equal(t, string(agent_backend_entity.TypeACP), b.Type)
+					assert.Equal(t, "gemini", b.ACPCommand, "与其它身份字段一样按 TrimSpace 落库")
+					assert.Equal(t, []string{"--acp"}, b.ACPArgs)
+					b.ID = 48
+					return nil
+				})
+
+			resp, err := svc.Create(ctx, &CreateBackendRequest{
+				Type:       string(agent_backend_entity.TypeACP),
+				Name:       "acp-1",
+				ACPCommand: " gemini ",
+				ACPArgs:    []string{"--acp"},
+			})
+			assert.NoError(t, err)
+			assert.Equal(t, int64(48), resp.Item.ID)
+		})
+
 		convey.Convey("成功创建 codex", func() {
 			backendMock.EXPECT().FindByName(gomock.Any(), "codex").Return(nil, nil)
 			providerMock.EXPECT().FindByKey(gomock.Any(), "key-2").
@@ -650,6 +671,25 @@ func TestUpdateBackend(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, "", resp.Item.LLMProviderName)
 			assert.False(t, resp.Item.LLMProviderActive)
+		})
+
+		convey.Convey("acp 更新启动字段,空参数如实清空", func() {
+			existing := &agent_backend_entity.AgentBackend{
+				ID: 6, Type: string(agent_backend_entity.TypeACP), Name: "acp-1",
+				ACPCommand: "gemini", ACPArgs: []string{"--acp"}, Status: consts.ACTIVE,
+			}
+			backendMock.EXPECT().Find(gomock.Any(), int64(6)).Return(existing, nil)
+			backendMock.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&agent_backend_entity.AgentBackend{})).
+				DoAndReturn(func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
+					assert.Equal(t, "npx", b.ACPCommand)
+					assert.Empty(t, b.ACPArgs, "请求里空参数落成空,不保留旧值")
+					return nil
+				})
+
+			_, err := svc.Update(ctx, &UpdateBackendRequest{
+				ID: 6, Name: "acp-1", ACPCommand: "npx",
+			})
+			assert.NoError(t, err)
 		})
 	})
 }

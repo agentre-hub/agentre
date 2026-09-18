@@ -21,6 +21,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/acp"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
@@ -541,4 +542,57 @@ func TestProberRegistry_RegistersHermes(t *testing.T) {
 	require.NotNil(t, p)
 	_, ok := p.(hermesProber)
 	assert.True(t, ok, "TypeHermes must dispatch to hermesProber")
+}
+
+// TestACPProber 钉死 acp 的「测试连接」装配:实体上的 acpCommand / acpArgs
+// 原样交给 acp.Probe(经可注入的 seam 跳过真实子进程),错误如实透传。
+func TestACPProber(t *testing.T) {
+	Convey("Given an acp backend", t, func() {
+		captured := make(chan acp.ProbeRequest, 1)
+		orig := acpProbe
+		acpProbe = func(_ context.Context, req acp.ProbeRequest) (string, error) {
+			captured <- req
+			return "fake-agent 0.0.1 (ACP v1; image=true, mcp-http=false, loadSession=true)", nil
+		}
+		t.Cleanup(func() { acpProbe = orig })
+
+		Convey("When probing Then it shares the chat path's command and args", func() {
+			b := &agent_backend_entity.AgentBackend{
+				Type:       string(agent_backend_entity.TypeACP),
+				Name:       "acp",
+				ACPCommand: "npx",
+				ACPArgs:    []string{"-y", "@agentclientprotocol/codex-acp"},
+			}
+			reply, err := acpProber{}.Run(context.Background(), b, ProbeDeps{})
+			So(err, ShouldBeNil)
+			So(reply, ShouldContainSubstring, "fake-agent 0.0.1")
+
+			req := <-captured
+			So(req.Command, ShouldEqual, "npx")
+			So(req.Args, ShouldResemble, []string{"-y", "@agentclientprotocol/codex-acp"})
+		})
+
+		Convey("When a nil backend is probed Then it errors", func() {
+			_, err := acpProber{}.Run(context.Background(), nil, ProbeDeps{})
+			So(err, ShouldNotBeNil)
+		})
+
+		Convey("When the probe fails Then the error propagates", func() {
+			acpProbe = func(context.Context, acp.ProbeRequest) (string, error) {
+				return "", errors.New("acp: agent requires ACP protocol version 2")
+			}
+			_, err := acpProber{}.Run(context.Background(), &agent_backend_entity.AgentBackend{
+				Type: string(agent_backend_entity.TypeACP), Name: "a", ACPCommand: "hermes",
+			}, ProbeDeps{})
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldContainSubstring, "protocol version 2")
+		})
+	})
+}
+
+func TestProberRegistry_RegistersACP(t *testing.T) {
+	p := proberFor(agent_backend_entity.TypeACP)
+	require.NotNil(t, p)
+	_, ok := p.(acpProber)
+	assert.True(t, ok, "TypeACP must dispatch to acpProber")
 }

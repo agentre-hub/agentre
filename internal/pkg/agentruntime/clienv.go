@@ -132,6 +132,22 @@ func BuildPiAgentEnv(b *agent_backend_entity.AgentBackend) (map[string]string, e
 	return env, nil
 }
 
+// BuildACPEnv 装配 ACP agent 子进程的环境变量：
+//   - ACP Agent 自带 provider/model/凭证，不经 Agentre 网关转发，因此不注入
+//     AGENTRE_GATEWAY_* / ANTHROPIC_* / OPENAI_* 任何变量；
+//   - 用户自定义 env_json 追加（保留键已被 entity.Check 拒入）。
+func BuildACPEnv(b *agent_backend_entity.AgentBackend) (map[string]string, error) {
+	env := map[string]string{}
+	user, err := agent_backend_entity.ParseEnvJSON(b.EnvJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parse env_json: %w", err)
+	}
+	for k, v := range user {
+		env[k] = v
+	}
+	return env, nil
+}
+
 // CodexReasoningEffortConfigValue 把落库的 reasoning_effort 映射为 codex CLI 配置值。
 // 六档（low/medium/high/xhigh/max）原样透传：codex-cli 对 model_reasoning_effort
 // 不做本地枚举校验、原样转发给上游（spec 2026-09-01「三后端下发档位的收敛」，本机

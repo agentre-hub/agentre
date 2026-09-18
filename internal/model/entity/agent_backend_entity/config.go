@@ -39,6 +39,9 @@ type backendConfig struct {
 	// token 绝不进这里（它只在 keychain 里）。
 	HermesAuthProvider string `json:"hermesAuthProvider,omitempty"`
 	HermesUserID       string `json:"hermesUserId,omitempty"`
+	// ACPCommand / ACPArgs 只属于 acp：外部 ACP Agent 的可执行文件与附加 argv。
+	ACPCommand string   `json:"acpCommand,omitempty"`
+	ACPArgs    []string `json:"acpArgs,omitempty"`
 }
 
 // emptyModelRoutes 是 model_routes 这一格的「没配」形态。历史列带
@@ -68,6 +71,8 @@ func (b *AgentBackend) MarshalConfig() error {
 		HermesURL:             b.HermesURL,
 		HermesAuthProvider:    b.HermesAuthProvider,
 		HermesUserID:          b.HermesUserID,
+		ACPCommand:            b.ACPCommand,
+		ACPArgs:               b.ACPArgs,
 	}
 	// 空路由不留键：否则每一行非 claudecode 后端都平白带一个 {"modelRoutes":{}}。
 	if routes := strings.TrimSpace(b.ModelRoutes); !isEmptyJSONObject(routes) {
@@ -114,5 +119,7 @@ func (b *AgentBackend) UnmarshalConfig() error {
 	b.HermesURL = cfg.HermesURL
 	b.HermesAuthProvider = cfg.HermesAuthProvider
 	b.HermesUserID = cfg.HermesUserID
+	b.ACPCommand = cfg.ACPCommand
+	b.ACPArgs = cfg.ACPArgs
 	return nil
 }

@@ -32,6 +32,7 @@ var proberRegistry = map[agent_backend_entity.BackendType]Prober{
 	agent_backend_entity.TypeCodex:      cliProber{},
 	agent_backend_entity.TypePiAgent:    cliProber{},
 	agent_backend_entity.TypeHermes:     hermesProber{creds: defaultHermesCredentials},
+	agent_backend_entity.TypeACP:        acpProber{},
 }
 
 // providerBuilder 是 agentprovider.Build 的间接引用，让单测能把 fake provider

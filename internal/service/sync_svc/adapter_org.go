@@ -377,6 +377,8 @@ func (agentBackendAdapter) load(ctx context.Context, syncID string) (*outbound, 
 		OpenClawAgentID:       row.OpenClawAgentID,
 		OpenClawDefaultModel:  row.OpenClawDefaultModel,
 		OpenClawSessionMode:   row.OpenClawSessionMode,
+		ACPCommand:            row.ACPCommand,
+		ACPArgs:               row.ACPArgs,
 	})
 	if err != nil {
 		return nil, err
@@ -419,6 +421,7 @@ func (agentBackendAdapter) apply(ctx context.Context, in *inbound, resolved map[
 	row.DefaultPermissionMode, row.DefaultModel = p.DefaultPermissionMode, p.DefaultModel
 	row.OpenClawGatewayURL, row.OpenClawAgentID = p.OpenClawGatewayURL, p.OpenClawAgentID
 	row.OpenClawDefaultModel, row.OpenClawSessionMode = p.OpenClawDefaultModel, p.OpenClawSessionMode
+	row.ACPCommand, row.ACPArgs = p.ACPCommand, p.ACPArgs
 	row.Status = consts.ACTIVE
 	if !found {
 		row.SyncID = in.SyncID
