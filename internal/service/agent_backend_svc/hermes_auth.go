@@ -2,7 +2,6 @@ package agent_backend_svc
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/cago-frame/cago/pkg/i18n"
@@ -43,72 +42,52 @@ func (s *agentBackendSvc) credentialStore() *backendcred.HermesCredentials {
 	return defaultHermesCredentials
 }
 
-// Hermes test-connection codes. The frontend localizes these so a gated serve
-// reports "login required" / "login expired" instead of a generic failure.
+// Hermes 测试连接的结果码。串本身住在 backendcred(无副作用叶子),两种执行端
+// 共用同一份 —— agentred 不能 import 本包(会把桌面端服务连同它的 init 拖进
+// daemon),但两边都 import 得了那个叶子。这里只把它们取个本包的名字。
 const (
-	HermesCodeLoginRequired       = "HERMES_LOGIN_REQUIRED"
-	HermesCodeLoginExpired        = "HERMES_LOGIN_EXPIRED"
-	HermesCodeInvalidCredentials  = "HERMES_INVALID_CREDENTIALS"
-	HermesCodeRateLimited         = "HERMES_RATE_LIMITED"
-	HermesCodeProviderUnsupported = "HERMES_PROVIDER_UNSUPPORTED"
-	HermesCodeProviderUnavailable = "HERMES_PROVIDER_UNAVAILABLE"
-	HermesCodeProviderNotFound    = "HERMES_PROVIDER_NOT_FOUND"
-	HermesCodeUnreachable         = "HERMES_UNREACHABLE"
+	HermesCodeLoginRequired       = backendcred.HermesCodeLoginRequired
+	HermesCodeLoginExpired        = backendcred.HermesCodeLoginExpired
+	HermesCodeInvalidCredentials  = backendcred.HermesCodeInvalidCredentials
+	HermesCodeRateLimited         = backendcred.HermesCodeRateLimited
+	HermesCodeProviderUnsupported = backendcred.HermesCodeProviderUnsupported
+	HermesCodeProviderUnavailable = backendcred.HermesCodeProviderUnavailable
+	// HermesCodeProviderNotFound 没有对应的哨兵,因此不在共用那一份里:它是前端
+	// 按业务码 12036 直接认的串(backend-editor/draft.ts)。
+	HermesCodeProviderNotFound = "HERMES_PROVIDER_NOT_FOUND"
+	HermesCodeUnreachable      = backendcred.HermesCodeUnreachable
 )
 
-// hermesAuthReasons 是桌面端这一侧 Hermes 认证失败的对照表:哨兵 → 业务码 → 前端码。
+// hermesResultBizCode 是桌面端**独有**的那一半:结果码 → 本地化的业务码。
 //
-// 同一个失败,本机路径回业务码(中文一句话)、设备操作回前端码(线上传的那个串),
-// 而收到前端码的一侧还要翻回业务码 —— 三条路径读同一行,某一个原因才不会在其中一条
-// 上说成另一句话。多个哨兵可以落在同一个原因上(认证 HTTP 与 gateway 拨号都是「连不
-// 上」),反过来不行。
-//
-// agentred 不能 import 本包(会把桌面端服务连同它的 init 拖进 daemon),所以
-// handlers.hermesResultCode 持有同一组**前端码字符串**的另一份:那些串必须逐字相同,
-// 改这里就要改那里。
-var hermesAuthReasons = []struct {
-	sentinel error
-	bizCode  int
-	result   string
-}{
-	{hermes.ErrLoginRequired, code.HermesLoginRequired, HermesCodeLoginRequired},
-	{hermes.ErrLoginExpired, code.HermesLoginExpired, HermesCodeLoginExpired},
-	{hermes.ErrInvalidCredentials, code.HermesLoginRejected, HermesCodeInvalidCredentials},
-	{hermes.ErrAuthRateLimited, code.HermesRateLimited, HermesCodeRateLimited},
-	{hermes.ErrPasswordLoginUnsupported, code.HermesProviderUnsupported, HermesCodeProviderUnsupported},
-	{hermes.ErrAuthProviderUnavailable, code.HermesProviderUnavailable, HermesCodeProviderUnavailable},
-	{hermes.ErrAuthUnreachable, code.HermesUnreachable, HermesCodeUnreachable},
-	// 「连不上」有两个来源:认证 HTTP 打不通(上一行)与 gateway 拨不上。对用户是同
-	// 一件事,也必须与 agentred 那一侧(handlers.hermesResultCode)说同一个码 ——
-	// 否则同一次「serve 没起来」,绑到本机时是一行 dial 原话,绑到 agentred 时是
-	// 「连不上这个 Hermes 服务」。
-	{hermes.ErrGatewayUnreachable, code.HermesUnreachable, HermesCodeUnreachable},
+// 「哪一个失败落在哪一个结果码上」由 backendcred.HermesResultCode 说了算,两种
+// 执行端共用;桌面端在它之上多一步 —— 本机路径要回一句中文,收到绑定设备的结果码
+// 时也要翻回同一句。于是这张表只按结果码索引,不再重述一遍哨兵,某个原因也就不可能
+// 在两条路径上说成两句话。
+var hermesResultBizCode = map[string]int{
+	HermesCodeLoginRequired:       code.HermesLoginRequired,
+	HermesCodeLoginExpired:        code.HermesLoginExpired,
+	HermesCodeInvalidCredentials:  code.HermesLoginRejected,
+	HermesCodeRateLimited:         code.HermesRateLimited,
+	HermesCodeProviderUnsupported: code.HermesProviderUnsupported,
+	HermesCodeProviderUnavailable: code.HermesProviderUnavailable,
+	HermesCodeUnreachable:         code.HermesUnreachable,
 }
 
 // hermesAuthCode maps the auth-layer sentinels to (business code, frontend code).
 func hermesAuthCode(err error) (int, string, bool) {
-	if err == nil {
+	resultCode := backendcred.HermesResultCode(err)
+	bizCode, ok := hermesBizCode(resultCode)
+	if !ok {
 		return 0, "", false
 	}
-	for _, reason := range hermesAuthReasons {
-		if errors.Is(err, reason.sentinel) {
-			return reason.bizCode, reason.result, true
-		}
-	}
-	return 0, "", false
+	return bizCode, resultCode, true
 }
 
 // hermesBizCode 是反向:绑定设备回的结构化结果码 → 本地化的业务码。
 func hermesBizCode(resultCode string) (int, bool) {
-	if resultCode == "" {
-		return 0, false
-	}
-	for _, reason := range hermesAuthReasons {
-		if reason.result == resultCode {
-			return reason.bizCode, true
-		}
-	}
-	return 0, false
+	bizCode, ok := hermesResultBizCode[resultCode]
+	return bizCode, ok
 }
 
 // hermesAuthError turns an auth failure into the localized business error the

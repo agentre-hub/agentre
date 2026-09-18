@@ -677,7 +677,7 @@ func (s *agentBackendSvc) testOpenClaw(
 		// Gateway 客户端自己已经抹过一遍;这里再抹一次,让「凭据不出现在任何应答里」
 		// 不依赖每一个产出方都自觉 —— 这条结果也会经设备操作发给控制台。
 		return &TestBackendResponse{
-			OK: false, Code: openClawProbeErrorCode(err), Message: redactSecret(err.Error(), token), LatencyMs: latency,
+			OK: false, Code: openClawProbeErrorCode(err), Message: backendcred.RedactSecret(err.Error(), token), LatencyMs: latency,
 		}, nil
 	}
 	response := &TestBackendResponse{
@@ -719,30 +719,12 @@ func openClawDraftIssue(backend *agent_backend_entity.AgentBackend) *TestBackend
 		return issue("OPENCLAW_NAME_REQUIRED")
 	}
 	if _, err := agent_backend_entity.NormalizeOpenClawGatewayURL(backend.OpenClawGatewayURL); err != nil {
-		return issue(openClawURLCode(err))
+		return issue(backendcred.OpenClawURLCode(err))
 	}
 	if strings.TrimSpace(backend.OpenClawSessionMode) != agent_backend_entity.OpenClawSessionPerAgentRESession {
 		return issue("OPENCLAW_SESSION_MODE_INVALID")
 	}
 	return nil
-}
-
-// openClawURLCode 把被拒绝的 Gateway URL 翻成前端本地化得了的结构化码。
-func openClawURLCode(err error) string {
-	switch {
-	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLRequired):
-		return "OPENCLAW_URL_REQUIRED"
-	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLScheme):
-		return "OPENCLAW_URL_SCHEME"
-	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLHost):
-		return "OPENCLAW_URL_HOST"
-	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLCredentials):
-		return "OPENCLAW_URL_CREDENTIALS"
-	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLPlaintextRemote):
-		return "OPENCLAW_URL_PLAINTEXT_REMOTE"
-	default:
-		return "OPENCLAW_URL_INVALID"
-	}
 }
 
 // resolveOpenClawRuntimeConfig is the only boundary that turns persisted
@@ -797,58 +779,11 @@ func ResolveOpenClawRuntimeConfig(ctx context.Context, backendID int64) (opencla
 	return service.resolveOpenClawRuntimeConfig(ctx, backendID)
 }
 
-// openClawGatewayAuthCodes 是网关直接给出的鉴权类 code。真实网关(2026.7.1-2)对
-// token 不匹配回的却是 INVALID_REQUEST + "unauthorized: ..." —— 只按 code 匹配会
-// 漏掉它,前端于是把原始协议串当文案显示。故同时看 details.reason 与 message。
-var openClawGatewayAuthCodes = map[string]struct{}{
-	"AUTH_FAILED": {}, "UNAUTHORIZED": {}, "FORBIDDEN": {},
-}
-
-func normalizeOpenClawRPCCode(rpcErr *openclawgateway.RPCError) string {
-	rpcCode := strings.ToUpper(strings.TrimSpace(rpcErr.Code))
-	reason := strings.ToLower(strings.TrimSpace(rpcErr.Reason))
-	message := strings.ToLower(rpcErr.Message)
-	switch {
-	case rpcCode == "NOT_PAIRED" || reason == "not_paired":
-		return "OPENCLAW_NOT_PAIRED"
-	default:
-	}
-	if _, ok := openClawGatewayAuthCodes[rpcCode]; ok {
-		return "AUTH_FAILED"
-	}
-	if reason == "unauthorized" || strings.HasPrefix(message, "unauthorized") {
-		return "AUTH_FAILED"
-	}
-	if rpcCode == "" {
-		return "OPENCLAW_CONNECTION_FAILED"
-	}
-	return rpcCode
-}
-
+// openClawProbeErrorCode 把一次 Gateway 探测的失败翻成前端本地化得了的结构化码。
+// 判据住在 backendcred:agentred 被当作绑定设备问到时答的是同一组码,而它 import
+// 不了本包。
 func openClawProbeErrorCode(err error) string {
-	var rpcErr *openclawgateway.RPCError
-	switch {
-	case errors.As(err, &rpcErr):
-		return normalizeOpenClawRPCCode(rpcErr)
-	case errors.Is(err, openclawgateway.ErrRequiredScopeMissing):
-		return "OPENCLAW_SCOPE_MISSING"
-	case errors.Is(err, openclawgateway.ErrProtocolMismatch):
-		return "OPENCLAW_PROTOCOL_MISMATCH"
-	case errors.Is(err, openclawgateway.ErrSelectedAgentNotFound):
-		return "OPENCLAW_AGENT_NOT_FOUND"
-	case errors.Is(err, openclawgateway.ErrSelectedModelNotFound):
-		return "OPENCLAW_MODEL_NOT_FOUND"
-	case errors.Is(err, openclawgateway.ErrRequiredMethodMissing):
-		return "OPENCLAW_METHOD_MISSING"
-	case errors.Is(err, openclawgateway.ErrRequiredEventMissing):
-		return "OPENCLAW_EVENT_MISSING"
-	case errors.Is(err, context.Canceled):
-		return "OPENCLAW_PROBE_CANCELED"
-	case errors.Is(err, context.DeadlineExceeded):
-		return "OPENCLAW_PROBE_TIMEOUT"
-	default:
-		return "OPENCLAW_CONNECTION_FAILED"
-	}
+	return backendcred.OpenClawResultCode(err)
 }
 
 // CancelTest 中断一个还在跑的 Test。

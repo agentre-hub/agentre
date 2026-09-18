@@ -274,3 +274,53 @@ describe("shared editor credential status (console-shaped host, no local device)
     ).toBeInTheDocument();
   });
 });
+
+describe("shared editor Hermes provider selection vs. the live status answer", () => {
+  it("Given the credential status answers after the provider directory, When it says logged out, Then the selected provider survives and Sign in submits it", async () => {
+    const user = userEvent.setup();
+    const loginHermesBackend = vi
+      .fn()
+      .mockResolvedValue({ provider: "basic", userId: "user-9" });
+    const listHermesAuthProviders = vi
+      .fn()
+      .mockResolvedValue([
+        { name: "basic", displayName: "Basic", supportsPassword: true },
+      ]);
+    // 状态查询比提供方目录晚落地。「没登录」是一句关于身份的回答，不该顺手把
+    // 登录表单里选好的 provider 抹掉——那一格在登出态下是输入，不是状态展示。
+    const backendCredentialStatus = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () => resolve({ openClawTokenSaved: false, hermesLoggedIn: false }),
+            0,
+          );
+        }),
+    );
+    renderPanel(
+      createPorts({
+        listBackends: vi
+          .fn()
+          .mockResolvedValue([hermesBackend({ hermesUserId: "" })]),
+        listHermesAuthProviders,
+        loginHermesBackend,
+        logoutHermesBackend: vi.fn(),
+        backendCredentialStatus,
+      }),
+    );
+
+    const dialog = await openEditDialog(user, "Gated hermes");
+    await waitFor(() => expect(listHermesAuthProviders).toHaveBeenCalled());
+    await waitFor(() => expect(backendCredentialStatus).toHaveBeenCalled());
+
+    await user.type(within(dialog).getByLabelText("Username"), "alice");
+    await user.type(within(dialog).getByLabelText("Password"), "pw");
+    await user.click(within(dialog).getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() =>
+      expect(loginHermesBackend).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: "basic", username: "alice" }),
+      ),
+    );
+  });
+});

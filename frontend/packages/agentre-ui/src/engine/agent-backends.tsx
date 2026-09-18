@@ -880,6 +880,11 @@ function BackendEditor({
   });
   // 查询结果落地时把它当作真相覆盖掉「从同步字段猜的」初始值；重新登录/登出的
   // 乐观更新发生在这次查询之后，不会被它翻回去（这次查询只在打开/换设备时重跑）。
+  //
+  // provider 只在「登录着」时由这一答说了算：登出态下那一格是登录表单的**输入**
+  // （谁来签发这次登录），归零就把提供方目录刚选好的那一项抹了，而目录那条 effect
+  // 不会再跑一遍补回来 —— 两条异步应答谁先落地是网络说了算，抹掉的那次登录按钮
+  // 按下去没反应（handleHermesLogin 在 provider 为空时直接返回）。
   React.useEffect(() => {
     if (type !== "hermes" || credentialStatus === null) return;
     setHermesUserId(
@@ -887,11 +892,9 @@ function BackendEditor({
         ? (credentialStatus.hermesUserId ?? "")
         : "",
     );
-    setHermesAuthProvider(
-      credentialStatus.hermesLoggedIn
-        ? (credentialStatus.hermesProvider ?? "")
-        : "",
-    );
+    if (credentialStatus.hermesLoggedIn && credentialStatus.hermesProvider) {
+      setHermesAuthProvider(credentialStatus.hermesProvider);
+    }
   }, [type, credentialStatus]);
 
   React.useEffect(() => {

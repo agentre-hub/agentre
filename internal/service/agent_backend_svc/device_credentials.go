@@ -540,7 +540,7 @@ func (p *LocalBackendCredentials) testOpenClaw(
 ) (*agentrewire.BackendConnectionTestResponse, error) {
 	gatewayURL, err := agent_backend_entity.NormalizeOpenClawGatewayURL(request.GetOpenclawGatewayUrl())
 	if err != nil {
-		return &agentrewire.BackendConnectionTestResponse{Code: openClawURLCode(err)}, nil
+		return &agentrewire.BackendConnectionTestResponse{Code: backendcred.OpenClawURLCode(err)}, nil
 	}
 	backend := &agent_backend_entity.AgentBackend{
 		SyncMeta:             syncmeta_entity.SyncMeta{SyncID: request.GetSyncId()},
@@ -579,14 +579,6 @@ func wireTestResponse(result *TestBackendResponse) *agentrewire.BackendConnectio
 		})
 	}
 	return response
-}
-
-// redactSecret 把凭据从即将离开本机的文本里抹掉。
-func redactSecret(text, secret string) string {
-	if secret == "" {
-		return text
-	}
-	return strings.ReplaceAll(text, secret, "[redacted]")
 }
 
 // hasSecret 只回答「这个槽位上有没有东西」,从不把内容交出去。

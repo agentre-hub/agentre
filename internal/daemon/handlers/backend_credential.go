@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"runtime"
 	"strings"
 	"time"
@@ -24,18 +23,6 @@ import (
 // backendCredentialProbeTimeout bounds one test connection, matching the
 // desktop's own test timeout.
 const backendCredentialProbeTimeout = 30 * time.Second
-
-// Hermes result codes. They are the desktop's test-connection vocabulary
-// (agent_backend_svc) so both hosts' results localize through one table.
-const (
-	hermesCodeLoginRequired       = "HERMES_LOGIN_REQUIRED"
-	hermesCodeLoginExpired        = "HERMES_LOGIN_EXPIRED"
-	hermesCodeInvalidCredentials  = "HERMES_INVALID_CREDENTIALS"
-	hermesCodeRateLimited         = "HERMES_RATE_LIMITED"
-	hermesCodeProviderUnsupported = "HERMES_PROVIDER_UNSUPPORTED"
-	hermesCodeProviderUnavailable = "HERMES_PROVIDER_UNAVAILABLE"
-	hermesCodeUnreachable         = "HERMES_UNREACHABLE"
-)
 
 // BackendCredentialState is the part of *state.State the credential handlers
 // persist through. Every write lands in state.json before it is visible.
@@ -192,7 +179,7 @@ func (h *BackendCredentialHandlers) HermesAuthProviders(ctx context.Context, req
 	}
 	providers, err := hermesauth.ListAuthProviders(ctx, base, nil)
 	if err != nil {
-		if code := hermesResultCode(err); code != "" {
+		if code := backendcred.HermesResultCode(err); code != "" {
 			return &agentrewire.HermesAuthProvidersResponse{Code: code}, nil
 		}
 		return nil, err
@@ -217,7 +204,7 @@ func (h *BackendCredentialHandlers) HermesLogin(ctx context.Context, request *ag
 		BaseURL: base, Provider: request.GetProvider(), Username: request.GetUsername(), Password: request.GetPassword(),
 	})
 	if err != nil {
-		if code := hermesResultCode(err); code != "" {
+		if code := backendcred.HermesResultCode(err); code != "" {
 			return &agentrewire.HermesLoginResponse{Code: code}, nil
 		}
 		logger.Ctx(ctx).Warn("handlers.BackendCredentialHandlers.HermesLogin: login failed",
@@ -274,7 +261,7 @@ func (h *BackendCredentialHandlers) testHermes(ctx context.Context, request *age
 	})
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
-		response := &agentrewire.BackendConnectionTestResponse{Code: hermesResultCode(err), LatencyMs: latency}
+		response := &agentrewire.BackendConnectionTestResponse{Code: backendcred.HermesResultCode(err), LatencyMs: latency}
 		if response.Code == "" {
 			response.Message = err.Error()
 		}
@@ -286,7 +273,7 @@ func (h *BackendCredentialHandlers) testHermes(ctx context.Context, request *age
 func (h *BackendCredentialHandlers) testOpenClaw(ctx context.Context, request *agentrewire.BackendConnectionTestRequest) *agentrewire.BackendConnectionTestResponse {
 	gatewayURL, err := agent_backend_entity.NormalizeOpenClawGatewayURL(request.GetOpenclawGatewayUrl())
 	if err != nil {
-		return &agentrewire.BackendConnectionTestResponse{Code: openClawURLCode(err)}
+		return &agentrewire.BackendConnectionTestResponse{Code: backendcred.OpenClawURLCode(err)}
 	}
 	token := request.GetOpenclawToken()
 	if token == "" {
@@ -309,7 +296,7 @@ func (h *BackendCredentialHandlers) testOpenClaw(ctx context.Context, request *a
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		return &agentrewire.BackendConnectionTestResponse{
-			Code: openClawResultCode(err), Message: redactSecret(err.Error(), token), LatencyMs: latency,
+			Code: backendcred.OpenClawResultCode(err), Message: backendcred.RedactSecret(err.Error(), token), LatencyMs: latency,
 		}
 	}
 	response := &agentrewire.BackendConnectionTestResponse{
@@ -329,96 +316,4 @@ func (h *BackendCredentialHandlers) testOpenClaw(ctx context.Context, request *a
 		})
 	}
 	return response
-}
-
-// redactSecret removes a credential from text that is about to leave the
-// device. The Gateway client already redacts its own errors; this keeps the
-// invariant independent of every producer doing so.
-func redactSecret(text, secret string) string {
-	if secret == "" {
-		return text
-	}
-	return strings.ReplaceAll(text, secret, "[redacted]")
-}
-
-// hermesResultCode maps the Hermes auth and gateway sentinels to the desktop's
-// result codes; "" means the failure has no structured reason.
-func hermesResultCode(err error) string {
-	switch {
-	case errors.Is(err, hermesauth.ErrLoginRequired):
-		return hermesCodeLoginRequired
-	case errors.Is(err, hermesauth.ErrLoginExpired):
-		return hermesCodeLoginExpired
-	case errors.Is(err, hermesauth.ErrInvalidCredentials):
-		return hermesCodeInvalidCredentials
-	case errors.Is(err, hermesauth.ErrAuthRateLimited):
-		return hermesCodeRateLimited
-	case errors.Is(err, hermesauth.ErrPasswordLoginUnsupported):
-		return hermesCodeProviderUnsupported
-	case errors.Is(err, hermesauth.ErrAuthProviderUnavailable):
-		return hermesCodeProviderUnavailable
-	case errors.Is(err, hermesauth.ErrAuthUnreachable), errors.Is(err, hermesgateway.ErrGatewayUnreachable):
-		return hermesCodeUnreachable
-	default:
-		return ""
-	}
-}
-
-// openClawAuthCodes are the Gateway RPC codes that mean the token was refused.
-var openClawAuthCodes = map[string]struct{}{"AUTH_FAILED": {}, "UNAUTHORIZED": {}, "FORBIDDEN": {}}
-
-// openClawResultCode maps a Gateway probe failure to the desktop's result codes.
-func openClawResultCode(err error) string {
-	var rpcErr *openclawgateway.RPCError
-	switch {
-	case errors.As(err, &rpcErr):
-		code := strings.ToUpper(strings.TrimSpace(rpcErr.Code))
-		reason := strings.ToLower(strings.TrimSpace(rpcErr.Reason))
-		if code == "NOT_PAIRED" || reason == "not_paired" {
-			return "OPENCLAW_NOT_PAIRED"
-		}
-		if _, ok := openClawAuthCodes[code]; ok || reason == "unauthorized" || strings.HasPrefix(strings.ToLower(rpcErr.Message), "unauthorized") {
-			return "AUTH_FAILED"
-		}
-		if code == "" {
-			return "OPENCLAW_CONNECTION_FAILED"
-		}
-		return code
-	case errors.Is(err, openclawgateway.ErrRequiredScopeMissing):
-		return "OPENCLAW_SCOPE_MISSING"
-	case errors.Is(err, openclawgateway.ErrProtocolMismatch):
-		return "OPENCLAW_PROTOCOL_MISMATCH"
-	case errors.Is(err, openclawgateway.ErrSelectedAgentNotFound):
-		return "OPENCLAW_AGENT_NOT_FOUND"
-	case errors.Is(err, openclawgateway.ErrSelectedModelNotFound):
-		return "OPENCLAW_MODEL_NOT_FOUND"
-	case errors.Is(err, openclawgateway.ErrRequiredMethodMissing):
-		return "OPENCLAW_METHOD_MISSING"
-	case errors.Is(err, openclawgateway.ErrRequiredEventMissing):
-		return "OPENCLAW_EVENT_MISSING"
-	case errors.Is(err, context.Canceled):
-		return "OPENCLAW_PROBE_CANCELED"
-	case errors.Is(err, context.DeadlineExceeded):
-		return "OPENCLAW_PROBE_TIMEOUT"
-	default:
-		return "OPENCLAW_CONNECTION_FAILED"
-	}
-}
-
-// openClawURLCode maps a rejected Gateway URL to the desktop's draft codes.
-func openClawURLCode(err error) string {
-	switch {
-	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLRequired):
-		return "OPENCLAW_URL_REQUIRED"
-	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLScheme):
-		return "OPENCLAW_URL_SCHEME"
-	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLHost):
-		return "OPENCLAW_URL_HOST"
-	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLCredentials):
-		return "OPENCLAW_URL_CREDENTIALS"
-	case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLPlaintextRemote):
-		return "OPENCLAW_URL_PLAINTEXT_REMOTE"
-	default:
-		return "OPENCLAW_URL_INVALID"
-	}
 }
