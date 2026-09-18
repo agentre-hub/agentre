@@ -25,11 +25,12 @@ import { cn } from "../lib/utils";
 export type AgentAvatarSize = "xs" | "sm" | "md" | "lg";
 
 /**
- * 四档尺寸。`xs` 是索引行里那一枚 —— 今天两端都靠 `className` 覆盖出来，
- * 给它一个名字不是新增能力，是把已有的一档说出口。
+ * 四档尺寸。`xs` 是 20px 以下那一档（会话行 14px、组织行 18px、归属选择 20px，
+ * 后两处靠 `className` 放大）：这一档只画一个字，见 `glyphText`。
+ * 圆角取边长的 1/4 左右，小方块不被四个角吃掉。
  */
 const sizeClassNames: Record<AgentAvatarSize, string> = {
-  xs: "size-3.5 rounded-sm text-[8px]",
+  xs: "size-3.5 rounded-[3.5px] text-[9px]",
   sm: "size-6 rounded-md text-2xs",
   md: "size-8 rounded-lg text-sm",
   lg: "size-10 rounded-lg text-sm",
@@ -58,6 +59,20 @@ export function getAgentInitials(name: string): string {
   }
 
   return trimmed.slice(0, 1).toUpperCase();
+}
+
+/**
+ * 方块里画的字。`xs` 只放一个字：两个字母在 14–20px 里量出来占宽 78%–111%，
+ * `MW` 直接撑出方块。调用方显式给的 `initials` 原样画，不替它截断。
+ */
+function glyphText(
+  name: string,
+  initials: string | undefined,
+  size: AgentAvatarSize,
+): string {
+  if (initials !== undefined) return initials;
+  const auto = getAgentInitials(name);
+  return size === "xs" ? auto.slice(0, 1) : auto;
 }
 
 export type AgentAvatarProps = Omit<React.ComponentProps<"span">, "color"> & {
@@ -117,6 +132,7 @@ export function AgentAvatar({
   // （规格决策 5）。`neutral` 是调色板里用户能选的正当灰，不是「没有颜色」——
   // 把它一并退成 agent-1 会让用户选的灰渲染成蓝。
   const css = tokenToCssColor(color || "agent-1");
+  const text = glyphText(name, initials, size);
 
   return (
     <span
@@ -125,6 +141,8 @@ export function AgentAvatar({
       data-testid={testId}
       className={cn(
         "inline-flex shrink-0 items-center justify-center font-semibold",
+        // 两个字母收一点字距，别顶到方块两边。
+        !icon && text.length > 1 && "tracking-tight",
         // 中性面要跟着换前景色：白字落在浅色的 secondary 面上读不出来。
         css
           ? "text-agent-foreground"
@@ -135,7 +153,7 @@ export function AgentAvatar({
       style={css ? { backgroundColor: css } : undefined}
       {...props}
     >
-      {icon ?? initials ?? getAgentInitials(name)}
+      {icon ?? text}
     </span>
   );
 }

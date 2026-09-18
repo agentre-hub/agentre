@@ -91,6 +91,8 @@ const THEME_INVARIANT = new Set([
   "--traffic-zoom",
   // 实心琥珀 Badge 上的深棕字。深浅两色都是亮琥珀，同一个值都可读。
   "--status-waiting-foreground",
+  // 身份色块上的字形。两主题都是白字，深色靠压暗底色读得出（见下方守卫）。
+  "--agent-foreground",
 ]);
 
 /**
@@ -381,16 +383,25 @@ describe("身份色板覆盖到中性档", () => {
 /**
  * 身份色上的前景。
  *
- * `--agent-foreground` 曾被当成主题无关，注释断言「字形在两个主题下都压白字」。
- * 那是错的：深色身份色是提亮过的 300-400 档，白字最差只有 2.54:1（agent-1）；
- * 浅色也有 600 档压白只到 2.94（agent-14）。前景必须跟主题走，而中性档
- * `--agent-neutral` 又必须跟着前景一起换——只改前景不改它，深色就变成深字压
- * 深灰底（2.42:1）。17 档 × 两主题一起算。
+ * `--agent-foreground` 两主题都是白字，读不读得出全看底色：深色身份色曾是提亮过的
+ * 300-400 档，白字最差只有 2.54:1（agent-1）；浅色也有 600 档压白只到 2.94
+ * （agent-14）。所以守的是「17 档 × 两主题」每一格的有效值，中性档
+ * `--agent-neutral` 一起算——它换了值就可能掉到白字压不住。
  */
 const AGENT_COLOR_TOKENS = [
   ...Array.from({ length: 16 }, (_, i) => `--agent-${i + 1}`),
   "--agent-neutral",
 ];
+
+describe("身份色上的字形两个主题都是白字", () => {
+  it("深色不把 --agent-foreground 翻成墨字：暗色靠压暗底色读得出，不靠换字色", () => {
+    // 深色曾经把底色提亮到 300-400 档再压墨字，头像在深色界面里一片发亮、字显得
+    // 又细又小。现在两主题都压白字，深色的 17 档底色各自压暗到白字达标。
+    const effective = (name: string) => dark[name] ?? root[name];
+    expect(root["--agent-foreground"]).toBe("#ffffff");
+    expect(effective("--agent-foreground")).toBe("#ffffff");
+  });
+});
 
 describe("身份色上的前景在两个主题都读得出", () => {
   it.each(THEMES)(

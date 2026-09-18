@@ -150,6 +150,7 @@ export function OrgDetailAgentIdentity({
           <AgentAvatar
             name={a.name}
             color={safeAgentColor(a.avatarColor ?? "")}
+            size="xs"
             avatarDataUrl={a.avatarDataUrl}
             avatarIcon={a.avatarIcon}
             className={className}

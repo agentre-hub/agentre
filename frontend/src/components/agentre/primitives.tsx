@@ -25,7 +25,7 @@ import { type AgentColor, type AgentStatus, statusConfig } from "./types";
  * 解 key 留在这里，于是包拿得到词表却画不出图标，agentre-server 的字形一律退回首字。
  * 仓库内 26 个引用点因此一个字都不用改。
  */
-type AgentAvatarSize = "sm" | "md" | "lg";
+type AgentAvatarSize = "xs" | "sm" | "md" | "lg";
 
 type AgentAvatarProps = Omit<React.ComponentProps<"span">, "color"> & {
   name: string;
