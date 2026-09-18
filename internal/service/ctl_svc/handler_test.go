@@ -1,12 +1,15 @@
 package ctl_svc
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
@@ -41,7 +44,12 @@ type fakeChat struct {
 	finalText  string
 	lastEnsure *chat_svc.EnsureSessionRequest
 	lastSend   *chat_svc.SendRequest
+	lastStop   *chat_svc.StopRequest
 	stopped    bool
+
+	streamCh        chan chat_svc.ChatStreamEvent
+	streamSessionID int64
+	streamCancelled bool
 }
 
 func (f *fakeChat) EnsureSession(_ context.Context, req *chat_svc.EnsureSessionRequest) (*chat_svc.EnsureSessionResponse, error) {
@@ -58,16 +66,50 @@ func (f *fakeChat) ObserveTurn(int64) (<-chan chat_svc.TurnResult, func()) {
 func (f *fakeChat) FinalAssistantText(context.Context, int64) (string, error) {
 	return f.finalText, nil
 }
-func (f *fakeChat) Stop(context.Context, *chat_svc.StopRequest) (*chat_svc.StopResponse, error) {
+func (f *fakeChat) Stop(_ context.Context, req *chat_svc.StopRequest) (*chat_svc.StopResponse, error) {
 	f.stopped = true
+	f.lastStop = req
 	return &chat_svc.StopResponse{}, nil
 }
 func (f *fakeChat) SessionProjectID(context.Context, int64) (int64, error) {
 	return 0, nil
 }
+func (f *fakeChat) SubscribeSessionEvents(sessionID int64) (<-chan chat_svc.ChatStreamEvent, func()) {
+	f.streamSessionID = sessionID
+	if f.streamCh == nil {
+		f.streamCh = make(chan chat_svc.ChatStreamEvent, 16)
+	}
+	return f.streamCh, func() { f.streamCancelled = true }
+}
 
 func newTestHandler(a *fakeAgents, p *fakeProjects, c *fakeChat) http.Handler {
 	return newCtlHandler(testToken, a, p, c)
+}
+
+// 回归：bootstrap 起 gateway 时就挂 handler，deps 却要等 app.Startup(registerChatService
+// → RegisterChat 之后)才 RegisterDeps。挂上去的 handler 必须看到后接线的 deps ——
+// 构造时若拷贝快照，/ctl/v1/* 恒 503，agrctl ctl 与 agrctl acp 全废；而既有单测都直接
+// newCtlHandler 传 deps，抓不到这个先后。
+func TestControlHandler_SeesDepsRegisteredAfterMount(t *testing.T) {
+	svc := &ctlSvc{token: testToken}
+	mounted := svc.ControlHandler() // 先挂：此刻 deps 尚未接线
+
+	if rec := do(t, mounted, http.MethodGet, "/ctl/v1/agents", testToken, ""); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("before RegisterDeps: code = %d, want 503", rec.Code)
+	}
+
+	svc.RegisterDeps(
+		&fakeAgents{list: []*agent_entity.Agent{{ID: 1, Name: "planner"}}},
+		&fakeProjects{}, &fakeChat{},
+	)
+
+	rec := do(t, mounted, http.MethodGet, "/ctl/v1/agents", testToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("after RegisterDeps: code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "planner") {
+		t.Fatalf("body = %s, want the late-registered agent", rec.Body.String())
+	}
 }
 
 func do(t *testing.T, h http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
@@ -242,5 +284,180 @@ func TestControl_UnknownPath_404(t *testing.T) {
 	rec := do(t, h, http.MethodPost, "/ctl/v1/bogus", testToken, "{}")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("bogus path: code = %d, want 404", rec.Code)
+	}
+}
+
+// ---- sessions ----
+
+func TestControl_CreateSession_ByName(t *testing.T) {
+	agents := &fakeAgents{byName: map[string]*agent_entity.Agent{"planner": {ID: 11, Name: "planner"}}}
+	chat := &fakeChat{ensured: &chat_svc.EnsureSessionResponse{SessionID: 100, Created: true}}
+	h := newTestHandler(agents, &fakeProjects{}, chat)
+
+	rec := do(t, h, http.MethodPost, "/ctl/v1/sessions", testToken, `{"agent":"planner","projectId":3}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		SessionID int64 `json:"sessionId"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.SessionID != 100 {
+		t.Fatalf("sessionId = %d, want 100", out.SessionID)
+	}
+	if chat.lastEnsure == nil || chat.lastEnsure.AgentID != 11 || chat.lastEnsure.ProjectID != 3 {
+		t.Fatalf("ensure = %+v", chat.lastEnsure)
+	}
+}
+
+func TestControl_CreateSession_UnknownAgent_404(t *testing.T) {
+	h := newTestHandler(&fakeAgents{byName: map[string]*agent_entity.Agent{}}, &fakeProjects{}, &fakeChat{})
+	rec := do(t, h, http.MethodPost, "/ctl/v1/sessions", testToken, `{"agent":"ghost"}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestControl_CreateSession_RequiresPost(t *testing.T) {
+	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, &fakeChat{})
+	rec := do(t, h, http.MethodGet, "/ctl/v1/sessions", testToken, "")
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", rec.Code)
+	}
+}
+
+// ---- stop ----
+
+func TestControl_Stop(t *testing.T) {
+	chat := &fakeChat{}
+	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, chat)
+	rec := do(t, h, http.MethodPost, "/ctl/v1/stop", testToken, `{"sessionId":100}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	if !chat.stopped || chat.lastStop == nil || chat.lastStop.SessionID != 100 {
+		t.Fatalf("stop = %+v stopped=%v", chat.lastStop, chat.stopped)
+	}
+}
+
+func TestControl_Stop_RequiresSessionID(t *testing.T) {
+	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, &fakeChat{})
+	rec := do(t, h, http.MethodPost, "/ctl/v1/stop", testToken, `{"sessionId":0}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// ---- send images + existing session ----
+
+func TestControl_SendWithImages(t *testing.T) {
+	agents := &fakeAgents{byName: map[string]*agent_entity.Agent{"a": {ID: 1, Name: "a"}}}
+	chat := &fakeChat{
+		ensured:  &chat_svc.EnsureSessionResponse{SessionID: 100, Created: true},
+		sendResp: &chat_svc.SendResponse{SessionID: 100, AssistantMessageID: 200},
+	}
+	h := newTestHandler(agents, &fakeProjects{}, chat)
+	rec := do(t, h, http.MethodPost, "/ctl/v1/send", testToken,
+		`{"agent":"a","text":"look","images":[{"name":"pic.png","dataUrl":"data:image/png;base64,AAAA"}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	if chat.lastSend == nil || len(chat.lastSend.Images) != 1 {
+		t.Fatalf("images = %+v, want 1", chat.lastSend)
+	}
+	if got := chat.lastSend.Images[0]; got.Name != "pic.png" || got.DataURL != "data:image/png;base64,AAAA" {
+		t.Fatalf("image = %+v", got)
+	}
+}
+
+func TestControl_SendToExistingSession_SkipsEnsure(t *testing.T) {
+	chat := &fakeChat{sendResp: &chat_svc.SendResponse{SessionID: 100, AssistantMessageID: 200}}
+	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, chat)
+	rec := do(t, h, http.MethodPost, "/ctl/v1/send", testToken, `{"sessionId":100,"text":"again"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	if chat.lastEnsure != nil {
+		t.Fatalf("existing session must not call EnsureSession: %+v", chat.lastEnsure)
+	}
+	if chat.lastSend == nil || chat.lastSend.SessionID != 100 {
+		t.Fatalf("send = %+v, want sessionId 100", chat.lastSend)
+	}
+}
+
+// ---- stream (SSE) ----
+
+func TestControl_Stream_PushesEvents(t *testing.T) {
+	chat := &fakeChat{streamCh: make(chan chat_svc.ChatStreamEvent, 4)}
+	srv := httptest.NewServer(newTestHandler(&fakeAgents{}, &fakeProjects{}, chat))
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/ctl/v1/stream?sessionId=42", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Fatalf("content-type = %q, want text/event-stream", ct)
+	}
+
+	// 头已到达 → handler 已订阅(先订阅后写头)。
+	chat.streamCh <- chat_svc.ChatStreamEvent{Kind: chat_svc.StreamChunk, Delta: "he"}
+	chat.streamCh <- chat_svc.ChatStreamEvent{Kind: chat_svc.StreamChunk, Delta: "llo"}
+	chat.streamCh <- chat_svc.ChatStreamEvent{Kind: chat_svc.StreamDone}
+
+	scanner := bufio.NewScanner(resp.Body)
+	var got []chat_svc.ChatStreamEvent
+	deadline := time.After(2 * time.Second)
+	for len(got) < 3 {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out; got %+v", got)
+		default:
+		}
+		if !scanner.Scan() {
+			t.Fatalf("stream ended early; scanner err=%v got=%+v", scanner.Err(), got)
+		}
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var ev chat_svc.ChatStreamEvent
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &ev); err != nil {
+			t.Fatalf("decode %q: %v", line, err)
+		}
+		got = append(got, ev)
+	}
+	if chat.streamSessionID != 42 {
+		t.Fatalf("subscribed sessionId = %d, want 42", chat.streamSessionID)
+	}
+	if got[0].Delta != "he" || got[1].Delta != "llo" || got[2].Kind != chat_svc.StreamDone {
+		t.Fatalf("events = %+v", got)
+	}
+}
+
+func TestControl_Stream_BadSessionID_400(t *testing.T) {
+	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, &fakeChat{})
+	rec := do(t, h, http.MethodGet, "/ctl/v1/stream?sessionId=0", testToken, "")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+}
+
+func TestControl_Stream_RequiresGet(t *testing.T) {
+	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, &fakeChat{})
+	rec := do(t, h, http.MethodPost, "/ctl/v1/stream?sessionId=1", testToken, "")
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", rec.Code)
 	}
 }

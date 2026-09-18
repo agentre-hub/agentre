@@ -20,11 +20,11 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 }
 
 // errAgentNotFound 构造「找不到目标 agent」的错误，回显调用方给的定位信息。
-func errAgentNotFound(req sendRequest) error {
-	if req.AgentID > 0 {
-		return fmt.Errorf("agent id %d not found", req.AgentID)
+func errAgentNotFound(agentName string, agentID int64) error {
+	if agentID > 0 {
+		return fmt.Errorf("agent id %d not found", agentID)
 	}
-	if name := strings.TrimSpace(req.Agent); name != "" {
+	if name := strings.TrimSpace(agentName); name != "" {
 		return fmt.Errorf("agent %q not found", name)
 	}
 	return fmt.Errorf("agent is required (set agent or agentId)")

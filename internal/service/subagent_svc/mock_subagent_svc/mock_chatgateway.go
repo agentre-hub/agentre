@@ -130,3 +130,18 @@ func (mr *MockChatGatewayMockRecorder) Stop(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockChatGateway)(nil).Stop), ctx, req)
 }
+
+// SubscribeSessionEvents mocks base method.
+func (m *MockChatGateway) SubscribeSessionEvents(sessionID int64) (<-chan chat_svc.ChatStreamEvent, func()) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubscribeSessionEvents", sessionID)
+	ret0, _ := ret[0].(<-chan chat_svc.ChatStreamEvent)
+	ret1, _ := ret[1].(func())
+	return ret0, ret1
+}
+
+// SubscribeSessionEvents indicates an expected call of SubscribeSessionEvents.
+func (mr *MockChatGatewayMockRecorder) SubscribeSessionEvents(sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribeSessionEvents", reflect.TypeOf((*MockChatGateway)(nil).SubscribeSessionEvents), sessionID)
+}

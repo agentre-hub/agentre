@@ -121,6 +121,9 @@ type ChatSvc interface {
 	EnsureSession(ctx context.Context, req *EnsureSessionRequest) (*EnsureSessionResponse, error)
 	// ObserveTurn 订阅指定 session 下一次 turn 完成(服务端, 不经 Wails)。
 	ObserveTurn(sessionID int64) (<-chan TurnResult, func())
+	// SubscribeSessionEvents 订阅指定会话的流事件(进程内扇出, 不经 Wails)。
+	// 返回只读通道 + 取消函数;取消后通道关闭。未接 NewFanoutEmitter 时返回已关闭通道。
+	SubscribeSessionEvents(sessionID int64) (<-chan ChatStreamEvent, func())
 	// AgentBackendHasCapability 报告某 agent 的后端 runtime 是否声明指定能力(领域无关探针)。
 	// 后端缺失/类型无法解析 → (false, nil)。MVP 仅解析本地 runtime; 远程后端目前返回 (false, nil)。
 	AgentBackendHasCapability(ctx context.Context, agentID int64, wantCap capability.Capability) (bool, error)
@@ -176,6 +179,9 @@ func NewChat(emitter Emitter) ChatSvc {
 		gateway:       defaultGateway,
 	}
 	s.dispatcher = newPackageDispatcher(s)
+	if sub, ok := emitter.(SessionEventSubscriber); ok {
+		s.sessionEvents = sub
+	}
 	return s
 }
 
@@ -227,6 +233,9 @@ func (c *activeTurnControl) gracefulAborter() (agentruntime.Aborter, bool) {
 
 type chatSvc struct {
 	emitter Emitter
+	// sessionEvents 是 emitter 上的订阅能力(只有 NewFanoutEmitter 才实现)。
+	// nil 表示没有装配扇出 —— SubscribeSessionEvents 返回已关闭通道,调用方不阻塞。
+	sessionEvents SessionEventSubscriber
 	// dispatcher 是 svc-bound turn.Dispatcher,注册了带 chat_svc 适配器的 18 个 handler。
 	// 在 NewChat 时构造一次(svc-bound,handlers 的 Writer/Persister 持 *chatSvc 引用)。
 	// AGENTRE_NEW_DISPATCHER=1 时 runTurn drain loop 通过它处理 Event;默认关。

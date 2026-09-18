@@ -395,7 +395,9 @@ func (a *App) registerChatService() {
 	// evaluateJavaScript,而流式文本是一个 token 一条。合帧只在高频时生效,不改变
 	// 事件的相对顺序(见 chat_svc.NewCoalescingEmitter)。
 	// 只包真正接 Wails 的这一处 —— 注入假 emitter 的单测仍逐条看到原始事件。
-	chat_svc.RegisterChat(chat_svc.NewChat(chat_svc.NewCoalescingEmitter(emitter)))
+	// 最外层再包扇出:ctl_svc 的 /ctl/v1/stream(agrctl acp 消费)订阅同一份 chat_svc
+	// 原始事件;扇出非阻塞投递,慢订阅者绝不拖住 runTurn。
+	chat_svc.RegisterChat(chat_svc.NewChat(chat_svc.NewFanoutEmitter(chat_svc.NewCoalescingEmitter(emitter))))
 
 	// 注入 orgtool_svc 依赖:必须在 RegisterChat 之后执行,因为 chat_svc.Chat()
 	// 在此之前为 nil(chat 服务是懒注册的)。

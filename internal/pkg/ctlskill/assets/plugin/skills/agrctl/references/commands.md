@@ -75,3 +75,25 @@ when it contains spaces.
 
 Reminders: `--wait` blocks for the whole remote turn, and dispatching to the agent this
 session is running as deadlocks both sides.
+
+## `acp` (run as an ACP agent)
+
+`agrctl acp` is not a control command: it makes `agrctl` itself an **ACP v1 agent on stdio**
+so an Agentre `acp` backend can drive it. Each ACP `session/new` creates one Agentre
+session; each `session/prompt` is dispatched to the `--agent` target through the same
+control channel `ctl` uses, and the turn's text / thinking / tool events stream back as ACP
+`session/update` notifications. Image blocks in prompts are forwarded; audio / resource
+blocks are rejected with a readable error. `session/cancel` stops the remote turn and lets
+the in-flight prompt return `cancelled`.
+
+```
+{{AGRCTL_PATH}} acp --agent <name> [--agent-id <id>] [--project <id>]
+```
+
+Exit code `2` covers usage errors (missing target agent, unknown flag, unreadable
+connection config). The process keeps serving until the ACP client disconnects.
+
+Configure it in Agentre with backend type `acp`, `acpCommand = {{AGRCTL_PATH}}` and
+`acpArgs = ["acp", "--agent", "<name>"]`. On a remote `agentred` box the spawned `agrctl`
+must still be able to reach the desktop's control channel. Do not point such a backend at an
+agent that itself uses the same backend — the dispatches recurse.
