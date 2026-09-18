@@ -234,6 +234,21 @@ func (mr *MockAgentBackendRepoMockRecorder) ListExecTargetBackendRefs(ctx any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExecTargetBackendRefs", reflect.TypeOf((*MockAgentBackendRepo)(nil).ListExecTargetBackendRefs), ctx)
 }
 
+// ListSyncedForAccount mocks base method.
+func (m *MockAgentBackendRepo) ListSyncedForAccount(ctx context.Context, accountID int64) ([]*agent_backend_entity.AgentBackend, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSyncedForAccount", ctx, accountID)
+	ret0, _ := ret[0].([]*agent_backend_entity.AgentBackend)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSyncedForAccount indicates an expected call of ListSyncedForAccount.
+func (mr *MockAgentBackendRepoMockRecorder) ListSyncedForAccount(ctx, accountID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSyncedForAccount", reflect.TypeOf((*MockAgentBackendRepo)(nil).ListSyncedForAccount), ctx, accountID)
+}
+
 // ListTombstonesOlderThan mocks base method.
 func (m *MockAgentBackendRepo) ListTombstonesOlderThan(ctx context.Context, cutoff int64) ([]*agent_backend_entity.AgentBackend, error) {
 	m.ctrl.T.Helper()

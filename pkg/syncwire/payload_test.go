@@ -35,6 +35,32 @@ type payloadCase struct {
 	fullJSON string
 }
 
+// fullAgentBackendConfig 是一份每个键都非零的后端独占设置。键名与桌面端
+// agent_backends.config_json 列逐字相同（camelCase），modelRoutes 是嵌套对象而不是
+// 转义字符串。
+func fullAgentBackendConfig() syncwire.AgentBackendConfig {
+	return syncwire.AgentBackendConfig{
+		ModelRoutes:           json.RawMessage(`{"OPUS":{"providerKey":"anthropic-main","modelKey":"opus"}}`),
+		Sandbox:               "workspace-write",
+		Approval:              "on-request",
+		DefaultPermissionMode: "bypassPermissions",
+		DefaultModel:          "opus",
+		OpenClawGatewayURL:    "wss://gw.example/rpc",
+		OpenClawAgentID:       "oc-1",
+		OpenClawDefaultModel:  "oc-opus",
+		OpenClawSessionMode:   "per-agentre-session",
+		HermesURL:             "http://127.0.0.1:9119",
+		HermesAuthProvider:    "basic",
+		HermesUserID:          "user-7",
+	}
+}
+
+const fullAgentBackendConfigJSON = `{"modelRoutes":{"OPUS":{"providerKey":"anthropic-main","modelKey":"opus"}},` +
+	`"sandbox":"workspace-write","approval":"on-request","defaultPermissionMode":"bypassPermissions",` +
+	`"defaultModel":"opus","openclawGatewayUrl":"wss://gw.example/rpc","openclawAgentId":"oc-1",` +
+	`"openclawDefaultModel":"oc-opus","openclawSessionMode":"per-agentre-session",` +
+	`"hermesUrl":"http://127.0.0.1:9119","hermesAuthProvider":"basic","hermesUserId":"user-7"}`
+
 func payloadCases() []payloadCase {
 	return []payloadCase{
 		{
@@ -76,22 +102,14 @@ func payloadCases() []payloadCase {
 			kind: syncwire.KindAgentBackend,
 			full: syncwire.AgentBackendPayload{
 				Type: "claudecode", Name: "笔记本上的 Claude", ProviderKey: "anthropic-main",
-				ModelKey: "opus", ModelRoutes: `{"fast":"haiku"}`, Sandbox: "workspace-write",
-				Approval: "on-request", EnvJSON: `{"HTTP_PROXY":"http://127.0.0.1:7890"}`,
-				ReasoningEffort: "high", DefaultPermissionMode: "acceptEdits", DefaultModel: "opus",
-				OpenClawGatewayURL: "https://gw.example", OpenClawAgentID: "oc-1",
-				OpenClawDefaultModel: "oc-opus", OpenClawSessionMode: "persistent",
+				ModelKey: "opus", EnvJSON: `{"HTTP_PROXY":"http://127.0.0.1:7890"}`, ReasoningEffort: "high",
+				Config: fullAgentBackendConfig(),
 			},
-			zeroJSON: `{"type":"","name":"","provider_key":"","model_key":"","model_routes":"",` +
-				`"sandbox":"","approval":"","env_json":"","reasoning_effort":"",` +
-				`"default_permission_mode":"","default_model":"","openclaw_gateway_url":"",` +
-				`"openclaw_agent_id":"","openclaw_default_model":"","openclaw_session_mode":""}`,
+			zeroJSON: `{"type":"","name":"","provider_key":"","model_key":"","env_json":"",` +
+				`"reasoning_effort":"","config":{}}`,
 			fullJSON: `{"type":"claudecode","name":"笔记本上的 Claude","provider_key":"anthropic-main",` +
-				`"model_key":"opus","model_routes":"{\"fast\":\"haiku\"}","sandbox":"workspace-write",` +
-				`"approval":"on-request","env_json":"{\"HTTP_PROXY\":\"http://127.0.0.1:7890\"}",` +
-				`"reasoning_effort":"high","default_permission_mode":"acceptEdits","default_model":"opus",` +
-				`"openclaw_gateway_url":"https://gw.example","openclaw_agent_id":"oc-1",` +
-				`"openclaw_default_model":"oc-opus","openclaw_session_mode":"persistent"}`,
+				`"model_key":"opus","env_json":"{\"HTTP_PROXY\":\"http://127.0.0.1:7890\"}",` +
+				`"reasoning_effort":"high","config":` + fullAgentBackendConfigJSON + `}`,
 		},
 		{
 			kind:     syncwire.KindAgentBackendCLI,
@@ -218,6 +236,32 @@ func TestPayloads_GivenEveryContractType_ThenItPassesItsOwnGuard(t *testing.T) {
 			require.NoError(t, syncwire.GuardPayload(c.kind, encoded))
 		})
 	}
+}
+
+// 后端独占设置作为嵌套对象 config 过机：编出去再解回来逐键无损（modelRoutes 仍是
+// 同一个对象），而带着这个嵌套对象的载荷照样过得了 agent_backend 的守卫。
+func TestAgentBackendPayload_GivenNestedConfig_ThenRoundTripsAndPassesGuard(t *testing.T) {
+	t.Parallel()
+
+	sent := syncwire.AgentBackendPayload{Type: "claudecode", Name: "构建机", Config: fullAgentBackendConfig()}
+	encoded, err := json.Marshal(sent)
+	require.NoError(t, err)
+	require.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackend, encoded))
+
+	var got syncwire.AgentBackendPayload
+	require.NoError(t, json.Unmarshal(encoded, &got))
+	require.JSONEq(t, string(sent.Config.ModelRoutes), string(got.Config.ModelRoutes))
+	got.Config.ModelRoutes = sent.Config.ModelRoutes
+	require.Equal(t, sent, got)
+}
+
+// 全空的 config 编成 {}：每个键都 omitempty，线上「没配」就是键不在。
+func TestAgentBackendConfig_GivenZeroValue_ThenEncodesAsEmptyObject(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := json.Marshal(syncwire.AgentBackendConfig{})
+	require.NoError(t, err)
+	require.Equal(t, `{}`, string(encoded))
 }
 
 // 「哪种 kind 对应哪个载荷类型」在整个工作区只有一个答案。

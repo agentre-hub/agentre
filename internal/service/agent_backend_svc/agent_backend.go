@@ -110,17 +110,14 @@ func AgentBackend() AgentBackendSvc { return defaultAgentBackend }
 
 // ListCLIOverlays exposes only non-sensitive status data for all account
 // overlays. Absolute paths stay behind GetCLIOverlay's desktop-only seam.
-// setCLIOverlayIfAvailable preserves existing Wails create/update request
-// shapes while moving their local path into a distinct overlay row. An
-// uninitialized remote service only occurs in narrow unit-test composition;
-// bootstrap always initializes it before public writes.
-func (s *agentBackendSvc) setCLIOverlayIfAvailable(ctx context.Context, backendSyncID, cliPath string) error {
-	if strings.TrimSpace(backendSyncID) == "" || remote_device_svc.Default() == nil {
-		return nil
-	}
-	_, err := s.SetCLIOverlay(ctx, &SetCLIOverlayRequest{BackendSyncID: backendSyncID, CLIPath: cliPath})
-	return err
-}
+//
+// Saving a backend identity (Create / Update) writes **no** overlay row: the
+// executable path travels on its own per-(backend, device) seam, SetCLIOverlay,
+// and the editor calls it only when the user actually changed the path. Folding
+// it into the identity write made that rule inert — the editor sends the whole
+// draft on save, so a rename alone wrote the path back and reverted whatever
+// another device had set on that row in between. The browser host routes it
+// through the same seam only (enginePorts.ts), so there is one writer on both.
 
 func (s *agentBackendSvc) ListCLIOverlays(ctx context.Context, _ *ListCLIOverlaysRequest) (*ListCLIOverlaysResponse, error) {
 	rows, err := agent_backend_repo.AgentBackend().ListCLIOverlays(ctx)
@@ -141,16 +138,17 @@ func (s *agentBackendSvc) ListCLIOverlays(ctx context.Context, _ *ListCLIOverlay
 	return &ListCLIOverlaysResponse{Items: items}, nil
 }
 
-// GetCLIOverlay reads this desktop's overlay. Missing and empty both mean PATH.
+// GetCLIOverlay reads the overlay row for req.DeviceID (empty = this
+// installation's own fingerprint). Missing and empty both mean PATH.
 func (s *agentBackendSvc) GetCLIOverlay(ctx context.Context, req *GetCLIOverlayRequest) (*GetCLIOverlayResponse, error) {
 	if req == nil || strings.TrimSpace(req.BackendSyncID) == "" {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
-	remote := remote_device_svc.Default()
-	if remote == nil {
+	deviceID := devicefp.Carrier(strings.TrimSpace(req.DeviceID))
+	if deviceID == "" && remote_device_svc.Default() == nil {
 		return &GetCLIOverlayResponse{Status: "path"}, nil
 	}
-	fingerprint, err := remote.DeviceFingerprint()
+	fingerprint, err := normalizeDeviceID(deviceID)
 	if err != nil {
 		return nil, err
 	}
@@ -164,17 +162,18 @@ func (s *agentBackendSvc) GetCLIOverlay(ctx context.Context, req *GetCLIOverlayR
 	return &GetCLIOverlayResponse{CLIPath: overlay.CLIPath, Status: "recognized"}, nil
 }
 
-// SetCLIOverlay writes this desktop's own row only. The caller keeps editing a
-// backend identity through the normal API; this method is the local overlay seam.
+// SetCLIOverlay writes the overlay row for req.DeviceID (empty = this
+// installation's own fingerprint). The caller keeps editing a backend
+// identity through the normal API; this method is the per-device overlay seam.
 func (s *agentBackendSvc) SetCLIOverlay(ctx context.Context, req *SetCLIOverlayRequest) (*SetCLIOverlayResponse, error) {
 	if req == nil || strings.TrimSpace(req.BackendSyncID) == "" {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
-	remote := remote_device_svc.Default()
-	if remote == nil {
+	deviceID := devicefp.Carrier(strings.TrimSpace(req.DeviceID))
+	if deviceID == "" && remote_device_svc.Default() == nil {
 		return nil, errors.New("remote device service unavailable")
 	}
-	fingerprint, err := remote.DeviceFingerprint()
+	fingerprint, err := normalizeDeviceID(deviceID)
 	if err != nil {
 		return nil, err
 	}
@@ -336,9 +335,6 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 	if err := agent_backend_repo.AgentBackend().Create(ctx, b); err != nil {
 		return nil, err
 	}
-	if err := s.setCLIOverlayIfAvailable(ctx, b.SyncID, req.CLIPath); err != nil {
-		return nil, err
-	}
 	if b.IsOpenClaw() && token != "" {
 		store := s.secretStore()
 		if store == nil {
@@ -453,9 +449,6 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	}
 
 	if err := agent_backend_repo.AgentBackend().Update(ctx, existing); err != nil {
-		return nil, err
-	}
-	if err := s.setCLIOverlayIfAvailable(ctx, existing.SyncID, req.CLIPath); err != nil {
 		return nil, err
 	}
 	if existing.IsOpenClaw() && (token != "" || clearToken) {

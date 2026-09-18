@@ -121,6 +121,9 @@ type AgentBackendsPanelProps = {
   // 页头由宿主渲染，面板把自己的页级操作（自动识别 / 新建后端）交进去：按钮要落在
   // H1 行，而它们开的创建弹窗、扫描进行态仍归面板持有。
   renderHeader?: (actions: React.ReactNode) => React.ReactNode;
+  // 宿主在得知账号数据有同步变化时换一个新值：面板经端口重拉清单，已打开的编辑弹窗
+  // 保留用户正在编辑的内容。首次挂载时的值不触发额外拉取。
+  refreshSignal?: number | string;
 };
 
 // 宿主传进来的那一份端口只覆盖本面板的子树：两个面板同时挂载时各用各的，
@@ -140,6 +143,7 @@ function AgentBackendsPanelBody({
   onOpenLlmProviders,
   onOpenProxySettings,
   renderHeader,
+  refreshSignal,
 }: AgentBackendsPanelProps) {
   const ports = useEngineSettingsPorts();
   const {
@@ -197,7 +201,8 @@ function AgentBackendsPanelBody({
   }
 
   async function openEditor(backend: Backend, openBinding = false) {
-    const cliPath = (await ports.cliPath?.get(backend.syncId)) ?? "";
+    const cliPath =
+      (await ports.cliPath?.get(backend.syncId, backend.deviceId ?? "")) ?? "";
     setEditor({ kind: "edit", backend, cliPath, openBinding });
   }
 
@@ -323,21 +328,25 @@ function AgentBackendsPanelBody({
     }
   }
 
-  const reload = React.useCallback(async () => {
-    setLoading(true);
-    try {
-      const [b, p] = await Promise.all([
-        ListAgentBackends(),
-        ListLLMProviders(),
-      ]);
-      setBackends(b?.items ?? []);
-      setProviders(p?.items ?? []);
-    } catch (err) {
-      setFlash({ kind: "err", text: messageFromError(err, t) });
-    } finally {
-      setLoading(false);
-    }
-  }, [ListAgentBackends, ListLLMProviders, t]);
+  const reload = React.useCallback(
+    async (options?: { quiet?: boolean }) => {
+      // quiet：后台刷新（同步信号）不把清单换成加载态，免得每次同步都闪一下。
+      if (!options?.quiet) setLoading(true);
+      try {
+        const [b, p] = await Promise.all([
+          ListAgentBackends(),
+          ListLLMProviders(),
+        ]);
+        setBackends(b?.items ?? []);
+        setProviders(p?.items ?? []);
+      } catch (err) {
+        setFlash({ kind: "err", text: messageFromError(err, t) });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [ListAgentBackends, ListLLMProviders, t],
+  );
 
   React.useEffect(() => {
     let mounted = true;
@@ -362,6 +371,13 @@ function AgentBackendsPanelBody({
     // `t` 只在兜底文案里用到，切语言不该把首屏再拉一次。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ListAgentBackends, ListLLMProviders]);
+
+  const lastRefreshSignalRef = React.useRef(refreshSignal);
+  React.useEffect(() => {
+    if (Object.is(lastRefreshSignalRef.current, refreshSignal)) return;
+    lastRefreshSignalRef.current = refreshSignal;
+    void reload({ quiet: true });
+  }, [refreshSignal, reload]);
 
   // 没有本机可扫的宿主要先点名一台机器，候选就是账号里的执行端设备。
   // 有本机的宿主不拉这份清单：桌面端的 ServerListDevices 内部会写库收编设备，
@@ -682,6 +698,8 @@ function BackendEditor({
     initialCliPath: state.kind === "edit" ? (state.cliPath ?? "") : "",
     type,
     deviceId,
+    backendSyncId: editing?.syncId,
+    getCliOverlay: ports.cliPath?.get,
     resolveCliPath: ResolveAgentBackendCLIPath,
     t,
   });
@@ -951,6 +969,12 @@ function BackendEditor({
     });
   }
 
+  // 编辑态打开那一刻的草稿：此时各字段仍是由既有后端初始化的值，保存时据此算出
+  // 用户本次改过哪些字段（changedFields）。新建没有基线。
+  const [openedDraft] = React.useState<BackendDraft | null>(() =>
+    state.kind === "edit" ? buildDraft() : null,
+  );
+
   function inspectDraft(draft: BackendDraft) {
     return inspectRemoteDraft({
       draft,
@@ -964,11 +988,18 @@ function BackendEditor({
   function saveDraft(draft: BackendDraft) {
     return saveBackendDraft({
       draft,
+      baseline: openedDraft && {
+        ...openedDraft,
+        cliPath: isCLIPathBackend(openedDraft.type)
+          ? cli.storedCliPath.trim()
+          : "",
+      },
       state,
       editing,
       openClawToken: openClaw.token,
       clearOpenClawToken: openClaw.clearToken,
       bridge,
+      setCliOverlay: ports.cliPath?.set,
       onSaved,
       t,
     });

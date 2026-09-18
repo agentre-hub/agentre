@@ -37,6 +37,12 @@ type AgentBackendRepo interface {
 	// 而不是一个）；R14 顺序解析用它识别「本机」那几档。
 	ListByDevice(ctx context.Context, deviceID devicefp.Carrier) ([]*agent_backend_entity.AgentBackend, error)
 	List(ctx context.Context) ([]*agent_backend_entity.AgentBackend, error)
+	// ListSyncedForAccount 列出「已归属 accountID、有同步标识、既没本地软删也没
+	// 落过跨机墓碑」的活着的后端——升级后首次同步要重新排入上行的存量范围
+	// （docs/specs/2026-09-17-backend-config-sync.md「存量修复」）。status=DELETE
+	// 与 sync_deleted_at != 0 是两回事（前者是本地可见性，后者是跨机墓碑时刻，
+	// syncmeta_entity.SyncMeta 的注释），两条都要排除才算「真的还活着」。
+	ListSyncedForAccount(ctx context.Context, accountID int64) ([]*agent_backend_entity.AgentBackend, error)
 	Delete(ctx context.Context, id int64) error
 	ListCLIOverlays(ctx context.Context) ([]*agent_backend_entity.CLIOverlay, error)
 	FindCLIOverlay(ctx context.Context, backendSyncID string, fingerprint devicefp.Carrier) (*agent_backend_entity.CLIOverlay, error)
@@ -159,6 +165,18 @@ func (r *agentBackendRepo) ListByDevice(ctx context.Context, deviceID devicefp.C
 func (r *agentBackendRepo) List(ctx context.Context) ([]*agent_backend_entity.AgentBackend, error) {
 	var rows []*agent_backend_entity.AgentBackend
 	if err := db.Ctx(ctx).Where("status = ?", consts.ACTIVE).Order("id ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, hydrateConfig(rows...)
+}
+
+func (r *agentBackendRepo) ListSyncedForAccount(ctx context.Context, accountID int64) ([]*agent_backend_entity.AgentBackend, error) {
+	var rows []*agent_backend_entity.AgentBackend
+	err := db.Ctx(ctx).
+		Where("status = ? AND sync_id != '' AND sync_account_id = ? AND sync_deleted_at = 0", consts.ACTIVE, accountID).
+		Order("id ASC").
+		Find(&rows).Error
+	if err != nil {
 		return nil, err
 	}
 	return rows, hydrateConfig(rows...)
