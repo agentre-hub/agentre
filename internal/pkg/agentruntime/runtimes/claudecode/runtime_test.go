@@ -3,6 +3,7 @@ package claudecode
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
@@ -1373,6 +1375,56 @@ func TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
 			}
 			So(gotCwd, ShouldEqual,
 				filepath.Join(dataDir, "agents", "sync-01KZNE7YKJQ6A79YVDCMW1A63R"))
+		})
+	})
+}
+
+// TestRun_WebInitiatedFreeSessionWithSystemAgentResolvesCwd 是 2026-09-18 那条报错的
+// 回归:上一条钉的是随机 ULID,系统 Agent(默认 CEO 助手)的同步标识却是固定值
+// agent_entity.DefaultAgentSyncID = "agent:system:default-ceo",带冒号 —— 它恒定过不了
+// 兜底解析的词表,于是控制台对系统 Agent 发起的每一条「不指定项目」的自由对话都死在
+// 这里:acquireSession failed,界面上是「docker 已连接,但 Agent 启动失败:
+// agentruntime: ResolveAgentCwd needs agentID > 0 or a syntactically valid agentSyncID」。
+// 选了项目时 req.Cwd 非空、不走兜底,所以这条路径此前一直没人踩到。
+func TestRun_WebInitiatedFreeSessionWithSystemAgentResolvesCwd(t *testing.T) {
+	Convey("Given 一条 web 发起、不钉项目的对话,对面是系统 Agent(同步标识带冒号)", t, func() {
+		dataDir := t.TempDir()
+		t.Setenv("AGENTRE_DATA_DIR", dataDir)
+
+		var gotCwd string
+		restore := SetSessionFactoryForTest(func(spec ccLaunchSpec) (ccSessionHandle, error) {
+			gotCwd = spec.Cwd
+			return &fakeCCHandle{
+				id: "fake-sid",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		Convey("When 起这一轮, Then 起得来,工作目录是一个真实存在、没有冒号的目录", func() {
+			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+				Backend: &agent_backend_entity.AgentBackend{
+					Type: string(agent_backend_entity.TypeClaudeCode),
+				},
+				SessionID:   100,
+				AgentID:     0,
+				AgentSyncID: agent_entity.DefaultAgentSyncID,
+				UserText:    "hi",
+				Effective: &agentruntime.EffectiveLLMConfig{
+					ProviderKey: "pk", ProviderType: "anthropic", ModelID: "claude-haiku-4-5",
+				},
+			})
+			So(err, ShouldBeNil)
+			for range events { //nolint:revive // drain
+			}
+			So(gotCwd, ShouldEqual,
+				filepath.Join(dataDir, "agents", "sync-agent~3Asystem~3Adefault-ceo"))
+			info, statErr := os.Stat(gotCwd)
+			So(statErr, ShouldBeNil)
+			So(info.IsDir(), ShouldBeTrue)
 		})
 	})
 }
