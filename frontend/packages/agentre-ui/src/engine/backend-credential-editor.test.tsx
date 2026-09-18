@@ -324,3 +324,96 @@ describe("shared editor Hermes provider selection vs. the live status answer", (
     );
   });
 });
+
+// 凭据失败的文案规范（spec「所有凭据相关错误按界面文案规范解析成中英文可读句子，
+// 不直接显示协议原文」）。列表行的测试连接与编辑器里的那颗按钮走同一条判定，
+// 因此结构化码在两处都必须先翻成人话再落地。
+describe("readable copy for a structured OpenClaw test failure", () => {
+  const notPairedResult = {
+    ok: false,
+    code: "OPENCLAW_NOT_PAIRED",
+    message:
+      "openclaw gateway RPC NOT_PAIRED: pairing required: device is not approved yet",
+    latencyMs: 8,
+  };
+
+  it("Given the bound device answers NOT_PAIRED, When the row's test connection finishes, Then the flash reads the pairing sentence and never the gateway's protocol text", async () => {
+    const user = userEvent.setup();
+    renderPanel(
+      createPorts({
+        listBackends: vi.fn().mockResolvedValue([openclawBackend()]),
+        updateOpenClawBackend: vi.fn(),
+        backendCredentialStatus: vi.fn().mockResolvedValue({
+          openClawTokenSaved: true,
+          hermesLoggedIn: false,
+        }),
+        testBackend: vi.fn(),
+        testOpenClawBackend: vi.fn().mockResolvedValue(notPairedResult),
+      }),
+    );
+
+    await user.click(
+      await screen.findByLabelText("Test connection for Gateway box"),
+    );
+
+    expect(
+      await screen.findByText(
+        /This Gateway requires device pairing before granting the requested scopes/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/openclaw gateway RPC/)).toBeNull();
+  });
+});
+
+// V13：远端 agentred 的说明必须与本轮交付一致——token 已经能存到绑定设备上，
+// 还不能在上面跑对话。
+describe("the OpenClaw bound-device note", () => {
+  it("Given an OpenClaw backend bound to an online agentred, When the editor opens, Then the note says the token lives on that device and the token field plus test stay usable", async () => {
+    const user = userEvent.setup();
+    renderPanel(
+      createPorts({
+        listBackends: vi.fn().mockResolvedValue([openclawBackend()]),
+        updateOpenClawBackend: vi.fn(),
+        backendCredentialStatus: vi.fn().mockResolvedValue({
+          openClawTokenSaved: false,
+          hermesLoggedIn: false,
+        }),
+        testOpenClawBackend: vi.fn(),
+      }),
+    );
+
+    const dialog = await openEditDialog(user, "Gateway box");
+
+    expect(
+      within(dialog).queryByText(
+        /until secure secret enrollment is implemented/,
+      ),
+    ).toBeNull();
+    expect(
+      await within(dialog).findByText(
+        "The token is stored only on the device this backend is bound to, never on the account server. Running conversations on a remote agentred is not available yet.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      await within(dialog).findByPlaceholderText("Optional token"),
+    ).toBeEnabled();
+    expect(
+      within(dialog).getByRole("button", { name: "Test Connection" }),
+    ).toBeEnabled();
+  });
+
+  it("Given the zh-CN bundle, When the note is read, Then it states the same current truth", () => {
+    const zh = agentreUiResources["zh-CN"] as Record<string, unknown>;
+    const note = (
+      (
+        (zh.agentBackends as Record<string, unknown>).openclaw as Record<
+          string,
+          unknown
+        >
+      ).remoteUnavailable as string
+    ).trim();
+    expect(note).toBe(
+      "Token 只保存在该后端绑定的那台设备上，不经过账号服务器。远端 agentred 上跑对话尚未支持。",
+    );
+  });
+});

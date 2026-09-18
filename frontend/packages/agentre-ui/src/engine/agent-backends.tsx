@@ -85,10 +85,10 @@ import {
 // 只吃 props 的组件。这里只留装配。
 import { DeviceField } from "./backend-editor/device-field";
 import {
+  backendTestErrorMessage,
   buildBackendDraft,
   emptyRoutes,
   hermesErrorMessage,
-  hermesProbeErrorMessage,
   matchingProviders,
   openClawProbeErrorMessage,
   parseRoutes,
@@ -193,10 +193,12 @@ function AgentBackendsPanelBody({
         text: `✅ ${res.latencyMs}ms · ${res.message}`,
       });
     } else {
-      const text =
-        backendType === "hermes"
-          ? hermesProbeErrorMessage(res.code ?? "", res.message ?? "", t)
-          : res.message;
+      const text = backendTestErrorMessage(
+        backendType,
+        res.code ?? "",
+        res.message ?? "",
+        t,
+      );
       setFlash({ kind: "err", text: `❌ ${text}` });
     }
   }
@@ -1093,12 +1095,12 @@ function BackendEditor({
       } else {
         setTestResult({
           kind: "err",
-          text:
-            type === "openclaw"
-              ? openClawProbeErrorMessage(res.code ?? "", res.message ?? "", t)
-              : type === "hermes"
-                ? hermesProbeErrorMessage(res.code ?? "", res.message ?? "", t)
-                : res.message,
+          text: backendTestErrorMessage(
+            type,
+            res.code ?? "",
+            res.message ?? "",
+            t,
+          ),
         });
       }
     } catch (err) {

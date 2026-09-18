@@ -3059,7 +3059,7 @@ describe("AgentBackendsPanel", () => {
     );
     expect(
       within(dialog).getByText(
-        "Remote agentred support is unavailable until secure secret enrollment is implemented.",
+        "The token is stored only on the device this backend is bound to, never on the account server. Running conversations on a remote agentred is not available yet.",
       ),
     ).toBeInTheDocument();
 
