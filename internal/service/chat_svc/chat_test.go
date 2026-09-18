@@ -10541,6 +10541,50 @@ func TestStop_SubagentActivityTurnIsReconciledToIdle(t *testing.T) {
 	})
 }
 
+// TestStop_OutOfBandUserTurnIsReconciledToIdle 钉死 sess-4051 的第二段:runner 上报被
+// 中断的是**用户轮**,但它不在 activeCancels 里。
+//
+// 这本该是不可能的状态 —— 用户轮由 runTurn 登记、由它自己收尾落状态。真实成因是那一轮
+// 的 runTurn goroutine 已经不在了(卡死的 /compact 轮被 Stop 摘走 control 后没能收尾,
+// runtime 侧的 claudeActive 还挂着 inTurn),于是**没有任何人**会再写会话状态。
+//
+// 旧行为:reconcileOrphanStop 只对 subagent 活动轮接管翻 idle,用户轮落进「状态留给那一
+// 轮自己收尾」的分支 —— 每次点停止都返回 Stopped:true,而 agent_status 一次都没落回去,
+// 会话永远停在 running(真机连点四次都没救回来)。自主轮才是唯一会自己写状态的带外轮。
+func TestStop_OutOfBandUserTurnIsReconciledToIdle(t *testing.T) {
+	convey.Convey("Stop 取不到活跃用户轮但 runtime 上报中断了一条用户轮 → 中断它并自己把会话 reconcile 回 idle", t, func() {
+		m := setupChatTest(t)
+
+		runner := &abortRecordingRunner{turnKind: agentruntime.TurnKindUser}
+		restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, runner)
+		t.Cleanup(restore)
+
+		m.session.EXPECT().Find(m.ctx, int64(320)).Return(
+			&chat_entity.Session{ID: 320, AgentID: 7, AgentStatus: "running", Status: consts.ACTIVE}, nil)
+		m.agent.EXPECT().Find(m.ctx, int64(7)).Return(
+			&agent_entity.Agent{ID: 7, AgentBackendID: 12, Status: consts.ACTIVE}, nil)
+		m.backend.EXPECT().Find(m.ctx, int64(12)).Return(
+			&agent_backend_entity.AgentBackend{
+				ID: 12, Type: string(agent_backend_entity.TypeClaudeCode), Status: consts.ACTIVE,
+			}, nil)
+		var updated *chat_entity.Session
+		m.session.EXPECT().Update(m.ctx, gomock.Any()).DoAndReturn(
+			func(_ context.Context, s *chat_entity.Session) error {
+				updated = s
+				return nil
+			})
+
+		resp, err := m.svc.Stop(m.ctx, &chat_svc.StopRequest{SessionID: 320})
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.True(t, resp.Stopped, "带外用户轮被中断了就该回报已停止")
+		assert.Equal(t, []int64{320}, runner.Calls(), "必须真的把中断下发到 runtime")
+		assert.NotNil(t, updated, "没有别人会写这一轮的状态,必须由 Stop 落库")
+		assert.Equal(t, "idle", updated.AgentStatus, "会话应被 reconcile 回 idle,一次点停止即收干净")
+	})
+}
+
 // TestStop_NoTurnAtAllStillReconcilesOrphan 守住「重启遗孤」那条既有修复不被上面的
 // 改动吃掉:runtime 报 ErrNoActiveTurn(app crash / 热重载后内存里什么都不剩)时,
 // 会话仍要被 reconcile 回 idle,那颗一直亮着的「停止」按钮才有效。

@@ -2523,6 +2523,62 @@ func TestSession_ResumedSessionWithoutBootstrapStillEndsOnFirstResult(t *testing
 	require.NoError(t, sess.Close(ctx))
 }
 
+// fakeResumedCompactFirstTurn 复刻 sess-4051 抓到的帧序:被空闲清扫回收过的会话用
+// --resume 重开,用户发的第一条消息就是 /compact。CLI 没补发恢复前奏(首帧是
+// SessionStart:resume 的 hook,随后直接进压缩),这一轮的收尾 result 是本地命令的收尾 ——
+// 带 local_command:"compact",而因为一次 API 轮都没跑,num_turns / duration_api_ms
+// 与恢复应答一样天然全 0。
+func fakeResumedCompactFirstTurn(stdin io.Reader, stdout io.Writer) {
+	const sid = "sess-resumed-compact"
+	sc := bufio.NewScanner(stdin)
+	sc.Buffer(make([]byte, 0, 64<<10), maxFrameBytes)
+	turn := 0
+	for sc.Scan() {
+		turn++
+		reply := extractTextField(sc.Text())
+		if turn == 1 {
+			writeFrame(stdout, `{"type":"system","subtype":"hook_started","hook_name":"SessionStart:resume","session_id":%q}`, sid)
+			writeFrame(stdout, `{"type":"system","subtype":"hook_response","hook_name":"SessionStart:resume","session_id":%q}`, sid)
+			writeFrame(stdout, `{"type":"system","subtype":"status","status":"compacting","session_id":%q}`, sid)
+			writeFrame(stdout, `{"type":"system","subtype":"compact_boundary","session_id":%q,"compact_metadata":{"trigger":"manual","pre_tokens":481684,"post_tokens":6110}}`, sid)
+			writeFrame(stdout, `{"type":"result","subtype":"success","is_error":false,"num_turns":0,"duration_api_ms":0,"local_command":"compact","result":"","session_id":%q}`, sid)
+			continue
+		}
+		writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"echo:%s"}]}}`, reply)
+		writeFrame(stdout, `{"type":"result","subtype":"success","is_error":false,"num_turns":3,"duration_api_ms":1200,"session_id":%q,"usage":{"input_tokens":5,"output_tokens":7}}`, sid)
+	}
+}
+
+// TestSession_ResumedCompactTurnEndsOnItsOwnResult 钉死 sess-4051:恢复前奏那个一次性
+// 窗口不能把 /compact 的收尾 result 当成恢复应答吃掉。
+//
+// 判据「num_turns == 0 && duration_api_ms == 0 && !is_error」对本地命令(/compact 等)
+// 天然成立 —— 它们压根不跑 API 轮。旧行为:这条 result 被吞,轮的事件 channel 永不 close,
+// runtime 的 drainStream 永久阻塞,会话停在 running,连点停止都翻不回 idle,只有等子进程
+// 退出才收尾(真机实测卡了 75 分钟)。
+//
+// 恢复应答不带 local_command,本地命令的收尾一定带 —— 据此区分。
+func TestSession_ResumedCompactTurnEndsOnItsOwnResult(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	c := New(WithBinary("fake"), pipeSpawner(t, fakeResumedCompactFirstTurn))
+	sess, err := c.OpenSession(ctx, Resume("sess-resumed-compact"))
+	require.NoError(t, err)
+
+	ch, err := sess.Turn(ctx, "/compact")
+	require.NoError(t, err)
+	assert.Empty(t, drainTextWithin(t, ch, 2*time.Second), "/compact 这一轮没有正文,但必须靠自己的 result 收尾")
+
+	// 窗口已落下:下一轮的真 result 照常收尾,压缩没把会话带进只能等子进程退出的死局。
+	ch2, err := sess.Turn(ctx, "继续")
+	require.NoError(t, err)
+	assert.Equal(t, "echo:继续", drainTextWithin(t, ch2, 2*time.Second))
+
+	require.NoError(t, sess.Close(ctx))
+}
+
 // fakeSubagentBgBashTU 是**后台 subagent 自己**派的 run_in_background Bash 的
 // tool_use_id(区别于 fakeBgSubAgentTU —— 那是主线派 subagent 的 Agent 工具)。
 const fakeSubagentBgBashTU = "toolu_sub_bg_bash"

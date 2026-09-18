@@ -233,10 +233,16 @@ type rawFrame struct {
 	Errors []string `json:"errors,omitempty"`
 
 	// NumTurns / DurationAPIMs 是 result 帧自报的「这一轮跑了几次 API 轮、在 API 上花了
-	// 多久」。真跑过一轮的 result 两者都非零;**同时为 0** 的只有一种来源:--resume 重开
-	// 会话时补发的那条恢复应答。见 Session.swallowResumeBootstrap。
+	// 多久」。真跑过一轮的 result 两者都非零。同时为 0 的有两种来源:--resume 重开会话时
+	// 补发的那条恢复应答,以及本地命令(/compact 等,见 LocalCommand)的收尾 —— 两者靠
+	// LocalCommand 区分。见 Session.swallowResumeBootstrap。
 	NumTurns      int `json:"num_turns,omitempty"`
 	DurationAPIMs int `json:"duration_api_ms,omitempty"`
+
+	// LocalCommand 是 result 帧自报的「这一轮收尾的是哪个本地命令」(/compact 等斜杠
+	// 命令由 CLI 自己执行,不经 API)。非空即「这条 result 属于一次本地命令」——
+	// 恢复应答不带它,swallowResumeBootstrap 据此把两者分开。
+	LocalCommand string `json:"local_command,omitempty"`
 }
 
 // resultText 取 result 帧的错误正文。只认 JSON 字符串;是对象或数组时当作

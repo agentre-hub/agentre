@@ -468,6 +468,8 @@ type fakeCCHandle struct {
 	closeCalls int32
 	// pid 是这个替身上报的子进程号(池快照的排查字段)。
 	pid int
+	// exitErr 非 nil 时 ExitErr 返回它 —— 模拟「子进程已经退出」,断言死 handle 被逐出。
+	exitErr error
 }
 
 func (f *fakeCCHandle) PID() int { return f.pid }
@@ -502,7 +504,7 @@ func (f *fakeCCHandle) RespondToControl(_ context.Context, _ string, res claudec
 	}
 	return nil
 }
-func (f *fakeCCHandle) ExitErr() error                               { return nil }
+func (f *fakeCCHandle) ExitErr() error                               { return f.exitErr }
 func (f *fakeCCHandle) AutonomousTurns() <-chan *claudecode.AutoTurn { return f.autoTurns }
 func (f *fakeCCHandle) SubagentActivity() <-chan *claudecode.SubagentActivity {
 	return f.subagentActivity
@@ -1824,5 +1826,56 @@ func TestRun_ContextWindowAbsentStaysZero(t *testing.T) {
 			So(isWindow, ShouldBeFalse)
 		}
 		So(result.ContextWindow, ShouldEqual, 0)
+	})
+}
+
+// TestRun_DeadSubprocessIsEvictedEvenWhenTurnWasCancelled 钉死 sess-4051 的第三段:
+// 一轮被用户点停止(turnCtx 已 cancel)之后子进程才退出,池里那条 handle 必须被逐出。
+//
+// 旧行为:逐出只挂在 0-frame 兜底那个复合条件上,而它要求 ctx.Err() == nil —— 点过停止
+// 的轮永远走不到,死 handle 就一直留在池里,直到 15 分钟的闲置清扫才被回收。这期间前端
+// 每次发送前下发权限模式都会写进已关闭的管道,chat_svc 把它判成 ChatPermissionModeInternal,
+// 消息在到 chat_svc 之前就被挡掉 —— 用户看到的是「发不出去」,且没有任何出口。
+//
+// 判据只看「子进程死没死」,与这一轮怎么收尾无关:死了的 handle 对池没有任何复用价值。
+func TestRun_DeadSubprocessIsEvictedEvenWhenTurnWasCancelled(t *testing.T) {
+	Convey("被取消的那一轮里子进程已退出 → 死 handle 必须逐出池,下一次下发权限模式不能打到它", t, func() {
+		released := make(chan struct{})
+		h := &fakeCCHandle{
+			id:      "dead-after-cancel",
+			exitErr: errors.New("signal: terminated"),
+			// 真机形态:stdin 已关闭,任何下发都写不进去。
+			setPermissionModeErr: errors.New("write |1: file already closed"),
+			stream:               &busyUntilCCStream{released: released, killed: make(chan struct{})},
+		}
+		restore := SetSessionFactoryForTest(func(ccLaunchSpec) (ccSessionHandle, error) {
+			return h, nil
+		})
+		defer restore()
+
+		r := New()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		events, _, err := r.Run(ctx, agentruntime.RunRequest{
+			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+			SessionID: 78,
+			Cwd:       t.TempDir(),
+			UserText:  "/compact",
+		})
+		So(err, ShouldBeNil)
+
+		cancel()           // 用户点停止:turnCtx 被 cancel
+		close(released)    // 子进程随后退出 → stdout EOF
+		for range events { //nolint:revive // drain
+		}
+
+		// 生产路径:前端发送前先下发权限模式(chat_svc/ipc.PermissionModeController)。
+		// 池里已无条目时返 ErrNoActiveTurn,chat_svc 据此按「下次 spawn 时再应用」放行;
+		// 死 handle 还留着的话这里拿到的是写管道的真错误,发送被整个挡掉。
+		So(errors.Is(r.SetPermissionMode(context.Background(), 78, "bypassPermissions"),
+			agentruntime.ErrNoActiveTurn), ShouldBeTrue)
+
+		r.CloseAllSessions(context.Background())
 	})
 }

@@ -501,6 +501,17 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 				r.cache.Remove(sessionKey(req.SessionID))
 			}
 		}
+		// 子进程已经退出 → 池里那条 handle 必死,逐出它。判据只看「子进程死没死」,
+		// 与这一轮怎么收尾无关:死了的 handle 对池没有任何复用价值,留着只会让后续的
+		// SetPermissionMode / Steer 写进已关闭的 stdin。
+		//
+		// 不能并进下面的 0-frame 兜底(sess-4051):那个复合条件要求 ctx.Err() == nil,
+		// 用户点过停止的轮永远走不到,死 handle 于是留在池里直到 15 分钟的闲置清扫 ——
+		// 这期间前端每次发送前下发权限模式都会报错,消息在到 chat_svc 之前就被挡掉,
+		// 用户看到的是「发不出去」且没有任何出口。
+		if req.SessionID > 0 && a.handle.ExitErr() != nil {
+			r.cache.Remove(sessionKey(req.SessionID))
+		}
 		// 0-frame 兜底:CLI spawn 起来但立刻退出。语义同顶层 Run。
 		if result.Usage == nil && result.StopErr == nil && ctx.Err() == nil {
 			if exitErr := a.handle.ExitErr(); exitErr != nil {

@@ -110,8 +110,10 @@ func (s *chatSvc) takeActiveTurn(sessionID int64) (*activeTurnControl, bool) {
 //     subagent 活动轮不进 activeCancels,却是此刻真正活跃的那一轮)→ 有就中断它,再
 //     按被中断轮的类型决定谁 reconcile 会话状态(决策 3):
 //   - 中断的是自主轮 → 状态留给 driveAutonomousTurn 收尾(idle/error),Stop 不落库;
-//   - 中断的是 subagent 活动轮 → driveSubagentActivity 不写会话状态,由这里自己把
-//     running/waiting 翻回 idle 并持久化(复用遗孤路径的翻写逻辑),一次点停止即收干净;
+//   - 中断的是 subagent 活动轮 / 用户轮 → 这两类都没有别人会写会话状态(前者
+//     driveSubagentActivity 不写;后者能走到这条路径就说明它的 runTurn goroutine
+//     已经不在了),由这里自己把 running/waiting 翻回 idle 并持久化(复用遗孤路径的
+//     翻写逻辑),一次点停止即收干净;
 //   - runtime 报 ErrNoActiveTurn / 解析不出 runner → 才是真「重启遗孤」→ 翻回 idle 并
 //     落库(等同 abort 收尾),让前端那颗按 DB 状态一直亮着的「停止」按钮真能把会话停下来。
 //
@@ -128,10 +130,15 @@ func (s *chatSvc) reconcileOrphanStop(ctx context.Context, sessionID int64) (*St
 	}
 	outcome, interrupted := s.abortOutOfBandTurn(ctx, sess)
 	if interrupted {
-		// 确有一轮被中断,会话仍在跑。中断的是 subagent 活动轮时,会话的
-		// running/waiting 已无合法依据且那一轮不写状态 —— 由这里接管翻 idle 落库;
-		// 中断的是自主轮时状态留给它自己收尾,不落库。
-		if outcome.TurnKind == agentruntime.TurnKindSubagentActivity {
+		// 确有一轮被中断,会话仍在跑。谁来写会话状态按被中断轮的类型分流,判据是
+		// 「这一轮自己会不会落库」而不是轮的类型名:
+		//   - 自主续轮 → driveAutonomousTurn 收尾时自己写(idle/error),这里落库就是抢写。
+		//   - subagent 活动轮 → driveSubagentActivity 不写会话状态,由这里接管翻 idle。
+		//   - 用户轮 → 走到这里就意味着它**不在** activeCancels 里,那条 runTurn
+		//     goroutine 已经不在了(sess-4051:卡死的 /compact 轮被上一次 Stop 摘走
+		//     control 后没能收尾,runtime 侧还挂着 inTurn),没有任何人会再写状态 ——
+		//     同样由这里接管,否则每次点停止都回报成功而会话永远停在 running。
+		if outcome.TurnKind != agentruntime.TurnKindAutonomous {
 			if perr := s.reconcileSessionToIdle(ctx, sess); perr != nil {
 				return nil, perr
 			}

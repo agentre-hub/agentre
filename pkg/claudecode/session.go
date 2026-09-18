@@ -371,13 +371,22 @@ func (s *Session) readLoop() {
 // 花费也全是 0),而任何真跑过的一轮两者都非零。只吞不喂也不收尾,那一轮的归属留给紧随其
 // 后的真 init/assistant —— 它们落进同一个已认领的轮里,由真正的 result 收尾。
 //
-// 窗口刻意是一次性的:哪怕判据将来在某个 CLI 版本上失准,一个子进程也最多吞掉一条 result
-// (代价是那一轮等到子进程退出才收尾),而不会变成每轮都吞。
+// 光看这两个数不够(sess-4051):本地命令(/compact 等斜杠命令由 CLI 自己执行、不经 API)
+// 的收尾 result 同样 num_turns / duration_api_ms 全 0、is_error 为 false,与恢复应答逐字
+// 同形。resume 重开后用户发的第一条消息恰是 /compact 时,窗口还开着,这一轮真正的收尾就
+// 被吃掉:事件 channel 永不 close,会话停在 running 直到子进程退出(真机卡了 75 分钟)。
+// 本地命令的 result 一定带 local_command,恢复应答不带 —— 据此把两者分开。
+//
+// 窗口仍然是一次性的:被谁落下都算落下(含本地命令的收尾),哪怕判据将来在某个 CLI 版本
+// 上失准,一个子进程也最多吞掉一条 result,而不会变成每轮都吞。
 func (s *Session) swallowResumeBootstrap(f rawFrame) bool {
 	if !s.resumeBootstrapPending || f.Type != "result" {
 		return false
 	}
 	s.resumeBootstrapPending = false
+	if f.LocalCommand != "" {
+		return false
+	}
 	return f.NumTurns == 0 && f.DurationAPIMs == 0 && !f.IsError
 }
 
