@@ -129,11 +129,40 @@ export type HermesLoginInput = {
   provider: string;
   username: string;
   password: string;
+  /** The backend's bound device to log in on; "" means the host's own local machine. */
+  deviceId?: string;
 };
 
 export type HermesLoginResult = { provider: string; userId: string };
 
-export type HermesLogoutInput = { id?: EngineID; url?: string };
+export type HermesLogoutInput = {
+  id?: EngineID;
+  url?: string;
+  /** The backend's bound device to log out on; "" means the host's own local machine. */
+  deviceId?: string;
+};
+
+/** Input to `backendCredentialStatus`: identifies the backend by type plus
+ * whichever key that type uses (OpenClaw by `syncId`, Hermes by `hermesUrl`),
+ * on the device named by `deviceId` ("" means the host's own local machine). */
+export type BackendCredentialStatusInput = {
+  type: string;
+  syncId?: string;
+  hermesUrl?: string;
+  deviceId?: string;
+};
+
+/**
+ * Credential status as observed on the bound device. Never carries the
+ * credential itself — only whether it is present and, for Hermes, who it is
+ * signed in as.
+ */
+export type BackendCredentialStatusView = {
+  openClawTokenSaved: boolean;
+  hermesLoggedIn: boolean;
+  hermesProvider?: string;
+  hermesUserId?: string;
+};
 
 export type BackendScanResult = {
   name: string;
@@ -265,9 +294,21 @@ export interface EngineSettingsPorts {
   ): Promise<BackendView>;
   testOpenClawBackend?(input: BackendInput, token: string): Promise<TestResult>;
   /** Hermes gated-serve login. Missing means the host cannot sign in. */
-  listHermesAuthProviders?(url: string): Promise<HermesAuthProviderView[]>;
+  listHermesAuthProviders?(
+    url: string,
+    deviceId?: string,
+  ): Promise<HermesAuthProviderView[]>;
   loginHermesBackend?(input: HermesLoginInput): Promise<HermesLoginResult>;
   logoutHermesBackend?(input: HermesLogoutInput): Promise<void>;
+  /**
+   * Queried once when the editor opens and again whenever the bound device
+   * changes (spec "Editor behaviour on both hosts"). Missing means the host
+   * cannot report credential status; callers must not guess it from synced
+   * fields.
+   */
+  backendCredentialStatus?(
+    input: BackendCredentialStatusInput,
+  ): Promise<BackendCredentialStatusView>;
   gatewayStatus?(): Promise<GatewayStatusView>;
   localDeviceFingerprint?(): Promise<string>;
   listAccountDevices?(): Promise<AccountDeviceView[]>;

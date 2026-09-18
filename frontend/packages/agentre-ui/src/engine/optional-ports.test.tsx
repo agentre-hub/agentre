@@ -427,7 +427,14 @@ describe("engine settings host-writable fields", () => {
 
   it("Given a host with the OpenClaw backend ports, When the OpenClaw type is selected, Then the token can still be entered", async () => {
     const user = userEvent.setup();
-    renderPanel(createPorts({ createOpenClawBackend: vi.fn() }));
+    // 本机可指代（hasLocalDevice）时新建草稿默认绑定本机，凭据设备门总是放行——
+    // 这条用例只关心「宿主有没有这个能力端口」，不是新引入的设备门控本身。
+    renderPanel(
+      createPorts({
+        createOpenClawBackend: vi.fn(),
+        localDeviceFingerprint: vi.fn().mockResolvedValue("fp-local"),
+      }),
+    );
 
     const dialog = await openCreateDialog(user);
     await user.click(

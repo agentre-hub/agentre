@@ -43,6 +43,7 @@ export const agent_backend_svc = {
   ListHermesAuthProvidersRequest: ModelClass,
   LoginHermesRequest: ModelClass,
   LogoutHermesRequest: ModelClass,
+  BackendCredentialStatusRequest: ModelClass,
 };
 
 export const agent_svc = {

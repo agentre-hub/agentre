@@ -7,6 +7,7 @@ import {
   DeleteLLMModel,
   DeleteLLMProvider,
   GetAgentBackendCLIOverlay,
+  GetBackendCredentialStatus,
   GetGatewayStatus,
   ImportLLMModels,
   LLMModelRefCounts,
@@ -425,15 +426,21 @@ export function createDesktopEngineSettingsPorts(
         grantedScopes: response.grantedScopes ?? [],
       };
     },
-    async listHermesAuthProviders(url) {
+    async listHermesAuthProviders(url, deviceId) {
       const response = await ListHermesAuthProviders(
-        new agent_backend_svc.ListHermesAuthProvidersRequest({ url }),
+        new agent_backend_svc.ListHermesAuthProvidersRequest({
+          url,
+          deviceId: deviceId ?? "",
+        }),
       );
       return response.providers ?? [];
     },
     async loginHermesBackend(input) {
       const response = await LoginHermesBackend(
-        new agent_backend_svc.LoginHermesRequest(input),
+        new agent_backend_svc.LoginHermesRequest({
+          ...input,
+          deviceId: input.deviceId ?? "",
+        }),
       );
       return { provider: response.provider, userId: response.userId };
     },
@@ -442,8 +449,25 @@ export function createDesktopEngineSettingsPorts(
         new agent_backend_svc.LogoutHermesRequest({
           id: Number(input.id ?? 0),
           url: input.url ?? "",
+          deviceId: input.deviceId ?? "",
         }),
       );
+    },
+    async backendCredentialStatus(input) {
+      const response = await GetBackendCredentialStatus(
+        new agent_backend_svc.BackendCredentialStatusRequest({
+          type: input.type,
+          syncId: input.syncId ?? "",
+          hermesUrl: input.hermesUrl ?? "",
+          deviceId: input.deviceId ?? "",
+        }),
+      );
+      return {
+        openClawTokenSaved: response.openClawTokenSaved,
+        hermesLoggedIn: response.hermesLoggedIn,
+        hermesProvider: response.hermesProvider,
+        hermesUserId: response.hermesUserId,
+      };
     },
     async gatewayStatus() {
       return (await GetGatewayStatus()) as unknown as Record<string, unknown>;

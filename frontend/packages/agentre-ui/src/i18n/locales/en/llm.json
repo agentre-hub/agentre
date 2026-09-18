@@ -430,6 +430,11 @@
       "label": "CLI Path",
       "notFound": "{{bin}} was not found in $PATH. Fill it in manually."
     },
+    "credential": {
+      "deviceRequired": "Pick the device this backend runs on.",
+      "deviceOffline": "That device is offline right now; its login status is unknown.",
+      "deviceUnknown": "That device is no longer in this account. Pick another one."
+    },
     "defaultModel": {
       "hint": "--model · leave empty to use the provider model / CLI default",
       "label": "Custom Model",
