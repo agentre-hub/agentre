@@ -255,7 +255,15 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
         clipboardTextParser: parsePlainTextClipboard,
         attributes: {
           class: cn(
-            "ProseMirror min-h-10 max-h-[25vh] overflow-y-auto text-sm outline-none resize-none",
+            // 字号是移动端的**响应式契约**：iOS 聚焦字号 < 16px 的可编辑区会
+            // 自动放大整个视口（点一下输入框页面就自己跳大），而这条行为没有
+            // 开关可关 —— 唯一能压的是 `user-scalable=no`，那会连用户自己要的
+            // 双指缩放一起禁掉。所以移动端给 16px、md 以上回到 14px，与共享包
+            // `<Input>` 同一条口径（`text-base md:text-sm`）。断点用 md(768px)，
+            // 与两端宿主判定移动形态的媒体查询一致。
+            // 别改回裸 `text-sm`：那不会报错、也不会红任何既有测试，只有真机
+            // 点一下输入框才看得出来（见 __tests__/mobile-font-size.test.tsx）。
+            "ProseMirror min-h-10 max-h-[25vh] overflow-y-auto text-base md:text-sm outline-none resize-none",
             className,
           ),
           role: "textbox",
