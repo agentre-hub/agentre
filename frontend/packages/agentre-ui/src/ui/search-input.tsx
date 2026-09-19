@@ -99,6 +99,11 @@ export function SearchInput({
           // 系统自带的清除按钮在两个宿主上长得不一样，且与右侧的工具按钮撞在一起。
           "[&::-webkit-search-cancel-button]:appearance-none",
           TEXT_SIZE[size],
+          // 移动端的字号下限是 16px：iOS 聚焦字号 < 16px 的输入控件会自动放大整个
+          // 视口，而 `sm` 档本来是 text-xs（12px），手机上一点搜索框整页就跳大。
+          // 只加这一条下限，三档在 md 及以上各自保持原样（桌面密度不变）；与同包
+          // `<Input>` 的 `text-base md:text-sm` 是同一条口径。
+          "max-md:text-base",
           inputClassName,
         )}
         {...props}
