@@ -15,6 +15,9 @@ export function BackendEditorFooter({
   submitting,
   syncingProvider,
   piAgentModelMissing,
+  // 绑定设备未选择/离线/不在账号内时，测试连接（Hermes / OpenClaw 的凭据操作
+  // 之一）同样不可用，且不发请求（spec「Editor behaviour on both hosts」）。
+  credentialGateBlocked = false,
   submitDisabled,
   onTest,
   onCancelTest,
@@ -26,6 +29,7 @@ export function BackendEditorFooter({
   submitting: boolean;
   syncingProvider: boolean;
   piAgentModelMissing: boolean;
+  credentialGateBlocked?: boolean;
   submitDisabled: boolean;
   onTest: () => void;
   onCancelTest: () => void;
@@ -51,7 +55,12 @@ export function BackendEditorFooter({
           <Button
             type="button"
             variant="outline"
-            disabled={submitting || syncingProvider || piAgentModelMissing}
+            disabled={
+              submitting ||
+              syncingProvider ||
+              piAgentModelMissing ||
+              credentialGateBlocked
+            }
             onClick={onTest}
             className="gap-1.5"
           >

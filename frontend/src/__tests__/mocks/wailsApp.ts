@@ -137,6 +137,16 @@ export const LoginHermesBackend = windowBackedMock("LoginHermesBackend", () =>
 export const LogoutHermesBackend = windowBackedMock("LogoutHermesBackend", () =>
   Promise.resolve({}),
 );
+export const GetBackendCredentialStatus = windowBackedMock(
+  "GetBackendCredentialStatus",
+  () =>
+    Promise.resolve({
+      openClawTokenSaved: false,
+      hermesLoggedIn: false,
+      hermesProvider: "",
+      hermesUserId: "",
+    }),
+);
 export const GetGatewayStatus = windowBackedMock("GetGatewayStatus", () =>
   Promise.resolve({ status: "stopped", listenURL: "", reason: "", routes: [] }),
 );

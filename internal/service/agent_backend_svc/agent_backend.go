@@ -2,12 +2,10 @@ package agent_backend_svc
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"maps"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/backendcred"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
@@ -41,6 +40,11 @@ const (
 
 var ErrOpenClawRemoteSecretUnavailable = errors.New("openclaw remote secret enrollment is unavailable")
 
+// errOpenClawTokenSlotMissing guards a token write for a row that has no sync_id:
+// the slot is keyed by sync_id, and a blank key would let unrelated backends
+// share one token.
+var errOpenClawTokenSlotMissing = errors.New("openclaw token slot requires a backend sync_id")
+
 // AgentBackendSvc Agent 后端应用服务。
 type AgentBackendSvc interface {
 	List(ctx context.Context, req *ListBackendsRequest) (*ListBackendsResponse, error)
@@ -49,6 +53,8 @@ type AgentBackendSvc interface {
 	Update(ctx context.Context, req *UpdateBackendRequest) (*UpdateBackendResponse, error)
 	UpdateOpenClaw(ctx context.Context, req *UpdateBackendRequest, token string, clearToken bool) (*UpdateBackendResponse, error)
 	Delete(ctx context.Context, req *DeleteBackendRequest) (*DeleteBackendResponse, error)
+	// BackendCredentialStatus 查询一个后端在它绑定设备上的凭据状态(存没存 / 登录成谁)。
+	BackendCredentialStatus(ctx context.Context, req *BackendCredentialStatusRequest) (*BackendCredentialStatusResponse, error)
 	Test(ctx context.Context, req *TestBackendRequest) (*TestBackendResponse, error)
 	TestOpenClaw(ctx context.Context, req *TestBackendRequest, token string) (*TestBackendResponse, error)
 	CancelTest(ctx context.Context, req *CancelTestBackendRequest) (*CancelTestBackendResponse, error)
@@ -75,14 +81,17 @@ type agentBackendSvc struct {
 	secrets keychain.Keychain
 	// hermes 是 gated serve 的凭据存储（login 写 keychain、runtime 取 bearer）。
 	// nil → 统一回落到进程内单例 defaultHermesCredentials。
-	hermes *hermesCredentialStore
+	hermes *backendcred.HermesCredentials
 
 	openClawProbe openClawProbeFunc
-	identityMu    sync.Mutex
 
 	// remoteCLI 用于 device 非空场景拨远端 daemon 调 cli.* RPC。
 	// nil → 走 realRemoteCLI 默认实现（dial → call → close）；单测注入 fake。
 	remoteCLI remoteCLIPort
+
+	// remoteCredentials 用于把凭据操作送到后端绑定的那台设备。
+	// nil → 走 realRemoteCredentials（借连接池 → wirecall）；单测注入 fake。
+	remoteCredentials remoteCredentialsPort
 
 	// probes 维护「正在跑的测试」的 cancel 函数；key = 前端传入的 RequestID。
 	// 用于实现 CancelTest：用户在 UI 上点取消时调 cancel，prober ctx 立刻 Done。
@@ -338,12 +347,9 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 		return nil, err
 	}
 	if b.IsOpenClaw() && token != "" {
-		store := s.secretStore()
-		if store == nil {
-			_ = agent_backend_repo.AgentBackend().Delete(ctx, b.ID)
-			return nil, errors.New("openclaw secret store unavailable")
-		}
-		if err := store.Set(openClawTokenAccount(b.ID), token); err != nil {
+		// token 写到后端绑定的那台设备上(本机 keychain 或那台 agentred)。写不进去就
+		// 把刚落的行撤回来:一个「配置在、凭据不在」的后端只会在下一次对话时才暴露。
+		if err := s.saveOpenClawToken(ctx, b, token, false); err != nil {
 			rollbackErr := agent_backend_repo.AgentBackend().Delete(ctx, b.ID)
 			return nil, errors.Join(err, rollbackErr)
 		}
@@ -456,23 +462,10 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 		return nil, err
 	}
 	if existing.IsOpenClaw() && (token != "" || clearToken) {
-		store := s.secretStore()
-		if store == nil {
+		// 写到绑定设备上;失败则把后端配置回滚成保存前的样子(规格「保存后端时写 token 失败」)。
+		if err := s.saveOpenClawToken(ctx, existing, token, clearToken); err != nil {
 			rollbackErr := agent_backend_repo.AgentBackend().Update(ctx, &before)
-			return nil, errors.Join(errors.New("openclaw secret store unavailable"), rollbackErr)
-		}
-		var secretErr error
-		if clearToken {
-			secretErr = store.Delete(openClawTokenAccount(existing.ID))
-			if errors.Is(secretErr, keychain.ErrNotFound) {
-				secretErr = nil
-			}
-		} else {
-			secretErr = store.Set(openClawTokenAccount(existing.ID), token)
-		}
-		if secretErr != nil {
-			rollbackErr := agent_backend_repo.AgentBackend().Update(ctx, &before)
-			return nil, errors.Join(secretErr, rollbackErr)
+			return nil, errors.Join(err, rollbackErr)
 		}
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindAgentBackend, existing.ID, existing.SyncMeta)
@@ -507,10 +500,18 @@ func (s *agentBackendSvc) test(ctx context.Context, req *TestBackendRequest, tra
 	if err := entity.Check(ctx); err != nil {
 		return nil, err
 	}
-	if entity.IsOpenClaw() {
-		if remote_device_svc.TargetsAnotherMachine(entity.DeviceFingerprint) {
-			return &TestBackendResponse{OK: false, Code: "OPENCLAW_REMOTE_SECRET_UNAVAILABLE"}, nil
+	// Hermes / OpenClaw 的凭据只在绑定设备上:绑到别的设备就请那台设备自己连一次,
+	// 而不是在这里拿本机的凭据去连(本机根本没有它的凭据)。
+	if entity.IsOpenClaw() || entity.IsHermes() {
+		deviceID, remote, err := boundCredentialDevice(ctx, entity.DeviceFingerprint)
+		switch {
+		case err != nil:
+			return &TestBackendResponse{OK: false, Message: err.Error()}, nil
+		case remote:
+			return s.testOnBoundDevice(ctx, deviceID, entity, transientToken), nil
 		}
+	}
+	if entity.IsOpenClaw() {
 		return s.testOpenClaw(ctx, req, entity, transientToken)
 	}
 	// 远端 device → 不在本地装 deps / gateway / provider，由 daemon 自己装。
@@ -621,8 +622,6 @@ type openClawProbeFunc func(
 	selection openclawgateway.ProbeSelection,
 ) (*openclawgateway.ProbeResult, error)
 
-const openClawIdentityAccount = "agentre.openclaw.device.identity.seed"
-
 func (s *agentBackendSvc) testOpenClaw(
 	ctx context.Context,
 	req *TestBackendRequest,
@@ -634,17 +633,17 @@ func (s *agentBackendSvc) testOpenClaw(
 		return &TestBackendResponse{OK: false, Code: "OPENCLAW_SECRET_UNAVAILABLE"}, nil
 	}
 	token := transientToken
-	if token == "" && backend.ID > 0 {
-		stored, err := store.Get(openClawTokenAccount(backend.ID))
+	if account := backendcred.OpenClawTokenAccount(backend.SyncID); token == "" && account != "" {
+		stored, err := store.Get(account)
 		switch {
 		case err == nil:
 			token = stored
-		case errors.Is(err, keychain.ErrNotFound):
+		case errors.Is(err, backendcred.ErrNotFound):
 		default:
 			return &TestBackendResponse{OK: false, Code: "OPENCLAW_SECRET_UNAVAILABLE", Message: err.Error()}, nil
 		}
 	}
-	identity, err := s.openClawIdentity()
+	identity, err := backendcred.OpenClawIdentity(store)
 	if err != nil {
 		return &TestBackendResponse{OK: false, Code: "OPENCLAW_SECRET_UNAVAILABLE", Message: err.Error()}, nil
 	}
@@ -672,8 +671,10 @@ func (s *agentBackendSvc) testOpenClaw(
 	})
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
+		// Gateway 客户端自己已经抹过一遍;这里再抹一次,让「凭据不出现在任何应答里」
+		// 不依赖每一个产出方都自觉 —— 这条结果也会经设备操作发给控制台。
 		return &TestBackendResponse{
-			OK: false, Code: openClawProbeErrorCode(err), Message: err.Error(), LatencyMs: latency,
+			OK: false, Code: openClawProbeErrorCode(err), Message: backendcred.RedactSecret(err.Error(), token), LatencyMs: latency,
 		}, nil
 	}
 	response := &TestBackendResponse{
@@ -715,54 +716,12 @@ func openClawDraftIssue(backend *agent_backend_entity.AgentBackend) *TestBackend
 		return issue("OPENCLAW_NAME_REQUIRED")
 	}
 	if _, err := agent_backend_entity.NormalizeOpenClawGatewayURL(backend.OpenClawGatewayURL); err != nil {
-		switch {
-		case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLRequired):
-			return issue("OPENCLAW_URL_REQUIRED")
-		case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLScheme):
-			return issue("OPENCLAW_URL_SCHEME")
-		case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLHost):
-			return issue("OPENCLAW_URL_HOST")
-		case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLCredentials):
-			return issue("OPENCLAW_URL_CREDENTIALS")
-		case errors.Is(err, agent_backend_entity.ErrOpenClawGatewayURLPlaintextRemote):
-			return issue("OPENCLAW_URL_PLAINTEXT_REMOTE")
-		default:
-			return issue("OPENCLAW_URL_INVALID")
-		}
+		return issue(backendcred.OpenClawURLCode(err))
 	}
 	if strings.TrimSpace(backend.OpenClawSessionMode) != agent_backend_entity.OpenClawSessionPerAgentRESession {
 		return issue("OPENCLAW_SESSION_MODE_INVALID")
 	}
 	return nil
-}
-
-func (s *agentBackendSvc) openClawIdentity() (*openclawgateway.DeviceIdentity, error) {
-	s.identityMu.Lock()
-	defer s.identityMu.Unlock()
-	store := s.secretStore()
-	if store == nil {
-		return nil, errors.New("openclaw secret store unavailable")
-	}
-	encoded, err := store.Get(openClawIdentityAccount)
-	if err == nil {
-		seed, decodeErr := base64.RawURLEncoding.DecodeString(encoded)
-		if decodeErr != nil {
-			return nil, errors.New("openclaw device identity is invalid")
-		}
-		return openclawgateway.NewDeviceIdentityFromSeed(seed)
-	}
-	if !errors.Is(err, keychain.ErrNotFound) {
-		return nil, err
-	}
-	identity, err := openclawgateway.GenerateDeviceIdentity()
-	if err != nil {
-		return nil, err
-	}
-	encoded = base64.RawURLEncoding.EncodeToString(identity.Seed())
-	if err := store.Set(openClawIdentityAccount, encoded); err != nil {
-		return nil, err
-	}
-	return identity, nil
 }
 
 // resolveOpenClawRuntimeConfig is the only boundary that turns persisted
@@ -784,17 +743,20 @@ func (s *agentBackendSvc) resolveOpenClawRuntimeConfig(ctx context.Context, back
 	}
 	store := s.secretStore()
 	if store == nil {
-		return openclawgateway.Config{}, errors.New("openclaw secret store unavailable")
+		return openclawgateway.Config{}, backendcred.ErrStoreUnavailable
 	}
-	token, err := store.Get(openClawTokenAccount(backend.ID))
-	if errors.Is(err, keychain.ErrNotFound) {
-		token = ""
-		err = nil
+	token := ""
+	if account := backendcred.OpenClawTokenAccount(backend.SyncID); account != "" {
+		token, err = store.Get(account)
+		if errors.Is(err, backendcred.ErrNotFound) {
+			token = ""
+			err = nil
+		}
+		if err != nil {
+			return openclawgateway.Config{}, err
+		}
 	}
-	if err != nil {
-		return openclawgateway.Config{}, err
-	}
-	identity, err := s.openClawIdentity()
+	identity, err := backendcred.OpenClawIdentity(store)
 	if err != nil {
 		return openclawgateway.Config{}, err
 	}
@@ -814,58 +776,11 @@ func ResolveOpenClawRuntimeConfig(ctx context.Context, backendID int64) (opencla
 	return service.resolveOpenClawRuntimeConfig(ctx, backendID)
 }
 
-// openClawGatewayAuthCodes 是网关直接给出的鉴权类 code。真实网关(2026.7.1-2)对
-// token 不匹配回的却是 INVALID_REQUEST + "unauthorized: ..." —— 只按 code 匹配会
-// 漏掉它,前端于是把原始协议串当文案显示。故同时看 details.reason 与 message。
-var openClawGatewayAuthCodes = map[string]struct{}{
-	"AUTH_FAILED": {}, "UNAUTHORIZED": {}, "FORBIDDEN": {},
-}
-
-func normalizeOpenClawRPCCode(rpcErr *openclawgateway.RPCError) string {
-	rpcCode := strings.ToUpper(strings.TrimSpace(rpcErr.Code))
-	reason := strings.ToLower(strings.TrimSpace(rpcErr.Reason))
-	message := strings.ToLower(rpcErr.Message)
-	switch {
-	case rpcCode == "NOT_PAIRED" || reason == "not_paired":
-		return "OPENCLAW_NOT_PAIRED"
-	default:
-	}
-	if _, ok := openClawGatewayAuthCodes[rpcCode]; ok {
-		return "AUTH_FAILED"
-	}
-	if reason == "unauthorized" || strings.HasPrefix(message, "unauthorized") {
-		return "AUTH_FAILED"
-	}
-	if rpcCode == "" {
-		return "OPENCLAW_CONNECTION_FAILED"
-	}
-	return rpcCode
-}
-
+// openClawProbeErrorCode 把一次 Gateway 探测的失败翻成前端本地化得了的结构化码。
+// 判据住在 backendcred:agentred 被当作绑定设备问到时答的是同一组码,而它 import
+// 不了本包。
 func openClawProbeErrorCode(err error) string {
-	var rpcErr *openclawgateway.RPCError
-	switch {
-	case errors.As(err, &rpcErr):
-		return normalizeOpenClawRPCCode(rpcErr)
-	case errors.Is(err, openclawgateway.ErrRequiredScopeMissing):
-		return "OPENCLAW_SCOPE_MISSING"
-	case errors.Is(err, openclawgateway.ErrProtocolMismatch):
-		return "OPENCLAW_PROTOCOL_MISMATCH"
-	case errors.Is(err, openclawgateway.ErrSelectedAgentNotFound):
-		return "OPENCLAW_AGENT_NOT_FOUND"
-	case errors.Is(err, openclawgateway.ErrSelectedModelNotFound):
-		return "OPENCLAW_MODEL_NOT_FOUND"
-	case errors.Is(err, openclawgateway.ErrRequiredMethodMissing):
-		return "OPENCLAW_METHOD_MISSING"
-	case errors.Is(err, openclawgateway.ErrRequiredEventMissing):
-		return "OPENCLAW_EVENT_MISSING"
-	case errors.Is(err, context.Canceled):
-		return "OPENCLAW_PROBE_CANCELED"
-	case errors.Is(err, context.DeadlineExceeded):
-		return "OPENCLAW_PROBE_TIMEOUT"
-	default:
-		return "OPENCLAW_CONNECTION_FAILED"
-	}
+	return backendcred.OpenClawResultCode(err)
 }
 
 // CancelTest 中断一个还在跑的 Test。
@@ -954,6 +869,11 @@ func (s *agentBackendSvc) resolveBackendForTest(ctx context.Context, req *TestBa
 	out.HermesURL = strings.TrimSpace(req.HermesURL)
 	out.HermesAuthProvider = strings.TrimSpace(req.HermesAuthProvider)
 	out.HermesUserID = strings.TrimSpace(req.HermesUserID)
+	// 草稿可以先选好绑定设备再试(还没保存时无从取保存行上的指纹)；留空表示沿用
+	// 保存行的绑定,不改写它。
+	if device := strings.TrimSpace(req.DeviceID); device != "" {
+		out.DeviceFingerprint = devicefp.Carrier(device)
+	}
 	if out.IsOpenClaw() {
 		if out.OpenClawSessionMode == "" {
 			out.OpenClawSessionMode = agent_backend_entity.OpenClawSessionPerAgentRESession
@@ -980,34 +900,37 @@ func (s *agentBackendSvc) Delete(ctx context.Context, req *DeleteBackendRequest)
 	}
 	var restoreToken string
 	var removedToken bool
-	if existing.IsOpenClaw() {
+	tokenAccount := backendcred.OpenClawTokenAccount(existing.SyncID)
+	// 绑在本机的 OpenClaw 槽位在删除前就取出来,删库失败时还能放回去;绑到别的设备的
+	// 凭据不在本机,删除成功后再尽力去那台设备上清(clearCredentialOnBoundDevice)。
+	if existing.IsOpenClaw() && tokenAccount != "" && !remote_device_svc.TargetsAnotherMachine(existing.DeviceFingerprint) {
 		store := s.secretStore()
 		if store == nil {
-			return nil, errors.New("openclaw secret store unavailable")
+			return nil, backendcred.ErrStoreUnavailable
 		}
-		value, getErr := store.Get(openClawTokenAccount(existing.ID))
+		value, getErr := store.Get(tokenAccount)
 		switch {
 		case getErr == nil:
 			restoreToken = value
-			if err := store.Delete(openClawTokenAccount(existing.ID)); err != nil && !errors.Is(err, keychain.ErrNotFound) {
+			if err := store.Delete(tokenAccount); err != nil && !errors.Is(err, backendcred.ErrNotFound) {
 				return nil, err
 			}
 			removedToken = true
-		case errors.Is(getErr, keychain.ErrNotFound):
+		case errors.Is(getErr, backendcred.ErrNotFound):
 		default:
 			return nil, getErr
 		}
 	}
 	if err := agent_backend_repo.AgentBackend().Delete(ctx, existing.ID); err != nil {
 		if removedToken {
-			restoreErr := s.secretStore().Set(openClawTokenAccount(existing.ID), restoreToken)
+			restoreErr := s.secretStore().Set(tokenAccount, restoreToken)
 			return nil, errors.Join(err, restoreErr)
 		}
 		return nil, err
 	}
 	// 引用它的执行目标项一并落墓碑，Agent 本身不删（R6）。
-	// hermes 的 gated serve 凭据挂在 URL 派生的 keychain 账号下，随删除一起清。
-	s.deleteHermesCredential(ctx, existing)
+	// 凭据在后端绑定的那台设备上，尽力清除；设备离线不挡删除。
+	s.clearCredentialOnBoundDevice(ctx, existing)
 	sync_svc.NotifyDelete(ctx, syncwire.KindAgentBackend, existing.ID, existing.SyncMeta)
 	return &DeleteBackendResponse{}, nil
 }
@@ -1253,9 +1176,9 @@ func (s *agentBackendSvc) buildItem(b *agent_backend_entity.AgentBackend, p *llm
 		Createtime:            b.Createtime,
 		Updatetime:            b.Updatetime,
 	}
-	if b.IsOpenClaw() {
+	if account := backendcred.OpenClawTokenAccount(b.SyncID); b.IsOpenClaw() && account != "" {
 		if store := s.secretStore(); store != nil {
-			_, err := store.Get(openClawTokenAccount(b.ID))
+			_, err := store.Get(account)
 			item.HasToken = err == nil
 		}
 	}
@@ -1344,10 +1267,6 @@ func (s *agentBackendSvc) secretStore() keychain.Keychain {
 		return s.secrets
 	}
 	return keychain.Default()
-}
-
-func openClawTokenAccount(backendID int64) string {
-	return "agentre.openclaw.backend." + strconv.FormatInt(backendID, 10) + ".token"
 }
 
 // normalizeDeviceID converts the UI's empty local selection to this

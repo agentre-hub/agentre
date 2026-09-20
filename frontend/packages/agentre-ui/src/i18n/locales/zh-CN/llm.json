@@ -430,6 +430,11 @@
       "label": "CLI 路径",
       "notFound": "$PATH 中未找到 {{bin}}，请手动填写"
     },
+    "credential": {
+      "deviceRequired": "先选定这个后端运行在哪台设备上。",
+      "deviceOffline": "那台设备当前离线，登录状态未知。",
+      "deviceUnknown": "那台设备已不在账号内，请改选一台。"
+    },
     "defaultModel": {
       "hint": "--model · 留空走供应商模型 / CLI 默认",
       "label": "自定义模型",
@@ -554,14 +559,14 @@
       },
       "gatewayURL": "Gateway WebSocket 地址",
       "gatewayURLHint": "本机回环地址可用 ws://；其它主机必须使用 wss://。",
-      "localOnlyTitle": "安全的本机 Gateway 连接",
+      "localOnlyTitle": "安全的 Gateway 连接",
       "model": "模型",
       "modelGatewayDefault": "Gateway 默认模型",
       "modelPlaceholder": "使用 Gateway 默认模型",
       "probePassed": "Gateway 验证通过 · {{latency}}ms",
       "probeVerified": "Gateway 连接已验证",
       "protocol": "Protocol {{protocol}}",
-      "remoteUnavailable": "安全密钥注册实现前，远端 agentred 暂不支持 OpenClaw。",
+      "remoteUnavailable": "Token 只保存在该后端绑定的那台设备上，不经过账号服务器。远端 agentred 上跑对话尚未支持。",
       "sessionMode": "Session 映射",
       "sessionModeHint": "每条 AgentRE 聊天会话稳定映射一条 OpenClaw session key。",
       "sessionPerAgentRE": "每条 AgentRE 聊天对应一条 OpenClaw session",

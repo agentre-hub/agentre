@@ -430,6 +430,11 @@
       "label": "CLI Path",
       "notFound": "{{bin}} was not found in $PATH. Fill it in manually."
     },
+    "credential": {
+      "deviceRequired": "Pick the device this backend runs on.",
+      "deviceOffline": "That device is offline right now; its login status is unknown.",
+      "deviceUnknown": "That device is no longer in this account. Pick another one."
+    },
     "defaultModel": {
       "hint": "--model · leave empty to use the provider model / CLI default",
       "label": "Custom Model",
@@ -554,14 +559,14 @@
       },
       "gatewayURL": "Gateway WebSocket URL",
       "gatewayURLHint": "Loopback ws:// is allowed. Other hosts must use wss://.",
-      "localOnlyTitle": "Secure local Gateway connection",
+      "localOnlyTitle": "Secure Gateway connection",
       "model": "Model",
       "modelGatewayDefault": "Gateway default model",
       "modelPlaceholder": "Use the Gateway default model",
       "probePassed": "Gateway verified · {{latency}}ms",
       "probeVerified": "Gateway connection verified",
       "protocol": "Protocol {{protocol}}",
-      "remoteUnavailable": "Remote agentred support is unavailable until secure secret enrollment is implemented.",
+      "remoteUnavailable": "The token is stored only on the device this backend is bound to, never on the account server. Running conversations on a remote agentred is not available yet.",
       "sessionMode": "Session mapping",
       "sessionModeHint": "Each AgentRE chat session maps to one stable OpenClaw session key.",
       "sessionPerAgentRE": "One OpenClaw session per AgentRE chat",

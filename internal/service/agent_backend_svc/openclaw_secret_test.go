@@ -14,6 +14,8 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/backendcred"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
@@ -64,6 +66,7 @@ func TestOpenClawBackendSecretLifecycle(t *testing.T) {
 				require.Equal(t, "ws://localhost:18789/", backend.OpenClawGatewayURL)
 				require.Equal(t, agent_backend_entity.OpenClawSessionPerAgentRESession, backend.OpenClawSessionMode)
 				backend.ID = 77
+				backend.SyncID = "sync-openclaw-77"
 				return nil
 			},
 		)
@@ -72,7 +75,7 @@ func TestOpenClawBackendSecretLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, response.Item)
 		assert.True(t, response.Item.HasToken)
-		stored, err := memory.Get(openClawTokenAccount(77))
+		stored, err := memory.Get(backendcred.OpenClawTokenAccount("sync-openclaw-77"))
 		require.NoError(t, err)
 		assert.Equal(t, credential, stored)
 
@@ -90,6 +93,7 @@ func TestOpenClawBackendSecretLifecycle(t *testing.T) {
 		backendMock.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
 			func(_ context.Context, backend *agent_backend_entity.AgentBackend) error {
 				backend.ID = 78
+				backend.SyncID = "sync-openclaw-78"
 				return nil
 			},
 		)
@@ -105,9 +109,10 @@ func TestOpenClawBackendSecretLifecycle(t *testing.T) {
 		memory := keychain.NewMemory()
 		svc.secrets = memory
 		credential := strings.Repeat("k", 48)
-		require.NoError(t, memory.Set(openClawTokenAccount(79), credential))
+		require.NoError(t, memory.Set(backendcred.OpenClawTokenAccount("sync-openclaw-79"), credential))
 		existing := &agent_backend_entity.AgentBackend{
 			ID:                  79,
+			SyncMeta:            syncmeta_entity.SyncMeta{SyncID: "sync-openclaw-79"},
 			Type:                string(agent_backend_entity.TypeOpenClaw),
 			Name:                "OpenClaw Local",
 			ModelRoutes:         "{}",
@@ -128,7 +133,7 @@ func TestOpenClawBackendSecretLifecycle(t *testing.T) {
 		}, "", false)
 		require.NoError(t, err)
 		assert.True(t, response.Item.HasToken)
-		stored, err := memory.Get(openClawTokenAccount(79))
+		stored, err := memory.Get(backendcred.OpenClawTokenAccount("sync-openclaw-79"))
 		require.NoError(t, err)
 		assert.Equal(t, credential, stored)
 	})
@@ -137,9 +142,10 @@ func TestOpenClawBackendSecretLifecycle(t *testing.T) {
 		ctx, backendMock, _, _, _, svc := setupSvcTest(t)
 		memory := keychain.NewMemory()
 		svc.secrets = memory
-		require.NoError(t, memory.Set(openClawTokenAccount(80), strings.Repeat("d", 48)))
+		require.NoError(t, memory.Set(backendcred.OpenClawTokenAccount("sync-openclaw-80"), strings.Repeat("d", 48)))
 		existing := &agent_backend_entity.AgentBackend{
 			ID:                  80,
+			SyncMeta:            syncmeta_entity.SyncMeta{SyncID: "sync-openclaw-80"},
 			Type:                string(agent_backend_entity.TypeOpenClaw),
 			Name:                "OpenClaw Local",
 			ModelRoutes:         "{}",
@@ -159,7 +165,7 @@ func TestOpenClawBackendSecretLifecycle(t *testing.T) {
 		}, "", true)
 		require.NoError(t, err)
 		assert.False(t, response.Item.HasToken)
-		_, err = memory.Get(openClawTokenAccount(80))
+		_, err = memory.Get(backendcred.OpenClawTokenAccount("sync-openclaw-80"))
 		assert.ErrorIs(t, err, keychain.ErrNotFound)
 	})
 
@@ -167,15 +173,15 @@ func TestOpenClawBackendSecretLifecycle(t *testing.T) {
 		ctx, backendMock, _, _, _, svc := setupSvcTest(t)
 		memory := keychain.NewMemory()
 		svc.secrets = memory
-		require.NoError(t, memory.Set(openClawTokenAccount(81), strings.Repeat("x", 48)))
+		require.NoError(t, memory.Set(backendcred.OpenClawTokenAccount("sync-openclaw-81"), strings.Repeat("x", 48)))
 		backendMock.EXPECT().Find(gomock.Any(), int64(81)).Return(&agent_backend_entity.AgentBackend{
-			ID: 81, Type: string(agent_backend_entity.TypeOpenClaw), Status: consts.ACTIVE,
+			ID: 81, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "sync-openclaw-81"}, Type: string(agent_backend_entity.TypeOpenClaw), Status: consts.ACTIVE,
 		}, nil)
 		backendMock.EXPECT().Delete(gomock.Any(), int64(81)).Return(nil)
 
 		_, err := svc.Delete(ctx, &DeleteBackendRequest{ID: 81})
 		require.NoError(t, err)
-		_, err = memory.Get(openClawTokenAccount(81))
+		_, err = memory.Get(backendcred.OpenClawTokenAccount("sync-openclaw-81"))
 		assert.ErrorIs(t, err, keychain.ErrNotFound)
 	})
 
@@ -189,7 +195,7 @@ func TestOpenClawBackendSecretLifecycle(t *testing.T) {
 		}
 		svc.secrets = store
 		backendMock.EXPECT().Find(gomock.Any(), int64(82)).Return(&agent_backend_entity.AgentBackend{
-			ID: 82, Type: string(agent_backend_entity.TypeOpenClaw), Status: consts.ACTIVE,
+			ID: 82, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "sync-openclaw-82"}, Type: string(agent_backend_entity.TypeOpenClaw), Status: consts.ACTIVE,
 		}, nil)
 		backendMock.EXPECT().Delete(gomock.Any(), int64(82)).Return(databaseErr)
 
@@ -227,7 +233,7 @@ func TestResolveOpenClawRuntimeConfig(t *testing.T) {
 		memory := keychain.NewMemory()
 		svc.secrets = memory
 		credential := strings.Repeat("s", 45)
-		require.NoError(t, memory.Set(openClawTokenAccount(99), credential))
+		require.NoError(t, memory.Set(backendcred.OpenClawTokenAccount(savedOpenClawBackend(99).SyncID), credential))
 
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
@@ -253,7 +259,7 @@ func TestResolveOpenClawRuntimeConfig(t *testing.T) {
 		memory := keychain.NewMemory()
 		svc.secrets = memory
 		credential := strings.Repeat("r", 48)
-		require.NoError(t, memory.Set(openClawTokenAccount(96), credential))
+		require.NoError(t, memory.Set(backendcred.OpenClawTokenAccount(savedOpenClawBackend(96).SyncID), credential))
 		backendMock.EXPECT().Find(gomock.Any(), int64(96)).Return(savedOpenClawBackend(96), nil)
 
 		config, err := svc.resolveOpenClawRuntimeConfig(ctx, 96)
@@ -279,5 +285,51 @@ func TestResolveOpenClawRuntimeConfig(t *testing.T) {
 		config, err := svc.resolveOpenClawRuntimeConfig(ctx, 97)
 		assert.ErrorIs(t, err, ErrOpenClawRemoteSecretUnavailable)
 		assert.Empty(t, config.Token)
+	})
+}
+
+func TestOpenClawTokenSlot_IsKeyedBySyncID(t *testing.T) {
+	t.Run("Given a token saved under the backend's sync_id when listing then has_token is reported and a same-ID slot is ignored", func(t *testing.T) {
+		svc := &agentBackendSvc{now: func() int64 { return 1 }}
+		memory := keychain.NewMemory()
+		svc.secrets = memory
+		backend := savedOpenClawBackend(83)
+		require.NoError(t, memory.Set(backendcred.OpenClawTokenAccount(backend.SyncID), strings.Repeat("h", 40)))
+
+		assert.True(t, svc.buildItem(backend, nil, backendItemLookup{}).HasToken)
+
+		other := savedOpenClawBackend(83)
+		other.SyncID = "sync-openclaw-other-device-row"
+		assert.False(t, svc.buildItem(other, nil, backendItemLookup{}).HasToken,
+			"two rows sharing a local ID but not a sync_id must not share a token")
+	})
+
+	t.Run("Given a backend without a sync_id when listing then no token is reported", func(t *testing.T) {
+		svc := &agentBackendSvc{now: func() int64 { return 1 }}
+		svc.secrets = keychain.NewMemory()
+		backend := savedOpenClawBackend(84)
+		backend.SyncID = ""
+
+		assert.False(t, svc.buildItem(backend, nil, backendItemLookup{}).HasToken)
+	})
+
+	t.Run("Given create cannot key a token because the row has no sync_id then the row is rolled back", func(t *testing.T) {
+		ctx, backendMock, _, _, _, svc := setupSvcTest(t)
+		memory := &recordingSecretStore{Keychain: keychain.NewMemory()}
+		svc.secrets = memory
+		backendMock.EXPECT().FindByName(gomock.Any(), "OpenClaw Local").Return(nil, nil)
+		backendMock.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, backend *agent_backend_entity.AgentBackend) error {
+				backend.ID = 85
+				return nil
+			},
+		)
+		backendMock.EXPECT().Delete(gomock.Any(), int64(85)).Return(nil)
+
+		response, err := svc.CreateOpenClaw(ctx, openClawCreateRequest(), strings.Repeat("n", 40))
+
+		assert.Error(t, err)
+		assert.Nil(t, response)
+		assert.Empty(t, memory.written)
 	})
 }

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   listHermesProviders: vi.fn(),
   loginHermes: vi.fn(),
   logoutHermes: vi.fn(),
+  getBackendCredentialStatus: vi.fn(),
 }));
 
 vi.mock("../../../wailsjs/go/app/App", () => ({
@@ -20,6 +21,7 @@ vi.mock("../../../wailsjs/go/app/App", () => ({
   ListHermesAuthProviders: mocks.listHermesProviders,
   LoginHermesBackend: mocks.loginHermes,
   LogoutHermesBackend: mocks.logoutHermes,
+  GetBackendCredentialStatus: mocks.getBackendCredentialStatus,
 }));
 
 import { createDesktopEngineSettingsPorts } from "../engine-ports-desktop";
@@ -105,5 +107,91 @@ describe("desktop 后端的 hermes 字段", () => {
     expect(providers).toEqual([
       { name: "basic", displayName: "Basic", supportsPassword: true },
     ]);
+  });
+});
+
+// 后端绑定设备可以不是本机：这五个操作都要把 deviceId 原样带给对应的 Wails
+// 绑定，桌面端不能自己揣着不转（task 3 已经在 Go 侧加了这个字段，这里补前端
+// 那一半的路由）。
+describe("desktop 凭据操作携带绑定设备", () => {
+  it("列提供方把 deviceId 传给 Wails 绑定", async () => {
+    mocks.listHermesProviders.mockResolvedValue({ providers: [] });
+
+    await createDesktopEngineSettingsPorts().listHermesAuthProviders?.(
+      "http://10.0.0.8:9119",
+      "sha256:remote-daemon",
+    );
+
+    expect(mocks.listHermesProviders).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "http://10.0.0.8:9119",
+        deviceId: "sha256:remote-daemon",
+      }),
+    );
+  });
+
+  it("登录把 deviceId 传给 Wails 绑定", async () => {
+    mocks.loginHermes.mockResolvedValue({ provider: "basic", userId: "u" });
+
+    await createDesktopEngineSettingsPorts().loginHermesBackend?.({
+      url: "http://10.0.0.8:9119",
+      provider: "basic",
+      username: "alice",
+      password: "secret",
+      deviceId: "sha256:remote-daemon",
+    });
+
+    expect(mocks.loginHermes).toHaveBeenCalledWith(
+      expect.objectContaining({ deviceId: "sha256:remote-daemon" }),
+    );
+  });
+
+  it("登出把 deviceId 传给 Wails 绑定", async () => {
+    mocks.logoutHermes.mockResolvedValue({});
+
+    await createDesktopEngineSettingsPorts().logoutHermesBackend?.({
+      id: 2,
+      url: "http://10.0.0.8:9119",
+      deviceId: "sha256:remote-daemon",
+    });
+
+    expect(mocks.logoutHermes).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 2,
+        url: "http://10.0.0.8:9119",
+        deviceId: "sha256:remote-daemon",
+      }),
+    );
+  });
+
+  it("凭据状态查询把 type/syncId/hermesUrl/deviceId 传给 Wails 绑定，并去掉包装", async () => {
+    mocks.getBackendCredentialStatus.mockResolvedValue({
+      openClawTokenSaved: true,
+      hermesLoggedIn: false,
+      hermesProvider: "",
+      hermesUserId: "",
+    });
+
+    const status =
+      await createDesktopEngineSettingsPorts().backendCredentialStatus?.({
+        type: "openclaw",
+        syncId: "sync-1",
+        deviceId: "sha256:remote-daemon",
+      });
+
+    expect(mocks.getBackendCredentialStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "openclaw",
+        syncId: "sync-1",
+        hermesUrl: "",
+        deviceId: "sha256:remote-daemon",
+      }),
+    );
+    expect(status).toEqual({
+      openClawTokenSaved: true,
+      hermesLoggedIn: false,
+      hermesProvider: "",
+      hermesUserId: "",
+    });
   });
 });

@@ -90,6 +90,17 @@ func (a *App) LoginHermesBackend(req *agent_backend_svc.LoginHermesRequest) (*ag
 	return resp, nil
 }
 
+// GetBackendCredentialStatus 问后端绑定的那台设备:凭据存了没、登录成了谁。
+// 只回状态,凭据本身永远不出那台设备。设备离线 / 未配对时返回带业务码的错误,
+// 编辑器据此显示「登录状态未知」。
+func (a *App) GetBackendCredentialStatus(req *agent_backend_svc.BackendCredentialStatusRequest) (*agent_backend_svc.BackendCredentialStatusResponse, error) {
+	resp, err := agent_backend_svc.AgentBackend().BackendCredentialStatus(a.ctx, req)
+	if err != nil {
+		return nil, codedError(err)
+	}
+	return resp, nil
+}
+
 // LogoutHermesBackend 删除凭据并清掉后端上两个展示字段。
 func (a *App) LogoutHermesBackend(req *agent_backend_svc.LogoutHermesRequest) (*agent_backend_svc.LogoutHermesResponse, error) {
 	resp, err := agent_backend_svc.AgentBackend().LogoutHermes(a.ctx, req)

@@ -2,13 +2,7 @@ package agent_backend_svc
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
-	"fmt"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/cago-frame/cago/pkg/logger"
@@ -16,226 +10,84 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes"
+	"github.com/agentre-hub/agentre/internal/pkg/backendcred"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
-
-// hermesRefreshAccountPrefix namespaces the URL-derived keychain slots. Only the
-// refresh token is stored there; the password is never persisted.
-const hermesRefreshAccountPrefix = "agentre-hermes-refresh-"
-
-// hermesAccessRefreshSkew refreshes a cached access token slightly before it
-// actually expires so a dial never races the expiry.
-const hermesAccessRefreshSkew = 30 * time.Second
-
-// hermesKeychainAccount derives the keychain slot for a normalized serve URL:
-// every backend pointing at the same serve (and therefore the same identity)
-// shares one credential, and login works before the backend is saved.
-func hermesKeychainAccount(normalizedURL string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(normalizedURL)))
-	return hermesRefreshAccountPrefix + hex.EncodeToString(sum[:16])
-}
-
-type cachedHermesAccess struct {
-	token     string
-	expiresAt time.Time
-}
-
-// hermesCredentialStore is the process-wide bridge between the login flow and
-// the Hermes runtime: login writes the refresh token to the keychain and caches
-// the access token, the runtime asks for a bearer without ever touching the
-// keychain itself, and a rejected access token forces exactly one refresh.
-type hermesCredentialStore struct {
-	mu    sync.Mutex
-	cache map[string]cachedHermesAccess
-	kc    func() keychain.Keychain
-}
-
-func newHermesCredentialStore(kc func() keychain.Keychain) *hermesCredentialStore {
-	return &hermesCredentialStore{
-		cache: map[string]cachedHermesAccess{},
-		kc:    kc,
-	}
-}
-
-func (c *hermesCredentialStore) keychain() keychain.Keychain {
-	if c.kc != nil {
-		return c.kc()
-	}
-	return keychain.Default()
-}
-
-// StoreLogin persists the refresh token and caches the freshly minted access
-// token. normalizedURL must already be normalized.
-func (c *hermesCredentialStore) StoreLogin(normalizedURL string, tokens *hermes.AuthTokens) error {
-	if tokens == nil || strings.TrimSpace(tokens.RefreshToken) == "" {
-		return errors.New("hermes credential store: login returned no refresh token")
-	}
-	if err := c.keychain().Set(hermesKeychainAccount(normalizedURL), tokens.RefreshToken); err != nil {
-		return err
-	}
-	c.remember(normalizedURL, tokens.AccessToken, tokens.ExpiresAt)
-	return nil
-}
-
-// Logout drops both the keychain entry and the cached access token.
-func (c *hermesCredentialStore) Logout(normalizedURL string) error {
-	c.mu.Lock()
-	delete(c.cache, normalizedURL)
-	c.mu.Unlock()
-	err := c.keychain().Delete(hermesKeychainAccount(normalizedURL))
-	if errors.Is(err, keychain.ErrNotFound) {
-		return nil
-	}
-	return err
-}
-
-// AccessToken implements hermes.CredentialSource.
-func (c *hermesCredentialStore) AccessToken(ctx context.Context, baseURL, provider string) (string, error) {
-	base, err := agent_backend_entity.NormalizeHermesURL(baseURL)
-	if err != nil {
-		return "", err
-	}
-	if token, ok := c.cached(base); ok {
-		return token, nil
-	}
-	refresh, err := c.keychain().Get(hermesKeychainAccount(base))
-	if errors.Is(err, keychain.ErrNotFound) {
-		return "", hermes.ErrLoginRequired
-	}
-	if err != nil {
-		return "", fmt.Errorf("%w: keychain: %v", hermes.ErrLoginRequired, err)
-	}
-	if strings.TrimSpace(refresh) == "" {
-		return "", hermes.ErrLoginRequired
-	}
-	resolvedProvider, err := c.resolveProvider(ctx, base, provider)
-	if err != nil {
-		return "", err
-	}
-	tokens, err := hermes.RefreshAuthTokens(ctx, hermes.RefreshAuthRequest{
-		BaseURL:      base,
-		Provider:     resolvedProvider,
-		RefreshToken: refresh,
-	})
-	if err != nil {
-		return "", err
-	}
-	// basic providers are long-lived, but a rotating provider would change the
-	// refresh token here; persist the new one so the next refresh sees it.
-	if next := strings.TrimSpace(tokens.RefreshToken); next != "" && next != refresh {
-		if setErr := c.keychain().Set(hermesKeychainAccount(base), next); setErr != nil {
-			return "", setErr
-		}
-	}
-	c.remember(base, tokens.AccessToken, tokens.ExpiresAt)
-	return tokens.AccessToken, nil
-}
-
-// Invalidate implements hermes.CredentialSource: the next access request must
-// refresh instead of trusting the cache.
-func (c *hermesCredentialStore) Invalidate(baseURL string) {
-	base, err := agent_backend_entity.NormalizeHermesURL(baseURL)
-	if err != nil {
-		return
-	}
-	c.mu.Lock()
-	delete(c.cache, base)
-	c.mu.Unlock()
-}
-
-func (c *hermesCredentialStore) cached(base string) (string, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	entry, ok := c.cache[base]
-	if !ok || strings.TrimSpace(entry.token) == "" {
-		return "", false
-	}
-	if !entry.expiresAt.IsZero() && time.Now().After(entry.expiresAt.Add(-hermesAccessRefreshSkew)) {
-		return "", false
-	}
-	return entry.token, true
-}
-
-func (c *hermesCredentialStore) remember(base, token string, expiresAt time.Time) {
-	c.mu.Lock()
-	c.cache[base] = cachedHermesAccess{token: token, expiresAt: expiresAt}
-	c.mu.Unlock()
-}
-
-// resolveProvider picks the provider used for refresh. An explicit hint wins;
-// otherwise the only password-capable provider is chosen. An empty result means
-// the serve only offers browser-based providers.
-func (c *hermesCredentialStore) resolveProvider(ctx context.Context, base, hint string) (string, error) {
-	if p := strings.TrimSpace(hint); p != "" {
-		return p, nil
-	}
-	providers, err := hermes.ListAuthProviders(ctx, base, nil)
-	if err != nil {
-		return "", err
-	}
-	for _, p := range providers {
-		if p.SupportsPassword {
-			return p.Name, nil
-		}
-	}
-	return "", hermes.ErrPasswordLoginUnsupported
-}
 
 // defaultHermesCredentials is the singleton the registered runtime reaches
 // through hermes.DefaultCredentialSource. It resolves the keychain lazily so
 // bootstrap's isolated-keychain swap is honored.
-var defaultHermesCredentials = newHermesCredentialStore(func() keychain.Keychain { return keychain.Default() })
+var defaultHermesCredentials = backendcred.NewHermesCredentials(func() backendcred.Store {
+	if kc := keychain.Default(); kc != nil {
+		return kc
+	}
+	return nil
+})
 
 func init() {
 	hermes.SetDefaultCredentialSource(defaultHermesCredentials)
 }
 
-func (s *agentBackendSvc) credentialStore() *hermesCredentialStore {
+func (s *agentBackendSvc) credentialStore() *backendcred.HermesCredentials {
 	if s != nil && s.hermes != nil {
 		return s.hermes
 	}
 	return defaultHermesCredentials
 }
 
-// Hermes test-connection codes. The frontend localizes these so a gated serve
-// reports "login required" / "login expired" instead of a generic failure.
+// Hermes 测试连接的结果码。串本身住在 backendcred(无副作用叶子),两种执行端
+// 共用同一份 —— agentred 不能 import 本包(会把桌面端服务连同它的 init 拖进
+// daemon),但两边都 import 得了那个叶子。这里只把它们取个本包的名字。
 const (
-	HermesCodeLoginRequired       = "HERMES_LOGIN_REQUIRED"
-	HermesCodeLoginExpired        = "HERMES_LOGIN_EXPIRED"
-	HermesCodeInvalidCredentials  = "HERMES_INVALID_CREDENTIALS"
-	HermesCodeRateLimited         = "HERMES_RATE_LIMITED"
-	HermesCodeProviderUnsupported = "HERMES_PROVIDER_UNSUPPORTED"
-	HermesCodeProviderUnavailable = "HERMES_PROVIDER_UNAVAILABLE"
-	HermesCodeProviderNotFound    = "HERMES_PROVIDER_NOT_FOUND"
-	HermesCodeUnreachable         = "HERMES_UNREACHABLE"
+	HermesCodeLoginRequired       = backendcred.HermesCodeLoginRequired
+	HermesCodeLoginExpired        = backendcred.HermesCodeLoginExpired
+	HermesCodeInvalidCredentials  = backendcred.HermesCodeInvalidCredentials
+	HermesCodeRateLimited         = backendcred.HermesCodeRateLimited
+	HermesCodeProviderUnsupported = backendcred.HermesCodeProviderUnsupported
+	HermesCodeProviderUnavailable = backendcred.HermesCodeProviderUnavailable
+	// HermesCodeProviderNotFound 没有对应的哨兵,因此不在共用那一份里:它是前端
+	// 按业务码 12036 直接认的串(backend-editor/draft.ts)。
+	HermesCodeProviderNotFound = "HERMES_PROVIDER_NOT_FOUND"
+	HermesCodeUnreachable      = backendcred.HermesCodeUnreachable
 )
+
+// hermesResultBizCode 是桌面端**独有**的那一半:结果码 → 本地化的业务码。
+//
+// 「哪一个失败落在哪一个结果码上」由 backendcred.HermesResultCode 说了算,两种
+// 执行端共用;桌面端在它之上多一步 —— 本机路径要回一句中文,收到绑定设备的结果码
+// 时也要翻回同一句。于是这张表只按结果码索引,不再重述一遍哨兵,某个原因也就不可能
+// 在两条路径上说成两句话。
+var hermesResultBizCode = map[string]int{
+	HermesCodeLoginRequired:       code.HermesLoginRequired,
+	HermesCodeLoginExpired:        code.HermesLoginExpired,
+	HermesCodeInvalidCredentials:  code.HermesLoginRejected,
+	HermesCodeRateLimited:         code.HermesRateLimited,
+	HermesCodeProviderUnsupported: code.HermesProviderUnsupported,
+	HermesCodeProviderUnavailable: code.HermesProviderUnavailable,
+	HermesCodeUnreachable:         code.HermesUnreachable,
+}
 
 // hermesAuthCode maps the auth-layer sentinels to (business code, frontend code).
 func hermesAuthCode(err error) (int, string, bool) {
-	switch {
-	case err == nil:
-		return 0, "", false
-	case errors.Is(err, hermes.ErrLoginRequired):
-		return code.HermesLoginRequired, HermesCodeLoginRequired, true
-	case errors.Is(err, hermes.ErrLoginExpired):
-		return code.HermesLoginExpired, HermesCodeLoginExpired, true
-	case errors.Is(err, hermes.ErrInvalidCredentials):
-		return code.HermesLoginRejected, HermesCodeInvalidCredentials, true
-	case errors.Is(err, hermes.ErrAuthRateLimited):
-		return code.HermesRateLimited, HermesCodeRateLimited, true
-	case errors.Is(err, hermes.ErrPasswordLoginUnsupported):
-		return code.HermesProviderUnsupported, HermesCodeProviderUnsupported, true
-	case errors.Is(err, hermes.ErrAuthProviderUnavailable):
-		return code.HermesProviderUnavailable, HermesCodeProviderUnavailable, true
-	case errors.Is(err, hermes.ErrAuthUnreachable):
-		return code.HermesUnreachable, HermesCodeUnreachable, true
-	default:
+	resultCode := backendcred.HermesResultCode(err)
+	bizCode, ok := hermesBizCode(resultCode)
+	if !ok {
 		return 0, "", false
 	}
+	return bizCode, resultCode, true
+}
+
+// hermesBizCode 是反向:绑定设备回的结构化结果码 → 本地化的业务码。
+func hermesBizCode(resultCode string) (int, bool) {
+	bizCode, ok := hermesResultBizCode[resultCode]
+	return bizCode, ok
 }
 
 // hermesAuthError turns an auth failure into the localized business error the
@@ -257,6 +109,30 @@ func (s *agentBackendSvc) ListHermesAuthProviders(ctx context.Context, req *List
 	base, err := agent_backend_entity.NormalizeHermesURL(req.URL)
 	if err != nil {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	deviceID, remote, err := boundCredentialDevice(ctx, devicefp.Carrier(strings.TrimSpace(req.DeviceID)))
+	if err != nil {
+		return nil, err
+	}
+	if remote {
+		// 目录由那台设备去读:能不能连上这个 serve 是**它**的网络说了算。
+		response, err := s.credentials().HermesAuthProviders(ctx, deviceID,
+			&agentrewire.HermesAuthProvidersRequest{HermesUrl: base})
+		if err != nil {
+			return nil, remoteCredentialError(ctx, deviceID, err)
+		}
+		if resultCode := response.GetCode(); resultCode != "" {
+			return nil, hermesCodeError(ctx, resultCode)
+		}
+		items := make([]HermesAuthProviderItem, 0, len(response.GetProviders()))
+		for _, p := range response.GetProviders() {
+			items = append(items, HermesAuthProviderItem{
+				Name:             p.GetName(),
+				DisplayName:      p.GetDisplayName(),
+				SupportsPassword: p.GetSupportsPassword(),
+			})
+		}
+		return &ListHermesAuthProvidersResponse{Providers: items}, nil
 	}
 	providers, err := hermes.ListAuthProviders(ctx, base, nil)
 	if err != nil {
@@ -284,30 +160,33 @@ func (s *agentBackendSvc) LoginHermes(ctx context.Context, req *LoginHermesReque
 	if err != nil {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
-	store := s.credentialStore()
-	provider := strings.TrimSpace(req.Provider)
-	if provider == "" {
-		provider, err = store.resolveProvider(ctx, base, "")
-		if err != nil {
-			return nil, hermesAuthError(ctx, err)
-		}
+	deviceID, remote, err := boundCredentialDevice(ctx, devicefp.Carrier(strings.TrimSpace(req.DeviceID)))
+	if err != nil {
+		return nil, err
 	}
-	tokens, err := hermes.PasswordLogin(ctx, hermes.PasswordLoginRequest{
+	if remote {
+		// 密码只以内存形态穿过中继,登录由那台设备完成,refresh token 落在它那里(决策 3)。
+		response, err := s.credentials().HermesLogin(ctx, deviceID, &agentrewire.HermesLoginRequest{
+			HermesUrl: base, Provider: req.Provider, Username: req.Username, Password: req.Password,
+		})
+		if err != nil {
+			return nil, remoteCredentialError(ctx, deviceID, err)
+		}
+		if resultCode := response.GetCode(); resultCode != "" {
+			return nil, hermesCodeError(ctx, resultCode)
+		}
+		return &LoginHermesResponse{Provider: response.GetProvider(), UserID: response.GetUserId()}, nil
+	}
+	identity, err := s.credentialStore().Login(ctx, backendcred.HermesLogin{
 		BaseURL:  base,
-		Provider: provider,
+		Provider: req.Provider,
 		Username: req.Username,
 		Password: req.Password,
 	})
 	if err != nil {
 		return nil, hermesAuthError(ctx, err)
 	}
-	if err := store.StoreLogin(base, tokens); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(tokens.Provider) != "" {
-		provider = tokens.Provider
-	}
-	return &LoginHermesResponse{Provider: provider, UserID: tokens.UserID}, nil
+	return &LoginHermesResponse{Provider: identity.Provider, UserID: identity.UserID}, nil
 }
 
 // LogoutHermes drops the stored credential for the serve and clears the two
@@ -318,6 +197,7 @@ func (s *agentBackendSvc) LogoutHermes(ctx context.Context, req *LogoutHermesReq
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
 	rawURL := strings.TrimSpace(req.URL)
+	device := devicefp.Carrier(strings.TrimSpace(req.DeviceID))
 	if req.ID > 0 {
 		row, err := agent_backend_repo.AgentBackend().Find(ctx, req.ID)
 		if err != nil {
@@ -329,6 +209,8 @@ func (s *agentBackendSvc) LogoutHermes(ctx context.Context, req *LogoutHermesReq
 		if strings.TrimSpace(row.HermesURL) != "" {
 			rawURL = row.HermesURL
 		}
+		// 保存行上的绑定设备说了算:凭据在那台机器上,与请求里带的草稿设备无关。
+		device = row.DeviceFingerprint
 		if strings.TrimSpace(row.HermesAuthProvider) != "" || strings.TrimSpace(row.HermesUserID) != "" {
 			row.HermesAuthProvider = ""
 			row.HermesUserID = ""
@@ -340,6 +222,17 @@ func (s *agentBackendSvc) LogoutHermes(ctx context.Context, req *LogoutHermesReq
 		}
 	}
 	if base, err := agent_backend_entity.NormalizeHermesURL(rawURL); err == nil && base != "" {
+		deviceID, remote, err := boundCredentialDevice(ctx, device)
+		if err != nil {
+			return nil, err
+		}
+		if remote {
+			if _, err := s.credentials().HermesLogout(ctx, deviceID,
+				&agentrewire.HermesLogoutRequest{HermesUrl: base}); err != nil {
+				return nil, remoteCredentialError(ctx, deviceID, err)
+			}
+			return &LogoutHermesResponse{}, nil
+		}
 		if err := s.credentialStore().Logout(base); err != nil {
 			return nil, err
 		}
@@ -347,8 +240,12 @@ func (s *agentBackendSvc) LogoutHermes(ctx context.Context, req *LogoutHermesReq
 	return &LogoutHermesResponse{}, nil
 }
 
-// deleteHermesCredential is the delete-backend hook: remove the shared keychain
-// credential, logging a failure rather than blocking the delete.
+// deleteHermesCredential is the delete-backend hook. The credential is keyed by
+// URL and shared by every backend on this device pointing at the same serve, so
+// it is cleared only when no remaining local backend still uses that URL. It is
+// best-effort: a failure is logged and never blocks the delete, and when the
+// remaining backends cannot be listed the login is kept rather than risk logging
+// out another backend (a leftover credential is harmless).
 func (s *agentBackendSvc) deleteHermesCredential(ctx context.Context, backend *agent_backend_entity.AgentBackend) {
 	if backend == nil || !backend.IsHermes() || strings.TrimSpace(backend.HermesURL) == "" {
 		return
@@ -357,8 +254,49 @@ func (s *agentBackendSvc) deleteHermesCredential(ctx context.Context, backend *a
 	if err != nil {
 		return
 	}
+	inUse, err := hermesURLUsedByAnotherBackendOn(ctx, backend.ID, base, backend.DeviceFingerprint)
+	if err != nil {
+		logger.Ctx(ctx).Warn("agent_backend delete: cannot list backends; keeping the shared hermes login",
+			zap.Int64("id", backend.ID), zap.Error(err))
+		return
+	}
+	if inUse {
+		return
+	}
 	if err := s.credentialStore().Logout(base); err != nil {
 		logger.Ctx(ctx).Warn("agent_backend delete: hermes keychain delete failed; the credential is keyed by URL, so a leak is harmless",
 			zap.Int64("id", backend.ID), zap.Error(err))
 	}
+}
+
+// hermesURLUsedByAnotherBackendOn reports whether an active Hermes backend other
+// than deletedID, bound to the same device, points at the normalized URL. The
+// question is per device because the credential is: one serve, one device, one
+// login (decision 5), and logging out would hit every backend sharing it.
+func hermesURLUsedByAnotherBackendOn(
+	ctx context.Context, deletedID int64, base string, device devicefp.Carrier,
+) (bool, error) {
+	rows, err := agent_backend_repo.AgentBackend().List(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, row := range rows {
+		if row == nil || row.ID == deletedID || !row.IsHermes() ||
+			!sameBoundDevice(row.DeviceFingerprint, device) {
+			continue
+		}
+		if other, err := agent_backend_entity.NormalizeHermesURL(row.HermesURL); err == nil && other == base {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// sameBoundDevice 判断两个后端是否绑在同一台设备上。空指纹与本机指纹都读作「本机」
+// (R13 认领前后的两种写法),其余按指纹逐字比。
+func sameBoundDevice(a, b devicefp.Carrier) bool {
+	if !remote_device_svc.TargetsAnotherMachine(a) && !remote_device_svc.TargetsAnotherMachine(b) {
+		return true
+	}
+	return a == b
 }

@@ -64,6 +64,12 @@ export const desktopAnsweredMethods: readonly string[] = [
   "engineScan",
   "engineTest",
   "cliResolvePath",
+  "backendCredentialStatus",
+  "openClawTokenSet",
+  "hermesAuthProviders",
+  "hermesLogin",
+  "hermesLogout",
+  "backendConnectionTest",
   "projectSetLocalPath",
   "projectClearLocalPath",
 ];
@@ -123,4 +129,10 @@ export const agentredAnsweredMethods: readonly string[] = [
   "workspaceFsGitBranches",
   "workspaceFsGitState",
   "workspaceFsGitChanges",
+  "backendCredentialStatus",
+  "openClawTokenSet",
+  "hermesAuthProviders",
+  "hermesLogin",
+  "hermesLogout",
+  "backendConnectionTest",
 ];

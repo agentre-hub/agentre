@@ -38,7 +38,59 @@ describe("typed protobuf RPC methods", () => {
       62,
       63,
       64,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
     ]);
+  });
+
+  // 设备本地后端凭据一族(70–75):控制台对绑定设备发这六个操作。69(auth.direct)不在
+  // 表里,只有桌面端的 Go 连接池发它。
+  it("pairs every backend credential descriptor with its generated proto ID", () => {
+    expect(rpcMethods.backendCredentialStatus.id).toBe(
+      RpcMethod.BACKEND_CREDENTIAL_STATUS,
+    );
+    expect(rpcMethods.openClawTokenSet.id).toBe(RpcMethod.OPENCLAW_TOKEN_SET);
+    expect(rpcMethods.hermesAuthProviders.id).toBe(
+      RpcMethod.HERMES_AUTH_PROVIDERS,
+    );
+    expect(rpcMethods.hermesLogin.id).toBe(RpcMethod.HERMES_LOGIN);
+    expect(rpcMethods.hermesLogout.id).toBe(RpcMethod.HERMES_LOGOUT);
+    expect(rpcMethods.backendConnectionTest.id).toBe(
+      RpcMethod.BACKEND_CONNECTION_TEST,
+    );
+  });
+
+  // 测试连接的结构化结果要整格过线:控制台按 code 本地化,按 openclawAgents 给出可选项。
+  it("round-trips a backend connection test result", () => {
+    const encoded = ProtobufRpcCodec.encodeTypedMethodResponse(
+      9n,
+      rpcMethods.backendConnectionTest,
+      {
+        ok: true,
+        latencyMs: 42n,
+        gatewayVersion: "2026.7.1",
+        protocol: 4,
+        openclawAgents: [{ id: "main", name: "Main", isDefault: true }],
+      },
+    );
+    const decoded = decodeRpcMethodResponse(
+      encoded,
+      rpcMethods.backendConnectionTest,
+    );
+    expect(decoded).toMatchObject({
+      ok: true,
+      latencyMs: 42n,
+      gatewayVersion: "2026.7.1",
+      protocol: 4,
+    });
+    expect(decoded.openclawAgents[0]).toMatchObject({
+      id: "main",
+      isDefault: true,
+    });
   });
 
   // 端口转发声明族:控制台按 id 停用与删除,按端口 + 名称新增。这张表是手写的,

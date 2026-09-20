@@ -95,6 +95,12 @@ const (
 	RpcMethod_RPC_METHOD_PORT_FORWARD_CLOSE             RpcMethod = 67
 	RpcMethod_RPC_METHOD_PORT_FORWARD_ACK               RpcMethod = 68
 	RpcMethod_RPC_METHOD_AUTH_DIRECT                    RpcMethod = 69
+	RpcMethod_RPC_METHOD_BACKEND_CREDENTIAL_STATUS      RpcMethod = 70
+	RpcMethod_RPC_METHOD_OPENCLAW_TOKEN_SET             RpcMethod = 71
+	RpcMethod_RPC_METHOD_HERMES_AUTH_PROVIDERS          RpcMethod = 72
+	RpcMethod_RPC_METHOD_HERMES_LOGIN                   RpcMethod = 73
+	RpcMethod_RPC_METHOD_HERMES_LOGOUT                  RpcMethod = 74
+	RpcMethod_RPC_METHOD_BACKEND_CONNECTION_TEST        RpcMethod = 75
 )
 
 // Enum value maps for RpcMethod.
@@ -170,6 +176,12 @@ var (
 		67: "RPC_METHOD_PORT_FORWARD_CLOSE",
 		68: "RPC_METHOD_PORT_FORWARD_ACK",
 		69: "RPC_METHOD_AUTH_DIRECT",
+		70: "RPC_METHOD_BACKEND_CREDENTIAL_STATUS",
+		71: "RPC_METHOD_OPENCLAW_TOKEN_SET",
+		72: "RPC_METHOD_HERMES_AUTH_PROVIDERS",
+		73: "RPC_METHOD_HERMES_LOGIN",
+		74: "RPC_METHOD_HERMES_LOGOUT",
+		75: "RPC_METHOD_BACKEND_CONNECTION_TEST",
 	}
 	RpcMethod_value = map[string]int32{
 		"RPC_METHOD_UNSPECIFIED":                    0,
@@ -242,6 +254,12 @@ var (
 		"RPC_METHOD_PORT_FORWARD_CLOSE":             67,
 		"RPC_METHOD_PORT_FORWARD_ACK":               68,
 		"RPC_METHOD_AUTH_DIRECT":                    69,
+		"RPC_METHOD_BACKEND_CREDENTIAL_STATUS":      70,
+		"RPC_METHOD_OPENCLAW_TOKEN_SET":             71,
+		"RPC_METHOD_HERMES_AUTH_PROVIDERS":          72,
+		"RPC_METHOD_HERMES_LOGIN":                   73,
+		"RPC_METHOD_HERMES_LOGOUT":                  74,
+		"RPC_METHOD_BACKEND_CONNECTION_TEST":        75,
 	}
 )
 
@@ -15556,6 +15574,987 @@ func (x *PortForwardRevokedNotification) GetReason() string {
 	return ""
 }
 
+// BackendCredentialStatusRequest 问这台设备上某个后端的凭据状态。
+// backend_type 取 "openclaw"(按 sync_id 查)或 "hermes"(按 hermes_url 查)。
+type BackendCredentialStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BackendType   string                 `protobuf:"bytes,1,opt,name=backend_type,json=backendType,proto3" json:"backend_type,omitempty"`
+	SyncId        string                 `protobuf:"bytes,2,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
+	HermesUrl     string                 `protobuf:"bytes,3,opt,name=hermes_url,json=hermesUrl,proto3" json:"hermes_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackendCredentialStatusRequest) Reset() {
+	*x = BackendCredentialStatusRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[220]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackendCredentialStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackendCredentialStatusRequest) ProtoMessage() {}
+
+func (x *BackendCredentialStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[220]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackendCredentialStatusRequest.ProtoReflect.Descriptor instead.
+func (*BackendCredentialStatusRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{220}
+}
+
+func (x *BackendCredentialStatusRequest) GetBackendType() string {
+	if x != nil {
+		return x.BackendType
+	}
+	return ""
+}
+
+func (x *BackendCredentialStatusRequest) GetSyncId() string {
+	if x != nil {
+		return x.SyncId
+	}
+	return ""
+}
+
+func (x *BackendCredentialStatusRequest) GetHermesUrl() string {
+	if x != nil {
+		return x.HermesUrl
+	}
+	return ""
+}
+
+// 登录是否过期只在测试连接或发起对话时得知,这里不答。
+type BackendCredentialStatusResponse struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	OpenclawTokenSaved bool                   `protobuf:"varint,1,opt,name=openclaw_token_saved,json=openclawTokenSaved,proto3" json:"openclaw_token_saved,omitempty"`
+	HermesLoggedIn     bool                   `protobuf:"varint,2,opt,name=hermes_logged_in,json=hermesLoggedIn,proto3" json:"hermes_logged_in,omitempty"`
+	HermesProvider     string                 `protobuf:"bytes,3,opt,name=hermes_provider,json=hermesProvider,proto3" json:"hermes_provider,omitempty"`
+	HermesUserId       string                 `protobuf:"bytes,4,opt,name=hermes_user_id,json=hermesUserId,proto3" json:"hermes_user_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *BackendCredentialStatusResponse) Reset() {
+	*x = BackendCredentialStatusResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[221]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackendCredentialStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackendCredentialStatusResponse) ProtoMessage() {}
+
+func (x *BackendCredentialStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[221]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackendCredentialStatusResponse.ProtoReflect.Descriptor instead.
+func (*BackendCredentialStatusResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{221}
+}
+
+func (x *BackendCredentialStatusResponse) GetOpenclawTokenSaved() bool {
+	if x != nil {
+		return x.OpenclawTokenSaved
+	}
+	return false
+}
+
+func (x *BackendCredentialStatusResponse) GetHermesLoggedIn() bool {
+	if x != nil {
+		return x.HermesLoggedIn
+	}
+	return false
+}
+
+func (x *BackendCredentialStatusResponse) GetHermesProvider() string {
+	if x != nil {
+		return x.HermesProvider
+	}
+	return ""
+}
+
+func (x *BackendCredentialStatusResponse) GetHermesUserId() string {
+	if x != nil {
+		return x.HermesUserId
+	}
+	return ""
+}
+
+// OpenClawTokenSetRequest 保存(token 非空)或清除(clear=true)一个 OpenClaw 后端的
+// Gateway token,槽位按 sync_id 取。
+type OpenClawTokenSetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SyncId        string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
+	Token         string                 `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	Clear         bool                   `protobuf:"varint,3,opt,name=clear,proto3" json:"clear,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OpenClawTokenSetRequest) Reset() {
+	*x = OpenClawTokenSetRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[222]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenClawTokenSetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenClawTokenSetRequest) ProtoMessage() {}
+
+func (x *OpenClawTokenSetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[222]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenClawTokenSetRequest.ProtoReflect.Descriptor instead.
+func (*OpenClawTokenSetRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{222}
+}
+
+func (x *OpenClawTokenSetRequest) GetSyncId() string {
+	if x != nil {
+		return x.SyncId
+	}
+	return ""
+}
+
+func (x *OpenClawTokenSetRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *OpenClawTokenSetRequest) GetClear() bool {
+	if x != nil {
+		return x.Clear
+	}
+	return false
+}
+
+type OpenClawTokenSetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TokenSaved    bool                   `protobuf:"varint,1,opt,name=token_saved,json=tokenSaved,proto3" json:"token_saved,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OpenClawTokenSetResponse) Reset() {
+	*x = OpenClawTokenSetResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[223]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenClawTokenSetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenClawTokenSetResponse) ProtoMessage() {}
+
+func (x *OpenClawTokenSetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[223]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenClawTokenSetResponse.ProtoReflect.Descriptor instead.
+func (*OpenClawTokenSetResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{223}
+}
+
+func (x *OpenClawTokenSetResponse) GetTokenSaved() bool {
+	if x != nil {
+		return x.TokenSaved
+	}
+	return false
+}
+
+type HermesAuthProvidersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	HermesUrl     string                 `protobuf:"bytes,1,opt,name=hermes_url,json=hermesUrl,proto3" json:"hermes_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HermesAuthProvidersRequest) Reset() {
+	*x = HermesAuthProvidersRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[224]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HermesAuthProvidersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HermesAuthProvidersRequest) ProtoMessage() {}
+
+func (x *HermesAuthProvidersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[224]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HermesAuthProvidersRequest.ProtoReflect.Descriptor instead.
+func (*HermesAuthProvidersRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{224}
+}
+
+func (x *HermesAuthProvidersRequest) GetHermesUrl() string {
+	if x != nil {
+		return x.HermesUrl
+	}
+	return ""
+}
+
+type HermesAuthProvider struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	DisplayName      string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	SupportsPassword bool                   `protobuf:"varint,3,opt,name=supports_password,json=supportsPassword,proto3" json:"supports_password,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *HermesAuthProvider) Reset() {
+	*x = HermesAuthProvider{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[225]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HermesAuthProvider) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HermesAuthProvider) ProtoMessage() {}
+
+func (x *HermesAuthProvider) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[225]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HermesAuthProvider.ProtoReflect.Descriptor instead.
+func (*HermesAuthProvider) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{225}
+}
+
+func (x *HermesAuthProvider) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *HermesAuthProvider) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *HermesAuthProvider) GetSupportsPassword() bool {
+	if x != nil {
+		return x.SupportsPassword
+	}
+	return false
+}
+
+// code 非空表示这台设备没能读到提供方目录(如 HERMES_UNREACHABLE)。
+type HermesAuthProvidersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Providers     []*HermesAuthProvider  `protobuf:"bytes,1,rep,name=providers,proto3" json:"providers,omitempty"`
+	Code          string                 `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HermesAuthProvidersResponse) Reset() {
+	*x = HermesAuthProvidersResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[226]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HermesAuthProvidersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HermesAuthProvidersResponse) ProtoMessage() {}
+
+func (x *HermesAuthProvidersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[226]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HermesAuthProvidersResponse.ProtoReflect.Descriptor instead.
+func (*HermesAuthProvidersResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{226}
+}
+
+func (x *HermesAuthProvidersResponse) GetProviders() []*HermesAuthProvider {
+	if x != nil {
+		return x.Providers
+	}
+	return nil
+}
+
+func (x *HermesAuthProvidersResponse) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+// HermesLoginRequest 的密码只用于这一次登录;设备只保存 refresh token。
+// provider 为空时取该 serve 唯一支持密码的提供方。
+type HermesLoginRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	HermesUrl     string                 `protobuf:"bytes,1,opt,name=hermes_url,json=hermesUrl,proto3" json:"hermes_url,omitempty"`
+	Provider      string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
+	Username      string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"`
+	Password      string                 `protobuf:"bytes,4,opt,name=password,proto3" json:"password,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HermesLoginRequest) Reset() {
+	*x = HermesLoginRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[227]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HermesLoginRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HermesLoginRequest) ProtoMessage() {}
+
+func (x *HermesLoginRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[227]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HermesLoginRequest.ProtoReflect.Descriptor instead.
+func (*HermesLoginRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{227}
+}
+
+func (x *HermesLoginRequest) GetHermesUrl() string {
+	if x != nil {
+		return x.HermesUrl
+	}
+	return ""
+}
+
+func (x *HermesLoginRequest) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *HermesLoginRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *HermesLoginRequest) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+// 成功时 code 为空,provider / user_id 是可展示的非敏感字段;失败时 code 是
+// HERMES_UNREACHABLE / HERMES_INVALID_CREDENTIALS / HERMES_PROVIDER_UNSUPPORTED /
+// HERMES_PROVIDER_UNAVAILABLE / HERMES_RATE_LIMITED 之一。
+type HermesLoginResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Provider      string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Code          string                 `protobuf:"bytes,3,opt,name=code,proto3" json:"code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HermesLoginResponse) Reset() {
+	*x = HermesLoginResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[228]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HermesLoginResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HermesLoginResponse) ProtoMessage() {}
+
+func (x *HermesLoginResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[228]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HermesLoginResponse.ProtoReflect.Descriptor instead.
+func (*HermesLoginResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{228}
+}
+
+func (x *HermesLoginResponse) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *HermesLoginResponse) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *HermesLoginResponse) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+type HermesLogoutRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	HermesUrl     string                 `protobuf:"bytes,1,opt,name=hermes_url,json=hermesUrl,proto3" json:"hermes_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HermesLogoutRequest) Reset() {
+	*x = HermesLogoutRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[229]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HermesLogoutRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HermesLogoutRequest) ProtoMessage() {}
+
+func (x *HermesLogoutRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[229]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HermesLogoutRequest.ProtoReflect.Descriptor instead.
+func (*HermesLogoutRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{229}
+}
+
+func (x *HermesLogoutRequest) GetHermesUrl() string {
+	if x != nil {
+		return x.HermesUrl
+	}
+	return ""
+}
+
+type HermesLogoutResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HermesLogoutResponse) Reset() {
+	*x = HermesLogoutResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[230]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HermesLogoutResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HermesLogoutResponse) ProtoMessage() {}
+
+func (x *HermesLogoutResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[230]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HermesLogoutResponse.ProtoReflect.Descriptor instead.
+func (*HermesLogoutResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{230}
+}
+
+// BackendConnectionTestRequest 让设备按本机凭据实际连一次后端。
+// openclaw_token 是编辑器里尚未保存的草稿 token:只用于这一次连接,不写入存储;
+// 为空时用该 sync_id 已保存的 token。
+type BackendConnectionTestRequest struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	BackendType          string                 `protobuf:"bytes,1,opt,name=backend_type,json=backendType,proto3" json:"backend_type,omitempty"`
+	SyncId               string                 `protobuf:"bytes,2,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
+	HermesUrl            string                 `protobuf:"bytes,3,opt,name=hermes_url,json=hermesUrl,proto3" json:"hermes_url,omitempty"`
+	HermesAuthProvider   string                 `protobuf:"bytes,4,opt,name=hermes_auth_provider,json=hermesAuthProvider,proto3" json:"hermes_auth_provider,omitempty"`
+	OpenclawGatewayUrl   string                 `protobuf:"bytes,5,opt,name=openclaw_gateway_url,json=openclawGatewayUrl,proto3" json:"openclaw_gateway_url,omitempty"`
+	OpenclawAgentId      string                 `protobuf:"bytes,6,opt,name=openclaw_agent_id,json=openclawAgentId,proto3" json:"openclaw_agent_id,omitempty"`
+	OpenclawDefaultModel string                 `protobuf:"bytes,7,opt,name=openclaw_default_model,json=openclawDefaultModel,proto3" json:"openclaw_default_model,omitempty"`
+	OpenclawToken        string                 `protobuf:"bytes,8,opt,name=openclaw_token,json=openclawToken,proto3" json:"openclaw_token,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *BackendConnectionTestRequest) Reset() {
+	*x = BackendConnectionTestRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[231]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackendConnectionTestRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackendConnectionTestRequest) ProtoMessage() {}
+
+func (x *BackendConnectionTestRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[231]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackendConnectionTestRequest.ProtoReflect.Descriptor instead.
+func (*BackendConnectionTestRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{231}
+}
+
+func (x *BackendConnectionTestRequest) GetBackendType() string {
+	if x != nil {
+		return x.BackendType
+	}
+	return ""
+}
+
+func (x *BackendConnectionTestRequest) GetSyncId() string {
+	if x != nil {
+		return x.SyncId
+	}
+	return ""
+}
+
+func (x *BackendConnectionTestRequest) GetHermesUrl() string {
+	if x != nil {
+		return x.HermesUrl
+	}
+	return ""
+}
+
+func (x *BackendConnectionTestRequest) GetHermesAuthProvider() string {
+	if x != nil {
+		return x.HermesAuthProvider
+	}
+	return ""
+}
+
+func (x *BackendConnectionTestRequest) GetOpenclawGatewayUrl() string {
+	if x != nil {
+		return x.OpenclawGatewayUrl
+	}
+	return ""
+}
+
+func (x *BackendConnectionTestRequest) GetOpenclawAgentId() string {
+	if x != nil {
+		return x.OpenclawAgentId
+	}
+	return ""
+}
+
+func (x *BackendConnectionTestRequest) GetOpenclawDefaultModel() string {
+	if x != nil {
+		return x.OpenclawDefaultModel
+	}
+	return ""
+}
+
+func (x *BackendConnectionTestRequest) GetOpenclawToken() string {
+	if x != nil {
+		return x.OpenclawToken
+	}
+	return ""
+}
+
+type OpenClawAgentOption struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	PrimaryModel  string                 `protobuf:"bytes,3,opt,name=primary_model,json=primaryModel,proto3" json:"primary_model,omitempty"`
+	Fallbacks     []string               `protobuf:"bytes,4,rep,name=fallbacks,proto3" json:"fallbacks,omitempty"`
+	IsDefault     bool                   `protobuf:"varint,5,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OpenClawAgentOption) Reset() {
+	*x = OpenClawAgentOption{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[232]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenClawAgentOption) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenClawAgentOption) ProtoMessage() {}
+
+func (x *OpenClawAgentOption) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[232]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenClawAgentOption.ProtoReflect.Descriptor instead.
+func (*OpenClawAgentOption) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{232}
+}
+
+func (x *OpenClawAgentOption) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *OpenClawAgentOption) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *OpenClawAgentOption) GetPrimaryModel() string {
+	if x != nil {
+		return x.PrimaryModel
+	}
+	return ""
+}
+
+func (x *OpenClawAgentOption) GetFallbacks() []string {
+	if x != nil {
+		return x.Fallbacks
+	}
+	return nil
+}
+
+func (x *OpenClawAgentOption) GetIsDefault() bool {
+	if x != nil {
+		return x.IsDefault
+	}
+	return false
+}
+
+type OpenClawModelOption struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Provider      string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
+	Available     bool                   `protobuf:"varint,4,opt,name=available,proto3" json:"available,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OpenClawModelOption) Reset() {
+	*x = OpenClawModelOption{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[233]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenClawModelOption) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenClawModelOption) ProtoMessage() {}
+
+func (x *OpenClawModelOption) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[233]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenClawModelOption.ProtoReflect.Descriptor instead.
+func (*OpenClawModelOption) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{233}
+}
+
+func (x *OpenClawModelOption) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *OpenClawModelOption) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *OpenClawModelOption) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *OpenClawModelOption) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+// ok=false 时 code 是桌面端测试连接的同一套结构化结果(HERMES_LOGIN_REQUIRED /
+// HERMES_LOGIN_EXPIRED / HERMES_UNREACHABLE / AUTH_FAILED / OPENCLAW_CONNECTION_FAILED …),
+// message 只作兜底。gateway_version 之后的字段只在 OpenClaw 连通时给出。
+type BackendConnectionTestResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Ok             bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Code           string                 `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
+	Message        string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	LatencyMs      int64                  `protobuf:"varint,4,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
+	GatewayVersion string                 `protobuf:"bytes,5,opt,name=gateway_version,json=gatewayVersion,proto3" json:"gateway_version,omitempty"`
+	Protocol       int32                  `protobuf:"varint,6,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	GrantedScopes  []string               `protobuf:"bytes,7,rep,name=granted_scopes,json=grantedScopes,proto3" json:"granted_scopes,omitempty"`
+	Methods        []string               `protobuf:"bytes,8,rep,name=methods,proto3" json:"methods,omitempty"`
+	Events         []string               `protobuf:"bytes,9,rep,name=events,proto3" json:"events,omitempty"`
+	OpenclawAgents []*OpenClawAgentOption `protobuf:"bytes,10,rep,name=openclaw_agents,json=openclawAgents,proto3" json:"openclaw_agents,omitempty"`
+	OpenclawModels []*OpenClawModelOption `protobuf:"bytes,11,rep,name=openclaw_models,json=openclawModels,proto3" json:"openclaw_models,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *BackendConnectionTestResponse) Reset() {
+	*x = BackendConnectionTestResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[234]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackendConnectionTestResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackendConnectionTestResponse) ProtoMessage() {}
+
+func (x *BackendConnectionTestResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[234]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackendConnectionTestResponse.ProtoReflect.Descriptor instead.
+func (*BackendConnectionTestResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{234}
+}
+
+func (x *BackendConnectionTestResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *BackendConnectionTestResponse) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *BackendConnectionTestResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *BackendConnectionTestResponse) GetLatencyMs() int64 {
+	if x != nil {
+		return x.LatencyMs
+	}
+	return 0
+}
+
+func (x *BackendConnectionTestResponse) GetGatewayVersion() string {
+	if x != nil {
+		return x.GatewayVersion
+	}
+	return ""
+}
+
+func (x *BackendConnectionTestResponse) GetProtocol() int32 {
+	if x != nil {
+		return x.Protocol
+	}
+	return 0
+}
+
+func (x *BackendConnectionTestResponse) GetGrantedScopes() []string {
+	if x != nil {
+		return x.GrantedScopes
+	}
+	return nil
+}
+
+func (x *BackendConnectionTestResponse) GetMethods() []string {
+	if x != nil {
+		return x.Methods
+	}
+	return nil
+}
+
+func (x *BackendConnectionTestResponse) GetEvents() []string {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *BackendConnectionTestResponse) GetOpenclawAgents() []*OpenClawAgentOption {
+	if x != nil {
+		return x.OpenclawAgents
+	}
+	return nil
+}
+
+func (x *BackendConnectionTestResponse) GetOpenclawModels() []*OpenClawModelOption {
+	if x != nil {
+		return x.OpenclawModels
+	}
+	return nil
+}
+
 var file_agentre_wire_wire_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
@@ -16777,7 +17776,84 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\amessage\x18\x04 \x01(\tR\amessage\"L\n" +
 	"\x1ePortForwardRevokedNotification\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason*\xdf\x12\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"{\n" +
+	"\x1eBackendCredentialStatusRequest\x12!\n" +
+	"\fbackend_type\x18\x01 \x01(\tR\vbackendType\x12\x17\n" +
+	"\async_id\x18\x02 \x01(\tR\x06syncId\x12\x1d\n" +
+	"\n" +
+	"hermes_url\x18\x03 \x01(\tR\thermesUrl\"\xcc\x01\n" +
+	"\x1fBackendCredentialStatusResponse\x120\n" +
+	"\x14openclaw_token_saved\x18\x01 \x01(\bR\x12openclawTokenSaved\x12(\n" +
+	"\x10hermes_logged_in\x18\x02 \x01(\bR\x0ehermesLoggedIn\x12'\n" +
+	"\x0fhermes_provider\x18\x03 \x01(\tR\x0ehermesProvider\x12$\n" +
+	"\x0ehermes_user_id\x18\x04 \x01(\tR\fhermesUserId\"^\n" +
+	"\x17OpenClawTokenSetRequest\x12\x17\n" +
+	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\x12\x14\n" +
+	"\x05clear\x18\x03 \x01(\bR\x05clear\";\n" +
+	"\x18OpenClawTokenSetResponse\x12\x1f\n" +
+	"\vtoken_saved\x18\x01 \x01(\bR\n" +
+	"tokenSaved\";\n" +
+	"\x1aHermesAuthProvidersRequest\x12\x1d\n" +
+	"\n" +
+	"hermes_url\x18\x01 \x01(\tR\thermesUrl\"x\n" +
+	"\x12HermesAuthProvider\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
+	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12+\n" +
+	"\x11supports_password\x18\x03 \x01(\bR\x10supportsPassword\"q\n" +
+	"\x1bHermesAuthProvidersResponse\x12>\n" +
+	"\tproviders\x18\x01 \x03(\v2 .agentre.wire.HermesAuthProviderR\tproviders\x12\x12\n" +
+	"\x04code\x18\x02 \x01(\tR\x04code\"\x87\x01\n" +
+	"\x12HermesLoginRequest\x12\x1d\n" +
+	"\n" +
+	"hermes_url\x18\x01 \x01(\tR\thermesUrl\x12\x1a\n" +
+	"\bprovider\x18\x02 \x01(\tR\bprovider\x12\x1a\n" +
+	"\busername\x18\x03 \x01(\tR\busername\x12\x1a\n" +
+	"\bpassword\x18\x04 \x01(\tR\bpassword\"^\n" +
+	"\x13HermesLoginResponse\x12\x1a\n" +
+	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x12\n" +
+	"\x04code\x18\x03 \x01(\tR\x04code\"4\n" +
+	"\x13HermesLogoutRequest\x12\x1d\n" +
+	"\n" +
+	"hermes_url\x18\x01 \x01(\tR\thermesUrl\"\x16\n" +
+	"\x14HermesLogoutResponse\"\xe6\x02\n" +
+	"\x1cBackendConnectionTestRequest\x12!\n" +
+	"\fbackend_type\x18\x01 \x01(\tR\vbackendType\x12\x17\n" +
+	"\async_id\x18\x02 \x01(\tR\x06syncId\x12\x1d\n" +
+	"\n" +
+	"hermes_url\x18\x03 \x01(\tR\thermesUrl\x120\n" +
+	"\x14hermes_auth_provider\x18\x04 \x01(\tR\x12hermesAuthProvider\x120\n" +
+	"\x14openclaw_gateway_url\x18\x05 \x01(\tR\x12openclawGatewayUrl\x12*\n" +
+	"\x11openclaw_agent_id\x18\x06 \x01(\tR\x0fopenclawAgentId\x124\n" +
+	"\x16openclaw_default_model\x18\a \x01(\tR\x14openclawDefaultModel\x12%\n" +
+	"\x0eopenclaw_token\x18\b \x01(\tR\ropenclawToken\"\x9b\x01\n" +
+	"\x13OpenClawAgentOption\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12#\n" +
+	"\rprimary_model\x18\x03 \x01(\tR\fprimaryModel\x12\x1c\n" +
+	"\tfallbacks\x18\x04 \x03(\tR\tfallbacks\x12\x1d\n" +
+	"\n" +
+	"is_default\x18\x05 \x01(\bR\tisDefault\"s\n" +
+	"\x13OpenClawModelOption\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
+	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x1c\n" +
+	"\tavailable\x18\x04 \x01(\bR\tavailable\"\xb2\x03\n" +
+	"\x1dBackendConnectionTestResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x12\n" +
+	"\x04code\x18\x02 \x01(\tR\x04code\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1d\n" +
+	"\n" +
+	"latency_ms\x18\x04 \x01(\x03R\tlatencyMs\x12'\n" +
+	"\x0fgateway_version\x18\x05 \x01(\tR\x0egatewayVersion\x12\x1a\n" +
+	"\bprotocol\x18\x06 \x01(\x05R\bprotocol\x12%\n" +
+	"\x0egranted_scopes\x18\a \x03(\tR\rgrantedScopes\x12\x18\n" +
+	"\amethods\x18\b \x03(\tR\amethods\x12\x16\n" +
+	"\x06events\x18\t \x03(\tR\x06events\x12J\n" +
+	"\x0fopenclaw_agents\x18\n" +
+	" \x03(\v2!.agentre.wire.OpenClawAgentOptionR\x0eopenclawAgents\x12J\n" +
+	"\x0fopenclaw_models\x18\v \x03(\v2!.agentre.wire.OpenClawModelOptionR\x0eopenclawModels*\xb5\x14\n" +
 	"\tRpcMethod\x12\x1a\n" +
 	"\x16RPC_METHOD_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17RPC_METHOD_AUTH_ACCOUNT\x10\x01\x12\x1b\n" +
@@ -16849,7 +17925,13 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x1dRPC_METHOD_PORT_FORWARD_WRITE\x10B\x12!\n" +
 	"\x1dRPC_METHOD_PORT_FORWARD_CLOSE\x10C\x12\x1f\n" +
 	"\x1bRPC_METHOD_PORT_FORWARD_ACK\x10D\x12\x1a\n" +
-	"\x16RPC_METHOD_AUTH_DIRECT\x10E*\xe1\x02\n" +
+	"\x16RPC_METHOD_AUTH_DIRECT\x10E\x12(\n" +
+	"$RPC_METHOD_BACKEND_CREDENTIAL_STATUS\x10F\x12!\n" +
+	"\x1dRPC_METHOD_OPENCLAW_TOKEN_SET\x10G\x12$\n" +
+	" RPC_METHOD_HERMES_AUTH_PROVIDERS\x10H\x12\x1b\n" +
+	"\x17RPC_METHOD_HERMES_LOGIN\x10I\x12\x1c\n" +
+	"\x18RPC_METHOD_HERMES_LOGOUT\x10J\x12&\n" +
+	"\"RPC_METHOD_BACKEND_CONNECTION_TEST\x10K*\xe1\x02\n" +
 	"\x1eAgentredSelfUpdateRejectReason\x122\n" +
 	".AGENTRED_SELF_UPDATE_REJECT_REASON_UNSPECIFIED\x10\x00\x123\n" +
 	"/AGENTRED_SELF_UPDATE_REJECT_REASON_ACTIVE_TURNS\x10\x01\x122\n" +
@@ -16859,7 +17941,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"2AGENTRED_SELF_UPDATE_REJECT_REASON_DOWNLOAD_FAILED\x10\x05:>\n" +
 	"\n" +
 	"event_kind\x12\x1d.google.protobuf.FieldOptions\x18\xe1\xd4\x03 \x01(\tR\teventKind:I\n" +
-	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.1.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
+	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.2.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
 
 var (
 	file_agentre_wire_wire_proto_rawDescOnce sync.Once
@@ -16874,7 +17956,7 @@ func file_agentre_wire_wire_proto_rawDescGZIP() []byte {
 }
 
 var file_agentre_wire_wire_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 228)
+var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 243)
 var file_agentre_wire_wire_proto_goTypes = []any{
 	(RpcMethod)(0),                             // 0: agentre.wire.RpcMethod
 	(AgentredSelfUpdateRejectReason)(0),        // 1: agentre.wire.AgentredSelfUpdateRejectReason
@@ -17098,16 +18180,31 @@ var file_agentre_wire_wire_proto_goTypes = []any{
 	(*PortForwardDataNotification)(nil),        // 219: agentre.wire.PortForwardDataNotification
 	(*PortForwardClosedNotification)(nil),      // 220: agentre.wire.PortForwardClosedNotification
 	(*PortForwardRevokedNotification)(nil),     // 221: agentre.wire.PortForwardRevokedNotification
-	nil,                                        // 222: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
-	nil,                                        // 223: agentre.wire.LLMProvider.ModelRoutesEntry
-	nil,                                        // 224: agentre.wire.MCPServer.HeadersEntry
-	nil,                                        // 225: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
-	nil,                                        // 226: agentre.wire.MCPProxyRequest.HeadersEntry
-	nil,                                        // 227: agentre.wire.MCPProxyResponse.HeadersEntry
-	nil,                                        // 228: agentre.wire.PortForwardOpenRequest.HeadersEntry
-	nil,                                        // 229: agentre.wire.PortForwardResponseNotification.HeadersEntry
-	(*descriptorpb.FieldOptions)(nil),          // 230: google.protobuf.FieldOptions
-	(*descriptorpb.FileOptions)(nil),           // 231: google.protobuf.FileOptions
+	(*BackendCredentialStatusRequest)(nil),     // 222: agentre.wire.BackendCredentialStatusRequest
+	(*BackendCredentialStatusResponse)(nil),    // 223: agentre.wire.BackendCredentialStatusResponse
+	(*OpenClawTokenSetRequest)(nil),            // 224: agentre.wire.OpenClawTokenSetRequest
+	(*OpenClawTokenSetResponse)(nil),           // 225: agentre.wire.OpenClawTokenSetResponse
+	(*HermesAuthProvidersRequest)(nil),         // 226: agentre.wire.HermesAuthProvidersRequest
+	(*HermesAuthProvider)(nil),                 // 227: agentre.wire.HermesAuthProvider
+	(*HermesAuthProvidersResponse)(nil),        // 228: agentre.wire.HermesAuthProvidersResponse
+	(*HermesLoginRequest)(nil),                 // 229: agentre.wire.HermesLoginRequest
+	(*HermesLoginResponse)(nil),                // 230: agentre.wire.HermesLoginResponse
+	(*HermesLogoutRequest)(nil),                // 231: agentre.wire.HermesLogoutRequest
+	(*HermesLogoutResponse)(nil),               // 232: agentre.wire.HermesLogoutResponse
+	(*BackendConnectionTestRequest)(nil),       // 233: agentre.wire.BackendConnectionTestRequest
+	(*OpenClawAgentOption)(nil),                // 234: agentre.wire.OpenClawAgentOption
+	(*OpenClawModelOption)(nil),                // 235: agentre.wire.OpenClawModelOption
+	(*BackendConnectionTestResponse)(nil),      // 236: agentre.wire.BackendConnectionTestResponse
+	nil,                                        // 237: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	nil,                                        // 238: agentre.wire.LLMProvider.ModelRoutesEntry
+	nil,                                        // 239: agentre.wire.MCPServer.HeadersEntry
+	nil,                                        // 240: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	nil,                                        // 241: agentre.wire.MCPProxyRequest.HeadersEntry
+	nil,                                        // 242: agentre.wire.MCPProxyResponse.HeadersEntry
+	nil,                                        // 243: agentre.wire.PortForwardOpenRequest.HeadersEntry
+	nil,                                        // 244: agentre.wire.PortForwardResponseNotification.HeadersEntry
+	(*descriptorpb.FieldOptions)(nil),          // 245: google.protobuf.FieldOptions
+	(*descriptorpb.FileOptions)(nil),           // 246: google.protobuf.FileOptions
 }
 var file_agentre_wire_wire_proto_depIdxs = []int32{
 	9,   // 0: agentre.wire.WireFrame.notification:type_name -> agentre.wire.Notification
@@ -17132,9 +18229,9 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	11,  // 19: agentre.wire.Notification.account_mirror_changed:type_name -> agentre.wire.AccountMirrorChanged
 	12,  // 20: agentre.wire.Notification.account_device_presence:type_name -> agentre.wire.AccountDevicePresence
 	23,  // 21: agentre.wire.LLMUpsertRequest.models:type_name -> agentre.wire.LLMModel
-	222, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	237, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
 	23,  // 23: agentre.wire.LLMProvider.models:type_name -> agentre.wire.LLMModel
-	223, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
+	238, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
 	29,  // 25: agentre.wire.LLMListResponse.providers:type_name -> agentre.wire.LLMProvider
 	34,  // 26: agentre.wire.EngineDiscoverResponse.models:type_name -> agentre.wire.EngineModel
 	37,  // 27: agentre.wire.EngineScanResponse.items:type_name -> agentre.wire.EngineScanItem
@@ -17156,16 +18253,16 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	185, // 43: agentre.wire.RuntimeSubmitAnswerRequest.questions:type_name -> agentre.wire.AskQuestion
 	186, // 44: agentre.wire.RuntimeSubmitAnswerRequest.answers:type_name -> agentre.wire.AskAnswer
 	97,  // 45: agentre.wire.HistoryMessage.blocks:type_name -> agentre.wire.StoredBlock
-	224, // 46: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
+	239, // 46: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
 	96,  // 47: agentre.wire.RuntimeRunRequest.backend:type_name -> agentre.wire.AgentBackend
 	97,  // 48: agentre.wire.RuntimeRunRequest.user_blocks:type_name -> agentre.wire.StoredBlock
 	98,  // 49: agentre.wire.RuntimeRunRequest.history:type_name -> agentre.wire.HistoryMessage
 	99,  // 50: agentre.wire.RuntimeRunRequest.mcp_servers:type_name -> agentre.wire.MCPServer
-	225, // 51: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	240, // 51: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
 	96,  // 52: agentre.wire.RuntimeGoalRequest.backend:type_name -> agentre.wire.AgentBackend
 	103, // 53: agentre.wire.RuntimeGoalResponse.goal:type_name -> agentre.wire.Goal
-	226, // 54: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
-	227, // 55: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
+	241, // 54: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
+	242, // 55: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
 	119, // 56: agentre.wire.SkillCatalogRequest.authorized:type_name -> agentre.wire.SkillAuthorization
 	121, // 57: agentre.wire.SkillCatalogResponse.packs:type_name -> agentre.wire.SkillPackSummary
 	119, // 58: agentre.wire.SkillCommandsRequest.authorized:type_name -> agentre.wire.SkillAuthorization
@@ -17226,19 +18323,22 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	204, // 113: agentre.wire.PortForwardListResponse.mappings:type_name -> agentre.wire.PortForwardMapping
 	204, // 114: agentre.wire.PortForwardCreateResponse.mapping:type_name -> agentre.wire.PortForwardMapping
 	204, // 115: agentre.wire.PortForwardSetEnabledResponse.mapping:type_name -> agentre.wire.PortForwardMapping
-	228, // 116: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
-	229, // 117: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
-	113, // 118: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	113, // 119: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	113, // 120: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	113, // 121: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	230, // 122: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
-	231, // 123: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
-	124, // [124:124] is the sub-list for method output_type
-	124, // [124:124] is the sub-list for method input_type
-	124, // [124:124] is the sub-list for extension type_name
-	122, // [122:124] is the sub-list for extension extendee
-	0,   // [0:122] is the sub-list for field type_name
+	243, // 116: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
+	244, // 117: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
+	227, // 118: agentre.wire.HermesAuthProvidersResponse.providers:type_name -> agentre.wire.HermesAuthProvider
+	234, // 119: agentre.wire.BackendConnectionTestResponse.openclaw_agents:type_name -> agentre.wire.OpenClawAgentOption
+	235, // 120: agentre.wire.BackendConnectionTestResponse.openclaw_models:type_name -> agentre.wire.OpenClawModelOption
+	113, // 121: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	113, // 122: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	113, // 123: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	113, // 124: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	245, // 125: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
+	246, // 126: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
+	127, // [127:127] is the sub-list for method output_type
+	127, // [127:127] is the sub-list for method input_type
+	127, // [127:127] is the sub-list for extension type_name
+	125, // [125:127] is the sub-list for extension extendee
+	0,   // [0:125] is the sub-list for field type_name
 }
 
 func init() { file_agentre_wire_wire_proto_init() }
@@ -17316,7 +18416,7 @@ func file_agentre_wire_wire_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentre_wire_wire_proto_rawDesc), len(file_agentre_wire_wire_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   228,
+			NumMessages:   243,
 			NumExtensions: 2,
 			NumServices:   0,
 		},

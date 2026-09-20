@@ -195,6 +195,26 @@ export function hermesProbeErrorMessage(
   return fallback;
 }
 
+// 一次失败的测试连接说哪句话,只在这里判一次。列表行那颗「测试连接」与编辑器里
+// 那颗问的是同一件事,答案必须是同一句;从前两边各写一份三元表达式,列表行漏掉了
+// OpenClaw 这一支,把 Gateway 的协议原文原样递给了用户(spec「所有凭据相关错误按
+// 界面文案规范解析成中英文可读句子,不直接显示协议原文」)。
+export function backendTestErrorMessage(
+  backendType: string,
+  code: string,
+  fallback: string,
+  translate: (key: string) => string,
+): string {
+  switch (backendType) {
+    case "openclaw":
+      return openClawProbeErrorMessage(code, fallback, translate);
+    case "hermes":
+      return hermesProbeErrorMessage(code, fallback, translate);
+    default:
+      return fallback;
+  }
+}
+
 const CODED_ERROR_PREFIX = /^agentre-code:(\d+)\s?([\s\S]*)$/;
 
 // hermesErrorMessage turns a thrown login/logout error into a readable sentence,

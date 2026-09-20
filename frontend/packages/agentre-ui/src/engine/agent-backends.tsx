@@ -85,10 +85,10 @@ import {
 // 只吃 props 的组件。这里只留装配。
 import { DeviceField } from "./backend-editor/device-field";
 import {
+  backendTestErrorMessage,
   buildBackendDraft,
   emptyRoutes,
   hermesErrorMessage,
-  hermesProbeErrorMessage,
   matchingProviders,
   openClawProbeErrorMessage,
   parseRoutes,
@@ -98,9 +98,14 @@ import {
   type BackendDraft,
   type PendingProviderSync,
 } from "./backend-editor/draft";
+import {
+  credentialDeviceGate,
+  credentialGateMessage,
+} from "./backend-editor/credential-gate";
 import { BackendEditorFooter } from "./backend-editor/editor-footer";
 import type { EditorState } from "./backend-editor/editor-types";
 import { OpenClawSection } from "./backend-editor/openclaw-section";
+import { useBackendCredentialStatus } from "./backend-editor/use-credential-status";
 import {
   ManualProviderSyncAlert,
   ProviderSyncDialog,
@@ -192,10 +197,12 @@ function AgentBackendsPanelBody({
         text: `✅ ${res.latencyMs}ms · ${res.message}`,
       });
     } else {
-      const text =
-        backendType === "hermes"
-          ? hermesProbeErrorMessage(res.code ?? "", res.message ?? "", t)
-          : res.message;
+      const text = backendTestErrorMessage(
+        backendType,
+        res.code ?? "",
+        res.message ?? "",
+        t,
+      );
       setFlash({ kind: "err", text: `❌ ${text}` });
     }
   }
@@ -869,8 +876,54 @@ function BackendEditor({
     return "";
   }, [hermesUrl]);
 
+  // 三种否决（未选设备 / 已知但离线 / 不在账号内）在这里收敛成一个判据；Hermes
+  // 登录/登出/列提供方与 OpenClaw 存 token/测试都读它，而不是各自现算一遍。
+  const credentialDeviceGateReason = credentialDeviceGate({
+    hasLocalDevice,
+    deviceId,
+    selectedDeviceValue: deviceState.selectedDeviceValue,
+    localSelectValue: deviceState.localSelectValue,
+    deviceOptions: deviceState.deviceOptions,
+  });
+  const credentialGateNote = credentialGateMessage(
+    credentialDeviceGateReason,
+    t,
+  );
+  // 打开编辑器或换绑设备时查一次凭据状态（spec 决策 7：状态不能靠同步字段猜）。
+  const credentialStatus = useBackendCredentialStatus({
+    type,
+    syncId: editing?.syncId ?? "",
+    hermesQueryUrl: hermesAuthURL,
+    deviceId,
+    gate: credentialDeviceGateReason,
+    backendCredentialStatus: ports.backendCredentialStatus,
+  });
+  // 查询结果落地时把它当作真相覆盖掉「从同步字段猜的」初始值；重新登录/登出的
+  // 乐观更新发生在这次查询之后，不会被它翻回去（这次查询只在打开/换设备时重跑）。
+  //
+  // provider 只在「登录着」时由这一答说了算：登出态下那一格是登录表单的**输入**
+  // （谁来签发这次登录），归零就把提供方目录刚选好的那一项抹了，而目录那条 effect
+  // 不会再跑一遍补回来 —— 两条异步应答谁先落地是网络说了算，抹掉的那次登录按钮
+  // 按下去没反应（handleHermesLogin 在 provider 为空时直接返回）。
+  React.useEffect(() => {
+    if (type !== "hermes" || credentialStatus === null) return;
+    setHermesUserId(
+      credentialStatus.hermesLoggedIn
+        ? (credentialStatus.hermesUserId ?? "")
+        : "",
+    );
+    if (credentialStatus.hermesLoggedIn && credentialStatus.hermesProvider) {
+      setHermesAuthProvider(credentialStatus.hermesProvider);
+    }
+  }, [type, credentialStatus]);
+
   React.useEffect(() => {
     if (type !== "hermes") return;
+    if (credentialDeviceGateReason !== "") {
+      setHermesProviders([]);
+      setHermesProvidersError("");
+      return;
+    }
     if (!listHermesAuthProviders || hermesAuthURL === "") {
       setHermesProviders([]);
       setHermesProvidersError("");
@@ -879,7 +932,7 @@ function BackendEditor({
     let cancelled = false;
     setHermesProvidersLoading(true);
     setHermesProvidersError("");
-    void listHermesAuthProviders(hermesAuthURL)
+    void listHermesAuthProviders(hermesAuthURL, deviceId)
       .then((providers) => {
         if (cancelled) return;
         const rows = providers ?? [];
@@ -902,11 +955,19 @@ function BackendEditor({
     return () => {
       cancelled = true;
     };
-  }, [type, hermesAuthURL, listHermesAuthProviders, t]);
+  }, [
+    type,
+    hermesAuthURL,
+    listHermesAuthProviders,
+    deviceId,
+    credentialDeviceGateReason,
+    t,
+  ]);
 
   async function handleHermesLogin() {
     if (!loginHermesBackend || hermesLoggingIn) return;
     if (hermesAuthURL === "" || hermesAuthProvider === "") return;
+    if (credentialDeviceGateReason !== "") return;
     setHermesLoggingIn(true);
     setHermesAuthError("");
     try {
@@ -915,6 +976,7 @@ function BackendEditor({
         provider: hermesAuthProvider,
         username: hermesUsername,
         password: hermesPassword,
+        deviceId,
       });
       setHermesUserId(result.userId);
       if (result.provider) setHermesAuthProvider(result.provider);
@@ -930,11 +992,13 @@ function BackendEditor({
 
   async function handleHermesLogout() {
     if (!logoutHermesBackend) return;
+    if (credentialDeviceGateReason !== "") return;
     setHermesAuthError("");
     try {
       await logoutHermesBackend({
         ...(editing ? { id: editing.id } : {}),
         url: hermesAuthURL || hermesUrl.trim(),
+        deviceId,
       });
     } catch (err) {
       setHermesAuthError(hermesErrorMessage(err, t));
@@ -1010,6 +1074,11 @@ function BackendEditor({
 
   async function handleTest() {
     if (testing || submitting) return;
+    if (
+      (type === "hermes" || type === "openclaw") &&
+      credentialDeviceGateReason !== ""
+    )
+      return;
     if (isCliBackend(type) && reservedOffenders.length > 0) {
       setTestResult({
         kind: "err",
@@ -1057,12 +1126,12 @@ function BackendEditor({
       } else {
         setTestResult({
           kind: "err",
-          text:
-            type === "openclaw"
-              ? openClawProbeErrorMessage(res.code ?? "", res.message ?? "", t)
-              : type === "hermes"
-                ? hermesProbeErrorMessage(res.code ?? "", res.message ?? "", t)
-                : res.message,
+          text: backendTestErrorMessage(
+            type,
+            res.code ?? "",
+            res.message ?? "",
+            t,
+          ),
         });
       }
     } catch (err) {
@@ -1360,8 +1429,15 @@ function BackendEditor({
           ) : type === "openclaw" ? (
             <OpenClawSection
               fields={openClaw}
-              canEditToken={canEditOpenClawToken}
-              hasToken={editing?.hasToken ?? false}
+              canEditToken={
+                canEditOpenClawToken && credentialDeviceGateReason === ""
+              }
+              hasToken={
+                credentialStatus
+                  ? credentialStatus.openClawTokenSaved
+                  : (editing?.hasToken ?? false)
+              }
+              gateMessage={credentialGateNote}
             />
           ) : null}
 
@@ -1391,22 +1467,28 @@ function BackendEditor({
               url={hermesUrl}
               onUrlChange={setHermesUrl}
               auth={
-                <HermesAuthFields
-                  provider={hermesAuthProvider}
-                  onProviderChange={setHermesAuthProvider}
-                  username={hermesUsername}
-                  onUsernameChange={setHermesUsername}
-                  password={hermesPassword}
-                  onPasswordChange={setHermesPassword}
-                  userId={hermesUserId}
-                  providers={hermesProviders}
-                  providersLoading={hermesProvidersLoading}
-                  providersError={hermesProvidersError}
-                  loggingIn={hermesLoggingIn}
-                  error={hermesAuthError}
-                  onLogin={() => void handleHermesLogin()}
-                  onLogout={() => void handleHermesLogout()}
-                />
+                credentialDeviceGateReason !== "" ? (
+                  <p className="rounded-md border border-border bg-secondary/30 p-3 text-2xs text-muted-foreground">
+                    {credentialGateNote}
+                  </p>
+                ) : (
+                  <HermesAuthFields
+                    provider={hermesAuthProvider}
+                    onProviderChange={setHermesAuthProvider}
+                    username={hermesUsername}
+                    onUsernameChange={setHermesUsername}
+                    password={hermesPassword}
+                    onPasswordChange={setHermesPassword}
+                    userId={hermesUserId}
+                    providers={hermesProviders}
+                    providersLoading={hermesProvidersLoading}
+                    providersError={hermesProvidersError}
+                    loggingIn={hermesLoggingIn}
+                    error={hermesAuthError}
+                    onLogin={() => void handleHermesLogin()}
+                    onLogout={() => void handleHermesLogout()}
+                  />
+                )
               }
             />
           ) : null}
@@ -1525,6 +1607,10 @@ function BackendEditor({
             submitting={submitting}
             syncingProvider={syncingProvider}
             piAgentModelMissing={piAgentModelMissing}
+            credentialGateBlocked={
+              (type === "hermes" || type === "openclaw") &&
+              credentialDeviceGateReason !== ""
+            }
             submitDisabled={submitDisabled}
             onTest={handleTest}
             onCancelTest={handleCancelTest}

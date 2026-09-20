@@ -217,6 +217,8 @@ func (s *State) Snapshot() State {
 	}
 	out.LLMProviders = cloneLLMProviders(s.LLMProviders)
 	out.DirectCredentials = maps.Clone(s.DirectCredentials)
+	out.BackendCredentials = maps.Clone(s.BackendCredentials)
+	out.HermesIdentities = maps.Clone(s.HermesIdentities)
 	return out
 }
 
@@ -276,6 +278,87 @@ func (s *State) replaceDirectCredentialsLocked(replacement map[string]DirectCred
 		return err
 	}
 	s.DirectCredentials = replacement
+	return nil
+}
+
+// BackendCredential returns the secret stored in a backend credential slot.
+func (s *State) BackendCredential(account string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	secret, ok := s.BackendCredentials[account]
+	return secret, ok
+}
+
+// SetBackendCredential stores secret in the slot and persists it before the
+// live state changes, so a failed write never reports a secret that a restart
+// would forget.
+func (s *State) SetBackendCredential(account, secret string) error {
+	return s.persistChange(func(next *State) {
+		next.BackendCredentials = maps.Clone(next.BackendCredentials)
+		if next.BackendCredentials == nil {
+			next.BackendCredentials = map[string]string{}
+		}
+		next.BackendCredentials[account] = secret
+	})
+}
+
+// DeleteBackendCredential removes the slot and persists the result. An empty
+// slot is not an error and writes nothing.
+func (s *State) DeleteBackendCredential(account string) error {
+	if _, ok := s.BackendCredential(account); !ok {
+		return nil
+	}
+	return s.persistChange(func(next *State) {
+		next.BackendCredentials = maps.Clone(next.BackendCredentials)
+		delete(next.BackendCredentials, account)
+	})
+}
+
+// HermesIdentity returns the recorded login identity of a normalized serve URL.
+func (s *State) HermesIdentity(normalizedURL string) (HermesIdentity, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	identity, ok := s.HermesIdentities[normalizedURL]
+	return identity, ok
+}
+
+// SetHermesIdentity records the login identity of a normalized serve URL.
+func (s *State) SetHermesIdentity(normalizedURL string, identity HermesIdentity) error {
+	return s.persistChange(func(next *State) {
+		next.HermesIdentities = maps.Clone(next.HermesIdentities)
+		if next.HermesIdentities == nil {
+			next.HermesIdentities = map[string]HermesIdentity{}
+		}
+		next.HermesIdentities[normalizedURL] = identity
+	})
+}
+
+// DeleteHermesIdentity forgets the login identity of a normalized serve URL.
+func (s *State) DeleteHermesIdentity(normalizedURL string) error {
+	if _, ok := s.HermesIdentity(normalizedURL); !ok {
+		return nil
+	}
+	return s.persistChange(func(next *State) {
+		next.HermesIdentities = maps.Clone(next.HermesIdentities)
+		delete(next.HermesIdentities, normalizedURL)
+	})
+}
+
+// persistChange applies change to a copy under the write lock, writes that copy to state.json and
+// only then adopts it, so memory always matches disk. change must replace (not
+// mutate in place) any map it edits.
+func (s *State) persistChange(change func(next *State)) error {
+	if s.dir == "" {
+		return errors.New("state: dir not bound; load via Load(dir) first")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := *s
+	change(&next)
+	if err := writeStateFile(s.dir, &next); err != nil {
+		return err
+	}
+	*s = next
 	return nil
 }
 
