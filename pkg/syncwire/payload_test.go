@@ -52,6 +52,8 @@ func fullAgentBackendConfig() syncwire.AgentBackendConfig {
 		HermesURL:             "http://127.0.0.1:9119",
 		HermesAuthProvider:    "basic",
 		HermesUserID:          "user-7",
+		ACPCommand:            "gemini",
+		ACPArgs:               []string{"--acp"},
 	}
 }
 
@@ -59,7 +61,8 @@ const fullAgentBackendConfigJSON = `{"modelRoutes":{"OPUS":{"providerKey":"anthr
 	`"sandbox":"workspace-write","approval":"on-request","defaultPermissionMode":"bypassPermissions",` +
 	`"defaultModel":"opus","openclawGatewayUrl":"wss://gw.example/rpc","openclawAgentId":"oc-1",` +
 	`"openclawDefaultModel":"oc-opus","openclawSessionMode":"per-agentre-session",` +
-	`"hermesUrl":"http://127.0.0.1:9119","hermesAuthProvider":"basic","hermesUserId":"user-7"}`
+	`"hermesUrl":"http://127.0.0.1:9119","hermesAuthProvider":"basic","hermesUserId":"user-7",` +
+	`"acpCommand":"gemini","acpArgs":["--acp"]}`
 
 func payloadCases() []payloadCase {
 	return []payloadCase{

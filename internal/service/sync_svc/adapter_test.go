@@ -386,6 +386,60 @@ func TestAgentBackendAdapter_GivenAnyLegacyMachineState_StillUploadsOneIdentity(
 	assert.NotContains(t, string(out.Payload), "cli_path")
 }
 
+// TestAgentBackendAdapter_LoadCarriesACPIdentity acp 的两个启动字段是账号级身份:
+// 与 hermes_url 同形地随 backend 载荷上行,而不是走 cli_path 那条每设备覆盖通路 ——
+// acp 没有「已知 CLI」的概念,可执行文件由 backend 自己声明。
+func TestAgentBackendAdapter_LoadCarriesACPIdentity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	state.EXPECT().FindRow(gomock.Any(), syncwire.KindAgentBackend, "be-acp", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
+			*dest.(*agent_backend_entity.AgentBackend) = agent_backend_entity.AgentBackend{
+				ID: 12, Type: "acp", Name: "远端 Gemini",
+				ConfigJSON: `{"acpCommand":"npx","acpArgs":["-y","@agentclientprotocol/codex-acp"]}`,
+				SyncMeta:   syncmeta_entity.SyncMeta{SyncID: "be-acp"},
+			}
+			return true, nil
+		})
+	syncstate_repo.RegisterSyncState(state)
+
+	out, err := agentBackendAdapter{}.load(context.Background(), "be-acp")
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	var payload syncwire.AgentBackendPayload
+	require.NoError(t, json.Unmarshal(out.Payload, &payload))
+	assert.Equal(t, "npx", payload.Config.ACPCommand)
+	assert.Equal(t, []string{"-y", "@agentclientprotocol/codex-acp"}, payload.Config.ACPArgs)
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackend, out.Payload))
+}
+
+// TestAgentBackendAdapter_ApplyLandsACPIdentity 下行方向:载荷里的 acp 启动字段
+// 原样落回实体 —— 漏掉这一步,别的设备 / server 同步来的 acp 后端在本机连一条
+// 可执行命令都没有。
+func TestAgentBackendAdapter_ApplyLandsACPIdentity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	state.EXPECT().FindRow(gomock.Any(), syncwire.KindAgentBackend, "be-acp", gomock.Any()).Return(false, nil)
+	syncstate_repo.RegisterSyncState(state)
+
+	backends := mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl)
+	var created *agent_backend_entity.AgentBackend
+	backends.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, b *agent_backend_entity.AgentBackend) error { created = b; return nil })
+	agent_backend_repo.RegisterAgentBackend(backends)
+
+	err := agentBackendAdapter{}.apply(context.Background(), &inbound{
+		Kind: syncwire.KindAgentBackend, SyncID: "be-acp",
+		Payload: []byte(`{"type":"acp","name":"远端 Gemini",` +
+			`"config":{"acpCommand":"gemini","acpArgs":["--acp"]}}`),
+	}, map[string]int64{})
+	require.NoError(t, err)
+	require.NotNil(t, created)
+	assert.Equal(t, "gemini", created.ACPCommand)
+	assert.Equal(t, []string{"--acp"}, created.ACPArgs)
+}
+
 // TestAgentBackendAdapter_ApplyAppliesEnvelopeFingerprintToDeviceID 同步与身份：
 // 后端的运行设备是账号级同步的一部分，在任一端设置，其它端与服务端看到的是同一台
 // 机器——下行时 push item 的 agentred_fingerprint 落回 AgentBackend.DeviceID。

@@ -173,6 +173,11 @@ type AgentBackendConfig struct {
 	// token 绝不进这里(它只在桌面端 keychain 里)。
 	HermesAuthProvider string `json:"hermesAuthProvider,omitempty"`
 	HermesUserID       string `json:"hermesUserId,omitempty"`
+	// ACPCommand / ACPArgs 仅 acp 使用:外部 ACP Agent 的可执行文件与附加 argv。
+	// 它们是账号级身份(与 hermesUrl 同形),没有每设备覆盖通路 —— acp 没有
+	// 「已知 CLI」的概念,可执行文件由 backend 自己声明。
+	ACPCommand string   `json:"acpCommand,omitempty"`
+	ACPArgs    []string `json:"acpArgs,omitempty"`
 }
 
 // AgentBackendCLIPayload 是 kind=agent_backend_cli 的载荷:某个后端在某台机器上的

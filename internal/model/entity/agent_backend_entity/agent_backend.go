@@ -42,6 +42,10 @@ const (
 	// agent。Hermes 自带 provider/model/凭证配置，不受 Agentre LLMProvider 绑定，
 	// URL 由 backend 自身持有。
 	TypeHermes BackendType = "hermes"
+	// TypeACP 连一个外部 ACP Agent 子进程（stdio 上的 JSON-RPC，Agent Client
+	// Protocol v1）。Agentre 作为 ACP Client，把 ACP 会话流翻译成 sealed 事件；
+	// ACP Agent 自带 provider/model/凭证，不受 Agentre LLMProvider 绑定。
+	TypeACP BackendType = "acp"
 )
 
 const (
@@ -108,6 +112,12 @@ type AgentBackend struct {
 	HermesAuthProvider string `gorm:"-"`
 	// HermesUserID 仅 hermes 使用：登录成功后的用户标识，用于界面显示「已登录为 xxx」。
 	HermesUserID string `gorm:"-"`
+	// ACPCommand 仅 acp 使用：ACP Agent 可执行文件 —— 绝对路径，或一个
+	// exec.LookPath 能解析的裸名字（如 hermes / gemini / npx）。
+	ACPCommand string `gorm:"-"`
+	// ACPArgs 仅 acp 使用：附加参数，逐项原样作为 argv 传给 ACPCommand
+	// （例：["acp"]、["-y","@agentclientprotocol/codex-acp"]、["--acp"]）。
+	ACPArgs []string `gorm:"-"`
 	// ConfigJSON 存放上面这些单类型独占设置（见 config.go）。它们各自不落列。
 	ConfigJSON string `gorm:"column:config_json;type:text;not null;default:'{}'"`
 	Status     int    `gorm:"column:status;type:int;not null;default:1"`
@@ -166,6 +176,10 @@ func (b *AgentBackend) IsHermes() bool {
 	return b != nil && BackendType(b.Type) == TypeHermes
 }
 
+func (b *AgentBackend) IsACP() bool {
+	return b != nil && BackendType(b.Type) == TypeACP
+}
+
 // IsLocal DeviceFingerprint 为空时为本地模式；nil receiver 返回 false。
 func (b *AgentBackend) IsLocal() bool { return b != nil && b.DeviceFingerprint == "" }
 
@@ -206,6 +220,9 @@ func (b *AgentBackend) Check(ctx context.Context) error {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
 	if !b.IsHermes() && b.hasHermesConfig() {
+		return i18n.NewError(ctx, code.InvalidParameter)
+	}
+	if !b.IsACP() && b.hasACPConfig() {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
 
@@ -275,6 +292,10 @@ func (b *AgentBackend) hasHermesConfig() bool {
 	return strings.TrimSpace(b.HermesURL) != "" ||
 		strings.TrimSpace(b.HermesAuthProvider) != "" ||
 		strings.TrimSpace(b.HermesUserID) != ""
+}
+
+func (b *AgentBackend) hasACPConfig() bool {
+	return strings.TrimSpace(b.ACPCommand) != "" || len(b.ACPArgs) > 0
 }
 
 // validPermissionModes 与 pkg/claudecode/session.go::validPermissionModes 对齐。

@@ -45,7 +45,7 @@
 ## 同步契约
 
 - `AgentBackendPayload` 保留 `type`、`name`、`provider_key`、`model_key`、`env_json`、`reasoning_effort`；删除 `model_routes`、`sandbox`、`approval`、`default_permission_mode`、`default_model` 与四个 `openclaw_*`；新增 `config`。
-- `config` 是 JSON 对象，键为 `modelRoutes`（对象）、`sandbox`、`approval`、`defaultPermissionMode`、`defaultModel`、`openclawGatewayUrl`、`openclawAgentId`、`openclawDefaultModel`、`openclawSessionMode`、`hermesUrl`、`hermesAuthProvider`、`hermesUserId`。空值键省略，全空为 `{}`。
+- `config` 是 JSON 对象，键为 `modelRoutes`（对象）、`sandbox`、`approval`、`defaultPermissionMode`、`defaultModel`、`openclawGatewayUrl`、`openclawAgentId`、`openclawDefaultModel`、`openclawSessionMode`、`hermesUrl`、`hermesAuthProvider`、`hermesUserId`、`acpCommand`、`acpArgs`。空值键省略，全空为 `{}`。
 - 含 `config` 的载荷通过 `GuardPayload`。
 
 ## 桌面端（含 agentred）

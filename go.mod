@@ -29,6 +29,8 @@ require (
 	gorm.io/gorm v1.25.12
 )
 
+require github.com/coder/acp-go-sdk v0.13.5
+
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect

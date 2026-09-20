@@ -34,6 +34,7 @@ import (
 	// 显式 blank import 触发本地 runtime 子包 init() 把 *Runtime 注册到 RuntimeFor。
 	// remote 是显式构造,不参与全局注册;以下几种为本地后端,必须自注册才能被
 	// selectRunner 与 permissionModeMetaFor 解析到。
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/acp"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/builtin"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/codex"
@@ -120,6 +121,9 @@ type ChatSvc interface {
 	EnsureSession(ctx context.Context, req *EnsureSessionRequest) (*EnsureSessionResponse, error)
 	// ObserveTurn 订阅指定 session 下一次 turn 完成(服务端, 不经 Wails)。
 	ObserveTurn(sessionID int64) (<-chan TurnResult, func())
+	// SubscribeSessionEvents 订阅指定会话的流事件(进程内扇出, 不经 Wails)。
+	// 返回只读通道 + 取消函数;取消后通道关闭。未接 NewFanoutEmitter 时返回已关闭通道。
+	SubscribeSessionEvents(sessionID int64) (<-chan ChatStreamEvent, func())
 	// AgentBackendHasCapability 报告某 agent 的后端 runtime 是否声明指定能力(领域无关探针)。
 	// 后端缺失/类型无法解析 → (false, nil)。MVP 仅解析本地 runtime; 远程后端目前返回 (false, nil)。
 	AgentBackendHasCapability(ctx context.Context, agentID int64, wantCap capability.Capability) (bool, error)
@@ -175,6 +179,9 @@ func NewChat(emitter Emitter) ChatSvc {
 		gateway:       defaultGateway,
 	}
 	s.dispatcher = newPackageDispatcher(s)
+	if sub, ok := emitter.(SessionEventSubscriber); ok {
+		s.sessionEvents = sub
+	}
 	return s
 }
 
@@ -226,6 +233,9 @@ func (c *activeTurnControl) gracefulAborter() (agentruntime.Aborter, bool) {
 
 type chatSvc struct {
 	emitter Emitter
+	// sessionEvents 是 emitter 上的订阅能力(只有 NewFanoutEmitter 才实现)。
+	// nil 表示没有装配扇出 —— SubscribeSessionEvents 返回已关闭通道,调用方不阻塞。
+	sessionEvents SessionEventSubscriber
 	// dispatcher 是 svc-bound turn.Dispatcher,注册了带 chat_svc 适配器的 18 个 handler。
 	// 在 NewChat 时构造一次(svc-bound,handlers 的 Writer/Persister 持 *chatSvc 引用)。
 	// AGENTRE_NEW_DISPATCHER=1 时 runTurn drain loop 通过它处理 Event;默认关。
@@ -1334,6 +1344,10 @@ func (s *chatSvc) resolveAgentBackend(ctx context.Context, sess *chat_entity.Ses
 		}
 		// 本机 hermes 自带 provider/model/凭证，不绑定 Agentre LLMProvider，也不经
 		// 本地网关转发：不查 provider、不要求 gateway。URL 连不上由轮次启动时报错。
+	case agent_backend_entity.TypeACP:
+		// acp 跑 backend 声明的本机 CLI 子进程，本地与远端 agentred 都可执行；
+		// ACP Agent 自带 provider/model/凭证，不查 provider、不要求 gateway。
+		// 子进程起不来 / 握手失败由轮次启动时报出可读错误。
 	case agent_backend_entity.TypeOpenClaw:
 		if exec_target_svc.BackendTargetsRemote(be) {
 			return nil, nil, nil, fmt.Errorf("openclaw remote secret enrollment is unavailable")

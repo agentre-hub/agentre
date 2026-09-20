@@ -50,3 +50,14 @@ func (s *chatSvc) publishTurnResult(sessionID int64, r TurnResult) {
 		return true
 	})
 }
+
+// SubscribeSessionEvents 见 ChatSvc:转发给外层 fanout emitter(若有装配)。
+// 未装配扇出时返回一个已关闭的通道 + no-op 取消,调用方(SSE handler)不会挂住。
+func (s *chatSvc) SubscribeSessionEvents(sessionID int64) (<-chan ChatStreamEvent, func()) {
+	if s.sessionEvents == nil {
+		ch := make(chan ChatStreamEvent)
+		close(ch)
+		return ch, func() {}
+	}
+	return s.sessionEvents.SubscribeSessionEvents(sessionID)
+}
