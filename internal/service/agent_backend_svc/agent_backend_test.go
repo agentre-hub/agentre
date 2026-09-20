@@ -17,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
@@ -196,7 +197,6 @@ func TestCreateBackend(t *testing.T) {
 				Type:           string(agent_backend_entity.TypeClaudeCode),
 				Name:           "cc",
 				LLMProviderKey: "key-1",
-				CLIPath:        "/usr/local/bin/claude",
 			})
 			assert.NoError(t, err)
 			assert.Equal(t, int64(43), resp.Item.ID)
@@ -231,6 +231,27 @@ func TestCreateBackend(t *testing.T) {
 				LLMProviderKey: "key-1",
 			})
 			assert.Error(t, err)
+		})
+
+		convey.Convey("成功创建 acp 后端,启动字段随实体落库", func() {
+			backendMock.EXPECT().FindByName(gomock.Any(), "acp-1").Return(nil, nil)
+			backendMock.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&agent_backend_entity.AgentBackend{})).
+				DoAndReturn(func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
+					assert.Equal(t, string(agent_backend_entity.TypeACP), b.Type)
+					assert.Equal(t, "gemini", b.ACPCommand, "与其它身份字段一样按 TrimSpace 落库")
+					assert.Equal(t, []string{"--acp"}, b.ACPArgs)
+					b.ID = 48
+					return nil
+				})
+
+			resp, err := svc.Create(ctx, &CreateBackendRequest{
+				Type:       string(agent_backend_entity.TypeACP),
+				Name:       "acp-1",
+				ACPCommand: " gemini ",
+				ACPArgs:    []string{"--acp"},
+			})
+			assert.NoError(t, err)
+			assert.Equal(t, int64(48), resp.Item.ID)
 		})
 
 		convey.Convey("成功创建 codex", func() {
@@ -650,6 +671,25 @@ func TestUpdateBackend(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, "", resp.Item.LLMProviderName)
 			assert.False(t, resp.Item.LLMProviderActive)
+		})
+
+		convey.Convey("acp 更新启动字段,空参数如实清空", func() {
+			existing := &agent_backend_entity.AgentBackend{
+				ID: 6, Type: string(agent_backend_entity.TypeACP), Name: "acp-1",
+				ACPCommand: "gemini", ACPArgs: []string{"--acp"}, Status: consts.ACTIVE,
+			}
+			backendMock.EXPECT().Find(gomock.Any(), int64(6)).Return(existing, nil)
+			backendMock.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&agent_backend_entity.AgentBackend{})).
+				DoAndReturn(func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
+					assert.Equal(t, "npx", b.ACPCommand)
+					assert.Empty(t, b.ACPArgs, "请求里空参数落成空,不保留旧值")
+					return nil
+				})
+
+			_, err := svc.Update(ctx, &UpdateBackendRequest{
+				ID: 6, Name: "acp-1", ACPCommand: "npx",
+			})
+			assert.NoError(t, err)
 		})
 	})
 }
@@ -1343,6 +1383,104 @@ func TestCLIOverlay_GivenMissingOverlay_ReportsPATH(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, response.CLIPath)
 	assert.Equal(t, "path", response.Status)
+}
+
+// TestCLIOverlay_GivenExplicitDeviceID_SetWritesThatDeviceNotLocal reproduces
+// Problem 5's device-identity half: SetCLIOverlay used to always resolve to
+// this installation's own fingerprint (rd.DeviceFingerprint()), ignoring which
+// device the backend actually targets. A remote-device save would silently
+// write the path onto the wrong (local) row. No EXPECT is set on
+// rd.DeviceFingerprint(): if the fix regresses to always calling it, the
+// gomock controller fails this test for an unexpected call.
+func TestCLIOverlay_GivenExplicitDeviceID_SetWritesThatDeviceNotLocal(t *testing.T) {
+	ctx, backendMock, _, _, _, _, svc := setupSvcTestWithRemoteDevice(t)
+	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", devicefp.Carrier("sha256:remote")).Return(nil, nil)
+	backendMock.EXPECT().CreateCLIOverlay(ctx, gomock.AssignableToTypeOf(&agent_backend_entity.CLIOverlay{})).DoAndReturn(
+		func(_ context.Context, overlay *agent_backend_entity.CLIOverlay) error {
+			assert.Equal(t, "backend-1", overlay.BackendSyncID)
+			assert.Equal(t, devicefp.Carrier("sha256:remote"), overlay.AgentredFingerprint)
+			assert.Equal(t, "/opt/claude", overlay.CLIPath)
+			return nil
+		})
+
+	_, err := svc.SetCLIOverlay(ctx, &SetCLIOverlayRequest{
+		BackendSyncID: "backend-1", DeviceID: "sha256:remote", CLIPath: "/opt/claude",
+	})
+	require.NoError(t, err)
+}
+
+// TestCLIOverlay_GivenExplicitDeviceID_GetReadsThatDeviceNotLocal is GetCLIOverlay's
+// counterpart: reading a remote device's overlay must not consult this
+// installation's own fingerprint.
+func TestCLIOverlay_GivenExplicitDeviceID_GetReadsThatDeviceNotLocal(t *testing.T) {
+	ctx, backendMock, _, _, _, _, svc := setupSvcTestWithRemoteDevice(t)
+	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", devicefp.Carrier("sha256:remote")).
+		Return(&agent_backend_entity.CLIOverlay{CLIPath: "/opt/remote/claude"}, nil)
+
+	resp, err := svc.GetCLIOverlay(ctx, &GetCLIOverlayRequest{BackendSyncID: "backend-1", DeviceID: "sha256:remote"})
+	require.NoError(t, err)
+	assert.Equal(t, "/opt/remote/claude", resp.CLIPath)
+	assert.Equal(t, "recognized", resp.Status)
+}
+
+// TestUpdateBackend_WritesNoCLIOverlayRow is the seam that owns the executable
+// path: the per-device overlay is written **only** through SetCLIOverlay, never
+// as a side effect of saving the backend identity.
+//
+// Create/Update used to write it from the request's own cli_path field. That
+// made 4098e722's rule ("path unchanged → don't write the overlay row") inert on
+// the desktop: the shared editor sends the whole draft on save, so a rename
+// alone still wrote back the path read when the editor opened, reverting
+// whatever another device had set on that (backend, device) row in between.
+// The browser host already routes the path through the same cliPath port only
+// (enginePorts.ts's createBackendBody / updateBackendBody deliberately omit
+// cli_path), so one writer is now the rule on both hosts.
+//
+// claudecode is the kind that used to get a row here; no
+// FindCLIOverlay/CreateCLIOverlay/UpdateCLIOverlay expectation is set, so the
+// strict gomock backendMock fails this test if a second writer comes back.
+func TestUpdateBackend_WritesNoCLIOverlayRow(t *testing.T) {
+	ctx, backendMock, providerMock, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+	// update() 的设备规范化与 toItem 的本机展示判定都会读本机指纹（与 CLI 覆盖无关
+	// 的既有行为），这里不关心调用几次；只断言不会去碰 CLI 覆盖表的读写方法。
+	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
+	existing := &agent_backend_entity.AgentBackend{
+		ID:       81,
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "backend-81"},
+		Type:     string(agent_backend_entity.TypeClaudeCode),
+		Name:     "Claude Code",
+		Status:   consts.ACTIVE,
+	}
+	backendMock.EXPECT().Find(gomock.Any(), int64(81)).Return(existing, nil)
+	backendMock.EXPECT().FindByName(gomock.Any(), "Claude Code 2").Return(nil, nil)
+	providerMock.EXPECT().FindByKey(gomock.Any(), "key-1").Return(activeProvider("key-1"), nil)
+	expectDefaultModelResolution(providerMock, "key-1", 1)
+	backendMock.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, err := svc.Update(ctx, &UpdateBackendRequest{
+		ID: 81, Name: "Claude Code 2", LLMProviderKey: "key-1",
+	})
+	require.NoError(t, err)
+}
+
+// TestCreateBackend_WritesNoCLIOverlayRow 是 Create 那一半的同一条不变量。
+func TestCreateBackend_WritesNoCLIOverlayRow(t *testing.T) {
+	ctx, backendMock, providerMock, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
+	backendMock.EXPECT().FindByName(gomock.Any(), "Claude Code").Return(nil, nil)
+	providerMock.EXPECT().FindByKey(gomock.Any(), "key-1").Return(activeProvider("key-1"), nil)
+	expectDefaultModelResolution(providerMock, "key-1", 1)
+	backendMock.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
+			b.ID, b.SyncID = 82, "backend-82"
+			return nil
+		})
+
+	_, err := svc.Create(ctx, &CreateBackendRequest{
+		Type: string(agent_backend_entity.TypeClaudeCode), Name: "Claude Code",
+		LLMProviderKey: "key-1",
+	})
+	require.NoError(t, err)
 }
 
 func TestBackend_GivenCanonicalFingerprint_ResolvesPairedRowForRemoteProbe(t *testing.T) {

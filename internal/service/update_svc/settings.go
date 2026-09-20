@@ -10,31 +10,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
 )
 
-// getChannel 读取持久化的更新通道；未设置时返回 DefaultUpdateChannel。
-func getChannel(ctx context.Context) (string, error) {
-	item, err := app_setting_repo.AppSetting().Get(ctx, app_setting_entity.KeyUpdateChannel)
-	if err != nil {
-		return "", err
-	}
-	if item == nil || strings.TrimSpace(item.Value) == "" {
-		return app_setting_entity.DefaultUpdateChannel, nil
-	}
-	return strings.TrimSpace(item.Value), nil
-}
-
-// setChannel 持久化更新通道；非法值返回 InvalidParameter 错误。
-func setChannel(ctx context.Context, channel string) error {
-	channel = strings.TrimSpace(channel)
-	if err := app_setting_entity.ValidateUpdateChannel(ctx, channel); err != nil {
-		return err
-	}
-	return app_setting_repo.AppSetting().Set(ctx, &app_setting_entity.AppSetting{
-		Key:        app_setting_entity.KeyUpdateChannel,
-		Value:      channel,
-		Updatetime: time.Now().UnixMilli(),
-	})
-}
-
 // getMirror 读取持久化的下载镜像前缀；未设置时返回空串（直连 GitHub）。
 func getMirror(ctx context.Context) (string, error) {
 	item, err := app_setting_repo.AppSetting().Get(ctx, app_setting_entity.KeyDownloadMirror)

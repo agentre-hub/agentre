@@ -3,6 +3,7 @@ package claudecode
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
@@ -1377,6 +1379,56 @@ func TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
 	})
 }
 
+// TestRun_WebInitiatedFreeSessionWithSystemAgentResolvesCwd 是 2026-09-18 那条报错的
+// 回归:上一条钉的是随机 ULID,系统 Agent(默认 CEO 助手)的同步标识却是固定值
+// agent_entity.DefaultAgentSyncID = "agent:system:default-ceo",带冒号 —— 它恒定过不了
+// 兜底解析的词表,于是控制台对系统 Agent 发起的每一条「不指定项目」的自由对话都死在
+// 这里:acquireSession failed,界面上是「docker 已连接,但 Agent 启动失败:
+// agentruntime: ResolveAgentCwd needs agentID > 0 or a syntactically valid agentSyncID」。
+// 选了项目时 req.Cwd 非空、不走兜底,所以这条路径此前一直没人踩到。
+func TestRun_WebInitiatedFreeSessionWithSystemAgentResolvesCwd(t *testing.T) {
+	Convey("Given 一条 web 发起、不钉项目的对话,对面是系统 Agent(同步标识带冒号)", t, func() {
+		dataDir := t.TempDir()
+		t.Setenv("AGENTRE_DATA_DIR", dataDir)
+
+		var gotCwd string
+		restore := SetSessionFactoryForTest(func(spec ccLaunchSpec) (ccSessionHandle, error) {
+			gotCwd = spec.Cwd
+			return &fakeCCHandle{
+				id: "fake-sid",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		Convey("When 起这一轮, Then 起得来,工作目录是一个真实存在、没有冒号的目录", func() {
+			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+				Backend: &agent_backend_entity.AgentBackend{
+					Type: string(agent_backend_entity.TypeClaudeCode),
+				},
+				SessionID:   100,
+				AgentID:     0,
+				AgentSyncID: agent_entity.DefaultAgentSyncID,
+				UserText:    "hi",
+				Effective: &agentruntime.EffectiveLLMConfig{
+					ProviderKey: "pk", ProviderType: "anthropic", ModelID: "claude-haiku-4-5",
+				},
+			})
+			So(err, ShouldBeNil)
+			for range events { //nolint:revive // drain
+			}
+			So(gotCwd, ShouldEqual,
+				filepath.Join(dataDir, "agents", "sync-agent~3Asystem~3Adefault-ceo"))
+			info, statErr := os.Stat(gotCwd)
+			So(statErr, ShouldBeNil)
+			So(info.IsDir(), ShouldBeTrue)
+		})
+	})
+}
+
 // TestAutonomousTurns_GivenTurnInFlight_WhenIdleSweeperRuns_ThenSessionIsNotReleased
 // 钉死 sess-3244:CLI 自主跑的那一轮不经过 acquireSession,池里没人替它 MarkActive
 // —— 条目整轮都停在上一个用户轮结束时标下的 idle,idleFor 接着涨。生产里自主轮跑到
@@ -1683,5 +1735,94 @@ func TestRun_UnrecordedLaunchIdentityEvictsAndRespawns(t *testing.T) {
 			So(ok, ShouldBeTrue)
 			So(v, ShouldNotEqual, stale)
 		})
+	})
+}
+
+// TestRun_ContextWindowReachesRunResult 锁住「窗口只活在预览帧里」这条漏:
+// agentred 做宿主时,fanout 把每一条 runtime 事件都当**预览帧**扇出去
+// (handlers/runtime.go 的 Preview:true),预览帧不带 seq、不入库、不参与补齐。
+// 于是 ContextWindowUpdated 报出去的那个窗口,浏览器一刷新就没了 —— 控制台底栏
+// 那条上下文进度条永远画不出来(桌面端不吃这个亏:它读的是 chat_sessions 那一列)。
+//
+// 终态帧是这条路上唯一带号的载体,而它本来就有 ContextWindow 这一格
+// (runResultToFrame → wire.RunResultDoneFrame.ContextWindow)。claudecode 此前
+// 一直把它留空(runner.go 的字段注释原话:"RunResult 通常留 0"),所以这里钉死:
+// **凡是报给客户端的窗口,同一个数也必须留在 RunResult 上**。
+func TestRun_ContextWindowReachesRunResult(t *testing.T) {
+	Convey("Given CLI init 帧报 model=glm-5.3 的一轮", t, func() {
+		restore := SetSessionFactoryForTest(func(_ ccLaunchSpec) (ccSessionHandle, error) {
+			return &fakeCCHandle{
+				id: "native-claude-session",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventInit, Model: "glm-5.3"},
+					{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		run := func(contextWindow int) (int, []int) {
+			events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+				Effective: &agentruntime.EffectiveLLMConfig{ProviderKey: "pk", ModelKey: "mk", ProviderType: "anthropic", ModelID: "glm-5.3", ContextWindow: contextWindow},
+				SessionID: 4040,
+				Cwd:       t.TempDir(),
+				UserText:  "hi",
+			})
+			So(err, ShouldBeNil)
+			var windows []int
+			for ev := range events {
+				if cw, ok := ev.(agentruntime.ContextWindowUpdated); ok {
+					windows = append(windows, cw.Tokens)
+				}
+			}
+			return result.ContextWindow, windows
+		}
+
+		Convey("配了窗口 → 终态结果与事件报同一个数", func() {
+			got, windows := run(400000)
+			So(windows, ShouldResemble, []int{400000})
+			So(got, ShouldEqual, 400000)
+		})
+
+		Convey("没配窗口、catalog 兜出一个数 → 终态结果也是那个数", func() {
+			got, windows := run(0)
+			So(windows, ShouldHaveLength, 1)
+			So(got, ShouldEqual, windows[0])
+		})
+	})
+}
+
+// TestRun_ContextWindowAbsentStaysZero 守住反面:catalog 认不出模型、也没配窗口时
+// 一条 ContextWindowUpdated 都不该有,RunResult 那一格也必须留 0 ——
+// 0 的含义是「没探到」(runner.go 的字段注释),拿一个猜的数填进去会让消费方把
+// 进度条的分母画错,而它没有任何办法分辨。
+func TestRun_ContextWindowAbsentStaysZero(t *testing.T) {
+	Convey("Given CLI 报了一个 catalog 认不出的模型名", t, func() {
+		restore := SetSessionFactoryForTest(func(_ ccLaunchSpec) (ccSessionHandle, error) {
+			return &fakeCCHandle{
+				id: "native-claude-session",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventInit, Model: "no-such-model-xyzzy"},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		events, result, err := New().Run(context.Background(), agentruntime.RunRequest{
+			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+			Effective: &agentruntime.EffectiveLLMConfig{ProviderKey: "pk", ModelKey: "mk", ProviderType: "anthropic", ModelID: "no-such-model-xyzzy"},
+			SessionID: 4041,
+			Cwd:       t.TempDir(),
+			UserText:  "hi",
+		})
+		So(err, ShouldBeNil)
+		for ev := range events {
+			_, isWindow := ev.(agentruntime.ContextWindowUpdated)
+			So(isWindow, ShouldBeFalse)
+		}
+		So(result.ContextWindow, ShouldEqual, 0)
 	})
 }

@@ -6,6 +6,8 @@ import (
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
+
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
 // timeNow 由测试替换，让节流判定不依赖真实时钟。
@@ -22,8 +24,7 @@ const (
 	TriggerTick CheckTrigger = "tick"
 	// TriggerFocus 窗口重新获得焦点（用户回到应用的那一刻）。
 	TriggerFocus CheckTrigger = "focus"
-	// TriggerManual 用户点「检查更新」。切换更新通道后的重查也走这一条：
-	// 两者都是用户此刻在等结果，节流对它们没有意义。
+	// TriggerManual 用户点「检查更新」：用户此刻在等结果，节流对它没有意义。
 	TriggerManual CheckTrigger = "manual"
 )
 
@@ -64,11 +65,20 @@ type CheckOutcome struct {
 	Error string `json:"error"`
 }
 
-// RunCheck 按触发源判定是否该查，放行时执行一次检查并写回上次检查时间。
+// RunCheck 按触发源判定是否该查，放行时按构建渠道执行一次检查并写回上次检查时间。
 //
-// 被节流跳过时返回 (nil, nil)：调用方据此什么都不做，而不是把「没查」误当成「已是最新」。
+// Dev 构建没有发布，任何触发源都不检查、不碰更新服务，返回 (nil, nil)。
+// 被节流跳过时同样返回 (nil, nil)：调用方据此什么都不做，而不是把「没查」误当成「已是最新」。
 // 检查失败时不推进节流窗口，否则一次网络抖动会让接下来 AutoCheckInterval 内都不再尝试。
 func RunCheck(ctx context.Context, trigger CheckTrigger) (*UpdateInfo, error) {
+	channel, err := paths.CurrentChannel()
+	if err != nil {
+		return nil, err
+	}
+	if channel == paths.ChannelDev {
+		return nil, nil
+	}
+
 	svc := Update()
 
 	last, err := svc.GetLastUpdateCheck(ctx)
@@ -82,10 +92,6 @@ func RunCheck(ctx context.Context, trigger CheckTrigger) (*UpdateInfo, error) {
 		return nil, nil
 	}
 
-	channel, err := svc.GetChannel(ctx)
-	if err != nil {
-		return nil, err
-	}
 	mirror, err := svc.GetMirror(ctx)
 	if err != nil {
 		return nil, err
@@ -102,7 +108,7 @@ func RunCheck(ctx context.Context, trigger CheckTrigger) (*UpdateInfo, error) {
 			zap.String("trigger", string(trigger)), zap.Error(err))
 	}
 	logger.Ctx(ctx).Info("update_svc.RunCheck: checked",
-		zap.String("trigger", string(trigger)), zap.String("channel", channel),
+		zap.String("trigger", string(trigger)), zap.String("channel", string(channel)),
 		zap.Bool("hasUpdate", info.HasUpdate), zap.String("latestVersion", info.LatestVersion))
 	return info, nil
 }

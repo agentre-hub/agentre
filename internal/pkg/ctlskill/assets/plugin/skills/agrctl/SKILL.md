@@ -55,6 +55,30 @@ One tab-separated line per project: `#<id>`, name, absolute path.
 returns as soon as the task is dispatched and prints the new session id; the target agent
 keeps working inside the desktop.
 
+## Running as an ACP agent (`agrctl acp`)
+
+Besides controlling the desktop, `agrctl` can itself run as an **ACP v1 agent** on stdio. An
+Agentre `acp` backend can then drive it, so a task dispatched to that backend is handed to
+another agent configured in this desktop:
+
+```
+{{AGRCTL_PATH}} acp --agent <name> [--project <id>]
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--agent <name>` | target Agentre agent; prompts are dispatched to it (required) |
+| `--agent-id <id>` | target by numeric id; overrides `--agent` |
+| `--project <id>` | project to run in; omitted or `0` means a free session |
+
+To use it, add an Agentre backend of type **acp** with `acpCommand = {{AGRCTL_PATH}}` and
+`acpArgs = ["acp", "--agent", "<name>"]`. It reads the same control channel `ctl` uses,
+so the desktop must be running.
+
+**Do not point an `acp` backend at an `agrctl acp` whose target agent itself uses that same
+backend** — the dispatches recurse until a turn waits on itself. Pick a different target
+agent.
+
 ## When the desktop is not running
 
 Every command fails with:

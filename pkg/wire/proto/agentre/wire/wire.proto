@@ -783,6 +783,11 @@ message AgentBackend {
   int64 sync_updated_at = 25;
   string sync_origin_fingerprint = 26;
   int64 sync_deleted_at = 27;
+  // acp_command / acp_args carry the ACP agent launch line for type=acp backends
+  // (protocol v1 only). Adding fields is forward-compatible, so the protocol
+  // version option stays untouched.
+  string acp_command = 28;
+  repeated string acp_args = 29;
 }
 
 message StoredBlock { string type = 1; bytes data = 2; }

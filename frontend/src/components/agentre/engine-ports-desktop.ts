@@ -489,18 +489,20 @@ export function createDesktopEngineSettingsPorts(
     },
     onRuntimeDeviceState: options.onRuntimeDeviceState,
     cliPath: {
-      async get(backendSyncID) {
+      async get(backendSyncID, deviceId) {
         const response = await GetAgentBackendCLIOverlay(
           new agent_backend_svc.GetCLIOverlayRequest({
             backendSyncId: backendSyncID,
+            deviceId,
           }),
         );
         return response.cliPath || null;
       },
-      async set(backendSyncID, path) {
+      async set(backendSyncID, deviceId, path) {
         await SetAgentBackendCLIOverlay(
           new agent_backend_svc.SetCLIOverlayRequest({
             backendSyncId: backendSyncID,
+            deviceId,
             cliPath: path,
           }),
         );

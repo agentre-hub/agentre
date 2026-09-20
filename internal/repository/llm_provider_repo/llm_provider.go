@@ -4,6 +4,7 @@ package llm_provider_repo
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/cago-frame/cago/database/db"
 	"github.com/cago-frame/cago/pkg/consts"
@@ -207,13 +208,24 @@ func (r *llmProviderRepo) CreateWithModels(ctx context.Context, p *llm_provider_
 // UpsertFromSync applies the complete nested provider payload as one transaction.
 // Model keys are stable and global, so existing rows are updated in place; any
 // active local model not present in the authoritative payload becomes deleted.
+//
+// The adapter hands in a freshly built row (payload fields only, sync-blind by
+// design — it doesn't read the local row first). This is therefore the one seam
+// that knows both the incoming payload and the local row it lands on, so it owns
+// stamping createtime/updatetime and carrying over the six sync_* columns:
+// an existing row keeps its createtime and sync metadata (including sync_version,
+// which the lost-change restore path relies on as the next upload's base
+// version) and only gets a fresh updatetime; a brand-new row gets both stamps
+// set to this landing time and starts with zero sync metadata (Problem 4).
 func (r *llmProviderRepo) UpsertFromSync(ctx context.Context, p *llm_provider_entity.LLMProvider, models []*llm_provider_model_entity.LLMProviderModel) error {
 	p.SyncID = p.ProviderKey
+	now := time.Now().UnixMilli()
 	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing llm_provider_entity.LLMProvider
 		err := tx.Where("provider_key = ?", p.ProviderKey).First(&existing).Error
 		switch {
 		case errors.Is(err, gorm.ErrRecordNotFound):
+			p.Createtime, p.Updatetime = now, now
 			if err := tx.Create(p).Error; err != nil {
 				return err
 			}
@@ -221,6 +233,14 @@ func (r *llmProviderRepo) UpsertFromSync(ctx context.Context, p *llm_provider_en
 			return err
 		default:
 			p.ID = existing.ID
+			p.Createtime = existing.Createtime
+			p.Updatetime = now
+			p.SyncMeta = existing.SyncMeta
+			// SyncID 终身不变、恒等于 provider_key（各写口共同维持的不变式）：上面整
+			// 段搬 existing.SyncMeta 会连带搬回 existing.SyncID，正常情况下两者本就
+			// 相等，这里重新赋值只是不把这份不变式的成立与否交给「这一行的历史是否
+			// 干净」去赌。
+			p.SyncID = p.ProviderKey
 			if err := tx.Save(p).Error; err != nil {
 				return err
 			}
@@ -237,6 +257,7 @@ func (r *llmProviderRepo) UpsertFromSync(ctx context.Context, p *llm_provider_en
 			err := tx.Where("model_key = ?", model.ModelKey).First(&current).Error
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
+				model.Createtime, model.Updatetime = now, now
 				if err := tx.Create(model).Error; err != nil {
 					return err
 				}
@@ -244,6 +265,8 @@ func (r *llmProviderRepo) UpsertFromSync(ctx context.Context, p *llm_provider_en
 				return err
 			default:
 				model.ID = current.ID
+				model.Createtime = current.Createtime
+				model.Updatetime = now
 				if err := tx.Save(model).Error; err != nil {
 					return err
 				}

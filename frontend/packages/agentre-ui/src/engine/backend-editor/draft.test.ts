@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Backend, Translate } from "../agent-backends-shared";
 
-import { saveBackendDraft, type BackendDraft } from "./draft";
+import {
+  changedBackendFields,
+  saveBackendDraft,
+  type BackendDraft,
+} from "./draft";
 
 function draft(overrides: Partial<BackendDraft> = {}): BackendDraft {
   return {
@@ -49,6 +53,7 @@ describe("saveBackendDraft", () => {
 
     await saveBackendDraft({
       draft: draft(),
+      baseline: draft(),
       state: { kind: "edit", backend: editing },
       editing,
       openClawToken: "",
@@ -69,6 +74,7 @@ describe("saveBackendDraft", () => {
 
     await saveBackendDraft({
       draft: draft({ type: "openclaw" }),
+      baseline: draft({ type: "openclaw" }),
       state: { kind: "edit", backend: editing },
       editing,
       openClawToken: "token",
@@ -83,5 +89,28 @@ describe("saveBackendDraft", () => {
       "token",
       false,
     );
+  });
+});
+
+describe("changedBackendFields", () => {
+  it("Given an edit baseline, When the CLI path and a Claude tier route differ, Then both are named, the route under config", () => {
+    const baseline = draft({ cliPath: "/usr/bin/claude" });
+    const next = draft({
+      cliPath: "/opt/claude",
+      modelRoutes: {
+        OPUS: { providerKey: "anthropic", modelKey: "opus" },
+      } as BackendDraft["modelRoutes"],
+    });
+
+    expect(changedBackendFields(baseline, next)).toEqual([
+      "cliPath",
+      "config.modelRoutes",
+    ]);
+  });
+
+  it("Given no baseline (create), When the env table is empty, Then envJson is not reported as populated", () => {
+    expect(
+      changedBackendFields(null, draft({ envJson: "{}", name: "" })),
+    ).toEqual(["type", "deviceId"]);
   });
 });

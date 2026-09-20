@@ -95,13 +95,14 @@ func (a *App) RemoteDeviceSyncProvider(id int64, providerKey string) error {
 	return errRemoteDeviceServiceUnavailable
 }
 
-// RemoteDeviceUpgrade 触发远程一键升级 RPC(spec「远程一键升级」)。channel 留空
-// 按 daemon 当前配置的通道解读;force 越过活跃轮次闸门,必须由前端在拿到
-// UpgradeRejectActiveTurns 之后经用户显式二次确认才置真(决策 8/21)。应答只回
-// 受理结果,前端从版本号变化推断升级中→成功/超时失败。
-func (a *App) RemoteDeviceUpgrade(id int64, channel string, force bool) (*remote_device_svc.UpgradeResult, error) {
+// RemoteDeviceUpgrade 触发远程一键升级 RPC(spec「远程一键升级」)。渠道不再由
+// 前端传入——桌面端发送自己的构建渠道,Dev 在 service 层借连接之前就会拒绝
+// (决策 9/10);force 越过活跃轮次闸门,必须由前端在拿到 UpgradeRejectActiveTurns
+// 之后经用户显式二次确认才置真(决策 8/21)。应答只回受理结果,前端从版本号变化
+// 推断升级中→成功/超时失败。
+func (a *App) RemoteDeviceUpgrade(id int64, force bool) (*remote_device_svc.UpgradeResult, error) {
 	if svc := remote_device_svc.Default(); svc != nil {
-		return svc.Upgrade(a.ctx, id, channel, force)
+		return svc.Upgrade(a.ctx, id, force)
 	}
 	return nil, errRemoteDeviceServiceUnavailable
 }

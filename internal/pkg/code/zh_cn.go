@@ -237,6 +237,7 @@ var zhCN = map[int]string{
 	RemoteCLIDetectFailed:               "远端识别 CLI 失败：%s",
 	RemoteCLIProbeFailed:                "远端测试连接失败：%s",
 	RemoteDeviceAuthOpFailed:            "绑定设备上的凭据操作失败，请稍后重试",
+	RemoteDeviceUpgradeUnavailable:      "当前是开发构建，没有对应的发布可升级，不提供远端 agentred 一键升级",
 
 	// 远端文件系统(remotefs)
 	RemoteFsPathRefused:      "远端路径被拒绝(系统目录或非法路径)",

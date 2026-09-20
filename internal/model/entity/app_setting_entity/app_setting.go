@@ -19,8 +19,6 @@ const (
 	KeyProxyListenHost = "proxy.listen_host"
 	KeyProxyListenPort = "proxy.listen_port"
 
-	// KeyUpdateChannel 自动更新通道：stable / beta / nightly。
-	KeyUpdateChannel = "update.channel"
 	// KeyDownloadMirror 下载镜像前缀；空串表示直连 GitHub。
 	KeyDownloadMirror = "update.download_mirror"
 	// KeyLastUpdateCheck 上次"检查更新"的 Unix 时间戳，启动自动检查用它做 24h 节流。
@@ -56,9 +54,6 @@ const DefaultProxyListenHost = "127.0.0.1"
 // DefaultProxyListenPort 缺省监听端口。
 // 选 52401 是为了避开常见服务端口段，新装实例与残留 seed='0' 的旧数据会被迁移到这里。
 const DefaultProxyListenPort = 52401
-
-// DefaultUpdateChannel 缺省更新通道。
-const DefaultUpdateChannel = "stable"
 
 // AppSetting 一行 key-value 设置项记录。
 type AppSetting struct {
@@ -128,16 +123,6 @@ func ParseDebugLogging(v string) bool {
 	default:
 		return false
 	}
-}
-
-// ValidateUpdateChannel 校验 update.channel 取值是否为合法通道名。
-// 空串视为非法（service 层调用前已 TrimSpace）。
-func ValidateUpdateChannel(ctx context.Context, v string) error {
-	switch strings.TrimSpace(v) {
-	case "stable", "beta", "nightly":
-		return nil
-	}
-	return i18n.NewError(ctx, code.InvalidParameter)
 }
 
 // ValidateFileOpenAction 校验 files.open_action 取值（service 层调用前已 TrimSpace）。

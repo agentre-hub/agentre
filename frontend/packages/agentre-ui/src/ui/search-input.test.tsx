@@ -76,4 +76,15 @@ describe("SearchInput", () => {
       container.querySelector('[data-slot="search-input"]')?.className,
     ).toContain("w-[220px]");
   });
+
+  it("Given 一个搜索框, When 在手机上渲染, Then 字号有 16px 下限（否则 iOS 聚焦会放大整页）", () => {
+    const { container } = render(
+      <SearchInput value="" onChange={vi.fn()} aria-label="Search" />,
+    );
+
+    const input = container.querySelector("input");
+    // `sm` 档本身是 text-xs（12px），手机上一点就触发 iOS 的聚焦自动放大；
+    // 这条下限只在 md 以下生效，三档在桌面各保持原样。
+    expect(input?.className).toContain("max-md:text-base");
+  });
 });

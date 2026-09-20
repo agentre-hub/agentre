@@ -13,9 +13,37 @@ env:
   IMAGE: ghcr.io/agentre-hub/agentred
 
 jobs:
+  # Tag 门禁先于任何构建：只接受 vX.Y.Z（stable）与 vX.Y.Z-beta.N（beta），其他形状
+  # （包括 -rc）在这里失败，不创建 release、不构建任何平台。
+  validate-tag:
+    name: Validate tag
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.gate.outputs.channel }}
+      prerelease: ${{ steps.gate.outputs.prerelease }}
+    steps:
+      - name: Validate tag shape and resolve channel
+        id: gate
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "channel=stable" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
+            echo "channel=beta" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Unsupported tag '$TAG'; release.yml only accepts vX.Y.Z (stable) or vX.Y.Z-beta.N (beta)" >&2
+            exit 1
+          fi
+
   build-desktop:
     name: Desktop (${{ matrix.platform }})
+    needs: [validate-tag]
     runs-on: ${{ matrix.os }}
+    env:
+      CHANNEL: ${{ needs.validate-tag.outputs.channel }}
     strategy:
       fail-fast: false
       matrix:
@@ -107,18 +135,38 @@ jobs:
         shell: bash
         run: echo "APP_VERSION=${VERSION#v}" >> "$GITHUB_ENV"
 
+      # 渠道身份只从 paths.Channel.Identity 读一次，脚本与本地 make build 共用同一份，
+      # 详见 scripts/channel-identity.sh。这里跑在磁盘签出上，checkout 本身是一次性的，
+      # 不需要像本地那样还原 wails.json。
+      - name: Resolve channel identity
+        shell: bash
+        run: |
+          echo "CHANNEL_DISPLAY_NAME=$(bash scripts/channel-identity.sh "$CHANNEL" get display-name)" >> "$GITHUB_ENV"
+          echo "CHANNEL_ASSET_PREFIX=$(bash scripts/channel-identity.sh "$CHANNEL" get release-asset-prefix)" >> "$GITHUB_ENV"
+          echo "CHANNEL_LINUX_COMMAND=$(bash scripts/channel-identity.sh "$CHANNEL" get linux-command)" >> "$GITHUB_ENV"
+
+      - name: Apply channel identity to wails.json
+        shell: bash
+        run: bash scripts/channel-identity.sh "$CHANNEL" wails-json wails.json
+
       - name: Build desktop app
         if: matrix.goos != 'windows'
         run: |
           if [ -n "${{ matrix.extra_tags }}" ]; then
-            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}" -tags "${{ matrix.extra_tags }}"
+            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }} -X github.com/agentre-hub/agentre/internal/pkg/paths.buildChannel=$CHANNEL" -tags "${{ matrix.extra_tags }}"
           else
-            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
+            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }} -X github.com/agentre-hub/agentre/internal/pkg/paths.buildChannel=$CHANNEL"
           fi
 
       - name: Build desktop app (Windows)
         if: matrix.goos == 'windows'
-        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$env:APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
+        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$env:APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }} -X github.com/agentre-hub/agentre/internal/pkg/paths.buildChannel=$env:CHANNEL"
+
+      # macos-bundle 把 wails 固定产出的 .app 改名/改 bundle id 为本渠道
+      # 身份并 ad-hoc 签名；下面的真证书签名在这份改名后的 bundle 上覆盖签一次。
+      - name: Apply channel identity to macOS bundle
+        if: matrix.goos == 'darwin'
+        run: bash scripts/channel-identity.sh "$CHANNEL" macos-bundle "build/bin/Agentre.app"
 
       - name: Import Apple certificate
         if: matrix.goos == 'darwin'
@@ -146,18 +194,18 @@ jobs:
         if: matrix.goos == 'darwin'
         run: |
           if [ -n "$SIGNING_IDENTITY" ]; then
-            codesign --force --deep --sign "$SIGNING_IDENTITY" --options runtime --entitlements build/darwin/entitlements.plist build/bin/Agentre.app
+            codesign --force --deep --sign "$SIGNING_IDENTITY" --options runtime --entitlements build/darwin/entitlements.plist "build/bin/$CHANNEL_DISPLAY_NAME.app"
           else
-            codesign --force --deep --sign - build/bin/Agentre.app
+            codesign --force --deep --sign - "build/bin/$CHANNEL_DISPLAY_NAME.app"
           fi
 
       - name: Package (macOS dmg)
         if: matrix.goos == 'darwin'
         run: |
           DMG_SRC=$(mktemp -d)
-          cp -R build/bin/Agentre.app "$DMG_SRC/"
+          cp -R "build/bin/$CHANNEL_DISPLAY_NAME.app" "$DMG_SRC/"
           ln -s /Applications "$DMG_SRC/Applications"
-          hdiutil create -volname "Agentre" -srcfolder "$DMG_SRC" -ov -format UDZO agentre-${VERSION}-${{ matrix.platform }}.dmg
+          hdiutil create -volname "$CHANNEL_DISPLAY_NAME" -srcfolder "$DMG_SRC" -ov -format UDZO "${CHANNEL_ASSET_PREFIX}${VERSION}-${{ matrix.platform }}.dmg"
           rm -rf "$DMG_SRC"
 
       - name: Notarize macOS DMG
@@ -171,12 +219,13 @@ jobs:
             echo "No signing identity, skipping notarization"
             exit 0
           fi
-          xcrun notarytool submit agentre-${VERSION}-${{ matrix.platform }}.dmg \
+          DMG="${CHANNEL_ASSET_PREFIX}${VERSION}-${{ matrix.platform }}.dmg"
+          xcrun notarytool submit "$DMG" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_ID_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait
-          xcrun stapler staple agentre-${VERSION}-${{ matrix.platform }}.dmg
+          xcrun stapler staple "$DMG"
 
       - name: Package (Linux deb)
         if: matrix.goos == 'linux'
@@ -186,11 +235,11 @@ jobs:
           mkdir -p ${PKG_ROOT}/usr/bin
           mkdir -p ${PKG_ROOT}/usr/share/applications
           mkdir -p ${PKG_ROOT}/usr/share/icons/hicolor/256x256/apps
-          # 桌面二进制小写命名，便于内置 update_svc 解压后查找。
-          cp build/bin/Agentre ${PKG_ROOT}/usr/bin/agentre
-          cp build/appicon.png ${PKG_ROOT}/usr/share/icons/hicolor/256x256/apps/agentre.png
+          # 桌面二进制按渠道 Linux 命令名命名，便于内置 update_svc 解压后查找，且各渠道并排安装不覆盖。
+          cp build/bin/Agentre ${PKG_ROOT}/usr/bin/${CHANNEL_LINUX_COMMAND}
+          cp build/appicon.png ${PKG_ROOT}/usr/share/icons/hicolor/256x256/apps/${CHANNEL_LINUX_COMMAND}.png
           cat > ${PKG_ROOT}/DEBIAN/control << CTRL
-          Package: agentre
+          Package: ${CHANNEL_LINUX_COMMAND}
           Version: $(echo "${VERSION#v}" | tr '-' '~')
           Section: utils
           Priority: optional
@@ -199,29 +248,30 @@ jobs:
           Description: AgentRe desktop application
           CTRL
           sed -i 's/^          //' ${PKG_ROOT}/DEBIAN/control
-          cat > ${PKG_ROOT}/usr/share/applications/agentre.desktop << DESK
+          cat > ${PKG_ROOT}/usr/share/applications/${CHANNEL_LINUX_COMMAND}.desktop << DESK
           [Desktop Entry]
-          Name=Agentre
-          Exec=/usr/bin/agentre
-          Icon=agentre
+          Name=$CHANNEL_DISPLAY_NAME
+          Exec=/usr/bin/${CHANNEL_LINUX_COMMAND}
+          Icon=${CHANNEL_LINUX_COMMAND}
           Type=Application
           Categories=Utility;
           DESK
-          sed -i 's/^          //' ${PKG_ROOT}/usr/share/applications/agentre.desktop
-          dpkg-deb --build ${PKG_ROOT} agentre-${VERSION}-${{ matrix.platform }}.deb
+          sed -i 's/^          //' ${PKG_ROOT}/usr/share/applications/${CHANNEL_LINUX_COMMAND}.desktop
+          dpkg-deb --build ${PKG_ROOT} "${CHANNEL_ASSET_PREFIX}${VERSION}-${{ matrix.platform }}.deb"
 
       - name: Package (Windows installer)
         if: matrix.goos == 'windows'
         shell: pwsh
-        run: Move-Item "build\bin\Agentre-${{ matrix.goarch }}-installer.exe" "agentre-$($env:VERSION)-${{ matrix.platform }}-installer.exe"
+        run: Move-Item "build\bin\Agentre-${{ matrix.goarch }}-installer.exe" "$env:CHANNEL_ASSET_PREFIX$($env:VERSION)-${{ matrix.platform }}-installer.exe"
 
       - uses: actions/upload-artifact@v7
         with:
           name: release-agentre-${{ matrix.platform }}
-          path: agentre-${{ env.VERSION }}-${{ matrix.platform }}*
+          path: ${{ env.CHANNEL_ASSET_PREFIX }}${{ env.VERSION }}-${{ matrix.platform }}*
 
   build-agentred:
     name: agentred (${{ matrix.platform }})
+    needs: [validate-tag]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -267,10 +317,12 @@ jobs:
 
   release:
     name: Create Release
-    needs: [build-desktop, build-agentred]
+    needs: [validate-tag, build-desktop, build-agentred]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      PRERELEASE: ${{ needs.validate-tag.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v6
 
@@ -288,22 +340,19 @@ jobs:
           cp SHA256SUMS SHA256SUMS.txt
           cmp SHA256SUMS SHA256SUMS.txt
 
-      - name: Determine prerelease
-        id: prerelease
-        run: |
-          if [[ "${{ github.ref_name }}" == *-beta* ]] || [[ "${{ github.ref_name }}" == *-rc* ]]; then
-            echo "flag=--prerelease" >> $GITHUB_OUTPUT
-          fi
-
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          FLAGS=()
+          if [ "$PRERELEASE" = "true" ]; then
+            FLAGS+=(--prerelease)
+          fi
           gh release delete ${{ github.ref_name }} -y 2>/dev/null || true
           gh release create ${{ github.ref_name }} \
             --title "${{ github.ref_name }}" \
             --generate-notes \
-            ${{ steps.prerelease.outputs.flag }} \
+            "${FLAGS[@]}" \
             artifacts/*
 
       - name: Upload release info for mirror fallback
@@ -317,6 +366,7 @@ jobs:
   # 与二进制产物并行，互不阻塞——镜像挂了不该拦住 Release 里的桌面包。
   build-agentred-image:
     name: agentred image (${{ matrix.arch }})
+    needs: [validate-tag]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -380,10 +430,12 @@ jobs:
 
   merge-agentred-image:
     name: Publish agentred manifest
-    needs: [build-agentred-image]
+    needs: [validate-tag, build-agentred-image]
     runs-on: ubuntu-latest
     permissions:
       packages: write
+    env:
+      CHANNEL: ${{ needs.validate-tag.outputs.channel }}
     steps:
       - uses: actions/checkout@v6
 
@@ -408,11 +460,10 @@ jobs:
         run: |
           SHORT=$(git rev-parse --short HEAD)
           TAGS=(-t "${IMAGE}:${VERSION}" -t "${IMAGE}:sha-${SHORT}")
-          # 预发布不动 latest：latest 是「拿来就能上生产的那一版」，beta/rc 不是
-          case "$VERSION" in
-            *-beta*|*-rc*) ;;
-            *) TAGS+=(-t "${IMAGE}:latest") ;;
-          esac
+          # 预发布不动 latest：latest 是「拿来就能上生产的那一版」，beta 不是（决定 5/9）
+          if [ "$CHANNEL" != "beta" ]; then
+            TAGS+=(-t "${IMAGE}:latest")
+          fi
           docker buildx imagetools create "${TAGS[@]}" $(printf "${IMAGE}@sha256:%s " *)
 
       - name: Inspect

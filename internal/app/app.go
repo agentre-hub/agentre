@@ -17,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/internal/pkg/portforward"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/service/agent_svc"
@@ -90,6 +91,9 @@ type AppInfo struct {
 	Commit      string      `json:"commit"`
 	Env         string      `json:"env"`
 	RuntimeMode RuntimeMode `json:"runtimeMode"`
+	// Channel 是构建渠道（stable / beta / nightly / dev），前端据此显示渠道标签、
+	// 决定是否提供检查更新。
+	Channel paths.Channel `json:"channel"`
 }
 
 // NewApp creates a new App application struct. Omitted or invalid modes remain
@@ -391,7 +395,9 @@ func (a *App) registerChatService() {
 	// evaluateJavaScript,而流式文本是一个 token 一条。合帧只在高频时生效,不改变
 	// 事件的相对顺序(见 chat_svc.NewCoalescingEmitter)。
 	// 只包真正接 Wails 的这一处 —— 注入假 emitter 的单测仍逐条看到原始事件。
-	chat_svc.RegisterChat(chat_svc.NewChat(chat_svc.NewCoalescingEmitter(emitter)))
+	// 最外层再包扇出:ctl_svc 的 /ctl/v1/stream(agrctl acp 消费)订阅同一份 chat_svc
+	// 原始事件;扇出非阻塞投递,慢订阅者绝不拖住 runTurn。
+	chat_svc.RegisterChat(chat_svc.NewChat(chat_svc.NewFanoutEmitter(chat_svc.NewCoalescingEmitter(emitter))))
 
 	// 注入 orgtool_svc 依赖:必须在 RegisterChat 之后执行,因为 chat_svc.Chat()
 	// 在此之前为 nil(chat 服务是懒注册的)。
@@ -422,6 +428,10 @@ func (a *App) Info() AppInfo {
 		Commit:      buildinfo.ShortCommitID(),
 		Env:         string(configs.DEV),
 		RuntimeMode: a.runtimeMode,
+	}
+	// 标记非法的构建在启动期就被拒绝，走不到这里；取不到时留空，前端按未知渠道处理。
+	if channel, err := paths.CurrentChannel(); err == nil {
+		info.Channel = channel
 	}
 
 	if runtime := bootstrap.Default(); runtime != nil && runtime.Config() != nil {

@@ -792,6 +792,14 @@ func drainStream(stream ccStream, out chan<- agentruntime.Event, result *agentru
 			translated = []agentruntime.Event{agentruntime.ContextWindowUpdated{Tokens: active.contextWindow}}
 		}
 		for _, t := range translated {
+			// 报给客户端的窗口同时留在本轮结果上。事件那一路在 agentred 做宿主时
+			// 只走**预览帧**(handlers/runtime.go 的 Preview:true):不带号、不入库、
+			// 不参与补齐,浏览器一刷新就没了。终态帧是这条路上唯一带号的载体,
+			// 而它本来就有这一格 —— 两边必须是同一个数,否则控制台底栏那条进度条
+			// 只在「恰好收到过那一帧」的窗口里有分母。
+			if cw, ok := t.(agentruntime.ContextWindowUpdated); ok && cw.Tokens > 0 {
+				result.ContextWindow = cw.Tokens
+			}
 			out <- t
 		}
 		if active != nil && active.tasks != nil {

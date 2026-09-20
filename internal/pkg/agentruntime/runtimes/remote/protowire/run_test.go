@@ -63,3 +63,24 @@ func TestGoalParamsProtobufCarriesAgentSyncID(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want, got)
 }
+
+// TestBackendProtoRoundTripPreservesACPLaunchFields acp 后端的启动命令与附加 argv
+// 必须原样过 protobuf：daemon 只认 BackendFromProto 解出的那一行实体（handlers/
+// runtime.go），这里漏一格，远端派发当场报 "backend has no acpCommand configured"。
+// 非 acp 后端往返后仍是零值，不凭空造出空 argv。
+func TestBackendProtoRoundTripPreservesACPLaunchFields(t *testing.T) {
+	acp := agent_backend_entity.AgentBackend{
+		ID: 11, Type: "acp", Name: "remote gemini",
+		ACPCommand: "npx", ACPArgs: []string{"-y", "@agentclientprotocol/codex-acp"},
+	}
+	landed := BackendFromProto(BackendToProto(&acp))
+	require.NotNil(t, landed)
+	require.Equal(t, "npx", landed.ACPCommand)
+	require.Equal(t, []string{"-y", "@agentclientprotocol/codex-acp"}, landed.ACPArgs)
+
+	other := agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode", Name: "no acp"}
+	zeroed := BackendFromProto(BackendToProto(&other))
+	require.NotNil(t, zeroed)
+	require.Empty(t, zeroed.ACPCommand)
+	require.Empty(t, zeroed.ACPArgs)
+}

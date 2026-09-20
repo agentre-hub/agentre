@@ -39,6 +39,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/internal/pkg/turnstats"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
@@ -70,6 +71,16 @@ type RuntimeDeps struct {
 	// overlay by account backend SyncID. false preserves paired-desktop behavior
 	// before any account snapshot exists; true with an empty path means PATH.
 	CLIPathForBackend func(backendSyncID string) (cliPath string, authoritative bool)
+	// BackendConfigForSyncID resolves the account-level backend config from the
+	// latest engine snapshot by backend SyncID. The boolean is true only when the
+	// snapshot carries an entry for that sync ID; an absent entry (or an absent
+	// sync ID) preserves the config already present on the wire, so a directly
+	// requested paired-desktop backend is never cleared by a snapshot that
+	// happens not to mention it. When true the whole config replaces the
+	// exclusive settings as one unit — this is what lets a browser/cloud
+	// dispatch send only {type, sync_id} without receiving ACPArgs (arbitrary
+	// argv, potentially credentials) over a browser API.
+	BackendConfigForSyncID func(backendSyncID string) (config syncwire.AgentBackendConfig, authoritative bool)
 	// LoggedInAccountID returns the daemon account authorized to target a
 	// non-caller origin peer in control requests.
 	LoggedInAccountID func() string
@@ -372,6 +383,15 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 	// 后端配置。
 	if effort := strings.TrimSpace(request.GetReasoningEffort()); effort != "" {
 		be.ReasoningEffort = effort
+	}
+	// 账号级后端配置:快照里有这个 sync ID 的条目时,它才是权威账号配置,整份替换
+	// 独占设置。浏览器/云派发只带 {type, sync_id} —— ACPArgs 是任意 argv(可能含
+	// 凭据),绝不能经浏览器 API 下发,由 daemon 侧从设备凭据快照补全。没有被点名的
+	// sync ID(直接桌面调用、尚未同步的后端)保持线上原值,不因快照缺项被清空。
+	if h.deps.BackendConfigForSyncID != nil {
+		if config, authoritative := h.deps.BackendConfigForSyncID(be.SyncID); authoritative {
+			be.SetConfig(config)
+		}
 	}
 	if h.deps.CLIPathForBackend != nil {
 		if cliPath, authoritative := h.deps.CLIPathForBackend(be.SyncID); authoritative {

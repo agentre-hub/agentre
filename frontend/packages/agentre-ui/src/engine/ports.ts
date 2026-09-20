@@ -201,6 +201,44 @@ export type ProviderInput = {
   [key: string]: unknown;
 };
 
+/** Backend input keys that sit at the top level of a backend record. */
+export type BackendTopLevelField =
+  | "type"
+  | "name"
+  | "deviceId"
+  | "llmProviderKey"
+  | "llmModelKey"
+  | "cliPath"
+  | "envJson"
+  | "reasoningEffort";
+
+/** Backend input keys that live inside the backend's type-specific `config`. */
+export type BackendConfigField =
+  | "modelRoutes"
+  | "sandbox"
+  | "approval"
+  | "defaultPermissionMode"
+  | "defaultModel"
+  | "openClawGatewayUrl"
+  | "openClawAgentId"
+  | "openClawDefaultModel"
+  | "openClawSessionMode"
+  | "hermesUrl"
+  | "hermesAuthProvider"
+  | "hermesUserId";
+
+/**
+ * One field the user changed in the editor session that produced this input.
+ * The name after an optional `config.` prefix is the BackendInput key carrying
+ * the value, so `config.defaultPermissionMode` is `input.defaultPermissionMode`.
+ * The prefix marks keys stored inside `config`: a host whose server replaces
+ * `config` wholesale checks `field.startsWith("config.")` and then sends the
+ * whole config built from the input.
+ */
+export type BackendChangedField =
+  | BackendTopLevelField
+  | `config.${BackendConfigField}`;
+
 export type BackendInput = {
   id?: EngineID;
   syncId?: string;
@@ -208,6 +246,14 @@ export type BackendInput = {
   name: string;
   llmProviderKey?: string;
   llmModelKey?: string;
+  /**
+   * Set by the shared editor on create/update. Edit: the fields whose value at
+   * save differs from the value when the editor opened (changed then restored
+   * is not a change; `cliPath` is compared with the stored path of the device
+   * selected at save). Create: every populated field. Ordered as declared by
+   * the draft, without duplicates. Hosts that write whole records ignore it.
+   */
+  changedFields?: BackendChangedField[];
   [key: string]: unknown;
 };
 
@@ -271,9 +317,14 @@ export interface EngineSettingsPorts {
   addIsSandbox?(backendSyncId: string): Promise<void>;
   /** Browser hosts disable local-only built-in backend creation. */
   canCreateBuiltin?: boolean;
+  /**
+   * Per-(backend, device) CLI executable override. deviceId is the same value
+   * as BackendView.deviceId / the editor's selected runtime device ("" = the
+   * host's own local machine); switching device reads/writes a different row.
+   */
   cliPath?: {
-    get(backendSyncId: string): Promise<string | null>;
-    set(backendSyncId: string, path: string): Promise<void>;
+    get(backendSyncId: string, deviceId: string): Promise<string | null>;
+    set(backendSyncId: string, deviceId: string, path: string): Promise<void>;
   };
 
   /** Desktop-only runtime capabilities. Browser hosts omit these methods. */

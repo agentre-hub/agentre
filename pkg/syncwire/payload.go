@@ -1,6 +1,9 @@
 package syncwire
 
-import "reflect"
+import (
+	"encoding/json"
+	"reflect"
+)
 
 // 同步载荷的形状:一个 kind 一个类型,整个工作区只有这一份定义。
 //
@@ -136,23 +139,45 @@ type AgentPayload struct {
 // 自己往里放的任何别的密钥都会原样过机 —— GuardPayload 不是凭据扫描器,挡不住以
 // JSON 字符串形式携带的正文(见它的文档)。
 type AgentBackendPayload struct {
-	Type        string `json:"type"`
-	Name        string `json:"name"`
-	ProviderKey string `json:"provider_key"`
-	ModelKey    string `json:"model_key"`
-	ModelRoutes string `json:"model_routes"`
-	Sandbox     string `json:"sandbox"`
-	Approval    string `json:"approval"`
-	EnvJSON     string `json:"env_json"`
+	Type            string `json:"type"`
+	Name            string `json:"name"`
+	ProviderKey     string `json:"provider_key"`
+	ModelKey        string `json:"model_key"`
+	EnvJSON         string `json:"env_json"`
+	ReasoningEffort string `json:"reasoning_effort"`
+	// Config 是后端的单类型独占设置,整份过机:接收端用它**整体替换**本地那一份,
+	// 缺席的键即为空(缺整个 config 等同 {})。
+	Config AgentBackendConfig `json:"config"`
+}
 
-	ReasoningEffort       string `json:"reasoning_effort"`
-	DefaultPermissionMode string `json:"default_permission_mode"`
-	DefaultModel          string `json:"default_model"`
-
-	OpenClawGatewayURL   string `json:"openclaw_gateway_url"`
-	OpenClawAgentID      string `json:"openclaw_agent_id"`
-	OpenClawDefaultModel string `json:"openclaw_default_model"`
-	OpenClawSessionMode  string `json:"openclaw_session_mode"`
+// AgentBackendConfig 是后端**单类型独占设置**的唯一键表:桌面端 agent_backends.config_json
+// 列、同步载荷的 config 对象与 web API 用的是同一个形状、同一组 camelCase 键。
+//
+// 每个键都 omitempty:「没配」在线上就是键不在,全空编成 {}。这里的零值都是合法取值
+// (空 sandbox = 走 CLI 默认,空网关地址 = 还没配),哪个键属于哪种后端类型由桌面端的
+// 后端实体校验,契约只定形状。
+type AgentBackendConfig struct {
+	// ModelRoutes 是嵌套的 JSON 对象而不是字符串:套一层字符串会把
+	// `{"OPUS":{…}}` 转义成 `"{\"OPUS\":…}"`,人读不了,工具也进不去。
+	ModelRoutes           json.RawMessage `json:"modelRoutes,omitempty"`
+	Sandbox               string          `json:"sandbox,omitempty"`
+	Approval              string          `json:"approval,omitempty"`
+	DefaultPermissionMode string          `json:"defaultPermissionMode,omitempty"`
+	DefaultModel          string          `json:"defaultModel,omitempty"`
+	OpenClawGatewayURL    string          `json:"openclawGatewayUrl,omitempty"`
+	OpenClawAgentID       string          `json:"openclawAgentId,omitempty"`
+	OpenClawDefaultModel  string          `json:"openclawDefaultModel,omitempty"`
+	OpenClawSessionMode   string          `json:"openclawSessionMode,omitempty"`
+	HermesURL             string          `json:"hermesUrl,omitempty"`
+	// HermesAuthProvider / HermesUserID 是 gated serve 的非敏感展示字段。refresh
+	// token 绝不进这里(它只在桌面端 keychain 里)。
+	HermesAuthProvider string `json:"hermesAuthProvider,omitempty"`
+	HermesUserID       string `json:"hermesUserId,omitempty"`
+	// ACPCommand / ACPArgs 仅 acp 使用:外部 ACP Agent 的可执行文件与附加 argv。
+	// 它们是账号级身份(与 hermesUrl 同形),没有每设备覆盖通路 —— acp 没有
+	// 「已知 CLI」的概念,可执行文件由 backend 自己声明。
+	ACPCommand string   `json:"acpCommand,omitempty"`
+	ACPArgs    []string `json:"acpArgs,omitempty"`
 }
 
 // AgentBackendCLIPayload 是 kind=agent_backend_cli 的载荷:某个后端在某台机器上的

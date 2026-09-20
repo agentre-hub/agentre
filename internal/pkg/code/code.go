@@ -313,6 +313,9 @@ const (
 	// 名字里刻意不带 credential/token 字样：gosec G101 会把带这些词的常量连同它的
 	// 文案一起判成硬编码凭据，而这是一句给用户看的提示。
 	RemoteDeviceAuthOpFailed
+	// RemoteDeviceUpgradeUnavailable 本机是 Dev 构建（没有发布可升级到）或构建渠道
+	// 标记非法，不提供远端 agentred 一键升级（决策 9/10）
+	RemoteDeviceUpgradeUnavailable
 )
 
 // Remote Runner / 跨端审批 20500~

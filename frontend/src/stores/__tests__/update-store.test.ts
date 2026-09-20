@@ -34,6 +34,7 @@ import {
   INITIAL_UPDATE_STATE,
   pendingAnnouncement,
   unskippedUpdate,
+  updatesOffered,
   useUpdateStore,
   useUpdateWatch,
   type UpdateCheckOutcome,
@@ -89,6 +90,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   runtimeMocks.listeners.clear();
   useUpdateStore.setState({ ...INITIAL_UPDATE_STATE });
+  // 测试默认跑在会检查更新的正式版上；Dev 与「渠道未知」各有专门用例。
+  useUpdateStore.getState().setChannel("stable");
   installBindings();
 });
 
@@ -236,6 +239,52 @@ describe("update-store 主动检查", () => {
     await useUpdateStore.getState().check("focus");
 
     expect(app.MaybeCheckForUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("update-store 构建渠道", () => {
+  it("Given Info 报回的渠道, When 写进 store, Then 四个取值原样保留、其它一律当未知", () => {
+    for (const channel of ["stable", "beta", "nightly", "dev"] as const) {
+      useUpdateStore.getState().setChannel(channel);
+      expect(useUpdateStore.getState().channel).toBe(channel);
+    }
+    for (const raw of ["", "weekly", undefined, null, 1]) {
+      useUpdateStore.getState().setChannel(raw);
+      expect(useUpdateStore.getState().channel).toBeNull();
+    }
+  });
+
+  it("Given 只有 Dev 与未知渠道不提供更新, When 求 updatesOffered, Then 正式版/Beta/Nightly 为真", () => {
+    const offered = (channel: unknown) => {
+      useUpdateStore.getState().setChannel(channel);
+      return updatesOffered(useUpdateStore.getState());
+    };
+    expect(offered("stable")).toBe(true);
+    expect(offered("beta")).toBe(true);
+    expect(offered("nightly")).toBe(true);
+    expect(offered("dev")).toBe(false);
+    expect(offered("")).toBe(false);
+  });
+
+  it("Given Dev 构建, When 手动或回窗检查, Then 一个检查请求都不发、阶段不动", async () => {
+    const app = installBindings();
+    useUpdateStore.getState().setChannel("dev");
+
+    await useUpdateStore.getState().check("manual");
+    await useUpdateStore.getState().check("focus");
+
+    expect(app.CheckForUpdate).not.toHaveBeenCalled();
+    expect(app.MaybeCheckForUpdate).not.toHaveBeenCalled();
+    expect(useUpdateStore.getState().phase).toEqual({ kind: "idle" });
+  });
+
+  it("Given 渠道还不知道, When 检查, Then 不发请求——宁可少查也不替 Dev 发请求", async () => {
+    const app = installBindings();
+    useUpdateStore.getState().setChannel(undefined);
+
+    await useUpdateStore.getState().check("manual");
+
+    expect(app.CheckForUpdate).not.toHaveBeenCalled();
   });
 });
 
@@ -415,6 +464,19 @@ describe("useUpdateWatch 回窗补检", () => {
       kind: "available",
       info: INFO,
     });
+  });
+
+  it("Given Dev 构建, When 窗口重新获得焦点, Then 不补查", async () => {
+    const app = installBindings();
+    useUpdateStore.getState().setChannel("dev");
+    renderHook(() => useUpdateWatch());
+    await waitFor(() => expect(runtimeMocks.EventsOn).toHaveBeenCalled());
+
+    window.dispatchEvent(new Event("focus"));
+    await act(async () => {});
+
+    expect(app.MaybeCheckForUpdate).not.toHaveBeenCalled();
+    expect(app.CheckForUpdate).not.toHaveBeenCalled();
   });
 
   it("Given 已卸载, When 窗口获得焦点, Then 不再补查", async () => {

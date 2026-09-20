@@ -6492,8 +6492,13 @@ type AgentBackend struct {
 	SyncUpdatedAt         int64                  `protobuf:"varint,25,opt,name=sync_updated_at,json=syncUpdatedAt,proto3" json:"sync_updated_at,omitempty"`
 	SyncOriginFingerprint string                 `protobuf:"bytes,26,opt,name=sync_origin_fingerprint,json=syncOriginFingerprint,proto3" json:"sync_origin_fingerprint,omitempty"`
 	SyncDeletedAt         int64                  `protobuf:"varint,27,opt,name=sync_deleted_at,json=syncDeletedAt,proto3" json:"sync_deleted_at,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// acp_command / acp_args carry the ACP agent launch line for type=acp backends
+	// (protocol v1 only). Adding fields is forward-compatible, so the protocol
+	// version option stays untouched.
+	AcpCommand    string   `protobuf:"bytes,28,opt,name=acp_command,json=acpCommand,proto3" json:"acp_command,omitempty"`
+	AcpArgs       []string `protobuf:"bytes,29,rep,name=acp_args,json=acpArgs,proto3" json:"acp_args,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AgentBackend) Reset() {
@@ -6713,6 +6718,20 @@ func (x *AgentBackend) GetSyncDeletedAt() int64 {
 		return x.SyncDeletedAt
 	}
 	return 0
+}
+
+func (x *AgentBackend) GetAcpCommand() string {
+	if x != nil {
+		return x.AcpCommand
+	}
+	return ""
+}
+
+func (x *AgentBackend) GetAcpArgs() []string {
+	if x != nil {
+		return x.AcpArgs
+	}
+	return nil
 }
 
 type StoredBlock struct {
@@ -17001,7 +17020,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\vdeny_reason\x18\x06 \x01(\tR\n" +
 	"denyReason\"E\n" +
 	"\x1aPeerSessionControlResponse\x12'\n" +
-	"\x0falready_handled\x18\x01 \x01(\bR\x0ealreadyHandled\"\xe6\a\n" +
+	"\x0falready_handled\x18\x01 \x01(\bR\x0ealreadyHandled\"\xa2\b\n" +
 	"\fAgentBackend\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x12\n" +
@@ -17034,7 +17053,10 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\fsync_version\x18\x18 \x01(\x03R\vsyncVersion\x12&\n" +
 	"\x0fsync_updated_at\x18\x19 \x01(\x03R\rsyncUpdatedAt\x126\n" +
 	"\x17sync_origin_fingerprint\x18\x1a \x01(\tR\x15syncOriginFingerprint\x12&\n" +
-	"\x0fsync_deleted_at\x18\x1b \x01(\x03R\rsyncDeletedAt\"5\n" +
+	"\x0fsync_deleted_at\x18\x1b \x01(\x03R\rsyncDeletedAt\x12\x1f\n" +
+	"\vacp_command\x18\x1c \x01(\tR\n" +
+	"acpCommand\x12\x19\n" +
+	"\bacp_args\x18\x1d \x03(\tR\aacpArgs\"5\n" +
 	"\vStoredBlock\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\"W\n" +

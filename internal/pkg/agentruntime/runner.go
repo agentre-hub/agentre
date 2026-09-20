@@ -427,7 +427,8 @@ type RunResult struct {
 	//   - piagent：用 Pi RPC get_state.model.contextWindow 启动，再由
 	//     get_session_stats.contextUsage.contextWindow 校正，避免自定义 provider
 	//     复用公共模型名时误套 llmcatalog 元数据；
-	//   - claudecode：通过 ContextWindowUpdated 事件实时上报，RunResult 通常留 0；
+	//   - claudecode：启动期 env 覆盖优先，否则按模型名查 llmcatalog；报出去的
+	//     那条 ContextWindowUpdated 与这一格永远是同一个数（两条路都探不到才留 0）；
 	//   - builtin：不报。
 	// 0 表示 runner 没探到，chat_svc 用解析出的 ContextWindow > cago catalog 兜底。
 	// 非 0 时是这一层最权威的优先级（用户实际跑出来的窗口）。

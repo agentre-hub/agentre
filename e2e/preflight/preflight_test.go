@@ -108,15 +108,14 @@ func TestValidateRejectsUnsafeStartupBeforeBootstrap(t *testing.T) {
 
 func TestForbiddenDesktopPathUnderConfigRoot(t *testing.T) {
 	base := t.TempDir()
-	production := filepath.Join(base, "agentre")
-	development := filepath.Join(base, "agentre-dev")
-	for _, candidate := range []string{
-		base,
-		production,
-		filepath.Join(production, "nested"),
-		development,
-		filepath.Join(development, "nested"),
-	} {
+	leaves := []string{"agentre", "agentre-beta", "agentre-nightly", "agentre-dev"}
+	candidates := make([]string, 0, 1+2*len(leaves))
+	candidates = append(candidates, base)
+	for _, leaf := range leaves {
+		dir := filepath.Join(base, leaf)
+		candidates = append(candidates, dir, filepath.Join(dir, "nested"))
+	}
+	for _, candidate := range candidates {
 		if !forbiddenDesktopPathUnder(base, candidate) {
 			t.Errorf("forbiddenDesktopPathUnder(%q, %q) = false, want true", base, candidate)
 		}

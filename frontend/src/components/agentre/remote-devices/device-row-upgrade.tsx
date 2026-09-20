@@ -17,20 +17,29 @@ import {
   DialogTitle,
 } from "@agentre-hub/agentre-ui";
 
+import type { BuildChannel } from "../update-api";
 import type { AgentredVersionState } from "./agentred-version";
 import type { UpgradeMenuItem } from "./device-action-menu";
 import { useDeviceUpgrade, type UpgradePhase } from "./use-device-upgrade";
 
 /** 菜单项:已是最新与开发构建保留为禁用态并注明版本(决策 5/20,入口不隐藏)。
- * 活跃轮次拒绝之后不禁用、文案改口(决策 21),真正的拦截交给下面的确认对话框。 */
+ * 活跃轮次拒绝之后不禁用、文案改口(决策 21),真正的拦截交给下面的确认对话框。
+ *
+ * 桌面端自己是 Dev 构建时例外(决策 9):Dev 没有发布,不提供远端一键升级,这一项
+ * 完全不出现(而不是禁用态) —— 与上面"已是最新/开发构建"的禁用态是两回事,那两种
+ * 说的是远端机器的状态,这里说的是本机没有能力提供这个功能。 */
 export function upgradeMenuItem(
   versionState: AgentredVersionState,
   phase: UpgradePhase,
   upgrade: ReturnType<typeof useDeviceUpgrade>,
   t: TFunction,
+  channel: BuildChannel | null,
   // onCopyCommand 由调用点补：它对每一态都一样(始终并列 —— 决策 18),不该在下面
   // 五个分支里各写一遍。
-): Omit<UpgradeMenuItem, "onCopyCommand"> {
+): Omit<UpgradeMenuItem, "onCopyCommand"> | undefined {
+  if (channel === "dev") {
+    return undefined;
+  }
   if (versionState.kind === "current") {
     return {
       label: t("remoteDevices.upgrade.action.upToDate", {

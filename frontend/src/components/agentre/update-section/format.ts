@@ -1,18 +1,13 @@
-// 更新区块用到的常量与格式化:渠道名/说明、仓库地址、版本号与进度的显示形式。
+// 更新区块用到的常量与格式化:渠道标签、仓库地址、版本号与进度的显示形式。
 // 纯数据与纯函数,不认识任何组件。
 
-import { type MirrorInfo, type UpdateChannel } from "../update-api";
+import { type BuildChannel, type MirrorInfo } from "../update-api";
 
-export const CHANNEL_LABEL: Record<UpdateChannel, string> = {
-  stable: "update.channel.stable.label",
-  beta: "update.channel.beta.label",
-  nightly: "update.channel.nightly.label",
-};
-
-export const CHANNEL_DESC: Record<UpdateChannel, string> = {
-  stable: "update.channel.stable.description",
-  beta: "update.channel.beta.description",
-  nightly: "update.channel.nightly.description",
+// BUILD_CHANNEL_LABEL 版本号旁的渠道标签 i18n key；正式版不加标签，所以没有 stable。
+export const BUILD_CHANNEL_LABEL: Partial<Record<BuildChannel, string>> = {
+  beta: "update.buildChannel.beta",
+  nightly: "update.buildChannel.nightly",
+  dev: "update.buildChannel.dev",
 };
 
 export const REPOSITORY_URL = "https://github.com/agentre-hub/agentre";

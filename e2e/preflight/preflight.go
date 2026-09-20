@@ -184,8 +184,8 @@ func forbiddenDesktopPathUnder(base, candidate string) bool {
 	if candidate == base {
 		return true
 	}
-	for _, dev := range []bool{false, true} {
-		forbidden := filepath.Clean(paths.DefaultAppDataDir(base, dev))
+	for _, channel := range paths.AllChannels() {
+		forbidden := filepath.Clean(paths.DefaultAppDataDir(base, channel))
 		if within(forbidden, candidate) || within(candidate, forbidden) {
 			return true
 		}

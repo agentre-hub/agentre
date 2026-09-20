@@ -31,7 +31,6 @@ type AppMock = Record<string, ReturnType<typeof vi.fn>>;
 
 function installBindings(overrides?: AppMock): AppMock {
   const app: AppMock = {
-    GetUpdateChannel: vi.fn(() => Promise.resolve("stable")),
     CheckForUpdate: vi.fn(() => Promise.resolve(INFO)),
     MaybeCheckForUpdate: vi.fn(() => Promise.resolve(INFO)),
     DownloadAndInstallUpdate: vi.fn(() => Promise.resolve()),
@@ -49,6 +48,7 @@ function installBindings(overrides?: AppMock): AppMock {
 beforeEach(() => {
   vi.clearAllMocks();
   useUpdateStore.setState({ ...INITIAL_UPDATE_STATE });
+  useUpdateStore.getState().setChannel("stable");
   installBindings();
 });
 
@@ -57,12 +57,11 @@ describe("更新面板 · 有新版本", () => {
     useUpdateStore.setState({ phase: { kind: "available", info: INFO } });
   });
 
-  it("Given 有新版本, When 打开面板, Then 版本号、发布时间、当前通道与更新说明都在", async () => {
+  it("Given 有新版本, When 打开面板, Then 版本号、发布时间与更新说明都在", async () => {
     render(<UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />);
 
     expect(await screen.findByText(/v0\.9\.2/)).toBeInTheDocument();
     expect(screen.getByText(/2026-08-17/)).toBeInTheDocument();
-    expect(await screen.findByText(/Stable/i)).toBeInTheDocument();
     expect(screen.getByText(/切 tab 空白/)).toBeInTheDocument();
   });
 

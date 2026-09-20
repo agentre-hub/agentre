@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/utils/testutils"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
@@ -375,6 +377,172 @@ func TestLLMProviderRepo_Update(t *testing.T) {
 			})
 			assert.NoError(t, err)
 			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	})
+}
+
+// providerRowsWithSyncMeta 是 providerRows 的完整版，多带六列同步元数据 +
+// provider_key，供 UpsertFromSync 读「已存在行」时用——下行更新走的是这份完整读出
+// 的行，不是 providerRows() 那份裸列表。
+func providerRowsWithSyncMeta() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "provider_key", "type", "name", "api_key", "base_url", "enabled",
+		"default_model_key", "status", "createtime", "updatetime",
+		"sync_id", "sync_account_id", "sync_version", "sync_updated_at",
+		"sync_origin_fingerprint", "sync_deleted_at",
+	})
+}
+
+func modelRowsWithTimes() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "provider_id", "model_key", "model_id", "name",
+		"context_window", "max_output", "enabled", "status", "createtime", "updatetime",
+	})
+}
+
+// TestLLMProviderRepo_UpsertFromSync 覆盖 Problem 4：下行更新已存在的供应商 / 模型行
+// 时，UpsertFromSync 此前用 tx.Save 整行覆盖，把 createtime 与六列同步元数据（含
+// sync_version，恢复流程借它当上行基版本）写成 0。断言直接读调用方传入的 p / model
+// 指针——它们就是最终交给 tx.Save 的那份值，比逐列匹配 UPDATE 的 SQL 参数更不脆弱、
+// 且同样精确地锚住「写库的到底是什么」这个观察点。
+func TestLLMProviderRepo_UpsertFromSync(t *testing.T) {
+	convey.Convey("UpsertFromSync", t, func() {
+		ctx, mock, repo := setupLLMProviderRepoTest(t)
+
+		convey.Convey("已存在的 provider 与已存在的 model 更新：保留 createtime 与同步元数据，updatetime 记为落地时刻", func() {
+			before := time.Now().UnixMilli()
+
+			existingProvider := providerRowsWithSyncMeta().AddRow(
+				int64(5), "provider-key-1", string(llm_provider_entity.TypeAnthropic), "claude-old", "sk-old", "",
+				llm_provider_entity.EnabledOn, "", consts.ACTIVE, int64(1000), int64(1000),
+				"provider-key-1", int64(7), int64(42), int64(2000), "device-a", int64(0),
+			)
+			mock.ExpectBegin()
+			mock.ExpectQuery("SELECT \\* FROM `llm_providers` WHERE provider_key = \\? ORDER BY `llm_providers`.`id` LIMIT \\?").
+				WithArgs("provider-key-1", 1).
+				WillReturnRows(existingProvider)
+			mock.ExpectExec("UPDATE `llm_providers` SET").
+				WillReturnResult(sqlmock.NewResult(0, 1))
+
+			existingModel := modelRowsWithTimes().AddRow(
+				int64(9), int64(5), "mk-1", "claude-sonnet-4-6", "Sonnet",
+				0, 0, llm_provider_model_entity.EnabledOn, consts.ACTIVE, int64(500), int64(500),
+			)
+			mock.ExpectQuery("SELECT \\* FROM `llm_provider_models` WHERE model_key = \\? ORDER BY `llm_provider_models`.`id` LIMIT \\?").
+				WithArgs("mk-1", 1).
+				WillReturnRows(existingModel)
+			mock.ExpectExec("UPDATE `llm_provider_models` SET").
+				WillReturnResult(sqlmock.NewResult(0, 1))
+
+			mock.ExpectExec("UPDATE `llm_provider_models` SET `status`=\\? WHERE \\(provider_id = \\? AND status = \\?\\) AND model_key NOT IN \\(\\?\\)").
+				WithArgs(consts.DELETE, int64(5), consts.ACTIVE, "mk-1").
+				WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectCommit()
+
+			p := &llm_provider_entity.LLMProvider{
+				ProviderKey: "provider-key-1", Type: string(llm_provider_entity.TypeAnthropic),
+				Name: "claude-new", APIKey: "sk-new", Enabled: llm_provider_entity.EnabledOn, Status: consts.ACTIVE,
+			}
+			models := []*llm_provider_model_entity.LLMProviderModel{{
+				ModelKey: "mk-1", ModelID: "claude-sonnet-4-6", Name: "Sonnet",
+				Enabled: llm_provider_model_entity.EnabledOn, Status: consts.ACTIVE,
+			}}
+
+			require.NoError(t, repo.UpsertFromSync(ctx, p, models))
+			assert.NoError(t, mock.ExpectationsWereMet())
+
+			assert.Equal(t, int64(1000), p.Createtime, "createtime 保留原值，不被下行覆盖成 0")
+			assert.GreaterOrEqual(t, p.Updatetime, before, "updatetime 记为本次落地时刻")
+			assert.Equal(t, int64(7), p.SyncAccountID, "同步元数据保留原值")
+			assert.Equal(t, int64(42), p.SyncVersion, "sync_version 保留原值——恢复流程拿它当上行基版本（Problem 4）")
+			assert.Equal(t, int64(2000), p.SyncUpdatedAt)
+			assert.EqualValues(t, "device-a", p.SyncOriginFingerprint)
+			assert.Equal(t, int64(0), p.SyncDeletedAt)
+
+			assert.Equal(t, int64(500), models[0].Createtime, "模型行 createtime 同样保留原值")
+			assert.GreaterOrEqual(t, models[0].Updatetime, before, "模型行 updatetime 记为本次落地时刻")
+		})
+
+		convey.Convey("provider 已存在但这个 model 是新的：provider 保留原值，新 model 行 createtime/updatetime 为落地时刻", func() {
+			before := time.Now().UnixMilli()
+
+			existingProvider := providerRowsWithSyncMeta().AddRow(
+				int64(5), "provider-key-1", string(llm_provider_entity.TypeAnthropic), "claude-old", "sk-old", "",
+				llm_provider_entity.EnabledOn, "", consts.ACTIVE, int64(1000), int64(1000),
+				"provider-key-1", int64(7), int64(42), int64(2000), "device-a", int64(0),
+			)
+			mock.ExpectBegin()
+			mock.ExpectQuery("SELECT \\* FROM `llm_providers` WHERE provider_key = \\? ORDER BY `llm_providers`.`id` LIMIT \\?").
+				WithArgs("provider-key-1", 1).
+				WillReturnRows(existingProvider)
+			mock.ExpectExec("UPDATE `llm_providers` SET").
+				WillReturnResult(sqlmock.NewResult(0, 1))
+
+			mock.ExpectQuery("SELECT \\* FROM `llm_provider_models` WHERE model_key = \\? ORDER BY `llm_provider_models`.`id` LIMIT \\?").
+				WithArgs("mk-new", 1).
+				WillReturnError(gorm.ErrRecordNotFound)
+			mock.ExpectExec("INSERT INTO `llm_provider_models`").
+				WillReturnResult(sqlmock.NewResult(11, 1))
+
+			mock.ExpectExec("UPDATE `llm_provider_models` SET `status`=\\? WHERE \\(provider_id = \\? AND status = \\?\\) AND model_key NOT IN \\(\\?\\)").
+				WithArgs(consts.DELETE, int64(5), consts.ACTIVE, "mk-new").
+				WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectCommit()
+
+			p := &llm_provider_entity.LLMProvider{
+				ProviderKey: "provider-key-1", Type: string(llm_provider_entity.TypeAnthropic),
+				Name: "claude-new", APIKey: "sk-new", Enabled: llm_provider_entity.EnabledOn, Status: consts.ACTIVE,
+			}
+			models := []*llm_provider_model_entity.LLMProviderModel{{
+				ModelKey: "mk-new", ModelID: "claude-haiku-4-5",
+				Enabled: llm_provider_model_entity.EnabledOn, Status: consts.ACTIVE,
+			}}
+
+			require.NoError(t, repo.UpsertFromSync(ctx, p, models))
+			assert.NoError(t, mock.ExpectationsWereMet())
+
+			assert.Equal(t, int64(1000), p.Createtime, "既有 provider 的 createtime 不受新模型影响")
+			assert.GreaterOrEqual(t, models[0].Createtime, before, "新模型行没有历史可继承，createtime 为落地时刻")
+			assert.GreaterOrEqual(t, models[0].Updatetime, before)
+		})
+
+		convey.Convey("新建 provider 与新建 model：createtime/updatetime 均为落地时刻，同步元数据没有历史可继承保持零值", func() {
+			before := time.Now().UnixMilli()
+
+			mock.ExpectBegin()
+			mock.ExpectQuery("SELECT \\* FROM `llm_providers` WHERE provider_key = \\? ORDER BY `llm_providers`.`id` LIMIT \\?").
+				WithArgs("provider-key-2", 1).
+				WillReturnError(gorm.ErrRecordNotFound)
+			mock.ExpectExec("INSERT INTO `llm_providers`").
+				WillReturnResult(sqlmock.NewResult(9, 1))
+
+			mock.ExpectQuery("SELECT \\* FROM `llm_provider_models` WHERE model_key = \\? ORDER BY `llm_provider_models`.`id` LIMIT \\?").
+				WithArgs("mk-1", 1).
+				WillReturnError(gorm.ErrRecordNotFound)
+			mock.ExpectExec("INSERT INTO `llm_provider_models`").
+				WillReturnResult(sqlmock.NewResult(20, 1))
+
+			mock.ExpectExec("UPDATE `llm_provider_models` SET `status`=\\? WHERE \\(provider_id = \\? AND status = \\?\\) AND model_key NOT IN \\(\\?\\)").
+				WithArgs(consts.DELETE, int64(9), consts.ACTIVE, "mk-1").
+				WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectCommit()
+
+			p := &llm_provider_entity.LLMProvider{
+				ProviderKey: "provider-key-2", Type: string(llm_provider_entity.TypeAnthropic),
+				Name: "claude-new", Status: consts.ACTIVE,
+			}
+			models := []*llm_provider_model_entity.LLMProviderModel{{
+				ModelKey: "mk-1", ModelID: "claude-sonnet-4-6", Status: consts.ACTIVE,
+			}}
+
+			require.NoError(t, repo.UpsertFromSync(ctx, p, models))
+			assert.NoError(t, mock.ExpectationsWereMet())
+
+			assert.GreaterOrEqual(t, p.Createtime, before, "新建行 createtime 为落地时刻")
+			assert.GreaterOrEqual(t, p.Updatetime, before, "新建行 updatetime 为落地时刻")
+			assert.Zero(t, p.SyncVersion, "新建行没有历史版本可继承")
+			assert.GreaterOrEqual(t, models[0].Createtime, before)
+			assert.GreaterOrEqual(t, models[0].Updatetime, before)
 		})
 	})
 }
