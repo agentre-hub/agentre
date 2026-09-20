@@ -750,8 +750,38 @@ func TestRun_UnknownFlagFails(t *testing.T) {
 	}
 }
 
+// ---- permission: exposed options contract ----
+
+// TestPermissionOptions_ExposeOnlySingleShotKinds 锁定对外权限选项契约:
+// Given agrctl 作为中间层不知道目标 agent 实际提供哪些 kind,且 Agentre 的
+// AnswerToolPermission 只有单次语义,
+// When 构造发给外部 ACP client 的权限选项,
+// Then 只能出现 allow_once 与 reject_once,绝不出现 allow_always / reject_always。
+func TestPermissionOptions_ExposeOnlySingleShotKinds(t *testing.T) {
+	options := permissionOptions()
+	got := make([]acpsdk.PermissionOptionKind, 0, len(options))
+	for _, o := range options {
+		got = append(got, o.Kind)
+	}
+	want := []acpsdk.PermissionOptionKind{
+		acpsdk.PermissionOptionKindAllowOnce,
+		acpsdk.PermissionOptionKindRejectOnce,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("permission option kinds = %v, want exactly %v", got, want)
+	}
+	for _, o := range options {
+		if o.Kind == acpsdk.PermissionOptionKindAllowAlways || o.Kind == acpsdk.PermissionOptionKindRejectAlways {
+			t.Fatalf("option %+v advertises an always-kind that Agentre cannot honor", o)
+		}
+	}
+}
+
 // ---- permission: option kind -> decision ----
 
+// TestResolvePermissionDecision_MapsByOptionKind 覆盖纯函数的 kind → 决策映射。
+// 注意:allow_always 只是本函数对调用方传入选项的通用处理;agrctl 对外绝不再
+// 暴露该 kind(见 TestPermissionOptions_ExposeOnlySingleShotKinds)。
 func TestResolvePermissionDecision_MapsByOptionKind(t *testing.T) {
 	cases := []struct {
 		name string
@@ -861,7 +891,8 @@ func TestPrompt_PermissionApprovedForwardsAllow(t *testing.T) {
 		t.Fatalf("allow_once must not set alwaysAllowSession: %#v", body)
 	}
 
-	// 发给 client 的 RequestPermissionRequest:绑定 ACP session,带上工具信息与三个标准选项。
+	// 发给 client 的 RequestPermissionRequest:绑定 ACP session,带上工具信息,
+	// 且只暴露能真实落实的两种 kind。
 	reqs := rec.permissionRequests()
 	if len(reqs) != 1 {
 		t.Fatalf("permission requests = %d, want 1", len(reqs))
@@ -879,20 +910,34 @@ func TestPrompt_PermissionApprovedForwardsAllow(t *testing.T) {
 	}
 	for _, want := range []acpsdk.PermissionOptionKind{
 		acpsdk.PermissionOptionKindAllowOnce,
-		acpsdk.PermissionOptionKindAllowAlways,
 		acpsdk.PermissionOptionKindRejectOnce,
 	} {
 		if !kinds[want] {
 			t.Fatalf("options missing kind %q: %+v", want, got.Options)
 		}
 	}
+	for _, bad := range []acpsdk.PermissionOptionKind{
+		acpsdk.PermissionOptionKindAllowAlways,
+		acpsdk.PermissionOptionKindRejectAlways,
+	} {
+		if kinds[bad] {
+			t.Fatalf("options must not expose kind %q: %+v", bad, got.Options)
+		}
+	}
 }
 
-func TestPrompt_PermissionAlwaysAllowForwardsAlwaysAllowSession(t *testing.T) {
+// TestPrompt_PermissionUnadvertisedAlwaysOptionIsDenied 锁定修复后的对外契约:
+// Given agrctl 不再暴露 allow_always,
+// When 外部 ACP client 硬塞一个未提供的 allow-always optionId,
+// Then 必须收敛成一次明确拒绝,且绝不能回灌 alwaysAllowSession=true ——
+// Agentre 的 AnswerToolPermission 只有单次语义,allow_always 无法落实。
+func TestPrompt_PermissionUnadvertisedAlwaysOptionIsDenied(t *testing.T) {
 	ctl := newFakeCtl(t)
 	ctl.setEvents(permissionEvent("req-always", "Write", `{}`), streamEvent{Kind: kindDone})
 	client, rec := startAgent(t, ctl)
-	rec.permFunc = decideWithKind(acpsdk.PermissionOptionKindAllowAlways)
+	rec.permFunc = func(_ context.Context, _ acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
+		return acpsdk.RequestPermissionResponse{Outcome: acpsdk.NewRequestPermissionOutcomeSelected("allow-always")}, nil
+	}
 
 	sess := newSession(t, client)
 	if _, err := client.Prompt(context.Background(), acpsdk.PromptRequest{
@@ -901,9 +946,22 @@ func TestPrompt_PermissionAlwaysAllowForwardsAlwaysAllowSession(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
+
+	reqs := rec.permissionRequests()
+	if len(reqs) != 1 {
+		t.Fatalf("permission requests = %d, want 1", len(reqs))
+	}
+	for _, o := range reqs[0].Options {
+		if o.Kind == acpsdk.PermissionOptionKindAllowAlways || o.Kind == acpsdk.PermissionOptionKindRejectAlways {
+			t.Fatalf("advertised an always-kind that Agentre cannot honor: %+v", reqs[0].Options)
+		}
+	}
 	body := ctl.lastPermission(t)
-	if body["allow"] != true || body["alwaysAllowSession"] != true {
-		t.Fatalf("answer-permission body = %#v, want allow + alwaysAllowSession", body)
+	if body["allow"] != false {
+		t.Fatalf("answer-permission body = %#v, want allow=false for an unadvertised always option", body)
+	}
+	if _, ok := body["alwaysAllowSession"]; ok {
+		t.Fatalf("must never forward alwaysAllowSession: %#v", body)
 	}
 }
 

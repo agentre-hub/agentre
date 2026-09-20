@@ -332,15 +332,16 @@ type permissionDecision struct {
 	AlwaysAllowSession bool
 }
 
-// permissionOptions 是发给 ACP client 的标准三选项:一次允许 / 始终允许 / 拒绝。
+// permissionOptions 是对外暴露的权限选项:一次允许 / 一次拒绝。
 //
 // kind 定义语义,optionId 只是回传句柄 —— 决策映射永远按 kind 走。
-// 不给 reject_always:Agentre 的 AnswerToolPermission 只有单次决策语义
-// (Allow=false 永远单次),没有「永久拒绝」这一档。
+// 不给 allow_always:agrctl 是中间层,不知道目标 agent 实际报了哪些 kind,而
+// Agentre 的 AnswerToolPermission 只有单次决策语义,AlwaysAllowSession 无法真实
+// 落实。对外发一个落实不了的 kind,只会在回灌时被桌面端判为「缺少请求的 kind」
+// 并回 canceled,UI 上表现为 Denied。同理也不给 reject_always。
 func permissionOptions() []acpsdk.PermissionOption {
 	return []acpsdk.PermissionOption{
 		{OptionId: "allow-once", Name: "Allow once", Kind: acpsdk.PermissionOptionKindAllowOnce},
-		{OptionId: "allow-always", Name: "Allow always", Kind: acpsdk.PermissionOptionKindAllowAlways},
 		{OptionId: "reject-once", Name: "Reject", Kind: acpsdk.PermissionOptionKindRejectOnce},
 	}
 }
