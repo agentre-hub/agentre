@@ -1,16 +1,25 @@
 import { Copy, ExternalLink, MoreHorizontal, Plus } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
+
+import {
+  formatPortForwardTarget,
+  isExplicitHttpsTarget,
+  isLikelyValidPortForwardTarget,
+} from "./target";
 
 /** 地址缺席时占位的破折号。见 `address` 的注释：不编一个假地址出来。 */
 const ADDRESS_PLACEHOLDER = "—";
@@ -24,8 +33,12 @@ const ADDRESS_PLACEHOLDER = "—";
 export interface PortForwardMappingView {
   /** 稳定标识，用于回调时告诉宿主是哪一条。宿主自己的主键原样带过来即可。 */
   id: string;
-  /** 设备 `127.0.0.1` 上被转发的那个端口。 */
-  port: number;
+  /**
+   * 设备规范化之后的目标，形如 `"http://127.0.0.1:3000"` 或
+   * `"https://192.168.1.5:8443"`——总是带着端口(规格「映射与目标」)。行上按
+   * `formatPortForwardTarget` 显示：环回目标只显示端口，其余显示完整目标。
+   */
+  target: string;
   /** 用于辨认的名称。 */
   name: string;
   /** 启用位。停用的映射保留整行，但不出现「打开」。 */
@@ -42,12 +55,19 @@ export interface PortForwardMappingView {
   address?: string;
 }
 
+/** 新增映射表单提交给宿主的载荷 —— 目标写法与忽略证书位,判定权威恒在设备侧。 */
+export interface PortForwardCreateInput {
+  target: string;
+  name: string;
+  insecure: boolean;
+}
+
 export interface PortForwardSectionProps {
   /** 这台设备上的全部映射，顺序由宿主决定（包内不排序，免得两端排法分叉）。 */
   mappings: PortForwardMappingView[];
   /**
    * 设备离线 / 够不着。为真时：不出新增入口、不出「打开」——点了必然失败的入口
-   * 不该渲染；已有的映射照旧列出来。
+   * 不该渲染；已有的映射照旧列出来；已经打开的新增表单也会关掉。
    */
   offline?: boolean;
   /** 离线说明后面那句宿主补充（相对时间之类）。相对时间格式化归宿主。 */
@@ -64,11 +84,13 @@ export interface PortForwardSectionProps {
   openLabel?: string;
   className?: string;
   /**
-   * 以下五个动作全部是宿主的副作用（Wails 绑定 / relay 请求 / 系统浏览器 / 剪贴板）。
-   * **缺席即不渲染对应控件** —— 包内既有纪律：宁可没有这个控件，也不给一个按下去
-   * 没反应的。
+   * 新增映射：目标输入接受 `3000` / `host:port` / `http(s)://host[:port]` 三种
+   * 写法(规格「映射与目标」),https 目标才出现「忽略证书错误」勾选框。表单本身
+   * 是本组件唯一的实现(规格「控制台界面」),宿主只接这一个提交回调 —— resolve
+   * 关表单,reject 把 `error.message` 原样显示在表单里(判定权威恒在设备侧,拒绝
+   * 理由由宿主翻成这条消息,包内不认业务码)。**缺席即不渲染新增入口**。
    */
-  onCreate?: () => void;
+  onCreate?: (input: PortForwardCreateInput) => void | Promise<void>;
   onToggleEnabled?: (mapping: PortForwardMappingView, enabled: boolean) => void;
   onRemove?: (mapping: PortForwardMappingView) => void;
   onOpen?: (mapping: PortForwardMappingView) => void;
@@ -96,6 +118,13 @@ export function PortForwardSection({
 }: PortForwardSectionProps) {
   const { t } = useUiTranslation();
   const canCreate = Boolean(onCreate) && !offline;
+  const [adding, setAdding] = React.useState(false);
+
+  // 设备够不着时,已经打开的新增表单跟着关掉并清空 —— 它领向一张填完必然提交
+  // 失败的表单,是条多步的死路(与「离线时不出新增入口」同一条纪律)。
+  React.useEffect(() => {
+    if (offline) setAdding(false);
+  }, [offline]);
 
   return (
     <section
@@ -140,23 +169,151 @@ export function PortForwardSection({
         </ul>
       ) : null}
 
-      {canCreate ? (
+      {canCreate && !adding ? (
         <Button
           type="button"
           variant="ghost"
           size="xs"
           className="self-start text-muted-foreground"
-          onClick={onCreate}
+          onClick={() => setAdding(true)}
         >
           <Plus />
           {t("portForward.addMapping")}
         </Button>
       ) : null}
 
+      {canCreate && adding && onCreate ? (
+        <PortForwardCreateForm
+          onSubmit={onCreate}
+          onCancel={() => setAdding(false)}
+          onSucceeded={() => setAdding(false)}
+        />
+      ) : null}
+
       {footnote ? (
         <p className="text-2xs text-muted-foreground">{footnote}</p>
       ) : null}
     </section>
+  );
+}
+
+function PortForwardCreateForm({
+  onSubmit,
+  onCancel,
+  onSucceeded,
+}: {
+  onSubmit: (input: PortForwardCreateInput) => void | Promise<void>;
+  onCancel: () => void;
+  onSucceeded: () => void;
+}) {
+  const { t } = useUiTranslation();
+  const fieldId = React.useId();
+  const [target, setTarget] = React.useState("");
+  const [name, setName] = React.useState("");
+  const [insecure, setInsecure] = React.useState(false);
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  const showsInsecure = isExplicitHttpsTarget(target);
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    const trimmedTarget = target.trim();
+    if (!isLikelyValidPortForwardTarget(trimmedTarget)) {
+      setError(t("portForward.add.invalidTarget"));
+      return;
+    }
+    setError("");
+    setSubmitting(true);
+    try {
+      await onSubmit({
+        target: trimmedTarget,
+        name: name.trim(),
+        insecure: showsInsecure && insecure,
+      });
+      onSucceeded();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form className="flex flex-col gap-1.5" onSubmit={handleSubmit}>
+      <div className="flex flex-col gap-1">
+        <Label
+          htmlFor={`${fieldId}-target`}
+          className="text-2xs text-muted-foreground"
+        >
+          {t("portForward.add.target")}
+        </Label>
+        <Input
+          id={`${fieldId}-target`}
+          className="h-7 text-xs"
+          aria-invalid={error !== ""}
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+        />
+        <p className="text-2xs text-muted-foreground">
+          {t("portForward.add.targetHint")}
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <Label
+          htmlFor={`${fieldId}-name`}
+          className="text-2xs text-muted-foreground"
+        >
+          {t("portForward.add.name")}
+        </Label>
+        <Input
+          id={`${fieldId}-name`}
+          className="h-7 text-xs"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+
+      {showsInsecure ? (
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={`${fieldId}-insecure`}
+            checked={insecure}
+            onCheckedChange={(checked) => setInsecure(checked === true)}
+          />
+          <Label
+            htmlFor={`${fieldId}-insecure`}
+            className="text-2xs font-normal text-muted-foreground"
+          >
+            {t("portForward.add.insecure")}
+          </Label>
+        </div>
+      ) : null}
+
+      <div className="flex items-center gap-2">
+        <Button type="submit" size="xs" disabled={submitting}>
+          {t("portForward.add.submit")}
+        </Button>
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          onClick={onCancel}
+          disabled={submitting}
+        >
+          {t("portForward.add.cancel")}
+        </Button>
+      </div>
+
+      {error ? (
+        <div
+          data-testid="port-forward-add-error"
+          className="text-2xs text-destructive"
+        >
+          {error}
+        </div>
+      ) : null}
+    </form>
   );
 }
 
@@ -188,8 +345,8 @@ function PortForwardRow({
       data-enabled={mapping.enabled}
       className="flex min-h-8 items-center gap-2 text-xs"
     >
-      <span className="w-12 shrink-0 font-mono tabular-nums text-foreground">
-        {mapping.port}
+      <span className="max-w-40 shrink-0 truncate font-mono tabular-nums text-foreground">
+        {formatPortForwardTarget(mapping.target)}
       </span>
       <span className="min-w-0 flex-1 truncate text-foreground">
         {mapping.name}

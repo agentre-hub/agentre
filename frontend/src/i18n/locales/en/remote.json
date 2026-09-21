@@ -187,13 +187,9 @@
     "portForward": {
       "actionFailed": "Action failed: {{message}}",
       "add": {
-        "cancel": "Cancel",
         "failed": "Could not add the mapping: {{message}}",
-        "invalidPort": "The port number must be between 1 and 65535.",
-        "name": "Name",
-        "port": "Port",
-        "portTaken": "This port is already mapped on this device. Pick another one.",
-        "submit": "Add"
+        "invalidTarget": "Invalid target: use 3000, host:port, or http(s)://host[:port].",
+        "targetTaken": "This target is already mapped on this device. Pick another one."
       },
       "copyDone": "Address copied",
       "copyFailed": "Failed to copy address",

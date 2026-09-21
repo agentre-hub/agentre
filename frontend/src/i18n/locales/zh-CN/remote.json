@@ -187,13 +187,9 @@
     "portForward": {
       "actionFailed": "操作失败：{{message}}",
       "add": {
-        "cancel": "取消",
         "failed": "新增失败：{{message}}",
-        "invalidPort": "端口号要在 1 到 65535 之间。",
-        "name": "名称",
-        "port": "端口",
-        "portTaken": "这个端口在这台设备上已经映射过了，换一个。",
-        "submit": "新增"
+        "invalidTarget": "目标写法不对：接受 3000 / host:port / http(s)://host[:port] 三种写法。",
+        "targetTaken": "这个目标在这台设备上已经映射过了，换一个。"
       },
       "copyDone": "访问地址已复制",
       "copyFailed": "复制访问地址失败",

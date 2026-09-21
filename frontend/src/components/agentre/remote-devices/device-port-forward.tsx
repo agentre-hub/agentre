@@ -1,20 +1,19 @@
 // frontend/src/components/agentre/remote-devices/device-port-forward.tsx
 //
-// 设备行下的「端口转发」子块(规格 2026-09-06 决策 10):把共享包的
-// `PortForwardSection` 接到 PortForward* 那五个 wails 绑定上。
+// 设备行下的「端口转发」子块(规格 2026-09-06 决策 10,2026-09-21 改收目标写法):
+// 把共享包的 `PortForwardSection` 接到 PortForward* 那五个 wails 绑定上。
 //
 // 这一层只做三件宿主专属的事:调绑定、把过桥的业务码翻成出路、拉系统浏览器
-// (决策 11)。呈现规则(哪个控件在什么条件下渲染)全在共享包里,两个宿主共用。
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+// (决策 11)。呈现规则与新增表单(哪个控件在什么条件下渲染、目标写法怎么校验)
+// 全在共享包里,两个宿主共用。
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
-  Button,
-  Input,
-  Label,
   PortForwardSection,
   copyTextWithToast,
+  type PortForwardCreateInput,
   type PortForwardMappingView,
 } from "@agentre-hub/agentre-ui";
 
@@ -35,11 +34,15 @@ const CODED_PREFIX = /^agentre-code:(\d+)\s?([\s\S]*)$/;
 /**
  * `internal/pkg/code/code.go` 的 21000~ 段(稳定 wire 值)。按码分辨,不按文案 ——
  * 文案一改就静默失灵,而且中英两套要各猜一遍。
+ *
+ * `INVALID_PORT`(21003)不再从新增声明这条路上回来了:新增改收目标写法之后,
+ * 端口越界这条理由并进了 `INVALID_TARGET`(21004,对应设备侧 -32076,见规格
+ * 「映射与目标」)。
  */
 const DEVICE_OFFLINE = 21000;
 const NOT_DECLARED = 21001;
 const PORT_TAKEN = 21002;
-const INVALID_PORT = 21003;
+const INVALID_TARGET = 21004;
 
 type Coded = { code: number; message: string };
 
@@ -53,8 +56,22 @@ function classify(err: unknown): Coded {
 
 // ── 组件 ─────────────────────────────────────────────────────────────────────
 
+/**
+ * wails 绑定交回的原始形状:比共享包的 `PortForwardMappingView` 多一个 `port`
+ * (Go 侧仍然算出来,专给这一层排序用——共享包只认规范化后的 `target`,排法归
+ * 宿主,包内不排)。
+ */
+type DeviceMapping = {
+  id: string;
+  port: number;
+  name: string;
+  enabled: boolean;
+  target: string;
+  address?: string;
+};
+
 /** 按端口排序:排法归宿主(包内不排),同一台设备两次读到的顺序因此是稳定的。 */
-function byPort(views: PortForwardMappingView[]): PortForwardMappingView[] {
+function byPort(views: DeviceMapping[]): DeviceMapping[] {
   return [...views].sort((a, b) => a.port - b.port);
 }
 
@@ -69,12 +86,11 @@ type Props = {
 
 export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
   const { t } = useTranslation();
-  const fieldId = useId();
   const alive = useRef(true);
 
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [loadError, setLoadError] = useState("");
-  const [mappings, setMappings] = useState<PortForwardMappingView[]>([]);
+  const [mappings, setMappings] = useState<DeviceMapping[]>([]);
   const [unreachable, setUnreachable] = useState(false);
   const [actionError, setActionError] = useState("");
   /**
@@ -83,11 +99,6 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
    * 那条地址此刻还是活的。
    */
   const [addresses, setAddresses] = useState<Record<string, string>>({});
-
-  const [adding, setAdding] = useState(false);
-  const [port, setPort] = useState("");
-  const [name, setName] = useState("");
-  const [addError, setAddError] = useState("");
 
   const deviceKey = String(deviceId);
 
@@ -100,9 +111,7 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
 
   const load = useCallback(async () => {
     try {
-      const views = (await PortForwardList(
-        deviceKey,
-      )) as PortForwardMappingView[];
+      const views = (await PortForwardList(deviceKey)) as DeviceMapping[];
       if (!alive.current) return;
       setMappings(byPort(views ?? []));
       setUnreachable(false);
@@ -166,7 +175,7 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
     [load, t],
   );
 
-  const replaceRow = useCallback((view: PortForwardMappingView) => {
+  const replaceRow = useCallback((view: DeviceMapping) => {
     setMappings((prev) =>
       byPort(prev.map((m) => (m.id === view.id ? view : m))),
     );
@@ -184,11 +193,7 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
   async function handleOpen(mapping: PortForwardMappingView) {
     setActionError("");
     try {
-      const address = await PortForwardOpen(
-        deviceKey,
-        mapping.id,
-        mapping.port,
-      );
+      const address = await PortForwardOpen(deviceKey, mapping.id);
       if (!alive.current) return;
       markReached();
       setAddresses((prev) => ({ ...prev, [mapping.id]: address }));
@@ -210,7 +215,7 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
         deviceKey,
         mapping.id,
         enabled,
-      )) as PortForwardMappingView;
+      )) as DeviceMapping;
       if (!alive.current) return;
       markReached();
       replaceRow(view);
@@ -245,53 +250,47 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
     });
   }
 
-  function openAddForm() {
-    setAdding(true);
-    setAddError("");
-  }
-
-  function closeAddForm() {
-    setAdding(false);
-    setPort("");
-    setName("");
-    setAddError("");
-  }
-
-  async function handleCreate(event: React.FormEvent) {
-    event.preventDefault();
-    const parsed = Number(port.trim());
-    if (port.trim() === "" || !Number.isInteger(parsed)) {
-      setAddError(t("remoteDevices.portForward.add.invalidPort"));
-      return;
-    }
-    setAddError("");
+  /**
+   * 新增表单本身(哪个字段、https 才出的勾选框、客户端即时校验)全在共享包里,
+   * 这里只管把提交的载荷送到设备、把设备回来的业务码翻成一句人话。resolve 让
+   * 表单关掉、reject 把 `error.message` 显示在表单里 —— 度够不着设备这一种例外:
+   * 静默转离线态,不当错误显示(表单已经在共享包里因为 `offline` 变真而自己关掉)。
+   */
+  async function handleCreate(input: PortForwardCreateInput) {
     try {
       const view = (await PortForwardCreate(
         deviceKey,
-        parsed,
-        name.trim(),
-      )) as PortForwardMappingView;
+        input.target,
+        input.name,
+        input.insecure,
+      )) as DeviceMapping;
       if (!alive.current) return;
+      markReached();
       setMappings((prev) => byPort([...prev, view]));
-      closeAddForm();
     } catch (err) {
       if (!alive.current) return;
       const failure = classify(err);
-      // 两个码都指向端口那一格,但出路不同:一个换端口,一个把号填对。
-      if (failure.code === PORT_TAKEN) {
-        setAddError(t("remoteDevices.portForward.add.portTaken"));
-        return;
-      }
-      if (failure.code === INVALID_PORT) {
-        setAddError(t("remoteDevices.portForward.add.invalidPort"));
-        return;
-      }
       if (failure.code === DEVICE_OFFLINE) {
         setUnreachable(true);
-        closeAddForm();
         return;
       }
-      setAddError(t("remoteDevices.portForward.add.failed", failure));
+      // 判定权威恒在设备侧(规格「映射与目标」决策 8):两个码都指着目标那一格,
+      // 但出路不同——一个换个目标,一个把写法改对(3000 / host:port /
+      // http(s)://host[:port] 三种之外的,以及路径/查询串/用户信息/端口越界/
+      // 主机为空,六种理由都归 -32076)。
+      if (failure.code === PORT_TAKEN) {
+        throw new Error(t("remoteDevices.portForward.add.targetTaken"), {
+          cause: err,
+        });
+      }
+      if (failure.code === INVALID_TARGET) {
+        throw new Error(t("remoteDevices.portForward.add.invalidTarget"), {
+          cause: err,
+        });
+      }
+      throw new Error(t("remoteDevices.portForward.add.failed", failure), {
+        cause: err,
+      });
     }
   }
 
@@ -318,7 +317,10 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
       {phase === "ready" ? (
         <PortForwardSection
           mappings={mappings.map((m) => ({
-            ...m,
+            id: m.id,
+            name: m.name,
+            enabled: m.enabled,
+            target: m.target,
             address: addresses[m.id],
           }))}
           offline={isOffline}
@@ -330,7 +332,7 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
           // 多步的死路。已经列出来的那些行整行保留、只是打不开(规格「三种非常态」)
           // —— 启停与删除照常画,按下去撞上离线由 handleFailure 收成离线态,不是
           // 一句机器原话。
-          onCreate={isOffline ? undefined : openAddForm}
+          onCreate={isOffline ? undefined : handleCreate}
           onToggleEnabled={handleToggle}
           onRemove={handleRemove}
         />
@@ -338,63 +340,6 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
 
       {actionError ? (
         <div className="text-xs text-destructive">{actionError}</div>
-      ) : null}
-
-      {adding && phase === "ready" && !isOffline ? (
-        <form className="flex flex-col gap-1.5" onSubmit={handleCreate}>
-          <div className="flex items-end gap-2">
-            <div className="flex w-24 flex-col gap-1">
-              <Label
-                htmlFor={`${fieldId}-port`}
-                className="text-2xs text-muted-foreground"
-              >
-                {t("remoteDevices.portForward.add.port")}
-              </Label>
-              <Input
-                id={`${fieldId}-port`}
-                type="number"
-                inputMode="numeric"
-                className="h-7 text-xs"
-                aria-invalid={addError !== ""}
-                value={port}
-                onChange={(e) => setPort(e.target.value)}
-              />
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <Label
-                htmlFor={`${fieldId}-name`}
-                className="text-2xs text-muted-foreground"
-              >
-                {t("remoteDevices.portForward.add.name")}
-              </Label>
-              <Input
-                id={`${fieldId}-name`}
-                className="h-7 text-xs"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-            <Button type="submit" size="xs">
-              {t("remoteDevices.portForward.add.submit")}
-            </Button>
-            <Button
-              type="button"
-              size="xs"
-              variant="ghost"
-              onClick={closeAddForm}
-            >
-              {t("remoteDevices.portForward.add.cancel")}
-            </Button>
-          </div>
-          {addError ? (
-            <div
-              data-testid="port-forward-add-error"
-              className="text-2xs text-destructive"
-            >
-              {addError}
-            </div>
-          ) : null}
-        </form>
       ) : null}
     </div>
   );
