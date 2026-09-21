@@ -1,0 +1,4 @@
+# SwiftPM 的本地构建产物与解析缓存。Package.resolved 是签入的(它钉住 swift-protobuf
+# 的确切 revision),.build/ 不是。
+.build/
+.swiftpm/

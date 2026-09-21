@@ -1,4 +1,4 @@
-.PHONY: run dev build agrctl agentred agentred-package agentred-linux agentred-deploy agentred-deploy-restart generate test test-backend test-frontend test-cover test-agentred-packaging lint lint-backend lint-frontend lint-fix lint-fix-backend lint-fix-frontend mock install install-deps clean check e2e e2e-app verify-up verify-status verify-down
+.PHONY: run dev build agrctl agentred agentred-package agentred-linux agentred-deploy agentred-deploy-restart generate test test-backend test-frontend test-wire-swift test-cover test-agentred-packaging lint lint-backend lint-frontend lint-fix lint-fix-backend lint-fix-frontend mock install install-deps clean check e2e e2e-app verify-up verify-status verify-down
 
 APP_NAME := Agentre
 VERSION ?= 0.1.0
@@ -183,10 +183,19 @@ test: test-backend test-frontend
 # pkg/wire 与 pkg/syncwire 都是独立 module（分别是 wire 协议生成代码与同步契约的唯一
 # 来源），父 module 的 ./pkg/... 不会走进它们，因此各自单独跑一次，否则 wire 的
 # descriptor 守卫与同步载荷守卫的共享向量永远不会被执行。
+# pkg/wire 的那一行同时驱动 Swift 侧的跨语言对拍(goldenvectors 包在 PATH 上有
+# swift 时会去跑 pkg/wire/swift 的测试,没有则跳过并说明),因此它在装了 Xcode 的
+# 机器上比另外两行慢,首次还要 SwiftPM 解析一次依赖。
 test-backend:
 	go test $(BACKEND_PKGS)
 	go test -C pkg/wire ./...
 	go test -C pkg/syncwire ./...
+
+# 只跑 wire 协议的 Swift 侧:金向量对拍 + 产物守卫。
+# 中继上载的是二进制 protobuf,原生端直接消费 protobuf 结构,这一条因此是 iOS 端
+# 与本仓之间唯一的契约检查点。
+test-wire-swift:
+	go test -C pkg/wire ./goldenvectors/ ./guard/ -count=1 -v
 
 # 运行前端测试
 # typecheck 与 vitest 一起跑：vitest 走 esbuild 只转译不查类型，而 tsc 此前只挂在
