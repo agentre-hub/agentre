@@ -38,8 +38,10 @@ type PortForwardSvc interface {
 	// code.PortForwardDeviceOffline —— 视图层据此出离线态且**不出新增入口**。
 	List(ctx context.Context, deviceID string) ([]MappingView, error)
 	// Create 在这台设备上新增一条声明,交回设备落库之后的那一行(默认启用)。
-	// 端口已被声明 / 端口越界各有各的码,新增表单据此给不同的提示。
-	Create(ctx context.Context, deviceID string, port int, name string) (*MappingView, error)
+	// target 接受三种写法(纯端口 / host:port / http(s)://host[:port]),insecure
+	// 是 https 目标「忽略证书错误」那一位。目标写法不合法 / 目标已被声明各有各的
+	// 码,新增表单据此给不同的提示——判定完全在设备侧(规格决策 8),本层只转码。
+	Create(ctx context.Context, deviceID, target, name string, insecure bool) (*MappingView, error)
 	// SetEnabled 启停一条声明,交回改完之后的那一行。停用保留声明本身。
 	SetEnabled(ctx context.Context, deviceID, mappingID string, enabled bool) (*MappingView, error)
 	// Delete 删除一条声明。**幂等**:两个客户端同时删同一条时,后到的那次不是
@@ -59,6 +61,10 @@ type MappingView struct {
 	Name    string `json:"name"`
 	Enabled bool   `json:"enabled"`
 	Address string `json:"address,omitempty"`
+	// Target 是设备规范化之后的目标,形如 "http://host:port" 或
+	// "https://host:port"——总是带着端口。前端据此判断要不要把它简化成裸端口
+	// 展示(host 是 127.0.0.1 时)。
+	Target string `json:"target"`
 }
 
 var defaultSvc PortForwardSvc = &portForwardImpl{}
@@ -98,20 +104,18 @@ func (s *portForwardImpl) List(ctx context.Context, deviceID string) ([]MappingV
 	return views, nil
 }
 
-func (s *portForwardImpl) Create(ctx context.Context, deviceID string, port int, name string) (*MappingView, error) {
+func (s *portForwardImpl) Create(
+	ctx context.Context, deviceID, target, name string, insecure bool,
+) (*MappingView, error) {
 	dID, err := parseDeviceID(ctx, deviceID)
 	if err != nil {
 		return nil, err
 	}
-	// 越界的端口不能就这么转成 uint32 发出去:那会在线上变成另一个端口号,设备
-	// 照着那个数去判定。给的是与设备侧同一个越界码 —— 同一件事在两条路径上不该
-	// 被说成两句话。
-	if port < 1 || port > 65535 {
-		return nil, i18n.NewError(ctx, code.PortForwardInvalidPort)
-	}
-	// 上面刚把 port 夹在 1..65535 内,转 uint32 无损。
+	// target 原样递过去,不在本层再判一遍:「这个写法合不合法」的判定恒在设备侧
+	// (规格决策 8),本层多判一遍既拦不住什么,又会让同一件事有两个判定处、两句
+	// 可能对不上的话。写法不合法的后果是设备回 -32076,由下面的 mapCallErr 转码。
 	resp, err := call(ctx, s, dID, wirecall.PortForwardCreate, &agentrewire.PortForwardCreateRequest{
-		Port: uint32(port), Name: name,
+		Target: target, Name: name, Insecure: insecure,
 	})
 	if err != nil {
 		return nil, err
@@ -184,6 +188,7 @@ func toView(m *agentrewire.PortForwardMapping) MappingView {
 		Port:    int(m.GetPort()),
 		Name:    m.GetName(),
 		Enabled: m.GetEnabled(),
+		Target:  m.GetTarget(),
 	}
 }
 
@@ -229,6 +234,8 @@ func mapCallErr(ctx context.Context, err error) error {
 		return i18n.NewError(ctx, code.PortForwardPortTaken)
 	case rpcerror.CodePortForwardInvalidPort:
 		return i18n.NewError(ctx, code.PortForwardInvalidPort)
+	case rpcerror.CodePortForwardInvalidTarget:
+		return i18n.NewError(ctx, code.PortForwardInvalidTarget)
 	}
 	return i18n.NewError(ctx, code.RemoteRunnerCallFailed)
 }

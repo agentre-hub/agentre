@@ -66,7 +66,7 @@ func forwardToRealDeviceWithLatency(
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)
 	address, err := listeners.Open(context.Background(),
-		portforward.Target{DeviceID: 7, MappingID: "1", Port: port})
+		portforward.Target{DeviceID: 7, MappingID: "1"})
 	require.NoError(t, err)
 	return address
 }

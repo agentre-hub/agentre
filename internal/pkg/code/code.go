@@ -394,3 +394,13 @@ const (
 	PortForwardPortTaken                    // 新增时这个端口在那台设备上已经声明过——用户改得动
 	PortForwardInvalidPort                  // 端口号不在 1..65535 内——用户改得动
 )
+
+// 设备端口转发 21000 段补位:新增声明改收目标写法(见规格「映射与目标」)之后,
+// 与目标相关的失败理由不再只有一种。
+const (
+	// PortForwardInvalidTarget 对应设备侧 rpcerror.CodePortForwardInvalidTarget(-32076):
+	// 目标写法不合法——路径、查询串、用户信息、http(s) 以外的协议、端口越界、主机为空
+	// 六种理由报同一个码。判定完全在设备侧(规格决策 8),这里只转码,新增表单据此
+	// 指着目标那一格说。
+	PortForwardInvalidTarget = iota + 21004
+)

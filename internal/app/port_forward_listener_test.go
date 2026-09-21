@@ -84,7 +84,7 @@ func requireListenerGone(t *testing.T, address string) {
 func TestPortForwardOpenHandsBackALoopbackAddressForTheSystemBrowser(t *testing.T) {
 	a, _ := withForwards(t, &stubPortForwardSvc{})
 
-	address, err := a.PortForwardOpen("7", "11", 5173)
+	address, err := a.PortForwardOpen("7", "11")
 	require.NoError(t, err)
 
 	parsed, perr := url.Parse(address)
@@ -103,7 +103,7 @@ func TestPortForwardSetEnabledDisablingClosesThatListenerAndEnablingDoesNot(t *t
 	stub := &stubPortForwardSvc{mapping: &port_forward_svc.MappingView{ID: "11", Port: 5173}}
 	a, _ := withForwards(t, stub)
 
-	address, err := a.PortForwardOpen("7", "11", 5173)
+	address, err := a.PortForwardOpen("7", "11")
 	require.NoError(t, err)
 
 	// 启用不关。
@@ -123,9 +123,9 @@ func TestPortForwardSetEnabledDisablingClosesThatListenerAndEnablingDoesNot(t *t
 func TestPortForwardDeleteClosesOnlyThatMappingsListener(t *testing.T) {
 	a, _ := withForwards(t, &stubPortForwardSvc{})
 
-	doomed, err := a.PortForwardOpen("7", "11", 5173)
+	doomed, err := a.PortForwardOpen("7", "11")
 	require.NoError(t, err)
-	kept, err := a.PortForwardOpen("7", "12", 3000)
+	kept, err := a.PortForwardOpen("7", "12")
 	require.NoError(t, err)
 
 	require.NoError(t, a.PortForwardDelete("7", "11"))
@@ -142,9 +142,9 @@ func TestShutdownReleasesEveryPortForwardListener(t *testing.T) {
 	a, devices := withForwards(t, &stubPortForwardSvc{})
 	a.shutdownCleanup = func(context.Context) {}
 
-	first, err := a.PortForwardOpen("7", "11", 5173)
+	first, err := a.PortForwardOpen("7", "11")
 	require.NoError(t, err)
-	second, err := a.PortForwardOpen("8", "21", 3000)
+	second, err := a.PortForwardOpen("8", "21")
 	require.NoError(t, err)
 
 	a.Shutdown(context.Background())
@@ -185,9 +185,9 @@ func TestRemoteDeviceRemoveClosesThatDevicesForwardListeners(t *testing.T) {
 	t.Cleanup(func() { remote_device_svc.SetDefault(original) })
 	remote_device_svc.SetDefault(&stubRemoteDeviceSvc{})
 
-	doomed, err := a.PortForwardOpen("7", "11", 5173)
+	doomed, err := a.PortForwardOpen("7", "11")
 	require.NoError(t, err)
-	kept, err := a.PortForwardOpen("8", "21", 3000)
+	kept, err := a.PortForwardOpen("8", "21")
 	require.NoError(t, err)
 
 	require.NoError(t, a.RemoteDeviceRemove(7))

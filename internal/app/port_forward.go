@@ -41,9 +41,11 @@ func (a *App) PortForwardList(deviceID string) ([]port_forward_svc.MappingView, 
 }
 
 // PortForwardCreate 在 device 上新增一条映射,交回设备落库之后的那一行(默认
-// 启用)。端口已被声明 / 端口越界各有各的码,新增表单据此给不同的提示。
-func (a *App) PortForwardCreate(deviceID string, port int, name string) (*port_forward_svc.MappingView, error) {
-	view, err := port_forward_svc.Default().Create(a.ctx, deviceID, port, name)
+// 启用)。target 接受三种写法(纯端口 / host:port / http(s)://host[:port]),
+// insecure 是 https 目标「忽略证书错误」那一位。目标写法不合法 / 目标已被声明
+// 各有各的码,新增表单据此给不同的提示。
+func (a *App) PortForwardCreate(deviceID, target, name string, insecure bool) (*port_forward_svc.MappingView, error) {
+	view, err := port_forward_svc.Default().Create(a.ctx, deviceID, target, name, insecure)
 	if err != nil {
 		return nil, codedError(err)
 	}
@@ -81,19 +83,21 @@ func (a *App) PortForwardDelete(deviceID, mappingID string) error {
 // http://127.0.0.1:54321)。前端拿到之后用 BrowserOpenURL 交给系统默认浏览器
 // (规格决策 11)。
 //
-// 端口由调用方带来而不是这一层再去设备上查一遍:「这个端口声明过没有、停用没有」
-// 的判定恒在设备侧(规格决策 8),这一层多查一遍既拦不住什么,又会让同一件事有两个
-// 判定处。端口填错的后果是设备回 -32070,浏览器上如实呈现。
+// **按映射 id 打开,不再带端口**(规格决策 10、12):目标变成了 (协议, 主机, 端口)
+// 的三元组,端口不再是一条映射的身份,id 本来就是启停 / 删除用的主键。设备只拨
+// 声明里存着的目标 —— 「这条映射声明过没有、停用没有、目标连不连得上」的判定恒在
+// 设备侧(规格决策 8),这一层不重复判一遍。目标填错 / 连不上的后果是设备回相应的
+// portforward.* 码,浏览器上如实呈现。
 //
 // 重复调用同一条映射交回同一条地址 —— 用户再点一次「打开」不该多出一条没人索引得到
 // 因而没人关得掉的监听。
-func (a *App) PortForwardOpen(deviceID, mappingID string, port int) (string, error) {
+func (a *App) PortForwardOpen(deviceID, mappingID string) (string, error) {
 	id, err := strconv.ParseInt(deviceID, 10, 64)
 	if err != nil || id <= 0 {
 		return "", codedError(i18n.NewError(a.ctx, code.RemoteDeviceNotFound))
 	}
 	address, oerr := a.forwards().Open(a.ctx, portforward.Target{
-		DeviceID: id, MappingID: mappingID, Port: port,
+		DeviceID: id, MappingID: mappingID,
 	})
 	if oerr != nil {
 		return "", codedError(mapForwardOpenErr(a.ctx, oerr))
@@ -132,8 +136,6 @@ func parseForwardDeviceID(deviceID string) int64 {
 // —— 等一会儿再点一次。
 func mapForwardOpenErr(ctx context.Context, err error) error {
 	switch {
-	case errors.Is(err, portforward.ErrInvalidPort):
-		return i18n.NewError(ctx, code.PortForwardInvalidPort)
 	case errors.Is(err, remote_device_svc.ErrDeviceNotFound):
 		return i18n.NewError(ctx, code.RemoteDeviceNotFound)
 	case errors.Is(err, remote_device_svc.ErrDeviceUnauthorized):

@@ -37,14 +37,14 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
-// Target 指名一条要打开的映射。端口由调用方带来而不是本包去设备上查:
-// 「这个端口声明过没有、停用没有」的判定恒在设备侧(规格决策 8),本包多查一遍
-// 既拦不住什么,又会让同一件事有两个判定处。端口填错的后果是设备回 -32070,
-// 浏览器上如实呈现。
+// Target 指名一条要打开的映射。**只按映射 id 定位**(规格决策 10、12):目标变成
+// 了 (协议, 主机, 端口) 的三元组,端口不再是一条映射的身份,本包因此不再收也不再
+// 校验端口——「这条映射声明过没有、停用没有、目标连不连得上」的判定恒在设备侧
+// (规格决策 8),本包多查一遍既拦不住什么,又会让同一件事有两个判定处。目标填错 /
+// 连不上的后果是设备回相应的 portforward.* 码,浏览器上如实呈现。
 type Target struct {
 	DeviceID  int64
 	MappingID string
-	Port      int
 }
 
 // DeviceConn 是一条已经连上那台设备的连接,外加它的失效信号。
@@ -68,10 +68,6 @@ var (
 	// ErrInvalidMapping:映射 id 不是一个正整数。open 按映射在设备上的 id 定位,一个
 	// 解析不出来的 id 发出去只会被设备当成另一条(或不存在的)映射。
 	ErrInvalidMapping = errors.New("portforward: invalid mapping id")
-	// ErrInvalidPort:端口号不在 1..65535 内。挡在这里不是替设备做判定(那一条恒在
-	// 设备侧),而是因为越界的数转成 uint32 会在线上变成**另一个端口号**,设备照着那
-	// 个数去判定 —— 与 port_forward_svc.Create 同一个理由。
-	ErrInvalidPort = errors.New("portforward: port out of range")
 )
 
 // readHeaderTimeout 与 httpgateway 取同一个值:它只覆盖读请求头这一段,不影响之后
@@ -123,9 +119,6 @@ func NewListeners(devices Devices) *Listeners {
 // 同一条映射重复 Open 交回同一条地址:用户再点一次「打开」不该多出一条没人索引得到、
 // 因而没人关得掉的监听。
 func (l *Listeners) Open(ctx context.Context, target Target) (string, error) {
-	if target.Port < 1 || target.Port > 65535 {
-		return "", ErrInvalidPort
-	}
 	mappingID, err := strconv.ParseInt(target.MappingID, 10, 64)
 	if err != nil || mappingID <= 0 {
 		return "", ErrInvalidMapping

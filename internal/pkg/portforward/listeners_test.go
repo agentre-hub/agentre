@@ -23,8 +23,8 @@ import (
 // 消失」——而 Gateway.Stop 在生产路径上一个调用点都没有(靠进程退出释放),所以这里
 // 一件都不能只写在代码里而不证。
 
-func target(deviceID int64, mappingID string, port int) portforward.Target {
-	return portforward.Target{DeviceID: deviceID, MappingID: mappingID, Port: port}
+func target(deviceID int64, mappingID string) portforward.Target {
+	return portforward.Target{DeviceID: deviceID, MappingID: mappingID}
 }
 
 // Given 一条端口映射, When 桌面端为它打开一条转发, Then 它拿到一条**只绑环回**的
@@ -39,7 +39,7 @@ func TestOpen_GivenAMapping_WhenTheDesktopOpensIt_ThenItBindsALoopbackOnlyListen
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)
 
-	address, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	address, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
 
 	parsed, err := url.Parse(address)
@@ -80,9 +80,9 @@ func TestOpen_GivenTheSameMappingOpenedTwice_ThenTheAddressStaysTheSame(t *testi
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)
 
-	first, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	first, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
-	second, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	second, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
 
 	assert.Equal(t, first, second)
@@ -106,9 +106,9 @@ func TestCloseMapping_GivenTwoMappingsOnOneDevice_WhenOneIsClosed_ThenOnlyThatLi
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)
 
-	closing, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	closing, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
-	staying, err := listeners.Open(context.Background(), target(7, "12", 3000))
+	staying, err := listeners.Open(context.Background(), target(7, "12"))
 	require.NoError(t, err)
 
 	listeners.CloseMapping(7, "11")
@@ -128,9 +128,9 @@ func TestOpen_GivenADeviceGoesOffline_ThenItsListenerClosesAndOtherDevicesAreUnt
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)
 
-	offline, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	offline, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
-	other, err := listeners.Open(context.Background(), target(8, "21", 5173))
+	other, err := listeners.Open(context.Background(), target(8, "21"))
 	require.NoError(t, err)
 
 	devices.deviceGoesOffline(7)
@@ -149,11 +149,11 @@ func TestCloseAll_GivenSeveralOpenForwards_WhenTheAppShutsDown_ThenEveryListener
 	devices, _ := newDevices(t, 7, 8)
 	listeners := portforward.NewListeners(devices)
 
-	first, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	first, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
-	second, err := listeners.Open(context.Background(), target(7, "12", 3000))
+	second, err := listeners.Open(context.Background(), target(7, "12"))
 	require.NoError(t, err)
-	third, err := listeners.Open(context.Background(), target(8, "21", 8080))
+	third, err := listeners.Open(context.Background(), target(8, "21"))
 	require.NoError(t, err)
 
 	listeners.CloseAll()
@@ -219,9 +219,9 @@ func TestOpen_GivenAnotherClientRevokesTheMapping_ThenOnlyThatListenerGoesAway(t
 			listeners := portforward.NewListeners(devices)
 			t.Cleanup(listeners.CloseAll)
 
-			revoked, err := listeners.Open(context.Background(), target(7, "11", 5173))
+			revoked, err := listeners.Open(context.Background(), target(7, "11"))
 			require.NoError(t, err)
-			staying, err := listeners.Open(context.Background(), target(7, "12", 3000))
+			staying, err := listeners.Open(context.Background(), target(7, "12"))
 			require.NoError(t, err)
 
 			revokeMapping(t, far[7], 11, reason)
@@ -248,9 +248,9 @@ func TestOpen_GivenAPeerThatDoesNotKnowThisNotification_ThenTheListenerAndTheCon
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)
 
-	address, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	address, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
-	barrier, err := listeners.Open(context.Background(), target(7, "12", 3000))
+	barrier, err := listeners.Open(context.Background(), target(7, "12"))
 	require.NoError(t, err)
 
 	require.NoError(t, far[7].Notify(&agentrewire.RpcNotification{}))

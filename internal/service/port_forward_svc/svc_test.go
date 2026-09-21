@@ -252,59 +252,50 @@ func TestCreate(t *testing.T) {
 			r := newRig(t)
 			r.expectRoundTrip(t, 7)
 			onCreate(r, func(request *agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error) {
-				require.Equal(t, uint32(3000), request.GetPort())
+				require.Equal(t, "3000", request.GetTarget())
 				require.Equal(t, "dev server", request.GetName())
+				require.True(t, request.GetInsecure())
 				return &agentrewire.PortForwardCreateResponse{Mapping: &agentrewire.PortForwardMapping{
-					Id: 11, Port: 3000, Name: "dev server", Enabled: true,
+					Id: 11, Port: 3000, Name: "dev server", Enabled: true, Target: "http://127.0.0.1:3000",
 				}}, nil
 			})
 
-			view, err := r.svc.Create(r.ctx, "7", 3000, "dev server")
+			view, err := r.svc.Create(r.ctx, "7", "3000", "dev server", true)
 			require.NoError(t, err)
 			assert.Equal(t, "11", view.ID)
 			assert.Equal(t, 3000, view.Port)
 			assert.Equal(t, "dev server", view.Name)
 			assert.True(t, view.Enabled)
+			assert.Equal(t, "http://127.0.0.1:3000", view.Target)
 		})
 
-		convey.Convey("端口已被声明 → 端口占用码(新增表单据此指着端口那一格说)", func() {
+		convey.Convey("目标(规范化后)已被声明 → 目标占用码(新增表单据此指着目标那一格说)", func() {
 			r := newRig(t)
 			r.expectRoundTrip(t, 7)
 			onCreate(r, func(*agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error) {
 				return nil, rpcErr(rpcerror.CodePortForwardPortTaken)
 			})
 
-			_, err := r.svc.Create(r.ctx, "7", 3000, "dev server")
+			_, err := r.svc.Create(r.ctx, "7", "3000", "dev server", false)
 			assert.Equal(t, code.PortForwardPortTaken, codeOf(t, err))
 		})
 
-		convey.Convey("设备说端口越界 → 与端口占用分开说", func() {
+		convey.Convey("设备说目标写法不合法 → 无效目标码(与目标占用分开说)", func() {
 			r := newRig(t)
 			r.expectRoundTrip(t, 7)
 			onCreate(r, func(*agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error) {
-				return nil, rpcErr(rpcerror.CodePortForwardInvalidPort)
+				return nil, rpcErr(rpcerror.CodePortForwardInvalidTarget)
 			})
 
-			_, err := r.svc.Create(r.ctx, "7", 3000, "dev server")
-			assert.Equal(t, code.PortForwardInvalidPort, codeOf(t, err))
-		})
-
-		convey.Convey("端口在本层就出了 uint32 的界 → 不 Borrow,给同一个越界码", func() {
-			// 负数 / 65535 以上不能就这么转成 uint32 发出去:那会在线上变成
-			// 另一个端口号,设备照着它去判定。这一格前端也填得动,所以给的是
-			// 与设备侧同一个码,而不是一句通用参数错误。
-			for _, port := range []int{0, -1, 65536, 1 << 20} {
-				r := newRig(t)
-				_, err := r.svc.Create(r.ctx, "7", port, "x")
-				assert.Equal(t, code.PortForwardInvalidPort, codeOf(t, err))
-			}
+			_, err := r.svc.Create(r.ctx, "7", "ftp://bad", "dev server", false)
+			assert.Equal(t, code.PortForwardInvalidTarget, codeOf(t, err))
 		})
 
 		convey.Convey("设备离线 → 离线码", func() {
 			r := newRig(t)
 			r.expectBorrowFails(7, errors.New("connection refused"))
 
-			_, err := r.svc.Create(r.ctx, "7", 3000, "dev server")
+			_, err := r.svc.Create(r.ctx, "7", "3000", "dev server", false)
 			assert.Equal(t, code.PortForwardDeviceOffline, codeOf(t, err))
 		})
 	})
