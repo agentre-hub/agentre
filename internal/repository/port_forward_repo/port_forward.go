@@ -1,5 +1,5 @@
 // Package port_forward_repo 提供「设备端口转发映射」的持久化访问：新增、列举、
-// 启停、删除，以及按端口 / 按目标的点查。两个宿主（桌面端 / agentred）各自一个
+// 启停、删除，以及按目标的点查。两个宿主（桌面端 / agentred）各自一个
 // SQLite 库，按 db.Ctx(ctx) 写，共用同一份实现（决策 1，与 transcript_repo 同一条
 // 路子）。
 //
@@ -24,17 +24,12 @@ import (
 
 // PortForwardRepo 存取这台设备上的端口转发声明。
 type PortForwardRepo interface {
-	// Create 新增一条映射声明，写下建行 / 更新时间。端口冲突时把库上 UNIQUE 索引
+	// Create 新增一条映射声明，写下建行 / 更新时间。目标冲突时把库上 UNIQUE 索引
 	// 报出的错误原样交回，不吞掉、也不改写成另一种含糊的失败。
 	Create(ctx context.Context, p *port_forward_entity.PortForward) error
 
 	// Get 按主键取一条映射，不存在返回 (nil, nil)。
 	Get(ctx context.Context, id int64) (*port_forward_entity.PortForward, error)
-
-	// FindByPort 按端口点查这台设备上的声明，不存在返回 (nil, nil)。设备侧 open
-	// 判定（端口是否在声明集内）走它——open 今天仍按端口定位，见
-	// port_forward_entity 包注释。
-	FindByPort(ctx context.Context, port int) (*port_forward_entity.PortForward, error)
 
 	// FindByTarget 按规范化目标点查这台设备上的声明，不存在返回 (nil, nil)。新增
 	// 前的应用层唯一性提示走它——目标（而不再是裸端口）才是这台设备下的唯一性
@@ -76,18 +71,6 @@ func (r *portForwardRepo) Create(ctx context.Context, p *port_forward_entity.Por
 func (r *portForwardRepo) Get(ctx context.Context, id int64) (*port_forward_entity.PortForward, error) {
 	row := &port_forward_entity.PortForward{}
 	err := db.Ctx(ctx).Where("id = ?", id).First(row).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return row, nil
-}
-
-func (r *portForwardRepo) FindByPort(ctx context.Context, port int) (*port_forward_entity.PortForward, error) {
-	row := &port_forward_entity.PortForward{}
-	err := db.Ctx(ctx).Where("port = ?", port).First(row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

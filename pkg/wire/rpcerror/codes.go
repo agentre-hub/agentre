@@ -114,6 +114,11 @@ const (
 	// 写错了,或服务还没起),或者网络上够不着那个地址。它是「目标连不上」三种原因
 	// 里的第一种,另两种是下面的名字解析失败与 TLS 校验失败。名字沿用「没有监听」
 	// 是历史遗留:目标只能是环回时,连不上只有这一种解释。
+	//
+	// 它与下面的 CodePortForwardNameResolution、CodePortForwardTLSVerification 这三个
+	// 码的 Details 是一条 PortForwardMapping(只填 id 与 target):那条被拒的声明与它
+	// 规范化后的目标。宿主手上只有映射 id,失败页却要把话说到具体的目标上
+	// (spec 2026-09-21「失败的呈现」)。Details 可以缺席,宿主此时不点名目标。
 	CodePortForwardNoListener = -32072
 	// CodePortForwardStreamNotFound:write / close / ack 指向的流不存在 —— 它已经
 	// 收尾,或从没 open 过。与「设备拒绝了这次 open」必须分得开:前者是调用方的

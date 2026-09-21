@@ -250,3 +250,37 @@ func (c *failingWriteConn) ReadFrame() ([]byte, error) { <-c.done; return nil, i
 func (c *failingWriteConn) WriteFrame([]byte) error    { return c.err }
 func (c *failingWriteConn) Close() error               { close(c.done); return nil }
 func (c *failingWriteConn) Done() <-chan struct{}      { return c.done }
+
+// Error.Details is the method-specific payload a contract may attach to a
+// refusal (rpcerror.Error's own doc). The caller side already copies it off the
+// frame, so a responder that drops it on the way out silently breaks every such
+// contract — portforward.open's refusal carries the declared target there so a
+// host can name it on its failure page. Given a handler that refuses with
+// Details, When a peer calls it, Then the peer sees code, message and Details.
+func TestConnDispatch_GivenARefusalWithDetails_WhenCalled_ThenThePeerReceivesTheDetails(t *testing.T) {
+	clientTransport, serverTransport := pipePair()
+	serverRegistry := protorpc.NewRegistry()
+	protorpc.RegisterMethod(
+		serverRegistry,
+		mcpProxyMethodID,
+		func() *agentrewire.Empty { return &agentrewire.Empty{} },
+		func(context.Context, *agentrewire.Empty) (*agentrewire.Empty, error) {
+			return nil, &protorpc.Error{Code: -32072, Message: "refused", Details: []byte{0x0a, 0x01, 'x'}}
+		},
+	)
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, serverRegistry)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	_, err := protorpc.CallMethod(ctx, client, mcpProxyMethodID, &agentrewire.Empty{},
+		func() *agentrewire.Empty { return &agentrewire.Empty{} })
+
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	require.Equal(t, int32(-32072), rpcErr.Code)
+	require.Equal(t, "refused", rpcErr.Message)
+	require.Equal(t, []byte{0x0a, 0x01, 'x'}, rpcErr.Details)
+}

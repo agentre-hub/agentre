@@ -12,8 +12,8 @@ export interface ParsedPortForwardTarget {
   port: number;
 }
 
-/** 设备迁移补写、以及 `3000` / `host:port` 省协议时落地的那两种环回写法。 */
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
+/** 纯端口简写(`3000`)在设备上展开成的主机,设备迁移给旧映射补写的也是它。 */
+const SHORTHAND_HOST = "127.0.0.1";
 
 /** 目标是不是显式写成 `https://` —— 决定新增表单要不要出「忽略证书错误」勾选框。 */
 export function isExplicitHttpsTarget(raw: string): boolean {
@@ -38,19 +38,23 @@ export function parsePortForwardTarget(
   if (!url.hostname) return null;
   const scheme = url.protocol === "https:" ? "https" : "http";
   const port = url.port ? Number(url.port) : scheme === "https" ? 443 : 80;
-  // WHATWG URL 的 hostname 对 IPv6 保留方括号(`[::1]`),而设备侧的环回判定认的是
-  // 裸写法 `::1`——这里剥掉方括号,两边判的是同一个字符串。
+  // WHATWG URL 的 hostname 对 IPv6 保留方括号(`[::1]`)——这里剥掉,host 只是主机
+  // 本身,与 scheme / port 两格同一种口径。
   const host = url.hostname.replace(/^\[|\]$/g, "");
   return { scheme, host, port };
 }
 
 /**
- * 行上显示用:目标是环回的(`127.0.0.1` / `::1`)只显示端口,其余显示规范化后的
- * 完整目标(它已经带着协议与端口,不需要再加工)。
+ * 行上显示用:纯端口简写展开出来的那种目标(`http://127.0.0.1:<端口>`)只显示端口,
+ * 其余显示规范化后的完整目标(它已经带着协议与端口,不需要再加工)。只认这一种,
+ * 因为同一台设备上 `8080`、`https://127.0.0.1:8080`、`http://[::1]:8080` 是三条
+ * 互不冲突的映射,都缩成端口就分不出是哪一条。
  */
 export function formatPortForwardTarget(target: string): string {
   const parsed = parsePortForwardTarget(target);
-  if (!parsed || !LOOPBACK_HOSTS.has(parsed.host)) return target;
+  if (!parsed || parsed.scheme !== "http" || parsed.host !== SHORTHAND_HOST) {
+    return target;
+  }
   return String(parsed.port);
 }
 

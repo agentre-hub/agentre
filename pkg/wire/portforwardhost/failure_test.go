@@ -2,6 +2,7 @@ package portforwardhost_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/portforwardhost"
@@ -535,4 +537,51 @@ func TestFailure_GivenTheHeadIsAlreadyOut_WhenTheUpstreamBreaksMidBody_ThenNothi
 	assert.Empty(t, rec.calls(), "响应头已经出门了,这一层不该再往里写归因")
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "half-a-file", string(body), "已经写给浏览器的正文必须逐字节原样")
+}
+
+// Given 设备以「目标连不上」的三种原因之一回绝 open,并按 rpcerror 的约定在 Details 里
+// 带回那条声明(id + 规范化目标),When 宿主的钩子收到这次失败,Then Failure.Target 就是
+// 设备说的那个目标 —— 宿主据此把话说到具体的目标上(「<目标> 上没有服务在监听」),
+// 而它自己手上只有映射 id(规格「失败的呈现」)。设备没带、或带的不是那条映射时留空,
+// 宿主退回不点名目标的措辞。
+func TestFailure_GivenTheTargetIsUnreachable_ThenTheHostLearnsTheDeclaredTarget(t *testing.T) {
+	t.Parallel()
+	for _, code := range []int32{
+		rpcerror.CodePortForwardNoListener,
+		rpcerror.CodePortForwardNameResolution,
+		rpcerror.CodePortForwardTLSVerification,
+	} {
+		for name, tc := range map[string]struct {
+			details []byte
+			want    string
+		}{
+			"带着这条映射的目标": {details: mustMarshal(t, &agentrewire.PortForwardMapping{Id: 5173, Target: "https://nas.lan:8443"}), want: "https://nas.lan:8443"},
+			"没带":        {details: nil, want: ""},
+			"带的是别的映射":   {details: mustMarshal(t, &agentrewire.PortForwardMapping{Id: 9, Target: "https://other.lan:443"}), want: ""},
+			"解不开":       {details: []byte{0xff, 0xff}, want: ""},
+		} {
+			t.Run(fmt.Sprintf("%d/%s", code, name), func(t *testing.T) {
+				t.Parallel()
+				address, device, rec := openForwardRendered(t, 5173)
+				device.onOpen = func(_ *scriptedDevice, _ *agentrewire.PortForwardOpenRequest) error {
+					return &protorpc.Error{Code: code, Message: "refused", Details: tc.details}
+				}
+
+				resp, err := http.Get(address + "/") //nolint:noctx // 用例里的一次同步请求
+				require.NoError(t, err)
+				_ = resp.Body.Close()
+
+				calls := rec.calls()
+				require.Len(t, calls, 1)
+				assert.Equal(t, tc.want, calls[0].Target)
+			})
+		}
+	}
+}
+
+func mustMarshal(t *testing.T, message proto.Message) []byte {
+	t.Helper()
+	encoded, err := proto.Marshal(message)
+	require.NoError(t, err)
+	return encoded
 }

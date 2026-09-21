@@ -16,8 +16,7 @@ func TestPortForward_TableName(t *testing.T) {
 // createtime / updatetime / target / insecure 七个业务列，加上自增主键 id。
 // target / insecure 是规格「映射与目标」一节加的两格——目标现在是一条规范化字符串
 // （"http(s)://host:port"，总带着端口），insecure 只对 https 目标有意义。port 仍然
-// 保留：它是 target 里那个端口，open 判定（见 daemon/portforward 包注释）今天还按
-// 端口定位。
+// 保留：它是 target 里那个端口，只为列举时展示与排序（open 按 id 定位、拨 target）。
 func TestPortForward_Fields(t *testing.T) {
 	p := &PortForward{
 		ID: 1, Port: 3000, Name: "dev server", Enabled: true,

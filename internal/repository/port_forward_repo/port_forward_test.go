@@ -75,38 +75,6 @@ func TestPortForwardRepo_Create_DuplicatePortSurfacesError(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestPortForwardRepo_FindByPort_Found 覆盖端口点查：设备侧 open 判定与新增前的
-// 唯一性预检都走它。
-func TestPortForwardRepo_FindByPort_Found(t *testing.T) {
-	ctx, mock, repo := setupPortForwardRepo(t)
-	mock.ExpectQuery("SELECT \\* FROM `port_forwards` WHERE port = \\?").
-		WithArgs(3000, 1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "port", "name", "enabled"}).
-			AddRow(int64(1), 3000, "dev server", true))
-
-	got, err := repo.FindByPort(ctx, 3000)
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, int64(1), got.ID)
-	assert.Equal(t, 3000, got.Port)
-	assert.True(t, got.Enabled)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-// TestPortForwardRepo_FindByPort_NotFound 覆盖未声明的端口：按 (nil, nil) 返回，
-// 调用方据此判定「端口不在声明集内」，而不是把 ErrRecordNotFound 当 I/O 故障。
-func TestPortForwardRepo_FindByPort_NotFound(t *testing.T) {
-	ctx, mock, repo := setupPortForwardRepo(t)
-	mock.ExpectQuery("SELECT \\* FROM `port_forwards` WHERE port = \\?").
-		WithArgs(9999, 1).
-		WillReturnError(gorm.ErrRecordNotFound)
-
-	got, err := repo.FindByPort(ctx, 9999)
-	require.NoError(t, err)
-	assert.Nil(t, got)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 // TestPortForwardRepo_FindByTarget_Found 覆盖目标点查：新增前的唯一性预检走它——
 // 目标（而不是裸端口）才是这台设备下的唯一性判据（规格「映射与目标」一节）。
 func TestPortForwardRepo_FindByTarget_Found(t *testing.T) {

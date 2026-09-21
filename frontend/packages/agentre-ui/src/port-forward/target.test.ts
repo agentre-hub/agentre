@@ -38,8 +38,16 @@ describe("formatPortForwardTarget", () => {
     expect(formatPortForwardTarget("http://127.0.0.1:3000")).toBe("3000");
   });
 
-  it("Given an IPv6 loopback target, When formatted, Then only the port shows", () => {
-    expect(formatPortForwardTarget("http://[::1]:8080")).toBe("8080");
+  // 只显示端口的只有纯端口简写展开出来的那一种(http://127.0.0.1:<端口>):同一台设备
+  // 上 `8080`、`https://127.0.0.1:8080`、`http://[::1]:8080` 是三条互不冲突的映射,
+  // 都缩成「8080」就分不出是哪一条了。
+  it("Given a loopback target that is not the port shorthand, When formatted, Then the full target shows", () => {
+    expect(formatPortForwardTarget("https://127.0.0.1:8443")).toBe(
+      "https://127.0.0.1:8443",
+    );
+    expect(formatPortForwardTarget("http://[::1]:8080")).toBe(
+      "http://[::1]:8080",
+    );
   });
 
   it("Given a LAN target, When formatted, Then the full normalized target shows", () => {

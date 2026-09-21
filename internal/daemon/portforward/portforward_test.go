@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/port_forward_entity"
 	"github.com/agentre-hub/agentre/internal/repository/port_forward_repo"
@@ -143,6 +144,54 @@ func TestOpen_GivenTheTargetCannotBeReached_WhenOpening_ThenTheCauseIsAttributed
 	}
 }
 
+// Given 目标连不上(三种原因任一),When 开转发流,Then 回绝在 Details 里带回这条声明
+// 的 id 与规范化目标 —— 宿主手上只有映射 id,而失败页要说「<目标> 上没有服务在监听」
+// (规格「失败的呈现」)。目标取自声明,不是请求。
+func TestOpen_GivenTheTargetCannotBeReached_ThenTheRefusalNamesTheDeclaredTarget(t *testing.T) {
+	for name, dialErr := range map[string]error{
+		"连接被拒":   &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED},
+		"名字解析失败": &net.DNSError{Err: "no such host", Name: "nas.lan", IsNotFound: true},
+		"证书不受信任": &tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, repo, handlers := setup(t, func(context.Context, Target) (net.Conn, error) {
+				return nil, dialErr
+			})
+			repo.EXPECT().Get(gomock.Any(), int64(7)).
+				Return(&port_forward_entity.PortForward{ID: 7, Port: 443, Target: "https://nas.lan:443", Enabled: true}, nil)
+
+			_, _, err := handlers.DialDeclared(ctx, 7)
+
+			var rpcErr *rpcerror.Error
+			require.ErrorAs(t, err, &rpcErr)
+			var declared agentrewire.PortForwardMapping
+			require.NoError(t, proto.Unmarshal(rpcErr.Details, &declared))
+			assert.Equal(t, int64(7), declared.GetId())
+			assert.Equal(t, "https://nas.lan:443", declared.GetTarget())
+		})
+	}
+}
+
+// Given 一条目标是 IPv6 字面量的声明(落库的规范形带方括号),When 按 id 开转发流,
+// Then 拨的正是那台主机 —— 规范形必须能被闸门原样读回来,否则建得出、打不开。
+func TestOpen_GivenAnIPv6Target_WhenOpening_ThenTheStoredTargetIsDialed(t *testing.T) {
+	var dialed []Target
+	server, client := net.Pipe()
+	t.Cleanup(func() { _ = server.Close(); _ = client.Close() })
+	ctx, repo, handlers := setup(t, func(_ context.Context, target Target) (net.Conn, error) {
+		dialed = append(dialed, target)
+		return client, nil
+	})
+	repo.EXPECT().Get(gomock.Any(), int64(4)).Return(&port_forward_entity.PortForward{
+		ID: 4, Port: 8080, Target: "http://[fd00::5]:8080", Enabled: true,
+	}, nil)
+
+	_, _, err := handlers.DialDeclared(ctx, 4)
+
+	require.NoError(t, err)
+	assert.Equal(t, []Target{{Scheme: "http", Host: "fd00::5", Port: 8080}}, dialed)
+}
+
 // 库读不出来时不能当作「没声明」:那会把一次故障说成一条用户能自己改正的输入错误。
 func TestOpen_GivenTheRepoFails_WhenOpening_ThenInternalNotNotDeclared(t *testing.T) {
 	ctx, repo, handlers := setup(t, refusingDialer(t))
@@ -207,6 +256,9 @@ func TestCreate_GivenAFreeTarget_WhenCreating_ThenTheStoredRowComesBack(t *testi
 			wantTarget: "https://example.internal:443", wantPort: 443, wantInsecure: true,
 		},
 		"http 省略端口取 80": {target: "http://example.internal", wantTarget: "http://example.internal:80", wantPort: 80},
+		// IPv6 字面量规范形里带方括号:落库的那条串要能被拨号时原样读回来。
+		"IPv6 url 写法":    {target: "http://[FD00::5]:8080", wantTarget: "http://[fd00::5]:8080", wantPort: 8080},
+		"IPv6 host:port": {target: "[fd00::5]:8080", wantTarget: "http://[fd00::5]:8080", wantPort: 8080},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, repo, handlers := setup(t, nil)
@@ -248,10 +300,17 @@ func TestCreate_GivenAnInvalidTarget_WhenCreating_ThenInvalidTarget(t *testing.T
 		"端口越界":            "70000",
 		"带路径":             "http://example.internal:8080/api",
 		"带查询串":            "http://example.internal:8080?x=1",
-		"带用户信息":           "http://user:pass@example.internal:8080",
+		"带用户信息":           "http://user@example.internal:8080",
 		"非-http(s)-协议":    "ftp://example.internal:21",
 		"主机为空":            "http://:8080",
 		"host:port-端口非数字": "example.internal:oops",
+		// 省掉协议的 host:port 写法同样不许带用户信息、路径、查询串:它只是
+		// http://host:port 的简写,拒绝规则不能因为少写了协议就松一截。
+		"host:port-带用户信息":  "user@example.internal:8080",
+		"host:port-主机里夹路径": "example.internal/app:8080",
+		"host:port-带片段":    "example.internal:8080#x",
+		"带片段":              "http://example.internal:8080#x",
+		"空查询串":             "http://example.internal:8080?",
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, _, handlers := setup(t, nil)

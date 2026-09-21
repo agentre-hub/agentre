@@ -59,6 +59,12 @@ type Failure struct {
 	Kind      FailureKind
 	MappingID int64
 	Status    int
+	// Target 是设备在回绝 open 时说出的那条映射的规范化目标(形如
+	// "https://nas.lan:8443"),只在「目标连不上」的三种原因上可能有值:宿主据此把话
+	// 说到具体的目标上(规格 2026-09-21-port-forward-subdomain「失败的呈现」)。设备
+	// 没说、或说的不是这条映射时为空,宿主退回不点名目标的措辞。它来自那台设备所属
+	// 账号自己声明的内容,宿主写进 HTML 之前仍须转义。
+	Target string
 }
 
 // FailureRenderer 由宿主提供,负责把一次失败写成响应。
@@ -134,7 +140,12 @@ func (k FailureKind) defaultMessage() string {
 
 // fail 是这一层所有自有失败的唯一出口。
 func (p *Proxy) fail(w http.ResponseWriter, r *http.Request, kind FailureKind) {
-	f := Failure{Kind: kind, MappingID: p.mappingID, Status: kind.defaultStatus()}
+	p.failWithTarget(w, r, kind, "")
+}
+
+// failWithTarget 同 fail,多带设备说出的那条映射的目标(见 Failure.Target)。
+func (p *Proxy) failWithTarget(w http.ResponseWriter, r *http.Request, kind FailureKind, target string) {
+	f := Failure{Kind: kind, MappingID: p.mappingID, Status: kind.defaultStatus(), Target: target}
 	if p.renderFailure != nil {
 		p.renderFailure(w, r, f)
 		return

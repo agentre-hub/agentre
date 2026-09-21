@@ -22,9 +22,8 @@ package port_forward_entity
 // PortForward 是 port_forwards 表的一行：这台设备上的一条端口转发声明。
 type PortForward struct {
 	ID int64 `gorm:"column:id;primaryKey;autoIncrement"`
-	// Port 是 Target 里那个端口。仍然单独存一份——open 判定（见
-	// internal/daemon/portforward 包注释）今天还按端口定位，没有跟着切到按 Target
-	// 拨号，那是下一轮的事。
+	// Port 是 Target 里那个端口，单独存一份只为列举时展示与排序。open 按 ID 定位、
+	// 拨的是 Target（见 internal/daemon/portforward 包注释），不再读它。
 	Port int `gorm:"column:port;type:int;not null"`
 	// Name 是这条映射的辨认名称，用户在新增时填写。
 	Name string `gorm:"column:name;type:text;not null;default:''"`

@@ -19,7 +19,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"fmt"
 	"net"
 	"net/url"
 	"strconv"
@@ -28,6 +27,7 @@ import (
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/port_forward_entity"
@@ -186,9 +186,23 @@ func (h *Handlers) DialDeclared(ctx context.Context, mappingID int64) (net.Conn,
 	if err != nil {
 		logger.Ctx(ctx).Warn("portforward.DialDeclared: 拨目标失败",
 			zap.Int64("mappingId", mappingID), zap.String("target", mapping.Target), zap.Error(err))
-		return nil, Target{}, dialFailure(err)
+		return nil, Target{}, withDeclaredTarget(dialFailure(err), mapping)
 	}
 	return conn, target, nil
+}
+
+// withDeclaredTarget 给「目标连不上」的回绝附上这条声明的 id 与规范化目标
+// (Details,约定见 rpcerror.CodePortForwardNoListener):宿主手上只有映射 id,而它的
+// 失败页要把话说到具体的目标上(规格「失败的呈现」)。交回的是一份副本 —— 包级的
+// 三个错误值是共享的,不能就地写。
+func withDeclaredTarget(refusal *rpcerror.Error, mapping *port_forward_entity.PortForward) error {
+	details, err := proto.Marshal(&agentrewire.PortForwardMapping{Id: mapping.ID, Target: mapping.Target})
+	if err != nil {
+		return refusal
+	}
+	named := *refusal
+	named.Details = details
+	return &named
 }
 
 // dialFailure 把一次拨号失败归成「目标连不上」的三种原因之一(规格「失败归因」):
@@ -197,7 +211,7 @@ func (h *Handlers) DialDeclared(ctx context.Context, mappingID int64) (net.Conn,
 //
 // TLS 握手的其他失败(对方根本不说 TLS、协议版本谈不拢)不算「校验失败」:那不是
 // 勾一个选项能解决的事,归到连不上。
-func dialFailure(err error) error {
+func dialFailure(err error) *rpcerror.Error {
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		return ErrNameResolution
@@ -371,7 +385,7 @@ func normalizeURLTarget(raw string) (string, string, int, error) {
 	if u.User != nil {
 		return "", "", 0, ErrInvalidTarget
 	}
-	if u.RawQuery != "" {
+	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "" {
 		return "", "", 0, ErrInvalidTarget
 	}
 	if u.Path != "" && u.Path != "/" {
@@ -392,23 +406,21 @@ func normalizeURLTarget(raw string) (string, string, int, error) {
 	return scheme, host, p, nil
 }
 
-// normalizeHostPortTarget 处理没有协议前缀的 host:port,按 http 处理。
+// normalizeHostPortTarget 处理没有协议前缀的 host:port:它就是 http://host:port 的
+// 简写,所以按那条写法走同一套拒绝规则 —— 少写了协议不能让用户信息、路径、查询串
+// 混进主机那一格。端口在这种写法里是必填的。
 func normalizeHostPortTarget(raw string) (string, string, int, error) {
-	host, portStr, err := net.SplitHostPort(raw)
-	if err != nil || host == "" {
+	if _, _, err := net.SplitHostPort(raw); err != nil {
 		return "", "", 0, ErrInvalidTarget
 	}
-	p, convErr := strconv.Atoi(portStr)
-	if convErr != nil || !validPortNumber(p) {
-		return "", "", 0, ErrInvalidTarget
-	}
-	return "http", strings.ToLower(host), p, nil
+	return normalizeURLTarget("http://" + raw)
 }
 
 // canonicalTarget 把规范化的三元组拼回线上/库里那条规范字符串——总是带着端口,
 // 即便端口等于协议的默认值(规格「映射与目标」一节)。
+// IPv6 字面量带回方括号,这条串才能被 storedTarget 原样读回来。
 func canonicalTarget(scheme, host string, port int) string {
-	return fmt.Sprintf("%s://%s:%d", scheme, host, port)
+	return scheme + "://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // isDuplicateTarget 认出「目标已被声明」这一种写失败。

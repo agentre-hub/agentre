@@ -34,6 +34,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
@@ -321,7 +323,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Context().Err() != nil {
 			return
 		}
-		p.fail(w, r, openFailureKind(err))
+		p.failWithTarget(w, r, openFailureKind(err), p.refusedTarget(err))
 		return
 	}
 
@@ -562,6 +564,21 @@ func openFailureKind(err error) FailureKind {
 		}
 	}
 	return FailureDeviceUnreachable
+}
+
+// refusedTarget 取出设备回绝 open 时在 Details 里带回的那条声明的目标
+// (rpcerror.CodePortForwardNoListener 等三个码的约定)。只认**这条映射**的:解不开、
+// 没带、或 id 对不上都交空串 —— 说错一个目标比不说更糟。
+func (p *Proxy) refusedTarget(err error) string {
+	var rpcErr *protorpc.Error
+	if !errors.As(err, &rpcErr) || len(rpcErr.Details) == 0 {
+		return ""
+	}
+	var declared agentrewire.PortForwardMapping
+	if proto.Unmarshal(rpcErr.Details, &declared) != nil || declared.GetId() != p.mappingID {
+		return ""
+	}
+	return declared.GetTarget()
 }
 
 // streamAlreadyEnded 认出「这条流在设备那边已经不在了」。

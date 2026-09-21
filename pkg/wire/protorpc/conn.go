@@ -323,14 +323,16 @@ func (c *Conn) handle(parent context.Context, id uint64, req *agentrewire.Reques
 
 func (c *Conn) writeError(id uint64, err error) {
 	code := CodeInternal
+	var details []byte
 	var rpcErr *Error
 	if errors.As(err, &rpcErr) {
 		code = rpcErr.Code
+		details = rpcErr.Details
 	}
 	if errors.Is(err, context.Canceled) {
 		code = CodeCanceled
 	}
-	_ = c.write(&agentrewire.RpcFrame{Id: id, Body: &agentrewire.RpcFrame_Error{Error: &agentrewire.RpcError{Code: code, Message: err.Error()}}})
+	_ = c.write(&agentrewire.RpcFrame{Id: id, Body: &agentrewire.RpcFrame_Error{Error: &agentrewire.RpcError{Code: code, Message: err.Error(), Details: details}}})
 }
 
 func methodNotFound() error { return &Error{Code: CodeMethodNotFound, Message: "method not found"} }
