@@ -1,0 +1,30 @@
+{
+  "cursor": "MTc1NDc5OTk5OTAwMA==",
+  "hasMore": true,
+  "sessions": [
+    {
+      "agentId": "7",
+      "agentSyncId": "01JZ7W2A8KZ4R5T6Y7U8I9O0P1Q",
+      "backendType": "claudecode",
+      "conversationId": "00000000-0000-7000-8000-000000000042",
+      "cwd": "/home/agent/proj",
+      "lastMessageAt": "1754800000000",
+      "latestSeq": "12",
+      "lifecycleState": "running",
+      "peerFingerprint": "fp-desktop",
+      "providerSessionId": "sess_abc123",
+      "reasoningEffort": "high",
+      "title": "重构登录页",
+      "waitingForInput": true
+    },
+    {
+      "agentId": "3",
+      "backendType": "codex",
+      "conversationId": "00000000-0000-7000-8000-000000000008",
+      "cwd": "/var/proj",
+      "latestSeq": "5",
+      "lifecycleState": "idle"
+    }
+  ],
+  "total": "137"
+}
