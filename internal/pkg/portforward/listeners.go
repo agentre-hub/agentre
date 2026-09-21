@@ -29,6 +29,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -64,6 +65,9 @@ type Devices interface {
 var (
 	// ErrShutDown:CloseAll 之后再 Open。App 已经在退出了,这时候再绑一个端口没有意义。
 	ErrShutDown = errors.New("portforward: listeners already shut down")
+	// ErrInvalidMapping:映射 id 不是一个正整数。open 按映射在设备上的 id 定位,一个
+	// 解析不出来的 id 发出去只会被设备当成另一条(或不存在的)映射。
+	ErrInvalidMapping = errors.New("portforward: invalid mapping id")
 	// ErrInvalidPort:端口号不在 1..65535 内。挡在这里不是替设备做判定(那一条恒在
 	// 设备侧),而是因为越界的数转成 uint32 会在线上变成**另一个端口号**,设备照着那
 	// 个数去判定 —— 与 port_forward_svc.Create 同一个理由。
@@ -122,6 +126,10 @@ func (l *Listeners) Open(ctx context.Context, target Target) (string, error) {
 	if target.Port < 1 || target.Port > 65535 {
 		return "", ErrInvalidPort
 	}
+	mappingID, err := strconv.ParseInt(target.MappingID, 10, 64)
+	if err != nil || mappingID <= 0 {
+		return "", ErrInvalidMapping
+	}
 	key := mappingKey{device: target.DeviceID, mapping: target.MappingID}
 
 	l.mu.Lock()
@@ -151,19 +159,19 @@ func (l *Listeners) Open(ctx context.Context, target Target) (string, error) {
 		return "", err
 	}
 
-	// 上面刚把端口夹在 1..65535 内,转 uint32 无损。
+	// open 按映射 id 定位:设备只拨那条声明里存着的目标。
 	//
 	// 第三个参数是**别的客户端**改了这条声明时的出口(浏览器控制台,或另一台桌面端)。
 	// 本机发起的那一路由绑定层顺手关掉,这一路没有人来调 CloseMapping —— 设备发来的
 	// 撤销通知是这台桌面端唯一的知情点。关的是这一条 key,不是这台设备名下的一片:
-	// 撤销说的是一个端口,不是一台机器。
+	// 撤销说的是一条映射,不是一台机器。
 	//
 	// 通知漏掉会怎样(旧设备不发、连接刚好在断):这条监听留着,访问照旧被设备侧的
 	// 闸门挡下(-32070 / -32071 的专页)。地址「看起来还活着」是这条通路唯一的退化
 	// 形态,不会变成拆连接或崩溃。连接真断掉时租约会失效,下面那个 goroutine 会把整
 	// 条监听关掉,所以断线期间漏掉的撤销不会留下一条活着的监听,重连之后也就没有要
 	// 对账的东西。
-	proxy := portforwardhost.NewProxy(lease.Conn(), uint32(target.Port), func(string) {
+	proxy := portforwardhost.NewProxy(lease.Conn(), mappingID, func(string) {
 		l.CloseMapping(target.DeviceID, target.MappingID)
 	})
 	entry := &forward{

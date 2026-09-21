@@ -305,6 +305,8 @@ func tsRPCErrorDecls() []tsRPCErrorDecl {
 		{"ErrCodePortForwardPortTaken", "CodePortForwardPortTaken", rpcerror.CodePortForwardPortTaken},
 		{"ErrCodePortForwardInvalidPort", "CodePortForwardInvalidPort", rpcerror.CodePortForwardInvalidPort},
 		{"ErrCodePortForwardInvalidTarget", "CodePortForwardInvalidTarget", rpcerror.CodePortForwardInvalidTarget},
+		{"ErrCodePortForwardNameResolution", "CodePortForwardNameResolution", rpcerror.CodePortForwardNameResolution},
+		{"ErrCodePortForwardTLSVerification", "CodePortForwardTLSVerification", rpcerror.CodePortForwardTLSVerification},
 
 		// ── daemon 会话/鉴权(-32001..-32007)与 JSON-RPC 标准码 ──
 		//

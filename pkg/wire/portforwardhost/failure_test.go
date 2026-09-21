@@ -48,12 +48,12 @@ func (r *recorder) calls() []portforwardhost.Failure {
 }
 
 // openForwardRendered 与 openForward 同形,只是把渲染钩子装上。
-func openForwardRendered(t *testing.T, port int) (string, *scriptedDevice, *recorder) {
+func openForwardRendered(t *testing.T, mappingID int64) (string, *scriptedDevice, *recorder) {
 	t.Helper()
 	hostConn, deviceConn := connPair(t)
 	device := scriptDevice(t, deviceConn)
 	rec := &recorder{}
-	proxy := portforwardhost.NewProxy(hostConn, uint32(port), nil,
+	proxy := portforwardhost.NewProxy(hostConn, mappingID, nil,
 		portforwardhost.WithFailureRenderer(rec.render))
 	t.Cleanup(proxy.Close)
 	server := httptest.NewServer(proxy)
@@ -61,11 +61,12 @@ func openForwardRendered(t *testing.T, port int) (string, *scriptedDevice, *reco
 	return server.URL, device, rec
 }
 
-// Given 宿主装了渲染钩子, When 这一层自己遇到六种失败中的任意一种, Then 钩子收到的
-// 是该次失败的种类、这条映射的端口与默认状态码,正文完全由宿主写出。
+// Given 宿主装了渲染钩子, When 这一层自己遇到八种失败中的任意一种, Then 钩子收到的
+// 是该次失败的种类、这条映射的 id 与默认状态码,正文完全由宿主写出。
 //
-// 六种的来路刻意各不相同:三种来自设备按 rpcerror 码回绝 open,三种来自 closed 通知
-// 的 reason token —— 那正是今天这一层用来分辨它们的两个真实判据。
+// 八种的来路刻意各不相同:五种来自设备按 rpcerror 码回绝 open(其中三种是「目标连不
+// 上」的三种原因),三种来自 closed 通知的 reason token —— 那正是今天这一层用来分辨
+// 它们的两个真实判据。
 func TestFailure_GivenAHostRenderer_WhenTheProxyItselfFails_ThenItIsAttributed(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -75,7 +76,7 @@ func TestFailure_GivenAHostRenderer_WhenTheProxyItselfFails_ThenItIsAttributed(t
 		status  int
 	}{
 		{
-			name: "端口没声明",
+			name: "映射不存在",
 			arrange: func(d *scriptedDevice) {
 				d.onOpen = func(_ *scriptedDevice, _ *agentrewire.PortForwardOpenRequest) error {
 					return &protorpc.Error{Code: rpcerror.CodePortForwardNotDeclared, Message: "refused"}
@@ -95,13 +96,33 @@ func TestFailure_GivenAHostRenderer_WhenTheProxyItselfFails_ThenItIsAttributed(t
 			status: http.StatusForbidden,
 		},
 		{
-			name: "端口上没有服务",
+			name: "目标拒绝连接",
 			arrange: func(d *scriptedDevice) {
 				d.onOpen = func(_ *scriptedDevice, _ *agentrewire.PortForwardOpenRequest) error {
 					return &protorpc.Error{Code: rpcerror.CodePortForwardNoListener, Message: "refused"}
 				}
 			},
 			kind:   portforwardhost.FailureNoListener,
+			status: http.StatusBadGateway,
+		},
+		{
+			name: "目标主机名解析不出来",
+			arrange: func(d *scriptedDevice) {
+				d.onOpen = func(_ *scriptedDevice, _ *agentrewire.PortForwardOpenRequest) error {
+					return &protorpc.Error{Code: rpcerror.CodePortForwardNameResolution, Message: "refused"}
+				}
+			},
+			kind:   portforwardhost.FailureNameResolution,
+			status: http.StatusBadGateway,
+		},
+		{
+			name: "目标证书没通过校验",
+			arrange: func(d *scriptedDevice) {
+				d.onOpen = func(_ *scriptedDevice, _ *agentrewire.PortForwardOpenRequest) error {
+					return &protorpc.Error{Code: rpcerror.CodePortForwardTLSVerification, Message: "refused"}
+				}
+			},
+			kind:   portforwardhost.FailureTLSVerification,
 			status: http.StatusBadGateway,
 		},
 		{
@@ -154,7 +175,7 @@ func TestFailure_GivenAHostRenderer_WhenTheProxyItselfFails_ThenItIsAttributed(t
 			require.Len(t, calls, 1, "自己的失败必须恰好交给宿主一次")
 			assert.Equal(t, tc.kind, calls[0].Kind)
 			assert.Equal(t, tc.status, calls[0].Status, "默认状态码要一并交出去")
-			assert.EqualValues(t, 5173, calls[0].Port, "宿主要知道是哪个端口")
+			assert.EqualValues(t, 5173, calls[0].MappingID, "宿主要知道是哪条映射")
 
 			assert.Equal(t, tc.status, resp.StatusCode)
 			assert.Equal(t, "<html>host owns this copy</html>", string(body),
@@ -211,14 +232,14 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 		body    string
 	}{
 		{
-			name: "端口没声明",
+			name: "映射不存在",
 			arrange: func(d *scriptedDevice) {
 				d.onOpen = func(_ *scriptedDevice, _ *agentrewire.PortForwardOpenRequest) error {
 					return &protorpc.Error{Code: rpcerror.CodePortForwardNotDeclared, Message: "refused"}
 				}
 			},
 			status: http.StatusNotFound,
-			body:   "这台设备上已经没有这个端口的映射了。回到 agentre 里重新打开它。\n",
+			body:   "这台设备上已经没有这条映射了。回到 agentre 里重新打开它。\n",
 		},
 		{
 			name: "映射已停用",
@@ -231,14 +252,34 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 			body:   "这条端口映射已经停用。到 agentre 里把它启用之后再打开。\n",
 		},
 		{
-			name: "端口上没有服务",
+			name: "目标拒绝连接",
 			arrange: func(d *scriptedDevice) {
 				d.onOpen = func(_ *scriptedDevice, _ *agentrewire.PortForwardOpenRequest) error {
 					return &protorpc.Error{Code: rpcerror.CodePortForwardNoListener, Message: "refused"}
 				}
 			},
 			status: http.StatusBadGateway,
-			body:   "设备上这个端口没有服务在监听。到那台机器上把服务起起来,再刷新这一页。\n",
+			body:   "设备连不上这条映射的目标,连接被拒绝了。确认目标上的服务已经起来,再刷新这一页。\n",
+		},
+		{
+			name: "目标主机名解析不出来",
+			arrange: func(d *scriptedDevice) {
+				d.onOpen = func(_ *scriptedDevice, _ *agentrewire.PortForwardOpenRequest) error {
+					return &protorpc.Error{Code: rpcerror.CodePortForwardNameResolution, Message: "refused"}
+				}
+			},
+			status: http.StatusBadGateway,
+			body:   "设备解析不出这条映射的目标主机名。检查主机名有没有写错、那台设备的网络能不能解析它,再刷新这一页。\n",
+		},
+		{
+			name: "目标证书没通过校验",
+			arrange: func(d *scriptedDevice) {
+				d.onOpen = func(_ *scriptedDevice, _ *agentrewire.PortForwardOpenRequest) error {
+					return &protorpc.Error{Code: rpcerror.CodePortForwardTLSVerification, Message: "refused"}
+				}
+			},
+			status: http.StatusBadGateway,
+			body:   "这条映射的目标证书没有通过校验。若那是内网的自签证书,到 agentre 里为这条映射勾选「忽略证书错误」。\n",
 		},
 		{
 			name: "设备够不着",
@@ -259,7 +300,7 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 				}
 			},
 			status: http.StatusBadGateway,
-			body:   "设备上这个端口的服务把这次请求断开了。刷新这一页重试。\n",
+			body:   "这条映射的目标把这次请求断开了。刷新这一页重试。\n",
 		},
 		{
 			name: "转发没完成",
@@ -320,7 +361,7 @@ func TestFailure_GivenTheWriterCannotBeHijacked_ThenTheUpgradeFailureIsAttribute
 	require.Len(t, calls, 1)
 	assert.Equal(t, portforwardhost.FailureUpgradeUnavailable, calls[0].Kind)
 	assert.Equal(t, http.StatusInternalServerError, calls[0].Status)
-	assert.EqualValues(t, 5173, calls[0].Port)
+	assert.EqualValues(t, 5173, calls[0].MappingID)
 	assert.True(t, strings.Contains(w.Body.String(), "host owns this copy"))
 }
 
@@ -457,7 +498,7 @@ func TestFailure_GivenTheForwardIsAlreadyClosed_WhenARequestStillArrives_ThenItI
 	calls := rec.calls()
 	require.Len(t, calls, 1, "自己的失败必须恰好交给宿主一次")
 	assert.Equal(t, portforwardhost.FailureDeviceUnreachable, calls[0].Kind)
-	assert.EqualValues(t, 5173, calls[0].Port)
+	assert.EqualValues(t, 5173, calls[0].MappingID)
 	assert.Equal(t, http.StatusBadGateway, w.Code)
 	assert.Contains(t, w.Body.String(), "host owns this copy", "答复必须由宿主写出,不能是一张空白页")
 

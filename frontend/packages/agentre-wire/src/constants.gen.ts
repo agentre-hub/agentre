@@ -326,8 +326,10 @@ export const ErrCodePortForwardNotDeclared = -32070;
 export const ErrCodePortForwardDisabled = -32071;
 
 /**
- * CodePortForwardNoListener:端口通过了声明集判定,但那台设备的环回地址上
- * 没有服务在监听(端口写错了,或服务还没起)。
+ * CodePortForwardNoListener:映射通过了判定,但目标连不上——连接被拒(端口
+ * 写错了,或服务还没起),或者网络上够不着那个地址。它是「目标连不上」三种原因
+ * 里的第一种,另两种是下面的名字解析失败与 TLS 校验失败。名字沿用「没有监听」
+ * 是历史遗留:目标只能是环回时,连不上只有这一种解释。
  */
 export const ErrCodePortForwardNoListener = -32072;
 
@@ -361,6 +363,20 @@ export const ErrCodePortForwardInvalidPort = -32075;
  * 折成一个码好过让调用方对六种输入错误分别猜。
  */
 export const ErrCodePortForwardInvalidTarget = -32076;
+
+/**
+ * CodePortForwardNameResolution:目标的主机名在那台设备上解析不出来。主机名
+ * 恒在设备上解析(目标在设备所在的网络里),所以这是那台设备的 DNS 给出的答案,
+ * 与发起访问的那台机器能不能解析无关。
+ */
+export const ErrCodePortForwardNameResolution = -32077;
+
+/**
+ * CodePortForwardTLSVerification:https 目标的证书没通过校验(自签、过期、
+ * 主机名不符)。与「连不上」分开,因为用户能做的事不同:内网自签证书的出路是给
+ * 这条映射勾选「忽略证书错误」。
+ */
+export const ErrCodePortForwardTLSVerification = -32078;
 
 export const ErrCodeUnauthorized = -32001;
 

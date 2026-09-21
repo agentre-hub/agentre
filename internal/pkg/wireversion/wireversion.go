@@ -35,7 +35,7 @@ var Protocol = protocolversion.Protocol()
 // rather than read from the protocol module: the same schema can be spoken by
 // a host that only accepts its own release and by one that keeps a lower
 // floor, and this build is the former.
-const MinSupported = "0.2.0"
+const MinSupported = "0.3.0"
 
 // Match reports whether a peer speaks this build's protocol version.
 //

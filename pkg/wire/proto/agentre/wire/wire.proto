@@ -42,7 +42,7 @@ extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-option (agentre.wire.protocol_version) = "0.2.0";
+option (agentre.wire.protocol_version) = "0.3.0";
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -1368,12 +1368,12 @@ message ImageBlock {
 //   流族    open / write / close / ack + 三条通知 —— 一条转发流的生命周期跟着承载
 //           它的那条连接走,挂连接级注册面(与 terminal.* 同一条路子)。
 //
-// **open 请求里没有目标主机那一格**(PortForwardOpenRequest,下方):设备侧按
-// 声明里存的目标拨号,端口必须已在这台设备上声明过。给 open 请求加一格 host 就等于
-// 把「转到哪台机器」交给调用方决定,而这条限制的立论正是「不依赖任何客户端做对」
-// ——它必须在设备侧判得出来,open 的协议里因此不能有位置放它。**声明**本身则可以
-// 带主机:目标不再恒为环回(决策见 spec「映射与目标」),只是 open 仍按映射的端口
-// 定位(id 定位、真按目标拨号留给下一轮)。
+// **open 请求里没有目标那一格**(PortForwardOpenRequest,下方):open 只带映射 id,
+// 设备侧按那条声明里存的目标拨号,映射必须存在且已启用。给 open 请求加一格目标就
+// 等于把「转到哪台机器」交给调用方决定,而这条限制的立论正是「不依赖任何客户端
+// 做对」——它必须在设备侧判得出来,open 的协议里因此不能有位置放它。**声明**本身
+// 带着完整目标(协议、主机、端口,见 spec「映射与目标」):主机名在设备上解析,
+// https 在设备上做 TLS。
 
 // PortForwardMapping 是一条声明:这台机器允许把某个目标转出去。目标(协议、主机、
 // 端口的规范化组合)在一台设备下唯一;enabled 为假的映射保留声明但一律拒绝访问。
@@ -1381,8 +1381,9 @@ message ImageBlock {
 message PortForwardMapping {
   // id 是这条声明在**那台设备**上的主键。启停与删除按它定位。
   int64 id = 1;
-  // port 是 target 里那个端口,仍然填着——open(见 PortForwardOpenRequest)今天还
-  // 按端口定位,没有跟着切到按 target 拨号(那是下一轮的事)。
+  // port 是 target 里那个端口,仍然填着给展示用。open 按 id 定位(见
+  // PortForwardOpenRequest),端口不再是一条映射的身份——两条映射可以是同一个端口
+  // 上的两台主机。
   uint32 port = 2;
   string name = 3;
   bool enabled = 4;
@@ -1421,18 +1422,21 @@ message PortForwardSetEnabledResponse { PortForwardMapping mapping = 1; }
 message PortForwardDeleteRequest { int64 id = 1; }
 message PortForwardDeleteResponse { bool deleted = 1; }
 
-// PortForwardOpenRequest 开一条转发流。设备在应答之前就把到本机服务的连接拨出去,
-// 所以「端口没有声明」「映射已停用」「端口上没有服务在监听」三种失败都以领域错误码
-// 落在这一次调用的应答上(见 rpcerror 的 portforward.* 段),而不是等到某条通知里。
+// PortForwardOpenRequest 开一条转发流。设备在应答之前就把到目标的连接拨出去(含
+// https 的 TLS 握手),所以「映射不存在」「映射已停用」与目标连不上的三种原因(连接
+// 被拒、名字解析失败、TLS 校验失败)都以领域错误码落在这一次调用的应答上(见
+// rpcerror 的 portforward.* 段),而不是等到某条通知里。
 message PortForwardOpenRequest {
   // stream_id 由调用方生成,在这条连接内唯一。此后 write / close / ack 与三条通知
   // 都按它认流。
   string stream_id = 1;
-  // 目标端口。**没有主机那一格**,理由见本节开头。
+  // port 是 0.3.0 之前按端口定位时的旧写法,保留只是因为 buf breaking 不许删字段
+  // /改编号——设备不再读它,调用方改填 mapping_id。
   uint32 port = 2;
   string method = 3;
-  // path 是已经剥掉宿主前缀的路径,含查询串。宿主在这一层理解 HTTP(服务端要剥
-  // /fw/<设备>/<端口>,两端都要改写 Host),101 之后就不再解释内容了。
+  // path 是已经剥掉宿主前缀的路径,含查询串。Host 由设备改写成目标的 host[:port],
+  // 响应里指向目标自己 origin 的 Location 与 Set-Cookie 的 Domain 也由设备改写
+  // (只有设备知道目标是什么),101 之后就不再解释内容了。
   string path = 4;
   map<string, HeaderValues> headers = 5;
   // has_body 说明此后还会有 portforward.write 送请求体。它必须是显式的一位:
@@ -1445,6 +1449,9 @@ message PortForwardOpenRequest {
   // window_bytes 是调用方为**响应方向**开出的信用窗口,单位字节,0 表示用
   // wirelimits.PortForwardWindowBytes 的默认值。见 PortForwardAckRequest。
   uint64 window_bytes = 7;
+  // mapping_id 是要打开的那条声明在**那台设备**上的主键(PortForwardMapping.id)。
+  // 设备只拨这条声明里存着的目标;**没有目标那一格**,理由见本节开头。
+  int64 mapping_id = 8;
 }
 message PortForwardOpenResponse { string stream_id = 1; }
 
@@ -1518,7 +1525,7 @@ message PortForwardClosedNotification {
   string message = 4;
 }
 
-// PortForwardRevokedNotification 说的是「这台设备上这个端口此刻起不再允许转发」——
+// PortForwardRevokedNotification 说的是「这台设备上这条映射此刻起不再允许转发」——
 // 声明被停用或删除,不论是谁改的。
 //
 // 它与 PortForwardClosedNotification 是两件事,不能合成一条:closed 说的是**某一条
@@ -1526,15 +1533,18 @@ message PortForwardClosedNotification {
 // 声明**没了,连一条流都没开着的宿主同样要听见 —— 桌面端那条专属监听多半正闲着,
 // 而规格「断开与失败」要它一并关掉。
 //
-// 它按**端口**认人而不是按映射 id:设备侧的撤销面认的就是端口(流表里没有映射 id
-// 这一格),桌面端那条监听手上也只有端口,多带一格两端都用不上的 id 只会让「按什么
-// 认」这件事有两个答案。
+// 它按**映射 id** 认人:open 按 id 定位,设备侧的撤销面与宿主那条监听认的也都是
+// id。端口不再是一条映射的身份(两条映射可以指向不同主机的同一个端口),按端口认
+// 会把别人的映射一起撤掉。
 message PortForwardRevokedNotification {
-  // port 是被撤销的那个端口(这台设备的 127.0.0.1 上的那一个)。
+  // port 是 0.3.0 之前按端口认人时的旧写法,保留只是因为 buf breaking 不许删字段
+  // /改编号——设备不再填它,宿主改读 mapping_id。
   uint32 port = 1;
   // reason 与 PortForwardClosedNotification 取同一套 token(mapping_disabled /
   // mapping_removed):同一件事在两条通知上不该有两套词汇。消费者按 token 分支。
   string reason = 2;
+  // mapping_id 是被撤销的那条声明在这台设备上的主键(PortForwardMapping.id)。
+  int64 mapping_id = 3;
 }
 
 // ── 设备本地后端凭据 ──────────────────────────────────────────────────────────

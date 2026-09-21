@@ -2,8 +2,12 @@ package portforward
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"fmt"
 	"net"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,12 +33,12 @@ func setup(t *testing.T, dial Dialer) (context.Context, *mock_port_forward_repo.
 }
 
 // refusingDialer 是一个**按下去就判红**的拨号器。它存在是因为「拒绝得对」不等于
-// 「拒绝得够早」:先拨出去再拒,错误码照样是对的,而那台设备上的服务已经收到了一次
-// 来自未授权端口的连接 —— 规格「设备侧的目标限制」要的是落地前被拒。
+// 「拒绝得够早」:先拨出去再拒,错误码照样是对的,而目标上的服务已经收到了一次
+// 未授权的连接 —— 规格 Hard invariant 要的是闸门在拨号之前。
 func refusingDialer(t *testing.T) Dialer {
 	t.Helper()
-	return func(_ context.Context, port int) (net.Conn, error) {
-		t.Fatalf("判定之前不该拨号,却拨了 127.0.0.1:%d", port)
+	return func(_ context.Context, target Target) (net.Conn, error) {
+		t.Fatalf("判定之前不该拨号,却拨了 %+v", target)
 		return nil, nil
 	}
 }
@@ -46,13 +50,13 @@ func code(t *testing.T, err error) int32 {
 	return rpcErr.Code
 }
 
-// Given 一个从没在这台设备上声明过的端口,When 有人开转发流,Then 在任何拨号动作
+// Given 一个在这台设备上不存在的映射 id,When 有人开转发流,Then 在任何拨号动作
 // 之前被拒,回 NotDeclared。
-func TestOpen_GivenAnUndeclaredPort_WhenOpening_ThenRefusedBeforeAnyDial(t *testing.T) {
+func TestOpen_GivenAnUndeclaredMapping_WhenOpening_ThenRefusedBeforeAnyDial(t *testing.T) {
 	ctx, repo, handlers := setup(t, refusingDialer(t))
-	repo.EXPECT().FindByPort(gomock.Any(), 3000).Return(nil, nil)
+	repo.EXPECT().Get(gomock.Any(), int64(7)).Return(nil, nil)
 
-	conn, err := handlers.DialDeclared(ctx, 3000)
+	conn, _, err := handlers.DialDeclared(ctx, 7)
 
 	assert.Nil(t, conn)
 	assert.Equal(t, int32(rpcerror.CodePortForwardNotDeclared), code(t, err))
@@ -62,56 +66,89 @@ func TestOpen_GivenAnUndeclaredPort_WhenOpening_ThenRefusedBeforeAnyDial(t *test
 // NotDeclared —— 两种失败用户要做的事不同:一个是把开关打开,一个是重新建一条。
 func TestOpen_GivenADisabledMapping_WhenOpening_ThenRefusedAsDisabled(t *testing.T) {
 	ctx, repo, handlers := setup(t, refusingDialer(t))
-	repo.EXPECT().FindByPort(gomock.Any(), 3000).
-		Return(&port_forward_entity.PortForward{ID: 7, Port: 3000, Enabled: false}, nil)
+	repo.EXPECT().Get(gomock.Any(), int64(7)).
+		Return(&port_forward_entity.PortForward{ID: 7, Port: 3000, Target: "http://127.0.0.1:3000", Enabled: false}, nil)
 
-	conn, err := handlers.DialDeclared(ctx, 3000)
+	conn, _, err := handlers.DialDeclared(ctx, 7)
 
 	assert.Nil(t, conn)
 	assert.Equal(t, int32(rpcerror.CodePortForwardDisabled), code(t, err),
 		"停用的声明不能折进 NotDeclared:界面据此提示「把它打开」而不是「重新建一条」")
 }
 
-// Given 一条已声明且启用的映射,When 开转发流,Then 判定放行,拨号只发生在这之后,
-// 且**只带得出端口** —— 目标主机恒为环回,不由调用方指定(规格「设备侧的目标限制」)。
-func TestOpen_GivenADeclaredEnabledMapping_WhenOpening_ThenDialsThatPortOnly(t *testing.T) {
-	dialed := 0
+// Given 一条已声明且启用、目标是设备所在网络里一台 https 主机的映射,When 按它的 id
+// 开转发流,Then 判定放行,拨号只发生在这之后,且拨的**正是声明里存着的那个目标**
+// (协议、主机、端口、证书设置一格不差)—— open 请求里没有任何一格能改它。
+func TestOpen_GivenADeclaredEnabledMapping_WhenOpeningByID_ThenDialsOnlyTheStoredTarget(t *testing.T) {
+	var dialed []Target
 	server, client := net.Pipe()
 	t.Cleanup(func() { _ = server.Close(); _ = client.Close() })
-	ctx, repo, handlers := setup(t, func(_ context.Context, port int) (net.Conn, error) {
-		dialed = port
+	ctx, repo, handlers := setup(t, func(_ context.Context, target Target) (net.Conn, error) {
+		dialed = append(dialed, target)
 		return client, nil
 	})
-	repo.EXPECT().FindByPort(gomock.Any(), 5173).
-		Return(&port_forward_entity.PortForward{ID: 9, Port: 5173, Enabled: true}, nil)
+	repo.EXPECT().Get(gomock.Any(), int64(9)).Return(&port_forward_entity.PortForward{
+		ID: 9, Port: 8443, Target: "https://intranet.example:8443", Insecure: true, Enabled: true,
+	}, nil)
 
-	conn, err := handlers.DialDeclared(ctx, 5173)
+	conn, target, err := handlers.DialDeclared(ctx, 9)
 
 	require.NoError(t, err)
 	assert.Same(t, client, conn)
-	assert.Equal(t, 5173, dialed, "拨号只带得出端口:目标主机恒为环回,不由调用方指定")
+	want := Target{Scheme: "https", Host: "intranet.example", Port: 8443, Insecure: true}
+	assert.Equal(t, []Target{want}, dialed, "只拨声明里存着的目标,且只拨一次")
+	assert.Equal(t, want, target, "闸门交回它拨的那个目标,改写 Host / Location 按它来")
 }
 
-// Given 端口过了声明集判定、但那台设备上没有服务在监听,When 开转发流,Then 回
-// NoListener —— 与「没声明」分开:一个要去把服务起起来,一个要先建声明。
-func TestOpen_GivenNothingListening_WhenOpening_ThenNoListener(t *testing.T) {
-	ctx, repo, handlers := setup(t, func(context.Context, int) (net.Conn, error) {
-		return nil, errors.New("dial tcp 127.0.0.1:3000: connect: connection refused")
-	})
-	repo.EXPECT().FindByPort(gomock.Any(), 3000).
-		Return(&port_forward_entity.PortForward{ID: 7, Port: 3000, Enabled: true}, nil)
+// Given 映射过了判定、但目标连不上,When 开转发流,Then 按连不上的原因各回一个码:
+// 连接被拒(以及别的够不着)、名字解析失败、TLS 校验失败 —— 三件事用户要做的不同:
+// 去把服务起起来、去查主机名、去勾「忽略证书错误」。
+func TestOpen_GivenTheTargetCannotBeReached_WhenOpening_ThenTheCauseIsAttributed(t *testing.T) {
+	for name, one := range map[string]struct {
+		err  error
+		want int32
+	}{
+		"连接被拒": {
+			err:  &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED},
+			want: rpcerror.CodePortForwardNoListener,
+		},
+		"名字解析失败": {
+			err:  &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "nas.lan", IsNotFound: true}},
+			want: rpcerror.CodePortForwardNameResolution,
+		},
+		"证书不受信任": {
+			err:  &tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}},
+			want: rpcerror.CodePortForwardTLSVerification,
+		},
+		"证书主机名不符": {
+			err:  fmt.Errorf("handshake: %w", x509.HostnameError{Certificate: &x509.Certificate{}, Host: "nas.lan"}),
+			want: rpcerror.CodePortForwardTLSVerification,
+		},
+		"说不出原因的拨号失败": {
+			err:  errors.New("dial tcp 10.0.0.9:443: i/o timeout"),
+			want: rpcerror.CodePortForwardNoListener,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, repo, handlers := setup(t, func(context.Context, Target) (net.Conn, error) {
+				return nil, one.err
+			})
+			repo.EXPECT().Get(gomock.Any(), int64(7)).
+				Return(&port_forward_entity.PortForward{ID: 7, Port: 443, Target: "https://nas.lan:443", Enabled: true}, nil)
 
-	_, err := handlers.DialDeclared(ctx, 3000)
+			_, _, err := handlers.DialDeclared(ctx, 7)
 
-	assert.Equal(t, int32(rpcerror.CodePortForwardNoListener), code(t, err))
+			assert.Equal(t, one.want, code(t, err))
+		})
+	}
 }
 
 // 库读不出来时不能当作「没声明」:那会把一次故障说成一条用户能自己改正的输入错误。
 func TestOpen_GivenTheRepoFails_WhenOpening_ThenInternalNotNotDeclared(t *testing.T) {
 	ctx, repo, handlers := setup(t, refusingDialer(t))
-	repo.EXPECT().FindByPort(gomock.Any(), 3000).Return(nil, errors.New("db down"))
+	repo.EXPECT().Get(gomock.Any(), int64(7)).Return(nil, errors.New("db down"))
 
-	_, err := handlers.DialDeclared(ctx, 3000)
+	_, _, err := handlers.DialDeclared(ctx, 7)
 
 	assert.Equal(t, rpcerror.CodeInternal, code(t, err))
 }
@@ -287,13 +324,7 @@ func TestDelete_GivenAMapping_WhenDeleting_ThenDeletedReportsWhetherARowWentAway
 	}{"删掉了": {1, true}, "本来就没有": {0, false}} {
 		t.Run(name, func(t *testing.T) {
 			ctx, repo, handlers := setup(t, nil)
-			// 删除前先回读一次:撤销面按端口认流,而行一删掉就再问不出端口是多少
-			// (revoke_test.go 的两条用例钉住这一步的用途)。
-			var row *port_forward_entity.PortForward
-			if tc.rows > 0 {
-				row = &port_forward_entity.PortForward{ID: 7, Port: 3000, Enabled: true}
-			}
-			repo.EXPECT().Get(gomock.Any(), int64(7)).Return(row, nil)
+			// 撤销面按映射 id 认流,删除前不必再回读一次那一行。
 			repo.EXPECT().Delete(gomock.Any(), int64(7)).Return(tc.rows, nil)
 
 			resp, err := handlers.Delete(ctx, &agentrewire.PortForwardDeleteRequest{Id: 7})

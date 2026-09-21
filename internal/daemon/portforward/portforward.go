@@ -7,15 +7,17 @@
 // 会给出两种答复。包住在 internal/daemon/ 下而被桌面端一并 import,与 remotefs /
 // workspacefs / handlers 是同一条既有路子。
 //
-// **声明可以带主机,但 open 的闸门今天还只按端口定位。** 规格「映射与目标」一节把
-// 目标从裸端口扩成了 http(s)://host:port,Create/List 已经按这个规范化(见
-// normalizeTarget)。但 DialDeclared 仍然只收一个端口号、只拨这台设备的环回地址
-// ——按目标真正拨号、做 TLS,是下一轮(open 改按映射 id 定位)的事,这一轮先不碰
-// PortForwardOpenRequest 与拨号面,保持它编译、行为都不变。
+// **open 按映射 id 定位,只拨声明里存着的目标。** 规格「映射与目标」一节把目标从
+// 裸端口扩成了 http(s)://host:port(Create/List 按 normalizeTarget 规范化),端口
+// 于是不再是一条映射的身份;open 带来的只有 id,闸门按 id 取出那条声明,判过存在与
+// 启用之后,拨的是**声明里存着的**目标 —— open 的协议里没有任何一格能改它(规格
+// Hard invariant)。主机名在这台设备上解析,https 在这台设备上做 TLS(见 DialTarget)。
 package portforward
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -39,12 +41,16 @@ import (
 // 三件不同的事)。*rpcerror.Error 同时是 protorpc.Error,wireinbound.ConvertError
 // 原样放行,途中不会被折成 -32603。
 var (
-	// ErrNotDeclared:这台设备上没有这个端口的声明(从没建过,或已被删除)。
-	ErrNotDeclared = &rpcerror.Error{Code: rpcerror.CodePortForwardNotDeclared, Message: "port forward: port not declared on this device"}
+	// ErrNotDeclared:这台设备上没有这条映射(从没建过,或已被删除)。
+	ErrNotDeclared = &rpcerror.Error{Code: rpcerror.CodePortForwardNotDeclared, Message: "port forward: mapping not declared on this device"}
 	// ErrDisabled:声明还在,但被停用了。与上一个分开,界面据此提示「把它打开」。
 	ErrDisabled = &rpcerror.Error{Code: rpcerror.CodePortForwardDisabled, Message: "port forward: mapping disabled"}
-	// ErrNoListener:端口过了声明集判定,但这台设备的环回地址上没有服务在监听。
-	ErrNoListener = &rpcerror.Error{Code: rpcerror.CodePortForwardNoListener, Message: "port forward: nothing listening on that port"}
+	// ErrNoListener:映射过了判定,但目标连不上 —— 连接被拒,或网络上够不着。
+	ErrNoListener = &rpcerror.Error{Code: rpcerror.CodePortForwardNoListener, Message: "port forward: target refused or unreachable"}
+	// ErrNameResolution:目标的主机名在这台设备上解析不出来。
+	ErrNameResolution = &rpcerror.Error{Code: rpcerror.CodePortForwardNameResolution, Message: "port forward: target host name did not resolve"}
+	// ErrTLSVerification:https 目标的证书没通过校验,而这条映射没有勾「忽略证书错误」。
+	ErrTLSVerification = &rpcerror.Error{Code: rpcerror.CodePortForwardTLSVerification, Message: "port forward: target certificate failed verification"}
 	// ErrPortTaken:新增声明时这个目标(规范化后的协议、主机、端口)在这台设备上
 	// 已经声明过。名字沿用「端口」是历史遗留(见 rpcerror.CodePortForwardPortTaken
 	// 的注释)——对调用方来说仍是同一类可以就地改正的输入错误,不是写失败。
@@ -54,8 +60,19 @@ var (
 	ErrInvalidTarget = &rpcerror.Error{Code: rpcerror.CodePortForwardInvalidTarget, Message: "port forward: invalid target"}
 )
 
-// Dialer 拨到这台设备 127.0.0.1 上的一个端口。**没有主机那一格**,理由见包注释。
-type Dialer func(ctx context.Context, port int) (net.Conn, error)
+// Target 是一条声明里存着的目标:规范化之后的协议、主机、端口,外加这条映射自己的
+// 证书设置。它只从声明里来(见 storedTarget),open 请求里没有位置放它。
+type Target struct {
+	Scheme string
+	Host   string
+	Port   int
+	// Insecure 只对 https 有意义:为真时拨号不校验目标的证书。
+	Insecure bool
+}
+
+// Dialer 拨到一个目标,https 目标连 TLS 握手一起做完。它拿到的 Target 恒是闸门从
+// 声明里读出来的那一个。
+type Dialer func(ctx context.Context, target Target) (net.Conn, error)
 
 // Options 是宿主交出的那两件东西:自己那个库的仓储,以及拨号的办法。
 type Options struct {
@@ -65,11 +82,11 @@ type Options struct {
 	Dial Dialer
 }
 
-// portRevoker 是「这个端口此刻起不再允许转发」的接收面。生产上唯一的实现是 Streams
-// (一条连接上开着的流),而闸门只认这个接口:声明族因此不需要知道这台机器上有几条
-// 连接、每条连接上挂着什么。
-type portRevoker interface {
-	revokePort(port int, reason closeReason)
+// mappingRevoker 是「这条映射此刻起不再允许转发」的接收面。生产上唯一的实现是
+// Streams(一条连接上开着的流),而闸门只认这个接口:声明族因此不需要知道这台机器上
+// 有几条连接、每条连接上挂着什么。
+type mappingRevoker interface {
+	revokeMapping(mappingID int64, reason closeReason)
 }
 
 // 撤销的两种由来。code 与 open 被拒时同一族(Disabled / NotDeclared):一条流为什么
@@ -94,18 +111,18 @@ type Handlers struct {
 	// revokeMu 盖住撤销面的订阅表。持有它的每一段都只是几行 map 操作 —— 派发在锁外
 	// 做(见 revoke),否则一条流的收尾会挡住另一条连接的订阅/注销。
 	revokeMu sync.Mutex
-	revokers map[portRevoker]struct{}
+	revokers map[mappingRevoker]struct{}
 }
 
 func NewHandlers(options Options) *Handlers {
-	return &Handlers{repo: options.Repo, dial: options.Dial, revokers: make(map[portRevoker]struct{})}
+	return &Handlers{repo: options.Repo, dial: options.Dial, revokers: make(map[mappingRevoker]struct{})}
 }
 
 // watchRevocations 把一份流表挂到撤销面上,交回注销它的办法。
 //
 // 注销是**订阅方自己的事**(Streams.CloseAll 调它),所以闸门不必跟踪连接的生命周期:
 // 它手上要么是一份还在用的流表,要么什么都没有,不会攒下一堆走掉的连接。
-func (h *Handlers) watchRevocations(revoker portRevoker) func() {
+func (h *Handlers) watchRevocations(revoker mappingRevoker) func() {
 	h.revokeMu.Lock()
 	h.revokers[revoker] = struct{}{}
 	h.revokeMu.Unlock()
@@ -119,49 +136,93 @@ func (h *Handlers) watchRevocations(revoker portRevoker) func() {
 	}
 }
 
-// revoke 把「这个端口不再允许转发」派发给每一份订阅着的流表。
+// revoke 把「这条映射不再允许转发」派发给每一份订阅着的流表。
 //
 // 快照之后在锁外派发:声明族这一次 RPC 不该因为某条连接上的流表正忙而排队,而每个
 // 订阅者要做的也只是关掉自己那几条流(收尾通知由流自己的 goroutine 发)。
-func (h *Handlers) revoke(port int, reason closeReason) {
+func (h *Handlers) revoke(mappingID int64, reason closeReason) {
 	h.revokeMu.Lock()
-	revokers := make([]portRevoker, 0, len(h.revokers))
+	revokers := make([]mappingRevoker, 0, len(h.revokers))
 	for revoker := range h.revokers {
 		revokers = append(revokers, revoker)
 	}
 	h.revokeMu.Unlock()
 	for _, revoker := range revokers {
-		revoker.revokePort(port, reason)
+		revoker.revokeMapping(mappingID, reason)
 	}
 }
 
-// DialDeclared 是 open 的**授权闸门**:先判这个端口在不在声明集内、有没有被停用,
-// 通过了才拨号。顺序是这个方法唯一的实质内容——先拨再拒,错误码照样是对的,而那台
-// 设备上的服务已经收到了一次来自未授权端口的连接。
-func (h *Handlers) DialDeclared(ctx context.Context, port int) (net.Conn, error) {
-	mapping, err := h.repo.FindByPort(ctx, port)
+// DialDeclared 是 open 的**授权闸门**:先按 id 取出那条声明、判它在不在、有没有被
+// 停用,通过了才拨号,拨的是声明里存着的目标。交回拨通的连接与它拨的那个目标(改写
+// Host / Location 要按它来)。
+//
+// 顺序是这个方法唯一的实质内容——先拨再拒,错误码照样是对的,而目标上的服务已经
+// 收到了一次未授权的连接。
+func (h *Handlers) DialDeclared(ctx context.Context, mappingID int64) (net.Conn, Target, error) {
+	mapping, err := h.repo.Get(ctx, mappingID)
 	if err != nil {
 		// 读不出来不能当作「没声明」:那会把一次故障说成一条用户能自己改正的输入
 		// 错误,人会去重建一条本来就在的映射。
-		logger.Ctx(ctx).Error("portforward.DialDeclared: 读声明集失败", zap.Int("port", port), zap.Error(err))
-		return nil, &rpcerror.Error{Code: rpcerror.CodeInternal, Message: "port forward: cannot read declarations"}
+		logger.Ctx(ctx).Error("portforward.DialDeclared: 读声明集失败", zap.Int64("mappingId", mappingID), zap.Error(err))
+		return nil, Target{}, &rpcerror.Error{Code: rpcerror.CodeInternal, Message: "port forward: cannot read declarations"}
 	}
 	if mapping == nil {
-		return nil, ErrNotDeclared
+		return nil, Target{}, ErrNotDeclared
 	}
 	if !mapping.Enabled {
-		return nil, ErrDisabled
+		return nil, Target{}, ErrDisabled
+	}
+	target, err := storedTarget(mapping)
+	if err != nil {
+		// 库里那一格是落库前规范化过的,读回来却解析不了只能是库坏了,不是用户输错。
+		logger.Ctx(ctx).Error("portforward.DialDeclared: 声明里的目标解析不了",
+			zap.Int64("mappingId", mappingID), zap.String("target", mapping.Target))
+		return nil, Target{}, &rpcerror.Error{Code: rpcerror.CodeInternal, Message: "port forward: stored target is malformed"}
 	}
 	if h.dial == nil {
-		return nil, &rpcerror.Error{Code: rpcerror.CodeInternal, Message: "port forward: no dialer wired on this host"}
+		return nil, Target{}, &rpcerror.Error{Code: rpcerror.CodeInternal, Message: "port forward: no dialer wired on this host"}
 	}
-	conn, err := h.dial(ctx, port)
+	conn, err := h.dial(ctx, target)
 	if err != nil {
-		// 判定过了还连不上,只剩一种解释是用户改得动的:那个端口上没有服务。
-		logger.Ctx(ctx).Warn("portforward.DialDeclared: 拨本机服务失败", zap.Int("port", port), zap.Error(err))
-		return nil, ErrNoListener
+		logger.Ctx(ctx).Warn("portforward.DialDeclared: 拨目标失败",
+			zap.Int64("mappingId", mappingID), zap.String("target", mapping.Target), zap.Error(err))
+		return nil, Target{}, dialFailure(err)
 	}
-	return conn, nil
+	return conn, target, nil
+}
+
+// dialFailure 把一次拨号失败归成「目标连不上」的三种原因之一(规格「失败归因」):
+// 名字解析失败、TLS 校验失败,其余一律算连接被拒 / 够不着 —— 三件事用户要做的不同
+// (去查主机名、去勾「忽略证书错误」、去把服务起起来)。按错误的类型判,不按文本。
+//
+// TLS 握手的其他失败(对方根本不说 TLS、协议版本谈不拢)不算「校验失败」:那不是
+// 勾一个选项能解决的事,归到连不上。
+func dialFailure(err error) error {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return ErrNameResolution
+	}
+	var (
+		verifyErr    *tls.CertificateVerificationError
+		authorityErr x509.UnknownAuthorityError
+		hostnameErr  x509.HostnameError
+		invalidErr   x509.CertificateInvalidError
+	)
+	if errors.As(err, &verifyErr) || errors.As(err, &authorityErr) ||
+		errors.As(err, &hostnameErr) || errors.As(err, &invalidErr) {
+		return ErrTLSVerification
+	}
+	return ErrNoListener
+}
+
+// storedTarget 把库里那条规范字符串读回三元组。它走的是 Create 用的同一套规范化,
+// 所以「落库时接受的写法」与「拨号时认的写法」只有一个出处。
+func storedTarget(mapping *port_forward_entity.PortForward) (Target, error) {
+	scheme, host, port, err := normalizeURLTarget(mapping.Target)
+	if err != nil {
+		return Target{}, err
+	}
+	return Target{Scheme: scheme, Host: host, Port: port, Insecure: mapping.Insecure}, nil
 }
 
 // List 交出这台设备上的全部声明。不按来源收窄:规格明写任何一个有权连上这台设备的
@@ -241,7 +302,7 @@ func (h *Handlers) SetEnabled(ctx context.Context, request *agentrewire.PortForw
 		// 停用不只是「此后的访问一律被拒」:规格「断开与失败」明写正在进行的流立即
 		// 关闭。少了这一步,用户按下开关之后那条还在跑的下载会一直跑到自己结束,
 		// 界面上的开关与设备上的实际行为对不上。
-		h.revoke(row.Port, revokedDisabled)
+		h.revoke(row.ID, revokedDisabled)
 	}
 	return &agentrewire.PortForwardSetEnabledResponse{Mapping: toWire(row)}, nil
 }
@@ -249,21 +310,14 @@ func (h *Handlers) SetEnabled(ctx context.Context, request *agentrewire.PortForw
 // Delete 删除一条声明。deleted 如实说这一次有没有删掉一行,两种都不是错误——两个
 // 客户端同时删同一条时,后到的那次不该看见一个错误。
 func (h *Handlers) Delete(ctx context.Context, request *agentrewire.PortForwardDeleteRequest) (*agentrewire.PortForwardDeleteResponse, error) {
-	// 先读出这一行,只为拿到它的端口:撤销面按端口认流(open 请求里带的就是端口,
-	// 流表里没有映射 id 这一格),而行一删掉就再也问不出端口是多少。读失败不能当作
-	// 「删不掉」——删除本身还是该发生,只是那一刻没人能被通知到。
-	row, err := h.repo.Get(ctx, request.GetId())
-	if err != nil {
-		logger.Ctx(ctx).Error("portforward.Delete: 删除前回读失败", zap.Int64("mappingId", request.GetId()), zap.Error(err))
-		return nil, internalError(err)
-	}
 	affected, err := h.repo.Delete(ctx, request.GetId())
 	if err != nil {
 		logger.Ctx(ctx).Error("portforward.Delete: 删除失败", zap.Int64("mappingId", request.GetId()), zap.Error(err))
 		return nil, internalError(err)
 	}
-	if affected > 0 && row != nil {
-		h.revoke(row.Port, revokedRemoved)
+	if affected > 0 {
+		// 撤销面按映射 id 认流,删掉之后照样认得出是哪几条。
+		h.revoke(request.GetId(), revokedRemoved)
 	}
 	return &agentrewire.PortForwardDeleteResponse{Deleted: affected > 0}, nil
 }

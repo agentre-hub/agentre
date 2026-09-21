@@ -14531,8 +14531,9 @@ type PortForwardMapping struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// id 是这条声明在**那台设备**上的主键。启停与删除按它定位。
 	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	// port 是 target 里那个端口,仍然填着——open(见 PortForwardOpenRequest)今天还
-	// 按端口定位,没有跟着切到按 target 拨号(那是下一轮的事)。
+	// port 是 target 里那个端口,仍然填着给展示用。open 按 id 定位(见
+	// PortForwardOpenRequest),端口不再是一条映射的身份——两条映射可以是同一个端口
+	// 上的两台主机。
 	Port    uint32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
 	Name    string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Enabled bool   `protobuf:"varint,4,opt,name=enabled,proto3" json:"enabled,omitempty"`
@@ -15015,19 +15016,22 @@ func (x *PortForwardDeleteResponse) GetDeleted() bool {
 	return false
 }
 
-// PortForwardOpenRequest 开一条转发流。设备在应答之前就把到本机服务的连接拨出去,
-// 所以「端口没有声明」「映射已停用」「端口上没有服务在监听」三种失败都以领域错误码
-// 落在这一次调用的应答上(见 rpcerror 的 portforward.* 段),而不是等到某条通知里。
+// PortForwardOpenRequest 开一条转发流。设备在应答之前就把到目标的连接拨出去(含
+// https 的 TLS 握手),所以「映射不存在」「映射已停用」与目标连不上的三种原因(连接
+// 被拒、名字解析失败、TLS 校验失败)都以领域错误码落在这一次调用的应答上(见
+// rpcerror 的 portforward.* 段),而不是等到某条通知里。
 type PortForwardOpenRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// stream_id 由调用方生成,在这条连接内唯一。此后 write / close / ack 与三条通知
 	// 都按它认流。
 	StreamId string `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
-	// 目标端口。**没有主机那一格**,理由见本节开头。
+	// port 是 0.3.0 之前按端口定位时的旧写法,保留只是因为 buf breaking 不许删字段
+	// /改编号——设备不再读它,调用方改填 mapping_id。
 	Port   uint32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
 	Method string `protobuf:"bytes,3,opt,name=method,proto3" json:"method,omitempty"`
-	// path 是已经剥掉宿主前缀的路径,含查询串。宿主在这一层理解 HTTP(服务端要剥
-	// /fw/<设备>/<端口>,两端都要改写 Host),101 之后就不再解释内容了。
+	// path 是已经剥掉宿主前缀的路径,含查询串。Host 由设备改写成目标的 host[:port],
+	// 响应里指向目标自己 origin 的 Location 与 Set-Cookie 的 Domain 也由设备改写
+	// (只有设备知道目标是什么),101 之后就不再解释内容了。
 	Path    string                   `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
 	Headers map[string]*HeaderValues `protobuf:"bytes,5,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// has_body 说明此后还会有 portforward.write 送请求体。它必须是显式的一位:
@@ -15039,7 +15043,10 @@ type PortForwardOpenRequest struct {
 	HasBody bool `protobuf:"varint,6,opt,name=has_body,json=hasBody,proto3" json:"has_body,omitempty"`
 	// window_bytes 是调用方为**响应方向**开出的信用窗口,单位字节,0 表示用
 	// wirelimits.PortForwardWindowBytes 的默认值。见 PortForwardAckRequest。
-	WindowBytes   uint64 `protobuf:"varint,7,opt,name=window_bytes,json=windowBytes,proto3" json:"window_bytes,omitempty"`
+	WindowBytes uint64 `protobuf:"varint,7,opt,name=window_bytes,json=windowBytes,proto3" json:"window_bytes,omitempty"`
+	// mapping_id 是要打开的那条声明在**那台设备**上的主键(PortForwardMapping.id)。
+	// 设备只拨这条声明里存着的目标;**没有目标那一格**,理由见本节开头。
+	MappingId     int64 `protobuf:"varint,8,opt,name=mapping_id,json=mappingId,proto3" json:"mapping_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -15119,6 +15126,13 @@ func (x *PortForwardOpenRequest) GetHasBody() bool {
 func (x *PortForwardOpenRequest) GetWindowBytes() uint64 {
 	if x != nil {
 		return x.WindowBytes
+	}
+	return 0
+}
+
+func (x *PortForwardOpenRequest) GetMappingId() int64 {
+	if x != nil {
+		return x.MappingId
 	}
 	return 0
 }
@@ -15549,7 +15563,7 @@ func (x *PortForwardClosedNotification) GetMessage() string {
 	return ""
 }
 
-// PortForwardRevokedNotification 说的是「这台设备上这个端口此刻起不再允许转发」——
+// PortForwardRevokedNotification 说的是「这台设备上这条映射此刻起不再允许转发」——
 // 声明被停用或删除,不论是谁改的。
 //
 // 它与 PortForwardClosedNotification 是两件事,不能合成一条:closed 说的是**某一条
@@ -15557,16 +15571,19 @@ func (x *PortForwardClosedNotification) GetMessage() string {
 // 声明**没了,连一条流都没开着的宿主同样要听见 —— 桌面端那条专属监听多半正闲着,
 // 而规格「断开与失败」要它一并关掉。
 //
-// 它按**端口**认人而不是按映射 id:设备侧的撤销面认的就是端口(流表里没有映射 id
-// 这一格),桌面端那条监听手上也只有端口,多带一格两端都用不上的 id 只会让「按什么
-// 认」这件事有两个答案。
+// 它按**映射 id** 认人:open 按 id 定位,设备侧的撤销面与宿主那条监听认的也都是
+// id。端口不再是一条映射的身份(两条映射可以指向不同主机的同一个端口),按端口认
+// 会把别人的映射一起撤掉。
 type PortForwardRevokedNotification struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// port 是被撤销的那个端口(这台设备的 127.0.0.1 上的那一个)。
+	// port 是 0.3.0 之前按端口认人时的旧写法,保留只是因为 buf breaking 不许删字段
+	// /改编号——设备不再填它,宿主改读 mapping_id。
 	Port uint32 `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
 	// reason 与 PortForwardClosedNotification 取同一套 token(mapping_disabled /
 	// mapping_removed):同一件事在两条通知上不该有两套词汇。消费者按 token 分支。
-	Reason        string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	Reason string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	// mapping_id 是被撤销的那条声明在这台设备上的主键(PortForwardMapping.id)。
+	MappingId     int64 `protobuf:"varint,3,opt,name=mapping_id,json=mappingId,proto3" json:"mapping_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -15613,6 +15630,13 @@ func (x *PortForwardRevokedNotification) GetReason() string {
 		return x.Reason
 	}
 	return ""
+}
+
+func (x *PortForwardRevokedNotification) GetMappingId() int64 {
+	if x != nil {
+		return x.MappingId
+	}
+	return 0
 }
 
 // BackendCredentialStatusRequest 问这台设备上某个后端的凭据状态。
@@ -17780,7 +17804,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x18PortForwardDeleteRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\"5\n" +
 	"\x19PortForwardDeleteResponse\x12\x18\n" +
-	"\adeleted\x18\x01 \x01(\bR\adeleted\"\xd8\x02\n" +
+	"\adeleted\x18\x01 \x01(\bR\adeleted\"\xf7\x02\n" +
 	"\x16PortForwardOpenRequest\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\rR\x04port\x12\x16\n" +
@@ -17788,7 +17812,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x04path\x18\x04 \x01(\tR\x04path\x12K\n" +
 	"\aheaders\x18\x05 \x03(\v21.agentre.wire.PortForwardOpenRequest.HeadersEntryR\aheaders\x12\x19\n" +
 	"\bhas_body\x18\x06 \x01(\bR\ahasBody\x12!\n" +
-	"\fwindow_bytes\x18\a \x01(\x04R\vwindowBytes\x1aV\n" +
+	"\fwindow_bytes\x18\a \x01(\x04R\vwindowBytes\x12\x1d\n" +
+	"\n" +
+	"mapping_id\x18\b \x01(\x03R\tmappingId\x1aV\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
 	"\x05value\x18\x02 \x01(\v2\x1a.agentre.wire.HeaderValuesR\x05value:\x028\x01\"6\n" +
@@ -17818,10 +17844,12 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x12\n" +
 	"\x04code\x18\x02 \x01(\x05R\x04code\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x18\n" +
-	"\amessage\x18\x04 \x01(\tR\amessage\"L\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"k\n" +
 	"\x1ePortForwardRevokedNotification\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\"{\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x1d\n" +
+	"\n" +
+	"mapping_id\x18\x03 \x01(\x03R\tmappingId\"{\n" +
 	"\x1eBackendCredentialStatusRequest\x12!\n" +
 	"\fbackend_type\x18\x01 \x01(\tR\vbackendType\x12\x17\n" +
 	"\async_id\x18\x02 \x01(\tR\x06syncId\x12\x1d\n" +
@@ -17986,7 +18014,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"2AGENTRED_SELF_UPDATE_REJECT_REASON_DOWNLOAD_FAILED\x10\x05:>\n" +
 	"\n" +
 	"event_kind\x12\x1d.google.protobuf.FieldOptions\x18\xe1\xd4\x03 \x01(\tR\teventKind:I\n" +
-	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.2.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
+	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.3.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
 
 var (
 	file_agentre_wire_wire_proto_rawDescOnce sync.Once

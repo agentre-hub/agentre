@@ -848,9 +848,9 @@ func New(opts Options) (*Daemon, error) {
 		sessionStore: daemonSessionStore{db: gormDB},
 		pairing:      pm, ratelim: rl,
 		protobufRegistry: protorpc.NewRegistry(),
-		// 拨号恒为环回,端口必须已在这台设备上声明过 —— 目标主机不由请求携带。
+		// 只拨声明里存着的目标,open 只带映射 id —— 目标不由请求携带。
 		portForward: portforward.NewHandlers(portforward.Options{
-			Repo: port_forward_repo.NewPortForward(), Dial: portforward.DialLoopback,
+			Repo: port_forward_repo.NewPortForward(), Dial: portforward.DialTarget,
 		}),
 		steerSource:     newSteerSourceStore(),
 		generations:     sessions.NewRegistry(),

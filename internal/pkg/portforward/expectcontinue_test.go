@@ -49,12 +49,14 @@ func forwardToRealDeviceWithLatency(
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	repo := mock_port_forward_repo.NewMockPortForwardRepo(ctrl)
-	repo.EXPECT().FindByPort(gomock.Any(), port).DoAndReturn(
-		func(_ context.Context, p int) (*port_forward_entity.PortForward, error) {
-			return &port_forward_entity.PortForward{ID: 1, Port: p, Enabled: true}, nil
+	repo.EXPECT().Get(gomock.Any(), int64(1)).DoAndReturn(
+		func(context.Context, int64) (*port_forward_entity.PortForward, error) {
+			return &port_forward_entity.PortForward{
+				ID: 1, Port: port, Target: fmt.Sprintf("http://127.0.0.1:%d", port), Enabled: true,
+			}, nil
 		}).AnyTimes()
 
-	gate := daemonpf.NewHandlers(daemonpf.Options{Repo: repo, Dial: daemonpf.DialLoopback})
+	gate := daemonpf.NewHandlers(daemonpf.Options{Repo: repo, Dial: daemonpf.DialTarget})
 	streams := daemonpf.NewStreams(daemonpf.StreamOptions{Gate: gate, Notify: far[7].Notify})
 	t.Cleanup(streams.CloseAll)
 	// 这条用例测的是 Expect: 100-continue 的转发路径，与鉴权无关，所以**显式**给一个
@@ -64,7 +66,7 @@ func forwardToRealDeviceWithLatency(
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)
 	address, err := listeners.Open(context.Background(),
-		portforward.Target{DeviceID: 7, MappingID: "m1", Port: port})
+		portforward.Target{DeviceID: 7, MappingID: "1", Port: port})
 	require.NoError(t, err)
 	return address
 }
