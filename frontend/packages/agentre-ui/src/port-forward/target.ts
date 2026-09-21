@@ -58,7 +58,11 @@ export function formatPortForwardTarget(target: string): string {
   return String(parsed.port);
 }
 
-const HOST_PORT_RE = /^[^\s:/]+:\d+$/;
+/**
+ * `host:port`:主机要么是不含冒号的名字 / IPv4,要么是带方括号的 IPv6 字面量
+ * (`[fd00::5]:8080`,设备同样接收)。端口段单独取出来判范围。
+ */
+const HOST_PORT_RE = /^(?:\[[^\s\]/]+\]|[^\s:/[\]]+):(\d+)$/;
 
 function isValidPort(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65535;
@@ -93,9 +97,9 @@ export function isLikelyValidPortForwardTarget(raw: string): boolean {
     return true;
   }
 
-  if (HOST_PORT_RE.test(value)) {
-    const [host, portText] = value.split(":");
-    return host.length > 0 && isValidPort(Number(portText));
+  const hostPort = HOST_PORT_RE.exec(value);
+  if (hostPort) {
+    return isValidPort(Number(hostPort[1]));
   }
 
   return false;

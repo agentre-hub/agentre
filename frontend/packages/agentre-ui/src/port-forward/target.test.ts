@@ -89,6 +89,15 @@ describe("isLikelyValidPortForwardTarget", () => {
     expect(isLikelyValidPortForwardTarget("192.168.1.5:8080")).toBe(true);
   });
 
+  // 设备把 `[fd00::5]:8080` 当成 `http://[fd00::5]:8080` 接收(daemon 侧
+  // portforward_test 的「IPv6 host:port」一格),即时反馈不能比权威判定更严。
+  it("Given a bracketed IPv6 host:port, Then it is accepted like the device does", () => {
+    expect(isLikelyValidPortForwardTarget("[fd00::5]:8080")).toBe(true);
+    expect(isLikelyValidPortForwardTarget("[::1]:3000")).toBe(true);
+    expect(isLikelyValidPortForwardTarget("[::1]:99999")).toBe(false);
+    expect(isLikelyValidPortForwardTarget("::1:3000")).toBe(false);
+  });
+
   it("Given host:port with an out-of-range port, Then it is rejected", () => {
     expect(isLikelyValidPortForwardTarget("192.168.1.5:99999")).toBe(false);
   });
