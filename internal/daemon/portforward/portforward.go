@@ -1,5 +1,5 @@
 // Package portforward 是端口转发在**被访问的那台设备**上的判定面:这台机器允许把
-// 它 127.0.0.1 上的哪些端口转出去(声明族),以及一次 open 该不该落地(授权闸门)。
+// 哪些目标转出去(声明族),以及一次 open 该不该落地(授权闸门)。
 //
 // 两种执行端共用这一份实现。规格「设备侧的目标限制」把 agentred 与桌面端并列写成
 // 「两类设备都可能是被访问的一方」,而它们共用同一份实体与仓储(port_forward_entity
@@ -7,15 +7,20 @@
 // 会给出两种答复。包住在 internal/daemon/ 下而被桌面端一并 import,与 remotefs /
 // workspacefs / handlers 是同一条既有路子。
 //
-// **授权闸门在拨号之前,而且不接受主机那一格。** DialDeclared 只收一个端口号:目标
-// 恒为环回这件事因此是类型上的事实,而不是一句注释——调用方连表达「拨到别处」的
-// 办法都没有。声明集判定同样在这里,不依赖任何客户端做对(决策 8)。
+// **声明可以带主机,但 open 的闸门今天还只按端口定位。** 规格「映射与目标」一节把
+// 目标从裸端口扩成了 http(s)://host:port,Create/List 已经按这个规范化(见
+// normalizeTarget)。但 DialDeclared 仍然只收一个端口号、只拨这台设备的环回地址
+// ——按目标真正拨号、做 TLS,是下一轮(open 改按映射 id 定位)的事,这一轮先不碰
+// PortForwardOpenRequest 与拨号面,保持它编译、行为都不变。
 package portforward
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -40,10 +45,13 @@ var (
 	ErrDisabled = &rpcerror.Error{Code: rpcerror.CodePortForwardDisabled, Message: "port forward: mapping disabled"}
 	// ErrNoListener:端口过了声明集判定,但这台设备的环回地址上没有服务在监听。
 	ErrNoListener = &rpcerror.Error{Code: rpcerror.CodePortForwardNoListener, Message: "port forward: nothing listening on that port"}
-	// ErrPortTaken:新增声明时这个端口在这台设备上已经声明过。
-	ErrPortTaken = &rpcerror.Error{Code: rpcerror.CodePortForwardPortTaken, Message: "port forward: port already declared"}
-	// ErrInvalidPort:端口号不在 1..65535 内。
-	ErrInvalidPort = &rpcerror.Error{Code: rpcerror.CodePortForwardInvalidPort, Message: "port forward: port out of range"}
+	// ErrPortTaken:新增声明时这个目标(规范化后的协议、主机、端口)在这台设备上
+	// 已经声明过。名字沿用「端口」是历史遗留(见 rpcerror.CodePortForwardPortTaken
+	// 的注释)——对调用方来说仍是同一类可以就地改正的输入错误,不是写失败。
+	ErrPortTaken = &rpcerror.Error{Code: rpcerror.CodePortForwardPortTaken, Message: "port forward: target already declared"}
+	// ErrInvalidTarget:目标写法不合法——路径、查询串、用户信息、http(s) 以外的
+	// 协议、端口越界、主机为空,六种理由报同一个码(见 normalizeTarget)。
+	ErrInvalidTarget = &rpcerror.Error{Code: rpcerror.CodePortForwardInvalidTarget, Message: "port forward: invalid target"}
 )
 
 // Dialer 拨到这台设备 127.0.0.1 上的一个端口。**没有主机那一格**,理由见包注释。
@@ -171,35 +179,39 @@ func (h *Handlers) List(ctx context.Context, _ *agentrewire.PortForwardListReque
 	return response, nil
 }
 
-// Create 新增一条声明,交回**设备落库之后**的那一行。
+// Create 新增一条声明,交回**设备落库之后**的那一行。目标**不可编辑**:要换目标
+// 就删掉重建(规格「映射与目标」一节),所以这里没有 Update。
 func (h *Handlers) Create(ctx context.Context, request *agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error) {
-	port, err := validPort(request.GetPort())
+	scheme, host, port, err := normalizeTarget(request.GetTarget())
 	if err != nil {
 		return nil, err
 	}
-	// 预检答的是常见那一次:用户填了一个已经在列表里的端口,这是他就地改得动的
+	target := canonicalTarget(scheme, host, port)
+	// 预检答的是常见那一次:用户填了一个已经在列表里的目标,这是他就地改得动的
 	// 输入错误。它**不是**唯一性的真相源——那是库上的 UNIQUE 索引(仓储包注释
 	// 明写这一点),下面 Create 的失败因此要落回同一个码,否则同一件事在两条路径
 	// 上会被说成两句话。
-	existing, err := h.repo.FindByPort(ctx, port)
+	existing, err := h.repo.FindByTarget(ctx, target)
 	if err != nil {
-		logger.Ctx(ctx).Error("portforward.Create: 端口点查失败", zap.Int("port", port), zap.Error(err))
+		logger.Ctx(ctx).Error("portforward.Create: 目标点查失败", zap.String("target", target), zap.Error(err))
 		return nil, internalError(err)
 	}
 	if existing != nil {
 		return nil, ErrPortTaken
 	}
 	row := &port_forward_entity.PortForward{
-		Port: port,
-		Name: strings.TrimSpace(request.GetName()),
+		Port:     port,
+		Target:   target,
+		Insecure: request.GetInsecure(),
+		Name:     strings.TrimSpace(request.GetName()),
 		// 刚填完的声明默认启用:用户新增它就是要用它,再让他多按一次开关没有道理。
 		Enabled: true,
 	}
 	if err := h.repo.Create(ctx, row); err != nil {
-		if isDuplicatePort(err) {
+		if isDuplicateTarget(err) {
 			return nil, ErrPortTaken
 		}
-		logger.Ctx(ctx).Error("portforward.Create: 落库失败", zap.Int("port", port), zap.Error(err))
+		logger.Ctx(ctx).Error("portforward.Create: 落库失败", zap.String("target", target), zap.Error(err))
 		return nil, internalError(err)
 	}
 	return &agentrewire.PortForwardCreateResponse{Mapping: toWire(row)}, nil
@@ -256,20 +268,102 @@ func (h *Handlers) Delete(ctx context.Context, request *agentrewire.PortForwardD
 	return &agentrewire.PortForwardDeleteResponse{Deleted: affected > 0}, nil
 }
 
-func validPort(port uint32) (int, error) {
-	if port == 0 || port > 65535 {
-		return 0, ErrInvalidPort
-	}
-	return int(port), nil
+// validPortNumber 是三种写法共用的端口范围判定:1..65535。
+func validPortNumber(port int) bool {
+	return port > 0 && port <= 65535
 }
 
-// isDuplicatePort 认出「端口已被声明」这一种写失败。
+// defaultPortFor 是 http(s)://host[:port] 省略端口时按协议取的默认值(规格
+// 「映射与目标」一节)。
+func defaultPortFor(scheme string) int {
+	if scheme == "https" {
+		return 443
+	}
+	return 80
+}
+
+// normalizeTarget 把目标的三种写法(纯端口简写 / host:port / http(s)://host[:port])
+// 规范化成 (scheme, host, port)。以下写法一律回 ErrInvalidTarget:路径、查询串、
+// 用户信息、http(s) 以外的协议、端口越界、主机为空——六种理由报同一个码,规格
+// 「映射与目标」一节没有把它们分开,调用方也不需要对六种输入错误分别猜。
+func normalizeTarget(raw string) (scheme, host string, port int, err error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", 0, ErrInvalidTarget
+	}
+	// 纯端口是 "http://127.0.0.1:<端口>" 的简写。
+	if p, convErr := strconv.Atoi(raw); convErr == nil {
+		if !validPortNumber(p) {
+			return "", "", 0, ErrInvalidTarget
+		}
+		return "http", "127.0.0.1", p, nil
+	}
+	if strings.Contains(raw, "://") {
+		return normalizeURLTarget(raw)
+	}
+	return normalizeHostPortTarget(raw)
+}
+
+// normalizeURLTarget 处理 http(s)://host[:port] 那一支。
+func normalizeURLTarget(raw string) (string, string, int, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", "", 0, ErrInvalidTarget
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", "", 0, ErrInvalidTarget
+	}
+	if u.User != nil {
+		return "", "", 0, ErrInvalidTarget
+	}
+	if u.RawQuery != "" {
+		return "", "", 0, ErrInvalidTarget
+	}
+	if u.Path != "" && u.Path != "/" {
+		return "", "", 0, ErrInvalidTarget
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return "", "", 0, ErrInvalidTarget
+	}
+	portStr := u.Port()
+	if portStr == "" {
+		return scheme, host, defaultPortFor(scheme), nil
+	}
+	p, convErr := strconv.Atoi(portStr)
+	if convErr != nil || !validPortNumber(p) {
+		return "", "", 0, ErrInvalidTarget
+	}
+	return scheme, host, p, nil
+}
+
+// normalizeHostPortTarget 处理没有协议前缀的 host:port,按 http 处理。
+func normalizeHostPortTarget(raw string) (string, string, int, error) {
+	host, portStr, err := net.SplitHostPort(raw)
+	if err != nil || host == "" {
+		return "", "", 0, ErrInvalidTarget
+	}
+	p, convErr := strconv.Atoi(portStr)
+	if convErr != nil || !validPortNumber(p) {
+		return "", "", 0, ErrInvalidTarget
+	}
+	return "http", strings.ToLower(host), p, nil
+}
+
+// canonicalTarget 把规范化的三元组拼回线上/库里那条规范字符串——总是带着端口,
+// 即便端口等于协议的默认值(规格「映射与目标」一节)。
+func canonicalTarget(scheme, host string, port int) string {
+	return fmt.Sprintf("%s://%s:%d", scheme, host, port)
+}
+
+// isDuplicateTarget 认出「目标已被声明」这一种写失败。
 //
 // gorm 只有开了 TranslateError 才给得出 ErrDuplicatedKey,而两个宿主今天都没开;
 // 在那之前只剩驱动自己那句话可认(glebarez/sqlite 说 "UNIQUE constraint failed",
 // 仓储用例里那条 MySQL 形状的 "Duplicate entry" 是同一件事的另一种说法)。两种都
 // 认,是因为认错的代价不对称:漏认只会把一次可就地改正的输入错误说成 -32603。
-func isDuplicatePort(err error) bool {
+func isDuplicateTarget(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -302,6 +396,8 @@ func toWire(row *port_forward_entity.PortForward) *agentrewire.PortForwardMappin
 		Port:       uint32(row.Port),
 		Name:       row.Name,
 		Enabled:    row.Enabled,
+		Target:     row.Target,
+		Insecure:   row.Insecure,
 		Createtime: unixSeconds(row.Createtime),
 		Updatetime: unixSeconds(row.Updatetime),
 	}

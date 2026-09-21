@@ -1368,30 +1368,46 @@ message ImageBlock {
 //   流族    open / write / close / ack + 三条通知 —— 一条转发流的生命周期跟着承载
 //           它的那条连接走,挂连接级注册面(与 terminal.* 同一条路子)。
 //
-// **目标主机不在协议里**:设备侧恒连环回地址,端口必须已在这台设备上声明过。给请求
-// 加一格 host 就等于把「转到哪台机器」交给调用方决定,而这条限制的立论正是「不依赖
-// 任何客户端做对」——它必须在设备侧判得出来,协议里因此不能有位置放它。
+// **open 请求里没有目标主机那一格**(PortForwardOpenRequest,下方):设备侧按
+// 声明里存的目标拨号,端口必须已在这台设备上声明过。给 open 请求加一格 host 就等于
+// 把「转到哪台机器」交给调用方决定,而这条限制的立论正是「不依赖任何客户端做对」
+// ——它必须在设备侧判得出来,open 的协议里因此不能有位置放它。**声明**本身则可以
+// 带主机:目标不再恒为环回(决策见 spec「映射与目标」),只是 open 仍按映射的端口
+// 定位(id 定位、真按目标拨号留给下一轮)。
 
-// PortForwardMapping 是一条声明:这台机器允许把它 127.0.0.1 上的某个端口转出去。
-// 端口在一台设备下唯一;enabled 为假的映射保留声明但一律拒绝访问。
+// PortForwardMapping 是一条声明:这台机器允许把某个目标转出去。目标(协议、主机、
+// 端口的规范化组合)在一台设备下唯一;enabled 为假的映射保留声明但一律拒绝访问。
+// 目标不可编辑——要换目标就删掉重建,重建后是一条新映射。
 message PortForwardMapping {
-  // id 是这条声明在**那台设备**上的主键。启停与删除按它定位,而不是按端口 ——
-  // 端口虽然也唯一,但它是用户随时会改的那一格。
+  // id 是这条声明在**那台设备**上的主键。启停与删除按它定位。
   int64 id = 1;
+  // port 是 target 里那个端口,仍然填着——open(见 PortForwardOpenRequest)今天还
+  // 按端口定位,没有跟着切到按 target 拨号(那是下一轮的事)。
   uint32 port = 2;
   string name = 3;
   bool enabled = 4;
   // unix 秒。
   int64 createtime = 5;
   int64 updatetime = 6;
+  // target 是规范化之后的目标,形如 "http://host:port" 或 "https://host:port"——
+  // 总是带着端口,即便端口等于协议的默认值。规范化规则(纯端口简写 / host:port /
+  // http(s)://host[:port])见 daemon/portforward 的实现。
+  string target = 7;
+  // insecure 只对 https 目标有意义:为真时这条映射拨号不校验目标的证书。
+  bool insecure = 8;
 }
 
 message PortForwardListRequest {}
 message PortForwardListResponse { repeated PortForwardMapping mappings = 1; }
 
 message PortForwardCreateRequest {
+  // port 是这个字段被 target(下方)取代前的旧写法,保留只是因为 buf breaking
+  // 不许删字段/改编号——设备侧的 Create 不再读它,新老客户端都改填 target。
   uint32 port = 1;
   string name = 2;
+  // target 接受三种写法:纯端口(环回简写)、host:port、http(s)://host[:port]。
+  string target = 3;
+  bool insecure = 4;
 }
 // 应答交回**设备落库之后**的那一行:id、时间戳与启用位都由设备定,调用方不猜。
 message PortForwardCreateResponse { PortForwardMapping mapping = 1; }

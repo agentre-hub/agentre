@@ -13,14 +13,23 @@ func TestPortForward_TableName(t *testing.T) {
 }
 
 // TestPortForward_Fields 覆盖字段形状与 gorm 列名标注：port / name / enabled /
-// createtime / updatetime 五个业务列，加上自增主键 id。规格「数据」一节列的字段
-// 就是这五个——本表不设「所有者标识」列，理由见 port_forward.go 顶部包注释。
+// createtime / updatetime / target / insecure 七个业务列，加上自增主键 id。
+// target / insecure 是规格「映射与目标」一节加的两格——目标现在是一条规范化字符串
+// （"http(s)://host:port"，总带着端口），insecure 只对 https 目标有意义。port 仍然
+// 保留：它是 target 里那个端口，open 判定（见 daemon/portforward 包注释）今天还按
+// 端口定位。
 func TestPortForward_Fields(t *testing.T) {
-	p := &PortForward{ID: 1, Port: 3000, Name: "dev server", Enabled: true, Createtime: 10, Updatetime: 20}
+	p := &PortForward{
+		ID: 1, Port: 3000, Name: "dev server", Enabled: true,
+		Target: "http://127.0.0.1:3000", Insecure: false,
+		Createtime: 10, Updatetime: 20,
+	}
 	assert.Equal(t, int64(1), p.ID)
 	assert.Equal(t, 3000, p.Port)
 	assert.Equal(t, "dev server", p.Name)
 	assert.True(t, p.Enabled)
+	assert.Equal(t, "http://127.0.0.1:3000", p.Target)
+	assert.False(t, p.Insecure)
 	assert.Equal(t, int64(10), p.Createtime)
 	assert.Equal(t, int64(20), p.Updatetime)
 
@@ -30,6 +39,8 @@ func TestPortForward_Fields(t *testing.T) {
 		"Port":       "port",
 		"Name":       "name",
 		"Enabled":    "enabled",
+		"Target":     "target",
+		"Insecure":   "insecure",
 		"Createtime": "createtime",
 		"Updatetime": "updatetime",
 	}

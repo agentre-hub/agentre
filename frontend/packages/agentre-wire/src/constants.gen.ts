@@ -339,13 +339,28 @@ export const ErrCodePortForwardNoListener = -32072;
 export const ErrCodePortForwardStreamNotFound = -32073;
 
 /**
- * CodePortForwardPortTaken:新增声明时这个端口在这台设备上已经声明过。端口
- * 在一台设备下唯一,所以它是一次可以就地改正的输入错误,不是写失败。
+ * CodePortForwardPortTaken:新增声明时这个目标(规范化后的协议、主机、端口)
+ * 在这台设备上已经声明过。目标在一台设备下唯一,所以它是一次可以就地改正的
+ * 输入错误,不是写失败。名字沿用「端口」是历史遗留——决策把唯一性的判据从
+ * 端口扩成了整个目标,但这仍是同一类错误,调用方不必学一个新码。
  */
 export const ErrCodePortForwardPortTaken = -32074;
 
-/** CodePortForwardInvalidPort:端口号不在 1..65535 内。 */
+/**
+ * CodePortForwardInvalidPort:端口号不在 1..65535 内。**新增声明不再产生这个
+ * 码**——新增改走 CodePortForwardInvalidTarget(端口越界是那六种拒绝理由之
+ * 一)。留着这个常量不删,因为它是过线的稳定协议值(包注释开头那句话),删掉
+ * 就是给一个可能还在用它做 errors.Is 分支的调用方判红。
+ */
 export const ErrCodePortForwardInvalidPort = -32075;
+
+/**
+ * CodePortForwardInvalidTarget:新增声明时目标写法不合法——路径、查询串、
+ * 用户信息、http(s) 以外的协议、端口越界、主机为空,六种理由报同一个码。目标
+ * 现在是一整条字符串而不是一个数字,拒绝的理由不再只有「端口越界」这一种,
+ * 折成一个码好过让调用方对六种输入错误分别猜。
+ */
+export const ErrCodePortForwardInvalidTarget = -32076;
 
 export const ErrCodeUnauthorized = -32001;
 

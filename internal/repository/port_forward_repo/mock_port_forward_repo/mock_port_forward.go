@@ -21,7 +21,6 @@ import (
 type MockPortForwardRepo struct {
 	ctrl     *gomock.Controller
 	recorder *MockPortForwardRepoMockRecorder
-	isgomock struct{}
 }
 
 // MockPortForwardRepoMockRecorder is the mock recorder for MockPortForwardRepo.
@@ -83,6 +82,21 @@ func (m *MockPortForwardRepo) FindByPort(ctx context.Context, port int) (*port_f
 func (mr *MockPortForwardRepoMockRecorder) FindByPort(ctx, port any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByPort", reflect.TypeOf((*MockPortForwardRepo)(nil).FindByPort), ctx, port)
+}
+
+// FindByTarget mocks base method.
+func (m *MockPortForwardRepo) FindByTarget(ctx context.Context, target string) (*port_forward_entity.PortForward, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindByTarget", ctx, target)
+	ret0, _ := ret[0].(*port_forward_entity.PortForward)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindByTarget indicates an expected call of FindByTarget.
+func (mr *MockPortForwardRepoMockRecorder) FindByTarget(ctx, target any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByTarget", reflect.TypeOf((*MockPortForwardRepo)(nil).FindByTarget), ctx, target)
 }
 
 // Get mocks base method.

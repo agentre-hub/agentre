@@ -14524,19 +14524,27 @@ func (x *ImageBlock) GetSource() *BlobSource {
 	return nil
 }
 
-// PortForwardMapping 是一条声明:这台机器允许把它 127.0.0.1 上的某个端口转出去。
-// 端口在一台设备下唯一;enabled 为假的映射保留声明但一律拒绝访问。
+// PortForwardMapping 是一条声明:这台机器允许把某个目标转出去。目标(协议、主机、
+// 端口的规范化组合)在一台设备下唯一;enabled 为假的映射保留声明但一律拒绝访问。
+// 目标不可编辑——要换目标就删掉重建,重建后是一条新映射。
 type PortForwardMapping struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// id 是这条声明在**那台设备**上的主键。启停与删除按它定位,而不是按端口 ——
-	// 端口虽然也唯一,但它是用户随时会改的那一格。
-	Id      int64  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// id 是这条声明在**那台设备**上的主键。启停与删除按它定位。
+	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// port 是 target 里那个端口,仍然填着——open(见 PortForwardOpenRequest)今天还
+	// 按端口定位,没有跟着切到按 target 拨号(那是下一轮的事)。
 	Port    uint32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
 	Name    string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Enabled bool   `protobuf:"varint,4,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	// unix 秒。
-	Createtime    int64 `protobuf:"varint,5,opt,name=createtime,proto3" json:"createtime,omitempty"`
-	Updatetime    int64 `protobuf:"varint,6,opt,name=updatetime,proto3" json:"updatetime,omitempty"`
+	Createtime int64 `protobuf:"varint,5,opt,name=createtime,proto3" json:"createtime,omitempty"`
+	Updatetime int64 `protobuf:"varint,6,opt,name=updatetime,proto3" json:"updatetime,omitempty"`
+	// target 是规范化之后的目标,形如 "http://host:port" 或 "https://host:port"——
+	// 总是带着端口,即便端口等于协议的默认值。规范化规则(纯端口简写 / host:port /
+	// http(s)://host[:port])见 daemon/portforward 的实现。
+	Target string `protobuf:"bytes,7,opt,name=target,proto3" json:"target,omitempty"`
+	// insecure 只对 https 目标有意义:为真时这条映射拨号不校验目标的证书。
+	Insecure      bool `protobuf:"varint,8,opt,name=insecure,proto3" json:"insecure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -14611,6 +14619,20 @@ func (x *PortForwardMapping) GetUpdatetime() int64 {
 		return x.Updatetime
 	}
 	return 0
+}
+
+func (x *PortForwardMapping) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *PortForwardMapping) GetInsecure() bool {
+	if x != nil {
+		return x.Insecure
+	}
+	return false
 }
 
 type PortForwardListRequest struct {
@@ -14694,9 +14716,14 @@ func (x *PortForwardListResponse) GetMappings() []*PortForwardMapping {
 }
 
 type PortForwardCreateRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Port          uint32                 `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// port 是这个字段被 target(下方)取代前的旧写法,保留只是因为 buf breaking
+	// 不许删字段/改编号——设备侧的 Create 不再读它,新老客户端都改填 target。
+	Port uint32 `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// target 接受三种写法:纯端口(环回简写)、host:port、http(s)://host[:port]。
+	Target        string `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"`
+	Insecure      bool   `protobuf:"varint,4,opt,name=insecure,proto3" json:"insecure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -14743,6 +14770,20 @@ func (x *PortForwardCreateRequest) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+func (x *PortForwardCreateRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *PortForwardCreateRequest) GetInsecure() bool {
+	if x != nil {
+		return x.Insecure
+	}
+	return false
 }
 
 // 应答交回**设备落库之后**的那一行:id、时间戳与启用位都由设备定,调用方不猜。
@@ -17707,7 +17748,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"ImageBlock\x12\x1d\n" +
 	"\n" +
 	"media_type\x18\x01 \x01(\tR\tmediaType\x120\n" +
-	"\x06source\x18\x02 \x01(\v2\x18.agentre.wire.BlobSourceR\x06source\"\xa6\x01\n" +
+	"\x06source\x18\x02 \x01(\v2\x18.agentre.wire.BlobSourceR\x06source\"\xda\x01\n" +
 	"\x12PortForwardMapping\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\rR\x04port\x12\x12\n" +
@@ -17718,13 +17759,17 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"createtime\x12\x1e\n" +
 	"\n" +
 	"updatetime\x18\x06 \x01(\x03R\n" +
-	"updatetime\"\x18\n" +
+	"updatetime\x12\x16\n" +
+	"\x06target\x18\a \x01(\tR\x06target\x12\x1a\n" +
+	"\binsecure\x18\b \x01(\bR\binsecure\"\x18\n" +
 	"\x16PortForwardListRequest\"W\n" +
 	"\x17PortForwardListResponse\x12<\n" +
-	"\bmappings\x18\x01 \x03(\v2 .agentre.wire.PortForwardMappingR\bmappings\"B\n" +
+	"\bmappings\x18\x01 \x03(\v2 .agentre.wire.PortForwardMappingR\bmappings\"v\n" +
 	"\x18PortForwardCreateRequest\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"W\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
+	"\x06target\x18\x03 \x01(\tR\x06target\x12\x1a\n" +
+	"\binsecure\x18\x04 \x01(\bR\binsecure\"W\n" +
 	"\x19PortForwardCreateResponse\x12:\n" +
 	"\amapping\x18\x01 \x01(\v2 .agentre.wire.PortForwardMappingR\amapping\"H\n" +
 	"\x1cPortForwardSetEnabledRequest\x12\x0e\n" +
