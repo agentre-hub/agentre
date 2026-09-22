@@ -27,7 +27,7 @@ import (
 )
 
 // 本文件测的是**一条转发流真的把字节搬过去了**:目标是一个跑在本机环回上的真服务
-// (httptest / 一个裸 TCP 监听),拨号走生产那一条 DialLoopback,读的是真 socket。
+// (httptest / 一个裸 TCP 监听),拨号走生产那一条 DialTarget,读的是真 socket。
 //
 // 三条不许踩的线,每一条都有对应的用例:
 //
@@ -124,22 +124,37 @@ func (r *recorder) waitClosed(t *testing.T) *agentrewire.PortForwardClosedNotifi
 	return r.closedEvent()
 }
 
-// declaredRepo 是一份「这几个端口已声明且已启用」的声明集。仓储一律走 mock,不连库。
+// declaredRepo 是一份「本机环回上这几个端口已声明且已启用」的声明集,映射 id 取端口
+// 号本身(用例因此能直接拿端口当 id 去 open)。仓储一律走 mock,不连库。
 func declaredRepo(t *testing.T, ports ...int) *mock_port_forward_repo.MockPortForwardRepo {
+	t.Helper()
+	rows := make([]*port_forward_entity.PortForward, 0, len(ports))
+	for _, port := range ports {
+		rows = append(rows, &port_forward_entity.PortForward{
+			ID: int64(port), Port: port, Target: fmt.Sprintf("http://127.0.0.1:%d", port), Enabled: true,
+		})
+	}
+	return mappingsRepo(t, rows...)
+}
+
+// mappingsRepo 是一份按 id 点查的声明集,行原样交出(每次一份拷贝)。
+func mappingsRepo(t *testing.T, rows ...*port_forward_entity.PortForward) *mock_port_forward_repo.MockPortForwardRepo {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	repo := mock_port_forward_repo.NewMockPortForwardRepo(ctrl)
-	declared := make(map[int]bool, len(ports))
-	for _, port := range ports {
-		declared[port] = true
+	byID := make(map[int64]*port_forward_entity.PortForward, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = row
 	}
-	repo.EXPECT().FindByPort(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, port int) (*port_forward_entity.PortForward, error) {
-			if !declared[port] {
+	repo.EXPECT().Get(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, id int64) (*port_forward_entity.PortForward, error) {
+			row := byID[id]
+			if row == nil {
 				return nil, nil
 			}
-			return &port_forward_entity.PortForward{ID: int64(port), Port: port, Enabled: true}, nil
+			copied := *row
+			return &copied, nil
 		}).AnyTimes()
 	return repo
 }
@@ -174,8 +189,8 @@ func (c countingConn) Close() error {
 func countingDialer() (Dialer, *atomic.Int64, *atomic.Bool) {
 	read := &atomic.Int64{}
 	closed := &atomic.Bool{}
-	return func(ctx context.Context, port int) (net.Conn, error) {
-		conn, err := DialLoopback(ctx, port)
+	return func(ctx context.Context, target Target) (net.Conn, error) {
+		conn, err := DialTarget(ctx, target)
 		if err != nil {
 			return nil, err
 		}
@@ -242,10 +257,10 @@ func TestStreamOpen_GivenALargeResponse_WhenTheHostConsumesIt_ThenEveryByteComes
 	port := serverPort(t, server)
 
 	rec := newRecorder()
-	streams := newStreams(t, rec.notify, DialLoopback, port)
+	streams := newStreams(t, rec.notify, DialTarget, port)
 
 	opened, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
-		StreamId: "s1", Port: uint32(port), Method: http.MethodGet, Path: "/big",
+		StreamId: "s1", MappingId: int64(port), Method: http.MethodGet, Path: "/big",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "s1", opened.GetStreamId())
@@ -292,7 +307,7 @@ func TestStreamBackpressure_GivenAConsumerThatDoesNotAck_WhenTheWindowFills_Then
 	streams := newStreams(t, rec.notify, dial, port)
 
 	_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
-		StreamId: "s1", Port: uint32(port), Method: http.MethodGet, Path: "/big",
+		StreamId: "s1", MappingId: int64(port), Method: http.MethodGet, Path: "/big",
 		WindowBytes: window,
 	})
 	require.NoError(t, err)
@@ -343,10 +358,10 @@ func TestStreamBackpressure_GivenANotifierThatNeverReturns_WhenOtherMethodsAreCa
 	rec := newRecorder()
 	release := rec.stall()
 	t.Cleanup(release)
-	streams := newStreams(t, rec.notify, DialLoopback, port)
+	streams := newStreams(t, rec.notify, DialTarget, port)
 
 	_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
-		StreamId: "stuck", Port: uint32(port), Method: http.MethodGet, Path: "/big",
+		StreamId: "stuck", MappingId: int64(port), Method: http.MethodGet, Path: "/big",
 	})
 	require.NoError(t, err)
 
@@ -356,7 +371,7 @@ func TestStreamBackpressure_GivenANotifierThatNeverReturns_WhenOtherMethodsAreCa
 		ctx := context.Background()
 		_, _ = streams.Ack(ctx, &agentrewire.PortForwardAckRequest{StreamId: "stuck", ConsumedBytes: 1})
 		_, _ = streams.Open(ctx, &agentrewire.PortForwardOpenRequest{
-			StreamId: "second", Port: uint32(port), Method: http.MethodGet, Path: "/big",
+			StreamId: "second", MappingId: int64(port), Method: http.MethodGet, Path: "/big",
 		})
 		_, _ = streams.Close(ctx, &agentrewire.PortForwardCloseRequest{StreamId: "stuck"})
 	}()
@@ -420,10 +435,10 @@ func TestStreamUpgrade_GivenTheUpstreamSwitchesProtocols_WhenBytesFlowBothWays_T
 	port, head := upgradeEcho(t)
 
 	rec := newRecorder()
-	streams := newStreams(t, rec.notify, DialLoopback, port)
+	streams := newStreams(t, rec.notify, DialTarget, port)
 
 	_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
-		StreamId: "ws", Port: uint32(port), Method: http.MethodGet, Path: "/hmr",
+		StreamId: "ws", MappingId: int64(port), Method: http.MethodGet, Path: "/hmr",
 		Headers: map[string]*agentrewire.HeaderValues{
 			"Connection":            {Values: []string{"Upgrade"}},
 			"Upgrade":               {Values: []string{"websocket"}},
@@ -480,10 +495,10 @@ func TestStreamOpen_GivenNothingListeningOnTheDeclaredPort_WhenOpening_ThenNoLis
 	require.NoError(t, listener.Close())
 
 	rec := newRecorder()
-	streams := newStreams(t, rec.notify, DialLoopback, port)
+	streams := newStreams(t, rec.notify, DialTarget, port)
 
 	opened, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
-		StreamId: "dead", Port: uint32(port), Method: http.MethodGet, Path: "/",
+		StreamId: "dead", MappingId: int64(port), Method: http.MethodGet, Path: "/",
 	})
 
 	assert.Nil(t, opened)
@@ -503,7 +518,7 @@ func TestStreamClose_GivenAnOpenStream_WhenTheHostCloses_ThenTheUpstreamConnecti
 	streams := newStreams(t, rec.notify, dial, port)
 
 	_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
-		StreamId: "s1", Port: uint32(port), Method: http.MethodGet, Path: "/hang",
+		StreamId: "s1", MappingId: int64(port), Method: http.MethodGet, Path: "/hang",
 	})
 	require.NoError(t, err)
 
@@ -528,7 +543,7 @@ func TestStreamCloseAll_GivenTheCarryingConnectionGoesAway_WhenStreamsAreTornDow
 	streams := newStreams(t, rec.notify, dial, port)
 
 	_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
-		StreamId: "s1", Port: uint32(port), Method: http.MethodGet, Path: "/hang",
+		StreamId: "s1", MappingId: int64(port), Method: http.MethodGet, Path: "/hang",
 	})
 	require.NoError(t, err)
 
@@ -543,7 +558,7 @@ func TestStreamCloseAll_GivenTheCarryingConnectionGoesAway_WhenStreamsAreTornDow
 // StreamNotFound —— 这是调用方状态机落后了一步,与「这次访问不被允许」必须分得开。
 func TestStreamMethods_GivenAnUnknownStreamID_WhenCalled_ThenStreamNotFoundIsReported(t *testing.T) {
 	rec := newRecorder()
-	streams := newStreams(t, rec.notify, DialLoopback)
+	streams := newStreams(t, rec.notify, DialTarget)
 	ctx := context.Background()
 
 	_, err := streams.Write(ctx, &agentrewire.PortForwardWriteRequest{StreamId: "ghost", Data: []byte("x")})
@@ -585,11 +600,11 @@ func TestStreamOpen_GivenExpect100Continue_WhenUpstreamSendsAnInterimResponse_Th
 
 	body := patternBody(64 << 10)
 	rec := newRecorder()
-	streams := newStreams(t, rec.notify, DialLoopback, port)
+	streams := newStreams(t, rec.notify, DialTarget, port)
 	ctx := context.Background()
 
 	_, err := streams.Open(ctx, &agentrewire.PortForwardOpenRequest{
-		StreamId: "s1", Port: uint32(port), Method: http.MethodPost, Path: "/upload", HasBody: true,
+		StreamId: "s1", MappingId: int64(port), Method: http.MethodPost, Path: "/upload", HasBody: true,
 		Headers: map[string]*agentrewire.HeaderValues{
 			"Content-Length": {Values: []string{fmt.Sprint(len(body))}},
 			"Expect":         {Values: []string{"100-continue"}},
@@ -653,10 +668,10 @@ func TestStreamOpen_GivenAnUpstreamThatOnlySendsInterimResponses_ThenTheStreamGi
 	port := interimFlood(t)
 
 	rec := newRecorder()
-	streams := newStreams(t, rec.notify, DialLoopback, port)
+	streams := newStreams(t, rec.notify, DialTarget, port)
 
 	_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
-		StreamId: "s1", Port: uint32(port), Method: http.MethodGet, Path: "/",
+		StreamId: "s1", MappingId: int64(port), Method: http.MethodGet, Path: "/",
 	})
 	require.NoError(t, err)
 
@@ -693,7 +708,7 @@ func TestStreamCredit_GivenTheHostAbandonsWithoutAcking_WhenTheWindowStaysFull_T
 	t.Cleanup(streams.CloseAll)
 
 	_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
-		StreamId: "orphan", Port: uint32(port), Method: http.MethodGet, Path: "/big",
+		StreamId: "orphan", MappingId: int64(port), Method: http.MethodGet, Path: "/big",
 		WindowBytes: 16 << 10,
 	})
 	require.NoError(t, err)
@@ -717,7 +732,7 @@ func TestStreamCredit_GivenTheHostConsumesSlowly_WhenTheWindowStaysFull_ThenTheS
 	port := serverPort(t, server)
 
 	rec := newRecorder()
-	gate := NewHandlers(Options{Repo: declaredRepo(t, port), Dial: DialLoopback})
+	gate := NewHandlers(Options{Repo: declaredRepo(t, port), Dial: DialTarget})
 	streams := NewStreams(StreamOptions{
 		Gate:              gate,
 		Notify:            rec.notify,
@@ -726,7 +741,7 @@ func TestStreamCredit_GivenTheHostConsumesSlowly_WhenTheWindowStaysFull_ThenTheS
 	t.Cleanup(streams.CloseAll)
 
 	_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
-		StreamId: "slow", Port: uint32(port), Method: http.MethodGet, Path: "/big",
+		StreamId: "slow", MappingId: int64(port), Method: http.MethodGet, Path: "/big",
 		WindowBytes: 16 << 10,
 	})
 	require.NoError(t, err)
@@ -774,7 +789,7 @@ func TestStreamCredit_GivenTheUpstreamIsSilent_WhenNothingIsOutstanding_ThenTheS
 	port := serverPort(t, server)
 
 	rec := newRecorder()
-	gate := NewHandlers(Options{Repo: declaredRepo(t, port), Dial: DialLoopback})
+	gate := NewHandlers(Options{Repo: declaredRepo(t, port), Dial: DialTarget})
 	streams := NewStreams(StreamOptions{
 		Gate:              gate,
 		Notify:            rec.notify,
@@ -783,7 +798,7 @@ func TestStreamCredit_GivenTheUpstreamIsSilent_WhenNothingIsOutstanding_ThenTheS
 	t.Cleanup(streams.CloseAll)
 
 	_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
-		StreamId: "sse", Port: uint32(port), Method: http.MethodGet, Path: "/events",
+		StreamId: "sse", MappingId: int64(port), Method: http.MethodGet, Path: "/events",
 	})
 	require.NoError(t, err)
 

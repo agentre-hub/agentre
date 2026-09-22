@@ -26,9 +26,22 @@ export {
   LlmProviderLogo,
   resolveModelBrand,
 } from "./engine/ai-brand-logo";
-// 设备的端口转发小节：桌面端设备行下的子块与控制台设备卡展开区渲染同一份行。
+// 设备的端口转发小节：桌面端设备行下的子块与控制台设备卡展开区渲染同一份行与
+// 同一份新增表单(规格「控制台界面」:两个宿主各自只接数据与动作)。
 export { PortForwardSection } from "./port-forward/port-forward-section";
-export type { PortForwardMappingView } from "./port-forward/port-forward-section";
+export type {
+  PortForwardCreateInput,
+  PortForwardMappingView,
+} from "./port-forward/port-forward-section";
+// 目标的纯呈现/校验：行上「环回只显示端口」与新增表单的即时反馈校验，两处共用
+// 同一份判定，权威判定恒在设备侧(规格「映射与目标」决策 8)。
+export {
+  formatPortForwardTarget,
+  isExplicitHttpsTarget,
+  isLikelyValidPortForwardTarget,
+  parsePortForwardTarget,
+} from "./port-forward/target";
+export type { ParsedPortForwardTarget } from "./port-forward/target";
 export { PermissionModePill } from "./permission-mode";
 export {
   isPermissionModeDisabled,

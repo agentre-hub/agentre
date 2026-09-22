@@ -326,8 +326,15 @@ export const ErrCodePortForwardNotDeclared = -32070;
 export const ErrCodePortForwardDisabled = -32071;
 
 /**
- * CodePortForwardNoListener:端口通过了声明集判定,但那台设备的环回地址上
- * 没有服务在监听(端口写错了,或服务还没起)。
+ * CodePortForwardNoListener:映射通过了判定,但目标连不上——连接被拒(端口
+ * 写错了,或服务还没起),或者网络上够不着那个地址。它是「目标连不上」三种原因
+ * 里的第一种,另两种是下面的名字解析失败与 TLS 校验失败。名字沿用「没有监听」
+ * 是历史遗留:目标只能是环回时,连不上只有这一种解释。
+ *
+ * 它与下面的 CodePortForwardNameResolution、CodePortForwardTLSVerification 这三个
+ * 码的 Details 是一条 PortForwardMapping(只填 id 与 target):那条被拒的声明与它
+ * 规范化后的目标。宿主手上只有映射 id,失败页却要把话说到具体的目标上
+ * (spec 2026-09-21「失败的呈现」)。Details 可以缺席,宿主此时不点名目标。
  */
 export const ErrCodePortForwardNoListener = -32072;
 
@@ -339,13 +346,42 @@ export const ErrCodePortForwardNoListener = -32072;
 export const ErrCodePortForwardStreamNotFound = -32073;
 
 /**
- * CodePortForwardPortTaken:新增声明时这个端口在这台设备上已经声明过。端口
- * 在一台设备下唯一,所以它是一次可以就地改正的输入错误,不是写失败。
+ * CodePortForwardPortTaken:新增声明时这个目标(规范化后的协议、主机、端口)
+ * 在这台设备上已经声明过。目标在一台设备下唯一,所以它是一次可以就地改正的
+ * 输入错误,不是写失败。名字沿用「端口」是历史遗留——决策把唯一性的判据从
+ * 端口扩成了整个目标,但这仍是同一类错误,调用方不必学一个新码。
  */
 export const ErrCodePortForwardPortTaken = -32074;
 
-/** CodePortForwardInvalidPort:端口号不在 1..65535 内。 */
+/**
+ * CodePortForwardInvalidPort:端口号不在 1..65535 内。**新增声明不再产生这个
+ * 码**——新增改走 CodePortForwardInvalidTarget(端口越界是那六种拒绝理由之
+ * 一)。留着这个常量不删,因为它是过线的稳定协议值(包注释开头那句话),删掉
+ * 就是给一个可能还在用它做 errors.Is 分支的调用方判红。
+ */
 export const ErrCodePortForwardInvalidPort = -32075;
+
+/**
+ * CodePortForwardInvalidTarget:新增声明时目标写法不合法——路径、查询串、
+ * 用户信息、http(s) 以外的协议、端口越界、主机为空,六种理由报同一个码。目标
+ * 现在是一整条字符串而不是一个数字,拒绝的理由不再只有「端口越界」这一种,
+ * 折成一个码好过让调用方对六种输入错误分别猜。
+ */
+export const ErrCodePortForwardInvalidTarget = -32076;
+
+/**
+ * CodePortForwardNameResolution:目标的主机名在那台设备上解析不出来。主机名
+ * 恒在设备上解析(目标在设备所在的网络里),所以这是那台设备的 DNS 给出的答案,
+ * 与发起访问的那台机器能不能解析无关。
+ */
+export const ErrCodePortForwardNameResolution = -32077;
+
+/**
+ * CodePortForwardTLSVerification:https 目标的证书没通过校验(自签、过期、
+ * 主机名不符)。与「连不上」分开,因为用户能做的事不同:内网自签证书的出路是给
+ * 这条映射勾选「忽略证书错误」。
+ */
+export const ErrCodePortForwardTLSVerification = -32078;
 
 export const ErrCodeUnauthorized = -32001;
 

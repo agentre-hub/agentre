@@ -2,6 +2,7 @@ package portforward
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -28,7 +29,9 @@ import (
 // 三条不许踩的线:
 //
 //   - 关的是**那一条映射**的流。只断言「目标流关了」的用例,一个「一停用就全关」的
-//     实现同样过得去 —— 所以每条用例都带一条别的端口上的流,并断言它还活着。
+//     实现同样过得去 —— 所以每条用例都带一条别的映射上的流,并断言它还活着。
+//   - 撤销按**映射 id** 认流。脚手架刻意让 id 与端口取不同的数:一个仍按端口认流的
+//     实现在这里认不出任何一条流。
 //   - 收尾走**既有语义**:一条 port_forward_closed,带着与 open 拒绝同一族的领域码,
 //     调用方按码分支(「去把它打开」和「那个端口压根没被声明出来」是两件事)。
 //   - 关掉之后再指向它的 write / close / ack 一律 StreamNotFound,与任务 4 已有的
@@ -43,7 +46,14 @@ type mappingSet struct {
 	rows map[int64]*port_forward_entity.PortForward
 }
 
-// revocableGate 建一份「这几个端口已声明且已启用」的判定面,id 取端口号本身。
+// mappingIDBase 让映射 id 与端口号永远不相等(端口 ≤ 65535),见文件开头那条线。
+const mappingIDBase = 1_000_000
+
+// mappingIDFor 是 revocableGate 给这个端口那条声明分的 id。
+func mappingIDFor(port int) int64 { return int64(mappingIDBase + port) }
+
+// revocableGate 建一份「本机环回上这几个端口已声明且已启用」的判定面,id 见
+// mappingIDFor。
 func revocableGate(t *testing.T, dial Dialer, ports ...int) (*Handlers, *mappingSet) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
@@ -51,20 +61,12 @@ func revocableGate(t *testing.T, dial Dialer, ports ...int) (*Handlers, *mapping
 	repo := mock_port_forward_repo.NewMockPortForwardRepo(ctrl)
 	set := &mappingSet{rows: make(map[int64]*port_forward_entity.PortForward, len(ports))}
 	for _, port := range ports {
-		set.rows[int64(port)] = &port_forward_entity.PortForward{ID: int64(port), Port: port, Enabled: true}
+		id := mappingIDFor(port)
+		set.rows[id] = &port_forward_entity.PortForward{
+			ID: id, Port: port, Target: fmt.Sprintf("http://127.0.0.1:%d", port), Enabled: true,
+		}
 	}
 
-	repo.EXPECT().FindByPort(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, port int) (*port_forward_entity.PortForward, error) {
-			set.mu.Lock()
-			defer set.mu.Unlock()
-			row := set.rows[int64(port)]
-			if row == nil {
-				return nil, nil
-			}
-			copied := *row
-			return &copied, nil
-		}).AnyTimes()
 	repo.EXPECT().Get(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, id int64) (*port_forward_entity.PortForward, error) {
 			set.mu.Lock()
@@ -110,12 +112,12 @@ type portDialer struct {
 
 func newPortDialer() *portDialer { return &portDialer{closed: make(map[int]bool)} }
 
-func (d *portDialer) dial(ctx context.Context, port int) (net.Conn, error) {
-	conn, err := DialLoopback(ctx, port)
+func (d *portDialer) dial(ctx context.Context, target Target) (net.Conn, error) {
+	conn, err := DialTarget(ctx, target)
 	if err != nil {
 		return nil, err
 	}
-	return &portTrackedConn{Conn: conn, owner: d, port: port}, nil
+	return &portTrackedConn{Conn: conn, owner: d, port: target.Port}, nil
 }
 
 func (d *portDialer) isClosed(port int) bool {
@@ -170,7 +172,7 @@ func twoLiveStreams(t *testing.T) (gate *Handlers, streams *Streams, rec *record
 		port int
 	}{{"a", portA}, {"b", portB}} {
 		_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
-			StreamId: one.id, Port: uint32(one.port), Method: http.MethodGet, Path: "/hang",
+			StreamId: one.id, MappingId: mappingIDFor(one.port), Method: http.MethodGet, Path: "/hang",
 		})
 		require.NoError(t, err)
 	}
@@ -205,7 +207,7 @@ func TestRevoke_GivenALiveStream_WhenItsMappingIsDisabled_ThenOnlyThatStreamClos
 	gate, streams, rec, dialer, portA, portB := twoLiveStreams(t)
 
 	_, err := gate.SetEnabled(context.Background(), &agentrewire.PortForwardSetEnabledRequest{
-		Id: int64(portA), Enabled: false,
+		Id: mappingIDFor(portA), Enabled: false,
 	})
 	require.NoError(t, err)
 
@@ -226,7 +228,7 @@ func TestRevoke_GivenALiveStream_WhenItsMappingIsDisabled_ThenOnlyThatStreamClos
 func TestRevoke_GivenALiveStream_WhenItsMappingIsDeleted_ThenOnlyThatStreamClosesAtOnce(t *testing.T) {
 	gate, streams, rec, dialer, portA, portB := twoLiveStreams(t)
 
-	deleted, err := gate.Delete(context.Background(), &agentrewire.PortForwardDeleteRequest{Id: int64(portA)})
+	deleted, err := gate.Delete(context.Background(), &agentrewire.PortForwardDeleteRequest{Id: mappingIDFor(portA)})
 	require.NoError(t, err)
 	require.True(t, deleted.GetDeleted())
 
@@ -250,11 +252,11 @@ func TestRevoke_GivenALiveStream_WhenItsMappingIsDeleted_ThenOnlyThatStreamClose
 func TestRevoke_GivenARevokedStream_WhenTheHostKeepsUsingIt_ThenStreamNotFoundIsReported(t *testing.T) {
 	for name, revoke := range map[string]func(*Handlers, int) error{
 		"停用": func(gate *Handlers, port int) error {
-			_, err := gate.SetEnabled(context.Background(), &agentrewire.PortForwardSetEnabledRequest{Id: int64(port), Enabled: false})
+			_, err := gate.SetEnabled(context.Background(), &agentrewire.PortForwardSetEnabledRequest{Id: mappingIDFor(port), Enabled: false})
 			return err
 		},
 		"删除": func(gate *Handlers, port int) error {
-			_, err := gate.Delete(context.Background(), &agentrewire.PortForwardDeleteRequest{Id: int64(port)})
+			_, err := gate.Delete(context.Background(), &agentrewire.PortForwardDeleteRequest{Id: mappingIDFor(port)})
 			return err
 		},
 	} {
@@ -298,7 +300,7 @@ func TestRevoke_GivenTheCarryingConnectionIsGone_WhenItsStreamsAreTornDown_ThenT
 	assert.Zero(t, remaining, "连接收尾之后不该在闸门上留下引用 —— 每接一条连接漏一份")
 
 	resp, err := gate.SetEnabled(context.Background(), &agentrewire.PortForwardSetEnabledRequest{
-		Id: int64(portA), Enabled: false,
+		Id: mappingIDFor(portA), Enabled: false,
 	})
 	require.NoError(t, err)
 	assert.False(t, resp.GetMapping().GetEnabled())
@@ -309,7 +311,7 @@ func TestRevoke_GivenTheCarryingConnectionIsGone_WhenItsStreamsAreTornDown_ThenT
 // 前面三条测的是「流当场断掉」。断流只够通知**正在用着这个端口的那一方**:一条流都
 // 没开着的宿主收不到任何东西,而桌面端那条专属监听多半正闲着(用户开了标签页晾在
 // 那儿)。规格「断开与失败」要的是「桌面端那条专属监听一并关掉」,所以撤销必须在
-// 声明这一层也说一句 —— 一条按端口认人的 port_forward_revoked,发给每一条连接,
+// 声明这一层也说一句 —— 一条按映射 id 认人的 port_forward_revoked,发给每一条连接,
 // 不论它此刻有没有流。
 //
 // 「发给每一条连接」这件事在这里落到:一份**没有任何流**的流表照样收得到。
@@ -333,26 +335,26 @@ func (r *recorder) waitRevoked(t *testing.T) []*agentrewire.PortForwardRevokedNo
 }
 
 // Given 一条连接上一条流都没开着(桌面端那条监听正闲着),When 这条映射被**别的
-// 客户端**停用 / 删除,Then 这条连接照样收到一条按端口认人的撤销通知,而同一台设备
-// 上另一条映射的端口没有被撤销。
+// 客户端**停用 / 删除,Then 这条连接照样收到一条按映射 id 认人的撤销通知,而同一台
+// 设备上另一条映射没有被撤销。
 //
 // 「另一条没有被撤销」是这里的真判据:一个「一改就把全部端口都广播一遍」的实现同样
 // 能让前一条断言过,而桌面端照着它会把用户别的映射的监听一起关掉。
-func TestRevoke_GivenAConnectionWithNoLiveStream_WhenAnotherClientRevokesTheMapping_ThenThatPortIsAnnouncedRevoked(t *testing.T) {
+func TestRevoke_GivenAConnectionWithNoLiveStream_WhenAnotherClientRevokesTheMapping_ThenThatMappingIsAnnouncedRevoked(t *testing.T) {
 	for name, one := range map[string]struct {
 		revoke func(*Handlers, int) error
 		token  string
 	}{
 		"停用": {
 			revoke: func(gate *Handlers, port int) error {
-				_, err := gate.SetEnabled(context.Background(), &agentrewire.PortForwardSetEnabledRequest{Id: int64(port), Enabled: false})
+				_, err := gate.SetEnabled(context.Background(), &agentrewire.PortForwardSetEnabledRequest{Id: mappingIDFor(port), Enabled: false})
 				return err
 			},
 			token: "mapping_disabled",
 		},
 		"删除": {
 			revoke: func(gate *Handlers, port int) error {
-				_, err := gate.Delete(context.Background(), &agentrewire.PortForwardDeleteRequest{Id: int64(port)})
+				_, err := gate.Delete(context.Background(), &agentrewire.PortForwardDeleteRequest{Id: mappingIDFor(port)})
 				return err
 			},
 			token: "mapping_removed",
@@ -368,8 +370,8 @@ func TestRevoke_GivenAConnectionWithNoLiveStream_WhenAnotherClientRevokesTheMapp
 			require.NoError(t, one.revoke(gate, portA))
 
 			revoked := rec.waitRevoked(t)
-			require.Len(t, revoked, 1, "一次撤销只该说一遍,而且只说被撤销的那个端口")
-			assert.Equal(t, uint32(portA), revoked[0].GetPort())
+			require.Len(t, revoked, 1, "一次撤销只该说一遍,而且只说被撤销的那条映射")
+			assert.Equal(t, mappingIDFor(portA), revoked[0].GetMappingId(), "撤销按映射 id 认人")
 			assert.Equal(t, one.token, revoked[0].GetReason(),
 				"撤销的 token 与收尾通知取同一套词汇:同一件事不该有两种说法")
 		})
@@ -383,7 +385,7 @@ func TestRevoke_GivenALiveStream_WhenItsMappingIsDisabled_ThenBothTheStreamClose
 	gate, _, rec, _, portA, portB := twoLiveStreams(t)
 
 	_, err := gate.SetEnabled(context.Background(), &agentrewire.PortForwardSetEnabledRequest{
-		Id: int64(portA), Enabled: false,
+		Id: mappingIDFor(portA), Enabled: false,
 	})
 	require.NoError(t, err)
 
@@ -392,6 +394,6 @@ func TestRevoke_GivenALiveStream_WhenItsMappingIsDisabled_ThenBothTheStreamClose
 
 	revoked := rec.waitRevoked(t)
 	require.Len(t, revoked, 1)
-	assert.Equal(t, uint32(portA), revoked[0].GetPort())
-	assert.NotEqual(t, uint32(portB), revoked[0].GetPort(), "别的映射的端口不该跟着被撤销")
+	assert.Equal(t, mappingIDFor(portA), revoked[0].GetMappingId())
+	assert.NotEqual(t, mappingIDFor(portB), revoked[0].GetMappingId(), "别的映射不该跟着被撤销")
 }

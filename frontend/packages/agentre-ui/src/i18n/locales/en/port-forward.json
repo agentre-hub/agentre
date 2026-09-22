@@ -8,6 +8,15 @@
     "copyAddress": "Copy address",
     "moreActions": "More actions",
     "remove": "Delete",
-    "toggleEnabled": "Enable mapping"
+    "toggleEnabled": "Enable mapping",
+    "add": {
+      "target": "Target",
+      "targetHint": "Port, or http(s)://host:port",
+      "name": "Name",
+      "insecure": "Ignore certificate errors",
+      "invalidTarget": "Enter a port, host:port, or http(s)://host[:port].",
+      "submit": "Add",
+      "cancel": "Cancel"
+    }
   }
 }

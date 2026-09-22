@@ -8,6 +8,15 @@
     "copyAddress": "复制访问地址",
     "moreActions": "更多操作",
     "remove": "删除",
-    "toggleEnabled": "启用映射"
+    "toggleEnabled": "启用映射",
+    "add": {
+      "target": "目标",
+      "targetHint": "端口，或 http(s)://主机:端口",
+      "name": "名称",
+      "insecure": "忽略证书错误",
+      "invalidTarget": "请输入端口、host:port 或 http(s)://主机[:端口]。",
+      "submit": "新增",
+      "cancel": "取消"
+    }
   }
 }

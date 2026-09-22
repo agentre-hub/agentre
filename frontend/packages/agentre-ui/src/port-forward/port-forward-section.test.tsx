@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -23,7 +29,7 @@ function mapping(
 ): PortForwardMappingView {
   return {
     id: "m-3000",
-    port: 3000,
+    target: "http://127.0.0.1:3000",
     name: "Vite dev server",
     enabled: true,
     address: "127.0.0.1:49000",
@@ -56,7 +62,9 @@ function rows() {
 describe("PortForwardSection", () => {
   it("Given a mapping, When the section renders, Then the row carries its port, name, address, enable switch and actions", () => {
     renderSection({
-      mappings: [mapping({ port: 5173, name: "Storybook" })],
+      mappings: [
+        mapping({ target: "http://127.0.0.1:5173", name: "Storybook" }),
+      ],
     });
 
     expect(
@@ -161,13 +169,16 @@ describe("PortForwardSection", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("Given the create entry, When it is activated, Then the host callback runs", async () => {
+  // 表单挪进了共享包(规格「控制台界面」):「新增映射」不再直接触发宿主回调,
+  // 而是打开包内自己的表单;宿主回调要等表单提交才跑(见 create form 用例组)。
+  it("Given the create entry, When it is activated, Then the form opens instead of calling the host directly", async () => {
     const user = userEvent.setup();
     const { onCreate } = renderSection({ mappings: [] });
 
     await user.click(screen.getByRole("button", { name: "Add mapping" }));
 
-    expect(onCreate).toHaveBeenCalledTimes(1);
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Target")).toBeInTheDocument();
   });
 
   it("Given an enabled mapping, When its switch is toggled, Then the host is told which mapping and the requested state", async () => {
@@ -232,5 +243,191 @@ describe("PortForwardSection", () => {
     expect(
       within(rows()[0]).getByRole("button", { name: "Open in new tab" }),
     ).toBeInTheDocument();
+  });
+
+  // 规格「控制台界面」:环回目标只显示端口,其余显示规范化后的完整目标。
+  it("Given a loopback target, When the row renders, Then only the port shows", () => {
+    renderSection({
+      mappings: [
+        mapping({ target: "http://127.0.0.1:8080", address: undefined }),
+      ],
+    });
+
+    expect(rows()[0]).toHaveTextContent("8080");
+    expect(rows()[0]).not.toHaveTextContent("127.0.0.1");
+  });
+
+  it("Given a LAN target, When the row renders, Then the full normalized target shows", () => {
+    renderSection({
+      mappings: [mapping({ target: "https://192.168.1.5:8443" })],
+    });
+
+    expect(rows()[0]).toHaveTextContent("https://192.168.1.5:8443");
+  });
+});
+
+describe("PortForwardSection create form", () => {
+  // 规格「映射与目标」+「控制台界面」:表单只认三种写法,https-only 的「忽略证书
+  // 错误」勾选框,以及三种写法都要能提交成功。判定的权威在设备侧(决策 8),这里的
+  // 客户端校验只挡明显不成形的输入。
+  function open() {
+    return {
+      onCreate: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  async function openForm(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: "Add mapping" }));
+  }
+
+  it("Given the create entry is activated, When the form renders, Then it carries a target field with the accepted-forms hint and a name field, but no insecure checkbox yet", async () => {
+    const user = userEvent.setup();
+    render(<PortForwardSection mappings={[]} {...open()} />);
+
+    await openForm(user);
+
+    expect(screen.getByLabelText("Target")).toBeInTheDocument();
+    expect(
+      screen.getByText("Port, or http(s)://host:port"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Ignore certificate errors"),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([["3000"], ["192.168.1.5:8080"], ["http://192.168.1.5:8080"]])(
+    "Given the target %s, When the form is submitted, Then the host callback receives it verbatim",
+    async (target) => {
+      const user = userEvent.setup();
+      const { onCreate } = open();
+      render(<PortForwardSection mappings={[]} onCreate={onCreate} />);
+
+      await openForm(user);
+      await user.type(screen.getByLabelText("Target"), target);
+      await user.type(screen.getByLabelText("Name"), "dev server");
+      await user.click(screen.getByRole("button", { name: "Add" }));
+
+      await waitFor(() =>
+        expect(onCreate).toHaveBeenCalledWith({
+          target,
+          name: "dev server",
+          insecure: false,
+        }),
+      );
+    },
+  );
+
+  it("Given the target is typed as https, When it is entered, Then the insecure checkbox appears; switching back to http withholds it", async () => {
+    const user = userEvent.setup();
+    render(<PortForwardSection mappings={[]} {...open()} />);
+
+    await openForm(user);
+    const targetField = screen.getByLabelText("Target");
+    await user.type(targetField, "https://example.com");
+
+    expect(
+      screen.getByLabelText("Ignore certificate errors"),
+    ).toBeInTheDocument();
+
+    await user.clear(targetField);
+    await user.type(targetField, "http://example.com");
+
+    expect(
+      screen.queryByLabelText("Ignore certificate errors"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Given the insecure checkbox is checked on an https target, When submitted, Then the host callback receives insecure: true", async () => {
+    const user = userEvent.setup();
+    const { onCreate } = open();
+    render(<PortForwardSection mappings={[]} onCreate={onCreate} />);
+
+    await openForm(user);
+    await user.type(screen.getByLabelText("Target"), "https://example.com");
+    await user.click(screen.getByLabelText("Ignore certificate errors"));
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith({
+        target: "https://example.com",
+        name: "",
+        insecure: true,
+      }),
+    );
+  });
+
+  it("Given a target that does not match any accepted form, When submitted, Then the host callback is never called and a validation message shows", async () => {
+    const user = userEvent.setup();
+    const { onCreate } = open();
+    render(<PortForwardSection mappings={[]} onCreate={onCreate} />);
+
+    await openForm(user);
+    await user.type(screen.getByLabelText("Target"), "http://example.com/path");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText(
+        "Enter a port, host:port, or http(s)://host[:port].",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("Given the host callback resolves, When submission succeeds, Then the form closes and clears", async () => {
+    const user = userEvent.setup();
+    const { onCreate } = open();
+    render(<PortForwardSection mappings={[]} onCreate={onCreate} />);
+
+    await openForm(user);
+    await user.type(screen.getByLabelText("Target"), "3000");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalled());
+    expect(screen.queryByLabelText("Target")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Add mapping" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given the host callback rejects, When submission fails, Then the form stays open and shows the host's message", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockRejectedValue(new Error("Device says no"));
+    render(<PortForwardSection mappings={[]} onCreate={onCreate} />);
+
+    await openForm(user);
+    await user.type(screen.getByLabelText("Target"), "3000");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByText("Device says no")).toBeInTheDocument();
+    expect(screen.getByLabelText("Target")).toBeInTheDocument();
+  });
+
+  it("Given the cancel button, When it is clicked, Then the form closes without calling the host", async () => {
+    const user = userEvent.setup();
+    const { onCreate } = open();
+    render(<PortForwardSection mappings={[]} onCreate={onCreate} />);
+
+    await openForm(user);
+    await user.type(screen.getByLabelText("Target"), "3000");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Target")).not.toBeInTheDocument();
+  });
+
+  it("Given the form is open, When the device goes offline, Then the form closes and clears", async () => {
+    const user = userEvent.setup();
+    const { onCreate } = open();
+    const { rerender } = render(
+      <PortForwardSection mappings={[]} onCreate={onCreate} offline={false} />,
+    );
+
+    await openForm(user);
+    await user.type(screen.getByLabelText("Target"), "3000");
+
+    rerender(<PortForwardSection mappings={[]} onCreate={onCreate} offline />);
+
+    expect(screen.queryByLabelText("Target")).not.toBeInTheDocument();
   });
 });

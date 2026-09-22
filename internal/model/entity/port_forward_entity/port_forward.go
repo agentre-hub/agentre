@@ -1,13 +1,14 @@
 // Package port_forward_entity 维护「设备端口转发映射」的实体：一条声明，即这台设备
-// 允许把它 127.0.0.1 上的某个端口转出去（规格「映射的声明与生命周期」）。
+// 允许把某个目标转出去（规格「映射的声明与生命周期」「映射与目标」）。
 //
 // 映射存在**被访问的那台设备上**，两个宿主（桌面端 / agentred）各自一个 SQLite 库，
 // 共用同一份实体与仓储代码（决策 1、与 transcript_entity 同一条路子）；对应的两条
 // DDL 因此是复制关系而不是共享一张表，同形由 internal/daemon/migrations 下的
 // parity 测试钉住。
 //
-// 规格「数据」一节写的字段是「端口、名称、启用位、时间戳」，并明写**没有所有者
-// 标识**——本表因此不设那一列。本仓已有的设备侧表（daemon_sessions /
+// 规格「映射与目标」一节写的字段是「名称、目标、启用位」，https 目标还带一位
+// 「忽略证书错误」；加上时间戳，并明写**没有所有者标识**——本表因此不设那一列。
+// 本仓已有的设备侧表（daemon_sessions /
 // chat_messages 等）核下来是同一条结论：它们的归属类列（peer_fingerprint / device_fingerprint，
 // 见 docs/architecture.md「Device fingerprints」表的 Initiator / Carrier 两个角色）
 // 都是在**一台设备的库里混着多个来源的行**时才需要——用来把「这一行是谁的」分开。
@@ -21,11 +22,19 @@ package port_forward_entity
 // PortForward 是 port_forwards 表的一行：这台设备上的一条端口转发声明。
 type PortForward struct {
 	ID int64 `gorm:"column:id;primaryKey;autoIncrement"`
-	// Port 是这台设备 127.0.0.1 上被声明转出去的端口。同一台设备下唯一
-	// （库上的 UNIQUE 索引兜底，见迁移）。
+	// Port 是 Target 里那个端口，单独存一份只为列举时展示与排序。open 按 ID 定位、
+	// 拨的是 Target（见 internal/daemon/portforward 包注释），不再读它。
 	Port int `gorm:"column:port;type:int;not null"`
 	// Name 是这条映射的辨认名称，用户在新增时填写。
 	Name string `gorm:"column:name;type:text;not null;default:''"`
+	// Target 是规范化之后的目标，形如 "http://host:port" 或 "https://host:port"——
+	// 总是带着端口，即便端口等于协议的默认值（规格「映射与目标」一节的三种写法都
+	// 折成这个规范形）。同一台设备下唯一（库上的 UNIQUE 索引兜底，见迁移），且
+	// **不可编辑**：要换目标就删掉重建，重建后是一条新映射。
+	Target string `gorm:"column:target;type:text;not null;default:''"`
+	// Insecure 只对 https 目标有意义：为真时这条映射拨号不校验目标的证书（规格
+	// 决策「https 目标默认校验证书，每条映射可以单独勾选忽略证书错误」）。
+	Insecure bool `gorm:"column:insecure;type:boolean;not null;default:0"`
 	// Enabled 是这条映射的启用开关。停用时声明保留，但访问一律拒绝
 	// （规格「映射的声明与生命周期」）。
 	//

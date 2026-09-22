@@ -16,7 +16,8 @@
 // 复制,或者让两边慢慢漂开。
 //
 // 宿主自己的东西不在这里:监听/路由的生命周期、租约、鉴权、前缀怎么剥,都留在各自
-// 的宿主里,这个包只认「一条连接 + 一个端口」。
+// 的宿主里,这个包只认「一条连接 + 一条映射的 id」。目标是什么由设备按 id 从声明里
+// 读出来,这一层不知道、也没有位置告诉设备。
 package portforwardhost
 
 import (
@@ -32,6 +33,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"google.golang.org/protobuf/proto"
 
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
@@ -55,13 +58,13 @@ import (
 //     ack 被回绝、窗口对不上都不构成把它们丢掉的理由。收场的出口只有三个 —— 设备说
 //     这条流结束了(closed)、浏览器自己走了、承载连接没了。
 type Proxy struct {
-	conn   *protorpc.Conn
-	port   uint32
-	prefix string
+	conn      *protorpc.Conn
+	mappingID int64
+	prefix    string
 
-	// onRevoked 是「设备说这个端口不再允许转发了」这件事的出口。分层在这里:判定与
-	// 索引都在**宿主**那一层(桌面端是 Listeners,它才知道这条端口属于哪条映射、哪台
-	// 设备),而这一层只认得线上那条通知与自己转的那个端口。
+	// onRevoked 是「设备说这条映射不再允许转发了」这件事的出口。分层在这里:判定与
+	// 索引都在**宿主**那一层(桌面端是 Listeners,它才知道这条映射属于哪台设备、挂着
+	// 哪条监听),而这一层只认得线上那条通知与自己转的那条映射。
 	onRevoked func(reason string)
 
 	// renderFailure 是宿主自己的失败呈现;nil 就用包内默认的纯文本(见 failure.go)。
@@ -88,10 +91,11 @@ const uploadChunkBytes = 32 << 10
 // 连接此刻多半已经在断了。
 const closeCallTimeout = 5 * time.Second
 
-func NewProxy(conn *protorpc.Conn, port uint32, onRevoked func(reason string), opts ...Option) *Proxy {
+// NewProxy 为设备上的一条映射(按它在那台设备上的 id)建一个转发 Handler。
+func NewProxy(conn *protorpc.Conn, mappingID int64, onRevoked func(reason string), opts ...Option) *Proxy {
 	proxy := &Proxy{
 		conn:      conn,
-		port:      port,
+		mappingID: mappingID,
 		onRevoked: onRevoked,
 		prefix:    randomPrefix(),
 		streams:   make(map[string]*hostStream),
@@ -135,10 +139,10 @@ func (p *Proxy) onNotification(_ context.Context, notification *agentrewire.RpcN
 			stream.finish(payload.PortForwardClosed)
 		}
 	case *agentrewire.RpcNotification_PortForwardRevoked:
-		// 撤销按端口认人:设备侧的撤销面认的就是端口,而这条监听手上也只有端口。
-		// **不是**这个端口就不动 —— 同一条连接上还挂着这台设备别的映射的监听
-		// (连接池按设备号复用同一条连接),照单全收会把用户别的标签页一起白掉。
-		if payload.PortForwardRevoked.GetPort() == p.port {
+		// 撤销按映射 id 认人:设备侧的撤销面认的就是 id。**不是**这条映射就不动 ——
+		// 同一条连接上还挂着这台设备别的映射的代理(连接池按设备号复用同一条连接),
+		// 照单全收会把用户别的标签页一起白掉。
+		if payload.PortForwardRevoked.GetMappingId() == p.mappingID {
 			p.revoked(payload.PortForwardRevoked.GetReason())
 		}
 	}
@@ -300,9 +304,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	hasBody := r.ContentLength != 0
 
 	if _, err := wirecall.PortForwardOpen(r.Context(), wirecall.On(p.conn), &agentrewire.PortForwardOpenRequest{
-		StreamId: streamID,
-		Port:     p.port,
-		Method:   r.Method,
+		StreamId:  streamID,
+		MappingId: p.mappingID,
+		Method:    r.Method,
 		// 路径原样送(含查询串),这一层不剥任何前缀。有前缀的宿主(控制台的
 		// /fw/<设备>/<端口>)在请求进到这个 Handler 之前就该剥掉 —— 多剥一层会把
 		// /assets/x.js 变成 /x.js。
@@ -319,7 +323,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Context().Err() != nil {
 			return
 		}
-		p.fail(w, r, openFailureKind(err))
+		p.failWithTarget(w, r, openFailureKind(err), p.refusedTarget(err))
 		return
 	}
 
@@ -553,9 +557,28 @@ func openFailureKind(err error) FailureKind {
 			return FailureDisabled
 		case rpcerror.CodePortForwardNoListener:
 			return FailureNoListener
+		case rpcerror.CodePortForwardNameResolution:
+			return FailureNameResolution
+		case rpcerror.CodePortForwardTLSVerification:
+			return FailureTLSVerification
 		}
 	}
 	return FailureDeviceUnreachable
+}
+
+// refusedTarget 取出设备回绝 open 时在 Details 里带回的那条声明的目标
+// (rpcerror.CodePortForwardNoListener 等三个码的约定)。只认**这条映射**的:解不开、
+// 没带、或 id 对不上都交空串 —— 说错一个目标比不说更糟。
+func (p *Proxy) refusedTarget(err error) string {
+	var rpcErr *protorpc.Error
+	if !errors.As(err, &rpcErr) || len(rpcErr.Details) == 0 {
+		return ""
+	}
+	var declared agentrewire.PortForwardMapping
+	if proto.Unmarshal(rpcErr.Details, &declared) != nil || declared.GetId() != p.mappingID {
+		return ""
+	}
+	return declared.GetTarget()
 }
 
 // streamAlreadyEnded 认出「这条流在设备那边已经不在了」。

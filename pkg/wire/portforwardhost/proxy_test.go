@@ -154,11 +154,11 @@ func (d *scriptedDevice) snapshot() (opens []*agentrewire.PortForwardOpenRequest
 //
 // 宿主怎么把请求送到这个 Handler 上(桌面端绑一条 127.0.0.1 的专属监听,控制台开一条
 // /fw/<设备>/<端口> 的路由)不在本包的判定范围内,所以这里用最朴素的一个 httptest 服务。
-func openForward(t *testing.T, port int) (string, *scriptedDevice) {
+func openForward(t *testing.T, mappingID int64) (string, *scriptedDevice) {
 	t.Helper()
 	hostConn, deviceConn := connPair(t)
 	device := scriptDevice(t, deviceConn)
-	proxy := portforwardhost.NewProxy(hostConn, uint32(port), nil)
+	proxy := portforwardhost.NewProxy(hostConn, mappingID, nil)
 	t.Cleanup(proxy.Close)
 	server := httptest.NewServer(proxy)
 	t.Cleanup(server.Close)
@@ -167,7 +167,8 @@ func openForward(t *testing.T, port int) (string, *scriptedDevice) {
 
 // Given 浏览器打到这条专属监听上的一个 GET, When 设备按序回响应头与两块正文,
 // Then 浏览器拿到同一个状态码、同一批响应头与逐字拼起来的正文;而设备收到的 open
-// 里带着**原样的**路径(含查询串、不剥前缀)与这条映射的端口。
+// 里带着**原样的**路径(含查询串、不剥前缀)与这条映射的 id —— open 按 id 定位,
+// 设备只拨那条声明里存着的目标。
 //
 // 「不剥前缀」是桌面端与控制台的分水岭(规格决策 3):控制台要剥 /fw/<设备>/<端口>,
 // 桌面端这条路根本没有前缀,多剥一层会把 /assets/x.js 变成 /x.js。
@@ -199,7 +200,7 @@ func TestForward_GivenABrowserGET_WhenTheDeviceStreamsBack_ThenTheHeadAndEveryCh
 	require.Len(t, opens, 1)
 	assert.Equal(t, "GET", opens[0].GetMethod())
 	assert.Equal(t, "/assets/x.js?v=2&q=a%20b", opens[0].GetPath(), "路径与查询串必须原样送到设备")
-	assert.EqualValues(t, 5173, opens[0].GetPort())
+	assert.EqualValues(t, 5173, opens[0].GetMappingId(), "open 按映射 id 定位")
 	assert.False(t, opens[0].GetHasBody())
 	assert.NotEmpty(t, opens[0].GetStreamId())
 	assert.LessOrEqual(t, len(opens[0].GetStreamId()), 128)
@@ -334,7 +335,9 @@ func TestForward_GivenTheDeviceRefusesTheOpen_ThenEachRefusalBecomesItsOwnAnswer
 	}{
 		{name: "端口没声明", code: rpcerror.CodePortForwardNotDeclared, status: http.StatusNotFound},
 		{name: "映射已停用", code: rpcerror.CodePortForwardDisabled, status: http.StatusForbidden},
-		{name: "端口上没有服务", code: rpcerror.CodePortForwardNoListener, status: http.StatusBadGateway},
+		{name: "目标拒绝连接", code: rpcerror.CodePortForwardNoListener, status: http.StatusBadGateway},
+		{name: "目标主机名解析不出来", code: rpcerror.CodePortForwardNameResolution, status: http.StatusBadGateway},
+		{name: "目标证书没通过校验", code: rpcerror.CodePortForwardTLSVerification, status: http.StatusBadGateway},
 	}
 	bodies := map[string]string{}
 	for _, tc := range cases {
@@ -356,7 +359,7 @@ func TestForward_GivenTheDeviceRefusesTheOpen_ThenEachRefusalBecomesItsOwnAnswer
 			bodies[tc.name] = strings.TrimSpace(string(body))
 		})
 	}
-	assert.Len(t, uniqueValues(bodies), len(cases), "三种拒绝说的是同一句话,用户分不出该做哪件事")
+	assert.Len(t, uniqueValues(bodies), len(cases), "几种拒绝说的是同一句话,用户分不出该做哪件事")
 }
 
 func uniqueValues(m map[string]string) map[string]struct{} {
@@ -506,4 +509,37 @@ func TestForward_GivenTheBrowserGoesAway_ThenTheHostClosesTheStreamOnTheDevice(t
 		_, _, _, closes := device.snapshot()
 		return len(closes) == 1
 	}, 5*time.Second, 10*time.Millisecond, "浏览器断了却没给设备发 close:设备侧那条本机连接悬着")
+}
+
+// Given 同一条连接上挂着这台设备两条映射的代理, When 设备宣布其中一条被撤销, Then 只有
+// 那条映射(按 id 认)的代理把撤销交给宿主,另一条不动。
+//
+// 撤销按映射 id 认人:端口不再是一条映射的身份(两条映射可以是不同主机的同一个端口),
+// 按端口认会把用户别的映射一起关掉。
+func TestProxy_GivenARevocation_WhenItNamesAnotherMapping_ThenOnlyTheNamedMappingHearsIt(t *testing.T) {
+	t.Parallel()
+	hostConn, deviceConn := connPair(t)
+	heard := make(chan string, 4)
+	mine := portforwardhost.NewProxy(hostConn, 11, func(reason string) { heard <- "11:" + reason })
+	t.Cleanup(mine.Close)
+	other := portforwardhost.NewProxy(hostConn, 12, func(reason string) { heard <- "12:" + reason })
+	t.Cleanup(other.Close)
+
+	require.NoError(t, deviceConn.Notify(&agentrewire.RpcNotification{
+		Payload: &agentrewire.RpcNotification_PortForwardRevoked{
+			PortForwardRevoked: &agentrewire.PortForwardRevokedNotification{MappingId: 11, Reason: "mapping_disabled"},
+		},
+	}))
+
+	select {
+	case got := <-heard:
+		assert.Equal(t, "11:mapping_disabled", got)
+	case <-time.After(5 * time.Second):
+		t.Fatal("被撤销那条映射的代理没有把撤销交给宿主")
+	}
+	select {
+	case got := <-heard:
+		t.Fatalf("别的映射也听到了撤销:%s", got)
+	case <-time.After(200 * time.Millisecond):
+	}
 }

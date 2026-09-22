@@ -56,13 +56,13 @@ type Inbound struct {
 }
 
 // newDevicePortForward 建这台桌面端作为**被访问的一方**时那一份判定:声明族 + 拨号
-// 闸门。拨号恒为环回,端口必须已在这台机器上声明过 —— 目标主机不由请求携带。
+// 闸门。只拨声明里存着的目标,open 只带映射 id —— 目标不由请求携带。
 //
 // 它是个函数而不是散在各处的字面量,因为守卫用例要打在**生产装配**上:自己拼一份会把
 // 「桌面端到底挂了什么」偷换成「我这条用例挂了什么」。
 func newDevicePortForward() *portforward.Handlers {
 	return portforward.NewHandlers(portforward.Options{
-		Repo: port_forward_repo.NewPortForward(), Dial: portforward.DialLoopback,
+		Repo: port_forward_repo.NewPortForward(), Dial: portforward.DialTarget,
 	})
 }
 

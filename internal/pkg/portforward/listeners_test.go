@@ -23,8 +23,8 @@ import (
 // 消失」——而 Gateway.Stop 在生产路径上一个调用点都没有(靠进程退出释放),所以这里
 // 一件都不能只写在代码里而不证。
 
-func target(deviceID int64, mappingID string, port int) portforward.Target {
-	return portforward.Target{DeviceID: deviceID, MappingID: mappingID, Port: port}
+func target(deviceID int64, mappingID string) portforward.Target {
+	return portforward.Target{DeviceID: deviceID, MappingID: mappingID}
 }
 
 // Given 一条端口映射, When 桌面端为它打开一条转发, Then 它拿到一条**只绑环回**的
@@ -39,7 +39,7 @@ func TestOpen_GivenAMapping_WhenTheDesktopOpensIt_ThenItBindsALoopbackOnlyListen
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)
 
-	address, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	address, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
 
 	parsed, err := url.Parse(address)
@@ -80,9 +80,9 @@ func TestOpen_GivenTheSameMappingOpenedTwice_ThenTheAddressStaysTheSame(t *testi
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)
 
-	first, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	first, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
-	second, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	second, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
 
 	assert.Equal(t, first, second)
@@ -106,9 +106,9 @@ func TestCloseMapping_GivenTwoMappingsOnOneDevice_WhenOneIsClosed_ThenOnlyThatLi
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)
 
-	closing, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	closing, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
-	staying, err := listeners.Open(context.Background(), target(7, "12", 3000))
+	staying, err := listeners.Open(context.Background(), target(7, "12"))
 	require.NoError(t, err)
 
 	listeners.CloseMapping(7, "11")
@@ -128,9 +128,9 @@ func TestOpen_GivenADeviceGoesOffline_ThenItsListenerClosesAndOtherDevicesAreUnt
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)
 
-	offline, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	offline, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
-	other, err := listeners.Open(context.Background(), target(8, "21", 5173))
+	other, err := listeners.Open(context.Background(), target(8, "21"))
 	require.NoError(t, err)
 
 	devices.deviceGoesOffline(7)
@@ -149,11 +149,11 @@ func TestCloseAll_GivenSeveralOpenForwards_WhenTheAppShutsDown_ThenEveryListener
 	devices, _ := newDevices(t, 7, 8)
 	listeners := portforward.NewListeners(devices)
 
-	first, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	first, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
-	second, err := listeners.Open(context.Background(), target(7, "12", 3000))
+	second, err := listeners.Open(context.Background(), target(7, "12"))
 	require.NoError(t, err)
-	third, err := listeners.Open(context.Background(), target(8, "21", 8080))
+	third, err := listeners.Open(context.Background(), target(8, "21"))
 	require.NoError(t, err)
 
 	listeners.CloseAll()
@@ -192,16 +192,15 @@ func firstNonLoopbackIPv4(t *testing.T) string {
 // 规格「断开与失败」要的是「桌面端那条专属监听一并关掉」,所以这条监听必须自己听设备
 // 发来的撤销通知。
 //
-// 通知按**端口**认人(见 wire.proto 里 PortForwardRevokedNotification 的理由),所以
-// 这里两条映射用两个不同的端口。
+// 通知按**映射 id** 认人(见 wire.proto 里 PortForwardRevokedNotification 的理由)。
 
-// revokePort 让设备那一侧宣布这个端口不再允许转发 —— 生产上由 daemon 的声明族在
+// revokeMapping 让设备那一侧宣布这条映射不再允许转发 —— 生产上由 daemon 的声明族在
 // SetEnabled / Delete 之后发出,不论改它的是哪一个客户端。
-func revokePort(t *testing.T, device *protorpc.Conn, port uint32, reason string) {
+func revokeMapping(t *testing.T, device *protorpc.Conn, mappingID int64, reason string) {
 	t.Helper()
 	require.NoError(t, device.Notify(&agentrewire.RpcNotification{
 		Payload: &agentrewire.RpcNotification_PortForwardRevoked{
-			PortForwardRevoked: &agentrewire.PortForwardRevokedNotification{Port: port, Reason: reason},
+			PortForwardRevoked: &agentrewire.PortForwardRevokedNotification{MappingId: mappingID, Reason: reason},
 		},
 	}))
 }
@@ -220,12 +219,12 @@ func TestOpen_GivenAnotherClientRevokesTheMapping_ThenOnlyThatListenerGoesAway(t
 			listeners := portforward.NewListeners(devices)
 			t.Cleanup(listeners.CloseAll)
 
-			revoked, err := listeners.Open(context.Background(), target(7, "11", 5173))
+			revoked, err := listeners.Open(context.Background(), target(7, "11"))
 			require.NoError(t, err)
-			staying, err := listeners.Open(context.Background(), target(7, "12", 3000))
+			staying, err := listeners.Open(context.Background(), target(7, "12"))
 			require.NoError(t, err)
 
-			revokePort(t, far[7], 5173, reason)
+			revokeMapping(t, far[7], 11, reason)
 
 			requireGone(t, revoked)
 			assert.True(t, dialable(t, staying), "别的客户端撤销一条映射把同一台设备上另一条也带走了")
@@ -249,9 +248,9 @@ func TestOpen_GivenAPeerThatDoesNotKnowThisNotification_ThenTheListenerAndTheCon
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)
 
-	address, err := listeners.Open(context.Background(), target(7, "11", 5173))
+	address, err := listeners.Open(context.Background(), target(7, "11"))
 	require.NoError(t, err)
-	barrier, err := listeners.Open(context.Background(), target(7, "12", 3000))
+	barrier, err := listeners.Open(context.Background(), target(7, "12"))
 	require.NoError(t, err)
 
 	require.NoError(t, far[7].Notify(&agentrewire.RpcNotification{}))
@@ -259,7 +258,7 @@ func TestOpen_GivenAPeerThatDoesNotKnowThisNotification_ThenTheListenerAndTheCon
 	// 通知在读循环里按序派发,所以「另一条监听因为它后面那条撤销而关掉了」就证明这条
 	// 读不懂的通知已经被派发过了 —— 少了这一步,下面那句断言只是抢在派发之前问的,
 	// 一个「见到通知就关」的实现照样蒙混过去(这条用例最初就是这么写的,变异检查判绿)。
-	revokePort(t, far[7], 3000, "mapping_disabled")
+	revokeMapping(t, far[7], 12, "mapping_disabled")
 	requireGone(t, barrier)
 
 	// 关闭本身是异步的(回调不在读循环里跑),所以这里问的是「一直没关」而不是「此刻
@@ -268,6 +267,6 @@ func TestOpen_GivenAPeerThatDoesNotKnowThisNotification_ThenTheListenerAndTheCon
 		300*time.Millisecond, 30*time.Millisecond, "一条读不懂的通知不该带走别的监听")
 
 	// 连接本身也还好着:一条真的撤销照旧到得了。
-	revokePort(t, far[7], 5173, "mapping_disabled")
+	revokeMapping(t, far[7], 11, "mapping_disabled")
 	requireGone(t, address)
 }

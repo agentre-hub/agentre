@@ -5,7 +5,8 @@ import userEvent from "@testing-library/user-event";
 
 // wailsjs/ 是 gitignore 的生成物,这里按它生成出来的真实形状打桩:
 // List 交回一批 MappingView(没有 address —— 那条地址是 Open 绑上监听之后才有的),
-// Open 交回一条 http://127.0.0.1:<端口>。
+// Open 交回一条 http://127.0.0.1:<端口>。2026-09-21 起 MappingView 还带着
+// `target`(设备规范化后的目标,总是带端口),Open 只按映射 id 拨、不再收端口。
 const appMocks = vi.hoisted(() => ({
   PortForwardList: vi.fn(),
   PortForwardCreate: vi.fn(),
@@ -34,6 +35,16 @@ function coded(code: number, message: string): Error {
   return new Error(`agentre-code:${code} ${message}`);
 }
 
+/** 环回声明的最简写法:port 与 target 总是成对出现,target 总带着端口。 */
+function loopbackMapping(overrides: {
+  id: string;
+  port: number;
+  name: string;
+  enabled: boolean;
+}) {
+  return { ...overrides, target: `http://127.0.0.1:${overrides.port}` };
+}
+
 function rows(): HTMLElement[] {
   return Array.from(
     document.querySelectorAll<HTMLElement>('[data-slot="port-forward-row"]'),
@@ -51,8 +62,13 @@ beforeEach(() => {
 describe("DevicePortForward", () => {
   it("列举这台设备上的映射,按端口排序,地址一律是占位破折号", async () => {
     appMocks.PortForwardList.mockResolvedValue([
-      { id: "12", port: 8080, name: "api", enabled: false },
-      { id: "11", port: 5173, name: "vite dev", enabled: true },
+      loopbackMapping({ id: "12", port: 8080, name: "api", enabled: false }),
+      loopbackMapping({
+        id: "11",
+        port: 5173,
+        name: "vite dev",
+        enabled: true,
+      }),
     ]);
 
     render(<DevicePortForward deviceId={DEVICE_ID} offline={false} />);
@@ -109,7 +125,12 @@ describe("DevicePortForward", () => {
 
   it("首屏就离线时列表是空的,先列举成功再撞上离线才留得住已列出的行", async () => {
     appMocks.PortForwardList.mockResolvedValue([
-      { id: "11", port: 5173, name: "vite dev", enabled: true },
+      loopbackMapping({
+        id: "11",
+        port: 5173,
+        name: "vite dev",
+        enabled: true,
+      }),
     ]);
 
     render(<DevicePortForward deviceId={DEVICE_ID} offline={false} />);
@@ -150,7 +171,12 @@ describe("DevicePortForward", () => {
     ).toBeInTheDocument();
 
     appMocks.PortForwardList.mockResolvedValue([
-      { id: "11", port: 5173, name: "vite dev", enabled: true },
+      loopbackMapping({
+        id: "11",
+        port: 5173,
+        name: "vite dev",
+        enabled: true,
+      }),
     ]);
     rerender(<DevicePortForward deviceId={DEVICE_ID} offline={false} />);
 
@@ -165,7 +191,12 @@ describe("DevicePortForward", () => {
 
   it("一次动作撞上离线之后,下一次动作真的到了设备,离线句就该撤掉", async () => {
     appMocks.PortForwardList.mockResolvedValue([
-      { id: "11", port: 5173, name: "vite dev", enabled: true },
+      loopbackMapping({
+        id: "11",
+        port: 5173,
+        name: "vite dev",
+        enabled: true,
+      }),
     ]);
     render(<DevicePortForward deviceId={DEVICE_ID} offline={false} />);
     expect(await screen.findByText("5173")).toBeInTheDocument();
@@ -179,12 +210,14 @@ describe("DevicePortForward", () => {
     ).toBeInTheDocument();
 
     // 同一个开关按得动了 —— 那台机器就在那儿,离线句与收起来的新增入口都不该再留着。
-    appMocks.PortForwardSetEnabled.mockResolvedValue({
-      id: "11",
-      port: 5173,
-      name: "vite dev",
-      enabled: false,
-    });
+    appMocks.PortForwardSetEnabled.mockResolvedValue(
+      loopbackMapping({
+        id: "11",
+        port: 5173,
+        name: "vite dev",
+        enabled: false,
+      }),
+    );
     await userEvent.click(
       screen.getByRole("switch", { name: "Enable mapping" }),
     );
@@ -201,8 +234,13 @@ describe("DevicePortForward", () => {
 
   it("停用的那一行不出「打开」,启用的那一行出", async () => {
     appMocks.PortForwardList.mockResolvedValue([
-      { id: "11", port: 5173, name: "vite dev", enabled: true },
-      { id: "12", port: 8080, name: "api", enabled: false },
+      loopbackMapping({
+        id: "11",
+        port: 5173,
+        name: "vite dev",
+        enabled: true,
+      }),
+      loopbackMapping({ id: "12", port: 8080, name: "api", enabled: false }),
     ]);
 
     render(<DevicePortForward deviceId={DEVICE_ID} offline={false} />);
@@ -216,9 +254,14 @@ describe("DevicePortForward", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("点「打开」把 PortForwardOpen 交回的那条地址喂给系统浏览器并渲出来", async () => {
+  it("点「打开」按映射 id 拨号,把 PortForwardOpen 交回的那条地址喂给系统浏览器并渲出来", async () => {
     appMocks.PortForwardList.mockResolvedValue([
-      { id: "11", port: 5173, name: "vite dev", enabled: true },
+      loopbackMapping({
+        id: "11",
+        port: 5173,
+        name: "vite dev",
+        enabled: true,
+      }),
     ]);
     appMocks.PortForwardOpen.mockResolvedValue("http://127.0.0.1:51234");
 
@@ -230,7 +273,7 @@ describe("DevicePortForward", () => {
     await waitFor(() =>
       expect(browserOpenURLMock).toHaveBeenCalledWith("http://127.0.0.1:51234"),
     );
-    expect(appMocks.PortForwardOpen).toHaveBeenCalledWith("42", "11", 5173);
+    expect(appMocks.PortForwardOpen).toHaveBeenCalledWith("42", "11");
     await waitFor(() =>
       expect(
         rows()[0].querySelector('[data-slot="port-forward-address"]'),
@@ -243,15 +286,22 @@ describe("DevicePortForward", () => {
 
   it("停用一条映射:请求的是目标态 false,确认之后那条地址一并消失", async () => {
     appMocks.PortForwardList.mockResolvedValue([
-      { id: "11", port: 5173, name: "vite dev", enabled: true },
+      loopbackMapping({
+        id: "11",
+        port: 5173,
+        name: "vite dev",
+        enabled: true,
+      }),
     ]);
     appMocks.PortForwardOpen.mockResolvedValue("http://127.0.0.1:51234");
-    appMocks.PortForwardSetEnabled.mockResolvedValue({
-      id: "11",
-      port: 5173,
-      name: "vite dev",
-      enabled: false,
-    });
+    appMocks.PortForwardSetEnabled.mockResolvedValue(
+      loopbackMapping({
+        id: "11",
+        port: 5173,
+        name: "vite dev",
+        enabled: false,
+      }),
+    );
 
     render(<DevicePortForward deviceId={DEVICE_ID} offline={false} />);
     await waitFor(() => expect(rows()).toHaveLength(1));
@@ -280,7 +330,12 @@ describe("DevicePortForward", () => {
 
   it("那条声明在设备上已经没了时重新取一次列表", async () => {
     appMocks.PortForwardList.mockResolvedValueOnce([
-      { id: "11", port: 5173, name: "vite dev", enabled: true },
+      loopbackMapping({
+        id: "11",
+        port: 5173,
+        name: "vite dev",
+        enabled: true,
+      }),
     ]).mockResolvedValueOnce([]);
     appMocks.PortForwardSetEnabled.mockRejectedValue(
       coded(21001, "mapping not declared"),
@@ -301,7 +356,12 @@ describe("DevicePortForward", () => {
 
   it("删除一条映射后那一行不再列出", async () => {
     appMocks.PortForwardList.mockResolvedValue([
-      { id: "11", port: 5173, name: "vite dev", enabled: true },
+      loopbackMapping({
+        id: "11",
+        port: 5173,
+        name: "vite dev",
+        enabled: true,
+      }),
     ]);
     appMocks.PortForwardDelete.mockResolvedValue(undefined);
 
@@ -319,66 +379,132 @@ describe("DevicePortForward", () => {
     await waitFor(() => expect(rows()).toHaveLength(0));
   });
 
-  it("新增一条映射:端口按数字过桥,设备落库后的那一行直接进列表", async () => {
+  it("新增一条映射:目标原样过桥,设备落库后的那一行直接进列表", async () => {
     appMocks.PortForwardList.mockResolvedValue([]);
-    appMocks.PortForwardCreate.mockResolvedValue({
-      id: "13",
-      port: 3000,
-      name: "next dev",
-      enabled: true,
-    });
+    appMocks.PortForwardCreate.mockResolvedValue(
+      loopbackMapping({
+        id: "13",
+        port: 3000,
+        name: "next dev",
+        enabled: true,
+      }),
+    );
 
     render(<DevicePortForward deviceId={DEVICE_ID} offline={false} />);
     await screen.findByText("No port mappings on this device yet.");
 
     await userEvent.click(screen.getByRole("button", { name: "Add mapping" }));
-    await userEvent.type(screen.getByLabelText("Port"), "3000");
+    await userEvent.type(screen.getByLabelText("Target"), "3000");
     await userEvent.type(screen.getByLabelText("Name"), "next dev");
     await userEvent.click(screen.getByRole("button", { name: "Add" }));
 
     await waitFor(() =>
       expect(appMocks.PortForwardCreate).toHaveBeenCalledWith(
         "42",
-        3000,
+        "3000",
         "next dev",
+        false,
       ),
     );
     await waitFor(() => expect(rows()).toHaveLength(1));
     expect(rows()[0]).toHaveTextContent("3000");
   });
 
-  it("端口已被声明与端口越界落在同一格上,但说的是两句不同的话", async () => {
+  // 规格「控制台界面」:目标是 https 时才出现「忽略证书错误」勾选框,勾了就该照原样
+  // 过桥给 PortForwardCreate 的 insecure 位。
+  it("新增一条 https 目标的映射并勾选忽略证书错误:insecure 位照原样过桥", async () => {
     appMocks.PortForwardList.mockResolvedValue([]);
-    appMocks.PortForwardCreate.mockRejectedValueOnce(
-      coded(21002, "port already declared"),
-    ).mockRejectedValueOnce(coded(21003, "port out of range"));
+    appMocks.PortForwardCreate.mockResolvedValue({
+      id: "14",
+      port: 8443,
+      name: "self-signed",
+      enabled: true,
+      target: "https://192.168.1.5:8443",
+    });
 
     render(<DevicePortForward deviceId={DEVICE_ID} offline={false} />);
     await screen.findByText("No port mappings on this device yet.");
 
     await userEvent.click(screen.getByRole("button", { name: "Add mapping" }));
-    await userEvent.type(screen.getByLabelText("Port"), "5173");
+    await userEvent.type(
+      screen.getByLabelText("Target"),
+      "https://192.168.1.5:8443",
+    );
+    await userEvent.type(screen.getByLabelText("Name"), "self-signed");
+    await userEvent.click(screen.getByLabelText("Ignore certificate errors"));
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() =>
+      expect(appMocks.PortForwardCreate).toHaveBeenCalledWith(
+        "42",
+        "https://192.168.1.5:8443",
+        "self-signed",
+        true,
+      ),
+    );
+    await waitFor(() => expect(rows()).toHaveLength(1));
+    expect(rows()[0]).toHaveTextContent("https://192.168.1.5:8443");
+  });
+
+  it("目标重复与目标写法不合法(设备 -32076)落在同一格上,但说的是两句不同的话", async () => {
+    appMocks.PortForwardList.mockResolvedValue([]);
+    appMocks.PortForwardCreate.mockRejectedValueOnce(
+      coded(21002, "target already declared"),
+    ).mockRejectedValueOnce(coded(21004, "invalid target"));
+
+    render(<DevicePortForward deviceId={DEVICE_ID} offline={false} />);
+    await screen.findByText("No port mappings on this device yet.");
+
+    await userEvent.click(screen.getByRole("button", { name: "Add mapping" }));
+    await userEvent.type(screen.getByLabelText("Target"), "5173");
     await userEvent.click(screen.getByRole("button", { name: "Add" }));
 
     // 判据打在**这两句话本身**上,不是「非空且互不相同」:后者连 add.failed 那条
     // 兜底都能满足 —— 它把设备回来的两句英文原话插进同一个模板,同样非空、同样不等。
-    // 也就是说,把 21002 / 21003 两个分支整个删掉,那种断言照样绿,而用户看到的已经
-    // 从「换一个端口」变成了一句机器原话。
+    // 也就是说,把 21002 / 21004 两个分支整个删掉,那种断言照样绿,而用户看到的已经
+    // 从「换一个目标」变成了一句机器原话。
     const taken = await screen.findByTestId("port-forward-add-error");
     expect(taken).toHaveTextContent(
-      "This port is already mapped on this device. Pick another one.",
+      "This target is already mapped on this device. Pick another one.",
     );
-    expect(screen.getByLabelText("Port")).toHaveAttribute(
+    expect(screen.getByLabelText("Target")).toHaveAttribute(
       "aria-invalid",
       "true",
     );
 
+    // 设备是权威:这条 5173 在客户端校验里明明是合法的裸端口写法,提交仍然真的
+    // 打到了 PortForwardCreate 上,第二次撞上设备侧的 -32076(INVALID_TARGET)。
     await userEvent.click(screen.getByRole("button", { name: "Add" }));
 
+    // 这句现在只有一个出处:共享包 `agentre-ui` 的 `portForward.add.invalidTarget`
+    // (规格「映射与目标」决策 15)——表单即时校验与设备 -32076 回绝说的是同一句,
+    // 不再是宿主 `remote.json` 自己那句英文。
     await waitFor(() => {
       expect(screen.getByTestId("port-forward-add-error")).toHaveTextContent(
-        "The port number must be between 1 and 65535.",
+        "Enter a port, host:port, or http(s)://host[:port].",
       );
     });
+  });
+
+  it("设备够不着时提交新增:静默转离线态,不当一句机器原话显示", async () => {
+    appMocks.PortForwardList.mockResolvedValue([]);
+    appMocks.PortForwardCreate.mockRejectedValue(
+      coded(21000, "device offline"),
+    );
+
+    render(<DevicePortForward deviceId={DEVICE_ID} offline={false} />);
+    await screen.findByText("No port mappings on this device yet.");
+
+    await userEvent.click(screen.getByRole("button", { name: "Add mapping" }));
+    await userEvent.type(screen.getByLabelText("Target"), "3000");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(
+      await screen.findByText("Offline — forwarding is unavailable."),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Target")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("port-forward-add-error"),
+    ).not.toBeInTheDocument();
   });
 });

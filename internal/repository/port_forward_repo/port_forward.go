@@ -1,11 +1,12 @@
 // Package port_forward_repo 提供「设备端口转发映射」的持久化访问：新增、列举、
-// 启停、删除，以及按端口的点查。两个宿主（桌面端 / agentred）各自一个 SQLite 库，
-// 按 db.Ctx(ctx) 写，共用同一份实现（决策 1，与 transcript_repo 同一条路子）。
+// 启停、删除，以及按目标的点查。两个宿主（桌面端 / agentred）各自一个
+// SQLite 库，按 db.Ctx(ctx) 写，共用同一份实现（决策 1，与 transcript_repo 同一条
+// 路子）。
 //
-// 「端口在一台设备下唯一」由库上的 UNIQUE 索引兜底（迁移里的
-// ux_port_forwards_port），本包的 Create 不重复做应用层预检——预检与约束之间永远
-// 有一条竞态窗口，唯一性的真相源只能是库本身；本包只保证违反时把底层错误原样交回
-// 调用方，不吞掉它。
+// 「目标（规范化后的协议、主机、端口）在一台设备下唯一」由库上的 UNIQUE 索引兜底
+// （迁移里的 ux_port_forwards_target），本包的 Create 不重复做应用层预检——预检与
+// 约束之间永远有一条竞态窗口，唯一性的真相源只能是库本身；本包只保证违反时把底层
+// 错误原样交回调用方，不吞掉它。
 package port_forward_repo
 
 import (
@@ -23,16 +24,17 @@ import (
 
 // PortForwardRepo 存取这台设备上的端口转发声明。
 type PortForwardRepo interface {
-	// Create 新增一条映射声明，写下建行 / 更新时间。端口冲突时把库上 UNIQUE 索引
+	// Create 新增一条映射声明，写下建行 / 更新时间。目标冲突时把库上 UNIQUE 索引
 	// 报出的错误原样交回，不吞掉、也不改写成另一种含糊的失败。
 	Create(ctx context.Context, p *port_forward_entity.PortForward) error
 
 	// Get 按主键取一条映射，不存在返回 (nil, nil)。
 	Get(ctx context.Context, id int64) (*port_forward_entity.PortForward, error)
 
-	// FindByPort 按端口点查这台设备上的声明，不存在返回 (nil, nil)。设备侧 open
-	// 判定（端口是否在声明集内）与新增前的应用层提示都走它。
-	FindByPort(ctx context.Context, port int) (*port_forward_entity.PortForward, error)
+	// FindByTarget 按规范化目标点查这台设备上的声明，不存在返回 (nil, nil)。新增
+	// 前的应用层唯一性提示走它——目标（而不再是裸端口）才是这台设备下的唯一性
+	// 判据（规格「映射与目标」一节）。
+	FindByTarget(ctx context.Context, target string) (*port_forward_entity.PortForward, error)
 
 	// List 列出这台设备上的全部映射，按 id 升序（声明顺序）。不按来源收窄——
 	// 规格「任何一个有权连上这台设备的客户端都能列举...改动落在那台设备上，
@@ -78,9 +80,9 @@ func (r *portForwardRepo) Get(ctx context.Context, id int64) (*port_forward_enti
 	return row, nil
 }
 
-func (r *portForwardRepo) FindByPort(ctx context.Context, port int) (*port_forward_entity.PortForward, error) {
+func (r *portForwardRepo) FindByTarget(ctx context.Context, target string) (*port_forward_entity.PortForward, error) {
 	row := &port_forward_entity.PortForward{}
-	err := db.Ctx(ctx).Where("port = ?", port).First(row).Error
+	err := db.Ctx(ctx).Where("target = ?", target).First(row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

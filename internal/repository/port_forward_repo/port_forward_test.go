@@ -47,61 +47,60 @@ func TestPortForwardRepo_Create_DisabledStaysDisabled(t *testing.T) {
 	ctx, mock, repo := setupPortForwardRepo(t)
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO `port_forwards`").
-		WithArgs(3000, "dev server", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs(3000, "dev server", "http://127.0.0.1:3000", false, false, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	row := &port_forward_entity.PortForward{Port: 3000, Name: "dev server", Enabled: false}
+	row := &port_forward_entity.PortForward{Port: 3000, Name: "dev server", Target: "http://127.0.0.1:3000", Enabled: false}
 	require.NoError(t, repo.Create(ctx, row))
 	assert.False(t, row.Enabled, "调用方交进来的那个结构体被就地改掉了")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
 // TestPortForwardRepo_Create_DuplicatePortSurfacesError 覆盖「端口在一台设备下唯一」：
-// 库上的 UNIQUE 索引（迁移里的 ux_port_forwards_port）是唯一性的真相源，仓储层只需要
-// 不吞掉这个错误——新增第二条同端口的映射必须原样把冲突错误交回调用方，而不是
-// 静默成功或换成另一种含糊的失败。
+// 库上的 UNIQUE 索引（迁移里的 ux_port_forwards_target）是唯一性的真相源，仓储层
+// 只需要不吞掉这个错误——新增第二条同目标的映射必须原样把冲突错误交回调用方，
+// 而不是静默成功或换成另一种含糊的失败。
 func TestPortForwardRepo_Create_DuplicatePortSurfacesError(t *testing.T) {
 	ctx, mock, repo := setupPortForwardRepo(t)
-	dup := errors.New("Error 1062 (23000): Duplicate entry '3000' for key 'ux_port_forwards_port'")
+	dup := errors.New("Error 1062 (23000): Duplicate entry 'http://127.0.0.1:3000' for key 'ux_port_forwards_target'")
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO `port_forwards`").
 		WillReturnError(dup)
 	mock.ExpectRollback()
 
-	err := repo.Create(ctx, &port_forward_entity.PortForward{Port: 3000, Name: "dev server", Enabled: true})
+	err := repo.Create(ctx, &port_forward_entity.PortForward{Port: 3000, Target: "http://127.0.0.1:3000", Name: "dev server", Enabled: true})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, dup)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestPortForwardRepo_FindByPort_Found 覆盖端口点查：设备侧 open 判定与新增前的
-// 唯一性预检都走它。
-func TestPortForwardRepo_FindByPort_Found(t *testing.T) {
+// TestPortForwardRepo_FindByTarget_Found 覆盖目标点查：新增前的唯一性预检走它——
+// 目标（而不是裸端口）才是这台设备下的唯一性判据（规格「映射与目标」一节）。
+func TestPortForwardRepo_FindByTarget_Found(t *testing.T) {
 	ctx, mock, repo := setupPortForwardRepo(t)
-	mock.ExpectQuery("SELECT \\* FROM `port_forwards` WHERE port = \\?").
-		WithArgs(3000, 1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "port", "name", "enabled"}).
-			AddRow(int64(1), 3000, "dev server", true))
+	mock.ExpectQuery("SELECT \\* FROM `port_forwards` WHERE target = \\?").
+		WithArgs("http://127.0.0.1:3000", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "port", "target", "name", "enabled"}).
+			AddRow(int64(1), 3000, "http://127.0.0.1:3000", "dev server", true))
 
-	got, err := repo.FindByPort(ctx, 3000)
+	got, err := repo.FindByTarget(ctx, "http://127.0.0.1:3000")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, int64(1), got.ID)
-	assert.Equal(t, 3000, got.Port)
-	assert.True(t, got.Enabled)
+	assert.Equal(t, "http://127.0.0.1:3000", got.Target)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestPortForwardRepo_FindByPort_NotFound 覆盖未声明的端口：按 (nil, nil) 返回，
-// 调用方据此判定「端口不在声明集内」，而不是把 ErrRecordNotFound 当 I/O 故障。
-func TestPortForwardRepo_FindByPort_NotFound(t *testing.T) {
+// TestPortForwardRepo_FindByTarget_NotFound 覆盖未声明的目标：按 (nil, nil) 返回，
+// 不把 ErrRecordNotFound 当 I/O 故障。
+func TestPortForwardRepo_FindByTarget_NotFound(t *testing.T) {
 	ctx, mock, repo := setupPortForwardRepo(t)
-	mock.ExpectQuery("SELECT \\* FROM `port_forwards` WHERE port = \\?").
-		WithArgs(9999, 1).
+	mock.ExpectQuery("SELECT \\* FROM `port_forwards` WHERE target = \\?").
+		WithArgs("http://127.0.0.1:9999", 1).
 		WillReturnError(gorm.ErrRecordNotFound)
 
-	got, err := repo.FindByPort(ctx, 9999)
+	got, err := repo.FindByTarget(ctx, "http://127.0.0.1:9999")
 	require.NoError(t, err)
 	assert.Nil(t, got)
 	assert.NoError(t, mock.ExpectationsWereMet())

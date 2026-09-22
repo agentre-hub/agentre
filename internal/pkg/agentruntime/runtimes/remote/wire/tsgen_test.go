@@ -293,17 +293,20 @@ func tsRPCErrorDecls() []tsRPCErrorDecl {
 		{"ErrCodeTranscriptImportTranscriptOpen", "CodeTranscriptImportTranscriptOpen", rpcerror.CodeTranscriptImportTranscriptOpen},
 		{"ErrCodeTranscriptImportSessionInUse", "CodeTranscriptImportSessionInUse", rpcerror.CodeTranscriptImportSessionInUse},
 
-		// ── portforward.*(-32075..-32070)──
+		// ── portforward.*(-32076..-32070)──
 		//
-		// 六个码全进:浏览器是这一族**声明面**的调用方之一(新增撞号 / 端口号越界都
-		// 是表单当场要分辨的输入错误),而流面的三个码经服务端 Go 代理折成 HTTP 状态时
-		// 也要按码分支。少导出任何一个,消费方就只能回到手抄魔数。
+		// 七个码全进:浏览器是这一族**声明面**的调用方之一(新增撞号 / 目标写法不
+		// 合法都是表单当场要分辨的输入错误),而流面的三个码经服务端 Go 代理折成
+		// HTTP 状态时也要按码分支。少导出任何一个,消费方就只能回到手抄魔数。
 		{"ErrCodePortForwardNotDeclared", "CodePortForwardNotDeclared", rpcerror.CodePortForwardNotDeclared},
 		{"ErrCodePortForwardDisabled", "CodePortForwardDisabled", rpcerror.CodePortForwardDisabled},
 		{"ErrCodePortForwardNoListener", "CodePortForwardNoListener", rpcerror.CodePortForwardNoListener},
 		{"ErrCodePortForwardStreamNotFound", "CodePortForwardStreamNotFound", rpcerror.CodePortForwardStreamNotFound},
 		{"ErrCodePortForwardPortTaken", "CodePortForwardPortTaken", rpcerror.CodePortForwardPortTaken},
 		{"ErrCodePortForwardInvalidPort", "CodePortForwardInvalidPort", rpcerror.CodePortForwardInvalidPort},
+		{"ErrCodePortForwardInvalidTarget", "CodePortForwardInvalidTarget", rpcerror.CodePortForwardInvalidTarget},
+		{"ErrCodePortForwardNameResolution", "CodePortForwardNameResolution", rpcerror.CodePortForwardNameResolution},
+		{"ErrCodePortForwardTLSVerification", "CodePortForwardTLSVerification", rpcerror.CodePortForwardTLSVerification},
 
 		// ── daemon 会话/鉴权(-32001..-32007)与 JSON-RPC 标准码 ──
 		//

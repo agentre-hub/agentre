@@ -18,8 +18,9 @@ import (
 type stubPortForwardSvc struct {
 	gotDeviceID  string
 	gotMappingID string
-	gotPort      int
+	gotTarget    string
 	gotName      string
+	gotInsecure  bool
 	gotEnabled   bool
 
 	mappings []port_forward_svc.MappingView
@@ -32,8 +33,10 @@ func (s *stubPortForwardSvc) List(_ context.Context, deviceID string) ([]port_fo
 	return s.mappings, s.err
 }
 
-func (s *stubPortForwardSvc) Create(_ context.Context, deviceID string, port int, name string) (*port_forward_svc.MappingView, error) {
-	s.gotDeviceID, s.gotPort, s.gotName = deviceID, port, name
+func (s *stubPortForwardSvc) Create(
+	_ context.Context, deviceID, target, name string, insecure bool,
+) (*port_forward_svc.MappingView, error) {
+	s.gotDeviceID, s.gotTarget, s.gotName, s.gotInsecure = deviceID, target, name, insecure
 	return s.mapping, s.err
 }
 
@@ -79,27 +82,28 @@ func TestPortForwardListPassesThroughAndCarriesTheCodeAcrossTheBridge(t *testing
 
 func TestPortForwardCreatePassesThroughAndDistinguishesTheUserFixableFailures(t *testing.T) {
 	stub := &stubPortForwardSvc{mapping: &port_forward_svc.MappingView{
-		ID: "11", Port: 3000, Name: "dev server", Enabled: true,
+		ID: "11", Port: 3000, Name: "dev server", Enabled: true, Target: "http://127.0.0.1:3000",
 	}}
 	a := withStubPortForward(t, stub)
 
-	view, err := a.PortForwardCreate("7", 3000, "dev server")
+	view, err := a.PortForwardCreate("7", "3000", "dev server", true)
 	require.NoError(t, err)
 	assert.Equal(t, "7", stub.gotDeviceID)
-	assert.Equal(t, 3000, stub.gotPort)
+	assert.Equal(t, "3000", stub.gotTarget)
 	assert.Equal(t, "dev server", stub.gotName)
+	assert.True(t, stub.gotInsecure)
 	assert.Equal(t, "11", view.ID)
 
-	// 端口已被声明与端口越界是新增表单要分开说的两件事,两个码各自过桥。
-	stub.err = &httputils.Error{Code: code.PortForwardPortTaken, Msg: "端口已映射"}
-	_, err = a.PortForwardCreate("7", 3000, "dev server")
+	// 目标已被声明与目标写法不合法是新增表单要分开说的两件事,两个码各自过桥。
+	stub.err = &httputils.Error{Code: code.PortForwardPortTaken, Msg: "目标已映射"}
+	_, err = a.PortForwardCreate("7", "3000", "dev server", false)
 	require.Error(t, err)
-	assert.Equal(t, "agentre-code:21002 端口已映射", err.Error())
+	assert.Equal(t, "agentre-code:21002 目标已映射", err.Error())
 
-	stub.err = &httputils.Error{Code: code.PortForwardInvalidPort, Msg: "端口越界"}
-	_, err = a.PortForwardCreate("7", 70000, "dev server")
+	stub.err = &httputils.Error{Code: code.PortForwardInvalidTarget, Msg: "目标写法不对"}
+	_, err = a.PortForwardCreate("7", "ftp://bad", "dev server", false)
 	require.Error(t, err)
-	assert.Equal(t, "agentre-code:21003 端口越界", err.Error())
+	assert.Equal(t, "agentre-code:21004 目标写法不对", err.Error())
 }
 
 func TestPortForwardSetEnabledPassesThrough(t *testing.T) {

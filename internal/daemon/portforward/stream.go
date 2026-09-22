@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -114,9 +116,10 @@ var (
 // 需要上限时它已经不是名字了。
 const maxStreamIDLength = 128
 
-// loopbackDialTimeout 只覆盖**拨号**这一步。本机环回上连不上就是连不上,拖长了只会
-// 让「端口上没有服务」这条答复来得更晚。
-const loopbackDialTimeout = 5 * time.Second
+// targetDialTimeout 覆盖**拨号**这一步:解析主机名、建 TCP 连接,https 再加上 TLS
+// 握手。目标现在可以是设备所在网络里的另一台机器,比环回慢是常态;但连不上就是连不上,
+// 拖长了只会让「目标连不上」这条答复来得更晚。
+const targetDialTimeout = 10 * time.Second
 
 // defaultCreditIdleTimeout 是响应方向「窗口已经满了、却连一条 ack 都等不到」的容忍
 // 上限,见 awaitCredit。
@@ -128,14 +131,34 @@ const loopbackDialTimeout = 5 * time.Second
 // 有确定的收尾,不留悬挂的流」)。
 const defaultCreditIdleTimeout = 2 * time.Minute
 
-var loopbackDialer = &net.Dialer{Timeout: loopbackDialTimeout}
-
-// DialLoopback 是生产上那一条拨号:目标恒为 127.0.0.1:<port>。
+// DialTarget 是生产上那一条拨号:拨到声明里存着的目标。主机名在这台设备上解析。
 //
-// 它就住在闸门旁边,因为「目标恒为环回」这件事必须只有一个出处 —— 两个宿主各写一份
-// net.Dial,迟早有一份把主机那一格接成了请求里带来的值。
-func DialLoopback(ctx context.Context, port int) (net.Conn, error) {
-	return loopbackDialer.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+// 它就住在闸门旁边,因为「只拨声明里的目标」这件事必须只有一个出处 —— 两个宿主各写
+// 一份 net.Dial,迟早有一份把目标接成了请求里带来的值。
+//
+// https 目标在这里就把 TLS 握手做完,而不是交给第一次读写:握手失败(尤其是证书不
+// 受信任)要落在 open 的应答上,用户才看得到「去勾忽略证书错误」这一句。证书按
+// 这条映射自己的设置决定校不校验(规格决策 9)。
+func DialTarget(ctx context.Context, target Target) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, targetDialTimeout)
+	defer cancel()
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(target.Host, strconv.Itoa(target.Port)))
+	if err != nil || target.Scheme != "https" {
+		return conn, err
+	}
+	tlsConn := tls.Client(conn, &tls.Config{
+		ServerName: target.Host,
+		// 用户为这一条映射明确勾了「忽略证书错误」(内网自签证书),见 Target.Insecure。
+		InsecureSkipVerify: target.Insecure,
+		// 转发流只会说 HTTP/1.1(请求头是这一层手写的),不能让服务端选成 h2。
+		NextProtos: []string{"http/1.1"},
+	})
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return tlsConn, nil
 }
 
 // ---------- 请求这一侧 ----------
@@ -155,13 +178,116 @@ const (
 
 // openPlan 是一次 open 在**拨号之前**就能算清的全部东西。先算再拨,是为了让「请求行
 // 本身就不合法」这种失败不至于先在那台设备上开一条连接。
+//
+// 唯一要等拨号之后才填得上的是 Host 那一行:它说的是目标,而目标只在闸门里从声明读
+// 出来(见 head)。
 type openPlan struct {
-	head    []byte
-	method  string
-	framing bodyFraming
-	// port 是这条流转到的那个端口。它跟着计划走而不是另外传一遍,因为撤销面认的正是
-	// 端口:声明被停用 / 删除时,要关的是「这个端口上的流」,流表得答得出这一格。
-	port int
+	requestLine string
+	fields      []byte
+	method      string
+	framing     bodyFraming
+	// mappingID 是这条流打开的那条声明。它跟着计划走而不是另外传一遍,因为撤销面认的
+	// 正是它:声明被停用 / 删除时,要关的是「这条映射上的流」,流表得答得出这一格。
+	mappingID int64
+}
+
+// head 拼出写给上游的完整请求头:请求行、Host、其余字段。
+func (plan *openPlan) head(target Target) []byte {
+	var head bytes.Buffer
+	head.WriteString(plan.requestLine)
+	fmt.Fprintf(&head, "Host: %s\r\n", hostHeader(target))
+	head.Write(plan.fields)
+	return head.Bytes()
+}
+
+// hostHeader 是目标的 host[:port]:端口等于协议默认值时省略(规格「上游改写」)。
+func hostHeader(target Target) string {
+	if target.Port == defaultPortFor(target.Scheme) {
+		if strings.Contains(target.Host, ":") {
+			return "[" + target.Host + "]" // IPv6 字面量在 Host 里必须带方括号
+		}
+		return target.Host
+	}
+	return net.JoinHostPort(target.Host, strconv.Itoa(target.Port))
+}
+
+// rewriteResponseHeaders 是设备对上游应答头的两处改写(规格决策 11,只作用在被转发
+// 这一跳):指向目标自己 origin 的 Location 变成相对地址,每条 Set-Cookie 去掉 Domain。
+// 响应体一个字节都不改。
+//
+// 两处都只有设备做得了:只有它知道目标是什么。不改的话,登录之后会跳到浏览器够不着
+// 的目标地址,目标域名下的 cookie 会被浏览器拒收。
+func rewriteResponseHeaders(header http.Header, target Target) {
+	if locations := header.Values("Location"); len(locations) > 0 {
+		rewritten := make([]string, len(locations))
+		for i, location := range locations {
+			rewritten[i] = relativeIfSameOrigin(location, target)
+		}
+		header["Location"] = rewritten
+	}
+	if cookies := header.Values("Set-Cookie"); len(cookies) > 0 {
+		rewritten := make([]string, len(cookies))
+		for i, cookie := range cookies {
+			rewritten[i] = withoutCookieDomain(cookie)
+		}
+		header["Set-Cookie"] = rewritten
+	}
+}
+
+// relativeIfSameOrigin 把指向目标自己 origin 的地址改成相对地址,别的原样交回。
+//
+// 同源的判据是协议、主机(不分大小写)、端口(省略时按协议取默认值)三格都相同;协议
+// 相对的 //host/path 按目标的协议算。改完的地址保留路径、查询串(与片段,如果有 ——
+// 它从不发给服务器,却是跳转目标的一部分)。
+func relativeIfSameOrigin(location string, target Target) string {
+	u, err := url.Parse(location)
+	if err != nil || u.Host == "" || u.Opaque != "" {
+		return location
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme == "" {
+		scheme = target.Scheme
+	}
+	if scheme != target.Scheme || !strings.EqualFold(u.Hostname(), target.Host) {
+		return location
+	}
+	port := defaultPortFor(scheme)
+	if text := u.Port(); text != "" {
+		parsed, convErr := strconv.Atoi(text)
+		if convErr != nil {
+			return location
+		}
+		port = parsed
+	}
+	if port != target.Port {
+		return location
+	}
+	if strings.HasPrefix(u.Path, "//") {
+		// 去掉 origin 之后它会被浏览器读成协议相对地址,指向另一个站点。
+		return location
+	}
+	relative := url.URL{Path: u.Path, RawPath: u.RawPath, RawQuery: u.RawQuery, Fragment: u.Fragment, RawFragment: u.RawFragment}
+	if relative.Path == "" {
+		relative.Path = "/"
+	}
+	return relative.String()
+}
+
+// withoutCookieDomain 去掉一条 Set-Cookie 里的 Domain 属性,其余属性原样保留。
+//
+// 按字面拆而不是交给 net/http 解析再写回:解析再序列化会顺手改掉它不认识或写法不同的
+// 属性(大小写、Expires 的格式、扩展属性),而规格要的是「其余原样」。
+func withoutCookieDomain(cookie string) string {
+	parts := strings.Split(cookie, ";")
+	kept := parts[:1]
+	for _, attribute := range parts[1:] {
+		name, _, _ := strings.Cut(attribute, "=")
+		if strings.EqualFold(strings.TrimSpace(name), "domain") {
+			continue
+		}
+		kept = append(kept, attribute)
+	}
+	return strings.Join(kept, ";")
 }
 
 func invalidParams(message string) error {
@@ -240,10 +366,11 @@ func validContentLength(value string) bool {
 	return err == nil && length >= 0
 }
 
-// planOpen 把一次 open 折成写给上游的那段请求头。
+// planOpen 把一次 open 折成写给上游的那段请求头(Host 除外,见 openPlan)。
 //
-// Host 由设备**重写**成 127.0.0.1:<port>,而不是原样带上调用方那一格:目标主机不在
-// 协议里,设备恒连环回,Host 说的必须是它真的连到了哪儿。
+// Host 由设备**重写**成目标的 host[:port],而不是原样带上调用方那一格:浏览器那一侧
+// 的地址是转发域名或本机随机端口,虚拟主机按 Host 认站,Host 说的必须是它真的连到了
+// 哪儿。
 func planOpen(request *agentrewire.PortForwardOpenRequest) (*openPlan, error) {
 	method := strings.ToUpper(strings.TrimSpace(request.GetMethod()))
 	if method == "" {
@@ -275,8 +402,6 @@ func planOpen(request *agentrewire.PortForwardOpenRequest) (*openPlan, error) {
 	}
 
 	var head bytes.Buffer
-	fmt.Fprintf(&head, "%s %s HTTP/1.1\r\n", method, path)
-	fmt.Fprintf(&head, "Host: 127.0.0.1:%d\r\n", request.GetPort())
 	for name, values := range tunnelheader.SanitizeWith(headers, tunnelheader.Options{AllowUpgrade: upgrade}) {
 		for _, value := range values {
 			fmt.Fprintf(&head, "%s: %s\r\n", name, value)
@@ -297,7 +422,10 @@ func planOpen(request *agentrewire.PortForwardOpenRequest) (*openPlan, error) {
 	}
 	head.WriteString("\r\n")
 
-	return &openPlan{head: head.Bytes(), method: method, framing: framing, port: int(request.GetPort())}, nil
+	return &openPlan{
+		requestLine: fmt.Sprintf("%s %s HTTP/1.1\r\n", method, path),
+		fields:      head.Bytes(), method: method, framing: framing, mappingID: request.GetMappingId(),
+	}, nil
 }
 
 // ---------- 一条流 ----------
@@ -310,14 +438,15 @@ type closeReason struct {
 }
 
 type stream struct {
-	id      string
-	port    int
-	conn    net.Conn
-	reader  *bufio.Reader
-	notify  Notifier
-	method  string
-	framing bodyFraming
-	window  int64
+	id        string
+	mappingID int64
+	target    Target
+	conn      net.Conn
+	reader    *bufio.Reader
+	notify    Notifier
+	method    string
+	framing   bodyFraming
+	window    int64
 
 	// writeMu 串行化写往上游的方向。它**只**盖住 conn.Write,与信用那把锁没有交集,
 	// 一次慢写因此不会挡住同一条流的 ack。
@@ -343,9 +472,9 @@ type stream struct {
 	reason    closeReason
 }
 
-func newStream(id string, conn net.Conn, plan *openPlan, window int64, notify Notifier, creditIdleTimeout time.Duration) *stream {
+func newStream(id string, conn net.Conn, target Target, plan *openPlan, window int64, notify Notifier, creditIdleTimeout time.Duration) *stream {
 	return &stream{
-		id: id, port: plan.port, conn: conn, reader: bufio.NewReader(conn), notify: notify,
+		id: id, mappingID: plan.mappingID, target: target, conn: conn, reader: bufio.NewReader(conn), notify: notify,
 		method: plan.method, framing: plan.framing, window: window,
 		credit: make(chan struct{}, 1), creditIdleTimeout: creditIdleTimeout,
 	}
@@ -511,6 +640,7 @@ func (st *stream) run() (closeReason, io.Closer) {
 	}
 	upgraded := response.StatusCode == http.StatusSwitchingProtocols
 	st.setUpgraded(upgraded)
+	rewriteResponseHeaders(response.Header, st.target)
 	if emitErr := st.emit(&agentrewire.RpcNotification{
 		Payload: &agentrewire.RpcNotification_PortForwardResponse{
 			PortForwardResponse: &agentrewire.PortForwardResponseNotification{
@@ -661,9 +791,9 @@ func windowFor(requested uint64) int64 {
 
 // Open 开一条转发流:先把请求头算清、再经**闸门**拨号、写出请求头,最后才起生产者。
 //
-// 「端口没有声明」「映射已停用」「端口上没有服务在监听」三种失败都落在这一次调用的
-// 应答上(闸门原样交回它们的领域码),而不是等到某条通知里 —— 宿主要拿它去渲染两张
-// 不同的失败页。
+// 「映射不存在」「映射已停用」与目标连不上的三种原因都落在这一次调用的
+// 应答上(闸门原样交回它们的领域码),而不是等到某条通知里 —— 宿主要拿它去渲染各自
+// 的失败页。
 func (s *Streams) Open(ctx context.Context, request *agentrewire.PortForwardOpenRequest) (*agentrewire.PortForwardOpenResponse, error) {
 	id := request.GetStreamId()
 	if id == "" || len(id) > maxStreamIDLength {
@@ -682,17 +812,17 @@ func (s *Streams) Open(ctx context.Context, request *agentrewire.PortForwardOpen
 	defer s.release(id)
 
 	// 拨号在闸门里,判定先于它 —— 这里没有第二条拨号路径。
-	conn, err := s.gate.DialDeclared(ctx, int(request.GetPort()))
+	conn, target, err := s.gate.DialDeclared(ctx, request.GetMappingId())
 	if err != nil {
 		return nil, err
 	}
-	if _, err := conn.Write(plan.head); err != nil {
+	if _, err := conn.Write(plan.head(target)); err != nil {
 		_ = conn.Close()
 		logger.Ctx(ctx).Warn("portforward.Open: 写请求头失败", zap.String("streamId", id), zap.Error(err))
-		return nil, &rpcerror.Error{Code: rpcerror.CodeInternal, Message: "port forward: cannot write request to the local service"}
+		return nil, &rpcerror.Error{Code: rpcerror.CodeInternal, Message: "port forward: cannot write request to the target"}
 	}
 
-	st := newStream(id, conn, plan, windowFor(request.GetWindowBytes()), s.notify, s.creditIdleTimeout)
+	st := newStream(id, conn, target, plan, windowFor(request.GetWindowBytes()), s.notify, s.creditIdleTimeout)
 	if err := s.adopt(st); err != nil {
 		_ = conn.Close()
 		return nil, err
@@ -702,7 +832,7 @@ func (s *Streams) Open(ctx context.Context, request *agentrewire.PortForwardOpen
 }
 
 // reserve 占住这个流号。占位与落表分成两步,是为了让**拨号不在锁里** —— 拨一次号最多
-// 要 loopbackDialTimeout,握着流表拨就等于让同一条连接上别的流的 ack 排在它后面。
+// 要 targetDialTimeout,握着流表拨就等于让同一条连接上别的流的 ack 排在它后面。
 func (s *Streams) reserve(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -777,8 +907,8 @@ func (s *Streams) Ack(_ context.Context, request *agentrewire.PortForwardAckRequ
 	return &agentrewire.Empty{}, nil
 }
 
-// revokePort 关掉这条连接上转到某个端口的全部流:声明被停用或删除时,闸门经撤销面
-// 调到这里。
+// revokeMapping 关掉这条连接上开在某条映射上的全部流:声明被停用或删除时,闸门经
+// 撤销面调到这里。
 //
 // **摘表与关流在同一次调用里做完**,这是「立即」在实现上的全部内容:关流会让生产者
 // goroutine 醒过来自己 forget,但那要经过一次调度,而宿主在那条窗口里拿着旧流号发来的
@@ -786,11 +916,11 @@ func (s *Streams) Ack(_ context.Context, request *agentrewire.PortForwardAckRequ
 //
 // 关流本身只是几行赋值加一次 socket.Close,收尾通知由流自己的 goroutine 发出,所以这
 // 条通路上没有任何一步会把调用方(声明族那次 RPC)顶住。
-func (s *Streams) revokePort(port int, reason closeReason) {
+func (s *Streams) revokeMapping(mappingID int64, reason closeReason) {
 	s.mu.Lock()
 	var doomed []*stream
 	for id, st := range s.live {
-		if st.port == port {
+		if st.mappingID == mappingID {
 			doomed = append(doomed, st)
 			delete(s.live, id)
 		}
@@ -799,10 +929,10 @@ func (s *Streams) revokePort(port int, reason closeReason) {
 	for _, st := range doomed {
 		st.shutdown(reason)
 	}
-	s.announceRevoked(port, reason)
+	s.announceRevoked(mappingID, reason)
 }
 
-// announceRevoked 告诉这条连接的对端:这个端口此刻起不再允许转发。
+// announceRevoked 告诉这条连接的对端:这条映射此刻起不再允许转发。
 //
 // **它与上面那几条 closed 是两件事,少了它规格不成立。** closed 只到达此刻正开着流的
 // 那一方;而桌面端为一条映射绑的那条专属监听多半正闲着(用户开了标签页晾在那儿),
@@ -815,12 +945,11 @@ func (s *Streams) revokePort(port int, reason closeReason) {
 //
 // 代价是它与那几条 closed 之间没有确定的先后。宿主两条都消费得起:closed 收尾的是
 // 那一条流,revoked 关的是整条监听,谁先到都不会漏掉其中一件。
-func (s *Streams) announceRevoked(port int, reason closeReason) {
+func (s *Streams) announceRevoked(mappingID int64, reason closeReason) {
 	if s.notify == nil {
 		return
 	}
-	// 端口恒在 1..65535(声明落库时就夹住了),转 uint32 无损。
-	revoked := &agentrewire.PortForwardRevokedNotification{Port: uint32(port), Reason: reason.token}
+	revoked := &agentrewire.PortForwardRevokedNotification{MappingId: mappingID, Reason: reason.token}
 	go func() {
 		_ = s.notify(&agentrewire.RpcNotification{
 			Payload: &agentrewire.RpcNotification_PortForwardRevoked{PortForwardRevoked: revoked},

@@ -70,19 +70,19 @@ func (mr *MockPortForwardRepoMockRecorder) Delete(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockPortForwardRepo)(nil).Delete), ctx, id)
 }
 
-// FindByPort mocks base method.
-func (m *MockPortForwardRepo) FindByPort(ctx context.Context, port int) (*port_forward_entity.PortForward, error) {
+// FindByTarget mocks base method.
+func (m *MockPortForwardRepo) FindByTarget(ctx context.Context, target string) (*port_forward_entity.PortForward, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindByPort", ctx, port)
+	ret := m.ctrl.Call(m, "FindByTarget", ctx, target)
 	ret0, _ := ret[0].(*port_forward_entity.PortForward)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FindByPort indicates an expected call of FindByPort.
-func (mr *MockPortForwardRepoMockRecorder) FindByPort(ctx, port any) *gomock.Call {
+// FindByTarget indicates an expected call of FindByTarget.
+func (mr *MockPortForwardRepoMockRecorder) FindByTarget(ctx, target any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByPort", reflect.TypeOf((*MockPortForwardRepo)(nil).FindByPort), ctx, port)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByTarget", reflect.TypeOf((*MockPortForwardRepo)(nil).FindByTarget), ctx, target)
 }
 
 // Get mocks base method.
