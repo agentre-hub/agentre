@@ -188,7 +188,6 @@
       "actionFailed": "Action failed: {{message}}",
       "add": {
         "failed": "Could not add the mapping: {{message}}",
-        "invalidTarget": "Invalid target: use 3000, host:port, or http(s)://host[:port].",
         "targetTaken": "This target is already mapped on this device. Pick another one."
       },
       "copyDone": "Address copied",

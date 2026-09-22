@@ -476,9 +476,12 @@ describe("DevicePortForward", () => {
     // 打到了 PortForwardCreate 上,第二次撞上设备侧的 -32076(INVALID_TARGET)。
     await userEvent.click(screen.getByRole("button", { name: "Add" }));
 
+    // 这句现在只有一个出处:共享包 `agentre-ui` 的 `portForward.add.invalidTarget`
+    // (规格「映射与目标」决策 15)——表单即时校验与设备 -32076 回绝说的是同一句,
+    // 不再是宿主 `remote.json` 自己那句英文。
     await waitFor(() => {
       expect(screen.getByTestId("port-forward-add-error")).toHaveTextContent(
-        "Invalid target: use 3000, host:port, or http(s)://host[:port].",
+        "Enter a port, host:port, or http(s)://host[:port].",
       );
     });
   });

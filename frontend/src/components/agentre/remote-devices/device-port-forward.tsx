@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import {
   PortForwardSection,
   copyTextWithToast,
+  useUiTranslation,
   type PortForwardCreateInput,
   type PortForwardMappingView,
 } from "@agentre-hub/agentre-ui";
@@ -86,6 +87,10 @@ type Props = {
 
 export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
   const { t } = useTranslation();
+  // 「无效目标」这一句不在这个宿主的语言包里:规格「映射与目标」决策 15 把它定成
+  // 所有宿主同一句,归共享包 `agentre-ui` 持有(`portForward.add.invalidTarget`),
+  // 表单即时校验已经在用它,这里只是设备 -32076 回绝这条路也接到同一个出处。
+  const { t: uiT } = useUiTranslation();
   const alive = useRef(true);
 
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -284,7 +289,7 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
         });
       }
       if (failure.code === INVALID_TARGET) {
-        throw new Error(t("remoteDevices.portForward.add.invalidTarget"), {
+        throw new Error(uiT("portForward.add.invalidTarget"), {
           cause: err,
         });
       }

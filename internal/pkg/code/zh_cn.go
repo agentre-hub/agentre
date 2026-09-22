@@ -286,5 +286,5 @@ var zhCN = map[int]string{
 	PortForwardNotDeclared:   "这条端口映射已经不在这台设备上了",
 	PortForwardPortTaken:     "这个端口在这台设备上已经映射过了",
 	PortForwardInvalidPort:   "端口必须是 1~65535 之间的整数",
-	PortForwardInvalidTarget: "目标写法不对:接受 3000 / host:port / http(s)://host[:port] 三种写法",
+	PortForwardInvalidTarget: "请输入端口、host:port 或 http(s)://主机[:端口]。",
 }

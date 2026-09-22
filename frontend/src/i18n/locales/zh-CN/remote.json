@@ -188,7 +188,6 @@
       "actionFailed": "操作失败：{{message}}",
       "add": {
         "failed": "新增失败：{{message}}",
-        "invalidTarget": "目标写法不对：接受 3000 / host:port / http(s)://host[:port] 三种写法。",
         "targetTaken": "这个目标在这台设备上已经映射过了，换一个。"
       },
       "copyDone": "访问地址已复制",

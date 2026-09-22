@@ -286,5 +286,5 @@ var enUS = map[int]string{
 	PortForwardNotDeclared:   "That port mapping no longer exists on this device",
 	PortForwardPortTaken:     "That port is already mapped on this device",
 	PortForwardInvalidPort:   "Port must be an integer between 1 and 65535",
-	PortForwardInvalidTarget: "Invalid target: use 3000, host:port, or http(s)://host[:port]",
+	PortForwardInvalidTarget: "Enter a port, host:port, or http(s)://host[:port].",
 }
