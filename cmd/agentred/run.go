@@ -42,6 +42,9 @@ type runDaemon interface {
 type runDeps struct {
 	dataDir   func() (string, error)
 	newDaemon func(daemon.Options) (runDaemon, error)
+	// installCtlTools 在起 daemon 之前把随包的 agrctl 与 ctlskill 装到主机用户目录下
+	// (daemon.InstallCtlToolsOnBoot);nil = 不装。
+	installCtlTools func()
 }
 
 type resolvedRunConfig struct {
@@ -56,6 +59,7 @@ func newRunCmd() *cobra.Command {
 		newDaemon: func(opts daemon.Options) (runDaemon, error) {
 			return daemon.New(opts)
 		},
+		installCtlTools: func() { daemon.InstallCtlToolsOnBoot(context.Background()) },
 	})
 }
 
@@ -123,6 +127,10 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 				zap.String("serverURL", config.serverURL),
 				zap.String("dataDir", dir))
 
+			// daemon 一起就可能派发会话,会话里的 agent 要找得到 agrctl:先装,再起。
+			if deps.installCtlTools != nil {
+				deps.installCtlTools()
+			}
 			d, err := deps.newDaemon(daemon.Options{
 				DataDir:          dir,
 				LANHost:          config.listen.LanHost,

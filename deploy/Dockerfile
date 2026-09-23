@@ -91,7 +91,14 @@ RUN CGO_ENABLED=0 go build -ldflags "-s -w \
       -X github.com/cago-frame/cago/configs.Version=${VERSION} \
       -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${COMMIT_ID}" \
       -o /out/agentred ./cmd/agentred
+# agrctl 与 agentred 同一组 ldflags;它必须落在 agentred 旁边 —— agentred 启动时从自己
+# 旁边把它装到主机用户目录下(internal/guard/agentred_ships_agrctl_test.go 守着)。
+RUN CGO_ENABLED=0 go build -ldflags "-s -w \
+      -X github.com/cago-frame/cago/configs.Version=${VERSION} \
+      -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${COMMIT_ID}" \
+      -o /out/agrctl ./cmd/agrctl
 
 # 放在最后 = 默认目标，`docker build .` 走的是完整的源码构建
 FROM runtime-base AS full
 COPY --from=build /out/agentred /usr/local/bin/agentred
+COPY --from=build /out/agrctl /usr/local/bin/agrctl

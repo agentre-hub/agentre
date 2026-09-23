@@ -104,15 +104,18 @@ agentred:
 	go build -ldflags="$(LDFLAGS)" -o "$(AGENTRED_LOCAL_BINARY)" ./cmd/agentred
 
 # 构建可发布的 agentred 跨平台归档（darwin/linux: tar.gz；windows: zip）。
+# 同平台的 agrctl 放在 agentred 旁边：agentred 启动时从自己旁边把它装到主机用户目录下。
 agentred-package:
 	rm -rf "$(AGENTRED_DIST_DIR)/.$(AGENTRED_PACKAGE_NAME)"
 	mkdir -p "$(AGENTRED_DIST_DIR)/.$(AGENTRED_PACKAGE_NAME)"
 ifeq ($(AGENTRED_GOOS),windows)
 	CGO_ENABLED=0 GOOS=$(AGENTRED_GOOS) GOARCH=$(AGENTRED_GOARCH) go build -ldflags="$(LDFLAGS)" -o "$(AGENTRED_DIST_DIR)/.$(AGENTRED_PACKAGE_NAME)/agentred.exe" ./cmd/agentred
-	cd "$(AGENTRED_DIST_DIR)/.$(AGENTRED_PACKAGE_NAME)" && zip -q "../$(AGENTRED_PACKAGE_NAME).zip" agentred.exe
+	CGO_ENABLED=0 GOOS=$(AGENTRED_GOOS) GOARCH=$(AGENTRED_GOARCH) go build -ldflags="$(LDFLAGS)" -o "$(AGENTRED_DIST_DIR)/.$(AGENTRED_PACKAGE_NAME)/agrctl.exe" ./cmd/agrctl
+	cd "$(AGENTRED_DIST_DIR)/.$(AGENTRED_PACKAGE_NAME)" && zip -q "../$(AGENTRED_PACKAGE_NAME).zip" agentred.exe agrctl.exe
 else
 	CGO_ENABLED=0 GOOS=$(AGENTRED_GOOS) GOARCH=$(AGENTRED_GOARCH) go build -ldflags="$(LDFLAGS)" -o "$(AGENTRED_DIST_DIR)/.$(AGENTRED_PACKAGE_NAME)/agentred" ./cmd/agentred
-	tar -C "$(AGENTRED_DIST_DIR)/.$(AGENTRED_PACKAGE_NAME)" -czf "$(AGENTRED_DIST_DIR)/$(AGENTRED_PACKAGE_NAME).tar.gz" agentred
+	CGO_ENABLED=0 GOOS=$(AGENTRED_GOOS) GOARCH=$(AGENTRED_GOARCH) go build -ldflags="$(LDFLAGS)" -o "$(AGENTRED_DIST_DIR)/.$(AGENTRED_PACKAGE_NAME)/agrctl" ./cmd/agrctl
+	tar -C "$(AGENTRED_DIST_DIR)/.$(AGENTRED_PACKAGE_NAME)" -czf "$(AGENTRED_DIST_DIR)/$(AGENTRED_PACKAGE_NAME).tar.gz" agentred agrctl
 endif
 	rm -rf "$(AGENTRED_DIST_DIR)/.$(AGENTRED_PACKAGE_NAME)"
 
