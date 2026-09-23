@@ -66,3 +66,35 @@ func makeRecipe(t *testing.T, target string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// dev 流水线用 --target prebuilt 拿现成二进制打镜像(.gitea/workflows/dev.yaml):这条路
+// 也得把同平台的 agrctl 放到 agentred 旁边,否则 dev 环境里 agentred 会话用不了 agrctl。
+func TestGivenTheAgentredImageWhenBuiltFromPrebuiltBinariesThenAgrctlSitsNextToAgentred(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	raw, err := os.ReadFile(filepath.Join(root, "deploy", "Dockerfile")) //nolint:gosec // 守卫读取仓库内固定相对路径。
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prebuilt, ok := strings.Cut(string(raw), "AS prebuilt\n")
+	if !ok {
+		t.Fatal("deploy/Dockerfile has no prebuilt stage")
+	}
+	prebuilt, _, _ = strings.Cut(prebuilt, "\nFROM ")
+	if !strings.Contains(prebuilt, "COPY agrctl /usr/local/bin/agrctl") {
+		t.Errorf("the prebuilt stage must copy agrctl next to agentred:\n%s", prebuilt)
+	}
+
+	linux := makeRecipe(t, "agentred-linux")
+	if !strings.Contains(linux, `-o "$(AGRCTL_LINUX_BINARY)" ./cmd/agrctl`) {
+		t.Errorf("agentred-linux must cross-build agrctl for the same platform:\n%s", linux)
+	}
+
+	workflow, err := os.ReadFile(filepath.Join(root, ".gitea", "workflows", "dev.yaml")) //nolint:gosec // 守卫读取仓库内固定相对路径。
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(workflow), `"$remote:$DEPLOY_DIR/bin/agrctl"`) {
+		t.Error(".gitea/workflows/dev.yaml must ship agrctl into the prebuilt build context (bin/)")
+	}
+}

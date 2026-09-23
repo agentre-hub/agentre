@@ -76,6 +76,10 @@ stderr shows `waiting for approval in session #<id> …` meanwhile. (A program w
 terminal outside any session sees `waiting for approval in the Agentre desktop …` instead.)
 A rejection ends with exit code `1`. Do not retry a rejected write.
 
+This approval is a guard rail for well-behaved agents, not a security boundary: any process
+running as the same OS user can read the desktop's handshake file or fake a terminal and
+skip it. Never try to do either.
+
 ### Secrets
 
 Secret flags (`--api-key` of a provider, the OpenClaw gateway secret of a backend) are read
@@ -135,6 +139,15 @@ Error: agentre desktop control endpoint not found — is the desktop app running
 
 The desktop app is not running, or has not published its control channel yet. Report that
 and move on: do not retry in a loop, and do not try to launch the desktop.
+
+On a remote execution host (agentred) the message is instead:
+
+```
+Error: this is an agentred host — only Agentre-dispatched sessions can use agrctl here (…)
+```
+
+agrctl on that host only works inside a session Agentre dispatched to it. Report that and
+move on; there is no desktop to start there.
 
 ## Constraints
 

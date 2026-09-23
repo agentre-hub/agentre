@@ -172,7 +172,7 @@ func writeFlagTable(b *strings.Builder, defs []*flagDef, note func(*flagDef) str
 func writeBackendTypeHelp(w io.Writer, t *backendType) {
 	var b strings.Builder
 	_, _ = fmt.Fprintf(&b, "Backend type: %s — %s\n\n", t.name, t.summary)
-	b.WriteString("Flags: see agrctl help backend (--name, --device, --cli-path, --provider, --model,\n" +
+	b.WriteString("Flags: see agrctl help backend (--name, --device, --provider, --model,\n" +
 		"       --reasoning-effort, --env KEY=VAL, --config, --config-file)\n\n")
 	b.WriteString("--config fields:\n")
 	if len(t.config) == 0 {

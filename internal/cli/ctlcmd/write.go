@@ -33,6 +33,14 @@ func (w *writeCtx) ref(spec *kindSpec, v string) (int64, error) {
 	if strings.TrimSpace(v) == "" {
 		return 0, nil
 	}
+	return w.memberRef(spec, v)
+}
+
+// memberRef 解析可重复 flag 里的一个引用：每次出现都要指向一条资源，空值是用法错误。
+func (w *writeCtx) memberRef(spec *kindSpec, v string) (int64, error) {
+	if strings.TrimSpace(v) == "" {
+		return 0, usageErrorf("empty %s reference", spec.name)
+	}
 	it, err := w.cat.locate(spec, v)
 	if err != nil {
 		return 0, err
@@ -121,7 +129,8 @@ func runWrite(verb string, args []string, s *sys) error {
 	}
 	if len(p.positional) != wantPos {
 		if wantPos == 0 {
-			return usageErrorf("unexpected argument %q (create takes flags only; secret flags need --flag=<value>)", p.positional[0])
+			// 不回显这个参数：它可能是跟在裸密钥 flag 后面的密钥本身。
+			return usageErrorf("unexpected positional argument (create takes flags only; secret flags need --flag=<value>)")
 		}
 		return usageErrorf("%s %s needs exactly one <id|name> (got %d arguments)", verb, spec.name, len(p.positional))
 	}
@@ -134,6 +143,15 @@ func runWrite(verb string, args []string, s *sys) error {
 	}
 	if op == agentrewire.CtlOp_CTL_OP_UPDATE && len(p.flags) == 0 {
 		return usageErrorf("update %s: nothing to update (see agrctl help %s)", spec.name, spec.name)
+	}
+
+	// 没有终端时裸写的密钥 flag 一定读不到值：先于连接与定位给出 NEEDS TTY。
+	if !s.stdinIsTTY {
+		for _, o := range p.flags {
+			if o.def.secret && o.bare {
+				return needsTTY(o.def.name)
+			}
+		}
 	}
 
 	cat, err := connect(s, args)
@@ -149,7 +167,7 @@ func runWrite(verb string, args []string, s *sys) error {
 	}
 	label := ""
 	if op != agentrewire.CtlOp_CTL_OP_CREATE {
-		w.target, err = cat.locate(spec, p.positional[0])
+		w.target, err = cat.from(p.positionalAt[0]).locate(spec, p.positional[0])
 		if err != nil {
 			return err
 		}
@@ -215,7 +233,10 @@ func (w *writeCtx) applyFlags(defs []*flagDef, p parsedArgs) error {
 					return err
 				}
 			}
-			if err := def.apply(w, v); err != nil {
+			w.cat.from(o.at)
+			err := def.apply(w, v)
+			w.cat.site = -1
+			if err != nil {
 				return err
 			}
 		}
@@ -236,7 +257,14 @@ func (w *writeCtx) providerModelKey(modelID string) (string, error) {
 	if modelID == "" {
 		return "", nil
 	}
-	provider := w.cat.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, docOf(w.target).id)
+	providerID := docOf(w.target).id
+	// 数字 id（歧义提示给出的示例就是它）：必须是这个提供方下的模型。
+	if id, err := strconv.ParseInt(modelID, 10, 64); err == nil {
+		if it := w.cat.byID(agentrewire.CtlKind_CTL_KIND_MODEL, id); it != nil && it.GetModel().GetProviderId() == providerID {
+			return it.GetModel().GetKey(), nil
+		}
+	}
+	provider := w.cat.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, providerID)
 	it, err := w.cat.locate(kindModel, provider+"/"+modelID)
 	if err != nil {
 		return "", err

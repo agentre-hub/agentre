@@ -68,19 +68,19 @@ func listFilter(cat *catalog, spec *kindSpec, p parsedArgs) (func(*agentrewire.C
 	for _, o := range p.flags {
 		switch {
 		case spec == kindAgent && o.def.name == "department":
-			id, err := refID(cat, kindDepartment, o.value)
+			id, err := refID(cat.from(o.at), kindDepartment, o.value)
 			if err != nil {
 				return nil, err
 			}
 			keep = func(r *agentrewire.CtlResource) bool { return r.GetAgent().GetDepartmentId() == id }
 		case spec == kindProject && o.def.name == "parent":
-			id, err := refID(cat, kindProject, o.value)
+			id, err := refID(cat.from(o.at), kindProject, o.value)
 			if err != nil {
 				return nil, err
 			}
 			keep = func(r *agentrewire.CtlResource) bool { return r.GetProject().GetParentId() == id }
 		case spec == kindModel && o.def.name == "provider":
-			id, err := refID(cat, kindProvider, o.value)
+			id, err := refID(cat.from(o.at), kindProvider, o.value)
 			if err != nil {
 				return nil, err
 			}
@@ -127,7 +127,7 @@ func runGet(args []string, s *sys) error {
 	if err != nil {
 		return err
 	}
-	it, err := cat.locate(spec, p.positional[0])
+	it, err := cat.from(p.positionalAt[0]).locate(spec, p.positional[0])
 	if err != nil {
 		return err
 	}
@@ -332,7 +332,7 @@ type providerView struct {
 	ID           int64               `json:"id"`
 	Name         string              `json:"name"`
 	Type         string              `json:"type"`
-	BaseURL      string              `json:"baseURL"`
+	BaseURL      string              `json:"baseUrl"`
 	Enabled      bool                `json:"enabled"`
 	APIKey       string              `json:"apiKey"`
 	DefaultModel string              `json:"defaultModel"`

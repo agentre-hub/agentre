@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
+
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
@@ -269,9 +272,32 @@ func (backendSvcResources) ListBackends(ctx context.Context) ([]*agentrewire.Ctl
 		if err != nil {
 			return nil, err
 		}
+		doc.TokenSet = openClawTokenSet(ctx, svc, b)
 		out = append(out, doc)
 	}
 	return out, nil
+}
+
+// credentialStatus 是 agent_backend_svc 里按后端绑定设备查询凭据状态的那一个方法。
+type credentialStatus interface {
+	BackendCredentialStatus(ctx context.Context, req *agent_backend_svc.BackendCredentialStatusRequest) (*agent_backend_svc.BackendCredentialStatusResponse, error)
+}
+
+// openClawTokenSet 报 OpenClaw token 是否已设置。token 存在后端绑定的那台设备上，读模型
+// 的 HasToken 只看本机钥匙串，所以按绑定设备去问；问不到（设备离线）时退回读模型的值。
+func openClawTokenSet(ctx context.Context, svc credentialStatus, b *agent_backend_svc.BackendItem) bool {
+	if b.Type != string(agent_backend_entity.TypeOpenClaw) || b.SyncID == "" {
+		return b.HasToken
+	}
+	resp, err := svc.BackendCredentialStatus(ctx, &agent_backend_svc.BackendCredentialStatusRequest{
+		Type: b.Type, SyncID: b.SyncID, DeviceID: string(b.DeviceID),
+	})
+	if err != nil {
+		logger.Ctx(ctx).Warn("ctl_svc.openClawTokenSet: bound device credential status unavailable",
+			zap.Int64("backendId", b.ID), zap.Error(err))
+		return b.HasToken
+	}
+	return resp.OpenClawTokenSaved
 }
 
 // keyIndex 把后端上的提供方 / 模型 key 换成 ctl 契约里的数字 id。

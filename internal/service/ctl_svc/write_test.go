@@ -438,6 +438,26 @@ func TestWrite_RequestErrors(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), "systemBadge")
 		assert.Zero(t, f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).count())
 	})
+	t.Run("CLI 路径覆盖不在范围内：cliPath 只读 → 400，不写", func(t *testing.T) {
+		for _, op := range []agentrewire.CtlOp{agentrewire.CtlOp_CTL_OP_CREATE, agentrewire.CtlOp_CTL_OP_UPDATE} {
+			f := newWriteFixture()
+			req := &agentrewire.CtlWriteRequest{
+				Op: op, Kind: agentrewire.CtlKind_CTL_KIND_BACKEND,
+				Caller:   agentrewire.CtlCaller_CTL_CALLER_HUMAN,
+				Resource: &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Backend{Backend: &agentrewire.CtlBackend{Name: "b", Type: "codex", CliPath: "/usr/bin/codex"}}},
+				Fields:   []string{"cliPath"},
+			}
+			if op == agentrewire.CtlOp_CTL_OP_UPDATE {
+				req.Id = 5
+			} else {
+				req.Fields = append(req.Fields, "name", "type")
+			}
+			rec := postResources(t, f.h, testToken, writeBody(t, req))
+			assert.Equal(t, http.StatusBadRequest, rec.Code, op.String())
+			assert.Contains(t, rec.Body.String(), "cliPath")
+			assert.Zero(t, f.writer(agentrewire.CtlKind_CTL_KIND_BACKEND).count())
+		}
+	})
 	t.Run("创建后不可改的字段 → 400", func(t *testing.T) {
 		f := newWriteFixture()
 		rec := postResources(t, f.h, testToken, writeBody(t, &agentrewire.CtlWriteRequest{

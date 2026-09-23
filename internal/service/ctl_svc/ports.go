@@ -71,7 +71,6 @@ type BackendService interface {
 	Update(ctx context.Context, req *agent_backend_svc.UpdateBackendRequest) (*agent_backend_svc.UpdateBackendResponse, error)
 	UpdateOpenClaw(ctx context.Context, req *agent_backend_svc.UpdateBackendRequest, token string, clearToken bool) (*agent_backend_svc.UpdateBackendResponse, error)
 	Delete(ctx context.Context, req *agent_backend_svc.DeleteBackendRequest) (*agent_backend_svc.DeleteBackendResponse, error)
-	SetCLIOverlay(ctx context.Context, req *agent_backend_svc.SetCLIOverlayRequest) (*agent_backend_svc.SetCLIOverlayResponse, error)
 }
 
 // DeviceDirectory 已配对设备目录（remote_device_svc），把后端的 --device 名字解析成指纹。

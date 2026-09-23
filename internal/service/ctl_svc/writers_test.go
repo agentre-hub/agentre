@@ -316,7 +316,7 @@ func (m *mockPorts) expectKeyLookups() {
 }
 
 func TestBackendWriter(t *testing.T) {
-	t.Run("create openclaw 带 token → CreateOpenClaw；设备按名字解析；cliPath 写本设备覆盖", func(t *testing.T) {
+	t.Run("create openclaw 带 token → CreateOpenClaw；设备按名字解析", func(t *testing.T) {
 		m := newMockPorts(t)
 		m.expectKeyLookups()
 		m.devices.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{{Name: "build-box", DaemonFingerprint: "sha256:bb"}}, nil)
@@ -330,14 +330,12 @@ func TestBackendWriter(t *testing.T) {
 				assert.JSONEq(t, `{"A":"1"}`, req.EnvJSON)
 				return &agent_backend_svc.CreateBackendResponse{Item: &agent_backend_svc.BackendItem{ID: 60, SyncID: "sy-60", DeviceID: devicefp.Carrier("sha256:bb")}}, nil
 			})
-		m.backends.EXPECT().SetCLIOverlay(gomock.Any(), &agent_backend_svc.SetCLIOverlayRequest{BackendSyncID: "sy-60", DeviceID: "sha256:bb", CLIPath: "/opt/claw"}).
-			Return(&agent_backend_svc.SetCLIOverlayResponse{}, nil)
 		id, err := backendWriter{m.ports}.Create(ctx, Write{
 			Next: backendRes(&agentrewire.CtlBackend{
-				Type: "openclaw", Name: "claw2", Device: "build-box", ProviderId: 1, ModelId: 21, Token: "tok-plain", CliPath: "/opt/claw",
+				Type: "openclaw", Name: "claw2", Device: "build-box", ProviderId: 1, ModelId: 21, Token: "tok-plain",
 				Env: map[string]string{"A": "1"}, ConfigJson: `{"openclawGatewayUrl":"ws://127.0.0.1:1"}`,
 			}),
-			Fields: fieldSet("type", "name", "device", "providerId", "modelId", "token", "cliPath", "env", "configJson"),
+			Fields: fieldSet("type", "name", "device", "providerId", "modelId", "token", "env", "configJson"),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, int64(60), id)

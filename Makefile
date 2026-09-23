@@ -53,6 +53,7 @@ AGENTRED_GOOS ?= linux
 AGENTRED_GOARCH ?= amd64
 AGENTRED_PACKAGE_NAME := agentred-$(VERSION)-$(AGENTRED_GOOS)-$(AGENTRED_GOARCH)
 AGENTRED_LINUX_BINARY := $(AGENTRED_BUILD_DIR)/agentred-$(AGENTRED_GOOS)-$(AGENTRED_GOARCH)
+AGRCTL_LINUX_BINARY := $(AGENTRED_BUILD_DIR)/agrctl-$(AGENTRED_GOOS)-$(AGENTRED_GOARCH)
 # 部署目标由调用方点名(opsctl 里的资产名),仓库里不留任何具体主机。
 AGENTRED_TARGET ?=
 AGENTRED_REMOTE_PATH ?= /usr/local/bin/agentred
@@ -119,10 +120,12 @@ else
 endif
 	rm -rf "$(AGENTRED_DIST_DIR)/.$(AGENTRED_PACKAGE_NAME)"
 
-# 构建 agentred Linux 版本(默认 linux/amd64，可覆盖 AGENTRED_GOOS/AGENTRED_GOARCH)
+# 构建 agentred Linux 版本(默认 linux/amd64，可覆盖 AGENTRED_GOOS/AGENTRED_GOARCH)，
+# 连同同平台的 agrctl(dev 流水线把两者一起放进 prebuilt 镜像)。
 agentred-linux:
 	mkdir -p "$(AGENTRED_BUILD_DIR)"
 	GOOS=$(AGENTRED_GOOS) GOARCH=$(AGENTRED_GOARCH) CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o "$(AGENTRED_LINUX_BINARY)" ./cmd/agentred
+	GOOS=$(AGENTRED_GOOS) GOARCH=$(AGENTRED_GOARCH) CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o "$(AGRCTL_LINUX_BINARY)" ./cmd/agrctl
 
 # 通过 opsctl 部署 agentred 到远端(AGENTRED_TARGET=<资产名>,装到 AGENTRED_REMOTE_PATH)。
 # opsctl 是维护者自己的运维 CLI,不在本仓库 Prerequisites 里,这两个 target 只服务维护者。

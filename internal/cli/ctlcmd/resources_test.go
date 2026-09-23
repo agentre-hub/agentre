@@ -711,3 +711,133 @@ func TestHelp_GivenUnknownResourceOrTypeThenUsageError(t *testing.T) {
 		wantCode(t, r, 2)
 	}
 }
+
+// ─── spec-axis regressions ─────────────────────────────────────────────
+
+// 歧义提示里的示例命令必须能直接改用：候选的完整路径本身仍有歧义时换一个候选，都不行才用 id。
+func TestGet_GivenTopLevelNameAlsoNestedThenExampleUsesUniqueLocator(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	kp := agentrewire.CtlKind_CTL_KIND_PROJECT
+	f.items[kp] = append([]*agentrewire.CtlResource{projectDoc(&agentrewire.CtlProject{Id: 30, Name: "docs"})}, f.items[kp]...)
+	r := runWith([]string{"get", "project", "docs"}, envFor(srv, tok), term{})
+	wantCode(t, r, 2)
+	// 顶层的 docs 的完整路径还是 docs（仍有歧义），示例改用下一个能唯一定位的候选。
+	if !strings.HasSuffix(r.stderr, "e.g. agrctl get project agentre/docs\n") {
+		t.Fatalf("stderr = %q, want an example that locates exactly one project", r.stderr)
+	}
+}
+
+// 示例命令只替换引起歧义的那一处，而不是命令行里第一处同名的值。
+func TestCreate_GivenAmbiguousParentEqualToNameThenExampleReplacesParentOnly(t *testing.T) {
+	_, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"create", "project", "--name", "docs", "--parent", "docs"}, envFor(srv, tok), term{})
+	wantCode(t, r, 2)
+	if !strings.Contains(r.stderr, "e.g. agrctl create project --name docs --parent agentre/docs") {
+		t.Fatalf("stderr = %q", r.stderr)
+	}
+}
+
+// 纯数字的名字也能按名字定位：id 没命中时回落到名字。
+func TestGet_GivenAllFullPathsAmbiguousThenExampleUsesID(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	kp := agentrewire.CtlKind_CTL_KIND_PROJECT
+	f.items[kp] = append(f.items[kp], projectDoc(&agentrewire.CtlProject{Id: 30, Name: "agentre"}), projectDoc(&agentrewire.CtlProject{Id: 32, Name: "docs", ParentId: 30}))
+	r := runWith([]string{"update", "project", "--color=red", "agentre/docs"}, envFor(srv, tok), term{})
+	wantCode(t, r, 2)
+	if !strings.HasSuffix(r.stderr, "e.g. agrctl update project --color=red 8\n") {
+		t.Fatalf("stderr = %q", r.stderr)
+	}
+}
+
+func TestGet_GivenDigitOnlyNameThenLocatedByName(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	kp := agentrewire.CtlKind_CTL_KIND_PROJECT
+	f.items[kp] = append(f.items[kp], projectDoc(&agentrewire.CtlProject{Id: 31, Name: "2024"}))
+	r := runWith([]string{"get", "project", "2024"}, envFor(srv, tok), term{})
+	wantCode(t, r, 0)
+	if !strings.Contains(r.stdout, `"id": 31`) {
+		t.Fatalf("stdout = %q, want project 31", r.stdout)
+	}
+}
+
+// 可重复的引用 flag 给空值是用法错误，不能悄悄写进 id 0。
+func TestWrite_GivenEmptyRepeatableReferenceThenUsageErrorAndNoWrite(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	for _, args := range [][]string{
+		{"create", "agent", "--name", "h", "--backend="},
+		{"update", "project", "agentre", "--add-member="},
+		{"update", "project", "agentre", "--remove-member="},
+	} {
+		r := runWith(args, envFor(srv, tok), term{})
+		wantCode(t, r, 2)
+	}
+	if f.writeCount() != 0 {
+		t.Fatal("no write must be sent")
+	}
+}
+
+// 用空格跟在密钥 flag 后面的值不能出现在错误输出里。
+func TestSecret_GivenSpaceSeparatedAPIKeyOnCreateThenValueNotEchoed(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"create", "provider", "--name", "p", "--type", "openai-chat", "--api-key", "sk-SECRET123"}, envFor(srv, tok), term{})
+	wantCode(t, r, 2)
+	if strings.Contains(r.stdout+r.stderr, "sk-SECRET123") {
+		t.Fatalf("secret echoed: stderr = %q", r.stderr)
+	}
+	if f.writeCount() != 0 {
+		t.Fatal("no write must be sent")
+	}
+}
+
+// 没有终端却裸写密钥 flag：不管能不能连上执行者，都是退出码 3。
+func TestSecret_GivenBareAPIKeyWithoutTTYAndNoDesktopThenExit3(t *testing.T) {
+	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
+	r := runWith([]string{"create", "provider", "--type", "openai-chat", "--name", "p", "--api-key"}, noEnv, term{})
+	wantCode(t, r, 3)
+	if !strings.HasPrefix(r.stderr, "NEEDS TTY: --api-key") {
+		t.Fatalf("stderr = %q", r.stderr)
+	}
+}
+
+// get 的字段名与 flag 对应：--base-url ↔ baseUrl。
+func TestGet_GivenProviderThenBaseURLFieldNamedLikeItsFlag(t *testing.T) {
+	_, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"get", "provider", "openrouter"}, envFor(srv, tok), term{})
+	wantCode(t, r, 0)
+	if !strings.Contains(r.stdout, `"baseUrl": "https://openrouter.ai/api/v1"`) {
+		t.Fatalf("stdout = %q", r.stdout)
+	}
+}
+
+// CLI 路径覆盖不在本 spec 范围内：没有 --cli-path。
+func TestBackend_GivenCLIPathFlagThenUnknownFlag(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	for _, args := range [][]string{
+		{"create", "backend", "--name", "b", "--type", "codex", "--cli-path", "/usr/bin/codex"},
+		{"update", "backend", "codex-remote", "--cli-path", "/usr/bin/codex"},
+	} {
+		r := runWith(args, envFor(srv, tok), term{})
+		wantCode(t, r, 2)
+		if !strings.Contains(r.stderr, "unknown flag --cli-path") {
+			t.Fatalf("%v: stderr = %q", args, r.stderr)
+		}
+	}
+	if f.writeCount() != 0 {
+		t.Fatal("no write must be sent")
+	}
+}
+
+// --default-model 的歧义示例改用数字 id，这个 id 必须能直接用。
+func TestProvider_GivenAmbiguousDefaultModelThenIDExampleWorks(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"update", "provider", "anthropic", "--default-model", "claude/dup"}, envFor(srv, tok), term{})
+	wantCode(t, r, 2)
+	if !strings.HasSuffix(r.stderr, "e.g. agrctl update provider anthropic --default-model 24\n") {
+		t.Fatalf("stderr = %q", r.stderr)
+	}
+	r = runWith([]string{"update", "provider", "anthropic", "--default-model", "24"}, envFor(srv, tok), term{})
+	wantCode(t, r, 0)
+	if got := f.onlyWrite(t).GetResource().GetProvider().GetDefaultModelKey(); got != "0b6c-24" {
+		t.Fatalf("defaultModelKey = %q", got)
+	}
+}

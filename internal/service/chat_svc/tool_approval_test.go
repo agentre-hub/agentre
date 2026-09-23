@@ -161,6 +161,16 @@ func TestAnswerToolApproval(t *testing.T) {
 			So(svc.AnswerToolApproval(ctx, 42, "req-a", true), ShouldNotBeNil)
 		})
 
+		Convey("点名的会话不是这张卡所在的会话 → error,卡仍挂起、原会话照常能答", func() {
+			blk := &blocks.ToolApprovalBlock{ToolKey: "ctl", RequestID: "req-c", ToolName: "ctl", Status: "pending"}
+			ch, err := svc.BeginToolApproval(ctx, 42, blk)
+			So(err, ShouldBeNil)
+
+			So(svc.AnswerToolApproval(ctx, 43, "req-c", true), ShouldNotBeNil)
+			So(svc.AnswerToolApproval(ctx, 42, "req-c", false), ShouldBeNil)
+			So(<-ch, ShouldBeFalse)
+		})
+
 		Convey("FinishToolApproval 清 waiter 后 Answer 同 requestID → error", func() {
 			blk := &blocks.ToolApprovalBlock{ToolKey: "org", RequestID: "req-b", ToolName: "org_invite", Status: "pending"}
 			_, err := svc.BeginToolApproval(ctx, 42, blk)

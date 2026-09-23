@@ -1,7 +1,9 @@
 package ctl_svc
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -125,5 +127,43 @@ func TestBackendDocFrom(t *testing.T) {
 	t.Run("坏 env_json → 报错", func(t *testing.T) {
 		_, err := backendDocFrom(&agent_backend_svc.BackendItem{ID: 9, Type: "codex", EnvJSON: `{"broken"`}, ids, "")
 		assert.Error(t, err)
+	})
+}
+
+type fakeCredentialStatus struct {
+	saved bool
+	err   error
+	got   *agent_backend_svc.BackendCredentialStatusRequest
+}
+
+func (f *fakeCredentialStatus) BackendCredentialStatus(_ context.Context, req *agent_backend_svc.BackendCredentialStatusRequest) (*agent_backend_svc.BackendCredentialStatusResponse, error) {
+	f.got = req
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &agent_backend_svc.BackendCredentialStatusResponse{OpenClawTokenSaved: f.saved}, nil
+}
+
+// OpenClaw 的 token 存在后端绑定的那台设备上：tokenSet 要问那台设备，不能只看本机钥匙串
+// （spec「token 只显示是否已设置」，审批卡的清除行也靠它）。
+func TestOpenClawTokenSet(t *testing.T) {
+	remote := &agent_backend_svc.BackendItem{ID: 10, Type: "openclaw", SyncID: "sy-10", DeviceID: "sha256:bb", HasToken: false}
+	t.Run("绑定设备说已保存 → true，按同步标识与设备去问", func(t *testing.T) {
+		f := &fakeCredentialStatus{saved: true}
+		assert.True(t, openClawTokenSet(context.Background(), f, remote))
+		assert.Equal(t, &agent_backend_svc.BackendCredentialStatusRequest{Type: "openclaw", SyncID: "sy-10", DeviceID: "sha256:bb"}, f.got)
+	})
+	t.Run("绑定设备说没保存 → false", func(t *testing.T) {
+		assert.False(t, openClawTokenSet(context.Background(), &fakeCredentialStatus{}, &agent_backend_svc.BackendItem{Type: "openclaw", SyncID: "s", HasToken: true}))
+	})
+	t.Run("设备问不到 → 退回服务层读模型的值", func(t *testing.T) {
+		f := &fakeCredentialStatus{err: errors.New("offline")}
+		assert.False(t, openClawTokenSet(context.Background(), f, remote))
+		assert.True(t, openClawTokenSet(context.Background(), f, &agent_backend_svc.BackendItem{Type: "openclaw", SyncID: "s", HasToken: true}))
+	})
+	t.Run("不是 openclaw → 不问，沿用读模型", func(t *testing.T) {
+		f := &fakeCredentialStatus{saved: true}
+		assert.False(t, openClawTokenSet(context.Background(), f, &agent_backend_svc.BackendItem{Type: "codex"}))
+		assert.Nil(t, f.got)
 	})
 }

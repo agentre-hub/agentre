@@ -635,21 +635,6 @@ func (mr *MockBackendServiceMockRecorder) List(ctx, req any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockBackendService)(nil).List), ctx, req)
 }
 
-// SetCLIOverlay mocks base method.
-func (m *MockBackendService) SetCLIOverlay(ctx context.Context, req *agent_backend_svc.SetCLIOverlayRequest) (*agent_backend_svc.SetCLIOverlayResponse, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetCLIOverlay", ctx, req)
-	ret0, _ := ret[0].(*agent_backend_svc.SetCLIOverlayResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// SetCLIOverlay indicates an expected call of SetCLIOverlay.
-func (mr *MockBackendServiceMockRecorder) SetCLIOverlay(ctx, req any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCLIOverlay", reflect.TypeOf((*MockBackendService)(nil).SetCLIOverlay), ctx, req)
-}
-
 // Update mocks base method.
 func (m *MockBackendService) Update(ctx context.Context, req *agent_backend_svc.UpdateBackendRequest) (*agent_backend_svc.UpdateBackendResponse, error) {
 	m.ctrl.T.Helper()

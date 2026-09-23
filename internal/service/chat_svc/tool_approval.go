@@ -58,11 +58,15 @@ type AnswerToolApprovalRequest struct {
 // AnswerToolApprovalResponse 应答返回(无字段)。
 type AnswerToolApprovalResponse struct{}
 
-// AnswerToolApproval 按 requestID 唤醒挂起的写工具调用(前端审批入口的唯一后端方法)。
-// 未知/重复/已超时 → error。
-func (s *chatSvc) AnswerToolApproval(_ context.Context, _ int64, requestID string, allow bool) error {
+// AnswerToolApproval 按 requestID 唤醒挂起的写工具调用(前端审批入口与控制台 relay 共用)。
+// 未知/重复/已超时 → error;sessionID > 0 时这张卡还必须挂在该会话上,否则同样 error ——
+// 控制台经某条会话作答,不能答到别的会话的卡上。
+func (s *chatSvc) AnswerToolApproval(_ context.Context, sessionID int64, requestID string, allow bool) error {
 	if requestID == "" {
 		return fmt.Errorf("chat_svc.AnswerToolApproval: empty requestID")
+	}
+	if sessionID > 0 && !s.toolApprovalInSession(sessionID, requestID) {
+		return fmt.Errorf("chat_svc.AnswerToolApproval: request %s not pending in session %d", requestID, sessionID)
 	}
 	chAny, ok := s.toolApprovalWaiters.LoadAndDelete(requestID)
 	if !ok {
@@ -70,6 +74,18 @@ func (s *chatSvc) AnswerToolApproval(_ context.Context, _ int64, requestID strin
 	}
 	chAny.(chan bool) <- allow
 	return nil
+}
+
+// toolApprovalInSession 报告 requestID 是否登记在 sessionID 的审批里。
+func (s *chatSvc) toolApprovalInSession(sessionID int64, requestID string) bool {
+	s.toolApprovalsMu.Lock()
+	defer s.toolApprovalsMu.Unlock()
+	for _, b := range s.toolApprovals[sessionID] {
+		if b.RequestID == requestID {
+			return true
+		}
+	}
+	return false
 }
 
 // FinishToolApproval 把审批置为终态(approved/denied/expired)并推 resolved 事件。

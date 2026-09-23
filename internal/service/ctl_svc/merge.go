@@ -30,7 +30,7 @@ const (
 )
 
 // writableFields 是每类资源可写的字段及其时机；不在表里的是只读字段（id、系统标识、引用数、
-// 密钥是否已设置等）。项目成员在 update 时走 add/remove，不能整体写。
+// 密钥是否已设置、CLI 路径覆盖等——spec 把 CLI 路径覆盖划在范围外）。项目成员在 update 时走 add/remove，不能整体写。
 var writableFields = map[agentrewire.CtlKind]map[string]int{
 	agentrewire.CtlKind_CTL_KIND_AGENT: {
 		"name": writeAlways, "description": writeAlways, "departmentId": writeAlways, "backendIds": writeAlways,
@@ -53,7 +53,7 @@ var writableFields = map[agentrewire.CtlKind]map[string]int{
 		"maxOutput": writeAlways, "enabled": writeAlways, "isDefault": writeAlways,
 	},
 	agentrewire.CtlKind_CTL_KIND_BACKEND: {
-		"type": writeOnCreate, "name": writeAlways, "device": writeAlways, "cliPath": writeAlways,
+		"type": writeOnCreate, "name": writeAlways, "device": writeAlways,
 		"providerId": writeAlways, "modelId": writeAlways, "reasoningEffort": writeAlways, "env": writeAlways,
 		"configJson": writeAlways, "token": writeAlways,
 	},

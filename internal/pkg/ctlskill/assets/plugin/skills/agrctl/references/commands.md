@@ -57,7 +57,8 @@ ID   NAME        DEPARTMENT   BACKENDS       PINNED
 12   reviewer    研发部        claude-local   -
 ```
 
-Empty cells print `-`. `-o json` prints a JSON array of the same objects `get` prints.
+Empty cells print `-`. `-o json` prints a JSON array of the objects `get` prints, except that a model's `key` is
+shown by `get` only.
 
 ## `get`
 
@@ -67,7 +68,7 @@ Empty cells print `-`. `-o json` prints a JSON array of the same objects `get` p
   "id": 4,
   "name": "openrouter",
   "type": "openai-chat",
-  "baseURL": "<url>",
+  "baseUrl": "<url>",
   "enabled": true,
   "apiKey": "sk-o••••••••3f9a",
   "defaultModel": "openai/gpt-5.1",

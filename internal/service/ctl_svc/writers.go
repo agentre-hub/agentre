@@ -447,9 +447,6 @@ func (w backendWriter) Create(ctx context.Context, wr Write) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if b.GetCliPath() != "" {
-		return resp.Item.ID, w.setCLIPath(ctx, resp.Item, b.GetCliPath())
-	}
 	return resp.Item.ID, nil
 }
 
@@ -482,32 +479,17 @@ func (w backendWriter) Update(ctx context.Context, wr Write) error {
 		HermesURL: r.cfg.HermesURL, HermesAuthProvider: r.cfg.HermesAuthProvider, HermesUserID: r.cfg.HermesUserID,
 		ACPCommand: r.cfg.ACPCommand, ACPArgs: r.cfg.ACPArgs, DeviceID: r.deviceID,
 	}
-	var resp *agent_backend_svc.UpdateBackendResponse
 	if wr.Fields["token"] {
 		// 空 token = 清除；token 由服务层写进后端绑定设备的钥匙串。
-		resp, err = w.p.backends().UpdateOpenClaw(ctx, req, b.GetToken(), b.GetToken() == "")
+		_, err = w.p.backends().UpdateOpenClaw(ctx, req, b.GetToken(), b.GetToken() == "")
 	} else {
-		resp, err = w.p.backends().Update(ctx, req)
+		_, err = w.p.backends().Update(ctx, req)
 	}
-	if err != nil {
-		return err
-	}
-	if wr.Fields["cliPath"] {
-		return w.setCLIPath(ctx, resp.Item, b.GetCliPath())
-	}
-	return nil
+	return err
 }
 
 func (w backendWriter) Delete(ctx context.Context, wr Write) error {
 	_, err := w.p.backends().Delete(ctx, &agent_backend_svc.DeleteBackendRequest{ID: wr.Cur.GetBackend().GetId()})
-	return err
-}
-
-// setCLIPath 写这台设备上的可执行文件路径（每 (后端, 设备) 一行的覆盖，不随身份写）。
-func (w backendWriter) setCLIPath(ctx context.Context, item *agent_backend_svc.BackendItem, path string) error {
-	_, err := w.p.backends().SetCLIOverlay(ctx, &agent_backend_svc.SetCLIOverlayRequest{
-		BackendSyncID: item.SyncID, DeviceID: string(item.DeviceID), CLIPath: path,
-	})
 	return err
 }
 

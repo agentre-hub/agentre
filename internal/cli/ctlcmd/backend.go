@@ -77,7 +77,6 @@ func initBackendFlags() {
 	common := []*flagDef{
 		strField("name", "<name>", "name", "backend name (unique)", func(w *writeCtx, v string) { b(w).Name = v }),
 		strField("device", "<device>", "device", "paired device name or fingerprint to run on (empty = this machine)", func(w *writeCtx, v string) { b(w).Device = v }),
-		strField("cli-path", "<path>", "cliPath", "CLI executable path", func(w *writeCtx, v string) { b(w).CliPath = v }),
 		refField("provider", kindProvider, "providerId", "LLM provider (empty = the CLI's own login)", func(w *writeCtx, id int64) { b(w).ProviderId = id }),
 		{name: "model", value: "<model>", field: "modelId", usage: "fixed model: a model id of the bound provider, <provider>/<model id> when none is bound, or a numeric id (empty = provider default)",
 			apply: func(w *writeCtx, v string) error {

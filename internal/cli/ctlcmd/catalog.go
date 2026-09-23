@@ -29,8 +29,19 @@ const resourcesPath = "/ctl/v1/resources"
 type catalog struct {
 	ep ctlclient.Endpoint
 	// args 是本次调用的原始参数，歧义时据此拼出可直接改用的示例命令。
-	args  []string
+	args []string
+	// site 是正在解析的定位写在 args 里的下标（-1 = 不来自命令行），歧义示例只替换这一处。
+	site  int
 	lists map[agentrewire.CtlKind][]*agentrewire.CtlResource
+}
+
+// parsedArgsOffset 是 parseArgs 的输入在 catalog.args 里的起点：args 以动词与资源名开头。
+const parsedArgsOffset = 2
+
+// from 标记接下来解析的定位写在 parseArgs 输入的第 at 个参数上。
+func (c *catalog) from(at int) *catalog {
+	c.site = parsedArgsOffset + at
+	return c
 }
 
 func connect(s *sys, args []string) (*catalog, error) {
@@ -38,7 +49,7 @@ func connect(s *sys, args []string) (*catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &catalog{ep: ep, args: args, lists: map[agentrewire.CtlKind][]*agentrewire.CtlResource{}}, nil
+	return &catalog{ep: ep, args: args, site: -1, lists: map[agentrewire.CtlKind][]*agentrewire.CtlResource{}}, nil
 }
 
 // caller 按 spec「Routing and approval」给调用方分类：会话级 token 在环境变量里 →
@@ -209,9 +220,12 @@ func (c *catalog) locate(spec *kindSpec, ref string) (*agentrewire.CtlResource, 
 		if it := c.byID(spec.kind, id); it != nil {
 			return it, nil
 		}
-		return nil, fmt.Errorf("%s %q not found", spec.name, ref)
+		// id 没命中时按名字找：纯数字也可以是名字（例如项目 2024）。
 	}
 	if spec.kind == agentrewire.CtlKind_CTL_KIND_MODEL && !strings.Contains(ref, "/") {
+		if _, err := strconv.ParseInt(ref, 10, 64); err == nil {
+			return nil, fmt.Errorf("%s %q not found", spec.name, ref)
+		}
 		return nil, usageErrorf("a model is located as <provider>/<model id> or by its numeric id, got %q", ref)
 	}
 	var matches []*agentrewire.CtlResource
@@ -265,19 +279,47 @@ func (c *catalog) ambiguous(spec *kindSpec, ref string, matches []*agentrewire.C
 		_, _ = fmt.Fprintf(tw, "  %d\t%s\n", id, c.path(spec.kind, id))
 	}
 	_ = tw.Flush()
-	first := docOf(matches[0]).id
-	replacement := c.path(spec.kind, first)
-	hint := "Use an ID or a parent/child path"
-	if !spec.hierarchical {
-		replacement, hint = strconv.FormatInt(first, 10), "Use an ID"
+	hint := "Use an ID"
+	if spec.hierarchical {
+		hint = "Use an ID or a parent/child path"
 	}
-	_, _ = fmt.Fprintf(&b, "%s, e.g. %s", hint, commandLine(replaceRef(c.args, ref, replacement)))
+	_, _ = fmt.Fprintf(&b, "%s, e.g. %s", hint, commandLine(replaceRef(c.args, c.site, ref, c.uniqueLocator(spec, matches))))
 	return usageErrorf("%s", b.String())
 }
 
-// replaceRef 把命令行里第一处等于 ref 的位置参数或 flag 值换成 replacement。
-func replaceRef(args []string, ref, replacement string) []string {
+// uniqueLocator 是示例命令里用来替换的定位：层级资源优先用第一个能唯一定位的完整路径，
+// 否则（包括完整路径本身仍会命中多条时）用第一个候选的 id。
+func (c *catalog) uniqueLocator(spec *kindSpec, matches []*agentrewire.CtlResource) string {
+	if spec.hierarchical {
+		items, _ := c.list(spec.kind)
+		for _, m := range matches {
+			full, n := c.path(spec.kind, docOf(m).id), 0
+			for _, it := range items {
+				if c.matches(spec, it, full) {
+					n++
+				}
+			}
+			if n == 1 {
+				return full
+			}
+		}
+	}
+	return strconv.FormatInt(docOf(matches[0]).id, 10)
+}
+
+// replaceRef 把命令行里引起歧义的那一处（site，flag 值或位置参数）换成 replacement；
+// site 未知时退回替换第一处等于 ref 的位置参数或 flag 值。
+func replaceRef(args []string, site int, ref, replacement string) []string {
 	out := append([]string(nil), args...)
+	if site >= 0 && site < len(out) {
+		a := out[site]
+		if eq := strings.IndexByte(a, '='); strings.HasPrefix(a, "-") && eq >= 0 {
+			out[site] = a[:eq+1] + replacement
+		} else {
+			out[site] = replacement
+		}
+		return out
+	}
 	for i, a := range out {
 		if a == ref {
 			out[i] = replacement

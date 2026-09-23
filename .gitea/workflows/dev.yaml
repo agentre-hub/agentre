@@ -56,7 +56,8 @@ jobs:
         run: make agentred-linux AGENTRED_GOOS=linux AGENTRED_GOARCH=amd64
 
       # bin/ 是 prebuilt 目标的整个构建上下文，里面那份必须正好叫 agentred：先在
-      # runner 上改成 .next，到目标机上再原子换掉正在跑的那份。
+      # runner 上改成 .next，到目标机上再原子换掉正在跑的那份。agrctl 随 agentred-linux
+      # 一起编出来，镜像里放在 agentred 旁边。
       - name: Rename artifact to agentred.next
         run: mv build/bin/agentred-linux-amd64 build/bin/agentred.next
 
@@ -88,6 +89,7 @@ jobs:
           ssh "${ssh_opts[@]}" "$remote" mkdir -p -- "$DEPLOY_DIR/bin"
           scp "${scp_opts[@]}" deploy/Dockerfile deploy/docker-compose.yml "$remote:$DEPLOY_DIR/"
           scp "${scp_opts[@]}" build/bin/agentred.next "$remote:$DEPLOY_DIR/bin/agentred.next"
+          scp "${scp_opts[@]}" build/bin/agrctl-linux-amd64 "$remote:$DEPLOY_DIR/bin/agrctl"
 
           ssh "${ssh_opts[@]}" "$remote" bash -s -- \
             "$DEPLOY_DIR" "$RUNTIME_IMAGE" "${{ steps.vars.outputs.sha7 }}" <<'REMOTE'
@@ -99,6 +101,8 @@ jobs:
 
           test -s bin/agentred.next || { echo "bin/agentred.next 没传上来或者是空的" >&2; exit 1; }
           chmod 755 bin/agentred.next
+          test -s bin/agrctl || { echo "bin/agrctl 没传上来或者是空的" >&2; exit 1; }
+          chmod 755 bin/agrctl
           mv -f bin/agentred.next bin/agentred
 
           prev=$(docker image inspect -f '{{.Id}}' agentre/agentred:dev 2>/dev/null || true)

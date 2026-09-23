@@ -29,12 +29,16 @@ type occurrence struct {
 	value string
 	// bare 表示密钥 flag 没有带 =<值>，需要从终端读取。
 	bare bool
+	// at 是值所在的参数下标（相对 parseArgs 的输入）；歧义提示据此只替换这一处。
+	at int
 }
 
 // parsedArgs 是解析后的命令行：位置参数与按出现顺序排列的 flag。
 type parsedArgs struct {
 	positional []string
-	flags      []occurrence
+	// positionalAt 是每个位置参数的下标（相对 parseArgs 的输入）。
+	positionalAt []int
+	flags        []occurrence
 }
 
 // has 报告名为 name 的 flag 是否出现过。
@@ -64,11 +68,13 @@ func parseArgs(args []string, defs []*flagDef) (parsedArgs, error) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
-			p.positional = append(p.positional, args[i+1:]...)
+			for j := i + 1; j < len(args); j++ {
+				p.positional, p.positionalAt = append(p.positional, args[j]), append(p.positionalAt, j)
+			}
 			break
 		}
 		if len(a) < 2 || a[0] != '-' {
-			p.positional = append(p.positional, a)
+			p.positional, p.positionalAt = append(p.positional, a), append(p.positionalAt, i)
 			continue
 		}
 		name := strings.TrimLeft(a, "-")
@@ -84,7 +90,7 @@ func parseArgs(args []string, defs []*flagDef) (parsedArgs, error) {
 			return p, usageErrorf("flag --%s given more than once", def.name)
 		}
 		seen[def.name] = true
-		occ := occurrence{def: def}
+		occ := occurrence{def: def, at: i}
 		switch {
 		case def.secret:
 			occ.value, occ.bare = value, !hasValue
@@ -103,7 +109,7 @@ func parseArgs(args []string, defs []*flagDef) (parsedArgs, error) {
 				return p, usageErrorf("flag --%s needs a value", def.name)
 			}
 			i++
-			occ.value = args[i]
+			occ.value, occ.at = args[i], i
 		}
 		p.flags = append(p.flags, occ)
 	}

@@ -64,10 +64,12 @@ ENTRYPOINT ["/usr/local/bin/agentred"]
 CMD ["run"]
 
 # ── 拿现成二进制打 ─────────────────────────────────────────────────────
-# 上下文里要有一个编好的 linux/amd64 agentred。BuildKit 只构建目标所依赖的段，
-# 所以 --target prebuilt 时下面的 build 段根本不会跑，上下文也不需要源码。
+# 上下文里要有编好的 linux/amd64 agentred 与 agrctl(agentred 启动时从自己旁边把 agrctl
+# 装到主机用户目录下)。BuildKit 只构建目标所依赖的段，所以 --target prebuilt 时下面的
+# build 段根本不会跑，上下文也不需要源码。
 FROM runtime-base AS prebuilt
 COPY agentred /usr/local/bin/agentred
+COPY agrctl /usr/local/bin/agrctl
 
 # ── 从源码构建 ─────────────────────────────────────────────────────────
 FROM ${GO_IMAGE} AS build

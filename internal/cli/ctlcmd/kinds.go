@@ -110,7 +110,7 @@ func initAgentFlags() {
 		{name: "backend", value: "<backend>", field: "backendIds", repeat: true,
 			usage: "execution target; repeat for several, in order; replaces all targets",
 			apply: func(w *writeCtx, v string) error {
-				id, err := w.ref(kindBackend, v)
+				id, err := w.memberRef(kindBackend, v)
 				if err == nil {
 					a(w).BackendIds = append(a(w).BackendIds, id)
 				}
@@ -162,7 +162,7 @@ func initProjectFlags() {
 	}
 	addMemberCreate := &flagDef{name: "add-member", value: "<agent>", field: "memberAgentIds", repeat: true, usage: "add a member agent; repeatable",
 		apply: func(w *writeCtx, v string) error {
-			id, err := w.ref(kindAgent, v)
+			id, err := w.memberRef(kindAgent, v)
 			if err == nil {
 				p(w).MemberAgentIds = append(p(w).MemberAgentIds, id)
 			}
@@ -170,7 +170,7 @@ func initProjectFlags() {
 		}}
 	addMemberUpdate := &flagDef{name: "add-member", value: "<agent>", repeat: true, usage: "add a member agent; repeatable",
 		apply: func(w *writeCtx, v string) error {
-			id, err := w.ref(kindAgent, v)
+			id, err := w.memberRef(kindAgent, v)
 			if err == nil {
 				w.req.AddMemberAgentIds = append(w.req.AddMemberAgentIds, id)
 			}
@@ -178,7 +178,7 @@ func initProjectFlags() {
 		}}
 	removeMember := &flagDef{name: "remove-member", value: "<agent>", repeat: true, usage: "remove a member agent; repeatable",
 		apply: func(w *writeCtx, v string) error {
-			id, err := w.ref(kindAgent, v)
+			id, err := w.memberRef(kindAgent, v)
 			if err == nil {
 				w.req.RemoveMemberAgentIds = append(w.req.RemoveMemberAgentIds, id)
 			}
@@ -212,7 +212,7 @@ func initProviderFlags() {
 		boolField("enable", "enabled", "enable the provider", true, func(w *writeCtx, v bool) { p(w).Enabled = v }),
 		boolField("disable", "enabled", "disable the provider", false, func(w *writeCtx, v bool) { p(w).Enabled = v }),
 	}
-	defaultModel := &flagDef{name: "default-model", value: "<model id>", field: "defaultModelKey", usage: "default model, by its model id under this provider",
+	defaultModel := &flagDef{name: "default-model", value: "<model id>", field: "defaultModelKey", usage: "default model, by its model id under this provider (or its numeric id)",
 		apply: func(w *writeCtx, v string) error {
 			key, err := w.providerModelKey(v)
 			if err == nil {
