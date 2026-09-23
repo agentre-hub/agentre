@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -217,16 +216,6 @@ func TestResources_RequestErrors(t *testing.T) {
 	t.Run("没带 token → 401", func(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, postResources(t, h, "", `{"list":{"kind":"CTL_KIND_AGENT"}}`).Code)
 	})
-}
-
-// TestResources_WritesNotImplementedYet：写操作要等审批闸门接上；在那之前明确拒绝，
-// 不能悄悄执行。
-func TestResources_WritesNotImplementedYet(t *testing.T) {
-	h := newResourceHandler(fakeResources())
-	rec := postResources(t, h, testToken,
-		`{"write":{"op":"CTL_OP_DELETE","kind":"CTL_KIND_AGENT","id":"3","caller":"CTL_CALLER_HUMAN"}}`)
-	assert.Equal(t, http.StatusNotImplemented, rec.Code)
-	assert.True(t, strings.Contains(rec.Body.String(), "not implemented"), rec.Body.String())
 }
 
 // ---- 会话级 token 的签发 ----

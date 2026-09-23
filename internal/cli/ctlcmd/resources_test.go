@@ -394,7 +394,7 @@ func TestWrite_GivenExecutorRejectsThenMessagePassedThroughExit1(t *testing.T) {
 	f.writeErr = "provider openrouter is referenced by 2 backends; pass --force to delete anyway"
 	r := runWith([]string{"delete", "provider", "openrouter"}, envFor(srv, tok), term{})
 	wantCode(t, r, 1)
-	if strings.TrimSpace(r.stderr) != "waiting for approval in this Agentre session …\nError: "+f.writeErr {
+	if strings.TrimSpace(r.stderr) != "waiting for approval in session #42 …\nError: "+f.writeErr {
 		t.Fatalf("stderr = %q", r.stderr)
 	}
 }
@@ -521,7 +521,7 @@ func TestCaller_GivenSessionTokenInEnvThenSessionCallerAndWaitingLine(t *testing
 	if got := f.onlyWrite(t).GetCaller(); got != agentrewire.CtlCaller_CTL_CALLER_SESSION {
 		t.Fatalf("caller = %v", got)
 	}
-	if !strings.Contains(r.stderr, "waiting for approval in this Agentre session") {
+	if !strings.Contains(r.stderr, "waiting for approval in session #42 …") {
 		t.Fatalf("stderr = %q", r.stderr)
 	}
 }
@@ -537,7 +537,41 @@ func TestCaller_GivenHandshakeTokenWithoutTTYThenExternalCaller(t *testing.T) {
 	if w.GetCommand() != "agrctl update agent reviewer --description x" {
 		t.Fatalf("command = %q", w.GetCommand())
 	}
-	if !strings.Contains(r.stderr, "waiting for approval in the Agentre desktop") {
+	if !strings.Contains(r.stderr, "waiting for approval in the Agentre desktop …") {
+		t.Fatalf("stderr = %q", r.stderr)
+	}
+}
+
+func TestApproval_GivenRejectedOrTimedOutThenExecutorMessageExit1(t *testing.T) {
+	for _, msg := range []string{"rejected in session #42", "approval timed out"} {
+		f, srv := newFakeExecutor(t, tok)
+		f.writeErr = msg
+		r := runWith([]string{"update", "agent", "reviewer", "--description", "x"}, envFor(srv, tok), term{})
+		wantCode(t, r, 1)
+		if r.stderr != "waiting for approval in session #42 …\nError: "+msg+"\n" {
+			t.Fatalf("stderr = %q", r.stderr)
+		}
+	}
+}
+
+func TestApproval_GivenExternalRejectedThenExit1(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	f.writeErr = "rejected in the Agentre desktop"
+	r := runWith([]string{"delete", "agent", "reviewer"}, handshakeEnv(t, srv), term{tty: false})
+	wantCode(t, r, 1)
+	if r.stderr != "waiting for approval in the Agentre desktop …\nError: rejected in the Agentre desktop\n" {
+		t.Fatalf("stderr = %q", r.stderr)
+	}
+}
+
+// TestApproval_GivenExecutorFailsBeforeApprovalThenNoWaitingLine：waiting 行只在执行者真的
+// 挂起等审批时才出现，请求本身就不成立时不说「在等审批」。
+func TestApproval_GivenExecutorFailsBeforeApprovalThenNoWaitingLine(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	f.failBeforeApproval = "agent id 12 not found"
+	r := runWith([]string{"update", "agent", "reviewer", "--description", "x"}, envFor(srv, tok), term{})
+	wantCode(t, r, 1)
+	if r.stderr != "Error: agent id 12 not found\n" {
 		t.Fatalf("stderr = %q", r.stderr)
 	}
 }

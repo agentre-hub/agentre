@@ -165,13 +165,7 @@ func runWrite(verb string, args []string, s *sys) error {
 		w.req.Resource = w.doc
 	}
 
-	switch w.req.Caller {
-	case agentrewire.CtlCaller_CTL_CALLER_SESSION:
-		_, _ = fmt.Fprintln(s.stderr, "waiting for approval in this Agentre session …")
-	case agentrewire.CtlCaller_CTL_CALLER_EXTERNAL:
-		_, _ = fmt.Fprintln(s.stderr, "waiting for approval in the Agentre desktop …")
-	}
-	resp, err := cat.write(w.req)
+	resp, err := cat.write(w.req, s.stderr)
 	if err != nil {
 		return err
 	}

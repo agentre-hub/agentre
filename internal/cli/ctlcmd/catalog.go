@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptrace"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -13,6 +17,10 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/ctlclient"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
+
+// approvalPendingHeader 是执行者挂起等审批前发的 102 里的头（值：session=<id> 或 desktop），
+// 与 ctl_svc.ApprovalPendingHeader 同值；端到端测试钉住两边一致。
+const approvalPendingHeader = "Agentre-Ctl-Approval"
 
 // resourcesPath 是执行者的资源接口（契约见 pkg/wire 的 ctl.proto）。
 const resourcesPath = "/ctl/v1/resources"
@@ -46,12 +54,12 @@ func (c *catalog) caller(s *sys) agentrewire.CtlCaller {
 	}
 }
 
-func (c *catalog) call(req *agentrewire.CtlRequest) (*agentrewire.CtlResponse, error) {
+func (c *catalog) call(ctx context.Context, req *agentrewire.CtlRequest) (*agentrewire.CtlResponse, error) {
 	body, err := protojson.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := c.ep.PostRaw(context.Background(), resourcesPath, body)
+	raw, err := c.ep.PostRaw(ctx, resourcesPath, body)
 	if err != nil {
 		var se *ctlclient.ServerError
 		if errors.As(err, &se) {
@@ -71,7 +79,7 @@ func (c *catalog) list(kind agentrewire.CtlKind) ([]*agentrewire.CtlResource, er
 	if items, ok := c.lists[kind]; ok {
 		return items, nil
 	}
-	resp, err := c.call(&agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_List{List: &agentrewire.CtlListRequest{Kind: kind}}})
+	resp, err := c.call(context.Background(), &agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_List{List: &agentrewire.CtlListRequest{Kind: kind}}})
 	if err != nil {
 		return nil, err
 	}
@@ -81,19 +89,42 @@ func (c *catalog) list(kind agentrewire.CtlKind) ([]*agentrewire.CtlResource, er
 }
 
 func (c *catalog) get(kind agentrewire.CtlKind, id int64) (*agentrewire.CtlResource, error) {
-	resp, err := c.call(&agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_Get{Get: &agentrewire.CtlGetRequest{Kind: kind, Id: id}}})
+	resp, err := c.call(context.Background(), &agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_Get{Get: &agentrewire.CtlGetRequest{Kind: kind, Id: id}}})
 	if err != nil {
 		return nil, err
 	}
 	return resp.GetGet().GetResource(), nil
 }
 
-func (c *catalog) write(req *agentrewire.CtlWriteRequest) (*agentrewire.CtlWriteResponse, error) {
-	resp, err := c.call(&agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_Write{Write: req}})
+// write 发一次写请求。要审批的写入由执行者挂起到有人作答（或超时）；挂起前它先发一个
+// 102，这里据此在 stderr 打印 waiting 行——请求本身不成立时执行者直接报错，不会有这一行。
+func (c *catalog) write(req *agentrewire.CtlWriteRequest, stderr io.Writer) (*agentrewire.CtlWriteResponse, error) {
+	ctx := httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{
+		Got1xxResponse: func(code int, header textproto.MIMEHeader) error {
+			if code == http.StatusProcessing {
+				if line := waitingLine(header.Get(approvalPendingHeader)); line != "" {
+					_, _ = fmt.Fprintln(stderr, line)
+				}
+			}
+			return nil
+		},
+	})
+	resp, err := c.call(ctx, &agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_Write{Write: req}})
 	if err != nil {
 		return nil, err
 	}
 	return resp.GetWrite(), nil
+}
+
+// waitingLine 把执行者的审批去向（session=<id> / desktop）写成给人看的等待提示。
+func waitingLine(where string) string {
+	if id, ok := strings.CutPrefix(where, "session="); ok && id != "" {
+		return "waiting for approval in session #" + id + " …"
+	}
+	if where == "desktop" {
+		return "waiting for approval in the Agentre desktop …"
+	}
+	return ""
 }
 
 // byID 在已列出的条目里按 id 找；找不到返回 nil。

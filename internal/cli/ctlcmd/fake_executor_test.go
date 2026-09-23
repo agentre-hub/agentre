@@ -24,8 +24,10 @@ type fakeExecutor struct {
 	mu     sync.Mutex
 	items  map[agentrewire.CtlKind][]*agentrewire.CtlResource
 	writes []*agentrewire.CtlWriteRequest
-	// writeErr 非空时，写请求一律以 409 + 这条消息失败。
+	// writeErr 非空时，写请求一律以 409 + 这条消息失败（审批之后，如被拒、超时、服务层拒绝）。
 	writeErr string
+	// failBeforeApproval 非空时，写请求在出审批之前就以 404 + 这条消息失败（如目标不存在）。
+	failBeforeApproval string
 	// nextID 是 create 返回的新 id。
 	nextID int64
 }
@@ -127,6 +129,21 @@ func (f *fakeExecutor) serve(w http.ResponseWriter, r *http.Request) {
 		resp.Result = &agentrewire.CtlResponse_Get{Get: &agentrewire.CtlGetResponse{Resource: doc}}
 	case *agentrewire.CtlRequest_Write:
 		f.writes = append(f.writes, op.Write)
+		if f.failBeforeApproval != "" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":"`+f.failBeforeApproval+`"}`)
+			return
+		}
+		// 和真执行者一样：要审批的调用方先收到 102，告诉它去哪里批准。
+		switch op.Write.GetCaller() {
+		case agentrewire.CtlCaller_CTL_CALLER_SESSION:
+			w.Header().Set(approvalPendingHeader, "session=42")
+			w.WriteHeader(http.StatusProcessing)
+		case agentrewire.CtlCaller_CTL_CALLER_EXTERNAL:
+			w.Header().Set(approvalPendingHeader, "desktop")
+			w.WriteHeader(http.StatusProcessing)
+		}
+		w.Header().Del(approvalPendingHeader)
 		if f.writeErr != "" {
 			w.WriteHeader(http.StatusConflict)
 			_, _ = io.WriteString(w, `{"error":"`+f.writeErr+`"}`)

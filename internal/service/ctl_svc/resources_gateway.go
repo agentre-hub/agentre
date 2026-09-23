@@ -21,11 +21,14 @@ import (
 
 // ProductionResources 返回接到现有服务层上的资源网关。
 func ProductionResources() Resources {
+	ports := productionPorts()
 	return Resources{
 		Org:       orgSvcResources{},
 		Projects:  projectSvcResources{},
 		Providers: providerSvcResources{},
 		Backends:  backendSvcResources{},
+		Writers:   productionWriters(ports),
+		Cascade:   departmentWriter{ports},
 	}
 }
 

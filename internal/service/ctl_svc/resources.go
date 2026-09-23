@@ -39,12 +39,41 @@ type BackendResources interface {
 	ListBackends(ctx context.Context) ([]*agentrewire.CtlBackend, error)
 }
 
-// Resources 是资源接口依赖的全部网关；任一为 nil 视为未就绪（503）。
+// Write 是执行者合并好的一次按 id 写入，交给该类资源的 KindWriter 经服务层落库。
+type Write struct {
+	// Cur 是 update / delete 目标的当前文档（与 get 同形：密钥已脱敏）；create 时为 nil。
+	Cur *agentrewire.CtlResource
+	// Next 是 create / update 写入后的完整文档：Cur 叠加本次字段。密钥字段只有本次写入时
+	// 才非空（明文），否则为空——网关据此沿用原值。delete 时为 nil。
+	Next *agentrewire.CtlResource
+	// Fields 是本次写入的字段（文档字段的 JSON 名）；create 时没列出的字段取服务层默认值。
+	Fields map[string]bool
+	// Cascade / Force 是 delete 的选项（部门级联；提供方 / 模型仍被引用时也删）。
+	Cascade, Force bool
+}
+
+// KindWriter 按 id 写入一类资源，只经现有服务层（不绕过校验与同步通知）；服务层的错误
+// 原样返回。
+type KindWriter interface {
+	Create(ctx context.Context, w Write) (int64, error)
+	Update(ctx context.Context, w Write) error
+	Delete(ctx context.Context, w Write) error
+}
+
+// CascadeCounter 统计级联删除一个部门会连带删除的子部门与 Agent 数（给审批卡）。
+type CascadeCounter interface {
+	CascadeImpact(ctx context.Context, departmentID int64) (departments, agents int, err error)
+}
+
+// Resources 是资源接口依赖的全部网关；读网关任一为 nil 视为未就绪（503）。
 type Resources struct {
 	Org       OrgResources
 	Projects  ProjectResources
 	Providers ProviderResources
 	Backends  BackendResources
+	// Writers 按资源类型写入；某类缺席时该类的写请求 503。
+	Writers map[agentrewire.CtlKind]KindWriter
+	Cascade CascadeCounter
 }
 
 func (r Resources) ready() bool {
@@ -103,12 +132,7 @@ func (h *ctlHandler) serveResources(w http.ResponseWriter, r *http.Request, cred
 		}
 		writeCtl(w, &agentrewire.CtlResponse{Result: &agentrewire.CtlResponse_Get{Get: &agentrewire.CtlGetResponse{Resource: res}}})
 	case *agentrewire.CtlRequest_Write:
-		caller := cred.caller(op.Write.GetCaller())
-		logger.Ctx(r.Context()).Info("ctl_svc.serveResources: write refused, not implemented",
-			zap.String("op", op.Write.GetOp().String()),
-			zap.String("kind", op.Write.GetKind().String()),
-			zap.Int("callerClass", int(caller.Class)))
-		writeErr(w, http.StatusNotImplemented, "create/update/delete are not implemented by this executor yet")
+		h.serveWrite(w, r, cred, op.Write)
 	default:
 		writeErr(w, http.StatusBadRequest, "empty request: one of list, get, write is required")
 	}
@@ -130,9 +154,13 @@ func (h *ctlHandler) writeResourceErr(w http.ResponseWriter, r *http.Request, er
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case errNotFound:
 		writeErr(w, http.StatusNotFound, err.Error())
+	case errBadRequest:
+		writeErr(w, http.StatusBadRequest, err.Error())
+	case errNotReady:
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
 	default:
 		// 服务层的拒绝原样透出（spec「Command surface」）。
-		logger.Ctx(r.Context()).Warn("ctl_svc.serveResources: read failed", zap.Error(err))
+		logger.Ctx(r.Context()).Warn("ctl_svc.serveResources: request failed", zap.Error(err))
 		writeErr(w, http.StatusInternalServerError, err.Error())
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
@@ -26,6 +27,10 @@ type ctlHandler struct {
 	projects  ProjectGateway
 	chat      ChatGateway
 	resources Resources
+	// approvals 在会话里出审批卡；external 是桌面端弹窗的待审批队列（nil = 不可用）。
+	approvals       SessionApprovals
+	external        ExternalApprovals
+	approvalTimeout time.Duration
 }
 
 func (h *ctlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

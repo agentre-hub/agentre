@@ -17,6 +17,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
@@ -32,6 +33,10 @@ type ctlSvc struct {
 	projects  ProjectGateway
 	chat      ChatGateway
 	resources Resources
+	// approvals / external 是写操作的两条审批通路（会话审批卡 / 桌面端弹窗队列）。
+	approvals       SessionApprovals
+	external        ExternalApprovals
+	approvalTimeout time.Duration
 	// endpoint 是注入会话的控制 API base URL；空 = 还没发布，不签会话凭证。
 	endpoint string
 }
@@ -39,7 +44,10 @@ type ctlSvc struct {
 var defaultCtl = newCtlSvc()
 
 func newCtlSvc() *ctlSvc {
-	return &ctlSvc{token: mustRandToken(), sessions: agenttool.NewTokenSigner(), resources: ProductionResources()}
+	return &ctlSvc{
+		token: mustRandToken(), sessions: agenttool.NewTokenSigner(), resources: ProductionResources(),
+		approvals: chatApprovals{}, approvalTimeout: approvalTimeout,
+	}
 }
 
 // Default 取默认服务单例。
@@ -57,6 +65,21 @@ func (s *ctlSvc) RegisterDeps(agents AgentGateway, projects ProjectGateway, chat
 func (s *ctlSvc) RegisterResources(r Resources) {
 	s.mu.Lock()
 	s.resources = r
+	s.mu.Unlock()
+}
+
+// RegisterSessionApprovals 替换会话审批卡网关（默认是 chat_svc；测试可注 fake）。
+func (s *ctlSvc) RegisterSessionApprovals(a SessionApprovals) {
+	s.mu.Lock()
+	s.approvals = a
+	s.mu.Unlock()
+}
+
+// RegisterExternalApprovals 装上桌面端全局审批弹窗背后的待审批队列。没装之前，外部调用
+// 的写操作一律 503（不会悬着等一个不存在的弹窗）。
+func (s *ctlSvc) RegisterExternalApprovals(q ExternalApprovals) {
+	s.mu.Lock()
+	s.external = q
 	s.mu.Unlock()
 }
 
@@ -106,6 +129,7 @@ func (s *ctlSvc) ControlHandler() http.Handler {
 		h := &ctlHandler{
 			token: s.token, sessions: s.sessions,
 			agents: s.agents, projects: s.projects, chat: s.chat, resources: s.resources,
+			approvals: s.approvals, external: s.external, approvalTimeout: s.approvalTimeout,
 		}
 		s.mu.RUnlock()
 		h.ServeHTTP(w, r)
