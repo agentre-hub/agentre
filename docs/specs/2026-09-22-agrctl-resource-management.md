@@ -2,7 +2,7 @@
 
 > Status: Draft
 > Owner: desktop app + agentred + agentre-server maintainers
-> Last updated: 2026-09-22
+> Last updated: 2026-09-23
 
 **Objective:** 人和 AI 在装有桌面端或 agentred 的机器上，用 opsctl 风格的 `agrctl list/get/create/update/delete/help` 管理 LLM 提供方与模型、Agent 后端、项目、部门和 Agent。写操作由拥有该会话的一端审批，生效后所有在线的桌面端和 Web 控制台都实时刷新。
 
@@ -43,7 +43,7 @@
 | 6 | 审批卡用方案 B「变更清单卡」：完整命令，加上每项变更的操作、类型、名字和字段前后值；它仍然是 `tool_approval` 块，`toolKey` 为 `ctl` | 用户决定，见 mockup。仍用 `tool_approval` 块，控制台升级 pin 之前也能按旧的 JSON 卡降级显示。Rejected: 复用现有卡直接渲染 JSON |
 | 7 | 名字解析、flag 解析、输出格式、`help` 契约只在 agrctl 客户端实现；执行者只接受按 id 的操作和字段集合，字段前后值由执行者对照当前数据自己算 | 桌面端和 server 是两个 Go 模块，不能互相 import。把语义放在客户端，只需要实现一份。前后值不信任客户端，审批卡上显示的就是真实变更。Rejected: 两个执行者各实现一套名字解析 |
 | 8 | ctl 的请求和响应契约（资源文档、操作、变更清单）放进 `pkg/wire`，以 Protobuf 定义 | `pkg/wire` 是工作区里已经批准的跨仓 Go 共享物（`AGENTS.md`）。Rejected: 新增一个共享模块——违反跨仓不变量 |
-| 9 | 模型是提供方下的子资源，用 `提供方/模型key` 定位 | 模型没有自己的同步标识，随提供方一起同步（`llm_provider_model.go:27`）。Rejected: 做成独立的顶层资源 |
+| 9 | 模型是提供方下的子资源，用 `提供方/ModelID` 定位（按第一个 `/` 切出提供方，其余是 ModelID，如 `openrouter/openai/gpt-5.1`）；同一提供方下 ModelID 重复时按歧义处理。创建模型不接受 key，ModelKey 仍由服务生成，只在 `get` 里展示 | 用户决定（2026-09-23 修订）。模型没有自己的同步标识，随提供方一起同步（`llm_provider_model.go:27`）；ModelKey 是创建时生成的 UUID、永久不可改（`llm_provider.go:164`、`llm_provider_model.go:4`），用户看得到的是 ModelID。Rejected: 用 ModelKey 定位——用户得先查 UUID；按显示名定位——显示名可以为空 |
 | 10 | 密钥只从 flag 写入：裸写 `--api-key`/`--token` 在 TTY 里无回显输入；写 `--api-key=<值>` 可用，但 help 里警告它会留在 shell 历史里；没有 TTY 时裸 flag 以退出码 3 结束并提示 `NEEDS TTY` | 沿用 opsctl 的 `--password` 约定。Rejected: 从环境变量或文件读取密钥——多出一条泄露面 |
 | 11 | 桌面端实时刷新：服务层每写一次这五类资源就发 `config:changed`；组织页、提供方设置、后端设置、侧边栏订阅它，同时也订阅 `sync:applied` | 在生产者一侧统一发事件，Wails、orgtool、ctl 三条写入路径一起受益。Rejected: 只在 ctl 路径上发事件 |
 | 12 | 外部调用的审批弹窗、会话审批的超时都是 4 分钟；关闭弹窗等同拒绝 | 与 orgtool/hooktool 的 `approvalTimeout` 一致（`orgtool_svc/orgtool.go:25`）。Rejected: 关闭后保留待审批——请求会一直悬着 |
@@ -54,7 +54,7 @@
 **资源：** `agent`、`department`（短名 `dept`）、`project`（短名 `proj`）、`provider`、`model`、`backend`。`list` 的资源名用复数，`agents`、`providers` 等都可以写。
 
 **定位：**
-- 用数字 id、名字，或者 `父/子` 路径定位资源。项目、部门只在同级内名字唯一，Agent、提供方、后端全局唯一；模型用 `提供方/模型key` 定位。
+- 用数字 id、名字，或者 `父/子` 路径定位资源。项目、部门只在同级内名字唯一，Agent、提供方、后端全局唯一；模型用 `提供方/ModelID` 定位，见决策 9。
 - 名字有多个匹配时报错，列出每个候选的 id 和路径，并给出一条可以直接改用的示例命令。找不到时报 `<资源> "<名字>" not found`。
 - flag 里引用其他资源时，同样按名字或 id 解析，例如 `--department`、`--parent`、`--backend`、`--provider`、`--lead`。
 
