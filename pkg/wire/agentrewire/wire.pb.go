@@ -361,6 +361,180 @@ func (AgentredSelfUpdateRejectReason) EnumDescriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{1}
 }
 
+// CtlKind 是 agrctl 能管理的资源类型。
+type CtlKind int32
+
+const (
+	CtlKind_CTL_KIND_UNSPECIFIED CtlKind = 0
+	CtlKind_CTL_KIND_AGENT       CtlKind = 1
+	CtlKind_CTL_KIND_DEPARTMENT  CtlKind = 2
+	CtlKind_CTL_KIND_PROJECT     CtlKind = 3
+	CtlKind_CTL_KIND_PROVIDER    CtlKind = 4
+	// 模型是提供方下的子资源（spec 决策 9）。
+	CtlKind_CTL_KIND_MODEL   CtlKind = 5
+	CtlKind_CTL_KIND_BACKEND CtlKind = 6
+)
+
+// Enum value maps for CtlKind.
+var (
+	CtlKind_name = map[int32]string{
+		0: "CTL_KIND_UNSPECIFIED",
+		1: "CTL_KIND_AGENT",
+		2: "CTL_KIND_DEPARTMENT",
+		3: "CTL_KIND_PROJECT",
+		4: "CTL_KIND_PROVIDER",
+		5: "CTL_KIND_MODEL",
+		6: "CTL_KIND_BACKEND",
+	}
+	CtlKind_value = map[string]int32{
+		"CTL_KIND_UNSPECIFIED": 0,
+		"CTL_KIND_AGENT":       1,
+		"CTL_KIND_DEPARTMENT":  2,
+		"CTL_KIND_PROJECT":     3,
+		"CTL_KIND_PROVIDER":    4,
+		"CTL_KIND_MODEL":       5,
+		"CTL_KIND_BACKEND":     6,
+	}
+)
+
+func (x CtlKind) Enum() *CtlKind {
+	p := new(CtlKind)
+	*p = x
+	return p
+}
+
+func (x CtlKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CtlKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_agentre_wire_wire_proto_enumTypes[2].Descriptor()
+}
+
+func (CtlKind) Type() protoreflect.EnumType {
+	return &file_agentre_wire_wire_proto_enumTypes[2]
+}
+
+func (x CtlKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CtlKind.Descriptor instead.
+func (CtlKind) EnumDescriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{2}
+}
+
+// CtlOp 是写操作的种类。
+type CtlOp int32
+
+const (
+	CtlOp_CTL_OP_UNSPECIFIED CtlOp = 0
+	CtlOp_CTL_OP_CREATE      CtlOp = 1
+	CtlOp_CTL_OP_UPDATE      CtlOp = 2
+	CtlOp_CTL_OP_DELETE      CtlOp = 3
+)
+
+// Enum value maps for CtlOp.
+var (
+	CtlOp_name = map[int32]string{
+		0: "CTL_OP_UNSPECIFIED",
+		1: "CTL_OP_CREATE",
+		2: "CTL_OP_UPDATE",
+		3: "CTL_OP_DELETE",
+	}
+	CtlOp_value = map[string]int32{
+		"CTL_OP_UNSPECIFIED": 0,
+		"CTL_OP_CREATE":      1,
+		"CTL_OP_UPDATE":      2,
+		"CTL_OP_DELETE":      3,
+	}
+)
+
+func (x CtlOp) Enum() *CtlOp {
+	p := new(CtlOp)
+	*p = x
+	return p
+}
+
+func (x CtlOp) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CtlOp) Descriptor() protoreflect.EnumDescriptor {
+	return file_agentre_wire_wire_proto_enumTypes[3].Descriptor()
+}
+
+func (CtlOp) Type() protoreflect.EnumType {
+	return &file_agentre_wire_wire_proto_enumTypes[3]
+}
+
+func (x CtlOp) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CtlOp.Descriptor instead.
+func (CtlOp) EnumDescriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{3}
+}
+
+// CtlCaller 是 agrctl 对调用方的分类，执行者据此决定审批方式：
+//   - SESSION：环境变量里带着会话级 token（Agentre 会话里的 agent）→ 在该会话里审批；
+//   - EXTERNAL：用本机握手 token、stdin 不是 TTY（外部 AI/脚本）→ 桌面端弹窗审批；
+//   - HUMAN：用本机握手 token、stdin 是 TTY（人在终端里）→ 直接执行。
+//
+// 这是护栏级的分类：同一系统用户下的程序可以伪造，执行者不得把它当作鉴权。
+type CtlCaller int32
+
+const (
+	CtlCaller_CTL_CALLER_UNSPECIFIED CtlCaller = 0
+	CtlCaller_CTL_CALLER_SESSION     CtlCaller = 1
+	CtlCaller_CTL_CALLER_EXTERNAL    CtlCaller = 2
+	CtlCaller_CTL_CALLER_HUMAN       CtlCaller = 3
+)
+
+// Enum value maps for CtlCaller.
+var (
+	CtlCaller_name = map[int32]string{
+		0: "CTL_CALLER_UNSPECIFIED",
+		1: "CTL_CALLER_SESSION",
+		2: "CTL_CALLER_EXTERNAL",
+		3: "CTL_CALLER_HUMAN",
+	}
+	CtlCaller_value = map[string]int32{
+		"CTL_CALLER_UNSPECIFIED": 0,
+		"CTL_CALLER_SESSION":     1,
+		"CTL_CALLER_EXTERNAL":    2,
+		"CTL_CALLER_HUMAN":       3,
+	}
+)
+
+func (x CtlCaller) Enum() *CtlCaller {
+	p := new(CtlCaller)
+	*p = x
+	return p
+}
+
+func (x CtlCaller) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CtlCaller) Descriptor() protoreflect.EnumDescriptor {
+	return file_agentre_wire_wire_proto_enumTypes[4].Descriptor()
+}
+
+func (CtlCaller) Type() protoreflect.EnumType {
+	return &file_agentre_wire_wire_proto_enumTypes[4]
+}
+
+func (x CtlCaller) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CtlCaller.Descriptor instead.
+func (CtlCaller) EnumDescriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{4}
+}
+
 type WireFrame struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Body:
@@ -16723,6 +16897,1642 @@ func (x *BackendConnectionTestResponse) GetOpenclawModels() []*OpenClawModelOpti
 	return nil
 }
 
+// CtlAgent 是一个 Agent。
+type CtlAgent struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Description string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	// 0 = 不属于任何部门。
+	DepartmentId int64 `protobuf:"varint,4,opt,name=department_id,json=departmentId,proto3" json:"department_id,omitempty"`
+	// 执行目标（按顺序的后端 id）。写入时整体替换。
+	BackendIds  []int64 `protobuf:"varint,5,rep,packed,name=backend_ids,json=backendIds,proto3" json:"backend_ids,omitempty"`
+	Pinned      bool    `protobuf:"varint,6,opt,name=pinned,proto3" json:"pinned,omitempty"`
+	AvatarColor string  `protobuf:"bytes,7,opt,name=avatar_color,json=avatarColor,proto3" json:"avatar_color,omitempty"`
+	AvatarIcon  string  `protobuf:"bytes,8,opt,name=avatar_icon,json=avatarIcon,proto3" json:"avatar_icon,omitempty"`
+	// 只读：非空表示系统 Agent。
+	SystemBadge   string `protobuf:"bytes,9,opt,name=system_badge,json=systemBadge,proto3" json:"system_badge,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlAgent) Reset() {
+	*x = CtlAgent{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[237]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlAgent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlAgent) ProtoMessage() {}
+
+func (x *CtlAgent) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[237]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlAgent.ProtoReflect.Descriptor instead.
+func (*CtlAgent) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{237}
+}
+
+func (x *CtlAgent) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *CtlAgent) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CtlAgent) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *CtlAgent) GetDepartmentId() int64 {
+	if x != nil {
+		return x.DepartmentId
+	}
+	return 0
+}
+
+func (x *CtlAgent) GetBackendIds() []int64 {
+	if x != nil {
+		return x.BackendIds
+	}
+	return nil
+}
+
+func (x *CtlAgent) GetPinned() bool {
+	if x != nil {
+		return x.Pinned
+	}
+	return false
+}
+
+func (x *CtlAgent) GetAvatarColor() string {
+	if x != nil {
+		return x.AvatarColor
+	}
+	return ""
+}
+
+func (x *CtlAgent) GetAvatarIcon() string {
+	if x != nil {
+		return x.AvatarIcon
+	}
+	return ""
+}
+
+func (x *CtlAgent) GetSystemBadge() string {
+	if x != nil {
+		return x.SystemBadge
+	}
+	return ""
+}
+
+// CtlDepartment 是一个部门；名字只在同一父部门下唯一。
+type CtlDepartment struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Description string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	Icon        string                 `protobuf:"bytes,4,opt,name=icon,proto3" json:"icon,omitempty"`
+	AccentColor string                 `protobuf:"bytes,5,opt,name=accent_color,json=accentColor,proto3" json:"accent_color,omitempty"`
+	// 0 = 顶层部门。
+	ParentId int64 `protobuf:"varint,6,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`
+	// 0 = 未指定负责人。
+	LeadAgentId   int64 `protobuf:"varint,7,opt,name=lead_agent_id,json=leadAgentId,proto3" json:"lead_agent_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlDepartment) Reset() {
+	*x = CtlDepartment{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[238]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlDepartment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlDepartment) ProtoMessage() {}
+
+func (x *CtlDepartment) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[238]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlDepartment.ProtoReflect.Descriptor instead.
+func (*CtlDepartment) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{238}
+}
+
+func (x *CtlDepartment) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *CtlDepartment) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CtlDepartment) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *CtlDepartment) GetIcon() string {
+	if x != nil {
+		return x.Icon
+	}
+	return ""
+}
+
+func (x *CtlDepartment) GetAccentColor() string {
+	if x != nil {
+		return x.AccentColor
+	}
+	return ""
+}
+
+func (x *CtlDepartment) GetParentId() int64 {
+	if x != nil {
+		return x.ParentId
+	}
+	return 0
+}
+
+func (x *CtlDepartment) GetLeadAgentId() int64 {
+	if x != nil {
+		return x.LeadAgentId
+	}
+	return 0
+}
+
+// CtlProjectLocation 是项目在某台设备上的路径（只读）。
+type CtlProjectLocation struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	DeviceName    string                 `protobuf:"bytes,2,opt,name=device_name,json=deviceName,proto3" json:"device_name,omitempty"`
+	Path          string                 `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlProjectLocation) Reset() {
+	*x = CtlProjectLocation{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[239]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlProjectLocation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlProjectLocation) ProtoMessage() {}
+
+func (x *CtlProjectLocation) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[239]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlProjectLocation.ProtoReflect.Descriptor instead.
+func (*CtlProjectLocation) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{239}
+}
+
+func (x *CtlProjectLocation) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *CtlProjectLocation) GetDeviceName() string {
+	if x != nil {
+		return x.DeviceName
+	}
+	return ""
+}
+
+func (x *CtlProjectLocation) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+// CtlProject 是一个项目；名字只在同一父项目下唯一。
+type CtlProject struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// 0 = 顶层项目。
+	ParentId    int64  `protobuf:"varint,2,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`
+	Name        string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Icon        string `protobuf:"bytes,4,opt,name=icon,proto3" json:"icon,omitempty"`
+	Color       string `protobuf:"bytes,5,opt,name=color,proto3" json:"color,omitempty"`
+	Description string `protobuf:"bytes,6,opt,name=description,proto3" json:"description,omitempty"`
+	// 执行者本机上的路径。
+	Path string `protobuf:"bytes,7,opt,name=path,proto3" json:"path,omitempty"`
+	// 成员 Agent。创建时是初始成员；更新时用 CtlWriteRequest 的 add/remove 字段增减。
+	MemberAgentIds []int64 `protobuf:"varint,8,rep,packed,name=member_agent_ids,json=memberAgentIds,proto3" json:"member_agent_ids,omitempty"`
+	// 只读：各设备上的路径。
+	Locations     []*CtlProjectLocation `protobuf:"bytes,9,rep,name=locations,proto3" json:"locations,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlProject) Reset() {
+	*x = CtlProject{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[240]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlProject) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlProject) ProtoMessage() {}
+
+func (x *CtlProject) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[240]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlProject.ProtoReflect.Descriptor instead.
+func (*CtlProject) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{240}
+}
+
+func (x *CtlProject) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *CtlProject) GetParentId() int64 {
+	if x != nil {
+		return x.ParentId
+	}
+	return 0
+}
+
+func (x *CtlProject) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CtlProject) GetIcon() string {
+	if x != nil {
+		return x.Icon
+	}
+	return ""
+}
+
+func (x *CtlProject) GetColor() string {
+	if x != nil {
+		return x.Color
+	}
+	return ""
+}
+
+func (x *CtlProject) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *CtlProject) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *CtlProject) GetMemberAgentIds() []int64 {
+	if x != nil {
+		return x.MemberAgentIds
+	}
+	return nil
+}
+
+func (x *CtlProject) GetLocations() []*CtlProjectLocation {
+	if x != nil {
+		return x.Locations
+	}
+	return nil
+}
+
+// CtlProvider 是一个 LLM 提供方。
+type CtlProvider struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Id      int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name    string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Type    string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
+	BaseUrl string                 `protobuf:"bytes,4,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
+	Enabled bool                   `protobuf:"varint,5,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// 写入时是明文；响应里只能是掩码（前 4 位、圆点、后 4 位），未设置时为空。
+	ApiKey string `protobuf:"bytes,6,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
+	// 只读：是否已设置 API key。
+	ApiKeySet bool `protobuf:"varint,7,opt,name=api_key_set,json=apiKeySet,proto3" json:"api_key_set,omitempty"`
+	// 默认模型的 key。
+	DefaultModelKey string `protobuf:"bytes,8,opt,name=default_model_key,json=defaultModelKey,proto3" json:"default_model_key,omitempty"`
+	// 只读：引用它的后端数。
+	BackendRefs   int32 `protobuf:"varint,9,opt,name=backend_refs,json=backendRefs,proto3" json:"backend_refs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlProvider) Reset() {
+	*x = CtlProvider{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[241]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlProvider) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlProvider) ProtoMessage() {}
+
+func (x *CtlProvider) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[241]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlProvider.ProtoReflect.Descriptor instead.
+func (*CtlProvider) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{241}
+}
+
+func (x *CtlProvider) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *CtlProvider) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CtlProvider) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *CtlProvider) GetBaseUrl() string {
+	if x != nil {
+		return x.BaseUrl
+	}
+	return ""
+}
+
+func (x *CtlProvider) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *CtlProvider) GetApiKey() string {
+	if x != nil {
+		return x.ApiKey
+	}
+	return ""
+}
+
+func (x *CtlProvider) GetApiKeySet() bool {
+	if x != nil {
+		return x.ApiKeySet
+	}
+	return false
+}
+
+func (x *CtlProvider) GetDefaultModelKey() string {
+	if x != nil {
+		return x.DefaultModelKey
+	}
+	return ""
+}
+
+func (x *CtlProvider) GetBackendRefs() int32 {
+	if x != nil {
+		return x.BackendRefs
+	}
+	return 0
+}
+
+// CtlModel 是提供方下的一个模型，用 `提供方/模型key` 定位。
+type CtlModel struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	ProviderId    int64                  `protobuf:"varint,2,opt,name=provider_id,json=providerId,proto3" json:"provider_id,omitempty"`
+	Key           string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
+	ModelId       string                 `protobuf:"bytes,4,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	Name          string                 `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
+	ContextWindow int64                  `protobuf:"varint,6,opt,name=context_window,json=contextWindow,proto3" json:"context_window,omitempty"`
+	MaxOutput     int64                  `protobuf:"varint,7,opt,name=max_output,json=maxOutput,proto3" json:"max_output,omitempty"`
+	Enabled       bool                   `protobuf:"varint,8,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// 读：是否为所属提供方的默认模型。写：true 表示把它设为默认模型。
+	IsDefault bool `protobuf:"varint,9,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"`
+	// 只读：引用它的后端数。
+	BackendRefs   int32 `protobuf:"varint,10,opt,name=backend_refs,json=backendRefs,proto3" json:"backend_refs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlModel) Reset() {
+	*x = CtlModel{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[242]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlModel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlModel) ProtoMessage() {}
+
+func (x *CtlModel) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[242]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlModel.ProtoReflect.Descriptor instead.
+func (*CtlModel) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{242}
+}
+
+func (x *CtlModel) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *CtlModel) GetProviderId() int64 {
+	if x != nil {
+		return x.ProviderId
+	}
+	return 0
+}
+
+func (x *CtlModel) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *CtlModel) GetModelId() string {
+	if x != nil {
+		return x.ModelId
+	}
+	return ""
+}
+
+func (x *CtlModel) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CtlModel) GetContextWindow() int64 {
+	if x != nil {
+		return x.ContextWindow
+	}
+	return 0
+}
+
+func (x *CtlModel) GetMaxOutput() int64 {
+	if x != nil {
+		return x.MaxOutput
+	}
+	return 0
+}
+
+func (x *CtlModel) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *CtlModel) GetIsDefault() bool {
+	if x != nil {
+		return x.IsDefault
+	}
+	return false
+}
+
+func (x *CtlModel) GetBackendRefs() int32 {
+	if x != nil {
+		return x.BackendRefs
+	}
+	return 0
+}
+
+// CtlBackend 是一个 Agent 后端。
+type CtlBackend struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// 创建后不可改。
+	Type string `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
+	// 绑定的提供方；0 = CLI 自身登录态（native）。
+	ProviderId int64 `protobuf:"varint,4,opt,name=provider_id,json=providerId,proto3" json:"provider_id,omitempty"`
+	// 固定模型；0 = 跟随提供方的默认模型。
+	ModelId int64 `protobuf:"varint,5,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	// 目标设备：已配对设备的名字或设备指纹，空 = 本机。设备不属于 ctl 管理的资源，
+	// 由执行者解析。
+	Device          string            `protobuf:"bytes,6,opt,name=device,proto3" json:"device,omitempty"`
+	CliPath         string            `protobuf:"bytes,7,opt,name=cli_path,json=cliPath,proto3" json:"cli_path,omitempty"`
+	ReasoningEffort string            `protobuf:"bytes,8,opt,name=reasoning_effort,json=reasoningEffort,proto3" json:"reasoning_effort,omitempty"`
+	Env             map[string]string `protobuf:"bytes,9,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// 该后端类型独占的设置，形如同步契约的 AgentBackendConfig（camelCase 键的 JSON 对象）。
+	// 写入时 update 只替换其中出现的键。
+	ConfigJson string `protobuf:"bytes,10,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
+	// 只写：openclaw 网关 token 的明文；响应里恒为空。
+	Token string `protobuf:"bytes,11,opt,name=token,proto3" json:"token,omitempty"`
+	// 只读：token 是否已设置。
+	TokenSet      bool `protobuf:"varint,12,opt,name=token_set,json=tokenSet,proto3" json:"token_set,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlBackend) Reset() {
+	*x = CtlBackend{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[243]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlBackend) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlBackend) ProtoMessage() {}
+
+func (x *CtlBackend) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[243]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlBackend.ProtoReflect.Descriptor instead.
+func (*CtlBackend) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{243}
+}
+
+func (x *CtlBackend) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *CtlBackend) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CtlBackend) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *CtlBackend) GetProviderId() int64 {
+	if x != nil {
+		return x.ProviderId
+	}
+	return 0
+}
+
+func (x *CtlBackend) GetModelId() int64 {
+	if x != nil {
+		return x.ModelId
+	}
+	return 0
+}
+
+func (x *CtlBackend) GetDevice() string {
+	if x != nil {
+		return x.Device
+	}
+	return ""
+}
+
+func (x *CtlBackend) GetCliPath() string {
+	if x != nil {
+		return x.CliPath
+	}
+	return ""
+}
+
+func (x *CtlBackend) GetReasoningEffort() string {
+	if x != nil {
+		return x.ReasoningEffort
+	}
+	return ""
+}
+
+func (x *CtlBackend) GetEnv() map[string]string {
+	if x != nil {
+		return x.Env
+	}
+	return nil
+}
+
+func (x *CtlBackend) GetConfigJson() string {
+	if x != nil {
+		return x.ConfigJson
+	}
+	return ""
+}
+
+func (x *CtlBackend) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *CtlBackend) GetTokenSet() bool {
+	if x != nil {
+		return x.TokenSet
+	}
+	return false
+}
+
+// CtlResource 是任意一类资源的文档。
+type CtlResource struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Doc:
+	//
+	//	*CtlResource_Agent
+	//	*CtlResource_Department
+	//	*CtlResource_Project
+	//	*CtlResource_Provider
+	//	*CtlResource_Model
+	//	*CtlResource_Backend
+	Doc           isCtlResource_Doc `protobuf_oneof:"doc"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlResource) Reset() {
+	*x = CtlResource{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[244]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlResource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlResource) ProtoMessage() {}
+
+func (x *CtlResource) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[244]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlResource.ProtoReflect.Descriptor instead.
+func (*CtlResource) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{244}
+}
+
+func (x *CtlResource) GetDoc() isCtlResource_Doc {
+	if x != nil {
+		return x.Doc
+	}
+	return nil
+}
+
+func (x *CtlResource) GetAgent() *CtlAgent {
+	if x != nil {
+		if x, ok := x.Doc.(*CtlResource_Agent); ok {
+			return x.Agent
+		}
+	}
+	return nil
+}
+
+func (x *CtlResource) GetDepartment() *CtlDepartment {
+	if x != nil {
+		if x, ok := x.Doc.(*CtlResource_Department); ok {
+			return x.Department
+		}
+	}
+	return nil
+}
+
+func (x *CtlResource) GetProject() *CtlProject {
+	if x != nil {
+		if x, ok := x.Doc.(*CtlResource_Project); ok {
+			return x.Project
+		}
+	}
+	return nil
+}
+
+func (x *CtlResource) GetProvider() *CtlProvider {
+	if x != nil {
+		if x, ok := x.Doc.(*CtlResource_Provider); ok {
+			return x.Provider
+		}
+	}
+	return nil
+}
+
+func (x *CtlResource) GetModel() *CtlModel {
+	if x != nil {
+		if x, ok := x.Doc.(*CtlResource_Model); ok {
+			return x.Model
+		}
+	}
+	return nil
+}
+
+func (x *CtlResource) GetBackend() *CtlBackend {
+	if x != nil {
+		if x, ok := x.Doc.(*CtlResource_Backend); ok {
+			return x.Backend
+		}
+	}
+	return nil
+}
+
+type isCtlResource_Doc interface {
+	isCtlResource_Doc()
+}
+
+type CtlResource_Agent struct {
+	Agent *CtlAgent `protobuf:"bytes,1,opt,name=agent,proto3,oneof"`
+}
+
+type CtlResource_Department struct {
+	Department *CtlDepartment `protobuf:"bytes,2,opt,name=department,proto3,oneof"`
+}
+
+type CtlResource_Project struct {
+	Project *CtlProject `protobuf:"bytes,3,opt,name=project,proto3,oneof"`
+}
+
+type CtlResource_Provider struct {
+	Provider *CtlProvider `protobuf:"bytes,4,opt,name=provider,proto3,oneof"`
+}
+
+type CtlResource_Model struct {
+	Model *CtlModel `protobuf:"bytes,5,opt,name=model,proto3,oneof"`
+}
+
+type CtlResource_Backend struct {
+	Backend *CtlBackend `protobuf:"bytes,6,opt,name=backend,proto3,oneof"`
+}
+
+func (*CtlResource_Agent) isCtlResource_Doc() {}
+
+func (*CtlResource_Department) isCtlResource_Doc() {}
+
+func (*CtlResource_Project) isCtlResource_Doc() {}
+
+func (*CtlResource_Provider) isCtlResource_Doc() {}
+
+func (*CtlResource_Model) isCtlResource_Doc() {}
+
+func (*CtlResource_Backend) isCtlResource_Doc() {}
+
+// CtlListRequest 列出某类资源的全部条目；过滤在客户端做。
+type CtlListRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          CtlKind                `protobuf:"varint,1,opt,name=kind,proto3,enum=agentre.wire.CtlKind" json:"kind,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlListRequest) Reset() {
+	*x = CtlListRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[245]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlListRequest) ProtoMessage() {}
+
+func (x *CtlListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[245]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlListRequest.ProtoReflect.Descriptor instead.
+func (*CtlListRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{245}
+}
+
+func (x *CtlListRequest) GetKind() CtlKind {
+	if x != nil {
+		return x.Kind
+	}
+	return CtlKind_CTL_KIND_UNSPECIFIED
+}
+
+type CtlListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*CtlResource         `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlListResponse) Reset() {
+	*x = CtlListResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[246]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlListResponse) ProtoMessage() {}
+
+func (x *CtlListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[246]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlListResponse.ProtoReflect.Descriptor instead.
+func (*CtlListResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{246}
+}
+
+func (x *CtlListResponse) GetItems() []*CtlResource {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+// CtlGetRequest 按 id 取一条资源的详情（含只读的关联信息）。
+type CtlGetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          CtlKind                `protobuf:"varint,1,opt,name=kind,proto3,enum=agentre.wire.CtlKind" json:"kind,omitempty"`
+	Id            int64                  `protobuf:"varint,2,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlGetRequest) Reset() {
+	*x = CtlGetRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[247]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlGetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlGetRequest) ProtoMessage() {}
+
+func (x *CtlGetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[247]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlGetRequest.ProtoReflect.Descriptor instead.
+func (*CtlGetRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{247}
+}
+
+func (x *CtlGetRequest) GetKind() CtlKind {
+	if x != nil {
+		return x.Kind
+	}
+	return CtlKind_CTL_KIND_UNSPECIFIED
+}
+
+func (x *CtlGetRequest) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+type CtlGetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Resource      *CtlResource           `protobuf:"bytes,1,opt,name=resource,proto3" json:"resource,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlGetResponse) Reset() {
+	*x = CtlGetResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[248]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlGetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlGetResponse) ProtoMessage() {}
+
+func (x *CtlGetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[248]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlGetResponse.ProtoReflect.Descriptor instead.
+func (*CtlGetResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{248}
+}
+
+func (x *CtlGetResponse) GetResource() *CtlResource {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
+// CtlWriteRequest 是一次按 id 的写操作。
+type CtlWriteRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Op    CtlOp                  `protobuf:"varint,1,opt,name=op,proto3,enum=agentre.wire.CtlOp" json:"op,omitempty"`
+	Kind  CtlKind                `protobuf:"varint,2,opt,name=kind,proto3,enum=agentre.wire.CtlKind" json:"kind,omitempty"`
+	// update / delete 的目标 id；create 时为 0。
+	Id int64 `protobuf:"varint,3,opt,name=id,proto3" json:"id,omitempty"`
+	// create / update 的字段值。只有 fields 里列出的字段有效，其余一律忽略。
+	Resource *CtlResource `protobuf:"bytes,4,opt,name=resource,proto3" json:"resource,omitempty"`
+	// 本次写入的字段集合：该资源文档里字段的 JSON 名（如 "departmentId"、"backendIds"）。
+	// update 只修改这些字段。
+	Fields []string `protobuf:"bytes,5,rep,name=fields,proto3" json:"fields,omitempty"`
+	// 仅 project update：增减成员 Agent。
+	AddMemberAgentIds    []int64 `protobuf:"varint,6,rep,packed,name=add_member_agent_ids,json=addMemberAgentIds,proto3" json:"add_member_agent_ids,omitempty"`
+	RemoveMemberAgentIds []int64 `protobuf:"varint,7,rep,packed,name=remove_member_agent_ids,json=removeMemberAgentIds,proto3" json:"remove_member_agent_ids,omitempty"`
+	// 仅 department delete：连同子部门和 Agent 一起删除；否则把它们上移到父部门。
+	Cascade bool `protobuf:"varint,8,opt,name=cascade,proto3" json:"cascade,omitempty"`
+	// 仅 provider / model delete：仍被后端引用时也删除。
+	Force  bool      `protobuf:"varint,9,opt,name=force,proto3" json:"force,omitempty"`
+	Caller CtlCaller `protobuf:"varint,10,opt,name=caller,proto3,enum=agentre.wire.CtlCaller" json:"caller,omitempty"`
+	// 完整命令行（密钥值已替换为 …），供审批卡展示。
+	Command       string `protobuf:"bytes,11,opt,name=command,proto3" json:"command,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlWriteRequest) Reset() {
+	*x = CtlWriteRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[249]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlWriteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlWriteRequest) ProtoMessage() {}
+
+func (x *CtlWriteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[249]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlWriteRequest.ProtoReflect.Descriptor instead.
+func (*CtlWriteRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{249}
+}
+
+func (x *CtlWriteRequest) GetOp() CtlOp {
+	if x != nil {
+		return x.Op
+	}
+	return CtlOp_CTL_OP_UNSPECIFIED
+}
+
+func (x *CtlWriteRequest) GetKind() CtlKind {
+	if x != nil {
+		return x.Kind
+	}
+	return CtlKind_CTL_KIND_UNSPECIFIED
+}
+
+func (x *CtlWriteRequest) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *CtlWriteRequest) GetResource() *CtlResource {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
+func (x *CtlWriteRequest) GetFields() []string {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+func (x *CtlWriteRequest) GetAddMemberAgentIds() []int64 {
+	if x != nil {
+		return x.AddMemberAgentIds
+	}
+	return nil
+}
+
+func (x *CtlWriteRequest) GetRemoveMemberAgentIds() []int64 {
+	if x != nil {
+		return x.RemoveMemberAgentIds
+	}
+	return nil
+}
+
+func (x *CtlWriteRequest) GetCascade() bool {
+	if x != nil {
+		return x.Cascade
+	}
+	return false
+}
+
+func (x *CtlWriteRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
+}
+
+func (x *CtlWriteRequest) GetCaller() CtlCaller {
+	if x != nil {
+		return x.Caller
+	}
+	return CtlCaller_CTL_CALLER_UNSPECIFIED
+}
+
+func (x *CtlWriteRequest) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
+}
+
+// CtlFieldChange 是一个字段的变更；before/after 缺席表示「没有」（创建时无 before，
+// 删除时无 after）。secret 为 true 时两者都缺席，只表示该密钥被写入。
+type CtlFieldChange struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Field         string                 `protobuf:"bytes,1,opt,name=field,proto3" json:"field,omitempty"`
+	Before        *string                `protobuf:"bytes,2,opt,name=before,proto3,oneof" json:"before,omitempty"`
+	After         *string                `protobuf:"bytes,3,opt,name=after,proto3,oneof" json:"after,omitempty"`
+	Secret        bool                   `protobuf:"varint,4,opt,name=secret,proto3" json:"secret,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlFieldChange) Reset() {
+	*x = CtlFieldChange{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[250]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlFieldChange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlFieldChange) ProtoMessage() {}
+
+func (x *CtlFieldChange) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[250]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlFieldChange.ProtoReflect.Descriptor instead.
+func (*CtlFieldChange) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{250}
+}
+
+func (x *CtlFieldChange) GetField() string {
+	if x != nil {
+		return x.Field
+	}
+	return ""
+}
+
+func (x *CtlFieldChange) GetBefore() string {
+	if x != nil && x.Before != nil {
+		return *x.Before
+	}
+	return ""
+}
+
+func (x *CtlFieldChange) GetAfter() string {
+	if x != nil && x.After != nil {
+		return *x.After
+	}
+	return ""
+}
+
+func (x *CtlFieldChange) GetSecret() bool {
+	if x != nil {
+		return x.Secret
+	}
+	return false
+}
+
+// CtlChange 是一条资源的变更，由执行者对照当前数据计算。
+type CtlChange struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Op     CtlOp                  `protobuf:"varint,1,opt,name=op,proto3,enum=agentre.wire.CtlOp" json:"op,omitempty"`
+	Kind   CtlKind                `protobuf:"varint,2,opt,name=kind,proto3,enum=agentre.wire.CtlKind" json:"kind,omitempty"`
+	Id     int64                  `protobuf:"varint,3,opt,name=id,proto3" json:"id,omitempty"`
+	Name   string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	Fields []*CtlFieldChange      `protobuf:"bytes,5,rep,name=fields,proto3" json:"fields,omitempty"`
+	// 附注，例如级联删除波及的子资源。
+	Note          string `protobuf:"bytes,6,opt,name=note,proto3" json:"note,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlChange) Reset() {
+	*x = CtlChange{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[251]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlChange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlChange) ProtoMessage() {}
+
+func (x *CtlChange) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[251]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlChange.ProtoReflect.Descriptor instead.
+func (*CtlChange) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{251}
+}
+
+func (x *CtlChange) GetOp() CtlOp {
+	if x != nil {
+		return x.Op
+	}
+	return CtlOp_CTL_OP_UNSPECIFIED
+}
+
+func (x *CtlChange) GetKind() CtlKind {
+	if x != nil {
+		return x.Kind
+	}
+	return CtlKind_CTL_KIND_UNSPECIFIED
+}
+
+func (x *CtlChange) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *CtlChange) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CtlChange) GetFields() []*CtlFieldChange {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+func (x *CtlChange) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
+}
+
+type CtlWriteResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 被写入资源的 id 与名字（create 时是新 id）。
+	Id            int64        `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string       `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Changes       []*CtlChange `protobuf:"bytes,3,rep,name=changes,proto3" json:"changes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlWriteResponse) Reset() {
+	*x = CtlWriteResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[252]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlWriteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlWriteResponse) ProtoMessage() {}
+
+func (x *CtlWriteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[252]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlWriteResponse.ProtoReflect.Descriptor instead.
+func (*CtlWriteResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{252}
+}
+
+func (x *CtlWriteResponse) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *CtlWriteResponse) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CtlWriteResponse) GetChanges() []*CtlChange {
+	if x != nil {
+		return x.Changes
+	}
+	return nil
+}
+
+// CtlRequest 是 `POST /ctl/v1/resources` 的请求体。
+type CtlRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Op:
+	//
+	//	*CtlRequest_List
+	//	*CtlRequest_Get
+	//	*CtlRequest_Write
+	Op            isCtlRequest_Op `protobuf_oneof:"op"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlRequest) Reset() {
+	*x = CtlRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[253]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlRequest) ProtoMessage() {}
+
+func (x *CtlRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[253]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlRequest.ProtoReflect.Descriptor instead.
+func (*CtlRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{253}
+}
+
+func (x *CtlRequest) GetOp() isCtlRequest_Op {
+	if x != nil {
+		return x.Op
+	}
+	return nil
+}
+
+func (x *CtlRequest) GetList() *CtlListRequest {
+	if x != nil {
+		if x, ok := x.Op.(*CtlRequest_List); ok {
+			return x.List
+		}
+	}
+	return nil
+}
+
+func (x *CtlRequest) GetGet() *CtlGetRequest {
+	if x != nil {
+		if x, ok := x.Op.(*CtlRequest_Get); ok {
+			return x.Get
+		}
+	}
+	return nil
+}
+
+func (x *CtlRequest) GetWrite() *CtlWriteRequest {
+	if x != nil {
+		if x, ok := x.Op.(*CtlRequest_Write); ok {
+			return x.Write
+		}
+	}
+	return nil
+}
+
+type isCtlRequest_Op interface {
+	isCtlRequest_Op()
+}
+
+type CtlRequest_List struct {
+	List *CtlListRequest `protobuf:"bytes,1,opt,name=list,proto3,oneof"`
+}
+
+type CtlRequest_Get struct {
+	Get *CtlGetRequest `protobuf:"bytes,2,opt,name=get,proto3,oneof"`
+}
+
+type CtlRequest_Write struct {
+	Write *CtlWriteRequest `protobuf:"bytes,3,opt,name=write,proto3,oneof"`
+}
+
+func (*CtlRequest_List) isCtlRequest_Op() {}
+
+func (*CtlRequest_Get) isCtlRequest_Op() {}
+
+func (*CtlRequest_Write) isCtlRequest_Op() {}
+
+// CtlResponse 是 `POST /ctl/v1/resources` 的成功响应体，分支与请求一一对应。
+type CtlResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Result:
+	//
+	//	*CtlResponse_List
+	//	*CtlResponse_Get
+	//	*CtlResponse_Write
+	Result        isCtlResponse_Result `protobuf_oneof:"result"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlResponse) Reset() {
+	*x = CtlResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[254]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlResponse) ProtoMessage() {}
+
+func (x *CtlResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[254]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlResponse.ProtoReflect.Descriptor instead.
+func (*CtlResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{254}
+}
+
+func (x *CtlResponse) GetResult() isCtlResponse_Result {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+func (x *CtlResponse) GetList() *CtlListResponse {
+	if x != nil {
+		if x, ok := x.Result.(*CtlResponse_List); ok {
+			return x.List
+		}
+	}
+	return nil
+}
+
+func (x *CtlResponse) GetGet() *CtlGetResponse {
+	if x != nil {
+		if x, ok := x.Result.(*CtlResponse_Get); ok {
+			return x.Get
+		}
+	}
+	return nil
+}
+
+func (x *CtlResponse) GetWrite() *CtlWriteResponse {
+	if x != nil {
+		if x, ok := x.Result.(*CtlResponse_Write); ok {
+			return x.Write
+		}
+	}
+	return nil
+}
+
+type isCtlResponse_Result interface {
+	isCtlResponse_Result()
+}
+
+type CtlResponse_List struct {
+	List *CtlListResponse `protobuf:"bytes,1,opt,name=list,proto3,oneof"`
+}
+
+type CtlResponse_Get struct {
+	Get *CtlGetResponse `protobuf:"bytes,2,opt,name=get,proto3,oneof"`
+}
+
+type CtlResponse_Write struct {
+	Write *CtlWriteResponse `protobuf:"bytes,3,opt,name=write,proto3,oneof"`
+}
+
+func (*CtlResponse_List) isCtlResponse_Result() {}
+
+func (*CtlResponse_Get) isCtlResponse_Result() {}
+
+func (*CtlResponse_Write) isCtlResponse_Result() {}
+
 var file_agentre_wire_wire_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
@@ -18035,7 +19845,149 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x06events\x18\t \x03(\tR\x06events\x12J\n" +
 	"\x0fopenclaw_agents\x18\n" +
 	" \x03(\v2!.agentre.wire.OpenClawAgentOptionR\x0eopenclawAgents\x12J\n" +
-	"\x0fopenclaw_models\x18\v \x03(\v2!.agentre.wire.OpenClawModelOptionR\x0eopenclawModels*\xda\x14\n" +
+	"\x0fopenclaw_models\x18\v \x03(\v2!.agentre.wire.OpenClawModelOptionR\x0eopenclawModels\"\x95\x02\n" +
+	"\bCtlAgent\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12#\n" +
+	"\rdepartment_id\x18\x04 \x01(\x03R\fdepartmentId\x12\x1f\n" +
+	"\vbackend_ids\x18\x05 \x03(\x03R\n" +
+	"backendIds\x12\x16\n" +
+	"\x06pinned\x18\x06 \x01(\bR\x06pinned\x12!\n" +
+	"\favatar_color\x18\a \x01(\tR\vavatarColor\x12\x1f\n" +
+	"\vavatar_icon\x18\b \x01(\tR\n" +
+	"avatarIcon\x12!\n" +
+	"\fsystem_badge\x18\t \x01(\tR\vsystemBadge\"\xcd\x01\n" +
+	"\rCtlDepartment\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
+	"\x04icon\x18\x04 \x01(\tR\x04icon\x12!\n" +
+	"\faccent_color\x18\x05 \x01(\tR\vaccentColor\x12\x1b\n" +
+	"\tparent_id\x18\x06 \x01(\x03R\bparentId\x12\"\n" +
+	"\rlead_agent_id\x18\a \x01(\x03R\vleadAgentId\"f\n" +
+	"\x12CtlProjectLocation\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x1f\n" +
+	"\vdevice_name\x18\x02 \x01(\tR\n" +
+	"deviceName\x12\x12\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\"\x97\x02\n" +
+	"\n" +
+	"CtlProject\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1b\n" +
+	"\tparent_id\x18\x02 \x01(\x03R\bparentId\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x12\n" +
+	"\x04icon\x18\x04 \x01(\tR\x04icon\x12\x14\n" +
+	"\x05color\x18\x05 \x01(\tR\x05color\x12 \n" +
+	"\vdescription\x18\x06 \x01(\tR\vdescription\x12\x12\n" +
+	"\x04path\x18\a \x01(\tR\x04path\x12(\n" +
+	"\x10member_agent_ids\x18\b \x03(\x03R\x0ememberAgentIds\x12>\n" +
+	"\tlocations\x18\t \x03(\v2 .agentre.wire.CtlProjectLocationR\tlocations\"\x82\x02\n" +
+	"\vCtlProvider\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\x12\x19\n" +
+	"\bbase_url\x18\x04 \x01(\tR\abaseUrl\x12\x18\n" +
+	"\aenabled\x18\x05 \x01(\bR\aenabled\x12\x17\n" +
+	"\aapi_key\x18\x06 \x01(\tR\x06apiKey\x12\x1e\n" +
+	"\vapi_key_set\x18\a \x01(\bR\tapiKeySet\x12*\n" +
+	"\x11default_model_key\x18\b \x01(\tR\x0fdefaultModelKey\x12!\n" +
+	"\fbackend_refs\x18\t \x01(\x05R\vbackendRefs\"\x9e\x02\n" +
+	"\bCtlModel\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1f\n" +
+	"\vprovider_id\x18\x02 \x01(\x03R\n" +
+	"providerId\x12\x10\n" +
+	"\x03key\x18\x03 \x01(\tR\x03key\x12\x19\n" +
+	"\bmodel_id\x18\x04 \x01(\tR\amodelId\x12\x12\n" +
+	"\x04name\x18\x05 \x01(\tR\x04name\x12%\n" +
+	"\x0econtext_window\x18\x06 \x01(\x03R\rcontextWindow\x12\x1d\n" +
+	"\n" +
+	"max_output\x18\a \x01(\x03R\tmaxOutput\x12\x18\n" +
+	"\aenabled\x18\b \x01(\bR\aenabled\x12\x1d\n" +
+	"\n" +
+	"is_default\x18\t \x01(\bR\tisDefault\x12!\n" +
+	"\fbackend_refs\x18\n" +
+	" \x01(\x05R\vbackendRefs\"\x9f\x03\n" +
+	"\n" +
+	"CtlBackend\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\x12\x1f\n" +
+	"\vprovider_id\x18\x04 \x01(\x03R\n" +
+	"providerId\x12\x19\n" +
+	"\bmodel_id\x18\x05 \x01(\x03R\amodelId\x12\x16\n" +
+	"\x06device\x18\x06 \x01(\tR\x06device\x12\x19\n" +
+	"\bcli_path\x18\a \x01(\tR\acliPath\x12)\n" +
+	"\x10reasoning_effort\x18\b \x01(\tR\x0freasoningEffort\x123\n" +
+	"\x03env\x18\t \x03(\v2!.agentre.wire.CtlBackend.EnvEntryR\x03env\x12\x1f\n" +
+	"\vconfig_json\x18\n" +
+	" \x01(\tR\n" +
+	"configJson\x12\x14\n" +
+	"\x05token\x18\v \x01(\tR\x05token\x12\x1b\n" +
+	"\ttoken_set\x18\f \x01(\bR\btokenSet\x1a6\n" +
+	"\bEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd8\x02\n" +
+	"\vCtlResource\x12.\n" +
+	"\x05agent\x18\x01 \x01(\v2\x16.agentre.wire.CtlAgentH\x00R\x05agent\x12=\n" +
+	"\n" +
+	"department\x18\x02 \x01(\v2\x1b.agentre.wire.CtlDepartmentH\x00R\n" +
+	"department\x124\n" +
+	"\aproject\x18\x03 \x01(\v2\x18.agentre.wire.CtlProjectH\x00R\aproject\x127\n" +
+	"\bprovider\x18\x04 \x01(\v2\x19.agentre.wire.CtlProviderH\x00R\bprovider\x12.\n" +
+	"\x05model\x18\x05 \x01(\v2\x16.agentre.wire.CtlModelH\x00R\x05model\x124\n" +
+	"\abackend\x18\x06 \x01(\v2\x18.agentre.wire.CtlBackendH\x00R\abackendB\x05\n" +
+	"\x03doc\";\n" +
+	"\x0eCtlListRequest\x12)\n" +
+	"\x04kind\x18\x01 \x01(\x0e2\x15.agentre.wire.CtlKindR\x04kind\"B\n" +
+	"\x0fCtlListResponse\x12/\n" +
+	"\x05items\x18\x01 \x03(\v2\x19.agentre.wire.CtlResourceR\x05items\"J\n" +
+	"\rCtlGetRequest\x12)\n" +
+	"\x04kind\x18\x01 \x01(\x0e2\x15.agentre.wire.CtlKindR\x04kind\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\x03R\x02id\"G\n" +
+	"\x0eCtlGetResponse\x125\n" +
+	"\bresource\x18\x01 \x01(\v2\x19.agentre.wire.CtlResourceR\bresource\"\xa3\x03\n" +
+	"\x0fCtlWriteRequest\x12#\n" +
+	"\x02op\x18\x01 \x01(\x0e2\x13.agentre.wire.CtlOpR\x02op\x12)\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x15.agentre.wire.CtlKindR\x04kind\x12\x0e\n" +
+	"\x02id\x18\x03 \x01(\x03R\x02id\x125\n" +
+	"\bresource\x18\x04 \x01(\v2\x19.agentre.wire.CtlResourceR\bresource\x12\x16\n" +
+	"\x06fields\x18\x05 \x03(\tR\x06fields\x12/\n" +
+	"\x14add_member_agent_ids\x18\x06 \x03(\x03R\x11addMemberAgentIds\x125\n" +
+	"\x17remove_member_agent_ids\x18\a \x03(\x03R\x14removeMemberAgentIds\x12\x18\n" +
+	"\acascade\x18\b \x01(\bR\acascade\x12\x14\n" +
+	"\x05force\x18\t \x01(\bR\x05force\x12/\n" +
+	"\x06caller\x18\n" +
+	" \x01(\x0e2\x17.agentre.wire.CtlCallerR\x06caller\x12\x18\n" +
+	"\acommand\x18\v \x01(\tR\acommand\"\x8b\x01\n" +
+	"\x0eCtlFieldChange\x12\x14\n" +
+	"\x05field\x18\x01 \x01(\tR\x05field\x12\x1b\n" +
+	"\x06before\x18\x02 \x01(\tH\x00R\x06before\x88\x01\x01\x12\x19\n" +
+	"\x05after\x18\x03 \x01(\tH\x01R\x05after\x88\x01\x01\x12\x16\n" +
+	"\x06secret\x18\x04 \x01(\bR\x06secretB\t\n" +
+	"\a_beforeB\b\n" +
+	"\x06_after\"\xc9\x01\n" +
+	"\tCtlChange\x12#\n" +
+	"\x02op\x18\x01 \x01(\x0e2\x13.agentre.wire.CtlOpR\x02op\x12)\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x15.agentre.wire.CtlKindR\x04kind\x12\x0e\n" +
+	"\x02id\x18\x03 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x124\n" +
+	"\x06fields\x18\x05 \x03(\v2\x1c.agentre.wire.CtlFieldChangeR\x06fields\x12\x12\n" +
+	"\x04note\x18\x06 \x01(\tR\x04note\"i\n" +
+	"\x10CtlWriteResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x121\n" +
+	"\achanges\x18\x03 \x03(\v2\x17.agentre.wire.CtlChangeR\achanges\"\xae\x01\n" +
+	"\n" +
+	"CtlRequest\x122\n" +
+	"\x04list\x18\x01 \x01(\v2\x1c.agentre.wire.CtlListRequestH\x00R\x04list\x12/\n" +
+	"\x03get\x18\x02 \x01(\v2\x1b.agentre.wire.CtlGetRequestH\x00R\x03get\x125\n" +
+	"\x05write\x18\x03 \x01(\v2\x1d.agentre.wire.CtlWriteRequestH\x00R\x05writeB\x04\n" +
+	"\x02op\"\xb6\x01\n" +
+	"\vCtlResponse\x123\n" +
+	"\x04list\x18\x01 \x01(\v2\x1d.agentre.wire.CtlListResponseH\x00R\x04list\x120\n" +
+	"\x03get\x18\x02 \x01(\v2\x1c.agentre.wire.CtlGetResponseH\x00R\x03get\x126\n" +
+	"\x05write\x18\x03 \x01(\v2\x1e.agentre.wire.CtlWriteResponseH\x00R\x05writeB\b\n" +
+	"\x06result*\xda\x14\n" +
 	"\tRpcMethod\x12\x1a\n" +
 	"\x16RPC_METHOD_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17RPC_METHOD_AUTH_ACCOUNT\x10\x01\x12\x1b\n" +
@@ -18121,7 +20073,25 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	".AGENTRED_SELF_UPDATE_REJECT_REASON_IN_PROGRESS\x10\x02\x123\n" +
 	"/AGENTRED_SELF_UPDATE_REJECT_REASON_NOT_WRITABLE\x10\x03\x125\n" +
 	"1AGENTRED_SELF_UPDATE_REJECT_REASON_ALREADY_LATEST\x10\x04\x126\n" +
-	"2AGENTRED_SELF_UPDATE_REJECT_REASON_DOWNLOAD_FAILED\x10\x05:>\n" +
+	"2AGENTRED_SELF_UPDATE_REJECT_REASON_DOWNLOAD_FAILED\x10\x05*\xa7\x01\n" +
+	"\aCtlKind\x12\x18\n" +
+	"\x14CTL_KIND_UNSPECIFIED\x10\x00\x12\x12\n" +
+	"\x0eCTL_KIND_AGENT\x10\x01\x12\x17\n" +
+	"\x13CTL_KIND_DEPARTMENT\x10\x02\x12\x14\n" +
+	"\x10CTL_KIND_PROJECT\x10\x03\x12\x15\n" +
+	"\x11CTL_KIND_PROVIDER\x10\x04\x12\x12\n" +
+	"\x0eCTL_KIND_MODEL\x10\x05\x12\x14\n" +
+	"\x10CTL_KIND_BACKEND\x10\x06*X\n" +
+	"\x05CtlOp\x12\x16\n" +
+	"\x12CTL_OP_UNSPECIFIED\x10\x00\x12\x11\n" +
+	"\rCTL_OP_CREATE\x10\x01\x12\x11\n" +
+	"\rCTL_OP_UPDATE\x10\x02\x12\x11\n" +
+	"\rCTL_OP_DELETE\x10\x03*n\n" +
+	"\tCtlCaller\x12\x1a\n" +
+	"\x16CTL_CALLER_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12CTL_CALLER_SESSION\x10\x01\x12\x17\n" +
+	"\x13CTL_CALLER_EXTERNAL\x10\x02\x12\x14\n" +
+	"\x10CTL_CALLER_HUMAN\x10\x03:>\n" +
 	"\n" +
 	"event_kind\x12\x1d.google.protobuf.FieldOptions\x18\xe1\xd4\x03 \x01(\tR\teventKind:I\n" +
 	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.4.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
@@ -18138,392 +20108,440 @@ func file_agentre_wire_wire_proto_rawDescGZIP() []byte {
 	return file_agentre_wire_wire_proto_rawDescData
 }
 
-var file_agentre_wire_wire_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 245)
+var file_agentre_wire_wire_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 264)
 var file_agentre_wire_wire_proto_goTypes = []any{
 	(RpcMethod)(0),                             // 0: agentre.wire.RpcMethod
 	(AgentredSelfUpdateRejectReason)(0),        // 1: agentre.wire.AgentredSelfUpdateRejectReason
-	(*WireFrame)(nil),                          // 2: agentre.wire.WireFrame
-	(*RpcFrame)(nil),                           // 3: agentre.wire.RpcFrame
-	(*RpcNotification)(nil),                    // 4: agentre.wire.RpcNotification
-	(*Request)(nil),                            // 5: agentre.wire.Request
-	(*Response)(nil),                           // 6: agentre.wire.Response
-	(*RpcError)(nil),                           // 7: agentre.wire.RpcError
-	(*Cancel)(nil),                             // 8: agentre.wire.Cancel
-	(*Notification)(nil),                       // 9: agentre.wire.Notification
-	(*AccountSyncVersion)(nil),                 // 10: agentre.wire.AccountSyncVersion
-	(*AccountMirrorChanged)(nil),               // 11: agentre.wire.AccountMirrorChanged
-	(*AccountDevicePresence)(nil),              // 12: agentre.wire.AccountDevicePresence
-	(*AuthAccountRequest)(nil),                 // 13: agentre.wire.AuthAccountRequest
-	(*AuthAccountResponse)(nil),                // 14: agentre.wire.AuthAccountResponse
-	(*AuthPairRequest)(nil),                    // 15: agentre.wire.AuthPairRequest
-	(*AuthPairResponse)(nil),                   // 16: agentre.wire.AuthPairResponse
-	(*AuthConnectRequest)(nil),                 // 17: agentre.wire.AuthConnectRequest
-	(*AuthConnectResponse)(nil),                // 18: agentre.wire.AuthConnectResponse
-	(*AuthRevokeRequest)(nil),                  // 19: agentre.wire.AuthRevokeRequest
-	(*AuthRevokeResponse)(nil),                 // 20: agentre.wire.AuthRevokeResponse
-	(*AuthDirectRequest)(nil),                  // 21: agentre.wire.AuthDirectRequest
-	(*AuthDirectResponse)(nil),                 // 22: agentre.wire.AuthDirectResponse
-	(*LLMModel)(nil),                           // 23: agentre.wire.LLMModel
-	(*LLMUpsertRequest)(nil),                   // 24: agentre.wire.LLMUpsertRequest
-	(*LLMUpsertResponse)(nil),                  // 25: agentre.wire.LLMUpsertResponse
-	(*LLMDeleteRequest)(nil),                   // 26: agentre.wire.LLMDeleteRequest
-	(*LLMDeleteResponse)(nil),                  // 27: agentre.wire.LLMDeleteResponse
-	(*LLMListRequest)(nil),                     // 28: agentre.wire.LLMListRequest
-	(*LLMProvider)(nil),                        // 29: agentre.wire.LLMProvider
-	(*LLMListResponse)(nil),                    // 30: agentre.wire.LLMListResponse
-	(*EngineTestRequest)(nil),                  // 31: agentre.wire.EngineTestRequest
-	(*EngineTestResponse)(nil),                 // 32: agentre.wire.EngineTestResponse
-	(*EngineDiscoverRequest)(nil),              // 33: agentre.wire.EngineDiscoverRequest
-	(*EngineModel)(nil),                        // 34: agentre.wire.EngineModel
-	(*EngineDiscoverResponse)(nil),             // 35: agentre.wire.EngineDiscoverResponse
-	(*EngineScanRequest)(nil),                  // 36: agentre.wire.EngineScanRequest
-	(*EngineScanItem)(nil),                     // 37: agentre.wire.EngineScanItem
-	(*EngineScanResponse)(nil),                 // 38: agentre.wire.EngineScanResponse
-	(*CLIResolvePathRequest)(nil),              // 39: agentre.wire.CLIResolvePathRequest
-	(*CLIResolvePathResponse)(nil),             // 40: agentre.wire.CLIResolvePathResponse
-	(*CLIProbeRequest)(nil),                    // 41: agentre.wire.CLIProbeRequest
-	(*CLIProbeResponse)(nil),                   // 42: agentre.wire.CLIProbeResponse
-	(*HealthPingRequest)(nil),                  // 43: agentre.wire.HealthPingRequest
-	(*HealthModel)(nil),                        // 44: agentre.wire.HealthModel
-	(*HealthProvider)(nil),                     // 45: agentre.wire.HealthProvider
-	(*HealthPingResponse)(nil),                 // 46: agentre.wire.HealthPingResponse
-	(*AgentredSelfUpdateRequest)(nil),          // 47: agentre.wire.AgentredSelfUpdateRequest
-	(*AgentredSelfUpdateResponse)(nil),         // 48: agentre.wire.AgentredSelfUpdateResponse
-	(*ClaudeCodeUsageRequest)(nil),             // 49: agentre.wire.ClaudeCodeUsageRequest
-	(*ClaudeCodeRateLimits)(nil),               // 50: agentre.wire.ClaudeCodeRateLimits
-	(*ClaudeCodeUsageResponse)(nil),            // 51: agentre.wire.ClaudeCodeUsageResponse
-	(*SkillsListRequest)(nil),                  // 52: agentre.wire.SkillsListRequest
-	(*InstalledSkillPack)(nil),                 // 53: agentre.wire.InstalledSkillPack
-	(*SkillsListResponse)(nil),                 // 54: agentre.wire.SkillsListResponse
-	(*SessionListRequest)(nil),                 // 55: agentre.wire.SessionListRequest
-	(*SessionListResponse)(nil),                // 56: agentre.wire.SessionListResponse
-	(*SessionCountsRequest)(nil),               // 57: agentre.wire.SessionCountsRequest
-	(*SessionCountsResponse)(nil),              // 58: agentre.wire.SessionCountsResponse
-	(*SessionSummary)(nil),                     // 59: agentre.wire.SessionSummary
-	(*ActivityRollupRequest)(nil),              // 60: agentre.wire.ActivityRollupRequest
-	(*ActivityDailyBucket)(nil),                // 61: agentre.wire.ActivityDailyBucket
-	(*ActivityRollupResponse)(nil),             // 62: agentre.wire.ActivityRollupResponse
-	(*SessionAttachRequest)(nil),               // 63: agentre.wire.SessionAttachRequest
-	(*SessionAttachResponse)(nil),              // 64: agentre.wire.SessionAttachResponse
-	(*SessionPullRequest)(nil),                 // 65: agentre.wire.SessionPullRequest
-	(*SessionPullResponse)(nil),                // 66: agentre.wire.SessionPullResponse
-	(*DurableNotification)(nil),                // 67: agentre.wire.DurableNotification
-	(*SessionPendingWaitersRequest)(nil),       // 68: agentre.wire.SessionPendingWaitersRequest
-	(*SessionPendingWaitersResponse)(nil),      // 69: agentre.wire.SessionPendingWaitersResponse
-	(*PendingToolPermission)(nil),              // 70: agentre.wire.PendingToolPermission
-	(*PendingAskUserQuestion)(nil),             // 71: agentre.wire.PendingAskUserQuestion
-	(*SessionDeleteRequest)(nil),               // 72: agentre.wire.SessionDeleteRequest
-	(*SessionDeleteResponse)(nil),              // 73: agentre.wire.SessionDeleteResponse
-	(*SetModelTargetRequest)(nil),              // 74: agentre.wire.SetModelTargetRequest
-	(*SetModelTargetResponse)(nil),             // 75: agentre.wire.SetModelTargetResponse
-	(*SetSessionReasoningEffortRequest)(nil),   // 76: agentre.wire.SetSessionReasoningEffortRequest
-	(*SetSessionReasoningEffortResponse)(nil),  // 77: agentre.wire.SetSessionReasoningEffortResponse
-	(*Empty)(nil),                              // 78: agentre.wire.Empty
-	(*RuntimeCapabilitiesRequest)(nil),         // 79: agentre.wire.RuntimeCapabilitiesRequest
-	(*CapabilityEntry)(nil),                    // 80: agentre.wire.CapabilityEntry
-	(*PermissionModeMeta)(nil),                 // 81: agentre.wire.PermissionModeMeta
-	(*RuntimeCapabilitiesResponse)(nil),        // 82: agentre.wire.RuntimeCapabilitiesResponse
-	(*RuntimeSteerRequest)(nil),                // 83: agentre.wire.RuntimeSteerRequest
-	(*RuntimeSteerResponse)(nil),               // 84: agentre.wire.RuntimeSteerResponse
-	(*RuntimeCancelSteerRequest)(nil),          // 85: agentre.wire.RuntimeCancelSteerRequest
-	(*RuntimeCancelSteerResponse)(nil),         // 86: agentre.wire.RuntimeCancelSteerResponse
-	(*RuntimeDrainPendingRequest)(nil),         // 87: agentre.wire.RuntimeDrainPendingRequest
-	(*RuntimeDrainPendingResponse)(nil),        // 88: agentre.wire.RuntimeDrainPendingResponse
-	(*RuntimeAbortRequest)(nil),                // 89: agentre.wire.RuntimeAbortRequest
-	(*RuntimeAbortResponse)(nil),               // 90: agentre.wire.RuntimeAbortResponse
-	(*RuntimeStopBackgroundTaskRequest)(nil),   // 91: agentre.wire.RuntimeStopBackgroundTaskRequest
-	(*RuntimeSetPermissionModeRequest)(nil),    // 92: agentre.wire.RuntimeSetPermissionModeRequest
-	(*RuntimeSubmitAnswerRequest)(nil),         // 93: agentre.wire.RuntimeSubmitAnswerRequest
-	(*RuntimeSubmitToolPermissionRequest)(nil), // 94: agentre.wire.RuntimeSubmitToolPermissionRequest
-	(*PeerSessionControlResponse)(nil),         // 95: agentre.wire.PeerSessionControlResponse
-	(*ToolApprovalAnswerRequest)(nil),          // 96: agentre.wire.ToolApprovalAnswerRequest
-	(*ToolApprovalAnswerResponse)(nil),         // 97: agentre.wire.ToolApprovalAnswerResponse
-	(*AgentBackend)(nil),                       // 98: agentre.wire.AgentBackend
-	(*StoredBlock)(nil),                        // 99: agentre.wire.StoredBlock
-	(*HistoryMessage)(nil),                     // 100: agentre.wire.HistoryMessage
-	(*MCPServer)(nil),                          // 101: agentre.wire.MCPServer
-	(*RuntimeRunRequest)(nil),                  // 102: agentre.wire.RuntimeRunRequest
-	(*RuntimeRunResponse)(nil),                 // 103: agentre.wire.RuntimeRunResponse
-	(*RuntimeGoalRequest)(nil),                 // 104: agentre.wire.RuntimeGoalRequest
-	(*Goal)(nil),                               // 105: agentre.wire.Goal
-	(*RuntimeGoalResponse)(nil),                // 106: agentre.wire.RuntimeGoalResponse
-	(*RuntimeGoalClearResponse)(nil),           // 107: agentre.wire.RuntimeGoalClearResponse
-	(*TerminalOpenRequest)(nil),                // 108: agentre.wire.TerminalOpenRequest
-	(*TerminalOpenResponse)(nil),               // 109: agentre.wire.TerminalOpenResponse
-	(*TerminalWriteRequest)(nil),               // 110: agentre.wire.TerminalWriteRequest
-	(*TerminalResizeRequest)(nil),              // 111: agentre.wire.TerminalResizeRequest
-	(*TerminalCloseRequest)(nil),               // 112: agentre.wire.TerminalCloseRequest
-	(*TerminalDataNotification)(nil),           // 113: agentre.wire.TerminalDataNotification
-	(*TerminalExitNotification)(nil),           // 114: agentre.wire.TerminalExitNotification
-	(*HeaderValues)(nil),                       // 115: agentre.wire.HeaderValues
-	(*MCPProxyRequest)(nil),                    // 116: agentre.wire.MCPProxyRequest
-	(*MCPProxyResponse)(nil),                   // 117: agentre.wire.MCPProxyResponse
-	(*ProjectSetLocalPathRequest)(nil),         // 118: agentre.wire.ProjectSetLocalPathRequest
-	(*ProjectClearLocalPathRequest)(nil),       // 119: agentre.wire.ProjectClearLocalPathRequest
-	(*ProjectLocalPathResponse)(nil),           // 120: agentre.wire.ProjectLocalPathResponse
-	(*SkillAuthorization)(nil),                 // 121: agentre.wire.SkillAuthorization
-	(*SkillCatalogRequest)(nil),                // 122: agentre.wire.SkillCatalogRequest
-	(*SkillPackSummary)(nil),                   // 123: agentre.wire.SkillPackSummary
-	(*SkillCatalogResponse)(nil),               // 124: agentre.wire.SkillCatalogResponse
-	(*SkillCommandsRequest)(nil),               // 125: agentre.wire.SkillCommandsRequest
-	(*SkillCommand)(nil),                       // 126: agentre.wire.SkillCommand
-	(*SkillCommandsResponse)(nil),              // 127: agentre.wire.SkillCommandsResponse
-	(*RemoteFsListDirRequest)(nil),             // 128: agentre.wire.RemoteFsListDirRequest
-	(*RemoteFsEntry)(nil),                      // 129: agentre.wire.RemoteFsEntry
-	(*RemoteFsListDirResponse)(nil),            // 130: agentre.wire.RemoteFsListDirResponse
-	(*RemoteFsMkdirRequest)(nil),               // 131: agentre.wire.RemoteFsMkdirRequest
-	(*RemoteFsMkdirResponse)(nil),              // 132: agentre.wire.RemoteFsMkdirResponse
-	(*WorkspaceFsListDirRequest)(nil),          // 133: agentre.wire.WorkspaceFsListDirRequest
-	(*WorkspaceFsEntry)(nil),                   // 134: agentre.wire.WorkspaceFsEntry
-	(*WorkspaceFsListDirResponse)(nil),         // 135: agentre.wire.WorkspaceFsListDirResponse
-	(*WorkspaceFsGitChangesRequest)(nil),       // 136: agentre.wire.WorkspaceFsGitChangesRequest
-	(*WorkspaceFsChange)(nil),                  // 137: agentre.wire.WorkspaceFsChange
-	(*WorkspaceFsGitChangesResponse)(nil),      // 138: agentre.wire.WorkspaceFsGitChangesResponse
-	(*WorkspaceFsGitBranchesRequest)(nil),      // 139: agentre.wire.WorkspaceFsGitBranchesRequest
-	(*WorkspaceFsBranch)(nil),                  // 140: agentre.wire.WorkspaceFsBranch
-	(*WorkspaceFsGitBranchesResponse)(nil),     // 141: agentre.wire.WorkspaceFsGitBranchesResponse
-	(*WorkspaceFsReadFileRequest)(nil),         // 142: agentre.wire.WorkspaceFsReadFileRequest
-	(*WorkspaceFsReadFileResponse)(nil),        // 143: agentre.wire.WorkspaceFsReadFileResponse
-	(*WorkspaceFsGitFileContentRequest)(nil),   // 144: agentre.wire.WorkspaceFsGitFileContentRequest
-	(*WorkspaceFsGitFileContentResponse)(nil),  // 145: agentre.wire.WorkspaceFsGitFileContentResponse
-	(*WorkspaceFsSearchFilesRequest)(nil),      // 146: agentre.wire.WorkspaceFsSearchFilesRequest
-	(*WorkspaceFsSearchHit)(nil),               // 147: agentre.wire.WorkspaceFsSearchHit
-	(*WorkspaceFsSearchFilesResponse)(nil),     // 148: agentre.wire.WorkspaceFsSearchFilesResponse
-	(*WorkspaceFsGitStateRequest)(nil),         // 149: agentre.wire.WorkspaceFsGitStateRequest
-	(*WorkspaceFsGitStateResponse)(nil),        // 150: agentre.wire.WorkspaceFsGitStateResponse
-	(*TranscriptImportFilter)(nil),             // 151: agentre.wire.TranscriptImportFilter
-	(*TranscriptImportScanRequest)(nil),        // 152: agentre.wire.TranscriptImportScanRequest
-	(*TranscriptImportCandidate)(nil),          // 153: agentre.wire.TranscriptImportCandidate
-	(*TranscriptImportBackendResult)(nil),      // 154: agentre.wire.TranscriptImportBackendResult
-	(*TranscriptImportScanResponse)(nil),       // 155: agentre.wire.TranscriptImportScanResponse
-	(*TranscriptImportGap)(nil),                // 156: agentre.wire.TranscriptImportGap
-	(*TranscriptImportMeta)(nil),               // 157: agentre.wire.TranscriptImportMeta
-	(*TranscriptImportOpenRequest)(nil),        // 158: agentre.wire.TranscriptImportOpenRequest
-	(*TranscriptImportOpenResponse)(nil),       // 159: agentre.wire.TranscriptImportOpenResponse
-	(*TranscriptImportTurnsRequest)(nil),       // 160: agentre.wire.TranscriptImportTurnsRequest
-	(*TranscriptImportImage)(nil),              // 161: agentre.wire.TranscriptImportImage
-	(*TranscriptImportTurn)(nil),               // 162: agentre.wire.TranscriptImportTurn
-	(*TranscriptImportTurnsResponse)(nil),      // 163: agentre.wire.TranscriptImportTurnsResponse
-	(*TranscriptImportExecuteRequest)(nil),     // 164: agentre.wire.TranscriptImportExecuteRequest
-	(*TranscriptImportExecuteResponse)(nil),    // 165: agentre.wire.TranscriptImportExecuteResponse
-	(*RuntimeEventNotification)(nil),           // 166: agentre.wire.RuntimeEventNotification
-	(*TextDelta)(nil),                          // 167: agentre.wire.TextDelta
-	(*ThinkingDelta)(nil),                      // 168: agentre.wire.ThinkingDelta
-	(*OutputActivity)(nil),                     // 169: agentre.wire.OutputActivity
-	(*PermissionModeChanged)(nil),              // 170: agentre.wire.PermissionModeChanged
-	(*Retry)(nil),                              // 171: agentre.wire.Retry
-	(*ContextWindowUpdated)(nil),               // 172: agentre.wire.ContextWindowUpdated
-	(*CompactBoundary)(nil),                    // 173: agentre.wire.CompactBoundary
-	(*RuntimeStatus)(nil),                      // 174: agentre.wire.RuntimeStatus
-	(*Done)(nil),                               // 175: agentre.wire.Done
-	(*ErrorEvent)(nil),                         // 176: agentre.wire.ErrorEvent
-	(*UserMessage)(nil),                        // 177: agentre.wire.UserMessage
-	(*Usage)(nil),                              // 178: agentre.wire.Usage
-	(*RunResultDoneNotification)(nil),          // 179: agentre.wire.RunResultDoneNotification
-	(*AutonomousTurnStartedNotification)(nil),  // 180: agentre.wire.AutonomousTurnStartedNotification
-	(*TurnStartedNotification)(nil),            // 181: agentre.wire.TurnStartedNotification
-	(*ToolCall)(nil),                           // 182: agentre.wire.ToolCall
-	(*ToolResult)(nil),                         // 183: agentre.wire.ToolResult
-	(*ConsumedSteer)(nil),                      // 184: agentre.wire.ConsumedSteer
-	(*SteerConsumed)(nil),                      // 185: agentre.wire.SteerConsumed
-	(*AskOption)(nil),                          // 186: agentre.wire.AskOption
-	(*AskQuestion)(nil),                        // 187: agentre.wire.AskQuestion
-	(*AskAnswer)(nil),                          // 188: agentre.wire.AskAnswer
-	(*UserAskRequest)(nil),                     // 189: agentre.wire.UserAskRequest
-	(*UserAskResolved)(nil),                    // 190: agentre.wire.UserAskResolved
-	(*ToolPermissionRequest)(nil),              // 191: agentre.wire.ToolPermissionRequest
-	(*ToolPermissionResolved)(nil),             // 192: agentre.wire.ToolPermissionResolved
-	(*ExecApprovalRequested)(nil),              // 193: agentre.wire.ExecApprovalRequested
-	(*ExecApprovalResolved)(nil),               // 194: agentre.wire.ExecApprovalResolved
-	(*SubagentRun)(nil),                        // 195: agentre.wire.SubagentRun
-	(*SubagentInfo)(nil),                       // 196: agentre.wire.SubagentInfo
-	(*SubagentEvent)(nil),                      // 197: agentre.wire.SubagentEvent
-	(*SubagentModel)(nil),                      // 198: agentre.wire.SubagentModel
-	(*UsageUpdate)(nil),                        // 199: agentre.wire.UsageUpdate
-	(*PlanStep)(nil),                           // 200: agentre.wire.PlanStep
-	(*PlanAction)(nil),                         // 201: agentre.wire.PlanAction
-	(*PlanUpdated)(nil),                        // 202: agentre.wire.PlanUpdated
-	(*UnrecognizedBlock)(nil),                  // 203: agentre.wire.UnrecognizedBlock
-	(*BlobSource)(nil),                         // 204: agentre.wire.BlobSource
-	(*ImageBlock)(nil),                         // 205: agentre.wire.ImageBlock
-	(*PortForwardMapping)(nil),                 // 206: agentre.wire.PortForwardMapping
-	(*PortForwardListRequest)(nil),             // 207: agentre.wire.PortForwardListRequest
-	(*PortForwardListResponse)(nil),            // 208: agentre.wire.PortForwardListResponse
-	(*PortForwardCreateRequest)(nil),           // 209: agentre.wire.PortForwardCreateRequest
-	(*PortForwardCreateResponse)(nil),          // 210: agentre.wire.PortForwardCreateResponse
-	(*PortForwardSetEnabledRequest)(nil),       // 211: agentre.wire.PortForwardSetEnabledRequest
-	(*PortForwardSetEnabledResponse)(nil),      // 212: agentre.wire.PortForwardSetEnabledResponse
-	(*PortForwardDeleteRequest)(nil),           // 213: agentre.wire.PortForwardDeleteRequest
-	(*PortForwardDeleteResponse)(nil),          // 214: agentre.wire.PortForwardDeleteResponse
-	(*PortForwardOpenRequest)(nil),             // 215: agentre.wire.PortForwardOpenRequest
-	(*PortForwardOpenResponse)(nil),            // 216: agentre.wire.PortForwardOpenResponse
-	(*PortForwardWriteRequest)(nil),            // 217: agentre.wire.PortForwardWriteRequest
-	(*PortForwardCloseRequest)(nil),            // 218: agentre.wire.PortForwardCloseRequest
-	(*PortForwardAckRequest)(nil),              // 219: agentre.wire.PortForwardAckRequest
-	(*PortForwardResponseNotification)(nil),    // 220: agentre.wire.PortForwardResponseNotification
-	(*PortForwardDataNotification)(nil),        // 221: agentre.wire.PortForwardDataNotification
-	(*PortForwardClosedNotification)(nil),      // 222: agentre.wire.PortForwardClosedNotification
-	(*PortForwardRevokedNotification)(nil),     // 223: agentre.wire.PortForwardRevokedNotification
-	(*BackendCredentialStatusRequest)(nil),     // 224: agentre.wire.BackendCredentialStatusRequest
-	(*BackendCredentialStatusResponse)(nil),    // 225: agentre.wire.BackendCredentialStatusResponse
-	(*OpenClawTokenSetRequest)(nil),            // 226: agentre.wire.OpenClawTokenSetRequest
-	(*OpenClawTokenSetResponse)(nil),           // 227: agentre.wire.OpenClawTokenSetResponse
-	(*HermesAuthProvidersRequest)(nil),         // 228: agentre.wire.HermesAuthProvidersRequest
-	(*HermesAuthProvider)(nil),                 // 229: agentre.wire.HermesAuthProvider
-	(*HermesAuthProvidersResponse)(nil),        // 230: agentre.wire.HermesAuthProvidersResponse
-	(*HermesLoginRequest)(nil),                 // 231: agentre.wire.HermesLoginRequest
-	(*HermesLoginResponse)(nil),                // 232: agentre.wire.HermesLoginResponse
-	(*HermesLogoutRequest)(nil),                // 233: agentre.wire.HermesLogoutRequest
-	(*HermesLogoutResponse)(nil),               // 234: agentre.wire.HermesLogoutResponse
-	(*BackendConnectionTestRequest)(nil),       // 235: agentre.wire.BackendConnectionTestRequest
-	(*OpenClawAgentOption)(nil),                // 236: agentre.wire.OpenClawAgentOption
-	(*OpenClawModelOption)(nil),                // 237: agentre.wire.OpenClawModelOption
-	(*BackendConnectionTestResponse)(nil),      // 238: agentre.wire.BackendConnectionTestResponse
-	nil,                                        // 239: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
-	nil,                                        // 240: agentre.wire.LLMProvider.ModelRoutesEntry
-	nil,                                        // 241: agentre.wire.MCPServer.HeadersEntry
-	nil,                                        // 242: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
-	nil,                                        // 243: agentre.wire.MCPProxyRequest.HeadersEntry
-	nil,                                        // 244: agentre.wire.MCPProxyResponse.HeadersEntry
-	nil,                                        // 245: agentre.wire.PortForwardOpenRequest.HeadersEntry
-	nil,                                        // 246: agentre.wire.PortForwardResponseNotification.HeadersEntry
-	(*descriptorpb.FieldOptions)(nil),          // 247: google.protobuf.FieldOptions
-	(*descriptorpb.FileOptions)(nil),           // 248: google.protobuf.FileOptions
+	(CtlKind)(0),                               // 2: agentre.wire.CtlKind
+	(CtlOp)(0),                                 // 3: agentre.wire.CtlOp
+	(CtlCaller)(0),                             // 4: agentre.wire.CtlCaller
+	(*WireFrame)(nil),                          // 5: agentre.wire.WireFrame
+	(*RpcFrame)(nil),                           // 6: agentre.wire.RpcFrame
+	(*RpcNotification)(nil),                    // 7: agentre.wire.RpcNotification
+	(*Request)(nil),                            // 8: agentre.wire.Request
+	(*Response)(nil),                           // 9: agentre.wire.Response
+	(*RpcError)(nil),                           // 10: agentre.wire.RpcError
+	(*Cancel)(nil),                             // 11: agentre.wire.Cancel
+	(*Notification)(nil),                       // 12: agentre.wire.Notification
+	(*AccountSyncVersion)(nil),                 // 13: agentre.wire.AccountSyncVersion
+	(*AccountMirrorChanged)(nil),               // 14: agentre.wire.AccountMirrorChanged
+	(*AccountDevicePresence)(nil),              // 15: agentre.wire.AccountDevicePresence
+	(*AuthAccountRequest)(nil),                 // 16: agentre.wire.AuthAccountRequest
+	(*AuthAccountResponse)(nil),                // 17: agentre.wire.AuthAccountResponse
+	(*AuthPairRequest)(nil),                    // 18: agentre.wire.AuthPairRequest
+	(*AuthPairResponse)(nil),                   // 19: agentre.wire.AuthPairResponse
+	(*AuthConnectRequest)(nil),                 // 20: agentre.wire.AuthConnectRequest
+	(*AuthConnectResponse)(nil),                // 21: agentre.wire.AuthConnectResponse
+	(*AuthRevokeRequest)(nil),                  // 22: agentre.wire.AuthRevokeRequest
+	(*AuthRevokeResponse)(nil),                 // 23: agentre.wire.AuthRevokeResponse
+	(*AuthDirectRequest)(nil),                  // 24: agentre.wire.AuthDirectRequest
+	(*AuthDirectResponse)(nil),                 // 25: agentre.wire.AuthDirectResponse
+	(*LLMModel)(nil),                           // 26: agentre.wire.LLMModel
+	(*LLMUpsertRequest)(nil),                   // 27: agentre.wire.LLMUpsertRequest
+	(*LLMUpsertResponse)(nil),                  // 28: agentre.wire.LLMUpsertResponse
+	(*LLMDeleteRequest)(nil),                   // 29: agentre.wire.LLMDeleteRequest
+	(*LLMDeleteResponse)(nil),                  // 30: agentre.wire.LLMDeleteResponse
+	(*LLMListRequest)(nil),                     // 31: agentre.wire.LLMListRequest
+	(*LLMProvider)(nil),                        // 32: agentre.wire.LLMProvider
+	(*LLMListResponse)(nil),                    // 33: agentre.wire.LLMListResponse
+	(*EngineTestRequest)(nil),                  // 34: agentre.wire.EngineTestRequest
+	(*EngineTestResponse)(nil),                 // 35: agentre.wire.EngineTestResponse
+	(*EngineDiscoverRequest)(nil),              // 36: agentre.wire.EngineDiscoverRequest
+	(*EngineModel)(nil),                        // 37: agentre.wire.EngineModel
+	(*EngineDiscoverResponse)(nil),             // 38: agentre.wire.EngineDiscoverResponse
+	(*EngineScanRequest)(nil),                  // 39: agentre.wire.EngineScanRequest
+	(*EngineScanItem)(nil),                     // 40: agentre.wire.EngineScanItem
+	(*EngineScanResponse)(nil),                 // 41: agentre.wire.EngineScanResponse
+	(*CLIResolvePathRequest)(nil),              // 42: agentre.wire.CLIResolvePathRequest
+	(*CLIResolvePathResponse)(nil),             // 43: agentre.wire.CLIResolvePathResponse
+	(*CLIProbeRequest)(nil),                    // 44: agentre.wire.CLIProbeRequest
+	(*CLIProbeResponse)(nil),                   // 45: agentre.wire.CLIProbeResponse
+	(*HealthPingRequest)(nil),                  // 46: agentre.wire.HealthPingRequest
+	(*HealthModel)(nil),                        // 47: agentre.wire.HealthModel
+	(*HealthProvider)(nil),                     // 48: agentre.wire.HealthProvider
+	(*HealthPingResponse)(nil),                 // 49: agentre.wire.HealthPingResponse
+	(*AgentredSelfUpdateRequest)(nil),          // 50: agentre.wire.AgentredSelfUpdateRequest
+	(*AgentredSelfUpdateResponse)(nil),         // 51: agentre.wire.AgentredSelfUpdateResponse
+	(*ClaudeCodeUsageRequest)(nil),             // 52: agentre.wire.ClaudeCodeUsageRequest
+	(*ClaudeCodeRateLimits)(nil),               // 53: agentre.wire.ClaudeCodeRateLimits
+	(*ClaudeCodeUsageResponse)(nil),            // 54: agentre.wire.ClaudeCodeUsageResponse
+	(*SkillsListRequest)(nil),                  // 55: agentre.wire.SkillsListRequest
+	(*InstalledSkillPack)(nil),                 // 56: agentre.wire.InstalledSkillPack
+	(*SkillsListResponse)(nil),                 // 57: agentre.wire.SkillsListResponse
+	(*SessionListRequest)(nil),                 // 58: agentre.wire.SessionListRequest
+	(*SessionListResponse)(nil),                // 59: agentre.wire.SessionListResponse
+	(*SessionCountsRequest)(nil),               // 60: agentre.wire.SessionCountsRequest
+	(*SessionCountsResponse)(nil),              // 61: agentre.wire.SessionCountsResponse
+	(*SessionSummary)(nil),                     // 62: agentre.wire.SessionSummary
+	(*ActivityRollupRequest)(nil),              // 63: agentre.wire.ActivityRollupRequest
+	(*ActivityDailyBucket)(nil),                // 64: agentre.wire.ActivityDailyBucket
+	(*ActivityRollupResponse)(nil),             // 65: agentre.wire.ActivityRollupResponse
+	(*SessionAttachRequest)(nil),               // 66: agentre.wire.SessionAttachRequest
+	(*SessionAttachResponse)(nil),              // 67: agentre.wire.SessionAttachResponse
+	(*SessionPullRequest)(nil),                 // 68: agentre.wire.SessionPullRequest
+	(*SessionPullResponse)(nil),                // 69: agentre.wire.SessionPullResponse
+	(*DurableNotification)(nil),                // 70: agentre.wire.DurableNotification
+	(*SessionPendingWaitersRequest)(nil),       // 71: agentre.wire.SessionPendingWaitersRequest
+	(*SessionPendingWaitersResponse)(nil),      // 72: agentre.wire.SessionPendingWaitersResponse
+	(*PendingToolPermission)(nil),              // 73: agentre.wire.PendingToolPermission
+	(*PendingAskUserQuestion)(nil),             // 74: agentre.wire.PendingAskUserQuestion
+	(*SessionDeleteRequest)(nil),               // 75: agentre.wire.SessionDeleteRequest
+	(*SessionDeleteResponse)(nil),              // 76: agentre.wire.SessionDeleteResponse
+	(*SetModelTargetRequest)(nil),              // 77: agentre.wire.SetModelTargetRequest
+	(*SetModelTargetResponse)(nil),             // 78: agentre.wire.SetModelTargetResponse
+	(*SetSessionReasoningEffortRequest)(nil),   // 79: agentre.wire.SetSessionReasoningEffortRequest
+	(*SetSessionReasoningEffortResponse)(nil),  // 80: agentre.wire.SetSessionReasoningEffortResponse
+	(*Empty)(nil),                              // 81: agentre.wire.Empty
+	(*RuntimeCapabilitiesRequest)(nil),         // 82: agentre.wire.RuntimeCapabilitiesRequest
+	(*CapabilityEntry)(nil),                    // 83: agentre.wire.CapabilityEntry
+	(*PermissionModeMeta)(nil),                 // 84: agentre.wire.PermissionModeMeta
+	(*RuntimeCapabilitiesResponse)(nil),        // 85: agentre.wire.RuntimeCapabilitiesResponse
+	(*RuntimeSteerRequest)(nil),                // 86: agentre.wire.RuntimeSteerRequest
+	(*RuntimeSteerResponse)(nil),               // 87: agentre.wire.RuntimeSteerResponse
+	(*RuntimeCancelSteerRequest)(nil),          // 88: agentre.wire.RuntimeCancelSteerRequest
+	(*RuntimeCancelSteerResponse)(nil),         // 89: agentre.wire.RuntimeCancelSteerResponse
+	(*RuntimeDrainPendingRequest)(nil),         // 90: agentre.wire.RuntimeDrainPendingRequest
+	(*RuntimeDrainPendingResponse)(nil),        // 91: agentre.wire.RuntimeDrainPendingResponse
+	(*RuntimeAbortRequest)(nil),                // 92: agentre.wire.RuntimeAbortRequest
+	(*RuntimeAbortResponse)(nil),               // 93: agentre.wire.RuntimeAbortResponse
+	(*RuntimeStopBackgroundTaskRequest)(nil),   // 94: agentre.wire.RuntimeStopBackgroundTaskRequest
+	(*RuntimeSetPermissionModeRequest)(nil),    // 95: agentre.wire.RuntimeSetPermissionModeRequest
+	(*RuntimeSubmitAnswerRequest)(nil),         // 96: agentre.wire.RuntimeSubmitAnswerRequest
+	(*RuntimeSubmitToolPermissionRequest)(nil), // 97: agentre.wire.RuntimeSubmitToolPermissionRequest
+	(*PeerSessionControlResponse)(nil),         // 98: agentre.wire.PeerSessionControlResponse
+	(*ToolApprovalAnswerRequest)(nil),          // 99: agentre.wire.ToolApprovalAnswerRequest
+	(*ToolApprovalAnswerResponse)(nil),         // 100: agentre.wire.ToolApprovalAnswerResponse
+	(*AgentBackend)(nil),                       // 101: agentre.wire.AgentBackend
+	(*StoredBlock)(nil),                        // 102: agentre.wire.StoredBlock
+	(*HistoryMessage)(nil),                     // 103: agentre.wire.HistoryMessage
+	(*MCPServer)(nil),                          // 104: agentre.wire.MCPServer
+	(*RuntimeRunRequest)(nil),                  // 105: agentre.wire.RuntimeRunRequest
+	(*RuntimeRunResponse)(nil),                 // 106: agentre.wire.RuntimeRunResponse
+	(*RuntimeGoalRequest)(nil),                 // 107: agentre.wire.RuntimeGoalRequest
+	(*Goal)(nil),                               // 108: agentre.wire.Goal
+	(*RuntimeGoalResponse)(nil),                // 109: agentre.wire.RuntimeGoalResponse
+	(*RuntimeGoalClearResponse)(nil),           // 110: agentre.wire.RuntimeGoalClearResponse
+	(*TerminalOpenRequest)(nil),                // 111: agentre.wire.TerminalOpenRequest
+	(*TerminalOpenResponse)(nil),               // 112: agentre.wire.TerminalOpenResponse
+	(*TerminalWriteRequest)(nil),               // 113: agentre.wire.TerminalWriteRequest
+	(*TerminalResizeRequest)(nil),              // 114: agentre.wire.TerminalResizeRequest
+	(*TerminalCloseRequest)(nil),               // 115: agentre.wire.TerminalCloseRequest
+	(*TerminalDataNotification)(nil),           // 116: agentre.wire.TerminalDataNotification
+	(*TerminalExitNotification)(nil),           // 117: agentre.wire.TerminalExitNotification
+	(*HeaderValues)(nil),                       // 118: agentre.wire.HeaderValues
+	(*MCPProxyRequest)(nil),                    // 119: agentre.wire.MCPProxyRequest
+	(*MCPProxyResponse)(nil),                   // 120: agentre.wire.MCPProxyResponse
+	(*ProjectSetLocalPathRequest)(nil),         // 121: agentre.wire.ProjectSetLocalPathRequest
+	(*ProjectClearLocalPathRequest)(nil),       // 122: agentre.wire.ProjectClearLocalPathRequest
+	(*ProjectLocalPathResponse)(nil),           // 123: agentre.wire.ProjectLocalPathResponse
+	(*SkillAuthorization)(nil),                 // 124: agentre.wire.SkillAuthorization
+	(*SkillCatalogRequest)(nil),                // 125: agentre.wire.SkillCatalogRequest
+	(*SkillPackSummary)(nil),                   // 126: agentre.wire.SkillPackSummary
+	(*SkillCatalogResponse)(nil),               // 127: agentre.wire.SkillCatalogResponse
+	(*SkillCommandsRequest)(nil),               // 128: agentre.wire.SkillCommandsRequest
+	(*SkillCommand)(nil),                       // 129: agentre.wire.SkillCommand
+	(*SkillCommandsResponse)(nil),              // 130: agentre.wire.SkillCommandsResponse
+	(*RemoteFsListDirRequest)(nil),             // 131: agentre.wire.RemoteFsListDirRequest
+	(*RemoteFsEntry)(nil),                      // 132: agentre.wire.RemoteFsEntry
+	(*RemoteFsListDirResponse)(nil),            // 133: agentre.wire.RemoteFsListDirResponse
+	(*RemoteFsMkdirRequest)(nil),               // 134: agentre.wire.RemoteFsMkdirRequest
+	(*RemoteFsMkdirResponse)(nil),              // 135: agentre.wire.RemoteFsMkdirResponse
+	(*WorkspaceFsListDirRequest)(nil),          // 136: agentre.wire.WorkspaceFsListDirRequest
+	(*WorkspaceFsEntry)(nil),                   // 137: agentre.wire.WorkspaceFsEntry
+	(*WorkspaceFsListDirResponse)(nil),         // 138: agentre.wire.WorkspaceFsListDirResponse
+	(*WorkspaceFsGitChangesRequest)(nil),       // 139: agentre.wire.WorkspaceFsGitChangesRequest
+	(*WorkspaceFsChange)(nil),                  // 140: agentre.wire.WorkspaceFsChange
+	(*WorkspaceFsGitChangesResponse)(nil),      // 141: agentre.wire.WorkspaceFsGitChangesResponse
+	(*WorkspaceFsGitBranchesRequest)(nil),      // 142: agentre.wire.WorkspaceFsGitBranchesRequest
+	(*WorkspaceFsBranch)(nil),                  // 143: agentre.wire.WorkspaceFsBranch
+	(*WorkspaceFsGitBranchesResponse)(nil),     // 144: agentre.wire.WorkspaceFsGitBranchesResponse
+	(*WorkspaceFsReadFileRequest)(nil),         // 145: agentre.wire.WorkspaceFsReadFileRequest
+	(*WorkspaceFsReadFileResponse)(nil),        // 146: agentre.wire.WorkspaceFsReadFileResponse
+	(*WorkspaceFsGitFileContentRequest)(nil),   // 147: agentre.wire.WorkspaceFsGitFileContentRequest
+	(*WorkspaceFsGitFileContentResponse)(nil),  // 148: agentre.wire.WorkspaceFsGitFileContentResponse
+	(*WorkspaceFsSearchFilesRequest)(nil),      // 149: agentre.wire.WorkspaceFsSearchFilesRequest
+	(*WorkspaceFsSearchHit)(nil),               // 150: agentre.wire.WorkspaceFsSearchHit
+	(*WorkspaceFsSearchFilesResponse)(nil),     // 151: agentre.wire.WorkspaceFsSearchFilesResponse
+	(*WorkspaceFsGitStateRequest)(nil),         // 152: agentre.wire.WorkspaceFsGitStateRequest
+	(*WorkspaceFsGitStateResponse)(nil),        // 153: agentre.wire.WorkspaceFsGitStateResponse
+	(*TranscriptImportFilter)(nil),             // 154: agentre.wire.TranscriptImportFilter
+	(*TranscriptImportScanRequest)(nil),        // 155: agentre.wire.TranscriptImportScanRequest
+	(*TranscriptImportCandidate)(nil),          // 156: agentre.wire.TranscriptImportCandidate
+	(*TranscriptImportBackendResult)(nil),      // 157: agentre.wire.TranscriptImportBackendResult
+	(*TranscriptImportScanResponse)(nil),       // 158: agentre.wire.TranscriptImportScanResponse
+	(*TranscriptImportGap)(nil),                // 159: agentre.wire.TranscriptImportGap
+	(*TranscriptImportMeta)(nil),               // 160: agentre.wire.TranscriptImportMeta
+	(*TranscriptImportOpenRequest)(nil),        // 161: agentre.wire.TranscriptImportOpenRequest
+	(*TranscriptImportOpenResponse)(nil),       // 162: agentre.wire.TranscriptImportOpenResponse
+	(*TranscriptImportTurnsRequest)(nil),       // 163: agentre.wire.TranscriptImportTurnsRequest
+	(*TranscriptImportImage)(nil),              // 164: agentre.wire.TranscriptImportImage
+	(*TranscriptImportTurn)(nil),               // 165: agentre.wire.TranscriptImportTurn
+	(*TranscriptImportTurnsResponse)(nil),      // 166: agentre.wire.TranscriptImportTurnsResponse
+	(*TranscriptImportExecuteRequest)(nil),     // 167: agentre.wire.TranscriptImportExecuteRequest
+	(*TranscriptImportExecuteResponse)(nil),    // 168: agentre.wire.TranscriptImportExecuteResponse
+	(*RuntimeEventNotification)(nil),           // 169: agentre.wire.RuntimeEventNotification
+	(*TextDelta)(nil),                          // 170: agentre.wire.TextDelta
+	(*ThinkingDelta)(nil),                      // 171: agentre.wire.ThinkingDelta
+	(*OutputActivity)(nil),                     // 172: agentre.wire.OutputActivity
+	(*PermissionModeChanged)(nil),              // 173: agentre.wire.PermissionModeChanged
+	(*Retry)(nil),                              // 174: agentre.wire.Retry
+	(*ContextWindowUpdated)(nil),               // 175: agentre.wire.ContextWindowUpdated
+	(*CompactBoundary)(nil),                    // 176: agentre.wire.CompactBoundary
+	(*RuntimeStatus)(nil),                      // 177: agentre.wire.RuntimeStatus
+	(*Done)(nil),                               // 178: agentre.wire.Done
+	(*ErrorEvent)(nil),                         // 179: agentre.wire.ErrorEvent
+	(*UserMessage)(nil),                        // 180: agentre.wire.UserMessage
+	(*Usage)(nil),                              // 181: agentre.wire.Usage
+	(*RunResultDoneNotification)(nil),          // 182: agentre.wire.RunResultDoneNotification
+	(*AutonomousTurnStartedNotification)(nil),  // 183: agentre.wire.AutonomousTurnStartedNotification
+	(*TurnStartedNotification)(nil),            // 184: agentre.wire.TurnStartedNotification
+	(*ToolCall)(nil),                           // 185: agentre.wire.ToolCall
+	(*ToolResult)(nil),                         // 186: agentre.wire.ToolResult
+	(*ConsumedSteer)(nil),                      // 187: agentre.wire.ConsumedSteer
+	(*SteerConsumed)(nil),                      // 188: agentre.wire.SteerConsumed
+	(*AskOption)(nil),                          // 189: agentre.wire.AskOption
+	(*AskQuestion)(nil),                        // 190: agentre.wire.AskQuestion
+	(*AskAnswer)(nil),                          // 191: agentre.wire.AskAnswer
+	(*UserAskRequest)(nil),                     // 192: agentre.wire.UserAskRequest
+	(*UserAskResolved)(nil),                    // 193: agentre.wire.UserAskResolved
+	(*ToolPermissionRequest)(nil),              // 194: agentre.wire.ToolPermissionRequest
+	(*ToolPermissionResolved)(nil),             // 195: agentre.wire.ToolPermissionResolved
+	(*ExecApprovalRequested)(nil),              // 196: agentre.wire.ExecApprovalRequested
+	(*ExecApprovalResolved)(nil),               // 197: agentre.wire.ExecApprovalResolved
+	(*SubagentRun)(nil),                        // 198: agentre.wire.SubagentRun
+	(*SubagentInfo)(nil),                       // 199: agentre.wire.SubagentInfo
+	(*SubagentEvent)(nil),                      // 200: agentre.wire.SubagentEvent
+	(*SubagentModel)(nil),                      // 201: agentre.wire.SubagentModel
+	(*UsageUpdate)(nil),                        // 202: agentre.wire.UsageUpdate
+	(*PlanStep)(nil),                           // 203: agentre.wire.PlanStep
+	(*PlanAction)(nil),                         // 204: agentre.wire.PlanAction
+	(*PlanUpdated)(nil),                        // 205: agentre.wire.PlanUpdated
+	(*UnrecognizedBlock)(nil),                  // 206: agentre.wire.UnrecognizedBlock
+	(*BlobSource)(nil),                         // 207: agentre.wire.BlobSource
+	(*ImageBlock)(nil),                         // 208: agentre.wire.ImageBlock
+	(*PortForwardMapping)(nil),                 // 209: agentre.wire.PortForwardMapping
+	(*PortForwardListRequest)(nil),             // 210: agentre.wire.PortForwardListRequest
+	(*PortForwardListResponse)(nil),            // 211: agentre.wire.PortForwardListResponse
+	(*PortForwardCreateRequest)(nil),           // 212: agentre.wire.PortForwardCreateRequest
+	(*PortForwardCreateResponse)(nil),          // 213: agentre.wire.PortForwardCreateResponse
+	(*PortForwardSetEnabledRequest)(nil),       // 214: agentre.wire.PortForwardSetEnabledRequest
+	(*PortForwardSetEnabledResponse)(nil),      // 215: agentre.wire.PortForwardSetEnabledResponse
+	(*PortForwardDeleteRequest)(nil),           // 216: agentre.wire.PortForwardDeleteRequest
+	(*PortForwardDeleteResponse)(nil),          // 217: agentre.wire.PortForwardDeleteResponse
+	(*PortForwardOpenRequest)(nil),             // 218: agentre.wire.PortForwardOpenRequest
+	(*PortForwardOpenResponse)(nil),            // 219: agentre.wire.PortForwardOpenResponse
+	(*PortForwardWriteRequest)(nil),            // 220: agentre.wire.PortForwardWriteRequest
+	(*PortForwardCloseRequest)(nil),            // 221: agentre.wire.PortForwardCloseRequest
+	(*PortForwardAckRequest)(nil),              // 222: agentre.wire.PortForwardAckRequest
+	(*PortForwardResponseNotification)(nil),    // 223: agentre.wire.PortForwardResponseNotification
+	(*PortForwardDataNotification)(nil),        // 224: agentre.wire.PortForwardDataNotification
+	(*PortForwardClosedNotification)(nil),      // 225: agentre.wire.PortForwardClosedNotification
+	(*PortForwardRevokedNotification)(nil),     // 226: agentre.wire.PortForwardRevokedNotification
+	(*BackendCredentialStatusRequest)(nil),     // 227: agentre.wire.BackendCredentialStatusRequest
+	(*BackendCredentialStatusResponse)(nil),    // 228: agentre.wire.BackendCredentialStatusResponse
+	(*OpenClawTokenSetRequest)(nil),            // 229: agentre.wire.OpenClawTokenSetRequest
+	(*OpenClawTokenSetResponse)(nil),           // 230: agentre.wire.OpenClawTokenSetResponse
+	(*HermesAuthProvidersRequest)(nil),         // 231: agentre.wire.HermesAuthProvidersRequest
+	(*HermesAuthProvider)(nil),                 // 232: agentre.wire.HermesAuthProvider
+	(*HermesAuthProvidersResponse)(nil),        // 233: agentre.wire.HermesAuthProvidersResponse
+	(*HermesLoginRequest)(nil),                 // 234: agentre.wire.HermesLoginRequest
+	(*HermesLoginResponse)(nil),                // 235: agentre.wire.HermesLoginResponse
+	(*HermesLogoutRequest)(nil),                // 236: agentre.wire.HermesLogoutRequest
+	(*HermesLogoutResponse)(nil),               // 237: agentre.wire.HermesLogoutResponse
+	(*BackendConnectionTestRequest)(nil),       // 238: agentre.wire.BackendConnectionTestRequest
+	(*OpenClawAgentOption)(nil),                // 239: agentre.wire.OpenClawAgentOption
+	(*OpenClawModelOption)(nil),                // 240: agentre.wire.OpenClawModelOption
+	(*BackendConnectionTestResponse)(nil),      // 241: agentre.wire.BackendConnectionTestResponse
+	(*CtlAgent)(nil),                           // 242: agentre.wire.CtlAgent
+	(*CtlDepartment)(nil),                      // 243: agentre.wire.CtlDepartment
+	(*CtlProjectLocation)(nil),                 // 244: agentre.wire.CtlProjectLocation
+	(*CtlProject)(nil),                         // 245: agentre.wire.CtlProject
+	(*CtlProvider)(nil),                        // 246: agentre.wire.CtlProvider
+	(*CtlModel)(nil),                           // 247: agentre.wire.CtlModel
+	(*CtlBackend)(nil),                         // 248: agentre.wire.CtlBackend
+	(*CtlResource)(nil),                        // 249: agentre.wire.CtlResource
+	(*CtlListRequest)(nil),                     // 250: agentre.wire.CtlListRequest
+	(*CtlListResponse)(nil),                    // 251: agentre.wire.CtlListResponse
+	(*CtlGetRequest)(nil),                      // 252: agentre.wire.CtlGetRequest
+	(*CtlGetResponse)(nil),                     // 253: agentre.wire.CtlGetResponse
+	(*CtlWriteRequest)(nil),                    // 254: agentre.wire.CtlWriteRequest
+	(*CtlFieldChange)(nil),                     // 255: agentre.wire.CtlFieldChange
+	(*CtlChange)(nil),                          // 256: agentre.wire.CtlChange
+	(*CtlWriteResponse)(nil),                   // 257: agentre.wire.CtlWriteResponse
+	(*CtlRequest)(nil),                         // 258: agentre.wire.CtlRequest
+	(*CtlResponse)(nil),                        // 259: agentre.wire.CtlResponse
+	nil,                                        // 260: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	nil,                                        // 261: agentre.wire.LLMProvider.ModelRoutesEntry
+	nil,                                        // 262: agentre.wire.MCPServer.HeadersEntry
+	nil,                                        // 263: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	nil,                                        // 264: agentre.wire.MCPProxyRequest.HeadersEntry
+	nil,                                        // 265: agentre.wire.MCPProxyResponse.HeadersEntry
+	nil,                                        // 266: agentre.wire.PortForwardOpenRequest.HeadersEntry
+	nil,                                        // 267: agentre.wire.PortForwardResponseNotification.HeadersEntry
+	nil,                                        // 268: agentre.wire.CtlBackend.EnvEntry
+	(*descriptorpb.FieldOptions)(nil),          // 269: google.protobuf.FieldOptions
+	(*descriptorpb.FileOptions)(nil),           // 270: google.protobuf.FileOptions
 }
 var file_agentre_wire_wire_proto_depIdxs = []int32{
-	9,   // 0: agentre.wire.WireFrame.notification:type_name -> agentre.wire.Notification
-	5,   // 1: agentre.wire.RpcFrame.request:type_name -> agentre.wire.Request
-	6,   // 2: agentre.wire.RpcFrame.response:type_name -> agentre.wire.Response
-	4,   // 3: agentre.wire.RpcFrame.notification:type_name -> agentre.wire.RpcNotification
-	7,   // 4: agentre.wire.RpcFrame.error:type_name -> agentre.wire.RpcError
-	8,   // 5: agentre.wire.RpcFrame.cancel:type_name -> agentre.wire.Cancel
-	166, // 6: agentre.wire.RpcNotification.runtime_event:type_name -> agentre.wire.RuntimeEventNotification
-	179, // 7: agentre.wire.RpcNotification.run_result_done:type_name -> agentre.wire.RunResultDoneNotification
-	180, // 8: agentre.wire.RpcNotification.autonomous_turn_started:type_name -> agentre.wire.AutonomousTurnStartedNotification
-	166, // 9: agentre.wire.RpcNotification.autonomous_turn_event:type_name -> agentre.wire.RuntimeEventNotification
-	179, // 10: agentre.wire.RpcNotification.autonomous_turn_done:type_name -> agentre.wire.RunResultDoneNotification
-	113, // 11: agentre.wire.RpcNotification.terminal_data:type_name -> agentre.wire.TerminalDataNotification
-	114, // 12: agentre.wire.RpcNotification.terminal_exit:type_name -> agentre.wire.TerminalExitNotification
-	181, // 13: agentre.wire.RpcNotification.turn_started:type_name -> agentre.wire.TurnStartedNotification
-	220, // 14: agentre.wire.RpcNotification.port_forward_response:type_name -> agentre.wire.PortForwardResponseNotification
-	221, // 15: agentre.wire.RpcNotification.port_forward_data:type_name -> agentre.wire.PortForwardDataNotification
-	222, // 16: agentre.wire.RpcNotification.port_forward_closed:type_name -> agentre.wire.PortForwardClosedNotification
-	223, // 17: agentre.wire.RpcNotification.port_forward_revoked:type_name -> agentre.wire.PortForwardRevokedNotification
-	10,  // 18: agentre.wire.Notification.account_sync_version:type_name -> agentre.wire.AccountSyncVersion
-	11,  // 19: agentre.wire.Notification.account_mirror_changed:type_name -> agentre.wire.AccountMirrorChanged
-	12,  // 20: agentre.wire.Notification.account_device_presence:type_name -> agentre.wire.AccountDevicePresence
-	23,  // 21: agentre.wire.LLMUpsertRequest.models:type_name -> agentre.wire.LLMModel
-	239, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
-	23,  // 23: agentre.wire.LLMProvider.models:type_name -> agentre.wire.LLMModel
-	240, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
-	29,  // 25: agentre.wire.LLMListResponse.providers:type_name -> agentre.wire.LLMProvider
-	34,  // 26: agentre.wire.EngineDiscoverResponse.models:type_name -> agentre.wire.EngineModel
-	37,  // 27: agentre.wire.EngineScanResponse.items:type_name -> agentre.wire.EngineScanItem
-	44,  // 28: agentre.wire.HealthProvider.models:type_name -> agentre.wire.HealthModel
-	45,  // 29: agentre.wire.HealthPingResponse.providers:type_name -> agentre.wire.HealthProvider
+	12,  // 0: agentre.wire.WireFrame.notification:type_name -> agentre.wire.Notification
+	8,   // 1: agentre.wire.RpcFrame.request:type_name -> agentre.wire.Request
+	9,   // 2: agentre.wire.RpcFrame.response:type_name -> agentre.wire.Response
+	7,   // 3: agentre.wire.RpcFrame.notification:type_name -> agentre.wire.RpcNotification
+	10,  // 4: agentre.wire.RpcFrame.error:type_name -> agentre.wire.RpcError
+	11,  // 5: agentre.wire.RpcFrame.cancel:type_name -> agentre.wire.Cancel
+	169, // 6: agentre.wire.RpcNotification.runtime_event:type_name -> agentre.wire.RuntimeEventNotification
+	182, // 7: agentre.wire.RpcNotification.run_result_done:type_name -> agentre.wire.RunResultDoneNotification
+	183, // 8: agentre.wire.RpcNotification.autonomous_turn_started:type_name -> agentre.wire.AutonomousTurnStartedNotification
+	169, // 9: agentre.wire.RpcNotification.autonomous_turn_event:type_name -> agentre.wire.RuntimeEventNotification
+	182, // 10: agentre.wire.RpcNotification.autonomous_turn_done:type_name -> agentre.wire.RunResultDoneNotification
+	116, // 11: agentre.wire.RpcNotification.terminal_data:type_name -> agentre.wire.TerminalDataNotification
+	117, // 12: agentre.wire.RpcNotification.terminal_exit:type_name -> agentre.wire.TerminalExitNotification
+	184, // 13: agentre.wire.RpcNotification.turn_started:type_name -> agentre.wire.TurnStartedNotification
+	223, // 14: agentre.wire.RpcNotification.port_forward_response:type_name -> agentre.wire.PortForwardResponseNotification
+	224, // 15: agentre.wire.RpcNotification.port_forward_data:type_name -> agentre.wire.PortForwardDataNotification
+	225, // 16: agentre.wire.RpcNotification.port_forward_closed:type_name -> agentre.wire.PortForwardClosedNotification
+	226, // 17: agentre.wire.RpcNotification.port_forward_revoked:type_name -> agentre.wire.PortForwardRevokedNotification
+	13,  // 18: agentre.wire.Notification.account_sync_version:type_name -> agentre.wire.AccountSyncVersion
+	14,  // 19: agentre.wire.Notification.account_mirror_changed:type_name -> agentre.wire.AccountMirrorChanged
+	15,  // 20: agentre.wire.Notification.account_device_presence:type_name -> agentre.wire.AccountDevicePresence
+	26,  // 21: agentre.wire.LLMUpsertRequest.models:type_name -> agentre.wire.LLMModel
+	260, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	26,  // 23: agentre.wire.LLMProvider.models:type_name -> agentre.wire.LLMModel
+	261, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
+	32,  // 25: agentre.wire.LLMListResponse.providers:type_name -> agentre.wire.LLMProvider
+	37,  // 26: agentre.wire.EngineDiscoverResponse.models:type_name -> agentre.wire.EngineModel
+	40,  // 27: agentre.wire.EngineScanResponse.items:type_name -> agentre.wire.EngineScanItem
+	47,  // 28: agentre.wire.HealthProvider.models:type_name -> agentre.wire.HealthModel
+	48,  // 29: agentre.wire.HealthPingResponse.providers:type_name -> agentre.wire.HealthProvider
 	1,   // 30: agentre.wire.AgentredSelfUpdateResponse.reject_reason:type_name -> agentre.wire.AgentredSelfUpdateRejectReason
-	50,  // 31: agentre.wire.ClaudeCodeUsageResponse.data:type_name -> agentre.wire.ClaudeCodeRateLimits
-	53,  // 32: agentre.wire.SkillsListResponse.packs:type_name -> agentre.wire.InstalledSkillPack
-	59,  // 33: agentre.wire.SessionListResponse.sessions:type_name -> agentre.wire.SessionSummary
-	61,  // 34: agentre.wire.ActivityRollupResponse.buckets:type_name -> agentre.wire.ActivityDailyBucket
-	67,  // 35: agentre.wire.SessionPullResponse.notifications:type_name -> agentre.wire.DurableNotification
-	4,   // 36: agentre.wire.DurableNotification.payload:type_name -> agentre.wire.RpcNotification
-	70,  // 37: agentre.wire.SessionPendingWaitersResponse.tool_permissions:type_name -> agentre.wire.PendingToolPermission
-	71,  // 38: agentre.wire.SessionPendingWaitersResponse.ask_user_questions:type_name -> agentre.wire.PendingAskUserQuestion
-	187, // 39: agentre.wire.PendingAskUserQuestion.questions:type_name -> agentre.wire.AskQuestion
-	80,  // 40: agentre.wire.RuntimeCapabilitiesResponse.capabilities:type_name -> agentre.wire.CapabilityEntry
-	81,  // 41: agentre.wire.RuntimeCapabilitiesResponse.permission_mode:type_name -> agentre.wire.PermissionModeMeta
-	184, // 42: agentre.wire.RuntimeDrainPendingResponse.steers:type_name -> agentre.wire.ConsumedSteer
-	187, // 43: agentre.wire.RuntimeSubmitAnswerRequest.questions:type_name -> agentre.wire.AskQuestion
-	188, // 44: agentre.wire.RuntimeSubmitAnswerRequest.answers:type_name -> agentre.wire.AskAnswer
-	99,  // 45: agentre.wire.HistoryMessage.blocks:type_name -> agentre.wire.StoredBlock
-	241, // 46: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
-	98,  // 47: agentre.wire.RuntimeRunRequest.backend:type_name -> agentre.wire.AgentBackend
-	99,  // 48: agentre.wire.RuntimeRunRequest.user_blocks:type_name -> agentre.wire.StoredBlock
-	100, // 49: agentre.wire.RuntimeRunRequest.history:type_name -> agentre.wire.HistoryMessage
-	101, // 50: agentre.wire.RuntimeRunRequest.mcp_servers:type_name -> agentre.wire.MCPServer
-	242, // 51: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
-	98,  // 52: agentre.wire.RuntimeGoalRequest.backend:type_name -> agentre.wire.AgentBackend
-	105, // 53: agentre.wire.RuntimeGoalResponse.goal:type_name -> agentre.wire.Goal
-	243, // 54: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
-	244, // 55: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
-	121, // 56: agentre.wire.SkillCatalogRequest.authorized:type_name -> agentre.wire.SkillAuthorization
-	123, // 57: agentre.wire.SkillCatalogResponse.packs:type_name -> agentre.wire.SkillPackSummary
-	121, // 58: agentre.wire.SkillCommandsRequest.authorized:type_name -> agentre.wire.SkillAuthorization
-	126, // 59: agentre.wire.SkillCommandsResponse.commands:type_name -> agentre.wire.SkillCommand
-	129, // 60: agentre.wire.RemoteFsListDirResponse.entries:type_name -> agentre.wire.RemoteFsEntry
-	134, // 61: agentre.wire.WorkspaceFsListDirResponse.entries:type_name -> agentre.wire.WorkspaceFsEntry
-	137, // 62: agentre.wire.WorkspaceFsGitChangesResponse.changes:type_name -> agentre.wire.WorkspaceFsChange
-	140, // 63: agentre.wire.WorkspaceFsGitBranchesResponse.branches:type_name -> agentre.wire.WorkspaceFsBranch
-	147, // 64: agentre.wire.WorkspaceFsSearchFilesResponse.hits:type_name -> agentre.wire.WorkspaceFsSearchHit
-	151, // 65: agentre.wire.TranscriptImportScanRequest.filter:type_name -> agentre.wire.TranscriptImportFilter
-	153, // 66: agentre.wire.TranscriptImportBackendResult.candidates:type_name -> agentre.wire.TranscriptImportCandidate
-	154, // 67: agentre.wire.TranscriptImportScanResponse.backends:type_name -> agentre.wire.TranscriptImportBackendResult
-	156, // 68: agentre.wire.TranscriptImportMeta.gaps:type_name -> agentre.wire.TranscriptImportGap
-	157, // 69: agentre.wire.TranscriptImportOpenResponse.meta:type_name -> agentre.wire.TranscriptImportMeta
-	161, // 70: agentre.wire.TranscriptImportTurn.user_images:type_name -> agentre.wire.TranscriptImportImage
-	166, // 71: agentre.wire.TranscriptImportTurn.events:type_name -> agentre.wire.RuntimeEventNotification
-	178, // 72: agentre.wire.TranscriptImportTurn.usage:type_name -> agentre.wire.Usage
-	162, // 73: agentre.wire.TranscriptImportTurnsResponse.turns:type_name -> agentre.wire.TranscriptImportTurn
-	167, // 74: agentre.wire.RuntimeEventNotification.text_delta:type_name -> agentre.wire.TextDelta
-	168, // 75: agentre.wire.RuntimeEventNotification.thinking_delta:type_name -> agentre.wire.ThinkingDelta
-	169, // 76: agentre.wire.RuntimeEventNotification.output_activity:type_name -> agentre.wire.OutputActivity
-	170, // 77: agentre.wire.RuntimeEventNotification.permission_mode_changed:type_name -> agentre.wire.PermissionModeChanged
-	171, // 78: agentre.wire.RuntimeEventNotification.retry:type_name -> agentre.wire.Retry
-	172, // 79: agentre.wire.RuntimeEventNotification.context_window_updated:type_name -> agentre.wire.ContextWindowUpdated
-	173, // 80: agentre.wire.RuntimeEventNotification.compact_boundary:type_name -> agentre.wire.CompactBoundary
-	174, // 81: agentre.wire.RuntimeEventNotification.runtime_status:type_name -> agentre.wire.RuntimeStatus
-	175, // 82: agentre.wire.RuntimeEventNotification.done:type_name -> agentre.wire.Done
-	176, // 83: agentre.wire.RuntimeEventNotification.error:type_name -> agentre.wire.ErrorEvent
-	177, // 84: agentre.wire.RuntimeEventNotification.user_message:type_name -> agentre.wire.UserMessage
-	182, // 85: agentre.wire.RuntimeEventNotification.tool_call:type_name -> agentre.wire.ToolCall
-	183, // 86: agentre.wire.RuntimeEventNotification.tool_result:type_name -> agentre.wire.ToolResult
-	185, // 87: agentre.wire.RuntimeEventNotification.steer_consumed:type_name -> agentre.wire.SteerConsumed
-	189, // 88: agentre.wire.RuntimeEventNotification.user_ask_request:type_name -> agentre.wire.UserAskRequest
-	190, // 89: agentre.wire.RuntimeEventNotification.user_ask_resolved:type_name -> agentre.wire.UserAskResolved
-	191, // 90: agentre.wire.RuntimeEventNotification.tool_permission_request:type_name -> agentre.wire.ToolPermissionRequest
-	192, // 91: agentre.wire.RuntimeEventNotification.tool_permission_resolved:type_name -> agentre.wire.ToolPermissionResolved
-	193, // 92: agentre.wire.RuntimeEventNotification.exec_approval_requested:type_name -> agentre.wire.ExecApprovalRequested
-	194, // 93: agentre.wire.RuntimeEventNotification.exec_approval_resolved:type_name -> agentre.wire.ExecApprovalResolved
-	197, // 94: agentre.wire.RuntimeEventNotification.subagent_started:type_name -> agentre.wire.SubagentEvent
-	197, // 95: agentre.wire.RuntimeEventNotification.subagent_progress:type_name -> agentre.wire.SubagentEvent
-	197, // 96: agentre.wire.RuntimeEventNotification.subagent_done:type_name -> agentre.wire.SubagentEvent
-	198, // 97: agentre.wire.RuntimeEventNotification.subagent_model:type_name -> agentre.wire.SubagentModel
-	199, // 98: agentre.wire.RuntimeEventNotification.usage_update:type_name -> agentre.wire.UsageUpdate
-	202, // 99: agentre.wire.RuntimeEventNotification.plan_updated:type_name -> agentre.wire.PlanUpdated
-	203, // 100: agentre.wire.RuntimeEventNotification.unrecognized_block:type_name -> agentre.wire.UnrecognizedBlock
-	205, // 101: agentre.wire.RuntimeEventNotification.image:type_name -> agentre.wire.ImageBlock
-	178, // 102: agentre.wire.RunResultDoneNotification.usage:type_name -> agentre.wire.Usage
-	184, // 103: agentre.wire.SteerConsumed.steers:type_name -> agentre.wire.ConsumedSteer
-	186, // 104: agentre.wire.AskQuestion.options:type_name -> agentre.wire.AskOption
-	187, // 105: agentre.wire.UserAskRequest.questions:type_name -> agentre.wire.AskQuestion
-	188, // 106: agentre.wire.UserAskResolved.answers:type_name -> agentre.wire.AskAnswer
-	195, // 107: agentre.wire.SubagentInfo.runs:type_name -> agentre.wire.SubagentRun
-	196, // 108: agentre.wire.SubagentEvent.info:type_name -> agentre.wire.SubagentInfo
-	178, // 109: agentre.wire.UsageUpdate.usage:type_name -> agentre.wire.Usage
-	200, // 110: agentre.wire.PlanUpdated.steps:type_name -> agentre.wire.PlanStep
-	201, // 111: agentre.wire.PlanUpdated.actions:type_name -> agentre.wire.PlanAction
-	204, // 112: agentre.wire.ImageBlock.source:type_name -> agentre.wire.BlobSource
-	206, // 113: agentre.wire.PortForwardListResponse.mappings:type_name -> agentre.wire.PortForwardMapping
-	206, // 114: agentre.wire.PortForwardCreateResponse.mapping:type_name -> agentre.wire.PortForwardMapping
-	206, // 115: agentre.wire.PortForwardSetEnabledResponse.mapping:type_name -> agentre.wire.PortForwardMapping
-	245, // 116: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
-	246, // 117: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
-	229, // 118: agentre.wire.HermesAuthProvidersResponse.providers:type_name -> agentre.wire.HermesAuthProvider
-	236, // 119: agentre.wire.BackendConnectionTestResponse.openclaw_agents:type_name -> agentre.wire.OpenClawAgentOption
-	237, // 120: agentre.wire.BackendConnectionTestResponse.openclaw_models:type_name -> agentre.wire.OpenClawModelOption
-	115, // 121: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	115, // 122: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	115, // 123: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	115, // 124: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	247, // 125: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
-	248, // 126: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
-	127, // [127:127] is the sub-list for method output_type
-	127, // [127:127] is the sub-list for method input_type
-	127, // [127:127] is the sub-list for extension type_name
-	125, // [125:127] is the sub-list for extension extendee
-	0,   // [0:125] is the sub-list for field type_name
+	53,  // 31: agentre.wire.ClaudeCodeUsageResponse.data:type_name -> agentre.wire.ClaudeCodeRateLimits
+	56,  // 32: agentre.wire.SkillsListResponse.packs:type_name -> agentre.wire.InstalledSkillPack
+	62,  // 33: agentre.wire.SessionListResponse.sessions:type_name -> agentre.wire.SessionSummary
+	64,  // 34: agentre.wire.ActivityRollupResponse.buckets:type_name -> agentre.wire.ActivityDailyBucket
+	70,  // 35: agentre.wire.SessionPullResponse.notifications:type_name -> agentre.wire.DurableNotification
+	7,   // 36: agentre.wire.DurableNotification.payload:type_name -> agentre.wire.RpcNotification
+	73,  // 37: agentre.wire.SessionPendingWaitersResponse.tool_permissions:type_name -> agentre.wire.PendingToolPermission
+	74,  // 38: agentre.wire.SessionPendingWaitersResponse.ask_user_questions:type_name -> agentre.wire.PendingAskUserQuestion
+	190, // 39: agentre.wire.PendingAskUserQuestion.questions:type_name -> agentre.wire.AskQuestion
+	83,  // 40: agentre.wire.RuntimeCapabilitiesResponse.capabilities:type_name -> agentre.wire.CapabilityEntry
+	84,  // 41: agentre.wire.RuntimeCapabilitiesResponse.permission_mode:type_name -> agentre.wire.PermissionModeMeta
+	187, // 42: agentre.wire.RuntimeDrainPendingResponse.steers:type_name -> agentre.wire.ConsumedSteer
+	190, // 43: agentre.wire.RuntimeSubmitAnswerRequest.questions:type_name -> agentre.wire.AskQuestion
+	191, // 44: agentre.wire.RuntimeSubmitAnswerRequest.answers:type_name -> agentre.wire.AskAnswer
+	102, // 45: agentre.wire.HistoryMessage.blocks:type_name -> agentre.wire.StoredBlock
+	262, // 46: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
+	101, // 47: agentre.wire.RuntimeRunRequest.backend:type_name -> agentre.wire.AgentBackend
+	102, // 48: agentre.wire.RuntimeRunRequest.user_blocks:type_name -> agentre.wire.StoredBlock
+	103, // 49: agentre.wire.RuntimeRunRequest.history:type_name -> agentre.wire.HistoryMessage
+	104, // 50: agentre.wire.RuntimeRunRequest.mcp_servers:type_name -> agentre.wire.MCPServer
+	263, // 51: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	101, // 52: agentre.wire.RuntimeGoalRequest.backend:type_name -> agentre.wire.AgentBackend
+	108, // 53: agentre.wire.RuntimeGoalResponse.goal:type_name -> agentre.wire.Goal
+	264, // 54: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
+	265, // 55: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
+	124, // 56: agentre.wire.SkillCatalogRequest.authorized:type_name -> agentre.wire.SkillAuthorization
+	126, // 57: agentre.wire.SkillCatalogResponse.packs:type_name -> agentre.wire.SkillPackSummary
+	124, // 58: agentre.wire.SkillCommandsRequest.authorized:type_name -> agentre.wire.SkillAuthorization
+	129, // 59: agentre.wire.SkillCommandsResponse.commands:type_name -> agentre.wire.SkillCommand
+	132, // 60: agentre.wire.RemoteFsListDirResponse.entries:type_name -> agentre.wire.RemoteFsEntry
+	137, // 61: agentre.wire.WorkspaceFsListDirResponse.entries:type_name -> agentre.wire.WorkspaceFsEntry
+	140, // 62: agentre.wire.WorkspaceFsGitChangesResponse.changes:type_name -> agentre.wire.WorkspaceFsChange
+	143, // 63: agentre.wire.WorkspaceFsGitBranchesResponse.branches:type_name -> agentre.wire.WorkspaceFsBranch
+	150, // 64: agentre.wire.WorkspaceFsSearchFilesResponse.hits:type_name -> agentre.wire.WorkspaceFsSearchHit
+	154, // 65: agentre.wire.TranscriptImportScanRequest.filter:type_name -> agentre.wire.TranscriptImportFilter
+	156, // 66: agentre.wire.TranscriptImportBackendResult.candidates:type_name -> agentre.wire.TranscriptImportCandidate
+	157, // 67: agentre.wire.TranscriptImportScanResponse.backends:type_name -> agentre.wire.TranscriptImportBackendResult
+	159, // 68: agentre.wire.TranscriptImportMeta.gaps:type_name -> agentre.wire.TranscriptImportGap
+	160, // 69: agentre.wire.TranscriptImportOpenResponse.meta:type_name -> agentre.wire.TranscriptImportMeta
+	164, // 70: agentre.wire.TranscriptImportTurn.user_images:type_name -> agentre.wire.TranscriptImportImage
+	169, // 71: agentre.wire.TranscriptImportTurn.events:type_name -> agentre.wire.RuntimeEventNotification
+	181, // 72: agentre.wire.TranscriptImportTurn.usage:type_name -> agentre.wire.Usage
+	165, // 73: agentre.wire.TranscriptImportTurnsResponse.turns:type_name -> agentre.wire.TranscriptImportTurn
+	170, // 74: agentre.wire.RuntimeEventNotification.text_delta:type_name -> agentre.wire.TextDelta
+	171, // 75: agentre.wire.RuntimeEventNotification.thinking_delta:type_name -> agentre.wire.ThinkingDelta
+	172, // 76: agentre.wire.RuntimeEventNotification.output_activity:type_name -> agentre.wire.OutputActivity
+	173, // 77: agentre.wire.RuntimeEventNotification.permission_mode_changed:type_name -> agentre.wire.PermissionModeChanged
+	174, // 78: agentre.wire.RuntimeEventNotification.retry:type_name -> agentre.wire.Retry
+	175, // 79: agentre.wire.RuntimeEventNotification.context_window_updated:type_name -> agentre.wire.ContextWindowUpdated
+	176, // 80: agentre.wire.RuntimeEventNotification.compact_boundary:type_name -> agentre.wire.CompactBoundary
+	177, // 81: agentre.wire.RuntimeEventNotification.runtime_status:type_name -> agentre.wire.RuntimeStatus
+	178, // 82: agentre.wire.RuntimeEventNotification.done:type_name -> agentre.wire.Done
+	179, // 83: agentre.wire.RuntimeEventNotification.error:type_name -> agentre.wire.ErrorEvent
+	180, // 84: agentre.wire.RuntimeEventNotification.user_message:type_name -> agentre.wire.UserMessage
+	185, // 85: agentre.wire.RuntimeEventNotification.tool_call:type_name -> agentre.wire.ToolCall
+	186, // 86: agentre.wire.RuntimeEventNotification.tool_result:type_name -> agentre.wire.ToolResult
+	188, // 87: agentre.wire.RuntimeEventNotification.steer_consumed:type_name -> agentre.wire.SteerConsumed
+	192, // 88: agentre.wire.RuntimeEventNotification.user_ask_request:type_name -> agentre.wire.UserAskRequest
+	193, // 89: agentre.wire.RuntimeEventNotification.user_ask_resolved:type_name -> agentre.wire.UserAskResolved
+	194, // 90: agentre.wire.RuntimeEventNotification.tool_permission_request:type_name -> agentre.wire.ToolPermissionRequest
+	195, // 91: agentre.wire.RuntimeEventNotification.tool_permission_resolved:type_name -> agentre.wire.ToolPermissionResolved
+	196, // 92: agentre.wire.RuntimeEventNotification.exec_approval_requested:type_name -> agentre.wire.ExecApprovalRequested
+	197, // 93: agentre.wire.RuntimeEventNotification.exec_approval_resolved:type_name -> agentre.wire.ExecApprovalResolved
+	200, // 94: agentre.wire.RuntimeEventNotification.subagent_started:type_name -> agentre.wire.SubagentEvent
+	200, // 95: agentre.wire.RuntimeEventNotification.subagent_progress:type_name -> agentre.wire.SubagentEvent
+	200, // 96: agentre.wire.RuntimeEventNotification.subagent_done:type_name -> agentre.wire.SubagentEvent
+	201, // 97: agentre.wire.RuntimeEventNotification.subagent_model:type_name -> agentre.wire.SubagentModel
+	202, // 98: agentre.wire.RuntimeEventNotification.usage_update:type_name -> agentre.wire.UsageUpdate
+	205, // 99: agentre.wire.RuntimeEventNotification.plan_updated:type_name -> agentre.wire.PlanUpdated
+	206, // 100: agentre.wire.RuntimeEventNotification.unrecognized_block:type_name -> agentre.wire.UnrecognizedBlock
+	208, // 101: agentre.wire.RuntimeEventNotification.image:type_name -> agentre.wire.ImageBlock
+	181, // 102: agentre.wire.RunResultDoneNotification.usage:type_name -> agentre.wire.Usage
+	187, // 103: agentre.wire.SteerConsumed.steers:type_name -> agentre.wire.ConsumedSteer
+	189, // 104: agentre.wire.AskQuestion.options:type_name -> agentre.wire.AskOption
+	190, // 105: agentre.wire.UserAskRequest.questions:type_name -> agentre.wire.AskQuestion
+	191, // 106: agentre.wire.UserAskResolved.answers:type_name -> agentre.wire.AskAnswer
+	198, // 107: agentre.wire.SubagentInfo.runs:type_name -> agentre.wire.SubagentRun
+	199, // 108: agentre.wire.SubagentEvent.info:type_name -> agentre.wire.SubagentInfo
+	181, // 109: agentre.wire.UsageUpdate.usage:type_name -> agentre.wire.Usage
+	203, // 110: agentre.wire.PlanUpdated.steps:type_name -> agentre.wire.PlanStep
+	204, // 111: agentre.wire.PlanUpdated.actions:type_name -> agentre.wire.PlanAction
+	207, // 112: agentre.wire.ImageBlock.source:type_name -> agentre.wire.BlobSource
+	209, // 113: agentre.wire.PortForwardListResponse.mappings:type_name -> agentre.wire.PortForwardMapping
+	209, // 114: agentre.wire.PortForwardCreateResponse.mapping:type_name -> agentre.wire.PortForwardMapping
+	209, // 115: agentre.wire.PortForwardSetEnabledResponse.mapping:type_name -> agentre.wire.PortForwardMapping
+	266, // 116: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
+	267, // 117: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
+	232, // 118: agentre.wire.HermesAuthProvidersResponse.providers:type_name -> agentre.wire.HermesAuthProvider
+	239, // 119: agentre.wire.BackendConnectionTestResponse.openclaw_agents:type_name -> agentre.wire.OpenClawAgentOption
+	240, // 120: agentre.wire.BackendConnectionTestResponse.openclaw_models:type_name -> agentre.wire.OpenClawModelOption
+	244, // 121: agentre.wire.CtlProject.locations:type_name -> agentre.wire.CtlProjectLocation
+	268, // 122: agentre.wire.CtlBackend.env:type_name -> agentre.wire.CtlBackend.EnvEntry
+	242, // 123: agentre.wire.CtlResource.agent:type_name -> agentre.wire.CtlAgent
+	243, // 124: agentre.wire.CtlResource.department:type_name -> agentre.wire.CtlDepartment
+	245, // 125: agentre.wire.CtlResource.project:type_name -> agentre.wire.CtlProject
+	246, // 126: agentre.wire.CtlResource.provider:type_name -> agentre.wire.CtlProvider
+	247, // 127: agentre.wire.CtlResource.model:type_name -> agentre.wire.CtlModel
+	248, // 128: agentre.wire.CtlResource.backend:type_name -> agentre.wire.CtlBackend
+	2,   // 129: agentre.wire.CtlListRequest.kind:type_name -> agentre.wire.CtlKind
+	249, // 130: agentre.wire.CtlListResponse.items:type_name -> agentre.wire.CtlResource
+	2,   // 131: agentre.wire.CtlGetRequest.kind:type_name -> agentre.wire.CtlKind
+	249, // 132: agentre.wire.CtlGetResponse.resource:type_name -> agentre.wire.CtlResource
+	3,   // 133: agentre.wire.CtlWriteRequest.op:type_name -> agentre.wire.CtlOp
+	2,   // 134: agentre.wire.CtlWriteRequest.kind:type_name -> agentre.wire.CtlKind
+	249, // 135: agentre.wire.CtlWriteRequest.resource:type_name -> agentre.wire.CtlResource
+	4,   // 136: agentre.wire.CtlWriteRequest.caller:type_name -> agentre.wire.CtlCaller
+	3,   // 137: agentre.wire.CtlChange.op:type_name -> agentre.wire.CtlOp
+	2,   // 138: agentre.wire.CtlChange.kind:type_name -> agentre.wire.CtlKind
+	255, // 139: agentre.wire.CtlChange.fields:type_name -> agentre.wire.CtlFieldChange
+	256, // 140: agentre.wire.CtlWriteResponse.changes:type_name -> agentre.wire.CtlChange
+	250, // 141: agentre.wire.CtlRequest.list:type_name -> agentre.wire.CtlListRequest
+	252, // 142: agentre.wire.CtlRequest.get:type_name -> agentre.wire.CtlGetRequest
+	254, // 143: agentre.wire.CtlRequest.write:type_name -> agentre.wire.CtlWriteRequest
+	251, // 144: agentre.wire.CtlResponse.list:type_name -> agentre.wire.CtlListResponse
+	253, // 145: agentre.wire.CtlResponse.get:type_name -> agentre.wire.CtlGetResponse
+	257, // 146: agentre.wire.CtlResponse.write:type_name -> agentre.wire.CtlWriteResponse
+	118, // 147: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	118, // 148: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	118, // 149: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	118, // 150: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	269, // 151: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
+	270, // 152: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
+	153, // [153:153] is the sub-list for method output_type
+	153, // [153:153] is the sub-list for method input_type
+	153, // [153:153] is the sub-list for extension type_name
+	151, // [151:153] is the sub-list for extension extendee
+	0,   // [0:151] is the sub-list for field type_name
 }
 
 func init() { file_agentre_wire_wire_proto_init() }
@@ -18595,13 +20613,32 @@ func file_agentre_wire_wire_proto_init() {
 		(*RuntimeEventNotification_UnrecognizedBlock)(nil),
 		(*RuntimeEventNotification_Image)(nil),
 	}
+	file_agentre_wire_wire_proto_msgTypes[244].OneofWrappers = []any{
+		(*CtlResource_Agent)(nil),
+		(*CtlResource_Department)(nil),
+		(*CtlResource_Project)(nil),
+		(*CtlResource_Provider)(nil),
+		(*CtlResource_Model)(nil),
+		(*CtlResource_Backend)(nil),
+	}
+	file_agentre_wire_wire_proto_msgTypes[250].OneofWrappers = []any{}
+	file_agentre_wire_wire_proto_msgTypes[253].OneofWrappers = []any{
+		(*CtlRequest_List)(nil),
+		(*CtlRequest_Get)(nil),
+		(*CtlRequest_Write)(nil),
+	}
+	file_agentre_wire_wire_proto_msgTypes[254].OneofWrappers = []any{
+		(*CtlResponse_List)(nil),
+		(*CtlResponse_Get)(nil),
+		(*CtlResponse_Write)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentre_wire_wire_proto_rawDesc), len(file_agentre_wire_wire_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   245,
+			NumEnums:      5,
+			NumMessages:   264,
 			NumExtensions: 2,
 			NumServices:   0,
 		},
