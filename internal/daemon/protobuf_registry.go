@@ -511,5 +511,6 @@ func (d *Daemon) daemonSessionPorts() wireinbound.SessionPorts {
 		Delete:             d.sessionDelete.Delete,
 		SetModelTarget:     d.sessionModelTarget.SetModelTarget,
 		SetReasoningEffort: d.sessionReasoningEffort.SetReasoningEffort,
+		AnswerToolApproval: handlers.AnswerToolApproval,
 	}
 }

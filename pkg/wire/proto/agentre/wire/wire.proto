@@ -42,7 +42,7 @@ extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-option (agentre.wire.protocol_version) = "0.3.0";
+option (agentre.wire.protocol_version) = "0.4.0";
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -121,6 +121,7 @@ enum RpcMethod {
   RPC_METHOD_HERMES_LOGIN = 73;
   RPC_METHOD_HERMES_LOGOUT = 74;
   RPC_METHOD_BACKEND_CONNECTION_TEST = 75;
+  RPC_METHOD_TOOL_APPROVAL_ANSWER = 76;
 }
 
 message WireFrame {
@@ -754,6 +755,17 @@ message RuntimeSubmitToolPermissionRequest {
   string deny_reason = 6;
 }
 message PeerSessionControlResponse { bool already_handled = 1; }
+
+// ToolApprovalAnswerRequest 答一张挂起的 tool_approval 卡（agent 内置写工具的审批：
+// org / ctl / hook …）。它对所有 toolKey 通用——审批卡是同一种块，按 toolKey 各开一个
+// 方法只会重复。会话按 conversation_id 指代，卡按 request_id 指代；会话不在这台机器上、
+// 或这张卡已经不再挂起（答过、超时、那一轮结束），都是明确的错误，不是空成功。
+message ToolApprovalAnswerRequest {
+  string conversation_id = 1;
+  string request_id = 2;
+  bool allow = 3;
+}
+message ToolApprovalAnswerResponse {}
 
 message AgentBackend {
   int64 id = 1;

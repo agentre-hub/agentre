@@ -48,6 +48,12 @@ const (
 	MethodSetGoal                   = "runtime.goal.set"
 	MethodClearGoal                 = "runtime.goal.clear"
 
+	// MethodToolApprovalAnswer 答一张挂起的 tool_approval 卡(agent 内置写工具的审批:
+	// org / ctl / hook …),按 (对话, requestId) 指代,对所有 toolKey 通用。它与
+	// submitToolPermission 不是一回事:那一条答 CLI 自己发起的权限请求,这一条答宿主上
+	// 工具服务挂起的写操作。不在 runtime.* 下,因为挂起它的不是 runtime。
+	MethodToolApprovalAnswer = "toolApproval.answer"
+
 	// 断连重连的补齐族。客户端重连后的三步是 list → attach → pull(→ pendingWaiters),
 	// 每一步都限定在调用方自己的对端范围内(R16),对端身份取自那条连接的鉴权状态,
 	// 不由参数携带 —— 参数里的对端标识等于让任何已配对设备点名读别人的会话。

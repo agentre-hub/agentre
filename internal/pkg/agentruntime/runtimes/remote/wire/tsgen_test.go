@@ -203,6 +203,7 @@ func tsConstDecls() []tsConstDecl {
 		{"MethodGetGoal", MethodGetGoal},
 		{"MethodSetGoal", MethodSetGoal},
 		{"MethodClearGoal", MethodClearGoal},
+		{"MethodToolApprovalAnswer", MethodToolApprovalAnswer},
 		{"MethodSessionList", MethodSessionList},
 		{"MethodSessionCounts", MethodSessionCounts},
 		{"SessionListMaxLimit", SessionListMaxLimit},
@@ -373,6 +374,7 @@ func tsHostMethodDecls() []tsHostMethodDecl {
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE, "runtimeSetPermissionMode"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER, "runtimeSubmitAnswer"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION, "runtimeSubmitToolPermission"},
+		{agentrewire.RpcMethod_RPC_METHOD_TOOL_APPROVAL_ANSWER, "toolApprovalAnswer"},
 
 		{agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG, "skillCatalog"},
 		{agentrewire.RpcMethod_RPC_METHOD_SKILLS_COMMANDS, "skillCommands"},

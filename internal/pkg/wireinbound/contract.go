@@ -118,6 +118,11 @@ func Contract() []Requirement {
 			"useSessionDecisionPorts.ts:272,经共享包 TranscriptPorts 递进转录卡片"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION, []Caller{CallerConsole, CallerDesktopToDesktop, CallerDesktopToAgentred}, both,
 			"useSessionDecisionPorts.ts:252,同上"},
+		// 答 agent 内置写工具的审批卡(org / ctl / hook …):控制台的 answerToolApproval
+		// 端口按会话目标机拨号,目标可能是桌面端也可能是 agentred(规格
+		// 2026-09-22-agrctl-resource-management 问题 5、决策 13)。
+		{agentrewire.RpcMethod_RPC_METHOD_TOOL_APPROVAL_ANSWER, []Caller{CallerConsole}, both,
+			"规格 2026-09-22-agrctl-resource-management「控制台作答」:桌面端(作为 relay 目标)与 agentred 都要处理它"},
 
 		// ── 外围族 ──
 		{agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG, []Caller{CallerConsole}, both,

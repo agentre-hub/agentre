@@ -64,6 +64,10 @@ type ProtobufInboundDeps struct {
 	CancelSteerSession   func(context.Context, remotewire.CancelSteerParams) (*chat_svc.CancelQueuedResponse, error)
 	SubmitAnswer         func(context.Context, remotewire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error)
 	SubmitToolPermission func(context.Context, remotewire.SubmitToolPermissionParams) (chat_svc.PeerSessionControlResult, error)
+	// AnswerToolApproval 答一张挂起的 tool_approval 卡(agent 内置写工具的审批,任何
+	// toolKey)。与 SubmitToolPermission 不是一回事:那一条答的是 CLI 自己发起的权限
+	// 请求,这一条答的是本机工具服务(orgtool / hooktool / ctl)挂起的写操作。
+	AnswerToolApproval func(ctx context.Context, conversationID, requestID string, allow bool) error
 }
 
 type protobufPeerSubscriber struct{ conn *protorpc.Conn }
@@ -374,6 +378,17 @@ func peerSessionPorts(deps ProtobufInboundDeps) wireinbound.SessionPorts {
 				return nil, err
 			}
 			return wireinbound.PeerSessionControlResponseOf(remotewire.PeerSessionControlResult{AlreadyHandled: value.AlreadyHandled}), nil
+		}
+	}
+	if deps.AnswerToolApproval != nil {
+		ports.AnswerToolApproval = func(ctx context.Context, request *agentrewire.ToolApprovalAnswerRequest) (*agentrewire.ToolApprovalAnswerResponse, error) {
+			if err := conversationid.Validate(request.GetConversationId()); err != nil {
+				return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "invalid conversation id"}
+			}
+			if err := deps.AnswerToolApproval(ctx, request.GetConversationId(), request.GetRequestId(), request.GetAllow()); err != nil {
+				return nil, err
+			}
+			return &agentrewire.ToolApprovalAnswerResponse{}, nil
 		}
 	}
 	return ports
