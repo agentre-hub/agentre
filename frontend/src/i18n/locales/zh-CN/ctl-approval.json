@@ -1,0 +1,17 @@
+{
+  "externalApproval": {
+    "title": "外部程序请求修改配置",
+    "queuePosition": "第 {{index}} 个，共 {{total}} 个待审批",
+    "callerPid": "pid {{pid}}",
+    "unknownCaller": "外部程序",
+    "autoRejectHint": "不处理的话 4 分钟后自动拒绝；关闭弹窗等同拒绝。",
+    "reject": "拒绝",
+    "approve": "批准",
+    "approveDelete": "批准删除",
+    "submitFailed": "审批提交失败",
+    "notification": {
+      "title": "Agentre · 需要你批准",
+      "body": "{{process}} 请求修改配置"
+    }
+  }
+}

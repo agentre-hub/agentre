@@ -15,6 +15,7 @@ package ctl_svc
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -81,6 +82,18 @@ func (s *ctlSvc) RegisterExternalApprovals(q ExternalApprovals) {
 	s.mu.Lock()
 	s.external = q
 	s.mu.Unlock()
+}
+
+// AnswerExternalApproval 转发桌面端全局审批弹窗的作答（internal/app 的 Wails binding
+// 调这个）；队列还没注册时报错，不悬着。
+func (s *ctlSvc) AnswerExternalApproval(requestID string, allow bool) error {
+	s.mu.RLock()
+	ext := s.external
+	s.mu.RUnlock()
+	if ext == nil {
+		return errors.New("ctl_svc: external approvals not registered")
+	}
+	return ext.Answer(requestID, allow)
 }
 
 // Token 返回本进程的控制 token；桌面在 gateway 起好后连同 URL 写进 ctlendpoint 握手文件。

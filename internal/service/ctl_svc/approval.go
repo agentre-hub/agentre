@@ -26,6 +26,21 @@ type SessionApprovals interface {
 type ExternalApproval struct {
 	RequestID string
 	Input     blocks.CtlApprovalInput
+	// Caller 是调用方进程信息，只作提示、不作为信任依据（spec「外部调用的审批弹窗」）。
+	//
+	// 目前恒为 nil：CtlWriteRequest（pkg/wire/proto/agentre/wire/wire.proto）只带
+	// caller 分类枚举和抹掉密钥的 command，agrctl（internal/cli/ctlcmd）并没有上报
+	// 父进程名/pid/工作目录。要显示真实值，得先在那条请求里补上这些字段——这里先把
+	// 展示这一端接好，字段留空不影响其它审批行为。
+	Caller *CallerInfo
+}
+
+// CallerInfo 是外部调用方的父进程名、pid 与工作目录；json 标签与桌面弹窗那份
+// DesktopApprovalItem 快照一致（camelCase），供前端直接反序列化。
+type CallerInfo struct {
+	ParentProcess string `json:"parentProcess"`
+	Pid           int64  `json:"pid"`
+	WorkingDir    string `json:"workingDir"`
 }
 
 // ExternalApprovals 是桌面端全局审批弹窗背后的待审批队列（外部调用：握手 token、stdin

@@ -20,6 +20,7 @@ export { TurnCompleteNotifier } from "./turn-complete-notifier";
 export { SyncAppliedHost } from "./sync-applied-host";
 export { NotificationToastViewport } from "./notification-toast";
 export { QuitConfirmDialog } from "./quit-confirm-dialog";
+export { ExternalApprovalDialog } from "./external-approval-dialog";
 export { HooksPage } from "./hooks-page";
 export { IssuesPage } from "./issues-page";
 export { OrgChartPage } from "./org-chart-page";

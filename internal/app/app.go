@@ -124,6 +124,10 @@ func (a *App) Startup(ctx context.Context) {
 	a.registerNotificationHandlers()
 	a.resetStaleSessionsOnStartup(ctx)
 	a.registerChatService()
+	// 桌面端全局审批弹窗背后的队列：装在这里而不是 registerChatService，因为它不依赖
+	// chat_svc，只要 a.ctx 就绪即可推事件（ctl_svc.RegisterDeps 在 registerChatService
+	// 里另外接，互不影响）。
+	a.registerCtlExternalApprovals()
 	a.hookPollerCancel = hook_svc.StartScheduler(ctx)
 	// 常驻 CLI 子进程的按时清扫:池的条数上限管不了「留多久」,一个开过一次就再没
 	// 碰过的会话能把 CLI 连同它的 MCP server 挂到退出为止。
