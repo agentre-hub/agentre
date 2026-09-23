@@ -173,6 +173,25 @@ func (e ToolPermissionResolved) MarshalJSON() ([]byte, error) {
 	}{EventToolPermissionResolved, e.RequestID, e.Allowed, e.AlwaysAllow, e.DenyReason})
 }
 
+func (e ToolApprovalRequested) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Kind      EventKind       `json:"kind"`
+		ToolKey   string          `json:"toolKey,omitempty"`
+		RequestID string          `json:"requestId,omitempty"`
+		ToolName  string          `json:"toolName,omitempty"`
+		ToolInput json.RawMessage `json:"toolInput,omitempty"`
+	}{EventToolApprovalRequested, e.ToolKey, e.RequestID, e.ToolName, e.ToolInput})
+}
+
+func (e ToolApprovalResolved) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Kind      EventKind `json:"kind"`
+		RequestID string    `json:"requestId,omitempty"`
+		Status    string    `json:"status,omitempty"`
+		Result    string    `json:"result,omitempty"`
+	}{EventToolApprovalResolved, e.RequestID, e.Status, e.Result})
+}
+
 func (e ExecApprovalRequested) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Kind             EventKind `json:"kind"`
@@ -504,6 +523,27 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			AlwaysAllow: w.AlwaysAllow,
 			DenyReason:  w.DenyReason,
 		}, nil
+	case EventToolApprovalRequested:
+		var w struct {
+			ToolKey   string          `json:"toolKey"`
+			RequestID string          `json:"requestId"`
+			ToolName  string          `json:"toolName"`
+			ToolInput json.RawMessage `json:"toolInput"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return ToolApprovalRequested{ToolKey: w.ToolKey, RequestID: w.RequestID, ToolName: w.ToolName, ToolInput: w.ToolInput}, nil
+	case EventToolApprovalResolved:
+		var w struct {
+			RequestID string `json:"requestId"`
+			Status    string `json:"status"`
+			Result    string `json:"result"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return ToolApprovalResolved{RequestID: w.RequestID, Status: w.Status, Result: w.Result}, nil
 	case EventExecApprovalRequested:
 		var w struct {
 			ID               string   `json:"id"`

@@ -220,3 +220,89 @@ func projectedEventKind(t *testing.T, event agentruntime.Event) agentruntime.Eve
 	require.NoError(t, json.Unmarshal(raw, &head))
 	return head.Kind
 }
+
+// Given 一张落库的 tool_approval 卡(org / ctl 这些 agent 内置写工具的服务端审批),
+// When 折成对端的持久帧,Then 它是一张独立的审批卡帧,而不是 unrecognized_block ——
+// 控制台与远端视图靠这一帧画出审批卡;终态(approved / denied / expired)再补一帧
+// 决议回填同一张卡,与 tool_permission 的「请求 + 决议」同一形态。
+func TestProjectMessages_GivenToolApprovalBlock_ThenProjectsApprovalFrames(t *testing.T) {
+	t.Parallel()
+
+	input := `{"command":"agrctl update provider openrouter --base-url https://x","changes":[{"op":"update","kind":"provider","id":4}]}`
+	block := func(status, result string) string {
+		data := `{"tool_key":"ctl","request_id":"ctl-1","tool_name":"ctl_update_provider","tool_input":` + input + `,"status":"` + status + `"`
+		if result != "" {
+			data += `,"result":"` + result + `"`
+		}
+		return `[{"type":"tool_approval","data":` + data + `}}]`
+	}
+	requested := agentruntime.ToolApprovalRequested{
+		ToolKey: "ctl", RequestID: "ctl-1", ToolName: "ctl_update_provider", ToolInput: json.RawMessage(input),
+	}
+
+	cases := []struct {
+		name   string
+		status string
+		result string
+		want   []agentruntime.Event
+	}{
+		{name: "pending 只有请求帧", status: "pending", want: []agentruntime.Event{requested}},
+		{name: "approved 带执行结果", status: "approved", result: "updated provider #4", want: []agentruntime.Event{
+			requested, agentruntime.ToolApprovalResolved{RequestID: "ctl-1", Status: "approved", Result: "updated provider #4"},
+		}},
+		{name: "denied", status: "denied", want: []agentruntime.Event{
+			requested, agentruntime.ToolApprovalResolved{RequestID: "ctl-1", Status: "denied"},
+		}},
+		{name: "expired", status: "expired", want: []agentruntime.Event{
+			requested, agentruntime.ToolApprovalResolved{RequestID: "ctl-1", Status: "expired"},
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			messages := []*transcript_entity.Message{{SessionID: 7, Role: "assistant", Seq: 1, BlocksJSON: block(tc.status, tc.result)}}
+
+			frames, _, err := transcript.ProjectMessages("conv-7", messages)
+			require.NoError(t, err)
+			require.Len(t, frames, len(tc.want)+1, "审批帧之后只剩收口的 Done")
+			for i, want := range tc.want {
+				assert.Equal(t, want, frames[i].Event)
+				// 每一帧都要真能过协议边界,并原样解回来。
+				_, err := protowire.WireNotificationToProto(wire.NotifyEvent, frames[i])
+				require.NoErrorf(t, err, "第 %d 帧送不出去", i)
+			}
+		})
+	}
+}
+
+// Given 同一张审批卡先以 pending 落库、再被原地修补成 approved,When 按位置投影,
+// Then 请求帧的位置与指纹不变(对端不会收到第二张卡),决议是同一块的下一帧 ——
+// 远端那张卡正是靠这一帧切到终态。
+func TestProjectKeyedMessage_GivenToolApprovalPatchedToApproved_ThenOnlyTheResolutionIsNew(t *testing.T) {
+	t.Parallel()
+
+	msg := func(status string) *transcript_entity.Message {
+		return &transcript_entity.Message{ID: 9, SessionID: 7, Role: "assistant", Seq: 1,
+			BlocksJSON: `[{"type":"tool_approval","data":{"tool_key":"org","request_id":"org-1","tool_name":"org_create_project","tool_input":{"name":"x"},"status":"` + status + `","result":"ok"}}]`}
+	}
+	pending, err := transcript.ProjectKeyedMessage("conv-7", msg("pending"))
+	require.NoError(t, err)
+	approved, err := transcript.ProjectKeyedMessage("conv-7", msg("approved"))
+	require.NoError(t, err)
+
+	require.Len(t, pending, 2) // 请求 + Done
+	require.Len(t, approved, 3)
+	assert.Equal(t, pending[0].Key, approved[0].Key)
+	assert.Equal(t, pending[0].Fingerprint, approved[0].Fingerprint)
+	assert.Equal(t, transcript.FrameKey{MessageID: 9, BlockIdx: 0, Ordinal: 1}, approved[1].Key)
+	assert.Equal(t, agentruntime.ToolApprovalResolved{RequestID: "org-1", Status: "approved", Result: "ok"}, approved[1].Frame.Event)
+}
+
+// 坏载荷不静默吞掉:与其它交互卡同一条纪律,报错而不是投影出一张空卡。
+func TestProjectMessages_GivenMalformedToolApprovalBlock_ThenErrors(t *testing.T) {
+	t.Parallel()
+
+	messages := []*transcript_entity.Message{{SessionID: 7, Role: "assistant", Seq: 1, BlocksJSON: `[{"type":"tool_approval","data":{"request_id":7}}]`}}
+	_, _, err := transcript.ProjectMessages("conv-7", messages)
+	require.Error(t, err)
+}

@@ -505,6 +505,19 @@ describe("protobuf rpc envelope", () => {
       resolvedAtMs: 3,
     },
     {
+      case: "toolApprovalRequested",
+      toolKey: "ctl",
+      requestId: "ta1",
+      toolName: "ctl_update_provider",
+      toolInput: new Uint8Array([5]),
+    },
+    {
+      case: "toolApprovalResolved",
+      requestId: "ta1",
+      status: "approved",
+      result: "ok",
+    },
+    {
       case: "subagentStarted",
       toolCallId: "t1",
       info: {

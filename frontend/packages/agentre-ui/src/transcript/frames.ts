@@ -27,9 +27,11 @@
  *                 消息）/ tool_use_start / tool_result / compact_boundary /
  *                 plan_updated
  *   交互卡        ask_user_question / tool_permission_request /
- *                 exec_approval_requested（带 canonical，包的卡才渲染得出来）
+ *                 exec_approval_requested（带 canonical，包的卡才渲染得出来）/
+ *                 tool_approval_requested（agent 内置写工具的审批卡，只由历史投影产出）
  *   **回填原卡**  ask_user_question_answered / tool_permission_resolved /
- *                 exec_approval_resolved —— 决议是那张卡的终态，不是新的一条
+ *                 exec_approval_resolved / tool_approval_resolved —— 决议是那张卡的
+ *                 终态，不是新的一条
  *   消息级        usage（token 列）/ error（errorText）/ done（结束本条）
  *   不进正文      context_window_updated / runtime_status /
  *                 permission_mode_changed（都是会话级）、tool_use_end（新 API 无
@@ -72,6 +74,8 @@ import {
   EventThinkingDelta,
   EventToolPermissionRequest,
   EventToolPermissionResolved,
+  EventToolApprovalRequested,
+  EventToolApprovalResolved,
   EventToolResult,
   EventToolUseEnd,
   EventToolUseStart,
@@ -741,6 +745,37 @@ function applyFrame(
       block.execApproval.status = str(ev, "status") ?? "resolved";
       const decision = str(ev, "decision");
       if (decision) block.execApproval.decision = decision;
+      return;
+    }
+
+    case EventToolApprovalRequested: {
+      // 与桌面端自己的会话落同一种块（chat_svc 的 tool_approval ChatBlock）：
+      // transcript-rows 按 block.type 路由到 ToolApprovalCard，ctl 再分到变更清单卡。
+      // 请求帧不带状态 —— 终态由下面那一帧回填。
+      openAssistant(st, sessionId).blocks.push({
+        type: "tool_approval",
+        toolApproval: {
+          toolKey: str(ev, "toolKey") ?? "",
+          requestId: str(ev, "requestId") ?? "",
+          toolName: str(ev, "toolName") ?? "",
+          toolInput: record(ev, "toolInput"),
+          status: "pending",
+        },
+      });
+      return;
+    }
+
+    case EventToolApprovalResolved: {
+      const requestId = str(ev, "requestId");
+      const block = findBlock(
+        st,
+        (b) => b.toolApproval?.requestId === requestId,
+      );
+      if (!block?.toolApproval) return;
+      const status = str(ev, "status");
+      if (status) block.toolApproval.status = status;
+      const result = str(ev, "result");
+      if (result) block.toolApproval.result = result;
       return;
     }
 

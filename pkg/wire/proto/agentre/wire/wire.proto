@@ -1166,6 +1166,8 @@ message RuntimeEventNotification {
     PlanUpdated plan_updated = 28 [(agentre.wire.event_kind) = "plan_updated"];
     UnrecognizedBlock unrecognized_block = 29 [(agentre.wire.event_kind) = "unrecognized_block"];
     ImageBlock image = 31 [(agentre.wire.event_kind) = "image"];
+    ToolApprovalRequested tool_approval_requested = 32 [(agentre.wire.event_kind) = "tool_approval_requested"];
+    ToolApprovalResolved tool_approval_resolved = 33 [(agentre.wire.event_kind) = "tool_approval_resolved"];
   }
 }
 
@@ -1311,6 +1313,12 @@ message ExecApprovalRequested {
   string agent_id = 7; string session_key = 8; int64 created_at_ms = 9; int64 expires_at_ms = 10;
 }
 message ExecApprovalResolved { string id = 1; string status = 2; string decision = 3; string resolved_by = 4; int64 resolved_at_ms = 5; }
+// ToolApprovalRequested / ToolApprovalResolved 是 agent 内置写工具(org / hook / ctl …)
+// 服务端审批卡(tool_approval 块)的持久帧:只由历史投影产出,请求一帧、终态
+// (approved / denied / expired)再回填一帧。tool_input 是块里的原始 JSON 字节,与
+// ToolPermissionRequest.input 同一约定。作答走 RPC_METHOD_TOOL_APPROVAL_ANSWER。
+message ToolApprovalRequested { string tool_key = 1; string request_id = 2; string tool_name = 3; bytes tool_input = 4; }
+message ToolApprovalResolved { string request_id = 1; string status = 2; string result = 3; }
 message SubagentRun {
   string id = 1; int32 index = 2; string agent = 3; string profile = 4; string agent_source = 5;
   string task = 6; string requested_model = 7; string model = 8; string status = 9;

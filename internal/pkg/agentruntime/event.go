@@ -136,6 +136,28 @@ type ExecApprovalResolved struct {
 	ResolvedAtMs int64
 }
 
+// ToolApprovalRequested 一张 agent 内置写工具(org / hook / ctl …)的服务端审批卡。
+//
+// 与上面那些由 runtime 产出的事件不同,它**只由历史投影产出**
+// (transcript.ProjectMessages 折落库的 tool_approval 块):审批卡是宿主 chat_svc
+// 自己登记的,不经过 runtime 事件流,所以 turn dispatcher 上没有它的 handler。它的
+// 用处是让拿 wire 帧的那些面(控制台、远端 Peer Tab)画得出审批卡,而不是一条
+// unrecognized_block 提示。ToolInput 是块里 tool_input 的原始 JSON。
+type ToolApprovalRequested struct {
+	ToolKey   string
+	RequestID string
+	ToolName  string
+	ToolInput json.RawMessage
+}
+
+// ToolApprovalResolved 审批卡的终态(approved / denied / expired),回填同一张
+// ToolApprovalRequested 卡。Result 只在 approved 后有值(执行结果或业务错误摘要)。
+type ToolApprovalResolved struct {
+	RequestID string
+	Status    string
+	Result    string
+}
+
 // PermissionModeChanged CLI 通报自身 permission_mode 已变更。
 type PermissionModeChanged struct{ Mode string }
 
@@ -291,6 +313,8 @@ func (SteerConsumed) isEvent()          {}
 func (UserAskRequest) isEvent()         {}
 func (UserAskResolved) isEvent()        {}
 func (ToolPermissionRequest) isEvent()  {}
+func (ToolApprovalRequested) isEvent()  {}
+func (ToolApprovalResolved) isEvent()   {}
 func (ToolPermissionResolved) isEvent() {}
 func (ExecApprovalRequested) isEvent()  {}
 func (ExecApprovalResolved) isEvent()   {}

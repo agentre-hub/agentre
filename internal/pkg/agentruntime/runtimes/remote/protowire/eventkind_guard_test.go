@@ -29,6 +29,7 @@ func TestDeclaredEventKindMatchesTheRuntimeVocabulary(t *testing.T) {
 		agentruntime.UserAskRequest{}, agentruntime.UserAskResolved{},
 		agentruntime.ToolPermissionRequest{}, agentruntime.ToolPermissionResolved{},
 		agentruntime.ExecApprovalRequested{}, agentruntime.ExecApprovalResolved{},
+		agentruntime.ToolApprovalRequested{}, agentruntime.ToolApprovalResolved{},
 		agentruntime.PermissionModeChanged{}, agentruntime.SubagentStarted{},
 		agentruntime.SubagentProgress{}, agentruntime.SubagentDone{}, agentruntime.SubagentModel{},
 		agentruntime.Retry{}, agentruntime.UsageUpdate{}, agentruntime.ContextWindowUpdated{},

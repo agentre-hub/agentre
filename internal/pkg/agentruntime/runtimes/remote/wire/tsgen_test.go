@@ -502,6 +502,8 @@ func tsEventKindDecls() []tsEventKindDecl {
 		{"EventToolPermissionResolved", agentruntime.EventToolPermissionResolved},
 		{"EventExecApprovalRequested", agentruntime.EventExecApprovalRequested},
 		{"EventExecApprovalResolved", agentruntime.EventExecApprovalResolved},
+		{"EventToolApprovalRequested", agentruntime.EventToolApprovalRequested},
+		{"EventToolApprovalResolved", agentruntime.EventToolApprovalResolved},
 		{"EventPermissionModeChanged", agentruntime.EventPermissionModeChanged},
 		{"EventRetry", agentruntime.EventRetry},
 		{"EventUsage", agentruntime.EventUsage},

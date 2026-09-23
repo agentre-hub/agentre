@@ -97,6 +97,8 @@ export type StructuredRuntimeEvent = {
     | "toolPermissionResolved"
     | "execApprovalRequested"
     | "execApprovalResolved"
+    | "toolApprovalRequested"
+    | "toolApprovalResolved"
     | "subagentStarted"
     | "subagentProgress"
     | "subagentDone"
@@ -260,6 +262,16 @@ function encodeStructuredEvent(event: StructuredRuntimeEvent) {
           ...event,
           resolvedAtMs: BigInt(event.resolvedAtMs as number),
         } as never),
+      };
+    case "toolApprovalRequested":
+      return {
+        case: event.case,
+        value: create(pb.ToolApprovalRequestedSchema, event as never),
+      };
+    case "toolApprovalResolved":
+      return {
+        case: event.case,
+        value: create(pb.ToolApprovalResolvedSchema, event as never),
       };
     case "subagentStarted":
       return {

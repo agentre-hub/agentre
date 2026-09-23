@@ -111,6 +111,36 @@ func ProjectMessages(conversationID string, messages []*transcript_entity.Messag
 				}
 				continue
 			}
+			if message.Role == "assistant" && block.Type == "tool_approval" {
+				// 与 tool_permission 同一形态:请求一帧,终态再回填一帧。请求帧不带状态,
+				// 所以块从 pending 原地修补到终态时它的内容不变、不会被重发成第二张卡,
+				// 新增的只有同一块的决议帧。
+				var data transcriptblocks.ToolApprovalBlock
+				if err := json.Unmarshal(block.Data, &data); err != nil {
+					return nil, nil, err
+				}
+				// tool_input 另按原始字节读一遍:块类型把它解成 map[string]any,再编回去
+				// 会打乱键序、把大整数经 float64 改写 —— 对端拿到的应当是落库的原件。
+				var raw struct {
+					ToolInput json.RawMessage `json:"tool_input"`
+				}
+				if err := json.Unmarshal(block.Data, &raw); err != nil {
+					return nil, nil, err
+				}
+				var input json.RawMessage
+				if len(data.ToolInput) > 0 {
+					input = raw.ToolInput
+				}
+				if err := appendEvent(agentruntime.ToolApprovalRequested{ToolKey: data.ToolKey, RequestID: data.RequestID, ToolName: data.ToolName, ToolInput: input}); err != nil {
+					return nil, nil, err
+				}
+				if data.Status != "" && data.Status != "pending" {
+					if err := appendEvent(agentruntime.ToolApprovalResolved{RequestID: data.RequestID, Status: data.Status, Result: data.Result}); err != nil {
+						return nil, nil, err
+					}
+				}
+				continue
+			}
 			if event, ok, err := EventForStoredBlock(message, block); err != nil {
 				return nil, nil, err
 			} else if ok {
