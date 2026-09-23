@@ -162,6 +162,7 @@ func (s *projectSvc) Create(ctx context.Context, req *CreateProjectRequest) (*pr
 		return nil, err
 	}
 	sync_svc.NotifyCreate(ctx, syncwire.KindProject, p.ID, p.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 
 	// 初始成员 —— 失败不回滚（用户可以在设置里再加），但记日志。
 	for _, agentID := range req.InitialAgentIDs {
@@ -208,6 +209,7 @@ func (s *projectSvc) Update(ctx context.Context, req *UpdateProjectRequest) (*pr
 		return nil, err
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindProject, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	return existing, nil
 }
 
@@ -265,6 +267,7 @@ func (s *projectSvc) Move(ctx context.Context, req *MoveProjectRequest) (*projec
 		return nil, err
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindProject, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	return existing, nil
 }
 
@@ -314,6 +317,10 @@ func (s *projectSvc) SetLocalPath(ctx context.Context, id int64, path string) (*
 	if err := project_repo.Project().Update(ctx, existing); err != nil {
 		return nil, err
 	}
+	// 本机路径不参与跨端同步，但它照样是这台桌面端项目树要展示的字段——
+	// config:changed 与 sync_svc.NotifyUpdate 是两条独立的信号，前者不受「不同步」
+	// 的例外约束。
+	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	return existing, nil
 }
 
@@ -334,6 +341,7 @@ func (s *projectSvc) ClearLocalPath(ctx context.Context, id int64) (*project_ent
 	if err := project_repo.Project().Update(ctx, existing); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	return existing, nil
 }
 
@@ -370,6 +378,7 @@ func (s *projectSvc) Reorder(ctx context.Context, req *ReorderProjectsRequest) e
 	}
 	for _, sibling := range siblings {
 		sync_svc.NotifyUpdate(ctx, syncwire.KindProject, sibling.ID, sibling.SyncMeta)
+		sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	}
 	return nil
 }
@@ -380,6 +389,7 @@ func (s *projectSvc) Delete(ctx context.Context, id int64) error {
 		return err
 	}
 	sync_svc.Notify(ctx, deleted)
+	sync_svc.NotifyConfigChanged(deleted.Kind)
 	return nil
 }
 
@@ -501,6 +511,10 @@ func (s *projectSvc) AddMember(ctx context.Context, projectID, agentID int64) er
 		return err
 	}
 	notifyMemberChange(ctx, projectID, agentID, sync_svc.OpCreate)
+	// 成员关系没有自己的一份前端数据可刷——config:changed 报 KindProject（而不是内部
+	// 同步用的 KindProjectAgent），让组织页把这个项目的成员列表重拉一遍（command
+	// surface 的 `update project --add-member`）。
+	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	return nil
 }
 
@@ -514,6 +528,7 @@ func (s *projectSvc) RemoveMember(ctx context.Context, projectID, agentID int64)
 		return err
 	}
 	sync_svc.NotifyDelete(ctx, syncwire.KindProjectAgent, 0, meta)
+	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	return nil
 }
 

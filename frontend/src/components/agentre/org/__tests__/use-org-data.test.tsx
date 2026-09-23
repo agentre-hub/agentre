@@ -1,6 +1,24 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// config:changed / sync:applied 是「本机或另一台设备写完了这五类资源」的两条事件
+// （docs/specs/2026-09-22-agrctl-resource-management.md「Real-time refresh」）；组织页
+// 要在它们到达时就地重拉，不显示任何提示条或 loading 横幅。
+const runtimeHandlers = new Map<string, Set<(payload: unknown) => void>>();
+vi.mock("../../../../../wailsjs/runtime/runtime", () => ({
+  EventsOn: (name: string, cb: (payload: unknown) => void) => {
+    const set =
+      runtimeHandlers.get(name) ?? new Set<(payload: unknown) => void>();
+    set.add(cb);
+    runtimeHandlers.set(name, set);
+    return () => set.delete(cb);
+  },
+}));
+
+function emitRuntimeEvent(name: string) {
+  for (const cb of [...(runtimeHandlers.get(name) ?? [])]) cb(undefined);
+}
+
 import { useOrgData } from "../use-org-data";
 
 // App.js delegates to window.go.app.App at runtime, so we patch that directly.
@@ -104,5 +122,42 @@ describe("useOrgData", () => {
     });
 
     expect(vi.mocked(appMock.LoadOrg)).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["config:changed", "sync:applied"])(
+    "reloads silently (no loading flicker) when a %s event arrives",
+    async (eventName) => {
+      runtimeHandlers.clear();
+      installAppMock({
+        LoadOrg: vi.fn(() => Promise.resolve({ departments: [], agents: [] })),
+      });
+
+      const { result } = renderHook(() => useOrgData());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      vi.mocked(appMock.LoadOrg).mockClear();
+
+      act(() => {
+        emitRuntimeEvent(eventName);
+      });
+
+      await waitFor(() =>
+        expect(vi.mocked(appMock.LoadOrg)).toHaveBeenCalledTimes(1),
+      );
+      // 就地刷新：不回退到 loading 占位。
+      expect(result.current.loading).toBe(false);
+    },
+  );
+
+  it("Given the hook unmounts, When it goes away, Then its config:changed/sync:applied subscriptions go with it", () => {
+    runtimeHandlers.clear();
+    installAppMock({
+      LoadOrg: vi.fn(() => Promise.resolve({ departments: [], agents: [] })),
+    });
+
+    const { unmount } = renderHook(() => useOrgData());
+    unmount();
+
+    expect(runtimeHandlers.get("config:changed")?.size ?? 0).toBe(0);
+    expect(runtimeHandlers.get("sync:applied")?.size ?? 0).toBe(0);
   });
 });

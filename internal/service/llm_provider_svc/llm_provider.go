@@ -142,6 +142,7 @@ func (s *llmProviderSvc) Create(ctx context.Context, req *CreateProviderRequest)
 		return nil, err
 	}
 	sync_svc.NotifyCreate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
 	logger.Ctx(ctx).Info("llmProviderSvc.Create: provider created",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -222,6 +223,7 @@ func (s *llmProviderSvc) Update(ctx context.Context, req *UpdateProviderRequest)
 		return nil, err
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
 	logger.Ctx(ctx).Info("llmProviderSvc.Update: provider updated",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -263,6 +265,7 @@ func (s *llmProviderSvc) SetProviderEnabled(ctx context.Context, req *SetProvide
 		return nil, err
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
 	logger.Ctx(ctx).Info("llmProviderSvc.SetProviderEnabled: provider toggled",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -296,6 +299,7 @@ func (s *llmProviderSvc) Delete(ctx context.Context, req *DeleteProviderRequest)
 		return nil, err
 	}
 	sync_svc.NotifyDelete(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
 	logger.Ctx(ctx).Info("llmProviderSvc.Delete: provider deleted",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -401,6 +405,7 @@ func (s *llmProviderSvc) ImportModels(ctx context.Context, req *ImportModelsRequ
 		items = append(items, toModelItem(row, p))
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
 	logger.Ctx(ctx).Info("llmProviderSvc.ImportModels: models imported",
 		zap.Int64("providerID", p.ID),
 		zap.Int("imported", len(toImport)),
@@ -471,6 +476,7 @@ func (s *llmProviderSvc) UpdateModel(ctx context.Context, req *UpdateModelReques
 		return nil, err
 	}
 	s.notifyProviderUpdate(ctx, m.ProviderID)
+	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
 	logger.Ctx(ctx).Info("llmProviderSvc.UpdateModel: model updated",
 		zap.Int64("id", m.ID),
 		zap.String("modelKey", m.ModelKey),
@@ -523,6 +529,7 @@ func (s *llmProviderSvc) SetModelDefault(ctx context.Context, req *SetModelDefau
 		return nil, err
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
 	logger.Ctx(ctx).Info("llmProviderSvc.SetModelDefault: default model set",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -560,6 +567,7 @@ func (s *llmProviderSvc) SetModelEnabled(ctx context.Context, req *SetModelEnabl
 		return nil, err
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
 	logger.Ctx(ctx).Info("llmProviderSvc.SetModelEnabled: model toggled",
 		zap.Int64("id", m.ID),
 		zap.String("modelKey", m.ModelKey),
@@ -600,6 +608,7 @@ func (s *llmProviderSvc) DeleteModel(ctx context.Context, req *DeleteModelReques
 		return nil, err
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
 	logger.Ctx(ctx).Info("llmProviderSvc.DeleteModel: model deleted",
 		zap.Int64("id", m.ID),
 		zap.String("modelKey", m.ModelKey),

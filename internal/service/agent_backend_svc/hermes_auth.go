@@ -219,6 +219,7 @@ func (s *agentBackendSvc) LogoutHermes(ctx context.Context, req *LogoutHermesReq
 				return nil, err
 			}
 			sync_svc.NotifyUpdate(ctx, syncwire.KindAgentBackend, row.ID, row.SyncMeta)
+			sync_svc.NotifyConfigChanged(syncwire.KindAgentBackend)
 		}
 	}
 	if base, err := agent_backend_entity.NormalizeHermesURL(rawURL); err == nil && base != "" {

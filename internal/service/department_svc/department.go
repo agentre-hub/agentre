@@ -283,6 +283,7 @@ func (s *departmentSvc) Create(ctx context.Context, req *CreateDepartmentRequest
 		return nil, err
 	}
 	sync_svc.NotifyCreate(ctx, syncwire.KindDepartment, d.ID, d.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindDepartment)
 	return &CreateDepartmentResponse{Item: toDepartmentItem(d, nil, 0, 0, 0)}, nil
 }
 
@@ -327,6 +328,7 @@ func (s *departmentSvc) Update(ctx context.Context, req *UpdateDepartmentRequest
 		return nil, err
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindDepartment, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindDepartment)
 	return &UpdateDepartmentResponse{Item: toDepartmentItem(existing, nil, 0, 0, 0)}, nil
 }
 
@@ -373,6 +375,7 @@ func (s *departmentSvc) Move(ctx context.Context, req *MoveDepartmentRequest) (*
 		return nil, err
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindDepartment, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindDepartment)
 	return &MoveDepartmentResponse{Item: toDepartmentItem(existing, nil, 0, 0, 0)}, nil
 }
 
@@ -410,6 +413,7 @@ func (s *departmentSvc) Reorder(ctx context.Context, req *ReorderDepartmentsRequ
 	}
 	for _, sibling := range siblings {
 		sync_svc.NotifyUpdate(ctx, syncwire.KindDepartment, sibling.ID, sibling.SyncMeta)
+		sync_svc.NotifyConfigChanged(syncwire.KindDepartment)
 	}
 	return nil
 }
@@ -512,15 +516,19 @@ func (s *departmentSvc) Delete(ctx context.Context, req *DeleteDepartmentRequest
 	}
 	for _, a := range movedAgents {
 		sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, a.ID, a.SyncMeta)
+		sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	}
 	for _, a := range deletedAgents {
 		sync_svc.NotifyDelete(ctx, syncwire.KindAgent, a.ID, a.SyncMeta)
+		sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	}
 	for _, d := range deletedDepts {
 		sync_svc.NotifyDelete(ctx, syncwire.KindDepartment, d.ID, d.SyncMeta)
+		sync_svc.NotifyConfigChanged(syncwire.KindDepartment)
 	}
 	if !containsDepartment(deletedDepts, existing.ID) {
 		sync_svc.NotifyDelete(ctx, syncwire.KindDepartment, existing.ID, existing.SyncMeta)
+		sync_svc.NotifyConfigChanged(syncwire.KindDepartment)
 	}
 	return &DeleteDepartmentResponse{}, nil
 }

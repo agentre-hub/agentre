@@ -151,6 +151,15 @@ func (a *App) Startup(ctx context.Context) {
 	}
 	bootstrap.SyncBoot(context.Background())
 
+	// 本机写入五类资源（provider/model、backend、project、department、agent）成功后
+	// 就喊一声 config:changed，组织页 / 提供方设置 / 后端设置 / 侧边栏据此就地重拉。
+	// 与上面的 sync_svc.SetEmitter 不同，这条不看登录态——Wails、orgtool、ctl 三条
+	// 写入路径都从域服务里直接调用它（docs/specs/2026-09-22-agrctl-resource-management.md
+	// 「Real-time refresh」、design decision 11）。
+	sync_svc.SetConfigChangeEmitter(func(kinds []string) {
+		wailsruntime.EventsEmit(a.ctx, sync_svc.ConfigChangedEvent, kinds)
+	})
+
 	// Remote device watcher：注入 wails 事件 emitter,Boot 拉起所有 ACTIVE 设备的 watcher。
 	// 顺带把 device online/offline 事件接到 cc_usage_svc(动态起/停 per-device 配额 ticker)。
 	remoteDeviceEmit := watcher.EmitterFunc(func(p watcher.StateEvent) {

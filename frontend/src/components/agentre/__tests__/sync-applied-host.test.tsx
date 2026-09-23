@@ -48,4 +48,20 @@ describe("SyncAppliedHost", () => {
 
     expect(offCalls).toContain("sync:applied");
   });
+
+  it("Given the host is mounted, When a local write reports config:changed, Then the sidebar sources reload too", () => {
+    render(<SyncAppliedHost />);
+
+    handlers.get("config:changed")?.(["project"]);
+
+    expect(reloadSidebarSources).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given the host unmounts, When it goes away, Then it takes the config:changed subscription with it too", () => {
+    const view = render(<SyncAppliedHost />);
+
+    view.unmount();
+
+    expect(offCalls).toContain("config:changed");
+  });
 });

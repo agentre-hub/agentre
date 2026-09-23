@@ -355,6 +355,7 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 		}
 	}
 	sync_svc.NotifyCreate(ctx, syncwire.KindAgentBackend, b.ID, b.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgentBackend)
 	return &CreateBackendResponse{Item: s.toItem(ctx, b, provider)}, nil
 }
 
@@ -469,6 +470,7 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 		}
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindAgentBackend, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgentBackend)
 	return &UpdateBackendResponse{Item: s.toItem(ctx, existing, provider)}, nil
 }
 
@@ -932,6 +934,7 @@ func (s *agentBackendSvc) Delete(ctx context.Context, req *DeleteBackendRequest)
 	// 凭据在后端绑定的那台设备上，尽力清除；设备离线不挡删除。
 	s.clearCredentialOnBoundDevice(ctx, existing)
 	sync_svc.NotifyDelete(ctx, syncwire.KindAgentBackend, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgentBackend)
 	return &DeleteBackendResponse{}, nil
 }
 

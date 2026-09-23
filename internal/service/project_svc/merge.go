@@ -50,6 +50,10 @@ func (s *projectSvc) Merge(ctx context.Context, req *MergeProjectsRequest) (*pro
 	for _, ch := range changes {
 		sync_svc.Notify(ctx, ch)
 	}
+	// Merge 落库成功后 keep/drop 两行都变了（drop 软删、keep 借道路径/改挂引用）；
+	// 五类资源里它触到的只有 project，其余 changes（issue、project_location…）不在
+	// 这五类之列，不发。
+	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	return keep, nil
 }
 

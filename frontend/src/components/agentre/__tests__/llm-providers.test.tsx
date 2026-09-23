@@ -29,6 +29,29 @@ const appMocks = vi.hoisted(() => ({
 
 vi.mock("../../../../wailsjs/go/app/App", () => appMocks);
 
+// config:changed / sync:applied 是「本机或另一台设备写完了这五类资源」的两条事件
+// （docs/specs/2026-09-22-agrctl-resource-management.md「Real-time refresh」）；面板
+// 要在它们到达时就地重拉，不显示任何提示条或 loading 横幅。
+const runtimeMocks = vi.hoisted(() => {
+  const handlers = new Map<string, Set<(payload: unknown) => void>>();
+  return {
+    handlers,
+    EventsOn: vi.fn((event: string, cb: (payload: unknown) => void) => {
+      const set = handlers.get(event) ?? new Set<(payload: unknown) => void>();
+      set.add(cb);
+      handlers.set(event, set);
+      return () => set.delete(cb);
+    }),
+    emit(event: string, payload: unknown) {
+      for (const cb of [...(handlers.get(event) ?? [])]) cb(payload);
+    },
+  };
+});
+
+vi.mock("../../../../wailsjs/runtime/runtime", () => ({
+  EventsOn: runtimeMocks.EventsOn,
+}));
+
 vi.mock("../../../../wailsjs/go/models", () => {
   class ModelClass {
     static createFrom(source: Record<string, unknown> = {}) {
@@ -2629,4 +2652,28 @@ describe("LlmProvidersPanel", () => {
       screen.getByRole("checkbox", { name: "Select all models" }),
     ).toBeInTheDocument();
   });
+
+  it.each(["config:changed", "sync:applied"])(
+    "Given the panel is mounted, When a %s event arrives, Then it silently reloads providers and models without a banner or loading placeholder",
+    async (eventName) => {
+      const mocks = installAppMock({
+        ListLLMProviders: vi.fn(() =>
+          Promise.resolve({ items: [makeProvider()] }),
+        ),
+        ListLLMModels: vi.fn(() => Promise.resolve({ items: [makeModel()] })),
+      });
+      render(<LlmProvidersPanel />);
+      await waitForModelTable(/Anthropic models/);
+      vi.mocked(mocks.ListLLMProviders).mockClear();
+      vi.mocked(mocks.ListLLMModels).mockClear();
+
+      runtimeMocks.emit(eventName, ["llm_provider"]);
+
+      await waitFor(() => expect(mocks.ListLLMProviders).toHaveBeenCalled());
+      await waitFor(() => expect(mocks.ListLLMModels).toHaveBeenCalled());
+      // 就地刷新：模型表还在，没有回退到 loading 占位或提示条。
+      await waitForModelTable(/Anthropic models/);
+      expect(screen.queryByText(/loading/i)).toBeNull();
+    },
+  );
 });

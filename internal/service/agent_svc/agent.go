@@ -98,6 +98,7 @@ func (s *agentSvc) Create(ctx context.Context, req *CreateAgentRequest) (*Create
 	}
 	// 执行目标行随 Agent 的写入路径一起变化，级联在同步层展开（R15/R15e）。
 	sync_svc.NotifyCreate(ctx, syncwire.KindAgent, a.ID, a.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	targets, _ := execTargetSnapshot(ctx, a.ID)
 	return &CreateAgentResponse{Item: toItem(a, targets)}, nil
 }
@@ -153,6 +154,7 @@ func (s *agentSvc) Update(ctx context.Context, req *UpdateAgentRequest) (*Update
 	targetsAfter, afterOK := execTargetSnapshot(ctx, existing.ID)
 	notifyDroppedExecTargets(ctx, targetsBefore, targetsAfter, beforeOK && afterOK)
 	sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	return &UpdateAgentResponse{Item: toItem(existing, targetsAfter)}, nil
 }
 
@@ -236,6 +238,7 @@ func (s *agentSvc) Move(ctx context.Context, req *MoveAgentRequest) (*MoveAgentR
 	existing.ParentAgentID = req.NewParentAgentID
 	existing.SortOrder = sortOrder
 	sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	targets, _ := execTargetSnapshot(ctx, existing.ID)
 	return &MoveAgentResponse{Item: toItem(existing, targets)}, nil
 }
@@ -283,6 +286,7 @@ func (s *agentSvc) Reorder(ctx context.Context, req *ReorderAgentsRequest) error
 	}
 	for _, sibling := range siblings {
 		sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, sibling.ID, sibling.SyncMeta)
+		sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	}
 	return nil
 }
@@ -313,6 +317,7 @@ func (s *agentSvc) Delete(ctx context.Context, req *DeleteAgentRequest) (*Delete
 	}
 	// 成员关系与执行目标列表项随它一并落墓碑，级联在同步层展开（R6）。
 	sync_svc.NotifyDelete(ctx, syncwire.KindAgent, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	return &DeleteAgentResponse{}, nil
 }
 
@@ -335,6 +340,7 @@ func (s *agentSvc) UploadAvatar(ctx context.Context, req *UploadAvatarRequest) (
 	// R16a：头像正文按内容哈希单独传，但「换了头像」本身是 Agent 行的一次普通修改，
 	// 必须照常触发上行 —— 不发这条通知，新头像要等用户碰巧改了别的字段才到对端。
 	sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	targets, _ := execTargetSnapshot(ctx, existing.ID)
 	return &UploadAvatarResponse{Item: toItem(existing, targets)}, nil
 }
@@ -354,6 +360,7 @@ func (s *agentSvc) DeleteAvatar(ctx context.Context, req *DeleteAvatarRequest) (
 	}
 	// 同 UploadAvatar：清掉自定义头像也是一次内容变化（R16a）。
 	sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	targets, _ := execTargetSnapshot(ctx, existing.ID)
 	return &DeleteAvatarResponse{Item: toItem(existing, targets)}, nil
 }
@@ -372,6 +379,7 @@ func (s *agentSvc) SetPinned(ctx context.Context, req *SetPinnedRequest) (*SetPi
 		return nil, err
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	return &SetPinnedResponse{ID: existing.ID, Pinned: req.Pinned}, nil
 }
 

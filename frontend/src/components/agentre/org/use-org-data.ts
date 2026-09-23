@@ -23,6 +23,7 @@ import type {
   agent_svc,
   department_svc,
 } from "../../../../wailsjs/go/models";
+import { EventsOn } from "../../../../wailsjs/runtime/runtime";
 
 import type { OrgAgent, OrgDepartment } from "./types";
 import { applyAgentOrder, applyDepartmentOrder } from "./reorder";
@@ -71,6 +72,22 @@ export function useOrgData() {
   React.useEffect(() => {
     setState((s) => ({ ...s, loading: true }));
     void reload();
+  }, [reload]);
+
+  // config:changed（本机写入）/ sync:applied（多端同步落地）到达时就地重拉——用不
+  // 带 loading 置位的 `reload`，页面不会因为一次后台刷新回退到加载占位或提示条
+  // （docs/specs/2026-09-22-agrctl-resource-management.md「Real-time refresh」）。
+  React.useEffect(() => {
+    const offConfigChanged = EventsOn("config:changed", () => {
+      void reload();
+    });
+    const offSyncApplied = EventsOn("sync:applied", () => {
+      void reload();
+    });
+    return () => {
+      offConfigChanged();
+      offSyncApplied();
+    };
   }, [reload]);
 
   const mutate = React.useCallback(
