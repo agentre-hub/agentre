@@ -1881,6 +1881,15 @@ message CtlWriteRequest {
   CtlCaller caller = 10;
   // 完整命令行（密钥值已替换为 …），供审批卡展示。
   string command = 11;
+  // 仅 EXTERNAL：调用方进程信息，供桌面审批弹窗展示；只作提示，不作为信任依据。
+  CtlCallerInfo caller_info = 12;
+}
+
+// CtlCallerInfo 是 agrctl 上报的调用方进程：父进程名（取不到为空）、父进程 pid、工作目录。
+message CtlCallerInfo {
+  string parent_process = 1;
+  int64 pid = 2;
+  string cwd = 3;
 }
 
 // CtlFieldChange 是一个字段的变更；before/after 缺席表示「没有」（创建时无 before，

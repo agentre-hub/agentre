@@ -267,6 +267,7 @@ func (h *ctlHandler) approveInDesktop(w http.ResponseWriter, r *http.Request, pl
 	ch, err := h.external.Enqueue(r.Context(), ExternalApproval{
 		RequestID: requestID,
 		Input:     approvalInput(plan.command, plan.change, plan.cascade),
+		Caller:    callerInfoOf(plan.req.GetCallerInfo()),
 	})
 	if err != nil {
 		writeErr(w, http.StatusServiceUnavailable, "cannot ask for approval in the Agentre desktop: "+err.Error())
@@ -284,4 +285,12 @@ func (h *ctlHandler) approveInDesktop(w http.ResponseWriter, r *http.Request, pl
 	case outcomeGone:
 		h.external.Withdraw(requestID)
 	}
+}
+
+// callerInfoOf 把 agrctl 上报的调用方进程信息原样搬进审批项；没报就没有这一行。
+func callerInfoOf(info *agentrewire.CtlCallerInfo) *CallerInfo {
+	if info == nil {
+		return nil
+	}
+	return &CallerInfo{ParentProcess: info.GetParentProcess(), Pid: info.GetPid(), WorkingDir: info.GetCwd()}
 }

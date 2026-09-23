@@ -26,12 +26,8 @@ type SessionApprovals interface {
 type ExternalApproval struct {
 	RequestID string
 	Input     blocks.CtlApprovalInput
-	// Caller 是调用方进程信息，只作提示、不作为信任依据（spec「外部调用的审批弹窗」）。
-	//
-	// 目前恒为 nil：CtlWriteRequest（pkg/wire/proto/agentre/wire/wire.proto）只带
-	// caller 分类枚举和抹掉密钥的 command，agrctl（internal/cli/ctlcmd）并没有上报
-	// 父进程名/pid/工作目录。要显示真实值，得先在那条请求里补上这些字段——这里先把
-	// 展示这一端接好，字段留空不影响其它审批行为。
+	// Caller 是 agrctl 上报的调用方进程信息（CtlWriteRequest.caller_info），只作提示、
+	// 不作为信任依据（spec「外部调用的审批弹窗」）；没上报时为 nil。
 	Caller *CallerInfo
 }
 

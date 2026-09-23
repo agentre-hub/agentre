@@ -144,6 +144,9 @@ func runWrite(verb string, args []string, s *sys) error {
 		s: s, cat: cat, spec: spec, doc: newDoc(spec.kind), fieldOwner: map[string]string{},
 		req: &agentrewire.CtlWriteRequest{Op: op, Kind: spec.kind, Caller: cat.caller(s), Command: commandLine(args)},
 	}
+	if w.req.Caller == agentrewire.CtlCaller_CTL_CALLER_EXTERNAL {
+		w.req.CallerInfo = reportCaller()
+	}
 	label := ""
 	if op != agentrewire.CtlOp_CTL_OP_CREATE {
 		w.target, err = cat.locate(spec, p.positional[0])

@@ -637,6 +637,34 @@ func TestWrite_GivenExternalCallerWhenDesktopApprovesThenExecute(t *testing.T) {
 	assert.Equal(t, int64(6), f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).onlyWrite(t, "update").Next.GetAgent().GetDepartmentId())
 }
 
+func TestWrite_GivenExternalCallerWithCallerInfoThenQueueCarriesItUnchanged(t *testing.T) {
+	f := newWriteFixture()
+	yes := true
+	f.desktop.autoAnswer = &yes
+	body := writeBody(t, &agentrewire.CtlWriteRequest{
+		Op: agentrewire.CtlOp_CTL_OP_UPDATE, Kind: agentrewire.CtlKind_CTL_KIND_AGENT, Id: 12,
+		Caller:     agentrewire.CtlCaller_CTL_CALLER_EXTERNAL,
+		CallerInfo: &agentrewire.CtlCallerInfo{ParentProcess: "codex", Pid: 48213, Cwd: "/Users/me/Code/agentre"},
+		Command:    "agrctl update agent reviewer --department qa",
+		Resource:   agentDocRes(&agentrewire.CtlAgent{DepartmentId: 6}),
+		Fields:     []string{"departmentId"},
+	})
+	status, resp, _ := realPost(t, f.h, testToken, body)
+	decodeWrite(t, status, resp)
+	require.Len(t, f.desktop.queued, 1)
+	assert.Equal(t, &CallerInfo{ParentProcess: "codex", Pid: 48213, WorkingDir: "/Users/me/Code/agentre"}, f.desktop.queued[0].Caller)
+}
+
+func TestWrite_GivenExternalCallerWithoutCallerInfoThenNoCallerRow(t *testing.T) {
+	f := newWriteFixture()
+	yes := true
+	f.desktop.autoAnswer = &yes
+	status, resp, _ := realPost(t, f.h, testToken, externalWrite(t))
+	decodeWrite(t, status, resp)
+	require.Len(t, f.desktop.queued, 1)
+	assert.Nil(t, f.desktop.queued[0].Caller)
+}
+
 func TestWrite_GivenExternalCallerWhenDesktopRejectsThenNothingWritten(t *testing.T) {
 	f := newWriteFixture()
 	go f.answerWhenQueued(false)

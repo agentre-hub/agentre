@@ -603,6 +603,37 @@ func TestApproval_GivenExecutorFailsBeforeApprovalThenNoWaitingLine(t *testing.T
 	}
 }
 
+func TestCaller_GivenExternalCallerThenReportsParentPidAndCwd(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"update", "agent", "reviewer", "--description", "x"}, handshakeEnv(t, srv), term{tty: false})
+	wantCode(t, r, 0)
+	info := f.onlyWrite(t).GetCallerInfo()
+	wd, _ := os.Getwd()
+	if info == nil || info.GetPid() != int64(os.Getppid()) || info.GetCwd() != wd {
+		t.Fatalf("callerInfo = %v, want pid %d cwd %q", info, os.Getppid(), wd)
+	}
+}
+
+func TestCaller_GivenHumanOrSessionCallerThenNoCallerInfo(t *testing.T) {
+	for name, tc := range map[string]struct {
+		session bool
+		tty     bool
+	}{"human": {tty: true}, "session": {session: true}} {
+		t.Run(name, func(t *testing.T) {
+			f, srv := newFakeExecutor(t, tok)
+			env := handshakeEnv(t, srv)
+			if tc.session {
+				env = envFor(srv, tok)
+			}
+			r := runWith([]string{"update", "agent", "reviewer", "--description", "x"}, env, term{tty: tc.tty})
+			wantCode(t, r, 0)
+			if info := f.onlyWrite(t).GetCallerInfo(); info != nil {
+				t.Fatalf("callerInfo = %v, want none for a %s caller", info, name)
+			}
+		})
+	}
+}
+
 func TestCaller_GivenHandshakeTokenOnTTYThenHumanCallerWithoutWaiting(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
 	r := runWith([]string{"update", "agent", "reviewer", "--description", "x"}, handshakeEnv(t, srv), term{tty: true})
