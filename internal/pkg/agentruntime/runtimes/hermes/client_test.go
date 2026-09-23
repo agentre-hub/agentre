@@ -2,6 +2,7 @@ package hermes
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -290,4 +291,65 @@ func TestProbe_GivenReadyGateway_ThenNamesEndpoint(t *testing.T) {
 func TestProbe_GivenNoURL_ThenError(t *testing.T) {
 	_, err := Probe(context.Background(), ProbeRequest{})
 	require.Error(t, err)
+}
+
+// capabilitiesServer answers every client request on the connection and
+// records the frames it received; replyErr makes it refuse client.capabilities.
+func capabilitiesServer(t *testing.T, replyErr bool, received chan<- map[string]any) *httptest.Server {
+	t.Helper()
+	return newHermesTestServer(t, "tok", func(conn *websocket.Conn) {
+		writeReady(t, conn)
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var frame map[string]any
+			if json.Unmarshal(message, &frame) != nil {
+				continue
+			}
+			received <- frame
+			id, _ := json.Marshal(frame["id"])
+			reply := `{"jsonrpc":"2.0","id":` + string(id) + `,"result":{}}`
+			if replyErr {
+				reply = `{"jsonrpc":"2.0","id":` + string(id) + `,"error":{"code":-32601,"message":"method not found"}}`
+			}
+			_ = conn.WriteMessage(websocket.TextMessage, []byte(reply))
+		}
+	})
+}
+
+// Hermes only sends server->client requests (approval, clarify, ...) to a
+// connection that advertised them once, after gateway.ready.
+func TestDefaultSessionFactory_DeclaresServerRequestsOncePerConnection(t *testing.T) {
+	received := make(chan map[string]any, 8)
+	server := capabilitiesServer(t, false, received)
+
+	sess, err := defaultSessionFactory(context.Background(), sessionSpec{URL: server.URL})
+	require.NoError(t, err)
+	defer func() { _ = sess.Close(context.Background()) }()
+
+	select {
+	case frame := <-received:
+		assert.Equal(t, "client.capabilities", frame["method"])
+		assert.Equal(t, map[string]any{"server_requests": true}, frame["params"])
+	case <-time.After(2 * time.Second):
+		t.Fatal("the connection never declared client.capabilities")
+	}
+	select {
+	case frame := <-received:
+		t.Fatalf("client.capabilities must be sent once per connection, then got %v", frame["method"])
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestDefaultSessionFactory_GivenCapabilitiesRefused_ThenDialFails(t *testing.T) {
+	received := make(chan map[string]any, 8)
+	server := capabilitiesServer(t, true, received)
+
+	sess, err := defaultSessionFactory(context.Background(), sessionSpec{URL: server.URL})
+
+	require.Error(t, err)
+	assert.Nil(t, sess)
+	assert.Contains(t, err.Error(), "client.capabilities")
 }

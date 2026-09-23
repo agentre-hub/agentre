@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { TooltipProvider } from "../ui/tooltip";
@@ -33,6 +33,7 @@ type NoticeBlock = {
   modelName?: string;
   noticeKind?: string;
   reasoningEffort?: string;
+  noticePurpose?: string;
 };
 
 function noticeRow(block: NoticeBlock): TranscriptRow {
@@ -249,5 +250,64 @@ describe("transcript notice block", () => {
         i18n.t("chat.notice.reasoningEffortSwitch.followBackend"),
       ),
     ).toBeInTheDocument();
+  });
+
+  it("Given a Hermes unsupported-request notice, When it carries a purpose, Then it reads out a readable purpose sentence（spec 2026-09-17）", () => {
+    // 后端只给结构化的 noticeKind + noticePurpose（从不是协议方法名或原始
+    // 参数）——渲染层必须把 purpose 走 i18n 翻成人话再拼进句子模板。
+    renderRow(
+      noticeRow({
+        noticeKind: "hermes_unsupported_request",
+        noticePurpose: "sudo_password",
+      }),
+    );
+
+    expect(
+      screen.getByText(
+        i18n.t("chat.notice.hermesUnsupportedRequest.sentence", {
+          purpose: i18n.t(
+            "chat.notice.hermesUnsupportedRequest.purpose.sudo_password",
+          ),
+        }),
+      ),
+    ).toBeInTheDocument();
+    // 协议方法名（"sudo"，不是 "sudo_password" 这个分类值）绝不能出现在界面上。
+    expect(screen.queryByText(/^sudo$/)).not.toBeInTheDocument();
+  });
+
+  it("Given a Hermes notice for a method Agentre does not recognize, When rendered, Then the purpose reads as translated copy, not the raw key", () => {
+    renderRow(
+      noticeRow({
+        noticeKind: "hermes_unsupported_request",
+        noticePurpose: "unknown",
+      }),
+    );
+
+    const purpose = i18n.t(
+      "chat.notice.hermesUnsupportedRequest.purpose.unknown",
+    );
+    expect(purpose).not.toContain("hermesUnsupportedRequest");
+    expect(
+      screen.getByText(
+        i18n.t("chat.notice.hermesUnsupportedRequest.sentence", { purpose }),
+      ),
+    ).toBeInTheDocument();
+  });
+  it("Given a Hermes notice whose purpose this build does not know (newer sender, or none), When rendered, Then it reads as the unknown-purpose sentence, never a raw i18n key", () => {
+    // 用途是一张封闭词表，但发送方可能比渲染方新（对端 / 控制台版本错位），
+    // 也可能缺席 —— 这时拼出来的 key 查不到，i18next 会把 key 原样吐到界面上。
+    const sentence = i18n.t("chat.notice.hermesUnsupportedRequest.sentence", {
+      purpose: i18n.t("chat.notice.hermesUnsupportedRequest.purpose.unknown"),
+    });
+    for (const noticePurpose of ["clipboard_read", undefined]) {
+      cleanup();
+      renderRow(
+        noticeRow({ noticeKind: "hermes_unsupported_request", noticePurpose }),
+      );
+      expect(screen.getByText(sentence)).toBeInTheDocument();
+      expect(
+        screen.queryByText(/hermesUnsupportedRequest/),
+      ).not.toBeInTheDocument();
+    }
   });
 });

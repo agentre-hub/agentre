@@ -238,15 +238,11 @@ func registerLegacyTestMethods(reg *protorpc.Registry, legacy legacyTestPort) {
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER), func() *agentrewire.RuntimeSubmitAnswerRequest { return &agentrewire.RuntimeSubmitAnswerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeSubmitAnswerRequest) (*agentrewire.PeerSessionControlResponse, error) {
 		var out wire.PeerSessionControlResult
 		params := wire.SubmitAnswerParams{ConversationID: req.GetConversationId(), PeerFingerprint: devicefp.Initiator(req.GetPeerFingerprint()), RequestID: req.GetRequestId(), Skipped: req.GetSkipped()}
-		for _, question := range req.GetQuestions() {
-			value := agentruntime.AskQuestion{ID: question.GetId(), Question: question.GetQuestion(), Header: question.GetHeader(), MultiSelect: question.GetMultiSelect(), IsOther: question.GetIsOther(), IsSecret: question.GetIsSecret()}
-			for _, option := range question.GetOptions() {
-				value.Options = append(value.Options, agentruntime.AskOption{Label: option.GetLabel(), Description: option.GetDescription(), Preview: option.GetPreview()})
-			}
-			params.Questions = append(params.Questions, value)
+		if len(req.GetQuestions()) > 0 {
+			params.Questions = protowire.AskQuestionsFromProto(req.GetQuestions())
 		}
-		for _, answer := range req.GetAnswers() {
-			params.Answers = append(params.Answers, agentruntime.AskAnswer{QuestionIndex: int(answer.GetQuestionIndex()), Labels: append([]string(nil), answer.GetLabels()...), OtherText: answer.GetOtherText()})
+		if len(req.GetAnswers()) > 0 {
+			params.Answers = protowire.AskAnswersFromProto(req.GetAnswers())
 		}
 		if err := legacy.Call(ctx, wire.MethodSubmitAnswer, params, &out); err != nil {
 			return nil, testRPCError(err)

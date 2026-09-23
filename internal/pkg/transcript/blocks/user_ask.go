@@ -34,15 +34,16 @@ func (UserAskBlock) Audience() cagoblocks.AudienceMask { return cagoblocks.ToUI 
 func init() { cagoblocks.RegisterFactory[UserAskBlock]() }
 
 // AskQuestionDTO / AskOptionDTO / AskAnswerDTO 是 wire/persistence schema,
-// 与 agentruntime.AskQuestion 等同形。
+// 与 agentruntime.AskQuestion 等同形(DisallowOther / IsSecret 的语义见那里)。
 type AskQuestionDTO struct {
-	ID          string         `json:"id,omitempty"`
-	Question    string         `json:"question"`
-	Header      string         `json:"header,omitempty"`
-	MultiSelect bool           `json:"multiSelect,omitempty"`
-	IsOther     bool           `json:"isOther,omitempty"`
-	IsSecret    bool           `json:"isSecret,omitempty"`
-	Options     []AskOptionDTO `json:"options"`
+	ID            string         `json:"id,omitempty"`
+	Question      string         `json:"question"`
+	Header        string         `json:"header,omitempty"`
+	MultiSelect   bool           `json:"multiSelect,omitempty"`
+	IsOther       bool           `json:"isOther,omitempty"`
+	IsSecret      bool           `json:"isSecret,omitempty"`
+	DisallowOther bool           `json:"disallowOther,omitempty"`
+	Options       []AskOptionDTO `json:"options"`
 }
 
 type AskOptionDTO struct {
@@ -72,13 +73,14 @@ func QuestionsFromRuntime(qs []agentruntime.AskQuestion) []AskQuestionDTO {
 			})
 		}
 		out = append(out, AskQuestionDTO{
-			ID:          q.ID,
-			Question:    q.Question,
-			Header:      q.Header,
-			MultiSelect: q.MultiSelect,
-			IsOther:     q.IsOther,
-			IsSecret:    q.IsSecret,
-			Options:     opts,
+			ID:            q.ID,
+			Question:      q.Question,
+			Header:        q.Header,
+			MultiSelect:   q.MultiSelect,
+			IsOther:       q.IsOther,
+			IsSecret:      q.IsSecret,
+			DisallowOther: q.DisallowOther,
+			Options:       opts,
 		})
 	}
 	return out

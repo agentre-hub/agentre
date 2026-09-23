@@ -107,6 +107,12 @@ const (
 	// 判别值与块类型同名(cago blocks.ImageBlock.Type() == "image"):两张词表本就不同,
 	// 而同一样东西在两处叫同一个名字,比为了避嫌另起一个更不容易读错。
 	EventImage EventKind = "image"
+	// EventUnsupportedRequestNotice backend 自己无卡承接的反向请求已在传输层立即
+	// 答复(如 Hermes sudo/secret/vault.* — 见 hermes/frame.go 的
+	// unsupportedServerRequests)后 emit,只携带一个只读用途分类(event.go 的
+	// UnsupportedRequestPurpose),从不携带协议方法名或原始参数(spec 2026-09-17
+	// "Unsupported Hermes requests")。chat_svc 据此在转录里插入一条提示。
+	EventUnsupportedRequestNotice EventKind = "unsupported_request_notice"
 )
 
 // SubagentInfo 是 runtime 层的 backend-neutral subagent 快照，由 EventSubagent*

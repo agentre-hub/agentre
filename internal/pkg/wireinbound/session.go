@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/agentre-hub/agentre/internal/pkg/activityrollup"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
@@ -297,15 +296,7 @@ func RuntimeCancelSteerResponseOf(result remotewire.CancelSteerResult) *agentrew
 
 // SubmitAnswerParamsOf 解出一次提问的答复。
 func SubmitAnswerParamsOf(request *agentrewire.RuntimeSubmitAnswerRequest) remotewire.SubmitAnswerParams {
-	questions := make([]agentruntime.AskQuestion, 0, len(request.GetQuestions()))
-	for _, question := range request.GetQuestions() {
-		questions = append(questions, askQuestionFromProto(question))
-	}
-	answers := make([]agentruntime.AskAnswer, 0, len(request.GetAnswers()))
-	for _, answer := range request.GetAnswers() {
-		answers = append(answers, agentruntime.AskAnswer{QuestionIndex: int(answer.GetQuestionIndex()), Labels: append([]string(nil), answer.GetLabels()...), OtherText: answer.GetOtherText()})
-	}
-	return remotewire.SubmitAnswerParams{ConversationID: request.GetConversationId(), PeerFingerprint: devicefp.Initiator(request.GetPeerFingerprint()), RequestID: request.GetRequestId(), Questions: questions, Answers: answers, Skipped: request.GetSkipped()}
+	return remotewire.SubmitAnswerParams{ConversationID: request.GetConversationId(), PeerFingerprint: devicefp.Initiator(request.GetPeerFingerprint()), RequestID: request.GetRequestId(), Questions: protowire.AskQuestionsFromProto(request.GetQuestions()), Answers: protowire.AskAnswersFromProto(request.GetAnswers()), Skipped: request.GetSkipped()}
 }
 
 // SubmitToolPermissionParamsOf 解出一次工具授权的答复。
@@ -324,14 +315,6 @@ func PeerSessionControlResponseOf(result remotewire.PeerSessionControlResult) *a
 // SetPermissionModeParamsOf 解出要切到哪一档权限模式。
 func SetPermissionModeParamsOf(request *agentrewire.RuntimeSetPermissionModeRequest) remotewire.SetPermissionModeParams {
 	return remotewire.SetPermissionModeParams{ConversationID: request.GetConversationId(), PeerFingerprint: devicefp.Initiator(request.GetPeerFingerprint()), Mode: request.GetMode()}
-}
-
-func askQuestionFromProto(question *agentrewire.AskQuestion) agentruntime.AskQuestion {
-	result := agentruntime.AskQuestion{ID: question.GetId(), Question: question.GetQuestion(), Header: question.GetHeader(), MultiSelect: question.GetMultiSelect(), IsOther: question.GetIsOther(), IsSecret: question.GetIsSecret()}
-	for _, option := range question.GetOptions() {
-		result.Options = append(result.Options, agentruntime.AskOption{Label: option.GetLabel(), Description: option.GetDescription(), Preview: option.GetPreview()})
-	}
-	return result
 }
 
 // DurableNotificationToProto 把补齐交出的一行投影到线上的载体。

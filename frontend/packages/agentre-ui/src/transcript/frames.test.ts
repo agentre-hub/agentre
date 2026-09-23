@@ -1521,3 +1521,95 @@ describe("reduceFrames:消息的时刻", () => {
     expect(msg.createtime).toBe(0);
   });
 });
+
+describe("reduceFrames:后端无关审批", () => {
+  it("给定一条带类别与已脱敏内容的审批请求帧，当归约，则审批块保留类别、内容与后端允许的决定；终态帧只改状态", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "exec_approval_requested",
+          id: "s-1",
+          approvalKind: "system-agent",
+          commandText: "sync --all",
+          commandPreview: "sync",
+          description: "d",
+          toolName: "tool",
+          pluginName: "plug",
+          warnings: ["w1"],
+          actionCategory: "message",
+          messageTargets: ["#general", "alice"],
+          recipientCount: 2,
+          paymentAmount: "9 USD",
+          paymentPayee: "ACME",
+          publishTarget: "blog",
+          publishVisibility: "public",
+          automationName: "nightly",
+          allowedDecisions: ["allow-once", "allow-session", "deny"],
+          host: "gateway",
+          nodeId: "node-1",
+          agentId: "main",
+          sessionKey: "agentre:12:1",
+          createdAtMs: 100,
+          expiresAtMs: 200,
+        }),
+        f({
+          kind: "exec_approval_resolved",
+          id: "s-1",
+          status: "resolved",
+          decision: "allow-session",
+          resolvedBy: "device-2",
+          resolvedAtMs: 150,
+        }),
+      ],
+      SID,
+    );
+
+    expect(msg.blocks).toEqual([
+      {
+        type: "exec_approval",
+        execApproval: {
+          id: "s-1",
+          kind: "system-agent",
+          commandText: "sync --all",
+          commandPreview: "sync",
+          description: "d",
+          toolName: "tool",
+          pluginName: "plug",
+          warnings: ["w1"],
+          actionCategory: "message",
+          messageTargets: ["#general", "alice"],
+          recipientCount: 2,
+          paymentAmount: "9 USD",
+          paymentPayee: "ACME",
+          publishTarget: "blog",
+          publishVisibility: "public",
+          automationName: "nightly",
+          allowedDecisions: ["allow-once", "allow-session", "deny"],
+          host: "gateway",
+          nodeId: "node-1",
+          agentId: "main",
+          createdAtMs: 100,
+          expiresAtMs: 200,
+          status: "resolved",
+          decision: "allow-session",
+          resolvedBy: "device-2",
+          resolvedAtMs: 150,
+        },
+      },
+    ]);
+  });
+
+  it("给定只带必需字段的旧式审批请求帧，当归约，则缺席的可选内容不凭空出现", () => {
+    const [msg] = reduceFrames(
+      [f({ kind: "exec_approval_requested", id: "e-1", commandText: "ls" })],
+      SID,
+    );
+
+    expect(msg.blocks).toEqual([
+      {
+        type: "exec_approval",
+        execApproval: { id: "e-1", commandText: "ls", status: "pending" },
+      },
+    ]);
+  });
+});

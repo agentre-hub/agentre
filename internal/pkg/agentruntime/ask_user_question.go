@@ -15,14 +15,23 @@ const OtherAnswerLabel = "__other__"
 // AskQuestion 一次 AskUserQuestion 调用中的单个问题，
 // backend-agnostic：Claude Code 内置版、Codex function tool、内置 Agent
 // 注册的 ask_user_question tool 都翻译到这里。
+//
+// 「其他」自由输入由后端逐题决定:DisallowOther=true 表示该后端不接受这道题的
+// 非选项答案(Hermes 有选项的题;OpenClaw 按题目 isOther 取反),卡片就不画自由
+// 输入 —— 无选项的题例外,文本输入就是它唯一的答法。零值保住 Claude Code / Codex
+// 一贯的「总是提供其他」,IsOther 只是后端协议原值,不参与这项判断。
+//
+// IsSecret=true 的题以遮蔽输入作答;它的答案只发回后端,留档与回显一律经
+// RedactSecretAnswers 剥掉内容,只剩「已作答」。
 type AskQuestion struct {
-	ID          string
-	Question    string
-	Header      string
-	MultiSelect bool
-	IsOther     bool
-	IsSecret    bool
-	Options     []AskOption
+	ID            string
+	Question      string
+	Header        string
+	MultiSelect   bool
+	IsOther       bool
+	IsSecret      bool
+	DisallowOther bool
+	Options       []AskOption
 }
 
 // AskOption 一个可选答案。Preview 仅 single-select 时有意义。
@@ -132,4 +141,22 @@ func BuildUpdatedInputAnswers(questions []AskQuestion, answers []AskAnswer) (map
 		result[questions[ans.QuestionIndex].Question] = strings.Join(parts, ",")
 	}
 	return result, nil
+}
+
+// RedactSecretAnswers 返回答复的留档形态:秘密问题的答复只保留题号 —— 这就是
+// 「已作答、不含内容」的表示 —— 其余原样。生产者把原答复发给后端,把这份交给
+// UserAskResolved;传入切片不被改写。题号越界的答复原样保留,不猜它是否秘密。
+func RedactSecretAnswers(questions []AskQuestion, answers []AskAnswer) []AskAnswer {
+	if answers == nil {
+		return nil
+	}
+	out := make([]AskAnswer, 0, len(answers))
+	for _, ans := range answers {
+		if ans.QuestionIndex >= 0 && ans.QuestionIndex < len(questions) && questions[ans.QuestionIndex].IsSecret {
+			out = append(out, AskAnswer{QuestionIndex: ans.QuestionIndex})
+			continue
+		}
+		out = append(out, ans)
+	}
+	return out
 }

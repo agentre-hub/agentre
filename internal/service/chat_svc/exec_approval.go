@@ -2,6 +2,7 @@ package chat_svc
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/cago-frame/cago/pkg/i18n"
@@ -26,7 +27,7 @@ type ResolveExecApprovalResponse struct {
 }
 
 func (s *chatSvc) ResolveExecApproval(ctx context.Context, req *ResolveExecApprovalRequest) (*ResolveExecApprovalResponse, error) {
-	if req == nil || req.SessionID <= 0 || strings.TrimSpace(req.ApprovalID) == "" || !isExecApprovalDecision(req.Decision) {
+	if req == nil || req.SessionID <= 0 || strings.TrimSpace(req.ApprovalID) == "" || !agentruntime.IsApprovalDecision(req.Decision) {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
 	session, err := chat_repo.Session().Find(ctx, req.SessionID)
@@ -56,18 +57,15 @@ func (s *chatSvc) ResolveExecApproval(ctx context.Context, req *ResolveExecAppro
 	return &ResolveExecApprovalResponse{Status: resolution.Status, Decision: resolution.Decision}, nil
 }
 
-func isExecApprovalDecision(decision string) bool {
-	switch decision {
-	case "allow-once", "allow-always", "deny":
-		return true
-	default:
-		return false
-	}
-}
-
 func execApprovalBlockToDTO(block blocks.ExecApprovalBlock) *ChatBlockExecApproval {
 	return &ChatBlockExecApproval{
-		ID: block.ID, CommandText: block.CommandText, CommandPreview: block.CommandPreview,
+		ID: block.ID, Kind: block.Kind, CommandText: block.CommandText, CommandPreview: block.CommandPreview,
+		Description: block.Description, ToolName: block.ToolName, PluginName: block.PluginName,
+		Warnings: slices.Clone(block.Warnings), ActionCategory: block.ActionCategory,
+		MessageTargets: slices.Clone(block.MessageTargets), RecipientCount: block.RecipientCount,
+		PaymentAmount: block.PaymentAmount, PaymentPayee: block.PaymentPayee,
+		PublishTarget: block.PublishTarget, PublishVisibility: block.PublishVisibility,
+		AutomationName:   block.AutomationName,
 		AllowedDecisions: append([]string(nil), block.AllowedDecisions...),
 		Host:             block.Host, NodeID: block.NodeID, AgentID: block.AgentID,
 		Status: block.Status, Decision: block.Decision, ResolvedBy: block.ResolvedBy,

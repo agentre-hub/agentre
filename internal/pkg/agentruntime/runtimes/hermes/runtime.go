@@ -40,12 +40,55 @@ type Runtime struct {
 }
 
 type activeTurn struct {
-	sess    Session
-	liveSID string
-	token   atomic.Uint64
+	sess      Session
+	sessionID int64
+	liveSID   string
+	token     atomic.Uint64
 
 	abortRequested  atomic.Bool
 	cumulativeUsage atomic.Pointer[provider.Usage]
+
+	// out is the turn's event stream. The drain goroutine owns it; approval
+	// answers arrive on other goroutines and write through emit, which never
+	// sends after closeOut.
+	out       chan agentruntime.Event
+	outMu     sync.Mutex
+	outClosed bool
+
+	approvalMu        sync.Mutex
+	approvalResolveMu sync.Mutex
+	approvals         map[string]*approvalState
+
+	askMu        sync.Mutex
+	askResolveMu sync.Mutex
+	asks         map[string]*askState
+}
+
+func newActiveTurn(sess Session, sessionID int64, liveSID string) *activeTurn {
+	return &activeTurn{
+		sess: sess, sessionID: sessionID, liveSID: liveSID,
+		out:       make(chan agentruntime.Event, 32),
+		approvals: map[string]*approvalState{},
+		asks:      map[string]*askState{},
+	}
+}
+
+// emit writes an event from any goroutine; after the turn closed it is dropped.
+func (a *activeTurn) emit(ev agentruntime.Event) {
+	a.outMu.Lock()
+	defer a.outMu.Unlock()
+	if !a.outClosed {
+		a.out <- ev
+	}
+}
+
+func (a *activeTurn) closeOut() {
+	a.outMu.Lock()
+	defer a.outMu.Unlock()
+	if !a.outClosed {
+		a.outClosed = true
+		close(a.out)
+	}
 }
 
 var defaultRuntime = New()
@@ -74,13 +117,16 @@ func NewWithCredentials(factory SessionFactory, creds CredentialSource) *Runtime
 }
 
 // Capabilities declares only what this runtime actually implements: abort via
-// session.interrupt. Steer, approvals, permissions, compaction, fork, image
-// input and native session reuse are not wired yet and must honestly report
-// unsupported.
+// session.interrupt, approvals via the `approval` server request, and
+// answering questions via the `clarify` server request. Steer, permissions,
+// compaction, fork, image input and native session reuse are not wired yet
+// and must honestly report unsupported.
 func (r *Runtime) Capabilities() capability.Capabilities {
 	return capability.Capabilities{
 		Set: map[capability.Capability]bool{
-			capability.CapAbort: true,
+			capability.CapAbort:         true,
+			capability.CapExecApproval:  true,
+			capability.CapAnswerUserAsk: true,
 		},
 	}
 }
@@ -135,15 +181,15 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 		return nil, nil, err
 	}
 
-	active := &activeTurn{sess: sess, liveSID: liveSID}
+	active := newActiveTurn(sess, req.SessionID, liveSID)
 	active.cumulativeUsage.Store(baseline)
 	result := &agentruntime.RunResult{ProviderSessionID: storedKey, TurnToken: active.token.Add(1)}
 	r.register(req.SessionID, active)
 	started = true
 
-	out := make(chan agentruntime.Event, 32)
+	out := active.out
 	go func() {
-		defer close(out)
+		defer active.closeOut()
 		defer r.unregister(req.SessionID, active)
 		defer func() { _ = sess.Close(context.Background()) }()
 		logger.Ctx(ctx).Info("hermes.Runtime: turn started",
@@ -214,6 +260,7 @@ func drainTurn(ctx context.Context, sess Session, out chan<- agentruntime.Event,
 				result.StopErr = ctx.Err()
 			}
 			_ = sess.Interrupt(context.Background(), active.liveSID)
+			active.expirePending()
 			out <- agentruntime.ErrorEvent{Err: result.StopErr}
 			finish()
 			return
@@ -222,9 +269,21 @@ func drainTurn(ctx context.Context, sess Session, out chan<- agentruntime.Event,
 				if result.StopErr == nil {
 					result.StopErr = streamEndedError(sess)
 				}
+				active.expirePending()
 				out <- agentruntime.ErrorEvent{Err: result.StopErr}
 				finish()
 				return
+			}
+			switch ev.Kind {
+			case EventServerRequest:
+				active.handleServerRequest(ctx, ev.Request)
+				continue
+			case EventRequestCancel:
+				active.handleRequestCancel(ev.Payload)
+				continue
+			case EventUnsupportedRequest:
+				active.handleUnsupportedRequest(ev.Method)
+				continue
 			}
 			events, usage, stopErr := translate(ev)
 			if usage != nil {
@@ -240,11 +299,16 @@ func drainTurn(ctx context.Context, sess Session, out chan<- agentruntime.Event,
 					result.Model = model
 				}
 			}
+			terminal := ev.Kind == EventMessageComplete || ev.Kind == EventError
 			if ev.Kind == EventMessageComplete && !textSeen {
 				if text := messageCompleteText(ev.Payload); text != "" {
 					out <- agentruntime.TextDelta{Text: text}
 					textSeen = true
 				}
+			}
+			if terminal {
+				// Unanswered cards expire before the turn's terminal event.
+				active.expirePending()
 			}
 			for _, e := range events {
 				if _, isText := e.(agentruntime.TextDelta); isText {
@@ -255,7 +319,7 @@ func drainTurn(ctx context.Context, sess Session, out chan<- agentruntime.Event,
 			if stopErr != nil {
 				result.StopErr = stopErr
 			}
-			if ev.Kind == EventMessageComplete || ev.Kind == EventError {
+			if terminal {
 				if result.StopErr == nil {
 					out <- agentruntime.Done{}
 				}
@@ -331,6 +395,32 @@ func (r *Runtime) Abort(ctx context.Context, sessionID int64, turnToken uint64) 
 		return agentruntime.AbortOutcome{}, err
 	}
 	return agentruntime.AbortOutcome{TurnKind: agentruntime.TurnKindUser}, nil
+}
+
+// ResolveExecApproval answers a pending Hermes approval card of the session's
+// in-flight turn with a normalized decision.
+func (r *Runtime) ResolveExecApproval(ctx context.Context, sessionID int64, approvalID, decision string) (agentruntime.ExecApprovalResolution, error) {
+	r.mu.Lock()
+	a := r.active[sessionID]
+	r.mu.Unlock()
+	if a == nil {
+		return agentruntime.ExecApprovalResolution{}, agentruntime.ErrNoActiveTurn
+	}
+	return a.resolveApproval(ctx, approvalID, decision)
+}
+
+// SubmitAnswer answers a pending Hermes clarify card of the session's
+// in-flight turn. It implements agentruntime.AskAnswerSink; questions may be
+// nil, since this runtime already cached them when it became the waiter (see
+// clarify.go's askState).
+func (r *Runtime) SubmitAnswer(ctx context.Context, sessionID int64, requestID string, questions []agentruntime.AskQuestion, answers []agentruntime.AskAnswer, skipped bool) error {
+	r.mu.Lock()
+	a := r.active[sessionID]
+	r.mu.Unlock()
+	if a == nil {
+		return agentruntime.ErrNoActiveTurn
+	}
+	return a.resolveAsk(ctx, requestID, questions, answers, skipped)
 }
 
 // CloseSession tears down the gateway connection owning this chat session's turn.

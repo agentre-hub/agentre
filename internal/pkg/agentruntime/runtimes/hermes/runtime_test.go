@@ -39,6 +39,11 @@ type fakeSession struct {
 	lastSubmit    string
 	lastResumeKey string
 
+	// Server->client request answers, in the order the runtime sent them.
+	answerMu   sync.Mutex
+	answers    []fakeAnswer
+	respondErr error
+
 	events   chan Event
 	errMu    sync.Mutex
 	readErr  error
@@ -87,6 +92,29 @@ func (f *fakeSession) Interrupt(context.Context, string) error {
 	return f.interruptErr
 }
 
+func (f *fakeSession) RespondServerRequest(id string, result any) error {
+	f.answerMu.Lock()
+	defer f.answerMu.Unlock()
+	if f.respondErr != nil {
+		return f.respondErr
+	}
+	f.answers = append(f.answers, fakeAnswer{id: id, result: result})
+	return nil
+}
+
+func (f *fakeSession) RejectServerRequest(id string) error {
+	f.answerMu.Lock()
+	defer f.answerMu.Unlock()
+	f.answers = append(f.answers, fakeAnswer{id: id, rejected: true})
+	return nil
+}
+
+func (f *fakeSession) sentAnswers() []fakeAnswer {
+	f.answerMu.Lock()
+	defer f.answerMu.Unlock()
+	return append([]fakeAnswer(nil), f.answers...)
+}
+
 func (f *fakeSession) Events() <-chan Event { return f.events }
 func (f *fakeSession) Err() error           { f.errMu.Lock(); defer f.errMu.Unlock(); return f.readErr }
 
@@ -108,6 +136,13 @@ func (f *fakeSession) push(ev Event) { f.events <- ev }
 func (f *fakeSession) closeEvents(err error) {
 	f.finish(err)
 	close(f.events)
+}
+
+// fakeAnswer is one answer the runtime sent for a server->client request.
+type fakeAnswer struct {
+	id       string
+	result   any
+	rejected bool
 }
 
 func testBackend() *agent_backend_entity.AgentBackend {
@@ -146,13 +181,18 @@ func TestHermesCapabilities(t *testing.T) {
 	assert.True(t, caps.Has(capability.CapAbort), "abort is declared because session.interrupt is wired")
 	_, implementsAborter := interface{}(rt).(agentruntime.Aborter)
 	assert.True(t, implementsAborter, "CapAbort=true requires Aborter")
+	assert.True(t, caps.Has(capability.CapExecApproval), "approval is declared because the approval server request is answered")
+	_, implementsApprovalSink := interface{}(rt).(agentruntime.ExecApprovalSink)
+	assert.True(t, implementsApprovalSink, "CapExecApproval=true requires ExecApprovalSink")
+	assert.True(t, caps.Has(capability.CapAnswerUserAsk), "answering questions is declared because the clarify server request is answered")
+	_, implementsAskAnswerSink := interface{}(rt).(agentruntime.AskAnswerSink)
+	assert.True(t, implementsAskAnswerSink, "CapAnswerUserAsk=true requires AskAnswerSink")
 
 	for _, cap := range []capability.Capability{
 		capability.CapSteer,
 		capability.CapCancelSteer,
 		capability.CapDrainSteer,
 		capability.CapSetPermission,
-		capability.CapAnswerUserAsk,
 		capability.CapToolPermission,
 		capability.CapForkSession,
 		capability.CapReportContextWindow,
@@ -171,8 +211,6 @@ func TestHermesCapabilities(t *testing.T) {
 	assert.False(t, isSteerer)
 	_, isToolPerm := interface{}(rt).(agentruntime.ToolPermissionSink)
 	assert.False(t, isToolPerm)
-	_, isAskSink := interface{}(rt).(agentruntime.AskAnswerSink)
-	assert.False(t, isAskSink)
 	_, isPermSetter := interface{}(rt).(agentruntime.PermissionModeSetter)
 	assert.False(t, isPermSetter)
 	_, isAuto := interface{}(rt).(agentruntime.AutonomousTurnSource)

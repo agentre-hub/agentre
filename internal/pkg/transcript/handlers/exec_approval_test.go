@@ -36,6 +36,28 @@ func TestExecApprovalHandlers(t *testing.T) {
 		So(payload["execApproval"], ShouldEqual, block)
 	})
 
+	Convey("Given a backend-neutral approval of each kind when dispatched then the block keeps its kind and redacted content", t, func() {
+		acc := turn.New()
+		err := ExecApprovalRequestedHandler{}.Apply(context.Background(), agentruntime.ExecApprovalRequested{
+			ID: "s-1", ApprovalKind: agentruntime.ApprovalKindSystemAgent, SessionKey: "agentre:12:42",
+			CommandText: "sync --all", Description: "d", ToolName: "tool", PluginName: "plug",
+			Warnings: []string{"w"}, ActionCategory: agentruntime.ApprovalActionPayment,
+			MessageTargets: []string{"#general"}, RecipientCount: 3, PaymentAmount: "9 USD",
+			PaymentPayee: "ACME", PublishTarget: "blog", PublishVisibility: "public", AutomationName: "nightly",
+			AllowedDecisions: []string{agentruntime.ApprovalDecisionAllowSession, agentruntime.ApprovalDecisionDeny},
+		}, acc, nil, nil)
+		So(err, ShouldBeNil)
+		block := acc.Finalize()[0].(*blocks.ExecApprovalBlock)
+		So(*block, ShouldResemble, blocks.ExecApprovalBlock{
+			ID: "s-1", Kind: agentruntime.ApprovalKindSystemAgent, SessionKey: "agentre:12:42",
+			CommandText: "sync --all", Description: "d", ToolName: "tool", PluginName: "plug",
+			Warnings: []string{"w"}, ActionCategory: agentruntime.ApprovalActionPayment,
+			MessageTargets: []string{"#general"}, RecipientCount: 3, PaymentAmount: "9 USD",
+			PaymentPayee: "ACME", PublishTarget: "blog", PublishVisibility: "public", AutomationName: "nightly",
+			AllowedDecisions: []string{"allow-session", "deny"}, Status: "pending",
+		})
+	})
+
 	Convey("Given an approval is resolved when the terminal event arrives then the card changes state without becoming exec completion", t, func() {
 		acc := turn.New()
 		_ = ExecApprovalRequestedHandler{}.Apply(context.Background(), agentruntime.ExecApprovalRequested{

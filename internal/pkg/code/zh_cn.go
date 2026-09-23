@@ -59,6 +59,8 @@ var zhCN = map[int]string{
 	HermesProviderNotFound:    "服务端不存在该认证 provider",
 	HermesUnreachable:         "无法连接到 Hermes 服务，请检查地址与网络",
 
+	OpenClawYieldFollowUpUnconfirmed: "OpenClaw 已把任务交给后续运行，但连接中断后无法确认它的状态，本轮已结束；请到 OpenClaw 会话中查看结果",
+
 	AppSettingNotFound:      "设置项不存在",
 	AppSettingInvalidPort:   "端口必须是 0~65535 之间的整数",
 	AppSettingInvalidHost:   "监听地址不是合法的 IP",

@@ -104,7 +104,8 @@ export type StructuredRuntimeEvent = {
     | "usageUpdate"
     | "planUpdated"
     | "unrecognizedBlock"
-    | "image";
+    | "image"
+    | "unsupportedRequestNotice";
 } & Record<string, unknown>;
 
 export interface RpcNotificationFrame {
@@ -300,6 +301,11 @@ function encodeStructuredEvent(event: StructuredRuntimeEvent) {
       return {
         case: event.case,
         value: create(pb.ImageBlockSchema, event as never),
+      };
+    case "unsupportedRequestNotice":
+      return {
+        case: event.case,
+        value: create(pb.UnsupportedRequestNoticeSchema, event as never),
       };
   }
 }

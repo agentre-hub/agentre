@@ -151,6 +151,8 @@ export interface AskQuestionDTO {
   multiSelect?: boolean;
   isOther?: boolean;
   isSecret?: boolean;
+  /** 后端逐题关掉「其他」自由输入；无选项的题仍显示文本输入。缺省沿用总是提供。 */
+  disallowOther?: boolean;
   options: AskOptionDTO[];
 }
 
@@ -225,11 +227,29 @@ export interface TranscriptBlockToolPermission {
   alwaysAllow?: boolean;
 }
 
-/** 展示安全的 OpenClaw Gateway 审批投影：不含 token / 环境 / systemRunPlan。 */
+/**
+ * 后端无关的审批投影（名字沿用自最早的 OpenClaw exec 审批）：不含 token / 环境 /
+ * systemRunPlan。`kind` 是 exec / plugin / system-agent（OpenClaw）或 hermes，
+ * 说明产生方填了哪几格已脱敏内容；缺省按 exec 呈现。
+ */
 export interface TranscriptBlockExecApproval {
   id: string;
+  kind?: string;
   commandText: string;
   commandPreview?: string;
+  description?: string;
+  toolName?: string;
+  pluginName?: string;
+  warnings?: string[];
+  /** system-agent 的动作类别：message / payment / publish / automation。 */
+  actionCategory?: string;
+  messageTargets?: string[];
+  recipientCount?: number;
+  paymentAmount?: string;
+  paymentPayee?: string;
+  publishTarget?: string;
+  publishVisibility?: string;
+  automationName?: string;
   allowedDecisions?: string[];
   host?: string;
   nodeId?: string;
@@ -272,6 +292,11 @@ export interface TranscriptBlock {
   // 决策 7）。**空串 + 该 kind = 改回跟随后端配置**，所以判据是 kind 而不是这个
   // 字段是否非空；其它块恒为空。
   reasoningEffort?: string;
+  // noticeKind==="hermes_unsupported_request" 时携带的只读用途分类（spec
+  // 2026-09-17 "Unsupported Hermes requests"，agentruntime.UnsupportedRequestPurpose
+  // 镜像，如 "sudo_password" / "secret" / "terminal_read"）。渲染层按它走 i18n
+  // 拼出提示句——从不是协议方法名或原始参数；其它块恒为空。
+  noticePurpose?: string;
   image?: TranscriptBlockImage;
   toolUseId?: string;
   toolName?: string;

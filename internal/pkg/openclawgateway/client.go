@@ -25,6 +25,13 @@ const (
 	clientMode = "cli"
 	clientRole = "operator"
 
+	// capApprovals is the broadest Gateway client cap: it makes the connection a
+	// delivery target for exec, plugin, and system-agent approval broadcasts
+	// (server-request-context.ts canDeliverApprovals). Narrower caps
+	// (exec-approvals / plugin-approvals) only cover one kind each; AgentRE wants
+	// all three, so it always declares this one.
+	capApprovals = "approvals"
+
 	defaultHandshakeTimeout = 15 * time.Second
 	defaultRequestTimeout   = 30 * time.Second
 	defaultReconnectInitial = time.Second
@@ -139,7 +146,7 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 
 	frame := requestFrame{Type: "req", ID: id, Method: method, Params: params}
 	if raw, marshalErr := json.Marshal(frame); marshalErr == nil {
-		logger.Default().Debug("openclawgateway.Client.Call: raw frame", zap.ByteString("frame", raw))
+		logger.Default().Debug("openclawgateway.Client.Call: raw frame", zap.ByteString("frame", redactQuestionAnswers(raw)))
 	}
 	c.writeMu.Lock()
 	c.connMu.RLock()
@@ -232,7 +239,7 @@ func (c *Client) readLoop(conn *websocket.Conn, lastSeq int64) error {
 			return err
 		}
 		if raw, marshalErr := json.Marshal(frame); marshalErr == nil {
-			logger.Default().Debug("openclawgateway.Client.readLoop: raw frame", zap.ByteString("frame", raw))
+			logger.Default().Debug("openclawgateway.Client.readLoop: raw frame", zap.ByteString("frame", redactQuestionAnswers(raw)))
 		}
 		switch frame.Type {
 		case "res":
@@ -312,6 +319,7 @@ func (c *Client) dialAndHandshake(ctx context.Context) (*websocket.Conn, Hello, 
 		} `json:"client"`
 		Role   string      `json:"role"`
 		Scopes []string    `json:"scopes"`
+		Caps   []string    `json:"caps"`
 		Device deviceProof `json:"device"`
 		Auth   struct {
 			Token string `json:"token,omitempty"`
@@ -321,6 +329,7 @@ func (c *Client) dialAndHandshake(ctx context.Context) (*websocket.Conn, Hello, 
 		MaxProtocol: ProtocolVersion,
 		Role:        clientRole,
 		Scopes:      slices.Clone(RequiredOperatorScopes),
+		Caps:        []string{capApprovals},
 		Device:      proof,
 	}
 	connectParams.Client.ID = clientID

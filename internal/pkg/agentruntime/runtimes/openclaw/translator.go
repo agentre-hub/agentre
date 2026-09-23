@@ -16,6 +16,8 @@ type agentEventPayload struct {
 	Seq        int64           `json:"seq"`
 	Stream     string          `json:"stream"`
 	Data       json.RawMessage `json:"data"`
+	// IsHeartbeat 标记网关的心跳 run:同会话但不是本轮让出后的后续 run。
+	IsHeartbeat bool `json:"isHeartbeat"`
 }
 
 type chatEventPayload struct {
@@ -26,16 +28,17 @@ type chatEventPayload struct {
 	DeltaText    string          `json:"deltaText"`
 	Usage        json.RawMessage `json:"usage"`
 	ErrorMessage string          `json:"errorMessage"`
+	// Yielded 只出现在 final 上:run 调了 sessions_yield,父任务仍在等后续 run。
+	Yielded     bool `json:"yielded"`
+	IsHeartbeat bool `json:"isHeartbeat"`
 }
 
 func (a *activeTurn) handleGatewayEvent(event openclawgateway.Event) (needsReconcile bool) {
 	switch event.Name {
 	case "agent":
 		var payload agentEventPayload
-		if json.Unmarshal(event.Payload, &payload) != nil || payload.RunID != a.runID {
-			return false
-		}
-		if !a.matchesSession(payload.SessionKey) {
+		if json.Unmarshal(event.Payload, &payload) != nil || !a.matchesSession(payload.SessionKey) ||
+			!a.acceptRun(payload.RunID, payload.IsHeartbeat) {
 			return false
 		}
 		a.adoptSessionKey(payload.SessionKey)
@@ -49,8 +52,8 @@ func (a *activeTurn) handleGatewayEvent(event openclawgateway.Event) (needsRecon
 		a.handleAgentPayload(payload)
 	case "chat":
 		var payload chatEventPayload
-		if json.Unmarshal(event.Payload, &payload) != nil || payload.RunID != a.runID ||
-			!a.matchesSession(payload.SessionKey) {
+		if json.Unmarshal(event.Payload, &payload) != nil || !a.matchesSession(payload.SessionKey) ||
+			!a.acceptRun(payload.RunID, payload.IsHeartbeat) {
 			return false
 		}
 		a.adoptSessionKey(payload.SessionKey)
@@ -68,7 +71,23 @@ func (a *activeTurn) handleGatewayEvent(event openclawgateway.Event) (needsRecon
 			a.handleApprovalRequested(record)
 		}
 	case "exec.approval.resolved":
-		a.handleApprovalResolved(event.Payload)
+		a.handleApprovalResolved(agentruntime.ApprovalKindExec, event.Payload)
+	case "plugin.approval.requested":
+		if request, ok := decodeApprovalListItem(agentruntime.ApprovalKindPlugin, event.Payload, a.matchesSession); ok {
+			a.handleApprovalRequestedEvent(request)
+		}
+	case "plugin.approval.resolved":
+		a.handleApprovalResolved(agentruntime.ApprovalKindPlugin, event.Payload)
+	case "openclaw.approval.requested":
+		if request, ok := decodeApprovalListItem(agentruntime.ApprovalKindSystemAgent, event.Payload, a.matchesSession); ok {
+			a.handleApprovalRequestedEvent(request)
+		}
+	case "openclaw.approval.resolved":
+		a.handleApprovalResolved(agentruntime.ApprovalKindSystemAgent, event.Payload)
+	case "question.requested":
+		a.handleQuestionRequested(event.Payload)
+	case "question.resolved":
+		a.handleQuestionResolved(event.Payload)
 	}
 	return needsReconcile
 }
@@ -127,7 +146,11 @@ func (a *activeTurn) handleChatPayload(payload chatEventPayload) {
 			a.emit(agentruntime.TextDelta{Text: payload.DeltaText})
 		}
 	case "final":
-		a.finish(nil)
+		if payload.Yielded {
+			a.yieldRun()
+		} else {
+			a.finish(nil)
+		}
 	case "aborted":
 		a.finish(agentruntime.ErrAborted)
 	case "error":
@@ -170,6 +193,7 @@ func (a *activeTurn) handleLifecycle(raw json.RawMessage) {
 		Status     string          `json:"status"`
 		StopReason string          `json:"stopReason"`
 		Usage      json.RawMessage `json:"usage"`
+		Yielded    bool            `json:"yielded"`
 	}
 	if json.Unmarshal(raw, &data) != nil {
 		return
@@ -181,6 +205,8 @@ func (a *activeTurn) handleLifecycle(raw json.RawMessage) {
 	case "end":
 		if data.Aborted || strings.EqualFold(data.Status, gatewayCancelledStatus) || strings.EqualFold(data.Status, "aborted") {
 			a.finish(agentruntime.ErrAborted)
+		} else if data.Yielded {
+			a.yieldRun()
 		} else {
 			a.finish(nil)
 		}

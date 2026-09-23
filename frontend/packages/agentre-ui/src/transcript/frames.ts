@@ -45,6 +45,7 @@
 import type {
   RetryNotice,
   TranscriptBlock,
+  TranscriptBlockExecApproval,
   TranscriptBlockSubagent,
   TranscriptMessage,
 } from "./dto";
@@ -78,6 +79,7 @@ import {
   EventImage,
   EventUsage,
   EventUnrecognizedBlock,
+  EventUnsupportedRequestNotice,
   EventUserMessage,
   type EventKind,
 } from "../event-kinds.gen";
@@ -144,6 +146,52 @@ function record(ev: unknown, key: string): Record<string, unknown> {
 function list(ev: unknown, key: string): unknown[] {
   const v = obj(ev)?.[key];
   return Array.isArray(v) ? v : [];
+}
+
+function strings(ev: unknown, key: string): string[] | undefined {
+  const v = list(ev, key).filter((x): x is string => typeof x === "string");
+  return v.length > 0 ? v : undefined;
+}
+
+/** 有值才出这一格：缺席 / 空值不凭空变成 `key: undefined`。 */
+function present<K extends string, V>(
+  key: K,
+  value: V | undefined,
+): Partial<Record<K, V>> {
+  return value ? ({ [key]: value } as Record<K, V>) : {};
+}
+
+/**
+ * 审批请求帧 → 审批块。后端无关：`approvalKind` 说明产生方填了哪几格已脱敏内容，
+ * 这里逐格照搬、缺席的不补（与桌面端 omitempty 的块同形）。帧里的
+ * `approvalKind` 落到块的 `kind` —— 帧顶层的 `kind` 已是事件判别值。
+ */
+function approvalFromWire(ev: unknown): TranscriptBlockExecApproval {
+  return {
+    id: str(ev, "id") ?? "",
+    ...present("kind", str(ev, "approvalKind")),
+    commandText: str(ev, "commandText") ?? "",
+    ...present("commandPreview", str(ev, "commandPreview")),
+    ...present("description", str(ev, "description")),
+    ...present("toolName", str(ev, "toolName")),
+    ...present("pluginName", str(ev, "pluginName")),
+    ...present("warnings", strings(ev, "warnings")),
+    ...present("actionCategory", str(ev, "actionCategory")),
+    ...present("messageTargets", strings(ev, "messageTargets")),
+    ...present("recipientCount", num(ev, "recipientCount")),
+    ...present("paymentAmount", str(ev, "paymentAmount")),
+    ...present("paymentPayee", str(ev, "paymentPayee")),
+    ...present("publishTarget", str(ev, "publishTarget")),
+    ...present("publishVisibility", str(ev, "publishVisibility")),
+    ...present("automationName", str(ev, "automationName")),
+    ...present("allowedDecisions", strings(ev, "allowedDecisions")),
+    ...present("host", str(ev, "host")),
+    ...present("nodeId", str(ev, "nodeId")),
+    ...present("agentId", str(ev, "agentId")),
+    ...present("createdAtMs", num(ev, "createdAtMs")),
+    ...present("expiresAtMs", num(ev, "expiresAtMs")),
+    status: str(ev, "status") ?? "pending",
+  };
 }
 
 /** 未知载荷的可读形态。序列化失败（循环引用等）时退回 String，不抛。 */
@@ -725,11 +773,7 @@ function applyFrame(
     case EventExecApprovalRequested: {
       openAssistant(st, sessionId).blocks.push({
         type: "exec_approval",
-        execApproval: {
-          id: str(ev, "id") ?? "",
-          commandText: str(ev, "commandText") ?? "",
-          status: str(ev, "status") ?? "pending",
-        },
+        execApproval: approvalFromWire(ev),
       });
       return;
     }
@@ -741,6 +785,10 @@ function applyFrame(
       block.execApproval.status = str(ev, "status") ?? "resolved";
       const decision = str(ev, "decision");
       if (decision) block.execApproval.decision = decision;
+      const resolvedBy = str(ev, "resolvedBy");
+      if (resolvedBy) block.execApproval.resolvedBy = resolvedBy;
+      const resolvedAtMs = num(ev, "resolvedAtMs");
+      if (resolvedAtMs) block.execApproval.resolvedAtMs = resolvedAtMs;
       return;
     }
 
@@ -770,6 +818,21 @@ function applyFrame(
           trigger: str(ev, "trigger"),
           at: num(ev, "at") ?? 0,
         },
+      });
+      return;
+    }
+
+    case EventUnsupportedRequestNotice: {
+      // 桌面端 UnsupportedRequestNoticeHandler 落一块结构化 NoticeBlock
+      // （blocks.EncodeUnsupportedRequestNotice 同形）——这里投影出同一形状：
+      // noticeKind 认出这条提示，noticePurpose 是只读的用途分类，从不是协议
+      // 方法名或原始参数（spec 2026-09-17 "Unsupported Hermes requests"）。
+      // 具体文案（含哪种用途）由渲染层按 noticePurpose 走 i18n 拼出。
+      openAssistant(st, sessionId).blocks.push({
+        type: "notice",
+        level: "info",
+        noticeKind: "hermes_unsupported_request",
+        noticePurpose: str(ev, "purpose"),
       });
       return;
     }

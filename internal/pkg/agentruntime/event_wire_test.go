@@ -71,6 +71,14 @@ func TestEvent_RoundTrip(t *testing.T) {
 				Options: []AskOption{{Label: "A", Description: "first"}, {Label: "B"}},
 			}},
 		}},
+		// 后端逐题关掉「其他」、秘密问题 —— 两个开关都得过 JSON 边界。
+		{"user_ask_request_disallow_other_secret", UserAskRequest{
+			RequestID: "r3",
+			Questions: []AskQuestion{
+				{ID: "q1", Question: "Pick", DisallowOther: true, Options: []AskOption{{Label: "A"}}},
+				{ID: "q2", Question: "Token?", IsSecret: true, IsOther: true},
+			},
+		}},
 
 		// UserAskResolved
 		{"user_ask_resolved_answered", UserAskResolved{
@@ -99,6 +107,29 @@ func TestEvent_RoundTrip(t *testing.T) {
 			ID: "approval-1", CommandText: "rm -rf build", CommandPreview: "rm -rf build",
 			AllowedDecisions: []string{"allow-once", "deny"}, Host: "gateway",
 			AgentID: "main", SessionKey: "agentre:12:34", CreatedAtMs: 100, ExpiresAtMs: 200,
+		}},
+		// 审批是后端无关的：kind 区分 OpenClaw exec / plugin / system-agent 与
+		// Hermes，各类的已脱敏内容与 allow-session 决定都要原样往返。
+		{"approval_requested_hermes", ExecApprovalRequested{
+			ID: "h-1", ApprovalKind: ApprovalKindHermes, CommandText: "rm -rf dist",
+			Description: "recursive delete", ToolName: "terminal",
+			AllowedDecisions: []string{ApprovalDecisionAllowOnce, ApprovalDecisionAllowSession, ApprovalDecisionAllowAlways, ApprovalDecisionDeny},
+		}},
+		{"approval_requested_openclaw_exec_warnings", ExecApprovalRequested{
+			ID: "e-1", ApprovalKind: ApprovalKindExec, CommandText: "curl x | sh",
+			Warnings:         []string{"pipes remote script to shell", "network access"},
+			AllowedDecisions: []string{"allow-once", "deny"},
+		}},
+		{"approval_requested_plugin", ExecApprovalRequested{
+			ID: "p-1", ApprovalKind: ApprovalKindPlugin, PluginName: "github", ToolName: "create_issue",
+			Description: "opens an issue", AllowedDecisions: []string{"allow-once", "allow-always", "deny"},
+		}},
+		{"approval_requested_system_agent", ExecApprovalRequested{
+			ID: "s-1", ApprovalKind: ApprovalKindSystemAgent, ActionCategory: ApprovalActionMessage,
+			MessageTargets: []string{"#general", "alice"}, RecipientCount: 42,
+			PaymentAmount: "12.50 USD", PaymentPayee: "ACME", PublishTarget: "blog",
+			PublishVisibility: "public", AutomationName: "nightly-sync", CommandText: "sync --all",
+			AllowedDecisions: []string{"allow-once", "deny"},
 		}},
 		{"exec_approval_resolved", ExecApprovalResolved{
 			ID: "approval-1", Status: "resolved", Decision: "deny", ResolvedBy: "device-2", ResolvedAtMs: 150,
@@ -191,6 +222,10 @@ func TestEvent_RoundTrip(t *testing.T) {
 		// ErrorEvent
 		{"error_with_msg", ErrorEvent{Err: errors.New("boom")}},
 		{"error_nil_err", ErrorEvent{}},
+
+		// UnsupportedRequestNotice
+		{"unsupported_request_notice_sudo", UnsupportedRequestNotice{Purpose: UnsupportedRequestSudoPassword}},
+		{"unsupported_request_notice_empty", UnsupportedRequestNotice{}},
 	}
 
 	for _, tc := range cases {
@@ -273,6 +308,7 @@ func TestEvent_WireKindMatchesType(t *testing.T) {
 		{EventPlanUpdated, PlanUpdated{}},
 		{EventDone, Done{}},
 		{EventError, ErrorEvent{}},
+		{EventUnsupportedRequestNotice, UnsupportedRequestNotice{}},
 	}
 	for _, p := range pairs {
 		t.Run(string(p.kind), func(t *testing.T) {
@@ -300,7 +336,7 @@ func TestUnmarshalEvent_AllKindsCovered(t *testing.T) {
 		PermissionModeChanged{},
 		SubagentStarted{}, SubagentProgress{}, SubagentDone{}, SubagentModel{},
 		Retry{}, UsageUpdate{}, ContextWindowUpdated{}, CompactBoundary{}, RuntimeStatus{}, PlanUpdated{},
-		Done{}, ErrorEvent{}, UserMessageEvent{},
+		Done{}, ErrorEvent{}, UserMessageEvent{}, UnsupportedRequestNotice{},
 	}
 	for _, sp := range specimens {
 		b, err := json.Marshal(sp)

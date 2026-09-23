@@ -173,23 +173,48 @@ func (e ToolPermissionResolved) MarshalJSON() ([]byte, error) {
 	}{EventToolPermissionResolved, e.RequestID, e.Allowed, e.AlwaysAllow, e.DenyReason})
 }
 
+// execApprovalRequestedWire is the one JSON shape of ExecApprovalRequested, shared
+// by MarshalJSON and UnmarshalEvent. The approval kind travels as approvalKind
+// because the top-level "kind" is the event discriminator.
+type execApprovalRequestedWire struct {
+	Kind              EventKind `json:"kind"`
+	ID                string    `json:"id,omitempty"`
+	ApprovalKind      string    `json:"approvalKind,omitempty"`
+	CommandText       string    `json:"commandText,omitempty"`
+	CommandPreview    string    `json:"commandPreview,omitempty"`
+	Description       string    `json:"description,omitempty"`
+	ToolName          string    `json:"toolName,omitempty"`
+	PluginName        string    `json:"pluginName,omitempty"`
+	Warnings          []string  `json:"warnings,omitempty"`
+	ActionCategory    string    `json:"actionCategory,omitempty"`
+	MessageTargets    []string  `json:"messageTargets,omitempty"`
+	RecipientCount    int       `json:"recipientCount,omitempty"`
+	PaymentAmount     string    `json:"paymentAmount,omitempty"`
+	PaymentPayee      string    `json:"paymentPayee,omitempty"`
+	PublishTarget     string    `json:"publishTarget,omitempty"`
+	PublishVisibility string    `json:"publishVisibility,omitempty"`
+	AutomationName    string    `json:"automationName,omitempty"`
+	AllowedDecisions  []string  `json:"allowedDecisions,omitempty"`
+	Host              string    `json:"host,omitempty"`
+	NodeID            string    `json:"nodeId,omitempty"`
+	AgentID           string    `json:"agentId,omitempty"`
+	SessionKey        string    `json:"sessionKey,omitempty"`
+	CreatedAtMs       int64     `json:"createdAtMs,omitempty"`
+	ExpiresAtMs       int64     `json:"expiresAtMs,omitempty"`
+}
+
 func (e ExecApprovalRequested) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		Kind             EventKind `json:"kind"`
-		ID               string    `json:"id,omitempty"`
-		CommandText      string    `json:"commandText,omitempty"`
-		CommandPreview   string    `json:"commandPreview,omitempty"`
-		AllowedDecisions []string  `json:"allowedDecisions,omitempty"`
-		Host             string    `json:"host,omitempty"`
-		NodeID           string    `json:"nodeId,omitempty"`
-		AgentID          string    `json:"agentId,omitempty"`
-		SessionKey       string    `json:"sessionKey,omitempty"`
-		CreatedAtMs      int64     `json:"createdAtMs,omitempty"`
-		ExpiresAtMs      int64     `json:"expiresAtMs,omitempty"`
-	}{
-		EventExecApprovalRequested, e.ID, e.CommandText, e.CommandPreview,
-		e.AllowedDecisions, e.Host, e.NodeID, e.AgentID, e.SessionKey,
-		e.CreatedAtMs, e.ExpiresAtMs,
+	return json.Marshal(execApprovalRequestedWire{
+		Kind: EventExecApprovalRequested, ID: e.ID, ApprovalKind: e.ApprovalKind,
+		CommandText: e.CommandText, CommandPreview: e.CommandPreview,
+		Description: e.Description, ToolName: e.ToolName, PluginName: e.PluginName,
+		Warnings: e.Warnings, ActionCategory: e.ActionCategory,
+		MessageTargets: e.MessageTargets, RecipientCount: e.RecipientCount,
+		PaymentAmount: e.PaymentAmount, PaymentPayee: e.PaymentPayee,
+		PublishTarget: e.PublishTarget, PublishVisibility: e.PublishVisibility,
+		AutomationName: e.AutomationName, AllowedDecisions: e.AllowedDecisions,
+		Host: e.Host, NodeID: e.NodeID, AgentID: e.AgentID, SessionKey: e.SessionKey,
+		CreatedAtMs: e.CreatedAtMs, ExpiresAtMs: e.ExpiresAtMs,
 	})
 }
 
@@ -338,6 +363,13 @@ func (e UserMessageEvent) MarshalJSON() ([]byte, error) {
 		SourceDevice     string    `json:"sourceDevice,omitempty"`
 		SourceDeviceName string    `json:"sourceDeviceName,omitempty"`
 	}{EventUserMessage, e.Text, string(e.SourceDevice), e.SourceDeviceName})
+}
+
+func (e UnsupportedRequestNotice) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Kind    EventKind                 `json:"kind"`
+		Purpose UnsupportedRequestPurpose `json:"purpose,omitempty"`
+	}{EventUnsupportedRequestNotice, e.Purpose})
 }
 
 // EventContextWindowUpdated 给 ContextWindowUpdated 事件做 wire discriminator。
@@ -505,25 +537,20 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			DenyReason:  w.DenyReason,
 		}, nil
 	case EventExecApprovalRequested:
-		var w struct {
-			ID               string   `json:"id"`
-			CommandText      string   `json:"commandText"`
-			CommandPreview   string   `json:"commandPreview"`
-			AllowedDecisions []string `json:"allowedDecisions"`
-			Host             string   `json:"host"`
-			NodeID           string   `json:"nodeId"`
-			AgentID          string   `json:"agentId"`
-			SessionKey       string   `json:"sessionKey"`
-			CreatedAtMs      int64    `json:"createdAtMs"`
-			ExpiresAtMs      int64    `json:"expiresAtMs"`
-		}
+		var w execApprovalRequestedWire
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
 		}
 		return ExecApprovalRequested{
-			ID: w.ID, CommandText: w.CommandText, CommandPreview: w.CommandPreview,
-			AllowedDecisions: w.AllowedDecisions, Host: w.Host, NodeID: w.NodeID,
-			AgentID: w.AgentID, SessionKey: w.SessionKey,
+			ID: w.ID, ApprovalKind: w.ApprovalKind,
+			CommandText: w.CommandText, CommandPreview: w.CommandPreview,
+			Description: w.Description, ToolName: w.ToolName, PluginName: w.PluginName,
+			Warnings: w.Warnings, ActionCategory: w.ActionCategory,
+			MessageTargets: w.MessageTargets, RecipientCount: w.RecipientCount,
+			PaymentAmount: w.PaymentAmount, PaymentPayee: w.PaymentPayee,
+			PublishTarget: w.PublishTarget, PublishVisibility: w.PublishVisibility,
+			AutomationName: w.AutomationName, AllowedDecisions: w.AllowedDecisions,
+			Host: w.Host, NodeID: w.NodeID, AgentID: w.AgentID, SessionKey: w.SessionKey,
 			CreatedAtMs: w.CreatedAtMs, ExpiresAtMs: w.ExpiresAtMs,
 		}, nil
 	case EventExecApprovalResolved:
@@ -706,6 +733,14 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			ev.Err = errors.New(w.Message)
 		}
 		return ev, nil
+	case EventUnsupportedRequestNotice:
+		var w struct {
+			Purpose UnsupportedRequestPurpose `json:"purpose"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return UnsupportedRequestNotice{Purpose: w.Purpose}, nil
 	default:
 		return nil, fmt.Errorf("agentruntime: UnmarshalEvent: unknown kind %q", head.Kind)
 	}

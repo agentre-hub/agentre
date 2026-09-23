@@ -54,6 +54,22 @@
       "reasoningEffortSwitch": {
         "followBackend": "Changed back to following the backend config",
         "sentence": "Reasoning effort · {{level}} from here"
+      },
+      "hermesUnsupportedRequest": {
+        "sentence": "Hermes requested {{purpose}}, which Agentre does not support yet; skipped",
+        "purpose": {
+          "sudo_password": "the sudo password",
+          "secret": "a secret",
+          "vault_unlock": "the vault unlock password",
+          "vault_save_login": "saving a login to the vault",
+          "vault_code": "a vault verification code",
+          "terminal_read": "reading terminal output",
+          "preview_read": "reading the preview",
+          "window_read": "reading window state",
+          "preview_act": "acting in the preview",
+          "tour": "a product tour",
+          "unknown": "an unknown action"
+        }
       }
     },
     "debug": {
@@ -142,14 +158,38 @@
     },
     "decision": {
       "allow-once": "Allow once",
+      "allow-session": "Allow for this session",
       "allow-always": "Always allow",
       "deny": "Deny"
     },
     "decisionResult": {
       "allow-once": "Allowed once",
+      "allow-session": "Allowed for this session",
       "allow-always": "Always allowed",
       "deny": "Denied"
-    }
+    },
+    "titleHermes": "Command approval",
+    "titlePlugin": "Plugin approval",
+    "titleSystemAgent": "System action approval",
+    "description": "Description",
+    "tool": "Tool",
+    "plugin": "Plugin",
+    "warnings": "Warnings",
+    "action": "Action",
+    "targets": "Recipients",
+    "recipientCount": "Recipient count",
+    "amount": "Amount",
+    "payee": "Payee",
+    "publishTarget": "Publish to",
+    "visibility": "Visibility",
+    "automation": "Automation",
+    "actionCategory": {
+      "message": "Send messages",
+      "payment": "Make a payment",
+      "publish": "Publish externally",
+      "automation": "Long-lived automation"
+    },
+    "alwaysScopeNote": "Always allow reaches beyond this session: the backend will approve matching requests from now on without asking."
   },
   "richLink": {
     "copyLink": "Copy link",

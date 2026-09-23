@@ -110,15 +110,18 @@ func TestRPCConn_EventsAndGatewayReady(t *testing.T) {
 	})
 }
 
-// A server->client JSON-RPC request (approval / clarify in the gateway's
-// vocabulary) must be answered with the SAME id. Nothing here implements those
-// cards (capability is abort-only), so the honest answer is -32601, not silence.
-func TestRPCConn_ReverseRequestAnsweredWithSameIDAndMethodNotFound(t *testing.T) {
-	Convey("Given a gateway that sends a reverse approval request", t, func() {
+// A server->client request the host has no seam for yet — and is not one of
+// the known-unsupported methods answered immediately (see below) — must be
+// answered with the SAME id and -32601 right away, so Hermes never waits on it,
+// and the turn still learns of it (method only, never params) so it can leave
+// the transcript notice spec 2026-09-17 "Unsupported Hermes requests" requires
+// for methods Agentre does not recognize.
+func TestRPCConn_UnroutedReverseRequestAnsweredWithSameIDAndMethodNotFound(t *testing.T) {
+	Convey("Given a gateway that sends a reverse request without a host seam", t, func() {
 		transport := &scriptedTransport{}
 		conn := newRPCConn(transport.write)
 
-		err := conn.handleLine([]byte(`{"jsonrpc":"2.0","id":"req-9","method":"approval.request","params":{"command":"rm -rf"}}`))
+		err := conn.handleLine([]byte(`{"jsonrpc":"2.0","id":"srq-000000000009","method":"window.write","params":{"session_id":"live-1","command":"apt install"}}`))
 
 		require.NoError(t, err)
 		sent := transport.sent()
@@ -130,9 +133,180 @@ func TestRPCConn_ReverseRequestAnsweredWithSameIDAndMethodNotFound(t *testing.T)
 		}
 		require.NoError(t, json.Unmarshal(sent[0], &response))
 		assert.Equal(t, "2.0", response.JSONRPC)
-		assert.Equal(t, `"req-9"`, string(response.ID))
+		assert.Equal(t, `"srq-000000000009"`, string(response.ID))
 		require.NotNil(t, response.Error)
 		assert.Equal(t, -32601, response.Error.Code)
+		select {
+		case ev := <-conn.Events():
+			So(ev.Kind, ShouldEqual, EventUnsupportedRequest)
+			So(ev.Method, ShouldEqual, "window.write")
+			So(ev.Request, ShouldBeNil)
+			So(ev.Payload, ShouldBeNil)
+		case <-time.After(time.Second):
+			t.Fatal("expected an unsupported-request notice event for the unknown method")
+		}
+	})
+}
+
+// Design decision 4: sudo/secret/vault.*/terminal.read/preview.*/window.read/
+// tour are answered immediately with the contract's {"value": ""} (not
+// -32601), and the turn separately learns which method so it can leave a
+// transcript notice — but the raw params (which may carry a password, a
+// secret value or an unlock code) must never reach that event or a log line.
+func TestRPCConn_UnsupportedReverseRequestAnsweredImmediatelyWithEmptyValue(t *testing.T) {
+	Convey("Given a gateway that sends a known-unsupported reverse request", t, func() {
+		for _, method := range []string{
+			methodSudo, methodSecret, methodVaultUnlockPrompt, methodVaultSaveLogin, methodVaultCode,
+			methodTerminalRead, methodPreviewRead, methodWindowRead, methodPreviewAct, methodTour,
+		} {
+			Convey("method="+method, func() {
+				transport := &scriptedTransport{}
+				conn := newRPCConn(transport.write)
+
+				line := []byte(`{"jsonrpc":"2.0","id":"srq-000000000009","method":"` + method +
+					`","params":{"session_id":"live-1","password":"hunter2","secret":"topsecret-value"}}`)
+				err := conn.handleLine(line)
+
+				require.NoError(t, err)
+				sent := transport.sent()
+				require.Len(t, sent, 1)
+				assert.JSONEq(t, `{"jsonrpc":"2.0","id":"srq-000000000009","result":{"value":""}}`, string(sent[0]))
+				assert.NotContains(t, string(sent[0]), "hunter2")
+
+				select {
+				case ev := <-conn.Events():
+					So(ev.Kind, ShouldEqual, EventUnsupportedRequest)
+					So(ev.Method, ShouldEqual, method)
+					So(ev.Session, ShouldEqual, "")
+					So(ev.Request, ShouldBeNil)
+					So(ev.Payload, ShouldBeNil)
+				case <-time.After(time.Second):
+					t.Fatal("expected an unsupported-request notice event")
+				}
+			})
+		}
+	})
+}
+
+// An unrecognized reverse request must still be refused -32601, not treated as
+// unsupported-but-answerable — the closed vocabulary in design decision 4 is
+// exhaustive, and anything outside it keeps today's behavior.
+func TestRPCConn_UnknownReverseRequestStillMethodNotFound(t *testing.T) {
+	Convey("Given a gateway that sends a totally unknown reverse request", t, func() {
+		transport := &scriptedTransport{}
+		conn := newRPCConn(transport.write)
+
+		err := conn.handleLine([]byte(`{"jsonrpc":"2.0","id":"srq-000000000010","method":"totally.unknown","params":{}}`))
+
+		require.NoError(t, err)
+		sent := transport.sent()
+		require.Len(t, sent, 1)
+		var response struct {
+			Error *rpcError `json:"error"`
+		}
+		require.NoError(t, json.Unmarshal(sent[0], &response))
+		require.NotNil(t, response.Error)
+		assert.Equal(t, -32601, response.Error.Code)
+	})
+}
+
+// The approval server->client request is handed to the turn and answered later
+// by id: the codec must not answer it itself.
+func TestRPCConn_ApprovalReverseRequestIsHandedToTheTurnAndAnsweredByID(t *testing.T) {
+	Convey("Given a gateway that sends an approval server request", t, func() {
+		transport := &scriptedTransport{}
+		conn := newRPCConn(transport.write)
+
+		err := conn.handleLine([]byte(`{"jsonrpc":"2.0","id":"srq-0123456789ab","method":"approval","params":{"session_id":"live-1","request_id":"appr-1","command":"rm -rf x","choices":["once","deny"]}}`))
+
+		require.NoError(t, err)
+		assert.Empty(t, transport.sent(), "the codec must leave the approval unanswered for the user")
+		var ev Event
+		select {
+		case ev = <-conn.Events():
+		case <-time.After(time.Second):
+			t.Fatal("the approval request never reached the turn")
+		}
+		So(ev.Kind, ShouldEqual, EventServerRequest)
+		So(ev.Session, ShouldEqual, "live-1")
+		require.NotNil(t, ev.Request)
+		So(ev.Request.ID, ShouldEqual, "srq-0123456789ab")
+		So(ev.Request.Method, ShouldEqual, "approval")
+		assert.JSONEq(t, `{"session_id":"live-1","request_id":"appr-1","command":"rm -rf x","choices":["once","deny"]}`, string(ev.Request.Params))
+
+		Convey("When the turn responds Then the result is sent under the same id exactly once", func() {
+			require.NoError(t, conn.RespondServerRequest("srq-0123456789ab", map[string]any{"choice": "once"}))
+			sent := transport.sent()
+			require.Len(t, sent, 1)
+			assert.JSONEq(t, `{"jsonrpc":"2.0","id":"srq-0123456789ab","result":{"choice":"once"}}`, string(sent[0]))
+
+			err := conn.RespondServerRequest("srq-0123456789ab", map[string]any{"choice": "deny"})
+			require.ErrorIs(t, err, errServerRequestNotOpen)
+			assert.Len(t, transport.sent(), 1, "a second answer must not reach Hermes")
+		})
+
+		Convey("When the turn rejects Then an error response is sent under the same id", func() {
+			require.NoError(t, conn.RejectServerRequest("srq-0123456789ab"))
+			sent := transport.sent()
+			require.Len(t, sent, 1)
+			var response struct {
+				ID     json.RawMessage `json:"id"`
+				Result json.RawMessage `json:"result"`
+				Error  *rpcError       `json:"error"`
+			}
+			require.NoError(t, json.Unmarshal(sent[0], &response))
+			assert.Equal(t, `"srq-0123456789ab"`, string(response.ID))
+			assert.Empty(t, response.Result)
+			require.NotNil(t, response.Error)
+		})
+
+		Convey("When the connection is closed Then answering reports the closed session", func() {
+			conn.signalClose()
+			err := conn.RespondServerRequest("srq-0123456789ab", map[string]any{"choice": "once"})
+			require.ErrorIs(t, err, errSessionClosed)
+			assert.Empty(t, transport.sent())
+		})
+	})
+}
+
+// The clarify server->client request is routed the same way approval is: handed
+// to the turn and answered later by id, not auto-declined on the read loop.
+func TestRPCConn_ClarifyReverseRequestIsHandedToTheTurn(t *testing.T) {
+	Convey("Given a gateway that sends a clarify server request", t, func() {
+		transport := &scriptedTransport{}
+		conn := newRPCConn(transport.write)
+
+		err := conn.handleLine([]byte(`{"jsonrpc":"2.0","id":"srq-clarify0001","method":"clarify","params":{"session_id":"live-1","question":"Continue?","choices":["yes","no"],"multi_select":false}}`))
+
+		require.NoError(t, err)
+		assert.Empty(t, transport.sent(), "the codec must leave clarify unanswered for the user")
+		var ev Event
+		select {
+		case ev = <-conn.Events():
+		case <-time.After(time.Second):
+			t.Fatal("the clarify request never reached the turn")
+		}
+		So(ev.Kind, ShouldEqual, EventServerRequest)
+		require.NotNil(t, ev.Request)
+		So(ev.Request.ID, ShouldEqual, "srq-clarify0001")
+		So(ev.Request.Method, ShouldEqual, "clarify")
+
+		require.NoError(t, conn.RespondServerRequest("srq-clarify0001", map[string]any{"answer": "yes"}))
+		sent := transport.sent()
+		require.Len(t, sent, 1)
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"srq-clarify0001","result":{"answer":"yes"}}`, string(sent[0]))
+	})
+}
+
+func TestRPCConn_AnswerForUnknownServerRequestIsRefused(t *testing.T) {
+	Convey("Given no open server request", t, func() {
+		transport := &scriptedTransport{}
+		conn := newRPCConn(transport.write)
+
+		err := conn.RespondServerRequest("srq-never", map[string]any{"choice": "once"})
+
+		require.ErrorIs(t, err, errServerRequestNotOpen)
+		assert.Empty(t, transport.sent())
 	})
 }
 

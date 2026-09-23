@@ -65,8 +65,9 @@ func (r *Runtime) SetConfigResolver(resolver ConfigResolver) {
 
 func (r *Runtime) Capabilities() capability.Capabilities {
 	return capability.Capabilities{Set: map[capability.Capability]bool{
-		capability.CapAbort:        true,
-		capability.CapExecApproval: true,
+		capability.CapAbort:         true,
+		capability.CapExecApproval:  true,
+		capability.CapAnswerUserAsk: true,
 	}}
 }
 
@@ -250,9 +251,13 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 		usageBaselineEndedAt: usageBaselineEndedAt,
 		sessionDescribe:      slices.Contains(hello.Features.Methods, sessionDescribeMethod),
 		approvals:            make(map[string]*approvalState),
+		questions:            make(map[string]*questionState),
+		yieldedRuns:          make(map[string]struct{}),
+		abortRequested:       make(chan struct{}),
 		initialApprovals:     initialApprovals,
 		turnToken:            r.turnSeq.Add(1),
 	}
+	active.applyApprovalFeatures(hello)
 	result.TurnToken = active.turnToken
 	if !r.register(active) {
 		client.Close()

@@ -15,6 +15,11 @@ var RequiredOperatorScopes = []string{
 	"operator.read",
 	"operator.write",
 	"operator.approvals",
+	// operator.questions gates question.* RPCs and the question.requested /
+	// question.resolved broadcasts; without it an ask_user question never
+	// reaches the turn. A device paired with fewer scopes gets PAIRING_REQUIRED
+	// (reason scope-upgrade) until the operator approves the upgrade.
+	"operator.questions",
 }
 
 var (

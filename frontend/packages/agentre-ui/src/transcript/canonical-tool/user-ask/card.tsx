@@ -272,6 +272,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
                   questions={payload.questions}
                   activeIdx={activeQIdx}
                   selections={selections}
+                  allAnswered={isAnswered && !isSkipped}
                   onSelect={setActiveQIdx}
                 />
               )}
@@ -285,6 +286,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
                     qIdx={activeQIdx}
                     sel={selections[activeQIdx]}
                     locked={isLocked}
+                    answered={isAnswered && !isSkipped}
                     onToggle={toggleOption}
                     onOther={setOtherText}
                   />
@@ -374,18 +376,22 @@ function QuestionTabs({
   questions,
   activeIdx,
   selections,
+  allAnswered,
   onSelect,
 }: {
   questions: AskQuestionDTO[];
   activeIdx: number;
   selections: Selection[];
+  allAnswered: boolean;
   onSelect: (idx: number) => void;
 }) {
   return (
     <div className="flex items-end gap-1 border-b border-border px-3.5">
       {questions.map((q, idx) => {
         const active = idx === activeIdx;
-        const answered = (selections[idx]?.labels.length ?? 0) > 0;
+        // 已作答的卡里秘密题的答复不带内容，不能靠选中项判断。
+        const answered =
+          allAnswered || (selections[idx]?.labels.length ?? 0) > 0;
         const label = q.header ? `Q${idx + 1} · ${q.header}` : `Q${idx + 1}`;
         return (
           <button
@@ -422,6 +428,7 @@ function QuestionGroup({
   qIdx,
   sel,
   locked,
+  answered,
   onToggle,
   onOther,
 }: {
@@ -429,12 +436,15 @@ function QuestionGroup({
   qIdx: number;
   sel: Selection | undefined;
   locked: boolean;
+  answered: boolean;
   onToggle: (qIdx: number, label: string, multi: boolean) => void;
   onOther: (qIdx: number, text: string) => void;
 }) {
   const { t } = useUiTranslation();
   const labels = sel?.labels ?? [];
   const multi = !!q.multiSelect;
+  // 「其他」由后端逐题决定；无选项的题文本输入是唯一答法，始终保留。
+  const offersText = !q.disallowOther || q.options.length === 0;
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex items-start gap-2.5">
@@ -496,30 +506,38 @@ function QuestionGroup({
           );
         })}
 
-        <div
-          className={cn(
-            "flex items-center gap-2.5 rounded-md border border-dashed px-3.5 py-2.5",
-            labels.includes(OTHER_LABEL)
-              ? "border-primary/60 bg-primary-soft"
-              : "border-border-strong",
-          )}
-        >
-          <PencilLine className="h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            type={q.isSecret ? "password" : "text"}
-            disabled={locked}
-            placeholder={t("canonical.userAsk.otherPlaceholder")}
-            value={sel?.otherText ?? ""}
-            onChange={(e) => {
-              const text = e.target.value;
-              onOther(qIdx, text);
-              const has = labels.includes(OTHER_LABEL);
-              if (text && !has) onToggle(qIdx, OTHER_LABEL, multi);
-              if (!text && has) onToggle(qIdx, OTHER_LABEL, multi);
-            }}
-            className="h-7 border-0 bg-transparent p-0 text-sm focus-visible:ring-0"
-          />
-        </div>
+        {q.isSecret && answered ? (
+          // 秘密答案只留「已作答」，内容既不落档也不回显。
+          <div className="flex items-center gap-2.5 rounded-md border border-dashed border-border-strong px-3.5 py-2.5 text-sm text-muted-foreground">
+            <PencilLine className="h-3.5 w-3.5" />
+            {t("canonical.userAsk.secretAnswered")}
+          </div>
+        ) : offersText ? (
+          <div
+            className={cn(
+              "flex items-center gap-2.5 rounded-md border border-dashed px-3.5 py-2.5",
+              labels.includes(OTHER_LABEL)
+                ? "border-primary/60 bg-primary-soft"
+                : "border-border-strong",
+            )}
+          >
+            <PencilLine className="h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              type={q.isSecret ? "password" : "text"}
+              disabled={locked}
+              placeholder={t("canonical.userAsk.otherPlaceholder")}
+              value={sel?.otherText ?? ""}
+              onChange={(e) => {
+                const text = e.target.value;
+                onOther(qIdx, text);
+                const has = labels.includes(OTHER_LABEL);
+                if (text && !has) onToggle(qIdx, OTHER_LABEL, multi);
+                if (!text && has) onToggle(qIdx, OTHER_LABEL, multi);
+              }}
+              className="h-7 border-0 bg-transparent p-0 text-sm focus-visible:ring-0"
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

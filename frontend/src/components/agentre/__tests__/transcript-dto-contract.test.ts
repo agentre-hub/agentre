@@ -83,6 +83,21 @@ export type ExecApprovalIsAssignable = Assert<
 >;
 
 /**
+ * 审批卡是后端无关的：卡片按 kind 读的每一格已脱敏内容，Go 侧 ChatBlockExecApproval
+ * 都必须真的产出。这里补一条**反向的键集合**断言 —— 包 DTO 声明了、生成类型却没有
+ * 的键，就是卡片在桌面端永远读到 undefined 的那一格（可选字段让上面的单向断言
+ * 接不住这种漂移）。
+ */
+export type ExecApprovalFieldsEmittedByHost = Assert<
+  Exclude<
+    keyof TranscriptBlockExecApproval,
+    keyof ExecApprovalData
+  > extends never
+    ? true
+    : false
+>;
+
+/**
  * 重试提示（连接失败重连的第 N 次尝试）由宿主的流 store 产生，随消息行装配
  * 一起搬进包后成了包 DTO。方向与上面几族一致：**宿主类型可赋值给包 DTO**。
  */
@@ -112,7 +127,9 @@ describe("transcript DTO contract", () => {
   });
 
   it("keeps the host approval payloads assignable to the shared package DTOs", () => {
-    const proof: ToolApprovalIsAssignable & ExecApprovalIsAssignable = true;
+    const proof: ToolApprovalIsAssignable &
+      ExecApprovalIsAssignable &
+      ExecApprovalFieldsEmittedByHost = true;
 
     expect(proof).toBe(true);
   });

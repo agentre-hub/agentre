@@ -52,11 +52,11 @@ func encodeAskQuestion(value agentruntime.AskQuestion) *agentrewire.AskQuestion 
 	for _, option := range value.Options {
 		options = append(options, &agentrewire.AskOption{Label: option.Label, Description: option.Description, Preview: option.Preview})
 	}
-	return &agentrewire.AskQuestion{Id: value.ID, Question: value.Question, Header: value.Header, MultiSelect: value.MultiSelect, IsOther: value.IsOther, IsSecret: value.IsSecret, Options: options}
+	return &agentrewire.AskQuestion{Id: value.ID, Question: value.Question, Header: value.Header, MultiSelect: value.MultiSelect, IsOther: value.IsOther, IsSecret: value.IsSecret, DisallowOther: value.DisallowOther, Options: options}
 }
 
 func decodeAskQuestion(value *agentrewire.AskQuestion) agentruntime.AskQuestion {
-	out := agentruntime.AskQuestion{ID: value.GetId(), Question: value.GetQuestion(), Header: value.GetHeader(), MultiSelect: value.GetMultiSelect(), IsOther: value.GetIsOther(), IsSecret: value.GetIsSecret()}
+	out := agentruntime.AskQuestion{ID: value.GetId(), Question: value.GetQuestion(), Header: value.GetHeader(), MultiSelect: value.GetMultiSelect(), IsOther: value.GetIsOther(), IsSecret: value.GetIsSecret(), DisallowOther: value.GetDisallowOther()}
 	for _, option := range value.GetOptions() {
 		out.Options = append(out.Options, agentruntime.AskOption{Label: option.GetLabel(), Description: option.GetDescription(), Preview: option.GetPreview()})
 	}

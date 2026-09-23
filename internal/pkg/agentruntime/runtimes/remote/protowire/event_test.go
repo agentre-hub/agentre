@@ -93,6 +93,7 @@ func sealedEventSpecimens() []agentruntime.Event {
 		agentruntime.CompactBoundary{}, agentruntime.RuntimeStatus{}, agentruntime.PlanUpdated{},
 		agentruntime.Done{}, agentruntime.ErrorEvent{}, agentruntime.UserMessageEvent{},
 		agentruntime.UnrecognizedBlock{}, agentruntime.ImageBlockEvent{},
+		agentruntime.UnsupportedRequestNotice{},
 	}
 }
 
@@ -128,13 +129,19 @@ func TestEventNotificationPreservesEveryField(t *testing.T) {
 		agentruntime.ToolResult{ToolCallID: "t1", Content: "out", IsError: true, ParentToolCallID: "p1", SubagentRunID: "r1", Meta: json.RawMessage(`{"m":2}`)},
 		agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{QueuedID: "q", Text: "x", SourcePeer: "pe", SourceName: "na"}}},
 		agentruntime.UserAskRequest{RequestID: "rq", ToolCallID: "tc", ParentToolCallID: "pt", Questions: []agentruntime.AskQuestion{{
-			ID: "q1", Question: "去哪", Header: "路线", MultiSelect: true, IsOther: true, IsSecret: true,
+			ID: "q1", Question: "去哪", Header: "路线", MultiSelect: true, IsOther: true, IsSecret: true, DisallowOther: true,
 			Options: []agentruntime.AskOption{{Label: "左", Description: "d", Preview: "pv"}},
 		}}},
 		agentruntime.UserAskResolved{RequestID: "rq", ParentToolCallID: "pt", Skipped: true, Answers: []agentruntime.AskAnswer{{QuestionIndex: 1, Labels: []string{"左"}, OtherText: "ot"}}},
 		agentruntime.ToolPermissionRequest{RequestID: "pr", ToolCallID: "tc", ToolName: "Bash", Input: json.RawMessage(`{"cmd":"ls"}`)},
 		agentruntime.ToolPermissionResolved{RequestID: "pr", Allowed: true, AlwaysAllow: true, DenyReason: "no"},
-		agentruntime.ExecApprovalRequested{ID: "e1", CommandText: "ls", CommandPreview: "ls -l", AllowedDecisions: []string{"allow"}, Host: "h", NodeID: "n", AgentID: "a", SessionKey: "sk", CreatedAtMs: 111, ExpiresAtMs: 222},
+		agentruntime.ExecApprovalRequested{
+			ID: "e1", ApprovalKind: "system-agent", CommandText: "ls", CommandPreview: "ls -l", AllowedDecisions: []string{"allow"},
+			Host: "h", NodeID: "n", AgentID: "a", SessionKey: "sk", CreatedAtMs: 111, ExpiresAtMs: 222,
+			Description: "desc", ToolName: "tool", PluginName: "plug", Warnings: []string{"w1", "w2"},
+			ActionCategory: "payment", MessageTargets: []string{"t1", "t2"}, RecipientCount: 7,
+			PaymentAmount: "3 USD", PaymentPayee: "payee", PublishTarget: "pt", PublishVisibility: "public", AutomationName: "auto",
+		},
 		agentruntime.ExecApprovalResolved{ID: "e1", Status: "resolved", Decision: "allow", ResolvedBy: "me", ResolvedAtMs: 333},
 		agentruntime.PermissionModeChanged{Mode: "plan"},
 		agentruntime.SubagentStarted{ToolCallID: "s1", Info: info},
@@ -152,6 +159,7 @@ func TestEventNotificationPreservesEveryField(t *testing.T) {
 		agentruntime.UserMessageEvent{Text: "hello", SourceDevice: "fp", SourceDeviceName: "Mac"},
 		agentruntime.UnrecognizedBlock{BlockType: "future_block", Data: json.RawMessage(`{"nested":{"keep":true}}`)},
 		agentruntime.ImageBlockEvent{MediaType: "image/png", Inline: []byte{0x89, 0x50, 0x4e, 0x47}, URL: "https://example.test/a.png"},
+		agentruntime.UnsupportedRequestNotice{Purpose: agentruntime.UnsupportedRequestSudoPassword},
 	}
 	require.Len(t, specimens, len(sealedEventSpecimens()),
 		"每个 sealed event 都要有一份填满字段的 specimen")
