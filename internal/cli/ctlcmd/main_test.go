@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -138,13 +140,39 @@ func TestRun_SendMissingAgent(t *testing.T) {
 }
 
 func TestRun_NoEndpointConfigured(t *testing.T) {
-	// 无 env 端点、AppDataDir 指向空临时目录(无握手文件) → 提示桌面未运行。
+	// 无 env 端点、AppDataDir 指向空临时目录(无握手文件)、也不是 agentred 主机 → 提示桌面未运行。
 	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
+	t.Setenv("AGENTRED_DATA_DIR", t.TempDir())
 	code, _, errs := runCLI([]string{"list", "agents"}, func(string) (string, bool) { return "", false })
 	if code != 1 {
 		t.Fatalf("code = %d, want 1", code)
 	}
 	if !strings.Contains(strings.ToLower(errs), "not running") && !strings.Contains(strings.ToLower(errs), "endpoint") {
 		t.Fatalf("stderr = %q, want desktop-not-running hint", errs)
+	}
+}
+
+func TestRun_AgentredHostWithoutSessionToken(t *testing.T) {
+	// spec「Routing and approval」表最后一行：agentred 主机、没有会话 token、也没有桌面握手
+	// 文件 → 退出码 1，Error: 前缀，说明只有 Agentre 派发的会话能用 agrctl，而不是桌面未运行。
+	agentredDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(agentredDir, "state.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTRED_DATA_DIR", agentredDir)
+	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
+
+	code, _, errs := runCLI([]string{"list", "agents"}, func(string) (string, bool) { return "", false })
+	if code != 1 {
+		t.Fatalf("code = %d, want 1", code)
+	}
+	if !strings.HasPrefix(errs, "Error: ") {
+		t.Fatalf("stderr = %q, want Error: prefix", errs)
+	}
+	if strings.Contains(strings.ToLower(errs), "is the desktop app running") {
+		t.Fatalf("stderr = %q, must not use the desktop-not-running message on an agentred host", errs)
+	}
+	if !strings.Contains(strings.ToLower(errs), "session") {
+		t.Fatalf("stderr = %q, want it to say only an Agentre-dispatched session can use agrctl here", errs)
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/agentre-hub/agentre/internal/pkg/ctlendpoint"
@@ -67,6 +68,9 @@ func Resolve(flagURL, flagToken string, lookupEnv func(string) (string, bool)) (
 					ep.Token = fe.Token
 				}
 			case errors.Is(rerr, os.ErrNotExist):
+				if isAgentredHost() {
+					return Endpoint{}, errors.New("this is an agentred host — only Agentre-dispatched sessions can use agrctl here (no session token found)")
+				}
 				return Endpoint{}, errors.New("agentre desktop control endpoint not found — is the desktop app running?")
 			default:
 				return Endpoint{}, fmt.Errorf("read control endpoint: %w", rerr)
@@ -77,6 +81,18 @@ func Resolve(flagURL, flagToken string, lookupEnv func(string) (string, bool)) (
 		return Endpoint{}, errors.New("control endpoint not configured — is the desktop app running?")
 	}
 	return ep, nil
+}
+
+// isAgentredHost 判断本机是不是一台 agentred 主机 —— 检查 agentred 落盘留下的
+// state.json(internal/daemon/state.Load 在它第一次启动时就地写出,此后一直留着,不依赖
+// 当前是否在跑)。只做一次 os.Stat,轻量、无副作用,不会反过来让 agentred 写握手文件。
+func isAgentredHost() bool {
+	dir, err := paths.AgentredDataDir()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(dir, "state.json"))
+	return err == nil
 }
 
 // Get 发一个 GET 并把 JSON 响应解码进 out(out 可为 nil)。
