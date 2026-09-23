@@ -82,10 +82,10 @@ func TestList_GivenModelsOfProviderWhenListedThenDefaultMarked(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("rows = %v, want header + 2 openrouter models", rows)
 	}
-	if rows[0][0] != "ID" || rows[1][1] != "gpt-5.1" || rows[1][len(rows[1])-1] != "*" {
-		t.Fatalf("rows = %v, want ID first and gpt-5.1 marked default", rows)
+	if rows[0][0] != "ID" || rows[1][1] != "openai/gpt-5.1" || rows[1][len(rows[1])-1] != "*" {
+		t.Fatalf("rows = %v, want ID first and openai/gpt-5.1 marked default", rows)
 	}
-	if strings.Contains(r.stdout, "claude-opus-5") {
+	if strings.Contains(r.stdout, "claude-opus-5") || strings.Contains(r.stdout, "0b6c-") {
 		t.Fatalf("stdout = %q, must not include other providers' models", r.stdout)
 	}
 }
@@ -171,15 +171,42 @@ func TestGet_GivenUnknownNameThenNotFoundExit1(t *testing.T) {
 	}
 }
 
-func TestGet_GivenModelPathWhenGotThenModelOfThatProvider(t *testing.T) {
+func TestGet_GivenProviderSlashModelIDWhenGotThenSplitOnFirstSlash(t *testing.T) {
 	_, srv := newFakeExecutor(t, tok)
-	r := runWith([]string{"get", "model", "openrouter/gpt-5.1-mini"}, envFor(srv, tok), term{})
+	r := runWith([]string{"get", "model", "openrouter/openai/gpt-5.1"}, envFor(srv, tok), term{})
 	wantCode(t, r, 0)
 	var got map[string]any
 	_ = json.Unmarshal([]byte(r.stdout), &got)
-	if got["id"] != float64(22) || got["provider"] != "openrouter" {
-		t.Fatalf("json = %v", got)
+	if got["id"] != float64(21) || got["provider"] != "openrouter" || got["modelId"] != "openai/gpt-5.1" || got["key"] != "0b6c-21" {
+		t.Fatalf("json = %v, want model 21 with its ModelKey shown", got)
 	}
+}
+
+func TestGet_GivenModelKeyInsteadOfModelIDThenNotFound(t *testing.T) {
+	_, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"get", "model", "openrouter/0b6c-21"}, envFor(srv, tok), term{})
+	wantCode(t, r, 1)
+	if !strings.Contains(r.stderr, `model "openrouter/0b6c-21" not found`) {
+		t.Fatalf("stderr = %q", r.stderr)
+	}
+}
+
+func TestGet_GivenRepeatedModelIDUnderOneProviderThenAmbiguousWithIDExample(t *testing.T) {
+	_, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"get", "model", "anthropic/claude/dup"}, envFor(srv, tok), term{})
+	wantCode(t, r, 2)
+	for _, want := range []string{
+		`Error: model "anthropic/claude/dup" is ambiguous — 2 matches:`,
+		"24", "25",
+		"e.g. agrctl get model 24",
+	} {
+		if !strings.Contains(r.stderr, want) {
+			t.Fatalf("stderr = %q, want %q", r.stderr, want)
+		}
+	}
+	// 数字 id 仍然可用。
+	r = runWith([]string{"get", "model", "25"}, envFor(srv, tok), term{})
+	wantCode(t, r, 0)
 }
 
 func TestGet_GivenProviderThenMaskedKeyModelsAndReferences(t *testing.T) {
@@ -199,7 +226,7 @@ func TestGet_GivenProviderThenMaskedKeyModelsAndReferences(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.stdout), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.APIKey != "sk-o••••••••3f9a" || got.DefaultModel != "gpt-5.1" || len(got.Models) != 2 || got.References.AgentBackends != 2 {
+	if got.APIKey != "sk-o••••••••3f9a" || got.DefaultModel != "openai/gpt-5.1" || len(got.Models) != 2 || got.References.AgentBackends != 2 {
 		t.Fatalf("json = %+v", got)
 	}
 }
@@ -290,22 +317,46 @@ func TestUpdate_GivenProjectMemberFlagsThenAddRemoveIDs(t *testing.T) {
 	}
 }
 
-func TestModel_GivenCreateUnderProviderThenCreatedWithPath(t *testing.T) {
+func TestModel_GivenCreateWithoutKeyThenCreatedAsProviderSlashModelID(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
-	r := runWith([]string{"create", "model", "--provider", "openrouter", "--key", "qwen3", "--model-id", "qwen/qwen3-coder"}, envFor(srv, tok), term{})
+	r := runWith([]string{"create", "model", "--provider", "openrouter", "--model-id", "qwen/qwen3-coder"}, envFor(srv, tok), term{})
 	wantCode(t, r, 0)
-	m := f.onlyWrite(t).GetResource().GetModel()
-	if m.GetProviderId() != 4 || m.GetKey() != "qwen3" || m.GetModelId() != "qwen/qwen3-coder" {
-		t.Fatalf("model = %v", m)
+	w := f.onlyWrite(t)
+	m := w.GetResource().GetModel()
+	if m.GetProviderId() != 4 || m.GetModelId() != "qwen/qwen3-coder" || m.GetKey() != "" || slices.Contains(w.GetFields(), "key") {
+		t.Fatalf("write = %v", w)
 	}
-	if strings.TrimSpace(r.stdout) != "model openrouter/qwen3 created (id 99)" {
+	if strings.TrimSpace(r.stdout) != "model openrouter/qwen/qwen3-coder created (id 99)" {
 		t.Fatalf("stdout = %q", r.stdout)
+	}
+}
+
+func TestModel_GivenKeyFlagThenUsageErrorAndNoWrite(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	for _, args := range [][]string{
+		{"create", "model", "--provider", "openrouter", "--key", "qwen3", "--model-id", "qwen/qwen3-coder"},
+		{"update", "model", "openrouter/openai/gpt-5.1", "--key", "x"},
+	} {
+		r := runWith(args, envFor(srv, tok), term{})
+		wantCode(t, r, 2)
+	}
+	if f.writeCount() != 0 {
+		t.Fatal("no write must be sent")
+	}
+}
+
+func TestProvider_GivenDefaultModelByModelIDThenSendsThatModelsKey(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"update", "provider", "openrouter", "--default-model", "openai/gpt-5.1-mini"}, envFor(srv, tok), term{})
+	wantCode(t, r, 0)
+	if got := f.onlyWrite(t).GetResource().GetProvider().GetDefaultModelKey(); got != "0b6c-22" {
+		t.Fatalf("defaultModelKey = %q, want the ModelKey of openai/gpt-5.1-mini", got)
 	}
 }
 
 func TestModel_GivenDefaultFlagThenIsDefaultField(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
-	r := runWith([]string{"update", "model", "openrouter/gpt-5.1-mini", "--default"}, envFor(srv, tok), term{})
+	r := runWith([]string{"update", "model", "openrouter/openai/gpt-5.1-mini", "--default"}, envFor(srv, tok), term{})
 	wantCode(t, r, 0)
 	w := f.onlyWrite(t)
 	if w.GetId() != 22 || !slices.Equal(w.GetFields(), []string{"isDefault"}) || !w.GetResource().GetModel().GetIsDefault() {
@@ -315,7 +366,7 @@ func TestModel_GivenDefaultFlagThenIsDefaultField(t *testing.T) {
 
 func TestModel_GivenEnableAndDisableTogetherThenUsageError(t *testing.T) {
 	_, srv := newFakeExecutor(t, tok)
-	r := runWith([]string{"update", "model", "openrouter/gpt-5.1", "--enable", "--disable"}, envFor(srv, tok), term{})
+	r := runWith([]string{"update", "model", "openrouter/openai/gpt-5.1", "--enable", "--disable"}, envFor(srv, tok), term{})
 	wantCode(t, r, 2)
 }
 
@@ -352,7 +403,7 @@ func TestWrite_GivenExecutorRejectsThenMessagePassedThroughExit1(t *testing.T) {
 
 func TestBackend_GivenConfigOfItsTypeThenSentAsConfigJSON(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
-	r := runWith([]string{"create", "backend", "--type", "codex", "--name", "codex-2", "--device", "build-box", "--provider", "openrouter", "--model", "gpt-5.1",
+	r := runWith([]string{"create", "backend", "--type", "codex", "--name", "codex-2", "--device", "build-box", "--provider", "openrouter", "--model", "openai/gpt-5.1",
 		"--env", "A=1", "--config", `{"sandbox":"workspace-write","approval":"on-request"}`}, envFor(srv, tok), term{})
 	wantCode(t, r, 0)
 	b := f.onlyWrite(t).GetResource().GetBackend()

@@ -73,13 +73,17 @@ func newFakeExecutor(t *testing.T, token string) (*fakeExecutor, *httptest.Serve
 			projectDoc(&agentrewire.CtlProject{Id: 15, Name: "docs", ParentId: 2, Path: "/src/hub/docs"}),
 		},
 		agentrewire.CtlKind_CTL_KIND_PROVIDER: {
-			providerDoc(&agentrewire.CtlProvider{Id: 1, Name: "anthropic", Type: "anthropic", Enabled: true, ApiKey: "sk-a••••••••1111", ApiKeySet: true, DefaultModelKey: "claude-opus-5"}),                                                       //nolint:gosec // 掩码后的假数据，不是凭据。
-			providerDoc(&agentrewire.CtlProvider{Id: 4, Name: "openrouter", Type: "openai-chat", BaseUrl: "https://openrouter.ai/api/v1", Enabled: true, ApiKey: "sk-o••••••••3f9a", ApiKeySet: true, DefaultModelKey: "gpt-5.1", BackendRefs: 2}), //nolint:gosec // 掩码后的假数据，不是凭据。
+			providerDoc(&agentrewire.CtlProvider{Id: 1, Name: "anthropic", Type: "anthropic", Enabled: true, ApiKey: "sk-a••••••••1111", ApiKeySet: true, DefaultModelKey: "0b6c-23"}),                                                             //nolint:gosec // 掩码后的假数据，不是凭据。
+			providerDoc(&agentrewire.CtlProvider{Id: 4, Name: "openrouter", Type: "openai-chat", BaseUrl: "https://openrouter.ai/api/v1", Enabled: true, ApiKey: "sk-o••••••••3f9a", ApiKeySet: true, DefaultModelKey: "0b6c-21", BackendRefs: 2}), //nolint:gosec // 掩码后的假数据，不是凭据。
 		},
 		agentrewire.CtlKind_CTL_KIND_MODEL: {
-			modelDoc(&agentrewire.CtlModel{Id: 21, ProviderId: 4, Key: "gpt-5.1", ModelId: "openai/gpt-5.1", ContextWindow: 400000, Enabled: true, IsDefault: true}),
-			modelDoc(&agentrewire.CtlModel{Id: 22, ProviderId: 4, Key: "gpt-5.1-mini", ModelId: "openai/gpt-5.1-mini", ContextWindow: 400000, Enabled: true}),
-			modelDoc(&agentrewire.CtlModel{Id: 23, ProviderId: 1, Key: "claude-opus-5", ModelId: "claude-opus-5", Enabled: true, IsDefault: true}),
+			// Key 是服务生成的 ModelKey（UUID）；用户看得到、用来定位的是 ModelId。
+			modelDoc(&agentrewire.CtlModel{Id: 21, ProviderId: 4, Key: "0b6c-21", ModelId: "openai/gpt-5.1", ContextWindow: 400000, Enabled: true, IsDefault: true}),
+			modelDoc(&agentrewire.CtlModel{Id: 22, ProviderId: 4, Key: "0b6c-22", ModelId: "openai/gpt-5.1-mini", ContextWindow: 400000, Enabled: true}),
+			modelDoc(&agentrewire.CtlModel{Id: 23, ProviderId: 1, Key: "0b6c-23", ModelId: "claude-opus-5", Enabled: true, IsDefault: true}),
+			// 同一提供方下 ModelId 重复：走歧义路径。
+			modelDoc(&agentrewire.CtlModel{Id: 24, ProviderId: 1, Key: "0b6c-24", ModelId: "claude/dup", Enabled: true}),
+			modelDoc(&agentrewire.CtlModel{Id: 25, ProviderId: 1, Key: "0b6c-25", ModelId: "claude/dup", Enabled: true}),
 		},
 		agentrewire.CtlKind_CTL_KIND_BACKEND: {
 			backendDoc(&agentrewire.CtlBackend{Id: 5, Name: "claude-local", Type: "claudecode", ProviderId: 1}),

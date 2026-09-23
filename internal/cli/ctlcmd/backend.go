@@ -79,7 +79,7 @@ func initBackendFlags() {
 		strField("device", "<device>", "device", "paired device name or fingerprint to run on (empty = this machine)", func(w *writeCtx, v string) { b(w).Device = v }),
 		strField("cli-path", "<path>", "cliPath", "CLI executable path", func(w *writeCtx, v string) { b(w).CliPath = v }),
 		refField("provider", kindProvider, "providerId", "LLM provider (empty = the CLI's own login)", func(w *writeCtx, id int64) { b(w).ProviderId = id }),
-		{name: "model", value: "<model>", field: "modelId", usage: "fixed model: <key> of --provider, or <provider>/<key> (empty = provider default)",
+		{name: "model", value: "<model>", field: "modelId", usage: "fixed model: a model id of the bound provider, <provider>/<model id> when none is bound, or a numeric id (empty = provider default)",
 			apply: func(w *writeCtx, v string) error {
 				id, err := w.backendModel(v)
 				if err == nil {
@@ -175,14 +175,12 @@ func (w *writeCtx) setBackendConfig(flagName string, raw []byte) error {
 	return nil
 }
 
-// backendModel 解析 --model：`<provider>/<key>`、数字 id，或本次（或目标已绑定的）
-// 提供方下的模型 key。
+// backendModel 解析 --model：数字 id；已知绑定的提供方（本次 --provider 或目标已绑定的）
+// 时是该提供方下的 ModelID；否则是 <provider>/<ModelID>。ModelID 自己可以带 /，所以
+// 有提供方时不再按 / 切。
 func (w *writeCtx) backendModel(v string) (int64, error) {
 	if v == "" {
 		return 0, nil
-	}
-	if strings.Contains(v, "/") {
-		return w.ref(kindModel, v)
 	}
 	if _, err := strconv.ParseInt(v, 10, 64); err == nil {
 		return w.ref(kindModel, v)
@@ -192,7 +190,7 @@ func (w *writeCtx) backendModel(v string) (int64, error) {
 		providerID = w.doc.GetBackend().GetProviderId()
 	}
 	if providerID == 0 {
-		return 0, usageErrorf("--model %s needs --provider (or use <provider>/<key>)", v)
+		return w.ref(kindModel, v)
 	}
 	return w.ref(kindModel, w.cat.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, providerID)+"/"+v)
 }

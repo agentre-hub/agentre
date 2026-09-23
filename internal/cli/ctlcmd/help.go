@@ -21,7 +21,7 @@ Usage:
 
 Resources: agent, department (dept), project (proj), provider, model, backend.
 <ref> is a numeric id, a name, or a parent/child path (projects, departments);
-a model is <provider>/<model key>. Flags that name another resource
+a model is <provider>/<model id>. Flags that name another resource
 (--department, --parent, --backend, --provider, --lead, …) take the same forms.
 
 Writes from an Agentre session wait for approval in that session; writes from a
@@ -79,7 +79,7 @@ func writeKindHelp(w io.Writer, spec *kindSpec) {
 	_, _ = fmt.Fprintf(&b, "Resource: %s\n\nCommands:\n", spec.name)
 	ref := "<ref>"
 	if spec == kindModel {
-		ref = "<provider>/<key>"
+		ref = "<provider>/<model id>"
 	}
 	filters := ""
 	for _, f := range spec.filters {

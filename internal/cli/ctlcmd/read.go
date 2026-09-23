@@ -49,7 +49,7 @@ func runList(args []string, s *sys) error {
 		if !keep(it) {
 			continue
 		}
-		v := cat.view(it)
+		v := cat.view(it, false)
 		views = append(views, v)
 		rows = append(rows, cat.row(it))
 	}
@@ -135,7 +135,7 @@ func runGet(args []string, s *sys) error {
 	if err != nil {
 		return err
 	}
-	return printJSON(s.stdout, cat.view(detail))
+	return printJSON(s.stdout, cat.view(detail, true))
 }
 
 func printJSON(w io.Writer, v any) error {
@@ -172,7 +172,7 @@ func tableHeader(kind agentrewire.CtlKind) []string {
 	case agentrewire.CtlKind_CTL_KIND_PROVIDER:
 		return []string{"ID", "NAME", "TYPE", "ENABLED", "MODELS", "DEFAULT", "API KEY"}
 	case agentrewire.CtlKind_CTL_KIND_MODEL:
-		return []string{"ID", "KEY", "PROVIDER", "MODEL ID", "CONTEXT", "ENABLED", "DEFAULT"}
+		return []string{"ID", "MODEL ID", "PROVIDER", "CONTEXT", "ENABLED", "DEFAULT"}
 	default:
 		return []string{"ID", "NAME", "TYPE", "DEVICE", "PROVIDER", "MODEL"}
 	}
@@ -217,10 +217,10 @@ func (c *catalog) row(r *agentrewire.CtlResource) []string {
 	case *agentrewire.CtlResource_Provider:
 		x := d.Provider
 		return []string{id, x.GetName(), x.GetType(), yesNo(x.GetEnabled()), strconv.Itoa(len(c.modelsOf(x.GetId()))),
-			x.GetDefaultModelKey(), mark(x.GetApiKeySet(), "set")}
+			c.defaultModelID(x), mark(x.GetApiKeySet(), "set")}
 	case *agentrewire.CtlResource_Model:
 		x := d.Model
-		return []string{id, x.GetKey(), c.label(agentrewire.CtlKind_CTL_KIND_PROVIDER, x.GetProviderId()), x.GetModelId(),
+		return []string{id, x.GetModelId(), c.label(agentrewire.CtlKind_CTL_KIND_PROVIDER, x.GetProviderId()),
 			itoa(x.GetContextWindow()), yesNo(x.GetEnabled()), mark(x.GetIsDefault(), "*")}
 	case *agentrewire.CtlResource_Backend:
 		x := d.Backend
@@ -258,6 +258,16 @@ func (c *catalog) modelsOf(providerID int64) []*agentrewire.CtlModel {
 		}
 	}
 	return out
+}
+
+// defaultModelID 是提供方默认模型的 ModelID（默认模型以 ModelKey 记在提供方上）。
+func (c *catalog) defaultModelID(p *agentrewire.CtlProvider) string {
+	for _, m := range c.modelsOf(p.GetId()) {
+		if m.GetKey() == p.GetDefaultModelKey() {
+			return m.GetModelId()
+		}
+	}
+	return p.GetDefaultModelKey()
 }
 
 func (c *catalog) modelPath(id int64) string {
@@ -313,7 +323,6 @@ type projectView struct {
 }
 
 type providerModelView struct {
-	Key           string `json:"key"`
 	ModelID       string `json:"modelId"`
 	ContextWindow int64  `json:"contextWindow,omitempty"`
 	Enabled       bool   `json:"enabled"`
@@ -332,10 +341,11 @@ type providerView struct {
 }
 
 type modelView struct {
-	ID            int64      `json:"id"`
-	Provider      string     `json:"provider"`
-	Key           string     `json:"key"`
-	ModelID       string     `json:"modelId"`
+	ID       int64  `json:"id"`
+	Provider string `json:"provider"`
+	ModelID  string `json:"modelId"`
+	// Key 是服务生成的 ModelKey，只在 get 里展示。
+	Key           string     `json:"key,omitempty"`
 	Name          string     `json:"name,omitempty"`
 	ContextWindow int64      `json:"contextWindow,omitempty"`
 	MaxOutput     int64      `json:"maxOutput,omitempty"`
@@ -360,8 +370,8 @@ type backendView struct {
 }
 
 // view 是资源的 JSON 视图：list -o json 与 get 共用；get 的关联信息（成员路径、
-// 引用计数）来自执行者的详情响应。
-func (c *catalog) view(r *agentrewire.CtlResource) any {
+// 引用计数）来自执行者的详情响应。detail 为 true（get）时才带模型的 ModelKey。
+func (c *catalog) view(r *agentrewire.CtlResource, detail bool) any {
 	switch d := r.GetDoc().(type) {
 	case *agentrewire.CtlResource_Agent:
 		a := d.Agent
@@ -390,17 +400,21 @@ func (c *catalog) view(r *agentrewire.CtlResource) any {
 	case *agentrewire.CtlResource_Provider:
 		x := d.Provider
 		v := providerView{ID: x.GetId(), Name: x.GetName(), Type: x.GetType(), BaseURL: x.GetBaseUrl(), Enabled: x.GetEnabled(),
-			APIKey: x.GetApiKey(), DefaultModel: x.GetDefaultModelKey(), Models: []providerModelView{},
+			APIKey: x.GetApiKey(), DefaultModel: c.defaultModelID(x), Models: []providerModelView{},
 			References: references{AgentBackends: x.GetBackendRefs()}}
 		for _, m := range c.modelsOf(x.GetId()) {
-			v.Models = append(v.Models, providerModelView{Key: m.GetKey(), ModelID: m.GetModelId(), ContextWindow: m.GetContextWindow(), Enabled: m.GetEnabled()})
+			v.Models = append(v.Models, providerModelView{ModelID: m.GetModelId(), ContextWindow: m.GetContextWindow(), Enabled: m.GetEnabled()})
 		}
 		return v
 	case *agentrewire.CtlResource_Model:
 		x := d.Model
-		return modelView{ID: x.GetId(), Provider: c.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, x.GetProviderId()), Key: x.GetKey(),
+		v := modelView{ID: x.GetId(), Provider: c.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, x.GetProviderId()),
 			ModelID: x.GetModelId(), Name: x.GetName(), ContextWindow: x.GetContextWindow(), MaxOutput: x.GetMaxOutput(),
 			Enabled: x.GetEnabled(), Default: x.GetIsDefault(), References: references{AgentBackends: x.GetBackendRefs()}}
+		if detail {
+			v.Key = x.GetKey()
+		}
+		return v
 	case *agentrewire.CtlResource_Backend:
 		x := d.Backend
 		v := backendView{ID: x.GetId(), Name: x.GetName(), Type: x.GetType(), Device: x.GetDevice(), CLIPath: x.GetCliPath(),

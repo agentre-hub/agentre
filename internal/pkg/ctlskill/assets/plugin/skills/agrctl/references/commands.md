@@ -29,7 +29,7 @@ use", …) are shown verbatim. Exit code `3` prints `NEEDS TTY: <explanation>` i
 | `department` / `dept` | id, name, or `parent/child` path | — |
 | `project` / `proj` | id, name, or `parent/child` path | `--parent <p>` |
 | `provider` | id or name (unique) | — |
-| `model` | id or `<provider>/<model key>` | `--provider <p>` |
+| `model` | id or `<provider>/<model id>` (split at the first `/`) | `--provider <p>` |
 | `backend` | id or name (unique) | `--type <type>` |
 
 Not found:
@@ -70,8 +70,8 @@ Empty cells print `-`. `-o json` prints a JSON array of the same objects `get` p
   "baseURL": "<url>",
   "enabled": true,
   "apiKey": "sk-o••••••••3f9a",
-  "defaultModel": "gpt-5.1",
-  "models": [ { "key": "gpt-5.1", "modelId": "openai/gpt-5.1", "contextWindow": 400000, "enabled": true } ],
+  "defaultModel": "openai/gpt-5.1",
+  "models": [ { "modelId": "openai/gpt-5.1", "contextWindow": 400000, "enabled": true } ],
   "references": { "agentBackends": 2 }
 }
 ```
@@ -90,8 +90,8 @@ department 研发部 created (id 5)
 waiting for approval in this Agentre session …
 agent reviewer updated
 
-{{AGRCTL_PATH}} create model --provider openrouter --key qwen3 --model-id qwen/qwen3-coder
-model openrouter/qwen3 created (id 31)
+{{AGRCTL_PATH}} create model --provider openrouter --model-id qwen/qwen3-coder
+model openrouter/qwen/qwen3-coder created (id 31)
 
 {{AGRCTL_PATH}} delete department 临时小组 --cascade
 department 临时小组 deleted

@@ -113,7 +113,7 @@ func (c *catalog) byID(kind agentrewire.CtlKind, id int64) *agentrewire.CtlResou
 	return nil
 }
 
-// path 是资源的完整定位：项目 / 部门是从根开始的 父/子 路径，模型是 提供方/模型key，
+// path 是资源的完整定位：项目 / 部门是从根开始的 父/子 路径，模型是 提供方/ModelID，
 // 其它是名字。列表取不到时退回 #id。
 func (c *catalog) path(kind agentrewire.CtlKind, id int64) string {
 	it := c.byID(kind, id)
@@ -146,7 +146,7 @@ func (c *catalog) path(kind agentrewire.CtlKind, id int64) string {
 	}
 }
 
-// label 是资源在表格与结果行里的短名：模型是 提供方/模型key，其它是名字。
+// label 是资源在表格与结果行里的短名：模型是 提供方/ModelID，其它是名字。
 // 完整路径（path）只在需要消歧的地方用：JSON 视图、歧义提示。
 func (c *catalog) label(kind agentrewire.CtlKind, id int64) string {
 	if kind == agentrewire.CtlKind_CTL_KIND_MODEL {
@@ -163,7 +163,7 @@ func (c *catalog) label(kind agentrewire.CtlKind, id int64) string {
 	}
 }
 
-// locate 把用户给的定位（数字 id、名字、父/子 路径、提供方/模型key）解析成一条资源。
+// locate 把用户给的定位（数字 id、名字、父/子 路径、提供方/ModelID）解析成一条资源。
 // 找不到是执行失败；有多个匹配是用法错误，并给出候选与示例命令。
 func (c *catalog) locate(spec *kindSpec, ref string) (*agentrewire.CtlResource, error) {
 	ref = strings.TrimSpace(ref)
@@ -179,6 +179,9 @@ func (c *catalog) locate(spec *kindSpec, ref string) (*agentrewire.CtlResource, 
 			return it, nil
 		}
 		return nil, fmt.Errorf("%s %q not found", spec.name, ref)
+	}
+	if spec.kind == agentrewire.CtlKind_CTL_KIND_MODEL && !strings.Contains(ref, "/") {
+		return nil, usageErrorf("a model is located as <provider>/<model id> or by its numeric id, got %q", ref)
 	}
 	var matches []*agentrewire.CtlResource
 	for _, it := range items {
@@ -213,10 +216,9 @@ func (c *catalog) matches(spec *kindSpec, it *agentrewire.CtlResource, ref strin
 		}
 		return true
 	case agentrewire.CtlKind_CTL_KIND_MODEL:
-		if strings.Contains(ref, "/") {
-			return c.path(spec.kind, d.id) == ref
-		}
-		return d.name == ref
+		// 按第一个 / 切：前面是提供方，后面整段是 ModelID（ModelID 自己可以带 /）。
+		provider, modelID, _ := strings.Cut(ref, "/")
+		return d.name == modelID && c.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, d.providerID) == provider
 	default:
 		return d.name == ref
 	}
@@ -235,7 +237,7 @@ func (c *catalog) ambiguous(spec *kindSpec, ref string, matches []*agentrewire.C
 	first := docOf(matches[0]).id
 	replacement := c.path(spec.kind, first)
 	hint := "Use an ID or a parent/child path"
-	if !spec.hierarchical && spec.kind != agentrewire.CtlKind_CTL_KIND_MODEL {
+	if !spec.hierarchical {
 		replacement, hint = strconv.FormatInt(first, 10), "Use an ID"
 	}
 	_, _ = fmt.Fprintf(&b, "%s, e.g. %s", hint, commandLine(replaceRef(c.args, ref, replacement)))
@@ -277,7 +279,8 @@ func docOf(r *agentrewire.CtlResource) doc {
 	case *agentrewire.CtlResource_Provider:
 		return doc{id: d.Provider.GetId(), name: d.Provider.GetName()}
 	case *agentrewire.CtlResource_Model:
-		return doc{id: d.Model.GetId(), name: d.Model.GetKey(), providerID: d.Model.GetProviderId()}
+		// 模型对用户的名字是 ModelID；Key 是服务生成的 ModelKey（UUID），不参与定位。
+		return doc{id: d.Model.GetId(), name: d.Model.GetModelId(), providerID: d.Model.GetProviderId()}
 	case *agentrewire.CtlResource_Backend:
 		return doc{id: d.Backend.GetId(), name: d.Backend.GetName()}
 	}

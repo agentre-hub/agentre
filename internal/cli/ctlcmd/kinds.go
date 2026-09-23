@@ -204,11 +204,18 @@ func initProviderFlags() {
 			apply: func(w *writeCtx, v string) error { p(w).ApiKey = v; return nil }},
 		boolField("enable", "enabled", "enable the provider", true, func(w *writeCtx, v bool) { p(w).Enabled = v }),
 		boolField("disable", "enabled", "disable the provider", false, func(w *writeCtx, v bool) { p(w).Enabled = v }),
-		strField("default-model", "<model key>", "defaultModelKey", "default model key", func(w *writeCtx, v string) { p(w).DefaultModelKey = v }),
 	}
+	defaultModel := &flagDef{name: "default-model", value: "<model id>", field: "defaultModelKey", usage: "default model, by its model id under this provider",
+		apply: func(w *writeCtx, v string) error {
+			key, err := w.providerModelKey(v)
+			if err == nil {
+				p(w).DefaultModelKey = key
+			}
+			return err
+		}}
 	typeFlag := strField("type", "<type>", "type", "anthropic | openai-chat | openai-response (create only)", func(w *writeCtx, v string) { p(w).Type = v })
 	kindProvider.createFlags = append([]*flagDef{typeFlag}, common...)
-	kindProvider.updateFlags = common
+	kindProvider.updateFlags = append(append([]*flagDef{}, common...), defaultModel)
 	kindProvider.required = []string{"name", "type"}
 	kindProvider.deleteFlags = []*flagDef{forceFlag("provider")}
 	kindProvider.secretHelp = "--api-key        bare: typed in without echo (needs a terminal).\n" +
@@ -227,8 +234,7 @@ func forceFlag(what string) *flagDef {
 func initModelFlags() {
 	m := func(w *writeCtx) *agentrewire.CtlModel { return w.doc.GetModel() }
 	common := []*flagDef{
-		strField("key", "<key>", "key", "model key, unique under its provider", func(w *writeCtx, v string) { m(w).Key = v }),
-		strField("model-id", "<id>", "modelId", "model id sent to the API", func(w *writeCtx, v string) { m(w).ModelId = v }),
+		strField("model-id", "<id>", "modelId", "model id sent to the API; locates the model as <provider>/<model id>", func(w *writeCtx, v string) { m(w).ModelId = v }),
 		strField("name", "<name>", "name", "display name", func(w *writeCtx, v string) { m(w).Name = v }),
 		intField("context-window", "contextWindow", "context window in tokens", func(w *writeCtx, v int64) { m(w).ContextWindow = v }),
 		intField("max-output", "maxOutput", "max output tokens", func(w *writeCtx, v int64) { m(w).MaxOutput = v }),
@@ -239,13 +245,13 @@ func initModelFlags() {
 	providerFlag := refField("provider", kindProvider, "providerId", "owning provider (create only)", func(w *writeCtx, id int64) { m(w).ProviderId = id })
 	kindModel.createFlags = append([]*flagDef{providerFlag}, common...)
 	kindModel.updateFlags = common
-	kindModel.required = []string{"provider", "key"}
+	kindModel.required = []string{"provider", "model-id"}
 	kindModel.deleteFlags = []*flagDef{forceFlag("model")}
 	kindModel.filters = []*flagDef{{name: "provider", value: "<provider>", usage: "only models of this provider"}}
 	kindModel.examples = []string{
-		"agrctl create model --provider openrouter --key qwen3 --model-id qwen/qwen3-coder",
-		"agrctl update model openrouter/qwen3 --default",
-		"agrctl delete model openrouter/qwen3",
+		"agrctl create model --provider openrouter --model-id qwen/qwen3-coder",
+		"agrctl update model openrouter/qwen/qwen3-coder --default",
+		"agrctl delete model openrouter/qwen/qwen3-coder",
 	}
 }
 

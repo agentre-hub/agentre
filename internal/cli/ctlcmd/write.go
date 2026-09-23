@@ -179,8 +179,8 @@ func runWrite(verb string, args []string, s *sys) error {
 	case agentrewire.CtlOp_CTL_OP_CREATE:
 		_, _ = fmt.Fprintf(s.stdout, "%s %s created (id %d)\n", spec.name, w.createdLabel(), resp.GetId())
 	case agentrewire.CtlOp_CTL_OP_UPDATE:
-		if w.fieldSet("name") || w.fieldSet("key") {
-			label = w.renamedLabel(label)
+		if w.fieldSet("name") || w.fieldSet("modelId") {
+			label = w.renamedLabel()
 		}
 		_, _ = fmt.Fprintf(s.stdout, "%s %s updated\n", spec.name, label)
 	default:
@@ -226,21 +226,33 @@ func (w *writeCtx) applyFlags(defs []*flagDef, p parsedArgs) error {
 	return nil
 }
 
-// createdLabel 是新资源在输出里的名字；模型写成 提供方/模型key。
+// createdLabel 是新资源在输出里的名字；模型写成 提供方/ModelID。
 func (w *writeCtx) createdLabel() string {
 	if m := w.doc.GetModel(); m != nil {
-		return w.cat.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, m.GetProviderId()) + "/" + m.GetKey()
+		return w.cat.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, m.GetProviderId()) + "/" + m.GetModelId()
 	}
 	return docOf(w.doc).name
 }
 
-// renamedLabel 是改名后的名字（模型的 提供方/模型key 只换最后一段）。
-func (w *writeCtx) renamedLabel(old string) string {
-	name := docOf(w.doc).name
-	if i := strings.LastIndex(old, "/"); i >= 0 {
-		return old[:i+1] + name
+// providerModelKey 把 ModelID 解析成目标提供方下那个模型的 ModelKey。
+func (w *writeCtx) providerModelKey(modelID string) (string, error) {
+	if modelID == "" {
+		return "", nil
 	}
-	return name
+	provider := w.cat.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, docOf(w.target).id)
+	it, err := w.cat.locate(kindModel, provider+"/"+modelID)
+	if err != nil {
+		return "", err
+	}
+	return it.GetModel().GetKey(), nil
+}
+
+// renamedLabel 是改名后的名字；模型是 提供方/新 ModelID。
+func (w *writeCtx) renamedLabel() string {
+	if m := w.doc.GetModel(); m != nil {
+		return w.cat.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, w.target.GetModel().GetProviderId()) + "/" + m.GetModelId()
+	}
+	return docOf(w.doc).name
 }
 
 // confirmDelete：人在终端里删除时再问一次 y/N（spec 决策 5）；其它调用方由执行者审批。

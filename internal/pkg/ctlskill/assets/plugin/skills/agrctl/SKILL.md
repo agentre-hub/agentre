@@ -42,7 +42,10 @@ secrets, and examples. It works without the desktop.
 `<ref>` is a numeric id, a name, or a `parent/child` path. Agents, providers and backends
 have globally unique names; projects and departments are only unique among siblings, so
 use a path such as `agentre/docs` when a bare name is ambiguous. A model is always
-`<provider>/<model key>`. Flags that point at another resource (`--department`, `--parent`,
+`<provider>/<model id>`, split at the first `/` (so `openrouter/openai/gpt-5.1` is model id
+`openai/gpt-5.1` of provider `openrouter`); if one provider has the same model id twice, use
+the numeric id. `create model` takes `--provider` and `--model-id`; the model key is generated
+by Agentre and only shown by `get model`. Flags that point at another resource (`--department`, `--parent`,
 `--backend`, `--provider`, `--lead`, `--add-member`, …) take the same forms.
 
 When a name matches several resources the command fails with exit code `2`, lists every
