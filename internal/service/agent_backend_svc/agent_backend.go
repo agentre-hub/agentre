@@ -1176,6 +1176,8 @@ func (s *agentBackendSvc) buildItem(b *agent_backend_entity.AgentBackend, p *llm
 		HermesURL:             b.HermesURL,
 		HermesAuthProvider:    b.HermesAuthProvider,
 		HermesUserID:          b.HermesUserID,
+		ACPCommand:            b.ACPCommand,
+		ACPArgs:               b.ACPArgs,
 		Createtime:            b.Createtime,
 		Updatetime:            b.Updatetime,
 	}

@@ -150,7 +150,7 @@ func (h *CLIHandlers) Probe(ctx context.Context, p CLIProbeParams) (CLIProbeResu
 			codexConfigs = agentruntime.BuildCodexConfig(deps)
 		}
 	case string(agent_backend_entity.TypePiAgent):
-		env, envErr = agentruntime.BuildPiAgentEnv(be)
+		env, envErr = agentruntime.BuildPiAgentEnv(be, deps)
 	}
 	if envErr != nil {
 		return CLIProbeResult{}, fmt.Errorf("env build: %w", envErr)

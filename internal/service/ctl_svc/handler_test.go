@@ -93,7 +93,7 @@ func (f *fakeChat) SubscribeSessionEvents(sessionID int64) (<-chan chat_svc.Chat
 }
 
 func newTestHandler(a *fakeAgents, p *fakeProjects, c *fakeChat) http.Handler {
-	return newCtlHandler(testToken, a, p, c)
+	return &ctlHandler{token: testToken, agents: a, projects: p, chat: c}
 }
 
 // 回归：bootstrap 起 gateway 时就挂 handler，deps 却要等 app.Startup(registerChatService
@@ -101,7 +101,8 @@ func newTestHandler(a *fakeAgents, p *fakeProjects, c *fakeChat) http.Handler {
 // 构造时若拷贝快照，/ctl/v1/* 恒 503，agrctl ctl 与 agrctl acp 全废；而既有单测都直接
 // newCtlHandler 传 deps，抓不到这个先后。
 func TestControlHandler_SeesDepsRegisteredAfterMount(t *testing.T) {
-	svc := &ctlSvc{token: testToken}
+	svc := newCtlSvc()
+	svc.token = testToken
 	mounted := svc.ControlHandler() // 先挂：此刻 deps 尚未接线
 
 	if rec := do(t, mounted, http.MethodGet, "/ctl/v1/agents", testToken, ""); rec.Code != http.StatusServiceUnavailable {
@@ -517,7 +518,7 @@ func TestControl_AnswerPermission_ValidatesParams(t *testing.T) {
 func TestControl_AnswerPermission_UnavailableWithoutDeps(t *testing.T) {
 	// 直接传 nil ChatGateway(而不是 (*fakeChat)(nil) 这种 typed-nil),后者会让
 	// h.chat != nil 恒成立,测不到 503。
-	h := newCtlHandler(testToken, &fakeAgents{}, &fakeProjects{}, nil)
+	h := &ctlHandler{token: testToken, agents: &fakeAgents{}, projects: &fakeProjects{}}
 	rec := do(t, h, http.MethodPost, "/ctl/v1/answer-permission", testToken, `{"sessionId":1,"requestId":"req-1"}`)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("code = %d, want 503 (body=%s)", rec.Code, rec.Body.String())

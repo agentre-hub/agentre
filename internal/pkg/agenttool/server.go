@@ -47,13 +47,14 @@ type ServerConfig struct {
 // (无状态),工具开关由 tools/call 时实时查 DB(LookupAgent + ToolEnabled)判定 —— 用户
 // 关掉开关后旧 token 立即失效。
 type Server struct {
-	cfg    ServerConfig
-	secret []byte // per-server HMAC 签名密钥(本机回投,进程内即可)
+	cfg ServerConfig
+	// TokenSigner 是本 server 的令牌签发/校验(per-server 密钥,本机回投,进程内即可)。
+	*TokenSigner
 }
 
 // NewServer 造一个工具 server;每个实例自持签名密钥,故令牌不跨 server 通用。
 func NewServer(cfg ServerConfig) *Server {
-	return &Server{cfg: cfg, secret: randSecret()}
+	return &Server{cfg: cfg, TokenSigner: NewTokenSigner()}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

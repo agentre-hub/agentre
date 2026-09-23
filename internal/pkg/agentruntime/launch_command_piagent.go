@@ -8,7 +8,7 @@ import (
 )
 
 func buildPiAgentShellCommand(spec LaunchCommandSpec, cwd string) (string, error) {
-	env, err := BuildPiAgentEnv(spec.Backend)
+	env, err := BuildPiAgentEnv(spec.Backend, CLIDeps{})
 	if err != nil {
 		return "", err
 	}

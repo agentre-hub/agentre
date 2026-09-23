@@ -41,6 +41,9 @@ type CLIDeps struct {
 	// 只用于 claudecode:CLI 不认识的模型名一律按 200k 自动压缩,
 	// CLAUDE_CODE_MAX_CONTEXT_TOKENS 是告诉它真实窗口的唯一入口。
 	ContextWindow int
+	// Ctl 是本轮会话的 agrctl 凭证（RunRequest.CtlCredentials()）；四类 CLI 子进程都
+	// 注入。零值 = 没有会话身份（探测类调用点），不注入。
+	Ctl CtlCredentials
 }
 
 // BuildClaudeCodeEnv 装配 claudecode 子进程的环境变量：
@@ -60,7 +63,8 @@ type CLIDeps struct {
 //     窗口而不是默认 200k 自动压缩；排在 env_json 之前，用户显式写的值优先；
 //   - 用户自定义 env_json 追加（保留键已被 entity.Check 拒入）；
 //   - 如果 backend.model_routes 含 OPUS/SONNET/HAIKU，注入 ANTHROPIC_DEFAULT_*_MODEL = alias 字符串
-//     （上游识别 alias，gateway 按 alias 路由到对应 provider 后再改写成真实 model id）。
+//     （上游识别 alias，gateway 按 alias 路由到对应 provider 后再改写成真实 model id）；
+//   - 会话级 agrctl 凭证（deps.Ctl → AGENTRE_CTL_*）最后写入，env_json 盖不掉。
 //
 // 只写 AUTH_TOKEN 不写 API_KEY：
 //   - ANTHROPIC_API_KEY 走 x-api-key 头，定位是「直连官方 API」；CLI 检测到 `claude login`
@@ -104,6 +108,7 @@ func BuildClaudeCodeEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map
 		return nil, fmt.Errorf("parse env_json: %w", err)
 	}
 	maps.Copy(env, user)
+	applyCtlEnv(env, deps.Ctl)
 	return env, nil
 }
 
@@ -111,7 +116,8 @@ func BuildClaudeCodeEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map
 //   - 关联 provider 时（deps 非空）：只写 OPENAI_API_KEY=<一次性 token>；
 //     base_url / model_provider 由 BuildCodexConfig 写入 Codex CLI config override；
 //   - 未关联 provider 时（deps 空）：不写 API_KEY，让 codex CLI 自身的 login 状态生效；
-//   - 用户自定义 env_json 追加。
+//   - 用户自定义 env_json 追加；
+//   - 会话级 agrctl 凭证（deps.Ctl → AGENTRE_CTL_*）最后写入，与是否关联 provider 无关。
 func BuildCodexEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map[string]string, error) {
 	env := map[string]string{}
 	if deps.GatewayURL != "" && deps.Token != "" {
@@ -122,28 +128,32 @@ func BuildCodexEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map[stri
 		return nil, fmt.Errorf("parse env_json: %w", err)
 	}
 	maps.Copy(env, user)
+	applyCtlEnv(env, deps.Ctl)
 	return env, nil
 }
 
 // BuildPiAgentEnv 装配 pi-agent 子进程环境变量：
 //   - 默认 PI_OFFLINE=1，避免桌面启动路径触发 update/network startup；
 //   - Pi 自行读取 ~/.pi/agent/models.json / settings.json / auth.json，不走 Agentre gateway；
-//   - 用户自定义 env_json 追加（保留键已被 entity.Check 拒入）。
-func BuildPiAgentEnv(b *agent_backend_entity.AgentBackend) (map[string]string, error) {
+//   - 用户自定义 env_json 追加（保留键已被 entity.Check 拒入）；
+//   - 会话级 agrctl 凭证（deps.Ctl）最后写入。deps 只用这一项。
+func BuildPiAgentEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map[string]string, error) {
 	env := map[string]string{"PI_OFFLINE": "1"}
 	user, err := agent_backend_entity.ParseEnvJSON(b.EnvJSON)
 	if err != nil {
 		return nil, fmt.Errorf("parse env_json: %w", err)
 	}
 	maps.Copy(env, user)
+	applyCtlEnv(env, deps.Ctl)
 	return env, nil
 }
 
 // BuildACPEnv 装配 ACP agent 子进程的环境变量：
 //   - ACP Agent 自带 provider/model/凭证，不经 Agentre 网关转发，因此不注入
 //     AGENTRE_GATEWAY_* / ANTHROPIC_* / OPENAI_* 任何变量；
-//   - 用户自定义 env_json 追加（保留键已被 entity.Check 拒入）。
-func BuildACPEnv(b *agent_backend_entity.AgentBackend) (map[string]string, error) {
+//   - 用户自定义 env_json 追加（保留键已被 entity.Check 拒入）；
+//   - 会话级 agrctl 凭证（deps.Ctl）最后写入。deps 只用这一项。
+func BuildACPEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map[string]string, error) {
 	env := map[string]string{}
 	user, err := agent_backend_entity.ParseEnvJSON(b.EnvJSON)
 	if err != nil {
@@ -152,6 +162,7 @@ func BuildACPEnv(b *agent_backend_entity.AgentBackend) (map[string]string, error
 	for k, v := range user {
 		env[k] = v
 	}
+	applyCtlEnv(env, deps.Ctl)
 	return env, nil
 }
 

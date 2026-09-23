@@ -547,6 +547,7 @@ func toItem(a *agent_entity.Agent, targets []*agent_entity.AgentExecTarget) *Age
 		DepartmentID:  a.DepartmentID,
 		ParentAgentID: a.ParentAgentID,
 		SortOrder:     a.SortOrder,
+		Pinned:        a.Pinned,
 		Prompt:        a.GetPrompt(),
 		ExecTargets:   toAgentExecTargetItems(targets),
 		Tools:         tools,

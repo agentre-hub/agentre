@@ -244,6 +244,29 @@ func TestLoad_ToolsProjectionAndAvailableTools(t *testing.T) {
 	})
 }
 
+// TestLoad_CarriesPinned 锁住 AgentItem.Pinned：agrctl 的 agent 视图读的就是它。
+func TestLoad_CarriesPinned(t *testing.T) {
+	convey.Convey("Given 一个置顶、一个未置顶的 Agent", t, func() {
+		ctx, deptMock, agentMock, backendMock, providerMock, execTargetMock, svc := setupLoadSvc(t)
+		deptMock.EXPECT().List(gomock.Any()).Return(nil, nil)
+		agentMock.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{
+			{ID: 10, Name: "Eva", Status: 1, Pinned: true, PromptJSON: "[]", SkillsJSON: "[]", ToolsJSON: "[]"},
+			{ID: 11, Name: "Bob", Status: 1, PromptJSON: "[]", SkillsJSON: "[]", ToolsJSON: "[]"},
+		}, nil)
+		backendMock.EXPECT().List(gomock.Any()).Return(nil, nil)
+		providerMock.EXPECT().List(gomock.Any()).Return(nil, nil)
+		execTargetMock.EXPECT().ListByAgents(gomock.Any(), []int64{10, 11}).Return(nil, nil)
+
+		convey.Convey("When Load, Then 各自带出置顶状态", func() {
+			resp, err := svc.Load(ctx, &LoadOrgRequest{})
+			assert.NoError(t, err)
+			assert.Len(t, resp.Agents, 2)
+			assert.True(t, resp.Agents[0].Pinned)
+			assert.False(t, resp.Agents[1].Pinned)
+		})
+	})
+}
+
 // TestLoad_BackendSummaryModel 锁住组织页 Agent 卡片上的摘要模型：写供应商默认模型的
 // 展示名，没填展示名才回落 ModelID。
 func TestLoad_BackendSummaryModel(t *testing.T) {

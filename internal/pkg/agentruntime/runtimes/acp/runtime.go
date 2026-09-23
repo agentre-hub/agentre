@@ -123,7 +123,7 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 			return nil, nil, err
 		}
 	}
-	envMap, err := agentruntime.BuildACPEnv(req.Backend)
+	envMap, err := agentruntime.BuildACPEnv(req.Backend, agentruntime.CLIDeps{Ctl: req.CtlCredentials()})
 	if err != nil {
 		return nil, nil, err
 	}

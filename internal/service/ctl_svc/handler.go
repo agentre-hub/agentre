@@ -2,7 +2,6 @@ package ctl_svc
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,22 +19,29 @@ const routePrefix = "/ctl/v1/"
 
 // ctlHandler 是 /ctl/* 的 HTTP handler：先过 bearer 鉴权，再按路径分发。
 type ctlHandler struct {
-	token    string
-	agents   AgentGateway
-	projects ProjectGateway
-	chat     ChatGateway
-}
-
-func newCtlHandler(token string, agents AgentGateway, projects ProjectGateway, chat ChatGateway) *ctlHandler {
-	return &ctlHandler{token: token, agents: agents, projects: projects, chat: chat}
+	// token 是握手 token（全权）；sessions 校验会话级 token（读 + send）。
+	token     string
+	sessions  SessionTokenVerifier
+	agents    AgentGateway
+	projects  ProjectGateway
+	chat      ChatGateway
+	resources Resources
 }
 
 func (h *ctlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !h.authorized(r) {
+	cred, ok := h.authenticate(r)
+	if !ok {
 		writeErr(w, http.StatusUnauthorized, "invalid control token")
 		return
 	}
-	switch strings.TrimPrefix(r.URL.Path, routePrefix) {
+	route := strings.TrimPrefix(r.URL.Path, routePrefix)
+	if cred.session && !sessionRoutes[route] {
+		writeErr(w, http.StatusForbidden, "a session token cannot call "+route)
+		return
+	}
+	switch route {
+	case "resources":
+		h.serveResources(w, r, cred)
 	case "agents":
 		h.serveAgents(w, r)
 	case "projects":
@@ -53,15 +59,6 @@ func (h *ctlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeErr(w, http.StatusNotFound, "unknown control endpoint")
 	}
-}
-
-// authorized 常量时间比对 bearer token；token 未装配(空)时一律拒绝。
-func (h *ctlHandler) authorized(r *http.Request) bool {
-	if h.token == "" {
-		return false
-	}
-	tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	return subtle.ConstantTimeCompare([]byte(tok), []byte(h.token)) == 1
 }
 
 type agentDTO struct {

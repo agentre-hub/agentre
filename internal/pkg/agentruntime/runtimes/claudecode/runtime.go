@@ -656,7 +656,7 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 	}
 	env, err := agentruntime.BuildClaudeCodeEnv(req.Backend, agentruntime.CLIDeps{
 		Token: req.GatewayToken, GatewayURL: req.GatewayURL, ProviderKey: req.EffectiveProviderKey(),
-		ContextWindow: effectiveContextWindow(req),
+		ContextWindow: effectiveContextWindow(req), Ctl: req.CtlCredentials(),
 	})
 	if err != nil {
 		return nil, "", err

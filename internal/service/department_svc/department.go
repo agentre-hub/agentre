@@ -188,6 +188,7 @@ func (s *departmentSvc) Load(ctx context.Context, _ *LoadOrgRequest) (*LoadOrgRe
 			DepartmentID:  a.DepartmentID,
 			ParentAgentID: a.ParentAgentID,
 			SortOrder:     a.SortOrder,
+			Pinned:        a.Pinned,
 			Prompt:        a.GetPrompt(),
 			ExecTargets:   execTargets,
 			Tools:         toAgentToolDTO(a.GetTools()),

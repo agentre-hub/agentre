@@ -67,6 +67,7 @@ type AgentItem struct {
 	ParentAgentName string          `json:"parentAgentName"`
 	Backend         *BackendSummary `json:"backend,omitempty"`
 	SortOrder       int             `json:"sortOrder"`
+	Pinned          bool            `json:"pinned"`
 	Prompt          []string        `json:"prompt"`
 	// ExecTargets 是 R15 的有序执行目标列表（任务 12：组织架构页展示/编辑用），
 	// 也是这条 Agent 的后端与技能授权的**唯一**出口（① 是 sort_order 最小的那一档）。写口同样只认它

@@ -47,6 +47,12 @@ func setupSvc(t *testing.T) (
 	return context.Background(), agentMock, deptMock, backendMock, &agentSvc{now: func() int64 { return 1700000000 }}
 }
 
+// TestToItem_CarriesPinned：写接口回的 AgentItem 与 department_svc.Load 同口径带出置顶状态。
+func TestToItem_CarriesPinned(t *testing.T) {
+	assert.True(t, toItem(&agent_entity.Agent{ID: 1, Pinned: true}, nil).Pinned)
+	assert.False(t, toItem(&agent_entity.Agent{ID: 2}, nil).Pinned)
+}
+
 func activeDept(id int64) *department_entity.Department {
 	return &department_entity.Department{ID: id, Status: consts.ACTIVE}
 }

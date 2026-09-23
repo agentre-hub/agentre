@@ -5,9 +5,11 @@
 // reachable from outside a running turn so a human (or a plain shell command)
 // can "@ an agent and hand it a task" without injecting an MCP server.
 //
-// Auth is a single process-lifetime bearer token; the desktop writes it (plus
-// the gateway's actual URL) to the ctlendpoint handshake file so the CLI can
-// find + authenticate against it. See internal/pkg/ctlendpoint.
+// Auth recognizes two bearer tokens: the process-lifetime handshake token the
+// desktop writes (plus the gateway's actual URL) to the ctlendpoint handshake
+// file (see internal/pkg/ctlendpoint), and session-scoped tokens bound to one
+// (agent, session) that are injected into every CLI agent subprocess. See
+// caller.go for how the two map onto caller classes.
 package ctl_svc
 
 import (
@@ -15,18 +17,30 @@ import (
 	"encoding/base64"
 	"net/http"
 	"sync"
+
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 )
 
 type ctlSvc struct {
 	token string
+	// sessions 签发并校验会话级 token；密钥 per-instance，签发与校验都走它。
+	sessions *agenttool.TokenSigner
 
-	mu       sync.RWMutex
-	agents   AgentGateway
-	projects ProjectGateway
-	chat     ChatGateway
+	mu        sync.RWMutex
+	agents    AgentGateway
+	projects  ProjectGateway
+	chat      ChatGateway
+	resources Resources
+	// endpoint 是注入会话的控制 API base URL；空 = 还没发布，不签会话凭证。
+	endpoint string
 }
 
-var defaultCtl = &ctlSvc{token: mustRandToken()}
+var defaultCtl = newCtlSvc()
+
+func newCtlSvc() *ctlSvc {
+	return &ctlSvc{token: mustRandToken(), sessions: agenttool.NewTokenSigner(), resources: ProductionResources()}
+}
 
 // Default 取默认服务单例。
 func Default() *ctlSvc { return defaultCtl }
@@ -39,8 +53,46 @@ func (s *ctlSvc) RegisterDeps(agents AgentGateway, projects ProjectGateway, chat
 	s.mu.Unlock()
 }
 
+// RegisterResources 替换资源网关（默认是 ProductionResources；测试可注 fake）。
+func (s *ctlSvc) RegisterResources(r Resources) {
+	s.mu.Lock()
+	s.resources = r
+	s.mu.Unlock()
+}
+
 // Token 返回本进程的控制 token；桌面在 gateway 起好后连同 URL 写进 ctlendpoint 握手文件。
 func (s *ctlSvc) Token() string { return s.token }
+
+// SessionToken 为 (agent, session) 签会话级 token（确定性：同一对每次相同）。
+func (s *ctlSvc) SessionToken(agentID, sessionID int64) string {
+	return s.sessions.MintToken(agentID, sessionID)
+}
+
+// VerifySessionToken 校验本实例签的会话级 token，解出绑定的 (agent, session)。
+func (s *ctlSvc) VerifySessionToken(tok string) (agenttool.Ref, bool) {
+	return s.sessions.Lookup(tok)
+}
+
+// PublishSessionEndpoint 记下控制 API 的 base URL，并把本服务注册为 CLI 子进程的会话凭证
+// 来源：此后每个 CLI agent 子进程都带上 AGENTRE_CTL_ENDPOINT 与会话级 AGENTRE_CTL_TOKEN。
+// 桌面在 gateway 起好、拿到实际 URL 时调用。
+func (s *ctlSvc) PublishSessionEndpoint(baseURL string) {
+	s.mu.Lock()
+	s.endpoint = baseURL
+	s.mu.Unlock()
+	agentruntime.RegisterCtlCredentialSource(s.SessionCredentials)
+}
+
+// SessionCredentials 是 (agent, session) 的会话凭证；端点未发布时为零值（不注入）。
+func (s *ctlSvc) SessionCredentials(agentID, sessionID int64) agentruntime.CtlCredentials {
+	s.mu.RLock()
+	endpoint := s.endpoint
+	s.mu.RUnlock()
+	if endpoint == "" {
+		return agentruntime.CtlCredentials{}
+	}
+	return agentruntime.CtlCredentials{Endpoint: endpoint, Token: s.SessionToken(agentID, sessionID)}
+}
 
 // ControlHandler 返回挂到 gateway /ctl/ 的 HTTP handler。未 RegisterDeps 时各端点返 503。
 //
@@ -51,7 +103,10 @@ func (s *ctlSvc) Token() string { return s.token }
 func (s *ctlSvc) ControlHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.RLock()
-		h := newCtlHandler(s.token, s.agents, s.projects, s.chat)
+		h := &ctlHandler{
+			token: s.token, sessions: s.sessions,
+			agents: s.agents, projects: s.projects, chat: s.chat, resources: s.resources,
+		}
 		s.mu.RUnlock()
 		h.ServeHTTP(w, r)
 	})
