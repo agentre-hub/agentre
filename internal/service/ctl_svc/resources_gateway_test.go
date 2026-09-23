@@ -82,7 +82,7 @@ func TestBackendDocFrom(t *testing.T) {
 	t.Run("绑定、设备、env、独占配置与 token 状态", func(t *testing.T) {
 		got, err := backendDocFrom(&agent_backend_svc.BackendItem{
 			ID: 5, Name: "cc", Type: "claudecode", LLMProviderKey: "pk-1", LLMModelKey: "mk-1",
-			DeviceID: "sha256:ab", DeviceName: "box", ReasoningEffort: "high", EnvJSON: `{"A":"1"}`,
+			SyncID: "sy-5", DeviceID: "sha256:ab", DeviceName: "box", ReasoningEffort: "high", EnvJSON: `{"A":"1"}`,
 			DefaultPermissionMode: "plan",
 			ModelRoutes:           map[string]agent_backend_svc.RouteTarget{"OPUS": {ProviderKey: "pk-1", ModelKey: "mk-1"}},
 		}, ids, "/usr/local/bin/claude")
@@ -94,13 +94,14 @@ func TestBackendDocFrom(t *testing.T) {
 		assert.Equal(t, "/usr/local/bin/claude", got.GetCliPath())
 		assert.Equal(t, "high", got.GetReasoningEffort())
 		assert.Equal(t, map[string]string{"A": "1"}, got.GetEnv())
-		assert.False(t, got.GetTokenSet())
+		assert.Equal(t, "sha256:ab", got.GetDeviceFingerprint(), "绑定设备的指纹原样给出（agentred 靠它认出绑在自己身上的后端）")
+		assert.Equal(t, "sy-5", got.GetSyncId())
 		var cfg map[string]any
 		require.NoError(t, json.Unmarshal([]byte(got.GetConfigJson()), &cfg))
 		assert.Equal(t, "plan", cfg["defaultPermissionMode"])
 		assert.Equal(t, map[string]any{"OPUS": map[string]any{"providerKey": "pk-1", "modelKey": "mk-1"}}, cfg["modelRoutes"])
 	})
-	t.Run("本机、CLI 登录态、openclaw token 已设置", func(t *testing.T) {
+	t.Run("本机、CLI 登录态", func(t *testing.T) {
 		got, err := backendDocFrom(&agent_backend_svc.BackendItem{
 			ID: 6, Name: "claw", Type: "openclaw", HasToken: true, OpenClawGatewayURL: "ws://127.0.0.1:1",
 		}, ids, "")
@@ -108,8 +109,8 @@ func TestBackendDocFrom(t *testing.T) {
 		assert.Equal(t, int64(0), got.GetProviderId())
 		assert.Equal(t, int64(0), got.GetModelId())
 		assert.Empty(t, got.GetDevice())
+		assert.Empty(t, got.GetDeviceFingerprint())
 		assert.Empty(t, got.GetToken())
-		assert.True(t, got.GetTokenSet())
 		assert.JSONEq(t, `{"openclawGatewayUrl":"ws://127.0.0.1:1"}`, got.GetConfigJson())
 	})
 	t.Run("设备没名字 → 回落指纹", func(t *testing.T) {
@@ -144,26 +145,34 @@ func (f *fakeCredentialStatus) BackendCredentialStatus(_ context.Context, req *a
 	return &agent_backend_svc.BackendCredentialStatusResponse{OpenClawTokenSaved: f.saved}, nil
 }
 
-// OpenClaw 的 token 存在后端绑定的那台设备上：tokenSet 要问那台设备，不能只看本机钥匙串
-// （spec「token 只显示是否已设置」，审批卡的清除行也靠它）。
-func TestOpenClawTokenSet(t *testing.T) {
+// OpenClaw 的 token 存在后端绑定的那台设备上：状态要问那台设备，不能只看本机钥匙串
+// （spec「token 只显示是否已设置」，审批卡的清除行也靠它）；问不到就如实报 unknown。
+func TestOpenClawTokenState(t *testing.T) {
 	remote := &agent_backend_svc.BackendItem{ID: 10, Type: "openclaw", SyncID: "sy-10", DeviceID: "sha256:bb", HasToken: false}
-	t.Run("绑定设备说已保存 → true，按同步标识与设备去问", func(t *testing.T) {
+	t.Run("绑定设备说已保存 → set，按同步标识与设备去问", func(t *testing.T) {
 		f := &fakeCredentialStatus{saved: true}
-		assert.True(t, openClawTokenSet(context.Background(), f, remote))
+		assert.Equal(t, agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET, openClawTokenState(context.Background(), f, remote))
 		assert.Equal(t, &agent_backend_svc.BackendCredentialStatusRequest{Type: "openclaw", SyncID: "sy-10", DeviceID: "sha256:bb"}, f.got)
 	})
-	t.Run("绑定设备说没保存 → false", func(t *testing.T) {
-		assert.False(t, openClawTokenSet(context.Background(), &fakeCredentialStatus{}, &agent_backend_svc.BackendItem{Type: "openclaw", SyncID: "s", HasToken: true}))
+	t.Run("绑定设备说没保存 → unset", func(t *testing.T) {
+		assert.Equal(t, agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNSET,
+			openClawTokenState(context.Background(), &fakeCredentialStatus{}, &agent_backend_svc.BackendItem{Type: "openclaw", SyncID: "s", HasToken: true}))
 	})
-	t.Run("设备问不到 → 退回服务层读模型的值", func(t *testing.T) {
+	t.Run("设备问不到（离线）→ unknown，不拿本机读模型冒充", func(t *testing.T) {
 		f := &fakeCredentialStatus{err: errors.New("offline")}
-		assert.False(t, openClawTokenSet(context.Background(), f, remote))
-		assert.True(t, openClawTokenSet(context.Background(), f, &agent_backend_svc.BackendItem{Type: "openclaw", SyncID: "s", HasToken: true}))
+		assert.Equal(t, agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNKNOWN, openClawTokenState(context.Background(), f, remote))
+		assert.Equal(t, agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNKNOWN,
+			openClawTokenState(context.Background(), f, &agent_backend_svc.BackendItem{Type: "openclaw", SyncID: "s", HasToken: true}))
 	})
-	t.Run("不是 openclaw → 不问，沿用读模型", func(t *testing.T) {
+	t.Run("还没有同步标识 → 按本机读模型报 set / unset", func(t *testing.T) {
+		f := &fakeCredentialStatus{}
+		assert.Equal(t, agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET, openClawTokenState(context.Background(), f, &agent_backend_svc.BackendItem{Type: "openclaw", HasToken: true}))
+		assert.Equal(t, agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNSET, openClawTokenState(context.Background(), f, &agent_backend_svc.BackendItem{Type: "openclaw"}))
+		assert.Nil(t, f.got)
+	})
+	t.Run("不是 openclaw → 没有 token（UNSPECIFIED），不问", func(t *testing.T) {
 		f := &fakeCredentialStatus{saved: true}
-		assert.False(t, openClawTokenSet(context.Background(), f, &agent_backend_svc.BackendItem{Type: "codex"}))
+		assert.Equal(t, agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNSPECIFIED, openClawTokenState(context.Background(), f, &agent_backend_svc.BackendItem{Type: "codex"}))
 		assert.Nil(t, f.got)
 	})
 }

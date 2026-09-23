@@ -57,7 +57,9 @@ candidate's id and path, and prints a corrected command to run instead.
   array. Filters: `list agents --department <d>`, `list projects --parent <p>`,
   `list models --provider <p>`, `list backends --type <type>`.
 - `get <resource> <ref>` prints JSON whose field names match the create/update flags. API
-  keys are masked, other secrets only say whether they are set.
+  keys are masked, other secrets only say whether they are set: `set` / `unset`, or
+  `unknown` when the device that keeps them cannot be asked (offline, or managed through
+  the server).
 
 ### Writing
 

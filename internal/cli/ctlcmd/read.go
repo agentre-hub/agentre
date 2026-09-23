@@ -174,7 +174,7 @@ func tableHeader(kind agentrewire.CtlKind) []string {
 	case agentrewire.CtlKind_CTL_KIND_MODEL:
 		return []string{"ID", "MODEL ID", "PROVIDER", "CONTEXT", "ENABLED", "DEFAULT"}
 	default:
-		return []string{"ID", "NAME", "TYPE", "DEVICE", "PROVIDER", "MODEL"}
+		return []string{"ID", "NAME", "TYPE", "DEVICE", "PROVIDER", "MODEL", "TOKEN"}
 	}
 }
 
@@ -188,6 +188,30 @@ func yesNo(b bool) string {
 func mark(b bool, s string) string {
 	if b {
 		return s
+	}
+	return ""
+}
+
+// tokenLabel 是 token 状态在 get 里的写法：set / unset / unknown（执行者问不到后端
+// 绑定的那台设备）。
+func tokenLabel(state agentrewire.CtlTokenState) string {
+	switch state {
+	case agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET:
+		return "set"
+	case agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNKNOWN:
+		return "unknown"
+	default:
+		return "unset"
+	}
+}
+
+// tokenCell 是 list 表格里的 TOKEN 列：没有 token 的类型与未设置都是空格子（印成 -）。
+func tokenCell(b *agentrewire.CtlBackend) string {
+	if t := lookupBackendType(b.GetType()); t == nil || !t.token {
+		return ""
+	}
+	if label := tokenLabel(b.GetTokenState()); label != "unset" {
+		return label
 	}
 	return ""
 }
@@ -225,7 +249,7 @@ func (c *catalog) row(r *agentrewire.CtlResource) []string {
 	case *agentrewire.CtlResource_Backend:
 		x := d.Backend
 		return []string{id, x.GetName(), x.GetType(), x.GetDevice(), c.label(agentrewire.CtlKind_CTL_KIND_PROVIDER, x.GetProviderId()),
-			c.label(agentrewire.CtlKind_CTL_KIND_MODEL, x.GetModelId())}
+			c.label(agentrewire.CtlKind_CTL_KIND_MODEL, x.GetModelId()), tokenCell(x)}
 	}
 	return []string{id}
 }
@@ -365,7 +389,7 @@ type backendView struct {
 	ReasoningEffort string            `json:"reasoningEffort,omitempty"`
 	Env             map[string]string `json:"env,omitempty"`
 	Config          json.RawMessage   `json:"config,omitempty"`
-	// Token 只说是否已设置（set / unset），只对有 token 的类型出现。
+	// Token 只说是否已设置（set / unset / unknown），只对有 token 的类型出现。
 	Token string `json:"token,omitempty"`
 }
 
@@ -424,10 +448,7 @@ func (c *catalog) view(r *agentrewire.CtlResource, detail bool) any {
 			v.Config = json.RawMessage(cfg)
 		}
 		if t := lookupBackendType(x.GetType()); t != nil && t.token {
-			v.Token = mark(x.GetTokenSet(), "set")
-			if v.Token == "" {
-				v.Token = "unset"
-			}
+			v.Token = tokenLabel(x.GetTokenState())
 		}
 		return v
 	}

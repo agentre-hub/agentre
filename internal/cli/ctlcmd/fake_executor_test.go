@@ -90,7 +90,7 @@ func newFakeExecutor(t *testing.T, token string) (*fakeExecutor, *httptest.Serve
 		agentrewire.CtlKind_CTL_KIND_BACKEND: {
 			backendDoc(&agentrewire.CtlBackend{Id: 5, Name: "claude-local", Type: "claudecode", ProviderId: 1}),
 			backendDoc(&agentrewire.CtlBackend{Id: 9, Name: "codex-remote", Type: "codex", Device: "build-box", ProviderId: 4, ModelId: 21}),
-			backendDoc(&agentrewire.CtlBackend{Id: 10, Name: "claw", Type: "openclaw", TokenSet: true}),
+			backendDoc(&agentrewire.CtlBackend{Id: 10, Name: "claw", Type: "openclaw", TokenState: agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET}),
 		},
 	}}
 	mux := http.NewServeMux()

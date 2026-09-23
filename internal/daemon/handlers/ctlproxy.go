@@ -32,7 +32,8 @@ import (
 //     的 102 等待行由这里先发(session=<桌面会话 id>),最终应答原样透传;
 //   - 控制台拥有:读直连 server(设备 Bearer);写先 `?preview=1` 让 server 算变更清单,
 //     在本会话里出一张 toolKey=ctl 的审批卡(落进转录 + 实时推出),批准后才提交 server,
-//     拒绝 403、4 分钟无人处理 504。
+//     拒绝 403、4 分钟无人处理 504。OpenClaw 后端绑在这台 agentred 上时,它的 token 由
+//     这里写进本机的设备本地凭据,不交 server(见 ctlproxy_localtoken.go)。
 //
 // 契约与桌面端执行者一致(ctl_svc):请求是 protojson 的 CtlRequest,失败是 {"error": …}。
 
@@ -66,6 +67,17 @@ type CtlProxyDeps struct {
 	Server CtlServerPort
 	// ApprovalTimeout 是控制台会话审批卡的挂起上限;0 = 4 分钟。
 	ApprovalTimeout time.Duration
+	// Self 是这台 agentred 的设备指纹:后端的 device_fingerprint 与它相同 = 绑在本机。
+	Self devicefp.Carrier
+	// OpenClawTokens 是本机的设备本地凭据(BackendCredentialHandlers,按后端 syncId 存
+	// OpenClaw token);nil = 不在本地读写 token。
+	OpenClawTokens CtlOpenClawTokens
+}
+
+// CtlOpenClawTokens 是设备本地凭据里 OpenClaw token 的读写,由 *BackendCredentialHandlers 实现。
+type CtlOpenClawTokens interface {
+	Status(ctx context.Context, request *agentrewire.BackendCredentialStatusRequest) (*agentrewire.BackendCredentialStatusResponse, error)
+	SetOpenClawToken(ctx context.Context, request *agentrewire.OpenClawTokenSetRequest) (*agentrewire.OpenClawTokenSetResponse, error)
 }
 
 type ctlProxy struct{ deps CtlProxyDeps }
@@ -168,31 +180,23 @@ func (p *ctlProxy) serveConsoleResources(w http.ResponseWriter, r *http.Request,
 	}
 	write := req.GetWrite()
 	if write == nil {
-		p.relayServer(w, r.Context(), owner, serverResourcesPath, body)
+		p.relayConsoleRead(w, r.Context(), owner, &req, body)
 		return
 	}
-	p.approveConsoleWrite(w, r, owner, write, body)
-}
-
-// approveConsoleWrite:server 预览 → 本会话审批卡 → 批准后提交 server。
-func (p *ctlProxy) approveConsoleWrite(w http.ResponseWriter, r *http.Request, owner ctlSession, write *agentrewire.CtlWriteRequest, body []byte) {
-	ctx := r.Context()
 	if owner.turn == nil {
 		writeCtlErr(w, http.StatusConflict, "cannot ask for approval in this session: no turn is running")
 		return
 	}
-	status, raw, err := p.postServer(ctx, serverResourcesPath+"?preview=1", body)
-	if err != nil {
-		p.writeServerErr(w, ctx, owner, err)
-		return
-	}
-	if status != http.StatusOK {
-		writeCtlRaw(w, status, raw)
-		return
-	}
-	var preview agentrewire.CtlResponse
-	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(raw, &preview); err != nil || preview.GetWrite() == nil {
-		writeCtlErr(w, http.StatusBadGateway, "the Agentre server answered the preview with an unreadable change list")
+	p.approveConsoleWrite(w, r, owner, p.planConsoleWrite(r.Context(), write, body))
+}
+
+// approveConsoleWrite:预览(server 算变更清单,本地 token 只标 secret)→ 本会话审批卡 →
+// 批准后提交 server,再写本地 token。
+func (p *ctlProxy) approveConsoleWrite(w http.ResponseWriter, r *http.Request, owner ctlSession, plan consoleWritePlan) {
+	ctx := r.Context()
+	write := plan.req
+	preview, ok := p.previewConsoleWrite(w, ctx, owner, plan)
+	if !ok {
 		return
 	}
 	requestID := uuid.NewString()
@@ -201,7 +205,7 @@ func (p *ctlProxy) approveConsoleWrite(w http.ResponseWriter, r *http.Request, o
 		ToolKey:   agenttool.KeyCtl,
 		RequestID: requestID,
 		ToolName:  "ctl_" + ctlOpName(write.GetOp()) + "_" + ctlKindNames[write.GetKind()],
-		ToolInput: ctlApprovalInput(redactCtlCommand(write), preview.GetWrite().GetChanges()).ToolInput(),
+		ToolInput: ctlApprovalInput(redactCtlCommand(write), preview.GetChanges()).ToolInput(),
 		Status:    "pending",
 	})
 	if err != nil {
@@ -230,21 +234,63 @@ func (p *ctlProxy) approveConsoleWrite(w http.ResponseWriter, r *http.Request, o
 		log.Info("handlers.ctlProxy.approveConsoleWrite: rejected")
 		writeCtlErr(w, http.StatusForbidden, fmt.Sprintf("rejected in session #%d", sessionID))
 	default:
-		status, raw, err := p.postServer(ctx, serverResourcesPath, body)
-		switch {
-		case err != nil:
-			owner.turn.resolveApproval(ctx, requestID, "approved", "执行失败："+err.Error())
-			p.writeServerErr(w, ctx, owner, err)
-		case status != http.StatusOK:
-			owner.turn.resolveApproval(ctx, requestID, "approved", "执行失败："+ctlErrMessage(raw))
-			log.Warn("handlers.ctlProxy.approveConsoleWrite: server refused the write", zap.Int("status", status))
-			writeCtlRaw(w, status, raw)
-		default:
-			owner.turn.resolveApproval(ctx, requestID, "approved", ctlResultText(raw, preview.GetWrite()))
-			log.Info("handlers.ctlProxy.approveConsoleWrite: written")
-			writeCtlRaw(w, status, raw)
+		var raw []byte
+		if plan.serverBody != nil {
+			status, body, err := p.postServer(ctx, serverResourcesPath, plan.serverBody)
+			switch {
+			case err != nil:
+				owner.turn.resolveApproval(ctx, requestID, "approved", "执行失败："+err.Error())
+				p.writeServerErr(w, ctx, owner, err)
+				return
+			case status != http.StatusOK:
+				owner.turn.resolveApproval(ctx, requestID, "approved", "执行失败："+ctlErrMessage(body))
+				log.Warn("handlers.ctlProxy.approveConsoleWrite: server refused the write", zap.Int("status", status))
+				writeCtlRaw(w, status, body)
+				return
+			}
+			raw = body
 		}
+		if plan.local != nil {
+			if err := p.saveLocalToken(ctx, plan.local); err != nil {
+				owner.turn.resolveApproval(ctx, requestID, "approved", "执行失败：could not save the gateway secret on this agentred")
+				writeCtlErr(w, http.StatusInternalServerError, "could not save the openclaw gateway secret on this agentred")
+				return
+			}
+		}
+		if raw == nil {
+			raw, _ = protojson.Marshal(&agentrewire.CtlResponse{Result: &agentrewire.CtlResponse_Write{Write: preview}})
+		}
+		owner.turn.resolveApproval(ctx, requestID, "approved", ctlResultText(raw, preview))
+		log.Info("handlers.ctlProxy.approveConsoleWrite: written")
+		writeCtlRaw(w, http.StatusOK, raw)
 	}
+}
+
+// previewConsoleWrite 取审批卡要展示的变更清单:要交 server 的部分由 server 预览算,本地
+// 写入的 token 只补一行 secret。失败时已经写好应答,返回 false。
+func (p *ctlProxy) previewConsoleWrite(w http.ResponseWriter, ctx context.Context, owner ctlSession, plan consoleWritePlan) (*agentrewire.CtlWriteResponse, bool) {
+	var preview *agentrewire.CtlWriteResponse
+	if plan.serverBody != nil {
+		status, raw, err := p.postServer(ctx, serverResourcesPath+"?preview=1", plan.serverBody)
+		if err != nil {
+			p.writeServerErr(w, ctx, owner, err)
+			return nil, false
+		}
+		if status != http.StatusOK {
+			writeCtlRaw(w, status, raw)
+			return nil, false
+		}
+		var resp agentrewire.CtlResponse
+		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(raw, &resp); err != nil || resp.GetWrite() == nil {
+			writeCtlErr(w, http.StatusBadGateway, "the Agentre server answered the preview with an unreadable change list")
+			return nil, false
+		}
+		preview = resp.GetWrite()
+	}
+	if plan.local != nil {
+		preview = plan.local.markChanged(preview)
+	}
+	return preview, true
 }
 
 // awaitAnswer 等作答到超时或调用方断开。没等到时撤下卡,再收一次:作答可能恰好在撤下
@@ -265,6 +311,20 @@ func (p *ctlProxy) awaitAnswer(ctx context.Context, ch <-chan bool, requestID st
 	default:
 		return false, false
 	}
+}
+
+// relayConsoleRead 把读交给 server;读后端时,绑在本机的 openclaw 后端的 token 状态由
+// 本机的设备本地凭据补上(server 看不到它,只会报 unknown)。
+func (p *ctlProxy) relayConsoleRead(w http.ResponseWriter, ctx context.Context, owner ctlSession, req *agentrewire.CtlRequest, body []byte) {
+	status, raw, err := p.postServer(ctx, serverResourcesPath, body)
+	if err != nil {
+		p.writeServerErr(w, ctx, owner, err)
+		return
+	}
+	if status == http.StatusOK && (req.GetList().GetKind() == agentrewire.CtlKind_CTL_KIND_BACKEND || req.GetGet().GetKind() == agentrewire.CtlKind_CTL_KIND_BACKEND) {
+		raw = p.overlayLocalTokenState(ctx, raw)
+	}
+	writeCtlRaw(w, status, raw)
 }
 
 func (p *ctlProxy) relayServer(w http.ResponseWriter, ctx context.Context, owner ctlSession, path string, body []byte) {

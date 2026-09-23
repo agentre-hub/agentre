@@ -1846,8 +1846,23 @@ message CtlBackend {
   string config_json = 10;
   // 只写：openclaw 网关 token 的明文；响应里恒为空。
   string token = 11;
-  // 只读：token 是否已设置。
-  bool token_set = 12;
+  // 只读：token 的状态。token 存在后端绑定的那台设备上，只有问得到那台设备的执行者才报
+  // SET / UNSET。
+  CtlTokenState token_state = 12;
+  // 只读：后端的同步标识；设备本地凭据（如 openclaw token）按它存取。
+  string sync_id = 13;
+  // 只读：后端绑定（运行所在）设备的指纹；空 = 执行者本机。
+  string device_fingerprint = 14;
+}
+
+// CtlTokenState 是后端 token 的状态。
+enum CtlTokenState {
+  // 该后端类型没有 token（只有 openclaw 有）。
+  CTL_TOKEN_STATE_UNSPECIFIED = 0;
+  CTL_TOKEN_STATE_SET = 1;
+  CTL_TOKEN_STATE_UNSET = 2;
+  // 执行者问不到绑定设备（离线，或 server 执行者本就看不到设备本地凭据）。
+  CTL_TOKEN_STATE_UNKNOWN = 3;
 }
 
 // CtlResource 是任意一类资源的文档。

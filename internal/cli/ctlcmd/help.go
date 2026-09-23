@@ -187,7 +187,9 @@ func writeBackendTypeHelp(w io.Writer, t *backendType) {
 	b.WriteString("\nSecrets:\n")
 	if t.token {
 		b.WriteString("  --token        bare: typed in without echo (needs a terminal).\n" +
-			"                 --token=<value> also works, but the token stays in your shell history.\n")
+			"                 --token=<value> also works, but the token stays in your shell history.\n" +
+			"  get / list show only its state: set / unset / unknown. unknown means the device the\n" +
+			"  backend is bound to cannot be asked right now (offline, or managed through the server).\n")
 	} else {
 		b.WriteString("  none\n")
 	}

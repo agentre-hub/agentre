@@ -535,6 +535,61 @@ func (CtlCaller) EnumDescriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{4}
 }
 
+// CtlTokenState 是后端 token 的状态。
+type CtlTokenState int32
+
+const (
+	// 该后端类型没有 token（只有 openclaw 有）。
+	CtlTokenState_CTL_TOKEN_STATE_UNSPECIFIED CtlTokenState = 0
+	CtlTokenState_CTL_TOKEN_STATE_SET         CtlTokenState = 1
+	CtlTokenState_CTL_TOKEN_STATE_UNSET       CtlTokenState = 2
+	// 执行者问不到绑定设备（离线，或 server 执行者本就看不到设备本地凭据）。
+	CtlTokenState_CTL_TOKEN_STATE_UNKNOWN CtlTokenState = 3
+)
+
+// Enum value maps for CtlTokenState.
+var (
+	CtlTokenState_name = map[int32]string{
+		0: "CTL_TOKEN_STATE_UNSPECIFIED",
+		1: "CTL_TOKEN_STATE_SET",
+		2: "CTL_TOKEN_STATE_UNSET",
+		3: "CTL_TOKEN_STATE_UNKNOWN",
+	}
+	CtlTokenState_value = map[string]int32{
+		"CTL_TOKEN_STATE_UNSPECIFIED": 0,
+		"CTL_TOKEN_STATE_SET":         1,
+		"CTL_TOKEN_STATE_UNSET":       2,
+		"CTL_TOKEN_STATE_UNKNOWN":     3,
+	}
+)
+
+func (x CtlTokenState) Enum() *CtlTokenState {
+	p := new(CtlTokenState)
+	*p = x
+	return p
+}
+
+func (x CtlTokenState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CtlTokenState) Descriptor() protoreflect.EnumDescriptor {
+	return file_agentre_wire_wire_proto_enumTypes[5].Descriptor()
+}
+
+func (CtlTokenState) Type() protoreflect.EnumType {
+	return &file_agentre_wire_wire_proto_enumTypes[5]
+}
+
+func (x CtlTokenState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CtlTokenState.Descriptor instead.
+func (CtlTokenState) EnumDescriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{5}
+}
+
 type WireFrame struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Body:
@@ -17723,10 +17778,15 @@ type CtlBackend struct {
 	ConfigJson string `protobuf:"bytes,10,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
 	// 只写：openclaw 网关 token 的明文；响应里恒为空。
 	Token string `protobuf:"bytes,11,opt,name=token,proto3" json:"token,omitempty"`
-	// 只读：token 是否已设置。
-	TokenSet      bool `protobuf:"varint,12,opt,name=token_set,json=tokenSet,proto3" json:"token_set,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// 只读：token 的状态。token 存在后端绑定的那台设备上，只有问得到那台设备的执行者才报
+	// SET / UNSET。
+	TokenState CtlTokenState `protobuf:"varint,12,opt,name=token_state,json=tokenState,proto3,enum=agentre.wire.CtlTokenState" json:"token_state,omitempty"`
+	// 只读：后端的同步标识；设备本地凭据（如 openclaw token）按它存取。
+	SyncId string `protobuf:"bytes,13,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
+	// 只读：后端绑定（运行所在）设备的指纹；空 = 执行者本机。
+	DeviceFingerprint string `protobuf:"bytes,14,opt,name=device_fingerprint,json=deviceFingerprint,proto3" json:"device_fingerprint,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *CtlBackend) Reset() {
@@ -17836,11 +17896,25 @@ func (x *CtlBackend) GetToken() string {
 	return ""
 }
 
-func (x *CtlBackend) GetTokenSet() bool {
+func (x *CtlBackend) GetTokenState() CtlTokenState {
 	if x != nil {
-		return x.TokenSet
+		return x.TokenState
 	}
-	return false
+	return CtlTokenState_CTL_TOKEN_STATE_UNSPECIFIED
+}
+
+func (x *CtlBackend) GetSyncId() string {
+	if x != nil {
+		return x.SyncId
+	}
+	return ""
+}
+
+func (x *CtlBackend) GetDeviceFingerprint() string {
+	if x != nil {
+		return x.DeviceFingerprint
+	}
+	return ""
 }
 
 // CtlResource 是任意一类资源的文档。
@@ -20183,7 +20257,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\n" +
 	"is_default\x18\t \x01(\bR\tisDefault\x12!\n" +
 	"\fbackend_refs\x18\n" +
-	" \x01(\x05R\vbackendRefs\"\x9f\x03\n" +
+	" \x01(\x05R\vbackendRefs\"\x88\x04\n" +
 	"\n" +
 	"CtlBackend\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
@@ -20199,8 +20273,11 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\vconfig_json\x18\n" +
 	" \x01(\tR\n" +
 	"configJson\x12\x14\n" +
-	"\x05token\x18\v \x01(\tR\x05token\x12\x1b\n" +
-	"\ttoken_set\x18\f \x01(\bR\btokenSet\x1a6\n" +
+	"\x05token\x18\v \x01(\tR\x05token\x12<\n" +
+	"\vtoken_state\x18\f \x01(\x0e2\x1b.agentre.wire.CtlTokenStateR\n" +
+	"tokenState\x12\x17\n" +
+	"\async_id\x18\r \x01(\tR\x06syncId\x12-\n" +
+	"\x12device_fingerprint\x18\x0e \x01(\tR\x11deviceFingerprint\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd8\x02\n" +
@@ -20374,7 +20451,12 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x16CTL_CALLER_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12CTL_CALLER_SESSION\x10\x01\x12\x17\n" +
 	"\x13CTL_CALLER_EXTERNAL\x10\x02\x12\x14\n" +
-	"\x10CTL_CALLER_HUMAN\x10\x03:>\n" +
+	"\x10CTL_CALLER_HUMAN\x10\x03*\x81\x01\n" +
+	"\rCtlTokenState\x12\x1f\n" +
+	"\x1bCTL_TOKEN_STATE_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13CTL_TOKEN_STATE_SET\x10\x01\x12\x19\n" +
+	"\x15CTL_TOKEN_STATE_UNSET\x10\x02\x12\x1b\n" +
+	"\x17CTL_TOKEN_STATE_UNKNOWN\x10\x03:>\n" +
 	"\n" +
 	"event_kind\x12\x1d.google.protobuf.FieldOptions\x18\xe1\xd4\x03 \x01(\tR\teventKind:I\n" +
 	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.4.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
@@ -20391,7 +20473,7 @@ func file_agentre_wire_wire_proto_rawDescGZIP() []byte {
 	return file_agentre_wire_wire_proto_rawDescData
 }
 
-var file_agentre_wire_wire_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_agentre_wire_wire_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
 var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 267)
 var file_agentre_wire_wire_proto_goTypes = []any{
 	(RpcMethod)(0),                             // 0: agentre.wire.RpcMethod
@@ -20399,438 +20481,440 @@ var file_agentre_wire_wire_proto_goTypes = []any{
 	(CtlKind)(0),                               // 2: agentre.wire.CtlKind
 	(CtlOp)(0),                                 // 3: agentre.wire.CtlOp
 	(CtlCaller)(0),                             // 4: agentre.wire.CtlCaller
-	(*WireFrame)(nil),                          // 5: agentre.wire.WireFrame
-	(*RpcFrame)(nil),                           // 6: agentre.wire.RpcFrame
-	(*RpcNotification)(nil),                    // 7: agentre.wire.RpcNotification
-	(*Request)(nil),                            // 8: agentre.wire.Request
-	(*Response)(nil),                           // 9: agentre.wire.Response
-	(*RpcError)(nil),                           // 10: agentre.wire.RpcError
-	(*Cancel)(nil),                             // 11: agentre.wire.Cancel
-	(*Notification)(nil),                       // 12: agentre.wire.Notification
-	(*AccountSyncVersion)(nil),                 // 13: agentre.wire.AccountSyncVersion
-	(*AccountMirrorChanged)(nil),               // 14: agentre.wire.AccountMirrorChanged
-	(*AccountDevicePresence)(nil),              // 15: agentre.wire.AccountDevicePresence
-	(*AuthAccountRequest)(nil),                 // 16: agentre.wire.AuthAccountRequest
-	(*AuthAccountResponse)(nil),                // 17: agentre.wire.AuthAccountResponse
-	(*AuthPairRequest)(nil),                    // 18: agentre.wire.AuthPairRequest
-	(*AuthPairResponse)(nil),                   // 19: agentre.wire.AuthPairResponse
-	(*AuthConnectRequest)(nil),                 // 20: agentre.wire.AuthConnectRequest
-	(*AuthConnectResponse)(nil),                // 21: agentre.wire.AuthConnectResponse
-	(*AuthRevokeRequest)(nil),                  // 22: agentre.wire.AuthRevokeRequest
-	(*AuthRevokeResponse)(nil),                 // 23: agentre.wire.AuthRevokeResponse
-	(*AuthDirectRequest)(nil),                  // 24: agentre.wire.AuthDirectRequest
-	(*AuthDirectResponse)(nil),                 // 25: agentre.wire.AuthDirectResponse
-	(*LLMModel)(nil),                           // 26: agentre.wire.LLMModel
-	(*LLMUpsertRequest)(nil),                   // 27: agentre.wire.LLMUpsertRequest
-	(*LLMUpsertResponse)(nil),                  // 28: agentre.wire.LLMUpsertResponse
-	(*LLMDeleteRequest)(nil),                   // 29: agentre.wire.LLMDeleteRequest
-	(*LLMDeleteResponse)(nil),                  // 30: agentre.wire.LLMDeleteResponse
-	(*LLMListRequest)(nil),                     // 31: agentre.wire.LLMListRequest
-	(*LLMProvider)(nil),                        // 32: agentre.wire.LLMProvider
-	(*LLMListResponse)(nil),                    // 33: agentre.wire.LLMListResponse
-	(*EngineTestRequest)(nil),                  // 34: agentre.wire.EngineTestRequest
-	(*EngineTestResponse)(nil),                 // 35: agentre.wire.EngineTestResponse
-	(*EngineDiscoverRequest)(nil),              // 36: agentre.wire.EngineDiscoverRequest
-	(*EngineModel)(nil),                        // 37: agentre.wire.EngineModel
-	(*EngineDiscoverResponse)(nil),             // 38: agentre.wire.EngineDiscoverResponse
-	(*EngineScanRequest)(nil),                  // 39: agentre.wire.EngineScanRequest
-	(*EngineScanItem)(nil),                     // 40: agentre.wire.EngineScanItem
-	(*EngineScanResponse)(nil),                 // 41: agentre.wire.EngineScanResponse
-	(*CLIResolvePathRequest)(nil),              // 42: agentre.wire.CLIResolvePathRequest
-	(*CLIResolvePathResponse)(nil),             // 43: agentre.wire.CLIResolvePathResponse
-	(*CLIProbeRequest)(nil),                    // 44: agentre.wire.CLIProbeRequest
-	(*CLIProbeResponse)(nil),                   // 45: agentre.wire.CLIProbeResponse
-	(*HealthPingRequest)(nil),                  // 46: agentre.wire.HealthPingRequest
-	(*HealthModel)(nil),                        // 47: agentre.wire.HealthModel
-	(*HealthProvider)(nil),                     // 48: agentre.wire.HealthProvider
-	(*HealthPingResponse)(nil),                 // 49: agentre.wire.HealthPingResponse
-	(*AgentredSelfUpdateRequest)(nil),          // 50: agentre.wire.AgentredSelfUpdateRequest
-	(*AgentredSelfUpdateResponse)(nil),         // 51: agentre.wire.AgentredSelfUpdateResponse
-	(*ClaudeCodeUsageRequest)(nil),             // 52: agentre.wire.ClaudeCodeUsageRequest
-	(*ClaudeCodeRateLimits)(nil),               // 53: agentre.wire.ClaudeCodeRateLimits
-	(*ClaudeCodeUsageResponse)(nil),            // 54: agentre.wire.ClaudeCodeUsageResponse
-	(*SkillsListRequest)(nil),                  // 55: agentre.wire.SkillsListRequest
-	(*InstalledSkillPack)(nil),                 // 56: agentre.wire.InstalledSkillPack
-	(*SkillsListResponse)(nil),                 // 57: agentre.wire.SkillsListResponse
-	(*SessionListRequest)(nil),                 // 58: agentre.wire.SessionListRequest
-	(*SessionListResponse)(nil),                // 59: agentre.wire.SessionListResponse
-	(*SessionCountsRequest)(nil),               // 60: agentre.wire.SessionCountsRequest
-	(*SessionCountsResponse)(nil),              // 61: agentre.wire.SessionCountsResponse
-	(*SessionSummary)(nil),                     // 62: agentre.wire.SessionSummary
-	(*ActivityRollupRequest)(nil),              // 63: agentre.wire.ActivityRollupRequest
-	(*ActivityDailyBucket)(nil),                // 64: agentre.wire.ActivityDailyBucket
-	(*ActivityRollupResponse)(nil),             // 65: agentre.wire.ActivityRollupResponse
-	(*SessionAttachRequest)(nil),               // 66: agentre.wire.SessionAttachRequest
-	(*SessionAttachResponse)(nil),              // 67: agentre.wire.SessionAttachResponse
-	(*SessionPullRequest)(nil),                 // 68: agentre.wire.SessionPullRequest
-	(*SessionPullResponse)(nil),                // 69: agentre.wire.SessionPullResponse
-	(*DurableNotification)(nil),                // 70: agentre.wire.DurableNotification
-	(*SessionPendingWaitersRequest)(nil),       // 71: agentre.wire.SessionPendingWaitersRequest
-	(*SessionPendingWaitersResponse)(nil),      // 72: agentre.wire.SessionPendingWaitersResponse
-	(*PendingToolPermission)(nil),              // 73: agentre.wire.PendingToolPermission
-	(*PendingAskUserQuestion)(nil),             // 74: agentre.wire.PendingAskUserQuestion
-	(*SessionDeleteRequest)(nil),               // 75: agentre.wire.SessionDeleteRequest
-	(*SessionDeleteResponse)(nil),              // 76: agentre.wire.SessionDeleteResponse
-	(*SetModelTargetRequest)(nil),              // 77: agentre.wire.SetModelTargetRequest
-	(*SetModelTargetResponse)(nil),             // 78: agentre.wire.SetModelTargetResponse
-	(*SetSessionReasoningEffortRequest)(nil),   // 79: agentre.wire.SetSessionReasoningEffortRequest
-	(*SetSessionReasoningEffortResponse)(nil),  // 80: agentre.wire.SetSessionReasoningEffortResponse
-	(*Empty)(nil),                              // 81: agentre.wire.Empty
-	(*RuntimeCapabilitiesRequest)(nil),         // 82: agentre.wire.RuntimeCapabilitiesRequest
-	(*CapabilityEntry)(nil),                    // 83: agentre.wire.CapabilityEntry
-	(*PermissionModeMeta)(nil),                 // 84: agentre.wire.PermissionModeMeta
-	(*RuntimeCapabilitiesResponse)(nil),        // 85: agentre.wire.RuntimeCapabilitiesResponse
-	(*RuntimeSteerRequest)(nil),                // 86: agentre.wire.RuntimeSteerRequest
-	(*RuntimeSteerResponse)(nil),               // 87: agentre.wire.RuntimeSteerResponse
-	(*RuntimeCancelSteerRequest)(nil),          // 88: agentre.wire.RuntimeCancelSteerRequest
-	(*RuntimeCancelSteerResponse)(nil),         // 89: agentre.wire.RuntimeCancelSteerResponse
-	(*RuntimeDrainPendingRequest)(nil),         // 90: agentre.wire.RuntimeDrainPendingRequest
-	(*RuntimeDrainPendingResponse)(nil),        // 91: agentre.wire.RuntimeDrainPendingResponse
-	(*RuntimeAbortRequest)(nil),                // 92: agentre.wire.RuntimeAbortRequest
-	(*RuntimeAbortResponse)(nil),               // 93: agentre.wire.RuntimeAbortResponse
-	(*RuntimeStopBackgroundTaskRequest)(nil),   // 94: agentre.wire.RuntimeStopBackgroundTaskRequest
-	(*RuntimeSetPermissionModeRequest)(nil),    // 95: agentre.wire.RuntimeSetPermissionModeRequest
-	(*RuntimeSubmitAnswerRequest)(nil),         // 96: agentre.wire.RuntimeSubmitAnswerRequest
-	(*RuntimeSubmitToolPermissionRequest)(nil), // 97: agentre.wire.RuntimeSubmitToolPermissionRequest
-	(*PeerSessionControlResponse)(nil),         // 98: agentre.wire.PeerSessionControlResponse
-	(*ToolApprovalAnswerRequest)(nil),          // 99: agentre.wire.ToolApprovalAnswerRequest
-	(*ToolApprovalAnswerResponse)(nil),         // 100: agentre.wire.ToolApprovalAnswerResponse
-	(*AgentBackend)(nil),                       // 101: agentre.wire.AgentBackend
-	(*StoredBlock)(nil),                        // 102: agentre.wire.StoredBlock
-	(*HistoryMessage)(nil),                     // 103: agentre.wire.HistoryMessage
-	(*MCPServer)(nil),                          // 104: agentre.wire.MCPServer
-	(*RuntimeRunRequest)(nil),                  // 105: agentre.wire.RuntimeRunRequest
-	(*RuntimeRunResponse)(nil),                 // 106: agentre.wire.RuntimeRunResponse
-	(*RuntimeGoalRequest)(nil),                 // 107: agentre.wire.RuntimeGoalRequest
-	(*Goal)(nil),                               // 108: agentre.wire.Goal
-	(*RuntimeGoalResponse)(nil),                // 109: agentre.wire.RuntimeGoalResponse
-	(*RuntimeGoalClearResponse)(nil),           // 110: agentre.wire.RuntimeGoalClearResponse
-	(*TerminalOpenRequest)(nil),                // 111: agentre.wire.TerminalOpenRequest
-	(*TerminalOpenResponse)(nil),               // 112: agentre.wire.TerminalOpenResponse
-	(*TerminalWriteRequest)(nil),               // 113: agentre.wire.TerminalWriteRequest
-	(*TerminalResizeRequest)(nil),              // 114: agentre.wire.TerminalResizeRequest
-	(*TerminalCloseRequest)(nil),               // 115: agentre.wire.TerminalCloseRequest
-	(*TerminalDataNotification)(nil),           // 116: agentre.wire.TerminalDataNotification
-	(*TerminalExitNotification)(nil),           // 117: agentre.wire.TerminalExitNotification
-	(*HeaderValues)(nil),                       // 118: agentre.wire.HeaderValues
-	(*MCPProxyRequest)(nil),                    // 119: agentre.wire.MCPProxyRequest
-	(*MCPProxyResponse)(nil),                   // 120: agentre.wire.MCPProxyResponse
-	(*ProjectSetLocalPathRequest)(nil),         // 121: agentre.wire.ProjectSetLocalPathRequest
-	(*ProjectClearLocalPathRequest)(nil),       // 122: agentre.wire.ProjectClearLocalPathRequest
-	(*ProjectLocalPathResponse)(nil),           // 123: agentre.wire.ProjectLocalPathResponse
-	(*SkillAuthorization)(nil),                 // 124: agentre.wire.SkillAuthorization
-	(*SkillCatalogRequest)(nil),                // 125: agentre.wire.SkillCatalogRequest
-	(*SkillPackSummary)(nil),                   // 126: agentre.wire.SkillPackSummary
-	(*SkillCatalogResponse)(nil),               // 127: agentre.wire.SkillCatalogResponse
-	(*SkillCommandsRequest)(nil),               // 128: agentre.wire.SkillCommandsRequest
-	(*SkillCommand)(nil),                       // 129: agentre.wire.SkillCommand
-	(*SkillCommandsResponse)(nil),              // 130: agentre.wire.SkillCommandsResponse
-	(*RemoteFsListDirRequest)(nil),             // 131: agentre.wire.RemoteFsListDirRequest
-	(*RemoteFsEntry)(nil),                      // 132: agentre.wire.RemoteFsEntry
-	(*RemoteFsListDirResponse)(nil),            // 133: agentre.wire.RemoteFsListDirResponse
-	(*RemoteFsMkdirRequest)(nil),               // 134: agentre.wire.RemoteFsMkdirRequest
-	(*RemoteFsMkdirResponse)(nil),              // 135: agentre.wire.RemoteFsMkdirResponse
-	(*WorkspaceFsListDirRequest)(nil),          // 136: agentre.wire.WorkspaceFsListDirRequest
-	(*WorkspaceFsEntry)(nil),                   // 137: agentre.wire.WorkspaceFsEntry
-	(*WorkspaceFsListDirResponse)(nil),         // 138: agentre.wire.WorkspaceFsListDirResponse
-	(*WorkspaceFsGitChangesRequest)(nil),       // 139: agentre.wire.WorkspaceFsGitChangesRequest
-	(*WorkspaceFsChange)(nil),                  // 140: agentre.wire.WorkspaceFsChange
-	(*WorkspaceFsGitChangesResponse)(nil),      // 141: agentre.wire.WorkspaceFsGitChangesResponse
-	(*WorkspaceFsGitBranchesRequest)(nil),      // 142: agentre.wire.WorkspaceFsGitBranchesRequest
-	(*WorkspaceFsBranch)(nil),                  // 143: agentre.wire.WorkspaceFsBranch
-	(*WorkspaceFsGitBranchesResponse)(nil),     // 144: agentre.wire.WorkspaceFsGitBranchesResponse
-	(*WorkspaceFsReadFileRequest)(nil),         // 145: agentre.wire.WorkspaceFsReadFileRequest
-	(*WorkspaceFsReadFileResponse)(nil),        // 146: agentre.wire.WorkspaceFsReadFileResponse
-	(*WorkspaceFsGitFileContentRequest)(nil),   // 147: agentre.wire.WorkspaceFsGitFileContentRequest
-	(*WorkspaceFsGitFileContentResponse)(nil),  // 148: agentre.wire.WorkspaceFsGitFileContentResponse
-	(*WorkspaceFsSearchFilesRequest)(nil),      // 149: agentre.wire.WorkspaceFsSearchFilesRequest
-	(*WorkspaceFsSearchHit)(nil),               // 150: agentre.wire.WorkspaceFsSearchHit
-	(*WorkspaceFsSearchFilesResponse)(nil),     // 151: agentre.wire.WorkspaceFsSearchFilesResponse
-	(*WorkspaceFsGitStateRequest)(nil),         // 152: agentre.wire.WorkspaceFsGitStateRequest
-	(*WorkspaceFsGitStateResponse)(nil),        // 153: agentre.wire.WorkspaceFsGitStateResponse
-	(*TranscriptImportFilter)(nil),             // 154: agentre.wire.TranscriptImportFilter
-	(*TranscriptImportScanRequest)(nil),        // 155: agentre.wire.TranscriptImportScanRequest
-	(*TranscriptImportCandidate)(nil),          // 156: agentre.wire.TranscriptImportCandidate
-	(*TranscriptImportBackendResult)(nil),      // 157: agentre.wire.TranscriptImportBackendResult
-	(*TranscriptImportScanResponse)(nil),       // 158: agentre.wire.TranscriptImportScanResponse
-	(*TranscriptImportGap)(nil),                // 159: agentre.wire.TranscriptImportGap
-	(*TranscriptImportMeta)(nil),               // 160: agentre.wire.TranscriptImportMeta
-	(*TranscriptImportOpenRequest)(nil),        // 161: agentre.wire.TranscriptImportOpenRequest
-	(*TranscriptImportOpenResponse)(nil),       // 162: agentre.wire.TranscriptImportOpenResponse
-	(*TranscriptImportTurnsRequest)(nil),       // 163: agentre.wire.TranscriptImportTurnsRequest
-	(*TranscriptImportImage)(nil),              // 164: agentre.wire.TranscriptImportImage
-	(*TranscriptImportTurn)(nil),               // 165: agentre.wire.TranscriptImportTurn
-	(*TranscriptImportTurnsResponse)(nil),      // 166: agentre.wire.TranscriptImportTurnsResponse
-	(*TranscriptImportExecuteRequest)(nil),     // 167: agentre.wire.TranscriptImportExecuteRequest
-	(*TranscriptImportExecuteResponse)(nil),    // 168: agentre.wire.TranscriptImportExecuteResponse
-	(*RuntimeEventNotification)(nil),           // 169: agentre.wire.RuntimeEventNotification
-	(*TextDelta)(nil),                          // 170: agentre.wire.TextDelta
-	(*ThinkingDelta)(nil),                      // 171: agentre.wire.ThinkingDelta
-	(*OutputActivity)(nil),                     // 172: agentre.wire.OutputActivity
-	(*PermissionModeChanged)(nil),              // 173: agentre.wire.PermissionModeChanged
-	(*Retry)(nil),                              // 174: agentre.wire.Retry
-	(*ContextWindowUpdated)(nil),               // 175: agentre.wire.ContextWindowUpdated
-	(*CompactBoundary)(nil),                    // 176: agentre.wire.CompactBoundary
-	(*RuntimeStatus)(nil),                      // 177: agentre.wire.RuntimeStatus
-	(*Done)(nil),                               // 178: agentre.wire.Done
-	(*ErrorEvent)(nil),                         // 179: agentre.wire.ErrorEvent
-	(*UserMessage)(nil),                        // 180: agentre.wire.UserMessage
-	(*Usage)(nil),                              // 181: agentre.wire.Usage
-	(*RunResultDoneNotification)(nil),          // 182: agentre.wire.RunResultDoneNotification
-	(*AutonomousTurnStartedNotification)(nil),  // 183: agentre.wire.AutonomousTurnStartedNotification
-	(*TurnStartedNotification)(nil),            // 184: agentre.wire.TurnStartedNotification
-	(*ToolCall)(nil),                           // 185: agentre.wire.ToolCall
-	(*ToolResult)(nil),                         // 186: agentre.wire.ToolResult
-	(*ConsumedSteer)(nil),                      // 187: agentre.wire.ConsumedSteer
-	(*SteerConsumed)(nil),                      // 188: agentre.wire.SteerConsumed
-	(*AskOption)(nil),                          // 189: agentre.wire.AskOption
-	(*AskQuestion)(nil),                        // 190: agentre.wire.AskQuestion
-	(*AskAnswer)(nil),                          // 191: agentre.wire.AskAnswer
-	(*UserAskRequest)(nil),                     // 192: agentre.wire.UserAskRequest
-	(*UserAskResolved)(nil),                    // 193: agentre.wire.UserAskResolved
-	(*ToolPermissionRequest)(nil),              // 194: agentre.wire.ToolPermissionRequest
-	(*ToolPermissionResolved)(nil),             // 195: agentre.wire.ToolPermissionResolved
-	(*ExecApprovalRequested)(nil),              // 196: agentre.wire.ExecApprovalRequested
-	(*ExecApprovalResolved)(nil),               // 197: agentre.wire.ExecApprovalResolved
-	(*ToolApprovalRequested)(nil),              // 198: agentre.wire.ToolApprovalRequested
-	(*ToolApprovalResolved)(nil),               // 199: agentre.wire.ToolApprovalResolved
-	(*SubagentRun)(nil),                        // 200: agentre.wire.SubagentRun
-	(*SubagentInfo)(nil),                       // 201: agentre.wire.SubagentInfo
-	(*SubagentEvent)(nil),                      // 202: agentre.wire.SubagentEvent
-	(*SubagentModel)(nil),                      // 203: agentre.wire.SubagentModel
-	(*UsageUpdate)(nil),                        // 204: agentre.wire.UsageUpdate
-	(*PlanStep)(nil),                           // 205: agentre.wire.PlanStep
-	(*PlanAction)(nil),                         // 206: agentre.wire.PlanAction
-	(*PlanUpdated)(nil),                        // 207: agentre.wire.PlanUpdated
-	(*UnrecognizedBlock)(nil),                  // 208: agentre.wire.UnrecognizedBlock
-	(*BlobSource)(nil),                         // 209: agentre.wire.BlobSource
-	(*ImageBlock)(nil),                         // 210: agentre.wire.ImageBlock
-	(*PortForwardMapping)(nil),                 // 211: agentre.wire.PortForwardMapping
-	(*PortForwardListRequest)(nil),             // 212: agentre.wire.PortForwardListRequest
-	(*PortForwardListResponse)(nil),            // 213: agentre.wire.PortForwardListResponse
-	(*PortForwardCreateRequest)(nil),           // 214: agentre.wire.PortForwardCreateRequest
-	(*PortForwardCreateResponse)(nil),          // 215: agentre.wire.PortForwardCreateResponse
-	(*PortForwardSetEnabledRequest)(nil),       // 216: agentre.wire.PortForwardSetEnabledRequest
-	(*PortForwardSetEnabledResponse)(nil),      // 217: agentre.wire.PortForwardSetEnabledResponse
-	(*PortForwardDeleteRequest)(nil),           // 218: agentre.wire.PortForwardDeleteRequest
-	(*PortForwardDeleteResponse)(nil),          // 219: agentre.wire.PortForwardDeleteResponse
-	(*PortForwardOpenRequest)(nil),             // 220: agentre.wire.PortForwardOpenRequest
-	(*PortForwardOpenResponse)(nil),            // 221: agentre.wire.PortForwardOpenResponse
-	(*PortForwardWriteRequest)(nil),            // 222: agentre.wire.PortForwardWriteRequest
-	(*PortForwardCloseRequest)(nil),            // 223: agentre.wire.PortForwardCloseRequest
-	(*PortForwardAckRequest)(nil),              // 224: agentre.wire.PortForwardAckRequest
-	(*PortForwardResponseNotification)(nil),    // 225: agentre.wire.PortForwardResponseNotification
-	(*PortForwardDataNotification)(nil),        // 226: agentre.wire.PortForwardDataNotification
-	(*PortForwardClosedNotification)(nil),      // 227: agentre.wire.PortForwardClosedNotification
-	(*PortForwardRevokedNotification)(nil),     // 228: agentre.wire.PortForwardRevokedNotification
-	(*BackendCredentialStatusRequest)(nil),     // 229: agentre.wire.BackendCredentialStatusRequest
-	(*BackendCredentialStatusResponse)(nil),    // 230: agentre.wire.BackendCredentialStatusResponse
-	(*OpenClawTokenSetRequest)(nil),            // 231: agentre.wire.OpenClawTokenSetRequest
-	(*OpenClawTokenSetResponse)(nil),           // 232: agentre.wire.OpenClawTokenSetResponse
-	(*HermesAuthProvidersRequest)(nil),         // 233: agentre.wire.HermesAuthProvidersRequest
-	(*HermesAuthProvider)(nil),                 // 234: agentre.wire.HermesAuthProvider
-	(*HermesAuthProvidersResponse)(nil),        // 235: agentre.wire.HermesAuthProvidersResponse
-	(*HermesLoginRequest)(nil),                 // 236: agentre.wire.HermesLoginRequest
-	(*HermesLoginResponse)(nil),                // 237: agentre.wire.HermesLoginResponse
-	(*HermesLogoutRequest)(nil),                // 238: agentre.wire.HermesLogoutRequest
-	(*HermesLogoutResponse)(nil),               // 239: agentre.wire.HermesLogoutResponse
-	(*BackendConnectionTestRequest)(nil),       // 240: agentre.wire.BackendConnectionTestRequest
-	(*OpenClawAgentOption)(nil),                // 241: agentre.wire.OpenClawAgentOption
-	(*OpenClawModelOption)(nil),                // 242: agentre.wire.OpenClawModelOption
-	(*BackendConnectionTestResponse)(nil),      // 243: agentre.wire.BackendConnectionTestResponse
-	(*CtlAgent)(nil),                           // 244: agentre.wire.CtlAgent
-	(*CtlDepartment)(nil),                      // 245: agentre.wire.CtlDepartment
-	(*CtlProjectLocation)(nil),                 // 246: agentre.wire.CtlProjectLocation
-	(*CtlProject)(nil),                         // 247: agentre.wire.CtlProject
-	(*CtlProvider)(nil),                        // 248: agentre.wire.CtlProvider
-	(*CtlModel)(nil),                           // 249: agentre.wire.CtlModel
-	(*CtlBackend)(nil),                         // 250: agentre.wire.CtlBackend
-	(*CtlResource)(nil),                        // 251: agentre.wire.CtlResource
-	(*CtlListRequest)(nil),                     // 252: agentre.wire.CtlListRequest
-	(*CtlListResponse)(nil),                    // 253: agentre.wire.CtlListResponse
-	(*CtlGetRequest)(nil),                      // 254: agentre.wire.CtlGetRequest
-	(*CtlGetResponse)(nil),                     // 255: agentre.wire.CtlGetResponse
-	(*CtlWriteRequest)(nil),                    // 256: agentre.wire.CtlWriteRequest
-	(*CtlCallerInfo)(nil),                      // 257: agentre.wire.CtlCallerInfo
-	(*CtlFieldChange)(nil),                     // 258: agentre.wire.CtlFieldChange
-	(*CtlChange)(nil),                          // 259: agentre.wire.CtlChange
-	(*CtlWriteResponse)(nil),                   // 260: agentre.wire.CtlWriteResponse
-	(*CtlRequest)(nil),                         // 261: agentre.wire.CtlRequest
-	(*CtlResponse)(nil),                        // 262: agentre.wire.CtlResponse
-	nil,                                        // 263: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
-	nil,                                        // 264: agentre.wire.LLMProvider.ModelRoutesEntry
-	nil,                                        // 265: agentre.wire.MCPServer.HeadersEntry
-	nil,                                        // 266: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
-	nil,                                        // 267: agentre.wire.MCPProxyRequest.HeadersEntry
-	nil,                                        // 268: agentre.wire.MCPProxyResponse.HeadersEntry
-	nil,                                        // 269: agentre.wire.PortForwardOpenRequest.HeadersEntry
-	nil,                                        // 270: agentre.wire.PortForwardResponseNotification.HeadersEntry
-	nil,                                        // 271: agentre.wire.CtlBackend.EnvEntry
-	(*descriptorpb.FieldOptions)(nil),          // 272: google.protobuf.FieldOptions
-	(*descriptorpb.FileOptions)(nil),           // 273: google.protobuf.FileOptions
+	(CtlTokenState)(0),                         // 5: agentre.wire.CtlTokenState
+	(*WireFrame)(nil),                          // 6: agentre.wire.WireFrame
+	(*RpcFrame)(nil),                           // 7: agentre.wire.RpcFrame
+	(*RpcNotification)(nil),                    // 8: agentre.wire.RpcNotification
+	(*Request)(nil),                            // 9: agentre.wire.Request
+	(*Response)(nil),                           // 10: agentre.wire.Response
+	(*RpcError)(nil),                           // 11: agentre.wire.RpcError
+	(*Cancel)(nil),                             // 12: agentre.wire.Cancel
+	(*Notification)(nil),                       // 13: agentre.wire.Notification
+	(*AccountSyncVersion)(nil),                 // 14: agentre.wire.AccountSyncVersion
+	(*AccountMirrorChanged)(nil),               // 15: agentre.wire.AccountMirrorChanged
+	(*AccountDevicePresence)(nil),              // 16: agentre.wire.AccountDevicePresence
+	(*AuthAccountRequest)(nil),                 // 17: agentre.wire.AuthAccountRequest
+	(*AuthAccountResponse)(nil),                // 18: agentre.wire.AuthAccountResponse
+	(*AuthPairRequest)(nil),                    // 19: agentre.wire.AuthPairRequest
+	(*AuthPairResponse)(nil),                   // 20: agentre.wire.AuthPairResponse
+	(*AuthConnectRequest)(nil),                 // 21: agentre.wire.AuthConnectRequest
+	(*AuthConnectResponse)(nil),                // 22: agentre.wire.AuthConnectResponse
+	(*AuthRevokeRequest)(nil),                  // 23: agentre.wire.AuthRevokeRequest
+	(*AuthRevokeResponse)(nil),                 // 24: agentre.wire.AuthRevokeResponse
+	(*AuthDirectRequest)(nil),                  // 25: agentre.wire.AuthDirectRequest
+	(*AuthDirectResponse)(nil),                 // 26: agentre.wire.AuthDirectResponse
+	(*LLMModel)(nil),                           // 27: agentre.wire.LLMModel
+	(*LLMUpsertRequest)(nil),                   // 28: agentre.wire.LLMUpsertRequest
+	(*LLMUpsertResponse)(nil),                  // 29: agentre.wire.LLMUpsertResponse
+	(*LLMDeleteRequest)(nil),                   // 30: agentre.wire.LLMDeleteRequest
+	(*LLMDeleteResponse)(nil),                  // 31: agentre.wire.LLMDeleteResponse
+	(*LLMListRequest)(nil),                     // 32: agentre.wire.LLMListRequest
+	(*LLMProvider)(nil),                        // 33: agentre.wire.LLMProvider
+	(*LLMListResponse)(nil),                    // 34: agentre.wire.LLMListResponse
+	(*EngineTestRequest)(nil),                  // 35: agentre.wire.EngineTestRequest
+	(*EngineTestResponse)(nil),                 // 36: agentre.wire.EngineTestResponse
+	(*EngineDiscoverRequest)(nil),              // 37: agentre.wire.EngineDiscoverRequest
+	(*EngineModel)(nil),                        // 38: agentre.wire.EngineModel
+	(*EngineDiscoverResponse)(nil),             // 39: agentre.wire.EngineDiscoverResponse
+	(*EngineScanRequest)(nil),                  // 40: agentre.wire.EngineScanRequest
+	(*EngineScanItem)(nil),                     // 41: agentre.wire.EngineScanItem
+	(*EngineScanResponse)(nil),                 // 42: agentre.wire.EngineScanResponse
+	(*CLIResolvePathRequest)(nil),              // 43: agentre.wire.CLIResolvePathRequest
+	(*CLIResolvePathResponse)(nil),             // 44: agentre.wire.CLIResolvePathResponse
+	(*CLIProbeRequest)(nil),                    // 45: agentre.wire.CLIProbeRequest
+	(*CLIProbeResponse)(nil),                   // 46: agentre.wire.CLIProbeResponse
+	(*HealthPingRequest)(nil),                  // 47: agentre.wire.HealthPingRequest
+	(*HealthModel)(nil),                        // 48: agentre.wire.HealthModel
+	(*HealthProvider)(nil),                     // 49: agentre.wire.HealthProvider
+	(*HealthPingResponse)(nil),                 // 50: agentre.wire.HealthPingResponse
+	(*AgentredSelfUpdateRequest)(nil),          // 51: agentre.wire.AgentredSelfUpdateRequest
+	(*AgentredSelfUpdateResponse)(nil),         // 52: agentre.wire.AgentredSelfUpdateResponse
+	(*ClaudeCodeUsageRequest)(nil),             // 53: agentre.wire.ClaudeCodeUsageRequest
+	(*ClaudeCodeRateLimits)(nil),               // 54: agentre.wire.ClaudeCodeRateLimits
+	(*ClaudeCodeUsageResponse)(nil),            // 55: agentre.wire.ClaudeCodeUsageResponse
+	(*SkillsListRequest)(nil),                  // 56: agentre.wire.SkillsListRequest
+	(*InstalledSkillPack)(nil),                 // 57: agentre.wire.InstalledSkillPack
+	(*SkillsListResponse)(nil),                 // 58: agentre.wire.SkillsListResponse
+	(*SessionListRequest)(nil),                 // 59: agentre.wire.SessionListRequest
+	(*SessionListResponse)(nil),                // 60: agentre.wire.SessionListResponse
+	(*SessionCountsRequest)(nil),               // 61: agentre.wire.SessionCountsRequest
+	(*SessionCountsResponse)(nil),              // 62: agentre.wire.SessionCountsResponse
+	(*SessionSummary)(nil),                     // 63: agentre.wire.SessionSummary
+	(*ActivityRollupRequest)(nil),              // 64: agentre.wire.ActivityRollupRequest
+	(*ActivityDailyBucket)(nil),                // 65: agentre.wire.ActivityDailyBucket
+	(*ActivityRollupResponse)(nil),             // 66: agentre.wire.ActivityRollupResponse
+	(*SessionAttachRequest)(nil),               // 67: agentre.wire.SessionAttachRequest
+	(*SessionAttachResponse)(nil),              // 68: agentre.wire.SessionAttachResponse
+	(*SessionPullRequest)(nil),                 // 69: agentre.wire.SessionPullRequest
+	(*SessionPullResponse)(nil),                // 70: agentre.wire.SessionPullResponse
+	(*DurableNotification)(nil),                // 71: agentre.wire.DurableNotification
+	(*SessionPendingWaitersRequest)(nil),       // 72: agentre.wire.SessionPendingWaitersRequest
+	(*SessionPendingWaitersResponse)(nil),      // 73: agentre.wire.SessionPendingWaitersResponse
+	(*PendingToolPermission)(nil),              // 74: agentre.wire.PendingToolPermission
+	(*PendingAskUserQuestion)(nil),             // 75: agentre.wire.PendingAskUserQuestion
+	(*SessionDeleteRequest)(nil),               // 76: agentre.wire.SessionDeleteRequest
+	(*SessionDeleteResponse)(nil),              // 77: agentre.wire.SessionDeleteResponse
+	(*SetModelTargetRequest)(nil),              // 78: agentre.wire.SetModelTargetRequest
+	(*SetModelTargetResponse)(nil),             // 79: agentre.wire.SetModelTargetResponse
+	(*SetSessionReasoningEffortRequest)(nil),   // 80: agentre.wire.SetSessionReasoningEffortRequest
+	(*SetSessionReasoningEffortResponse)(nil),  // 81: agentre.wire.SetSessionReasoningEffortResponse
+	(*Empty)(nil),                              // 82: agentre.wire.Empty
+	(*RuntimeCapabilitiesRequest)(nil),         // 83: agentre.wire.RuntimeCapabilitiesRequest
+	(*CapabilityEntry)(nil),                    // 84: agentre.wire.CapabilityEntry
+	(*PermissionModeMeta)(nil),                 // 85: agentre.wire.PermissionModeMeta
+	(*RuntimeCapabilitiesResponse)(nil),        // 86: agentre.wire.RuntimeCapabilitiesResponse
+	(*RuntimeSteerRequest)(nil),                // 87: agentre.wire.RuntimeSteerRequest
+	(*RuntimeSteerResponse)(nil),               // 88: agentre.wire.RuntimeSteerResponse
+	(*RuntimeCancelSteerRequest)(nil),          // 89: agentre.wire.RuntimeCancelSteerRequest
+	(*RuntimeCancelSteerResponse)(nil),         // 90: agentre.wire.RuntimeCancelSteerResponse
+	(*RuntimeDrainPendingRequest)(nil),         // 91: agentre.wire.RuntimeDrainPendingRequest
+	(*RuntimeDrainPendingResponse)(nil),        // 92: agentre.wire.RuntimeDrainPendingResponse
+	(*RuntimeAbortRequest)(nil),                // 93: agentre.wire.RuntimeAbortRequest
+	(*RuntimeAbortResponse)(nil),               // 94: agentre.wire.RuntimeAbortResponse
+	(*RuntimeStopBackgroundTaskRequest)(nil),   // 95: agentre.wire.RuntimeStopBackgroundTaskRequest
+	(*RuntimeSetPermissionModeRequest)(nil),    // 96: agentre.wire.RuntimeSetPermissionModeRequest
+	(*RuntimeSubmitAnswerRequest)(nil),         // 97: agentre.wire.RuntimeSubmitAnswerRequest
+	(*RuntimeSubmitToolPermissionRequest)(nil), // 98: agentre.wire.RuntimeSubmitToolPermissionRequest
+	(*PeerSessionControlResponse)(nil),         // 99: agentre.wire.PeerSessionControlResponse
+	(*ToolApprovalAnswerRequest)(nil),          // 100: agentre.wire.ToolApprovalAnswerRequest
+	(*ToolApprovalAnswerResponse)(nil),         // 101: agentre.wire.ToolApprovalAnswerResponse
+	(*AgentBackend)(nil),                       // 102: agentre.wire.AgentBackend
+	(*StoredBlock)(nil),                        // 103: agentre.wire.StoredBlock
+	(*HistoryMessage)(nil),                     // 104: agentre.wire.HistoryMessage
+	(*MCPServer)(nil),                          // 105: agentre.wire.MCPServer
+	(*RuntimeRunRequest)(nil),                  // 106: agentre.wire.RuntimeRunRequest
+	(*RuntimeRunResponse)(nil),                 // 107: agentre.wire.RuntimeRunResponse
+	(*RuntimeGoalRequest)(nil),                 // 108: agentre.wire.RuntimeGoalRequest
+	(*Goal)(nil),                               // 109: agentre.wire.Goal
+	(*RuntimeGoalResponse)(nil),                // 110: agentre.wire.RuntimeGoalResponse
+	(*RuntimeGoalClearResponse)(nil),           // 111: agentre.wire.RuntimeGoalClearResponse
+	(*TerminalOpenRequest)(nil),                // 112: agentre.wire.TerminalOpenRequest
+	(*TerminalOpenResponse)(nil),               // 113: agentre.wire.TerminalOpenResponse
+	(*TerminalWriteRequest)(nil),               // 114: agentre.wire.TerminalWriteRequest
+	(*TerminalResizeRequest)(nil),              // 115: agentre.wire.TerminalResizeRequest
+	(*TerminalCloseRequest)(nil),               // 116: agentre.wire.TerminalCloseRequest
+	(*TerminalDataNotification)(nil),           // 117: agentre.wire.TerminalDataNotification
+	(*TerminalExitNotification)(nil),           // 118: agentre.wire.TerminalExitNotification
+	(*HeaderValues)(nil),                       // 119: agentre.wire.HeaderValues
+	(*MCPProxyRequest)(nil),                    // 120: agentre.wire.MCPProxyRequest
+	(*MCPProxyResponse)(nil),                   // 121: agentre.wire.MCPProxyResponse
+	(*ProjectSetLocalPathRequest)(nil),         // 122: agentre.wire.ProjectSetLocalPathRequest
+	(*ProjectClearLocalPathRequest)(nil),       // 123: agentre.wire.ProjectClearLocalPathRequest
+	(*ProjectLocalPathResponse)(nil),           // 124: agentre.wire.ProjectLocalPathResponse
+	(*SkillAuthorization)(nil),                 // 125: agentre.wire.SkillAuthorization
+	(*SkillCatalogRequest)(nil),                // 126: agentre.wire.SkillCatalogRequest
+	(*SkillPackSummary)(nil),                   // 127: agentre.wire.SkillPackSummary
+	(*SkillCatalogResponse)(nil),               // 128: agentre.wire.SkillCatalogResponse
+	(*SkillCommandsRequest)(nil),               // 129: agentre.wire.SkillCommandsRequest
+	(*SkillCommand)(nil),                       // 130: agentre.wire.SkillCommand
+	(*SkillCommandsResponse)(nil),              // 131: agentre.wire.SkillCommandsResponse
+	(*RemoteFsListDirRequest)(nil),             // 132: agentre.wire.RemoteFsListDirRequest
+	(*RemoteFsEntry)(nil),                      // 133: agentre.wire.RemoteFsEntry
+	(*RemoteFsListDirResponse)(nil),            // 134: agentre.wire.RemoteFsListDirResponse
+	(*RemoteFsMkdirRequest)(nil),               // 135: agentre.wire.RemoteFsMkdirRequest
+	(*RemoteFsMkdirResponse)(nil),              // 136: agentre.wire.RemoteFsMkdirResponse
+	(*WorkspaceFsListDirRequest)(nil),          // 137: agentre.wire.WorkspaceFsListDirRequest
+	(*WorkspaceFsEntry)(nil),                   // 138: agentre.wire.WorkspaceFsEntry
+	(*WorkspaceFsListDirResponse)(nil),         // 139: agentre.wire.WorkspaceFsListDirResponse
+	(*WorkspaceFsGitChangesRequest)(nil),       // 140: agentre.wire.WorkspaceFsGitChangesRequest
+	(*WorkspaceFsChange)(nil),                  // 141: agentre.wire.WorkspaceFsChange
+	(*WorkspaceFsGitChangesResponse)(nil),      // 142: agentre.wire.WorkspaceFsGitChangesResponse
+	(*WorkspaceFsGitBranchesRequest)(nil),      // 143: agentre.wire.WorkspaceFsGitBranchesRequest
+	(*WorkspaceFsBranch)(nil),                  // 144: agentre.wire.WorkspaceFsBranch
+	(*WorkspaceFsGitBranchesResponse)(nil),     // 145: agentre.wire.WorkspaceFsGitBranchesResponse
+	(*WorkspaceFsReadFileRequest)(nil),         // 146: agentre.wire.WorkspaceFsReadFileRequest
+	(*WorkspaceFsReadFileResponse)(nil),        // 147: agentre.wire.WorkspaceFsReadFileResponse
+	(*WorkspaceFsGitFileContentRequest)(nil),   // 148: agentre.wire.WorkspaceFsGitFileContentRequest
+	(*WorkspaceFsGitFileContentResponse)(nil),  // 149: agentre.wire.WorkspaceFsGitFileContentResponse
+	(*WorkspaceFsSearchFilesRequest)(nil),      // 150: agentre.wire.WorkspaceFsSearchFilesRequest
+	(*WorkspaceFsSearchHit)(nil),               // 151: agentre.wire.WorkspaceFsSearchHit
+	(*WorkspaceFsSearchFilesResponse)(nil),     // 152: agentre.wire.WorkspaceFsSearchFilesResponse
+	(*WorkspaceFsGitStateRequest)(nil),         // 153: agentre.wire.WorkspaceFsGitStateRequest
+	(*WorkspaceFsGitStateResponse)(nil),        // 154: agentre.wire.WorkspaceFsGitStateResponse
+	(*TranscriptImportFilter)(nil),             // 155: agentre.wire.TranscriptImportFilter
+	(*TranscriptImportScanRequest)(nil),        // 156: agentre.wire.TranscriptImportScanRequest
+	(*TranscriptImportCandidate)(nil),          // 157: agentre.wire.TranscriptImportCandidate
+	(*TranscriptImportBackendResult)(nil),      // 158: agentre.wire.TranscriptImportBackendResult
+	(*TranscriptImportScanResponse)(nil),       // 159: agentre.wire.TranscriptImportScanResponse
+	(*TranscriptImportGap)(nil),                // 160: agentre.wire.TranscriptImportGap
+	(*TranscriptImportMeta)(nil),               // 161: agentre.wire.TranscriptImportMeta
+	(*TranscriptImportOpenRequest)(nil),        // 162: agentre.wire.TranscriptImportOpenRequest
+	(*TranscriptImportOpenResponse)(nil),       // 163: agentre.wire.TranscriptImportOpenResponse
+	(*TranscriptImportTurnsRequest)(nil),       // 164: agentre.wire.TranscriptImportTurnsRequest
+	(*TranscriptImportImage)(nil),              // 165: agentre.wire.TranscriptImportImage
+	(*TranscriptImportTurn)(nil),               // 166: agentre.wire.TranscriptImportTurn
+	(*TranscriptImportTurnsResponse)(nil),      // 167: agentre.wire.TranscriptImportTurnsResponse
+	(*TranscriptImportExecuteRequest)(nil),     // 168: agentre.wire.TranscriptImportExecuteRequest
+	(*TranscriptImportExecuteResponse)(nil),    // 169: agentre.wire.TranscriptImportExecuteResponse
+	(*RuntimeEventNotification)(nil),           // 170: agentre.wire.RuntimeEventNotification
+	(*TextDelta)(nil),                          // 171: agentre.wire.TextDelta
+	(*ThinkingDelta)(nil),                      // 172: agentre.wire.ThinkingDelta
+	(*OutputActivity)(nil),                     // 173: agentre.wire.OutputActivity
+	(*PermissionModeChanged)(nil),              // 174: agentre.wire.PermissionModeChanged
+	(*Retry)(nil),                              // 175: agentre.wire.Retry
+	(*ContextWindowUpdated)(nil),               // 176: agentre.wire.ContextWindowUpdated
+	(*CompactBoundary)(nil),                    // 177: agentre.wire.CompactBoundary
+	(*RuntimeStatus)(nil),                      // 178: agentre.wire.RuntimeStatus
+	(*Done)(nil),                               // 179: agentre.wire.Done
+	(*ErrorEvent)(nil),                         // 180: agentre.wire.ErrorEvent
+	(*UserMessage)(nil),                        // 181: agentre.wire.UserMessage
+	(*Usage)(nil),                              // 182: agentre.wire.Usage
+	(*RunResultDoneNotification)(nil),          // 183: agentre.wire.RunResultDoneNotification
+	(*AutonomousTurnStartedNotification)(nil),  // 184: agentre.wire.AutonomousTurnStartedNotification
+	(*TurnStartedNotification)(nil),            // 185: agentre.wire.TurnStartedNotification
+	(*ToolCall)(nil),                           // 186: agentre.wire.ToolCall
+	(*ToolResult)(nil),                         // 187: agentre.wire.ToolResult
+	(*ConsumedSteer)(nil),                      // 188: agentre.wire.ConsumedSteer
+	(*SteerConsumed)(nil),                      // 189: agentre.wire.SteerConsumed
+	(*AskOption)(nil),                          // 190: agentre.wire.AskOption
+	(*AskQuestion)(nil),                        // 191: agentre.wire.AskQuestion
+	(*AskAnswer)(nil),                          // 192: agentre.wire.AskAnswer
+	(*UserAskRequest)(nil),                     // 193: agentre.wire.UserAskRequest
+	(*UserAskResolved)(nil),                    // 194: agentre.wire.UserAskResolved
+	(*ToolPermissionRequest)(nil),              // 195: agentre.wire.ToolPermissionRequest
+	(*ToolPermissionResolved)(nil),             // 196: agentre.wire.ToolPermissionResolved
+	(*ExecApprovalRequested)(nil),              // 197: agentre.wire.ExecApprovalRequested
+	(*ExecApprovalResolved)(nil),               // 198: agentre.wire.ExecApprovalResolved
+	(*ToolApprovalRequested)(nil),              // 199: agentre.wire.ToolApprovalRequested
+	(*ToolApprovalResolved)(nil),               // 200: agentre.wire.ToolApprovalResolved
+	(*SubagentRun)(nil),                        // 201: agentre.wire.SubagentRun
+	(*SubagentInfo)(nil),                       // 202: agentre.wire.SubagentInfo
+	(*SubagentEvent)(nil),                      // 203: agentre.wire.SubagentEvent
+	(*SubagentModel)(nil),                      // 204: agentre.wire.SubagentModel
+	(*UsageUpdate)(nil),                        // 205: agentre.wire.UsageUpdate
+	(*PlanStep)(nil),                           // 206: agentre.wire.PlanStep
+	(*PlanAction)(nil),                         // 207: agentre.wire.PlanAction
+	(*PlanUpdated)(nil),                        // 208: agentre.wire.PlanUpdated
+	(*UnrecognizedBlock)(nil),                  // 209: agentre.wire.UnrecognizedBlock
+	(*BlobSource)(nil),                         // 210: agentre.wire.BlobSource
+	(*ImageBlock)(nil),                         // 211: agentre.wire.ImageBlock
+	(*PortForwardMapping)(nil),                 // 212: agentre.wire.PortForwardMapping
+	(*PortForwardListRequest)(nil),             // 213: agentre.wire.PortForwardListRequest
+	(*PortForwardListResponse)(nil),            // 214: agentre.wire.PortForwardListResponse
+	(*PortForwardCreateRequest)(nil),           // 215: agentre.wire.PortForwardCreateRequest
+	(*PortForwardCreateResponse)(nil),          // 216: agentre.wire.PortForwardCreateResponse
+	(*PortForwardSetEnabledRequest)(nil),       // 217: agentre.wire.PortForwardSetEnabledRequest
+	(*PortForwardSetEnabledResponse)(nil),      // 218: agentre.wire.PortForwardSetEnabledResponse
+	(*PortForwardDeleteRequest)(nil),           // 219: agentre.wire.PortForwardDeleteRequest
+	(*PortForwardDeleteResponse)(nil),          // 220: agentre.wire.PortForwardDeleteResponse
+	(*PortForwardOpenRequest)(nil),             // 221: agentre.wire.PortForwardOpenRequest
+	(*PortForwardOpenResponse)(nil),            // 222: agentre.wire.PortForwardOpenResponse
+	(*PortForwardWriteRequest)(nil),            // 223: agentre.wire.PortForwardWriteRequest
+	(*PortForwardCloseRequest)(nil),            // 224: agentre.wire.PortForwardCloseRequest
+	(*PortForwardAckRequest)(nil),              // 225: agentre.wire.PortForwardAckRequest
+	(*PortForwardResponseNotification)(nil),    // 226: agentre.wire.PortForwardResponseNotification
+	(*PortForwardDataNotification)(nil),        // 227: agentre.wire.PortForwardDataNotification
+	(*PortForwardClosedNotification)(nil),      // 228: agentre.wire.PortForwardClosedNotification
+	(*PortForwardRevokedNotification)(nil),     // 229: agentre.wire.PortForwardRevokedNotification
+	(*BackendCredentialStatusRequest)(nil),     // 230: agentre.wire.BackendCredentialStatusRequest
+	(*BackendCredentialStatusResponse)(nil),    // 231: agentre.wire.BackendCredentialStatusResponse
+	(*OpenClawTokenSetRequest)(nil),            // 232: agentre.wire.OpenClawTokenSetRequest
+	(*OpenClawTokenSetResponse)(nil),           // 233: agentre.wire.OpenClawTokenSetResponse
+	(*HermesAuthProvidersRequest)(nil),         // 234: agentre.wire.HermesAuthProvidersRequest
+	(*HermesAuthProvider)(nil),                 // 235: agentre.wire.HermesAuthProvider
+	(*HermesAuthProvidersResponse)(nil),        // 236: agentre.wire.HermesAuthProvidersResponse
+	(*HermesLoginRequest)(nil),                 // 237: agentre.wire.HermesLoginRequest
+	(*HermesLoginResponse)(nil),                // 238: agentre.wire.HermesLoginResponse
+	(*HermesLogoutRequest)(nil),                // 239: agentre.wire.HermesLogoutRequest
+	(*HermesLogoutResponse)(nil),               // 240: agentre.wire.HermesLogoutResponse
+	(*BackendConnectionTestRequest)(nil),       // 241: agentre.wire.BackendConnectionTestRequest
+	(*OpenClawAgentOption)(nil),                // 242: agentre.wire.OpenClawAgentOption
+	(*OpenClawModelOption)(nil),                // 243: agentre.wire.OpenClawModelOption
+	(*BackendConnectionTestResponse)(nil),      // 244: agentre.wire.BackendConnectionTestResponse
+	(*CtlAgent)(nil),                           // 245: agentre.wire.CtlAgent
+	(*CtlDepartment)(nil),                      // 246: agentre.wire.CtlDepartment
+	(*CtlProjectLocation)(nil),                 // 247: agentre.wire.CtlProjectLocation
+	(*CtlProject)(nil),                         // 248: agentre.wire.CtlProject
+	(*CtlProvider)(nil),                        // 249: agentre.wire.CtlProvider
+	(*CtlModel)(nil),                           // 250: agentre.wire.CtlModel
+	(*CtlBackend)(nil),                         // 251: agentre.wire.CtlBackend
+	(*CtlResource)(nil),                        // 252: agentre.wire.CtlResource
+	(*CtlListRequest)(nil),                     // 253: agentre.wire.CtlListRequest
+	(*CtlListResponse)(nil),                    // 254: agentre.wire.CtlListResponse
+	(*CtlGetRequest)(nil),                      // 255: agentre.wire.CtlGetRequest
+	(*CtlGetResponse)(nil),                     // 256: agentre.wire.CtlGetResponse
+	(*CtlWriteRequest)(nil),                    // 257: agentre.wire.CtlWriteRequest
+	(*CtlCallerInfo)(nil),                      // 258: agentre.wire.CtlCallerInfo
+	(*CtlFieldChange)(nil),                     // 259: agentre.wire.CtlFieldChange
+	(*CtlChange)(nil),                          // 260: agentre.wire.CtlChange
+	(*CtlWriteResponse)(nil),                   // 261: agentre.wire.CtlWriteResponse
+	(*CtlRequest)(nil),                         // 262: agentre.wire.CtlRequest
+	(*CtlResponse)(nil),                        // 263: agentre.wire.CtlResponse
+	nil,                                        // 264: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	nil,                                        // 265: agentre.wire.LLMProvider.ModelRoutesEntry
+	nil,                                        // 266: agentre.wire.MCPServer.HeadersEntry
+	nil,                                        // 267: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	nil,                                        // 268: agentre.wire.MCPProxyRequest.HeadersEntry
+	nil,                                        // 269: agentre.wire.MCPProxyResponse.HeadersEntry
+	nil,                                        // 270: agentre.wire.PortForwardOpenRequest.HeadersEntry
+	nil,                                        // 271: agentre.wire.PortForwardResponseNotification.HeadersEntry
+	nil,                                        // 272: agentre.wire.CtlBackend.EnvEntry
+	(*descriptorpb.FieldOptions)(nil),          // 273: google.protobuf.FieldOptions
+	(*descriptorpb.FileOptions)(nil),           // 274: google.protobuf.FileOptions
 }
 var file_agentre_wire_wire_proto_depIdxs = []int32{
-	12,  // 0: agentre.wire.WireFrame.notification:type_name -> agentre.wire.Notification
-	8,   // 1: agentre.wire.RpcFrame.request:type_name -> agentre.wire.Request
-	9,   // 2: agentre.wire.RpcFrame.response:type_name -> agentre.wire.Response
-	7,   // 3: agentre.wire.RpcFrame.notification:type_name -> agentre.wire.RpcNotification
-	10,  // 4: agentre.wire.RpcFrame.error:type_name -> agentre.wire.RpcError
-	11,  // 5: agentre.wire.RpcFrame.cancel:type_name -> agentre.wire.Cancel
-	169, // 6: agentre.wire.RpcNotification.runtime_event:type_name -> agentre.wire.RuntimeEventNotification
-	182, // 7: agentre.wire.RpcNotification.run_result_done:type_name -> agentre.wire.RunResultDoneNotification
-	183, // 8: agentre.wire.RpcNotification.autonomous_turn_started:type_name -> agentre.wire.AutonomousTurnStartedNotification
-	169, // 9: agentre.wire.RpcNotification.autonomous_turn_event:type_name -> agentre.wire.RuntimeEventNotification
-	182, // 10: agentre.wire.RpcNotification.autonomous_turn_done:type_name -> agentre.wire.RunResultDoneNotification
-	116, // 11: agentre.wire.RpcNotification.terminal_data:type_name -> agentre.wire.TerminalDataNotification
-	117, // 12: agentre.wire.RpcNotification.terminal_exit:type_name -> agentre.wire.TerminalExitNotification
-	184, // 13: agentre.wire.RpcNotification.turn_started:type_name -> agentre.wire.TurnStartedNotification
-	225, // 14: agentre.wire.RpcNotification.port_forward_response:type_name -> agentre.wire.PortForwardResponseNotification
-	226, // 15: agentre.wire.RpcNotification.port_forward_data:type_name -> agentre.wire.PortForwardDataNotification
-	227, // 16: agentre.wire.RpcNotification.port_forward_closed:type_name -> agentre.wire.PortForwardClosedNotification
-	228, // 17: agentre.wire.RpcNotification.port_forward_revoked:type_name -> agentre.wire.PortForwardRevokedNotification
-	13,  // 18: agentre.wire.Notification.account_sync_version:type_name -> agentre.wire.AccountSyncVersion
-	14,  // 19: agentre.wire.Notification.account_mirror_changed:type_name -> agentre.wire.AccountMirrorChanged
-	15,  // 20: agentre.wire.Notification.account_device_presence:type_name -> agentre.wire.AccountDevicePresence
-	26,  // 21: agentre.wire.LLMUpsertRequest.models:type_name -> agentre.wire.LLMModel
-	263, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
-	26,  // 23: agentre.wire.LLMProvider.models:type_name -> agentre.wire.LLMModel
-	264, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
-	32,  // 25: agentre.wire.LLMListResponse.providers:type_name -> agentre.wire.LLMProvider
-	37,  // 26: agentre.wire.EngineDiscoverResponse.models:type_name -> agentre.wire.EngineModel
-	40,  // 27: agentre.wire.EngineScanResponse.items:type_name -> agentre.wire.EngineScanItem
-	47,  // 28: agentre.wire.HealthProvider.models:type_name -> agentre.wire.HealthModel
-	48,  // 29: agentre.wire.HealthPingResponse.providers:type_name -> agentre.wire.HealthProvider
+	13,  // 0: agentre.wire.WireFrame.notification:type_name -> agentre.wire.Notification
+	9,   // 1: agentre.wire.RpcFrame.request:type_name -> agentre.wire.Request
+	10,  // 2: agentre.wire.RpcFrame.response:type_name -> agentre.wire.Response
+	8,   // 3: agentre.wire.RpcFrame.notification:type_name -> agentre.wire.RpcNotification
+	11,  // 4: agentre.wire.RpcFrame.error:type_name -> agentre.wire.RpcError
+	12,  // 5: agentre.wire.RpcFrame.cancel:type_name -> agentre.wire.Cancel
+	170, // 6: agentre.wire.RpcNotification.runtime_event:type_name -> agentre.wire.RuntimeEventNotification
+	183, // 7: agentre.wire.RpcNotification.run_result_done:type_name -> agentre.wire.RunResultDoneNotification
+	184, // 8: agentre.wire.RpcNotification.autonomous_turn_started:type_name -> agentre.wire.AutonomousTurnStartedNotification
+	170, // 9: agentre.wire.RpcNotification.autonomous_turn_event:type_name -> agentre.wire.RuntimeEventNotification
+	183, // 10: agentre.wire.RpcNotification.autonomous_turn_done:type_name -> agentre.wire.RunResultDoneNotification
+	117, // 11: agentre.wire.RpcNotification.terminal_data:type_name -> agentre.wire.TerminalDataNotification
+	118, // 12: agentre.wire.RpcNotification.terminal_exit:type_name -> agentre.wire.TerminalExitNotification
+	185, // 13: agentre.wire.RpcNotification.turn_started:type_name -> agentre.wire.TurnStartedNotification
+	226, // 14: agentre.wire.RpcNotification.port_forward_response:type_name -> agentre.wire.PortForwardResponseNotification
+	227, // 15: agentre.wire.RpcNotification.port_forward_data:type_name -> agentre.wire.PortForwardDataNotification
+	228, // 16: agentre.wire.RpcNotification.port_forward_closed:type_name -> agentre.wire.PortForwardClosedNotification
+	229, // 17: agentre.wire.RpcNotification.port_forward_revoked:type_name -> agentre.wire.PortForwardRevokedNotification
+	14,  // 18: agentre.wire.Notification.account_sync_version:type_name -> agentre.wire.AccountSyncVersion
+	15,  // 19: agentre.wire.Notification.account_mirror_changed:type_name -> agentre.wire.AccountMirrorChanged
+	16,  // 20: agentre.wire.Notification.account_device_presence:type_name -> agentre.wire.AccountDevicePresence
+	27,  // 21: agentre.wire.LLMUpsertRequest.models:type_name -> agentre.wire.LLMModel
+	264, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	27,  // 23: agentre.wire.LLMProvider.models:type_name -> agentre.wire.LLMModel
+	265, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
+	33,  // 25: agentre.wire.LLMListResponse.providers:type_name -> agentre.wire.LLMProvider
+	38,  // 26: agentre.wire.EngineDiscoverResponse.models:type_name -> agentre.wire.EngineModel
+	41,  // 27: agentre.wire.EngineScanResponse.items:type_name -> agentre.wire.EngineScanItem
+	48,  // 28: agentre.wire.HealthProvider.models:type_name -> agentre.wire.HealthModel
+	49,  // 29: agentre.wire.HealthPingResponse.providers:type_name -> agentre.wire.HealthProvider
 	1,   // 30: agentre.wire.AgentredSelfUpdateResponse.reject_reason:type_name -> agentre.wire.AgentredSelfUpdateRejectReason
-	53,  // 31: agentre.wire.ClaudeCodeUsageResponse.data:type_name -> agentre.wire.ClaudeCodeRateLimits
-	56,  // 32: agentre.wire.SkillsListResponse.packs:type_name -> agentre.wire.InstalledSkillPack
-	62,  // 33: agentre.wire.SessionListResponse.sessions:type_name -> agentre.wire.SessionSummary
-	64,  // 34: agentre.wire.ActivityRollupResponse.buckets:type_name -> agentre.wire.ActivityDailyBucket
-	70,  // 35: agentre.wire.SessionPullResponse.notifications:type_name -> agentre.wire.DurableNotification
-	7,   // 36: agentre.wire.DurableNotification.payload:type_name -> agentre.wire.RpcNotification
-	73,  // 37: agentre.wire.SessionPendingWaitersResponse.tool_permissions:type_name -> agentre.wire.PendingToolPermission
-	74,  // 38: agentre.wire.SessionPendingWaitersResponse.ask_user_questions:type_name -> agentre.wire.PendingAskUserQuestion
-	190, // 39: agentre.wire.PendingAskUserQuestion.questions:type_name -> agentre.wire.AskQuestion
-	83,  // 40: agentre.wire.RuntimeCapabilitiesResponse.capabilities:type_name -> agentre.wire.CapabilityEntry
-	84,  // 41: agentre.wire.RuntimeCapabilitiesResponse.permission_mode:type_name -> agentre.wire.PermissionModeMeta
-	187, // 42: agentre.wire.RuntimeDrainPendingResponse.steers:type_name -> agentre.wire.ConsumedSteer
-	190, // 43: agentre.wire.RuntimeSubmitAnswerRequest.questions:type_name -> agentre.wire.AskQuestion
-	191, // 44: agentre.wire.RuntimeSubmitAnswerRequest.answers:type_name -> agentre.wire.AskAnswer
-	102, // 45: agentre.wire.HistoryMessage.blocks:type_name -> agentre.wire.StoredBlock
-	265, // 46: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
-	101, // 47: agentre.wire.RuntimeRunRequest.backend:type_name -> agentre.wire.AgentBackend
-	102, // 48: agentre.wire.RuntimeRunRequest.user_blocks:type_name -> agentre.wire.StoredBlock
-	103, // 49: agentre.wire.RuntimeRunRequest.history:type_name -> agentre.wire.HistoryMessage
-	104, // 50: agentre.wire.RuntimeRunRequest.mcp_servers:type_name -> agentre.wire.MCPServer
-	266, // 51: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
-	101, // 52: agentre.wire.RuntimeGoalRequest.backend:type_name -> agentre.wire.AgentBackend
-	108, // 53: agentre.wire.RuntimeGoalResponse.goal:type_name -> agentre.wire.Goal
-	267, // 54: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
-	268, // 55: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
-	124, // 56: agentre.wire.SkillCatalogRequest.authorized:type_name -> agentre.wire.SkillAuthorization
-	126, // 57: agentre.wire.SkillCatalogResponse.packs:type_name -> agentre.wire.SkillPackSummary
-	124, // 58: agentre.wire.SkillCommandsRequest.authorized:type_name -> agentre.wire.SkillAuthorization
-	129, // 59: agentre.wire.SkillCommandsResponse.commands:type_name -> agentre.wire.SkillCommand
-	132, // 60: agentre.wire.RemoteFsListDirResponse.entries:type_name -> agentre.wire.RemoteFsEntry
-	137, // 61: agentre.wire.WorkspaceFsListDirResponse.entries:type_name -> agentre.wire.WorkspaceFsEntry
-	140, // 62: agentre.wire.WorkspaceFsGitChangesResponse.changes:type_name -> agentre.wire.WorkspaceFsChange
-	143, // 63: agentre.wire.WorkspaceFsGitBranchesResponse.branches:type_name -> agentre.wire.WorkspaceFsBranch
-	150, // 64: agentre.wire.WorkspaceFsSearchFilesResponse.hits:type_name -> agentre.wire.WorkspaceFsSearchHit
-	154, // 65: agentre.wire.TranscriptImportScanRequest.filter:type_name -> agentre.wire.TranscriptImportFilter
-	156, // 66: agentre.wire.TranscriptImportBackendResult.candidates:type_name -> agentre.wire.TranscriptImportCandidate
-	157, // 67: agentre.wire.TranscriptImportScanResponse.backends:type_name -> agentre.wire.TranscriptImportBackendResult
-	159, // 68: agentre.wire.TranscriptImportMeta.gaps:type_name -> agentre.wire.TranscriptImportGap
-	160, // 69: agentre.wire.TranscriptImportOpenResponse.meta:type_name -> agentre.wire.TranscriptImportMeta
-	164, // 70: agentre.wire.TranscriptImportTurn.user_images:type_name -> agentre.wire.TranscriptImportImage
-	169, // 71: agentre.wire.TranscriptImportTurn.events:type_name -> agentre.wire.RuntimeEventNotification
-	181, // 72: agentre.wire.TranscriptImportTurn.usage:type_name -> agentre.wire.Usage
-	165, // 73: agentre.wire.TranscriptImportTurnsResponse.turns:type_name -> agentre.wire.TranscriptImportTurn
-	170, // 74: agentre.wire.RuntimeEventNotification.text_delta:type_name -> agentre.wire.TextDelta
-	171, // 75: agentre.wire.RuntimeEventNotification.thinking_delta:type_name -> agentre.wire.ThinkingDelta
-	172, // 76: agentre.wire.RuntimeEventNotification.output_activity:type_name -> agentre.wire.OutputActivity
-	173, // 77: agentre.wire.RuntimeEventNotification.permission_mode_changed:type_name -> agentre.wire.PermissionModeChanged
-	174, // 78: agentre.wire.RuntimeEventNotification.retry:type_name -> agentre.wire.Retry
-	175, // 79: agentre.wire.RuntimeEventNotification.context_window_updated:type_name -> agentre.wire.ContextWindowUpdated
-	176, // 80: agentre.wire.RuntimeEventNotification.compact_boundary:type_name -> agentre.wire.CompactBoundary
-	177, // 81: agentre.wire.RuntimeEventNotification.runtime_status:type_name -> agentre.wire.RuntimeStatus
-	178, // 82: agentre.wire.RuntimeEventNotification.done:type_name -> agentre.wire.Done
-	179, // 83: agentre.wire.RuntimeEventNotification.error:type_name -> agentre.wire.ErrorEvent
-	180, // 84: agentre.wire.RuntimeEventNotification.user_message:type_name -> agentre.wire.UserMessage
-	185, // 85: agentre.wire.RuntimeEventNotification.tool_call:type_name -> agentre.wire.ToolCall
-	186, // 86: agentre.wire.RuntimeEventNotification.tool_result:type_name -> agentre.wire.ToolResult
-	188, // 87: agentre.wire.RuntimeEventNotification.steer_consumed:type_name -> agentre.wire.SteerConsumed
-	192, // 88: agentre.wire.RuntimeEventNotification.user_ask_request:type_name -> agentre.wire.UserAskRequest
-	193, // 89: agentre.wire.RuntimeEventNotification.user_ask_resolved:type_name -> agentre.wire.UserAskResolved
-	194, // 90: agentre.wire.RuntimeEventNotification.tool_permission_request:type_name -> agentre.wire.ToolPermissionRequest
-	195, // 91: agentre.wire.RuntimeEventNotification.tool_permission_resolved:type_name -> agentre.wire.ToolPermissionResolved
-	196, // 92: agentre.wire.RuntimeEventNotification.exec_approval_requested:type_name -> agentre.wire.ExecApprovalRequested
-	197, // 93: agentre.wire.RuntimeEventNotification.exec_approval_resolved:type_name -> agentre.wire.ExecApprovalResolved
-	202, // 94: agentre.wire.RuntimeEventNotification.subagent_started:type_name -> agentre.wire.SubagentEvent
-	202, // 95: agentre.wire.RuntimeEventNotification.subagent_progress:type_name -> agentre.wire.SubagentEvent
-	202, // 96: agentre.wire.RuntimeEventNotification.subagent_done:type_name -> agentre.wire.SubagentEvent
-	203, // 97: agentre.wire.RuntimeEventNotification.subagent_model:type_name -> agentre.wire.SubagentModel
-	204, // 98: agentre.wire.RuntimeEventNotification.usage_update:type_name -> agentre.wire.UsageUpdate
-	207, // 99: agentre.wire.RuntimeEventNotification.plan_updated:type_name -> agentre.wire.PlanUpdated
-	208, // 100: agentre.wire.RuntimeEventNotification.unrecognized_block:type_name -> agentre.wire.UnrecognizedBlock
-	210, // 101: agentre.wire.RuntimeEventNotification.image:type_name -> agentre.wire.ImageBlock
-	198, // 102: agentre.wire.RuntimeEventNotification.tool_approval_requested:type_name -> agentre.wire.ToolApprovalRequested
-	199, // 103: agentre.wire.RuntimeEventNotification.tool_approval_resolved:type_name -> agentre.wire.ToolApprovalResolved
-	181, // 104: agentre.wire.RunResultDoneNotification.usage:type_name -> agentre.wire.Usage
-	187, // 105: agentre.wire.SteerConsumed.steers:type_name -> agentre.wire.ConsumedSteer
-	189, // 106: agentre.wire.AskQuestion.options:type_name -> agentre.wire.AskOption
-	190, // 107: agentre.wire.UserAskRequest.questions:type_name -> agentre.wire.AskQuestion
-	191, // 108: agentre.wire.UserAskResolved.answers:type_name -> agentre.wire.AskAnswer
-	200, // 109: agentre.wire.SubagentInfo.runs:type_name -> agentre.wire.SubagentRun
-	201, // 110: agentre.wire.SubagentEvent.info:type_name -> agentre.wire.SubagentInfo
-	181, // 111: agentre.wire.UsageUpdate.usage:type_name -> agentre.wire.Usage
-	205, // 112: agentre.wire.PlanUpdated.steps:type_name -> agentre.wire.PlanStep
-	206, // 113: agentre.wire.PlanUpdated.actions:type_name -> agentre.wire.PlanAction
-	209, // 114: agentre.wire.ImageBlock.source:type_name -> agentre.wire.BlobSource
-	211, // 115: agentre.wire.PortForwardListResponse.mappings:type_name -> agentre.wire.PortForwardMapping
-	211, // 116: agentre.wire.PortForwardCreateResponse.mapping:type_name -> agentre.wire.PortForwardMapping
-	211, // 117: agentre.wire.PortForwardSetEnabledResponse.mapping:type_name -> agentre.wire.PortForwardMapping
-	269, // 118: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
-	270, // 119: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
-	234, // 120: agentre.wire.HermesAuthProvidersResponse.providers:type_name -> agentre.wire.HermesAuthProvider
-	241, // 121: agentre.wire.BackendConnectionTestResponse.openclaw_agents:type_name -> agentre.wire.OpenClawAgentOption
-	242, // 122: agentre.wire.BackendConnectionTestResponse.openclaw_models:type_name -> agentre.wire.OpenClawModelOption
-	246, // 123: agentre.wire.CtlProject.locations:type_name -> agentre.wire.CtlProjectLocation
-	271, // 124: agentre.wire.CtlBackend.env:type_name -> agentre.wire.CtlBackend.EnvEntry
-	244, // 125: agentre.wire.CtlResource.agent:type_name -> agentre.wire.CtlAgent
-	245, // 126: agentre.wire.CtlResource.department:type_name -> agentre.wire.CtlDepartment
-	247, // 127: agentre.wire.CtlResource.project:type_name -> agentre.wire.CtlProject
-	248, // 128: agentre.wire.CtlResource.provider:type_name -> agentre.wire.CtlProvider
-	249, // 129: agentre.wire.CtlResource.model:type_name -> agentre.wire.CtlModel
-	250, // 130: agentre.wire.CtlResource.backend:type_name -> agentre.wire.CtlBackend
-	2,   // 131: agentre.wire.CtlListRequest.kind:type_name -> agentre.wire.CtlKind
-	251, // 132: agentre.wire.CtlListResponse.items:type_name -> agentre.wire.CtlResource
-	2,   // 133: agentre.wire.CtlGetRequest.kind:type_name -> agentre.wire.CtlKind
-	251, // 134: agentre.wire.CtlGetResponse.resource:type_name -> agentre.wire.CtlResource
-	3,   // 135: agentre.wire.CtlWriteRequest.op:type_name -> agentre.wire.CtlOp
-	2,   // 136: agentre.wire.CtlWriteRequest.kind:type_name -> agentre.wire.CtlKind
-	251, // 137: agentre.wire.CtlWriteRequest.resource:type_name -> agentre.wire.CtlResource
-	4,   // 138: agentre.wire.CtlWriteRequest.caller:type_name -> agentre.wire.CtlCaller
-	257, // 139: agentre.wire.CtlWriteRequest.caller_info:type_name -> agentre.wire.CtlCallerInfo
-	3,   // 140: agentre.wire.CtlChange.op:type_name -> agentre.wire.CtlOp
-	2,   // 141: agentre.wire.CtlChange.kind:type_name -> agentre.wire.CtlKind
-	258, // 142: agentre.wire.CtlChange.fields:type_name -> agentre.wire.CtlFieldChange
-	259, // 143: agentre.wire.CtlWriteResponse.changes:type_name -> agentre.wire.CtlChange
-	252, // 144: agentre.wire.CtlRequest.list:type_name -> agentre.wire.CtlListRequest
-	254, // 145: agentre.wire.CtlRequest.get:type_name -> agentre.wire.CtlGetRequest
-	256, // 146: agentre.wire.CtlRequest.write:type_name -> agentre.wire.CtlWriteRequest
-	253, // 147: agentre.wire.CtlResponse.list:type_name -> agentre.wire.CtlListResponse
-	255, // 148: agentre.wire.CtlResponse.get:type_name -> agentre.wire.CtlGetResponse
-	260, // 149: agentre.wire.CtlResponse.write:type_name -> agentre.wire.CtlWriteResponse
-	118, // 150: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	118, // 151: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	118, // 152: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	118, // 153: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	272, // 154: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
-	273, // 155: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
-	156, // [156:156] is the sub-list for method output_type
-	156, // [156:156] is the sub-list for method input_type
-	156, // [156:156] is the sub-list for extension type_name
-	154, // [154:156] is the sub-list for extension extendee
-	0,   // [0:154] is the sub-list for field type_name
+	54,  // 31: agentre.wire.ClaudeCodeUsageResponse.data:type_name -> agentre.wire.ClaudeCodeRateLimits
+	57,  // 32: agentre.wire.SkillsListResponse.packs:type_name -> agentre.wire.InstalledSkillPack
+	63,  // 33: agentre.wire.SessionListResponse.sessions:type_name -> agentre.wire.SessionSummary
+	65,  // 34: agentre.wire.ActivityRollupResponse.buckets:type_name -> agentre.wire.ActivityDailyBucket
+	71,  // 35: agentre.wire.SessionPullResponse.notifications:type_name -> agentre.wire.DurableNotification
+	8,   // 36: agentre.wire.DurableNotification.payload:type_name -> agentre.wire.RpcNotification
+	74,  // 37: agentre.wire.SessionPendingWaitersResponse.tool_permissions:type_name -> agentre.wire.PendingToolPermission
+	75,  // 38: agentre.wire.SessionPendingWaitersResponse.ask_user_questions:type_name -> agentre.wire.PendingAskUserQuestion
+	191, // 39: agentre.wire.PendingAskUserQuestion.questions:type_name -> agentre.wire.AskQuestion
+	84,  // 40: agentre.wire.RuntimeCapabilitiesResponse.capabilities:type_name -> agentre.wire.CapabilityEntry
+	85,  // 41: agentre.wire.RuntimeCapabilitiesResponse.permission_mode:type_name -> agentre.wire.PermissionModeMeta
+	188, // 42: agentre.wire.RuntimeDrainPendingResponse.steers:type_name -> agentre.wire.ConsumedSteer
+	191, // 43: agentre.wire.RuntimeSubmitAnswerRequest.questions:type_name -> agentre.wire.AskQuestion
+	192, // 44: agentre.wire.RuntimeSubmitAnswerRequest.answers:type_name -> agentre.wire.AskAnswer
+	103, // 45: agentre.wire.HistoryMessage.blocks:type_name -> agentre.wire.StoredBlock
+	266, // 46: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
+	102, // 47: agentre.wire.RuntimeRunRequest.backend:type_name -> agentre.wire.AgentBackend
+	103, // 48: agentre.wire.RuntimeRunRequest.user_blocks:type_name -> agentre.wire.StoredBlock
+	104, // 49: agentre.wire.RuntimeRunRequest.history:type_name -> agentre.wire.HistoryMessage
+	105, // 50: agentre.wire.RuntimeRunRequest.mcp_servers:type_name -> agentre.wire.MCPServer
+	267, // 51: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	102, // 52: agentre.wire.RuntimeGoalRequest.backend:type_name -> agentre.wire.AgentBackend
+	109, // 53: agentre.wire.RuntimeGoalResponse.goal:type_name -> agentre.wire.Goal
+	268, // 54: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
+	269, // 55: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
+	125, // 56: agentre.wire.SkillCatalogRequest.authorized:type_name -> agentre.wire.SkillAuthorization
+	127, // 57: agentre.wire.SkillCatalogResponse.packs:type_name -> agentre.wire.SkillPackSummary
+	125, // 58: agentre.wire.SkillCommandsRequest.authorized:type_name -> agentre.wire.SkillAuthorization
+	130, // 59: agentre.wire.SkillCommandsResponse.commands:type_name -> agentre.wire.SkillCommand
+	133, // 60: agentre.wire.RemoteFsListDirResponse.entries:type_name -> agentre.wire.RemoteFsEntry
+	138, // 61: agentre.wire.WorkspaceFsListDirResponse.entries:type_name -> agentre.wire.WorkspaceFsEntry
+	141, // 62: agentre.wire.WorkspaceFsGitChangesResponse.changes:type_name -> agentre.wire.WorkspaceFsChange
+	144, // 63: agentre.wire.WorkspaceFsGitBranchesResponse.branches:type_name -> agentre.wire.WorkspaceFsBranch
+	151, // 64: agentre.wire.WorkspaceFsSearchFilesResponse.hits:type_name -> agentre.wire.WorkspaceFsSearchHit
+	155, // 65: agentre.wire.TranscriptImportScanRequest.filter:type_name -> agentre.wire.TranscriptImportFilter
+	157, // 66: agentre.wire.TranscriptImportBackendResult.candidates:type_name -> agentre.wire.TranscriptImportCandidate
+	158, // 67: agentre.wire.TranscriptImportScanResponse.backends:type_name -> agentre.wire.TranscriptImportBackendResult
+	160, // 68: agentre.wire.TranscriptImportMeta.gaps:type_name -> agentre.wire.TranscriptImportGap
+	161, // 69: agentre.wire.TranscriptImportOpenResponse.meta:type_name -> agentre.wire.TranscriptImportMeta
+	165, // 70: agentre.wire.TranscriptImportTurn.user_images:type_name -> agentre.wire.TranscriptImportImage
+	170, // 71: agentre.wire.TranscriptImportTurn.events:type_name -> agentre.wire.RuntimeEventNotification
+	182, // 72: agentre.wire.TranscriptImportTurn.usage:type_name -> agentre.wire.Usage
+	166, // 73: agentre.wire.TranscriptImportTurnsResponse.turns:type_name -> agentre.wire.TranscriptImportTurn
+	171, // 74: agentre.wire.RuntimeEventNotification.text_delta:type_name -> agentre.wire.TextDelta
+	172, // 75: agentre.wire.RuntimeEventNotification.thinking_delta:type_name -> agentre.wire.ThinkingDelta
+	173, // 76: agentre.wire.RuntimeEventNotification.output_activity:type_name -> agentre.wire.OutputActivity
+	174, // 77: agentre.wire.RuntimeEventNotification.permission_mode_changed:type_name -> agentre.wire.PermissionModeChanged
+	175, // 78: agentre.wire.RuntimeEventNotification.retry:type_name -> agentre.wire.Retry
+	176, // 79: agentre.wire.RuntimeEventNotification.context_window_updated:type_name -> agentre.wire.ContextWindowUpdated
+	177, // 80: agentre.wire.RuntimeEventNotification.compact_boundary:type_name -> agentre.wire.CompactBoundary
+	178, // 81: agentre.wire.RuntimeEventNotification.runtime_status:type_name -> agentre.wire.RuntimeStatus
+	179, // 82: agentre.wire.RuntimeEventNotification.done:type_name -> agentre.wire.Done
+	180, // 83: agentre.wire.RuntimeEventNotification.error:type_name -> agentre.wire.ErrorEvent
+	181, // 84: agentre.wire.RuntimeEventNotification.user_message:type_name -> agentre.wire.UserMessage
+	186, // 85: agentre.wire.RuntimeEventNotification.tool_call:type_name -> agentre.wire.ToolCall
+	187, // 86: agentre.wire.RuntimeEventNotification.tool_result:type_name -> agentre.wire.ToolResult
+	189, // 87: agentre.wire.RuntimeEventNotification.steer_consumed:type_name -> agentre.wire.SteerConsumed
+	193, // 88: agentre.wire.RuntimeEventNotification.user_ask_request:type_name -> agentre.wire.UserAskRequest
+	194, // 89: agentre.wire.RuntimeEventNotification.user_ask_resolved:type_name -> agentre.wire.UserAskResolved
+	195, // 90: agentre.wire.RuntimeEventNotification.tool_permission_request:type_name -> agentre.wire.ToolPermissionRequest
+	196, // 91: agentre.wire.RuntimeEventNotification.tool_permission_resolved:type_name -> agentre.wire.ToolPermissionResolved
+	197, // 92: agentre.wire.RuntimeEventNotification.exec_approval_requested:type_name -> agentre.wire.ExecApprovalRequested
+	198, // 93: agentre.wire.RuntimeEventNotification.exec_approval_resolved:type_name -> agentre.wire.ExecApprovalResolved
+	203, // 94: agentre.wire.RuntimeEventNotification.subagent_started:type_name -> agentre.wire.SubagentEvent
+	203, // 95: agentre.wire.RuntimeEventNotification.subagent_progress:type_name -> agentre.wire.SubagentEvent
+	203, // 96: agentre.wire.RuntimeEventNotification.subagent_done:type_name -> agentre.wire.SubagentEvent
+	204, // 97: agentre.wire.RuntimeEventNotification.subagent_model:type_name -> agentre.wire.SubagentModel
+	205, // 98: agentre.wire.RuntimeEventNotification.usage_update:type_name -> agentre.wire.UsageUpdate
+	208, // 99: agentre.wire.RuntimeEventNotification.plan_updated:type_name -> agentre.wire.PlanUpdated
+	209, // 100: agentre.wire.RuntimeEventNotification.unrecognized_block:type_name -> agentre.wire.UnrecognizedBlock
+	211, // 101: agentre.wire.RuntimeEventNotification.image:type_name -> agentre.wire.ImageBlock
+	199, // 102: agentre.wire.RuntimeEventNotification.tool_approval_requested:type_name -> agentre.wire.ToolApprovalRequested
+	200, // 103: agentre.wire.RuntimeEventNotification.tool_approval_resolved:type_name -> agentre.wire.ToolApprovalResolved
+	182, // 104: agentre.wire.RunResultDoneNotification.usage:type_name -> agentre.wire.Usage
+	188, // 105: agentre.wire.SteerConsumed.steers:type_name -> agentre.wire.ConsumedSteer
+	190, // 106: agentre.wire.AskQuestion.options:type_name -> agentre.wire.AskOption
+	191, // 107: agentre.wire.UserAskRequest.questions:type_name -> agentre.wire.AskQuestion
+	192, // 108: agentre.wire.UserAskResolved.answers:type_name -> agentre.wire.AskAnswer
+	201, // 109: agentre.wire.SubagentInfo.runs:type_name -> agentre.wire.SubagentRun
+	202, // 110: agentre.wire.SubagentEvent.info:type_name -> agentre.wire.SubagentInfo
+	182, // 111: agentre.wire.UsageUpdate.usage:type_name -> agentre.wire.Usage
+	206, // 112: agentre.wire.PlanUpdated.steps:type_name -> agentre.wire.PlanStep
+	207, // 113: agentre.wire.PlanUpdated.actions:type_name -> agentre.wire.PlanAction
+	210, // 114: agentre.wire.ImageBlock.source:type_name -> agentre.wire.BlobSource
+	212, // 115: agentre.wire.PortForwardListResponse.mappings:type_name -> agentre.wire.PortForwardMapping
+	212, // 116: agentre.wire.PortForwardCreateResponse.mapping:type_name -> agentre.wire.PortForwardMapping
+	212, // 117: agentre.wire.PortForwardSetEnabledResponse.mapping:type_name -> agentre.wire.PortForwardMapping
+	270, // 118: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
+	271, // 119: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
+	235, // 120: agentre.wire.HermesAuthProvidersResponse.providers:type_name -> agentre.wire.HermesAuthProvider
+	242, // 121: agentre.wire.BackendConnectionTestResponse.openclaw_agents:type_name -> agentre.wire.OpenClawAgentOption
+	243, // 122: agentre.wire.BackendConnectionTestResponse.openclaw_models:type_name -> agentre.wire.OpenClawModelOption
+	247, // 123: agentre.wire.CtlProject.locations:type_name -> agentre.wire.CtlProjectLocation
+	272, // 124: agentre.wire.CtlBackend.env:type_name -> agentre.wire.CtlBackend.EnvEntry
+	5,   // 125: agentre.wire.CtlBackend.token_state:type_name -> agentre.wire.CtlTokenState
+	245, // 126: agentre.wire.CtlResource.agent:type_name -> agentre.wire.CtlAgent
+	246, // 127: agentre.wire.CtlResource.department:type_name -> agentre.wire.CtlDepartment
+	248, // 128: agentre.wire.CtlResource.project:type_name -> agentre.wire.CtlProject
+	249, // 129: agentre.wire.CtlResource.provider:type_name -> agentre.wire.CtlProvider
+	250, // 130: agentre.wire.CtlResource.model:type_name -> agentre.wire.CtlModel
+	251, // 131: agentre.wire.CtlResource.backend:type_name -> agentre.wire.CtlBackend
+	2,   // 132: agentre.wire.CtlListRequest.kind:type_name -> agentre.wire.CtlKind
+	252, // 133: agentre.wire.CtlListResponse.items:type_name -> agentre.wire.CtlResource
+	2,   // 134: agentre.wire.CtlGetRequest.kind:type_name -> agentre.wire.CtlKind
+	252, // 135: agentre.wire.CtlGetResponse.resource:type_name -> agentre.wire.CtlResource
+	3,   // 136: agentre.wire.CtlWriteRequest.op:type_name -> agentre.wire.CtlOp
+	2,   // 137: agentre.wire.CtlWriteRequest.kind:type_name -> agentre.wire.CtlKind
+	252, // 138: agentre.wire.CtlWriteRequest.resource:type_name -> agentre.wire.CtlResource
+	4,   // 139: agentre.wire.CtlWriteRequest.caller:type_name -> agentre.wire.CtlCaller
+	258, // 140: agentre.wire.CtlWriteRequest.caller_info:type_name -> agentre.wire.CtlCallerInfo
+	3,   // 141: agentre.wire.CtlChange.op:type_name -> agentre.wire.CtlOp
+	2,   // 142: agentre.wire.CtlChange.kind:type_name -> agentre.wire.CtlKind
+	259, // 143: agentre.wire.CtlChange.fields:type_name -> agentre.wire.CtlFieldChange
+	260, // 144: agentre.wire.CtlWriteResponse.changes:type_name -> agentre.wire.CtlChange
+	253, // 145: agentre.wire.CtlRequest.list:type_name -> agentre.wire.CtlListRequest
+	255, // 146: agentre.wire.CtlRequest.get:type_name -> agentre.wire.CtlGetRequest
+	257, // 147: agentre.wire.CtlRequest.write:type_name -> agentre.wire.CtlWriteRequest
+	254, // 148: agentre.wire.CtlResponse.list:type_name -> agentre.wire.CtlListResponse
+	256, // 149: agentre.wire.CtlResponse.get:type_name -> agentre.wire.CtlGetResponse
+	261, // 150: agentre.wire.CtlResponse.write:type_name -> agentre.wire.CtlWriteResponse
+	119, // 151: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	119, // 152: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	119, // 153: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	119, // 154: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	273, // 155: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
+	274, // 156: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
+	157, // [157:157] is the sub-list for method output_type
+	157, // [157:157] is the sub-list for method input_type
+	157, // [157:157] is the sub-list for extension type_name
+	155, // [155:157] is the sub-list for extension extendee
+	0,   // [0:155] is the sub-list for field type_name
 }
 
 func init() { file_agentre_wire_wire_proto_init() }
@@ -20928,7 +21012,7 @@ func file_agentre_wire_wire_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentre_wire_wire_proto_rawDesc), len(file_agentre_wire_wire_proto_rawDesc)),
-			NumEnums:      5,
+			NumEnums:      6,
 			NumMessages:   267,
 			NumExtensions: 2,
 			NumServices:   0,

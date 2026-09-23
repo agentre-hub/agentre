@@ -539,6 +539,62 @@ func TestSecret_GivenTokenOnNonOpenClawBackendThenUsageError(t *testing.T) {
 	wantCode(t, r, 2)
 }
 
+// ─── token 三态（spec「token 只显示是否已设置」；执行者问不到绑定设备时报 unknown）──
+
+// withTokenStateBackends 在假执行者里补两个 openclaw 后端：一个确定未设置、一个状态未知。
+func withTokenStateBackends(f *fakeExecutor) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.items[agentrewire.CtlKind_CTL_KIND_BACKEND] = append(f.items[agentrewire.CtlKind_CTL_KIND_BACKEND],
+		backendDoc(&agentrewire.CtlBackend{Id: 11, Name: "claw-unset", Type: "openclaw", TokenState: agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNSET}),
+		backendDoc(&agentrewire.CtlBackend{Id: 12, Name: "claw-far", Type: "openclaw", Device: "far-box", TokenState: agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNKNOWN}))
+}
+
+func TestList_GivenBackendsThenTokenColumnShowsSetDashOrUnknown(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	withTokenStateBackends(f)
+	r := runWith([]string{"list", "backends"}, envFor(srv, tok), term{})
+	wantCode(t, r, 0)
+	rows := tableRows(r.stdout)
+	if got := rows[0]; !slices.Equal(got, []string{"ID", "NAME", "TYPE", "DEVICE", "PROVIDER", "MODEL", "TOKEN"}) {
+		t.Fatalf("header = %v", got)
+	}
+	token := map[string]string{}
+	for _, row := range rows[1:] {
+		token[row[1]] = row[len(row)-1]
+	}
+	want := map[string]string{"claude-local": "-", "codex-remote": "-", "claw": "set", "claw-unset": "-", "claw-far": "unknown"}
+	for name, w := range want {
+		if token[name] != w {
+			t.Fatalf("token of %s = %q, want %q (stdout=%q)", name, token[name], w, r.stdout)
+		}
+	}
+}
+
+func TestGet_GivenOpenClawBackendThenTokenIsSetUnsetOrUnknown(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	withTokenStateBackends(f)
+	for name, want := range map[string]string{"claw": "set", "claw-unset": "unset", "claw-far": "unknown"} {
+		r := runWith([]string{"get", "backend", name}, envFor(srv, tok), term{})
+		wantCode(t, r, 0)
+		var got struct {
+			Token *string `json:"token"`
+		}
+		if err := json.Unmarshal([]byte(r.stdout), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Token == nil || *got.Token != want {
+			t.Fatalf("get %s: token = %v, want %q (stdout=%q)", name, got.Token, want, r.stdout)
+		}
+	}
+	// 没有 token 的类型不出现这个字段。
+	r := runWith([]string{"get", "backend", "codex-remote"}, envFor(srv, tok), term{})
+	wantCode(t, r, 0)
+	if strings.Contains(r.stdout, `"token"`) {
+		t.Fatalf("codex backend must not show a token field: %q", r.stdout)
+	}
+}
+
 // ─── caller classification ─────────────────────────────────────────────
 
 func TestCaller_GivenSessionTokenInEnvThenSessionCallerAndWaitingLine(t *testing.T) {
@@ -702,6 +758,18 @@ func TestHelp_GivenBackendTypeThenItsConfigFieldsOnly(t *testing.T) {
 	}
 	if strings.Contains(r.stdout, "hermesUrl") {
 		t.Fatalf("stdout = %q, must not list other types' config", r.stdout)
+	}
+}
+
+// openclaw 的帮助说明 get / list 里 token 状态的三种写法，unknown 的含义要说清。
+func TestHelp_GivenOpenClawThenTokenStatesExplained(t *testing.T) {
+	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
+	r := runWith([]string{"help", "backend", "openclaw"}, noEnv, term{})
+	wantCode(t, r, 0)
+	for _, want := range []string{"set / unset / unknown", "cannot be asked"} {
+		if !strings.Contains(r.stdout, want) {
+			t.Fatalf("stdout = %q, want %q", r.stdout, want)
+		}
 	}
 }
 

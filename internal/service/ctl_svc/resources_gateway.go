@@ -272,7 +272,7 @@ func (backendSvcResources) ListBackends(ctx context.Context) ([]*agentrewire.Ctl
 		if err != nil {
 			return nil, err
 		}
-		doc.TokenSet = openClawTokenSet(ctx, svc, b)
+		doc.TokenState = openClawTokenState(ctx, svc, b)
 		out = append(out, doc)
 	}
 	return out, nil
@@ -283,21 +283,32 @@ type credentialStatus interface {
 	BackendCredentialStatus(ctx context.Context, req *agent_backend_svc.BackendCredentialStatusRequest) (*agent_backend_svc.BackendCredentialStatusResponse, error)
 }
 
-// openClawTokenSet 报 OpenClaw token 是否已设置。token 存在后端绑定的那台设备上，读模型
-// 的 HasToken 只看本机钥匙串，所以按绑定设备去问；问不到（设备离线）时退回读模型的值。
-func openClawTokenSet(ctx context.Context, svc credentialStatus, b *agent_backend_svc.BackendItem) bool {
-	if b.Type != string(agent_backend_entity.TypeOpenClaw) || b.SyncID == "" {
-		return b.HasToken
+// openClawTokenState 报 OpenClaw token 的状态。token 存在后端绑定的那台设备上，读模型
+// 的 HasToken 只看本机钥匙串，所以按绑定设备去问；问不到（设备离线）就是 UNKNOWN。
+// 还没有同步标识的后端没法按设备存 token，只看本机读模型。其它类型没有 token。
+func openClawTokenState(ctx context.Context, svc credentialStatus, b *agent_backend_svc.BackendItem) agentrewire.CtlTokenState {
+	if b.Type != string(agent_backend_entity.TypeOpenClaw) {
+		return agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNSPECIFIED
+	}
+	if b.SyncID == "" {
+		return tokenStateOf(b.HasToken)
 	}
 	resp, err := svc.BackendCredentialStatus(ctx, &agent_backend_svc.BackendCredentialStatusRequest{
 		Type: b.Type, SyncID: b.SyncID, DeviceID: string(b.DeviceID),
 	})
 	if err != nil {
-		logger.Ctx(ctx).Warn("ctl_svc.openClawTokenSet: bound device credential status unavailable",
+		logger.Ctx(ctx).Warn("ctl_svc.openClawTokenState: bound device credential status unavailable",
 			zap.Int64("backendId", b.ID), zap.Error(err))
-		return b.HasToken
+		return agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNKNOWN
 	}
-	return resp.OpenClawTokenSaved
+	return tokenStateOf(resp.OpenClawTokenSaved)
+}
+
+func tokenStateOf(saved bool) agentrewire.CtlTokenState {
+	if saved {
+		return agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET
+	}
+	return agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNSET
 }
 
 // keyIndex 把后端上的提供方 / 模型 key 换成 ctl 契约里的数字 id。
@@ -326,7 +337,7 @@ func loadKeyIndex(ctx context.Context) (keyIndex, error) {
 }
 
 // backendDocFrom：设备写成已配对设备的名字，解析不到名字时用指纹，本机为空；
-// token 只报是否已设置；类型独占设置按同步契约的形状收进 config_json。
+// 同步标识与绑定设备指纹原样给出（token 状态由 openClawTokenState 另填）；类型独占设置按同步契约的形状收进 config_json。
 func backendDocFrom(b *agent_backend_svc.BackendItem, ids keyIndex, cliPath string) (*agentrewire.CtlBackend, error) {
 	env, err := agent_backend_entity.ParseEnvJSON(b.EnvJSON)
 	if err != nil {
@@ -363,16 +374,17 @@ func backendDocFrom(b *agent_backend_svc.BackendItem, ids keyIndex, cliPath stri
 		device = string(b.DeviceID)
 	}
 	return &agentrewire.CtlBackend{
-		Id:              b.ID,
-		Name:            b.Name,
-		Type:            b.Type,
-		ProviderId:      ids.providers[b.LLMProviderKey],
-		ModelId:         ids.models[b.LLMModelKey],
-		Device:          device,
-		CliPath:         cliPath,
-		ReasoningEffort: b.ReasoningEffort,
-		Env:             env,
-		ConfigJson:      string(configJSON),
-		TokenSet:        b.HasToken,
+		Id:                b.ID,
+		Name:              b.Name,
+		Type:              b.Type,
+		ProviderId:        ids.providers[b.LLMProviderKey],
+		ModelId:           ids.models[b.LLMModelKey],
+		Device:            device,
+		CliPath:           cliPath,
+		ReasoningEffort:   b.ReasoningEffort,
+		Env:               env,
+		ConfigJson:        string(configJSON),
+		SyncId:            b.SyncID,
+		DeviceFingerprint: string(b.DeviceID),
 	}, nil
 }

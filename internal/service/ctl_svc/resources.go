@@ -203,7 +203,7 @@ func (h *ctlHandler) listResources(ctx context.Context, kind agentrewire.CtlKind
 	case agentrewire.CtlKind_CTL_KIND_BACKEND:
 		items, err := h.resources.Backends.ListBackends(ctx)
 		for _, it := range items {
-			it.Token = "" // 只写字段：响应里只有 token_set。
+			it.Token = "" // 只写字段：响应里只有 token_state。
 			out = append(out, &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Backend{Backend: it}})
 		}
 		return out, err

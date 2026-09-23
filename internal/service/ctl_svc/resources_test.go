@@ -70,7 +70,7 @@ func fakeResourceData() *fakeResourceGateways {
 		},
 		models: []*agentrewire.CtlModel{{Id: 21, ProviderId: 1, Key: "mk-1", ModelId: "claude-opus-5", IsDefault: true, BackendRefs: 1}},
 		backends: []*agentrewire.CtlBackend{
-			{Id: 5, Name: "claw", Type: "openclaw", Token: "gateway-secret-token", TokenSet: true, Device: "box"},
+			{Id: 5, Name: "claw", Type: "openclaw", Token: "gateway-secret-token", TokenState: agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET, Device: "box"},
 		},
 	}
 }
@@ -171,7 +171,7 @@ func TestResources_NeverEchoSecrets(t *testing.T) {
 	resp = decodeCtlResponse(t, postResources(t, h, testToken, `{"get":{"kind":"CTL_KIND_BACKEND","id":"5"}}`))
 	b := resp.GetGet().GetResource().GetBackend()
 	assert.Empty(t, b.GetToken())
-	assert.True(t, b.GetTokenSet())
+	assert.Equal(t, agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET, b.GetTokenState())
 }
 
 func TestMaskSecret(t *testing.T) {

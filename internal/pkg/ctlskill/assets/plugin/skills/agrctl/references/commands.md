@@ -79,7 +79,9 @@ shown by `get` only.
 
 Field names match the create/update flags. References to other resources are printed as
 paths you can pass straight back to a flag. API keys are masked; other secrets only print
-`set` / `unset`.
+`set` / `unset`, or `unknown` when the device that keeps them cannot be asked (it is offline,
+or the backend is managed through the server). `list backends` shows the same state in its
+last column: `set`, `-` or `unknown`.
 
 ## `create`, `update`, `delete`
 

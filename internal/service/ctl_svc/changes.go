@@ -198,9 +198,9 @@ func (n *namer) fieldChanges(kind agentrewire.CtlKind, cur, next *agentrewire.Ct
 }
 
 // secretChange：写入了值就标记 secret；空的 api key 按服务层规则是「沿用原值」，不算变更；
-// 空的 token 是清除已设置的 token，同样只标记 secret。
+// 空的 token 是清除 token，同样只标记 secret——只有确知未设置时才不算变更（状态未知也要出这一行）。
 func secretChange(field string, cur *agentrewire.CtlResource, value string) *agentrewire.CtlFieldChange {
-	if value == "" && (field == "apiKey" || !cur.GetBackend().GetTokenSet()) {
+	if value == "" && (field == "apiKey" || cur.GetBackend().GetTokenState() == agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNSET) {
 		return nil
 	}
 	return &agentrewire.CtlFieldChange{Field: field, Secret: true}

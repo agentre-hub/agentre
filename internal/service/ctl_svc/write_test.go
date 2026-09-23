@@ -186,7 +186,7 @@ func newWriteFixture() *writeFixture {
 		},
 		backends: []*agentrewire.CtlBackend{
 			{Id: 5, Name: "cc", Type: "claudecode", ProviderId: 1, ConfigJson: `{"defaultPermissionMode":"plan","defaultModel":"x"}`},
-			{Id: 9, Name: "claw", Type: "openclaw", Token: "gateway-secret-token", TokenSet: true},
+			{Id: 9, Name: "claw", Type: "openclaw", Token: "gateway-secret-token", TokenState: agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET},
 		},
 	}
 	f := &writeFixture{
@@ -717,4 +717,16 @@ func TestWrite_GivenExternalCallerWithoutDesktopQueueThen503(t *testing.T) {
 
 func TestApprovalTimeoutIsFourMinutes(t *testing.T) {
 	assert.Equal(t, 4*time.Minute, newCtlSvc().approvalTimeout, "spec 决策 12，与 orgtool 一致")
+}
+
+// 清除 token（空值）只在确定没设置时才不算变更；状态未知（绑定设备离线）时照样出 secret 行，
+// 审批的人不能因为看不到状态就漏看一次清除。
+func TestSecretChange_GivenClearingTokenThenChangeUnlessKnownUnset(t *testing.T) {
+	backend := func(state agentrewire.CtlTokenState) *agentrewire.CtlResource {
+		return &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Backend{Backend: &agentrewire.CtlBackend{Type: "openclaw", TokenState: state}}}
+	}
+	assert.Nil(t, secretChange("token", backend(agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNSET), ""))
+	for _, state := range []agentrewire.CtlTokenState{agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET, agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNKNOWN} {
+		assert.Equal(t, &agentrewire.CtlFieldChange{Field: "token", Secret: true}, secretChange("token", backend(state), ""), state.String())
+	}
 }
