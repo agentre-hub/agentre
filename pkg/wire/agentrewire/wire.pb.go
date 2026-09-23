@@ -7225,8 +7225,21 @@ type RuntimeRunRequest struct {
 	// to the backend payload's own effort, so an older desktop keeps running on
 	// its configured level instead of being read as "the user chose the default".
 	ReasoningEffort string `protobuf:"bytes,25,opt,name=reasoning_effort,json=reasoningEffort,proto3" json:"reasoning_effort,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// desktop_ctl_token is the desktop's session-scoped agrctl token for this
+	// turn, bound to (agent, desktop session) and signed with the desktop's
+	// per-process key. agentred never verifies it: its ctl proxy forwards an
+	// agrctl call back to the owning desktop over the same connection carrying
+	// this token, and the desktop checks it. A secret — never log it.
+	// Empty = the originator is not a desktop that issues ctl tokens (browser /
+	// console dispatch, or a desktop without a ctl service): the session is not
+	// desktop-owned for agrctl routing.
+	DesktopCtlToken string `protobuf:"bytes,26,opt,name=desktop_ctl_token,json=desktopCtlToken,proto3" json:"desktop_ctl_token,omitempty"`
+	// desktop_session_id is the originating desktop's local chat session id the
+	// token above is bound to. Sent together with desktop_ctl_token; 0 when the
+	// token is empty.
+	DesktopSessionId int64 `protobuf:"varint,27,opt,name=desktop_session_id,json=desktopSessionId,proto3" json:"desktop_session_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RuntimeRunRequest) Reset() {
@@ -7432,6 +7445,20 @@ func (x *RuntimeRunRequest) GetReasoningEffort() string {
 		return x.ReasoningEffort
 	}
 	return ""
+}
+
+func (x *RuntimeRunRequest) GetDesktopCtlToken() string {
+	if x != nil {
+		return x.DesktopCtlToken
+	}
+	return ""
+}
+
+func (x *RuntimeRunRequest) GetDesktopSessionId() int64 {
+	if x != nil {
+		return x.DesktopSessionId
+	}
+	return 0
 }
 
 type RuntimeRunResponse struct {
@@ -19288,7 +19315,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x05tools\x18\x04 \x03(\tR\x05tools\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf1\b\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcb\t\n" +
 	"\x11RuntimeRunRequest\x124\n" +
 	"\abackend\x18\x01 \x01(\v2\x1a.agentre.wire.AgentBackendR\abackend\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\x03R\aagentId\x12'\n" +
@@ -19318,7 +19345,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\rsource_device\x18\x16 \x01(\tR\fsourceDevice\x12,\n" +
 	"\x12source_device_name\x18\x17 \x01(\tR\x10sourceDeviceName\x12&\n" +
 	"\x0fproject_sync_id\x18\x18 \x01(\tR\rprojectSyncId\x12)\n" +
-	"\x10reasoning_effort\x18\x19 \x01(\tR\x0freasoningEffort\x1aA\n" +
+	"\x10reasoning_effort\x18\x19 \x01(\tR\x0freasoningEffort\x12*\n" +
+	"\x11desktop_ctl_token\x18\x1a \x01(\tR\x0fdesktopCtlToken\x12,\n" +
+	"\x12desktop_session_id\x18\x1b \x01(\x03R\x10desktopSessionId\x1aA\n" +
 	"\x13EnabledPluginsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"\xb2\x02\n" +

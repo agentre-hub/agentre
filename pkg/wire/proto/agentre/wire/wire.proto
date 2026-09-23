@@ -851,6 +851,19 @@ message RuntimeRunRequest {
   // to the backend payload's own effort, so an older desktop keeps running on
   // its configured level instead of being read as "the user chose the default".
   string reasoning_effort = 25;
+  // desktop_ctl_token is the desktop's session-scoped agrctl token for this
+  // turn, bound to (agent, desktop session) and signed with the desktop's
+  // per-process key. agentred never verifies it: its ctl proxy forwards an
+  // agrctl call back to the owning desktop over the same connection carrying
+  // this token, and the desktop checks it. A secret — never log it.
+  // Empty = the originator is not a desktop that issues ctl tokens (browser /
+  // console dispatch, or a desktop without a ctl service): the session is not
+  // desktop-owned for agrctl routing.
+  string desktop_ctl_token = 26;
+  // desktop_session_id is the originating desktop's local chat session id the
+  // token above is bound to. Sent together with desktop_ctl_token; 0 when the
+  // token is empty.
+  int64 desktop_session_id = 27;
 }
 message RuntimeRunResponse {
   string conversation_id = 1;

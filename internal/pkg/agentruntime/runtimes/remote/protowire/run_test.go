@@ -27,6 +27,8 @@ func TestRunParamsProtobufDomainRoundTrip(t *testing.T) {
 		// 本轮有效思考力度是**独立 run 参数**(spec 2026-09-01 决策 4),不塞在 backend
 		// 负载里 —— 浏览器端发的负载只有一个 {type} 空壳。
 		ReasoningEffort: "max",
+		// 桌面端签给本会话的 agrctl 会话级 token 与它绑定的桌面会话 id(spec 2026-09-22)。
+		DesktopCtlToken: "ctl-session-token", DesktopSessionID: 55,
 	}
 	pb, err := RunRequestToProto(want)
 	require.NoError(t, err)

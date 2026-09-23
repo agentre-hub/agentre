@@ -421,6 +421,15 @@ type RunParams struct {
 	// 零变化（R17 既有承诺不变）。
 	SourceDevice     devicefp.Initiator `json:"sourceDevice,omitempty"`
 	SourceDeviceName string             `json:"sourceDeviceName,omitempty"`
+	// DesktopCtlToken / DesktopSessionID 是发起这一轮的桌面端签给本会话的 agrctl
+	// 会话级 token(绑定 (agent, 桌面会话),用桌面进程级密钥签)与它绑定的桌面本地
+	// 会话 id(spec 2026-09-22「Routing and approval」会话级 token)。两者成对:
+	// token 为空时 id 为 0。agentred 不验它,只在它的 ctl 代理把 agrctl 调用经同一条
+	// 连接转回拥有会话的桌面端时带上,由桌面端校验;空 = 这一轮不是会签 ctl token
+	// 的桌面端发的(浏览器/控制台派发),会话在 agrctl 路由上不归桌面端。
+	// token 是密钥:永远不进日志。
+	DesktopCtlToken  string `json:"desktopCtlToken,omitempty"`
+	DesktopSessionID int64  `json:"desktopSessionId,omitempty"`
 }
 
 // MCPProxyRequest 是 daemon→desktop 隧道里一次 MCP HTTP 请求的封装。daemon 把 CLI 子进程

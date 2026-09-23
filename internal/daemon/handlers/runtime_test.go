@@ -1428,6 +1428,83 @@ func TestRuntime_Run_NoUserMessageMarkerWhenNoSource(t *testing.T) {
 	assert.IsType(t, agentruntime.TextDelta{}, ef0.Event, "没有 SourceDevice 就不该注入 user_message 标记")
 }
 
+// TestRuntime_Run_GivenDesktopCtlCredentials_ThenExposedPerSessionWithoutLogging 钉死
+// spec 2026-09-22「桌面端派发到 agentred 的会话」的前提:runtime.run 带来的桌面会话级
+// agrctl token 与桌面会话 id 按会话留在 handler 上,供 ctl 代理把调用转回拥有会话的
+// 桌面端;它跨轮保留(CLI 子进程跨轮复用,agrctl 可能在任一轮里调),后一轮带新 token
+// 就刷新,不带 token 的一轮(控制台/浏览器在同一会话上派发)不抹掉归属。token 不进日志。
+func TestRuntime_Run_GivenDesktopCtlCredentials_ThenExposedPerSessionWithoutLogging(t *testing.T) {
+	const token = "SENTINEL_DESKTOP_CTL_TOKEN"
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event, 1)
+		ch <- agentruntime.Done{}
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	captured := captureRuntimeLogs(t)
+	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
+
+	_, ok := h.DesktopCtlSession(convID(61))
+	require.False(t, ok, "a session never run here has no desktop ctl credentials")
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(61), UserText: "hi",
+		DesktopCtlToken: token, DesktopSessionId: 55,
+	})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 3) // turnStarted + event + runResultDone: the turn is over
+
+	got, ok := h.DesktopCtlSession(convID(61))
+	require.True(t, ok, "credentials outlive the turn: the CLI subprocess is reused across turns")
+	assert.Equal(t, handlers.DesktopCtlSession{DesktopSessionID: 55, Token: token}, got)
+
+	_, ok = h.DesktopCtlSession(convID(62))
+	assert.False(t, ok, "credentials are per session")
+
+	// 同一会话上一轮不带 token(控制台在桌面会话上派发):归属不被抹掉。
+	_, err = h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(61), UserText: "again"})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 6)
+	got, ok = h.DesktopCtlSession(convID(61))
+	require.True(t, ok)
+	assert.Equal(t, token, got.Token)
+
+	// 桌面端重启后签的新 token 顶掉旧的。
+	_, err = h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(61), UserText: "third",
+		DesktopCtlToken: token + "-2", DesktopSessionId: 55,
+	})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 9)
+	got, _ = h.DesktopCtlSession(convID(61))
+	assert.Equal(t, token+"-2", got.Token)
+
+	assert.NotContains(t, captured.String(), token, "the desktop ctl token must never be logged")
+}
+
+// TestRuntime_Run_GivenNoDesktopCtlToken_ThenSessionIsNotDesktopOwned 控制台/浏览器派发
+// 的会话不带 token:不登记,ctl 代理据此不把它当桌面端会话。
+func TestRuntime_Run_GivenNoDesktopCtlToken_ThenSessionIsNotDesktopOwned(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event, 1)
+		ch <- agentruntime.Done{}
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(63), UserText: "hi", DesktopSessionId: 55,
+	})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 3)
+	_, ok := h.DesktopCtlSession(convID(63))
+	assert.False(t, ok, "a session id without a token does not make the session desktop-owned")
+}
+
 func TestRuntime_Run_BuiltinBackend_Rejected(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeBuiltin)}
