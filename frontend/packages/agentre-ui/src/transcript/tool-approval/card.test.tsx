@@ -135,4 +135,45 @@ describe("ToolApprovalCard", () => {
     expect(screen.getByText("Expired")).toBeDefined();
     expect(screen.queryByText("Approve")).toBeNull();
   });
+
+  // toolKey==="ctl" 的变更清单卡(方案 B,spec 决策 6)细节渲染由
+  // ctl-approval-card.test.tsx 覆盖;这里只锚路由入口本身的两个职责——
+  // 认出 ctl 分派给新卡,认不出(其它 toolKey / 畸形 toolInput)时不改行为。
+  it("dispatches to the ctl change-list card when toolKey is ctl", () => {
+    renderCard(
+      pending({
+        toolKey: "ctl",
+        toolName: "ctl_update_provider",
+        toolInput: {
+          command: "agrctl update provider openrouter --api-key=…",
+          changes: [
+            { op: "update", kind: "provider", id: 4, name: "openrouter" },
+          ],
+        },
+      }),
+    );
+    expect(screen.getByText("Config change")).toBeDefined();
+    // 旧 JSON 卡的固定标题不应该出现——两条卡互斥。
+    expect(screen.queryByText("Org structure operation approval")).toBeNull();
+  });
+
+  it("still renders the original JSON card for non-ctl toolKeys", () => {
+    renderCard(pending());
+    expect(screen.getByText("Org structure operation approval")).toBeDefined();
+    expect(screen.queryByText("Config change")).toBeNull();
+  });
+
+  it("falls back to the original JSON card when toolKey is ctl but toolInput is malformed", () => {
+    renderCard(
+      pending({
+        toolKey: "ctl",
+        toolName: "ctl_update_provider",
+        // 旧格式/损坏数据:没有 changes 数组,不是合法的 CtlApprovalInput。
+        toolInput: { note: "legacy payload" },
+      }),
+    );
+    expect(screen.getByText("Org structure operation approval")).toBeDefined();
+    expect(screen.getByText(/legacy payload/)).toBeDefined();
+    expect(screen.queryByText("Config change")).toBeNull();
+  });
 });

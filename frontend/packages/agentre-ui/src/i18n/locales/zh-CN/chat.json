@@ -196,6 +196,25 @@
       "org_delete_agent": "删除 Agent"
     }
   },
+  "ctlApproval": {
+    "title": "配置变更",
+    "needsApproval": "需要你批准",
+    "op": {
+      "create": "新建",
+      "update": "修改",
+      "delete": "删除"
+    },
+    "kind": {
+      "agent": "Agent",
+      "department": "部门",
+      "project": "项目",
+      "provider": "LLM 提供方",
+      "model": "模型",
+      "backend": "后端"
+    },
+    "secretUpdated": "已更新（值不显示）",
+    "cascade": "--cascade：连同 {{departments}} 个子部门、{{agents}} 个 Agent 一起删除"
+  },
   "slashCommands": {
     "aria": "命令与 Skill 提示",
     "compact": {
