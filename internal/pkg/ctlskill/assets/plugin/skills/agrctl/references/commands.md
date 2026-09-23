@@ -87,7 +87,7 @@ paths you can pass straight back to a flag. API keys are masked; other secrets o
 department 研发部 created (id 5)
 
 {{AGRCTL_PATH}} update agent reviewer --department 质量部
-waiting for approval in this Agentre session …
+waiting for approval in session #231 …
 agent reviewer updated
 
 {{AGRCTL_PATH}} create model --provider openrouter --model-id qwen/qwen3-coder
@@ -98,6 +98,8 @@ department 临时小组 deleted
 ```
 
 - `update` sends only the flags given; everything else stays as it is.
+- An API key cannot be emptied: `--api-key=""` is a usage error (exit `2`). Omit the flag to
+  keep the current key.
 - Flags that set the same field cannot be combined (`--enable` with `--disable`,
   `--config` with `--config-file`).
 - `--config '<JSON>'` must be a JSON object whose keys are all listed by
@@ -107,8 +109,10 @@ department 临时小组 deleted
   Other refusals (a project with sub-projects or active sessions, the system agent) come
   back from the desktop verbatim.
 
-From an Agentre session every write first prints `waiting for approval in this Agentre
-session …` on stderr and blocks until the user answers the approval card. A rejection:
+From an Agentre session every write first prints `waiting for approval in session #<id> …`
+on stderr and blocks until the user answers the approval card in that session. A program
+without a terminal outside any session prints `waiting for approval in the Agentre desktop …`
+instead and blocks until the user answers the desktop's approval dialog. A rejection:
 
 ```
 Error: rejected in session #231

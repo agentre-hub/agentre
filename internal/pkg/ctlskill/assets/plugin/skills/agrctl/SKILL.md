@@ -72,8 +72,9 @@ candidate's id and path, and prints a corrected command to run instead.
   keys listed by `help backend <type>` are accepted.
 
 Every write you make from this session **waits for the user's approval in this session**;
-stderr shows `waiting for approval in this Agentre session …` meanwhile. A rejection ends
-with exit code `1`. Do not retry a rejected write.
+stderr shows `waiting for approval in session #<id> …` meanwhile. (A program without a
+terminal outside any session sees `waiting for approval in the Agentre desktop …` instead.)
+A rejection ends with exit code `1`. Do not retry a rejected write.
 
 ### Secrets
 

@@ -488,6 +488,33 @@ func TestSecret_GivenInlineAPIKeyWithoutTTYThenWrittenAndRedactedInCommand(t *te
 	}
 }
 
+func TestSecret_GivenExplicitEmptyAPIKeyThenUsageErrorAndNoWrite(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	for _, args := range [][]string{
+		{"update", "provider", "openrouter", "--api-key="},
+		{"create", "provider", "--name", "p2", "--type", "openai-chat", "--api-key="},
+	} {
+		r := runWith(args, envFor(srv, tok), term{tty: true})
+		wantCode(t, r, 2)
+		if !strings.Contains(r.stderr, "API key cannot be empty") {
+			t.Fatalf("%v: stderr = %q", args, r.stderr)
+		}
+	}
+	if f.writeCount() != 0 {
+		t.Fatal("no write must be sent")
+	}
+}
+
+func TestSecret_GivenEmptyTokenOnOpenClawThenClearsIt(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"update", "backend", "claw", "--token="}, envFor(srv, tok), term{})
+	wantCode(t, r, 0)
+	w := f.onlyWrite(t)
+	if !slices.Equal(w.GetFields(), []string{"token"}) || w.GetResource().GetBackend().GetToken() != "" {
+		t.Fatalf("write = %v", w)
+	}
+}
+
 func TestSecret_GivenSpaceSeparatedAPIKeyThenUsageError(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
 	r := runWith([]string{"update", "provider", "openrouter", "--api-key", "sk-x"}, envFor(srv, tok), term{})

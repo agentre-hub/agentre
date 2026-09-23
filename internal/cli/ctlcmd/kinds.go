@@ -201,7 +201,14 @@ func initProviderFlags() {
 		strField("name", "<name>", "name", "provider name (unique)", func(w *writeCtx, v string) { p(w).Name = v }),
 		strField("base-url", "<url>", "baseUrl", "API base URL", func(w *writeCtx, v string) { p(w).BaseUrl = v }),
 		{name: "api-key", secret: true, field: "apiKey", usage: "API key (secret, see below)",
-			apply: func(w *writeCtx, v string) error { p(w).ApiKey = v; return nil }},
+			apply: func(w *writeCtx, v string) error {
+				// API key 不能置空（spec「Executors」）；不写这个 flag 才是保留原值。
+				if strings.TrimSpace(v) == "" {
+					return usageErrorf("--api-key: an API key cannot be empty (omit the flag to keep the current key)")
+				}
+				p(w).ApiKey = v
+				return nil
+			}},
 		boolField("enable", "enabled", "enable the provider", true, func(w *writeCtx, v bool) { p(w).Enabled = v }),
 		boolField("disable", "enabled", "disable the provider", false, func(w *writeCtx, v bool) { p(w).Enabled = v }),
 	}
