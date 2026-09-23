@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { classifyLink } from "@agentre-hub/agentre-ui";
+import { classifyLink, useUiTranslation } from "@agentre-hub/agentre-ui";
 
 import { OpenPath, RevealPath } from "@/../wailsjs/go/app/App";
 
@@ -25,17 +25,28 @@ export function openTarget(path: string, cwd: string): string {
  */
 export function useOpenFile(cwd: string): (path: string) => void {
   const { t } = useTranslation();
+  // 「本机上没有这个文件」与转录链接浮窗同一句，文案归共享包。
+  const { t: uiT } = useUiTranslation();
   return React.useCallback(
     (path: string) => {
-      OpenPath(openTarget(path, cwd)).catch((err: unknown) => {
-        toast.error(
-          t("chatContext.files.openFailed", {
-            error: errorMessage(err),
-          }),
-        );
-      });
+      OpenPath(openTarget(path, cwd)).then(
+        (res) => {
+          // 后端把「本机不存在」放在应答里而不是 reject：文件可能刚被删掉，
+          // 不能因此静默什么都不做。
+          if (res?.unavailable === "not-found") {
+            toast.error(uiT("richLink.notOnThisMachine"));
+          }
+        },
+        (err: unknown) => {
+          toast.error(
+            t("chatContext.files.openFailed", {
+              error: errorMessage(err),
+            }),
+          );
+        },
+      );
     },
-    [cwd, t],
+    [cwd, t, uiT],
   );
 }
 

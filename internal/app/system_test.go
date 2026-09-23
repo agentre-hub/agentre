@@ -2,7 +2,9 @@ package app
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -114,22 +116,37 @@ func TestOpenPath_dispatchesPlatformCommand(t *testing.T) {
 		}
 		defer func() { runOpenCmd = origRun }()
 
-		Convey("when OpenPath is called with a valid absolute path", func() {
+		file := filepath.Join(t.TempDir(), "file.go")
+		So(os.WriteFile(file, []byte("package x"), 0o600), ShouldBeNil)
+
+		Convey("when OpenPath is called with an existing absolute path, then the platform command opens it without the line suffix", func() {
 			a := &App{}
-			err := a.OpenPath("/tmp/file.go:42")
+			res, err := a.OpenPath(file + ":42")
 			So(err, ShouldBeNil)
+			So(res.Unavailable, ShouldEqual, "")
 
 			switch runtime.GOOS {
 			case "darwin":
 				So(gotName, ShouldEqual, "open")
-				So(gotArgs, ShouldResemble, []string{"/tmp/file.go"})
 			case "windows":
 				So(gotName, ShouldEqual, "explorer")
-				So(gotArgs, ShouldResemble, []string{"/tmp/file.go"})
 			default:
 				So(gotName, ShouldEqual, "xdg-open")
-				So(gotArgs, ShouldResemble, []string{"/tmp/file.go"})
 			}
+			So(gotArgs, ShouldResemble, []string{file})
+		})
+
+		Convey("when the path does not exist on this machine, then it reports not-found and exec is not called", func() {
+			called := false
+			runOpenCmd = func(name string, args ...string) error {
+				called = true
+				return nil
+			}
+			a := &App{}
+			res, err := a.OpenPath(filepath.Join(t.TempDir(), "missing.go") + ":7")
+			So(err, ShouldBeNil)
+			So(res.Unavailable, ShouldEqual, OpenPathNotFound)
+			So(called, ShouldBeFalse)
 		})
 
 		Convey("when exec returns error, then OpenPath propagates", func() {
@@ -137,7 +154,7 @@ func TestOpenPath_dispatchesPlatformCommand(t *testing.T) {
 				return errors.New("boom")
 			}
 			a := &App{}
-			err := a.OpenPath("/tmp/file.go")
+			_, err := a.OpenPath(file)
 			So(err, ShouldNotBeNil)
 		})
 
@@ -148,7 +165,7 @@ func TestOpenPath_dispatchesPlatformCommand(t *testing.T) {
 				return nil
 			}
 			a := &App{}
-			err := a.OpenPath("relative/path.go")
+			_, err := a.OpenPath("relative/path.go")
 			So(err, ShouldNotBeNil)
 			So(called, ShouldBeFalse)
 		})

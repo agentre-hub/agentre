@@ -4,10 +4,13 @@
  * 「变动」模式的行路径可能来自工具调用的绝对路径：只有解析后落在会话 cwd 内的
  * 文件才出预览按钮（越出 cwd 的一律不出）；相对路径原样当 relPath。「目录 / Git」
  * 模式的路径本就相对 cwd，直接可用。任何不在扩展名 allowlist 内的文件不出预览按钮。
- */ export type PreviewKind = "markdown" | "code" | "image";
+ */ export type PreviewKind = "markdown" | "html" | "code" | "image";
 
 /** markdown 档只收 .md / .markdown；.mdx 含 JSX、GFM 渲染会碎，明确不入档。 */
 const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown"]);
+
+/** html 档：渲染 / 源码 / 双栏三档（spec「HTML 预览」），不再算代码档。 */
+const HTML_EXTENSIONS = new Set([".html", ".htm"]);
 
 const IMAGE_EXTENSIONS = new Set([
   ".png",
@@ -22,7 +25,7 @@ const IMAGE_EXTENSIONS = new Set([
 ]);
 
 // 代码 / 文本 allowlist —— 与 lib/file-preview/monaco-language 的语言表对齐
-// （能高亮就给预览按钮），另加常见纯文本格式；markdown / 图片 / .mdx 不在这里。
+// （能高亮就给预览按钮），另加常见纯文本格式；markdown / html / 图片 / .mdx 不在这里。
 const CODE_TEXT_EXTENSIONS = new Set([
   // web 前端 / 标记
   ".js",
@@ -35,8 +38,6 @@ const CODE_TEXT_EXTENSIONS = new Set([
   ".cts",
   ".json",
   ".jsonc",
-  ".html",
-  ".htm",
   ".xml",
   ".css",
   ".scss",
@@ -107,9 +108,21 @@ function extensionOf(path: string): string {
 export function previewKind(path: string): PreviewKind | null {
   const ext = extensionOf(path);
   if (MARKDOWN_EXTENSIONS.has(ext)) return "markdown";
+  if (HTML_EXTENSIONS.has(ext)) return "html";
   if (IMAGE_EXTENSIONS.has(ext)) return "image";
   if (CODE_TEXT_EXTENSIONS.has(ext)) return "code";
   return null;
+}
+
+/**
+ * 带行号打开一个新预览标签时该落在哪一档。markdown / html 的渲染档没有「行」的
+ * 概念，带着行号开进去就定位不上，所以落在文本档（html 显示为「源码」）；其余
+ * 类型没有档位可选，返回 null 表示不强制。两个宿主的标签状态都按这一条开标签，
+ * 规则只住在这里，新增一种有渲染档的类型时不会一边改了一边漏了。
+ */
+export function anchoredOpenSegment(path: string): "text" | null {
+  const kind = previewKind(path);
+  return kind === "markdown" || kind === "html" ? "text" : null;
 }
 
 const ABS_POSIX = /^\//;

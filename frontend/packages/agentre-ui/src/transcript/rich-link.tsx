@@ -1,15 +1,14 @@
 import {
   Copy as CopyIcon,
   ExternalLink,
+  Eye,
   FileText,
   Folder,
   Link as LinkIcon,
-  MousePointerClick,
 } from "lucide-react";
 import * as React from "react";
 import { useUiTranslation } from "../i18n";
 import type { TFunction } from "i18next";
-import { toast } from "sonner";
 
 import {
   HoverCard,
@@ -21,6 +20,7 @@ import { copyTextWithToast } from "../lib/clipboard-toast";
 import type { PreviewAnchor } from "../file-preview/anchor";
 import { classifyLink, type LinkClass } from "../lib/link-classify";
 import { previewKind } from "../lib/previewable";
+import { toastOpenPathFailure } from "./open-path-failure";
 import { useTranscriptPorts } from "./ports-context";
 import type { TranscriptPorts } from "./ports";
 
@@ -51,6 +51,8 @@ function previewRelPath(kind: LinkClass): string | null {
  * 链接写了行号就把它交给宿主,没写就**一个参数都不多传**——`previewFile` 的第三
  * 参缺席是「这次不定位」的全部表达,传一个 undefined 进去会让宿主分不清「没写行
  * 号」与「写了但解析失败」。列号不参与:定位选的是整行(见 file-preview/anchor)。
+ * 唯一的例外是强制预览(forcePreview):它要带第四参,第三参缺席时只能占一个
+ * undefined 位,宿主同样读作「不定位」。
  */
 function previewAnchor(kind: LinkClass): PreviewAnchor | undefined {
   if (kind.kind !== "local-internal" || kind.line === undefined)
@@ -140,16 +142,48 @@ async function copyToClipboard(text: string, t: TFunction) {
   });
 }
 
+/**
+ * 用户明确选了「预览」（浮窗的相反按钮、或系统打开失败提示里的出口）：不经
+ * files.open_action 的握手，要宿主照样接手。能不能走这条路由调用方先判过。
+ */
+function forcePreview(
+  kind: LinkClass,
+  ports: TranscriptPorts,
+  sessionId: number | undefined,
+) {
+  const relPath = previewRelPath(kind);
+  if (relPath === null || sessionId === undefined) return;
+  ports.previewFile?.(sessionId, relPath, previewAnchor(kind), {
+    force: true,
+  });
+}
+
+function canPreviewLink(
+  kind: LinkClass,
+  ports: TranscriptPorts,
+  sessionId: number | undefined,
+): boolean {
+  return (
+    typeof ports.previewFile === "function" &&
+    sessionId !== undefined &&
+    previewRelPath(kind) !== null
+  );
+}
+
 function openWithExternalApp(
   kind: LinkClass,
   t: TFunction,
   ports: TranscriptPorts,
+  sessionId: number | undefined,
 ) {
   ports.openPath?.(fullTarget(kind))?.catch((err: unknown) => {
-    toast.error(
-      t("richLink.openFailed", {
-        error: err instanceof Error ? err.message : String(err),
-      }),
+    // 能预览时，「本机没有这个文件」的提示附上「预览」出口。
+    toastOpenPathFailure(
+      err,
+      t,
+      canPreviewLink(kind, ports, sessionId)
+        ? () => forcePreview(kind, ports, sessionId)
+        : undefined,
     );
   });
 }
@@ -179,11 +213,11 @@ function dispatchClick(
           ? (ports.previewFile?.(sessionId, relPath) ?? false)
           : (ports.previewFile?.(sessionId, relPath, anchor) ?? false));
       if (tookOver) return;
-      openWithExternalApp(kind, t, ports);
+      openWithExternalApp(kind, t, ports, sessionId);
       return;
     }
     case "local-external":
-      openWithExternalApp(kind, t, ports);
+      openWithExternalApp(kind, t, ports, sessionId);
       return;
     case "unknown":
       // 不拦截，让浏览器走默认行为（target=_blank fallback）。
@@ -191,142 +225,121 @@ function dispatchClick(
   }
 }
 
-function URLPopover({ kind }: { kind: Extract<LinkClass, { kind: "url" }> }) {
-  const { t } = useUiTranslation();
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-meta font-semibold text-primary-foreground">
-          <LinkIcon className="size-3" aria-hidden /> {t("richLink.url")}
-        </span>
-        <div className="flex-1" />
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-secondary px-2 py-1 text-xs"
-          onClick={() => copyToClipboard(kind.url, t)}
-        >
-          <CopyIcon className="size-3" aria-hidden /> {t("common.copy")}
-        </button>
-      </div>
-      <code className="break-all font-mono text-xs text-foreground">
-        {kind.url}
-      </code>
-      <div className="flex items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-meta text-muted-foreground">
-        <MousePointerClick className="size-3" aria-hidden />
-        {t("richLink.openInBrowser")}
-      </div>
-    </div>
-  );
+/** 路径拆成「目录」与「最后一段」：目录弱化、最后一段加粗。目录路径保留结尾分隔符。 */
+function splitPath(path: string): { dir: string; name: string } {
+  const body = path.replace(/[\\/]+$/, "");
+  const cut = Math.max(body.lastIndexOf("/"), body.lastIndexOf("\\"));
+  return { dir: path.slice(0, cut + 1), name: path.slice(cut + 1) };
 }
 
-function LineChip({ line, col }: { line?: number; col?: number }) {
-  if (line === undefined) return null;
+/**
+ * 浮窗里那一行路径。过长时从**左侧**截断（rtl 容器 + ltr 的 bdi），文件名始终
+ * 完整——路径最有信息量的是尾巴。
+ */
+function PopoverPath({ text, split }: { text: string; split: boolean }) {
+  const { dir, name } = split ? splitPath(text) : { dir: "", name: text };
   return (
-    <span className="inline-flex items-center rounded-full border border-border bg-secondary px-2 py-0.5 font-mono text-meta">
-      L{line}
-      {col !== undefined ? `:${col}` : ""}
+    <span
+      data-testid="rich-link-popover-path"
+      title={text}
+      className="min-w-0 flex-1 truncate text-left font-mono text-xs [direction:rtl]"
+    >
+      <bdi>
+        {dir ? <span className="text-muted-foreground">{dir}</span> : null}
+        <span className={cn(split && "font-semibold text-foreground")}>
+          {name}
+        </span>
+      </bdi>
     </span>
   );
 }
 
-function LocalInternalPopover({
-  kind,
-  cwd,
-}: {
-  kind: Extract<LinkClass, { kind: "local-internal" }>;
-  cwd: string;
-}) {
-  const { t } = useUiTranslation();
-  const full = fullTarget(kind);
-  const PathIcon = kind.pathKind === "folder" ? Folder : FileText;
-  const label =
-    kind.pathKind === "folder"
-      ? t("richLink.localFolder")
-      : t("richLink.localFile");
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className="inline-flex items-center gap-1 rounded-full bg-agent-2 px-2 py-0.5 text-meta font-semibold text-primary-foreground">
-          <PathIcon className="size-3" aria-hidden /> {label}
-        </span>
-        <LineChip line={kind.line} col={kind.col} />
-        <div className="flex-1" />
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-secondary px-2 py-1 text-xs"
-          onClick={() => copyToClipboard(full, t)}
-        >
-          <CopyIcon className="size-3" aria-hidden /> {t("common.copy")}
-        </button>
-      </div>
-      <div className="flex flex-col gap-0.5 rounded-md bg-secondary px-2.5 py-1.5">
-        <div className="flex items-baseline gap-2">
-          <span className="w-12 shrink-0 text-meta font-semibold text-muted-foreground">
-            {t("richLink.projectRoot")}
-          </span>
-          <code className="min-w-0 flex-1 break-all whitespace-normal font-mono text-xs text-muted-foreground">
-            {cwd}
-          </code>
-        </div>
-        <div className="flex items-baseline gap-2">
-          <span className="w-12 shrink-0 text-meta font-semibold text-muted-foreground">
-            {t("richLink.relative")}
-          </span>
-          <code className="min-w-0 flex-1 break-all whitespace-normal font-mono text-xs font-semibold text-foreground">
-            {kind.relPath}
-          </code>
-        </div>
-      </div>
-      <code className="break-all font-mono text-meta text-muted-foreground">
-        {full}
-      </code>
-      <div className="flex items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-meta text-muted-foreground">
-        <MousePointerClick className="size-3" aria-hidden />
-        {t("richLink.clickToOpen")}
-      </div>
-    </div>
-  );
+const POPOVER_BUTTON =
+  "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+function lineLabel(kind: LinkClass): string | null {
+  if (kind.kind !== "local-internal" && kind.kind !== "local-external")
+    return null;
+  if (kind.line === undefined) return null;
+  return kind.endLine === undefined
+    ? `L${kind.line}`
+    : `L${kind.line}-${kind.endLine}`;
 }
 
-function LocalExternalPopover({
+/**
+ * 浮窗只回答两件事：**这是哪个文件**、**还能怎么打开**（spec「文件链接浮窗」）。
+ * 点链接本身就是默认打开方式，所以这里不再写「点击打开」；相反方式只在两条路都
+ * 存在时出现（`opposite` 为 null 即整项不渲染）。
+ */
+function LinkPopover({
   kind,
+  opposite,
+  onOpposite,
 }: {
-  kind: Extract<LinkClass, { kind: "local-external" }>;
+  kind: Exclude<LinkClass, { kind: "unknown" }>;
+  opposite: "preview" | "external" | null;
+  onOpposite: () => void;
 }) {
   const { t } = useUiTranslation();
-  const full = fullTarget(kind);
-  const PathIcon = kind.pathKind === "folder" ? Folder : FileText;
-  const label =
-    kind.pathKind === "folder"
-      ? t("richLink.localFolderExternal")
-      : t("richLink.localFileExternal");
+  const Icon =
+    kind.kind === "url"
+      ? LinkIcon
+      : kind.pathKind === "folder"
+        ? Folder
+        : FileText;
+  const text =
+    kind.kind === "url"
+      ? kind.url
+      : kind.kind === "local-internal" && kind.relPath !== ""
+        ? kind.relPath
+        : kind.fullPath;
+  const line = lineLabel(kind);
+  const copyLabel =
+    kind.kind === "url" ? t("richLink.copyLink") : t("richLink.copyPath");
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className="inline-flex items-center gap-1 rounded-full bg-muted-foreground px-2 py-0.5 text-meta font-semibold text-background">
-          <PathIcon className="size-3" aria-hidden /> {label}
+    <div
+      data-testid="rich-link-popover"
+      className="flex min-w-0 items-center gap-1.5"
+    >
+      <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      <PopoverPath text={text} split={kind.kind !== "url"} />
+      {line ? (
+        <span className="shrink-0 rounded bg-secondary px-1 font-mono text-3xs text-muted-foreground">
+          {line}
         </span>
-        <LineChip line={kind.line} col={kind.col} />
-        <div className="flex-1" />
+      ) : null}
+      {opposite === "external" ? (
         <button
           type="button"
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-secondary px-2 py-1 text-xs"
-          onClick={() => copyToClipboard(full, t)}
+          aria-label={t("richLink.openExternalAria")}
+          title={t("richLink.openExternalAria")}
+          className={POPOVER_BUTTON}
+          onClick={onOpposite}
         >
-          <CopyIcon className="size-3" aria-hidden /> {t("common.copy")}
+          <ExternalLink className="size-3.5" aria-hidden />
+          {t("richLink.openExternal")}
         </button>
-      </div>
-      <code className="break-all font-mono text-xs font-semibold text-foreground">
-        {full}
-      </code>
-      <div className="text-meta text-muted-foreground">
-        {t("richLink.outsideCwd")}
-      </div>
-      <div className="flex items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-meta text-muted-foreground">
-        <MousePointerClick className="size-3" aria-hidden />
-        {t("richLink.openWithDefaultApp")}
-      </div>
+      ) : opposite === "preview" ? (
+        <button
+          type="button"
+          aria-label={t("richLink.openPreviewAria")}
+          title={t("richLink.openPreviewAria")}
+          className={POPOVER_BUTTON}
+          onClick={onOpposite}
+        >
+          <Eye className="size-3.5" aria-hidden />
+          {t("richLink.openPreview")}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        aria-label={copyLabel}
+        title={copyLabel}
+        className={cn(POPOVER_BUTTON, "w-6 justify-center px-0")}
+        onClick={() => copyToClipboard(fullTarget(kind), t)}
+      >
+        <CopyIcon className="size-3.5" aria-hidden />
+      </button>
     </div>
   );
 }
@@ -341,6 +354,7 @@ export function RichLink({
   const { t } = useUiTranslation();
   const ports = useTranscriptPorts();
   const kind = React.useMemo(() => classifyLink(href, cwd), [href, cwd]);
+  const [open, setOpen] = React.useState(false);
 
   if (kind.kind === "unknown") {
     // unknown 一律走原有 anchor 行为（target=_blank 兜底，不挂 popover）
@@ -367,10 +381,7 @@ export function RichLink({
   // 两条都不成立时它就不该看起来能点。控制台里 allowlist 外的路径(「它没有
   // 『交给外部应用』这条退路」)与越出 cwd 的路径都落在这里。这条判定只看端口
   // 能力,不看 files.open_action(设置只决定两条路都在时走哪条,与「有没有路」无关)。
-  const canPreview =
-    typeof ports.previewFile === "function" &&
-    sessionId !== undefined &&
-    previewRelPath(kind) !== null;
+  const canPreview = canPreviewLink(kind, ports, sessionId);
   if (
     (kind.kind === "local-internal" || kind.kind === "local-external") &&
     !canPreview &&
@@ -384,8 +395,27 @@ export function RichLink({
     dispatchClick(kind, t, ports, sessionId);
   };
 
+  // 相反打开方式：两条路都在（能预览 + 宿主有系统打开）且宿主告知了默认方式。
+  const openDefault =
+    canPreview && typeof ports.openPath === "function"
+      ? ports.fileOpenDefault?.()
+      : undefined;
+  const opposite =
+    openDefault === "preview"
+      ? "external"
+      : openDefault === "external"
+        ? "preview"
+        : null;
+  const onOpposite = () => {
+    setOpen(false);
+    if (opposite === "external") openWithExternalApp(kind, t, ports, sessionId);
+    else forcePreview(kind, ports, sessionId);
+  };
+
   return (
     <HoverCard
+      open={open}
+      onOpenChange={setOpen}
       openDelay={HOVER_OPEN_DELAY_MS}
       closeDelay={HOVER_CLOSE_DELAY_MS}
     >
@@ -410,14 +440,8 @@ export function RichLink({
           <OpenLinkIcon kind={kind.kind} />
         </a>
       </HoverCardTrigger>
-      <HoverCardContent className="w-[min(28rem,calc(100vw-2rem))]">
-        {kind.kind === "url" ? (
-          <URLPopover kind={kind} />
-        ) : kind.kind === "local-internal" ? (
-          <LocalInternalPopover kind={kind} cwd={cwd ?? ""} />
-        ) : (
-          <LocalExternalPopover kind={kind} />
-        )}
+      <HoverCardContent className="w-auto min-w-64 max-w-[min(28rem,calc(100vw-2rem))] p-1.5">
+        <LinkPopover kind={kind} opposite={opposite} onOpposite={onOpposite} />
       </HoverCardContent>
     </HoverCard>
   );

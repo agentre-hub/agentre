@@ -152,18 +152,15 @@
     }
   },
   "richLink": {
-    "clickToOpen": "点击打开这个文件",
-    "localFile": "本地文件",
-    "localFileExternal": "本地文件 · 项目外",
-    "localFolder": "本地文件夹",
-    "localFolderExternal": "本地文件夹 · 项目外",
+    "copyLink": "复制链接",
+    "copyPath": "复制完整路径",
+    "maybeRemote": "它可能在远端机器上",
+    "notOnThisMachine": "本机上没有这个文件",
+    "openExternal": "系统打开",
+    "openExternalAria": "用系统默认应用打开",
     "openFailed": "打开失败: {{error}}",
-    "openInBrowser": "点击在系统浏览器中打开",
-    "openWithDefaultApp": "点击用系统默认应用打开",
-    "outsideCwd": "路径不在当前 cwd 之下，不展示项目根分段。",
-    "projectRoot": "项目根",
-    "relative": "相对",
-    "url": "URL"
+    "openPreview": "预览",
+    "openPreviewAria": "在预览面板打开"
   },
   "terminal": {
     "banner": {

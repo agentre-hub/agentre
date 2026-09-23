@@ -152,18 +152,15 @@
     }
   },
   "richLink": {
-    "clickToOpen": "Click to open this file",
-    "localFile": "Local File",
-    "localFileExternal": "Local File · Outside Project",
-    "localFolder": "Local Folder",
-    "localFolderExternal": "Local Folder · Outside Project",
+    "copyLink": "Copy link",
+    "copyPath": "Copy full path",
+    "maybeRemote": "It may be on a remote machine",
+    "notOnThisMachine": "This file isn't on this machine",
+    "openExternal": "System app",
+    "openExternalAria": "Open with the default system app",
     "openFailed": "Open failed: {{error}}",
-    "openInBrowser": "Click to open in the system browser",
-    "openWithDefaultApp": "Click to open with the default system app",
-    "outsideCwd": "Path is outside the current cwd, so the project root segment is not shown.",
-    "projectRoot": "Project Root",
-    "relative": "Relative",
-    "url": "URL"
+    "openPreview": "Preview",
+    "openPreviewAria": "Open in the preview panel"
   },
   "terminal": {
     "banner": {

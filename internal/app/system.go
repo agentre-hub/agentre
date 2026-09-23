@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,12 +41,31 @@ var userHomeDir = os.UserHomeDir
 // path 必须是绝对路径或 "~" / "~/…" 家目录形式；包含 ".." 时拒绝（防御性，AI 输出基本不会有）。
 // 末尾 :line[:col] / :start-end 后缀会被剥离 —— macOS open / xdg-open 不识别这种语法。
 // 行号未来若要支持，由"编辑器 URL scheme"设置项接管（见 spec 未来工作）。
-func (a *App) OpenPath(path string) error {
+//
+// 路径在本机不存在时不调起系统应用，而是在应答里带回 Unavailable=OpenPathNotFound：
+// 远端会话的文件在另一台机器上，照直交给 `open` 只会得到一句系统原话。Wails 边界只过
+// Error() 字符串，所以「是哪一类失败」走应答字段（与 WorkspaceFsReadFile 的
+// unavailable 同一种做法），前端据此说人话，而不是解析错误文本。
+func (a *App) OpenPath(path string) (*OpenPathResult, error) {
 	cleaned, err := validateOpenPath(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return runOpenPlatform(runtime.GOOS, cleaned)
+	if _, err := os.Stat(cleaned); errors.Is(err, fs.ErrNotExist) {
+		return &OpenPathResult{Unavailable: OpenPathNotFound}, nil
+	}
+	if err := runOpenPlatform(runtime.GOOS, cleaned); err != nil {
+		return nil, err
+	}
+	return &OpenPathResult{}, nil
+}
+
+// OpenPathNotFound 是 OpenPathResult.Unavailable 的取值：路径在本机不存在。
+const OpenPathNotFound = "not-found"
+
+// OpenPathResult 是 OpenPath 的应答。Unavailable 为空表示已交给系统应用打开。
+type OpenPathResult struct {
+	Unavailable string `json:"unavailable,omitempty"`
 }
 
 func validateOpenPath(path string) (string, error) {

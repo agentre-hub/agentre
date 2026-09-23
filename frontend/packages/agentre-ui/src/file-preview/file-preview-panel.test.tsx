@@ -426,3 +426,232 @@ describe("路径条上的设备指示", () => {
     expect(screen.queryByTestId("file-preview-device")).toBeNull();
   });
 });
+
+// ── HTML：渲染 / 源码 / 双栏（spec「HTML 预览」）────────────────────────────
+describe("FilePreviewPanel HTML", () => {
+  const HTML = "<h1>Report</h1><script>1</script>";
+
+  function frame(view: HTMLElement) {
+    return within(view).queryByTitle("report.html rendered page");
+  }
+
+  it("Given an HTML file opened from the directory, when no segment is stored, then it renders in a sandboxed frame that may run scripts but gets no same-origin, popup or top-navigation rights", async () => {
+    readFile.mockResolvedValue(textView(HTML));
+    renderPanel({ activePath: "out/report.html" });
+
+    const view = await panel();
+    const iframe = await within(view).findByTitle("report.html rendered page");
+    expect(iframe.getAttribute("srcdoc")).toBe(HTML);
+    expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(
+      within(view)
+        .getByRole("button", { name: "Render" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    within(view).getByRole("button", { name: "Source" });
+    within(view).getByRole("button", { name: "Split" });
+    expect(fakeMonaco.editor.create).not.toHaveBeenCalled();
+  });
+
+  it("Given an HTML file, when the user picks Source, then the stored segment becomes text and the source shows in Monaco as html", async () => {
+    readFile.mockResolvedValue(textView(HTML));
+    const { onSegmentChange, rerender, props } = renderPanel({
+      activePath: "out/report.html",
+    });
+    const view = await panel();
+    await within(view).findByTitle("report.html rendered page");
+
+    await userEvent.click(within(view).getByRole("button", { name: "Source" }));
+    expect(onSegmentChange).toHaveBeenCalledWith("text");
+
+    rerender(<FilePreviewPanel {...props} segment="text" />);
+    await waitFor(() =>
+      expect(fakeMonaco.editor.create).toHaveBeenCalledWith(
+        expect.any(HTMLElement),
+        expect.objectContaining({ language: "html", readOnly: true }),
+      ),
+    );
+    expect(frame(view)).toBeNull();
+  });
+
+  it("Given an HTML file in the split segment, then source and rendered page show side by side", async () => {
+    readFile.mockResolvedValue(textView(HTML));
+    renderPanel({ activePath: "out/report.html", segment: "split" });
+
+    const view = await panel();
+    await within(view).findByTitle("report.html rendered page");
+    await waitFor(() =>
+      expect(fakeMonaco.editor.create).toHaveBeenCalledWith(
+        expect.any(HTMLElement),
+        expect.objectContaining({ language: "html" }),
+      ),
+    );
+  });
+
+  it("Given an HTML file opened from uncommitted changes, when no segment is stored, then the first view is still the HEAD diff in the Source segment", async () => {
+    readFile.mockResolvedValue(textView(HTML));
+    renderPanel({ activePath: "out/report.html", sourceMode: "git" });
+
+    const view = await panel();
+    await waitFor(() =>
+      expect(fakeMonaco.editor.createDiffEditor).toHaveBeenCalled(),
+    );
+    expect(gitFileContent).toHaveBeenCalledWith("out/report.html");
+    expect(
+      within(view)
+        .getByRole("button", { name: "Source" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(frame(view)).toBeNull();
+  });
+
+  it("Given an HTML file from uncommitted changes in the split segment, then the left side is the HEAD diff and the right side the rendered page", async () => {
+    readFile.mockResolvedValue(textView(HTML));
+    renderPanel({
+      activePath: "out/report.html",
+      sourceMode: "git",
+      segment: "split",
+    });
+
+    const view = await panel();
+    await within(view).findByTitle("report.html rendered page");
+    await waitFor(() =>
+      expect(fakeMonaco.editor.createDiffEditor).toHaveBeenCalled(),
+    );
+  });
+
+  it("Given an HTML file from uncommitted changes, when the user picks Render, then the rendered page shows instead of the diff", async () => {
+    readFile.mockResolvedValue(textView(HTML));
+    renderPanel({
+      activePath: "out/report.html",
+      sourceMode: "git",
+      segment: "render",
+    });
+
+    const view = await panel();
+    await within(view).findByTitle("report.html rendered page");
+    expect(fakeMonaco.editor.createDiffEditor).not.toHaveBeenCalled();
+  });
+
+  it("Given the rendered segment, when the user clicks Re-render, then the frame is reloaded without reading the file again", async () => {
+    readFile.mockResolvedValue(textView(HTML));
+    renderPanel({ activePath: "out/report.html" });
+
+    const view = await panel();
+    const before = await within(view).findByTitle("report.html rendered page");
+    expect(readFile).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(
+      within(view).getByRole("button", { name: "Re-render" }),
+    );
+    const after = await within(view).findByTitle("report.html rendered page");
+    expect(after).not.toBe(before);
+    expect(readFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given the source segment, then there is no Re-render button", async () => {
+    readFile.mockResolvedValue(textView(HTML));
+    renderPanel({ activePath: "out/report.html", segment: "text" });
+
+    const view = await panel();
+    await waitFor(() => expect(fakeMonaco.editor.create).toHaveBeenCalled());
+    expect(
+      within(view).queryByRole("button", { name: "Re-render" }),
+    ).toBeNull();
+  });
+
+  it("Given the host can open files in the system, when the user clicks Open in browser on an HTML tab, then the host is asked to open that path", async () => {
+    readFile.mockResolvedValue(textView(HTML));
+    const openPath = vi.fn().mockResolvedValue(undefined);
+    renderPanel({
+      activePath: "out/report.html",
+      ports: {
+        readFile: (p: string) => readFile(p),
+        gitFileContent: (p: string) => gitFileContent(p),
+        openPath,
+      },
+    });
+
+    const view = await panel();
+    await userEvent.click(
+      await within(view).findByRole("button", { name: "Open in browser" }),
+    );
+    expect(openPath).toHaveBeenCalledWith("out/report.html");
+  });
+
+  it("Given the host cannot open files in the system, then an HTML tab has no Open in browser button", async () => {
+    readFile.mockResolvedValue(textView(HTML));
+    renderPanel({ activePath: "out/report.html" });
+
+    const view = await panel();
+    await within(view).findByTitle("report.html rendered page");
+    expect(
+      within(view).queryByRole("button", { name: "Open in browser" }),
+    ).toBeNull();
+  });
+
+  it("Given a non-HTML tab, then there is no Open in browser button even when the host can open files", async () => {
+    readFile.mockResolvedValue(textView("package main"));
+    renderPanel({
+      activePath: "main.go",
+      ports: {
+        readFile: (p: string) => readFile(p),
+        gitFileContent: (p: string) => gitFileContent(p),
+        openPath: vi.fn(),
+      },
+    });
+
+    const view = await panel();
+    await waitFor(() => expect(fakeMonaco.editor.create).toHaveBeenCalled());
+    expect(
+      within(view).queryByRole("button", { name: "Open in browser" }),
+    ).toBeNull();
+  });
+
+  it("Given an HTML file in the source segment with a reveal target, then the editor is scrolled to that line", async () => {
+    readFile.mockResolvedValue(textView(HTML));
+    renderPanel({
+      activePath: "out/report.html",
+      segment: "text",
+      revealTarget: { line: 5, endLine: 5, nonce: 1 },
+    });
+
+    await panel();
+    await waitFor(() =>
+      expect(lastEditor().revealLineInCenter).toHaveBeenCalledWith(5),
+    );
+  });
+
+  it("Given an HTML file from the session entry, then only the tool diff shows and there are no segments", async () => {
+    renderPanel({ activePath: "out/report.html", sourceMode: "session" });
+
+    const view = await panel();
+    await within(view).findByText(
+      "No tool call in this session changed this file",
+    );
+    expect(within(view).queryByRole("button", { name: "Render" })).toBeNull();
+    expect(frame(view)).toBeNull();
+  });
+
+  it("Given an HTML file from the session entry and a host that can open files in the system, then the header still offers Open in browser", async () => {
+    const openPath = vi.fn().mockResolvedValue(undefined);
+    renderPanel({
+      activePath: "out/report.html",
+      sourceMode: "session",
+      ports: {
+        readFile: (p: string) => readFile(p),
+        gitFileContent: (p: string) => gitFileContent(p),
+        openPath,
+      },
+    });
+
+    const view = await panel();
+    await userEvent.click(
+      await within(view).findByRole("button", { name: "Open in browser" }),
+    );
+    expect(openPath).toHaveBeenCalledWith("out/report.html");
+    expect(
+      within(view).queryByRole("button", { name: "Re-render" }),
+    ).toBeNull();
+  });
+});

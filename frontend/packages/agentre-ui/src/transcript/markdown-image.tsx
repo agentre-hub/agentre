@@ -1,9 +1,9 @@
 import * as React from "react";
 import { FileText, Image as ImageIcon } from "lucide-react";
 import { useUiTranslation } from "../i18n";
-import { toast } from "sonner";
 
 import { previewKind, toRelPath } from "../lib/previewable";
+import { toastOpenPathFailure } from "./open-path-failure";
 import { useTranscriptPorts } from "./ports-context";
 
 const ABS_POSIX = /^\//;
@@ -290,13 +290,9 @@ function FallbackChip({
         type="button"
         className="inline-flex max-w-full items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 text-meta text-muted-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring/50"
         onClick={() =>
-          openPath(absolutePath).catch((err: unknown) => {
-            toast.error(
-              t("richLink.openFailed", {
-                error: err instanceof Error ? err.message : String(err),
-              }),
-            );
-          })
+          openPath(absolutePath).catch((err: unknown) =>
+            toastOpenPathFailure(err, t),
+          )
         }
       >
         {content}

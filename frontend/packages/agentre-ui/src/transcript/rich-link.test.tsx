@@ -3,6 +3,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
   type RenderOptions,
 } from "@testing-library/react";
 import { TranscriptPortsProvider } from "./ports-context";
@@ -335,107 +336,261 @@ describe("RichLink", () => {
     });
   });
 
-  describe("Popover hint does not promise a destination", () => {
-    // 浮层在**点击之前**渲染，而去向由点击时的 previewFile 握手定下来（跟随
-    // files.open_action，且控制台宿主根本没有外部应用这条退路）。所以这一行只能
-    // 陈述「点一下会打开它」，不能指名由哪一侧打开。
-    it("local-internal popover states the action without naming the app", async () => {
-      render(
-        <RichLink href="/Users/me/proj/src/foo.go" cwd={CWD}>
-          foo.go
-        </RichLink>,
-      );
-      fireEvent.focus(screen.getByRole("link", { name: /foo\.go/ }));
+  // 浮窗只回答「这是哪个文件」与「还能怎么打开」（spec「文件链接浮窗」）：一行
+  // 路径 + 行号 + 相反打开方式 + 复制，不再有胶囊、项目根、绝对路径与解释文案。
+  describe("Popover · one row", () => {
+    async function openPopover(name: RegExp) {
+      fireEvent.focus(screen.getByRole("link", { name }));
+      return screen.findByTestId("rich-link-popover");
+    }
 
-      expect(await screen.findByText(/Click to open this file/)).toBeTruthy();
-      expect(screen.queryByText(/default system app/i)).toBeNull();
-    });
-
-    // 「设置」进到包里的唯一形状就是 previewFile 的返回值(宿主自己看
-    // files.open_action)。浮层在**点击之前**渲染,两档必须是同一句话 —— 否则
-    // 就等于在渲染期承诺了一个只有点击时才定得下来的去向。
-    it.each([true, false])(
-      "keeps the same hint when previewFile answers %s",
-      async (handled) => {
-        previewFileMock.mockReturnValue(handled);
-        render(
-          <RichLink href="/Users/me/proj/src/foo.go" cwd={CWD} sessionId={7}>
-            foo.go
-          </RichLink>,
-        );
-        fireEvent.focus(screen.getByRole("link", { name: /foo\.go/ }));
-
-        expect(await screen.findByText(/Click to open this file/)).toBeTruthy();
-        expect(screen.queryByText(/default system app/i)).toBeNull();
-        // 浮层只是展开,不该替用户先按一次去向握手。
-        expect(previewFileMock).not.toHaveBeenCalled();
-      },
-    );
-
-    // cwd 之外的路径在任何设置、任何宿主下都只能交给外部应用，这句话本来就是对的。
-    it("local-external popover keeps naming the default system app", async () => {
-      render(
-        <RichLink href="/usr/local/bin/agentred" cwd={CWD}>
-          agentred
-        </RichLink>,
-      );
-      fireEvent.focus(screen.getByRole("link", { name: /agentred/ }));
-
-      expect(
-        await screen.findByText(/Click to open with the default system app/),
-      ).toBeTruthy();
-    });
-  });
-
-  describe("Popover content sanity", () => {
-    it("local-internal popover shows both project root and relative path", async () => {
+    it("Given an in-project file, then the popover shows only its relative path, with no project root, absolute path or click hint", async () => {
       render(
         <RichLink href="/Users/me/proj/src/foo.go" cwd={CWD}>
           foo
         </RichLink>,
       );
-      fireEvent.focus(screen.getByRole("link", { name: /foo/ }));
-      expect(await screen.findByText("/Users/me/proj")).toBeInTheDocument();
-      expect(screen.getByText("src/foo.go")).toBeInTheDocument();
+      const pop = await openPopover(/foo/);
+
+      expect(screen.getByTestId("rich-link-popover-path").textContent).toBe(
+        "src/foo.go",
+      );
+      expect(pop.textContent).not.toContain(CWD);
+      expect(pop.textContent).not.toMatch(/Click to open/);
+      expect(pop.textContent).not.toMatch(/Local File/);
     });
 
-    it("local-internal popover wraps long project root and relative path segments", async () => {
-      const cwd =
-        "/Users/codfrm/Code/agentre/agentre/a-very-long-project-root-name";
+    it("Given a link with a line number, then the popover shows it as L<n>", async () => {
       render(
-        <RichLink
-          href={`${cwd}/frontend/src/components/agentre/__tests__/chat.test.tsx:89`}
-          cwd={cwd}
-        >
-          chat.test.tsx:89
+        <RichLink href="/Users/me/proj/src/foo.go:42" cwd={CWD}>
+          foo.go:42
         </RichLink>,
       );
-      fireEvent.focus(screen.getByRole("link", { name: /chat\.test\.tsx:89/ }));
-
-      expect(await screen.findByText(cwd)).toHaveClass(
-        "min-w-0",
-        "break-all",
-        "whitespace-normal",
-      );
-      expect(
-        screen.getByText(
-          "frontend/src/components/agentre/__tests__/chat.test.tsx",
-        ),
-      ).toHaveClass("min-w-0", "break-all", "whitespace-normal");
+      await openPopover(/foo\.go:42/);
+      expect(screen.getByText("L42")).toBeInTheDocument();
     });
 
-    it("local-external popover shows full path but no project root segment", async () => {
+    it("Given a file outside the project, then the popover shows its full path and no explanation", async () => {
       render(
         <RichLink href="/usr/local/bin/agentred" cwd={CWD}>
           ag
         </RichLink>,
       );
-      fireEvent.focus(screen.getByRole("link", { name: /ag/ }));
+      const pop = await openPopover(/ag/);
+
+      expect(screen.getByTestId("rich-link-popover-path").textContent).toBe(
+        "/usr/local/bin/agentred",
+      );
+      expect(pop.textContent).not.toMatch(/cwd|Outside Project/i);
+    });
+
+    it("Given a URL, then the popover shows the URL with a copy button and nothing else to click", async () => {
+      render(
+        <RichLink href="https://example.com/a" cwd={CWD}>
+          ex
+        </RichLink>,
+      );
+      const pop = await openPopover(/ex/);
+
+      expect(screen.getByTestId("rich-link-popover-path").textContent).toBe(
+        "https://example.com/a",
+      );
+      const buttons = within(pop).getAllByRole("button");
+      expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+        "Copy link",
+      ]);
+      expect(pop.textContent).not.toMatch(/Click to open/);
+    });
+  });
+
+  // 两条路都在时浮窗给出与默认相反的那一条（spec 决策 4–7）。默认方式由宿主经
+  // fileOpenDefault 告知；宿主不告知时按今天的分流、不出相反按钮。
+  describe("Opposite open mode", () => {
+    const fileOpenDefaultMock = vi.fn<() => "preview" | "external">();
+
+    function portsWith(overrides: Partial<TranscriptPorts> = {}) {
+      return {
+        ...testPorts,
+        fileOpenDefault: fileOpenDefaultMock,
+        ...overrides,
+      } as TranscriptPorts;
+    }
+
+    beforeEach(() => {
+      fileOpenDefaultMock.mockReset();
+    });
+
+    function renderFile(
+      href: string,
+      ports: TranscriptPorts,
+      sessionId: number | null = 7,
+    ) {
+      renderWithPorts(
+        <RichLink href={href} cwd={CWD} sessionId={sessionId ?? undefined}>
+          target
+        </RichLink>,
+        ports,
+      );
+      fireEvent.focus(screen.getByRole("link", { name: /target/ }));
+      return screen.findByTestId("rich-link-popover");
+    }
+
+    it("Given the default is preview, When the user clicks the opposite button, Then the system app opens the full target with its line suffix and the popover closes", async () => {
+      fileOpenDefaultMock.mockReturnValue("preview");
+      await renderFile("/Users/me/proj/src/foo.go:42", portsWith());
+
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Open with the default system app",
+        }),
+      );
+
+      expect(openPathMock).toHaveBeenCalledWith("/Users/me/proj/src/foo.go:42");
+      expect(previewFileMock).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(screen.queryByTestId("rich-link-popover")).toBeNull(),
+      );
+    });
+
+    it("Given the default is the system app, When the user clicks the opposite button, Then the file is previewed regardless of the setting, anchored at its line", async () => {
+      fileOpenDefaultMock.mockReturnValue("external");
+      previewFileMock.mockReturnValue(true);
+      await renderFile("/Users/me/proj/src/foo.go:42", portsWith());
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Open in the preview panel" }),
+      );
+
+      expect(previewFileMock).toHaveBeenCalledWith(
+        7,
+        "src/foo.go",
+        { line: 42 },
+        { force: true },
+      );
+      expect(openPathMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["preview", "System app"],
+      ["external", "Preview"],
+    ] as const)(
+      "Given the default is %s, then the opposite button shows the short label %s",
+      async (openDefault, label) => {
+        fileOpenDefaultMock.mockReturnValue(openDefault);
+        const pop = await renderFile("/Users/me/proj/src/foo.go", portsWith());
+        expect(pop.textContent).toContain(label);
+      },
+    );
+
+    it("Given the host does not tell the default, then there is no opposite button", async () => {
+      await renderFile("/Users/me/proj/src/foo.go", testPorts);
       expect(
-        await screen.findByText("/usr/local/bin/agentred"),
-      ).toBeInTheDocument();
-      // CWD value should NOT appear in external popover.
-      expect(screen.queryByText(CWD)).not.toBeInTheDocument();
+        screen.queryByRole("button", {
+          name: /default system app|preview panel/,
+        }),
+      ).toBeNull();
+    });
+
+    it.each([
+      ["a non-previewable extension", "/Users/me/proj/data.bin", 7],
+      ["a path outside the project", "/usr/local/bin/agentred", 7],
+      ["a folder", "/Users/me/proj/src/", 7],
+      ["no session to preview in", "/Users/me/proj/src/foo.go", null],
+    ])("Given %s, then there is no opposite button", async (_, href, sid) => {
+      fileOpenDefaultMock.mockReturnValue("preview");
+      await renderFile(href, portsWith(), sid);
+      expect(
+        screen.queryByRole("button", {
+          name: /default system app|preview panel/,
+        }),
+      ).toBeNull();
+    });
+
+    it("Given a host without system open (the console), then there is no opposite button", async () => {
+      fileOpenDefaultMock.mockReturnValue("preview");
+      await renderFile(
+        "/Users/me/proj/src/foo.go",
+        portsWith({ openPath: undefined }),
+      );
+      expect(
+        screen.queryByRole("button", { name: /default system app/ }),
+      ).toBeNull();
+    });
+  });
+
+  // 系统打开因本机没有这个文件而失败（远端会话的文件通常如此）：说事实，可预览时
+  // 给「预览」出口；其他失败沿用原 toast（spec「系统打开失败」）。
+  describe("System open failure", () => {
+    const notFound = () =>
+      Object.assign(new Error("not-found"), { kind: "notFound" });
+
+    it("Given the link click goes to the system app and the file is not on this machine, Then the toast states the fact and offers Preview, which forces the preview at the link's line", async () => {
+      openPathMock.mockRejectedValue(notFound());
+      previewFileMock.mockReturnValue(false);
+      render(
+        <RichLink href="/Users/me/proj/src/foo.go:9" cwd={CWD} sessionId={7}>
+          foo
+        </RichLink>,
+      );
+      fireEvent.click(screen.getByRole("link", { name: /foo/ }));
+
+      await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+      const [title, opts] = sonnerMocks.toast.error.mock.calls[0] as [
+        string,
+        {
+          description: string;
+          action?: { label: string; onClick: () => void };
+        },
+      ];
+      expect(title).toBe("This file isn't on this machine");
+      expect(opts.description).toBe("It may be on a remote machine");
+      expect(opts.action?.label).toBe("Preview");
+      expect(JSON.stringify(sonnerMocks.toast.error.mock.calls)).not.toContain(
+        "not-found",
+      );
+
+      previewFileMock.mockClear();
+      opts.action?.onClick();
+      expect(previewFileMock).toHaveBeenCalledWith(
+        7,
+        "src/foo.go",
+        { line: 9 },
+        { force: true },
+      );
+    });
+
+    it("Given a non-previewable file that is not on this machine, Then the toast states the fact without a Preview action", async () => {
+      openPathMock.mockRejectedValue(notFound());
+      render(
+        <RichLink href="/Users/me/proj/data.bin" cwd={CWD} sessionId={7}>
+          data
+        </RichLink>,
+      );
+      fireEvent.click(screen.getByRole("link", { name: /data/ }));
+
+      await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+      const [title, opts] = sonnerMocks.toast.error.mock.calls[0] as [
+        string,
+        { action?: unknown },
+      ];
+      expect(title).toBe("This file isn't on this machine");
+      expect(opts.action).toBeUndefined();
+    });
+
+    it("Given any other failure, Then the existing open-failed toast is used", async () => {
+      openPathMock.mockRejectedValue(new Error("boom"));
+      render(
+        <RichLink href="/usr/local/bin/agentred" cwd={CWD}>
+          ag
+        </RichLink>,
+      );
+      fireEvent.click(screen.getByRole("link", { name: /ag/ }));
+
+      await waitFor(() =>
+        expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
+          "Open failed: boom",
+        ),
+      );
     });
   });
 

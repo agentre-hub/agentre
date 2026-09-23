@@ -16,6 +16,12 @@ export interface FilePreviewPorts {
   readFile(path: string): Promise<ReadFileResult>;
   /** 读同一文件在 git HEAD 的版本（对比档左列）。 */
   gitFileContent(path: string): Promise<GitFileContentResult>;
+  /**
+   * 用系统默认应用打开这个文件（HTML 标签的「用浏览器打开」）。可选、按能力探测：
+   * 宿主不提供（控制台，或桌面端的远端会话）时按钮整项不渲染。与取数端口不同，
+   * 这是一次性动作，失败提示归宿主（与宿主其余「系统打开」入口同一条 toast）。
+   */
+  openPath?(path: string): void;
 }
 
 /** gitFileContent 的应答：非 git 仓库 → notARepo；未跟踪 / 不在 HEAD → 空基线。 */

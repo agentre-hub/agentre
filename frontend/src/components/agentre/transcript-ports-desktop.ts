@@ -1,6 +1,10 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import type { MentionRef, TranscriptPorts } from "@agentre-hub/agentre-ui";
+import type {
+  FilePreviewFailure,
+  MentionRef,
+  TranscriptPorts,
+} from "@agentre-hub/agentre-ui";
 
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
@@ -67,8 +71,20 @@ export const desktopTranscriptPorts = {
     };
   },
 
+  // 后端判出「本机没有这条路径」时走应答字段（Wails 边界只过错误字符串），这里
+  // 还原成一次带 notFound 标记的失败：转录据此说事实、给预览出口（远端会话的
+  // 文件在另一台机器上，通常就是这一档）。
   async openPath(path) {
-    await OpenPath(path);
+    const res = await OpenPath(path);
+    if (res?.unavailable === "not-found") {
+      throw Object.assign(new Error(res.unavailable), {
+        kind: "notFound",
+      } satisfies FilePreviewFailure);
+    }
+  },
+
+  fileOpenDefault() {
+    return useFileSettingsStore.getState().settings.openAction;
   },
 
   openExternalURL(url) {
@@ -109,9 +125,11 @@ export const desktopTranscriptPorts = {
   // 入口模式是 "directory":转录里点一条路径要看的是「这个文件**现在**长什么样」
   // (spec「入口与可用性」),面板据此走 readFile 读工作区正文。不能是 "session"
   // ——那是侧栏「本次会话」档的工具 diff,一次取数都不打。
-  previewFile(sessionId, path, anchor?) {
+  //
+  // `force`:用户在浮窗 / 失败提示里明确选了「预览」,设置不拦它。
+  previewFile(sessionId, path, anchor?, opts?) {
     const { openAction } = useFileSettingsStore.getState().settings;
-    if (openAction === "external") return false;
+    if (openAction === "external" && !opts?.force) return false;
     useFilePreviewTabsStore
       .getState()
       .openPreview(sessionId, path, "directory", anchor);
