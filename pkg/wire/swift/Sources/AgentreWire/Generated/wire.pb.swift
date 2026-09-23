@@ -5115,17 +5115,20 @@ public nonisolated struct Agentre_Wire_ImageBlock: Sendable {
   fileprivate var _source: Agentre_Wire_BlobSource? = nil
 }
 
-/// PortForwardMapping 是一条声明:这台机器允许把它 127.0.0.1 上的某个端口转出去。
-/// 端口在一台设备下唯一;enabled 为假的映射保留声明但一律拒绝访问。
+/// PortForwardMapping 是一条声明:这台机器允许把某个目标转出去。目标(协议、主机、
+/// 端口的规范化组合)在一台设备下唯一;enabled 为假的映射保留声明但一律拒绝访问。
+/// 目标不可编辑——要换目标就删掉重建,重建后是一条新映射。
 public nonisolated struct Agentre_Wire_PortForwardMapping: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  /// id 是这条声明在**那台设备**上的主键。启停与删除按它定位,而不是按端口 ——
-  /// 端口虽然也唯一,但它是用户随时会改的那一格。
+  /// id 是这条声明在**那台设备**上的主键。启停与删除按它定位。
   public var id: Int64 = 0
 
+  /// port 是 target 里那个端口,仍然填着给展示用。open 按 id 定位(见
+  /// PortForwardOpenRequest),端口不再是一条映射的身份——两条映射可以是同一个端口
+  /// 上的两台主机。
   public var port: UInt32 = 0
 
   public var name: String = String()
@@ -5136,6 +5139,14 @@ public nonisolated struct Agentre_Wire_PortForwardMapping: Sendable {
   public var createtime: Int64 = 0
 
   public var updatetime: Int64 = 0
+
+  /// target 是规范化之后的目标,形如 "http://host:port" 或 "https://host:port"——
+  /// 总是带着端口,即便端口等于协议的默认值。规范化规则(纯端口简写 / host:port /
+  /// http(s)://host[:port])见 daemon/portforward 的实现。
+  public var target: String = String()
+
+  /// insecure 只对 https 目标有意义:为真时这条映射拨号不校验目标的证书。
+  public var insecure: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -5169,9 +5180,16 @@ public nonisolated struct Agentre_Wire_PortForwardCreateRequest: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// port 是这个字段被 target(下方)取代前的旧写法,保留只是因为 buf breaking
+  /// 不许删字段/改编号——设备侧的 Create 不再读它,新老客户端都改填 target。
   public var port: UInt32 = 0
 
   public var name: String = String()
+
+  /// target 接受三种写法:纯端口(环回简写)、host:port、http(s)://host[:port]。
+  public var target: String = String()
+
+  public var insecure: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -5259,9 +5277,10 @@ public nonisolated struct Agentre_Wire_PortForwardDeleteResponse: Sendable {
   public init() {}
 }
 
-/// PortForwardOpenRequest 开一条转发流。设备在应答之前就把到本机服务的连接拨出去,
-/// 所以「端口没有声明」「映射已停用」「端口上没有服务在监听」三种失败都以领域错误码
-/// 落在这一次调用的应答上(见 rpcerror 的 portforward.* 段),而不是等到某条通知里。
+/// PortForwardOpenRequest 开一条转发流。设备在应答之前就把到目标的连接拨出去(含
+/// https 的 TLS 握手),所以「映射不存在」「映射已停用」与目标连不上的三种原因(连接
+/// 被拒、名字解析失败、TLS 校验失败)都以领域错误码落在这一次调用的应答上(见
+/// rpcerror 的 portforward.* 段),而不是等到某条通知里。
 public nonisolated struct Agentre_Wire_PortForwardOpenRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -5271,13 +5290,15 @@ public nonisolated struct Agentre_Wire_PortForwardOpenRequest: Sendable {
   /// 都按它认流。
   public var streamID: String = String()
 
-  /// 目标端口。**没有主机那一格**,理由见本节开头。
+  /// port 是 0.3.0 之前按端口定位时的旧写法,保留只是因为 buf breaking 不许删字段
+  /// /改编号——设备不再读它,调用方改填 mapping_id。
   public var port: UInt32 = 0
 
   public var method: String = String()
 
-  /// path 是已经剥掉宿主前缀的路径,含查询串。宿主在这一层理解 HTTP(服务端要剥
-  /// /fw/<设备>/<端口>,两端都要改写 Host),101 之后就不再解释内容了。
+  /// path 是已经剥掉宿主前缀的路径,含查询串。Host 由设备改写成目标的 host[:port],
+  /// 响应里指向目标自己 origin 的 Location 与 Set-Cookie 的 Domain 也由设备改写
+  /// (只有设备知道目标是什么),101 之后就不再解释内容了。
   public var path: String = String()
 
   public var headers: Dictionary<String,Agentre_Wire_HeaderValues> = [:]
@@ -5293,6 +5314,10 @@ public nonisolated struct Agentre_Wire_PortForwardOpenRequest: Sendable {
   /// window_bytes 是调用方为**响应方向**开出的信用窗口,单位字节,0 表示用
   /// wirelimits.PortForwardWindowBytes 的默认值。见 PortForwardAckRequest。
   public var windowBytes: UInt64 = 0
+
+  /// mapping_id 是要打开的那条声明在**那台设备**上的主键(PortForwardMapping.id)。
+  /// 设备只拨这条声明里存着的目标;**没有目标那一格**,理由见本节开头。
+  public var mappingID: Int64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -5441,7 +5466,7 @@ public nonisolated struct Agentre_Wire_PortForwardClosedNotification: Sendable {
   public init() {}
 }
 
-/// PortForwardRevokedNotification 说的是「这台设备上这个端口此刻起不再允许转发」——
+/// PortForwardRevokedNotification 说的是「这台设备上这条映射此刻起不再允许转发」——
 /// 声明被停用或删除,不论是谁改的。
 ///
 /// 它与 PortForwardClosedNotification 是两件事,不能合成一条:closed 说的是**某一条
@@ -5449,20 +5474,24 @@ public nonisolated struct Agentre_Wire_PortForwardClosedNotification: Sendable {
 /// 声明**没了,连一条流都没开着的宿主同样要听见 —— 桌面端那条专属监听多半正闲着,
 /// 而规格「断开与失败」要它一并关掉。
 ///
-/// 它按**端口**认人而不是按映射 id:设备侧的撤销面认的就是端口(流表里没有映射 id
-/// 这一格),桌面端那条监听手上也只有端口,多带一格两端都用不上的 id 只会让「按什么
-/// 认」这件事有两个答案。
+/// 它按**映射 id** 认人:open 按 id 定位,设备侧的撤销面与宿主那条监听认的也都是
+/// id。端口不再是一条映射的身份(两条映射可以指向不同主机的同一个端口),按端口认
+/// 会把别人的映射一起撤掉。
 public nonisolated struct Agentre_Wire_PortForwardRevokedNotification: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  /// port 是被撤销的那个端口(这台设备的 127.0.0.1 上的那一个)。
+  /// port 是 0.3.0 之前按端口认人时的旧写法,保留只是因为 buf breaking 不许删字段
+  /// /改编号——设备不再填它,宿主改读 mapping_id。
   public var port: UInt32 = 0
 
   /// reason 与 PortForwardClosedNotification 取同一套 token(mapping_disabled /
   /// mapping_removed):同一件事在两条通知上不该有两套词汇。消费者按 token 分支。
   public var reason: String = String()
+
+  /// mapping_id 是被撤销的那条声明在这台设备上的主键(PortForwardMapping.id)。
+  public var mappingID: Int64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -15585,7 +15614,7 @@ nonisolated extension Agentre_Wire_ImageBlock: SwiftProtobuf.Message, SwiftProto
 
 nonisolated extension Agentre_Wire_PortForwardMapping: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PortForwardMapping"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}port\0\u{1}name\0\u{1}enabled\0\u{1}createtime\0\u{1}updatetime\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}port\0\u{1}name\0\u{1}enabled\0\u{1}createtime\0\u{1}updatetime\0\u{1}target\0\u{1}insecure\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -15599,6 +15628,8 @@ nonisolated extension Agentre_Wire_PortForwardMapping: SwiftProtobuf.Message, Sw
       case 4: try { try decoder.decodeSingularBoolField(value: &self.enabled) }()
       case 5: try { try decoder.decodeSingularInt64Field(value: &self.createtime) }()
       case 6: try { try decoder.decodeSingularInt64Field(value: &self.updatetime) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.target) }()
+      case 8: try { try decoder.decodeSingularBoolField(value: &self.insecure) }()
       default: break
       }
     }
@@ -15623,6 +15654,12 @@ nonisolated extension Agentre_Wire_PortForwardMapping: SwiftProtobuf.Message, Sw
     if self.updatetime != 0 {
       try visitor.visitSingularInt64Field(value: self.updatetime, fieldNumber: 6)
     }
+    if !self.target.isEmpty {
+      try visitor.visitSingularStringField(value: self.target, fieldNumber: 7)
+    }
+    if self.insecure != false {
+      try visitor.visitSingularBoolField(value: self.insecure, fieldNumber: 8)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -15633,6 +15670,8 @@ nonisolated extension Agentre_Wire_PortForwardMapping: SwiftProtobuf.Message, Sw
     if lhs.enabled != rhs.enabled {return false}
     if lhs.createtime != rhs.createtime {return false}
     if lhs.updatetime != rhs.updatetime {return false}
+    if lhs.target != rhs.target {return false}
+    if lhs.insecure != rhs.insecure {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -15689,7 +15728,7 @@ nonisolated extension Agentre_Wire_PortForwardListResponse: SwiftProtobuf.Messag
 
 nonisolated extension Agentre_Wire_PortForwardCreateRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PortForwardCreateRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}port\0\u{1}name\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}port\0\u{1}name\0\u{1}target\0\u{1}insecure\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -15699,6 +15738,8 @@ nonisolated extension Agentre_Wire_PortForwardCreateRequest: SwiftProtobuf.Messa
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularUInt32Field(value: &self.port) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.target) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.insecure) }()
       default: break
       }
     }
@@ -15711,12 +15752,20 @@ nonisolated extension Agentre_Wire_PortForwardCreateRequest: SwiftProtobuf.Messa
     if !self.name.isEmpty {
       try visitor.visitSingularStringField(value: self.name, fieldNumber: 2)
     }
+    if !self.target.isEmpty {
+      try visitor.visitSingularStringField(value: self.target, fieldNumber: 3)
+    }
+    if self.insecure != false {
+      try visitor.visitSingularBoolField(value: self.insecure, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentre_Wire_PortForwardCreateRequest, rhs: Agentre_Wire_PortForwardCreateRequest) -> Bool {
     if lhs.port != rhs.port {return false}
     if lhs.name != rhs.name {return false}
+    if lhs.target != rhs.target {return false}
+    if lhs.insecure != rhs.insecure {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -15887,7 +15936,7 @@ nonisolated extension Agentre_Wire_PortForwardDeleteResponse: SwiftProtobuf.Mess
 
 nonisolated extension Agentre_Wire_PortForwardOpenRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PortForwardOpenRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}stream_id\0\u{1}port\0\u{1}method\0\u{1}path\0\u{1}headers\0\u{3}has_body\0\u{3}window_bytes\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}stream_id\0\u{1}port\0\u{1}method\0\u{1}path\0\u{1}headers\0\u{3}has_body\0\u{3}window_bytes\0\u{3}mapping_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -15902,6 +15951,7 @@ nonisolated extension Agentre_Wire_PortForwardOpenRequest: SwiftProtobuf.Message
       case 5: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,Agentre_Wire_HeaderValues>.self, value: &self.headers) }()
       case 6: try { try decoder.decodeSingularBoolField(value: &self.hasBody_p) }()
       case 7: try { try decoder.decodeSingularUInt64Field(value: &self.windowBytes) }()
+      case 8: try { try decoder.decodeSingularInt64Field(value: &self.mappingID) }()
       default: break
       }
     }
@@ -15929,6 +15979,9 @@ nonisolated extension Agentre_Wire_PortForwardOpenRequest: SwiftProtobuf.Message
     if self.windowBytes != 0 {
       try visitor.visitSingularUInt64Field(value: self.windowBytes, fieldNumber: 7)
     }
+    if self.mappingID != 0 {
+      try visitor.visitSingularInt64Field(value: self.mappingID, fieldNumber: 8)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -15940,6 +15993,7 @@ nonisolated extension Agentre_Wire_PortForwardOpenRequest: SwiftProtobuf.Message
     if lhs.headers != rhs.headers {return false}
     if lhs.hasBody_p != rhs.hasBody_p {return false}
     if lhs.windowBytes != rhs.windowBytes {return false}
+    if lhs.mappingID != rhs.mappingID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -16207,7 +16261,7 @@ nonisolated extension Agentre_Wire_PortForwardClosedNotification: SwiftProtobuf.
 
 nonisolated extension Agentre_Wire_PortForwardRevokedNotification: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PortForwardRevokedNotification"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}port\0\u{1}reason\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}port\0\u{1}reason\0\u{3}mapping_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -16217,6 +16271,7 @@ nonisolated extension Agentre_Wire_PortForwardRevokedNotification: SwiftProtobuf
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularUInt32Field(value: &self.port) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.reason) }()
+      case 3: try { try decoder.decodeSingularInt64Field(value: &self.mappingID) }()
       default: break
       }
     }
@@ -16229,12 +16284,16 @@ nonisolated extension Agentre_Wire_PortForwardRevokedNotification: SwiftProtobuf
     if !self.reason.isEmpty {
       try visitor.visitSingularStringField(value: self.reason, fieldNumber: 2)
     }
+    if self.mappingID != 0 {
+      try visitor.visitSingularInt64Field(value: self.mappingID, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentre_Wire_PortForwardRevokedNotification, rhs: Agentre_Wire_PortForwardRevokedNotification) -> Bool {
     if lhs.port != rhs.port {return false}
     if lhs.reason != rhs.reason {return false}
+    if lhs.mappingID != rhs.mappingID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
