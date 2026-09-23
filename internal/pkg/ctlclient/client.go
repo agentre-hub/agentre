@@ -1,6 +1,7 @@
 // Package ctlclient is the lightweight HTTP client for a running Agentre
 // desktop's loopback control API (ctl_svc, mounted on the httpgateway under
-// /ctl/). It is shared by `agrctl ctl` and `agrctl acp`.
+// /ctl/). It is shared by agrctl's control verbs
+// (list/get/create/update/delete/send) and `agrctl acp`.
 //
 // It depends only on net/http + the on-disk handshake file, so it stays
 // importable from the slim agrctl binary (no services, no DB, no Wails).
@@ -25,6 +26,19 @@ import (
 type Endpoint struct {
 	Base  string
 	Token string
+	// TokenFromEnv 为 true 表示 token 来自环境变量 AGENTRE_CTL_TOKEN —— 那是 Agentre
+	// 注入给会话的会话级 token;为 false 表示来自 flag 或本机握手文件。
+	TokenFromEnv bool
+}
+
+// ServerError 是控制 API 回的非 2xx 响应;Message 是执行者给出的原始错误消息。
+type ServerError struct {
+	Status  int
+	Message string
+}
+
+func (e *ServerError) Error() string {
+	return fmt.Sprintf("control error (%d): %s", e.Status, e.Message)
 }
 
 // Resolve 按优先级解析控制端点：flag > 环境变量 > AppDataDir 握手文件。
@@ -36,8 +50,9 @@ func Resolve(flagURL, flagToken string, lookupEnv func(string) (string, bool)) (
 		}
 	}
 	if ep.Token == "" {
-		if v, ok := lookupEnv("AGENTRE_CTL_TOKEN"); ok {
+		if v, ok := lookupEnv("AGENTRE_CTL_TOKEN"); ok && v != "" {
 			ep.Token = v
+			ep.TokenFromEnv = true
 		}
 	}
 	if ep.Base == "" || ep.Token == "" {
@@ -79,31 +94,23 @@ func (e Endpoint) PostContext(ctx context.Context, path string, body, out any) e
 	return e.do(ctx, http.MethodPost, path, body, out)
 }
 
+// PostRaw 发一个 POST,请求体是已编码好的 JSON(例如 protojson),返回原始响应体。
+func (e Endpoint) PostRaw(ctx context.Context, path string, body []byte) ([]byte, error) {
+	return e.roundTrip(ctx, http.MethodPost, path, body)
+}
+
 func (e Endpoint) do(ctx context.Context, method, path string, body, out any) error {
-	var rdr io.Reader
+	var payload []byte
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
 			return err
 		}
-		rdr = bytes.NewReader(b)
+		payload = b
 	}
-	req, err := http.NewRequestWithContext(ctx, method, e.Base+path, rdr)
+	raw, err := e.roundTrip(ctx, method, path, payload)
 	if err != nil {
 		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+e.Token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("connect to desktop: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("control error (%d): %s", resp.StatusCode, serverErrMsg(raw))
 	}
 	if out != nil {
 		if err := json.Unmarshal(raw, out); err != nil {
@@ -111,6 +118,32 @@ func (e Endpoint) do(ctx context.Context, method, path string, body, out any) er
 		}
 	}
 	return nil
+}
+
+// roundTrip 发请求并读完响应体;body 为 nil 时不带请求体。非 2xx 返回 *ServerError。
+func (e Endpoint) roundTrip(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	var rdr io.Reader
+	if body != nil {
+		rdr = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, e.Base+path, rdr)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+e.Token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect to desktop: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return nil, &ServerError{Status: resp.StatusCode, Message: serverErrMsg(raw)}
+	}
+	return raw, nil
 }
 
 // OpenStream 发起一个长连接 GET(通常是 SSE),返回响应体供调用方逐行读取。
@@ -129,7 +162,7 @@ func (e Endpoint) OpenStream(ctx context.Context, path string) (io.ReadCloser, e
 	if resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("control error (%d): %s", resp.StatusCode, serverErrMsg(raw))
+		return nil, &ServerError{Status: resp.StatusCode, Message: serverErrMsg(raw)}
 	}
 	return resp.Body, nil
 }

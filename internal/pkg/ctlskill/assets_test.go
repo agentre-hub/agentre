@@ -78,7 +78,7 @@ func TestAssets_RenderSubstitutesEveryPlaceholder(t *testing.T) {
 func TestAssets_SkillDocumentsTheContract(t *testing.T) {
 	skill := assetSkillMD() + assetCommandsMD()
 	for _, want := range []string{
-		"ctl agents", "ctl projects", "ctl send",
+		"list <resource>", "help <resource>", "send --agent",
 		"--agent", "--agent-id", "--project", "--wait", "--isolated",
 		"control endpoint not found — is the desktop app running?",
 	} {

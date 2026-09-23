@@ -1,193 +1,147 @@
-// Package ctlcmd implements the "agrctl ctl <…>" subcommands used to control
-// a running desktop without booting the Wails app.
+// Package ctlcmd implements agrctl's top-level control verbs — list / get /
+// create / update / delete / help for Agentre's resources, and send — used to
+// control a running desktop without booting the Wails app.
 //
-// It talks to the desktop's loopback control API (ctl_svc, mounted on the
-// httpgateway under /ctl/); the endpoint URL + token are read from the
-// ctlendpoint handshake file the desktop writes into AppDataDir (overridable
-// via --endpoint/--token or AGENTRE_CTL_ENDPOINT/AGENTRE_CTL_TOKEN).
+// It talks to an executor's control API (on the desktop: ctl_svc, mounted on the
+// httpgateway under /ctl/). The endpoint URL + token come from
+// AGENTRE_CTL_ENDPOINT/AGENTRE_CTL_TOKEN (injected into Agentre sessions) or
+// from the ctlendpoint handshake file the desktop writes into AppDataDir.
+//
+// Everything that has meaning to a user — flag parsing, name/path resolution,
+// output formats and the help contract — lives here; executors only take
+// id-based operations (the agentrewire Ctl* contract).
 package ctlcmd
 
 import (
-	"flag"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 )
 
-const usageText = `agrctl ctl — control a running Agentre desktop
-
-Usage:
-  agrctl ctl agents                          list configured agents
-  agrctl ctl projects                        list projects
-  agrctl ctl send --agent <name> [flags] <task text...>
-
-Send flags:
-  --agent <name>     target agent by name
-  --agent-id <id>    target agent by id (overrides --agent)
-  --project <id>     project id to run in (0 = free session)
-  --wait             block until the turn finishes, then print its final text
-  --isolated         one-shot isolated session (not shown in the sidebar)
-
-Connection (all commands):
-  --endpoint <url>   control endpoint URL   (env AGENTRE_CTL_ENDPOINT)
-  --token <token>    control token          (env AGENTRE_CTL_TOKEN)
-By default the endpoint + token are read from the desktop's handshake file.`
-
-// Main is the process entry point; runs the subcommand and exits. Never returns.
+// Main is the process entry point; runs the command and exits. Never returns.
 func Main(args []string) {
-	os.Exit(run(args, os.Stdout, os.Stderr, os.LookupEnv))
+	os.Exit(run(args, osSys()))
 }
 
-// run is the testable core; returns the exit code. lookupEnv is injected so
-// tests can point the CLI at a fake control server.
-func run(args []string, stdout, stderr io.Writer, lookupEnv func(string) (string, bool)) int {
+// sys 是一次调用能接触到的进程环境；测试注入假的 TTY 与密钥读取。
+type sys struct {
+	stdin          io.Reader
+	stdout, stderr io.Writer
+	lookupEnv      func(string) (string, bool)
+	// stdinIsTTY 决定调用方分类（人 / 外部程序）以及能否无回显读取密钥。
+	stdinIsTTY bool
+	// readSecret 在终端上无回显地读一行；只在 stdinIsTTY 时调用。
+	readSecret func(prompt string) (string, error)
+}
+
+func osSys() *sys {
+	return &sys{
+		stdin:      os.Stdin,
+		stdout:     os.Stdout,
+		stderr:     os.Stderr,
+		lookupEnv:  os.LookupEnv,
+		stdinIsTTY: stdinIsTerminal(),
+		readSecret: func(prompt string) (string, error) { return readHidden(os.Stderr, prompt) },
+	}
+}
+
+// 退出码（spec「退出码」表）。
+const (
+	exitOK       = 0
+	exitFailed   = 1 // 执行失败、被拒绝、审批超时、连接不上执行者
+	exitUsage    = 2 // 未知子命令或 flag、缺必填项、定位有歧义
+	exitNeedsTTY = 3 // 没有 TTY 却要输入密钥
+)
+
+// cliError 是带退出码的错误；其它错误一律按执行失败（1）处理。
+type cliError struct {
+	code int
+	msg  string
+}
+
+func (e *cliError) Error() string { return e.msg }
+
+func usageErrorf(format string, a ...any) error {
+	return &cliError{code: exitUsage, msg: fmt.Sprintf(format, a...)}
+}
+
+// needsTTY 是「要人来操作」：裸密钥 flag 却没有终端可读。
+func needsTTY(flagName string) error {
+	return &cliError{code: exitNeedsTTY, msg: fmt.Sprintf(
+		"--%s reads the value from an interactive terminal.\nAsk the user to run this command in their own terminal.", flagName)}
+}
+
+// run is the testable core; returns the exit code.
+func run(args []string, s *sys) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, usageText)
-		return 2
+		_, _ = fmt.Fprintln(s.stderr, usageText)
+		return exitUsage
 	}
-	switch args[0] {
-	case "agents":
-		return runAgents(args[1:], stdout, stderr, lookupEnv)
-	case "projects":
-		return runProjects(args[1:], stdout, stderr, lookupEnv)
+	return report(s, dispatch(args, s))
+}
+
+func dispatch(args []string, s *sys) error {
+	verb, rest := args[0], args[1:]
+	switch verb {
+	case "help", "-h", "--help":
+		return runHelp(rest, s.stdout)
 	case "send":
-		return runSend(args[1:], stdout, stderr, lookupEnv)
-	case "-h", "--help", "help":
-		_, _ = fmt.Fprintln(stdout, usageText)
-		return 0
+		return runSend(rest, s)
+	case "list":
+		return runList(rest, s)
+	case "get":
+		return runGet(rest, s)
+	case "create", "update", "delete":
+		return runWrite(verb, args, s)
 	default:
-		_, _ = fmt.Fprintf(stderr, "ctl: unknown subcommand %q\n", args[0])
-		return 2
+		return usageErrorf("unknown command %q (run 'agrctl help')", verb)
 	}
 }
 
-// connFlags 注册所有子命令共用的连接 flag。
-func connFlags(fs *flag.FlagSet) (endpoint, token *string) {
-	endpoint = fs.String("endpoint", "", "control endpoint URL (env AGENTRE_CTL_ENDPOINT)")
-	token = fs.String("token", "", "control token (env AGENTRE_CTL_TOKEN)")
-	return endpoint, token
-}
-
-func runAgents(args []string, stdout, stderr io.Writer, lookupEnv func(string) (string, bool)) int {
-	fs := flag.NewFlagSet("agents", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	endpoint, token := connFlags(fs)
-	if err := fs.Parse(args); err != nil {
-		return 2
+// report 把错误写到 stderr 并换算成退出码。
+func report(s *sys, err error) int {
+	if err == nil {
+		return exitOK
 	}
-	ep, err := resolveEndpoint(*endpoint, *token, lookupEnv)
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "ctl:", err)
-		return 1
-	}
-	var out struct {
-		Agents []struct {
-			ID          int64  `json:"id"`
-			Name        string `json:"name"`
-			Description string `json:"description"`
-			SystemBadge string `json:"systemBadge"`
-		} `json:"agents"`
-	}
-	if err := ep.Get("/ctl/v1/agents", &out); err != nil {
-		_, _ = fmt.Fprintln(stderr, "ctl:", err)
-		return 1
-	}
-	for _, a := range out.Agents {
-		line := fmt.Sprintf("#%d\t%s", a.ID, a.Name)
-		if a.Description != "" {
-			line += "\t" + a.Description
+	var ce *cliError
+	if errors.As(err, &ce) {
+		prefix := "Error: "
+		if ce.code == exitNeedsTTY {
+			prefix = "NEEDS TTY: "
 		}
-		if a.SystemBadge != "" {
-			line += "\t[" + a.SystemBadge + "]"
+		_, _ = fmt.Fprintln(s.stderr, prefix+ce.msg)
+		return ce.code
+	}
+	_, _ = fmt.Fprintln(s.stderr, "Error: "+err.Error())
+	return exitFailed
+}
+
+// commandLine 还原本次调用的命令行，密钥 flag 的值替换为 …，供审批卡与示例命令展示。
+func commandLine(args []string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, "agrctl")
+	for _, a := range args {
+		parts = append(parts, shellQuote(redactSecret(a)))
+	}
+	return strings.Join(parts, " ")
+}
+
+func redactSecret(arg string) string {
+	for _, name := range secretFlagNames {
+		for _, dashes := range []string{"--", "-"} {
+			if prefix := dashes + name + "="; strings.HasPrefix(arg, prefix) {
+				return prefix + "…"
+			}
 		}
-		_, _ = fmt.Fprintln(stdout, line)
 	}
-	return 0
+	return arg
 }
 
-func runProjects(args []string, stdout, stderr io.Writer, lookupEnv func(string) (string, bool)) int {
-	fs := flag.NewFlagSet("projects", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	endpoint, token := connFlags(fs)
-	if err := fs.Parse(args); err != nil {
-		return 2
+func shellQuote(s string) string {
+	if s != "" && !strings.ContainsAny(s, " \t\n'\"\\$`") {
+		return s
 	}
-	ep, err := resolveEndpoint(*endpoint, *token, lookupEnv)
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "ctl:", err)
-		return 1
-	}
-	var out struct {
-		Projects []struct {
-			ID   int64  `json:"id"`
-			Name string `json:"name"`
-			Path string `json:"path"`
-		} `json:"projects"`
-	}
-	if err := ep.Get("/ctl/v1/projects", &out); err != nil {
-		_, _ = fmt.Fprintln(stderr, "ctl:", err)
-		return 1
-	}
-	for _, p := range out.Projects {
-		_, _ = fmt.Fprintf(stdout, "#%d\t%s\t%s\n", p.ID, p.Name, p.Path)
-	}
-	return 0
-}
-
-func runSend(args []string, stdout, stderr io.Writer, lookupEnv func(string) (string, bool)) int {
-	fs := flag.NewFlagSet("send", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	endpoint, token := connFlags(fs)
-	agent := fs.String("agent", "", "target agent name")
-	agentID := fs.Int64("agent-id", 0, "target agent id (overrides --agent)")
-	project := fs.Int64("project", 0, "project id (0 = free session)")
-	wait := fs.Bool("wait", false, "block until the turn finishes, then print final text")
-	isolated := fs.Bool("isolated", false, "one-shot isolated session (not shown in sidebar)")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	text := strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if *agent == "" && *agentID == 0 {
-		_, _ = fmt.Fprintln(stderr, "ctl send: --agent or --agent-id is required")
-		return 2
-	}
-	if text == "" {
-		_, _ = fmt.Fprintln(stderr, "ctl send: task text is required")
-		return 2
-	}
-	ep, err := resolveEndpoint(*endpoint, *token, lookupEnv)
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "ctl:", err)
-		return 1
-	}
-	body := map[string]any{
-		"agent":     *agent,
-		"agentId":   *agentID,
-		"projectId": *project,
-		"text":      text,
-		"wait":      *wait,
-		"isolated":  *isolated,
-	}
-	var out struct {
-		SessionID          int64  `json:"sessionId"`
-		AssistantMessageID int64  `json:"assistantMessageId"`
-		Text               string `json:"text"`
-		Done               bool   `json:"done"`
-	}
-	if err := ep.Post("/ctl/v1/send", body, &out); err != nil {
-		_, _ = fmt.Fprintln(stderr, "ctl:", err)
-		return 1
-	}
-	label := *agent
-	if label == "" {
-		label = fmt.Sprintf("agent #%d", *agentID)
-	}
-	if *wait {
-		_, _ = fmt.Fprintln(stdout, out.Text)
-		return 0
-	}
-	_, _ = fmt.Fprintf(stderr, "dispatched to %s — session #%d\n", label, out.SessionID)
-	_, _ = fmt.Fprintln(stdout, out.SessionID)
-	return 0
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
