@@ -37,6 +37,11 @@ func (s *serverRecorder) Post(_ context.Context, path string, _ []byte) (int, []
 	return 200, []byte(`{}`), nil
 }
 
+func (s *serverRecorder) Get(_ context.Context, path string) (int, []byte, error) {
+	s.paths = append(s.paths, path)
+	return 200, []byte(`{}`), nil
+}
+
 // TestRuntime_Run_GivenCtlSessions_ThenCLIGetsASessionTokenThatRoutesByOwnership 钉住
 // 注入与路由接在同一张表上:runtime.run 让本轮 CLI 子进程带上 daemon 签的会话 token 与
 // daemon gateway 端点,ctl 代理凭这个 token 认出会话 —— 桌面端派发的(带桌面 token)转回

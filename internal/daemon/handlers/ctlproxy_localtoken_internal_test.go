@@ -445,6 +445,11 @@ func (f *routedCtlServer) Post(_ context.Context, path string, body []byte) (int
 	return s, []byte(b), nil
 }
 
+// Get 走同一张 answer 表,body 传空(测试按 path/body 分流,GET 从不带正文)。
+func (f *routedCtlServer) Get(ctx context.Context, path string) (int, []byte, error) {
+	return f.Post(ctx, path, nil)
+}
+
 func (f *routedCtlServer) snapshot() []serverCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -521,6 +526,135 @@ func TestCtlProxy_GivenCreateOpenClawWithTokenOnAnotherDevice_ThenServerRejectio
 	_, sink, tok, srv := consoleOwnedHere(t, server, creds)
 
 	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/resources", tok, createClawWrite(t, ltOther))
+
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	_, ok := creds.gatewayToken()
+	assert.False(t, ok)
+	begun, _ := sink.snapshot()
+	assert.Empty(t, begun)
+}
+
+// devicesDoc 是 server 眼里的账号设备列表(GET serverDevicesPath),只留 selfDeviceMatches
+// 用得到的两个字段。
+func devicesDoc(name, fingerprint string) string {
+	return fmt.Sprintf(`{"devices":[{"name":%q,"fingerprint":%q}]}`, name, fingerprint)
+}
+
+// agentred 本地不知道自己在账号里叫什么名字:--device <本机在账号里的设备名> 得问 server
+// 的账号设备列表把名字解析回指纹,才认得出这就是本机(规格 2026-09-22
+// agrctl-resource-management 纠错轮 2)。
+func TestCtlProxy_GivenCreateOpenClawWithTokenAndDeviceNamedThisAgentred_WhenApproved_ThenCreatedOnServerAndTokenSavedLocally(t *testing.T) {
+	const selfName = "my-mac-mini"
+	server := &routedCtlServer{answer: func(path, body string) (int, string) {
+		switch {
+		case path == serverDevicesPath:
+			return 200, devicesDoc(selfName, string(ltSelf))
+		case path == serverResourcesPath+"?preview=1":
+			return 200, createPreview
+		case isGet(body):
+			return 200, clawDoc(string(ltSelf))
+		default:
+			return 200, createWritten
+		}
+	}}
+	creds := newMemCredentialState()
+	c, sink, tok, srv := consoleOwnedHere(t, server, creds)
+
+	done := make(chan ctlResult, 1)
+	go func() { done <- ctlPost(t, srv.URL+"/ctl/v1/resources", tok, createClawWrite(t, selfName)) }()
+	approveNext(t, c, sink)
+	res := <-done
+
+	require.Equal(t, http.StatusOK, res.status, res.body)
+	saved, ok := creds.gatewayToken()
+	require.True(t, ok, "the name resolved to this agentred's own fingerprint, so the token lands in the device-local store")
+	assert.Equal(t, ltGatewayTok, saved)
+	for _, call := range server.snapshot() {
+		assert.NotContains(t, call.body, ltGatewayTok, call.path)
+		if !isGet(call.body) && call.path != serverDevicesPath {
+			var req agentrewire.CtlRequest
+			require.NoError(t, protojson.Unmarshal([]byte(call.body), &req))
+			assert.NotContains(t, req.GetWrite().GetFields(), "token", "the server never sees the token field")
+		}
+	}
+}
+
+// 名字解析到账号里另一台设备时,行为跟今天(直接把 token 交给 server、server 拒绝)一样。
+func TestCtlProxy_GivenCreateOpenClawWithTokenAndDeviceNamedAnotherAccountDevice_ThenServerRejectionStandsAndNothingSaved(t *testing.T) {
+	const otherName = "office-imac"
+	server := &routedCtlServer{answer: func(path, body string) (int, string) {
+		if path == serverDevicesPath {
+			return 200, devicesDoc(otherName, ltOther)
+		}
+		return http.StatusUnprocessableEntity, `{"error":"the OpenClaw token cannot be written through the server"}`
+	}}
+	creds := newMemCredentialState()
+	_, sink, tok, srv := consoleOwnedHere(t, server, creds)
+
+	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/resources", tok, createClawWrite(t, otherName))
+
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	_, ok := creds.gatewayToken()
+	assert.False(t, ok)
+	begun, _ := sink.snapshot()
+	assert.Empty(t, begun)
+}
+
+// agrctl update backend --device <本机在账号里的设备名> --token:即便这条后端原本绑在
+// 别处,写完之后落在本机,token 就该落本机,不经 server(与 create 同一条规则)。
+func TestCtlProxy_GivenUpdateMovingToDeviceNamedThisAgentred_WithToken_WhenApproved_ThenTokenSavedLocally(t *testing.T) {
+	const selfName = "my-mac-mini"
+	server := &routedCtlServer{answer: func(path, body string) (int, string) {
+		switch {
+		case path == serverDevicesPath:
+			return 200, devicesDoc(selfName, string(ltSelf))
+		case isGet(body):
+			return 200, clawDoc(ltOther)
+		default:
+			return 200, `{"write":{"id":12,"name":"claw"}}`
+		}
+	}}
+	creds := newMemCredentialState()
+	c, sink, tok, srv := consoleOwnedHere(t, server, creds)
+
+	done := make(chan ctlResult, 1)
+	go func() {
+		done <- ctlPost(t, srv.URL+"/ctl/v1/resources", tok,
+			tokenWrite(t, []string{"device", "token"}, &agentrewire.CtlBackend{Device: selfName, Token: ltGatewayTok}))
+	}()
+	approveNext(t, c, sink)
+	res := <-done
+
+	require.Equal(t, http.StatusOK, res.status, res.body)
+	saved, ok := creds.gatewayToken()
+	require.True(t, ok, "the device flag names this agentred, so the token lands here once the move is approved")
+	assert.Equal(t, ltGatewayTok, saved)
+	for _, call := range server.snapshot() {
+		assert.NotContains(t, call.body, ltGatewayTok, call.path)
+	}
+}
+
+// 名字解析到账号里另一台设备时,同改 device 又写 token 仍然整条交 server、照旧被拒
+// (与今天「改到别的设备」的行为一样)。
+func TestCtlProxy_GivenUpdateMovingToDeviceNamedAnotherAccountDevice_WithToken_ThenServerRejectionStandsAndNothingSaved(t *testing.T) {
+	const otherName = "office-imac"
+	server := &routedCtlServer{answer: func(path, body string) (int, string) {
+		switch {
+		case path == serverDevicesPath:
+			return 200, devicesDoc(otherName, ltOther)
+		case isGet(body):
+			return 200, clawDoc(string(ltSelf))
+		case strings.Contains(body, `"token"`):
+			return http.StatusUnprocessableEntity, `{"error":"the OpenClaw token cannot be written through the server"}`
+		default:
+			return 200, `{"write":{"id":12,"name":"claw"}}`
+		}
+	}}
+	creds := newMemCredentialState()
+	_, sink, tok, srv := consoleOwnedHere(t, server, creds)
+
+	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/resources", tok,
+		tokenWrite(t, []string{"device", "token"}, &agentrewire.CtlBackend{Device: otherName, Token: ltGatewayTok}))
 
 	assert.Equal(t, http.StatusUnprocessableEntity, status)
 	_, ok := creds.gatewayToken()

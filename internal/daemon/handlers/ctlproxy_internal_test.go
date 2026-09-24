@@ -246,6 +246,11 @@ func (f *fakeCtlServer) Post(ctx context.Context, path string, body []byte) (int
 	return 200, []byte(`{}`), nil
 }
 
+// Get 走跟 Post 一样的 answer 表(空正文;测试里没有区分 GET/POST 的需要)。
+func (f *fakeCtlServer) Get(ctx context.Context, path string) (int, []byte, error) {
+	return f.Post(ctx, path, nil)
+}
+
 func (f *fakeCtlServer) paths() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()

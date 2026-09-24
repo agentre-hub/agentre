@@ -47,6 +47,27 @@ func (c *CtlServerClient) Post(ctx context.Context, pathAndQuery string, body []
 }
 
 func (c *CtlServerClient) post(ctx context.Context, pathAndQuery string, body []byte) (int, []byte, error) {
+	return c.do(ctx, http.MethodPost, pathAndQuery, bytes.NewReader(body))
+}
+
+// Get 是 Post 的只读版本(同一份设备 Bearer 凭据,同样的单飞 401 刷新),用于
+// serverDevicesPath 这类不写正文的请求。
+func (c *CtlServerClient) Get(ctx context.Context, pathAndQuery string) (int, []byte, error) {
+	status, raw, err := c.get(ctx, pathAndQuery)
+	if errors.Is(err, errCtlServerUnauthorized) && c.Refresh != nil {
+		if rerr := c.Refresh(ctx); rerr != nil {
+			return 0, nil, fmt.Errorf("refresh device credential: %w", rerr)
+		}
+		status, raw, err = c.get(ctx, pathAndQuery)
+	}
+	return status, raw, err
+}
+
+func (c *CtlServerClient) get(ctx context.Context, pathAndQuery string) (int, []byte, error) {
+	return c.do(ctx, http.MethodGet, pathAndQuery, nil)
+}
+
+func (c *CtlServerClient) do(ctx context.Context, method, pathAndQuery string, body io.Reader) (int, []byte, error) {
 	var base, token string
 	if c.ServerURL != nil {
 		base = strings.TrimRight(strings.TrimSpace(c.ServerURL()), "/")
@@ -57,12 +78,14 @@ func (c *CtlServerClient) post(ctx context.Context, pathAndQuery string, body []
 	if base == "" || token == "" {
 		return 0, nil, ErrCtlServerUnavailable
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+pathAndQuery, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, base+pathAndQuery, body)
 	if err != nil {
 		return 0, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	client := c.HTTP
 	if client == nil {
 		client = &http.Client{Timeout: ctlServerTimeout}

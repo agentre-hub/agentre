@@ -43,6 +43,11 @@ const (
 	// serverResourcesPath / serverSendPath 是 server 执行者的设备 Bearer 接口。
 	serverResourcesPath = "/v1/ctl/resources"
 	serverSendPath      = "/v1/ctl/send"
+	// serverDevicesPath 是账号设备列表(与桌面端 server_svc.ListDevices、directCredential-
+	// Reconciler.fetchDevices 同一个接口),同样接受这台 agentred 自己的设备 Bearer。
+	// planConsoleWrite 用它把 --device 给的名字解析成指纹,判断是不是本机
+	// (ctlproxy_localtoken.go 的 selfDeviceMatches)。
+	serverDevicesPath = "/v1/devices"
 	// ctlApprovalPendingHeader 是挂起等审批前那个 102 里的头,与桌面端
 	// ctl_svc.ApprovalPendingHeader、agrctl 的 approvalPendingHeader 同值。
 	ctlApprovalPendingHeader = "Agentre-Ctl-Approval"
@@ -57,6 +62,8 @@ const (
 // ErrCtlServerUnavailable。
 type CtlServerPort interface {
 	Post(ctx context.Context, pathAndQuery string, body []byte) (status int, respBody []byte, err error)
+	// Get 用同一份设备 Bearer 凭据发只读请求(目前只有 serverDevicesPath 用得到)。
+	Get(ctx context.Context, pathAndQuery string) (status int, respBody []byte, err error)
 }
 
 // CtlProxyDeps 是 ctl 代理的依赖。
@@ -356,6 +363,13 @@ func (p *ctlProxy) postServer(ctx context.Context, path string, body []byte) (in
 		return 0, nil, ErrCtlServerUnavailable
 	}
 	return p.deps.Server.Post(ctx, path, body)
+}
+
+func (p *ctlProxy) getServer(ctx context.Context, path string) (int, []byte, error) {
+	if p.deps.Server == nil {
+		return 0, nil, ErrCtlServerUnavailable
+	}
+	return p.deps.Server.Get(ctx, path)
 }
 
 func (p *ctlProxy) writeServerErr(w http.ResponseWriter, ctx context.Context, owner ctlSession, err error) {

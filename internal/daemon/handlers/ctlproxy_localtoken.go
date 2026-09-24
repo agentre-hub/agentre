@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/cagoenvelope"
 	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
@@ -52,13 +53,15 @@ type localOpenClawToken struct {
 	created bool
 }
 
-// planConsoleWrite 决定写入的去向。带 token、且后端绑在本机的 openclaw 写入才把 token
-// 拆出来本地写:
-//   - update:按 id 向 server 取后端,当前就绑在本机;同一条命令还改 device 时不拆 ——
-//     token 该落在哪台机器要写完才知道,交 server 照旧拒绝;
-//   - create:不给 device(server 会绑到发起请求的这台机器)或 device 就是本机指纹。
+// planConsoleWrite 决定写入的去向。带 token、且写完之后绑在本机的 openclaw 写入才把
+// token 拆出来本地写:
+//   - update:同一条命令没改 device 时,看这条后端现在绑不绑本机;改了 device 时看新
+//     值(selfDeviceMatches)——写完落在哪台机器,token 就该落哪台机器,不看它改之前
+//     绑在哪;
+//   - create:不给 device(server 会绑到发起请求的这台机器)、device 是本机指纹,或者
+//     device 是账号里这台 agentred 自己的设备名(selfDeviceMatches 问 server 解析)。
 //
-// 其余原样交 server(绑在别处的后端带 token,server 照旧拒绝)。
+// 其余原样交 server(绑在别处或解析不出是本机的后端带 token,server 照旧拒绝)。
 func (p *ctlProxy) planConsoleWrite(ctx context.Context, write *agentrewire.CtlWriteRequest, body []byte) consoleWritePlan {
 	plan := consoleWritePlan{req: write, serverBody: body}
 	if p.deps.OpenClawTokens == nil || p.deps.Self == "" ||
@@ -71,16 +74,21 @@ func (p *ctlProxy) planConsoleWrite(ctx context.Context, write *agentrewire.CtlW
 	token := strings.TrimSpace(doc.GetToken())
 	switch write.GetOp() {
 	case agentrewire.CtlOp_CTL_OP_UPDATE:
-		if slices.Contains(write.GetFields(), ctlDeviceField) {
-			return plan
-		}
 		b := p.serverBackend(ctx, write.GetId())
-		if !p.boundHere(b) {
+		boundAfter := p.boundHere(b)
+		if slices.Contains(write.GetFields(), ctlDeviceField) {
+			// 这条命令同时把绑定设备改成 doc.GetDevice():那才是写完之后 token 该落
+			// 的地方,不看它改之前绑在哪。doc.GetDevice() 可以是名字或指纹(规格
+			// 2026-09-22 agrctl-resource-management CtlBackend.device 的字段注释),
+			// 名字要问 server 才能确认是不是本机。
+			boundAfter = b != nil && p.selfDeviceMatches(ctx, doc.GetDevice())
+		}
+		if !boundAfter {
 			return plan
 		}
 		plan.local = &localOpenClawToken{backendID: b.GetId(), name: b.GetName(), syncID: b.GetSyncId(), token: token}
 	case agentrewire.CtlOp_CTL_OP_CREATE:
-		if doc.GetType() != string(agent_backend_entity.TypeOpenClaw) || (doc.GetDevice() != "" && doc.GetDevice() != string(p.deps.Self)) {
+		if doc.GetType() != string(agent_backend_entity.TypeOpenClaw) || !p.selfDeviceMatches(ctx, doc.GetDevice()) {
 			return plan
 		}
 		plan.local = &localOpenClawToken{name: doc.GetName(), token: token, created: true}
@@ -130,6 +138,40 @@ func (p *ctlProxy) boundHere(b *agentrewire.CtlBackend) bool {
 	return b != nil && p.deps.Self != "" &&
 		b.GetType() == string(agent_backend_entity.TypeOpenClaw) && b.GetSyncId() != "" &&
 		b.GetDeviceFingerprint() == string(p.deps.Self)
+}
+
+// selfDeviceMatches:CtlBackend.device 可以是空(本机)、这台 agentred 自己的指纹,或者
+// 账号里配对设备的名字(字段注释「由执行者解析」)。前两种就地判断;是名字时问 server
+// 的账号设备列表(serverDevicesPath,与桌面端 server_svc.ListDevices 同一个接口)把它
+// 解析成指纹,再与 Self 比——agentred 本地不知道自己在账号里叫什么名字,答案只能问
+// server。问不到、解不开、或者名字根本不在列表里,一律按「不是本机」收场(维持写入
+// 原样交 server 的既有行为,而不是冒然当成本机)。
+func (p *ctlProxy) selfDeviceMatches(ctx context.Context, device string) bool {
+	if device == "" || device == string(p.deps.Self) {
+		return true
+	}
+	if p.deps.Self == "" {
+		return false
+	}
+	status, raw, err := p.getServer(ctx, serverDevicesPath)
+	if err != nil || status != http.StatusOK {
+		return false
+	}
+	var body struct {
+		Devices []struct {
+			Name        string `json:"name"`
+			Fingerprint string `json:"fingerprint"`
+		} `json:"devices"`
+	}
+	if err := cagoenvelope.Decode(raw, &body); err != nil {
+		return false
+	}
+	for _, d := range body.Devices {
+		if d.Name == device {
+			return d.Fingerprint == string(p.deps.Self)
+		}
+	}
+	return false
 }
 
 // markChanged 在变更清单里给这个后端补一行 secret 的 token(只说「已更新」,不带值);
