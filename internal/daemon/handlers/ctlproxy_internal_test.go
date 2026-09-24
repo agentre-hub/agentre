@@ -603,3 +603,25 @@ func TestCtlProxy_GivenFailuresOnEveryRoute_ThenNoTokenOrSecretIsLogged(t *testi
 		}
 	}
 }
+
+// spec「审批卡」:带 --cascade 的删除写明连带删除的子部门和 Agent 数量。控制台路径上数量由
+// server 的变更清单附注带来,卡上要还原成结构化的 cascade。
+func TestCtlProxy_GivenConsoleOwnedCascadeDelete_ThenCardStatesCascadeCounts(t *testing.T) {
+	const cascadePreview = `{"write":{"id":4,"name":"infra","changes":[{"op":"CTL_OP_DELETE","kind":"CTL_KIND_DEPARTMENT","id":4,"name":"infra","note":"also deletes 2 sub-departments and 1 agent"}]}}`
+	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, cascadePreview }}
+	_, sink, tok, srv := consoleOwned(t, server, 500*time.Millisecond)
+	body, err := protojson.Marshal(&agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_Write{Write: &agentrewire.CtlWriteRequest{
+		Op: agentrewire.CtlOp_CTL_OP_DELETE, Kind: agentrewire.CtlKind_CTL_KIND_DEPARTMENT, Id: 4, Cascade: true,
+		Caller: agentrewire.CtlCaller_CTL_CALLER_SESSION, Command: "agrctl delete department infra --cascade",
+	}}})
+	require.NoError(t, err)
+
+	go func() { _, _, _ = postCtl(t, srv.URL+"/ctl/v1/resources", tok, string(body)) }()
+	<-sink.begunC
+
+	begun, _ := sink.snapshot()
+	input, err := transcriptblocks.ParseCtlApprovalInput(begun[0].ToolInput)
+	require.NoError(t, err)
+	require.Len(t, input.Changes, 1)
+	assert.Equal(t, &transcriptblocks.CtlApprovalCascade{Departments: 2, Agents: 1}, input.Changes[0].Cascade)
+}

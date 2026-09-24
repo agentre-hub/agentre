@@ -41,3 +41,15 @@ func TestCtlApprovalInput_ToolInput(t *testing.T) {
 		})
 	})
 }
+
+func TestCtlCascadeNote_GivenCountsWhenWrittenThenParsedBack(t *testing.T) {
+	for _, c := range []CtlApprovalCascade{{Departments: 0, Agents: 0}, {Departments: 1, Agents: 1}, {Departments: 2, Agents: 13}} {
+		got := ParseCtlCascadeNote(c.Note())
+		if got == nil || *got != c {
+			t.Fatalf("round trip of %q = %v, want %v", c.Note(), got, c)
+		}
+	}
+	if ParseCtlCascadeNote("") != nil || ParseCtlCascadeNote("also deletes some things") != nil {
+		t.Fatal("any other note carries no cascade")
+	}
+}

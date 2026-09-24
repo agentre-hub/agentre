@@ -261,18 +261,6 @@ func configValues(raw string) (map[string]*string, error) {
 	return out, nil
 }
 
-// cascadeNote 是级联删除部门时变更清单的附注。
-func cascadeNote(c *blocks.CtlApprovalCascade) string {
-	return fmt.Sprintf("also deletes %s and %s", plural(c.Departments, "sub-department"), plural(c.Agents, "agent"))
-}
-
-func plural(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
-	}
-	return fmt.Sprintf("%d %ss", n, noun)
-}
-
 // approvalInput 把变更清单转成审批卡的 ToolInput。
 func approvalInput(command string, c *agentrewire.CtlChange, cascade *blocks.CtlApprovalCascade) blocks.CtlApprovalInput {
 	ch := blocks.CtlApprovalChange{

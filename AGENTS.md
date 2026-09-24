@@ -13,7 +13,7 @@ This repository produces three binaries:
 
 - **`agentre`** (root `main.go`) — the desktop app, **GUI-only**. It no longer routes any CLI subcommand; the hook shim moved out (see `agrctl`).
 - **`agentred`** (`cmd/agentred/`) — a headless daemon that executes claude-code / codex subprocesses on behalf of a paired desktop over binary Protobuf RPC on WebSocket. The daemon-side handlers live in `internal/daemon/`.
-- **`agrctl`** (`cmd/agrctl/`, `make agrctl`) — a small companion CLI carrying the `claudecode` hook shim (`internal/cli/claudecodecmd`), `acp` (`internal/cli/acpcmd`), and the top-level control verbs `list` / `get` / `create` / `update` / `delete` / `help` / `send` (`internal/cli/ctlcmd`; their request/response contract is `ctl.proto` in `pkg/wire`). The app installs it under `<AppDataDir>/bin` and points the Claude Code hooks at it, so a hook subprocess never boots the GUI binary.
+- **`agrctl`** (`cmd/agrctl/`, `make agrctl`) — a small companion CLI carrying the `claudecode` hook shim (`internal/cli/claudecodecmd`), `acp` (`internal/cli/acpcmd`), and the top-level control verbs `list` / `get` / `create` / `update` / `delete` / `help` / `send` (`internal/cli/ctlcmd`; their request/response contract is the `Ctl*` messages in `pkg/wire/proto/agentre/wire/wire.proto`). The app installs it under `<AppDataDir>/bin` and points the Claude Code hooks at it, so a hook subprocess never boots the GUI binary.
 
 ## High-Priority Constraints (mandatory, non-negotiable)
 

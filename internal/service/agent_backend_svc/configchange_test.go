@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // registerConfigChangeSpy 装配 config:changed 的替身 emitter（同 llm_provider_svc 的
@@ -183,6 +184,34 @@ func TestUpdateOpenClawBackend_GivenRepoFails_DoesNotEmitConfigChanged(t *testin
 		OpenClawGatewayURL:  "ws://127.0.0.1:18789",
 		OpenClawSessionMode: agent_backend_entity.OpenClawSessionPerAgentRESession,
 	}, "", true)
+
+	assert.Error(t, err)
+	assert.Empty(t, *got)
+}
+
+// CLI 路径覆盖是后端文档的一部分（ctl get 的 cliPath）；它的写入也要让订阅方重新拉取。
+func TestSetCLIOverlay_EmitsConfigChanged(t *testing.T) {
+	ctx, backendMock, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+	got := registerConfigChangeSpy(t)
+	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
+	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", devicefp.Carrier("sha256:self")).Return(nil, nil)
+	backendMock.EXPECT().CreateCLIOverlay(ctx, gomock.Any()).Return(nil)
+
+	_, err := svc.SetCLIOverlay(ctx, &SetCLIOverlayRequest{BackendSyncID: "backend-1", CLIPath: "/opt/claude"})
+
+	assert.NoError(t, err)
+	assert.Equal(t, [][]string{{syncwire.KindAgentBackend}}, *got)
+}
+
+func TestSetCLIOverlay_GivenRepoFails_DoesNotEmitConfigChanged(t *testing.T) {
+	ctx, backendMock, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+	got := registerConfigChangeSpy(t)
+	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
+	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", devicefp.Carrier("sha256:self")).Return(
+		&agent_backend_entity.CLIOverlay{ID: 3, BackendSyncID: "backend-1"}, nil)
+	backendMock.EXPECT().UpdateCLIOverlay(ctx, gomock.Any()).Return(errors.New("disk full"))
+
+	_, err := svc.SetCLIOverlay(ctx, &SetCLIOverlayRequest{BackendSyncID: "backend-1", CLIPath: "/opt/claude"})
 
 	assert.Error(t, err)
 	assert.Empty(t, *got)

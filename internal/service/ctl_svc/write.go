@@ -80,7 +80,7 @@ func (h *ctlHandler) planWrite(ctx context.Context, req *agentrewire.CtlWriteReq
 				return nil, err
 			}
 			plan.cascade = &blocks.CtlApprovalCascade{Departments: depts, Agents: agents}
-			change.Note = cascadeNote(plan.cascade)
+			change.Note = plan.cascade.Note()
 		}
 		plan.change = change
 		return plan, nil

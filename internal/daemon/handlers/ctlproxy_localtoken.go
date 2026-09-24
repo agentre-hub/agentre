@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 
@@ -22,8 +23,11 @@ import (
 //
 // token 的明文只在请求正文 → 本地存储之间走一趟:不交 server、不进审批卡、不进日志。
 
-// ctlTokenField 是 CtlBackend.token 在写请求 fields 里的 JSON 名。
-const ctlTokenField = "token"
+// ctlTokenField / ctlDeviceField 是 CtlBackend.token / device 在写请求 fields 里的 JSON 名。
+const (
+	ctlTokenField  = "token"
+	ctlDeviceField = "device"
+)
 
 // consoleWritePlan 是一次控制台会话写入要做的事。
 type consoleWritePlan struct {
@@ -41,24 +45,42 @@ type localOpenClawToken struct {
 	name      string
 	syncID    string
 	token     string
+	// created = 后端由这次 create 新建:id 与 syncId 要等 server 写完再取,并且要再确认
+	// 它确实绑在本机。
+	created bool
 }
 
-// planConsoleWrite 决定写入的去向。只有「更新一个绑在本机的 openclaw 后端、且带 token」
-// 才把 token 拆出来本地写;其余原样交 server(绑在别处的后端带 token,server 照旧拒绝)。
+// planConsoleWrite 决定写入的去向。带 token、且后端绑在本机的 openclaw 写入才把 token
+// 拆出来本地写:
+//   - update:按 id 向 server 取后端,当前就绑在本机;同一条命令还改 device 时不拆 ——
+//     token 该落在哪台机器要写完才知道,交 server 照旧拒绝;
+//   - create:不给 device(server 会绑到发起请求的这台机器)或 device 就是本机指纹。
+//
+// 其余原样交 server(绑在别处的后端带 token,server 照旧拒绝)。
 func (p *ctlProxy) planConsoleWrite(ctx context.Context, write *agentrewire.CtlWriteRequest, body []byte) consoleWritePlan {
 	plan := consoleWritePlan{req: write, serverBody: body}
 	if p.deps.OpenClawTokens == nil || p.deps.Self == "" ||
-		write.GetKind() != agentrewire.CtlKind_CTL_KIND_BACKEND || write.GetOp() != agentrewire.CtlOp_CTL_OP_UPDATE ||
-		!slices.Contains(write.GetFields(), ctlTokenField) {
+		write.GetKind() != agentrewire.CtlKind_CTL_KIND_BACKEND || !slices.Contains(write.GetFields(), ctlTokenField) {
 		return plan
 	}
-	b := p.serverBackend(ctx, write.GetId())
-	if !p.boundHere(b) {
+	doc := write.GetResource().GetBackend()
+	switch write.GetOp() {
+	case agentrewire.CtlOp_CTL_OP_UPDATE:
+		if slices.Contains(write.GetFields(), ctlDeviceField) {
+			return plan
+		}
+		b := p.serverBackend(ctx, write.GetId())
+		if !p.boundHere(b) {
+			return plan
+		}
+		plan.local = &localOpenClawToken{backendID: b.GetId(), name: b.GetName(), syncID: b.GetSyncId(), token: doc.GetToken()}
+	case agentrewire.CtlOp_CTL_OP_CREATE:
+		if doc.GetType() != string(agent_backend_entity.TypeOpenClaw) || (doc.GetDevice() != "" && doc.GetDevice() != string(p.deps.Self)) {
+			return plan
+		}
+		plan.local = &localOpenClawToken{name: doc.GetName(), token: doc.GetToken(), created: true}
+	default:
 		return plan
-	}
-	plan.local = &localOpenClawToken{
-		backendID: b.GetId(), name: b.GetName(), syncID: b.GetSyncId(),
-		token: write.GetResource().GetBackend().GetToken(),
 	}
 	rest := proto.CloneOf(write)
 	rest.Fields = slices.DeleteFunc(rest.Fields, func(f string) bool { return f == ctlTokenField })
@@ -125,8 +147,32 @@ func (l *localOpenClawToken) markChanged(preview *agentrewire.CtlWriteResponse) 
 	return preview
 }
 
-// saveLocalToken 写入(或清除)本机的 OpenClaw token。
-func (p *ctlProxy) saveLocalToken(ctx context.Context, l *localOpenClawToken) error {
+// errCreatedNotBoundHere:create 写完后 server 报的绑定设备不是本机,token 不写。
+var errCreatedNotBoundHere = errors.New("the new backend is not bound to this agentred")
+
+// resolveCreated 取 create 刚建出的后端的 id 与 syncId,并确认它绑在本机。
+func (p *ctlProxy) resolveCreated(ctx context.Context, l *localOpenClawToken, written []byte) error {
+	var resp agentrewire.CtlResponse
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(written, &resp); err != nil || resp.GetWrite().GetId() == 0 {
+		return errCreatedNotBoundHere
+	}
+	b := p.serverBackend(ctx, resp.GetWrite().GetId())
+	if !p.boundHere(b) {
+		return errCreatedNotBoundHere
+	}
+	l.backendID, l.syncID = b.GetId(), b.GetSyncId()
+	return nil
+}
+
+// saveLocalToken 写入(或清除)本机的 OpenClaw token。create 先按写入应答取新后端。
+func (p *ctlProxy) saveLocalToken(ctx context.Context, l *localOpenClawToken, written []byte) error {
+	if l.created {
+		if err := p.resolveCreated(ctx, l, written); err != nil {
+			logger.Ctx(ctx).Warn("handlers.ctlProxy.saveLocalToken: created backend not resolvable as bound here",
+				zap.String("name", l.name), zap.Error(err))
+			return err
+		}
+	}
 	req := &agentrewire.OpenClawTokenSetRequest{SyncId: l.syncID, Token: l.token, Clear: l.token == ""}
 	if _, err := p.deps.OpenClawTokens.SetOpenClawToken(ctx, req); err != nil {
 		logger.Ctx(ctx).Warn("handlers.ctlProxy.saveLocalToken: save openclaw token failed",

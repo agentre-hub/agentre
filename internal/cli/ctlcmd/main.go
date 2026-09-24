@@ -118,7 +118,7 @@ func report(s *sys, err error) int {
 	return exitFailed
 }
 
-// commandLine 还原本次调用的命令行，密钥 flag 的值替换为 …，供审批卡与示例命令展示。
+// commandLine 还原本次调用的命令行，密钥 flag 的值替换为 …，供审批卡展示。
 func commandLine(args []string) string {
 	parts := make([]string, 0, len(args)+1)
 	parts = append(parts, "agrctl")
@@ -126,6 +126,29 @@ func commandLine(args []string) string {
 		parts = append(parts, shellQuote(redactSecret(a)))
 	}
 	return strings.Join(parts, " ")
+}
+
+// exampleLine 还原一条给人照抄的命令：密钥 flag 写成裸 flag（在终端里无回显地再问一次），
+// 不能带审批卡上那个 …，否则照抄就把「…」存成了密钥。
+func exampleLine(args []string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, "agrctl")
+	for _, a := range args {
+		parts = append(parts, shellQuote(bareSecret(a)))
+	}
+	return strings.Join(parts, " ")
+}
+
+func bareSecret(arg string) string {
+	for _, name := range secretFlagNames {
+		for _, dashes := range []string{"--", "-"} {
+			// 空值（--token= 表示清空）不含密钥，原样保留。
+			if prefix := dashes + name + "="; strings.HasPrefix(arg, prefix) && arg != prefix {
+				return dashes + name
+			}
+		}
+	}
+	return arg
 }
 
 func redactSecret(arg string) string {

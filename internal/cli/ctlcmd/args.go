@@ -13,6 +13,8 @@ type flagDef struct {
 	repeat bool
 	// secret 为 true：裸写时在终端无回显读取，写成 --flag=<值> 时直接取值。
 	secret bool
+	// notEmpty 为 true：显式写空值（--flag=）是用法错误，在连接执行者之前就判。
+	notEmpty bool
 	// check 在读取密钥之前做与值无关的校验（例如该 flag 是否适用于这个后端类型）。
 	check func(w *writeCtx) error
 	// apply 把一次出现写进请求。

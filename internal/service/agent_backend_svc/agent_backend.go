@@ -206,6 +206,8 @@ func (s *agentBackendSvc) SetCLIOverlay(ctx context.Context, req *SetCLIOverlayR
 		}
 		sync_svc.NotifyUpdate(ctx, syncwire.KindAgentBackendCLI, overlay.ID, overlay.SyncMeta)
 	}
+	// 覆盖路径是后端文档的一部分（cliPath），刷的是后端设置。
+	sync_svc.NotifyConfigChanged(syncwire.KindAgentBackend)
 	status := "path"
 	if overlay.CLIPath != "" {
 		status = "recognized"

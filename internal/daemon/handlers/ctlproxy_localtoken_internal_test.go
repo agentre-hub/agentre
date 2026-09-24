@@ -398,3 +398,130 @@ type failingCredentialState struct{ *memCredentialState }
 func (f *failingCredentialState) SetBackendCredential(string, string) error {
 	return errors.New("state.json is read-only")
 }
+
+// ── create:新建的 openclaw 后端不给 device 时就绑在发起请求的这台 agentred 上 ─────────
+
+// routedCtlServer 按 path 与正文作答:create 要区分「按 id 取后端」与「写入」。
+type routedCtlServer struct {
+	mu     sync.Mutex
+	calls  []serverCall
+	answer func(path, body string) (int, string)
+}
+
+func (f *routedCtlServer) Post(_ context.Context, path string, body []byte) (int, []byte, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, serverCall{path: path, body: string(body)})
+	f.mu.Unlock()
+	s, b := f.answer(path, string(body))
+	return s, []byte(b), nil
+}
+
+func (f *routedCtlServer) snapshot() []serverCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]serverCall(nil), f.calls...)
+}
+
+func createClawWrite(t *testing.T, device string) string {
+	t.Helper()
+	fields := []string{"name", "type", "token"}
+	if device != "" {
+		fields = append(fields, "device")
+	}
+	b, err := protojson.Marshal(&agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_Write{Write: &agentrewire.CtlWriteRequest{
+		Op: agentrewire.CtlOp_CTL_OP_CREATE, Kind: agentrewire.CtlKind_CTL_KIND_BACKEND,
+		Resource: &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Backend{Backend: &agentrewire.CtlBackend{
+			Name: ltBackendName, Type: "openclaw", Device: device, Token: ltGatewayTok,
+		}}},
+		Fields:  fields,
+		Caller:  agentrewire.CtlCaller_CTL_CALLER_SESSION,
+		Command: "agrctl create backend --type openclaw --name claw --token=" + ltGatewayTok,
+	}}})
+	require.NoError(t, err)
+	return string(b)
+}
+
+const createPreview = `{"write":{"name":"claw","changes":[{"op":"CTL_OP_CREATE","kind":"CTL_KIND_BACKEND","name":"claw","fields":[{"field":"name","after":"claw"},{"field":"type","after":"openclaw"}]}]}}`
+const createWritten = `{"write":{"id":12,"name":"claw","changes":[{"op":"CTL_OP_CREATE","kind":"CTL_KIND_BACKEND","id":12,"name":"claw"}]}}`
+
+func TestCtlProxy_GivenCreateOpenClawWithTokenBoundHere_WhenApproved_ThenCreatedOnServerAndTokenSavedLocally(t *testing.T) {
+	server := &routedCtlServer{answer: func(path, body string) (int, string) {
+		switch {
+		case path == serverResourcesPath+"?preview=1":
+			return 200, createPreview
+		case isGet(body):
+			return 200, clawDoc(string(ltSelf))
+		default:
+			return 200, createWritten
+		}
+	}}
+	creds := newMemCredentialState()
+	c, sink, tok, srv := consoleOwnedHere(t, server, creds)
+
+	done := make(chan ctlResult, 1)
+	go func() { done <- ctlPost(t, srv.URL+"/ctl/v1/resources", tok, createClawWrite(t, "")) }()
+	approveNext(t, c, sink)
+	res := <-done
+
+	require.Equal(t, http.StatusOK, res.status, res.body)
+	saved, ok := creds.gatewayToken()
+	require.True(t, ok, "the new backend is bound to this agentred, so its token lands in the device-local store")
+	assert.Equal(t, ltGatewayTok, saved)
+	for _, call := range server.snapshot() {
+		assert.NotContains(t, call.body, ltGatewayTok, call.path)
+		if !isGet(call.body) {
+			var req agentrewire.CtlRequest
+			require.NoError(t, protojson.Unmarshal([]byte(call.body), &req))
+			assert.NotContains(t, req.GetWrite().GetFields(), "token", "the server never sees the token field")
+		}
+	}
+	begun, _ := sink.snapshot()
+	input, err := transcriptblocks.ParseCtlApprovalInput(begun[0].ToolInput)
+	require.NoError(t, err)
+	require.Len(t, input.Changes, 1)
+	assert.Equal(t, "create", input.Changes[0].Op)
+	assert.Contains(t, input.Changes[0].Fields, transcriptblocks.CtlApprovalField{Field: "token", Secret: true})
+	assert.NotContains(t, res.body, ltGatewayTok)
+}
+
+func TestCtlProxy_GivenCreateOpenClawWithTokenOnAnotherDevice_ThenServerRejectionStandsAndNothingSaved(t *testing.T) {
+	server := &routedCtlServer{answer: func(path, body string) (int, string) {
+		return http.StatusUnprocessableEntity, `{"error":"the OpenClaw token cannot be written through the server"}`
+	}}
+	creds := newMemCredentialState()
+	_, sink, tok, srv := consoleOwnedHere(t, server, creds)
+
+	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/resources", tok, createClawWrite(t, ltOther))
+
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	_, ok := creds.gatewayToken()
+	assert.False(t, ok)
+	begun, _ := sink.snapshot()
+	assert.Empty(t, begun)
+}
+
+// 同一条命令既改绑定设备又写 token:token 该落在哪台机器要等写完才知道,不在本机写,交
+// server 照旧拒绝 —— 不能把 token 写进一台后端即将不再运行的机器。
+func TestCtlProxy_GivenUpdateMovingDeviceWithToken_ThenNotWrittenLocallyAndServerDecides(t *testing.T) {
+	server := &routedCtlServer{answer: func(path, body string) (int, string) {
+		switch {
+		case isGet(body):
+			return 200, clawDoc(string(ltSelf))
+		case strings.Contains(body, `"token"`):
+			return http.StatusUnprocessableEntity, `{"error":"the OpenClaw token cannot be written through the server"}`
+		default:
+			return 200, `{"write":{"id":12,"name":"claw"}}`
+		}
+	}}
+	creds := newMemCredentialState()
+	_, sink, tok, srv := consoleOwnedHere(t, server, creds)
+
+	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/resources", tok,
+		tokenWrite(t, []string{"device", "token"}, &agentrewire.CtlBackend{Device: ltOther, Token: ltGatewayTok}))
+
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	_, ok := creds.gatewayToken()
+	assert.False(t, ok)
+	begun, _ := sink.snapshot()
+	assert.Empty(t, begun)
+}

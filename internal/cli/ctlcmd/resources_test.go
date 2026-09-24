@@ -909,3 +909,30 @@ func TestProvider_GivenAmbiguousDefaultModelThenIDExampleWorks(t *testing.T) {
 		t.Fatalf("defaultModelKey = %q", got)
 	}
 }
+
+// 歧义提示里的示例命令要能直接改用：密钥 flag 写成裸 flag（终端里会无回显地问），不能是
+// 审批卡上那个脱敏后的 --api-key=…——照抄就会把「…」存成新密钥。
+func TestProvider_GivenAmbiguityWithInlineSecretThenExampleAsksForSecretAgain(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"update", "provider", "anthropic", "--api-key=sk-live-123", "--default-model", "claude/dup"}, envFor(srv, tok), term{})
+	wantCode(t, r, 2)
+	if !strings.HasSuffix(r.stderr, "e.g. agrctl update provider anthropic --api-key --default-model 24\n") {
+		t.Fatalf("stderr = %q", r.stderr)
+	}
+	if strings.Contains(r.stderr, "sk-live-123") || strings.Contains(r.stderr, "…") {
+		t.Fatalf("stderr = %q", r.stderr)
+	}
+	if f.writeCount() != 0 {
+		t.Fatal("no write must be sent")
+	}
+}
+
+// 显式空的 --api-key= 是用法错误（退出码 2），连不上执行者也一样。
+func TestSecret_GivenExplicitEmptyAPIKeyAndNoDesktopThenExit2(t *testing.T) {
+	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
+	r := runWith([]string{"update", "provider", "openrouter", "--api-key="}, noEnv, term{tty: true})
+	wantCode(t, r, 2)
+	if !strings.Contains(r.stderr, "API key cannot be empty") {
+		t.Fatalf("stderr = %q", r.stderr)
+	}
+}

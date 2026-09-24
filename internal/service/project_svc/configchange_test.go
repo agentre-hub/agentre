@@ -47,6 +47,26 @@ func TestProjectSvcCreate_EmitsConfigChanged(t *testing.T) {
 	assert.Equal(t, [][]string{{syncwire.KindProject}}, *got)
 }
 
+// 带初始成员的 create：订阅方收到 config:changed 就重新拉取，所以事件要在成员写完之后才发，
+// 否则拉到的项目可能还没有成员。
+func TestProjectSvcCreate_GivenInitialMembers_EmitsConfigChangedAfterMembersAdded(t *testing.T) {
+	ctx, mp, mpa, _, svc := setupProjectSvc(t)
+	got := registerConfigChangeSpy(t)
+	tmp := t.TempDir()
+	mp.EXPECT().FindByName(ctx, int64(0), "Agentre").Return(nil, nil)
+	mp.EXPECT().NextSortOrder(ctx, int64(0)).Return(1, nil)
+	mp.EXPECT().Create(ctx, gomock.Any()).Return(nil)
+	mpa.EXPECT().Add(ctx, gomock.Any(), int64(7)).DoAndReturn(func(context.Context, int64, int64) error {
+		assert.Empty(t, *got, "config:changed must not fire before the initial members are in")
+		return nil
+	})
+
+	_, err := svc.Create(ctx, &project_svc.CreateProjectRequest{Name: "Agentre", Path: tmp, InitialAgentIDs: []int64{7}})
+
+	require.NoError(t, err)
+	assert.Equal(t, [][]string{{syncwire.KindProject}}, *got)
+}
+
 func TestProjectSvcCreate_GivenRepoFails_DoesNotEmitConfigChanged(t *testing.T) {
 	ctx, mp, _, _, svc := setupProjectSvc(t)
 	got := registerConfigChangeSpy(t)

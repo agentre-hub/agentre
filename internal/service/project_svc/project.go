@@ -162,7 +162,6 @@ func (s *projectSvc) Create(ctx context.Context, req *CreateProjectRequest) (*pr
 		return nil, err
 	}
 	sync_svc.NotifyCreate(ctx, syncwire.KindProject, p.ID, p.SyncMeta)
-	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 
 	// 初始成员 —— 失败不回滚（用户可以在设置里再加），但记日志。
 	for _, agentID := range req.InitialAgentIDs {
@@ -177,6 +176,8 @@ func (s *projectSvc) Create(ctx context.Context, req *CreateProjectRequest) (*pr
 		}
 		notifyMemberChange(ctx, p.ID, agentID, sync_svc.OpCreate)
 	}
+	// 成员写完再发：订阅方据此重新拉取，要拉到带成员的项目。
+	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	return p, nil
 }
 

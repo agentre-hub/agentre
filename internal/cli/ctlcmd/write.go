@@ -67,6 +67,13 @@ func (w *writeCtx) secret(o occurrence) (string, error) {
 	return v, nil
 }
 
+func emptyValue(flagName string) error {
+	if flagName == "api-key" {
+		return usageErrorf("--api-key: an API key cannot be empty (omit the flag to keep the current key)")
+	}
+	return usageErrorf("--%s cannot be empty", flagName)
+}
+
 func secretPrompt(flagName string) string {
 	switch flagName {
 	case "api-key":
@@ -145,12 +152,14 @@ func runWrite(verb string, args []string, s *sys) error {
 		return usageErrorf("update %s: nothing to update (see agrctl help %s)", spec.name, spec.name)
 	}
 
-	// 没有终端时裸写的密钥 flag 一定读不到值：先于连接与定位给出 NEEDS TTY。
-	if !s.stdinIsTTY {
-		for _, o := range p.flags {
-			if o.def.secret && o.bare {
-				return needsTTY(o.def.name)
-			}
+	// 与数据无关的取值检查先于连接与定位：显式空值是用法错误；没有终端时裸写的密钥 flag
+	// 一定读不到值，给出 NEEDS TTY。
+	for _, o := range p.flags {
+		if o.def.notEmpty && !o.bare && strings.TrimSpace(o.value) == "" {
+			return emptyValue(o.def.name)
+		}
+		if !s.stdinIsTTY && o.def.secret && o.bare {
+			return needsTTY(o.def.name)
 		}
 	}
 

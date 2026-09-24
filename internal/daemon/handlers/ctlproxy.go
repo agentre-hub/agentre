@@ -251,9 +251,14 @@ func (p *ctlProxy) approveConsoleWrite(w http.ResponseWriter, r *http.Request, o
 			raw = body
 		}
 		if plan.local != nil {
-			if err := p.saveLocalToken(ctx, plan.local); err != nil {
-				owner.turn.resolveApproval(ctx, requestID, "approved", "执行失败：could not save the gateway secret on this agentred")
-				writeCtlErr(w, http.StatusInternalServerError, "could not save the openclaw gateway secret on this agentred")
+			if err := p.saveLocalToken(ctx, plan.local, raw); err != nil {
+				msg := "could not save the openclaw gateway secret on this agentred"
+				if raw != nil {
+					// 其它字段已经交 server 写好了:如实说是部分成功。
+					msg = "the other changes were saved, but " + msg
+				}
+				owner.turn.resolveApproval(ctx, requestID, "approved", "执行失败："+msg)
+				writeCtlErr(w, http.StatusInternalServerError, msg)
 				return
 			}
 		}
@@ -392,7 +397,8 @@ func redactCtlCommand(req *agentrewire.CtlWriteRequest) string {
 func ctlApprovalInput(command string, changes []*agentrewire.CtlChange) transcriptblocks.CtlApprovalInput {
 	in := transcriptblocks.CtlApprovalInput{Command: command}
 	for _, c := range changes {
-		ch := transcriptblocks.CtlApprovalChange{Op: ctlOpName(c.GetOp()), Kind: ctlKindNames[c.GetKind()], ID: c.GetId(), Name: c.GetName()}
+		ch := transcriptblocks.CtlApprovalChange{Op: ctlOpName(c.GetOp()), Kind: ctlKindNames[c.GetKind()], ID: c.GetId(), Name: c.GetName(),
+			Cascade: transcriptblocks.ParseCtlCascadeNote(c.GetNote())}
 		for _, f := range c.GetFields() {
 			ch.Fields = append(ch.Fields, transcriptblocks.CtlApprovalField{Field: f.GetField(), Before: f.Before, After: f.After, Secret: f.GetSecret()})
 		}

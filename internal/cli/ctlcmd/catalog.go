@@ -22,7 +22,7 @@ import (
 // 与 ctl_svc.ApprovalPendingHeader 同值；端到端测试钉住两边一致。
 const approvalPendingHeader = "Agentre-Ctl-Approval"
 
-// resourcesPath 是执行者的资源接口（契约见 pkg/wire 的 ctl.proto）。
+// resourcesPath 是执行者的资源接口（契约见 pkg/wire 的 wire.proto 里的 Ctl* 消息）。
 const resourcesPath = "/ctl/v1/resources"
 
 // catalog 连着一个执行者，按类型缓存列表，并在客户端完成名字 / 路径解析。
@@ -283,7 +283,7 @@ func (c *catalog) ambiguous(spec *kindSpec, ref string, matches []*agentrewire.C
 	if spec.hierarchical {
 		hint = "Use an ID or a parent/child path"
 	}
-	_, _ = fmt.Fprintf(&b, "%s, e.g. %s", hint, commandLine(replaceRef(c.args, c.site, ref, c.uniqueLocator(spec, matches))))
+	_, _ = fmt.Fprintf(&b, "%s, e.g. %s", hint, exampleLine(replaceRef(c.args, c.site, ref, c.uniqueLocator(spec, matches))))
 	return usageErrorf("%s", b.String())
 }
 

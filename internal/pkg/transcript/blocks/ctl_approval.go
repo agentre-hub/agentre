@@ -1,6 +1,11 @@
 package blocks
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"strconv"
+)
 
 // CtlApprovalInput 是 toolKey = "ctl" 的 ToolApprovalBlock.ToolInput：agrctl 一次写命令的
 // 「变更清单卡」（spec 决策 6）。桌面端与控制台共用的卡片组件按这个 JSON 形状渲染。
@@ -42,6 +47,36 @@ type CtlApprovalField struct {
 type CtlApprovalCascade struct {
 	Departments int `json:"departments"`
 	Agents      int `json:"agents"`
+}
+
+// Note 是级联删除写进变更清单附注（agentrewire.CtlChange.note）的那句话。控制台路径上的
+// agentred 只拿得到 server 执行者的附注，用 ParseCtlCascadeNote 还原数量——server 写的是
+// 同一句（agentre-server ctl_svc），两个执行者不能 import 彼此，句式就是约定。
+func (c CtlApprovalCascade) Note() string {
+	return fmt.Sprintf("also deletes %s and %s", plural(c.Departments, "sub-department"), plural(c.Agents, "agent"))
+}
+
+var cascadeNoteRE = regexp.MustCompile(`^also deletes (\d+) sub-departments? and (\d+) agents?$`)
+
+// ParseCtlCascadeNote 从变更清单附注还原级联删除的数量；不是这句话时返回 nil。
+func ParseCtlCascadeNote(note string) *CtlApprovalCascade {
+	m := cascadeNoteRE.FindStringSubmatch(note)
+	if m == nil {
+		return nil
+	}
+	depts, err1 := strconv.Atoi(m[1])
+	agents, err2 := strconv.Atoi(m[2])
+	if err1 != nil || err2 != nil {
+		return nil
+	}
+	return &CtlApprovalCascade{Departments: depts, Agents: agents}
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // ToolInput 转成 ToolApprovalBlock.ToolInput 的通用 map（块按 JSON 持久化与推流）。
