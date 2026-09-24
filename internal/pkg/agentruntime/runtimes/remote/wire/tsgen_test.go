@@ -515,6 +515,7 @@ func tsEventKindDecls() []tsEventKindDecl {
 		{"EventUnrecognizedBlock", agentruntime.EventUnrecognizedBlock},
 		{"EventImage", agentruntime.EventImage},
 		{"EventContextWindowUpdated", agentruntime.EventContextWindowUpdated},
+		{"EventUnsupportedRequestNotice", agentruntime.EventUnsupportedRequestNotice},
 	}
 }
 

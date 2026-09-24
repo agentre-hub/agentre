@@ -120,6 +120,12 @@ func marshalEvent(frame *agentrewire.RuntimeEventNotification, event agentruntim
 			AllowedDecisions: value.AllowedDecisions, Host: value.Host, NodeId: value.NodeID,
 			AgentId: value.AgentID, SessionKey: value.SessionKey,
 			CreatedAtMs: value.CreatedAtMs, ExpiresAtMs: value.ExpiresAtMs,
+			ApprovalKind: value.ApprovalKind, Description: value.Description,
+			ToolName: value.ToolName, PluginName: value.PluginName, Warnings: value.Warnings,
+			ActionCategory: value.ActionCategory, MessageTargets: value.MessageTargets,
+			RecipientCount: int32(value.RecipientCount), PaymentAmount: value.PaymentAmount,
+			PaymentPayee: value.PaymentPayee, PublishTarget: value.PublishTarget,
+			PublishVisibility: value.PublishVisibility, AutomationName: value.AutomationName,
 		}}
 	case agentruntime.ExecApprovalResolved:
 		frame.Event = &agentrewire.RuntimeEventNotification_ExecApprovalResolved{ExecApprovalResolved: &agentrewire.ExecApprovalResolved{Id: value.ID, Status: value.Status, Decision: value.Decision, ResolvedBy: value.ResolvedBy, ResolvedAtMs: value.ResolvedAtMs}}
@@ -177,6 +183,8 @@ func marshalEvent(frame *agentrewire.RuntimeEventNotification, event agentruntim
 		frame.Event = &agentrewire.RuntimeEventNotification_Error{Error: &agentrewire.ErrorEvent{Message: message}}
 	case agentruntime.UserMessageEvent:
 		frame.Event = &agentrewire.RuntimeEventNotification_UserMessage{UserMessage: &agentrewire.UserMessage{Text: value.Text, SourceDevice: string(value.SourceDevice), SourceDeviceName: value.SourceDeviceName}}
+	case agentruntime.UnsupportedRequestNotice:
+		frame.Event = &agentrewire.RuntimeEventNotification_UnsupportedRequestNotice{UnsupportedRequestNotice: &agentrewire.UnsupportedRequestNotice{Purpose: string(value.Purpose)}}
 	default:
 		return fmt.Errorf("protowire: 不支持的 runtime event %T", event)
 	}
@@ -237,6 +245,12 @@ func unmarshalEvent(frame *agentrewire.RuntimeEventNotification) (agentruntime.E
 			AllowedDecisions: v.GetAllowedDecisions(), Host: v.GetHost(), NodeID: v.GetNodeId(),
 			AgentID: v.GetAgentId(), SessionKey: v.GetSessionKey(),
 			CreatedAtMs: v.GetCreatedAtMs(), ExpiresAtMs: v.GetExpiresAtMs(),
+			ApprovalKind: v.GetApprovalKind(), Description: v.GetDescription(),
+			ToolName: v.GetToolName(), PluginName: v.GetPluginName(), Warnings: v.GetWarnings(),
+			ActionCategory: v.GetActionCategory(), MessageTargets: v.GetMessageTargets(),
+			RecipientCount: int(v.GetRecipientCount()), PaymentAmount: v.GetPaymentAmount(),
+			PaymentPayee: v.GetPaymentPayee(), PublishTarget: v.GetPublishTarget(),
+			PublishVisibility: v.GetPublishVisibility(), AutomationName: v.GetAutomationName(),
 		}, nil
 	case *agentrewire.RuntimeEventNotification_ExecApprovalResolved:
 		v := value.ExecApprovalResolved
@@ -309,6 +323,8 @@ func unmarshalEvent(frame *agentrewire.RuntimeEventNotification) (agentruntime.E
 	case *agentrewire.RuntimeEventNotification_UserMessage:
 		v := value.UserMessage
 		return agentruntime.UserMessageEvent{Text: v.GetText(), SourceDevice: devicefp.Initiator(v.GetSourceDevice()), SourceDeviceName: v.GetSourceDeviceName()}, nil
+	case *agentrewire.RuntimeEventNotification_UnsupportedRequestNotice:
+		return agentruntime.UnsupportedRequestNotice{Purpose: agentruntime.UnsupportedRequestPurpose(value.UnsupportedRequestNotice.GetPurpose())}, nil
 	default:
 		return nil, fmt.Errorf("protowire: 不支持的 runtime event %T", frame.GetEvent())
 	}

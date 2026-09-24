@@ -44,6 +44,12 @@ type Session interface {
 	Events() <-chan Event
 	// Err reports the terminal read/connection error after Events closes.
 	Err() error
+	// RespondServerRequest answers a server->client request (delivered on Events
+	// as EventServerRequest) with result under its id; each id is answered once.
+	RespondServerRequest(id string, result any) error
+	// RejectServerRequest answers a server->client request with an error: the
+	// host cannot answer it and Hermes withdraws it.
+	RejectServerRequest(id string) error
 	// Close tears the connection down.
 	Close(ctx context.Context) error
 }
@@ -84,7 +90,8 @@ type gatewaySession struct {
 	done      chan struct{}
 }
 
-// defaultSessionFactory dials a gateway connection and waits for gateway.ready.
+// defaultSessionFactory dials a gateway connection, waits for gateway.ready and
+// declares that this connection answers server->client requests.
 func defaultSessionFactory(ctx context.Context, spec sessionSpec) (Session, error) {
 	sess, err := dialGatewayWithAuth(ctx, spec.URL, spec.AuthProvider, spec.Credentials, nil, nil)
 	if err != nil {
@@ -94,7 +101,21 @@ func defaultSessionFactory(ctx context.Context, spec sessionSpec) (Session, erro
 		_ = sess.Close(context.Background())
 		return nil, err
 	}
+	if err := sess.declareServerRequests(ctx); err != nil {
+		_ = sess.Close(context.Background())
+		return nil, err
+	}
 	return sess, nil
+}
+
+// declareServerRequests sends client.capabilities once per connection. Hermes
+// sends approval / clarify / ... requests only to a connection that did; without
+// it every such request is treated as unanswerable.
+func (s *gatewaySession) declareServerRequests(ctx context.Context) error {
+	if _, err := s.codec.call(ctx, "client.capabilities", map[string]any{"server_requests": true}); err != nil {
+		return fmt.Errorf("hermes gateway: client.capabilities: %w", err)
+	}
+	return nil
 }
 
 // dialGatewayWithAuth dials a `hermes serve` (see hermesgateway.Dial) and wraps
@@ -157,6 +178,14 @@ func classifyReadError(err error) error { return hermesgateway.ClassifyReadError
 func (s *gatewaySession) WaitReady(ctx context.Context) error { return s.codec.WaitReady(ctx) }
 func (s *gatewaySession) Events() <-chan Event                { return s.codec.Events() }
 func (s *gatewaySession) Err() error                          { return s.codec.Err() }
+
+func (s *gatewaySession) RespondServerRequest(id string, result any) error {
+	return s.codec.RespondServerRequest(id, result)
+}
+
+func (s *gatewaySession) RejectServerRequest(id string) error {
+	return s.codec.RejectServerRequest(id)
+}
 
 // Close signals the close first, then tears the socket down. Order matters: a
 // racing write must observe "closed" (see errSessionClosed), never a raw socket

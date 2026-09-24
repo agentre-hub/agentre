@@ -24,8 +24,7 @@
       "aria": "Claude Code 配额 5h {{five}}% 7d {{seven}}% 来自 {{device}}",
       "panel": {
         "fiveHour": "5 小时窗口",
-        "opusWeekly": "Opus 7 天",
-        "sonnetWeekly": "Sonnet 7 天",
+        "modelWeekly": "{{model}} 7 天",
         "title": "Claude 订阅用量",
         "usedNote": "百分比为已用比例 · 每 5 分钟刷新",
         "weekly": "7 天窗口"

@@ -43,8 +43,17 @@ const (
 	EventStatusUpdate    EventKind = "status.update"
 	EventSessionUsage    EventKind = "session.usage"
 	EventError           EventKind = "error"
-	EventApprovalRequest EventKind = "approval.request"
-	EventClarifyRequest  EventKind = "clarify.request"
+	// EventRequestCancel withdraws an open server->client request; the turn,
+	// not the translator, converges the matching card.
+	EventRequestCancel EventKind = "request.cancel"
+	// EventServerRequest is synthetic: the codec wraps a routed server->client
+	// JSON-RPC request (Event.Request) into the ordered event stream.
+	EventServerRequest EventKind = "agentre.server_request"
+	// EventUnsupportedRequest is synthetic: the codec already answered a known-
+	// unsupported reverse request (frame.go's unsupportedServerRequests)
+	// immediately and queues this so the turn can map Event.Method onto a
+	// readable purpose and leave a transcript notice (see approvals.go).
+	EventUnsupportedRequest EventKind = "agentre.unsupported_request"
 )
 
 // Event is one decoded gateway event frame.
@@ -56,6 +65,12 @@ type Event struct {
 	Kind    EventKind
 	Session string
 	Payload json.RawMessage
+	// Request is set only on EventServerRequest.
+	Request *ServerRequest
+	// Method is set only on EventUnsupportedRequest: the reverse-request
+	// method Hermes sent that Agentre already answered immediately with no
+	// card. Never carries params — see frame.go's answerUnsupportedRequest.
+	Method string
 }
 
 // eventParams mirrors the gateway's event envelope:
@@ -258,9 +273,9 @@ func translate(ev Event) (events []agentruntime.Event, usage *provider.Usage, st
 		}
 	}
 
-	// approval.request / clarify.request and every unknown frame are out of
-	// scope for this runtime: they produce no events, so a frame we do not
-	// understand can never wedge the turn. The raw-frame sink logs them.
+	// Every unknown frame produces no events, so a frame we do not understand
+	// can never wedge the turn. Server requests and request.cancel are turn
+	// state and handled by the drain loop, never here.
 	return nil, nil, nil
 }
 

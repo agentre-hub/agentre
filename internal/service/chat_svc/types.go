@@ -314,6 +314,10 @@ type ChatBlock struct {
 	// 前端据它选 t() 文案 —— 切回「跟随 agent 绑定」/「跟随后端配置」时 ProviderKey /
 	// ReasoningEffort 都为空,只有这个字段能把它与「无结构化负载的旧 notice」区分开。
 	NoticeKind string `json:"noticeKind,omitempty"`
+	// NoticePurpose 仅 noticeKind="hermes_unsupported_request" 时有值(spec
+	// 2026-09-17):Hermes 反向请求的只读用途分类(agentruntime.UnsupportedRequestPurpose
+	// 镜像),前端按它选 t() 文案拼出提示句;从不是协议方法名或原始参数。
+	NoticePurpose string `json:"noticePurpose,omitempty"`
 	// ReasoningEffort 是 noticeKind="reasoning_effort" 那条切换 notice 切到的档位
 	// (spec 2026-09-01 决策 7)。空串 + 该 kind = 改回跟随后端配置;其它块恒为空。
 	ReasoningEffort string          `json:"reasoningEffort,omitempty"`
@@ -417,19 +421,32 @@ type ChatBlockToolPermission struct {
 }
 
 type ChatBlockExecApproval struct {
-	ID               string   `json:"id"`
-	CommandText      string   `json:"commandText"`
-	CommandPreview   string   `json:"commandPreview,omitempty"`
-	AllowedDecisions []string `json:"allowedDecisions,omitempty"`
-	Host             string   `json:"host,omitempty"`
-	NodeID           string   `json:"nodeId,omitempty"`
-	AgentID          string   `json:"agentId,omitempty"`
-	Status           string   `json:"status"`
-	Decision         string   `json:"decision,omitempty"`
-	ResolvedBy       string   `json:"resolvedBy,omitempty"`
-	CreatedAtMs      int64    `json:"createdAtMs,omitempty"`
-	ExpiresAtMs      int64    `json:"expiresAtMs,omitempty"`
-	ResolvedAtMs     int64    `json:"resolvedAtMs,omitempty"`
+	ID                string   `json:"id"`
+	Kind              string   `json:"kind,omitempty"`
+	CommandText       string   `json:"commandText"`
+	CommandPreview    string   `json:"commandPreview,omitempty"`
+	Description       string   `json:"description,omitempty"`
+	ToolName          string   `json:"toolName,omitempty"`
+	PluginName        string   `json:"pluginName,omitempty"`
+	Warnings          []string `json:"warnings,omitempty"`
+	ActionCategory    string   `json:"actionCategory,omitempty"`
+	MessageTargets    []string `json:"messageTargets,omitempty"`
+	RecipientCount    int      `json:"recipientCount,omitempty"`
+	PaymentAmount     string   `json:"paymentAmount,omitempty"`
+	PaymentPayee      string   `json:"paymentPayee,omitempty"`
+	PublishTarget     string   `json:"publishTarget,omitempty"`
+	PublishVisibility string   `json:"publishVisibility,omitempty"`
+	AutomationName    string   `json:"automationName,omitempty"`
+	AllowedDecisions  []string `json:"allowedDecisions,omitempty"`
+	Host              string   `json:"host,omitempty"`
+	NodeID            string   `json:"nodeId,omitempty"`
+	AgentID           string   `json:"agentId,omitempty"`
+	Status            string   `json:"status"`
+	Decision          string   `json:"decision,omitempty"`
+	ResolvedBy        string   `json:"resolvedBy,omitempty"`
+	CreatedAtMs       int64    `json:"createdAtMs,omitempty"`
+	ExpiresAtMs       int64    `json:"expiresAtMs,omitempty"`
+	ResolvedAtMs      int64    `json:"resolvedAtMs,omitempty"`
 }
 
 // ChatBlockToolApproval agent 内置工具(org / hook 等)写操作审批卡的前端投影。

@@ -308,11 +308,14 @@ func (d *Daemon) registerProtobufMethods() {
 			result := handlers.CCUsage(ctx, ccFetcher)
 			response := &agentrewire.ClaudeCodeUsageResponse{Reason: result.Reason}
 			if result.Data != nil {
-				response.Data = &agentrewire.ClaudeCodeRateLimits{FiveHourPercent: result.Data.FiveHourPercent, WeeklyPercent: result.Data.WeeklyPercent, SonnetWeeklyPercent: result.Data.SonnetWeeklyPercent, OpusWeeklyPercent: result.Data.OpusWeeklyPercent}
+				response.Data = &agentrewire.ClaudeCodeRateLimits{FiveHourPercent: result.Data.FiveHourPercent, WeeklyPercent: result.Data.WeeklyPercent}
 				response.Data.FiveHourResetsAtMs = timePointerMillis(result.Data.FiveHourResetsAt)
 				response.Data.WeeklyResetsAtMs = timePointerMillis(result.Data.WeeklyResetsAt)
-				response.Data.SonnetWeeklyResetsAtMs = timePointerMillis(result.Data.SonnetWeeklyResetsAt)
-				response.Data.OpusWeeklyResetsAtMs = timePointerMillis(result.Data.OpusWeeklyResetsAt)
+				for _, limit := range result.Data.ModelWeekly {
+					response.Data.ModelWeekly = append(response.Data.ModelWeekly, &agentrewire.ClaudeCodeModelWeeklyLimit{
+						Model: limit.Model, Percent: limit.Percent, ResetsAtMs: timePointerMillis(limit.ResetsAt),
+					})
+				}
 			}
 			return response, nil
 		})

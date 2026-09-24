@@ -184,6 +184,7 @@ export {
 export type { LiveTurnInput } from "./transcript/turn-stats";
 export { classifyLink } from "./lib/link-classify";
 export {
+  anchoredOpenSegment,
   previewKind,
   resolvePreviewRelPath,
   toRelPath,

@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { X } from "lucide-react";
+import { ExternalLink, RotateCw, X } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { previewKind, type PreviewKind } from "../lib/previewable";
@@ -16,6 +16,7 @@ import type { PreviewRevealTarget } from "./anchor";
 import { CodePreview } from "./code-view";
 import { DiffPreview } from "./diff-view";
 import { basename, dirname } from "./file-meta";
+import { HtmlPreview } from "./html-view";
 import { ImagePreview } from "./image-view";
 import { MarkdownSourceView } from "./markdown-source-view";
 import type { MonacoNS } from "./monaco";
@@ -34,7 +35,10 @@ import {
   type PreviewTabStripProps,
 } from "./preview-tab-strip";
 
-/** markdown 的视图档位；代码 / 文本与图片没有档位控件。 */
+/**
+ * markdown 与 html 的视图档位；代码 / 文本与图片没有档位控件。html 的 `text` 档
+ * 显示为「源码」，存储值与 markdown 共用同一套。
+ */
 export type FilePreviewSegment = "render" | "text" | "split";
 
 /**
@@ -238,18 +242,31 @@ export function FilePreviewPanel({
   const kind: PreviewKind | null = path ? previewKind(path) : null;
   const effectiveSegment = React.useMemo(() => {
     if (kind === "image" || kind === "code") return null;
-    return storedSegment === "text" || storedSegment === "split"
-      ? storedSegment
-      : "render";
-  }, [kind, storedSegment]);
+    if (
+      storedSegment === "text" ||
+      storedSegment === "split" ||
+      storedSegment === "render"
+    ) {
+      return storedSegment;
+    }
+    // 没存过档位时 html 从「未提交」进来仍先看与 HEAD 的对比（源码档），与今天
+    // 代码文件的首视图一致；其余入口先看渲染。
+    return kind === "html" && sourceMode === "git" ? "text" : "render";
+  }, [kind, storedSegment, sourceMode]);
   // 从「本次会话」点开的一行看的是**工具 diff**：把该文件本会话每一次工具调用
   // 按调用先后重放成一个连续 diff（spec 决策 4）。这一档不读文件也不读 git ——
   // 内容全部来自消息里的 canonical 块，因此 AI 中途提交、rebase 或 amend 都不
   // 影响它；文件类型也不参与（markdown / 图片同样看这份 diff，档位控件随之隐藏）。
   const isToolDiff = sourceMode === "session";
   // 代码 / 文本从「未提交」档打开 → 直接展示与 git HEAD 的对比；目录模式打开
-  // → 只读内容。markdown / 图片从任何模式都不对比（spec 决策 9）。
-  const showDiff = kind === "code" && sourceMode === "git";
+  // → 只读内容。html 从「未提交」打开时源码档与双栏左侧同样是这份对比，渲染档
+  // 不对比。markdown / 图片从任何模式都不对比（spec 决策 9）。
+  const showDiff =
+    sourceMode === "git" &&
+    (kind === "code" || (kind === "html" && effectiveSegment !== "render"));
+  const isHtml = kind === "html" && !isToolDiff;
+  // 「重新渲染」只重挂 iframe（重跑页面脚本），不重读文件。
+  const [frameKey, setFrameKey] = React.useState(0);
 
   // 归属判定与「变更」行同源（collectReplayCalls 里做一次路径解析）：同一个文件
   // 被绝对与相对两种写法改过时行只有一条，这份 diff 也必须两次都算进去。
@@ -348,17 +365,18 @@ export function FilePreviewPanel({
   if (!path) return null;
 
   const dir = dirname(path);
-  // 只有 markdown 有分段控件（渲染/文本/双栏）；代码 / 文本与图片都没有（首视图
-  // 由入口模式决定，spec 决策 9）。
+  // markdown 与 html 有分段控件（渲染/文本或源码/双栏）；代码 / 文本与图片都
+  // 没有（首视图由入口模式决定，spec 决策 9）。
   const segments =
-    kind === "markdown" && !isToolDiff
+    (kind === "markdown" || kind === "html") && !isToolDiff
       ? (["render", "text", "split"] as const)
       : [];
   const SEGMENT_LABEL_KEY: Record<FilePreviewSegment, string> = {
     render: "filePreview.segmentRender",
-    text: "filePreview.segmentText",
+    text: isHtml ? "filePreview.segmentSource" : "filePreview.segmentText",
     split: "filePreview.segmentSplit",
   };
+  const openPath = ports.openPath;
   const segmentLabel = (seg: FilePreviewSegment): string =>
     t(SEGMENT_LABEL_KEY[seg]);
 
@@ -469,6 +487,30 @@ export function FilePreviewPanel({
             ))}
           </div>
         ) : null}
+        {isHtml && effectiveSegment !== "text" ? (
+          <button
+            type="button"
+            aria-label={t("filePreview.rerender")}
+            title={t("filePreview.rerender")}
+            onClick={() => setFrameKey((k) => k + 1)}
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <RotateCw className="size-3.5" aria-hidden="true" />
+          </button>
+        ) : null}
+        {/* 「用浏览器打开」跟着文件类型走，不看入口：从「本次会话」打开的 HTML
+            标签同样给。 */}
+        {kind === "html" && openPath ? (
+          <button
+            type="button"
+            aria-label={t("filePreview.openInBrowser")}
+            title={t("filePreview.openInBrowser")}
+            onClick={() => openPath(path)}
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ExternalLink className="size-3.5" aria-hidden="true" />
+          </button>
+        ) : null}
         <button
           type="button"
           aria-label={t("filePreview.close")}
@@ -498,6 +540,7 @@ export function FilePreviewPanel({
               readState={readState}
               gitState={gitState}
               path={path}
+              frameKey={frameKey}
               onRetry={() => setReloadKey((k) => k + 1)}
             />
           </div>
@@ -518,6 +561,7 @@ function PanelBody({
   readState,
   gitState,
   path,
+  frameKey,
   onRetry,
 }: {
   monaco: MonacoNS | null;
@@ -530,6 +574,7 @@ function PanelBody({
   readState: ReadState;
   gitState: GitState;
   path: string;
+  frameKey: number;
   onRetry: () => void;
 }) {
   const { t } = useUiTranslation();
@@ -622,8 +667,9 @@ function PanelBody({
     );
   }
 
-  if (showDiff) {
-    // 代码 / 文本从 Git / 变动模式打开:左 HEAD 版本 / 右工作区,增删行底色区分。
+  // 与 HEAD 的对比:左 HEAD 版本 / 右工作区,增删行底色区分。代码 / 文本从 Git /
+  // 变动模式打开时的首视图;html 的源码档与双栏左侧同样用它。
+  const renderDiff = () => {
     if (gitState.status === "error") {
       return (
         <ReadFailure
@@ -674,7 +720,44 @@ function PanelBody({
         />
       </>
     );
+  };
+
+  const htmlFrame =
+    kind === "html" ? (
+      <HtmlPreview
+        key={frameKey}
+        content={view.content}
+        title={t("filePreview.renderTitle", { name: basename(path) })}
+      />
+    ) : null;
+
+  if (kind === "html" && segment === "split") {
+    return (
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col border-r border-border">
+          {showDiff ? (
+            renderDiff()
+          ) : (
+            <CodePreview
+              value={view.content}
+              path={path}
+              monaco={monaco}
+              ariaLabel={t("filePreview.codeAria", { name: basename(path) })}
+              revealTarget={revealTarget}
+              className="min-h-0 flex-1"
+            />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">{htmlFrame}</div>
+      </div>
+    );
   }
+
+  if (kind === "html" && segment === "render") {
+    return <div className="min-h-0 flex-1">{htmlFrame}</div>;
+  }
+
+  if (showDiff) return renderDiff();
 
   if (kind === "markdown" && segment === "render") {
     return (

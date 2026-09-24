@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { previewKind, resolvePreviewRelPath } from "./previewable";
+import {
+  anchoredOpenSegment,
+  previewKind,
+  resolvePreviewRelPath,
+} from "./previewable";
 
 describe("previewKind", () => {
   it("classifies markdown files (.md / .markdown) as markdown, not .mdx", () => {
@@ -27,6 +31,12 @@ describe("previewKind", () => {
     ]) {
       expect(previewKind(p)).toBe("code");
     }
+  });
+
+  it("classifies .html / .htm as html, not code", () => {
+    expect(previewKind("out/report.html")).toBe("html");
+    expect(previewKind("index.htm")).toBe("html");
+    expect(previewKind("PAGE.HTML")).toBe("html");
   });
 
   it("classifies image extensions as image", () => {
@@ -125,5 +135,21 @@ describe("resolvePreviewRelPath", () => {
     );
     // 工具调用也可能给出相对路径,同样是 "\" 分隔。
     expect(resolvePreviewRelPath("src\\a.ts", "C:\\proj")).toBe("src/a.ts");
+  });
+});
+
+// 带行号打开时的首档：渲染档没有「行」的类型（markdown / html）落在文本档，
+// 其余类型没有档位可选。两个宿主（桌面标签 store、控制台标签 hook）共用这一条。
+describe("anchoredOpenSegment", () => {
+  it("lands markdown and html on the text segment, since their rendered view has no lines", () => {
+    expect(anchoredOpenSegment("docs/guide.md")).toBe("text");
+    expect(anchoredOpenSegment("out/report.html")).toBe("text");
+    expect(anchoredOpenSegment("index.htm")).toBe("text");
+  });
+
+  it("forces nothing on code, images or non-previewable files", () => {
+    expect(anchoredOpenSegment("src/foo.go")).toBeNull();
+    expect(anchoredOpenSegment("logo.png")).toBeNull();
+    expect(anchoredOpenSegment("data.bin")).toBeNull();
   });
 });

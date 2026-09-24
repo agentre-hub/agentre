@@ -485,10 +485,22 @@ message ClaudeCodeRateLimits {
   double weekly_percent = 2;
   optional int64 five_hour_resets_at_ms = 3;
   optional int64 weekly_resets_at_ms = 4;
-  optional double sonnet_weekly_percent = 5;
-  optional int64 sonnet_weekly_resets_at_ms = 6;
-  optional double opus_weekly_percent = 7;
-  optional int64 opus_weekly_resets_at_ms = 8;
+  // Superseded by model_weekly: no longer set. Kept only because the baseline
+  // forbids deleting fields.
+  optional double sonnet_weekly_percent = 5 [deprecated = true];
+  optional int64 sonnet_weekly_resets_at_ms = 6 [deprecated = true];
+  optional double opus_weekly_percent = 7 [deprecated = true];
+  optional int64 opus_weekly_resets_at_ms = 8 [deprecated = true];
+  // Weekly quotas that count only one model (Fable, Opus, Sonnet, ...), in the
+  // order Anthropic lists them. Empty when the account has none.
+  repeated ClaudeCodeModelWeeklyLimit model_weekly = 9;
+}
+// One model-scoped weekly quota. model is Anthropic's display name, passed
+// through as-is.
+message ClaudeCodeModelWeeklyLimit {
+  string model = 1;
+  double percent = 2;
+  optional int64 resets_at_ms = 3;
 }
 message ClaudeCodeUsageResponse { string reason = 1; ClaudeCodeRateLimits data = 2; }
 
@@ -1179,8 +1191,9 @@ message RuntimeEventNotification {
     PlanUpdated plan_updated = 28 [(agentre.wire.event_kind) = "plan_updated"];
     UnrecognizedBlock unrecognized_block = 29 [(agentre.wire.event_kind) = "unrecognized_block"];
     ImageBlock image = 31 [(agentre.wire.event_kind) = "image"];
-    ToolApprovalRequested tool_approval_requested = 32 [(agentre.wire.event_kind) = "tool_approval_requested"];
-    ToolApprovalResolved tool_approval_resolved = 33 [(agentre.wire.event_kind) = "tool_approval_resolved"];
+    UnsupportedRequestNotice unsupported_request_notice = 32 [(agentre.wire.event_kind) = "unsupported_request_notice"];
+    ToolApprovalRequested tool_approval_requested = 33 [(agentre.wire.event_kind) = "tool_approval_requested"];
+    ToolApprovalResolved tool_approval_resolved = 34 [(agentre.wire.event_kind) = "tool_approval_resolved"];
   }
 }
 
@@ -1205,6 +1218,11 @@ message CompactBoundary {
   int32 duration_ms = 4;
 }
 message RuntimeStatus { string status = 1; }
+// UnsupportedRequestNotice carries only the closed purpose vocabulary
+// (agentruntime.UnsupportedRequestPurpose) for a backend reverse request
+// Agentre answered immediately with no card — never the protocol method name
+// or raw params (spec 2026-09-17 "Unsupported Hermes requests").
+message UnsupportedRequestNotice { string purpose = 1; }
 // Done ends a turn. The fields are that turn's stats, filled by whoever ends
 // the turn above the runtime — a desktop's chat_svc, which has them at hand
 // (it computed them and wrote them to its own database). A runtime's own Done
@@ -1314,16 +1332,26 @@ message AskQuestion {
   bool is_other = 5;
   bool is_secret = 6;
   repeated AskOption options = 7;
+  // disallow_other: the backend rejects a free-form "Other" answer for this
+  // question, so no free-text input is offered unless it has no options.
+  bool disallow_other = 8;
 }
 message AskAnswer { int32 question_index = 1; repeated string labels = 2; string other_text = 3; }
 message UserAskRequest { string request_id = 1; string tool_call_id = 2; string parent_tool_call_id = 3; repeated AskQuestion questions = 4; }
 message UserAskResolved { string request_id = 1; string parent_tool_call_id = 2; repeated AskAnswer answers = 3; bool skipped = 4; }
 message ToolPermissionRequest { string request_id = 1; string tool_call_id = 2; string tool_name = 3; bytes input = 4; }
 message ToolPermissionResolved { string request_id = 1; bool allowed = 2; bool always_allow = 3; string deny_reason = 4; }
+// ExecApprovalRequested is the backend-neutral approval request: approval_kind
+// (exec / plugin / system-agent / hermes) says which redacted content fields
+// the producer filled.
 message ExecApprovalRequested {
   string id = 1; string command_text = 2; string command_preview = 3;
   repeated string allowed_decisions = 4; string host = 5; string node_id = 6;
   string agent_id = 7; string session_key = 8; int64 created_at_ms = 9; int64 expires_at_ms = 10;
+  string approval_kind = 11; string description = 12; string tool_name = 13; string plugin_name = 14;
+  repeated string warnings = 15; string action_category = 16; repeated string message_targets = 17;
+  int32 recipient_count = 18; string payment_amount = 19; string payment_payee = 20;
+  string publish_target = 21; string publish_visibility = 22; string automation_name = 23;
 }
 message ExecApprovalResolved { string id = 1; string status = 2; string decision = 3; string resolved_by = 4; int64 resolved_at_ms = 5; }
 // ToolApprovalRequested / ToolApprovalResolved 是 agent 内置写工具(org / hook / ctl …)

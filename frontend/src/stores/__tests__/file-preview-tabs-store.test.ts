@@ -159,6 +159,18 @@ describe("file-preview-tabs-store", () => {
     expect(tabAt(7, "docs/guide.md")?.reveal).toMatchObject({ line: 8 });
   });
 
+  it("opens HTML carrying a line number in the source segment, since the rendered page has no lines", () => {
+    store().openPreview(7, "out/report.html", "directory", { line: 12 });
+
+    expect(tabAt(7, "out/report.html")?.segment).toBe("text");
+  });
+
+  it("leaves an HTML link without a line number on the default segment", () => {
+    store().openPreview(7, "out/report.html", "directory");
+
+    expect(tabAt(7, "out/report.html")?.segment).toBeNull();
+  });
+
   it("does not force a segment on code files, which have none", () => {
     store().openPreview(7, "src/foo.go", "directory", { line: 311 });
 

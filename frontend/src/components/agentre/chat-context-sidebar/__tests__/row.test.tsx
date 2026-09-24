@@ -735,6 +735,23 @@ describe("复制与在文件管理器中显示", () => {
       `${CWD}/internal/service/chat.go`,
     );
   });
+
+  // OpenPath 把「本机没有这个文件」放进应答而不再 reject：这里不能因此静默
+  // 什么都不做（文件可能刚被删掉），要说出这件事。
+  it("「用默认应用打开」时文件已不在本机：提示本机上没有这个文件", async () => {
+    openPathMock.mockResolvedValue({ unavailable: "not-found" });
+    renderChanges({});
+    const menu = await openRowMenu("chat.go");
+    await setupUser().click(
+      within(menu).getByRole("menuitem", { name: "Open with default app" }),
+    );
+
+    await vi.waitFor(() =>
+      expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
+        "This file isn't on this machine",
+      ),
+    );
+  });
 });
 
 describe("文件类型图标经共享组件渲染", () => {

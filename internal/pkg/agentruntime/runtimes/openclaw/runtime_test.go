@@ -231,11 +231,12 @@ func TestRuntimeCapabilities(t *testing.T) {
 	runtime := New(nil)
 	assert.True(t, runtime.Capabilities().Has(capability.CapAbort))
 	assert.True(t, runtime.Capabilities().Has(capability.CapExecApproval))
-	assert.False(t, runtime.Capabilities().Has(capability.CapAnswerUserAsk))
+	assert.True(t, runtime.Capabilities().Has(capability.CapAnswerUserAsk))
 	assert.False(t, runtime.Capabilities().Has(capability.CapForkSession))
 	// 硬不变量 5:openclaw 不获得思考力度,能力位为假使 composer 整颗控件不渲染。
 	assert.False(t, runtime.Capabilities().Has(capability.CapReasoningEffort))
 	var _ agentruntime.Aborter = runtime
+	var _ agentruntime.AskAnswerSink = runtime
 }
 
 // TestRuntimeRunsSelfFingerprintBackendLocally R13 认领后本机 OpenClaw backend 的
@@ -415,6 +416,7 @@ func TestRuntimeExecApprovalUsesGatewayDecisionsAndDoesNotFinishTheExec(t *testi
 	requested, ok := (<-events).(agentruntime.ExecApprovalRequested)
 	require.True(t, ok)
 	assert.Equal(t, "approval-1", requested.ID)
+	assert.Equal(t, agentruntime.ApprovalKindExec, requested.ApprovalKind)
 	assert.Equal(t, "printf safe", requested.CommandText)
 	assert.Equal(t, []string{"allow-once", "deny"}, requested.AllowedDecisions)
 	assert.Equal(t, "node-1", requested.NodeID)

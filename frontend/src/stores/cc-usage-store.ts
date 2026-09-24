@@ -27,7 +27,7 @@ type Actions = {
 };
 
 // shallowSameState 判断两个 UsageState 是否在 HUD 显示维度上相同:
-// reason / stale + data 的四个百分比与四个 resets_at(都是 QuotaMeter 与其
+// reason / stale + data 的两个主窗口与各档模型周配额的百分比 / resets_at(都是 QuotaMeter 与其
 // HoverCard 面板会渲染的量)。resets_at 是 ISO 字符串,直接 === 比较即可。
 //
 // 刻意不比较 fetchedAtMs:后端每次 probe 都写新的时间戳(cc_usage_svc/manager.go),
@@ -45,12 +45,24 @@ function shallowSameState(a: UsageState, b: UsageState): boolean {
   return (
     da.fiveHourPercent === db.fiveHourPercent &&
     da.weeklyPercent === db.weeklyPercent &&
-    (da.sonnetWeeklyPercent ?? null) === (db.sonnetWeeklyPercent ?? null) &&
-    (da.opusWeeklyPercent ?? null) === (db.opusWeeklyPercent ?? null) &&
     (da.fiveHourResetsAt ?? null) === (db.fiveHourResetsAt ?? null) &&
     (da.weeklyResetsAt ?? null) === (db.weeklyResetsAt ?? null) &&
-    (da.sonnetWeeklyResetsAt ?? null) === (db.sonnetWeeklyResetsAt ?? null) &&
-    (da.opusWeeklyResetsAt ?? null) === (db.opusWeeklyResetsAt ?? null)
+    sameModelWeekly(da.modelWeekly ?? [], db.modelWeekly ?? [])
+  );
+}
+
+function sameModelWeekly(
+  a: NonNullable<NonNullable<UsageState["data"]>["modelWeekly"]>,
+  b: NonNullable<NonNullable<UsageState["data"]>["modelWeekly"]>,
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (x, i) =>
+        x.model === b[i].model &&
+        x.percent === b[i].percent &&
+        (x.resetsAt ?? null) === (b[i].resetsAt ?? null),
+    )
   );
 }
 

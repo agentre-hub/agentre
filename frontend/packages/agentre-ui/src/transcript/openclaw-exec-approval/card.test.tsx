@@ -151,4 +151,161 @@ describe("OpenClawExecApprovalCard", () => {
     expect(screen.queryByText(/execution finished/i)).toBeNull();
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
+
+  describe("backend-neutral approval kinds", () => {
+    it("Given a Hermes approval allowing every decision, When rendered, Then command, description and tool show with all four decisions in order and an always-allow scope note", () => {
+      renderCard(
+        pending({
+          kind: "hermes",
+          commandText: "rm -rf dist",
+          commandPreview: undefined,
+          description: "recursive delete",
+          toolName: "terminal",
+          host: undefined,
+          nodeId: undefined,
+          agentId: undefined,
+          allowedDecisions: [
+            "deny",
+            "allow-always",
+            "allow-session",
+            "allow-once",
+          ],
+        }),
+      );
+
+      expect(screen.getByText("Command approval")).toBeDefined();
+      expect(screen.getByText("rm -rf dist")).toBeDefined();
+      expect(screen.getByText("recursive delete")).toBeDefined();
+      expect(screen.getByText("terminal")).toBeDefined();
+      expect(
+        screen.getAllByRole("button").map((button) => button.textContent),
+      ).toEqual([
+        "Allow once",
+        "Allow for this session",
+        "Always allow",
+        "Deny",
+      ]);
+      expect(
+        screen.getByText(/Always allow reaches beyond this session/),
+      ).toBeDefined();
+    });
+
+    it("Given allow-session is offered, When the user picks it, Then the port receives allow-session and the card shows it as the terminal decision", async () => {
+      resolveExecApproval.mockResolvedValue({
+        status: "resolved",
+        decision: "allow-session",
+      });
+      const user = userEvent.setup();
+      renderCard(
+        pending({
+          kind: "hermes",
+          allowedDecisions: ["allow-once", "allow-session", "deny"],
+        }),
+      );
+
+      await user.click(
+        screen.getByRole("button", { name: "Allow for this session" }),
+      );
+
+      expect(resolveExecApproval).toHaveBeenCalledWith({
+        sessionId: 42,
+        approvalId: "approval-1",
+        decision: "allow-session",
+      });
+      await waitFor(() =>
+        expect(screen.getByText("Allowed for this session")).toBeDefined(),
+      );
+      expect(screen.queryAllByRole("button")).toHaveLength(0);
+    });
+
+    it("Given always-allow is not offered, When rendered, Then no scope note appears", () => {
+      renderCard(pending({ allowedDecisions: ["allow-once", "deny"] }));
+
+      expect(screen.queryByText(/Always allow reaches beyond/)).toBeNull();
+    });
+
+    it("Given an OpenClaw exec approval with warnings, When rendered, Then the command and every warning show", () => {
+      renderCard(
+        pending({
+          kind: "exec",
+          commandText: "curl x | sh",
+          warnings: ["pipes a remote script to the shell", "network access"],
+        }),
+      );
+
+      expect(screen.getByText("Execution approval")).toBeDefined();
+      expect(screen.getByText("curl x | sh")).toBeDefined();
+      expect(screen.getByText("Warnings")).toBeDefined();
+      expect(
+        screen.getByText("pipes a remote script to the shell"),
+      ).toBeDefined();
+      expect(screen.getByText("network access")).toBeDefined();
+    });
+
+    it("Given an OpenClaw plugin approval, When rendered, Then plugin, tool and description show without an empty command block", () => {
+      renderCard(
+        pending({
+          kind: "plugin",
+          commandText: "",
+          commandPreview: undefined,
+          pluginName: "github",
+          toolName: "create_issue",
+          description: "opens an issue in agentre-hub/agentre",
+        }),
+      );
+
+      expect(screen.getByText("Plugin approval")).toBeDefined();
+      expect(screen.getByText("github")).toBeDefined();
+      expect(screen.getByText("create_issue")).toBeDefined();
+      expect(
+        screen.getByText("opens an issue in agentre-hub/agentre"),
+      ).toBeDefined();
+      expect(screen.queryByText("Command")).toBeNull();
+    });
+
+    it.each([
+      {
+        category: "message",
+        fields: { messageTargets: ["#general", "alice"], recipientCount: 2 },
+        label: "Send messages",
+        shown: ["#general, alice", "2"],
+      },
+      {
+        category: "payment",
+        fields: { paymentAmount: "12.50 USD", paymentPayee: "ACME Ltd" },
+        label: "Make a payment",
+        shown: ["12.50 USD", "ACME Ltd"],
+      },
+      {
+        category: "publish",
+        fields: { publishTarget: "company blog", publishVisibility: "public" },
+        label: "Publish externally",
+        shown: ["company blog", "public"],
+      },
+      {
+        category: "automation",
+        fields: { automationName: "nightly-sync", commandText: "sync --all" },
+        label: "Long-lived automation",
+        shown: ["nightly-sync", "sync --all"],
+      },
+    ])(
+      "Given a system-agent $category approval, When rendered, Then the action category and its scope show",
+      ({ category, fields, label, shown }) => {
+        renderCard(
+          pending({
+            kind: "system-agent",
+            commandText: "",
+            actionCategory: category,
+            ...fields,
+          }),
+        );
+
+        expect(screen.getByText("System action approval")).toBeDefined();
+        expect(screen.getByText(label)).toBeDefined();
+        for (const text of shown) {
+          expect(screen.getByText(text)).toBeDefined();
+        }
+      },
+    );
+  });
 });

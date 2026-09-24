@@ -72,7 +72,7 @@ const QUOTA_HOVER_CLOSE_DELAY_MS = 100;
 //   - "ok" / "rate_limited"+stale / "network"+stale → 5h X% · 7d Y%(stale 不可见标记,只在面板脚注里提示)
 //   - "auth_expired" / "device_offline" / "network"无stale → 灰态占位 "5h —%"
 //
-// 详情(重置倒计时 / Sonnet / Opus 拆分 / 异常态)在 HoverCard 面板里,不再用原生
+// 详情(重置倒计时 / 按模型的周配额 / 异常态)在 HoverCard 面板里,不再用原生
 // title —— 原生 title 不可键盘触达、不可着色、多行渲染跨平台不一致。
 export function QuotaMeter({
   data,
@@ -226,7 +226,7 @@ function QuotaRow({
 }
 
 // QuotaPanel 是 HoverCard 的内容:标题 + 设备名 + 两个主窗口 + 可选的
-// Sonnet / Opus 7 天分组 + 脚注。
+// 按模型 7 天分组(Fable / Opus / Sonnet 等,顺序与名字都照后端给的) + 脚注。
 function QuotaPanel({
   data,
   deviceLabel,
@@ -239,8 +239,7 @@ function QuotaPanel({
   const device = deviceLabel || "local";
   const d = data.data;
   const foot = quotaFootnote(data.reason, device, t);
-  const sonnet = d?.sonnetWeeklyPercent;
-  const opus = d?.opusWeeklyPercent;
+  const modelWeekly = d?.modelWeekly ?? [];
   return (
     <div>
       <div className="flex items-center gap-1.5 border-b border-border px-3 py-2">
@@ -269,24 +268,19 @@ function QuotaPanel({
             resetsAt={d.weeklyResetsAt}
             t={t}
           />
-          {sonnet != null || opus != null ? (
+          {modelWeekly.length > 0 ? (
             <div className="flex flex-col gap-2 border-l-2 border-border pl-2.5">
-              {sonnet != null ? (
+              {modelWeekly.map((limit) => (
                 <QuotaRow
-                  label={t("chat.quota.panel.sonnetWeekly")}
-                  percent={sonnet}
-                  resetsAt={d.sonnetWeeklyResetsAt}
+                  key={limit.model}
+                  label={t("chat.quota.panel.modelWeekly", {
+                    model: limit.model,
+                  })}
+                  percent={limit.percent}
+                  resetsAt={limit.resetsAt}
                   t={t}
                 />
-              ) : null}
-              {opus != null ? (
-                <QuotaRow
-                  label={t("chat.quota.panel.opusWeekly")}
-                  percent={opus}
-                  resetsAt={d.opusWeeklyResetsAt}
-                  t={t}
-                />
-              ) : null}
+              ))}
             </div>
           ) : null}
         </div>

@@ -224,6 +224,7 @@
       },
       "multi": "Multiple",
       "otherPlaceholder": "Custom answer - enter your own response...",
+      "secretAnswered": "Answered · content not shown",
       "skipped": "SKIPPED",
       "single": "Single",
       "submit": "Submit Reply",

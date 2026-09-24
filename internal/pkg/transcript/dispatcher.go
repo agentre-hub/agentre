@@ -62,5 +62,6 @@ func NewTurnDispatcher(adapters Adapters) *turn.Dispatcher {
 	d.Register((*agentruntime.PlanUpdated)(nil), handlers.PlanUpdatedHandler{Writer: adapters.Plan})
 	d.Register((*agentruntime.CompactBoundary)(nil), handlers.CompactBoundaryHandler{Inspector: adapters.Compact})
 	d.Register((*agentruntime.RuntimeStatus)(nil), handlers.RuntimeStatusHandler{})
+	d.Register((*agentruntime.UnsupportedRequestNotice)(nil), handlers.UnsupportedRequestNoticeHandler{})
 	return d
 }

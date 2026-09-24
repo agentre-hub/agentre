@@ -385,4 +385,207 @@ describe("UserAskCard", () => {
 
     expect(screen.getByRole("textbox")).toHaveValue("");
   });
+
+  describe("per-question answer contract", () => {
+    function askBlock(
+      questions: unknown[],
+      extra: Record<string, unknown> = {},
+    ): TranscriptBlock {
+      return {
+        type: "tool_use",
+        toolName: "AskUserQuestion",
+        canonical: {
+          kind: "user.ask",
+          userAsk: { requestId: "req-contract", questions, ...extra },
+        },
+      } as unknown as TranscriptBlock;
+    }
+
+    it("Given a Claude Code / Codex question without the backend switch, When it renders, Then Other stays offered even though isOther is false", () => {
+      renderCard(
+        <UserAskCard
+          toolBlock={askBlock([
+            {
+              question: "Which?",
+              header: "h",
+              isOther: false,
+              options: [{ label: "A", description: "" }],
+            },
+          ])}
+          sessionId={1}
+        />,
+      );
+      expect(screen.getByPlaceholderText(/Custom answer/)).toBeInTheDocument();
+    });
+
+    it("Given the backend disallows Other on a question with options, When it renders, Then only the options are answerable and their descriptions show", () => {
+      renderCard(
+        <UserAskCard
+          toolBlock={askBlock([
+            {
+              question: "Which region?",
+              header: "Region",
+              disallowOther: true,
+              options: [
+                { label: "us", description: "Virginia data centre" },
+                { label: "eu", description: "" },
+              ],
+            },
+          ])}
+          sessionId={1}
+        />,
+      );
+      expect(screen.getByText("Virginia data centre")).toBeInTheDocument();
+      expect(screen.queryByPlaceholderText(/Custom answer/)).toBeNull();
+      expect(screen.queryByRole("textbox")).toBeNull();
+    });
+
+    it("Given the backend disallows Other on a question with no options, When it renders, Then the text input is still offered as the only way to answer", async () => {
+      const user = userEvent.setup();
+      renderCard(
+        <UserAskCard
+          toolBlock={askBlock([
+            {
+              question: "Name the branch",
+              header: "Branch",
+              disallowOther: true,
+              options: [],
+            },
+          ])}
+          sessionId={1}
+        />,
+      );
+      await user.type(screen.getByRole("textbox"), "feature/x");
+      await user.click(screen.getByRole("button", { name: /Submit Reply/ }));
+      await waitFor(() =>
+        expect(answerUserQuestion).toHaveBeenCalledWith(
+          expect.objectContaining({
+            answers: [
+              {
+                questionIndex: 0,
+                labels: ["__other__"],
+                otherText: "feature/x",
+              },
+            ],
+          }),
+        ),
+      );
+    });
+
+    it("Given a multi-select question, When two options are picked, Then both are submitted", async () => {
+      const user = userEvent.setup();
+      renderCard(
+        <UserAskCard
+          toolBlock={askBlock([
+            {
+              question: "Which checks?",
+              header: "Checks",
+              multiSelect: true,
+              disallowOther: true,
+              options: [
+                { label: "lint", description: "" },
+                { label: "test", description: "" },
+              ],
+            },
+          ])}
+          sessionId={1}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: /^lint$/ }));
+      await user.click(screen.getByRole("button", { name: /^test$/ }));
+      await user.click(screen.getByRole("button", { name: /Submit Reply/ }));
+      await waitFor(() =>
+        expect(answerUserQuestion).toHaveBeenCalledWith(
+          expect.objectContaining({
+            answers: [
+              { questionIndex: 0, labels: ["lint", "test"], otherText: "" },
+            ],
+          }),
+        ),
+      );
+    });
+
+    it("Given a pending secret question, When it renders, Then the answer input is masked", () => {
+      renderCard(
+        <UserAskCard
+          toolBlock={askBlock([
+            {
+              question: "API token?",
+              header: "Token",
+              isSecret: true,
+              isOther: true,
+              options: [],
+            },
+          ])}
+          sessionId={1}
+        />,
+      );
+      expect(screen.getByPlaceholderText(/Custom answer/)).toHaveAttribute(
+        "type",
+        "password",
+      );
+    });
+
+    it("Given an answered secret question whose answer carries no content, When it renders, Then it shows answered without any answer input", () => {
+      renderCard(
+        <UserAskCard
+          toolBlock={askBlock(
+            [
+              {
+                question: "API token?",
+                header: "Token",
+                isSecret: true,
+                isOther: true,
+                options: [],
+              },
+            ],
+            {
+              answered: true,
+              answers: [{ questionIndex: 0, labels: null }],
+            },
+          )}
+          sessionId={1}
+        />,
+      );
+      expect(screen.getByText("ANSWERED")).toBeInTheDocument();
+      expect(
+        screen.getByText("Answered · content not shown"),
+      ).toBeInTheDocument();
+      expect(screen.queryByPlaceholderText(/Custom answer/)).toBeNull();
+    });
+
+    it("Given an answered group whose secret answer carries no content, When it renders, Then the secret question's tab still reads as answered", () => {
+      renderCard(
+        <UserAskCard
+          toolBlock={askBlock(
+            [
+              {
+                question: "Region?",
+                header: "Region",
+                options: [{ label: "us", description: "" }],
+              },
+              {
+                question: "API token?",
+                header: "Token",
+                isSecret: true,
+                options: [],
+              },
+            ],
+            {
+              answered: true,
+              answers: [
+                { questionIndex: 0, labels: ["us"] },
+                { questionIndex: 1, labels: null },
+              ],
+            },
+          )}
+          sessionId={1}
+        />,
+      );
+      const tokenTab = screen.getByRole("button", { name: /Q2 · Token/ });
+      expect(tokenTab.querySelector("svg")?.getAttribute("class")).toMatch(
+        /circle-check|check-circle/,
+      );
+    });
+  });
 });

@@ -421,6 +421,27 @@ func TestToChatMessage_NoticeBlockProjectionKeepsFallbackKindEmpty(t *testing.T)
 	assert.Empty(t, cm.Blocks[0].NoticeKind)
 }
 
+// TestToChatMessage_NoticeBlockProjectionDecodesUnsupportedRequest 钉死 Hermes
+// 不支持反向请求提示的投影(spec 2026-09-17):负载只带只读的 kind + purpose,
+// 从不把原始 JSON 或供应商字段泄漏给前端 —— 前端按 NoticeKind + NoticePurpose
+// 走 t() 拼句子。
+func TestToChatMessage_NoticeBlockProjectionDecodesUnsupportedRequest(t *testing.T) {
+	m := &chat_entity.Message{ID: 1, SessionID: 9, Role: "assistant"}
+	require.NoError(t, m.SetBlocks([]blocks.ContentBlock{
+		blocks.NoticeBlock{Level: "info", Text: chatblocks.EncodeUnsupportedRequestNotice("sudo_password")},
+	}))
+
+	cm, err := toChatMessage(m)
+	require.NoError(t, err)
+	require.Len(t, cm.Blocks, 1)
+	assert.Equal(t, "notice", cm.Blocks[0].Type)
+	assert.Equal(t, "info", cm.Blocks[0].Level)
+	assert.Equal(t, "hermes_unsupported_request", cm.Blocks[0].NoticeKind)
+	assert.Equal(t, "sudo_password", cm.Blocks[0].NoticePurpose)
+	assert.Empty(t, cm.Blocks[0].Text, "结构化负载不把原始 JSON 泄漏给前端")
+	assert.Empty(t, cm.Blocks[0].ProviderKey)
+}
+
 func TestAskQuestionsToDTO_PreservesRequestUserInputMetadata(t *testing.T) {
 	got := chatblocks.QuestionsFromRuntime([]agentruntime.AskQuestion{{
 		ID:          "target",

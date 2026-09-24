@@ -192,6 +192,15 @@ export const EventImage = "image";
 export const EventContextWindowUpdated = "context_window_updated";
 
 /**
+ * EventUnsupportedRequestNotice backend 自己无卡承接的反向请求已在传输层立即
+ * 答复(如 Hermes sudo/secret/vault.* — 见 hermes/frame.go 的
+ * unsupportedServerRequests)后 emit,只携带一个只读用途分类(event.go 的
+ * UnsupportedRequestPurpose),从不携带协议方法名或原始参数(spec 2026-09-17
+ * "Unsupported Hermes requests")。chat_svc 据此在转录里插入一条提示。
+ */
+export const EventUnsupportedRequestNotice = "unsupported_request_notice";
+
+/**
  * 全部 kind 的联合类型(= Go 的 agentruntime.EventKind)。
  *
  * 消费方把手上的 kind 收窄成这个类型之后,在 switch 的 default 分支写一句
@@ -229,4 +238,5 @@ export type EventKind =
   | typeof EventUserMessage
   | typeof EventUnrecognizedBlock
   | typeof EventImage
-  | typeof EventContextWindowUpdated;
+  | typeof EventContextWindowUpdated
+  | typeof EventUnsupportedRequestNotice;

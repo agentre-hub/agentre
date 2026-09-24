@@ -207,3 +207,32 @@ func TestBuildUpdatedInputAnswers(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+// Given 一题秘密问题与一题普通问题的答复,When 生产者按问题剥秘密答案,Then 秘密那题
+// 只留题号(表示「已作答」)、不带任何选项或文本,普通那题原样保留;输入切片不被改写。
+func TestRedactSecretAnswers(t *testing.T) {
+	questions := []AskQuestion{
+		{ID: "q1", Question: "Region", Options: []AskOption{{Label: "us"}}},
+		{ID: "q2", Question: "Token?", IsSecret: true},
+	}
+	answers := []AskAnswer{
+		{QuestionIndex: 0, Labels: []string{"us"}},
+		{QuestionIndex: 1, Labels: []string{OtherAnswerLabel}, OtherText: "s3cr3t"},
+	}
+
+	got := RedactSecretAnswers(questions, answers)
+
+	assert.Equal(t, []AskAnswer{
+		{QuestionIndex: 0, Labels: []string{"us"}},
+		{QuestionIndex: 1},
+	}, got)
+	assert.Equal(t, "s3cr3t", answers[1].OtherText, "caller's answers must stay intact for the backend reply")
+
+	t.Run("out-of-range index is kept as-is rather than guessed secret", func(t *testing.T) {
+		got := RedactSecretAnswers(questions, []AskAnswer{{QuestionIndex: 5, Labels: []string{"x"}}})
+		assert.Equal(t, []AskAnswer{{QuestionIndex: 5, Labels: []string{"x"}}}, got)
+	})
+	t.Run("no answers stays nil", func(t *testing.T) {
+		assert.Nil(t, RedactSecretAnswers(questions, nil))
+	})
+}

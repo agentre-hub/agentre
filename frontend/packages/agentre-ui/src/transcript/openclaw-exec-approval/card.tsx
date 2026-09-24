@@ -9,8 +9,91 @@ import type { TranscriptBlockExecApproval } from "../dto";
 import { useTranscriptPorts } from "../ports-context";
 import { TranscriptCard, TranscriptCardBody } from "../transcript-card";
 
-const supportedDecisions = ["allow-once", "allow-always", "deny"] as const;
+// 后端无关的决定词表，按按钮顺序排列；卡片只渲染后端在 allowedDecisions 里给出的那几项。
+const supportedDecisions = [
+  "allow-once",
+  "allow-session",
+  "allow-always",
+  "deny",
+] as const;
 type ExecApprovalDecision = (typeof supportedDecisions)[number];
+
+type Translate = ReturnType<typeof useUiTranslation>["t"];
+
+function approvalTitle(t: Translate, kind: string | undefined): string {
+  switch (kind) {
+    case "hermes":
+      return t("openclawExecApproval.titleHermes");
+    case "plugin":
+      return t("openclawExecApproval.titlePlugin");
+    case "system-agent":
+      return t("openclawExecApproval.titleSystemAgent");
+    default:
+      return t("openclawExecApproval.title");
+  }
+}
+
+function actionCategoryLabel(t: Translate, category: string): string {
+  switch (category) {
+    case "message":
+      return t("openclawExecApproval.actionCategory.message");
+    case "payment":
+      return t("openclawExecApproval.actionCategory.payment");
+    case "publish":
+      return t("openclawExecApproval.actionCategory.publish");
+    case "automation":
+      return t("openclawExecApproval.actionCategory.automation");
+    default:
+      return category;
+  }
+}
+
+/** 后端给出的已脱敏内容里，按「标签 · 值」一行呈现的那几格（空的不出现）。 */
+function detailRows(
+  t: Translate,
+  approval: TranscriptBlockExecApproval,
+): { label: string; value: string }[] {
+  const rows: { label: string; value: string | undefined }[] = [
+    {
+      label: t("openclawExecApproval.action"),
+      value: approval.actionCategory
+        ? actionCategoryLabel(t, approval.actionCategory)
+        : undefined,
+    },
+    { label: t("openclawExecApproval.plugin"), value: approval.pluginName },
+    { label: t("openclawExecApproval.tool"), value: approval.toolName },
+    {
+      label: t("openclawExecApproval.targets"),
+      value: approval.messageTargets?.join(", "),
+    },
+    {
+      label: t("openclawExecApproval.recipientCount"),
+      value: approval.recipientCount
+        ? String(approval.recipientCount)
+        : undefined,
+    },
+    { label: t("openclawExecApproval.amount"), value: approval.paymentAmount },
+    { label: t("openclawExecApproval.payee"), value: approval.paymentPayee },
+    {
+      label: t("openclawExecApproval.publishTarget"),
+      value: approval.publishTarget,
+    },
+    {
+      label: t("openclawExecApproval.visibility"),
+      value: approval.publishVisibility,
+    },
+    {
+      label: t("openclawExecApproval.automation"),
+      value: approval.automationName,
+    },
+    { label: t("openclawExecApproval.host"), value: approval.host },
+    { label: t("openclawExecApproval.node"), value: approval.nodeId },
+    { label: t("openclawExecApproval.agent"), value: approval.agentId },
+  ];
+  return rows.filter((row): row is { label: string; value: string } =>
+    Boolean(row.value),
+  );
+}
 
 function allowedDecisions(
   approval: TranscriptBlockExecApproval,
@@ -48,6 +131,7 @@ export function OpenClawExecApprovalCard({
   const decision = localTerminal?.decision ?? approval.decision;
   const pending = status === "pending";
   const decisions = allowedDecisions(approval);
+  const details = detailRows(t, approval);
 
   const resolve = async (nextDecision: ExecApprovalDecision) => {
     if (!pending || inFlightRef.current) return;
@@ -87,49 +171,55 @@ export function OpenClawExecApprovalCard({
     >
       <div className="flex items-center gap-2 px-3.5 py-2.5">
         <ShieldAlertIcon className="size-4 shrink-0 text-status-waiting" />
-        <span className="font-medium">{t("openclawExecApproval.title")}</span>
+        <span className="font-medium">{approvalTitle(t, approval.kind)}</span>
         <Badge className="ml-auto" variant={pending ? "secondary" : "outline"}>
           {pending ? t("openclawExecApproval.status.pending") : terminalLabel}
         </Badge>
       </div>
 
       <TranscriptCardBody className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-aux text-muted-foreground">
-            {t("openclawExecApproval.command")}
-          </span>
-          <pre className="max-h-64 overflow-auto rounded-sm bg-muted/40 px-2.5 py-2 text-aux whitespace-pre-wrap">
-            <code>{approval.commandText}</code>
-          </pre>
-        </div>
+        {approval.commandText && (
+          <div className="flex flex-col gap-1">
+            <span className="text-aux text-muted-foreground">
+              {t("openclawExecApproval.command")}
+            </span>
+            <pre className="max-h-64 overflow-auto rounded-sm bg-muted/40 px-2.5 py-2 text-aux whitespace-pre-wrap">
+              <code>{approval.commandText}</code>
+            </pre>
+          </div>
+        )}
 
-        {(approval.host || approval.nodeId || approval.agentId) && (
+        {approval.description && (
+          <div className="flex flex-col gap-1 text-aux">
+            <span className="text-muted-foreground">
+              {t("openclawExecApproval.description")}
+            </span>
+            <p className="whitespace-pre-wrap">{approval.description}</p>
+          </div>
+        )}
+
+        {details.length > 0 && (
           <dl className="flex flex-wrap gap-x-4 gap-y-2 text-aux">
-            {approval.host && (
-              <div className="flex items-center gap-1.5">
-                <dt className="text-muted-foreground">
-                  {t("openclawExecApproval.host")}
-                </dt>
-                <dd>{approval.host}</dd>
+            {details.map((row) => (
+              <div key={row.label} className="flex items-center gap-1.5">
+                <dt className="text-muted-foreground">{row.label}</dt>
+                <dd>{row.value}</dd>
               </div>
-            )}
-            {approval.nodeId && (
-              <div className="flex items-center gap-1.5">
-                <dt className="text-muted-foreground">
-                  {t("openclawExecApproval.node")}
-                </dt>
-                <dd>{approval.nodeId}</dd>
-              </div>
-            )}
-            {approval.agentId && (
-              <div className="flex items-center gap-1.5">
-                <dt className="text-muted-foreground">
-                  {t("openclawExecApproval.agent")}
-                </dt>
-                <dd>{approval.agentId}</dd>
-              </div>
-            )}
+            ))}
           </dl>
+        )}
+
+        {approval.warnings && approval.warnings.length > 0 && (
+          <div className="flex flex-col gap-1 text-aux">
+            <span className="text-muted-foreground">
+              {t("openclawExecApproval.warnings")}
+            </span>
+            <ul className="flex list-disc flex-col gap-0.5 pl-4 text-status-waiting">
+              {approval.warnings.map((warning, index) => (
+                <li key={index}>{warning}</li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {!pending && approval.resolvedBy && (
@@ -165,6 +255,11 @@ export function OpenClawExecApprovalCard({
             <span role="alert" className="text-aux text-destructive">
               {error}
             </span>
+          )}
+          {decisions.includes("allow-always") && (
+            <p className="basis-full text-aux text-muted-foreground">
+              {t("openclawExecApproval.alwaysScopeNote")}
+            </p>
           )}
         </TranscriptCardBody>
       )}

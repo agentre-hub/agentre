@@ -16,6 +16,9 @@
   --card-foreground: #18181b;
   --popover: #ffffff;
   --popover-foreground: #18181b;
+  /* Canvas under a rendered HTML page in the file preview. Pages are written
+     against the browser's white default, so it stays white in both themes. */
+  --preview-canvas: #ffffff;
   --rail: #e4e4e7;
 
   /* Brand — steel-blue, muted cool tone distinct from the bright agent blues */
@@ -252,6 +255,7 @@
   --card-foreground: #e8e8e9;
   --popover: #292a2e;
   --popover-foreground: #e8e8e9;
+  --preview-canvas: #ffffff;
   --rail: #0b0b0c;
 
   /* Brand — steel-blue, muted cool tone distinct from the bright agent blues */
@@ -453,6 +457,7 @@
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
+  --color-preview-canvas: var(--preview-canvas);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);

@@ -87,8 +87,20 @@ export interface TranscriptPorts {
   ): Promise<ResolvePlanActionResult>;
 
   // ─── 外壳能力：宿主环境差异最大的一批 ─────────────────────────────────
-  /** 在宿主的文件管理器/编辑器里打开一个本地路径。浏览器端可不实现（见下）。 */
+  /**
+   * 在宿主的文件管理器/编辑器里打开一个本地路径。浏览器端可不实现（见下）。
+   *
+   * 路径在本机不存在（远端会话的文件通常如此）时 reject 一个带
+   * `kind: "notFound"` 的失败（与 `FilePreviewFailure` 同一种标记），调用方据此说
+   * 事实并给出预览出口；其余失败 reject 宿主自己那句话。
+   */
   openPath?(path: string): Promise<void>;
+  /**
+   * 两条路都在时，点击链接默认走哪一条。浮窗据此给出**相反**的那条（spec
+   * 「文件链接浮窗」）。设置仍归宿主：包只读这个答案，不知道设置怎么存。宿主不
+   * 提供时浮窗不出相反按钮，点击按今天的 previewFile 握手分流。
+   */
+  fileOpenDefault?(): "preview" | "external";
   /** 在外部浏览器打开 URL。桌面端走 Wails runtime，浏览器端就是 window.open。 */
   openExternalURL?(url: string): void;
   /** 读工作区文件（转录里内联图片需要）。 */
@@ -116,6 +128,11 @@ export interface TranscriptPorts {
     sessionId: number,
     path: string,
     anchor?: PreviewAnchor,
+    /**
+     * `force`：用户在浮窗 / 失败提示里**明确**选了「预览」，宿主忽略
+     * 「用外部应用打开」的设置照样接手。
+     */
+    opts?: { force?: boolean },
   ): boolean;
 }
 

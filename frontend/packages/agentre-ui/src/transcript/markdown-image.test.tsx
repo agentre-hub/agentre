@@ -478,6 +478,28 @@ describe("MarkdownImage", () => {
     );
   });
 
+  // 远端会话的文件在另一台机器上:宿主 reject 带 notFound 标记的失败,chip 要与
+  // 转录链接同样说事实,而不是把标记 token 贴成「打开失败: not-found」。
+  it("states the fact when the file is not on this machine instead of echoing the host token", async () => {
+    portMocks.openPath.mockRejectedValueOnce(
+      Object.assign(new Error("not-found"), { kind: "notFound" }),
+    );
+    render(<MarkdownImage src="notes.txt" cwd="/proj" sessionId={7} alt="A" />);
+
+    fireEvent.click(screen.getByRole("button"));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    const [title, opts] = sonnerMocks.toast.error.mock.calls[0] as [
+      string,
+      { description?: string },
+    ];
+    expect(title).toBe("This file isn't on this machine");
+    expect(opts.description).toBe("It may be on a remote machine");
+    expect(JSON.stringify(sonnerMocks.toast.error.mock.calls)).not.toContain(
+      "not-found",
+    );
+  });
+
   // 宿主**有** openPath 能力,不可点的原因只在路径本身:越界的路径没有 absolutePath。
   it("renders an outside-cwd fallback chip as inert text (no button, no open)", () => {
     const { container } = render(

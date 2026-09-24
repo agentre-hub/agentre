@@ -24,8 +24,7 @@
       "aria": "Claude Code quota 5h {{five}}% 7d {{seven}}% from {{device}}",
       "panel": {
         "fiveHour": "5-hour window",
-        "opusWeekly": "Opus 7-day",
-        "sonnetWeekly": "Sonnet 7-day",
+        "modelWeekly": "{{model}} 7-day",
         "title": "Claude subscription usage",
         "usedNote": "Percentages are usage · refreshed every 5 minutes",
         "weekly": "7-day window"

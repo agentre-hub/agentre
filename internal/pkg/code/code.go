@@ -86,6 +86,14 @@ const (
 	HermesUnreachable                        // 登录端点不可达
 )
 
+// OpenClaw 运行期 12040~
+//
+// 这一段是**转录里的可读错误**：runtime 用 i18n.NewError 包进一轮的 ErrorEvent，
+// 用户在对话里直接读到，不是给 Wails 桥分流的码。
+const (
+	OpenClawYieldFollowUpUnconfirmed = iota + 12040 // 让出（yielded）后等待的后续 run，在断线 / 丢帧后无法确认状态
+)
+
 // App 设置 15000~15999
 const (
 	AppSettingNotFound      = iota + 15000 // 设置项不存在

@@ -54,6 +54,22 @@
       "reasoningEffortSwitch": {
         "followBackend": "已改回跟随后端配置",
         "sentence": "自此思考力度 · {{level}}"
+      },
+      "hermesUnsupportedRequest": {
+        "sentence": "Hermes 请求了{{purpose}}，Agentre 暂不支持，已跳过",
+        "purpose": {
+          "sudo_password": "sudo 密码",
+          "secret": "密钥",
+          "vault_unlock": "解锁密码",
+          "vault_save_login": "保存登录信息",
+          "vault_code": "验证码",
+          "terminal_read": "读取终端输出",
+          "preview_read": "读取预览",
+          "window_read": "读取窗口状态",
+          "preview_act": "预览操作",
+          "tour": "产品导览",
+          "unknown": "一项未知操作"
+        }
       }
     },
     "debug": {
@@ -142,28 +158,49 @@
     },
     "decision": {
       "allow-once": "仅本次允许",
+      "allow-session": "本会话允许",
       "allow-always": "始终允许",
       "deny": "拒绝"
     },
     "decisionResult": {
       "allow-once": "已允许一次",
+      "allow-session": "已本会话允许",
       "allow-always": "已始终允许",
       "deny": "已拒绝"
-    }
+    },
+    "titleHermes": "命令审批",
+    "titlePlugin": "插件审批",
+    "titleSystemAgent": "系统操作审批",
+    "description": "说明",
+    "tool": "工具",
+    "plugin": "插件",
+    "warnings": "警告",
+    "action": "操作",
+    "targets": "发送对象",
+    "recipientCount": "人数",
+    "amount": "金额",
+    "payee": "收款方",
+    "publishTarget": "发布到",
+    "visibility": "可见范围",
+    "automation": "自动化",
+    "actionCategory": {
+      "message": "发送消息",
+      "payment": "付款",
+      "publish": "对外发布",
+      "automation": "长期授权的自动化"
+    },
+    "alwaysScopeNote": "「始终允许」不限于本会话：此后后端遇到同类请求将直接放行，不再询问。"
   },
   "richLink": {
-    "clickToOpen": "点击打开这个文件",
-    "localFile": "本地文件",
-    "localFileExternal": "本地文件 · 项目外",
-    "localFolder": "本地文件夹",
-    "localFolderExternal": "本地文件夹 · 项目外",
+    "copyLink": "复制链接",
+    "copyPath": "复制完整路径",
+    "maybeRemote": "它可能在远端机器上",
+    "notOnThisMachine": "本机上没有这个文件",
+    "openExternal": "系统打开",
+    "openExternalAria": "用系统默认应用打开",
     "openFailed": "打开失败: {{error}}",
-    "openInBrowser": "点击在系统浏览器中打开",
-    "openWithDefaultApp": "点击用系统默认应用打开",
-    "outsideCwd": "路径不在当前 cwd 之下，不展示项目根分段。",
-    "projectRoot": "项目根",
-    "relative": "相对",
-    "url": "URL"
+    "openPreview": "预览",
+    "openPreviewAria": "在预览面板打开"
   },
   "terminal": {
     "banner": {

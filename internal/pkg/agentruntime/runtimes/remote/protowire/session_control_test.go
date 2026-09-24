@@ -19,7 +19,7 @@ import (
 // 这是 session.pendingWaiters 的生产接缝:daemon/protobuf_registry.go 与
 // peer/protobuf_inbound.go 用 ToProto 装配应答,remote/runtime.go 用 FromProto 还原。
 // 会拒绝的错误实现:把 Input 当 UTF-8 字符串搬运(0x00/0xFF 会被改写),或漏搬
-// MultiSelect / IsOther / IsSecret / Option.Preview 之类的布尔与次要字段。
+// MultiSelect / IsOther / IsSecret / DisallowOther / Option.Preview 之类的布尔与次要字段。
 func TestPendingWaitersRoundTripPreservesBinaryInputAndQuestions(t *testing.T) {
 	want := wire.SessionPendingWaitersResult{
 		ToolPermissions: []agentruntime.PendingToolPermission{{
@@ -29,7 +29,7 @@ func TestPendingWaitersRoundTripPreservesBinaryInputAndQuestions(t *testing.T) {
 			RequestID: "ask-1",
 			Questions: []agentruntime.AskQuestion{{
 				ID: "q-1", Question: "Choose", Header: "Mode", MultiSelect: true,
-				IsOther: true, IsSecret: true,
+				IsOther: true, IsSecret: true, DisallowOther: true,
 				Options: []agentruntime.AskOption{{Label: "A", Description: "first", Preview: "a"}},
 			}},
 		}},

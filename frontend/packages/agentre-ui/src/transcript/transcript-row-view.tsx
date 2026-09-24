@@ -709,6 +709,27 @@ function MessageBody({
   );
 }
 
+// agentruntime.UnsupportedRequestPurpose 的封闭词表(与 chat.notice.hermesUnsupportedRequest.purpose
+// 下的文案一一对应)。发送方比本端新、或没带用途时落到 unknown,绝不拼出查不到的 key。
+const UNSUPPORTED_REQUEST_PURPOSES = new Set([
+  "sudo_password",
+  "secret",
+  "vault_unlock",
+  "vault_save_login",
+  "vault_code",
+  "terminal_read",
+  "preview_read",
+  "window_read",
+  "preview_act",
+  "tour",
+]);
+
+function unsupportedRequestPurposeKey(purpose: string | undefined): string {
+  return purpose && UNSUPPORTED_REQUEST_PURPOSES.has(purpose)
+    ? purpose
+    : "unknown";
+}
+
 // ─── RenderItem → JSX ────────────────────────────────────────────────────────
 
 // messageId 是本行所属的 assistant 消息 —— 审批 / 权限卡做乐观更新时要用它定位
@@ -860,34 +881,44 @@ function RenderItemView({
       // 同一条通道、同一份负载，只是换字段——档位在 reasoningEffort 上，空串表示
       // 改回跟随后端配置。它同样没有 Text（后端对结构化 notice 一律置空），所以
       // 少了这一支就只剩一个空灰框。
+      // noticeKind==="hermes_unsupported_request" 是 Hermes 反向请求提示（spec
+      // 2026-09-17）：后端只给一个只读用途分类 noticePurpose（从不是协议方法名或
+      // 原始参数），这里两段 t() 拼出「Hermes 请求了〈用途〉，Agentre 暂不支持，
+      // 已跳过」——用途文案与句子模板分开翻译，purpose 不是自由文本。
       const providerKey = item.block.providerKey;
       const providerLabel = item.block.providerName || providerKey;
       const modelKey = item.block.modelKey;
       const modelLabel = item.block.modelName || modelKey;
       const noticeKind = item.block.noticeKind;
       const content =
-        noticeKind === "reasoning_effort"
-          ? item.block.reasoningEffort
-            ? t("chat.notice.reasoningEffortSwitch.sentence", {
-                level: item.block.reasoningEffort,
-              })
-            : t("chat.notice.reasoningEffortSwitch.followBackend")
-          : noticeKind === "switch"
-            ? providerKey
-              ? modelKey
-                ? t("chat.notice.providerSwitch.fixedModel", {
-                    provider: providerLabel,
-                    model: modelLabel,
-                  })
-                : t("chat.notice.providerSwitch.sentence", {
-                    provider: providerLabel,
-                  })
-              : t("chat.notice.providerSwitch.followAgentBinding")
-            : providerKey
-              ? t("chat.notice.providerFallback.sentence", {
-                  provider: providerLabel,
+        noticeKind === "hermes_unsupported_request"
+          ? t("chat.notice.hermesUnsupportedRequest.sentence", {
+              purpose: t(
+                `chat.notice.hermesUnsupportedRequest.purpose.${unsupportedRequestPurposeKey(item.block.noticePurpose)}`,
+              ),
+            })
+          : noticeKind === "reasoning_effort"
+            ? item.block.reasoningEffort
+              ? t("chat.notice.reasoningEffortSwitch.sentence", {
+                  level: item.block.reasoningEffort,
                 })
-              : (item.block.text ?? "");
+              : t("chat.notice.reasoningEffortSwitch.followBackend")
+            : noticeKind === "switch"
+              ? providerKey
+                ? modelKey
+                  ? t("chat.notice.providerSwitch.fixedModel", {
+                      provider: providerLabel,
+                      model: modelLabel,
+                    })
+                  : t("chat.notice.providerSwitch.sentence", {
+                      provider: providerLabel,
+                    })
+                : t("chat.notice.providerSwitch.followAgentBinding")
+              : providerKey
+                ? t("chat.notice.providerFallback.sentence", {
+                    provider: providerLabel,
+                  })
+                : (item.block.text ?? "");
       return (
         <section
           role="status"

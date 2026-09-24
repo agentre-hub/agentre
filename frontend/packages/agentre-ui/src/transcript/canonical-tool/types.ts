@@ -65,6 +65,8 @@ export type AskQuestionDTO = {
   multiSelect?: boolean;
   isOther?: boolean;
   isSecret?: boolean;
+  /** 后端逐题关掉「其他」自由输入；无选项的题仍显示文本输入。缺省沿用总是提供。 */
+  disallowOther?: boolean;
   options: { label: string; description: string; preview?: string }[];
 };
 export type AskAnswerDTO = {

@@ -62,6 +62,7 @@ type testConnectParams struct {
 	} `json:"client"`
 	Role   string   `json:"role"`
 	Scopes []string `json:"scopes"`
+	Caps   []string `json:"caps"`
 	Device struct {
 		ID        string `json:"id"`
 		PublicKey string `json:"publicKey"`
@@ -219,6 +220,25 @@ func TestClientChallengeConnectAndOutOfOrderResponses(t *testing.T) {
 	require.NoError(t, secondErr)
 	assert.Equal(t, "first", first.Method)
 	assert.Equal(t, "second", second.Method)
+}
+
+func TestClientConnectDeclaresApprovalCaps(t *testing.T) {
+	// Gateway only delivers exec / plugin / system-agent approval broadcasts to a
+	// connection whose caps include "approvals" (or a narrower per-kind cap).
+	// AgentRE wants all three kinds, so connect must declare the broad cap.
+	gatewayURL := newTestGateway(t, func(conn *websocket.Conn, _ int) {
+		writeChallenge(t, conn, "caps-nonce")
+		connect := readTestRequest(t, conn)
+		var params testConnectParams
+		require.NoError(t, json.Unmarshal(connect.Params, &params))
+		assert.Equal(t, []string{"approvals"}, params.Caps)
+		writeHello(t, conn, connect.ID, ProtocolVersion, RequiredOperatorScopes, "caps-conn")
+	})
+	client, err := NewClient(Config{URL: gatewayURL, Identity: testIdentity(t), Platform: "linux"})
+	require.NoError(t, err)
+	defer client.Close()
+	_, err = client.Start(context.Background())
+	require.NoError(t, err)
 }
 
 func TestClientHandshakeFailures(t *testing.T) {

@@ -14,7 +14,14 @@ type ExecApprovalRequestedHandler struct{}
 func (ExecApprovalRequestedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	request := ev.(agentruntime.ExecApprovalRequested)
 	block := &blocks.ExecApprovalBlock{
-		ID: request.ID, CommandText: request.CommandText, CommandPreview: request.CommandPreview,
+		ID: request.ID, Kind: request.ApprovalKind, SessionKey: request.SessionKey,
+		CommandText: request.CommandText, CommandPreview: request.CommandPreview,
+		Description: request.Description, ToolName: request.ToolName, PluginName: request.PluginName,
+		Warnings: slices.Clone(request.Warnings), ActionCategory: request.ActionCategory,
+		MessageTargets: slices.Clone(request.MessageTargets), RecipientCount: request.RecipientCount,
+		PaymentAmount: request.PaymentAmount, PaymentPayee: request.PaymentPayee,
+		PublishTarget: request.PublishTarget, PublishVisibility: request.PublishVisibility,
+		AutomationName:   request.AutomationName,
 		AllowedDecisions: slices.Clone(request.AllowedDecisions),
 		Host:             request.Host, NodeID: request.NodeID, AgentID: request.AgentID,
 		Status: "pending", CreatedAtMs: request.CreatedAtMs, ExpiresAtMs: request.ExpiresAtMs,

@@ -18,6 +18,19 @@ import (
 // 供应商回退/切换提示(本功能产出的结构化小 JSON)解回 ProviderKey + ProviderName +
 // NoticeKind、Text 置空 —— 前端走 t() 渲染;非结构化旧数据原样透传 Text。
 func noticeBlockToChatBlock(tb blocks.NoticeBlock) ChatBlock {
+	// Hermes 不支持的反向请求提示(spec 2026-09-17)先判:它与 ProviderNotice 共用
+	// NoticeBlock 载体和顶层 "kind" 字段名,而 DecodeProviderNotice 只要求
+	// ProviderKey/Kind 任一非空就判定 ok —— 先查这个更严格的判据(kind 必须精确
+	// 等于 UnsupportedRequestNoticeKind),否则会被 DecodeProviderNotice 抢先
+	// "认领"成一条 ProviderKey 为空的坏切换 notice。
+	if p, ok := chatblocks.DecodeUnsupportedRequestNotice(tb.Text); ok {
+		return ChatBlock{
+			Type:          ChatBlockTypeNotice,
+			Level:         tb.Level,
+			NoticeKind:    p.Kind,
+			NoticePurpose: p.Purpose,
+		}
+	}
 	if p, ok := view.DecodeProviderNotice(tb.Text); ok {
 		return ChatBlock{
 			Type:         ChatBlockTypeNotice,

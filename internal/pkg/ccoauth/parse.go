@@ -3,6 +3,7 @@ package ccoauth
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -17,11 +18,26 @@ type rawWindow struct {
 	ResetsAt    string   `json:"resets_at,omitempty"`
 }
 
+// rawLimit 是 limits[] 里的一条。只有 kind=weekly_scoped 且 scope 指向某个模型的
+// 条目会被取用：session / weekly_all 与 five_hour / seven_day 重复，按 surface
+// 划分的条目不是模型配额。
+type rawLimit struct {
+	Kind     string   `json:"kind"`
+	Percent  *float64 `json:"percent,omitempty"`
+	ResetsAt string   `json:"resets_at,omitempty"`
+	Scope    *struct {
+		Model *struct {
+			DisplayName string `json:"display_name"`
+		} `json:"model,omitempty"`
+	} `json:"scope,omitempty"`
+}
+
 type rawUsage struct {
 	FiveHour       *rawWindow `json:"five_hour,omitempty"`
 	SevenDay       *rawWindow `json:"seven_day,omitempty"`
 	SevenDaySonnet *rawWindow `json:"seven_day_sonnet,omitempty"`
 	SevenDayOpus   *rawWindow `json:"seven_day_opus,omitempty"`
+	Limits         []rawLimit `json:"limits,omitempty"`
 }
 
 // ParseUsageResponse 把 /api/oauth/usage 的 200 响应体解析成 RateLimits。
@@ -47,17 +63,38 @@ func ParseUsageResponse(body []byte) (*RateLimits, error) {
 		out.WeeklyPercent = clamp(*sevenD)
 		out.WeeklyResetsAt = parseTime(raw.SevenDay.ResetsAt)
 	}
-	if u := windowUtil(raw.SevenDaySonnet); u != nil {
-		v := clamp(*u)
-		out.SonnetWeeklyPercent = &v
-		out.SonnetWeeklyResetsAt = parseTime(raw.SevenDaySonnet.ResetsAt)
-	}
-	if u := windowUtil(raw.SevenDayOpus); u != nil {
-		v := clamp(*u)
-		out.OpusWeeklyPercent = &v
-		out.OpusWeeklyResetsAt = parseTime(raw.SevenDayOpus.ResetsAt)
-	}
+	out.ModelWeekly = modelWeekly(&raw)
 	return out, nil
+}
+
+// modelWeekly 以 limits[] 为准（Fable 只出现在这里），再把旧的具名字段
+// seven_day_sonnet / seven_day_opus 作为兜底补进来；同名只保留 limits[] 那一条。
+func modelWeekly(raw *rawUsage) []ModelWeeklyLimit {
+	var out []ModelWeeklyLimit
+	seen := map[string]bool{}
+	add := func(model string, percent float64, resetsAt string) {
+		key := strings.ToLower(model)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, ModelWeeklyLimit{Model: model, Percent: clamp(percent), ResetsAt: parseTime(resetsAt)})
+	}
+	for _, l := range raw.Limits {
+		if l.Kind != "weekly_scoped" || l.Percent == nil || l.Scope == nil || l.Scope.Model == nil || l.Scope.Model.DisplayName == "" {
+			continue
+		}
+		add(l.Scope.Model.DisplayName, *l.Percent, l.ResetsAt)
+	}
+	for _, legacy := range []struct {
+		model  string
+		window *rawWindow
+	}{{"Opus", raw.SevenDayOpus}, {"Sonnet", raw.SevenDaySonnet}} {
+		if u := windowUtil(legacy.window); u != nil {
+			add(legacy.model, *u, legacy.window.ResetsAt)
+		}
+	}
+	return out
 }
 
 func windowUtil(w *rawWindow) *float64 {

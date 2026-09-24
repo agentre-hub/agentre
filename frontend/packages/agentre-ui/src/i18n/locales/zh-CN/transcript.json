@@ -224,6 +224,7 @@
       },
       "multi": "多选",
       "otherPlaceholder": "自定义答案 — 输入你自己的方案…",
+      "secretAnswered": "已作答 · 内容不显示",
       "skipped": "SKIPPED",
       "single": "单选",
       "submit": "提交回复",

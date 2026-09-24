@@ -19,18 +19,40 @@ const (
 
 	approvalReasonAlreadyResolved = "APPROVAL_ALREADY_RESOLVED"
 	approvalReasonNotFound        = "APPROVAL_NOT_FOUND"
+
+	execApprovalGetMethod     = "exec.approval.get"
+	execApprovalResolveMethod = "exec.approval.resolve"
+
+	pluginApprovalListMethod    = "plugin.approval.list"
+	pluginApprovalResolveMethod = "plugin.approval.resolve"
+
+	systemAgentApprovalListMethod = "openclaw.approval.list"
+
+	// Gateway has no per-kind resolve/get RPC for system-agent approvals; the
+	// kind-agnostic approval.resolve (whose closed schema requires kind) and
+	// approval.get look the record up by ID across all three managers
+	// (exec/plugin/system-agent). Plugin uses
+	// its own plugin.approval.resolve for symmetry with exec, but could equally
+	// use the generic one.
+	genericApprovalResolveMethod = "approval.resolve"
+	genericApprovalGetMethod     = "approval.get"
 )
 
-var supportedApprovalDecisions = []string{"allow-once", "allow-always", "deny"}
+// OpenClaw has no per-session grant, so allow-session is never offered here.
+var supportedApprovalDecisions = []string{
+	agentruntime.ApprovalDecisionAllowOnce, agentruntime.ApprovalDecisionAllowAlways, agentruntime.ApprovalDecisionDeny,
+}
 
 type gatewayExecApprovalRequest struct {
-	Command          string   `json:"command"`
-	CommandPreview   string   `json:"commandPreview"`
-	AllowedDecisions []string `json:"allowedDecisions"`
-	Host             string   `json:"host"`
-	NodeID           string   `json:"nodeId"`
-	AgentID          string   `json:"agentId"`
-	SessionKey       string   `json:"sessionKey"`
+	Command          string                `json:"command"`
+	CommandPreview   string                `json:"commandPreview"`
+	AllowedDecisions []string              `json:"allowedDecisions"`
+	Host             string                `json:"host"`
+	NodeID           string                `json:"nodeId"`
+	AgentID          string                `json:"agentId"`
+	SessionKey       string                `json:"sessionKey"`
+	WarningText      string                `json:"warningText"`
+	Scope            *gatewayApprovalScope `json:"scope"`
 	SystemRunPlan    *struct {
 		CommandText    string `json:"commandText"`
 		CommandPreview string `json:"commandPreview"`
@@ -61,6 +83,233 @@ func listExecApprovals(ctx context.Context, client *openclawgateway.Client) ([]g
 	return records, nil
 }
 
+// gatewayPluginApprovalRequest / gatewaySystemAgentApprovalRequest are the
+// plugin.approval.request / openclaw.approval.request payload shapes
+// (plugin-approval-Od69bXoa.mjs, system-agent-Dch3-EM8.mjs in OpenClaw
+// 2026.9.5). Unlike exec, neither carries a systemRunPlan or host/nodeId.
+type gatewayPluginApprovalRequest struct {
+	PluginID         string                `json:"pluginId"`
+	Scope            *gatewayApprovalScope `json:"scope"`
+	ToolName         string                `json:"toolName"`
+	Title            string                `json:"title"`
+	Description      string                `json:"description"`
+	AllowedDecisions []string              `json:"allowedDecisions"`
+	AgentID          string                `json:"agentId"`
+	SessionKey       string                `json:"sessionKey"`
+}
+
+type gatewayPluginApprovalRecord struct {
+	ID          string                       `json:"id"`
+	Request     gatewayPluginApprovalRequest `json:"request"`
+	CreatedAtMs int64                        `json:"createdAtMs"`
+	ExpiresAtMs int64                        `json:"expiresAtMs"`
+}
+
+type gatewaySystemAgentApprovalRequest struct {
+	Title            string   `json:"title"`
+	Description      string   `json:"description"`
+	AllowedDecisions []string `json:"allowedDecisions"`
+	AgentID          string   `json:"agentId"`
+	SessionKey       string   `json:"sessionKey"`
+}
+
+type gatewaySystemAgentApprovalRecord struct {
+	ID          string                            `json:"id"`
+	Request     gatewaySystemAgentApprovalRequest `json:"request"`
+	CreatedAtMs int64                             `json:"createdAtMs"`
+	ExpiresAtMs int64                             `json:"expiresAtMs"`
+}
+
+// gatewayApprovalScope 是网关 ApprovalScope(schema/approvals.ts)的并集形态:
+// 审批发起方声明的影响范围,kind 决定哪几格有值。exec 与 plugin 请求可带,
+// system-agent 请求没有。
+type gatewayApprovalScope struct {
+	Kind           string   `json:"kind"`
+	Target         string   `json:"target"`
+	RecipientCount int      `json:"recipientCount"`
+	Recipients     []string `json:"recipients"`
+	Amount         string   `json:"amount"`
+	Currency       string   `json:"currency"`
+	Visibility     string   `json:"visibility"`
+	Automation     string   `json:"automation"`
+	Command        string   `json:"command"`
+}
+
+// applyApprovalScope 把网关声明的影响范围落到审批卡的动作类别及其范围字段;
+// 不认识的 kind 不猜。standing-grant 的命令只在卡片还没有命令时补上。
+func applyApprovalScope(request *agentruntime.ExecApprovalRequested, scope *gatewayApprovalScope) {
+	if scope == nil {
+		return
+	}
+	target := strings.TrimSpace(scope.Target)
+	switch strings.TrimSpace(scope.Kind) {
+	case "message-send":
+		request.ActionCategory = agentruntime.ApprovalActionMessage
+		var targets []string
+		for _, value := range append([]string{target}, scope.Recipients...) {
+			if value = strings.TrimSpace(value); value != "" && !slices.Contains(targets, value) {
+				targets = append(targets, value)
+			}
+		}
+		request.MessageTargets = targets
+		request.RecipientCount = scope.RecipientCount
+	case "payment":
+		request.ActionCategory = agentruntime.ApprovalActionPayment
+		request.PaymentAmount = strings.TrimSpace(strings.TrimSpace(scope.Amount) + " " + strings.TrimSpace(scope.Currency))
+		request.PaymentPayee = target
+	case "external-post":
+		request.ActionCategory = agentruntime.ApprovalActionPublish
+		request.PublishTarget = target
+		request.PublishVisibility = strings.TrimSpace(scope.Visibility)
+	case "standing-grant":
+		request.ActionCategory = agentruntime.ApprovalActionAutomation
+		request.AutomationName = strings.TrimSpace(scope.Automation)
+		if request.CommandText == "" {
+			request.CommandText = strings.TrimSpace(scope.Command)
+		}
+	}
+}
+
+// filterSupportedApprovalDecisions 只保留 AgentRE 认识、且未重复的决定 —— OpenClaw
+// 没有 Hermes 的会话级授权,allow-session 永远不会出现在这里。
+func filterSupportedApprovalDecisions(decisions []string) []string {
+	allowed := make([]string, 0, len(decisions))
+	for _, decision := range decisions {
+		decision = strings.TrimSpace(decision)
+		if slices.Contains(supportedApprovalDecisions, decision) && !slices.Contains(allowed, decision) {
+			allowed = append(allowed, decision)
+		}
+	}
+	return allowed
+}
+
+// pluginApprovalRequestForSession 与 approvalRequestForSession 对应,把
+// plugin.approval.* 的记录翻成 AgentRE 事件。
+func pluginApprovalRequestForSession(record gatewayPluginApprovalRecord, matchesSession func(string) bool) (agentruntime.ExecApprovalRequested, bool) {
+	request := record.Request
+	sessionKey := strings.TrimSpace(request.SessionKey)
+	if sessionKey == "" || !matchesSession(sessionKey) || strings.TrimSpace(record.ID) == "" {
+		return agentruntime.ExecApprovalRequested{}, false
+	}
+	allowed := filterSupportedApprovalDecisions(request.AllowedDecisions)
+	if len(allowed) == 0 {
+		return agentruntime.ExecApprovalRequested{}, false
+	}
+	description := strings.TrimSpace(request.Description)
+	if description == "" {
+		description = strings.TrimSpace(request.Title)
+	}
+	approval := agentruntime.ExecApprovalRequested{
+		ID: strings.TrimSpace(record.ID), ApprovalKind: agentruntime.ApprovalKindPlugin,
+		PluginName: strings.TrimSpace(request.PluginID), ToolName: strings.TrimSpace(request.ToolName),
+		Description: description, AllowedDecisions: allowed, AgentID: strings.TrimSpace(request.AgentID),
+		SessionKey: sessionKey, CreatedAtMs: record.CreatedAtMs, ExpiresAtMs: record.ExpiresAtMs,
+	}
+	applyApprovalScope(&approval, request.Scope)
+	return approval, true
+}
+
+// systemAgentApprovalRequestForSession 与 approvalRequestForSession 对应,把
+// openclaw.approval.*(Gateway 侧持久变更,如配置写入/重启)的记录翻成 AgentRE 事件。
+// 上游 system-agent 请求不带 scope(ApprovalScope 只挂在 exec / plugin 上),
+// Description 是唯一已脱敏内容。
+func systemAgentApprovalRequestForSession(record gatewaySystemAgentApprovalRecord, matchesSession func(string) bool) (agentruntime.ExecApprovalRequested, bool) {
+	request := record.Request
+	sessionKey := strings.TrimSpace(request.SessionKey)
+	if sessionKey == "" || !matchesSession(sessionKey) || strings.TrimSpace(record.ID) == "" {
+		return agentruntime.ExecApprovalRequested{}, false
+	}
+	allowed := filterSupportedApprovalDecisions(request.AllowedDecisions)
+	if len(allowed) == 0 {
+		return agentruntime.ExecApprovalRequested{}, false
+	}
+	description := strings.TrimSpace(request.Description)
+	if description == "" {
+		description = strings.TrimSpace(request.Title)
+	}
+	return agentruntime.ExecApprovalRequested{
+		ID: strings.TrimSpace(record.ID), ApprovalKind: agentruntime.ApprovalKindSystemAgent,
+		Description: description, AllowedDecisions: allowed, AgentID: strings.TrimSpace(request.AgentID),
+		SessionKey: sessionKey, CreatedAtMs: record.CreatedAtMs, ExpiresAtMs: record.ExpiresAtMs,
+	}, true
+}
+
+// decodeApprovalListItem 按 kind 译一条 *.approval.list 的记录(完整 record:
+// id/request/createdAtMs/expiresAtMs 都在同一个 JSON 对象里)。
+func decodeApprovalListItem(kind string, raw json.RawMessage, matchesSession func(string) bool) (agentruntime.ExecApprovalRequested, bool) {
+	switch kind {
+	case agentruntime.ApprovalKindPlugin:
+		var record gatewayPluginApprovalRecord
+		if json.Unmarshal(raw, &record) != nil {
+			return agentruntime.ExecApprovalRequested{}, false
+		}
+		return pluginApprovalRequestForSession(record, matchesSession)
+	case agentruntime.ApprovalKindSystemAgent:
+		var record gatewaySystemAgentApprovalRecord
+		if json.Unmarshal(raw, &record) != nil {
+			return agentruntime.ExecApprovalRequested{}, false
+		}
+		return systemAgentApprovalRequestForSession(record, matchesSession)
+	default:
+		var record gatewayExecApprovalRecord
+		if json.Unmarshal(raw, &record) != nil {
+			return agentruntime.ExecApprovalRequested{}, false
+		}
+		return approvalRequestForSession(record, matchesSession)
+	}
+}
+
+// decodeApprovalRequestForSession 按 kind 译 *.approval.resolved 事件里的
+// request 子对象(不含 id/createdAtMs/expiresAtMs —— resolved 事件的 id 在 payload
+// 顶层单独传,createdAtMs/expiresAtMs 那份帧根本不带,和 exec 原有的重建逻辑一致)。
+func decodeApprovalRequestForSession(
+	kind, id string, rawRequest json.RawMessage, matchesSession func(string) bool,
+) (agentruntime.ExecApprovalRequested, bool) {
+	switch kind {
+	case agentruntime.ApprovalKindPlugin:
+		var request gatewayPluginApprovalRequest
+		if json.Unmarshal(rawRequest, &request) != nil {
+			return agentruntime.ExecApprovalRequested{}, false
+		}
+		return pluginApprovalRequestForSession(gatewayPluginApprovalRecord{ID: id, Request: request}, matchesSession)
+	case agentruntime.ApprovalKindSystemAgent:
+		var request gatewaySystemAgentApprovalRequest
+		if json.Unmarshal(rawRequest, &request) != nil {
+			return agentruntime.ExecApprovalRequested{}, false
+		}
+		return systemAgentApprovalRequestForSession(gatewaySystemAgentApprovalRecord{ID: id, Request: request}, matchesSession)
+	default:
+		var request gatewayExecApprovalRequest
+		if json.Unmarshal(rawRequest, &request) != nil {
+			return agentruntime.ExecApprovalRequested{}, false
+		}
+		return approvalRequestForSession(gatewayExecApprovalRecord{ID: id, Request: request}, matchesSession)
+	}
+}
+
+// approvalResolveMethod 挑决 approval 的 resolve RPC:exec/plugin 各有专属方法,
+// system-agent 网关只提供不区分类别的 approval.resolve(按 ID 自己认出所属 kind)。
+func approvalResolveMethod(kind string) string {
+	switch kind {
+	case agentruntime.ApprovalKindPlugin:
+		return pluginApprovalResolveMethod
+	case agentruntime.ApprovalKindSystemAgent:
+		return genericApprovalResolveMethod
+	default:
+		return execApprovalResolveMethod
+	}
+}
+
+// approvalResolveParams 是 resolve RPC 的参数:exec/plugin 的专属方法只收
+// {id, decision};不区分类别的 approval.resolve 的 closed schema 还要求 kind。
+func approvalResolveParams(kind, id, decision string) map[string]any {
+	params := map[string]any{"id": id, "decision": decision}
+	if approvalResolveMethod(kind) == genericApprovalResolveMethod {
+		params["kind"] = kind
+	}
+	return params
+}
+
 // approvalRequestForSession 把网关的审批记录翻成 AgentRE 事件。matchesSession 由
 // activeTurn 提供:规范化后的 key 还没认领时按后缀认自己的会话。
 func approvalRequestForSession(record gatewayExecApprovalRecord, matchesSession func(string) bool) (agentruntime.ExecApprovalRequested, bool) {
@@ -89,22 +338,22 @@ func approvalRequestForSession(record gatewayExecApprovalRecord, matchesSession 
 	if requestSessionKey == "" || !matchesSession(requestSessionKey) || strings.TrimSpace(record.ID) == "" {
 		return agentruntime.ExecApprovalRequested{}, false
 	}
-	allowed := make([]string, 0, len(request.AllowedDecisions))
-	for _, decision := range request.AllowedDecisions {
-		decision = strings.TrimSpace(decision)
-		if slices.Contains(supportedApprovalDecisions, decision) && !slices.Contains(allowed, decision) {
-			allowed = append(allowed, decision)
-		}
-	}
+	allowed := filterSupportedApprovalDecisions(request.AllowedDecisions)
 	if len(allowed) == 0 {
 		return agentruntime.ExecApprovalRequested{}, false
 	}
-	return agentruntime.ExecApprovalRequested{
-		ID: strings.TrimSpace(record.ID), CommandText: commandText, CommandPreview: commandPreview,
+	approval := agentruntime.ExecApprovalRequested{
+		ID: strings.TrimSpace(record.ID), ApprovalKind: agentruntime.ApprovalKindExec,
+		CommandText: commandText, CommandPreview: commandPreview,
 		AllowedDecisions: allowed, Host: strings.TrimSpace(request.Host),
 		NodeID: strings.TrimSpace(request.NodeID), AgentID: agentID,
 		SessionKey: requestSessionKey, CreatedAtMs: record.CreatedAtMs, ExpiresAtMs: record.ExpiresAtMs,
-	}, true
+	}
+	if warning := strings.TrimSpace(request.WarningText); warning != "" {
+		approval.Warnings = []string{warning}
+	}
+	applyApprovalScope(&approval, request.Scope)
+	return approval, true
 }
 
 func (a *activeTurn) handleApprovalRequested(record gatewayExecApprovalRecord) {
@@ -112,6 +361,13 @@ func (a *activeTurn) handleApprovalRequested(record gatewayExecApprovalRecord) {
 	if !ok {
 		return
 	}
+	a.handleApprovalRequestedEvent(request)
+}
+
+// handleApprovalRequestedEvent 是三类审批共用的落地点:exec 由
+// handleApprovalRequested 解出 request 后转到这里,plugin/system-agent 的
+// requested 事件与重连对账直接调用它。
+func (a *activeTurn) handleApprovalRequestedEvent(request agentruntime.ExecApprovalRequested) {
 	a.approvalMu.Lock()
 	state := a.approvals[request.ID]
 	isNew := state == nil
@@ -168,13 +424,13 @@ func (a *activeTurn) scheduleApprovalExpiry(id string, expiresAtMs int64) {
 	}()
 }
 
-func (a *activeTurn) handleApprovalResolved(raw json.RawMessage) {
+func (a *activeTurn) handleApprovalResolved(kind string, raw json.RawMessage) {
 	var payload struct {
-		ID         string                     `json:"id"`
-		Decision   string                     `json:"decision"`
-		ResolvedBy string                     `json:"resolvedBy"`
-		TS         int64                      `json:"ts"`
-		Request    gatewayExecApprovalRequest `json:"request"`
+		ID         string          `json:"id"`
+		Decision   string          `json:"decision"`
+		ResolvedBy string          `json:"resolvedBy"`
+		TS         int64           `json:"ts"`
+		Request    json.RawMessage `json:"request"`
 	}
 	if json.Unmarshal(raw, &payload) != nil || strings.TrimSpace(payload.ID) == "" {
 		return
@@ -183,8 +439,7 @@ func (a *activeTurn) handleApprovalResolved(raw json.RawMessage) {
 	state := a.approvals[payload.ID]
 	a.approvalMu.Unlock()
 	if state == nil {
-		record := gatewayExecApprovalRecord{ID: payload.ID, Request: payload.Request}
-		request, ok := approvalRequestForSession(record, a.matchesSession)
+		request, ok := decodeApprovalRequestForSession(kind, payload.ID, payload.Request, a.matchesSession)
 		if !ok {
 			return
 		}
@@ -210,35 +465,72 @@ func (a *activeTurn) reconcileApprovals() {
 			continue
 		}
 		visible[request.ID] = struct{}{}
-		a.handleApprovalRequested(record)
+		a.handleApprovalRequestedEvent(request)
+	}
+	// plugin/system-agent 对账只在网关 hello 广播了对应 list 方法时才问 —— 老网关
+	// 没有这两个方法,盲问会把方法名当成硬错误,反而搅坏本来能用的 exec 对账。
+	if a.pluginApprovalsSupported {
+		a.reconcileApprovalKindList(agentruntime.ApprovalKindPlugin, pluginApprovalListMethod, visible)
+	}
+	if a.systemAgentApprovalsSupported {
+		a.reconcileApprovalKindList(agentruntime.ApprovalKindSystemAgent, systemAgentApprovalListMethod, visible)
+	}
+	if a.finished() {
+		return
 	}
 	a.approvalMu.Lock()
 	missing := make([]string, 0)
+	pendingKinds := make(map[string]string, len(a.approvals))
 	for id, state := range a.approvals {
 		if state.terminal.Status == "" {
 			if _, ok := visible[id]; !ok {
 				missing = append(missing, id)
+				pendingKinds[id] = state.request.ApprovalKind
 			}
 		}
 	}
 	a.approvalMu.Unlock()
 	for _, id := range missing {
-		// 「不在 list 里」不等于「不存在」:真实网关的 exec.approval.list 只返回
+		// 「不在 list 里」不等于「不存在」:真实网关的 *.approval.list 只返回
 		// 本连接创建的(或管理员可见的)审批,看不到是常态。仅凭缺席就判过期,会把
-		// 网关那边仍在等决策的审批在 UI 上误标成「已失效」。必须由 exec.approval.get
+		// 网关那边仍在等决策的审批在 UI 上误标成「已失效」。必须由 *.approval.get
 		// 明确回 APPROVAL_NOT_FOUND 才收敛;其它错误一律保持 pending,交给
 		// expiresAtMs 定时器兜底。
-		if !a.approvalGoneOnGateway(id) {
+		if !a.approvalGoneOnGateway(id, pendingKinds[id]) {
 			continue
 		}
 		a.markApprovalTerminal(id, agentruntime.ExecApprovalResolution{Status: approvalStatusExpired}, "", 0)
 	}
 }
 
+// reconcileApprovalKindList 补 plugin/system-agent 的重连对账:两者都没有
+// exec.approval.list 那样按类型专属的 record 结构体入口,直接按泛化的
+// ExecApprovalRequested 落地。
+func (a *activeTurn) reconcileApprovalKindList(kind, method string, visible map[string]struct{}) {
+	var raws []json.RawMessage
+	if err := a.client.Call(a.ctx, method, map[string]any{}, &raws); err != nil {
+		return
+	}
+	for _, raw := range raws {
+		request, ok := decodeApprovalListItem(kind, raw, a.matchesSession)
+		if !ok {
+			continue
+		}
+		visible[request.ID] = struct{}{}
+		a.handleApprovalRequestedEvent(request)
+	}
+}
+
 // approvalGoneOnGateway 只在网关明确说「这个审批 ID 不认识/已过期」时返回 true。
-func (a *activeTurn) approvalGoneOnGateway(id string) bool {
+// exec 走它自己专属的 exec.approval.get;plugin/system-agent 没有专属 get,走
+// 不区分类别的 approval.get(网关按 ID 自己认出所属 kind)。
+func (a *activeTurn) approvalGoneOnGateway(id, kind string) bool {
+	method := execApprovalGetMethod
+	if kind != "" && kind != agentruntime.ApprovalKindExec {
+		method = genericApprovalGetMethod
+	}
 	var payload json.RawMessage
-	err := a.client.Call(a.ctx, "exec.approval.get", map[string]any{"id": id}, &payload)
+	err := a.client.Call(a.ctx, method, map[string]any{"id": id}, &payload)
 	if err == nil {
 		return false
 	}
@@ -286,9 +578,7 @@ func (a *activeTurn) resolveApproval(ctx context.Context, approvalID, decision s
 	var response struct {
 		OK bool `json:"ok"`
 	}
-	err := a.client.Call(ctx, "exec.approval.resolve", map[string]any{
-		"id": approvalID, "decision": decision,
-	}, &response)
+	err := a.client.Call(ctx, approvalResolveMethod(request.ApprovalKind), approvalResolveParams(request.ApprovalKind, approvalID, decision), &response)
 	if err != nil {
 		var rpcErr *openclawgateway.RPCError
 		if errors.As(err, &rpcErr) {

@@ -180,6 +180,9 @@ const DYNAMIC_KEY_PREFIXES = [
   // engine/model-target-picker/use-picker-options.ts:
   //   t(`modelTargetPicker.special.${scenario}`)
   "modelTargetPicker.special.",
+  // transcript/transcript-row-view.tsx:
+  //   t(`chat.notice.hermesUnsupportedRequest.purpose.${item.block.noticePurpose ?? ""}`)
+  "chat.notice.hermesUnsupportedRequest.purpose.",
   // transcript/openclaw-exec-approval/card.tsx:
   //   t(`openclawExecApproval.decision.${value}`) / `.decisionResult.${decision}`
   "openclawExecApproval.decision.",

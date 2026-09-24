@@ -141,6 +141,23 @@ func ProjectMessages(conversationID string, messages []*transcript_entity.Messag
 				}
 				continue
 			}
+			if message.Role == "assistant" && block.Type == "exec_approval" {
+				// 审批卡在对端只能由请求建起、再由终态收口:只发终态的话对端找不到
+				// 那张卡,整张卡(连同它的内容)就在对端消失了。
+				var data transcriptblocks.ExecApprovalBlock
+				if err := json.Unmarshal(block.Data, &data); err != nil {
+					return nil, nil, err
+				}
+				if err := appendEvent(approvalRequestFromBlock(data)); err != nil {
+					return nil, nil, err
+				}
+				if data.Status == "resolved" || data.Status == "expired" {
+					if err := appendEvent(agentruntime.ExecApprovalResolved{ID: data.ID, Status: data.Status, Decision: data.Decision, ResolvedBy: data.ResolvedBy, ResolvedAtMs: data.ResolvedAtMs}); err != nil {
+						return nil, nil, err
+					}
+				}
+				continue
+			}
 			if event, ok, err := EventForStoredBlock(message, block); err != nil {
 				return nil, nil, err
 			} else if ok {
@@ -289,17 +306,34 @@ func EventForStoredBlock(message *transcript_entity.Message, block cagoblocks.St
 			return nil, false, err
 		}
 		return agentruntime.CompactBoundary{PreTokens: data.PreTokens, Trigger: data.Trigger}, true, nil
-	case "exec_approval":
-		var data transcriptblocks.ExecApprovalBlock
+	case "notice":
+		// 只认 UnsupportedRequestNoticeHandler 落的那种结构化提示,重放成实时同一个
+		// 事件;其它 notice(供应商回退/切换、旧自由文本)仍走 UnrecognizedBlock。
+		var data cagoblocks.NoticeBlock
 		if err := json.Unmarshal(block.Data, &data); err != nil {
 			return nil, false, err
 		}
-		if data.Status == "resolved" || data.Status == "expired" {
-			return agentruntime.ExecApprovalResolved{ID: data.ID, Status: data.Status, Decision: data.Decision, ResolvedBy: data.ResolvedBy, ResolvedAtMs: data.ResolvedAtMs}, true, nil
+		if payload, ok := transcriptblocks.DecodeUnsupportedRequestNotice(data.Text); ok {
+			return agentruntime.UnsupportedRequestNotice{Purpose: agentruntime.UnsupportedRequestPurpose(payload.Purpose)}, true, nil
 		}
-		return agentruntime.ExecApprovalRequested{ID: data.ID, CommandText: data.CommandText, CommandPreview: data.CommandPreview, AllowedDecisions: data.AllowedDecisions, Host: data.Host, NodeID: data.NodeID, AgentID: data.AgentID, CreatedAtMs: data.CreatedAtMs, ExpiresAtMs: data.ExpiresAtMs}, true, nil
+		return nil, false, nil
 	default:
 		return nil, false, nil
+	}
+}
+
+func approvalRequestFromBlock(data transcriptblocks.ExecApprovalBlock) agentruntime.ExecApprovalRequested {
+	return agentruntime.ExecApprovalRequested{
+		ID: data.ID, ApprovalKind: data.Kind, SessionKey: data.SessionKey,
+		CommandText: data.CommandText, CommandPreview: data.CommandPreview,
+		Description: data.Description, ToolName: data.ToolName, PluginName: data.PluginName,
+		Warnings: data.Warnings, ActionCategory: data.ActionCategory,
+		MessageTargets: data.MessageTargets, RecipientCount: data.RecipientCount,
+		PaymentAmount: data.PaymentAmount, PaymentPayee: data.PaymentPayee,
+		PublishTarget: data.PublishTarget, PublishVisibility: data.PublishVisibility,
+		AutomationName: data.AutomationName, AllowedDecisions: data.AllowedDecisions,
+		Host: data.Host, NodeID: data.NodeID, AgentID: data.AgentID,
+		CreatedAtMs: data.CreatedAtMs, ExpiresAtMs: data.ExpiresAtMs,
 	}
 }
 
@@ -326,7 +360,7 @@ func projectQuestions(in []transcriptblocks.AskQuestionDTO) []agentruntime.AskQu
 		for _, option := range question.Options {
 			options = append(options, agentruntime.AskOption{Label: option.Label, Description: option.Description, Preview: option.Preview})
 		}
-		out = append(out, agentruntime.AskQuestion{ID: question.ID, Question: question.Question, Header: question.Header, MultiSelect: question.MultiSelect, IsOther: question.IsOther, IsSecret: question.IsSecret, Options: options})
+		out = append(out, agentruntime.AskQuestion{ID: question.ID, Question: question.Question, Header: question.Header, MultiSelect: question.MultiSelect, IsOther: question.IsOther, IsSecret: question.IsSecret, DisallowOther: question.DisallowOther, Options: options})
 	}
 	return out
 }

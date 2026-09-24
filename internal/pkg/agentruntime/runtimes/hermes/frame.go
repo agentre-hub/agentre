@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // errSessionClosed marks an RPC attempted on a gateway connection that has
@@ -19,6 +21,71 @@ import (
 // "no in-flight turn" instead of surfacing a raw write error, which is what a
 // Stop click landing on the tail of a turn would otherwise see.
 var errSessionClosed = errors.New("hermes gateway: closed")
+
+// errServerRequestNotOpen marks an answer for a server->client request that is
+// not waiting on this connection: never received, or already answered. Hermes
+// drops such a response anyway; refusing it locally keeps answers exactly-once.
+var errServerRequestNotOpen = errors.New("hermes gateway: server request is not open")
+
+// routedServerRequests are the server->client request methods the turn answers
+// itself (asynchronously, by id). Every other method is answered -32601 on the
+// read loop so Hermes withdraws it instead of waiting (and still leaves a
+// transcript notice), unless it is one of unsupportedServerRequests below.
+var routedServerRequests = map[string]bool{
+	"approval": true,
+	"clarify":  true,
+}
+
+// Reverse-request methods Hermes may send that carry no card in Agentre yet
+// (spec 2026-09-17 "Unsupported Hermes requests", design decision 4). Each one
+// is answered immediately on the read loop with the contract's {"value": ""}
+// instead of -32601, and separately handed to the turn (as EventUnsupportedRequest,
+// method only — never params) so it can leave a transcript notice; the table
+// below is the one list of these methods and maps each onto the readable
+// purpose category that notice names.
+const (
+	methodSudo              = "sudo"
+	methodSecret            = "secret"
+	methodVaultUnlockPrompt = "vault.unlock_prompt"
+	methodVaultSaveLogin    = "vault.save_login"
+	methodVaultCode         = "vault.code"
+	methodTerminalRead      = "terminal.read"
+	methodPreviewRead       = "preview.read"
+	methodWindowRead        = "window.read"
+	methodPreviewAct        = "preview.act"
+	methodTour              = "tour"
+)
+
+var unsupportedServerRequests = map[string]agentruntime.UnsupportedRequestPurpose{
+	methodSudo:              agentruntime.UnsupportedRequestSudoPassword,
+	methodSecret:            agentruntime.UnsupportedRequestSecret,
+	methodVaultUnlockPrompt: agentruntime.UnsupportedRequestVaultUnlock,
+	methodVaultSaveLogin:    agentruntime.UnsupportedRequestVaultSaveLogin,
+	methodVaultCode:         agentruntime.UnsupportedRequestVaultCode,
+	methodTerminalRead:      agentruntime.UnsupportedRequestTerminalRead,
+	methodPreviewRead:       agentruntime.UnsupportedRequestPreviewRead,
+	methodWindowRead:        agentruntime.UnsupportedRequestWindowRead,
+	methodPreviewAct:        agentruntime.UnsupportedRequestPreviewAct,
+	methodTour:              agentruntime.UnsupportedRequestTour,
+}
+
+func isUnsupportedServerRequest(method string) bool {
+	_, ok := unsupportedServerRequests[method]
+	return ok
+}
+
+// unsupportedRequestResult is the contract's immediate answer for every method
+// in unsupportedServerRequests.
+var unsupportedRequestResult = map[string]string{"value": ""}
+
+// ServerRequest is one server->client JSON-RPC request handed to the turn as an
+// EventServerRequest. The turn answers it later with RespondServerRequest or
+// RejectServerRequest under the same ID.
+type ServerRequest struct {
+	ID     string
+	Method string
+	Params json.RawMessage
+}
 
 // rpcRequest is a client->server JSON-RPC 2.0 request. IDs are strings so the
 // pairing key never depends on json.Number formatting.
@@ -83,6 +150,9 @@ type rpcConn struct {
 	nextID  int64
 	pending map[string]chan rpcFrame
 	readErr error
+	// serverRequests maps an open server->client request id to the raw id the
+	// response must echo verbatim.
+	serverRequests map[string]json.RawMessage
 
 	events    chan Event
 	ready     chan struct{}
@@ -105,6 +175,8 @@ func newRPCConn(write func([]byte) error) *rpcConn {
 		ready:   make(chan struct{}),
 		closeCh: make(chan struct{}),
 		done:    make(chan struct{}),
+
+		serverRequests: map[string]json.RawMessage{},
 	}
 }
 
@@ -223,28 +295,127 @@ func (c *rpcConn) handleLine(line []byte) error {
 		return nil
 	}
 	if frame.Method != "" {
-		c.answerReverseRequest(frame)
-		return nil
+		return c.routeServerRequest(frame)
 	}
 	c.deliver(frame)
 	return nil
 }
 
-// answerReverseRequest answers a server->client JSON-RPC request with the same
-// id. No reverse method is implemented yet (capability is abort-only, and
-// approvals/clarify arrive as events), so every card gets -32601 method not
-// found instead of leaving the server waiting.
-func (c *rpcConn) answerReverseRequest(frame rpcFrame) {
-	response := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      json.RawMessage(frame.ID),
-		"error":   &rpcError{Code: -32601, Message: "method not found"},
+// routeServerRequest hands a routed server->client request to the turn through
+// the ordered event stream (so a later request.cancel can never overtake it),
+// answers a known-unsupported method immediately (see unsupportedServerRequests),
+// and answers every other method -32601 at once; both of the latter leave a
+// transcript notice.
+func (c *rpcConn) routeServerRequest(frame rpcFrame) error {
+	id := idString(frame.ID)
+	switch {
+	case routedServerRequests[frame.Method] && id != "":
+		return c.routeTurnRequest(frame, id)
+	case isUnsupportedServerRequest(frame.Method) && id != "":
+		return c.answerUnsupportedRequest(frame)
+	default:
+		_ = c.writeResponse(frame.ID, nil, &rpcError{Code: -32601, Message: "method not found"})
+		if id == "" {
+			return nil
+		}
+		// An unrecognized request still leaves a transcript notice (spec
+		// 2026-09-17 "Unsupported Hermes requests"); like the known-unsupported
+		// path, only the method travels, never the params.
+		return c.queueUnsupportedNotice(frame.Method)
+	}
+}
+
+// routeTurnRequest hands an approval/clarify request to the turn, to be
+// answered later by id via RespondServerRequest/RejectServerRequest.
+func (c *rpcConn) routeTurnRequest(frame rpcFrame, id string) error {
+	var params struct {
+		SessionID string `json:"session_id"`
+	}
+	_ = json.Unmarshal(frame.Params, &params)
+	c.mu.Lock()
+	c.serverRequests[id] = append(json.RawMessage(nil), frame.ID...)
+	c.mu.Unlock()
+	ev := Event{
+		Kind:    EventServerRequest,
+		Session: params.SessionID,
+		Request: &ServerRequest{ID: id, Method: frame.Method, Params: append(json.RawMessage(nil), frame.Params...)},
+	}
+	select {
+	case c.events <- ev:
+		return nil
+	case <-c.closeCh:
+		return errSessionClosed
+	}
+}
+
+// answerUnsupportedRequest answers a known reverse-request method Agentre has
+// no card for with the contract's {"value": ""} (design decision 4), then
+// queues a turn-ordered EventUnsupportedRequest carrying only the method name
+// so the turn can leave a transcript notice. frame.Params is deliberately
+// never read here: sudo/secret/vault.* carry a password, secret value or
+// unlock code that must never reach an event, the transcript or a log line
+// (spec 2026-09-17 "Unsupported Hermes requests").
+func (c *rpcConn) answerUnsupportedRequest(frame rpcFrame) error {
+	_ = c.writeResponse(frame.ID, unsupportedRequestResult, nil)
+	return c.queueUnsupportedNotice(frame.Method)
+}
+
+// queueUnsupportedNotice hands the turn an EventUnsupportedRequest carrying
+// only the method name of a reverse request that was already answered.
+func (c *rpcConn) queueUnsupportedNotice(method string) error {
+	select {
+	case c.events <- Event{Kind: EventUnsupportedRequest, Method: method}:
+		return nil
+	case <-c.closeCh:
+		return errSessionClosed
+	}
+}
+
+// RespondServerRequest answers an open server->client request with result under
+// its original id. Each request is answered at most once.
+func (c *rpcConn) RespondServerRequest(id string, result any) error {
+	return c.answerServerRequest(id, result, nil)
+}
+
+// RejectServerRequest answers an open server->client request with a JSON-RPC
+// error: the host cannot answer it, so Hermes withdraws the request.
+func (c *rpcConn) RejectServerRequest(id string) error {
+	return c.answerServerRequest(id, nil, &rpcError{Code: -32000, Message: "request cannot be answered"})
+}
+
+func (c *rpcConn) answerServerRequest(id string, result any, rpcErr *rpcError) error {
+	if c.isFinished() {
+		return errSessionClosed
+	}
+	c.mu.Lock()
+	rawID, open := c.serverRequests[id]
+	delete(c.serverRequests, id)
+	c.mu.Unlock()
+	if !open {
+		return errServerRequestNotOpen
+	}
+	if err := c.writeResponse(rawID, result, rpcErr); err != nil {
+		if c.isFinished() {
+			return errSessionClosed
+		}
+		return fmt.Errorf("hermes gateway: answer server request: %w", err)
+	}
+	return nil
+}
+
+// writeResponse writes one client->server response frame echoing rawID.
+func (c *rpcConn) writeResponse(rawID json.RawMessage, result any, rpcErr *rpcError) error {
+	response := map[string]any{"jsonrpc": "2.0", "id": rawID}
+	if rpcErr != nil {
+		response["error"] = rpcErr
+	} else {
+		response["result"] = result
 	}
 	payload, err := json.Marshal(response)
 	if err != nil {
-		return
+		return err
 	}
-	_ = c.writeLine(payload)
+	return c.writeLine(payload)
 }
 
 func (c *rpcConn) deliver(frame rpcFrame) {

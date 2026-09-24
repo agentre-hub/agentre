@@ -2056,6 +2056,41 @@ describe("QuotaMeter", () => {
     }
   });
 
+  it("HoverCard 面板按模型列出周配额(含 Fable, 0% 也照常画)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(resetNow);
+    try {
+      render(
+        <QuotaMeter
+          data={
+            {
+              reason: "ok",
+              data: {
+                fiveHourPercent: 42,
+                weeklyPercent: 18,
+                modelWeekly: [
+                  { model: "Fable", percent: 0 },
+                  { model: "Opus", percent: 37 },
+                ],
+              },
+              fetchedAtMs: 1,
+            } as never
+          }
+        />,
+      );
+      const trigger = screen.getByLabelText(/Claude.*quota/);
+      act(() => {
+        fireEvent.focusIn(trigger);
+        vi.advanceTimersByTime(500);
+      });
+      expect(screen.getByText("Fable 7-day")).toBeInTheDocument();
+      expect(screen.getByText("Opus 7-day")).toBeInTheDocument();
+      expect(screen.getByText("37%")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("auth_expired 时渲染占位文本而不是数字", () => {
     render(
       <QuotaMeter data={{ reason: "auth_expired", fetchedAtMs: 1 } as never} />,

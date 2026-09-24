@@ -19,6 +19,7 @@
           "MultiSelect": false,
           "IsOther": false,
           "IsSecret": false,
+          "DisallowOther": false,
           "Options": [
             {
               "Label": "继续",

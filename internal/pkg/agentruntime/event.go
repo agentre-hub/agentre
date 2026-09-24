@@ -110,20 +110,72 @@ type ToolPermissionResolved struct {
 	DenyReason  string
 }
 
-// ExecApprovalRequested is the safe, presentation-oriented subset of an
-// OpenClaw exec.approval.requested event. The Gateway's systemRunPlan is never
-// copied into a resolve request; AgentRE returns only ID + Decision.
+// Approval kinds. One approval lifecycle serves every backend; the kind tells
+// the card which redacted content fields the producer filled.
+const (
+	ApprovalKindExec        = "exec"         // OpenClaw exec: CommandText, Warnings
+	ApprovalKindPlugin      = "plugin"       // OpenClaw plugin: PluginName, ToolName, Description
+	ApprovalKindSystemAgent = "system-agent" // OpenClaw system agent: ActionCategory and its scope
+	ApprovalKindHermes      = "hermes"       // Hermes: CommandText, Description, ToolName
+)
+
+// Approval decisions, normalized across backends. A producer maps its native
+// vocabulary onto these (Hermes once/session/always/deny) and lists only the
+// ones its backend accepts in AllowedDecisions.
+const (
+	ApprovalDecisionAllowOnce    = "allow-once"
+	ApprovalDecisionAllowSession = "allow-session"
+	ApprovalDecisionAllowAlways  = "allow-always"
+	ApprovalDecisionDeny         = "deny"
+)
+
+// IsApprovalDecision reports whether decision is one of the normalized approval
+// decisions. Whether the pending request allows it is the runtime's check.
+func IsApprovalDecision(decision string) bool {
+	switch decision {
+	case ApprovalDecisionAllowOnce, ApprovalDecisionAllowSession, ApprovalDecisionAllowAlways, ApprovalDecisionDeny:
+		return true
+	default:
+		return false
+	}
+}
+
+// System-agent action categories; each pairs with its own scope fields.
+const (
+	ApprovalActionMessage    = "message"    // MessageTargets, RecipientCount
+	ApprovalActionPayment    = "payment"    // PaymentAmount, PaymentPayee
+	ApprovalActionPublish    = "publish"    // PublishTarget, PublishVisibility
+	ApprovalActionAutomation = "automation" // AutomationName, CommandText
+)
+
+// ExecApprovalRequested is the backend-neutral, presentation-safe approval
+// request (the name predates Hermes / plugin / system-agent kinds). Producers
+// copy only already-redacted display fields; the Gateway's systemRunPlan is
+// never copied into a resolve request, AgentRE returns only ID + Decision.
 type ExecApprovalRequested struct {
-	ID               string
-	CommandText      string
-	CommandPreview   string
-	AllowedDecisions []string
-	Host             string
-	NodeID           string
-	AgentID          string
-	SessionKey       string
-	CreatedAtMs      int64
-	ExpiresAtMs      int64
+	ID                string
+	ApprovalKind      string
+	CommandText       string
+	CommandPreview    string
+	Description       string
+	ToolName          string
+	PluginName        string
+	Warnings          []string
+	ActionCategory    string
+	MessageTargets    []string
+	RecipientCount    int
+	PaymentAmount     string
+	PaymentPayee      string
+	PublishTarget     string
+	PublishVisibility string
+	AutomationName    string
+	AllowedDecisions  []string
+	Host              string
+	NodeID            string
+	AgentID           string
+	SessionKey        string
+	CreatedAtMs       int64
+	ExpiresAtMs       int64
 }
 
 // ExecApprovalResolved is an approval terminal state, distinct from the
@@ -304,36 +356,71 @@ type Done struct {
 // ErrorEvent turn 因错误中止;Err 携带原因。
 type ErrorEvent struct{ Err error }
 
-func (TextDelta) isEvent()              {}
-func (ThinkingDelta) isEvent()          {}
-func (OutputActivity) isEvent()         {}
-func (ToolCall) isEvent()               {}
-func (ToolResult) isEvent()             {}
-func (SteerConsumed) isEvent()          {}
-func (UserAskRequest) isEvent()         {}
-func (UserAskResolved) isEvent()        {}
-func (ToolPermissionRequest) isEvent()  {}
-func (ToolApprovalRequested) isEvent()  {}
-func (ToolApprovalResolved) isEvent()   {}
-func (ToolPermissionResolved) isEvent() {}
-func (ExecApprovalRequested) isEvent()  {}
-func (ExecApprovalResolved) isEvent()   {}
-func (PermissionModeChanged) isEvent()  {}
-func (SubagentStarted) isEvent()        {}
-func (SubagentProgress) isEvent()       {}
-func (SubagentDone) isEvent()           {}
-func (SubagentModel) isEvent()          {}
-func (Retry) isEvent()                  {}
-func (UsageUpdate) isEvent()            {}
-func (ContextWindowUpdated) isEvent()   {}
-func (PlanUpdated) isEvent()            {}
-func (CompactBoundary) isEvent()        {}
-func (RuntimeStatus) isEvent()          {}
-func (UserMessageEvent) isEvent()       {}
-func (UnrecognizedBlock) isEvent()      {}
-func (ImageBlockEvent) isEvent()        {}
-func (Done) isEvent()                   {}
-func (ErrorEvent) isEvent()             {}
+// UnsupportedRequestPurpose is the closed vocabulary of "what the backend was
+// trying to do" categories for UnsupportedRequestNotice. It is intentionally
+// not the protocol method name: spec 2026-09-17 "Unsupported Hermes requests"
+// requires the transcript to read like "Hermes 请求了〈用途〉…", never a raw
+// method or param, and the UI resolves the sentence through i18n keyed on
+// these values (agentre-ui never renders a backend-supplied string here).
+type UnsupportedRequestPurpose string
+
+const (
+	UnsupportedRequestSudoPassword   UnsupportedRequestPurpose = "sudo_password"
+	UnsupportedRequestSecret         UnsupportedRequestPurpose = "secret"
+	UnsupportedRequestVaultUnlock    UnsupportedRequestPurpose = "vault_unlock"
+	UnsupportedRequestVaultSaveLogin UnsupportedRequestPurpose = "vault_save_login"
+	UnsupportedRequestVaultCode      UnsupportedRequestPurpose = "vault_code"
+	UnsupportedRequestTerminalRead   UnsupportedRequestPurpose = "terminal_read"
+	UnsupportedRequestPreviewRead    UnsupportedRequestPurpose = "preview_read"
+	UnsupportedRequestWindowRead     UnsupportedRequestPurpose = "window_read"
+	UnsupportedRequestPreviewAct     UnsupportedRequestPurpose = "preview_act"
+	UnsupportedRequestTour           UnsupportedRequestPurpose = "tour"
+	// UnsupportedRequestUnknown is a reverse request whose method Agentre does
+	// not recognize at all (answered "method not found").
+	UnsupportedRequestUnknown UnsupportedRequestPurpose = "unknown"
+)
+
+// UnsupportedRequestNotice is emitted when a backend reverse request has no
+// answering capability in Agentre and was already answered immediately at the
+// transport boundary (design decision 4; see hermes/frame.go's
+// unsupportedServerRequests). It carries only the closed Purpose vocabulary —
+// never the protocol method name or raw params, which must never reach an
+// event, the transcript or a log line.
+type UnsupportedRequestNotice struct {
+	Purpose UnsupportedRequestPurpose
+}
+
+func (TextDelta) isEvent()                {}
+func (ThinkingDelta) isEvent()            {}
+func (OutputActivity) isEvent()           {}
+func (ToolCall) isEvent()                 {}
+func (ToolResult) isEvent()               {}
+func (SteerConsumed) isEvent()            {}
+func (UserAskRequest) isEvent()           {}
+func (UserAskResolved) isEvent()          {}
+func (ToolPermissionRequest) isEvent()    {}
+func (ToolPermissionResolved) isEvent()   {}
+func (ExecApprovalRequested) isEvent()    {}
+func (ExecApprovalResolved) isEvent()     {}
+func (PermissionModeChanged) isEvent()    {}
+func (SubagentStarted) isEvent()          {}
+func (SubagentProgress) isEvent()         {}
+func (SubagentDone) isEvent()             {}
+func (SubagentModel) isEvent()            {}
+func (Retry) isEvent()                    {}
+func (UsageUpdate) isEvent()              {}
+func (ContextWindowUpdated) isEvent()     {}
+func (PlanUpdated) isEvent()              {}
+func (CompactBoundary) isEvent()          {}
+func (RuntimeStatus) isEvent()            {}
+func (UserMessageEvent) isEvent()         {}
+func (UnrecognizedBlock) isEvent()        {}
+func (ImageBlockEvent) isEvent()          {}
+func (Done) isEvent()                     {}
+func (ErrorEvent) isEvent()               {}
+func (ToolApprovalRequested) isEvent()    {}
+func (ToolApprovalResolved) isEvent()     {}
+func (UnsupportedRequestNotice) isEvent() {}
 
 type ExecApprovalResolution struct {
 	Status   string

@@ -23,6 +23,7 @@ import {
 } from "@/stores/file-preview-tabs-store";
 import { useSessionStatus } from "@/stores/session-status-store";
 
+import { useOpenFile } from "../chat-context-sidebar/views/use-open-file";
 import { FileTypeIcon } from "../file-type-icon";
 
 import { useMonaco } from "./use-monaco";
@@ -105,6 +106,11 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
   // 工具 diff 与图片两档永远不碰 Monaco，不为它们把那个懒加载 chunk 拉下来。
   const monaco = useMonaco(previewNeedsMonaco(activeTab));
 
+  // 与侧栏行菜单「用系统默认应用打开」同一份路径解析与失败提示。远端会话同样
+  // 给：文件不在本机时由 OpenPath 判出「本机没有」，提示说事实（spec 决策 10）。
+  const openFile = useOpenFile(root);
+  const canOpenLocally = root !== "";
+
   const ports: FilePreviewPorts = React.useMemo(
     () => ({
       readFile: async (path) => {
@@ -138,8 +144,9 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
       },
       gitFileContent: (path) =>
         WorkspaceFsGitFileContent(sessionId, rootArg, path),
+      ...(canOpenLocally ? { openPath: openFile } : {}),
     }),
-    [sessionId, rootArg],
+    [sessionId, rootArg, canOpenLocally, openFile],
   );
 
   const doneTick = useSessionStatus(sessionId)?.doneTick ?? 0;

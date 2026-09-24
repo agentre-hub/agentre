@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import {
-  previewKind,
+  anchoredOpenSegment,
   type PreviewAnchor,
   type PreviewRevealTarget,
 } from "@agentre-hub/agentre-ui";
@@ -55,15 +55,14 @@ function mintReveal(
   return { ...anchor, nonce: revealNonce };
 }
 
-// markdown 的 render 档没有行的概念，带着行号开进去就定位不上。新开标签因此落在
-// text 档；已经开着的标签不动它自己选定的档位（规格决策 4）。
+// 带行号新开的标签落在哪一档由共享包判（渲染档没有「行」的类型落文本档，与控制台
+// 同一条）；已经开着的标签不动它自己选定的档位（规格决策 4）。
 function initialSegment(
   path: string,
   anchor: PreviewAnchor | undefined,
   inherited: FilePreviewSegment | null,
 ): FilePreviewSegment | null {
-  if (anchor && previewKind(path) === "markdown") return "text";
-  return inherited;
+  return (anchor && anchoredOpenSegment(path)) ?? inherited;
 }
 
 /** 一个会话打开的整组预览标签与当前活动标签。 */

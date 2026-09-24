@@ -47,12 +47,13 @@ func TestUserAskBlock_FactoryRegistered(t *testing.T) {
 func TestUserAskQuestionDTOConversion(t *testing.T) {
 	Convey("runtime questions convert to persistence DTOs", t, func() {
 		got := QuestionsFromRuntime([]agentruntime.AskQuestion{{
-			ID:          "q-1",
-			Question:    "Deploy?",
-			Header:      "Confirm",
-			MultiSelect: true,
-			IsOther:     true,
-			IsSecret:    true,
+			ID:            "q-1",
+			Question:      "Deploy?",
+			Header:        "Confirm",
+			MultiSelect:   true,
+			IsOther:       true,
+			IsSecret:      true,
+			DisallowOther: true,
 			Options: []agentruntime.AskOption{{
 				Label:       "yes",
 				Description: "ship it",
@@ -67,6 +68,7 @@ func TestUserAskQuestionDTOConversion(t *testing.T) {
 		So(got[0].MultiSelect, ShouldBeTrue)
 		So(got[0].IsOther, ShouldBeTrue)
 		So(got[0].IsSecret, ShouldBeTrue)
+		So(got[0].DisallowOther, ShouldBeTrue)
 		So(got[0].Options, ShouldHaveLength, 1)
 		So(got[0].Options[0].Label, ShouldEqual, "yes")
 		So(got[0].Options[0].Description, ShouldEqual, "ship it")

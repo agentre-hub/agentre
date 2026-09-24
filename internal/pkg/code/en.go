@@ -59,6 +59,8 @@ var enUS = map[int]string{
 	HermesProviderNotFound:    "The server does not know this auth provider",
 	HermesUnreachable:         "Cannot reach the Hermes server; check the URL and network",
 
+	OpenClawYieldFollowUpUnconfirmed: "OpenClaw handed this task to a follow-up run, but its state could not be confirmed after the connection was interrupted, so this turn has ended. Check the OpenClaw session for the result",
+
 	AppSettingNotFound:      "App setting not found",
 	AppSettingInvalidPort:   "Port must be an integer between 0 and 65535",
 	AppSettingInvalidHost:   "Listen host is not a valid IP",
