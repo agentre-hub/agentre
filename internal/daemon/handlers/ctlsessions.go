@@ -29,6 +29,10 @@ type CtlSessions struct {
 	// endpoint 是注入给 CLI 的控制端点(本机 gateway base URL);空 = gateway 还没起,不注入。
 	endpoint func() string
 
+	// answerAuth 是 toolApproval.answer 的闸:作答会让 agentred 用自己的设备凭据提交写入,
+	// 只收已登录账号的调用方。nil = 没接闸,一律拒绝(fail closed)。
+	answerAuth func(context.Context) error
+
 	mu       sync.Mutex
 	sessions map[int64]*ctlSession // backend 会话键(runtimeSessionID) →
 	waiters  map[string]ctlWaiter  // 审批卡 requestId →
@@ -37,7 +41,8 @@ type CtlSessions struct {
 // ctlSession 是一条会话的 ctl 归属。
 type ctlSession struct {
 	conversationID string
-	// peer 是这条会话的发起端:桌面端拥有的会话经它的连接转回去(tunnelTargetFor)。
+	// peer 是这条会话的发起端:桌面端拥有的会话经它的连接转回去(tunnelTargetFor),
+	// 所以桌面端拥有时它固定是交来桌面 token 的那台桌面端,别的对端派发的轮次不改它。
 	peer devicefp.Initiator
 	// desktop 是桌面端经 runtime.run 交来的会话 token;hasDesktop=false 即控制台拥有。
 	desktop    DesktopCtlSession
@@ -52,12 +57,16 @@ type approvalSink interface {
 	beginApproval(ctx context.Context, blk *transcriptblocks.ToolApprovalBlock) (int64, error)
 	// resolveApproval 把卡置为终态(approved / denied / expired)并推出决议帧。
 	resolveApproval(ctx context.Context, requestID, status, result string)
+	// ended 在这一轮收口时关上:收口时还挂着的卡已记成 expired,此后的作答一律不算数。
+	ended() <-chan struct{}
 }
 
 // ctlWaiter 是一张挂起的审批卡:只认它自己那条会话里的作答。
 type ctlWaiter struct {
 	conversationID string
 	ch             chan bool
+	// ended 是卡所在那一轮的收口信号;关上之后这张卡不再接受作答。
+	ended <-chan struct{}
 }
 
 // NewCtlSessions 造一张空表;endpoint 每次签发时现取(gateway 端口晚绑定)。
@@ -68,6 +77,12 @@ func NewCtlSessions(endpoint func() string) *CtlSessions {
 		sessions: map[int64]*ctlSession{},
 		waiters:  map[string]ctlWaiter{},
 	}
+}
+
+// WithAnswerAuth 装上 toolApproval.answer 的调用方闸(生产是 RequireLoggedInAccount)。
+func (c *CtlSessions) WithAnswerAuth(auth func(context.Context) error) *CtlSessions {
+	c.answerAuth = auth
+	return c
 }
 
 // Credentials 是注册给 agentruntime.RegisterCtlCredentialSource 的签发函数:sessionID 是
@@ -103,9 +118,26 @@ func (c *CtlSessions) bind(rid int64, peer devicefp.Initiator, conversationID st
 		s = &ctlSession{}
 		c.sessions[rid] = s
 	}
-	s.conversationID, s.peer = conversationID, peer
-	if hasDesktop {
-		s.desktop, s.hasDesktop = desktop, true
+	s.conversationID = conversationID
+	switch {
+	case hasDesktop:
+		// 桌面 token 与交来它的那台桌面端成对记:之后只经它的连接转回去。
+		s.desktop, s.hasDesktop, s.peer = desktop, true, peer
+	case !s.hasDesktop:
+		s.peer = peer
+	}
+}
+
+// detachTurn 在一轮收口时放掉它(仍是它时):收口的一轮不再是审批卡的落点,也不该被
+// 会话表一直攥着整轮的累积状态。
+func (c *CtlSessions) detachTurn(rid int64, sink approvalSink) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if s := c.sessions[rid]; s != nil && s.turn == sink {
+		s.turn = nil
 	}
 }
 
@@ -139,11 +171,11 @@ func (c *CtlSessions) resolve(token string) (ctlSession, bool) {
 	return *s, true
 }
 
-// beginWait 挂起一张卡,返回作答 channel(true = 批准)。
-func (c *CtlSessions) beginWait(conversationID, requestID string) <-chan bool {
+// beginWait 挂起一张卡,返回作答 channel(true = 批准)。ended 是卡所在那一轮的收口信号。
+func (c *CtlSessions) beginWait(conversationID, requestID string, ended <-chan struct{}) <-chan bool {
 	ch := make(chan bool, 1)
 	c.mu.Lock()
-	c.waiters[requestID] = ctlWaiter{conversationID: conversationID, ch: ch}
+	c.waiters[requestID] = ctlWaiter{conversationID: conversationID, ch: ch, ended: ended}
 	c.mu.Unlock()
 	return ch
 }

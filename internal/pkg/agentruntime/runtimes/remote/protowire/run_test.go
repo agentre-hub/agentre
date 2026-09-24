@@ -17,7 +17,7 @@ func TestRunParamsProtobufDomainRoundTrip(t *testing.T) {
 	backend := agent_backend_entity.AgentBackend{ID: 7, Type: "claudecode", Name: "remote", CLIPath: "/bin/claude", EnvJSON: `{"A":"B"}`, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "sync-backend", SyncVersion: 9}}
 	backendJSON, err := json.Marshal(backend)
 	require.NoError(t, err)
-	want := wire.RunParams{
+	want := wire.RunParams{ //nolint:gosec // G101: DesktopCtlToken is a credential-shaped round-trip fixture, not a real token.
 		Backend: backendJSON, AgentID: 3, ConversationID: convID(42), PeerFingerprint: "fp", Cwd: "/work", Title: "title",
 		AgentSyncID: "01HXsync000000000000000000", ProjectSyncID: "01HXproj00000000000000000",
 		UserText: "hello", UserBlocks: []blocks.StoredBlock{{Type: "image", Data: json.RawMessage{0, 1, 255}}},

@@ -159,15 +159,9 @@ func TestDepartmentWriter(t *testing.T) {
 		require.NoError(t, departmentWriter{m.ports}.Delete(ctx, Write{Cur: cur}))
 		require.NoError(t, departmentWriter{m.ports}.Delete(ctx, Write{Cur: cur, Cascade: true}))
 	})
-	t.Run("级联影响：子部门（不含自己）与子树里的 Agent 连同下级 Agent", func(t *testing.T) {
+	t.Run("级联影响：交给服务层按级联删除的口径计数", func(t *testing.T) {
 		m := newMockPorts(t)
-		m.depts.EXPECT().Load(gomock.Any(), gomock.Any()).Return(&department_svc.LoadOrgResponse{
-			Departments: []*department_svc.DepartmentItem{{ID: 2}, {ID: 7, ParentID: 2}, {ID: 8, ParentID: 7}, {ID: 9}},
-			Agents: []*department_svc.AgentItem{
-				{ID: 1, DepartmentID: 2}, {ID: 2, DepartmentID: 8}, {ID: 3, ParentAgentID: 2}, // 2 的下级
-				{ID: 4, DepartmentID: 9},
-			},
-		}, nil)
+		m.depts.EXPECT().CascadeImpact(gomock.Any(), int64(2)).Return(2, 3, nil)
 		depts, agents, err := departmentWriter{m.ports}.CascadeImpact(ctx, 2)
 		require.NoError(t, err)
 		assert.Equal(t, 2, depts)

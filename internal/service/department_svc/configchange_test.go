@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
@@ -115,7 +116,7 @@ func TestReorderDepartments_EmitsConfigChanged(t *testing.T) {
 	err := svc.Reorder(ctx, &ReorderDepartmentsRequest{ParentID: 0, OrderedIDs: []int64{2, 1}})
 
 	assert.NoError(t, err)
-	assert.Equal(t, [][]string{{syncwire.KindDepartment}, {syncwire.KindDepartment}}, *got)
+	assert.Equal(t, [][]string{{syncwire.KindDepartment}}, *got, "一次重排只发一次，不按兄弟个数刷 N 遍")
 }
 
 func TestReorderDepartments_GivenRepoFails_DoesNotEmitConfigChanged(t *testing.T) {
@@ -133,13 +134,60 @@ func TestReorderDepartments_GivenRepoFails_DoesNotEmitConfigChanged(t *testing.T
 	assert.Empty(t, *got)
 }
 
-// Delete 内部走 db.Ctx(ctx).Transaction(...)（department.go 的 Delete，非注入式
-// TxRunner），这在只装配 mockgen repo、不连库的服务单测里会在拿到真实 *gorm.DB 之前
-// 就 panic——这不是本次改动引入的缺口：改动前 Delete 就没有任何成功路径的单测
-// （department_test.go 里只有下面这条 CEO/系统豁免式的早退错误路径）。NotifyConfigChanged
-// 加在与既有 sync_svc.NotifyDelete 完全相同的三处调用点上（department.go:520-529），
-// 成功路径的证据是代码位置对照，不是新跑通的测试；重构 Delete 用注入式 TxRunner
-// 让它可测，是比这次「补 config:changed」大得多的改动，不在本任务范围内。
+// 删部门一次写动了部门与 Agent 两类：只发一次、带齐两类，不按搬走 / 删掉的条数刷 N 遍。
+func TestDeleteDepartment_GivenReparent_EmitsConfigChangedOnce(t *testing.T) {
+	ctx, deptMock, agentMock, svc := setupSvc(t)
+	got := registerConfigChangeSpy(t)
+
+	deptMock.EXPECT().Find(gomock.Any(), int64(3)).Return(&department_entity.Department{ID: 3, ParentID: 1, Status: 1}, nil)
+	deptMock.EXPECT().ReparentChildren(gomock.Any(), int64(3), int64(1)).Return(nil)
+	agentMock.EXPECT().ListByDepartment(gomock.Any(), int64(3)).Return([]*agent_entity.Agent{{ID: 7}, {ID: 8}}, nil)
+	agentMock.EXPECT().UpdatePlacement(gomock.Any(), gomock.Any(), int64(1), int64(0), gomock.Any()).Return(nil).Times(2)
+	deptMock.EXPECT().Delete(gomock.Any(), int64(3)).Return(nil)
+
+	_, err := svc.Delete(ctx, &DeleteDepartmentRequest{ID: 3, Strategy: StrategyReparent})
+
+	assert.NoError(t, err)
+	assert.Equal(t, [][]string{{syncwire.KindDepartment, syncwire.KindAgent}}, *got)
+}
+
+func TestDeleteDepartment_GivenCascade_EmitsConfigChangedOnce(t *testing.T) {
+	ctx, deptMock, agentMock, svc := setupSvc(t)
+	got := registerConfigChangeSpy(t)
+
+	deptMock.EXPECT().Find(gomock.Any(), int64(3)).Return(&department_entity.Department{ID: 3, ParentID: 1, Status: 1}, nil)
+	deptMock.EXPECT().List(gomock.Any()).Return([]*department_entity.Department{
+		{ID: 1}, {ID: 3, ParentID: 1}, {ID: 4, ParentID: 3},
+	}, nil)
+	agentMock.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{
+		{ID: 7, DepartmentID: 3}, {ID: 8, DepartmentID: 4}, {ID: 9, DepartmentID: 1},
+	}, nil)
+	agentMock.EXPECT().Delete(gomock.Any(), int64(7)).Return(nil)
+	agentMock.EXPECT().Delete(gomock.Any(), int64(8)).Return(nil)
+	deptMock.EXPECT().Delete(gomock.Any(), int64(3)).Return(nil)
+	deptMock.EXPECT().Delete(gomock.Any(), int64(4)).Return(nil)
+
+	_, err := svc.Delete(ctx, &DeleteDepartmentRequest{ID: 3, Strategy: StrategyCascade})
+
+	assert.NoError(t, err)
+	assert.Equal(t, [][]string{{syncwire.KindDepartment, syncwire.KindAgent}}, *got)
+}
+
+func TestDeleteDepartment_GivenTxFails_DoesNotEmitConfigChanged(t *testing.T) {
+	ctx, deptMock, agentMock, svc := setupSvc(t)
+	got := registerConfigChangeSpy(t)
+
+	deptMock.EXPECT().Find(gomock.Any(), int64(3)).Return(&department_entity.Department{ID: 3, ParentID: 1, Status: 1}, nil)
+	deptMock.EXPECT().ReparentChildren(gomock.Any(), int64(3), int64(1)).Return(nil)
+	agentMock.EXPECT().ListByDepartment(gomock.Any(), int64(3)).Return(nil, nil)
+	deptMock.EXPECT().Delete(gomock.Any(), int64(3)).Return(errors.New("db down"))
+
+	_, err := svc.Delete(ctx, &DeleteDepartmentRequest{ID: 3, Strategy: StrategyReparent})
+
+	assert.Error(t, err)
+	assert.Empty(t, *got)
+}
+
 func TestDeleteDepartment_GivenDepartmentNotFound_DoesNotEmitConfigChanged(t *testing.T) {
 	ctx, deptMock, _, svc := setupSvc(t)
 	got := registerConfigChangeSpy(t)

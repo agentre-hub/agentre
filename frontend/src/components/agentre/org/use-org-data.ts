@@ -77,13 +77,15 @@ export function useOrgData() {
   // config:changed（本机写入）/ sync:applied（多端同步落地）到达时就地重拉——用不
   // 带 loading 置位的 `reload`，页面不会因为一次后台刷新回退到加载占位或提示条
   // （docs/specs/2026-09-22-agrctl-resource-management.md「Real-time refresh」）。
+  // 本页自己的写入还没全部落定时不重拉：那次重拉会拿回不含后续写入的数据，盖掉乐观
+  // 更新；最后一个写入结束时 `mutate` 自己会重拉一次。
   React.useEffect(() => {
-    const offConfigChanged = EventsOn("config:changed", () => {
+    const reloadWhenSettled = () => {
+      if (inFlight.current > 0) return;
       void reload();
-    });
-    const offSyncApplied = EventsOn("sync:applied", () => {
-      void reload();
-    });
+    };
+    const offConfigChanged = EventsOn("config:changed", reloadWhenSettled);
+    const offSyncApplied = EventsOn("sync:applied", reloadWhenSettled);
     return () => {
       offConfigChanged();
       offSyncApplied();

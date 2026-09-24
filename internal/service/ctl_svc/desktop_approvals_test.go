@@ -2,7 +2,9 @@ package ctl_svc
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,7 +50,7 @@ func TestDesktopApprovalQueue_Enqueue(t *testing.T) {
 	require.Len(t, emitter.last(), 1)
 	assert.Equal(t, "r1", emitter.last()[0].RequestID)
 	assert.Equal(t, "agrctl update provider openrouter", emitter.last()[0].Command)
-	assert.Nil(t, emitter.last()[0].Caller, "agrctl 尚未上报调用方进程信息，见 approval.go 的 CallerInfo 注释")
+	assert.Nil(t, emitter.last()[0].Caller, "没上报调用方进程信息时没有调用方那一行")
 
 	_, err = q.Enqueue(context.Background(), testApproval("r2", "agrctl delete department 临时小组 --cascade"))
 	require.NoError(t, err)
@@ -105,7 +107,7 @@ func TestDesktopApprovalQueue_Withdraw(t *testing.T) {
 }
 
 // TestDesktopApprovalQueue_Caller 钉死：Caller 信息（有值时）原样透传进快照，供弹窗渲染
-// 调用方那一行；agrctl 目前不上报，所以生产路径里恒为 nil（见 approval.go）。
+// 调用方那一行；没上报时为 nil（见 approval.go 的 CallerInfo）。
 func TestDesktopApprovalQueue_Caller(t *testing.T) {
 	emitter := &fakeDesktopEmitter{}
 	q := NewDesktopApprovalQueue(emitter)
@@ -117,4 +119,70 @@ func TestDesktopApprovalQueue_Caller(t *testing.T) {
 	require.Len(t, emitter.last(), 1)
 	require.NotNil(t, emitter.last()[0].Caller)
 	assert.Equal(t, CallerInfo{ParentProcess: "codex", Pid: 48213, WorkingDir: "~/Code/agentre"}, *emitter.last()[0].Caller)
+}
+
+// blockingDesktopEmitter 的第一次推送卡在 release 上，模拟推送途中另一条请求并发入队。
+type blockingDesktopEmitter struct {
+	mu        sync.Mutex
+	snapshots [][]DesktopApprovalItem
+	release   chan struct{}
+	entered   chan struct{}
+	first     sync.Once
+	recorded  chan struct{}
+}
+
+func (f *blockingDesktopEmitter) EmitQueue(items []DesktopApprovalItem) {
+	blocked := false
+	f.first.Do(func() { blocked = true })
+	if blocked {
+		close(f.entered)
+		<-f.release
+	}
+	f.mu.Lock()
+	f.snapshots = append(f.snapshots, append([]DesktopApprovalItem(nil), items...))
+	f.mu.Unlock()
+	f.recorded <- struct{}{}
+}
+
+// TestDesktopApprovalQueue_ConcurrentChangesNeverEndOnAStaleSnapshot：两次变化并发时，
+// 弹窗最后收到的必须是最新的队列——旧快照后到会盖掉新请求，那条外部调用就只能干等到超时。
+func TestDesktopApprovalQueue_ConcurrentChangesNeverEndOnAStaleSnapshot(t *testing.T) {
+	emitter := &blockingDesktopEmitter{release: make(chan struct{}), entered: make(chan struct{}), recorded: make(chan struct{}, 4)}
+	q := NewDesktopApprovalQueue(emitter)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); _, _ = q.Enqueue(context.Background(), testApproval("r1", "a")) }()
+	// 等 r1 的推送卡住之后再让 r2 入队。
+	<-emitter.entered
+	go func() { defer wg.Done(); _, _ = q.Enqueue(context.Background(), testApproval("r2", "b")) }()
+	select { // 旧实现里 r2 的快照此刻已经先推出去了；修好后它要排在 r1 之后。
+	case <-emitter.recorded:
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(emitter.release)
+	wg.Wait()
+
+	emitter.mu.Lock()
+	defer emitter.mu.Unlock()
+	require.Len(t, emitter.snapshots, 2)
+	last := emitter.snapshots[len(emitter.snapshots)-1]
+	assert.Len(t, last, 2, "最后一份快照要含两条请求：%v", last)
+}
+
+// TestDesktopApprovalQueue_PendingAndWithdrawReport：Pending 给出当前队列副本（弹窗挂载时
+// 补齐订阅前入队的请求）；Withdraw 报告请求是否还挂着——已答过的返回 false。
+func TestDesktopApprovalQueue_PendingAndWithdrawReport(t *testing.T) {
+	q := NewDesktopApprovalQueue(&fakeDesktopEmitter{})
+	assert.Empty(t, q.Pending())
+	_, _ = q.Enqueue(context.Background(), testApproval("r1", "a"))
+	_, _ = q.Enqueue(context.Background(), testApproval("r2", "b"))
+	got := q.Pending()
+	require.Len(t, got, 2)
+	assert.Equal(t, "r1", got[0].RequestID)
+
+	require.NoError(t, q.Answer("r1", true))
+	assert.False(t, q.Withdraw("r1"), "已答过")
+	assert.True(t, q.Withdraw("r2"))
+	assert.Empty(t, q.Pending())
 }

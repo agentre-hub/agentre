@@ -48,6 +48,12 @@ func (p parsedArgs) has(name string) bool {
 	return len(p.values(name)) > 0
 }
 
+// on 报告布尔 flag name 是否打开：出现过且值不是 =false（--f 与 --f=true 打开）。
+func (p parsedArgs) on(name string) bool {
+	vals := p.values(name)
+	return len(vals) > 0 && vals[len(vals)-1] == "true"
+}
+
 // values 返回名为 name 的 flag 的全部取值，按出现顺序。
 func (p parsedArgs) values(name string) []string {
 	var out []string

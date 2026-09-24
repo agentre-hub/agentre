@@ -16,6 +16,7 @@ type fakeExternalApprovals struct {
 	answered  []string
 	allow     []bool
 	returnErr error
+	pending   []ctl_svc.DesktopApprovalItem
 }
 
 func (f *fakeExternalApprovals) Enqueue(context.Context, ctl_svc.ExternalApproval) (<-chan bool, error) {
@@ -28,7 +29,9 @@ func (f *fakeExternalApprovals) Answer(requestID string, allow bool) error {
 	return f.returnErr
 }
 
-func (f *fakeExternalApprovals) Withdraw(string) {}
+func (f *fakeExternalApprovals) Withdraw(string) bool { return true }
+
+func (f *fakeExternalApprovals) Pending() []ctl_svc.DesktopApprovalItem { return f.pending }
 
 // TestAnswerCtlApproval_ForwardsToRegisteredQueue 钉死：App.AnswerCtlApproval 是薄转发，
 // 把 (requestID, allow) 原样递给 ctl_svc.Default() 当前注册的 ExternalApprovals；队列
@@ -45,4 +48,17 @@ func TestAnswerCtlApproval_ForwardsToRegisteredQueue(t *testing.T) {
 
 	fake.returnErr = assert.AnError
 	assert.ErrorIs(t, a.AnswerCtlApproval("r2", false), assert.AnError)
+}
+
+// TestPendingCtlApprovals_ReturnsRegisteredQueueSnapshot：弹窗挂载时经这个 binding 补齐
+// 订阅之前已入队的请求；队列还没注册时是空数组（不是 null）。
+func TestPendingCtlApprovals_ReturnsRegisteredQueueSnapshot(t *testing.T) {
+	a := &App{}
+	ctl_svc.Default().RegisterExternalApprovals(nil)
+	assert.Equal(t, []ctl_svc.DesktopApprovalItem{}, a.PendingCtlApprovals())
+
+	fake := &fakeExternalApprovals{pending: []ctl_svc.DesktopApprovalItem{{RequestID: "r1", Command: "agrctl delete agent x"}}}
+	ctl_svc.Default().RegisterExternalApprovals(fake)
+	t.Cleanup(func() { ctl_svc.Default().RegisterExternalApprovals(nil) })
+	assert.Equal(t, fake.pending, a.PendingCtlApprovals())
 }

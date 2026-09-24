@@ -24,6 +24,7 @@ type DepartmentService interface {
 	Update(ctx context.Context, req *department_svc.UpdateDepartmentRequest) (*department_svc.UpdateDepartmentResponse, error)
 	Move(ctx context.Context, req *department_svc.MoveDepartmentRequest) (*department_svc.MoveDepartmentResponse, error)
 	Delete(ctx context.Context, req *department_svc.DeleteDepartmentRequest) (*department_svc.DeleteDepartmentResponse, error)
+	CascadeImpact(ctx context.Context, departmentID int64) (departments, agents int, err error)
 }
 
 // AgentService Agent 写入（agent_svc）。

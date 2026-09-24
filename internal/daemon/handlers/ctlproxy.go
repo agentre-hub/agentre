@@ -200,12 +200,12 @@ func (p *ctlProxy) approveConsoleWrite(w http.ResponseWriter, r *http.Request, o
 		return
 	}
 	requestID := uuid.NewString()
-	ch := p.deps.Sessions.beginWait(owner.conversationID, requestID)
+	ch := p.deps.Sessions.beginWait(owner.conversationID, requestID, owner.turn.ended())
 	sessionID, err := owner.turn.beginApproval(ctx, &transcriptblocks.ToolApprovalBlock{
 		ToolKey:   agenttool.KeyCtl,
 		RequestID: requestID,
-		ToolName:  "ctl_" + ctlOpName(write.GetOp()) + "_" + ctlKindNames[write.GetKind()],
-		ToolInput: ctlApprovalInput(redactCtlCommand(write), preview.GetChanges()).ToolInput(),
+		ToolName:  "ctl_" + transcriptblocks.CtlOpName(write.GetOp()) + "_" + transcriptblocks.CtlKindNames[write.GetKind()],
+		ToolInput: ctlApprovalInput(transcriptblocks.RedactCtlCommand(write), preview.GetChanges()).ToolInput(),
 		Status:    "pending",
 	})
 	if err != nil {
@@ -219,8 +219,12 @@ func (p *ctlProxy) approveConsoleWrite(w http.ResponseWriter, r *http.Request, o
 	log.Info("handlers.ctlProxy.approveConsoleWrite: awaiting approval")
 	announceCtlPending(w, fmt.Sprintf("session=%d", sessionID))
 
-	allow, answered := p.awaitAnswer(ctx, ch, requestID)
+	allow, answered := p.awaitAnswer(ctx, ch, requestID, owner.turn.ended())
 	switch {
+	case !answered && isClosed(owner.turn.ended()):
+		// 这一轮先收口了:卡已随收口记成 expired,不再提交。
+		log.Info("handlers.ctlProxy.approveConsoleWrite: turn ended before an answer")
+		writeCtlErr(w, http.StatusConflict, "the turn ended before the approval was answered")
 	case !answered && ctx.Err() != nil:
 		// agrctl 走了(被杀 / 轮次中止):卡就此作废,请求 ctx 已死,落库用新的。
 		owner.turn.resolveApproval(context.WithoutCancel(ctx), requestID, "expired", "")
@@ -234,6 +238,8 @@ func (p *ctlProxy) approveConsoleWrite(w http.ResponseWriter, r *http.Request, o
 		log.Info("handlers.ctlProxy.approveConsoleWrite: rejected")
 		writeCtlErr(w, http.StatusForbidden, fmt.Sprintf("rejected in session #%d", sessionID))
 	default:
+		// 人已经批准了:之后 agrctl 断开也把写入做完、把结果落到卡上(ctx 脱离请求的取消)。
+		ctx := context.WithoutCancel(ctx)
 		var raw []byte
 		if plan.serverBody != nil {
 			status, body, err := p.postServer(ctx, serverResourcesPath, plan.serverBody)
@@ -298,9 +304,10 @@ func (p *ctlProxy) previewConsoleWrite(w http.ResponseWriter, ctx context.Contex
 	return preview, true
 }
 
-// awaitAnswer 等作答到超时或调用方断开。没等到时撤下卡,再收一次:作答可能恰好在撤下
-// 之前投进了 channel —— 控制台已经收到「成功」,这一票不能丢。
-func (p *ctlProxy) awaitAnswer(ctx context.Context, ch <-chan bool, requestID string) (allow, answered bool) {
+// awaitAnswer 等作答到超时、调用方断开或这一轮收口。没等到时撤下卡,再收一次:作答可能
+// 恰好在撤下之前投进了 channel —— 控制台已经收到「成功」,这一票不能丢。收口的那一轮
+// 不在此列:它的卡已经记成 expired,收口之后的作答 AnswerToolApproval 一律不收。
+func (p *ctlProxy) awaitAnswer(ctx context.Context, ch <-chan bool, requestID string, ended <-chan struct{}) (allow, answered bool) {
 	timer := time.NewTimer(p.deps.ApprovalTimeout)
 	defer timer.Stop()
 	select {
@@ -308,6 +315,9 @@ func (p *ctlProxy) awaitAnswer(ctx context.Context, ch <-chan bool, requestID st
 		return allow, true
 	case <-timer.C:
 	case <-ctx.Done():
+	case <-ended:
+		p.deps.Sessions.endWait(requestID)
+		return false, false
 	}
 	p.deps.Sessions.endWait(requestID)
 	select {
@@ -360,55 +370,18 @@ func (p *ctlProxy) writeServerErr(w http.ResponseWriter, ctx context.Context, ow
 
 // ── 审批卡内容 ───────────────────────────────────────────────────────────────
 
-// ctlKindNames 是审批卡与结果行里的资源名,与 agrctl / 桌面端执行者一致。
-var ctlKindNames = map[agentrewire.CtlKind]string{
-	agentrewire.CtlKind_CTL_KIND_AGENT:      "agent",
-	agentrewire.CtlKind_CTL_KIND_DEPARTMENT: "department",
-	agentrewire.CtlKind_CTL_KIND_PROJECT:    "project",
-	agentrewire.CtlKind_CTL_KIND_PROVIDER:   "provider",
-	agentrewire.CtlKind_CTL_KIND_MODEL:      "model",
-	agentrewire.CtlKind_CTL_KIND_BACKEND:    "backend",
-}
-
-func ctlOpName(op agentrewire.CtlOp) string {
-	switch op {
-	case agentrewire.CtlOp_CTL_OP_CREATE:
-		return "create"
-	case agentrewire.CtlOp_CTL_OP_UPDATE:
-		return "update"
-	case agentrewire.CtlOp_CTL_OP_DELETE:
-		return "delete"
-	}
-	return op.String()
-}
-
-// redactCtlCommand 不信客户端已经脱敏:请求里带的密钥明文若出现在命令行里,一律换成 …。
-func redactCtlCommand(req *agentrewire.CtlWriteRequest) string {
-	command := req.GetCommand()
-	for _, secret := range []string{req.GetResource().GetProvider().GetApiKey(), req.GetResource().GetBackend().GetToken()} {
-		if secret != "" {
-			command = strings.ReplaceAll(command, secret, "…")
-		}
-	}
-	return command
-}
-
 // ctlApprovalInput 把 server 算出的变更清单转成审批卡的 ToolInput(前后值不取自客户端)。
+// 级联数量只拿得到 server 的附注,按约定句式还原。
 func ctlApprovalInput(command string, changes []*agentrewire.CtlChange) transcriptblocks.CtlApprovalInput {
 	in := transcriptblocks.CtlApprovalInput{Command: command}
 	for _, c := range changes {
-		ch := transcriptblocks.CtlApprovalChange{Op: ctlOpName(c.GetOp()), Kind: ctlKindNames[c.GetKind()], ID: c.GetId(), Name: c.GetName(),
-			Cascade: transcriptblocks.ParseCtlCascadeNote(c.GetNote())}
-		for _, f := range c.GetFields() {
-			ch.Fields = append(ch.Fields, transcriptblocks.CtlApprovalField{Field: f.GetField(), Before: f.Before, After: f.After, Secret: f.GetSecret()})
-		}
-		in.Changes = append(in.Changes, ch)
+		in.Changes = append(in.Changes, transcriptblocks.NewCtlApprovalChange(c, transcriptblocks.ParseCtlCascadeNote(c.GetNote())))
 	}
 	return in
 }
 
-// ctlResultText 是批准后卡上的结果行(与桌面端执行者同一组措辞)。create 的新 id 取自
-// server 的写入应答;读不出来时退回预览里的那条变更。
+// ctlResultText 是批准后卡上的结果行。create 的新 id 取自 server 的写入应答;读不出来时
+// 退回预览里的那条变更。
 func ctlResultText(raw []byte, preview *agentrewire.CtlWriteResponse) string {
 	change := firstChange(preview)
 	var resp agentrewire.CtlResponse
@@ -417,18 +390,7 @@ func ctlResultText(raw []byte, preview *agentrewire.CtlWriteResponse) string {
 			change = c
 		}
 	}
-	if change == nil {
-		return ""
-	}
-	subject := ctlKindNames[change.GetKind()] + " " + change.GetName()
-	switch change.GetOp() {
-	case agentrewire.CtlOp_CTL_OP_CREATE:
-		return fmt.Sprintf("已创建 %s（id %d）", subject, change.GetId())
-	case agentrewire.CtlOp_CTL_OP_UPDATE:
-		return "已更新 " + subject
-	default:
-		return "已删除 " + subject
-	}
+	return transcriptblocks.CtlResultText(change)
 }
 
 func firstChange(resp *agentrewire.CtlWriteResponse) *agentrewire.CtlChange {

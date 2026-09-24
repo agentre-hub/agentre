@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,6 +47,7 @@ func TestRuntime_Run_GivenCtlSessions_ThenCLIGetsASessionTokenThatRoutesByOwners
 	agentruntime.RegisterCtlCredentialSource(ctl.Credentials)
 	t.Cleanup(func() { agentruntime.RegisterCtlCredentialSource(nil) })
 
+	captured := captureRuntimeLogs(t)
 	rt := &fullRT{}
 	rt.runFn = func(context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
 		ch := make(chan agentruntime.Event)
@@ -60,16 +62,23 @@ func TestRuntime_Run_GivenCtlSessions_ThenCLIGetsASessionTokenThatRoutesByOwners
 	})
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
 
+	// 与生产同形：带 agent sync id 的跨主机派发不带本地 agent id（remote.crossHostAgentID
+	// 把它置 0，浏览器派发同样是 0）。
 	_, err := h.Run(context.Background(), &agentrewire.RuntimeRunRequest{
-		Backend: backendProto(t, be), ConversationId: convID(71), AgentId: 7, UserText: "desktop",
+		Backend: backendProto(t, be), ConversationId: convID(71), AgentSyncId: "01HXAGENTSYNCID0000000000A", UserText: "desktop",
 		DesktopCtlToken: desktopToken, DesktopSessionId: 55,
 	})
 	require.NoError(t, err)
 	_, err = h.Run(context.Background(), &agentrewire.RuntimeRunRequest{
-		Backend: backendProto(t, be), ConversationId: convID(72), AgentId: 7, UserText: "console",
+		Backend: backendProto(t, be), ConversationId: convID(72), AgentSyncId: "01HXAGENTSYNCID0000000000A", UserText: "console",
 	})
 	require.NoError(t, err)
-	_ = notif.waitFrames(t, 4) // 两轮各 turnStarted + runResultDone:fanout 收完才往下走
+	_ = notif.waitFrames(t, 4) // 两轮各 turnStarted + runResultDone
+	// runResultDone 之后 fanout 还要记一条汇总(读全局 logger):两轮都记完才算收尾,
+	// 否则它会越过本用例,与后面用例换全局 logger 竞争。
+	require.Eventually(t, func() bool {
+		return strings.Count(captured.String(), "fanout: session ended") >= 2
+	}, 5*time.Second, 5*time.Millisecond)
 
 	rt.mu.Lock()
 	reqs := append([]runCall(nil), rt.runReqs...)

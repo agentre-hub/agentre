@@ -236,6 +236,7 @@ func TestRunRequest_CtlCredentials(t *testing.T) {
 	assert.Equal(t, int64(7), gotAgent)
 	assert.Equal(t, int64(42), gotSession)
 
-	assert.Equal(t, CtlCredentials{}, RunRequest{SessionID: 42}.CtlCredentials(), "没有 agent → 不签")
+	assert.Equal(t, CtlCredentials{Endpoint: "http://127.0.0.1:1", Token: "t"}, RunRequest{SessionID: 42}.CtlCredentials(),
+		"没有本地 agent id（跨主机派发只带 agent sync id）照样签：会话身份只看会话")
 	assert.Equal(t, CtlCredentials{}, RunRequest{AgentID: 7}.CtlCredentials(), "没有会话 → 不签")
 }

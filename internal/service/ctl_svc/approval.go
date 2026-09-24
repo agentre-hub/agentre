@@ -48,7 +48,10 @@ type ExternalApprovals interface {
 	// 已答过）时返回错误。
 	Answer(requestID string, allow bool) error
 	// Withdraw 由执行者在超时或调用方断开时调用：撤下请求，此后的 Answer 一律无效。
-	Withdraw(requestID string)
+	// 返回 false 表示请求已不在队列里——恰好在撤下前被答了，答案已在应答 channel 里。
+	Withdraw(requestID string) bool
+	// Pending 是此刻的待审批快照（按入队顺序），弹窗挂载时据此补上订阅之前入队的请求。
+	Pending() []DesktopApprovalItem
 }
 
 // chatApprovals 是生产用的会话审批网关：每次现取 chat_svc 单例。

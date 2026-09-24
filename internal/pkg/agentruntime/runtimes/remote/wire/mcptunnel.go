@@ -57,7 +57,21 @@ func mcpTunnelRequestID(body []byte) json.RawMessage {
 // AGENTS.md 的前端 i18n 规则约束(该规则管的是 react-i18next 的可见 UI 文案)。
 //
 // path 是隧道路径(如 /mcp/org/),body 是 CLI 发来的原始 JSON-RPC 请求体(只用来取 id)。
+//
+// 例外是 agrctl 的 /ctl/*（同一条隧道也载它）：agrctl 读的是 ctl 契约——失败是非 2xx +
+// {"error": …}——把 200 的 JSON-RPC 信封当成一个空的成功响应（list 零条、写入「成功」）。
+// 所以 /ctl/ 路径回 502 + ctl 形状的错误。
 func MCPTunnelUnavailableResponse(path string, body []byte) MCPProxyResponse {
+	if strings.HasPrefix(path, "/ctl/") {
+		raw, _ := json.Marshal(map[string]string{
+			"error": "the Agentre desktop that owns this session could not handle the request right now; try again once it is back",
+		})
+		return MCPProxyResponse{
+			Status:  502,
+			Headers: map[string][]string{"Content-Type": {"application/json"}},
+			Body:    raw,
+		}
+	}
 	env := struct {
 		JSONRPC string          `json:"jsonrpc"`
 		ID      json.RawMessage `json:"id"`

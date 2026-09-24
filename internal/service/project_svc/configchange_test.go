@@ -177,7 +177,7 @@ func TestProjectSvcReorder_EmitsConfigChanged(t *testing.T) {
 	err := svc.Reorder(ctx, &project_svc.ReorderProjectsRequest{ParentID: 7, OrderedIDs: []int64{2, 1}})
 
 	require.NoError(t, err)
-	assert.Equal(t, [][]string{{syncwire.KindProject}, {syncwire.KindProject}}, *got)
+	assert.Equal(t, [][]string{{syncwire.KindProject}}, *got, "一次重排只发一次，不按兄弟个数刷 N 遍")
 }
 
 func TestProjectSvcReorder_GivenRepoFails_DoesNotEmitConfigChanged(t *testing.T) {

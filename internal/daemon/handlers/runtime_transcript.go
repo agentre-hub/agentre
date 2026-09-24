@@ -36,6 +36,10 @@ type turnTranscript struct {
 	finished bool
 	// approvals 是这一轮里 ctl 代理登记的审批卡(同一指针也在累加器里),终态原地改。
 	approvals []*transcriptblocks.ToolApprovalBlock
+	// done 在 finish 时关上:还在等作答的 ctl 写入据此收场,迟到的作答一律不挂起。
+	done chan struct{}
+	// release 在 finish 末尾调用:会话表放掉这一轮(不再是审批卡的落点)。
+	release func()
 
 	port       TranscriptPort
 	dispatcher *turn.Dispatcher
@@ -114,6 +118,7 @@ func (h *RuntimeHandlers) beginTranscript(
 			em.emit(wire.NotifyEvent, &frame)
 		},
 		publisher: transcript.NewFramePublisher(),
+		done:      make(chan struct{}),
 	}
 	// 用户那一行起手就定稿了:它现在就该以持久帧的身份出去,取到的号排在这一轮的
 	// 最前面。晚发(等到补齐才编号)会让它排到这一轮的正文之后 —— 对端的转录里
@@ -121,8 +126,12 @@ func (h *RuntimeHandlers) beginTranscript(
 	lowest, highest := t.publishDurable(em.ctx, user, true)
 	// 这一轮是本会话此刻的审批卡落点(控制台拥有的会话上 agrctl 写入的那张卡)。
 	h.deps.Ctl.attachTurn(em.rid, t)
+	t.release = func() { h.deps.Ctl.detachTurn(em.rid, t) }
 	return t, lowest, highest
 }
+
+// ended 在这一轮收口时关上。
+func (t *turnTranscript) ended() <-chan struct{} { return t.done }
 
 // errTurnFinished:这一轮已经收口,审批卡无处可落。
 var errTurnFinished = errors.New("the turn has finished")
@@ -330,6 +339,10 @@ func (t *turnTranscript) finish(ctx context.Context, frame wire.RunResultDoneFra
 	if t == nil {
 		return
 	}
+	if t.release != nil {
+		// 先登记、后取锁:defer 后进先出,放手发生在 t.mu 解开之后,会话表的锁不嵌在转录锁里。
+		defer t.release()
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	// 还挂着的审批卡此后没人答得了(与桌面端 takeToolApprovals 同一口径):标成 expired 随
@@ -339,6 +352,9 @@ func (t *turnTranscript) finish(ctx context.Context, frame wire.RunResultDoneFra
 		if blk.Status == "pending" {
 			blk.Status = "expired"
 		}
+	}
+	if !isClosed(t.done) {
+		close(t.done)
 	}
 	// 还攒着的插话必须在这里落地(桌面端 chat_svc.turnRun.finalize 开头同样先 flush):
 	// 它已经被后端消费进这一轮的上下文了,轮末丢掉就是用户打的字进了模型却没进转录 ——

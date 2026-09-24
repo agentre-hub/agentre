@@ -7,6 +7,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
@@ -190,14 +191,4 @@ func mergeMembers(cur, add, remove []int64) []int64 {
 	return out
 }
 
-func opName(op agentrewire.CtlOp) string {
-	switch op {
-	case agentrewire.CtlOp_CTL_OP_CREATE:
-		return "create"
-	case agentrewire.CtlOp_CTL_OP_UPDATE:
-		return "update"
-	case agentrewire.CtlOp_CTL_OP_DELETE:
-		return "delete"
-	}
-	return op.String()
-}
+func opName(op agentrewire.CtlOp) string { return blocks.CtlOpName(op) }

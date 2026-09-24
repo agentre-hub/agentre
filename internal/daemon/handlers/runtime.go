@@ -141,10 +141,6 @@ type RuntimeHandlers struct {
 	// goroutine 在真实 runtime 的 AutonomousTurns(sid) channel close(子进程 evict)时
 	// 退出并清这条,下次 Run 复用 / 重 spawn 时再起。
 	autoSubs sync.Map // sessionID(int64) → struct{}
-	// desktopCtl 记着桌面端经 runtime.run 交来的 agrctl 会话凭证,键是 conversation_id
-	// (见 DesktopCtlSession)。它不跟 sessions 那张轮次表走:CLI 子进程跨轮复用,轮末
-	// 不清;带 token 的一轮覆盖,不带的一轮保持原样。
-	desktopCtl sync.Map // conversationID(string) → DesktopCtlSession
 }
 
 type runtimeSession struct {
@@ -426,9 +422,11 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 		return nil, err
 	}
 	em := h.newEmitterFor(ctx, request.GetConversationId(), runPeer)
-	h.recordDesktopCtl(em.conversationID, request)
-	desktopCtl, desktopOwned := h.DesktopCtlSession(em.conversationID)
-	h.deps.Ctl.bind(em.rid, em.peer, em.conversationID, desktopCtl, desktopOwned)
+	// 桌面端交来的 agrctl 会话 token 登记进 Daemon 级的会话表(跨轮、跨连接保留;不带
+	// token 的一轮不抹掉已有归属,见 CtlSessions.bind)。
+	h.deps.Ctl.bind(em.rid, em.peer, em.conversationID, DesktopCtlSession{
+		DesktopSessionID: request.GetDesktopSessionId(), Token: request.GetDesktopCtlToken(),
+	}, request.GetDesktopCtlToken() != "")
 
 	var (
 		piPreparer piagentrt.RunPreparer
@@ -1841,29 +1839,6 @@ type DesktopCtlSession struct {
 	DesktopSessionID int64
 	// Token 是桌面端签的会话级 token。密钥:永远不进日志。
 	Token string
-}
-
-// DesktopCtlSession 返回 conversationID 这条会话最近一次带 token 的 runtime.run 留下的
-// 桌面端 ctl 凭证;ok=false 表示这条会话没有由桌面端派发过(控制台/浏览器派发)。
-//
-// 生产上每条连接一个 RuntimeHandlers(daemon.bindConn),所以查到的凭证属于经**这条**
-// 连接派发的会话 —— ctl 代理正该经它转回桌面端。
-func (h *RuntimeHandlers) DesktopCtlSession(conversationID string) (DesktopCtlSession, bool) {
-	v, ok := h.desktopCtl.Load(conversationID)
-	if !ok {
-		return DesktopCtlSession{}, false
-	}
-	return v.(DesktopCtlSession), true
-}
-
-// recordDesktopCtl 登记本轮带来的桌面端 ctl 凭证。不带 token 的一轮(控制台/浏览器在
-// 同一会话上派发)不抹掉已有归属:token 绑定的是会话,不是轮次。
-func (h *RuntimeHandlers) recordDesktopCtl(conversationID string, request *agentrewire.RuntimeRunRequest) {
-	token := request.GetDesktopCtlToken()
-	if token == "" {
-		return
-	}
-	h.desktopCtl.Store(conversationID, DesktopCtlSession{DesktopSessionID: request.GetDesktopSessionId(), Token: token})
 }
 
 func (h *RuntimeHandlers) lookupSession(sid int64) *runtimeSession {

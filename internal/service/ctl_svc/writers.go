@@ -160,48 +160,9 @@ func (w departmentWriter) Delete(ctx context.Context, wr Write) error {
 	return err
 }
 
-// CascadeImpact 按服务层级联删除的同一口径计数：部门子树（不含它自己），以及挂在子树
-// 部门上的顶层 Agent 连同它们的下级 Agent。
+// CascadeImpact 交给服务层按级联删除的同一口径计数（审批卡上的数量就是真删掉的数量）。
 func (w departmentWriter) CascadeImpact(ctx context.Context, departmentID int64) (int, int, error) {
-	org, err := w.p.departments().Load(ctx, &department_svc.LoadOrgRequest{})
-	if err != nil {
-		return 0, 0, err
-	}
-	childDepts := map[int64][]int64{}
-	for _, d := range org.Departments {
-		childDepts[d.ParentID] = append(childDepts[d.ParentID], d.ID)
-	}
-	inTree := map[int64]bool{}
-	var walkDept func(id int64)
-	walkDept = func(id int64) {
-		inTree[id] = true
-		for _, c := range childDepts[id] {
-			walkDept(c)
-		}
-	}
-	walkDept(departmentID)
-
-	childAgents := map[int64][]int64{}
-	for _, a := range org.Agents {
-		childAgents[a.ParentAgentID] = append(childAgents[a.ParentAgentID], a.ID)
-	}
-	seen := map[int64]bool{}
-	var walkAgent func(id int64)
-	walkAgent = func(id int64) {
-		if seen[id] {
-			return
-		}
-		seen[id] = true
-		for _, c := range childAgents[id] {
-			walkAgent(c)
-		}
-	}
-	for _, a := range org.Agents {
-		if a.ParentAgentID == 0 && inTree[a.DepartmentID] {
-			walkAgent(a.ID)
-		}
-	}
-	return len(inTree) - 1, len(seen), nil
+	return w.p.departments().CascadeImpact(ctx, departmentID)
 }
 
 // ---- projects ----

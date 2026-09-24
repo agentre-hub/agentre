@@ -44,8 +44,8 @@ type DesktopApprovalQueue struct {
 	emit  DesktopApprovalEmitter
 }
 
-// NewDesktopApprovalQueue 装配一个空队列；emit 在每次快照变化时同步调用（内部已加锁，
-// 调用方自己的实现不必再加锁）。
+// NewDesktopApprovalQueue 装配一个空队列；emit 在每次快照变化时持队列锁同步调用——
+// 快照按变化的先后送达，弹窗最后收到的一定是最新队列；emit 不能回调队列。
 func NewDesktopApprovalQueue(emit DesktopApprovalEmitter) *DesktopApprovalQueue {
 	return &DesktopApprovalQueue{items: map[string]desktopPending{}, emit: emit}
 }
@@ -66,9 +66,8 @@ func (q *DesktopApprovalQueue) Enqueue(_ context.Context, a ExternalApproval) (<
 		ch: ch,
 	}
 	q.order = append(q.order, a.RequestID)
-	snapshot := q.snapshotLocked()
+	q.emitLocked()
 	q.mu.Unlock()
-	q.emit.EmitQueue(snapshot)
 	return ch, nil
 }
 
@@ -81,27 +80,32 @@ func (q *DesktopApprovalQueue) Answer(requestID string, allow bool) error {
 		return fmt.Errorf("ctl_svc: no pending desktop approval %q", requestID)
 	}
 	q.removeLocked(requestID)
-	snapshot := q.snapshotLocked()
-	q.mu.Unlock()
-
-	p.ch <- allow
+	p.ch <- allow // 带 1 格缓冲，不会阻塞
 	close(p.ch)
-	q.emit.EmitQueue(snapshot)
+	q.emitLocked()
+	q.mu.Unlock()
 	return nil
 }
 
 // Withdraw 见 ExternalApprovals：执行者在超时或调用方断开时调用，只摘除、不往 channel
-// 送值——执行者的 await 早已经从 select 的另一支返回。之后这条请求的 Answer 一律失效。
-func (q *DesktopApprovalQueue) Withdraw(requestID string) {
+// 送值——执行者的 await 早已经从 select 的另一支返回。之后这条请求的 Answer 一律失效；
+// 已经答过（不在队列里）时返回 false，答案留在应答 channel 里由执行者取走。
+func (q *DesktopApprovalQueue) Withdraw(requestID string) bool {
 	q.mu.Lock()
+	defer q.mu.Unlock()
 	if _, ok := q.items[requestID]; !ok {
-		q.mu.Unlock()
-		return
+		return false
 	}
 	q.removeLocked(requestID)
-	snapshot := q.snapshotLocked()
-	q.mu.Unlock()
-	q.emit.EmitQueue(snapshot)
+	q.emitLocked()
+	return true
+}
+
+// Pending 见 ExternalApprovals：返回当前队列的独立副本。
+func (q *DesktopApprovalQueue) Pending() []DesktopApprovalItem {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.snapshotLocked()
 }
 
 // removeLocked 必须持锁调用。
@@ -115,7 +119,10 @@ func (q *DesktopApprovalQueue) removeLocked(requestID string) {
 	}
 }
 
-// snapshotLocked 必须持锁调用；返回值是独立副本，调用方在锁外安全使用。
+// emitLocked 必须持锁调用：把当前队列的独立副本推给弹窗。
+func (q *DesktopApprovalQueue) emitLocked() { q.emit.EmitQueue(q.snapshotLocked()) }
+
+// snapshotLocked 必须持锁调用；返回值是独立副本。
 func (q *DesktopApprovalQueue) snapshotLocked() []DesktopApprovalItem {
 	out := make([]DesktopApprovalItem, 0, len(q.order))
 	for _, id := range q.order {

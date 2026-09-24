@@ -1769,7 +1769,7 @@ func TestBuildRunParams_CarriesDesktopCtlCredentials(t *testing.T) {
 		if agentID != 3 || sessionID != 9 {
 			t.Fatalf("credential source asked for (%d,%d), want (3,9)", agentID, sessionID)
 		}
-		return agentruntime.CtlCredentials{Endpoint: "http://127.0.0.1:1/ctl", Token: "ctl-session-token"}
+		return agentruntime.CtlCredentials{Endpoint: "http://127.0.0.1:1/ctl", Token: "ctl-session-token"} //nolint:gosec // G101: credential-shaped fixture for the injection test.
 	})
 
 	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{

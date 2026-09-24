@@ -14,6 +14,7 @@ vi.mock("../../../../wailsjs/runtime/runtime", () => runtimeMocks);
 
 const appMocks = vi.hoisted(() => ({
   AnswerCtlApproval: vi.fn(() => Promise.resolve()),
+  PendingCtlApprovals: vi.fn((): Promise<Item[]> => Promise.resolve([])),
   ShowNotification: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("../../../../wailsjs/go/app/App", () => appMocks);
@@ -85,6 +86,8 @@ beforeEach(() => {
   runtimeMocks.EventsOn.mockImplementation(() => vi.fn());
   appMocks.AnswerCtlApproval.mockReset();
   appMocks.AnswerCtlApproval.mockResolvedValue(undefined);
+  appMocks.PendingCtlApprovals.mockReset();
+  appMocks.PendingCtlApprovals.mockResolvedValue([]);
   appMocks.ShowNotification.mockReset();
   appMocks.ShowNotification.mockResolvedValue(undefined);
   focusMocks.isWindowFocused.mockReset();
@@ -187,7 +190,10 @@ describe("ExternalApprovalDialog", () => {
   });
 
   it("shows the error in the footer and stays retryable when submit fails", async () => {
-    appMocks.AnswerCtlApproval.mockRejectedValueOnce(new Error("boom"));
+    // Wails 的绑定调用以字符串拒绝；机器原话不上界面，底栏只给本地化的失败提示。
+    appMocks.AnswerCtlApproval.mockRejectedValueOnce(
+      'ctl_svc: no pending desktop approval "r1"',
+    );
     render(<ExternalApprovalDialog />);
     await waitFor(() => expect(runtimeMocks.EventsOn).toHaveBeenCalled());
     emitQueue([updateItem()]);
@@ -195,7 +201,9 @@ describe("ExternalApprovalDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^approve$/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("boom");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Failed to submit approval");
+    expect(alert).not.toHaveTextContent("ctl_svc");
     // 保留可重试：按钮重新可点。
     expect(
       screen.getByRole("button", { name: /^approve$/i }),
@@ -206,6 +214,37 @@ describe("ExternalApprovalDialog", () => {
     await waitFor(() =>
       expect(appMocks.AnswerCtlApproval).toHaveBeenCalledTimes(2),
     );
+  });
+
+  it("shows requests that were queued before it mounted", async () => {
+    appMocks.PendingCtlApprovals.mockResolvedValueOnce([updateItem()]);
+    render(<ExternalApprovalDialog />);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText(updateItem().command)).toBeInTheDocument();
+  });
+
+  it("keeps a newer pushed snapshot over a late initial fetch", async () => {
+    let resolveInitial: (items: Item[]) => void = () => {};
+    appMocks.PendingCtlApprovals.mockImplementationOnce(
+      () => new Promise<Item[]>((r) => (resolveInitial = r)),
+    );
+    render(<ExternalApprovalDialog />);
+    await waitFor(() => expect(runtimeMocks.EventsOn).toHaveBeenCalled());
+    emitQueue([deleteItem()]);
+    await act(async () => resolveInitial([updateItem()]));
+    expect(screen.getByText(deleteItem().command)).toBeInTheDocument();
+    expect(screen.queryByText(updateItem().command)).toBeNull();
+  });
+
+  it("closes after a successful answer even before the next snapshot arrives", async () => {
+    render(<ExternalApprovalDialog />);
+    await waitFor(() => expect(runtimeMocks.EventsOn).toHaveBeenCalled());
+    emitQueue([updateItem()]);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^approve$/i }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("removes the dialog when the executor withdraws the request (timeout)", async () => {

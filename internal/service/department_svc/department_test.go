@@ -2,6 +2,7 @@ package department_svc
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/cago-frame/cago/pkg/consts"
@@ -36,7 +37,15 @@ func setupSvc(t *testing.T) (
 	return context.Background(), deptMock, agentMock, &departmentSvc{
 		now:    func() int64 { return 1700000000 },
 		agents: agentMock,
+		tx:     directTx{},
 	}
+}
+
+// directTx 是不连库的 TxRunner：直接在同一个 ctx 上调用回调，回调的错误原样返回。
+type directTx struct{}
+
+func (directTx) RunInTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
 }
 
 func TestCreateDepartment(t *testing.T) {
@@ -211,6 +220,7 @@ func setupLoadSvc(t *testing.T) (
 		agentBackends:    backendMock,
 		llmProviders:     providerMock,
 		agentExecTargets: execTargetMock,
+		tx:               directTx{},
 	}
 }
 
@@ -417,3 +427,31 @@ func TestReorderDepartments(t *testing.T) {
 }
 
 var _ = code.DepartmentLeadNotInDepartment
+
+// CascadeImpact 与级联删除同一口径：子部门（不含自己），以及挂在子树部门上的顶层 Agent
+// 连同它们的下级 Agent（下级自己的部门不论）。审批卡上的数量就是真删掉的数量。
+func TestCascadeImpact(t *testing.T) {
+	convey.Convey("级联删除影响计数", t, func() {
+		ctx, deptMock, agentMock, svc := setupSvc(t)
+
+		convey.Convey("子树两层、子树外的部门与 Agent 不计", func() {
+			deptMock.EXPECT().List(gomock.Any()).Return([]*department_entity.Department{
+				{ID: 2}, {ID: 7, ParentID: 2}, {ID: 8, ParentID: 7}, {ID: 9},
+			}, nil)
+			agentMock.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{
+				{ID: 1, DepartmentID: 2}, {ID: 2, DepartmentID: 8}, {ID: 3, ParentAgentID: 2, DepartmentID: 9},
+				{ID: 4, DepartmentID: 9},
+			}, nil)
+			depts, agents, err := svc.CascadeImpact(ctx, 2)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(depts, convey.ShouldEqual, 2)
+			convey.So(agents, convey.ShouldEqual, 3)
+		})
+
+		convey.Convey("读部门失败 → 原样返回错误", func() {
+			deptMock.EXPECT().List(gomock.Any()).Return(nil, errors.New("db down"))
+			_, _, err := svc.CascadeImpact(ctx, 2)
+			convey.So(err, convey.ShouldNotBeNil)
+		})
+	})
+}

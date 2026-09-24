@@ -83,6 +83,42 @@ func TestCtlSessions_GivenLaterRunWithoutDesktopToken_WhenBound_ThenDesktopOwner
 	assert.Equal(t, int64(55), owner.desktop.DesktopSessionID)
 }
 
+// anyCaller 是测试里放行任何作答者的闸(账号闸本身由 RequireLoggedInAccount 的测试钉住)。
+func anyCaller(context.Context) error { return nil }
+
+// 桌面端重启后签的新 token 顶掉旧的；只带会话 id、不带 token 的一轮不构成桌面端归属。
+func TestCtlSessions_GivenNewDesktopTokenOrTokenlessRun_WhenBound_ThenLatestTokenWinsAndNoTokenMeansNoOwnership(t *testing.T) {
+	c, tok := desktopOwned(t)
+	c.bind(ctlTestRID, ctlTestPeer, ctlTestConversation, DesktopCtlSession{DesktopSessionID: 55, Token: ctlTestDesktopToken + "-2"}, true)
+	owner, ok := c.resolve(tok)
+	require.True(t, ok)
+	assert.Equal(t, ctlTestDesktopToken+"-2", owner.desktop.Token)
+
+	fresh := NewCtlSessions(func() string { return "http://gw" })
+	fresh.bind(ctlTestRID, ctlTestPeer, ctlTestConversation, DesktopCtlSession{DesktopSessionID: 55}, false)
+	owner, ok = fresh.resolve(fresh.Credentials(7, ctlTestRID).Token)
+	require.True(t, ok)
+	assert.False(t, owner.hasDesktop)
+}
+
+// 桌面端的会话 token 只经交来它的那台桌面端的连接转回去:之后另一个对端(控制台 /
+// 别的设备)在同一会话上派发一轮,不能把它带到那个对端的连接上。
+func TestCtlSessions_GivenLaterRunFromAnotherPeer_WhenForwarding_ThenStillTunneledToTheOwningDesktop(t *testing.T) {
+	c, tok := desktopOwned(t)
+	c.bind(ctlTestRID, "sha256:someone-else", ctlTestConversation, DesktopCtlSession{}, false)
+
+	var gotPeer devicefp.Initiator
+	fn := &fakeTunnelNotifier{resp: wire.MCPProxyResponse{Status: 200, Body: []byte(`{"list":{}}`)}}
+	srv := httptest.NewServer(NewCtlProxyHandler(CtlProxyDeps{Sessions: c, Tunnel: func(p devicefp.Initiator, _ string) NotifierPort {
+		gotPeer = p
+		return fn
+	}}))
+	defer srv.Close()
+	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/resources", tok, listBody(t))
+	require.Equal(t, 200, status)
+	assert.Equal(t, ctlTestPeer, gotPeer, "the desktop token only ever goes back to the desktop that handed it over")
+}
+
 // ── 代理:鉴权 ───────────────────────────────────────────────────────────────
 
 func TestCtlProxy_GivenNoOrForeignToken_WhenCalled_Then401(t *testing.T) {
@@ -189,9 +225,14 @@ type fakeCtlServer struct {
 	// answer 按 path(含 query)给应答;缺席 = 200 + 空 CtlResponse。
 	answer func(path string) (int, string)
 	err    error
+	// during 非 nil 时在每次调用里先跑(模拟 server 写入进行中)。
+	during func(ctx context.Context, path string)
 }
 
-func (f *fakeCtlServer) Post(_ context.Context, path string, body []byte) (int, []byte, error) {
+func (f *fakeCtlServer) Post(ctx context.Context, path string, body []byte) (int, []byte, error) {
+	if f.during != nil {
+		f.during(ctx, path)
+	}
 	f.mu.Lock()
 	f.calls = append(f.calls, serverCall{path: path, body: string(body)})
 	f.mu.Unlock()
@@ -224,11 +265,16 @@ type fakeApprovalSink struct {
 	begun     []transcriptblocks.ToolApprovalBlock
 	resolved  []resolvedApproval
 	begunC    chan string
+	done      chan struct{}
 }
 
 func newFakeSink() *fakeApprovalSink {
-	return &fakeApprovalSink{sessionID: 9, begunC: make(chan string, 4)}
+	return &fakeApprovalSink{sessionID: 9, begunC: make(chan string, 4), done: make(chan struct{})}
 }
+
+func (f *fakeApprovalSink) ended() <-chan struct{} { return f.done }
+
+func (f *fakeApprovalSink) endTurn() { close(f.done) }
 
 func (f *fakeApprovalSink) beginApproval(_ context.Context, blk *transcriptblocks.ToolApprovalBlock) (int64, error) {
 	if f.err != nil {
@@ -257,7 +303,7 @@ const previewResponse = `{"write":{"id":3,"name":"openrouter","changes":[{"op":"
 
 func consoleOwned(t *testing.T, server CtlServerPort, timeout time.Duration) (*CtlSessions, *fakeApprovalSink, string, *httptest.Server) {
 	t.Helper()
-	c := NewCtlSessions(func() string { return "http://gw" })
+	c := NewCtlSessions(func() string { return "http://gw" }).WithAnswerAuth(anyCaller)
 	c.bind(ctlTestRID, "sha256:browser", ctlTestConversation, DesktopCtlSession{}, false)
 	sink := newFakeSink()
 	c.attachTurn(ctlTestRID, sink)
@@ -352,6 +398,43 @@ func TestCtlProxy_GivenConsoleOwnedWrite_WhenApproved_ThenCardShowsServerPreview
 	assert.Error(t, err, "an answered card is no longer pending")
 }
 
+// 批准之后 agrctl 被杀:已经批准的写入照样交 server 写完,卡也照样落结果。
+func TestCtlProxy_GivenCallerGoneAfterApproval_ThenCommitIsNotCanceled(t *testing.T) {
+	entered := make(chan struct{})
+	canceled := make(chan bool, 1)
+	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
+	server.during = func(ctx context.Context, path string) {
+		if strings.Contains(path, "preview") {
+			return
+		}
+		close(entered)
+		select {
+		case <-ctx.Done():
+			canceled <- true
+		case <-time.After(500 * time.Millisecond):
+			canceled <- false
+		}
+	}
+	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL+"/ctl/v1/resources", strings.NewReader(writeBody(t)))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	go func() {
+		requestID := <-sink.begunC
+		_, _ = c.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
+			ConversationId: ctlTestConversation, RequestId: requestID, Allow: true,
+		})
+		<-entered
+		cancel()
+	}()
+	if resp, err := http.DefaultClient.Do(req); err == nil {
+		_ = resp.Body.Close()
+	}
+	assert.False(t, <-canceled, "an approved write is committed even if agrctl goes away")
+}
+
 func TestCtlProxy_GivenApprovedWriteFails_ThenCardSaysSoAndErrorIsRelayed(t *testing.T) {
 	server := &fakeCtlServer{answer: func(path string) (int, string) {
 		if strings.Contains(path, "preview") {
@@ -413,6 +496,31 @@ func TestCtlProxy_GivenConsoleOwnedWrite_WhenNobodyAnswers_Then504AndCardExpired
 	assert.Error(t, err, "an expired card cannot be answered")
 }
 
+// 轮次收口时还挂着的卡已经在转录里记成 expired：此后控制台再批准，不能照样提交 server
+// ——转录说「过期」、server 却写了。agrctl 也不该干等 4 分钟。
+func TestCtlProxy_GivenTurnEndsWhileCardPending_ThenConflictAndLateAnswerIsRejected(t *testing.T) {
+	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
+	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
+
+	done := make(chan ctlResult, 1)
+	go func() { done <- ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t)) }()
+	requestID := <-sink.begunC
+
+	sink.endTurn()
+	_, err := c.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
+		ConversationId: ctlTestConversation, RequestId: requestID, Allow: true,
+	})
+	assert.Error(t, err, "a card of a finished turn cannot be answered")
+
+	select {
+	case res := <-done:
+		assert.Equal(t, http.StatusConflict, res.status, res.body)
+	case <-time.After(5 * time.Second):
+		t.Fatal("agrctl is still waiting although the turn has ended")
+	}
+	assert.Equal(t, []string{"/v1/ctl/resources?preview=1"}, server.paths(), "nothing is committed")
+}
+
 func TestCtlProxy_GivenPreviewRefused_ThenNoCardAndServerErrorRelayed(t *testing.T) {
 	server := &fakeCtlServer{answer: func(string) (int, string) { return http.StatusNotFound, `{"error":"provider 3 not found"}` }}
 	_, sink, tok, srv := consoleOwned(t, server, time.Minute)
@@ -448,8 +556,8 @@ func TestCtlProxy_GivenServerUnreachable_ThenServiceUnavailable(t *testing.T) {
 // ── 控制台作答:唤醒挂起的那一张卡,别的一律答「不挂起」─────────────────────
 
 func TestCtlSessions_GivenUnknownOrForeignCard_WhenAnswered_ThenNoPendingError(t *testing.T) {
-	c := NewCtlSessions(func() string { return "http://gw" })
-	ch := c.beginWait(ctlTestConversation, "req-1")
+	c := NewCtlSessions(func() string { return "http://gw" }).WithAnswerAuth(anyCaller)
+	ch := c.beginWait(ctlTestConversation, "req-1", nil)
 
 	_, err := c.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
 		ConversationId: ctlTestConversation, RequestId: "req-unknown", Allow: true,
@@ -468,6 +576,30 @@ func TestCtlSessions_GivenUnknownOrForeignCard_WhenAnswered_ThenNoPendingError(t
 	})
 	require.NoError(t, err)
 	assert.False(t, <-ch)
+}
+
+// toolApproval.answer 用 agentred 自己的设备凭据提交写入:只收已登录账号的调用方
+// (控制台),光是配对过的对端答不了(与 SubmitToolPermission 等同族方法同一道闸)。
+func TestCtlSessions_GivenUnauthorizedCaller_WhenAnswering_ThenRefusedAndCardStaysPending(t *testing.T) {
+	deny := errors.New("unauthorized")
+	c := NewCtlSessions(func() string { return "http://gw" }).WithAnswerAuth(func(context.Context) error { return deny })
+	ch := c.beginWait(ctlTestConversation, "req-1", nil)
+	_, err := c.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
+		ConversationId: ctlTestConversation, RequestId: "req-1", Allow: true,
+	})
+	require.ErrorIs(t, err, deny)
+	select {
+	case <-ch:
+		t.Fatal("an unauthorized answer reached the waiting write")
+	default:
+	}
+
+	unwired := NewCtlSessions(func() string { return "http://gw" })
+	unwired.beginWait(ctlTestConversation, "req-2", nil)
+	_, err = unwired.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
+		ConversationId: ctlTestConversation, RequestId: "req-2", Allow: true,
+	})
+	assert.Error(t, err, "no gate wired = no answers (fail closed)")
 }
 
 // ── 服务端客户端:设备 Bearer,401 刷新一次 ───────────────────────────────────

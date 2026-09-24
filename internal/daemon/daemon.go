@@ -932,7 +932,7 @@ func New(opts Options) (*Daemon, error) {
 	// 桌面端拥有的会话经同一条反向隧道转回桌面端,控制台拥有的会话交给 server 执行
 	// (设备 Bearer,与中继同一份凭据与单飞刷新)。会话凭证经 agentruntime 的进程级
 	// 注入点交给每个 CLI 子进程。
-	d.ctl = handlers.NewCtlSessions(d.gateway.URL)
+	d.ctl = handlers.NewCtlSessions(d.gateway.URL).WithAnswerAuth(handlers.RequireLoggedInAccount(d.loggedInAccountID))
 	d.backendCredentials = handlers.NewBackendCredentialHandlers(handlers.BackendCredentialDeps{State: st})
 	agentruntime.RegisterCtlCredentialSource(d.ctl.Credentials)
 	d.gateway.RegisterControl(handlers.NewCtlProxyHandler(handlers.CtlProxyDeps{

@@ -128,7 +128,7 @@ func TestReorderAgents_EmitsConfigChanged(t *testing.T) {
 	err := svc.Reorder(ctx, &ReorderAgentsRequest{DepartmentID: 2, OrderedIDs: []int64{3, 1}})
 
 	assert.NoError(t, err)
-	assert.Equal(t, [][]string{{syncwire.KindAgent}, {syncwire.KindAgent}}, *got)
+	assert.Equal(t, [][]string{{syncwire.KindAgent}}, *got, "一次重排只发一次，不按兄弟个数刷 N 遍")
 }
 
 func TestReorderAgents_GivenRepoFails_DoesNotEmitConfigChanged(t *testing.T) {
@@ -227,11 +227,36 @@ func TestDeleteAgentAvatar_GivenRepoFails_DoesNotEmitConfigChanged(t *testing.T)
 	assert.Empty(t, *got)
 }
 
-// Delete 走 db.Ctx(ctx).Transaction(...)（agent.go 的 Delete，非注入式 TxRunner），
-// 同 department_svc.Delete 的既有限制：只装配 mockgen repo、不连库的服务单测在拿到
-// 真实 *gorm.DB 之前就会 panic，而这不是本次改动引入的缺口——改动前 Delete 就没有
-// 任何成功路径的单测。NotifyConfigChanged 加在与既有 sync_svc.NotifyDelete 完全
-// 相同的调用点上（agent.go:317-318），成功路径的证据是代码位置对照。
+func TestDeleteAgent_EmitsConfigChanged(t *testing.T) {
+	ctx, agentMock, _, _, svc := setupSvc(t)
+	got := registerConfigChangeSpy(t)
+
+	agentMock.EXPECT().Find(gomock.Any(), int64(5)).Return(&agent_entity.Agent{ID: 5, DepartmentID: 2}, nil)
+	agentMock.EXPECT().ClearLeadOfDepartment(gomock.Any(), int64(5)).Return(nil)
+	agentMock.EXPECT().ReparentChildren(gomock.Any(), int64(5), int64(2), int64(0)).Return(nil)
+	agentMock.EXPECT().Delete(gomock.Any(), int64(5)).Return(nil)
+
+	_, err := svc.Delete(ctx, &DeleteAgentRequest{ID: 5})
+
+	assert.NoError(t, err)
+	assert.Equal(t, [][]string{{syncwire.KindAgent}}, *got)
+}
+
+func TestDeleteAgent_GivenTxFails_DoesNotEmitConfigChanged(t *testing.T) {
+	ctx, agentMock, _, _, svc := setupSvc(t)
+	got := registerConfigChangeSpy(t)
+
+	agentMock.EXPECT().Find(gomock.Any(), int64(5)).Return(&agent_entity.Agent{ID: 5, DepartmentID: 2}, nil)
+	agentMock.EXPECT().ClearLeadOfDepartment(gomock.Any(), int64(5)).Return(nil)
+	agentMock.EXPECT().ReparentChildren(gomock.Any(), int64(5), int64(2), int64(0)).Return(nil)
+	agentMock.EXPECT().Delete(gomock.Any(), int64(5)).Return(errors.New("db down"))
+
+	_, err := svc.Delete(ctx, &DeleteAgentRequest{ID: 5})
+
+	assert.Error(t, err)
+	assert.Empty(t, *got)
+}
+
 func TestDeleteAgent_GivenAgentNotFound_DoesNotEmitConfigChanged(t *testing.T) {
 	ctx, agentMock, _, _, svc := setupSvc(t)
 	got := registerConfigChangeSpy(t)

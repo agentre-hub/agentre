@@ -64,8 +64,9 @@ func (a answeringApprovals) FinishToolApproval(context.Context, int64, string, s
 func (a answeringApprovals) Enqueue(context.Context, ctl_svc.ExternalApproval) (<-chan bool, error) {
 	return a.BeginToolApproval(context.Background(), 0, nil)
 }
-func (a answeringApprovals) Answer(string, bool) error { return nil }
-func (a answeringApprovals) Withdraw(string)           {}
+func (a answeringApprovals) Answer(string, bool) error              { return nil }
+func (a answeringApprovals) Withdraw(string) bool                   { return true }
+func (a answeringApprovals) Pending() []ctl_svc.DesktopApprovalItem { return nil }
 
 func realExecutor(t *testing.T, allow bool) (*httptest.Server, *e2eWriter) {
 	t.Helper()

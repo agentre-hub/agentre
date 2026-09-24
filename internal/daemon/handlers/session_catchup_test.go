@@ -970,3 +970,13 @@ func TestSessionCatchup_List_AcceptsExactlyTheConversationIDCeiling(t *testing.T
 	_, err := h.List(ctx, &agentrewire.SessionListRequest{ConversationIds: ids})
 	require.NoError(t, err)
 }
+
+// RequireLoggedInAccount 是 toolApproval.answer 的闸:调用方连接必须以本机登录的那个账号
+// 鉴权(控制台);没登录、账号不符、或只是配对过的对端,一律拒绝。
+func TestRequireLoggedInAccount(t *testing.T) {
+	gate := handlers.RequireLoggedInAccount(func() string { return "acct-1" })
+	require.NoError(t, gate(accountConnContext(t, "acct-1")))
+	assert.Error(t, gate(accountConnContext(t, "acct-2")), "another account")
+	assert.Error(t, gate(context.Background()), "no authenticated connection")
+	assert.Error(t, handlers.RequireLoggedInAccount(func() string { return "" })(accountConnContext(t, "acct-1")), "not signed in")
+}

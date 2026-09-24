@@ -148,6 +148,38 @@ describe("useOrgData", () => {
     },
   );
 
+  it("Given a mutation is still in flight, When config:changed arrives, Then it waits for the mutation's own reload", async () => {
+    runtimeHandlers.clear();
+    let finishMove: () => void = () => {};
+    installAppMock({
+      LoadOrg: vi.fn(() => Promise.resolve({ departments: [], agents: [] })),
+      MoveAgent: vi.fn(
+        () => new Promise((r) => (finishMove = () => r({ item: {} }))),
+      ),
+    });
+    const { result } = renderHook(() => useOrgData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    vi.mocked(appMock.LoadOrg).mockClear();
+
+    let moving: Promise<unknown> = Promise.resolve();
+    act(() => {
+      moving = result.current.moveAgent({ id: 1 } as never);
+    });
+    // 本次写入自己发的 config:changed 先到：此刻重拉会拉回不含后续写入的旧数据。
+    act(() => {
+      emitRuntimeEvent("config:changed");
+    });
+    expect(vi.mocked(appMock.LoadOrg)).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishMove();
+      await moving;
+    });
+    await waitFor(() =>
+      expect(vi.mocked(appMock.LoadOrg)).toHaveBeenCalledTimes(1),
+    );
+  });
+
   it("Given the hook unmounts, When it goes away, Then its config:changed/sync:applied subscriptions go with it", () => {
     runtimeHandlers.clear();
     installAppMock({

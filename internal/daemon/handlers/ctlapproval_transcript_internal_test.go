@@ -173,3 +173,32 @@ func TestTurnTranscript_GivenPendingApproval_WhenTurnFinishes_ThenCardExpiresAnd
 	_, err = scribe.beginApproval(ctx, ctlCard("req-3"))
 	assert.Error(t, err, "a finished turn takes no new cards")
 }
+
+// 收口的一轮不再是审批卡的落点:会话表放掉它(不留着整轮的累积状态),它的 ended 关上。
+func TestTurnTranscript_GivenTurnFinishes_ThenCtlSessionsLetGoOfIt(t *testing.T) {
+	mem := &memTranscript{assistant: &transcript_entity.Message{ID: 21, SessionID: 12, Role: "assistant", Seq: 2, BlocksJSON: "[]"}}
+	ctl := NewCtlSessions(func() string { return "http://gw" })
+	h := NewRuntimeHandlers(RuntimeDeps{
+		Transcript: mem, Ctl: ctl,
+		NotifyFor: func(devicefp.Initiator) NotifierPort { return &eventSink{} },
+	})
+	em := h.newEmitterFor(context.Background(), ctlTestConversation, "sha256:browser")
+	ctl.bind(em.rid, em.peer, em.conversationID, DesktopCtlSession{}, false)
+	scribe, _, _ := h.beginTranscript(em, "", nil, transcript.UserSource{})
+	require.NotNil(t, scribe)
+	tok := ctl.Credentials(0, em.rid).Token
+	owner, ok := ctl.resolve(tok)
+	require.True(t, ok)
+	require.NotNil(t, owner.turn)
+
+	scribe.finish(context.Background(), wire.RunResultDoneFrame{ConversationID: ctlTestConversation})
+
+	owner, ok = ctl.resolve(tok)
+	require.True(t, ok)
+	assert.Nil(t, owner.turn, "the finished turn is released")
+	select {
+	case <-scribe.ended():
+	default:
+		t.Fatal("ended() stays open after finish")
+	}
+}

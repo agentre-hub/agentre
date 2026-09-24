@@ -383,6 +383,22 @@ func TestDelete_GivenCascadeAndForceThenCarriedOnRequest(t *testing.T) {
 	}
 }
 
+// --cascade=false / --force=false 是显式关掉，不能因为 flag 出现过就当成打开——那会把
+// 整棵子树连同 Agent 删掉，或强删仍被引用的提供方。
+func TestDelete_GivenCascadeOrForceFalseThenOff(t *testing.T) {
+	for _, args := range [][]string{
+		{"delete", "department", "临时小组", "--cascade=false"},
+		{"delete", "provider", "openrouter", "--force=false"},
+	} {
+		f, srv := newFakeExecutor(t, tok)
+		r := runWith(args, envFor(srv, tok), term{})
+		wantCode(t, r, 0)
+		if w := f.onlyWrite(t); w.GetCascade() || w.GetForce() {
+			t.Fatalf("%v: write = %v", args, w)
+		}
+	}
+}
+
 func TestDelete_GivenCascadeOnNonDepartmentThenUsageError(t *testing.T) {
 	_, srv := newFakeExecutor(t, tok)
 	r := runWith([]string{"delete", "agent", "reviewer", "--cascade"}, envFor(srv, tok), term{})
@@ -769,6 +785,24 @@ func TestHelp_GivenOpenClawThenTokenStatesExplained(t *testing.T) {
 	for _, want := range []string{"set / unset / unknown", "cannot be asked"} {
 		if !strings.Contains(r.stdout, want) {
 			t.Fatalf("stdout = %q, want %q", r.stdout, want)
+		}
+	}
+}
+
+// 每个类型帮助里的示例都要能照抄运行：需要提供方 / 模型的类型，示例里就要带上。
+func TestHelp_GivenTypeNeedingProviderThenExampleCarriesIt(t *testing.T) {
+	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
+	for typ, wants := range map[string][]string{
+		"builtin": {"--provider "},
+		"piagent": {"--provider ", "--model "},
+	} {
+		r := runWith([]string{"help", "backend", typ}, noEnv, term{})
+		wantCode(t, r, 0)
+		_, example, _ := strings.Cut(r.stdout, "Example:")
+		for _, want := range wants {
+			if !strings.Contains(example, want) {
+				t.Fatalf("%s example = %q, want %q", typ, example, want)
+			}
 		}
 	}
 }

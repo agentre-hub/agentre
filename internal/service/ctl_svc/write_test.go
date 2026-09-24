@@ -32,6 +32,8 @@ type fakeWriter struct {
 	writes []Write
 	newID  int64
 	err    error
+	// during 非 nil 时在每次写入里调用（模拟写入进行到一半）。
+	during func(ctx context.Context)
 }
 
 func (f *fakeWriter) record(op string, w Write) error {
@@ -45,7 +47,12 @@ func (f *fakeWriter) record(op string, w Write) error {
 func (f *fakeWriter) Create(_ context.Context, w Write) (int64, error) {
 	return f.newID, f.record("create", w)
 }
-func (f *fakeWriter) Update(_ context.Context, w Write) error { return f.record("update", w) }
+func (f *fakeWriter) Update(ctx context.Context, w Write) error {
+	if f.during != nil {
+		f.during(ctx)
+	}
+	return f.record("update", w)
+}
 func (f *fakeWriter) Delete(_ context.Context, w Write) error { return f.record("delete", w) }
 
 func (f *fakeWriter) onlyWrite(t *testing.T, op string) Write {
@@ -73,6 +80,8 @@ type fakeSessionApprovals struct {
 	mu       sync.Mutex
 	answer   *bool
 	beginErr error
+	// onBegin 在卡片登记后、应答前调用（模拟审批挂起期间别处改了数据）。
+	onBegin  func()
 	sessions []int64
 	begun    []*blocks.ToolApprovalBlock
 	finished []string // status|result
@@ -86,6 +95,9 @@ func (f *fakeSessionApprovals) BeginToolApproval(_ context.Context, sessionID in
 	}
 	f.sessions = append(f.sessions, sessionID)
 	f.begun = append(f.begun, blk)
+	if f.onBegin != nil {
+		f.onBegin()
+	}
 	ch := make(chan bool, 1)
 	if f.answer != nil {
 		ch <- *f.answer
@@ -117,6 +129,8 @@ type fakeExternalApprovals struct {
 	withdrawn []string
 	// autoAnswer 非 nil 时一入队就作答。
 	autoAnswer *bool
+	// answerAtDeadline 非 nil 时，撤下的那一刻发现请求刚被答了这个值。
+	answerAtDeadline *bool
 }
 
 func (f *fakeExternalApprovals) Enqueue(_ context.Context, a ExternalApproval) (<-chan bool, error) {
@@ -147,12 +161,20 @@ func (f *fakeExternalApprovals) Answer(requestID string, allow bool) error {
 	return nil
 }
 
-func (f *fakeExternalApprovals) Withdraw(requestID string) {
+func (f *fakeExternalApprovals) Withdraw(requestID string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	ch, ok := f.pending[requestID]
+	if ok && f.answerAtDeadline != nil { // 作答恰好抢在撤下之前拿到锁
+		ch <- *f.answerAtDeadline
+		ok = false
+	}
 	delete(f.pending, requestID)
 	f.withdrawn = append(f.withdrawn, requestID)
+	return ok
 }
+
+func (f *fakeExternalApprovals) Pending() []DesktopApprovalItem { return nil }
 
 // ---- fixture ----
 
@@ -657,6 +679,49 @@ func TestWrite_GivenExternalCallerWhenDesktopApprovesThenExecute(t *testing.T) {
 	assert.Equal(t, int64(6), f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).onlyWrite(t, "update").Next.GetAgent().GetDepartmentId())
 }
 
+// TestWrite_GivenDataChangedWhileAwaitingApprovalThenExecutesAgainstFreshData：审批最多挂 4
+// 分钟，其间别处改了同一资源的其他字段；批准后执行必须基于当时的数据只写本次字段，不能
+// 用挂起前的快照把别处的修改改回去。
+func TestWrite_GivenDataChangedWhileAwaitingApprovalThenExecutesAgainstFreshData(t *testing.T) {
+	f := newWriteFixture()
+	go func() {
+		for {
+			f.desktop.mu.Lock()
+			if len(f.desktop.queued) > 0 {
+				id := f.desktop.queued[0].RequestID
+				f.desktop.mu.Unlock()
+				// 审批挂起期间，桌面端界面把 reviewer 改了名。
+				f.data.agents[1] = &agentrewire.CtlAgent{Id: 12, Name: "reviewer-2", DepartmentId: 2, BackendIds: []int64{5}, Description: "reviews"}
+				_ = f.desktop.Answer(id, true)
+				return
+			}
+			f.desktop.mu.Unlock()
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+	status, body, _ := realPost(t, f.h, testToken, externalWrite(t))
+	resp := decodeWrite(t, status, body)
+	w := f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).onlyWrite(t, "update")
+	assert.Equal(t, int64(6), w.Next.GetAgent().GetDepartmentId(), "本次字段照写")
+	assert.Equal(t, "reviewer-2", w.Next.GetAgent().GetName(), "未列出的字段取批准时的当前值，不回滚别处的修改")
+	assert.Equal(t, "reviewer-2", w.Cur.GetAgent().GetName())
+	assert.Equal(t, "reviewer-2", resp.GetName())
+}
+
+// TestWrite_GivenTargetDeletedWhileAwaitingApprovalThenNotFoundAndCardSaysSo：批准前目标
+// 已被删掉 → 不写，按 404 回，会话卡片写明执行失败。
+func TestWrite_GivenTargetDeletedWhileAwaitingApprovalThenNotFoundAndCardSaysSo(t *testing.T) {
+	f := newWriteFixture()
+	f.session.answer = new(bool)
+	*f.session.answer = true
+	f.session.onBegin = func() { f.data.agents = f.data.agents[:1] }
+	status, body, _ := realPost(t, f.h, f.signer.MintToken(7, 42), sessionWrite(t))
+	assert.Equal(t, http.StatusNotFound, status, string(body))
+	assert.Zero(t, f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).count())
+	_, _, finished := f.session.snapshot()
+	assert.Equal(t, []string{"approved|执行失败：agent id 12 not found"}, finished)
+}
+
 func TestWrite_GivenExternalCallerWithCallerInfoThenQueueCarriesItUnchanged(t *testing.T) {
 	f := newWriteFixture()
 	yes := true
@@ -705,6 +770,51 @@ func TestWrite_GivenExternalCallerWhenNobodyAnswersThenWithdrawnAndTimesOut(t *t
 	assert.Equal(t, []string{id}, f.desktop.withdrawn, "超时即撤下，等同拒绝")
 	assert.Error(t, f.desktop.Answer(id, true), "撤下后再答无效")
 	assert.Zero(t, f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).count())
+}
+
+// TestWrite_GivenDesktopAnswerLandsAtTheDeadlineThenItIsHonoured：弹窗的批准恰好在超时
+// 那一刻抢先入账——Answer 已经对用户报了成功，执行者不能再回 504、什么都不做。
+func TestWrite_GivenDesktopAnswerLandsAtTheDeadlineThenItIsHonoured(t *testing.T) {
+	f := newWriteFixture()
+	f.h.approvalTimeout = 20 * time.Millisecond
+	yes := true
+	f.desktop.answerAtDeadline = &yes
+	status, body, _ := realPost(t, f.h, testToken, externalWrite(t))
+	decodeWrite(t, status, body)
+	assert.Equal(t, int64(6), f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).onlyWrite(t, "update").Next.GetAgent().GetDepartmentId())
+}
+
+// TestWrite_GivenCallerGoneAfterApprovalThenWriteStillCompletes：人已经批准了，写入就要
+// 完整落下——agrctl 这时被杀掉，不能让一次多步写入停在半路。
+func TestWrite_GivenCallerGoneAfterApprovalThenWriteStillCompletes(t *testing.T) {
+	f := newWriteFixture()
+	yes := true
+	f.desktop.autoAnswer = &yes
+	entered := make(chan struct{})
+	canceled := make(chan bool, 1)
+	f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).during = func(ctx context.Context) {
+		close(entered)
+		select {
+		case <-ctx.Done():
+			canceled <- true
+		case <-time.After(500 * time.Millisecond):
+			canceled <- false
+		}
+	}
+	srv := httptest.NewServer(f.h)
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL+"/ctl/v1/resources", strings.NewReader(externalWrite(t)))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	go func() {
+		<-entered
+		cancel() // agrctl 在写入进行中被杀
+	}()
+	if resp, err := http.DefaultClient.Do(req); err == nil {
+		_ = resp.Body.Close()
+	}
+	assert.False(t, <-canceled, "an approved write runs to completion even if the caller goes away")
 }
 
 func TestWrite_GivenExternalCallerWithoutDesktopQueueThen503(t *testing.T) {

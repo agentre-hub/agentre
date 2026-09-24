@@ -47,6 +47,22 @@ func (m *MockDepartmentService) EXPECT() *MockDepartmentServiceMockRecorder {
 	return m.recorder
 }
 
+// CascadeImpact mocks base method.
+func (m *MockDepartmentService) CascadeImpact(ctx context.Context, departmentID int64) (int, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CascadeImpact", ctx, departmentID)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// CascadeImpact indicates an expected call of CascadeImpact.
+func (mr *MockDepartmentServiceMockRecorder) CascadeImpact(ctx, departmentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CascadeImpact", reflect.TypeOf((*MockDepartmentService)(nil).CascadeImpact), ctx, departmentID)
+}
+
 // Create mocks base method.
 func (m *MockDepartmentService) Create(ctx context.Context, req *department_svc.CreateDepartmentRequest) (*department_svc.CreateDepartmentResponse, error) {
 	m.ctrl.T.Helper()

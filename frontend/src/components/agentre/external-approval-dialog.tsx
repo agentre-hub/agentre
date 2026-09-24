@@ -27,6 +27,7 @@ import type { CtlChangeListProps } from "@agentre-hub/agentre-ui";
 
 import {
   AnswerCtlApproval,
+  PendingCtlApprovals,
   ShowNotification,
 } from "../../../wailsjs/go/app/App";
 import { EventsOn } from "../../../wailsjs/runtime/runtime";
@@ -62,9 +63,13 @@ export function ExternalApprovalDialog(): React.ReactElement | null {
   const prevCountRef = React.useRef(0);
 
   React.useEffect(() => {
+    // 先订阅、再补拉一次当前队列：订阅之前入队的请求（启动早期、webview 重载）不会
+    // 再有事件。推送一旦先到，就以推送为准——补拉的结果已经过时。
+    let pushed = false;
     const off = EventsOn(
       CTL_EXTERNAL_APPROVAL_EVENT,
       (payload?: ExternalApprovalItem[]) => {
+        pushed = true;
         const next = payload ?? [];
         if (next.length > prevCountRef.current && !isWindowFocused()) {
           const newest = next[next.length - 1];
@@ -84,10 +89,26 @@ export function ExternalApprovalDialog(): React.ReactElement | null {
         setItems(next);
       },
     );
+    let cancelled = false;
+    PendingCtlApprovals()
+      .then((initial) => {
+        if (cancelled || pushed) return;
+        const next = (initial ?? []) as unknown as ExternalApprovalItem[];
+        prevCountRef.current = next.length;
+        setItems(next);
+      })
+      .catch(() => {});
     return () => {
+      cancelled = true;
       if (typeof off === "function") off();
     };
   }, [t]);
+
+  // 作答成功就先在本地摘掉这一条，不等下一份快照——快照万一没到，弹窗也不会卡在
+  // 按钮全禁用的状态里。随后到达的快照照常覆盖本地列表。
+  const answered = React.useCallback((requestId: string) => {
+    setItems((xs) => xs.filter((x) => x.requestId !== requestId));
+  }, []);
 
   const current = items[0];
   if (!current) return null;
@@ -97,6 +118,7 @@ export function ExternalApprovalDialog(): React.ReactElement | null {
       key={current.requestId}
       item={current}
       total={items.length}
+      onAnswered={answered}
     />
   );
 }
@@ -104,9 +126,11 @@ export function ExternalApprovalDialog(): React.ReactElement | null {
 function ExternalApprovalDialogBody({
   item,
   total,
+  onAnswered,
 }: {
   item: ExternalApprovalItem;
   total: number;
+  onAnswered: (requestId: string) => void;
 }) {
   const { t } = useTranslation();
   const [submitting, setSubmitting] = React.useState(false);
@@ -117,14 +141,13 @@ function ExternalApprovalDialogBody({
     if (submitting) return;
     setSubmitting(true);
     setError(null);
-    AnswerCtlApproval(item.requestId, allow).catch((err: unknown) => {
-      setSubmitting(false);
-      setError(
-        err instanceof Error ? err.message : t("externalApproval.submitFailed"),
-      );
-    });
-    // 成功时不用在这里复位 submitting：队列会推一份不含这条请求的新快照，
-    // item 变了整棵子树会因为 key=requestId 换成新实例，submitting 自然归零。
+    AnswerCtlApproval(item.requestId, allow)
+      .then(() => onAnswered(item.requestId))
+      .catch(() => {
+        // Wails 以 Go 的原始错误串拒绝（请求已撤下 / 已答过），不上界面。
+        setSubmitting(false);
+        setError(t("externalApproval.submitFailed"));
+      });
   };
 
   return (

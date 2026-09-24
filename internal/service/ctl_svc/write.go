@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
@@ -38,7 +37,7 @@ func (h *ctlHandler) serveWrite(w http.ResponseWriter, r *http.Request, cred cre
 	}
 	switch caller.Class {
 	case CallerHuman:
-		_ = h.executeAndRespond(w, r, plan, caller) // 结果已写进响应
+		_ = h.executeAndRespond(r.Context(), w, r, plan, caller) // 结果已写进响应
 	case CallerSession:
 		h.approveInSession(w, r, plan, caller)
 	default:
@@ -60,7 +59,7 @@ func (h *ctlHandler) planWrite(ctx context.Context, req *agentrewire.CtlWriteReq
 	if writer == nil {
 		return nil, errNotReady("control service not ready")
 	}
-	plan := &writePlan{req: req, command: redactCommand(req), writer: writer, write: Write{Fields: map[string]bool{}}}
+	plan := &writePlan{req: req, command: blocks.RedactCtlCommand(req), writer: writer, write: Write{Fields: map[string]bool{}}}
 	if op != agentrewire.CtlOp_CTL_OP_CREATE {
 		cur, err := h.getResource(ctx, kind, req.GetId())
 		if err != nil {
@@ -112,17 +111,6 @@ func (h *ctlHandler) planWrite(ctx context.Context, req *agentrewire.CtlWriteReq
 	return plan, nil
 }
 
-// redactCommand 不信客户端已经脱敏：请求里带的密钥明文若出现在命令行里，一律换成 …。
-func redactCommand(req *agentrewire.CtlWriteRequest) string {
-	command := req.GetCommand()
-	for _, secret := range []string{req.GetResource().GetProvider().GetApiKey(), req.GetResource().GetBackend().GetToken()} {
-		if secret != "" {
-			command = strings.ReplaceAll(command, secret, "…")
-		}
-	}
-	return command
-}
-
 // execute 经网关落库，返回 ctl 响应。
 func (h *ctlHandler) execute(ctx context.Context, plan *writePlan) (*agentrewire.CtlWriteResponse, error) {
 	var err error
@@ -142,23 +130,23 @@ func (h *ctlHandler) execute(ctx context.Context, plan *writePlan) (*agentrewire
 	return &agentrewire.CtlWriteResponse{Id: id, Name: plan.change.GetName(), Changes: []*agentrewire.CtlChange{plan.change}}, nil
 }
 
-// resultText 是审批卡批准后的结果行（spec「审批卡（会话内）」）。
-func resultText(c *agentrewire.CtlChange) string {
-	subject := kindNames[c.GetKind()] + " " + c.GetName()
-	switch c.GetOp() {
-	case agentrewire.CtlOp_CTL_OP_CREATE:
-		return fmt.Sprintf("已创建 %s（id %d）", subject, c.GetId())
-	case agentrewire.CtlOp_CTL_OP_UPDATE:
-		return "已更新 " + subject
-	default:
-		return "已删除 " + subject
+// executeApproved 在批准之后执行。审批最多挂起 4 分钟，其间资源可能被别处改过或删掉，
+// 所以按批准时的当前数据重算一遍再写：只写本次字段，不拿挂起前的快照回滚别处的修改。
+// 人已经批准了，这之后调用方断开也不中止写入（ctx 脱离请求的取消）——多步写入不能停在
+// 半路。返回实际执行的计划（其变更带上新建的 id）与错误，错误已写进响应。
+func (h *ctlHandler) executeApproved(ctx context.Context, w http.ResponseWriter, r *http.Request, plan *writePlan, caller Caller) (*writePlan, error) {
+	fresh, err := h.planWrite(ctx, plan.req)
+	if err != nil {
+		h.writeResourceErr(w, r, err)
+		return plan, err
 	}
+	return fresh, h.executeAndRespond(ctx, w, r, fresh, caller)
 }
 
 // executeAndRespond 执行并写响应；返回执行错误（nil = 成功）供审批卡回写结果。
-func (h *ctlHandler) executeAndRespond(w http.ResponseWriter, r *http.Request, plan *writePlan, caller Caller) error {
-	resp, err := h.execute(r.Context(), plan)
-	log := logger.Ctx(r.Context()).With(
+func (h *ctlHandler) executeAndRespond(ctx context.Context, w http.ResponseWriter, r *http.Request, plan *writePlan, caller Caller) error {
+	resp, err := h.execute(ctx, plan)
+	log := logger.Ctx(ctx).With(
 		zap.String("op", plan.req.GetOp().String()),
 		zap.String("kind", plan.req.GetKind().String()),
 		zap.Int64("id", plan.change.GetId()),
@@ -241,11 +229,13 @@ func (h *ctlHandler) approveInSession(w http.ResponseWriter, r *http.Request, pl
 	announcePending(w, fmt.Sprintf("session=%d", sessionID))
 	switch h.await(r.Context(), ch) {
 	case outcomeApproved:
-		if err := h.executeAndRespond(w, r, plan, caller); err != nil {
-			finish(r.Context(), "approved", "执行失败："+err.Error())
+		ctx := context.WithoutCancel(r.Context())
+		done, err := h.executeApproved(ctx, w, r, plan, caller)
+		if err != nil {
+			finish(ctx, "approved", "执行失败："+err.Error())
 			return
 		}
-		finish(r.Context(), "approved", resultText(plan.change))
+		finish(ctx, "approved", blocks.CtlResultText(done.change))
 	case outcomeRejected:
 		finish(r.Context(), "denied", "")
 		writeErr(w, http.StatusForbidden, fmt.Sprintf("rejected in session #%d", sessionID))
@@ -276,11 +266,19 @@ func (h *ctlHandler) approveInDesktop(w http.ResponseWriter, r *http.Request, pl
 	announcePending(w, "desktop")
 	switch h.await(r.Context(), ch) {
 	case outcomeApproved:
-		_ = h.executeAndRespond(w, r, plan, caller) // 结果已写进响应
+		_, _ = h.executeApproved(context.WithoutCancel(r.Context()), w, r, plan, caller) // 结果已写进响应
 	case outcomeRejected:
 		writeErr(w, http.StatusForbidden, "rejected in the Agentre desktop")
 	case outcomeTimedOut:
-		h.external.Withdraw(requestID)
+		if !h.external.Withdraw(requestID) {
+			// 作答恰好抢在撤下之前入账：弹窗已经对用户报了成功，照它的答案办。
+			if <-ch {
+				_, _ = h.executeApproved(context.WithoutCancel(r.Context()), w, r, plan, caller)
+			} else {
+				writeErr(w, http.StatusForbidden, "rejected in the Agentre desktop")
+			}
+			return
+		}
 		writeErr(w, http.StatusGatewayTimeout, "approval timed out")
 	case outcomeGone:
 		h.external.Withdraw(requestID)

@@ -29,10 +29,11 @@ var ctlCredentialSource CtlCredentialSource
 // RegisterCtlCredentialSource 注入会话凭证来源；传 nil 清空(测试用)。
 func RegisterCtlCredentialSource(f CtlCredentialSource) { ctlCredentialSource = f }
 
-// CtlCredentials 返回本轮 CLI 子进程该带的会话凭证。没有 agent 或会话身份、或进程
-// 没注册来源时为零值。
+// CtlCredentials 返回本轮 CLI 子进程该带的会话凭证。没有会话身份、或进程没注册来源时
+// 为零值。不看 AgentID：跨主机派发带 agent sync id 时本地 agent id 恒为 0（浏览器派发
+// 同样），会话凭证只绑会话。
 func (r RunRequest) CtlCredentials() CtlCredentials {
-	if ctlCredentialSource == nil || r.AgentID <= 0 || r.SessionID <= 0 {
+	if ctlCredentialSource == nil || r.SessionID <= 0 {
 		return CtlCredentials{}
 	}
 	return ctlCredentialSource(r.AgentID, r.SessionID)

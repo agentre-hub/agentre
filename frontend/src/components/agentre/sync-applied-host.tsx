@@ -13,7 +13,7 @@ import * as React from "react";
 
 import { reloadSidebarSources } from "@/stores/sidebar-reload";
 
-import { EventsOn, EventsOff } from "../../../wailsjs/runtime/runtime";
+import { EventsOn } from "../../../wailsjs/runtime/runtime";
 
 /** 与 `sync_svc.AppliedEvent` 同名；那边是常量，这边只有这一处引用。 */
 const SYNC_APPLIED_EVENT = "sync:applied";
@@ -25,15 +25,15 @@ export function SyncAppliedHost() {
     // 载荷是变更涉及的对象类型（["project", "agent", …]）。今天左栏的三个来源是
     // 一起刷的，所以不按类型分流；真要分流也该先有「哪一类对应哪一份数据」的映射，
     // 而不是在这里 if 一串字符串。
-    EventsOn(SYNC_APPLIED_EVENT, () => {
-      reloadSidebarSources();
-    });
-    EventsOn(CONFIG_CHANGED_EVENT, () => {
-      reloadSidebarSources();
-    });
+    // 退订只退自己这一条：EventsOff(name) 会把同名事件下别的组件（组织页、设置面板）
+    // 的订阅一起清掉。
+    const offs = [SYNC_APPLIED_EVENT, CONFIG_CHANGED_EVENT].map((name) =>
+      EventsOn(name, () => {
+        reloadSidebarSources();
+      }),
+    );
     return () => {
-      EventsOff(SYNC_APPLIED_EVENT);
-      EventsOff(CONFIG_CHANGED_EVENT);
+      for (const off of offs) off();
     };
   }, []);
 

@@ -6,12 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cago-frame/cago/database/db"
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
@@ -49,9 +47,10 @@ type AgentSvc interface {
 
 type agentSvc struct {
 	now func() int64
+	tx  TxRunner
 }
 
-var defaultAgent AgentSvc = &agentSvc{now: func() int64 { return time.Now().UnixMilli() }}
+var defaultAgent AgentSvc = &agentSvc{now: func() int64 { return time.Now().UnixMilli() }, tx: dbTxRunner{}}
 
 func Agent() AgentSvc { return defaultAgent }
 
@@ -286,8 +285,8 @@ func (s *agentSvc) Reorder(ctx context.Context, req *ReorderAgentsRequest) error
 	}
 	for _, sibling := range siblings {
 		sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, sibling.ID, sibling.SyncMeta)
-		sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	}
+	sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	return nil
 }
 
@@ -302,8 +301,7 @@ func (s *agentSvc) Delete(ctx context.Context, req *DeleteAgentRequest) (*Delete
 	if existing.IsSystem() {
 		return nil, i18n.NewError(ctx, code.AgentSystemImmutable)
 	}
-	err = db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
-		txCtx := db.WithContextDB(ctx, tx)
+	err = s.tx.RunInTx(ctx, func(txCtx context.Context) error {
 		if err := agent_repo.Agent().ClearLeadOfDepartment(txCtx, existing.ID); err != nil {
 			return err
 		}

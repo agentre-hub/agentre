@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
@@ -80,15 +81,8 @@ func (r Resources) ready() bool {
 	return r.Org != nil && r.Projects != nil && r.Providers != nil && r.Backends != nil
 }
 
-// kindNames 是错误消息里的资源名，与 agrctl 的资源名一致。
-var kindNames = map[agentrewire.CtlKind]string{
-	agentrewire.CtlKind_CTL_KIND_AGENT:      "agent",
-	agentrewire.CtlKind_CTL_KIND_DEPARTMENT: "department",
-	agentrewire.CtlKind_CTL_KIND_PROJECT:    "project",
-	agentrewire.CtlKind_CTL_KIND_PROVIDER:   "provider",
-	agentrewire.CtlKind_CTL_KIND_MODEL:      "model",
-	agentrewire.CtlKind_CTL_KIND_BACKEND:    "backend",
-}
+// kindNames 是错误消息里的资源名，与 agrctl 的资源名一致（与 agentred 的审批卡同一份）。
+var kindNames = blocks.CtlKindNames
 
 // errUnknownKind 是请求里的资源类型不认识（含未指定）。
 type errUnknownKind agentrewire.CtlKind

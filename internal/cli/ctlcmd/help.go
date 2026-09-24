@@ -197,6 +197,10 @@ func writeBackendTypeHelp(w io.Writer, t *backendType) {
 	switch t.name {
 	case "openclaw":
 		b.WriteString(`  agrctl create backend --type openclaw --name claw --config '{"openclawGatewayUrl":"ws://127.0.0.1:18789","openclawSessionMode":"per-agentre-session"}' --token` + "\n")
+	case "builtin":
+		b.WriteString("  agrctl create backend --type builtin --name my-builtin --provider anthropic\n")
+	case "piagent":
+		b.WriteString("  agrctl create backend --type piagent --name my-piagent --provider openrouter --model openai/gpt-5.1\n")
 	case "codex":
 		b.WriteString(`  agrctl create backend --type codex --name codex-remote --device build-box --config '{"sandbox":"workspace-write","approval":"on-request"}'` + "\n")
 	default:

@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
@@ -87,7 +88,7 @@ func (p *ctlProxy) planConsoleWrite(ctx context.Context, write *agentrewire.CtlW
 	if be := rest.GetResource().GetBackend(); be != nil {
 		be.Token = ""
 	}
-	rest.Command = redactCtlCommand(write)
+	rest.Command = transcriptblocks.RedactCtlCommand(write)
 	plan.serverBody = nil
 	if len(rest.GetFields()) > 0 {
 		raw, err := protojson.Marshal(&agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_Write{Write: rest}})

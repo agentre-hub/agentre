@@ -96,6 +96,18 @@ func (s *ctlSvc) AnswerExternalApproval(requestID string, allow bool) error {
 	return ext.Answer(requestID, allow)
 }
 
+// PendingExternalApprovals 是桌面端全局审批弹窗此刻的待审批快照（internal/app 的 Wails
+// binding 调这个，弹窗挂载时补齐订阅之前入队的请求）；队列还没注册时为空。
+func (s *ctlSvc) PendingExternalApprovals() []DesktopApprovalItem {
+	s.mu.RLock()
+	ext := s.external
+	s.mu.RUnlock()
+	if ext == nil {
+		return []DesktopApprovalItem{}
+	}
+	return ext.Pending()
+}
+
 // Token 返回本进程的控制 token；桌面在 gateway 起好后连同 URL 写进 ctlendpoint 握手文件。
 func (s *ctlSvc) Token() string { return s.token }
 

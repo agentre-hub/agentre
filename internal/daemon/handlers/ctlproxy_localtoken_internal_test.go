@@ -110,7 +110,7 @@ func tokenWrite(t *testing.T, fields []string, backend *agentrewire.CtlBackend) 
 
 func consoleOwnedHere(t *testing.T, server CtlServerPort, creds *memCredentialState) (*CtlSessions, *fakeApprovalSink, string, *httptest.Server) {
 	t.Helper()
-	c := NewCtlSessions(func() string { return "http://gw" })
+	c := NewCtlSessions(func() string { return "http://gw" }).WithAnswerAuth(anyCaller)
 	c.bind(ctlTestRID, "sha256:browser", ctlTestConversation, DesktopCtlSession{}, false)
 	sink := newFakeSink()
 	c.attachTurn(ctlTestRID, sink)
@@ -359,7 +359,7 @@ func TestCtlProxy_GivenLocalTokenWriteFails_ThenErrorAndTokenNeverLogged(t *test
 
 	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, clawDoc(string(ltSelf)) }}
 	creds := &failingCredentialState{memCredentialState: newMemCredentialState()}
-	c := NewCtlSessions(func() string { return "http://gw" })
+	c := NewCtlSessions(func() string { return "http://gw" }).WithAnswerAuth(anyCaller)
 	c.bind(ctlTestRID, "sha256:browser", ctlTestConversation, DesktopCtlSession{}, false)
 	sink := newFakeSink()
 	c.attachTurn(ctlTestRID, sink)

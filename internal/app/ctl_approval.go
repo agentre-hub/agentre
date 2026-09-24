@@ -29,3 +29,9 @@ func (a *App) registerCtlExternalApprovals() {
 func (a *App) AnswerCtlApproval(requestID string, allow bool) error {
 	return ctl_svc.Default().AnswerExternalApproval(requestID, allow)
 }
+
+// PendingCtlApprovals 是桌面端全局审批弹窗此刻的待审批快照（按入队顺序）。弹窗挂载时先
+// 订阅事件再调它，补齐订阅之前已经入队的请求（启动早期、webview 重载）。
+func (a *App) PendingCtlApprovals() []ctl_svc.DesktopApprovalItem {
+	return ctl_svc.Default().PendingExternalApprovals()
+}

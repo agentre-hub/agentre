@@ -184,7 +184,7 @@ func runWrite(verb string, args []string, s *sys) error {
 		label = cat.label(spec.kind, w.req.Id)
 	}
 	if op == agentrewire.CtlOp_CTL_OP_DELETE {
-		w.req.Cascade, w.req.Force = p.has("cascade"), p.has("force")
+		w.req.Cascade, w.req.Force = p.on("cascade"), p.on("force")
 		if err := confirmDelete(s, w.req.Caller, spec, label); err != nil {
 			return err
 		}

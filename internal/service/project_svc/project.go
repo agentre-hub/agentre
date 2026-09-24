@@ -379,8 +379,8 @@ func (s *projectSvc) Reorder(ctx context.Context, req *ReorderProjectsRequest) e
 	}
 	for _, sibling := range siblings {
 		sync_svc.NotifyUpdate(ctx, syncwire.KindProject, sibling.ID, sibling.SyncMeta)
-		sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	}
+	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	return nil
 }
 

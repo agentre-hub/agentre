@@ -263,11 +263,5 @@ func configValues(raw string) (map[string]*string, error) {
 
 // approvalInput 把变更清单转成审批卡的 ToolInput。
 func approvalInput(command string, c *agentrewire.CtlChange, cascade *blocks.CtlApprovalCascade) blocks.CtlApprovalInput {
-	ch := blocks.CtlApprovalChange{
-		Op: opName(c.GetOp()), Kind: kindNames[c.GetKind()], ID: c.GetId(), Name: c.GetName(), Cascade: cascade,
-	}
-	for _, f := range c.GetFields() {
-		ch.Fields = append(ch.Fields, blocks.CtlApprovalField{Field: f.GetField(), Before: f.Before, After: f.After, Secret: f.GetSecret()})
-	}
-	return blocks.CtlApprovalInput{Command: command, Changes: []blocks.CtlApprovalChange{ch}}
+	return blocks.CtlApprovalInput{Command: command, Changes: []blocks.CtlApprovalChange{blocks.NewCtlApprovalChange(c, cascade)}}
 }
