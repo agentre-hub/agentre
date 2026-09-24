@@ -136,7 +136,7 @@ func initDepartmentFlags() {
 		strField("name", "<name>", "name", "department name (unique among siblings)", func(w *writeCtx, v string) { d(w).Name = v }),
 		strField("description", "<text>", "description", "description", func(w *writeCtx, v string) { d(w).Description = v }),
 		strField("icon", "<icon>", "icon", "icon", func(w *writeCtx, v string) { d(w).Icon = v }),
-		strField("color", "<color>", "accentColor", "accent color", func(w *writeCtx, v string) { d(w).AccentColor = v }),
+		strField("color", "<color>", "accentColor", "accent color: agent-1 … agent-16, or neutral", func(w *writeCtx, v string) { d(w).AccentColor = v }),
 		refField("parent", kindDepartment, "parentId", "parent department (empty = top level)", func(w *writeCtx, id int64) { d(w).ParentId = id }),
 		refField("lead", kindAgent, "leadAgentId", "lead agent (empty = none)", func(w *writeCtx, id int64) { d(w).LeadAgentId = id }),
 	}
@@ -145,7 +145,7 @@ func initDepartmentFlags() {
 	kindDepartment.deleteFlags = []*flagDef{{name: "cascade", usage: "also delete sub-departments and their agents (default: move them up to the parent)"}}
 	kindDepartment.examples = []string{
 		"agrctl create department --name 研发部 --parent 总部 --lead architect",
-		"agrctl update department 总部/研发部 --color blue",
+		"agrctl update department 总部/研发部 --color agent-3",
 		"agrctl delete department 临时小组 --cascade",
 	}
 }
@@ -156,7 +156,7 @@ func initProjectFlags() {
 		strField("name", "<name>", "name", "project name (unique among siblings)", func(w *writeCtx, v string) { p(w).Name = v }),
 		strField("description", "<text>", "description", "description", func(w *writeCtx, v string) { p(w).Description = v }),
 		strField("icon", "<icon>", "icon", "icon", func(w *writeCtx, v string) { p(w).Icon = v }),
-		strField("color", "<color>", "color", "color", func(w *writeCtx, v string) { p(w).Color = v }),
+		strField("color", "<color>", "color", "color: agent-1 … agent-16, or neutral", func(w *writeCtx, v string) { p(w).Color = v }),
 		strField("path", "<dir>", "path", "directory on the executor's machine", func(w *writeCtx, v string) { p(w).Path = v }),
 		refField("parent", kindProject, "parentId", "parent project (empty = top level)", func(w *writeCtx, id int64) { p(w).ParentId = id }),
 	}
@@ -190,7 +190,7 @@ func initProjectFlags() {
 	kindProject.filters = []*flagDef{{name: "parent", value: "<project>", usage: "only direct children of this project"}}
 	kindProject.examples = []string{
 		"agrctl create project --name docs --parent agentre --path ~/Code/agentre/docs",
-		"agrctl update project agentre --add-member reviewer --color green",
+		"agrctl update project agentre --add-member reviewer --color agent-3",
 		"agrctl delete project agentre/docs",
 	}
 }

@@ -814,6 +814,61 @@ func TestHelp_GivenUnknownResourceOrTypeThenUsageError(t *testing.T) {
 	}
 }
 
+// pinnedThemeColors 钉住 internal/model/entity/department_entity/department.go 与
+// internal/model/entity/project_entity/project.go 里各自未导出的 allowedColors（两者是同一份
+// agent-1…agent-16 / neutral 集合）（F2 修正：agrctl help department/project 的示例曾给出
+// --color blue / --color green，被服务层的「主题色不合法」拒绝）。这两个 entity 包都没有导出
+// 访问器，且都在 internal/cli/ctlcmd/ 的范围之外，所以这里按文档值另外钉一份，而不是引用它们。
+var pinnedThemeColors = map[string]bool{
+	"agent-1": true, "agent-2": true, "agent-3": true, "agent-4": true, "agent-5": true,
+	"agent-6": true, "agent-7": true, "agent-8": true, "agent-9": true, "agent-10": true,
+	"agent-11": true, "agent-12": true, "agent-13": true, "agent-14": true, "agent-15": true,
+	"agent-16": true, "neutral": true,
+}
+
+// help department / project 的示例必须只用服务层实际接受的颜色，--color 的说明要写出合法取值
+// （运行期验证 F2：agrctl update department/project … --color blue/green 被拒绝）。
+func TestHelp_GivenDepartmentOrProjectThenColorExamplesAndFlagDescriptionAreValid(t *testing.T) {
+	for _, resource := range []string{"department", "project"} {
+		t.Run(resource, func(t *testing.T) {
+			t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
+			r := runWith([]string{"help", resource}, noEnv, term{})
+			wantCode(t, r, 0)
+
+			flagsSection, examplesSection, ok := strings.Cut(r.stdout, "Examples:")
+			if !ok {
+				t.Fatalf("stdout = %q, missing Examples section", r.stdout)
+			}
+			for line := range strings.SplitSeq(examplesSection, "\n") {
+				fields := strings.Fields(line)
+				for i, f := range fields {
+					if f == "--color" && i+1 < len(fields) {
+						v := fields[i+1]
+						if !pinnedThemeColors[v] {
+							t.Fatalf("%s help example uses --color %q, which is not an accepted color (agent-1…agent-16, neutral): %q", resource, v, strings.TrimSpace(line))
+						}
+					}
+				}
+			}
+
+			colorLine := ""
+			for line := range strings.SplitSeq(flagsSection, "\n") {
+				if strings.Contains(line, "--color") {
+					colorLine = line
+				}
+			}
+			if colorLine == "" {
+				t.Fatalf("stdout = %q, missing --color flag line", r.stdout)
+			}
+			for _, want := range []string{"agent-1", "neutral"} {
+				if !strings.Contains(colorLine, want) {
+					t.Fatalf("%s --color flag description = %q, want it to name accepted values (contains %q)", resource, colorLine, want)
+				}
+			}
+		})
+	}
+}
+
 // ─── spec-axis regressions ─────────────────────────────────────────────
 
 // 歧义提示里的示例命令必须能直接改用：候选的完整路径本身仍有歧义时换一个候选，都不行才用 id。
