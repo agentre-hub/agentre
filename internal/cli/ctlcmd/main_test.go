@@ -3,12 +3,15 @@ package ctlcmd
 import (
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/agentre-hub/agentre/internal/pkg/ctlendpoint"
 )
 
 // fakeControl 起一个假的 /ctl/v1/send 控制服务，校验 bearer 并回 canned JSON。
@@ -174,5 +177,45 @@ func TestRun_AgentredHostWithoutSessionToken(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(errs), "session") {
 		t.Fatalf("stderr = %q, want it to say only an Agentre-dispatched session can use agrctl here", errs)
+	}
+}
+
+// TestRun_StaleHandshakeFileOnAgentredHost 覆盖 T27：agentred 主机上留着旧桌面端的握手
+// 文件（desktop 曾经跑过、后来停了，文件从不删），但桌面已经不在跑了。连不上握手端点时
+// 该给出与「压根没有握手文件」一样的提示，而不是把拨号失败的原始错误甩给用户。
+func TestRun_StaleHandshakeFileOnAgentredHost(t *testing.T) {
+	agentredDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(agentredDir, "state.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTRED_DATA_DIR", agentredDir)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleURL := "http://" + ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	desktopDir := t.TempDir()
+	if err := ctlendpoint.Write(desktopDir, ctlendpoint.Endpoint{URL: staleURL, Token: "stale-token"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTRE_DATA_DIR", desktopDir)
+
+	code, _, errs := runCLI([]string{"list", "agents"}, func(string) (string, bool) { return "", false })
+	if code != 1 {
+		t.Fatalf("code = %d, want 1", code)
+	}
+	if strings.Contains(errs, "is the desktop app running") {
+		t.Fatalf("stderr = %q, must not use the desktop-not-running message on an agentred host", errs)
+	}
+	if strings.Contains(errs, "connect to desktop") {
+		t.Fatalf("stderr = %q, must not leak the raw dial error on an agentred host", errs)
+	}
+	if !strings.Contains(strings.ToLower(errs), "agentred") || !strings.Contains(strings.ToLower(errs), "session") {
+		t.Fatalf("stderr = %q, want the same agentred-host/session hint as the no-handshake-file case", errs)
 	}
 }

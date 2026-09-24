@@ -42,6 +42,13 @@ func (e *ServerError) Error() string {
 	return fmt.Sprintf("control error (%d): %s", e.Status, e.Message)
 }
 
+// errAgentredHostNoSession 是 agentred 主机上给的统一提示：唯一的解释就是「这台机器上没有
+// Agentre 派发的会话」——不管是压根没有桌面握手文件，还是握手文件是桌面端早先跑过、后来
+// 停掉后留下的陈旧记录（cago.go 只写不删），本机连不上一个能回应的桌面端控制端点，结论都
+// 一样。Resolve 与实际拨号失败（roundTrip/OpenStream）共用同一句话，别各写一遍。
+var errAgentredHostNoSession = errors.New(
+	"this is an agentred host — only Agentre-dispatched sessions can use agrctl here (no session token found)")
+
 // Resolve 按优先级解析控制端点：flag > 环境变量 > AppDataDir 握手文件。
 func Resolve(flagURL, flagToken string, lookupEnv func(string) (string, bool)) (Endpoint, error) {
 	ep := Endpoint{Base: strings.TrimRight(flagURL, "/"), Token: flagToken}
@@ -69,7 +76,7 @@ func Resolve(flagURL, flagToken string, lookupEnv func(string) (string, bool)) (
 				}
 			case errors.Is(rerr, os.ErrNotExist):
 				if isAgentredHost() {
-					return Endpoint{}, errors.New("this is an agentred host — only Agentre-dispatched sessions can use agrctl here (no session token found)")
+					return Endpoint{}, errAgentredHostNoSession
 				}
 				return Endpoint{}, errors.New("agentre desktop control endpoint not found — is the desktop app running?")
 			default:
@@ -93,6 +100,18 @@ func isAgentredHost() bool {
 	}
 	_, err = os.Stat(filepath.Join(dir, "state.json"))
 	return err == nil
+}
+
+// dialFailure 把一次失败的拨号（http.Client.Do 本身出错，不是非 2xx 响应）翻成给用户看的
+// 错误。到这一步，Resolve 已经成功解析出了一个端点——不管是来自 flag/env，还是来自桌面
+// 握手文件（哪怕那份握手文件是桌面端停掉后留下的陈旧记录）——但它连不上。在 agentred 主机
+// 上，唯一站得住的解释就是这里没有一个活的桌面控制端点，回落到与压根没有握手文件时同一句
+// 提示；否则保留原始拨号错误，供排查网络问题用。
+func dialFailure(err error) error {
+	if isAgentredHost() {
+		return errAgentredHostNoSession
+	}
+	return fmt.Errorf("connect to desktop: %w", err)
 }
 
 // Get 发一个 GET 并把 JSON 响应解码进 out(out 可为 nil)。
@@ -152,7 +171,7 @@ func (e Endpoint) roundTrip(ctx context.Context, method, path string, body []byt
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("connect to desktop: %w", err)
+		return nil, dialFailure(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
@@ -173,7 +192,7 @@ func (e Endpoint) OpenStream(ctx context.Context, path string) (io.ReadCloser, e
 	req.Header.Set("Accept", "text/event-stream")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("connect to desktop: %w", err)
+		return nil, dialFailure(err)
 	}
 	if resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(resp.Body)
