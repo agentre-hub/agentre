@@ -110,9 +110,9 @@ func (t *turnRun) attachRuntime(ctx context.Context) {
 	}
 }
 
-// initSegment 初始化本轮第一个 assistant 分段的累加器与计时口径。
+// initSegment 初始化本轮第一个 assistant 分段的计时口径与轮上下文。累加器不在这里建:
+// 它随 turnRun 一起建好,这一轮登记之后打进来的审批卡已经写在里面了。
 func (t *turnRun) initSegment(startedAt time.Time) {
-	t.acc = turn.New()
 	t.segmentStart = startedAt
 	t.dispEmit = &dispatcherEmitter{svc: t.svc}
 	t.turnCtx = t.svc.newTurnContext(t.assistantMsg, t.sess, t.stream, t.be.Type)

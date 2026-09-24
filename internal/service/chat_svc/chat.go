@@ -136,7 +136,7 @@ type ChatSvc interface {
 	// 未知/重复/已超时 → error。
 	AnswerToolApproval(ctx context.Context, sessionID int64, requestID string, allow bool) error
 	// FinishToolApproval 把审批置为终态(approved/denied/expired)并推 resolved 事件;
-	// requestID 不存在(已被 finalize 取走)→ error。
+	// requestID 不在在跑的那一轮上(这一轮已收口)→ error。
 	FinishToolApproval(ctx context.Context, sessionID int64, requestID, status, result string) error
 	// FinalAssistantText 读取某 assistant message 的纯文本(拼接所有 TextBlock)。
 	FinalAssistantText(ctx context.Context, messageID int64) (string, error)
@@ -2623,6 +2623,9 @@ func (s *chatSvc) runTurn(
 		events:       prepared.events,
 		result:       prepared.result,
 		req:          prepared.req,
+		// 累加器在这一轮对工具审批可见(activeTurns.Store)之前就位:runner 已经起跑,
+		// 审批卡可能在 attachRuntime 还没走完时就打进来,它要落进的正是这一只。
+		acc: turn.New(),
 	}
 	// 远端执行:实时那一路是**预览帧**,它不在 prepared.events 上(那条流是本轮的
 	// 转录来源),要另开一条通道接住并呈现,见 preview_stream.go。

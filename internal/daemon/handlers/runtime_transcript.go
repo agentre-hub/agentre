@@ -345,7 +345,7 @@ func (t *turnTranscript) finish(ctx context.Context, frame wire.RunResultDoneFra
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	// 还挂着的审批卡此后没人答得了(与桌面端 takeToolApprovals 同一口径):标成 expired 随
+	// 还挂着的审批卡此后没人答得了(与桌面端 turnRun.closeApprovals 同一口径):标成 expired 随
 	// 收口一起落库。
 	t.finished = true
 	for _, blk := range t.approvals {

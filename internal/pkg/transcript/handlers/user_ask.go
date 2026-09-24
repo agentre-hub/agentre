@@ -65,7 +65,7 @@ func (UserAskResolvedHandler) Apply(ctx context.Context, ev agentruntime.Event, 
 }
 
 // MarkUnansweredUserAsksExpired finalize 时把仍未答/未跳过的 AskUserQuestion block
-// 标 expired —— 与 MarkRunningSubagentsCancelled / chatSvc.takeToolApprovals 同模式。
+// 标 expired —— 与 MarkRunningSubagentsCancelled / chat_svc turnRun.closeApprovals 同模式。
 // turn 结束后该卡再提交必然失败(claudecode SubmitAnswer 走 ErrNoActiveTurn / 无 waiter),
 // 标 expired 让前端锁卡并展示「已失效」,且落库后 reload 仍可见。
 // 返回被本次标记的 block 指针,供调用方 emit live 锁定 patch。

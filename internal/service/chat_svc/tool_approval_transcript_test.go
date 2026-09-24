@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -87,7 +88,19 @@ func (approvalFakeRuntime) Run(context.Context, agentruntime.RunRequest) (<-chan
 
 const approvalSessionID = int64(41)
 
+// approvalTurnOpts 是起一轮时可选的接缝:result 是 runner 起手交回的结果(nil = 没有),
+// onSessionUpdate 在每次会话行 Update 落库前被调用(用例据此把 runTurn 卡在某一步)。
+type approvalTurnOpts struct {
+	result          *agentruntime.RunResult
+	onSessionUpdate func()
+}
+
 func startApprovalTurn(t *testing.T) *approvalTurnRig {
+	t.Helper()
+	return startApprovalTurnWith(t, approvalTurnOpts{})
+}
+
+func startApprovalTurnWith(t *testing.T, opts approvalTurnOpts) *approvalTurnRig {
 	t.Helper()
 	deps := setupPeerSessionTest(t)
 	rig := &approvalTurnRig{
@@ -104,7 +117,13 @@ func startApprovalTurn(t *testing.T) *approvalTurnRig {
 		func(context.Context, int64) (*chat_entity.Session, error) {
 			return &chat_entity.Session{ID: approvalSessionID, AgentID: 7, AgentStatus: "running", ConversationID: convID(approvalSessionID)}, nil
 		}).AnyTimes()
-	deps.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	deps.session.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, *chat_entity.Session) error {
+			if opts.onSessionUpdate != nil {
+				opts.onSessionUpdate()
+			}
+			return nil
+		}).AnyTimes()
 	deps.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(agentForPeerSession(), nil).AnyTimes()
 	deps.backend.EXPECT().Find(gomock.Any(), int64(11)).Return(nil, nil).AnyTimes()
 	deps.message.EXPECT().List(gomock.Any(), approvalSessionID).Return(nil, nil).AnyTimes()
@@ -129,7 +148,7 @@ func startApprovalTurn(t *testing.T) *approvalTurnRig {
 	sess := &chat_entity.Session{ID: approvalSessionID, AgentID: 7, ConversationID: convID(approvalSessionID), AgentStatus: "running"}
 	userMsg := &chat_entity.Message{ID: 9000, SessionID: approvalSessionID, Role: "user", Seq: 1, BlocksJSON: "[]"}
 	assistant := &chat_entity.Message{ID: 9001, SessionID: approvalSessionID, Role: "assistant", Seq: 2, BlocksJSON: "[]"}
-	prepared := &preparedTurnRun{runner: approvalFakeRuntime{}, events: rig.events, release: func() {}}
+	prepared := &preparedTurnRun{runner: approvalFakeRuntime{}, events: rig.events, result: opts.result, release: func() {}}
 	go func() {
 		defer close(rig.done)
 		deps.svc.runTurn(ctx, sess, &agent_entity.Agent{ID: 7, AgentBackendID: 11},
@@ -342,4 +361,55 @@ func TestToolApproval_GivenTwoCardsInOneTurn_WhenTurnEndsWhilePending_ThenPendin
 	assert.Error(t, rig.svc.FinishToolApproval(ctx, approvalSessionID, "org-req-2", "approved", ""), "收口之后不得改写已过期的卡")
 	_, err = rig.svc.BeginToolApproval(ctx, approvalSessionID, &blocks.ToolApprovalBlock{ToolKey: "ctl", RequestID: "ctl-late", Status: "pending"})
 	assert.Error(t, err, "没有在跑的一轮,卡无处可落")
+}
+
+// Given runner 已经起跑(CLI 子进程这一刻就可能在调 agrctl),runTurn 还在起手那一步
+//
+//	(attachRuntime 回写 provider session id,落库是一次可能很慢的 IO);
+//
+// When  写工具恰在这一刻登记审批卡;
+// Then  登记不崩(这一轮的累加器必须在它对审批可见之前就已就位),卡落进这一轮的转录,
+//
+//	收口后留在库里。
+func TestToolApproval_GivenTurnStillAttachingRuntime_WhenCardArrives_ThenItLandsInTheTurn(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var first atomic.Bool
+	rig := startApprovalTurnWith(t, approvalTurnOpts{
+		result: &agentruntime.RunResult{ProviderSessionID: "provider-sess-1"},
+		onSessionUpdate: func() {
+			// 只拦第一次 Update:attachRuntime 回写 provider session id 那一次。之后的
+			// (BeginToolApproval 的 markSessionWaiting)照常放行。
+			if first.CompareAndSwap(false, true) {
+				close(entered)
+				<-release
+			}
+		},
+	})
+	ctx := context.Background()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("runTurn never reached attachRuntime's provider-session write")
+	}
+
+	card := &blocks.ToolApprovalBlock{ToolKey: "ctl", RequestID: "ctl-early", ToolName: "ctl", Status: "pending"}
+	ch, err := rig.svc.BeginToolApproval(ctx, approvalSessionID, card)
+	close(release)
+	require.NoError(t, err)
+	require.NotNil(t, ch)
+	pending := approvalsIn(t, rig.lastCheckpoint())
+	require.Len(t, pending, 1, "卡在挂起时就落库")
+	assert.Equal(t, "ctl-early", pending[0].RequestID)
+
+	require.NoError(t, rig.svc.FinishToolApproval(ctx, approvalSessionID, "ctl-early", "approved", "ok"))
+	rig.feed(agentruntime.TextDelta{Text: "after"}, StreamChunk)
+	rig.endTurn()
+
+	rig.mu.Lock()
+	final := decodeStored(t, rig.finalBlocks)
+	rig.mu.Unlock()
+	approvals := approvalsIn(t, final)
+	require.Len(t, approvals, 1)
+	assert.Equal(t, "approved", approvals[0].Status)
 }
