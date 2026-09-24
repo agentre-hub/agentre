@@ -389,6 +389,18 @@ func TestWrite_SecretsNeverEchoed(t *testing.T) {
 		assert.Equal(t, "new-gateway-token", w.Next.GetBackend().GetToken())
 		assert.Empty(t, w.Cur.GetBackend().GetToken())
 	})
+	t.Run("空白 token：边界处 trim 一次，网关拿到空串，与显式清除同一路径", func(t *testing.T) {
+		f := newWriteFixture()
+		rec := postResources(t, f.h, testToken, writeBody(t, &agentrewire.CtlWriteRequest{
+			Op: agentrewire.CtlOp_CTL_OP_UPDATE, Kind: agentrewire.CtlKind_CTL_KIND_BACKEND, Id: 9,
+			Caller:   agentrewire.CtlCaller_CTL_CALLER_HUMAN,
+			Resource: &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Backend{Backend: &agentrewire.CtlBackend{Token: "   "}}},
+			Fields:   []string{"token"},
+		}))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		w := f.writer(agentrewire.CtlKind_CTL_KIND_BACKEND).onlyWrite(t, "update")
+		assert.Empty(t, w.Next.GetBackend().GetToken(), "空白不当成新令牌，trim 成空——走清除，不留下带空白的半成品")
+	})
 }
 
 func TestWrite_GivenDepartmentCascadeDeleteThenCountsStated(t *testing.T) {

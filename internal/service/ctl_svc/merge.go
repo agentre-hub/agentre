@@ -3,6 +3,7 @@ package ctl_svc
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -133,6 +134,12 @@ func mergeDoc(kind agentrewire.CtlKind, op agentrewire.CtlOp, cur, req *agentrew
 				return nil, err
 			}
 			nm.Set(fd, protoreflect.ValueOfString(merged))
+			continue
+		}
+		if f == "token" {
+			// 边界处 trim 一次：空白等同空——与显式清除走同一路径，不当成新令牌写入
+			// （下游 writers.go / changes.go 一律按 == "" 判定，不用到处补 trim）。
+			nm.Set(fd, protoreflect.ValueOfString(strings.TrimSpace(rm.Get(fd).String())))
 			continue
 		}
 		v := rm.Get(fd)

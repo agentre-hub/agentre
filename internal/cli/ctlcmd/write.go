@@ -153,10 +153,15 @@ func runWrite(verb string, args []string, s *sys) error {
 	}
 
 	// 与数据无关的取值检查先于连接与定位：显式空值是用法错误；没有终端时裸写的密钥 flag
-	// 一定读不到值，给出 NEEDS TTY。
+	// 一定读不到值，给出 NEEDS TTY。密钥 flag 显式给了纯空白（非零长度、trim 后为空）
+	// 一律当用法错误拒绝——它多半是误粘贴，不是「留空清除」的故意写法；真正的清除仍然
+	// 是零长度的 --flag=（token 的清除语义见 emptyValue 之外的路径，这里不动它）。
 	for _, o := range p.flags {
 		if o.def.notEmpty && !o.bare && strings.TrimSpace(o.value) == "" {
 			return emptyValue(o.def.name)
+		}
+		if o.def.secret && !o.bare && o.value != "" && strings.TrimSpace(o.value) == "" {
+			return usageErrorf("--%s: value is blank (use --%s= to clear, or give a real value)", o.def.name, o.def.name)
 		}
 		if !s.stdinIsTTY && o.def.secret && o.bare {
 			return needsTTY(o.def.name)

@@ -548,6 +548,17 @@ func TestSecret_GivenEmptyTokenOnOpenClawThenClearsIt(t *testing.T) {
 	}
 }
 
+// 纯空白的 --token（如 --token="   "）不是「留空清除」，是拿不准意图的用法错误：在规划
+// 阶段（连接执行者之前）就拒绝，退出码 2，不发请求——不能让空白悄悄当清除指令发出去。
+func TestSecret_GivenBlankTokenOnOpenClawThenUsageErrorAndNoWriteSent(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"update", "backend", "claw", "--token=   "}, envFor(srv, tok), term{})
+	wantCode(t, r, 2)
+	if f.writeCount() != 0 {
+		t.Fatal("no write must be sent")
+	}
+}
+
 func TestSecret_GivenSpaceSeparatedAPIKeyThenUsageError(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
 	r := runWith([]string{"update", "provider", "openrouter", "--api-key", "sk-x"}, envFor(srv, tok), term{})

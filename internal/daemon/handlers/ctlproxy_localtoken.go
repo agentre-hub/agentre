@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
@@ -65,6 +66,9 @@ func (p *ctlProxy) planConsoleWrite(ctx context.Context, write *agentrewire.CtlW
 		return plan
 	}
 	doc := write.GetResource().GetBackend()
+	// 边界处 trim 一次：空白等同空——与显式清除走同一路径，不当成新令牌写入本地凭据；
+	// 下游（saveLocalToken 的 Clear 判定）一律按 == "" 判定，不用到处补 trim。
+	token := strings.TrimSpace(doc.GetToken())
 	switch write.GetOp() {
 	case agentrewire.CtlOp_CTL_OP_UPDATE:
 		if slices.Contains(write.GetFields(), ctlDeviceField) {
@@ -74,12 +78,12 @@ func (p *ctlProxy) planConsoleWrite(ctx context.Context, write *agentrewire.CtlW
 		if !p.boundHere(b) {
 			return plan
 		}
-		plan.local = &localOpenClawToken{backendID: b.GetId(), name: b.GetName(), syncID: b.GetSyncId(), token: doc.GetToken()}
+		plan.local = &localOpenClawToken{backendID: b.GetId(), name: b.GetName(), syncID: b.GetSyncId(), token: token}
 	case agentrewire.CtlOp_CTL_OP_CREATE:
 		if doc.GetType() != string(agent_backend_entity.TypeOpenClaw) || (doc.GetDevice() != "" && doc.GetDevice() != string(p.deps.Self)) {
 			return plan
 		}
-		plan.local = &localOpenClawToken{name: doc.GetName(), token: doc.GetToken(), created: true}
+		plan.local = &localOpenClawToken{name: doc.GetName(), token: token, created: true}
 	default:
 		return plan
 	}

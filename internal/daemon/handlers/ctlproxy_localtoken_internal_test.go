@@ -248,6 +248,35 @@ func TestCtlProxy_GivenEmptyTokenForBackendBoundHere_WhenApproved_ThenLocalToken
 	assert.False(t, ok)
 }
 
+// 空白 token（如 --token="   "）在规划阶段（planConsoleWrite）就 trim 成空，与显式清除
+// 同一路径：混改一起写时，server 那部分正常写完，本地把 token 当清除处理，不再出现
+// 「server 已写、本地保存失败」的半成品(规格 2026-09-22 agrctl-resource-management 纠错轮 2)。
+func TestCtlProxy_GivenMixedWriteWithBlankTokenForBackendBoundHere_WhenApproved_ThenServerWriteSucceedsAndLocalTokenClearedNotFailed(t *testing.T) {
+	const preview = `{"write":{"id":12,"name":"claw2","changes":[{"op":"CTL_OP_UPDATE","kind":"CTL_KIND_BACKEND","id":12,"name":"claw2","fields":[{"field":"name","before":"claw","after":"claw2"}]}]}}`
+	server := &fakeCtlServer{answer: func(path string) (int, string) {
+		if path == serverResourcesPath+"?preview=1" {
+			return 200, preview
+		}
+		return 200, clawDoc(string(ltSelf))
+	}}
+	creds := newMemCredentialState()
+	require.NoError(t, creds.SetBackendCredential(backendcred.OpenClawTokenAccount(ltSyncID), "old"))
+	c, sink, tok, srv := consoleOwnedHere(t, server, creds)
+
+	done := make(chan ctlResult, 1)
+	go func() {
+		done <- ctlPost(t, srv.URL+"/ctl/v1/resources", tok,
+			tokenWrite(t, []string{"name", "token"}, &agentrewire.CtlBackend{Name: "claw2", Token: "   "}))
+	}()
+	approveNext(t, c, sink)
+	res := <-done
+
+	require.Equal(t, http.StatusOK, res.status, res.body,
+		"a blank token must not leave the server write done and the local save failed")
+	_, ok := creds.gatewayToken()
+	assert.False(t, ok, "a blank token clears the local secret, same as an explicit empty token")
+}
+
 func TestCtlProxy_GivenTokenWriteForBackendBoundHere_WhenRejected_ThenNothingSaved(t *testing.T) {
 	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, clawDoc(string(ltSelf)) }}
 	creds := newMemCredentialState()
