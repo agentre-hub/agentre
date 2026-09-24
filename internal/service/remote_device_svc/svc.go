@@ -71,6 +71,11 @@ type RemoteDeviceSvc interface {
 	Add(ctx context.Context, req AddRequest) (*DeviceView, error)
 	// AdoptAccountDevices 收编账号里已有、本机没有本地记录的 agentred（见 adopt.go）。
 	AdoptAccountDevices(ctx context.Context, devices []AccountDevice) (int, error)
+	// EnsureFromAccount 拉一次账号设备清单并收编（AdoptAccountDevices 的编排壳，
+	// 见 ensure_from_account.go），带回账号清单里「本机自己」（IsThisDevice）那
+	// 一行的展示名。App.ServerListDevices（前端刷新设备面板）与 ctl 解析
+	// --device 找不到本地记录时共用这一处实现，互不各自重复翻译。
+	EnsureFromAccount(ctx context.Context) (selfName string, ok bool, err error)
 	// DiscardAdoptedDevices 去掉全部收编来的行，返回台数。登出时调用：那些行的依据
 	// 就是「账号说有这台机器」，账号断了依据就没了（见 adopt.go）。
 	DiscardAdoptedDevices(ctx context.Context) (int, error)

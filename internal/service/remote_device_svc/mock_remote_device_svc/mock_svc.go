@@ -132,6 +132,22 @@ func (mr *MockRemoteDeviceSvcMockRecorder) DiscardAdoptedDevices(ctx any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscardAdoptedDevices", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).DiscardAdoptedDevices), ctx)
 }
 
+// EnsureFromAccount mocks base method.
+func (m *MockRemoteDeviceSvc) EnsureFromAccount(ctx context.Context) (string, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnsureFromAccount", ctx)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// EnsureFromAccount indicates an expected call of EnsureFromAccount.
+func (mr *MockRemoteDeviceSvcMockRecorder) EnsureFromAccount(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureFromAccount", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).EnsureFromAccount), ctx)
+}
+
 // Get mocks base method.
 func (m *MockRemoteDeviceSvc) Get(ctx context.Context, id int64) (*remote_device_svc.DeviceView, error) {
 	m.ctrl.T.Helper()

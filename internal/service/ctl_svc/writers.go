@@ -536,22 +536,32 @@ func (w backendWriter) modelKey(ctx context.Context, id int64) (string, error) {
 	return "", errNotFound{kind: agentrewire.CtlKind_CTL_KIND_MODEL, id: id}
 }
 
-// deviceID 把 --device（已配对设备的名字或指纹，空 = 本机）解析成设备指纹。
+// deviceID 把 --device（已配对设备的名字或指纹，空 = 本机；也可以是本桌面自己在
+// 账号里的展示名）解析成设备指纹。本地配对目录（DeviceDirectory）按名字找不到时，
+// 先向账号补拉一次设备清单并收养（remote_device_svc.EnsureFromAccount，与
+// App.ServerListDevices 同一实现）再重试一次，不必等前端先打开过设备面板才认得出
+// 账号里已有、本机还没本地记录的 agentred；命中的正是本机自己的名字则直接解析成
+// 本机（空指纹），不需要它出现在本地配对目录里（桌面端本就不会被收编进去）。
 func (w backendWriter) deviceID(ctx context.Context, device string) (string, error) {
 	device = strings.TrimSpace(device)
 	if device == "" || strings.HasPrefix(device, "sha256:") {
 		return device, nil
 	}
-	var views []string
-	if dir := w.p.devices(); dir != nil {
-		list, err := dir.List(ctx)
-		if err != nil {
-			return "", err
+	dir := w.p.devices()
+	views, err := matchDeviceName(ctx, dir, device)
+	if err != nil {
+		return "", err
+	}
+	if len(views) == 0 && dir != nil {
+		selfName, ok, eerr := dir.EnsureFromAccount(ctx)
+		if eerr != nil {
+			return "", eerr
 		}
-		for _, v := range list {
-			if v != nil && v.Name == device && !slices.Contains(views, string(v.DaemonFingerprint)) {
-				views = append(views, string(v.DaemonFingerprint))
-			}
+		if ok && selfName == device {
+			return "", nil
+		}
+		if views, err = matchDeviceName(ctx, dir, device); err != nil {
+			return "", err
 		}
 	}
 	switch len(views) {
@@ -562,4 +572,23 @@ func (w backendWriter) deviceID(ctx context.Context, device string) (string, err
 	default:
 		return "", errBadRequest(fmt.Sprintf("device %q is ambiguous; use one of the fingerprints: %s", device, strings.Join(views, ", ")))
 	}
+}
+
+// matchDeviceName 在本地配对目录里按名字找候选指纹（去重）。dir 为 nil（devices
+// 端口未接线）时视为「本地什么都没有」，不是错误。
+func matchDeviceName(ctx context.Context, dir DeviceDirectory, device string) ([]string, error) {
+	if dir == nil {
+		return nil, nil
+	}
+	list, err := dir.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var views []string
+	for _, v := range list {
+		if v != nil && v.Name == device && !slices.Contains(views, string(v.DaemonFingerprint)) {
+			views = append(views, string(v.DaemonFingerprint))
+		}
+	}
+	return views, nil
 }

@@ -77,6 +77,12 @@ type BackendService interface {
 // DeviceDirectory 已配对设备目录（remote_device_svc），把后端的 --device 名字解析成指纹。
 type DeviceDirectory interface {
 	List(ctx context.Context) ([]*remote_device_svc.DeviceView, error)
+	// EnsureFromAccount 向 server 拉一次账号设备并收养（remote_device_svc.
+	// EnsureFromAccount，与 App.ServerListDevices 同一实现），带回账号里「本机
+	// 自己」那一行的展示名。deviceID 按名字在本地目录里找不到时调用它再重试一次
+	// List，不必等前端先打开过设备面板才认得出账号里已有、本机还没记录的
+	// agentred；selfName 命中时 --device 直接解析成本机（空指纹）。
+	EnsureFromAccount(ctx context.Context) (selfName string, ok bool, err error)
 }
 
 // servicePorts 按调用现取服务单例（bootstrap 之后才注册），测试注入 mock。

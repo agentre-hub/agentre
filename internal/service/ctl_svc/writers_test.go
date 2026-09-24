@@ -363,11 +363,14 @@ func TestBackendWriter(t *testing.T) {
 			Fields: fieldSet("token"),
 		}))
 	})
-	t.Run("设备名重名 → 歧义错误，列出指纹；找不到 → 错误", func(t *testing.T) {
+	t.Run("设备名重名 → 歧义错误，列出指纹；本地找不到时向账号补一次仍找不到 → 错误", func(t *testing.T) {
 		m := newMockPorts(t)
 		m.devices.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
 			{Name: "box", DaemonFingerprint: "sha256:aa"}, {Name: "box", DaemonFingerprint: "sha256:bb"},
-		}, nil).Times(2)
+		}, nil).Times(3)
+		// "box" 在第一次 List 就已经是歧义结果，不必再向账号补拉；"ghost" 两次都落空
+		// 才补拉一次（第二次 List 由补拉后的重试发出）。
+		m.devices.EXPECT().EnsureFromAccount(gomock.Any()).Return("", false, nil)
 		_, err := backendWriter{m.ports}.deviceID(ctx, "box")
 		assert.ErrorContains(t, err, "sha256:aa, sha256:bb")
 		_, err = backendWriter{m.ports}.deviceID(ctx, "ghost")
@@ -375,5 +378,31 @@ func TestBackendWriter(t *testing.T) {
 		fp, err := backendWriter{m.ports}.deviceID(ctx, "sha256:cc")
 		require.NoError(t, err)
 		assert.Equal(t, "sha256:cc", fp, "指纹原样使用")
+	})
+	t.Run("本地找不到时向账号拉一次并收养，重新解析命中新收养的设备", func(t *testing.T) {
+		m := newMockPorts(t)
+		m.devices.EXPECT().List(gomock.Any()).Return(nil, nil)
+		m.devices.EXPECT().EnsureFromAccount(gomock.Any()).Return("", false, nil)
+		m.devices.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
+			{Name: "newbox", DaemonFingerprint: "sha256:new"},
+		}, nil)
+		fp, err := backendWriter{m.ports}.deviceID(ctx, "newbox")
+		require.NoError(t, err)
+		assert.Equal(t, "sha256:new", fp, "补拉收养之后重新解析出新指纹")
+	})
+	t.Run("--device 传本桌面自己在账号里的名字 → 解析成本机（空指纹）", func(t *testing.T) {
+		m := newMockPorts(t)
+		m.devices.EXPECT().List(gomock.Any()).Return(nil, nil)
+		m.devices.EXPECT().EnsureFromAccount(gomock.Any()).Return("my-mac", true, nil)
+		fp, err := backendWriter{m.ports}.deviceID(ctx, "my-mac")
+		require.NoError(t, err)
+		assert.Equal(t, "", fp, "本机自己的名字不需要指纹")
+	})
+	t.Run("向账号补拉失败时把错误原样交给调用方", func(t *testing.T) {
+		m := newMockPorts(t)
+		m.devices.EXPECT().List(gomock.Any()).Return(nil, nil)
+		m.devices.EXPECT().EnsureFromAccount(gomock.Any()).Return("", false, errors.New("server unreachable"))
+		_, err := backendWriter{m.ports}.deviceID(ctx, "newbox")
+		assert.ErrorContains(t, err, "server unreachable")
 	})
 }
