@@ -31,6 +31,23 @@ type memTranscript struct {
 	checkpoints []string
 	finished    []string
 	seq         int64
+	// next 是插话分段后接上的那条新 assistant;nil = 不分段(SegmentTurn 什么都不交回)。
+	next *transcript_entity.Message
+	// persisted 按消息 id 记最近一次落库的块正文(Checkpoint / SegmentTurn / FinishTurn)。
+	persisted map[int64]string
+}
+
+func (m *memTranscript) persistLocked(msg *transcript_entity.Message) {
+	if m.persisted == nil {
+		m.persisted = map[int64]string{}
+	}
+	m.persisted[msg.ID] = msg.BlocksJSON
+}
+
+func (m *memTranscript) persistedBody(id int64) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.persisted[id]
 }
 
 func (m *memTranscript) StartTurn(context.Context, string, string, []blocks.ContentBlock, transcript.UserSource) (*transcript_entity.Message, *transcript_entity.Message, error) {
@@ -41,17 +58,25 @@ func (m *memTranscript) Checkpoint(_ context.Context, msg *transcript_entity.Mes
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.checkpoints = append(m.checkpoints, msg.BlocksJSON)
+	m.persistLocked(msg)
 	return nil
 }
 
-func (m *memTranscript) SegmentTurn(context.Context, *transcript_entity.Message, []agentruntime.ConsumedSteer) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
-	return nil, nil, nil
+func (m *memTranscript) SegmentTurn(_ context.Context, current *transcript_entity.Message, _ []agentruntime.ConsumedSteer) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.next == nil {
+		return nil, nil, nil
+	}
+	m.persistLocked(current)
+	return nil, m.next, nil
 }
 
 func (m *memTranscript) FinishTurn(_ context.Context, msg *transcript_entity.Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.finished = append(m.finished, msg.BlocksJSON)
+	m.persistLocked(msg)
 	return nil
 }
 
@@ -201,4 +226,53 @@ func TestTurnTranscript_GivenTurnFinishes_ThenCtlSessionsLetGoOfIt(t *testing.T)
 	default:
 		t.Fatal("ended() stays open after finish")
 	}
+}
+
+// 插话把轮次切段后,审批卡留在前一条消息里:它的决议必须写回**那一条**(落库 + 持久帧),
+// 不能只改内存 —— 否则控制台重连补齐时那张卡永远停在 pending。
+func segmentedApprovalTurn(t *testing.T) (*turnTranscript, *memTranscript, *eventSink) {
+	t.Helper()
+	scribe, mem, sink := newApprovalTurn(t)
+	mem.next = &transcript_entity.Message{ID: 23, SessionID: 12, Role: "assistant", Seq: 4, BlocksJSON: "[]"}
+	ctx := context.Background()
+	_, err := scribe.beginApproval(ctx, ctlCard("req-seg"))
+	require.NoError(t, err)
+	scribe.observe(ctx, agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{QueuedID: "q1", Text: "顺便看下日志"}}})
+	require.Equal(t, int64(23), scribe.msg.ID, "the steer segments the turn")
+	return scribe, mem, sink
+}
+
+func lastResolved(events []agentruntime.Event) (agentruntime.ToolApprovalResolved, bool) {
+	for i := len(events) - 1; i >= 0; i-- {
+		if r, ok := events[i].(agentruntime.ToolApprovalResolved); ok {
+			return r, true
+		}
+	}
+	return agentruntime.ToolApprovalResolved{}, false
+}
+
+func TestTurnTranscript_GivenApprovalInSegmentedMessage_WhenResolved_ThenVerdictPersistedAndPublishedOnOwningMessage(t *testing.T) {
+	scribe, mem, sink := segmentedApprovalTurn(t)
+	ctx := context.Background()
+	require.Contains(t, mem.persistedBody(21), `"pending"`)
+
+	scribe.resolveApproval(ctx, "req-seg", "approved", "已更新 provider x")
+
+	assert.Contains(t, mem.persistedBody(21), `"approved"`, "the verdict is written back to the message that owns the card")
+	assert.NotContains(t, mem.persistedBody(23), `"tool_approval"`, "the card does not leak into the next segment")
+	resolved, ok := lastResolved(sink.snapshot())
+	require.True(t, ok, "the verdict goes out as a durable tool_approval_resolved frame")
+	assert.Equal(t, agentruntime.ToolApprovalResolved{RequestID: "req-seg", Status: "approved", Result: "已更新 provider x"}, resolved)
+}
+
+func TestTurnTranscript_GivenPendingApprovalInSegmentedMessage_WhenTurnFinishes_ThenExpiryPersistedAndPublishedOnOwningMessage(t *testing.T) {
+	scribe, mem, sink := segmentedApprovalTurn(t)
+
+	scribe.finish(context.Background(), wire.RunResultDoneFrame{ConversationID: ctlTestConversation})
+
+	assert.Contains(t, mem.persistedBody(21), `"expired"`, "the expiry is written back to the message that owns the card")
+	assert.NotContains(t, mem.persistedBody(21), `"pending"`)
+	resolved, ok := lastResolved(sink.snapshot())
+	require.True(t, ok, "the expiry goes out as a durable tool_approval_resolved frame")
+	assert.Equal(t, agentruntime.ToolApprovalResolved{RequestID: "req-seg", Status: "expired"}, resolved)
 }
