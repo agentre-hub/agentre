@@ -484,10 +484,22 @@ message ClaudeCodeRateLimits {
   double weekly_percent = 2;
   optional int64 five_hour_resets_at_ms = 3;
   optional int64 weekly_resets_at_ms = 4;
-  optional double sonnet_weekly_percent = 5;
-  optional int64 sonnet_weekly_resets_at_ms = 6;
-  optional double opus_weekly_percent = 7;
-  optional int64 opus_weekly_resets_at_ms = 8;
+  // Superseded by model_weekly: no longer set. Kept only because the baseline
+  // forbids deleting fields.
+  optional double sonnet_weekly_percent = 5 [deprecated = true];
+  optional int64 sonnet_weekly_resets_at_ms = 6 [deprecated = true];
+  optional double opus_weekly_percent = 7 [deprecated = true];
+  optional int64 opus_weekly_resets_at_ms = 8 [deprecated = true];
+  // Weekly quotas that count only one model (Fable, Opus, Sonnet, ...), in the
+  // order Anthropic lists them. Empty when the account has none.
+  repeated ClaudeCodeModelWeeklyLimit model_weekly = 9;
+}
+// One model-scoped weekly quota. model is Anthropic's display name, passed
+// through as-is.
+message ClaudeCodeModelWeeklyLimit {
+  string model = 1;
+  double percent = 2;
+  optional int64 resets_at_ms = 3;
 }
 message ClaudeCodeUsageResponse { string reason = 1; ClaudeCodeRateLimits data = 2; }
 

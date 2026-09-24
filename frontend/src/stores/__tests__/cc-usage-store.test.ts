@@ -89,6 +89,31 @@ describe("cc-usage-store", () => {
     expect(after).not.toBe(before);
   });
 
+  it("同值短路: 模型周配额数组引用不同但内容相同, 不换 Map 引用", () => {
+    const withFable = (percent: number) =>
+      ({
+        ...sample(),
+        data: {
+          ...sample().data,
+          modelWeekly: [
+            { model: "Fable", percent, resetsAt: "2026-09-24T12:00:00Z" },
+          ],
+        },
+      }) as UsageState;
+    act(() => {
+      useCCUsageStore.getState().upsert("local", withFable(3));
+    });
+    const before = useCCUsageStore.getState().byDevice;
+    act(() => {
+      useCCUsageStore.getState().upsert("local", withFable(3));
+    });
+    expect(useCCUsageStore.getState().byDevice).toBe(before);
+    act(() => {
+      useCCUsageStore.getState().upsert("local", withFable(5));
+    });
+    expect(useCCUsageStore.getState().byDevice).not.toBe(before);
+  });
+
   it("remove 删除指定 key", () => {
     act(() => {
       useCCUsageStore.getState().upsert("local", sample());

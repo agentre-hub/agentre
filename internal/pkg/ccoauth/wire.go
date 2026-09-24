@@ -29,7 +29,7 @@ func RateLimitsFromResponse(response *agentrewire.ClaudeCodeUsageResponse) (*Rat
 	}
 }
 
-// rateLimitsFromProto 还原四组「百分比 + 重置时刻」。
+// rateLimitsFromProto 还原两个主窗口与各档模型周配额的「百分比 + 重置时刻」。
 //
 // 时刻在 wire 上是可选的 unix 毫秒:字段缺失表示「这一档没有重置时刻」,而不是
 // 1970 年 —— 所以逐个判 nil,不能拿零值直接 UnixMilli。
@@ -39,21 +39,21 @@ func rateLimitsFromProto(value *agentrewire.ClaudeCodeRateLimits) *RateLimits {
 	}
 	result := &RateLimits{
 		FiveHourPercent: value.GetFiveHourPercent(), WeeklyPercent: value.GetWeeklyPercent(),
-		SonnetWeeklyPercent: value.SonnetWeeklyPercent, OpusWeeklyPercent: value.OpusWeeklyPercent,
+		FiveHourResetsAt: timeFromMillis(value.FiveHourResetsAtMs),
+		WeeklyResetsAt:   timeFromMillis(value.WeeklyResetsAtMs),
 	}
-	for _, field := range []struct {
-		ms  *int64
-		out **time.Time
-	}{
-		{value.FiveHourResetsAtMs, &result.FiveHourResetsAt},
-		{value.WeeklyResetsAtMs, &result.WeeklyResetsAt},
-		{value.SonnetWeeklyResetsAtMs, &result.SonnetWeeklyResetsAt},
-		{value.OpusWeeklyResetsAtMs, &result.OpusWeeklyResetsAt},
-	} {
-		if field.ms != nil {
-			reset := time.UnixMilli(*field.ms)
-			*field.out = &reset
-		}
+	for _, limit := range value.GetModelWeekly() {
+		result.ModelWeekly = append(result.ModelWeekly, ModelWeeklyLimit{
+			Model: limit.GetModel(), Percent: limit.GetPercent(), ResetsAt: timeFromMillis(limit.ResetsAtMs),
+		})
 	}
 	return result
+}
+
+func timeFromMillis(ms *int64) *time.Time {
+	if ms == nil {
+		return nil
+	}
+	t := time.UnixMilli(*ms)
+	return &t
 }

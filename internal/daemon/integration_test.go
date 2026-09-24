@@ -1977,8 +1977,11 @@ func TestIntegration_HealthPing(t *testing.T) {
 // 并把 CCUsageFetcher 注入的结果正确序列化回客户端。
 // (test 名故意保持短:macOS 单元 socket 路径上限 104 字节,t.TempDir 已经吃掉很多)
 func TestIntegration_CCUsage(t *testing.T) {
+	fableResetsAt := time.UnixMilli(1_790_000_000_000)
 	stub := func(_ context.Context) (*ccoauth.RateLimits, error) {
-		return &ccoauth.RateLimits{FiveHourPercent: 73, WeeklyPercent: 25}, nil
+		return &ccoauth.RateLimits{FiveHourPercent: 73, WeeklyPercent: 25, ModelWeekly: []ccoauth.ModelWeeklyLimit{
+			{Model: "Fable", Percent: 4, ResetsAt: &fableResetsAt},
+		}}, nil
 	}
 	dir := t.TempDir()
 	d, err := New(Options{
@@ -2036,6 +2039,10 @@ func TestIntegration_CCUsage(t *testing.T) {
 	require.NotNil(t, got.GetData())
 	assert.Equal(t, float64(73), got.GetData().GetFiveHourPercent())
 	assert.Equal(t, float64(25), got.GetData().GetWeeklyPercent())
+	require.Len(t, got.GetData().GetModelWeekly(), 1)
+	assert.Equal(t, "Fable", got.GetData().GetModelWeekly()[0].GetModel())
+	assert.Equal(t, float64(4), got.GetData().GetModelWeekly()[0].GetPercent())
+	assert.Equal(t, int64(1_790_000_000_000), got.GetData().GetModelWeekly()[0].GetResetsAtMs())
 
 	// 鉴权门禁:裸连接(未 auth.pair)必须被拒,统一 -32001。
 	raw, err := client.DialProtobuf(callCtx, client.Options{URL: serverURL})

@@ -10,15 +10,21 @@ package ccoauth
 import "time"
 
 // RateLimits 是 /api/oauth/usage 响应的归一化结果。百分比统一在 [0,100]，
-// resets_at 字段缺失时为 nil。Sonnet/Opus 专属配额可选，account 没有就为 nil。
+// resets_at 字段缺失时为 nil。按模型的周配额（Fable / Opus / Sonnet 等）可选，
+// account 没有就为空。
 type RateLimits struct {
 	FiveHourPercent  float64    `json:"fiveHourPercent"`
 	WeeklyPercent    float64    `json:"weeklyPercent"`
 	FiveHourResetsAt *time.Time `json:"fiveHourResetsAt,omitempty"`
 	WeeklyResetsAt   *time.Time `json:"weeklyResetsAt,omitempty"`
 
-	SonnetWeeklyPercent  *float64   `json:"sonnetWeeklyPercent,omitempty"`
-	SonnetWeeklyResetsAt *time.Time `json:"sonnetWeeklyResetsAt,omitempty"`
-	OpusWeeklyPercent    *float64   `json:"opusWeeklyPercent,omitempty"`
-	OpusWeeklyResetsAt   *time.Time `json:"opusWeeklyResetsAt,omitempty"`
+	ModelWeekly []ModelWeeklyLimit `json:"modelWeekly,omitempty"`
+}
+
+// ModelWeeklyLimit 是一档只算某个模型的 7 天配额。Model 是 Anthropic 给的展示名
+// （如 "Fable"），原样透传给界面，不在本地维护模型名表。
+type ModelWeeklyLimit struct {
+	Model    string     `json:"model"`
+	Percent  float64    `json:"percent"`
+	ResetsAt *time.Time `json:"resetsAt,omitempty"`
 }
