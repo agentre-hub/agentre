@@ -175,7 +175,6 @@ func NewChat(emitter Emitter) ChatSvc {
 		activeCancels: &sync.Map{},
 		aborted:       &sync.Map{},
 		turnObservers: &sync.Map{},
-		toolApprovals: map[int64][]*chatblocks.ToolApprovalBlock{},
 		gateway:       defaultGateway,
 	}
 	s.dispatcher = newPackageDispatcher(s)
@@ -247,17 +246,13 @@ type chatSvc struct {
 	// aborted：sessionID(int64) → struct{}。Stop 触发时 store；runTurn 收尾时
 	// LoadAndDelete 判定是否走 StreamAborted 路径 + 跳过 DrainPending 自动接续。
 	aborted *sync.Map
-	// activeTurnStreams: sessionID(int64) → 当前活跃 turn 的 per-turn 流名(string)。
-	// runTurn 起止维护;工具审批(BeginToolApproval)据此路由审批卡到正确的流。
-	activeTurnStreams sync.Map
+	// activeTurns: sessionID(int64) → 当前活跃 turn(*turnRun)。runTurn 起止维护;
+	// 工具审批(BeginToolApproval)据此把审批卡落进这一轮的转录并路由到它的流。
+	activeTurns sync.Map
 	// previewStreams: sessionID(int64) → 该会话此刻这一轮的预览帧通道
 	// (chan agentruntime.Event)。远端执行的预览帧从 *remote.Runtime 的读循环进来,
 	// 由本轮的 turnRun 消费(见 preview_stream.go)。
 	previewStreams sync.Map
-	// toolApprovals: 本会话进行中 turn 上挂起/已决的工具审批 block(org / hook 等内置
-	// 写工具共用),finalize 时 merge 进 assistant 消息;LoadSession 时 overlay 到投影。
-	toolApprovalsMu sync.Mutex
-	toolApprovals   map[int64][]*chatblocks.ToolApprovalBlock
 	// toolApprovalWaiters: requestID(string) → chan bool(buffered=1)。BeginToolApproval
 	// 登记,AnswerToolApproval LoadAndDelete 后回灌决策,FinishToolApproval 终态兜底清。
 	toolApprovalWaiters sync.Map
@@ -776,18 +771,6 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 			return nil, i18n.NewError(ctx, code.ChatBlocksMalformed)
 		}
 		resp.Messages = append(resp.Messages, cm)
-	}
-	// 进行中 turn 上挂起/已决的审批 block 还没 finalize 进消息行,overlay 到末条**真实**
-	// assistant 消息的投影,中途打开会话也能看到审批卡(finalize 时会真正落库)。
-	// 用 msgs 的下标定位(resp.Messages 与它逐条 1:1 投影),与 ActiveStream 同一口径 ——
-	// 两处若各挑各的行,前端就会把审批卡搬到一条没人 emit 的流上,resolved 反扫落空、
-	// 卡片永远 pending。旁白行(供应商切换 notice)不是一轮,见 view.LastTurnAssistantIndex。
-	if pend := s.snapshotToolApprovals(sess.ID); len(pend) > 0 {
-		if i := view.LastTurnAssistantIndex(msgs); i >= 0 {
-			for _, b := range pend {
-				resp.Messages[i].Blocks = append(resp.Messages[i].Blocks, toolApprovalBlockToChatBlock(b))
-			}
-		}
 	}
 	return resp, nil
 }
@@ -2648,10 +2631,11 @@ func (s *chatSvc) runTurn(
 		defer unregister()
 		t.previews = previews
 	}
-	// 登记本 turn 的活跃流名,供工具审批(BeginToolApproval)把审批卡路由到此流。
-	// stream 在 SteerConsumed 分段时不变(同 turn 一个流名),Store 一次即可;收尾时清掉。
-	s.activeTurnStreams.Store(sess.ID, stream)
-	defer s.activeTurnStreams.Delete(sess.ID)
+	// 登记本 turn,供工具审批(BeginToolApproval)把审批卡落进这一轮的转录。stream 在
+	// SteerConsumed 分段时不变(同 turn 一个流名),Store 一次即可;收尾时只清自己 ——
+	// 自动接续在同一会话上递归跑下一轮,那一轮的登记不归这一层删。
+	s.activeTurns.Store(sess.ID, t)
+	defer s.activeTurns.CompareAndDelete(sess.ID, t)
 	t.attachRuntime(ctx)
 	t.initSegment(startedAt)
 	t.consumeEvents(ctx)

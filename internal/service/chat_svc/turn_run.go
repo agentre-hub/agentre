@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/cago-frame/agents/agent/blocks"
@@ -60,6 +61,14 @@ type turnRun struct {
 	turnCtx       *turn.TurnContext
 	// pendingSteers 已被 backend 消费、但分段还没落地的 steer。见 flushPendingSteers。
 	pendingSteers []agentruntime.ConsumedSteer
+
+	// mu 串起事件循环与工具审批那条 goroutine(工具 MCP handler 经 BeginToolApproval /
+	// FinishToolApproval 进来):两边都往本轮的累加器与 assistant 消息里写、都 checkpoint。
+	// 事件循环逐条事件持有它,审批只在这一轮收口(closeApprovals)之前能拿到它改转录。
+	mu sync.Mutex
+	// approvals 本轮登记的审批卡;approvalsClosed 之后不再登记、不再改写。都由 mu 守。
+	approvals       []*turnApproval
+	approvalsClosed bool
 }
 
 // attachRuntime 落 runner-start 侧效果:回吐 provider session id、按 runtime 能力
@@ -149,7 +158,7 @@ func (t *turnRun) consumeEvents(ctx context.Context) {
 	if t.previews == nil {
 		// 本机 runtime:没有两级帧,一条流既呈现也落库。
 		for ev := range t.events {
-			t.applyLive(ctx, ev, false)
+			t.locked(func() { t.applyLive(ctx, ev, false) })
 		}
 		return
 	}
@@ -159,14 +168,21 @@ func (t *turnRun) consumeEvents(ctx context.Context) {
 			if !ok {
 				// 轮结束。预览与终态帧走同一条读循环、同一个顺序,所以此刻缓冲里
 				// 剩下的都是这一轮的,呈现完再收尾。
-				t.drainPreviews(ctx)
+				t.locked(func() { t.drainPreviews(ctx) })
 				return
 			}
-			t.applyDurable(ctx, ev)
+			t.locked(func() { t.applyDurable(ctx, ev) })
 		case preview := <-t.previews:
-			t.applyPreview(ctx, preview)
+			t.locked(func() { t.applyPreview(ctx, preview) })
 		}
 	}
+}
+
+// locked 在 mu 下处理一条事件,见 turnRun.mu。
+func (t *turnRun) locked(fn func()) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	fn()
 }
 
 // applyDurable 把一条持久帧累积进本轮转录,并在定稿时刻 checkpoint 一次。
@@ -334,6 +350,9 @@ func (t *turnRun) applyLive(ctx context.Context, ev agentruntime.Event, preview 
 // finalize 收尾本轮:落地残留分段、结算 usage / anchor / 状态,分派终态事件,
 // 并在有残留 steer 时递归跑自动接续轮。
 func (t *turnRun) finalize(ctx context.Context) {
+	// 先关上审批:之后没有别的 goroutine 再碰本轮转录,仍挂起的卡原地标 expired,
+	// 随下面的落库与 publishPeerTurnDone 出去(卡本来就在累加器里,不再另行追加)。
+	t.closeApprovals(ctx)
 	// 流结束时仍在推迟的分段必须落地:steer 已经从 inbox drain 走了,不落就丢。
 	t.flushPendingSteers(ctx)
 	t.turnCtx.ClearWaits()
@@ -355,14 +374,9 @@ func (t *turnRun) finalize(ctx context.Context) {
 	if aborted {
 		handlers.MarkRunningSubagentsCancelled(finalBlocks)
 	}
-	// 把本会话登记的工具审批 block merge 进 assistant 消息(*ToolApprovalBlock
-	// 实现 cago ContentBlock);仍 pending 的在 take 内被标 expired。
-	for _, b := range t.svc.takeToolApprovals(t.sess.ID) {
-		finalBlocks = append(finalBlocks, b)
-	}
 	// 未答的 AskUserQuestion 在 turn 结束后会变死卡(runner 已 Close，再提交走
 	// ErrNoActiveTurn / 无 waiter 必然失败)。与 MarkRunningSubagentsCancelled /
-	// takeToolApprovals 同模式标 expired：落库让 reload 可见，下方 finalCtx 就绪后
+	// closeApprovals 同模式标 expired：落库让 reload 可见，下方 finalCtx 就绪后
 	// 对被标记的 block emit 锁定 patch，让在屏活卡不用 reload 立即锁。
 	expiredAsks := handlers.MarkUnansweredUserAsksExpired(finalBlocks)
 

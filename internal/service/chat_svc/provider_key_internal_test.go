@@ -320,18 +320,18 @@ func TestSessionProviderOverride_FallbackNoticeOmitsNameWhenProviderGone(t *test
 	assert.JSONEq(t, `{"providerKey":"gone-key"}`, notice.Text)
 }
 
-// TestLoadSession_OverlaysApprovalOntoInFlightTurnNotNoticeRow 钉死:轮中切换供应商会把
+// TestLoadSession_InFlightTurnApprovalStaysOnItsTurnNotNoticeRow 钉死:轮中切换供应商会把
 // 一条只承载 notice 的旁白行(appendProviderSwitchNotice,role=assistant,NextSeq 排在
-// 在跑的 assistant 之后)追加进 transcript。LoadSession 里两处「末条 assistant」推导都
-// 必须跳过它:
+// 在跑的 assistant 之后)追加进 transcript。
 //   - ActiveStream 指到旁白行 → 重挂的前端订上一条没人 emit 的流名,余下的流式内容全
 //     看不见、也等不到终态;
-//   - 待决审批 overlay 挂到旁白行 → 前端把 pending 卡搬到那一行,resolved 事件按在跑
+//   - 待决审批卡出现在旁白行 → 前端把 pending 卡搬到那一行,resolved 事件按在跑
 //     那条的 id 反扫 liveBlocks 落空 → 卡片永远 pending。
 //
-// producer 侧钉死:前端跳过旁白行的那一半(use-chat-session)单独修不好这个 —— 后端
-// 一旦把审批块塞进旁白行,那行就不再「只有 notice」,前端反而正好挑中它。
-func TestLoadSession_OverlaysApprovalOntoInFlightTurnNotNoticeRow(t *testing.T) {
+// 审批卡在挂起时就落进它那一轮的 assistant(checkpoint),LoadSession 读到的就是库里
+// 那一份:卡只出现在在跑的那一条上、只出现一次 —— 活跃 turn 上同一张卡的内存登记
+// 不得再叠一份上去(那会是两张卡)。
+func TestLoadSession_InFlightTurnApprovalStaysOnItsTurnNotNoticeRow(t *testing.T) {
 	m, ctx := setupDirectRunTest(t)
 	s := NewChat(NoopEmitter{}).(*chatSvc)
 
@@ -340,6 +340,11 @@ func TestLoadSession_OverlaysApprovalOntoInFlightTurnNotNoticeRow(t *testing.T) 
 		Level: "info", Text: view.EncodeProviderSwitch("session-key", "", "中转 · GLM 5.2", ""),
 	}}))
 
+	// 挂起时已 checkpoint 进在跑那条 assistant 的审批卡。
+	card := &chatblocks.ToolApprovalBlock{ToolKey: "org", RequestID: "org-1", ToolName: "org_create_department", Status: "pending"}
+	inFlight := &chat_entity.Message{ID: 42, SessionID: 9, Role: "assistant", Seq: 2}
+	require.NoError(t, inFlight.SetBlocks([]blocks.ContentBlock{card}))
+
 	m.session.EXPECT().Find(ctx, int64(9)).Return(&chat_entity.Session{
 		ID: 9, AgentID: 7, AgentStatus: "running", Status: consts.ACTIVE,
 	}, nil)
@@ -347,15 +352,13 @@ func TestLoadSession_OverlaysApprovalOntoInFlightTurnNotNoticeRow(t *testing.T) 
 	m.message.EXPECT().FillBlocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	m.message.EXPECT().ListMeta(ctx, int64(9)).Return([]*chat_entity.Message{
 		{ID: 41, SessionID: 9, Role: "user", BlocksJSON: "[]", Seq: 1},
-		{ID: 42, SessionID: 9, Role: "assistant", BlocksJSON: "[]", Seq: 2},
+		inFlight,
 		noticeRow,
 	}, nil)
 
-	// 活跃 turn + 一条挂起审批:LoadSession 的 overlay 分支的两个前提。
+	// 活跃 turn,它登记着同一张挂起审批。
 	s.activeCancels.Store(int64(9), &activeTurnControl{})
-	s.toolApprovals[9] = []*chatblocks.ToolApprovalBlock{
-		{RequestID: "org-1", ToolName: "org_create_department", Status: "pending"},
-	}
+	s.activeTurns.Store(int64(9), &turnRun{svc: s, assistantMsg: inFlight, approvals: []*turnApproval{{blk: card, msg: inFlight}}})
 
 	resp, err := s.LoadSession(ctx, &LoadSessionRequest{SessionID: 9})
 	require.NoError(t, err)
@@ -363,17 +366,20 @@ func TestLoadSession_OverlaysApprovalOntoInFlightTurnNotNoticeRow(t *testing.T) 
 	assert.Equal(t, StreamName(9, 42), resp.Session.ActiveStream,
 		"重挂的流名要指向在跑的那一轮,不是切换 notice 的旁白行")
 	require.Len(t, resp.Messages, 3)
-	assert.True(t, hasToolApprovalBlock(resp.Messages[1]),
-		"待决审批 overlay 挂在在跑的 assistant(42)上")
+	assert.Equal(t, 1, countToolApprovalBlocks(resp.Messages[1]),
+		"待决审批卡在在跑的 assistant(42)上,恰好一张")
 	assert.False(t, hasToolApprovalBlock(resp.Messages[2]),
 		"旁白行不该被塞进审批卡 —— 塞了它就不再『只有 notice』,前端的跳过也就跟着失效")
 }
 
-func hasToolApprovalBlock(cm ChatMessage) bool {
+func hasToolApprovalBlock(cm ChatMessage) bool { return countToolApprovalBlocks(cm) > 0 }
+
+func countToolApprovalBlocks(cm ChatMessage) int {
+	n := 0
 	for _, b := range cm.Blocks {
 		if b.Type == "tool_approval" {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
