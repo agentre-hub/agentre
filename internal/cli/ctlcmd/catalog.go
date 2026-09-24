@@ -53,12 +53,14 @@ func connect(s *sys, args []string) (*catalog, error) {
 }
 
 // caller 按 spec「Routing and approval」给调用方分类：会话级 token 在环境变量里 →
-// 会话调用；否则用的是本机握手 token，stdin 是 TTY 为人工调用，不是则为外部调用。
+// 会话调用；否则用的是本机握手 token，stdin 是 TTY 且环境里没有已知 agent CLI 的标记
+// （agentEnvMarkers）才算人工调用，否则为外部调用——带着标记说明这多半是某个 agent CLI
+// 自己在终端里起的子进程，不是人在敲键盘。
 func (c *catalog) caller(s *sys) agentrewire.CtlCaller {
 	switch {
 	case c.ep.TokenFromEnv:
 		return agentrewire.CtlCaller_CTL_CALLER_SESSION
-	case s.stdinIsTTY:
+	case s.stdinIsTTY && !hasAgentEnvMarker(s.lookupEnv):
 		return agentrewire.CtlCaller_CTL_CALLER_HUMAN
 	default:
 		return agentrewire.CtlCaller_CTL_CALLER_EXTERNAL

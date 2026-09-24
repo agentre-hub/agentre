@@ -9520,8 +9520,11 @@ export const CtlOpSchema: GenEnum<CtlOp> = /*@__PURE__*/
 /**
  * CtlCaller 是 agrctl 对调用方的分类，执行者据此决定审批方式：
  *   - SESSION：环境变量里带着会话级 token（Agentre 会话里的 agent）→ 在该会话里审批；
- *   - EXTERNAL：用本机握手 token、stdin 不是 TTY（外部 AI/脚本）→ 桌面端弹窗审批；
- *   - HUMAN：用本机握手 token、stdin 是 TTY（人在终端里）→ 直接执行。
+ *   - EXTERNAL：用本机握手 token，且 stdin 不是 TTY，或 stdin 是 TTY 但环境里带着已知
+ *     agent CLI 的标记（agrctl 侧 agentEnvMarkers；外部 AI/脚本，或 agent CLI 自己在
+ *     终端里起的子进程）→ 桌面端弹窗审批；
+ *   - HUMAN：用本机握手 token、stdin 是 TTY 且环境里没有已知 agent CLI 的标记（人在
+ *     终端里）→ 直接执行。
  * 这是护栏级的分类：同一系统用户下的程序可以伪造，执行者不得把它当作鉴权。
  *
  * @generated from enum agentre.wire.CtlCaller

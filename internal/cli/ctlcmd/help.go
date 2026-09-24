@@ -25,7 +25,8 @@ a model is <provider>/<model id>. Flags that name another resource
 (--department, --parent, --backend, --provider, --lead, …) take the same forms.
 
 Writes from an Agentre session wait for approval in that session; writes from a
-program without a terminal wait for approval in the desktop.
+program without a terminal, or from a terminal an agent CLI (Claude Code, Codex,
+Gemini CLI, opencode, …) is running in, wait for approval in the desktop.
 
 Exit codes: 0 ok · 1 failed, rejected or executor unreachable · 2 usage error
 (unknown command or flag, missing value, ambiguous ref) · 3 needs a human

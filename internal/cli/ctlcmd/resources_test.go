@@ -29,6 +29,23 @@ func handshakeEnv(t *testing.T, srv *httptest.Server) func(string) (string, bool
 	return noEnv
 }
 
+// handshakeEnvWithMarker 像 handshakeEnv，但额外让 lookupEnv 报告一个已知 agent CLI 的
+// 环境标记（见 agentEnvMarkers），用来测试「stdin 是 TTY 但带着标记」这一支。
+func handshakeEnvWithMarker(t *testing.T, srv *httptest.Server, marker string) func(string) (string, bool) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := ctlendpoint.Write(dir, ctlendpoint.Endpoint{URL: srv.URL, Token: tok}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTRE_DATA_DIR", dir)
+	return func(k string) (string, bool) {
+		if k == marker {
+			return "1", true
+		}
+		return "", false
+	}
+}
+
 // tableRows 把表格输出拆成「行 → 按空白切开的列」。
 func tableRows(out string) [][]string {
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
@@ -715,6 +732,25 @@ func TestCaller_GivenHandshakeTokenOnTTYThenHumanCallerWithoutWaiting(t *testing
 	}
 	if strings.Contains(r.stderr, "waiting") {
 		t.Fatalf("stderr = %q, a human caller does not wait for approval", r.stderr)
+	}
+}
+
+// TestCaller_GivenHandshakeTokenOnTTYWithAgentMarkerThenExternalCaller：stdin 是 TTY，但
+// 环境里带着已知 agent CLI 的标记（agentEnvMarkers）——调用方很可能是跑在终端里的 agent
+// CLI 自己起的子进程，不是人在敲键盘，因此仍判 EXTERNAL，走桌面弹窗审批。
+func TestCaller_GivenHandshakeTokenOnTTYWithAgentMarkerThenExternalCaller(t *testing.T) {
+	for _, marker := range []string{"AI_AGENT", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "GEMINI_CLI", "OPENCODE", "CODEX_SANDBOX"} {
+		t.Run(marker, func(t *testing.T) {
+			f, srv := newFakeExecutor(t, tok)
+			r := runWith([]string{"update", "agent", "reviewer", "--description", "x"}, handshakeEnvWithMarker(t, srv, marker), term{tty: true})
+			wantCode(t, r, 0)
+			if got := f.onlyWrite(t).GetCaller(); got != agentrewire.CtlCaller_CTL_CALLER_EXTERNAL {
+				t.Fatalf("caller = %v, want EXTERNAL when %s is set", got, marker)
+			}
+			if !strings.Contains(r.stderr, "waiting for approval in the Agentre desktop …") {
+				t.Fatalf("stderr = %q", r.stderr)
+			}
+		})
 	}
 }
 
