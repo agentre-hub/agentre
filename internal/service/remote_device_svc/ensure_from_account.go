@@ -2,6 +2,7 @@ package remote_device_svc
 
 import (
 	"context"
+	"errors"
 
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
 )
@@ -26,6 +27,9 @@ func (s *service) EnsureFromAccount(ctx context.Context) (selfName string, ok bo
 		return "", false, nil
 	}
 	devices, err := server.ListDevices(ctx)
+	if errors.Is(err, server_svc.ErrNotLoggedIn) {
+		return "", false, nil
+	}
 	if err != nil {
 		return "", false, err
 	}

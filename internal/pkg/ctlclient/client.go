@@ -30,6 +30,10 @@ type Endpoint struct {
 	// TokenFromEnv 为 true 表示 token 来自环境变量 AGENTRE_CTL_TOKEN —— 那是 Agentre
 	// 注入给会话的会话级 token;为 false 表示来自 flag 或本机握手文件。
 	TokenFromEnv bool
+	// baseFromHandshake 为 true 表示 Base 取自本机桌面握手文件（不是 flag 或会话注入的
+	// AGENTRE_CTL_ENDPOINT）：只有这种端点拨不通时，agentred 主机上才回落到「没有会话」
+	// 那句提示（dialFailure）。
+	baseFromHandshake bool
 }
 
 // ServerError 是控制 API 回的非 2xx 响应;Message 是执行者给出的原始错误消息。
@@ -70,6 +74,7 @@ func Resolve(flagURL, flagToken string, lookupEnv func(string) (string, bool)) (
 			case rerr == nil:
 				if ep.Base == "" {
 					ep.Base = strings.TrimRight(fe.URL, "/")
+					ep.baseFromHandshake = true
 				}
 				if ep.Token == "" {
 					ep.Token = fe.Token
@@ -103,12 +108,11 @@ func isAgentredHost() bool {
 }
 
 // dialFailure 把一次失败的拨号（http.Client.Do 本身出错，不是非 2xx 响应）翻成给用户看的
-// 错误。到这一步，Resolve 已经成功解析出了一个端点——不管是来自 flag/env，还是来自桌面
-// 握手文件（哪怕那份握手文件是桌面端停掉后留下的陈旧记录）——但它连不上。在 agentred 主机
-// 上，唯一站得住的解释就是这里没有一个活的桌面控制端点，回落到与压根没有握手文件时同一句
-// 提示；否则保留原始拨号错误，供排查网络问题用。
-func dialFailure(err error) error {
-	if isAgentredHost() {
+// 错误。端点取自桌面握手文件、而本机是 agentred 主机时，拨不通只说明那是桌面端停掉后留下的
+// 陈旧握手文件——回落到与压根没有握手文件时同一句提示。端点来自 flag 或会话注入的环境变量
+// 时（agentred 上的 Agentre 派发会话）那句「没有会话 token」是假的，保留原始拨号错误。
+func (e Endpoint) dialFailure(err error) error {
+	if e.baseFromHandshake && isAgentredHost() {
 		return errAgentredHostNoSession
 	}
 	return fmt.Errorf("connect to desktop: %w", err)
@@ -171,7 +175,7 @@ func (e Endpoint) roundTrip(ctx context.Context, method, path string, body []byt
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, dialFailure(err)
+		return nil, e.dialFailure(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
@@ -192,7 +196,7 @@ func (e Endpoint) OpenStream(ctx context.Context, path string) (io.ReadCloser, e
 	req.Header.Set("Accept", "text/event-stream")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, dialFailure(err)
+		return nil, e.dialFailure(err)
 	}
 	if resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(resp.Body)

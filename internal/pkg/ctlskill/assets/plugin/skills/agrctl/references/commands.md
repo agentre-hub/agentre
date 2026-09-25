@@ -113,8 +113,9 @@ department 临时小组 deleted
   back from the desktop verbatim.
 
 From an Agentre session every write first prints `waiting for approval in session #<id> …`
-on stderr and blocks until the user answers the approval card in that session. A program
-without a terminal outside any session prints `waiting for approval in the Agentre desktop …`
+on stderr and blocks until the user answers the approval card in that session. Outside any
+session, a program without a terminal — or one run by an agent CLI (Claude Code, Codex, Gemini
+CLI, opencode, …), even inside a terminal — prints `waiting for approval in the Agentre desktop …`
 instead and blocks until the user answers the desktop's approval dialog. A rejection:
 
 ```

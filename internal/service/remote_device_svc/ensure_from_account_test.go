@@ -116,3 +116,22 @@ func TestEnsureFromAccount_GivenTheFetchFails_ThenTheErrorIsNotSwallowed(t *test
 		_ = repo
 	})
 }
+
+// 未登录的桌面端（spec 决策 4：离线的本地用户也要能用 agrctl）没有账号设备可看：与
+// server 未接线同一口径，不是错误。否则 ctl 解析一个本地找不到的 --device 名字时，报出来
+// 的是「未登录」，而不是 spec 要的 `device "<名字>" not found`。
+func TestEnsureFromAccount_GivenNotLoggedIn_ThenReturnsEmptyWithoutError(t *testing.T) {
+	Convey("a desktop that is not logged in has no account devices, which is not an error", t, func() {
+		repo, w, svc := adoptFixture(t)
+		_ = repo
+		_ = w
+		withServerSvc(t, stubServerSvc{err: server_svc.ErrNotLoggedIn})
+		// 没有任何 repo.EXPECT()：没有账号清单就不该走到收编那一步。
+
+		selfName, ok, err := svc.EnsureFromAccount(context.Background())
+
+		So(err, ShouldBeNil)
+		So(ok, ShouldBeFalse)
+		So(selfName, ShouldBeEmpty)
+	})
+}

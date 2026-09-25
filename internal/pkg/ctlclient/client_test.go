@@ -175,3 +175,34 @@ func TestGet_StaleHandshakeFileOnAgentredHostGivesAgentredHint(t *testing.T) {
 		t.Fatalf("err = %q, want the same agentred-host/session hint Resolve gives when there is no handshake file", err.Error())
 	}
 }
+
+// TestGet_SessionEndpointUnreachableOnAgentredHostKeepsDialError：agentred 主机上的
+// Agentre 派发会话带着会话级 token 与 agentred ctl 代理的端点，那个端点一时拨不通（比如
+// agentred 正在重启）时，不能套用「没有会话 token」那句 agentred 主机提示——那句话对这个
+// 调用方是假的。只有从桌面握手文件解析出来的端点拨不通时才回落到那句提示（plan T27）。
+func TestGet_SessionEndpointUnreachableOnAgentredHostKeepsDialError(t *testing.T) {
+	agentredDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(agentredDir, "state.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTRED_DATA_DIR", agentredDir)
+	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
+
+	ep, err := Resolve("", "", envOf(map[string]string{
+		"AGENTRE_CTL_ENDPOINT": "http://" + unreachableAddr(t),
+		"AGENTRE_CTL_TOKEN":    "session-token",
+	}))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	err = ep.Get("/ctl/v1/resources", nil)
+	if err == nil {
+		t.Fatal("want an error when the session endpoint can't be reached")
+	}
+	if strings.Contains(err.Error(), "no session token found") {
+		t.Fatalf("err = %q, must not claim there is no session token for a session caller", err.Error())
+	}
+	if !strings.Contains(err.Error(), "connect to") {
+		t.Fatalf("err = %q, want the dial error kept", err.Error())
+	}
+}
