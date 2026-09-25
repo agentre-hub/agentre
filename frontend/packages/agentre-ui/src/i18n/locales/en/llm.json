@@ -443,7 +443,7 @@
       "ignoredDescription": "The custom CLI model is retained but ignored while an Agentre provider is bound."
     },
     "deleteDialog": {
-      "description": "Delete \"{{name}}\"? This is a soft delete and does not affect existing agent references.",
+      "description": "Delete \"{{name}}\"? Execution targets that reference it will also be deleted; the agent itself is kept.",
       "title": "Delete Agent Backend"
     },
     "device": {

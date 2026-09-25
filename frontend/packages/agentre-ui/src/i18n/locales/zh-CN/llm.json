@@ -443,7 +443,7 @@
       "ignoredDescription": "自定义 CLI 模型仍会保留，但绑定 Agentre 供应商期间会被忽略。"
     },
     "deleteDialog": {
-      "description": "确认删除「{{name}}」？该操作仅软删，不影响已存在的 Agent 引用。",
+      "description": "确认删除「{{name}}」？引用它的执行目标会一并删除，Agent 本身保留。",
       "title": "删除 Agent 后端"
     },
     "device": {
