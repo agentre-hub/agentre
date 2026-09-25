@@ -3,7 +3,6 @@ package agent_backend_svc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"maps"
 	"runtime"
 	"slices"
@@ -729,19 +728,19 @@ func openClawDraftIssue(backend *agent_backend_entity.AgentBackend) *TestBackend
 	return nil
 }
 
-// openClawGatewayURLConfigField is the --config JSON key agrctl documents for this
-// value (agrctl help backend openclaw; also syncwire.AgentBackendConfig's json tag).
-const openClawGatewayURLConfigField = "openclawGatewayUrl"
-
-// wrapOpenClawGatewayURLErr keeps NormalizeOpenClawGatewayURL's specific rejection
+// OpenClawGatewayURLError keeps NormalizeOpenClawGatewayURL's specific rejection
 // reason (agent_backend_entity.ErrOpenClawGatewayURL*) instead of Create/Update
-// collapsing it into code.InvalidParameter's generic "参数错误", and names the
-// --config field it belongs to. Unlike the GUI's create/edit form — which calls
-// openClawDraftIssue before ever reaching the service — agrctl has no client-side
-// pre-validation, so this is the only place a bad/missing openclawGatewayUrl gets
-// explained instead of surfacing as an unreadable "参数错误".
+// collapsing it into code.InvalidParameter's generic "参数错误". The text stays the
+// entity's reason only: this service also answers the GUI (Wails bindings), so naming
+// the agrctl --config field is the ctl boundary's job (ctl_svc backendWriter), which
+// recognizes the rejection by this type.
+type OpenClawGatewayURLError struct{ Err error }
+
+func (e *OpenClawGatewayURLError) Error() string { return e.Err.Error() }
+func (e *OpenClawGatewayURLError) Unwrap() error { return e.Err }
+
 func wrapOpenClawGatewayURLErr(err error) error {
-	return fmt.Errorf("%w (--config %s)", err, openClawGatewayURLConfigField)
+	return &OpenClawGatewayURLError{Err: err}
 }
 
 // resolveOpenClawRuntimeConfig is the only boundary that turns persisted

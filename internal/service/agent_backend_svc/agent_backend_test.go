@@ -604,6 +604,8 @@ func TestCreateBackend(t *testing.T) {
 		// agrctl 没有前端那层 openClawDraftIssue 预检（那只挡 GUI 表单提交），
 		// `agrctl create backend --type openclaw` 缺 --config 时直接落到这里；
 		// 过去一律塌成 code.InvalidParameter 的中文「参数错误」，看不出是哪个字段。
+		// 服务层同时供 GUI（Wails 绑定）调用：agrctl 的 --config 字段名由 ctl 边界补，
+		// 不进这里的错误文本（见 ctl_svc backendWriter）。
 		convey.Convey("openclaw 缺少 gateway URL 时报出具体原因，而不是泛化的参数错误", func() {
 			_, err := svc.Create(ctx, &CreateBackendRequest{
 				Type: string(agent_backend_entity.TypeOpenClaw),
@@ -612,8 +614,9 @@ func TestCreateBackend(t *testing.T) {
 			require.Error(t, err)
 			assert.ErrorIs(t, err, agent_backend_entity.ErrOpenClawGatewayURLRequired)
 			assert.Contains(t, err.Error(), "openclaw gateway URL is required")
-			assert.Contains(t, err.Error(), "openclawGatewayUrl",
-				"要点名 --config 该填的字段，不能只说「必填」不说填哪个键")
+			var urlErr *OpenClawGatewayURLError
+			assert.ErrorAs(t, err, &urlErr, "ctl 边界靠这个类型认出要补 --config 字段名")
+			assert.NotContains(t, err.Error(), "--config", "GUI 也显示这条错误，不能出现 agrctl 的参数")
 			assert.NotContains(t, err.Error(), "参数错误")
 		})
 
@@ -732,7 +735,9 @@ func TestUpdateBackend(t *testing.T) {
 			_, err := svc.Update(ctx, &UpdateBackendRequest{ID: 7, Name: "claw"})
 			require.Error(t, err)
 			assert.ErrorIs(t, err, agent_backend_entity.ErrOpenClawGatewayURLRequired)
-			assert.Contains(t, err.Error(), "openclawGatewayUrl")
+			var urlErr *OpenClawGatewayURLError
+			assert.ErrorAs(t, err, &urlErr)
+			assert.NotContains(t, err.Error(), "--config")
 			assert.NotContains(t, err.Error(), "参数错误")
 		})
 	})

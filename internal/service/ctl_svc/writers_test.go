@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	"github.com/agentre-hub/agentre/internal/service/agent_svc"
@@ -362,6 +363,29 @@ func TestBackendWriter(t *testing.T) {
 			Cur: backendRes(&agentrewire.CtlBackend{Id: 10, Type: "openclaw"}), Next: backendRes(&agentrewire.CtlBackend{Id: 10, Type: "openclaw"}),
 			Fields: fieldSet("token"),
 		}))
+	})
+	// 服务层只给出网关地址被拒的原因（它也答 GUI）；agrctl 的 --config 字段名在这里补，
+	// 并作为调用方的输入错误（400）而不是服务端故障（500）回给 agrctl。
+	t.Run("网关地址被服务层拒绝 → 400，原因后点名 --config openclawGatewayUrl（create 与 update）", func(t *testing.T) {
+		rejected := &agent_backend_svc.OpenClawGatewayURLError{Err: agent_backend_entity.ErrOpenClawGatewayURLRequired}
+		m := newMockPorts(t)
+		m.backends.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil, rejected)
+		_, err := backendWriter{m.ports}.Create(ctx, Write{
+			Next:   backendRes(&agentrewire.CtlBackend{Type: "openclaw", Name: "claw"}),
+			Fields: fieldSet("type", "name"),
+		})
+		var bad errBadRequest
+		require.ErrorAs(t, err, &bad)
+		assert.Equal(t, "openclaw gateway URL is required (--config openclawGatewayUrl)", err.Error())
+
+		m.backends.EXPECT().List(gomock.Any(), gomock.Any()).Return(&agent_backend_svc.ListBackendsResponse{Items: []*agent_backend_svc.BackendItem{{ID: 11}}}, nil)
+		m.backends.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, rejected)
+		err = backendWriter{m.ports}.Update(ctx, Write{
+			Cur: backendRes(&agentrewire.CtlBackend{Id: 11, Type: "openclaw"}), Next: backendRes(&agentrewire.CtlBackend{Id: 11, Type: "openclaw", Name: "claw"}),
+			Fields: fieldSet("name"),
+		})
+		require.ErrorAs(t, err, &bad)
+		assert.Equal(t, "openclaw gateway URL is required (--config openclawGatewayUrl)", err.Error())
 	})
 	t.Run("设备名重名 → 歧义错误，列出指纹；本地找不到时向账号补一次仍找不到 → 错误", func(t *testing.T) {
 		m := newMockPorts(t)

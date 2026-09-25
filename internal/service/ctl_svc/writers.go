@@ -3,6 +3,7 @@ package ctl_svc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -18,7 +19,8 @@ import (
 
 // 生产写网关：把执行者合并好的文档翻译成现有服务的请求，一个字段只经它在编辑器里走的
 // 那个服务方法写入（改父级走 Move、置顶走 SetPinned、默认模型走 SetModelDefault…）。
-// update 只调用值真的变了的那几个方法；服务层的错误原样上抛。
+// update 只调用值真的变了的那几个方法；服务层的错误原样上抛（后端网关地址被拒时补上
+// --config 字段名，见 explainBackendErr）。
 
 func productionWriters(p servicePorts) map[agentrewire.CtlKind]KindWriter {
 	return map[agentrewire.CtlKind]KindWriter{
@@ -406,7 +408,7 @@ func (w backendWriter) Create(ctx context.Context, wr Write) (int64, error) {
 		resp, err = w.p.backends().Create(ctx, req)
 	}
 	if err != nil {
-		return 0, err
+		return 0, explainBackendErr(err)
 	}
 	return resp.Item.ID, nil
 }
@@ -445,6 +447,16 @@ func (w backendWriter) Update(ctx context.Context, wr Write) error {
 		_, err = w.p.backends().UpdateOpenClaw(ctx, req, b.GetToken(), b.GetToken() == "")
 	} else {
 		_, err = w.p.backends().Update(ctx, req)
+	}
+	return explainBackendErr(err)
+}
+
+// explainBackendErr 把服务层对网关地址的拒绝（原因只说错在哪，它也答 GUI）补上 agrctl
+// 该改的 --config 字段名，并作为调用方输入错误（400）回给 agrctl；其它错误原样上抛。
+func explainBackendErr(err error) error {
+	var urlErr *agent_backend_svc.OpenClawGatewayURLError
+	if errors.As(err, &urlErr) {
+		return errBadRequest(urlErr.Error() + " (--config openclawGatewayUrl)")
 	}
 	return err
 }
