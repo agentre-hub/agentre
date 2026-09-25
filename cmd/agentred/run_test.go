@@ -506,3 +506,24 @@ func TestGivenUnreachableAdvertiseAddressWhenRunStartsThenItReturnsUsageErrorWit
 		})
 	}
 }
+
+// agentred 启动时先把 agrctl 与 ctlskill 装好,再起 daemon —— daemon 一起就可能派发会话,
+// 会话里的 agent 要找得到 agrctl。
+func TestGivenRunWhenDaemonStartsThenCtlToolsAreInstalledFirst(t *testing.T) {
+	clearRunEnvironment(t)
+	var order []string
+	cmd := newRunCmdWithDeps(runDeps{
+		dataDir:         func() (string, error) { return t.TempDir(), nil },
+		installCtlTools: func() { order = append(order, "install") },
+		newDaemon: func(daemon.Options) (runDaemon, error) {
+			order = append(order, "daemon")
+			return fakeRunDaemon{}, nil
+		},
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs(nil)
+
+	require.NoError(t, cmd.Execute())
+	assert.Equal(t, []string{"install", "daemon"}, order)
+}

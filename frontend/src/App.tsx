@@ -40,6 +40,7 @@ import {
   IssuesPage,
   SessionIndexPage,
   OrgChartPage,
+  ExternalApprovalDialog,
   PaletteScopeBridge,
   QuitConfirmDialog,
   ShortcutsProvider,
@@ -348,6 +349,9 @@ function App() {
         <NotificationToastViewport />
         {/* 退出二次确认:常驻订阅 "app:quit-blocked",活跃会话存在时拦截退出弹框。*/}
         <QuitConfirmDialog />
+        {/* 外部调用（非 TTY、无会话 token 的 agrctl 写命令）的全局审批弹窗:不论当前在
+          哪个页面都要能弹出,常驻挂在这里、跟 QuitConfirmDialog 同一层。*/}
+        <ExternalApprovalDialog />
         <Routes>
           <Route element={<AppLayout />}>
             <Route path="/chat" element={<SessionIndexPage />} />

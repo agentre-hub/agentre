@@ -259,7 +259,7 @@ func buildCLIProbeEnv(b *agent_backend_entity.AgentBackend, deps ProbeDeps) (map
 		}
 		return env, agentruntime.BuildCodexConfig(cliDeps), nil
 	case agent_backend_entity.TypePiAgent:
-		env, err := agentruntime.BuildPiAgentEnv(b)
+		env, err := agentruntime.BuildPiAgentEnv(b, cliDeps)
 		return env, nil, err
 	default:
 		return nil, nil, errors.New("unsupported CLI backend")

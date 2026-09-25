@@ -7,15 +7,19 @@ import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const handlers = new Map<string, (payload: unknown) => void>();
-const offCalls: string[] = [];
+// unsubscribed：本组件自己那条订阅被退掉；offAll：EventsOff(name) 把这个事件名下
+// **所有**组件的订阅一并清掉（组织页、设置面板也订阅了这两条事件）。
+const unsubscribed: string[] = [];
+const offAll: string[] = [];
 
 vi.mock("../../../../wailsjs/runtime/runtime", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   EventsOn: (name: string, handler: (payload: unknown) => void) => {
     handlers.set(name, handler);
+    return () => unsubscribed.push(name);
   },
   EventsOff: (name: string) => {
-    offCalls.push(name);
+    offAll.push(name);
   },
 }));
 
@@ -29,7 +33,8 @@ import { SyncAppliedHost } from "../sync-applied-host";
 describe("SyncAppliedHost", () => {
   beforeEach(() => {
     handlers.clear();
-    offCalls.length = 0;
+    unsubscribed.length = 0;
+    offAll.length = 0;
     reloadSidebarSources.mockClear();
   });
 
@@ -41,11 +46,29 @@ describe("SyncAppliedHost", () => {
     expect(reloadSidebarSources).toHaveBeenCalledTimes(1);
   });
 
-  it("Given the host unmounts, When it goes away, Then it takes its subscription with it", () => {
+  it("Given the host unmounts, When it goes away, Then it takes only its own subscription with it", () => {
     const view = render(<SyncAppliedHost />);
 
     view.unmount();
 
-    expect(offCalls).toContain("sync:applied");
+    expect(unsubscribed).toContain("sync:applied");
+    expect(offAll).toEqual([]);
+  });
+
+  it("Given the host is mounted, When a local write reports config:changed, Then the sidebar sources reload too", () => {
+    render(<SyncAppliedHost />);
+
+    handlers.get("config:changed")?.(["project"]);
+
+    expect(reloadSidebarSources).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given the host unmounts, When it goes away, Then it takes the config:changed subscription with it too", () => {
+    const view = render(<SyncAppliedHost />);
+
+    view.unmount();
+
+    expect(unsubscribed).toContain("config:changed");
+    expect(offAll).toEqual([]);
   });
 });

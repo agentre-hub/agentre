@@ -59,9 +59,12 @@ func (a *App) ServerOffline() bool {
 // ServerListDevices returns the user's devices known to the Server.
 //
 // 拿到清单之后顺手收编（决策 1）：账号里已有、本机却没有本地记录的 agentred 补一行
-// 「只有中转路径」的记录，否则它选不进「运行设备」，同步下来的后端在本机也跑不起来
-// （见 remote_device_svc.AdoptAccountDevices）。这里是桌面端唯一一处「刚刚得知账号
-// 有哪些设备」的地方，设备面板与两个执行设备选择器都经它刷新，所以补齐挂在这里。
+// 「只有中转路径」的记录，否则它选不进「运行设备」，同步下来的后端在本机也跑不起来。
+// 「翻译 → 收编」是 remote_device_svc.AdoptListedDevices 的实现（agrctl 的 --device
+// 解析找不到本地记录时经 EnsureFromAccount 拉一次清单再走同一段，两处共用同一份
+// 逻辑）；这里手里已经有清单，直接交给它，不为收编再向 server 拉第二次。
+// 这里是桌面端唯一一处「刚刚得知账号有哪些设备」的地方，设备面板与两个执行设备
+// 选择器都经它刷新，所以补齐挂在这里。
 // 收编失败只记日志：它是补齐，不该让设备清单读不出来。
 func (a *App) ServerListDevices() ([]server_svc.Device, error) {
 	devices, err := server_svc.Server().ListDevices(a.ctx)
@@ -69,13 +72,7 @@ func (a *App) ServerListDevices() ([]server_svc.Device, error) {
 		return nil, err
 	}
 	if svc := remote_device_svc.Default(); svc != nil {
-		adopting := make([]remote_device_svc.AccountDevice, 0, len(devices))
-		for _, d := range devices {
-			adopting = append(adopting, remote_device_svc.AccountDevice{
-				Fingerprint: d.Fingerprint, Name: d.Name, Kind: d.Kind,
-			})
-		}
-		if _, aerr := svc.AdoptAccountDevices(a.ctx, adopting); aerr != nil {
+		if _, _, aerr := svc.AdoptListedDevices(a.ctx, devices); aerr != nil {
 			logger.Ctx(a.ctx).Warn("app.ServerListDevices: adopting account agentreds failed", zap.Error(aerr))
 		}
 	}

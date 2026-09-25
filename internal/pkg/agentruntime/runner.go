@@ -67,6 +67,11 @@ const (
 	// approval lifecycle. Approval resolution is not tool execution completion.
 	EventExecApprovalRequested EventKind = "exec_approval_requested"
 	EventExecApprovalResolved  EventKind = "exec_approval_resolved"
+	// EventToolApprovalRequested / Resolved 是 agent 内置写工具(org / ctl …)
+	// 服务端审批卡(tool_approval 块)的持久帧:请求一帧,终态再回填一帧。只由历史
+	// 投影产出,见 event.go 的 ToolApprovalRequested。
+	EventToolApprovalRequested EventKind = "tool_approval_requested"
+	EventToolApprovalResolved  EventKind = "tool_approval_resolved"
 	// EventPermissionModeChanged claudecode CLI 通报自身 permission mode 已变更
 	// （被动 ExitPlanMode 流程 / 主动 set_permission_mode 回执）。
 	// chat_svc 接住后落 chat_sessions.permission_mode 并推 StreamSessionStatus patch。
@@ -92,9 +97,8 @@ const (
 	// EventUnrecognizedBlock 携带一条发送方投射不出来的转录块,原样。
 	//
 	// 它存在是为了让「我投射不出这一块」本身过得了 wire,而不是被悄悄丢掉:
-	// 历史合成的投影器只覆盖它认得的那几种块,而落库的块类型比它多(tool_approval、
-	// nested_tool_use / nested_tool_result 今天就走这条路),摆一块不透明的内容
-	// 好过转录里凭空少一段(R8)。
+	// 历史合成的投影器只覆盖它认得的那几种块,而落库的块类型比它多(nested_tool_use /
+	// nested_tool_result 今天就走这条路),摆一块不透明的内容好过转录里凭空少一段(R8)。
 	//
 	// 只有历史合成会产出它 —— 实时事件流里的一切本来就是密封事件。
 	EventUnrecognizedBlock EventKind = "unrecognized_block"

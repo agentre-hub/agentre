@@ -3556,3 +3556,27 @@ describe("Agent backend type picker", () => {
     ).toBeChecked();
   });
 });
+
+describe("AgentBackendsPanel real-time refresh", () => {
+  it.each(["config:changed", "sync:applied"])(
+    "Given the panel is mounted, When a %s event arrives, Then it silently reloads backends without a banner or loading placeholder",
+    async (eventName) => {
+      const mocks = installAppMock();
+      render(<AgentBackendsPanel />);
+      const list = await screen.findByRole("list", {
+        name: "Agent backend list",
+      });
+      await waitFor(() =>
+        expect(within(list).getByText("默认助手")).toBeInTheDocument(),
+      );
+      vi.mocked(mocks.ListAgentBackends).mockClear();
+
+      runtimeMocks.emit(eventName, ["agent_backend"]);
+
+      await waitFor(() => expect(mocks.ListAgentBackends).toHaveBeenCalled());
+      // 就地刷新：已经渲染出来的列表还在，没有回退到 loading 占位或提示条。
+      expect(within(list).getByText("默认助手")).toBeInTheDocument();
+      expect(screen.queryByText(/loading/i)).toBeNull();
+    },
+  );
+});

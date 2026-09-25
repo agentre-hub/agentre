@@ -205,6 +205,9 @@ var RuntimeSubmitAnswer = Define[*agentrewire.RuntimeSubmitAnswerRequest](agentr
 var RuntimeSubmitToolPermission = Define[*agentrewire.RuntimeSubmitToolPermissionRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION,
 	func() *agentrewire.PeerSessionControlResponse { return &agentrewire.PeerSessionControlResponse{} })
 
+var ToolApprovalAnswer = Define[*agentrewire.ToolApprovalAnswerRequest](agentrewire.RpcMethod_RPC_METHOD_TOOL_APPROVAL_ANSWER,
+	func() *agentrewire.ToolApprovalAnswerResponse { return &agentrewire.ToolApprovalAnswerResponse{} })
+
 // ── 转录导入与统计 ──────────────────────────────────────────────
 
 var ActivityRollup = Define[*agentrewire.ActivityRollupRequest](agentrewire.RpcMethod_RPC_METHOD_ACTIVITY_ROLLUP,

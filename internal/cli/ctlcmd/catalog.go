@@ -1,0 +1,363 @@
+package ctlcmd
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptrace"
+	"net/textproto"
+	"strconv"
+	"strings"
+	"text/tabwriter"
+
+	"google.golang.org/protobuf/encoding/protojson"
+
+	"github.com/agentre-hub/agentre/internal/pkg/ctlclient"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+)
+
+// approvalPendingHeader 是执行者挂起等审批前发的 102 里的头（值：session=<id> 或 desktop），
+// 与 ctl_svc.ApprovalPendingHeader 同值；端到端测试钉住两边一致。
+const approvalPendingHeader = "Agentre-Ctl-Approval"
+
+// resourcesPath 是执行者的资源接口（契约见 pkg/wire 的 wire.proto 里的 Ctl* 消息）。
+const resourcesPath = "/ctl/v1/resources"
+
+// catalog 连着一个执行者，按类型缓存列表，并在客户端完成名字 / 路径解析。
+type catalog struct {
+	ep ctlclient.Endpoint
+	// args 是本次调用的原始参数，歧义时据此拼出可直接改用的示例命令。
+	args []string
+	// site 是正在解析的定位写在 args 里的下标（-1 = 不来自命令行），歧义示例只替换这一处。
+	site  int
+	lists map[agentrewire.CtlKind][]*agentrewire.CtlResource
+}
+
+// parsedArgsOffset 是 parseArgs 的输入在 catalog.args 里的起点：args 以动词与资源名开头。
+const parsedArgsOffset = 2
+
+// from 标记接下来解析的定位写在 parseArgs 输入的第 at 个参数上。
+func (c *catalog) from(at int) *catalog {
+	c.site = parsedArgsOffset + at
+	return c
+}
+
+func connect(s *sys, args []string) (*catalog, error) {
+	ep, err := ctlclient.Resolve("", "", s.lookupEnv)
+	if err != nil {
+		return nil, err
+	}
+	return &catalog{ep: ep, args: args, site: -1, lists: map[agentrewire.CtlKind][]*agentrewire.CtlResource{}}, nil
+}
+
+// caller 按 spec「Routing and approval」给调用方分类：会话级 token 在环境变量里 →
+// 会话调用；否则用的是本机握手 token，stdin 是 TTY 且环境里没有已知 agent CLI 的标记
+// （agentEnvMarkers）才算人工调用，否则为外部调用——带着标记说明这多半是某个 agent CLI
+// 自己在终端里起的子进程，不是人在敲键盘。
+func (c *catalog) caller(s *sys) agentrewire.CtlCaller {
+	switch {
+	case c.ep.TokenFromEnv:
+		return agentrewire.CtlCaller_CTL_CALLER_SESSION
+	case s.stdinIsTTY && !hasAgentEnvMarker(s.lookupEnv):
+		return agentrewire.CtlCaller_CTL_CALLER_HUMAN
+	default:
+		return agentrewire.CtlCaller_CTL_CALLER_EXTERNAL
+	}
+}
+
+func (c *catalog) call(ctx context.Context, req *agentrewire.CtlRequest) (*agentrewire.CtlResponse, error) {
+	body, err := protojson.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := c.ep.PostRaw(ctx, resourcesPath, body)
+	if err != nil {
+		var se *ctlclient.ServerError
+		if errors.As(err, &se) {
+			// 执行者的消息原样透出（spec：服务层的拒绝原样展示）。
+			return nil, errors.New(se.Message)
+		}
+		return nil, err
+	}
+	var resp agentrewire.CtlResponse
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return &resp, nil
+}
+
+func (c *catalog) list(kind agentrewire.CtlKind) ([]*agentrewire.CtlResource, error) {
+	if items, ok := c.lists[kind]; ok {
+		return items, nil
+	}
+	resp, err := c.call(context.Background(), &agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_List{List: &agentrewire.CtlListRequest{Kind: kind}}})
+	if err != nil {
+		return nil, err
+	}
+	items := resp.GetList().GetItems()
+	c.lists[kind] = items
+	return items, nil
+}
+
+func (c *catalog) get(kind agentrewire.CtlKind, id int64) (*agentrewire.CtlResource, error) {
+	resp, err := c.call(context.Background(), &agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_Get{Get: &agentrewire.CtlGetRequest{Kind: kind, Id: id}}})
+	if err != nil {
+		return nil, err
+	}
+	return resp.GetGet().GetResource(), nil
+}
+
+// write 发一次写请求。要审批的写入由执行者挂起到有人作答（或超时）；挂起前它先发一个
+// 102，这里据此在 stderr 打印 waiting 行——请求本身不成立时执行者直接报错，不会有这一行。
+func (c *catalog) write(req *agentrewire.CtlWriteRequest, stderr io.Writer) (*agentrewire.CtlWriteResponse, error) {
+	ctx := httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{
+		Got1xxResponse: func(code int, header textproto.MIMEHeader) error {
+			if code == http.StatusProcessing {
+				if line := waitingLine(header.Get(approvalPendingHeader)); line != "" {
+					_, _ = fmt.Fprintln(stderr, line)
+				}
+			}
+			return nil
+		},
+	})
+	resp, err := c.call(ctx, &agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_Write{Write: req}})
+	if err != nil {
+		return nil, err
+	}
+	return resp.GetWrite(), nil
+}
+
+// waitingLine 把执行者的审批去向（session=<id> / desktop）写成给人看的等待提示。
+func waitingLine(where string) string {
+	if id, ok := strings.CutPrefix(where, "session="); ok && id != "" {
+		return "waiting for approval in session #" + id + " …"
+	}
+	if where == "desktop" {
+		return "waiting for approval in the Agentre desktop …"
+	}
+	return ""
+}
+
+// byID 在已列出的条目里按 id 找；找不到返回 nil。
+func (c *catalog) byID(kind agentrewire.CtlKind, id int64) *agentrewire.CtlResource {
+	if id == 0 {
+		return nil
+	}
+	items, err := c.list(kind)
+	if err != nil {
+		return nil
+	}
+	for _, it := range items {
+		if docOf(it).id == id {
+			return it
+		}
+	}
+	return nil
+}
+
+// path 是资源的完整定位：项目 / 部门是从根开始的 父/子 路径，模型是 提供方/ModelID，
+// 其它是名字。列表取不到时退回 #id。
+func (c *catalog) path(kind agentrewire.CtlKind, id int64) string {
+	it := c.byID(kind, id)
+	if it == nil {
+		if id == 0 {
+			return ""
+		}
+		return "#" + strconv.FormatInt(id, 10)
+	}
+	d := docOf(it)
+	switch kind {
+	case agentrewire.CtlKind_CTL_KIND_PROJECT, agentrewire.CtlKind_CTL_KIND_DEPARTMENT:
+		segs := []string{d.name}
+		seen := map[int64]bool{d.id: true}
+		for p := d.parentID; p != 0 && !seen[p]; {
+			seen[p] = true
+			parent := c.byID(kind, p)
+			if parent == nil {
+				break
+			}
+			pd := docOf(parent)
+			segs = append([]string{pd.name}, segs...)
+			p = pd.parentID
+		}
+		return strings.Join(segs, "/")
+	case agentrewire.CtlKind_CTL_KIND_MODEL:
+		return c.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, d.providerID) + "/" + d.name
+	default:
+		return d.name
+	}
+}
+
+// label 是资源在表格与结果行里的短名：模型是 提供方/ModelID，其它是名字。
+// 完整路径（path）只在需要消歧的地方用：JSON 视图、歧义提示。
+func (c *catalog) label(kind agentrewire.CtlKind, id int64) string {
+	if kind == agentrewire.CtlKind_CTL_KIND_MODEL {
+		return c.path(kind, id)
+	}
+	it := c.byID(kind, id)
+	switch {
+	case it != nil:
+		return docOf(it).name
+	case id == 0:
+		return ""
+	default:
+		return "#" + strconv.FormatInt(id, 10)
+	}
+}
+
+// locate 把用户给的定位（数字 id、名字、父/子 路径、提供方/ModelID）解析成一条资源。
+// 找不到是执行失败；有多个匹配是用法错误，并给出候选与示例命令。
+func (c *catalog) locate(spec *kindSpec, ref string) (*agentrewire.CtlResource, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, usageErrorf("empty %s reference", spec.name)
+	}
+	items, err := c.list(spec.kind)
+	if err != nil {
+		return nil, err
+	}
+	if id, err := strconv.ParseInt(ref, 10, 64); err == nil && id > 0 {
+		if it := c.byID(spec.kind, id); it != nil {
+			return it, nil
+		}
+		// id 没命中时按名字找：纯数字也可以是名字（例如项目 2024）。
+	}
+	if spec.kind == agentrewire.CtlKind_CTL_KIND_MODEL && !strings.Contains(ref, "/") {
+		if _, err := strconv.ParseInt(ref, 10, 64); err == nil {
+			return nil, fmt.Errorf("%s %q not found", spec.name, ref)
+		}
+		return nil, usageErrorf("a model is located as <provider>/<model id> or by its numeric id, got %q", ref)
+	}
+	var matches []*agentrewire.CtlResource
+	for _, it := range items {
+		if c.matches(spec, it, ref) {
+			matches = append(matches, it)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("%s %q not found", spec.name, ref)
+	case 1:
+		return matches[0], nil
+	default:
+		return nil, c.ambiguous(spec, ref, matches)
+	}
+}
+
+func (c *catalog) matches(spec *kindSpec, it *agentrewire.CtlResource, ref string) bool {
+	d := docOf(it)
+	switch spec.kind {
+	case agentrewire.CtlKind_CTL_KIND_PROJECT, agentrewire.CtlKind_CTL_KIND_DEPARTMENT:
+		// 路径按后缀匹配：docs、agentre/docs、root/agentre/docs 都能定位同一个项目。
+		full := strings.Split(c.path(spec.kind, d.id), "/")
+		want := strings.Split(ref, "/")
+		if len(want) > len(full) {
+			return false
+		}
+		for i := range want {
+			if full[len(full)-len(want)+i] != want[i] {
+				return false
+			}
+		}
+		return true
+	case agentrewire.CtlKind_CTL_KIND_MODEL:
+		// 按第一个 / 切：前面是提供方，后面整段是 ModelID（ModelID 自己可以带 /）。
+		provider, modelID, _ := strings.Cut(ref, "/")
+		return d.name == modelID && c.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, d.providerID) == provider
+	default:
+		return d.name == ref
+	}
+}
+
+func (c *catalog) ambiguous(spec *kindSpec, ref string, matches []*agentrewire.CtlResource) error {
+	var b strings.Builder
+	_, _ = fmt.Fprintf(&b, "%s %q is ambiguous — %d matches:\n", spec.name, ref, len(matches))
+	tw := tabwriter.NewWriter(&b, 0, 0, 3, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "  ID\tPATH")
+	for _, m := range matches {
+		id := docOf(m).id
+		_, _ = fmt.Fprintf(tw, "  %d\t%s\n", id, c.path(spec.kind, id))
+	}
+	_ = tw.Flush()
+	hint := "Use an ID"
+	if spec.hierarchical {
+		hint = "Use an ID or a parent/child path"
+	}
+	_, _ = fmt.Fprintf(&b, "%s, e.g. %s", hint, exampleLine(replaceRef(c.args, c.site, ref, c.uniqueLocator(spec, matches))))
+	return usageErrorf("%s", b.String())
+}
+
+// uniqueLocator 是示例命令里用来替换的定位：层级资源优先用第一个能唯一定位的完整路径，
+// 否则（包括完整路径本身仍会命中多条时）用第一个候选的 id。
+func (c *catalog) uniqueLocator(spec *kindSpec, matches []*agentrewire.CtlResource) string {
+	if spec.hierarchical {
+		items, _ := c.list(spec.kind)
+		for _, m := range matches {
+			full, n := c.path(spec.kind, docOf(m).id), 0
+			for _, it := range items {
+				if c.matches(spec, it, full) {
+					n++
+				}
+			}
+			if n == 1 {
+				return full
+			}
+		}
+	}
+	return strconv.FormatInt(docOf(matches[0]).id, 10)
+}
+
+// replaceRef 把命令行里引起歧义的那一处（site，flag 值或位置参数）换成 replacement；
+// site 未知时退回替换第一处等于 ref 的位置参数或 flag 值。
+func replaceRef(args []string, site int, ref, replacement string) []string {
+	out := append([]string(nil), args...)
+	if site >= 0 && site < len(out) {
+		a := out[site]
+		if eq := strings.IndexByte(a, '='); strings.HasPrefix(a, "-") && eq >= 0 {
+			out[site] = a[:eq+1] + replacement
+		} else {
+			out[site] = replacement
+		}
+		return out
+	}
+	for i, a := range out {
+		if a == ref {
+			out[i] = replacement
+			return out
+		}
+		if strings.HasPrefix(a, "-") && strings.HasSuffix(a, "="+ref) {
+			out[i] = strings.TrimSuffix(a, ref) + replacement
+			return out
+		}
+	}
+	return out
+}
+
+// doc 是各类资源文档的共同投影，供定位与展示使用。
+type doc struct {
+	id         int64
+	name       string
+	parentID   int64
+	providerID int64
+}
+
+func docOf(r *agentrewire.CtlResource) doc {
+	switch d := r.GetDoc().(type) {
+	case *agentrewire.CtlResource_Agent:
+		return doc{id: d.Agent.GetId(), name: d.Agent.GetName()}
+	case *agentrewire.CtlResource_Department:
+		return doc{id: d.Department.GetId(), name: d.Department.GetName(), parentID: d.Department.GetParentId()}
+	case *agentrewire.CtlResource_Project:
+		return doc{id: d.Project.GetId(), name: d.Project.GetName(), parentID: d.Project.GetParentId()}
+	case *agentrewire.CtlResource_Provider:
+		return doc{id: d.Provider.GetId(), name: d.Provider.GetName()}
+	case *agentrewire.CtlResource_Model:
+		// 模型对用户的名字是 ModelID；Key 是服务生成的 ModelKey（UUID），不参与定位。
+		return doc{id: d.Model.GetId(), name: d.Model.GetModelId(), providerID: d.Model.GetProviderId()}
+	case *agentrewire.CtlResource_Backend:
+		return doc{id: d.Backend.GetId(), name: d.Backend.GetName()}
+	}
+	return doc{}
+}

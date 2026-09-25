@@ -44,7 +44,20 @@ func setupSvc(t *testing.T) (
 	targetMock := mock_agent_repo.NewMockAgentExecTargetRepo(ctrl)
 	targetMock.EXPECT().ListByAgent(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	agent_repo.RegisterAgentExecTarget(targetMock)
-	return context.Background(), agentMock, deptMock, backendMock, &agentSvc{now: func() int64 { return 1700000000 }}
+	return context.Background(), agentMock, deptMock, backendMock, &agentSvc{now: func() int64 { return 1700000000 }, tx: directTx{}}
+}
+
+// directTx 是不连库的 TxRunner：直接在同一个 ctx 上调用回调，回调的错误原样返回。
+type directTx struct{}
+
+func (directTx) RunInTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
+// TestToItem_CarriesPinned：写接口回的 AgentItem 与 department_svc.Load 同口径带出置顶状态。
+func TestToItem_CarriesPinned(t *testing.T) {
+	assert.True(t, toItem(&agent_entity.Agent{ID: 1, Pinned: true}, nil).Pinned)
+	assert.False(t, toItem(&agent_entity.Agent{ID: 2}, nil).Pinned)
 }
 
 func activeDept(id int64) *department_entity.Department {

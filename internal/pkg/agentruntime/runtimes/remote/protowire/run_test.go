@@ -17,7 +17,7 @@ func TestRunParamsProtobufDomainRoundTrip(t *testing.T) {
 	backend := agent_backend_entity.AgentBackend{ID: 7, Type: "claudecode", Name: "remote", CLIPath: "/bin/claude", EnvJSON: `{"A":"B"}`, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "sync-backend", SyncVersion: 9}}
 	backendJSON, err := json.Marshal(backend)
 	require.NoError(t, err)
-	want := wire.RunParams{
+	want := wire.RunParams{ //nolint:gosec // G101: DesktopCtlToken is a credential-shaped round-trip fixture, not a real token.
 		Backend: backendJSON, AgentID: 3, ConversationID: convID(42), PeerFingerprint: "fp", Cwd: "/work", Title: "title",
 		AgentSyncID: "01HXsync000000000000000000", ProjectSyncID: "01HXproj00000000000000000",
 		UserText: "hello", UserBlocks: []blocks.StoredBlock{{Type: "image", Data: json.RawMessage{0, 1, 255}}},
@@ -27,6 +27,8 @@ func TestRunParamsProtobufDomainRoundTrip(t *testing.T) {
 		// 本轮有效思考力度是**独立 run 参数**(spec 2026-09-01 决策 4),不塞在 backend
 		// 负载里 —— 浏览器端发的负载只有一个 {type} 空壳。
 		ReasoningEffort: "max",
+		// 桌面端签给本会话的 agrctl 会话级 token 与它绑定的桌面会话 id(spec 2026-09-22)。
+		DesktopCtlToken: "ctl-session-token", DesktopSessionID: 55,
 	}
 	pb, err := RunRequestToProto(want)
 	require.NoError(t, err)

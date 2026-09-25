@@ -91,6 +91,9 @@ type RuntimeDeps struct {
 	// RuntimeHandlers 是 per-connection 构造的,而一条会话上在飞的 generation 要跨
 	// 连接排他:重连必须等旧属主释放,迟到的旧清理也顶不掉重连。
 	GenerationRegistry RuntimeGenerationRegistry
+	// Ctl 是 Daemon 级的 agrctl 会话表(见 CtlSessions):runtime.run 在交给 backend 之前
+	// 把会话与它的归属登记进去,CLI 子进程拿到的会话级 token 才解得出来。nil = 不接 ctl。
+	Ctl *CtlSessions
 }
 
 // RuntimeGenerationRegistry owns the cross-connection reservation for a Pi
@@ -419,6 +422,11 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 		return nil, err
 	}
 	em := h.newEmitterFor(ctx, request.GetConversationId(), runPeer)
+	// 桌面端交来的 agrctl 会话 token 登记进 Daemon 级的会话表(跨轮、跨连接保留;不带
+	// token 的一轮不抹掉已有归属,见 CtlSessions.bind)。
+	h.deps.Ctl.bind(em.rid, em.peer, em.conversationID, DesktopCtlSession{
+		DesktopSessionID: request.GetDesktopSessionId(), Token: request.GetDesktopCtlToken(),
+	}, request.GetDesktopCtlToken() != "")
 
 	var (
 		piPreparer piagentrt.RunPreparer
@@ -1822,6 +1830,15 @@ func (h *RuntimeHandlers) ensureSessionToken(
 		return "", "", err
 	}
 	return url, tok, nil
+}
+
+// DesktopCtlSession 是桌面端经 runtime.run 交给本会话的 agrctl 会话凭证(spec
+// 2026-09-22「桌面端派发到 agentred 的会话」)。
+type DesktopCtlSession struct {
+	// DesktopSessionID 是 Token 绑定的那条桌面端本地会话 id。
+	DesktopSessionID int64
+	// Token 是桌面端签的会话级 token。密钥:永远不进日志。
+	Token string
 }
 
 func (h *RuntimeHandlers) lookupSession(sid int64) *runtimeSession {

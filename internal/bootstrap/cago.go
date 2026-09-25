@@ -208,6 +208,7 @@ func Init(ctx context.Context) (*Runtime, error) {
 	// BaseURL 就绪后把「实际 URL + 控制 token」写进 AppDataDir 的握手文件,CLI 据此定位并鉴权。
 	gw.RegisterControl(ctl_svc.Default().ControlHandler())
 	if base := gw.URL(); base != "" {
+		ctl_svc.Default().PublishSessionEndpoint(base)
 		if err := ctlendpoint.Write(dataDir, ctlendpoint.Endpoint{URL: base, Token: ctl_svc.Default().Token()}); err != nil {
 			logger.Default().Warn("ctl endpoint file write", zap.Error(err))
 		}

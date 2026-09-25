@@ -343,11 +343,14 @@ type codexLaunchSpec struct {
 // 会话 provider_key 覆盖 agent 绑定后的那家)，不再单看 backend 是否绑定——CLI 登录态
 // 后端(req.Backend.LLMProviderKey=="")上会话选了 agentre 供应商时(req.Provider 非空)
 // 也要装配，否则 chat_svc 签的 token 永远传不到 BuildCodexConfig，登录态无法被接管。
+// 会话级 agrctl 凭证（Ctl）与网关门控无关，两种情况都带。
 func gatewayDeps(req agentruntime.RunRequest) agentruntime.CLIDeps {
+	deps := agentruntime.CLIDeps{Ctl: req.CtlCredentials()}
 	if req.Backend == nil || req.EffectiveProviderKey() == "" {
-		return agentruntime.CLIDeps{}
+		return deps
 	}
-	return agentruntime.CLIDeps{Token: req.GatewayToken, GatewayURL: req.GatewayURL}
+	deps.Token, deps.GatewayURL = req.GatewayToken, req.GatewayURL
+	return deps
 }
 
 // codexEffectiveModel 统一模型解析规则(codex 版):#26 会话级模型覆盖已移除,

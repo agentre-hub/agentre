@@ -64,10 +64,12 @@ ENTRYPOINT ["/usr/local/bin/agentred"]
 CMD ["run"]
 
 # ── 拿现成二进制打 ─────────────────────────────────────────────────────
-# 上下文里要有一个编好的 linux/amd64 agentred。BuildKit 只构建目标所依赖的段，
-# 所以 --target prebuilt 时下面的 build 段根本不会跑，上下文也不需要源码。
+# 上下文里要有编好的 linux/amd64 agentred 与 agrctl(agentred 启动时从自己旁边把 agrctl
+# 装到主机用户目录下)。BuildKit 只构建目标所依赖的段，所以 --target prebuilt 时下面的
+# build 段根本不会跑，上下文也不需要源码。
 FROM runtime-base AS prebuilt
 COPY agentred /usr/local/bin/agentred
+COPY agrctl /usr/local/bin/agrctl
 
 # ── 从源码构建 ─────────────────────────────────────────────────────────
 FROM ${GO_IMAGE} AS build
@@ -91,7 +93,14 @@ RUN CGO_ENABLED=0 go build -ldflags "-s -w \
       -X github.com/cago-frame/cago/configs.Version=${VERSION} \
       -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${COMMIT_ID}" \
       -o /out/agentred ./cmd/agentred
+# agrctl 与 agentred 同一组 ldflags;它必须落在 agentred 旁边 —— agentred 启动时从自己
+# 旁边把它装到主机用户目录下(internal/guard/agentred_ships_agrctl_test.go 守着)。
+RUN CGO_ENABLED=0 go build -ldflags "-s -w \
+      -X github.com/cago-frame/cago/configs.Version=${VERSION} \
+      -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${COMMIT_ID}" \
+      -o /out/agrctl ./cmd/agrctl
 
 # 放在最后 = 默认目标，`docker build .` 走的是完整的源码构建
 FROM runtime-base AS full
 COPY --from=build /out/agentred /usr/local/bin/agentred
+COPY --from=build /out/agrctl /usr/local/bin/agrctl

@@ -10,6 +10,8 @@ package handlers
 
 import (
 	"context"
+	"errors"
+	"sync"
 
 	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/cago/pkg/logger"
@@ -19,6 +21,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 )
 
@@ -26,6 +29,19 @@ import (
 // 没接存储 / 起手失败时它是 nil,后续每个方法都在 nil 上安全地什么都不做 ——
 // 转录写不进去不该反过来打断这一轮执行(与会话行写入同一条纪律)。
 type turnTranscript struct {
+	// mu 串行化 fanout 协程(observe / finish)与 ctl 代理(控制台会话的审批卡,
+	// beginApproval / resolveApproval)对同一轮累积状态的读写。只在入口方法上取。
+	mu sync.Mutex
+	// finished 在 finish 之后置上:这一轮收口了,不再接新的审批卡。
+	finished bool
+	// approvals 是这一轮里 ctl 代理登记的审批卡(同一指针也在它所属那条消息的累加器里),
+	// 终态原地改,并写回**它所属的那条消息** —— 插话分段之后那一条已不是 t.msg。
+	approvals []ctlApprovalCard
+	// done 在 finish 时关上:还在等作答的 ctl 写入据此收场,迟到的作答一律不挂起。
+	done chan struct{}
+	// release 在 finish 末尾调用:会话表放掉这一轮(不再是审批卡的落点)。
+	release func()
+
 	port       TranscriptPort
 	dispatcher *turn.Dispatcher
 	acc        *turn.Accumulator
@@ -47,6 +63,14 @@ type turnTranscript struct {
 	// tool_use 冻在旧消息里,随后的 tool_result 在新累加器里查不到它,被当孤儿丢弃 ——
 	// 工具卡永远停在 running。判据与桌面端同一条(chat_svc.turnRun.applyLive)。
 	pendingSteers []agentruntime.ConsumedSteer
+}
+
+// ctlApprovalCard 是一张审批卡连同它落在的那一段:消息与承接它的累加器。分段后 t.msg /
+// t.acc 换成新的一条,卡仍留在旧的那条里,决议必须落回那里。
+type ctlApprovalCard struct {
+	blk *transcriptblocks.ToolApprovalBlock
+	msg *transcript_entity.Message
+	acc *turn.Accumulator
 }
 
 // discardEmitter 是 dispatcher 要的那个发射器的空位。agentred 的实时推送走 RPC 通知
@@ -103,12 +127,64 @@ func (h *RuntimeHandlers) beginTranscript(
 			em.emit(wire.NotifyEvent, &frame)
 		},
 		publisher: transcript.NewFramePublisher(),
+		done:      make(chan struct{}),
 	}
 	// 用户那一行起手就定稿了:它现在就该以持久帧的身份出去,取到的号排在这一轮的
 	// 最前面。晚发(等到补齐才编号)会让它排到这一轮的正文之后 —— 对端的转录里
 	// 提问跑到回答后面去。
 	lowest, highest := t.publishDurable(em.ctx, user, true)
+	// 这一轮是本会话此刻的审批卡落点(控制台拥有的会话上 agrctl 写入的那张卡)。
+	h.deps.Ctl.attachTurn(em.rid, t)
+	t.release = func() { h.deps.Ctl.detachTurn(em.rid, t) }
 	return t, lowest, highest
+}
+
+// ended 在这一轮收口时关上。
+func (t *turnTranscript) ended() <-chan struct{} { return t.done }
+
+// errTurnFinished:这一轮已经收口,审批卡无处可落。
+var errTurnFinished = errors.New("the turn has finished")
+
+// beginApproval 把一张 pending 的审批卡落进这一轮的转录:追加进累加器、checkpoint 落库,
+// 并随之作为持久帧推出(投影成 tool_approval_requested)。返回本机会话 id。
+func (t *turnTranscript) beginApproval(ctx context.Context, blk *transcriptblocks.ToolApprovalBlock) (int64, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.finished {
+		return 0, errTurnFinished
+	}
+	t.acc.AddBlock(blk, "")
+	t.approvals = append(t.approvals, ctlApprovalCard{blk: blk, msg: t.msg, acc: t.acc})
+	t.checkpoint(ctx)
+	return t.msg.SessionID, nil
+}
+
+// resolveApproval 把卡原地改成终态并 checkpoint 它所属的那条消息:决议随之作为持久帧推出
+// (tool_approval_resolved)。这一轮已经收口时卡已由 finish 置为 expired,不再改写。
+func (t *turnTranscript) resolveApproval(ctx context.Context, requestID, status, result string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.finished {
+		return
+	}
+	for _, card := range t.approvals {
+		if card.blk.RequestID == requestID {
+			card.blk.Status, card.blk.Result = status, result
+			t.persistApproval(ctx, card)
+			return
+		}
+	}
+}
+
+// persistApproval 把一张卡的改动落进它所属的那条消息。还是在途那一条时走常规 checkpoint;
+// 已被插话分段收口的那一条,正文早已定稿,就地重写它的块并按收口口径重发 —— 发布台账按
+// 指纹只交出变了的那一帧(tool_approval_resolved)。与桌面端 chat_svc 同口径:卡原地改。
+func (t *turnTranscript) persistApproval(ctx context.Context, card ctlApprovalCard) {
+	if card.msg == t.msg {
+		t.checkpoint(ctx)
+		return
+	}
+	t.checkpointMessage(ctx, card.msg, card.acc.Finalize(), true)
 }
 
 // publishDurable 把 msg 此刻可以定稿的持久帧取号发出去。
@@ -171,6 +247,8 @@ func (t *turnTranscript) observe(ctx context.Context, ev agentruntime.Event) {
 	if t == nil {
 		return
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	// 插话不走那张事件→块表:它要的是**轮次分段**(收口当前 assistant、插一行用户
 	// 消息、开一条新的),而那张表只表达「这一帧累积成哪个块」。桌面端在同一位置
 	// 也把它单独拦下(chat_svc.turnRun.applyLive 的 case SteerConsumed)。
@@ -253,26 +331,34 @@ func (t *turnTranscript) flushPendingSteers(ctx context.Context) {
 // checkpoint 把此刻的累积状态落库(只写变化的块行)。这是在途那一轮唯一的抗崩溃
 // 手段(决策 5):宿主在轮中消失时,checkpoint 过的块留下,没 checkpoint 的尾巴丢失。
 func (t *turnTranscript) checkpoint(ctx context.Context) {
+	// 轮内只发已经定稿的那些帧 —— 结尾还会继续长的正文块与消息级派生帧留给收口那一发。
+	t.checkpointMessage(ctx, t.msg, t.acc.Snapshot(), false)
+}
+
+// checkpointMessage 把 msg 的块正文换成 content 落库(只写变化的块行),再取号发布。
+// final 与 publishDurable 同义:已收口的消息按收口口径发。
+func (t *turnTranscript) checkpointMessage(
+	ctx context.Context, msg *transcript_entity.Message, content []blocks.ContentBlock, final bool,
+) {
 	// 差分的基准是内存里那份**上一次落库成功**的正文:SetBlocks 马上就要覆写它,所以
 	// 在覆写前留一份。不留就只能整表替换,而 checkpoint 是每个 ToolResult 一次的高频
 	// 调用(理由见 transcript_repo.syncBlocks:实测一条消息被 checkpoint 840 次)。
-	prev := t.msg.BlocksJSON
-	if err := t.msg.SetBlocks(t.acc.Snapshot()); err != nil {
+	prev := msg.BlocksJSON
+	if err := msg.SetBlocks(content); err != nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.checkpoint: encode failed",
-			zap.Int64("messageId", t.msg.ID), zap.Error(err))
+			zap.Int64("messageId", msg.ID), zap.Error(err))
 		return
 	}
-	if err := t.port.Checkpoint(ctx, t.msg, prev); err != nil {
+	if err := t.port.Checkpoint(ctx, msg, prev); err != nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.checkpoint: persist failed",
-			zap.Int64("messageId", t.msg.ID), zap.Error(err))
+			zap.Int64("messageId", msg.ID), zap.Error(err))
 		// 落库失败时把内存正文退回上一次落库的那份:留着没落库的新正文会让下一次
 		// checkpoint 拿一个库里并不存在的基准做差分,差出来的块行从此对不上。
-		t.msg.BlocksJSON = prev
+		msg.BlocksJSON = prev
 		return
 	}
-	// 块落了库才轮到取号(决策 3)。轮内只发已经定稿的那些帧 —— 结尾还会继续长的
-	// 正文块与消息级派生帧留给收口那一发。
-	_, _ = t.publishDurable(ctx, t.msg, false)
+	// 块落了库才轮到取号(决策 3)。
+	_, _ = t.publishDurable(ctx, msg, final)
 }
 
 // finish 收口本轮:正文定稿,并把这一轮的模型 / 用量 / 计时 / 错误写在同一行上。
@@ -280,6 +366,28 @@ func (t *turnTranscript) checkpoint(ctx context.Context) {
 func (t *turnTranscript) finish(ctx context.Context, frame wire.RunResultDoneFrame) {
 	if t == nil {
 		return
+	}
+	if t.release != nil {
+		// 先登记、后取锁:defer 后进先出,放手发生在 t.mu 解开之后,会话表的锁不嵌在转录锁里。
+		defer t.release()
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	// 还挂着的审批卡此后没人答得了(与桌面端 turnRun.closeApprovals 同一口径):标成 expired 随
+	// 收口一起落库。卡若留在被插话分段收口的前一条消息里,收口那一发够不着它,
+	// 在这里写回它所属的那一条。
+	t.finished = true
+	for _, card := range t.approvals {
+		if card.blk.Status != "pending" {
+			continue
+		}
+		card.blk.Status = "expired"
+		if card.msg != t.msg {
+			t.persistApproval(ctx, card)
+		}
+	}
+	if !isClosed(t.done) {
+		close(t.done)
 	}
 	// 还攒着的插话必须在这里落地(桌面端 chat_svc.turnRun.finalize 开头同样先 flush):
 	// 它已经被后端消费进这一轮的上下文了,轮末丢掉就是用户打的字进了模型却没进转录 ——

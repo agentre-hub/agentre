@@ -292,9 +292,16 @@ func TestRunParams_RawBackendOpaque(t *testing.T) {
 }
 
 func TestRunParams_HasNoOpenClawSecretField(t *testing.T) {
+	// 唯一的豁免:DesktopCtlToken 是桌面端签给本会话、**只有桌面端自己验**的 agrctl
+	// 会话级 token(spec 2026-09-22),agentred 要原样带回桌面端,本来就得过线;它
+	// 不是 OpenClaw / provider 那种执行侧凭据。
+	exempt := map[string]bool{"DesktopCtlToken": true}
 	typ := reflect.TypeOf(RunParams{})
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
+		if exempt[field.Name] {
+			continue
+		}
 		searchable := strings.ToLower(field.Name + " " + field.Tag.Get("json"))
 		assert.NotContains(t, searchable, "token", "RunParams must not carry tokens across daemon wire")
 		assert.NotContains(t, searchable, "secret", "RunParams must not carry secrets across daemon wire")

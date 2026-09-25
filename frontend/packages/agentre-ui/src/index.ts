@@ -455,6 +455,11 @@ export {
   TranscriptCardHeader,
   TranscriptPill,
 } from "./transcript/transcript-card";
+// 变更清单卡的纯展示部分（T5）：桌面端全局审批弹窗（非会话内的外部调用，T6）复用同一份
+// 渲染，只是外壳换成 DialogShell 而不是 TranscriptCard——只导出这个宿主无关的切片，
+// toolKey=ctl 会话内卡片（CtlApprovalCard）本身仍是包内私有。
+export { CtlChangeList } from "./transcript/tool-approval/ctl-approval-card";
+export type { CtlChangeListProps } from "./transcript/tool-approval/ctl-approval-card";
 export { TranscriptUIStateProvider } from "./transcript/transcript-ui-state";
 export { TranscriptPortsProvider } from "./transcript/ports-context";
 export { TranscriptLiveStateProvider } from "./transcript/live-state";

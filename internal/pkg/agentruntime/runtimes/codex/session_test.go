@@ -41,6 +41,31 @@ func TestGatewayDeps(t *testing.T) {
 	})
 }
 
+// TestGatewayDeps_CarriesSessionCtlCredentials 钉死会话级 agrctl 凭证与网关门控无关：
+// CLI 登录态（没有 effective provider）的 codex 子进程同样要带 AGENTRE_CTL_*。
+func TestGatewayDeps_CarriesSessionCtlCredentials(t *testing.T) {
+	ctl := agentruntime.CtlCredentials{Endpoint: "http://127.0.0.1:60080", Token: "sess-tok"}
+	agentruntime.RegisterCtlCredentialSource(func(int64, int64) agentruntime.CtlCredentials { return ctl })
+	t.Cleanup(func() { agentruntime.RegisterCtlCredentialSource(nil) })
+	backend := &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex)}
+
+	Convey("Given 一个有 agent 与会话身份的轮次", t, func() {
+		Convey("When 没有 effective provider, Then 仍带会话凭证", func() {
+			deps := gatewayDeps(agentruntime.RunRequest{Backend: backend, AgentID: 7, SessionID: 42})
+			So(deps.Ctl, ShouldResemble, ctl)
+			So(deps.Token, ShouldBeEmpty)
+		})
+		Convey("When 有 effective provider, Then 网关与会话凭证都在", func() {
+			deps := gatewayDeps(agentruntime.RunRequest{
+				Backend: backend, AgentID: 7, SessionID: 42, GatewayToken: "tok", GatewayURL: "http://127.0.0.1:60080",
+				Effective: &agentruntime.EffectiveLLMConfig{ProviderKey: "p", ModelID: "gpt-5.5"},
+			})
+			So(deps.Ctl, ShouldResemble, ctl)
+			So(deps.Token, ShouldEqual, "tok")
+		})
+	})
+}
+
 func TestBuildLaunchSpec_MCPServers(t *testing.T) {
 	Convey("Given RunRequest 带一个 http MCP server", t, func() {
 		spec := buildLaunchSpec(agentruntime.RunRequest{

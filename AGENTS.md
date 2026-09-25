@@ -13,7 +13,7 @@ This repository produces three binaries:
 
 - **`agentre`** (root `main.go`) — the desktop app, **GUI-only**. It no longer routes any CLI subcommand; the hook shim moved out (see `agrctl`).
 - **`agentred`** (`cmd/agentred/`) — a headless daemon that executes claude-code / codex subprocesses on behalf of a paired desktop over binary Protobuf RPC on WebSocket. The daemon-side handlers live in `internal/daemon/`.
-- **`agrctl`** (`cmd/agrctl/`, `make agrctl`) — a small companion CLI carrying the `claudecode` hook shim (`internal/cli/claudecodecmd`) and the `ctl` control CLI (`internal/cli/ctlcmd`). The app installs it under `<AppDataDir>/bin` and points the Claude Code hooks at it, so a hook subprocess never boots the GUI binary.
+- **`agrctl`** (`cmd/agrctl/`, `make agrctl`) — a small companion CLI carrying the `claudecode` hook shim (`internal/cli/claudecodecmd`), `acp` (`internal/cli/acpcmd`), and the top-level control verbs `list` / `get` / `create` / `update` / `delete` / `help` / `send` (`internal/cli/ctlcmd`; their request/response contract is the `Ctl*` messages in `pkg/wire/proto/agentre/wire/wire.proto`). The app installs it under `<AppDataDir>/bin` and points the Claude Code hooks at it, so a hook subprocess never boots the GUI binary.
 
 ## High-Priority Constraints (mandatory, non-negotiable)
 
@@ -88,7 +88,7 @@ make verify-up        # launch isolated formal desktop for drive.mjs verificatio
 make verify-status    # inspect the live formal verification target
 make verify-down      # stop it; add VERIFY_FLAGS=--wipe to remove isolated state
 
-# agrctl companion CLI (claudecode hook shim + ctl control CLI)
+# agrctl companion CLI (claudecode hook shim + acp + list/get/create/update/delete/help/send)
 make agrctl                  # build → build/bin/agrctl (the app installs it into <AppDataDir>/bin)
 
 # agentred daemon (remote execution box)

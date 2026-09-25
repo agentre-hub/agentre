@@ -102,6 +102,37 @@ func TestRun_ForksAndReturnsNativeSessionState(t *testing.T) {
 	})
 }
 
+// TestRun_InjectsSessionCtlCredentials 钉死 spec「会话级 token」：pi 子进程 env 带着按本轮
+// (agent, session) 签的 agrctl 凭证。
+func TestRun_InjectsSessionCtlCredentials(t *testing.T) {
+	agentruntime.RegisterCtlCredentialSource(func(agentID, sessionID int64) agentruntime.CtlCredentials {
+		if agentID != 7 || sessionID != 42 {
+			return agentruntime.CtlCredentials{}
+		}
+		return agentruntime.CtlCredentials{Endpoint: "http://127.0.0.1:60080", Token: "sess-tok"}
+	})
+	t.Cleanup(func() { agentruntime.RegisterCtlCredentialSource(nil) })
+	var spawnEnv map[string]string
+	restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, env map[string]string, _ string) (sessionHandle, error) {
+		spawnEnv = env
+		return &fakeSession{stream: &scriptedStream{anchor: "u"}, sid: "s"}, nil
+	})
+	t.Cleanup(restore)
+
+	events, _, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
+		Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
+		AgentID:   7,
+		SessionID: 42,
+		Cwd:       t.TempDir(),
+		UserText:  "hi",
+	})
+	require.NoError(t, err)
+	for range events {
+	}
+	assert.Equal(t, "http://127.0.0.1:60080", spawnEnv[agentruntime.CtlEndpointEnv])
+	assert.Equal(t, "sess-tok", spawnEnv[agentruntime.CtlTokenEnv])
+}
+
 func TestTurnRunOptionsRejectWhitespacePaddedForkAnchorWithoutRewriting(t *testing.T) {
 	opts, err := turnRunOptions("", nil, &turnSpec{forkAnchor: " fork-user "})
 

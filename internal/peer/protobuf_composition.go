@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
+
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/portforward"
 	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
@@ -154,7 +157,29 @@ func productionProtobufInboundDeps(portForward *portforward.Handlers) ProtobufIn
 		SubmitToolPermission: func(ctx context.Context, params remotewire.SubmitToolPermissionParams) (chat_svc.PeerSessionControlResult, error) {
 			return adapter().AnswerPeerToolPermission(ctx, params)
 		},
+		AnswerToolApproval: answerToolApproval,
 	}
+}
+
+// answerToolApproval 把控制台的作答交给本机 UI 批准时走的**同一个入口**
+// (chat_svc.Chat().AnswerToolApproval,Wails 的 AnswerToolApproval 绑定调的就是它),
+// 唤醒的因此是同一个挂起的写工具调用 —— 不另起一套审批存储。
+//
+// 不设 requireOwnOrigin,与同族的回答提问 / 工具授权一致:答审批是轮内控制,谁在看
+// 这条会话谁就答得了。
+func answerToolApproval(ctx context.Context, conversationID, requestID string, allow bool) error {
+	sessionID, err := chat_svc.ResolvePeerConversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	// 本机入口只有一种失败:这张卡此刻不挂起(答过、超时、那一轮已结束、从没有过)。
+	// 折成两种执行端共用的那一句,控制台才读得懂;原因留在日志里。
+	if err := chat_svc.Chat().AnswerToolApproval(ctx, sessionID, requestID, allow); err != nil {
+		logger.Ctx(ctx).Warn("peer.answerToolApproval: no pending approval",
+			zap.Int64("sessionId", sessionID), zap.String("requestId", requestID), zap.Error(err))
+		return wireinbound.NoPendingToolApprovalError(requestID)
+	}
+	return nil
 }
 
 func protobufProjectSetPath(ctx context.Context, request *agentrewire.ProjectSetLocalPathRequest) (*agentrewire.ProjectLocalPathResponse, error) {

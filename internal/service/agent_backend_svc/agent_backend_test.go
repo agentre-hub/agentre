@@ -600,6 +600,36 @@ func TestCreateBackend(t *testing.T) {
 			require.ErrorAs(t, err, &httpErr)
 			assert.Equal(t, code.LLMProviderModelNotFound, httpErr.Code)
 		})
+
+		// agrctl 没有前端那层 openClawDraftIssue 预检（那只挡 GUI 表单提交），
+		// `agrctl create backend --type openclaw` 缺 --config 时直接落到这里；
+		// 过去一律塌成 code.InvalidParameter 的中文「参数错误」，看不出是哪个字段。
+		// 服务层同时供 GUI（Wails 绑定）调用：agrctl 的 --config 字段名由 ctl 边界补，
+		// 不进这里的错误文本（见 ctl_svc backendWriter）。
+		convey.Convey("openclaw 缺少 gateway URL 时报出具体原因，而不是泛化的参数错误", func() {
+			_, err := svc.Create(ctx, &CreateBackendRequest{
+				Type: string(agent_backend_entity.TypeOpenClaw),
+				Name: "claw-local",
+			})
+			require.Error(t, err)
+			assert.ErrorIs(t, err, agent_backend_entity.ErrOpenClawGatewayURLRequired)
+			assert.Contains(t, err.Error(), "openclaw gateway URL is required")
+			var urlErr *OpenClawGatewayURLError
+			assert.ErrorAs(t, err, &urlErr, "ctl 边界靠这个类型认出要补 --config 字段名")
+			assert.NotContains(t, err.Error(), "--config", "GUI 也显示这条错误，不能出现 agrctl 的参数")
+			assert.NotContains(t, err.Error(), "参数错误")
+		})
+
+		convey.Convey("openclaw gateway URL scheme 不对时也报出具体原因", func() {
+			_, err := svc.Create(ctx, &CreateBackendRequest{
+				Type:               string(agent_backend_entity.TypeOpenClaw),
+				Name:               "claw-local",
+				OpenClawGatewayURL: "http://127.0.0.1:18789",
+			})
+			require.Error(t, err)
+			assert.ErrorIs(t, err, agent_backend_entity.ErrOpenClawGatewayURLScheme)
+			assert.Contains(t, err.Error(), "must use ws or wss")
+		})
 	})
 }
 
@@ -690,6 +720,25 @@ func TestUpdateBackend(t *testing.T) {
 				ID: 6, Name: "acp-1", ACPCommand: "npx",
 			})
 			assert.NoError(t, err)
+		})
+
+		// 同 Create：agrctl update backend 把 gateway URL 清空/改错时，过去也塌成
+		// code.InvalidParameter 的中文「参数错误」。
+		convey.Convey("openclaw 更新时把 gateway URL 清空 → 报出具体原因", func() {
+			existing := &agent_backend_entity.AgentBackend{
+				ID: 7, Type: string(agent_backend_entity.TypeOpenClaw), Name: "claw",
+				OpenClawGatewayURL: "ws://127.0.0.1:18789", OpenClawSessionMode: agent_backend_entity.OpenClawSessionPerAgentRESession,
+				Status: consts.ACTIVE,
+			}
+			backendMock.EXPECT().Find(gomock.Any(), int64(7)).Return(existing, nil)
+
+			_, err := svc.Update(ctx, &UpdateBackendRequest{ID: 7, Name: "claw"})
+			require.Error(t, err)
+			assert.ErrorIs(t, err, agent_backend_entity.ErrOpenClawGatewayURLRequired)
+			var urlErr *OpenClawGatewayURLError
+			assert.ErrorAs(t, err, &urlErr)
+			assert.NotContains(t, err.Error(), "--config")
+			assert.NotContains(t, err.Error(), "参数错误")
 		})
 	})
 }

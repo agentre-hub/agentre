@@ -194,7 +194,7 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 			return nil, err
 		}
 	}
-	env, err := agentruntime.BuildPiAgentEnv(req.Backend)
+	env, err := agentruntime.BuildPiAgentEnv(req.Backend, agentruntime.CLIDeps{Ctl: req.CtlCredentials()})
 	if err != nil {
 		logger.Ctx(ctx).Error("piagent runtime: BuildPiAgentEnv failed", zap.Int64("sessionID", req.SessionID), zap.Error(err))
 		return nil, err

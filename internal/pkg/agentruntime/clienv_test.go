@@ -161,17 +161,82 @@ func TestBuildCodexConfig_Basic(t *testing.T) {
 func TestBuildACPEnv(t *testing.T) {
 	t.Run("仅透传 env_json，不注入网关变量", func(t *testing.T) {
 		b := &agent_backend_entity.AgentBackend{EnvJSON: `{"MY_TOOL_FLAGS":"--verbose"}`}
-		env, err := BuildACPEnv(b)
+		env, err := BuildACPEnv(b, CLIDeps{})
 		require.NoError(t, err)
 		assert.Equal(t, map[string]string{"MY_TOOL_FLAGS": "--verbose"}, env)
 	})
 	t.Run("空 env_json 产出空 map", func(t *testing.T) {
-		env, err := BuildACPEnv(&agent_backend_entity.AgentBackend{})
+		env, err := BuildACPEnv(&agent_backend_entity.AgentBackend{}, CLIDeps{})
 		require.NoError(t, err)
 		assert.Empty(t, env)
 	})
 	t.Run("坏 env_json 报错", func(t *testing.T) {
-		_, err := BuildACPEnv(&agent_backend_entity.AgentBackend{EnvJSON: `{"broken"`})
+		_, err := BuildACPEnv(&agent_backend_entity.AgentBackend{EnvJSON: `{"broken"`}, CLIDeps{})
 		assert.Error(t, err)
 	})
+}
+
+// TestCLIEnv_InjectsSessionCtlCredentials 钉死 spec「会话级 token」：四类 CLI 子进程 env
+// 都带上 AGENTRE_CTL_ENDPOINT + 会话级 AGENTRE_CTL_TOKEN，与是否绑 provider 无关；没有
+// 会话凭证（探测类调用点）时一个都不写；用户 env_json 盖不掉会话身份。
+func TestCLIEnv_InjectsSessionCtlCredentials(t *testing.T) {
+	ctl := CtlCredentials{Endpoint: "http://127.0.0.1:60080", Token: "sess-tok"}
+	builders := map[string]func(*agent_backend_entity.AgentBackend, CLIDeps) (map[string]string, error){
+		"claudecode": BuildClaudeCodeEnv,
+		"codex":      BuildCodexEnv,
+		"piagent":    BuildPiAgentEnv,
+		"acp":        BuildACPEnv,
+	}
+	for name, build := range builders {
+		t.Run(name+"：有会话凭证 → 注入两个变量", func(t *testing.T) {
+			env, err := build(&agent_backend_entity.AgentBackend{}, CLIDeps{Ctl: ctl})
+			require.NoError(t, err)
+			assert.Equal(t, "http://127.0.0.1:60080", env[CtlEndpointEnv])
+			assert.Equal(t, "sess-tok", env[CtlTokenEnv])
+		})
+		t.Run(name+"：没有会话凭证 → 不注入", func(t *testing.T) {
+			env, err := build(&agent_backend_entity.AgentBackend{}, CLIDeps{})
+			require.NoError(t, err)
+			_, hasEndpoint := env[CtlEndpointEnv]
+			_, hasToken := env[CtlTokenEnv]
+			assert.False(t, hasEndpoint)
+			assert.False(t, hasToken)
+		})
+		t.Run(name+"：凭证不完整 → 不注入", func(t *testing.T) {
+			env, err := build(&agent_backend_entity.AgentBackend{}, CLIDeps{Ctl: CtlCredentials{Token: "sess-tok"}})
+			require.NoError(t, err)
+			_, hasToken := env[CtlTokenEnv]
+			assert.False(t, hasToken)
+		})
+		t.Run(name+"：env_json 里同名键盖不掉会话身份", func(t *testing.T) {
+			b := &agent_backend_entity.AgentBackend{EnvJSON: `{"AGENTRE_CTL_TOKEN":"forged","AGENTRE_CTL_ENDPOINT":"http://evil"}`}
+			env, err := build(b, CLIDeps{Ctl: ctl})
+			require.NoError(t, err)
+			assert.Equal(t, "sess-tok", env[CtlTokenEnv])
+			assert.Equal(t, "http://127.0.0.1:60080", env[CtlEndpointEnv])
+		})
+	}
+}
+
+// TestRunRequest_CtlCredentials 钉死凭证来源：runtime 按本轮 (AgentID, SessionID)
+// 向进程级注册的来源要会话凭证；没注册（agentred 尚无 ctl 代理）或来源拒绝时为空。
+func TestRunRequest_CtlCredentials(t *testing.T) {
+	t.Cleanup(func() { RegisterCtlCredentialSource(nil) })
+
+	req := RunRequest{AgentID: 7, SessionID: 42}
+	RegisterCtlCredentialSource(nil)
+	assert.Equal(t, CtlCredentials{}, req.CtlCredentials(), "未注册 → 空")
+
+	var gotAgent, gotSession int64
+	RegisterCtlCredentialSource(func(agentID, sessionID int64) CtlCredentials {
+		gotAgent, gotSession = agentID, sessionID
+		return CtlCredentials{Endpoint: "http://127.0.0.1:1", Token: "t"}
+	})
+	assert.Equal(t, CtlCredentials{Endpoint: "http://127.0.0.1:1", Token: "t"}, req.CtlCredentials())
+	assert.Equal(t, int64(7), gotAgent)
+	assert.Equal(t, int64(42), gotSession)
+
+	assert.Equal(t, CtlCredentials{Endpoint: "http://127.0.0.1:1", Token: "t"}, RunRequest{SessionID: 42}.CtlCredentials(),
+		"没有本地 agent id（跨主机派发只带 agent sync id）照样签：会话身份只看会话")
+	assert.Equal(t, CtlCredentials{}, RunRequest{AgentID: 7}.CtlCredentials(), "没有会话 → 不签")
 }

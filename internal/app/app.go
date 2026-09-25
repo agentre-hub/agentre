@@ -124,6 +124,10 @@ func (a *App) Startup(ctx context.Context) {
 	a.registerNotificationHandlers()
 	a.resetStaleSessionsOnStartup(ctx)
 	a.registerChatService()
+	// 桌面端全局审批弹窗背后的队列：装在这里而不是 registerChatService，因为它不依赖
+	// chat_svc，只要 a.ctx 就绪即可推事件（ctl_svc.RegisterDeps 在 registerChatService
+	// 里另外接，互不影响）。
+	a.registerCtlExternalApprovals()
 	a.hookPollerCancel = hook_svc.StartScheduler(ctx)
 	// 常驻 CLI 子进程的按时清扫:池的条数上限管不了「留多久」,一个开过一次就再没
 	// 碰过的会话能把 CLI 连同它的 MCP server 挂到退出为止。
@@ -150,6 +154,15 @@ func (a *App) Startup(ctx context.Context) {
 		})
 	}
 	bootstrap.SyncBoot(context.Background())
+
+	// 本机写入五类资源（provider/model、backend、project、department、agent）成功后
+	// 就喊一声 config:changed，组织页 / 提供方设置 / 后端设置 / 侧边栏据此就地重拉。
+	// 与上面的 sync_svc.SetEmitter 不同，这条不看登录态——Wails、orgtool、ctl 三条
+	// 写入路径都从域服务里直接调用它（docs/specs/2026-09-22-agrctl-resource-management.md
+	// 「Real-time refresh」、design decision 11）。
+	sync_svc.SetConfigChangeEmitter(func(kinds []string) {
+		wailsruntime.EventsEmit(a.ctx, sync_svc.ConfigChangedEvent, kinds)
+	})
 
 	// Remote device watcher：注入 wails 事件 emitter,Boot 拉起所有 ACTIVE 设备的 watcher。
 	// 顺带把 device online/offline 事件接到 cc_usage_svc(动态起/停 per-device 配额 ticker)。

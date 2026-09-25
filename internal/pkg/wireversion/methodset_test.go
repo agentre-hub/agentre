@@ -17,7 +17,7 @@ import (
 //
 // 它按名字排序后再摘要,因此**只**对方法集本身敏感:重排 .proto 里的书写顺序不动它,
 // 增删一个方法、改一个方法的编号则必然改变它。
-const methodSetDigest = "2941c7c50789446699b72c0f4890f21971211218ac17635e42e3a893d24805d6"
+const methodSetDigest = "fb5322218dd896b1c353c192c1a5907f9111d1cf36dce09318ff26222e4b907d"
 
 // Given 握手把「对端与本方的 Protocol 逐字相等」当成兼容判据(wireversion.Match),
 // When 有人给 RpcMethod 加/删一个方法却没有同时改协议版本号,

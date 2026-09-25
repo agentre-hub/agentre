@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	remote_device_svc "github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	server_svc "github.com/agentre-hub/agentre/internal/service/server_svc"
 	devicefp "github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -70,6 +71,22 @@ func (m *MockRemoteDeviceSvc) AdoptAccountDevices(ctx context.Context, devices [
 func (mr *MockRemoteDeviceSvcMockRecorder) AdoptAccountDevices(ctx, devices any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdoptAccountDevices", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).AdoptAccountDevices), ctx, devices)
+}
+
+// AdoptListedDevices mocks base method.
+func (m *MockRemoteDeviceSvc) AdoptListedDevices(ctx context.Context, devices []server_svc.Device) (string, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdoptListedDevices", ctx, devices)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// AdoptListedDevices indicates an expected call of AdoptListedDevices.
+func (mr *MockRemoteDeviceSvcMockRecorder) AdoptListedDevices(ctx, devices any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdoptListedDevices", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).AdoptListedDevices), ctx, devices)
 }
 
 // ClearAccountDirect mocks base method.
@@ -130,6 +147,22 @@ func (m *MockRemoteDeviceSvc) DiscardAdoptedDevices(ctx context.Context) (int, e
 func (mr *MockRemoteDeviceSvcMockRecorder) DiscardAdoptedDevices(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscardAdoptedDevices", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).DiscardAdoptedDevices), ctx)
+}
+
+// EnsureFromAccount mocks base method.
+func (m *MockRemoteDeviceSvc) EnsureFromAccount(ctx context.Context) (string, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnsureFromAccount", ctx)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// EnsureFromAccount indicates an expected call of EnsureFromAccount.
+func (mr *MockRemoteDeviceSvcMockRecorder) EnsureFromAccount(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureFromAccount", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).EnsureFromAccount), ctx)
 }
 
 // Get mocks base method.

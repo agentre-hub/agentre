@@ -364,6 +364,17 @@ func ResolveSessionPeer(ctx context.Context, originPeer devicefp.Initiator, logg
 	return originPeer, nil
 }
 
+// RequireLoggedInAccount 是「调用方连接以本机登录的那个账号鉴权」这道闸(控制台):没
+// 登录、账号不符、或只是配对过的对端一律 ErrUnauthorized。
+func RequireLoggedInAccount(loggedInAccountID func() string) func(context.Context) error {
+	return func(ctx context.Context) error {
+		if !hasLoggedInAccount(ctx, loggedInAccountID) {
+			return rpcerror.ErrUnauthorized
+		}
+		return nil
+	}
+}
+
 func hasLoggedInAccount(ctx context.Context, loggedInAccountID func() string) bool {
 	if loggedInAccountID == nil {
 		return false

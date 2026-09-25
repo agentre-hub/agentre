@@ -1759,6 +1759,49 @@ func TestBuildRunParams_OmitsReasoningEffortWithoutBackendValue(t *testing.T) {
 	}
 }
 
+// TestBuildRunParams_CarriesDesktopCtlCredentials 钉死远端一轮把桌面端签的会话级
+// agrctl token 与它绑定的桌面会话 id 带上 runtime.run(spec 2026-09-22「桌面端派发到
+// agentred 的会话」):agentred 的 ctl 代理要凭它把调用转回桌面端,且据它判定会话归
+// 桌面端所有。取值必须来自 RunRequest.CtlCredentials() —— 与本地 CLI 注入同一个来源。
+func TestBuildRunParams_CarriesDesktopCtlCredentials(t *testing.T) {
+	t.Cleanup(func() { agentruntime.RegisterCtlCredentialSource(nil) })
+	agentruntime.RegisterCtlCredentialSource(func(agentID, sessionID int64) agentruntime.CtlCredentials {
+		if agentID != 3 || sessionID != 9 {
+			t.Fatalf("credential source asked for (%d,%d), want (3,9)", agentID, sessionID)
+		}
+		return agentruntime.CtlCredentials{Endpoint: "http://127.0.0.1:1/ctl", Token: "ctl-session-token"} //nolint:gosec // G101: credential-shaped fixture for the injection test.
+	})
+
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
+		Backend: &agent_backend_entity.AgentBackend{}, AgentID: 3, SessionID: 9,
+	})
+	if err != nil {
+		t.Fatalf("buildRunParams: %v", err)
+	}
+	pb, err := protowire.RunRequestToProto(params)
+	if err != nil {
+		t.Fatalf("RunRequestToProto: %v", err)
+	}
+	if pb.GetDesktopCtlToken() != "ctl-session-token" || pb.GetDesktopSessionId() != 9 {
+		t.Fatalf("runtime.run dropped desktop ctl credentials: token=%q session=%d", pb.GetDesktopCtlToken(), pb.GetDesktopSessionId())
+	}
+}
+
+// TestBuildRunParams_OmitsDesktopCtlCredentialsWithoutSource 没有签发来源(或签不出)
+// 时两格成对缺席:空 token 配一个非零会话 id 会让 agentred 误判会话归属。
+func TestBuildRunParams_OmitsDesktopCtlCredentialsWithoutSource(t *testing.T) {
+	agentruntime.RegisterCtlCredentialSource(nil)
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
+		Backend: &agent_backend_entity.AgentBackend{}, AgentID: 3, SessionID: 9,
+	})
+	if err != nil {
+		t.Fatalf("buildRunParams: %v", err)
+	}
+	if params.DesktopCtlToken != "" || params.DesktopSessionID != 0 {
+		t.Fatalf("no credential source must leave both fields empty: %+v", params)
+	}
+}
+
 // TestBuildRunParams_ForwardsEnabledPlugins 钉死 buildRunParams 把
 // RunRequest.EnabledPlugins 透传到 wire.RunParams，且 JSON round-trip 保留该字段。
 func TestBuildRunParams_ForwardsEnabledPlugins(t *testing.T) {

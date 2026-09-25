@@ -31,6 +31,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
 	"github.com/agentre-hub/agentre/internal/daemon/enginesnapshot"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/identity"
 	"github.com/agentre-hub/agentre/internal/daemon/lancert"
 	daemonmigrations "github.com/agentre-hub/agentre/internal/daemon/migrations"
 	"github.com/agentre-hub/agentre/internal/daemon/pairing"
@@ -189,6 +190,15 @@ type Daemon struct {
 	// 声明表、同一个闸门 —— 各建一份不会立刻出错,但那时「这个端口声明过没有」就有
 	// 了两个答复处。
 	portForward *portforward.Handlers
+
+	// ctl 是 agrctl 会话调用的那张表(见 handlers.CtlSessions):runtime.run 登记会话并为
+	// CLI 子进程签会话级 token,gateway 上的 ctl 代理凭它按会话归属转发,控制台会话的
+	// 审批卡也挂在这里等 toolApproval.answer。Daemon 级一份 —— CLI 子进程跨连接复用。
+	ctl *handlers.CtlSessions
+
+	// backendCredentials 是设备本地后端凭据(state.json)的那一份处理器:protobuf 注册面
+	// 与 ctl 代理(控制台会话里给绑在本机的 openclaw 后端写 token)共用,不各建一份。
+	backendCredentials *handlers.BackendCredentialHandlers
 }
 
 const daemonConnectionCleanupTimeout = 3 * time.Second
@@ -918,6 +928,24 @@ func New(opts Options) (*Daemon, error) {
 	// 请求回 desktop 执行(真 handler 在 desktop)。仅一条 catch-all,serveMCP 最长前缀
 	// 匹配下命中所有 /mcp/* 路径。
 	d.gateway.RegisterMCP(httpgateway.RouteMCPPrefix, handlers.NewMCPTunnelHandler(d.tunnelTargetFor))
+	// agrctl 的 ctl 代理(/ctl/*):本机 CLI 子进程带着 daemon 签的会话级 token 打进来,
+	// 桌面端拥有的会话经同一条反向隧道转回桌面端,控制台拥有的会话交给 server 执行
+	// (设备 Bearer,与中继同一份凭据与单飞刷新)。会话凭证经 agentruntime 的进程级
+	// 注入点交给每个 CLI 子进程。
+	d.ctl = handlers.NewCtlSessions(d.gateway.URL).WithAnswerAuth(handlers.RequireLoggedInAccount(d.loggedInAccountID))
+	d.backendCredentials = handlers.NewBackendCredentialHandlers(handlers.BackendCredentialDeps{State: st})
+	agentruntime.RegisterCtlCredentialSource(d.ctl.Credentials)
+	d.gateway.RegisterControl(handlers.NewCtlProxyHandler(handlers.CtlProxyDeps{
+		Sessions: d.ctl,
+		Tunnel:   d.tunnelTargetFor,
+		Server: &handlers.CtlServerClient{
+			ServerURL:   d.relayServerURL,
+			AccessToken: d.currentAccessToken,
+			Refresh:     d.credRefresher.refreshNow,
+		},
+		Self:           identity.DaemonFingerprint(st.InstanceUUID()),
+		OpenClawTokens: d.backendCredentials,
+	}))
 	d.registerProtobufMethods()
 	return d, nil
 }
@@ -1741,6 +1769,7 @@ func (d *Daemon) newRuntimeHandlers() *handlers.RuntimeHandlers {
 		Lookup:             NewProviderLookup(d.state),
 		LoggedInAccountID:  d.loggedInAccountID,
 		GenerationRegistry: d.generations,
+		Ctl:                d.ctl,
 		CLIPathForBackend:  d.engineSnapshot.ResolveCLIPath,
 		// 账号级后端配置与每设备 CLI 覆盖是两条路:前者整份替换独占设置(浏览器/云派发
 		// 只带 {type, sync_id}),后者只改可执行文件路径。

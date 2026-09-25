@@ -1,16 +1,20 @@
 package ctlcmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/agentre-hub/agentre/internal/pkg/ctlendpoint"
 )
 
-// fakeControl 起一个假的 /ctl/v1/* 控制服务，校验 bearer 并回 canned JSON。
+// fakeControl 起一个假的 /ctl/v1/send 控制服务，校验 bearer 并回 canned JSON。
 func fakeControl(t *testing.T, token string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -22,18 +26,6 @@ func fakeControl(t *testing.T, token string) *httptest.Server {
 		}
 		return true
 	}
-	mux.HandleFunc("/ctl/v1/agents", func(w http.ResponseWriter, r *http.Request) {
-		if !auth(w, r) {
-			return
-		}
-		_, _ = io.WriteString(w, `{"agents":[{"id":1,"name":"planner","description":"plans"},{"id":2,"name":"coder"}]}`)
-	})
-	mux.HandleFunc("/ctl/v1/projects", func(w http.ResponseWriter, r *http.Request) {
-		if !auth(w, r) {
-			return
-		}
-		_, _ = io.WriteString(w, `{"projects":[{"id":7,"name":"web","path":"/repo/web"}]}`)
-	})
 	mux.HandleFunc("/ctl/v1/send", func(w http.ResponseWriter, r *http.Request) {
 		if !auth(w, r) {
 			return
@@ -65,9 +57,8 @@ func envFor(srv *httptest.Server, token string) func(string) (string, bool) {
 }
 
 func runCLI(args []string, env func(string) (string, bool)) (int, string, string) {
-	var out, errb bytes.Buffer
-	code := run(args, &out, &errb, env)
-	return code, out.String(), errb.String()
+	r := runWith(args, env, term{})
+	return r.code, r.stdout, r.stderr
 }
 
 func TestRun_NoArgs(t *testing.T) {
@@ -82,11 +73,13 @@ func TestRun_GivenHelpWhenPrintedThenUsesAgrctlCommand(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d, want 0 (stderr=%s)", code, errs)
 	}
-	if !strings.Contains(out, "agrctl ctl") {
-		t.Fatalf("stdout = %q, want agrctl ctl command", out)
+	for _, verb := range []string{"agrctl list", "agrctl get", "agrctl create", "agrctl update", "agrctl delete", "agrctl send"} {
+		if !strings.Contains(out, verb) {
+			t.Fatalf("stdout = %q, want top-level verb %q", out, verb)
+		}
 	}
-	if strings.Contains(out, "agentre ctl") {
-		t.Fatalf("stdout = %q, must not advertise removed agentre ctl command", out)
+	if strings.Contains(out, "agrctl ctl") || strings.Contains(out, "agentre ctl") {
+		t.Fatalf("stdout = %q, must not advertise the removed ctl layer", out)
 	}
 }
 
@@ -95,30 +88,18 @@ func TestRun_UnknownSubcommand(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("code = %d, want 2", code)
 	}
-	if !strings.Contains(errs, "unknown subcommand") {
-		t.Fatalf("stderr = %q, want unknown subcommand", errs)
+	if !strings.HasPrefix(errs, "Error:") || !strings.Contains(errs, "unknown command") {
+		t.Fatalf("stderr = %q, want Error: unknown command", errs)
 	}
 }
 
-func TestRun_Agents(t *testing.T) {
-	srv := fakeControl(t, "tok")
-	code, out, errs := runCLI([]string{"agents"}, envFor(srv, "tok"))
-	if code != 0 {
-		t.Fatalf("code = %d, want 0 (stderr=%s)", code, errs)
+func TestRun_GivenRemovedCtlLayerWhenInvokedThenUsageError(t *testing.T) {
+	code, _, errs := runCLI([]string{"ctl", "agents"}, func(string) (string, bool) { return "", false })
+	if code != 2 {
+		t.Fatalf("code = %d, want 2", code)
 	}
-	if !strings.Contains(out, "planner") || !strings.Contains(out, "coder") {
-		t.Fatalf("stdout = %q, want agent names", out)
-	}
-}
-
-func TestRun_Projects(t *testing.T) {
-	srv := fakeControl(t, "tok")
-	code, out, errs := runCLI([]string{"projects"}, envFor(srv, "tok"))
-	if code != 0 {
-		t.Fatalf("code = %d, want 0 (stderr=%s)", code, errs)
-	}
-	if !strings.Contains(out, "/repo/web") {
-		t.Fatalf("stdout = %q, want project path", out)
+	if !strings.Contains(errs, "unknown") {
+		t.Fatalf("stderr = %q, want unknown command", errs)
 	}
 }
 
@@ -162,13 +143,79 @@ func TestRun_SendMissingAgent(t *testing.T) {
 }
 
 func TestRun_NoEndpointConfigured(t *testing.T) {
-	// 无 env 端点、AppDataDir 指向空临时目录(无握手文件) → 提示桌面未运行。
+	// 无 env 端点、AppDataDir 指向空临时目录(无握手文件)、也不是 agentred 主机 → 提示桌面未运行。
 	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
-	code, _, errs := runCLI([]string{"agents"}, func(string) (string, bool) { return "", false })
+	t.Setenv("AGENTRED_DATA_DIR", t.TempDir())
+	code, _, errs := runCLI([]string{"list", "agents"}, func(string) (string, bool) { return "", false })
 	if code != 1 {
 		t.Fatalf("code = %d, want 1", code)
 	}
 	if !strings.Contains(strings.ToLower(errs), "not running") && !strings.Contains(strings.ToLower(errs), "endpoint") {
 		t.Fatalf("stderr = %q, want desktop-not-running hint", errs)
+	}
+}
+
+func TestRun_AgentredHostWithoutSessionToken(t *testing.T) {
+	// spec「Routing and approval」表最后一行：agentred 主机、没有会话 token、也没有桌面握手
+	// 文件 → 退出码 1，Error: 前缀，说明只有 Agentre 派发的会话能用 agrctl，而不是桌面未运行。
+	agentredDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(agentredDir, "state.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTRED_DATA_DIR", agentredDir)
+	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
+
+	code, _, errs := runCLI([]string{"list", "agents"}, func(string) (string, bool) { return "", false })
+	if code != 1 {
+		t.Fatalf("code = %d, want 1", code)
+	}
+	if !strings.HasPrefix(errs, "Error: ") {
+		t.Fatalf("stderr = %q, want Error: prefix", errs)
+	}
+	if strings.Contains(strings.ToLower(errs), "is the desktop app running") {
+		t.Fatalf("stderr = %q, must not use the desktop-not-running message on an agentred host", errs)
+	}
+	if !strings.Contains(strings.ToLower(errs), "session") {
+		t.Fatalf("stderr = %q, want it to say only an Agentre-dispatched session can use agrctl here", errs)
+	}
+}
+
+// TestRun_StaleHandshakeFileOnAgentredHost 覆盖 T27：agentred 主机上留着旧桌面端的握手
+// 文件（desktop 曾经跑过、后来停了，文件从不删），但桌面已经不在跑了。连不上握手端点时
+// 该给出与「压根没有握手文件」一样的提示，而不是把拨号失败的原始错误甩给用户。
+func TestRun_StaleHandshakeFileOnAgentredHost(t *testing.T) {
+	agentredDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(agentredDir, "state.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTRED_DATA_DIR", agentredDir)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleURL := "http://" + ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	desktopDir := t.TempDir()
+	if err := ctlendpoint.Write(desktopDir, ctlendpoint.Endpoint{URL: staleURL, Token: "stale-token"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTRE_DATA_DIR", desktopDir)
+
+	code, _, errs := runCLI([]string{"list", "agents"}, func(string) (string, bool) { return "", false })
+	if code != 1 {
+		t.Fatalf("code = %d, want 1", code)
+	}
+	if strings.Contains(errs, "is the desktop app running") {
+		t.Fatalf("stderr = %q, must not use the desktop-not-running message on an agentred host", errs)
+	}
+	if strings.Contains(errs, "connect to desktop") {
+		t.Fatalf("stderr = %q, must not leak the raw dial error on an agentred host", errs)
+	}
+	if !strings.Contains(strings.ToLower(errs), "agentred") || !strings.Contains(strings.ToLower(errs), "session") {
+		t.Fatalf("stderr = %q, want the same agentred-host/session hint as the no-handshake-file case", errs)
 	}
 }

@@ -59,7 +59,11 @@ type BackendItem struct {
 	HermesAuthProvider string `json:"hermesAuthProvider"`
 	// HermesUserID 仅 hermes 使用：登录成功后的用户标识，用于界面「已登录为 xxx」。
 	HermesUserID string `json:"hermesUserId"`
-	HasToken     bool   `json:"hasToken"`
+	// ACPCommand / ACPArgs 仅 acp 使用：非敏感的可执行文件与附加 argv（语义同
+	// CreateBackendRequest）。
+	ACPCommand string   `json:"acpCommand"`
+	ACPArgs    []string `json:"acpArgs"`
+	HasToken   bool     `json:"hasToken"`
 	// DeviceID 是目标机器的 canonical fingerprint。当前安装自己的 fingerprint 表示
 	// 本机，跨机展示/编辑必须保留原值；只有调用本地 daemon RPC 时才翻译成
 	// paired row ID。

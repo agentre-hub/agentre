@@ -341,6 +341,19 @@ func TestBuildItem_CarriesHermesAuthDisplayFields(t *testing.T) {
 	assert.Equal(t, "user-7", item.HermesUserID)
 }
 
+// TestBuildItem_CarriesACPCommand：acp 的可执行文件与参数随 BackendItem 读出（agrctl
+// get backend 的 config 里要有它们）。
+func TestBuildItem_CarriesACPCommand(t *testing.T) {
+	svc := newServiceWithHermesKeychain(keychain.NewMemory())
+	row := &agent_backend_entity.AgentBackend{
+		ID: 9, Type: string(agent_backend_entity.TypeACP), Name: "a",
+		ACPCommand: "/usr/local/bin/gemini", ACPArgs: []string{"--acp"},
+	}
+	item := svc.buildItem(row, nil, backendItemLookup{})
+	assert.Equal(t, "/usr/local/bin/gemini", item.ACPCommand)
+	assert.Equal(t, []string{"--acp"}, item.ACPArgs)
+}
+
 func TestHermesAuthCode_UnreachableIsReadable(t *testing.T) {
 	_, frontendCode, ok := hermesAuthCode(hermes.ErrAuthUnreachable)
 	require.True(t, ok)

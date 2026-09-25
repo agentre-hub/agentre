@@ -137,6 +137,12 @@ export const rpcMethods = {
     pb.RuntimeSubmitToolPermissionRequestSchema,
     pb.PeerSessionControlResponseSchema,
   ),
+  toolApprovalAnswer: method(
+    "toolApprovalAnswer",
+    76,
+    pb.ToolApprovalAnswerRequestSchema,
+    pb.ToolApprovalAnswerResponseSchema,
+  ),
   runtimeRun: method(
     "runtimeRun",
     17,

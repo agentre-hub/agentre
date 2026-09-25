@@ -16,8 +16,10 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/service/ctl_svc"
 	"github.com/agentre-hub/agentre/migrations"
 )
 
@@ -472,6 +474,32 @@ func TestInitRegistersProjectLocationRepo(t *testing.T) {
 
 	if project_location_repo.ProjectLocation() == nil {
 		t.Fatal("project_location_repo.ProjectLocation() = nil after Init; bootstrap forgot to RegisterProjectLocation")
+	}
+}
+
+// TestInitPublishesSessionCtlEndpoint 钉死 spec「会话级 token」的接线：bootstrap 拿到
+// gateway 实际 URL 后，CLI 子进程的会话凭证来源就位，按 (agent, session) 签出端点与 token。
+func TestInitPublishesSessionCtlEndpoint(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+	// OS 选端口：同包其它用例起的 gateway 不关，固定端口会被占，gateway 降级、URL 为空。
+	t.Setenv("AGENTRE_PROXY_PORT", "0")
+	agentruntime.RegisterCtlCredentialSource(nil)
+	t.Cleanup(func() { agentruntime.RegisterCtlCredentialSource(nil) })
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	creds := agentruntime.RunRequest{AgentID: 7, SessionID: 42}.CtlCredentials()
+	if creds.Endpoint == "" || creds.Token == "" {
+		t.Fatalf("session ctl credentials after Init = %+v, want endpoint and token", creds)
+	}
+	if ref, ok := ctl_svc.Default().VerifySessionToken(creds.Token); !ok || ref.AgentID != 7 || ref.SessionID != 42 {
+		t.Fatalf("token does not verify against ctl_svc: ref=%+v ok=%v", ref, ok)
 	}
 }
 

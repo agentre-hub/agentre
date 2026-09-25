@@ -651,6 +651,7 @@ func (r *Runtime) buildRunParams(req agentruntime.RunRequest) (wire.RunParams, e
 	if err != nil {
 		return wire.RunParams{}, fmt.Errorf("encode user blocks: %w", err)
 	}
+	desktopCtlToken, desktopSessionID := desktopCtlCredentials(req)
 	return wire.RunParams{
 		Backend:           backendJSON,
 		AgentID:           crossHostAgentID(req.AgentID, req.AgentSyncID),
@@ -675,8 +676,22 @@ func (r *Runtime) buildRunParams(req agentruntime.RunRequest) (wire.RunParams, e
 		LLMModelKey:       remoteModelKey(req),
 		// 本轮有效力度已由发起端的那一个边界函数合成进 Backend 副本(硬不变量 2),
 		// 这里只把它单列过线 —— 浏览器端发的 backend 负载是空壳,只塞负载到不了执行侧。
-		ReasoningEffort: remoteReasoningEffort(req),
+		ReasoningEffort:  remoteReasoningEffort(req),
+		DesktopCtlToken:  desktopCtlToken,
+		DesktopSessionID: desktopSessionID,
 	}, nil
+}
+
+// desktopCtlCredentials 取本轮要交给 agentred 的桌面端 agrctl 会话凭证:token 来自与
+// 本地 CLI 注入同一个来源(RunRequest.CtlCredentials()),会话 id 是它绑定的本地会话。
+// Endpoint 不过线 —— 桌面端的 127.0.0.1 在 agentred 主机上拨不到,agentred 的 ctl
+// 代理经同一条连接转回。签不出 token 时两格成对为空。
+func desktopCtlCredentials(req agentruntime.RunRequest) (string, int64) {
+	token := req.CtlCredentials().Token
+	if token == "" {
+		return "", 0
+	}
+	return token, req.SessionID
 }
 
 // remoteReasoningEffort 取本轮交给 runtime 的 Backend 上那一格力度。不在这里重算

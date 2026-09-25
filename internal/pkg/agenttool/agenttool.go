@@ -19,6 +19,10 @@ const KeySubagent = "subagent"
 // KeyHook 脚本 Hook 读写/试运行工具(对话里让 agent 起草脚本、dry-run 验证、注册 cron 调度)。
 const KeyHook = "hook"
 
+// KeyCtl 是 agrctl 写操作审批卡的 toolKey（ctl_svc 登记，ToolInput 形状见
+// blocks.CtlApprovalInput）。它不是 MCP 工具，不进 registry。
+const KeyCtl = "ctl"
+
 var registry = []Definition{
 	{Key: KeyOrg, MCPPath: "/mcp/org/", ToolNames: []string{
 		"org_get",

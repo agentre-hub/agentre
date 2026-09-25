@@ -44,7 +44,30 @@ describe("typed protobuf RPC methods", () => {
       73,
       74,
       75,
+      76,
     ]);
+  });
+
+  // 76(toolApproval.answer):控制台按 (对话, requestId) 答任意 toolKey 的工具审批卡。
+  it("pairs the tool approval answer descriptor with its generated proto ID", () => {
+    expect(rpcMethods.toolApprovalAnswer.id).toBe(
+      RpcMethod.TOOL_APPROVAL_ANSWER,
+    );
+    const encoded = encodeRpcMethodRequest(7n, rpcMethods.toolApprovalAnswer, {
+      conversationId: CONVERSATION_ID,
+      requestId: "ctl-1",
+      allow: true,
+    });
+    expect(ProtobufRpcCodec.decode(encoded).body).toMatchObject({
+      case: "typedMethodRequest",
+      methodId: RpcMethod.TOOL_APPROVAL_ANSWER,
+      method: "toolApprovalAnswer",
+      value: expect.objectContaining({
+        conversationId: CONVERSATION_ID,
+        requestId: "ctl-1",
+        allow: true,
+      }),
+    });
   });
 
   // 设备本地后端凭据一族(70–75):控制台对绑定设备发这六个操作。69(auth.direct)不在

@@ -196,6 +196,18 @@ func sessionWireCases() []sessionWireCase {
 			},
 		},
 		{
+			// 作答会让 agentred 用自己的设备凭据提交写入,只收已登录账号的调用方(控制台经
+			// auth.account / auth.direct 握手):这台 rig 只有设备鉴权、没有账号,所以拒绝。
+			// 账号调用方答一张不挂起的卡时的「no pending tool approval」原文由 CtlSessions
+			// 的用例钉住。
+			name: "toolApproval.answer", method: agentrewire.RpcMethod_RPC_METHOD_TOOL_APPROVAL_ANSWER,
+			request:     &agentrewire.ToolApprovalAnswerRequest{ConversationId: missing, RequestId: "tool-1", Allow: true},
+			newResponse: func() proto.Message { return &agentrewire.ToolApprovalAnswerResponse{} },
+			assert: func(t *testing.T, _ proto.Message, err error) {
+				requireWireError(t, err, -32001, "Unauthorized")
+			},
+		},
+		{
 			name: "runtime.setPermissionMode", method: agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE,
 			request:     &agentrewire.RuntimeSetPermissionModeRequest{ConversationId: missing, Mode: "plan"},
 			newResponse: func() proto.Message { return &agentrewire.Empty{} },

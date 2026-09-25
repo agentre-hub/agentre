@@ -255,6 +255,41 @@ func TestRun_ConfiguredContextWindowReachesCLIAndDisplay(t *testing.T) {
 	})
 }
 
+// TestRun_InjectsSessionCtlCredentials 钉死 spec「会话级 token」：claude 子进程 env 带着
+// 按本轮 (agent, session) 签的 agrctl 凭证，CLI 登录态（没绑 provider）也一样。
+func TestRun_InjectsSessionCtlCredentials(t *testing.T) {
+	Convey("Given 进程注册了会话凭证来源", t, func() {
+		var asked [2]int64
+		agentruntime.RegisterCtlCredentialSource(func(agentID, sessionID int64) agentruntime.CtlCredentials {
+			asked = [2]int64{agentID, sessionID}
+			return agentruntime.CtlCredentials{Endpoint: "http://127.0.0.1:60080", Token: "sess-tok"}
+		})
+		defer agentruntime.RegisterCtlCredentialSource(nil)
+		var spawnEnv map[string]string
+		restore := SetSessionFactoryForTest(func(spec ccLaunchSpec) (ccSessionHandle, error) {
+			spawnEnv = spec.Env
+			return &fakeCCHandle{id: "cc", stream: &eventCCStream{events: []claudecode.Event{{Kind: claudecode.EventDone}}}}, nil
+		})
+		defer restore()
+
+		Convey("When 起一轮, Then 子进程 env 带着这一轮的会话凭证", func() {
+			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+				AgentID:   7,
+				SessionID: 42,
+				Cwd:       t.TempDir(),
+				UserText:  "hi",
+			})
+			So(err, ShouldBeNil)
+			for range events {
+			}
+			So(asked, ShouldResemble, [2]int64{7, 42})
+			So(spawnEnv[agentruntime.CtlEndpointEnv], ShouldEqual, "http://127.0.0.1:60080")
+			So(spawnEnv[agentruntime.CtlTokenEnv], ShouldEqual, "sess-tok")
+		})
+	})
+}
+
 // TestClaudeCodeCapabilities 钉死 claudecode runtime 的能力矩阵 + permission
 // mode 元数据。这些值与 chat_svc / 前端 UI gating 的硬编码 switch 一一对应,
 // 任何一项偏移都意味着 Plan B 切 dispatcher 后会有 UI/dispatch 错乱。

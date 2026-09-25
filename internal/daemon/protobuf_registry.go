@@ -388,7 +388,7 @@ func (d *Daemon) registerProtobufMethods() {
 		// 设备本地后端凭据:绑到本机的 Hermes / OpenClaw 后端的凭据写 state.json。闸门与
 		// 发起对话同一道(已鉴权的连接:同账号认证的对端,或配对过的桌面端)。本机并不
 		// 注册这两种 runtime,这一族只登记凭据、实际连一次做测试。
-		BackendCredentials: handlers.NewBackendCredentialHandlers(handlers.BackendCredentialDeps{State: d.state}),
+		BackendCredentials: d.backendCredentials,
 	})
 }
 
@@ -514,5 +514,6 @@ func (d *Daemon) daemonSessionPorts() wireinbound.SessionPorts {
 		Delete:             d.sessionDelete.Delete,
 		SetModelTarget:     d.sessionModelTarget.SetModelTarget,
 		SetReasoningEffort: d.sessionReasoningEffort.SetReasoningEffort,
+		AnswerToolApproval: d.ctl.AnswerToolApproval,
 	}
 }

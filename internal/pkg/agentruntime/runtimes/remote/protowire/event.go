@@ -129,6 +129,10 @@ func marshalEvent(frame *agentrewire.RuntimeEventNotification, event agentruntim
 		}}
 	case agentruntime.ExecApprovalResolved:
 		frame.Event = &agentrewire.RuntimeEventNotification_ExecApprovalResolved{ExecApprovalResolved: &agentrewire.ExecApprovalResolved{Id: value.ID, Status: value.Status, Decision: value.Decision, ResolvedBy: value.ResolvedBy, ResolvedAtMs: value.ResolvedAtMs}}
+	case agentruntime.ToolApprovalRequested:
+		frame.Event = &agentrewire.RuntimeEventNotification_ToolApprovalRequested{ToolApprovalRequested: &agentrewire.ToolApprovalRequested{ToolKey: value.ToolKey, RequestId: value.RequestID, ToolName: value.ToolName, ToolInput: value.ToolInput}}
+	case agentruntime.ToolApprovalResolved:
+		frame.Event = &agentrewire.RuntimeEventNotification_ToolApprovalResolved{ToolApprovalResolved: &agentrewire.ToolApprovalResolved{RequestId: value.RequestID, Status: value.Status, Result: value.Result}}
 	case agentruntime.PermissionModeChanged:
 		frame.Event = &agentrewire.RuntimeEventNotification_PermissionModeChanged{PermissionModeChanged: &agentrewire.PermissionModeChanged{Mode: value.Mode}}
 	case agentruntime.SubagentStarted:
@@ -251,6 +255,12 @@ func unmarshalEvent(frame *agentrewire.RuntimeEventNotification) (agentruntime.E
 	case *agentrewire.RuntimeEventNotification_ExecApprovalResolved:
 		v := value.ExecApprovalResolved
 		return agentruntime.ExecApprovalResolved{ID: v.GetId(), Status: v.GetStatus(), Decision: v.GetDecision(), ResolvedBy: v.GetResolvedBy(), ResolvedAtMs: v.GetResolvedAtMs()}, nil
+	case *agentrewire.RuntimeEventNotification_ToolApprovalRequested:
+		v := value.ToolApprovalRequested
+		return agentruntime.ToolApprovalRequested{ToolKey: v.GetToolKey(), RequestID: v.GetRequestId(), ToolName: v.GetToolName(), ToolInput: v.GetToolInput()}, nil
+	case *agentrewire.RuntimeEventNotification_ToolApprovalResolved:
+		v := value.ToolApprovalResolved
+		return agentruntime.ToolApprovalResolved{RequestID: v.GetRequestId(), Status: v.GetStatus(), Result: v.GetResult()}, nil
 	case *agentrewire.RuntimeEventNotification_PermissionModeChanged:
 		return agentruntime.PermissionModeChanged{Mode: value.PermissionModeChanged.GetMode()}, nil
 	case *agentrewire.RuntimeEventNotification_SubagentStarted:

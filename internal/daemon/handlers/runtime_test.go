@@ -1428,6 +1428,36 @@ func TestRuntime_Run_NoUserMessageMarkerWhenNoSource(t *testing.T) {
 	assert.IsType(t, agentruntime.TextDelta{}, ef0.Event, "没有 SourceDevice 就不该注入 user_message 标记")
 }
 
+// TestRuntime_Run_GivenDesktopCtlToken_ThenItIsNeverLogged 钉死桌面端交来的 agrctl 会话
+// token 是密钥:整轮(含 fanout 收尾的汇总日志)都不进日志。归属本身由 CtlSessions 的
+// 用例与 ctlproxy_run_test 钉住。
+func TestRuntime_Run_GivenDesktopCtlToken_ThenItIsNeverLogged(t *testing.T) {
+	const token = "SENTINEL_DESKTOP_CTL_TOKEN"
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event, 1)
+		ch <- agentruntime.Done{}
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	captured := captureRuntimeLogs(t)
+	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, be), ConversationId: convID(61), UserText: "hi",
+		DesktopCtlToken: token, DesktopSessionId: 55,
+	})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 3)
+	// fanout 在 runResultDone 之后还会记一条汇总:等它落下再断言、再让 cleanup 换回全局
+	// logger(否则断言看不到它,cleanup 也会与它读全局 logger 竞争)。
+	require.Eventually(t, func() bool {
+		return strings.Contains(captured.String(), "fanout: session ended")
+	}, 5*time.Second, 5*time.Millisecond)
+	assert.NotContains(t, captured.String(), token, "the desktop ctl token must never be logged")
+}
+
 func TestRuntime_Run_BuiltinBackend_Rejected(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeBuiltin)}

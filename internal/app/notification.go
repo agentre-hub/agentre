@@ -23,14 +23,26 @@ func (a *App) registerNotificationHandlers() {
 		if res.Error != nil {
 			return
 		}
-		sid := sessionIDFromUserInfo(res.Response.UserInfo)
-		if sid <= 0 {
+		show, sid := notificationClickAction(res.Response.UserInfo)
+		if !show {
 			return
 		}
 		wailsruntime.WindowUnminimise(a.ctx)
 		wailsruntime.WindowShow(a.ctx)
-		wailsruntime.EventsEmit(a.ctx, "notification:click", sid)
+		if sid > 0 {
+			wailsruntime.EventsEmit(a.ctx, "notification:click", sid)
+		}
 	})
+}
+
+// notificationClickAction 决定点击通知后做什么：本应用发出的通知（userInfo 带 sessionID）
+// 一律切回窗口；sessionID > 0 时再跳到那个会话。没有会话的通知（如外部 agrctl 审批）
+// 切回窗口后由常驻的全局弹窗自己露出来。
+func notificationClickAction(userInfo map[string]interface{}) (show bool, sessionID int64) {
+	if _, ok := userInfo["sessionID"]; !ok {
+		return false, 0
+	}
+	return true, sessionIDFromUserInfo(userInfo)
 }
 
 // sessionIDFromUserInfo 从通知 userInfo 取 sessionID，兼容 JSON 往返后的 float64、int64、int；

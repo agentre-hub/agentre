@@ -136,6 +136,15 @@ func TestEvent_RoundTrip(t *testing.T) {
 		}},
 		{"exec_approval_expired", ExecApprovalResolved{ID: "approval-2", Status: "expired"}},
 
+		// agent 内置写工具的服务端审批卡(tool_approval 块)只由历史投影产出;
+		// 请求与终态各一帧,ToolInput 是块里的原始 JSON。
+		{"tool_approval_requested", ToolApprovalRequested{
+			ToolKey: "ctl", RequestID: "ctl-1", ToolName: "ctl_update_provider",
+			ToolInput: json.RawMessage(`{"command":"agrctl update provider x","changes":[{"op":"update"}]}`),
+		}},
+		{"tool_approval_resolved", ToolApprovalResolved{RequestID: "ctl-1", Status: "approved", Result: "updated"}},
+		{"tool_approval_expired", ToolApprovalResolved{RequestID: "org-2", Status: "expired"}},
+
 		// PermissionModeChanged
 		{"permission_mode_changed", PermissionModeChanged{Mode: "bypassPermissions"}},
 
@@ -295,6 +304,8 @@ func TestEvent_WireKindMatchesType(t *testing.T) {
 		{EventToolPermissionResolved, ToolPermissionResolved{}},
 		{EventExecApprovalRequested, ExecApprovalRequested{}},
 		{EventExecApprovalResolved, ExecApprovalResolved{}},
+		{EventToolApprovalRequested, ToolApprovalRequested{}},
+		{EventToolApprovalResolved, ToolApprovalResolved{}},
 		{EventPermissionModeChanged, PermissionModeChanged{}},
 		{EventSubagentStarted, SubagentStarted{}},
 		{EventSubagentProgress, SubagentProgress{}},
@@ -333,6 +344,7 @@ func TestUnmarshalEvent_AllKindsCovered(t *testing.T) {
 		UserAskRequest{}, UserAskResolved{},
 		ToolPermissionRequest{}, ToolPermissionResolved{},
 		ExecApprovalRequested{}, ExecApprovalResolved{},
+		ToolApprovalRequested{}, ToolApprovalResolved{},
 		PermissionModeChanged{},
 		SubagentStarted{}, SubagentProgress{}, SubagentDone{}, SubagentModel{},
 		Retry{}, UsageUpdate{}, ContextWindowUpdated{}, CompactBoundary{}, RuntimeStatus{}, PlanUpdated{},

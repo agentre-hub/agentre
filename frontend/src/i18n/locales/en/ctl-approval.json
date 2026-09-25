@@ -1,0 +1,17 @@
+{
+  "externalApproval": {
+    "title": "An external program wants to change configuration",
+    "queuePosition": "{{index}} of {{total}} pending",
+    "callerPid": "pid {{pid}}",
+    "unknownCaller": "External program",
+    "autoRejectHint": "Auto-rejected after 4 minutes if left unattended; closing this dialog also counts as reject.",
+    "reject": "Reject",
+    "approve": "Approve",
+    "approveDelete": "Approve delete",
+    "submitFailed": "Failed to submit approval",
+    "notification": {
+      "title": "Agentre · Needs your approval",
+      "body": "{{process}} wants to change configuration"
+    }
+  }
+}

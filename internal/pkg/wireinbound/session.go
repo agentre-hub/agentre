@@ -2,6 +2,7 @@ package wireinbound
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/agentre-hub/agentre/internal/pkg/activityrollup"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
@@ -151,6 +152,20 @@ func registerSessionRuntimeMethods(registry *protorpc.Registry, ports SessionPor
 			return &agentrewire.RuntimeSetPermissionModeRequest{}
 		}, forward(ports, ports.SetPermissionMode))
 	}
+	if ports.AnswerToolApproval != nil {
+		protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_TOOL_APPROVAL_ANSWER), func() *agentrewire.ToolApprovalAnswerRequest {
+			return &agentrewire.ToolApprovalAnswerRequest{}
+		}, forward(ports, ports.AnswerToolApproval))
+	}
+}
+
+// NoPendingToolApprovalError 是 toolApproval.answer 在「这张卡此刻不挂起」时的答复。
+//
+// 它住在这里而不是各宿主各写一句:控制台按码 + message 给人看,同一件事(答过了、
+// 超时了、那一轮结束了、这台机器上从没有过这张卡)两种执行端必须说成同一句。码取
+// invalid params —— 请求点名的那张卡在这一端不存在,重发同一个请求永远不会成功。
+func NoPendingToolApprovalError(requestID string) error {
+	return &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: fmt.Sprintf("no pending tool approval %q in this session", requestID)}
 }
 
 // ── 线上载体 ↔ 领域值:只有这一份 ─────────────────────────────────────────────

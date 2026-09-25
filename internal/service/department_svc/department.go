@@ -6,10 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cago-frame/cago/database/db"
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/i18n"
-	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
@@ -33,6 +31,9 @@ type DepartmentSvc interface {
 	Move(ctx context.Context, req *MoveDepartmentRequest) (*MoveDepartmentResponse, error)
 	Delete(ctx context.Context, req *DeleteDepartmentRequest) (*DeleteDepartmentResponse, error)
 	Reorder(ctx context.Context, req *ReorderDepartmentsRequest) error
+	// CascadeImpact 统计级联删除 departmentID 会连带删掉的子部门数（不含它自己）与 Agent 数，
+	// 与 Delete 的 StrategyCascade 同一口径（审批卡据此报数）。
+	CascadeImpact(ctx context.Context, departmentID int64) (departments, agents int, err error)
 }
 
 type departmentSvc struct {
@@ -44,6 +45,7 @@ type departmentSvc struct {
 	agentExecTargets AgentExecTargetPort
 	agentBackends    AgentBackendPort
 	llmProviders     LLMProviderPort
+	tx               TxRunner
 }
 
 var defaultDepartment DepartmentSvc = &departmentSvc{
@@ -52,6 +54,7 @@ var defaultDepartment DepartmentSvc = &departmentSvc{
 	agentExecTargets: agentExecTargetRepoDelegate{},
 	agentBackends:    agentBackendRepoDelegate{},
 	llmProviders:     llmProviderRepoDelegate{},
+	tx:               dbTxRunner{},
 }
 
 // Department 取默认服务单例。
@@ -188,6 +191,7 @@ func (s *departmentSvc) Load(ctx context.Context, _ *LoadOrgRequest) (*LoadOrgRe
 			DepartmentID:  a.DepartmentID,
 			ParentAgentID: a.ParentAgentID,
 			SortOrder:     a.SortOrder,
+			Pinned:        a.Pinned,
 			Prompt:        a.GetPrompt(),
 			ExecTargets:   execTargets,
 			Tools:         toAgentToolDTO(a.GetTools()),
@@ -283,6 +287,7 @@ func (s *departmentSvc) Create(ctx context.Context, req *CreateDepartmentRequest
 		return nil, err
 	}
 	sync_svc.NotifyCreate(ctx, syncwire.KindDepartment, d.ID, d.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindDepartment)
 	return &CreateDepartmentResponse{Item: toDepartmentItem(d, nil, 0, 0, 0)}, nil
 }
 
@@ -327,6 +332,7 @@ func (s *departmentSvc) Update(ctx context.Context, req *UpdateDepartmentRequest
 		return nil, err
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindDepartment, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindDepartment)
 	return &UpdateDepartmentResponse{Item: toDepartmentItem(existing, nil, 0, 0, 0)}, nil
 }
 
@@ -373,6 +379,7 @@ func (s *departmentSvc) Move(ctx context.Context, req *MoveDepartmentRequest) (*
 		return nil, err
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindDepartment, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindDepartment)
 	return &MoveDepartmentResponse{Item: toDepartmentItem(existing, nil, 0, 0, 0)}, nil
 }
 
@@ -411,6 +418,7 @@ func (s *departmentSvc) Reorder(ctx context.Context, req *ReorderDepartmentsRequ
 	for _, sibling := range siblings {
 		sync_svc.NotifyUpdate(ctx, syncwire.KindDepartment, sibling.ID, sibling.SyncMeta)
 	}
+	sync_svc.NotifyConfigChanged(syncwire.KindDepartment)
 	return nil
 }
 
@@ -432,8 +440,7 @@ func (s *departmentSvc) Delete(ctx context.Context, req *DeleteDepartmentRequest
 		deletedAgents []*agent_entity.Agent
 		deletedDepts  []*department_entity.Department
 	)
-	err = db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
-		txCtx := db.WithContextDB(ctx, tx)
+	err = s.tx.RunInTx(ctx, func(txCtx context.Context) error {
 		switch strategy {
 		case StrategyReparent:
 			if err := department_repo.Department().ReparentChildren(txCtx, existing.ID, existing.ParentID); err != nil {
@@ -522,7 +529,26 @@ func (s *departmentSvc) Delete(ctx context.Context, req *DeleteDepartmentRequest
 	if !containsDepartment(deletedDepts, existing.ID) {
 		sync_svc.NotifyDelete(ctx, syncwire.KindDepartment, existing.ID, existing.SyncMeta)
 	}
+	// 一次删除只刷一次界面：订阅方按次重拉，不能按搬走 / 删掉的条数刷 N 遍。
+	kinds := []string{syncwire.KindDepartment}
+	if len(movedAgents) > 0 || len(deletedAgents) > 0 {
+		kinds = append(kinds, syncwire.KindAgent)
+	}
+	sync_svc.NotifyConfigChanged(kinds...)
 	return &DeleteDepartmentResponse{}, nil
+}
+
+func (s *departmentSvc) CascadeImpact(ctx context.Context, departmentID int64) (int, int, error) {
+	all, err := department_repo.Department().List(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	allAgents, err := s.agents.List(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	subtree := collectSubtree(all, departmentID)
+	return len(subtree) - 1, len(collectAgentsInDepartments(allAgents, subtree)), nil
 }
 
 // hasCycle 从 startParentID 沿 parent 链向上爬，若命中 selfID 则形成环。

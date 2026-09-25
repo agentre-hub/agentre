@@ -12,6 +12,7 @@ import {
   TranscriptCardBody,
   TranscriptPill,
 } from "../transcript-card";
+import { CtlApprovalCard, parseCtlApprovalInput } from "./ctl-approval-card";
 
 // ToolApprovalCard 渲染 agent 内置写工具(org_create_department / org_update_agent /
 // ...)的审批卡。视觉对齐 canonical-tool/tool-permission/card.tsx,但走
@@ -30,6 +31,23 @@ export const ToolApprovalCard: React.FC<{
   const ports = useTranscriptPorts();
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  // toolKey="ctl" 分派给方案 B「变更清单卡」(spec 2026-09-22 决策 6)。
+  // 解析不出合法 CtlApprovalInput(旧格式/损坏数据)时穿透到下面的旧 JSON
+  // 卡渲染——控制台升级卡片组件之前也能降级显示,不炸不空白。
+  const ctlInput =
+    approval.toolKey === "ctl"
+      ? parseCtlApprovalInput(approval.toolInput)
+      : null;
+  if (ctlInput) {
+    return (
+      <CtlApprovalCard
+        approval={approval}
+        sessionId={sessionId}
+        input={ctlInput}
+      />
+    );
+  }
 
   const isPending = approval.status === "pending";
   const isApproved = approval.status === "approved";

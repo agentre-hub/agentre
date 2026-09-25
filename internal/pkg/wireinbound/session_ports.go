@@ -83,4 +83,9 @@ type SessionPorts struct {
 	// claim ticket —— 那是它的会话归属模型,不是这一族共用的形状。端口缺席 ⇒ 不注册,
 	// 所以两边不会重复挂上同一个方法号。
 	Abort func(context.Context, *agentrewire.RuntimeAbortRequest) (*agentrewire.RuntimeAbortResponse, error)
+
+	// AnswerToolApproval 答一张挂起的 tool_approval 卡(agent 内置写工具的审批,任何
+	// toolKey)。卡不在挂起(答过、超时、那一轮已结束、从没有过)时端口交出
+	// NoPendingToolApprovalError,两种执行端因此对同一件事说同一句话。
+	AnswerToolApproval func(context.Context, *agentrewire.ToolApprovalAnswerRequest) (*agentrewire.ToolApprovalAnswerResponse, error)
 }

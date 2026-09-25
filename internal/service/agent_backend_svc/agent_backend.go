@@ -206,6 +206,8 @@ func (s *agentBackendSvc) SetCLIOverlay(ctx context.Context, req *SetCLIOverlayR
 		}
 		sync_svc.NotifyUpdate(ctx, syncwire.KindAgentBackendCLI, overlay.ID, overlay.SyncMeta)
 	}
+	// 覆盖路径是后端文档的一部分（cliPath），刷的是后端设置。
+	sync_svc.NotifyConfigChanged(syncwire.KindAgentBackend)
 	status := "path"
 	if overlay.CLIPath != "" {
 		status = "recognized"
@@ -306,7 +308,7 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 	if b.IsOpenClaw() {
 		normalized, err := agent_backend_entity.NormalizeOpenClawGatewayURL(b.OpenClawGatewayURL)
 		if err != nil {
-			return nil, i18n.NewError(ctx, code.InvalidParameter)
+			return nil, wrapOpenClawGatewayURLErr(err)
 		}
 		b.OpenClawGatewayURL = normalized
 		if b.OpenClawSessionMode == "" {
@@ -355,6 +357,7 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 		}
 	}
 	sync_svc.NotifyCreate(ctx, syncwire.KindAgentBackend, b.ID, b.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgentBackend)
 	return &CreateBackendResponse{Item: s.toItem(ctx, b, provider)}, nil
 }
 
@@ -428,7 +431,7 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	if existing.IsOpenClaw() {
 		normalized, err := agent_backend_entity.NormalizeOpenClawGatewayURL(existing.OpenClawGatewayURL)
 		if err != nil {
-			return nil, i18n.NewError(ctx, code.InvalidParameter)
+			return nil, wrapOpenClawGatewayURLErr(err)
 		}
 		existing.OpenClawGatewayURL = normalized
 		if existing.OpenClawSessionMode == "" {
@@ -469,6 +472,7 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 		}
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindAgentBackend, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgentBackend)
 	return &UpdateBackendResponse{Item: s.toItem(ctx, existing, provider)}, nil
 }
 
@@ -724,6 +728,21 @@ func openClawDraftIssue(backend *agent_backend_entity.AgentBackend) *TestBackend
 	return nil
 }
 
+// OpenClawGatewayURLError keeps NormalizeOpenClawGatewayURL's specific rejection
+// reason (agent_backend_entity.ErrOpenClawGatewayURL*) instead of Create/Update
+// collapsing it into code.InvalidParameter's generic "参数错误". The text stays the
+// entity's reason only: this service also answers the GUI (Wails bindings), so naming
+// the agrctl --config field is the ctl boundary's job (ctl_svc backendWriter), which
+// recognizes the rejection by this type.
+type OpenClawGatewayURLError struct{ Err error }
+
+func (e *OpenClawGatewayURLError) Error() string { return e.Err.Error() }
+func (e *OpenClawGatewayURLError) Unwrap() error { return e.Err }
+
+func wrapOpenClawGatewayURLErr(err error) error {
+	return &OpenClawGatewayURLError{Err: err}
+}
+
 // resolveOpenClawRuntimeConfig is the only boundary that turns persisted
 // non-sensitive backend configuration plus keychain state into a live Gateway
 // client config. The returned token must never cross DTO or daemon wire types.
@@ -932,6 +951,7 @@ func (s *agentBackendSvc) Delete(ctx context.Context, req *DeleteBackendRequest)
 	// 凭据在后端绑定的那台设备上，尽力清除；设备离线不挡删除。
 	s.clearCredentialOnBoundDevice(ctx, existing)
 	sync_svc.NotifyDelete(ctx, syncwire.KindAgentBackend, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgentBackend)
 	return &DeleteBackendResponse{}, nil
 }
 
@@ -1173,6 +1193,8 @@ func (s *agentBackendSvc) buildItem(b *agent_backend_entity.AgentBackend, p *llm
 		HermesURL:             b.HermesURL,
 		HermesAuthProvider:    b.HermesAuthProvider,
 		HermesUserID:          b.HermesUserID,
+		ACPCommand:            b.ACPCommand,
+		ACPArgs:               b.ACPArgs,
 		Createtime:            b.Createtime,
 		Updatetime:            b.Updatetime,
 	}

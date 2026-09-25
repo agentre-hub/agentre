@@ -233,6 +233,25 @@
       "org_delete_agent": "Delete agent"
     }
   },
+  "ctlApproval": {
+    "title": "Config change",
+    "needsApproval": "Approval needed",
+    "op": {
+      "create": "Create",
+      "update": "Update",
+      "delete": "Delete"
+    },
+    "kind": {
+      "agent": "Agent",
+      "department": "Department",
+      "project": "Project",
+      "provider": "LLM provider",
+      "model": "Model",
+      "backend": "Backend"
+    },
+    "secretUpdated": "Updated (value hidden)",
+    "cascade": "--cascade: also deletes {{departments}} sub-department(s) and {{agents}} agent(s)"
+  },
   "slashCommands": {
     "aria": "Command and skill suggestions",
     "compact": {
