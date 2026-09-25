@@ -3,6 +3,7 @@ package agent_backend_svc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"runtime"
 	"slices"
@@ -308,7 +309,7 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 	if b.IsOpenClaw() {
 		normalized, err := agent_backend_entity.NormalizeOpenClawGatewayURL(b.OpenClawGatewayURL)
 		if err != nil {
-			return nil, i18n.NewError(ctx, code.InvalidParameter)
+			return nil, wrapOpenClawGatewayURLErr(err)
 		}
 		b.OpenClawGatewayURL = normalized
 		if b.OpenClawSessionMode == "" {
@@ -431,7 +432,7 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	if existing.IsOpenClaw() {
 		normalized, err := agent_backend_entity.NormalizeOpenClawGatewayURL(existing.OpenClawGatewayURL)
 		if err != nil {
-			return nil, i18n.NewError(ctx, code.InvalidParameter)
+			return nil, wrapOpenClawGatewayURLErr(err)
 		}
 		existing.OpenClawGatewayURL = normalized
 		if existing.OpenClawSessionMode == "" {
@@ -726,6 +727,21 @@ func openClawDraftIssue(backend *agent_backend_entity.AgentBackend) *TestBackend
 		return issue("OPENCLAW_SESSION_MODE_INVALID")
 	}
 	return nil
+}
+
+// openClawGatewayURLConfigField is the --config JSON key agrctl documents for this
+// value (agrctl help backend openclaw; also syncwire.AgentBackendConfig's json tag).
+const openClawGatewayURLConfigField = "openclawGatewayUrl"
+
+// wrapOpenClawGatewayURLErr keeps NormalizeOpenClawGatewayURL's specific rejection
+// reason (agent_backend_entity.ErrOpenClawGatewayURL*) instead of Create/Update
+// collapsing it into code.InvalidParameter's generic "参数错误", and names the
+// --config field it belongs to. Unlike the GUI's create/edit form — which calls
+// openClawDraftIssue before ever reaching the service — agrctl has no client-side
+// pre-validation, so this is the only place a bad/missing openclawGatewayUrl gets
+// explained instead of surfacing as an unreadable "参数错误".
+func wrapOpenClawGatewayURLErr(err error) error {
+	return fmt.Errorf("%w (--config %s)", err, openClawGatewayURLConfigField)
 }
 
 // resolveOpenClawRuntimeConfig is the only boundary that turns persisted
