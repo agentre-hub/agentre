@@ -39,7 +39,7 @@
 | 2 | 命令放在顶层，删掉 `ctl` 这一层；`send` 挪到顶层，行为不变；`ctl agents`/`ctl projects` 由 `list agents`/`list projects` 取代，不保留别名 | 用户决定；按首发处理，不留兼容包袱。Rejected: 挂在 `ctl` 下面 |
 | 3 | 五类资源一轮全做 | 用户决定。Rejected: 分两轮，先做组织和项目，再做提供方和后端 |
 | 4 | **谁拥有会话，请求就交给谁**：桌面端拥有的会话交给桌面端执行；控制台拥有、跑在 agentred 上的会话交给 server 执行；没有会话的调用只在桌面主机上支持 | 用户决定，本 spec 一并交付。审批留在拥有会话的一端，与现有的工具权限、提问、审批归属一致。Rejected: 只支持桌面主机；让 agrctl 以 server 为唯一后端——那样本机路径、本机钥匙串这类设备本地数据写不进去，离线的本地用户也不能用 |
-| 5 | 审批强度是护栏级：Agentre 会话注入会话级 token，写操作在该会话里审批；外部调用凭「stdin 不是 TTY」识别，走桌面端弹窗审批；人在 TTY 里直接执行，只有 `delete` 再问一次 y/N | 用户决定。同一系统用户下的 agent 能读到握手文件、也能伪造一个 pty，所以这只拦得住守规矩的 AI，文档要写明。Rejected: 握手 token 降为只读、所有写入都要桌面弹窗——这样 CLI 就不能在无人值守时写入 |
+| 5 | 审批强度是护栏级：Agentre 会话注入会话级 token，写操作在该会话里审批；外部调用凭「stdin 不是 TTY，或环境里带已知 agent CLI 的标记」识别，走桌面端弹窗审批；人在 TTY 里（且没有 agent 标记）直接执行，只有 `delete` 再问一次 y/N | 用户决定；agent 标记一条于 2026-09-24 修正轮 2 由用户补充（「识别 agent 环境」），因为 agent CLI 在 pty 里执行命令时 stdin 也是 TTY。同一系统用户下的 agent 能读到握手文件、也能伪造一个 pty，所以这只拦得住守规矩的 AI，文档要写明。Rejected: 握手 token 降为只读、所有写入都要桌面弹窗——这样 CLI 就不能在无人值守时写入 |
 | 6 | 审批卡用方案 B「变更清单卡」：完整命令，加上每项变更的操作、类型、名字和字段前后值；它仍然是 `tool_approval` 块，`toolKey` 为 `ctl` | 用户决定，见 mockup。仍用 `tool_approval` 块，控制台升级 pin 之前也能按旧的 JSON 卡降级显示。Rejected: 复用现有卡直接渲染 JSON |
 | 7 | 名字解析、flag 解析、输出格式、`help` 契约只在 agrctl 客户端实现；执行者只接受按 id 的操作和字段集合，字段前后值由执行者对照当前数据自己算 | 桌面端和 server 是两个 Go 模块，不能互相 import。把语义放在客户端，只需要实现一份。前后值不信任客户端，审批卡上显示的就是真实变更。Rejected: 两个执行者各实现一套名字解析 |
 | 8 | ctl 的请求和响应契约（资源文档、操作、变更清单）放进 `pkg/wire`，以 Protobuf 定义 | `pkg/wire` 是工作区里已经批准的跨仓 Go 共享物（`AGENTS.md`）。Rejected: 新增一个共享模块——违反跨仓不变量 |
@@ -94,7 +94,7 @@
 
 agrctl 按以下顺序确定调用方和执行者：
 1. 环境变量里有会话级 token：这是会话调用。
-2. 没有会话级 token：使用本机桌面端的握手 token。stdin 不是 TTY 时视为外部调用，是 TTY 时视为人工调用。
+2. 没有会话级 token：使用本机桌面端的握手 token。stdin 不是 TTY、或环境里带已知 agent CLI 的标记（如 `AI_AGENT`、`CLAUDECODE`、`GEMINI_CLI`、`OPENCODE`、`CODEX_SANDBOX`）时视为外部调用；是 TTY 且没有这些标记时视为人工调用。
 
 `help` 是纯客户端的，任何机器上都能用。`list`、`get` 对能连上执行者的调用方直接执行，不需要审批。写操作（`create`、`update`、`delete`）按下表处理；最后一行的限制同样适用于读操作。
 
@@ -103,8 +103,8 @@ agrctl 按以下顺序确定调用方和执行者：
 | 桌面主机上的 Agentre 会话（包括控制台派发到该桌面的会话） | 本机桌面端 | 在该会话的对话流里出一张 `ctl` 审批卡；桌面端和控制台都能答 |
 | 桌面端派发到 agentred 的会话 | agentred 本地的 ctl 代理经 `runtime.mcpProxy` 同一条连接转回拥有会话的桌面端 | 同上，卡片出现在桌面端的这个会话里 |
 | 控制台派发到 agentred 的会话 | agentred 本地的 ctl 代理转给 server 执行 | agentred 在自己的会话对话流里出 `ctl` 审批卡，控制台经 relay 作答；批准后 agentred 才把操作提交给 server |
-| 桌面主机上的外部调用（非 TTY、无会话 token） | 本机桌面端 | 桌面端全局审批弹窗 |
-| 桌面主机上的人工调用（TTY） | 本机桌面端 | 直接执行；`delete` 在终端里再问一次 y/N |
+| 桌面主机上的外部调用（非 TTY 或带 agent 标记、无会话 token） | 本机桌面端 | 桌面端全局审批弹窗 |
+| 桌面主机上的人工调用（TTY 且无 agent 标记） | 本机桌面端 | 直接执行；`delete` 在终端里再问一次 y/N |
 | agentred 主机上没有会话 token 的调用 | 无 | 退出码 1，说明在 agentred 主机上只有 Agentre 派发的会话能用 agrctl |
 
 **会话级 token：**
