@@ -663,6 +663,93 @@ func TestCtlProxy_GivenUpdateMovingToDeviceNamedAnotherAccountDevice_WithToken_T
 	assert.Empty(t, begun)
 }
 
+// server 解析 --device 时认账号级备注名(display_name,用户在控制台起的名字)与机器自报名
+// 两种(server ctl_svc state.resolveDevice)。agentred 这边判「是不是本机」必须与它同口径:
+// 只认 name 时,用控制台里起的名字 --device prod-box --token 会被当成别的机器,整条交
+// server 被拒。
+func TestCtlProxy_GivenCreateOpenClawWithTokenAndDeviceIsThisAgentredsDisplayName_WhenApproved_ThenTokenSavedLocally(t *testing.T) {
+	const alias = "prod-box"
+	server := &routedCtlServer{answer: func(path, body string) (int, string) {
+		switch {
+		case path == serverDevicesPath:
+			return 200, fmt.Sprintf(`{"devices":[{"name":"ip-10-0-0-7","display_name":%q,"fingerprint":%q}]}`, alias, string(ltSelf))
+		case path == serverResourcesPath+"?preview=1":
+			return 200, createPreview
+		case isGet(body):
+			return 200, clawDoc(string(ltSelf))
+		default:
+			return 200, createWritten
+		}
+	}}
+	creds := newMemCredentialState()
+	c, sink, tok, srv := consoleOwnedHere(t, server, creds)
+
+	done := make(chan ctlResult, 1)
+	go func() { done <- ctlPost(t, srv.URL+"/ctl/v1/resources", tok, createClawWrite(t, alias)) }()
+	approveNext(t, c, sink)
+	res := <-done
+
+	require.Equal(t, http.StatusOK, res.status, res.body)
+	saved, ok := creds.gatewayToken()
+	require.True(t, ok, "the account display name resolves to this agentred, so the token lands here")
+	assert.Equal(t, ltGatewayTok, saved)
+}
+
+// 与 server 同口径:名字在账号里撞了(本机与另一台同名)就不是本机——server 会以歧义拒绝,
+// 这里不能先挑第一行当成本机把 token 拆走。
+func TestCtlProxy_GivenCreateOpenClawWithTokenAndAmbiguousDeviceName_ThenNotSplitLocally(t *testing.T) {
+	const name = "box"
+	server := &routedCtlServer{answer: func(path, body string) (int, string) {
+		if path == serverDevicesPath {
+			return 200, fmt.Sprintf(`{"devices":[{"name":%q,"fingerprint":%q},{"name":%q,"fingerprint":%q}]}`,
+				name, string(ltSelf), name, ltOther)
+		}
+		return http.StatusBadRequest, `{"error":"device name \"box\" is ambiguous; use the device fingerprint"}`
+	}}
+	creds := newMemCredentialState()
+	_, sink, tok, srv := consoleOwnedHere(t, server, creds)
+
+	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/resources", tok, createClawWrite(t, name))
+
+	assert.Equal(t, http.StatusBadRequest, status)
+	_, ok := creds.gatewayToken()
+	assert.False(t, ok)
+	for _, call := range server.snapshot() {
+		if call.path == serverResourcesPath+"?preview=1" || call.path == serverResourcesPath {
+			assert.Contains(t, call.body, `"token"`, "an ambiguous name is not this agentred: the write goes to the server whole")
+		}
+	}
+	begun, _ := sink.snapshot()
+	assert.Empty(t, begun)
+}
+
+// 改绑定设备的那一支也只拆 openclaw 的 token:别的类型的后端改到本机时带 --token,整条交
+// server 由它拒绝,不能悄悄把一个它不认的 token 存进本机凭据。
+func TestCtlProxy_GivenUpdateMovingNonOpenClawBackendHereWithToken_ThenNotSavedLocallyAndServerDecides(t *testing.T) {
+	cliDoc := strings.Replace(clawDoc(ltOther), `"openclaw"`, `"claudecode"`, 1)
+	server := &routedCtlServer{answer: func(path, body string) (int, string) {
+		switch {
+		case isGet(body):
+			return 200, cliDoc
+		case strings.Contains(body, `"token"`):
+			return http.StatusUnprocessableEntity, `{"error":"claudecode backend field \"token\" cannot be written"}`
+		default:
+			return 200, `{"write":{"id":12,"name":"claw"}}`
+		}
+	}}
+	creds := newMemCredentialState()
+	_, sink, tok, srv := consoleOwnedHere(t, server, creds)
+
+	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/resources", tok,
+		tokenWrite(t, []string{"device", "token"}, &agentrewire.CtlBackend{Device: string(ltSelf), Token: ltGatewayTok}))
+
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	_, ok := creds.gatewayToken()
+	assert.False(t, ok)
+	begun, _ := sink.snapshot()
+	assert.Empty(t, begun)
+}
+
 // 同一条命令既改绑定设备又写 token:token 该落在哪台机器要等写完才知道,不在本机写,交
 // server 照旧拒绝 —— 不能把 token 写进一台后端即将不再运行的机器。
 func TestCtlProxy_GivenUpdateMovingDeviceWithToken_ThenNotWrittenLocallyAndServerDecides(t *testing.T) {

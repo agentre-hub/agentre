@@ -81,7 +81,7 @@ func (p *ctlProxy) planConsoleWrite(ctx context.Context, write *agentrewire.CtlW
 			// 的地方,不看它改之前绑在哪。doc.GetDevice() 可以是名字或指纹(规格
 			// 2026-09-22 agrctl-resource-management CtlBackend.device 的字段注释),
 			// 名字要问 server 才能确认是不是本机。
-			boundAfter = b != nil && p.selfDeviceMatches(ctx, doc.GetDevice())
+			boundAfter = p.localOpenClaw(b) && p.selfDeviceMatches(ctx, doc.GetDevice())
 		}
 		if !boundAfter {
 			return plan
@@ -133,11 +133,16 @@ func (p *ctlProxy) serverBackend(ctx context.Context, id int64) *agentrewire.Ctl
 	return resp.GetGet().GetResource().GetBackend()
 }
 
-// boundHere:openclaw 后端、有 syncId、绑定设备就是这台 agentred。
+// boundHere:本机能落 token 的 openclaw 后端(localOpenClaw),且绑定设备就是这台 agentred。
 func (p *ctlProxy) boundHere(b *agentrewire.CtlBackend) bool {
+	return p.localOpenClaw(b) && b.GetDeviceFingerprint() == string(p.deps.Self)
+}
+
+// localOpenClaw:token 能落本机凭据的前提——openclaw 后端、有 syncId(凭据按它记账)。
+// 不看绑定设备:改 device 的那一支按写完之后的新值另判。
+func (p *ctlProxy) localOpenClaw(b *agentrewire.CtlBackend) bool {
 	return b != nil && p.deps.Self != "" &&
-		b.GetType() == string(agent_backend_entity.TypeOpenClaw) && b.GetSyncId() != "" &&
-		b.GetDeviceFingerprint() == string(p.deps.Self)
+		b.GetType() == string(agent_backend_entity.TypeOpenClaw) && b.GetSyncId() != ""
 }
 
 // selfDeviceMatches:CtlBackend.device 可以是空(本机)、这台 agentred 自己的指纹,或者
@@ -147,6 +152,7 @@ func (p *ctlProxy) boundHere(b *agentrewire.CtlBackend) bool {
 // server。问不到、解不开、或者名字根本不在列表里,一律按「不是本机」收场(维持写入
 // 原样交 server 的既有行为,而不是冒然当成本机)。
 func (p *ctlProxy) selfDeviceMatches(ctx context.Context, device string) bool {
+	device = strings.TrimSpace(device)
 	if device == "" || device == string(p.deps.Self) {
 		return true
 	}
@@ -160,18 +166,22 @@ func (p *ctlProxy) selfDeviceMatches(ctx context.Context, device string) bool {
 	var body struct {
 		Devices []struct {
 			Name        string `json:"name"`
+			DisplayName string `json:"display_name"`
 			Fingerprint string `json:"fingerprint"`
 		} `json:"devices"`
 	}
 	if err := cagoenvelope.Decode(raw, &body); err != nil {
 		return false
 	}
+	// 与 server 解析 device 同口径(ctl_svc state.resolveDevice):账号级备注名与机器自报名
+	// 都算;名字撞了是歧义,server 会拒绝,这里也不当成本机。
+	var hits []string
 	for _, d := range body.Devices {
-		if d.Name == device {
-			return d.Fingerprint == string(p.deps.Self)
+		if d.Name == device || (d.DisplayName != "" && d.DisplayName == device) {
+			hits = append(hits, d.Fingerprint)
 		}
 	}
-	return false
+	return len(hits) == 1 && hits[0] == string(p.deps.Self)
 }
 
 // markChanged 在变更清单里给这个后端补一行 secret 的 token(只说「已更新」,不带值);

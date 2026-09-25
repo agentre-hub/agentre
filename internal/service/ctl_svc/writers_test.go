@@ -394,9 +394,26 @@ func TestBackendWriter(t *testing.T) {
 		m := newMockPorts(t)
 		m.devices.EXPECT().List(gomock.Any()).Return(nil, nil)
 		m.devices.EXPECT().EnsureFromAccount(gomock.Any()).Return("my-mac", true, nil)
+		m.devices.EXPECT().List(gomock.Any()).Return(nil, nil)
 		fp, err := backendWriter{m.ports}.deviceID(ctx, "my-mac")
 		require.NoError(t, err)
 		assert.Equal(t, "", fp, "本机自己的名字不需要指纹")
+	})
+	t.Run("本桌面的名字与刚收养的 agentred 同名 → 解析成那台 agentred，与收养之后再解析的结果一致", func(t *testing.T) {
+		// 第一次解析时收养了同名 agentred；之后每次解析都在本地目录里直接命中它、不再问
+		// 账号。第一次若先认本机，同一条命令前后两次会落到两台不同的机器上。
+		m := newMockPorts(t)
+		m.devices.EXPECT().List(gomock.Any()).Return(nil, nil)
+		m.devices.EXPECT().EnsureFromAccount(gomock.Any()).Return("box", true, nil)
+		m.devices.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
+			{Name: "box", DaemonFingerprint: "sha256:adopted"},
+		}, nil).Times(2)
+		first, err := backendWriter{m.ports}.deviceID(ctx, "box")
+		require.NoError(t, err)
+		second, err := backendWriter{m.ports}.deviceID(ctx, "box")
+		require.NoError(t, err)
+		assert.Equal(t, "sha256:adopted", first)
+		assert.Equal(t, second, first)
 	})
 	t.Run("向账号补拉失败时把错误原样交给调用方", func(t *testing.T) {
 		m := newMockPorts(t)

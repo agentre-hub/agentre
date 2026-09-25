@@ -3,6 +3,7 @@ package remote_device_svc
 import (
 	"context"
 
+	"github.com/agentre-hub/agentre/internal/service/server_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -76,6 +77,10 @@ type RemoteDeviceSvc interface {
 	// 一行的展示名。App.ServerListDevices（前端刷新设备面板）与 ctl 解析
 	// --device 找不到本地记录时共用这一处实现，互不各自重复翻译。
 	EnsureFromAccount(ctx context.Context) (selfName string, ok bool, err error)
+	// AdoptListedDevices 收编一份已经拉到手的账号设备清单（EnsureFromAccount 的后半段，
+	// 见 ensure_from_account.go）。App.ServerListDevices 手里本来就有清单，调它而不是
+	// EnsureFromAccount，一次刷新只向 server 拉一次。
+	AdoptListedDevices(ctx context.Context, devices []server_svc.Device) (selfName string, ok bool, err error)
 	// DiscardAdoptedDevices 去掉全部收编来的行，返回台数。登出时调用：那些行的依据
 	// 就是「账号说有这台机器」，账号断了依据就没了（见 adopt.go）。
 	DiscardAdoptedDevices(ctx context.Context) (int, error)

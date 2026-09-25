@@ -36,35 +36,29 @@ const ctlServerTimeout = 30 * time.Second
 
 // Post 把一次 ctl 请求交给 server,返回它的状态码与正文(非 2xx 也原样交回,由代理透传)。
 func (c *CtlServerClient) Post(ctx context.Context, pathAndQuery string, body []byte) (int, []byte, error) {
-	status, raw, err := c.post(ctx, pathAndQuery, body)
-	if errors.Is(err, errCtlServerUnauthorized) && c.Refresh != nil {
-		if rerr := c.Refresh(ctx); rerr != nil {
-			return 0, nil, fmt.Errorf("refresh device credential: %w", rerr)
-		}
-		status, raw, err = c.post(ctx, pathAndQuery, body)
-	}
-	return status, raw, err
-}
-
-func (c *CtlServerClient) post(ctx context.Context, pathAndQuery string, body []byte) (int, []byte, error) {
-	return c.do(ctx, http.MethodPost, pathAndQuery, bytes.NewReader(body))
+	return c.withRefresh(ctx, func() (int, []byte, error) {
+		return c.do(ctx, http.MethodPost, pathAndQuery, bytes.NewReader(body))
+	})
 }
 
 // Get 是 Post 的只读版本(同一份设备 Bearer 凭据,同样的单飞 401 刷新),用于
 // serverDevicesPath 这类不写正文的请求。
 func (c *CtlServerClient) Get(ctx context.Context, pathAndQuery string) (int, []byte, error) {
-	status, raw, err := c.get(ctx, pathAndQuery)
+	return c.withRefresh(ctx, func() (int, []byte, error) {
+		return c.do(ctx, http.MethodGet, pathAndQuery, nil)
+	})
+}
+
+// withRefresh 发一次;被拒为设备凭据失效时刷新一次再发一次。
+func (c *CtlServerClient) withRefresh(ctx context.Context, send func() (int, []byte, error)) (int, []byte, error) {
+	status, raw, err := send()
 	if errors.Is(err, errCtlServerUnauthorized) && c.Refresh != nil {
 		if rerr := c.Refresh(ctx); rerr != nil {
 			return 0, nil, fmt.Errorf("refresh device credential: %w", rerr)
 		}
-		status, raw, err = c.get(ctx, pathAndQuery)
+		status, raw, err = send()
 	}
 	return status, raw, err
-}
-
-func (c *CtlServerClient) get(ctx context.Context, pathAndQuery string) (int, []byte, error) {
-	return c.do(ctx, http.MethodGet, pathAndQuery, nil)
 }
 
 func (c *CtlServerClient) do(ctx context.Context, method, pathAndQuery string, body io.Reader) (int, []byte, error) {

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -111,8 +112,13 @@ func isAgentredHost() bool {
 // 错误。端点取自桌面握手文件、而本机是 agentred 主机时，拨不通只说明那是桌面端停掉后留下的
 // 陈旧握手文件——回落到与压根没有握手文件时同一句提示。端点来自 flag 或会话注入的环境变量
 // 时（agentred 上的 Agentre 派发会话）那句「没有会话 token」是假的，保留原始拨号错误。
+// 只认真正的拨号失败（net.OpError 的 dial）：连上之后被取消、超时或断开说明那头的桌面
+// 是活的，握手文件并不陈旧。
 func (e Endpoint) dialFailure(err error) error {
-	if e.baseFromHandshake && isAgentredHost() {
+	var opErr *net.OpError
+	couldNotDial := errors.As(err, &opErr) && opErr.Op == "dial" &&
+		!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
+	if e.baseFromHandshake && couldNotDial && isAgentredHost() {
 		return errAgentredHostNoSession
 	}
 	return fmt.Errorf("connect to desktop: %w", err)

@@ -541,7 +541,8 @@ func (w backendWriter) modelKey(ctx context.Context, id int64) (string, error) {
 // 先向账号补拉一次设备清单并收养（remote_device_svc.EnsureFromAccount，与
 // App.ServerListDevices 同一实现）再重试一次，不必等前端先打开过设备面板才认得出
 // 账号里已有、本机还没本地记录的 agentred；命中的正是本机自己的名字则直接解析成
-// 本机（空指纹），不需要它出现在本地配对目录里（桌面端本就不会被收编进去）。
+// 本机（空指纹），不需要它出现在本地配对目录里（桌面端本就不会被收编进去）；与本地
+// 目录里的设备同名时本地目录优先。
 func (w backendWriter) deviceID(ctx context.Context, device string) (string, error) {
 	device = strings.TrimSpace(device)
 	if device == "" || strings.HasPrefix(device, "sha256:") {
@@ -557,11 +558,13 @@ func (w backendWriter) deviceID(ctx context.Context, device string) (string, err
 		if eerr != nil {
 			return "", eerr
 		}
-		if ok && selfName == device {
-			return "", nil
-		}
 		if views, err = matchDeviceName(ctx, dir, device); err != nil {
 			return "", err
+		}
+		// 本地目录优先于本机名：刚收养的同名 agentred 此后每次都在上面第一次 List 里
+		// 直接命中，这一次若先认本机，同一条命令前后两次会落到两台机器上。
+		if len(views) == 0 && ok && selfName == device {
+			return "", nil
 		}
 	}
 	switch len(views) {

@@ -1,7 +1,11 @@
 package ctlclient
 
 import (
+	"context"
+	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -204,5 +208,46 @@ func TestGet_SessionEndpointUnreachableOnAgentredHostKeepsDialError(t *testing.T
 	}
 	if !strings.Contains(err.Error(), "connect to") {
 		t.Fatalf("err = %q, want the dial error kept", err.Error())
+	}
+}
+
+// TestPostRaw_CancelledRequestToLiveHandshakeEndpointOnAgentredHostKeepsCancellation：握手端点
+// 是活的（桌面在跑，机器上同时装着 agentred），请求在等答复时被调用方取消。那不是「拨不通」，
+// 不能套「这台 agentred 上没有会话」那句提示——只有真正的拨号失败才说明握手文件是陈旧的。
+func TestPostRaw_CancelledRequestToLiveHandshakeEndpointOnAgentredHostKeepsCancellation(t *testing.T) {
+	agentredDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(agentredDir, "state.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTRED_DATA_DIR", agentredDir)
+
+	arrived, release := make(chan struct{}), make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(arrived)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) }) // 先于 srv.Close 跑：别让挂着的处理器把关服务卡住
+	desktopDir := t.TempDir()
+	if err := ctlendpoint.Write(desktopDir, ctlendpoint.Endpoint{URL: srv.URL, Token: "live-token"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTRE_DATA_DIR", desktopDir)
+
+	ep, err := Resolve("", "", envOf(nil))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { <-arrived; cancel() }()
+	_, err = ep.PostRaw(ctx, "/ctl/v1/resources", []byte(`{}`))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want the cancellation kept", err)
+	}
+	if strings.Contains(err.Error(), "no session token found") {
+		t.Fatalf("err = %q, a canceled request to a live desktop is not a stale handshake file", err.Error())
 	}
 }
