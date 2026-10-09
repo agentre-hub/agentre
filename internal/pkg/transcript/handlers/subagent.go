@@ -142,18 +142,14 @@ func (SubagentStartedHandler) Apply(ctx context.Context, ev agentruntime.Event, 
 	if status == "" {
 		status = "running"
 	}
-	if owner, resumed := adoptCrossTurnResume(ctx, r, status, tc); resumed {
-		if emit != nil {
-			emit.Emit(ctx, streamOf(tc), map[string]any{
-				"kind":      "subagent_started",
-				"toolUseId": owner,
-				"info":      r.Info,
-			})
-		}
-		return nil
+	// 先认本轮的 overlay,再去库里找更早的卡:本轮已有这个 task 的卡时,它就是原卡,
+	// 收尾时随本条消息一起落库;此时再查库推回运行态,改的是一份马上会被覆盖的旧行。
+	owner, resumed := adoptResumedSubagent(acc, r, status)
+	if !resumed {
+		owner, resumed = adoptCrossTurnResume(ctx, r, status, tc)
 	}
-	if owner, resumed := adoptResumedSubagent(acc, r, status); resumed {
-		// 恢复重开:同一个 task 换了 tool call,已认领到原卡上,不另起第二块。
+	if resumed {
+		// 恢复 / 重开:同一个 task 的又一段,已认领到原卡上,不另起第二块。
 		if emit != nil {
 			emit.Emit(ctx, streamOf(tc), map[string]any{
 				"kind":      "subagent_started",
@@ -184,7 +180,8 @@ func (SubagentStartedHandler) Apply(ctx context.Context, ev agentruntime.Event, 
 	return nil
 }
 
-// adoptResumedSubagent 认领「同一个 task_id、新的 tool_use_id」的 task_started。
+// adoptResumedSubagent 认领本轮已有 overlay 的那个 task 再发的 task_started —— 无论它换了
+// 新的 tool_use_id(SendMessage 恢复),还是沿用原来那个(完成后被继续,sess-4198)。
 //
 // CLI 恢复一个子代理(SendMessage)时不会新起一个 task,而是用原 task_id 重发一遍
 // task_started/task_notification,只换 tool_use_id(sess-3504 实测)。overlay 若只按
@@ -205,7 +202,7 @@ func adoptResumedSubagent(acc *turn.Accumulator, r agentruntime.SubagentStarted,
 	}
 	hit := turn.AdoptMutateKey(acc, "subagent_state:"+r.ToolCallID,
 		func(b *blocks.SubagentStateBlock) bool {
-			return b.TaskID == r.Info.TaskID && b.ParentToolCallID != r.ToolCallID
+			return b.TaskID == r.Info.TaskID
 		},
 		func(b *blocks.SubagentStateBlock) {
 			b.Resumes = append(b.Resumes, blocks.SubagentInterruption{
@@ -225,11 +222,11 @@ func adoptResumedSubagent(acc *turn.Accumulator, r agentruntime.SubagentStarted,
 // adoptResumedSubagent 够不着它。按 task_id 让仓储把它推回运行态,并把本轮这个新
 // tool call 记成它的别名,后续 done 帧才翻得到原卡而不是凭空造一张。
 //
-// 只在本轮确实没有这个 task 的 overlay 时才走(调用点排在 adoptResumedSubagent 之前
-// 但两者互斥:同轮命中时仓储那次查询根本不会发生 —— 见下面的 acc 判空)。
+// 只在本轮确实没有这个 task 的 overlay 时才走:调用点先试 adoptResumedSubagent,命中就
+// 不会发生这次仓储查询。
 //
-// 重放误伤不成立:实测 685 帧 task_started 零个完全重复(--resume 不重放它);即便
-// 重放,它带的是原来那个 tool_use_id,交回的 owner 与它自身相等,不记别名也不算恢复。
+// CLI 会用同一个 task、同一个 tool_use_id 再发 task_started(后台 subagent 完成后被继续,
+// sess-4198 实测同一 task 最多三遍)。那也是认领:交回的 owner 与它自身相等,不记别名。
 func adoptCrossTurnResume(
 	ctx context.Context, r agentruntime.SubagentStarted, status string, tc *turn.TurnContext,
 ) (owner string, resumed bool) {
@@ -242,10 +239,15 @@ func adoptCrossTurnResume(
 			zap.String("taskId", r.Info.TaskID), zap.Error(err))
 		return "", false
 	}
-	if got == "" || got == r.ToolCallID {
+	if got == "" {
 		return "", false
 	}
-	tc.AliasSubagentToolCall(r.ToolCallID, got)
+	// 同一个 tool call 的重开(got == r.ToolCallID)同样是认领:原卡已被推回运行态,
+	// 本轮不能再起一块副本,否则完成帧只翻副本、原卡永远停在 running(sess-4198)。
+	// 它不需要别名 —— 完成帧带的就是原卡的 tool call,落空后直接跨消息翻到原卡上。
+	if got != r.ToolCallID {
+		tc.AliasSubagentToolCall(r.ToolCallID, got)
+	}
 	return got, true
 }
 
@@ -405,7 +407,8 @@ func flipSubagentOutsideTurn(
 	if status == "" {
 		status = "completed" // 与命中路径同一默认,否则空 status 会被 flipper 直接丢弃
 	}
-	// 跨轮恢复过的 task:本轮这个新 tool call 是原卡的别名,终态要翻在原卡上。
+	// 跨轮恢复过的 task:本轮这个新 tool call 是原卡的别名,终态要翻在原卡上。恢复若发生在
+	// 更早的轮里,别名已随那一轮丢失,只能靠 task_id 让 flipper 找回原卡(sess-4198)。
 	return tc.SubagentFlipper.FlipSubagentStatus(
-		ctx, tc.ResolveSubagentToolCall(r.ToolCallID), status, r.Info.Summary)
+		ctx, tc.ResolveSubagentToolCall(r.ToolCallID), r.Info.TaskID, status, r.Info.Summary)
 }

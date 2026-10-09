@@ -221,14 +221,20 @@ type subagentFlipperAdapter struct {
 	stream string
 }
 
-func (a subagentFlipperAdapter) FlipSubagentStatus(ctx context.Context, toolCallID, status, summary string) error {
+func (a subagentFlipperAdapter) FlipSubagentStatus(ctx context.Context, toolCallID, taskID, status, summary string) error {
 	if a.svc == nil || a.sess == nil || a.sess.ID <= 0 || toolCallID == "" {
 		return nil
 	}
 	// summary 是 CLI task_notification.summary(成功时子代理交回的报告,失败时中断
 	// 原因)。空串读作「这一帧没带」,FlipSubagentStatus 对空 summary 保持原值不动。
-	if err := transcript_repo.Message().FlipSubagentStatus(ctx, a.sess.ID, toolCallID, status, summary); err != nil {
+	flipped, err := transcript_repo.Message().FlipSubagentStatus(ctx, a.sess.ID, toolCallID, taskID, status, summary)
+	if err != nil {
 		return err
+	}
+	// 仓储可能是按 task_id 找回的原卡(恢复段带的是新 tool call):镜像与 bgRunning 都得
+	// 报那张卡,前端才找得到它,胶囊也才会收敛。
+	if flipped != "" {
+		toolCallID = flipped
 	}
 	// 镜像到**会话级**流:派遣卡随更早那条消息早已落库,不在任何 liveBlocks 里,
 	// per-turn 流那一路合并必然落空(同 subagentActivityEmitter 的理由)。

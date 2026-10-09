@@ -517,16 +517,20 @@ func (t *autonomousTurnRun) finalize(ctx context.Context) {
 		zap.String("agentStatus", t.sess.AgentStatus))
 
 	// 后台命令在本自主轮才完成:它发起的 subagent_state 块住在更早的消息里,过不了
-	// per-turn accumulator,只能定向重写持久化态。completedRef 为 nil(含 remote
-	// 不携带 CompletedTask 的情形)时跳过。
+	// per-turn accumulator,只能定向重写持久化态。与「完成帧落在别人的轮里」同一条路收尾
+	// (落库 → 按实际翻到的那张卡镜像 → 收敛 bgRunning):SendMessage 恢复的那一段带的是
+	// 新 tool call,仓储要靠 task_id 找回原卡,界面也得按原卡的 id 翻(sess-4198)。
+	// completedRef 为 nil(含 remote 不携带 CompletedTask 的情形)时跳过。
 	if t.completedRef != nil {
-		if err := transcript_repo.Message().FlipSubagentStatus(finalCtx, t.sessionID, t.completedRef.ToolCallID, t.completedRef.Status, t.completedRef.Summary); err != nil {
+		flipper := subagentFlipperAdapter{svc: t.svc, sess: t.sess, stream: t.stream}
+		// completedRef 只在 at.CompletedTask 非空时建立,task_id 直接从那里取。
+		if err := flipper.FlipSubagentStatus(finalCtx, t.completedRef.ToolCallID, t.at.CompletedTask.TaskID,
+			t.completedRef.Status, t.completedRef.Summary); err != nil {
 			logger.Ctx(finalCtx).Warn("chat_svc.driveAutonomousTurn: FlipSubagentStatus failed",
 				zap.Int64("sessionId", t.sessionID),
 				zap.String("toolUseId", t.completedRef.ToolCallID),
 				zap.Error(err))
 		}
-		t.svc.reconcileBgRunningOnComplete(finalCtx, t.sess, t.completedRef.ToolCallID, t.stream)
 	}
 
 	final := chatMessageForEvent(t.sess, t.assistantMsg)

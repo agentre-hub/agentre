@@ -905,8 +905,8 @@ func TestDriveAutonomousTurn_BackgroundTaskCompletionFlipsAndEmits(t *testing.T)
 
 		// 关键断言:finalize 后定向翻转上一条消息里的 subagent_state（含 summary）。
 		m.message.EXPECT().
-			FlipSubagentStatus(gomock.Any(), int64(100), "tu1", "completed", "Background command completed").
-			Return(nil).Times(1)
+			FlipSubagentStatus(gomock.Any(), int64(100), "tu1", "", "completed", "Background command completed").
+			Return("tu1", nil).Times(1)
 
 		evs := make(chan agentruntime.Event, 1)
 		evs <- agentruntime.TextDelta{Text: "autonomous:done"}
@@ -943,6 +943,57 @@ func TestDriveAutonomousTurn_BackgroundTaskCompletionFlipsAndEmits(t *testing.T)
 			assert.Equal(t, "completed", started.CompletedTask.Status)
 			assert.Equal(t, "Background command completed", started.CompletedTask.Summary)
 		})
+	})
+}
+
+// TestDriveAutonomousTurn_CompletionOfAResumedTask_FlipsTheOriginalCard 是 sess-4198 的回归:
+// SendMessage 恢复的那一段完成时,通知带的是恢复那次的新 tool call;恢复若发生在更早的轮里,
+// 库里没有挂在它上面的卡。自主轮必须把 task_id 交给仓储去找回原卡,并按原卡的 id 通知
+// 界面 —— 否则原卡被恢复推回 running 后永远停在那。
+func TestDriveAutonomousTurn_CompletionOfAResumedTask_FlipsTheOriginalCard(t *testing.T) {
+	convey.Convey("恢复段的完成自主轮按 task_id 翻原卡并按原卡 id 镜像", t, func() {
+		m := setupChatTest(t)
+		ctx := m.ctx
+
+		sess := &chat_entity.Session{ID: 100, AgentID: 7, AgentStatus: "idle", ProviderSessionID: "sess-abc"}
+		be := &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"}
+
+		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
+		m.dbMock.ExpectBegin()
+		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil)
+		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				msg.ID = 2001
+				return nil
+			}).Times(1)
+		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.dbMock.ExpectCommit()
+		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+		m.message.EXPECT().
+			FlipSubagentStatus(gomock.Any(), int64(100), "tu-B", "T", "completed", "报告").
+			Return("tu-A", nil).Times(1)
+
+		evs := make(chan agentruntime.Event)
+		close(evs)
+		chat_svc.DriveAutonomousTurnForTest(ctx, m.svc, 100, be, agentruntime.AutonomousTurn{
+			Events:  evs,
+			Result:  &agentruntime.RunResult{ProviderSessionID: "sess-abc"},
+			Trigger: "background_task",
+			CompletedTask: &agentruntime.CompletedBackgroundTask{
+				ToolCallID: "tu-B", TaskID: "T", Status: "completed", Summary: "报告",
+			},
+		})
+
+		var done *chat_svc.ChatStreamEvent
+		for _, ev := range m.events {
+			if p, ok := ev.Payload.(chat_svc.ChatStreamEvent); ok && p.Kind == chat_svc.StreamSubagentDone {
+				cp := p
+				done = &cp
+			}
+		}
+		require.NotNil(t, done, "应通知界面翻转那张卡")
+		assert.Equal(t, "tu-A", done.ToolCallID)
 	})
 }
 

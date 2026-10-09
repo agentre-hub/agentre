@@ -303,7 +303,7 @@ func (s *chatSvc) StopBackgroundTask(ctx context.Context, req *StopBackgroundTas
 	}
 
 	// 主动翻 canceled(summary 留空:不写后端硬编码文案,「已停止」由前端 StatusPill 出 i18n)。
-	if ferr := transcript_repo.Message().FlipSubagentStatus(ctx, req.SessionID, req.ToolCallID, "canceled", ""); ferr != nil {
+	if _, ferr := transcript_repo.Message().FlipSubagentStatus(ctx, req.SessionID, req.ToolCallID, "", "canceled", ""); ferr != nil {
 		logger.Ctx(ctx).Warn("chat_svc.StopBackgroundTask: flip subagent_state failed",
 			zap.Int64("sessionId", req.SessionID),
 			zap.String("toolUseId", req.ToolCallID),

@@ -106,7 +106,8 @@ func (tc *TurnContext) ResolveSubagentToolCall(toolCallID string) string {
 type SubagentFlipper interface {
 	// FlipSubagentStatus 把该 tool call 的派遣卡改成 status;summary 非空时一并写入
 	// (CLI task_notification.summary —— 成功时是子代理交回的报告,失败时是中断原因)。
-	FlipSubagentStatus(ctx context.Context, toolCallID, status, summary string) error
+	// taskID 是 CLI task_id,toolCallID 找不到那张卡时据此定位。
+	FlipSubagentStatus(ctx context.Context, toolCallID, taskID, status, summary string) error
 	// ResumeSubagentByTaskID 按 CLI task_id 把更早那条消息里的派遣卡推回运行态,交回
 	// 它所在的 tool_call_id;找不到交回空串。
 	//

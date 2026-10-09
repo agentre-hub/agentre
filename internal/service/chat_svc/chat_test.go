@@ -10717,7 +10717,7 @@ func TestStopBackgroundTask_SuccessFlipsCanceled(t *testing.T) {
 			&agent_entity.Agent{ID: 7, AgentBackendID: 3, Status: consts.ACTIVE}, nil)
 		m.backend.EXPECT().Find(m.ctx, int64(3)).Return(
 			&agent_backend_entity.AgentBackend{ID: 3, Type: string(agent_backend_entity.TypeClaudeCode), Status: consts.ACTIVE}, nil)
-		m.message.EXPECT().FlipSubagentStatus(m.ctx, int64(42), "tu1", "canceled", "").Return(nil)
+		m.message.EXPECT().FlipSubagentStatus(m.ctx, int64(42), "tu1", "", "canceled", "").Return("tu1", nil)
 
 		resp, err := m.svc.StopBackgroundTask(m.ctx, &chat_svc.StopBackgroundTaskRequest{SessionID: 42, ToolCallID: "tu1"})
 		assert.NoError(t, err)

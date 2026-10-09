@@ -80,7 +80,7 @@ func TestStopBackgroundTask_NoOverlayButRuntimeKnowsTask(t *testing.T) {
 
 		expectStopBgBackend(m, 42)
 		m.message.EXPECT().FindSubagentState(m.ctx, int64(42), "tu1").Return("", "", false, nil)
-		m.message.EXPECT().FlipSubagentStatus(m.ctx, int64(42), "tu1", "canceled", "").Return(nil)
+		m.message.EXPECT().FlipSubagentStatus(m.ctx, int64(42), "tu1", "", "canceled", "").Return("tu1", nil)
 
 		resp, err := m.svc.StopBackgroundTask(m.ctx, &chat_svc.StopBackgroundTaskRequest{SessionID: 42, ToolCallID: "tu1"})
 
@@ -127,7 +127,7 @@ func TestStopBackgroundTask_RuntimeTaskIDWinsOverOverlay(t *testing.T) {
 
 		expectStopBgBackend(m, 42)
 		m.message.EXPECT().FindSubagentState(m.ctx, int64(42), "tu1").Return("b0stale", "running", true, nil)
-		m.message.EXPECT().FlipSubagentStatus(m.ctx, int64(42), "tu1", "canceled", "").Return(nil)
+		m.message.EXPECT().FlipSubagentStatus(m.ctx, int64(42), "tu1", "", "canceled", "").Return("tu1", nil)
 
 		resp, err := m.svc.StopBackgroundTask(m.ctx, &chat_svc.StopBackgroundTaskRequest{SessionID: 42, ToolCallID: "tu1"})
 
@@ -149,7 +149,7 @@ func TestStopBackgroundTask_RunnerWithoutResolverFallsBackToOverlay(t *testing.T
 
 		expectStopBgBackend(m, 42)
 		m.message.EXPECT().FindSubagentState(m.ctx, int64(42), "tu1").Return("b0n82mqaj", "running", true, nil)
-		m.message.EXPECT().FlipSubagentStatus(m.ctx, int64(42), "tu1", "canceled", "").Return(nil)
+		m.message.EXPECT().FlipSubagentStatus(m.ctx, int64(42), "tu1", "", "canceled", "").Return("tu1", nil)
 
 		resp, err := m.svc.StopBackgroundTask(m.ctx, &chat_svc.StopBackgroundTaskRequest{SessionID: 42, ToolCallID: "tu1"})
 

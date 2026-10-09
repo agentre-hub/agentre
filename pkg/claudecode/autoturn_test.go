@@ -17,6 +17,15 @@ func TestNormalizeTaskStatus(t *testing.T) {
 	assert.Equal(t, "", normalizeTaskStatus(""))
 }
 
+// TestNormalizeTaskStatus_StoppedAndKilled 是 sess-4198 的回归:CLI 用 "stopped"
+// (会话结束时没跑完 / 被 TaskStop 停掉)和 "killed" 报告被中止的任务。它们原样透传进
+// SubagentStateBlock 后,前端不认识这两个值,一律当 running,后台任务胶囊就一直显示
+// 「运行中」。它们和 cancelled 是同一个终态,在同一条边界归一。
+func TestNormalizeTaskStatus_StoppedAndKilled(t *testing.T) {
+	assert.Equal(t, "canceled", normalizeTaskStatus("stopped"))
+	assert.Equal(t, "canceled", normalizeTaskStatus("killed"))
+}
+
 // TestIsBackgroundTaskNotification 钉死后台型 task_notification 的辨析 —— 它是自主续轮
 // 的起始标记(有 output_file、无 subagent_type)。真实 CLI 2.1.185 抓帧显示:后台 bash
 // 与 run_in_background 子 agent 的「完成」通知都是后台型(都带 output_file、都不带

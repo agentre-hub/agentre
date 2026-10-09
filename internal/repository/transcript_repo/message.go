@@ -90,8 +90,11 @@ type MessageRepo interface {
 	DeleteFromSeq(ctx context.Context, sessionID int64, fromSeq int) (int64, error)
 	// FlipSubagentStatus 定向把本会话里 tool_call_id==toolCallID 的 subagent_state 块状态改成
 	// status(后台 bash 在之后的自主轮才完成,无法走 per-turn accumulator)。summary 非空时
-	// 同时写入块的 summary 字段。找不到则静默返回 nil(任务可能已 evict / 非本会话)。
-	FlipSubagentStatus(ctx context.Context, sessionID int64, toolCallID, status, summary string) error
+	// 同时写入块的 summary 字段。toolCallID 找不到卡且 taskID 非空时,按 CLI task_id 找回
+	// 原卡 —— SendMessage 恢复的那一段带的是新 tool call,恢复与完成落在不同的轮里时
+	// 只剩 task_id 能认出它。交回实际翻转的那张卡的 tool_call_id;都找不到则静默交回
+	// ("", nil)(任务可能已 evict / 非本会话)。
+	FlipSubagentStatus(ctx context.Context, sessionID int64, toolCallID, taskID, status, summary string) (string, error)
 	// ResumeSubagentByTaskID 按 CLI task_id 把本会话里承载它的 subagent_state 块推回运行态,
 	// 交回该块的 tool_call_id(调用方据此把恢复段的新 tool call 路由到原卡)。
 	//
@@ -386,12 +389,12 @@ func SubagentStateFromBlockData(data []byte) (string, string, error) {
 
 // rewriteSubagentBlock 按定位键点查后台任务发起卡所在的 subagent_state 块,把 rewrite
 // 改写后的正文写回**那一个块行**,不再读出并重写宿主消息的全部块。rewrite 返回
-// (重写后的正文, 是否改写过, error)。命中不到目标块时静默返回 nil:任务可能已
+// (重写后的正文, 是否改写过, error)。命中不到目标块时静默返回 (false, nil):任务可能已
 // evict / 非本会话。
 func (r *messageRepo) rewriteSubagentBlock(
 	ctx context.Context, sessionID int64, toolCallID string,
 	rewrite func(data []byte) ([]byte, bool, error),
-) error {
+) (bool, error) {
 	// serialize read-modify-write per session to avoid lost-update races between
 	// FlipSubagentStatus / PatchSubagentProgress / AppendSubagentChildren.
 	mu := lockForSession(sessionID)
@@ -400,8 +403,16 @@ func (r *messageRepo) rewriteSubagentBlock(
 
 	row, err := findSubagentStateBlock(ctx, sessionID, toolCallID)
 	if err != nil || row == nil {
-		return err
+		return false, err
 	}
+	return true, rewriteBlockRow(ctx, row, rewrite)
+}
+
+// rewriteBlockRow 解出一个块行的正文交给 rewrite,改写过才写回。
+func rewriteBlockRow(
+	ctx context.Context, row *transcript_entity.MessageBlock,
+	rewrite func(data []byte) ([]byte, bool, error),
+) error {
 	data, err := transcript_entity.DecodeBlockData(row.Codec, row.Data)
 	if err != nil {
 		return err
@@ -416,16 +427,66 @@ func (r *messageRepo) rewriteSubagentBlock(
 	return updateBlockData(ctx, row, rewritten)
 }
 
-func (r *messageRepo) FlipSubagentStatus(ctx context.Context, sessionID int64, toolCallID, status, summary string) error {
+func (r *messageRepo) FlipSubagentStatus(
+	ctx context.Context, sessionID int64, toolCallID, taskID, status, summary string,
+) (string, error) {
 	if toolCallID == "" || status == "" {
-		return nil
+		return "", nil
 	}
 	logger.Ctx(ctx).Info("chat_repo.FlipSubagentStatus: flipping subagent_state status",
 		zap.Int64("sessionId", sessionID), zap.String("toolUseId", toolCallID), zap.String("status", status))
 
-	return r.rewriteSubagentBlock(ctx, sessionID, toolCallID, func(data []byte) ([]byte, bool, error) {
+	flip := func(data []byte) ([]byte, bool, error) {
 		return FlipSubagentInBlockData(data, status, summary)
-	})
+	}
+	hit, err := r.rewriteSubagentBlock(ctx, sessionID, toolCallID, flip)
+	if err != nil {
+		return "", err
+	}
+	if hit {
+		return toolCallID, nil
+	}
+	if taskID == "" {
+		return "", nil
+	}
+	// toolCallID 找不到卡:SendMessage 恢复的那一段带的是新 tool call,而「新 id → 原卡」
+	// 的别名只活在恢复发生的那一轮里。完成落在后一轮时只能按 task_id 找回原卡(sess-4198)。
+	return r.flipSubagentByTaskID(ctx, sessionID, taskID, flip)
+}
+
+// flipSubagentByTaskID 按 CLI task_id 找到承载它的 subagent_state 块(新消息在前)并改写,
+// 交回该块的 tool_call_id;找不到交回空串。
+func (r *messageRepo) flipSubagentByTaskID(
+	ctx context.Context, sessionID int64, taskID string,
+	rewrite func(data []byte) ([]byte, bool, error),
+) (string, error) {
+	mu := lockForSession(sessionID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	rows, err := findSubagentStateBlocks(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	for i := range rows {
+		row := &rows[i]
+		data, err := transcript_entity.DecodeBlockData(row.Codec, row.Data)
+		if err != nil {
+			return "", err
+		}
+		got, _, err := SubagentStateFromBlockData(data)
+		if err != nil {
+			return "", err
+		}
+		if got != taskID {
+			continue
+		}
+		logger.Ctx(ctx).Info("chat_repo.FlipSubagentStatus: located subagent card by task id",
+			zap.Int64("sessionId", sessionID), zap.String("taskId", taskID),
+			zap.String("toolUseId", row.ToolCallID))
+		return row.ToolCallID, rewriteBlockRow(ctx, row, rewrite)
+	}
+	return "", nil
 }
 
 func (r *messageRepo) ResumeSubagentByTaskID(
@@ -493,9 +554,10 @@ func (r *messageRepo) PatchSubagentProgress(ctx context.Context, sessionID int64
 	if toolCallID == "" || p.IsZero() {
 		return nil
 	}
-	return r.rewriteSubagentBlock(ctx, sessionID, toolCallID, func(data []byte) ([]byte, bool, error) {
+	_, err := r.rewriteSubagentBlock(ctx, sessionID, toolCallID, func(data []byte) ([]byte, bool, error) {
 		return PatchSubagentProgressInBlockData(data, p)
 	})
+	return err
 }
 
 // decodeBlockObject 把一个块的正文解成 map。数字字段(total_tokens / duration_ms /

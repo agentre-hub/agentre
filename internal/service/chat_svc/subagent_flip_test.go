@@ -54,11 +54,11 @@ func TestSubagentFlipperAdapter_PersistsAndMirrors(t *testing.T) {
 
 		Convey("When 它的完成帧在别人的轮里到达,经 flipper 落地", func() {
 			msgRepo.EXPECT().
-				FlipSubagentStatus(gomock.Any(), int64(42), "toolu-earlier-msg", "completed", "报告全文").
-				Return(nil)
+				FlipSubagentStatus(gomock.Any(), int64(42), "toolu-earlier-msg", "", "completed", "报告全文").
+				Return("toolu-earlier-msg", nil)
 
 			a := subagentFlipperAdapter{svc: svc, sess: sess, stream: "chat:event:42:99"}
-			err := a.FlipSubagentStatus(context.Background(), "toolu-earlier-msg", "completed", "报告全文")
+			err := a.FlipSubagentStatus(context.Background(), "toolu-earlier-msg", "", "completed", "报告全文")
 
 			Convey("Then 落库 + 会话级流镜像 subagent_done + 退出 bgRunning 集合", func() {
 				So(err, ShouldBeNil)
@@ -82,6 +82,41 @@ func TestSubagentFlipperAdapter_PersistsAndMirrors(t *testing.T) {
 	})
 }
 
+// TestSubagentFlipperAdapter_ResolvedByTaskID_MirrorsTheOriginalCard 是 sess-4198 的回归:
+// SendMessage 恢复与完成落在不同的轮里,完成帧带的是恢复那次的新 tool call。仓储按 task_id
+// 找回原卡后,界面镜像和 bgRunning 都必须用原卡的 id —— 报新 id 时前端找不到那张卡,
+// 胶囊也会一直把原卡算作运行中。
+func TestSubagentFlipperAdapter_ResolvedByTaskID_MirrorsTheOriginalCard(t *testing.T) {
+	Convey("Given 原卡 toolu-A(task T)记在 bgRunning 里", t, func() {
+		msgRepo, rec, svc := setupFlipperTest(t)
+		sess := &chat_entity.Session{}
+		sess.ID = 42
+		svc.addBgRunning(42, "toolu-A")
+
+		Convey("When 恢复段 toolu-B 的完成帧经 flipper 落地,仓储按 task_id 认出原卡", func() {
+			msgRepo.EXPECT().
+				FlipSubagentStatus(gomock.Any(), int64(42), "toolu-B", "T", "completed", "报告").
+				Return("toolu-A", nil)
+
+			a := subagentFlipperAdapter{svc: svc, sess: sess, stream: "chat:event:42:99"}
+			err := a.FlipSubagentStatus(context.Background(), "toolu-B", "T", "completed", "报告")
+
+			Convey("Then 镜像报原卡的 id,原卡退出 bgRunning", func() {
+				So(err, ShouldBeNil)
+				var mirror *streamedEvent
+				for i := range rec.events {
+					if rec.events[i].ev.Kind == StreamSubagentDone {
+						mirror = &rec.events[i]
+					}
+				}
+				So(mirror, ShouldNotBeNil)
+				So(mirror.ev.ToolCallID, ShouldEqual, "toolu-A")
+				So(svc.bgRunningActive(42), ShouldBeFalse)
+			})
+		})
+	})
+}
+
 // TestSubagentFlipperAdapter_PersistFailedNoMirror 失败路径:落库失败时不得镜像
 // 「已完成」——界面翻成 completed 而库里仍是 running,重开会话又变回 running,比一直
 // 显示 running 更难排查。错误上抛由 dispatcher 记日志。
@@ -93,11 +128,11 @@ func TestSubagentFlipperAdapter_PersistFailedNoMirror(t *testing.T) {
 		svc.addBgRunning(42, "toolu-earlier-msg")
 
 		msgRepo.EXPECT().
-			FlipSubagentStatus(gomock.Any(), int64(42), "toolu-earlier-msg", "failed", "").
-			Return(errors.New("db is locked"))
+			FlipSubagentStatus(gomock.Any(), int64(42), "toolu-earlier-msg", "", "failed", "").
+			Return("", errors.New("db is locked"))
 
 		a := subagentFlipperAdapter{svc: svc, sess: sess, stream: "chat:event:42:99"}
-		err := a.FlipSubagentStatus(context.Background(), "toolu-earlier-msg", "failed", "")
+		err := a.FlipSubagentStatus(context.Background(), "toolu-earlier-msg", "", "failed", "")
 
 		So(err, ShouldNotBeNil)
 		for _, e := range rec.events {
@@ -115,8 +150,8 @@ func TestSubagentFlipperAdapter_NoSessionNoOp(t *testing.T) {
 		_, _, svc := setupFlipperTest(t) // repo mock 没有 EXPECT,被调用即 ctrl.Finish 报错
 
 		So(subagentFlipperAdapter{svc: svc}.
-			FlipSubagentStatus(context.Background(), "toolu-x", "completed", ""), ShouldBeNil)
+			FlipSubagentStatus(context.Background(), "toolu-x", "", "completed", ""), ShouldBeNil)
 		So(subagentFlipperAdapter{svc: svc, sess: &chat_entity.Session{}}.
-			FlipSubagentStatus(context.Background(), "toolu-x", "completed", ""), ShouldBeNil)
+			FlipSubagentStatus(context.Background(), "toolu-x", "", "completed", ""), ShouldBeNil)
 	})
 }

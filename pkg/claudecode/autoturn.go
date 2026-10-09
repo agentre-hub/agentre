@@ -187,8 +187,12 @@ func (s *Session) startsAutonomousTurnLocked(f rawFrame) bool {
 // SubagentStateBlock 用美式 "canceled"(见 blocks.SubagentStateBlock.Status 注释)。
 // 在 CLI 状态进入内部模型的边界归一一次,下游(前端 mapStatus / AgentSpawnCard)不必
 // 各自兼容两种拼写。
+//
+// 被中止的任务 CLI 还会报 "stopped"(会话结束时没跑完 / 被 TaskStop 停掉)和 "killed",
+// 它们与 cancelled 是同一个终态;透传下去前端不认识,会当成 running(sess-4198)。
 func normalizeTaskStatus(status string) string {
-	if status == "cancelled" {
+	switch status {
+	case "cancelled", "stopped", "killed":
 		return "canceled"
 	}
 	return status

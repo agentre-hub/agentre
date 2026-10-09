@@ -323,8 +323,9 @@ func TestMessageRepo_FlipSubagentStatus_FlipsMatchingBlock(t *testing.T) {
 		}}, int64(42), 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "tu1", "completed", "Background command completed")
+	got, err := transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "tu1", "", "completed", "Background command completed")
 	assert.NoError(t, err)
+	assert.Equal(t, "tu1", got, "交回实际翻转的那张卡")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -334,16 +335,59 @@ func TestMessageRepo_FlipSubagentStatus_NoMatchSilentNil(t *testing.T) {
 	// 定位不到目标块 → 不写库,静默返回 nil(任务可能已 evict / 非本会话)。
 	expectSubagentBlockLookup(mock, 3, "tu-missing", emptyBlockRows())
 
-	err := transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "tu-missing", "completed", "")
+	got, err := transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "tu-missing", "", "completed", "")
 	assert.NoError(t, err)
+	assert.Equal(t, "", got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// SendMessage 恢复一个后台子代理时,CLI 沿用原 task_id、换一个新 tool_use_id;这一段的
+// 完成通知带的是新的那个。恢复与完成落在不同的轮里时,「新 id → 原卡」的别名早已随轮
+// 丢失,完成帧按新 id 翻转必然落空,原卡被恢复推回 running 后就永远停在那(sess-4198)。
+// task_id 是 CLI 给这个任务的稳定身份:按 tool call 找不到时按它找回原卡。
+func TestMessageRepo_FlipSubagentStatus_FallsBackToTaskID(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	expectSubagentBlockLookup(mock, 3, "tu-B", emptyBlockRows())
+	rows := sqlmock.NewRows([]string{"message_id", "idx", "type", "tool_call_id", "codec", "data"}).
+		AddRow(int64(41), 2, "subagent_state", "tu-other", transcript_entity.BlockCodecRaw,
+			[]byte(`{"parent_tool_call_id":"tu-other","task_id":"OTHER","status":"running"}`)).
+		AddRow(int64(40), 5, "subagent_state", "tu-A", transcript_entity.BlockCodecRaw,
+			[]byte(`{"parent_tool_call_id":"tu-A","task_id":"T","status":"running"}`))
+	expectSubagentBlocksByType(mock, 3, rows)
+	mock.ExpectExec("UPDATE `chat_message_blocks` SET `codec`=\\?,`data`=\\? WHERE message_id = \\? AND idx = \\?").
+		WithArgs(transcript_entity.BlockCodecRaw, blockDataContains{substrings: []string{
+			`"parent_tool_call_id":"tu-A"`, `"status":"completed"`, `"summary":"报告"`,
+		}}, int64(40), 5).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	got, err := transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "tu-B", "T", "completed", "报告")
+	assert.NoError(t, err)
+	assert.Equal(t, "tu-A", got, "交回原卡的 tool_call_id,调用方据此镜像到界面上那张卡")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 按 task_id 也找不到时照旧静默:不写库,交回空串。
+func TestMessageRepo_FlipSubagentStatus_TaskIDFallbackNoMatch(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	expectSubagentBlockLookup(mock, 3, "tu-B", emptyBlockRows())
+	expectSubagentBlocksByType(mock, 3, subagentBlockRows(41, "tu-other",
+		`{"parent_tool_call_id":"tu-other","task_id":"OTHER","status":"running"}`))
+
+	got, err := transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "tu-B", "T", "completed", "")
+	assert.NoError(t, err)
+	assert.Equal(t, "", got)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestMessageRepo_FlipSubagentStatus_EmptyArgsShortCircuit(t *testing.T) {
 	ctx, _, _ := testutils.Database(t)
 
-	require.NoError(t, transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "", "completed", ""))
-	require.NoError(t, transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "tu1", "", ""))
+	_, err := transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "", "", "completed", "")
+	require.NoError(t, err)
+	_, err = transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "tu1", "", "", "")
+	require.NoError(t, err)
 }
 
 // TestMessageRepo_AppendSubagentChildren_AppendsBlocks 钉住要求 3:父块的 nested_tool_call_ids
