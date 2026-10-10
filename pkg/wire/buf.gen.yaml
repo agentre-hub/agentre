@@ -15,3 +15,19 @@ plugins:
     out: ../../frontend/packages/agentre-wire/src/gen
     opt:
       - target=ts
+  # Swift 侧是同一份 schema 的第三个消费方(原生 iOS 端)。产物与其 SwiftPM 清单住在
+  # 本 module 的 swift/ 下:协议主人拥有产物,消费方只钉一个已推送的不可变 revision,
+  # 与 Go / TS 两侧同一条规矩。
+  #
+  # out 必须落在 swift/Sources/<target>/Generated —— 上面的 clean: true 会先清空它,
+  # 手写的 Package.swift 与测试因此都在它之外。
+  #
+  # 插件走 remote 而不是 local:版本随本文件一起钉住,谁都不必先在本机装
+  # protoc-gen-swift,与 Go 侧那条 remote 一致。
+  - remote: buf.build/apple/swift:v1.38.1
+    out: swift/Sources/AgentreWire/Generated
+    opt:
+      # 消费方是另一个仓库的 SwiftPM target,类型必须 public 才看得见。
+      - Visibility=Public
+      # 产物就是 <out>/wire.pb.swift,与 Go 侧 module= 剥掉前缀同一个效果。
+      - FileNaming=DropPath

@@ -74,6 +74,8 @@ guard                               (本 module 自己的守卫测试)
 | `wirelimits` | 载荷预算。整条链路共用一个数,三处曾经不同源,后果是超限打掉**整条物理连接** |
 | `turnstate` | 一轮执行怎么收的场 |
 | `devicefp` | 设备指纹四个角色(承载者/发起方/最后写者/待授权客户端)各一个定义类型,混用即编译错误 |
+| `goldenvectors` | **二进制**金向量:一批由 Go 真实 marshaler 写出的帧 + 各自的期望字段值。Swift 侧对着它对拍,Go 侧再把 Swift 编回来的字节解回来比 |
+| `swift` | Swift 侧的 SwiftPM 包:`Sources/AgentreWire/Generated/` 是 buf 产物(**不要手改**),`Package.swift` 与 `Tests/` 是仅有的手写代码 |
 
 ## TypeScript 那一侧
 
@@ -84,6 +86,32 @@ commit。
 两侧要成对存在的东西:事件判别值(`eventkind` ↔ `event-kind.ts`)、协议版本号
 (`protocolversion` ↔ `protocol-version.ts`)—— 这两对都从 descriptor 读同一格 ——
 与中继信封(`relayenvelope` ↔ `relay-envelope.ts`,同一格式同一套校验)。
+
+## Swift 那一侧
+
+`swift/` 是同一份协议的 Swift 侧,供原生 iOS 端消费。与 TS 侧同一条规矩:产物从**这里**
+的 `.proto` 生成,消费方(`agentre-ios`)只钉一个已推送的不可变 revision,自己不存 schema、
+不拷产物。生成的目录带 `clean: true`,每次 `buf generate` 先清空它 —— 手写的东西一律
+放在它之外,`guard` 里两条守卫分别钉住"只有一份生成的 wire Swift"与"那个目录里没有手写文件"。
+
+对拍的判据**不是字节逐一相等**。protobuf 不保证跨实现的字节级一致(map 序、未知字段的
+摆放位置),拿字节做判据只会得到一条随实现升级而红的测试。判据是:
+
+- Go 在 `goldenvectors/vectors/` 写出 `<name>.bin` 与写下期望字段值的 `<name>.json`;
+- Swift 解 `.bin` 逐字段断言,并要求解 `.json` 得到相等的消息(二进制与 JSON 是两套
+  独立实现,同时对上才说明字段真的读对了);
+- Swift 把消息再编码回去,Go 解回来要与原消息 `proto.Equal`。
+
+跑它:`make test-wire-swift`(PATH 上没有 `swift` 时跨语言那一半会跳过并说明;首次要
+SwiftPM 解析一次依赖,需要网络)。改了 schema 之后重新生成向量:
+
+```
+WIRE_VECTORS_WRITE=1 go test -C pkg/wire ./goldenvectors/ -run TestWriteVectors
+```
+
+既有的 `frontend/packages/agentre-wire/fixtures/` 那 23 份 JSON **不是**这一层的判据:
+它们是 `internal/.../remote/wire` 那层**手写 JSON 领域结构**的金样本(与 `src/codec.gen.ts`
+由同一个 Go 生成器产出),而中继上跑的是二进制 protobuf,原生端不经过那一层。
 
 ## 加一个 RPC 方法
 

@@ -1,0 +1,17 @@
+{
+  "contextWindow": 200000,
+  "conversationId": "00000000-0000-7000-8000-000000000042",
+  "model": "claude-sonnet-4-5",
+  "providerSessionId": "sess_abc123",
+  "seq": "12",
+  "turnToken": "9",
+  "usage": {
+    "cacheCreationTokens": 2,
+    "cachedTokens": 5,
+    "completionTokens": 50,
+    "promptTokens": 100,
+    "reasoningTokens": 10,
+    "totalTokens": 155
+  },
+  "userAnchor": "anchor-1"
+}

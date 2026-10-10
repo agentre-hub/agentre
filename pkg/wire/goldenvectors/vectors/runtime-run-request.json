@@ -1,0 +1,49 @@
+{
+  "agentId": "7",
+  "agentSyncId": "01JZ7W2A8KZ4R5T6Y7U8I9O0P1Q",
+  "backend": {
+    "id": "7",
+    "llmProviderKey": "11111111-2222-3333-4444-555555555555",
+    "name": "Claude",
+    "type": "claudecode"
+  },
+  "collaborationMode": "manual",
+  "conversationId": "00000000-0000-7000-8000-000000000042",
+  "cwd": "/home/agent/proj",
+  "enabledPlugins": {
+    "auto-continue": true,
+    "dangerous": false
+  },
+  "history": [
+    {
+      "blocks": [
+        {
+          "data": "IuS4iuS4gOi9rueahOS4iuS4i+aWhyI=",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "llmProviderKey": "11111111-2222-3333-4444-555555555555",
+  "mcpServers": [
+    {
+      "headers": {
+        "Authorization": "Bearer tok"
+      },
+      "name": "org",
+      "tools": [
+        "mcp__org__list"
+      ],
+      "url": "http://127.0.0.1:8899/mcp/org/"
+    }
+  ],
+  "peerFingerprint": "fp-desktop",
+  "permissionMode": "default",
+  "reasoningEffort": "xhigh",
+  "sourceDevice": "fp-web-1",
+  "sourceDeviceName": "Chrome · macOS",
+  "systemPrompt": "你是 AgentRe 的 Agent。",
+  "title": "重构登录页",
+  "userText": "把登录按钮改成蓝色"
+}
