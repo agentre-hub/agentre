@@ -386,6 +386,9 @@ const MarkdownInner = React.memo(function MarkdownInner({
   );
 });
 
+// 外壳自带 data-selectable-text:桌面宿主的 body 是 user-select:none,只有带这个
+// 标记的区域放开选中。渲染出来的 markdown 永远是只读正文,标记跟着外壳走,
+// 调用方(transcript 行 / 计划卡 / 文件预览)不必各自记得再包一层。
 export const MarkdownText = React.memo(function MarkdownText({
   text,
   cwd,
@@ -399,7 +402,10 @@ export const MarkdownText = React.memo(function MarkdownText({
   decorator?: MarkdownInlineDecorator;
 }) {
   return (
-    <div className="markdown-body break-words text-prose">
+    <div
+      data-selectable-text="true"
+      className="markdown-body break-words text-prose"
+    >
       <MarkdownInner
         text={text}
         cwd={cwd}
@@ -435,7 +441,10 @@ export const StreamingMarkdown = React.memo(function StreamingMarkdown({
     [text],
   );
   return (
-    <div className="markdown-body break-words text-prose">
+    <div
+      data-selectable-text="true"
+      className="markdown-body break-words text-prose"
+    >
       {committed.map((segment, i) => (
         <MarkdownInner key={i} text={segment} cwd={cwd} sessionId={sessionId} />
       ))}

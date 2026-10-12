@@ -396,3 +396,16 @@ describe("MarkdownText image src whitelist + local rendering", () => {
     expect(a?.getAttribute("href")).toBeFalsy();
   });
 });
+
+describe("MarkdownText selectable text", () => {
+  // 桌面端 body 是 user-select:none，只有带 data-selectable-text 的区域放开。
+  // 渲染出来的 markdown 永远是只读正文，标记由外壳自己带 —— 调用方忘了包一层
+  // 也照样能选中复制。
+  it("marks its own shell as selectable text so every call site can be copied from", () => {
+    render(<MarkdownText text={"# Title\n\nbody text"} />);
+
+    expect(
+      screen.getByText("body text").closest("[data-selectable-text='true']"),
+    ).not.toBeNull();
+  });
+});

@@ -39,7 +39,7 @@ export function ReplayedFileDiff({
 
   if (!result.ok) {
     return (
-      <div data-testid="replayed-file-diff">
+      <div data-testid="replayed-file-diff" data-selectable-text="true">
         <Notice tone="warning">
           {t("canonical.fileEdit.replay.fallbackIntro")}
         </Notice>
@@ -52,7 +52,7 @@ export function ReplayedFileDiff({
   }
 
   return (
-    <div data-testid="replayed-file-diff">
+    <div data-testid="replayed-file-diff" data-selectable-text="true">
       {result.wholeFileWrite && (
         <Notice>{t("canonical.fileEdit.replay.wholeWrite")}</Notice>
       )}

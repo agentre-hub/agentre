@@ -3,7 +3,10 @@ import { Skeleton } from "../ui/skeleton";
 /** PreviewNotice 是内容区居中的一段说明文字，hint 是可选的次级补充。 */
 export function PreviewNotice({ text, hint }: { text: string; hint?: string }) {
   return (
-    <div className="px-3 py-6 text-center text-xs leading-relaxed text-muted-foreground">
+    <div
+      data-selectable-text="true"
+      className="px-3 py-6 text-center text-xs leading-relaxed text-muted-foreground"
+    >
       {text}
       {hint ? (
         <span className="mt-1.5 block text-2xs opacity-80">{hint}</span>

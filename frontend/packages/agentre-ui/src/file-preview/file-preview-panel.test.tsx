@@ -655,3 +655,50 @@ describe("FilePreviewPanel HTML", () => {
     ).toBeNull();
   });
 });
+
+// 桌面端 body 是 user-select:none，只有 data-selectable-text 区域放开选中。预览
+// 面板不在 transcript 行里，没有现成的可选中外壳，面板渲染出来的只读内容必须
+// 自己落在可选中区域内。
+describe("FilePreviewPanel 只读内容可选中复制", () => {
+  const selectable = "[data-selectable-text='true']";
+
+  it("Given markdown in the render segment, then the rendered text can be selected", async () => {
+    readFile.mockResolvedValue(textView("# Title\n\nbody text"));
+    renderPanel({ activePath: "README.md" });
+
+    const view = await panel();
+    const body = await within(view).findByText("body text");
+    expect(body.closest(selectable)).not.toBeNull();
+  });
+
+  it("Given markdown in the split segment, then the rendered half can be selected", async () => {
+    readFile.mockResolvedValue(textView("# Title\n\nbody text"));
+    renderPanel({ activePath: "README.md", segment: "split" });
+
+    const view = await panel();
+    const body = await within(view).findByText("body text");
+    expect(body.closest(selectable)).not.toBeNull();
+  });
+
+  it("Given a terminal notice, then its text can be selected", async () => {
+    readFile.mockRejectedValue(
+      Object.assign(new Error("stat: no such file"), { kind: "notFound" }),
+    );
+    renderPanel({ activePath: "gone.ts" });
+
+    const view = await panel();
+    const notice = await within(view).findByText("File not found");
+    expect(notice.closest(selectable)).not.toBeNull();
+  });
+
+  it("Given an unclassified read failure, then the host's message can be selected for troubleshooting", async () => {
+    readFile.mockRejectedValue(new Error("Path is outside the working dir"));
+    renderPanel({ activePath: "README.md" });
+
+    const view = await panel();
+    const message = await within(view).findByText(
+      "Path is outside the working dir",
+    );
+    expect(message.closest(selectable)).not.toBeNull();
+  });
+});

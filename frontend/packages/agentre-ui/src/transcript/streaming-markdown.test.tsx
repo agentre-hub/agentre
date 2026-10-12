@@ -75,4 +75,15 @@ describe("StreamingMarkdown", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /main\.go/ })).toBeInTheDocument();
   });
+
+  it("marks its own shell as selectable text while the message is still streaming", () => {
+    render(<StreamingMarkdown text={"para one\n\ntail growing"} />);
+
+    expect(
+      screen.getByText("para one").closest("[data-selectable-text='true']"),
+    ).not.toBeNull();
+    expect(
+      screen.getByText("tail growing").closest("[data-selectable-text='true']"),
+    ).not.toBeNull();
+  });
 });

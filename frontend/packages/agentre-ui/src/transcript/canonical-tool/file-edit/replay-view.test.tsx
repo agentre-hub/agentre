@@ -124,4 +124,24 @@ describe("ReplayedFileDiff", () => {
     // 被截断的那一段自己带标注。
     expect(screen.getByText(/this change is incomplete/i)).toBeDefined();
   });
+
+  // Given 桌面端默认界面不可选中，When 渲染重放 diff，Then diff 行与降级说明都
+  // 落在可选中区域里 —— 预览面板直接挂它，外面没有 transcript 行那层可选中外壳。
+  it("renders the diff and its notices inside selectable text", () => {
+    render(
+      <ReplayedFileDiff
+        path="app/x.ts"
+        result={ok({ wholeFileWrite: true })}
+      />,
+    );
+
+    expect(
+      screen.getByText("after").closest("[data-selectable-text='true']"),
+    ).not.toBeNull();
+    expect(
+      screen
+        .getByText(/not compared against the content before the write/i)
+        .closest("[data-selectable-text='true']"),
+    ).not.toBeNull();
+  });
 });
