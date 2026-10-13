@@ -82,4 +82,11 @@ export const Mention = Node.create({
       `@${node.attrs.label as string}`,
     ];
   },
+
+  // 纯文本形态(复制 / 剪切到剪贴板的 text/plain):atom 节点没有文本子节点,
+  // 不声明的话整个提及会从复制出去的文字里消失。与 pill 上看到的、以及
+  // mentionsToDisplayText 的口径一致。
+  renderText({ node }) {
+    return `@${node.attrs.label as string}`;
+  },
 });

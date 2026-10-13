@@ -251,6 +251,12 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
         }),
         Mention,
       ],
+      // 复制 / 剪切写进剪贴板的纯文本:这个编辑器里一行就是一个段落(粘贴、草稿
+      // 回填、历史消息都按行建段),TipTap 默认却拿 "\n\n" 分隔段落 —— 复制三行
+      // 贴出去就成了五行。与 extractPlainText 的口径对齐:段落边界 = 一个 \n。
+      coreExtensionOptions: {
+        clipboardTextSerializer: { blockSeparator: "\n" },
+      },
       editorProps: {
         clipboardTextParser: parsePlainTextClipboard,
         attributes: {
