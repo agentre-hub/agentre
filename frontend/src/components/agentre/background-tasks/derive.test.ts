@@ -351,3 +351,85 @@ describe("deriveBackgroundTasks", () => {
     expect(tasks[0].status).toBe("canceled");
   });
 });
+
+describe("deriveBackgroundTasks — subagent row facts", () => {
+  it("Given a background subagent with a dispatch canonical and runtime meta, When derived, Then the type comes from the canonical and the model / step count from the runtime meta", () => {
+    const msg = makeMessage(1000, [
+      tu({
+        toolUseId: "ag1",
+        toolInput: {},
+        canonical: {
+          kind: "agent.spawn",
+          agentSpawn: { subagentType: "Explore", model: "sonnet", toolUses: 0 },
+        },
+        subagent: {
+          kind: "local_agent",
+          taskDescription: "Trace the stream",
+          status: "running",
+          subagentType: "general-purpose",
+          model: "claude-sonnet-4-5",
+          toolUses: 12,
+        },
+      }) as unknown as chat_svc.ChatBlock,
+    ]);
+    const [task] = deriveBackgroundTasks([msg], []);
+    expect(task.subagentType).toBe("Explore");
+    // 首帧的实际模型覆盖派遣时的入参别名(与转录里的子代理卡片同一口径)。
+    expect(task.model).toBe("claude-sonnet-4-5");
+    expect(task.toolUses).toBe(12);
+  });
+
+  it("Given a background subagent that has not reported a model or a step yet, When derived, Then it falls back to what the dispatch asked for", () => {
+    const [task] = deriveBackgroundTasks(
+      [],
+      [
+        tu({
+          toolUseId: "ag2",
+          toolInput: {},
+          canonical: {
+            kind: "agent.spawn",
+            agentSpawn: { subagentType: "general-purpose", model: "haiku" },
+          },
+          subagent: { kind: "local_agent", status: "running" },
+        }),
+      ],
+    );
+    expect(task.subagentType).toBe("general-purpose");
+    expect(task.model).toBe("haiku");
+    expect(task.toolUses).toBeUndefined();
+  });
+
+  it("Given a background bash task, When derived, Then it carries no subagent facts", () => {
+    const [task] = deriveBackgroundTasks([], [tu()]);
+    expect(task.subagentType).toBeUndefined();
+    expect(task.model).toBeUndefined();
+    expect(task.toolUses).toBeUndefined();
+  });
+});
+
+describe("deriveBackgroundTasks — the message that launched the task", () => {
+  const persisted = (id: number, blocks: chat_svc.ChatBlock[]) =>
+    ({ id, createtime: 1000, blocks }) as unknown as chat_svc.ChatMessage;
+
+  it("Given a task whose launching message is persisted, When derived, Then it carries that message id", () => {
+    const [task] = deriveBackgroundTasks(
+      [persisted(42, [tu() as unknown as chat_svc.ChatBlock])],
+      [],
+    );
+    expect(task.messageId).toBe(42);
+  });
+
+  it("Given a task that only exists in the live turn, When derived, Then it has no message id to jump to", () => {
+    const [task] = deriveBackgroundTasks([], [tu()]);
+    expect(task.messageId).toBeUndefined();
+  });
+
+  it("Given a persisted task that a live block updates, When derived, Then the live status wins and the message id is kept", () => {
+    const [task] = deriveBackgroundTasks(
+      [persisted(42, [tu() as unknown as chat_svc.ChatBlock])],
+      [tu({ subagent: { kind: "local_bash", status: "completed" } })],
+    );
+    expect(task.status).toBe("completed");
+    expect(task.messageId).toBe(42);
+  });
+});

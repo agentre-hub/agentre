@@ -429,6 +429,9 @@ export type {
 } from "./transcript/transcript-rows";
 // 行渲染出口:活动块(工具步骤)与 canonical 工具卡路由。
 export { CanonicalToolRouter } from "./transcript/canonical-tool/registry";
+// 模型短名(剥 claude- 前缀与结尾日期段):转录里的子代理卡片与宿主的后台任务面板
+// 用同一条规则,不各写一份。
+export { shortenModelName } from "./transcript/canonical-tool/agent-spawn/card";
 // 「本次会话」的工具 diff：把同一个文件的每一次工具调用重放成一个连续 diff。
 // 纯函数（挑调用 + 重放）与呈现件都在包里，两端不各写一份（AGENTS.md 约束 6）。
 export { resolveToolPathInRoot } from "./lib/work-root-path";

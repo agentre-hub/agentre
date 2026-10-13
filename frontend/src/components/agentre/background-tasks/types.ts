@@ -14,4 +14,10 @@ export interface BackgroundTask {
   startedAt?: number; // epoch ms (containing message createtime) — base for live elapsed
   durationMs?: number; // frozen duration for completed/failed bash tasks
   summary?: string; // completion/exit-code text, dynamic
+  // 发起这个任务的那条消息;只有已落库的消息才有,用来把对话滚到那张卡片。
+  messageId?: number;
+  // 以下三项只有子代理(local_agent)才有。
+  subagentType?: string; // 派遣时指定的子代理类型,如 Explore
+  model?: string; // 实际跑的模型;首帧还没到时是派遣时的入参别名
+  toolUses?: number; // 已走的步数
 }

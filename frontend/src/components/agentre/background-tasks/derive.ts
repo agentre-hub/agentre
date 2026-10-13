@@ -24,6 +24,11 @@ type VisitableBlock = {
   toolUseId?: string;
   toolInput?: Record<string, unknown>;
   subagent?: chat_svc.ChatBlockSubagent;
+  // 派遣瞬间 translator 算好的静态字段(只有 agent.spawn 才带)。
+  canonical?: {
+    kind?: string;
+    agentSpawn?: { subagentType?: string; model?: string; toolUses?: number };
+  };
 };
 
 export function deriveBackgroundTasks(
@@ -33,7 +38,11 @@ export function deriveBackgroundTasks(
 ): BackgroundTask[] {
   const byId = new Map<string, BackgroundTask>();
 
-  const visit = (block: VisitableBlock | undefined, startedAt?: number) => {
+  const visit = (
+    block: VisitableBlock | undefined,
+    startedAt?: number,
+    messageId?: number,
+  ) => {
     if (!block || block.type !== "tool_use") return;
     const sa = block.subagent;
     const toolUseId = block.toolUseId;
@@ -49,6 +58,13 @@ export function deriveBackgroundTasks(
     if (!isBackground(sa.kind, block.toolInput?.run_in_background)) return;
     if (clearedToolUseIds?.has(toolUseId)) return;
     const prev = byId.get(toolUseId);
+    // 子代理的类型 / 模型 / 步数与转录里的子代理卡片同一口径(agent-spawn/card.tsx
+    // 的 readSpawn):类型取派遣时的静态值,模型与步数以运行时回报的为准、缺了才
+    // 回落到派遣入参。
+    const spawn =
+      block.canonical?.kind === "agent.spawn"
+        ? block.canonical.agentSpawn
+        : undefined;
     byId.set(toolUseId, {
       toolUseId,
       taskId: sa.taskId || prev?.taskId,
@@ -60,6 +76,11 @@ export function deriveBackgroundTasks(
         (typeof sa.durationMs === "number" ? sa.durationMs : undefined) ??
         prev?.durationMs,
       summary: (sa.summary || undefined) ?? prev?.summary,
+      messageId: messageId ?? prev?.messageId,
+      subagentType:
+        spawn?.subagentType || sa.subagentType || prev?.subagentType,
+      model: sa.model || spawn?.model || prev?.model,
+      toolUses: sa.toolUses ?? spawn?.toolUses ?? prev?.toolUses,
     });
   };
 
@@ -68,10 +89,10 @@ export function deriveBackgroundTasks(
   // 投影到 VisitableBlock。startedAt 取自消息的 createtime (epoch ms)。
   for (const m of messages) {
     for (const b of m.blocks ?? [])
-      visit(b as unknown as VisitableBlock, m.createtime);
+      visit(b as unknown as VisitableBlock, m.createtime, m.id);
   }
   // liveBlocks 是 ChatBlockData，结构性满足 VisitableBlock，无需 cast。
-  // live blocks 没有关联的消息，所以 startedAt 为 undefined。
+  // live blocks 没有关联的消息，所以 startedAt / messageId 为 undefined。
   for (const b of liveBlocks) visit(b);
 
   return [...byId.values()];

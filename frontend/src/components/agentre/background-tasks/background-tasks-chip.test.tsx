@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -33,35 +33,32 @@ const failed: BackgroundTask = {
   status: "failed",
 };
 
+const runningAgent: BackgroundTask = {
+  toolUseId: "ag1",
+  taskId: "a1",
+  kind: "local_agent",
+  description: "Trace the stream",
+  status: "running",
+  startedAt: 1700000000000,
+  subagentType: "Explore",
+  model: "claude-sonnet-4-5",
+  toolUses: 12,
+};
+
+const openChip = () =>
+  userEvent.click(screen.getByRole("button", { name: /background tasks/i }));
+
 describe("BackgroundTasksChip", () => {
-  it("stays visible with a completed label when only completed/failed tasks remain", () => {
+  it("stays visible with an ended label when no task is running any more", () => {
     render(
       <BackgroundTasksChip
-        tasks={[
-          {
-            toolUseId: "tu1",
-            taskId: "id1",
-            kind: "local_bash",
-            description: "build",
-            status: "completed",
-            durationMs: 1000,
-          },
-          {
-            toolUseId: "tu2",
-            taskId: "id2",
-            kind: "local_bash",
-            description: "lint",
-            status: "failed",
-            durationMs: 500,
-          },
-        ]}
+        tasks={[completed, { ...failed, status: "canceled" }]}
       />,
     );
-    // chip trigger present (aria-label 后台任务) and shows the completed count, not running
+    // 已结束 = 完成 + 失败 + 被停止,不只是「已完成」。
     expect(
-      screen.getByRole("button", { name: /后台任务|background/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/2 已完成|2 done/)).toBeInTheDocument();
+      screen.getByRole("button", { name: /background tasks/i }),
+    ).toHaveTextContent("2 ended");
   });
 
   it("renders null only when there are no tasks at all", () => {
@@ -87,54 +84,212 @@ describe("BackgroundTasksChip", () => {
     expect(screen.getByRole("button")).toHaveTextContent("2 running");
   });
 
-  it("opens popover and shows all tasks when chip is clicked", () => {
-    render(<BackgroundTasksChip tasks={[running, completed, failed]} />);
-    const btn = screen.getByRole("button");
-    fireEvent.click(btn);
+  it("Given a located task, When its row is clicked, Then the host is told which task and the popover closes", async () => {
+    const onLocate = vi.fn();
+    const task = { ...running, messageId: 42 };
+    render(<BackgroundTasksChip tasks={[task]} onLocateTask={onLocate} />);
+    await openChip();
+    await userEvent.click(screen.getByRole("button", { name: /sleep 20/ }));
+    expect(onLocate).toHaveBeenCalledTimes(1);
+    expect(onLocate).toHaveBeenCalledWith(task);
+    // 对话滚过去之后弹层不该还盖在上面。
+    expect(screen.queryByText("sleep 20")).toBeNull();
+  });
+});
 
-    // popover title
-    expect(screen.getByText("Background tasks")).toBeInTheDocument();
-    // task descriptions (dynamic — rendered raw)
-    expect(screen.getByText("sleep 20")).toBeInTheDocument();
-    expect(screen.getByText("Explore repo")).toBeInTheDocument();
-    expect(screen.getByText("build step")).toBeInTheDocument();
-    // status labels
-    expect(screen.getByText("Running")).toBeInTheDocument();
-    expect(screen.getByText("Done")).toBeInTheDocument();
-    expect(screen.getByText("Failed")).toBeInTheDocument();
+describe("BackgroundTasksPopoverContent — running tasks are grouped by kind", () => {
+  it("Given running subagents and commands, When shown, Then each kind has its own section with its running count", () => {
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[
+          runningAgent,
+          { ...runningAgent, toolUseId: "ag2", description: "Reproduce it" },
+          running,
+        ]}
+      />,
+    );
+    const agents = screen.getByRole("region", { name: "Subagents" });
+    expect(within(agents).getByText("2 running")).toBeInTheDocument();
+    expect(within(agents).getByText("Trace the stream")).toBeInTheDocument();
+    expect(within(agents).getByText("Reproduce it")).toBeInTheDocument();
+    expect(within(agents).queryByText("sleep 20")).toBeNull();
+
+    const commands = screen.getByRole("region", { name: "Commands" });
+    expect(within(commands).getByText("1 running")).toBeInTheDocument();
+    expect(within(commands).getByText("sleep 20")).toBeInTheDocument();
   });
 
-  it("shows empty state in popover if tasks array has no items", () => {
-    // chip is hidden when 0 running, but we can test popover content directly via
-    // the BackgroundTasksPopoverContent component independently
-    // Here we test via chip by passing a task that is running but empty
+  it("Given only a running command, When shown, Then there is no subagent section", () => {
+    render(<BackgroundTasksPopoverContent tasks={[running]} />);
+    expect(screen.queryByRole("region", { name: "Subagents" })).toBeNull();
+    expect(
+      screen.getByRole("region", { name: "Commands" }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("BackgroundTasksPopoverContent — ended tasks sit behind one row", () => {
+  it("Given running and ended tasks, When shown, Then ended tasks are counted on one row instead of listed", () => {
     render(
-      <BackgroundTasksChip
+      <BackgroundTasksPopoverContent tasks={[running, completed, failed]} />,
+    );
+    expect(screen.getByText("sleep 20")).toBeInTheDocument();
+    expect(screen.queryByText("Explore repo")).toBeNull();
+    expect(screen.queryByText("build step")).toBeNull();
+    expect(screen.getByRole("button", { name: /ended/i })).toHaveTextContent(
+      "2",
+    );
+  });
+
+  it("Given only running tasks, When shown, Then there is no ended row", () => {
+    render(<BackgroundTasksPopoverContent tasks={[running]} />);
+    expect(screen.queryByRole("button", { name: /ended/i })).toBeNull();
+  });
+
+  it("Given the ended row is opened, When shown, Then ended tasks are listed newest first and running ones are gone", async () => {
+    render(
+      <BackgroundTasksPopoverContent tasks={[running, completed, failed]} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /ended/i }));
+    expect(screen.queryByText("sleep 20")).toBeNull();
+    const rows = screen.getAllByRole("listitem");
+    // tasks 按发起顺序给进来;已结束页把最近的放最上面。
+    expect(rows[0]).toHaveTextContent("build step");
+    expect(rows[1]).toHaveTextContent("Explore repo");
+  });
+
+  it("Given the ended page, When Back is clicked, Then the running tasks are shown again", async () => {
+    render(<BackgroundTasksPopoverContent tasks={[running, completed]} />);
+    await userEvent.click(screen.getByRole("button", { name: /ended/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByText("sleep 20")).toBeInTheDocument();
+    expect(screen.queryByText("Explore repo")).toBeNull();
+  });
+
+  it("Given nothing is running, When shown, Then the ended tasks are listed straight away with no way back", () => {
+    render(<BackgroundTasksPopoverContent tasks={[completed, failed]} />);
+    expect(screen.getByText("Explore repo")).toBeInTheDocument();
+    expect(screen.getByText("build step")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+  });
+
+  it("Given the ended page, When Clear is clicked, Then the host is asked to clear and the page falls back to the running tasks once they are gone", async () => {
+    const onClear = vi.fn();
+    const { rerender } = render(
+      <BackgroundTasksPopoverContent
+        tasks={[running, completed]}
+        onClearCompleted={onClear}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /ended/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onClear).toHaveBeenCalledTimes(1);
+
+    // 宿主清掉之后只剩运行中的:不能停在一张空的「已结束」页上。
+    rerender(
+      <BackgroundTasksPopoverContent
+        tasks={[running]}
+        onClearCompleted={onClear}
+      />,
+    );
+    expect(screen.getByText("sleep 20")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+  });
+
+  it("Given the host cannot clear, When the ended page is shown, Then there is no Clear button", () => {
+    render(<BackgroundTasksPopoverContent tasks={[completed]} />);
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+  });
+});
+
+describe("BackgroundTasksPopoverContent — what a row says", () => {
+  it("Given a running subagent, When shown, Then the row gives its type, steps and short model name but not its task id", () => {
+    render(<BackgroundTasksPopoverContent tasks={[runningAgent]} />);
+    const row = screen.getByRole("listitem");
+    expect(within(row).getByText("Explore")).toBeInTheDocument();
+    expect(within(row).getByText("12 steps")).toBeInTheDocument();
+    expect(within(row).getByText("sonnet-4-5")).toBeInTheDocument();
+    expect(within(row).queryByTestId("task-id")).toBeNull();
+  });
+
+  it("Given a subagent that reported no type, model or step, When shown, Then the row falls back to the generic subagent label and shows nothing made up", () => {
+    render(
+      <BackgroundTasksPopoverContent
         tasks={[
           {
-            toolUseId: "tu5",
-            kind: "local_bash",
-            description: "",
+            toolUseId: "ag0",
+            kind: "local_agent",
+            description: "Explore repo",
             status: "running",
           },
         ]}
       />,
     );
-    fireEvent.click(screen.getByRole("button"));
-    // popover shows 1 item with empty description
-    expect(screen.getByText("Background tasks")).toBeInTheDocument();
+    const row = screen.getByRole("listitem");
+    expect(within(row).getByText("subagent")).toBeInTheDocument();
+    expect(within(row).queryByText(/steps/)).toBeNull();
   });
 
-  it("shows 'bash' kind label for all tasks in popover", () => {
+  it("Given a background command, When shown, Then the row is labelled bash and keeps its task id", () => {
     render(
-      <BackgroundTasksChip
-        tasks={[running, { ...completed, status: "running" as const }]}
+      <BackgroundTasksPopoverContent
+        tasks={[{ ...running, taskId: "b3875slp0" }]}
       />,
     );
-    fireEvent.click(screen.getByRole("button"));
-    // Both tasks are local_bash — both rows should show the "bash" label
-    const bashLabels = screen.getAllByText("bash");
-    expect(bashLabels.length).toBe(2);
+    const row = screen.getByRole("listitem");
+    expect(within(row).getByText("bash")).toBeInTheDocument();
+    expect(within(row).getByTestId("task-id")).toHaveTextContent("b3875slp0");
+  });
+
+  it("Given tasks in each state, When shown, Then every row states its status", async () => {
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[
+          running,
+          completed,
+          failed,
+          { ...failed, toolUseId: "tu9", status: "canceled" },
+        ]}
+      />,
+    );
+    expect(
+      within(screen.getByRole("listitem")).getByText("Running"),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /ended/i }));
+    const [stopped, failedRow, done] = screen.getAllByRole("listitem");
+    expect(within(stopped).getByText("Stopped")).toBeInTheDocument();
+    expect(within(failedRow).getByText("Failed")).toBeInTheDocument();
+    expect(within(done).getByText("Done")).toBeInTheDocument();
+  });
+});
+
+describe("BackgroundTasksPopoverContent — locating a task in the conversation", () => {
+  it("Given a task whose launching message is known, When its row is clicked, Then the host is asked to locate that task", async () => {
+    const onLocate = vi.fn();
+    const task = { ...running, messageId: 42 };
+    render(
+      <BackgroundTasksPopoverContent tasks={[task]} onLocateTask={onLocate} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /sleep 20/ }));
+    expect(onLocate).toHaveBeenCalledWith(task);
+  });
+
+  it("Given a task still inside the live turn (no message yet), When shown, Then its row is not a button", () => {
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[running]}
+        onLocateTask={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("sleep 20")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /sleep 20/ })).toBeNull();
+  });
+
+  it("Given the host cannot locate, When shown, Then the row is not a button even with a known message", () => {
+    render(
+      <BackgroundTasksPopoverContent tasks={[{ ...running, messageId: 42 }]} />,
+    );
+    expect(screen.queryByRole("button", { name: /sleep 20/ })).toBeNull();
   });
 });
 
@@ -219,6 +374,23 @@ describe("BackgroundTasksPopoverContent — elapsed + summary", () => {
     expect(screen.queryByTestId("elapsed")).toBeNull();
   });
 
+  it("does not show elapsed for a stopped task even when a duration was recorded", () => {
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[
+          {
+            toolUseId: "tu-x",
+            kind: "local_bash",
+            description: "watch",
+            status: "canceled",
+            durationMs: 9000,
+          },
+        ]}
+      />,
+    );
+    expect(screen.queryByTestId("elapsed")).toBeNull();
+  });
+
   it("does not show summary when summary is absent", () => {
     const tasks: BackgroundTask[] = [
       {
@@ -260,26 +432,6 @@ describe("BackgroundTasksPopoverContent — elapsed + summary", () => {
     render(<BackgroundTasksPopoverContent tasks={tasks} />);
     expect(screen.getByTestId("elapsed")).toHaveTextContent("1h 02m");
   });
-
-  it("labels each row by kind — bash for local_bash, subagent for local_agent", () => {
-    const tasks: BackgroundTask[] = [
-      {
-        toolUseId: "tu-bash",
-        kind: "local_bash",
-        description: "sleep 20",
-        status: "running",
-      },
-      {
-        toolUseId: "tu-agent",
-        kind: "local_agent",
-        description: "Explore repo",
-        status: "running",
-      },
-    ];
-    render(<BackgroundTasksPopoverContent tasks={tasks} />);
-    expect(screen.getByText("bash")).toBeInTheDocument();
-    expect(screen.getByText("subagent")).toBeInTheDocument();
-  });
 });
 
 describe("BackgroundTasksPopoverContent — stop button", () => {
@@ -298,6 +450,21 @@ describe("BackgroundTasksPopoverContent — stop button", () => {
     await userEvent.click(screen.getByRole("button", { name: /停止|stop/i }));
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(onStop).toHaveBeenCalledWith(task);
+  });
+
+  it("Given a located running task, When Stop is clicked, Then the task is stopped without also jumping to it", async () => {
+    const onStop = vi.fn();
+    const onLocate = vi.fn();
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[{ ...running, taskId: "b0", messageId: 42 }]}
+        onStopTask={onStop}
+        onLocateTask={onLocate}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(onLocate).not.toHaveBeenCalled();
   });
 
   it("does not render Stop when the running task has no taskId", () => {
@@ -333,93 +500,5 @@ describe("BackgroundTasksPopoverContent — stop button", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: /停止|stop/i })).toBeNull();
-  });
-
-  it("renders the canceled (stopped) status pill", () => {
-    render(
-      <BackgroundTasksPopoverContent
-        tasks={[
-          {
-            toolUseId: "tu-x",
-            taskId: "b0",
-            kind: "local_bash",
-            description: "sleep 20",
-            status: "canceled",
-          },
-        ]}
-      />,
-    );
-    expect(screen.getByText(/已停止|stopped/i)).toBeInTheDocument();
-  });
-});
-
-describe("BackgroundTasksChip — new design (badge + clearCompleted)", () => {
-  it("shows the running-count badge and the task_id in the row", async () => {
-    const onClear = vi.fn();
-    render(
-      <BackgroundTasksChip
-        tasks={[
-          {
-            toolUseId: "tu1",
-            taskId: "b3875slp0",
-            kind: "local_bash",
-            description: "sleep 5",
-            status: "running",
-            startedAt: Date.now(),
-          },
-          {
-            toolUseId: "tu2",
-            taskId: "c9xyz",
-            kind: "local_bash",
-            description: "build",
-            status: "completed",
-            durationMs: 20000,
-          },
-        ]}
-        onClearCompleted={onClear}
-      />,
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /后台任务|background/i }),
-    );
-    expect(screen.getByText("b3875slp0")).toBeInTheDocument();
-    // The running-count badge appears in the popover header (may also appear in chip label)
-    expect(
-      screen.getAllByText(/1 运行中|1 running/).length,
-    ).toBeGreaterThanOrEqual(1);
-  });
-
-  it("clears completed tasks via 清理已完成", async () => {
-    const onClear = vi.fn();
-    render(
-      <BackgroundTasksChip
-        tasks={[
-          {
-            toolUseId: "tu1",
-            taskId: "id1",
-            kind: "local_bash",
-            description: "sleep",
-            status: "running",
-            startedAt: Date.now(),
-          },
-          {
-            toolUseId: "tu2",
-            taskId: "id2",
-            kind: "local_bash",
-            description: "build",
-            status: "completed",
-            durationMs: 1000,
-          },
-        ]}
-        onClearCompleted={onClear}
-      />,
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /后台任务|background/i }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /清理已完成|clear completed/i }),
-    );
-    expect(onClear).toHaveBeenCalledTimes(1);
   });
 });

@@ -45,6 +45,7 @@ type ChatPanelHeaderProps = {
   backgroundTasks: BackgroundTask[];
   onClearCompletedTasks: () => void;
   onStopTask?: (task: BackgroundTask) => void;
+  onLocateTask?: (task: BackgroundTask) => void;
   canStop: boolean;
   onStop: (sessionId: number) => void;
   sidebarOpen: boolean;
@@ -74,6 +75,7 @@ function ChatPanelHeader({
   backgroundTasks,
   onClearCompletedTasks,
   onStopTask,
+  onLocateTask,
   canStop,
   onStop,
   sidebarOpen,
@@ -190,11 +192,12 @@ function ChatPanelHeader({
           className="flex shrink-0 items-center gap-3"
         >
           {session ? (
-            /* 后台任务胶囊：有运行中任务时显示，点击展开只读弹层 */
+            /* 后台任务胶囊：有后台任务时显示，点击展开弹层 */
             <BackgroundTasksChip
               tasks={backgroundTasks}
               onClearCompleted={onClearCompletedTasks}
               onStopTask={onStopTask}
+              onLocateTask={onLocateTask}
             />
           ) : null}
           {/* 停止按需渲染（决策 8）：停不下来的时候不摆一个空转的禁用控件。 */}

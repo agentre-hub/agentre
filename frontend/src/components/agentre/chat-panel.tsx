@@ -739,6 +739,11 @@ function ChatPanel({
                 ? (task) => handleStopSubagent(task.toolUseId)
                 : undefined
             }
+            onLocateTask={(task) => {
+              if (task.messageId != null) {
+                transcriptHandleRef.current?.scrollToMessage(task.messageId);
+              }
+            }}
             canStop={canStop}
             onStop={(id) => void doStop(id)}
             sidebarOpen={sidebarOpen}
