@@ -6,7 +6,7 @@ import { isOpenInNewTabModifier } from "../lib/keyboard";
 import { cn } from "../lib/utils";
 import { Popover, PopoverTrigger } from "../ui/popover";
 
-import { readSidebarExpanded, writeSidebarExpanded } from "./expanded-state";
+import { useSidebarExpanded } from "./expanded-state";
 import { SessionRow } from "./session-row";
 import type { SessionRowLinkRenderer } from "./session-row";
 import type { SessionRowModel } from "./types";
@@ -108,16 +108,10 @@ function SessionGroup({
   const [popoverOpen, setPopoverOpen] = React.useState(false);
   const [overflowTrigger, setOverflowTrigger] =
     React.useState<HTMLButtonElement | null>(null);
-  const [expanded, setExpanded] = React.useState(
-    () => readSidebarExpanded(persistenceKey ?? "") ?? defaultExpanded ?? false,
+  const [expanded, handleToggle] = useSidebarExpanded(
+    persistenceKey,
+    defaultExpanded ?? false,
   );
-  const handleToggle = React.useCallback(() => {
-    setExpanded((value: boolean) => {
-      const next = !value;
-      if (persistenceKey) writeSidebarExpanded(persistenceKey, next);
-      return next;
-    });
-  }, [persistenceKey]);
 
   const deleteHandlerFor = (sessionId: string) => {
     const deleteSession = onDeleteSession;

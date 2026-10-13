@@ -40,7 +40,9 @@ beforeEach(() => {
 describe("useDesktopTranscriptPorts 的 openMention", () => {
   it.each([
     ["agent", "/org", undefined],
-    ["project", "/projects", undefined],
+    // `/projects` 那一页早已并进索引、只剩一条回 `/chat` 的重定向 —— 人就在
+    // `/chat` 上，点了等于没点。去处是索引里的那个项目本身。
+    ["project", "/chat?reveal=1", undefined],
     ["device", "/settings", { state: { settingsPage: "remote-devices" } }],
   ] as const)(
     "Given a %s mention chip, When it is clicked, Then the desktop routes to its own page",

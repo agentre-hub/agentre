@@ -159,7 +159,12 @@ export function useDesktopTranscriptPorts(): TranscriptPorts {
         ...desktopTranscriptPorts,
         openMention: (ref: MentionRef) => {
           if (ref.kind === "agent") return navigate("/org");
-          if (ref.kind === "project") return navigate("/projects");
+          // 项目的去处是索引里那一组本身（`?reveal=` 由索引页消费：展开祖先、
+          // 滚到位、亮一下）。`/projects` 那一页早已并进索引，只剩一条回 `/chat`
+          // 的重定向 —— 人就在 `/chat` 上，去那儿等于没动。
+          if (ref.kind === "project") {
+            return navigate(`/chat?reveal=${ref.refId}`);
+          }
           // 设备的去处是设置里的设备面板 —— 那是这台机器在桌面端唯一的落脚页。
           navigate("/settings", { state: { settingsPage: "remote-devices" } });
         },

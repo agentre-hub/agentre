@@ -7,7 +7,7 @@
 // 实例。本页只是左栏 + 它的数据通路。
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { DndContext } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -47,6 +47,7 @@ import { useIndexDialogs } from "./use-index-dialogs";
 import { useIndexFilter, useIndexSearch } from "./use-index-filter";
 import { useIndexGroups, type IndexGroup } from "./use-index-groups";
 import { useProjectReorder } from "./use-project-reorder";
+import { useProjectReveal } from "./use-project-reveal";
 
 function projectDragID(id: number): string {
   return `project-${id}`;
@@ -234,19 +235,71 @@ export function SessionIndexPage() {
     setSettingsProjectID,
   } = dialogs;
 
+  // ── 建完项目把它亮出来 ────────────────────────────────────────────────────
+  const { revealedProjectID, revealProject } = useProjectReveal(tree);
+  const showProject = React.useCallback(
+    (projectID: number) => {
+      // 项目只在项目轴上有组头；搜索与状态 chip 又会把一个还没有会话的项目整个
+      // 藏掉。要亮的东西得真的在那儿，所以先把这三样都让开。
+      setAxis("project");
+      setQuery("");
+      setStatusFilter(null);
+      revealProject(projectID);
+    },
+    [setAxis, setQuery, setStatusFilter, revealProject],
+  );
+  const handleProjectCreated = React.useCallback(
+    (projectID: number) => {
+      refreshProjectData();
+      showProject(projectID);
+    },
+    [refreshProjectData, showProject],
+  );
+  // `/chat?reveal=<id>`：转录里点一枚项目 @ 提及进来。消费完就清掉 query，否则
+  // 刷新 / 切回这一页会再亮一次。
+  const [searchParams, setSearchParams] = useSearchParams();
+  React.useEffect(() => {
+    const raw = searchParams.get("reveal");
+    if (!raw) return;
+    const id = Number(raw);
+    if (id > 0) showProject(id);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("reveal");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchParams, setSearchParams, showProject]);
+
+  // 合并不动轴与筛选：入口就在项目组头上，用户本来就看着这棵树。
+  const handleProjectMerged = React.useCallback(
+    (keptProjectID: number) => {
+      refreshProjectData();
+      revealProject(keptProjectID);
+    },
+    [refreshProjectData, revealProject],
+  );
+
   // ── 会话行的改名 / 删除 ───────────────────────────────────────────────────
   const sessionActions = useSessionActions();
 
   // ── 拖拽排序：只在「按项目」下开启，且筛选生效时禁用（决策 9） ─────────────
-  const { dragDisabled, sensors, handleDragEnd, reorderError } =
-    useProjectReorder({
-      axis,
-      // 搜索与状态 chip 都让顺序失去意义（决策 9）—— 前者现在是取数级的过滤，
-      // 不再体现在 visibleSessionIDs 上，得单独报给拖拽。
-      filtering: searching || visibleSessionIDs !== null,
-      projectByID,
-      refreshProjectData,
-    });
+  const {
+    dragDisabled,
+    sensors,
+    collisionDetection,
+    handleDragEnd,
+    reorderError,
+  } = useProjectReorder({
+    axis,
+    // 搜索与状态 chip 都让顺序失去意义（决策 9）—— 前者现在是取数级的过滤，
+    // 不再体现在 visibleSessionIDs 上，得单独报给拖拽。
+    filtering: searching || visibleSessionIDs !== null,
+    projectByID,
+    refreshProjectData,
+  });
 
   // ── 组的公共 handlers ─────────────────────────────────────────────────────
   const handlers = React.useMemo<IndexGroupHandlers>(
@@ -466,6 +519,8 @@ export function SessionIndexPage() {
         agent={group.kind === "agent" ? agentByID.get(group.refID) : undefined}
         allLocalPathsMissing={allLocalPathsMissing}
         dragListeners={drag?.listeners}
+        dragActivatorRef={drag?.activatorRef}
+        revealed={group.kind === "project" && group.refID === revealedProjectID}
         projectInfoOf={projectInfoOf}
         agentInfoOf={agentInfoOf}
         handlers={handlers}
@@ -481,6 +536,7 @@ export function SessionIndexPage() {
       machineByID,
       agentByID,
       allLocalPathsMissing,
+      revealedProjectID,
       projectInfoOf,
       agentInfoOf,
       subtreeSessionIDs,
@@ -497,7 +553,11 @@ export function SessionIndexPage() {
     if (axis === "project") {
       const free = groupByKey.get("free");
       return (
-        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={collisionDetection}
+          onDragEnd={handleDragEnd}
+        >
           <ProjectLevel nodes={tree} {...projectLevelProps} />
           {free ? renderGroup(free) : null}
         </DndContext>
@@ -510,6 +570,7 @@ export function SessionIndexPage() {
     groupByKey,
     tree,
     sensors,
+    collisionDetection,
     handleDragEnd,
     projectLevelProps,
     renderGroup,
@@ -526,6 +587,8 @@ export function SessionIndexPage() {
         setImportPrefill={setImportPrefill}
         importPorts={importPorts}
         openSession={openSession}
+        onProjectCreated={handleProjectCreated}
+        onProjectMerged={handleProjectMerged}
       />
 
       <ResizableSidebar
@@ -593,7 +656,11 @@ export function SessionIndexPage() {
   );
 }
 
-type SortableDrag = { listeners?: Record<string, unknown> };
+type SortableDrag = {
+  listeners?: Record<string, unknown>;
+  /** 键盘拾起只认它：组头的折叠按钮。 */
+  activatorRef?: (node: HTMLElement | null) => void;
+};
 
 type ProjectLevelProps = {
   nodes: app.ProjectTreeNode[];
@@ -676,8 +743,14 @@ function SortableProjectGroup({
   disabled: boolean;
   render: (drag?: SortableDrag) => React.ReactNode;
 }) {
-  const { listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: projectDragID(projectID), disabled });
+  const {
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: projectDragID(projectID), disabled });
   return (
     <div
       ref={setNodeRef}
@@ -690,7 +763,9 @@ function SortableProjectGroup({
         opacity: isDragging ? 0.6 : undefined,
       }}
     >
-      {render(disabled ? undefined : { listeners })}
+      {render(
+        disabled ? undefined : { listeners, activatorRef: setActivatorNodeRef },
+      )}
     </div>
   );
 }

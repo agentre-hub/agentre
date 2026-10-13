@@ -1,10 +1,17 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const appMocks = vi.hoisted(() => ({
   ListChatAgents: vi.fn(),
   ProjectAddMember: vi.fn(),
+  ProjectClearLocalPath: vi.fn(),
   ProjectGet: vi.fn(),
   ProjectLocationList: vi.fn(),
   ProjectLocationRemove: vi.fn(),
@@ -81,6 +88,84 @@ beforeEach(() => {
 
 afterEach(() => {
   localStorage.clear();
+});
+
+/**
+ * 即时保存的写是「写 → 重取」两步，而弹窗随时可以关。关窗之后才回来的那次重取若
+ * 照样落进 state，下一次打开**另一个项目**时弹窗就带着上一个项目的数据挂出来：
+ * 名字 / 简介两格的草稿只在挂载时取一次，于是一直留着上一个项目的字，一失焦就把
+ * 它写到新项目头上。
+ */
+describe("换一个项目打开", () => {
+  function detailOf(id: number, name: string) {
+    return {
+      project: {
+        color: "agent-1",
+        description: "",
+        icon: "folder",
+        id,
+        name,
+        path: `/tmp/${name}`,
+        localPathMissing: false,
+      },
+      directMembers: [],
+      inheritedMembers: [],
+    };
+  }
+
+  it("上一个项目迟到的重取不会被当成这一个项目挂出来", async () => {
+    const user = setupUser();
+    let lateReload: (detail: unknown) => void = () => {};
+    appMocks.ProjectGet.mockResolvedValueOnce(detailOf(1, "alpha"));
+    appMocks.ProjectUpdate.mockResolvedValue({ id: 1 });
+    const view = render(
+      <ProjectSettingsDrawer
+        projectID={1}
+        onClose={() => {}}
+        onChanged={() => {}}
+      />,
+    );
+    const name = await screen.findByTestId("project-settings-name");
+
+    // 改名 → 写成了 → 重取在路上，这时把窗关掉。写完之后还跟着一次 onChanged 的
+    // 重取，它同样是关窗之后才回来的。
+    appMocks.ProjectGet.mockResolvedValue(detailOf(1, "alpha2"));
+    appMocks.ProjectGet.mockImplementationOnce(
+      () => new Promise((resolve) => (lateReload = resolve)),
+    );
+    await user.clear(name);
+    await user.type(name, "alpha2");
+    fireEvent.blur(name);
+    await waitFor(() => expect(appMocks.ProjectUpdate).toHaveBeenCalled());
+    view.rerender(
+      <ProjectSettingsDrawer
+        projectID={0}
+        onClose={() => {}}
+        onChanged={() => {}}
+      />,
+    );
+    await act(async () => lateReload(detailOf(1, "alpha2")));
+    await waitFor(() => expect(appMocks.ProjectGet).toHaveBeenCalledTimes(3));
+
+    // 打开另一个项目，它自己的数据还没回来。
+    let arrive: (detail: unknown) => void = () => {};
+    appMocks.ProjectGet.mockImplementation(
+      () => new Promise((resolve) => (arrive = resolve)),
+    );
+    view.rerender(
+      <ProjectSettingsDrawer
+        projectID={2}
+        onClose={() => {}}
+        onChanged={() => {}}
+      />,
+    );
+    expect(screen.queryByTestId("project-settings-name")).toBeNull();
+
+    await act(async () => arrive(detailOf(2, "beta")));
+    expect(
+      (await screen.findByTestId("project-settings-name")) as HTMLInputElement,
+    ).toHaveValue("beta");
+  });
 });
 
 describe("成员", () => {
@@ -224,6 +309,20 @@ describe("本机那一行", () => {
       }),
     );
     expect(appMocks.ProjectUpdate).not.toHaveBeenCalled();
+  });
+
+  it("移除本机路径走 ProjectClearLocalPath —— 给 ProjectSetLocalPath 递空串只会换来「路径不能为空」", async () => {
+    mockProject();
+    appMocks.ProjectClearLocalPath.mockResolvedValue({ id: 1 });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByTestId("project-path-remove-"));
+
+    await waitFor(() =>
+      expect(appMocks.ProjectClearLocalPath).toHaveBeenCalledWith(1),
+    );
+    expect(appMocks.ProjectSetLocalPath).not.toHaveBeenCalled();
   });
 
   it("只改名字时本机路径纹丝不动", async () => {

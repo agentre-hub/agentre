@@ -228,8 +228,10 @@ func (w projectWriter) Update(ctx context.Context, wr Write) error {
 	return nil
 }
 
+// Delete 走不级联的 DeleteLeaf：带子项目的项目沿用服务层的拒绝，错误原样透出（审批卡
+// 上只写得出被删的这一个项目，server 侧执行者判的也是同一条）。
 func (w projectWriter) Delete(ctx context.Context, wr Write) error {
-	return w.p.projects().Delete(ctx, wr.Cur.GetProject().GetId())
+	return w.p.projects().DeleteLeaf(ctx, wr.Cur.GetProject().GetId())
 }
 
 // ---- providers ----

@@ -34,7 +34,9 @@ func setupProjectSvc(t *testing.T) (
 	ms := mock_project_svc.NewMockSessionPort(ctrl)
 	project_repo.RegisterProject(mp)
 	project_repo.RegisterProjectAgent(mpa)
-	return context.Background(), mp, mpa, ms, project_svc.New(project_svc.WithSessionPort(ms))
+	// Delete 把整棵子树的读写收进一个事务；服务单测不连库，顶一个直接调用回调的假实现。
+	svc := project_svc.New(project_svc.WithSessionPort(ms), project_svc.WithTxRunner(&fakeTx{}))
+	return context.Background(), mp, mpa, ms, svc
 }
 
 func TestProjectSvcCreate_Happy(t *testing.T) {
@@ -185,19 +187,9 @@ func TestProjectSvcCreate_ParentNotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestProjectSvcDelete_HasChildren(t *testing.T) {
-	ctx, mp, _, _, svc := setupProjectSvc(t)
-	mp.EXPECT().Find(ctx, int64(1)).Return(&project_entity.Project{ID: 1, Status: consts.ACTIVE}, nil)
-	mp.EXPECT().HasActiveChildren(ctx, int64(1)).Return(true, nil)
-
-	err := svc.Delete(ctx, 1)
-	require.Error(t, err)
-}
-
 func TestProjectSvcDelete_HasActiveSessions(t *testing.T) {
 	ctx, mp, _, ms, svc := setupProjectSvc(t)
-	mp.EXPECT().Find(ctx, int64(1)).Return(&project_entity.Project{ID: 1, Status: consts.ACTIVE}, nil)
-	mp.EXPECT().HasActiveChildren(ctx, int64(1)).Return(false, nil)
+	mp.EXPECT().List(ctx).Return([]*project_entity.Project{{ID: 1, Status: consts.ACTIVE}}, nil)
 	ms.EXPECT().CountActiveByProject(ctx, int64(1), []string{"running", "waiting"}).Return(int64(2), nil)
 
 	err := svc.Delete(ctx, 1)
@@ -206,8 +198,7 @@ func TestProjectSvcDelete_HasActiveSessions(t *testing.T) {
 
 func TestProjectSvcDelete_Success(t *testing.T) {
 	ctx, mp, _, ms, svc := setupProjectSvc(t)
-	mp.EXPECT().Find(ctx, int64(1)).Return(&project_entity.Project{ID: 1, Status: consts.ACTIVE}, nil)
-	mp.EXPECT().HasActiveChildren(ctx, int64(1)).Return(false, nil)
+	mp.EXPECT().List(ctx).Return([]*project_entity.Project{{ID: 1, Status: consts.ACTIVE}}, nil)
 	ms.EXPECT().CountActiveByProject(ctx, int64(1), []string{"running", "waiting"}).Return(int64(0), nil)
 	ms.EXPECT().ReassignProject(ctx, int64(1), int64(0)).Return(nil)
 	mp.EXPECT().Delete(ctx, int64(1)).Return(nil)
@@ -225,8 +216,7 @@ func TestProjectSvcDelete_Success(t *testing.T) {
 // 规格：docs/specs/2026-08-16-unified-chat-index.md 的 R7。
 func TestProjectSvcDelete_ReassignsSurvivingSessionsToFree(t *testing.T) {
 	ctx, mp, _, ms, svc := setupProjectSvc(t)
-	mp.EXPECT().Find(ctx, int64(7)).Return(&project_entity.Project{ID: 7, Status: consts.ACTIVE}, nil)
-	mp.EXPECT().HasActiveChildren(ctx, int64(7)).Return(false, nil)
+	mp.EXPECT().List(ctx).Return([]*project_entity.Project{{ID: 7, Status: consts.ACTIVE}}, nil)
 	ms.EXPECT().CountActiveByProject(ctx, int64(7), []string{"running", "waiting"}).Return(int64(0), nil)
 	// 关键断言：置零发生在删除项目行**之前** —— 先摘干净引用再删，中途失败时
 	// 项目还在，用户可以重试；反过来则会留下一批指向不存在项目的会话。
@@ -242,8 +232,7 @@ func TestProjectSvcDelete_ReassignsSurvivingSessionsToFree(t *testing.T) {
 // 「项目已删但会话还指着它」的半个状态。
 func TestProjectSvcDelete_ReassignFails_ThenProjectSurvives(t *testing.T) {
 	ctx, mp, _, ms, svc := setupProjectSvc(t)
-	mp.EXPECT().Find(ctx, int64(7)).Return(&project_entity.Project{ID: 7, Status: consts.ACTIVE}, nil)
-	mp.EXPECT().HasActiveChildren(ctx, int64(7)).Return(false, nil)
+	mp.EXPECT().List(ctx).Return([]*project_entity.Project{{ID: 7, Status: consts.ACTIVE}}, nil)
 	ms.EXPECT().CountActiveByProject(ctx, int64(7), []string{"running", "waiting"}).Return(int64(0), nil)
 	ms.EXPECT().ReassignProject(ctx, int64(7), int64(0)).Return(errors.New("db down"))
 	// mp.Delete 没有 EXPECT：置零失败后一次都不该调它。

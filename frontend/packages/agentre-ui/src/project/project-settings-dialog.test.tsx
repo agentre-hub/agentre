@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectSettingsDialog } from "./project-settings-dialog";
@@ -625,6 +626,147 @@ describe("字段级失败", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("project-settings-name-error")).toBeNull(),
     );
+  });
+});
+
+describe("名字那一句失败只归名字管", () => {
+  const taken: ProjectWriteOutcome = {
+    ok: false,
+    failure: { kind: "unknown", message: "已经有一个叫这个名字的项目了" },
+  };
+
+  it("别的写成功了不把它收掉 —— 那一格里还摆着被拒的名字", async () => {
+    const updateFields = vi
+      .fn<ProjectSettingsPorts["updateFields"]>()
+      .mockResolvedValueOnce(taken)
+      .mockResolvedValue({ ok: true });
+    const { ports: p } = open({ ports: { updateFields } });
+    const name = await screen.findByTestId("project-settings-name");
+    fireEvent.change(name, { target: { value: "Platform" } });
+    fireEvent.blur(name);
+    await screen.findByTestId("project-settings-name-error");
+
+    fireEvent.click(screen.getByTestId("project-member-remove-m1"));
+    await waitFor(() => expect(p.removeMember).toHaveBeenCalled());
+    await waitFor(() => expect(p.listMachines).toHaveBeenCalled());
+
+    expect(screen.getByTestId("project-settings-name-error")).toHaveTextContent(
+      "已经有一个叫这个名字的项目了",
+    );
+  });
+
+  it("动手改名字就收掉 —— 改回原名不会再发一次写，不收它就永远留着", async () => {
+    open({ ports: { updateFields: vi.fn(async () => taken) } });
+    const name = await screen.findByTestId("project-settings-name");
+    fireEvent.change(name, { target: { value: "Platform" } });
+    fireEvent.blur(name);
+    await screen.findByTestId("project-settings-name-error");
+
+    fireEvent.change(name, { target: { value: "Atlas" } });
+    expect(screen.queryByTestId("project-settings-name-error")).toBeNull();
+  });
+});
+
+/**
+ * 即时保存的弹窗没有「保存」，写只发生在失焦那一刻。「完成」与 ✕ 是按钮，点它们
+ * 之前输入框先失焦，所以改动落得下去；Esc 与点遮罩不经过失焦，正在改的那一格就
+ * 被整窗卸载带走了 —— 同一个「关掉」，一半保存一半丢。
+ */
+describe("关窗不丢正在改的那一格", () => {
+  function openClosable(over: Partial<ProjectSettingsPorts> = {}) {
+    const p = ports(over);
+    const onOpenChange = vi.fn();
+    render(
+      <ProjectSettingsDialog
+        open
+        onOpenChange={onOpenChange}
+        project={PROJECT}
+        parentOptions={[]}
+        ports={p}
+        onChanged={vi.fn()}
+      />,
+    );
+    return { ports: p, onOpenChange };
+  }
+
+  it("光标还在名字里就按 Esc：先把这一格写下去，再关", async () => {
+    const user = userEvent.setup();
+    const { ports: p, onOpenChange } = openClosable();
+    const name = await screen.findByTestId("project-settings-name");
+    await user.clear(name);
+    await user.type(name, "Atlas II");
+    await user.keyboard("{Escape}");
+
+    expect(p.updateFields).toHaveBeenCalledWith("p1", { name: "Atlas II" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("光标在路径里按 Esc 也一样", async () => {
+    const user = userEvent.setup();
+    const { ports: p } = openClosable();
+    const input = await screen.findByTestId("project-path-input-farm");
+    await user.clear(input);
+    await user.type(input, "/srv/next");
+    await user.keyboard("{Escape}");
+
+    expect(p.setMachinePath).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({ id: "farm" }),
+      "/srv/next",
+    );
+  });
+
+  it("没改过就按 Esc：什么都不写", async () => {
+    const user = userEvent.setup();
+    const { ports: p, onOpenChange } = openClosable();
+    await user.click(await screen.findByTestId("project-settings-name"));
+    await user.keyboard("{Escape}");
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(p.updateFields).not.toHaveBeenCalled();
+  });
+});
+
+describe("路径清空", () => {
+  it("把路径删空再失焦 = 去掉这条路径，不是写一条空路径（空路径哪一端都不收）", async () => {
+    const { ports: p } = open();
+    const input = await screen.findByTestId("project-path-input-farm");
+    fireEvent.change(input, { target: { value: "  " } });
+    fireEvent.blur(input);
+
+    await waitFor(() =>
+      expect(p.clearMachinePath).toHaveBeenCalledWith(
+        "p1",
+        expect.objectContaining({ id: "farm" }),
+      ),
+    );
+    expect(p.setMachinePath).not.toHaveBeenCalled();
+  });
+});
+
+describe("目录选择器里的机器", () => {
+  async function machineColumn() {
+    await screen.findByTestId("project-path-row-farm");
+    fireEvent.click(screen.getByTestId("project-path-choose-farm"));
+    return (await screen.findByTestId("directory-picker-machines")).textContent;
+  }
+
+  it("本机走原生对话框时不进自绘面板的机器栏 —— 那一栏的每一台都得浏览得了", async () => {
+    open({ ports: { pickLocalDirectory: vi.fn(async () => null) } });
+    const column = await machineColumn();
+    expect(column).toContain("build-01");
+    expect(column).not.toContain("wangyz-mbp");
+  });
+
+  it("宿主没有原生对话框时本机照旧在栏里 —— 它只能靠这一栏挑", async () => {
+    open();
+    expect(await machineColumn()).toContain("wangyz-mbp");
+  });
+
+  it("宿主说不出本机叫什么时，栏里那一条写「本机」而不是一条没名字的", async () => {
+    const nameless = MACHINES.map((m) => (m.isSelf ? { ...m, name: "" } : m));
+    open({ ports: { listMachines: vi.fn(async () => nameless) } });
+    expect(await machineColumn()).toContain("This machine");
   });
 });
 

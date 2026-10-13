@@ -31,6 +31,7 @@ import { useChatAgents } from "@/hooks/use-chat-agents";
 
 import {
   ProjectAddMember,
+  ProjectClearLocalPath,
   ProjectGet,
   ProjectListTree,
   ProjectLocationList,
@@ -152,7 +153,11 @@ function ProjectSettingsDrawer({
       .catch(() => setTree([]));
   }, [open, reload]);
 
-  const project = detail?.project;
+  // 只认**此刻要开的那个项目**的数据。写是「写 → 重取」两步，关窗之后才回来的
+  // 那次重取照样会落进 `detail`；不在这里把一道关，下一次打开另一个项目时弹窗就
+  // 带着上一个项目的名字挂出来，一失焦便把它写到新项目头上。
+  const project =
+    detail?.project?.id === projectID ? detail.project : undefined;
 
   /**
    * 这个项目的成员分别绑在哪几台机器上。
@@ -283,7 +288,8 @@ function ProjectSettingsDrawer({
         attempt(async () => {
           if (!project) return;
           if (machine.isSelf) {
-            await ProjectSetLocalPath({ id: project.id, path: "" });
+            // 去掉不是「写一条空路径」：ProjectSetLocalPath 不收空串。
+            await ProjectClearLocalPath(project.id);
           } else {
             await ProjectLocationRemove(project.id, machine.id);
           }

@@ -35,6 +35,8 @@ export type ProjectGroupHeaderProps = {
   labelMuted?: boolean;
   badges?: React.ReactNode;
   actions?: React.ReactNode;
+  /** 折叠按钮那个节点，原样递给外壳（见 `IndexGroupHeader` 的同名 prop）。 */
+  toggleRef?: React.Ref<HTMLButtonElement>;
   testId?: string;
 } & Omit<React.ComponentProps<"div">, "onToggle" | "color">;
 

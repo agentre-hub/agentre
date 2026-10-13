@@ -45,7 +45,10 @@ export interface ProjectCreateDialogProps {
   parentOptions: { id: string; name: string; depth?: number }[];
   /** 「新建子项目…」进来时预置的父项目。 */
   initialParentId?: string;
-  /** 给了就在头部说清挂在哪儿。 */
+  /**
+   * 预置的那个父项目叫什么 —— **只是兜底**。头部说的是这个项目会建在谁下面，名字
+   * 先从 `parentOptions` 里按当前选中的那一个取；候选里认不出它时才用这个。
+   */
   parentName?: string;
   ports: ProjectCreatePorts;
   onCreated(projectId: string): void;
@@ -69,6 +72,19 @@ export function ProjectCreateDialog({
   const [icon, setIcon] = React.useState("");
   const [color, setColor] = React.useState("");
   const [parentId, setParentId] = React.useState(initialParentId);
+  /**
+   * 父项目跟**这一次打开**走，不跟挂载走。
+   *
+   * 宿主可以把弹窗常驻挂着、只翻 `open`（桌面端就是），而「新建子项目…」点的是哪个
+   * 项目是随那一次打开才递进来的。只在挂载时读一次就永远慢一拍：第一次显示「无父
+   * 项目」，之后显示的是上一次点的那个。渲染期对齐而不是 effect —— 打开的第一帧
+   * 就得是对的那一个。
+   */
+  const [wasOpen, setWasOpen] = React.useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setParentId(initialParentId);
+  }
   const [localPath, setLocalPath] = React.useState("");
   const [git, setGit] = React.useState<ProjectGitInfo | null>(null);
   const [probing, setProbing] = React.useState(false);
@@ -153,6 +169,7 @@ export function ProjectCreateDialog({
   }, [localPath, probeGitRepo]);
 
   // 状态重置放在「关闭」这一侧：下一次打开天然从初值开始，不在 effect 里同步 setState。
+  // 唯一的例外是父项目 —— 它的初值随下一次打开才知道，见上面 `wasOpen` 那一段。
   function handleOpenChange(next: boolean) {
     if (!next) {
       // 项目已经建出来了就一定要说出去，哪怕他是直接把窗关掉的。
@@ -178,6 +195,11 @@ export function ProjectCreateDialog({
 
   const trimmedName = name.trim();
   const trimmedPath = localPath.trim();
+  // 头部跟着父项目那一格走：在下拉里换了父项目，标题不能还说着进来时的那个。
+  const shownParentName = parentId
+    ? (parentOptions.find((o) => o.id === parentId)?.name ??
+      (parentId === initialParentId ? parentName : undefined))
+    : undefined;
   // 名字是**唯一**必填的一格：路径不必填（决策 9），两端一套校验。
   const canSubmit = !!trimmedName && !busy;
 
@@ -187,7 +209,8 @@ export function ProjectCreateDialog({
     setLocalPath(picked);
     // 没填名字时把目录名当默认名 —— 十有八九就是它。
     setName(
-      (current) => current || picked.split("/").filter(Boolean).pop() || "",
+      // 两种分隔符都认：Windows 宿主挑回来的是 `C:\code\atlas`。
+      (current) => current || picked.split(/[\\/]/).filter(Boolean).pop() || "",
     );
   }
 
@@ -364,8 +387,10 @@ export function ProjectCreateDialog({
       >
         <DialogShellHeader
           title={
-            parentName
-              ? t("projectSettings.create.subtitleOf", { name: parentName })
+            shownParentName
+              ? t("projectSettings.create.subtitleOf", {
+                  name: shownParentName,
+                })
               : t("projectSettings.create.title")
           }
           onClose={() => handleOpenChange(false)}

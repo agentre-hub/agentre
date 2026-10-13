@@ -66,17 +66,28 @@ vi.mock("../../../../wailsjs/go/app/App", () => appMocks);
 // 又能用「回调有没有被登记」判断这一档到底挂没挂拖拽上下文。
 const dndMocks = vi.hoisted(() => ({
   onDragEnd: null as null | ((event: unknown) => void),
+  collisionDetection: undefined as
+    | undefined
+    | ((args: unknown) => { id: string }[]),
 }));
 
-vi.mock("@dnd-kit/core", () => ({
+vi.mock("@dnd-kit/core", async (importOriginal) => ({
+  // 落点算法是纯函数，用真的：页面给 DndContext 配了哪一个，由用例直接喂矩形去问。
+  closestCenter: (await importOriginal<typeof import("@dnd-kit/core")>())
+    .closestCenter,
+  rectIntersection: (await importOriginal<typeof import("@dnd-kit/core")>())
+    .rectIntersection,
   DndContext: ({
     children,
     onDragEnd,
+    collisionDetection,
   }: {
     children: React.ReactNode;
     onDragEnd: (event: unknown) => void;
+    collisionDetection?: (args: unknown) => { id: string }[];
   }) => {
     dndMocks.onDragEnd = onDragEnd;
+    dndMocks.collisionDetection = collisionDetection;
     return children;
   },
   KeyboardSensor: vi.fn(),
@@ -84,6 +95,7 @@ vi.mock("@dnd-kit/core", () => ({
   useSensor: vi.fn(() => ({})),
   useSensors: vi.fn(() => []),
 }));
+import { rectIntersection } from "@dnd-kit/core";
 vi.mock("@dnd-kit/sortable", () => ({
   SortableContext: ({ children }: { children: React.ReactNode }) => children,
   sortableKeyboardCoordinates: vi.fn(),
@@ -294,7 +306,13 @@ function selectSessionTab(sessionId: number) {
 }
 
 function LocationProbe() {
-  return <output data-testid="location">{useLocation().pathname}</output>;
+  const location = useLocation();
+  return (
+    <>
+      <output data-testid="location">{location.pathname}</output>
+      <output data-testid="location-search">{location.search}</output>
+    </>
+  );
 }
 
 function renderIndex(path = "/chat") {
@@ -323,6 +341,7 @@ function querySessionRow(title: string) {
 function resetAll() {
   vi.clearAllMocks();
   dndMocks.onDragEnd = null;
+  dndMocks.collisionDetection = undefined;
   localStorage.clear();
   __resetProjectTreeForTesting();
   // axis 是模块级 store，清 localStorage 并不会把它拨回默认 —— 不重置的话上一条
@@ -998,6 +1017,54 @@ describe("SessionIndexPage drag reorder", () => {
     });
   });
 
+  /**
+   * 每个项目组把**整组**（组头 + 会话 + 子项目）登记成落点，子项目又各自登记一遍。
+   * 把一个根项目往下拖时，它的矩形落进下一个根项目的范围里，同时正好压在那个根
+   * 项目的子项目上 —— 默认算法挑重叠比例最高的，于是落点成了那个子项目，跨了层，
+   * 被 `handleDragEnd` 悄悄丢掉：拖了一下，松手弹回，什么都没发生。真机上按
+   * 空格 / ↓ / 空格复现过：`moved over droppable area project-3`。
+   */
+  it("Given a root project dragged onto a sibling that has an expanded subproject, When the drop target is resolved, Then it is the sibling, never the subproject underneath", async () => {
+    renderIndex();
+    await screen.findByText("Gamma");
+
+    const rect = (top: number, height: number) => ({
+      top,
+      left: 64,
+      width: 303,
+      height,
+      bottom: top + height,
+      right: 367,
+    });
+    const droppable = (id: string, level: string) => ({
+      id,
+      disabled: false,
+      data: { current: { sortable: { containerId: level } } },
+    });
+    // 根层 project-1 / project-2；project-3 是 project-2 展开着的子项目。
+    const args = {
+      active: { id: "project-1", data: droppable("project-1", "root").data },
+      // 被拖的那一个此刻正好盖在子项目上。
+      collisionRect: rect(252, 63),
+      droppableRects: new Map([
+        ["project-1", rect(144, 71)],
+        ["project-2", rect(215, 100)],
+        ["project-3", rect(252, 63)],
+      ]),
+      droppableContainers: [
+        droppable("project-1", "root"),
+        droppable("project-2", "root"),
+        droppable("project-3", "nested"),
+      ],
+      pointerCoordinates: null,
+    };
+
+    const detect = dndMocks.collisionDetection ?? rectIntersection;
+    expect((detect as (a: unknown) => { id: string }[])(args)[0]?.id).toBe(
+      "project-2",
+    );
+  });
+
   it("Given a search is active, When a drop lands, Then nothing is persisted — order has no meaning in a filtered list", async () => {
     const user = setupUser();
     renderIndex();
@@ -1140,6 +1207,51 @@ describe("SessionIndexPage project group actions", () => {
     ).toBeInTheDocument();
   });
 
+  it("Given the merge dialog with a target picked, When the merge succeeds, Then the dialog closes and the surviving project is the one shown to the user", async () => {
+    const user = setupUser();
+    seedTree([
+      projectNode({ id: 1, name: "Agentre" }),
+      projectNode({
+        id: 2,
+        name: "agentre-hub",
+        path: "",
+        localPathMissing: true,
+      }),
+    ]);
+    appMocks.ProjectMerge.mockImplementation(async () => {
+      seedTree([projectNode({ id: 1, name: "Agentre" })]);
+      return { id: 1, name: "Agentre" };
+    });
+    renderIndex();
+    await screen.findByText("agentre-hub");
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "More actions for agentre-hub",
+      }),
+    );
+    await user.click(await screen.findByText("Merge into an existing project"));
+    await user.click(
+      await screen.findByRole("combobox", { name: /merge into/i }),
+    );
+    await user.click(await screen.findByRole("option", { name: "Agentre" }));
+    await user.click(screen.getByRole("button", { name: "Merge" }));
+
+    await waitFor(() =>
+      expect(appMocks.ProjectMerge).toHaveBeenCalledWith({
+        sourceID: 2,
+        targetID: 1,
+      }),
+    );
+    // 此前合并成了弹窗还开着、按钮重新可点，再点一次就是「项目不存在」。
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() =>
+      expect(
+        screen.getByText("Agentre").closest("[data-project-id]"),
+      ).toHaveAttribute("data-revealed", "true"),
+    );
+  });
+
   it("Given the ⋮ menu, When Delete Project is picked, Then the delete confirmation opens", async () => {
     const user = setupUser();
     renderIndex();
@@ -1197,6 +1309,155 @@ describe("SessionIndexPage project group actions", () => {
       initialQuery: "> ",
     });
     expect(useChatTabsStore.getState().tabs).toHaveLength(0);
+  });
+});
+
+// ── 建完项目把它亮出来 ──────────────────────────────────────────────────────
+
+/**
+ * 建完项目此前只重取一遍树：父项目收着的话新建的子项目根本看不见，在别的轴 / 带着
+ * 筛选时连组头都没有。用户刚做完的事得落在他眼前 —— 父级展开、滚到位、亮一下。
+ */
+describe("SessionIndexPage reveals a project right after it is created", () => {
+  let scrollIntoView: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+  });
+  afterEach(() => {
+    scrollIntoView.mockRestore();
+  });
+
+  /** 建成的那一刻后端的树里就有它了：下一次 ProjectListTree 要带上新项目。 */
+  function createLands(tree: app.ProjectTreeNode[], id: number) {
+    appMocks.ProjectCreate.mockImplementation(async () => {
+      seedTree(tree);
+      return { id };
+    });
+  }
+
+  function projectHeader(name: string): HTMLElement {
+    const header = screen.getByText(name).closest("[data-project-id]");
+    if (!(header instanceof HTMLElement)) {
+      throw new Error(`no project header for ${name}`);
+    }
+    return header;
+  }
+
+  /** 组头的折叠按钮：可访问名里混着字形，按名字文本往上找最稳。 */
+  function projectToggle(name: string): HTMLElement {
+    const toggle = screen.getByText(name).closest("button");
+    if (!toggle) throw new Error(`no toggle for ${name}`);
+    return toggle;
+  }
+
+  async function submitNewProject(
+    user: ReturnType<typeof userEvent.setup>,
+    name: string,
+  ) {
+    await user.type(await screen.findByTestId("project-create-name"), name);
+    await user.click(screen.getByTestId("project-create-submit"));
+  }
+
+  it("Given a collapsed project, When a subproject is created from its ⋮ menu, Then the dialog names the parent, the parent opens and the new project is scrolled to and highlighted", async () => {
+    seedTree([projectNode({ id: 1, name: "Agentre" })]);
+    localStorage.setItem("agentre.agentExpanded.project:1", "0");
+    createLands(
+      [
+        projectNode({ id: 1, name: "Agentre" }, [
+          projectNode({ id: 2, name: "backend", parentID: 1 }),
+        ]),
+      ],
+      2,
+    );
+    const user = setupUser();
+    renderIndex();
+    await screen.findByText("Agentre");
+    expect(projectToggle("Agentre")).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(
+      screen.getByRole("button", { name: "More actions for Agentre" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "New subproject" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "New project under Agentre" }),
+    ).toBeInTheDocument();
+    await submitNewProject(user, "backend");
+
+    await waitFor(() =>
+      expect(appMocks.ProjectCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ parentID: 1, name: "backend" }),
+      ),
+    );
+    await waitFor(() =>
+      expect(projectHeader("backend")).toHaveAttribute("data-revealed", "true"),
+    );
+    expect(projectToggle("Agentre")).toHaveAttribute("aria-expanded", "true");
+    await waitFor(() =>
+      expect(scrollIntoView.mock.contexts).toContain(projectHeader("backend")),
+    );
+  });
+
+  it("Given the highlight has been shown, When a moment passes, Then it goes away on its own", async () => {
+    createLands([projectNode({ id: 1, name: "Agentre" })], 1);
+    const user = setupUser();
+    renderIndex();
+
+    await user.click(await screen.findByRole("button", { name: "New" }));
+    await user.click(await screen.findByTestId("project-create-trigger"));
+    await submitNewProject(user, "Agentre");
+
+    await waitFor(() =>
+      expect(projectHeader("Agentre")).toHaveAttribute("data-revealed", "true"),
+    );
+    await waitFor(
+      () =>
+        expect(projectHeader("Agentre")).not.toHaveAttribute("data-revealed"),
+      { timeout: 4000 },
+    );
+  });
+
+  it("Given a `?reveal=<id>` deep link, When the tree is loaded, Then that project is shown the same way and the query is consumed", async () => {
+    seedTree([
+      projectNode({ id: 1, name: "Agentre" }, [
+        projectNode({ id: 2, name: "backend", parentID: 1 }),
+      ]),
+    ]);
+    localStorage.setItem("agentre.agentExpanded.project:1", "0");
+    renderIndex("/chat?reveal=2");
+
+    await waitFor(() =>
+      expect(projectHeader("backend")).toHaveAttribute("data-revealed", "true"),
+    );
+    expect(projectToggle("Agentre")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("location-search")).toHaveTextContent(/^$/);
+  });
+
+  it("Given the Agent axis with a status filter on, When a project is created from the top ＋, Then the index comes back to the project axis unfiltered so the new project is actually there", async () => {
+    seedAgents([{ id: 1, name: "Eng" }]);
+    createLands([projectNode({ id: 1, name: "Agentre" })], 1);
+    const user = setupUser();
+    renderIndex();
+    await user.click(screen.getByTestId("axis-picker"));
+    await user.click(await screen.findByTestId("axis-option-agent"));
+    await user.click(screen.getByTestId("filter-chip-running"));
+
+    await user.click(await screen.findByRole("button", { name: "New" }));
+    await user.click(await screen.findByTestId("project-create-trigger"));
+    await submitNewProject(user, "Agentre");
+
+    await waitFor(() =>
+      expect(projectHeader("Agentre")).toHaveAttribute("data-revealed", "true"),
+    );
+    expect(useSidebarAxisStore.getState().axis).toBe("project");
+    expect(screen.getByTestId("filter-chip-all")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 });
 

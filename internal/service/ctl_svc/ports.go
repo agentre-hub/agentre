@@ -41,7 +41,8 @@ type ProjectService interface {
 	Create(ctx context.Context, req *project_svc.CreateProjectRequest) (*project_entity.Project, error)
 	Update(ctx context.Context, req *project_svc.UpdateProjectRequest) (*project_entity.Project, error)
 	Move(ctx context.Context, req *project_svc.MoveProjectRequest) (*project_entity.Project, error)
-	Delete(ctx context.Context, id int64) error
+	// DeleteLeaf 而不是 Delete：命令面的删除不级联，带子项目的项目由服务层拒绝。
+	DeleteLeaf(ctx context.Context, id int64) error
 	SetLocalPath(ctx context.Context, id int64, path string) (*project_entity.Project, error)
 	ClearLocalPath(ctx context.Context, id int64) (*project_entity.Project, error)
 	AddMember(ctx context.Context, projectID, agentID int64) error

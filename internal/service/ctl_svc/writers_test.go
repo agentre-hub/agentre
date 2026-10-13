@@ -200,6 +200,15 @@ func TestProjectWriter(t *testing.T) {
 			Next: projectRes(&agentrewire.CtlProject{Id: 8, Name: "docs", ParentId: 2, Path: "/new"}),
 		}))
 	})
+	// 命令面的约定是带子项目的项目拒删（审批卡上只写得出被删的那一个，server 侧执行者
+	// 判的也是这一条）。桌面界面的删除会连子树一起删，那是另一个方法——写网关调错
+	// 一个，就是凭一张只提了一个名字的审批卡删掉一整棵子树。
+	t.Run("delete 走不级联的 DeleteLeaf，服务层的拒绝原样上抛", func(t *testing.T) {
+		m := newMockPorts(t)
+		m.projects.EXPECT().DeleteLeaf(gomock.Any(), int64(8)).Return(errors.New("项目下还有子项目，无法删除"))
+		err := projectWriter{m.ports}.Delete(ctx, Write{Cur: projectRes(&agentrewire.CtlProject{Id: 8, Name: "docs"})})
+		assert.EqualError(t, err, "项目下还有子项目，无法删除")
+	})
 }
 
 // ---- providers / models ----

@@ -35,7 +35,8 @@ export function ProjectMergeDialog({
   source: ProjectMergeSource | null;
   candidates: ProjectMergeCandidate[];
   onClose: () => void;
-  onMerged: () => void;
+  /** 合并成了。`keptProjectID` 是留下来的那一行 —— 哪边赢由后端定，这里只转述。 */
+  onMerged: (keptProjectID: number) => void;
 }) {
   const { t } = useTranslation();
   const [targetID, setTargetID] = React.useState<number | null>(null);
@@ -53,8 +54,10 @@ export function ProjectMergeDialog({
     setErr(null);
     setBusy(true);
     try {
-      await ProjectMerge({ sourceID: source.id, targetID });
-      onMerged();
+      const kept = await ProjectMerge({ sourceID: source.id, targetID });
+      onMerged(kept?.id ?? targetID);
+      // 成了就关：留在窗里只剩一颗重新亮起来的「合并」，再点一次是「项目不存在」。
+      onClose();
     } catch (e) {
       setErr(t("projectMerge.errors.mergeFailed", { error: String(e) }));
     } finally {

@@ -84,6 +84,10 @@ export type IndexGroupRowProps = {
   machine?: MachineRosterEntry;
   allLocalPathsMissing: boolean;
   dragListeners?: Record<string, unknown>;
+  /** 拖拽的键盘锚点（见 ProjectGroupHeader）。 */
+  dragActivatorRef?: (node: HTMLElement | null) => void;
+  /** 这一组是刚建出来、正被亮给用户看的那个项目。 */
+  revealed?: boolean;
   /**
    * 项目 id → 画一枚项目字形所需的三件事（名字 / 颜色 / 图标）。返回 null =
    * 认不出这个项目。三件事一起取而不是三个各自的取值函数：它们只在一处一起用，
@@ -113,6 +117,8 @@ export function IndexGroupRow({
   machine,
   allLocalPathsMissing,
   dragListeners,
+  dragActivatorRef,
+  revealed,
   projectInfoOf,
   agentInfoOf,
   handlers,
@@ -379,6 +385,8 @@ export function IndexGroupRow({
           attentionTone={attentionTone}
           allLocalPathsMissing={allLocalPathsMissing}
           dragListeners={dragListeners}
+          dragActivatorRef={dragActivatorRef}
+          revealed={revealed}
           onOpenSettings={handlers.onOpenSettings}
           onAddSubProject={handlers.onAddSubProject}
           onNewSession={handlers.onNewSession}

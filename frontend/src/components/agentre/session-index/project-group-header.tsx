@@ -27,6 +27,7 @@ import {
   ProjectGroupHeader as UiProjectGroupHeader,
   ProjectHeaderActions,
   ProjectHeaderContextMenu,
+  cn,
   iconNode,
   type ProjectHeaderActionsProps,
   type ProjectHeaderMember,
@@ -64,6 +65,13 @@ export type ProjectGroupHeaderProps = {
   allLocalPathsMissing: boolean;
   /** dnd-kit listeners；undefined = 当前不可拖。 */
   dragListeners?: Record<string, unknown>;
+  /**
+   * 拖拽的键盘锚点，挂到折叠按钮上。监听在整个组头上（指针从哪儿按下都拖得动），
+   * 但键盘只认这一颗：不然 ＋ / ⋮ 以及它们浮层里的空格都会把项目拾起来。
+   */
+  dragActivatorRef?: (node: HTMLElement | null) => void;
+  /** 刚建出来、正被亮给用户看的那一个（见 use-project-reveal）。 */
+  revealed?: boolean;
   onOpenSettings: (projectID: number, focus?: "members" | "paths") => void;
   onAddSubProject: (parentID: number) => void;
   onNewSession: (projectID: number, agentID: number) => void;
@@ -87,6 +95,8 @@ export function ProjectGroupHeader({
   attentionTone,
   allLocalPathsMissing,
   dragListeners,
+  dragActivatorRef,
+  revealed,
   onOpenSettings,
   onAddSubProject,
   onNewSession,
@@ -192,9 +202,15 @@ export function ProjectGroupHeader({
           count: attentionCount,
         })}
         labelMuted={project.localPathMissing && allLocalPathsMissing}
-        className={
-          dragListeners ? "cursor-grab active:cursor-grabbing" : undefined
-        }
+        toggleRef={dragActivatorRef}
+        data-project-id={project.id}
+        data-revealed={revealed ? "true" : undefined}
+        className={cn(
+          dragListeners && "cursor-grab active:cursor-grabbing",
+          // 借选中态那一档底色亮一下：悬停是往白里提，这一档是往色里沉，两者同时
+          // 出现也分得开。
+          revealed && "bg-sidebar-selected-bg",
+        )}
         {...(dragListeners ?? {})}
         actions={<ProjectHeaderActions {...actions} />}
       />

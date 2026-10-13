@@ -86,6 +86,85 @@ describe("父项目", () => {
   });
 });
 
+/**
+ * 桌面端把这个弹窗**常驻挂着**，只翻 `open`；「新建子项目…」点的是哪个项目，是随
+ * 那一次打开一起递进来的。父项目那一格若只在挂载那一刻读一次 `initialParentId`，
+ * 就会永远慢一拍：第一次点 A 显示「无父项目」，再点 B 显示的是 A。
+ */
+describe("常驻挂载：每次打开都认这一次点的父项目", () => {
+  const options = [
+    { id: "p1", name: "Atlas" },
+    { id: "p2", name: "Platform", depth: 1 },
+  ];
+
+  function mount() {
+    const p = ports();
+    const onOpenChange = vi.fn();
+    const props = {
+      onOpenChange,
+      parentOptions: options,
+      ports: p,
+      onCreated: vi.fn(),
+    };
+    const view = render(
+      <ProjectCreateDialog open={false} initialParentId="" {...props} />,
+    );
+    const show = (open: boolean, initialParentId: string) =>
+      view.rerender(
+        <ProjectCreateDialog
+          open={open}
+          initialParentId={initialParentId}
+          {...props}
+        />,
+      );
+    return { ports: p, show };
+  }
+
+  it("挂着没开过，第一次从 Platform 的菜单进来 —— 父项目就是 Platform", async () => {
+    const { ports: p, show } = mount();
+    show(true, "p2");
+
+    expect(screen.getByTestId("project-create-parent").textContent).toContain(
+      "Platform",
+    );
+
+    fireEvent.change(screen.getByTestId("project-create-name"), {
+      target: { value: "Ledger" },
+    });
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    await waitFor(() =>
+      expect(p.create).toHaveBeenCalledWith({
+        name: "Ledger",
+        parentId: "p2",
+      }),
+    );
+  });
+
+  it("关掉再从另一个项目进来 —— 不留上一次那个", () => {
+    const { show } = mount();
+    show(true, "p2");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    show(false, "p2");
+
+    show(true, "p1");
+    expect(screen.getByTestId("project-create-parent").textContent).toContain(
+      "Atlas",
+    );
+  });
+
+  it("上一次建的是子项目，这次点顶上的「新建项目」—— 回到无父项目", () => {
+    const { show } = mount();
+    show(true, "p2");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    show(false, "p2");
+
+    show(true, "");
+    const trigger = screen.getByTestId("project-create-parent").textContent;
+    expect(trigger).not.toContain("Platform");
+    expect(trigger).not.toContain("Atlas");
+  });
+});
+
 describe("路径不必填", () => {
   it("只填名字就建得出来，递下去的 draft 里没有 localPath", async () => {
     const { ports: p, onCreated } = open();
@@ -162,6 +241,18 @@ describe("宿主能力：本机路径与 git 探测", () => {
   it("宿主没挂挑目录的 port 时，本机路径那一格根本不出现", () => {
     open();
     expect(screen.queryByTestId("project-create-path")).toBeNull();
+  });
+
+  it("Windows 的路径用反斜杠分段，默认名照样只取最后一段", async () => {
+    open({
+      ports: { pickLocalDirectory: vi.fn(async () => "C:\\code\\atlas") },
+    });
+    fireEvent.click(screen.getByTestId("project-create-browse"));
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("project-create-name") as HTMLInputElement).value,
+      ).toBe("atlas"),
+    );
   });
 
   it("挂了就多一格 + 「浏览…」，挑完填进去并当默认名", async () => {
@@ -275,10 +366,62 @@ describe("失败", () => {
   });
 });
 
-describe("父项目", () => {
-  it("「在 X 下新建」时头部就说清挂在哪儿", () => {
-    open({ parentName: "Platform" });
-    expect(document.body.textContent).toContain("Platform");
+/**
+ * 头部说的是**这个项目会建在谁下面**，所以它跟着父项目那一格走，而不是跟着宿主
+ * 递进来的一个名字走：桌面端从来没递过 `parentName`，于是「新建子项目…」进来的
+ * 标题永远是「新建项目」；递了的那一端，在下拉里换掉父项目之后标题还说着旧的。
+ */
+describe("头部说清挂在哪儿", () => {
+  function title() {
+    return screen.getByRole("dialog").querySelector("h2")?.textContent ?? "";
+  }
+
+  function openUnder(initialParentId: string, parentName?: string) {
+    return render(
+      <ProjectCreateDialog
+        open
+        onOpenChange={() => {}}
+        parentOptions={[
+          { id: "p1", name: "Atlas" },
+          { id: "p2", name: "Platform", depth: 1 },
+        ]}
+        initialParentId={initialParentId}
+        parentName={parentName}
+        ports={ports()}
+        onCreated={vi.fn()}
+      />,
+    );
+  }
+
+  it("预置了父项目就写「在 X 下新建」—— 宿主不必再单独递一个名字", () => {
+    openUnder("p2");
+    expect(title()).toBe("New project under Platform");
+  });
+
+  it("没有父项目就是「新建项目」", () => {
+    openUnder("");
+    expect(title()).toBe("New project");
+  });
+
+  it("在下拉里换了父项目，头部跟着换", async () => {
+    openUnder("p2");
+    fireEvent.click(screen.getByTestId("project-create-parent"));
+    fireEvent.click(await screen.findByRole("option", { name: "Atlas" }));
+    expect(title()).toBe("New project under Atlas");
+  });
+
+  it("改成无父项目，头部退回「新建项目」", async () => {
+    openUnder("p2");
+    fireEvent.click(screen.getByTestId("project-create-parent"));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "None (top level)" }),
+    );
+    expect(title()).toBe("New project");
+  });
+
+  it("候选里认不出预置的那个父项目时，用宿主递的名字兜底", () => {
+    openUnder("p9", "Ledger");
+    expect(title()).toBe("New project under Ledger");
   });
 });
 

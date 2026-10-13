@@ -31,6 +31,10 @@ type IndexDialogsProps = {
   >;
   importPorts: ReturnType<typeof useSessionImportPorts>;
   openSession: (sessionID: number) => void;
+  /** 项目建成了。页面负责重取并把它亮出来 —— 光重取，收着的父项目下面什么都看不见。*/
+  onProjectCreated: (projectID: number) => void;
+  /** 两个项目并成了一个。被并掉的那一行就地消失，所以把留下来的那个亮给用户。*/
+  onProjectMerged: (keptProjectID: number) => void;
 };
 
 // IndexDialogs:左栏挂着的那一排对话框 / 抽屉。全部受控 —— 开关态住在
@@ -44,6 +48,8 @@ function IndexDialogs({
   setImportPrefill,
   importPorts,
   openSession,
+  onProjectCreated,
+  onProjectMerged,
 }: IndexDialogsProps) {
   // mergeSource 解构出来:留在 dialogs.mergeSource 上时,三元收窄穿不过属性访问,
   // 只能补一个原文没有的 `!`。
@@ -65,7 +71,7 @@ function IndexDialogs({
         onOpenChange={dialogs.setNewDialogOpen}
         tree={tree}
         initialParentID={dialogs.newDialogParent}
-        onCreated={dialogs.refreshProjectData}
+        onCreated={onProjectCreated}
       />
       <ProjectSettingsDrawer
         projectID={dialogs.settingsProjectID}
@@ -107,7 +113,7 @@ function IndexDialogs({
             : []
         }
         onClose={() => dialogs.setMergeSource(null)}
-        onMerged={dialogs.refreshProjectData}
+        onMerged={onProjectMerged}
       />
     </>
   );

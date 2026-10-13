@@ -92,6 +92,11 @@ export type IndexGroupHeaderProps = Omit<
   actions?: React.ReactNode;
   /** 折叠按钮的无障碍名。不给就靠名字本身。 */
   toggleLabel?: string;
+  /**
+   * 折叠按钮那个节点。宿主在根上挂了会听键盘的东西（拖拽排序）时，得拿它当
+   * 「只认这一颗」的锚 —— 否则 ＋ / ⋮ 与它们浮层里的键都会被当成拖拽的起手。
+   */
+  toggleRef?: React.Ref<HTMLButtonElement>;
   testId?: string;
   /** attention 记号的 testId；各组头沿用自己原来那个，测试才认得出是哪一种组头。 */
   attentionTestId?: string;
@@ -110,6 +115,7 @@ export function IndexGroupHeader({
   badges,
   actions,
   toggleLabel,
+  toggleRef,
   testId,
   attentionTestId,
   attentionTitle,
@@ -129,6 +135,7 @@ export function IndexGroupHeader({
       {...props}
     >
       <button
+        ref={toggleRef}
         type="button"
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
         onClick={onToggle}

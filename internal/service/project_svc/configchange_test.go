@@ -97,8 +97,7 @@ func TestProjectSvcUpdate_EmitsConfigChanged(t *testing.T) {
 func TestProjectSvcDelete_EmitsConfigChanged(t *testing.T) {
 	ctx, mp, _, ms, svc := setupProjectSvc(t)
 	got := registerConfigChangeSpy(t)
-	mp.EXPECT().Find(ctx, int64(1)).Return(&project_entity.Project{ID: 1, Status: consts.ACTIVE}, nil)
-	mp.EXPECT().HasActiveChildren(ctx, int64(1)).Return(false, nil)
+	mp.EXPECT().List(ctx).Return([]*project_entity.Project{{ID: 1, Status: consts.ACTIVE}}, nil)
 	ms.EXPECT().CountActiveByProject(ctx, int64(1), []string{"running", "waiting"}).Return(int64(0), nil)
 	ms.EXPECT().ReassignProject(ctx, int64(1), int64(0)).Return(nil)
 	mp.EXPECT().Delete(ctx, int64(1)).Return(nil)

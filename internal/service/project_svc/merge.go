@@ -26,9 +26,10 @@ import (
 // Merge 见 ProjectSvc 接口注释（R11a）。
 //
 // 流程：①挑赢家(keep)/输家(drop) ②keep 借 drop 的本机路径(若 keep 自己还没有)
-// ③五类引用逐一改挂到 keep ④复用 Delete 的落库部分（deleteRows）软删 drop——其中的
+// ③五类引用逐一改挂到 keep ④用删单独一行的那一段（deleteRows）软删 drop——其中的
 // HasActiveChildren / CountActiveByProject 守卫在这里等于免费的二次校验：如果
-// 上一步漏改了哪一类引用，它会拒绝，合并随之失败。
+// 上一步漏改了哪一类引用，它会拒绝，合并随之失败。（Delete 自己遇到子项目是级联删
+// 整棵子树；这里不能跟着级联，漏改挂的子项目该让合并失败，而不是被一并删掉。）
 //
 // 全部读写跑在同一个事务里（spec 2026-09-11 要求 4）：任一步失败整体回滚，库里不留
 // 半合并的状态。同步通知在事务里只收集、不发出，提交成功之后再用外层 ctx 按原次序
@@ -81,9 +82,17 @@ func (s *projectSvc) mergeRows(
 		keep.Path = drop.Path
 		keep.LocalPathMissing = false
 	}
-	// keep 今天挂在即将消失的 drop 底下——不能留一个指向已消失项目的 parent_id，
+	// keep 今天挂在即将消失的 drop 底下（不论隔了几层）——让它顶到 drop 原来的位置上：
 	// 改挂到 drop 自己的父级（drop 是顶层时这里落 0，keep 随之升为顶层）。
-	if keep.ParentID == drop.ID {
+	//
+	// 直接子项目不改挂，留下的是一个指向已消失项目的 parent_id；隔着几层不改挂，留下
+	// 的是一个环——下面那一步把 drop 的子项目全部改挂到 keep 名下，其中就有 keep
+	// 自己的祖先，而 keep 还挂在它底下。环上的项目从根上再也走不到，项目树里整段消失。
+	underDrop, err := isUnderProject(ctx, keep, drop.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if underDrop {
 		keep.ParentID = drop.ParentID
 	}
 	if err := project_repo.Project().Update(ctx, keep); err != nil {
@@ -121,6 +130,22 @@ func (s *projectSvc) mergeRows(
 		return nil, nil, err
 	}
 	return keep, append(changes, deleted), nil
+}
+
+// isUnderProject 判 p 是不是挂在 ancestorID 的子树里（任意深度）。顶层项目与直接
+// 子项目不必读库就有答案，只有隔着几层才要把整棵树读出来顺着父链往上爬。
+func isUnderProject(ctx context.Context, p *project_entity.Project, ancestorID int64) (bool, error) {
+	switch p.ParentID {
+	case 0:
+		return false, nil
+	case ancestorID:
+		return true, nil
+	}
+	all, err := project_repo.Project().List(ctx)
+	if err != nil {
+		return false, err
+	}
+	return hasProjectCycle(all, p.ParentID, ancestorID), nil
 }
 
 // issuesToReannounce 列出还挂在 projectID 名下的存活任务（整行，带同步标识）。

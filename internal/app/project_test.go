@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
@@ -58,5 +60,76 @@ func TestToProjectItemIncludesLocalPathMissing(t *testing.T) {
 	})
 	if configured.LocalPathMissing {
 		t.Fatal("expected localPathMissing=false for a configured project")
+	}
+}
+
+// localPathRecordingProjects 只关心「本机路径是被指定了还是被清掉了」，其余方法交给
+// 内嵌接口（碰到别的直接 nil panic）。
+type localPathRecordingProjects struct {
+	project_svc.ProjectSvc
+	clearedIDs []int64
+	setPaths   []string
+	err        error
+}
+
+func (r *localPathRecordingProjects) ClearLocalPath(_ context.Context, id int64) (*project_entity.Project, error) {
+	r.clearedIDs = append(r.clearedIDs, id)
+	if r.err != nil {
+		return nil, r.err
+	}
+	return &project_entity.Project{ID: id, Name: "agentre-hub", LocalPathMissing: true}, nil
+}
+
+func (r *localPathRecordingProjects) SetLocalPath(_ context.Context, id int64, path string) (*project_entity.Project, error) {
+	r.setPaths = append(r.setPaths, path)
+	return &project_entity.Project{ID: id, Path: path}, nil
+}
+
+func registerLocalPathRecordingProjects(t *testing.T, rec *localPathRecordingProjects) {
+	t.Helper()
+	prev := project_svc.Default()
+	project_svc.SetDefault(rec)
+	t.Cleanup(func() { project_svc.SetDefault(prev) })
+}
+
+// 本机路径此前在界面上只进不出：唯一的绑定 ProjectSetLocalPath 走的是
+// project_svc.SetLocalPath，而它按设计拒绝空路径（ProjectInvalidPath）。服务层早就有
+// ClearLocalPath，缺的是把它交给前端的这一个绑定。
+//
+// 清掉路径走的必须是 ClearLocalPath，不是「SetLocalPath 传空串」——空路径在那一条上
+// 仍然是一个错误。
+func TestProjectClearLocalPath_DelegatesToClearLocalPath(t *testing.T) {
+	rec := &localPathRecordingProjects{}
+	registerLocalPathRecordingProjects(t, rec)
+
+	got, err := (&App{}).ProjectClearLocalPath(21)
+
+	if err != nil {
+		t.Fatalf("expected the binding to succeed, got %v", err)
+	}
+	if len(rec.clearedIDs) != 1 || rec.clearedIDs[0] != 21 {
+		t.Fatalf("expected ClearLocalPath to be called once for project 21, got %v", rec.clearedIDs)
+	}
+	if len(rec.setPaths) != 0 {
+		t.Fatalf("clearing must not go through SetLocalPath, got %v", rec.setPaths)
+	}
+	if got == nil || got.ID != 21 || !got.LocalPathMissing || got.Path != "" {
+		t.Fatalf("expected the cleared project item back, got %#v", got)
+	}
+}
+
+// 绑定层只做 parse → svc → return：清不掉时错误原样交给前端，不在这里吞掉，也不
+// 交回一个半成品的项目。
+func TestProjectClearLocalPath_SurfacesTheError(t *testing.T) {
+	rec := &localPathRecordingProjects{err: errors.New("项目不存在")}
+	registerLocalPathRecordingProjects(t, rec)
+
+	got, err := (&App{}).ProjectClearLocalPath(404)
+
+	if err == nil || err.Error() != "项目不存在" {
+		t.Fatalf("expected the service error to surface unchanged, got %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected no project item on failure, got %#v", got)
 	}
 }

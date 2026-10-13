@@ -184,7 +184,9 @@ export function ProjectSettingsDialog({
     ) => {
       setSaveState("saving");
       setError(null);
-      setNameError(null);
+      // 名字那一句只由名字自己的写收掉：别的写成功时那一格里还摆着被拒的名字，
+      // 把它的错误一起抹掉等于说「这个名字存上了」。
+      if (opts.field === "name") setNameError(null);
       void write().then(
         (outcome) => {
           if (!outcome.ok) {
@@ -241,6 +243,26 @@ export function ProjectSettingsDialog({
    * 这一节退成「本机 + 已配路径的」，功能不减。清单本身照旧是全的，所以那颗「＋」
    * 里永远挑得到剩下的机器。
    */
+  /**
+   * 关窗之前先让正在改的那一格失焦。
+   *
+   * 写只发生在失焦那一刻。「完成」与 ✕ 是按钮，点它们之前输入框先失焦；Esc 与点
+   * 遮罩不经过失焦，正在改的那一格就被整窗卸载带走了。在这里补上那一次失焦，四条
+   * 关窗的路就是同一种语义 —— 而且不必知道窗里有哪几格。
+   */
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      const focused = document.activeElement;
+      if (
+        focused instanceof HTMLInputElement ||
+        focused instanceof HTMLTextAreaElement
+      ) {
+        focused.blur();
+      }
+    }
+    onOpenChange(next);
+  };
+
   const relevant = machines.filter(
     (m) => m.isSelf || m.path || m.hasMember || revealed.has(m.id),
   );
@@ -257,12 +279,12 @@ export function ProjectSettingsDialog({
 
   return (
     <>
-      <DialogShell open={open} onOpenChange={onOpenChange} size="md">
+      <DialogShell open={open} onOpenChange={handleOpenChange} size="md">
         <DialogShellHeader
           // 名字已经在正文第一行 —— 标题再说一遍就是同一句话说两遍。
           title={t("projectSettings.title")}
           saveState={saveState}
-          onClose={() => onOpenChange(false)}
+          onClose={() => handleOpenChange(false)}
         />
         <DialogShellBody>
           <div data-testid="project-section-identity" className="space-y-4">
@@ -273,7 +295,11 @@ export function ProjectSettingsDialog({
               icon={project.icon}
               color={project.color}
               nameError={nameError}
-              onNameChange={setName}
+              onNameChange={(next) => {
+                setName(next);
+                // 动手改就收掉：改回原名不会再发一次写，不收它就永远留着。
+                setNameError(null);
+              }}
               onDescriptionChange={setDescription}
               onNameBlur={() => commit("name", name.trim(), project.name)}
               onDescriptionBlur={() =>
@@ -380,7 +406,7 @@ export function ProjectSettingsDialog({
           <DialogShellFooter error={error}>
             <Button
               data-testid="project-settings-done"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleOpenChange(false)}
             >
               {t("projectSettings.done")}
             </Button>
@@ -395,7 +421,13 @@ export function ProjectSettingsDialog({
             if (!next) setPickerFor(null);
           }}
           fs={ports.fs}
-          machines={machines.map(toPickerMachine)}
+          // 本机走原生对话框时不进这一栏：这一栏的每一台都得经 `fs` 浏览得了，
+          // 而那样的宿主恰恰没给本机接这条口。
+          machines={machines
+            .filter((m) => !(m.isSelf && ports.pickLocalDirectory))
+            .map((m) =>
+              toPickerMachine(m, t("projectSettings.paths.thisMachine")),
+            )}
           initialMachineId={pickerFor.id}
           initialPath={pickerFor.path || undefined}
           onPick={(machineId, path) => {
@@ -409,8 +441,17 @@ export function ProjectSettingsDialog({
   );
 }
 
-function toPickerMachine(m: ProjectMachineView): PickerMachine {
-  return { id: m.id, name: m.name, kind: m.kind, online: m.online };
+/** 宿主说不出本机叫什么时（桌面端），名字用「本机」补上 —— 与那一行同一个口径。 */
+function toPickerMachine(
+  m: ProjectMachineView,
+  selfLabel: string,
+): PickerMachine {
+  return {
+    id: m.id,
+    name: m.name || (m.isSelf ? selfLabel : ""),
+    kind: m.kind,
+    online: m.online,
+  };
 }
 
 /**
@@ -935,6 +976,12 @@ function MachineRow({
           onBlur={() => {
             const next = path.trim();
             if (next === machine.path) return;
+            // 删空 = 去掉这条路径。空路径哪一端都不收，照写只会换来一句
+            // 「路径不能为空」。
+            if (!next) {
+              onClear(machine);
+              return;
+            }
             onCommitPath(machine, next);
           }}
           className="h-7 min-w-0 flex-1 bg-card font-mono text-2xs"

@@ -305,18 +305,18 @@ func (mr *MockProjectServiceMockRecorder) Create(ctx, req any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockProjectService)(nil).Create), ctx, req)
 }
 
-// Delete mocks base method.
-func (m *MockProjectService) Delete(ctx context.Context, id int64) error {
+// DeleteLeaf mocks base method.
+func (m *MockProjectService) DeleteLeaf(ctx context.Context, id int64) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Delete", ctx, id)
+	ret := m.ctrl.Call(m, "DeleteLeaf", ctx, id)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Delete indicates an expected call of Delete.
-func (mr *MockProjectServiceMockRecorder) Delete(ctx, id any) *gomock.Call {
+// DeleteLeaf indicates an expected call of DeleteLeaf.
+func (mr *MockProjectServiceMockRecorder) DeleteLeaf(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockProjectService)(nil).Delete), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLeaf", reflect.TypeOf((*MockProjectService)(nil).DeleteLeaf), ctx, id)
 }
 
 // Move mocks base method.

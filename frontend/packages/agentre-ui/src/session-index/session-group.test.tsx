@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import * as React from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { PopoverContent } from "../ui/popover";
+import { writeSidebarExpanded } from "./expanded-state";
 import { SessionGroup } from "./session-group";
 import type { SessionRowModel } from "./types";
 
@@ -455,6 +456,79 @@ describe("SessionGroup expansion persistence namespace", () => {
     await user.click(screen.getByRole("button", { name: "header" }));
 
     expect(localStorage.getItem("agentre.agentExpanded.project:7")).toBe("0");
+  });
+});
+
+/**
+ * 展开态此前只在挂载那一刻读一次 localStorage，之后就是组件自己的 state —— 宿主
+ * 想把某一组打开（「刚在它下面建了个子项目，得让人看见」）没有任何入口，只能等
+ * 用户自己去点 chevron。
+ */
+describe("SessionGroup expansion driven from outside", () => {
+  function header({ expanded }: { expanded: boolean }) {
+    return <span data-testid="state">{expanded ? "open" : "closed"}</span>;
+  }
+
+  it("Given a mounted collapsed group, When its key is written expanded elsewhere, Then it opens without a click", () => {
+    localStorage.setItem("agentre.agentExpanded.project:7", "0");
+    render(
+      <SessionGroup
+        persistenceKey="project:7"
+        defaultExpanded
+        sessions={[]}
+        renderHeader={header}
+      />,
+    );
+    expect(screen.getByTestId("state")).toHaveTextContent("closed");
+
+    act(() => writeSidebarExpanded("project:7", true));
+
+    expect(screen.getByTestId("state")).toHaveTextContent("open");
+  });
+
+  it("Given two groups, When one key is written, Then the other group keeps its own state", () => {
+    localStorage.setItem("agentre.agentExpanded.project:7", "0");
+    localStorage.setItem("agentre.agentExpanded.project:8", "0");
+    render(
+      <>
+        <SessionGroup
+          persistenceKey="project:7"
+          sessions={[]}
+          renderHeader={header}
+        />
+        <SessionGroup
+          persistenceKey="project:8"
+          sessions={[]}
+          renderHeader={({ expanded }) => (
+            <span data-testid="other">{expanded ? "open" : "closed"}</span>
+          )}
+        />
+      </>,
+    );
+
+    act(() => writeSidebarExpanded("project:7", true));
+
+    expect(screen.getByTestId("state")).toHaveTextContent("open");
+    expect(screen.getByTestId("other")).toHaveTextContent("closed");
+  });
+
+  it("Given a group without a persistence key, When it is toggled, Then it still opens and closes on its own state", async () => {
+    const user = userEvent.setup();
+    render(
+      <SessionGroup
+        sessions={[]}
+        renderHeader={({ expanded, toggle }) => (
+          <button type="button" onClick={toggle}>
+            {expanded ? "open" : "closed"}
+          </button>
+        )}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "closed" }));
+    expect(screen.getByRole("button", { name: "open" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "open" }));
+    expect(screen.getByRole("button", { name: "closed" })).toBeInTheDocument();
   });
 });
 

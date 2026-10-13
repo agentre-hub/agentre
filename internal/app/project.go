@@ -160,7 +160,7 @@ func (a *App) ProjectReorder(req *ProjectReorderRequest) error {
 	return project_svc.Default().Reorder(a.ctx, svcReq)
 }
 
-// ProjectDelete 软删除项目；有子项目 / 活跃会话时拒绝。
+// ProjectDelete 软删除项目连同它的整棵子树；子树里还有活跃会话时整体拒绝。
 func (a *App) ProjectDelete(id int64) error {
 	return project_svc.Default().Delete(a.ctx, id)
 }
@@ -220,6 +220,16 @@ func (a *App) ProjectSetLocalPath(req *ProjectSetLocalPathRequest) (*ProjectItem
 		id, path = req.ID, req.Path
 	}
 	p, err := project_svc.Default().SetLocalPath(a.ctx, id, path)
+	if err != nil {
+		return nil, err
+	}
+	return toProjectItem(p), nil
+}
+
+// ProjectClearLocalPath 清掉本机路径，把项目打回「本机未配置路径」（规格 2026-08-21
+// 决策 6）。机器上的目录不动。与 ProjectSetLocalPath 分开：那一条上空路径仍是错误。
+func (a *App) ProjectClearLocalPath(id int64) (*ProjectItem, error) {
+	p, err := project_svc.Default().ClearLocalPath(a.ctx, id)
 	if err != nil {
 		return nil, err
 	}

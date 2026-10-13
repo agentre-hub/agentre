@@ -238,6 +238,12 @@ export { StatusDot } from "./ui/status-dot";
 // 进来：组怎么分、怎么排、兜底组摆在哪只该有一份实现）。留在宿主的是各端的取数与
 // 装配，以及**可选轴清单**——桌面端三档、server 控制台四档（决策 17）。
 export { SessionGroup } from "./session-index/session-group";
+// 组的展开偏好。宿主要把某一组打开（刚在它下面建了东西、得让人看见）就写这里，
+// 挂着的组会跟着动。
+export {
+  readSidebarExpanded,
+  writeSidebarExpanded,
+} from "./session-index/expanded-state";
 export { SessionGroupOverflow } from "./session-index/session-group-overflow";
 export type {
   SessionGroupOverflowPage,
