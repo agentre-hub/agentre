@@ -20,7 +20,10 @@ import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 
-import { parsePlainTextClipboard } from "./clipboard";
+import {
+  parsePlainTextClipboard,
+  pastePlainTextOverForeignHtml,
+} from "./clipboard";
 import { ComposerPopovers } from "./composer-popovers";
 import { extractPlainText } from "./content";
 import { handleComposerKeyDown, handleComposerUpdate } from "./editor-handlers";
@@ -259,6 +262,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
       },
       editorProps: {
         clipboardTextParser: parsePlainTextClipboard,
+        handleDOMEvents: { paste: pastePlainTextOverForeignHtml },
         attributes: {
           class: cn(
             // 字号是移动端的**响应式契约**：iOS 聚焦字号 < 16px 的可编辑区会

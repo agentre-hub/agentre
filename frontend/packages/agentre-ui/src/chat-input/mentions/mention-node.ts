@@ -8,6 +8,10 @@ import type { MentionKind } from "./xml";
 
 export const MENTION_NODE_NAME = "mention";
 
+// pill 在 DOM / 剪贴板 HTML 里的形状。parseHTML 靠它认回节点,粘贴时也靠它判断
+// 一段 HTML 里有没有纯文本表达不了的东西(见 ../clipboard.ts)。
+export const MENTION_DOM_SELECTOR = "span[data-mention-kind]";
+
 const MENTION_KINDS: readonly MentionKind[] = ["agent", "project", "device"];
 
 // parseHTML 入口做校验:未知 kind 回落 agent,非数字 refId 回落 0 ——
@@ -68,7 +72,7 @@ export const Mention = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: "span[data-mention-kind]" }];
+    return [{ tag: MENTION_DOM_SELECTOR }];
   },
 
   renderHTML({ node, HTMLAttributes }) {
