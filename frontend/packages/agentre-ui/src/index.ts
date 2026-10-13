@@ -643,7 +643,12 @@ export type {
 // 看板的**查询面**：范围选择器、六条筛选、任务表单壳与标签管理。取数、拖拽手势与
 // 执行归属的三颗 pill 实现都留在宿主，包只发意图、只画同一形状。
 export { ProjectScopePicker } from "./board/project-scope-picker";
-export { buildScopeRows } from "./board/scope-tree";
+export {
+  buildScopeRows,
+  filterScopeRows,
+  splitMatch,
+} from "./board/scope-tree";
+export type { ScopeRow } from "./board/scope-tree";
 export { BoardFilterBar } from "./board/board-filter-bar";
 export { activeConditions } from "./board/query-conditions";
 export { TaskFormShell } from "./board/task-form";

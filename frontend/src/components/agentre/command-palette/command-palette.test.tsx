@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { chat_svc } from "../../../../wailsjs/go/models";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
+import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useNewChatContextStore } from "@/stores/new-chat-context-store";
 
@@ -214,6 +215,273 @@ describe("CommandPalette — ContextBar 项目 chip 可点击切换 (BDD)", () =
     await flush();
 
     expect(useNewChatContextStore.getState().projectContext).toBeNull();
+  });
+});
+
+describe("CommandPalette — 项目选择器是自己的键盘作用域 (BDD)", () => {
+  type TreeNode = {
+    project: ReturnType<typeof mkTreeProject>;
+    children: TreeNode[];
+  };
+
+  function mkTreeProject(id: number, name: string) {
+    return {
+      id,
+      parentID: 0,
+      name,
+      icon: "",
+      color: "",
+      description: "",
+      path: "",
+      isGitRepo: false,
+      createtime: 0,
+      updatetime: 0,
+    };
+  }
+
+  function node(id: number, name: string, children: TreeNode[] = []): TreeNode {
+    return { project: mkTreeProject(id, name), children };
+  }
+
+  // 选择器弹层里当前拿着焦点的元素；键盘事件从这里发，和真实按键的落点一致。
+  function pickerFocus(): Element {
+    const focused = document.activeElement;
+    expect(
+      focused?.closest("[data-radix-popper-content-wrapper]"),
+    ).not.toBeNull();
+    return focused as Element;
+  }
+
+  async function openPicker() {
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Switch project context"));
+    });
+    await flush();
+  }
+
+  it("Given 选择器打开、背后高亮着一条新建对话命令, When 在选择器里按 ↓ 再按 ↵, Then 选中游标所在的项目，面板不关、背后的命令没被执行", async () => {
+    appMocks.ListChatAgents.mockResolvedValue({
+      agents: [mkAgent({ id: 1, name: "Builder" })],
+    });
+    appMocks.ProjectListTree.mockResolvedValue([
+      node(10, "后端重构"),
+      node(11, "前端 UI"),
+    ]);
+    renderHarness("/chat");
+    await act(async () => {
+      useCommandPaletteStore.getState().openWith("> ");
+    });
+    await flush();
+    const builder = screen.getByText("Builder").closest("[cmdk-item]");
+    expect(builder?.getAttribute("aria-selected")).toBe("true");
+
+    const tabsBefore = useChatTabsStore.getState().tabs.length;
+
+    await openPicker();
+    fireEvent.keyDown(pickerFocus(), { key: "ArrowDown" });
+    fireEvent.keyDown(pickerFocus(), { key: "Enter" });
+    await flush();
+
+    // 回车没有漏给背后的 cmdk：面板还开着，没有新建出会话 tab。
+    expect(useCommandPaletteStore.getState().open).toBe(true);
+    expect(useChatTabsStore.getState().tabs.length).toBe(tabsBefore);
+    // 「无项目」是第 0 行，↓ 一次落在第一个项目上。
+    expect(useNewChatContextStore.getState().projectContext).toEqual({
+      projectID: 10,
+      projectName: "后端重构",
+    });
+  });
+
+  it("Given 已选第一个项目, When 打开选择器按 ↓ 再按 ↵, Then 选中的是它的下一个 —— 游标从已选项起步，不是从头", async () => {
+    appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
+    appMocks.ProjectListTree.mockResolvedValue([
+      node(10, "后端重构"),
+      node(11, "前端 UI"),
+      node(12, "文档站"),
+    ]);
+    useNewChatContextStore
+      .getState()
+      .setContext({ projectID: 11, projectName: "前端 UI" });
+    renderHarness();
+    await act(async () => {
+      useCommandPaletteStore.getState().openWith("> ");
+    });
+    await flush();
+
+    await openPicker();
+    fireEvent.keyDown(pickerFocus(), { key: "ArrowDown" });
+    fireEvent.keyDown(pickerFocus(), { key: "Enter" });
+    await flush();
+
+    expect(useNewChatContextStore.getState().projectContext?.projectID).toBe(
+      12,
+    );
+  });
+
+  it("Given 两个父项目下各有一个同名子项目, When 搜索这个名字, Then 两个父级都留着、不相干的项目与「无项目」收起，↵ 选中第一条自己命中的而不是它的父级", async () => {
+    appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
+    appMocks.ProjectListTree.mockResolvedValue([
+      node(1, "星图", [node(2, "web"), node(3, "协议")]),
+      node(4, "灯塔", [node(5, "web")]),
+      node(6, "读书笔记"),
+    ]);
+    renderHarness();
+    await act(async () => {
+      useCommandPaletteStore.getState().openWith("> ");
+    });
+    await flush();
+
+    await openPicker();
+    // chip 一处 + 弹层里一行
+    expect(screen.getAllByText("No project")).toHaveLength(2);
+    fireEvent.change(screen.getByLabelText("Search projects"), {
+      target: { value: "web" },
+    });
+    await flush();
+
+    expect(screen.getByText("星图")).toBeTruthy();
+    expect(screen.getByText("灯塔")).toBeTruthy();
+    expect(screen.getAllByText("web")).toHaveLength(2);
+    expect(screen.queryByText("协议")).toBeNull();
+    expect(screen.queryByText("读书笔记")).toBeNull();
+    expect(screen.getAllByText("No project")).toHaveLength(1);
+
+    fireEvent.keyDown(pickerFocus(), { key: "Enter" });
+    await flush();
+
+    expect(useNewChatContextStore.getState().projectContext).toEqual({
+      projectID: 2,
+      projectName: "web",
+    });
+  });
+
+  it("Given 搜索词什么都没命中, When 按 ↵, Then 给出「没有匹配」、上下文不变、选择器还开着", async () => {
+    appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
+    appMocks.ProjectListTree.mockResolvedValue([node(10, "后端重构")]);
+    useNewChatContextStore
+      .getState()
+      .setContext({ projectID: 10, projectName: "后端重构" });
+    renderHarness();
+    await act(async () => {
+      useCommandPaletteStore.getState().openWith("> ");
+    });
+    await flush();
+
+    await openPicker();
+    fireEvent.change(screen.getByLabelText("Search projects"), {
+      target: { value: "zzz" },
+    });
+    await flush();
+    expect(screen.getByText("No matching projects")).toBeTruthy();
+
+    fireEvent.keyDown(pickerFocus(), { key: "Enter" });
+    await flush();
+
+    expect(useNewChatContextStore.getState().projectContext?.projectID).toBe(
+      10,
+    );
+    expect(screen.getByLabelText("Search projects")).toBeTruthy();
+  });
+
+  it("Given 输入法还在组字, When 按 ↵ 上屏, Then 那一下回车不算选定", async () => {
+    appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
+    appMocks.ProjectListTree.mockResolvedValue([node(10, "后端重构")]);
+    renderHarness();
+    await act(async () => {
+      useCommandPaletteStore.getState().openWith("> ");
+    });
+    await flush();
+
+    await openPicker();
+    fireEvent.change(screen.getByLabelText("Search projects"), {
+      target: { value: "后端" },
+    });
+    // 组字期间的按键，浏览器给的 keyCode 恒为 229。
+    fireEvent.keyDown(pickerFocus(), { key: "Enter", keyCode: 229 });
+    await flush();
+
+    expect(useNewChatContextStore.getState().projectContext).toBeNull();
+    expect(screen.getByLabelText("Search projects")).toBeTruthy();
+  });
+
+  it("Given 一个项目都没有、也没选上下文, When 打开选择器, Then 只说「还没有项目」，不摆一行选了也没区别的「无项目」", async () => {
+    appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
+    appMocks.ProjectListTree.mockResolvedValue([]);
+    renderHarness();
+    await act(async () => {
+      useCommandPaletteStore.getState().openWith("> ");
+    });
+    await flush();
+
+    await openPicker();
+
+    expect(screen.getByText("No projects yet")).toBeTruthy();
+    // 只剩 chip 上那一处
+    expect(screen.getAllByText("No project")).toHaveLength(1);
+  });
+
+  it("Given 上下文是一个子项目, When 面板打开, Then chip 把父项目一起写出来", async () => {
+    appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
+    appMocks.ProjectListTree.mockResolvedValue([
+      node(1, "星图", [node(2, "web")]),
+      node(4, "灯塔", [node(5, "web")]),
+    ]);
+    useNewChatContextStore
+      .getState()
+      .setContext({ projectID: 5, projectName: "web" });
+    renderHarness();
+    await act(async () => {
+      useCommandPaletteStore.getState().openWith("> ");
+    });
+    await flush();
+
+    const chip = screen.getByLabelText("Switch project context");
+    expect(chip.textContent).toContain("灯塔");
+    expect(chip.textContent).toContain("web");
+    expect(chip.textContent).not.toContain("星图");
+  });
+
+  it("Given Agent 列表还在加载, When 用键盘在选择器里选定一个项目, Then 列表到了以后第一条命令照常拿到高亮 —— 选择器里的方向键不算动过命令列表", async () => {
+    let resolveAgents!: (value: { agents: chat_svc.ChatAgentItem[] }) => void;
+    const agentsPromise = new Promise<{ agents: chat_svc.ChatAgentItem[] }>(
+      (resolve) => {
+        resolveAgents = resolve;
+      },
+    );
+    appMocks.ListChatAgents.mockReturnValue(agentsPromise);
+    appMocks.ProjectListTree.mockResolvedValue([node(10, "后端重构")]);
+    appMocks.ProjectGet.mockResolvedValue({
+      project: null,
+      directMembers: [{ agentID: 1 }],
+      inheritedMembers: [],
+    });
+    renderHarness();
+    await act(async () => {
+      useCommandPaletteStore.getState().openWith("> ");
+    });
+    await flush();
+
+    await openPicker();
+    fireEvent.keyDown(pickerFocus(), { key: "ArrowDown" });
+    fireEvent.keyDown(pickerFocus(), { key: "Enter" });
+    await flush();
+    expect(useNewChatContextStore.getState().projectContext?.projectID).toBe(
+      10,
+    );
+
+    await act(async () => {
+      resolveAgents({ agents: [mkAgent({ id: 1, name: "Builder" })] });
+      await agentsPromise;
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        screen
+          .getByText("Builder")
+          .closest("[cmdk-item]")
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+    });
   });
 });
 
@@ -440,7 +708,7 @@ describe("CommandPalette — 视觉键盘提示（与 Pencil 设计稿一致）"
   });
 });
 
-describe("CommandPalette — Tab 直接切上下文 (BDD)", () => {
+describe("CommandPalette — Tab 打开项目选择器 (BDD)", () => {
   function mkProject(
     over: Partial<{
       id: number;
@@ -462,7 +730,41 @@ describe("CommandPalette — Tab 直接切上下文 (BDD)", () => {
     };
   }
 
-  it("Given projects [A,B] + 无项目, When Tab in Input, Then projectContext === A 且 focus 留在 Input", async () => {
+  it.each([
+    ["Tab", false],
+    ["Shift+Tab", true],
+  ])(
+    "Given 命令模式 + 项目 [A,B], When 在输入框按 %s, Then 选择器打开、焦点落进它的搜索框，上下文不动",
+    async (_name, shiftKey) => {
+      appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
+      appMocks.ProjectListTree.mockResolvedValue([
+        { project: mkProject({ id: 10, name: "后端重构" }), children: [] },
+        { project: mkProject({ id: 11, name: "前端 UI" }), children: [] },
+      ]);
+      renderHarness();
+      await act(async () => {
+        useCommandPaletteStore.getState().openWith("> ");
+      });
+      await flush();
+
+      const input = screen.getByRole("combobox") as HTMLInputElement;
+      input.focus();
+      await act(async () => {
+        fireEvent.keyDown(input, { key: "Tab", shiftKey });
+      });
+      await flush();
+
+      await vi.waitFor(() => {
+        expect(document.activeElement).toBe(
+          screen.getByLabelText("Search projects"),
+        );
+      });
+      expect(screen.getByText("前端 UI")).toBeTruthy();
+      expect(useNewChatContextStore.getState().projectContext).toBeNull();
+    },
+  );
+
+  it("Given 用 Tab 打开了选择器, When 搜索并按 ↵ 选定, Then 选择器收起、焦点回到命令输入框", async () => {
     appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
     appMocks.ProjectListTree.mockResolvedValue([
       { project: mkProject({ id: 10, name: "后端重构" }), children: [] },
@@ -476,124 +778,55 @@ describe("CommandPalette — Tab 直接切上下文 (BDD)", () => {
 
     const input = screen.getByRole("combobox") as HTMLInputElement;
     input.focus();
-    fireEvent.keyDown(input, { key: "Tab" });
-
-    expect(useNewChatContextStore.getState().projectContext?.projectID).toBe(
-      10,
-    );
-    expect(document.activeElement).toBe(input);
-  });
-
-  it("Given projectContext === A (idx 0), When Tab, Then projectContext === B (idx 1)", async () => {
-    appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
-    appMocks.ProjectListTree.mockResolvedValue([
-      { project: mkProject({ id: 10, name: "A" }), children: [] },
-      { project: mkProject({ id: 11, name: "B" }), children: [] },
-    ]);
-    renderHarness();
     await act(async () => {
-      useNewChatContextStore.getState().setContext({
-        projectID: 10,
-        projectName: "A",
-      });
-      useCommandPaletteStore.getState().openWith("> ");
+      fireEvent.keyDown(input, { key: "Tab" });
     });
     await flush();
-
-    const input = screen.getByRole("combobox") as HTMLInputElement;
-    input.focus();
-    fireEvent.keyDown(input, { key: "Tab" });
+    const search = screen.getByLabelText("Search projects");
+    fireEvent.change(search, { target: { value: "前端" } });
+    await act(async () => {
+      fireEvent.keyDown(search, { key: "Enter" });
+    });
+    await flush();
 
     expect(useNewChatContextStore.getState().projectContext?.projectID).toBe(
       11,
     );
+    // 焦点是 Radix 在弹层卸载后的下一个宏任务里交还的：等结果，不赌调度顺序。
+    await vi.waitFor(() => {
+      expect(screen.queryByLabelText("Search projects")).toBeNull();
+      expect(document.activeElement).toBe(input);
+    });
   });
 
-  it("Given projectContext === B (末尾), When Tab, Then projectContext === null (回到无项目)", async () => {
+  it("Given 选择器开着, When 在里面再按一次 Tab, Then 它收起、焦点回到命令输入框，上下文不动", async () => {
     appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
     appMocks.ProjectListTree.mockResolvedValue([
-      { project: mkProject({ id: 10, name: "A" }), children: [] },
-      { project: mkProject({ id: 11, name: "B" }), children: [] },
+      { project: mkProject({ id: 10, name: "后端重构" }), children: [] },
     ]);
     renderHarness();
     await act(async () => {
-      useNewChatContextStore.getState().setContext({
-        projectID: 11,
-        projectName: "B",
+      useCommandPaletteStore.getState().openWith("> ");
+    });
+    await flush();
+
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+    input.focus();
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Tab" });
+    });
+    await flush();
+    await act(async () => {
+      fireEvent.keyDown(screen.getByLabelText("Search projects"), {
+        key: "Tab",
       });
-      useCommandPaletteStore.getState().openWith("> ");
     });
     await flush();
 
-    const input = screen.getByRole("combobox") as HTMLInputElement;
-    input.focus();
-    fireEvent.keyDown(input, { key: "Tab" });
-
-    expect(useNewChatContextStore.getState().projectContext).toBeNull();
-  });
-
-  it("Given projectContext === B (idx 1), When Shift+Tab, Then projectContext === A (idx 0)", async () => {
-    appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
-    appMocks.ProjectListTree.mockResolvedValue([
-      { project: mkProject({ id: 10, name: "A" }), children: [] },
-      { project: mkProject({ id: 11, name: "B" }), children: [] },
-    ]);
-    renderHarness();
-    await act(async () => {
-      useNewChatContextStore.getState().setContext({
-        projectID: 11,
-        projectName: "B",
-      });
-      useCommandPaletteStore.getState().openWith("> ");
+    await vi.waitFor(() => {
+      expect(screen.queryByLabelText("Search projects")).toBeNull();
+      expect(document.activeElement).toBe(input);
     });
-    await flush();
-
-    const input = screen.getByRole("combobox") as HTMLInputElement;
-    input.focus();
-    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
-
-    expect(useNewChatContextStore.getState().projectContext).toEqual({
-      projectID: 10,
-      projectName: "A",
-    });
-    expect(document.activeElement).toBe(input);
-  });
-
-  it("Given projectContext === null, When Shift+Tab, Then projectContext === last project", async () => {
-    appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
-    appMocks.ProjectListTree.mockResolvedValue([
-      { project: mkProject({ id: 10, name: "A" }), children: [] },
-      { project: mkProject({ id: 11, name: "B" }), children: [] },
-    ]);
-    renderHarness();
-    await act(async () => {
-      useCommandPaletteStore.getState().openWith("> ");
-    });
-    await flush();
-
-    const input = screen.getByRole("combobox") as HTMLInputElement;
-    input.focus();
-    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
-
-    expect(useNewChatContextStore.getState().projectContext).toEqual({
-      projectID: 11,
-      projectName: "B",
-    });
-  });
-
-  it("Given 无项目列表 + 无 context, When Tab, Then projectContext 保持 null (no-op)", async () => {
-    appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
-    appMocks.ProjectListTree.mockResolvedValue([]);
-    renderHarness();
-    await act(async () => {
-      useCommandPaletteStore.getState().openWith("> ");
-    });
-    await flush();
-
-    const input = screen.getByRole("combobox") as HTMLInputElement;
-    input.focus();
-    fireEvent.keyDown(input, { key: "Tab" });
-
     expect(useNewChatContextStore.getState().projectContext).toBeNull();
   });
 
@@ -696,40 +929,6 @@ describe("CommandPalette — 两个命令 source 按项目上下文互斥", () =
     expect(screen.queryByText("New chat with")).toBeNull();
     // ContextBar 可见
     expect(screen.getByLabelText("Switch project context")).toBeTruthy();
-  });
-
-  it("⌘N + Tab 在 /chat 也切上下文（项目不再是一个路由）", async () => {
-    appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
-    appMocks.ProjectListTree.mockResolvedValue([
-      {
-        project: {
-          id: 10,
-          parentID: 0,
-          name: "A",
-          icon: "",
-          color: "",
-          description: "",
-          path: "",
-          isGitRepo: false,
-          createtime: 0,
-          updatetime: 0,
-        },
-        children: [],
-      },
-    ]);
-    renderHarness("/chat");
-    await act(async () => {
-      useCommandPaletteStore.getState().openWith("> ");
-    });
-    await flush();
-
-    const input = screen.getByRole("combobox") as HTMLInputElement;
-    input.focus();
-    fireEvent.keyDown(input, { key: "Tab" });
-
-    expect(useNewChatContextStore.getState().projectContext?.projectID).toBe(
-      10,
-    );
   });
 
   it("已选项目上下文 ⌘N + 输入 'new project chat ce' → 只命中含 'CEO' 的 New project chat with 行", async () => {
@@ -936,7 +1135,7 @@ describe("CommandPalette — 命令模式分组顺序：新建对话先于操作
     ).toBe("true");
   });
 
-  it("Given keyboard selection was moved to an agent in project A, When Tab switches to project B where that agent is disabled, Then selection returns to the first enabled project command", async () => {
+  it("Given keyboard selection was moved to an agent in project A, When the picker switches to project B where that agent is disabled, Then selection returns to the first enabled project command", async () => {
     appMocks.ListChatAgents.mockResolvedValue({
       agents: [
         mkAgent({ id: 5, name: "Builder" }),
@@ -1000,7 +1199,9 @@ describe("CommandPalette — 命令模式分组顺序：新建对话先于操作
         ?.getAttribute("aria-selected"),
     ).toBe("true");
 
-    fireEvent.keyDown(input, { key: "Tab" });
+    fireEvent.click(screen.getByLabelText("Switch project context"));
+    await flush();
+    fireEvent.click(screen.getByText("Project B"));
     expect(await screen.findByText("New chat in Project B")).toBeTruthy();
 
     await vi.waitFor(() => {

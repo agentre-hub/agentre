@@ -73,9 +73,15 @@ export function CommandPalette(): React.ReactElement {
   const [guidanceAgent, setGuidanceAgent] = React.useState<AgentSlim | null>(
     null,
   );
-  // 提到 root 一份：SearchRow 的 Tab 循环 + ContextBar 的下拉共享同一份列表，
-  // 避免双倍 ProjectListTree RPC。
   const { projects } = useProjectList();
+  // 项目选择器的开合放在这里：点 chip（ContextBar）与在输入框按 Tab（SearchRow）
+  // 是同一个入口；选完焦点交还输入框。
+  const [projectPickerOpen, setProjectPickerOpen] = React.useState(false);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const openProjectPicker = React.useCallback(
+    () => setProjectPickerOpen(true),
+    [],
+  );
   // 「新建对话」落在哪个项目里由这一条上下文决定 —— 不再由路由决定：
   // 「项目」已经从一个页面退化成会话索引的一个分组轴，没有「项目路由」可判。
   const projectContext = useNewChatContextStore((s) => s.projectContext);
@@ -103,6 +109,7 @@ export function CommandPalette(): React.ReactElement {
       }
     } else {
       setQuery("");
+      setProjectPickerOpen(false);
     }
     // 故意只依赖 open —— initialQuery 变化时如果面板已开，不要二次重置 query
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -215,6 +222,9 @@ export function CommandPalette(): React.ReactElement {
             value={mode === "command" ? selectedValue : undefined}
             onValueChange={mode === "command" ? setSelectedValue : undefined}
             onKeyDownCapture={(event) => {
+              // 项目选择器的弹层挂在这棵 React 树下面、却不在这块 DOM 里：
+              // 它里面的方向键是在挑项目，不算动过命令列表。
+              if (!event.currentTarget.contains(event.target as Node)) return;
               if (
                 event.key === "ArrowDown" ||
                 event.key === "ArrowUp" ||
@@ -246,11 +256,19 @@ export function CommandPalette(): React.ReactElement {
               query={query}
               mode={mode}
               payload={payload}
-              projects={projects}
+              inputRef={inputRef}
               onQueryChange={setQuery}
+              onOpenProjectPicker={openProjectPicker}
               onClose={close}
             />
-            {mode === "command" ? <ContextBar projects={projects} /> : null}
+            {mode === "command" ? (
+              <ContextBar
+                projects={projects}
+                pickerOpen={projectPickerOpen}
+                onPickerOpenChange={setProjectPickerOpen}
+                returnFocusRef={inputRef}
+              />
+            ) : null}
             <CommandPrimitive.List className="max-h-[60vh] overflow-y-auto px-2 pb-2 pt-1">
               <CommandPrimitive.Empty className="px-4 py-10 text-center text-xs text-muted-foreground">
                 {emptyText(mode, payload, t)}

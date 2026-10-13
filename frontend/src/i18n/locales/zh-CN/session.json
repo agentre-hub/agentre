@@ -58,9 +58,12 @@
       "needSetupTitleSuffix": "新开对话"
     },
     "project": {
-      "empty": "（还没有项目）",
+      "empty": "还没有项目",
       "fallbackName": "项目 #{{id}}",
+      "noMatch": "没有匹配的项目",
       "none": "无项目",
+      "searchAria": "搜索项目",
+      "searchPlaceholder": "搜索项目…",
       "switchAria": "切换项目上下文",
       "switchTitle": "点击切换项目 / Tab 也行"
     },

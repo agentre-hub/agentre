@@ -58,9 +58,12 @@
       "needSetupTitleSuffix": ""
     },
     "project": {
-      "empty": "(no projects yet)",
+      "empty": "No projects yet",
       "fallbackName": "Project #{{id}}",
+      "noMatch": "No matching projects",
       "none": "No project",
+      "searchAria": "Search projects",
+      "searchPlaceholder": "Search projects…",
       "switchAria": "Switch project context",
       "switchTitle": "Click to switch project, or press Tab"
     },
