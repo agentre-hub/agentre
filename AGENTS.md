@@ -100,7 +100,7 @@ make agentred-deploy         # build linux + opsctl-cp + install (AGENTRED_TARGE
 go test -race -run TestName ./internal/service/chat_svc/...
 go test -race ./internal/repository/llm_provider_repo -run TestName
 go test -race ./pkg/codex -run TestName
-cd frontend && pnpm test -- path/to/file.test.tsx
+cd frontend && pnpm test path/to/file.test.tsx
 cd frontend && pnpm typecheck                # tsc -b --noEmit — vitest does NOT check types
 cd frontend && pnpm install                  # pnpm is source of truth, not npm
 ```

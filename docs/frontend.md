@@ -30,7 +30,7 @@ New user-visible UI copy must be explicitly wired to i18n; do not add hardcoded 
 - After changing i18n resources, run:
 
 ```bash
-cd frontend && pnpm test -- src/__tests__/i18n.test.ts src/__tests__/i18n-locale-modules.test.ts src/__tests__/eslint-i18n.test.ts
+cd frontend && pnpm test src/__tests__/i18n.test.ts src/__tests__/i18n-locale-modules.test.ts src/__tests__/eslint-i18n.test.ts
 cd frontend && pnpm exec eslint src
 ```
 
@@ -182,7 +182,7 @@ cd frontend && pnpm install              # install dependencies
 cd frontend && pnpm add <pkg>            # add a package
 cd frontend && pnpm remove <pkg>         # remove a package
 cd frontend && pnpm test                 # vitest (happy-dom)
-cd frontend && pnpm test -- path/to/file.test.tsx   # single file
+cd frontend && pnpm test path/to/file.test.tsx   # single file
 ```
 
 `make test-frontend` runs `make generate` first, then `pnpm typecheck` (`tsc -b --noEmit`) and `pnpm test`; use it when the wails bindings need to be regenerated. Vitest is configured with happy-dom and aliases the wails imports to a mock, so most tests can run even without a `frontend/wailsjs/` directory.
