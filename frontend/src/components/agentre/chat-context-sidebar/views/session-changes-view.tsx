@@ -17,7 +17,7 @@ const STATUS_META: Record<ChangeStatus, GitStatusMeta> = {
   created: GIT_STATUS_META.added,
   modified: GIT_STATUS_META.modified,
   deleted: GIT_STATUS_META.deleted,
-  written: { letter: "W", className: "text-primary" },
+  written: { letter: "W", className: "text-primary-text" },
 };
 
 /**

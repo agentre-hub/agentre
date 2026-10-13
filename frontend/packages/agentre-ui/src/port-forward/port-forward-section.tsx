@@ -308,7 +308,7 @@ function PortForwardCreateForm({
       {error ? (
         <div
           data-testid="port-forward-add-error"
-          className="text-2xs text-destructive"
+          className="text-2xs text-destructive-text"
         >
           {error}
         </div>

@@ -435,6 +435,24 @@ describe("SessionGroup pending content", () => {
       row.compareDocumentPosition(trigger) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
+
+  it("Given an overflow trigger flush inside the group's clipped body, When it takes keyboard focus, Then the ring is drawn inward like the rows above it", () => {
+    // 「查看全部 N」和会话行躺在同一个 overflow-hidden 的折叠容器里，同样撑满整行：
+    // 向外的环左右两边（它排最后时连下边）都落在裁剪线外，只剩顶上一条线。
+    render(
+      <SessionGroup
+        defaultExpanded
+        sessions={[ordinarySession(1)]}
+        totalSessions={12}
+        renderSessionsPopover={() => null}
+        renderHeader={() => <div data-testid="header" />}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: /View all/ });
+    expect(trigger).toHaveClass("focus-visible:focus-outline-inset");
+    expect(trigger).not.toHaveClass("focus-visible:focus-outline");
+  });
 });
 
 describe("SessionGroup expansion persistence namespace", () => {

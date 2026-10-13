@@ -28,8 +28,8 @@ const LEVEL_STROKE_TONE: Record<UsageLevel, string> = {
 // 该被看见），告警两档与配额一致。
 const LEVEL_TEXT_TONE: Record<UsageLevel, string> = {
   ok: "text-primary-text",
-  warn: "text-status-waiting",
-  danger: "text-status-error",
+  warn: "text-status-waiting-text",
+  danger: "text-destructive-text",
 };
 
 export type ContextMeterProps = {
@@ -77,7 +77,7 @@ export function ContextMeter({ used, max, dataTestId }: ContextMeterProps) {
             "flex min-w-0 cursor-default items-center gap-1.5 overflow-hidden rounded-sm border border-transparent px-1 py-0.5 whitespace-nowrap",
             "font-mono text-meta tabular-nums transition-colors motion-reduce:transition-none",
             "hover:border-border hover:bg-accent",
-            "focus-visible:border-border focus-visible:bg-accent focus-visible:outline-none",
+            "focus-visible:border-border focus-visible:bg-accent focus-visible:focus-outline",
           )}
           aria-label={t("contextMeter.aria", {
             max: formatTokens(max),

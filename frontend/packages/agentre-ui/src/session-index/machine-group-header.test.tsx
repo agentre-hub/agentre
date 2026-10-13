@@ -90,7 +90,7 @@ describe("MachineGroupHeader", () => {
     );
     const mark = screen.getByTestId("machine-attention-mark");
     expect(mark).toHaveTextContent("3");
-    expect(mark.className).toContain("text-status-error");
+    expect(mark.className).toContain("text-destructive-text");
     unmount();
 
     render(

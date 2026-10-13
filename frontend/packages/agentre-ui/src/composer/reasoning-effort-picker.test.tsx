@@ -37,6 +37,22 @@ describe("ReasoningEffortPicker", () => {
     expect(screen.getByRole("button")).toHaveTextContent("xhigh");
   });
 
+  it("Given the trigger, When it takes keyboard focus, Then it draws the shared outline instead of suppressing it", () => {
+    // 与 ContextMeter 同一身外壳：此前聚焦只有 border-border + bg-accent，
+    // outline 被去掉，键盘用户看不出焦点落在这颗可点的 pill 上。
+    render(
+      <ReasoningEffortPicker
+        value="xhigh"
+        backendValue="high"
+        onChange={vi.fn()}
+      />,
+    );
+
+    const trigger = screen.getByRole("button");
+    expect(trigger).toHaveClass("focus-visible:focus-outline");
+    expect(trigger).not.toHaveClass("focus-visible:outline-none");
+  });
+
   it("Given no session level, When rendered, Then the face falls back to the backend level", () => {
     render(
       <ReasoningEffortPicker value="" backendValue="high" onChange={vi.fn()} />,

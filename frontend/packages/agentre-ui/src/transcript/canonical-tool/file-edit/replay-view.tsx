@@ -91,11 +91,11 @@ function SegmentBlock({
             index: segment.index + 1,
           })}
         </span>
-        <span className="ml-auto font-mono text-meta font-semibold text-status-running">
+        <span className="ml-auto font-mono text-meta font-semibold text-status-running-text">
           +{segment.plus}
         </span>
         {segment.minus > 0 && (
-          <span className="font-mono text-meta font-semibold text-destructive">
+          <span className="font-mono text-meta font-semibold text-destructive-text">
             −{segment.minus}
           </span>
         )}

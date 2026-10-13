@@ -17,13 +17,24 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
   );
 }
 
+/**
+ * 这一行是不是坐在表头里。
+ *
+ * 悬停 / 展开 / 选中的反馈是给「可以停在上面、可以选中」的表体行的；表头行两样都
+ * 不是。判断放在行自己身上，而不是让每个调用点去抵消：要抵消就得写「悬停时仍是
+ * 静止底色」，那正是 lint 禁掉的写法（docs/design.md §9）。
+ */
+const TableHeaderRowContext = React.createContext(false);
+
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
-    <thead
-      data-slot="table-header"
-      className={cn("[&_tr]:border-b", className)}
-      {...props}
-    />
+    <TableHeaderRowContext.Provider value>
+      <thead
+        data-slot="table-header"
+        className={cn("[&_tr]:border-b", className)}
+        {...props}
+      />
+    </TableHeaderRowContext.Provider>
   );
 }
 
@@ -51,11 +62,14 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
 }
 
 function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
+  const inHeader = React.useContext(TableHeaderRowContext);
   return (
     <tr
       data-slot="table-row"
       className={cn(
-        "border-b transition-colors hover:bg-accent/60 has-aria-expanded:bg-accent/60 data-[state=selected]:bg-accent",
+        "border-b transition-colors",
+        !inHeader &&
+          "hover:bg-accent/60 hover:on-accent has-aria-expanded:bg-accent/60 has-aria-expanded:on-accent data-[state=selected]:bg-accent",
         className,
       )}
       {...props}

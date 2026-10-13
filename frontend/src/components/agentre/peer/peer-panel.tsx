@@ -192,7 +192,7 @@ export function PeerPanel({
               {t("peerPanel.status.connecting")}
             </span>
           ) : status === "error" ? (
-            <span className="inline-flex items-center gap-1 text-destructive">
+            <span className="inline-flex items-center gap-1 text-destructive-text">
               <TriangleAlert className="size-3" aria-hidden="true" />
               {t("peerPanel.status.unavailable")}
             </span>
@@ -217,7 +217,7 @@ export function PeerPanel({
           className={cn(
             "mx-4 mt-2 rounded-md border px-3 py-2 text-xs",
             notice.kind === "error"
-              ? "border-destructive bg-destructive-soft text-destructive"
+              ? "border-destructive bg-destructive-soft text-destructive-text"
               : "border-status-waiting bg-status-waiting-bg text-foreground",
           )}
           data-testid="peer-notice"

@@ -2004,6 +2004,25 @@ describe("QuotaMeter", () => {
     expect(meter).toHaveTextContent("7d 18%");
   });
 
+  it("键盘聚焦时画共享的实色环, 而不是去掉 outline 只换底色", () => {
+    // 它是配额浮窗唯一的键盘入口。此前聚焦只有 border-border + bg-accent
+    // (对卡片 1.27 / 1.32), outline 被去掉, 键盘用户看不出焦点在这里。
+    render(
+      <QuotaMeter
+        data={
+          {
+            reason: "ok",
+            data: { fiveHourPercent: 42.6, weeklyPercent: 18.2 },
+            fetchedAtMs: 1,
+          } as never
+        }
+      />,
+    );
+    const meter = screen.getByLabelText(/Claude.*quota/);
+    expect(meter).toHaveClass("focus-visible:focus-outline");
+    expect(meter).not.toHaveClass("focus-visible:outline-none");
+  });
+
   it("stale=true 时仍显示上次数字, 但不渲染可见的 stale 角标", () => {
     render(
       <QuotaMeter

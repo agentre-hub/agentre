@@ -120,7 +120,7 @@ export function TaskFormShell({
                   type="button"
                   data-testid="task-form-more"
                   aria-label={t("board.form.more")}
-                  className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                  className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline"
                 >
                   <MoreHorizontal className="size-4" aria-hidden="true" />
                 </button>
@@ -143,7 +143,7 @@ export function TaskFormShell({
               data-testid="task-form-close"
               aria-label={t("board.form.close")}
               onClick={onClose}
-              className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline"
             >
               <X className="size-4" aria-hidden="true" />
             </button>
@@ -238,7 +238,7 @@ export function TaskFormShell({
               data-testid="task-form-cancel"
               onClick={onClose}
               disabled={submitting}
-              className="h-8 cursor-pointer rounded-lg px-3 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-8 cursor-pointer rounded-lg px-3 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50"
             >
               {t("board.form.cancel")}
             </button>
@@ -247,7 +247,7 @@ export function TaskFormShell({
             type="submit"
             data-testid="task-form-submit"
             disabled={!form.canSubmit}
-            className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submitting ? <Spinner className="size-3" /> : null}
             {value.id ? t("board.form.save") : t("board.form.create")}

@@ -37,7 +37,7 @@ export function DeviceTag({
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1 rounded-sm bg-primary-soft px-1.5 py-0.5 text-2xs font-medium text-primary",
+          "inline-flex items-center gap-1 rounded-sm bg-primary-soft px-1.5 py-0.5 text-2xs font-medium text-primary-text",
           className,
         )}
         {...props}
@@ -51,7 +51,7 @@ export function DeviceTag({
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1 rounded-sm bg-status-running-bg px-1.5 py-0.5 text-2xs font-medium text-status-running",
+          "inline-flex items-center gap-1 rounded-sm bg-status-running-bg px-1.5 py-0.5 text-2xs font-medium text-status-running-text",
           className,
         )}
         {...props}

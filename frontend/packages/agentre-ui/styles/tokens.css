@@ -55,6 +55,14 @@
      Guarded by src/tokens.test.ts. */
   --accent: #e0e0e3;
   --accent-foreground: #18181b;
+  /* Muted text ON the accent fill — the description, shortcut or trailing path of
+     a row that is currently selected or hovered. Same reason
+     --sidebar-selected-muted exists, on the content surfaces: --muted-foreground
+     is 4.38 on --accent here and 3.48 in dark. 4.80 on --accent, and still above
+     4.5 on the translucent hover fills (accent/40..60 over --card / --popover).
+     Call sites do not pick it by hand: the `bg-accent` utility below re-points
+     --muted-foreground at it for the whole subtree. Guarded by src/tokens.test.ts. */
+  --accent-muted-foreground: #5f5f67;
   /* Hover / focus feedback on the window chrome bands (title bar, icon rail,
      status bar — everything on --rail). Lighter rather than darker: the rail is
      the recessed tier, so hovering lifts, matching --sidebar-active-bg. 1.19 on
@@ -64,16 +72,27 @@
   /* Border / Input */
   --border: #e4e4e7;
   --border-strong: #d4d4d8;
-  /* Control fill — all that is left of the old field-edge role here. Field
-     edges (input / textarea / select / outline button) now use --control-border,
-     so a boundary never falls below 3:1; this token only feeds the soft dark-mode
-     field fill (`dark:bg-input/30`) and the unchecked switch track. Kept under
-     its old name because the shadcn-derived call sites spell it that way. */
+  /* The second edge tier: the outline of a clickable control that already
+     carries a label — the outline button. Clearly stronger than --border
+     (1.62 on --card against 1.27), deliberately lighter than --control-border:
+     the text inside identifies the control, so the edge only has to support it.
+     Field edges (input / textarea / select) are NOT this tier — a field can be
+     empty, so its boundary is the firmer --field-border.
+     Also feeds the soft dark-mode field fill (`dark:bg-input/30`) and the
+     unchecked switch track. Kept under its old name because the shadcn-derived
+     call sites spell it that way. Guarded by src/ui/button.test.tsx. */
   --input: #cbcbd0;
   --input-bg: #ffffff;
+  /* Field edge — the resting boundary of input / textarea / select / search
+     box. Exactly halfway between --input and --control-border: firmer than a
+     button's edge because a field can be empty (2.28 on --card, 2.08 on the
+     worst surface --secondary), lighter than a checkbox's because a field also
+     has its label, placeholder and position to be recognised by — several
+     3:1 edges stacked in one form read as heavy. Focus swaps it for --ring.
+     Guarded by src/ui/field-edge.test.tsx and src/tokens.test.ts. */
+  --field-border: #ababb1;
   /* Control boundary — for controls whose outline IS the whole control
-     (unchecked checkbox has no fill: lose the border and the control is gone),
-     and for every field edge (input / textarea / select / outline button).
+     (unchecked checkbox has no fill: lose the border and the control is gone).
      Deliberately NOT --border: that is a quiet divider and sits at ~1.1:1
      against every surface. This one clears WCAG 2.2 §1.4.11's 3:1 on the worst
      surface a control lands on (--secondary): 3.12 there, 3.43 on --card,
@@ -269,7 +288,7 @@
   --secondary: #292a2e;
   --secondary-foreground: #c6c8cb;
   --muted: #202122;
-  /* 暗色最暗的落点是 --popover #292a2e（下拉里的分组标题），#8a8d94 在那里 4.31。 */
+  /* 暗色最暗的落点是 --popover #292a2e（下拉里的分组标题），#909399 在那里 4.66。 */
   --muted-foreground: #909399;
   /* See :root. Worst surface here is --secondary #292a2e（agent-backends-list
      的绑定分隔符骑在 bg-secondary 上）：#71757e 在那里 3.10，而更暗的 #6a6d74
@@ -277,19 +296,24 @@
   --decorative-foreground: #71757e;
   --accent: #3c3e43;
   --accent-foreground: #e8e8e9;
+  /* See :root. 4.81 on --accent; the worst translucent case is accent/40 over
+     --card. */
+  --accent-muted-foreground: #abaeb4;
   /* 1.26 on the dark --rail #0b0b0c. */
   --rail-accent: #232427;
 
   /* Border / Input */
   --border: #2d2e31;
   --border-strong: #3d3f44;
-  /* Control fill — see :root. Retained only for the dark field fill
-     (`dark:bg-input/30`) and the unchecked switch track; boundaries use
-     --control-border. */
+  /* See :root. 1.99 on --card: the outline button's edge, plus the dark field
+     fill (`dark:bg-input/30`) and the unchecked switch track. Field boundaries
+     use --field-border. */
   --input: #4d5056;
   --input-bg: #18191b;
-  /* 3.10 on --secondary #292a2e, 3.49 on --card. Sits between --status-idle
-     #6a6d74 and --muted-foreground #8a8d94 on the existing neutral ladder. */
+  /* See :root. 2.64 on --card, 2.35 on the worst surface --secondary. */
+  --field-border: #5f626a;
+  /* 3.10 on --secondary #292a2e, 3.49 on --card. Sits just below --status-idle
+     #747880 and --muted-foreground #909399 on the neutral ladder. */
   --control-border: #71757e;
 
   /* Sidebar — deepest level, with elevated active items */
@@ -329,7 +353,11 @@
   --status-waiting: #fbbf24;
   --status-waiting-bg: #261d0d;
   --status-waiting-text: #fbbf24;
-  --status-idle: #6a6d74;
+  /* See :root. Dark has no room to hide either: the dot sits in the bg-secondary
+     slot of a session-index group header and on --popover rows. #6a6d74 was 2.77
+     on both; this is 3.24 there and 3.64 on --card, still dimmer than
+     --muted-foreground so idle stays the quietest state. */
+  --status-idle: #747880;
   --status-error: #f87171;
 
   /* Destructive */
@@ -470,6 +498,7 @@
   --color-decorative-foreground: var(--decorative-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-muted-foreground: var(--accent-muted-foreground);
   --color-rail-accent: var(--rail-accent);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
@@ -482,6 +511,7 @@
   --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-input-bg: var(--input-bg);
+  --color-field-border: var(--field-border);
   --color-control-border: var(--control-border);
   --color-ring: var(--ring);
   --color-rail: var(--rail);
@@ -563,6 +593,57 @@
   /* 断连指示器:同一 keyframe、同一曲线,周期慢一倍。"网络在等" 与 "agent 在想"
      因此一眼可分,而不必再造一套动效或第五个状态色。 */
   --animate-typing-dot-slow: typing-dot 2.4s ease-in-out infinite;
+}
+
+/* accent 面上的弱化文字由表面自己换色。
+   行被选中 / 悬停时底色换成 --accent，而行里的弱化文字（说明、快捷键、路径、
+   伴随图标）散在各处、各自写着 text-muted-foreground，谁也不知道行现在是什么状态。
+   所以判断放在唯一知道的地方：上底色的那个类。Tailwind v4 会把同名的 @utility
+   与主题色工具类**合并**输出，变体前缀（hover: / focus: / data-[selected=true]:）
+   两边一起生效，于是 `hover:bg-accent` 在悬停时既上底色、又把子树里的
+   --muted-foreground 重新指向 --accent-muted-foreground。
+
+   带不透明度的 `bg-accent/60` 走不到这条——静态工具类不吃修饰符。那些调用点
+   在同一个变体下补一个 `on-accent`（如 `hover:bg-accent/60 hover:on-accent`）。 */
+@utility bg-accent {
+  --muted-foreground: var(--accent-muted-foreground);
+}
+
+@utility on-accent {
+  --muted-foreground: var(--accent-muted-foreground);
+}
+
+/* 键盘焦点的两种画法，全仓只在这里定义一次。调用点挂在变体下：
+     focus-visible:focus-outline   按钮类 —— 按钮、行、标签、开关、复选框
+     focus-visible:focus-halo      输入类 —— 输入框、文本域、下拉
+     focus-within:focus-halo       包着输入的外壳 —— 搜索框、对话输入框
+
+   按钮类是 2px 实色环 + 2px 间隙。实色是为了让对比度不随底色漂移：此前各处
+   自己拼的 ring-ring/50 合成后只有约 2.1:1、/40 约 1.8:1。间隙是为了让实心
+   主按钮（底色就是 --primary ≈ --ring）的环不和按钮本身粘成一块。画成 outline
+   而不是 box-shadow，间隙才是透明的，不用知道脚下是哪个表面。
+   base.css 把这同一组声明设成 button / a / summary / [role="button"] /
+   [role="tab"] 的默认键盘焦点（没挂任何焦点类的原生按钮也有环）；两处要一起改，
+   src/styles/host-stylesheets.test.ts 守着它们逐条相同。
+
+   输入类保留原样：边变成实色 --ring（这一条已经有 3:1），外面再加一圈光晕。
+   ts / tsx 里不许再手拼 ring-ring，见 frontend/eslint-rules/design-tokens.js。 */
+@utility focus-outline {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* 同一条环，向内画。给贴着裁剪容器的元素：标签页填满一条 overflow-hidden 的带子、
+   列表行贴着滚动容器的边——向外的环要伸出去 4px，在那里会被直接切掉（真机上对话
+   标签页的环只剩右边一条竖线）。向内之后环压在元素自己的填充上，所以它对每种行底色
+   都要有 3:1，src/tokens.test.ts 守着。 */
+@utility focus-outline-inset {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+@utility focus-halo {
+  @apply border-ring ring-[3px] ring-ring/50;
 }
 
 /* Typing 指示器三点跳动。transcript-row-view.tsx 的 TypingIndicator 经 animate-typing-dot 类引用。 */

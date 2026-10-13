@@ -89,7 +89,7 @@ export function ProjectIdentityFields({
             id={errorId}
             role="alert"
             data-testid={errorId}
-            className="text-2xs text-destructive"
+            className="text-2xs text-destructive-text"
           >
             {nameError}
           </p>

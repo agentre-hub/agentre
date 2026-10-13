@@ -104,7 +104,7 @@ function BackendRowBinding({
       className={cn(
         "inline-flex min-w-0 shrink items-center gap-1 rounded-md px-1.5 py-0.5",
         variant === "invalid"
-          ? "bg-status-waiting-bg text-status-waiting"
+          ? "bg-status-waiting-bg text-status-waiting-text"
           : "bg-secondary text-foreground",
       )}
     >
@@ -267,7 +267,7 @@ export function BackendRow({
     <div
       role="listitem"
       className={cn(
-        "flex min-w-0 flex-col gap-1.5 border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-accent/45",
+        "flex min-w-0 flex-col gap-1.5 border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-accent/45 hover:on-accent",
         // 需处理的行用琥珀色左缘标记，一眼可扫；用 inset 阴影避免改变行宽。
         warning && "shadow-[inset_3px_0_0_0_var(--status-waiting)]",
       )}
@@ -292,7 +292,7 @@ export function BackendRow({
             {warning ? (
               <Badge
                 variant="secondary"
-                className="shrink-0 rounded-sm bg-status-waiting-bg px-1.5 py-0 font-mono text-2xs text-status-waiting"
+                className="shrink-0 rounded-sm bg-status-waiting-bg px-1.5 py-0 font-mono text-2xs text-status-waiting-text"
               >
                 {t("agentBackends.row.needsAction")}
               </Badge>

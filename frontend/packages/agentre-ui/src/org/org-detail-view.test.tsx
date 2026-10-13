@@ -2,6 +2,9 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { edgeTokenOf } from "../styles/__testing__/tokens";
+import { Input } from "../ui/input";
+
 import { OrgExecTargetRow } from "./org-exec-target-row";
 import { OrgPlacementField } from "./org-placement-field";
 import { OrgToolList } from "./org-tool-list";
@@ -110,6 +113,25 @@ describe("OrgPlacementField（只吃 props）", () => {
       />,
     );
     expect(screen.queryByTestId("org-agent-derived-manager")).toBeNull();
+  });
+
+  it("Given the placement dropdown sits in a form of shared inputs, When it rests, Then its edge is the field tier", () => {
+    render(
+      <OrgPlacementField
+        agent={agents[1]}
+        agents={agents}
+        departments={departments}
+        placement={{ kind: "department", id: 1 }}
+        reportTarget={null}
+        onPick={vi.fn()}
+      />,
+    );
+    render(<Input aria-label="reference" />);
+
+    // 它是一颗手写的下拉（role=combobox），不是卡片：边取字段那一档，而不是分隔线。
+    expect(edgeTokenOf(screen.getByRole("combobox"))).toBe(
+      edgeTokenOf(screen.getByRole("textbox", { name: "reference" })),
+    );
   });
 });
 

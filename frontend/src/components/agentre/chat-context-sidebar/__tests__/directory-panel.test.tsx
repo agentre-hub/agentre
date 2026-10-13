@@ -147,6 +147,22 @@ describe("DirectoryPanel 目录页", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("Given the two icon-only toggles on the toolbar, When pressed, Then both tint their icon with the same brand fill", async () => {
+    renderPanel({});
+
+    const ignored = await screen.findByRole("button", {
+      name: /show ignored/i,
+    });
+    const search = screen.getByRole("button", { name: /search/i });
+
+    // 两颗都只有图标：图形用填充色 primary，`primary-text` 是给字用的那一个
+    // （暗色下两者不同值，并排各用一个就是两种蓝）。
+    for (const toggle of [ignored, search]) {
+      expect(toggle).toHaveClass("data-[state=on]:text-primary");
+      expect(toggle).not.toHaveClass("data-[state=on]:text-primary-text");
+    }
+  });
+
   it("loads the root level once with includeIgnored=false and sorts dirs before files", async () => {
     listDirMock.mockResolvedValue(
       listing([

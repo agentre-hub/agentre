@@ -205,6 +205,23 @@ describe("TerminalPanel", () => {
     expect(options.fontFamily).toContain("Symbols Nerd Font Mono");
   });
 
+  it("Given the panel mounts, When xterm is constructed, Then it is asked to keep every foreground at 4.5:1 against the background", () => {
+    // 程序自己选的 ANSI 色管不住：亮色主题下 bright 系列对 #fafafa 只有 1.65–2.27，
+    // 暗色的 bright black（灰字、自动补全提示）2.37。交给 xterm 按底色兜底。
+    render(
+      <TerminalPanel
+        terminalID="t1"
+        projectId={42}
+        deviceId=""
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(vi.mocked(Terminal).mock.calls[0][0]!.minimumContrastRatio).toBe(
+      4.5,
+    );
+  });
+
   it("Given a Nerd Font lacks a Bold face, When the font stack is built, Then a platform mono comes before any Nerd Font so the line is not faux-bold mosaic", () => {
     const onClose = vi.fn();
     render(

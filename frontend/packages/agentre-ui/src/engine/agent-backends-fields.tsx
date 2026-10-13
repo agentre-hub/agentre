@@ -487,7 +487,7 @@ export function CliPathField({
         </Button>
       </div>
       {missMessage ? (
-        <span className="font-mono text-2xs text-status-waiting">
+        <span className="font-mono text-2xs text-status-waiting-text">
           {missMessage}
         </span>
       ) : null}
@@ -638,12 +638,14 @@ export function HermesAuthFields({
           </SelectContent>
         </Select>
         {providersError ? (
-          <span className="text-2xs text-destructive">{providersError}</span>
+          <span className="text-2xs text-destructive-text">
+            {providersError}
+          </span>
         ) : null}
       </div>
 
       {showUnsupported ? (
-        <span className="text-2xs text-status-waiting">
+        <span className="text-2xs text-status-waiting-text">
           {t("agentBackends.hermes.authProviderUnsupported")}
         </span>
       ) : null}
@@ -691,7 +693,7 @@ export function HermesAuthFields({
       </Button>
 
       {error ? (
-        <span className="text-2xs text-destructive">{error}</span>
+        <span className="text-2xs text-destructive-text">{error}</span>
       ) : null}
     </div>
   );
@@ -730,7 +732,7 @@ function ModelRoutesField({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left focus-visible:focus-outline"
       >
         {open ? (
           <ChevronDown className="size-3.5 shrink-0" aria-hidden="true" />
@@ -1050,7 +1052,7 @@ export function DefaultPermissionModeField({
           <span
             className={cn(
               "inline-flex items-center gap-1.5 font-medium",
-              isBypass ? "text-destructive" : "",
+              isBypass ? "text-destructive-text" : "",
             )}
           >
             {isBypass ? (
@@ -1094,12 +1096,12 @@ export function DefaultPermissionModeField({
         </Select>
       </div>
       {isBypass ? (
-        <span className="text-2xs text-destructive">
+        <span className="text-2xs text-destructive-text">
           {t("agentBackends.permission.bypassWarning")}
         </span>
       ) : null}
       {showRootHint && canAddIsSandbox ? (
-        <div className="flex flex-wrap items-center gap-2 rounded border border-status-waiting/40 bg-status-waiting-bg px-2 py-1.5 text-2xs text-status-waiting">
+        <div className="flex flex-wrap items-center gap-2 rounded border border-status-waiting/40 bg-status-waiting-bg px-2 py-1.5 text-2xs text-status-waiting-text">
           <span className="min-w-0 flex-1">
             {t("agentBackends.permission.remoteRootHintPrefix")}{" "}
             <span className="font-mono">IS_SANDBOX=1</span>{" "}
@@ -1123,7 +1125,7 @@ export function DefaultPermissionModeField({
             </Button>
           )}
           {addIsSandboxError ? (
-            <span className="w-full text-2xs text-destructive">
+            <span className="w-full text-2xs text-destructive-text">
               {addIsSandboxError}
             </span>
           ) : null}
@@ -1171,7 +1173,7 @@ export function EnvJsonField({
       {open ? (
         <div className="flex flex-col gap-1.5 pt-1.5">
           {reservedOffenders.length > 0 ? (
-            <div className="rounded-sm bg-destructive-soft px-2 py-1 text-2xs text-destructive">
+            <div className="rounded-sm bg-destructive-soft px-2 py-1 text-2xs text-destructive-text">
               {t("agentBackends.env.reservedDisabled", {
                 keys: reservedOffenders.join(", "),
               })}

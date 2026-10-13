@@ -137,7 +137,9 @@ export function BatchDeleteDialog({
         </DialogHeader>
 
         <DialogBody className="space-y-3">
-          {error ? <p className="text-2xs text-status-error">{error}</p> : null}
+          {error ? (
+            <p className="text-2xs text-destructive-text">{error}</p>
+          ) : null}
 
           <div className="flex flex-col gap-1.5">
             <span className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
@@ -155,7 +157,7 @@ export function BatchDeleteDialog({
                       {model.name || model.modelId}
                     </span>
                     {note ? (
-                      <span className="text-2xs text-status-waiting">
+                      <span className="text-2xs text-status-waiting-text">
                         {note}
                       </span>
                     ) : null}
@@ -187,7 +189,7 @@ export function BatchDeleteDialog({
           ) : null}
 
           {/* 后端只有单条 DeleteLLMModel：逐个调用，不是事务，必须先说清楚 */}
-          <div className="flex items-start gap-2 rounded-md border border-status-waiting/40 bg-status-waiting/10 px-3 py-2.5 text-2xs leading-relaxed text-status-waiting">
+          <div className="flex items-start gap-2 rounded-md border border-status-waiting/40 bg-status-waiting/10 px-3 py-2.5 text-2xs leading-relaxed text-status-waiting-text">
             <AlertTriangle
               className="mt-0.5 size-3.5 shrink-0"
               aria-hidden="true"

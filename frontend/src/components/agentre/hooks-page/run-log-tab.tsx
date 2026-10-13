@@ -40,7 +40,7 @@ export function RunLogTab({
               "flex flex-col gap-1 rounded-md border px-3 py-2.5 text-left transition-colors",
               ev.id === selectedEventId
                 ? "border-primary bg-primary/5"
-                : "border-border hover:bg-muted/50",
+                : "border-border hover:bg-accent/60 hover:on-accent",
             )}
           >
             <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
@@ -54,7 +54,7 @@ export function RunLogTab({
                 className={cn(
                   "truncate",
                   ev.kind === "failure"
-                    ? "text-status-error"
+                    ? "text-destructive-text"
                     : "text-foreground",
                 )}
               >
@@ -83,7 +83,7 @@ export function RunLogTab({
                   className={cn(
                     "text-sm font-semibold",
                     selected.kind === "failure"
-                      ? "text-status-error"
+                      ? "text-destructive-text"
                       : "text-foreground",
                   )}
                 >

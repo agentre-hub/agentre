@@ -25,12 +25,21 @@ function findRunning(tasks: Task[]): Task | undefined {
   return tasks.find((t) => t.status === "running");
 }
 
-const STATUS_FILL: Record<Task["status"], string> = {
+// 同一个状态在一行里出现两次：左边的图标是图形，留在饱和的填充色上；右边的
+// 状态词是要读的字，用 -text 角色（docs/design.md §3.5）。分表而不是共用一张。
+const STATUS_ICON_TONE: Record<Task["status"], string> = {
   queued: "text-muted-foreground",
   running: "text-status-waiting",
   completed: "text-status-running",
   cancelled: "text-muted-foreground",
   failed: "text-status-error",
+};
+const STATUS_TEXT_TONE: Record<Task["status"], string> = {
+  queued: "text-muted-foreground",
+  running: "text-status-waiting-text",
+  completed: "text-status-running-text",
+  cancelled: "text-muted-foreground",
+  failed: "text-destructive-text",
 };
 
 function TaskRow({ index, task }: { index: number; task: Task }) {
@@ -52,7 +61,7 @@ function TaskRow({ index, task }: { index: number; task: Task }) {
       <Icon
         className={cn(
           "size-3 shrink-0",
-          STATUS_FILL[task.status],
+          STATUS_ICON_TONE[task.status],
           isRunning && "animate-spin motion-reduce:animate-none",
         )}
         aria-hidden
@@ -72,7 +81,7 @@ function TaskRow({ index, task }: { index: number; task: Task }) {
       <span
         className={cn(
           "shrink-0 text-[9px] font-bold tracking-wider",
-          STATUS_FILL[task.status],
+          STATUS_TEXT_TONE[task.status],
         )}
       >
         {t(`taskProgress.status.${task.status}`)}
@@ -121,7 +130,9 @@ export function TaskProgressBar({ progress }: Props) {
           {t("taskProgress.title")}
         </span>
         <span className="inline-flex items-baseline gap-0.5 tabular-nums">
-          <span className="text-aux font-bold text-status-running">{done}</span>
+          <span className="text-aux font-bold text-status-running-text">
+            {done}
+          </span>
           <span className="text-xs text-muted-foreground">/</span>
           <span className="text-aux font-semibold text-foreground">
             {total}
@@ -144,7 +155,7 @@ export function TaskProgressBar({ progress }: Props) {
             style={{ width: `${pct}%` }}
           />
         </span>
-        <span className="text-2xs font-semibold text-status-running">
+        <span className="text-2xs font-semibold text-status-running-text">
           {pct}%
         </span>
         <span className="ml-auto inline-flex shrink-0 items-center text-muted-foreground">

@@ -74,7 +74,7 @@ export function GuideStepRail({
                   aria-hidden="true"
                   className={cn(
                     "flex size-6 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-2xs font-semibold text-muted-foreground",
-                    finished && "bg-status-running-bg text-status-running",
+                    finished && "bg-status-running-bg text-status-running-text",
                     active && "bg-primary text-primary-foreground",
                   )}
                 >

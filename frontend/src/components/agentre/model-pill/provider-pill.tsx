@@ -128,7 +128,7 @@ export function ProviderPill({
           // 由 Picker 基类提供，键盘定位不受影响。
           "h-[26px] w-auto cursor-pointer gap-1.5 rounded-md px-2.5 text-2xs font-medium",
           invalid
-            ? "border-status-waiting bg-status-waiting-bg text-status-waiting hover:bg-status-waiting-bg/70"
+            ? "border-status-waiting bg-status-waiting-bg text-status-waiting-text hover:bg-status-waiting-bg/70"
             : "border-border bg-card text-foreground hover:bg-accent",
         )}
       />
@@ -152,7 +152,7 @@ export function ProviderPill({
           </DialogHeader>
           <DialogBody>
             {syncError ? (
-              <p role="alert" className="text-xs text-status-error">
+              <p role="alert" className="text-xs text-destructive-text">
                 {syncError}
               </p>
             ) : (

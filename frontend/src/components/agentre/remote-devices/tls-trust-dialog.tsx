@@ -140,7 +140,7 @@ export function TLSTrustDialog({
                     <span
                       className={`text-3xs uppercase tracking-wide px-1.5 py-0.5 rounded ${
                         m.danger
-                          ? "bg-destructive/20 text-destructive"
+                          ? "bg-destructive/20 text-destructive-text"
                           : "bg-secondary text-secondary-foreground"
                       }`}
                     >
@@ -176,7 +176,9 @@ export function TLSTrustDialog({
           </label>
         ) : null}
 
-        {error ? <div className="text-sm text-destructive">{error}</div> : null}
+        {error ? (
+          <div className="text-sm text-destructive-text">{error}</div>
+        ) : null}
       </DialogShellBody>
       <DialogShellFooter>
         <Button variant="ghost" onClick={onClose}>

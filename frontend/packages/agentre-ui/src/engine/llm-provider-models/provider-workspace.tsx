@@ -149,7 +149,7 @@ export function ProviderWorkspace({
       {modelsError ? (
         <div
           role="alert"
-          className="flex flex-col items-start gap-2 p-4 text-status-error"
+          className="flex flex-col items-start gap-2 p-4 text-destructive-text"
         >
           <span className="text-xs">{modelsError}</span>
           <Button

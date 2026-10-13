@@ -61,7 +61,7 @@ export function RepositoryRow() {
         target="_blank"
         rel="noreferrer"
         onClick={handleClick}
-        className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-agent-1 underline-offset-4 hover:underline sm:max-w-[320px]"
+        className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-primary-text underline-offset-4 hover:underline sm:max-w-[320px]"
       >
         <span className="truncate">{REPOSITORY_URL}</span>
         <ExternalLink className="size-3 shrink-0" aria-hidden="true" />

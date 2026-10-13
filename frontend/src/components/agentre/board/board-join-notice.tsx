@@ -51,7 +51,7 @@ export function BoardJoinNotice() {
             // 销账失败无所谓：下次打开会再说一次，比把说明卡在屏幕上强。
           });
         }}
-        className="cursor-pointer rounded-md p-1 transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        className="cursor-pointer rounded-md p-1 transition-colors hover:bg-primary/10 focus-visible:focus-outline"
       >
         <X className="size-3.5" aria-hidden="true" />
       </button>

@@ -43,4 +43,21 @@ describe("OwnSessionsHeader", () => {
       "false",
     );
   });
+
+  it("Given a header that fills the parent group's clipped body, When it takes keyboard focus, Then the ring is drawn inward so no side is cut off", () => {
+    // 这一行是嵌套组的表头，渲染在父组那个 overflow-hidden 的折叠容器里，撑满整行、
+    // 又排在最前：向外的环上、左、右三边都落在裁剪线外，只剩底下一条线。
+    render(
+      <OwnSessionsHeader
+        name="Agentre"
+        count={7}
+        expanded
+        onToggle={vi.fn()}
+      />,
+    );
+
+    const header = screen.getByRole("button");
+    expect(header).toHaveClass("focus-visible:focus-outline-inset");
+    expect(header).not.toHaveClass("focus-visible:focus-outline");
+  });
 });

@@ -184,7 +184,7 @@ function SessionGroupOverflow<Row>({
         {failed ? (
           <div
             role="alert"
-            className="flex flex-col items-center gap-2 px-3 py-4 text-center text-2xs text-status-error"
+            className="flex flex-col items-center gap-2 px-3 py-4 text-center text-2xs text-destructive-text"
           >
             <span>{t("sessionGroup.overflow.loadFailed")}</span>
             <Button type="button" variant="outline" size="sm" onClick={retry}>

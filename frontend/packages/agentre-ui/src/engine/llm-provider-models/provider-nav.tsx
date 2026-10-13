@@ -87,7 +87,7 @@ export function ProviderNav({
                     aria-current={active}
                     onClick={() => onSelect(p.id)}
                     className={cn(
-                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none focus-visible:focus-outline",
                       active
                         ? "bg-primary-soft text-primary-text"
                         : "hover:bg-accent",
@@ -116,7 +116,7 @@ export function ProviderNav({
                         })}
                       </span>
                     ) : (
-                      <span className="shrink-0 font-mono text-2xs text-status-waiting">
+                      <span className="shrink-0 font-mono text-2xs text-status-waiting-text">
                         {t("llmProviders.nav.disabled")}
                       </span>
                     )}

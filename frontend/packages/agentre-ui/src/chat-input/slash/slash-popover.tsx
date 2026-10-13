@@ -63,7 +63,7 @@ export function SlashPopover({
                 "flex w-full cursor-pointer items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-left text-xs",
                 active
                   ? "bg-accent text-accent-foreground"
-                  : "text-foreground hover:bg-accent/60",
+                  : "text-foreground hover:bg-accent/60 hover:on-accent",
               )}
             >
               <span className="font-mono font-medium">{cmd.label}</span>

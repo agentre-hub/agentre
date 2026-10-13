@@ -50,7 +50,7 @@ export function AxisPicker({ value, axes, onChange }: AxisPickerProps) {
           data-testid="axis-picker"
           data-axis={value}
           title={title}
-          className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-2xs font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none"
+          className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-2xs font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline motion-reduce:transition-none"
         >
           <ActiveIcon className="size-3.5" aria-hidden="true" />
           <span className="truncate">{axisLabel(t, value)}</span>

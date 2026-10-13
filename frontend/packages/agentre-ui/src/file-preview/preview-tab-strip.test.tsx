@@ -56,6 +56,35 @@ describe("PreviewTabStrip", () => {
     expect(within(tabs[0]).getByText("a.md")).not.toHaveClass("italic");
   });
 
+  it("Given an inactive tab on the muted strip, When hovered, Then it answers with the feedback color, not a resting surface", () => {
+    // 这条带子是 bg-muted，而暗色下 --muted 与 --card 同值（#202122）：
+    // 悬停换成 bg-card 落在自己的底上就是 1.00，鼠标移上去什么都不变。
+    // 对话标签条那条带子是 bg-secondary，向 card 提亮看得见，所以它保留。
+    renderStrip();
+
+    expect(screen.getByRole("tablist", { name: "Preview tabs" })).toHaveClass(
+      "bg-muted",
+    );
+    const [inactive, active] = screen.getAllByRole("tab");
+    expect(inactive).toHaveClass("hover:bg-accent");
+    expect(inactive).not.toHaveClass("hover:bg-card");
+    // 活动标签不带悬停反馈：它已经是这一条里唯一的 background 面。
+    expect(active.className).not.toMatch(/hover:bg-/);
+  });
+
+  it("Given tabs that fill the clipped strip, When one takes keyboard focus, Then the ring is drawn inward so the strip cannot cut it off", () => {
+    // 与对话标签页同一个结构：标签填满一条 overflow-hidden 的带子。
+    renderStrip();
+
+    const tabs = within(
+      screen.getByRole("tablist", { name: "Preview tabs" }),
+    ).getAllByRole("tab");
+    for (const tab of tabs) {
+      expect(tab).toHaveClass("focus-visible:focus-outline-inset");
+      expect(tab).not.toHaveClass("focus-visible:focus-outline");
+    }
+  });
+
   it("renders nothing while fewer than two files are open", () => {
     renderStrip({ tabs: [tab("a.md")], activePath: "a.md" });
 

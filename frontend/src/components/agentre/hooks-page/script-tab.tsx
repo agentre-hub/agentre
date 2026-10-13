@@ -178,7 +178,7 @@ export function ScriptTab({
           placeholder={t("hooks.script.commandPlaceholder")}
           aria-label={t("hooks.script.title")}
           spellCheck={false}
-          className="min-h-56 rounded-md border-border bg-code-surface font-mono text-xs leading-relaxed text-code-foreground"
+          className="min-h-56 rounded-md bg-code-surface font-mono text-xs leading-relaxed text-code-foreground"
         />
       </SectionCard>
 

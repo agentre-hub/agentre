@@ -12,8 +12,8 @@ import type { ProjectScope } from "./query-types";
 function rowClassName(selected: boolean, cursor: boolean, dimmed: boolean) {
   return cn(
     "flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
-    "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-    !cursor && !selected && "hover:bg-secondary/60",
+    "focus-visible:focus-outline",
+    !cursor && !selected && "hover:bg-accent/60 hover:on-accent",
     // 键盘当前行：accent 底，跟着方向键走。
     cursor && "bg-accent",
     // 已选中项：primary 软底 + ✓，与游标各说各的。

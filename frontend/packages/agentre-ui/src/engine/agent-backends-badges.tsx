@@ -133,11 +133,11 @@ export function BackendTypePicker({
             onClick={() => onChange(backendType)}
             className={cn(
               "flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-left outline-none transition-colors",
-              "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
+              "focus-visible:focus-outline",
               "disabled:pointer-events-none disabled:opacity-50",
               checked
                 ? "border-primary bg-primary-soft"
-                : "border-border bg-card hover:border-border-strong hover:bg-accent/60",
+                : "border-border bg-card hover:border-border-strong hover:bg-accent/60 hover:on-accent",
             )}
           >
             <span aria-hidden="true">
@@ -175,10 +175,10 @@ function BackendTypeBadge({
 
   const tone =
     probe.state === "installed"
-      ? "border-status-running/30 bg-status-running-bg text-status-running"
+      ? "border-status-running/30 bg-status-running-bg text-status-running-text"
       : probe.state === "probing"
         ? "border-border bg-secondary text-muted-foreground"
-        : "border-status-waiting/30 bg-status-waiting-bg text-status-waiting";
+        : "border-status-waiting/30 bg-status-waiting-bg text-status-waiting-text";
   return (
     <span
       // e2e 用它断言探测结论，避免拿 i18n 文案当定位符。
@@ -344,14 +344,14 @@ export function EffectiveConfigSummary({
       </dl>
       {/* 校验结论独立成一整行:通过时给正向确认，不通过时把原因说完整。 */}
       {saveBlockedReason ? (
-        <p className="flex items-center gap-1.5 rounded-md bg-status-waiting-bg px-2 py-1.5 text-2xs text-status-waiting">
+        <p className="flex items-center gap-1.5 rounded-md bg-status-waiting-bg px-2 py-1.5 text-2xs text-status-waiting-text">
           <AlertCircle className="size-3 shrink-0" aria-hidden="true" />
           {t("agentBackends.summary.cannotSaveReason", {
             reason: saveBlockedReason,
           })}
         </p>
       ) : (
-        <p className="flex items-center gap-1.5 rounded-md bg-status-running-bg px-2 py-1.5 text-2xs font-medium text-status-running">
+        <p className="flex items-center gap-1.5 rounded-md bg-status-running-bg px-2 py-1.5 text-2xs font-medium text-status-running-text">
           <CheckCircle2 className="size-3 shrink-0" aria-hidden="true" />
           {t("agentBackends.summary.saveReady")}
         </p>
@@ -369,8 +369,8 @@ export function TestResultPill({ state }: { state: FlashState }) {
       className={cn(
         "flex items-start gap-2 rounded-md border px-3 py-2 text-xs",
         ok
-          ? "border-status-running/40 bg-status-running-bg text-status-running"
-          : "border-destructive/40 bg-destructive-soft text-destructive",
+          ? "border-status-running/40 bg-status-running-bg text-status-running-text"
+          : "border-destructive/40 bg-destructive-soft text-destructive-text",
       )}
       role="status"
     >
@@ -405,8 +405,8 @@ export function FlashBanner({
       className={cn(
         "flex items-center gap-2 px-4 py-2 text-xs",
         ok
-          ? "bg-status-running-bg text-status-running"
-          : "bg-destructive-soft text-destructive",
+          ? "bg-status-running-bg text-status-running-text"
+          : "bg-destructive-soft text-destructive-text",
       )}
       role="status"
     >

@@ -40,8 +40,8 @@ type Tone = "primary" | "success" | "danger";
 
 const TONE_CLASS: Record<Tone, string> = {
   primary: "bg-primary-soft text-primary-text",
-  success: "bg-status-running-bg text-status-running",
-  danger: "bg-destructive-soft text-destructive",
+  success: "bg-status-running-bg text-status-running-text",
+  danger: "bg-destructive-soft text-destructive-text",
 };
 
 function PanelHeader({

@@ -122,9 +122,9 @@ export function parseCtlApprovalInput(
 }
 
 const opPillClass: Record<CtlApprovalOp, string> = {
-  create: "bg-status-running-bg text-status-running",
-  update: "bg-status-waiting-bg text-status-waiting",
-  delete: "bg-destructive/10 text-destructive",
+  create: "bg-status-running-bg text-status-running-text",
+  update: "bg-status-waiting-bg text-status-waiting-text",
+  delete: "bg-destructive/10 text-destructive-text",
 };
 
 function useCtlApprovalLabels() {
@@ -316,8 +316,8 @@ export function CtlApprovalCard({
             className={cn(
               "ml-auto",
               isApproved
-                ? "bg-status-running-bg text-status-running"
-                : "bg-destructive/10 text-destructive",
+                ? "bg-status-running-bg text-status-running-text"
+                : "bg-destructive/10 text-destructive-text",
             )}
           >
             {t(`toolApproval.status.${approval.status}`)}
@@ -347,7 +347,9 @@ export function CtlApprovalCard({
             <X className="mr-1 h-3.5 w-3.5" />
             {t("toolApproval.deny")}
           </Button>
-          {error && <span className="text-aux text-destructive">{error}</span>}
+          {error && (
+            <span className="text-aux text-destructive-text">{error}</span>
+          )}
         </TranscriptCardBody>
       ) : approval.result ? (
         <TranscriptCardBody className="text-aux text-muted-foreground">

@@ -4,7 +4,14 @@ import path from "node:path";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { Table, TableBody, TableCell, TableRow } from "../index";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../index";
 
 // 表格行的 hover 与选中是**唯一**告诉用户"我停在哪一行 / 选中了哪一行"的信号：
 // 表格里没有别的线索可以替代它。这条守卫盯的是它别再和自己坐着的表面同色 ——
@@ -137,5 +144,42 @@ describe("TableRow 的 hover / 选中反馈", () => {
 
     expect(hover.token).toBe(selected.token);
     expect(hover.alpha).toBeLessThan(selected.alpha);
+  });
+});
+
+describe("表头里的行", () => {
+  it("Given a row inside TableHeader, When rendered, Then it carries no hover / expanded / selected feedback while a body row still does", () => {
+    // 表头行不是可点的行。行的反馈类若不分表头表体，调用点就只能拿「悬停时仍是
+    // 静止底色」去抵消它——那正是 lint 禁掉的写法；换成反馈色后表头反而比表体
+    // 亮得更实（模型表的表头一度是 `bg-secondary hover:bg-accent`）。
+    const { container } = render(
+      <Table>
+        <TableHeader>
+          <TableRow data-testid="head-row" className="bg-secondary">
+            <TableHead>模型</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow data-testid="body-row">
+            <TableCell>claude-opus-4-1</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>,
+    );
+    const classesOf = (testId: string) =>
+      Array.from(
+        container.querySelector(`[data-testid="${testId}"]`)?.classList ?? [],
+      );
+    const feedback = (testId: string) =>
+      classesOf(testId).filter((c) =>
+        /^(hover|has-aria-expanded|data-\[state=selected\]):/.test(c),
+      );
+
+    expect(feedback("head-row")).toEqual([]);
+    // 调用点给表头行的静止底色照常生效，行与行之间的分隔线也还在。
+    expect(classesOf("head-row")).toEqual(
+      expect.arrayContaining(["bg-secondary", "border-b"]),
+    );
+    expect(feedback("body-row")).not.toEqual([]);
   });
 });

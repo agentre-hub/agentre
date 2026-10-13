@@ -259,7 +259,7 @@ function ChatPanelHeader({
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
+                  className="text-destructive-text focus:text-destructive-text"
                   onClick={() => onDelete(session.id)}
                 >
                   {t("common.delete")}

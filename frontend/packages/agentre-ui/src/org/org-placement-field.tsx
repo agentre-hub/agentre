@@ -233,7 +233,7 @@ export function OrgPlacementField(props: OrgPlacementFieldProps) {
             aria-label={t("org.agent.placement.label")}
             disabled={isCEO}
             className={cn(
-              "flex w-full min-w-0 items-center gap-2 rounded-md border border-border bg-input-bg px-2.5 py-2 text-left",
+              "flex w-full min-w-0 items-center gap-2 rounded-md border border-field-border bg-input-bg px-2.5 py-2 text-left",
               isCEO ? "cursor-not-allowed opacity-60" : "hover:bg-accent",
             )}
           >

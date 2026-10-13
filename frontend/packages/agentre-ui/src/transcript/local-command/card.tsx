@@ -18,17 +18,17 @@ const STATUS_CONFIG: Record<
 > = {
   running: {
     dot: "bg-status-waiting",
-    pill: "bg-status-waiting-bg text-status-waiting",
+    pill: "bg-status-waiting-bg text-status-waiting-text",
     labelKey: "localCommand.status.running",
   },
   done: {
     dot: "bg-status-running",
-    pill: "bg-status-running-bg text-status-running",
+    pill: "bg-status-running-bg text-status-running-text",
     labelKey: "localCommand.status.done",
   },
   failed: {
     dot: "bg-destructive",
-    pill: "bg-destructive/15 text-destructive",
+    pill: "bg-destructive/15 text-destructive-text",
     labelKey: "localCommand.status.failed",
   },
   stopped: {
@@ -109,7 +109,7 @@ export function LocalCommandCard({
             toggle();
           }
         }}
-        className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-foreground transition-colors hover:bg-accent/40 w-full max-w-measure"
+        className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-foreground transition-colors hover:bg-accent/40 hover:on-accent w-full max-w-measure"
       >
         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <SquareTerminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

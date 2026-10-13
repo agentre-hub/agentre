@@ -40,7 +40,7 @@ export function ApprovalGate({
         aria-hidden="true"
       />
       <div className="min-w-0 flex-1">
-        <div className="text-aux font-semibold text-status-waiting">
+        <div className="text-aux font-semibold text-status-waiting-text">
           {title}
         </div>
         <div className="mt-0.5 text-aux leading-snug">{description}</div>

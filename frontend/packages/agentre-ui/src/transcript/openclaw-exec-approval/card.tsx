@@ -214,7 +214,7 @@ export function OpenClawExecApprovalCard({
             <span className="text-muted-foreground">
               {t("openclawExecApproval.warnings")}
             </span>
-            <ul className="flex list-disc flex-col gap-0.5 pl-4 text-status-waiting">
+            <ul className="flex list-disc flex-col gap-0.5 pl-4 text-status-waiting-text">
               {approval.warnings.map((warning, index) => (
                 <li key={index}>{warning}</li>
               ))}
@@ -252,7 +252,7 @@ export function OpenClawExecApprovalCard({
             </span>
           )}
           {error && (
-            <span role="alert" className="text-aux text-destructive">
+            <span role="alert" className="text-aux text-destructive-text">
               {error}
             </span>
           )}

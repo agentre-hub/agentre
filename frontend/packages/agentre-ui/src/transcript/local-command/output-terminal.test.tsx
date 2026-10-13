@@ -129,6 +129,19 @@ describe("OutputTerminal", () => {
     expect(opts.cursorBlink).toBe(false);
   });
 
+  it("asks xterm to keep command output at 4.5:1 against the background", () => {
+    // 与交互终端同一条底线：命令输出里的 ANSI 色同样是程序自己选的。
+    delete (globalThis as { IntersectionObserver?: unknown })
+      .IntersectionObserver;
+    commands.start({ id: "t2c", command: "echo" });
+
+    renderWithHost(<OutputTerminal terminalId="t2c" />);
+
+    expect(vi.mocked(Terminal).mock.calls[0][0]!.minimumContrastRatio).toBe(
+      4.5,
+    );
+  });
+
   it("streams later output deltas to xterm as the command keeps running", () => {
     delete (globalThis as { IntersectionObserver?: unknown })
       .IntersectionObserver;

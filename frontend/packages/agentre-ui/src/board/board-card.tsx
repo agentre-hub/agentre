@@ -82,7 +82,7 @@ export function BoardCard({
         onClick={() => ports.onEdit(card.id)}
         className={cn(
           "flex w-full cursor-pointer flex-col gap-2 rounded-md border bg-card px-3 py-2.5 text-left transition-colors",
-          "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+          "focus-visible:focus-outline",
           dragState === "ghost"
             ? // 原位残影：卡还在这儿占着位置，但内容已经被拿走了。
               "border-dashed border-border-strong bg-transparent opacity-60 shadow-none"

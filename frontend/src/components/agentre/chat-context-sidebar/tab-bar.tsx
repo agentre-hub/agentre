@@ -76,10 +76,10 @@ function Tab({
       onClick={onClick}
       className={cn(
         "inline-flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md px-1 py-1.5 text-xs font-medium whitespace-nowrap transition-colors",
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        "focus-visible:focus-outline",
         active
-          ? "bg-primary/10 text-primary"
-          : "text-muted-foreground hover:bg-muted/50",
+          ? "bg-primary/10 text-primary-text"
+          : "text-muted-foreground hover:bg-accent/60 hover:on-accent",
       )}
     >
       <span className="truncate">{label}</span>

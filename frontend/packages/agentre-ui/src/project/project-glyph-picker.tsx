@@ -55,7 +55,7 @@ export function ProjectGlyphPicker({
           data-testid="project-glyph-trigger"
           aria-label={t("projectSettings.identity.glyphAria", { name })}
           className={cn(
-            "group/glyph relative shrink-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+            "group/glyph relative shrink-0 rounded-xl outline-none focus-visible:focus-outline",
             className,
           )}
         >

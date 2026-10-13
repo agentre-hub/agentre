@@ -72,7 +72,7 @@ export function PickerOptionRow({
           ) : null}
           <span>{opt.group}</span>
           {groupOnDevice ? (
-            <span className="ml-auto rounded-full bg-status-running-bg px-1.5 py-0.5 text-2xs font-medium normal-case tracking-normal text-status-running">
+            <span className="ml-auto rounded-full bg-status-running-bg px-1.5 py-0.5 text-2xs font-medium normal-case tracking-normal text-status-running-text">
               {t("modelTargetPicker.providerOnDevice")}
             </span>
           ) : null}
@@ -107,7 +107,7 @@ export function PickerOptionRow({
             // mockup .opt：7px 圆角 / 6px 8px padding / 手形光标。
             "flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-xs transition-[background-color,filter]",
             // 焦点环只表达「键盘焦点在这」，不兼任常态 hover。
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+            "focus-visible:focus-outline",
             // 核心语义分歧：跟随默认（动态）用 primary-soft 强调底，
             // 固定到具体模型保持中性底，两态一眼可分。
             opt.kind === "provider-default"
@@ -188,7 +188,7 @@ export function PickerOptionRow({
               {/* 停用行是「名字 / 原因」两行（mockup .opt.dis）：原因
                   取代副行，不在模型标识之下再叠第三行。 */}
               {inlineHint ? (
-                <span className="truncate text-2xs text-status-waiting">
+                <span className="truncate text-2xs text-status-waiting-text">
                   {inlineHint}
                 </span>
               ) : opt.sublabel ? (
@@ -210,7 +210,7 @@ export function PickerOptionRow({
               ) : null}
             </span>
             {opt.kind === "invalid" ? (
-              <span className="shrink-0 rounded-full bg-status-waiting-bg px-1.5 py-0.5 text-2xs font-medium text-status-waiting">
+              <span className="shrink-0 rounded-full bg-status-waiting-bg px-1.5 py-0.5 text-2xs font-medium text-status-waiting-text">
                 {t("modelTargetPicker.invalidChip")}
               </span>
             ) : null}
@@ -240,7 +240,7 @@ export function PickerOptionRow({
         {syncProvider && onSyncProvider ? (
           <button
             type="button"
-            className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border px-1.5 py-1 text-2xs text-primary-text transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border px-1.5 py-1 text-2xs text-primary-text transition-colors hover:bg-accent focus-visible:focus-outline"
             aria-label={t("modelTargetPicker.syncProviderNamed", {
               provider: syncProvider.name,
             })}

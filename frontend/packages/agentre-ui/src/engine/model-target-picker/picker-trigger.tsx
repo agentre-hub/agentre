@@ -64,8 +64,8 @@ export const PickerTrigger = React.forwardRef<
       aria-haspopup="listbox"
       className={cn(
         // mockup .trigger：input 描边 + input-bg 底 + 8px 圆角 + 手形光标。
-        "inline-flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg border border-control-border bg-input-bg text-xs transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        "inline-flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg border border-field-border bg-input-bg text-xs transition-colors",
+        "focus-visible:focus-outline",
         "disabled:cursor-not-allowed disabled:opacity-60",
         triggerSub
           ? compact
@@ -76,7 +76,7 @@ export const PickerTrigger = React.forwardRef<
             : "h-9 px-2.5",
         invalid
           ? "border-status-waiting bg-status-waiting-bg"
-          : "hover:bg-secondary/60",
+          : "hover:bg-accent/60 hover:on-accent",
         className,
       )}
     >
@@ -96,7 +96,7 @@ export const PickerTrigger = React.forwardRef<
               isTextTriggerLabel
                 ? "truncate"
                 : "flex min-w-0 items-center gap-1.5",
-              invalid ? "text-status-waiting" : "text-foreground",
+              invalid ? "text-status-waiting-text" : "text-foreground",
             )}
           >
             {triggerText}

@@ -64,6 +64,45 @@ describe("base.css —— 宿主外壳的基线", () => {
     expect(css).toMatch(/cursor:\s*pointer/);
   });
 
+  it("按钮类元素的键盘焦点默认就是 focus-outline 那一种画法", () => {
+    // 全仓手写的 <button> / <a> 有一百多颗没挂任何焦点类，它们落回浏览器默认的
+    // `outline: auto`，颜色又被上面那条 `*` 规则定成半透明的 ring/50——正是
+    // 这一轮要去掉的那圈约 2.1:1 的光晕。和手型同一个道理：放在 base 层，
+    // 而不是靠每个作者记得抄 `focus-visible:focus-outline`。
+    const css = read("styles/base.css").replace(/\/\*[\s\S]*?\*\//g, "");
+    const rule = /([^{}]*):focus-visible\s*{([^}]*)}/.exec(css);
+
+    expect(rule, "base.css 里没有 :focus-visible 规则").not.toBeNull();
+    const [, selector, body] = rule!;
+    const targets = /:is\(([^)]*)\)\s*$/
+      .exec(selector)?.[1]
+      .split(",")
+      .map((target) => target.trim());
+
+    // 标签页也在其中：预览标签条的标签是带 roving tabindex 的 div，不是 <button>。
+    expect(targets).toEqual([
+      "button",
+      "a",
+      "summary",
+      '[role="button"]',
+      '[role="tab"]',
+    ]);
+
+    // 画法只有一份定义：与 tokens.css 的 `@utility focus-outline` 逐条相同。
+    const declarations = (source: string) =>
+      source
+        .split(";")
+        .map((line) => line.replace(/\s+/g, " ").trim())
+        .filter(Boolean)
+        .sort();
+    const utility = /@utility focus-outline\s*{([^}]*)}/.exec(
+      read("styles/tokens.css"),
+    );
+
+    expect(utility, "tokens.css 里没有 @utility focus-outline").not.toBeNull();
+    expect(declarations(body)).toEqual(declarations(utility![1]));
+  });
+
   it("滚动条走 --sb-thumb 变量，且默认透明", () => {
     // WKWebView 对 ::-webkit-scrollbar 的类/属性选择器切换不重绘，只有 CSS
     // 自定义属性的**值**变化才触发 thumb 重绘。所以显隐必须走变量，

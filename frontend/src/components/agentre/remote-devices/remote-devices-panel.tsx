@@ -71,7 +71,7 @@ function AccountStatus({
       {serverOffline && (
         <Badge
           variant="outline"
-          className="border-status-waiting/40 text-status-waiting"
+          className="border-status-waiting/40 text-status-waiting-text"
           title={t("remoteDevices.login.status.serverOfflineHint")}
         >
           {t("remoteDevices.login.status.serverOffline")}
@@ -161,7 +161,7 @@ export function RemoteDevicesPanel({
         className="flex flex-col items-start gap-3 rounded-lg border border-status-error/40 bg-destructive-soft p-4"
       >
         <div className="flex flex-col gap-1">
-          <p className="font-medium text-status-error">
+          <p className="font-medium text-destructive-text">
             {t("remoteDevices.load.errorTitle")}
           </p>
           <p className="text-sm text-muted-foreground">

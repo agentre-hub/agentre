@@ -41,7 +41,7 @@ export function FilterEntry(props: {
           data-testid="org-filter-entry"
           aria-label={t("org.index.filters.entryAria")}
           className={cn(
-            "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs outline-none transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50",
+            "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs outline-none transition-colors hover:bg-accent focus-visible:focus-outline",
             active
               ? "border-primary bg-primary-soft text-primary-text"
               : "border-border text-muted-foreground",

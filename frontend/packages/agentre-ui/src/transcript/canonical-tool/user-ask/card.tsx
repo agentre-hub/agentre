@@ -229,7 +229,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
         type="button"
         onClick={() => setCollapsed((v) => !v)}
         aria-expanded={!collapsed}
-        className="flex w-full items-center gap-2 border-b border-border px-3.5 py-2.5 text-left transition-colors hover:bg-muted/40"
+        className="flex w-full items-center gap-2 border-b border-border px-3.5 py-2.5 text-left transition-colors hover:bg-accent/60 hover:on-accent"
       >
         <ChevronDown
           aria-hidden="true"
@@ -239,13 +239,13 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
           )}
         />
         <MessageSquareQuote className="h-3.5 w-3.5 shrink-0 text-primary" />
-        <span className="font-mono text-xs font-semibold text-primary">
+        <span className="font-mono text-xs font-semibold text-primary-text">
           user_ask
         </span>
         {headerLabel && (
           <>
             <span className="font-mono text-xs text-muted-foreground">·</span>
-            <span className="rounded-sm border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-meta font-medium text-primary">
+            <span className="rounded-sm border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-meta font-medium text-primary-text">
               {headerLabel}
             </span>
           </>
@@ -292,7 +292,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
                   />
                 )}
                 {error && (
-                  <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive-text">
                     {error}
                   </div>
                 )}
@@ -401,7 +401,7 @@ function QuestionTabs({
             className={cn(
               "-mb-px flex items-center gap-1.5 border-b-2 px-3.5 pt-2.5 pb-2 text-xs transition-colors",
               active
-                ? "border-primary font-semibold text-primary"
+                ? "border-primary font-semibold text-primary-text"
                 : "border-transparent font-medium text-muted-foreground hover:text-foreground",
             )}
           >

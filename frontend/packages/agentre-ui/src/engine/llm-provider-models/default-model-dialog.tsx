@@ -150,7 +150,7 @@ export function DefaultModelDialog({
 
         <DialogBody className="space-y-3">
           {error ? (
-            <p className="text-2xs text-status-error">{error}</p>
+            <p className="text-2xs text-destructive-text">{error}</p>
           ) : state.phase === "loading" ? (
             <div className="flex items-center gap-2 text-2xs text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -174,7 +174,7 @@ export function DefaultModelDialog({
                       aria-hidden="true"
                     />
                     <div className="flex flex-col gap-0.5">
-                      <span className="font-semibold text-status-waiting">
+                      <span className="font-semibold text-status-waiting-text">
                         {t("llmProviders.defaultSet.impactTitle")}
                       </span>
                       <span className="text-2xs leading-relaxed text-muted-foreground">

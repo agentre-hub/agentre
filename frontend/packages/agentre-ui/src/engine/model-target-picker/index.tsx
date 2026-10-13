@@ -209,7 +209,7 @@ export function ModelTargetPicker({
               {t("modelTargetPicker.loading")}
             </div>
           ) : error ? (
-            <div className="px-2.5 py-3 text-xs text-status-waiting">
+            <div className="px-2.5 py-3 text-xs text-status-waiting-text">
               {errorText ?? t("modelTargetPicker.error")}
             </div>
           ) : catalog.length === 0 && isNativeTarget(selected) ? (

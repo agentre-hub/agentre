@@ -97,7 +97,7 @@ function ServerOption({
         "flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3.5",
         selected
           ? "border-primary bg-primary-soft"
-          : "border-border bg-card hover:bg-muted",
+          : "border-border bg-card hover:bg-accent",
         disabled && "pointer-events-none opacity-60",
       )}
     >
@@ -116,7 +116,7 @@ function ServerOption({
         </span>
       </span>
       {badge ? (
-        <span className="ml-auto shrink-0 rounded-full bg-status-running-bg px-2 py-0.5 text-2xs font-semibold text-status-running">
+        <span className="ml-auto shrink-0 rounded-full bg-status-running-bg px-2 py-0.5 text-2xs font-semibold text-status-running-text">
           {badge}
         </span>
       ) : null}
@@ -398,7 +398,9 @@ export function LoginDialog({
           </div>
         )}
 
-        {error ? <div className="text-sm text-destructive">{error}</div> : null}
+        {error ? (
+          <div className="text-sm text-destructive-text">{error}</div>
+        ) : null}
       </DialogShellBody>
       <DialogShellFooter>
         <Button

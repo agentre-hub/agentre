@@ -30,11 +30,11 @@ export function FileBlock({
               {t("canonical.fileEdit.badge.deleted")}
             </TranscriptPill>
           )}
-          <span className="ml-auto font-mono text-meta font-semibold text-status-running">
+          <span className="ml-auto font-mono text-meta font-semibold text-status-running-text">
             +{file.plus}
           </span>
           {file.minus > 0 && (
-            <span className="font-mono text-meta font-semibold text-destructive">
+            <span className="font-mono text-meta font-semibold text-destructive-text">
               −{file.minus}
             </span>
           )}
@@ -92,9 +92,9 @@ function DiffLineRow({ line }: { line: DiffLine }) {
         : "";
   const markColor =
     line.op === "+"
-      ? "text-status-running"
+      ? "text-status-running-text"
       : line.op === "-"
-        ? "text-destructive"
+        ? "text-destructive-text"
         : "text-decorative-foreground";
   return (
     // w-max + min-w-full:行盒撑到最长行的宽度,横向滚动后 +/- 的背景条

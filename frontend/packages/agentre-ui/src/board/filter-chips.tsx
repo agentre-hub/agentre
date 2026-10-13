@@ -118,7 +118,7 @@ export function BoardFilterChips({
               data-testid={`filter-chip-remove-${chip.key}`}
               aria-label={t("board.chip.remove", { name: text })}
               onClick={() => onRemove(chip)}
-              className="cursor-pointer rounded-full opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              className="cursor-pointer rounded-full opacity-70 transition-opacity hover:opacity-100 focus-visible:focus-outline"
             >
               <X className="size-3" aria-hidden="true" />
             </button>

@@ -55,10 +55,10 @@ export type GitStatusMeta = { letter: string; className: string };
  * 读屏隐藏，另有 gitStatusLabel 给出文字标签（无障碍约定）。
  */
 export const GIT_STATUS_META: Record<string, GitStatusMeta> = {
-  modified: { letter: "M", className: "text-status-waiting" },
-  added: { letter: "A", className: "text-status-running" },
-  deleted: { letter: "D", className: "text-destructive" },
-  renamed: { letter: "R", className: "text-primary" },
+  modified: { letter: "M", className: "text-status-waiting-text" },
+  added: { letter: "A", className: "text-status-running-text" },
+  deleted: { letter: "D", className: "text-destructive-text" },
+  renamed: { letter: "R", className: "text-primary-text" },
   untracked: { letter: "?", className: "text-muted-foreground" },
 };
 

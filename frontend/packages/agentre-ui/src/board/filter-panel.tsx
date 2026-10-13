@@ -48,10 +48,10 @@ function OptionButton({
       onClick={onClick}
       className={cn(
         "cursor-pointer rounded-md px-2 py-1 text-2xs transition-colors",
-        "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+        "focus-visible:focus-outline",
         active
           ? "bg-primary-soft text-primary-text"
-          : "text-muted-foreground hover:bg-secondary/60",
+          : "text-muted-foreground hover:bg-accent/60 hover:on-accent",
       )}
     >
       {children}
@@ -207,7 +207,7 @@ export function BoardFilterPanel({
                 }
                 className={cn(
                   "cursor-pointer rounded-full px-2 py-0.5 text-2xs transition-opacity",
-                  "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                  "focus-visible:focus-outline",
                   toneClass(label.tone),
                   active
                     ? "ring-1 ring-primary"
@@ -277,7 +277,7 @@ export function BoardFilterPanel({
             type="button"
             data-testid="filter-manage-labels"
             onClick={onManageLabels}
-            className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-2xs text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-2xs text-muted-foreground transition-colors hover:bg-accent/60 hover:on-accent hover:text-foreground focus-visible:focus-outline"
           >
             <Tags className="size-3.5" aria-hidden="true" />
             {t("board.filter.manageLabels")}

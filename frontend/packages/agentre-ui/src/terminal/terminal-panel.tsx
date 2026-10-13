@@ -14,7 +14,11 @@ import { toast } from "sonner";
 import { useUiTranslation } from "../i18n";
 import { copyTextToClipboard } from "../lib/clipboard-toast";
 
-import { TERMINAL_FONT_FAMILY, readTerminalTheme } from "./terminal-theme";
+import {
+  TERMINAL_FONT_FAMILY,
+  TERMINAL_MIN_CONTRAST_RATIO,
+  readTerminalTheme,
+} from "./terminal-theme";
 import { useTerminal } from "./use-terminal";
 import { useAttachedTerminal } from "./use-attached-terminal";
 import { attachXtermRolloverGuard } from "./xterm-rollover-guard";
@@ -115,6 +119,7 @@ export function TerminalPanel({
       fontFamily: TERMINAL_FONT_FAMILY,
       fontSize: 13,
       theme: readTerminalTheme(),
+      minimumContrastRatio: TERMINAL_MIN_CONTRAST_RATIO,
       scrollback: 500,
       cursorBlink: true,
     });
@@ -220,7 +225,7 @@ export function TerminalPanel({
       {connectionLost ? (
         <div
           role="alert"
-          className="flex items-center justify-between border-b border-status-error/40 bg-destructive-soft px-3 py-2 text-xs text-destructive"
+          className="flex items-center justify-between border-b border-status-error/40 bg-destructive-soft px-3 py-2 text-xs text-destructive-text"
         >
           <span>{t("terminal.banner.connectionLost")}</span>
           <button

@@ -163,11 +163,11 @@ function StatusBadge({ status }: { status: AgentStatus }) {
   const { t } = useTranslation();
   const tone =
     status === "running"
-      ? "bg-status-running-bg text-status-running"
+      ? "bg-status-running-bg text-status-running-text"
       : status === "waiting"
-        ? "bg-status-waiting-bg text-status-waiting"
+        ? "bg-status-waiting-bg text-status-waiting-text"
         : status === "error"
-          ? "bg-destructive/15 text-destructive"
+          ? "bg-destructive/15 text-destructive-text"
           : "bg-muted text-muted-foreground";
   const label =
     status === "running"

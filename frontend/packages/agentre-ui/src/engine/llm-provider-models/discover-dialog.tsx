@@ -86,7 +86,7 @@ export function DiscoverDialog({
             </div>
             {/* 读取成功的状态 chip：读到了什么在头部一眼可见 */}
             {!loading && !fetchError && items.length > 0 ? (
-              <span className="shrink-0 rounded-sm bg-status-running/10 px-1.5 py-0.5 text-2xs font-medium text-status-running">
+              <span className="shrink-0 rounded-sm bg-status-running/10 px-1.5 py-0.5 text-2xs font-medium text-status-running-text">
                 {t("llmProviders.discover.readOk")}
               </span>
             ) : null}
@@ -157,7 +157,7 @@ export function DiscoverDialog({
         </DialogBody>
 
         {importError ? (
-          <p role="alert" className="px-5 pb-1 text-2xs text-status-error">
+          <p role="alert" className="px-5 pb-1 text-2xs text-destructive-text">
             {importError}
           </p>
         ) : null}

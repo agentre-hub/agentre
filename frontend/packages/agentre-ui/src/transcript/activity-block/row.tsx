@@ -135,7 +135,7 @@ export function ActivityRow({
         // 出口,套一个「展开 X 的详情」的标签会把这些全盖掉,读屏用户只剩工具名。
         // 可访问名由行内文本自然算出,不会为空(名字至少是 "tool")。
         onClick={handleToggle}
-        className="group flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left font-mono text-meta text-muted-foreground transition-colors duration-150 ease-out hover:bg-muted/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none"
+        className="group flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left font-mono text-meta text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent/60 hover:on-accent focus-visible:focus-outline motion-reduce:transition-none"
       >
         <ChevronRight
           aria-hidden="true"
@@ -158,7 +158,7 @@ export function ActivityRow({
           data-testid="activity-name"
           className={cn(
             "shrink-0",
-            facts.failed ? "text-status-error" : NAME_CLASS[weight],
+            facts.failed ? "text-destructive-text" : NAME_CLASS[weight],
           )}
         >
           {name}
@@ -211,12 +211,12 @@ function StepTrailing({ facts }: { facts: ReturnType<typeof stepFacts> }) {
   return (
     <>
       {facts.plus !== undefined && facts.plus > 0 ? (
-        <span className="shrink-0 font-semibold text-status-running">
+        <span className="shrink-0 font-semibold text-status-running-text">
           +{facts.plus}
         </span>
       ) : null}
       {facts.minus !== undefined && facts.minus > 0 ? (
-        <span className="shrink-0 font-semibold text-destructive">
+        <span className="shrink-0 font-semibold text-destructive-text">
           −{facts.minus}
         </span>
       ) : null}
@@ -226,13 +226,13 @@ function StepTrailing({ facts }: { facts: ReturnType<typeof stepFacts> }) {
         <span
           className={cn(
             "shrink-0",
-            facts.failed ? "text-status-error" : "text-muted-foreground",
+            facts.failed ? "text-destructive-text" : "text-muted-foreground",
           )}
         >
           {t("activity.row.exit", { code: facts.exitCode })}
         </span>
       ) : facts.failed ? (
-        <span className="shrink-0 text-status-error">
+        <span className="shrink-0 text-destructive-text">
           {t("activity.row.failed")}
         </span>
       ) : null}
@@ -242,7 +242,7 @@ function StepTrailing({ facts }: { facts: ReturnType<typeof stepFacts> }) {
         // 后台任务:结果是启动 ACK,报「还在后台跑 · 任务 id」而不是那段 ACK 文本。
         <span
           data-testid="activity-pending"
-          className="flex max-w-56 shrink-0 items-center gap-1 truncate text-status-running"
+          className="flex max-w-56 shrink-0 items-center gap-1 truncate text-status-running-text"
         >
           <RunningDot />
           {t("canonical.raw.backgroundRunning")}
@@ -277,7 +277,7 @@ function PendingMarker({ outcome }: { outcome: PendingOutcome }) {
     return (
       <span
         data-testid="activity-pending"
-        className="flex shrink-0 items-center gap-1 text-status-running"
+        className="flex shrink-0 items-center gap-1 text-status-running-text"
       >
         <RunningDot />
         {t("activity.row.running")}
@@ -289,7 +289,9 @@ function PendingMarker({ outcome }: { outcome: PendingOutcome }) {
       data-testid="activity-pending"
       className={cn(
         "shrink-0",
-        outcome === "failed" ? "text-status-error" : "text-muted-foreground",
+        outcome === "failed"
+          ? "text-destructive-text"
+          : "text-muted-foreground",
       )}
     >
       {outcome === "failed"

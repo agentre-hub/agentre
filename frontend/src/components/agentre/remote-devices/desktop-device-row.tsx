@@ -217,7 +217,7 @@ export function DesktopDeviceRow({ device, now }: Props) {
               {t("remoteDevices.desktop.loadingSessions")}
             </div>
           ) : error ? (
-            <div className="px-1 text-xs text-destructive">{error}</div>
+            <div className="px-1 text-xs text-destructive-text">{error}</div>
           ) : sessions && sessions.length === 0 ? (
             <div className="px-1 text-xs text-muted-foreground">
               {t("remoteDevices.desktop.noSessions")}
@@ -268,7 +268,7 @@ function SessionStateBadge({
     return (
       <Badge
         variant="outline"
-        className="border-status-waiting text-status-waiting"
+        className="border-status-waiting text-status-waiting-text"
       >
         {t("remoteDevices.desktop.session.waiting")}
       </Badge>
@@ -286,7 +286,9 @@ function SessionStateBadge({
     <Badge
       variant="outline"
       className={
-        status === "error" ? "border-status-error text-status-error" : undefined
+        status === "error"
+          ? "border-status-error text-destructive-text"
+          : undefined
       }
     >
       {t(labelKey)}

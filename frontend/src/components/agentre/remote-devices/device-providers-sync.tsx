@@ -149,7 +149,7 @@ export function DeviceProvidersSync({ deviceId }: Props) {
 
   if (state.phase === "error") {
     return (
-      <div className="px-3 py-2 text-xs text-destructive">
+      <div className="px-3 py-2 text-xs text-destructive-text">
         {t("remoteDevices.providers.loadFailed", { message: state.message })}
       </div>
     );
@@ -216,7 +216,7 @@ export function DeviceProvidersSync({ deviceId }: Props) {
                 {!row.synced ? (
                   <span
                     data-testid={`missing-badge-${row.key}`}
-                    className="ml-auto font-mono text-2xs text-destructive"
+                    className="ml-auto font-mono text-2xs text-destructive-text"
                   >
                     {t("remoteDevices.providers.missing")}
                   </span>

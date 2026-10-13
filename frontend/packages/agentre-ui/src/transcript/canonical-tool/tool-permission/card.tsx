@@ -187,8 +187,8 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
               data-copyable-control-text="true"
               className={
                 payload.allowed
-                  ? "bg-status-running-bg text-status-running"
-                  : "bg-destructive/10 text-destructive"
+                  ? "bg-status-running-bg text-status-running-text"
+                  : "bg-destructive/10 text-destructive-text"
               }
             >
               {payload.allowed
@@ -253,7 +253,9 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
             <X className="mr-1 h-3.5 w-3.5" />
             {t("common.reject")}
           </Button>
-          {error && <span className="text-aux text-destructive">{error}</span>}
+          {error && (
+            <span className="text-aux text-destructive-text">{error}</span>
+          )}
         </TranscriptCardBody>
       )}
     </TranscriptCard>

@@ -43,7 +43,7 @@ export function LabelPalette({
           onClick={() => onChange(tone)}
           className={cn(
             "size-5 cursor-pointer rounded-full transition-transform",
-            "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+            "focus-visible:focus-outline",
             toneClass(tone),
             value === tone &&
               "ring-2 ring-primary ring-offset-1 ring-offset-popover",

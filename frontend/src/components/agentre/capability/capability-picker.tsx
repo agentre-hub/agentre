@@ -32,10 +32,10 @@ type Props = {
 
 const badgeToneClass: Record<CatalogBadgeTone, string> = {
   recommended: "bg-primary-soft text-primary-text",
-  installed: "bg-status-running-bg text-status-running",
+  installed: "bg-status-running-bg text-status-running-text",
   available: "bg-secondary text-muted-foreground",
-  approval: "bg-status-waiting-bg text-status-waiting",
-  needInstall: "bg-status-waiting-bg text-status-waiting",
+  approval: "bg-status-waiting-bg text-status-waiting-text",
+  needInstall: "bg-status-waiting-bg text-status-waiting-text",
 };
 
 export function CapabilityPicker(props: Props) {
@@ -86,7 +86,7 @@ export function CapabilityPicker(props: Props) {
 
           {/* search + rescan */}
           <div className="flex items-center gap-2.5 border-b border-border/60 px-[18px] py-3">
-            <div className="flex flex-1 items-center gap-2 rounded-md border border-border px-2.5 py-2">
+            <div className="flex flex-1 items-center gap-2 rounded-md border border-field-border px-2.5 py-2 focus-within:focus-halo">
               <Search
                 className="size-3.5 text-muted-foreground"
                 aria-hidden="true"
@@ -203,7 +203,7 @@ export function CapabilityPicker(props: Props) {
                           "flex items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors",
                           it.enabled
                             ? "border-primary/30 bg-primary-soft/40"
-                            : "border-border bg-card hover:bg-secondary/40",
+                            : "border-border bg-card hover:bg-accent/60 hover:on-accent",
                           disabled && "opacity-50",
                         )}
                       >

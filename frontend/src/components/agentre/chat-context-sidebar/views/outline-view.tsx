@@ -46,13 +46,13 @@ export function OutlineView({ items, activeMessageId, onSelect }: Props) {
               "flex flex-col gap-1 rounded-md px-2.5 py-2 text-left text-xs transition-colors",
               active
                 ? "border-l-2 border-primary bg-primary/10 text-foreground"
-                : "border-l-2 border-transparent text-muted-foreground hover:bg-muted/50",
+                : "border-l-2 border-transparent text-muted-foreground hover:bg-accent/60 hover:on-accent",
             )}
           >
             <div
               className={cn(
                 "flex items-center gap-1.5 font-mono text-3xs",
-                active ? "text-primary" : "text-muted-foreground/80",
+                active ? "text-primary-text" : "text-muted-foreground/80",
               )}
             >
               <span>{formatTime(it.time)}</span>
@@ -72,7 +72,7 @@ export function OutlineView({ items, activeMessageId, onSelect }: Props) {
             {it.edits > 0 || it.err ? (
               <div className="flex items-center gap-1.5">
                 {it.err ? (
-                  <span className="inline-flex items-center gap-1 rounded-sm bg-destructive/10 px-1.5 py-0.5 text-3xs font-medium text-destructive">
+                  <span className="inline-flex items-center gap-1 rounded-sm bg-destructive/10 px-1.5 py-0.5 text-3xs font-medium text-destructive-text">
                     <CircleX className="size-2.5" aria-hidden="true" />
                     error
                   </span>

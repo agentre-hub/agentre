@@ -146,7 +146,7 @@ export function CandidateList({
         activeLocator ? candidateOptionId(activeLocator) : undefined
       }
       onKeyDown={onKeyDown}
-      className="flex flex-col gap-1 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      className="flex flex-col gap-1 outline-none focus-visible:focus-outline"
     >
       {groups.map((group) => (
         <div key={group.bucket} className="flex flex-col gap-1">
@@ -170,7 +170,7 @@ export function CandidateList({
                   "flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 transition-colors",
                   active
                     ? "border-primary bg-sidebar-active-bg"
-                    : "border-border hover:bg-accent/60",
+                    : "border-border hover:bg-accent/60 hover:on-accent",
                   // 不可选只退颜色、不撤内容：它得能被读出来。
                   candidate.imported && "opacity-70",
                 )}

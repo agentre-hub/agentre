@@ -87,8 +87,8 @@ export function HooksPage() {
             className={cn(
               "flex items-center gap-2 border-b px-7 py-2 text-xs",
               flash.kind === "ok"
-                ? "border-status-running/30 bg-status-running-bg text-status-running"
-                : "border-status-error/30 text-status-error",
+                ? "border-status-running/30 bg-status-running-bg text-status-running-text"
+                : "border-status-error/30 text-destructive-text",
             )}
             role="status"
           >

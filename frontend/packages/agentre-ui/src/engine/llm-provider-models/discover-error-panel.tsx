@@ -44,7 +44,7 @@ export function DiscoverErrorPanel({
   return (
     <div
       role="alert"
-      className="flex flex-col items-start gap-2 rounded-md border border-status-error/40 bg-destructive-soft px-3 py-2.5 text-status-error"
+      className="flex flex-col items-start gap-2 rounded-md border border-status-error/40 bg-destructive-soft px-3 py-2.5 text-destructive-text"
     >
       <div className="flex items-start gap-2 text-xs">
         <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />

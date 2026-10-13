@@ -453,7 +453,7 @@ export const ChatComposer = React.forwardRef<
         // @container/composer：底栏按 composer 自身宽度分档降级 —— 面板实际宽度
         // 取决于宿主的侧栏 / 右侧面板开合，视口宽度读不到它。
         "@container/composer relative flex w-full flex-col overflow-hidden rounded-md border bg-card shadow-xs transition-colors",
-        "focus-within:ring-[3px] focus-within:ring-ring/50",
+        "focus-within:focus-halo",
         editing
           ? "border-primary-text/45 focus-within:border-primary-text/70"
           : "border-border focus-within:border-ring",
@@ -612,7 +612,7 @@ export const ChatComposer = React.forwardRef<
           />
         </div>
         {imageError ? (
-          <p role="alert" className="text-xs text-destructive">
+          <p role="alert" className="text-xs text-destructive-text">
             {imageError}
           </p>
         ) : null}

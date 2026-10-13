@@ -146,7 +146,7 @@ describe("目录页的 git 状态叠加：文件行", () => {
     renderPanelWithChanges([change({ path: "turn.go", status: "modified" })]);
 
     const changedName = await screen.findByText("turn.go");
-    expect(changedName).toHaveClass("text-status-waiting");
+    expect(changedName).toHaveClass("text-status-waiting-text");
     const letter = dirRow("turn.go").querySelector("[data-status-letter]");
     expect(letter).toHaveTextContent("M");
     expect(letter).toHaveAttribute("aria-hidden", "true");
@@ -155,7 +155,7 @@ describe("目录页的 git 状态叠加：文件行", () => {
     );
 
     const unchangedName = screen.getByText("cwd.go");
-    expect(unchangedName).not.toHaveClass("text-status-waiting");
+    expect(unchangedName).not.toHaveClass("text-status-waiting-text");
     expect(dirRow("cwd.go").querySelector("[data-status-letter]")).toBeNull();
   });
 
@@ -184,7 +184,7 @@ describe("目录页的 git 状态叠加：目录行子树计数", () => {
     await screen.findByRole("button", { name: /expand internal/i });
     const count = within(dirRow("internal")).getByTestId("dir-subtree-count");
     expect(count).toHaveTextContent("2");
-    expect(count).toHaveClass("text-status-waiting");
+    expect(count).toHaveClass("text-status-waiting-text");
     expect(
       within(dirRow("assets")).queryByTestId("dir-subtree-count"),
     ).toBeNull();
@@ -302,7 +302,9 @@ describe("目录页的 git 状态叠加：取数与去重（ChatContextSidebar �
     await waitFor(() => expect(gitChangesMock).toHaveBeenCalledTimes(1));
     expect(gitChangesMock).toHaveBeenCalledWith(7, "uncommitted", "");
     await waitFor(() =>
-      expect(screen.getByText("turn.go")).toHaveClass("text-status-waiting"),
+      expect(screen.getByText("turn.go")).toHaveClass(
+        "text-status-waiting-text",
+      ),
     );
   });
 
@@ -370,7 +372,7 @@ describe("目录页的 git 状态叠加：取数与去重（ChatContextSidebar �
 
     const row = await screen.findByText("turn.go");
     await waitFor(() => expect(gitChangesMock).toHaveBeenCalled());
-    expect(row).not.toHaveClass("text-status-waiting");
+    expect(row).not.toHaveClass("text-status-waiting-text");
     expect(dirRow("turn.go").querySelector("[data-status-letter]")).toBeNull();
   });
 
@@ -381,6 +383,6 @@ describe("目录页的 git 状态叠加：取数与去重（ChatContextSidebar �
 
     const row = await screen.findByText("turn.go");
     await waitFor(() => expect(gitChangesMock).toHaveBeenCalled());
-    expect(row).not.toHaveClass("text-status-waiting");
+    expect(row).not.toHaveClass("text-status-waiting-text");
   });
 });

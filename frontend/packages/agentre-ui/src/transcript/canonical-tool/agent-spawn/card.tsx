@@ -600,7 +600,7 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
               }}
               aria-label={t("canonical.agentSpawn.stop")}
               title={t("canonical.agentSpawn.stop")}
-              className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text focus-visible:focus-outline"
             >
               <Square className="size-2.5 fill-current" aria-hidden="true" />
             </button>
@@ -962,7 +962,7 @@ function GroupedAgentSpawnCard({
               }}
               aria-label={t("canonical.agentSpawn.stop")}
               title={t("canonical.agentSpawn.stop")}
-              className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text focus-visible:focus-outline"
             >
               <Square className="size-2.5 fill-current" aria-hidden="true" />
             </button>
@@ -1105,7 +1105,7 @@ function AgentSpawnRunGroup({
           index: run.index + 1,
           name,
         })}
-        className="flex w-full min-w-0 cursor-pointer items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="flex w-full min-w-0 cursor-pointer items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-accent/60 hover:on-accent focus-visible:focus-outline"
       >
         <ChevronRight
           className={cn(

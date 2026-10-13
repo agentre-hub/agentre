@@ -102,7 +102,7 @@ export function LlmProviderSettings({
             actions={actions}
           />
           {providerGap ? (
-            <Alert className="border-status-waiting/40 bg-status-waiting/10 text-status-waiting">
+            <Alert className="border-status-waiting/40 bg-status-waiting/10 text-status-waiting-text">
               <AlertCircle className="size-4" aria-hidden="true" />
               <AlertTitle className="text-xs font-semibold">
                 {t("settings.llmProvider.gapBanner.title")}

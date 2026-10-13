@@ -100,7 +100,7 @@ export function PermissionModePill({
           }
           className={cn(
             "inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border px-2 text-2xs font-medium leading-none transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+            "focus-visible:focus-outline",
             "disabled:cursor-not-allowed disabled:opacity-60",
             meta.pillClass,
           )}
@@ -169,7 +169,9 @@ export function PermissionModePill({
                       ? "cursor-not-allowed opacity-50"
                       : "cursor-pointer",
                     active && !isDisabled ? "bg-accent" : "",
-                    !active && !isDisabled ? "hover:bg-accent/60" : "",
+                    !active && !isDisabled
+                      ? "hover:bg-accent/60 hover:on-accent"
+                      : "",
                   )}
                 >
                   <span className="mt-px inline-flex size-5 shrink-0 items-center justify-center">
@@ -199,7 +201,7 @@ export function PermissionModePill({
                       </span>
                     ) : null}
                     {isDisabled ? (
-                      <span className="mt-1 block text-2xs leading-snug text-destructive">
+                      <span className="mt-1 block text-2xs leading-snug text-destructive-text">
                         {disabledReason}
                       </span>
                     ) : null}
@@ -213,7 +215,7 @@ export function PermissionModePill({
           {t("permissionMode.footer")}
         </div>
         {errorMessage ? (
-          <div className="border-t border-destructive/40 bg-destructive-soft px-3.5 py-1.5 text-2xs text-destructive">
+          <div className="border-t border-destructive/40 bg-destructive-soft px-3.5 py-1.5 text-2xs text-destructive-text">
             {errorMessage}
           </div>
         ) : null}

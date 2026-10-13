@@ -37,7 +37,7 @@ export type CollapsibleCodeSurface = "card" | "muted" | "destructive";
 const SURFACE_BODY: Record<CollapsibleCodeSurface, string> = {
   card: "text-foreground",
   muted: "bg-muted/40 text-foreground",
-  destructive: "bg-destructive-soft text-status-error",
+  destructive: "bg-destructive-soft text-destructive-text",
 };
 
 export const CollapsibleCode: React.FC<{
@@ -86,7 +86,7 @@ export const CollapsibleCode: React.FC<{
             onClick={() => void handleCopy()}
             aria-label={t("canonical.code.copy")}
             title={t("canonical.code.copy")}
-            className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <Copy className="size-3" aria-hidden="true" />
           </button>

@@ -103,7 +103,7 @@ export function OrgGroupHeader({
           {...(handleAttributes ?? {})}
           {...(handleListeners ?? {})}
           onKeyDown={onHandleKeyDown}
-          className="shrink-0 cursor-grab touch-none select-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="shrink-0 cursor-grab touch-none select-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:focus-outline"
         >
           <GripVertical className="size-3.5" aria-hidden="true" />
         </button>
@@ -117,7 +117,7 @@ export function OrgGroupHeader({
           aria-expanded={expanded}
           aria-label={t("org.index.toggleGroup", { name: department.name })}
           onClick={onToggleExpanded}
-          className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus-visible:focus-outline"
         >
           <ChevronDown
             className={cn(

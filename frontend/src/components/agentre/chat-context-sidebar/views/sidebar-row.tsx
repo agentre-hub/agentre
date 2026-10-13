@@ -278,8 +278,8 @@ export function SidebarRow({
       style={indentStyle(depth)}
       className={cn(
         "group/row flex items-center gap-1.5 rounded-md pr-1 pl-2 text-xs text-muted-foreground transition-colors",
-        "outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-        interactive && "hover:bg-muted/50",
+        "outline-none focus-visible:focus-outline",
+        interactive && "hover:bg-accent/60 hover:on-accent",
         active && "bg-accent text-accent-foreground",
         className,
       )}

@@ -80,6 +80,24 @@
   label:has(input:is([type="checkbox"], [type="radio"]):not(:disabled)) {
     cursor: pointer;
   }
+
+  /* 按钮类元素的键盘焦点，默认就是 tokens.css 里 `focus-outline` 那一种画法：
+     2px 实色 --ring + 2px 间隙。
+
+     和上面的手型同一个道理。没挂任何焦点类的 <button> / <a> 会落回浏览器默认的
+     `outline: auto`，颜色又被最上面那条 `*` 规则定成半透明的 ring/50——合成后
+     约 2.1:1，正是各处手拼的光晕被换掉的原因。靠每个作者记得抄
+     `focus-visible:focus-outline`，漏一个就是一处只有键盘才发现得了的静默回归。
+
+     只管按钮类（`[role="tab"]` 是为那些用 div + roving tabindex 写的标签页）。输入框、文本域、下拉自己带 `outline-none` 并画 `focus-halo`；
+     菜单项用 `outline-hidden` 配高亮底色。它们都在 utilities 层，照常盖过这里。
+     去掉了 outline 的按钮必须自己挂 `focus-visible:focus-outline` 把环画回来。
+
+     声明与 `@utility focus-outline` 逐条相同，由 host-stylesheets.test.ts 守着。 */
+  :is(button, a, summary, [role="button"], [role="tab"]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }
 
 * {

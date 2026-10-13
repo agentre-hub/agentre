@@ -144,7 +144,7 @@ export function CandidateColumn({
             role="alert"
             className="mb-2 flex flex-col gap-1.5 rounded-md border border-status-error/40 bg-destructive-soft px-3 py-2.5"
           >
-            <span className="text-xs font-semibold text-status-error">
+            <span className="text-xs font-semibold text-destructive-text">
               {t("importSession.issue.unavailableTitle")}
             </span>
             <span className="text-2xs text-foreground">
@@ -173,7 +173,7 @@ export function CandidateColumn({
             role="alert"
             className="mb-2 flex flex-col gap-1 rounded-md border border-status-error/40 bg-destructive-soft px-3 py-2"
           >
-            <span className="flex items-center gap-1.5 text-2xs font-semibold text-status-error">
+            <span className="flex items-center gap-1.5 text-2xs font-semibold text-destructive-text">
               <TriangleAlert className="size-3" aria-hidden="true" />
               {t("importSession.issue.backendTitle", {
                 backend: backendLabel(issue.backend),
@@ -252,7 +252,7 @@ export function CandidateColumn({
           <div
             data-testid="import-scan-failed"
             role="alert"
-            className="flex items-start gap-2 rounded-md border border-status-error/40 bg-destructive-soft px-3 py-2.5 text-status-error"
+            className="flex items-start gap-2 rounded-md border border-status-error/40 bg-destructive-soft px-3 py-2.5 text-destructive-text"
           >
             <CircleAlert
               className="mt-0.5 size-3.5 shrink-0"

@@ -61,7 +61,7 @@ export function SyncStatusCard({ status, onRetry, now }: SyncStatusCardProps) {
         {kind === "up-to-date" ? (
           <Badge
             variant="secondary"
-            className="gap-1 rounded-sm bg-status-running-bg px-1.5 py-0.5 text-2xs font-medium text-status-running"
+            className="gap-1 rounded-sm bg-status-running-bg px-1.5 py-0.5 text-2xs font-medium text-status-running-text"
           >
             <span
               className="size-1.5 rounded-full bg-status-running"
@@ -72,14 +72,14 @@ export function SyncStatusCard({ status, onRetry, now }: SyncStatusCardProps) {
         ) : kind === "waiting" ? (
           <Badge
             variant="secondary"
-            className="rounded-sm bg-status-waiting-bg px-1.5 py-0.5 text-2xs font-medium text-status-waiting"
+            className="rounded-sm bg-status-waiting-bg px-1.5 py-0.5 text-2xs font-medium text-status-waiting-text"
           >
             {t("sync.status.badge.pending", { count: status.pendingCount })}
           </Badge>
         ) : (
           <Badge
             variant="secondary"
-            className="rounded-sm bg-destructive-soft px-1.5 py-0.5 text-2xs font-medium text-destructive"
+            className="rounded-sm bg-destructive-soft px-1.5 py-0.5 text-2xs font-medium text-destructive-text"
           >
             {t("sync.status.badge.unreachable")}
           </Badge>

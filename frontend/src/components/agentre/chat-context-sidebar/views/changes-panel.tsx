@@ -113,10 +113,10 @@ function ScopeTab({
       onClick={onClick}
       className={cn(
         "px-2 py-0.5 text-3xs whitespace-nowrap transition-colors",
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        "focus-visible:focus-outline",
         active
           ? "bg-accent font-semibold text-foreground"
-          : "text-muted-foreground hover:bg-muted/50",
+          : "text-muted-foreground hover:bg-accent/60 hover:on-accent",
       )}
     >
       {label}

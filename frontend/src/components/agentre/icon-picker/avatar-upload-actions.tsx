@@ -66,7 +66,7 @@ export function AgentAvatarUploadActions({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 text-destructive"
+            className="h-7 text-destructive-text"
             aria-label={t("iconPicker.avatar.deleteUpload")}
             onClick={() => void onDelete()}
           >
@@ -78,7 +78,7 @@ export function AgentAvatarUploadActions({
       <p className="font-mono text-2xs text-muted-foreground">
         {t("iconPicker.avatar.uploadHint")}
       </p>
-      {error && <p className="text-2xs text-destructive">{error}</p>}
+      {error && <p className="text-2xs text-destructive-text">{error}</p>}
       <input
         ref={fileInputRef}
         type="file"

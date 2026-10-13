@@ -102,7 +102,7 @@ export function OrgAgentRow({
           {...(handleAttributes ?? {})}
           {...(handleListeners ?? {})}
           onKeyDown={onHandleKeyDown}
-          className="shrink-0 cursor-grab touch-none select-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="shrink-0 cursor-grab touch-none select-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:focus-outline"
         >
           <GripVertical className="size-3.5" aria-hidden="true" />
         </button>
@@ -152,7 +152,7 @@ export function OrgAgentRow({
             data-testid={`org-row-tail-${agent.id}`}
             className={cn(
               "shrink-0 text-2xs",
-              noTarget ? "text-destructive" : "text-muted-foreground",
+              noTarget ? "text-destructive-text" : "text-muted-foreground",
             )}
           >
             {tail}

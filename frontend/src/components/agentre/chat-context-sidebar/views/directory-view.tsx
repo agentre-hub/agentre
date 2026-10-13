@@ -180,7 +180,7 @@ export function DirectoryView({
             {t("chatContext.directory.localPathMissingAction")}
           </Button>
           {specifyErr ? (
-            <p className="text-2xs text-destructive">{specifyErr}</p>
+            <p className="text-2xs text-destructive-text">{specifyErr}</p>
           ) : null}
         </div>
       );

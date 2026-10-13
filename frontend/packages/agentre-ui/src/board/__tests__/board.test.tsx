@@ -536,7 +536,6 @@ describe("焦点环", () => {
     renderBoard(viewModel({ columns: { todo: column([card(1)]) } }));
 
     const body = screen.getByTestId("board-card-body-1");
-    expect(body.className).toContain("focus-visible:ring-[3px]");
-    expect(body.className).toContain("focus-visible:ring-ring/40");
+    expect(body.className).toContain("focus-visible:focus-outline");
   });
 });

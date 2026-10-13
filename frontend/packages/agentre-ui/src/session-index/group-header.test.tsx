@@ -142,7 +142,7 @@ describe("IndexGroupHeader", () => {
     });
     const mark = screen.getByTestId("group-header-attention");
     expect(mark).toHaveTextContent("2");
-    expect(mark.className).toContain("text-status-error");
+    expect(mark.className).toContain("text-destructive-text");
     expect(mark.querySelector("span")?.className).toContain("bg-status-error");
     unmount();
 

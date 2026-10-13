@@ -24,5 +24,20 @@ export const TOKENED_FONT_SIZES: string;
 /** 匹配「绕开阶梯的字面像素字号类」的正则源码。 */
 export const ARBITRARY_FONT_SIZE: string;
 
+/** 匹配「同一个类名串里软底配同族填充色文字」的正则源码。 */
+export const FILL_TEXT_ON_OWN_SOFT_BG: string;
+
+/** 匹配「手拼的焦点环」（任意变体下的 `ring-ring` / `ring-ring/NN`）的正则源码。 */
+export const HAND_ROLLED_FOCUS_RING: string;
+
+/** 匹配「把身份色当文字色写」（`text-agent-N`）的正则源码。 */
+export const AGENT_COLOR_AS_TEXT: string;
+
+/** 身份色当文字的那一组规则项；`restrictedSyntax` 已经包含它，单独导出是为了按文件豁免。 */
+export const agentColorAsTextSyntax: { selector: string; message: string }[];
+
+/** 匹配「用静止表面色做悬停反馈」（`hover:bg-muted` / `hover:bg-secondary`）的正则源码。 */
+export const RESTING_SURFACE_AS_HOVER: string;
+
 /** 供 `no-restricted-syntax` 直接展开的规则项。 */
 export const restrictedSyntax: { selector: string; message: string }[];

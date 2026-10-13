@@ -224,7 +224,7 @@ export function renderDirectoryLevel(
     return (
       <div
         role="alert"
-        className="py-1.5 pr-2.5 text-xs text-destructive"
+        className="py-1.5 pr-2.5 text-xs text-destructive-text"
         style={indentStyle(depth)}
       >
         {level.message || t("chatContext.directory.readFailed")}

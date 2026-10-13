@@ -91,8 +91,8 @@ export function BoardColumn({
             onClick={() => ports.onCreateTask?.(state.stage)}
             className={cn(
               "ml-auto inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors",
-              "hover:bg-secondary hover:text-foreground",
-              "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+              "hover:bg-accent hover:text-foreground",
+              "focus-visible:focus-outline",
             )}
           >
             <Plus className="size-3.5" aria-hidden="true" />
@@ -119,8 +119,8 @@ export function BoardColumn({
             onClick={onExpand}
             className={cn(
               "cursor-pointer rounded-md border border-dashed border-border-strong px-3 py-2 text-2xs text-muted-foreground transition-colors",
-              "hover:bg-secondary hover:text-foreground",
-              "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+              "hover:bg-accent hover:text-foreground",
+              "focus-visible:focus-outline",
             )}
           >
             {t("board.moreDone", { count: state.hiddenCount })}

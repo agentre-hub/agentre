@@ -149,7 +149,7 @@ function SessionRow({
   const twoLine = Boolean(secondaryLabel);
 
   const rowClassName = cn(
-    "flex cursor-pointer gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50",
+    "flex cursor-pointer gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none transition-colors focus-visible:focus-outline-inset",
     twoLine ? "items-start" : "items-center",
     // 有行尾操作时行成为 flex 子项，宽度交给容器；否则照旧独占一行。
     rowActions ? "min-w-0 flex-1" : "w-full",

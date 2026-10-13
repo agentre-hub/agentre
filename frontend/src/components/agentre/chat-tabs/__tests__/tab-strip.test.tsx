@@ -76,6 +76,27 @@ describe("TabStrip", () => {
     expect(trigger).not.toHaveClass("contents");
   });
 
+  it("Given a tab in the clipped strip, When keyboard focus lands on it, Then the focus stop draws its ring inward and above the tab it wraps", () => {
+    // 键盘停的不是 role="tab" 那一层，而是包在外面的可排序外壳（dnd-kit 给它
+    // role="button" + tabIndex=0）。外壳填满会裁剪的标签条，默认向外的环三边被切掉
+    // （真机上只剩右边一条竖线），所以环由外壳自己向内画。
+    useChatTabsStore.getState().openSessionInNewTab(1);
+    render(<TabStrip />);
+
+    const tab = screen.getByRole("tab");
+    const focusStop = tab.closest<HTMLElement>('[tabindex="0"]');
+
+    expect(focusStop).not.toBeNull();
+    expect(focusStop).not.toBe(tab);
+    expect(focusStop).toHaveClass("focus-visible:focus-outline-inset");
+    expect(focusStop).not.toHaveClass("focus-visible:focus-outline");
+    // 向内的环落在外壳的盒子里，而里面的标签页是带底色的定位元素——定位的子元素画在
+    // 父元素的 outline 之上，激活的标签页会把环整块盖住。外壳自成层叠上下文、标签页沉到
+    // 负层，顺序才是「标签页 → 环」；两个类缺一个，环就没了或标签页掉到标签条底色后面。
+    expect(focusStop).toHaveClass("isolate");
+    expect(tab).toHaveClass("-z-10");
+  });
+
   it("右键 Tab 弹出菜单, 含置顶/关闭/关闭其他/关闭右侧", async () => {
     const user = userEvent.setup();
     useChatTabsStore.getState().openSessionInNewTab(1);

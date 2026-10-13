@@ -169,7 +169,7 @@ export function DialogShellHeader({
           className={cn(
             "mt-0.5 inline-flex shrink-0 items-center gap-1 text-2xs",
             saveState === "error"
-              ? "text-destructive"
+              ? "text-destructive-text"
               : "text-muted-foreground",
           )}
         >
@@ -198,7 +198,7 @@ export function DialogShellHeader({
           aria-label={t("common.close")}
           disabled={busy}
           onClick={onClose}
-          className="-mr-1 mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40"
+          className="-mr-1 mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline disabled:pointer-events-none disabled:opacity-40"
         >
           <X className="size-4" aria-hidden="true" />
         </button>
@@ -259,7 +259,10 @@ export function DialogShellFooter({
         <>
           <div className="min-w-0 flex-1">
             {error ? (
-              <p role="alert" className="truncate text-xs text-destructive">
+              <p
+                role="alert"
+                className="truncate text-xs text-destructive-text"
+              >
                 {error}
               </p>
             ) : (

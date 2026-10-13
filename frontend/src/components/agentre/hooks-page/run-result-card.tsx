@@ -40,7 +40,7 @@ export function RunResultCard({
         <span
           className={cn(
             "text-xs font-bold",
-            ok ? "text-status-running" : "text-status-error",
+            ok ? "text-status-running-text" : "text-destructive-text",
           )}
         >
           {ok
@@ -61,7 +61,7 @@ export function RunResultCard({
       </div>
       <div className="flex flex-col gap-2.5 p-3.5">
         {result.parseError ? (
-          <p className="text-xs text-status-error">
+          <p className="text-xs text-destructive-text">
             {t("hooks.run.parseError", { error: result.parseError })}
           </p>
         ) : (
@@ -93,7 +93,7 @@ export function RunResultCard({
             </span>
             <pre
               data-selectable-text="true"
-              className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-2xs leading-relaxed text-status-error"
+              className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-2xs leading-relaxed text-destructive-text"
             >
               {result.stderr}
             </pre>

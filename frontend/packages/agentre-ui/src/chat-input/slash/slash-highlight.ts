@@ -73,7 +73,7 @@ const SLASH_HIGHLIGHT_PLUGIN_KEY = new PluginKey<DecorationSet>(
 const REFRESH_META = "slashHighlight:refresh";
 
 // 默认高亮 class —— 用项目主色 + 等宽字体，对齐 slash-popover 中命令文字风格。
-const DEFAULT_HIGHLIGHT_CLASS = "text-primary font-mono";
+const DEFAULT_HIGHLIGHT_CLASS = "text-primary-text font-mono";
 
 type SlashHighlightOptions = {
   // 闭包返回最新合法命令集；extension 不在内部缓存，避免 chat-input 重建 editor。

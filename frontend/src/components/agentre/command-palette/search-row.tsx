@@ -83,7 +83,7 @@ export function SearchRow({
       />
       {mode === "command" ? (
         <span
-          className="inline-flex h-[22px] shrink-0 items-center gap-1 rounded-sm border border-primary bg-primary/10 px-2 font-mono text-2xs font-semibold text-primary"
+          className="inline-flex h-[22px] shrink-0 items-center gap-1 rounded-sm border border-primary bg-primary/10 px-2 font-mono text-2xs font-semibold text-primary-text"
           aria-label={t("commandPalette.search.commandMode")}
           title={t("commandPalette.search.commandModeTitle")}
         >

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { edgeTokenOf } from "../../styles/__testing__/tokens";
 import { BoardFilterBar } from "../board-filter-bar";
 import {
   activeConditionCount,
@@ -284,6 +285,20 @@ describe("筛选面板", () => {
     await user.click(screen.getByTestId("filter-manage-labels"));
 
     expect(onManageLabels).toHaveBeenCalled();
+  });
+});
+
+describe("筛选条里并排的控件", () => {
+  it("Given the search box and the filter button side by side, When they rest, Then both edges are the same tier", () => {
+    renderBar();
+
+    const search = screen
+      .getByRole("searchbox")
+      .closest('[data-slot="search-input"]') as Element;
+    // 两颗控件隔着 6px 并排：一条边深一条边浅，看上去就是两套规则。
+    expect(edgeTokenOf(screen.getByTestId("filter-trigger"))).toBe(
+      edgeTokenOf(search),
+    );
   });
 });
 

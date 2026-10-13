@@ -255,7 +255,7 @@ function PopoverPath({ text, split }: { text: string; split: boolean }) {
 }
 
 const POPOVER_BUTTON =
-  "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline";
 
 function lineLabel(kind: LinkClass): string | null {
   if (kind.kind !== "local-internal" && kind.kind !== "local-external")

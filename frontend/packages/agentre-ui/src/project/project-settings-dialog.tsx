@@ -360,7 +360,7 @@ export function ProjectSettingsDialog({
                   {unconfigured > 0 ? (
                     <span
                       data-testid="project-paths-unconfigured"
-                      className="rounded-sm bg-status-waiting-bg px-1.5 py-0.5 text-status-waiting"
+                      className="rounded-sm bg-status-waiting-bg px-1.5 py-0.5 text-status-waiting-text"
                     >
                       {t("projectSettings.paths.unconfiguredCount", {
                         count: unconfigured,
@@ -492,7 +492,7 @@ function Section({
       className={cn(
         "mt-4 border-t border-border pt-1",
         focused &&
-          "-ml-3 rounded-r-md border-l-2 border-l-ring bg-accent/40 pl-3",
+          "-ml-3 rounded-r-md border-l-2 border-l-ring bg-accent/40 on-accent pl-3",
       )}
     >
       <div className="sticky top-0 z-10 -mx-5 flex items-center gap-2 bg-card px-5 py-2">
@@ -602,7 +602,7 @@ function AddMemberPopover({
               </button>
               {/* 加不了的原因单独一行 —— 塞进那一行里会把每一条候选撑成不同的宽度。 */}
               {a.disabledReason ? (
-                <p className="px-2 pb-1 pl-9 text-2xs text-status-waiting">
+                <p className="px-2 pb-1 pl-9 text-2xs text-status-waiting-text">
                   {a.disabledReason}
                 </p>
               ) : null}

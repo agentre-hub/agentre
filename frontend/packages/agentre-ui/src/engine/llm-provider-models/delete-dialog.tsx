@@ -218,7 +218,9 @@ export function DeleteDialog({
 
         <DialogBody className="space-y-3">
           {/* 失败信息与正文并存：删除报错时影响披露不该跟着消失。 */}
-          {error ? <p className="text-2xs text-status-error">{error}</p> : null}
+          {error ? (
+            <p className="text-2xs text-destructive-text">{error}</p>
+          ) : null}
 
           {state.phase === "loading" ? (
             <div className="flex items-center gap-2 text-2xs text-muted-foreground">
@@ -227,7 +229,7 @@ export function DeleteDialog({
             </div>
           ) : referenced && counts ? (
             <div className="flex flex-col gap-2 rounded-md border border-status-waiting/40 bg-status-waiting/10 px-3 py-2.5">
-              <div className="flex items-start gap-2 text-xs text-status-waiting">
+              <div className="flex items-start gap-2 text-xs text-status-waiting-text">
                 <AlertTriangle
                   className="mt-0.5 size-4 shrink-0"
                   aria-hidden="true"

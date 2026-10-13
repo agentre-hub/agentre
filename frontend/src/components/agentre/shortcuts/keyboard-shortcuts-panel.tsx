@@ -67,7 +67,7 @@ function ShortcutRow({
           className={cn(
             "inline-flex h-7 min-w-[64px] items-center justify-center rounded-md border border-border bg-muted px-2.5 font-mono text-2xs font-semibold tracking-wide text-foreground",
             recording &&
-              "border-dashed border-primary/60 bg-background text-primary",
+              "border-dashed border-primary/60 bg-background text-primary-text",
           )}
         >
           {recording
@@ -110,7 +110,7 @@ function ConflictBanner({ message }: { message: ConflictMessage }) {
   return (
     <div
       role="alert"
-      className="flex items-center gap-3 rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive shadow-sm"
+      className="flex items-center gap-3 rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive-text shadow-sm"
     >
       <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
       <span className="font-medium">{message.text}</span>

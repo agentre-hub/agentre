@@ -633,7 +633,7 @@ export function SessionIndexPage() {
           <p
             data-testid="reorder-error"
             role="alert"
-            className="border-b border-border bg-destructive-soft px-4 py-2 text-2xs text-status-error"
+            className="border-b border-border bg-destructive-soft px-4 py-2 text-2xs text-destructive-text"
           >
             {reorderError}
           </p>

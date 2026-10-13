@@ -5,7 +5,10 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
-import { restrictedSyntax } from "./eslint-rules/design-tokens.js";
+import {
+  agentColorAsTextSyntax,
+  restrictedSyntax,
+} from "./eslint-rules/design-tokens.js";
 import { nativeControlSyntax } from "./eslint-rules/native-controls.js";
 
 export default tseslint.config(
@@ -70,6 +73,21 @@ export default tseslint.config(
     // 新增豁免必须在这里写清理由。
     files: ["packages/agentre-ui/src/ui/**/*.{ts,tsx}"],
     rules: { "no-restricted-syntax": ["error", ...restrictedSyntax] },
+  },
+  {
+    // 身份色类名表的住处：`text-agent-N` 总得有一处写出来，图标要带身份色时
+    // 都从这张表取。**只摘掉身份色当文字那一组**，其余照旧生效。
+    // 新增豁免必须在这里写清理由。
+    files: ["src/components/agentre/types.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...restrictedSyntax.filter(
+          (rule) => !agentColorAsTextSyntax.includes(rule),
+        ),
+        ...nativeControlSyntax,
+      ],
+    },
   },
   {
     // xterm 的 theme API 收的是十六进制字符串，不是 CSS 类名 —— 那一层拿不到

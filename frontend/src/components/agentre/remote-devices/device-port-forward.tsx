@@ -314,7 +314,7 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
       ) : null}
 
       {phase === "error" ? (
-        <div className="text-xs text-destructive">
+        <div className="text-xs text-destructive-text">
           {t("remoteDevices.portForward.loadFailed", { message: loadError })}
         </div>
       ) : null}
@@ -344,7 +344,7 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
       ) : null}
 
       {actionError ? (
-        <div className="text-xs text-destructive">{actionError}</div>
+        <div className="text-xs text-destructive-text">{actionError}</div>
       ) : null}
     </div>
   );

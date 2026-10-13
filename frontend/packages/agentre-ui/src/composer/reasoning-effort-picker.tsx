@@ -101,7 +101,7 @@ export function ReasoningEffortPicker({
             "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-sm border border-transparent px-1 py-0.5 whitespace-nowrap",
             "font-mono text-meta transition-colors motion-reduce:transition-none",
             "hover:border-border hover:bg-accent",
-            "focus-visible:border-border focus-visible:bg-accent focus-visible:outline-none",
+            "focus-visible:border-border focus-visible:bg-accent focus-visible:focus-outline",
           )}
         >
           <Brain
@@ -217,7 +217,7 @@ function EffortRow({
       onClick={() => onSelect(effort)}
       className={cn(
         "flex w-full cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        "focus-visible:focus-outline",
         current ? "bg-accent" : "hover:bg-accent",
       )}
     >

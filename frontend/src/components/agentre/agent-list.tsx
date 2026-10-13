@@ -150,7 +150,7 @@ function AgentGroup({
           className={cn(
             "flex items-center gap-2 rounded-md px-2 py-1 transition-colors",
             onHeaderClick &&
-              "cursor-pointer hover:bg-sidebar-active-bg focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+              "cursor-pointer hover:bg-sidebar-active-bg focus-visible:focus-outline",
           )}
           role={onHeaderClick ? "button" : undefined}
           tabIndex={onHeaderClick ? 0 : undefined}

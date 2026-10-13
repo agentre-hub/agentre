@@ -30,7 +30,7 @@ describe("Alert", () => {
 
     const alert = screen.getByRole("alert");
 
-    expect(alert).toHaveClass("text-destructive");
+    expect(alert).toHaveClass("text-destructive-text");
     expect(alert.className).not.toMatch(/text-red-|bg-red-/);
   });
 
@@ -43,6 +43,30 @@ describe("Alert", () => {
       </Alert>,
     );
 
-    expect(screen.getByRole("alert")).toHaveClass("text-status-waiting");
+    expect(screen.getByRole("alert")).toHaveClass("text-status-waiting-text");
   });
+
+  it.each([
+    ["destructive" as const, "text-destructive-text"],
+    ["warning" as const, "text-status-waiting-text"],
+  ])(
+    "%s 档的说明文字：亮色用足色的 -text 角色，暗色保留原来压低一档的 /90",
+    (variant, role) => {
+      // 亮色去掉 /90 是被对比度逼的：waiting-text 叠 90% 在白卡片上只有 4.36。
+      // 暗色没有这个问题（-text 与填充色同值，叠 90% 仍有 4.96 / 8.06），而
+      // 「暗色下状态色与危险色文字的观感不变」是这一轮的硬约束——说明比标题
+      // 低一档的层级在暗色下原样留着。
+      render(
+        <Alert variant={variant}>
+          <AlertDescription>连接失败</AlertDescription>
+        </Alert>,
+      );
+
+      const classes = Array.from(screen.getByRole("alert").classList);
+      const slot = "*:data-[slot=alert-description]:";
+
+      expect(classes).toContain(`${slot}${role}`);
+      expect(classes).toContain(`dark:${slot}${role}/90`);
+    },
+  );
 });

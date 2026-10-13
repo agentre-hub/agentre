@@ -138,7 +138,7 @@ export function ProjectMergeDialog({
             </div>
           </div>
           {err ? (
-            <div className="rounded-md border border-destructive bg-destructive-soft px-3 py-2 text-2xs text-destructive">
+            <div className="rounded-md border border-destructive bg-destructive-soft px-3 py-2 text-2xs text-destructive-text">
               {err}
             </div>
           ) : null}

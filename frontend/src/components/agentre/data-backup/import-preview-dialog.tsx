@@ -169,7 +169,7 @@ export function ImportPreviewDialog({
                           <Badge>{t("dataBackup.importPreview.new")}</Badge>
                         )}
                         {it.danglingHint && (
-                          <div className="text-xs text-destructive mt-1">
+                          <div className="text-xs text-destructive-text mt-1">
                             {it.danglingHint}
                           </div>
                         )}

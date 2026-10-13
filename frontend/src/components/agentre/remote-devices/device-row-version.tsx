@@ -35,7 +35,7 @@ export function VersionBadge({
     return (
       <Badge
         variant="outline"
-        className="border-status-waiting/40 text-status-waiting"
+        className="border-status-waiting/40 text-status-waiting-text"
       >
         {t("remoteDevices.upgrade.badge", { version: state.latest })}
       </Badge>
@@ -56,7 +56,7 @@ export function VersionBadge({
 export function ProtocolTooOld({ t }: { t: TFunction }) {
   return (
     <div className="flex flex-col gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5">
-      <div className="text-xs font-semibold text-destructive">
+      <div className="text-xs font-semibold text-destructive-text">
         {t("remoteDevices.upgrade.blocked.title")}
       </div>
       <div className="text-xs text-muted-foreground">

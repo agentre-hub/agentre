@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  Input,
   ModelTargetPicker,
   providerCompatibleForBackend,
   readRecentTargets,
@@ -10,6 +11,7 @@ import {
   removeRecentTarget,
   recentStorageKey,
 } from "../../index";
+import { edgeTokenOf } from "../../styles/__testing__/tokens";
 
 function catalog() {
   return [
@@ -1669,11 +1671,7 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
       />,
     );
     const trigger = screen.getByRole("button", { name: "LLM Provider" });
-    expect(trigger).toHaveClass(
-      "rounded-lg",
-      "border-control-border",
-      "bg-input-bg",
-    );
+    expect(trigger).toHaveClass("rounded-lg", "bg-input-bg");
 
     await user.click(trigger);
     const pop = await screen.findByTestId("model-target-popover");
@@ -1694,6 +1692,26 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     const overridden = screen.getByRole("button", { name: "LLM Provider" });
     expect(overridden).toHaveClass("rounded-full", "bg-transparent");
     expect(overridden).not.toHaveClass("rounded-lg", "bg-input-bg");
+  });
+
+  it("Given the trigger sits in a form of shared inputs, When it rests, Then its edge is the field tier", () => {
+    render(
+      <ModelTargetPicker
+        scenario="backend"
+        aria-label="LLM Provider"
+        backendType="claudecode"
+        selected={null}
+        onChange={vi.fn()}
+        catalog={catalog()}
+      />,
+    );
+    render(<Input aria-label="reference" />);
+
+    // 它是一颗下拉式的字段，和输入框同一档（docs/design.md §3.4）——边不写死类名，
+    // 和共享的 Input 比。
+    expect(
+      edgeTokenOf(screen.getByRole("button", { name: "LLM Provider" })),
+    ).toBe(edgeTokenOf(screen.getByRole("textbox", { name: "reference" })));
   });
 
   it("选中态用中性强调：选中的固定模型行是 bg-accent，primary-soft 只留给跟随默认行", async () => {
@@ -1780,7 +1798,7 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     expect(providerDefault).toHaveClass("brightness-95", "dark:brightness-125");
     expect(providerDefault).not.toHaveClass("ring-1");
     // 焦点可见性不能丢。
-    expect(providerDefault).toHaveClass("focus-visible:ring-2");
+    expect(providerDefault).toHaveClass("focus-visible:focus-outline");
   });
 
   it("普通行 hover 是满色 accent，禁用行完全没有 hover 高亮", async () => {

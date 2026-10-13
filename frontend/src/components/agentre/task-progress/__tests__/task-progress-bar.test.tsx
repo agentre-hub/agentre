@@ -48,6 +48,37 @@ describe("TaskProgressBar", () => {
     expect(screen.queryByText("当前")).not.toBeInTheDocument();
   });
 
+  it.each([
+    ["DONE", "text-status-running", "text-status-running-text"],
+    ["RUNNING", "text-status-waiting", "text-status-waiting-text"],
+    ["FAILED", "text-status-error", "text-destructive-text"],
+  ])(
+    "Given an expanded %s row, Then its icon keeps the fill color and only the status word takes the -text role",
+    (word, fill, text) => {
+      // 一行里同一个状态出现两次：左边的图标是图形，右边的 DONE / RUNNING 是字。
+      // 图形留在饱和的填充色上，要读的字才换 -text 角色（docs/design.md §3.5）。
+      render(
+        <TaskProgressBar
+          progress={{
+            tasks: [
+              { id: "t_1", description: "A", status: "completed" },
+              { id: "t_2", description: "B", status: "running" },
+              { id: "t_3", description: "C", status: "failed" },
+            ],
+          }}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+      const label = screen.getByText(word);
+      const icon = label.closest("li")?.querySelector("svg");
+
+      expect(label).toHaveClass(text);
+      expect(icon).toHaveClass(fill);
+      expect(icon).not.toHaveClass(text);
+    },
+  );
+
   it("constrains the expanded list height and enables vertical scrolling", () => {
     const many: TaskProgress = {
       tasks: Array.from({ length: 30 }, (_, i) => ({

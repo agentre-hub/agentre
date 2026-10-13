@@ -41,7 +41,7 @@ export const statusConfig: Record<AgentStatus, AgentStatusStyle> = {
   error: {
     label: "ERROR",
     dotClassName: "bg-status-error",
-    textClassName: "text-status-error",
-    pillClassName: "bg-destructive-soft text-status-error",
+    textClassName: "text-destructive-text",
+    pillClassName: "bg-destructive-soft text-destructive-text",
   },
 };

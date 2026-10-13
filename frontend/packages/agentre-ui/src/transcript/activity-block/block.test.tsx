@@ -158,7 +158,7 @@ describe("ActivityBlock 组头(折叠态)", () => {
     expect(within(header).getByText("…")).toBeInTheDocument();
     const failures = within(header).getByTestId("activity-failures");
     expect(failures).toHaveTextContent("1 failed");
-    expect(failures.className).toContain("text-status-error");
+    expect(failures.className).toContain("text-destructive-text");
     // 失败计数不在会被裁掉的汇总段里 —— 组头挤不下时先裁类目,红标永远在。
     expect(screen.getByTestId("activity-summary").contains(failures)).toBe(
       false,
@@ -181,7 +181,7 @@ describe("ActivityBlock 组头(折叠态)", () => {
       "activity-background",
     );
     expect(marker).toHaveTextContent("2 background");
-    expect(marker.className).toContain("text-status-running");
+    expect(marker.className).toContain("text-status-running-text");
     expect(screen.getByTestId("activity-summary").contains(marker)).toBe(false);
   });
 
@@ -457,7 +457,7 @@ describe("ActivityBlock 活动行(展开态)", () => {
     expect(failed).toHaveAttribute("aria-expanded", "false");
     expect(failed).toHaveAttribute("data-failed", "true");
     expect(within(failed).getByTestId("activity-name").className).toContain(
-      "text-status-error",
+      "text-destructive-text",
     );
     expect(within(failed).getByText("exit 1")).toBeInTheDocument();
     expect(screen.queryByText("boom")).toBeNull();
@@ -473,7 +473,7 @@ describe("ActivityBlock 活动行(展开态)", () => {
     const row = screen.getAllByTestId("activity-row")[1];
     expect(row).toHaveAttribute("data-failed", "true");
     expect(within(row).getByText("exit 2").className).toContain(
-      "text-status-error",
+      "text-destructive-text",
     );
   });
 
@@ -660,7 +660,7 @@ describe("ActivityBlock 未落定的一步", () => {
     const row = screen.getAllByTestId("activity-row")[1];
     expect(row).toHaveAttribute("data-failed", "true");
     expect(within(row).getByTestId("activity-name").className).toContain(
-      "text-status-error",
+      "text-destructive-text",
     );
   });
 
@@ -745,7 +745,7 @@ describe("ActivityBlock 运行态", () => {
       // 失败计数照常显红:省略是收起,不是让发生过的事消失。
       const failures = within(elided).getByTestId("activity-failures");
       expect(failures).toHaveTextContent("3 failed");
-      expect(failures.className).toContain("text-status-error");
+      expect(failures.className).toContain("text-destructive-text");
       // 被省略的步骤一个都不 mount(与折叠态同一条性能约定)。
       expect(screen.queryByText("/repo/f-0.go")).toBeNull();
       expect(screen.getByText("/repo/f-23.go")).toBeInTheDocument();

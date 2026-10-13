@@ -288,7 +288,7 @@ function FallbackChip({
     return (
       <button
         type="button"
-        className="inline-flex max-w-full items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 text-meta text-muted-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        className="inline-flex max-w-full items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 text-meta text-muted-foreground outline-none transition-colors hover:bg-accent/60 hover:on-accent focus-visible:focus-outline"
         onClick={() =>
           openPath(absolutePath).catch((err: unknown) =>
             toastOpenPathFailure(err, t),

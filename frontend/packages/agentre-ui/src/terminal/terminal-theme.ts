@@ -58,6 +58,13 @@ const DARK_TERMINAL_THEME: ITheme = {
   brightWhite: "#f5f8fc",
 };
 
+// 终端里任何前景色对底色的最低对比度，交互终端与只读命令卡片共用。
+// 调色板管得住我们自己的 16 个值，管不住它们落在哪：亮色主题的 bright 系列对
+// #fafafa 只有 1.65–2.27，暗色的 brightBlack（灰字、自动补全提示）2.37。逐个
+// 重调两套色表治标不治本——程序还会用 256 色和真彩色。所以交给 xterm 按底色
+// 兜底：够的不动，不够的往黑 / 白方向推到够为止。
+export const TERMINAL_MIN_CONTRAST_RATIO = 4.5;
+
 // 返回一份完整的 xterm 主题。isDark 选 light/dark 调色板；bg/fg 传入应用实时解析出
 // 的 --background/--foreground (空串视为未提供，回退调色板默认值)，使终端底色与应用
 // 表面一致。

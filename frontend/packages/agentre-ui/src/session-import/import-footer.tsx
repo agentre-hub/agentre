@@ -206,7 +206,7 @@ export function ImportFooter({
               "text-2xs",
               cwdExists || cwdOverride
                 ? "text-muted-foreground"
-                : "text-status-error",
+                : "text-destructive-text",
             )}
           >
             {cwdOverride
@@ -243,7 +243,7 @@ export function ImportFooter({
           <span
             data-testid="import-error"
             role="alert"
-            className="text-2xs text-status-error"
+            className="text-2xs text-destructive-text"
           >
             {importError}
           </span>

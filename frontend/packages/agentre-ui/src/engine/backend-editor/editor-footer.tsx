@@ -46,7 +46,7 @@ export function BackendEditorFooter({
             type="button"
             variant="outline"
             onClick={onCancelTest}
-            className="gap-1.5 text-status-error"
+            className="gap-1.5 text-destructive-text"
           >
             <X className="size-3.5" aria-hidden="true" />
             {t("agentBackends.actions.cancelTest")}

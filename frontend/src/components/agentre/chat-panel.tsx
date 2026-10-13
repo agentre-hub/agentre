@@ -79,7 +79,7 @@ import { deriveBackgroundTasks } from "./background-tasks/derive";
 import { deriveTaskProgress } from "./task-progress/derive";
 import { TaskProgressBar } from "./task-progress/task-progress-bar";
 import type { AgentColor, AgentStatus } from "./types";
-import { agentTextColorClassName } from "./types";
+import { agentIconColorClassName } from "./types";
 
 import {
   MarkChatSessionRead,
@@ -243,16 +243,16 @@ function ChatPanel({
     if (sessionProjectId <= 0) return sessionIDNode;
     const chain = projectChain(tree, sessionProjectId);
     if (chain.length === 0) return sessionIDNode;
-    const projectTextColorClass = agentTextColorClassName(
+    const projectIconColorClass = agentIconColorClassName(
       findProjectColorToken(tree, sessionProjectId),
     );
     return (
       <span className="inline-flex items-center gap-1.5">
         <Folder
-          className={cn("size-3", projectTextColorClass)}
+          className={cn("size-3", projectIconColorClass)}
           aria-hidden="true"
         />
-        <span className={projectTextColorClass}>{chain.join(" / ")}</span>
+        <span className="text-foreground">{chain.join(" / ")}</span>
         <span className="text-muted-foreground">·</span>
         {sessionIDNode}
       </span>

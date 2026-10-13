@@ -9,12 +9,14 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: "bg-card text-card-foreground",
+        // 说明文字在亮色下用足色：waiting-text 叠 90% 在白卡片上只有 4.36。
+        // 暗色保留原来比标题低一档的 /90（-text 与填充色同值，叠完仍 ≥4.9）。
         destructive:
-          "bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 [&>svg]:text-current",
+          "bg-card text-destructive-text *:data-[slot=alert-description]:text-destructive-text dark:*:data-[slot=alert-description]:text-destructive-text/90 [&>svg]:text-current",
         // 「需要你处理，但还不是故障」这一档。没有它，等待 / 离线 / 待确认这类
         // 状态只能在中性与红之间二选一，红色因此变廉价、真出事时不再有人当回事。
         warning:
-          "bg-card text-status-waiting *:data-[slot=alert-description]:text-status-waiting/90 [&>svg]:text-current",
+          "bg-card text-status-waiting-text *:data-[slot=alert-description]:text-status-waiting-text dark:*:data-[slot=alert-description]:text-status-waiting-text/90 [&>svg]:text-current",
       },
     },
     defaultVariants: {

@@ -401,9 +401,9 @@ const ExecTargetChipButton = React.forwardRef<
   const c = candidate;
   const remote = Boolean(c.deviceId);
   const tone = !remote
-    ? "bg-primary-soft text-primary"
+    ? "bg-primary-soft text-primary-text"
     : c.online
-      ? "bg-status-running-bg text-status-running"
+      ? "bg-status-running-bg text-status-running-text"
       : "bg-muted text-muted-foreground";
   return (
     <button
@@ -412,7 +412,7 @@ const ExecTargetChipButton = React.forwardRef<
       data-testid="new-session-exec-target-chip"
       aria-label={ariaLabel}
       className={cn(
-        "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-2xs font-medium transition-colors underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-2xs font-medium transition-colors underline-offset-2 hover:underline focus-visible:focus-outline",
         tone,
         className,
       )}

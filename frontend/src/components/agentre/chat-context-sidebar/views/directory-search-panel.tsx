@@ -65,7 +65,7 @@ export function DirectorySearchPanel({
         <button
           type="button"
           aria-label={t("chatContext.search.clear")}
-          className="flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           onClick={search.close}
         >
           <X className="size-3" aria-hidden="true" />

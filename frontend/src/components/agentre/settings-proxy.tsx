@@ -386,8 +386,8 @@ function StatusPill({
       className={cn(
         "inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 font-mono text-2xs",
         running
-          ? "bg-status-running-bg text-status-running"
-          : "bg-destructive-soft text-destructive",
+          ? "bg-status-running-bg text-status-running-text"
+          : "bg-destructive-soft text-destructive-text",
       )}
     >
       <span
@@ -420,7 +420,7 @@ function FormField({
       <span className="font-medium">{label}</span>
       {children}
       {error ? (
-        <span className="text-2xs text-destructive">{error}</span>
+        <span className="text-2xs text-destructive-text">{error}</span>
       ) : hint ? (
         <span className="font-mono text-2xs text-muted-foreground">{hint}</span>
       ) : null}
@@ -454,7 +454,7 @@ function UrlReadout({
     );
   }
   return (
-    <div className="flex h-9 items-center truncate rounded-md border border-destructive/40 bg-destructive-soft px-3 font-mono text-2xs text-destructive">
+    <div className="flex h-9 items-center truncate rounded-md border border-destructive/40 bg-destructive-soft px-3 font-mono text-2xs text-destructive-text">
       {t("settingsProxy.status.notStarted", {
         reason: status?.reason ? ` · ${status.reason}` : "",
       })}
@@ -476,8 +476,8 @@ function FlashBanner({
       className={cn(
         "flex items-start gap-2 rounded-md border px-3 py-2 text-xs",
         ok
-          ? "border-status-running/40 bg-status-running-bg text-status-running"
-          : "border-destructive/40 bg-destructive-soft text-destructive",
+          ? "border-status-running/40 bg-status-running-bg text-status-running-text"
+          : "border-destructive/40 bg-destructive-soft text-destructive-text",
       )}
       role="status"
     >

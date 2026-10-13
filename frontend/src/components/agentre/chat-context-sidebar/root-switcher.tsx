@@ -50,8 +50,8 @@ export function RootSwitcher({
             title={active.path}
             className={cn(
               "inline-flex h-6 min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md px-1.5 text-3xs",
-              "text-muted-foreground transition-colors hover:bg-muted/50",
-              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              "text-muted-foreground transition-colors hover:bg-accent/60 hover:on-accent",
+              "focus-visible:focus-outline",
             )}
           >
             <FolderGit2 className="size-3 shrink-0" aria-hidden="true" />

@@ -34,7 +34,7 @@ export function RootFollowNotice({ root, onUndo }: Props) {
       <button
         type="button"
         onClick={onUndo}
-        className="shrink-0 cursor-pointer rounded px-1 py-0.5 font-medium text-foreground underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="shrink-0 cursor-pointer rounded px-1 py-0.5 font-medium text-foreground underline-offset-2 hover:underline focus-visible:focus-outline"
       >
         {t("chatContext.workRoots.stayInMain")}
       </button>

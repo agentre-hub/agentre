@@ -15,9 +15,9 @@ const cardToneClass: Record<TranscriptCardTone, string> = {
 
 const pillToneClass: Record<TranscriptCardTone, string> = {
   default: "bg-muted text-muted-foreground",
-  error: "bg-destructive-soft text-status-error",
-  pending: "bg-status-waiting-bg text-status-waiting",
-  done: "bg-status-running-bg text-status-running",
+  error: "bg-destructive-soft text-destructive-text",
+  pending: "bg-status-waiting-bg text-status-waiting-text",
+  done: "bg-status-running-bg text-status-running-text",
 };
 
 function TranscriptCard({
@@ -46,7 +46,7 @@ function TranscriptCardHeader({
       type="button"
       {...props}
       className={cn(
-        "flex w-full min-w-0 cursor-pointer items-center gap-2 px-3.5 py-2.5 text-left transition-colors hover:bg-muted/40",
+        "flex w-full min-w-0 cursor-pointer items-center gap-2 px-3.5 py-2.5 text-left transition-colors hover:bg-accent/60 hover:on-accent",
         className,
       )}
     />

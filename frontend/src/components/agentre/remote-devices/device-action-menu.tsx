@@ -81,7 +81,7 @@ export function DeviceActionMenu(props: Props) {
             <ArrowUpCircle className="mr-2 h-4 w-4" />
             {props.upgrade.label}
             {props.upgrade.badgeVersion ? (
-              <span className="ml-auto text-2xs font-semibold text-status-waiting">
+              <span className="ml-auto text-2xs font-semibold text-status-waiting-text">
                 {props.upgrade.badgeVersion}
               </span>
             ) : null}
@@ -118,7 +118,7 @@ export function DeviceActionMenu(props: Props) {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={props.onRemove}
-          className="text-destructive"
+          className="text-destructive-text"
         >
           <Trash2 className="mr-2 h-4 w-4" />
           {t("remoteDevices.actions.removePairing")}

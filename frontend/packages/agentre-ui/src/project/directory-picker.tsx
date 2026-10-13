@@ -304,7 +304,7 @@ export function DirectoryPicker({
             {failure ? (
               <div
                 data-testid="directory-picker-failure"
-                className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive-soft/40 px-3 py-2 text-xs text-destructive"
+                className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive-soft/40 px-3 py-2 text-xs text-destructive-text"
               >
                 <AlertTriangle
                   className="size-3.5 shrink-0"
@@ -410,7 +410,7 @@ export function DirectoryPicker({
                 {createError ? (
                   <p
                     data-testid="directory-picker-create-error"
-                    className="mt-1 text-2xs text-destructive"
+                    className="mt-1 text-2xs text-destructive-text"
                   >
                     {createError}
                   </p>

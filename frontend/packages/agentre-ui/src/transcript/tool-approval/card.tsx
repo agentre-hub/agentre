@@ -115,8 +115,8 @@ export const ToolApprovalCard: React.FC<{
             className={cn(
               "ml-auto",
               isApproved
-                ? "bg-status-running-bg text-status-running"
-                : "bg-destructive/10 text-destructive",
+                ? "bg-status-running-bg text-status-running-text"
+                : "bg-destructive/10 text-destructive-text",
             )}
           >
             {t(`toolApproval.status.${approval.status}`)}
@@ -149,7 +149,9 @@ export const ToolApprovalCard: React.FC<{
             <X className="mr-1 h-3.5 w-3.5" />
             {t("toolApproval.deny")}
           </Button>
-          {error && <span className="text-aux text-destructive">{error}</span>}
+          {error && (
+            <span className="text-aux text-destructive-text">{error}</span>
+          )}
         </TranscriptCardBody>
       ) : approval.result ? (
         <TranscriptCardBody className="text-aux text-muted-foreground">

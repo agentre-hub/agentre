@@ -30,12 +30,13 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "group/select-trigger flex w-full min-w-0 items-center justify-between gap-2 rounded-md border border-control-border bg-transparent text-left text-sm font-medium text-foreground shadow-xs outline-none transition-[color,box-shadow,border-color] dark:bg-input/30",
+        "group/select-trigger flex w-full min-w-0 items-center justify-between gap-2 rounded-md border border-field-border bg-transparent text-left text-sm font-medium text-foreground shadow-xs outline-none transition-[color,box-shadow,border-color] dark:bg-input/30",
         "data-[size=sm]:h-9 data-[size=sm]:px-3 data-[size=md]:h-10 data-[size=md]:px-3.5",
         "placeholder:text-muted-foreground data-[placeholder]:text-muted-foreground",
-        "hover:border-border-strong",
-        "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40",
-        "data-[state=open]:border-ring data-[state=open]:ring-[3px] data-[state=open]:ring-ring/30",
+        // 与 outline 按钮同一组悬停底色（见 button.tsx），两颗并排时反馈一致。
+        "hover:bg-accent dark:hover:bg-input/50",
+        "focus-visible:focus-halo",
+        "data-[state=open]:focus-halo",
         "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
         "aria-invalid:border-destructive aria-invalid:ring-destructive/20",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0",

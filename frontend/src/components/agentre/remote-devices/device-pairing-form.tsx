@@ -204,7 +204,7 @@ function DevicePairingFields({ pairing }: DevicePairingFieldsProps) {
       </Button>
 
       {pairing.error ? (
-        <div role="alert" className="text-sm text-destructive">
+        <div role="alert" className="text-sm text-destructive-text">
           {pairing.error}
         </div>
       ) : null}

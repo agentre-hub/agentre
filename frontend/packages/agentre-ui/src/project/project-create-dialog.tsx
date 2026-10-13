@@ -476,7 +476,7 @@ export function ProjectCreateDialog({
                       type="button"
                       data-testid="project-create-machine-clear"
                       aria-label={t("projectSettings.create.clearMachine")}
-                      className="ml-auto shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      className="ml-auto shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:focus-outline"
                       onClick={() => setPicked(null)}
                     >
                       <X className="size-3" aria-hidden="true" />

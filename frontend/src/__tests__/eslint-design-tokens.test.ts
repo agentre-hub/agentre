@@ -1,16 +1,22 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { ESLint } from "eslint";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
+  AGENT_COLOR_AS_TEXT,
   ARBITRARY_FONT_SIZE,
+  FILL_TEXT_ON_OWN_SOFT_BG,
+  HAND_ROLLED_FOCUS_RING,
   LITERAL_COLOR_CLASS,
   RAW_COLOR_VALUE,
+  RESTING_SURFACE_AS_HOVER,
+  agentColorAsTextSyntax,
   restrictedSyntax,
 } from "../../eslint-rules/design-tokens.js";
 
 /**
- * 设计 token 守卫的守卫（颜色 + 字号两组）。
+ * 设计 token 守卫的守卫（字号、颜色，以及「token 用对了角色没有」的四组）。
  *
  * 两件事要钉住：
  *   1. **正则真的拦得住 / 放得过**。规则写错的表现不是报错，是它默默不生效——
@@ -27,6 +33,10 @@ const FRONTEND_ROOT = path.resolve(__dirname, "../..");
 const matcher = new RegExp(ARBITRARY_FONT_SIZE);
 const colorClass = new RegExp(LITERAL_COLOR_CLASS);
 const rawColor = new RegExp(RAW_COLOR_VALUE);
+const fillTextOnSoft = new RegExp(FILL_TEXT_ON_OWN_SOFT_BG);
+const handRolledFocusRing = new RegExp(HAND_ROLLED_FOCUS_RING);
+const agentColorAsText = new RegExp(AGENT_COLOR_AS_TEXT);
+const restingSurfaceAsHover = new RegExp(RESTING_SURFACE_AS_HOVER);
 
 describe("字号阶梯的 lint 规则", () => {
   it.each([
@@ -117,8 +127,200 @@ describe("写死颜色值的 lint 规则", () => {
   });
 });
 
-describe("三组规则都有两种形态", () => {
-  it("字号与颜色各自都覆盖 Literal 与 TemplateElement", () => {
+/**
+ * 饱和填充色落在**同族的软底**上当文字。
+ *
+ * 填充色是为圆点 / 实底调的，压在自己的淡色底上读不出来：亮色下
+ * `#109066` 在 `--status-running-bg` 上 3.83、`#dc2626` 在 `bg-destructive/10` 上 4.14。
+ * 仓里早就有 `-text` 角色，但大多数胶囊没换过去（2026-10-13 审计：running 64 处对 4 处）。
+ * 这组规则只管得住「软底和文字色写在同一个类名串里」的情形——那是唯一不用猜
+ * 「这是文字还是图标」就能判的写法，也是对比度掉得最狠的地方。
+ */
+describe("软底上的同族文字必须用 -text 角色", () => {
+  it.each([
+    ["bg-status-running-bg text-status-running", "运行胶囊"],
+    [
+      "text-status-waiting bg-status-waiting-bg px-1.5",
+      "顺序反过来、夹在长串里",
+    ],
+    ["rounded-full bg-destructive/10 text-destructive", "不透明度冲出来的红底"],
+    [
+      "bg-destructive-soft text-status-error",
+      "错误胶囊：status-error 与 destructive 同族",
+    ],
+    ["bg-primary-soft text-primary", "品牌软底"],
+    [
+      "data-[variant=destructive]:text-destructive data-[variant=destructive]:hover:bg-destructive/10",
+      "带变体前缀",
+    ],
+    ["bg-status-running/10 text-status-running/80", "两边都带不透明度"],
+  ])("拦住 %s（%s）", (sample) => {
+    expect(fillTextOnSoft.test(sample)).toBe(true);
+  });
+
+  it.each([
+    ["bg-status-running-bg text-status-running-text", "已经是文字角色"],
+    ["bg-destructive-soft text-destructive-text", "已经是文字角色"],
+    ["bg-primary-soft text-primary-text", "已经是文字角色"],
+    [
+      "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+      "实底上的前景",
+    ],
+    ["bg-primary text-primary-foreground hover:bg-primary/90", "实底上的前景"],
+    ["size-3.5 text-status-running", "没有软底：单独的图标用填充色是对的"],
+    ["bg-status-running-bg text-foreground", "软底上的中性文字"],
+    ["bg-status-waiting-bg text-status-running", "不同族，不归这条规则管"],
+    ["size-1.5 rounded-full bg-destructive", "圆点"],
+  ])("放过 %s（%s）", (sample) => {
+    expect(fillTextOnSoft.test(sample)).toBe(false);
+  });
+});
+
+/**
+ * 键盘焦点只有两种画法，都定义在 tokens.css：按钮类 `focus-outline`、输入类
+ * `focus-halo`。各处自己拼 `ring-[3px] ring-ring/40` 的结果是全仓并存三种环
+ * （/40 37 处、/50 36 处、实色 6 处），半透明的那两种合成后只有 1.8–2.1:1。
+ * `ring-ring` 这个组合只该出现在工具类的定义里，所以 ts / tsx 里一律不许写。
+ */
+describe("焦点环不许手拼", () => {
+  it.each([
+    ["focus-visible:ring-[3px] focus-visible:ring-ring/50", "半透明光晕"],
+    [
+      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+      "另一档不透明度",
+    ],
+    ["focus-visible:ring-2 focus-visible:ring-ring", "实色，但仍是自己拼的"],
+    ["data-[state=open]:ring-ring/30", "任意变体前缀"],
+    ["flex ring-2 ring-ring", "不带变体"],
+  ])("拦住 %s（%s）", (sample) => {
+    expect(handRolledFocusRing.test(sample)).toBe(true);
+  });
+
+  it.each([
+    ["focus-visible:focus-outline", "按钮类的工具类"],
+    ["focus-within:focus-halo", "输入类的工具类"],
+    ["ring-1 ring-primary/30 ring-inset", "装饰描边，不是焦点环"],
+    ["aria-invalid:ring-destructive/20", "校验态的环"],
+    ["ring-offset-background", "只是名字里带 ring"],
+    ["border-l-2 border-l-ring", "拿 ring 色画边，不是环"],
+    ["focus-visible:border-ring", "实色的边"],
+  ])("放过 %s（%s）", (sample) => {
+    expect(handRolledFocusRing.test(sample)).toBe(false);
+  });
+});
+
+/**
+ * 身份色只上图形。
+ *
+ * `--agent-1…16` 是为「色块 + 白字」调的：暗色下 16 个都压暗到托得住白字，
+ * 当文字对 card 只有 3.5；亮色落在 secondary 上也有 12 个低于 4.5。
+ * 图标只要 3:1，所以它可以带身份色——但类名只该来自 `agentIconColorClassNames`
+ * 那一张表（components/agentre/types.ts，在 eslint.config.js 里按文件豁免），
+ * 别处一律不写 `text-agent-N`，免得又被顺手挂到一段文字上。
+ */
+describe("身份色不许当文字色写", () => {
+  it.each([
+    ["text-sm font-semibold text-agent-1", "标题"],
+    ["inline-flex text-xs text-agent-12 hover:underline", "链接"],
+    ["hover:text-agent-3", "带变体"],
+  ])("拦住 %s（%s）", (sample) => {
+    expect(agentColorAsText.test(sample)).toBe(true);
+  });
+
+  it.each([
+    ["bg-agent-7 text-agent-foreground", "色块 + 白字，身份色的本职"],
+    ["border-agent-1/30 bg-agent-1/5", "描边与软底"],
+    ["text-agent-foreground", "色块上的字形"],
+  ])("放过 %s（%s）", (sample) => {
+    expect(agentColorAsText.test(sample)).toBe(false);
+  });
+});
+
+/**
+ * 身份色类名表那一份按文件豁免，过的是**项目真实的** eslint.config.js。
+ *
+ * 豁免写错有两种不报错的样子：没生效（类名表自己被 lint 拦下，这个会红）与
+ * 放得太宽（把整条 `no-restricted-syntax` 对那份文件关掉，其余几组跟着失守，
+ * 这个不会红）。读配置文本看不出后一种，所以让 ESLint 真跑一遍。
+ */
+describe("身份色类名表的按文件豁免", () => {
+  const AGENT_TEXT = agentColorAsTextSyntax[0].message;
+  const HOVER = restrictedSyntax.find((rule) =>
+    rule.selector.includes(RESTING_SURFACE_AS_HOVER),
+  )!.message;
+  const SAMPLE =
+    'export const icon = "text-agent-3";\n' +
+    'export const row = "px-2 hover:bg-muted";\n';
+
+  let eslint: ESLint;
+
+  // 预热单独摆在 beforeAll，理由同 eslint-native-controls.test.ts：第一次 lintText
+  // 要解析整份配置，冷跑好几秒。
+  beforeAll(async () => {
+    eslint = new ESLint({ cwd: FRONTEND_ROOT, errorOnUnmatchedPattern: false });
+    await eslint.lintText("export const warmup = 1;\n", {
+      filePath: path.join(FRONTEND_ROOT, "src/warmup.ts"),
+    });
+  }, 60_000);
+
+  async function lintAs(filePath: string) {
+    const [result] = await eslint.lintText(SAMPLE, {
+      filePath: path.join(FRONTEND_ROOT, filePath),
+    });
+    return result.messages
+      .filter((m) => m.ruleId === "no-restricted-syntax")
+      .map((m) => m.message);
+  }
+
+  it("Given text-agent-N in the class table file, When ESLint runs, Then only the identity-color rule is lifted", async () => {
+    const messages = await lintAs("src/components/agentre/types.ts");
+
+    expect(messages).not.toContain(AGENT_TEXT);
+    expect(messages).toContain(HOVER);
+  });
+
+  it("Given the same text in any other file, When ESLint runs, Then the identity-color rule reports it", async () => {
+    const messages = await lintAs("src/components/agentre/sample.ts");
+
+    expect(messages).toContain(AGENT_TEXT);
+    expect(messages).toContain(HOVER);
+  });
+});
+
+/**
+ * hover 不许用静止表面色。
+ *
+ * `--muted` 与 `--secondary` 是页面上不表示交互状态的底色，而且各自与别的表面同值：
+ * 暗色 muted ≡ card、secondary ≡ popover，亮色 secondary ≡ sidebar。拿它们当悬停
+ * 反馈，落在同值的面上就是 1.00——不报错、不崩，只是鼠标移上去没有任何变化。
+ * `--accent` 的定义就是「不等于任何静止表面的反馈色」（tokens.test.ts 守着）。
+ */
+describe("悬停反馈不许用静止表面色", () => {
+  it.each([
+    ["rounded-md px-2 hover:bg-muted", "实底"],
+    ["hover:bg-muted/50", "带不透明度"],
+    ["text-xs hover:bg-secondary/60 hover:text-foreground", "夹在长串里"],
+    ["group-hover:bg-secondary", "group 变体"],
+    ["[a&]:hover:bg-secondary/90", "前面还有别的变体"],
+  ])("拦住 %s（%s）", (sample) => {
+    expect(restingSurfaceAsHover.test(sample)).toBe(true);
+  });
+
+  it.each([
+    ["hover:bg-accent", "反馈色"],
+    ["hover:bg-accent/60 hover:on-accent", "半透明的反馈色"],
+    ["bg-muted", "静止态用静止表面色，本职"],
+    ["bg-secondary text-secondary-foreground", "静止态"],
+    ["hover:bg-secondary-foreground", "名字里带 secondary 的另一个 token"],
+    ["hover:bg-card", "标签条上向 card 提亮，有意为之"],
+    ["hover:bg-rail-accent", "外壳带上的反馈色"],
+  ])("放过 %s（%s）", (sample) => {
+    expect(restingSurfaceAsHover.test(sample)).toBe(false);
+  });
+});
+
+describe("每一组规则都有两种形态", () => {
+  it("每组各自都覆盖 Literal 与 TemplateElement", () => {
     // 只拦 Literal 的话，模板字符串里的写法会绕过去。
     const shapes = (source: string) =>
       restrictedSyntax
@@ -127,9 +329,13 @@ describe("三组规则都有两种形态", () => {
         .sort();
 
     for (const source of [
+      AGENT_COLOR_AS_TEXT,
       ARBITRARY_FONT_SIZE,
+      FILL_TEXT_ON_OWN_SOFT_BG,
+      HAND_ROLLED_FOCUS_RING,
       LITERAL_COLOR_CLASS,
       RAW_COLOR_VALUE,
+      RESTING_SURFACE_AS_HOVER,
     ]) {
       expect(shapes(source)).toEqual(["Literal", "TemplateElement"]);
     }

@@ -103,7 +103,7 @@ export function TranscriptJumpControl({
         {catchUp && catchUp.pendingDecisions > 0 ? (
           <span
             data-testid="transcript-jump-pending"
-            className="flex items-center gap-1 text-status-waiting"
+            className="flex items-center gap-1 text-status-waiting-text"
           >
             <span
               aria-hidden="true"

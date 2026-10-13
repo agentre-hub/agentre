@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { contrast, mix } from "./styles/__testing__/tokens";
+
 /**
  * design token 契约守卫。
  *
@@ -34,10 +36,12 @@ const css = fs
  * 取一个块的内容。块尾用花括号计数而不是非贪婪正则——`@theme` 里将来若出现
  * 嵌套块，正则会在第一个 `}` 截断，于是后半段声明凭空消失、测试却是绿的。
  * 选择器行首锚定：`@custom-variant dark (&:is(.dark *));` 那行里也有 `.dark`。
+ * 名字要整个对上：`@utility focus-outline` 不许顺带匹配到 `@utility focus-outline-inset`，
+ * 否则取到哪一块全看它俩在文件里谁排前面。
  */
 function block(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const head = new RegExp(`^${escaped}[^{]*\\{`, "m").exec(css);
+  const head = new RegExp(`^${escaped}(?![\\w-])[^{]*\\{`, "m").exec(css);
   if (!head) return "";
   const open = head.index + head[0].length - 1;
   let depth = 0;
@@ -63,18 +67,6 @@ const theme = decls(block("@theme"));
 /** 只有十六进制色值参与配色断言；--radius / 阴影 / 字体栈各有形态，另行处理。 */
 const isHex = (v: string | undefined): v is string =>
   typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
-
-function contrast(a: string, b: string): number {
-  const luminance = (hex: string) => {
-    const ch = [1, 3, 5].map((i) => {
-      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
-      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    });
-    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
-  };
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
 
 const THEMES = [
   [":root", "亮色", () => root] as const,
@@ -226,6 +218,10 @@ const TEXT_SURFACES: Array<[string, string[]]> = [
   // 4.5（可行窗口只剩对 sidebar 1.28~1.33 那一丝，落进去选中与 hover 就分不出了）。
   // 与 --status-*-text 同一个道理：换了落脚的面，弱化文字就得换值。
   ["--sidebar-selected-muted", ["--sidebar-selected-bg"]],
+  // 同一个道理落在内容表面上：行被选中 / 悬停时底色换成 --accent，行里的说明、
+  // 快捷键、右侧路径还是弱化文字。--muted-foreground 在 --accent 上亮色 4.38、
+  // 暗色 3.48。
+  ["--accent-muted-foreground", ["--accent"]],
 ];
 
 describe("正文色对它落到的每个表面都达标", () => {
@@ -253,6 +249,132 @@ describe("正文色对它落到的每个表面都达标", () => {
       "--decorative-foreground",
     );
   });
+});
+
+/**
+ * `--accent` 上的弱化文字，由**表面自己**换色。
+ *
+ * 弱化文字散在行的各个角落（说明、快捷键、路径、伴随图标），而「这一行现在是不是
+ * 选中 / 悬停」只有行自己知道。让每个调用点按状态换类名，等于把同一个判断抄几十遍
+ * ——全仓 `hover:bg-accent` 就有近 80 处。所以改在生产方：`bg-accent` 这个工具类
+ * 在上底色的同时把 `--muted-foreground` 重新指向 `--accent-muted-foreground`，
+ * 子树里所有 `text-muted-foreground` 跟着变，变体前缀（hover: / focus: /
+ * data-[selected=true]:）照常生效。
+ *
+ * 带不透明度的 `bg-accent/60` 走不到这条——Tailwind 的静态工具类不吃修饰符——
+ * 那些调用点要自己带上 `on-accent`。
+ */
+describe("accent 面上的弱化文字由表面换色", () => {
+  it.each(["bg-accent", "on-accent"])(
+    "@utility %s 把 --muted-foreground 指向 --accent-muted-foreground",
+    (name) => {
+      const utility = decls(block(`@utility ${name}`));
+      expect(
+        utility["--muted-foreground"],
+        `tokens.css 里没有 @utility ${name}，或它没有重指 --muted-foreground`,
+      ).toBe("var(--accent-muted-foreground)");
+    },
+  );
+
+  // 悬停行是半透明的 accent 叠在它所在的表面上（全仓用到 /40 ~ /60）。叠出来的底
+  // 比实心 accent 浅，但暗色下 --muted-foreground 仍然够不到：/60 叠 popover 3.92。
+  it.each(
+    THEMES.flatMap(([scope, label, get]) =>
+      (["--popover", "--card"] as const).flatMap((surface) =>
+        [0.4, 0.6].map((alpha) => [scope, label, surface, alpha, get] as const),
+      ),
+    ),
+  )(
+    "%s(%s)下 accent 以 %s 为底、不透明度 %s 时弱化文字仍达标",
+    (_scope, _label, surface, alpha, get) => {
+      const t = get();
+      const fill = mix(t["--accent"], t[surface], alpha);
+      expect(
+        contrast(t["--accent-muted-foreground"], fill),
+        `--accent-muted-foreground ${t["--accent-muted-foreground"]} 落在 ${fill} 上`,
+      ).toBeGreaterThanOrEqual(TEXT_MIN);
+    },
+  );
+});
+
+/**
+ * 键盘焦点的两种画法。
+ *
+ * 全仓只在这里定义一次，调用点写 `focus-visible:focus-outline` /
+ * `focus-visible:focus-halo`，不再各自拼 ring（lint 拦着，见
+ * frontend/eslint-rules/design-tokens.js）。
+ *
+ * 按钮类是 2px 实色环 + 2px 间隙：实色是为了让对比度不随底色漂移——此前的
+ * `ring-ring/50` 合成后只有约 2.1:1，`/40` 约 1.8:1；间隙是为了让实心主按钮
+ * （底色就是 --primary ≈ --ring）的环不和按钮本身粘成一块。
+ */
+describe("键盘焦点环", () => {
+  it("focus-outline 是 2px 实色环，与控件之间留 2px 间隙", () => {
+    const rule = block("@utility focus-outline");
+    expect(rule).toMatch(/outline:\s*2px solid var\(--ring\)/);
+    expect(rule).toMatch(/outline-offset:\s*2px/);
+  });
+
+  it("focus-outline-inset 是同一条环向内画：贴着裁剪容器的元素用它", () => {
+    // 向外的环要伸出去 4px（2px 间隙 + 2px 环）。标签页填满一条 overflow-hidden 的带子、
+    // 会话行贴着列表的裁剪边，伸出去的部分直接被切掉——真机上标签页的环只剩右边一条线。
+    // 「同一条环」是拿两块比出来的，不是把字面量再抄一遍：只改了其中一处的粗细或颜色，
+    // 这里就红。
+    const outline = (rule: string) => /outline:\s*([^;]+);/.exec(rule)?.[1];
+    const inset = block("@utility focus-outline-inset");
+    expect(outline(inset)).toBeDefined();
+    expect(outline(inset)).toBe(outline(block("@utility focus-outline")));
+    expect(inset).toMatch(/outline-offset:\s*-2px/);
+  });
+
+  it.each(THEMES)(
+    "%s(%s)下向内的环对它压着的每种行底色都有 3:1",
+    (_s, _t, get) => {
+      const t = get();
+      // 向内的环压在元素自己的填充上：会话行的静止 / 悬停 / 选中，标签页的激活 / 未激活。
+      for (const fill of [
+        "--sidebar",
+        "--sidebar-active-bg",
+        "--sidebar-selected-bg",
+        "--background",
+        "--secondary",
+        "--card",
+        "--muted",
+        "--accent",
+      ]) {
+        expect(
+          contrast(t["--ring"], t[fill]),
+          `--ring ${t["--ring"]} 压在 ${fill} ${t[fill]} 上`,
+        ).toBeGreaterThanOrEqual(GRAPHIC_MIN);
+      }
+    },
+  );
+
+  it("focus-halo 是实色的边加一圈光晕（输入类控件现有的样子）", () => {
+    const rule = block("@utility focus-halo");
+    expect(rule).toMatch(/border-ring/);
+    expect(rule).toMatch(/ring-ring\/50/);
+  });
+
+  it.each(THEMES)(
+    "%s(%s)下实色环对它会落到的每个表面都有 3:1",
+    (_s, _t, get) => {
+      const t = get();
+      for (const surface of [
+        "--background",
+        "--card",
+        "--popover",
+        "--secondary",
+        "--sidebar",
+        "--rail",
+      ]) {
+        expect(
+          contrast(t["--ring"], t[surface]),
+          `--ring ${t["--ring"]} 落在 ${surface} ${t[surface]} 上`,
+        ).toBeGreaterThanOrEqual(GRAPHIC_MIN);
+      }
+    },
+  );
 });
 
 /**
@@ -352,6 +474,94 @@ describe("状态填充色当非文字图形用时对表面达标", () => {
           contrast(fill, effective(surface)),
           `${token} ${fill} 落在 ${surface} ${effective(surface)} 上`,
         ).toBeGreaterThanOrEqual(GRAPHIC_MIN);
+      }
+    },
+  );
+});
+
+/**
+ * 空闲点是四个状态里最容易被调没的一个：它没有软底、没有文字，全部信息就是这一枚
+ * 圆点。亮色专门为「坐在 bg-secondary 槽里」调到了 3.04，暗色却一直是 #6a6d74——
+ * 在同一个槽里与弹层里都只有 2.77，上面那条守卫只查 running / waiting，没拦住。
+ */
+describe("空闲状态点对它会落到的表面达标", () => {
+  it.each(THEMES)(
+    "%s(%s)下 --status-idle 对 --card / --secondary / --popover 都 ≥3.0",
+    (_scope, _label, get) => {
+      const t = get();
+      const effective = (name: string) => t[name] ?? root[name];
+      for (const surface of ["--card", "--secondary", "--popover"] as const) {
+        expect(
+          contrast(effective("--status-idle"), effective(surface)),
+          `--status-idle ${effective("--status-idle")} 落在 ${surface} ${effective(surface)} 上`,
+        ).toBeGreaterThanOrEqual(GRAPHIC_MIN);
+      }
+    },
+  );
+
+  it.each(THEMES)(
+    "%s(%s)下它仍然比弱化文字暗 —— 空闲是最安静的一档",
+    (_scope, _label, get) => {
+      const t = get();
+      const surface = t["--card"];
+      expect(contrast(t["--status-idle"], surface)).toBeLessThan(
+        contrast(t["--muted-foreground"], surface),
+      );
+    },
+  );
+});
+
+/**
+ * 边按「它要承担多少辨认」分四档，一档比一档实：分隔线 `--border`、带文字的可点
+ * 控件 `--input`（outline 按钮）、字段 `--field-border`（输入框 / 文本域 / 下拉 /
+ * 搜索框）、轮廓即控件 `--control-border`（未选中的复选框）。
+ *
+ * 字段此前和复选框同档（3.43 / 3.49），一张表单里几条这样的边叠在一起显得很重；
+ * 它有标签、占位和固定的位置可认，不必守 3:1。但也不能掉到按钮那档——浅色下空
+ * 输入框在白卡片上只剩 1.62，几乎看不见。于是另立一档，并钉一条下限。
+ */
+describe("边的四档按序排开", () => {
+  /** 字段会落在的表面：表单卡片、页面底、灰槽、弹层。 */
+  const FIELD_SURFACES = [
+    "--card",
+    "--background",
+    "--secondary",
+    "--popover",
+  ] as const;
+  const LADDER = [
+    "--border",
+    "--input",
+    "--field-border",
+    "--control-border",
+  ] as const;
+  /** 空字段的边是它静止时唯一的轮廓：低于这条线，边在灰槽里就开始化掉。 */
+  const FIELD_EDGE_MIN = 2;
+
+  it.each(THEMES)("%s(%s)下四档在每个表面上逐档变实", (_scope, _label, get) => {
+    const t = get();
+    for (const surface of FIELD_SURFACES) {
+      const steps = LADDER.map((name) => {
+        expect(t[name], `tokens.css 里没有 ${name}`).toBeDefined();
+        return contrast(t[name], t[surface]);
+      });
+      for (let i = 1; i < steps.length; i++) {
+        expect(
+          steps[i],
+          `${LADDER[i]} 落在 ${surface} 上应当比 ${LADDER[i - 1]} 实`,
+        ).toBeGreaterThan(steps[i - 1]);
+      }
+    }
+  });
+
+  it.each(THEMES)(
+    "%s(%s)下 --field-border 对字段会落到的每个表面都 ≥2.0",
+    (_scope, _label, get) => {
+      const t = get();
+      for (const surface of FIELD_SURFACES) {
+        expect(
+          contrast(t["--field-border"], t[surface]),
+          `--field-border ${t["--field-border"]} 落在 ${surface} ${t[surface]} 上`,
+        ).toBeGreaterThanOrEqual(FIELD_EDGE_MIN);
       }
     },
   );

@@ -82,7 +82,7 @@ export function ProjectChipPicker({
           title={t("commandPalette.project.switchTitle")}
           className={cn(
             "inline-flex h-[22px] min-w-0 max-w-[20rem] items-center gap-1.5 rounded-sm border bg-card pl-1 pr-1.5 text-xs font-medium text-foreground outline-none transition-colors hover:bg-accent",
-            "focus-visible:ring-[3px] focus-visible:ring-ring/40",
+            "focus-visible:focus-outline",
             open && "bg-accent",
             projectContext
               ? "border-border"
@@ -155,7 +155,7 @@ export function ProjectChipPicker({
 function rowClassName(selected: boolean, cursor: boolean, dimmed: boolean) {
   return cn(
     "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
-    !cursor && !selected && "hover:bg-secondary/60",
+    !cursor && !selected && "hover:bg-accent/60 hover:on-accent",
     cursor && "bg-accent",
     selected && "bg-primary-soft text-primary-text",
     selected && cursor && "bg-primary/15",

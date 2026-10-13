@@ -117,7 +117,7 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
             {...(handle?.listeners ?? {})}
             onKeyDown={onHandleKeyDown}
             className={cn(
-              "mt-0.5 shrink-0 touch-none select-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+              "mt-0.5 shrink-0 touch-none select-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:focus-outline",
               drag && "cursor-grab",
             )}
           >
@@ -249,7 +249,7 @@ function ExecTargetStatusBadge(props: {
         className={cn(
           "inline-flex shrink-0 items-center rounded-sm px-1.5 py-0.5 text-2xs font-medium",
           destructive
-            ? "bg-destructive-soft text-destructive"
+            ? "bg-destructive-soft text-destructive-text"
             : "border border-border text-muted-foreground",
         )}
       >
@@ -259,7 +259,7 @@ function ExecTargetStatusBadge(props: {
   }
   if (props.isFirstAvailable) {
     return (
-      <span className="inline-flex shrink-0 items-center rounded-sm bg-status-running-bg px-1.5 py-0.5 text-2xs font-medium text-status-running">
+      <span className="inline-flex shrink-0 items-center rounded-sm bg-status-running-bg px-1.5 py-0.5 text-2xs font-medium text-status-running-text">
         {t("org.agent.execTargets.currentlyActive")}
       </span>
     );

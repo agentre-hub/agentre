@@ -715,8 +715,10 @@ describe("ChatPanel · T17 breadcrumb 派生", () => {
 
     // 树里 id=2 的路径是 Agentre → backend
     const projectPath = screen.getByText("Agentre / backend");
-    expect(projectPath).toHaveClass("text-agent-5");
+    // 项目的身份色只留在图标上：它是为「色块 + 白字」调的，当文字读不出来。
     expect(projectPath.previousElementSibling).toHaveClass("text-agent-5");
+    expect(projectPath).toHaveClass("text-foreground");
+    expect(projectPath.className).not.toMatch(/(^|\s)text-agent-\d/);
     // session id 也显示
     expect(screen.getByText("sess-42")).toHaveClass("text-muted-foreground");
   });

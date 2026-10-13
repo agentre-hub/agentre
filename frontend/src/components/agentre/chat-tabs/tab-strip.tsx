@@ -205,13 +205,20 @@ const SortableTab = React.forwardRef<HTMLSpanElement, SortableTabProps>(
       <ContextMenu>
         <ContextMenuTrigger
           ref={setRef}
-          className="inline-flex h-full min-w-0 flex-shrink"
+          // 键盘焦点停在这一层（dnd-kit 的 attributes 给了 role="button" + tabIndex=0），
+          // 不是里面的 role="tab"。这一层填满会裁剪的标签条，向外的焦点环三边都被切掉，
+          // 所以向内画。向内的环落在自己的盒子里，而定位的子元素画在父元素的 outline
+          // 之上——带底色的标签页会把环整块盖住。所以这一层自成层叠上下文（isolate），
+          // 标签页沉到负层（下面的 -z-10），顺序才是「标签页 → 环」。两个类必须成对：
+          // 少了 isolate，标签页会掉到标签条的底色后面。
+          className="isolate inline-flex h-full min-w-0 flex-shrink focus-visible:focus-outline-inset"
           style={style}
           {...attributes}
           {...rest}
           {...listeners}
         >
           <Tab
+            className="-z-10"
             title={tab.title}
             kind={tab.kind}
             avatar={tab.avatar}

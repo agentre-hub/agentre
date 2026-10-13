@@ -47,13 +47,13 @@ export function formatResetIn(value: unknown, nowMs?: number): string {
 // 分表而不是拿 class 字符串去比较判断。
 const QUOTA_METER_TONE: Record<UsageLevel, string> = {
   ok: "text-muted-foreground",
-  warn: "text-status-waiting",
-  danger: "text-status-error",
+  warn: "text-status-waiting-text",
+  danger: "text-destructive-text",
 };
 const QUOTA_PANEL_TONE: Record<UsageLevel, string> = {
   ok: "text-foreground",
-  warn: "text-status-waiting",
-  danger: "text-status-error",
+  warn: "text-status-waiting-text",
+  danger: "text-destructive-text",
 };
 const LEVEL_FILL_TONE: Record<UsageLevel, string> = {
   ok: "bg-primary",
@@ -113,7 +113,7 @@ export function QuotaMeter({
             "flex min-w-0 cursor-default items-center gap-1.5 overflow-hidden rounded-sm border border-transparent px-1 py-0.5 whitespace-nowrap",
             "font-mono text-meta tabular-nums transition-colors motion-reduce:transition-none",
             "hover:border-border hover:bg-accent",
-            "focus-visible:border-border focus-visible:bg-accent focus-visible:outline-none",
+            "focus-visible:border-border focus-visible:bg-accent focus-visible:focus-outline",
             offline ? "text-muted-foreground" : "text-muted-foreground",
           )}
           aria-label={t("chat.quota.aria", {
@@ -289,7 +289,7 @@ function QuotaPanel({
         className={cn(
           "border-t border-border px-3 py-1.5 text-2xs",
           foot.warn
-            ? "bg-status-waiting-bg text-status-waiting"
+            ? "bg-status-waiting-bg text-status-waiting-text"
             : "bg-muted text-muted-foreground",
         )}
       >

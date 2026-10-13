@@ -45,7 +45,7 @@ function SessionFilterChips({
             aria-pressed={active}
             onClick={() => onChange(next)}
             className={cn(
-              "inline-flex cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-2xs outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none",
+              "inline-flex cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-2xs outline-none transition-colors focus-visible:focus-outline motion-reduce:transition-none",
               active
                 ? "bg-primary-soft font-medium text-primary-text"
                 : "bg-sidebar-active-bg text-muted-foreground hover:text-foreground",

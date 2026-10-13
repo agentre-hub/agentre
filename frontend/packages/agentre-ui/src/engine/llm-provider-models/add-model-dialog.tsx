@@ -215,7 +215,7 @@ export function AddModelDialog({
               </Field>
             </div>
             {error ? (
-              <p className="text-2xs text-status-error">{error}</p>
+              <p className="text-2xs text-destructive-text">{error}</p>
             ) : null}
           </DialogBody>
 

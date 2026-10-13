@@ -165,7 +165,7 @@ export function UpgradeStatus({
   if (phase.kind === "timeout") {
     return (
       <div className="flex flex-col gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5">
-        <div className="text-xs font-semibold text-destructive">
+        <div className="text-xs font-semibold text-destructive-text">
           {t("remoteDevices.upgrade.status.timeoutTitle")}
         </div>
         <div className="text-xs text-muted-foreground">
@@ -223,7 +223,7 @@ function UpgradeFailure({
   const copy = phase.reason ? FAILURE_COPY[phase.reason] : undefined;
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 p-2.5">
-      <div className="text-xs font-semibold text-destructive">
+      <div className="text-xs font-semibold text-destructive-text">
         {t(copy?.title ?? "remoteDevices.upgrade.failed.unknownTitle")}
       </div>
       {copy ? (

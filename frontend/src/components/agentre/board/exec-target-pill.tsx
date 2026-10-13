@@ -168,7 +168,7 @@ export function BoardExecTargetPill({
                   </span>
                 ) : null}
                 {!candidate.available ? (
-                  <span className="truncate text-2xs text-status-waiting">
+                  <span className="truncate text-2xs text-status-waiting-text">
                     {reasonLabel(candidate.reason, t)}
                   </span>
                 ) : null}

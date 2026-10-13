@@ -125,7 +125,7 @@ export function ActivityBlock({
         // 刻意不给 aria-label:组头的可见内容(N 步 / 汇总 / N 失败)本身就是
         // 折叠态唯一的信息出口,套一个 "展开活动" 的标签会把它盖掉。
         onClick={handleToggle}
-        className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-meta text-muted-foreground transition-colors duration-150 ease-out hover:bg-muted/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none"
+        className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-meta text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent/60 hover:on-accent focus-visible:focus-outline motion-reduce:transition-none"
       >
         <ChevronRight
           aria-hidden="true"
@@ -241,7 +241,7 @@ function ElidedSteps({
       data-testid="activity-elided"
       aria-expanded={false}
       onClick={handleClick}
-      className="flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left font-mono text-meta text-muted-foreground transition-colors duration-150 ease-out hover:bg-muted/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none"
+      className="flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left font-mono text-meta text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent/60 hover:on-accent focus-visible:focus-outline motion-reduce:transition-none"
     >
       <ChevronRight
         aria-hidden="true"
@@ -274,7 +274,7 @@ function BackgroundCount({ count }: { count: number }) {
   return (
     <span
       data-testid="activity-background"
-      className="flex shrink-0 items-center gap-1 font-mono text-status-running"
+      className="flex shrink-0 items-center gap-1 font-mono text-status-running-text"
     >
       <span
         aria-hidden="true"
@@ -293,7 +293,7 @@ function FailureCount({ count }: { count: number }) {
   return (
     <span
       data-testid="activity-failures"
-      className="shrink-0 font-mono font-semibold text-status-error"
+      className="shrink-0 font-mono font-semibold text-destructive-text"
     >
       {t("activity.summary.failures", { count })}
     </span>
@@ -346,12 +346,14 @@ function SummaryPart({ part }: { part: ActivitySummaryPart }) {
           {t("activity.summary.edit", { count: part.files ?? part.count })}
         </span>
         {part.plus ? (
-          <span className="font-semibold text-status-running">
+          <span className="font-semibold text-status-running-text">
             +{part.plus}
           </span>
         ) : null}
         {part.minus ? (
-          <span className="font-semibold text-destructive">−{part.minus}</span>
+          <span className="font-semibold text-destructive-text">
+            −{part.minus}
+          </span>
         ) : null}
       </span>
     );

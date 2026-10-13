@@ -6,7 +6,7 @@ import { cn } from "@agentre-hub/agentre-ui";
 
 import {
   agentColorClassNames,
-  agentTextColorClassNames,
+  agentIconColorClassNames,
   type AgentColor,
 } from "../types";
 
@@ -54,12 +54,17 @@ export function LeadBadge({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center rounded-sm bg-secondary font-mono font-semibold",
-        agentTextColorClassNames[color],
+        "inline-flex shrink-0 items-center rounded-sm bg-secondary font-mono font-semibold text-secondary-foreground",
         compact ? "gap-1 px-1 py-0.5 text-2xs" : "gap-1 px-1.5 py-0.5 text-2xs",
       )}
     >
-      <Crown className={compact ? "size-2" : "size-2.5"} aria-hidden="true" />
+      <Crown
+        className={cn(
+          compact ? "size-2" : "size-2.5",
+          agentIconColorClassNames[color],
+        )}
+        aria-hidden="true"
+      />
       {t("org.department.leadBadge")}
     </span>
   );

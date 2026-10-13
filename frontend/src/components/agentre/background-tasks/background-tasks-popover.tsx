@@ -87,7 +87,7 @@ export function BackgroundTasksPopoverContent({
               type="button"
               onClick={() => setEndedOpen(false)}
               aria-label={t("chatPanel.backgroundTasks.back")}
-              className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground outline-none focus-visible:focus-outline"
             >
               <ChevronLeft className="size-3.5" aria-hidden="true" />
             </button>
@@ -108,7 +108,7 @@ export function BackgroundTasksPopoverContent({
             <button
               type="button"
               onClick={onClearCompleted}
-              className="shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-2xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-2xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground outline-none focus-visible:focus-outline"
             >
               {t("chatPanel.backgroundTasks.clear")}
             </button>
@@ -147,7 +147,7 @@ export function BackgroundTasksPopoverContent({
           <button
             type="button"
             onClick={() => setEndedOpen(true)}
-            className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline"
           >
             <span className="flex-1">
               {t("chatPanel.backgroundTasks.ended")}
@@ -297,7 +297,7 @@ function TaskRow({
           title={t("chatPanel.backgroundTasks.locate")}
           className={cn(
             bodyClassName,
-            "cursor-pointer rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "cursor-pointer rounded-md text-left outline-none focus-visible:focus-outline",
           )}
         >
           {body}
@@ -311,7 +311,7 @@ function TaskRow({
           onClick={() => onStopTask(task)}
           aria-label={t("chatPanel.backgroundTasks.stop")}
           title={t("chatPanel.backgroundTasks.stop")}
-          className="mr-1.5 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mr-1.5 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text outline-none focus-visible:focus-outline"
         >
           <Square className="size-3 fill-current" />
         </button>
@@ -363,7 +363,7 @@ function StatusLabel({ status }: { status: BackgroundTask["status"] }) {
   if (status === "failed") {
     return (
       <>
-        <span className="whitespace-nowrap text-destructive">
+        <span className="whitespace-nowrap text-destructive-text">
           {t("chatPanel.backgroundTasks.failed")}
         </span>
         {dot}

@@ -193,7 +193,7 @@ export function ExecTargetSkillsBlock(props: Props) {
               chip.tone === "inherit"
                 ? "border-border bg-secondary/60 text-muted-foreground"
                 : chip.tone === "off"
-                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  ? "border-destructive/30 bg-destructive/10 text-destructive-text"
                   : "border-border bg-card";
             return (
               <span

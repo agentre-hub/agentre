@@ -127,7 +127,7 @@ export const Tab = React.forwardRef<
         {title}
       </span>
       {pillText ? (
-        <span className="inline-flex items-center rounded-sm border border-status-waiting bg-status-waiting-bg px-1.5 text-[9px] font-semibold text-status-waiting">
+        <span className="inline-flex items-center rounded-sm border border-status-waiting bg-status-waiting-bg px-1.5 text-[9px] font-semibold text-status-waiting-text">
           {pillText}
         </span>
       ) : null}

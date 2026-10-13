@@ -34,7 +34,11 @@ export const agentColorClassNames: Record<AgentColor, string> = {
   neutral: "bg-agent-neutral",
 };
 
-export const agentTextColorClassNames: Record<AgentColor, string> = {
+/**
+ * 身份色画在**图标**上时的类名。只给图形用：身份色是为「色块 + 白字」调的，
+ * 当文字读不出来（暗色对 card 3.5）。文字用中性色，见 docs/design.md §3.6。
+ */
+export const agentIconColorClassNames: Record<AgentColor, string> = {
   "agent-1": "text-agent-1",
   "agent-2": "text-agent-2",
   "agent-3": "text-agent-3",
@@ -54,13 +58,13 @@ export const agentTextColorClassNames: Record<AgentColor, string> = {
   neutral: "text-foreground",
 };
 
-export function agentTextColorClassName(
+export function agentIconColorClassName(
   token: string | null | undefined,
   fallback: AgentColor = "agent-1",
 ): string {
-  if (!token) return agentTextColorClassNames[fallback];
+  if (!token) return agentIconColorClassNames[fallback];
   return (
-    agentTextColorClassNames[token as AgentColor] ??
-    agentTextColorClassNames[fallback]
+    agentIconColorClassNames[token as AgentColor] ??
+    agentIconColorClassNames[fallback]
   );
 }

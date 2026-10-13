@@ -37,7 +37,7 @@ export const ToolPermissionOverlay: React.FC<{
       className="mt-2 flex items-center gap-2 rounded border border-status-waiting/40 bg-status-waiting-bg px-2 py-1 text-xs"
       data-testid="tool-permission-overlay"
     >
-      <span className="text-status-waiting">
+      <span className="text-status-waiting-text">
         {t("canonical.raw.permission.waiting")}
       </span>
       <Button

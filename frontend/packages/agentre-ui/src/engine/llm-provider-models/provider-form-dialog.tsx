@@ -107,15 +107,15 @@ export function ProviderFormDialog({
             )}
 
             {form.error ? (
-              <p className="text-2xs text-status-error">{form.error}</p>
+              <p className="text-2xs text-destructive-text">{form.error}</p>
             ) : null}
             {form.flash ? (
               <Alert
                 className={cn(
                   "py-2",
                   form.flash.kind === "ok"
-                    ? "border-status-running/40 bg-status-running/10 text-status-running"
-                    : "border-status-error/40 bg-status-error/10 text-status-error",
+                    ? "border-status-running/40 bg-status-running/10 text-status-running-text"
+                    : "border-status-error/40 bg-status-error/10 text-destructive-text",
                 )}
               >
                 {form.flash.kind === "ok" ? (

@@ -222,8 +222,8 @@ function LlmProvidersPanelBody({
             className={cn(
               "py-2",
               flash.kind === "ok"
-                ? "border-status-running/40 bg-status-running/10 text-status-running"
-                : "border-status-error/40 bg-status-error/10 text-status-error",
+                ? "border-status-running/40 bg-status-running/10 text-status-running-text"
+                : "border-status-error/40 bg-status-error/10 text-destructive-text",
             )}
           >
             {flash.kind === "ok" ? (

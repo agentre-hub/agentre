@@ -58,7 +58,7 @@ export function RemovedDevices({ devices, onRestore }: RemovedDevicesProps) {
               <span className="min-w-0 truncate text-sm">{d.name}</span>
               <div className="flex shrink-0 items-center gap-2">
                 {failed === d.fingerprint ? (
-                  <span className="text-xs text-status-error">
+                  <span className="text-xs text-destructive-text">
                     {t("remoteDevices.removed.restoreFailed")}
                   </span>
                 ) : null}

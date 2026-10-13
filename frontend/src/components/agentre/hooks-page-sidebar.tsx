@@ -48,7 +48,7 @@ export function HooksSidebar({
             <Plus className="h-3.5 w-3.5" />
           </Button>
         </div>
-        <div className="flex items-center gap-2 rounded-md border border-control-border bg-input-bg px-2.5">
+        <div className="flex items-center gap-2 rounded-md border border-field-border bg-input-bg px-2.5 focus-within:focus-halo">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <input
             value={query}
@@ -113,7 +113,7 @@ function HookListItem({
         "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors",
         selected
           ? "border-l-2 border-primary bg-primary/5"
-          : "hover:bg-muted/60",
+          : "hover:bg-accent/60 hover:on-accent",
       )}
     >
       <span

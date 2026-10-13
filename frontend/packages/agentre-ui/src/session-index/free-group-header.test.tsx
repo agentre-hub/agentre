@@ -109,7 +109,7 @@ describe("FreeGroupHeader", () => {
     );
 
     const mark = screen.getByTestId("free-attention-mark");
-    expect(mark.className).toContain("text-status-error");
+    expect(mark.className).toContain("text-destructive-text");
     expect(mark.querySelector("span")?.className).toContain("bg-status-error");
   });
 });

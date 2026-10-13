@@ -206,9 +206,12 @@ function PreviewTab({
           onDoubleClick={onDoublePromote}
           className={cn(
             "relative flex h-full min-w-[96px] max-w-[150px] flex-shrink items-center gap-1.5 border-r border-border pl-2.5 pr-1.5 text-2xs",
+            // 标签填满这条会裁剪的带子，向外的焦点环会被切掉，所以向内画。
+            "focus-visible:focus-outline-inset",
             active
               ? "bg-background text-foreground"
-              : "text-muted-foreground hover:bg-card",
+              : // 带子是 bg-muted，暗色下 muted ≡ card：向 card「提亮」等于没动。
+                "text-muted-foreground hover:bg-accent",
           )}
         >
           {active ? (

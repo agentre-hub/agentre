@@ -14,7 +14,7 @@ export function InvalidTargetBanner({ targetLabel }: { targetLabel: string }) {
     <div className="border-b border-border p-2">
       <div
         data-testid="invalid-banner"
-        className="flex items-start gap-2 rounded-lg bg-status-waiting-bg px-2.5 py-2 text-2xs text-status-waiting"
+        className="flex items-start gap-2 rounded-lg bg-status-waiting-bg px-2.5 py-2 text-2xs text-status-waiting-text"
       >
         <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden="true" />
         <span>

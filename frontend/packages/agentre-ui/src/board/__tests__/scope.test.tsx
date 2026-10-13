@@ -2,6 +2,8 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { edgeTokenOf } from "../../styles/__testing__/tokens";
+import { Input } from "../../ui/input";
 import { ProjectScopePicker } from "../project-scope-picker";
 import { buildScopeRows, filterScopeRows } from "../scope-tree";
 import type { ProjectScope, ScopeProjectNode } from "../query-types";
@@ -107,6 +109,18 @@ describe("范围触发器", () => {
     expect(path.className).toContain("min-w-0");
     // 同名子项目从尾部截断会变成同一个样子，所以名字这一段不许被压缩。
     expect(name.className).toContain("shrink-0");
+  });
+});
+
+describe("范围触发器的边", () => {
+  it("Given the trigger sits in the filter row next to the search box, When it rests, Then its edge is the field tier", () => {
+    renderPicker({ kind: "all" });
+    render(<Input aria-label="reference" />);
+
+    // 它是一颗下拉式的字段，和输入框同一档——不是复选框那档的重边。
+    expect(edgeTokenOf(screen.getByTestId("scope-trigger"))).toBe(
+      edgeTokenOf(screen.getByRole("textbox", { name: "reference" })),
+    );
   });
 });
 

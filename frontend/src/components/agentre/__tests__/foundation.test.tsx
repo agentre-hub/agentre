@@ -326,6 +326,19 @@ describe("Agentre foundation components", () => {
     expect(
       screen.getByRole("button", { name: "Close window" }),
     ).toBeInTheDocument();
+    // 标题栏上这四颗都去掉了浏览器默认的 outline：键盘焦点只剩一层 rail-accent
+    // 底色（对 rail 1.19 / 1.27），命令面板入口更是什么都没有。按钮类一律画
+    // 共享的那一圈实色环。
+    for (const name of [
+      /Open command palette/,
+      "Minimize window",
+      "Maximize window",
+      "Close window",
+    ]) {
+      expect(screen.getByRole("button", { name })).toHaveClass(
+        "focus-visible:focus-outline",
+      );
+    }
     expect(
       screen.queryByRole("button", { name: /通知/ }),
     ).not.toBeInTheDocument();

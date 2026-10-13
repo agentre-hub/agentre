@@ -91,7 +91,7 @@ function WindowsWindowControls({ className }: WindowsWindowControlsProps) {
       <button
         type="button"
         aria-label={t("app.window.minimize")}
-        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:bg-rail-accent focus-visible:text-accent-foreground"
+        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:bg-rail-accent focus-visible:text-accent-foreground focus-visible:focus-outline"
         onClick={() => runWindowAction(WindowMinimise)}
       >
         <Minus className="size-4" aria-hidden="true" />
@@ -99,7 +99,7 @@ function WindowsWindowControls({ className }: WindowsWindowControlsProps) {
       <button
         type="button"
         aria-label={t("app.window.maximize")}
-        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:bg-rail-accent focus-visible:text-accent-foreground"
+        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:bg-rail-accent focus-visible:text-accent-foreground focus-visible:focus-outline"
         onClick={() => runWindowAction(WindowToggleMaximise)}
       >
         <Square className="size-3.5" aria-hidden="true" />
@@ -107,7 +107,7 @@ function WindowsWindowControls({ className }: WindowsWindowControlsProps) {
       <button
         type="button"
         aria-label={t("app.window.close")}
-        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-destructive hover:text-destructive-foreground focus-visible:bg-destructive focus-visible:text-destructive-foreground dark:hover:bg-destructive/60 dark:focus-visible:bg-destructive/60"
+        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-destructive hover:text-destructive-foreground focus-visible:bg-destructive focus-visible:text-destructive-foreground dark:hover:bg-destructive/60 dark:focus-visible:bg-destructive/60 focus-visible:focus-outline"
         onClick={() => runWindowAction(Quit)}
       >
         <X className="size-4" aria-hidden="true" />
@@ -153,7 +153,7 @@ function CommandPaletteTrigger({
       aria-label={openLabel}
       title={openLabel}
       className={cn(
-        "hidden h-[30px] w-[520px] max-w-[40vw] items-center gap-2 rounded-md border border-border bg-card/60 px-2 text-left text-xs text-muted-foreground shadow-xs outline-none transition-colors hover:bg-card hover:text-foreground md:flex",
+        "hidden h-[30px] w-[520px] max-w-[40vw] items-center gap-2 rounded-md border border-border bg-card/60 px-2 text-left text-xs text-muted-foreground shadow-xs outline-none transition-colors hover:bg-card hover:text-foreground focus-visible:focus-outline md:flex",
         "wails-no-drag cursor-text",
         className,
       )}
@@ -271,7 +271,7 @@ function UpdateStatusPill({
   }
 
   const base =
-    "wails-no-drag inline-flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50";
+    "wails-no-drag inline-flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 font-medium transition-colors focus-visible:focus-outline";
 
   let content: React.ReactNode;
   let tone = "text-muted-foreground hover:bg-accent hover:text-foreground";
@@ -328,7 +328,7 @@ function UpdateStatusPill({
         </>
       );
       tone =
-        "border border-status-running/30 bg-status-running-bg text-status-running hover:opacity-90";
+        "border border-status-running/30 bg-status-running-bg text-status-running-text hover:opacity-90";
       ariaLabel = t("update.pill.aria.installed", {
         version: phase.info.latestVersion,
       });
@@ -341,7 +341,7 @@ function UpdateStatusPill({
         </>
       );
       tone =
-        "border border-destructive/30 bg-destructive-soft text-destructive hover:opacity-90";
+        "border border-destructive/30 bg-destructive-soft text-destructive-text hover:opacity-90";
       ariaLabel = t("update.pill.aria.failed", { version });
       break;
     default:
@@ -444,7 +444,7 @@ function AppStatusBar({
               summary: attentionSummary,
             })}
             title={attentionSummary}
-            className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded font-medium text-status-waiting transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded font-medium text-status-waiting-text transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:focus-outline"
           >
             <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="min-w-0 truncate">{attentionSummary}</span>

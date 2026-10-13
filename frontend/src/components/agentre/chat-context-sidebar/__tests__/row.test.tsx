@@ -251,8 +251,9 @@ describe("行的统一点击语义", () => {
     renderChanges({});
     await setupUser().click(screen.getByRole("button", { name: /README\.md/ }));
 
-    expect(rowOf("README.md").className).toContain("bg-accent");
-    expect(rowOf("chat.go").className).not.toContain("bg-accent");
+    // 按整个类名比：悬停用的 `hover:bg-accent/60` 里也含有 "bg-accent" 这几个字。
+    expect(rowOf("README.md")).toHaveClass("bg-accent");
+    expect(rowOf("chat.go")).not.toHaveClass("bg-accent");
   });
 
   it("双击可预览行把它转成常驻标签", async () => {
@@ -315,7 +316,7 @@ describe("不可预览的行", () => {
     const row = rowOf("archive.zip");
 
     // 预览渲染不了它,但系统能打开它——这一行因此与其余文件行同形。
-    expect(row.className).toContain("hover:bg-muted");
+    expect(row.className).toContain("hover:bg-accent");
 
     await setupUser().click(
       within(row).getByRole("button", { name: /archive\.zip/ }),
@@ -339,7 +340,7 @@ describe("不可预览的行", () => {
     expect(within(row).queryByRole("button", { name: /archive\.zip/ })).toBe(
       null,
     );
-    expect(row.className).not.toContain("hover:bg-muted");
+    expect(row.className).not.toContain("hover:bg-accent");
 
     await setupUser().click(within(row).getByText("archive.zip"));
     expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1)).toBe(

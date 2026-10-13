@@ -280,7 +280,7 @@ export function ProjectHeaderActions(props: ProjectHeaderActionsProps) {
   const loadingRef = React.useRef(false);
 
   const affordance = cn(
-    "shrink-0 cursor-pointer rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+    "shrink-0 cursor-pointer rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:focus-outline",
     groupActionRevealTouchClassName,
   );
 
@@ -336,7 +336,7 @@ export function ProjectHeaderActions(props: ProjectHeaderActionsProps) {
             name: props.projectName,
           })}
           className={cn(
-            "shrink-0 cursor-pointer rounded-sm bg-muted px-1 py-0.5 text-3xs font-normal text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+            "shrink-0 cursor-pointer rounded-sm bg-muted px-1 py-0.5 text-3xs font-normal text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:focus-outline",
           )}
           {...affordanceProps(() =>
             props.onOpenSettings(props.projectId, SECTION_PATHS),
@@ -405,7 +405,7 @@ export function ProjectHeaderActions(props: ProjectHeaderActionsProps) {
           {membersFailed ? (
             <p
               data-testid="project-add-failed"
-              className="px-2 py-2 text-xs text-destructive"
+              className="px-2 py-2 text-xs text-destructive-text"
             >
               {t("projectHeader.add.failed")}
             </p>

@@ -15,6 +15,7 @@ import {
 import {
   readTerminalTheme,
   TERMINAL_FONT_FAMILY,
+  TERMINAL_MIN_CONTRAST_RATIO,
 } from "../../terminal/terminal-theme";
 
 import { useLocalCommand, useLocalCommandsAccess } from "./access";
@@ -72,6 +73,7 @@ export function OutputTerminal({ terminalId }: { terminalId: string }) {
       fontFamily: TERMINAL_FONT_FAMILY,
       fontSize: 13,
       theme: readTerminalTheme(),
+      minimumContrastRatio: TERMINAL_MIN_CONTRAST_RATIO,
       scrollback: 1000,
       disableStdin: true,
       cursorBlink: false,

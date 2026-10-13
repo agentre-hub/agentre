@@ -30,10 +30,10 @@ export function AvailableCard({
   const unknownVersionLabel = t("update.version.unknown");
 
   return (
-    <section className="overflow-hidden rounded-lg border border-agent-1/30 bg-agent-1/5">
-      <div className="flex flex-wrap items-center gap-3 border-b border-agent-1/20 px-4 py-3">
+    <section className="overflow-hidden rounded-lg border border-primary/30 bg-primary-soft">
+      <div className="flex flex-wrap items-center gap-3 border-b border-primary/20 px-4 py-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h2 className="text-sm font-semibold text-agent-1">
+          <h2 className="text-sm font-semibold text-primary-text">
             {t("update.release.available", {
               version: formatVersion(info.latestVersion, unknownVersionLabel),
             })}
@@ -61,7 +61,7 @@ export function AvailableCard({
           <div className="flex flex-col gap-2">
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-agent-1 transition-[width] duration-200"
+                className="h-full rounded-full bg-primary transition-[width] duration-200"
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -97,7 +97,7 @@ export function InstalledCard({
     <section className="overflow-hidden rounded-lg border border-status-running/30 bg-status-running-bg">
       <div className="flex flex-wrap items-center gap-3 border-b border-status-running/20 px-4 py-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h2 className="text-sm font-semibold text-status-running">
+          <h2 className="text-sm font-semibold text-status-running-text">
             {t("update.installed.title", {
               version: formatVersion(info.latestVersion, unknownVersionLabel),
             })}

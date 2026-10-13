@@ -534,7 +534,7 @@ describe("ProviderPill · Composer 四态（mockup ?view=chat：单行，脸上�
     expect(pill).toHaveClass("hover:bg-accent");
     expect(pill.className).not.toMatch(/hover:border-/);
     // focus-visible ring 是键盘用户的唯一定位手段，不能被 hover 改动顺手抹掉。
-    expect(pill).toHaveClass("focus-visible:ring-2");
+    expect(pill).toHaveClass("focus-visible:focus-outline");
     expect(screen.getByTestId("follow-agent-icon")).toBeInTheDocument();
     // 跟随 Agent 态由人形图标表达，不挂供应商品牌标识（mockup 四态样品第一格）。
     expect(within(pill).queryByRole("img")).not.toBeInTheDocument();
@@ -660,7 +660,7 @@ describe("ProviderPill · Composer 四态（mockup ?view=chat：单行，脸上�
       "cursor-pointer",
       "border-status-waiting",
       "bg-status-waiting-bg",
-      "text-status-waiting",
+      "text-status-waiting-text",
     );
     expect(
       within(pill).queryByTestId("model-target-trigger-sub"),

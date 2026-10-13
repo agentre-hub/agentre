@@ -284,7 +284,7 @@ export function ExecTargetList(props: Props) {
             </PopoverContent>
           </Popover>
           {props.saveRejected && (
-            <p className="mt-1.5 text-2xs text-destructive">
+            <p className="mt-1.5 text-2xs text-destructive-text">
               {t("org.agent.execTargets.saveRejected")}
             </p>
           )}

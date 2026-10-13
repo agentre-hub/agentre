@@ -188,7 +188,7 @@ function ChainNode({
     <span
       className={
         state === "configured"
-          ? "rounded-md border border-status-running/30 bg-status-running-bg px-2 py-1 text-status-running"
+          ? "rounded-md border border-status-running/30 bg-status-running-bg px-2 py-1 text-status-running-text"
           : state === "possible"
             ? "rounded-md border border-border bg-background px-2 py-1 text-muted-foreground"
             : "rounded-md border border-status-waiting/40 bg-status-waiting-bg px-2 py-1 font-medium text-foreground"

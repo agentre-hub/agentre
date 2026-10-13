@@ -137,7 +137,7 @@ describe("IndexGroupRow regressions", () => {
     });
 
     const mark = screen.getByTestId("project-attention-mark");
-    expect(mark.className).toMatch(/text-status-error/);
+    expect(mark.className).toMatch(/text-destructive-text/);
     expect(mark.textContent).toContain("3");
   });
 

@@ -47,9 +47,9 @@ export function BoardCardMenu({
           aria-label={t("board.cardMenu")}
           className={cn(
             "inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity",
-            "hover:bg-secondary hover:text-foreground",
+            "hover:bg-accent hover:text-foreground",
             "group-hover/card:opacity-100 group-focus-within/card:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100",
-            "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+            "focus-visible:focus-outline",
             className,
           )}
         >

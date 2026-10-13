@@ -131,7 +131,7 @@ describe("DropdownMenu", () => {
     );
     expect(screen.getByRole("menuitem", { name: "删除" })).toHaveClass(
       "data-[variant=destructive]:hover:bg-destructive/10",
-      "data-[variant=destructive]:hover:text-destructive",
+      "data-[variant=destructive]:hover:text-destructive-text",
     );
     expect(
       screen.getByRole("menuitemcheckbox", { name: "显示归档" }),

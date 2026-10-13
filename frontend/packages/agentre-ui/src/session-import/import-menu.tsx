@@ -70,7 +70,7 @@ export function ImportLocalSessionMenu({
           tabIndex={0}
           aria-label={t("importSession.menuAria", { name: label })}
           className={cn(
-            "shrink-0 cursor-pointer rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+            "shrink-0 cursor-pointer rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:focus-outline",
             groupActionRevealTouchClassName,
           )}
           onClick={(e) => e.stopPropagation()}

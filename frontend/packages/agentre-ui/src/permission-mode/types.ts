@@ -57,7 +57,7 @@ export const PERMISSION_MODE_META_UI: Record<string, PermissionModeMetaUI> = {
     iconName: "clipboard-list",
     descKey: "permissionMode.meta.plan.desc",
     pillClass:
-      "bg-status-waiting-bg text-status-waiting border-status-waiting/60",
+      "bg-status-waiting-bg text-status-waiting-text border-status-waiting/60",
     iconClass: "text-status-waiting",
   },
   bypassPermissions: {
@@ -65,7 +65,8 @@ export const PERMISSION_MODE_META_UI: Record<string, PermissionModeMetaUI> = {
     label: "Bypass",
     iconName: "shield-off",
     descKey: "permissionMode.meta.bypassPermissions.desc",
-    pillClass: "bg-destructive-soft text-destructive border-destructive/60",
+    pillClass:
+      "bg-destructive-soft text-destructive-text border-destructive/60",
     iconClass: "text-destructive",
   },
 };

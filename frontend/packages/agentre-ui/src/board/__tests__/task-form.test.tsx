@@ -149,6 +149,27 @@ describe("表单外壳", () => {
 });
 
 describe("阶段与项目两颗属性 pill", () => {
+  it.each([
+    ["review" as const, "text-status-waiting"],
+    ["done" as const, "text-status-running"],
+  ])(
+    "Given a task in %s, When the stage pill renders, Then its mark keeps the status fill color",
+    (stage, fill) => {
+      // 阶段记号是图形不是字：留在饱和的填充色上，`-text` 角色只给要读的字
+      // （docs/design.md §3.5）。pill 里的阶段名本来就是中性色。
+      renderForm({
+        initial: initialTaskFormValue({
+          issue: { id: 12, title: "t", stage, projectId: 1 },
+        }),
+      });
+
+      const mark = screen.getByTestId("task-pill-stage").querySelector("svg");
+
+      expect(mark).toHaveClass(fill);
+      expect(mark).not.toHaveClass(`${fill}-text`);
+    },
+  );
+
   it("Given an existing task, When its stage pill is used, Then the stage is still editable", async () => {
     const user = userEvent.setup();
     const { onSave } = renderForm({
@@ -363,5 +384,24 @@ describe("表单上的标签", () => {
       "aria-pressed",
       "false",
     );
+  });
+
+  it("Given a label on the task, When its remove key takes keyboard focus, Then it is revealed and draws the shared outline", () => {
+    // 这颗 × 平时是透明的。键盘走到它身上时只把它显出来还不够——一枚 12px 的
+    // 字形出现在标签里，看不出焦点就在它身上；去掉 outline 更是把唯一的环也抹了。
+    renderForm({
+      initial: initialTaskFormValue({
+        issue: { labelIds: [2] },
+        scope: { kind: "all" },
+      }),
+    });
+
+    const remove = screen.getByTestId("task-label-remove-2");
+
+    expect(remove).toHaveClass(
+      "focus-visible:opacity-100",
+      "focus-visible:focus-outline",
+    );
+    expect(remove).not.toHaveClass("focus-visible:outline-none");
   });
 });

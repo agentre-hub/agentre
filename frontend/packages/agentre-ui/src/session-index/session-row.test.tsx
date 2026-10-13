@@ -29,6 +29,17 @@ function row(
   };
 }
 
+describe("SessionRow keyboard focus", () => {
+  it("Given a row flush against the index's clipped edge, When it takes keyboard focus, Then the ring is drawn inward so no side is cut off", () => {
+    // 会话列表的容器是 overflow-hidden，行右侧贴边（余量 0px）。向外的环右边被裁。
+    render(<SessionRow status="idle" title="session-1" trailingLabel="5m" />);
+
+    const row = screen.getByRole("button", { name: /session-1/ });
+    expect(row).toHaveClass("focus-visible:focus-outline-inset");
+    expect(row).not.toHaveClass("focus-visible:focus-outline");
+  });
+});
+
 describe("SessionRow navigation seam", () => {
   it("Given no href, When the row renders, Then it stays a button (desktop opens a tab, there is no address)", () => {
     render(<SessionRow status="idle" title="session-1" trailingLabel="5m" />);

@@ -28,8 +28,8 @@ export const TASK_PILL_CLASS = cn(
   // `justify-between` `bg-input-bg`，那三条与本串不冲突、tailwind-merge 全留着，
   // 模型那一颗于是撑满、填色，和左右两颗不是同一个形状。
   "w-auto justify-start bg-transparent",
-  "hover:bg-secondary/60",
-  "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+  "hover:bg-accent/60 hover:on-accent",
+  "focus-visible:focus-outline",
   "disabled:cursor-not-allowed disabled:opacity-50",
 );
 
@@ -217,7 +217,7 @@ export function TaskLabelChips({
             disabled={disabled}
             onClick={() => onChange(labelIds.filter((id) => id !== label.id))}
             // 悬停某一颗才露出它自己的移除键，不让一排 × 抢走标签本身的注意力。
-            className="cursor-pointer opacity-0 transition-opacity group-hover/label:opacity-100 focus-visible:opacity-100 focus-visible:outline-none"
+            className="cursor-pointer opacity-0 transition-opacity group-hover/label:opacity-100 focus-visible:opacity-100 focus-visible:focus-outline"
           >
             <X className="size-3" aria-hidden="true" />
           </button>
@@ -230,7 +230,7 @@ export function TaskLabelChips({
             data-testid="task-label-add"
             disabled={disabled}
             aria-label={t("board.form.addLabel")}
-            className="inline-flex size-5 cursor-pointer items-center justify-center rounded-full border border-dashed border-border-strong text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex size-5 cursor-pointer items-center justify-center rounded-full border border-dashed border-border-strong text-muted-foreground transition-colors hover:text-foreground focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus className="size-3" aria-hidden="true" />
           </button>
@@ -253,7 +253,7 @@ export function TaskLabelChips({
                     )
                   }
                   className={cn(
-                    "cursor-pointer rounded-full px-2 py-0.5 text-2xs transition-opacity focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                    "cursor-pointer rounded-full px-2 py-0.5 text-2xs transition-opacity focus-visible:focus-outline",
                     toneClass(label.tone),
                     active
                       ? "ring-1 ring-primary"

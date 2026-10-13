@@ -81,7 +81,7 @@ export function ModelsTable({
       className="min-w-[560px] @min-[560px]:min-w-0"
     >
       <TableHeader>
-        <TableRow className="bg-secondary hover:bg-secondary">
+        <TableRow className="bg-secondary">
           <TableHead className="w-[40px] px-4">
             <Checkbox
               aria-label={t("llmProviders.modelsTable.selectAll")}
@@ -132,7 +132,7 @@ export function ModelsTable({
             <TableRow
               key={model.id}
               className={cn(
-                "align-top hover:bg-accent/45",
+                "align-top hover:bg-accent/45 hover:on-accent",
                 // 停用的模型整行压暗，与行内「已停用」徽标一起给出状态
                 !model.enabled && "opacity-55",
               )}
@@ -168,7 +168,7 @@ export function ModelsTable({
                         </span>
                       ) : null}
                       {model.enabled ? null : (
-                        <span className="shrink-0 rounded-sm bg-status-waiting/10 px-1.5 py-0.5 text-2xs font-medium text-status-waiting">
+                        <span className="shrink-0 rounded-sm bg-status-waiting/10 px-1.5 py-0.5 text-2xs font-medium text-status-waiting-text">
                           {t("llmProviders.modelsTable.disabled")}
                         </span>
                       )}
@@ -179,7 +179,7 @@ export function ModelsTable({
                       </span>
                       {passedDuration ? (
                         <span
-                          className="shrink-0 rounded-sm bg-status-running/10 px-1.5 py-0.5 text-2xs font-medium text-status-running"
+                          className="shrink-0 rounded-sm bg-status-running/10 px-1.5 py-0.5 text-2xs font-medium text-status-running-text"
                           title={t("llmProviders.modelsTable.testPassedHint", {
                             duration: passedDuration,
                           })}
@@ -193,10 +193,10 @@ export function ModelsTable({
                         className={cn(
                           "text-2xs",
                           del.kind === "default"
-                            ? "text-status-error"
+                            ? "text-destructive-text"
                             : refCount > 0
-                              ? "text-status-waiting"
-                              : "text-status-running",
+                              ? "text-status-waiting-text"
+                              : "text-status-running-text",
                         )}
                       >
                         {del.kind === "default"

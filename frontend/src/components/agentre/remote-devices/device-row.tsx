@@ -277,7 +277,7 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
         <UpgradeStatus phase={upgrade.phase} deviceId={lan?.id ?? 0} t={t} />
       ) : friendlyErr ? (
         <div
-          className={`text-xs ${isTofu ? "text-destructive" : "text-muted-foreground"}`}
+          className={`text-xs ${isTofu ? "text-destructive-text" : "text-muted-foreground"}`}
         >
           {friendlyErr}
         </div>

@@ -11,8 +11,8 @@ import type { LabelMutation, LabelUsageView } from "./query-types";
 
 const ACTION_CLASS = cn(
   "cursor-pointer rounded-md p-1 text-muted-foreground transition-colors",
-  "hover:bg-secondary hover:text-foreground",
-  "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+  "hover:bg-accent hover:text-foreground",
+  "focus-visible:focus-outline",
   "disabled:cursor-not-allowed disabled:opacity-50",
 );
 
@@ -60,7 +60,7 @@ export function LabelManagerPanel({
           <div
             key={label.id}
             data-testid={`label-row-${label.id}`}
-            className="flex flex-col gap-1 rounded-md px-2 py-1.5 hover:bg-secondary/40"
+            className="flex flex-col gap-1 rounded-md px-2 py-1.5 hover:bg-accent/60 hover:on-accent"
           >
             <div className="flex items-center gap-2">
               {state.renaming === label.id ? (
@@ -159,7 +159,7 @@ export function LabelManagerPanel({
                     type="button"
                     data-testid={`label-delete-cancel-${label.id}`}
                     onClick={state.cancelDelete}
-                    className="cursor-pointer rounded-md px-2 py-1 text-2xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                    className="cursor-pointer rounded-md px-2 py-1 text-2xs text-muted-foreground hover:text-foreground focus-visible:focus-outline"
                   >
                     {t("board.form.cancel")}
                   </button>
@@ -170,7 +170,7 @@ export function LabelManagerPanel({
                     onClick={() =>
                       state.mutate({ kind: "delete", id: label.id })
                     }
-                    className="cursor-pointer rounded-md bg-destructive px-2 py-1 text-2xs text-destructive-foreground transition-colors hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-destructive/60"
+                    className="cursor-pointer rounded-md bg-destructive px-2 py-1 text-2xs text-destructive-foreground transition-colors hover:bg-destructive/90 focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50 dark:bg-destructive/60"
                   >
                     {t("board.delete")}
                   </button>
@@ -201,7 +201,7 @@ export function LabelManagerPanel({
                 tone: state.newTone,
               })
             }
-            className="h-7 cursor-pointer rounded-md bg-primary px-2.5 text-2xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-7 cursor-pointer rounded-md bg-primary px-2.5 text-2xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t("board.labels.create")}
           </button>

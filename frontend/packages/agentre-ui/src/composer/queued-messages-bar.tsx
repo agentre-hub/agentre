@@ -55,7 +55,7 @@ export function QueuedMessagesBar({
             className="size-3 shrink-0 text-status-error"
             aria-hidden="true"
           />
-          <span className="text-2xs font-semibold text-status-error">
+          <span className="text-2xs font-semibold text-destructive-text">
             {t("queuedMessages.dropped.title", {
               count: dropped.length,
             })}
@@ -65,7 +65,7 @@ export function QueuedMessagesBar({
             type="button"
             aria-label={t("queuedMessages.dropped.discard")}
             onClick={onDiscardDropped}
-            className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-sm border border-status-error/40 px-2 text-2xs font-medium text-status-error transition-colors hover:bg-destructive-soft hover:text-status-error"
+            className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-sm border border-status-error/40 px-2 text-2xs font-medium text-destructive-text transition-colors hover:bg-destructive-soft hover:text-destructive-text"
           >
             {t("queuedMessages.dropped.discard")}
           </button>
@@ -91,7 +91,7 @@ export function QueuedMessagesBar({
               />
               <span
                 data-selectable-text="true"
-                className="min-w-0 flex-1 truncate text-xs text-status-error"
+                className="min-w-0 flex-1 truncate text-xs text-destructive-text"
               >
                 {q.text}
               </span>

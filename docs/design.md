@@ -33,7 +33,7 @@ Every UI change must satisfy all of these. They are the bar for "consistent, fri
 - **Both themes, always.** Light and dark are first-class. Because every color comes from a token that has a `:root` and a `.dark` value, using tokens makes a component theme-correct for free. Verify on real light *and* dark before considering anything done (§4).
 - **This is a desktop window, not a web page.** The shell is a fixed Wails frame — title bar → icon rail → resizable sidebar → tab strip → panel → status bar (§7). `html, body, #root` are `height:100%; overflow:hidden`, and the body defaults to `user-select:none`; text selection is **opted into** per region, not the default (§7). There is **no mobile breakpoint** and no `useIsMobile` — design for a resizable desktop window (min `860×640`), not a phone.
 - **No inline `style={{}}` for what Tailwind can express.** Compose utility classes via `cn()` (`clsx` + `tailwind-merge`); build variants with `class-variance-authority` (CVA). Inline styles only for genuinely dynamic values (a computed width, a per-agent `var(--agent-N)` color, a `display` toggle).
-- **Hover/focus are CSS, not state.** Express interactive visuals with pseudo-classes (`hover:bg-accent`, `focus-visible:ring-ring/50`). React state is for data/logic, not styling.
+- **Hover/focus are CSS, not state.** Express interactive visuals with pseudo-classes (`hover:bg-accent`, `focus-visible:focus-outline`). React state is for data/logic, not styling.
 - **Reuse components before building new ones.** Default to the shadcn primitives in [`frontend/packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/) (§6) and the project blocks in [`frontend/src/components/agentre/`](../frontend/src/components/agentre/); icons come from `lucide-react` (with `@iconify/react` for the agent icon registry) — don't hand-roll a control that already exists. When the same block appears in two or more places, extract one shared component instead of copy-pasting.
 - **Keep motion restrained, and honor reduced motion.** Enter/leave in `150–200ms`, `ease-out`; reuse `tw-animate-css` utilities and Radix `data-state` rather than inlining keyframes; prefer `transition-colors`/`transition-transform` over `transition-all`. Every animation carries a `motion-reduce:` (or `motion-safe:`) modifier (§8).
 - **No silent operations.** Every async flow surfaces loading / empty / error / success. The user must always know whether their action worked (§9).
@@ -60,7 +60,7 @@ The "why" behind the constraints — apply these when shaping a screen.
 **Single source:** shared token definitions in [`frontend/packages/agentre-ui/styles/tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css). The host [`globals.css`](../frontend/src/styles/globals.css) imports them and exposes the Tailwind mapping; `:root` defines light, `.dark` overrides for dark, so `bg-<token>` / `text-<token>` / `border-<token>` all switch with the theme automatically.
 
 **Usage:**
-- Background `bg-<token>`, text `text-<token>`, border `border-<token>`, focus ring `ring-ring`.
+- Background `bg-<token>`, text `text-<token>`, border `border-<token>`. Keyboard focus is not assembled from `ring-*` — see §10.
 - Opacity modifiers compose directly: `bg-primary/90`, `ring-destructive/20`, `border-status-error/40`.
 - **Never hard-code a color value** — see Constraint 1. For a dark-only tweak use the `dark:` variant.
 
@@ -91,7 +91,7 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 | `primary-foreground` | `#ffffff` | `#0a1420` | Text/icons on solid `primary` |
 | `primary-soft` | `#eef4fa` | `#1a2738` | Soft brand wash — active sidebar items, icon backgrounds, info toasts |
 | `primary-text` | `#3b6896` | `#8eb6dc` | Brand-tinted **text/icon** on a soft/neutral background (dark is brightened for contrast vs. solid `primary`) |
-| `ring` | `#3b6896` | `#5b8dbf` | Focus ring (`focus-visible:ring-ring/50`) |
+| `ring` | `#3b6896` | `#5b8dbf` | Keyboard focus — consumed only through `focus-outline` / `focus-outline-inset` / `focus-halo` (§10) |
 
 > Note the split: `primary` is the solid fill, `primary-text` is the readable on-light tint. Use `text-primary-text` for brand-colored text on `primary-soft`/`card`; use `bg-primary text-primary-foreground` for a solid control.
 
@@ -104,9 +104,10 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 | `secondary` | `#f4f4f5` | `#292a2e` | Secondary buttons / fills; the tab-strip band |
 | `secondary-foreground` | `#3f3f46` | `#c6c8cb` | Text on secondary |
 | `muted` | `#f4f4f5` | `#202122` | Muted background (group fills, placeholders) |
-| `accent` | `#e0e0e3` | `#3c3e43` | **交互反馈** —— 内容表面上的 hover / 选中填充。刻意不等于任何静止表面：曾经是 `#f4f4f5`，与 `secondary`/`muted`/`sidebar` 同字节，86 处 `hover:bg-accent` 在那些面上渲染成 1.00:1。实测 card 1.51、popover 1.34、background 1.64、secondary 1.34。**外壳带上的 hover 用 `rail-accent`，不要用它** |
+| `accent` | `#e0e0e3` | `#3c3e43` | **交互反馈** —— 内容表面上的 hover / 选中填充。刻意不等于任何静止表面：曾经是 `#f4f4f5`，与 `secondary`/`muted`/`sidebar` 同字节，86 处 `hover:bg-accent` 在那些面上渲染成 1.00:1。实测（亮 / 暗）card 1.32 / 1.51、popover 1.32 / 1.34、background 1.26 / 1.64、secondary 1.20 / 1.34。**外壳带上的 hover 用 `rail-accent`，不要用它** |
 | `rail-accent` | `#f7f7f8` | `#232427` | 窗口外壳带（标题栏 / 图标栏 / 状态栏，即所有 `bg-rail` 之上）的 hover / focus 反馈。`rail` 亮色是 `#e4e4e7`，比任何内容表面都暗得多，**一个值无法同时服务两边**：在白卡片上够深的填充落到 rail 上会被吃掉（2026-08-19 就这么把 rail 的 hover 压到过 1.028）。rail 是下沉的一层，所以 hover 是提亮而非压暗，与 `sidebar-active-bg` 一致。实测 rail 上 1.19 / 1.27 |
 | `accent-foreground` | `#18181b` | `#e8e8e9` | Text on accent |
+| `accent-muted-foreground` | `#5f5f67` | `#abaeb4` | **Muted text on the accent fill** — the description, shortcut or trailing path inside a row that is currently selected or hovered. `muted-foreground` is only 4.38 light / 3.48 dark there; this one is 4.80 / 4.81, and stays above 4.5 on the translucent hover fills (`accent/40`–`/60` over `card` / `popover`). **You do not write this class by hand:** the `bg-accent` utility re-points `muted-foreground` to it for the whole subtree, under whatever variant you used (`hover:bg-accent`, `focus:bg-accent`, `data-[selected=true]:bg-accent`), so `text-muted-foreground` inside the row simply follows. The one exception is a translucent fill — `bg-accent/60` cannot carry the re-point — where the same variant also takes `on-accent`: `hover:bg-accent/60 hover:on-accent`. Guarded by [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) |
 
 ### 3.4 Borders, inputs, ring
 
@@ -114,20 +115,23 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 | --- | --- | --- | --- |
 | `border` | `#e4e4e7` | `#2d2e31` | Global borders (the `@layer base` reset gives every element `border-border`) |
 | `border-strong` | `#d4d4d8` | `#3d3f44` | Emphasized dividers / drag handles where `border` is too faint |
-| `input` | `#cbcbd0` | `#4d5056` | Field edges (`Input` / `Textarea` / `Select` / outline `Button`). Split off from `border` so a divider can stay quiet while a field edge stays legible. Target is "clearly visible", **not** WCAG's 3:1 — these controls carry their own fill and text, so the border is a supporting cue; controls whose border *is* the control use `control-border` below |
+| `input` | `#cbcbd0` | `#4d5056` | **The edge of a clickable control that already carries a label** — the `outline` `Button`, in both themes (1.62 / 1.99 on `card`). Visibly stronger than a divider, deliberately lighter than a field's edge: the text inside identifies the control, so the edge is a supporting cue and does not need 3:1. Also the unchecked `Switch` track and the soft dark field fill (`dark:bg-input/30`). Guarded by [`src/ui/button.test.tsx`](../frontend/packages/agentre-ui/src/ui/button.test.tsx) |
 | `input-bg` | `#ffffff` | `#18191b` | Form-control fill |
-| `control-border` | `#8a8a91` | `#71757e` | **Controls whose outline *is* the control** — an unchecked `Checkbox` has no fill, so losing the border loses the control. Sized to clear WCAG 3:1 on the worst surface a control lands on (`secondary`: 3.12 light / 3.10 dark). Do **not** reach for `border`/`input` here: they are quiet dividers/field edges at ~1.1:1 against every surface, which is why the model table's header select-all used to vanish. Guarded by [`src/ui/checkbox.test.tsx`](../frontend/packages/agentre-ui/src/ui/checkbox.test.tsx) |
+| `field-border` | `#ababb1` | `#5f626a` | **The resting edge of a field** — `Input` / `Textarea` / `SelectTrigger` / `SearchInput`, and the hand-assembled fields: a search box built from a bare `<input>` (Hooks sidebar, capability picker) and the dropdown-style triggers (board scope and filter triggers, the model-target picker, the org placement combobox, the icon picker). A call site does not override it either — the Hooks script editor is a `Textarea` with a code fill and the same edge. Exactly halfway between `input` and `control-border` (2.28 / 2.64 on `card`, never below 2:1 on a surface a field lands on): firmer than a button's edge because a field can be empty, lighter than a checkbox's because a field is also recognised by its label, placeholder and position — several 3:1 edges stacked in one form read as heavy. It is knowingly below WCAG's 3:1; focus replaces it with solid `ring`. A field keeps this edge on hover — `SelectTrigger` answers hover with a fill, not by changing the edge. Guarded by [`src/ui/field-edge.test.tsx`](../frontend/packages/agentre-ui/src/ui/field-edge.test.tsx), [`src/ui/select.test.tsx`](../frontend/packages/agentre-ui/src/ui/select.test.tsx) and the edge ladder in [`src/tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts); the desktop's hand-assembled fields by [`__tests__/field-edge.test.tsx`](../frontend/src/components/agentre/__tests__/field-edge.test.tsx) |
+| `control-border` | `#8a8a91` | `#71757e` | **Controls whose outline *is* the control** — the unchecked `Checkbox` and the outline `Toggle`: small, with no fill and nothing else to be recognised by, so losing the edge loses the control. Sized to clear WCAG 3:1 on the worst surface a control lands on (`secondary`: 3.12 light / 3.10 dark). Do **not** reach for `border`/`input` here. Guarded by [`src/ui/checkbox.test.tsx`](../frontend/packages/agentre-ui/src/ui/checkbox.test.tsx) |
+
+> **Four edge tiers — pick by how much identification the edge has to carry.** `border` separates (dividers, card edges). `input` outlines a control that names itself (a button with a label). `field-border` bounds a field, which may be empty but still has a label and a place in the form. `control-border` *is* the control (an unchecked box). Reaching one tier up "to be safe" is how the outline button once ended up as heavy as an input, and how every field once ended up as heavy as a checkbox.
 
 ### 3.5 Status colors (agent run state)
 
-The heart of agentre's state language. Four states, each with a solid color (dots/text) and — for `running`/`waiting`/`error` — a soft tinted background (pills). Driven by `statusConfig` in [`components/agentre/types.ts`](../frontend/src/components/agentre/types.ts).
+The heart of agentre's state language. Four states, each with a solid color (dots / fills) and — for `running`/`waiting`/`error` — a soft tinted background (pills) plus a separate color for the state written **as text**. Driven by `statusConfig` in the shared package's [`transcript/agent-status.ts`](../frontend/packages/agentre-ui/src/transcript/agent-status.ts).
 
 | State | solid (`status-*`) Light → Dark | bg (`status-*-bg`) Light → Dark | Rendered as |
 | --- | --- | --- | --- |
-| `running` | `#10b981` → `#34d399` | `#ecfdf5` → `#0f2218` | green dot / pill — agent is working |
-| `waiting` | `#f59e0b` → `#fbbf24` | `#fffbeb` → `#261d0d` | amber dot / pill — awaiting approval/input |
-| `idle` | `#a1a1aa` → `#6a6d74` | *(uses `secondary`)* | gray dot; text falls to `muted-foreground` |
-| `error` | `#dc2626` → `#f87171` | *(uses `destructive-soft`)* | red dot / pill — turn failed |
+| `running` | `#109066` → `#34d399` | `#ecfdf5` → `#0f2218` | green dot / pill — agent is working |
+| `waiting` | `#b07513` → `#fbbf24` | `#fdfaed` → `#261d0d` | amber dot / pill — awaiting approval/input |
+| `idle` | `#8c8c93` → `#747880` | *(uses `secondary`)* | gray dot; text falls to `muted-foreground`. Sized against `secondary` / `popover`, where the dot actually sits (3.04 light / 3.24 dark), not against `card` |
+| `error` | `#dc2626` → `#f87171` | *(uses `destructive-soft`)* | red dot / pill — turn failed; its text is `destructive-text` (§3.11) |
 
 **Each state has up to four roles — do not mix them up:**
 
@@ -145,7 +149,9 @@ The heart of agentre's state language. Four states, each with a solid color (dot
 | `status-running-text` | `#0c7053` | `#34d399` | The saturated fill is unreadable **as text** in light: `#109066` on its own pill is 3.83. Dark already cleared the bar, so it reuses the fill value |
 | `status-waiting-text` | `#aa5413` | `#fbbf24` | Same story: `#b07513` on its own pill is 3.72 |
 
-The `-text` split is guarded by [`packages/agentre-ui/src/tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) (≥4.5 on both the pill and `card`, both themes). Render status only through `StatusDot` / `StatusPill` (§6.4) so the dot/pill/label stay in lockstep; labels are uppercase (`RUNNING`).
+The `-text` split is guarded by [`packages/agentre-ui/src/tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) (≥4.5 on both the pill and `card`, both themes), and the pairs `statusConfig` actually picks by [`transcript/agent-status.test.ts`](../frontend/packages/agentre-ui/src/transcript/agent-status.test.ts). Render status only through `StatusDot` / `StatusPill` (§6.4) so the dot/pill/label stay in lockstep; labels are uppercase (`RUNNING`).
+
+**Which role a call site uses.** Anything a user reads — a label, a count, a message, a letter mark — takes the `-text` role: `text-status-running-text`, `text-status-waiting-text`, and `text-destructive-text` for `error`. The saturated `status-*` values stay on dots, bars, borders and stand-alone icons (`bg-status-running`, `<Check className="text-status-running" />`). The one case that needs no judgement is enforced by lint: a class string that pairs a soft fill with the same family's saturated color as text (`bg-status-running-bg text-status-running`, `bg-destructive/10 text-destructive`, `bg-primary-soft text-primary`) is rejected — see the [enforced-rules table](./develop.md#enforced-rules-mechanically-checked).
 
 ### 3.6 Agent palette (16 identity colors)
 
@@ -166,10 +172,12 @@ Sixteen fixed hues give concurrent agents distinct, stable identities. Light use
 
 **How to apply a color.** The source of truth is the agent's `agentColor` token (e.g. `"agent-7"`), assigned by the backend — there is **no client-side hashing**. Map it through the helpers, never by hand:
 
-- Tailwind classes (the common path) — [`components/agentre/types.ts`](../frontend/src/components/agentre/types.ts): `agentColorClassNames[color]` → `bg-agent-7`; `agentTextColorClassNames[color]` / `agentTextColorClassName(token, fallback)` → `text-agent-7`. The extra member `"neutral"` maps to `bg-agent-neutral` / `text-foreground`.
+- Tailwind classes (the common path) — [`components/agentre/types.ts`](../frontend/src/components/agentre/types.ts): `agentColorClassNames[color]` → `bg-agent-7`; `agentIconColorClassNames[color]` / `agentIconColorClassName(token, fallback)` → `text-agent-7`, **for an icon only**. The extra member `"neutral"` maps to `bg-agent-neutral` / `text-foreground`.
 - A raw CSS color (for inline `style`) — [`components/agentre/session-avatar.ts`](../frontend/src/components/agentre/session-avatar.ts): `tokenToCssColor(token)` → `var(--agent-7)` or `null` for an invalid token; `avatarFromMeta(meta)` → `{ letter, color }`, falling back to `#94a3b8` (slate) when meta is missing.
 
 Default fallback color is `agent-1`. `agentColorOrder` is the canonical 1→16 sequence for round-robin assignment.
+
+**Identity color goes on graphics, never on text.** The sixteen hues are tuned as a fill under a white glyph; as text they miss 4.5 — about 3.5 on `card` in dark (all sixteen), and twelve of them on `secondary` in light. A block (`AgentAvatar`) or an icon (the folder beside a project path, the crown on a lead badge) may carry the color, because a graphic only needs 3:1; the words next to it use a neutral text token. `text-agent-N` may be written in exactly one file — the class table in `components/agentre/types.ts` — and is a lint error everywhere else (see the [enforced-rules table](./develop.md#enforced-rules-mechanically-checked)). An accent that is not about *whose* thing it is (a banner, a link) takes the brand color: `text-primary-text` on `primary-soft`.
 
 ### 3.6a File identity (8 semantic hues)
 
@@ -394,6 +402,8 @@ Source: [`button.tsx`](../frontend/packages/agentre-ui/src/ui/button.tsx).
 - **variant:** `default` (solid `bg-primary`), `destructive`, `outline`, `secondary`, `ghost`, `link`
 - **size:** `default` (`h-9`), `xs` (`h-6`), `sm` (`h-8`), `lg` (`h-10`), `icon` (`size-9`), `icon-xs` (`size-6`), `icon-sm` (`size-8`), `icon-lg` (`size-10`)
 
+`outline` takes the second edge tier (`border-input`, §3.4) in both themes. `secondary` has no edge; its fill is **relative to the surface under it** (`bg-foreground/8`, `/12` on hover) rather than the `secondary` token, so it never lands on an identical surface and disappears — the old `bg-secondary` was 1.00 on a dark popover.
+
 A bare `<svg>` child auto-sizes to `size-4` (`size-3` at `xs`/`icon-xs`). The `default` variant is `bg-primary text-primary-foreground` — `primary` *is* the solid fill here (unlike a separate "primary-background"); reserve `text-primary`/`border-primary` for accent semantics.
 
 ```tsx
@@ -531,7 +541,7 @@ Every async flow covers loading / empty / error / success consistently. **Import
 | --- | --- |
 | **Loading** | A centered `Loader2` (`animate-spin`, `text-muted-foreground`) for whole regions, or an inline `Loader2 size-3.5 animate-spin` inside a disabled button for single actions. For lightweight "first load" copy, centered `text-xs text-muted-foreground`. For placeholder rows, the `Skeleton` primitive (e.g. [`exec-target-list.tsx`](../frontend/src/components/agentre/org/exec-target-list.tsx)). |
 | **Empty** | Centered icon (`Inbox` / `Sparkles` in `decorative-foreground`/`primary-soft`) + `text-sm font-semibold` title + `text-xs text-muted-foreground` description + a primary CTA. See `ProvidersEmptyState` ([`llm-providers.tsx`](../frontend/packages/agentre-ui/src/engine/llm-providers.tsx)). |
-| **Error** | `ErrorCard` ([`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)): `border-status-error/40 bg-destructive-soft`, `TriangleAlert` icon in `text-status-error`, the message, and an optional outline retry button. For page-level failures, centered `text-destructive` copy. |
+| **Error** | `ErrorCard` ([`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)): `border-status-error/40 bg-destructive-soft`, `TriangleAlert` icon in `text-status-error`, the message in `text-destructive-text`, and an optional outline retry button. For page-level failures, centered `text-destructive-text` copy. |
 | **Success** | Transient → a Sonner `toast.success` (§6.5); a completed agent turn → the notification viewport. |
 | **In-progress** | No general-purpose `Progress` primitive in the shared package. Agent background-task progress has a dedicated `TaskProgressBar` ([`task-progress/`](../frontend/src/components/agentre/task-progress/)) — a real bar + expandable task list with a `LoaderCircle` spinner tinted `text-status-waiting`. For other waits, a status-tinted spinner + readable copy. |
 
@@ -540,7 +550,7 @@ Every async flow covers loading / empty / error / success consistently. **Import
 Forms are plain `useState` + controlled shadcn components — **no react-hook-form / zod**, no `form.tsx`. Keep new forms on this pattern unless asked. Guidance:
 
 - **Validate late, forgive early.** Don't error while a field is being filled; validate on blur/submit, then switch to live revalidation so the message clears the instant it's fixed.
-- **Error sits with the field:** a short `text-destructive text-xs` line under the input, mark the control (`aria-invalid`). For a failed *submit*, raise a Sonner error toast (there is no `Alert`-banner convention for form-level errors).
+- **Error sits with the field:** a short `text-destructive-text text-xs` line under the input, mark the control (`aria-invalid`). For a failed *submit*, raise a Sonner error toast (there is no `Alert`-banner convention for form-level errors).
 - **Don't lose input on failure** — a failed save keeps every field as-is.
 - **Submit in flight:** disable the button + inline `Loader2`.
 
@@ -554,8 +564,10 @@ Forms are plain `useState` + controlled shadcn components — **no react-hook-fo
 ### Interactive states
 
 - **Hover/focus** via CSS pseudo-classes, never React state (§1, §8).
+- **Hover is always the feedback color, never a resting surface.** `hover:bg-accent`; a lighter touch is `hover:bg-accent/60 hover:on-accent`; on the window chrome bands it is `hover:bg-rail-accent`. `muted` and `secondary` each equal some other surface (dark `muted` ≡ `card`, `secondary` ≡ `popover`; light `secondary` ≡ `sidebar`), so as a hover fill they land at 1.00 there — `hover:bg-muted` / `hover:bg-secondary` are lint errors (see the [enforced-rules table](./develop.md#enforced-rules-mechanically-checked)). Two deliberate lifts toward `card` remain, each from a different-valued resting fill: a chat tab on the `secondary` strip (the same direction as the active tab), and the title-bar command-palette trigger, which rests at `bg-card/60` on the rail. The file-preview tab strip is `bg-muted`, so its tabs hover to `accent` like everything else.
+- **Something that is not interactive gets no hover at all** — don't cancel a primitive's hover by repeating the resting fill under `hover:` (that is the banned spelling above). A `TableRow` inside `TableHeader` already carries no hover / expanded / selected feedback, so a header row only needs its resting fill (`<TableRow className="bg-secondary">`); guarded by [`table.test.tsx`](../frontend/packages/agentre-ui/src/ui/table.test.tsx).
 - **Disabled:** the shadcn primitives already apply `disabled:opacity-50 disabled:pointer-events-none` — reuse them; give a non-obvious disable a reason nearby.
-- **Selected / current:** persistent selection uses `accent` / `sidebar-active-bg` fills or `primary` text, paired with a non-color cue (`aria-current`, an indicator) — distinct from transient `hover:accent` (§10).
+- **Selected / current:** persistent selection uses `accent` / `sidebar-active-bg` fills or `primary-text` text, paired with a non-color cue (`aria-current`, an indicator) — distinct from transient `hover:accent` (§10).
 
 The rule: **no silent operations** — after any action the user can see success / failure / in-progress.
 
@@ -567,13 +579,26 @@ Friendly UX includes keyboard, screen-reader, low-vision, and motion-sensitive u
 
 ### Contrast
 
-- **Target WCAG AA:** ≥ 4.5:1 for normal text, ≥ 3:1 for large text and meaningful UI/icon edges. `foreground`, the status `*-fg` pairs, and brand `primary-text` pass comfortably.
+- **Target WCAG AA:** ≥ 4.5:1 for normal text, ≥ 3:1 for large text and meaningful UI/icon edges. `foreground`, the status `*-fg` pairs, and brand `primary-text` pass comfortably. The one deliberate exception is a field's **resting** edge (`field-border`, §3.4): 2.08–2.88:1 on `card` / `background` / `secondary` / `popover`, because a field is also recognised by its label, placeholder and position; its focused edge is solid `ring` and does clear 3:1.
 - **`muted-foreground` is the floor for readable text** — secondary/descriptive copy lives there; use `foreground` for anything dense or critical. `decorative-foreground` is fainter still and is **not** a text color: it is for glyphs that carry no information (§3.1). Both are guarded per-surface, so "it looks fine on a card" is no longer the test.
+- **Terminal output is colored by the program, not by us.** The xterm palettes in [`terminal-theme.ts`](../frontend/packages/agentre-ui/src/terminal/terminal-theme.ts) cannot guarantee what a program does with them — the light theme's bright colors sit at 1.65–2.27 on the terminal background, and programs also emit 256-color and truecolor. Both xterm instances (the interactive panel and the read-only command card) therefore run with `minimumContrastRatio` set to `TERMINAL_MIN_CONTRAST_RATIO` (4.5): xterm leaves a passing foreground alone and pushes a failing one toward black/white until it passes.
 - **Never encode meaning in color alone.** The agent palette is *identity*, not status — always pair an agent color with its name/initials, and every status color with its label/icon (`StatusPill` does both).
 
 ### Focus visibility
 
-The base layer applies `outline-ring/50` and the shadcn primitives rely on `focus-visible:ring-ring/50`. The cost: **any custom interactive element you build has no visible keyboard focus unless you add the ring yourself.** Every custom clickable (a `div`/`span` with `onClick`, a bespoke card action) must add `focus-visible:ring-2 focus-visible:ring-ring/50` and be reachable (real `<button>`/`<a>`, or `tabIndex={0}` + key handlers). Don't strip focus styling to "clean up" a layout.
+Keyboard focus has exactly two looks — a solid outline for button-like elements (drawn inward where a container would clip it) and a halo for fields — each defined once in the shared [`tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css) and applied under a variant:
+
+| Utility | Draws | Use on |
+| --- | --- | --- |
+| `focus-visible:focus-outline` | A 2px solid `ring` outline with a 2px gap | Anything button-like: buttons, rows, tabs, chips, `Switch`, `Checkbox`, radio items |
+| `focus-visible:focus-outline-inset` | The same 2px solid `ring`, drawn **inward** (offset −2px) | A button-like element that sits flush against a clipping container, where an outward ring would be cut off: a tab that fills an `overflow-hidden` tab strip (chat tabs, preview tabs), a row flush with a list's clipped edge (session rows, and the two other full-width rows inside a session group's `overflow-hidden` body — the own-sessions header and the "View all" entry). The ring then sits on the element's own fill, so it is guarded against every row fill it lands on |
+| `focus-visible:focus-halo` | The edge turns solid `ring`, plus a 3px halo | Fields: `Input` / `Textarea` / `SelectTrigger`. A shell that wraps a field takes `focus-within:focus-halo` (`SearchInput`, the chat composer) |
+
+The outline is solid on purpose: the hand-assembled `ring-ring/50` it replaces composited to about 2.1:1 and `ring-ring/40` to about 1.8:1, whereas solid `ring` is 4.1–5.8:1 on every surface (guarded by [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts)). The gap keeps the ring from fusing with a solid primary button, whose fill is the same color.
+
+The inward ring gives up that gap, so it is only for the flush-clipped case, and it has two conditions of its own. It goes on **the element that takes keyboard focus**, which is not always the one that looks like the control: a chat tab's focus stop is the sortable wrapper around the `role="tab"` element (dnd-kit gives the wrapper `role="button"` and `tabIndex={0}`), so the wrapper in [`tab-strip.tsx`](../frontend/src/components/agentre/chat-tabs/tab-strip.tsx) carries the utility. And because the ring lies inside the element's own box, **a positioned child paints over it** — an opaque positioned child hides it completely. Where the focus stop wraps such a child, make the focus stop a stacking context and sink the child below it (`isolate` on the wrapper, `-z-10` on the child, as the chat tab does); the two classes go together, since without `isolate` the child drops behind the surface underneath.
+
+**Native button-like elements get the outline by default.** The base layer in [`base.css`](../frontend/packages/agentre-ui/styles/base.css) draws the same 2px solid `ring` + 2px gap on `:focus-visible` for `button`, `a`, `summary`, `[role="button"]` and `[role="tab"]` (guarded by [`host-stylesheets.test.ts`](../frontend/packages/agentre-ui/src/styles/host-stylesheets.test.ts)), so a hand-written `<button>` with no focus class is already correct. Two cases still need the utility written out: an element that removes the outline (`outline-none` / `outline-hidden`) must put it back with `focus-visible:focus-outline`, and a focusable element the base rule does not match (a `div`/`span` with `tabIndex={0}` and another role) must carry it itself — and be reachable (`tabIndex={0}` + key handlers). Never write `focus-visible:outline-none`: it is emitted after `focus-visible:focus-outline` and erases the ring. Do not assemble a ring from `ring-*` utilities — `ring-ring` in a `ts`/`tsx` file is a lint error (see the [enforced-rules table](./develop.md#enforced-rules-mechanically-checked)) — and don't strip focus styling to "clean up" a layout.
 
 ### Keyboard & screen readers
 

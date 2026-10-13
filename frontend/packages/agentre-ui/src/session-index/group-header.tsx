@@ -137,7 +137,7 @@ export function IndexGroupHeader({
       <button
         ref={toggleRef}
         type="button"
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 outline-none focus-visible:focus-outline"
         onClick={onToggle}
         aria-expanded={expanded}
         aria-label={toggleLabel}

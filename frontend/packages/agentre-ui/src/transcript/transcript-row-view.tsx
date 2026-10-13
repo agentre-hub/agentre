@@ -302,7 +302,7 @@ function MessageMeta({
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-muted/60"
+              className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-accent/60 hover:on-accent"
               aria-label={t("chat.meta.tokenDetails")}
             >
               {displayModel ? (
@@ -483,7 +483,7 @@ function ErrorCard({
         className="size-4 shrink-0 text-status-error"
         aria-hidden="true"
       />
-      <span className="min-w-0 flex-1 text-aux text-status-error">
+      <span className="min-w-0 flex-1 text-aux text-destructive-text">
         {t("chat.errorCard.message", { text })}
       </span>
       <div className="flex shrink-0 items-center gap-2">

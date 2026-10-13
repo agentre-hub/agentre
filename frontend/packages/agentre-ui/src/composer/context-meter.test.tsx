@@ -24,6 +24,16 @@ describe("ContextMeter", () => {
     expect(meter.textContent).not.toContain("41");
   });
 
+  it("Given the meter, When it takes keyboard focus, Then it draws the shared outline instead of suppressing it", () => {
+    // 它是浮窗唯一的键盘入口。此前聚焦只换成 border-border + bg-accent（对卡片
+    // 1.27 / 1.32）并去掉 outline，键盘用户看不出焦点在这里。
+    render(<ContextMeter used={41_200} max={200_000} />);
+
+    const meter = screen.getByRole("button");
+    expect(meter).toHaveClass("focus-visible:focus-outline");
+    expect(meter).not.toHaveClass("focus-visible:outline-none");
+  });
+
   it("Given a usage figure, When the accessible name is read, Then it carries used, limit and percentage", () => {
     render(<ContextMeter used={41_200} max={200_000} />);
 

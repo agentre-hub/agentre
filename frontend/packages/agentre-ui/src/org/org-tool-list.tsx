@@ -109,7 +109,7 @@ export function OrgToolList({
                   {item.name}
                 </span>
                 {item.approval && (
-                  <span className="inline-flex shrink-0 items-center rounded-sm bg-status-waiting-bg px-1.5 font-mono text-2xs text-status-waiting">
+                  <span className="inline-flex shrink-0 items-center rounded-sm bg-status-waiting-bg px-1.5 font-mono text-2xs text-status-waiting-text">
                     {t("org.agent.tools.approval")}
                   </span>
                 )}
@@ -137,9 +137,9 @@ export function OrgToolList({
                   )}
                   onClick={() => onToggleGrant(item.key)}
                   className={cn(
-                    "shrink-0 rounded-sm border px-2 py-0.5 text-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    "shrink-0 rounded-sm border px-2 py-0.5 text-2xs transition-colors focus-visible:focus-outline",
                     item.granted
-                      ? "border-status-running bg-status-running-bg text-status-running"
+                      ? "border-status-running bg-status-running-bg text-status-running-text"
                       : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >

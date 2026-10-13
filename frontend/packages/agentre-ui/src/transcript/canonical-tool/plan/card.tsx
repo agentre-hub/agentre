@@ -279,7 +279,7 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
           className={cn(
             "flex size-7 shrink-0 items-center justify-center rounded-lg",
             approved
-              ? "bg-status-running-bg text-status-running"
+              ? "bg-status-running-bg text-status-running-text"
               : "bg-primary text-primary-foreground",
           )}
         >
@@ -361,7 +361,7 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
             </Button>
           ) : null}
           {error ? (
-            <span className="text-xs text-destructive">{error}</span>
+            <span className="text-xs text-destructive-text">{error}</span>
           ) : null}
         </TranscriptCardBody>
       ) : null}
