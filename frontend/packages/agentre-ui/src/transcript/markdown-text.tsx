@@ -165,7 +165,7 @@ const markdownComponentsStatic: Components = {
     <blockquote
       {...props}
       className={cn(
-        "my-2 border-l-2 border-border-strong pl-3 text-muted-foreground",
+        "my-2 rounded-lg bg-field-fill px-3 py-1 text-muted-foreground",
         className,
       )}
     />
@@ -268,18 +268,12 @@ const markdownComponentsStatic: Components = {
     </div>
   ),
   td: ({ node: _node, className, ...props }) => (
-    <td
-      {...props}
-      className={cn("border border-border px-2 py-1 align-top", className)}
-    />
+    <td {...props} className={cn("px-2 py-1 align-top", className)} />
   ),
   th: ({ node: _node, className, ...props }) => (
     <th
       {...props}
-      className={cn(
-        "border border-border bg-muted px-2 py-1 text-left font-semibold",
-        className,
-      )}
+      className={cn("bg-muted px-2 py-1 text-left font-semibold", className)}
     />
   ),
   ul: ({ node: _node, className, ...props }) => (

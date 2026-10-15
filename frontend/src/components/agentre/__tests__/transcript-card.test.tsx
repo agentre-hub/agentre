@@ -19,25 +19,46 @@ import type { TranscriptRow } from "@agentre-hub/agentre-ui";
 import type { chat_svc } from "../../../../wailsjs/go/models";
 
 describe("TranscriptCard", () => {
-  it("默认 tone 用中性边框 + measure 栏宽 + 无阴影", () => {
+  it("默认 tone 无外框、靠字段填充 + measure 栏宽 + 无阴影", () => {
     render(<TranscriptCard data-testid="c">x</TranscriptCard>);
     const el = screen.getByTestId("c");
     expect(el.className).toContain("max-w-measure");
     expect(el.className).toContain("rounded-lg");
-    expect(el.className).toContain("bg-card");
-    expect(el.className).toContain("border-border");
+    expect(el.className).toContain("bg-field-fill");
+    expect(el.className).not.toMatch(/(^|\s)border(-|\s|$)/);
+    expect(el.className).not.toContain("bg-card");
     expect(el.className).not.toContain("shadow");
   });
 
-  it("error tone 换成告警边框", () => {
+  it("各 tone 只换底色，不画边", () => {
+    const expected = {
+      error: "bg-destructive-soft",
+      pending: "bg-primary-soft",
+      done: "bg-status-running-bg",
+    } as const;
+    for (const tone of ["error", "pending", "done"] as const) {
+      const { unmount } = render(
+        <TranscriptCard tone={tone} data-testid="c">
+          x
+        </TranscriptCard>,
+      );
+      const cls = screen.getByTestId("c").className;
+      expect(cls).toContain(expected[tone]);
+      expect(cls).not.toContain("bg-field-fill");
+      expect(cls).not.toMatch(/(^|\s)border(-|\s|$)/);
+      unmount();
+    }
+  });
+
+  it("error tone 换成告警底色", () => {
     render(
       <TranscriptCard tone="error" data-testid="c">
         x
       </TranscriptCard>,
     );
     const el = screen.getByTestId("c");
-    expect(el.className).toContain("border-status-error/40");
-    expect(el.className).not.toContain("border-border");
+    expect(el.className).toContain("bg-destructive-soft");
+    expect(el.className).not.toContain("border");
   });
 
   it("调用方 className 能覆盖默认值", () => {
@@ -59,7 +80,7 @@ describe("TranscriptCard", () => {
     );
     expect(screen.getByTestId("h").className).toContain("px-3.5");
     expect(screen.getByTestId("b").className).toContain("px-3.5");
-    expect(screen.getByTestId("b").className).toContain("border-t");
+    expect(screen.getByTestId("b").className).not.toContain("border");
   });
 
   it("pill 用 text-meta,不再是 9px", () => {

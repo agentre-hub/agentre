@@ -188,7 +188,7 @@ export function ActivityRow({
               <div
                 data-testid="activity-row-body"
                 data-selectable-text="true"
-                className="ml-1.5 flex flex-col gap-1.5 border-l border-border py-1 pl-3"
+                className="ml-1.5 flex flex-col gap-1.5 py-1 pl-3"
               >
                 <ActivityRowBody step={step} facts={facts} />
               </div>
@@ -421,7 +421,6 @@ function Section({
         <span className="font-sans text-meta font-semibold text-muted-foreground">
           {label}
         </span>
-        <span className="h-px min-w-0 flex-1 bg-border" />
       </div>
       <div className="min-w-0 font-mono text-meta">{children}</div>
     </div>

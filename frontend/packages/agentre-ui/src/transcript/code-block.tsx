@@ -74,7 +74,7 @@ export function CodeBlock({
 
   return (
     <TranscriptCard className={className} {...props}>
-      <div className="flex items-center gap-2 border-b border-border px-3.5 py-2">
+      <div className="flex items-center gap-2 px-3.5 py-2">
         <span className="text-meta font-semibold text-muted-foreground">
           {language}
         </span>

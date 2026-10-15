@@ -83,8 +83,8 @@ export const ToolApprovalCard: React.FC<{
       className={cn(
         "text-card-foreground",
         !isPending && !isApproved
-          ? "border-destructive/40"
-          : "border-status-waiting/40",
+          ? "bg-destructive-soft"
+          : "bg-status-waiting-bg",
       )}
     >
       {/* 静态标题行,非交互(该卡没有折叠/展开),不套 TranscriptCardHeader —— 那是

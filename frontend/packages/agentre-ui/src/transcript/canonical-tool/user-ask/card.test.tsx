@@ -182,7 +182,7 @@ describe("UserAskCard", () => {
 
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
 
-    await user.click(screen.getByRole("button", { name: /Q2 · Second/ }));
+    await user.click(screen.getByRole("tab", { name: /Q2 · Second/ }));
 
     expect(screen.getByText("Second question?")).toBeDefined();
     expect(screen.getByRole("button", { name: /^B$/ })).toBeDisabled();
@@ -217,7 +217,7 @@ describe("UserAskCard", () => {
 
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
 
-    await user.click(screen.getByRole("button", { name: /Q2 · Second/ }));
+    await user.click(screen.getByRole("tab", { name: /Q2 · Second/ }));
 
     expect(screen.getByText("Second question?")).toBeDefined();
     expect(screen.getByRole("button", { name: /^B$/ })).toBeDisabled();
@@ -238,7 +238,7 @@ describe("UserAskCard", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /^A$/ }));
-    await user.click(screen.getByRole("button", { name: /Q2 · Second/ }));
+    await user.click(screen.getByRole("tab", { name: /Q2 · Second/ }));
     await user.type(screen.getByRole("textbox"), "custom answer");
 
     view.unmount();
@@ -253,9 +253,9 @@ describe("UserAskCard", () => {
 
     expect(screen.getByText("Second question?")).toBeDefined();
     expect(screen.getByRole("textbox")).toHaveValue("custom answer");
-    await user.click(screen.getByRole("button", { name: /Q1 · First/ }));
+    await user.click(screen.getByRole("tab", { name: /Q1 · First/ }));
     expect(screen.getByRole("button", { name: /^A$/ })).toHaveClass(
-      "border-primary",
+      "bg-primary-soft",
     );
   });
 
@@ -582,10 +582,56 @@ describe("UserAskCard", () => {
           sessionId={1}
         />,
       );
-      const tokenTab = screen.getByRole("button", { name: /Q2 · Token/ });
+      const tokenTab = screen.getByRole("tab", { name: /Q2 · Token/ });
       expect(tokenTab.querySelector("svg")?.getAttribute("class")).toMatch(
         /circle-check|check-circle/,
       );
     });
+  });
+});
+
+describe("UserAskCard borderless", () => {
+  const multi = {
+    type: "tool_use",
+    toolName: "AskUserQuestion",
+    canonical: {
+      kind: "user.ask",
+      userAsk: {
+        requestId: "req-bl",
+        questions: [
+          { question: "First?", header: "First", options: [{ label: "A" }] },
+          { question: "Second?", header: "Second", options: [{ label: "B" }] },
+        ],
+      },
+    },
+  } as unknown as TranscriptBlock;
+
+  it("Given several questions, When rendered, Then the tabs are a SegmentedControl tablist and the card has no border or divider", () => {
+    renderCard(<UserAskCard toolBlock={multi} sessionId={1} />);
+    const list = screen.getByRole("tablist");
+    expect(list).toHaveAttribute("data-slot", "segmented-control");
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    const card = screen.getByTestId("user-ask-card");
+    expect(card.className).not.toMatch(/(^|\s)border(-|\s|$)/);
+    const edged = Array.from(card.querySelectorAll("*")).filter((el) =>
+      /(^|\s)(border|border-[tblrxy]|divide-\S+)(\s|$)/.test(
+        el.getAttribute("class") ?? "",
+      ),
+    );
+    expect(edged).toHaveLength(0);
+  });
+
+  it("Given several questions, When ArrowRight is pressed on a tab, Then the next question becomes active", async () => {
+    const user = userEvent.setup();
+    renderCard(<UserAskCard toolBlock={multi} sessionId={1} />);
+    screen.getAllByRole("tab")[0].focus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getAllByRole("tab")[1]).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText("Second?")).toBeDefined();
   });
 });

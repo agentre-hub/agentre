@@ -457,19 +457,19 @@ describe("PlanApproveCard", () => {
     ).toBeDefined();
   });
 
-  // TranscriptCard tone 派生:未决→pending(border-primary)、已批准→done
-  // (border-status-running/50)、其余已解决态(如 refine)→default(border-border)。
+  // TranscriptCard tone 派生:未决→pending(bg-primary-soft)、已批准→done
+  // (bg-status-running-bg)、其余已解决态(如 refine)→default(bg-field-fill)。
   // 三态各锁一个断言,防止 tone 三元表达式静默回归。
-  it("Given an unresolved plan, When rendered, Then the card uses the pending tone border", () => {
+  it("Given an unresolved plan, When rendered, Then the card uses the pending tone fill", () => {
     const block = blockWithActions([
       { id: "plan.approve.accept_edits", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
     renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
-    expect(screen.getByTestId("plan-card")).toHaveClass("border-primary");
+    expect(screen.getByTestId("plan-card")).toHaveClass("bg-primary-soft");
   });
 
-  it("Given a resolved and approved plan, When rendered, Then the card uses the done tone border", () => {
+  it("Given a resolved and approved plan, When rendered, Then the card uses the done tone fill", () => {
     const block = {
       type: "tool_use",
       toolName: "ExitPlanMode",
@@ -484,12 +484,10 @@ describe("PlanApproveCard", () => {
       },
     } as unknown as TranscriptBlock;
     renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
-    expect(screen.getByTestId("plan-card")).toHaveClass(
-      "border-status-running/50",
-    );
+    expect(screen.getByTestId("plan-card")).toHaveClass("bg-status-running-bg");
   });
 
-  it("Given a resolved but not-approved plan, When rendered, Then the card uses the default tone border", () => {
+  it("Given a resolved but not-approved plan, When rendered, Then the card uses the default tone fill", () => {
     const block = {
       type: "tool_use",
       toolName: "ExitPlanMode",
@@ -504,7 +502,7 @@ describe("PlanApproveCard", () => {
       },
     } as unknown as TranscriptBlock;
     renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
-    expect(screen.getByTestId("plan-card")).toHaveClass("border-border");
+    expect(screen.getByTestId("plan-card")).toHaveClass("bg-field-fill");
   });
 
   it("requestless plan.refine action sends feedback through resolvePlanAction", async () => {

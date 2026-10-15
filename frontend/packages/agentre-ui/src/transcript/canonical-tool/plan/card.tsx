@@ -298,7 +298,7 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
           </div>
         </div>
         {activePlan.text ? (
-          <span className="rounded-sm border border-border bg-card px-2 py-0.5 font-mono text-meta text-muted-foreground">
+          <span className="rounded-sm bg-muted px-2 py-0.5 font-mono text-meta text-muted-foreground">
             {t("canonical.plan.charCount", {
               count: activePlan.text.length,
             })}

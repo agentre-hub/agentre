@@ -16,7 +16,7 @@ export function FileBlock({
   return (
     <div>
       {showHeader && (
-        <div className="flex items-center gap-2 border-y border-border bg-secondary px-3 py-1.5">
+        <div className="flex items-center gap-2 bg-secondary px-3 py-1.5">
           <span className="font-mono text-meta font-semibold text-foreground">
             {file.path}
           </span>
@@ -54,7 +54,7 @@ export function FileBlock({
         </div>
       )}
       {file.truncated && (
-        <div className="border-t border-border bg-secondary px-3 py-1 text-meta text-muted-foreground">
+        <div className="bg-secondary px-3 py-1 text-meta text-muted-foreground">
           {t("canonical.fileEdit.truncated", {
             count: file.plus + file.minus,
             shown: 200,

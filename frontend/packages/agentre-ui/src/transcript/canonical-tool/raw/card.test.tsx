@@ -126,7 +126,7 @@ describe("RawToolCard command_execution result parsing", () => {
     );
     expect(screen.getByText("EXIT 1")).toBeDefined();
     expect(screen.getByTestId("raw-tool-card").className).toMatch(
-      /border-status-error/,
+      /bg-destructive-soft/,
     );
   });
 

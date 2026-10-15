@@ -159,7 +159,7 @@ export const RawToolCard: React.FC<CanonicalCardProps> = ({
         {bgRunning && (
           <TranscriptPill
             data-testid="bg-running-pill"
-            className="rounded-full border border-border"
+            className="rounded-full"
           >
             <LoaderCircle
               className="size-2.5 animate-spin"
@@ -215,7 +215,7 @@ export const RawToolCard: React.FC<CanonicalCardProps> = ({
                     <button
                       type="button"
                       onClick={() => void copyParams()}
-                      className="inline-flex items-center gap-1 rounded border border-border-strong px-1.5 py-0.5 font-sans text-meta text-muted-foreground transition-colors hover:border-primary hover:bg-primary-soft hover:text-primary-text"
+                      className="inline-flex items-center gap-1 rounded bg-button-fill px-1.5 py-0.5 font-sans text-meta text-muted-foreground transition-colors hover:bg-button-fill-hover"
                     >
                       <Copy className="size-3" aria-hidden="true" />
                       {t("canonical.code.copyAll")}
@@ -318,7 +318,7 @@ function Section({
             {meta}
           </span>
         ) : null}
-        <span className="h-px min-w-0 flex-1 bg-border" />
+        <span className="min-w-0 flex-1" />
         {actions}
       </div>
       {children}

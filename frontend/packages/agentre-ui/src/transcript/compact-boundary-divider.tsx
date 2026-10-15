@@ -40,7 +40,7 @@ export function CompactBoundaryDivider({
       aria-label={t("compactBoundary.aria")}
     >
       <div className="h-px flex-1 bg-border" />
-      <div className="flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-meta text-muted-foreground">
+      <div className="flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-meta text-muted-foreground">
         <span className="font-medium">{t("compactBoundary.label")}</span>
         <span aria-hidden="true">·</span>
         <span>{triggerLabel}</span>

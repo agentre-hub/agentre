@@ -188,7 +188,7 @@ function ChangeRow({ change }: { change: CtlApprovalChange }) {
         <span className="font-mono text-sm font-medium">{change.name}</span>
       </div>
       {change.fields && change.fields.length > 0 && (
-        <ul className="ml-1 flex flex-col gap-0.5 border-l pl-3 font-mono text-aux">
+        <ul className="ml-1 flex flex-col gap-0.5 pl-3 font-mono text-aux">
           {change.fields.map((field) => (
             <li key={field.field} className="flex flex-wrap gap-x-1.5">
               <span className="text-muted-foreground">{field.field}:</span>
@@ -214,7 +214,7 @@ function ChangeRow({ change }: { change: CtlApprovalChange }) {
         </ul>
       )}
       {change.cascade && (
-        <p className="ml-1 border-l pl-3 text-aux text-muted-foreground">
+        <p className="ml-1 pl-3 text-aux text-muted-foreground">
           {t("ctlApproval.cascade", {
             departments: change.cascade.departments,
             agents: change.cascade.agents,
@@ -234,7 +234,7 @@ export interface CtlChangeListProps {
 // 差的只是外壳(TranscriptCard vs. DialogShell)。
 export function CtlChangeList({ changes }: CtlChangeListProps) {
   return (
-    <ul className="flex flex-col divide-y">
+    <ul className="flex flex-col gap-2">
       {changes.map((change) => (
         <ChangeRow
           key={change.kind + change.id + change.name}
@@ -289,8 +289,8 @@ export function CtlApprovalCard({
       className={cn(
         "text-card-foreground",
         !isPending && !isApproved
-          ? "border-destructive/40"
-          : "border-status-waiting/40",
+          ? "bg-destructive-soft"
+          : "bg-status-waiting-bg",
       )}
     >
       <div className="flex items-center gap-2 px-3.5 py-2.5">

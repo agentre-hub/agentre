@@ -188,7 +188,7 @@ export function ThinkingBlock({
         aria-hidden={!expanded}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="border-t border-border">
+          <div>
             {streaming ? (
               <div
                 ref={streamingBodyRef}

@@ -109,7 +109,7 @@ export function LocalCommandCard({
             toggle();
           }
         }}
-        className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-foreground transition-colors hover:bg-accent/40 hover:on-accent w-full max-w-measure"
+        className="flex cursor-pointer items-center gap-2 rounded-lg bg-field-fill px-3.5 py-2.5 text-foreground transition-colors hover:bg-field-fill-hover hover:on-accent w-full max-w-measure"
       >
         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <SquareTerminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -132,13 +132,13 @@ export function LocalCommandCard({
 
   // ── Expanded: full header + output terminal. ──
   return (
-    <div className="w-full max-w-measure rounded-lg border border-border bg-card text-foreground">
+    <div className="w-full max-w-measure rounded-lg bg-field-fill text-foreground">
       {/* Header */}
-      <div className="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
+      <div className="flex items-center gap-2 px-3.5 py-2.5">
         <SquareTerminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 
         {/* "本地命令" chip */}
-        <span className="rounded-sm border border-border bg-muted px-1.5 py-0.5 text-meta font-semibold text-muted-foreground">
+        <span className="rounded-sm bg-muted px-1.5 py-0.5 text-meta font-semibold text-muted-foreground">
           {t("localCommand.localChip")}
         </span>
 
@@ -188,7 +188,7 @@ export function LocalCommandCard({
 
       {/* Actions — only while running */}
       {isRunning && (
-        <div className="flex items-center gap-2 border-t border-border px-3.5 py-2.5">
+        <div className="flex items-center gap-2 px-3.5 py-2.5">
           <div className="flex-1" />
           {onStop ? (
             <Button
