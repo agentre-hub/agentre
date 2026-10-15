@@ -22,6 +22,7 @@ import { reloadSidebarSources } from "@/stores/sidebar-reload";
 import type { ChatTab, TabKind } from "@/stores/chat-tabs-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
+import { openSettings } from "@/stores/settings-dialog-store";
 
 type PanelOrderState = {
   tabs: ChatTab[];
@@ -121,7 +122,7 @@ function ChatEmptyState() {
   if (!loading && !error && !hasChattable) {
     return (
       <main className="flex flex-1 flex-col items-center justify-center gap-3 overflow-auto bg-background px-8 py-10 text-center">
-        <span className="inline-flex size-14 items-center justify-center rounded-lg border border-border bg-primary-soft">
+        <span className="inline-flex size-14 items-center justify-center rounded-lg bg-primary-soft">
           <Sparkles className="size-6 text-primary" aria-hidden="true" />
         </span>
         <SetupChecklist />
@@ -132,7 +133,7 @@ function ChatEmptyState() {
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-background px-8 text-center">
-      <span className="inline-flex size-14 items-center justify-center rounded-lg border border-border bg-primary-soft">
+      <span className="inline-flex size-14 items-center justify-center rounded-lg bg-primary-soft">
         <Sparkles className="size-6 text-primary" aria-hidden="true" />
       </span>
       <div className="text-base font-semibold">{t("chatTabs.empty.title")}</div>
@@ -143,7 +144,7 @@ function ChatEmptyState() {
         <div className="mt-3 flex items-center gap-2 text-xs">
           <Badge
             variant="outline"
-            className="border-status-waiting/40 bg-status-waiting-bg px-2 py-0 text-2xs text-foreground"
+            className="bg-status-waiting-bg px-2 py-0 text-2xs text-foreground"
           >
             {t("chatTabs.empty.unconfigured.count", {
               count: unconfiguredCount,
@@ -201,15 +202,15 @@ function ChatShortcuts() {
 
   return (
     <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-      <kbd className="rounded-md border border-border bg-card px-2 py-1 font-mono">
+      <kbd className="rounded-md bg-button-fill px-2 py-1 font-mono">
         {tabsLabel}
       </kbd>
       {t("chatTabs.empty.shortcuts.switch")}
-      <kbd className="rounded-md border border-border bg-card px-2 py-1 font-mono">
+      <kbd className="rounded-md bg-button-fill px-2 py-1 font-mono">
         {closeLabel}
       </kbd>
       {t("chatTabs.empty.shortcuts.close")}
-      <kbd className="rounded-md border border-border bg-card px-2 py-1 font-mono">
+      <kbd className="rounded-md bg-button-fill px-2 py-1 font-mono">
         {clickLabel}
       </kbd>
       {t("chatTabs.empty.shortcuts.openInNewTab")}
@@ -224,17 +225,14 @@ type SetupStepStatus = "done" | "current" | "waiting";
 // 的 agent；第一步与第二步都完成，第三行（发出第一轮对话）才可点。
 function SetupChecklist() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const agents = useChatAgentsStore((s) => s.agents);
 
   const backendDone = agents.some((a) => a.blockReason !== "no-backend");
   const providerDone = agents.some((a) => a.chattable);
   const canStart = backendDone && providerDone;
 
-  const goBackend = () =>
-    navigate("/settings", { state: { settingsPage: "agent-backend" } });
-  const goProvider = () =>
-    navigate("/settings", { state: { settingsPage: "llm-providers" } });
+  const goBackend = () => openSettings("agent-backend");
+  const goProvider = () => openSettings("llm-providers");
   const startFirstChat = () => {
     const agent = agents.find((a) => a.chattable);
     if (agent) useChatTabsStore.getState().openNewSession(0, agent.id, "");
@@ -301,7 +299,7 @@ function SetupChecklist() {
       <div className="max-w-md text-xs text-muted-foreground">
         {t("chatTabs.empty.setupGuide.description")}
       </div>
-      <div className="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-card text-left">
+      <div className="flex w-full max-w-lg flex-col gap-1 rounded-lg bg-field-fill p-1 text-left">
         {steps.map((step) => (
           <SetupChecklistRow key={step.id} {...step} />
         ))}
@@ -335,20 +333,18 @@ function SetupChecklistRow({
       data-testid={`setup-step-${id}`}
       data-status={status}
       className={cn(
-        "flex items-center gap-3 border-b border-border px-3.5 py-2.5 last:border-b-0",
-        waiting && "bg-secondary/50",
+        "flex items-center gap-3 rounded-md px-3 py-2.5",
+        waiting && "opacity-70",
       )}
     >
       <span
         aria-hidden="true"
         className={cn(
-          "inline-flex size-5 shrink-0 items-center justify-center rounded-full border text-2xs font-semibold",
-          done &&
-            "border-status-running bg-status-running text-status-running-foreground",
+          "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-2xs font-semibold",
+          done && "bg-status-running text-status-running-foreground",
           status === "current" &&
-            "border-status-waiting-text text-status-waiting-text",
-          waiting &&
-            "border-dashed border-control-border text-muted-foreground",
+            "bg-status-waiting-bg text-status-waiting-text",
+          waiting && "bg-button-fill text-muted-foreground",
         )}
       >
         {done ? <Check className="size-3" /> : index}

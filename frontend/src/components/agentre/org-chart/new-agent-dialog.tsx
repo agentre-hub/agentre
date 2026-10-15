@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 
 import {
   Button,
@@ -24,6 +23,7 @@ import {
   agentColorOrder,
   type AgentColor,
 } from "../types";
+import { openSettings } from "@/stores/settings-dialog-store";
 import { AgentAvatarPicker } from "../icon-picker";
 import { type OrgAgent, type OrgDepartment } from "../org/types";
 import { useOrgData } from "../org/use-org-data";
@@ -56,7 +56,6 @@ export function NewAgentDialog(props: NewAgentProps) {
 
 export function NewAgentDialogBody(props: NewAgentProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [avatarColor, setAvatarColor] = React.useState<AgentColor>("agent-1");
@@ -142,11 +141,11 @@ export function NewAgentDialogBody(props: NewAgentProps) {
               variant="link"
               size="sm"
               className="h-auto px-0 text-2xs"
-              onClick={() =>
-                navigate("/settings", {
-                  state: { settingsPage: "agent-backend" },
-                })
-              }
+              onClick={() => {
+                // 先关掉本对话框再开设置，不叠两层。
+                props.onClose();
+                openSettings("agent-backend");
+              }}
             >
               {t("org.chart.newAgent.intentSettings")}
             </Button>

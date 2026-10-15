@@ -1,6 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 
 import { NewAgentDialog, type NewAgentProps } from "./new-agent-dialog";
 import type { OrgAgent, OrgDepartment } from "../org/types";
@@ -56,5 +58,28 @@ describe("NewAgentDialog accessibility", () => {
     expect(name.closest("label")).not.toBeNull();
     expect(description.closest("label")).not.toBeNull();
     expect(name.closest("label")).not.toBe(description.closest("label"));
+  });
+});
+
+describe("NewAgentDialog settings entry", () => {
+  beforeEach(() => {
+    useSettingsDialogStore.setState({ open: false, page: "appearance" });
+  });
+
+  it("closes itself first, then opens the settings dialog on the agent-backend page", () => {
+    let settingsOpenWhenClosed: boolean | null = null;
+    const onClose = vi.fn(() => {
+      settingsOpenWhenClosed = useSettingsDialogStore.getState().open;
+    });
+    renderDialog({ fromIntent: true, onClose });
+
+    fireEvent.click(screen.getByRole("button", { name: /Go to settings/ }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(settingsOpenWhenClosed).toBe(false);
+    expect(useSettingsDialogStore.getState()).toMatchObject({
+      open: true,
+      page: "agent-backend",
+    });
   });
 });

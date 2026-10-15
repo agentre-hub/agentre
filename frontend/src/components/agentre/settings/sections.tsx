@@ -14,6 +14,7 @@ import {
   Button,
 } from "@agentre-hub/agentre-ui";
 
+import { closeSettings } from "@/stores/settings-dialog-store";
 import { AgentBackendsPanel } from "../agent-backends";
 import { CtlSkillPanel } from "../ctl-skill";
 import { LlmProvidersPanel } from "../llm-providers";
@@ -113,7 +114,10 @@ export function LlmProviderSettings({
                   type="button"
                   variant="link"
                   className="h-auto px-0 text-2xs"
-                  onClick={() => navigate("/org")}
+                  onClick={() => {
+                    closeSettings();
+                    navigate("/org");
+                  }}
                 >
                   {t("settings.llmProvider.gapBanner.goToOrg")}
                 </Button>

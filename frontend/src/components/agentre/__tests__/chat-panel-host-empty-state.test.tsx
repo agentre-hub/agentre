@@ -6,6 +6,7 @@ import { ChatPanelHost } from "../chat-tabs/chat-panel-host";
 import { ShortcutsProvider } from "../shortcuts/shortcuts-provider";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 
 vi.mock("../chat-panel", () => ({
   ChatPanel: () => <div data-testid="chat-panel" />,
@@ -20,15 +21,7 @@ vi.mock("@agentre-hub/agentre-ui", async (importOriginal) => ({
 
 function LocationProbe() {
   const location = useLocation();
-  return (
-    <output data-testid="location">
-      {location.pathname}|
-      {String(
-        (location.state as { settingsPage?: string } | null)?.settingsPage ??
-          "",
-      )}
-    </output>
-  );
+  return <output data-testid="location">{location.pathname}</output>;
 }
 
 type SeedAgent = {
@@ -57,6 +50,16 @@ function seedAgents(agents: SeedAgent[]) {
   });
 }
 
+// 结构线 = 带颜色的整圈 / 单边 border 与 divide-*；状态圆点上的状态色环不算。
+function expectNoStructuralBorders(container: HTMLElement) {
+  const offenders = Array.from(container.querySelectorAll("*")).filter((el) =>
+    /(^|\s)(border|border-[tblrxy]|divide-[xy])(\s|$)|(^|\s)(border-border|last:border-b-0)(\s|$)/.test(
+      el.getAttribute("class") ?? "",
+    ),
+  );
+  expect(offenders.map((el) => el.getAttribute("class"))).toEqual([]);
+}
+
 function renderHost() {
   return render(
     <MemoryRouter initialEntries={["/chat"]}>
@@ -82,6 +85,7 @@ function expectSetupTitleToMatchRows() {
 
 describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
   beforeEach(() => {
+    useSettingsDialogStore.setState({ open: false, page: "appearance" });
     useChatTabsStore.setState({ tabs: [], activeTabId: null });
     useChatAgentsStore.getState().__reset();
     vi.spyOn(useChatAgentsStore.getState(), "reload").mockResolvedValue();
@@ -214,7 +218,7 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
     );
   });
 
-  it("1B: the backend step action navigates to /settings on the agent-backend page", () => {
+  it("1B: the backend step action opens the settings dialog on the agent-backend page", () => {
     seedAgents([
       { id: 1, name: "CEO", chattable: false, blockReason: "no-backend" },
     ]);
@@ -228,12 +232,14 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
       );
     });
 
-    expect(screen.getByTestId("location")).toHaveTextContent(
-      "/settings|agent-backend",
-    );
+    expect(useSettingsDialogStore.getState()).toMatchObject({
+      open: true,
+      page: "agent-backend",
+    });
+    expect(screen.getByTestId("location")).toHaveTextContent("/chat");
   });
 
-  it("1B: the provider step action navigates to /settings on the llm-providers page", () => {
+  it("1B: the provider step action opens the settings dialog on the llm-providers page", () => {
     seedAgents([
       {
         id: 1,
@@ -252,9 +258,11 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
       );
     });
 
-    expect(screen.getByTestId("location")).toHaveTextContent(
-      "/settings|llm-providers",
-    );
+    expect(useSettingsDialogStore.getState()).toMatchObject({
+      open: true,
+      page: "llm-providers",
+    });
+    expect(screen.getByTestId("location")).toHaveTextContent("/chat");
   });
 
   // 全部就绪 = 存在 chattable 的 agent。按 spec §7 这一档交给 1C 占位, 1B 清单
@@ -303,7 +311,7 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
       );
     });
 
-    expect(screen.getByTestId("location")).toHaveTextContent("/org|");
+    expect(screen.getByTestId("location")).toHaveTextContent("/org");
   });
 
   it("1C: counts only Agents blocked by a missing backend", () => {
@@ -338,5 +346,25 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
     expect(
       screen.queryByRole("button", { name: "Go to org chart setup →" }),
     ).not.toBeInTheDocument();
+  });
+
+  // 规格「结构线」：空状态不画外框与行间分隔线，靠填充与留白分层。
+  it("draws no border or divider lines in the setup checklist empty state", () => {
+    seedAgents([
+      { id: 1, name: "CEO", chattable: false, blockReason: "no-backend" },
+    ]);
+    const { container } = renderHost();
+
+    expectNoStructuralBorders(container);
+  });
+
+  it("draws no border or divider lines in the ready placeholder", () => {
+    seedAgents([
+      { id: 1, name: "CEO", chattable: false, blockReason: "no-backend" },
+      { id: 2, name: "Eng", chattable: true },
+    ]);
+    const { container } = renderHost();
+
+    expectNoStructuralBorders(container);
   });
 });

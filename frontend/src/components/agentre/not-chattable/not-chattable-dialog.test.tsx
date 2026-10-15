@@ -1,8 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
+
+import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 
 import { NotChattableDialog } from "./not-chattable-dialog";
 import { blockReasonToCta, ORG_SELECTED_STORAGE_KEY } from "./mapping";
@@ -12,14 +14,21 @@ function LocationProbe() {
   return <output data-testid="location">{location.pathname}</output>;
 }
 
-function renderDialog(blockReason: string) {
+beforeEach(() => {
+  useSettingsDialogStore.setState({ open: false, page: "appearance" });
+});
+
+function renderDialog(
+  blockReason: string,
+  onOpenChange: (open: boolean) => void = () => undefined,
+) {
   return render(
     <MemoryRouter initialEntries={["/chat"]}>
       <LocationProbe />
       <NotChattableDialog
         agent={{ blockReason, id: 42, name: "CEO" }}
         open
-        onOpenChange={() => undefined}
+        onOpenChange={onOpenChange}
       />
     </MemoryRouter>,
   );
@@ -69,13 +78,36 @@ describe("NotChattableDialog primary action", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/org");
   });
 
-  it("navigates to settings for provider setup", () => {
+  it("opens the settings dialog on the llm-providers page for provider setup", () => {
     renderDialog("provider-inactive");
 
     fireEvent.click(
       screen.getByRole("button", { name: "Configure LLM provider" }),
     );
 
-    expect(screen.getByTestId("location")).toHaveTextContent("/settings");
+    expect(useSettingsDialogStore.getState()).toMatchObject({
+      open: true,
+      page: "llm-providers",
+    });
+    expect(screen.getByTestId("location")).toHaveTextContent("/chat");
+  });
+
+  it("closes itself before the settings dialog opens, so the two never stack", () => {
+    let settingsOpenWhenClosed: boolean | null = null;
+    const onOpenChange = vi.fn((open: boolean) => {
+      if (!open) {
+        settingsOpenWhenClosed = useSettingsDialogStore.getState().open;
+      }
+    });
+    renderDialog("gateway-not-running", onOpenChange);
+
+    fireEvent.click(screen.getByRole("button", { name: /agent backend/i }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(settingsOpenWhenClosed).toBe(false);
+    expect(useSettingsDialogStore.getState()).toMatchObject({
+      open: true,
+      page: "agent-backend",
+    });
   });
 });

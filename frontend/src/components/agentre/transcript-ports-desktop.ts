@@ -9,6 +9,7 @@ import type {
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
+import { openSettings } from "@/stores/settings-dialog-store";
 
 import {
   AnswerToolApproval,
@@ -166,7 +167,7 @@ export function useDesktopTranscriptPorts(): TranscriptPorts {
             return navigate(`/chat?reveal=${ref.refId}`);
           }
           // 设备的去处是设置里的设备面板 —— 那是这台机器在桌面端唯一的落脚页。
-          navigate("/settings", { state: { settingsPage: "remote-devices" } });
+          openSettings("remote-devices");
         },
       }) satisfies Required<TranscriptPorts>,
     [navigate],

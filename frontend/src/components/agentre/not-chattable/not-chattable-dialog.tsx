@@ -16,6 +16,8 @@ import {
   DialogTitle,
 } from "@agentre-hub/agentre-ui";
 import type { AgentSlim } from "@/hooks/use-chat-agents";
+import { openSettings } from "@/stores/settings-dialog-store";
+import type { SettingsPageId } from "../settings/pages";
 
 import {
   blockReasonToCta,
@@ -79,9 +81,7 @@ function navigateToTarget(
     return;
   }
 
-  navigate("/settings", {
-    state: { settingsPage: target.slice("settings:".length) },
-  });
+  openSettings(target.slice("settings:".length) as SettingsPageId);
 }
 
 function NotChattableDialog({

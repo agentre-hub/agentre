@@ -1,6 +1,6 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // 后端编辑器订阅 remote.device.state 才能让刚收编的机器就地由灰变可选，而这里渲染的是
@@ -12,24 +12,14 @@ vi.mock("../../../../wailsjs/runtime/runtime", () => ({
 
 import { SettingsPage } from "../settings";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
+import {
+  openSettings,
+  useSettingsDialogStore,
+} from "@/stores/settings-dialog-store";
 
 function LocationProbe() {
   const location = useLocation();
   return <output data-testid="location">{location.pathname}</output>;
-}
-
-function SettingsStateNavigator() {
-  const navigate = useNavigate();
-  return (
-    <button
-      type="button"
-      onClick={() =>
-        navigate("/settings", { state: { settingsPage: "llm-providers" } })
-      }
-    >
-      Open provider settings
-    </button>
-  );
 }
 
 type SeedAgent = {
@@ -60,11 +50,10 @@ function seedAgents(agents: SeedAgent[]) {
   });
 }
 
-function renderSettings({ withStateNavigator = false } = {}) {
+function renderSettings() {
   return render(
     <MemoryRouter initialEntries={["/settings"]}>
       <LocationProbe />
-      {withStateNavigator ? <SettingsStateNavigator /> : null}
       <SettingsPage
         effectiveTheme="light"
         onThemePreferenceChange={() => {}}
@@ -80,6 +69,7 @@ function settingsNav() {
 
 describe("Settings setup guidance (task 7)", () => {
   beforeEach(() => {
+    useSettingsDialogStore.setState({ open: false, page: "appearance" });
     useChatAgentsStore.getState().__reset();
     vi.spyOn(useChatAgentsStore.getState(), "reload").mockResolvedValue();
   });
@@ -170,14 +160,14 @@ describe("Settings setup guidance (task 7)", () => {
     });
   });
 
-  it("applies a settings deep-link when navigation stays on /settings", async () => {
-    const user = userEvent.setup();
+  it("openSettings(page) lands the dialog on that sub-page", async () => {
     seedAgents([]);
-    renderSettings({ withStateNavigator: true });
+    renderSettings();
+    expect(
+      await screen.findByRole("heading", { name: "Appearance" }),
+    ).toBeInTheDocument();
 
-    await user.click(
-      screen.getByRole("button", { name: "Open provider settings" }),
-    );
+    act(() => openSettings("llm-providers"));
 
     expect(
       await screen.findByRole("heading", { name: "LLM Providers" }),
@@ -275,6 +265,7 @@ describe("Settings setup guidance (task 7)", () => {
   describe("LLM provider page gap banner", () => {
     it("shows the banner with a Go to org chart link when a provider gap exists", async () => {
       const user = userEvent.setup();
+      useSettingsDialogStore.setState({ open: true });
       seedAgents([
         {
           id: 1,
@@ -299,6 +290,8 @@ describe("Settings setup guidance (task 7)", () => {
       );
 
       expect(screen.getByTestId("location")).toHaveTextContent("/org");
+      // 先关设置再跳转：对话框不能带着自己落到组织页上。
+      expect(useSettingsDialogStore.getState().open).toBe(false);
     });
 
     it("hides the banner when no agent lacks a provider", async () => {
