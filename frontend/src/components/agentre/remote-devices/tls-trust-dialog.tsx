@@ -114,12 +114,12 @@ export function TLSTrustDialog({
           {MODES.map((m) => (
             <label
               key={m.value}
-              className={`flex items-start gap-3 rounded-md border p-3 cursor-pointer ${
+              className={`flex items-start gap-3 rounded-md p-3 cursor-pointer ${
                 mode === m.value
                   ? m.danger
-                    ? "border-destructive bg-destructive/5"
-                    : "border-primary bg-primary/5"
-                  : "border-border"
+                    ? "bg-destructive/5"
+                    : "bg-primary/5"
+                  : "bg-field-fill"
               }`}
             >
               <RadioGroupItem

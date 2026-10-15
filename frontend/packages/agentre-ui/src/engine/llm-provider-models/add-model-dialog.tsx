@@ -166,7 +166,7 @@ export function AddModelDialog({
               />
             </Field>
             {catalogMatched ? (
-              <p className="flex items-start gap-2 rounded-md border border-border bg-secondary px-3 py-2.5 text-2xs leading-relaxed text-muted-foreground">
+              <p className="flex items-start gap-2 rounded-md bg-field-fill px-3 py-2.5 text-2xs leading-relaxed text-muted-foreground">
                 <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                 {t("llmProviders.addModel.catalogMatched")}
               </p>

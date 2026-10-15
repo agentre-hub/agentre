@@ -481,7 +481,7 @@ function AgentBackendsPanelBody({
   return (
     <>
       {renderHeader?.(headerActions)}
-      <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
+      <section className="min-w-0 overflow-hidden rounded-lg bg-field-fill">
         {flash ? (
           <FlashBanner state={flash} onDismiss={() => setFlash(null)} />
         ) : null}
@@ -1468,7 +1468,7 @@ function BackendEditor({
               onUrlChange={setHermesUrl}
               auth={
                 credentialDeviceGateReason !== "" ? (
-                  <p className="rounded-md border border-border bg-secondary/30 p-3 text-2xs text-muted-foreground">
+                  <p className="rounded-md bg-field-fill p-3 text-2xs text-muted-foreground">
                     {credentialGateNote}
                   </p>
                 ) : (
@@ -1645,7 +1645,7 @@ function ProxyNote({
   // 未关联 provider 时 CLI 走自身登录，本地代理不参与，无需提示其状态。
   if (!providerLinked) {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-border bg-secondary px-3 py-2 text-2xs text-muted-foreground">
+      <div className="flex items-center gap-2 rounded-md bg-field-fill px-3 py-2 text-2xs text-muted-foreground">
         <span
           className="size-1.5 shrink-0 rounded-full bg-muted-foreground"
           aria-hidden="true"
@@ -1664,10 +1664,10 @@ function ProxyNote({
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-md border px-3 py-2 text-2xs",
+        "flex items-center gap-2 rounded-md px-3 py-2 text-2xs",
         running
-          ? "border-primary-text/30 bg-primary-soft text-primary-text"
-          : "border-border bg-secondary text-muted-foreground",
+          ? "-text/30 bg-primary-soft text-primary-text"
+          : "bg-secondary text-muted-foreground",
       )}
     >
       <span

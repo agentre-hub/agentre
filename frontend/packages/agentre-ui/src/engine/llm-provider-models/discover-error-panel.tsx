@@ -44,7 +44,7 @@ export function DiscoverErrorPanel({
   return (
     <div
       role="alert"
-      className="flex flex-col items-start gap-2 rounded-md border border-status-error/40 bg-destructive-soft px-3 py-2.5 text-destructive-text"
+      className="flex flex-col items-start gap-2 rounded-md bg-destructive-soft px-3 py-2.5 text-destructive-text"
     >
       <div className="flex items-start gap-2 text-xs">
         <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -103,7 +103,7 @@ export function DiscoverErrorPanel({
         {t("llmProviders.discover.viewRawResponse")}
       </button>
       {showRaw ? (
-        <pre className="max-h-40 w-full overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-secondary px-2.5 py-2 font-mono text-2xs text-foreground">
+        <pre className="max-h-40 w-full overflow-auto whitespace-pre-wrap break-words rounded bg-field-fill px-2.5 py-2 font-mono text-2xs text-foreground">
           {rawError}
         </pre>
       ) : null}

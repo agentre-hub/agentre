@@ -228,7 +228,7 @@ export function DeleteDialog({
               {t("llmProviders.delete.checking")}
             </div>
           ) : referenced && counts ? (
-            <div className="flex flex-col gap-2 rounded-md border border-status-waiting/40 bg-status-waiting/10 px-3 py-2.5">
+            <div className="flex flex-col gap-2 rounded-md bg-status-waiting/10 px-3 py-2.5">
               <div className="flex items-start gap-2 text-xs text-status-waiting-text">
                 <AlertTriangle
                   className="mt-0.5 size-4 shrink-0"

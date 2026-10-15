@@ -21,7 +21,7 @@ export function OpenClawSection({
   return (
     <>
       {gateMessage ? (
-        <p className="rounded-md border border-border bg-secondary/30 p-3 text-2xs text-muted-foreground">
+        <p className="rounded-md bg-field-fill p-3 text-2xs text-muted-foreground">
           {gateMessage}
         </p>
       ) : null}

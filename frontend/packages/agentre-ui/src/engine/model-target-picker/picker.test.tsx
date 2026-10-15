@@ -1297,12 +1297,9 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     let special = await screen.findByRole("option", {
       name: /CLI login state/,
     });
-    expect(special).toHaveClass(
-      "border",
-      "border-dashed",
-      "border-border-strong",
-    );
-    expect(special).not.toHaveClass("border-primary");
+    expect(special).toHaveClass("bg-field-fill");
+    expect(special).not.toHaveClass("border", "border-dashed");
+    expect(special).not.toHaveClass("bg-primary-soft");
     unmount();
 
     render(
@@ -1317,7 +1314,8 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     );
     await user.click(screen.getByRole("button", { name: "LLM Provider" }));
     special = await screen.findByRole("option", { name: /CLI login state/ });
-    expect(special).toHaveClass("border-solid", "border-primary");
+    expect(special).toHaveClass("bg-accent");
+    expect(special).not.toHaveClass("bg-field-fill", "border-solid");
   });
 
   it("特殊项图标分场景：chat=UserRound / backend=Lock / route=GitBranch", async () => {
@@ -1452,12 +1450,8 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     // 展示名是人读文案，不走等宽。
     expect(label).not.toHaveClass("font-mono");
     const chip = label.parentElement as HTMLElement;
-    expect(chip).toHaveClass(
-      "h-[22px]",
-      "rounded-md",
-      "border-border",
-      "bg-card",
-    );
+    expect(chip).toHaveClass("h-[22px]", "rounded-md", "bg-field-fill");
+    expect(chip).not.toHaveClass("border-border");
     expect(chip).not.toHaveClass("rounded-full");
     // 品牌标识确实渲染了，只是对无障碍树隐藏。
     expect(within(chip).getByRole("img", { hidden: true })).toBeInTheDocument();
@@ -1860,12 +1854,12 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
 
     const okChip = (await screen.findByRole("button", { name: "Opus" }))
       .parentElement as HTMLElement;
-    expect(okChip).toHaveClass("cursor-pointer", "hover:border-border-strong");
+    expect(okChip).toHaveClass("cursor-pointer", "hover:bg-field-fill-hover");
 
     const offChip = (screen.getByRole("button", { name: "claude-old" })
       .parentElement || null) as HTMLElement;
     expect(offChip).toHaveClass("cursor-not-allowed");
-    expect(offChip).not.toHaveClass("hover:border-border-strong");
+    expect(offChip).not.toHaveClass("hover:bg-field-fill-hover");
 
     // mockup .rchip .rx：subtle 基线色，hover 才上 accent 底 + foreground 字。
     expect(screen.getByRole("button", { name: "Remove Opus" })).toHaveClass(

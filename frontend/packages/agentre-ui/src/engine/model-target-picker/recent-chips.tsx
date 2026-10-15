@@ -33,11 +33,11 @@ export function RecentChipsRow({
           <span
             key={r.key}
             className={cn(
-              "flex h-[22px] shrink-0 items-center gap-1 rounded-md border border-border bg-card pl-[5px] pr-1 text-2xs transition-colors",
+              "flex h-[22px] shrink-0 items-center gap-1 rounded-md bg-field-fill pl-[5px] pr-1 text-2xs transition-colors",
               // mockup .rchip：整颗 chip 是手形 + hover 只加深描边；停用的不给可点暗示。
               r.disabled
                 ? "cursor-not-allowed"
-                : "cursor-pointer hover:border-border-strong",
+                : "cursor-pointer hover:bg-field-fill-hover",
             )}
           >
             <button

@@ -36,7 +36,7 @@ export function DiscoverModelList({
 
   return (
     <div className="space-y-2">
-      <label className="flex items-center gap-2 rounded-md border border-border bg-secondary px-2.5 py-2">
+      <label className="flex items-center gap-2 rounded-md bg-field-fill px-2.5 py-2">
         <Checkbox
           checked={allNewChecked}
           onCheckedChange={(next) => onToggleAllNew(next === true)}
@@ -68,7 +68,7 @@ export function DiscoverModelList({
             return (
               <div
                 key={m.id}
-                className="flex items-center gap-2.5 rounded-md border border-border px-2.5 py-2"
+                className="flex items-center gap-2.5 rounded-md bg-field-fill px-2.5 py-2"
               >
                 <Checkbox
                   checked={existing ? false : checked}

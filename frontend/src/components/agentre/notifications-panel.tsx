@@ -22,8 +22,8 @@ export function NotificationsPanel() {
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <section className="overflow-hidden rounded-lg border border-border bg-card">
-        <header className="border-b border-border px-4 py-3">
+      <section className="overflow-hidden rounded-lg bg-field-fill">
+        <header className="px-4 py-3">
           <h2 className="text-sm font-semibold">
             {t("settings.notifications.masterTitle")}
           </h2>
@@ -53,8 +53,8 @@ export function NotificationsPanel() {
         </Row>
       </section>
 
-      <section className="overflow-hidden rounded-lg border border-border bg-card">
-        <header className="border-b border-border px-4 py-3">
+      <section className="overflow-hidden rounded-lg bg-field-fill">
+        <header className="px-4 py-3">
           <h2 className="text-sm font-semibold">
             {t("settings.notifications.channelsTitle")}
           </h2>
@@ -86,7 +86,7 @@ export function NotificationsPanel() {
         </Row>
       </section>
 
-      <div className="rounded-lg border border-primary-text/30 bg-primary-soft px-4 py-3 text-primary-text">
+      <div className="rounded-lg -text/30 bg-primary-soft px-4 py-3 text-primary-text">
         <p className="text-xs font-semibold">
           {t("settings.notifications.ruleTitle")}
         </p>
@@ -108,7 +108,7 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-4 border-t border-border px-4 py-3 first:border-t-0">
+    <div className="flex items-center gap-4 px-4 py-3">
       <div className="min-w-0 flex-1">
         <div className="text-xs font-medium">{label}</div>
         <div className="text-2xs leading-relaxed text-muted-foreground">

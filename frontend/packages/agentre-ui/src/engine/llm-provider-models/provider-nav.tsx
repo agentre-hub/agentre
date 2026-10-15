@@ -56,9 +56,9 @@ export function ProviderNav({
     <aside
       role="complementary"
       aria-label={t("llmProviders.nav.ariaLabel")}
-      className="flex w-60 shrink-0 flex-col border-r border-border"
+      className="flex w-60 shrink-0 flex-col"
     >
-      <div className="border-b border-border p-2">
+      <div className="p-2">
         <SearchInput
           value={navSearch}
           onChange={setNavSearch}

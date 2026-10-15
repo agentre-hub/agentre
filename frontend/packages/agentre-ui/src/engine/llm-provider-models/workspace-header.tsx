@@ -106,7 +106,7 @@ export function ProviderWorkspaceHeader({
   const refsText = refParts.join(" · ");
 
   return (
-    <div className="border-b border-border px-3 py-3 sm:px-4">
+    <div className="px-3 py-3 sm:px-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2.5">
           <LlmProviderLogo
@@ -149,11 +149,7 @@ export function ProviderWorkspaceHeader({
               ? t("llmProviders.workspace.enabledShort")
               : t("llmProviders.workspace.disabledShort")}
           </label>
-          {/* 状态与操作分档：enable 开关是一档，测试/发现/更多是另一档 */}
-          <span
-            className="h-[18px] w-px shrink-0 bg-border"
-            aria-hidden="true"
-          />
+
           {canTestProvider ? (
             <Button
               type="button"

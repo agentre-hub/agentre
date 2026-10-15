@@ -525,10 +525,10 @@ describe("ProviderPill · Composer 四态（mockup ?view=chat：单行，脸上�
     // 未选态同样是中性 .pill：不许出现常亮的高亮边框/文字。
     expect(pill).toHaveClass(
       "cursor-pointer",
-      "border-border",
-      "bg-card",
+      "bg-field-fill",
       "text-foreground",
     );
+    expect(pill).not.toHaveClass("border-border");
     expect(pill).not.toHaveClass("bg-muted");
     // 可点控件要有 hover 反馈，但只许动背景 —— 边框变色是用户明确否掉的那种反馈。
     expect(pill).toHaveClass("hover:bg-accent");
@@ -597,7 +597,8 @@ describe("ProviderPill · Composer 四态（mockup ?view=chat：单行，脸上�
       within(pill).queryByTestId("model-target-trigger-sub"),
     ).not.toBeInTheDocument();
     // 选中态不再靠常亮描边宣示自己：一律中性 .pill 配色，模式交给图标与 ↻ 表达。
-    expect(pill).toHaveClass("border-border", "bg-card", "text-foreground");
+    expect(pill).toHaveClass("bg-field-fill", "text-foreground");
+    expect(pill).not.toHaveClass("border-border");
     expect(pill).not.toHaveClass("border-primary-text/60");
     expect(pill).not.toHaveClass("text-primary-text");
     expect(pill).not.toHaveClass("bg-primary-soft");
@@ -658,7 +659,6 @@ describe("ProviderPill · Composer 四态（mockup ?view=chat：单行，脸上�
     // 失效是唯一保留配色信号的一态（mockup .pill.warn）。
     expect(pill).toHaveClass(
       "cursor-pointer",
-      "border-status-waiting",
       "bg-status-waiting-bg",
       "text-status-waiting-text",
     );

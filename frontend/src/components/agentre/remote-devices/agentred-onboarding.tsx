@@ -81,7 +81,7 @@ export function AgentredOnboarding({
   ];
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card">
+    <section className="overflow-hidden rounded-xl bg-field-fill">
       <GuideStepRail
         steps={steps}
         current={step}
@@ -157,7 +157,7 @@ export function AgentredOnboarding({
               label={t("remoteDevices.onboarding.pair.commandLabel")}
               command={agentredPairCommand(method)}
             />
-            <div className="rounded-lg border border-border bg-muted/30 p-4">
+            <div className="rounded-lg bg-field-fill p-4">
               <DevicePairingForm
                 actionsClassName="justify-between"
                 cancelLabel={t("remoteDevices.onboarding.pair.back")}

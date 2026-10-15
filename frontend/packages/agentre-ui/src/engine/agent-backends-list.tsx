@@ -267,7 +267,7 @@ export function BackendRow({
     <div
       role="listitem"
       className={cn(
-        "flex min-w-0 flex-col gap-1.5 border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-accent/45 hover:on-accent",
+        "flex min-w-0 flex-col gap-1.5 px-4 py-3 transition-colors hover:bg-accent/45 hover:on-accent",
         // 需处理的行用琥珀色左缘标记，一眼可扫；用 inset 阴影避免改变行宽。
         warning && "shadow-[inset_3px_0_0_0_var(--status-waiting)]",
       )}

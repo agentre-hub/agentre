@@ -24,7 +24,7 @@ export function ManualProviderSyncAlert({
 }) {
   const { t } = useTranslation();
   return (
-    <Alert className="border-border bg-secondary text-xs">
+    <Alert className="bg-field-fill text-xs">
       <Radar className="size-4" aria-hidden="true" />
       <AlertTitle className="text-xs">
         {t("agentBackends.providerSync.inlineTitle")}
@@ -79,7 +79,7 @@ export function ProviderSyncDialog({
         }}
       />
       <DialogShellBody className="flex flex-col gap-3">
-        <Alert className="border-status-waiting/40 bg-status-waiting-bg text-xs">
+        <Alert className="bg-status-waiting-bg text-xs">
           <AlertCircle className="size-4" aria-hidden="true" />
           <AlertTitle className="text-xs">
             {t("agentBackends.providerSync.requiredTitle")}
@@ -89,7 +89,7 @@ export function ProviderSyncDialog({
           </AlertDescription>
         </Alert>
         {error ? (
-          <Alert className="border-status-error/40 bg-status-error-bg text-xs">
+          <Alert className="bg-status-error-bg text-xs">
             <AlertCircle className="size-4" aria-hidden="true" />
             <AlertTitle className="text-xs">
               {t("agentBackends.providerSync.failedTitle")}
@@ -103,7 +103,7 @@ export function ProviderSyncDialog({
           {pending.providerKeys.map((key) => (
             <div
               key={key}
-              className="flex items-center justify-between rounded-md border border-border bg-secondary px-2 py-1.5"
+              className="flex items-center justify-between rounded-md bg-field-fill px-2 py-1.5"
             >
               <span className="min-w-0 truncate">
                 {providerLabel(key, providers)}

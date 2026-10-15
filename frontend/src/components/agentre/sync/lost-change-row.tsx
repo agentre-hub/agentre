@@ -123,7 +123,7 @@ export function LostChangeRow({
   };
 
   return (
-    <div data-testid="lost-change-row" className="border-t border-border">
+    <div data-testid="lost-change-row" className="">
       <button
         type="button"
         onClick={onToggleExpand}
@@ -162,7 +162,7 @@ export function LostChangeRow({
         {deleted ? (
           <Badge
             variant="outline"
-            className="shrink-0 rounded-sm border-border px-1.5 py-0.5 text-2xs font-medium text-muted-foreground"
+            className="shrink-0 rounded-sm px-1.5 py-0.5 text-2xs font-medium text-muted-foreground"
           >
             {t("sync.lostChanges.deletedBadge")}
           </Badge>
@@ -170,9 +170,9 @@ export function LostChangeRow({
       </button>
 
       {expanded ? (
-        <div className="flex flex-col gap-3 border-t border-border bg-muted p-4">
+        <div className="flex flex-col gap-3 bg-muted p-4">
           {deleted ? (
-            <div className="flex gap-2 rounded-md border border-destructive bg-destructive-soft p-3">
+            <div className="flex gap-2 rounded-md bg-destructive-soft p-3">
               <TriangleAlert
                 className="mt-0.5 size-4 shrink-0 text-destructive"
                 aria-hidden="true"
@@ -200,7 +200,7 @@ export function LostChangeRow({
               </span>
               <pre
                 data-selectable-text="true"
-                className="overflow-x-auto rounded-md border border-border bg-code-surface p-2 font-mono text-xs whitespace-pre-wrap break-words text-code-foreground"
+                className="overflow-x-auto rounded-md bg-code-surface p-2 font-mono text-xs whitespace-pre-wrap break-words text-code-foreground"
               >
                 {formatPayload(row.payloadJSON)}
               </pre>

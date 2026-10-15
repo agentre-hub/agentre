@@ -180,7 +180,7 @@ export function DeviceProvidersSync({ deviceId }: Props) {
   return (
     <div
       data-testid="device-providers-sync"
-      className="flex flex-col gap-1.5 rounded-md border border-border bg-secondary/40 px-3 py-2"
+      className="flex flex-col gap-1.5 rounded-md bg-field-fill px-3 py-2"
     >
       <span className="text-2xs font-semibold text-muted-foreground uppercase tracking-wide">
         {t("remoteDevices.providers.title")}

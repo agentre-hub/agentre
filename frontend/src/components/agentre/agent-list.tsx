@@ -179,7 +179,7 @@ function AgentGroup({
           {notChattable ? (
             <Badge
               variant="outline"
-              className="border-status-waiting/40 bg-status-waiting-bg px-1.5 py-0 text-2xs text-foreground"
+              className="bg-status-waiting-bg px-1.5 py-0 text-2xs text-foreground"
             >
               {blockReason === "no-backend"
                 ? t("agentList.backendNotConfigured")

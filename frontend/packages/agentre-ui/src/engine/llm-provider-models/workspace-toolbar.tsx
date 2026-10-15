@@ -35,7 +35,7 @@ export function ModelsToolbar({
   return (
     <>
       {selectedCount > 0 ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2 sm:px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-4">
           <span className="shrink-0 font-mono text-2xs text-muted-foreground">
             {t("llmProviders.modelsTable.batch.selectedCount", {
               selected: selectedCount,
@@ -91,7 +91,7 @@ export function ModelsToolbar({
           </div>
         </div>
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2 sm:px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-4">
           <SearchInput
             value={search}
             onChange={onSearchChange}

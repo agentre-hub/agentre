@@ -109,10 +109,10 @@ function PathChip({ path, t }: { path: DevicePath; t: TFunction }) {
       aria-label={aria}
       title={aria}
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full border px-2 text-2xs leading-5",
+        "inline-flex shrink-0 items-center rounded-full px-2 text-2xs leading-5",
         inUse
-          ? "border-primary bg-primary-soft font-semibold text-primary-text"
-          : "border-border-strong text-muted-foreground",
+          ? "bg-primary-soft font-semibold text-primary-text"
+          : "bg-button-fill text-muted-foreground",
         dead && "line-through opacity-60",
       )}
     >
@@ -194,8 +194,8 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
   return (
     <div
       data-testid="device-row"
-      className={`flex flex-col gap-1 rounded-md border p-3 ${
-        isTofu ? "border-destructive bg-destructive/5" : "border-border bg-card"
+      className={`flex flex-col gap-1 rounded-md p-3 ${
+        isTofu ? "bg-destructive/5" : "bg-field-fill"
       }`}
     >
       <div className="flex items-center gap-3">

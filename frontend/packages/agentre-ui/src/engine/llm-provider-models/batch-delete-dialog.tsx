@@ -189,7 +189,7 @@ export function BatchDeleteDialog({
           ) : null}
 
           {/* 后端只有单条 DeleteLLMModel：逐个调用，不是事务，必须先说清楚 */}
-          <div className="flex items-start gap-2 rounded-md border border-status-waiting/40 bg-status-waiting/10 px-3 py-2.5 text-2xs leading-relaxed text-status-waiting-text">
+          <div className="flex items-start gap-2 rounded-md bg-status-waiting/10 px-3 py-2.5 text-2xs leading-relaxed text-status-waiting-text">
             <AlertTriangle
               className="mt-0.5 size-3.5 shrink-0"
               aria-hidden="true"

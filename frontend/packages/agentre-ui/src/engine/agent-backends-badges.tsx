@@ -132,12 +132,12 @@ export function BackendTypePicker({
             tabIndex={checked ? 0 : -1}
             onClick={() => onChange(backendType)}
             className={cn(
-              "flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-left outline-none transition-colors",
+              "flex min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left outline-none transition-colors",
               "focus-visible:focus-outline",
               "disabled:pointer-events-none disabled:opacity-50",
               checked
-                ? "border-primary bg-primary-soft"
-                : "border-border bg-card hover:border-border-strong hover:bg-accent/60 hover:on-accent",
+                ? "bg-primary-soft"
+                : "bg-field-fill hover:bg-accent/60 hover:on-accent",
             )}
           >
             <span aria-hidden="true">
@@ -165,7 +165,7 @@ function BackendTypeBadge({
   // 内置引擎的意外之处是「运行设备」会被禁用 —— 提前说，省得用户选完才发现派不出去。
   if (type === "builtin") {
     return (
-      <span className="shrink-0 rounded-full border border-border bg-secondary px-1.5 text-2xs text-muted-foreground">
+      <span className="shrink-0 rounded-full bg-field-fill px-1.5 text-2xs text-muted-foreground">
         {t("agentBackends.backendType.builtin.badge")}
       </span>
     );
@@ -175,16 +175,16 @@ function BackendTypeBadge({
 
   const tone =
     probe.state === "installed"
-      ? "border-status-running/30 bg-status-running-bg text-status-running-text"
+      ? "bg-status-running-bg text-status-running-text"
       : probe.state === "probing"
-        ? "border-border bg-secondary text-muted-foreground"
-        : "border-status-waiting/30 bg-status-waiting-bg text-status-waiting-text";
+        ? "bg-secondary text-muted-foreground"
+        : "bg-status-waiting-bg text-status-waiting-text";
   return (
     <span
       // e2e 用它断言探测结论，避免拿 i18n 文案当定位符。
       data-probe-state={probe.state}
       className={cn(
-        "flex shrink-0 items-center gap-1 rounded-full border px-1.5 text-2xs",
+        "flex shrink-0 items-center gap-1 rounded-full px-1.5 text-2xs",
         tone,
       )}
       title={probe.state === "installed" ? probe.path : undefined}
@@ -208,7 +208,7 @@ export function BackendTypeReadonly({ type }: { type: BackendType }) {
           {t("agentBackends.fields.typeLocked")}
         </span>
       </div>
-      <div className="flex items-center gap-2 rounded-md border border-border bg-secondary px-2.5 py-2">
+      <div className="flex items-center gap-2 rounded-md bg-field-fill px-2.5 py-2">
         <span aria-hidden="true">
           <AgentBackendLogo backendType={type} className="size-4" />
         </span>
@@ -279,10 +279,8 @@ export function EffectiveConfigSummary({
     <section
       data-testid="effective-config-summary"
       className={cn(
-        "flex flex-col gap-2 rounded-lg border px-3 py-3 text-xs",
-        saveBlockedReason
-          ? "border-status-waiting/40 bg-status-waiting-bg"
-          : "border-border bg-secondary/30",
+        "flex flex-col gap-2 rounded-lg px-3 py-3 text-xs",
+        saveBlockedReason ? "bg-status-waiting-bg" : "bg-field-fill",
       )}
     >
       <h3 className="font-semibold">{t("agentBackends.summary.title")}</h3>
@@ -367,10 +365,10 @@ export function TestResultPill({ state }: { state: FlashState }) {
   return (
     <div
       className={cn(
-        "flex items-start gap-2 rounded-md border px-3 py-2 text-xs",
+        "flex items-start gap-2 rounded-md px-3 py-2 text-xs",
         ok
-          ? "border-status-running/40 bg-status-running-bg text-status-running-text"
-          : "border-destructive/40 bg-destructive-soft text-destructive-text",
+          ? "bg-status-running-bg text-status-running-text"
+          : "bg-destructive-soft text-destructive-text",
       )}
       role="status"
     >

@@ -94,10 +94,8 @@ function ServerOption({
     <label
       onClick={() => onSelect(value)}
       className={cn(
-        "flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3.5",
-        selected
-          ? "border-primary bg-primary-soft"
-          : "border-border bg-card hover:bg-accent",
+        "flex cursor-pointer items-center gap-3 rounded-lg px-3.5 py-3.5",
+        selected ? "bg-primary-soft" : "bg-field-fill hover:bg-accent",
         disabled && "pointer-events-none opacity-60",
       )}
     >
