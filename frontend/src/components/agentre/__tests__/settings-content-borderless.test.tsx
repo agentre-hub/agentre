@@ -134,4 +134,20 @@ describe("settings content sources", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it("leaves no dangling class fragment (a token starting with '-') from removed border classes", () => {
+    const offenders: string[] = [];
+    for (const file of owned.flatMap(walk).filter((f) => f.endsWith(".tsx"))) {
+      readFileSync(join(root, file), "utf8")
+        .split("\n")
+        .forEach((line, i) => {
+          for (const m of line.matchAll(
+            /["'`\s](-(?:text|soft|[a-z]+)(?:\/\d+)?)(?=["'`\s])/g,
+          )) {
+            offenders.push(`${file}:${i + 1} ${m[1]}`);
+          }
+        });
+    }
+    expect(offenders).toEqual([]);
+  });
 });

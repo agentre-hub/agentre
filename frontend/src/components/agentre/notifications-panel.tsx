@@ -86,7 +86,7 @@ export function NotificationsPanel() {
         </Row>
       </section>
 
-      <div className="rounded-lg -text/30 bg-primary-soft px-4 py-3 text-primary-text">
+      <div className="rounded-lg bg-primary-soft px-4 py-3 text-primary-text">
         <p className="text-xs font-semibold">
           {t("settings.notifications.ruleTitle")}
         </p>

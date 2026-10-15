@@ -351,7 +351,7 @@ export function SettingsProxyPanel() {
         </ul>
       </section>
 
-      <Alert className="-text/30 bg-primary-soft text-primary-text">
+      <Alert className="bg-primary-soft text-primary-text">
         <ShieldCheck className="size-4" aria-hidden="true" />
         <AlertTitle className="text-xs font-semibold">
           {t("settingsProxy.security.title")}
