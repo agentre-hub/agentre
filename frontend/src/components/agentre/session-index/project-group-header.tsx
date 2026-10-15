@@ -207,9 +207,8 @@ export function ProjectGroupHeader({
         data-revealed={revealed ? "true" : undefined}
         className={cn(
           dragListeners && "cursor-grab active:cursor-grabbing",
-          // 借选中态那一档底色亮一下：悬停是往白里提，这一档是往色里沉，两者同时
-          // 出现也分得开。
-          revealed && "bg-sidebar-selected-bg",
+          // 借选中态的抬起色亮一下。
+          revealed && "bg-raised",
         )}
         {...(dragListeners ?? {})}
         actions={<ProjectHeaderActions {...actions} />}

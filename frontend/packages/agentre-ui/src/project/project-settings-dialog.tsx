@@ -490,7 +490,7 @@ function Section({
       data-testid={`project-section-${id}`}
       data-focused={focused ? "true" : undefined}
       className={cn(
-        "mt-4 border-t border-border pt-1",
+        "mt-4 pt-1",
         focused &&
           "-ml-3 rounded-r-md border-l-2 border-l-ring bg-accent/40 on-accent pl-3",
       )}
@@ -803,7 +803,7 @@ function AddMachinePopover({
         <button
           type="button"
           data-testid="project-paths-add-open"
-          className="flex w-full items-center gap-2 rounded-md border border-dashed border-border-strong px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="flex w-full items-center gap-2 rounded-md bg-field-fill px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-field-fill-hover hover:text-foreground"
         >
           <Plus className="size-3.5" aria-hidden="true" />
           {t("projectSettings.paths.addMachine")}
@@ -853,7 +853,7 @@ function AddMachinePopover({
             </li>
           ) : null}
         </ul>
-        <p className="mt-2 border-t border-border px-2 pt-2 text-2xs leading-relaxed text-muted-foreground">
+        <p className="mt-2 px-2 pt-2 text-2xs leading-relaxed text-muted-foreground">
           {t("projectSettings.paths.addHint")}
         </p>
       </PopoverContent>

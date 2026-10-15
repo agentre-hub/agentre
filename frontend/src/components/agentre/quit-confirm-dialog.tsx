@@ -100,7 +100,7 @@ export function QuitConfirmDialog() {
           {visible.map((row) => (
             <div
               key={row.sessionId}
-              className="flex items-center gap-2.5 rounded-md border border-border bg-card px-3 py-2.5"
+              className="flex items-center gap-2.5 rounded-md bg-field-fill px-3 py-2.5"
             >
               <AgentAvatar
                 name={row.agentName}

@@ -145,7 +145,7 @@ export function PreviewPane({ state, onOpenImported }: PreviewPaneProps) {
       {state.kind === "ready" ? (
         <div
           data-testid="import-preview-meta"
-          className="flex shrink-0 flex-col gap-2 border-b border-border px-4 py-3"
+          className="flex shrink-0 flex-col gap-2 px-4 py-3"
         >
           <h3 className="truncate text-sm font-semibold text-foreground">
             {state.result.meta.title || t("importSession.untitled")}
@@ -208,7 +208,7 @@ export function PreviewPane({ state, onOpenImported }: PreviewPaneProps) {
           <div
             data-testid="import-preview-error"
             role="alert"
-            className="m-4 flex items-start gap-2 rounded-md border border-status-error/40 bg-destructive-soft px-3 py-2.5 text-destructive-text"
+            className="m-4 flex items-start gap-2 rounded-md bg-destructive-soft px-3 py-2.5 text-destructive-text"
           >
             <CircleAlert
               className="mt-0.5 size-3.5 shrink-0"
@@ -249,7 +249,7 @@ export function PreviewPane({ state, onOpenImported }: PreviewPaneProps) {
               <div
                 data-testid="import-cwd-missing"
                 role="alert"
-                className="m-3 flex flex-col gap-1 rounded-md border border-status-error/40 bg-destructive-soft px-3 py-2.5"
+                className="m-3 flex flex-col gap-1 rounded-md bg-destructive-soft px-3 py-2.5"
               >
                 <span className="text-xs font-semibold text-destructive-text">
                   {t("importSession.cwdMissing.title")}

@@ -138,7 +138,7 @@ export function ImportFooter({
         {active ? (
           <span
             data-testid="import-backend-pill"
-            className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-2xs text-muted-foreground"
+            className="inline-flex items-center gap-1 rounded-md bg-button-fill px-1.5 py-0.5 text-2xs text-muted-foreground"
           >
             <AgentBackendLogo
               backendType={active.backend}
@@ -148,7 +148,7 @@ export function ImportFooter({
           </span>
         ) : null}
         {previewReady?.meta.model ? (
-          <span className="rounded-md border border-border px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
+          <span className="rounded-md bg-button-fill px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
             {previewReady.meta.model}
           </span>
         ) : null}

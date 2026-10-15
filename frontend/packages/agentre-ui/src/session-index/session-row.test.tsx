@@ -144,7 +144,8 @@ describe("SessionRow navigation seam", () => {
     // 选中底色整块消失，只剩那条竖条。竖条撤掉后这个洞会直接露出来，所以选中行
     // **不再发出**那条通用 hover 类，而不是靠调色去压它。
     const className = screen.getByRole("link", { name: /session-1/ }).className;
-    expect(className).toMatch(/bg-sidebar-selected-bg/);
+    expect(className).toMatch(/(^|\s)bg-raised(\s|$)/);
+    expect(className).not.toMatch(/bg-sidebar-selected-bg/);
     expect(className).not.toMatch(/hover:bg-sidebar-active-bg/);
     expect(className).not.toMatch(/before:w-\[3px\]/);
   });
@@ -164,7 +165,7 @@ describe("SessionRow navigation seam", () => {
     // --muted-foreground 是配 sidebar 调的，落到选中面上暗色只有 3.45。
     // 换了脚下的面，弱化文字就得换值（同 --status-*-text 的理由）。
     expect(screen.getByText("研究员 · 支付网关").className).toMatch(
-      /text-sidebar-selected-muted/,
+      /text-muted-foreground/,
     );
   });
 

@@ -193,14 +193,14 @@ function AgentRow({ item }: AgentRowProps) {
       {needSetup ? (
         <Badge
           variant="outline"
-          className="border-status-waiting/40 bg-status-waiting-bg px-1.5 py-0 text-2xs text-foreground"
+          className="bg-status-waiting-bg px-1.5 py-0 text-2xs text-foreground"
         >
           {t("commandPalette.newChat.needSetupBadge")}
         </Badge>
       ) : null}
       <kbd
         className={cn(
-          "rounded-sm border border-border bg-card px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground",
+          "rounded-sm bg-field-fill px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground",
           "opacity-0 group-data-[selected=true]/cmditem:opacity-100",
         )}
         aria-hidden="true"

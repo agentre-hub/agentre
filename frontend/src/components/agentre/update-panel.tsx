@@ -56,7 +56,7 @@ function PanelHeader({
   meta: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start gap-2.5 border-b border-border px-3 py-3">
+    <div className="flex items-start gap-2.5 px-3 py-3">
       <span
         className={cn(
           "inline-flex size-7 shrink-0 items-center justify-center rounded-lg",
@@ -167,7 +167,7 @@ export function UpdatePanel({
             <div className="px-3 py-3">
               {info.releaseNotes ? (
                 <div data-selectable-text="true">
-                  <pre className="max-h-[168px] overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/40 px-2.5 py-2 text-2xs leading-relaxed">
+                  <pre className="max-h-[168px] overflow-auto whitespace-pre-wrap rounded-md bg-muted/40 px-2.5 py-2 text-2xs leading-relaxed">
                     {info.releaseNotes}
                   </pre>
                 </div>
@@ -177,7 +177,7 @@ export function UpdatePanel({
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-2 border-t border-border px-3 py-2.5">
+            <div className="flex items-center gap-2 px-3 py-2.5">
               <Button type="button" size="sm" onClick={() => void download()}>
                 <Download aria-hidden="true" className="size-3.5" />
                 {t("update.actions.downloadAndInstall")}
@@ -248,12 +248,12 @@ export function UpdatePanel({
         <div className="px-3 py-3">
           {/* 错误详情选中复制，不加复制按钮。 */}
           <div data-selectable-text="true">
-            <pre className="max-h-[140px] overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/40 px-2.5 py-2 font-mono text-2xs leading-relaxed">
+            <pre className="max-h-[140px] overflow-auto whitespace-pre-wrap rounded-md bg-muted/40 px-2.5 py-2 font-mono text-2xs leading-relaxed">
               {phase.message}
             </pre>
           </div>
         </div>
-        <div className="flex items-center gap-2 border-t border-border px-3 py-2.5">
+        <div className="flex items-center gap-2 px-3 py-2.5">
           <Button
             type="button"
             variant="outline"

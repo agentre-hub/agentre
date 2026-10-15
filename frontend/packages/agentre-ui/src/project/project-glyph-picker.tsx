@@ -69,7 +69,7 @@ export function ProjectGlyphPicker({
           {/* 一枚记号说明它点得动：字形本身长得像展示件，不像控件。 */}
           <span
             aria-hidden="true"
-            className="absolute -bottom-1 -right-1 inline-flex size-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-colors group-hover/glyph:text-foreground"
+            className="absolute -bottom-1 -right-1 inline-flex size-5 items-center justify-center rounded-full bg-field-fill text-muted-foreground shadow-sm transition-colors group-hover/glyph:text-foreground"
           >
             <Pencil className="size-2.5" />
           </span>
@@ -151,7 +151,7 @@ function IconGrid({
   );
 
   return (
-    <div data-testid="project-glyph-icons" className="border-t border-border">
+    <div data-testid="project-glyph-icons">
       <div className="relative px-3 py-2">
         <Search
           className="pointer-events-none absolute left-5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"

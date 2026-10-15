@@ -61,7 +61,7 @@ export function AxisPicker({ value, axes, onChange }: AxisPickerProps) {
         <DropdownMenuPrimitive.Content
           align="start"
           sideOffset={6}
-          className="z-50 min-w-[10rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+          className="z-50 min-w-[10rem] overflow-hidden rounded-md bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
         >
           {/* 决策 3 把「分组」二字赶出那 288px 的行，不是赶出整个控件：菜单里有的是
               地方，标题行让第一次打开的人知道这几档是什么维度。 */}

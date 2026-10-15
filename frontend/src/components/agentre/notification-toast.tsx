@@ -88,7 +88,7 @@ function NotificationToastCard({
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-auto flex w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-card shadow-lg"
+      className="pointer-events-auto flex w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg bg-popover shadow-lg"
     >
       <span
         className={cn("w-[3px] self-stretch", style.accent)}
@@ -129,7 +129,7 @@ function NotificationToastCard({
           <button
             type="button"
             onClick={onJump}
-            className="inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-1 text-2xs font-medium text-foreground hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md bg-button-fill px-2 py-1 text-2xs font-medium text-foreground hover:bg-button-fill-hover"
           >
             {t("notify.openSession")}
             <ArrowRight
@@ -172,7 +172,7 @@ function UpdateToastCard() {
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-auto flex w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-card shadow-lg"
+      className="pointer-events-auto flex w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg bg-popover shadow-lg"
     >
       <span className="w-[3px] self-stretch bg-primary" aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 px-3 py-2.5">
@@ -208,7 +208,7 @@ function UpdateToastCard() {
               setPanelOpen(true);
               markAnnounced();
             }}
-            className="inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-1 text-2xs font-medium text-foreground hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md bg-button-fill px-2 py-1 text-2xs font-medium text-foreground hover:bg-button-fill-hover"
           >
             {t("update.toast.action")}
             <ArrowRight

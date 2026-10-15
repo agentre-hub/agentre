@@ -785,6 +785,11 @@ describe("App", () => {
     });
 
     expect(navRail).toHaveClass("w-14", "px-2");
+    // 外框：图标栏与标题栏、状态栏同一块 chrome 表面，之间不画线；工作区在其上是内容页。
+    expect(navRail).toHaveClass("bg-chrome");
+    expect(navRail.className).not.toMatch(/(^|\s)border(-r)?(\s|$)/);
+    expect(navRail.className).not.toContain("bg-rail");
+    expect(navRail.parentElement?.parentElement).toHaveClass("bg-chrome");
     expect(settingsButton).toHaveClass("size-10");
     expect(themeToggle).toHaveClass("size-10");
     expect(themeToggle).toHaveClass("mt-auto");

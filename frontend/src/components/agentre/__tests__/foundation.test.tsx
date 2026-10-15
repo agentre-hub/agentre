@@ -356,6 +356,46 @@ describe("Agentre foundation components", () => {
     expect(screen.getByText("0.1.0")).toBeInTheDocument();
   });
 
+  it("puts the title bar and status bar on the chrome surface with no structural lines", () => {
+    render(
+      <MemoryRouter>
+        <ShortcutsProvider platform="darwin">
+          <AppTopBar appName="Agentre" breadcrumb="CEO" platform="windows" />
+          <AppStatusBar
+            agentCount={1}
+            runningCount={0}
+            approvalCount={0}
+            unreadCount={0}
+            attentionIds={[]}
+            status="idle"
+            version="0.1.0"
+            onAttentionClick={vi.fn()}
+          />
+        </ShortcutsProvider>
+      </MemoryRouter>,
+    );
+
+    for (const band of [
+      screen.getByRole("banner"),
+      screen.getByRole("contentinfo"),
+    ]) {
+      expect(band).toHaveClass("bg-chrome");
+      expect(band).not.toHaveClass("bg-rail");
+      expect(band.className).not.toMatch(/(^|\s)border(-[tb])?(\s|$)/);
+    }
+  });
+
+  it("marks the active rail item with the raised surface and no accent fill", () => {
+    render(<SidebarButton label="对话" icon={MessageSquare} active />);
+
+    const button = screen.getByRole("button", { name: "对话" });
+    expect(button).toHaveClass("bg-raised");
+    expect(button).not.toHaveClass("bg-primary-soft");
+    expect(screen.getByRole("tooltip").className).not.toMatch(
+      /(^|\s)border(\s|$)/,
+    );
+  });
+
   it("uses the singular agent summary when only one Agent is tracked", () => {
     render(
       <AppStatusBar

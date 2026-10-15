@@ -45,7 +45,7 @@ function IndexToolbar({
 }: IndexToolbarProps) {
   const { t } = useTranslation();
   return (
-    <div className="border-b border-border px-4 py-3">
+    <div className="px-4 py-3">
       <div className="flex items-center gap-2">
         <div className="relative min-w-0 flex-1">
           <Search

@@ -153,7 +153,7 @@ function CommandPaletteTrigger({
       aria-label={openLabel}
       title={openLabel}
       className={cn(
-        "hidden h-[30px] w-[520px] max-w-[40vw] items-center gap-2 rounded-md border border-border bg-card/60 px-2 text-left text-xs text-muted-foreground shadow-xs outline-none transition-colors hover:bg-card hover:text-foreground focus-visible:focus-outline md:flex",
+        "hidden h-[30px] w-[520px] max-w-[40vw] items-center gap-2 rounded-md bg-field-fill px-2 text-left text-xs text-muted-foreground outline-none transition-colors hover:bg-field-fill-hover hover:text-foreground focus-visible:focus-outline md:flex",
         "wails-no-drag cursor-text",
         className,
       )}
@@ -161,7 +161,7 @@ function CommandPaletteTrigger({
     >
       <Search className="size-3.5 shrink-0" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate">{resolvedPlaceholder}</span>
-      <kbd className="rounded-sm border border-border bg-secondary/60 px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground">
+      <kbd className="rounded-sm bg-button-fill px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground">
         {shortcutLabel}
       </kbd>
     </button>
@@ -200,7 +200,7 @@ function AppTopBar({
   return (
     <header
       className={cn(
-        "wails-drag flex h-11 shrink-0 items-center gap-3 border-b border-border bg-rail px-3",
+        "wails-drag flex h-11 shrink-0 items-center gap-3 bg-chrome px-3",
         platform === "windows" && "pr-0",
         className,
       )}
@@ -300,8 +300,7 @@ function UpdateStatusPill({
           {t("update.pill.available", { version: phase.info.latestVersion })}
         </>
       );
-      tone =
-        "border border-primary/25 bg-primary-soft text-primary-text hover:bg-primary-soft/80";
+      tone = "bg-primary-soft text-primary-text hover:bg-primary-soft/80";
       ariaLabel = t("update.pill.aria.available", {
         version: phase.info.latestVersion,
       });
@@ -313,8 +312,7 @@ function UpdateStatusPill({
           {t("update.pill.downloading", { percent: phase.progress })}
         </>
       );
-      tone =
-        "border border-primary/25 bg-primary-soft text-primary-text hover:bg-primary-soft/80";
+      tone = "bg-primary-soft text-primary-text hover:bg-primary-soft/80";
       ariaLabel = t("update.pill.aria.downloading", {
         version: phase.info.latestVersion,
         percent: phase.progress,
@@ -327,8 +325,7 @@ function UpdateStatusPill({
           {t("update.pill.restart")}
         </>
       );
-      tone =
-        "border border-status-running/30 bg-status-running-bg text-status-running-text hover:opacity-90";
+      tone = "bg-status-running-bg text-status-running-text hover:opacity-90";
       ariaLabel = t("update.pill.aria.installed", {
         version: phase.info.latestVersion,
       });
@@ -340,8 +337,7 @@ function UpdateStatusPill({
           {t("update.pill.failed")}
         </>
       );
-      tone =
-        "border border-destructive/30 bg-destructive-soft text-destructive-text hover:opacity-90";
+      tone = "bg-destructive-soft text-destructive-text hover:opacity-90";
       ariaLabel = t("update.pill.aria.failed", { version });
       break;
     default:
@@ -425,7 +421,7 @@ function AppStatusBar({
   return (
     <footer
       className={cn(
-        "flex h-7 shrink-0 items-center gap-3 border-t border-border bg-rail px-3 font-mono text-2xs leading-none text-muted-foreground",
+        "flex h-7 shrink-0 items-center gap-3 bg-chrome px-3 font-mono text-2xs leading-none text-muted-foreground",
         className,
       )}
       {...props}

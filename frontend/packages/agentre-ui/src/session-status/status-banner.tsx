@@ -24,10 +24,9 @@ import { cn } from "../lib/utils";
 export type StatusBannerTone = "alarm" | "limited" | "settled";
 
 const TONE_CLASS: Record<StatusBannerTone, string> = {
-  alarm: "border-destructive/35 bg-destructive-soft text-destructive-text",
-  limited:
-    "border-status-waiting/40 bg-status-waiting-bg text-status-waiting-text",
-  settled: "border-border-strong bg-secondary text-foreground",
+  alarm: "bg-destructive-soft text-destructive-text",
+  limited: "bg-status-waiting-bg text-status-waiting-text",
+  settled: "bg-secondary text-foreground",
 };
 
 export type StatusBannerProps = {
@@ -77,7 +76,7 @@ export function StatusBanner({
         {...rest}
         data-tone={tone}
         className={cn(
-          "grid grid-cols-[1rem_1fr] items-start gap-x-2.5 gap-y-1 rounded-lg border px-3 py-2.5",
+          "grid grid-cols-[1rem_1fr] items-start gap-x-2.5 gap-y-1 rounded-lg px-3 py-2.5",
           "@md:grid-cols-[1rem_1fr_auto]",
           sticky && "sticky top-0 z-10",
           TONE_CLASS[tone],

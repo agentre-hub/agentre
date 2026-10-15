@@ -81,12 +81,10 @@ export function ProjectChipPicker({
           aria-label={t("commandPalette.project.switchAria")}
           title={t("commandPalette.project.switchTitle")}
           className={cn(
-            "inline-flex h-[22px] min-w-0 max-w-[20rem] items-center gap-1.5 rounded-sm border bg-card pl-1 pr-1.5 text-xs font-medium text-foreground outline-none transition-colors hover:bg-accent",
+            "inline-flex h-[22px] min-w-0 max-w-[20rem] items-center gap-1.5 rounded-sm bg-field-fill pl-1 pr-1.5 text-xs font-medium text-foreground outline-none transition-colors hover:bg-field-fill-hover",
             "focus-visible:focus-outline",
             open && "bg-accent",
-            projectContext
-              ? "border-border"
-              : "border-border/60 text-muted-foreground",
+            !projectContext && "text-muted-foreground",
           )}
         >
           <ProjectGlyph
@@ -231,7 +229,7 @@ function ProjectPickerPanel({
       className="flex max-h-[min(22rem,var(--radix-popover-content-available-height))] min-h-0 flex-col"
       onKeyDown={onKeyDown}
     >
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-2.5 py-1.5">
+      <div className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5">
         <Search
           className="size-3.5 shrink-0 text-muted-foreground"
           aria-hidden="true"
@@ -255,7 +253,7 @@ function ProjectPickerPanel({
         />
       </div>
       {showNone ? (
-        <div className="shrink-0 border-b border-border p-1">
+        <div className="shrink-0 p-1">
           <button
             type="button"
             data-selected={value == null ? "true" : undefined}

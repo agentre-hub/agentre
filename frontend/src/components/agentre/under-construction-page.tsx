@@ -42,7 +42,7 @@ function UnderConstructionPage({
 
       <div className="relative z-10 flex max-w-2xl flex-col gap-5">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="relative inline-flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-primary-text shadow-xs">
+          <span className="relative inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-field-fill text-primary-text shadow-xs">
             <Icon className="size-5" aria-hidden="true" />
             <span
               aria-hidden="true"
@@ -72,7 +72,7 @@ function UnderConstructionPage({
           </p>
         </div>
         <div
-          className="flex max-w-md flex-col gap-1.5 rounded-md border border-dashed border-border bg-card/40 px-3 py-2.5"
+          className="flex max-w-md flex-col gap-1.5 rounded-md bg-field-fill px-3 py-2.5"
           aria-label={t("underConstruction.progressLabel")}
         >
           <div className="flex items-center justify-between font-mono text-2xs text-muted-foreground">

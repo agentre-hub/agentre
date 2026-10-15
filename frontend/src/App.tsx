@@ -213,7 +213,7 @@ function AppLayout() {
             >
               <ShortcutsProvider platform={platform}>
                 <ChatTabsShortcuts />
-                <div className="flex h-full min-h-full flex-col overflow-hidden bg-background text-foreground">
+                <div className="flex h-full min-h-full flex-col overflow-hidden bg-chrome text-foreground">
                   <AppTopBar
                     appName="Agentre"
                     breadcrumb={breadcrumb}
@@ -223,7 +223,7 @@ function AppLayout() {
                   <div className="flex min-h-0 min-w-0 flex-1">
                     <aside
                       aria-label={t("app.navigationLabel")}
-                      className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-border bg-rail px-2 py-3"
+                      className="flex w-14 shrink-0 flex-col items-center gap-1 bg-chrome px-2 py-3"
                     >
                       {navItems.map((item) => (
                         <SidebarButton

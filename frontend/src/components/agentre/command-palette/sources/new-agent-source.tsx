@@ -41,7 +41,7 @@ function renderItem(): React.ReactNode {
         </span>
       </div>
       <kbd
-        className="rounded-sm border border-border bg-card px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground opacity-0 group-data-[selected=true]/cmditem:opacity-100"
+        className="rounded-sm bg-field-fill px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground opacity-0 group-data-[selected=true]/cmditem:opacity-100"
         aria-hidden="true"
       >
         ↵
