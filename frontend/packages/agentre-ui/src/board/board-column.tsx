@@ -118,8 +118,8 @@ export function BoardColumn({
             type="button"
             onClick={onExpand}
             className={cn(
-              "cursor-pointer rounded-md border border-dashed border-border-strong px-3 py-2 text-2xs text-muted-foreground transition-colors",
-              "hover:bg-accent hover:text-foreground",
+              "cursor-pointer rounded-md bg-field-fill px-3 py-2 text-2xs text-muted-foreground transition-colors",
+              "hover:bg-field-fill-hover hover:text-foreground",
               "focus-visible:focus-outline",
             )}
           >
@@ -128,7 +128,7 @@ export function BoardColumn({
         ) : null}
         {state.cards.length === 0 ? (
           // 空列是一个**放置目标**，该说出它能干什么，而不是「暂无」。
-          <p className="rounded-md border border-dashed border-border-strong px-3 py-6 text-center text-2xs text-muted-foreground">
+          <p className="rounded-md bg-field-fill px-3 py-6 text-center text-2xs text-muted-foreground">
             {t("board.emptyColumn")}
           </p>
         ) : null}

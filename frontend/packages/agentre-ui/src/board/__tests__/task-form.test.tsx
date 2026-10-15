@@ -125,10 +125,22 @@ describe("表单外壳", () => {
     const title = screen.getByTestId("task-title");
     const description = screen.getByTestId("task-description");
 
-    expect(title.className).toContain("border-0");
-    expect(description.className).toContain("border-0");
+    expect(title).toHaveAttribute("data-variant", "inline");
+    expect(description).toHaveAttribute("data-variant", "inline");
+    for (const field of [title, description]) {
+      const tokens = field.className.split(/\s+/);
+      expect(tokens).not.toContain("border-0");
+      expect(tokens).not.toContain("shadow-none");
+      expect(tokens).not.toContain("focus-visible:ring-0");
+    }
     expect(title.className).toContain("text-base");
     expect(description.className).toContain("text-sm");
+  });
+
+  it("Given the form, When it renders, Then header and footer carry no separator line", () => {
+    renderForm();
+
+    expect(document.body.innerHTML).not.toMatch(/(?<![:\w-])border-[tb]\b/);
   });
 
   it("Given the property pills, When they render, Then a divider separates them from the execution pills", () => {

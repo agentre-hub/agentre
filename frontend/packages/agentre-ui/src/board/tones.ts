@@ -14,11 +14,11 @@ export { ISSUE_TONES };
  * 文字尺寸是 text-2xs(11px)，按 WCAG AA 属正文、门槛 4.5 —— 所以文字一律取各家族
  * 的 `-text` 角色，而不是那个当点、当填充的饱和值（见 docs/design.md §3.5）。
  *
- * 中性档是这里唯一**不填充**的一档：暗色下 `--secondary` 与 `--popover` 是同一个
- * 字节（#292a2e），填充的中性标签落进任何弹层都只剩文字。描边不依赖表面色。
+ * 中性档用相对填充（`bg-button-fill`，前景色 8%）：它按脚下表面取色，所以落进
+ * 弹层也比脚下深一级；不用 `--secondary`（暗色下与 `--popover` 同一个字节）。
  */
 export const toneClassNames: Record<IssueTone, string> = {
-  gray: "border border-border-strong text-muted-foreground",
+  gray: "bg-button-fill text-muted-foreground",
   red: "bg-destructive-soft text-destructive-text",
   // 唯一的实心档（最高优先级要压过其余几档的软底）。暗色下必须把底压到 /60：
   // --destructive 在暗色是**浅**红 #f87171，白字压上去只有 2.65；压暗后 5.30。

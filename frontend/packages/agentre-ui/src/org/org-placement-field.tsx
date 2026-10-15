@@ -258,7 +258,7 @@ export function OrgPlacementField(props: OrgPlacementFieldProps) {
             onChange={setQuery}
             placeholder={t("org.agent.placement.searchPlaceholder")}
             aria-label={t("org.agent.placement.searchAria")}
-            className="border-b border-border px-2.5 py-2"
+            className="px-2.5 py-2"
           />
           <div
             role="listbox"

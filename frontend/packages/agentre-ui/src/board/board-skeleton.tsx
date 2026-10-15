@@ -16,10 +16,10 @@ export function BoardSkeleton() {
         >
           <Skeleton className="h-6 w-24 rounded-md" />
           {Array.from({ length: 3 - (columnIndex % 2) }, (_, cardIndex) => (
-            // 这一档要的是卡面加描边，不是一条灰杠：占位的形状照落地后的样子来。
+            // 这一档要的是卡面填充，不是一条灰杠：占位的形状照落地后的样子来。
             <Skeleton
               key={cardIndex}
-              className="h-20 rounded-md border border-border bg-card"
+              className="h-20 rounded-md bg-field-fill"
             />
           ))}
         </section>

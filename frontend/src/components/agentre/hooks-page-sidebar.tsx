@@ -27,8 +27,8 @@ export function HooksSidebar({
   t: TFunction;
 }) {
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-sidebar">
-      <div className="flex flex-col gap-2.5 border-b border-border p-3.5">
+    <aside className="flex w-64 shrink-0 flex-col bg-chrome">
+      <div className="flex flex-col gap-2.5 p-3.5">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-foreground">
             {t("hooks.title")}
@@ -111,9 +111,7 @@ function HookListItem({
       aria-current={selected ? "true" : undefined}
       className={cn(
         "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors",
-        selected
-          ? "border-l-2 border-primary bg-primary/5"
-          : "hover:bg-accent/60 hover:on-accent",
+        selected ? "bg-raised" : "hover:bg-accent/60 hover:on-accent",
       )}
     >
       <span

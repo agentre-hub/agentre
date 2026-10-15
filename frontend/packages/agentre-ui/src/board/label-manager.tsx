@@ -180,7 +180,7 @@ export function LabelManagerPanel({
           </div>
         ))}
       </div>
-      <div className="flex shrink-0 flex-col gap-2 border-t border-border-strong p-2">
+      <div className="flex shrink-0 flex-col gap-2 p-2">
         <div className="flex items-center gap-1.5">
           <Input
             data-testid="label-new-name"

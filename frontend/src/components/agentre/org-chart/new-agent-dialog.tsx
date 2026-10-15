@@ -134,7 +134,7 @@ export function NewAgentDialogBody(props: NewAgentProps) {
       />
       <DialogShellBody className="flex flex-col gap-4">
         {props.fromIntent ? (
-          <div className="flex items-center justify-between gap-3 rounded-md border border-primary/20 bg-primary-soft px-3 py-2 text-2xs text-muted-foreground">
+          <div className="flex items-center justify-between gap-3 rounded-md bg-primary-soft px-3 py-2 text-2xs text-muted-foreground">
             <span>{t("org.chart.newAgent.intentHint")}</span>
             <Button
               type="button"

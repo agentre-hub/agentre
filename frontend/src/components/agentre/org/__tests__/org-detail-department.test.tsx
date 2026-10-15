@@ -123,6 +123,30 @@ describe("OrgDetailDepartment auto-save", () => {
     onClose: vi.fn(),
   });
 
+  it("has no header rule, member-row frames or dashed boxes", () => {
+    const current = dept({ id: 1, name: "开发组", leadAgentId: 2 });
+    const lead = agent();
+    const { container } = render(
+      <OrgDetailDepartment
+        department={current}
+        allDepartments={[current]}
+        allAgents={[lead]}
+        leadCandidates={[lead]}
+        onUpdate={vi.fn()}
+        onMove={vi.fn()}
+        onDelete={vi.fn()}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(
+      [container, ...Array.from(container.querySelectorAll("*"))]
+        .flatMap((el) => (el.getAttribute("class") ?? "").split(/\s+/))
+        .filter((t) => /^(?:border|divide)(?:-|$)/.test(t)),
+    ).toEqual([]);
+  });
+
   it("removes the cancel and save footer buttons", () => {
     render(<OrgDetailDepartment {...baseProps()} />);
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();

@@ -33,7 +33,7 @@ export function OrgDetailDepartmentHeader({
   });
 
   return (
-    <header className="space-y-3 border-b border-border bg-card px-5 py-4">
+    <header className="space-y-3 px-5 py-4">
       <div className="flex items-start gap-3">
         <span
           className={cn(
@@ -87,7 +87,7 @@ export function OrgDetailDepartmentHeader({
               className={cn(
                 "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-mono text-2xs",
                 i === path.length - 1
-                  ? "border border-primary bg-primary-soft text-primary-text"
+                  ? "bg-primary-soft text-primary-text"
                   : "bg-secondary text-foreground",
               )}
             >

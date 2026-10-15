@@ -15,7 +15,7 @@ export function EmptyDepartments({
   const { t } = useTranslation();
   return (
     <div
-      className="m-5 flex flex-col items-center gap-2 rounded-lg border border-dashed p-6 text-center"
+      className="m-5 flex flex-col items-center gap-2 rounded-lg bg-field-fill p-6 text-center"
       data-slot="org-index-empty-departments"
     >
       <span className="text-sm font-semibold">

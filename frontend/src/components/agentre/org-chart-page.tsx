@@ -166,7 +166,7 @@ export function OrgChartPage() {
       data-slot="org-chart-page"
     >
       <header
-        className="flex h-[60px] shrink-0 items-center gap-3 border-b bg-background px-5"
+        className="flex h-[60px] shrink-0 items-center gap-3 px-5"
         data-slot="org-header"
       >
         <div className="flex flex-col">
@@ -212,7 +212,7 @@ export function OrgChartPage() {
           380px 的右抽屉里放不下（规格「详情出现在主区，分三栏」）。 */}
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <div
-          className="flex w-[300px] shrink-0 overflow-hidden border-r"
+          className="flex w-[300px] shrink-0 overflow-hidden"
           data-slot="org-index-pane"
           data-testid="org-index-pane"
         >
@@ -257,7 +257,7 @@ export function OrgChartPage() {
         </div>
 
         <div
-          className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+          className="content-sheet relative flex min-h-0 min-w-0 flex-1 flex-col"
           data-slot="org-detail-panel"
           data-testid="org-detail-main"
         >

@@ -22,13 +22,13 @@ import type { LabelUsageView, ScopeProjectNode } from "./query-types";
  * 三颗三个样子摆在一排是此前被否掉的做法。
  */
 export const TASK_PILL_CLASS = cn(
-  "inline-flex h-7 max-w-[12rem] cursor-pointer items-center gap-1.5 rounded-full border border-border-strong px-2.5 text-2xs text-foreground transition-colors",
-  // `w-auto` / `justify-start` / `bg-transparent` 不是这颗 pill 自己需要的默认值，
-  // 是**递给宿主之后**要压住的三条：`ModelTargetPicker` 的触发器自带 `w-full`
-  // `justify-between` `bg-input-bg`，那三条与本串不冲突、tailwind-merge 全留着，
-  // 模型那一颗于是撑满、填色，和左右两颗不是同一个形状。
-  "w-auto justify-start bg-transparent",
-  "hover:bg-accent/60 hover:on-accent",
+  "inline-flex h-7 max-w-[12rem] cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-2xs text-foreground transition-colors",
+  // `w-auto` / `justify-start` / `bg-button-fill` 不是这颗 pill 自己需要的默认值，
+  // 是**递给宿主之后**要压住的几条：`ModelTargetPicker` 的触发器自带 `w-full`
+  // `justify-between` 与字段填充，不压住的话模型那一颗撑满、换底色，和左右两颗
+  // 不是同一个形状。
+  "w-auto justify-start bg-button-fill",
+  "hover:bg-button-fill-hover",
   "focus-visible:focus-outline",
   "disabled:cursor-not-allowed disabled:opacity-50",
 );
@@ -167,7 +167,7 @@ export function TaskProjectPill({
           onClick={() => onChange(null)}
           className={cn(
             TASK_PILL_CLASS,
-            "rounded-l-none border-l-0 px-1.5 text-muted-foreground hover:text-foreground",
+            "ml-px rounded-l-none px-1.5 text-muted-foreground hover:text-foreground",
           )}
         >
           <X className="size-3" aria-hidden="true" />
@@ -230,7 +230,7 @@ export function TaskLabelChips({
             data-testid="task-label-add"
             disabled={disabled}
             aria-label={t("board.form.addLabel")}
-            className="inline-flex size-5 cursor-pointer items-center justify-center rounded-full border border-dashed border-border-strong text-muted-foreground transition-colors hover:text-foreground focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex size-5 cursor-pointer items-center justify-center rounded-full bg-button-fill text-muted-foreground transition-colors hover:bg-button-fill-hover hover:text-foreground focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus className="size-3" aria-hidden="true" />
           </button>

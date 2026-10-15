@@ -150,7 +150,7 @@ export function ExecTargetSkillsBlock(props: Props) {
 
   return (
     <div
-      className="flex flex-col gap-1.5 rounded-md border border-border bg-input-bg p-2"
+      className="flex flex-col gap-1.5 rounded-md bg-field-fill p-2"
       data-testid={`exec-target-skills-block-${props.index}`}
     >
       <div className="flex items-center gap-1.5">
@@ -191,15 +191,15 @@ export function ExecTargetSkillsBlock(props: Props) {
           {chips.map((chip) => {
             const toneClass =
               chip.tone === "inherit"
-                ? "border-border bg-secondary/60 text-muted-foreground"
+                ? "bg-button-fill text-muted-foreground"
                 : chip.tone === "off"
-                  ? "border-destructive/30 bg-destructive/10 text-destructive-text"
-                  : "border-border bg-card";
+                  ? "bg-destructive-soft text-destructive-text"
+                  : "bg-sheet";
             return (
               <span
                 key={chip.id}
                 className={cn(
-                  "inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1",
+                  "inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md px-2 py-1",
                   toneClass,
                 )}
               >
@@ -249,10 +249,10 @@ export function ExecTargetSkillsBlock(props: Props) {
             disabled={!online}
             onClick={openPicker}
             className={cn(
-              "inline-flex items-center gap-1 rounded-md border px-2 py-1 font-mono text-2xs font-semibold",
+              "inline-flex items-center gap-1 rounded-md px-2 py-1 font-mono text-2xs font-semibold",
               online
-                ? "border-primary/30 bg-primary-soft text-primary-text"
-                : "cursor-not-allowed border-border text-muted-foreground",
+                ? "bg-primary-soft text-primary-text"
+                : "cursor-not-allowed bg-button-fill text-muted-foreground",
             )}
           >
             + {t("org.agent.skills.manage")}
@@ -262,7 +262,7 @@ export function ExecTargetSkillsBlock(props: Props) {
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 font-mono text-2xs text-muted-foreground hover:bg-accent"
+                  className="inline-flex items-center gap-1 rounded-md bg-button-fill px-2 py-1 font-mono text-2xs text-muted-foreground hover:bg-button-fill-hover"
                 >
                   <Copy className="size-3" aria-hidden="true" />
                   {t("org.agent.skills.copyFrom")}

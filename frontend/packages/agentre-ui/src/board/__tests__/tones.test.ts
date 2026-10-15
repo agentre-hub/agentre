@@ -57,7 +57,7 @@ describe("8 档色调", () => {
 
   it("Given each tone, When its classes are read, Then they are the token pair the spec assigns", () => {
     expect(toneClassNames).toEqual({
-      gray: "border border-border-strong text-muted-foreground",
+      gray: "bg-button-fill text-muted-foreground",
       red: "bg-destructive-soft text-destructive-text",
       red_solid:
         "bg-destructive text-destructive-foreground dark:bg-destructive/60",
@@ -87,15 +87,14 @@ describe("8 档色调", () => {
     expect(missing).toEqual([]);
   });
 
-  it("Given the neutral tone, When it renders, Then it is outlined rather than filled", () => {
-    // 暗色下 --secondary 与 --popover 是同一个字节：填充的中性档在任何弹层里
-    // 只剩文字。描边不依赖表面色。
-    expect(toneClassNames.gray).toContain("border-border-strong");
+  it("Given the neutral tone, When it renders, Then it is a relative fill with no edge", () => {
+    // 填充工具类按脚下表面取前景色的百分比，落进弹层也比脚下深一级；不画边。
+    expect(toneClassNames.gray).toContain("bg-button-fill");
     expect(toneClassNames.gray).toContain("text-muted-foreground");
-    expect(toneClassNames.gray).not.toContain("bg-");
+    expect(toneClassNames.gray).not.toMatch(/\bborder/);
   });
 
-  it("Given an unknown tone from the wire, When it is resolved, Then it falls back to the outlined neutral, never to bg-secondary", () => {
+  it("Given an unknown tone from the wire, When it is resolved, Then it falls back to the neutral fill, never to bg-secondary", () => {
     expect(toneClass("chartreuse")).toBe(toneClassNames.gray);
     expect(toneClass(undefined)).toBe(toneClassNames.gray);
     expect(toneClass("chartreuse")).not.toContain("bg-secondary");

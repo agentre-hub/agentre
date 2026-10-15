@@ -132,7 +132,7 @@ describe("列头计数", () => {
 });
 
 describe("卡片", () => {
-  it("Given a card, When it renders, Then number, title, two labels and an outlined +N overflow are shown", () => {
+  it("Given a card, When it renders, Then number, title, two labels and a filled +N overflow are shown", () => {
     renderBoard(
       viewModel({
         columns: {
@@ -157,9 +157,10 @@ describe("卡片", () => {
     expect(within(node).getByText("前端")).toBeInTheDocument();
     expect(within(node).queryByText("紧急")).not.toBeInTheDocument();
 
-    // 溢出计数是**描边**，暗色下 --secondary 与 --popover 同色会整个消失。
+    // 溢出计数是中性相对填充（无边），不用 --secondary（暗色下与 --popover 同色）。
     const overflow = within(node).getByText("+1");
-    expect(overflow.className).toContain("border-border-strong");
+    expect(overflow.className).toContain("bg-button-fill");
+    expect(overflow.className).not.toContain("border");
     expect(overflow.className).toContain("text-muted-foreground");
     expect(overflow.className).not.toContain("bg-secondary");
   });
@@ -267,13 +268,14 @@ describe("卡片菜单", () => {
 });
 
 describe("拖拽三态", () => {
-  it("Given a card left behind in place, When it renders, Then it is a dashed ghost", () => {
+  it("Given a card left behind in place, When it renders, Then it is a dimmed ghost", () => {
     renderBoard(viewModel({ columns: { todo: column([card(1)]) } }), ports(), {
       card: () => ({ state: "ghost" as const }),
     });
 
     const body = screen.getByTestId("board-card-body-1");
-    expect(body.className).toContain("border-dashed");
+    expect(body.className).toContain("opacity-60");
+    expect(body.className).not.toMatch(/(^|\s)border/);
   });
 
   it("Given the card being dragged, When it renders, Then it is lifted and rotated", () => {

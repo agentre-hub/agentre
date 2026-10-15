@@ -107,9 +107,7 @@ export function BoardFilterChips({
             data-testid={`filter-chip-${chip.key}`}
             className={cn(
               "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-2xs",
-              tone
-                ? toneClass(tone)
-                : "border border-border-strong text-muted-foreground",
+              tone ? toneClass(tone) : "bg-button-fill text-muted-foreground",
             )}
           >
             {text}

@@ -251,7 +251,7 @@ export function ExecTargetList(props: Props) {
         // 「没有执行目标」只说这一条：它同时讲清「不能对话」与「至少要有一项」。
         // 面板此前另有一条 noBackendBound 的 Alert 说同一个条件，两条一起出现。
         <div
-          className="rounded-md border border-status-waiting/40 bg-status-waiting-bg px-3 py-4 text-center"
+          className="rounded-md bg-status-waiting-bg px-3 py-4 text-center"
           data-testid="exec-target-empty"
         >
           <p className="flex items-center justify-center gap-1.5 text-sm font-semibold">
@@ -290,7 +290,7 @@ export function ExecTargetList(props: Props) {
           )}
         </div>
       ) : (
-        <div className="flex flex-col overflow-hidden rounded-md border border-border bg-input-bg">
+        <div className="flex flex-col gap-1">
           {single ? (
             // R20：单档退化成今天的样子——不进 DndContext，也就没有拖拽柄。
             <ExecTargetRow
@@ -317,7 +317,7 @@ export function ExecTargetList(props: Props) {
       )}
 
       {allUnavailable && (
-        <div className="flex gap-2 rounded-md border border-destructive bg-destructive-soft p-3">
+        <div className="flex gap-2 rounded-md bg-destructive-soft p-3">
           <div className="flex min-w-0 flex-col gap-1">
             <span className="text-xs font-semibold">
               {t("org.agent.execTargets.allUnavailableTitle", {
@@ -361,10 +361,7 @@ export function ExecTargetList(props: Props) {
 function ExecTargetSkeleton() {
   const { t } = useTranslation();
   return (
-    <div
-      className="flex flex-col overflow-hidden rounded-md border border-border bg-input-bg"
-      data-testid="exec-target-skeleton"
-    >
+    <div className="flex flex-col gap-1" data-testid="exec-target-skeleton">
       <span role="status" className="sr-only">
         {t("org.agent.execTargets.loading")}
       </span>
@@ -373,8 +370,7 @@ function ExecTargetSkeleton() {
           key={i}
           aria-hidden="true"
           className={cn(
-            "flex items-center gap-2 border-border px-2.5 py-2",
-            i < SKELETON_ROWS - 1 && "border-b",
+            "flex items-center gap-2 rounded-md bg-field-fill px-2.5 py-2",
           )}
         >
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -523,7 +519,7 @@ function AddTargetPanel(props: {
 
   return (
     <div>
-      <div className="border-b border-border bg-input-bg px-3 py-2">
+      <div className="bg-field-fill px-3 py-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -561,12 +557,12 @@ function AddTargetPanel(props: {
                     </span>
                   </div>
                   {used && (
-                    <span className="inline-flex shrink-0 items-center rounded-sm border border-border px-1.5 py-0.5 text-2xs text-muted-foreground">
+                    <span className="inline-flex shrink-0 items-center rounded-sm bg-button-fill px-1.5 py-0.5 text-2xs text-muted-foreground">
                       {t("org.agent.execTargets.addPanel.alreadyInList")}
                     </span>
                   )}
                   {!used && unpaired && (
-                    <span className="inline-flex shrink-0 items-center rounded-sm border border-border px-1.5 py-0.5 text-2xs text-muted-foreground">
+                    <span className="inline-flex shrink-0 items-center rounded-sm bg-button-fill px-1.5 py-0.5 text-2xs text-muted-foreground">
                       {t("org.agent.execTargets.addPanel.unpaired")}
                     </span>
                   )}

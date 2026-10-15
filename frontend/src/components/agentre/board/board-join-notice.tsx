@@ -39,7 +39,7 @@ export function BoardJoinNotice() {
   return (
     <div
       data-testid="board-join-notice"
-      className="flex shrink-0 items-center gap-2 border-b border-border bg-primary-soft px-5 py-2 text-2xs text-primary-text"
+      className="flex shrink-0 items-center gap-2 bg-primary-soft px-5 py-2 text-2xs text-primary-text"
     >
       <span className="min-w-0 flex-1">{t("issues.syncJoined")}</span>
       <button

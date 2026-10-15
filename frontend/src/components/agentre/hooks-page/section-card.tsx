@@ -17,8 +17,8 @@ export function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
-      <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
+    <div className="overflow-hidden rounded-lg bg-field-fill">
+      <div className="flex items-center gap-2.5 px-4 py-3">
         <span className="flex h-[30px] w-[30px] items-center justify-center rounded-md bg-secondary text-primary">
           <Icon className="h-4 w-4" />
         </span>

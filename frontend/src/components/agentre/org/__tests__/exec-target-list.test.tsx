@@ -134,6 +134,29 @@ describe("ExecTargetList", () => {
     expect(screen.queryByLabelText(/Reorder target/)).toBeNull();
   });
 
+  it("draws the target list as a fill, not a bordered box with row rules", async () => {
+    availabilityStub([{ agentBackendId: 51, available: true }]);
+    const { container } = render(
+      <ExecTargetList
+        availability={availability}
+        agentName="开发"
+        targets={[{ agentBackendId: 51 }]}
+        backends={[localBackend()]}
+        onChange={vi.fn()}
+        onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
+      />,
+    );
+    await screen.findByText("Local machine");
+
+    const lines = [container, ...Array.from(container.querySelectorAll("*"))]
+      .flatMap((el) => (el.getAttribute("class") ?? "").split(/\s+/))
+      .filter((t) => /^(?:border|divide)(?:-|$)/.test(t));
+    // 单档没有「当前生效」色条；多档时那条状态色条是唯一保留的边（见 org 包测试）。
+    expect(lines).toEqual([]);
+  });
+
   it("multiple targets: renders sequence badges and per-row move buttons", async () => {
     availabilityStub([
       { agentBackendId: 51, available: true },

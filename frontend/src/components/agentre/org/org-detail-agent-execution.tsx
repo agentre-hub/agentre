@@ -96,7 +96,7 @@ function ProviderGapAlert() {
   const { t } = useTranslation();
   return (
     <Alert
-      className="border-status-waiting/40 bg-status-waiting-bg text-xs"
+      className="bg-status-waiting-bg text-xs"
       data-testid="org-agent-provider-gap"
     >
       <AlertTriangle className="size-4" aria-hidden="true" />

@@ -13,6 +13,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  SegmentedControl,
+  SegmentedControlItem,
 } from "@agentre-hub/agentre-ui";
 
 import { cn } from "@agentre-hub/agentre-ui";
@@ -81,14 +83,14 @@ export function HooksPage() {
       />
 
       {/* Main */}
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="content-sheet flex min-w-0 flex-1 flex-col">
         {flash ? (
           <div
             className={cn(
-              "flex items-center gap-2 border-b px-7 py-2 text-xs",
+              "flex items-center gap-2 px-7 py-2 text-xs",
               flash.kind === "ok"
-                ? "border-status-running/30 bg-status-running-bg text-status-running-text"
-                : "border-status-error/30 text-destructive-text",
+                ? "bg-status-running-bg text-status-running-text"
+                : "bg-destructive-soft text-destructive-text",
             )}
             role="status"
           >
@@ -120,29 +122,23 @@ export function HooksPage() {
             />
 
             {/* Tabs */}
-            <div className="flex gap-1 border-b border-border px-7">
-              {(["script", "runLog"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={cn(
-                    "flex items-center gap-1.5 border-b-2 px-1.5 pb-2.5 pt-3 text-aux font-medium transition-colors",
-                    activeTab === tab
-                      ? "border-primary text-foreground"
-                      : "border-transparent text-muted-foreground",
-                  )}
-                >
-                  {t(`hooks.tabs.${tab}`)}
-                  {tab === "runLog" && events.length > 0 ? (
-                    <Badge variant="secondary" className="font-mono text-3xs">
-                      {events.length}
-                    </Badge>
-                  ) : null}
-                </button>
-              ))}
+            <div className="px-7 pt-3">
+              <SegmentedControl
+                value={activeTab}
+                onValueChange={(tab) => setActiveTab(tab as typeof activeTab)}
+                aria-label={t("hooks.title")}
+              >
+                {(["script", "runLog"] as const).map((tab) => (
+                  <SegmentedControlItem key={tab} value={tab}>
+                    {t(`hooks.tabs.${tab}`)}
+                    {tab === "runLog" && events.length > 0 ? (
+                      <Badge variant="secondary" className="font-mono text-3xs">
+                        {events.length}
+                      </Badge>
+                    ) : null}
+                  </SegmentedControlItem>
+                ))}
+              </SegmentedControl>
             </div>
 
             {/* Body */}
