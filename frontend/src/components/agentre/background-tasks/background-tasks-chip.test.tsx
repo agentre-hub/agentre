@@ -49,39 +49,86 @@ const openChip = () =>
   userEvent.click(screen.getByRole("button", { name: /background tasks/i }));
 
 describe("BackgroundTasksChip", () => {
-  it("stays visible with an ended label when no task is running any more", () => {
-    render(
+  it("Given nothing is running but some tasks ended, When rendered, Then nothing is shown", () => {
+    const { container } = render(
       <BackgroundTasksChip
         tasks={[completed, { ...failed, status: "canceled" }]}
       />,
     );
-    // 已结束 = 完成 + 失败 + 被停止,不只是「已完成」。
-    expect(
-      screen.getByRole("button", { name: /background tasks/i }),
-    ).toHaveTextContent("2 ended");
+    expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders null only when there are no tasks at all", () => {
+  it("renders null when there are no tasks at all", () => {
     const { container } = render(<BackgroundTasksChip tasks={[]} />);
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("shows running count in chip label", () => {
+  it("Given a running task, When rendered, Then it is an icon-only button whose name carries the running count and a status dot", () => {
     render(<BackgroundTasksChip tasks={[running, completed]} />);
-    const btn = screen.getByRole("button", { name: /background tasks/i });
-    expect(btn).toBeInTheDocument();
-    expect(btn).toHaveTextContent("1 running");
+    const btn = screen.getByRole("button", {
+      name: "Background tasks: 1 running",
+    });
+    expect(btn).toHaveTextContent("");
+    expect(within(btn).getByTestId("background-tasks-dot")).toBeInTheDocument();
   });
 
-  it("shows correct count when multiple tasks are running", () => {
-    const running2: BackgroundTask = {
-      toolUseId: "tu4",
-      kind: "local_bash",
-      description: "another task",
-      status: "running",
-    };
+  it("Given several running tasks, When rendered, Then the accessible name counts only the running ones", () => {
+    const running2: BackgroundTask = { ...running, toolUseId: "tu4" };
     render(<BackgroundTasksChip tasks={[running, running2, completed]} />);
-    expect(screen.getByRole("button")).toHaveTextContent("2 running");
+    expect(
+      screen.getByRole("button", { name: "Background tasks: 2 running" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given sub-agents and commands running, When hovered, Then the peek lists both kinds and the ended count", async () => {
+    render(
+      <BackgroundTasksChip
+        tasks={[runningAgent, running, completed, failed]}
+      />,
+    );
+    await userEvent.hover(screen.getByRole("button"));
+    const peek = await screen.findByTestId("background-tasks-peek");
+    expect(within(peek).getByText("Trace the stream")).toBeInTheDocument();
+    expect(within(peek).getByText("sleep 20")).toBeInTheDocument();
+    expect(within(peek).getByText(/Subagents/)).toBeInTheDocument();
+    expect(within(peek).getByText(/Commands/)).toBeInTheDocument();
+    expect(within(peek).getByText(/2 ended/)).toBeInTheDocument();
+    expect(within(peek).queryByText("Explore repo")).toBeNull();
+  });
+
+  it("Given a keyboard user, When the button is focused, Then the peek shows too", async () => {
+    render(<BackgroundTasksChip tasks={[running]} />);
+    await userEvent.tab();
+    expect(screen.getByRole("button")).toHaveFocus();
+    expect(
+      await screen.findByTestId("background-tasks-peek"),
+    ).toBeInTheDocument();
+  });
+
+  it("Given more than 4 commands running, When peeked, Then the first 4 show with a 'N more' line", async () => {
+    const many = Array.from({ length: 6 }, (_, i) => ({
+      ...running,
+      toolUseId: `c${i}`,
+      description: `cmd-${i}`,
+    }));
+    render(<BackgroundTasksChip tasks={many} />);
+    await userEvent.hover(screen.getByRole("button"));
+    const peek = await screen.findByTestId("background-tasks-peek");
+    expect(within(peek).getByText("cmd-3")).toBeInTheDocument();
+    expect(within(peek).queryByText("cmd-4")).toBeNull();
+    expect(within(peek).getByText("2 more commands")).toBeInTheDocument();
+  });
+
+  it("Given exactly 4 commands, When peeked, Then there is no 'more' line", async () => {
+    const four = Array.from({ length: 4 }, (_, i) => ({
+      ...running,
+      toolUseId: `c${i}`,
+      description: `cmd-${i}`,
+    }));
+    render(<BackgroundTasksChip tasks={four} />);
+    await userEvent.hover(screen.getByRole("button"));
+    const peek = await screen.findByTestId("background-tasks-peek");
+    expect(within(peek).queryByText(/more commands/)).toBeNull();
   });
 
   it("Given a located task, When its row is clicked, Then the host is told which task and the popover closes", async () => {

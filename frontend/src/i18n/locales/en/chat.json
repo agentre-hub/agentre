@@ -324,7 +324,6 @@
     },
     "backgroundTasks": {
       "chip": "{{count}} running",
-      "endedChip": "{{count}} ended",
       "subagents": "Subagents",
       "commands": "Commands",
       "ended": "Ended",
@@ -335,11 +334,16 @@
       "bash": "bash",
       "subagent": "subagent",
       "steps": "{{count}} steps",
-      "aria": "Background tasks",
       "clear": "Clear",
       "back": "Back",
       "locate": "Show in conversation",
-      "stop": "Stop"
+      "stop": "Stop",
+      "ariaRunning": "Background tasks: {{count}} running",
+      "peekAgents": "Subagents · {{count}} running",
+      "peekCommands": "Commands · {{count}} running",
+      "peekMore": "{{count}} more commands",
+      "peekFoot": "Click to open the full list",
+      "peekFootEnded": "{{count}} ended · click to open the full list"
     },
     "toolbar": {
       "aria": "Session toolbar",
@@ -347,7 +351,7 @@
       "hideContextSidebar": "Hide context sidebar",
       "showContextSidebar": "Show context sidebar",
       "stop": "Stop",
-      "stopActiveTitle": "Stop current chat"
+      "stopActiveTitle": "Stop current turn"
     },
     "untitled": "(Untitled)",
     "loadError": {

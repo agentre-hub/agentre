@@ -6216,13 +6216,16 @@ describe("ChatPanel · 头部在四态都在位且恒高", () => {
     expect(screen.queryByRole("button", { name: /Stop/ })).toBeNull();
   });
 
-  it("Given 这一轮在跑, When 渲染, Then 停止按钮出现", () => {
+  it("Given 这一轮在跑, When 渲染, Then 停止是只有图标的按钮，可及名「Stop」、提示「Stop current turn」", () => {
     resetStore();
     mockSessionStore.session = makeSession({ id: 42, agentStatus: "running" });
 
     render(<ChatPanel sessionId={42} />);
 
-    expect(screen.getByRole("button", { name: /Stop/ })).toBeInTheDocument();
+    const stop = screen.getByRole("button", { name: "Stop" });
+    expect(stop).toHaveAttribute("title", "Stop current turn");
+    expect(stop).toHaveTextContent("");
+    expect(stop.querySelector("svg")).not.toBeNull();
   });
 
   it("Given meta 行, When 渲染, Then 它恒为单行，不靠 flex-wrap 折行", () => {
