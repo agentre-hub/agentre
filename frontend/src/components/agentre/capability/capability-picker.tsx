@@ -63,7 +63,7 @@ export function CapabilityPicker(props: Props) {
           showCloseButton={false}
         >
           {/* header */}
-          <div className="flex flex-col gap-1.5 border-b border-border px-[18px] py-3.5">
+          <div className="flex flex-col gap-1.5 px-[18px] py-3.5">
             <div className="flex items-center gap-2">
               <Boxes className="size-4 text-primary-text" aria-hidden="true" />
               <span className="text-prose font-semibold">{props.title}</span>
@@ -85,7 +85,7 @@ export function CapabilityPicker(props: Props) {
           </div>
 
           {/* search + rescan */}
-          <div className="flex items-center gap-2.5 border-b border-border/60 px-[18px] py-3">
+          <div className="flex items-center gap-2.5 px-[18px] pb-3">
             <div className="flex flex-1 items-center gap-2 rounded-md bg-field-fill px-2.5 py-2 hover:bg-field-fill-hover focus-within:bg-sheet focus-within:focus-outline">
               <Search
                 className="size-3.5 text-muted-foreground"
@@ -147,7 +147,7 @@ export function CapabilityPicker(props: Props) {
                         <div
                           key={it.id}
                           className={cn(
-                            "flex items-center gap-2.5 rounded-md border border-border bg-card px-2.5 py-2",
+                            "flex items-center gap-2.5 rounded-md bg-field-fill px-2.5 py-2",
                             disabled && "opacity-50",
                           )}
                         >
@@ -200,10 +200,10 @@ export function CapabilityPicker(props: Props) {
                         disabled={disabled}
                         onClick={() => !disabled && props.onToggle(it.id)}
                         className={cn(
-                          "flex items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors",
+                          "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors",
                           it.enabled
-                            ? "border-primary/30 bg-primary-soft/40"
-                            : "border-border bg-card hover:bg-accent/60 hover:on-accent",
+                            ? "bg-primary-soft/40"
+                            : "bg-field-fill hover:bg-field-fill-hover",
                           disabled && "opacity-50",
                         )}
                       >
@@ -212,7 +212,7 @@ export function CapabilityPicker(props: Props) {
                             "flex size-4 shrink-0 items-center justify-center rounded-[5px] border",
                             it.enabled
                               ? "border-primary bg-primary text-primary-foreground"
-                              : "border-border bg-card",
+                              : "border-control-border bg-card",
                           )}
                           aria-hidden="true"
                         >
@@ -260,7 +260,7 @@ export function CapabilityPicker(props: Props) {
           </div>
 
           {/* footer */}
-          <div className="flex items-center gap-2.5 border-t border-border bg-secondary/30 px-[18px] py-3">
+          <div className="flex items-center gap-2.5 bg-secondary/30 px-[18px] py-3">
             <span className="flex-1 font-mono text-2xs text-muted-foreground">
               {props.footerSummary ??
                 t("capability.picker.selected", { count: selectedCount })}

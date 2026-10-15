@@ -34,7 +34,7 @@ export function ImageModePanel({
   return (
     <div className="space-y-3 px-3 py-3">
       <div className="flex items-center gap-3">
-        <div className="inline-flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted">
+        <div className="inline-flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-field-fill">
           {avatarDataUrl ? (
             <img
               src={avatarDataUrl}

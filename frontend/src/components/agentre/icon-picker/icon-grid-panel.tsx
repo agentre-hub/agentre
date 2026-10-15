@@ -41,7 +41,7 @@ export function IconGridPanel({
 
   return (
     <div className="flex flex-col">
-      <div className="border-b border-border px-3 py-2">
+      <div className="px-3 py-2">
         <div className="relative">
           <Search
             className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -88,7 +88,7 @@ export function IconGridPanel({
         ))}
       </div>
       {allowClear && (
-        <div className="border-t border-border px-3 py-2">
+        <div className="px-3 py-2">
           <Button
             variant="ghost"
             size="sm"
@@ -123,10 +123,10 @@ export function IconCell({
       title={meta.label}
       onClick={onSelect}
       className={cn(
-        "inline-flex aspect-square items-center justify-center rounded-md border text-foreground transition-colors",
+        "inline-flex aspect-square items-center justify-center rounded-md text-foreground transition-colors",
         active
-          ? "border-primary bg-primary-soft text-primary-text"
-          : "border-border bg-card hover:bg-accent",
+          ? "bg-primary-soft text-primary-text"
+          : "bg-button-fill hover:bg-button-fill-hover",
       )}
     >
       <Icon className="size-4" aria-hidden="true" />

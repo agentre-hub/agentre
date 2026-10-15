@@ -210,6 +210,7 @@ const markdownComponentsStatic: Components = {
     />
   ),
   hr: ({ node: _node, className, ...props }) => (
+    // eslint-disable-next-line no-restricted-syntax -- 正文里的 <hr> 是作者写进 markdown 的分隔，属于内容，不是界面的结构线（无边框改版规格只去掉界面上的线）。
     <hr {...props} className={cn("my-3 border-border", className)} />
   ),
   li: ({ node: _node, className, ...props }) => (

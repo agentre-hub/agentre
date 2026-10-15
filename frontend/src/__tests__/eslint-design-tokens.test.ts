@@ -11,6 +11,9 @@ import {
   LITERAL_COLOR_CLASS,
   RAW_COLOR_VALUE,
   RESTING_SURFACE_AS_HOVER,
+  DIVIDER_COLOR_EDGE,
+  DIVIDE_UTILITY,
+  FIELD_EDGE,
   agentColorAsTextSyntax,
   restrictedSyntax,
 } from "../../eslint-rules/design-tokens.js";
@@ -37,6 +40,11 @@ const fillTextOnSoft = new RegExp(FILL_TEXT_ON_OWN_SOFT_BG);
 const handRolledFocusRing = new RegExp(HAND_ROLLED_FOCUS_RING);
 const agentColorAsText = new RegExp(AGENT_COLOR_AS_TEXT);
 const restingSurfaceAsHover = new RegExp(RESTING_SURFACE_AS_HOVER);
+const structuralLine = [DIVIDER_COLOR_EDGE, DIVIDE_UTILITY, FIELD_EDGE].map(
+  (source) => new RegExp(source),
+);
+const drawsStructuralLine = (sample: string) =>
+  structuralLine.some((pattern) => pattern.test(sample));
 
 describe("字号阶梯的 lint 规则", () => {
   it.each([
@@ -177,8 +185,8 @@ describe("软底上的同族文字必须用 -text 角色", () => {
 });
 
 /**
- * 键盘焦点只有两种画法，都定义在 tokens.css：按钮类 `focus-outline`、输入类
- * `focus-halo`。各处自己拼 `ring-[3px] ring-ring/40` 的结果是全仓并存三种环
+ * 键盘焦点只用 tokens.css 里定义的工具类：按钮与字段都是 `focus-outline`
+ * （`focus-halo` 仍在，无边的字段不再用它）。各处自己拼 `ring-[3px] ring-ring/40` 的结果是全仓并存三种环
  * （/40 37 处、/50 36 处、实色 6 处），半透明的那两种合成后只有 1.8–2.1:1。
  * `ring-ring` 这个组合只该出现在工具类的定义里，所以 ts / tsx 里一律不许写。
  */
@@ -198,7 +206,7 @@ describe("焦点环不许手拼", () => {
 
   it.each([
     ["focus-visible:focus-outline", "按钮类的工具类"],
-    ["focus-within:focus-halo", "输入类的工具类"],
+    ["focus-within:focus-halo", "工具类，字段不再用但仍可用"],
     ["ring-1 ring-primary/30 ring-inset", "装饰描边，不是焦点环"],
     ["aria-invalid:ring-destructive/20", "校验态的环"],
     ["ring-offset-background", "只是名字里带 ring"],
@@ -319,6 +327,127 @@ describe("悬停反馈不许用静止表面色", () => {
   });
 });
 
+/**
+ * 结构线：同一底色的两块区域之间用线分开。
+ *
+ * 无边框改版（docs/specs/2026-10-15-borderless-ui.md「结构线」「控件」）之后，
+ * 区域靠表面色阶与留白分开，卡片、字段、outline 按钮靠填充；页面上会「出现」的线
+ * 只剩焦点环、复选框 / 单选 / 开关的边、状态色条与拖放落点。
+ * 这组规则只认**颜色**：分隔线色（border-border、border-sidebar-border 这类
+ * border-*-border）、divide-* 与字段 / 按钮的边色。不按宽度判，是因为状态色条、
+ * 拖放落点与控件边用的是同一批宽度类，区别只在颜色上；而分隔线色除了画线别无用途。
+ */
+describe("结构线的 lint 规则", () => {
+  it.each([
+    [
+      "flex items-center gap-1 border-b border-border px-3 py-2",
+      "面板头下的分隔线",
+    ],
+    ["border-t border-border bg-secondary/40 px-3 py-2", "页脚上的分隔线"],
+    ["border-t-2 border-border", "带宽度的单边"],
+    ["border-l border-sidebar-border", "border-*-border 一族"],
+    ["rounded-md border border-border bg-card px-2.5 py-2", "卡片外框"],
+    ["flex items-center border-b border-border/60", "带不透明度"],
+    ["border-border bg-card hover:bg-accent", "宽度写在 cn() 的另一个字面量里"],
+    ["dark:border-border", "带变体"],
+    ["border-b-border", "单边的颜色写法"],
+    ["flex flex-col divide-y divide-border", "列表行之间的分隔线"],
+    ["divide-x", "不带颜色的 divide"],
+    ["[&>li]:divide-y", "任意变体前缀的 divide"],
+    ["h-9 rounded-md border border-field-border bg-transparent", "字段的边"],
+    ["border border-input bg-background shadow-xs", "outline 按钮的边"],
+    ["dark:border-input", "带变体的字段边"],
+  ])("拦住 %s（%s）", (sample) => {
+    expect(drawsStructuralLine(sample)).toBe(true);
+  });
+
+  it.each([
+    [
+      "size-4 rounded-sm border border-control-border",
+      "复选框 / 单选的边是控件本体",
+    ],
+    ["border border-control-border bg-transparent shadow-xs", "开关类控件的边"],
+    ["border-l-2 border-l-status-running", "子代理运行组的状态色条"],
+    [
+      "flex flex-col gap-px border-l-2 border-status-waiting/40 pl-1.5",
+      "「需要关注」的琥珀色左条",
+    ],
+    ["border-2 border-dashed border-ring bg-background/85", "拖放落点提示"],
+    ["focus-visible:focus-outline", "按钮类焦点环"],
+    ["focus-within:focus-outline", "字段包裹层的焦点环"],
+    ["focus-within:focus-halo", "focus-halo 工具类"],
+    ["-mx-1 my-1 h-px bg-border", "菜单分隔是一条填充，不是边"],
+    [
+      "mt-1 size-2 rounded-full border border-border-strong",
+      "手写单选点的控件边",
+    ],
+    ["data-[state=checked]:border-primary", "选中态的控件边"],
+    ["bg-field-fill hover:bg-field-fill-hover", "字段的填充"],
+    ["bg-button-fill hover:bg-button-fill-hover", "按钮的填充"],
+    ["task-pill-divide", "名字里带 divide 的标识"],
+    ["border-separate border-spacing-x-3", "表格布局，不画线"],
+  ])("放过 %s（%s）", (sample) => {
+    expect(drawsStructuralLine(sample)).toBe(false);
+  });
+});
+
+/**
+ * 规则要在宿主与共享包两边都生效，过的是**项目真实的** eslint.config.js：
+ * 共享包 ui/** 有自己的一块配置（只摘原生控件那组），漏展开 restrictedSyntax
+ * 的话那一层就没人看着；测试文件照其它几组的惯例豁免。
+ */
+describe("结构线规则的生效范围", () => {
+  const SAMPLE = 'export const head = "flex border-b border-border px-3";\n';
+  const STRUCTURAL = new Set(
+    restrictedSyntax
+      .filter((rule) =>
+        [DIVIDER_COLOR_EDGE, DIVIDE_UTILITY, FIELD_EDGE].some((source) =>
+          rule.selector.includes(source),
+        ),
+      )
+      .map((rule) => rule.message),
+  );
+
+  let eslint: ESLint;
+
+  beforeAll(async () => {
+    eslint = new ESLint({ cwd: FRONTEND_ROOT, errorOnUnmatchedPattern: false });
+    await eslint.lintText("export const warmup = 1;\n", {
+      filePath: path.join(FRONTEND_ROOT, "src/warmup.ts"),
+    });
+  }, 60_000);
+
+  async function structuralMessages(filePath: string) {
+    const [result] = await eslint.lintText(SAMPLE, {
+      filePath: path.join(FRONTEND_ROOT, filePath),
+    });
+    return result.messages.filter(
+      (m) => m.ruleId === "no-restricted-syntax" && STRUCTURAL.has(m.message),
+    );
+  }
+
+  it.each([
+    "src/components/agentre/sample.tsx",
+    "packages/agentre-ui/src/ui/sample.tsx",
+    "packages/agentre-ui/src/transcript/sample.tsx",
+  ])(
+    "Given a divider line in %s, When ESLint runs, Then it is reported",
+    async (file) => {
+      expect(await structuralMessages(file)).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    "src/components/agentre/__tests__/sample.test.tsx",
+    "packages/agentre-ui/src/ui/sample.test.tsx",
+  ])(
+    "Given the same line in test file %s, When ESLint runs, Then it is exempt",
+    async (file) => {
+      expect(await structuralMessages(file)).toHaveLength(0);
+    },
+  );
+});
+
 describe("每一组规则都有两种形态", () => {
   it("每组各自都覆盖 Literal 与 TemplateElement", () => {
     // 只拦 Literal 的话，模板字符串里的写法会绕过去。
@@ -336,6 +465,9 @@ describe("每一组规则都有两种形态", () => {
       LITERAL_COLOR_CLASS,
       RAW_COLOR_VALUE,
       RESTING_SURFACE_AS_HOVER,
+      DIVIDER_COLOR_EDGE,
+      DIVIDE_UTILITY,
+      FIELD_EDGE,
     ]) {
       expect(shapes(source)).toEqual(["Literal", "TemplateElement"]);
     }

@@ -81,7 +81,7 @@ export function BackgroundTasksPopoverContent({
   if (endedOnly || (endedOpen && ended.length > 0)) {
     return (
       <div className="flex flex-col">
-        <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+        <div className="flex items-center gap-1 px-2 py-1.5">
           {!endedOnly && (
             <button
               type="button"
@@ -143,7 +143,7 @@ export function BackgroundTasksPopoverContent({
       </div>
       {/* 钉在滚动区外面:运行中的再多,已结束这一行也够得着。 */}
       {ended.length > 0 && (
-        <div className="border-t border-border p-1.5">
+        <div className="p-1.5">
           <button
             type="button"
             onClick={() => setEndedOpen(true)}

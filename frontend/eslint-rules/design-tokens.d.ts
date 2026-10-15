@@ -39,5 +39,14 @@ export const agentColorAsTextSyntax: { selector: string; message: string }[];
 /** 匹配「用静止表面色做悬停反馈」（`hover:bg-muted` / `hover:bg-secondary`）的正则源码。 */
 export const RESTING_SURFACE_AS_HOVER: string;
 
+/** 匹配「用分隔线色画结构线」（`border-border` / `border-*-border`，`control-border` 除外）的正则源码。 */
+export const DIVIDER_COLOR_EDGE: string;
+
+/** 匹配「用 `divide-*` 在相邻子元素之间画线」的正则源码。 */
+export const DIVIDE_UTILITY: string;
+
+/** 匹配「字段或 outline 按钮的边」（`border-input` / `border-field-border`）的正则源码。 */
+export const FIELD_EDGE: string;
+
 /** 供 `no-restricted-syntax` 直接展开的规则项。 */
 export const restrictedSyntax: { selector: string; message: string }[];

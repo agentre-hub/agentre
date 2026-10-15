@@ -53,9 +53,9 @@ function ShortcutRow({
     <div
       data-slot="shortcut-row"
       className={cn(
-        "flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-3 transition-colors",
+        "flex items-center justify-between gap-4 rounded-lg bg-field-fill px-4 py-3 transition-colors",
         recording && "bg-primary-soft/40",
-        highlighted && "border-destructive bg-destructive/10",
+        highlighted && "bg-destructive/10",
       )}
     >
       <div className="flex min-w-0 flex-col gap-0.5">
@@ -65,9 +65,9 @@ function ShortcutRow({
       <div className="flex items-center gap-3">
         <span
           className={cn(
-            "inline-flex h-7 min-w-[64px] items-center justify-center rounded-md border border-border bg-muted px-2.5 font-mono text-2xs font-semibold tracking-wide text-foreground",
+            "inline-flex h-7 min-w-[64px] items-center justify-center rounded-md bg-button-fill px-2.5 font-mono text-2xs font-semibold tracking-wide text-foreground",
             recording &&
-              "border-dashed border-primary/60 bg-background text-primary-text",
+              "border border-dashed border-primary/60 bg-sheet text-primary-text",
           )}
         >
           {recording

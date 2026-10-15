@@ -79,7 +79,7 @@ function NavigationRow({ item }: { item: NavigationItem }) {
       </div>
       <kbd
         className={cn(
-          "rounded-sm border border-border bg-card px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground",
+          "rounded-sm bg-button-fill px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground",
           "opacity-0 group-data-[selected=true]/cmditem:opacity-100",
         )}
         aria-hidden="true"

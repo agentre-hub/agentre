@@ -192,7 +192,7 @@ export function AgentAvatarPicker({
       </PopoverTrigger>
       <PopoverContent className="w-[380px] p-0" align="start" sideOffset={8}>
         <div className="flex flex-col">
-          <div className="flex items-center gap-1 border-b border-border px-3 py-2">
+          <div className="flex items-center gap-1 px-3 py-2">
             {showImageMode && (
               <ModeChip
                 active={mode === "image"}
@@ -262,7 +262,7 @@ export function AgentAvatarPicker({
           )}
 
           {avatarDataUrl && mode !== "image" && (
-            <div className="border-t border-border bg-secondary/40 px-3 py-2 font-mono text-2xs text-muted-foreground">
+            <div className="bg-secondary/40 px-3 py-2 font-mono text-2xs text-muted-foreground">
               {t("iconPicker.avatar.activeUpload")}
               {mode === "icon" ? t("iconPicker.avatar.iconFallback") : ""}
             </div>

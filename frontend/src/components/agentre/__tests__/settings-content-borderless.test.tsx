@@ -126,7 +126,7 @@ describe("settings content sources", () => {
       const lines = readFileSync(join(root, file), "utf8").split("\n");
       lines.forEach((line, i) => {
         if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
-        for (const m of line.matchAll(/[\w:/.\[\]-]+/g)) {
+        for (const m of line.matchAll(/[\w:/.[\]-]+/g)) {
           if (LINE_CLASS.test(` ${m[0]}`))
             offenders.push(`${file}:${i + 1} ${m[0]}`);
         }
