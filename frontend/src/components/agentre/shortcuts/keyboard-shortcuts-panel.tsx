@@ -110,7 +110,7 @@ function ConflictBanner({ message }: { message: ConflictMessage }) {
   return (
     <div
       role="alert"
-      className="flex items-center gap-3 rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive-text shadow-sm"
+      className="flex items-center gap-3 rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive-text shadow-sm"
     >
       <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
       <span className="font-medium">{message.text}</span>

@@ -16,7 +16,8 @@ import type { BackgroundTask } from "./types";
 
 // formatElapsed 将毫秒数格式化为紧凑耗时字符串（computed — 不走 t()）。
 // < 60s → "12s"  |  < 60m → "3m 05s"  |  else → "1h 02m"
-function formatElapsed(ms: number): string {
+// 标题栏按钮的悬停预览卡与弹层共用这一个格式。
+export function formatElapsed(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
   if (totalSec < 60) return `${totalSec}s`;
   const totalMin = Math.floor(totalSec / 60);

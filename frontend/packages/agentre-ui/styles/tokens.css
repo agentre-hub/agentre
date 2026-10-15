@@ -92,7 +92,12 @@
   /* Border / Input */
   --border: #e4e4e7;
   --border-strong: #d4d4d8;
-  /* The second edge tier: the outline of a clickable control that already
+  /* Since the borderless redesign (docs/specs/2026-10-15-borderless-ui.md) the
+     shared outline button and fields draw no edge — they use the relative fills
+     (--color-button-fill / --color-field-fill). --input and --field-border stay
+     for the unchecked switch track and for agentre-server call sites that have
+     not adopted the fills yet; the notes below describe the old edge tiers.
+     The second edge tier: the outline of a clickable control that already
      carries a label — the outline button. Clearly stronger than --border
      (1.62 on --card against 1.27), deliberately lighter than --control-border:
      the text inside identifies the control, so the edge only has to support it.
@@ -198,6 +203,10 @@
      self-referential. Same reason for --overlay-scrim. */
   --overlay-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.18);
   --overlay-scrim: rgba(15, 23, 42, 0.4);
+  /* 设置对话框的遮罩：设置几乎铺满窗口，底下那一页只需要退后、不需要被抹掉，所以
+     比表单弹窗的 --overlay-scrim 轻，且是中性黑。见 docs/specs/2026-10-15-borderless-ui.md
+     「设置对话框 · 外观」。 */
+  --settings-scrim: rgba(0, 0, 0, 0.32);
 
   /* Code / console surfaces — monospace output (hook logs, command output).
      Light-adaptive: a light code surface in light theme, deep console near-black in dark. */
@@ -401,6 +410,7 @@
   /* Dark needs a heavier drop shadow to read as a layer. */
   --overlay-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.6);
   --overlay-scrim: rgba(0, 0, 0, 0.7);
+  --settings-scrim: rgba(0, 0, 0, 0.55);
 
   /* Code / console surfaces */
   --code-surface: #141516;
@@ -612,6 +622,7 @@
      naming note in :root. Utilities generated: shadow-overlay, bg-scrim. */
   --shadow-overlay: var(--overlay-shadow);
   --color-scrim: var(--overlay-scrim);
+  --color-settings-scrim: var(--settings-scrim);
   --color-traffic-close: var(--traffic-close);
   --color-traffic-minimize: var(--traffic-minimize);
   --color-traffic-zoom: var(--traffic-zoom);
@@ -690,10 +701,12 @@
   box-shadow: var(--sheet-shadow);
 }
 
-/* 键盘焦点的两种画法，全仓只在这里定义一次。调用点挂在变体下：
-     focus-visible:focus-outline   按钮类 —— 按钮、行、标签、开关、复选框
-     focus-visible:focus-halo      输入类 —— 输入框、文本域、下拉
-     focus-within:focus-halo       包着输入的外壳 —— 搜索框、对话输入框
+/* 键盘焦点的画法，全仓只在这里定义一次。调用点挂在变体下：
+     focus-visible:focus-outline   按钮、行、标签、开关、复选框，以及无边的字段
+                                   （输入框、文本域、下拉——聚焦时底色回到 bg-sheet）
+     focus-within:focus-outline    包着输入的外壳 —— 搜索框、对话输入框
+     focus-halo                    旧的「边变实色 + 光晕」；无边字段已不用它，留给
+                                   还没换成填充字段的 agentre-server 调用点
 
    按钮类是 2px 实色环 + 2px 间隙。实色是为了让对比度不随底色漂移：此前各处
    自己拼的 ring-ring/50 合成后只有约 2.1:1、/40 约 1.8:1。间隙是为了让实心
@@ -703,7 +716,7 @@
    [role="tab"] 的默认键盘焦点（没挂任何焦点类的原生按钮也有环）；两处要一起改，
    src/styles/host-stylesheets.test.ts 守着它们逐条相同。
 
-   输入类保留原样：边变成实色 --ring（这一条已经有 3:1），外面再加一圈光晕。
+   focus-halo 是有边字段时代的画法：边变成实色 --ring，外面再加一圈光晕。
    ts / tsx 里不许再手拼 ring-ring，见 frontend/eslint-rules/design-tokens.js。 */
 @utility focus-outline {
   outline: 2px solid var(--ring);
@@ -755,5 +768,9 @@
   font-weight: 500;
   white-space: nowrap;
   color: var(--mention-color, var(--foreground));
-  background-color: color-mix(in oklab, var(--mention-color, var(--muted)) 15%, transparent);
+  background-color: color-mix(
+    in oklab,
+    var(--mention-color, var(--muted)) 15%,
+    transparent
+  );
 }

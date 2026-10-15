@@ -71,7 +71,7 @@ export function PickerSearchBox({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={t("modelTargetPicker.searchPlaceholder")}
-          className="h-8 rounded-[7px] bg-input-bg pl-7 pr-7 text-xs dark:bg-input-bg"
+          className="h-8 rounded-[7px] pl-7 pr-7 text-xs"
         />
         {value ? (
           <button

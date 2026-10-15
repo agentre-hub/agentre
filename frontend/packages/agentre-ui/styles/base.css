@@ -89,7 +89,7 @@
      约 2.1:1，正是各处手拼的光晕被换掉的原因。靠每个作者记得抄
      `focus-visible:focus-outline`，漏一个就是一处只有键盘才发现得了的静默回归。
 
-     只管按钮类（`[role="tab"]` 是为那些用 div + roving tabindex 写的标签页）。输入框、文本域、下拉自己带 `outline-none` 并画 `focus-halo`；
+     只管按钮类（`[role="tab"]` 是为那些用 div + roving tabindex 写的标签页）。输入框、文本域、下拉自己带 `outline-none` 并画 `focus-outline`（聚焦时底色回到 `bg-sheet`）；
      菜单项用 `outline-hidden` 配高亮底色。它们都在 utilities 层，照常盖过这里。
      去掉了 outline 的按钮必须自己挂 `focus-visible:focus-outline` 把环画回来。
 

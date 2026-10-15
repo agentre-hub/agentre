@@ -169,7 +169,7 @@ export function SettingsDialog(props: Omit<SettingsPageProps, "titleAs">) {
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay
           data-slot="settings-dialog-overlay"
-          className="fixed inset-0 z-50 bg-scrim duration-200 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none"
+          className="fixed inset-0 z-50 bg-settings-scrim duration-200 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none"
         />
         {/* 标题栏那一条仍能拖动窗口（macOS 红绿灯是原生的，不受遮罩影响）。按在这里
             不算「点遮罩」，见下面的 onPointerDownOutside。 */}

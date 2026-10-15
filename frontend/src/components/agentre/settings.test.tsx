@@ -95,6 +95,20 @@ describe("SettingsDialog remote-device onboarding navigation", () => {
   });
 });
 
+describe("SettingsDialog backdrop", () => {
+  it("Given settings is open, When rendered, Then the page underneath is dimmed by the settings scrim, not the form-dialog scrim", () => {
+    openSettings("appearance");
+    renderSettingsDialog();
+
+    const overlay = document.querySelector<HTMLElement>(
+      '[data-slot="settings-dialog-overlay"]',
+    );
+    if (!overlay) throw new Error("expected the settings scrim");
+    expect(overlay).toHaveClass("bg-settings-scrim");
+    expect(overlay).not.toHaveClass("bg-scrim");
+  });
+});
+
 describe("SettingsDialog busy sub-page", () => {
   it("Given a sub-page dialog is busy saving, When Esc is pressed or its scrim is clicked, Then neither it nor settings closes", async () => {
     const user = userEvent.setup();

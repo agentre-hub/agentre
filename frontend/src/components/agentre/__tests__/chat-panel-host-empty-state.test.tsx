@@ -367,4 +367,23 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
 
     expectNoStructuralBorders(container);
   });
+
+  // 规格目标：工作区是一张浮起的内容页——没有打开的对话时也一样，不能是铺满外框的一块底色。
+  it.each([
+    [
+      "the setup checklist",
+      [{ id: 1, name: "CEO", chattable: false, blockReason: "no-backend" }],
+    ],
+    ["the ready placeholder", [{ id: 2, name: "Eng", chattable: true }]],
+  ] as const)(
+    "Given no open chat, When %s renders, Then the workspace is the content sheet",
+    (_label, agents) => {
+      seedAgents([...agents]);
+      renderHost();
+
+      const main = screen.getByRole("main");
+      expect(main).toHaveClass("content-sheet");
+      expect(main).not.toHaveClass("bg-background");
+    },
+  );
 });

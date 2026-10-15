@@ -220,7 +220,7 @@ function ChatPanelHeader({
           ) : null}
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="icon-sm"
             aria-label={t("chatPanel.toolbar.contextSidebar")}
             onClick={onToggleSidebar}
@@ -243,9 +243,10 @@ function ChatPanelHeader({
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="icon-sm"
                   aria-label={t("common.moreActions")}
+                  title={t("common.moreActions")}
                 >
                   <MoreHorizontal data-icon="only" aria-hidden="true" />
                 </Button>

@@ -183,7 +183,7 @@ function ExternalApprovalDialogBody({
       />
       <DialogShellBody className="flex flex-col gap-3">
         {item.caller ? (
-          <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-aux">
+          <div className="flex items-center gap-2 rounded-md bg-muted/40 px-3 py-2 text-aux">
             <Terminal className="size-3.5 text-muted-foreground" />
             <span className="font-medium">{item.caller.parentProcess}</span>
             <span className="text-muted-foreground">

@@ -18,7 +18,7 @@ function NewSessionChatGuard({ agent }: { agent: ChatAgentItem }) {
   const reasonKey = cta.copyKey;
   return (
     <div
-      className="mb-2 flex flex-col items-start gap-2 rounded-lg border border-status-waiting/40 bg-status-waiting-bg px-4 py-3"
+      className="mb-2 flex flex-col items-start gap-2 rounded-lg bg-status-waiting-bg px-4 py-3"
       data-testid="new-session-guard"
       role="alert"
       aria-live="polite"
@@ -26,7 +26,7 @@ function NewSessionChatGuard({ agent }: { agent: ChatAgentItem }) {
       <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
         <Badge
           variant="outline"
-          className="border-status-waiting/40 bg-background px-1.5 py-0 text-2xs text-foreground"
+          className="bg-background px-1.5 py-0 text-2xs text-foreground"
         >
           {agent.blockReason === "no-backend"
             ? t("agentList.backendNotConfigured")

@@ -115,6 +115,10 @@ describe("ExternalApprovalDialog", () => {
     expect(screen.getByText("codex")).toBeInTheDocument();
     expect(screen.getByText("pid 48213")).toBeInTheDocument();
     expect(screen.getByText("~/Code/agentre")).toBeInTheDocument();
+    // 规格「结构线」：对话框里的调用方一行是填充块，不画外框。
+    expect(
+      screen.getByText("~/Code/agentre").parentElement?.className,
+    ).not.toMatch(/(^|\s)border(\s|$)/);
     // 单条待审批：不显示「第 N 个，共 M 个」。
     expect(screen.queryByText(/pending/i)).toBeNull();
   });

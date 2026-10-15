@@ -55,7 +55,7 @@ function IndexToolbar({
           <Input
             aria-label={t("sessionIndex.search.aria")}
             placeholder={t("sessionIndex.search.placeholder")}
-            className="h-[30px] bg-background pl-8 pr-7 text-xs"
+            className="h-[30px] pl-8 pr-7 text-xs"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />

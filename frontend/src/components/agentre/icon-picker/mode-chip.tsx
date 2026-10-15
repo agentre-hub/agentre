@@ -30,10 +30,10 @@ export function ModeChip({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex flex-1 flex-col items-start gap-0 rounded-md border px-2 py-1.5 text-left transition-colors",
+        "flex flex-1 flex-col items-start gap-0 rounded-md px-2 py-1.5 text-left transition-colors",
         active
-          ? "border-primary bg-primary-soft text-primary-text"
-          : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+          ? "bg-primary-soft text-primary-text"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground",
         disabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
       )}
     >

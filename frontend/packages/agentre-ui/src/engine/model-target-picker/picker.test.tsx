@@ -1511,7 +1511,7 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     ).toBeInTheDocument();
   });
 
-  it("搜索框是有边框的输入框，放大镜绝对定位在框内", async () => {
+  it("搜索框是无边的字段填充，放大镜绝对定位在框内", async () => {
     const user = userEvent.setup();
     render(
       <ModelTargetPicker
@@ -1527,9 +1527,10 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     const input = await screen.findByPlaceholderText(
       "Search providers or models…",
     );
-    // mockup .search .input：h32 / 有边框 / input-bg 底 / 左内边距给放大镜让位。
-    expect(input).toHaveClass("h-8", "bg-input-bg", "pl-7");
-    expect(input).not.toHaveClass("border-0");
+    // h32 / 左内边距给放大镜让位；底是共享字段填充（规格「控件 · 字段」），
+    // 不是白色的 input-bg 块。
+    expect(input).toHaveClass("h-8", "bg-field-fill", "pl-7");
+    expect(input.className).not.toMatch(/bg-input-bg/);
     expect(input.parentElement).toHaveClass("relative");
     // 清空按钮仍在。
     await user.type(input, "opus");

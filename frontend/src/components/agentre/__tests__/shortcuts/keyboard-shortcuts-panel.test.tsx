@@ -58,6 +58,18 @@ describe("KeyboardShortcutsPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("Given a recording hits a system-reserved chord, When the conflict notice shows, Then it is a soft fill without an outline", async () => {
+    // 规格「结构线」：提示条去掉外框，只靠危险色软底。
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getAllByRole("button", { name: "Record" })[0]!);
+    await user.keyboard("{Meta>}q{/Meta}");
+
+    const notice = await screen.findByRole("alert");
+    expect(notice.className).not.toMatch(/(^|\s)border(-[a-z]+)?(\s|$)/);
+  });
+
   it("Given the panel sits in a dialog, When Esc is pressed while recording, Then only the recording is cancelled and the dialog stays open", async () => {
     // 设置是对话框：Radix 在 document 捕获阶段听 Esc，比录制的监听早一步。
     // 录制中这一下 Esc 归录制，不能顺带把整个设置关掉。

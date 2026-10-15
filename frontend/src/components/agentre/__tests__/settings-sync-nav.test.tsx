@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, useNavigate } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // task 14 (R12):「同步」这个设置导航项只在 SyncStatus().enabled 为真时出现,
@@ -22,6 +22,10 @@ vi.mock("../../../../wailsjs/go/app/App", () => appMocks);
 
 import { SettingsPage } from "../settings";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
+import {
+  openSettings,
+  useSettingsDialogStore,
+} from "@/stores/settings-dialog-store";
 
 function renderSettings() {
   return render(
@@ -39,13 +43,10 @@ function settingsNav() {
   return screen.getByRole("complementary", { name: "Settings" });
 }
 
+// 深链入口不再是路由 state：设置是对话框，入口调 openSettings(page) 改 store。
 function SyncDeepLinkNavigator() {
-  const navigate = useNavigate();
   return (
-    <button
-      type="button"
-      onClick={() => navigate("/settings", { state: { settingsPage: "sync" } })}
-    >
+    <button type="button" onClick={() => openSettings("sync")}>
       Open sync settings
     </button>
   );
@@ -54,6 +55,9 @@ function SyncDeepLinkNavigator() {
 describe("Settings sync nav guard (task 14, R12)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 当前子页活在 store 里：上一条用例点过「同步」，不重置就会漏到这里，
+    // 让深链用例不经深链也是绿的。
+    useSettingsDialogStore.setState({ open: false, page: "appearance" });
     appMocks.SyncListLostChanges.mockResolvedValue([]);
     useChatAgentsStore.getState().__reset();
     vi.spyOn(useChatAgentsStore.getState(), "reload").mockResolvedValue();

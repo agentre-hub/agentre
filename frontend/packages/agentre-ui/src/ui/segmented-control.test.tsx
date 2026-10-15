@@ -102,15 +102,17 @@ describe("SegmentedControl", () => {
     expect(screen.getByRole("tab", { name: "B" })).toBeDisabled();
   });
 
-  it("is borderless: field-fill track, raised selected segment, shared focus ring", () => {
+  it("Given the control, When rendered, Then it is borderless: the current item is the 8% button fill, the others are transparent until hovered, and the track has no fill of its own", () => {
     render(<Harness />);
 
     const list = screen.getByRole("tablist");
-    expect(list).toHaveClass("bg-field-fill");
+    expect(list.className).not.toMatch(/(^|\s)bg-/);
     expect(list.className).not.toMatch(/\bborder(-|\b)/);
     const [a] = screen.getAllByRole("tab");
     expect(a.className).toContain("focus-visible:focus-outline");
-    expect(a.className).toContain("data-[state=active]:bg-sheet");
+    expect(a.className).toContain("data-[state=active]:bg-button-fill");
+    expect(a.className).toContain("hover:bg-field-fill");
+    expect(a.className).not.toMatch(/bg-sheet|shadow-/);
     expect(a.className).not.toMatch(/\bborder(-|\b)/);
   });
 });

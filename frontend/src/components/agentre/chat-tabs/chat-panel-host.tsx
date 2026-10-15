@@ -121,18 +121,21 @@ function ChatEmptyState() {
 
   if (!loading && !error && !hasChattable) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-3 overflow-auto bg-background px-8 py-10 text-center">
-        <span className="inline-flex size-14 items-center justify-center rounded-lg bg-primary-soft">
-          <Sparkles className="size-6 text-primary" aria-hidden="true" />
-        </span>
-        <SetupChecklist />
-        <ChatShortcuts />
+      // content-sheet 自带 overflow-hidden 裁圆角；清单矮窗口下要能滚，滚动放在里面一层。
+      <main className="content-sheet flex flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-auto px-8 py-10 text-center">
+          <span className="inline-flex size-14 items-center justify-center rounded-lg bg-primary-soft">
+            <Sparkles className="size-6 text-primary" aria-hidden="true" />
+          </span>
+          <SetupChecklist />
+          <ChatShortcuts />
+        </div>
       </main>
     );
   }
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-background px-8 text-center">
+    <main className="content-sheet flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
       <span className="inline-flex size-14 items-center justify-center rounded-lg bg-primary-soft">
         <Sparkles className="size-6 text-primary" aria-hidden="true" />
       </span>
@@ -589,7 +592,7 @@ function MissingNewSessionAgent({
       : t("chatTabs.missingAgent.detail", { id: agentId });
 
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-2 bg-background px-8 text-center">
+    <main className="content-sheet flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
       <div className="text-sm font-semibold">{title}</div>
       <div className="max-w-md text-xs text-muted-foreground">{detail}</div>
     </main>

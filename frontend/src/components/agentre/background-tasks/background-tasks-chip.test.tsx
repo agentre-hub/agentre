@@ -72,6 +72,46 @@ describe("BackgroundTasksChip", () => {
     expect(within(btn).getByTestId("background-tasks-dot")).toBeInTheDocument();
   });
 
+  it("Given a running task, When rendered, Then the button is transparent until hovered and its dot breathes slowly unless motion is reduced", () => {
+    render(<BackgroundTasksChip tasks={[running]} />);
+    const btn = screen.getByRole("button", {
+      name: "Background tasks: 1 running",
+    });
+    expect(btn).toHaveAttribute("data-variant", "ghost");
+    expect(within(btn).getByTestId("background-tasks-dot")).toHaveClass(
+      "animate-pulse",
+      "motion-reduce:animate-none",
+    );
+  });
+
+  it("Given a running sub-agent, When peeked, Then its row lists type, steps, model and elapsed time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(runningAgent.startedAt! + 65_000);
+    render(<BackgroundTasksChip tasks={[runningAgent]} />);
+    await userEvent.hover(screen.getByRole("button"));
+    const peek = await screen.findByTestId("background-tasks-peek");
+    const row = within(peek).getByText("Trace the stream").closest("li")!;
+    expect(row).toHaveTextContent("Explore");
+    expect(row).toHaveTextContent("12 steps");
+    expect(row).toHaveTextContent("sonnet-4-5");
+    expect(row).toHaveTextContent("1m 05s");
+  });
+
+  it("Given a running command, When peeked, Then its row shows how long it has run", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(1700000000000 + 12_000);
+    render(
+      <BackgroundTasksChip
+        tasks={[{ ...running, startedAt: 1700000000000 }]}
+      />,
+    );
+    await userEvent.hover(screen.getByRole("button"));
+    const peek = await screen.findByTestId("background-tasks-peek");
+    expect(within(peek).getByText("sleep 20").closest("li")).toHaveTextContent(
+      "12s",
+    );
+  });
+
   it("Given several running tasks, When rendered, Then the accessible name counts only the running ones", () => {
     const running2: BackgroundTask = { ...running, toolUseId: "tu4" };
     render(<BackgroundTasksChip tasks={[running, running2, completed]} />);

@@ -799,6 +799,24 @@ describe("分隔线 / 填充两档 + 控件边", () => {
 });
 
 /**
+ * 设置对话框压在当前页面上的那层遮罩：规格 2026-10-15「设置对话框 · 外观」定为
+ * 「浅色约 32%、深色约 55% 的黑」。它比 --overlay-scrim（表单弹窗用）轻：设置几乎
+ * 铺满窗口，底下那一页只需要退后，不需要被抹掉。
+ */
+describe("设置对话框的遮罩", () => {
+  it.each([
+    [":root", "亮色", () => root, "rgba(0, 0, 0, 0.32)"] as const,
+    [".dark", "暗色", () => dark, "rgba(0, 0, 0, 0.55)"] as const,
+  ])("%s(%s)下 --settings-scrim 是 %s", (_s, _l, get, expected) => {
+    expect(get()["--settings-scrim"]).toBe(expected);
+  });
+
+  it("有 --color-settings-scrim 映射（bg-settings-scrim）", () => {
+    expect(theme["--color-settings-scrim"]).toBe("var(--settings-scrim)");
+  });
+});
+
+/**
  * 弹层与对话框只靠表面色 + 阴影立起来，阴影不再自带一圈 1px 的环——那圈环就是一条
  * 结构线，换了个写法而已。
  */

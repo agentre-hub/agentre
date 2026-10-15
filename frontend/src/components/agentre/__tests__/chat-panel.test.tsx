@@ -6228,6 +6228,20 @@ describe("ChatPanel · 头部在四态都在位且恒高", () => {
     expect(stop.querySelector("svg")).not.toBeNull();
   });
 
+  it("Given 头部右侧的纯图标按钮, When 渲染, Then 平时透明（ghost）、悬停才出底，且每颗都有悬停提示", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, agentStatus: "running" });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const toolbar = screen.getByRole("toolbar");
+    for (const name of ["Stop", "Context sidebar", "More actions"]) {
+      const button = within(toolbar).getByRole("button", { name });
+      expect(button).toHaveAttribute("data-variant", "ghost");
+      expect(button.getAttribute("title")).toBeTruthy();
+    }
+  });
+
   it("Given meta 行, When 渲染, Then 它恒为单行，不靠 flex-wrap 折行", () => {
     resetStore();
     mockSessionStore.session = makeSession({ id: 42, projectId: 2 });
@@ -6375,6 +6389,10 @@ describe("ChatPanel · 输入框与对话流同列、输入带边界跟随贴底
     // 引导块再叠自己的 mx-*,就会比紧挨着它的输入框每边多缩一截(决策 5)。
     expect(screen.getByTestId("new-session-guard").className).not.toMatch(
       /(^|\s)mx-\d/,
+    );
+    // 规格「结构线」：提示条去掉外框，只靠状态软底。
+    expect(screen.getByTestId("new-session-guard").className).not.toMatch(
+      /(^|\s)border(\s|$)/,
     );
   });
 });

@@ -4,8 +4,9 @@ import { cn } from "../lib/utils";
 
 /**
  * 分段控件：替代下划线标签。语义仍是 tablist/tab（roving tabindex，方向键与
- * Home/End 移动并选中）；轨道是字段填充，选中项是抬起的 sheet 段，全程无边，
- * 焦点环走共享的 focus-outline。面板的 aria-controls 由调用方经 item 透传。
+ * Home/End 移动并选中）；当前项是相对前景色 8% 的按钮填充，其余项透明、悬停出底，
+ * 轨道本身不上底色，全程无边，焦点环走共享的 focus-outline。面板的 aria-controls
+ * 由调用方经 item 透传。
  */
 interface SegmentedControlContextValue {
   value: string;
@@ -78,10 +79,7 @@ function SegmentedControl({
       <div
         role="tablist"
         data-slot="segmented-control"
-        className={cn(
-          "inline-flex items-center gap-0.5 rounded-lg bg-field-fill p-0.5",
-          className,
-        )}
+        className={cn("inline-flex items-center gap-0.5", className)}
         onKeyDown={handleKeyDown}
         {...props}
       >
@@ -121,7 +119,8 @@ function SegmentedControlItem({
       aria-selected={selected}
       tabIndex={selected ? 0 : -1}
       className={cn(
-        "inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:focus-outline disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-sheet data-[state=active]:text-foreground data-[state=active]:shadow-xs",
+        "inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:focus-outline disabled:pointer-events-none disabled:opacity-50",
+        "data-[state=inactive]:hover:bg-field-fill data-[state=active]:bg-button-fill data-[state=active]:text-foreground",
         className,
       )}
       onClick={(event) => {
