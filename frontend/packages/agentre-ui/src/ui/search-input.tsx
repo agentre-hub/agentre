@@ -14,7 +14,7 @@ import { cn } from "../lib/utils";
  *
  * 差异不是设计意图，只是复制粘贴的漂移 —— 真正有意图的差异只有两条，都收成了 prop：
  *
- * - `variant`：坐在什么表面上。`outline` 是独立字段（带边框），`muted` 是工具条里
+ * - `variant`：坐在什么表面上。`outline` 是独立字段（无边填充，与输入框同一个字段填充），`muted` 是工具条里
  *   的填充块（无边框、`bg-muted`），`bare` 是弹层顶部那一行（连背景都没有，边界由
  *   外面那条 `border-b` 给）。
  * - `size`：`xs` / `sm` / `md` = 28 / 32 / 36px。合之前六处落在四个高度上
@@ -46,8 +46,8 @@ export interface SearchInputProps extends Omit<
 
 const FRAME: Record<SearchInputVariant, string> = {
   outline:
-    "rounded-md border border-field-border bg-transparent focus-within:focus-halo",
-  muted: "rounded-md bg-muted focus-within:focus-halo",
+    "rounded-md bg-field-fill transition-[background-color] hover:bg-field-fill-hover focus-within:bg-sheet focus-within:focus-outline",
+  muted: "rounded-md bg-muted focus-within:focus-outline",
   bare: "bg-transparent",
 };
 

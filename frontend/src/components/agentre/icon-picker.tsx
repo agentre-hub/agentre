@@ -53,7 +53,7 @@ export function IconPicker({
           type="button"
           aria-label={ariaLabel ?? t("org.department.icon")}
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-md border border-field-border bg-card px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent",
+            "flex w-full items-center gap-2.5 rounded-md bg-field-fill px-2 py-1.5 text-left text-sm transition-colors hover:bg-field-fill-hover",
             className,
           )}
         >

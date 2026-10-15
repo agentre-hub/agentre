@@ -48,7 +48,7 @@ export function HooksSidebar({
             <Plus className="h-3.5 w-3.5" />
           </Button>
         </div>
-        <div className="flex items-center gap-2 rounded-md border border-field-border bg-input-bg px-2.5 focus-within:focus-halo">
+        <div className="flex items-center gap-2 rounded-md bg-field-fill px-2.5 hover:bg-field-fill-hover focus-within:bg-sheet focus-within:focus-outline">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <input
             value={query}

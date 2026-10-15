@@ -86,7 +86,7 @@ export function CapabilityPicker(props: Props) {
 
           {/* search + rescan */}
           <div className="flex items-center gap-2.5 border-b border-border/60 px-[18px] py-3">
-            <div className="flex flex-1 items-center gap-2 rounded-md border border-field-border px-2.5 py-2 focus-within:focus-halo">
+            <div className="flex flex-1 items-center gap-2 rounded-md bg-field-fill px-2.5 py-2 hover:bg-field-fill-hover focus-within:bg-sheet focus-within:focus-outline">
               <Search
                 className="size-3.5 text-muted-foreground"
                 aria-hidden="true"
