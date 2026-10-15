@@ -29,13 +29,13 @@ const TableHeaderRowContext = React.createContext(false);
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <TableHeaderRowContext.Provider value>
-      <thead data-slot="table-header" className={cn(className)} {...props} />
+      <thead data-slot="table-header" className={className} {...props} />
     </TableHeaderRowContext.Provider>
   );
 }
 
 function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
-  return <tbody data-slot="table-body" className={cn(className)} {...props} />;
+  return <tbody data-slot="table-body" className={className} {...props} />;
 }
 
 function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {

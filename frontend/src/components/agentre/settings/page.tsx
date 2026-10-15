@@ -6,6 +6,7 @@ import * as React from "react";
 import { X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useTranslation } from "react-i18next";
+import { useLocation } from "react-router-dom";
 
 import { cn } from "@agentre-hub/agentre-ui";
 import type { AppTheme, AppThemePreference } from "../chrome";
@@ -158,6 +159,17 @@ export function SettingsDialog(props: Omit<SettingsPageProps, "titleAs">) {
       returnFocusRef.current = document.activeElement;
     }
   }, [open]);
+
+  // 任何一次导航都是用户要去看别处（子页里打开一条会话、⌘B、命令面板选一页……），
+  // 设置还盖着就等于什么都没发生。按 location.key 判：同一路径再导航一次（在对话页
+  // 打开设置、再从里面打开一条会话，仍是 /chat）也换 key。挂载那一刻的 key 不算。
+  const { key: locationKey } = useLocation();
+  const seenLocationKey = React.useRef(locationKey);
+  React.useEffect(() => {
+    if (locationKey === seenLocationKey.current) return;
+    seenLocationKey.current = locationKey;
+    closeSettings();
+  }, [locationKey, closeSettings]);
 
   return (
     <DialogPrimitive.Root

@@ -184,6 +184,38 @@ describe("BackgroundTasksChip", () => {
   });
 });
 
+describe("BackgroundTasksChip — hiding when nothing runs", () => {
+  // 按钮只在有任务在跑时存在；最后一个任务在弹层开着时结束，按钮连同弹层一起消失。
+  // 下一次有任务开跑时按钮回来，但弹层不能自己弹开——那次「开着」早已无人看见。
+  it("Given the popover is open, When the last running task ends and a new one starts later, Then the button returns closed", async () => {
+    const { rerender } = render(<BackgroundTasksChip tasks={[running]} />);
+    await openChip();
+    expect(
+      screen.getByRole("region", { name: "Commands" }),
+    ).toBeInTheDocument();
+
+    const ended = { ...running, status: "completed" as const };
+    rerender(<BackgroundTasksChip tasks={[ended]} />);
+    expect(
+      screen.queryByRole("button", { name: /background tasks/i }),
+    ).toBeNull();
+
+    rerender(
+      <BackgroundTasksChip
+        tasks={[
+          ended,
+          { ...running, toolUseId: "tu5", description: "sleep 30" },
+        ]}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /background tasks/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Commands" })).toBeNull();
+    expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
+  });
+});
+
 describe("BackgroundTasksPopoverContent — running tasks are grouped by kind", () => {
   it("Given running subagents and commands, When shown, Then each kind has its own section with its running count", () => {
     render(

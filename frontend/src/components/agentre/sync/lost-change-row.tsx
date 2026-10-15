@@ -123,7 +123,7 @@ export function LostChangeRow({
   };
 
   return (
-    <div data-testid="lost-change-row" className="">
+    <div data-testid="lost-change-row">
       <button
         type="button"
         onClick={onToggleExpand}

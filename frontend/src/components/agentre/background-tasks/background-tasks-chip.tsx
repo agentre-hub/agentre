@@ -100,9 +100,18 @@ export function BackgroundTasksChip({
   const running = tasks.filter((task) => task.status === "running");
   const runningCount = running.length;
   const endedCount = tasks.length - runningCount;
+  const hidden = runningCount === 0;
+
+  // 按钮消失时弹层与预览卡随之卸载，Radix 不会回调 onOpenChange(false)：不在这里
+  // 收起，下次有任务开跑时弹层会自己开着回来，预览卡的秒表也一直空转。
+  React.useEffect(() => {
+    if (!hidden) return;
+    setOpen(false);
+    setPeekOpen(false);
+  }, [hidden]);
 
   // 只在有任务在跑时出现;全部结束就收起,历史留在弹层的「已结束」页里。
-  if (runningCount === 0) return null;
+  if (hidden) return null;
 
   const agents = running.filter((task) => task.kind === "local_agent");
   const commands = running.filter((task) => task.kind !== "local_agent");

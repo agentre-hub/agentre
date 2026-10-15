@@ -317,7 +317,7 @@ export function SettingsProxyPanel() {
             })}
           </Badge>
         </header>
-        <ul className="">
+        <ul>
           {ROUTE_ROWS.map((r) => (
             <li
               key={r.path}

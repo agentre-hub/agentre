@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { QueuedMessagesBar } from "./queued-messages-bar";
 import type { QueuedItem } from "./steer-queue";
+import { edgeClasses } from "../lib/__testing__/edge-classes";
 
 function renderBar(queued: QueuedItem[]) {
   return render(
@@ -123,15 +124,6 @@ describe("QueuedMessagesBar dropped banner", () => {
   });
 });
 
-/** 画结构线的边宽类（含变体前缀）：`border`、`border-t`、`hover:border` 等。 */
-function edged(root: Element): string[] {
-  return [root, ...Array.from(root.querySelectorAll("*"))].flatMap((el) =>
-    Array.from(el.classList).filter((c) =>
-      /^(?:[\w-]+:)*border(?:-[tblrxy])?$/.test(c),
-    ),
-  );
-}
-
 describe("QueuedMessagesBar · 无边框", () => {
   it("Given queued messages, When rendered, Then the bar, its button and its items are fills without edges", () => {
     render(
@@ -142,7 +134,7 @@ describe("QueuedMessagesBar · 无边框", () => {
       />,
     );
 
-    expect(edged(screen.getByRole("region"))).toEqual([]);
+    expect(edgeClasses(screen.getByRole("region"))).toEqual([]);
   });
 
   it("Given dropped messages, When rendered, Then the banner, its buttons and its items are fills without edges", () => {
@@ -157,6 +149,6 @@ describe("QueuedMessagesBar · 无边框", () => {
       />,
     );
 
-    expect(edged(screen.getByRole("alert"))).toEqual([]);
+    expect(edgeClasses(screen.getByRole("alert"))).toEqual([]);
   });
 });

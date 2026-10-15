@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NewSessionExecTargetLine } from "../session-exec-target";
+import { edgeClasses } from "@/__tests__/helpers/edge-classes";
 
 // wailsjs/runtime/ 没有全局 vite alias（只有 go/app/App 与 go/models 有），渲染
 // 会订阅 remote.device.state 的组件必须 per-file mock 掉它，否则真实 runtime.js
@@ -680,15 +681,6 @@ describe("NewSessionExecTargetLine", () => {
   });
 });
 
-/** 画结构线的边宽类（含变体前缀）：`border`、`border-t`、`hover:border` 等。 */
-function edged(root: Element): string[] {
-  return [root, ...Array.from(root.querySelectorAll("*"))].flatMap((el) =>
-    Array.from(el.classList).filter((c) =>
-      /^(?:[\w-]+:)*border(?:-[tblrxy])?$/.test(c),
-    ),
-  );
-}
-
 describe("NewSessionExecTargetLine · 无边框", () => {
   it("Given the reselect popover, When it opens, Then its header and rows are separated by space, not lines", async () => {
     stubWails(
@@ -705,6 +697,6 @@ describe("NewSessionExecTargetLine · 无边框", () => {
     await screen.findByTestId("new-session-exec-target-line");
 
     const picker = await openPicker();
-    expect(edged(picker)).toEqual([]);
+    expect(edgeClasses(picker)).toEqual([]);
   });
 });

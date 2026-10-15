@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { TabTooltip } from "../tab-tooltip";
+import { edgeClasses } from "@/__tests__/helpers/edge-classes";
 
 // Radix Tooltip 在 jsdom 中需要关闭 pointerEvents 检查;tests 把 delayDuration
 // 置 0 以便 hover 即开,断言用 waitFor 等 Radix 内部状态切换。
@@ -133,15 +134,6 @@ describe("TabTooltip · 状态点来自共享 statusConfig", () => {
   );
 });
 
-/** 画结构线的边宽类（含变体前缀）：`border`、`border-t`、`hover:border` 等。 */
-function edged(root: Element): string[] {
-  return [root, ...Array.from(root.querySelectorAll("*"))].flatMap((el) =>
-    Array.from(el.classList).filter((c) =>
-      /^(?:[\w-]+:)*border(?:-[tblrxy])?$/.test(c),
-    ),
-  );
-}
-
 describe("TabTooltip · 无边框", () => {
   it("Given the tooltip, When it opens, Then the shortcut hint is set apart by space and the key cap is a fill", async () => {
     const user = setupUser();
@@ -167,7 +159,7 @@ describe("TabTooltip · 无边框", () => {
     for (const kbd of screen.getAllByText("⌘1")) {
       expect(kbd).toHaveClass("bg-button-fill");
       // kbd → 提示行 → 浮层内容：整张浮层都不画线。
-      expect(edged(kbd.parentElement!.parentElement!)).toEqual([]);
+      expect(edgeClasses(kbd.parentElement!.parentElement!)).toEqual([]);
     }
   });
 });

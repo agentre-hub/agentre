@@ -4,6 +4,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { edgeClasses } from "@/__tests__/helpers/edge-classes";
+
 const gitChangesMock = vi.fn();
 const listDirMock = vi.fn();
 const getAppSettingMock = vi.fn();
@@ -222,23 +224,17 @@ describe("ChatContextSidebar", () => {
     );
     const aside = screen.getByRole("complementary");
     expect(aside).toHaveClass("bg-chrome");
-    const edged = () =>
-      [aside, ...Array.from(aside.querySelectorAll("*"))].flatMap((el) =>
-        Array.from(el.classList).filter((c) =>
-          /^(?:[\w-]+:)*border(?:-[tblrxy])?$/.test(c),
-        ),
-      );
     // 页签是分段控件：当前页是按钮填充，不是品牌色。
     const outlineTab = screen.getByRole("tab", { name: /^Outline/ });
     expect(outlineTab).toHaveClass("bg-button-fill");
     expect(outlineTab.className).not.toMatch(/bg-primary/);
-    expect(edged()).toEqual([]);
+    expect(edgeClasses(aside)).toEqual([]);
 
     await userEvent.click(screen.getByRole("tab", { name: /^Changes/ }));
-    expect(edged()).toEqual([]);
+    expect(edgeClasses(aside)).toEqual([]);
 
     await userEvent.click(screen.getByRole("tab", { name: /^Directory/ }));
-    expect(edged()).toEqual([]);
+    expect(edgeClasses(aside)).toEqual([]);
   });
 
   it("switches to the session changes list when the Changes tab is clicked", async () => {

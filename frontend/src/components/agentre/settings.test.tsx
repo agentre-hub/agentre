@@ -1,6 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import {
+  MemoryRouter,
+  useNavigate,
+  type NavigateFunction,
+} from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DialogShell, DialogShellHeader } from "@agentre-hub/agentre-ui";
@@ -142,5 +146,60 @@ describe("SettingsDialog busy sub-page", () => {
     await user.keyboard("{Escape}");
 
     expect(useSettingsDialogStore.getState().open).toBe(false);
+  });
+});
+
+// 设置浮在当前页面上；任何一次导航（子页里「打开这条远端会话」跳 /chat、⌘B 去
+// Issues、命令面板里选一页……）都是用户要离开去看别处，设置还盖着就等于什么都没
+// 发生。同一路径也算：从对话页打开设置、再在里面打开一条会话，导航仍是 /chat。
+describe("SettingsDialog navigation", () => {
+  let navigate: NavigateFunction | null = null;
+  function NavigateProbe() {
+    navigate = useNavigate();
+    return null;
+  }
+
+  function renderWithProbe() {
+    return render(
+      <MemoryRouter initialEntries={["/chat"]}>
+        <NavigateProbe />
+        <SettingsDialog
+          effectiveTheme="light"
+          onThemePreferenceChange={() => {}}
+          themePreference="system"
+        />
+      </MemoryRouter>,
+    );
+  }
+
+  it("Given settings is open over the chat page, When the app navigates to the same path, Then settings closes", () => {
+    openSettings("remote-devices");
+    renderWithProbe();
+    expect(useSettingsDialogStore.getState().open).toBe(true);
+
+    act(() => navigate!("/chat"));
+
+    expect(useSettingsDialogStore.getState().open).toBe(false);
+  });
+
+  it("Given settings is open, When the app navigates to another page, Then settings closes and remembers its sub-page", () => {
+    openSettings("files");
+    renderWithProbe();
+
+    act(() => navigate!("/issues"));
+
+    expect(useSettingsDialogStore.getState()).toMatchObject({
+      open: false,
+      page: "files",
+    });
+  });
+
+  it("Given settings was opened before the dialog mounted, When nothing navigates, Then it stays open", () => {
+    openSettings("appearance");
+    renderWithProbe();
+
+    expect(
+      screen.getByRole("dialog", { name: "Settings" }),
+    ).toBeInTheDocument();
   });
 });

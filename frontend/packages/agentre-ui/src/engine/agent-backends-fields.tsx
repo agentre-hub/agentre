@@ -1200,7 +1200,8 @@ export function EnvJsonField({
                     )
                   }
                   placeholder="KEY"
-                  className={cn("h-7 font-mono text-2xs", isReserved && "")}
+                  aria-invalid={isReserved || undefined}
+                  className="h-7 font-mono text-2xs"
                 />
                 <Input
                   value={entry.value}

@@ -7,6 +7,7 @@ import {
   removeClipboard,
   restoreClipboardEnv,
 } from "../lib/__testing__/clipboard";
+import { edgeClasses } from "../lib/__testing__/edge-classes";
 import { TerminalPanel } from "./terminal-panel";
 import type { UseTerminalArgs } from "./use-terminal";
 
@@ -503,13 +504,7 @@ describe("TerminalPanel", () => {
     act(() => capturedArgs?.onExit?.({ code: 0, reason: "connection_lost" }));
 
     const banner = getByRole("alert");
-    const edged = [banner, ...Array.from(banner.querySelectorAll("*"))].flatMap(
-      (el) =>
-        Array.from(el.classList).filter((c) =>
-          /^(?:[\w-]+:)*border(?:-[tblrxy])?$/.test(c),
-        ),
-    );
-    expect(edged).toEqual([]);
+    expect(edgeClasses(banner)).toEqual([]);
     expect(getByRole("button", { name: "Close" })).toHaveClass(
       "bg-destructive/10",
     );

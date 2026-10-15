@@ -90,6 +90,7 @@ import {
 } from "@/stores/chat-streams-store";
 import { useDeviceListStore } from "@/stores/device-list-store";
 import { useLocalCommandsStore } from "@/stores/local-commands-store";
+import { edgeClasses } from "@/__tests__/helpers/edge-classes";
 import type { chat_svc, server_svc } from "../../../../wailsjs/go/models";
 
 function renderTranscriptWithSubagent() {
@@ -2134,17 +2135,12 @@ describe("QuotaMeter", () => {
         fireEvent.focusIn(trigger);
         vi.advanceTimersByTime(500);
       });
-      const edge = /^(?:[\w-]+:)*border(?:-[tblrxy])?$/;
-      const edged = (root: Element) =>
-        [root, ...Array.from(root.querySelectorAll("*"))].flatMap((el) =>
-          Array.from(el.classList).filter((c) => edge.test(c)),
-        );
-      expect(edged(trigger)).toEqual([]);
+      expect(edgeClasses(trigger)).toEqual([]);
       // 标题 → 头部行 → 面板。
       const panel = screen.getByText("Claude subscription usage").parentElement!
         .parentElement!;
       expect(screen.getByText("Opus 7-day")).toBeInTheDocument();
-      expect(edged(panel)).toEqual([]);
+      expect(edgeClasses(panel)).toEqual([]);
     } finally {
       vi.useRealTimers();
     }
