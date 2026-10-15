@@ -5,7 +5,7 @@ import { Slot } from "radix-ui";
 import { cn } from "../lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:focus-outline aria-invalid:border-destructive [&>svg]:pointer-events-none [&>svg]:size-3",
+  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:focus-outline [&>svg]:pointer-events-none [&>svg]:size-3",
   {
     variants: {
       variant: {
@@ -15,7 +15,7 @@ const badgeVariants = cva(
         destructive:
           "bg-destructive text-destructive-foreground dark:bg-destructive/60 [a&]:hover:bg-destructive/90",
         outline:
-          "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
+          "bg-button-fill text-foreground [a&]:hover:bg-button-fill-hover",
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary-text underline-offset-4 [a&]:hover:underline",
       },

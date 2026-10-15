@@ -218,10 +218,9 @@ describe("DialogShell 的危险形态", () => {
         <DialogShellBody>子项目会一并删除</DialogShellBody>
       </DialogShell>,
     );
-    expect(content()).toHaveClass("border-destructive/40");
     expect(
       document.querySelector('[data-slot="dialog-shell-header"]'),
-    ).toHaveClass("border-destructive/30");
+    ).toHaveClass("bg-destructive-soft/40");
   });
 });
 

@@ -84,21 +84,21 @@ export function DialogShell({
         />
         <DialogPrimitive.Content
           data-slot="dialog-shell-content"
+          data-danger={danger || undefined}
           onEscapeKeyDown={blockWhileBusy}
           onPointerDownOutside={blockWhileBusy}
           onInteractOutside={blockWhileBusy}
           className={cn(
             "fixed z-50 flex flex-col overflow-hidden bg-card text-card-foreground shadow-overlay outline-none",
             // 窄屏（基础）：贴底、满宽、上圆角、从下滑入。
-            "inset-x-0 bottom-0 max-h-[90dvh] rounded-t-2xl border-t border-border",
+            "inset-x-0 bottom-0 max-h-[90dvh] rounded-t-2xl",
             "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-bottom",
             "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-bottom",
             // ≥640px：居中浮卡，按用途取一档宽度。
-            "sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[calc(100%-2rem)] sm:max-h-[min(86dvh,720px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:rounded-t-xl sm:border",
+            "sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[calc(100%-2rem)] sm:max-h-[min(86dvh,720px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:rounded-t-xl",
             SIZE_CLASS[size],
             "sm:data-[state=open]:zoom-in-95 sm:data-[state=open]:slide-in-from-bottom-0",
             "sm:data-[state=closed]:zoom-out-95 sm:data-[state=closed]:slide-out-to-bottom-0",
-            danger && "border-destructive/40",
             className,
           )}
         >
@@ -146,10 +146,8 @@ export function DialogShellHeader({
     <div
       data-slot="dialog-shell-header"
       className={cn(
-        "flex shrink-0 items-start gap-3 border-b px-5 py-3.5",
-        danger
-          ? "border-destructive/30 bg-destructive-soft/40"
-          : "border-border",
+        "flex shrink-0 items-start gap-3 px-5 py-3.5",
+        danger && "bg-destructive-soft/40",
       )}
     >
       <div className="min-w-0 flex-1">
@@ -249,7 +247,7 @@ export function DialogShellFooter({
     <div
       data-slot="dialog-shell-footer"
       className={cn(
-        "shrink-0 border-t border-border bg-secondary/40 px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+        "shrink-0 bg-secondary/40 px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
         stack ? "flex flex-col items-stretch gap-2" : "flex items-center gap-3",
       )}
     >
