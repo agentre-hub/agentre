@@ -8,6 +8,7 @@ React 19 + TS + Vite + Tailwind v4. Wails bindings are generated from `internal/
 
 - Use `Select / SelectTrigger / SelectContent / SelectItem / SelectValue` for dropdowns (see `agent-backends.tsx` / `llm-providers.tsx`). Native `<select>` is **forbidden**.
 - Input / Switch / Dialog / Button, etc. all come from that package.
+- `SegmentedControl` / `SegmentedControlItem` replace underline tabs: a borderless field-fill track with a raised selected segment, keeping `tablist` / `tab` semantics (`aria-selected`, roving tabindex, ArrowLeft/ArrowRight/Home/End move and select, `aria-controls` passed through the item).
 - A native `<input type="radio">` may be kept when shadcn does not provide a styled equivalent, but before adding one, check whether the package already has an equivalent component.
 
 **Rationale:** theme color / dark mode / accessibility / keyboard interaction are all handled uniformly in one primitive layer; native tags bypass the design tokens and end up producing two visual styles on the same page.
