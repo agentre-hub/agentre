@@ -427,6 +427,7 @@ import {
   streamForMessage,
   useChatStreamsStore,
 } from "@/stores/chat-streams-store";
+import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionConnStore } from "@/stores/session-conn-store";
 import { localCommandRuntimeStore } from "@/stores/local-command-runtime-store";
@@ -6288,7 +6289,7 @@ describe("ChatPanel · 输入框与对话流同列、输入带边界跟随贴底
     expect(screen.queryByTestId("chat-composer-band-fade")).toBeNull();
   });
 
-  it("Given 用户上滚离开底部, When 渲染, Then 输入带顶部出现分隔线与一段不接收指针事件的向上渐隐", () => {
+  it("Given 用户上滚离开底部, When 渲染, Then 输入带顶部只出现一段不接收指针事件、渐隐到内容页色的向上渐隐 —— 不画分隔线", () => {
     resetStore();
     mockSessionStore.session = makeSession({ id: 42 });
 
@@ -6297,9 +6298,10 @@ describe("ChatPanel · 输入框与对话流同列、输入带边界跟随贴底
 
     const band = screen.getByTestId("chat-composer-band");
     expect(band).toHaveAttribute("data-scrolled", "true");
-    expect(band.className).toMatch(/(^|\s)border-t(\s|$)/);
+    expect(band.className).not.toMatch(/(^|\s)border(-t)?(\s|$)/);
     const fade = screen.getByTestId("chat-composer-band-fade");
     expect(fade.className).toMatch(/(^|\s)pointer-events-none(\s|$)/);
+    expect(fade.className).toMatch(/(^|\s)from-sheet(\s|$)/);
     expect(fade).toHaveAttribute("aria-hidden", "true");
   });
 
@@ -6658,5 +6660,109 @@ describe("ChatPanel · 会话级思考力度控件（trailing 侧，决策 6/9�
     // select() 一点即关弹层,失败原因要重新打开才看得到。
     await user.click(pill);
     expect(await screen.findByRole("alert")).toHaveTextContent("db down");
+  });
+});
+
+// ─── 2026-10-15 无边框改版 · 对话页是一张内容页，右侧栏落在外框上（P1） ─────────
+
+describe("ChatPanel · 右侧栏渲染在聊天内容页之外", () => {
+  const WIDTH_KEY = "agentre.sidebarWidth.chat-context";
+
+  function openSidebar() {
+    const prev = useChatSidebarStore.getState().open;
+    useChatSidebarStore.getState().setOpen(true);
+    onTestFinished(() => {
+      useChatSidebarStore.getState().setOpen(prev);
+      localStorage.removeItem(WIDTH_KEY);
+    });
+  }
+
+  it("Given 已有会话且右侧栏打开, When 渲染, Then 标题、转录、输入框在同一张内容页上，右侧栏在内容页之外、落在外框色上", () => {
+    resetStore();
+    openSidebar();
+    mockSessionStore.session = makeSession({ id: 42 });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const sheet = screen.getByRole("main");
+    expect(sheet).toHaveClass("content-sheet");
+    expect(sheet.contains(screen.getByTestId("chat-header"))).toBe(true);
+    expect(sheet.contains(screen.getByTestId("chat-transcript-scroll"))).toBe(
+      true,
+    );
+    expect(sheet.contains(screen.getByTestId("chat-composer-band"))).toBe(true);
+
+    const aside = screen.getByRole("complementary", { name: "Chat context" });
+    expect(sheet.contains(aside)).toBe(false);
+    expect(aside).toHaveClass("bg-chrome");
+    // 内容页与右侧栏是同一行里的兄弟：右侧栏仍占满从 Tab 条下沿到底的整高。
+    expect(aside.parentElement).toBe(sheet.parentElement);
+  });
+
+  it("Given 右侧栏在内容页之外, When 用标题栏开关收起再展开, Then 它跟着隐藏与重现", async () => {
+    resetStore();
+    openSidebar();
+    mockSessionStore.session = makeSession({ id: 42 });
+    const user = userEvent.setup();
+
+    render(<ChatPanel sessionId={42} />);
+    const toggle = within(screen.getByRole("toolbar")).getByRole("button", {
+      name: "Context sidebar",
+    });
+
+    await user.click(toggle);
+    expect(
+      screen.queryByRole("complementary", { name: "Chat context" }),
+    ).toBeNull();
+
+    await user.click(toggle);
+    expect(
+      screen.getByRole("complementary", { name: "Chat context" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given 已存的右侧栏宽度, When 渲染并拖拽调宽, Then 沿用 agentre.sidebarWidth.chat-context 读写", () => {
+    resetStore();
+    openSidebar();
+    localStorage.setItem(WIDTH_KEY, "300");
+    mockSessionStore.session = makeSession({ id: 42 });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const aside = screen.getByRole("complementary", { name: "Chat context" });
+    expect(aside).toHaveStyle({ width: "300px" });
+
+    // 手柄在左边缘：往左拖 40px，宽度 +40。
+    const handle = within(aside).getByRole("separator");
+    fireEvent.pointerDown(handle, { button: 0, clientX: 500 });
+    fireEvent.pointerMove(document, { clientX: 460 });
+    fireEvent.pointerUp(document, { clientX: 460 });
+
+    expect(aside).toHaveStyle({ width: "340px" });
+    expect(localStorage.getItem(WIDTH_KEY)).toBe("340");
+  });
+
+  it("Given 新建会话尚未首发, When 渲染, Then 内容页照样在位、没有右侧栏", () => {
+    resetStore();
+    openSidebar();
+
+    render(
+      <ChatPanel
+        sessionId={0}
+        newSessionAgent={
+          {
+            id: 7,
+            name: "Eng",
+            agentBackendId: 1,
+            backendType: "claudecode",
+          } as never
+        }
+      />,
+    );
+
+    expect(screen.getByRole("main")).toHaveClass("content-sheet");
+    expect(
+      screen.queryByRole("complementary", { name: "Chat context" }),
+    ).toBeNull();
   });
 });

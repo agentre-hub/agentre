@@ -423,7 +423,7 @@ export function FilePreviewPanel({
         renderFileIcon={renderFileIcon}
       />
       <header
-        className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border pl-3 pr-2"
+        className="flex h-10 shrink-0 items-center gap-1.5 pl-3 pr-2"
         data-testid="file-preview-header"
       >
         {renderFileIcon?.(path, "header")}
@@ -467,7 +467,7 @@ export function FilePreviewPanel({
           <div
             role="group"
             aria-label={t("filePreview.segmentGroup")}
-            className="flex shrink-0 items-center rounded-md border border-border p-0.5"
+            className="flex shrink-0 items-center gap-0.5"
           >
             {segments.map((seg) => (
               <button
@@ -476,10 +476,11 @@ export function FilePreviewPanel({
                 aria-pressed={effectiveSegment === seg}
                 onClick={() => onSegmentChange(seg)}
                 className={cn(
+                  // 分段控件：当前段是按钮填充，其余透明、悬停出底——不靠外框圈成一组。
                   "rounded px-1.5 py-0.5 text-3xs transition-colors duration-150",
                   effectiveSegment === seg
-                    ? "bg-accent font-semibold text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
+                    ? "bg-button-fill font-semibold text-foreground"
+                    : "text-muted-foreground hover:bg-button-fill hover:text-foreground",
                 )}
               >
                 {segmentLabel(seg)}
@@ -592,7 +593,7 @@ function PanelBody({
     }
     return (
       <>
-        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-muted px-3 text-3xs text-muted-foreground">
+        <div className="flex h-8 shrink-0 items-center gap-2 bg-muted px-3 text-3xs text-muted-foreground">
           <span className="font-mono">{t("filePreview.toolDiffHeader")}</span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto text-xs">
@@ -649,8 +650,8 @@ function PanelBody({
 
   if (kind === "markdown" && segment === "split") {
     return (
-      <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-auto border-r border-border">
+      <div className="flex min-h-0 flex-1 gap-1.5">
+        <div className="min-w-0 flex-1 overflow-auto">
           <MarkdownSourceView
             value={view.content}
             path={path}
@@ -691,7 +692,7 @@ function PanelBody({
     }
     return (
       <>
-        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-muted px-3 text-3xs text-muted-foreground">
+        <div className="flex h-8 shrink-0 items-center gap-2 bg-muted px-3 text-3xs text-muted-foreground">
           <span className="font-mono">{t("filePreview.diffHeader")}</span>
           <span className="ml-auto inline-flex items-center gap-3">
             <span className="inline-flex items-center gap-1">
@@ -733,8 +734,8 @@ function PanelBody({
 
   if (kind === "html" && segment === "split") {
     return (
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col border-r border-border">
+      <div className="flex min-h-0 flex-1 gap-1.5">
+        <div className="flex min-w-0 flex-1 flex-col">
           {showDiff ? (
             renderDiff()
           ) : (

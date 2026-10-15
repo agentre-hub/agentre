@@ -41,7 +41,7 @@ export function RootSwitcher({
   const active = roots.find((r) => r.path === current) ?? roots[0];
 
   return (
-    <div className="flex h-8 shrink-0 items-center border-b border-border px-2">
+    <div className="flex h-8 shrink-0 items-center px-2">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button

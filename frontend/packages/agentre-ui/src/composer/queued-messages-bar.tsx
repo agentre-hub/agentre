@@ -48,7 +48,7 @@ export function QueuedMessagesBar({
         aria-label={t("queuedMessages.dropped.title", {
           count: dropped.length,
         })}
-        className="flex flex-col gap-1.5 border-b border-status-error/40 bg-destructive-soft px-3 py-2"
+        className="flex flex-col gap-1.5 bg-destructive-soft px-3 py-2"
       >
         <div className="flex items-center gap-2">
           <TriangleAlert
@@ -65,7 +65,7 @@ export function QueuedMessagesBar({
             type="button"
             aria-label={t("queuedMessages.dropped.discard")}
             onClick={onDiscardDropped}
-            className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-sm border border-status-error/40 px-2 text-2xs font-medium text-destructive-text transition-colors hover:bg-destructive-soft hover:text-destructive-text"
+            className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-sm bg-destructive/10 px-2 text-2xs font-medium text-destructive-text transition-colors hover:bg-destructive/20 hover:text-destructive-text"
           >
             {t("queuedMessages.dropped.discard")}
           </button>
@@ -73,7 +73,7 @@ export function QueuedMessagesBar({
             type="button"
             aria-label={t("queuedMessages.dropped.restore")}
             onClick={onRestoreDropped}
-            className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-sm border border-border-strong bg-card px-2 text-2xs font-medium text-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-sm bg-button-fill px-2 text-2xs font-medium text-foreground transition-colors hover:bg-button-fill-hover hover:text-foreground"
           >
             {t("queuedMessages.dropped.restore")}
           </button>
@@ -82,7 +82,7 @@ export function QueuedMessagesBar({
           {dropped.map((q) => (
             <li
               key={q.id}
-              className="flex items-center gap-2 rounded-sm border border-status-error/40 bg-card px-2 py-1"
+              className="flex items-center gap-2 rounded-sm bg-card px-2 py-1"
               title={q.text}
             >
               <TriangleAlert
@@ -108,7 +108,7 @@ export function QueuedMessagesBar({
     <div
       role="region"
       aria-label={t("queuedMessages.aria")}
-      className="flex flex-col gap-1.5 border-b border-border bg-muted px-3 py-2"
+      className="flex flex-col gap-1.5 bg-muted px-3 py-2"
     >
       <div className="flex items-center gap-2">
         <Hourglass
@@ -135,9 +135,9 @@ export function QueuedMessagesBar({
           }
           onClick={onClearAll}
           className={cn(
-            "inline-flex h-6 cursor-pointer items-center gap-1 rounded-sm border border-border-strong px-2 text-2xs font-medium transition-colors",
-            "hover:bg-accent hover:text-foreground",
-            "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
+            "inline-flex h-6 cursor-pointer items-center gap-1 rounded-sm bg-button-fill px-2 text-2xs font-medium transition-colors",
+            "hover:bg-button-fill-hover hover:text-foreground",
+            "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-button-fill",
           )}
         >
           <Trash2 className="size-3" aria-hidden="true" />
@@ -148,7 +148,7 @@ export function QueuedMessagesBar({
         {queued.map((q) => (
           <li
             key={q.id}
-            className="flex items-center gap-2 rounded-sm border border-border bg-card px-2 py-1"
+            className="flex items-center gap-2 rounded-sm bg-card px-2 py-1"
             title={q.text}
           >
             <Hourglass

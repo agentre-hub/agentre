@@ -33,6 +33,30 @@ describe("SuggestionPopover viewport anchoring", () => {
   });
 });
 
+describe("SuggestionPopover surface", () => {
+  it("Given suggestions open, When the floating layer is inspected, Then it stands on its surface and shadow without an edge", () => {
+    render(
+      <SuggestionPopover
+        open
+        anchorRect={{ left: 0, top: 400, bottom: 420 }}
+        selectedIndex={0}
+        itemCount={1}
+        ariaLabel="Suggestions"
+      >
+        {(activeRef) => (
+          <button ref={activeRef} role="option" type="button">
+            Suggestion
+          </button>
+        )}
+      </SuggestionPopover>,
+    );
+
+    const listbox = screen.getByRole("listbox", { name: "Suggestions" });
+    expect(listbox).toHaveClass("bg-popover", "shadow-md");
+    expect(listbox.className).not.toMatch(/(^|\s)border(-\S+)?(\s|$)/);
+  });
+});
+
 describe("SuggestionPopover outside dismissal", () => {
   const anchorRect = { left: 67, top: 404, bottom: 424 };
 

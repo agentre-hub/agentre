@@ -171,3 +171,27 @@ function arcOf(): Element {
   if (!arc) throw new Error("context ring arc not rendered");
   return arc;
 }
+
+/** 画结构线的边宽类（含变体前缀）：`border`、`border-t`、`hover:border` 等。 */
+function edged(root: Element): string[] {
+  return [root, ...Array.from(root.querySelectorAll("*"))].flatMap((el) =>
+    Array.from(el.classList).filter((c) =>
+      /^(?:[\w-]+:)*border(?:-[tblrxy])?$/.test(c),
+    ),
+  );
+}
+
+describe("ContextMeter · 无边框", () => {
+  it("Given the meter and its open panel, When rendered, Then the trigger hovers with a fill and the panel sections are not divided by lines", async () => {
+    render(<ContextMeter used={164_000} max={200_000} />);
+    const trigger = screen.getByRole("button");
+    expect(edged(trigger)).toEqual([]);
+    expect(trigger.className).not.toMatch(/border-border/);
+
+    fireEvent.focusIn(trigger);
+    const title = await screen.findByText("Context");
+    // 标题 → 头部行 → 面板。
+    const panel = title.parentElement!.parentElement!;
+    expect(edged(panel)).toEqual([]);
+  });
+});

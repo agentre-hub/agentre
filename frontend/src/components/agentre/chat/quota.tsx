@@ -110,10 +110,10 @@ export function QuotaMeter({
           className={cn(
             // min-w-0 + 截断:计量器是底栏唯一的让位者(规格决策 11)。断点估窄时
             // 多出来的宽度只吃掉这里,绝不把发送按钮顶出可视区。
-            "flex min-w-0 cursor-default items-center gap-1.5 overflow-hidden rounded-sm border border-transparent px-1 py-0.5 whitespace-nowrap",
+            "flex min-w-0 cursor-default items-center gap-1.5 overflow-hidden rounded-sm px-1 py-0.5 whitespace-nowrap",
             "font-mono text-meta tabular-nums transition-colors motion-reduce:transition-none",
-            "hover:border-border hover:bg-accent",
-            "focus-visible:border-border focus-visible:bg-accent focus-visible:focus-outline",
+            "hover:bg-accent",
+            "focus-visible:bg-accent focus-visible:focus-outline",
             offline ? "text-muted-foreground" : "text-muted-foreground",
           )}
           aria-label={t("chat.quota.aria", {
@@ -242,7 +242,7 @@ function QuotaPanel({
   const modelWeekly = d?.modelWeekly ?? [];
   return (
     <div>
-      <div className="flex items-center gap-1.5 border-b border-border px-3 py-2">
+      <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-1">
         <Timer
           className="size-3.5 shrink-0 text-foreground"
           aria-hidden="true"
@@ -269,7 +269,7 @@ function QuotaPanel({
             t={t}
           />
           {modelWeekly.length > 0 ? (
-            <div className="flex flex-col gap-2 border-l-2 border-border pl-2.5">
+            <div className="flex flex-col gap-2 pl-2.5">
               {modelWeekly.map((limit) => (
                 <QuotaRow
                   key={limit.model}
@@ -287,7 +287,7 @@ function QuotaPanel({
       ) : null}
       <div
         className={cn(
-          "border-t border-border px-3 py-1.5 text-2xs",
+          "px-3 py-1.5 text-2xs",
           foot.warn
             ? "bg-status-waiting-bg text-status-waiting-text"
             : "bg-muted text-muted-foreground",

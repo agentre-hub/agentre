@@ -49,11 +49,11 @@ export function ChangesPanel({
   const { t } = useTranslation();
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border px-2">
+      <div className="flex h-8 shrink-0 items-center gap-1.5 px-2">
         <div
           role="tablist"
           aria-label={t("chatContext.changes.scope.label")}
-          className="inline-flex shrink-0 overflow-hidden rounded-full border border-border"
+          className="inline-flex shrink-0 gap-0.5"
         >
           <ScopeTab
             label={t("chatContext.changes.scope.session")}
@@ -112,10 +112,11 @@ function ScopeTab({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "px-2 py-0.5 text-3xs whitespace-nowrap transition-colors",
+        "rounded-full px-2 py-0.5 text-3xs whitespace-nowrap transition-colors",
         "focus-visible:focus-outline",
+        // 分段控件：当前档是按钮填充，其余透明、悬停出底——不靠外框圈成一组。
         active
-          ? "bg-accent font-semibold text-foreground"
+          ? "bg-button-fill font-semibold text-foreground"
           : "text-muted-foreground hover:bg-accent/60 hover:on-accent",
       )}
     >

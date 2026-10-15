@@ -88,9 +88,9 @@ export function TabTooltip({
             />
             <span className="truncate">{meta}</span>
           </div>
-          <div className="mt-2 border-t border-border pt-2 text-2xs text-muted-foreground">
+          <div className="mt-3 text-2xs text-muted-foreground">
             {keyboardIndex !== null ? (
-              <kbd className="mr-1 rounded-sm border border-border bg-secondary px-1 font-mono">
+              <kbd className="mr-1 rounded-sm bg-button-fill px-1 font-mono">
                 ⌘{keyboardIndex}
               </kbd>
             ) : null}

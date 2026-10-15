@@ -150,3 +150,24 @@ describe("PermissionModePill · 禁用原因", () => {
     ).toHaveAttribute("title", expect.stringContaining("Cannot switch"));
   });
 });
+
+/** 画结构线的边宽类（含变体前缀）：`border`、`border-t`、`hover:border` 等。 */
+function edged(root: Element): string[] {
+  return [root, ...Array.from(root.querySelectorAll("*"))].flatMap((el) =>
+    Array.from(el.classList).filter((c) =>
+      /^(?:[\w-]+:)*border(?:-[tblrxy])?$/.test(c),
+    ),
+  );
+}
+
+describe("PermissionModePill · 无边框", () => {
+  it("Given the pill and its open panel, When rendered, Then neither the pill nor the panel's header/footer draw lines", async () => {
+    await openPill();
+
+    expect(
+      edged(screen.getByRole("button", { name: /Permission mode/ })),
+    ).toEqual([]);
+    const panel = screen.getByRole("listbox").parentElement!;
+    expect(edged(panel)).toEqual([]);
+  });
+});

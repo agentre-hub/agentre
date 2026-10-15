@@ -54,7 +54,7 @@ function TaskRow({ index, task }: { index: number; task: Task }) {
   return (
     <li
       className={cn(
-        "flex items-center gap-2 border-b border-border px-3 py-1.5 last:border-b-0 font-mono text-2xs",
+        "flex items-center gap-2 px-3 py-1.5 font-mono text-2xs",
         isRunning && "bg-primary-soft",
       )}
     >
@@ -114,7 +114,7 @@ export function TaskProgressBar({ progress }: Props) {
     <div
       role="region"
       aria-label={t("taskProgress.title")}
-      className="flex flex-col border-b border-border bg-card"
+      className="flex flex-col"
     >
       <button
         type="button"

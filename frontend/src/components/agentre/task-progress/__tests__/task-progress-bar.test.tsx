@@ -121,3 +121,21 @@ describe("TaskProgressBar", () => {
     }
   });
 });
+
+/** 画结构线的边宽类（含变体前缀）：`border`、`border-t`、`hover:border` 等。 */
+function edged(root: Element): string[] {
+  return [root, ...Array.from(root.querySelectorAll("*"))].flatMap((el) =>
+    Array.from(el.classList).filter((c) =>
+      /^(?:[\w-]+:)*border(?:-[tblrxy])?$/.test(c),
+    ),
+  );
+}
+
+describe("TaskProgressBar · 无边框", () => {
+  it("Given an expanded list, When rendered, Then neither the region nor its rows draw dividing lines", () => {
+    render(<TaskProgressBar progress={claude3} />);
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+    expect(edged(screen.getByRole("region"))).toEqual([]);
+  });
+});

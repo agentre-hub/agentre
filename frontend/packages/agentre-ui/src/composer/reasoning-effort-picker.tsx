@@ -98,10 +98,10 @@ export function ReasoningEffortPicker({
             // 取的是**观感**不是收缩语义：底栏的溢出优先级里两个计量器是唯一带
             // min-w-0 的让位者（chat-composer.tsx 的两条硬约束），控件与提交键
             // 一律 shrink-0——所以这里不抄 ContextMeter 的 min-w-0/overflow-hidden。
-            "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-sm border border-transparent px-1 py-0.5 whitespace-nowrap",
+            "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 whitespace-nowrap",
             "font-mono text-meta transition-colors motion-reduce:transition-none",
-            "hover:border-border hover:bg-accent",
-            "focus-visible:border-border focus-visible:bg-accent focus-visible:focus-outline",
+            "hover:bg-accent",
+            "focus-visible:bg-accent focus-visible:focus-outline",
           )}
         >
           <Brain
@@ -121,7 +121,7 @@ export function ReasoningEffortPicker({
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" side="top" className="w-80 p-0">
-        <div className="flex items-center gap-1.5 border-b border-border px-3.5 py-2.5">
+        <div className="flex items-center gap-1.5 px-3.5 pt-2.5 pb-1">
           <Brain
             className="size-3.5 shrink-0 text-foreground"
             aria-hidden="true"
@@ -133,7 +133,7 @@ export function ReasoningEffortPicker({
         <div role="listbox" aria-label={t("reasoningEffortPicker.title")}>
           {/* 「默认」是独立顶区而不是第六档（决策 11）：它表达的是「不设定」，
               与五个档位不同类。 */}
-          <div className="border-b border-border p-1.5">
+          <div className="p-1.5 pb-0">
             <EffortRow
               effort=""
               current={effective === ""}
@@ -170,13 +170,13 @@ export function ReasoningEffortPicker({
             ))}
           </div>
         </div>
-        <div className="border-t border-border px-3.5 py-2 text-2xs text-muted-foreground">
+        <div className="px-3.5 pt-1 pb-2.5 text-2xs text-muted-foreground">
           {t("reasoningEffortPicker.note")}
         </div>
         {errorText ? (
           <div
             role="alert"
-            className="border-t border-border bg-destructive-soft px-3.5 py-2 text-2xs text-destructive-text"
+            className="bg-destructive-soft px-3.5 py-2 text-2xs text-destructive-text"
           >
             {errorText}
           </div>

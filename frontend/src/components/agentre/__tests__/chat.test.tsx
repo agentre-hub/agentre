@@ -2110,6 +2110,46 @@ describe("QuotaMeter", () => {
     }
   });
 
+  it("无边框:触发区只靠填充回应悬停, 面板头尾与按模型分组都不画线", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(resetNow);
+    try {
+      render(
+        <QuotaMeter
+          data={
+            {
+              reason: "ok",
+              data: {
+                fiveHourPercent: 42,
+                weeklyPercent: 18,
+                modelWeekly: [{ model: "Opus", percent: 37 }],
+              },
+              fetchedAtMs: 1,
+            } as never
+          }
+        />,
+      );
+      const trigger = screen.getByLabelText(/Claude.*quota/);
+      act(() => {
+        fireEvent.focusIn(trigger);
+        vi.advanceTimersByTime(500);
+      });
+      const edge = /^(?:[\w-]+:)*border(?:-[tblrxy])?$/;
+      const edged = (root: Element) =>
+        [root, ...Array.from(root.querySelectorAll("*"))].flatMap((el) =>
+          Array.from(el.classList).filter((c) => edge.test(c)),
+        );
+      expect(edged(trigger)).toEqual([]);
+      // 标题 → 头部行 → 面板。
+      const panel = screen.getByText("Claude subscription usage").parentElement!
+        .parentElement!;
+      expect(screen.getByText("Opus 7-day")).toBeInTheDocument();
+      expect(edged(panel)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("auth_expired 时渲染占位文本而不是数字", () => {
     render(
       <QuotaMeter data={{ reason: "auth_expired", fetchedAtMs: 1 } as never} />,

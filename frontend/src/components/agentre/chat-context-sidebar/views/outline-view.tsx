@@ -44,12 +44,14 @@ export function OutlineView({ items, activeMessageId, onSelect }: Props) {
             data-outline-message-id={it.messageId}
             className={cn(
               "flex flex-col gap-1 rounded-md px-2.5 py-2 text-left text-xs transition-colors",
+              // 当前条目是外框上的选中项：抬起色，不再画左侧品牌色竖线。
               active
-                ? "border-l-2 border-primary bg-primary/10 text-foreground"
-                : "border-l-2 border-transparent text-muted-foreground hover:bg-accent/60 hover:on-accent",
+                ? "bg-raised text-foreground"
+                : "text-muted-foreground hover:bg-accent/60 hover:on-accent",
             )}
           >
             <div
+              data-testid="outline-time-row"
               className={cn(
                 "flex items-center gap-1.5 font-mono text-3xs",
                 active ? "text-primary-text" : "text-muted-foreground/80",
@@ -58,6 +60,17 @@ export function OutlineView({ items, activeMessageId, onSelect }: Props) {
               <span>{formatTime(it.time)}</span>
               <span className="text-border-strong">·</span>
               <span>{t("chatContext.outline.turn", { turn: it.turn })}</span>
+              {/* 改动数并进时间行右端：「✎ N」，不再单独占一行带框的小块。 */}
+              {it.edits > 0 ? (
+                <span
+                  data-testid="outline-edits"
+                  className="ml-auto inline-flex items-center gap-0.5 text-muted-foreground"
+                >
+                  <Pencil className="size-2.5" aria-hidden="true" />
+                  {it.edits}
+                  <span className="sr-only"> edits</span>
+                </span>
+              ) : null}
             </div>
             <p
               className={cn(
@@ -69,20 +82,12 @@ export function OutlineView({ items, activeMessageId, onSelect }: Props) {
             >
               {it.text}
             </p>
-            {it.edits > 0 || it.err ? (
+            {it.err ? (
               <div className="flex items-center gap-1.5">
-                {it.err ? (
-                  <span className="inline-flex items-center gap-1 rounded-sm bg-destructive/10 px-1.5 py-0.5 text-3xs font-medium text-destructive-text">
-                    <CircleX className="size-2.5" aria-hidden="true" />
-                    error
-                  </span>
-                ) : null}
-                {it.edits > 0 ? (
-                  <span className="inline-flex items-center gap-1 rounded-sm border border-border bg-card px-1.5 py-0.5 text-3xs font-medium text-muted-foreground">
-                    <Pencil className="size-2.5" aria-hidden="true" />
-                    {it.edits} edits
-                  </span>
-                ) : null}
+                <span className="inline-flex items-center gap-1 rounded-sm bg-destructive/10 px-1.5 py-0.5 text-3xs font-medium text-destructive-text">
+                  <CircleX className="size-2.5" aria-hidden="true" />
+                  error
+                </span>
               </div>
             ) : null}
           </button>

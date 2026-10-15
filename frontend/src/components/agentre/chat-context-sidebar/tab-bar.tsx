@@ -31,10 +31,7 @@ export function TabBar({
 }: Props) {
   const { t } = useTranslation();
   return (
-    <div
-      className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-3"
-      role="tablist"
-    >
+    <div className="flex h-9 shrink-0 items-center gap-1 px-3" role="tablist">
       <Tab
         label={t("chatContext.outline.label")}
         count={outlineCount}
@@ -77,8 +74,9 @@ function Tab({
       className={cn(
         "inline-flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md px-1 py-1.5 text-xs font-medium whitespace-nowrap transition-colors",
         "focus-visible:focus-outline",
+        // 分段控件：当前页是按钮填充，其余透明、悬停出底；Tab 条下不画线。
         active
-          ? "bg-primary/10 text-primary-text"
+          ? "bg-button-fill text-foreground"
           : "text-muted-foreground hover:bg-accent/60 hover:on-accent",
       )}
     >

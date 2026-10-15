@@ -122,3 +122,41 @@ describe("QueuedMessagesBar dropped banner", () => {
     expect(textEl.closest("[data-selectable-text='true']")).not.toBeNull();
   });
 });
+
+/** 画结构线的边宽类（含变体前缀）：`border`、`border-t`、`hover:border` 等。 */
+function edged(root: Element): string[] {
+  return [root, ...Array.from(root.querySelectorAll("*"))].flatMap((el) =>
+    Array.from(el.classList).filter((c) =>
+      /^(?:[\w-]+:)*border(?:-[tblrxy])?$/.test(c),
+    ),
+  );
+}
+
+describe("QueuedMessagesBar · 无边框", () => {
+  it("Given queued messages, When rendered, Then the bar, its button and its items are fills without edges", () => {
+    render(
+      <QueuedMessagesBar
+        queued={[{ id: "q1", text: "hello", cancellable: true }]}
+        onCancel={vi.fn()}
+        onClearAll={vi.fn()}
+      />,
+    );
+
+    expect(edged(screen.getByRole("region"))).toEqual([]);
+  });
+
+  it("Given dropped messages, When rendered, Then the banner, its buttons and its items are fills without edges", () => {
+    render(
+      <QueuedMessagesBar
+        queued={[]}
+        onCancel={vi.fn()}
+        onClearAll={vi.fn()}
+        dropped={[{ id: "d1", text: "lost", cancellable: true }]}
+        onRestoreDropped={vi.fn()}
+        onDiscardDropped={vi.fn()}
+      />,
+    );
+
+    expect(edged(screen.getByRole("alert"))).toEqual([]);
+  });
+});

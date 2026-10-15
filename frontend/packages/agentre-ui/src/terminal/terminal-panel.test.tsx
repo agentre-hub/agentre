@@ -491,6 +491,30 @@ describe("TerminalPanel", () => {
     expect(getByRole("alert")).toHaveTextContent("Connection lost");
   });
 
+  it("Given the connection-lost banner, When rendered, Then it and its close button are fills without edges", () => {
+    const { getByRole } = render(
+      <TerminalPanel
+        terminalID="t1"
+        projectId={42}
+        deviceId=""
+        onClose={vi.fn()}
+      />,
+    );
+    act(() => capturedArgs?.onExit?.({ code: 0, reason: "connection_lost" }));
+
+    const banner = getByRole("alert");
+    const edged = [banner, ...Array.from(banner.querySelectorAll("*"))].flatMap(
+      (el) =>
+        Array.from(el.classList).filter((c) =>
+          /^(?:[\w-]+:)*border(?:-[tblrxy])?$/.test(c),
+        ),
+    );
+    expect(edged).toEqual([]);
+    expect(getByRole("button", { name: "Close" })).toHaveClass(
+      "bg-destructive/10",
+    );
+  });
+
   it("Given dark mode was applied before this terminal's observer registers, When it mounts, Then it re-applies the theme on mount instead of waiting for a class change", () => {
     // Repro for the app-restart race: App adds `.dark` in its layout effect,
     // which on a same-commit mount runs after the terminal's xterm is built but

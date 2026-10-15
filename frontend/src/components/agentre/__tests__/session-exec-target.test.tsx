@@ -679,3 +679,32 @@ describe("NewSessionExecTargetLine", () => {
     expect(line.querySelector(".lucide-server")).not.toBeNull();
   });
 });
+
+/** 画结构线的边宽类（含变体前缀）：`border`、`border-t`、`hover:border` 等。 */
+function edged(root: Element): string[] {
+  return [root, ...Array.from(root.querySelectorAll("*"))].flatMap((el) =>
+    Array.from(el.classList).filter((c) =>
+      /^(?:[\w-]+:)*border(?:-[tblrxy])?$/.test(c),
+    ),
+  );
+}
+
+describe("NewSessionExecTargetLine · 无边框", () => {
+  it("Given the reselect popover, When it opens, Then its header and rows are separated by space, not lines", async () => {
+    stubWails(
+      [
+        { agentBackendId: 51, available: true },
+        { agentBackendId: 52, available: true },
+      ],
+      [
+        { id: 51, deviceId: "", name: "claude-fable-5" },
+        { id: 52, deviceId: "3", deviceName: "构建机" },
+      ],
+    );
+    renderLine();
+    await screen.findByTestId("new-session-exec-target-line");
+
+    const picker = await openPicker();
+    expect(edged(picker)).toEqual([]);
+  });
+});

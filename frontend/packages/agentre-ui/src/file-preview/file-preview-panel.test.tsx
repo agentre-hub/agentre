@@ -702,3 +702,24 @@ describe("FilePreviewPanel 只读内容可选中复制", () => {
     expect(message.closest(selectable)).not.toBeNull();
   });
 });
+
+/** 画结构线的边宽类（含变体前缀）：`border`、`border-t`、`hover:border` 等。 */
+function edged(root: Element): string[] {
+  return [root, ...Array.from(root.querySelectorAll("*"))].flatMap((el) =>
+    Array.from(el.classList).filter((c) =>
+      /^(?:[\w-]+:)*border(?:-[tblrxy])?$/.test(c),
+    ),
+  );
+}
+
+describe("FilePreviewPanel 无边框", () => {
+  it("Given an HTML file in the split segment, When rendered, Then the tab strip, path bar, segment switch and the two panes draw no lines", async () => {
+    readFile.mockResolvedValue(textView("<h1>Report</h1>"));
+    renderPanel({ activePath: "out/report.html", segment: "split" });
+
+    const view = await panel();
+    await within(view).findByTitle("report.html rendered page");
+
+    expect(edged(view)).toEqual([]);
+  });
+});

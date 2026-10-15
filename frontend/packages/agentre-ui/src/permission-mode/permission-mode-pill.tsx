@@ -99,7 +99,7 @@ export function PermissionModePill({
               : t("permissionMode.title", { label: meta.label })
           }
           className={cn(
-            "inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border px-2 text-2xs font-medium leading-none transition-colors",
+            "inline-flex h-6 cursor-pointer items-center gap-1 rounded-md px-2 text-2xs font-medium leading-none transition-colors",
             "focus-visible:focus-outline",
             "disabled:cursor-not-allowed disabled:opacity-60",
             meta.pillClass,
@@ -121,7 +121,7 @@ export function PermissionModePill({
         sideOffset={8}
         className="w-[320px] p-0"
       >
-        <div className="flex items-center justify-between border-b border-border px-3.5 py-2.5">
+        <div className="flex items-center justify-between px-3.5 pt-2.5 pb-1">
           <div className="flex items-center gap-1.5">
             <ShieldCheck
               className="size-3.5 text-foreground"
@@ -131,7 +131,7 @@ export function PermissionModePill({
               {t("permissionMode.heading")}
             </span>
           </div>
-          <kbd className="inline-flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-2xs text-foreground">
+          <kbd className="inline-flex items-center gap-1 rounded-sm bg-button-fill px-1.5 py-0.5 font-mono text-2xs text-foreground">
             Shift<span className="text-decorative-foreground">+</span>Tab
           </kbd>
         </div>
@@ -211,11 +211,11 @@ export function PermissionModePill({
             );
           })}
         </ul>
-        <div className="border-t border-border px-3.5 py-2 text-2xs text-muted-foreground">
+        <div className="px-3.5 pt-1 pb-2.5 text-2xs text-muted-foreground">
           {t("permissionMode.footer")}
         </div>
         {errorMessage ? (
-          <div className="border-t border-destructive/40 bg-destructive-soft px-3.5 py-1.5 text-2xs text-destructive-text">
+          <div className="bg-destructive-soft px-3.5 py-1.5 text-2xs text-destructive-text">
             {errorMessage}
           </div>
         ) : null}

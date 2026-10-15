@@ -96,7 +96,7 @@ export function TabStrip() {
   return (
     <div
       role="tablist"
-      className="flex h-[38px] shrink-0 items-center overflow-hidden border-b border-border bg-secondary"
+      className="flex h-[38px] shrink-0 items-center overflow-hidden bg-chrome"
     >
       <div className="scrollbar-none flex h-full min-h-0 min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden">
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
@@ -139,7 +139,7 @@ export function TabStrip() {
         </DndContext>
       </div>
       {sortedTabs.length > 0 ? (
-        <div className="flex h-full items-center gap-1 border-l border-border px-1">
+        <div className="flex h-full items-center gap-1 px-1">
           <TabOverflowMenu />
         </div>
       ) : null}
