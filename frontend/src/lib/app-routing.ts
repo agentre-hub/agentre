@@ -41,8 +41,10 @@ export const navItems: NavItem[] = [
   },
 ];
 
+// 设置不是页面：齿轮打开浮在当前页面上的设置对话框（stores/settings-dialog-store），
+// 所以它没有 path，也就不进 getKnownPaths / lastPath / 面包屑。旧版本存下的
+// `agentre.lastPath=/settings` 因此按未知路径处理，启动落到默认页。
 export const settingsNavItem: NavItem = {
-  path: "/settings",
   labelKey: "nav.settings",
   icon: settingsIcon,
 };
@@ -52,7 +54,6 @@ export const pageBreadcrumbKeys: Record<string, string> = {
   "/hooks": "nav.hooks",
   "/issues": "nav.issues",
   "/org": "nav.org",
-  "/settings": "nav.settings",
 };
 
 export const lastPathStorageKey = "agentre.lastPath";
@@ -65,9 +66,6 @@ export function getKnownPaths(): Set<string> {
     if (item.path) {
       paths.add(item.path);
     }
-  }
-  if (settingsNavItem.path) {
-    paths.add(settingsNavItem.path);
   }
   return paths;
 }

@@ -160,11 +160,16 @@ export function KeyboardShortcutsPanel(): React.ReactElement {
   }, [recordingId, setPaused]);
 
   // Listen for the new chord while recording.
+  //
+  // 捕获阶段挂在 window 上：面板住在设置对话框里，而 Radix 在 document 的捕获阶段
+  // 听 Esc 关对话框。window 捕获比它早一步，录制中的 Esc 在这里吃掉
+  // （stopPropagation），只取消录制，不关设置。
   React.useEffect(() => {
     if (!recordingId) return;
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         setRecordingId(null);
         return;
       }
@@ -190,8 +195,8 @@ export function KeyboardShortcutsPanel(): React.ReactElement {
       setBinding(recordingId!, chord);
       setRecordingId(null);
     }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [recordingId, platform, findChordConflict, setBinding, showConflict, t]);
 
   const globalDefs = REGISTRY.filter((def) => def.scope === "global");

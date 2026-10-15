@@ -23,7 +23,6 @@ import {
   Outlet,
   Route,
   Routes,
-  useOutletContext,
   useLocation,
   useNavigate,
 } from "react-router-dom";
@@ -46,13 +45,11 @@ import {
   ShortcutsProvider,
   SyncAppliedHost,
   SidebarButton,
-  SettingsPage,
   ThemeToggle,
-  type AppTheme,
-  type AppThemePreference,
   type DesktopPlatform,
 } from "@/components/agentre";
 import { ThemeProvider, useTheme } from "@agentre-hub/agentre-ui";
+import { SettingsDialog } from "@/components/agentre/settings/page";
 import { TabStrip } from "@/components/agentre/chat-tabs/tab-strip";
 import { desktopLocalCommandHistoryAccess } from "@/components/agentre/local-command-history-access-desktop";
 import { desktopLocalCommandsAccess } from "@/components/agentre/local-commands-access-desktop";
@@ -68,6 +65,7 @@ import {
   useUpdateWatch,
 } from "@/stores/update-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
@@ -90,12 +88,6 @@ import {
   hasWailsRuntime,
   type RuntimeMode,
 } from "./lib/platform";
-
-type AppOutletContext = {
-  effectiveTheme: AppTheme;
-  onThemePreferenceChange: (themePreference: AppThemePreference) => void;
-  themePreference: AppThemePreference;
-};
 
 function AppLayout() {
   const { t } = useTranslation();
@@ -161,9 +153,12 @@ function AppLayout() {
   const settingsLabel = hasPendingUpdate
     ? t("nav.settingsUpdateAvailable")
     : t(settingsNavItem.labelKey);
+  // 设置是浮在当前页面上的对话框，不是路由：齿轮、⌘,、命令面板与各处深链都改 store。
+  const settingsOpen = useSettingsDialogStore((s) => s.open);
+  const openSettings = useSettingsDialogStore((s) => s.openSettings);
   const openUpdateSettings = useCallback(() => {
-    navigate("/settings", { state: { settingsPage: "version-logs" } });
-  }, [navigate]);
+    openSettings("version-logs");
+  }, [openSettings]);
 
   // reconcileMissingSessions: 启动时用 ListChatAgents 拿到真实会话集，
   // 把 localStorage 恢复出来的 tabs 里已不存在的会话清掉。
@@ -236,7 +231,10 @@ function AppLayout() {
                           data-testid={`nav-${item.path?.slice(1) ?? item.labelKey}`}
                           label={t(item.labelKey)}
                           icon={item.icon}
-                          active={isNavItemActive(location.pathname, item.path)}
+                          active={
+                            !settingsOpen &&
+                            isNavItemActive(location.pathname, item.path)
+                          }
                           onClick={
                             item.path ? () => navigate(item.path!) : undefined
                           }
@@ -250,21 +248,12 @@ function AppLayout() {
                         label={settingsLabel}
                         icon={settingsNavItem.icon}
                         badge={hasPendingUpdate}
-                        active={isNavItemActive(
-                          location.pathname,
-                          settingsNavItem.path,
-                        )}
-                        onClick={() => navigate(settingsNavItem.path!)}
+                        active={settingsOpen}
+                        onClick={() => openSettings()}
                       />
                     </aside>
 
-                    <Outlet
-                      context={{
-                        effectiveTheme,
-                        onThemePreferenceChange: setThemePreference,
-                        themePreference,
-                      }}
-                    />
+                    <Outlet />
 
                     <div
                       data-page-has-chat={hasChat}
@@ -289,6 +278,11 @@ function AppLayout() {
                     version={appVersion}
                     onAttentionClick={(sessionId) => openSession(sessionId)}
                     onOpenUpdateSettings={openUpdateSettings}
+                  />
+                  <SettingsDialog
+                    effectiveTheme={effectiveTheme}
+                    onThemePreferenceChange={setThemePreference}
+                    themePreference={themePreference}
                   />
                   <PaletteScopeBridge />
                   <CommandPalette />
@@ -316,19 +310,6 @@ function RedirectToChat() {
   const location = useLocation();
   return (
     <Navigate to={{ pathname: "/chat", search: location.search }} replace />
-  );
-}
-
-function SettingsRoute() {
-  const { effectiveTheme, onThemePreferenceChange, themePreference } =
-    useOutletContext<AppOutletContext>();
-
-  return (
-    <SettingsPage
-      effectiveTheme={effectiveTheme}
-      onThemePreferenceChange={onThemePreferenceChange}
-      themePreference={themePreference}
-    />
   );
 }
 
@@ -362,7 +343,6 @@ function App() {
             <Route path="/issues" element={<IssuesPage />} />
             <Route path="/hooks" element={<HooksPage />} />
             <Route path="/org" element={<OrgChartPage />} />
-            <Route path="/settings" element={<SettingsRoute />} />
             <Route path="*" element={<Navigate to="/chat" replace />} />
           </Route>
         </Routes>

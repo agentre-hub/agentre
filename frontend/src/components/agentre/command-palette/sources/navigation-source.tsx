@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import i18n from "@/i18n";
+import { openSettings } from "@/stores/settings-dialog-store";
 import { cn } from "@agentre-hub/agentre-ui";
 
 import { scoreSuggestion as scoreItem } from "@agentre-hub/agentre-ui";
@@ -17,7 +18,8 @@ import type { CommandSource, OnSelectCtx } from "../types";
 
 export type NavigationItem = {
   key: string;
-  path: string;
+  /** 页面路径；没有 path 的那一项（设置）打开的是对话框，不是页面。 */
+  path?: string;
   labelKey: string;
   icon: LucideIcon;
 };
@@ -40,7 +42,6 @@ const NAV_ITEMS: NavigationItem[] = [
   },
   {
     key: "nav-settings",
-    path: "/settings",
     labelKey: "nav.settings",
     icon: Settings,
   },
@@ -54,7 +55,7 @@ function getScore(query: string, item: NavigationItem): number {
   return scoreItem({
     query,
     title: i18n.t(item.labelKey),
-    subtitle: item.path,
+    subtitle: item.path ?? "",
   });
 }
 
@@ -70,9 +71,11 @@ function NavigationRow({ item }: { item: NavigationItem }) {
       <Icon className="size-4 shrink-0 text-primary-text" aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="text-sm text-foreground">{t(item.labelKey)}</span>
-        <span className="truncate font-mono text-2xs text-muted-foreground">
-          {item.path}
-        </span>
+        {item.path ? (
+          <span className="truncate font-mono text-2xs text-muted-foreground">
+            {item.path}
+          </span>
+        ) : null}
       </div>
       <kbd
         className={cn(
@@ -89,7 +92,12 @@ function NavigationRow({ item }: { item: NavigationItem }) {
 
 function onSelect(item: NavigationItem, ctx: OnSelectCtx): void {
   ctx.close();
-  ctx.navigate(item.path);
+  if (item.path) {
+    ctx.navigate(item.path);
+  } else {
+    // 设置浮在当前页面上，不离开它。
+    openSettings();
+  }
 }
 
 export const navigationSource: CommandSource<NavigationItem> = {

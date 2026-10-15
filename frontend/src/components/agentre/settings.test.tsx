@@ -1,7 +1,16 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { DialogShell, DialogShellHeader } from "@agentre-hub/agentre-ui";
+import {
+  openSettings,
+  useSettingsDialogStore,
+} from "@/stores/settings-dialog-store";
+
+// 子页里再开一层「正在保存」的弹窗：用来钉住忙碌规则落在最上面那一层。
+const nested = vi.hoisted(() => ({ busyOpen: false, onOpenChange: vi.fn() }));
 
 vi.mock("@/hooks/use-chat-agents", () => ({
   useChatAgents: () => ({ agents: [] }),
@@ -29,30 +38,46 @@ vi.mock("./remote-devices/remote-devices-panel", () => ({
   }: {
     onOpenAgentBackends: () => void;
   }) => (
-    <button type="button" onClick={onOpenAgentBackends}>
-      Configure Agent Backends
-    </button>
+    <>
+      <button type="button" onClick={onOpenAgentBackends}>
+        Configure Agent Backends
+      </button>
+      <DialogShell
+        open={nested.busyOpen}
+        busy
+        onOpenChange={nested.onOpenChange}
+      >
+        <DialogShellHeader title="Signing in" />
+      </DialogShell>
+    </>
   ),
 }));
 
-import { SettingsPage } from "./settings";
+import { SettingsDialog } from "./settings/page";
 
-describe("SettingsPage remote-device onboarding navigation", () => {
+function renderSettingsDialog() {
+  return render(
+    <MemoryRouter>
+      <SettingsDialog
+        effectiveTheme="light"
+        onThemePreferenceChange={() => {}}
+        themePreference="system"
+      />
+    </MemoryRouter>,
+  );
+}
+
+beforeEach(() => {
+  useSettingsDialogStore.setState({ open: false, page: "appearance" });
+  nested.busyOpen = false;
+  nested.onOpenChange.mockReset();
+});
+
+describe("SettingsDialog remote-device onboarding navigation", () => {
   it("opens Agent Backends from the Remote Devices completion action", async () => {
     const user = userEvent.setup();
-    render(
-      <MemoryRouter
-        initialEntries={[
-          { pathname: "/settings", state: { settingsPage: "remote-devices" } },
-        ]}
-      >
-        <SettingsPage
-          effectiveTheme="light"
-          onThemePreferenceChange={() => {}}
-          themePreference="system"
-        />
-      </MemoryRouter>,
-    );
+    openSettings("remote-devices");
+    renderSettingsDialog();
 
     await user.click(
       screen.getByRole("button", { name: "Configure Agent Backends" }),
@@ -67,5 +92,41 @@ describe("SettingsPage remote-device onboarding navigation", () => {
     expect(
       screen.getByRole("heading", { name: "Agent Backends" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("SettingsDialog busy sub-page", () => {
+  it("Given a sub-page dialog is busy saving, When Esc is pressed or its scrim is clicked, Then neither it nor settings closes", async () => {
+    const user = userEvent.setup();
+    nested.busyOpen = true;
+    openSettings("remote-devices");
+    renderSettingsDialog();
+
+    expect(
+      screen.getByRole("dialog", { name: "Signing in" }),
+    ).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    const overlay = document.querySelector<HTMLElement>(
+      '[data-slot="dialog-shell-overlay"]',
+    );
+    if (!overlay) throw new Error("expected the nested dialog scrim");
+    await user.click(overlay);
+
+    expect(nested.onOpenChange).not.toHaveBeenCalled();
+    expect(useSettingsDialogStore.getState().open).toBe(true);
+    expect(
+      screen.getByRole("dialog", { name: "Signing in" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given nothing above settings is busy, When Esc is pressed, Then settings closes", async () => {
+    const user = userEvent.setup();
+    openSettings("appearance");
+    renderSettingsDialog();
+
+    await user.keyboard("{Escape}");
+
+    expect(useSettingsDialogStore.getState().open).toBe(false);
   });
 });

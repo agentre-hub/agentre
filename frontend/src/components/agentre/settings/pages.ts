@@ -153,9 +153,3 @@ export const underConstructionSettingsPages: Record<
     icon: Server,
   },
 };
-
-export const compactSettingsNavItems = settingsNavSections
-  .flatMap((section) => section.items)
-  .filter((item): item is typeof item & { id: SettingsPageId } =>
-    Boolean(item.id),
-  );

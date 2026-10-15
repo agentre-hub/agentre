@@ -54,7 +54,7 @@ export function ThemePreferenceSelect({
   const labelId = React.useId();
 
   return (
-    <div className="flex flex-col gap-2 p-4">
+    <div className="flex flex-col gap-2 py-3">
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 flex-col">
           <span id={labelId} className="text-sm font-medium">
@@ -117,8 +117,10 @@ export function AppearanceSettings({
         title={t("settings.appearance.title")}
         description={t("settings.appearance.description")}
       />
-      <section className="overflow-hidden rounded-lg border border-border bg-card">
-        <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+      {/* 无边框：分组不再是带框的卡片，标题与各行直接落在内容页上、靠留白分开；
+          下拉框靠自己的字段填充立起来。 */}
+      <section data-slot="appearance-group" className="flex flex-col">
+        <div className="flex flex-wrap items-center gap-3 pb-1">
           <div className="flex min-w-0 flex-1 flex-col">
             <h2 className="text-sm font-semibold">
               {t("settings.appearance.colorMode.title")}
@@ -139,7 +141,7 @@ export function AppearanceSettings({
           onThemePreferenceChange={onThemePreferenceChange}
           themePreference={themePreference}
         />
-        <div className="flex flex-col gap-2 border-t border-border p-4">
+        <div className="flex flex-col gap-2 py-3">
           <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 flex-col">
               <span className="text-sm font-medium">{t("language.label")}</span>
