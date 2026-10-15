@@ -109,7 +109,9 @@ describe("IssuesPage", () => {
     expect(header.className).not.toMatch(/\bborder-b\b/);
     const structural = Array.from(main.querySelectorAll("*"))
       .flatMap((el) => (el.getAttribute("class") ?? "").split(/\s+/))
-      .filter((token) => /^(?:border-[tb]|border-[tb]-.*|divide-.*)$/.test(token));
+      .filter((token) =>
+        /^(?:border-[tb]|border-[tb]-.*|divide-.*)$/.test(token),
+      );
     expect(structural).toEqual([]);
   });
 
