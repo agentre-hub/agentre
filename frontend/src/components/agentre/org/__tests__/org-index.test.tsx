@@ -202,6 +202,21 @@ describe("OrgIndex 一屏之内", () => {
     expect(screen.queryByTestId("org-filter-reportsTo")).toBeNull();
   });
 
+  // 索引列是宿主给的 300px 固定宽、overflow-hidden。搜索框若写死宽度（曾是 w-60），
+  // 加上内边距与筛选按钮就超出列宽，筛选按钮被列边裁掉一半。让位的只能是搜索框。
+  it("搜索框吃剩余宽度、不写死宽度，筛选入口不收缩：窄列里按钮不被裁", () => {
+    setup();
+
+    const input = screen.getByLabelText("Search agents");
+    const field = input.parentElement as HTMLElement;
+    expect(field).toHaveClass("flex-1", "min-w-0");
+    expect(input).toHaveClass("w-full");
+    expect(
+      Array.from(input.classList).filter((c) => /^w-(?!full$)/.test(c)),
+    ).toEqual([]);
+    expect(screen.getByTestId("org-filter-entry")).toHaveClass("shrink-0");
+  });
+
   it("两维筛选都在那一个入口里：打开就能各选各的", async () => {
     const { user } = setup();
 
