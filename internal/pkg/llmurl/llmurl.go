@@ -8,6 +8,25 @@ import (
 	"strings"
 )
 
+const (
+	defaultAnthropicBaseURL = "https://api.anthropic.com"
+	defaultOpenAIBaseURL    = "https://api.openai.com/v1"
+)
+
+// EffectiveBaseURL resolves the base URL actually used for a provider. A blank
+// configured value means "use the provider type's default endpoint"; every
+// upstream caller (probes and the HTTP gateway) resolves through here so the
+// defaults live in one place.
+func EffectiveBaseURL(providerType, configured string) string {
+	if strings.TrimSpace(configured) != "" {
+		return configured
+	}
+	if providerType == "anthropic" {
+		return defaultAnthropicBaseURL
+	}
+	return defaultOpenAIBaseURL
+}
+
 // Build joins baseURL and path while accepting a versioned base URL such as
 // https://example.com/v1 together with a versioned request path such as
 // /v1/messages. Exactly one shared /v1 segment is retained.

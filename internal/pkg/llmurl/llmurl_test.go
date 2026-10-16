@@ -31,3 +31,18 @@ func TestBuild(t *testing.T) {
 		assert.ErrorContains(t, err, "invalid upstream URL")
 	})
 }
+
+func TestEffectiveBaseURL(t *testing.T) {
+	t.Run("Given a configured base URL, when it is resolved, then the configured value is used", func(t *testing.T) {
+		assert.Equal(t, "https://proxy.example/v1", EffectiveBaseURL("openai-chat", "https://proxy.example/v1"))
+	})
+
+	t.Run("Given an anthropic provider with a blank base URL, when it is resolved, then the Anthropic default is used", func(t *testing.T) {
+		assert.Equal(t, "https://api.anthropic.com", EffectiveBaseURL("anthropic", "  "))
+	})
+
+	t.Run("Given an OpenAI provider with an empty base URL, when it is resolved, then the OpenAI default is used", func(t *testing.T) {
+		assert.Equal(t, "https://api.openai.com/v1", EffectiveBaseURL("openai-response", ""))
+		assert.Equal(t, "https://api.openai.com/v1", EffectiveBaseURL("openai-chat", ""))
+	})
+}

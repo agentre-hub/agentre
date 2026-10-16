@@ -299,6 +299,59 @@ func TestForwarder_OpenAIChat(t *testing.T) {
 	)
 }
 
+// recordingTransport 是上游出口的替身：记下 forwarder 实际要打的完整 URL 并回 200，
+// 不发生任何真实网络请求（默认上游是供应商公网端点）。
+type recordingTransport struct {
+	urls []string
+}
+
+func (rt *recordingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	rt.urls = append(rt.urls, r.URL.String())
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+		Request:    r,
+	}, nil
+}
+
+// TestForwarder_EmptyBaseURLForwardsToTypeDefault 钉死「Base URL 留空 = 走该类型默认端点」：
+// 表单与服务端都允许空 base_url，网关必须与探测路径同一口径解析默认上游，而不是 500。
+func TestForwarder_EmptyBaseURLForwardsToTypeDefault(t *testing.T) {
+	cases := []struct {
+		name     string
+		provider *llm_provider_entity.LLMProvider
+		handler  func(*Forwarder) http.HandlerFunc
+		backend  agent_backend_entity.BackendType
+		path     string
+		want     string
+	}{
+		{"anthropic", newAnthropicProvider("key-1", ""), (*Forwarder).AnthropicHandler,
+			agent_backend_entity.TypeClaudeCode, "/v1/messages", "https://api.anthropic.com/v1/messages"},
+		{"openai responses", newOpenAIResponseProvider("key-1", "  "), (*Forwarder).OpenAIResponsesHandler,
+			agent_backend_entity.TypeCodex, "/v1/responses", "https://api.openai.com/v1/responses"},
+		{"openai chat", newOpenAIChatProvider("key-1", ""), (*Forwarder).OpenAIChatHandler,
+			agent_backend_entity.TypeCodex, "/v1/chat/completions", "https://api.openai.com/v1/chat/completions"},
+	}
+	for _, tc := range cases {
+		t.Run("Given a "+tc.name+" provider with an empty base URL, when a request is forwarded, then it goes to the type default", func(t *testing.T) {
+			tokens := NewTokenRegistry()
+			lookup := newFakeLookup(tc.provider).withModel(newModel("mk-key-1-default", "m-1"))
+			transport := &recordingTransport{}
+			f := NewForwarder(tokens, lookup)
+			f.transport = transport
+
+			w := issueAndRequest(t, tc.handler(f), tokens,
+				&agent_backend_entity.AgentBackend{ID: 9, Type: string(tc.backend), LLMProviderKey: "key-1"},
+				tc.path, `{"model":"x"}`,
+			)
+
+			assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			assert.Equal(t, []string{tc.want}, transport.urls)
+		})
+	}
+}
+
 func TestForwarder_RejectsProviderTypeMismatch(t *testing.T) {
 	upstream, _ := newRecordingUpstream(t, `{}`)
 	tokens := NewTokenRegistry()
