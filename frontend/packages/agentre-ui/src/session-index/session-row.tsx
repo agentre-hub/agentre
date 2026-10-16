@@ -156,10 +156,11 @@ function SessionRow({
     // hover 只发给**未选中**的行。同时挂两个类时 `hover:` 那个在编译产物里排在后面
     // 且多一个伪类，级联上必胜 —— 鼠标一停，选中底色就整块被顶掉。已经落在的那一行
     // 不需要再用底色告诉你「可以点」，所以是不发，而不是调色去压它。
-    !selected && "hover:bg-sidebar-active-bg",
-    // 选中面是外框上的「抬起」一档（--raised）：比 hover 的 --sidebar-active-bg 再
-    // 抬一级，不复用 --primary-soft（品牌信息面，落在外框上几乎看不出）。竖条撤掉后
-    // 满足 WCAG 1.4.1 的非色相线索由标题字重与 aria-current 承担。
+    !selected && "hover:bg-field-fill-hover",
+    // 选中面是外框上的「抬起」一档（--raised）；hover 是字段填充的悬停档，离外框比
+    // raised 近、又与 raised 分得开（见 chrome-row-hover.test.tsx）。不复用
+    // --primary-soft（品牌信息面，落在外框上几乎看不出）。竖条撤掉后满足 WCAG 1.4.1
+    // 的非色相线索由标题字重与 aria-current 承担。
     selected && "bg-raised text-primary-text",
     className,
   );

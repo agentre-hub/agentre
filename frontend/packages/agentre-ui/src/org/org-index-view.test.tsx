@@ -118,7 +118,7 @@ describe("OrgAgentRow（只吃 props）", () => {
     expect(node.className).not.toContain("bg-sidebar-selected-bg");
     expect(node.className).not.toContain("border-l-primary");
     // 选中行不发通用 hover 类：两个底色同挂时 hover 级联上必胜，选中面会被顶掉。
-    expect(node.className).not.toContain("hover:bg-sidebar-active-bg");
+    expect(node.className).not.toMatch(/(^|\s)hover:bg-/);
     // 非色相线索与会话行一致：名字加粗 + aria-current。
     expect(classesOf(screen.getByText(row.agent.name))).toContain(
       "font-medium",
@@ -356,7 +356,7 @@ describe("OrgGroupHeader 的选中态", () => {
     const node = screen.getByTestId("org-group-1");
     expect(classesOf(node)).toContain("bg-raised");
     expect(node.className).not.toContain("bg-sidebar-selected-bg");
-    expect(node.className).not.toContain("hover:bg-sidebar-active-bg");
+    expect(node.className).not.toMatch(/(^|\s)hover:bg-/);
     expect(node).toHaveAttribute("aria-current", "true");
     expect(classesOf(screen.getByText("2 members"))).toContain(
       "text-muted-foreground",

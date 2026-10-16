@@ -30,7 +30,7 @@ export function OwnSessionsHeader({
     <button
       type="button"
       // 这一行渲染在父组那个会裁剪的折叠容器里、撑满整行，焦点环向内画才不被切掉。
-      className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs outline-none hover:bg-sidebar-active-bg focus-visible:focus-outline-inset"
+      className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs outline-none hover:bg-field-fill-hover focus-visible:focus-outline-inset"
       onClick={onToggle}
       aria-expanded={expanded}
       aria-label={t("sessionIndex.ownSessions.toggle", { name })}

@@ -84,7 +84,7 @@ export function OrgAgentRow({
         "relative flex items-center gap-[7px] rounded-md py-[5px] pr-2 text-xs transition-colors",
         // hover 只发给未选中的行：同时挂两个底色时 `hover:` 那个级联上必胜，鼠标
         // 一停选中面就整块被顶掉（与 session-row 同一条）。
-        !selected && "hover:bg-sidebar-active-bg",
+        !selected && "hover:bg-field-fill-hover",
         // 这一列在外框（chrome）上，外框上的选中项一律是「抬起」一档 raised，与
         // 会话行同一套（session-row.tsx）。非色相线索是名字字重与 aria-current。
         selected && "bg-raised",
