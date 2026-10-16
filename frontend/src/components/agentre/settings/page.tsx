@@ -181,7 +181,7 @@ export function SettingsDialog(props: Omit<SettingsPageProps, "titleAs">) {
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay
           data-slot="settings-dialog-overlay"
-          className="fixed inset-0 z-50 bg-settings-scrim duration-200 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none"
+          className="fixed inset-0 z-50 bg-settings-scrim duration-200 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0"
         />
         {/* 标题栏那一条仍能拖动窗口（macOS 红绿灯是原生的，不受遮罩影响）。按在这里
             不算「点遮罩」，见下面的 onPointerDownOutside。 */}
@@ -214,7 +214,7 @@ export function SettingsDialog(props: Omit<SettingsPageProps, "titleAs">) {
           }}
           className={cn(
             "fixed left-1/2 top-1/2 z-50 flex h-[calc(100dvh-4rem)] w-[calc(100vw-7rem)] max-w-[1180px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl bg-sheet text-foreground shadow-overlay outline-none",
-            "duration-200 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none",
+            "duration-200 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0",
           )}
         >
           <SettingsPage {...props} titleAs={DialogPrimitive.Title} />

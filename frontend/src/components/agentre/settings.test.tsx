@@ -113,6 +113,25 @@ describe("SettingsDialog backdrop", () => {
   });
 });
 
+describe("SettingsDialog motion", () => {
+  it("Given settings is open, When the overlay and content are rendered, Then every animate/fade utility is gated behind motion-safe so reduced motion cannot be overridden", () => {
+    openSettings("appearance");
+    renderSettingsDialog();
+
+    for (const slot of ["settings-dialog-overlay", "settings-dialog"]) {
+      const el = document.querySelector<HTMLElement>(`[data-slot="${slot}"]`);
+      if (!el) throw new Error(`expected ${slot}`);
+      const motionUtilities = [...el.classList].filter((c) =>
+        /(^|:)(animate-(in|out)|fade-(in|out)-\d+)$/.test(c),
+      );
+      expect(motionUtilities.length).toBeGreaterThan(0);
+      for (const cls of motionUtilities) {
+        expect(cls, `${slot}: ${cls}`).toMatch(/^motion-safe:/);
+      }
+    }
+  });
+});
+
 describe("SettingsDialog busy sub-page", () => {
   it("Given a sub-page dialog is busy saving, When Esc is pressed or its scrim is clicked, Then neither it nor settings closes", async () => {
     const user = userEvent.setup();
