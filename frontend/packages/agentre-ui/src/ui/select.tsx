@@ -111,8 +111,8 @@ function SelectContent({
           // var(--radix-select-content-available-height) 在 Radix 把 popper 定位前是
           // guaranteed-invalid，导致整条 `min(...)` 失效、max-height 落空，弹层不限高。
           "relative z-50 max-h-[280px] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-overlay outline-none",
-          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-          "data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
+          "motion-safe:data-[state=open]:animate-in motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0 motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=closed]:zoom-out-95 motion-safe:data-[state=open]:zoom-in-95",
+          "motion-safe:data-[side=bottom]:slide-in-from-top-1 motion-safe:data-[side=top]:slide-in-from-bottom-1",
           className,
         )}
         {...props}

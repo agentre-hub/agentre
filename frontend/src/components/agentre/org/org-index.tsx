@@ -181,7 +181,7 @@ export function OrgIndex(props: OrgIndexProps) {
         className="flex shrink-0 items-center gap-2 px-5 py-2.5"
         data-slot="org-index-toolbar"
       >
-        <div className="relative">
+        <div className="relative min-w-0 flex-1">
           <Search
             aria-hidden="true"
             className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -191,7 +191,7 @@ export function OrgIndex(props: OrgIndexProps) {
             placeholder={t("org.index.search.placeholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-8 w-60 pl-7 text-xs"
+            className="h-8 w-full pl-7 text-xs"
           />
         </div>
 
