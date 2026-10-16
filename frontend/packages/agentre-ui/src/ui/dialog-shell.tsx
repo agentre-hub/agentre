@@ -80,7 +80,7 @@ export function DialogShell({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay
           data-slot="dialog-shell-overlay"
-          className="fixed inset-0 z-50 bg-scrim backdrop-blur-[3px] backdrop-saturate-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+          className="fixed inset-0 z-50 bg-scrim backdrop-blur-[3px] backdrop-saturate-150 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0 motion-safe:data-[state=open]:fade-in-0"
         />
         <DialogPrimitive.Content
           data-slot="dialog-shell-content"
@@ -92,13 +92,13 @@ export function DialogShell({
             "fixed z-50 flex flex-col overflow-hidden bg-card text-card-foreground shadow-overlay outline-none",
             // 窄屏（基础）：贴底、满宽、上圆角、从下滑入。
             "inset-x-0 bottom-0 max-h-[90dvh] rounded-t-2xl",
-            "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-bottom",
-            "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-bottom",
+            "motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=open]:slide-in-from-bottom",
+            "motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0 motion-safe:data-[state=closed]:slide-out-to-bottom",
             // ≥640px：居中浮卡，按用途取一档宽度。
             "sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[calc(100%-2rem)] sm:max-h-[min(86dvh,720px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:rounded-t-xl",
             SIZE_CLASS[size],
-            "sm:data-[state=open]:zoom-in-95 sm:data-[state=open]:slide-in-from-bottom-0",
-            "sm:data-[state=closed]:zoom-out-95 sm:data-[state=closed]:slide-out-to-bottom-0",
+            "motion-safe:sm:data-[state=open]:zoom-in-95 motion-safe:sm:data-[state=open]:slide-in-from-bottom-0",
+            "motion-safe:sm:data-[state=closed]:zoom-out-95 motion-safe:sm:data-[state=closed]:slide-out-to-bottom-0",
             className,
           )}
         >
