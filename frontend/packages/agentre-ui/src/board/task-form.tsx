@@ -198,11 +198,12 @@ export function TaskFormShell({
           onChange={(labelIds) => patch({ labelIds })}
           disabled={submitting}
         />
-        {/* 左边说「这条任务是什么」，右边说「谁在哪台机器上用什么模型做它」。 */}
+        {/* 左边说「这条任务是什么」，右边说「谁在哪台机器上用什么模型做它」；
+            两组之间靠留白分开，不画竖线。 */}
         <span
-          data-testid="task-pill-divider"
+          data-testid="task-pill-gap"
           aria-hidden="true"
-          className="mx-1 h-5 w-px shrink-0 bg-border-strong"
+          className="w-3 shrink-0"
         />
         <TaskExecPills
           agentId={value.assigneeAgentId}
