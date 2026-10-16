@@ -148,6 +148,34 @@ func TestPiAgentProviderConfigJSON_APIMappingByProviderType(t *testing.T) {
 	}
 }
 
+// TestPiAgentProviderConfigJSON_BlankBaseURLRendersTypeDefault 钉死「Base URL 留空 = 走该类型
+// 默认端点」：Pi 的自定义模型对空 baseUrl 直接报错（不回落默认值），所以下发的 config
+// 必须带上 agentre 已知的默认端点，而不是 "baseUrl":""。
+func TestPiAgentProviderConfigJSON_BlankBaseURLRendersTypeDefault(t *testing.T) {
+	cases := []struct {
+		name    string
+		typ     string
+		baseURL string
+		want    string
+	}{
+		{"anthropic empty", string(llm_provider_entity.TypeAnthropic), "", "https://api.anthropic.com"},
+		{"anthropic whitespace", string(llm_provider_entity.TypeAnthropic), "  ", "https://api.anthropic.com"},
+		{"openai-chat empty", string(llm_provider_entity.TypeOpenAIChat), "", "https://api.openai.com/v1"},
+		{"openai-response whitespace", string(llm_provider_entity.TypeOpenAIResponse), " \t", "https://api.openai.com/v1"},
+	}
+	for _, tc := range cases {
+		t.Run("Given a "+tc.name+" base URL, when the Pi provider config is rendered, then baseUrl is the type default", func(t *testing.T) {
+			cfg := testProviderConfig(tc.typ, "m-1")
+			cfg.BaseURL = tc.baseURL
+
+			raw, err := piAgentProviderConfigJSON(cfg)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.want, decodeProviderConfig(t, raw).BaseURL)
+		})
+	}
+}
+
 func TestPiAgentProviderConfigJSON_OmitsZeroWindowAndMaxTokensButKeepsCost(t *testing.T) {
 	cfg := testProviderConfig(string(llm_provider_entity.TypeOpenAIChat), "qwen")
 	cfg.ContextWindow = 0
