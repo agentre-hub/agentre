@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/llmurl"
 )
 
 // PiAgentProviderRegistryEnvKey 是子进程 provider 注册表 env 的键名：Agentre 每会话注入
@@ -129,8 +130,9 @@ func piAgentProviderConfigJSON(cfg *EffectiveLLMConfig) (string, error) {
 	// provider 名 / baseUrl 里的 & 与 < 保持原样，日志与文件内容都可直接读。
 	encoder.SetEscapeHTML(false)
 	err := encoder.Encode(piProviderConfig{
-		Name:    cfg.ProviderName,
-		BaseURL: cfg.BaseURL,
+		Name: cfg.ProviderName,
+		// Pi 的自定义模型不接受空 baseUrl（不回落默认值），留空按类型解析成默认端点。
+		BaseURL: llmurl.EffectiveBaseURL(cfg.ProviderType, cfg.BaseURL),
 		API:     api,
 		APIKey:  "$" + PiAgentProviderEnvKey(cfg.ProviderKey),
 		Models: []piProviderModel{{

@@ -2,7 +2,8 @@
 //
 // 一个 LLMProvider = 一次"我可以调谁家的 API"的凭证 + 配置：
 //   - Type        决定走哪个 cago agents/provider 实现（anthropic / openai-chat / openai-response）；
-//   - APIKey  / BaseURL 是请求 LLM 实际需要的凭证；BaseURL 留空时由 service 层填默认值。
+//   - APIKey  / BaseURL 是请求 LLM 实际需要的凭证；BaseURL 留空表示用该 Type 的默认端点，
+//     原样保存，由各上游出口经 llmurl.EffectiveBaseURL（或 SDK 自身默认值）解析。
 //
 // 模型从 Provider 行拆到独立的 llm_provider_model_entity（1 → N）。Provider 只保存
 // 连接配置、独立可运行状态 enabled 与指向启用默认模型的 default_model_key。

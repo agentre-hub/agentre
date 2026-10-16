@@ -34,6 +34,9 @@ type ModelLookup interface {
 type Forwarder struct {
 	tokens *TokenRegistry
 	lookup ProviderLookup
+	// transport 是上游 HTTP 出口；nil 走 http.DefaultTransport。单测注入它来观察
+	// 默认上游地址，而不真正连到供应商公网端点。
+	transport http.RoundTripper
 }
 
 // NewForwarder 构造转发器。
@@ -107,13 +110,14 @@ func (f *Forwarder) handle(expected llm_provider_entity.ProviderType) http.Handl
 			return
 		}
 
-		target, err := llmurl.Build(provider.BaseURL, r.URL.Path)
+		target, err := llmurl.Build(llmurl.EffectiveBaseURL(provider.Type, provider.BaseURL), r.URL.Path)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "build upstream URL: "+err.Error())
 			return
 		}
 
 		proxy := &httputil.ReverseProxy{
+			Transport:     f.transport,
 			FlushInterval: -1, // SSE 立刻 flush
 			Rewrite: func(pr *httputil.ProxyRequest) {
 				pr.SetURL(target)

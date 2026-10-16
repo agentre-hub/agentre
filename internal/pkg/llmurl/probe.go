@@ -11,11 +11,7 @@ import (
 	"strings"
 )
 
-const (
-	defaultAnthropicBaseURL = "https://api.anthropic.com"
-	defaultOpenAIBaseURL    = "https://api.openai.com/v1"
-	anthropicVersion        = "2023-06-01"
-)
+const anthropicVersion = "2023-06-01"
 
 // HTTPDoer is the HTTP boundary used for upstream LLM probes.
 type HTTPDoer interface {
@@ -81,7 +77,7 @@ func (c *Client) Discover(ctx context.Context, provider Provider) ([]Model, erro
 	default:
 		return nil, errors.New("unsupported provider type")
 	}
-	endpoint, err := Build(providerBaseURL(provider), endpointPath)
+	endpoint, err := Build(EffectiveBaseURL(provider.Type, provider.BaseURL), endpointPath)
 	if err != nil {
 		return nil, errors.New("invalid upstream URL")
 	}
@@ -114,7 +110,7 @@ func (c *Client) Discover(ctx context.Context, provider Provider) ([]Model, erro
 }
 
 func (c *Client) testAnthropic(ctx context.Context, provider Provider, modelID string) error {
-	endpoint, err := Build(providerBaseURL(provider), "/v1/messages")
+	endpoint, err := Build(EffectiveBaseURL(provider.Type, provider.BaseURL), "/v1/messages")
 	if err != nil {
 		return errors.New("invalid upstream URL")
 	}
@@ -140,7 +136,7 @@ func (c *Client) testAnthropic(ctx context.Context, provider Provider, modelID s
 }
 
 func (c *Client) testOpenAIChat(ctx context.Context, provider Provider, modelID string) error {
-	endpoint, err := Build(providerBaseURL(provider), "/chat/completions")
+	endpoint, err := Build(EffectiveBaseURL(provider.Type, provider.BaseURL), "/chat/completions")
 	if err != nil {
 		return errors.New("invalid upstream URL")
 	}
@@ -165,7 +161,7 @@ func (c *Client) testOpenAIChat(ctx context.Context, provider Provider, modelID 
 }
 
 func (c *Client) testOpenAIResponse(ctx context.Context, provider Provider, modelID string) error {
-	endpoint, err := Build(providerBaseURL(provider), "/responses")
+	endpoint, err := Build(EffectiveBaseURL(provider.Type, provider.BaseURL), "/responses")
 	if err != nil {
 		return errors.New("invalid upstream URL")
 	}
@@ -178,16 +174,6 @@ func (c *Client) testOpenAIResponse(ctx context.Context, provider Provider, mode
 	setAuth(req, provider)
 	var response json.RawMessage
 	return c.doJSON(req, &response)
-}
-
-func providerBaseURL(provider Provider) string {
-	if strings.TrimSpace(provider.BaseURL) != "" {
-		return provider.BaseURL
-	}
-	if provider.Type == "anthropic" {
-		return defaultAnthropicBaseURL
-	}
-	return defaultOpenAIBaseURL
 }
 
 func setAuth(req *http.Request, provider Provider) {
