@@ -86,7 +86,8 @@ export function OrgGroupHeader({
         // 头留白会把它从父部门那块里推出去，读成又一个顶层部门。
         group.depth === 0 && "mt-[7px]",
         !selected && "hover:bg-sidebar-active-bg",
-        selected && "bg-sidebar-selected-bg text-primary-text",
+        // 外框上的选中项一律是 raised（与会话行、组织索引的 Agent 行同一套）。
+        selected && "bg-raised text-primary-text",
         dropState === "valid" && "ring-2 ring-primary/60",
         dropState === "invalid" && "ring-2 ring-destructive",
       )}

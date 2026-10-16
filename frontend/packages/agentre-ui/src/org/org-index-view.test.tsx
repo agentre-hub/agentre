@@ -38,6 +38,8 @@ function model() {
   return buildOrgIndex({ agents, departments, filters: EMPTY_FILTERS });
 }
 
+const classesOf = (node: HTMLElement) => node.className.split(/\s+/);
+
 describe("OrgAgentRow（只吃 props）", () => {
   it("画出名字、描述、后端徽标与行内的 ↳ 主管", () => {
     const rows = model().groups[0].rows;
@@ -105,14 +107,46 @@ describe("OrgAgentRow（只吃 props）", () => {
     expect(node.className).not.toContain("border-l-");
   });
 
-  it("选中的一行压进选中面，而不是靠左竖条转主色", () => {
+  it("Given 选中的一行, When 渲染, Then 它和外框上其它列表一样抬到 raised，而不是压进蓝色选中面或靠左竖条", () => {
     const row = model().groups[0].rows[0];
 
     render(<OrgAgentRow row={row} indent={0} selected onSelect={vi.fn()} />);
 
+    // 组织索引那一列在外框（chrome）上，外框上的选中项一律是 raised（会话行同一套）。
     const node = screen.getByTestId(`org-row-${row.agent.id}`);
-    expect(node.className).toContain("bg-sidebar-selected-bg");
+    expect(classesOf(node)).toContain("bg-raised");
+    expect(node.className).not.toContain("bg-sidebar-selected-bg");
     expect(node.className).not.toContain("border-l-primary");
+    // 选中行不发通用 hover 类：两个底色同挂时 hover 级联上必胜，选中面会被顶掉。
+    expect(node.className).not.toContain("hover:bg-sidebar-active-bg");
+    // 非色相线索与会话行一致：名字加粗 + aria-current。
+    expect(classesOf(screen.getByText(row.agent.name))).toContain(
+      "font-medium",
+    );
+    expect(node).toHaveAttribute("aria-current", "true");
+  });
+
+  it("Given 选中的行, When 渲染, Then 行尾与「↳ 主管」仍用普通的拒绝色与弱化色（它们在 raised 上本就过 4.5）", () => {
+    const rows = model().groups[0].rows;
+    const doc = rows.find((r) => r.agent.id === 4)!;
+    const bob = rows.find((r) => r.agent.id === 3)!;
+
+    render(
+      <>
+        <OrgAgentRow row={doc} indent={0} selected onSelect={vi.fn()} />
+        <OrgAgentRow row={bob} indent={0} selected onSelect={vi.fn()} />
+      </>,
+    );
+
+    expect(classesOf(screen.getByTestId("org-row-tail-4"))).toContain(
+      "text-destructive-text",
+    );
+    expect(classesOf(screen.getByTestId("org-row-tail-3"))).toContain(
+      "text-muted-foreground",
+    );
+    expect(classesOf(screen.getByText("↳ Eva"))).toContain(
+      "text-muted-foreground",
+    );
   });
 
   it("索引里的行不带描述第二行：那句话在详情里", () => {
@@ -310,6 +344,23 @@ describe("OrgGroupHeader 的收放与动作（都归宿主）", () => {
       />,
     );
     expect(screen.getByTestId("gh-action")).toBeInTheDocument();
+  });
+});
+
+describe("OrgGroupHeader 的选中态", () => {
+  it("Given 选中的组头, When 渲染, Then 抬到 raised、不发 hover 类，成员数仍是普通弱化色", () => {
+    render(
+      <OrgGroupHeader group={model().groups[0]} selected onSelect={vi.fn()} />,
+    );
+
+    const node = screen.getByTestId("org-group-1");
+    expect(classesOf(node)).toContain("bg-raised");
+    expect(node.className).not.toContain("bg-sidebar-selected-bg");
+    expect(node.className).not.toContain("hover:bg-sidebar-active-bg");
+    expect(node).toHaveAttribute("aria-current", "true");
+    expect(classesOf(screen.getByText("2 members"))).toContain(
+      "text-muted-foreground",
+    );
   });
 });
 

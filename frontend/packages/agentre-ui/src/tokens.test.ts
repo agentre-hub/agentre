@@ -224,9 +224,16 @@ const TEXT_SURFACES: Array<[string, string[]]> = [
   ["--code-muted-foreground", ["--code-surface"]],
   [
     "--primary-text",
-    ["--card", "--background", "--primary-soft", "--sidebar-selected-bg"],
+    [
+      "--card",
+      "--background",
+      "--primary-soft",
+      "--sidebar-selected-bg",
+      "--raised",
+    ],
   ],
-  ["--destructive-text", ["--destructive-soft", "--card"]],
+  // raised：外框上的选中项（会话行、组织索引的行与组头），行尾的「无目标」落在它上面。
+  ["--destructive-text", ["--destructive-soft", "--card", "--raised"]],
   // 「按时间」档的行是两行式，第二行是弱化文字；选中时它落在选中面上而不是 sidebar 上。
   // 不能沿用 --muted-foreground：暗色下 #909399 在任何「强过 hover」的选中面上都够不到
   // 4.5（可行窗口只剩对 sidebar 1.28~1.33 那一丝，落进去选中与 hover 就分不出了）。
