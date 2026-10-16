@@ -143,11 +143,14 @@ describe("表单外壳", () => {
     expect(document.body.innerHTML).not.toMatch(/(?<![:\w-])border-[tb]\b/);
   });
 
-  it("Given the property pills, When they render, Then a divider separates them from the execution pills", () => {
+  it("Given the property pills, When they render, Then whitespace, not a drawn line, separates them from the execution pills", () => {
     renderForm();
 
     const row = screen.getByTestId("task-form-pills");
-    expect(within(row).getByTestId("task-pill-divider")).toBeInTheDocument();
+    const gap = within(row).getByTestId("task-pill-gap");
+    expect(gap.className).not.toMatch(/(?<![:\w-])bg-/);
+    expect(gap.className).not.toMatch(/(?<![:\w-])border/);
+    expect(gap.className).toMatch(/(?<![:\w-])w-[1-9]/);
   });
 
   it("Given no title, When submit is pressed, Then it does not save", async () => {
