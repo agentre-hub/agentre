@@ -2491,6 +2491,46 @@ func TestSession_ResumeBootstrapDoesNotEndUserTurn(t *testing.T) {
 	require.NoError(t, sess.Close(ctx))
 }
 
+// TestSession_ResumeBootstrapStoppedTaskReachesTheUserTurn 钉死 sess-4295:恢复前奏里
+// 「上个进程留下的后台命令没跑完」的 task_notification(status=stopped、output_file 为空)
+// 排在 init 之前、此时还没有活跃轮。它不是后台型完成通知(无 output_file,不起自主续轮),
+// 又不在 canStartUserTurn 的白名单里,旧行为是当会话级帧丢掉 —— 那张派遣卡永远停在
+// 「运行中」(真机一个会话攒了 17 张,挂了几十个小时)。
+//
+// 它属于正被这条 user frame 唤醒的这一轮(前奏本来就由这一轮认领),必须连同归一后的
+// 状态一起交给这一轮,后台任务卡才翻得了终态。
+func TestSession_ResumeBootstrapStoppedTaskReachesTheUserTurn(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	c := New(WithBinary("fake"), pipeSpawner(t, fakeResumeBootstrap))
+	sess, err := c.OpenSession(ctx, Resume("sess-resumed"))
+	require.NoError(t, err)
+
+	ch, err := sess.Turn(ctx, "继续")
+	require.NoError(t, err)
+	var text strings.Builder
+	var done []*SubagentMeta
+	var doneIDs []string
+	for ev := range ch {
+		switch ev.Kind {
+		case EventTextDelta:
+			text.WriteString(ev.Text)
+		case EventTaskNotification:
+			done = append(done, ev.Tool.Subagent)
+			doneIDs = append(doneIDs, ev.Tool.ID)
+		}
+	}
+
+	assert.Equal(t, "echo:继续", text.String(), "认领前奏通知不能改变这一轮的收尾")
+	require.Len(t, done, 1, "前奏里的 stopped 通知必须交给这一轮")
+	assert.Equal(t, "toolu_prev", doneIDs[0])
+	assert.Equal(t, "bb9lo3oh6", done[0].TaskID)
+	assert.Equal(t, "canceled", done[0].Status, "stopped 归一成 canceled")
+
+	require.NoError(t, sess.Close(ctx))
+}
+
 // fakeResumedNoBootstrap 是「resume 了但 CLI 没补发恢复前奏」的那一支:首帧就是这一轮
 // 真正的 init/assistant/result。
 func fakeResumedNoBootstrap(stdin io.Reader, stdout io.Writer) {
