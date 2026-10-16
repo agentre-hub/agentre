@@ -315,11 +315,9 @@ function PreviewTabOverflowMenu({
             <DropdownMenuItem
               key={tab.path}
               data-active={tab.path === activePath}
+              current={tab.path === activePath}
               onSelect={() => onSelect(tab.path)}
-              className={cn(
-                "h-7 gap-2 rounded-none px-3 text-xs",
-                tab.path === activePath && "bg-sidebar-active-bg",
-              )}
+              className="h-7 gap-2 rounded-none px-3 text-xs"
             >
               {renderFileIcon?.(tab.path, "overflow")}
               <span
