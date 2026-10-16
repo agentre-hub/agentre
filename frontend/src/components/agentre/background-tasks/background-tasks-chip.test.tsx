@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PanelShownContext } from "../chat-panel/panel-shown";
 import { BackgroundTasksChip } from "./background-tasks-chip";
 import { BackgroundTasksPopoverContent } from "./background-tasks-popover";
 import type { BackgroundTask } from "./types";
@@ -145,29 +146,47 @@ describe("BackgroundTasksChip", () => {
     ).toBeInTheDocument();
   });
 
-  it.each([
-    ["visibility:hidden", { visibility: "hidden" }],
-    ["display:none", { display: "none" }],
-  ])(
-    "Given the peek is open from keyboard focus, When the page holding the button is hidden (%s), Then the peek closes instead of floating detached",
-    async (_name, hiddenStyle) => {
-      render(
-        <div data-testid="page">
-          <BackgroundTasksChip tasks={[running]} />
-        </div>,
-      );
-      await userEvent.tab();
-      expect(
-        await screen.findByTestId("background-tasks-peek"),
-      ).toBeInTheDocument();
+  // 面板被宿主用 CSS 藏起来（切 Tab / 离开对话页）时按钮仍挂载，Radix 收不到关闭
+  // 信号；宿主经 PanelShownContext 告诉它，预览卡与弹层都要收起，回来时也不自己弹开。
+  it("Given the peek is open from keyboard focus, When the host hides the panel holding the button, Then the peek closes", async () => {
+    const { rerender } = render(
+      <PanelShownContext.Provider value>
+        <BackgroundTasksChip tasks={[running]} />
+      </PanelShownContext.Provider>,
+    );
+    await userEvent.tab();
+    expect(
+      await screen.findByTestId("background-tasks-peek"),
+    ).toBeInTheDocument();
 
-      Object.assign(screen.getByTestId("page").style, hiddenStyle);
+    rerender(
+      <PanelShownContext.Provider value={false}>
+        <BackgroundTasksChip tasks={[running]} />
+      </PanelShownContext.Provider>,
+    );
 
-      await waitFor(() =>
-        expect(screen.queryByTestId("background-tasks-peek")).toBeNull(),
-      );
-    },
-  );
+    expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
+  });
+
+  it("Given the popover is open, When the host hides the panel and later shows it again, Then the popover is gone and does not come back by itself", async () => {
+    const chip = (shown: boolean) => (
+      <PanelShownContext.Provider value={shown}>
+        <BackgroundTasksChip tasks={[running]} />
+      </PanelShownContext.Provider>
+    );
+    const { rerender } = render(chip(true));
+    await openChip();
+    expect(
+      screen.getByRole("region", { name: "Commands" }),
+    ).toBeInTheDocument();
+
+    rerender(chip(false));
+    expect(screen.queryByRole("region", { name: "Commands" })).toBeNull();
+
+    rerender(chip(true));
+    expect(screen.queryByRole("region", { name: "Commands" })).toBeNull();
+    expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
+  });
 
   it("Given the peek is open from keyboard focus, When focus moves to an element outside, Then the peek closes", async () => {
     render(
@@ -222,6 +241,22 @@ describe("BackgroundTasksChip", () => {
     expect(onLocate).toHaveBeenCalledWith(task);
     // 对话滚过去之后弹层不该还盖在上面。
     expect(screen.queryByText("sleep 20")).toBeNull();
+  });
+});
+
+describe("BackgroundTasksChip — peek after the popover", () => {
+  // 指针移上按钮后预览卡要等 openDelay 才开；在那之前就点开了弹层，迟到的「打开」
+  // 不能记下来，否则弹层一关，预览卡就从它底下冒出来盖在对话上。
+  it("Given the popover was clicked open before the hover delay ran out, When a task is located and the popover closes, Then no peek surfaces in its place", async () => {
+    const task = { ...running, messageId: 42 };
+    render(<BackgroundTasksChip tasks={[task]} onLocateTask={vi.fn()} />);
+    await openChip();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    await userEvent.click(screen.getByRole("button", { name: /sleep 20/ }));
+
+    expect(screen.queryByRole("region", { name: "Commands" })).toBeNull();
+    expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
   });
 });
 

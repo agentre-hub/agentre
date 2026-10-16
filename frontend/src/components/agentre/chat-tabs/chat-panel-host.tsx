@@ -12,6 +12,7 @@ import {
 } from "@agentre-hub/agentre-ui";
 
 import { ChatPanel } from "../chat-panel";
+import { PanelShownContext } from "../chat-panel/panel-shown";
 import { PeerPanel } from "../peer/peer-panel";
 import { formatChord, formatPrimaryModifier } from "../shortcuts/format";
 import { TAB_CHIP_IDS, TAB_CLOSE_ID } from "../shortcuts/registry";
@@ -50,7 +51,12 @@ function tabsByPanelOrder(tabs: ChatTab[], order: string[]) {
     .filter((tab): tab is ChatTab => Boolean(tab));
 }
 
-export function ChatPanelHost() {
+export function ChatPanelHost({
+  shown = true,
+}: {
+  /** 整块对话区此刻是否摆在用户眼前（离开对话页时宿主只把它藏起来、不卸载）。 */
+  shown?: boolean;
+} = {}) {
   const tabs = useChatTabsStore((s) => s.tabs);
   const activeTabId = useChatTabsStore((s) => s.activeTabId);
   const [panelOrderState, setPanelOrderState] = React.useState<PanelOrderState>(
@@ -90,7 +96,12 @@ export function ChatPanelHost() {
         ) : t.meta.kind === "peer" ? (
           <HostedPeerPanel key={t.id} tab={t} active={t.id === activeTabId} />
         ) : (
-          <HostedPanel key={t.id} tab={t} active={t.id === activeTabId} />
+          <HostedPanel
+            key={t.id}
+            tab={t}
+            active={t.id === activeTabId}
+            shown={shown && t.id === activeTabId}
+          />
         ),
       )}
     </div>
@@ -372,9 +383,12 @@ function SetupChecklistRow({
 const HostedPanel = React.memo(function HostedPanel({
   tab,
   active,
+  shown,
 }: {
   tab: ChatTab;
   active: boolean;
+  /** 当前 Tab 且对话区可见；面板里的浮层据此收起。 */
+  shown: boolean;
 }) {
   const sid = tab.meta.kind === "session" ? tab.meta.sessionId : 0;
   const isNewTab = tab.meta.kind === "new";
@@ -480,17 +494,19 @@ const HostedPanel = React.memo(function HostedPanel({
           error={agentsError}
         />
       ) : (
-        <ChatPanel
-          active={active}
-          scrollStateKey={tab.id}
-          sessionId={sid}
-          newSessionAgent={isNewTab ? agent : null}
-          newSessionContext={newSessionContext}
-          onSessionCreated={handleSessionCreated}
-          onPeerSessionCreated={handlePeerSessionCreated}
-          onSessionDeleted={handleSessionDeleted}
-          onSidebarShouldReload={handleSidebarShouldReload}
-        />
+        <PanelShownContext.Provider value={shown}>
+          <ChatPanel
+            active={active}
+            scrollStateKey={tab.id}
+            sessionId={sid}
+            newSessionAgent={isNewTab ? agent : null}
+            newSessionContext={newSessionContext}
+            onSessionCreated={handleSessionCreated}
+            onPeerSessionCreated={handlePeerSessionCreated}
+            onSessionDeleted={handleSessionDeleted}
+            onSidebarShouldReload={handleSidebarShouldReload}
+          />
+        </PanelShownContext.Provider>
       )}
     </div>
   );

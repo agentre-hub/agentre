@@ -261,7 +261,7 @@ function AppLayout() {
                       style={{ display: hasChat ? "flex" : "none" }}
                     >
                       <TabStrip />
-                      <ChatPanelHost />
+                      <ChatPanelHost shown={hasChat} />
                     </div>
                   </div>
 
