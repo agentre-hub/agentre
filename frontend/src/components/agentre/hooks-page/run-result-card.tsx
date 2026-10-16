@@ -18,20 +18,11 @@ export function RunResultCard({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border",
-        ok
-          ? "border-status-running bg-status-running-bg"
-          : "border-status-error",
+        "overflow-hidden rounded-lg",
+        ok ? "bg-status-running-bg" : "bg-destructive-soft",
       )}
     >
-      <div
-        className="flex items-center gap-2.5 border-b px-3.5 py-2.5"
-        style={{
-          borderColor: ok
-            ? "var(--color-status-running)"
-            : "var(--color-status-error)",
-        }}
-      >
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5">
         {ok ? (
           <CheckCircle2 className="h-3.5 w-3.5 text-status-running" />
         ) : (
@@ -80,7 +71,7 @@ export function RunResultCard({
             </span>
             <pre
               data-selectable-text="true"
-              className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-2xs leading-relaxed text-code-muted-foreground"
+              className="overflow-x-auto rounded-md bg-code-surface p-3 font-mono text-2xs leading-relaxed text-code-muted-foreground"
             >
               {result.stdout}
             </pre>
@@ -93,7 +84,7 @@ export function RunResultCard({
             </span>
             <pre
               data-selectable-text="true"
-              className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-2xs leading-relaxed text-destructive-text"
+              className="overflow-x-auto rounded-md bg-code-surface p-3 font-mono text-2xs leading-relaxed text-destructive-text"
             >
               {result.stderr}
             </pre>

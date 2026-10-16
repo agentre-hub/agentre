@@ -34,48 +34,55 @@ type ChatPanelStub = {
   onSidebarShouldReload?: () => void;
   scrollStateKey?: string;
 };
-vi.mock("../../chat-panel", () => ({
-  ChatPanel: ({
-    sessionId,
-    newSessionAgent,
-    onSidebarShouldReload,
-    scrollStateKey,
-  }: ChatPanelStub) => {
-    chatPanelRenderCounts.set(
+vi.mock("../../chat-panel", async () => {
+  const { usePanelShown } = await import("../../chat-panel/panel-shown");
+  return {
+    ChatPanel: function ChatPanelStub({
       sessionId,
-      (chatPanelRenderCounts.get(sessionId) ?? 0) + 1,
-    );
-    return (
-      <div
-        data-testid={`chat-panel-${sessionId}`}
-        data-agent-id={newSessionAgent?.id ?? ""}
-        data-scroll-state-key={scrollStateKey ?? ""}
-      >
-        <button
-          type="button"
-          data-testid={`fire-reload-${sessionId}`}
-          onClick={() => onSidebarShouldReload?.()}
+      newSessionAgent,
+      onSidebarShouldReload,
+      scrollStateKey,
+    }: ChatPanelStub) {
+      const shown = usePanelShown();
+      chatPanelRenderCounts.set(
+        sessionId,
+        (chatPanelRenderCounts.get(sessionId) ?? 0) + 1,
+      );
+      return (
+        <div
+          data-testid={`chat-panel-${sessionId}`}
+          data-agent-id={newSessionAgent?.id ?? ""}
+          data-scroll-state-key={scrollStateKey ?? ""}
+          data-panel-shown={String(shown)}
         >
-          fire
-        </button>
-        {newSessionAgent ? <span>new agent {newSessionAgent.name}</span> : null}
-        {newSessionAgent ? (
-          <div
-            role="textbox"
-            data-testid="composer-editor"
-            contentEditable
-            suppressContentEditableWarning
-            tabIndex={0}
+          <button
+            type="button"
+            data-testid={`fire-reload-${sessionId}`}
+            onClick={() => onSidebarShouldReload?.()}
           >
-            editor
-          </div>
-        ) : null}
-        session {sessionId}
-      </div>
-    );
-  },
-  pruneChatPanelScrollState: vi.fn(),
-}));
+            fire
+          </button>
+          {newSessionAgent ? (
+            <span>new agent {newSessionAgent.name}</span>
+          ) : null}
+          {newSessionAgent ? (
+            <div
+              role="textbox"
+              data-testid="composer-editor"
+              contentEditable
+              suppressContentEditableWarning
+              tabIndex={0}
+            >
+              editor
+            </div>
+          ) : null}
+          session {sessionId}
+        </div>
+      );
+    },
+    pruneChatPanelScrollState: vi.fn(),
+  };
+});
 
 describe("ChatPanelHost", () => {
   beforeEach(() => {
@@ -174,6 +181,40 @@ describe("ChatPanelHost", () => {
     expect(wrap2).not.toHaveStyle({ display: "none" });
     expect(wrap2).toHaveAttribute("aria-hidden", "true");
     expect(wrap2).toHaveClass("pointer-events-none");
+  });
+
+  it("Given two session tabs on the chat page, When rendered, Then only the active panel is told it is shown", () => {
+    useChatTabsStore.getState().openSessionInNewTab(1);
+    useChatTabsStore.getState().openSessionInNewTab(2);
+    const firstId = useChatTabsStore.getState().tabs[0].id;
+    useChatTabsStore.getState().setActive(firstId);
+
+    render(<ChatPanelHost />);
+
+    expect(screen.getByTestId("chat-panel-1")).toHaveAttribute(
+      "data-panel-shown",
+      "true",
+    );
+    expect(screen.getByTestId("chat-panel-2")).toHaveAttribute(
+      "data-panel-shown",
+      "false",
+    );
+  });
+
+  it("Given the chat area is hidden behind another page, When rendered, Then even the active panel is told it is not shown", () => {
+    useChatTabsStore.getState().openSessionInNewTab(1);
+
+    const { rerender } = render(<ChatPanelHost shown={false} />);
+    expect(screen.getByTestId("chat-panel-1")).toHaveAttribute(
+      "data-panel-shown",
+      "false",
+    );
+
+    rerender(<ChatPanelHost shown />);
+    expect(screen.getByTestId("chat-panel-1")).toHaveAttribute(
+      "data-panel-shown",
+      "true",
+    );
   });
 
   it("Given terminal tabs, When the active tab changes, Then TerminalPanel receives active for focus management", () => {

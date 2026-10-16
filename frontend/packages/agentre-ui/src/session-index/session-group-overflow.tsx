@@ -142,7 +142,7 @@ function SessionGroupOverflow<Row>({
       onEscapeKeyDown={onClose}
       onInteractOutside={onClose}
     >
-      <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5">
+      <header className="flex shrink-0 items-center gap-2 px-3 py-2.5">
         {avatar}
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-semibold">{title}</div>
@@ -194,7 +194,7 @@ function SessionGroupOverflow<Row>({
         ) : null}
       </div>
 
-      <footer className="flex shrink-0 items-center justify-center gap-2 border-t border-border bg-muted/40 px-3 py-1.5">
+      <footer className="flex shrink-0 items-center justify-center gap-2 bg-muted/40 px-3 py-1.5">
         <span className="font-mono text-2xs text-muted-foreground">
           {t("sessionGroup.overflow.loaded", {
             loaded: rows.length,

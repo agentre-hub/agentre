@@ -182,6 +182,52 @@ describe("HooksPage", () => {
     expect(screen.getByRole("tab", { name: /Run Log/ })).toBeInTheDocument();
   });
 
+  it("presents one content sheet with the index column on chrome and no separator lines", async () => {
+    setBridge();
+    const { container } = render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    const main = container.querySelector("main")!;
+    expect(main.className).toContain("content-sheet");
+    const aside = container.querySelector("aside")!;
+    expect(aside.className).toContain("bg-chrome");
+    expect(aside.className).not.toContain("bg-sidebar");
+    // 开关的边按规格保留。
+    const structural = Array.from(
+      container.querySelectorAll("*:not([role='switch'])"),
+    )
+      .flatMap((el) => (el.getAttribute("class") ?? "").split(/\s+/))
+      .filter((token) => /^(?:border(?:-[tblrxy])?|divide-.*)$/.test(token));
+    expect(structural).toEqual([]);
+  });
+
+  it("marks the selected row with the raised surface and no colour bar", async () => {
+    setBridge();
+    const { container } = render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    const selected = container.querySelector('aside [aria-current="true"]')!;
+    expect(selected.className).toContain("bg-raised");
+    expect(selected.className).not.toContain("border-l");
+  });
+
+  it("renders the Script / Run Log switch as a tablist with arrow-key movement", async () => {
+    setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    const tablist = screen.getByRole("tablist");
+    expect(tablist).toHaveAttribute("data-slot", "segmented-control");
+    const script = screen.getByRole("tab", { name: "Script" });
+    expect(script).toHaveAttribute("aria-selected", "true");
+    script.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: /Run Log/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
   it("renders hook timestamps as millisecond epochs", async () => {
     // lastRunAt / receivedAt 与库里其它时间列同为毫秒 epoch。按秒解读会让
     // Date.now()/1000 - <毫秒值> 变成一个巨大负数,被 Math.max(0, …) 夹成 0,

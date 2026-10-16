@@ -24,7 +24,7 @@ export function Footer({ mode }: { mode: PaletteMode }) {
     ? formatChord(chord, shortcuts!.platform)
     : "⌘N";
   return (
-    <div className="flex h-9 shrink-0 items-center gap-3 overflow-hidden border-t border-border bg-muted px-4">
+    <div className="flex h-9 shrink-0 items-center gap-3 overflow-hidden bg-muted px-4">
       <KbdHint
         className="h-[18px] min-w-[18px] bg-card px-1.5"
         kbd="↑↓"
@@ -82,7 +82,7 @@ export function KbdHint({
     <span className="flex items-center gap-1.5">
       <kbd
         className={cn(
-          "inline-flex h-[16px] min-w-[16px] items-center justify-center rounded-sm border border-border bg-secondary px-1 font-mono text-2xs font-medium text-muted-foreground",
+          "inline-flex h-[16px] min-w-[16px] items-center justify-center rounded-sm bg-secondary px-1 font-mono text-2xs font-medium text-muted-foreground",
           className,
         )}
         aria-hidden="true"
@@ -102,7 +102,7 @@ export function NewChatHint({ kbd, label }: { kbd: string; label: string }) {
       <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
       <span className="flex shrink-0 items-center gap-1.5">
         <kbd
-          className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-sm border border-primary/40 bg-primary-soft px-1.5 font-mono text-2xs font-semibold text-primary-text"
+          className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-sm bg-primary-soft px-1.5 font-mono text-2xs font-semibold text-primary-text"
           aria-hidden="true"
         >
           {kbd}

@@ -149,8 +149,8 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
       className={cn(
         "text-card-foreground",
         isResolved && !payload.allowed
-          ? "border-destructive/40"
-          : "border-status-waiting/40",
+          ? "bg-destructive-soft"
+          : "bg-status-waiting-bg",
       )}
     >
       <TranscriptCardHeader

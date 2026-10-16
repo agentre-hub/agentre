@@ -85,7 +85,7 @@ function SegmentBlock({
   const { t } = useUiTranslation();
   return (
     <div data-testid="replayed-file-diff-segment">
-      <div className="flex items-center gap-2 border-y border-border bg-secondary px-3 py-1.5">
+      <div className="flex items-center gap-2 bg-secondary px-3 py-1.5">
         <span className="text-meta font-semibold text-foreground">
           {t("canonical.fileEdit.replay.segmentLabel", {
             index: segment.index + 1,
@@ -136,8 +136,8 @@ function Notice({ children, tone }: { children: ReactNode; tone?: "warning" }) {
     <div
       className={
         tone === "warning"
-          ? "border-b border-border bg-destructive-soft px-3 py-1.5 text-meta text-foreground"
-          : "border-b border-border bg-secondary px-3 py-1.5 text-meta text-muted-foreground"
+          ? "bg-destructive-soft px-3 py-1.5 text-meta text-foreground"
+          : "bg-secondary px-3 py-1.5 text-meta text-muted-foreground"
       }
     >
       {children}

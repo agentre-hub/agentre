@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CliPathField,
   DefaultPermissionModeField,
+  EnvJsonField,
   HermesAuthFields,
   HermesFields,
   ReasoningEffortField,
@@ -184,5 +185,33 @@ describe("HermesAuthFields", () => {
       screen.getByText(/requires browser authorization/i),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+  });
+});
+
+// 保留键（agentre 自己写的那几个）在 env 表里只会被丢弃。顶上那条横幅说「哪几个键」，
+// 行里的那一格还要自己标出来：无边框改版之后字段没有边可变红，标记走 aria-invalid
+// （Input 把它画成破坏色的环，读屏也读得到）。
+describe("EnvJsonField", () => {
+  it("Given a reserved key and an ordinary key, When rendered, Then only the reserved key field is marked invalid", () => {
+    render(
+      <EnvJsonField
+        entries={[
+          { key: "ANTHROPIC_API_KEY", value: "x" },
+          { key: "MY_FLAG", value: "1" },
+        ]}
+        onChange={vi.fn()}
+        open
+        onToggle={vi.fn()}
+        reservedOffenders={["ANTHROPIC_API_KEY"]}
+      />,
+    );
+
+    expect(screen.getByDisplayValue("ANTHROPIC_API_KEY")).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(screen.getByDisplayValue("MY_FLAG")).not.toHaveAttribute(
+      "aria-invalid",
+    );
   });
 });

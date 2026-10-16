@@ -566,7 +566,7 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
             // 容器生效,加在 inline-flex 容器本身,文本子节点会变成匿名 flex
             // item,省略号永远不会绘制,只会齐字硬切。完整原值仍在展开区
             // meta 行可见,截断不丢信息。
-            className="ml-1 inline-flex min-w-0 shrink-[0.2] items-center overflow-hidden rounded-sm border border-border-strong bg-transparent px-1.5 py-0.5 text-meta font-normal text-muted-foreground"
+            className="ml-1 inline-flex min-w-0 shrink-[0.2] items-center overflow-hidden rounded-sm bg-muted px-1.5 py-0.5 text-meta font-normal text-muted-foreground"
           >
             <span className="truncate">{modelBadge}</span>
           </span>
@@ -655,7 +655,7 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
         style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="flex flex-col gap-3 border-t border-border px-3 py-3">
+          <div className="flex flex-col gap-3 px-3 py-3">
             {hasMetaRow ? (
               <div
                 data-testid="agent-spawn-meta-row"
@@ -995,7 +995,7 @@ function GroupedAgentSpawnCard({
         style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="flex flex-col gap-3 border-t border-border px-3 py-3">
+          <div className="flex flex-col gap-3 px-3 py-3">
             <AgentSpawnSection label={t("canonical.agentSpawn.sections.tasks")}>
               <div className="flex flex-col gap-2">
                 {runs.map((run) => (
@@ -1084,14 +1084,15 @@ function AgentSpawnRunGroup({
       data-testid="agent-spawn-run-group"
       data-run-id={run.id}
       className={cn(
-        "overflow-hidden rounded-lg border bg-background",
+        "overflow-hidden rounded-lg bg-button-fill",
+        // 状态色条是保留项:只有左侧一条,没有外框。
         status === "failed"
-          ? "border-status-error/50 border-l-2 border-l-status-error"
+          ? "border-l-2 border-l-status-error"
           : status === "running"
-            ? "border-status-running/50 border-l-2 border-l-status-running"
+            ? "border-l-2 border-l-status-running"
             : status === "waiting" || status === "partial"
-              ? "border-status-waiting/50 border-l-2 border-l-status-waiting"
-              : "border-border border-l-2 border-l-border",
+              ? "border-l-2 border-l-status-waiting"
+              : "",
       )}
     >
       <button
@@ -1153,7 +1154,7 @@ function AgentSpawnRunGroup({
         style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="flex flex-col gap-2 border-t border-border px-2.5 py-2">
+          <div className="flex flex-col gap-2 px-2.5 py-2">
             <AgentSpawnSection label={t("canonical.agentSpawn.sections.steps")}>
               {steps.length > 0 ? (
                 // 性能:run group 的步骤区按**卡片**展开态懒挂载 —— 折叠的卡片
@@ -1205,7 +1206,7 @@ function RunBadge({
     <span
       data-testid={testId}
       data-copyable-control-text="true"
-      className="inline-flex min-w-0 shrink-0 items-center rounded-sm border border-border-strong px-1.5 py-0.5 text-meta text-muted-foreground"
+      className="inline-flex min-w-0 shrink-0 items-center rounded-sm bg-muted px-1.5 py-0.5 text-meta text-muted-foreground"
     >
       <span className="truncate">{children}</span>
     </span>
@@ -1254,7 +1255,7 @@ function AgentSpawnSection({
             {meta}
           </span>
         ) : null}
-        <span className="h-px min-w-0 flex-1 bg-border" />
+        <span className="min-w-0 flex-1" />
       </div>
       {children}
     </div>

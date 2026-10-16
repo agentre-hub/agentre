@@ -63,17 +63,16 @@ export const Tab = React.forwardRef<
       data-preview={isPreview}
       data-project-color={projectColor ?? undefined}
       className={cn(
-        "relative flex h-[38px] min-w-[120px] max-w-[240px] flex-shrink items-center gap-1.5 border-r border-border px-2.5 text-xs",
-        active ? "bg-background" : "hover:bg-card",
+        // 活动 tab 与下方内容页同色、上沿圆角，连成一体；其余落在外框上，悬停出底。
+        // Tab 之间不画线（无边框改版）。
+        "relative flex h-[38px] min-w-[120px] max-w-[240px] flex-shrink items-center gap-1.5 rounded-t-lg px-2.5 text-xs",
+        active ? "bg-sheet" : "hover:bg-button-fill",
         isPreview && "italic",
         className,
       )}
       onClick={onActivate}
       onDoubleClick={onDoublePromote}
     >
-      {active ? (
-        <span className="absolute left-0 top-0 h-[2px] w-full bg-primary" />
-      ) : null}
       {projectColor ? (
         <span
           className="absolute bottom-0 left-0 h-[2px] w-full"
@@ -127,7 +126,7 @@ export const Tab = React.forwardRef<
         {title}
       </span>
       {pillText ? (
-        <span className="inline-flex items-center rounded-sm border border-status-waiting bg-status-waiting-bg px-1.5 text-[9px] font-semibold text-status-waiting-text">
+        <span className="inline-flex items-center rounded-sm bg-status-waiting-bg px-1.5 text-[9px] font-semibold text-status-waiting-text">
           {pillText}
         </span>
       ) : null}

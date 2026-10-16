@@ -18,7 +18,7 @@ export function RootFollowNotice({ root, onUndo }: Props) {
   return (
     <div
       data-testid="root-follow-notice"
-      className="flex shrink-0 items-center gap-1.5 border-b border-border bg-muted/40 px-2 py-1 text-3xs text-muted-foreground"
+      className="flex shrink-0 items-center gap-1.5 bg-muted/40 px-2 py-1 text-3xs text-muted-foreground"
     >
       <CornerDownRight className="size-3 shrink-0" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate">

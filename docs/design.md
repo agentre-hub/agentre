@@ -23,7 +23,7 @@ This doc restates the [`frontend.md`](./frontend.md) hard rules only where neede
 
 Every UI change must satisfy all of these. They are the bar for "consistent, friendly UI/UX" in this codebase.
 
-- **Use tokens, not literal colors — one value, one place.** Never write a hex (`#3b6896`), an `rgb()`, or a palette class (`text-blue-500`). Always use a semantic token — `bg-background`, `text-foreground`, `border-border`, `text-primary`, `text-primary-text`, `text-muted-foreground`, … (§3). All color values live in exactly one place — the shared [`tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css) — so the palette stays unified and a single edit re-skins everything. One semantic concept maps to **one** token: before adding a color, check §3 for an existing token and reuse it; don't introduce a near-duplicate. Only add a new token when the concept is genuinely new — with both light and dark values — and document it in §3.
+- **Use tokens, not literal colors — one value, one place.** Never write a hex (`#3b6896`), an `rgb()`, or a palette class (`text-blue-500`). Always use a semantic token — `bg-background`, `text-foreground`, `bg-sheet`, `text-primary`, `text-primary-text`, `text-muted-foreground`, … (§3). All color values live in exactly one place — the shared [`tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css) — so the palette stays unified and a single edit re-skins everything. One semantic concept maps to **one** token: before adding a color, check §3 for an existing token and reuse it; don't introduce a near-duplicate. Only add a new token when the concept is genuinely new — with both light and dark values — and document it in §3.
 
   > **Sanctioned literal-color exceptions** (everything else must be a token): the xterm ANSI
   > palette in [`terminal/terminal-theme.ts`](../frontend/packages/agentre-ui/src/terminal/terminal-theme.ts)
@@ -31,7 +31,7 @@ Every UI change must satisfy all of these. They are the bar for "consistent, fri
   > missing (§3.6); and neutral black-alpha **shadows/scrim** (`box-shadow rgba(0,0,0,…)`, the `Dialog`
   > backdrop) — there are no `--shadow-*` tokens by design (§3.12).
 - **Both themes, always.** Light and dark are first-class. Because every color comes from a token that has a `:root` and a `.dark` value, using tokens makes a component theme-correct for free. Verify on real light *and* dark before considering anything done (§4).
-- **This is a desktop window, not a web page.** The shell is a fixed Wails frame — title bar → icon rail → resizable sidebar → tab strip → panel → status bar (§7). `html, body, #root` are `height:100%; overflow:hidden`, and the body defaults to `user-select:none`; text selection is **opted into** per region, not the default (§7). There is **no mobile breakpoint** and no `useIsMobile` — design for a resizable desktop window (min `860×640`), not a phone.
+- **This is a desktop window, not a web page.** The shell is a fixed Wails frame: the title bar, icon rail, each page's left list, the chat tab strip, the chat right panel and the status bar all sit on one `chrome` surface, and the workspace is a rounded **content sheet** floating on it; settings is a dialog over the current page (§7). `html, body, #root` are `height:100%; overflow:hidden`, and the body defaults to `user-select:none`; text selection is **opted into** per region, not the default (§7). There is **no mobile breakpoint** and no `useIsMobile` — design for a resizable desktop window (min `860×640`), not a phone.
 - **No inline `style={{}}` for what Tailwind can express.** Compose utility classes via `cn()` (`clsx` + `tailwind-merge`); build variants with `class-variance-authority` (CVA). Inline styles only for genuinely dynamic values (a computed width, a per-agent `var(--agent-N)` color, a `display` toggle).
 - **Hover/focus are CSS, not state.** Express interactive visuals with pseudo-classes (`hover:bg-accent`, `focus-visible:focus-outline`). React state is for data/logic, not styling.
 - **Reuse components before building new ones.** Default to the shadcn primitives in [`frontend/packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/) (§6) and the project blocks in [`frontend/src/components/agentre/`](../frontend/src/components/agentre/); icons come from `lucide-react` (with `@iconify/react` for the agent icon registry) — don't hand-roll a control that already exists. When the same block appears in two or more places, extract one shared component instead of copy-pasting.
@@ -49,8 +49,8 @@ The "why" behind the constraints — apply these when shaping a screen.
 1. **Agent identity is visual.** Agentre coordinates many concurrent coding agents, so an agent must be recognizable at a glance. Identity is carried by **a 16-color agent palette** (`--agent-1…16`, §3.6) seeded from the agent's color token, and run state by **four status tokens** (`running` / `waiting` / `idle` / `error`, §3.5) rendered as dots and pills. Reuse `AgentAvatar` / `StatusDot` / `StatusPill` — don't re-derive agent color or re-style status.
 2. **System state is always visible.** No silent work. Each async flow shows loading → progress → result (toast or in-place state, §9). A turn that finishes, errors, or needs approval also raises an app notification (§6.5).
 3. **Color is semantic, never decorative.** The steel-blue `primary` = interactive / brand; `status-running` green = running / success; `status-waiting` amber = needs attention; `status-error` / `destructive` red = error / dangerous. The agent hues are **identity**, not status — never read meaning into *which* agent color a session has.
-4. **One desktop frame.** Every screen lives in the same shell — custom title bar, a `w-14` icon rail, an optional resizable sidebar, the chat tab strip, and a status bar (§7). Swap the content in the `Outlet`/panel, not the frame.
-5. **Depth is a surface step, not a shadow.** Surfaces form an elevation ladder (light: `bg` → `card`/`popover`; dark: `rail` → `sidebar` → `bg` → `card` → `popover`). Separate layers with the surface token + a `border`; shadows are a faint accent at most (§3.12). This matters because shadows barely render on dark surfaces.
+4. **One desktop frame.** Every screen lives in the same shell — custom title bar, a `w-14` icon rail, an optional resizable sidebar, the chat tab strip and a status bar, all on `chrome`, around one content sheet (§7). Swap the content in the `Outlet`/panel, not the frame.
+5. **Depth is a surface step, not a line.** Regions are told apart by the surface ladder — `chrome` (the frame) → `sheet` (the workspace) → `raised` (a selected item on the frame) — and, inside a surface, by spacing and fills (§3.1, §3.12). **No structural lines:** two regions on the same surface are never divided by a border (§3.4, lint-enforced). Shadows are a faint accent at most, because they barely render on dark surfaces.
 6. **High cohesion, low coupling.** Each UI unit has a single purpose, a clear interface, and is understandable and testable on its own. A file growing large is usually a signal to split it.
 
 ---
@@ -60,7 +60,7 @@ The "why" behind the constraints — apply these when shaping a screen.
 **Single source:** shared token definitions in [`frontend/packages/agentre-ui/styles/tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css). The host [`globals.css`](../frontend/src/styles/globals.css) imports them and exposes the Tailwind mapping; `:root` defines light, `.dark` overrides for dark, so `bg-<token>` / `text-<token>` / `border-<token>` all switch with the theme automatically.
 
 **Usage:**
-- Background `bg-<token>`, text `text-<token>`, border `border-<token>`. Keyboard focus is not assembled from `ring-*` — see §10.
+- Background `bg-<token>`, text `text-<token>`, border `border-<token>`. Borders are not for separating regions — see §3.4 for the few lines that remain. Keyboard focus is not assembled from `ring-*` — see §10.
 - Opacity modifiers compose directly: `bg-primary/90`, `ring-destructive/20`, `border-status-error/40`.
 - **Never hard-code a color value** — see Constraint 1. For a dark-only tweak use the `dark:` variant.
 
@@ -68,18 +68,24 @@ The "why" behind the constraints — apply these when shaping a screen.
 
 | Token / class | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `background` | `#fafafa` | `#18191b` | Page / content background |
+| `background` | `#fafafa` | `#18191b` | Base page background. The shell itself paints `chrome` and the workspace paints `sheet` (below) |
 | `foreground` | `#18181b` | `#e8e8e9` | Primary text |
-| `card` | `#ffffff` | `#202122` | Card / raised surface |
+| `card` | `#ffffff` | `#202122` | Dialog surface (`Dialog`, `DialogShell`). In-page cards take a fill instead (§6.1) |
 | `card-foreground` | `#18181b` | `#e8e8e9` | Text on cards |
 | `popover` | `#ffffff` | `#292a2e` | Floating layers (dropdown / tooltip / toast) surface |
 | `popover-foreground` | `#18181b` | `#e8e8e9` | Text in floating layers |
 | `preview-canvas` | `#ffffff` | `#ffffff` | Canvas under a rendered HTML page in the file preview. White in both themes because pages are written against the browser's white default |
-| `rail` | `#e4e4e7` | `#0b0b0c` | Window chrome bands — title bar, icon rail, status bar (the recessed frame) |
-| `muted-foreground` | `#65656d` | `#909399` | De-emphasized / descriptive text — timestamps, counts, metadata labels, section headings. **This is the floor for anything a user has to read.** Its value is set by the *darkest* surface it lands on, not by `card`: the status bar and window controls put it on `rail`, where the old `#71717a` was only 3.81. Now 4.55 on `rail`, 5.26 on `secondary`/`code-surface`, 5.78 on `card`. Guarded per-surface by [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) |
+| `chrome` | `#ececee` | `#111214` | **The frame**: title bar, icon rail, each page's left list (session list, org index column, Hooks list), the chat tab strip, the chat right panel, the status bar, the settings dialog's nav column. `ResizableSidebar` paints it by default (`surface="chrome"`) |
+| `sheet` | `#ffffff` | `#1b1c1f` | **The content sheet**: the workspace (`content-sheet`, below), the settings dialog's content area, the active chat tab, a focused field |
+| `raised` | `#ffffff` | `#27282c` | **A selected item on the frame**: the selected session row, the current icon-rail item, the Hooks selected row, the current outline entry in the right panel |
+| `field-fill` / `field-fill-hover` | `foreground` 5% / 7% | same | Fields at rest / on hover (`bg-field-fill`, `hover:bg-field-fill-hover`); also cards, code blocks and settings groups. A `color-mix` of `foreground` with transparent, so it is always one step darker than whatever it lands on — sheet, a filled group or the chrome |
+| `button-fill` / `button-fill-hover` | `foreground` 8% / 12% | same | `outline` and `secondary` buttons, small filled controls (§6.2) |
+| `fill-muted-foreground` | `#5a5a61` | `#abaeb4` | **Muted text on a fill.** A fill darkens the surface under it and `muted-foreground` falls under 4.5 there (4.42 for a field on `chrome`). **You do not write this class:** the four fill utilities re-point `muted-foreground` to it for their subtree, exactly like `bg-accent` (§3.3); worst case 4.58 light / 4.59 dark. Do **not** add an opacity suffix to a fill (`bg-field-fill/50`) — that drops the re-point |
+| `rail` | `#e4e4e7` | `#0b0b0c` | No band paints it any more (the frame is `chrome`); it remains in `tokens.css` and in the surface guards of [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) |
+| `muted-foreground` | `#65656d` | `#909399` | De-emphasized / descriptive text — timestamps, counts, metadata labels, section headings. **This is the floor for anything a user has to read.** Its value is set by the *darkest* surface it lands on, not by `card`: the status bar and window controls put it on `rail`, where the old `#71717a` was only 3.81. Now 4.90 / 6.09 on `chrome`, 5.78 / 5.53 on `sheet`, 4.55 on `rail`, 5.26 on `secondary`/`code-surface`, 5.78 on `card` (light / dark where both are given); on a fill it is swapped for `fill-muted-foreground`. Guarded per-surface by [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) |
 | `decorative-foreground` | `#8a8a91` | `#71757e` | **Glyphs that never carry information** — separator dots (`·` `/` `›`), diff/file line numbers, `aria-hidden` icons that merely accompany adjacent text, fallback glyphs. Now 3.43 light / 3.49 dark on `card` and 3.12 / 3.10 on `secondary`; the one place it still dips under 3:1 is the light `rail` (2.70), which is why it stays limited to glyphs that carry no information. Was named `subtle-foreground`; that name read like "a weaker body text", so 97 metadata labels quietly ended up on it (2026-08-19 audit) — they all moved to `muted-foreground`. If the thing has to be *read*, it does not belong here |
 
-> Dark mode is a deliberate **5-level surface ladder**: `rail #0b0b0c` < `sidebar #131314` < `background #18191b` < `card #202122` < `popover #292a2e`. Pick the surface that matches the layer's height (§3.12).
+> **The surface ladder of the frame** — `chrome` → `sheet` → `raised`, in both themes. The frame and the sheet are separated by color alone, never a line: 1.18:1 light, 1.10:1 dark (`raised` on `chrome`: 1.18 / 1.27). Body text is 15.0 / 15.3 on `chrome`. The workspace is a `content-sheet` (utility in `tokens.css`): `sheet` background, `0.75rem` (12px) radius, an 8px gap to the frame on the right and bottom (`margin: 0 0.5rem 0.5rem 0` — the top meets the tab strip, the left meets the left list), `overflow: hidden`, and in light only the `--sheet-shadow` (a 0.5px ring plus a 1–3px soft drop); dark has no sheet shadow. Pick the surface that matches the layer (§3.12).
 
 ### 3.2 Brand primary (steel-blue)
 
@@ -101,26 +107,28 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 
 | Token / class | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `secondary` | `#f4f4f5` | `#292a2e` | Secondary buttons / fills; the tab-strip band |
+| `secondary` | `#f4f4f5` | `#292a2e` | Resting neutral fill (table header rows, the `DialogShell` footer band `bg-secondary/40`). Not a button fill — `outline` / `secondary` buttons use `button-fill` (§6.2) — and not the tab strip, which sits on `chrome` (§7) |
 | `secondary-foreground` | `#3f3f46` | `#c6c8cb` | Text on secondary |
 | `muted` | `#f4f4f5` | `#202122` | Muted background (group fills, placeholders) |
 | `accent` | `#e0e0e3` | `#3c3e43` | **交互反馈** —— 内容表面上的 hover / 选中填充。刻意不等于任何静止表面：曾经是 `#f4f4f5`，与 `secondary`/`muted`/`sidebar` 同字节，86 处 `hover:bg-accent` 在那些面上渲染成 1.00:1。实测（亮 / 暗）card 1.32 / 1.51、popover 1.32 / 1.34、background 1.26 / 1.64、secondary 1.20 / 1.34。**外壳带上的 hover 用 `rail-accent`，不要用它** |
-| `rail-accent` | `#f7f7f8` | `#232427` | 窗口外壳带（标题栏 / 图标栏 / 状态栏，即所有 `bg-rail` 之上）的 hover / focus 反馈。`rail` 亮色是 `#e4e4e7`，比任何内容表面都暗得多，**一个值无法同时服务两边**：在白卡片上够深的填充落到 rail 上会被吃掉（2026-08-19 就这么把 rail 的 hover 压到过 1.028）。rail 是下沉的一层，所以 hover 是提亮而非压暗，与 `sidebar-active-bg` 一致。实测 rail 上 1.19 / 1.27 |
+| `rail-accent` | `#f7f7f8` | `#232427` | 窗口外框带（标题栏 / 图标栏 / 状态栏，即 `bg-chrome` 之上）的 hover / focus 反馈。外框比任何内容表面都暗，**一个值无法同时服务两边**：在白色内容页上够深的填充落到外框上会被吃掉。外框是下沉的一层，所以 hover 是提亮而非压暗，与 `sidebar-active-bg` 一致。`chrome` 上 1.10 / 1.21 |
 | `accent-foreground` | `#18181b` | `#e8e8e9` | Text on accent |
 | `accent-muted-foreground` | `#5f5f67` | `#abaeb4` | **Muted text on the accent fill** — the description, shortcut or trailing path inside a row that is currently selected or hovered. `muted-foreground` is only 4.38 light / 3.48 dark there; this one is 4.80 / 4.81, and stays above 4.5 on the translucent hover fills (`accent/40`–`/60` over `card` / `popover`). **You do not write this class by hand:** the `bg-accent` utility re-points `muted-foreground` to it for the whole subtree, under whatever variant you used (`hover:bg-accent`, `focus:bg-accent`, `data-[selected=true]:bg-accent`), so `text-muted-foreground` inside the row simply follows. The one exception is a translucent fill — `bg-accent/60` cannot carry the re-point — where the same variant also takes `on-accent`: `hover:bg-accent/60 hover:on-accent`. Guarded by [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) |
 
-### 3.4 Borders, inputs, ring
+### 3.4 Edges: two tiers plus control edges
 
 | Token / class | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `border` | `#e4e4e7` | `#2d2e31` | Global borders (the `@layer base` reset gives every element `border-border`) |
-| `border-strong` | `#d4d4d8` | `#3d3f44` | Emphasized dividers / drag handles where `border` is too faint |
-| `input` | `#cbcbd0` | `#4d5056` | **The edge of a clickable control that already carries a label** — the `outline` `Button`, in both themes (1.62 / 1.99 on `card`). Visibly stronger than a divider, deliberately lighter than a field's edge: the text inside identifies the control, so the edge is a supporting cue and does not need 3:1. Also the unchecked `Switch` track and the soft dark field fill (`dark:bg-input/30`). Guarded by [`src/ui/button.test.tsx`](../frontend/packages/agentre-ui/src/ui/button.test.tsx) |
-| `input-bg` | `#ffffff` | `#18191b` | Form-control fill |
-| `field-border` | `#ababb1` | `#5f626a` | **The resting edge of a field** — `Input` / `Textarea` / `SelectTrigger` / `SearchInput`, and the hand-assembled fields: a search box built from a bare `<input>` (Hooks sidebar, capability picker) and the dropdown-style triggers (board scope and filter triggers, the model-target picker, the org placement combobox, the icon picker). A call site does not override it either — the Hooks script editor is a `Textarea` with a code fill and the same edge. Exactly halfway between `input` and `control-border` (2.28 / 2.64 on `card`, never below 2:1 on a surface a field lands on): firmer than a button's edge because a field can be empty, lighter than a checkbox's because a field is also recognised by its label, placeholder and position — several 3:1 edges stacked in one form read as heavy. It is knowingly below WCAG's 3:1; focus replaces it with solid `ring`. A field keeps this edge on hover — `SelectTrigger` answers hover with a fill, not by changing the edge. Guarded by [`src/ui/field-edge.test.tsx`](../frontend/packages/agentre-ui/src/ui/field-edge.test.tsx), [`src/ui/select.test.tsx`](../frontend/packages/agentre-ui/src/ui/select.test.tsx) and the edge ladder in [`src/tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts); the desktop's hand-assembled fields by [`__tests__/field-edge.test.tsx`](../frontend/src/components/agentre/__tests__/field-edge.test.tsx) |
+| `border` | `#e4e4e7` | `#2d2e31` | The divider color — **not for structural lines** (below). The `@layer base` reset still makes it every element's default `border-color`, so a bare `border` draws in it. Remaining uses: the menu separator (`h-px bg-border`, a fill rather than an edge) and the markdown `<hr>` an agent writes in its output |
+| `border-strong` | `#d4d4d8` | `#3d3f44` | The `DialogShell` grab handle (`bg-border-strong`) and the edge of the hand-drawn radio dots (session execution target, reasoning-effort picker) — control edges, not dividers |
+| `input` | `#cbcbd0` | `#4d5056` | The unchecked `Switch` track (`bg-input`). No longer an edge: the `outline` `Button` is filled (§6.2), and `border-input` is a lint error |
+| `input-bg` | `#ffffff` | `#18191b` | Opaque control fill — the model-target picker's search box. Ordinary fields use `field-fill` (§3.1) |
+| `field-border` | `#ababb1` | `#5f626a` | No field paints it: fields — `Input` / `Textarea` / `SelectTrigger` / `SearchInput` and the hand-assembled ones (Hooks sidebar search, board scope and filter triggers, the model-target picker, …) — are borderless, `bg-field-fill` at rest, `hover:bg-field-fill-hover`, and `bg-sheet` + the focus ring when focused or open (§10). `border-field-border` is a lint error. Guarded by [`src/ui/field-edge.test.tsx`](../frontend/packages/agentre-ui/src/ui/field-edge.test.tsx), [`src/ui/select.test.tsx`](../frontend/packages/agentre-ui/src/ui/select.test.tsx) and, for the desktop's hand-assembled fields, [`__tests__/field-edge.test.tsx`](../frontend/src/components/agentre/__tests__/field-edge.test.tsx) |
 | `control-border` | `#8a8a91` | `#71757e` | **Controls whose outline *is* the control** — the unchecked `Checkbox` and the outline `Toggle`: small, with no fill and nothing else to be recognised by, so losing the edge loses the control. Sized to clear WCAG 3:1 on the worst surface a control lands on (`secondary`: 3.12 light / 3.10 dark). Do **not** reach for `border`/`input` here. Guarded by [`src/ui/checkbox.test.tsx`](../frontend/packages/agentre-ui/src/ui/checkbox.test.tsx) |
 
-> **Four edge tiers — pick by how much identification the edge has to carry.** `border` separates (dividers, card edges). `input` outlines a control that names itself (a button with a label). `field-border` bounds a field, which may be empty but still has a label and a place in the form. `control-border` *is* the control (an unchecked box). Reaching one tier up "to be safe" is how the outline button once ended up as heavy as an input, and how every field once ended up as heavy as a checkbox.
+> **Divider, two fill tiers, control edge.** Fields and outline buttons left the edge ladder for the fill ladder: a field is `field-fill` (5%, 7% on hover), a button `button-fill` (8%, 12% on hover). What remains of edges is `border` for the few kept lines and `control-border` for controls whose outline *is* the control. Guarded by the `填充两档：字段与按钮` and `分隔线 / 填充两档 + 控件边` suites of [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts).
+>
+> **No structural lines.** Two regions on the same surface are never divided by a line — not between the frame bands (title bar, icon rail, status bar, sidebars, tab strip, right panel), not between a panel header and its body, not around a card or between a card's header and body, not between list rows (`divide-*`, `border-b last:border-b-0`) or table rows, not around popovers and dialogs or under their headers and above their footers, not above the composer when the transcript scrolls. They are told apart by the surface ladder, by spacing, or by a fill; after scrolling, a fade replaces the line between a title and the body. **Lines that may still appear:** the keyboard focus ring (§10); checkbox / radio / switch edges (`border-control-border`); status color bars (the amber "needs attention" stripe `border-l-2 border-status-waiting/40` in the session list, the sub-agent run group's `border-l-2 border-l-status-*`); drop-target hints (`border-2 border-dashed border-ring`). The sidebar resize handle draws nothing at rest and a thin brand bar on hover and while dragging. Lint rejects the divider colors (`border-border`, `border-*-border` other than `control-border`), `divide-*`, and field / button edges (`border-input`, `border-field-border`) — see the [enforced-rules table](./develop.md#enforced-rules-mechanically-checked).
 
 ### 3.5 Status colors (agent run state)
 
@@ -130,7 +138,7 @@ The heart of agentre's state language. Four states, each with a solid color (dot
 | --- | --- | --- | --- |
 | `running` | `#109066` → `#34d399` | `#ecfdf5` → `#0f2218` | green dot / pill — agent is working |
 | `waiting` | `#b07513` → `#fbbf24` | `#fdfaed` → `#261d0d` | amber dot / pill — awaiting approval/input |
-| `idle` | `#8c8c93` → `#747880` | *(uses `secondary`)* | gray dot; text falls to `muted-foreground`. Sized against `secondary` / `popover`, where the dot actually sits (3.04 light / 3.24 dark), not against `card` |
+| `idle` | `#84848b` → `#747880` | *(uses `secondary`)* | gray dot; text falls to `muted-foreground`. Sized against the darkest surface the dot sits on, the session list on `chrome` (3.15 light / 4.23 dark; 3.71 / 3.85 on `sheet`) |
 | `error` | `#dc2626` → `#f87171` | *(uses `destructive-soft`)* | red dot / pill — turn failed; its text is `destructive-text` (§3.11) |
 
 **Each state has up to four roles — do not mix them up:**
@@ -211,15 +219,15 @@ The shared issue-tone palette in [`board/tones.ts`](../frontend/packages/agentre
 
 ### 3.7 Sidebar
 
-A dedicated family so the navigation rail and context sidebars theme independently of the page surfaces.
+Row-state and icon colors for the lists and the icon rail that sit on the frame. The lists' own background is `chrome` (§3.1), not `sidebar`.
 
 | Token / class | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `sidebar` | `#f4f4f5` | `#131314` | Context-sidebar background (chat/projects lists) |
+| `sidebar` | `#f4f4f5` | `#131314` | The board's column track (`issue-board.tsx`). Not the left lists — they sit on `chrome` |
 | `sidebar-foreground` | `#18181b` | `#e8e8e9` | Sidebar text |
 | `sidebar-accent` | `#f4f4f5` | `#292a2e` | Hover/selected background |
-| `sidebar-active-bg` | `#ffffff` | `#292a2e` | Active item fill |
-| `sidebar-border` | `#e4e4e7` | `#2d2e31` | Sidebar border |
+| `sidebar-active-bg` | `#ffffff` | `#292a2e` | Hover fill of rows in the frame's lists; the active entry in the tab overflow menu and the file-preview tab strip. A *selected* row on the frame takes `raised` (§3.1) |
+| `sidebar-border` | `#e4e4e7` | `#2d2e31` | Not painted: sidebars have no edge, and `border-sidebar-border` is a lint error (§3.4) |
 | `sidebar-icon` | `#71717a` | `#8a8d94` | Rail icon (resting) |
 | `sidebar-icon-active` | `#3b6896` | `#8eb6dc` | Rail icon (active) |
 
@@ -261,7 +269,7 @@ Don't restyle scrollbars per-container; the shared rules in [`base.css`](../fron
 
 ### 3.11a Code / console surface
 
-Monospace **console output** surfaces (hook stdout/stderr, local-command output) — theme-adaptive, distinct from the `secondary`-based `CodeBlock` container.
+Monospace **console output** surfaces (hook stdout/stderr, local-command output) — theme-adaptive. The transcript `CodeBlock` container is different: a `TranscriptCard` on the default `field-fill`, with no outer edge and no line under its header row.
 
 | Token / class | Light | Dark | Use |
 | --- | --- | --- | --- |
@@ -271,17 +279,19 @@ Monospace **console output** surfaces (hook stdout/stderr, local-command output)
 
 ### 3.12 Elevation (surfaces & shadows)
 
-Depth is primarily a **surface step**, not a shadow (Principle 5). Pick the surface that matches the layer:
+Depth is a **surface step**, never a line (Principle 5). Pick the surface that matches the layer:
 
 | Level | Surface token | Shadow | Use |
 | --- | --- | --- | --- |
-| **Recessed chrome** | `rail` | none | Title bar, icon rail, status bar |
-| **Base** | `background` | none | Page content |
-| **Resting card** | `card` | none / `shadow-xs` | Cards, list rows, the active sidebar item (`shadow-xs`). Prefer a `border` over a shadow at rest. |
-| **Raised** | `popover` | `shadow-md` | Anchored floating layers — `DropdownMenu`, `Popover`, `HoverCard`, `Select`, the rail tooltip |
-| **Overlay** | `card` | `shadow-overlay` | Detached overlays that own the screen — `Dialog`. The shadow comes from the `--overlay-shadow` token (light: a soft drop + dark hairline; dark: a heavier drop + **light** hairline), and the backdrop from `--overlay-scrim` (`bg-scrim`) |
+| **Frame** | `chrome` | none | Title bar, icon rail, left lists, tab strip, chat right panel, status bar, settings nav column |
+| **Content sheet** | `sheet` (`content-sheet`) | light `--sheet-shadow`, dark none | The workspace of every page, the settings dialog's content area, the active chat tab |
+| **Selected on the frame** | `raised` | none (the icon-rail item adds `shadow-xs`) | Selected session row, current icon-rail item, Hooks selected row, current outline entry |
+| **Fill — field tier** | `field-fill` (5%, hover 7%) | none | Fields; cards, code blocks, settings groups, transcript cards |
+| **Fill — button tier** | `button-fill` (8%, hover 12%) | none | `outline` / `secondary` buttons, small filled controls, the settings nav's current item |
+| **Floating** | `popover` | `shadow-md` (`Select`, `DropdownMenu`: `shadow-overlay`) | Anchored floating layers — `DropdownMenu`, `Popover`, `HoverCard`, `Select`, `Tooltip`, the background-tasks preview card. No border |
+| **Overlay** | `card` (settings dialog: `sheet`) | `shadow-overlay` | Detached overlays that own the screen — `Dialog`, `DialogShell`, the settings dialog. No border. The shadow is the `--overlay-shadow` token, a plain drop with **no 1px ring** (light `0 24px 64px -12px` at 18% black, dark the same at 60%); the backdrop is `--overlay-scrim` (`bg-scrim`); the settings dialog's lighter, neutral backdrop is `--settings-scrim` (`bg-settings-scrim`, light 32% black, dark 55% black) |
 
-- **Shadows barely render in dark.** On the dark surfaces a black shadow is nearly invisible, so depth in dark relies on the surface step + the `border`. Keep the border; don't reach past `shadow-overlay`.
+- **No hairline rings.** A 1px ring in a shadow is a structural line by another name; `--overlay-shadow` has none, guarded by the `浮层阴影不带描边环` suite of [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts). On dark surfaces, where a black shadow barely renders, floating layers stand on the surface step alone — don't reach past `shadow-overlay`.
 - **The one shadow token is `--overlay-shadow` → `shadow-overlay`.** Root token is `--overlay-*` while the utility alias is `--shadow-*` on purpose: Tailwind v4's shadow namespace *is* `--shadow-*`, so a same-named root token would make the `@theme` mapping self-referential. Same reason for `--overlay-scrim` → `--color-scrim`. Anything shallower (`shadow-xs` / `shadow-md`) stays a plain Tailwind utility — don't invent more shadow tokens.
 - Pair elevation with the matching radius (§5): raised → `rounded-lg`, overlay → `rounded-xl`.
 
@@ -309,7 +319,7 @@ type AppThemePreference = AppTheme | "system";   // user choice
 
 ```tsx
 // ✅ Tokens — adapt to light/dark automatically
-<div className="bg-card text-foreground border-border">…</div>
+<div className="bg-sheet text-foreground">…</div>
 <button className="bg-primary text-primary-foreground hover:bg-primary/90">…</button>
 
 // ✅ dark: variant only for a dark-specific tweak
@@ -389,11 +399,12 @@ The palette is pruned to what's actually imported. **Present** in [`packages/age
 | `popover.tsx` / `hover-card.tsx` / `tooltip.tsx` | Floating layers |
 | `table.tsx` | Table subcomponents |
 | `toggle.tsx` | Pressed-state toggle |
+| `segmented-control.tsx` | `SegmentedControl` / `SegmentedControlItem` — the tab-like switch (`role="tablist"` / `role="tab"`, arrow-key navigation). Use it wherever an underline tab strip would have gone: no track fill, the current item `bg-button-fill` (8% of `foreground`), the others transparent until hovered (`bg-field-fill`) |
 | `skeleton.tsx` | Placeholder block while content loads |
 
-**Absent** (commonly expected, but *not* in the codebase — don't import or assume them): `card`, `tabs`, `sheet`, `progress`, `accordion`, `collapsible`, `sonner` (the `Toaster` is imported straight from `sonner`), `command` (there's a custom command palette), `form` (no form library — see §9).
+**Absent** (commonly expected, but *not* in the codebase — don't import or assume them): `card`, `tabs` (use `SegmentedControl`; no underline tabs), `sheet`, `progress`, `accordion`, `collapsible`, `sonner` (the `Toaster` is imported straight from `sonner`), `command` (there's a custom command palette), `form` (no form library — see §9).
 
-> **No `card.tsx`.** A "card" is the inline convention `rounded-lg border border-border bg-card p-4` (raised) — compose it directly; don't add a card primitive without cause. **No `progress`** — see §9 for the real loading conventions. Need a missing primitive back? Re-add it from shadcn rather than hand-rolling.
+> **No `card.tsx`.** A "card" is the inline convention `rounded-lg bg-field-fill p-4` — a fill, never an outline, and no line between its header and body; a group nested inside a card is separated by spacing, not by another card. Compose it directly; don't add a card primitive without cause. **No `progress`** — see §9 for the real loading conventions. Need a missing primitive back? Re-add it from shadcn rather than hand-rolling.
 
 ### 6.2 Button variants / sizes
 
@@ -402,7 +413,7 @@ Source: [`button.tsx`](../frontend/packages/agentre-ui/src/ui/button.tsx).
 - **variant:** `default` (solid `bg-primary`), `destructive`, `outline`, `secondary`, `ghost`, `link`
 - **size:** `default` (`h-9`), `xs` (`h-6`), `sm` (`h-8`), `lg` (`h-10`), `icon` (`size-9`), `icon-xs` (`size-6`), `icon-sm` (`size-8`), `icon-lg` (`size-10`)
 
-`outline` takes the second edge tier (`border-input`, §3.4) in both themes. `secondary` has no edge; its fill is **relative to the surface under it** (`bg-foreground/8`, `/12` on hover) rather than the `secondary` token, so it never lands on an identical surface and disappears — the old `bg-secondary` was 1.00 on a dark popover.
+`outline` and `secondary` look the same: no edge, `bg-button-fill text-secondary-foreground hover:bg-button-fill-hover` — 8% of `foreground`, 12% on hover, **relative to the surface under it** rather than the `secondary` token, so it never lands on an identical surface and disappears (the old `bg-secondary` was 1.00 on a dark popover). `default`, `ghost` and `destructive` are unchanged. A hand-written outline-style button takes the same fill, and a small control that used to be recognised only by its outline (an icon tile, a small pill button) gets a fill rather than degrading to bare text. The chat header's actions (background tasks, stop, right-panel toggle, more) are 32px icon-only buttons (`size="icon-sm"`), transparent until hovered, each with an accessible name and a tooltip.
 
 A bare `<svg>` child auto-sizes to `size-4` (`size-3` at `xs`/`icon-xs`). The `default` variant is `bg-primary text-primary-foreground` — `primary` *is* the solid fill here (unlike a separate "primary-background"); reserve `text-primary`/`border-primary` for accent semantics.
 
@@ -429,7 +440,7 @@ Project blocks in [`components/agentre/primitives.tsx`](../frontend/src/componen
 | `AgentAvatar` | Agent identity avatar. Sizes `xs`/`sm`/`md`/`lg` (`size-3.5`/`6`/`8`/`10`); `xs` is the sub-20px tier and draws a single initial. Renders, in priority: a custom image (`avatarDataUrl`), a registry icon (`avatarIcon`), else initials — on the `agentColorClassNames[color]` fill with white text. Defaults: `color="agent-1"`, `size="md"`. |
 | `StatusDot` | Colored run-state dot. Sizes `xs`/`sm`/`md` (`size-1.5`/`2`/`2.5`); `aria-label` = `"<status> status"`. |
 | `StatusPill` | Dot + uppercase label pill — `font-mono text-2xs`, `rounded-sm`, on the status' tinted bg. The canonical "agent is RUNNING/WAITING/…" chip. |
-| `SidebarButton` | Icon rail button — `ghost`/`icon`, `size-10 rounded-lg`, `sidebar-icon` color; active = `bg-primary-soft text-sidebar-icon-active shadow-xs`; ships its own hover/focus tooltip (300ms hover delay) and `aria-current`. |
+| `SidebarButton` | Icon rail button — `ghost`/`icon`, `size-10 rounded-lg`, `sidebar-icon` color; active = `bg-raised text-sidebar-icon-active shadow-xs`; ships its own hover/focus tooltip (300ms hover delay) and `aria-current`. |
 | `DeviceTag` | Local/remote device chip (online/offline). |
 
 > Other high-reuse blocks worth knowing before building. In the shared package: `code-block` (highlighted code + copy), `markdown-text` (agent markdown renderer) and `thinking-block` under `transcript/`, `resizable-sidebar` (drag-resized, persisted sidebar shell, §7) under `ui/`, `app-dialog` (generic dialog host) under `engine/`. In [`components/agentre/`](../frontend/src/components/agentre/): `compact-history-fold` (collapsible transcript region) and `icon-picker`. Search both before hand-rolling.
@@ -445,7 +456,8 @@ Two distinct systems — use the right one:
 
 - **Confirmation:** dangerous / irreversible → a `Dialog` confirm (e.g. `delete-project-dialog`, `quit-confirm-dialog`); state the blast radius in the copy. For easily reversible actions, prefer acting immediately + a Sonner toast over a blocking dialog — fewer interruptions.
 - **Transient panels:** anchored small layer → `Popover` / `DropdownMenu` / `HoverCard`; right-click affordance → `ContextMenu`. (No `Sheet` primitive — a side drawer like `project-settings-drawer` is composed directly.)
-- **Cards:** inline `rounded-lg border bg-card` (§6.1), not a primitive.
+- **Cards:** inline `rounded-lg bg-field-fill` (§6.1), not a primitive.
+- **Tab-like switching:** `SegmentedControl` (§6.1), not an underline tab strip.
 - **Feedback:** transient → Sonner toast; session lifecycle → notification viewport; persistent / in-page → §9 state patterns.
 
 ---
@@ -456,13 +468,25 @@ Two distinct systems — use the right one:
 
 Every screen renders inside `AppLayout` ([`App.tsx`](../frontend/src/App.tsx)). Top to bottom:
 
-1. **Title bar** (`AppTopBar`, [`chrome.tsx`](../frontend/src/components/agentre/chrome.tsx)) — `h-11`, `bg-rail`, `.wails-drag`; holds the app name/breadcrumb. Platform-aware: macOS reserves the 68px native traffic-light inset; Windows renders `WindowsWindowControls`.
-2. **Icon rail** — `<aside>` `w-14`, `bg-rail`, a column of `SidebarButton`s (Chat / Issues / Org / Hooks, from `lib/app-routing.ts`), with the theme toggle + Settings pinned to the bottom via `mt-auto`.
-3. **Context sidebar** *(per page)* — optional `ResizableSidebar` (chat agent list, project tree). `hidden lg:flex`, drag handle, width persisted.
-4. **Outlet / chat panel** — the routed page (`Outlet`), or the chat **tab strip** (`h-[38px]`, drag-reorderable, `.scrollbar-none`) + `ChatPanelHost`, toggled via `display:none` by `data-page-has-chat`.
-5. **Status bar** (`AppStatusBar`) — `h-7`, `bg-rail`; agent summary, connection status, version.
+The app root, and every band of the frame, paints `bg-chrome`; no line separates any two of them (§3.4).
 
-Swap the content in the `Outlet`/panel — keep the frame.
+1. **Title bar** (`AppTopBar`, [`chrome.tsx`](../frontend/src/components/agentre/chrome.tsx)) — `h-11`, `bg-chrome`, `.wails-drag`; holds the app name/breadcrumb. Platform-aware: macOS reserves the 68px native traffic-light inset; Windows renders `WindowsWindowControls`.
+2. **Icon rail** — `<aside>` `w-14`, `bg-chrome`, a column of `SidebarButton`s (Chat / Issues / Org / Hooks, from `lib/app-routing.ts`), with the theme toggle + Settings pinned to the bottom via `mt-auto`. The current item is `bg-raised`; the Settings gear shows as current while the settings dialog is open.
+3. **Left list** *(per page)* — optional `ResizableSidebar` (session list, org index column, Hooks list), `surface="chrome"` by default, no edge; the selected row is `bg-raised`. Its drag handle draws nothing at rest and a brand bar on hover / drag; width persisted.
+4. **Workspace** — the routed page (`Outlet`), or the chat **tab strip** (`h-[38px]`, `bg-chrome`, drag-reorderable, `.scrollbar-none`) + `ChatPanelHost`, toggled via `display:none` by `data-page-has-chat`. Each page's `<main>` is a **`content-sheet`** (§3.1): one rounded sheet with an 8px gap to the frame on the right and bottom. In the tab strip no line runs between tabs; the active tab is `bg-sheet` with a rounded top and merges into the sheet below it (no brand bar); inactive tabs hover to `button-fill`. On the chat page the title, transcript and composer share the sheet with no line under the title; the composer is borderless, `rounded-xl bg-field-fill`, and turns `bg-sheet` + focus ring when focused.
+5. **Right panel** *(chat page)* — the outline / changes / directory panel (`ChatContextSidebar`) sits **on the frame**, to the right of the sheet and outside it, from the tab strip's lower edge to the bottom. It keeps its toggle, drag-resize and persisted width (`agentre.sidebarWidth.chat-context`) and its text tabs with counts; the current outline entry is `bg-raised` (no brand bar), and an entry's edit count sits at the end of its time row (`✎ N`).
+6. **Status bar** (`AppStatusBar`) — `h-7`, `bg-chrome`; agent summary, connection status, version.
+
+Swap the content in the `Outlet`/panel — keep the frame. Exactly one `main` landmark is on screen: the page under any dialog.
+
+### Settings dialog
+
+Settings is not a page route: `SettingsDialog` ([`settings/page.tsx`](../frontend/src/components/agentre/settings/page.tsx)) floats over whatever page is open, driven by [`stores/settings-dialog-store.ts`](../frontend/src/stores/settings-dialog-store.ts) (`openSettings(page?)` / `closeSettings()` / `toggleSettings()`), and the page beneath — chat panel, scroll position, composer draft — stays mounted.
+
+- **Opening.** The gear, ⌘, / Ctrl+,, the command palette, and every deep link open the dialog; a link with a sub-page lands on it, one without lands on the sub-page last opened in this run (first time: Appearance). Coming from another dialog closes that one first. While open, a link with a sub-page switches to it and ⌘, closes the dialog.
+- **Look.** Centered with roughly 32px top/bottom and 56px left/right of window around it (`h-[calc(100dvh-4rem)] w-[calc(100vw-7rem)]`), at most 1180px wide, `rounded-2xl`, `bg-sheet` + `shadow-overlay`, no border, over a `bg-settings-scrim` backdrop (light 32% black, dark 55% black — lighter than the form dialogs' `bg-scrim`, because the page underneath only has to recede); 200ms fade, none under reduced motion. The left column is the nav (`w-[236px] bg-chrome`, fixed width, group titles and icons; the current item `bg-button-fill`); the right is the content area on `sheet`, scrolling on its own, with extra right padding so a page title's buttons clear the close button. The close button (icon-only, named "Close") sits top-right.
+- **Closing.** Esc, the close button, a click on the backdrop and ⌘, all close it and return focus to where it was. Any navigation also closes it — opening a remote session from inside settings, a page shortcut such as ⌘B, a page picked in the command palette — keyed on the router's `location.key`, so navigating to the path already underneath (opening a session while settings floats over chat) counts too. A dialog opened from inside settings stacks above it, and Esc / backdrop close only the topmost layer; Esc while recording a shortcut only cancels the recording.
+- **Window.** A transparent `h-11` strip over the title bar keeps the window draggable while the dialog is open. The content area is not a `main` landmark. `/settings` is not a route and is never written to `agentre.lastPath`; an old stored `/settings` resolves as an unknown path and lands on chat.
 
 ### Wails window chrome
 
@@ -511,7 +535,7 @@ Ties break by DOM/portal order, not a bespoke number. A new "always on top" need
 - **Enter/leave via Radix `data-state`** — `data-[state=open]:animate-in … data-[state=closed]:animate-out` with `fade-*`/`zoom-in-95` + `zoom-out-95`/`slide-*` (see `dialog.tsx`, `dropdown-menu.tsx`, `hover-card.tsx`). Don't hand-roll show/hide with `setTimeout`.
 - **Prefer `transition-colors`/`transition-transform` over `transition-all`** — animate only what should move. Common: chevron rotation `transition-transform duration-150`, collapse via `transition-[grid-template-rows] duration-150`.
 - **Spinners:** `animate-spin` on a `lucide` spinner (`Loader2` / `RefreshCw` / `LoaderCircle`), sized to context (`size-3.5`/`size-4` inline), usually tinted to the active status.
-- **Honor reduced motion explicitly.** Agentre does **not** rely on a global `prefers-reduced-motion` reset — instead each animation carries a `motion-reduce:animate-none` / `motion-reduce:transition-none` (or `motion-safe:`) modifier. **Always add one** when you introduce motion; it's how this codebase stays reduced-motion-safe.
+- **Honor reduced motion explicitly.** Agentre does **not** rely on a global `prefers-reduced-motion` reset — instead each animation carries a `motion-reduce:animate-none` / `motion-reduce:transition-none` (or `motion-safe:`) modifier. **Always add one** when you introduce motion; it's how this codebase stays reduced-motion-safe. A Radix enter/leave cannot be calmed with `motion-reduce:animate-none`: `data-[state=open]:animate-in` compiles to a class plus an attribute selector, outranks the single-class reduced-motion rule and keeps playing. Put `motion-safe:` in front of every `data-[state=…]:animate-*` / `fade-*` utility instead (see `SettingsDialog` in [`settings/page.tsx`](../frontend/src/components/agentre/settings/page.tsx)); an unconditional `animate-*` such as `animate-pulse` is still fine with `motion-reduce:animate-none`.
 
 ### Available animations
 
@@ -541,7 +565,7 @@ Every async flow covers loading / empty / error / success consistently. **Import
 | --- | --- |
 | **Loading** | A centered `Loader2` (`animate-spin`, `text-muted-foreground`) for whole regions, or an inline `Loader2 size-3.5 animate-spin` inside a disabled button for single actions. For lightweight "first load" copy, centered `text-xs text-muted-foreground`. For placeholder rows, the `Skeleton` primitive (e.g. [`exec-target-list.tsx`](../frontend/src/components/agentre/org/exec-target-list.tsx)). |
 | **Empty** | Centered icon (`Inbox` / `Sparkles` in `decorative-foreground`/`primary-soft`) + `text-sm font-semibold` title + `text-xs text-muted-foreground` description + a primary CTA. See `ProvidersEmptyState` ([`llm-providers.tsx`](../frontend/packages/agentre-ui/src/engine/llm-providers.tsx)). |
-| **Error** | `ErrorCard` ([`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)): `border-status-error/40 bg-destructive-soft`, `TriangleAlert` icon in `text-status-error`, the message in `text-destructive-text`, and an optional outline retry button. For page-level failures, centered `text-destructive-text` copy. |
+| **Error** | `ErrorCard` ([`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)): `bg-destructive-soft` with no edge, `TriangleAlert` icon in `text-status-error`, the message in `text-destructive-text`, and an optional outline retry button. For page-level failures, centered `text-destructive-text` copy. |
 | **Success** | Transient → a Sonner `toast.success` (§6.5); a completed agent turn → the notification viewport. |
 | **In-progress** | No general-purpose `Progress` primitive in the shared package. Agent background-task progress has a dedicated `TaskProgressBar` ([`task-progress/`](../frontend/src/components/agentre/task-progress/)) — a real bar + expandable task list with a `LoaderCircle` spinner tinted `text-status-waiting`. For other waits, a status-tinted spinner + readable copy. |
 
@@ -564,10 +588,11 @@ Forms are plain `useState` + controlled shadcn components — **no react-hook-fo
 ### Interactive states
 
 - **Hover/focus** via CSS pseudo-classes, never React state (§1, §8).
-- **Hover is always the feedback color, never a resting surface.** `hover:bg-accent`; a lighter touch is `hover:bg-accent/60 hover:on-accent`; on the window chrome bands it is `hover:bg-rail-accent`. `muted` and `secondary` each equal some other surface (dark `muted` ≡ `card`, `secondary` ≡ `popover`; light `secondary` ≡ `sidebar`), so as a hover fill they land at 1.00 there — `hover:bg-muted` / `hover:bg-secondary` are lint errors (see the [enforced-rules table](./develop.md#enforced-rules-mechanically-checked)). Two deliberate lifts toward `card` remain, each from a different-valued resting fill: a chat tab on the `secondary` strip (the same direction as the active tab), and the title-bar command-palette trigger, which rests at `bg-card/60` on the rail. The file-preview tab strip is `bg-muted`, so its tabs hover to `accent` like everything else.
+- **Hover is always the feedback color, never a resting surface.** `hover:bg-accent`; a lighter touch is `hover:bg-accent/60 hover:on-accent`; on the window chrome bands it is `hover:bg-rail-accent`. `muted` and `secondary` each equal some other surface (dark `muted` ≡ `card`, `secondary` ≡ `popover`; light `secondary` ≡ `sidebar`), so as a hover fill they land at 1.00 there — `hover:bg-muted` / `hover:bg-secondary` are lint errors (see the [enforced-rules table](./develop.md#enforced-rules-mechanically-checked)). The fills have their own hover step instead: a field `hover:bg-field-fill-hover` (the title-bar command-palette trigger is such a field), a filled button `hover:bg-button-fill-hover`, an inactive chat tab on the `chrome` strip `hover:bg-button-fill`. The file-preview tab strip is `bg-muted`, so its tabs hover to `accent` like everything else.
 - **Something that is not interactive gets no hover at all** — don't cancel a primitive's hover by repeating the resting fill under `hover:` (that is the banned spelling above). A `TableRow` inside `TableHeader` already carries no hover / expanded / selected feedback, so a header row only needs its resting fill (`<TableRow className="bg-secondary">`); guarded by [`table.test.tsx`](../frontend/packages/agentre-ui/src/ui/table.test.tsx).
 - **Disabled:** the shadcn primitives already apply `disabled:opacity-50 disabled:pointer-events-none` — reuse them; give a non-obvious disable a reason nearby.
-- **Selected / current:** persistent selection uses `accent` / `sidebar-active-bg` fills or `primary-text` text, paired with a non-color cue (`aria-current`, an indicator) — distinct from transient `hover:accent` (§10).
+- **Fields:** at rest `bg-field-fill`, no edge; on hover `bg-field-fill-hover`; when focused or open the fill returns to `bg-sheet` and the only thing that appears is the focus ring (§10) — no edge turns solid, no halo. `aria-invalid` shows a destructive ring (`ring-2 ring-destructive`). In-place editable text (a board task's title and description) is `Input` / `Textarea` with `variant="inline"`: no fill, only the focus ring.
+- **Selected / current:** on the frame a selected item is `bg-raised`; in a segmented control the current item is `bg-button-fill`; elsewhere persistent selection uses `accent` fills or `primary-text` text. Always paired with a non-color cue (`aria-current`, `aria-selected`) — distinct from transient hover (§10).
 
 The rule: **no silent operations** — after any action the user can see success / failure / in-progress.
 
@@ -579,20 +604,20 @@ Friendly UX includes keyboard, screen-reader, low-vision, and motion-sensitive u
 
 ### Contrast
 
-- **Target WCAG AA:** ≥ 4.5:1 for normal text, ≥ 3:1 for large text and meaningful UI/icon edges. `foreground`, the status `*-fg` pairs, and brand `primary-text` pass comfortably. The one deliberate exception is a field's **resting** edge (`field-border`, §3.4): 2.08–2.88:1 on `card` / `background` / `secondary` / `popover`, because a field is also recognised by its label, placeholder and position; its focused edge is solid `ring` and does clear 3:1.
+- **Target WCAG AA:** ≥ 4.5:1 for normal text, ≥ 3:1 for large text and meaningful UI/icon edges. `foreground`, the status `*-fg` pairs, and brand `primary-text` pass comfortably. Fields carry no edge: they are recognised by their fill, label, placeholder and position, and muted text or a placeholder on any fill — hovered, or a field on `chrome` — reads at ≥4.5 through `fill-muted-foreground` (§3.1).
 - **`muted-foreground` is the floor for readable text** — secondary/descriptive copy lives there; use `foreground` for anything dense or critical. `decorative-foreground` is fainter still and is **not** a text color: it is for glyphs that carry no information (§3.1). Both are guarded per-surface, so "it looks fine on a card" is no longer the test.
 - **Terminal output is colored by the program, not by us.** The xterm palettes in [`terminal-theme.ts`](../frontend/packages/agentre-ui/src/terminal/terminal-theme.ts) cannot guarantee what a program does with them — the light theme's bright colors sit at 1.65–2.27 on the terminal background, and programs also emit 256-color and truecolor. Both xterm instances (the interactive panel and the read-only command card) therefore run with `minimumContrastRatio` set to `TERMINAL_MIN_CONTRAST_RATIO` (4.5): xterm leaves a passing foreground alone and pushes a failing one toward black/white until it passes.
 - **Never encode meaning in color alone.** The agent palette is *identity*, not status — always pair an agent color with its name/initials, and every status color with its label/icon (`StatusPill` does both).
 
 ### Focus visibility
 
-Keyboard focus has exactly two looks — a solid outline for button-like elements (drawn inward where a container would clip it) and a halo for fields — each defined once in the shared [`tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css) and applied under a variant:
+Keyboard focus is one look — a solid outline, drawn inward where a container would clip it — for buttons and fields alike, defined once in the shared [`tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css) and applied under a variant. It is the only line on the page that *appears*:
 
 | Utility | Draws | Use on |
 | --- | --- | --- |
-| `focus-visible:focus-outline` | A 2px solid `ring` outline with a 2px gap | Anything button-like: buttons, rows, tabs, chips, `Switch`, `Checkbox`, radio items |
+| `focus-visible:focus-outline` | A 2px solid `ring` outline with a 2px gap | Anything button-like: buttons, rows, tabs, chips, `Switch`, `Checkbox`, radio items. **Fields too:** `Input` / `Textarea` / `SelectTrigger` (which also return their fill to `bg-sheet`); a shell that wraps a field takes `focus-within:focus-outline` (`SearchInput`, the chat composer) |
 | `focus-visible:focus-outline-inset` | The same 2px solid `ring`, drawn **inward** (offset −2px) | A button-like element that sits flush against a clipping container, where an outward ring would be cut off: a tab that fills an `overflow-hidden` tab strip (chat tabs, preview tabs), a row flush with a list's clipped edge (session rows, and the two other full-width rows inside a session group's `overflow-hidden` body — the own-sessions header and the "View all" entry). The ring then sits on the element's own fill, so it is guarded against every row fill it lands on |
-| `focus-visible:focus-halo` | The edge turns solid `ring`, plus a 3px halo | Fields: `Input` / `Textarea` / `SelectTrigger`. A shell that wraps a field takes `focus-within:focus-halo` (`SearchInput`, the chat composer) |
+| `focus-visible:focus-halo` | The edge turns solid `ring`, plus a 3px halo | Still defined, but no component uses it: the fields are borderless, so there is no edge to turn solid |
 
 The outline is solid on purpose: the hand-assembled `ring-ring/50` it replaces composited to about 2.1:1 and `ring-ring/40` to about 1.8:1, whereas solid `ring` is 4.1–5.8:1 on every surface (guarded by [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts)). The gap keeps the ring from fusing with a solid primary button, whose fill is the same color.
 
@@ -625,14 +650,14 @@ There's no global reset — honor it **per-utility** with `motion-reduce:` / `mo
 
 When building a new page or dialog, run this checklist to stay consistent:
 
-- [ ] **Shell:** render inside the existing `AppLayout` frame — a routed `Outlet` page (title bar / rail / status bar are given). Add a `ResizableSidebar` only if the page needs a list/detail split (§7).
-- [ ] **Color** entirely from tokens (`bg-card` / `text-foreground` / `border-border` / `text-primary` / `bg-primary` …), no literals, verified on both themes (Constraints 1–2, §3–4).
+- [ ] **Shell:** render inside the existing `AppLayout` frame — a routed `Outlet` page (title bar / rail / status bar are given) whose `<main>` is a `content-sheet`. Add a `ResizableSidebar` (on `chrome`) only if the page needs a list/detail split (§7). Settings content goes into the settings dialog, not a new route.
+- [ ] **Color** entirely from tokens (`bg-sheet` / `text-foreground` / `bg-field-fill` / `text-primary` / `bg-primary` …), no literals, verified on both themes (Constraints 1–2, §3–4).
 - [ ] **Agent/status surfaces** reuse `AgentAvatar` / `StatusDot` / `StatusPill` and the `agentColorClassNames` / `tokenToCssColor` helpers — never re-derive agent color or re-style status (Principle 1, §3.5–3.6, §6.4).
-- [ ] **Components** reuse first — search [`components/agentre/`](../frontend/src/components/agentre/) and [`packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/) before building; remember there's **no `card`/`tabs`/`sheet`/`progress`** primitive — compose the inline card and the §9 state patterns; variants via CVA, classes via `cn()`, icons via `lucide-react` (§6).
-- [ ] **Cards** are inline `rounded-lg border border-border bg-card p-4`; pick the surface by elevation (§3.12) and pair with the matching radius.
+- [ ] **Components** reuse first — search [`components/agentre/`](../frontend/src/components/agentre/) and [`packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/) before building; remember there's **no `card`/`tabs`/`sheet`/`progress`** primitive — compose the inline card, use `SegmentedControl` for tab-like switching, and the §9 state patterns; variants via CVA, classes via `cn()`, icons via `lucide-react` (§6).
+- [ ] **No structural lines** (§3.4): the header and footer are separated from the body by spacing, not `border-b` / `border-t`; cards are inline `rounded-lg bg-field-fill p-4`; fields and outline buttons are fills. Lint rejects divider colors, `divide-*` and field / button edges.
 - [ ] **State:** loading / empty / error / success all covered, never silent (§9); extract a shared state block if it repeats.
 - [ ] **Motion** restrained (`150–200ms`, `ease-out`), hover/focus via pseudo-classes, enter/leave via `data-state`, and **a `motion-reduce:` modifier on every animation** (§8).
-- [ ] **Depth** uses the surface ladder (§3.12) and the z-index ladder (`z-10`–`z-20` chrome / `z-50` floating, §7) — keep borders in dark, no magic `z-[…]`.
+- [ ] **Depth** uses the surface ladder (§3.12) and the z-index ladder (`z-10`–`z-20` chrome / `z-50` floating, §7) — no borders to fake depth, no magic `z-[…]`.
 - [ ] **Long lists** virtualize with `@tanstack/react-virtual` if unbounded (§7).
 - [ ] **Accessibility:** AA contrast on both themes; meaning never color-only; custom controls keyboard-reachable with a visible focus ring; `aria-label` on icon buttons; reduced-motion-safe (§10).
 - [ ] **Copy** through i18n (zh-CN + en), sentence-case, verbs on buttons, specific errors (§9, [`frontend.md`](./frontend.md)).
@@ -647,25 +672,26 @@ import { Button } from "@agentre-hub/agentre-ui";
 export default function ExamplePage() {
   const { t } = useTranslation();
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
-      {/* page header (the window title bar is provided by AppLayout) */}
-      <header className="flex h-11 shrink-0 items-center border-b border-border px-4">
+    // the page is one content sheet on the chrome frame (title bar / rail / status bar come from AppLayout)
+    <main className="content-sheet flex min-h-0 min-w-0 flex-1 flex-col text-foreground">
+      {/* page header — set apart by spacing, no border-b */}
+      <header className="flex h-11 shrink-0 items-center px-4">
         <h1 className="text-sm font-semibold">{t("example.title")}</h1>
       </header>
 
       {/* scroll region — global auto-hiding scrollbar applies */}
-      <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4" data-selectable-text="true">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4" data-selectable-text="true">
         <section className="mx-auto w-full max-w-[864px] space-y-3">
-          <div className="rounded-lg border border-border bg-card p-4">…</div>
+          <div className="rounded-lg bg-field-fill p-4">…</div>
         </section>
-      </main>
+      </div>
 
-      {/* action bar */}
-      <footer className="flex shrink-0 justify-end gap-2 border-t border-border px-4 py-3">
+      {/* action bar — no border-t */}
+      <footer className="flex shrink-0 justify-end gap-2 px-4 py-3">
         <Button variant="outline">{t("common.cancel")}</Button>
         <Button>{t("common.confirm")}</Button>
       </footer>
-    </div>
+    </main>
   );
 }
 ```

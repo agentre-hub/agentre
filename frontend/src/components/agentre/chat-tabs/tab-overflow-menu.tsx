@@ -87,7 +87,7 @@ export function TabOverflowMenu() {
                   />
                 ) : null}
                 {idx < 9 ? (
-                  <kbd className="shrink-0 rounded-sm border border-border bg-secondary px-1 font-mono text-2xs text-muted-foreground">
+                  <kbd className="shrink-0 rounded-sm bg-button-fill px-1 font-mono text-2xs text-muted-foreground">
                     ⌘{idx + 1}
                   </kbd>
                 ) : null}

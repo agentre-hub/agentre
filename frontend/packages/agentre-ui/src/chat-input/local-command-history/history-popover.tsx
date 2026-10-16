@@ -59,7 +59,7 @@ export function LocalCommandHistoryPopover({
       onDismiss={onDismiss}
       editorElement={editorElement}
       footer={
-        <div role="presentation" className="mt-1 border-t border-border pt-1">
+        <div role="presentation" className="mt-1">
           <Button
             type="button"
             variant="ghost"

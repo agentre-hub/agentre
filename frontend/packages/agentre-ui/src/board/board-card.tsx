@@ -81,13 +81,14 @@ export function BoardCard({
         data-testid={`board-card-body-${card.id}`}
         onClick={() => ports.onEdit(card.id)}
         className={cn(
-          "flex w-full cursor-pointer flex-col gap-2 rounded-md border bg-card px-3 py-2.5 text-left transition-colors",
+          "flex w-full cursor-pointer flex-col gap-2 rounded-md px-3 py-2.5 text-left transition-colors",
           "focus-visible:focus-outline",
           dragState === "ghost"
             ? // 原位残影：卡还在这儿占着位置，但内容已经被拿走了。
-              "border-dashed border-border-strong bg-transparent opacity-60 shadow-none"
-            : "border-border shadow-xs hover:border-border-strong",
-          dragState === "lifted" && "rotate-2 border-primary shadow-overlay",
+              "bg-field-fill opacity-60 shadow-none"
+            : "bg-field-fill hover:bg-field-fill-hover",
+          dragState === "lifted" &&
+            "rotate-2 bg-sheet shadow-overlay ring-1 ring-primary",
         )}
       >
         <span className="flex items-center gap-1.5 pr-6">

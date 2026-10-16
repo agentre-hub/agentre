@@ -166,6 +166,20 @@ describe("OrgChartPage 一屏之内", () => {
     expect(screen.getByText("Filter by manager")).toBeInTheDocument();
   });
 
+  it("标题与索引列落在外框上，只有详情是内容页，三者之间不画线", () => {
+    const { container } = renderPage();
+
+    const main = container.querySelector("main")!;
+    expect(main.className).not.toContain("content-sheet");
+    expect(main.querySelector("header")!.className).not.toMatch(/\bborder-b\b/);
+    const index = screen.getByTestId("org-index-pane");
+    expect(index.className).not.toMatch(/\bborder-r\b/);
+    expect(index.querySelector('[class*="border-b"]')).toBeNull();
+    expect(screen.getByTestId("org-detail-main").className).toContain(
+      "content-sheet",
+    );
+  });
+
   it("画布与列表的两套开关都不在了：没有视图切换，也没有缩放", () => {
     renderPage();
 

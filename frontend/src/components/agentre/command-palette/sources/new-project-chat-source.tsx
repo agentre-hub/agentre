@@ -304,13 +304,13 @@ function AgentRow({ item }: AgentRowProps) {
         ) : null}
       </div>
       {!item.isMember ? (
-        <span className="rounded-sm border border-border bg-muted px-2 py-0.5 text-2xs text-muted-foreground">
+        <span className="rounded-sm bg-muted px-2 py-0.5 text-2xs text-muted-foreground">
           {t("commandPalette.newProjectChat.notInProject")}
         </span>
       ) : null}
       <kbd
         className={cn(
-          "rounded-sm border border-border bg-card px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground",
+          "rounded-sm bg-field-fill px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground",
           "opacity-0 group-data-[selected=true]/cmditem:opacity-100",
         )}
         aria-hidden="true"

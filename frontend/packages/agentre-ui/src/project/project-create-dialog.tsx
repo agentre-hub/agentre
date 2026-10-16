@@ -329,7 +329,7 @@ export function ProjectCreateDialog({
           <DialogShellBody className="space-y-3">
             <p
               data-testid="project-create-half-done"
-              className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
+              className="rounded-md bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
             >
               <span className="text-foreground">
                 {t("projectSettings.create.pathCreated", { name: trimmedName })}
@@ -460,7 +460,7 @@ export function ProjectCreateDialog({
                 {picked ? (
                   <div
                     data-testid="project-create-machine"
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-secondary/40 px-2.5 py-1.5 text-xs"
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-md bg-secondary/40 px-2.5 py-1.5 text-xs"
                   >
                     <Server
                       className="size-3.5 shrink-0 text-muted-foreground"
@@ -505,7 +505,7 @@ export function ProjectCreateDialog({
           {!trimmedPath && !picked ? (
             <p
               data-testid="project-create-path-note"
-              className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-2xs text-muted-foreground"
+              className="rounded-md bg-secondary/40 px-3 py-2 text-2xs text-muted-foreground"
             >
               {canPickLocalPath
                 ? t("projectSettings.create.pathNote")
@@ -572,7 +572,7 @@ function GitNote({
   return (
     <div
       data-testid="project-create-git"
-      className="mt-2 flex items-start gap-2 rounded-md border border-status-running/30 bg-status-running-bg/50 px-2.5 py-1.5 text-2xs"
+      className="mt-2 flex items-start gap-2 rounded-md bg-status-running-bg/50 px-2.5 py-1.5 text-2xs"
     >
       <GitBranch
         className="mt-0.5 size-3 text-status-running"

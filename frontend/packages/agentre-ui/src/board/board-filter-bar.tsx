@@ -66,8 +66,8 @@ export function BoardFilterBar({
             aria-expanded={open}
             aria-label={t("board.filter.button")}
             className={cn(
-              "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-field-border bg-input-bg px-2 text-xs transition-colors",
-              "hover:bg-accent/60 hover:on-accent",
+              "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-field-fill px-2 text-xs transition-colors",
+              "hover:bg-field-fill-hover",
               "focus-visible:focus-outline",
             )}
           >

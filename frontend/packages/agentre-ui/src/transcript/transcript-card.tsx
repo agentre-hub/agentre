@@ -3,14 +3,14 @@ import * as React from "react";
 import { cn } from "../lib/utils";
 
 // 对话流卡片原语。此前 12 个卡片各写各的:3 种圆角、2 套阴影策略、4 种内边距,
-// 相邻卡片互相打架。这里是这些样式的唯一定义处 —— 改样式只改这个文件。
+// 相邻卡片互相打架。无外框、无内部分隔线:靠填充立起来,tone 只换底色。这里是这些样式的唯一定义处 —— 改样式只改这个文件。
 export type TranscriptCardTone = "default" | "error" | "pending" | "done";
 
 const cardToneClass: Record<TranscriptCardTone, string> = {
-  default: "border-border",
-  error: "border-status-error/40",
-  pending: "border-primary",
-  done: "border-status-running/50",
+  default: "bg-field-fill",
+  error: "bg-destructive-soft",
+  pending: "bg-primary-soft",
+  done: "bg-status-running-bg",
 };
 
 const pillToneClass: Record<TranscriptCardTone, string> = {
@@ -29,7 +29,7 @@ function TranscriptCard({
     <section
       {...props}
       className={cn(
-        "w-full max-w-measure overflow-hidden rounded-lg border bg-card",
+        "w-full max-w-measure overflow-hidden rounded-lg",
         cardToneClass[tone],
         className,
       )}
@@ -57,12 +57,7 @@ function TranscriptCardBody({
   className,
   ...props
 }: React.ComponentProps<"div">) {
-  return (
-    <div
-      {...props}
-      className={cn("border-t border-border px-3.5 py-3", className)}
-    />
-  );
+  return <div {...props} className={cn("px-3.5 py-3", className)} />;
 }
 
 function TranscriptPill({

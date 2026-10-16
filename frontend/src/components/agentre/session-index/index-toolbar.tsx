@@ -45,7 +45,7 @@ function IndexToolbar({
 }: IndexToolbarProps) {
   const { t } = useTranslation();
   return (
-    <div className="border-b border-border px-4 py-3">
+    <div className="px-4 py-3">
       <div className="flex items-center gap-2">
         <div className="relative min-w-0 flex-1">
           <Search
@@ -55,7 +55,7 @@ function IndexToolbar({
           <Input
             aria-label={t("sessionIndex.search.aria")}
             placeholder={t("sessionIndex.search.placeholder")}
-            className="h-[30px] bg-background pl-8 pr-7 text-xs"
+            className="h-[30px] pl-8 pr-7 text-xs"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />

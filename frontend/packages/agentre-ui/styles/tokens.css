@@ -20,6 +20,18 @@
      against the browser's white default, so it stays white in both themes. */
   --preview-canvas: #ffffff;
   --rail: #e4e4e7;
+  /* 表面阶梯（无边框布局）：外框 chrome 是标题栏、图标栏、各页左侧列表、Tab 条、
+     右侧栏、状态栏共用的一个底色；内容页 sheet 是浮在外框上的工作区，四周留缝、
+     圆角，见 @utility content-sheet；抬起 raised 是外框上的选中项。三者之间不画线，
+     只靠色阶分开：chrome / sheet 1.18，raised / chrome 1.18。
+     src/tokens.test.ts 守着「分得开」与落在上面的文字、焦点环、状态点。 */
+  --chrome: #ececee;
+  --sheet: #ffffff;
+  --raised: #ffffff;
+  /* 内容页的投影：一圈 0.5px 的极淡环 + 1–3px 软影，把白纸从浅灰外框上托起来。
+     深色不要（见 .dark）。 */
+  --sheet-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.05);
 
   /* Brand — steel-blue, muted cool tone distinct from the bright agent blues */
   --primary: #3b6896;
@@ -63,6 +75,14 @@
      Call sites do not pick it by hand: the `bg-accent` utility below re-points
      --muted-foreground at it for the whole subtree. Guarded by src/tokens.test.ts. */
   --accent-muted-foreground: #5f5f67;
+  /* Muted text ON the relative fills (fields 5/7%, buttons 8/12% of --foreground,
+     see @theme). Same move as --accent-muted-foreground: the fill darkens whatever
+     it sits on, and --muted-foreground drops under 4.5 — 4.42 for a field on
+     --chrome, 3.86 for a hovered button there. Lowering the fill cannot fix it (a
+     field on chrome would need 4%, and then it is only 1.076 from the chrome).
+     The fill utilities re-point --muted-foreground at this for their subtree.
+     Worst case: hovered button on --chrome, 4.58. Guarded by src/tokens.test.ts. */
+  --fill-muted-foreground: #5a5a61;
   /* Hover / focus feedback on the window chrome bands (title bar, icon rail,
      status bar — everything on --rail). Lighter rather than darker: the rail is
      the recessed tier, so hovering lifts, matching --sidebar-active-bg. 1.19 on
@@ -72,7 +92,12 @@
   /* Border / Input */
   --border: #e4e4e7;
   --border-strong: #d4d4d8;
-  /* The second edge tier: the outline of a clickable control that already
+  /* Since the borderless redesign (docs/specs/2026-10-15-borderless-ui.md) the
+     shared outline button and fields draw no edge — they use the relative fills
+     (--color-button-fill / --color-field-fill). --input and --field-border stay
+     for the unchecked switch track and for agentre-server call sites that have
+     not adopted the fills yet; the notes below describe the old edge tiers.
+     The second edge tier: the outline of a clickable control that already
      carries a label — the outline button. Clearly stronger than --border
      (1.62 on --card against 1.27), deliberately lighter than --control-border:
      the text inside identifies the control, so the edge only has to support it.
@@ -148,11 +173,10 @@
   --status-waiting-foreground: #04140c;
   --status-waiting-bg: #fdfaed;
   --status-waiting-text: #aa5413;
-  /* 状态记号（圆点 / 状态图标）。它落在 --secondary #f4f4f5 上——会话索引的机器
-     分组头把圆点放进 bg-secondary 的槽里——所以最坏表面不是 --card：#8c8c93
-     在那里 3.04，对 --card 3.34。仍亮于 --muted-foreground #65656d，不破坏
-     中性阶梯。 */
-  --status-idle: #8c8c93;
+  /* 状态记号（圆点 / 状态图标）。最坏表面是外框 --chrome #ececee——会话列表
+     就坐在外框上：#84848b 在那里 3.15（此前的 #8c8c93 只有 2.83），--secondary
+     上 3.38，白色上 3.71。仍亮于 --muted-foreground #65656d，不破坏中性阶梯。 */
+  --status-idle: #84848b;
   --status-error: #dc2626;
 
   /* Destructive */
@@ -172,12 +196,17 @@
   --agent-foreground: #ffffff;
 
   /* Elevation for detached overlays (Dialog / Sheet) and the scrim behind them.
+     No 0 0 0 1px ring layer: that ring is a structural line under another name —
+     overlays stand on their surface colour plus the drop shadow alone.
      Named --overlay-shadow rather than --shadow-overlay because Tailwind v4's
      shadow namespace IS --shadow-*: same name would make the @theme mapping
      self-referential. Same reason for --overlay-scrim. */
-  --overlay-shadow:
-    0 24px 64px -12px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --overlay-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.18);
   --overlay-scrim: rgba(15, 23, 42, 0.4);
+  /* 设置对话框的遮罩：设置几乎铺满窗口，底下那一页只需要退后、不需要被抹掉，所以
+     比表单弹窗的 --overlay-scrim 轻，且是中性黑。见 docs/specs/2026-10-15-borderless-ui.md
+     「设置对话框 · 外观」。 */
+  --settings-scrim: rgba(0, 0, 0, 0.32);
 
   /* Code / console surfaces — monospace output (hook logs, command output).
      Light-adaptive: a light code surface in light theme, deep console near-black in dark. */
@@ -276,6 +305,13 @@
   --popover-foreground: #e8e8e9;
   --preview-canvas: #ffffff;
   --rail: #0b0b0c;
+  /* See :root. chrome / sheet 1.10, raised / chrome 1.27. */
+  --chrome: #111214;
+  --sheet: #1b1c1f;
+  --raised: #27282c;
+  /* The step from chrome to sheet already reads as a layer here; a shadow on a
+     near-black chrome only muddies the edge. */
+  --sheet-shadow: none;
 
   /* Brand — steel-blue, muted cool tone distinct from the bright agent blues */
   --primary: #5b8dbf;
@@ -299,6 +335,9 @@
   /* See :root. 4.81 on --accent; the worst translucent case is accent/40 over
      --card. */
   --accent-muted-foreground: #abaeb4;
+  /* See :root. Worst case: hovered button on --popover, 4.59 (--muted-foreground
+     is 3.31 there). */
+  --fill-muted-foreground: #abaeb4;
   /* 1.26 on the dark --rail #0b0b0c. */
   --rail-accent: #232427;
 
@@ -368,11 +407,10 @@
      the fill value here. The split matters in light. */
   --destructive-text: #f87171;
 
-  /* Dark needs a heavier drop shadow to read as a layer, and a light hairline
-     instead of a dark one. */
-  --overlay-shadow:
-    0 24px 64px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  /* Dark needs a heavier drop shadow to read as a layer. */
+  --overlay-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.6);
   --overlay-scrim: rgba(0, 0, 0, 0.7);
+  --settings-scrim: rgba(0, 0, 0, 0.55);
 
   /* Code / console surfaces */
   --code-surface: #141516;
@@ -515,6 +553,26 @@
   --color-control-border: var(--control-border);
   --color-ring: var(--ring);
   --color-rail: var(--rail);
+  --color-chrome: var(--chrome);
+  --color-sheet: var(--sheet);
+  --color-raised: var(--raised);
+  /* 字段与按钮的填充：前景色按比例叠在透明上，所以落在内容页、填充分组、外框上
+     都比脚下深一级。写在 @theme inline 里，var(--foreground) 在用到它的元素上才
+     解析，跟着那里的主题走。字段 5%（悬停 7%）、按钮 8%（悬停 12%）。
+     对应的 bg-* 工具类同时换入 --fill-muted-foreground，见下方 @utility。 */
+  --color-field-fill: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --color-field-fill-hover: color-mix(
+    in oklab,
+    var(--foreground) 7%,
+    transparent
+  );
+  --color-button-fill: color-mix(in oklab, var(--foreground) 8%, transparent);
+  --color-button-fill-hover: color-mix(
+    in oklab,
+    var(--foreground) 12%,
+    transparent
+  );
+  --color-fill-muted-foreground: var(--fill-muted-foreground);
   --color-agent-1: var(--agent-1);
   --color-agent-2: var(--agent-2);
   --color-agent-3: var(--agent-3);
@@ -564,6 +622,7 @@
      naming note in :root. Utilities generated: shadow-overlay, bg-scrim. */
   --shadow-overlay: var(--overlay-shadow);
   --color-scrim: var(--overlay-scrim);
+  --color-settings-scrim: var(--settings-scrim);
   --color-traffic-close: var(--traffic-close);
   --color-traffic-minimize: var(--traffic-minimize);
   --color-traffic-zoom: var(--traffic-zoom);
@@ -613,10 +672,41 @@
   --muted-foreground: var(--accent-muted-foreground);
 }
 
-/* 键盘焦点的两种画法，全仓只在这里定义一次。调用点挂在变体下：
-     focus-visible:focus-outline   按钮类 —— 按钮、行、标签、开关、复选框
-     focus-visible:focus-halo      输入类 —— 输入框、文本域、下拉
-     focus-within:focus-halo       包着输入的外壳 —— 搜索框、对话输入框
+/* 填充面上的弱化文字由填充自己换色——与上面 bg-accent 同一个做法、同一个理由：
+   字段的占位符、按钮里的说明都写着 text-muted-foreground，而只有上底色的类知道
+   脚下被压暗了。变体前缀照常生效（hover:bg-button-fill-hover 悬停时一起换）。 */
+@utility bg-field-fill {
+  --muted-foreground: var(--fill-muted-foreground);
+}
+
+@utility bg-field-fill-hover {
+  --muted-foreground: var(--fill-muted-foreground);
+}
+
+@utility bg-button-fill {
+  --muted-foreground: var(--fill-muted-foreground);
+}
+
+@utility bg-button-fill-hover {
+  --muted-foreground: var(--fill-muted-foreground);
+}
+
+/* 内容页：浮在外框上的那张纸。上沿接 Tab 条、左沿接外框上的列表，所以只在右与下
+   留 8px 缝；12px 圆角裁住子元素的底色；投影只在浅色有（--sheet-shadow）。 */
+@utility content-sheet {
+  background-color: var(--sheet);
+  border-radius: 0.75rem;
+  margin: 0 0.5rem 0.5rem 0;
+  overflow: hidden;
+  box-shadow: var(--sheet-shadow);
+}
+
+/* 键盘焦点的画法，全仓只在这里定义一次。调用点挂在变体下：
+     focus-visible:focus-outline   按钮、行、标签、开关、复选框，以及无边的字段
+                                   （输入框、文本域、下拉——聚焦时底色回到 bg-sheet）
+     focus-within:focus-outline    包着输入的外壳 —— 搜索框、对话输入框
+     focus-halo                    旧的「边变实色 + 光晕」；无边字段已不用它，留给
+                                   还没换成填充字段的 agentre-server 调用点
 
    按钮类是 2px 实色环 + 2px 间隙。实色是为了让对比度不随底色漂移：此前各处
    自己拼的 ring-ring/50 合成后只有约 2.1:1、/40 约 1.8:1。间隙是为了让实心
@@ -626,7 +716,7 @@
    [role="tab"] 的默认键盘焦点（没挂任何焦点类的原生按钮也有环）；两处要一起改，
    src/styles/host-stylesheets.test.ts 守着它们逐条相同。
 
-   输入类保留原样：边变成实色 --ring（这一条已经有 3:1），外面再加一圈光晕。
+   focus-halo 是有边字段时代的画法：边变成实色 --ring，外面再加一圈光晕。
    ts / tsx 里不许再手拼 ring-ring，见 frontend/eslint-rules/design-tokens.js。 */
 @utility focus-outline {
   outline: 2px solid var(--ring);
@@ -678,5 +768,9 @@
   font-weight: 500;
   white-space: nowrap;
   color: var(--mention-color, var(--foreground));
-  background-color: color-mix(in oklab, var(--mention-color, var(--muted)) 15%, transparent);
+  background-color: color-mix(
+    in oklab,
+    var(--mention-color, var(--muted)) 15%,
+    transparent
+  );
 }

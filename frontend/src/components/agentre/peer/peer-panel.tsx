@@ -168,8 +168,8 @@ export function PeerPanel({
   );
 
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-      <header className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+    <main className="content-sheet flex min-h-0 min-w-0 flex-1 flex-col">
+      <header className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground">
         <MonitorUp className="size-4" aria-hidden="true" />
         <span className="font-medium text-foreground">
           {title || deviceName}
@@ -215,10 +215,10 @@ export function PeerPanel({
       {notice ? (
         <div
           className={cn(
-            "mx-4 mt-2 rounded-md border px-3 py-2 text-xs",
+            "mx-4 mt-2 rounded-md px-3 py-2 text-xs",
             notice.kind === "error"
-              ? "border-destructive bg-destructive-soft text-destructive-text"
-              : "border-status-waiting bg-status-waiting-bg text-foreground",
+              ? "bg-destructive-soft text-destructive-text"
+              : "bg-status-waiting-bg text-foreground",
           )}
           data-testid="peer-notice"
         >
@@ -306,7 +306,7 @@ function AskDecisionCard({
   if (decision.answered) {
     return (
       <div
-        className="rounded-md border border-border bg-card px-3 py-2 text-xs text-muted-foreground"
+        className="rounded-md bg-field-fill px-3 py-2 text-xs text-muted-foreground"
         data-testid="peer-ask-handled"
       >
         {decision.skipped
@@ -317,7 +317,7 @@ function AskDecisionCard({
   }
   return (
     <div
-      className="flex items-center justify-between gap-2 rounded-md border border-status-waiting bg-status-waiting-bg px-3 py-2 text-xs"
+      className="flex items-center justify-between gap-2 rounded-md bg-status-waiting-bg px-3 py-2 text-xs"
       data-testid="peer-ask-card"
     >
       <span className="min-w-0 flex-1 truncate">
@@ -341,7 +341,7 @@ function PermissionDecisionCard({
   if (decision.resolved) {
     return (
       <div
-        className="rounded-md border border-border bg-card px-3 py-2 text-xs text-muted-foreground"
+        className="rounded-md bg-field-fill px-3 py-2 text-xs text-muted-foreground"
         data-testid="peer-permission-handled"
       >
         {decision.allowed
@@ -352,7 +352,7 @@ function PermissionDecisionCard({
   }
   return (
     <div
-      className="flex items-center justify-between gap-2 rounded-md border border-status-waiting bg-status-waiting-bg px-3 py-2 text-xs"
+      className="flex items-center justify-between gap-2 rounded-md bg-status-waiting-bg px-3 py-2 text-xs"
       data-testid="peer-permission-card"
     >
       <span className="min-w-0 flex-1 truncate">

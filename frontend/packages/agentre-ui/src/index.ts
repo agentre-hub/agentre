@@ -160,6 +160,7 @@ export {
   SELECT_NONE,
 } from "./ui/select";
 export { SearchInput } from "./ui/search-input";
+export { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
 export { ResizableSidebar } from "./ui/resizable-sidebar";
 export { Separator } from "./ui/separator";
 export { Skeleton } from "./ui/skeleton";

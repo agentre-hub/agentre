@@ -81,13 +81,13 @@ export function CandidateColumn({
   const backendLabel = useBackendLabel();
 
   return (
-    <div className="flex w-[360px] shrink-0 flex-col border-r border-border">
+    <div className="flex w-[360px] shrink-0 flex-col">
       {/*
         搜索框先占满一行：360px 的栏里塞下「机器 + 搜索 + 后端」三个控件，
         搜索框只剩百来像素，一个项目路径都看不全。机器选择器只有多机时
         才出现，那时它下沉一行，搜索框的宽度不受它有没有影响。
       */}
-      <div className="flex flex-col gap-2 border-b border-border px-3 py-2.5">
+      <div className="flex flex-col gap-2 px-3 py-2.5">
         <div className="flex items-center gap-2">
           <SearchInput
             value={query}
@@ -142,7 +142,7 @@ export function CandidateColumn({
           <div
             data-testid={`import-device-issue-${deviceIssue.status}`}
             role="alert"
-            className="mb-2 flex flex-col gap-1.5 rounded-md border border-status-error/40 bg-destructive-soft px-3 py-2.5"
+            className="mb-2 flex flex-col gap-1.5 rounded-md bg-destructive-soft px-3 py-2.5"
           >
             <span className="text-xs font-semibold text-destructive-text">
               {t("importSession.issue.unavailableTitle")}
@@ -171,7 +171,7 @@ export function CandidateColumn({
             key={issue.backend}
             data-testid={`import-backend-issue-${issue.backend}`}
             role="alert"
-            className="mb-2 flex flex-col gap-1 rounded-md border border-status-error/40 bg-destructive-soft px-3 py-2"
+            className="mb-2 flex flex-col gap-1 rounded-md bg-destructive-soft px-3 py-2"
           >
             <span className="flex items-center gap-1.5 text-2xs font-semibold text-destructive-text">
               <TriangleAlert className="size-3" aria-hidden="true" />
@@ -252,7 +252,7 @@ export function CandidateColumn({
           <div
             data-testid="import-scan-failed"
             role="alert"
-            className="flex items-start gap-2 rounded-md border border-status-error/40 bg-destructive-soft px-3 py-2.5 text-destructive-text"
+            className="flex items-start gap-2 rounded-md bg-destructive-soft px-3 py-2.5 text-destructive-text"
           >
             <CircleAlert
               className="mt-0.5 size-3.5 shrink-0"

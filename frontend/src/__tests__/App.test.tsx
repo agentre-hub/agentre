@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
+import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 
 // App 渲染 <TurnCompleteNotifier/>，它在 mount 时通过 wailsjs runtime 订阅
 // "notification:click"。这些 App 用例不关心该订阅、也不一定设置 window.runtime，
@@ -563,6 +564,8 @@ function mockWailsRuntime({
 }
 
 beforeEach(async () => {
+  // 设置对话框记住「本次运行」最后打开的子页：模块级状态，用例之间要清回初始。
+  useSettingsDialogStore.setState({ open: false, page: "appearance" });
   const info = vi.mocked((await import("../../wailsjs/go/app/App")).Info);
   info.mockReset();
   info.mockResolvedValue({
@@ -656,22 +659,20 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
 
-    expect(screen.getByRole("button", { name: "Settings" })).toHaveAttribute(
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    // 齿轮在对话框打开期间显示为当前项（底下的图标栏被模态遮住，按 testid 取）。
+    expect(screen.getByTestId("nav-settings")).toHaveAttribute(
       "aria-current",
       "page",
     );
     expect(
-      screen.getByRole("heading", { name: "Appearance" }),
+      within(dialog).getByRole("heading", { name: "Appearance" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Appearance" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
     expect(
-      screen.getByRole("complementary", { name: "Settings" }),
-    ).not.toHaveClass("hidden");
+      within(dialog).getByRole("button", { name: "Appearance" }),
+    ).toHaveAttribute("aria-current", "page");
     expect(
-      screen.getByRole("combobox", { name: "Theme Mode" }),
+      within(dialog).getByRole("combobox", { name: "Theme Mode" }),
     ).toBeInTheDocument();
   });
 
@@ -725,10 +726,10 @@ describe("App", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Board" }));
 
     await waitFor(() => {
-      expect(localStorage.getItem(lastPathStorageKey)).toBe("/settings");
+      expect(localStorage.getItem(lastPathStorageKey)).toBe("/issues");
     });
 
     await user.click(screen.getByRole("button", { name: "Chat" }));
@@ -736,6 +737,38 @@ describe("App", () => {
     await waitFor(() => {
       expect(localStorage.getItem(lastPathStorageKey)).toBe("/chat");
     });
+  });
+
+  it("Given the page underneath is Board, When settings opens, Then lastPath keeps Board instead of recording /settings", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Board" }));
+    await waitFor(() => {
+      expect(localStorage.getItem(lastPathStorageKey)).toBe("/issues");
+    });
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await screen.findByRole("dialog", { name: "Settings" });
+
+    expect(localStorage.getItem(lastPathStorageKey)).toBe("/issues");
+  });
+
+  it("Given an older build stored lastPath=/settings, When the app starts, Then it lands on chat with settings closed", async () => {
+    // 规格「路由与恢复」：/settings 不再是页面，旧值按未知路径落到默认页；不迁移、不删 key。
+    localStorage.setItem(lastPathStorageKey, "/settings");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 
   it("keeps the theme toggle directly above settings in the left rail", () => {
@@ -752,6 +785,11 @@ describe("App", () => {
     });
 
     expect(navRail).toHaveClass("w-14", "px-2");
+    // 外框：图标栏与标题栏、状态栏同一块 chrome 表面，之间不画线；工作区在其上是内容页。
+    expect(navRail).toHaveClass("bg-chrome");
+    expect(navRail.className).not.toMatch(/(^|\s)border(-r)?(\s|$)/);
+    expect(navRail.className).not.toContain("bg-rail");
+    expect(navRail.parentElement?.parentElement).toHaveClass("bg-chrome");
     expect(settingsButton).toHaveClass("size-10");
     expect(themeToggle).toHaveClass("size-10");
     expect(themeToggle).toHaveClass("mt-auto");
@@ -996,15 +1034,18 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
 
-    expect(screen.getByRole("button", { name: "Settings" })).toHaveAttribute(
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    expect(screen.getByTestId("nav-settings")).toHaveAttribute(
       "aria-current",
       "page",
     );
-    expect(screen.getByRole("button", { name: "Chat" })).not.toHaveAttribute(
-      "aria-current",
-    );
+    expect(screen.getByTestId("nav-chat")).not.toHaveAttribute("aria-current");
     expect(
-      screen.getByRole("heading", { name: "Appearance" }),
+      within(dialog).getByRole("heading", { name: "Appearance" }),
+    ).toBeInTheDocument();
+    // 对话页没有被藏起来：设置浮在它上面。
+    expect(
+      document.querySelector('[data-page-has-chat="true"]'),
     ).toBeInTheDocument();
   });
 
@@ -1097,7 +1138,9 @@ describe("App", () => {
     let footer = dialog.querySelector("[data-slot='dialog-shell-footer']");
 
     expect(body).toHaveClass("px-5", "py-4");
-    expect(footer).toHaveClass("border-t", "border-border");
+    // 无边框改版：页脚靠浅填充与正文分开，不再画分隔线。
+    expect(footer).toHaveClass("bg-secondary/40");
+    expect(footer?.className).not.toMatch(/(^|\s)border(-[a-z]+)*(\s|$)/);
 
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => {
@@ -1113,7 +1156,9 @@ describe("App", () => {
     footer = dialog.querySelector("[data-slot='dialog-shell-footer']");
 
     expect(body).toHaveClass("px-5", "py-4");
-    expect(footer).toHaveClass("border-t", "border-border");
+    // 无边框改版：页脚靠浅填充与正文分开，不再画分隔线。
+    expect(footer).toHaveClass("bg-secondary/40");
+    expect(footer?.className).not.toMatch(/(^|\s)border(-[a-z]+)*(\s|$)/);
   });
 
   it("opens detail panel when selecting an agent", async () => {
@@ -1381,7 +1426,7 @@ describe("App", () => {
         within(settingsNav).getByRole("button", { name: label }),
       );
 
-      const main = screen.getByRole("main");
+      const main = screen.getByRole("dialog", { name: "Settings" });
 
       expect(
         within(settingsNav).getByRole("button", { name: label }),
@@ -1410,7 +1455,7 @@ describe("App", () => {
       within(settingsNav).getByRole("button", { name: "Skills / Tools" }),
     );
 
-    const main = screen.getByRole("main");
+    const main = screen.getByRole("dialog", { name: "Settings" });
     expect(
       await within(main).findByRole("heading", {
         name: "ctl control channel skill",
@@ -1440,7 +1485,7 @@ describe("App", () => {
       within(settingsNav).getByRole("button", { name: "Data & Backup" }),
     );
 
-    const main = screen.getByRole("main");
+    const main = screen.getByRole("dialog", { name: "Settings" });
 
     expect(
       within(settingsNav).getByRole("button", { name: "Data & Backup" }),
@@ -1463,7 +1508,9 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
 
-    const settingsMain = screen.getByRole("main");
+    const settingsMain = await screen.findByRole("dialog", {
+      name: "Settings",
+    });
 
     expect(
       within(settingsMain).getByRole("combobox", { name: "Theme Mode" }),
@@ -1477,18 +1524,11 @@ describe("App", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
-
-    const settingsMain = screen.getByRole("main");
+    // 外壳的布局事实在打开设置之前看：模态打开后底下的外壳对辅助技术隐藏。
     const navRail = screen.getByRole("complementary", {
       name: "Primary navigation",
     });
     const topBar = screen.getByRole("banner");
-    const themeSelect = within(settingsMain).getByRole("combobox", {
-      name: "Theme Mode",
-    });
-
-    expect(document.documentElement).not.toHaveClass("dark");
     expect(
       within(topBar).queryByRole("combobox", { name: "Theme Mode" }),
     ).not.toBeInTheDocument();
@@ -1498,6 +1538,17 @@ describe("App", () => {
     expect(
       within(navRail).getByRole("button", { name: /Toggle theme/ }),
     ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    const settingsMain = await screen.findByRole("dialog", {
+      name: "Settings",
+    });
+    const themeSelect = within(settingsMain).getByRole("combobox", {
+      name: "Theme Mode",
+    });
+
+    expect(document.documentElement).not.toHaveClass("dark");
     expect(themeSelect).toHaveTextContent("Light");
 
     await selectThemeOption(user, themeSelect, "dark");
@@ -1522,7 +1573,9 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
 
-    const settingsMain = screen.getByRole("main");
+    const settingsMain = await screen.findByRole("dialog", {
+      name: "Settings",
+    });
     const themeSelect = within(settingsMain).getByRole("combobox", {
       name: "Theme Mode",
     });
@@ -1548,7 +1601,9 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
 
-    const settingsMain = screen.getByRole("main");
+    const settingsMain = await screen.findByRole("dialog", {
+      name: "Settings",
+    });
     const themeSelect = within(settingsMain).getByRole("combobox", {
       name: "Theme Mode",
     });
@@ -1567,5 +1622,200 @@ describe("App", () => {
     expect(document.documentElement).not.toHaveClass("dark");
     expect(localStorage.getItem(themeStorageKey)).toBe("light");
     expect(themeSelect).toHaveTextContent("Light");
+  });
+});
+
+describe("Settings dialog", () => {
+  async function openFromRail(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByTestId("nav-settings"));
+    return screen.findByRole("dialog", { name: "Settings" });
+  }
+
+  it("Given the chat page with a typed search, When settings opens from the gear, Then it floats over the page: the page stays mounted, the breadcrumb names it, and the document keeps one main", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const search = screen.getByPlaceholderText(
+      "Search sessions, projects, agents",
+    );
+    await user.type(search, "draft");
+
+    const dialog = await openFromRail(user);
+
+    expect(dialog).toHaveAttribute("role", "dialog");
+    expect(search.isConnected).toBe(true);
+    expect(search).toHaveValue("draft");
+    expect(document.querySelectorAll("main")).toHaveLength(1);
+    expect(within(dialog).queryByRole("main")).not.toBeInTheDocument();
+    expect(screen.getByRole("banner", { hidden: true })).toHaveTextContent(
+      "Chat",
+    );
+    expect(screen.getByRole("banner", { hidden: true })).not.toHaveTextContent(
+      "Settings",
+    );
+    expect(screen.getByTestId("nav-settings")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // 保留的 testid：e2e 靠它们点进同步子页。
+    expect(
+      within(dialog).getByTestId("settings-nav-appearance"),
+    ).toBeInTheDocument();
+  });
+
+  it("Given settings is open, When Esc is pressed, Then it closes and focus returns to the gear", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await openFromRail(user);
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("nav-settings")).toHaveFocus();
+    });
+    expect(screen.getByTestId("nav-settings")).not.toHaveAttribute(
+      "aria-current",
+    );
+    expect(screen.getByTestId("nav-chat")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("Given settings is open, When the close button is clicked, Then it closes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const dialog = await openFromRail(user);
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("Given settings is open, When the scrim is clicked, Then it closes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await openFromRail(user);
+    const scrim = document.querySelector<HTMLElement>(
+      '[data-slot="settings-dialog-overlay"]',
+    );
+    if (!scrim) throw new Error("expected the settings scrim");
+    await user.click(scrim);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("Given settings is open, When the title-bar strip is pressed, Then the window stays draggable and settings stays open", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await openFromRail(user);
+    const strip = document.querySelector<HTMLElement>(
+      '[data-slot="settings-drag-region"]',
+    );
+    if (!strip) throw new Error("expected a draggable title-bar strip");
+    expect(strip).toHaveClass("wails-drag");
+
+    await user.click(strip);
+
+    expect(
+      screen.getByRole("dialog", { name: "Settings" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given the app on darwin, When ⌘, is pressed twice, Then settings opens over the page and then closes", async () => {
+    const runtime = mockWailsRuntime({ platform: "darwin" });
+    render(<App />);
+    await waitFor(() => {
+      expect(runtime.Environment).toHaveBeenCalled();
+    });
+
+    fireEvent.keyDown(window, { key: ",", code: "Comma", metaKey: true });
+    expect(
+      await screen.findByRole("dialog", { name: "Settings" }),
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: ",", code: "Comma", metaKey: true });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(localStorage.getItem(lastPathStorageKey)).toBe("/chat");
+  });
+
+  it("Given a sub-page was opened earlier this run, When settings reopens without a target, Then it lands on that sub-page", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    let dialog = await openFromRail(user);
+    await user.click(
+      within(dialog).getByRole("button", { name: "Keyboard Shortcuts" }),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    dialog = await openFromRail(user);
+
+    expect(
+      within(dialog).getByRole("button", { name: "Keyboard Shortcuts" }),
+    ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("Given a shortcut is recording, When Esc is pressed, Then recording stops and settings stays open", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const dialog = await openFromRail(user);
+    await user.click(
+      within(dialog).getByRole("button", { name: "Keyboard Shortcuts" }),
+    );
+    await user.click(
+      within(dialog).getAllByRole("button", { name: "Record" })[0]!,
+    );
+    expect(
+      within(dialog).getByText("Press a new shortcut..."),
+    ).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    expect(
+      screen.getByRole("dialog", { name: "Settings" }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByText("Press a new shortcut..."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Given a dialog opened inside settings, When Esc is pressed, Then only that top dialog closes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const dialog = await openFromRail(user);
+    await user.click(
+      within(dialog).getByRole("button", { name: "Keyboard Shortcuts" }),
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "Reset All to Defaults" }),
+    );
+    // 嵌套的那一层叠在设置之上（设置此时被它的模态隐藏，所以按 hidden 数）。
+    expect(screen.getAllByRole("dialog", { hidden: true })).toHaveLength(2);
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("dialog", { hidden: true })).toHaveLength(1);
+    });
+    expect(
+      screen.getByRole("dialog", { name: "Settings" }),
+    ).toBeInTheDocument();
   });
 });

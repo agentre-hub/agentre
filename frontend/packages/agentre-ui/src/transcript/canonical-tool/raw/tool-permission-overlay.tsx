@@ -34,7 +34,7 @@ export const ToolPermissionOverlay: React.FC<{
 
   return (
     <div
-      className="mt-2 flex items-center gap-2 rounded border border-status-waiting/40 bg-status-waiting-bg px-2 py-1 text-xs"
+      className="mt-2 flex items-center gap-2 rounded bg-status-waiting-bg px-2 py-1 text-xs"
       data-testid="tool-permission-overlay"
     >
       <span className="text-status-waiting-text">

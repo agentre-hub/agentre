@@ -33,10 +33,7 @@ export function VersionBadge({
 }) {
   if (state.kind === "upgradable") {
     return (
-      <Badge
-        variant="outline"
-        className="border-status-waiting/40 text-status-waiting-text"
-      >
+      <Badge variant="outline" className="text-status-waiting-text">
         {t("remoteDevices.upgrade.badge", { version: state.latest })}
       </Badge>
     );
@@ -55,7 +52,7 @@ export function VersionBadge({
 // (握手都没过),命令卡因此是唯一的出口 —— 这也是它必须存在的理由(决策 18)。
 export function ProtocolTooOld({ t }: { t: TFunction }) {
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5">
+    <div className="flex flex-col gap-2 rounded-md bg-destructive/5 p-2.5">
       <div className="text-xs font-semibold text-destructive-text">
         {t("remoteDevices.upgrade.blocked.title")}
       </div>

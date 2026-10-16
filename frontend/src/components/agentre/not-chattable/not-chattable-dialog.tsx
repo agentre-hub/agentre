@@ -16,6 +16,8 @@ import {
   DialogTitle,
 } from "@agentre-hub/agentre-ui";
 import type { AgentSlim } from "@/hooks/use-chat-agents";
+import { openSettings } from "@/stores/settings-dialog-store";
+import type { SettingsPageId } from "../settings/pages";
 
 import {
   blockReasonToCta,
@@ -79,9 +81,7 @@ function navigateToTarget(
     return;
   }
 
-  navigate("/settings", {
-    state: { settingsPage: target.slice("settings:".length) },
-  });
+  openSettings(target.slice("settings:".length) as SettingsPageId);
 }
 
 function NotChattableDialog({
@@ -119,7 +119,7 @@ function NotChattableDialog({
         <DialogBody className="space-y-4">
           <div
             aria-label={t("chatPage.notChattable.chain.aria")}
-            className="flex items-center gap-2 rounded-lg border border-border bg-secondary/40 p-3 text-xs"
+            className="flex items-center gap-2 rounded-lg bg-field-fill p-3 text-xs"
             data-testid="not-chattable-chain"
           >
             <ChainNode
@@ -188,10 +188,10 @@ function ChainNode({
     <span
       className={
         state === "configured"
-          ? "rounded-md border border-status-running/30 bg-status-running-bg px-2 py-1 text-status-running-text"
+          ? "rounded-md bg-status-running-bg px-2 py-1 text-status-running-text"
           : state === "possible"
-            ? "rounded-md border border-border bg-background px-2 py-1 text-muted-foreground"
-            : "rounded-md border border-status-waiting/40 bg-status-waiting-bg px-2 py-1 font-medium text-foreground"
+            ? "rounded-md bg-sheet px-2 py-1 text-muted-foreground"
+            : "rounded-md bg-status-waiting-bg px-2 py-1 font-medium text-foreground"
       }
       data-chain-state={state}
     >

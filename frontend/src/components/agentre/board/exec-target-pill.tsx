@@ -110,7 +110,7 @@ export function BoardExecTargetPill({
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-0">
-        <div className="border-b border-border px-3 py-2 text-2xs font-semibold">
+        <div className="px-3 py-2 text-2xs font-semibold">
           {t("issues.exec.pickerTitle")}
         </div>
         <div className="max-h-64 overflow-y-auto">
@@ -121,7 +121,7 @@ export function BoardExecTargetPill({
               onChange(null);
               setOpen(false);
             }}
-            className="flex w-full cursor-pointer items-center gap-2 border-b border-border px-3 py-2 text-left text-xs transition-colors hover:bg-accent"
+            className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-accent"
           >
             {t("issues.exec.followAgent")}
           </button>
@@ -136,7 +136,7 @@ export function BoardExecTargetPill({
                 setOpen(false);
               }}
               className={cn(
-                "flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left last:border-b-0",
+                "flex w-full items-start gap-2 px-3 py-2 text-left",
                 candidate.available
                   ? "cursor-pointer hover:bg-accent"
                   : "cursor-not-allowed opacity-60",

@@ -53,9 +53,9 @@ function ShortcutRow({
     <div
       data-slot="shortcut-row"
       className={cn(
-        "flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-3 transition-colors",
+        "flex items-center justify-between gap-4 rounded-lg bg-field-fill px-4 py-3 transition-colors",
         recording && "bg-primary-soft/40",
-        highlighted && "border-destructive bg-destructive/10",
+        highlighted && "bg-destructive/10",
       )}
     >
       <div className="flex min-w-0 flex-col gap-0.5">
@@ -65,9 +65,9 @@ function ShortcutRow({
       <div className="flex items-center gap-3">
         <span
           className={cn(
-            "inline-flex h-7 min-w-[64px] items-center justify-center rounded-md border border-border bg-muted px-2.5 font-mono text-2xs font-semibold tracking-wide text-foreground",
+            "inline-flex h-7 min-w-[64px] items-center justify-center rounded-md bg-button-fill px-2.5 font-mono text-2xs font-semibold tracking-wide text-foreground",
             recording &&
-              "border-dashed border-primary/60 bg-background text-primary-text",
+              "border border-dashed border-primary/60 bg-sheet text-primary-text",
           )}
         >
           {recording
@@ -110,7 +110,7 @@ function ConflictBanner({ message }: { message: ConflictMessage }) {
   return (
     <div
       role="alert"
-      className="flex items-center gap-3 rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive-text shadow-sm"
+      className="flex items-center gap-3 rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive-text shadow-sm"
     >
       <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
       <span className="font-medium">{message.text}</span>
@@ -160,11 +160,16 @@ export function KeyboardShortcutsPanel(): React.ReactElement {
   }, [recordingId, setPaused]);
 
   // Listen for the new chord while recording.
+  //
+  // 捕获阶段挂在 window 上：面板住在设置对话框里，而 Radix 在 document 的捕获阶段
+  // 听 Esc 关对话框。window 捕获比它早一步，录制中的 Esc 在这里吃掉
+  // （stopPropagation），只取消录制，不关设置。
   React.useEffect(() => {
     if (!recordingId) return;
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         setRecordingId(null);
         return;
       }
@@ -190,8 +195,8 @@ export function KeyboardShortcutsPanel(): React.ReactElement {
       setBinding(recordingId!, chord);
       setRecordingId(null);
     }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [recordingId, platform, findChordConflict, setBinding, showConflict, t]);
 
   const globalDefs = REGISTRY.filter((def) => def.scope === "global");

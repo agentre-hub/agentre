@@ -125,8 +125,8 @@ function DeleteStrategyChoice({
   return (
     <label
       className={cn(
-        "flex cursor-pointer items-start gap-2.5 rounded-md border bg-card px-3 py-2.5 transition-colors",
-        active ? "border-primary ring-1 ring-primary" : "border-border",
+        "flex cursor-pointer items-start gap-2.5 rounded-md px-3 py-2.5 transition-colors",
+        active ? "bg-primary-soft ring-1 ring-primary" : "bg-field-fill",
       )}
     >
       <RadioGroupItem value={value} aria-label={title} className="mt-0.5" />

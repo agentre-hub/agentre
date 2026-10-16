@@ -114,8 +114,8 @@ export function ProviderFormDialog({
                 className={cn(
                   "py-2",
                   form.flash.kind === "ok"
-                    ? "border-status-running/40 bg-status-running/10 text-status-running-text"
-                    : "border-status-error/40 bg-status-error/10 text-destructive-text",
+                    ? "bg-status-running/10 text-status-running-text"
+                    : "bg-status-error/10 text-destructive-text",
                 )}
               >
                 {form.flash.kind === "ok" ? (

@@ -46,9 +46,9 @@ export function CommandCard({
     <div
       role="group"
       aria-label={label}
-      className="overflow-hidden rounded-lg border border-border"
+      className="overflow-hidden rounded-lg bg-field-fill"
     >
-      <div className="flex min-h-8 items-center gap-2 border-b border-border bg-muted px-3 py-1">
+      <div className="flex min-h-8 items-center gap-2 bg-muted px-3 py-1">
         <span className="min-w-0 flex-1 truncate text-2xs text-muted-foreground">
           {label}
         </span>

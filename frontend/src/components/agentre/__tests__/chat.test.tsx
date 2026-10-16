@@ -90,6 +90,7 @@ import {
 } from "@/stores/chat-streams-store";
 import { useDeviceListStore } from "@/stores/device-list-store";
 import { useLocalCommandsStore } from "@/stores/local-commands-store";
+import { edgeClasses } from "@/__tests__/helpers/edge-classes";
 import type { chat_svc, server_svc } from "../../../../wailsjs/go/models";
 
 function renderTranscriptWithSubagent() {
@@ -2105,6 +2106,41 @@ describe("QuotaMeter", () => {
       expect(screen.getByText("Fable 7-day")).toBeInTheDocument();
       expect(screen.getByText("Opus 7-day")).toBeInTheDocument();
       expect(screen.getByText("37%")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("无边框:触发区只靠填充回应悬停, 面板头尾与按模型分组都不画线", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(resetNow);
+    try {
+      render(
+        <QuotaMeter
+          data={
+            {
+              reason: "ok",
+              data: {
+                fiveHourPercent: 42,
+                weeklyPercent: 18,
+                modelWeekly: [{ model: "Opus", percent: 37 }],
+              },
+              fetchedAtMs: 1,
+            } as never
+          }
+        />,
+      );
+      const trigger = screen.getByLabelText(/Claude.*quota/);
+      act(() => {
+        fireEvent.focusIn(trigger);
+        vi.advanceTimersByTime(500);
+      });
+      expect(edgeClasses(trigger)).toEqual([]);
+      // 标题 → 头部行 → 面板。
+      const panel = screen.getByText("Claude subscription usage").parentElement!
+        .parentElement!;
+      expect(screen.getByText("Opus 7-day")).toBeInTheDocument();
+      expect(edgeClasses(panel)).toEqual([]);
     } finally {
       vi.useRealTimers();
     }

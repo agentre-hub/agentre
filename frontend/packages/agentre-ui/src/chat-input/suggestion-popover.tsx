@@ -76,7 +76,7 @@ export function SuggestionPopover({
   };
 
   const popoverClassName = cn(
-    "min-w-[14rem] max-w-[20rem] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md",
+    "min-w-[14rem] max-w-[20rem] rounded-lg bg-popover p-1 text-popover-foreground shadow-md",
     className,
   );
 

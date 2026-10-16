@@ -126,7 +126,7 @@ export function UpgradeStatus({
     // 这一段能长达几分钟:受理判定在那台机器上把下载与校验都做完了才应答。说清楚
     // 它在做什么,比一个转着的图标更能让人不去点第二次。
     return (
-      <div className="flex flex-col gap-1 rounded-md border border-primary/30 bg-primary-soft p-2.5">
+      <div className="flex flex-col gap-1 rounded-md bg-primary-soft p-2.5">
         <div className="text-xs font-semibold text-primary-text">
           {t("remoteDevices.upgrade.status.requestingTitle")}
         </div>
@@ -138,7 +138,7 @@ export function UpgradeStatus({
   }
   if (phase.kind === "upgrading") {
     return (
-      <div className="flex flex-col gap-1 rounded-md border border-primary/30 bg-primary-soft p-2.5">
+      <div className="flex flex-col gap-1 rounded-md bg-primary-soft p-2.5">
         <div className="text-xs font-semibold text-primary-text">
           {t("remoteDevices.upgrade.status.upgradingTitle", {
             version: phase.targetVersion,
@@ -152,7 +152,7 @@ export function UpgradeStatus({
   }
   if (phase.kind === "success") {
     return (
-      <div className="flex flex-col gap-1 rounded-md border border-status-running/30 bg-status-running-bg p-2.5">
+      <div className="flex flex-col gap-1 rounded-md bg-status-running-bg p-2.5">
         <div className="text-xs font-semibold text-status-running-text">
           {t("remoteDevices.upgrade.status.successTitle")}
         </div>
@@ -164,7 +164,7 @@ export function UpgradeStatus({
   }
   if (phase.kind === "timeout") {
     return (
-      <div className="flex flex-col gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5">
+      <div className="flex flex-col gap-2 rounded-md bg-destructive/5 p-2.5">
         <div className="text-xs font-semibold text-destructive-text">
           {t("remoteDevices.upgrade.status.timeoutTitle")}
         </div>
@@ -222,7 +222,7 @@ function UpgradeFailure({
 }) {
   const copy = phase.reason ? FAILURE_COPY[phase.reason] : undefined;
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 p-2.5">
+    <div className="flex flex-col gap-1.5 rounded-md bg-destructive/5 p-2.5">
       <div className="text-xs font-semibold text-destructive-text">
         {t(copy?.title ?? "remoteDevices.upgrade.failed.unknownTitle")}
       </div>

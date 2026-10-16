@@ -196,7 +196,7 @@ export function DirectoryPicker({
             只有一台时整栏不画：一个只有一个选项的选择器不是选择器，只是占掉 172px。
             机器是哪一台仍然说得出来——标题上点着名。 */}
         {machines.length > 1 ? (
-          <div className="flex w-[172px] shrink-0 flex-col border-r border-border">
+          <div className="flex w-[172px] shrink-0 flex-col">
             <p className="shrink-0 px-3 py-2 text-3xs font-medium uppercase tracking-wider text-muted-foreground">
               {t("directoryPicker.machines")}
             </p>
@@ -238,7 +238,7 @@ export function DirectoryPicker({
         ) : null}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
+          <div className="flex shrink-0 items-center gap-2 px-4 py-2">
             <div
               data-testid="directory-picker-breadcrumb"
               className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto text-2xs text-muted-foreground"
@@ -304,7 +304,7 @@ export function DirectoryPicker({
             {failure ? (
               <div
                 data-testid="directory-picker-failure"
-                className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive-soft/40 px-3 py-2 text-xs text-destructive-text"
+                className="flex items-center gap-2 rounded-md bg-destructive-soft/40 px-3 py-2 text-xs text-destructive-text"
               >
                 <AlertTriangle
                   className="size-3.5 shrink-0"
@@ -332,7 +332,7 @@ export function DirectoryPicker({
                 {listing?.truncated ? (
                   <div
                     data-testid="directory-picker-truncated"
-                    className="mb-1.5 flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground"
+                    className="mb-1.5 flex items-center gap-2 rounded-md bg-field-fill px-3 py-2 text-xs text-muted-foreground"
                   >
                     <AlertTriangle
                       className="size-3.5 shrink-0"
@@ -376,7 +376,7 @@ export function DirectoryPicker({
             )}
 
             {creating ? (
-              <div className="mt-2 rounded-md border border-ring px-2 py-1.5">
+              <div className="mt-2 rounded-md bg-field-fill px-2 py-1.5">
                 <div className="flex items-center gap-2">
                   <FolderPlus
                     className="size-3.5 shrink-0 text-muted-foreground"

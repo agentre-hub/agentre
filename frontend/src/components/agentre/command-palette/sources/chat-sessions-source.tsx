@@ -146,7 +146,7 @@ function SessionRow({ item }: SessionRowProps) {
         ) : null}
         <kbd
           className={cn(
-            "rounded-sm border border-border bg-card px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground",
+            "rounded-sm bg-field-fill px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground",
             // ↵ kbd 在 cmdk 高亮态下显示，非高亮时透明，避免每行都堆视觉噪音
             "opacity-0 group-data-[selected=true]/cmditem:opacity-100",
           )}

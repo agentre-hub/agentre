@@ -112,7 +112,7 @@ function SidebarButton({
       className={cn(
         "group relative size-10 overflow-visible rounded-lg text-sidebar-icon hover:bg-rail-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]",
         active &&
-          "bg-primary-soft text-sidebar-icon-active shadow-xs hover:bg-primary-soft hover:text-sidebar-icon-active",
+          "bg-raised text-sidebar-icon-active shadow-xs hover:bg-raised hover:text-sidebar-icon-active",
         className,
       )}
       {...props}
@@ -122,18 +122,18 @@ function SidebarButton({
         <span
           data-slot="sidebar-badge"
           aria-hidden="true"
-          className="absolute right-1.5 top-1.5 size-[7px] rounded-full bg-primary ring-2 ring-rail"
+          className="absolute right-1.5 top-1.5 size-[7px] rounded-full bg-primary ring-2 ring-chrome"
         />
       ) : null}
       <span
         id={tooltipId}
         role="tooltip"
-        className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 -translate-y-1/2 translate-x-1 scale-95 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-xs font-medium text-popover-foreground opacity-0 shadow-md transition-[opacity,transform] duration-150 [transition-delay:0ms] group-focus-visible:translate-x-0 group-focus-visible:scale-100 group-focus-visible:opacity-100 group-focus-visible:[transition-delay:0ms] group-hover:translate-x-0 group-hover:scale-100 group-hover:opacity-100 group-hover:[transition-delay:300ms]"
+        className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 -translate-y-1/2 translate-x-1 scale-95 whitespace-nowrap rounded-md bg-popover px-2 py-1 text-xs font-medium text-popover-foreground opacity-0 shadow-md transition-[opacity,transform] duration-150 [transition-delay:0ms] group-focus-visible:translate-x-0 group-focus-visible:scale-100 group-focus-visible:opacity-100 group-focus-visible:[transition-delay:0ms] group-hover:translate-x-0 group-hover:scale-100 group-hover:opacity-100 group-hover:[transition-delay:300ms]"
       >
         <span
           aria-hidden="true"
           data-slot="tooltip-arrow"
-          className="absolute -left-1 top-1/2 size-2 -translate-y-1/2 rotate-45 border-b border-l border-border bg-popover"
+          className="absolute -left-1 top-1/2 size-2 -translate-y-1/2 rotate-45 bg-popover"
         />
         <span className="relative">{label}</span>
       </span>

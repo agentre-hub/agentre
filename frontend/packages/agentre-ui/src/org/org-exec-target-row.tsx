@@ -96,8 +96,7 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
       ref={drag?.setNodeRef}
       style={drag?.style}
       className={cn(
-        "flex min-w-0 flex-col border-border bg-input-bg px-2.5 py-2",
-        props.index < props.total - 1 && "border-b",
+        "flex min-w-0 flex-col rounded-md bg-field-fill px-2.5 py-2",
         // 当前生效的一档在视觉上与其余区分：左侧一道色条，不只靠徽标。
         props.isFirstAvailable && "border-l-2 border-l-status-running",
       )}
@@ -250,7 +249,7 @@ function ExecTargetStatusBadge(props: {
           "inline-flex shrink-0 items-center rounded-sm px-1.5 py-0.5 text-2xs font-medium",
           destructive
             ? "bg-destructive-soft text-destructive-text"
-            : "border border-border text-muted-foreground",
+            : "bg-button-fill text-muted-foreground",
         )}
       >
         {orgExecTargetReasonLabel(props.status.reason, t)}

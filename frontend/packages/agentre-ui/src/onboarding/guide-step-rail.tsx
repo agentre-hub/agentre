@@ -41,7 +41,7 @@ export function GuideStepRail({
   const { t } = useUiTranslation();
 
   return (
-    <div className="flex items-stretch border-b border-border bg-muted/50">
+    <div className="flex items-stretch bg-muted/50">
       <ol className="grid min-w-0 flex-1 grid-cols-1 sm:grid-cols-3">
         {steps.map((step, index) => {
           const number = index + 1;
@@ -49,10 +49,7 @@ export function GuideStepRail({
           const active = current === number;
 
           return (
-            <li
-              key={step.key}
-              className="flex min-w-0 border-b border-border last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0"
-            >
+            <li key={step.key} className="flex min-w-0">
               <Button
                 type="button"
                 variant="ghost"
@@ -98,7 +95,7 @@ export function GuideStepRail({
         })}
       </ol>
       {onDismiss ? (
-        <div className="flex shrink-0 items-center border-l border-border px-2">
+        <div className="flex shrink-0 items-center px-2">
           <Button
             type="button"
             variant="ghost"

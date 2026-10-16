@@ -4,18 +4,20 @@ import { Slot } from "radix-ui";
 
 import { cn } from "../lib/utils";
 
+// outline 与 secondary 是同一套外观：相对前景色 8% 的填充、悬停 12%，不画边。
+const BUTTON_FILL =
+  "bg-button-fill text-secondary-foreground hover:bg-button-fill-hover";
+
 const buttonVariants = cva(
-  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:focus-outline disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:focus-outline disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90 dark:bg-destructive/60",
-        outline:
-          "border border-input bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:hover:bg-input/50",
-        secondary:
-          "bg-foreground/8 text-secondary-foreground hover:bg-foreground/12",
+        outline: BUTTON_FILL,
+        secondary: BUTTON_FILL,
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary-text underline-offset-4 hover:underline",

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { QueuedMessagesBar } from "./queued-messages-bar";
 import type { QueuedItem } from "./steer-queue";
+import { edgeClasses } from "../lib/__testing__/edge-classes";
 
 function renderBar(queued: QueuedItem[]) {
   return render(
@@ -120,5 +121,34 @@ describe("QueuedMessagesBar dropped banner", () => {
     renderDropped();
     const textEl = screen.getByText("第一条未发送消息");
     expect(textEl.closest("[data-selectable-text='true']")).not.toBeNull();
+  });
+});
+
+describe("QueuedMessagesBar · 无边框", () => {
+  it("Given queued messages, When rendered, Then the bar, its button and its items are fills without edges", () => {
+    render(
+      <QueuedMessagesBar
+        queued={[{ id: "q1", text: "hello", cancellable: true }]}
+        onCancel={vi.fn()}
+        onClearAll={vi.fn()}
+      />,
+    );
+
+    expect(edgeClasses(screen.getByRole("region"))).toEqual([]);
+  });
+
+  it("Given dropped messages, When rendered, Then the banner, its buttons and its items are fills without edges", () => {
+    render(
+      <QueuedMessagesBar
+        queued={[]}
+        onCancel={vi.fn()}
+        onClearAll={vi.fn()}
+        dropped={[{ id: "d1", text: "lost", cancellable: true }]}
+        onRestoreDropped={vi.fn()}
+        onDiscardDropped={vi.fn()}
+      />,
+    );
+
+    expect(edgeClasses(screen.getByRole("alert"))).toEqual([]);
   });
 });

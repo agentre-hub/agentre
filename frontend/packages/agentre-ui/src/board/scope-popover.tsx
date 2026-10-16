@@ -119,7 +119,7 @@ export function ProjectScopePopover({
           </button>
         ) : null}
       </div>
-      <div className="shrink-0 border-t border-border-strong px-2 py-1.5">
+      <div className="shrink-0 px-2 py-1.5">
         <div className="flex items-center gap-1.5">
           <Search
             className="size-3.5 shrink-0 text-muted-foreground"

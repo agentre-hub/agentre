@@ -95,8 +95,8 @@ export function CtlSkillPanel() {
   }, [t]);
 
   return (
-    <section className="overflow-hidden rounded-lg border border-border bg-card">
-      <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+    <section className="overflow-hidden rounded-lg bg-field-fill">
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <h2 className="text-sm font-semibold">
             {t("settings.ctlSkill.sectionTitle")}
@@ -126,7 +126,7 @@ export function CtlSkillPanel() {
         path={info?.universalPath ?? ""}
       />
 
-      <div className="flex flex-col gap-2 border-t border-border p-4">
+      <div className="flex flex-col gap-2 p-4">
         <span className="text-xs font-medium">
           {t("settings.ctlSkill.hosts.title")}
         </span>
@@ -150,7 +150,7 @@ export function CtlSkillPanel() {
         </ul>
       </div>
 
-      <div className="flex items-center gap-2 border-t border-border p-4">
+      <div className="flex items-center gap-2 p-4">
         {installed ? (
           <Button
             type="button"
@@ -196,7 +196,7 @@ function TargetRow({
   const { t } = useTranslation();
 
   return (
-    <div className="flex flex-col gap-1 border-t border-border px-4 py-3 first:border-t-0 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className="text-xs font-medium">{label}</span>
         <span className="truncate font-mono text-2xs text-muted-foreground">

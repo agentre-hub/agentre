@@ -50,7 +50,7 @@ export function HookDetailHeader({
   t: TFunction;
 }) {
   return (
-    <div className="flex flex-col gap-2.5 border-b border-border px-7 py-4">
+    <div className="flex flex-col gap-2.5 px-7 py-4">
       <div className="flex items-center gap-3.5">
         {headerMeta ? (
           <span

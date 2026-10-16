@@ -162,8 +162,9 @@ describe("AgentSpawnCard", () => {
     render(<AgentSpawnCard toolBlock={block} />);
     const badge = screen.getByTestId("agent-spawn-model-badge");
     expect(badge.textContent).toBe("haiku");
-    // 描边芯片:transparent 底 + border-strong 描边,与实心角色芯片(bg-secondary)区分。
-    expect(badge.className).toContain("border-border-strong");
+    // 无边芯片:muted 填充,与实心角色芯片(bg-secondary)区分。
+    expect(badge.className).toContain("bg-muted");
+    expect(badge.className).not.toContain("border");
     expect(badge.className).not.toContain("bg-secondary");
   });
 

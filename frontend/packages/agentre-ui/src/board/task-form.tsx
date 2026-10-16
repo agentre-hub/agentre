@@ -90,7 +90,7 @@ export function TaskFormShell({
       }}
       className={cn("flex min-h-0 flex-col", className)}
     >
-      <header className="flex shrink-0 items-center gap-2 border-b border-border-strong px-4 py-2.5">
+      <header className="flex shrink-0 items-center gap-2 px-4 py-2.5">
         <nav
           data-testid="task-form-breadcrumb"
           aria-label={t("board.form.breadcrumb")}
@@ -162,7 +162,8 @@ export function TaskFormShell({
           onChange={(event) => patch({ title: event.target.value })}
           placeholder={t("board.form.titlePlaceholder")}
           aria-label={t("board.form.title")}
-          className="h-auto border-0 bg-transparent px-0 py-1 text-base font-semibold shadow-none focus-visible:ring-0"
+          variant="inline"
+          className="h-auto px-0 py-1 text-base font-semibold"
         />
         <Textarea
           data-testid="task-description"
@@ -171,7 +172,8 @@ export function TaskFormShell({
           onChange={(event) => patch({ description: event.target.value })}
           placeholder={t("board.form.descriptionPlaceholder")}
           aria-label={t("board.form.description")}
-          className="min-h-32 flex-1 resize-none border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
+          variant="inline"
+          className="min-h-32 flex-1 resize-none px-0 text-sm"
         />
       </div>
 
@@ -219,7 +221,7 @@ export function TaskFormShell({
 
       <footer
         data-testid="task-form-footer"
-        className="flex shrink-0 flex-col gap-2 border-t border-border-strong px-4 py-3"
+        className="flex shrink-0 flex-col gap-2 px-4 py-3"
       >
         {/* 错误块在提交按钮**正上方**：摆在表单末尾时，长表单里失败在视野之外。 */}
         {form.error ? (

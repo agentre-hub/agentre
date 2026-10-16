@@ -33,7 +33,7 @@ export function ContextBar({
   const setContext = useNewChatContextStore((s) => s.setContext);
 
   return (
-    <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-muted/40 px-5 text-2xs">
+    <div className="flex h-9 shrink-0 items-center gap-2 bg-muted/40 px-5 text-2xs">
       <span className="shrink-0 font-mono text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
         {t("commandPalette.context.title")}
       </span>

@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NewSessionExecTargetLine } from "../session-exec-target";
+import { edgeClasses } from "@/__tests__/helpers/edge-classes";
 
 // wailsjs/runtime/ 没有全局 vite alias（只有 go/app/App 与 go/models 有），渲染
 // 会订阅 remote.device.state 的组件必须 per-file mock 掉它，否则真实 runtime.js
@@ -677,5 +678,25 @@ describe("NewSessionExecTargetLine", () => {
     expect(within(line).getByText("构建机")).toBeInTheDocument();
     // chip 配色/图标沿用共享 DeviceTag 的机器归属语义（远端在线 → Server 图标）。
     expect(line.querySelector(".lucide-server")).not.toBeNull();
+  });
+});
+
+describe("NewSessionExecTargetLine · 无边框", () => {
+  it("Given the reselect popover, When it opens, Then its header and rows are separated by space, not lines", async () => {
+    stubWails(
+      [
+        { agentBackendId: 51, available: true },
+        { agentBackendId: 52, available: true },
+      ],
+      [
+        { id: 51, deviceId: "", name: "claude-fable-5" },
+        { id: 52, deviceId: "3", deviceName: "构建机" },
+      ],
+    );
+    renderLine();
+    await screen.findByTestId("new-session-exec-target-line");
+
+    const picker = await openPicker();
+    expect(edgeClasses(picker)).toEqual([]);
   });
 });

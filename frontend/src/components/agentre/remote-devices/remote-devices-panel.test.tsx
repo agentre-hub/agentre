@@ -130,7 +130,8 @@ describe("RemoteDevicesPanel", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Couldn't load remote devices");
-    expect(alert).toHaveClass("border-status-error/40", "bg-destructive-soft");
+    expect(alert).toHaveClass("bg-destructive-soft");
+    expect(alert).not.toHaveClass("border");
     expect(
       screen.queryByRole("heading", { name: "Install agentred" }),
     ).not.toBeInTheDocument();

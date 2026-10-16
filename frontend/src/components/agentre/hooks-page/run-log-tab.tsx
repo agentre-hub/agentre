@@ -37,10 +37,10 @@ export function RunLogTab({
             onClick={() => onSelectEvent(ev.id)}
             aria-current={ev.id === selectedEventId ? "true" : undefined}
             className={cn(
-              "flex flex-col gap-1 rounded-md border px-3 py-2.5 text-left transition-colors",
+              "flex flex-col gap-1 rounded-md px-3 py-2.5 text-left transition-colors",
               ev.id === selectedEventId
-                ? "border-primary bg-primary/5"
-                : "border-border hover:bg-accent/60 hover:on-accent",
+                ? "bg-button-fill"
+                : "bg-field-fill hover:bg-field-fill-hover",
             )}
           >
             <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
@@ -105,7 +105,7 @@ export function RunLogTab({
               </span>
               <pre
                 data-selectable-text="true"
-                className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-2xs leading-relaxed text-code-muted-foreground"
+                className="overflow-x-auto rounded-md bg-code-surface p-3 font-mono text-2xs leading-relaxed text-code-muted-foreground"
               >
                 {selected.payloadJson}
               </pre>

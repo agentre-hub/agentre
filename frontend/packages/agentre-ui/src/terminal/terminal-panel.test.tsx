@@ -7,6 +7,7 @@ import {
   removeClipboard,
   restoreClipboardEnv,
 } from "../lib/__testing__/clipboard";
+import { edgeClasses } from "../lib/__testing__/edge-classes";
 import { TerminalPanel } from "./terminal-panel";
 import type { UseTerminalArgs } from "./use-terminal";
 
@@ -489,6 +490,24 @@ describe("TerminalPanel", () => {
     expect(onClose).not.toHaveBeenCalled();
     // Banner should be rendered with role=alert
     expect(getByRole("alert")).toHaveTextContent("Connection lost");
+  });
+
+  it("Given the connection-lost banner, When rendered, Then it and its close button are fills without edges", () => {
+    const { getByRole } = render(
+      <TerminalPanel
+        terminalID="t1"
+        projectId={42}
+        deviceId=""
+        onClose={vi.fn()}
+      />,
+    );
+    act(() => capturedArgs?.onExit?.({ code: 0, reason: "connection_lost" }));
+
+    const banner = getByRole("alert");
+    expect(edgeClasses(banner)).toEqual([]);
+    expect(getByRole("button", { name: "Close" })).toHaveClass(
+      "bg-destructive/10",
+    );
   });
 
   it("Given dark mode was applied before this terminal's observer registers, When it mounts, Then it re-applies the theme on mount instead of waiting for a class change", () => {

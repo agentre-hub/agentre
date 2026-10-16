@@ -30,8 +30,8 @@ export function AvailableCard({
   const unknownVersionLabel = t("update.version.unknown");
 
   return (
-    <section className="overflow-hidden rounded-lg border border-primary/30 bg-primary-soft">
-      <div className="flex flex-wrap items-center gap-3 border-b border-primary/20 px-4 py-3">
+    <section className="overflow-hidden rounded-lg bg-primary-soft">
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <h2 className="text-sm font-semibold text-primary-text">
             {t("update.release.available", {
@@ -48,7 +48,7 @@ export function AvailableCard({
 
       <div className="flex flex-col gap-4 p-4">
         {info.releaseNotes ? (
-          <pre className="max-h-[220px] overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/40 p-3 text-xs leading-relaxed">
+          <pre className="max-h-[220px] overflow-auto whitespace-pre-wrap rounded-md bg-field-fill p-3 text-xs leading-relaxed">
             {info.releaseNotes}
           </pre>
         ) : (
@@ -94,8 +94,8 @@ export function InstalledCard({
   const unknownVersionLabel = t("update.version.unknown");
 
   return (
-    <section className="overflow-hidden rounded-lg border border-status-running/30 bg-status-running-bg">
-      <div className="flex flex-wrap items-center gap-3 border-b border-status-running/20 px-4 py-3">
+    <section className="overflow-hidden rounded-lg bg-status-running-bg">
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <h2 className="text-sm font-semibold text-status-running-text">
             {t("update.installed.title", {

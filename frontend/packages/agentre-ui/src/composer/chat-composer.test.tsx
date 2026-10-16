@@ -412,6 +412,52 @@ describe("ChatComposer · dropping files", () => {
   });
 });
 
+describe("ChatComposer · surface", () => {
+  /** 不带变体前缀的 `border` / `border-*`：静止态画了边。 */
+  const restingEdges = (el: Element) =>
+    Array.from(el.classList).filter((c) => /^border(?:-|$)/.test(c));
+
+  it("Given the composer at rest, When the shell is inspected, Then it is a borderless field fill with a larger radius", () => {
+    const { container } = render(<ChatComposer onSubmit={vi.fn()} />);
+
+    const shell = container.querySelector("form")!;
+    expect(restingEdges(shell)).toEqual([]);
+    expect(shell).toHaveClass("bg-field-fill");
+    // 悬停加深只在未聚焦时：聚焦后鼠标停在上面也不能把内容页色盖回填充色。
+    expect(shell).toHaveClass("not-focus-within:hover:bg-field-fill-hover");
+    expect(shell).not.toHaveClass("hover:bg-field-fill-hover");
+    expect(shell).toHaveClass("rounded-xl");
+    expect(shell).not.toHaveClass("bg-card");
+    expect(shell).not.toHaveClass("shadow-xs");
+  });
+
+  it("Given focus lands inside the composer, When the shell is inspected, Then it returns to the sheet colour and shows only the focus ring", () => {
+    const { container } = render(<ChatComposer onSubmit={vi.fn()} />);
+
+    const shell = container.querySelector("form")!;
+    expect(shell).toHaveClass(
+      "focus-within:bg-sheet",
+      "focus-within:focus-outline",
+    );
+    expect(Array.from(shell.classList).join(" ")).not.toMatch(
+      /focus-within:(focus-halo|border)/,
+    );
+  });
+
+  it("Given edit mode, When rendered, Then the banner is a fill with no dividing line under it and the shell stays borderless", async () => {
+    const { container } = render(
+      <ChatComposer editing editDraft="old text" onSubmit={vi.fn()} />,
+    );
+
+    const banner = await screen.findByRole("status", {
+      name: "Editing message",
+    });
+    expect(banner).toHaveClass("bg-primary-soft");
+    expect(restingEdges(banner)).toEqual([]);
+    expect(restingEdges(container.querySelector("form")!)).toEqual([]);
+  });
+});
+
 describe("ChatComposer · bottom bar", () => {
   it("Given any width, When the bar is inspected, Then it never wraps and the submit control never shrinks", () => {
     const { container } = render(<ChatComposer onSubmit={vi.fn()} />);

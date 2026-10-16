@@ -62,18 +62,17 @@ export function OrgToolList({
       ) : (
         <ul
           aria-label={t("org.agent.tools.title")}
-          className="flex min-w-0 flex-col overflow-hidden rounded-md border border-border"
+          className="flex min-w-0 flex-col gap-1"
         >
-          {items.map((item, index) => {
+          {items.map((item) => {
             const Icon = TOOL_ICONS[item.key] ?? Wrench;
             return (
               <li
                 key={item.key}
                 data-granted={item.granted}
                 className={cn(
-                  "flex min-w-0 items-center gap-2 px-2.5 py-1.5",
-                  index > 0 && "border-t border-border",
-                  item.granted ? "bg-primary-soft" : "bg-input-bg",
+                  "flex min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5",
+                  item.granted ? "bg-primary-soft" : "bg-field-fill",
                 )}
               >
                 {/* ✓ 占一个固定宽度的位：未授权时留空而不是塌陷，否则两组行的
@@ -137,10 +136,10 @@ export function OrgToolList({
                   )}
                   onClick={() => onToggleGrant(item.key)}
                   className={cn(
-                    "shrink-0 rounded-sm border px-2 py-0.5 text-2xs transition-colors focus-visible:focus-outline",
+                    "shrink-0 rounded-sm px-2 py-0.5 text-2xs transition-colors focus-visible:focus-outline",
                     item.granted
-                      ? "border-status-running bg-status-running-bg text-status-running-text"
-                      : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+                      ? "bg-status-running-bg text-status-running-text"
+                      : "bg-button-fill text-muted-foreground hover:bg-button-fill-hover hover:text-foreground",
                   )}
                 >
                   {t(

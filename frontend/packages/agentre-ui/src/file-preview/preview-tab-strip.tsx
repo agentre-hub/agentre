@@ -123,7 +123,7 @@ export function PreviewTabStrip({
       aria-label={t("filePreview.tabsAria")}
       onKeyDown={handleKeyDown}
       className={cn(
-        "flex h-[34px] shrink-0 items-stretch overflow-hidden border-b border-border bg-muted",
+        "flex h-[34px] shrink-0 items-stretch overflow-hidden bg-muted",
         className,
       )}
     >
@@ -143,7 +143,7 @@ export function PreviewTabStrip({
           />
         ))}
       </div>
-      <div className="flex h-full shrink-0 items-center border-l border-border px-1">
+      <div className="flex h-full shrink-0 items-center px-1">
         <PreviewTabOverflowMenu
           tabs={tabs}
           activePath={activePath}
@@ -205,7 +205,7 @@ function PreviewTab({
           onClick={onActivate}
           onDoubleClick={onDoublePromote}
           className={cn(
-            "relative flex h-full min-w-[96px] max-w-[150px] flex-shrink items-center gap-1.5 border-r border-border pl-2.5 pr-1.5 text-2xs",
+            "relative flex h-full min-w-[96px] max-w-[150px] flex-shrink items-center gap-1.5 pl-2.5 pr-1.5 text-2xs",
             // 标签填满这条会裁剪的带子，向外的焦点环会被切掉，所以向内画。
             "focus-visible:focus-outline-inset",
             active

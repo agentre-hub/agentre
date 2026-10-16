@@ -157,7 +157,7 @@ function ChatPanelHeader({
     <SessionHeaderBand
       testId="chat-header"
       metaTestId="chat-header-meta"
-      className="border-b border-border px-5"
+      className="px-5"
       avatar={
         session ? (
           <AgentAvatar
@@ -204,18 +204,23 @@ function ChatPanelHeader({
           {session && canStop ? (
             <Button
               type="button"
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => onStop(session.id)}
+              aria-label={t("chatPanel.toolbar.stop")}
               title={t("chatPanel.toolbar.stopActiveTitle")}
+              className="hover:bg-destructive/15 hover:text-destructive-text dark:hover:bg-destructive/20"
             >
-              <Square data-icon="inline-start" aria-hidden="true" />
-              {t("chatPanel.toolbar.stop")}
+              <Square
+                data-icon="only"
+                className="size-3.5 fill-current"
+                aria-hidden="true"
+              />
             </Button>
           ) : null}
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="icon-sm"
             aria-label={t("chatPanel.toolbar.contextSidebar")}
             onClick={onToggleSidebar}
@@ -238,9 +243,10 @@ function ChatPanelHeader({
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="icon-sm"
                   aria-label={t("common.moreActions")}
+                  title={t("common.moreActions")}
                 >
                   <MoreHorizontal data-icon="only" aria-hidden="true" />
                 </Button>

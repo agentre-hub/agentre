@@ -166,7 +166,7 @@ export function DefaultModelDialog({
               {hasRefs ? (
                 <div
                   role="alert"
-                  className="flex flex-col gap-2 rounded-md border border-status-waiting/40 bg-status-waiting-bg px-3 py-2.5"
+                  className="flex flex-col gap-2 rounded-md bg-status-waiting-bg px-3 py-2.5"
                 >
                   <div className="flex items-start gap-2 text-xs">
                     <RefreshCw

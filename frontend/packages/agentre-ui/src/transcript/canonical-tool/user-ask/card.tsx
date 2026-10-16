@@ -14,6 +14,10 @@ import {
 import { Button } from "../../../ui/button";
 import { Input } from "../../../ui/input";
 import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "../../../ui/segmented-control";
+import {
   TranscriptCard,
   TranscriptCardBody,
   TranscriptPill,
@@ -229,7 +233,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
         type="button"
         onClick={() => setCollapsed((v) => !v)}
         aria-expanded={!collapsed}
-        className="flex w-full items-center gap-2 border-b border-border px-3.5 py-2.5 text-left transition-colors hover:bg-accent/60 hover:on-accent"
+        className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left transition-colors hover:bg-accent/60 hover:on-accent"
       >
         <ChevronDown
           aria-hidden="true"
@@ -245,7 +249,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
         {headerLabel && (
           <>
             <span className="font-mono text-xs text-muted-foreground">·</span>
-            <span className="rounded-sm border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-meta font-medium text-primary-text">
+            <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-meta font-medium text-primary-text">
               {headerLabel}
             </span>
           </>
@@ -276,10 +280,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
                   onSelect={setActiveQIdx}
                 />
               )}
-              {/* header 已用 border-b 分隔(单问题时是唯一分隔线,多问题时 QuestionTabs
-          再补一条 border-b),这里不重复套 TranscriptCardBody 的 border-t,只借它的
-          水平内边距 token,避免在 tabs/内容边界叠出两条相邻的分隔线。 */}
-              <TranscriptCardBody className="flex flex-col gap-3 border-t-0">
+              <TranscriptCardBody className="flex flex-col gap-3">
                 {payload.questions[activeQIdx] && (
                   <QuestionGroup
                     q={payload.questions[activeQIdx]}
@@ -292,14 +293,14 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
                   />
                 )}
                 {error && (
-                  <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive-text">
+                  <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive-text">
                     {error}
                   </div>
                 )}
               </TranscriptCardBody>
 
               {!isLocked && (
-                <div className="flex items-center gap-2 border-t border-border px-3.5 py-2.5">
+                <div className="flex items-center gap-2 px-3.5 py-2.5">
                   <div className="flex-1" />
                   <Button
                     type="button"
@@ -386,39 +387,35 @@ function QuestionTabs({
   onSelect: (idx: number) => void;
 }) {
   return (
-    <div className="flex items-end gap-1 border-b border-border px-3.5">
-      {questions.map((q, idx) => {
-        const active = idx === activeIdx;
-        // 已作答的卡里秘密题的答复不带内容，不能靠选中项判断。
-        const answered =
-          allAnswered || (selections[idx]?.labels.length ?? 0) > 0;
-        const label = q.header ? `Q${idx + 1} · ${q.header}` : `Q${idx + 1}`;
-        return (
-          <button
-            key={idx}
-            type="button"
-            onClick={() => onSelect(idx)}
-            className={cn(
-              "-mb-px flex items-center gap-1.5 border-b-2 px-3.5 pt-2.5 pb-2 text-xs transition-colors",
-              active
-                ? "border-primary font-semibold text-primary-text"
-                : "border-transparent font-medium text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {answered ? (
-              <CheckCircle2
-                className={cn(
-                  "h-3 w-3",
-                  active ? "text-primary" : "text-status-running/70",
-                )}
-              />
-            ) : (
-              <Circle className="h-3 w-3 text-muted-foreground/60" />
-            )}
-            <span>{label}</span>
-          </button>
-        );
-      })}
+    <div className="px-3.5 pb-1">
+      <SegmentedControl
+        value={String(activeIdx)}
+        onValueChange={(v) => onSelect(Number(v))}
+        className="max-w-full overflow-x-auto"
+      >
+        {questions.map((q, idx) => {
+          const active = idx === activeIdx;
+          // 已作答的卡里秘密题的答复不带内容，不能靠选中项判断。
+          const answered =
+            allAnswered || (selections[idx]?.labels.length ?? 0) > 0;
+          const label = q.header ? `Q${idx + 1} · ${q.header}` : `Q${idx + 1}`;
+          return (
+            <SegmentedControlItem key={idx} value={String(idx)}>
+              {answered ? (
+                <CheckCircle2
+                  className={cn(
+                    "h-3 w-3",
+                    active ? "text-primary" : "text-status-running/70",
+                  )}
+                />
+              ) : (
+                <Circle className="h-3 w-3 text-muted-foreground/60" />
+              )}
+              <span>{label}</span>
+            </SegmentedControlItem>
+          );
+        })}
+      </SegmentedControl>
     </div>
   );
 }
@@ -451,7 +448,7 @@ function QuestionGroup({
         <p className="flex-1 text-prose font-semibold leading-[1.4] text-foreground">
           {q.question}
         </p>
-        <span className="flex shrink-0 items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-0.5 text-meta font-semibold tracking-wide text-muted-foreground">
+        <span className="flex shrink-0 items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 text-meta font-semibold tracking-wide text-muted-foreground">
           {multi ? (
             <SquareCheck className="h-2.5 w-2.5" />
           ) : (
@@ -470,10 +467,10 @@ function QuestionGroup({
               disabled={locked}
               onClick={() => onToggle(qIdx, opt.label, multi)}
               className={cn(
-                "flex w-full flex-col gap-1.5 rounded-md border px-3.5 py-3 text-left transition-colors",
+                "flex w-full flex-col gap-1.5 rounded-md px-3.5 py-3 text-left transition-colors",
                 selected
-                  ? "border-primary bg-primary-soft"
-                  : "border-border bg-card hover:border-primary/40",
+                  ? "bg-primary-soft"
+                  : "bg-button-fill hover:bg-button-fill-hover",
               )}
             >
               <div className="flex items-center gap-2.5">
@@ -508,17 +505,17 @@ function QuestionGroup({
 
         {q.isSecret && answered ? (
           // 秘密答案只留「已作答」，内容既不落档也不回显。
-          <div className="flex items-center gap-2.5 rounded-md border border-dashed border-border-strong px-3.5 py-2.5 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2.5 rounded-md bg-button-fill px-3.5 py-2.5 text-sm text-muted-foreground">
             <PencilLine className="h-3.5 w-3.5" />
             {t("canonical.userAsk.secretAnswered")}
           </div>
         ) : offersText ? (
           <div
             className={cn(
-              "flex items-center gap-2.5 rounded-md border border-dashed px-3.5 py-2.5",
+              "flex items-center gap-2.5 rounded-md px-3.5 py-2.5",
               labels.includes(OTHER_LABEL)
-                ? "border-primary/60 bg-primary-soft"
-                : "border-border-strong",
+                ? "bg-primary-soft"
+                : "bg-button-fill",
             )}
           >
             <PencilLine className="h-3.5 w-3.5 text-muted-foreground" />
@@ -534,7 +531,8 @@ function QuestionGroup({
                 if (text && !has) onToggle(qIdx, OTHER_LABEL, multi);
                 if (!text && has) onToggle(qIdx, OTHER_LABEL, multi);
               }}
-              className="h-7 border-0 bg-transparent p-0 text-sm focus-visible:ring-0"
+              variant="inline"
+              className="h-7 p-0 text-sm"
             />
           </div>
         ) : null}

@@ -99,6 +99,22 @@ describe("IssuesPage", () => {
     expect(screen.getByTestId("board-card-142")).toBeInTheDocument();
   });
 
+  it("Given the board, When it renders, Then the page is one content sheet without separator lines", async () => {
+    const { container } = render(<IssuesPage />);
+    await screen.findByText("fix OAuth state loss");
+
+    const main = container.querySelector("main")!;
+    expect(main.className).toContain("content-sheet");
+    const header = main.querySelector("header")!;
+    expect(header.className).not.toMatch(/\bborder-b\b/);
+    const structural = Array.from(main.querySelectorAll("*"))
+      .flatMap((el) => (el.getAttribute("class") ?? "").split(/\s+/))
+      .filter((token) =>
+        /^(?:border-[tb]|border-[tb]-.*|divide-.*)$/.test(token),
+      );
+    expect(structural).toEqual([]);
+  });
+
   it("Given the stage totals, When the header renders, Then it counts tasks and work in progress, not open and closed", async () => {
     render(<IssuesPage />);
 

@@ -169,7 +169,7 @@ export function ModelEditDialog({
             {needsConfirm && counts ? (
               <div
                 role="alert"
-                className="flex flex-col gap-2 rounded-md border border-status-waiting/40 bg-status-waiting/10 px-3 py-2.5"
+                className="flex flex-col gap-2 rounded-md bg-status-waiting/10 px-3 py-2.5"
               >
                 <div className="flex items-start gap-2 text-xs text-status-waiting-text">
                   <AlertTriangle

@@ -1,7 +1,8 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PanelShownContext } from "../chat-panel/panel-shown";
 import { BackgroundTasksChip } from "./background-tasks-chip";
 import { BackgroundTasksPopoverContent } from "./background-tasks-popover";
 import type { BackgroundTask } from "./types";
@@ -49,39 +50,204 @@ const openChip = () =>
   userEvent.click(screen.getByRole("button", { name: /background tasks/i }));
 
 describe("BackgroundTasksChip", () => {
-  it("stays visible with an ended label when no task is running any more", () => {
-    render(
+  it("Given nothing is running but some tasks ended, When rendered, Then nothing is shown", () => {
+    const { container } = render(
       <BackgroundTasksChip
         tasks={[completed, { ...failed, status: "canceled" }]}
       />,
     );
-    // 已结束 = 完成 + 失败 + 被停止,不只是「已完成」。
-    expect(
-      screen.getByRole("button", { name: /background tasks/i }),
-    ).toHaveTextContent("2 ended");
+    expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders null only when there are no tasks at all", () => {
+  it("renders null when there are no tasks at all", () => {
     const { container } = render(<BackgroundTasksChip tasks={[]} />);
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("shows running count in chip label", () => {
+  it("Given a running task, When rendered, Then it is an icon-only button whose name carries the running count and a status dot", () => {
     render(<BackgroundTasksChip tasks={[running, completed]} />);
-    const btn = screen.getByRole("button", { name: /background tasks/i });
-    expect(btn).toBeInTheDocument();
-    expect(btn).toHaveTextContent("1 running");
+    const btn = screen.getByRole("button", {
+      name: "Background tasks: 1 running",
+    });
+    expect(btn).toHaveTextContent("");
+    expect(within(btn).getByTestId("background-tasks-dot")).toBeInTheDocument();
   });
 
-  it("shows correct count when multiple tasks are running", () => {
-    const running2: BackgroundTask = {
-      toolUseId: "tu4",
-      kind: "local_bash",
-      description: "another task",
-      status: "running",
-    };
+  it("Given a running task, When rendered, Then the button is transparent until hovered and its dot breathes slowly unless motion is reduced", () => {
+    render(<BackgroundTasksChip tasks={[running]} />);
+    const btn = screen.getByRole("button", {
+      name: "Background tasks: 1 running",
+    });
+    expect(btn).toHaveAttribute("data-variant", "ghost");
+    expect(within(btn).getByTestId("background-tasks-dot")).toHaveClass(
+      "animate-pulse",
+      "motion-reduce:animate-none",
+    );
+  });
+
+  it("Given a running sub-agent, When peeked, Then its row lists type, steps, model and elapsed time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(runningAgent.startedAt! + 65_000);
+    render(<BackgroundTasksChip tasks={[runningAgent]} />);
+    await userEvent.hover(screen.getByRole("button"));
+    const peek = await screen.findByTestId("background-tasks-peek");
+    const row = within(peek).getByText("Trace the stream").closest("li")!;
+    expect(row).toHaveTextContent("Explore");
+    expect(row).toHaveTextContent("12 steps");
+    expect(row).toHaveTextContent("sonnet-4-5");
+    expect(row).toHaveTextContent("1m 05s");
+  });
+
+  it("Given a running command, When peeked, Then its row shows how long it has run", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(1700000000000 + 12_000);
+    render(
+      <BackgroundTasksChip
+        tasks={[{ ...running, startedAt: 1700000000000 }]}
+      />,
+    );
+    await userEvent.hover(screen.getByRole("button"));
+    const peek = await screen.findByTestId("background-tasks-peek");
+    expect(within(peek).getByText("sleep 20").closest("li")).toHaveTextContent(
+      "12s",
+    );
+  });
+
+  it("Given several running tasks, When rendered, Then the accessible name counts only the running ones", () => {
+    const running2: BackgroundTask = { ...running, toolUseId: "tu4" };
     render(<BackgroundTasksChip tasks={[running, running2, completed]} />);
-    expect(screen.getByRole("button")).toHaveTextContent("2 running");
+    expect(
+      screen.getByRole("button", { name: "Background tasks: 2 running" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given sub-agents and commands running, When hovered, Then the peek lists both kinds and the ended count", async () => {
+    render(
+      <BackgroundTasksChip
+        tasks={[runningAgent, running, completed, failed]}
+      />,
+    );
+    await userEvent.hover(screen.getByRole("button"));
+    const peek = await screen.findByTestId("background-tasks-peek");
+    expect(within(peek).getByText("Trace the stream")).toBeInTheDocument();
+    expect(within(peek).getByText("sleep 20")).toBeInTheDocument();
+    expect(within(peek).getByText(/Subagents/)).toBeInTheDocument();
+    expect(within(peek).getByText(/Commands/)).toBeInTheDocument();
+    expect(within(peek).getByText(/2 ended/)).toBeInTheDocument();
+    expect(within(peek).queryByText("Explore repo")).toBeNull();
+  });
+
+  it("Given a keyboard user, When the button is focused, Then the peek shows too", async () => {
+    render(<BackgroundTasksChip tasks={[running]} />);
+    await userEvent.tab();
+    expect(screen.getByRole("button")).toHaveFocus();
+    expect(
+      await screen.findByTestId("background-tasks-peek"),
+    ).toBeInTheDocument();
+  });
+
+  // 面板被宿主用 CSS 藏起来（切 Tab / 离开对话页）时按钮仍挂载，Radix 收不到关闭
+  // 信号；宿主经 PanelShownContext 告诉它，预览卡与弹层都要收起，回来时也不自己弹开。
+  it("Given the peek is open from keyboard focus, When the host hides the panel holding the button, Then the peek closes", async () => {
+    const { rerender } = render(
+      <PanelShownContext.Provider value>
+        <BackgroundTasksChip tasks={[running]} />
+      </PanelShownContext.Provider>,
+    );
+    await userEvent.tab();
+    expect(
+      await screen.findByTestId("background-tasks-peek"),
+    ).toBeInTheDocument();
+
+    rerender(
+      <PanelShownContext.Provider value={false}>
+        <BackgroundTasksChip tasks={[running]} />
+      </PanelShownContext.Provider>,
+    );
+
+    expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
+  });
+
+  it("Given the popover is open, When the host hides the panel and later shows it again, Then the popover is gone and does not come back by itself", async () => {
+    const chip = (shown: boolean) => (
+      <PanelShownContext.Provider value={shown}>
+        <BackgroundTasksChip tasks={[running]} />
+      </PanelShownContext.Provider>
+    );
+    const { rerender } = render(chip(true));
+    await openChip();
+    expect(
+      screen.getByRole("region", { name: "Commands" }),
+    ).toBeInTheDocument();
+
+    rerender(chip(false));
+    expect(screen.queryByRole("region", { name: "Commands" })).toBeNull();
+
+    rerender(chip(true));
+    expect(screen.queryByRole("region", { name: "Commands" })).toBeNull();
+    expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
+  });
+
+  // 指针刚移上按钮、openDelay 还没走完就按快捷键切走：指针没动，Radix 收不到离开，
+  // 延迟到点照样请求打开——这时面板已藏起，预览卡没有锚点，会漂在别的页面上。
+  it("Given the pointer just entered the button, When the host hides the panel before the hover delay runs out, Then the peek neither opens nor surfaces when the panel returns", async () => {
+    const chip = (shown: boolean) => (
+      <PanelShownContext.Provider value={shown}>
+        <BackgroundTasksChip tasks={[running]} />
+      </PanelShownContext.Provider>
+    );
+    const { rerender } = render(chip(true));
+    await userEvent.hover(screen.getByRole("button"));
+
+    rerender(chip(false));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+    expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
+
+    rerender(chip(true));
+    expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
+  });
+
+  it("Given the peek is open from keyboard focus, When focus moves to an element outside, Then the peek closes", async () => {
+    render(
+      <>
+        <BackgroundTasksChip tasks={[running]} />
+        <button type="button">elsewhere</button>
+      </>,
+    );
+    await userEvent.tab();
+    expect(
+      await screen.findByTestId("background-tasks-peek"),
+    ).toBeInTheDocument();
+    await userEvent.tab();
+    await waitFor(() =>
+      expect(screen.queryByTestId("background-tasks-peek")).toBeNull(),
+    );
+  });
+
+  it("Given more than 4 commands running, When peeked, Then the first 4 show with a 'N more' line", async () => {
+    const many = Array.from({ length: 6 }, (_, i) => ({
+      ...running,
+      toolUseId: `c${i}`,
+      description: `cmd-${i}`,
+    }));
+    render(<BackgroundTasksChip tasks={many} />);
+    await userEvent.hover(screen.getByRole("button"));
+    const peek = await screen.findByTestId("background-tasks-peek");
+    expect(within(peek).getByText("cmd-3")).toBeInTheDocument();
+    expect(within(peek).queryByText("cmd-4")).toBeNull();
+    expect(within(peek).getByText("2 more commands")).toBeInTheDocument();
+  });
+
+  it("Given exactly 4 commands, When peeked, Then there is no 'more' line", async () => {
+    const four = Array.from({ length: 4 }, (_, i) => ({
+      ...running,
+      toolUseId: `c${i}`,
+      description: `cmd-${i}`,
+    }));
+    render(<BackgroundTasksChip tasks={four} />);
+    await userEvent.hover(screen.getByRole("button"));
+    const peek = await screen.findByTestId("background-tasks-peek");
+    expect(within(peek).queryByText(/more commands/)).toBeNull();
   });
 
   it("Given a located task, When its row is clicked, Then the host is told which task and the popover closes", async () => {
@@ -94,6 +260,54 @@ describe("BackgroundTasksChip", () => {
     expect(onLocate).toHaveBeenCalledWith(task);
     // 对话滚过去之后弹层不该还盖在上面。
     expect(screen.queryByText("sleep 20")).toBeNull();
+  });
+});
+
+describe("BackgroundTasksChip — peek after the popover", () => {
+  // 指针移上按钮后预览卡要等 openDelay 才开；在那之前就点开了弹层，迟到的「打开」
+  // 不能记下来，否则弹层一关，预览卡就从它底下冒出来盖在对话上。
+  it("Given the popover was clicked open before the hover delay ran out, When a task is located and the popover closes, Then no peek surfaces in its place", async () => {
+    const task = { ...running, messageId: 42 };
+    render(<BackgroundTasksChip tasks={[task]} onLocateTask={vi.fn()} />);
+    await openChip();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    await userEvent.click(screen.getByRole("button", { name: /sleep 20/ }));
+
+    expect(screen.queryByRole("region", { name: "Commands" })).toBeNull();
+    expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
+  });
+});
+
+describe("BackgroundTasksChip — hiding when nothing runs", () => {
+  // 按钮只在有任务在跑时存在；最后一个任务在弹层开着时结束，按钮连同弹层一起消失。
+  // 下一次有任务开跑时按钮回来，但弹层不能自己弹开——那次「开着」早已无人看见。
+  it("Given the popover is open, When the last running task ends and a new one starts later, Then the button returns closed", async () => {
+    const { rerender } = render(<BackgroundTasksChip tasks={[running]} />);
+    await openChip();
+    expect(
+      screen.getByRole("region", { name: "Commands" }),
+    ).toBeInTheDocument();
+
+    const ended = { ...running, status: "completed" as const };
+    rerender(<BackgroundTasksChip tasks={[ended]} />);
+    expect(
+      screen.queryByRole("button", { name: /background tasks/i }),
+    ).toBeNull();
+
+    rerender(
+      <BackgroundTasksChip
+        tasks={[
+          ended,
+          { ...running, toolUseId: "tu5", description: "sleep 30" },
+        ]}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /background tasks/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Commands" })).toBeNull();
+    expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
   });
 });
 

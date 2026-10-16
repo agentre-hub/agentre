@@ -297,7 +297,7 @@ export function NewSessionExecTargetLine(props: NewSessionExecTargetLineProps) {
     return (
       <div
         data-testid="new-session-exec-target-all-unavailable"
-        className="mt-2 flex max-w-md gap-2 rounded-md border border-destructive bg-destructive-soft px-3 py-2.5 text-left"
+        className="mt-2 flex max-w-md gap-2 rounded-md bg-destructive-soft px-3 py-2.5 text-left"
       >
         <div className="flex min-w-0 flex-col gap-1">
           <span className="text-xs font-semibold">
@@ -456,7 +456,7 @@ function ExecTargetReselectPopover(props: {
   };
   return (
     <div data-testid="exec-target-picker">
-      <div className="flex items-baseline justify-between gap-2 border-b border-border px-3 py-2">
+      <div className="flex items-baseline justify-between gap-2 px-3 py-2">
         <span className="text-2xs font-semibold">
           {t("chatPanel.execTarget.pickerTitle")}
         </span>
@@ -471,7 +471,7 @@ function ExecTargetReselectPopover(props: {
           disabled={!c.available}
           onClick={() => props.onPick(c.agentBackendId)}
           className={cn(
-            "flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left last:border-b-0",
+            "flex w-full items-start gap-2 px-3 py-2 text-left",
             c.available ? "hover:bg-accent" : "cursor-not-allowed opacity-60",
           )}
         >

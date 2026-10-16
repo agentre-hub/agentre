@@ -136,7 +136,7 @@ export function ImportPreviewDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-md border">
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-md bg-field-fill">
             <Table>
               <TableHeader>
                 <TableRow>

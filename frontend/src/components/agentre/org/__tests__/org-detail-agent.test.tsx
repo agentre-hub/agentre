@@ -6,9 +6,10 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 import { OrgDetailAgent } from "../org-detail-agent";
 import type { OrgAgent, OrgDepartment } from "../types";
 import type { agent_backend_svc } from "../../../../../wailsjs/go/models";
@@ -91,15 +92,6 @@ const backend = (
     ...overrides,
   }) as agent_backend_svc.BackendItem;
 
-function LocationStateProbe() {
-  const location = useLocation();
-  return (
-    <output data-testid="location-state">
-      {JSON.stringify(location.state ?? {})}
-    </output>
-  );
-}
-
 function renderPanel(
   overrides: AgentOverrides = {},
   backends: agent_backend_svc.BackendItem[] = [],
@@ -112,7 +104,6 @@ function renderPanel(
   const onClose = vi.fn();
   render(
     <MemoryRouter initialEntries={["/org"]}>
-      <LocationStateProbe />
       <OrgDetailAgent
         agent={agent(overrides)}
         departments={[dept]}
@@ -491,6 +482,10 @@ describe("OrgDetailAgent", () => {
   });
 
   describe("OrgDetailAgent setup guidance (task 8)", () => {
+    beforeEach(() => {
+      useSettingsDialogStore.setState({ open: false, page: "appearance" });
+    });
+
     it("shows a no-backend status alert when no backend is bound", () => {
       renderPanel({ agentBackendId: 0 }, []);
       expect(screen.getByText("This agent can't chat yet")).toBeInTheDocument();
@@ -556,7 +551,7 @@ describe("OrgDetailAgent", () => {
       expect(screen.queryByText("An LLM provider is still needed")).toBeNull();
     });
 
-    it("navigates to settings llm-providers from the configure-provider button", async () => {
+    it("opens the settings dialog on llm-providers from the configure-provider button", async () => {
       const user = userEvent.setup();
       renderPanel({ agentBackendId: 8 }, [
         backend({
@@ -569,12 +564,13 @@ describe("OrgDetailAgent", () => {
       await user.click(
         screen.getByRole("button", { name: "Configure LLM providers" }),
       );
-      expect(screen.getByTestId("location-state")).toHaveTextContent(
-        "llm-providers",
-      );
+      expect(useSettingsDialogStore.getState()).toMatchObject({
+        open: true,
+        page: "llm-providers",
+      });
     });
 
-    it("navigates to settings agent-backend from the Go to Agent backend settings link", async () => {
+    it("opens the settings dialog on agent-backend from the Go to Agent backend settings link", async () => {
       const user = userEvent.setup();
       renderPanel({ agentBackendId: 8 }, [
         backend({
@@ -587,9 +583,10 @@ describe("OrgDetailAgent", () => {
       await user.click(
         screen.getByRole("button", { name: "Go to Agent backend settings" }),
       );
-      expect(screen.getByTestId("location-state")).toHaveTextContent(
-        "agent-backend",
-      );
+      expect(useSettingsDialogStore.getState()).toMatchObject({
+        open: true,
+        page: "agent-backend",
+      });
     });
   });
 

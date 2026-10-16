@@ -222,8 +222,8 @@ function LlmProvidersPanelBody({
             className={cn(
               "py-2",
               flash.kind === "ok"
-                ? "border-status-running/40 bg-status-running/10 text-status-running-text"
-                : "border-status-error/40 bg-status-error/10 text-destructive-text",
+                ? "bg-status-running/10 text-status-running-text"
+                : "bg-status-error/10 text-destructive-text",
             )}
           >
             {flash.kind === "ok" ? (
@@ -253,7 +253,7 @@ function LlmProvidersPanelBody({
             onOpenAgentBackends={onOpenAgentBackends}
           />
         ) : (
-          <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
+          <div className="min-w-0 overflow-hidden rounded-lg bg-field-fill">
             <ProviderManagement
               providers={providers}
               selectedId={selectedId}
@@ -469,7 +469,7 @@ function ProvidersEmptyState({
         className="relative flex size-12 items-center justify-center rounded-full bg-primary-soft text-primary-text"
       >
         <Sparkles className="size-5" />
-        <span className="absolute -bottom-0.5 -right-0.5 inline-flex size-5 items-center justify-center rounded-full border-2 border-card bg-card text-primary-text shadow-xs">
+        <span className="absolute -bottom-0.5 -right-0.5 inline-flex size-5 items-center justify-center rounded-full bg-card text-primary-text shadow-xs">
           <Plus className="size-3" />
         </span>
       </div>

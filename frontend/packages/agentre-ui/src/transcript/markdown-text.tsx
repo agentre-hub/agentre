@@ -165,7 +165,7 @@ const markdownComponentsStatic: Components = {
     <blockquote
       {...props}
       className={cn(
-        "my-2 border-l-2 border-border-strong pl-3 text-muted-foreground",
+        "my-2 rounded-lg bg-field-fill px-3 py-1 text-muted-foreground",
         className,
       )}
     />
@@ -210,6 +210,7 @@ const markdownComponentsStatic: Components = {
     />
   ),
   hr: ({ node: _node, className, ...props }) => (
+    // eslint-disable-next-line no-restricted-syntax -- 正文里的 <hr> 是作者写进 markdown 的分隔，属于内容，不是界面的结构线（无边框改版规格只去掉界面上的线）。
     <hr {...props} className={cn("my-3 border-border", className)} />
   ),
   li: ({ node: _node, className, ...props }) => (
@@ -268,18 +269,12 @@ const markdownComponentsStatic: Components = {
     </div>
   ),
   td: ({ node: _node, className, ...props }) => (
-    <td
-      {...props}
-      className={cn("border border-border px-2 py-1 align-top", className)}
-    />
+    <td {...props} className={cn("px-2 py-1 align-top", className)} />
   ),
   th: ({ node: _node, className, ...props }) => (
     <th
       {...props}
-      className={cn(
-        "border border-border bg-muted px-2 py-1 text-left font-semibold",
-        className,
-      )}
+      className={cn("bg-muted px-2 py-1 text-left font-semibold", className)}
     />
   ),
   ul: ({ node: _node, className, ...props }) => (

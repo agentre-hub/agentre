@@ -176,9 +176,9 @@ describe("表头里的行", () => {
       );
 
     expect(feedback("head-row")).toEqual([]);
-    // 调用点给表头行的静止底色照常生效，行与行之间的分隔线也还在。
+    // 调用点给表头行的静止底色照常生效，无边框改版后行间不再画线。
     expect(classesOf("head-row")).toEqual(
-      expect.arrayContaining(["bg-secondary", "border-b"]),
+      expect.arrayContaining(["bg-secondary"]),
     );
     expect(feedback("body-row")).not.toEqual([]);
   });

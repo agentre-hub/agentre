@@ -122,7 +122,7 @@ export function ProviderModelRows({
             return (
               <div
                 key={index}
-                className="flex items-center gap-2 rounded-md border border-border px-2.5 py-2"
+                className="flex items-center gap-2 rounded-md bg-field-fill px-2.5 py-2"
               >
                 <RadioGroupItem
                   value={row.modelId}

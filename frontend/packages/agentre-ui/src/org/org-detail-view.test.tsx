@@ -459,3 +459,78 @@ describe("OrgExecTargetRow（只吃 props）", () => {
     expect(listenerKeyDown).not.toHaveBeenCalled();
   });
 });
+
+/** 元素及其后代上所有画边的类名；状态色条（border-l-2 / border-l-status-*）由调用方放行。 */
+function borderTokens(root: Element): string[] {
+  return [root, ...Array.from(root.querySelectorAll("*"))]
+    .flatMap((el) => (el.getAttribute("class") ?? "").split(/\s+/))
+    .filter((token) => !token.startsWith("file:")) // 文件选择按钮的内部样式
+    .map((token) => token.replace(/^(?:[a-z-]+:)+/, ""))
+    .filter((token) => /^(?:border|divide)(?:-|$)/.test(token));
+}
+
+describe("org 呈现件无结构线", () => {
+  it("OrgToolList：列表外框、行间分隔线、授权按钮的边都换成填充", () => {
+    const { container } = render(
+      <OrgToolList
+        toolKeys={["subagent", "org", "hook"]}
+        agentTools={[
+          { key: "org", enabled: true },
+          { key: "hook", enabled: false },
+          { key: "subagent", enabled: false },
+        ]}
+        onToggleGrant={vi.fn()}
+      />,
+    );
+
+    expect(borderTokens(container)).toEqual([]);
+  });
+
+  it("OrgExecTargetRow：行间不画线，只有当前生效一档保留状态色条", () => {
+    const backend = { id: 7, type: "claude-code", name: "cc" };
+    const { container, rerender } = render(
+      <OrgExecTargetRow
+        index={0}
+        total={2}
+        backend={backend}
+        status={{ available: true, reason: "" }}
+        isFirstAvailable
+        skillsSupported={false}
+      />,
+    );
+    expect(borderTokens(container).sort()).toEqual([
+      "border-l-2",
+      "border-l-status-running",
+    ]);
+
+    rerender(
+      <OrgExecTargetRow
+        index={0}
+        total={2}
+        backend={backend}
+        status={{ available: false, reason: "exec-target-offline" }}
+        isFirstAvailable={false}
+        skillsSupported={false}
+      />,
+    );
+    expect(borderTokens(container)).toEqual([]);
+  });
+
+  it("OrgPlacementField：展开的列表里搜索框与选项之间不画线", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <OrgPlacementField
+        agent={agents[2]}
+        agents={agents}
+        departments={departments}
+        placement={{ kind: "department", id: 1 }}
+        reportTarget={null}
+        onPick={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("combobox"));
+
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+    expect(borderTokens(document.body)).toEqual([]);
+  });
+});

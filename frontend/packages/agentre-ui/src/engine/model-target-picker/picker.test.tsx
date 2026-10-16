@@ -11,7 +11,6 @@ import {
   removeRecentTarget,
   recentStorageKey,
 } from "../../index";
-import { edgeTokenOf } from "../../styles/__testing__/tokens";
 
 function catalog() {
   return [
@@ -1298,12 +1297,9 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     let special = await screen.findByRole("option", {
       name: /CLI login state/,
     });
-    expect(special).toHaveClass(
-      "border",
-      "border-dashed",
-      "border-border-strong",
-    );
-    expect(special).not.toHaveClass("border-primary");
+    expect(special).toHaveClass("bg-field-fill");
+    expect(special).not.toHaveClass("border", "border-dashed");
+    expect(special).not.toHaveClass("bg-primary-soft");
     unmount();
 
     render(
@@ -1318,7 +1314,8 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     );
     await user.click(screen.getByRole("button", { name: "LLM Provider" }));
     special = await screen.findByRole("option", { name: /CLI login state/ });
-    expect(special).toHaveClass("border-solid", "border-primary");
+    expect(special).toHaveClass("bg-accent");
+    expect(special).not.toHaveClass("bg-field-fill", "border-solid");
   });
 
   it("特殊项图标分场景：chat=UserRound / backend=Lock / route=GitBranch", async () => {
@@ -1453,12 +1450,8 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     // 展示名是人读文案，不走等宽。
     expect(label).not.toHaveClass("font-mono");
     const chip = label.parentElement as HTMLElement;
-    expect(chip).toHaveClass(
-      "h-[22px]",
-      "rounded-md",
-      "border-border",
-      "bg-card",
-    );
+    expect(chip).toHaveClass("h-[22px]", "rounded-md", "bg-field-fill");
+    expect(chip).not.toHaveClass("border-border");
     expect(chip).not.toHaveClass("rounded-full");
     // 品牌标识确实渲染了，只是对无障碍树隐藏。
     expect(within(chip).getByRole("img", { hidden: true })).toBeInTheDocument();
@@ -1518,7 +1511,7 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     ).toBeInTheDocument();
   });
 
-  it("搜索框是有边框的输入框，放大镜绝对定位在框内", async () => {
+  it("搜索框是无边的字段填充，放大镜绝对定位在框内", async () => {
     const user = userEvent.setup();
     render(
       <ModelTargetPicker
@@ -1534,9 +1527,10 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     const input = await screen.findByPlaceholderText(
       "Search providers or models…",
     );
-    // mockup .search .input：h32 / 有边框 / input-bg 底 / 左内边距给放大镜让位。
-    expect(input).toHaveClass("h-8", "bg-input-bg", "pl-7");
-    expect(input).not.toHaveClass("border-0");
+    // h32 / 左内边距给放大镜让位；底是共享字段填充（规格「控件 · 字段」），
+    // 不是白色的 input-bg 块。
+    expect(input).toHaveClass("h-8", "bg-field-fill", "pl-7");
+    expect(input.className).not.toMatch(/bg-input-bg/);
     expect(input.parentElement).toHaveClass("relative");
     // 清空按钮仍在。
     await user.type(input, "opus");
@@ -1671,7 +1665,7 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
       />,
     );
     const trigger = screen.getByRole("button", { name: "LLM Provider" });
-    expect(trigger).toHaveClass("rounded-lg", "bg-input-bg");
+    expect(trigger).toHaveClass("rounded-lg", "bg-field-fill");
 
     await user.click(trigger);
     const pop = await screen.findByTestId("model-target-popover");
@@ -1691,10 +1685,10 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     );
     const overridden = screen.getByRole("button", { name: "LLM Provider" });
     expect(overridden).toHaveClass("rounded-full", "bg-transparent");
-    expect(overridden).not.toHaveClass("rounded-lg", "bg-input-bg");
+    expect(overridden).not.toHaveClass("rounded-lg", "bg-field-fill");
   });
 
-  it("Given the trigger sits in a form of shared inputs, When it rests, Then its edge is the field tier", () => {
+  it("Given the trigger sits in a form of shared inputs, When it rests, Then it has the shared Input's fill and no edge", () => {
     render(
       <ModelTargetPicker
         scenario="backend"
@@ -1707,11 +1701,14 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     );
     render(<Input aria-label="reference" />);
 
-    // 它是一颗下拉式的字段，和输入框同一档（docs/design.md §3.4）——边不写死类名，
-    // 和共享的 Input 比。
+    // 它是一颗下拉式的字段：不画边，字段填充与共享的 Input 是同一个。
+    const trigger = screen.getByRole("button", { name: "LLM Provider" });
+    const input = screen.getByRole("textbox", { name: "reference" });
+    expect(input).toHaveClass("bg-field-fill");
+    expect(trigger).toHaveClass("bg-field-fill", "hover:bg-field-fill-hover");
     expect(
-      edgeTokenOf(screen.getByRole("button", { name: "LLM Provider" })),
-    ).toBe(edgeTokenOf(screen.getByRole("textbox", { name: "reference" })));
+      Array.from(trigger.classList).filter((c) => /^border(?:-|$)/.test(c)),
+    ).toEqual([]);
   });
 
   it("选中态用中性强调：选中的固定模型行是 bg-accent，primary-soft 只留给跟随默认行", async () => {
@@ -1858,12 +1855,12 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
 
     const okChip = (await screen.findByRole("button", { name: "Opus" }))
       .parentElement as HTMLElement;
-    expect(okChip).toHaveClass("cursor-pointer", "hover:border-border-strong");
+    expect(okChip).toHaveClass("cursor-pointer", "hover:bg-field-fill-hover");
 
     const offChip = (screen.getByRole("button", { name: "claude-old" })
       .parentElement || null) as HTMLElement;
     expect(offChip).toHaveClass("cursor-not-allowed");
-    expect(offChip).not.toHaveClass("hover:border-border-strong");
+    expect(offChip).not.toHaveClass("hover:bg-field-fill-hover");
 
     // mockup .rchip .rx：subtle 基线色，hover 才上 accent 底 + foreground 字。
     expect(screen.getByRole("button", { name: "Remove Opus" })).toHaveClass(

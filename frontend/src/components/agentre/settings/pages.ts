@@ -43,28 +43,6 @@ export type SettingsPageId =
   | "sync"
   | "version-logs";
 
-export const settingsPageIds = new Set<SettingsPageId>([
-  "agent-backend",
-  "appearance",
-  "remote-devices",
-  "data-backup",
-  "files",
-  "keyboard-shortcuts",
-  "llm-providers",
-  "local-proxy",
-  "mcp-servers",
-  "notifications",
-  "skills-tools",
-  "sync",
-  "version-logs",
-]);
-
-export function isSettingsPageId(value: unknown): value is SettingsPageId {
-  return (
-    typeof value === "string" && settingsPageIds.has(value as SettingsPageId)
-  );
-}
-
 export const settingsNavSections: SettingsNavSection[] = [
   {
     labelKey: "settings.nav.general",
@@ -153,9 +131,3 @@ export const underConstructionSettingsPages: Record<
     icon: Server,
   },
 };
-
-export const compactSettingsNavItems = settingsNavSections
-  .flatMap((section) => section.items)
-  .filter((item): item is typeof item & { id: SettingsPageId } =>
-    Boolean(item.id),
-  );

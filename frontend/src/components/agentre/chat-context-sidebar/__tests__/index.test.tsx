@@ -4,6 +4,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { edgeClasses } from "@/__tests__/helpers/edge-classes";
+
 const gitChangesMock = vi.fn();
 const listDirMock = vi.fn();
 const getAppSettingMock = vi.fn();
@@ -209,6 +211,30 @@ describe("ChatContextSidebar", () => {
     );
     const sep = screen.getByRole("separator");
     expect(sep).toHaveAttribute("aria-orientation", "vertical");
+  });
+
+  it("Given the sidebar on each of its pages, When rendered, Then it sits on the chrome surface and no row draws a dividing line", async () => {
+    render(
+      <ChatContextSidebar
+        sessionId={1}
+        messages={[userM(1, "hello world")]}
+        activeMessageId={null}
+        onJumpToMessage={() => {}}
+      />,
+    );
+    const aside = screen.getByRole("complementary");
+    expect(aside).toHaveClass("bg-chrome");
+    // 页签是分段控件：当前页是按钮填充，不是品牌色。
+    const outlineTab = screen.getByRole("tab", { name: /^Outline/ });
+    expect(outlineTab).toHaveClass("bg-button-fill");
+    expect(outlineTab.className).not.toMatch(/bg-primary/);
+    expect(edgeClasses(aside)).toEqual([]);
+
+    await userEvent.click(screen.getByRole("tab", { name: /^Changes/ }));
+    expect(edgeClasses(aside)).toEqual([]);
+
+    await userEvent.click(screen.getByRole("tab", { name: /^Directory/ }));
+    expect(edgeClasses(aside)).toEqual([]);
   });
 
   it("switches to the session changes list when the Changes tab is clicked", async () => {

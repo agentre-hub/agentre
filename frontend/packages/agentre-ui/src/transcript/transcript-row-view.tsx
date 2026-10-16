@@ -477,7 +477,7 @@ function ErrorCard({
   return (
     <section
       data-selectable-text="true"
-      className="flex w-full max-w-measure items-center gap-3 rounded-lg border border-status-error/40 bg-destructive-soft px-4 py-2.5"
+      className="flex w-full max-w-measure items-center gap-3 rounded-lg bg-destructive-soft px-4 py-2.5"
     >
       <TriangleAlert
         className="size-4 shrink-0 text-status-error"
@@ -526,7 +526,7 @@ function RetryNoticeCard({ retry }: { retry: RetryNotice }) {
       data-selectable-text="true"
       role="status"
       aria-label={t("chat.retry.aria")}
-      className="flex w-full max-w-measure items-start gap-3 rounded-lg border border-status-warning/45 bg-status-warning/10 px-4 py-2.5"
+      className="flex w-full max-w-measure items-start gap-3 rounded-lg bg-status-warning/10 px-4 py-2.5"
     >
       <RefreshCw
         className="mt-0.5 size-4 shrink-0 animate-spin text-status-warning motion-reduce:animate-none"
@@ -646,7 +646,7 @@ function ImageBlockView({ block }: { block: TranscriptBlock }) {
       href={image.dataUrl}
       target="_blank"
       rel="noreferrer"
-      className="block w-fit overflow-hidden rounded-lg border border-border bg-muted"
+      className="block w-fit overflow-hidden rounded-lg bg-muted"
     >
       <img
         src={image.dataUrl}
@@ -923,7 +923,7 @@ function RenderItemView({
         <section
           role="status"
           data-testid="transcript-notice"
-          className="flex w-full max-w-measure items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-aux text-muted-foreground"
+          className="flex w-full max-w-measure items-start gap-2 rounded-lg bg-field-fill px-3 py-2 text-aux text-muted-foreground"
         >
           <span className="min-w-0 flex-1 break-words">{content}</span>
         </section>
@@ -931,7 +931,7 @@ function RenderItemView({
     }
     case "unknown":
       return (
-        <div className="rounded-lg border border-dashed border-border px-3 py-2 font-mono text-aux text-muted-foreground">
+        <div className="rounded-lg bg-field-fill px-3 py-2 font-mono text-aux text-muted-foreground">
           {t("chat.debug.unknownBlock", { type: item.block.type })}
         </div>
       );

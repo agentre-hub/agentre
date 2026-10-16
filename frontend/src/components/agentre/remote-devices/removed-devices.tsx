@@ -53,7 +53,7 @@ export function RemovedDevices({ devices, onRestore }: RemovedDevicesProps) {
           {devices.map((d) => (
             <li
               key={d.fingerprint}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-2"
+              className="flex items-center justify-between gap-3 rounded-lg bg-field-fill px-4 py-2"
             >
               <span className="min-w-0 truncate text-sm">{d.name}</span>
               <div className="flex shrink-0 items-center gap-2">

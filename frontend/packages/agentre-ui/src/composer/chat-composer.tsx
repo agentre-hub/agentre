@@ -452,11 +452,12 @@ export const ChatComposer = React.forwardRef<
       className={cn(
         // @container/composer：底栏按 composer 自身宽度分档降级 —— 面板实际宽度
         // 取决于宿主的侧栏 / 右侧面板开合，视口宽度读不到它。
-        "@container/composer relative flex w-full flex-col overflow-hidden rounded-md border bg-card shadow-xs transition-colors",
-        "focus-within:focus-halo",
-        editing
-          ? "border-primary-text/45 focus-within:border-primary-text/70"
-          : "border-border focus-within:border-ring",
+        // 无边填充字段：静止态相对前景色填充、圆角比普通字段大一档；聚焦时底色回到
+        // 内容页色、只出焦点环（与字段一族同一写法）。编辑态靠顶部的横幅说明。
+        // 悬停加深只在未聚焦时生效：打字时鼠标常停在输入框上，hover 的变体排在
+        // focus-within 之后，不加 not-focus-within 会把内容页色盖回填充色。
+        "@container/composer relative flex w-full flex-col overflow-hidden rounded-xl bg-field-fill transition-colors not-focus-within:hover:bg-field-fill-hover",
+        "focus-within:bg-sheet focus-within:focus-outline",
         className,
       )}
       onSubmit={handleFormSubmit}
@@ -476,7 +477,7 @@ export const ChatComposer = React.forwardRef<
         <div
           role="status"
           aria-label={t("chatComposer.editing.aria")}
-          className="flex items-center gap-2 border-b border-primary-text/20 bg-primary-soft px-3 py-1.5 text-meta"
+          className="flex items-center gap-2 bg-primary-soft px-3 py-1.5 text-meta"
         >
           <Pencil
             className="size-3 shrink-0 text-primary-text"
@@ -505,7 +506,7 @@ export const ChatComposer = React.forwardRef<
       {!editing && commandMode ? (
         <div
           role="status"
-          className="flex items-center gap-2 border-b border-primary-text/20 bg-primary-soft px-3 py-1.5 text-meta"
+          className="flex items-center gap-2 bg-primary-soft px-3 py-1.5 text-meta"
         >
           <SquareTerminal
             className="size-3 shrink-0 text-primary-text"
@@ -526,7 +527,7 @@ export const ChatComposer = React.forwardRef<
             {images.map((image, index) => (
               <div
                 key={`${image.name}-${index}`}
-                className="group relative h-16 w-20 overflow-hidden rounded-md border border-border bg-muted"
+                className="group relative h-16 w-20 overflow-hidden rounded-md bg-muted"
               >
                 <img
                   src={image.dataUrl}

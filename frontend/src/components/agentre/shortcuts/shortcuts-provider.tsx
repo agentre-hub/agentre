@@ -2,6 +2,7 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 
 import type { IndexAxis } from "@/lib/session-axis";
+import { toggleSettings } from "@/stores/settings-dialog-store";
 import { useSidebarAxisStore } from "@/stores/sidebar-axis-store";
 
 import type { DesktopPlatform } from "../chrome";
@@ -37,8 +38,10 @@ const NAV_PATHS: Record<string, string> = {
   "nav.issues": "/issues",
   "nav.org": "/org",
   "nav.hooks": "/hooks",
-  "nav.settings": "/settings",
 };
+
+// ⌘, 不是导航：设置是浮在当前页面上的对话框，这一下开、再一下关。
+const SETTINGS_TOGGLE_ID = "nav.settings";
 
 /** 落到索引后还要把分组维度切过去的导航动作。 */
 const NAV_AXES: Record<string, IndexAxis> = {
@@ -189,6 +192,11 @@ export function ShortcutsProvider({
         const scope = paletteScopeRef.current;
         if (!scope) return { matched: false, consumed: false };
         scope.openWith(NEW_CHAT_INITIAL_QUERY);
+        return { matched: true, consumed: true };
+      }
+
+      if (id === SETTINGS_TOGGLE_ID) {
+        toggleSettings();
         return { matched: true, consumed: true };
       }
 

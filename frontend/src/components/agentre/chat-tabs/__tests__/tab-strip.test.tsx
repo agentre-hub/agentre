@@ -66,6 +66,27 @@ describe("TabStrip", () => {
     );
   });
 
+  it("Given 一个活动 tab 与一个非活动 tab, When 渲染, Then Tab 条落在外框色上不画线，活动 tab 是内容页色、上沿圆角，没有品牌色条", () => {
+    useChatTabsStore.getState().openSessionInNewTab(1);
+    useChatTabsStore.getState().openSessionInNewTab(2);
+    render(<TabStrip />);
+
+    const tablist = screen.getByRole("tablist");
+    expect(tablist).toHaveClass("bg-chrome");
+    expect(tablist.className).not.toMatch(/(^|\s)border(-[tblrxy])?(\s|$)/);
+    expect(tablist.querySelector('[class*="border-"]')).toBeNull();
+
+    const [first, second] = screen.getAllByRole("tab");
+    const active = first.dataset.active === "true" ? first : second;
+    const inactive = active === first ? second : first;
+    expect(active).toHaveAttribute("data-active", "true");
+    expect(active).toHaveClass("bg-sheet", "rounded-t-lg");
+    expect(active).not.toHaveClass("bg-background");
+    expect(active.querySelector(".bg-primary")).toBeNull();
+    expect(inactive).not.toHaveClass("bg-sheet");
+    expect(inactive).not.toHaveClass("hover:bg-card");
+  });
+
   it("Tab tooltip/context trigger 使用真实布局盒作为浮窗锚点", () => {
     useChatTabsStore.getState().openSessionInNewTab(1);
     render(<TabStrip />);

@@ -230,7 +230,7 @@ export function ModelBindingSection({
   return (
     <section
       data-testid="model-binding-block"
-      className="flex flex-col gap-3 rounded-lg border border-border bg-secondary/30 p-3"
+      className="flex flex-col gap-3 rounded-lg bg-field-fill p-3"
     >
       {/* 区块标题就是这项配置的唯一标题，下面的 Picker 直接是它的第一项，不再重复一遍
           字段名 —— 「分级路由 / 自定义模型从属于主绑定」也由区块嵌套自己讲清楚，不另起
@@ -348,7 +348,7 @@ function ModelTargetField({
   if (empty && !optional) {
     return (
       <div className="flex flex-col gap-1.5 text-xs">
-        <Alert className="border-status-waiting/40 bg-status-waiting-bg text-xs">
+        <Alert className="bg-status-waiting-bg text-xs">
           <AlertCircle className="size-4" aria-hidden="true" />
           <AlertTitle className="text-xs">
             {t("agentBackends.provider.emptyTitle")}
@@ -367,7 +367,7 @@ function ModelTargetField({
   return (
     <div className="flex flex-col gap-1.5 text-xs">
       {stale ? (
-        <Alert className="border-status-waiting/40 bg-status-waiting-bg text-xs">
+        <Alert className="bg-status-waiting-bg text-xs">
           <AlertCircle className="size-4" aria-hidden="true" />
           <AlertTitle className="text-xs">
             {t("agentBackends.provider.staleTitle")}
@@ -382,7 +382,7 @@ function ModelTargetField({
         </Alert>
       ) : null}
       {empty && optional ? (
-        <Alert className="border-border bg-secondary text-xs">
+        <Alert className="bg-field-fill text-xs">
           <AlertCircle className="size-4" aria-hidden="true" />
           <AlertTitle className="text-xs">
             {t("agentBackends.provider.noMatchTitle")}
@@ -420,7 +420,7 @@ function ModelTargetField({
         />
       )}
       {piAgentModelMissing ? (
-        <Alert className="border-status-waiting/40 bg-status-waiting-bg text-xs">
+        <Alert className="bg-status-waiting-bg text-xs">
           <AlertCircle className="size-4" aria-hidden="true" />
           <AlertTitle className="text-xs">
             {t("agentBackends.provider.modelRequiredTitle")}
@@ -573,7 +573,7 @@ export function HermesAuthFields({
     return (
       <div
         data-testid="hermes-auth"
-        className="flex items-center justify-between gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2 text-xs"
+        className="flex items-center justify-between gap-3 rounded-md bg-field-fill px-3 py-2 text-xs"
       >
         <span className="min-w-0 truncate">
           {t("agentBackends.hermes.authLoggedInAs", { userId })}
@@ -598,7 +598,7 @@ export function HermesAuthFields({
   return (
     <div
       data-testid="hermes-auth"
-      className="flex flex-col gap-2 rounded-md border border-border bg-secondary/30 p-3 text-xs"
+      className="flex flex-col gap-2 rounded-md bg-field-fill p-3 text-xs"
     >
       <span className="font-semibold">
         {t("agentBackends.hermes.authTitle")}
@@ -727,7 +727,7 @@ function ModelRoutesField({
       `${tier}: ${routeConclusion(t, routes[tier], mainTarget, catalog)}`,
   ).join(" · ");
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-border bg-background px-2.5 py-2 text-xs">
+    <div className="flex flex-col gap-1.5 rounded-md bg-field-fill px-2.5 py-2 text-xs">
       <button
         type="button"
         aria-expanded={open}
@@ -832,7 +832,7 @@ export function SandboxField({
           {t("agentBackends.sandbox.hint")}
         </span>
       </div>
-      <div className="grid grid-cols-3 gap-1 rounded-md border border-border bg-secondary p-0.5">
+      <div className="grid grid-cols-3 gap-1 rounded-md bg-field-fill p-0.5">
         {SANDBOX_OPTIONS.map((opt) => {
           const active = value === opt.value;
           return (
@@ -1041,10 +1041,8 @@ export function DefaultPermissionModeField({
   return (
     <div
       className={cn(
-        "flex flex-col gap-1.5 rounded-md border px-3 py-2 text-xs",
-        isBypass
-          ? "border-destructive/40 bg-destructive-soft"
-          : "border-border bg-secondary/40",
+        "flex flex-col gap-1.5 rounded-md px-3 py-2 text-xs",
+        isBypass ? "bg-destructive-soft" : "bg-field-fill",
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -1101,7 +1099,7 @@ export function DefaultPermissionModeField({
         </span>
       ) : null}
       {showRootHint && canAddIsSandbox ? (
-        <div className="flex flex-wrap items-center gap-2 rounded border border-status-waiting/40 bg-status-waiting-bg px-2 py-1.5 text-2xs text-status-waiting-text">
+        <div className="flex flex-wrap items-center gap-2 rounded bg-status-waiting-bg px-2 py-1.5 text-2xs text-status-waiting-text">
           <span className="min-w-0 flex-1">
             {t("agentBackends.permission.remoteRootHintPrefix")}{" "}
             <span className="font-mono">IS_SANDBOX=1</span>{" "}
@@ -1151,7 +1149,7 @@ export function EnvJsonField({
   const { t } = useTranslation();
   const filledCount = entries.filter((e) => e.key.trim() !== "").length;
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-border bg-secondary/40 px-3 py-2 text-xs">
+    <div className="flex flex-col gap-1.5 rounded-md bg-field-fill px-3 py-2 text-xs">
       <button
         type="button"
         onClick={onToggle}
@@ -1202,10 +1200,8 @@ export function EnvJsonField({
                     )
                   }
                   placeholder="KEY"
-                  className={cn(
-                    "h-7 font-mono text-2xs",
-                    isReserved && "border-destructive",
-                  )}
+                  aria-invalid={isReserved || undefined}
+                  className="h-7 font-mono text-2xs"
                 />
                 <Input
                   value={entry.value}

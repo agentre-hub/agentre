@@ -68,7 +68,7 @@ export function ExportSection() {
   };
 
   return (
-    <section className="rounded-lg border border-border bg-card p-4 space-y-4">
+    <section className="rounded-lg bg-field-fill p-4 space-y-4">
       <header>
         <h2 className="text-sm font-semibold">
           {t("dataBackup.export.title")}
@@ -89,7 +89,7 @@ export function ExportSection() {
           </label>
         ))}
       </div>
-      <div className="flex items-center justify-between rounded-md border border-border p-3">
+      <div className="flex items-center justify-between rounded-md bg-field-fill p-3">
         <div>
           <div className="text-sm font-medium">
             {t("dataBackup.export.includeSecrets")}

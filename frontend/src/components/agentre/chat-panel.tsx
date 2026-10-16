@@ -718,47 +718,47 @@ function ChatPanel({
       ) : (
         // 关键：showNewSessionPrompt → 已有会话 切换时，<ChatComposer> 必须保持挂载，
         // 否则 TipTap editor 实例随子树卸载重建，用户刚发完首条消息焦点就跑了。
-        // 布局：头部整行铺顶（四种会话情形都在），下面 flex row 分两栏 ——
-        //   左栏 flex-col：transcript（或新会话占位）+ notice + ChatComposer，
-        //   右栏：ChatContextSidebar 占满整高（从 toolbar 下沿一直到底）。
-        //   ChatComposer 固定在左栏的最后一个 child 位置，跨分支保持同一 React 实例。
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-          <ChatPanelHeader
-            session={session}
-            newSessionAgent={newSessionAgent}
-            showNewSessionPrompt={Boolean(showNewSessionPrompt)}
-            title={headerTitle}
-            status={headerStatus}
-            topline={headerToplineNode}
-            agentName={headerAgentName}
-            metaTail={headerMetaTail}
-            backgroundTasks={backgroundTasks}
-            onClearCompletedTasks={handleClearCompleted}
-            onStopTask={
-              canStopBackgroundTask
-                ? (task) => handleStopSubagent(task.toolUseId)
-                : undefined
-            }
-            onLocateTask={(task) => {
-              if (task.messageId != null) {
-                transcriptHandleRef.current?.scrollToMessage(task.messageId);
+        // 布局：一行分三块，都落在外框上 ——
+        //   <main> 是内容页（content-sheet）：头部铺顶（四种会话情形都在），下面
+        //     transcript（或新会话占位）+ notice + ChatComposer；
+        //   右侧栏 ChatContextSidebar 与文件预览在内容页之外，从 Tab 条下沿一直到底，
+        //     与内容页之间只隔一道外框缝，不画线。
+        //   ChatComposer 固定在 <main> 的最后一个 child 位置，跨分支保持同一 React 实例。
+        <div className="flex min-h-0 min-w-0 flex-1">
+          <main className="content-sheet flex min-h-0 min-w-0 flex-1 flex-col">
+            <ChatPanelHeader
+              session={session}
+              newSessionAgent={newSessionAgent}
+              showNewSessionPrompt={Boolean(showNewSessionPrompt)}
+              title={headerTitle}
+              status={headerStatus}
+              topline={headerToplineNode}
+              agentName={headerAgentName}
+              metaTail={headerMetaTail}
+              backgroundTasks={backgroundTasks}
+              onClearCompletedTasks={handleClearCompleted}
+              onStopTask={
+                canStopBackgroundTask
+                  ? (task) => handleStopSubagent(task.toolUseId)
+                  : undefined
               }
-            }}
-            canStop={canStop}
-            onStop={(id) => void doStop(id)}
-            sidebarOpen={sidebarOpen}
-            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-            onRename={(target) =>
-              setPendingRename({ id: target.id, draft: target.title })
-            }
-            onCopyLaunchCommand={(id) => void handleCopyLaunchCommand(id)}
-            onDelete={(id) => handleDelete(id)}
-          />
+              onLocateTask={(task) => {
+                if (task.messageId != null) {
+                  transcriptHandleRef.current?.scrollToMessage(task.messageId);
+                }
+              }}
+              canStop={canStop}
+              onStop={(id) => void doStop(id)}
+              sidebarOpen={sidebarOpen}
+              onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+              onRename={(target) =>
+                setPendingRename({ id: target.id, draft: target.title })
+              }
+              onCopyLaunchCommand={(id) => void handleCopyLaunchCommand(id)}
+              onDelete={(id) => handleDelete(id)}
+            />
 
-          {/* ── Body row: 左栏 chat / 右栏 sidebar 占满整高 ──
-              输入框宽度 = transcript 宽度,与对话流同列;sidebar 从 toolbar 下沿一路顶到底。 */}
-          <div className="flex min-h-0 min-w-0 flex-1">
-            {/* ── Body: chat ── */}
+            {/* ── Body: chat ── 输入框宽度 = transcript 宽度,与对话流同列。 */}
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {showNewSessionPrompt ? (
                 <div className="flex flex-1 items-center justify-center">
@@ -862,22 +862,19 @@ function ChatPanel({
                     内边距与转录同值，内容让出 28px 头像列 + gap-3 再封顶
                     --container-measure —— 输入框的第一个字符与消息正文的第一个字符
                     落在同一条竖线上。
-                    边界跟随贴底（决策 6）：贴底 = 一整片，没有分隔线也没有渐隐；
-                    未贴底 = border-top + 一段向上渐隐把末行压掉一半，读作"下面还有"。
+                    边界跟随贴底（决策 6）：贴底 = 一整片，没有渐隐；未贴底 = 一段向上
+                    渐隐把末行压掉一半，读作"下面还有"——不画分隔线（无边框改版）。
                     信号复用 showBackToBottom（与「回到底部」浮层同条件），零新状态。 */}
               <div
                 data-testid="chat-composer-band"
                 data-scrolled={showBandEdge ? "true" : "false"}
-                className={cn(
-                  "relative shrink-0 px-7 pt-2 pb-4",
-                  showBandEdge && "border-t border-border",
-                )}
+                className="relative shrink-0 px-7 pt-2 pb-4"
               >
                 {showBandEdge ? (
                   <div
                     data-testid="chat-composer-band-fade"
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-x-0 -top-3.5 h-3.5 bg-gradient-to-t from-background to-transparent"
+                    className="pointer-events-none absolute inset-x-0 -top-3.5 h-3.5 bg-gradient-to-t from-sheet to-transparent"
                   />
                 ) : null}
                 <div
@@ -1020,30 +1017,30 @@ function ChatPanel({
                 </div>
               </div>
             </div>
-            {!showNewSessionPrompt && sidebarOpen ? (
-              <ChatContextSidebar
-                sessionId={session?.id ?? 0}
-                messages={messages}
-                activeMessageId={activeMessageId}
-                cwd={session?.cwd ?? ""}
-                remote={Boolean(session?.deviceID)}
-                cwdUnavailableReason={session?.cwdUnavailableReason}
-                projectId={session?.projectId}
-                onCwdSpecified={() => void reloadSession()}
-                onJumpToMessage={(mid) => {
-                  transcriptHandleRef.current?.scrollToMessage(mid);
-                }}
-              />
-            ) : null}
-            {/* 最右一栏:文件预览面板。仅在选中了可预览文件时渲染(内部自行返回
-                null),打开占位、关闭释放宽度;宽高记忆独立 persistenceKey。 */}
-            <FilePreviewPanel
+          </main>
+          {!showNewSessionPrompt && sidebarOpen ? (
+            <ChatContextSidebar
               sessionId={session?.id ?? 0}
               messages={messages}
+              activeMessageId={activeMessageId}
               cwd={session?.cwd ?? ""}
+              remote={Boolean(session?.deviceID)}
+              cwdUnavailableReason={session?.cwdUnavailableReason}
+              projectId={session?.projectId}
+              onCwdSpecified={() => void reloadSession()}
+              onJumpToMessage={(mid) => {
+                transcriptHandleRef.current?.scrollToMessage(mid);
+              }}
             />
-          </div>
-        </main>
+          ) : null}
+          {/* 最右一栏:文件预览面板。仅在选中了可预览文件时渲染(内部自行返回
+                null),打开占位、关闭释放宽度;宽高记忆独立 persistenceKey。 */}
+          <FilePreviewPanel
+            sessionId={session?.id ?? 0}
+            messages={messages}
+            cwd={session?.cwd ?? ""}
+          />
+        </div>
       )}
       <ChatPanelConfirmDialogs
         pendingRegenId={pendingRegenId}

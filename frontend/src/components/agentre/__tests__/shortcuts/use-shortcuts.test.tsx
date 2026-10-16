@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SIDEBAR_AXIS_KEY } from "@/lib/sidebar-axis-state";
+import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 import { useSidebarAxisStore } from "@/stores/sidebar-axis-store";
 
 import type { DesktopPlatform } from "../../chrome";
@@ -167,6 +168,42 @@ describe("ShortcutsProvider chord dispatch — darwin", () => {
     // No TabsScope mounted → chord is consumed but session scope is NOT called.
     expect(onSelect).not.toHaveBeenCalled();
     release("Meta");
+  });
+});
+
+describe("ShortcutsProvider settings dialog dispatch", () => {
+  beforeEach(() => {
+    useSettingsDialogStore.setState({ open: false, page: "appearance" });
+  });
+
+  it("Given settings is closed, When ⌘, is pressed, Then the settings dialog opens over the current page without navigating", () => {
+    renderHarness({ platform: "darwin", initialPath: "/issues" });
+
+    press(",", { metaKey: true });
+
+    expect(useSettingsDialogStore.getState().open).toBe(true);
+    expect(screen.getByTestId("loc").textContent).toBe("/issues");
+    release("Meta");
+  });
+
+  it("Given settings is open, When ⌘, is pressed again, Then it closes", () => {
+    useSettingsDialogStore.setState({ open: true, page: "files" });
+    renderHarness({ platform: "darwin", initialPath: "/chat" });
+
+    press(",", { metaKey: true });
+
+    expect(useSettingsDialogStore.getState().open).toBe(false);
+    expect(screen.getByTestId("loc").textContent).toBe("/chat");
+    release("Meta");
+  });
+
+  it("Ctrl+, toggles settings on linux", () => {
+    renderHarness({ platform: "linux", initialPath: "/chat" });
+
+    press(",", { ctrlKey: true });
+
+    expect(useSettingsDialogStore.getState().open).toBe(true);
+    release("Control");
   });
 });
 

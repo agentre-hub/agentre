@@ -162,7 +162,35 @@ async function moveUntil(
   );
 }
 
+/** 元素及其后代上所有画边 / 分隔线的类名（状态色条另行断言）。 */
+function lineTokens(root: Element): string[] {
+  return [root, ...Array.from(root.querySelectorAll("*"))]
+    .flatMap((el) => (el.getAttribute("class") ?? "").split(/\s+/))
+    .filter((token) => !token.startsWith("file:")) // 文件选择按钮的内部样式
+    .map((token) => token.replace(/^(?:[a-z-]+:)+/, ""))
+    .filter((token) => /^(?:border|divide)(?:-|$)/.test(token));
+}
+
 describe("OrgIndex 一屏之内", () => {
+  it("工具条与筛选 chip 行之间不画线，筛选入口是填充按钮", () => {
+    const { container } = render(
+      <OrgIndex
+        departments={departments}
+        agents={agents}
+        backends={backends}
+        selected={null}
+        onSelect={vi.fn()}
+        onMoveAgent={vi.fn()}
+        onMoveDepartment={vi.fn()}
+        onReorderAgent={vi.fn()}
+        onCreateDepartment={vi.fn()}
+        onCreateAgent={vi.fn()}
+      />,
+    );
+
+    expect(lineTokens(container)).toEqual([]);
+  });
+
   // 决策 12「筛选不常驻占位」：顶栏只有搜索框与**一个**筛选入口，两维筛选都收在
   // 那个入口里。否决过的正是「常驻两个下拉」——未筛选时它们既不说明用途也占掉一行。
   it("顶栏只有搜索框与一个筛选入口：两维不各占一个常驻下拉", () => {

@@ -27,6 +27,11 @@ const FEEDBACK_MIN = 1.15;
 const TEXT_MIN = 4.5;
 /** 非文字图形（圆点 / 进度条 / 实心标记）门槛，见 WCAG 2.2 §1.4.11 与 docs/design.md §10。 */
 const GRAPHIC_MIN = 3;
+/**
+ * 两块相邻的面不画线、只靠色阶分开时的下限（外框 / 内容页、填充 / 它脚下的面）。
+ * 比 FEEDBACK_MIN 低：那条是「鼠标一碰就要看得出变化」，这条是「静止时认得出是两块」。
+ */
+const SURFACE_MIN = 1.08;
 
 const css = fs
   .readFileSync(TOKENS_CSS, "utf8")
@@ -101,6 +106,9 @@ const RESTING_SURFACES = [
   "--muted",
   "--sidebar",
   "--rail",
+  "--chrome",
+  "--sheet",
+  "--raised",
 ];
 
 /**
@@ -189,7 +197,10 @@ describe("选中面比 hover 面更强", () => {
  * 凡是要读的东西都不该用它——真要往这张表里加它，说明用错 token 了。
  */
 const TEXT_SURFACES: Array<[string, string[]]> = [
-  ["--foreground", ["--background", "--card", "--popover"]],
+  [
+    "--foreground",
+    ["--background", "--card", "--popover", "--chrome", "--sheet", "--raised"],
+  ],
   [
     "--muted-foreground",
     [
@@ -200,6 +211,9 @@ const TEXT_SURFACES: Array<[string, string[]]> = [
       "--muted",
       "--sidebar",
       "--rail",
+      "--chrome",
+      "--sheet",
+      "--raised",
     ],
   ],
   ["--secondary-foreground", ["--secondary"]],
@@ -222,6 +236,12 @@ const TEXT_SURFACES: Array<[string, string[]]> = [
   // 快捷键、右侧路径还是弱化文字。--muted-foreground 在 --accent 上亮色 4.38、
   // 暗色 3.48。
   ["--accent-muted-foreground", ["--accent"]],
+  // 填充面上的弱化文字（见下方「填充两档」）。它由填充工具类换入整棵子树，子树里
+  // 回到裸表面的地方（聚焦时底色回到内容页的字段）照样用它，所以裸表面也要过线。
+  [
+    "--fill-muted-foreground",
+    ["--sheet", "--chrome", "--card", "--popover", "--background"],
+  ],
 ];
 
 describe("正文色对它落到的每个表面都达标", () => {
@@ -341,6 +361,9 @@ describe("键盘焦点环", () => {
         "--card",
         "--muted",
         "--accent",
+        "--chrome",
+        "--sheet",
+        "--raised",
       ]) {
         expect(
           contrast(t["--ring"], t[fill]),
@@ -367,6 +390,9 @@ describe("键盘焦点环", () => {
         "--secondary",
         "--sidebar",
         "--rail",
+        "--chrome",
+        "--sheet",
+        "--raised",
       ]) {
         expect(
           contrast(t["--ring"], t[surface]),
@@ -443,6 +469,16 @@ describe("状态色的『文字』角色与『填充』角色分开", () => {
   );
 });
 
+/** 状态点会落到的表面：卡片、灰槽、弹层，以及外框（会话列表）、内容页、外框上的选中行。 */
+const STATUS_DOT_SURFACES = [
+  "--card",
+  "--secondary",
+  "--popover",
+  "--chrome",
+  "--sheet",
+  "--raised",
+] as const;
+
 /**
  * 状态**填充色**当「非文字图形」用（圆点、进度条、实心标记）时对静止表面的对比度。
  *
@@ -462,35 +498,34 @@ describe("状态填充色当非文字图形用时对表面达标", () => {
         (token) => [scope, label, token, get] as const,
       ),
     ),
-  )(
-    "%s(%s)下 %s 对 --card 与 --secondary 都 ≥3.0",
-    (_scope, _label, token, get) => {
-      const t = get();
-      // 深色没有覆写时会沿用到 :root——按级联后的有效值算，而不是只看 .dark 块。
-      const effective = (name: string) => t[name] ?? root[name];
-      const fill = effective(token);
-      for (const surface of ["--card", "--secondary"] as const) {
-        expect(
-          contrast(fill, effective(surface)),
-          `${token} ${fill} 落在 ${surface} ${effective(surface)} 上`,
-        ).toBeGreaterThanOrEqual(GRAPHIC_MIN);
-      }
-    },
-  );
+  )("%s(%s)下 %s 对静止表面都 ≥3.0", (_scope, _label, token, get) => {
+    const t = get();
+    // 深色没有覆写时会沿用到 :root——按级联后的有效值算，而不是只看 .dark 块。
+    const effective = (name: string) => t[name] ?? root[name];
+    const fill = effective(token);
+    for (const surface of STATUS_DOT_SURFACES) {
+      expect(
+        contrast(fill, effective(surface)),
+        `${token} ${fill} 落在 ${surface} ${effective(surface)} 上`,
+      ).toBeGreaterThanOrEqual(GRAPHIC_MIN);
+    }
+  });
 });
 
 /**
  * 空闲点是四个状态里最容易被调没的一个：它没有软底、没有文字，全部信息就是这一枚
  * 圆点。亮色专门为「坐在 bg-secondary 槽里」调到了 3.04，暗色却一直是 #6a6d74——
  * 在同一个槽里与弹层里都只有 2.77，上面那条守卫只查 running / waiting，没拦住。
+ * 无边框布局后会话列表坐在外框 --chrome 上，亮色 #8c8c93 在那里又掉到 2.83，
+ * 于是改成 #84848b（外框 3.15）——这张表加进外框，就是为了下次调外框时拦住它。
  */
 describe("空闲状态点对它会落到的表面达标", () => {
   it.each(THEMES)(
-    "%s(%s)下 --status-idle 对 --card / --secondary / --popover 都 ≥3.0",
+    "%s(%s)下 --status-idle 对状态点会落到的每个表面都 ≥3.0",
     (_scope, _label, get) => {
       const t = get();
       const effective = (name: string) => t[name] ?? root[name];
-      for (const surface of ["--card", "--secondary", "--popover"] as const) {
+      for (const surface of STATUS_DOT_SURFACES) {
         expect(
           contrast(effective("--status-idle"), effective(surface)),
           `--status-idle ${effective("--status-idle")} 落在 ${surface} ${effective(surface)} 上`,
@@ -503,65 +538,318 @@ describe("空闲状态点对它会落到的表面达标", () => {
     "%s(%s)下它仍然比弱化文字暗 —— 空闲是最安静的一档",
     (_scope, _label, get) => {
       const t = get();
-      const surface = t["--card"];
-      expect(contrast(t["--status-idle"], surface)).toBeLessThan(
-        contrast(t["--muted-foreground"], surface),
-      );
+      for (const name of STATUS_DOT_SURFACES) {
+        const surface = t[name];
+        expect(
+          contrast(t["--status-idle"], surface),
+          `落在 ${name} 上时空闲点不该比弱化文字更显眼`,
+        ).toBeLessThan(contrast(t["--muted-foreground"], surface));
+      }
     },
   );
 });
 
 /**
- * 边按「它要承担多少辨认」分四档，一档比一档实：分隔线 `--border`、带文字的可点
- * 控件 `--input`（outline 按钮）、字段 `--field-border`（输入框 / 文本域 / 下拉 /
- * 搜索框）、轮廓即控件 `--control-border`（未选中的复选框）。
+ * 表面阶梯：外框 `--chrome`（标题栏、图标栏、各页左侧列表、Tab 条、右侧栏、状态栏）、
+ * 内容页 `--sheet`（浮在外框上的工作区）、抬起 `--raised`（外框上的选中项）。
  *
- * 字段此前和复选框同档（3.43 / 3.49），一张表单里几条这样的边叠在一起显得很重；
- * 它有标签、占位和固定的位置可认，不必守 3:1。但也不能掉到按钮那档——浅色下空
- * 输入框在白卡片上只剩 1.62，几乎看不见。于是另立一档，并钉一条下限。
+ * 它们之间不画线，只靠色阶分开——所以「分得开」本身就是这里唯一的轮廓，掉到
+ * SURFACE_MIN 以下，内容页就化进外框里了。
  */
-describe("边的四档按序排开", () => {
-  /** 字段会落在的表面：表单卡片、页面底、灰槽、弹层。 */
-  const FIELD_SURFACES = [
+const SURFACE_TOKENS = ["--chrome", "--sheet", "--raised"] as const;
+
+/** 亮度次序：对纯黑的对比度随亮度单调递增。 */
+const lightness = (hex: string) => contrast(hex, "#000000");
+
+describe("外框、内容页、抬起三层表面", () => {
+  it.each(SURFACE_TOKENS)(
+    "%s 两个主题都有色值，并有 --color-* 映射",
+    (name) => {
+      expect(isHex(root[name]), `:root 里没有 ${name} 的色值`).toBe(true);
+      expect(isHex(dark[name]), `.dark 里没有 ${name} 的色值`).toBe(true);
+      expect(theme[`--color-${name.slice(2)}`]).toBe(`var(${name})`);
+    },
+  );
+
+  it.each(THEMES)(
+    "%s(%s)下内容页浮在外框上：比外框亮且分得开",
+    (_scope, _label, get) => {
+      const t = get();
+      expect(lightness(t["--sheet"])).toBeGreaterThan(lightness(t["--chrome"]));
+      expect(
+        contrast(t["--chrome"], t["--sheet"]),
+        `--chrome ${t["--chrome"]} 与 --sheet ${t["--sheet"]}`,
+      ).toBeGreaterThanOrEqual(SURFACE_MIN);
+    },
+  );
+
+  it.each(THEMES)(
+    "%s(%s)下外框上的选中项抬起来：不暗于内容页，与外框分得开",
+    (_scope, _label, get) => {
+      const t = get();
+      expect(lightness(t["--raised"])).toBeGreaterThanOrEqual(
+        lightness(t["--sheet"]),
+      );
+      expect(
+        contrast(t["--raised"], t["--chrome"]),
+        `--raised ${t["--raised"]} 落在 --chrome ${t["--chrome"]} 上`,
+      ).toBeGreaterThanOrEqual(SURFACE_MIN);
+    },
+  );
+});
+
+/**
+ * 内容页这张「纸」的样子只定义一次：与外框之间留 8px 缝（上沿接 Tab 条、左沿接
+ * 外框上的列表，所以只留右与下）、12px 圆角、圆角要裁得住子元素的底色；浅色带一圈
+ * 极淡的投影把纸托起来，深色靠色阶已经够了、再加投影只会发脏。
+ */
+describe("content-sheet 工具类", () => {
+  /** 取工具类里一条普通属性的值（decls 只收 `--*` 自定义属性）。 */
+  const prop = (name: string) =>
+    new RegExp(`(?:^|[;{\\s])${name}:\\s*([^;]+);`).exec(
+      block("@utility content-sheet"),
+    )?.[1];
+
+  it("内容页底色、12px 圆角、右与下各 8px 缝、裁掉越界的子元素", () => {
+    expect(prop("background-color")).toBe("var(--sheet)");
+    expect(prop("border-radius")).toBe("0.75rem");
+    expect(prop("margin")).toBe("0 0.5rem 0.5rem 0");
+    expect(prop("overflow")).toBe("hidden");
+  });
+
+  it("投影走 --sheet-shadow：浅色有、深色没有", () => {
+    expect(prop("box-shadow")).toBe("var(--sheet-shadow)");
+    expect(root["--sheet-shadow"], ":root 里没有 --sheet-shadow").toBeDefined();
+    expect(root["--sheet-shadow"]).not.toBe("none");
+    expect(dark["--sheet-shadow"]).toBe("none");
+  });
+});
+
+/**
+ * 字段与按钮不画边，靠「前景色按比例叠在脚下的表面上」的填充认出来：字段 5%（悬停
+ * 7%）、按钮 8%（悬停 12%）。相对取色而不是定一个色值，是为了它落在内容页、填充
+ * 分组、外框上时都比脚下深一级——一个定值做不到在三种底上都分得开。
+ *
+ * 代价是填充把底压暗，落在上面的弱化文字（说明、占位符）就不够 4.5 了：单靠下调
+ * 比例走不通（浅色外框上的字段要降到 4%，那时与外框只剩 1.076）。所以和
+ * `bg-accent` 同一个做法：填充工具类把子树里的 --muted-foreground 换成
+ * --fill-muted-foreground。
+ */
+const FILL_ALPHAS = {
+  "--color-field-fill": 0.05,
+  "--color-field-fill-hover": 0.07,
+  "--color-button-fill": 0.08,
+  "--color-button-fill-hover": 0.12,
+} as const;
+const FILL_PAIRS = [
+  ["--color-field-fill", "--color-field-fill-hover"],
+  ["--color-button-fill", "--color-button-fill-hover"],
+] as const;
+
+/** `color-mix(in oklab, var(--foreground) N%, transparent)` → N/100；不是这个形状就是 undefined。 */
+function fillAlpha(name: string): number | undefined {
+  const m =
+    /^color-mix\(\s*in oklab,\s*var\(--foreground\)\s+([\d.]+)%,\s*transparent\s*\)$/.exec(
+      theme[name] ?? "",
+    );
+  return m ? Number(m[1]) / 100 : undefined;
+}
+
+/** 填充会落到的表面：内容页、外框、旧的卡片 / 弹层 / 页面底，以及填充分组（内容页 + 字段填充）。 */
+function fillSurfaces(t: Record<string, string>): Array<[string, string]> {
+  const out: Array<[string, string]> = [
+    "--sheet",
+    "--chrome",
+    "--card",
+    "--popover",
+    "--background",
+  ].map((name) => [name, t[name]]);
+  const group = fillAlpha("--color-field-fill");
+  if (group !== undefined) {
+    out.push(["填充分组", mix(t["--foreground"], t["--sheet"], group)]);
+  }
+  return out;
+}
+
+describe("填充两档：字段与按钮", () => {
+  it.each(Object.entries(FILL_ALPHAS))(
+    "%s 是前景色 %s 叠在透明上（相对脚下取色）",
+    (name, alpha) => {
+      expect(theme[name], `@theme 里没有 ${name}`).toBeDefined();
+      expect(fillAlpha(name), `${name}: ${theme[name]}`).toBe(alpha);
+    },
+  );
+
+  it.each(
+    Object.keys(FILL_ALPHAS).map((n) => `bg-${n.slice("--color-".length)}`),
+  )(
+    "@utility %s 把 --muted-foreground 指向 --fill-muted-foreground",
+    (name) => {
+      expect(
+        decls(block(`@utility ${name}`))["--muted-foreground"],
+        `tokens.css 里没有 @utility ${name}，或它没有重指 --muted-foreground`,
+      ).toBe("var(--fill-muted-foreground)");
+    },
+  );
+
+  it.each(
+    THEMES.flatMap(([scope, label, get]) =>
+      FILL_PAIRS.map(
+        ([rest, hover]) => [scope, label, rest, hover, get] as const,
+      ),
+    ),
+  )(
+    "%s(%s)下 %s 与悬停 %s 对脚下每种表面都分得开，弱化文字在上面达标",
+    (_scope, _label, rest, hover, get) => {
+      const t = get();
+      const [a, b] = [fillAlpha(rest), fillAlpha(hover)];
+      expect(a, `${rest} 不是相对填充`).toBeDefined();
+      expect(b, `${hover} 不是相对填充`).toBeDefined();
+      expect(
+        t["--fill-muted-foreground"],
+        "tokens.css 里没有 --fill-muted-foreground",
+      ).toBeDefined();
+      for (const [name, surface] of fillSurfaces(t)) {
+        const restFill = mix(t["--foreground"], surface, a!);
+        const hoverFill = mix(t["--foreground"], surface, b!);
+        expect(
+          contrast(restFill, surface),
+          `${rest} 叠在 ${name} ${surface} 上得到 ${restFill}`,
+        ).toBeGreaterThanOrEqual(SURFACE_MIN);
+        expect(
+          contrast(hoverFill, surface),
+          `${hover} 落在 ${name} 上应当比静止态更深`,
+        ).toBeGreaterThan(contrast(restFill, surface));
+        for (const fill of [restFill, hoverFill]) {
+          expect(
+            contrast(t["--fill-muted-foreground"], fill),
+            `--fill-muted-foreground ${t["--fill-muted-foreground"]} 落在 ${name} 上的填充 ${fill}`,
+          ).toBeGreaterThanOrEqual(TEXT_MIN);
+        }
+      }
+    },
+  );
+});
+
+/**
+ * 边的阶梯改成「分隔线 / 填充两档 + 控件边」。
+ *
+ * 字段与 outline 按钮不再画边，从边的阶梯挪到了填充阶梯（字段 5% 一档、按钮 8%
+ * 一档）；剩下的边只有两种：分隔线 `--border`（只留给明确保留的少数用途），和
+ * 轮廓即控件的 `--control-border`（未选中的复选框 / 单选——丢了边控件就没了，
+ * 所以它守 WCAG 2.2 §1.4.11 的 3:1，并且比任何填充都实）。
+ */
+describe("分隔线 / 填充两档 + 控件边", () => {
+  /** 表单控件会落在的表面：内容页、表单卡片、页面底、灰槽、弹层。 */
+  const CONTROL_SURFACES = [
+    "--sheet",
     "--card",
     "--background",
     "--secondary",
     "--popover",
   ] as const;
-  const LADDER = [
-    "--border",
-    "--input",
-    "--field-border",
-    "--control-border",
-  ] as const;
-  /** 空字段的边是它静止时唯一的轮廓：低于这条线，边在灰槽里就开始化掉。 */
-  const FIELD_EDGE_MIN = 2;
-
-  it.each(THEMES)("%s(%s)下四档在每个表面上逐档变实", (_scope, _label, get) => {
-    const t = get();
-    for (const surface of FIELD_SURFACES) {
-      const steps = LADDER.map((name) => {
-        expect(t[name], `tokens.css 里没有 ${name}`).toBeDefined();
-        return contrast(t[name], t[surface]);
-      });
-      for (let i = 1; i < steps.length; i++) {
-        expect(
-          steps[i],
-          `${LADDER[i]} 落在 ${surface} 上应当比 ${LADDER[i - 1]} 实`,
-        ).toBeGreaterThan(steps[i - 1]);
-      }
-    }
-  });
 
   it.each(THEMES)(
-    "%s(%s)下 --field-border 对字段会落到的每个表面都 ≥2.0",
+    "%s(%s)下字段填充 < 按钮填充 < 控件边，分隔线也比控件边轻",
     (_scope, _label, get) => {
       const t = get();
-      for (const surface of FIELD_SURFACES) {
+      const field = fillAlpha("--color-field-fill");
+      const button = fillAlpha("--color-button-fill");
+      expect(field).toBeDefined();
+      expect(button).toBeDefined();
+      for (const name of CONTROL_SURFACES) {
+        const surface = t[name];
+        const steps: Array<[string, number]> = [
+          [
+            "字段填充",
+            contrast(mix(t["--foreground"], surface, field!), surface),
+          ],
+          [
+            "按钮填充",
+            contrast(mix(t["--foreground"], surface, button!), surface),
+          ],
+          ["--control-border", contrast(t["--control-border"], surface)],
+        ];
+        for (let i = 1; i < steps.length; i++) {
+          expect(
+            steps[i][1],
+            `${steps[i][0]} 落在 ${name} 上应当比 ${steps[i - 1][0]} 实`,
+          ).toBeGreaterThan(steps[i - 1][1]);
+        }
         expect(
-          contrast(t["--field-border"], t[surface]),
-          `--field-border ${t["--field-border"]} 落在 ${surface} ${t[surface]} 上`,
-        ).toBeGreaterThanOrEqual(FIELD_EDGE_MIN);
+          contrast(t["--border"], surface),
+          `--border 落在 ${name} 上应当比 --control-border 轻`,
+        ).toBeLessThan(contrast(t["--control-border"], surface));
+      }
+    },
+  );
+
+  it.each(THEMES)(
+    "%s(%s)下 --control-border 对控件会落到的每个表面都 ≥3.0",
+    (_scope, _label, get) => {
+      const t = get();
+      for (const name of CONTROL_SURFACES) {
+        expect(
+          contrast(t["--control-border"], t[name]),
+          `--control-border ${t["--control-border"]} 落在 ${name} ${t[name]} 上`,
+        ).toBeGreaterThanOrEqual(GRAPHIC_MIN);
+      }
+    },
+  );
+});
+
+/**
+ * 设置对话框压在当前页面上的那层遮罩：规格 2026-10-15「设置对话框 · 外观」定为
+ * 「浅色约 32%、深色约 55% 的黑」。它比 --overlay-scrim（表单弹窗用）轻：设置几乎
+ * 铺满窗口，底下那一页只需要退后，不需要被抹掉。
+ */
+describe("设置对话框的遮罩", () => {
+  it.each([
+    [":root", "亮色", () => root, "rgba(0, 0, 0, 0.32)"] as const,
+    [".dark", "暗色", () => dark, "rgba(0, 0, 0, 0.55)"] as const,
+  ])("%s(%s)下 --settings-scrim 是 %s", (_s, _l, get, expected) => {
+    expect(get()["--settings-scrim"]).toBe(expected);
+  });
+
+  it("有 --color-settings-scrim 映射（bg-settings-scrim）", () => {
+    expect(theme["--color-settings-scrim"]).toBe("var(--settings-scrim)");
+  });
+});
+
+/**
+ * 弹层与对话框只靠表面色 + 阴影立起来，阴影不再自带一圈 1px 的环——那圈环就是一条
+ * 结构线，换了个写法而已。
+ */
+describe("浮层阴影不带描边环", () => {
+  /** 按顶层逗号切开阴影的各层（rgba(...) 里的逗号不算）。 */
+  const layers = (value: string) => {
+    const out: string[] = [];
+    let depth = 0;
+    let start = 0;
+    for (let i = 0; i < value.length; i++) {
+      if (value[i] === "(") depth++;
+      else if (value[i] === ")") depth--;
+      else if (value[i] === "," && depth === 0) {
+        out.push(value.slice(start, i).trim());
+        start = i + 1;
+      }
+    }
+    out.push(value.slice(start).trim());
+    return out;
+  };
+
+  it.each(THEMES)(
+    "%s(%s)下 --overlay-shadow 没有零偏移零模糊的环",
+    (_s, _l, get) => {
+      const shadow = get()["--overlay-shadow"];
+      expect(shadow, "tokens.css 里没有 --overlay-shadow").toBeDefined();
+      const all = layers(shadow);
+      expect(all.length).toBeGreaterThan(0);
+      for (const layer of all) {
+        expect(
+          layer,
+          `--overlay-shadow 里有一层是描边环：${layer}`,
+        ).not.toMatch(/^0(px)? 0(px)? 0(px)? [\d.]+px\b/);
       }
     },
   );

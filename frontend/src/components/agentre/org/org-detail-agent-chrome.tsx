@@ -40,7 +40,7 @@ export function OrgDetailAgentHeader({
 }) {
   const { t } = useTranslation();
   return (
-    <header className="flex shrink-0 items-start gap-3 border-b border-border bg-card px-5 py-4">
+    <header className="flex shrink-0 items-start gap-3 px-5 py-4">
       <AgentAvatarPicker
         name={name || agent.name}
         avatarColor={avatarColor}

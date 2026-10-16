@@ -23,10 +23,12 @@ import { OpenPath } from "../../../../wailsjs/go/app/App";
 import { desktopTranscriptPorts } from "../transcript-ports-desktop";
 import { useDesktopTranscriptPorts } from "../transcript-ports-desktop";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
+import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
 
 beforeEach(() => {
   navigate.mockReset();
+  useSettingsDialogStore.setState({ open: false, page: "appearance" });
   vi.mocked(OpenPath).mockReset();
   localStorage.clear();
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
@@ -39,24 +41,32 @@ beforeEach(() => {
 // 于是点一台机器会把人送到项目页 —— 这个用例守的就是那一步。
 describe("useDesktopTranscriptPorts 的 openMention", () => {
   it.each([
-    ["agent", "/org", undefined],
+    ["agent", "/org"],
     // `/projects` 那一页早已并进索引、只剩一条回 `/chat` 的重定向 —— 人就在
     // `/chat` 上，点了等于没点。去处是索引里的那个项目本身。
-    ["project", "/chat?reveal=1", undefined],
-    ["device", "/settings", { state: { settingsPage: "remote-devices" } }],
+    ["project", "/chat?reveal=1"],
   ] as const)(
     "Given a %s mention chip, When it is clicked, Then the desktop routes to its own page",
-    (kind, path, options) => {
+    (kind, path) => {
       const { result } = renderHook(() => useDesktopTranscriptPorts());
 
       result.current.openMention?.({ kind, refId: 1, label: "x" });
 
-      expect(navigate).toHaveBeenCalledWith(
-        path,
-        ...(options ? [options] : []),
-      );
+      expect(navigate).toHaveBeenCalledWith(path);
     },
   );
+
+  it("Given a device mention chip, When it is clicked, Then the settings dialog opens on remote-devices without leaving the page", () => {
+    const { result } = renderHook(() => useDesktopTranscriptPorts());
+
+    result.current.openMention?.({ kind: "device", refId: 1, label: "x" });
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(useSettingsDialogStore.getState()).toMatchObject({
+      open: true,
+      page: "remote-devices",
+    });
+  });
 });
 
 // previewFile 是桌面端与共享包之间「转录点一条文件路径该去哪」的唯一接缝

@@ -76,14 +76,14 @@ export function SearchRow({
   );
 
   return (
-    <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
+    <div className="flex h-14 shrink-0 items-center gap-3 px-5">
       <Search
         className="size-[18px] shrink-0 text-muted-foreground"
         aria-hidden="true"
       />
       {mode === "command" ? (
         <span
-          className="inline-flex h-[22px] shrink-0 items-center gap-1 rounded-sm border border-primary bg-primary/10 px-2 font-mono text-2xs font-semibold text-primary-text"
+          className="inline-flex h-[22px] shrink-0 items-center gap-1 rounded-sm bg-primary/10 px-2 font-mono text-2xs font-semibold text-primary-text"
           aria-label={t("commandPalette.search.commandMode")}
           title={t("commandPalette.search.commandModeTitle")}
         >
@@ -118,7 +118,7 @@ export function SearchRow({
       <button
         type="button"
         onClick={onClose}
-        className="inline-flex h-5 shrink-0 items-center justify-center rounded-sm border border-border bg-secondary px-1.5 font-mono text-2xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        className="inline-flex h-5 shrink-0 items-center justify-center rounded-sm bg-secondary px-1.5 font-mono text-2xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         aria-label={t("commandPalette.close")}
       >
         Esc

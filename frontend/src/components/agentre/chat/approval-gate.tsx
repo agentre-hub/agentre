@@ -30,7 +30,7 @@ export function ApprovalGate({
   return (
     <TranscriptCard
       className={cn(
-        "flex items-center gap-3 border-status-waiting bg-status-waiting-bg px-4 py-3",
+        "flex items-center gap-3 bg-status-waiting-bg px-4 py-3",
         className,
       )}
       {...props}

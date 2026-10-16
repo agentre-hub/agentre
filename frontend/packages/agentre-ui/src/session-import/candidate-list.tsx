@@ -167,10 +167,10 @@ export function CandidateList({
                 aria-describedby={candidate.imported ? reasonId : undefined}
                 onClick={() => onActivate(candidate)}
                 className={cn(
-                  "flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 transition-colors",
+                  "flex cursor-pointer items-start gap-2 rounded-md px-2.5 py-2 transition-colors",
                   active
-                    ? "border-primary bg-sidebar-active-bg"
-                    : "border-border hover:bg-accent/60 hover:on-accent",
+                    ? "bg-button-fill"
+                    : "hover:bg-accent/60 hover:on-accent",
                   // 不可选只退颜色、不撤内容：它得能被读出来。
                   candidate.imported && "opacity-70",
                 )}
@@ -192,7 +192,7 @@ export function CandidateList({
                         {t("importSession.imported.reason")}
                       </span>
                     ) : candidate.origin ? (
-                      <span className="rounded-sm border border-border px-1 py-0.5 text-3xs">
+                      <span className="rounded-sm bg-button-fill px-1 py-0.5 text-3xs">
                         {candidate.origin === "agentre"
                           ? t("importSession.origin.agentre")
                           : t("importSession.origin.terminal")}

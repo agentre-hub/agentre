@@ -8,6 +8,7 @@ import {
 } from "./file-preview-panel";
 import type { MonacoNS } from "./monaco";
 import type { FilePreviewPorts } from "./ports";
+import { edgeClasses } from "../lib/__testing__/edge-classes";
 
 /**
  * 预览面板搬进包之后的契约：**读取走注入的端口、状态走 props**，包内既不 import
@@ -700,5 +701,17 @@ describe("FilePreviewPanel 只读内容可选中复制", () => {
       "Path is outside the working dir",
     );
     expect(message.closest(selectable)).not.toBeNull();
+  });
+});
+
+describe("FilePreviewPanel 无边框", () => {
+  it("Given an HTML file in the split segment, When rendered, Then the tab strip, path bar, segment switch and the two panes draw no lines", async () => {
+    readFile.mockResolvedValue(textView("<h1>Report</h1>"));
+    renderPanel({ activePath: "out/report.html", segment: "split" });
+
+    const view = await panel();
+    await within(view).findByTitle("report.html rendered page");
+
+    expect(edgeClasses(view)).toEqual([]);
   });
 });

@@ -186,6 +186,8 @@ export function ChatContextSidebar({
       ariaLabel={t("chatContext.sidebar")}
       edge="left"
       defaultWidth={240}
+      // 落在外框上：内容页之外的一栏，与内容页之间只隔外框缝（无边框改版 P1）。
+      surface="chrome"
       className="h-full"
     >
       <RootSwitcher

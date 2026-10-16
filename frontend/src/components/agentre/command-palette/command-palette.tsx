@@ -204,7 +204,7 @@ export function CommandPalette(): React.ReactElement {
           showCloseButton={false}
           className={cn(
             // 设计稿宽 640，垂直在 96px 顶部
-            "w-[640px] max-w-[92vw] translate-y-0 top-[96px] grid-rows-[auto_1fr_auto] gap-0 overflow-hidden rounded-xl border border-border bg-popover p-0 text-popover-foreground shadow-[0_8px_16px_rgba(10,10,10,0.15),0_24px_60px_rgba(10,10,10,0.25)]",
+            "w-[640px] max-w-[92vw] translate-y-0 top-[96px] grid-rows-[auto_1fr_auto] gap-0 overflow-hidden rounded-xl bg-popover p-0 text-popover-foreground shadow-[0_8px_16px_rgba(10,10,10,0.15),0_24px_60px_rgba(10,10,10,0.25)]",
           )}
         >
           <DialogTitle className="sr-only">

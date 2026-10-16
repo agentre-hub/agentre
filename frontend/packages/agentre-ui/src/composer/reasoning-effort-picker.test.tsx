@@ -281,7 +281,7 @@ describe("ReasoningEffortPicker", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("session not found");
   });
 
-  it("Given the read-out shape, When the trigger is inspected, Then it has no fill or border until hover and keeps a chevron", () => {
+  it("Given the read-out shape, When the trigger is inspected, Then it has no fill until hover, never draws a border and keeps a chevron", () => {
     render(
       <ReasoningEffortPicker
         value="xhigh"
@@ -292,10 +292,10 @@ describe("ReasoningEffortPicker", () => {
     );
 
     const trigger = screen.getByTestId("effort-pill");
-    // 决策 9：与右侧两个计量器同款读数形态——描边透明、hover 才显边框，
-    // 不套 ProviderPill 那身有填充有描边的 pill 外壳。
-    expect(trigger.className).toContain("border-transparent");
-    expect(trigger.className).toContain("hover:border-border");
+    // 决策 9：与右侧两个计量器同款读数形态——静止时没有底，hover 才出底；
+    // 无边框改版后连 hover 的描边也去掉，只靠填充回应。
+    expect(trigger.className).not.toMatch(/(^|\s)(hover:)?border(-\S+)?(\s|$)/);
+    expect(trigger.className).toContain("hover:bg-accent");
     expect(trigger.className).not.toContain("bg-input-bg");
     // 但它可点：计量器是 cursor-default，这颗必须是手形。
     expect(trigger.className).toContain("cursor-pointer");

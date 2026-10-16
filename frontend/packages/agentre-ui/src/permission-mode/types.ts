@@ -40,7 +40,7 @@ export const PERMISSION_MODE_META_UI: Record<string, PermissionModeMetaUI> = {
     label: "Default",
     iconName: "circle-question",
     descKey: "permissionMode.meta.default.desc",
-    pillClass: "bg-muted text-foreground border-border",
+    pillClass: "bg-button-fill text-foreground",
     iconClass: "text-muted-foreground",
   },
   acceptEdits: {
@@ -48,7 +48,7 @@ export const PERMISSION_MODE_META_UI: Record<string, PermissionModeMetaUI> = {
     label: "Accept Edits",
     iconName: "shield-check",
     descKey: "permissionMode.meta.acceptEdits.desc",
-    pillClass: "bg-primary-soft text-primary-text border-primary-text/60",
+    pillClass: "bg-primary-soft text-primary-text",
     iconClass: "text-primary-text",
   },
   plan: {
@@ -56,8 +56,7 @@ export const PERMISSION_MODE_META_UI: Record<string, PermissionModeMetaUI> = {
     label: "Plan",
     iconName: "clipboard-list",
     descKey: "permissionMode.meta.plan.desc",
-    pillClass:
-      "bg-status-waiting-bg text-status-waiting-text border-status-waiting/60",
+    pillClass: "bg-status-waiting-bg text-status-waiting-text",
     iconClass: "text-status-waiting",
   },
   bypassPermissions: {
@@ -65,8 +64,7 @@ export const PERMISSION_MODE_META_UI: Record<string, PermissionModeMetaUI> = {
     label: "Bypass",
     iconName: "shield-off",
     descKey: "permissionMode.meta.bypassPermissions.desc",
-    pillClass:
-      "bg-destructive-soft text-destructive-text border-destructive/60",
+    pillClass: "bg-destructive-soft text-destructive-text",
     iconClass: "text-destructive",
   },
 };
@@ -80,7 +78,7 @@ export function fallbackPermissionModeMetaUI(
     label: key || "Unknown",
     iconName: "circle-question",
     descKey: "",
-    pillClass: "bg-muted text-foreground border-border",
+    pillClass: "bg-button-fill text-foreground",
     iconClass: "text-muted-foreground",
   };
 }

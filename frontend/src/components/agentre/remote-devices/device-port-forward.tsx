@@ -304,7 +304,7 @@ export function DevicePortForward({ deviceId, offline, offlineDetail }: Props) {
   return (
     <div
       data-testid="device-port-forward"
-      className="flex flex-col gap-1.5 rounded-md border border-border bg-secondary/40 px-3 py-2"
+      className="flex flex-col gap-1.5 rounded-md bg-field-fill px-3 py-2"
     >
       {phase === "loading" ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">

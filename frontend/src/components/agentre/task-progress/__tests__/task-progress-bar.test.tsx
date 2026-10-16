@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TaskProgressBar } from "../task-progress-bar";
 
 import type { TaskProgress } from "../types";
+import { edgeClasses } from "@/__tests__/helpers/edge-classes";
 
 const empty: TaskProgress = { tasks: [] };
 
@@ -119,5 +120,14 @@ describe("TaskProgressBar", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("TaskProgressBar · 无边框", () => {
+  it("Given an expanded list, When rendered, Then neither the region nor its rows draw dividing lines", () => {
+    render(<TaskProgressBar progress={claude3} />);
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+    expect(edgeClasses(screen.getByRole("region"))).toEqual([]);
   });
 });

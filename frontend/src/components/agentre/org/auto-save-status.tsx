@@ -25,7 +25,7 @@ export function AutoSaveStatus({
           : t("common.saved");
 
   return (
-    <footer className="flex items-center gap-2 border-t border-border bg-secondary/40 px-5 py-3">
+    <footer className="flex items-center gap-2 px-5 py-3">
       <span className="flex flex-1 items-center gap-1.5 font-mono text-2xs text-muted-foreground">
         <History className="size-3" aria-hidden="true" />
         {label}

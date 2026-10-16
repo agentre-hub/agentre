@@ -122,7 +122,7 @@ export function PickerOptionRow({
                     "brightness-95 dark:brightness-125",
                 )
               : opt.kind === "invalid"
-                ? "border border-dashed border-status-waiting"
+                ? "bg-status-waiting-bg"
                 : // mockup .opt:hover 是满色 accent；.opt.dis:hover 保持透明；
                   // .opt.sel 排在 .opt:hover 之后 → 选中项 hover 不翻 accent。
                   !opt.disabled &&
@@ -131,12 +131,7 @@ export function PickerOptionRow({
             // 顶部特殊项是独立描边卡片（mockup .opt.special）：比普通行
             // 重一档，选中时描边转实线 primary。
             opt.kind === "special" &&
-              cn(
-                "mb-1 border border-dashed p-2",
-                selectedNow
-                  ? "border-solid border-primary"
-                  : "border-border-strong",
-              ),
+              cn("mb-1 p-2", !selectedNow && "bg-field-fill"),
             // 选中项带底色且盖过 hover（mockup .opt.sel 排在 .opt:hover 之后）。
             //
             // ⚠️ 与 mockup 字面的有意偏离：mockup 给 .opt.sel 用的是
@@ -240,7 +235,7 @@ export function PickerOptionRow({
         {syncProvider && onSyncProvider ? (
           <button
             type="button"
-            className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border px-1.5 py-1 text-2xs text-primary-text transition-colors hover:bg-accent focus-visible:focus-outline"
+            className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md bg-button-fill px-1.5 py-1 text-2xs text-primary-text transition-colors hover:bg-accent focus-visible:focus-outline"
             aria-label={t("modelTargetPicker.syncProviderNamed", {
               provider: syncProvider.name,
             })}

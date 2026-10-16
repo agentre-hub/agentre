@@ -12,6 +12,8 @@ import {
   writeSidebarWidth,
 } from "./sidebar-width-state";
 
+export type ResizableSidebarSurface = "chrome" | "sheet";
+
 type ResizableSidebarProps = {
   // localStorage 命名空间，例 "chat" / "projects"，写入 key 是 agentre.sidebarWidth.<key>
   persistenceKey: string;
@@ -25,6 +27,8 @@ type ResizableSidebarProps = {
   defaultWidth?: number;
   // 宿主用例的抓手。两端各有各的 testid 词汇，包这边只做透传。
   testId?: string;
+  // 底色由宿主决定：chrome = 外框，sheet = 内容页。默认 chrome；侧栏不画边。
+  surface?: ResizableSidebarSurface;
 };
 
 // ResizableSidebar 是 chat / projects 等页面侧栏的共享容器：
@@ -40,6 +44,7 @@ function ResizableSidebar({
   edge = "right",
   defaultWidth = SIDEBAR_DEFAULT_WIDTH,
   testId,
+  surface = "chrome",
 }: ResizableSidebarProps) {
   const { t } = useUiTranslation();
   const [width, setWidth] = React.useState<number>(() =>
@@ -92,8 +97,8 @@ function ResizableSidebar({
       data-testid={testId}
       style={{ width: `${width}px` }}
       className={cn(
-        "relative flex shrink-0 flex-col bg-sidebar",
-        edge === "left" ? "border-l border-border" : "border-r border-border",
+        "relative flex shrink-0 flex-col",
+        surface === "sheet" ? "bg-sheet" : "bg-chrome",
         className,
       )}
     >

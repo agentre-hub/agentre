@@ -67,7 +67,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-1.5 border-t border-border-strong px-3 py-2.5 first:border-t-0">
+    <section className="flex flex-col gap-1.5 px-3 py-2.5">
       <h3 className="text-2xs font-semibold text-muted-foreground">{title}</h3>
       {children}
     </section>
@@ -272,7 +272,7 @@ export function BoardFilterPanel({
         </div>
       </Section>
       {onManageLabels ? (
-        <div className="border-t border-border-strong p-1">
+        <div className="p-1">
           <button
             type="button"
             data-testid="filter-manage-labels"

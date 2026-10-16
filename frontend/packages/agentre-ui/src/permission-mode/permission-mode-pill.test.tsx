@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AGENTRE_UI_NAMESPACE, agentreUiResources } from "../i18n";
 import { PermissionModePill } from "./permission-mode-pill";
+import { edgeClasses } from "../lib/__testing__/edge-classes";
 
 const CLAUDECODE = ["default", "acceptEdits", "plan", "bypassPermissions"];
 
@@ -148,5 +149,17 @@ describe("PermissionModePill · 禁用原因", () => {
     expect(
       screen.getByRole("button", { name: /Permission mode/ }),
     ).toHaveAttribute("title", expect.stringContaining("Cannot switch"));
+  });
+});
+
+describe("PermissionModePill · 无边框", () => {
+  it("Given the pill and its open panel, When rendered, Then neither the pill nor the panel's header/footer draw lines", async () => {
+    await openPill();
+
+    expect(
+      edgeClasses(screen.getByRole("button", { name: /Permission mode/ })),
+    ).toEqual([]);
+    const panel = screen.getByRole("listbox").parentElement!;
+    expect(edgeClasses(panel)).toEqual([]);
   });
 });

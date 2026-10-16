@@ -207,8 +207,8 @@ export function SettingsProxyPanel() {
         <FlashBanner state={flash} onDismiss={() => setFlash(null)} />
       ) : null}
 
-      <section className="overflow-hidden rounded-lg border border-border bg-card">
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+      <section className="overflow-hidden rounded-lg bg-field-fill">
+        <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
           <div className="flex min-w-0 flex-col gap-0.5">
             <h2 className="text-sm font-semibold">
               {t("settingsProxy.listener.title")}
@@ -256,7 +256,7 @@ export function SettingsProxyPanel() {
           </FormField>
         </div>
 
-        <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-secondary/30 px-4 py-3">
+        <footer className="flex flex-wrap items-center justify-end gap-2 bg-secondary/30 px-4 py-3">
           <Button
             type="button"
             variant="outline"
@@ -298,8 +298,8 @@ export function SettingsProxyPanel() {
         </footer>
       </section>
 
-      <section className="overflow-hidden rounded-lg border border-border bg-card">
-        <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+      <section className="overflow-hidden rounded-lg bg-field-fill">
+        <header className="flex items-center justify-between gap-2 px-4 py-3">
           <div className="flex min-w-0 flex-col gap-0.5">
             <h2 className="text-sm font-semibold">
               {t("settingsProxy.routes.title")}
@@ -317,7 +317,7 @@ export function SettingsProxyPanel() {
             })}
           </Badge>
         </header>
-        <ul className="divide-y divide-border">
+        <ul>
           {ROUTE_ROWS.map((r) => (
             <li
               key={r.path}
@@ -351,7 +351,7 @@ export function SettingsProxyPanel() {
         </ul>
       </section>
 
-      <Alert className="border-primary-text/30 bg-primary-soft text-primary-text">
+      <Alert className="bg-primary-soft text-primary-text">
         <ShieldCheck className="size-4" aria-hidden="true" />
         <AlertTitle className="text-xs font-semibold">
           {t("settingsProxy.security.title")}
@@ -438,7 +438,7 @@ function UrlReadout({
   const { t } = useTranslation();
   if (loading) {
     return (
-      <div className="flex h-9 items-center rounded-md border border-border bg-secondary/40 px-3 font-mono text-2xs text-muted-foreground">
+      <div className="flex h-9 items-center rounded-md bg-field-fill px-3 font-mono text-2xs text-muted-foreground">
         {t("common.loading")}
       </div>
     );
@@ -447,14 +447,14 @@ function UrlReadout({
     return (
       <div
         data-selectable-text="true"
-        className="flex h-9 items-center truncate rounded-md border border-border bg-secondary/40 px-3 font-mono text-2xs"
+        className="flex h-9 items-center truncate rounded-md bg-field-fill px-3 font-mono text-2xs"
       >
         {status.listenURL}
       </div>
     );
   }
   return (
-    <div className="flex h-9 items-center truncate rounded-md border border-destructive/40 bg-destructive-soft px-3 font-mono text-2xs text-destructive-text">
+    <div className="flex h-9 items-center truncate rounded-md bg-destructive-soft px-3 font-mono text-2xs text-destructive-text">
       {t("settingsProxy.status.notStarted", {
         reason: status?.reason ? ` · ${status.reason}` : "",
       })}
@@ -474,10 +474,10 @@ function FlashBanner({
   return (
     <div
       className={cn(
-        "flex items-start gap-2 rounded-md border px-3 py-2 text-xs",
+        "flex items-start gap-2 rounded-md px-3 py-2 text-xs",
         ok
-          ? "border-status-running/40 bg-status-running-bg text-status-running-text"
-          : "border-destructive/40 bg-destructive-soft text-destructive-text",
+          ? "bg-status-running-bg text-status-running-text"
+          : "bg-destructive-soft text-destructive-text",
       )}
       role="status"
     >

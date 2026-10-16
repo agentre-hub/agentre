@@ -1,10 +1,17 @@
-// 设置页的外壳:统一 Header + 左侧导航 + 按当前页 id 选中一个分区。
+// 设置对话框（规格 2026-10-15「设置对话框」）：浮在当前页面上的模态框，左列导航
+// （外框色）+ 右侧内容区（内容页色、单独滚动）+ 右上角关闭。设置不是路由：开关与当前
+// 子页都在 stores/settings-dialog-store，底下的页面保持原样不卸载。
 
 import * as React from "react";
+import { X } from "lucide-react";
+import { Dialog as DialogPrimitive } from "radix-ui";
+import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 
+import { cn } from "@agentre-hub/agentre-ui";
 import type { AppTheme, AppThemePreference } from "../chrome";
 import { useChatAgents } from "@/hooks/use-chat-agents";
+import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 import { DataBackupPanel } from "../data-backup";
 import { FileSettingsPanel } from "../file-settings-panel";
 import { RemoteDevicesPanel } from "../remote-devices/remote-devices-panel";
@@ -15,7 +22,6 @@ import { UpdateSection } from "../update-section";
 
 import { AppearanceSettings } from "./appearance";
 import { SettingsNav } from "./nav";
-import { isSettingsPageId, type SettingsPageId } from "./pages";
 import {
   AgentBackendSettings,
   LocalProxySettings,
@@ -28,24 +34,22 @@ export type SettingsPageProps = {
   effectiveTheme: AppTheme;
   onThemePreferenceChange: (themePreference: AppThemePreference) => void;
   themePreference: AppThemePreference;
+  /** 列头「设置」用的元素；对话框里是 DialogTitle（见 SettingsNav）。 */
+  titleAs?: React.ElementType;
 };
 
+/**
+ * 设置的内容：左列导航 + 右侧内容区。当前子页由 settings-dialog-store 持有——深链入口
+ * 调 `openSettings(page)` 切过来，导航点击写回去，下次不带子页打开时落在这里。
+ */
 export function SettingsPage({
   effectiveTheme,
   onThemePreferenceChange,
   themePreference,
+  titleAs,
 }: SettingsPageProps) {
-  const location = useLocation();
-  const settingsPage = (location.state as { settingsPage?: unknown } | null)
-    ?.settingsPage;
-  // 支持外部深链 (如空聊天态 / 不可对话弹窗 navigate("/settings", { state:
-  // { settingsPage } })): 只在首次挂载时读一次 router state 作为初始页。
-  const [activePage, setActivePage] = React.useState<SettingsPageId>(() =>
-    isSettingsPageId(settingsPage) ? settingsPage : "appearance",
-  );
-  React.useEffect(() => {
-    if (isSettingsPageId(settingsPage)) setActivePage(settingsPage);
-  }, [settingsPage]);
+  const activePage = useSettingsDialogStore((s) => s.page);
+  const setActivePage = useSettingsDialogStore((s) => s.setPage);
 
   // 设置导航打点 + LLM 供应商页黄条的数据源：一次共享的 ListChatAgents
   // (useChatAgents)。gap 只在「确有缺口」时出现：Agent 后端页缺「有 Agent 没绑
@@ -71,22 +75,25 @@ export function SettingsPage({
   React.useEffect(() => {
     if (syncStatusLoading) return;
     if (activePage === "sync" && !syncEnabled) setActivePage("appearance");
-  }, [activePage, syncEnabled, syncStatusLoading]);
+  }, [activePage, setActivePage, syncEnabled, syncStatusLoading]);
 
   return (
-    <div
-      data-slot="settings-page"
-      className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row"
-    >
+    <div data-slot="settings-page" className="flex min-h-0 min-w-0 flex-1">
       <SettingsNav
         activePage={activePage}
         backendGap={backendGap}
         onPageChange={setActivePage}
         providerGap={providerGap}
         syncEnabled={syncEnabled}
+        titleAs={titleAs}
       />
-      <main className="min-w-0 flex-1 overflow-auto bg-background">
-        <div className="flex min-h-full w-full min-w-0 max-w-[1180px] flex-col gap-6 px-4 py-5 sm:px-6 lg:gap-8 lg:px-10 lg:py-8">
+      {/* 不是 main 地标：页面上始终只有底下那一页的一个 main。右侧多留的边距
+          (pr-16) 给右上角的关闭按钮让位，页标题行的按钮不会与它重叠。 */}
+      <div
+        data-slot="settings-content"
+        className="min-w-0 flex-1 overflow-auto bg-sheet"
+      >
+        <div className="flex min-h-full w-full min-w-0 flex-col gap-8 py-8 pl-10 pr-16">
           {activePage === "remote-devices" ? (
             <RemoteDevicesPanel
               onOpenAgentBackends={() => setActivePage("agent-backend")}
@@ -129,7 +136,96 @@ export function SettingsPage({
             <SettingsUnderConstruction page={activePage} />
           )}
         </div>
-      </main>
+      </div>
     </div>
+  );
+}
+
+/**
+ * 模态外壳。不用 DialogShell：它是表单弹窗的尺寸阶梯（420/560/760）与头脚结构，
+ * 设置要的是近乎铺满窗口的双栏框、回焦到打开前的位置、以及标题栏那条拖动带。
+ */
+export function SettingsDialog(props: Omit<SettingsPageProps, "titleAs">) {
+  const { t } = useTranslation();
+  const open = useSettingsDialogStore((s) => s.open);
+  const closeSettings = useSettingsDialogStore((s) => s.closeSettings);
+
+  // 没有 Dialog.Trigger（齿轮、⌘,、命令面板都只是改 store），Radix 关窗时找不到
+  // 该回焦的元素。打开那一刻记下焦点，关掉时还回去。layout effect 早于 Radix
+  // FocusScope 把焦点挪进对话框的那次 effect。
+  const returnFocusRef = React.useRef<HTMLElement | null>(null);
+  React.useLayoutEffect(() => {
+    if (open && document.activeElement instanceof HTMLElement) {
+      returnFocusRef.current = document.activeElement;
+    }
+  }, [open]);
+
+  // 任何一次导航都是用户要去看别处（子页里打开一条会话、⌘B、命令面板选一页……），
+  // 设置还盖着就等于什么都没发生。按 location.key 判：同一路径再导航一次（在对话页
+  // 打开设置、再从里面打开一条会话，仍是 /chat）也换 key。挂载那一刻的 key 不算。
+  const { key: locationKey } = useLocation();
+  const seenLocationKey = React.useRef(locationKey);
+  React.useEffect(() => {
+    if (locationKey === seenLocationKey.current) return;
+    seenLocationKey.current = locationKey;
+    closeSettings();
+  }, [locationKey, closeSettings]);
+
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) closeSettings();
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay
+          data-slot="settings-dialog-overlay"
+          className="fixed inset-0 z-50 bg-settings-scrim duration-200 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0"
+        />
+        {/* 标题栏那一条仍能拖动窗口（macOS 红绿灯是原生的，不受遮罩影响）。按在这里
+            不算「点遮罩」，见下面的 onPointerDownOutside。 */}
+        <div
+          data-slot="settings-drag-region"
+          aria-hidden="true"
+          className="wails-drag fixed inset-x-0 top-0 z-50 h-11"
+          // 模态期间 Radix 给 body 设了 pointer-events:none，这一条得自己要回来。
+          style={{ pointerEvents: "auto" }}
+        />
+        <DialogPrimitive.Content
+          data-slot="settings-dialog"
+          aria-describedby={undefined}
+          onPointerDownOutside={(event) => {
+            const target = event.target;
+            if (
+              target instanceof Element &&
+              target.closest('[data-slot="settings-drag-region"]')
+            ) {
+              event.preventDefault();
+            }
+          }}
+          onCloseAutoFocus={(event) => {
+            const target = returnFocusRef.current;
+            returnFocusRef.current = null;
+            if (target?.isConnected) {
+              event.preventDefault();
+              target.focus();
+            }
+          }}
+          className={cn(
+            "fixed left-1/2 top-1/2 z-50 flex h-[calc(100dvh-4rem)] w-[calc(100vw-7rem)] max-w-[1180px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl bg-sheet text-foreground shadow-overlay outline-none",
+            "duration-200 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0",
+          )}
+        >
+          <SettingsPage {...props} titleAs={DialogPrimitive.Title} />
+          <DialogPrimitive.Close
+            aria-label={t("common.close")}
+            className="absolute right-3.5 top-3.5 inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-button-fill hover:text-foreground focus-visible:focus-outline"
+          >
+            <X className="size-4" aria-hidden="true" />
+          </DialogPrimitive.Close>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }

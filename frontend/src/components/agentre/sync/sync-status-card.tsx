@@ -47,9 +47,9 @@ export function SyncStatusCard({ status, onRetry, now }: SyncStatusCardProps) {
   return (
     <section
       data-slot="sync-status-card"
-      className="overflow-hidden rounded-lg border border-border bg-card"
+      className="overflow-hidden rounded-lg bg-field-fill"
     >
-      <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <h2 className="text-sm font-semibold">{t("sync.status.title")}</h2>
           {kind === "up-to-date" ? (

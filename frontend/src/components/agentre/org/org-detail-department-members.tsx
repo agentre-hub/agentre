@@ -63,7 +63,7 @@ export function OrgDetailDepartmentMembers({
                 key={`a-${a.id}`}
                 type="button"
                 onClick={() => onSelect({ kind: "agent", id: a.id })}
-                className="flex w-full items-center gap-2.5 rounded-md border border-border bg-card px-3 py-2 text-left text-sm hover:bg-accent"
+                className="flex w-full items-center gap-2.5 rounded-md bg-field-fill px-3 py-2 text-left text-sm hover:bg-field-fill-hover"
                 aria-label={t("org.department.viewAgent", { name: a.name })}
               >
                 <AgentAvatar
@@ -96,7 +96,7 @@ export function OrgDetailDepartmentMembers({
               key={`d-${d.id}`}
               type="button"
               onClick={() => onSelect({ kind: "department", id: d.id })}
-              className="flex w-full items-center gap-2.5 rounded-md border border-border bg-card px-3 py-2 text-left text-sm hover:bg-accent"
+              className="flex w-full items-center gap-2.5 rounded-md bg-field-fill px-3 py-2 text-left text-sm hover:bg-field-fill-hover"
               aria-label={t("org.department.viewDepartment", { name: d.name })}
             >
               <DepartmentIconBadge
@@ -120,7 +120,7 @@ export function OrgDetailDepartmentMembers({
             </button>
           ))}
           {directAgents.length === 0 && directDepts.length === 0 && (
-            <div className="rounded-md border border-dashed border-border px-3 py-2 text-center text-2xs text-muted-foreground">
+            <div className="rounded-md bg-field-fill px-3 py-2 text-center text-2xs text-muted-foreground">
               {t("org.department.noDirectMembers")}
             </div>
           )}
@@ -128,7 +128,7 @@ export function OrgDetailDepartmentMembers({
             <div
               role="group"
               aria-label={t("org.department.addGroup")}
-              className="flex min-w-0 flex-col gap-1.5 rounded-md border border-dashed border-border bg-background/30 px-3 py-2"
+              className="flex min-w-0 flex-col gap-1.5 rounded-md bg-field-fill px-3 py-2"
             >
               {/* 说明与两个按钮分两行：栏宽 276px 时挤在一行里，说明只剩
                   22px，任何写法都要么截成两个字母要么顶破栏宽。 */}

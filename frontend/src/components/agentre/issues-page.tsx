@@ -140,13 +140,13 @@ function IssuesPage() {
 
   return (
     <main
-      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
+      className="content-sheet flex min-h-0 min-w-0 flex-1 flex-col"
       data-slot="issues-page"
     >
       <BoardJoinNotice />
       {/* 860px 是最小窗口宽度（`internal/desktop` 那一条）。窄到那里时项目选择器
           整条换到第二行占满宽度：三件东西挤一行会先把它压没。 */}
-      <header className="flex min-h-[60px] shrink-0 flex-wrap items-center gap-3 border-b border-border bg-background px-5 py-3 min-[861px]:h-[60px] min-[861px]:flex-nowrap min-[861px]:py-0">
+      <header className="flex min-h-[60px] shrink-0 flex-wrap items-center gap-3 px-5 py-3 min-[861px]:h-[60px] min-[861px]:flex-nowrap min-[861px]:py-0">
         <div className="flex min-w-0 flex-col gap-0.5">
           <h1 className="truncate text-base font-semibold tracking-normal">
             {t("issues.title")}
@@ -182,7 +182,7 @@ function IssuesPage() {
         </Button>
       </header>
 
-      <div className="flex min-h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-sidebar px-5 py-2">
+      <div className="flex min-h-12 shrink-0 items-center gap-2 overflow-x-auto px-5 py-2">
         <BoardFilterBar
           query={query}
           labels={board.labels}

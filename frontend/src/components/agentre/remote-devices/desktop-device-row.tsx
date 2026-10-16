@@ -112,7 +112,7 @@ export function DesktopDeviceRow({ device, now }: Props) {
   return (
     <div
       data-testid="desktop-device-row"
-      className="flex flex-col gap-1 rounded-md border border-border bg-card p-3"
+      className="flex flex-col gap-1 rounded-md bg-field-fill p-3"
     >
       <div className="flex items-center gap-3">
         <span
@@ -187,7 +187,7 @@ export function DesktopDeviceRow({ device, now }: Props) {
       {open ? (
         <div
           data-testid="desktop-session-list"
-          className="mt-2 flex flex-col gap-1 border-t border-border pt-2"
+          className="mt-2 flex flex-col gap-1 pt-2"
         >
           {/* 翻到一半时已经列出来的那些留在原地：把它们换成一个转圈，等于每翻一页
               就把读者刚看的位置抹掉一次。 */}
@@ -266,10 +266,7 @@ function SessionStateBadge({
   const status = lifecycleToAgentStatus({ lifecycleState: lifecycle, waiting });
   if (status === "waiting") {
     return (
-      <Badge
-        variant="outline"
-        className="border-status-waiting text-status-waiting-text"
-      >
+      <Badge variant="outline" className="text-status-waiting-text">
         {t("remoteDevices.desktop.session.waiting")}
       </Badge>
     );
@@ -285,11 +282,7 @@ function SessionStateBadge({
   return (
     <Badge
       variant="outline"
-      className={
-        status === "error"
-          ? "border-status-error text-destructive-text"
-          : undefined
-      }
+      className={status === "error" ? "text-destructive-text" : undefined}
     >
       {t(labelKey)}
     </Badge>

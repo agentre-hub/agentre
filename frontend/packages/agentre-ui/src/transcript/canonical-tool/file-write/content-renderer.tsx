@@ -96,7 +96,7 @@ function TruncatedBar({ content, lines }: { content: string; lines: number }) {
   }
 
   return (
-    <div className="mt-1 flex items-center gap-2 border-t border-border px-3 py-1">
+    <div className="mt-1 flex items-center gap-2 px-3 py-1">
       <span className="text-meta text-muted-foreground">
         {t("canonical.fileWrite.truncated", { lines })}
       </span>

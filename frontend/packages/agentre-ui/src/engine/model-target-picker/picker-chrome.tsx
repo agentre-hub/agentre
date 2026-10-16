@@ -11,7 +11,7 @@ export function InvalidTargetBanner({ targetLabel }: { targetLabel: string }) {
   const { t } = useTranslation();
   return (
     // mockup 把警示做成 .psearch 里的一张圆角 .banner.warn，不是通栏横条。
-    <div className="border-b border-border p-2">
+    <div className="p-2">
       <div
         data-testid="invalid-banner"
         className="flex items-start gap-2 rounded-lg bg-status-waiting-bg px-2.5 py-2 text-2xs text-status-waiting-text"
@@ -35,7 +35,7 @@ export function RemoteDeviceHeader({ deviceLabel }: { deviceLabel: string }) {
   return (
     <div
       data-testid="remote-device-header"
-      className="flex items-center gap-1.5 border-b border-border px-3 py-2 text-2xs text-muted-foreground"
+      className="flex items-center gap-1.5 px-3 py-2 text-2xs text-muted-foreground"
     >
       <Monitor className="size-3.5 shrink-0" aria-hidden="true" />
       <span className="truncate">
@@ -60,7 +60,7 @@ export function PickerSearchBox({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="border-b border-border p-2">
+    <div className="p-2">
       <div className="relative">
         <Search
           className="pointer-events-none absolute left-[9px] top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -71,7 +71,7 @@ export function PickerSearchBox({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={t("modelTargetPicker.searchPlaceholder")}
-          className="h-8 rounded-[7px] bg-input-bg pl-7 pr-7 text-xs dark:bg-input-bg"
+          className="h-8 rounded-[7px] pl-7 pr-7 text-xs"
         />
         {value ? (
           <button
@@ -94,7 +94,7 @@ export function PickerSearchBox({
 /** 底部常显说明条（同步后果 / 远端缺失 / 消费方自带 footer 共用同一条外壳）。 */
 export function PickerNote({ children }: { children: ReactNode }) {
   return (
-    <div className="border-t border-border bg-card px-2.5 py-[7px] text-2xs text-muted-foreground">
+    <div className="bg-card px-2.5 py-[7px] text-2xs text-muted-foreground">
       {children}
     </div>
   );

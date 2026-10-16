@@ -61,7 +61,7 @@ export function ImportSection({
   };
 
   return (
-    <section className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <section className="rounded-lg bg-field-fill p-4 space-y-3">
       <header>
         <h2 className="text-sm font-semibold">
           {t("dataBackup.import.title")}

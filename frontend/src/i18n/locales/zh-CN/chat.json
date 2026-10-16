@@ -324,7 +324,6 @@
     },
     "backgroundTasks": {
       "chip": "{{count}} 运行中",
-      "endedChip": "{{count}} 已结束",
       "subagents": "子代理",
       "commands": "命令",
       "ended": "已结束",
@@ -335,11 +334,16 @@
       "bash": "bash",
       "subagent": "子代理",
       "steps": "{{count}} 步",
-      "aria": "后台任务",
       "clear": "清理",
       "back": "返回",
       "locate": "在对话中定位",
-      "stop": "停止"
+      "stop": "停止",
+      "ariaRunning": "后台任务：{{count}} 个运行中",
+      "peekAgents": "子代理 · {{count}} 运行中",
+      "peekCommands": "命令 · {{count}} 运行中",
+      "peekMore": "还有 {{count}} 个命令",
+      "peekFoot": "点击打开完整列表",
+      "peekFootEnded": "{{count}} 个已结束 · 点击打开完整列表"
     },
     "toolbar": {
       "aria": "会话工具栏",
@@ -347,7 +351,7 @@
       "hideContextSidebar": "隐藏上下文侧栏",
       "showContextSidebar": "显示上下文侧栏",
       "stop": "停止",
-      "stopActiveTitle": "停止当前对话"
+      "stopActiveTitle": "停止当前回合"
     },
     "untitled": "(未命名)",
     "loadError": {

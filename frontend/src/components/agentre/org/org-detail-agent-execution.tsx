@@ -1,6 +1,5 @@
 import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 
 import {
   Alert,
@@ -8,6 +7,8 @@ import {
   AlertTitle,
   Button,
 } from "@agentre-hub/agentre-ui";
+
+import { openSettings } from "@/stores/settings-dialog-store";
 
 import type {
   agent_backend_svc,
@@ -93,10 +94,9 @@ export function OrgDetailAgentExecution({
  */
 function ProviderGapAlert() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   return (
     <Alert
-      className="border-status-waiting/40 bg-status-waiting-bg text-xs"
+      className="bg-status-waiting-bg text-xs"
       data-testid="org-agent-provider-gap"
     >
       <AlertTriangle className="size-4" aria-hidden="true" />
@@ -110,11 +110,7 @@ function ProviderGapAlert() {
             type="button"
             size="sm"
             className="h-7 px-2.5 text-2xs"
-            onClick={() =>
-              navigate("/settings", {
-                state: { settingsPage: "llm-providers" },
-              })
-            }
+            onClick={() => openSettings("llm-providers")}
           >
             {t("org.agent.backend.configureProvider")}
           </Button>
@@ -123,11 +119,7 @@ function ProviderGapAlert() {
             variant="link"
             size="sm"
             className="h-auto px-0 text-2xs"
-            onClick={() =>
-              navigate("/settings", {
-                state: { settingsPage: "agent-backend" },
-              })
-            }
+            onClick={() => openSettings("agent-backend")}
           >
             {t("org.agent.backend.goAgentBackendSettings")}
           </Button>

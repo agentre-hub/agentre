@@ -12,6 +12,7 @@ import {
 } from "@agentre-hub/agentre-ui";
 
 import { ChatPanel } from "../chat-panel";
+import { PanelShownContext } from "../chat-panel/panel-shown";
 import { PeerPanel } from "../peer/peer-panel";
 import { formatChord, formatPrimaryModifier } from "../shortcuts/format";
 import { TAB_CHIP_IDS, TAB_CLOSE_ID } from "../shortcuts/registry";
@@ -22,6 +23,7 @@ import { reloadSidebarSources } from "@/stores/sidebar-reload";
 import type { ChatTab, TabKind } from "@/stores/chat-tabs-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
+import { openSettings } from "@/stores/settings-dialog-store";
 
 type PanelOrderState = {
   tabs: ChatTab[];
@@ -49,7 +51,12 @@ function tabsByPanelOrder(tabs: ChatTab[], order: string[]) {
     .filter((tab): tab is ChatTab => Boolean(tab));
 }
 
-export function ChatPanelHost() {
+export function ChatPanelHost({
+  shown = true,
+}: {
+  /** 整块对话区此刻是否摆在用户眼前（离开对话页时宿主只把它藏起来、不卸载）。 */
+  shown?: boolean;
+} = {}) {
   const tabs = useChatTabsStore((s) => s.tabs);
   const activeTabId = useChatTabsStore((s) => s.activeTabId);
   const [panelOrderState, setPanelOrderState] = React.useState<PanelOrderState>(
@@ -89,7 +96,12 @@ export function ChatPanelHost() {
         ) : t.meta.kind === "peer" ? (
           <HostedPeerPanel key={t.id} tab={t} active={t.id === activeTabId} />
         ) : (
-          <HostedPanel key={t.id} tab={t} active={t.id === activeTabId} />
+          <HostedPanel
+            key={t.id}
+            tab={t}
+            active={t.id === activeTabId}
+            shown={shown && t.id === activeTabId}
+          />
         ),
       )}
     </div>
@@ -120,19 +132,22 @@ function ChatEmptyState() {
 
   if (!loading && !error && !hasChattable) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-3 overflow-auto bg-background px-8 py-10 text-center">
-        <span className="inline-flex size-14 items-center justify-center rounded-lg border border-border bg-primary-soft">
-          <Sparkles className="size-6 text-primary" aria-hidden="true" />
-        </span>
-        <SetupChecklist />
-        <ChatShortcuts />
+      // content-sheet 自带 overflow-hidden 裁圆角；清单矮窗口下要能滚，滚动放在里面一层。
+      <main className="content-sheet flex flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-auto px-8 py-10 text-center">
+          <span className="inline-flex size-14 items-center justify-center rounded-lg bg-primary-soft">
+            <Sparkles className="size-6 text-primary" aria-hidden="true" />
+          </span>
+          <SetupChecklist />
+          <ChatShortcuts />
+        </div>
       </main>
     );
   }
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-background px-8 text-center">
-      <span className="inline-flex size-14 items-center justify-center rounded-lg border border-border bg-primary-soft">
+    <main className="content-sheet flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
+      <span className="inline-flex size-14 items-center justify-center rounded-lg bg-primary-soft">
         <Sparkles className="size-6 text-primary" aria-hidden="true" />
       </span>
       <div className="text-base font-semibold">{t("chatTabs.empty.title")}</div>
@@ -143,7 +158,7 @@ function ChatEmptyState() {
         <div className="mt-3 flex items-center gap-2 text-xs">
           <Badge
             variant="outline"
-            className="border-status-waiting/40 bg-status-waiting-bg px-2 py-0 text-2xs text-foreground"
+            className="bg-status-waiting-bg px-2 py-0 text-2xs text-foreground"
           >
             {t("chatTabs.empty.unconfigured.count", {
               count: unconfiguredCount,
@@ -201,15 +216,15 @@ function ChatShortcuts() {
 
   return (
     <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-      <kbd className="rounded-md border border-border bg-card px-2 py-1 font-mono">
+      <kbd className="rounded-md bg-button-fill px-2 py-1 font-mono">
         {tabsLabel}
       </kbd>
       {t("chatTabs.empty.shortcuts.switch")}
-      <kbd className="rounded-md border border-border bg-card px-2 py-1 font-mono">
+      <kbd className="rounded-md bg-button-fill px-2 py-1 font-mono">
         {closeLabel}
       </kbd>
       {t("chatTabs.empty.shortcuts.close")}
-      <kbd className="rounded-md border border-border bg-card px-2 py-1 font-mono">
+      <kbd className="rounded-md bg-button-fill px-2 py-1 font-mono">
         {clickLabel}
       </kbd>
       {t("chatTabs.empty.shortcuts.openInNewTab")}
@@ -224,17 +239,14 @@ type SetupStepStatus = "done" | "current" | "waiting";
 // 的 agent；第一步与第二步都完成，第三行（发出第一轮对话）才可点。
 function SetupChecklist() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const agents = useChatAgentsStore((s) => s.agents);
 
   const backendDone = agents.some((a) => a.blockReason !== "no-backend");
   const providerDone = agents.some((a) => a.chattable);
   const canStart = backendDone && providerDone;
 
-  const goBackend = () =>
-    navigate("/settings", { state: { settingsPage: "agent-backend" } });
-  const goProvider = () =>
-    navigate("/settings", { state: { settingsPage: "llm-providers" } });
+  const goBackend = () => openSettings("agent-backend");
+  const goProvider = () => openSettings("llm-providers");
   const startFirstChat = () => {
     const agent = agents.find((a) => a.chattable);
     if (agent) useChatTabsStore.getState().openNewSession(0, agent.id, "");
@@ -301,7 +313,7 @@ function SetupChecklist() {
       <div className="max-w-md text-xs text-muted-foreground">
         {t("chatTabs.empty.setupGuide.description")}
       </div>
-      <div className="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-card text-left">
+      <div className="flex w-full max-w-lg flex-col gap-1 rounded-lg bg-field-fill p-1 text-left">
         {steps.map((step) => (
           <SetupChecklistRow key={step.id} {...step} />
         ))}
@@ -335,20 +347,18 @@ function SetupChecklistRow({
       data-testid={`setup-step-${id}`}
       data-status={status}
       className={cn(
-        "flex items-center gap-3 border-b border-border px-3.5 py-2.5 last:border-b-0",
-        waiting && "bg-secondary/50",
+        "flex items-center gap-3 rounded-md px-3 py-2.5",
+        waiting && "opacity-70",
       )}
     >
       <span
         aria-hidden="true"
         className={cn(
-          "inline-flex size-5 shrink-0 items-center justify-center rounded-full border text-2xs font-semibold",
-          done &&
-            "border-status-running bg-status-running text-status-running-foreground",
+          "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-2xs font-semibold",
+          done && "bg-status-running text-status-running-foreground",
           status === "current" &&
-            "border-status-waiting-text text-status-waiting-text",
-          waiting &&
-            "border-dashed border-control-border text-muted-foreground",
+            "bg-status-waiting-bg text-status-waiting-text",
+          waiting && "bg-button-fill text-muted-foreground",
         )}
       >
         {done ? <Check className="size-3" /> : index}
@@ -373,9 +383,12 @@ function SetupChecklistRow({
 const HostedPanel = React.memo(function HostedPanel({
   tab,
   active,
+  shown,
 }: {
   tab: ChatTab;
   active: boolean;
+  /** 当前 Tab 且对话区可见；面板里的浮层据此收起。 */
+  shown: boolean;
 }) {
   const sid = tab.meta.kind === "session" ? tab.meta.sessionId : 0;
   const isNewTab = tab.meta.kind === "new";
@@ -481,17 +494,19 @@ const HostedPanel = React.memo(function HostedPanel({
           error={agentsError}
         />
       ) : (
-        <ChatPanel
-          active={active}
-          scrollStateKey={tab.id}
-          sessionId={sid}
-          newSessionAgent={isNewTab ? agent : null}
-          newSessionContext={newSessionContext}
-          onSessionCreated={handleSessionCreated}
-          onPeerSessionCreated={handlePeerSessionCreated}
-          onSessionDeleted={handleSessionDeleted}
-          onSidebarShouldReload={handleSidebarShouldReload}
-        />
+        <PanelShownContext.Provider value={shown}>
+          <ChatPanel
+            active={active}
+            scrollStateKey={tab.id}
+            sessionId={sid}
+            newSessionAgent={isNewTab ? agent : null}
+            newSessionContext={newSessionContext}
+            onSessionCreated={handleSessionCreated}
+            onPeerSessionCreated={handlePeerSessionCreated}
+            onSessionDeleted={handleSessionDeleted}
+            onSidebarShouldReload={handleSidebarShouldReload}
+          />
+        </PanelShownContext.Provider>
       )}
     </div>
   );
@@ -593,7 +608,7 @@ function MissingNewSessionAgent({
       : t("chatTabs.missingAgent.detail", { id: agentId });
 
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-2 bg-background px-8 text-center">
+    <main className="content-sheet flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
       <div className="text-sm font-semibold">{title}</div>
       <div className="max-w-md text-xs text-muted-foreground">{detail}</div>
     </main>

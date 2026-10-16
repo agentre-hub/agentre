@@ -74,10 +74,10 @@ export function ContextMeter({ used, max, dataTestId }: ContextMeterProps) {
           type="button"
           data-testid={dataTestId}
           className={cn(
-            "flex min-w-0 cursor-default items-center gap-1.5 overflow-hidden rounded-sm border border-transparent px-1 py-0.5 whitespace-nowrap",
+            "flex min-w-0 cursor-default items-center gap-1.5 overflow-hidden rounded-sm px-1 py-0.5 whitespace-nowrap",
             "font-mono text-meta tabular-nums transition-colors motion-reduce:transition-none",
-            "hover:border-border hover:bg-accent",
-            "focus-visible:border-border focus-visible:bg-accent focus-visible:focus-outline",
+            "hover:bg-accent",
+            "focus-visible:bg-accent focus-visible:focus-outline",
           )}
           aria-label={t("contextMeter.aria", {
             max: formatTokens(max),
@@ -166,7 +166,7 @@ function ContextPanel({
   const tone = LEVEL_TEXT_TONE[level];
   return (
     <div>
-      <div className="flex items-center gap-1.5 border-b border-border px-3 py-2">
+      <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-1">
         <Gauge
           className="size-3.5 shrink-0 text-foreground"
           aria-hidden="true"
@@ -187,7 +187,7 @@ function ContextPanel({
             {pct}%
           </span>
         </div>
-        <div className="flex items-baseline gap-2 border-t border-border pt-2 text-2xs">
+        <div className="flex items-baseline gap-2 pt-1 text-2xs">
           <span className="font-medium text-foreground">
             {t("contextMeter.panel.remaining")}
           </span>
@@ -198,7 +198,7 @@ function ContextPanel({
       </div>
       <div
         className={cn(
-          "border-t border-border px-3 py-1.5 text-2xs",
+          "px-3 py-1.5 text-2xs",
           level === "ok"
             ? "bg-muted text-muted-foreground"
             : "bg-status-waiting-bg text-status-waiting-text",
