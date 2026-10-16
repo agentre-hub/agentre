@@ -7,6 +7,7 @@ import { OrgGroupHeader } from "./org/org-group-header";
 import { buildOrgIndex } from "./org/org-index-model";
 import { IndexGroupHeader } from "./session-index/group-header";
 import { OwnSessionsHeader } from "./session-index/own-sessions-header";
+import { SessionFilterChips } from "./session-index/session-filter-chips";
 import { SessionRow } from "./session-index/session-row";
 import { contrast, fillOn, type TokenScope } from "./styles/__testing__/tokens";
 
@@ -140,5 +141,69 @@ describe("外框上的行：悬停与选中是两块面", () => {
       contrast(raised!, chrome!),
       `选中面 raised 离外框应当比悬停 bg-${fill} 更远`,
     ).toBeGreaterThan(onChrome);
+  });
+});
+
+/** 元素上唯一那条静止态 `bg-<token>`（不带变体前缀、不带不透明度后缀）的 token 名。 */
+function restingFillOf(el: HTMLElement): string {
+  const fills = Array.from(el.classList)
+    .map((c) => /^bg-([a-z]+(?:-[a-z]+)*)$/.exec(c)?.[1])
+    .filter((name): name is string => name !== undefined);
+  expect(fills, `${el.className} 里应当恰好有一条静止底色`).toHaveLength(1);
+  return fills[0];
+}
+
+/**
+ * 会话索引顶栏的筛选 chips 也坐在外框上（`IndexToolbar` 在 `ResizableSidebar` 里）。
+ *
+ * 没按下的 chip 原来静止就是 `sidebar-active-bg`：浅色与选中行的 raised 同一个字节
+ * （1.00），深色对按下那颗的 primary-soft 只有 1.05——一排 chip 看着像一排选中项，
+ * 按下与没按下只剩字色之差；悬停也不换底，只换字色。
+ *
+ * 三态各是一块面：静止对外框、对 raised 分得开；按下对静止分得开；悬停换一档底色，
+ * 且不读成选中。
+ */
+describe("外框上的筛选 chips：静止、悬停、按下是三块面", () => {
+  it.each(THEMES)("%s下的三态底色", (scope) => {
+    render(
+      <SessionFilterChips value="running" unreadCount={0} onChange={vi.fn()} />,
+    );
+    const idle = screen.getByTestId("filter-chip-all");
+    const pressed = screen.getByTestId("filter-chip-running");
+    const on = (name: string) => {
+      const color = fillOn(name, scope, "chrome");
+      expect(color, `bg-${name} 在 tokens.css 里解析不出颜色`).toBeDefined();
+      return color!;
+    };
+    const chrome = on("chrome");
+    const raised = on("raised");
+
+    const restName = restingFillOf(idle);
+    const rest = on(restName);
+    const pressedName = restingFillOf(pressed);
+
+    expect(
+      contrast(rest, chrome),
+      `静止 bg-${restName}（${rest}）对外框 ${chrome}`,
+    ).toBeGreaterThanOrEqual(SURFACE_MIN);
+    expect(
+      contrast(rest, raised),
+      `静止 bg-${restName}（${rest}）对选中面 raised ${raised}——没按下的 chip 读成选中`,
+    ).toBeGreaterThanOrEqual(SURFACE_MIN);
+    expect(
+      contrast(on(pressedName), rest),
+      `按下 bg-${pressedName} 对静止 bg-${restName}`,
+    ).toBeGreaterThanOrEqual(SURFACE_MIN);
+
+    const hoverName = hoverFillOf(idle);
+    const hover = on(hoverName);
+    expect(
+      contrast(hover, rest),
+      `悬停 bg-${hoverName} 与静止 bg-${restName} 是同一块面`,
+    ).toBeGreaterThan(1);
+    expect(
+      contrast(hover, raised),
+      `悬停 bg-${hoverName}（${hover}）对选中面 raised ${raised}——悬停读成选中`,
+    ).toBeGreaterThanOrEqual(SURFACE_MIN);
   });
 });
