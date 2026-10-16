@@ -555,7 +555,12 @@ func (s *Session) currentTurn(f rawFrame) *activeTurn {
 		// 成 errStartupTimeout),前端也能显示「压缩中」。非阻塞 select 保住 canStartUserTurn 的
 		// 「无资格帧不认领排队轮」不变量:确有排队轮才认领,没有则退回按会话级帧丢弃,
 		// 不会把 readLoop 卡死在 <-pendingTurns 上。
-		if isCompactingStatusFrame(f) {
+		//
+		// 非后台型 task_notification 同理(sess-4295):--resume 重开时,恢复前奏在 init 之前
+		// 补发「上个进程没跑完的后台命令」的 stopped 通知(output_file 为空,不起自主续轮)。
+		// 前奏本就由正被唤醒的这一轮认领,通知随它交出去,派遣卡才翻得了终态;丢掉它,卡就
+		// 永远停在「运行中」。
+		if isCompactingStatusFrame(f) || isTaskNotificationFrame(f) {
 			select {
 			case at := <-s.pendingTurns:
 				s.active = at
@@ -704,6 +709,13 @@ func canStartUserTurn(f rawFrame) bool {
 // 误判为卡死。
 func isCompactingStatusFrame(f rawFrame) bool {
 	return f.Type == "system" && f.Subtype == "status" && f.Status == "compacting"
+}
+
+// isTaskNotificationFrame 判定一帧是否是 system{subtype:"task_notification"}。后台型完成
+// 通知已在 currentTurn 里先行起自主续轮,走到 canStartUserTurn 之后的只剩其余形态(恢复
+// 前奏里的 stopped 通知等)。
+func isTaskNotificationFrame(f rawFrame) bool {
+	return f.Type == "system" && f.Subtype == "task_notification"
 }
 
 // isIdleBackgroundSubagentFrame 判定一帧是否为「后台 subagent(run_in_background 的
