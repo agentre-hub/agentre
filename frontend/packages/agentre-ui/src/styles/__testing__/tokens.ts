@@ -90,3 +90,28 @@ export function mix(fg: string, bg: string, alpha: number): string {
     )
     .join("")}`;
 }
+
+/**
+ * `bg-<name>` 落在 `surface`（一个 token 名，不带 `--`）上时画出来的实色。
+ *
+ * 两种底色都要认：带色值的 token（`raised`、`sidebar-active-bg`）就是它自己；相对填充
+ * （@theme 里的 `--color-<name>: color-mix(in oklab, var(--foreground) N%, transparent)`）
+ * 是前景色按 N% 叠在脚下的表面上——不先合成就没法和别的面比。两样都不是就是 undefined。
+ */
+export function fillOn(
+  name: string,
+  scope: TokenScope,
+  surface: string,
+): string | undefined {
+  const t = readTokens(scope);
+  if (name in t) return t[name];
+  const css = fs
+    .readFileSync(TOKENS_CSS, "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = new RegExp(
+    `--color-${escaped}:\\s*color-mix\\(\\s*in oklab,\\s*var\\(--foreground\\)\\s+([\\d.]+)%,\\s*transparent\\s*\\)\\s*;`,
+  ).exec(css);
+  if (!m || !(surface in t)) return undefined;
+  return mix(t.foreground, t[surface], Number(m[1]) / 100);
+}

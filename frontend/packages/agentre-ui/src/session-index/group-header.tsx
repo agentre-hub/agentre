@@ -128,7 +128,7 @@ export function IndexGroupHeader({
     <div
       data-testid={testId}
       className={cn(
-        "group/group-header flex items-center gap-1.5 rounded-md text-xs hover:bg-sidebar-active-bg",
+        "group/group-header flex items-center gap-1.5 rounded-md text-xs hover:bg-field-fill-hover",
         isSub ? "px-1.5 py-1" : "px-2 py-1.5",
         className,
       )}

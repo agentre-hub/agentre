@@ -146,7 +146,7 @@ describe("SessionRow navigation seam", () => {
     const className = screen.getByRole("link", { name: /session-1/ }).className;
     expect(className).toMatch(/(^|\s)bg-raised(\s|$)/);
     expect(className).not.toMatch(/bg-sidebar-selected-bg/);
-    expect(className).not.toMatch(/hover:bg-sidebar-active-bg/);
+    expect(className).not.toMatch(/(^|\s)hover:bg-/);
     expect(className).not.toMatch(/before:w-\[3px\]/);
   });
 
