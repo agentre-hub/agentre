@@ -77,7 +77,7 @@ The "why" behind the constraints — apply these when shaping a screen.
 | `preview-canvas` | `#ffffff` | `#ffffff` | Canvas under a rendered HTML page in the file preview. White in both themes because pages are written against the browser's white default |
 | `chrome` | `#ececee` | `#111214` | **The frame**: title bar, icon rail, each page's left list (session list, org index column, Hooks list), the chat tab strip, the chat right panel, the status bar, the settings dialog's nav column. `ResizableSidebar` paints it by default (`surface="chrome"`) |
 | `sheet` | `#ffffff` | `#1b1c1f` | **The content sheet**: the workspace (`content-sheet`, below), the settings dialog's content area, the active chat tab, a focused field |
-| `raised` | `#ffffff` | `#27282c` | **A selected item on the frame**: the selected session row, the current icon-rail item, the Hooks selected row, the current outline entry in the right panel |
+| `raised` | `#ffffff` | `#27282c` | **A selected item on the frame**: the selected session row, the selected org index row and department header, the current icon-rail item, the Hooks selected row, the current outline entry in the right panel |
 | `field-fill` / `field-fill-hover` | `foreground` 5% / 7% | same | Fields at rest / on hover (`bg-field-fill`, `hover:bg-field-fill-hover`); also cards, code blocks and settings groups. A `color-mix` of `foreground` with transparent, so it is always one step darker than whatever it lands on — sheet, a filled group or the chrome |
 | `button-fill` / `button-fill-hover` | `foreground` 8% / 12% | same | `outline` and `secondary` buttons, small filled controls (§6.2) |
 | `fill-muted-foreground` | `#5a5a61` | `#abaeb4` | **Muted text on a fill.** A fill darkens the surface under it and `muted-foreground` falls under 4.5 there (4.42 for a field on `chrome`). **You do not write this class:** the four fill utilities re-point `muted-foreground` to it for their subtree, exactly like `bg-accent` (§3.3); worst case 4.58 light / 4.59 dark. Do **not** add an opacity suffix to a fill (`bg-field-fill/50`) — that drops the re-point |
@@ -285,7 +285,7 @@ Depth is a **surface step**, never a line (Principle 5). Pick the surface that m
 | --- | --- | --- | --- |
 | **Frame** | `chrome` | none | Title bar, icon rail, left lists, tab strip, chat right panel, status bar, settings nav column |
 | **Content sheet** | `sheet` (`content-sheet`) | light `--sheet-shadow`, dark none | The workspace of every page, the settings dialog's content area, the active chat tab |
-| **Selected on the frame** | `raised` | none (the icon-rail item adds `shadow-xs`) | Selected session row, current icon-rail item, Hooks selected row, current outline entry |
+| **Selected on the frame** | `raised` | none (the icon-rail item adds `shadow-xs`) | Selected session row, selected org index row and department header, current icon-rail item, Hooks selected row, current outline entry |
 | **Fill — field tier** | `field-fill` (5%, hover 7%) | none | Fields; cards, code blocks, settings groups, transcript cards |
 | **Fill — button tier** | `button-fill` (8%, hover 12%) | none | `outline` / `secondary` buttons, small filled controls, the settings nav's current item |
 | **Floating** | `popover` | `shadow-md` (`Select`, `DropdownMenu`: `shadow-overlay`) | Anchored floating layers — `DropdownMenu`, `Popover`, `HoverCard`, `Select`, `Tooltip`, the background-tasks preview card. No border |

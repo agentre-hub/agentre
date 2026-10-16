@@ -85,9 +85,9 @@ export function OrgAgentRow({
         // hover 只发给未选中的行：同时挂两个底色时 `hover:` 那个级联上必胜，鼠标
         // 一停选中面就整块被顶掉（与 session-row 同一条）。
         !selected && "hover:bg-sidebar-active-bg",
-        // 选中面与 hover **反向**偏离静止面（hover 提亮、选中压深），外加一道极浅
-        // 的浮起阴影 —— 内缩白卡浮在侧栏面上，这是竖条撤掉后的非色相线索。
-        selected && "bg-sidebar-selected-bg shadow-xs",
+        // 这一列在外框（chrome）上，外框上的选中项一律是「抬起」一档 raised，与
+        // 会话行同一套（session-row.tsx）。非色相线索是名字字重与 aria-current。
+        selected && "bg-raised",
         dropState === "valid" && "ring-2 ring-primary/60",
         dropState === "invalid" && "ring-2 ring-destructive",
       )}
@@ -126,7 +126,7 @@ export function OrgAgentRow({
         <span
           className={cn(
             "min-w-0 flex-1 truncate",
-            selected && "text-primary-text",
+            selected && "font-medium text-primary-text",
           )}
         >
           {agent.name}
