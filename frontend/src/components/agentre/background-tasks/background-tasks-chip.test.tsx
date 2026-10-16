@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -143,6 +143,47 @@ describe("BackgroundTasksChip", () => {
     expect(
       await screen.findByTestId("background-tasks-peek"),
     ).toBeInTheDocument();
+  });
+
+  it.each([
+    ["visibility:hidden", { visibility: "hidden" }],
+    ["display:none", { display: "none" }],
+  ])(
+    "Given the peek is open from keyboard focus, When the page holding the button is hidden (%s), Then the peek closes instead of floating detached",
+    async (_name, hiddenStyle) => {
+      render(
+        <div data-testid="page">
+          <BackgroundTasksChip tasks={[running]} />
+        </div>,
+      );
+      await userEvent.tab();
+      expect(
+        await screen.findByTestId("background-tasks-peek"),
+      ).toBeInTheDocument();
+
+      Object.assign(screen.getByTestId("page").style, hiddenStyle);
+
+      await waitFor(() =>
+        expect(screen.queryByTestId("background-tasks-peek")).toBeNull(),
+      );
+    },
+  );
+
+  it("Given the peek is open from keyboard focus, When focus moves to an element outside, Then the peek closes", async () => {
+    render(
+      <>
+        <BackgroundTasksChip tasks={[running]} />
+        <button type="button">elsewhere</button>
+      </>,
+    );
+    await userEvent.tab();
+    expect(
+      await screen.findByTestId("background-tasks-peek"),
+    ).toBeInTheDocument();
+    await userEvent.tab();
+    await waitFor(() =>
+      expect(screen.queryByTestId("background-tasks-peek")).toBeNull(),
+    );
   });
 
   it("Given more than 4 commands running, When peeked, Then the first 4 show with a 'N more' line", async () => {

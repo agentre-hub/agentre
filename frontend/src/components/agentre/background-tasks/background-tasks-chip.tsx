@@ -22,6 +22,20 @@ import type { BackgroundTask } from "./types";
 // 预览卡里最多列几条命令;其余折成「还有 N 个命令」。
 const PEEK_COMMAND_LIMIT = 4;
 
+// 预览卡开着时多久确认一次按钮还看得见。
+const PEEK_VISIBILITY_POLL_MS = 100;
+
+// 元素自己或某个祖先被 display:none / visibility:hidden 藏起来就算不可见
+// （visibility 会继承，自身的计算值已含祖先）。
+function isShown(el: HTMLElement): boolean {
+  if (!el.isConnected) return false;
+  if (window.getComputedStyle(el).visibility === "hidden") return false;
+  for (let node: HTMLElement | null = el; node; node = node.parentElement) {
+    if (window.getComputedStyle(node).display === "none") return false;
+  }
+  return true;
+}
+
 type BackgroundTasksChipProps = {
   tasks: BackgroundTask[];
   onClearCompleted?: () => void;
@@ -97,6 +111,18 @@ export function BackgroundTasksChip({
     return () => clearInterval(id);
   }, [peekOpen]);
 
+  // 聊天面板切走时只是被 CSS 藏起来、仍挂载：按钮既不卸载也不一定失焦，Radix 收不到
+  // 关闭信号，浮层会脱离触发器漂在窗口左上角。预览卡开着时盯住按钮，不可见就收起。
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  React.useEffect(() => {
+    if (!peekOpen) return;
+    const id = setInterval(() => {
+      const el = triggerRef.current;
+      if (!el || !isShown(el)) setPeekOpen(false);
+    }, PEEK_VISIBILITY_POLL_MS);
+    return () => clearInterval(id);
+  }, [peekOpen]);
+
   const running = tasks.filter((task) => task.status === "running");
   const runningCount = running.length;
   const endedCount = tasks.length - runningCount;
@@ -133,6 +159,7 @@ export function BackgroundTasksChip({
         <HoverCardTrigger asChild>
           <PopoverTrigger asChild>
             <Button
+              ref={triggerRef}
               type="button"
               variant="ghost"
               size="icon-sm"
