@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -185,6 +185,25 @@ describe("BackgroundTasksChip", () => {
 
     rerender(chip(true));
     expect(screen.queryByRole("region", { name: "Commands" })).toBeNull();
+    expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
+  });
+
+  // 指针刚移上按钮、openDelay 还没走完就按快捷键切走：指针没动，Radix 收不到离开，
+  // 延迟到点照样请求打开——这时面板已藏起，预览卡没有锚点，会漂在别的页面上。
+  it("Given the pointer just entered the button, When the host hides the panel before the hover delay runs out, Then the peek neither opens nor surfaces when the panel returns", async () => {
+    const chip = (shown: boolean) => (
+      <PanelShownContext.Provider value={shown}>
+        <BackgroundTasksChip tasks={[running]} />
+      </PanelShownContext.Provider>
+    );
+    const { rerender } = render(chip(true));
+    await userEvent.hover(screen.getByRole("button"));
+
+    rerender(chip(false));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+    expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
+
+    rerender(chip(true));
     expect(screen.queryByTestId("background-tasks-peek")).toBeNull();
   });
 

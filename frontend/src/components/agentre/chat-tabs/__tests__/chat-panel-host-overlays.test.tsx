@@ -91,9 +91,9 @@ describe("ChatPanelHost — background-task overlays when the panel is hidden", 
     expect(openPeek()).toBeNull();
   });
 
-  // 弹层开着时 ⌘ 数字键切到另一个 Tab（快捷键走的就是 setActive）：弹层收起；弹层
-  // 关闭后焦点回到按钮排下的延迟打开，也不能在已被藏起的 Tab 上开出预览卡。
-  it("Given the popover is open in one tab, When another tab becomes active, Then that popover closes and its peek does not open over the other tab", async () => {
+  // 弹层开着时 ⌘ 数字键切到另一个 Tab（快捷键走的就是 setActive）：焦点留在弹层里、
+  // 没有外部点击，Radix 不会自己关，靠宿主告知面板已藏起来收掉它。
+  it("Given the popover is open in one tab, When another tab becomes active, Then that popover closes", async () => {
     useChatTabsStore.getState().openSessionInNewTab(1);
     useChatTabsStore.getState().openSessionInNewTab(2);
     const [first, second] = useChatTabsStore.getState().tabs;
@@ -107,9 +107,7 @@ describe("ChatPanelHost — background-task overlays when the panel is hidden", 
     expect(screen.getByRole("region", { name: "Commands" })).toBeVisible();
 
     act(() => useChatTabsStore.getState().setActive(first.id));
-    await pastOpenDelay();
 
     expect(screen.queryByRole("region", { name: "Commands" })).toBeNull();
-    expect(openPeek()).toBeNull();
   });
 });
