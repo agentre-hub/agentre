@@ -132,9 +132,11 @@ export function BackgroundTasksChip({
     >
       <HoverCard
         open={peekOpen && !open}
-        // 弹层开着时迟到的悬停「打开」（openDelay 还没走完就点开了弹层）不记，
-        // 否则弹层一关预览卡就从底下冒出来。
-        onOpenChange={(next) => setPeekOpen(next && !open)}
+        // 迟到的「打开」（openDelay 走完时情况已变）在两种时候不记：
+        // - 弹层开着（还没走完就点开了弹层）：否则弹层一关预览卡就从底下冒出来；
+        // - 面板已被藏起：正在退场的预览卡没了锚点会被挪到窗口左上角，压在指针
+        //   停着的图标栏上，指针「进入」它又排一次打开，预览卡就留在别的页面上。
+        onOpenChange={(next) => setPeekOpen(next && !open && panelShown)}
         openDelay={150}
         closeDelay={100}
       >
