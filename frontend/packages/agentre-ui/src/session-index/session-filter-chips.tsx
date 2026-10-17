@@ -48,7 +48,7 @@ function SessionFilterChips({
               "inline-flex cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-2xs outline-none transition-colors focus-visible:focus-outline motion-reduce:transition-none",
               active
                 ? "bg-primary-soft font-medium text-primary-text"
-                : "bg-sidebar-active-bg text-muted-foreground hover:text-foreground",
+                : "bg-field-fill text-muted-foreground hover:bg-field-fill-hover hover:text-foreground",
             )}
           >
             {t(label)}

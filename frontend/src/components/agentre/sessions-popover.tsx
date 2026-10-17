@@ -79,7 +79,7 @@ function SessionRow({
   return (
     <button
       type="button"
-      className="flex w-full cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 text-left outline-none transition-colors hover:bg-sidebar-active-bg focus-visible:focus-outline"
+      className="flex w-full cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 text-left outline-none transition-colors hover:bg-accent focus-visible:focus-outline"
       onClick={(e) =>
         onSelect(session.id, { newTab: isOpenInNewTabModifier(e) })
       }

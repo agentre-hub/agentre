@@ -63,22 +63,33 @@ function DropdownMenuGroup({
   );
 }
 
+/**
+ * `current`：这一项是菜单所列对象里「当前那一个」（溢出菜单里正开着的标签）。
+ * 底色 `field-fill` 在 popover 上两个主题都认得出（1.11 / 1.15），对悬停 / 焦点的
+ * `accent` 也分得开（1.19 / 1.16）；不靠颜色的线索是 `aria-current` 与字重。
+ * 底色写成无变体的类而不是 `aria-[current=true]:`——属性变体排在 hover/focus 之后，
+ * 会把悬停反馈盖掉。
+ */
 function DropdownMenuItem({
   className,
   inset,
   variant = "default",
+  current = false,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Item> & {
   inset?: boolean;
   variant?: "default" | "destructive";
+  current?: boolean;
 }) {
   return (
     <DropdownMenuPrimitive.Item
       data-slot="dropdown-menu-item"
       data-inset={inset}
       data-variant={variant}
+      aria-current={current ? "true" : undefined}
       className={cn(
         "relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 data-[variant=destructive]:text-destructive-text data-[variant=destructive]:hover:bg-destructive/10 data-[variant=destructive]:hover:text-destructive-text data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive-text dark:data-[variant=destructive]:hover:bg-destructive/20 dark:data-[variant=destructive]:focus:bg-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground data-[variant=destructive]:*:[svg]:text-destructive-text!",
+        current && "bg-field-fill font-medium",
         className,
       )}
       {...props}

@@ -53,11 +53,9 @@ export function TabOverflowMenu() {
               <DropdownMenuItem
                 key={t.id}
                 data-active={t.id === activeTabId}
+                current={t.id === activeTabId}
                 onSelect={() => setActive(t.id)}
-                className={cn(
-                  "h-7 gap-2 rounded-none px-3 text-xs",
-                  t.id === activeTabId && "bg-sidebar-active-bg",
-                )}
+                className="h-7 gap-2 rounded-none px-3 text-xs"
               >
                 <span
                   data-testid="overflow-row-status-dot"
