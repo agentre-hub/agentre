@@ -1462,25 +1462,40 @@ func TestIntegration_SameDeviceConnClosingDoesNotSuspendRunningSession(t *testin
 	awaitText(t, rig.previews, "before")
 
 	second := rig.connectSameDevice(t)
+	// 前提:rig 里此刻只有两条连接 —— 承载会话的那条(pair)与刚接入的第二条。基线变了
+	// 就该在下面立刻报出来,而不是让断言继续按老数字猜。
+	rig.d.conns.mu.Lock()
+	before := len(rig.d.conns.live)
+	rig.d.conns.mu.Unlock()
+	require.Equalf(t, 2, before, "rig 里应只有会话连接与第二条同设备连接")
 	require.NoError(t, second.Close())
 	// 等 daemon 真的处理完这条连接的关闭(bindConn 的 Done 监视是异步的),否则用例会
 	// 在「删掉了正主」之前就放行事件,复现不出这个时序。
-	// 自己轮询而不是 require.Eventually:失败时要报出**最后看到的条数**。
-	// Eventually 的消息参数在调用那一刻就求值了,带不出等待过程中的观测值,于是
-	// 它只会说「Condition never satisfied」——而这里 3 和 1 是两件完全不同的事:
-	// 3 是关闭清理还没跑完(慢),1 是清理把正主一起删了(正是本用例回归的缺陷)。
-	live := -1
+	//
+	// 判据是「表里只剩一条,且那一条还没关闭」,不是某个绝对条数:关闭清理还没跑时
+	// live 照样是 2,拿 2 当成功条件会让用例在什么都没验的情况下通过(假绿)。
+	// 0 条 = 清理把正主一起删了(正是本用例回归的缺陷),1 条但已关闭 = 留下的是一条
+	// 死连接,同样说明清理挑错了对象。
+	live, alive := -1, -1
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
 		rig.d.conns.mu.Lock()
-		live = len(rig.d.conns.live)
+		live, alive = len(rig.d.conns.live), 0
+		for c := range rig.d.conns.live {
+			select {
+			case <-c.Done():
+			default:
+				alive++
+			}
+		}
 		rig.d.conns.mu.Unlock()
-		if live == 2 {
+		if live == 1 && alive == 1 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	require.Equalf(t, 2, live,
-		"daemon must drop the closed connection from its live table; 3 = 关闭清理没跑完, 1 = 连正在用的那条也被删了")
+	require.Equalf(t, 1, live,
+		"daemon must drop the closed connection from its live table; 2 = 关闭清理没跑完, 0 = 连正在用的那条也被删了")
+	require.Equalf(t, 1, alive, "表里留下的那条已经关闭 —— 清理挑错了对象")
 
 	close(gate)
 
@@ -1996,10 +2011,7 @@ func TestIntegration_CCUsage(t *testing.T) {
 	go func() { errCh <- d.Run(ctx) }()
 	defer func() {
 		cancel()
-		select {
-		case <-errCh:
-		case <-time.After(3 * time.Second):
-		}
+		awaitDaemonStopped(t, errCh)
 	}()
 	require.Eventually(t, func() bool {
 		select {
