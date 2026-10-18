@@ -475,9 +475,13 @@ jobs:
           digest="${{ steps.build.outputs.digest }}"
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
+      # 命名避开 nightly-*：release job 用 pattern: nightly-* 捞产物，digest 标记文件
+      # （0 字节、以 sha256 命名）一旦被捞进去，gh release create 上传时会被
+      # uploads API 以 HTTP 400 Bad Content-Length 拒掉，nightly release 先删后建
+      # 直接挂掉。镜像 digest 只归 merge job 消费，用独立前缀隔开。
       - uses: actions/upload-artifact@v7
         with:
-          name: nightly-image-digest-${{ matrix.arch }}
+          name: agentred-image-digest-${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -493,7 +497,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: digests
-          pattern: nightly-image-digest-*
+          pattern: agentred-image-digest-*
           merge-multiple: true
 
       - uses: docker/setup-buildx-action@v3
