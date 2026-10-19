@@ -701,6 +701,57 @@
   box-shadow: var(--sheet-shadow);
 }
 
+/* 活动 Tab 与内容页连成一体：上角与内容页同为 12px（rounded-t-xl），底部两侧各一道
+   8px 反向圆角，用内容页底色从 Tab 侧沿流进内容页上沿。Tab 条左侧要让出 12 + 8 = 20px，
+   第一个 Tab 的反向圆角才落在内容页平直的上沿，而不是它的圆角上。 */
+@utility tab-flare {
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    width: 0.5rem;
+    height: 0.5rem;
+    pointer-events: none;
+  }
+  &::before {
+    left: -0.5rem;
+    background: radial-gradient(
+      circle at 0 0,
+      transparent calc(0.5rem - 0.5px),
+      var(--sheet) 0.5rem
+    );
+  }
+  &::after {
+    right: -0.5rem;
+    background: radial-gradient(
+      circle at 100% 0,
+      transparent calc(0.5rem - 0.5px),
+      var(--sheet) 0.5rem
+    );
+  }
+}
+
+/* 非活动 Tab 的悬停底：四周内缩 4px 的胶囊，不铺满整格——铺满的话，紧挨活动 Tab 的
+   那格一悬停就盖住它的反向圆角。画在 ::before 上，压在 Tab 的内容之下（Tab 自成层叠
+   上下文）；弱化文字照 bg-button-fill 换成填充上的那一档。 */
+@utility tab-hover-pill {
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0.25rem;
+    z-index: -1;
+    border-radius: var(--radius-md);
+    pointer-events: none;
+  }
+  &:hover {
+    --muted-foreground: var(--fill-muted-foreground);
+  }
+  &:hover::before {
+    background-color: var(--color-button-fill);
+  }
+}
+
 /* 键盘焦点的画法，全仓只在这里定义一次。调用点挂在变体下：
      focus-visible:focus-outline   按钮、行、标签、开关、复选框，以及无边的字段
                                    （输入框、文本域、下拉——聚焦时底色回到 bg-sheet）

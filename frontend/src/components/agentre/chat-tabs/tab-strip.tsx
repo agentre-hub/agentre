@@ -98,7 +98,9 @@ export function TabStrip() {
       role="tablist"
       className="flex h-[38px] shrink-0 items-center overflow-hidden bg-chrome"
     >
-      <div className="scrollbar-none flex h-full min-h-0 min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden">
+      {/* pl-5 = 内容页圆角 12px + 反向圆角 8px：第一个 tab 的反向圆角落在内容页平直的
+          上沿；pr-2 让最后一个 tab 的反向圆角在滚到底时不被裁掉。 */}
+      <div className="scrollbar-none flex h-full min-h-0 min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden pl-5 pr-2">
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
           <SortableContext
             items={sortedTabs.map((t) => t.id)}

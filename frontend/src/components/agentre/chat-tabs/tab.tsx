@@ -63,10 +63,12 @@ export const Tab = React.forwardRef<
       data-preview={isPreview}
       data-project-color={projectColor ?? undefined}
       className={cn(
-        // 活动 tab 与下方内容页同色、上沿圆角，连成一体；其余落在外框上，悬停出底。
-        // Tab 之间不画线（无边框改版）。
-        "relative flex h-[38px] min-w-[120px] max-w-[240px] flex-shrink items-center gap-1.5 rounded-t-lg px-2.5 text-xs",
-        active ? "bg-sheet" : "hover:bg-button-fill",
+        // 活动 tab 与下方内容页同色、上角同为 12px、底部反向圆角，连成一体；其余落在
+        // 外框上，悬停出内缩的胶囊底。两者都见 tokens.css。Tab 之间不画线（无边框改版）。
+        // isolate：悬停胶囊画在 z-index -1 的 ::before 上，要沉在本 tab 的内容之下、
+        // 而不是掉到 Tab 条的底色后面。
+        "relative isolate flex h-[38px] min-w-[120px] max-w-[240px] flex-shrink items-center gap-1.5 px-2.5 text-xs",
+        active ? "rounded-t-xl bg-sheet tab-flare" : "tab-hover-pill",
         isPreview && "italic",
         className,
       )}

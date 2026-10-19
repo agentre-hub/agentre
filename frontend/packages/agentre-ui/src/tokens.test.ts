@@ -633,6 +633,37 @@ describe("content-sheet 工具类", () => {
 });
 
 /**
+ * 活动 Tab 与内容页连成一体：底部两侧各一道 8px 反向圆角，用内容页底色从 Tab 侧沿
+ * 流进内容页上沿。非活动 Tab 的悬停底是内缩的胶囊，换上填充上的弱化文字色，和
+ * bg-button-fill 一样。
+ */
+describe("Tab 与内容页的接合工具类", () => {
+  it("tab-flare：两侧各一块 8px 的方块，贴底、伸出 Tab 外，用内容页底色画反向圆角", () => {
+    const b = block("@utility tab-flare");
+    expect(b).toMatch(/width:\s*0\.5rem;/);
+    expect(b).toMatch(/height:\s*0\.5rem;/);
+    expect(b).toMatch(/bottom:\s*0;/);
+    expect(b).toMatch(/left:\s*-0\.5rem;/);
+    expect(b).toMatch(/right:\s*-0\.5rem;/);
+    expect(b).toMatch(/pointer-events:\s*none;/);
+    expect(b).toMatch(
+      /radial-gradient\(\s*circle at 0 0,[^;]*var\(--sheet\) 0\.5rem\s*\)/,
+    );
+    expect(b).toMatch(
+      /radial-gradient\(\s*circle at 100% 0,[^;]*var\(--sheet\) 0\.5rem\s*\)/,
+    );
+  });
+
+  it("tab-hover-pill：悬停时内缩的按钮填充，并把弱化文字换成填充上的那一档", () => {
+    const b = block("@utility tab-hover-pill");
+    expect(b).toMatch(/inset:\s*0\.25rem;/);
+    expect(b).toMatch(/z-index:\s*-1;/);
+    expect(b).toMatch(/--muted-foreground:\s*var\(--fill-muted-foreground\);/);
+    expect(b).toMatch(/background-color:\s*var\(--color-button-fill\);/);
+  });
+});
+
+/**
  * 字段与按钮不画边，靠「前景色按比例叠在脚下的表面上」的填充认出来：字段 5%（悬停
  * 7%）、按钮 8%（悬停 12%）。相对取色而不是定一个色值，是为了它落在内容页、填充
  * 分组、外框上时都比脚下深一级——一个定值做不到在三种底上都分得开。
