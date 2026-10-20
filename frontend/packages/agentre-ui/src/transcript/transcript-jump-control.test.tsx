@@ -154,4 +154,42 @@ describe("TranscriptJumpControl", () => {
     );
     expect(control.className).toMatch(/(^|\s)pointer-events-auto(\s|$)/);
   });
+
+  // 无边框改版后描边按钮没了边，原来的 bg-background 在深色里和内容页几乎同色，
+  // 只剩一圈很淡的阴影，压在正文上看不出来（2026-10-20）。
+  it("Given 只是滚上去了, When 渲染, Then 药丸浮起来：弹层底色、一圈细边、更深的阴影、前景色文字", () => {
+    render(<TranscriptJumpControl onJump={vi.fn()} />);
+
+    const control = screen.getByTestId("transcript-jump-control");
+    for (const cls of [
+      "bg-popover",
+      "text-foreground",
+      "ring-1",
+      "ring-border-strong",
+      "shadow-lg",
+      "hover:bg-accent",
+    ]) {
+      expect(control).toHaveClass(cls);
+    }
+    expect(control).not.toHaveClass("bg-background");
+    expect(control).not.toHaveClass("bg-primary");
+  });
+
+  it("Given 补齐带来了新内容, When 渲染, Then 药丸换成主色实心，一眼认得出「有新消息」", () => {
+    render(
+      <TranscriptJumpControl
+        onJump={vi.fn()}
+        catchUp={{ newRows: 3, pendingDecisions: 1 }}
+      />,
+    );
+
+    const control = screen.getByTestId("transcript-jump-control");
+    expect(control).toHaveClass("bg-primary", "text-primary-foreground");
+    expect(control).not.toHaveClass("bg-popover");
+    expect(control).not.toHaveClass("ring-1");
+    // 待处理那一段落在主色上，字色跟着药丸走，不再用琥珀色文字。
+    expect(screen.getByTestId("transcript-jump-pending")).not.toHaveClass(
+      "text-status-waiting-text",
+    );
+  });
 });

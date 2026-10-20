@@ -81,12 +81,18 @@ export function TranscriptJumpControl({
       <Button
         type="button"
         data-testid="transcript-jump-control"
-        variant="outline"
+        // 有补齐（断连期间流进来了新内容）时主色实心，一眼认得出「有新消息」；
+        // 否则浮起来：弹层底色 + 一圈细边 + 更深的阴影。原来的 bg-background 在深色里
+        // 和内容页几乎同色，无边框改版后只剩一圈很淡的阴影，压在正文上看不出来。
+        variant={catchUp ? "default" : "outline"}
         size="sm"
         title={t("transcriptJump.title")}
         onClick={onJump}
         className={cn(
-          "pointer-events-auto flex w-fit max-w-full rounded-full bg-background shadow-md hover:shadow-lg dark:bg-background",
+          "pointer-events-auto flex w-fit max-w-full rounded-full font-medium shadow-lg",
+          catchUp
+            ? "bg-primary text-primary-foreground hover:bg-primary/90"
+            : "bg-popover text-foreground ring-1 ring-border-strong hover:bg-accent dark:bg-popover dark:hover:bg-accent",
           "animate-in fade-in slide-in-from-bottom-1 duration-200 ease-out motion-reduce:animate-none",
         )}
       >
@@ -103,7 +109,7 @@ export function TranscriptJumpControl({
         {catchUp && catchUp.pendingDecisions > 0 ? (
           <span
             data-testid="transcript-jump-pending"
-            className="flex items-center gap-1 text-status-waiting-text"
+            className="flex items-center gap-1"
           >
             <span
               aria-hidden="true"
