@@ -2,6 +2,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
+import { TooltipProvider } from "@agentre-hub/agentre-ui";
+
 import { TabTooltip } from "../tab-tooltip";
 import { edgeClasses } from "@/__tests__/helpers/edge-classes";
 
@@ -13,89 +15,113 @@ function setupUser() {
   return userEvent.setup({ pointerEventsCheck: 0 });
 }
 
-describe("TabTooltip", () => {
-  it("hover 后弹出, 显示标题与 breadcrumb", async () => {
-    // 关闭(unhover)行为是 Radix 内部状态机的职责,不在此处断言 —
-    // radix-ui Portal + jsdom 下 pointerleave 触发不稳定,跑通就行。
-    const user = setupUser();
-    render(
+type Props = Partial<React.ComponentProps<typeof TabTooltip>>;
+
+/** 悬停卡由 Tab 条那一个 TooltipProvider 统一管延迟，单测里补一个。 */
+function renderTooltip(props: Props = {}) {
+  return render(
+    <TooltipProvider>
       <TabTooltip
         title="arch-review · jwt 模型"
-        projectChain={["Agentre", "backend"]}
-        projectColor="var(--agent-2)"
-        status="running"
-        sessionId={12}
-        worktreeBranch="feat/jwt-rs256"
-        keyboardIndex={3}
+        projectChain={null}
+        projectColor={null}
+        status="idle"
+        worktreeBranch={null}
+        keyboardIndex={null}
         delayDuration={0}
+        {...props}
       >
         <button type="button">tab</button>
-      </TabTooltip>,
-    );
-    const trigger = screen.getByRole("button", { name: "tab" });
-    expect(screen.queryAllByText("Agentre / backend")).toHaveLength(0);
-    await user.hover(trigger);
-    await waitFor(() => {
-      expect(screen.queryAllByText("Agentre / backend").length).toBeGreaterThan(
-        0,
-      );
+      </TabTooltip>
+    </TooltipProvider>,
+  );
+}
+
+async function open(text: string) {
+  const user = setupUser();
+  await user.hover(screen.getByRole("button", { name: "tab" }));
+  await waitFor(() => {
+    expect(screen.queryAllByText(text).length).toBeGreaterThan(0);
+  });
+}
+
+describe("TabTooltip", () => {
+  it("hover 后弹出, 显示标题与项目链", async () => {
+    renderTooltip({
+      projectChain: ["Agentre", "backend"],
+      projectColor: "var(--agent-2)",
     });
+    expect(screen.queryAllByText("Agentre / backend")).toHaveLength(0);
+
+    await open("Agentre / backend");
+
     expect(
       screen.queryAllByText("arch-review · jwt 模型").length,
     ).toBeGreaterThan(0);
   });
 
+  it("标题写全文，最多 3 行，不再截成一行 —— 悬停最想看的就是全文", async () => {
+    const long =
+      "调研一下 https://github.com/opskat/opskat/issues/329 能否支持 Oracle 数据库，怎么支持";
+    renderTooltip({ title: long });
+
+    await open(long);
+
+    const title = screen.getAllByText(long)[0];
+    expect(title).toHaveClass("line-clamp-3");
+    expect(title).not.toHaveClass("truncate");
+  });
+
   it("projectColor 给定时 Folder 图标着色", async () => {
-    const user = setupUser();
-    render(
-      <TabTooltip
-        title="arch-review · jwt"
-        projectChain={["Agentre"]}
-        projectColor="rgb(91, 141, 239)"
-        status="idle"
-        sessionId={12}
-        worktreeBranch={null}
-        keyboardIndex={null}
-        delayDuration={0}
-      >
-        <button type="button">tab</button>
-      </TabTooltip>,
-    );
-    await user.hover(screen.getByRole("button", { name: "tab" }));
-    await waitFor(() => {
-      expect(
-        screen.queryAllByTestId("tooltip-folder-icon").length,
-      ).toBeGreaterThan(0);
+    renderTooltip({
+      projectChain: ["Agentre"],
+      projectColor: "rgb(91, 141, 239)",
     });
+
+    await open("Agentre");
+
     const folders = screen.getAllByTestId("tooltip-folder-icon");
     expect(folders[0].getAttribute("style") ?? "").toContain(
       "rgb(91, 141, 239)",
     );
   });
 
-  it("无 projectChain 时不渲染 breadcrumb 行", async () => {
-    const user = setupUser();
-    render(
-      <TabTooltip
-        title="CEO 助手 · 周报"
-        projectChain={null}
-        projectColor={null}
-        status="idle"
-        sessionId={5}
-        worktreeBranch={null}
-        keyboardIndex={1}
-        delayDuration={0}
-      >
-        <button type="button">tab</button>
-      </TabTooltip>,
-    );
-    await user.hover(screen.getByRole("button", { name: "tab" }));
-    await waitFor(() => {
-      expect(screen.queryAllByText("CEO 助手 · 周报").length).toBeGreaterThan(
-        0,
-      );
-    });
+  it("无 projectChain 时那一行写「没有项目」，不画文件夹图标", async () => {
+    renderTooltip({ title: "CEO 助手 · 周报" });
+
+    await open("CEO 助手 · 周报");
+
     expect(screen.queryAllByTestId("tooltip-folder-icon")).toHaveLength(0);
+    expect(screen.queryAllByText("No project").length).toBeGreaterThan(0);
+  });
+
+  it("状态与时间是本地化的文字，有 worktree 才写分支；不再写会话号和操作提示", async () => {
+    renderTooltip({
+      status: "running",
+      worktreeBranch: "feat/jwt-rs256",
+      lastMessageAt: Date.now() - 5 * 60_000,
+    });
+
+    await open("Running");
+
+    // 英文是紧凑写法；中文是「5 分钟前」（共享包 relativeTime.*）。
+    expect(screen.queryAllByText("5m ago").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("feat/jwt-rs256").length).toBeGreaterThan(0);
+    const card = screen
+      .getAllByText("Running")[0]
+      .closest("[data-slot=tab-hover-card]") as HTMLElement;
+    expect(card).not.toBeNull();
+    expect(card.textContent).not.toMatch(/sess-/);
+    expect(card.textContent).not.toMatch(/\b(idle|running)\b/);
+    expect(card.textContent).not.toMatch(/Activate/);
+  });
+
+  it("没有 worktree 时不写分支那一段", async () => {
+    renderTooltip({ status: "idle" });
+
+    await open("Idle");
+
+    expect(screen.queryAllByTestId("tab-tooltip-branch")).toHaveLength(0);
   });
 });
 
@@ -110,20 +136,7 @@ describe("TabTooltip · 状态点来自共享 statusConfig", () => {
   ] as const)(
     "Given status=%s, When 浮窗展开, Then 那枚点的颜色与其余状态记号同源",
     async (status, dotClass) => {
-      render(
-        <TabTooltip
-          title="处理周一例会纪要"
-          projectChain={null}
-          projectColor={null}
-          status={status}
-          sessionId={42}
-          worktreeBranch={null}
-          keyboardIndex={null}
-          delayDuration={0}
-        >
-          <button type="button">tab</button>
-        </TabTooltip>,
-      );
+      renderTooltip({ title: "处理周一例会纪要", status });
       const user = setupUser();
       await user.hover(screen.getByRole("button", { name: "tab" }));
 
@@ -135,31 +148,18 @@ describe("TabTooltip · 状态点来自共享 statusConfig", () => {
 });
 
 describe("TabTooltip · 无边框", () => {
-  it("Given the tooltip, When it opens, Then the shortcut hint is set apart by space and the key cap is a fill", async () => {
-    const user = setupUser();
-    render(
-      <TabTooltip
-        title="Fix login flow"
-        projectChain={null}
-        projectColor={null}
-        status="idle"
-        sessionId={1}
-        worktreeBranch={null}
-        keyboardIndex={1}
-        delayDuration={0}
-      >
-        <button type="button">tab</button>
-      </TabTooltip>,
-    );
-    await user.hover(screen.getByRole("button", { name: "tab" }));
+  it("Given the tooltip, When it opens, Then the shortcut sits on the project row as a filled key cap and nothing draws a line", async () => {
+    renderTooltip({ title: "Fix login flow", keyboardIndex: 1 });
 
-    await waitFor(() => {
-      expect(screen.queryAllByText("⌘1").length).toBeGreaterThan(0);
-    });
-    for (const kbd of screen.getAllByText("⌘1")) {
-      expect(kbd).toHaveClass("bg-button-fill");
-      // kbd → 提示行 → 浮层内容：整张浮层都不画线。
-      expect(edgeClasses(kbd.parentElement!.parentElement!)).toEqual([]);
-    }
+    await open("⌘1");
+
+    // Radix 另渲染一份只给读屏的副本，取可见的那一枚。
+    const kbd = screen.getAllByText("⌘1")[0];
+    expect(kbd).toHaveClass("bg-button-fill");
+    const card = kbd.closest("[data-slot=tab-hover-card]") as HTMLElement;
+    expect(card).not.toBeNull();
+    // 快捷键和项目同一行（卡片的第一行）。
+    expect(card.firstElementChild).toContainElement(kbd);
+    expect(edgeClasses(card)).toEqual([]);
   });
 });

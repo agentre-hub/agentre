@@ -422,11 +422,11 @@
       "openTabs": "打开的 Tab ({{count}})"
     },
     "status": {
-      "error": "error",
+      "error": "出错",
       "errorLabel": "出错",
-      "idle": "idle",
-      "running": "running",
-      "waiting": "waiting"
+      "idle": "空闲",
+      "running": "运行中",
+      "waiting": "需要你的操作"
     },
     "terminal": {
       "title": "终端",
@@ -434,10 +434,7 @@
       "titleWithDevice": "终端 · {{deviceName}}"
     },
     "tooltip": {
-      "ago": "{{time}} ago",
-      "hint": "激活 · 点 ✕ 关闭",
-      "session": "sess-{{id}}",
-      "worktree": "worktree {{branch}}"
+      "noProject": "未归属项目"
     },
     "peer": {
       "title": "远端会话",

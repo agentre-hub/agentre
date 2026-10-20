@@ -31,6 +31,7 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
+  TooltipProvider,
   cn,
 } from "@agentre-hub/agentre-ui";
 
@@ -105,49 +106,52 @@ export function TabStrip() {
           再高一层、键盘焦点环在最上）。各个外壳自成层的话，后一格的悬停底会画在前一格
           活动 tab 的反向圆角之上，项目色线也会被反向圆角咬出缺口。 */}
       <div className="scrollbar-none isolate flex h-full min-h-0 min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden pl-5 pr-2">
-        <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-          <SortableContext
-            items={sortedTabs.map((t) => t.id)}
-            strategy={horizontalListSortingStrategy}
-          >
-            {sortedTabs.map((t, idx) => {
-              const isLast = idx === sortedTabs.length - 1;
-              // 项目色线连成整段：只在前 / 后一格没有线的那一头收成圆头。
-              const lineStart = !sortedTabs[idx - 1]?.projectColor;
-              const lineEnd = !sortedTabs[idx + 1]?.projectColor;
-              return (
-                <TabTooltip
-                  key={t.id}
-                  title={t.title}
-                  projectChain={t.projectChain}
-                  projectColor={t.projectColor}
-                  status={t.status}
-                  sessionId={t.sessionId}
-                  worktreeBranch={t.worktreeBranch}
-                  keyboardIndex={idx < 9 ? idx + 1 : null}
-                  lastMessageAt={t.lastMessageAt}
-                >
-                  <SortableTab
-                    tab={t}
-                    active={t.id === activeTabId}
-                    isLast={isLast}
-                    lineStart={lineStart}
-                    lineEnd={lineEnd}
-                    onActivate={() => setActive(t.id)}
-                    onClose={() => closeTab(t.id)}
-                    onDoublePromote={() => {
-                      setActive(t.id);
-                      promoteCurrent();
-                    }}
-                    onTogglePin={() => togglePin(t.id)}
-                    onCloseOthers={() => closeOthers(t.id)}
-                    onCloseToRight={() => closeTabsToRight(t.id)}
-                  />
-                </TabTooltip>
-              );
-            })}
-          </SortableContext>
-        </DndContext>
+        {/* 悬停卡的延迟由这一个 Provider 统一管：首次停 400ms，卡片开过之后 0.5s 内滑到
+            相邻 Tab 立刻换卡，不再每格重新等。 */}
+        <TooltipProvider delayDuration={400} skipDelayDuration={500}>
+          <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+            <SortableContext
+              items={sortedTabs.map((t) => t.id)}
+              strategy={horizontalListSortingStrategy}
+            >
+              {sortedTabs.map((t, idx) => {
+                const isLast = idx === sortedTabs.length - 1;
+                // 项目色线连成整段：只在前 / 后一格没有线的那一头收成圆头。
+                const lineStart = !sortedTabs[idx - 1]?.projectColor;
+                const lineEnd = !sortedTabs[idx + 1]?.projectColor;
+                return (
+                  <TabTooltip
+                    key={t.id}
+                    title={t.title}
+                    projectChain={t.projectChain}
+                    projectColor={t.projectColor}
+                    status={t.status}
+                    worktreeBranch={t.worktreeBranch}
+                    keyboardIndex={idx < 9 ? idx + 1 : null}
+                    lastMessageAt={t.lastMessageAt}
+                  >
+                    <SortableTab
+                      tab={t}
+                      active={t.id === activeTabId}
+                      isLast={isLast}
+                      lineStart={lineStart}
+                      lineEnd={lineEnd}
+                      onActivate={() => setActive(t.id)}
+                      onClose={() => closeTab(t.id)}
+                      onDoublePromote={() => {
+                        setActive(t.id);
+                        promoteCurrent();
+                      }}
+                      onTogglePin={() => togglePin(t.id)}
+                      onCloseOthers={() => closeOthers(t.id)}
+                      onCloseToRight={() => closeTabsToRight(t.id)}
+                    />
+                  </TabTooltip>
+                );
+              })}
+            </SortableContext>
+          </DndContext>
+        </TooltipProvider>
       </div>
       {sortedTabs.length > 0 ? (
         <div className="flex h-full items-center gap-1 px-1">

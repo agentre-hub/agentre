@@ -422,11 +422,11 @@
       "openTabs": "Open Tabs ({{count}})"
     },
     "status": {
-      "error": "error",
+      "error": "Error",
       "errorLabel": "Error",
-      "idle": "idle",
-      "running": "running",
-      "waiting": "waiting"
+      "idle": "Idle",
+      "running": "Running",
+      "waiting": "Needs you"
     },
     "terminal": {
       "title": "Terminal",
@@ -434,10 +434,7 @@
       "titleWithDevice": "Terminal · {{deviceName}}"
     },
     "tooltip": {
-      "ago": "{{time}} ago",
-      "hint": "Activate · click ✕ to close",
-      "session": "sess-{{id}}",
-      "worktree": "worktree {{branch}}"
+      "noProject": "No project"
     },
     "peer": {
       "title": "Remote session",
