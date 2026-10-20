@@ -11,7 +11,9 @@ import * as pkg from "../index";
  */
 describe("会话详情顶带的对外契约", () => {
   it("顶带从 barrel 出得去", () => {
-    const missing = ["SessionHeaderBand"].filter((name) => !(name in pkg));
+    const missing = ["SessionHeaderBand", "SessionHeaderAgentMark"].filter(
+      (name) => !(name in pkg),
+    );
 
     expect(missing).toEqual([]);
   });

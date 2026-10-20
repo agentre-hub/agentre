@@ -12,6 +12,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  SessionHeaderAgentMark,
   SessionHeaderBand,
   Tooltip,
   TooltipContent,
@@ -24,7 +25,7 @@ import { cn } from "@agentre-hub/agentre-ui";
 
 import { BackgroundTasksChip } from "../background-tasks/background-tasks-chip";
 import type { BackgroundTask } from "../background-tasks/types";
-import { AgentAvatar, DeviceTag, StatusDot } from "../primitives";
+import { DeviceTag } from "../primitives";
 import type { AgentColor, AgentStatus } from "../types";
 import { statusConfig } from "../types";
 
@@ -113,22 +114,12 @@ function ChatPanelHeader({
       key: "agent",
       node: (
         <span className="inline-flex shrink-0 items-center gap-1.5">
-          <span className="relative inline-flex shrink-0">
-            <AgentAvatar
-              name={agentName}
-              initials={agentName.charAt(0)}
-              color={identityColor}
-              size="xs"
-            />
-            {status === "idle" ? null : (
-              <StatusDot
-                data-testid="chat-header-status-badge"
-                status={status}
-                size="xs"
-                className="absolute -right-[3px] -bottom-[3px] ring-[1.5px] ring-sheet-header"
-              />
-            )}
-          </span>
+          <SessionHeaderAgentMark
+            name={agentName}
+            color={identityColor}
+            status={status}
+            badgeTestId="chat-header-status-badge"
+          />
           <span className={cn(statusConfig[status].textClassName)}>
             {agentName}
           </span>

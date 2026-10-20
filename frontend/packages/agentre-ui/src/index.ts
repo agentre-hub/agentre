@@ -378,6 +378,8 @@ export { StatusBanner } from "./session-status/status-banner";
 export type { StatusBannerTone } from "./session-status/status-banner";
 export { MachineOfflineBanner } from "./session-status/machine-offline-banner";
 export { SessionHeaderBand } from "./session-detail/header-band";
+export { SessionHeaderAgentMark } from "./session-detail/header-agent-mark";
+export type { SessionHeaderAgentMarkProps } from "./session-detail/header-agent-mark";
 export type { SessionHeaderMetaPart } from "./session-detail/header-band";
 export { buildMentionSources } from "./chat-input/mentions/build-sources";
 // `/` 命令：机制与清单都在包里，宿主只递「问哪台机器拿到的 Skill 目录」和它
