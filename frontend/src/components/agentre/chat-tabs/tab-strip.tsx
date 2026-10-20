@@ -231,7 +231,11 @@ const SortableTab = React.forwardRef<HTMLSpanElement, SortableTabProps>(
           // 之上——带底色的标签页会把环整块盖住。所以标签页沉到 Tab 条那个层叠上下文的
           // 负层（见 Tab 的 -z-10 / -z-[9]），顺序才是「标签页 → 色线 → 环」。
           // relative：项目色线按这一格定位。
-          className="relative inline-flex h-full min-w-0 flex-shrink focus-visible:focus-outline-inset"
+          // pointer-events-none：标签页沉在负层后，这一层的盒子在命中测试里压在它上面，
+          // 点击会全落在这一层、到不了标签页（切不了 tab、× 点不到）。这一层不接指针、
+          // 标签页接（Tab 的 pointer-events-auto），事件从标签页冒泡上来，拖拽、右键菜单
+          // 与悬停卡照样挂在这一层。
+          className="pointer-events-none relative inline-flex h-full min-w-0 flex-shrink focus-visible:focus-outline-inset"
           style={style}
           {...attributes}
           {...rest}

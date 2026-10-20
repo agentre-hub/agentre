@@ -67,7 +67,8 @@ export const Tab = React.forwardRef<
         // 内容之下、而不是掉到 Tab 条的底色后面。
         // 负 z：所有 tab 沉在 Tab 条这一层叠上下文的负层（键盘焦点环画在它们之上）；活动
         // tab 比相邻 tab 高一层，相邻 tab 铺满整格的悬停底才不会盖住它的反向圆角。
-        "relative isolate flex h-[38px] min-w-[120px] max-w-[240px] flex-shrink items-center gap-1.5 px-2.5 text-xs",
+        // pointer-events-auto：外壳不接指针（见 tab-strip），指针命中落在这一层。
+        "pointer-events-auto relative isolate flex h-[38px] min-w-[120px] max-w-[240px] flex-shrink items-center gap-1.5 px-2.5 text-xs",
         active
           ? "-z-[9] rounded-t-xl bg-sheet-header tab-flare"
           : "-z-10 tab-hover-sheet",

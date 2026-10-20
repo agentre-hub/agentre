@@ -125,4 +125,16 @@ describe("TabStrip · 层叠、悬停面与项目色线", () => {
     expect(lineOf(a)).toHaveClass("rounded-r-full");
     expect(lineOf(c)).toHaveClass("rounded-l-full");
   });
+
+  // jsdom 不做命中测试，这里守的是契约本身；真机复现见 2026-10-20 验证记录：
+  // Tab 沉在 Tab 条层叠上下文的负层后，外壳（定位、z auto）的盒子画在它上面，
+  // 点击一律落在外壳上 —— 切不了 Tab，× 也点不到。
+  it("Given Tab 沉在负层, When 指针点上去, Then 命中的是 Tab 而不是外壳（外壳不接指针，事件仍冒泡到它身上）", () => {
+    const [active, inactive] = renderStrip([view("t1"), view("t2")], "t1");
+
+    for (const tab of [active, inactive]) {
+      expect(wrapperOf(tab)).toHaveClass("pointer-events-none");
+      expect(tab).toHaveClass("pointer-events-auto");
+    }
+  });
 });
