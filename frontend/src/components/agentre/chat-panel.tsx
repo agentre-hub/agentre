@@ -793,7 +793,7 @@ function ChatPanel({
                   onScroll={handleTranscriptScroll}
                   // 「下面还会变」由这一条 busy 说，骨架自己对读屏隐身（决策 9）。
                   aria-busy={awaitingTranscript}
-                  className="min-h-0 flex-1 overflow-auto px-7 pt-6"
+                  className="transcript-fade-top min-h-0 flex-1 overflow-auto px-7 pt-6"
                 >
                   {sessionError ? (
                     <SessionLoadError

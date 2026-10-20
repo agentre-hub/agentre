@@ -109,6 +109,7 @@ const RESTING_SURFACES = [
   "--chrome",
   "--sheet",
   "--raised",
+  "--sheet-header",
 ];
 
 /**
@@ -199,7 +200,15 @@ describe("选中面比 hover 面更强", () => {
 const TEXT_SURFACES: Array<[string, string[]]> = [
   [
     "--foreground",
-    ["--background", "--card", "--popover", "--chrome", "--sheet", "--raised"],
+    [
+      "--background",
+      "--card",
+      "--popover",
+      "--chrome",
+      "--sheet",
+      "--raised",
+      "--sheet-header",
+    ],
   ],
   [
     "--muted-foreground",
@@ -214,6 +223,7 @@ const TEXT_SURFACES: Array<[string, string[]]> = [
       "--chrome",
       "--sheet",
       "--raised",
+      "--sheet-header",
     ],
   ],
   ["--secondary-foreground", ["--secondary"]],
@@ -484,6 +494,7 @@ const STATUS_DOT_SURFACES = [
   "--chrome",
   "--sheet",
   "--raised",
+  "--sheet-header",
 ] as const;
 
 /**
@@ -563,7 +574,12 @@ describe("空闲状态点对它会落到的表面达标", () => {
  * 它们之间不画线，只靠色阶分开——所以「分得开」本身就是这里唯一的轮廓，掉到
  * SURFACE_MIN 以下，内容页就化进外框里了。
  */
-const SURFACE_TOKENS = ["--chrome", "--sheet", "--raised"] as const;
+const SURFACE_TOKENS = [
+  "--chrome",
+  "--sheet",
+  "--raised",
+  "--sheet-header",
+] as const;
 
 /** 亮度次序：对纯黑的对比度随亮度单调递增。 */
 const lightness = (hex: string) => contrast(hex, "#000000");
@@ -606,6 +622,32 @@ describe("外框、内容页、抬起三层表面", () => {
 });
 
 /**
+ * 对话页顶带 `--sheet-header`：内容页最上面那一条（标题 + meta + 右端控件）自己一层
+ * 底色，静止时就和下面的转录分得开——此前两者同色、又不画线，顶带读起来像第一条消息。
+ * 活动 Tab 也画成这个色（Tab → 顶带连成一体），所以它还得和外框分得开，否则活动 Tab
+ * 就化进 Tab 条里了。
+ */
+describe("对话页顶带", () => {
+  it.each(THEMES)(
+    "%s(%s)下顶带与外框、与内容页都分得开",
+    (_scope, _label, get) => {
+      const t = get();
+      expect(
+        contrast(t["--sheet-header"], t["--chrome"]),
+        `--sheet-header ${t["--sheet-header"]} 与 --chrome ${t["--chrome"]}`,
+      ).toBeGreaterThanOrEqual(SURFACE_MIN);
+      expect(
+        contrast(t["--sheet-header"], t["--sheet"]),
+        `--sheet-header ${t["--sheet-header"]} 与 --sheet ${t["--sheet"]}`,
+      ).toBeGreaterThanOrEqual(SURFACE_MIN);
+      expect(lightness(t["--sheet-header"])).toBeGreaterThan(
+        lightness(t["--chrome"]),
+      );
+    },
+  );
+});
+
+/**
  * 内容页这张「纸」的样子只定义一次：与外框之间留 8px 缝（上沿接 Tab 条、左沿接
  * 外框上的列表，所以只留右与下）、12px 圆角、圆角要裁得住子元素的底色；浅色带一圈
  * 极淡的投影把纸托起来，深色靠色阶已经够了、再加投影只会发脏。
@@ -633,12 +675,12 @@ describe("content-sheet 工具类", () => {
 });
 
 /**
- * 活动 Tab 与内容页连成一体：底部两侧各一道 8px 反向圆角，用内容页底色从 Tab 侧沿
- * 流进内容页上沿。非活动 Tab 的悬停底是内缩的胶囊，换上填充上的弱化文字色，和
+ * 活动 Tab 与它下面的顶带连成一体：底部两侧各一道 8px 反向圆角，用顶带底色从 Tab 侧沿
+ * 流进顶带上沿。非活动 Tab 的悬停底是内缩的胶囊，换上填充上的弱化文字色，和
  * bg-button-fill 一样。
  */
 describe("Tab 与内容页的接合工具类", () => {
-  it("tab-flare：两侧各一块 8px 的方块，贴底、伸出 Tab 外，用内容页底色画反向圆角", () => {
+  it("tab-flare：两侧各一块 8px 的方块，贴底、伸出 Tab 外，用顶带底色画反向圆角", () => {
     const b = block("@utility tab-flare");
     expect(b).toMatch(/width:\s*0\.5rem;/);
     expect(b).toMatch(/height:\s*0\.5rem;/);
@@ -647,10 +689,10 @@ describe("Tab 与内容页的接合工具类", () => {
     expect(b).toMatch(/right:\s*-0\.5rem;/);
     expect(b).toMatch(/pointer-events:\s*none;/);
     expect(b).toMatch(
-      /radial-gradient\(\s*circle at 0 0,[^;]*var\(--sheet\) 0\.5rem\s*\)/,
+      /radial-gradient\(\s*circle at 0 0,[^;]*var\(--sheet-header\) 0\.5rem\s*\)/,
     );
     expect(b).toMatch(
-      /radial-gradient\(\s*circle at 100% 0,[^;]*var\(--sheet\) 0\.5rem\s*\)/,
+      /radial-gradient\(\s*circle at 100% 0,[^;]*var\(--sheet-header\) 0\.5rem\s*\)/,
     );
   });
 
@@ -660,6 +702,22 @@ describe("Tab 与内容页的接合工具类", () => {
     expect(b).toMatch(/z-index:\s*-1;/);
     expect(b).toMatch(/--muted-foreground:\s*var\(--fill-muted-foreground\);/);
     expect(b).toMatch(/background-color:\s*var\(--color-button-fill\);/);
+  });
+});
+
+/**
+ * 转录区上沿 18px 渐隐：顶带下面滚上去的正文不再被一刀切成半行。只遮滚动容器的上沿，
+ * 转录本身有 24px 上内边距，滚到顶时什么都不遮。
+ */
+describe("transcript-fade-top 工具类", () => {
+  it("上沿 18px 由透明渐到不透明，带 -webkit- 前缀", () => {
+    const b = block("@utility transcript-fade-top");
+    expect(b).toMatch(
+      /-webkit-mask-image:\s*linear-gradient\(\s*to bottom,\s*transparent 0,\s*#000 18px\s*\);/,
+    );
+    expect(b).toMatch(
+      /(?:^|[;{\s])mask-image:\s*linear-gradient\(\s*to bottom,\s*transparent 0,\s*#000 18px\s*\);/,
+    );
   });
 });
 

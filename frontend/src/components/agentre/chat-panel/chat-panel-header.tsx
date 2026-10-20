@@ -100,12 +100,35 @@ function ChatPanelHeader({
       ),
     });
   }
+  /* 身份缩成 meta 行里的一枚小头像（顶带不再有 32px 方块，那副样子和转录里每条消息
+     一模一样）；状态点挂在它右下角，空闲维持「没有记号」。 */
+  const identityColor =
+    (session?.agentColor as AgentColor) ||
+    (showNewSessionPrompt
+      ? (newSessionAgent?.avatarColor as AgentColor)
+      : undefined) ||
+    "agent-1";
   if (agentName) {
     metaParts.push({
       key: "agent",
       node: (
-        <span className="inline-flex shrink-0 items-center gap-1">
-          <StatusDot status={status} size="xs" />
+        <span className="inline-flex shrink-0 items-center gap-1.5">
+          <span className="relative inline-flex shrink-0">
+            <AgentAvatar
+              name={agentName}
+              initials={agentName.charAt(0)}
+              color={identityColor}
+              size="xs"
+            />
+            {status === "idle" ? null : (
+              <StatusDot
+                data-testid="chat-header-status-badge"
+                status={status}
+                size="xs"
+                className="absolute -right-[3px] -bottom-[3px] ring-[1.5px] ring-sheet-header"
+              />
+            )}
+          </span>
           <span className={cn(statusConfig[status].textClassName)}>
             {agentName}
           </span>
@@ -158,29 +181,6 @@ function ChatPanelHeader({
       testId="chat-header"
       metaTestId="chat-header-meta"
       className="px-5"
-      avatar={
-        session ? (
-          <AgentAvatar
-            name={session.agentName}
-            initials={session.agentName.charAt(0)}
-            color={(session.agentColor as AgentColor) || "agent-1"}
-            size="md"
-          />
-        ) : showNewSessionPrompt && newSessionAgent ? (
-          <AgentAvatar
-            name={newSessionAgent.name}
-            initials={newSessionAgent.name.charAt(0)}
-            color={(newSessionAgent.avatarColor as AgentColor) || "agent-1"}
-            size="md"
-          />
-        ) : (
-          // 加载中 / 加载失败也占住身份方块那一格，否则标题会横向跳一格。
-          <div
-            aria-hidden="true"
-            className="size-8 shrink-0 rounded-lg bg-muted"
-          />
-        )
-      }
       title={title}
       meta={metaParts}
       actions={

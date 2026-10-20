@@ -694,7 +694,7 @@ function makeSession(overrides: Record<string, unknown>) {
 // ─── T17: breadcrumb 派生 ─────────────────────────────────────────────────────
 
 describe("ChatPanel · T17 breadcrumb 派生", () => {
-  it("长会话标题在 toolbar 中最多显示两行而不是单行截断", () => {
+  it("长会话标题在顶带里只占一行，全文留在悬停 title 里", () => {
     resetStore();
     const longTitle =
       "这是一个很长的 AI 对话标题，用来确认工具栏会尽量展示完整内容而不是过早省略";
@@ -703,8 +703,7 @@ describe("ChatPanel · T17 breadcrumb 派生", () => {
     render(<ChatPanel sessionId={42} />);
 
     const title = screen.getByText(longTitle);
-    expect(title).toHaveClass("line-clamp-2");
-    expect(title).not.toHaveClass("truncate");
+    expect(title).toHaveClass("line-clamp-1");
     expect(title).toHaveAttribute("title", longTitle);
   });
 
@@ -6119,15 +6118,71 @@ describe("ChatPanel · 头部在四态都在位且恒高", () => {
     return cls;
   }
 
-  it("Given 已有会话, When 渲染, Then 头部高度是写死的两行高、不再是 min-height", () => {
+  it("Given 已有会话, When 渲染, Then 头部高度写死 56px、不再是 min-height", () => {
     resetStore();
     mockSessionStore.session = makeSession({ id: 42 });
 
     render(<ChatPanel sessionId={42} />);
 
     const header = screen.getByTestId("chat-header");
-    expect(header.className).toMatch(/(^|\s)h-\[68px\](\s|$)/);
+    expect(header.className).toMatch(/(^|\s)h-14(\s|$)/);
     expect(header.className).not.toMatch(/min-h-/);
+  });
+
+  it("Given 已有会话, When 渲染, Then 头部没有 32px 身份方块，Agent 缩成 meta 行里的小头像", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, agentName: "Eng" });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const header = screen.getByTestId("chat-header");
+    // 头部的直接子元素里不再有身份方块 —— 它和转录里每条消息的头像一模一样。
+    for (const child of [...header.children]) {
+      expect(child.getAttribute("role")).not.toBe("img");
+    }
+    const agent = screen.getByTestId("chat-header-meta-agent");
+    const avatar = within(agent).getByRole("img", { name: "Eng" });
+    expect(avatar.className).toMatch(/(^|\s)size-3\.5(\s|$)/);
+    expect(agent).toHaveTextContent("Eng");
+  });
+
+  it("Given 这一轮在跑, When 渲染, Then 状态点挂在 meta 行小头像的角上", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({
+      id: 42,
+      agentName: "Eng",
+      agentStatus: "running",
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const badge = screen.getByTestId("chat-header-status-badge");
+    const avatar = within(
+      screen.getByTestId("chat-header-meta-agent"),
+    ).getByRole("img", { name: "Eng" });
+    // 角标和小头像同在一个定位外壳里。
+    expect(badge.parentElement).toBe(avatar.parentElement);
+    expect(badge.className).toMatch(/(^|\s)absolute(\s|$)/);
+  });
+
+  it("Given 会话空闲, When 渲染, Then 小头像不挂角标（空闲维持「没有记号」）", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, agentStatus: "idle" });
+
+    render(<ChatPanel sessionId={42} />);
+
+    expect(screen.queryByTestId("chat-header-status-badge")).toBeNull();
+  });
+
+  it("Given 转录区, When 渲染, Then 上沿渐隐，滚上去的正文不被顶带硬切", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+
+    render(<ChatPanel sessionId={42} />);
+
+    expect(screen.getByTestId("chat-transcript-scroll")).toHaveClass(
+      "transcript-fade-top",
+    );
   });
 
   it("Given 新建会话尚未首发 / 加载中 / 加载失败, When 渲染, Then 头部都在位且外壳类与已有会话一模一样", () => {
@@ -6163,7 +6218,7 @@ describe("ChatPanel · 头部在四态都在位且恒高", () => {
     ).toBeInTheDocument();
   });
 
-  it("Given 长短两种标题, When 渲染, Then 头部外壳类不变（标题仍是两行，高度不跟着涨）", () => {
+  it("Given 长短两种标题, When 渲染, Then 头部外壳类不变（标题只占一行，高度不跟着涨）", () => {
     resetStore();
     mockSessionStore.session = makeSession({ id: 42, title: "短" });
     const short = headerClassOf(<ChatPanel sessionId={42} />);
@@ -6187,7 +6242,7 @@ describe("ChatPanel · 头部在四态都在位且恒高", () => {
       level: 2,
       name: "Test session",
     });
-    expect(heading).toHaveClass("line-clamp-2");
+    expect(heading).toHaveClass("line-clamp-1");
   });
 
   it("Given 头部, When 渲染, Then role=toolbar 只装右侧控件、标题与 meta 不在其中", () => {

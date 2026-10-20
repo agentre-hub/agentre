@@ -5,10 +5,13 @@ import { cn } from "../lib/utils";
 /**
  * 一条对话的顶带 —— **四态同一副外壳**。
  *
- * 「已经开着的会话 / 还没发第一句 / 正在加载 / 加载失败」在两端都是同一条 68px 的
- * 带：一格头像、两行标题的高度、一行 mono meta，右端一组控件。高度写死、内容整块
- * 垂直居中，所以标题长短、身份认不认得出、第一句发没发出去，都不再顶动它下面的
- * 转录（桌面端规格 2026-08-23 决策 2/3）。
+ * 「已经开着的会话 / 还没发第一句 / 正在加载 / 加载失败」在两端都是同一条 56px 的
+ * 带：一行标题、一行 mono meta，右端一组控件。高度写死、内容整块垂直居中，所以标题
+ * 长短、第一句发没发出去，都不再顶动它下面的转录（桌面端规格 2026-08-23 决策 2/3）。
+ *
+ * 顶带自己一层底色（`bg-sheet-header`），并且**没有** 32px 的身份方块：此前它和转录里
+ * 每条消息是同一副骨架（彩色方块 + 粗体一行 + 灰字一行），又和转录同一个底色，读起来
+ * 就是「第一条消息」（2026-10-20）。身份由宿主缩成 meta 行里的一枚小头像。
  *
  * 抽进包里是因为两端各写了一份而**只有一端**做到了这条：控制台把「还没发第一句」
  * 做成了另一副头（`py-3` + 24px 头像），发出第一句那一瞬整条带换成详情那副 68px
@@ -35,12 +38,7 @@ export type SessionHeaderMetaPart = {
 };
 
 export type SessionHeaderBandProps = {
-  /**
-   * 身份那一格（32px）。四态都要占住它 —— 加载中 / 加载失败也给一枚占位方块，
-   * 否则标题会横向跳一格。
-   */
-  avatar: React.ReactNode;
-  /** 头像之前的那一格（窄屏的返回）。不给就不占位。 */
+  /** 标题之前的那一格（窄屏的返回）。不给就不占位。 */
   leading?: React.ReactNode;
   /**
    * 标题。宿主自己把「未命名 / 还没发第一句 / 加载中 / 打不开」折成一句话。
@@ -57,7 +55,6 @@ export type SessionHeaderBandProps = {
 };
 
 export function SessionHeaderBand({
-  avatar,
   leading,
   title,
   meta,
@@ -74,16 +71,15 @@ export function SessionHeaderBand({
       // @container/header：窄档按**这一带的实际宽度**逐段收起，而不是靠
       // flex-wrap 折行把头部撑高。
       className={cn(
-        "@container/header flex h-[68px] shrink-0 items-center gap-3",
+        "@container/header flex h-14 shrink-0 items-center gap-3 bg-sheet-header",
         className,
       )}
     >
       {leading}
-      {avatar}
       <div className="min-w-0 flex-1">
         {title ? (
           <h2
-            className="line-clamp-2 break-words text-sm font-semibold leading-snug"
+            className="line-clamp-1 break-all text-sm font-semibold leading-snug"
             title={title}
           >
             {title}

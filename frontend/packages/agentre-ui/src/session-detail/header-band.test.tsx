@@ -11,27 +11,32 @@ function metaKeys(): string[] {
 }
 
 describe("SessionHeaderBand", () => {
-  it("四态同一副外壳：高度写死，标题长短与身份认不认得出都不改变它", () => {
+  it("四态同一副外壳：56px 恒高、自己一层顶带底色，标题长短不改变它", () => {
     const { rerender } = render(
       <SessionHeaderBand
         testId="band"
-        avatar={<span data-testid="avatar" />}
-        title="很长很长的一个标题，长到要折成两行才放得下的那一种"
+        title="很长很长的一个标题，长到在一行里放不下、要收成省略号的那一种"
       />,
     );
     const shell = screen.getByTestId("band");
-    expect(shell.className).toContain("h-[68px]");
+    expect(shell.className).toMatch(/(^|\s)h-14(\s|$)/);
+    // 顶带自己一层底色：静止时就和下面的转录分得开，不再像第一条消息。
+    expect(shell.className).toMatch(/(^|\s)bg-sheet-header(\s|$)/);
     // 窄档降级按**这一带的实际宽度**分，而不是靠折行把头部撑高。
     expect(shell.className).toContain("@container/header");
 
-    rerender(
-      <SessionHeaderBand
-        testId="band"
-        avatar={<span data-testid="avatar" />}
-        title="短"
-      />,
-    );
-    expect(screen.getByTestId("band").className).toContain("h-[68px]");
+    rerender(<SessionHeaderBand testId="band" title="短" />);
+    expect(screen.getByTestId("band").className).toMatch(/(^|\s)h-14(\s|$)/);
+  });
+
+  it("标题只占一行，全文在悬停 title 里", () => {
+    const long = "很长很长的一个标题，长到在一行里放不下、要收成省略号的那一种";
+    render(<SessionHeaderBand testId="band" title={long} />);
+
+    const heading = screen.getByRole("heading", { level: 2 });
+    expect(heading).toHaveClass("line-clamp-1");
+    expect(heading).not.toHaveClass("line-clamp-2");
+    expect(heading).toHaveAttribute("title", long);
   });
 
   it("分隔符只夹在真的存在的两段之间，行首不留一个孤零零的「·」", () => {
@@ -39,7 +44,6 @@ describe("SessionHeaderBand", () => {
       <SessionHeaderBand
         testId="band"
         metaTestId="band-meta"
-        avatar={<span />}
         title="标题"
         meta={[
           { key: "agent", node: <span>Atlas</span> },
@@ -61,7 +65,6 @@ describe("SessionHeaderBand", () => {
       <SessionHeaderBand
         testId="band"
         metaTestId="band-meta"
-        avatar={<span />}
         meta={[{ key: "agent", node: <span>Atlas</span> }]}
       />,
     );
@@ -74,7 +77,6 @@ describe("SessionHeaderBand", () => {
       <SessionHeaderBand
         testId="band"
         metaTestId="band-meta"
-        avatar={<span />}
         meta={[
           { key: "agent", node: <span>Atlas</span> },
           {
@@ -98,7 +100,6 @@ describe("SessionHeaderBand", () => {
       <SessionHeaderBand
         testId="band"
         metaTestId="band-meta"
-        avatar={<span />}
         meta={[
           { key: "agent", node: <span>Atlas</span> },
           { key: "topline", node: <span>主干</span>, testId: "band-topline" },
@@ -115,7 +116,6 @@ describe("SessionHeaderBand", () => {
       <SessionHeaderBand
         testId="band"
         metaTestId="band-meta"
-        avatar={<span />}
         meta={[{ key: "agent", node: <span>Atlas</span> }]}
       />,
     );
@@ -124,32 +124,28 @@ describe("SessionHeaderBand", () => {
     expect(screen.getByTestId("band-meta").textContent).toBe("Atlas");
   });
 
-  it("leading 排在头像之前，右端那一组排在最后", () => {
+  it("没有 32px 身份格：leading 之后直接是标题列，右端那一组排在最后", () => {
     render(
       <SessionHeaderBand
         testId="band"
         leading={<button type="button">返回</button>}
-        avatar={<span data-testid="avatar" />}
         title="标题"
         actions={<button type="button">停止</button>}
       />,
     );
 
     const shell = screen.getByTestId("band");
-    const order = [...shell.children].map((el) => el.tagName);
-    expect(order[0]).toBe("BUTTON");
-    expect(shell.children[1]).toBe(screen.getByTestId("avatar"));
-    expect(shell.children[shell.children.length - 1]?.textContent).toBe("停止");
+    expect(shell.children).toHaveLength(3);
+    expect(shell.children[0]?.tagName).toBe("BUTTON");
+    expect(shell.children[1]).toContainElement(
+      screen.getByRole("heading", { level: 2 }),
+    );
+    expect(shell.children[2]?.textContent).toBe("停止");
   });
 
   it("一段 meta 都没有时不画那一行", () => {
     render(
-      <SessionHeaderBand
-        testId="band"
-        metaTestId="band-meta"
-        avatar={<span />}
-        title="标题"
-      />,
+      <SessionHeaderBand testId="band" metaTestId="band-meta" title="标题" />,
     );
 
     expect(screen.queryByTestId("band-meta")).toBeNull();

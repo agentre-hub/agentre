@@ -28,6 +28,10 @@
   --chrome: #ececee;
   --sheet: #ffffff;
   --raised: #ffffff;
+  /* 对话页顶带：内容页最上面那一条（标题、meta、右端控件）自己一层底色，静止时就和
+     下面的转录分开。活动 Tab 也画这个色、经反向圆角流进顶带，所以它夹在外框与内容页
+     之间、和两边都分得开（chrome 1.09，sheet 1.08）。 */
+  --sheet-header: #f6f6f7;
   /* 内容页的投影：一圈 0.5px 的极淡环 + 1–3px 软影，把白纸从浅灰外框上托起来。
      深色不要（见 .dark）。 */
   --sheet-shadow:
@@ -309,6 +313,9 @@
   --chrome: #111214;
   --sheet: #1b1c1f;
   --raised: #27282c;
+  /* Brighter than the sheet here: a header darker than the sheet sits too close to
+     the chrome, and the active tab painted in it would melt into the tab strip. */
+  --sheet-header: #242529;
   /* The step from chrome to sheet already reads as a layer here; a shadow on a
      near-black chrome only muddies the edge. */
   --sheet-shadow: none;
@@ -556,6 +563,7 @@
   --color-chrome: var(--chrome);
   --color-sheet: var(--sheet);
   --color-raised: var(--raised);
+  --color-sheet-header: var(--sheet-header);
   /* 字段与按钮的填充：前景色按比例叠在透明上，所以落在内容页、填充分组、外框上
      都比脚下深一级。写在 @theme inline 里，var(--foreground) 在用到它的元素上才
      解析，跟着那里的主题走。字段 5%（悬停 7%）、按钮 8%（悬停 12%）。
@@ -701,9 +709,9 @@
   box-shadow: var(--sheet-shadow);
 }
 
-/* 活动 Tab 与内容页连成一体：上角与内容页同为 12px（rounded-t-xl），底部两侧各一道
-   8px 反向圆角，用内容页底色从 Tab 侧沿流进内容页上沿。Tab 条左侧要让出 12 + 8 = 20px，
-   第一个 Tab 的反向圆角才落在内容页平直的上沿，而不是它的圆角上。 */
+/* 活动 Tab 与它下面的对话页顶带连成一体：上角与内容页同为 12px（rounded-t-xl），底部
+   两侧各一道 8px 反向圆角，用顶带底色从 Tab 侧沿流进顶带上沿。Tab 条左侧要让出
+   12 + 8 = 20px，第一个 Tab 的反向圆角才落在内容页平直的上沿，而不是它的圆角上。 */
 @utility tab-flare {
   &::before,
   &::after {
@@ -719,7 +727,7 @@
     background: radial-gradient(
       circle at 0 0,
       transparent calc(0.5rem - 0.5px),
-      var(--sheet) 0.5rem
+      var(--sheet-header) 0.5rem
     );
   }
   &::after {
@@ -727,7 +735,7 @@
     background: radial-gradient(
       circle at 100% 0,
       transparent calc(0.5rem - 0.5px),
-      var(--sheet) 0.5rem
+      var(--sheet-header) 0.5rem
     );
   }
 }
@@ -750,6 +758,13 @@
   &:hover::before {
     background-color: var(--color-button-fill);
   }
+}
+
+/* 转录区上沿 18px 渐隐：顶带下面滚上去的正文不再被一刀切成半行。转录本身有 24px 上
+   内边距，滚到顶时什么都不遮。 */
+@utility transcript-fade-top {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
 }
 
 /* 键盘焦点的画法，全仓只在这里定义一次。调用点挂在变体下：

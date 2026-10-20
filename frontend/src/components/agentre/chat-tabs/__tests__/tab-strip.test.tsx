@@ -66,7 +66,7 @@ describe("TabStrip", () => {
     );
   });
 
-  it("Given 一个活动 tab 与一个非活动 tab, When 渲染, Then Tab 条落在外框色上不画线，活动 tab 是内容页色、上沿圆角与内容页同为 12px、底部反向圆角流进内容页，没有品牌色条", () => {
+  it("Given 一个活动 tab 与一个非活动 tab, When 渲染, Then Tab 条落在外框色上不画线，活动 tab 是顶带色、上沿圆角与内容页同为 12px、底部反向圆角流进顶带，没有品牌色条", () => {
     useChatTabsStore.getState().openSessionInNewTab(1);
     useChatTabsStore.getState().openSessionInNewTab(2);
     render(<TabStrip />);
@@ -80,11 +80,13 @@ describe("TabStrip", () => {
     const active = first.dataset.active === "true" ? first : second;
     const inactive = active === first ? second : first;
     expect(active).toHaveAttribute("data-active", "true");
-    expect(active).toHaveClass("bg-sheet", "rounded-t-xl", "tab-flare");
+    // 活动 tab 下面连着的是对话页顶带，不是转录：同色才连得上。
+    expect(active).toHaveClass("bg-sheet-header", "rounded-t-xl", "tab-flare");
+    expect(active).not.toHaveClass("bg-sheet");
     expect(active).not.toHaveClass("tab-hover-pill");
     expect(active).not.toHaveClass("bg-background");
     expect(active.querySelector(".bg-primary")).toBeNull();
-    expect(inactive).not.toHaveClass("bg-sheet");
+    expect(inactive).not.toHaveClass("bg-sheet", "bg-sheet-header");
     expect(inactive).not.toHaveClass("hover:bg-card");
     // 非活动 tab 的悬停底是内缩的胶囊，不铺满整格——否则紧挨活动 tab 的那格一悬停
     // 就盖住活动 tab 的反向圆角。
