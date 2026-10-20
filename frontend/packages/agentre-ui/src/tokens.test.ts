@@ -110,6 +110,7 @@ const RESTING_SURFACES = [
   "--sheet",
   "--raised",
   "--sheet-header",
+  "--tab-hover",
 ];
 
 /**
@@ -208,6 +209,7 @@ const TEXT_SURFACES: Array<[string, string[]]> = [
       "--sheet",
       "--raised",
       "--sheet-header",
+      "--tab-hover",
     ],
   ],
   [
@@ -224,6 +226,7 @@ const TEXT_SURFACES: Array<[string, string[]]> = [
       "--sheet",
       "--raised",
       "--sheet-header",
+      "--tab-hover",
     ],
   ],
   ["--secondary-foreground", ["--secondary"]],
@@ -495,6 +498,7 @@ const STATUS_DOT_SURFACES = [
   "--sheet",
   "--raised",
   "--sheet-header",
+  "--tab-hover",
 ] as const;
 
 /**
@@ -579,6 +583,7 @@ const SURFACE_TOKENS = [
   "--sheet",
   "--raised",
   "--sheet-header",
+  "--tab-hover",
 ] as const;
 
 /** 亮度次序：对纯黑的对比度随亮度单调递增。 */
@@ -626,8 +631,11 @@ describe("外框、内容页、抬起三层表面", () => {
  * 底色，静止时就和下面的转录分得开——此前两者同色、又不画线，顶带读起来像第一条消息。
  * 活动 Tab 也画成这个色（Tab → 顶带连成一体），所以它还得和外框分得开，否则活动 Tab
  * 就化进 Tab 条里了。
+ *
+ * `--tab-hover` 是非活动 Tab 悬停时那块和活动 Tab 同轮廓的底：介于外框与顶带之间（不比
+ * 活动 Tab 更亮），且与外框分得开。
  */
-describe("对话页顶带", () => {
+describe("对话页顶带与 Tab 悬停面", () => {
   it.each(THEMES)(
     "%s(%s)下顶带与外框、与内容页都分得开",
     (_scope, _label, get) => {
@@ -643,6 +651,23 @@ describe("对话页顶带", () => {
       expect(lightness(t["--sheet-header"])).toBeGreaterThan(
         lightness(t["--chrome"]),
       );
+    },
+  );
+
+  it.each(THEMES)(
+    "%s(%s)下 Tab 悬停面在外框与活动 Tab 之间，且与外框分得开",
+    (_scope, _label, get) => {
+      const t = get();
+      expect(lightness(t["--tab-hover"])).toBeGreaterThan(
+        lightness(t["--chrome"]),
+      );
+      expect(lightness(t["--tab-hover"])).toBeLessThanOrEqual(
+        lightness(t["--sheet-header"]),
+      );
+      expect(
+        contrast(t["--tab-hover"], t["--chrome"]),
+        `--tab-hover ${t["--tab-hover"]} 与 --chrome ${t["--chrome"]}`,
+      ).toBeGreaterThanOrEqual(SURFACE_MIN);
     },
   );
 });
@@ -676,8 +701,8 @@ describe("content-sheet 工具类", () => {
 
 /**
  * 活动 Tab 与它下面的顶带连成一体：底部两侧各一道 8px 反向圆角，用顶带底色从 Tab 侧沿
- * 流进顶带上沿。非活动 Tab 的悬停底是内缩的胶囊，换上填充上的弱化文字色，和
- * bg-button-fill 一样。
+ * 流进顶带上沿。非活动 Tab 的悬停底和活动 Tab 同轮廓（12px 上圆角、占满整高、贴底），
+ * 颜色是 `--tab-hover`，弱化文字换成前景色（标题变亮）。
  */
 describe("Tab 与内容页的接合工具类", () => {
   it("tab-flare：两侧各一块 8px 的方块，贴底、伸出 Tab 外，用顶带底色画反向圆角", () => {
@@ -696,12 +721,14 @@ describe("Tab 与内容页的接合工具类", () => {
     );
   });
 
-  it("tab-hover-pill：悬停时内缩的按钮填充，并把弱化文字换成填充上的那一档", () => {
-    const b = block("@utility tab-hover-pill");
-    expect(b).toMatch(/inset:\s*0\.25rem;/);
+  it("tab-hover-sheet：悬停时和活动 Tab 同轮廓的底，弱化文字换成前景色", () => {
+    const b = block("@utility tab-hover-sheet");
+    expect(b).toMatch(/inset:\s*0;/);
+    expect(b).toMatch(/border-radius:\s*0\.75rem 0\.75rem 0 0;/);
     expect(b).toMatch(/z-index:\s*-1;/);
-    expect(b).toMatch(/--muted-foreground:\s*var\(--fill-muted-foreground\);/);
-    expect(b).toMatch(/background-color:\s*var\(--color-button-fill\);/);
+    expect(b).toMatch(/--muted-foreground:\s*var\(--foreground\);/);
+    expect(b).toMatch(/background-color:\s*var\(--tab-hover\);/);
+    expect(block("@utility tab-hover-pill"), "旧的内缩胶囊应已删除").toBe("");
   });
 });
 

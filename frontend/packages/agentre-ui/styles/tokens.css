@@ -32,6 +32,8 @@
      下面的转录分开。活动 Tab 也画这个色、经反向圆角流进顶带，所以它夹在外框与内容页
      之间、和两边都分得开（chrome 1.09，sheet 1.08）。 */
   --sheet-header: #f6f6f7;
+  /* 非活动 Tab 悬停时那块和活动 Tab 同轮廓的底；浅色外框与顶带只差一档，取顶带本身。 */
+  --tab-hover: #f6f6f7;
   /* 内容页的投影：一圈 0.5px 的极淡环 + 1–3px 软影，把白纸从浅灰外框上托起来。
      深色不要（见 .dark）。 */
   --sheet-shadow:
@@ -316,6 +318,8 @@
   /* Brighter than the sheet here: a header darker than the sheet sits too close to
      the chrome, and the active tab painted in it would melt into the tab strip. */
   --sheet-header: #242529;
+  /* Between the chrome and the active tab, roughly 65% of the way up. */
+  --tab-hover: #1e1f22;
   /* The step from chrome to sheet already reads as a layer here; a shadow on a
      near-black chrome only muddies the edge. */
   --sheet-shadow: none;
@@ -564,6 +568,7 @@
   --color-sheet: var(--sheet);
   --color-raised: var(--raised);
   --color-sheet-header: var(--sheet-header);
+  --color-tab-hover: var(--tab-hover);
   /* 字段与按钮的填充：前景色按比例叠在透明上，所以落在内容页、填充分组、外框上
      都比脚下深一级。写在 @theme inline 里，var(--foreground) 在用到它的元素上才
      解析，跟着那里的主题走。字段 5%（悬停 7%）、按钮 8%（悬停 12%）。
@@ -740,23 +745,24 @@
   }
 }
 
-/* 非活动 Tab 的悬停底：四周内缩 4px 的胶囊，不铺满整格——铺满的话，紧挨活动 Tab 的
-   那格一悬停就盖住它的反向圆角。画在 ::before 上，压在 Tab 的内容之下（Tab 自成层叠
-   上下文）；弱化文字照 bg-button-fill 换成填充上的那一档。 */
-@utility tab-hover-pill {
+/* 非活动 Tab 的悬停底：和活动 Tab 同轮廓（12px 上圆角、占满整高、贴底），颜色比活动
+   Tab 淡一档（--tab-hover），标题变亮。铺满整格会挨着活动 Tab 的反向圆角——那由 Tab 条
+   让活动 Tab 叠在相邻 Tab 之上来保证，不靠这里内缩。画在 ::before 上，压在 Tab 的内容
+   之下（Tab 自成层叠上下文）。 */
+@utility tab-hover-sheet {
   &::before {
     content: "";
     position: absolute;
-    inset: 0.25rem;
+    inset: 0;
     z-index: -1;
-    border-radius: var(--radius-md);
+    border-radius: 0.75rem 0.75rem 0 0;
     pointer-events: none;
   }
   &:hover {
-    --muted-foreground: var(--fill-muted-foreground);
+    --muted-foreground: var(--foreground);
   }
   &:hover::before {
-    background-color: var(--color-button-fill);
+    background-color: var(--tab-hover);
   }
 }
 

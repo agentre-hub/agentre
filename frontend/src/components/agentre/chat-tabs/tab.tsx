@@ -18,7 +18,6 @@ export type TabProps = {
   isPinned: boolean;
   status: TabStatus;
   projectColor: string | null;
-  worktree: boolean;
   pillText: string | null;
   onActivate: () => void;
   onClose: () => void;
@@ -42,7 +41,6 @@ export const Tab = React.forwardRef<
     isPinned,
     status,
     projectColor,
-    worktree,
     pillText,
     onActivate,
     onClose,
@@ -64,26 +62,21 @@ export const Tab = React.forwardRef<
       data-project-color={projectColor ?? undefined}
       className={cn(
         // 活动 tab 与下方的对话页顶带同色、上角同为 12px、底部反向圆角，连成一体；其余落在
-        // 外框上，悬停出内缩的胶囊底。两者都见 tokens.css。Tab 之间不画线（无边框改版）。
-        // isolate：悬停胶囊画在 z-index -1 的 ::before 上，要沉在本 tab 的内容之下、
-        // 而不是掉到 Tab 条的底色后面。
+        // 外框上，悬停出和活动 tab 同轮廓、淡一档的底。两者都见 tokens.css。Tab 之间不画
+        // 线（无边框改版）。isolate：悬停底画在 z-index -1 的 ::before 上，要沉在本 tab 的
+        // 内容之下、而不是掉到 Tab 条的底色后面。
+        // 负 z：所有 tab 沉在 Tab 条这一层叠上下文的负层（键盘焦点环画在它们之上）；活动
+        // tab 比相邻 tab 高一层，相邻 tab 铺满整格的悬停底才不会盖住它的反向圆角。
         "relative isolate flex h-[38px] min-w-[120px] max-w-[240px] flex-shrink items-center gap-1.5 px-2.5 text-xs",
-        active ? "rounded-t-xl bg-sheet-header tab-flare" : "tab-hover-pill",
+        active
+          ? "-z-[9] rounded-t-xl bg-sheet-header tab-flare"
+          : "-z-10 tab-hover-sheet",
         isPreview && "italic",
         className,
       )}
       onClick={onActivate}
       onDoubleClick={onDoublePromote}
     >
-      {projectColor ? (
-        <span
-          className="absolute bottom-0 left-0 h-[2px] w-full"
-          style={{
-            backgroundColor: projectColor,
-            opacity: worktree ? 0.4 : 1,
-          }}
-        />
-      ) : null}
       {/* 颜色与可及名都来自共享 statusConfig（规格 2026-08-23 决策 9 的同源要求）。
           闲置维持今天的「没有记号」—— tab 条上一排灰点只是噪音。 */}
       {status === "idle" ? null : (

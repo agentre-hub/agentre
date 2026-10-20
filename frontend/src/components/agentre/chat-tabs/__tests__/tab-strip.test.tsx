@@ -83,14 +83,14 @@ describe("TabStrip", () => {
     // 活动 tab 下面连着的是对话页顶带，不是转录：同色才连得上。
     expect(active).toHaveClass("bg-sheet-header", "rounded-t-xl", "tab-flare");
     expect(active).not.toHaveClass("bg-sheet");
-    expect(active).not.toHaveClass("tab-hover-pill");
+    expect(active).not.toHaveClass("tab-hover-sheet");
     expect(active).not.toHaveClass("bg-background");
     expect(active.querySelector(".bg-primary")).toBeNull();
     expect(inactive).not.toHaveClass("bg-sheet", "bg-sheet-header");
     expect(inactive).not.toHaveClass("hover:bg-card");
-    // 非活动 tab 的悬停底是内缩的胶囊，不铺满整格——否则紧挨活动 tab 的那格一悬停
-    // 就盖住活动 tab 的反向圆角。
-    expect(inactive).toHaveClass("tab-hover-pill");
+    // 非活动 tab 的悬停底和活动 tab 同轮廓；不盖住活动 tab 的反向圆角由层叠保证
+    // （见 tab-strip-layers.test.tsx）。
+    expect(inactive).toHaveClass("tab-hover-sheet");
     expect(inactive).not.toHaveClass("tab-flare", "hover:bg-button-fill");
   });
 
@@ -127,10 +127,13 @@ describe("TabStrip", () => {
     expect(focusStop).toHaveClass("focus-visible:focus-outline-inset");
     expect(focusStop).not.toHaveClass("focus-visible:focus-outline");
     // 向内的环落在外壳的盒子里，而里面的标签页是带底色的定位元素——定位的子元素画在
-    // 父元素的 outline 之上，激活的标签页会把环整块盖住。外壳自成层叠上下文、标签页沉到
-    // 负层，顺序才是「标签页 → 环」；两个类缺一个，环就没了或标签页掉到标签条底色后面。
-    expect(focusStop).toHaveClass("isolate");
-    expect(tab).toHaveClass("-z-10");
+    // 父元素的 outline 之上，激活的标签页会把环整块盖住。标签页沉到 Tab 条这一层叠上下文
+    // 的负层，顺序才是「标签页 → 环」；Tab 条不自成层叠上下文的话，标签页会掉到标签条
+    // 底色后面。
+    expect(screen.getByRole("tablist").firstElementChild).toHaveClass(
+      "isolate",
+    );
+    expect(tab).toHaveClass("-z-[9]");
   });
 
   it("右键 Tab 弹出菜单, 含置顶/关闭/关闭其他/关闭右侧", async () => {

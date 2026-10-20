@@ -31,6 +31,7 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
+  cn,
 } from "@agentre-hub/agentre-ui";
 
 import { useSessionAttentionList } from "@/stores/attention-store";
@@ -99,8 +100,11 @@ export function TabStrip() {
       className="flex h-[38px] shrink-0 items-center overflow-hidden bg-chrome"
     >
       {/* pl-5 = 内容页圆角 12px + 反向圆角 8px：第一个 tab 的反向圆角落在内容页平直的
-          上沿；pr-2 让最后一个 tab 的反向圆角在滚到底时不被裁掉。 */}
-      <div className="scrollbar-none flex h-full min-h-0 min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden pl-5 pr-2">
+          上沿；pr-2 让最后一个 tab 的反向圆角在滚到底时不被裁掉。
+          isolate：所有 tab 共用这一个层叠上下文（tab 在负层、活动 tab 高一层、项目色线
+          再高一层、键盘焦点环在最上）。各个外壳自成层的话，后一格的悬停底会画在前一格
+          活动 tab 的反向圆角之上，项目色线也会被反向圆角咬出缺口。 */}
+      <div className="scrollbar-none isolate flex h-full min-h-0 min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden pl-5 pr-2">
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
           <SortableContext
             items={sortedTabs.map((t) => t.id)}
@@ -108,6 +112,9 @@ export function TabStrip() {
           >
             {sortedTabs.map((t, idx) => {
               const isLast = idx === sortedTabs.length - 1;
+              // 项目色线连成整段：只在前 / 后一格没有线的那一头收成圆头。
+              const lineStart = !sortedTabs[idx - 1]?.projectColor;
+              const lineEnd = !sortedTabs[idx + 1]?.projectColor;
               return (
                 <TabTooltip
                   key={t.id}
@@ -124,6 +131,8 @@ export function TabStrip() {
                     tab={t}
                     active={t.id === activeTabId}
                     isLast={isLast}
+                    lineStart={lineStart}
+                    lineEnd={lineEnd}
                     onActivate={() => setActive(t.id)}
                     onClose={() => closeTab(t.id)}
                     onDoublePromote={() => {
@@ -153,6 +162,9 @@ type SortableTabProps = {
   tab: TabView;
   active: boolean;
   isLast: boolean;
+  /** 项目色线这一段是不是整段的头 / 尾（前 / 后一格没有线）。 */
+  lineStart: boolean;
+  lineEnd: boolean;
   onActivate: () => void;
   onClose: () => void;
   onDoublePromote: () => void;
@@ -167,6 +179,8 @@ const SortableTab = React.forwardRef<HTMLSpanElement, SortableTabProps>(
       tab,
       active,
       isLast,
+      lineStart,
+      lineEnd,
       onActivate,
       onClose,
       onDoublePromote,
@@ -210,17 +224,16 @@ const SortableTab = React.forwardRef<HTMLSpanElement, SortableTabProps>(
           // 键盘焦点停在这一层（dnd-kit 的 attributes 给了 role="button" + tabIndex=0），
           // 不是里面的 role="tab"。这一层填满会裁剪的标签条，向外的焦点环三边都被切掉，
           // 所以向内画。向内的环落在自己的盒子里，而定位的子元素画在父元素的 outline
-          // 之上——带底色的标签页会把环整块盖住。所以这一层自成层叠上下文（isolate），
-          // 标签页沉到负层（下面的 -z-10），顺序才是「标签页 → 环」。两个类必须成对：
-          // 少了 isolate，标签页会掉到标签条的底色后面。
-          className="isolate inline-flex h-full min-w-0 flex-shrink focus-visible:focus-outline-inset"
+          // 之上——带底色的标签页会把环整块盖住。所以标签页沉到 Tab 条那个层叠上下文的
+          // 负层（见 Tab 的 -z-10 / -z-[9]），顺序才是「标签页 → 色线 → 环」。
+          // relative：项目色线按这一格定位。
+          className="relative inline-flex h-full min-w-0 flex-shrink focus-visible:focus-outline-inset"
           style={style}
           {...attributes}
           {...rest}
           {...listeners}
         >
           <Tab
-            className="-z-10"
             title={tab.title}
             kind={tab.kind}
             avatar={tab.avatar}
@@ -229,12 +242,28 @@ const SortableTab = React.forwardRef<HTMLSpanElement, SortableTabProps>(
             isPinned={tab.isPinned}
             status={tab.status}
             projectColor={tab.projectColor}
-            worktree={tab.worktree}
             pillText={tab.pillText}
             onActivate={onActivate}
             onClose={onClose}
             onDoublePromote={onDoublePromote}
           />
+          {/* 项目色线画在外壳上、比所有 tab 高一层：贴底、从活动 tab 下面穿过，不被它的
+              反向圆角咬出缺口；相邻两格首尾相接成一整段。 */}
+          {tab.projectColor ? (
+            <span
+              data-testid="tab-project-line"
+              aria-hidden="true"
+              className={cn(
+                "pointer-events-none absolute inset-x-0 bottom-0 -z-[8] h-[2px]",
+                lineStart && "rounded-l-full",
+                lineEnd && "rounded-r-full",
+              )}
+              style={{
+                backgroundColor: tab.projectColor,
+                opacity: tab.worktree ? 0.4 : 1,
+              }}
+            />
+          ) : null}
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onSelect={onTogglePin}>
