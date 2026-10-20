@@ -32,15 +32,16 @@ vi.mock("../../chat-panel", async () => {
   };
 });
 
-// 共享包 HoverCardContent 关闭时带 animate-out 退场动画，Radix Presence 会把正在
-// 关闭的预览卡留在页面上直到动画结束。jsdom 不加载 tw-animate-css，这里按同样的
-// data-state 补上退场动画名，让关闭中的预览卡像真机一样多停留一会儿。
+// 共享包 PopoverContent 关闭时带 animate-out 退场动画，Radix Presence 会把正在
+// 关闭的弹层留在页面上直到动画结束。jsdom 不加载 tw-animate-css，需要时
+// (keepClosingPanel) 按同样的 data-state 补上退场动画名，让关闭中的弹层像真机
+// 一样多停留一会儿。
 let exitAnimation: HTMLStyleElement;
+const keepClosingPanel = () => document.head.appendChild(exitAnimation);
 beforeEach(() => {
   exitAnimation = document.createElement("style");
   exitAnimation.textContent =
-    '[data-testid="background-tasks-peek"][data-state="closed"] { animation-name: exit; }';
-  document.head.appendChild(exitAnimation);
+    '[role="dialog"][data-state="closed"] { animation-name: exit; }';
   useChatTabsStore.setState({ tabs: [], activeTabId: null });
   useChatAgentsStore.getState().__reset();
   useSessionIndexStore.getState().__reset();
@@ -49,12 +50,10 @@ afterEach(() => {
   exitAnimation.remove();
 });
 
-const openPeek = () =>
-  document.querySelector(
-    '[data-testid="background-tasks-peek"][data-state="open"]',
-  );
+const openPanel = () =>
+  document.querySelector('[role="dialog"][data-state="open"]');
 
-// 预览卡悬停打开要等 openDelay（150ms）；多等一截确认迟到的「打开」也没有发生。
+// 悬停打开要等一小段延迟（150ms）；多等一截确认迟到的「打开」也没有发生。
 const pastOpenDelay = () =>
   act(() => new Promise((resolve) => setTimeout(resolve, 300)));
 
@@ -65,30 +64,33 @@ const host = (shown: boolean) => (
 );
 
 describe("ChatPanelHost — background-task overlays when the panel is hidden", () => {
-  // 真机 V12：点开弹层 → Esc（焦点回按钮，预览卡出现）→ 点图标栏 Issues。App 把对话区
-  // display:none，按钮锚点没了，正在退场的预览卡被挪到窗口左上角，正好压在指针停着的
-  // 图标栏上；指针「进入」它又让 HoverCard 排了一次延迟打开，预览卡就留在那里。
-  it("Given the peek is open after closing the popover with Esc, When the host hides the chat area and the pointer lands on the closing peek, Then the peek does not open again", async () => {
+  // 真机 V12：悬停开着弹层时点图标栏 Issues。App 把对话区 display:none，按钮锚点
+  // 没了，正在退场的弹层被挪到窗口左上角，正好压在指针停着的图标栏上；指针「进入」
+  // 它不能再排一次打开，否则弹层就留在别的页面上。
+  it("Given the panel is hovered open, When the host hides the chat area and the pointer lands on the closing panel, Then it does not open again", async () => {
+    keepClosingPanel();
     useChatTabsStore.getState().openSessionInNewTab(1);
     const { rerender } = render(host(true));
     const chip = screen.getByRole("button", { name: /background tasks/i });
 
-    await userEvent.click(chip);
-    await userEvent.keyboard("{Escape}");
+    await userEvent.hover(chip);
     await pastOpenDelay();
-    expect(openPeek()).not.toBeNull();
+    expect(openPanel()).not.toBeNull();
 
     rerender(host(false));
-    const closing = screen.getByTestId("background-tasks-peek");
-    expect(closing).toHaveAttribute("data-state", "closed");
+    const closing = document.querySelector(
+      '[role="dialog"][data-state="closed"]',
+    ) as HTMLElement;
+    expect(closing).not.toBeNull();
 
     await userEvent.hover(closing);
     await pastOpenDelay();
-    expect(openPeek()).toBeNull();
+    expect(openPanel()).toBeNull();
 
     // 回到对话页时也不能自己冒出来：那次「打开」根本不该被记下。
     rerender(host(true));
-    expect(openPeek()).toBeNull();
+    await pastOpenDelay();
+    expect(openPanel()).toBeNull();
   });
 
   // 弹层开着时 ⌘ 数字键切到另一个 Tab（快捷键走的就是 setActive）：焦点留在弹层里、

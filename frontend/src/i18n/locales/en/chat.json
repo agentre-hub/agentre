@@ -338,12 +338,7 @@
       "back": "Back",
       "locate": "Show in conversation",
       "stop": "Stop",
-      "ariaRunning": "Background tasks: {{count}} running",
-      "peekAgents": "Subagents · {{count}} running",
-      "peekCommands": "Commands · {{count}} running",
-      "peekMore": "{{count}} more commands",
-      "peekFoot": "Click to open the full list",
-      "peekFootEnded": "{{count}} ended · click to open the full list"
+      "ariaRunning": "Background tasks: {{count}} running"
     },
     "toolbar": {
       "aria": "Session toolbar",

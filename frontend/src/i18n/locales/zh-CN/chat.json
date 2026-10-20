@@ -338,12 +338,7 @@
       "back": "返回",
       "locate": "在对话中定位",
       "stop": "停止",
-      "ariaRunning": "后台任务：{{count}} 个运行中",
-      "peekAgents": "子代理 · {{count}} 运行中",
-      "peekCommands": "命令 · {{count}} 运行中",
-      "peekMore": "还有 {{count}} 个命令",
-      "peekFoot": "点击打开完整列表",
-      "peekFootEnded": "{{count}} 个已结束 · 点击打开完整列表"
+      "ariaRunning": "后台任务：{{count}} 个运行中"
     },
     "toolbar": {
       "aria": "会话工具栏",
