@@ -122,7 +122,3 @@ export function SourceGroup<T extends CommandItemBase>({
     </>
   );
 }
-
-// Tab / Shift+Tab 直接操作 new-chat-context-store（焦点不动）。
-// 复用 ContextBar 的写库 / localStorage 写入逻辑，保证两套入口（点击 vs 键盘）
-// 状态变化一致。

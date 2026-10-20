@@ -5,18 +5,20 @@ import { Command as CommandPrimitive } from "cmdk";
 import { Search, Terminal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { type ProjectFlat } from "@/hooks/use-project-list";
 import { clearLastContext } from "@/stores/new-chat-context-persistence";
 import { useNewChatContextStore } from "@/stores/new-chat-context-store";
 
+import { cycleProjectShortcut } from "./context-bar";
 import { COMMAND_PREFIX, type PaletteMode } from "./mode";
 
 export type SearchRowProps = {
   query: string;
   mode: PaletteMode;
   payload: string;
+  projects: ProjectFlat[];
   inputRef: React.Ref<HTMLInputElement>;
   onQueryChange: (v: string) => void;
-  onOpenProjectPicker: () => void;
   onClose: () => void;
 };
 
@@ -24,9 +26,9 @@ export function SearchRow({
   query,
   mode,
   payload,
+  projects,
   inputRef,
   onQueryChange,
-  onOpenProjectPicker,
   onClose,
 }: SearchRowProps) {
   const { t } = useTranslation();
@@ -49,9 +51,11 @@ export function SearchRow({
   //   2) 无 projectContext → 退出命令模式（删 chip）
   // 多按一次 Backspace 才退出 = 防误删 + 与 chip 操作惯例对齐。
   //
-  // Tab / Shift+Tab 在命令模式下打开项目选择器（默认模式不消费，走 native）——
-  // 与点 chip 是同一个入口，焦点跟着进它的搜索框。preventDefault + stopPropagation
-  // 防止浏览器 native focus 切换以及 cmdk 在 Command 根上消费 Tab。
+  // Tab 在命令模式下生效（默认模式不消费，走 native）：
+  //   Tab → 原地切到下一个项目
+  //   Shift+Tab → 原地切到上一个项目
+  // 要搜索着挑就点 chip 打开选择器。焦点始终留在 Input；preventDefault +
+  // stopPropagation 防止浏览器 native focus 切换以及 cmdk 在 Command 根上消费 Tab。
   const handleKeyDown = React.useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (mode !== "command") return;
@@ -69,10 +73,10 @@ export function SearchRow({
       if (e.key === "Tab") {
         e.preventDefault();
         e.stopPropagation();
-        onOpenProjectPicker();
+        cycleProjectShortcut(projects, e.shiftKey ? -1 : 1);
       }
     },
-    [mode, payload, onQueryChange, onOpenProjectPicker],
+    [mode, payload, projects, onQueryChange],
   );
 
   return (

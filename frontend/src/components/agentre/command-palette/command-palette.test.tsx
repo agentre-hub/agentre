@@ -708,7 +708,7 @@ describe("CommandPalette — 视觉键盘提示（与 Pencil 设计稿一致）"
   });
 });
 
-describe("CommandPalette — Tab 打开项目选择器 (BDD)", () => {
+describe("CommandPalette — Tab / Shift+Tab 原地轮换项目 (BDD)", () => {
   function mkProject(
     over: Partial<{
       id: number;
@@ -730,56 +730,184 @@ describe("CommandPalette — Tab 打开项目选择器 (BDD)", () => {
     };
   }
 
-  it.each([
-    ["Tab", false],
-    ["Shift+Tab", true],
-  ])(
-    "Given 命令模式 + 项目 [A,B], When 在输入框按 %s, Then 选择器打开、焦点落进它的搜索框，上下文不动",
-    async (_name, shiftKey) => {
-      appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
-      appMocks.ProjectListTree.mockResolvedValue([
-        { project: mkProject({ id: 10, name: "后端重构" }), children: [] },
-        { project: mkProject({ id: 11, name: "前端 UI" }), children: [] },
-      ]);
-      renderHarness();
-      await act(async () => {
-        useCommandPaletteStore.getState().openWith("> ");
-      });
-      await flush();
+  const LAST_CONTEXT_KEY = "agentre.commandPalette.lastContext";
 
-      const input = screen.getByRole("combobox") as HTMLInputElement;
-      input.focus();
-      await act(async () => {
-        fireEvent.keyDown(input, { key: "Tab", shiftKey });
-      });
-      await flush();
-
-      await vi.waitFor(() => {
-        expect(document.activeElement).toBe(
-          screen.getByLabelText("Search projects"),
-        );
-      });
-      expect(screen.getByText("前端 UI")).toBeTruthy();
-      expect(useNewChatContextStore.getState().projectContext).toBeNull();
-    },
-  );
-
-  it("Given 用 Tab 打开了选择器, When 搜索并按 ↵ 选定, Then 选择器收起、焦点回到命令输入框", async () => {
+  async function openWithProjects(
+    tree: unknown[],
+    context: { projectID: number; projectName: string } | null = null,
+  ): Promise<HTMLInputElement> {
     appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
-    appMocks.ProjectListTree.mockResolvedValue([
-      { project: mkProject({ id: 10, name: "后端重构" }), children: [] },
-      { project: mkProject({ id: 11, name: "前端 UI" }), children: [] },
-    ]);
+    appMocks.ProjectListTree.mockResolvedValue(tree);
     renderHarness();
     await act(async () => {
+      if (context) useNewChatContextStore.getState().setContext(context);
       useCommandPaletteStore.getState().openWith("> ");
     });
     await flush();
-
     const input = screen.getByRole("combobox") as HTMLInputElement;
     input.focus();
+    return input;
+  }
+
+  async function pressTab(input: HTMLInputElement, shiftKey = false) {
     await act(async () => {
-      fireEvent.keyDown(input, { key: "Tab" });
+      fireEvent.keyDown(input, { key: "Tab", shiftKey });
+    });
+    await flush();
+  }
+
+  const AB = [
+    { project: mkProject({ id: 10, name: "A" }), children: [] },
+    { project: mkProject({ id: 11, name: "B" }), children: [] },
+  ];
+
+  it("Given 项目 [A,B] + 无项目, When 在输入框按 Tab, Then 上下文切到 A 并记住、焦点留在输入框、选择器不打开", async () => {
+    const input = await openWithProjects(AB);
+
+    await pressTab(input);
+
+    expect(useNewChatContextStore.getState().projectContext).toEqual({
+      projectID: 10,
+      projectName: "A",
+    });
+    expect(
+      JSON.parse(localStorage.getItem(LAST_CONTEXT_KEY) ?? "null"),
+    ).toEqual({ projectID: 10, projectName: "A" });
+    expect(document.activeElement).toBe(input);
+    expect(screen.queryByLabelText("Search projects")).toBeNull();
+  });
+
+  it("Given 上下文 A, When Tab, Then 切到下一个 B", async () => {
+    const input = await openWithProjects(AB, {
+      projectID: 10,
+      projectName: "A",
+    });
+
+    await pressTab(input);
+
+    expect(useNewChatContextStore.getState().projectContext?.projectID).toBe(
+      11,
+    );
+  });
+
+  it("Given 上下文是最后一个 B, When Tab, Then 绕回「无项目」并清掉记住的上下文", async () => {
+    localStorage.setItem(
+      LAST_CONTEXT_KEY,
+      JSON.stringify({ projectID: 11, projectName: "B" }),
+    );
+    const input = await openWithProjects(AB, {
+      projectID: 11,
+      projectName: "B",
+    });
+
+    await pressTab(input);
+
+    expect(useNewChatContextStore.getState().projectContext).toBeNull();
+    expect(localStorage.getItem(LAST_CONTEXT_KEY)).toBeNull();
+    expect(screen.queryByLabelText("Search projects")).toBeNull();
+  });
+
+  it("Given 上下文 B, When Shift+Tab, Then 切到上一个 A、焦点留在输入框、选择器不打开", async () => {
+    const input = await openWithProjects(AB, {
+      projectID: 11,
+      projectName: "B",
+    });
+
+    await pressTab(input, true);
+
+    expect(useNewChatContextStore.getState().projectContext).toEqual({
+      projectID: 10,
+      projectName: "A",
+    });
+    expect(document.activeElement).toBe(input);
+    expect(screen.queryByLabelText("Search projects")).toBeNull();
+  });
+
+  it("Given 无项目, When Shift+Tab, Then 切到最后一个项目 B", async () => {
+    const input = await openWithProjects(AB);
+
+    await pressTab(input, true);
+
+    expect(useNewChatContextStore.getState().projectContext).toEqual({
+      projectID: 11,
+      projectName: "B",
+    });
+  });
+
+  it("Given 上下文是第一个 A, When Shift+Tab, Then 倒着绕回「无项目」", async () => {
+    const input = await openWithProjects(AB, {
+      projectID: 10,
+      projectName: "A",
+    });
+
+    await pressTab(input, true);
+
+    expect(useNewChatContextStore.getState().projectContext).toBeNull();
+  });
+
+  it.each([
+    ["Tab", false, 10],
+    ["Shift+Tab", true, 11],
+  ])(
+    "Given 上下文指向一个已不在列表里的项目, When %s, Then 从头（正向）/ 从尾（反向）重新开始",
+    async (_name, shiftKey, expected) => {
+      const input = await openWithProjects(AB, {
+        projectID: 99,
+        projectName: "已删除",
+      });
+
+      await pressTab(input, shiftKey);
+
+      expect(useNewChatContextStore.getState().projectContext?.projectID).toBe(
+        expected,
+      );
+    },
+  );
+
+  it("Given 父项目 P 下有子项目 C、其后是 Q, When 从 P 连按 Tab, Then 依次是 C、Q —— 与选择器里树的先序顺序一致", async () => {
+    const input = await openWithProjects(
+      [
+        {
+          project: mkProject({ id: 10, name: "P" }),
+          children: [
+            {
+              project: mkProject({ id: 12, name: "C" }),
+              children: [],
+            },
+          ],
+        },
+        { project: mkProject({ id: 11, name: "Q" }), children: [] },
+      ],
+      { projectID: 10, projectName: "P" },
+    );
+
+    await pressTab(input);
+    expect(useNewChatContextStore.getState().projectContext?.projectID).toBe(
+      12,
+    );
+    await pressTab(input);
+    expect(useNewChatContextStore.getState().projectContext?.projectID).toBe(
+      11,
+    );
+  });
+
+  it("Given 一个项目都没有, When Tab, Then 上下文保持无项目（no-op）、选择器不打开", async () => {
+    const input = await openWithProjects([]);
+
+    await pressTab(input);
+
+    expect(useNewChatContextStore.getState().projectContext).toBeNull();
+    expect(screen.queryByLabelText("Search projects")).toBeNull();
+  });
+
+  it("Given 点 chip 打开了选择器, When 搜索并按 ↵ 选定, Then 选择器收起、焦点回到命令输入框", async () => {
+    const input = await openWithProjects([
+      { project: mkProject({ id: 10, name: "后端重构" }), children: [] },
+      { project: mkProject({ id: 11, name: "前端 UI" }), children: [] },
+    ]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Switch project context"));
     });
     await flush();
     const search = screen.getByLabelText("Search projects");
@@ -799,21 +927,13 @@ describe("CommandPalette — Tab 打开项目选择器 (BDD)", () => {
     });
   });
 
-  it("Given 选择器开着, When 在里面再按一次 Tab, Then 它收起、焦点回到命令输入框，上下文不动", async () => {
-    appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
-    appMocks.ProjectListTree.mockResolvedValue([
+  it("Given 点 chip 打开了选择器, When 在里面按 Tab, Then 它收起、焦点回到命令输入框，上下文不动", async () => {
+    const input = await openWithProjects([
       { project: mkProject({ id: 10, name: "后端重构" }), children: [] },
     ]);
-    renderHarness();
-    await act(async () => {
-      useCommandPaletteStore.getState().openWith("> ");
-    });
-    await flush();
 
-    const input = screen.getByRole("combobox") as HTMLInputElement;
-    input.focus();
     await act(async () => {
-      fireEvent.keyDown(input, { key: "Tab" });
+      fireEvent.click(screen.getByLabelText("Switch project context"));
     });
     await flush();
     await act(async () => {

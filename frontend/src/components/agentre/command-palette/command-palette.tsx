@@ -74,14 +74,10 @@ export function CommandPalette(): React.ReactElement {
     null,
   );
   const { projects } = useProjectList();
-  // 项目选择器的开合放在这里：点 chip（ContextBar）与在输入框按 Tab（SearchRow）
-  // 是同一个入口；选完焦点交还输入框。
+  // 项目选择器（点 chip 打开）的开合放在这里：面板关掉时一并收起；选完焦点交还
+  // 输入框。输入框里的 Tab / Shift+Tab 不开它，原地轮换项目（SearchRow）。
   const [projectPickerOpen, setProjectPickerOpen] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
-  const openProjectPicker = React.useCallback(
-    () => setProjectPickerOpen(true),
-    [],
-  );
   // 「新建对话」落在哪个项目里由这一条上下文决定 —— 不再由路由决定：
   // 「项目」已经从一个页面退化成会话索引的一个分组轴，没有「项目路由」可判。
   const projectContext = useNewChatContextStore((s) => s.projectContext);
@@ -256,9 +252,9 @@ export function CommandPalette(): React.ReactElement {
               query={query}
               mode={mode}
               payload={payload}
+              projects={projects}
               inputRef={inputRef}
               onQueryChange={setQuery}
-              onOpenProjectPicker={openProjectPicker}
               onClose={close}
             />
             {mode === "command" ? (
