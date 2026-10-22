@@ -38,406 +38,504 @@ import {
 } from "./chat-streams/live";
 import { type State, Actions } from "./chat-streams/types";
 
-export const useChatStreamsStore = create<State & Actions>((set) => ({
-  streams: new Map(),
+// ── delta 提交节流 ──────────────────────────────────────────────────────────────
+// 流式正文/思考每 ~30ms 一帧,每帧一次 set = Map 重建 + 订阅者重渲染 + 增长中文本
+// 节点的排版(WebKit 文本测量是 O(文本长度),活体采样里就是 FontCascade::width)。
+// 同一窗口内的 text/thinking delta 先进缓冲,合并成一次提交:首帧 leading 立即刷
+// (首 token 即刻可见),窗口内后续走 trailing 定时器。其它 action 先 flush 再应用,
+// 流序不变;firstTokenAt/burst 重开时刻取**首个 delta 的到达时刻**,不是刷写时刻。
+const DELTA_FLUSH_MS_DEFAULT = 90;
+let deltaFlushMs = DELTA_FLUSH_MS_DEFAULT;
+let lastDeltaFlushAt = 0;
+let deltaTrailingTimer: ReturnType<typeof setTimeout> | null = null;
+type PendingDelta = {
+  sessionId: number;
+  assistantMessageId: number;
+  text: string;
+  thinking: string;
+  firstAt: number;
+};
+const pendingDeltas = new Map<string, PendingDelta>();
 
-  openStream: (s) =>
-    set((state) => {
-      const streams = new Map(state.streams);
-      // 只 set 自己那条 —— 同会话其它流(自主续轮 / 后台 subagent 活动轮)原样保留。
-      const perMessage = new Map(streams.get(s.sessionId) ?? []);
-      perMessage.set(s.assistantMessageId, {
-        ...s,
-        liveDelta: "",
-        liveThinking: "",
-        liveBlocks: [],
-        liveRetry: null,
-        liveUsage: null,
-        liveContextWindow: 0,
-        liveCompacting: false,
-        firstTokenAt: null,
-        // turn 开始即开表（工具空档由 tool 事件停/开）。
-        burstStartedAt: Date.now(),
-        generationMs: 0,
-        pendingTools: [],
-        turnCompletionTokens: 0,
-        turnReasoningTokens: 0,
-      });
-      streams.set(s.sessionId, perMessage);
-      return { streams };
-    }),
+function bufferDelta(
+  sessionId: number,
+  assistantMessageId: number,
+  text: string,
+  thinking: string,
+): void {
+  const key = `${sessionId}:${assistantMessageId}`;
+  const cur = pendingDeltas.get(key);
+  if (cur) {
+    cur.text += text;
+    cur.thinking += thinking;
+  } else {
+    pendingDeltas.set(key, {
+      sessionId,
+      assistantMessageId,
+      text,
+      thinking,
+      firstAt: Date.now(),
+    });
+  }
+  if (deltaFlushMs <= 0 || Date.now() - lastDeltaFlushAt >= deltaFlushMs) {
+    flushLiveDeltasImpl(); // leading:窗口已过,立刻落库
+    return;
+  }
+  if (deltaTrailingTimer == null && deltaFlushMs > 0) {
+    const wait = Math.max(0, deltaFlushMs - (Date.now() - lastDeltaFlushAt));
+    deltaTrailingTimer = globalThis.setTimeout(() => {
+      deltaTrailingTimer = null;
+      flushLiveDeltasImpl();
+    }, wait);
+  }
+}
 
-  closeStream: (sessionId, assistantMessageId) =>
-    set((state) => dropStream(state, sessionId, assistantMessageId)),
+// 真身拿得到 create 里的 set,在 create 时接上;模块级先给个空实现让 bufferDelta 可引。
+let flushLiveDeltasImpl: () => void = () => {};
 
-  appendLiveText: (sessionId, assistantMessageId, delta) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) =>
-        delta
-          ? noteVisibleToken(
-              { ...cur, liveDelta: cur.liveDelta + delta },
-              Date.now(),
-            )
-          : null,
-      ),
-    ),
-
-  appendLiveThinking: (sessionId, assistantMessageId, delta) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) =>
-        delta
-          ? noteVisibleToken(
-              { ...cur, liveThinking: cur.liveThinking + delta },
-              Date.now(),
-            )
-          : null,
-      ),
-    ),
-
-  patchLiveUsage: (sessionId, assistantMessageId, usage) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        // 同值短路：所有 token 字段一致就不重建 Map，避免 zustand 触发多余重渲染。
-        // 消息 id 也比一下 —— turn 内换 assistant 段（steer_consumed）时它会变。
-        const prev = cur.liveUsage;
-        const contextWindow = usage.contextWindow ?? 0;
-        const nextContextWindow =
-          contextWindow > 0 ? contextWindow : cur.liveContextWindow;
-        if (
-          prev &&
-          prev.messageId === usage.messageId &&
-          prev.promptTokens === usage.promptTokens &&
-          prev.completionTokens === usage.completionTokens &&
-          prev.cachedTokens === usage.cachedTokens &&
-          prev.cacheCreationTokens === usage.cacheCreationTokens &&
-          prev.reasoningTokens === usage.reasoningTokens &&
-          prev.totalInputTokens === usage.totalInputTokens &&
-          prev.contextWindow === usage.contextWindow &&
-          cur.liveContextWindow === nextContextWindow
-        ) {
-          return null;
-        }
-        // 不停表：usage 是某次内部 API call 的收尾，模型紧接着就发工具调用或
-        // 下一段正文。停表的唯一理由是工具开始执行（见 appendLiveToolUse）。
-        return {
-          ...cur,
-          liveUsage: usage,
-          liveContextWindow: nextContextWindow,
-          turnCompletionTokens:
-            cur.turnCompletionTokens + (usage.completionTokens ?? 0),
-          turnReasoningTokens:
-            cur.turnReasoningTokens + (usage.reasoningTokens ?? 0),
-        };
-      }),
-    ),
-
-  patchLiveContextWindow: (sessionId, assistantMessageId, contextWindow) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) =>
-        contextWindow > 0 && cur.liveContextWindow !== contextWindow
-          ? { ...cur, liveContextWindow: contextWindow }
-          : null,
-      ),
-    ),
-
-  setLiveCompacting: (sessionId, assistantMessageId, compacting) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) =>
-        cur.liveCompacting === compacting
-          ? null
-          : { ...cur, liveCompacting: compacting },
-      ),
-    ),
-
-  setLiveRetry: (sessionId, assistantMessageId, retry) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => ({
-        ...cur,
-        liveRetry: retry,
-      })),
-    ),
-
-  clearLiveRetry: (sessionId, assistantMessageId) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) =>
-        cur.liveRetry === null ? null : { ...cur, liveRetry: null },
-      ),
-    ),
-
-  noteOutputActivity: (sessionId, assistantMessageId) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) =>
-        cur.firstTokenAt == null ? noteFirstToken(cur, Date.now()) : null,
-      ),
-    ),
-
-  appendLiveToolUse: (sessionId, assistantMessageId, block) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        // 内层（subagent 内部）工具不碰表 —— 派遣它的那个外层 Task 调用已经把表
-        // 按住了，内层再加减一遍只会在孤儿帧上留下按死表的挂账。
-        //
-        // 停表前先兜底记一次首 token：工具调用摆在这里，模型显然早就在产出 token
-        // 了。claudecode 有更早更准的 output_activity 事件，先到先得；没有等价帧的
-        // 后端（codex / piagent）靠这一条（sess-3241）。
-        const now = Date.now();
-        const segment = flushLiveSegment(cur);
-        const flushed =
-          block.parentToolUseId || !block.toolUseId
-            ? segment
-            : suspendClock(noteFirstToken(segment, now), block.toolUseId, now);
-        return {
-          ...flushed,
-          liveBlocks: appendToolUseBlock(flushed.liveBlocks, block),
-        };
-      }),
-    ),
-
-  appendLiveToolResult: (sessionId, assistantMessageId, block) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        // 工具跑完，模型要接着生成了 → 重新开表（并行工具全部回齐才真开）。
-        const resumed =
-          block.parentToolUseId || !block.toolUseId
-            ? cur
-            : resumeClock(cur, block.toolUseId, Date.now());
-        return {
-          // 故意不 flush liveDelta:tool_use→tool_result 之间通常没有用户可见的文字,
-          // 把累积的 liveDelta 留给"下一段文字 + 下次 tool_use"那个 flush 时机。
-          ...resumed,
-          liveBlocks: appendToolResultBlock(resumed.liveBlocks, block),
-        };
-      }),
-    ),
-
-  appendLiveCompactBoundary: (sessionId, assistantMessageId, compact) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        const flushed = flushLiveSegment(cur);
-        return {
-          ...flushed,
-          liveBlocks: appendCompactBoundaryBlock(flushed.liveBlocks, compact),
-          // compact_boundary 到达 = 压缩流程结束 → 自动清 liveCompacting,
-          // 不依赖 CLI 显式再推一帧 status:"" 清旗。
-          liveCompacting: false,
-        };
-      }),
-    ),
-
-  appendLivePlanUpdate: (sessionId, assistantMessageId, text, canonical) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        const hasPlanPayload = text || canonical?.kind === "plan.update";
-        const planText = hasPlanPayload
-          ? (canonical?.planUpdate?.text ?? text)
-          : text;
-        if (!planText && canonical?.kind !== "plan.update") return null;
-        const flushed = flushLiveSegment(cur);
-        return {
-          ...flushed,
-          liveBlocks: upsertPlanBlock(flushed.liveBlocks, planText, canonical),
-        };
-      }),
-    ),
-
-  appendLiveAskUserQuestion: (
-    sessionId,
-    assistantMessageId,
-    payload,
-    canonical,
-  ) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        if (!payload || !payload.requestId) return null;
-        const flushed = flushLiveSegment(cur);
-        return {
-          ...flushed,
-          liveBlocks: [
-            ...flushed.liveBlocks,
+export const useChatStreamsStore = create<State & Actions>((set) => {
+  const rawSet = set;
+  flushLiveDeltasImpl = (): void => {
+    if (pendingDeltas.size === 0) return;
+    const entries = [...pendingDeltas.values()];
+    pendingDeltas.clear();
+    lastDeltaFlushAt = Date.now();
+    rawSet((state) => {
+      let acc: State = state;
+      for (const p of entries) {
+        if (!p.text && !p.thinking) continue;
+        acc = updateStream(acc, p.sessionId, p.assistantMessageId, (cur) =>
+          noteVisibleToken(
             {
-              type: "ask_user_question",
-              askUserQuestion: payload,
-              canonical,
+              ...cur,
+              liveDelta: cur.liveDelta + p.text,
+              liveThinking: cur.liveThinking + p.thinking,
             },
-          ],
-        };
-      }),
-    ),
-
-  markAskUserQuestionAnswered: (
-    sessionId,
-    assistantMessageId,
-    payload,
-    canonical,
-  ) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        const liveBlocks = markAskUserQuestionAnsweredBlocks(
-          cur.liveBlocks,
-          payload,
-          canonical,
-        );
-        return liveBlocks ? { ...cur, liveBlocks } : null;
-      }),
-    ),
-
-  appendLiveToolPermissionRequest: (
-    sessionId,
-    assistantMessageId,
-    payload,
-    canonical,
-  ) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        if (!payload || !payload.requestId) return null;
-        const flushed = flushLiveSegment(cur);
-        return {
-          ...flushed,
-          liveBlocks: appendToolPermissionRequestBlock(
-            flushed.liveBlocks,
-            payload,
-            canonical,
+            p.firstAt,
           ),
-        };
-      }),
-    ),
-
-  markToolPermissionResolved: (
-    sessionId,
-    assistantMessageId,
-    payload,
-    canonical,
-  ) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        const liveBlocks = markToolPermissionResolvedBlocks(
-          cur.liveBlocks,
-          payload,
-          canonical,
         );
-        return liveBlocks ? { ...cur, liveBlocks } : null;
-      }),
-    ),
-
-  appendLiveToolApproval: (sessionId, assistantMessageId, payload) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        if (!payload || !payload.requestId) return null;
-        const flushed = flushLiveSegment(cur);
-        return {
-          ...flushed,
-          liveBlocks: appendToolApprovalBlock(flushed.liveBlocks, payload),
-        };
-      }),
-    ),
-
-  markToolApprovalResolved: (sessionId, assistantMessageId, payload) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        const liveBlocks = markToolApprovalResolvedBlocks(
-          cur.liveBlocks,
-          payload,
-        );
-        return liveBlocks ? { ...cur, liveBlocks } : null;
-      }),
-    ),
-
-  appendLiveExecApproval: (sessionId, assistantMessageId, payload) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        if (!payload?.id) return null;
-        const existingIdx = findLastBlockIndex(
-          cur.liveBlocks,
-          (block) =>
-            block.type === "exec_approval" &&
-            block.execApproval?.id === payload.id,
-        );
-        // 只有真的要追加新卡片(找不到既有条目)才 flush:更新既有卡片状态不该把
-        // 尚未流完的正文提前冻结成 block。
-        const base = existingIdx >= 0 ? cur : flushLiveSegment(cur);
-        const liveBlocks = upsertExecApprovalBlock(base.liveBlocks, payload);
-        return liveBlocks ? { ...base, liveBlocks } : null;
-      }),
-    ),
-
-  markExecApprovalResolved: (sessionId, assistantMessageId, payload) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        const liveBlocks = markExecApprovalResolvedBlocks(
-          cur.liveBlocks,
-          payload,
-        );
-        return liveBlocks ? { ...cur, liveBlocks } : null;
-      }),
-    ),
-
-  mergeSubagentMeta: (sessionId, assistantMessageId, toolUseId, meta) =>
-    set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => {
-        const liveBlocks = mergeSubagentMetaBlocks(
-          cur.liveBlocks,
-          toolUseId,
-          meta,
-        );
-        return liveBlocks ? { ...cur, liveBlocks } : null;
-      }),
-    ),
-
-  finishStream: (sessionId, assistantMessageId, event) =>
-    set((state) => {
-      const next = dropStream(state, sessionId, assistantMessageId);
-      // 排队消息属于「用户那一轮」。只有本会话再没有任何流在跑时才处理 —— 否则
-      // 一条自主续轮收尾会把用户排给活跃用户轮的消息误清掉。
-      // 不再静默丢弃:回合收尾时还没被 steer_consumed 消费的排队条目挪进 dropped,
-      // 由 QueuedMessagesBar 提示用户「恢复为草稿 / 丢弃」,而不是无声清掉。
-      if (!hasSessionStream(next, sessionId)) {
-        useQueuedMessagesStore.getState().markDropped(sessionId);
       }
-      useSessionStatusStore.getState().bumpDone(sessionId, event as DoneEvent);
-      return next;
-    }),
+      return { streams: acc.streams };
+    });
+  };
+  // 除 append 系(自己管窗口,走 bufferDelta)外的每个变更点都先 flush 缓冲 delta,
+  // 保证「文字 → 工具 → 文字」的流序与逐帧提交时一致。本文件所有变更都走
+  // updater 函数形态,这里只收窄到那一种。
+  const flushingSet = (
+    fn: (state: State & Actions) => State | Partial<State & Actions>,
+  ): void => {
+    flushLiveDeltasImpl();
+    set(fn);
+  };
+  return {
+    streams: new Map(),
 
-  consumeSteer: (sessionId, assistantMessageId, event) =>
-    set((state) => {
-      const perMessage = state.streams.get(sessionId);
-      const cur = perMessage?.get(assistantMessageId);
-      let streams = state.streams;
-      if (perMessage && cur) {
-        // steer 把本轮切到新的 assistant 占位 → 换 key 重挂,内容清零重来。
-        const nextId = event.assistantMessage?.id ?? cur.assistantMessageId;
-        const nextPerMessage = new Map(perMessage);
-        nextPerMessage.delete(assistantMessageId);
-        nextPerMessage.set(nextId, {
-          ...cur,
-          assistantMessageId: nextId,
-          streamStartedAt: Date.now(),
+    openStream: (s) =>
+      flushingSet((state) => {
+        const streams = new Map(state.streams);
+        // 只 set 自己那条 —— 同会话其它流(自主续轮 / 后台 subagent 活动轮)原样保留。
+        const perMessage = new Map(streams.get(s.sessionId) ?? []);
+        perMessage.set(s.assistantMessageId, {
+          ...s,
           liveDelta: "",
           liveThinking: "",
           liveBlocks: [],
           liveRetry: null,
-          // 新 assistant 段开始 → 清掉上一段的 compacting chip。
+          liveUsage: null,
+          liveContextWindow: 0,
           liveCompacting: false,
           firstTokenAt: null,
-          // 新 assistant 段开始 → 计时重新开走。
+          // turn 开始即开表（工具空档由 tool 事件停/开）。
           burstStartedAt: Date.now(),
           generationMs: 0,
           pendingTools: [],
           turnCompletionTokens: 0,
           turnReasoningTokens: 0,
         });
-        streams = new Map(state.streams);
-        streams.set(sessionId, nextPerMessage);
-      }
+        streams.set(s.sessionId, perMessage);
+        return { streams };
+      }),
 
-      const ids = event.queuedIds ?? [];
-      if (ids.length > 0) {
-        useQueuedMessagesStore.getState().consume(sessionId, ids);
-      }
+    closeStream: (sessionId, assistantMessageId) =>
+      flushingSet((state) => dropStream(state, sessionId, assistantMessageId)),
 
-      useSessionStatusStore.getState().bumpDone(sessionId, event as DoneEvent);
-      return { streams };
-    }),
-}));
+    __setDeltaFlushMs: (ms) => {
+      flushLiveDeltasImpl();
+      if (deltaTrailingTimer != null) {
+        globalThis.clearTimeout(deltaTrailingTimer);
+        deltaTrailingTimer = null;
+      }
+      deltaFlushMs = ms;
+      // 换窗即换基线:测试会倒拨系统时间,旧基线若落在「未来」会让 leading 永不触发。
+      lastDeltaFlushAt = Date.now();
+    },
+
+    appendLiveText: (sessionId, assistantMessageId, delta) => {
+      // 只缓冲,不直接 set —— 窗口与 leading/trailing 见文件顶「delta 提交节流」。
+      if (delta) bufferDelta(sessionId, assistantMessageId, delta, "");
+    },
+
+    appendLiveThinking: (sessionId, assistantMessageId, delta) => {
+      if (delta) bufferDelta(sessionId, assistantMessageId, "", delta);
+    },
+
+    patchLiveUsage: (sessionId, assistantMessageId, usage) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          // 同值短路：所有 token 字段一致就不重建 Map，避免 zustand 触发多余重渲染。
+          // 消息 id 也比一下 —— turn 内换 assistant 段（steer_consumed）时它会变。
+          const prev = cur.liveUsage;
+          const contextWindow = usage.contextWindow ?? 0;
+          const nextContextWindow =
+            contextWindow > 0 ? contextWindow : cur.liveContextWindow;
+          if (
+            prev &&
+            prev.messageId === usage.messageId &&
+            prev.promptTokens === usage.promptTokens &&
+            prev.completionTokens === usage.completionTokens &&
+            prev.cachedTokens === usage.cachedTokens &&
+            prev.cacheCreationTokens === usage.cacheCreationTokens &&
+            prev.reasoningTokens === usage.reasoningTokens &&
+            prev.totalInputTokens === usage.totalInputTokens &&
+            prev.contextWindow === usage.contextWindow &&
+            cur.liveContextWindow === nextContextWindow
+          ) {
+            return null;
+          }
+          // 不停表：usage 是某次内部 API call 的收尾，模型紧接着就发工具调用或
+          // 下一段正文。停表的唯一理由是工具开始执行（见 appendLiveToolUse）。
+          return {
+            ...cur,
+            liveUsage: usage,
+            liveContextWindow: nextContextWindow,
+            turnCompletionTokens:
+              cur.turnCompletionTokens + (usage.completionTokens ?? 0),
+            turnReasoningTokens:
+              cur.turnReasoningTokens + (usage.reasoningTokens ?? 0),
+          };
+        }),
+      ),
+
+    patchLiveContextWindow: (sessionId, assistantMessageId, contextWindow) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) =>
+          contextWindow > 0 && cur.liveContextWindow !== contextWindow
+            ? { ...cur, liveContextWindow: contextWindow }
+            : null,
+        ),
+      ),
+
+    setLiveCompacting: (sessionId, assistantMessageId, compacting) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) =>
+          cur.liveCompacting === compacting
+            ? null
+            : { ...cur, liveCompacting: compacting },
+        ),
+      ),
+
+    setLiveRetry: (sessionId, assistantMessageId, retry) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => ({
+          ...cur,
+          liveRetry: retry,
+        })),
+      ),
+
+    clearLiveRetry: (sessionId, assistantMessageId) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) =>
+          cur.liveRetry === null ? null : { ...cur, liveRetry: null },
+        ),
+      ),
+
+    noteOutputActivity: (sessionId, assistantMessageId) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) =>
+          cur.firstTokenAt == null ? noteFirstToken(cur, Date.now()) : null,
+        ),
+      ),
+
+    appendLiveToolUse: (sessionId, assistantMessageId, block) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          // 内层（subagent 内部）工具不碰表 —— 派遣它的那个外层 Task 调用已经把表
+          // 按住了，内层再加减一遍只会在孤儿帧上留下按死表的挂账。
+          //
+          // 停表前先兜底记一次首 token：工具调用摆在这里，模型显然早就在产出 token
+          // 了。claudecode 有更早更准的 output_activity 事件，先到先得；没有等价帧的
+          // 后端（codex / piagent）靠这一条（sess-3241）。
+          const now = Date.now();
+          const segment = flushLiveSegment(cur);
+          const flushed =
+            block.parentToolUseId || !block.toolUseId
+              ? segment
+              : suspendClock(
+                  noteFirstToken(segment, now),
+                  block.toolUseId,
+                  now,
+                );
+          return {
+            ...flushed,
+            liveBlocks: appendToolUseBlock(flushed.liveBlocks, block),
+          };
+        }),
+      ),
+
+    appendLiveToolResult: (sessionId, assistantMessageId, block) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          // 工具跑完，模型要接着生成了 → 重新开表（并行工具全部回齐才真开）。
+          const resumed =
+            block.parentToolUseId || !block.toolUseId
+              ? cur
+              : resumeClock(cur, block.toolUseId, Date.now());
+          return {
+            // 故意不 flush liveDelta:tool_use→tool_result 之间通常没有用户可见的文字,
+            // 把累积的 liveDelta 留给"下一段文字 + 下次 tool_use"那个 flush 时机。
+            ...resumed,
+            liveBlocks: appendToolResultBlock(resumed.liveBlocks, block),
+          };
+        }),
+      ),
+
+    appendLiveCompactBoundary: (sessionId, assistantMessageId, compact) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          const flushed = flushLiveSegment(cur);
+          return {
+            ...flushed,
+            liveBlocks: appendCompactBoundaryBlock(flushed.liveBlocks, compact),
+            // compact_boundary 到达 = 压缩流程结束 → 自动清 liveCompacting,
+            // 不依赖 CLI 显式再推一帧 status:"" 清旗。
+            liveCompacting: false,
+          };
+        }),
+      ),
+
+    appendLivePlanUpdate: (sessionId, assistantMessageId, text, canonical) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          const hasPlanPayload = text || canonical?.kind === "plan.update";
+          const planText = hasPlanPayload
+            ? (canonical?.planUpdate?.text ?? text)
+            : text;
+          if (!planText && canonical?.kind !== "plan.update") return null;
+          const flushed = flushLiveSegment(cur);
+          return {
+            ...flushed,
+            liveBlocks: upsertPlanBlock(
+              flushed.liveBlocks,
+              planText,
+              canonical,
+            ),
+          };
+        }),
+      ),
+
+    appendLiveAskUserQuestion: (
+      sessionId,
+      assistantMessageId,
+      payload,
+      canonical,
+    ) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          if (!payload || !payload.requestId) return null;
+          const flushed = flushLiveSegment(cur);
+          return {
+            ...flushed,
+            liveBlocks: [
+              ...flushed.liveBlocks,
+              {
+                type: "ask_user_question",
+                askUserQuestion: payload,
+                canonical,
+              },
+            ],
+          };
+        }),
+      ),
+
+    markAskUserQuestionAnswered: (
+      sessionId,
+      assistantMessageId,
+      payload,
+      canonical,
+    ) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          const liveBlocks = markAskUserQuestionAnsweredBlocks(
+            cur.liveBlocks,
+            payload,
+            canonical,
+          );
+          return liveBlocks ? { ...cur, liveBlocks } : null;
+        }),
+      ),
+
+    appendLiveToolPermissionRequest: (
+      sessionId,
+      assistantMessageId,
+      payload,
+      canonical,
+    ) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          if (!payload || !payload.requestId) return null;
+          const flushed = flushLiveSegment(cur);
+          return {
+            ...flushed,
+            liveBlocks: appendToolPermissionRequestBlock(
+              flushed.liveBlocks,
+              payload,
+              canonical,
+            ),
+          };
+        }),
+      ),
+
+    markToolPermissionResolved: (
+      sessionId,
+      assistantMessageId,
+      payload,
+      canonical,
+    ) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          const liveBlocks = markToolPermissionResolvedBlocks(
+            cur.liveBlocks,
+            payload,
+            canonical,
+          );
+          return liveBlocks ? { ...cur, liveBlocks } : null;
+        }),
+      ),
+
+    appendLiveToolApproval: (sessionId, assistantMessageId, payload) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          if (!payload || !payload.requestId) return null;
+          const flushed = flushLiveSegment(cur);
+          return {
+            ...flushed,
+            liveBlocks: appendToolApprovalBlock(flushed.liveBlocks, payload),
+          };
+        }),
+      ),
+
+    markToolApprovalResolved: (sessionId, assistantMessageId, payload) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          const liveBlocks = markToolApprovalResolvedBlocks(
+            cur.liveBlocks,
+            payload,
+          );
+          return liveBlocks ? { ...cur, liveBlocks } : null;
+        }),
+      ),
+
+    appendLiveExecApproval: (sessionId, assistantMessageId, payload) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          if (!payload?.id) return null;
+          const existingIdx = findLastBlockIndex(
+            cur.liveBlocks,
+            (block) =>
+              block.type === "exec_approval" &&
+              block.execApproval?.id === payload.id,
+          );
+          // 只有真的要追加新卡片(找不到既有条目)才 flush:更新既有卡片状态不该把
+          // 尚未流完的正文提前冻结成 block。
+          const base = existingIdx >= 0 ? cur : flushLiveSegment(cur);
+          const liveBlocks = upsertExecApprovalBlock(base.liveBlocks, payload);
+          return liveBlocks ? { ...base, liveBlocks } : null;
+        }),
+      ),
+
+    markExecApprovalResolved: (sessionId, assistantMessageId, payload) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          const liveBlocks = markExecApprovalResolvedBlocks(
+            cur.liveBlocks,
+            payload,
+          );
+          return liveBlocks ? { ...cur, liveBlocks } : null;
+        }),
+      ),
+
+    mergeSubagentMeta: (sessionId, assistantMessageId, toolUseId, meta) =>
+      flushingSet((state) =>
+        updateStream(state, sessionId, assistantMessageId, (cur) => {
+          const liveBlocks = mergeSubagentMetaBlocks(
+            cur.liveBlocks,
+            toolUseId,
+            meta,
+          );
+          return liveBlocks ? { ...cur, liveBlocks } : null;
+        }),
+      ),
+
+    finishStream: (sessionId, assistantMessageId, event) =>
+      flushingSet((state) => {
+        const next = dropStream(state, sessionId, assistantMessageId);
+        // 排队消息属于「用户那一轮」。只有本会话再没有任何流在跑时才处理 —— 否则
+        // 一条自主续轮收尾会把用户排给活跃用户轮的消息误清掉。
+        // 不再静默丢弃:回合收尾时还没被 steer_consumed 消费的排队条目挪进 dropped,
+        // 由 QueuedMessagesBar 提示用户「恢复为草稿 / 丢弃」,而不是无声清掉。
+        if (!hasSessionStream(next, sessionId)) {
+          useQueuedMessagesStore.getState().markDropped(sessionId);
+        }
+        useSessionStatusStore
+          .getState()
+          .bumpDone(sessionId, event as DoneEvent);
+        return next;
+      }),
+
+    consumeSteer: (sessionId, assistantMessageId, event) =>
+      flushingSet((state) => {
+        const perMessage = state.streams.get(sessionId);
+        const cur = perMessage?.get(assistantMessageId);
+        let streams = state.streams;
+        if (perMessage && cur) {
+          // steer 把本轮切到新的 assistant 占位 → 换 key 重挂,内容清零重来。
+          const nextId = event.assistantMessage?.id ?? cur.assistantMessageId;
+          const nextPerMessage = new Map(perMessage);
+          nextPerMessage.delete(assistantMessageId);
+          nextPerMessage.set(nextId, {
+            ...cur,
+            assistantMessageId: nextId,
+            streamStartedAt: Date.now(),
+            liveDelta: "",
+            liveThinking: "",
+            liveBlocks: [],
+            liveRetry: null,
+            // 新 assistant 段开始 → 清掉上一段的 compacting chip。
+            liveCompacting: false,
+            firstTokenAt: null,
+            // 新 assistant 段开始 → 计时重新开走。
+            burstStartedAt: Date.now(),
+            generationMs: 0,
+            pendingTools: [],
+            turnCompletionTokens: 0,
+            turnReasoningTokens: 0,
+          });
+          streams = new Map(state.streams);
+          streams.set(sessionId, nextPerMessage);
+        }
+
+        const ids = event.queuedIds ?? [];
+        if (ids.length > 0) {
+          useQueuedMessagesStore.getState().consume(sessionId, ids);
+        }
+
+        useSessionStatusStore
+          .getState()
+          .bumpDone(sessionId, event as DoneEvent);
+        return { streams };
+      }),
+  };
+});
 
 // ── 原先住在本文件里的那些名字,在这里再导出一次 ──────────────────────────────
 //

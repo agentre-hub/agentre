@@ -465,6 +465,8 @@ function resetStore() {
   mockSessionStore.loading = false;
   mockSessionStore.error = null;
   useChatStreamsStore.getState().streams.clear();
+  // 本文件考察转录行为,不考察提交粒度:节流窗归零让 append 系立即落库(同步语义)。
+  useChatStreamsStore.getState().__setDeltaFlushMs(0);
   useSessionConnStore.getState().__reset();
   runtimeMocks.EventsOff.mockReset();
   runtimeMocks.EventsOn.mockReset();

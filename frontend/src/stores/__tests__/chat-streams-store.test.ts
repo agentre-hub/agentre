@@ -9,7 +9,7 @@
 //   - tool_result 不 flush liveDelta（紧跟 tool_use，不应中间插字）。
 //   - finishStream / failStream / closeStream 都会清空该 session 的 LiveStream，
 //     并把 doneTick 自增 → 订阅者据此 reload 持久化消息。
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   hasSessionStream,
@@ -23,6 +23,9 @@ import type { chat_svc, view } from "../../../wailsjs/go/models";
 
 function resetStore() {
   useChatStreamsStore.setState({ streams: new Map() });
+  // 节流窗归零 = 每次追加都走 leading flush,保持本文件其余测试的同步语义;
+  // 节流行为由「delta 提交节流」一节显式设窗验证。
+  useChatStreamsStore.getState().__setDeltaFlushMs(0);
   useQueuedMessagesStore.getState().__reset();
   useSessionStatusStore.getState().__reset();
 }
@@ -94,6 +97,106 @@ describe("chat-streams-store", () => {
   // 空档；等首 token 的排队/prefill 计入。分子是整轮所有内部 API call 的 output 之和，
   // 包含「不吐字、直接发工具调用」那些跳，所以分母不能只数看得见文字的段
   // （sess-3226 的 75331 tok/s 就是那么来的）。
+  describe("delta 提交节流（流式帧合并成一次 set）", () => {
+    // 背景:mock/真实流式每 ~30ms 一帧,每帧一次 zustand set = Map 重建 + 订阅者
+    // 重渲染 + 增长中文本节点的排版。把同一窗口(~90ms)内的 text/thinking delta
+    // 合并成一次提交;首帧 leading 立即刷(首 token 即刻可见),其余 trailing。
+    // 其它 action(tool_use / usage / finish / close …)先 flush 再应用,流序不变。
+
+    afterEach(() => {
+      vi.useRealTimers();
+      useChatStreamsStore.getState().__setDeltaFlushMs(0);
+    });
+
+    // 统一时间前置:系统时间归零 + 开 90ms 窗,再走到 t=100 让首个 delta 落在
+    // 窗口外 → leading 立即刷;后续 delta 处于窗口内 → 进缓冲。
+    const armThrottle = (
+      actions: ReturnType<typeof useChatStreamsStore.getState>,
+    ) => {
+      vi.setSystemTime(0);
+      actions.__setDeltaFlushMs(90);
+      vi.advanceTimersByTime(100); // t=100,距基线 0 已过一个窗口
+    };
+
+    it("Given 同窗内的多次 delta, When 追加, Then 只产生 leading+trailing 两次通知且内容完整", () => {
+      vi.useFakeTimers();
+      const actions = useChatStreamsStore.getState();
+      armThrottle(actions);
+      actions.openStream(baseStream(7));
+      const listener = vi.fn();
+      const unsub = useChatStreamsStore.subscribe(listener);
+
+      actions.appendLiveText(7, 1, "x0"); // leading:立即落库
+      const afterLeading = listener.mock.calls.length;
+      expect(live(7)!.liveDelta).toBe("x0");
+      actions.appendLiveText(7, 1, "x1"); // 进缓冲
+      actions.appendLiveText(7, 1, "x2");
+      expect(listener.mock.calls.length).toBe(afterLeading); // 窗口内零额外通知
+
+      vi.advanceTimersByTime(90); // trailing:一次刷完
+      expect(listener.mock.calls.length).toBe(afterLeading + 1);
+      expect(live(7)!.liveDelta).toBe("x0x1x2");
+      unsub();
+    });
+
+    it("Given 缓冲中的 text, When 同窗内来了 tool_use, Then 先 flush 再冻块,顺序不乱", () => {
+      vi.useFakeTimers();
+      const actions = useChatStreamsStore.getState();
+      armThrottle(actions);
+      actions.openStream(baseStream(7));
+      actions.appendLiveText(7, 1, "let me check "); // leading
+      actions.appendLiveText(7, 1, "files"); // 缓冲
+      actions.appendLiveToolUse(7, 1, {
+        toolName: "read_file",
+        toolUseId: "t1",
+        toolInput: { path: "a" },
+      });
+      const s = live(7)!;
+      expect(s.liveDelta).toBe("");
+      expect(s.liveBlocks).toHaveLength(2);
+      expect(s.liveBlocks[0]).toMatchObject({
+        type: "text",
+        text: "let me check files", // 缓冲字先于冻块落地
+      });
+      expect(s.liveBlocks[1]).toMatchObject({
+        type: "tool_use",
+        toolUseId: "t1",
+      });
+    });
+
+    it("Given 工具空档后的首段话被缓冲, When trailing flush, Then burst 时钟按到达时刻重开而非刷写时刻", () => {
+      vi.useFakeTimers();
+      const actions = useChatStreamsStore.getState();
+      armThrottle(actions);
+      actions.openStream(baseStream(7));
+      actions.appendLiveText(7, 1, "a"); // t=100 leading,开表
+      actions.appendLiveToolUse(7, 1, { toolName: "Bash", toolUseId: "t1" }); // 停表
+      vi.advanceTimersByTime(20); // t=120
+      actions.appendLiveText(7, 1, "back"); // 缓冲(距上次 flush 20ms < 90)
+      expect(live(7)!.liveDelta).toBe(""); // "a" 已被 tool_use 冻块,"back" 尚未落库
+      vi.advanceTimersByTime(90); // t=210 trailing
+      const s = live(7)!;
+      expect(s.liveDelta).toBe("back");
+      expect(s.burstStartedAt).toBe(120); // 到达时刻,不是 210
+    });
+
+    it("Given 缓冲中的 delta, When closeStream, Then 不抛错且不留脏缓冲", () => {
+      vi.useFakeTimers();
+      const actions = useChatStreamsStore.getState();
+      armThrottle(actions);
+      actions.openStream(baseStream(7));
+      actions.appendLiveText(7, 1, "a"); // leading
+      actions.appendLiveText(7, 1, "ghost"); // 缓冲
+      actions.closeStream(7, 1);
+      expect(hasSessionStream(useChatStreamsStore.getState(), 7)).toBe(false);
+      // 同 key 重开新流,旧缓冲不得泄进新流
+      actions.openStream(baseStream(7));
+      actions.appendLiveText(7, 1, "fresh");
+      vi.advanceTimersByTime(200);
+      expect(live(7)!.liveDelta).toBe("fresh");
+    });
+  });
+
   describe("generation clock", () => {
     it("Given a freshly opened stream, Then the clock is already running", () => {
       vi.useFakeTimers();

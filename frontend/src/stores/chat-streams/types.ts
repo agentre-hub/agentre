@@ -149,6 +149,8 @@ export type Actions = {
     >,
   ) => void;
   closeStream: (sessionId: number, assistantMessageId: number) => void;
+  /** 测试钩子:0 = 每次追加立即落库(旧行为);>0 = delta 提交节流窗口 ms。 */
+  __setDeltaFlushMs: (ms: number) => void;
   appendLiveText: (
     sessionId: number,
     assistantMessageId: number,
