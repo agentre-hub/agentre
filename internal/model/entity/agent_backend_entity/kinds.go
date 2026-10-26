@@ -155,10 +155,9 @@ func (codexKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 	if err := validateApproval(ctx, b.Approval); err != nil {
 		return err
 	}
-	// default_permission_mode / default_model 都是 claudecode 专属字段；codex 自有
-	// sandbox/approval 通道与自己的模型解析，不复用这两个字段。
-	if strings.TrimSpace(b.DefaultPermissionMode) != "" ||
-		strings.TrimSpace(b.DefaultModel) != "" {
+	// default_permission_mode 是 claudecode 专属；default_model 在 CLI 登录态下三种
+	// CLI 都可保存（spec 2026-10-26 决策 7），codex 用它作为 thread/start|resume 的模型。
+	if strings.TrimSpace(b.DefaultPermissionMode) != "" {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
 	return nil

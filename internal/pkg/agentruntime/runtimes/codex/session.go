@@ -18,10 +18,6 @@ import (
 	"github.com/agentre-hub/agentre/pkg/codex"
 )
 
-// defaultModelID 是 Agentre 在 codex CLI login 路径没有显式 provider model、
-// 且 runtime 没法从事件里可靠观测模型时写入 RunResult.Model 的兜底值。
-const defaultModelID = "gpt-5.5"
-
 // cxStream 是 codex.Stream 的窄接口。
 type cxStream interface {
 	Next() bool
@@ -353,16 +349,25 @@ func gatewayDeps(req agentruntime.RunRequest) agentruntime.CLIDeps {
 	return deps
 }
 
-// codexEffectiveModel 统一模型解析规则(codex 版):#26 会话级模型覆盖已移除,
-// effectiveModel 取执行侧解析结果(EffectiveLLMConfig v1 seam)的 ModelID。codex
-// 无 backend 默认模型字段 (DefaultModel 仅 claudecode 用),CLI 登录态(无供应商)
-// 返回空,交由调用方按 defaultModelID 兜底。它是 buildLaunchSpec 与 acquireSession
-// 判「模型变化 → evict」的同一取值源。
+// codexEffectiveModel 统一模型解析规则(codex 版):#26 会话级模型覆盖已移除。
+// 解析出的 ModelID 优先;没给出 ModelID 时,只有 CLI 登录态(没有 effective
+// provider)才回退 backend.DefaultModel —— codex 的默认模型就是 thread/start|resume
+// 携带的 model (spec 2026-10-26 决策 7:绑了供应商该值被忽略)。两者皆无则不下发,
+// 帧与今天逐字相同。它是 buildLaunchSpec 与 acquireSession 判「模型变化 → evict」的
+// 同一取值源。
 func codexEffectiveModel(req agentruntime.RunRequest) string {
 	if req.Effective != nil {
-		return strings.TrimSpace(req.Effective.ModelID)
+		if model := strings.TrimSpace(req.Effective.ModelID); model != "" {
+			return model
+		}
 	}
-	return ""
+	if req.EffectiveProviderKey() != "" {
+		return ""
+	}
+	if req.Backend == nil {
+		return ""
+	}
+	return strings.TrimSpace(req.Backend.DefaultModel)
 }
 
 func codexEffectiveModelKey(req agentruntime.RunRequest) string {

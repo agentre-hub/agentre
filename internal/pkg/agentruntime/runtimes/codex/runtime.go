@@ -69,9 +69,11 @@ type codexPermWaiter struct {
 
 // Runtime codex runtime 实现。
 type Runtime struct {
-	mu     sync.Mutex
-	active map[int64]*codexActive
-	pool   *agentruntime.CLISessionPool
+	mu sync.Mutex
+	// queryModels 是短命查询进程的测试缝，不接入会话池。
+	queryModels func(context.Context, *codex.Client) (codex.ModelCatalog, error)
+	active      map[int64]*codexActive
+	pool        *agentruntime.CLISessionPool
 }
 
 // launchIdentity 拼出 codex 的启动身份:ReasoningEffort(-c model_reasoning_effort=
@@ -394,18 +396,16 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 	active.setOut(out)
 
 	// RunResult.Model 上报线程实际模型(sess.Model()),而非启动请求模型:codex 的
-	// thread/resume 返回线程当前 model。绑 provider 时解析出的 ModelID 经 --model 生效后
-	// sess.Model() 即实际运行模型;无 provider 时两者同值,不回归。
+	// thread/resume 返回线程当前 model。绑 provider 时解析出的 ModelID、CLI 登录态下
+	// 后端默认模型经 thread/start|resume 的 model 生效后,sess.Model() 即实际运行模型。
 	modelID := strings.TrimSpace(sess.Model())
 	if modelID == "" {
 		// app-server 没在 thread start/resume 结果里带 model 时 sess.Model() 为空 ——
-		// 此时「观测不到」不等于「跑的是 defaultModelID」:直接落死常量会把一个从没跑过
-		// 的 model id 写进 assistantMsg.Model。回落到本轮请求的 effectiveModel
-		// (解析出的 ModelID),观测不到就按「请求值已生效」处理。
+		// 此时「观测不到」不等于「跑的是某个常量」:直接落死常量会把一个从没跑过的
+		// model id 写进 assistantMsg.Model。回落到本轮请求的 effectiveModel
+		// (解析出的 ModelID / 后端默认模型),观测不到就按「请求值已生效」处理;
+		// 两者皆空(没人指定模型)时宁可不报,也不冒充 CLI 的默认模型。
 		modelID = codexEffectiveModel(req)
-	}
-	if modelID == "" {
-		modelID = defaultModelID
 	}
 	result := &agentruntime.RunResult{ProviderSessionID: sess.ID(), Model: modelID, TurnToken: active.turnToken.Add(1)}
 

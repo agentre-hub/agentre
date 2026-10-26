@@ -154,7 +154,34 @@ func TestRun_ModelResolution(t *testing.T) {
 			for range events {
 			}
 
-			So(result.Model, ShouldEqual, "gpt-5.5")
+			// CLI 登录态且没人指定模型：观测不到就不冒充一个从没跑过的 model id。
+			So(result.Model, ShouldBeEmpty)
+		})
+
+		// 后端默认模型（spec 2026-10-26 决策 7）：CLI 登录态下后端设了 defaultModel，
+		// 那一轮就是用它的模型；app-server 没在 thread 结果里回报 model 时不能写 gpt-5.5
+		// 兜底——用户看到的是「实际会跑的模型」，而这个值就是本轮下发并生效的模型。
+		Convey("Given a codex backend default model, when app-server does not report model, then that default is reported instead of the hardcoded fallback", func() {
+			restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, _ map[string]string, _ string) (cxSessionHandle, error) {
+				return &fakeRuntimeSession{stream: &emptyRuntimeStream{}, sid: "thread-backend-default"}, nil
+			})
+			defer restore()
+
+			events, result, err := NewWithPool(nil).Run(context.Background(), agentruntime.RunRequest{
+				Backend: &agent_backend_entity.AgentBackend{
+					Type:         string(agent_backend_entity.TypeCodex),
+					EnvJSON:      "{}",
+					DefaultModel: "gpt-6-luna",
+				},
+				SessionID: 1,
+				Cwd:       t.TempDir(),
+				UserText:  "hello",
+			})
+			So(err, ShouldBeNil)
+			for range events {
+			}
+
+			So(result.Model, ShouldEqual, "gpt-6-luna")
 		})
 
 		Convey("Given provider model is configured, when app-server reports a different model, then thread actual model (sess.Model) wins (design decision 9)", func() {
@@ -182,7 +209,7 @@ func TestRun_ModelResolution(t *testing.T) {
 
 		// sess.Model() 只在 app-server 的 thread start/resume 结果里带 model 时才有值
 		// (pkg/codex ensureThread → s.model = thread.Model)。观测不到时不能拿死常量
-		// defaultModelID 冒充实际模型:那既会把一个从没跑过的模型 id 写进
+		// 死常量冒充实际模型:那既会把一个从没跑过的模型 id 写进
 		// assistantMsg.Model,又会让 chat_svc 把「观测不到」误判成「所选模型未生效」
 		// —— 每一轮都误报。
 		Convey("Given app-server does not report model, when a provider model is configured, then it is reported instead of the hardcoded default", func() {

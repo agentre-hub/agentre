@@ -122,7 +122,7 @@ func TestBuildLaunchSpec_ProviderModel(t *testing.T) {
 			So(spec.model, ShouldEqual, "gpt-5.4")
 		})
 
-		Convey("Then effective = nil 时 spec.model 为空(CLI 登录态,runtime 兜底 defaultModelID)", func() {
+		Convey("Then effective = nil 时 spec.model 为空(CLI 登录态且没设后端默认模型,不下发 model)", func() {
 			spec := buildLaunchSpec(agentruntime.RunRequest{
 				Backend: &agent_backend_entity.AgentBackend{
 					Type:    string(agent_backend_entity.TypeCodex),
@@ -130,6 +130,39 @@ func TestBuildLaunchSpec_ProviderModel(t *testing.T) {
 				},
 			}, nil, "/tmp/work")
 			So(spec.model, ShouldEqual, "")
+		})
+	})
+}
+
+// TestBuildLaunchSpec_BackendDefaultModel 锁住 codex 后端默认模型（spec 2026-10-26 决策 7）：
+// CLI 登录态下后端设的 defaultModel 就是 thread/start|resume 携带的模型；绑了供应商时它被
+// 忽略（执行侧解析结果说了算）；两者都没有时帧与今天逐字相同（不下发 model）。
+func TestBuildLaunchSpec_BackendDefaultModel(t *testing.T) {
+	Convey("Given CLI 登录态的后端设了 defaultModel", t, func() {
+		backend := &agent_backend_entity.AgentBackend{
+			Type:         string(agent_backend_entity.TypeCodex),
+			EnvJSON:      "{}",
+			DefaultModel: " gpt-6-luna ",
+		}
+
+		Convey("Then spec.model 取它(trim 后下发 thread/start|resume)", func() {
+			So(buildLaunchSpec(agentruntime.RunRequest{Backend: backend}, nil, "/tmp/work").model, ShouldEqual, "gpt-6-luna")
+		})
+
+		Convey("When 同时绑了供应商, Then 解析出的 ModelID 优先, defaultModel 被忽略", func() {
+			spec := buildLaunchSpec(agentruntime.RunRequest{
+				Backend:   backend,
+				Effective: &agentruntime.EffectiveLLMConfig{ProviderKey: "p", ModelID: "glm-4.6"},
+			}, nil, "/tmp/work")
+			So(spec.model, ShouldEqual, "glm-4.6")
+		})
+
+		Convey("When 绑了供应商但解析结果没给出 ModelID, Then defaultModel 仍然被忽略(不下发)", func() {
+			spec := buildLaunchSpec(agentruntime.RunRequest{
+				Backend:   backend,
+				Effective: &agentruntime.EffectiveLLMConfig{ProviderKey: "p"},
+			}, nil, "/tmp/work")
+			So(spec.model, ShouldBeEmpty)
 		})
 	})
 }

@@ -95,6 +95,7 @@ import {
   referencedProviderKeys,
   safeParseEnv,
   saveBackendDraft,
+  supportsCLIModel,
   type BackendDraft,
   type PendingProviderSync,
 } from "./backend-editor/draft";
@@ -720,7 +721,8 @@ function BackendEditor({
   });
   const cliModels = useCLIModels({
     backendId: editing?.id,
-    enabled: type === "claudecode",
+    // CLI 自带模型段按 backendType 通用渲染（spec 2026-10-26 决策 7），不再只认 Claude Code。
+    enabled: supportsCLIModel(type),
     listCLIModels,
     configurationChanged:
       Boolean(editing) &&

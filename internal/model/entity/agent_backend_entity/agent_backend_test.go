@@ -266,9 +266,10 @@ func TestAgentBackendCheck(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "codex rejects non-empty default_model",
-			input:   &AgentBackend{Type: string(TypeCodex), Name: "cx", LLMProviderKey: "11111111-1111-1111-1111-111111111111", DefaultModel: "gpt-5.5"},
-			wantErr: true,
+			// spec 2026-10-26 决策 7：codex 走 CLI 登录态时同样可保存一个 CLI 自带模型。
+			name:    "codex accepts default_model (CLI 登录态)",
+			input:   &AgentBackend{Type: string(TypeCodex), Name: "cx", LLMProviderKey: "11111111-1111-1111-1111-111111111111", DefaultModel: "gpt-6-luna"},
+			wantErr: false,
 		},
 		{
 			name:    "piagent rejects non-empty default_model",

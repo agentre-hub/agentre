@@ -45,6 +45,7 @@ import {
   type Translate,
 } from "./agent-backends-shared";
 import { AgentBackendLogo, LlmProviderLogo } from "./ai-brand-logo";
+import { supportsCLIModel } from "./backend-editor/draft";
 import {
   cliModelResolution,
   type CliModelCatalog,
@@ -259,23 +260,22 @@ export function ModelBindingSection({
 }) {
   const { t } = useTranslation();
   const cliLogin = resolvedMainTarget.mode === "native";
-  const cliModels: CliModelPickerState | undefined =
-    type === "claudecode"
-      ? {
-          ...(cliCatalog ?? { models: [] }),
-          loading: cliModelsLoading,
-          choice: cliLogin
-            ? customModel
-              ? { mode: "fixed", value: customModel }
-              : { mode: "cli-default" }
-            : undefined,
-          onChange: (choice) => {
-            onCustomModelChange(choice.mode === "fixed" ? choice.value : "");
-            onTargetChange({ providerKey: "", modelKey: "" });
-          },
-          onRefresh: onRefreshCLIModels ?? (() => {}),
-        }
-      : undefined;
+  const cliModels: CliModelPickerState | undefined = supportsCLIModel(type)
+    ? {
+        ...(cliCatalog ?? { models: [] }),
+        loading: cliModelsLoading,
+        choice: cliLogin
+          ? customModel
+            ? { mode: "fixed", value: customModel }
+            : { mode: "cli-default" }
+          : undefined,
+        onChange: (choice) => {
+          onCustomModelChange(choice.mode === "fixed" ? choice.value : "");
+          onTargetChange({ providerKey: "", modelKey: "" });
+        },
+        onRefresh: onRefreshCLIModels ?? (() => {}),
+      }
+    : undefined;
   return (
     <section
       data-testid="model-binding-block"

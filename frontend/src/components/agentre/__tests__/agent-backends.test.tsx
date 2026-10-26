@@ -1379,9 +1379,14 @@ describe("AgentBackendsPanel", () => {
       expect(
         within(dialog).getByRole("button", { name: "Model binding" }),
       ).toHaveTextContent(
+        // CLI 自带模型段按 backendType 通用渲染（spec 2026-10-26 决策 7）：claudecode 与
+        // codex 的 CLI 登录态主行都是「<CLI 名> login account + 跟随/固定」；piagent 还没有
+        // 这一节，仍写「CLI login state」。
         type === "claudecode"
           ? /Claude Code login account.*Follow default/
-          : /CLI login state/,
+          : type === "codex"
+            ? /Codex login account.*Follow default/
+            : /CLI login state/,
       );
     },
   );

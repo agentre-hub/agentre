@@ -360,6 +360,20 @@ func revertLastTurns(ctx context.Context, app *appClient, threadID string, numTu
 
 func (c *Client) Close(_ context.Context) error { return nil }
 
+// Model 返回 Client 当前持有的 model id（即下一次 thread/start|resume 会下发的
+// model）。WithModel 没设置时返空串。供调用方装配后做 invariant 校验，也便于单测
+// 断言 WithModel 实际进了 Client（与 pkg/claudecode.Client.Model 同形）。
+func (c *Client) Model() string { return c.model }
+
+// Binary 返回解析后的 CLI 启动路径。
+func (c *Client) Binary() string { return c.binary }
+
+// Env 返回 Client 持有的增量 env map（WithEnv 没设置时为 nil）。
+func (c *Client) Env() map[string]string { return c.env }
+
+// Config 返回 Client 持有的 -c 配置覆盖项（WithConfig 累加的结果）。
+func (c *Client) Config() []string { return c.config }
+
 func (c *Client) defaultRunSpec() runSpec {
 	return runSpec{
 		cwd:      c.cwd,

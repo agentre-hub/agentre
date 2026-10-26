@@ -98,6 +98,19 @@ func TestPiAgentValidateExtra(t *testing.T) {
 	assert.Error(t, piAgentKind{}.ValidateExtra(ctx, &AgentBackend{DefaultModel: "gpt-5"}))
 }
 
+func TestCodexValidateExtra_DefaultModel(t *testing.T) {
+	ctx := context.Background()
+
+	// codex 走 CLI 登录态时可以保存一个 CLI 自带模型作为默认模型（spec 2026-10-26
+	// 决策 7：三种 CLI 都能在后端设置里指定默认模型）。
+	assert.NoError(t, codexKind{}.ValidateExtra(ctx, &AgentBackend{DefaultModel: "gpt-6-luna"}))
+	assert.NoError(t, codexKind{}.ValidateExtra(ctx, &AgentBackend{DefaultModel: "gpt-6-luna", LLMProviderKey: "key-1"}))
+
+	// 其余 codex 不吃的字段仍然拒绝。
+	assert.Error(t, codexKind{}.ValidateExtra(ctx, &AgentBackend{DefaultPermissionMode: "plan"}))
+	assert.Error(t, codexKind{}.ValidateExtra(ctx, &AgentBackend{ModelRoutes: `{"OPUS":"x"}`}))
+}
+
 func TestIsReservedEnvKey(t *testing.T) {
 	cases := []struct {
 		key  string

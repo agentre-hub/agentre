@@ -35,6 +35,8 @@ const (
 	appMethodTurnStarted     = "turn/started"
 	appMethodTurnCompleted   = "turn/completed"
 	appMethodSkillsList      = "skills/list"
+	appMethodModelList       = "model/list"
+	appMethodConfigRead      = "config/read"
 
 	appMethodItemStarted                   = "item/started"
 	appMethodItemCompleted                 = "item/completed"
