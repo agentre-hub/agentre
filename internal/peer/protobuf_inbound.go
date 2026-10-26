@@ -57,6 +57,8 @@ type ProtobufInboundDeps struct {
 	// SetModelTarget 同族:空串是要写下去的值(改回跟随后端配置),不是「不改」。
 	SetReasoningEffort func(context.Context, string, string) error
 	SetPermissionMode  func(context.Context, string, string) error
+	// SetSessionCLIModel 把三态选择交给 chat_svc，空值同样必须传到。
+	SetSessionCLIModel func(context.Context, string, string, string) error
 	RunSession         func(context.Context, remotewire.RunParams, chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error)
 	// SteerSession 入队一条插话,并把 chat_svc 认的那个 queuedID 与「撤不撤得掉」
 	// 交回去 —— 调用方拿自己造的号对不上 SteerConsumed(入队侧另造了一个)。
@@ -293,6 +295,14 @@ func peerSessionPorts(deps ProtobufInboundDeps) wireinbound.SessionPorts {
 				return nil, err
 			}
 			return &agentrewire.SetModelTargetResponse{}, nil
+		}
+	}
+	if deps.SetSessionCLIModel != nil {
+		ports.SetSessionCLIModel = func(ctx context.Context, request *agentrewire.SetSessionCLIModelRequest) (*agentrewire.SetSessionCLIModelResponse, error) {
+			if err := deps.SetSessionCLIModel(ctx, request.GetConversationId(), request.GetMode(), request.GetValue()); err != nil {
+				return nil, err
+			}
+			return &agentrewire.SetSessionCLIModelResponse{}, nil
 		}
 	}
 	if deps.SetReasoningEffort != nil {

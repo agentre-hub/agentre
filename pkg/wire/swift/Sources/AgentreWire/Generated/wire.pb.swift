@@ -105,6 +105,8 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
   case backendConnectionTest // = 75
   case toolApprovalAnswer // = 76
   case cliModelsList // = 77
+  case runtimeSetCliModel // = 78
+  case setSessionCliModel // = 79
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -191,6 +193,8 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     case 75: self = .backendConnectionTest
     case 76: self = .toolApprovalAnswer
     case 77: self = .cliModelsList
+    case 78: self = .runtimeSetCliModel
+    case 79: self = .setSessionCliModel
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -275,6 +279,8 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     case .backendConnectionTest: return 75
     case .toolApprovalAnswer: return 76
     case .cliModelsList: return 77
+    case .runtimeSetCliModel: return 78
+    case .setSessionCliModel: return 79
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -359,6 +365,8 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     .backendConnectionTest,
     .toolApprovalAnswer,
     .cliModelsList,
+    .runtimeSetCliModel,
+    .setSessionCliModel,
   ]
 
 }
@@ -1988,50 +1996,113 @@ public nonisolated struct Agentre_Wire_SessionCountsResponse: Sendable {
   public init() {}
 }
 
-public nonisolated struct Agentre_Wire_SessionSummary: Sendable {
+public nonisolated struct Agentre_Wire_SessionSummary: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var conversationID: String = String()
+  public var conversationID: String {
+    get {_storage._conversationID}
+    set {_uniqueStorage()._conversationID = newValue}
+  }
 
-  public var peerFingerprint: String = String()
+  public var peerFingerprint: String {
+    get {_storage._peerFingerprint}
+    set {_uniqueStorage()._peerFingerprint = newValue}
+  }
 
-  public var agentID: Int64 = 0
+  public var agentID: Int64 {
+    get {_storage._agentID}
+    set {_uniqueStorage()._agentID = newValue}
+  }
 
-  public var title: String = String()
+  public var title: String {
+    get {_storage._title}
+    set {_uniqueStorage()._title = newValue}
+  }
 
-  public var agentSyncID: String = String()
+  public var agentSyncID: String {
+    get {_storage._agentSyncID}
+    set {_uniqueStorage()._agentSyncID = newValue}
+  }
 
-  public var providerSessionID: String = String()
+  public var providerSessionID: String {
+    get {_storage._providerSessionID}
+    set {_uniqueStorage()._providerSessionID = newValue}
+  }
 
-  public var cwd: String = String()
+  public var cwd: String {
+    get {_storage._cwd}
+    set {_uniqueStorage()._cwd = newValue}
+  }
 
-  public var projectSyncID: String = String()
+  public var projectSyncID: String {
+    get {_storage._projectSyncID}
+    set {_uniqueStorage()._projectSyncID = newValue}
+  }
 
-  public var backendType: String = String()
+  public var backendType: String {
+    get {_storage._backendType}
+    set {_uniqueStorage()._backendType = newValue}
+  }
 
-  public var lifecycleState: String = String()
+  public var lifecycleState: String {
+    get {_storage._lifecycleState}
+    set {_uniqueStorage()._lifecycleState = newValue}
+  }
 
-  public var waitingForInput: Bool = false
+  public var waitingForInput: Bool {
+    get {_storage._waitingForInput}
+    set {_uniqueStorage()._waitingForInput = newValue}
+  }
 
-  public var latestSeq: Int64 = 0
+  public var latestSeq: Int64 {
+    get {_storage._latestSeq}
+    set {_uniqueStorage()._latestSeq = newValue}
+  }
 
-  public var lastMessageAt: Int64 = 0
+  public var lastMessageAt: Int64 {
+    get {_storage._lastMessageAt}
+    set {_uniqueStorage()._lastMessageAt = newValue}
+  }
 
-  public var providerKey: String = String()
+  public var providerKey: String {
+    get {_storage._providerKey}
+    set {_uniqueStorage()._providerKey = newValue}
+  }
 
-  public var modelKey: String = String()
+  public var modelKey: String {
+    get {_storage._modelKey}
+    set {_uniqueStorage()._modelKey = newValue}
+  }
 
   /// reasoning_effort is the thinking effort this peer recorded for the session
   /// (one of "", low, medium, high, xhigh, max). Empty means "follow the backend
   /// configuration" — a meaningful value, not "unknown". Display only: the
   /// executing path takes the effort off the run request, never off this column.
-  public var reasoningEffort: String = String()
+  public var reasoningEffort: String {
+    get {_storage._reasoningEffort}
+    set {_uniqueStorage()._reasoningEffort = newValue}
+  }
+
+  /// CLI 选择三态：空 = 跟随 Agent；cli-default = CLI 默认；fixed = cli_model。
+  /// 空值是有效的重置；镜像必须原样保存，不能用后端默认补齐。
+  public var cliModelMode: String {
+    get {_storage._cliModelMode}
+    set {_uniqueStorage()._cliModelMode = newValue}
+  }
+
+  /// fixed 时交给 CLI 的原始 Value（别名、模型 ID 或 provider/id）。
+  public var cliModel: String {
+    get {_storage._cliModel}
+    set {_uniqueStorage()._cliModel = newValue}
+  }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 /// ActivityRollup is the counts-only channel behind the account's activity
@@ -2357,6 +2428,36 @@ public nonisolated struct Agentre_Wire_SetSessionReasoningEffortResponse: Sendab
   public init() {}
 }
 
+/// 会话选择的持久化入口；空 mode/value 是重置，不是「不改」。
+public nonisolated struct Agentre_Wire_SetSessionCLIModelRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var conversationID: String = String()
+
+  public var peerFingerprint: String = String()
+
+  /// 空 = 跟随 Agent；cli-default = CLI 默认；fixed = 固定 value。
+  public var mode: String = String()
+
+  public var value: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentre_Wire_SetSessionCLIModelResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public nonisolated struct Agentre_Wire_Empty: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2583,6 +2684,23 @@ public nonisolated struct Agentre_Wire_RuntimeSetPermissionModeRequest: Sendable
   public var peerFingerprint: String = String()
 
   public var mode: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// 已附着会话的 CLI 热切换；value 为空时回到 CLI 默认，不重启进程。
+public nonisolated struct Agentre_Wire_RuntimeSetCLIModelRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var conversationID: String = String()
+
+  public var peerFingerprint: String = String()
+
+  public var value: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3049,6 +3167,18 @@ public nonisolated struct Agentre_Wire_RuntimeRunRequest: @unchecked Sendable {
   public var desktopSessionID: Int64 {
     get {_storage._desktopSessionID}
     set {_uniqueStorage()._desktopSessionID = newValue}
+  }
+
+  /// 本轮会话选择原样透传：空 = 跟随 backend.default_model，cli-default = 不下发，
+  /// fixed = 下发 cli_model。与会话摘要同名，不能传成已解析模型而丢掉选择语义。
+  public var cliModelMode: String {
+    get {_storage._cliModelMode}
+    set {_uniqueStorage()._cliModelMode = newValue}
+  }
+
+  public var cliModel: String {
+    get {_storage._cliModel}
+    set {_uniqueStorage()._cliModel = newValue}
   }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -7020,7 +7150,7 @@ public nonisolated let Agentre_Wire_Extensions_protocol_version = SwiftProtobuf.
 fileprivate nonisolated let _protobuf_package = "agentre.wire"
 
 nonisolated extension Agentre_Wire_RpcMethod: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RPC_METHOD_UNSPECIFIED\0\u{1}RPC_METHOD_AUTH_ACCOUNT\0\u{1}RPC_METHOD_SESSION_LIST\0\u{1}RPC_METHOD_SESSION_ATTACH\0\u{1}RPC_METHOD_SESSION_PULL\0\u{1}RPC_METHOD_SESSION_PENDING_WAITERS\0\u{1}RPC_METHOD_SESSION_DELETE\0\u{1}RPC_METHOD_SET_MODEL_TARGET\0\u{1}RPC_METHOD_RUNTIME_CAPABILITIES\0\u{1}RPC_METHOD_RUNTIME_STEER\0\u{1}RPC_METHOD_RUNTIME_CANCEL_STEER\0\u{1}RPC_METHOD_RUNTIME_DRAIN_PENDING\0\u{1}RPC_METHOD_RUNTIME_ABORT\0\u{1}RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK\0\u{1}RPC_METHOD_RUNTIME_SET_PERMISSION_MODE\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_ANSWER\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION\0\u{1}RPC_METHOD_RUNTIME_RUN\0\u{1}RPC_METHOD_RUNTIME_GOAL_GET\0\u{1}RPC_METHOD_RUNTIME_GOAL_SET\0\u{1}RPC_METHOD_RUNTIME_GOAL_CLEAR\0\u{1}RPC_METHOD_TERMINAL_OPEN\0\u{1}RPC_METHOD_TERMINAL_WRITE\0\u{1}RPC_METHOD_TERMINAL_RESIZE\0\u{1}RPC_METHOD_TERMINAL_CLOSE\0\u{1}RPC_METHOD_MCP_PROXY\0\u{1}RPC_METHOD_PROJECT_SET_LOCAL_PATH\0\u{1}RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH\0\u{1}RPC_METHOD_SKILLS_CATALOG\0\u{1}RPC_METHOD_REMOTE_FS_LIST_DIR\0\u{1}RPC_METHOD_REMOTE_FS_MKDIR\0\u{1}RPC_METHOD_WORKSPACE_FS_LIST_DIR\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_CHANGES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES\0\u{1}RPC_METHOD_WORKSPACE_FS_READ_FILE\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT\0\u{1}RPC_METHOD_WORKSPACE_FS_SEARCH_FILES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_STATE\0\u{1}RPC_METHOD_AUTH_PAIR\0\u{1}RPC_METHOD_AUTH_CONNECT\0\u{1}RPC_METHOD_AUTH_REVOKE\0\u{1}RPC_METHOD_LLM_UPSERT\0\u{1}RPC_METHOD_LLM_DELETE\0\u{1}RPC_METHOD_LLM_LIST\0\u{1}RPC_METHOD_ENGINE_TEST\0\u{1}RPC_METHOD_ENGINE_DISCOVER\0\u{1}RPC_METHOD_ENGINE_SCAN\0\u{1}RPC_METHOD_CLI_RESOLVE_PATH\0\u{1}RPC_METHOD_CLI_PROBE\0\u{1}RPC_METHOD_HEALTH_PING\0\u{1}RPC_METHOD_CLAUDE_CODE_USAGE\0\u{1}RPC_METHOD_SKILLS_LIST\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_SCAN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_OPEN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_TURNS\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE\0\u{1}RPC_METHOD_ACTIVITY_ROLLUP\0\u{1}RPC_METHOD_SET_SESSION_REASONING_EFFORT\0\u{1}RPC_METHOD_AGENTRED_SELF_UPDATE\0\u{1}RPC_METHOD_SESSION_COUNTS\0\u{1}RPC_METHOD_SKILLS_COMMANDS\0\u{1}RPC_METHOD_PORT_FORWARD_LIST\0\u{1}RPC_METHOD_PORT_FORWARD_CREATE\0\u{1}RPC_METHOD_PORT_FORWARD_SET_ENABLED\0\u{1}RPC_METHOD_PORT_FORWARD_DELETE\0\u{1}RPC_METHOD_PORT_FORWARD_OPEN\0\u{1}RPC_METHOD_PORT_FORWARD_WRITE\0\u{1}RPC_METHOD_PORT_FORWARD_CLOSE\0\u{1}RPC_METHOD_PORT_FORWARD_ACK\0\u{1}RPC_METHOD_AUTH_DIRECT\0\u{1}RPC_METHOD_BACKEND_CREDENTIAL_STATUS\0\u{1}RPC_METHOD_OPENCLAW_TOKEN_SET\0\u{1}RPC_METHOD_HERMES_AUTH_PROVIDERS\0\u{1}RPC_METHOD_HERMES_LOGIN\0\u{1}RPC_METHOD_HERMES_LOGOUT\0\u{1}RPC_METHOD_BACKEND_CONNECTION_TEST\0\u{1}RPC_METHOD_TOOL_APPROVAL_ANSWER\0\u{1}RPC_METHOD_CLI_MODELS_LIST\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RPC_METHOD_UNSPECIFIED\0\u{1}RPC_METHOD_AUTH_ACCOUNT\0\u{1}RPC_METHOD_SESSION_LIST\0\u{1}RPC_METHOD_SESSION_ATTACH\0\u{1}RPC_METHOD_SESSION_PULL\0\u{1}RPC_METHOD_SESSION_PENDING_WAITERS\0\u{1}RPC_METHOD_SESSION_DELETE\0\u{1}RPC_METHOD_SET_MODEL_TARGET\0\u{1}RPC_METHOD_RUNTIME_CAPABILITIES\0\u{1}RPC_METHOD_RUNTIME_STEER\0\u{1}RPC_METHOD_RUNTIME_CANCEL_STEER\0\u{1}RPC_METHOD_RUNTIME_DRAIN_PENDING\0\u{1}RPC_METHOD_RUNTIME_ABORT\0\u{1}RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK\0\u{1}RPC_METHOD_RUNTIME_SET_PERMISSION_MODE\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_ANSWER\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION\0\u{1}RPC_METHOD_RUNTIME_RUN\0\u{1}RPC_METHOD_RUNTIME_GOAL_GET\0\u{1}RPC_METHOD_RUNTIME_GOAL_SET\0\u{1}RPC_METHOD_RUNTIME_GOAL_CLEAR\0\u{1}RPC_METHOD_TERMINAL_OPEN\0\u{1}RPC_METHOD_TERMINAL_WRITE\0\u{1}RPC_METHOD_TERMINAL_RESIZE\0\u{1}RPC_METHOD_TERMINAL_CLOSE\0\u{1}RPC_METHOD_MCP_PROXY\0\u{1}RPC_METHOD_PROJECT_SET_LOCAL_PATH\0\u{1}RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH\0\u{1}RPC_METHOD_SKILLS_CATALOG\0\u{1}RPC_METHOD_REMOTE_FS_LIST_DIR\0\u{1}RPC_METHOD_REMOTE_FS_MKDIR\0\u{1}RPC_METHOD_WORKSPACE_FS_LIST_DIR\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_CHANGES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES\0\u{1}RPC_METHOD_WORKSPACE_FS_READ_FILE\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT\0\u{1}RPC_METHOD_WORKSPACE_FS_SEARCH_FILES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_STATE\0\u{1}RPC_METHOD_AUTH_PAIR\0\u{1}RPC_METHOD_AUTH_CONNECT\0\u{1}RPC_METHOD_AUTH_REVOKE\0\u{1}RPC_METHOD_LLM_UPSERT\0\u{1}RPC_METHOD_LLM_DELETE\0\u{1}RPC_METHOD_LLM_LIST\0\u{1}RPC_METHOD_ENGINE_TEST\0\u{1}RPC_METHOD_ENGINE_DISCOVER\0\u{1}RPC_METHOD_ENGINE_SCAN\0\u{1}RPC_METHOD_CLI_RESOLVE_PATH\0\u{1}RPC_METHOD_CLI_PROBE\0\u{1}RPC_METHOD_HEALTH_PING\0\u{1}RPC_METHOD_CLAUDE_CODE_USAGE\0\u{1}RPC_METHOD_SKILLS_LIST\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_SCAN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_OPEN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_TURNS\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE\0\u{1}RPC_METHOD_ACTIVITY_ROLLUP\0\u{1}RPC_METHOD_SET_SESSION_REASONING_EFFORT\0\u{1}RPC_METHOD_AGENTRED_SELF_UPDATE\0\u{1}RPC_METHOD_SESSION_COUNTS\0\u{1}RPC_METHOD_SKILLS_COMMANDS\0\u{1}RPC_METHOD_PORT_FORWARD_LIST\0\u{1}RPC_METHOD_PORT_FORWARD_CREATE\0\u{1}RPC_METHOD_PORT_FORWARD_SET_ENABLED\0\u{1}RPC_METHOD_PORT_FORWARD_DELETE\0\u{1}RPC_METHOD_PORT_FORWARD_OPEN\0\u{1}RPC_METHOD_PORT_FORWARD_WRITE\0\u{1}RPC_METHOD_PORT_FORWARD_CLOSE\0\u{1}RPC_METHOD_PORT_FORWARD_ACK\0\u{1}RPC_METHOD_AUTH_DIRECT\0\u{1}RPC_METHOD_BACKEND_CREDENTIAL_STATUS\0\u{1}RPC_METHOD_OPENCLAW_TOKEN_SET\0\u{1}RPC_METHOD_HERMES_AUTH_PROVIDERS\0\u{1}RPC_METHOD_HERMES_LOGIN\0\u{1}RPC_METHOD_HERMES_LOGOUT\0\u{1}RPC_METHOD_BACKEND_CONNECTION_TEST\0\u{1}RPC_METHOD_TOOL_APPROVAL_ANSWER\0\u{1}RPC_METHOD_CLI_MODELS_LIST\0\u{1}RPC_METHOD_RUNTIME_SET_CLI_MODEL\0\u{1}RPC_METHOD_SET_SESSION_CLI_MODEL\0")
 }
 
 nonisolated extension Agentre_Wire_AgentredSelfUpdateRejectReason: SwiftProtobuf._ProtoNameProviding {
@@ -9673,104 +9803,184 @@ nonisolated extension Agentre_Wire_SessionCountsResponse: SwiftProtobuf.Message,
 
 nonisolated extension Agentre_Wire_SessionSummary: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SessionSummary"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{3}agent_id\0\u{1}title\0\u{3}agent_sync_id\0\u{3}provider_session_id\0\u{1}cwd\0\u{3}project_sync_id\0\u{3}backend_type\0\u{3}lifecycle_state\0\u{3}waiting_for_input\0\u{3}latest_seq\0\u{3}last_message_at\0\u{3}provider_key\0\u{3}model_key\0\u{3}reasoning_effort\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{3}agent_id\0\u{1}title\0\u{3}agent_sync_id\0\u{3}provider_session_id\0\u{1}cwd\0\u{3}project_sync_id\0\u{3}backend_type\0\u{3}lifecycle_state\0\u{3}waiting_for_input\0\u{3}latest_seq\0\u{3}last_message_at\0\u{3}provider_key\0\u{3}model_key\0\u{3}reasoning_effort\0\u{3}cli_model_mode\0\u{3}cli_model\0")
+
+  fileprivate class _StorageClass {
+    var _conversationID: String = String()
+    var _peerFingerprint: String = String()
+    var _agentID: Int64 = 0
+    var _title: String = String()
+    var _agentSyncID: String = String()
+    var _providerSessionID: String = String()
+    var _cwd: String = String()
+    var _projectSyncID: String = String()
+    var _backendType: String = String()
+    var _lifecycleState: String = String()
+    var _waitingForInput: Bool = false
+    var _latestSeq: Int64 = 0
+    var _lastMessageAt: Int64 = 0
+    var _providerKey: String = String()
+    var _modelKey: String = String()
+    var _reasoningEffort: String = String()
+    var _cliModelMode: String = String()
+    var _cliModel: String = String()
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _conversationID = source._conversationID
+      _peerFingerprint = source._peerFingerprint
+      _agentID = source._agentID
+      _title = source._title
+      _agentSyncID = source._agentSyncID
+      _providerSessionID = source._providerSessionID
+      _cwd = source._cwd
+      _projectSyncID = source._projectSyncID
+      _backendType = source._backendType
+      _lifecycleState = source._lifecycleState
+      _waitingForInput = source._waitingForInput
+      _latestSeq = source._latestSeq
+      _lastMessageAt = source._lastMessageAt
+      _providerKey = source._providerKey
+      _modelKey = source._modelKey
+      _reasoningEffort = source._reasoningEffort
+      _cliModelMode = source._cliModelMode
+      _cliModel = source._cliModel
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.conversationID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.peerFingerprint) }()
-      case 3: try { try decoder.decodeSingularInt64Field(value: &self.agentID) }()
-      case 4: try { try decoder.decodeSingularStringField(value: &self.title) }()
-      case 5: try { try decoder.decodeSingularStringField(value: &self.agentSyncID) }()
-      case 6: try { try decoder.decodeSingularStringField(value: &self.providerSessionID) }()
-      case 7: try { try decoder.decodeSingularStringField(value: &self.cwd) }()
-      case 8: try { try decoder.decodeSingularStringField(value: &self.projectSyncID) }()
-      case 9: try { try decoder.decodeSingularStringField(value: &self.backendType) }()
-      case 10: try { try decoder.decodeSingularStringField(value: &self.lifecycleState) }()
-      case 11: try { try decoder.decodeSingularBoolField(value: &self.waitingForInput) }()
-      case 12: try { try decoder.decodeSingularInt64Field(value: &self.latestSeq) }()
-      case 13: try { try decoder.decodeSingularInt64Field(value: &self.lastMessageAt) }()
-      case 14: try { try decoder.decodeSingularStringField(value: &self.providerKey) }()
-      case 15: try { try decoder.decodeSingularStringField(value: &self.modelKey) }()
-      case 16: try { try decoder.decodeSingularStringField(value: &self.reasoningEffort) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularStringField(value: &_storage._conversationID) }()
+        case 2: try { try decoder.decodeSingularStringField(value: &_storage._peerFingerprint) }()
+        case 3: try { try decoder.decodeSingularInt64Field(value: &_storage._agentID) }()
+        case 4: try { try decoder.decodeSingularStringField(value: &_storage._title) }()
+        case 5: try { try decoder.decodeSingularStringField(value: &_storage._agentSyncID) }()
+        case 6: try { try decoder.decodeSingularStringField(value: &_storage._providerSessionID) }()
+        case 7: try { try decoder.decodeSingularStringField(value: &_storage._cwd) }()
+        case 8: try { try decoder.decodeSingularStringField(value: &_storage._projectSyncID) }()
+        case 9: try { try decoder.decodeSingularStringField(value: &_storage._backendType) }()
+        case 10: try { try decoder.decodeSingularStringField(value: &_storage._lifecycleState) }()
+        case 11: try { try decoder.decodeSingularBoolField(value: &_storage._waitingForInput) }()
+        case 12: try { try decoder.decodeSingularInt64Field(value: &_storage._latestSeq) }()
+        case 13: try { try decoder.decodeSingularInt64Field(value: &_storage._lastMessageAt) }()
+        case 14: try { try decoder.decodeSingularStringField(value: &_storage._providerKey) }()
+        case 15: try { try decoder.decodeSingularStringField(value: &_storage._modelKey) }()
+        case 16: try { try decoder.decodeSingularStringField(value: &_storage._reasoningEffort) }()
+        case 17: try { try decoder.decodeSingularStringField(value: &_storage._cliModelMode) }()
+        case 18: try { try decoder.decodeSingularStringField(value: &_storage._cliModel) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.conversationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.conversationID, fieldNumber: 1)
-    }
-    if !self.peerFingerprint.isEmpty {
-      try visitor.visitSingularStringField(value: self.peerFingerprint, fieldNumber: 2)
-    }
-    if self.agentID != 0 {
-      try visitor.visitSingularInt64Field(value: self.agentID, fieldNumber: 3)
-    }
-    if !self.title.isEmpty {
-      try visitor.visitSingularStringField(value: self.title, fieldNumber: 4)
-    }
-    if !self.agentSyncID.isEmpty {
-      try visitor.visitSingularStringField(value: self.agentSyncID, fieldNumber: 5)
-    }
-    if !self.providerSessionID.isEmpty {
-      try visitor.visitSingularStringField(value: self.providerSessionID, fieldNumber: 6)
-    }
-    if !self.cwd.isEmpty {
-      try visitor.visitSingularStringField(value: self.cwd, fieldNumber: 7)
-    }
-    if !self.projectSyncID.isEmpty {
-      try visitor.visitSingularStringField(value: self.projectSyncID, fieldNumber: 8)
-    }
-    if !self.backendType.isEmpty {
-      try visitor.visitSingularStringField(value: self.backendType, fieldNumber: 9)
-    }
-    if !self.lifecycleState.isEmpty {
-      try visitor.visitSingularStringField(value: self.lifecycleState, fieldNumber: 10)
-    }
-    if self.waitingForInput != false {
-      try visitor.visitSingularBoolField(value: self.waitingForInput, fieldNumber: 11)
-    }
-    if self.latestSeq != 0 {
-      try visitor.visitSingularInt64Field(value: self.latestSeq, fieldNumber: 12)
-    }
-    if self.lastMessageAt != 0 {
-      try visitor.visitSingularInt64Field(value: self.lastMessageAt, fieldNumber: 13)
-    }
-    if !self.providerKey.isEmpty {
-      try visitor.visitSingularStringField(value: self.providerKey, fieldNumber: 14)
-    }
-    if !self.modelKey.isEmpty {
-      try visitor.visitSingularStringField(value: self.modelKey, fieldNumber: 15)
-    }
-    if !self.reasoningEffort.isEmpty {
-      try visitor.visitSingularStringField(value: self.reasoningEffort, fieldNumber: 16)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      if !_storage._conversationID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._conversationID, fieldNumber: 1)
+      }
+      if !_storage._peerFingerprint.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._peerFingerprint, fieldNumber: 2)
+      }
+      if _storage._agentID != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._agentID, fieldNumber: 3)
+      }
+      if !_storage._title.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._title, fieldNumber: 4)
+      }
+      if !_storage._agentSyncID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._agentSyncID, fieldNumber: 5)
+      }
+      if !_storage._providerSessionID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._providerSessionID, fieldNumber: 6)
+      }
+      if !_storage._cwd.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._cwd, fieldNumber: 7)
+      }
+      if !_storage._projectSyncID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._projectSyncID, fieldNumber: 8)
+      }
+      if !_storage._backendType.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._backendType, fieldNumber: 9)
+      }
+      if !_storage._lifecycleState.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._lifecycleState, fieldNumber: 10)
+      }
+      if _storage._waitingForInput != false {
+        try visitor.visitSingularBoolField(value: _storage._waitingForInput, fieldNumber: 11)
+      }
+      if _storage._latestSeq != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._latestSeq, fieldNumber: 12)
+      }
+      if _storage._lastMessageAt != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._lastMessageAt, fieldNumber: 13)
+      }
+      if !_storage._providerKey.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._providerKey, fieldNumber: 14)
+      }
+      if !_storage._modelKey.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._modelKey, fieldNumber: 15)
+      }
+      if !_storage._reasoningEffort.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._reasoningEffort, fieldNumber: 16)
+      }
+      if !_storage._cliModelMode.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._cliModelMode, fieldNumber: 17)
+      }
+      if !_storage._cliModel.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._cliModel, fieldNumber: 18)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentre_Wire_SessionSummary, rhs: Agentre_Wire_SessionSummary) -> Bool {
-    if lhs.conversationID != rhs.conversationID {return false}
-    if lhs.peerFingerprint != rhs.peerFingerprint {return false}
-    if lhs.agentID != rhs.agentID {return false}
-    if lhs.title != rhs.title {return false}
-    if lhs.agentSyncID != rhs.agentSyncID {return false}
-    if lhs.providerSessionID != rhs.providerSessionID {return false}
-    if lhs.cwd != rhs.cwd {return false}
-    if lhs.projectSyncID != rhs.projectSyncID {return false}
-    if lhs.backendType != rhs.backendType {return false}
-    if lhs.lifecycleState != rhs.lifecycleState {return false}
-    if lhs.waitingForInput != rhs.waitingForInput {return false}
-    if lhs.latestSeq != rhs.latestSeq {return false}
-    if lhs.lastMessageAt != rhs.lastMessageAt {return false}
-    if lhs.providerKey != rhs.providerKey {return false}
-    if lhs.modelKey != rhs.modelKey {return false}
-    if lhs.reasoningEffort != rhs.reasoningEffort {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._conversationID != rhs_storage._conversationID {return false}
+        if _storage._peerFingerprint != rhs_storage._peerFingerprint {return false}
+        if _storage._agentID != rhs_storage._agentID {return false}
+        if _storage._title != rhs_storage._title {return false}
+        if _storage._agentSyncID != rhs_storage._agentSyncID {return false}
+        if _storage._providerSessionID != rhs_storage._providerSessionID {return false}
+        if _storage._cwd != rhs_storage._cwd {return false}
+        if _storage._projectSyncID != rhs_storage._projectSyncID {return false}
+        if _storage._backendType != rhs_storage._backendType {return false}
+        if _storage._lifecycleState != rhs_storage._lifecycleState {return false}
+        if _storage._waitingForInput != rhs_storage._waitingForInput {return false}
+        if _storage._latestSeq != rhs_storage._latestSeq {return false}
+        if _storage._lastMessageAt != rhs_storage._lastMessageAt {return false}
+        if _storage._providerKey != rhs_storage._providerKey {return false}
+        if _storage._modelKey != rhs_storage._modelKey {return false}
+        if _storage._reasoningEffort != rhs_storage._reasoningEffort {return false}
+        if _storage._cliModelMode != rhs_storage._cliModelMode {return false}
+        if _storage._cliModel != rhs_storage._cliModel {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -10448,6 +10658,70 @@ nonisolated extension Agentre_Wire_SetSessionReasoningEffortResponse: SwiftProto
   }
 }
 
+nonisolated extension Agentre_Wire_SetSessionCLIModelRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".SetSessionCLIModelRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{1}mode\0\u{1}value\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.conversationID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.peerFingerprint) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.mode) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.value) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.conversationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.conversationID, fieldNumber: 1)
+    }
+    if !self.peerFingerprint.isEmpty {
+      try visitor.visitSingularStringField(value: self.peerFingerprint, fieldNumber: 2)
+    }
+    if !self.mode.isEmpty {
+      try visitor.visitSingularStringField(value: self.mode, fieldNumber: 3)
+    }
+    if !self.value.isEmpty {
+      try visitor.visitSingularStringField(value: self.value, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_SetSessionCLIModelRequest, rhs: Agentre_Wire_SetSessionCLIModelRequest) -> Bool {
+    if lhs.conversationID != rhs.conversationID {return false}
+    if lhs.peerFingerprint != rhs.peerFingerprint {return false}
+    if lhs.mode != rhs.mode {return false}
+    if lhs.value != rhs.value {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_SetSessionCLIModelResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".SetSessionCLIModelResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_SetSessionCLIModelResponse, rhs: Agentre_Wire_SetSessionCLIModelResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Agentre_Wire_Empty: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Empty"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
@@ -10981,6 +11255,46 @@ nonisolated extension Agentre_Wire_RuntimeSetPermissionModeRequest: SwiftProtobu
     if lhs.conversationID != rhs.conversationID {return false}
     if lhs.peerFingerprint != rhs.peerFingerprint {return false}
     if lhs.mode != rhs.mode {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_RuntimeSetCLIModelRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RuntimeSetCLIModelRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{1}value\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.conversationID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.peerFingerprint) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.value) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.conversationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.conversationID, fieldNumber: 1)
+    }
+    if !self.peerFingerprint.isEmpty {
+      try visitor.visitSingularStringField(value: self.peerFingerprint, fieldNumber: 2)
+    }
+    if !self.value.isEmpty {
+      try visitor.visitSingularStringField(value: self.value, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_RuntimeSetCLIModelRequest, rhs: Agentre_Wire_RuntimeSetCLIModelRequest) -> Bool {
+    if lhs.conversationID != rhs.conversationID {return false}
+    if lhs.peerFingerprint != rhs.peerFingerprint {return false}
+    if lhs.value != rhs.value {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -11564,7 +11878,7 @@ nonisolated extension Agentre_Wire_MCPServer: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RuntimeRunRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}backend\0\u{3}agent_id\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{1}cwd\0\u{1}title\0\u{3}agent_sync_id\0\u{3}system_prompt\0\u{3}provider_session_id\0\u{3}fresh_session\0\u{3}user_text\0\u{3}user_blocks\0\u{1}history\0\u{1}compact\0\u{3}fork_anchor\0\u{3}permission_mode\0\u{3}collaboration_mode\0\u{3}mcp_servers\0\u{3}enabled_plugins\0\u{3}llm_provider_key\0\u{3}llm_model_key\0\u{3}source_device\0\u{3}source_device_name\0\u{3}project_sync_id\0\u{3}reasoning_effort\0\u{3}desktop_ctl_token\0\u{3}desktop_session_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}backend\0\u{3}agent_id\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{1}cwd\0\u{1}title\0\u{3}agent_sync_id\0\u{3}system_prompt\0\u{3}provider_session_id\0\u{3}fresh_session\0\u{3}user_text\0\u{3}user_blocks\0\u{1}history\0\u{1}compact\0\u{3}fork_anchor\0\u{3}permission_mode\0\u{3}collaboration_mode\0\u{3}mcp_servers\0\u{3}enabled_plugins\0\u{3}llm_provider_key\0\u{3}llm_model_key\0\u{3}source_device\0\u{3}source_device_name\0\u{3}project_sync_id\0\u{3}reasoning_effort\0\u{3}desktop_ctl_token\0\u{3}desktop_session_id\0\u{3}cli_model_mode\0\u{3}cli_model\0")
 
   fileprivate class _StorageClass {
     var _backend: Agentre_Wire_AgentBackend? = nil
@@ -11594,6 +11908,8 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
     var _reasoningEffort: String = String()
     var _desktopCtlToken: String = String()
     var _desktopSessionID: Int64 = 0
+    var _cliModelMode: String = String()
+    var _cliModel: String = String()
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -11631,6 +11947,8 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
       _reasoningEffort = source._reasoningEffort
       _desktopCtlToken = source._desktopCtlToken
       _desktopSessionID = source._desktopSessionID
+      _cliModelMode = source._cliModelMode
+      _cliModel = source._cliModel
     }
   }
 
@@ -11676,6 +11994,8 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
         case 25: try { try decoder.decodeSingularStringField(value: &_storage._reasoningEffort) }()
         case 26: try { try decoder.decodeSingularStringField(value: &_storage._desktopCtlToken) }()
         case 27: try { try decoder.decodeSingularInt64Field(value: &_storage._desktopSessionID) }()
+        case 28: try { try decoder.decodeSingularStringField(value: &_storage._cliModelMode) }()
+        case 29: try { try decoder.decodeSingularStringField(value: &_storage._cliModel) }()
         default: break
         }
       }
@@ -11769,6 +12089,12 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
       if _storage._desktopSessionID != 0 {
         try visitor.visitSingularInt64Field(value: _storage._desktopSessionID, fieldNumber: 27)
       }
+      if !_storage._cliModelMode.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._cliModelMode, fieldNumber: 28)
+      }
+      if !_storage._cliModel.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._cliModel, fieldNumber: 29)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -11805,6 +12131,8 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
         if _storage._reasoningEffort != rhs_storage._reasoningEffort {return false}
         if _storage._desktopCtlToken != rhs_storage._desktopCtlToken {return false}
         if _storage._desktopSessionID != rhs_storage._desktopSessionID {return false}
+        if _storage._cliModelMode != rhs_storage._cliModelMode {return false}
+        if _storage._cliModel != rhs_storage._cliModel {return false}
         return true
       }
       if !storagesAreEqual {return false}

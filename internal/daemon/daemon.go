@@ -140,6 +140,7 @@ type Daemon struct {
 	// sessionReasoningEffort 与 sessionModelTarget 同族:改这条会话下一轮的 spawn
 	// 参数,同为 Daemon 级、静态注册。
 	sessionReasoningEffort *handlers.SessionReasoningEffortHandlers
+	sessionCLIModel        *handlers.SessionCLIModelHandlers
 
 	mu  sync.RWMutex
 	lan *protorpc.LANServer
@@ -913,6 +914,7 @@ func New(opts Options) (*Daemon, error) {
 		Sessions:          d.sessionStore,
 		LoggedInAccountID: d.loggedInAccountID,
 	})
+	d.sessionCLIModel = handlers.NewSessionCLIModelHandlers(handlers.SessionCLIModelDeps{Sessions: d.sessionStore, LoggedInAccountID: d.loggedInAccountID})
 	d.sessionReasoningEffort = handlers.NewSessionReasoningEffortHandlers(handlers.SessionReasoningEffortDeps{
 		Sessions:          d.sessionStore,
 		LoggedInAccountID: d.loggedInAccountID,
@@ -2425,6 +2427,10 @@ func (s daemonSessionStore) SetModelTarget(
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, providerKey, modelKey)
 }
 
+func (s daemonSessionStore) SetCLIModel(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, mode, value string) (int64, error) {
+	return session_repo.Session().SetCLIModel(dbpkg.WithContextDB(ctx, s.db), peerFingerprint, conversationID, mode, value)
+}
+
 func (s daemonSessionStore) SetReasoningEffort(
 	ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID, reasoningEffort string,
 ) (int64, error) {
@@ -2449,6 +2455,8 @@ func sessionRecordOf(row *session_repo.DaemonSession) handlers.SessionRecord {
 		ProviderKey:       row.ProviderKey,
 		ModelKey:          row.ModelKey,
 		ReasoningEffort:   row.ReasoningEffort,
+		CLIModelMode:      row.CLIModelMode,
+		CLIModel:          row.CLIModel,
 	}
 }
 

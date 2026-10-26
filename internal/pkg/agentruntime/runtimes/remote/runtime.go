@@ -674,6 +674,8 @@ func (r *Runtime) buildRunParams(req agentruntime.RunRequest) (wire.RunParams, e
 		EnabledPlugins:    req.EnabledPlugins,
 		LLMProviderKey:    req.LLMProviderKey,
 		LLMModelKey:       remoteModelKey(req),
+		CLIModelMode:      req.CLIModelMode,
+		CLIModel:          req.CLIModel,
 		// 本轮有效力度已由发起端的那一个边界函数合成进 Backend 副本(硬不变量 2),
 		// 这里只把它单列过线 —— 浏览器端发的 backend 负载是空壳,只塞负载到不了执行侧。
 		ReasoningEffort:  remoteReasoningEffort(req),
@@ -1055,6 +1057,13 @@ func (r *Runtime) StopBackgroundTask(ctx context.Context, sessionID int64, taskI
 		return agentruntime.ErrNoActiveTurn
 	}
 	_, err := callSession(ctx, r, sessionID, wirecall.RuntimeStopBackgroundTask, wire.MethodStopBackgroundTask, &agentrewire.RuntimeStopBackgroundTaskRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: string(r.originFor(sessionID)), TaskId: taskID})
+	return err
+}
+
+// SetCLIModel 沿附着会话的控制通道转交执行设备，拒绝原文不改写。
+func (r *Runtime) SetCLIModel(ctx context.Context, sessionID int64, value string) error {
+	// 常驻 CLI 活过轮次；本地 events 流已关闭也要向执行端发请求，必要时由 callSession 接管。
+	_, err := callSession(ctx, r, sessionID, wirecall.RuntimeSetCLIModel, wire.MethodSetCLIModel, &agentrewire.RuntimeSetCLIModelRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: string(r.originFor(sessionID)), Value: value})
 	return err
 }
 

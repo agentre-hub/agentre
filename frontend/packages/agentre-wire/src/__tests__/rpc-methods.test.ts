@@ -46,6 +46,8 @@ describe("typed protobuf RPC methods", () => {
       75,
       76,
       77,
+      78,
+      79,
     ]);
   });
 
@@ -93,6 +95,69 @@ describe("typed protobuf RPC methods", () => {
         models,
         effectiveValue: "provider/id",
         effectiveModelId: "id",
+      });
+    }
+  });
+
+  it("Given a session CLI choice, When encoding run, switch, reset and summary frames, Then the raw selection survives", () => {
+    for (const choice of [
+      { mode: "fixed", value: "provider/id" },
+      { mode: "cli-default", value: "" },
+      { mode: "", value: "" },
+    ]) {
+      const run = encodeRpcMethodRequest(10n, rpcMethods.runtimeRun, {
+        conversationId: CONVERSATION_ID,
+        cliModelMode: choice.mode,
+        cliModel: choice.value,
+      });
+      expect(ProtobufRpcCodec.decode(run).body).toMatchObject({
+        case: "typedMethodRequest",
+        value: { cliModelMode: choice.mode, cliModel: choice.value },
+      });
+      const setting = encodeRpcMethodRequest(
+        11n,
+        rpcMethods.setSessionCLIModel,
+        {
+          conversationId: CONVERSATION_ID,
+          ...choice,
+        },
+      );
+      expect(ProtobufRpcCodec.decode(setting).body).toMatchObject({
+        case: "typedMethodRequest",
+        methodId: RpcMethod.SET_SESSION_CLI_MODEL,
+        value: { conversationId: CONVERSATION_ID, ...choice },
+      });
+      const switchModel = encodeRpcMethodRequest(
+        12n,
+        rpcMethods.runtimeSetCLIModel,
+        {
+          conversationId: CONVERSATION_ID,
+          value: choice.value,
+        },
+      );
+      expect(ProtobufRpcCodec.decode(switchModel).body).toMatchObject({
+        case: "typedMethodRequest",
+        methodId: RpcMethod.RUNTIME_SET_CLI_MODEL,
+        value: { conversationId: CONVERSATION_ID, value: choice.value },
+      });
+      const listed = ProtobufRpcCodec.encodeTypedMethodResponse(
+        13n,
+        rpcMethods.sessionList,
+        {
+          sessions: [
+            {
+              conversationId: CONVERSATION_ID,
+              cliModelMode: choice.mode,
+              cliModel: choice.value,
+            },
+          ],
+        },
+      );
+      expect(
+        decodeRpcMethodResponse(listed, rpcMethods.sessionList).sessions[0],
+      ).toMatchObject({
+        cliModelMode: choice.mode,
+        cliModel: choice.value,
       });
     }
   });

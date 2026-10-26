@@ -73,7 +73,10 @@ type DaemonSession struct {
 	// 条纪律:**不在 Upsert 的赋值列里**,改它只有 SetReasoningEffort 一条路 —— 每轮
 	// 起手幂等覆盖会把用户轮中刚选好的档位冲回旧值。
 	ReasoningEffort string `gorm:"column:reasoning_effort"`
-	Createtime      int64  `gorm:"column:createtime"`
+	// 会话三态只由 SetCLIModel 改写，轮次元数据 Upsert 不覆盖用户刚保存的选择。
+	CLIModelMode string `gorm:"column:cli_model_mode"`
+	CLIModel     string `gorm:"column:cli_model"`
+	Createtime   int64  `gorm:"column:createtime"`
 	// LastMessageAt 是这条会话最后一次活动的时刻（毫秒 epoch）。它**不叫**
 	// UpdatedAt：那个名字会被 GORM 认作行更新时刻、在每一次写入上自动改写，而这一
 	// 格是会话清单的排序键与线格式 SessionSummary.last_message_at 的唯一真相源。
@@ -118,6 +121,9 @@ type SessionRepo interface {
 	// 会话)。空串是**要写下去的值**(改回跟随后端配置),所以同样不能用「非空才写」
 	// 的部分更新;刻意不走 Upsert,理由同 SetModelTarget。
 	SetReasoningEffort(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, reasoningEffort string) (int64, error)
+
+	// SetCLIModel 写入三态选择并清空互斥的供应商目标；空值是重置。
+	SetCLIModel(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, mode, value string) (int64, error)
 
 	// Find 取某个对端名下的一条会话;不存在返回 (nil, nil)。
 	Find(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID string) (*DaemonSession, error)
@@ -244,8 +250,17 @@ func (r *sessionRepo) SetModelTarget(
 		Updates(map[string]any{
 			"provider_key":    providerKey,
 			"model_key":       modelKey,
+			"cli_model_mode":  "",
+			"cli_model":       "",
 			"last_message_at": time.Now().UnixMilli(),
 		})
+	return res.RowsAffected, res.Error
+}
+
+func (r *sessionRepo) SetCLIModel(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, mode, value string) (int64, error) {
+	res := db.Ctx(ctx).Model(&DaemonSession{}).
+		Where("peer_fingerprint = ? AND conversation_id = ?", peerFingerprint, conversationID).
+		Updates(map[string]any{"cli_model_mode": mode, "cli_model": value, "provider_key": "", "model_key": "", "last_message_at": time.Now().UnixMilli()})
 	return res.RowsAffected, res.Error
 }
 

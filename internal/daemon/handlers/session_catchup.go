@@ -155,6 +155,8 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, request *agentrewire.
 			ProviderKey:       row.ProviderKey,
 			ModelKey:          row.ModelKey,
 			ReasoningEffort:   row.ReasoningEffort,
+			CliModelMode:      row.CLIModelMode,
+			CliModel:          row.CLIModel,
 		}
 		// Origin 只标在**别的对端**发起的那些会话上。空 origin 的语义是
 		// ResolveSessionPeer 的入口约定 ——「省略 = 调用方自己的对端」—— 而清单是客户端

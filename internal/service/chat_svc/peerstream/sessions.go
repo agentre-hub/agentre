@@ -275,6 +275,8 @@ func peerSessionSummary(
 		// 会话级思考力度同一形态的显示镜像（spec 2026-09-01 决策 1）：空表示跟随该
 		// 会话那一档 backend 的配置，同样不补默认、不猜。
 		ReasoningEffort: session.ReasoningEffort,
+		CLIModelMode:    session.CLIModelMode,
+		CLIModel:        session.CLIModel,
 	}, nil
 }
 

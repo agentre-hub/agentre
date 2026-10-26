@@ -161,6 +161,8 @@ func (s *chatSvc) runFreshPeerSession(
 		ProviderKey:           params.LLMProviderKey,
 		ModelKey:              params.LLMModelKey,
 		ReasoningEffort:       params.ReasoningEffort,
+		CLIModelMode:          params.CLIModelMode,
+		CLIModel:              params.CLIModel,
 		EmitTurnStartedBypass: true,
 		peerSource:            source.messageSource(),
 		peerBlocks:            userBlocks,

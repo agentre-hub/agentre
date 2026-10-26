@@ -100,6 +100,9 @@ func registerSessionCatalogMethods(registry *protorpc.Registry, ports SessionPor
 }
 
 func registerSessionControlMethods(registry *protorpc.Registry, ports SessionPorts) {
+	if ports.SetSessionCLIModel != nil {
+		protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SET_SESSION_CLI_MODEL), func() *agentrewire.SetSessionCLIModelRequest { return &agentrewire.SetSessionCLIModelRequest{} }, forward(ports, ports.SetSessionCLIModel))
+	}
 	if ports.Attach != nil {
 		protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), func() *agentrewire.SessionAttachRequest { return &agentrewire.SessionAttachRequest{} }, forward(ports, ports.Attach))
 	}
@@ -124,6 +127,9 @@ func registerSessionControlMethods(registry *protorpc.Registry, ports SessionPor
 }
 
 func registerSessionRuntimeMethods(registry *protorpc.Registry, ports SessionPorts) {
+	if ports.SetCLIModel != nil {
+		protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_CLI_MODEL), func() *agentrewire.RuntimeSetCLIModelRequest { return &agentrewire.RuntimeSetCLIModelRequest{} }, forward(ports, ports.SetCLIModel))
+	}
 	if ports.Capabilities != nil {
 		protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CAPABILITIES), func() *agentrewire.RuntimeCapabilitiesRequest { return &agentrewire.RuntimeCapabilitiesRequest{} }, forward(ports, ports.Capabilities))
 	}

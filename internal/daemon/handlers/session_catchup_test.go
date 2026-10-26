@@ -864,7 +864,7 @@ func TestSessionCatchup_List_ReportsSessionReasoningEffort(t *testing.T) {
 	sessions.EXPECT().List(gomock.Any(), devicefp.Initiator(""), handlers.SessionListFilter{}, 0, 0).Return([]handlers.SessionRecord{
 		// 钉住了某一档。
 		{PeerSessionID: convID(1), BackendType: "codex", LifecycleState: wire.SessionLifecycleRunning,
-			ReasoningEffort: "xhigh"},
+			ReasoningEffort: "xhigh", CLIModelMode: "fixed", CLIModel: "sonnet"},
 		// 跟随后端配置:这一格是空的,而空是个有含义的值。
 		{PeerSessionID: convID(2), BackendType: "codex", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
@@ -875,6 +875,10 @@ func TestSessionCatchup_List_ReportsSessionReasoningEffort(t *testing.T) {
 	require.Len(t, got.Sessions, 2)
 
 	assert.Equal(t, "xhigh", got.Sessions[0].ReasoningEffort)
+	assert.Equal(t, "fixed", got.Sessions[0].CliModelMode)
+	assert.Equal(t, "sonnet", got.Sessions[0].CliModel)
+	assert.Empty(t, got.Sessions[1].CliModelMode)
+	assert.Empty(t, got.Sessions[1].CliModel)
 	assert.Empty(t, got.Sessions[1].ReasoningEffort, "跟随后端配置:这一格就该是空的")
 }
 

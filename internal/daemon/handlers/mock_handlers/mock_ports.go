@@ -576,6 +576,45 @@ func (mr *MockSessionModelTargetPortMockRecorder) SetModelTarget(ctx, peerFinger
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetModelTarget", reflect.TypeOf((*MockSessionModelTargetPort)(nil).SetModelTarget), ctx, peerFingerprint, peerSessionID, providerKey, modelKey)
 }
 
+// MockSessionCLIModelPort is a mock of SessionCLIModelPort interface.
+type MockSessionCLIModelPort struct {
+	ctrl     *gomock.Controller
+	recorder *MockSessionCLIModelPortMockRecorder
+	isgomock struct{}
+}
+
+// MockSessionCLIModelPortMockRecorder is the mock recorder for MockSessionCLIModelPort.
+type MockSessionCLIModelPortMockRecorder struct {
+	mock *MockSessionCLIModelPort
+}
+
+// NewMockSessionCLIModelPort creates a new mock instance.
+func NewMockSessionCLIModelPort(ctrl *gomock.Controller) *MockSessionCLIModelPort {
+	mock := &MockSessionCLIModelPort{ctrl: ctrl}
+	mock.recorder = &MockSessionCLIModelPortMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockSessionCLIModelPort) EXPECT() *MockSessionCLIModelPortMockRecorder {
+	return m.recorder
+}
+
+// SetCLIModel mocks base method.
+func (m *MockSessionCLIModelPort) SetCLIModel(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, mode, value string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetCLIModel", ctx, peerFingerprint, conversationID, mode, value)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetCLIModel indicates an expected call of SetCLIModel.
+func (mr *MockSessionCLIModelPortMockRecorder) SetCLIModel(ctx, peerFingerprint, conversationID, mode, value any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCLIModel", reflect.TypeOf((*MockSessionCLIModelPort)(nil).SetCLIModel), ctx, peerFingerprint, conversationID, mode, value)
+}
+
 // MockSessionReasoningEffortPort is a mock of SessionReasoningEffortPort interface.
 type MockSessionReasoningEffortPort struct {
 	ctrl     *gomock.Controller

@@ -125,6 +125,18 @@ export const rpcMethods = {
     pb.RuntimeStopBackgroundTaskRequestSchema,
     pb.EmptySchema,
   ),
+  runtimeSetCLIModel: method(
+    "runtimeSetCLIModel",
+    78,
+    pb.RuntimeSetCLIModelRequestSchema,
+    pb.EmptySchema,
+  ),
+  setSessionCLIModel: method(
+    "setSessionCLIModel",
+    79,
+    pb.SetSessionCLIModelRequestSchema,
+    pb.SetSessionCLIModelResponseSchema,
+  ),
   runtimeSetPermissionMode: method(
     "runtimeSetPermissionMode",
     14,

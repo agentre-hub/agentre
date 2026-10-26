@@ -36,6 +36,10 @@ export const MethodStopBackgroundTask = "runtime.stopBackgroundTask";
 
 export const MethodSetPermissionMode = "runtime.setPermissionMode";
 
+export const MethodSetCLIModel = "runtime.setCLIModel";
+
+export const MethodSetSessionCLIModel = "runtime.setSessionCLIModel";
+
 export const MethodSetModelTarget = "runtime.setModelTarget";
 
 /**
