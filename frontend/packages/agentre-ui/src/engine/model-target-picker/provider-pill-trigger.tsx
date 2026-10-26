@@ -11,7 +11,12 @@ import { RefreshCw, UserRound } from "lucide-react";
 import * as React from "react";
 
 import { useUiTranslation as useTranslation } from "../../i18n";
-import { LlmModelLogo, LlmProviderLogo } from "../ai-brand-logo";
+import {
+  AgentBackendLogo,
+  LlmModelLogo,
+  LlmProviderLogo,
+} from "../ai-brand-logo";
+import { resolveProviderPillLogoTier } from "./pill-state";
 
 /**
  * 这颗 pill 此刻处在四态里的哪一个，以及它解析到了什么。
@@ -31,6 +36,13 @@ export type ProviderPillState = {
   resolutionLabel: string;
   dynamic: boolean;
   cliLogin: boolean;
+  /**
+   * 这一轮执行的 CLI 后端类型（claudecode / codex / piagent）。
+   *
+   * 只参与跟随态图标的回落链第三格（模型 → 供应商 → 后端 → 人形），宿主不知道时
+   * 留空即可 —— 所以是可选字段，既有消费方的视图模型不必改。
+   */
+  backendType?: string | null;
 };
 
 /**
@@ -42,15 +54,19 @@ export type ProviderPillState = {
  *
  * 模式不写成一行字，而是由图标（人形 / 品牌标识 / 失效态的警示三角由 Picker 画）
  * 加 ↻（跟随默认才有）表达，省下来的一行让「实际会跑哪个模型」直接上脸。
+ *
+ * 跟随态也画**解析到的模型**的品牌标识（spec 决策 8）：品牌比人形更快认出模型。
+ * 回落链见 `resolveProviderPillLogoTier`——模型 → 供应商 → 后端 → 人形，不留空位。
  */
 export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
   const { t } = useTranslation();
 
+  const logoClass = "size-3.5";
   const providerLogo = state.providerType ? (
     <LlmProviderLogo
       providerType={state.providerType}
       providerName={state.providerLabel}
-      className="size-3.5"
+      className={logoClass}
     />
   ) : null;
   const modelLogo = state.modelId ? (
@@ -58,11 +74,38 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
       model={state.modelId}
       providerType={state.providerType}
       providerName={state.providerLabel}
-      className="size-3.5"
+      className={logoClass}
     />
   ) : (
     providerLogo
   );
+
+  // 跟随态的脸：模型标识 → 供应商标识 → 后端标识 → 人形。宁可和今天一样画人形，
+  // 也不许空出一格。
+  const followAgentIcon = (() => {
+    const tier = resolveProviderPillLogoTier({
+      modelId: state.modelId,
+      providerType: state.providerType,
+      backendType: state.backendType,
+    });
+    if (tier === "model") return modelLogo;
+    if (tier === "provider") return providerLogo;
+    if (tier === "backend" && state.backendType) {
+      return (
+        <AgentBackendLogo
+          backendType={state.backendType}
+          className={logoClass}
+        />
+      );
+    }
+    return (
+      <UserRound
+        data-testid="follow-agent-icon"
+        className="size-3.5 shrink-0 text-muted-foreground"
+        aria-hidden="true"
+      />
+    );
+  })();
 
   const resolvedTarget =
     state.modelLabel ||
@@ -70,16 +113,12 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
     (state.cliLogin ? t("modelTargetPicker.special.backend") : null);
 
   const triggerIcon =
-    state.mode === "follow-agent" ? (
-      <UserRound
-        data-testid="follow-agent-icon"
-        className="size-3.5 shrink-0 text-muted-foreground"
-        aria-hidden="true"
-      />
-    ) : state.mode === "invalid" ? null : (
-      // 失效态的警示三角由 Picker 的 invalid 分支画,这里不重复挂图标。
-      modelLogo
-    );
+    state.mode === "follow-agent"
+      ? followAgentIcon
+      : state.mode === "invalid"
+        ? null
+        : // 失效态的警示三角由 Picker 的 invalid 分支画,这里不重复挂图标。
+          modelLogo;
 
   const modeMarker = state.dynamic ? (
     <RefreshCw

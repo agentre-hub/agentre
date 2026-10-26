@@ -1,3 +1,4 @@
+import { resolveModelBrand } from "../ai-brand-logo";
 import { modelDisplayName } from "../model-display-name";
 import type { ProviderPillState } from "./provider-pill-trigger";
 import type { ModelTarget, PickerProvider } from "./types";
@@ -31,6 +32,35 @@ export interface ProviderPillStateInput {
   /** 这条会话生效的目标。两格皆空 = 跟随 Agent 绑定。 */
   target: ModelTarget;
   catalog: PickerProvider[];
+  /**
+   * 这一轮执行的 CLI 后端类型，只在跟随态图标的回落链第三格（后端标识）用得到。
+   * 宿主不知道就不传——视图模型上它是可选字段。
+   */
+  backendType?: string | null;
+}
+
+/**
+ * 「跟随 Agent 绑定」那一格该画哪个标识：模型 → 供应商 → 后端 → 人形（spec 决策 8）。
+ *
+ * 品牌标识比人形更快认出模型，所以模型 ID 认得出品牌就用模型的；认不出（中转商的
+ * 私有化命名）退到供应商标识（供应商的三种 type 都有真品牌 mark），连供应商都没有
+ * （CLI 登录态 / 还没解析）则退到后端标识，最次回到人形——**绝不空出一格**。
+ *
+ * 收在这里而不是内联在触发器里，是因为它是「脸」的语义；宿主不该为同一颗 pill 各写一份。
+ */
+export type ProviderPillLogoTier = "model" | "provider" | "backend" | "person";
+
+export function resolveProviderPillLogoTier(input: {
+  /** 解析到的模型 ID；展示名猜不出品牌，所以只认它。 */
+  modelId: string;
+  providerType: string;
+  /** 这一轮执行的 CLI 后端类型；空串 = 宿主还没告诉。 */
+  backendType?: string | null;
+}): ProviderPillLogoTier {
+  if (input.modelId && resolveModelBrand(input.modelId)) return "model";
+  if (input.providerType) return "provider";
+  if (input.backendType) return "backend";
+  return "person";
 }
 
 /** 钉了目标但它在目录里解析不出来（缺失 / 停用 / 被删）。未钉恒为假。 */
@@ -65,6 +95,7 @@ function followAgentState(input: ProviderPillStateInput): ProviderPillState {
       resolutionLabel: providerLabel,
       dynamic: false,
       cliLogin,
+      backendType: input.backendType ?? "",
     };
   }
 
@@ -85,6 +116,7 @@ function followAgentState(input: ProviderPillStateInput): ProviderPillState {
     // 绑的是供应商而不是具体模型 → 供应商换默认模型这里就跟着换，那正是 ↻。
     dynamic: !fixedModel && !!resolvedModel,
     cliLogin,
+    backendType: input.backendType ?? "",
   };
 }
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveProviderPillState } from "./pill-state";
+import {
+  resolveProviderPillLogoTier,
+  resolveProviderPillState,
+} from "./pill-state";
 import type { PickerModel, PickerProvider } from "./types";
 
 function model(over: Partial<PickerModel> = {}): PickerModel {
@@ -74,6 +77,28 @@ describe("resolveProviderPillState 跟随 Agent 绑定", () => {
     expect(s.modelId).toBe("");
     expect(s.dynamic).toBe(false);
     expect(s.resolutionLabel).toBe("Anthropic");
+  });
+
+  // 回落链第三格要用后端标识，所以宿主给的后端类型必须原样透到视图模型上；
+  // 不给（可选）时保持空，既有消费方一行都不用改。
+  it("跟随态把宿主给的后端类型透到视图模型上", () => {
+    expect(
+      resolveProviderPillState({
+        boundProviderKey: "",
+        boundModelKey: "",
+        backendType: "claudecode",
+        target: { providerKey: "", modelKey: "" },
+        catalog,
+      }).backendType,
+    ).toBe("claudecode");
+    expect(
+      resolveProviderPillState({
+        boundProviderKey: "pk-anthropic",
+        boundModelKey: "",
+        target: { providerKey: "", modelKey: "" },
+        catalog,
+      }).backendType,
+    ).toBe("");
   });
 
   // cliLogin 是一句肯定的话，只有确知空串才配说；「还没拿到」说不出这句。
@@ -185,5 +210,52 @@ describe("resolveProviderPillState 失效", () => {
     expect(s.mode).toBe("provider-default");
     expect(s.modelLabel).toBe("");
     expect(s.dynamic).toBe(false);
+  });
+});
+
+// 决策 8 的回落链：模型标识 → 供应商标识 → 后端标识 → 人形。收成纯函数是因为
+// 两端画的是同一颗 pill，脸上一格图标的优先级也只能有一份。
+describe("resolveProviderPillLogoTier 品牌标识回落链", () => {
+  it("模型 ID 认得出品牌：第一格", () => {
+    expect(
+      resolveProviderPillLogoTier({
+        modelId: "claude-sonnet-4-6",
+        providerType: "anthropic",
+        backendType: "claudecode",
+      }),
+    ).toBe("model");
+  });
+
+  // 模型名认不出（中转商的私有化命名）→ 供应商标识；供应商模式下这一格几乎总是命中。
+  it("模型认不出但供应商标识认得出：第二格", () => {
+    expect(
+      resolveProviderPillLogoTier({
+        modelId: "relay-private-1",
+        providerType: "anthropic",
+        backendType: "claudecode",
+      }),
+    ).toBe("provider");
+  });
+
+  // 没有供应商可认领（CLI 登录态 / 还没解析）→ 后端标识：这一轮跑在哪个 CLI 上。
+  it("没有供应商可认领时：退到后端标识", () => {
+    expect(
+      resolveProviderPillLogoTier({
+        modelId: "",
+        providerType: "",
+        backendType: "codex",
+      }),
+    ).toBe("backend");
+  });
+
+  // 三格全落空才回到人形 —— 宁可和今天一样，也不许空出一格。
+  it("三格全落空：人形", () => {
+    expect(
+      resolveProviderPillLogoTier({
+        modelId: "",
+        providerType: "",
+        backendType: "",
+      }),
+    ).toBe("person");
   });
 });
