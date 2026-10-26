@@ -27,6 +27,8 @@ type ProtobufInboundDeps struct {
 	// Engine 是引擎探测一族(engine.* / cli.resolvePath)的端口集。它与 Peripheral
 	// 分开,是因为这一族的族闸门是**端口**:两种执行端对它的准入并不相同。
 	Engine wireinbound.EngineDeps
+	// CLIModelsList 只查询此桌面设备的 CLI，不转调绑定在其他设备的后端。
+	CLIModelsList func(context.Context, *agentrewire.CLIModelsListRequest) (*agentrewire.CLIModelsListResponse, error)
 	// Capabilities 交出这台机器上某个 backend 的能力矩阵。它交的是**领域值**而不是
 	// 线上的应答:折成线格式那一步与 agentred 逐字相同,已经收进 wireinbound。
 	Capabilities func(context.Context, remotewire.CapabilitiesParams) (remotewire.CapabilitiesResult, error)
@@ -170,6 +172,7 @@ func NewProtobufInboundRegistry(deps ProtobufInboundDeps) *protorpc.Registry {
 		})
 	wireinbound.RegisterPeripheralMethods(registry, deps.Peripheral)
 	wireinbound.RegisterEngineMethods(registry, deps.Engine)
+	wireinbound.RegisterCLIModelsList(registry, deps.CLIModelsList)
 	wireinbound.RegisterSessionMethods(registry, peerSessionPorts(deps))
 	return registry
 }

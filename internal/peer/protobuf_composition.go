@@ -51,6 +51,7 @@ func productionProtobufInboundDeps(portForward *portforward.Handlers) ProtobufIn
 			Test:           newDesktopEngineTest(desktopEngineProviders{}),
 			ResolveCLIPath: desktopResolveCLIPath,
 		},
+		CLIModelsList: handlers.NewCLIModelsHandlers().List,
 		Peripheral: wireinbound.PeripheralDeps{
 			Skills: handlers.NewSkillsHandlers(), RemoteFS: remotefs.NewHandlers(remotefs.Options{}),
 			// WorkspaceFS 与 RemoteFS 同一形状:零配置构造,与 agentred 那一侧

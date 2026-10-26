@@ -66,7 +66,42 @@ func TestListCLIModels(t *testing.T) {
 		repo.EXPECT().Find(ctx, int64(7)).Return(&agent_backend_entity.AgentBackend{ID: 7, Type: "claudecode", Status: consts.ACTIVE, DeviceFingerprint: devicefp.Carrier("sha256:other")}, nil)
 		got, err := svc.ListCLIModels(ctx, &ListCLIModelsRequest{BackendID: 7})
 		require.NoError(t, err)
-		So(got.Error, ShouldContainSubstring, "not supported yet")
+		So(got.Error, ShouldNotContainSubstring, "not supported yet")
+		So(got.Error, ShouldNotBeBlank)
+	})
+}
+
+func TestListCLIModelsRemote(t *testing.T) {
+	Convey("Given a remote backend and its device overlay, When listing or refreshing, Then only the remote querier runs with that device config and failures are not cached", t, func() {
+		ctx, repo, _, _, _, svc := setupSvcTest(t)
+		svc.cliModelQuerier = mock_agentruntime.NewMockCLIModelQuerier(gomock.NewController(t))
+		q := mock_agentruntime.NewMockCLIModelQuerier(gomock.NewController(t))
+		svc.remoteCLIModelQuerier = q
+		fp := devicefp.Carrier("sha256:remote")
+		backend := &agent_backend_entity.AgentBackend{ID: 7, Type: "claudecode", Status: consts.ACTIVE, DeviceFingerprint: fp, CLIPath: "/wrong/local", EnvJSON: `{"X":"remote"}`, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "backend-7"}}
+		repo.EXPECT().Find(ctx, int64(7)).Return(backend, nil).Times(4)
+		repo.EXPECT().FindCLIOverlay(ctx, "backend-7", fp).Return(&agent_backend_entity.CLIOverlay{CLIPath: "/remote/claude"}, nil).Times(4)
+		q.EXPECT().QueryCLIModels(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req agentruntime.CLIModelQueryRequest) (agentruntime.CLIModelCatalog, error) {
+			require.Equal(t, "/remote/claude", req.Backend.CLIPath)
+			require.Equal(t, fp, req.Backend.DeviceFingerprint)
+			require.Equal(t, backend.EnvJSON, req.Backend.EnvJSON)
+			return agentruntime.CLIModelCatalog{Models: []agentruntime.CLIModel{{Value: "remote-only"}}, EffectiveValue: "remote-only", EffectiveModelID: "remote-id"}, nil
+		})
+		q.EXPECT().QueryCLIModels(gomock.Any(), gomock.Any()).Return(agentruntime.CLIModelCatalog{}, errors.New("remote CLI original failure")).Times(2)
+		for range 2 {
+			got, err := svc.ListCLIModels(ctx, &ListCLIModelsRequest{BackendID: 7})
+			require.NoError(t, err)
+			require.Empty(t, got.Error)
+			require.Equal(t, "remote-only", got.Models[0].Value)
+			require.Equal(t, "remote-id", got.EffectiveModelID)
+		}
+		for i := range 2 {
+			got, err := svc.ListCLIModels(ctx, &ListCLIModelsRequest{BackendID: 7, Refresh: i == 0})
+			require.NoError(t, err)
+			require.Equal(t, "remote CLI original failure", got.Error)
+			require.Empty(t, got.Models)
+		}
+		require.Equal(t, "/wrong/local", backend.CLIPath)
 	})
 }
 

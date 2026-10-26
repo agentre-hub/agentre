@@ -35,6 +35,12 @@ function method<
 }
 
 export const rpcMethods = {
+  cliModelsList: method(
+    "cliModelsList",
+    77,
+    pb.CLIModelsListRequestSchema,
+    pb.CLIModelsListResponseSchema,
+  ),
   authAccount: method(
     "authAccount",
     1,

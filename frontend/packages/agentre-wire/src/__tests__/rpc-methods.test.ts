@@ -45,7 +45,56 @@ describe("typed protobuf RPC methods", () => {
       74,
       75,
       76,
+      77,
     ]);
+  });
+
+  it("Given a device query, When encoding CLI models, Then device config and model identities round-trip including an empty catalog", () => {
+    expect(rpcMethods.cliModelsList.id).toBe(RpcMethod.CLI_MODELS_LIST);
+    const request = encodeRpcMethodRequest(8n, rpcMethods.cliModelsList, {
+      backendType: "piagent",
+      cliPath: "/device/pi",
+      envJson: '{"X":"device"}',
+    });
+    expect(ProtobufRpcCodec.decode(request).body).toMatchObject({
+      case: "typedMethodRequest",
+      methodId: RpcMethod.CLI_MODELS_LIST,
+      method: "cliModelsList",
+      value: {
+        backendType: "piagent",
+        cliPath: "/device/pi",
+        envJson: '{"X":"device"}',
+      },
+    });
+    for (const models of [
+      [
+        {
+          value: "provider/id",
+          displayName: "Model",
+          modelId: "id",
+          group: "provider",
+          legacy: true,
+        },
+      ],
+      [],
+    ]) {
+      const response = ProtobufRpcCodec.encodeTypedMethodResponse(
+        8n,
+        rpcMethods.cliModelsList,
+        {
+          models,
+          effectiveValue: "provider/id",
+          effectiveModelId: "id",
+        },
+      );
+      expect(
+        decodeRpcMethodResponse(response, rpcMethods.cliModelsList),
+      ).toMatchObject({
+        models,
+        effectiveValue: "provider/id",
+        effectiveModelId: "id",
+      });
+    }
   });
 
   // 76(toolApproval.answer):控制台按 (对话, requestId) 答任意 toolKey 的工具审批卡。

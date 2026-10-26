@@ -78,12 +78,13 @@ type AgentBackendSvc interface {
 
 type agentBackendSvc struct {
 	// CLI 目录只保存在内存，以设备和后端隔离；配置指纹变化时重新查询。
-	cliModels       sync.Map
-	cliModelQuerier agentruntime.CLIModelQuerier
-	now             func() int64
-	prober          Prober
-	gateway         httpgateway.TokenIssuer
-	secrets         keychain.Keychain
+	cliModels             sync.Map
+	cliModelQuerier       agentruntime.CLIModelQuerier
+	remoteCLIModelQuerier agentruntime.CLIModelQuerier
+	now                   func() int64
+	prober                Prober
+	gateway               httpgateway.TokenIssuer
+	secrets               keychain.Keychain
 	// hermes 是 gated serve 的凭据存储（login 写 keychain、runtime 取 bearer）。
 	// nil → 统一回落到进程内单例 defaultHermesCredentials。
 	hermes *backendcred.HermesCredentials

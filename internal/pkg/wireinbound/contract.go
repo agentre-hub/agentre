@@ -124,6 +124,10 @@ func Contract() []Requirement {
 		{agentrewire.RpcMethod_RPC_METHOD_TOOL_APPROVAL_ANSWER, []Caller{CallerConsole}, both,
 			"规格 2026-09-22-agrctl-resource-management「控制台作答」:桌面端(作为 relay 目标)与 agentred 都要处理它"},
 
+		// CLI 默认模型属于执行设备；控制台按设备中继，不筛宿主种类。
+		{agentrewire.RpcMethod_RPC_METHOD_CLI_MODELS_LIST, []Caller{CallerDesktopToAgentred, CallerConsole}, both,
+			"规格 2026-10-26-cli-native-model-switch「远端 agentred / agentre-server web 控制台」:列表与默认解析向承载设备查询"},
+
 		// ── 外围族 ──
 		{agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG, []Caller{CallerConsole}, both,
 			"skillCatalog.ts:109,执行目标档的设备不筛 kind(dispatch.ts:44)"},

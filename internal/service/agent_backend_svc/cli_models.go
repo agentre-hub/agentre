@@ -55,19 +55,22 @@ func (s *agentBackendSvc) ListCLIModels(ctx context.Context, req *ListCLIModelsR
 		return nil, i18n.NewError(ctx, code.AgentBackendNotFound)
 	}
 	response := &ListCLIModelsResponse{Models: []agentruntime.CLIModel{}}
-	if remote_device_svc.TargetsAnotherMachine(saved.DeviceFingerprint) {
-		response.Error = "CLI model discovery on remote devices is not supported yet"
-		return response, nil
-	}
+	remote := remote_device_svc.TargetsAnotherMachine(saved.DeviceFingerprint)
 	backend := *saved
 	if backend.SyncID != "" {
-		overlay, err := s.GetCLIOverlay(ctx, &GetCLIOverlayRequest{BackendSyncID: backend.SyncID})
+		overlay, err := s.GetCLIOverlay(ctx, &GetCLIOverlayRequest{BackendSyncID: backend.SyncID, DeviceID: string(backend.DeviceFingerprint)})
 		if err != nil {
 			return nil, err
 		}
 		backend.CLIPath = overlay.CLIPath
 	}
 	querier := s.cliModelQuerier
+	if remote {
+		querier = s.remoteCLIModelQuerier
+		if querier == nil {
+			querier = remoteCLIModelQuerier{}
+		}
+	}
 	if querier == nil {
 		querier, _ = agentruntime.RuntimeFor(agent_backend_entity.BackendType(backend.Type)).(agentruntime.CLIModelQuerier)
 	}

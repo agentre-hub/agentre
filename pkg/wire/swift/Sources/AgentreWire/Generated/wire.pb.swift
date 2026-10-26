@@ -104,6 +104,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
   case hermesLogout // = 74
   case backendConnectionTest // = 75
   case toolApprovalAnswer // = 76
+  case cliModelsList // = 77
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -189,6 +190,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     case 74: self = .hermesLogout
     case 75: self = .backendConnectionTest
     case 76: self = .toolApprovalAnswer
+    case 77: self = .cliModelsList
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -272,6 +274,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     case .hermesLogout: return 74
     case .backendConnectionTest: return 75
     case .toolApprovalAnswer: return 76
+    case .cliModelsList: return 77
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -355,6 +358,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     .hermesLogout,
     .backendConnectionTest,
     .toolApprovalAnswer,
+    .cliModelsList,
   ]
 
 }
@@ -6877,6 +6881,69 @@ public nonisolated struct Agentre_Wire_CtlResponse: Sendable {
   public init() {}
 }
 
+/// CLIModelsList 是设备级查询，desktop 与 console 均向实际执行设备发起。
+/// 字段名是 agentre-server 的稳定契约：不传供应商、固定模型或会话参数。
+/// cli_path 为空时由设备上的 runtime 使用本机默认路径；env_json 是后端的 CLI 登录态环境。
+public nonisolated struct Agentre_Wire_CLIModelsListRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var backendType: String = String()
+
+  public var cliPath: String = String()
+
+  public var envJson: String = String()
+
+  /// 与本机查询相同的启动配置：权限模式可能改变沙箱环境，effort 由 CLI 校验。
+  public var defaultPermissionMode: String = String()
+
+  public var reasoningEffort: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// value 是交给 CLI 的值，model_id 是 CLI 解析出的模型标识；group 用于 Pi 供应商分组。
+public nonisolated struct Agentre_Wire_CLIModel: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var value: String = String()
+
+  public var displayName: String = String()
+
+  public var modelID: String = String()
+
+  public var group: String = String()
+
+  public var legacy: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// effective_* 是不下发模型参数时 CLI 会用的默认值，不是任何会话的当前模型。
+/// 失败通过 RPC error 返回原文，不用空目录冒充成功。
+public nonisolated struct Agentre_Wire_CLIModelsListResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var models: [Agentre_Wire_CLIModel] = []
+
+  public var effectiveValue: String = String()
+
+  public var effectiveModelID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 // MARK: - Extension support defined in wire.proto.
 
 // MARK: - Extension Properties
@@ -6953,7 +7020,7 @@ public nonisolated let Agentre_Wire_Extensions_protocol_version = SwiftProtobuf.
 fileprivate nonisolated let _protobuf_package = "agentre.wire"
 
 nonisolated extension Agentre_Wire_RpcMethod: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RPC_METHOD_UNSPECIFIED\0\u{1}RPC_METHOD_AUTH_ACCOUNT\0\u{1}RPC_METHOD_SESSION_LIST\0\u{1}RPC_METHOD_SESSION_ATTACH\0\u{1}RPC_METHOD_SESSION_PULL\0\u{1}RPC_METHOD_SESSION_PENDING_WAITERS\0\u{1}RPC_METHOD_SESSION_DELETE\0\u{1}RPC_METHOD_SET_MODEL_TARGET\0\u{1}RPC_METHOD_RUNTIME_CAPABILITIES\0\u{1}RPC_METHOD_RUNTIME_STEER\0\u{1}RPC_METHOD_RUNTIME_CANCEL_STEER\0\u{1}RPC_METHOD_RUNTIME_DRAIN_PENDING\0\u{1}RPC_METHOD_RUNTIME_ABORT\0\u{1}RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK\0\u{1}RPC_METHOD_RUNTIME_SET_PERMISSION_MODE\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_ANSWER\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION\0\u{1}RPC_METHOD_RUNTIME_RUN\0\u{1}RPC_METHOD_RUNTIME_GOAL_GET\0\u{1}RPC_METHOD_RUNTIME_GOAL_SET\0\u{1}RPC_METHOD_RUNTIME_GOAL_CLEAR\0\u{1}RPC_METHOD_TERMINAL_OPEN\0\u{1}RPC_METHOD_TERMINAL_WRITE\0\u{1}RPC_METHOD_TERMINAL_RESIZE\0\u{1}RPC_METHOD_TERMINAL_CLOSE\0\u{1}RPC_METHOD_MCP_PROXY\0\u{1}RPC_METHOD_PROJECT_SET_LOCAL_PATH\0\u{1}RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH\0\u{1}RPC_METHOD_SKILLS_CATALOG\0\u{1}RPC_METHOD_REMOTE_FS_LIST_DIR\0\u{1}RPC_METHOD_REMOTE_FS_MKDIR\0\u{1}RPC_METHOD_WORKSPACE_FS_LIST_DIR\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_CHANGES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES\0\u{1}RPC_METHOD_WORKSPACE_FS_READ_FILE\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT\0\u{1}RPC_METHOD_WORKSPACE_FS_SEARCH_FILES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_STATE\0\u{1}RPC_METHOD_AUTH_PAIR\0\u{1}RPC_METHOD_AUTH_CONNECT\0\u{1}RPC_METHOD_AUTH_REVOKE\0\u{1}RPC_METHOD_LLM_UPSERT\0\u{1}RPC_METHOD_LLM_DELETE\0\u{1}RPC_METHOD_LLM_LIST\0\u{1}RPC_METHOD_ENGINE_TEST\0\u{1}RPC_METHOD_ENGINE_DISCOVER\0\u{1}RPC_METHOD_ENGINE_SCAN\0\u{1}RPC_METHOD_CLI_RESOLVE_PATH\0\u{1}RPC_METHOD_CLI_PROBE\0\u{1}RPC_METHOD_HEALTH_PING\0\u{1}RPC_METHOD_CLAUDE_CODE_USAGE\0\u{1}RPC_METHOD_SKILLS_LIST\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_SCAN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_OPEN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_TURNS\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE\0\u{1}RPC_METHOD_ACTIVITY_ROLLUP\0\u{1}RPC_METHOD_SET_SESSION_REASONING_EFFORT\0\u{1}RPC_METHOD_AGENTRED_SELF_UPDATE\0\u{1}RPC_METHOD_SESSION_COUNTS\0\u{1}RPC_METHOD_SKILLS_COMMANDS\0\u{1}RPC_METHOD_PORT_FORWARD_LIST\0\u{1}RPC_METHOD_PORT_FORWARD_CREATE\0\u{1}RPC_METHOD_PORT_FORWARD_SET_ENABLED\0\u{1}RPC_METHOD_PORT_FORWARD_DELETE\0\u{1}RPC_METHOD_PORT_FORWARD_OPEN\0\u{1}RPC_METHOD_PORT_FORWARD_WRITE\0\u{1}RPC_METHOD_PORT_FORWARD_CLOSE\0\u{1}RPC_METHOD_PORT_FORWARD_ACK\0\u{1}RPC_METHOD_AUTH_DIRECT\0\u{1}RPC_METHOD_BACKEND_CREDENTIAL_STATUS\0\u{1}RPC_METHOD_OPENCLAW_TOKEN_SET\0\u{1}RPC_METHOD_HERMES_AUTH_PROVIDERS\0\u{1}RPC_METHOD_HERMES_LOGIN\0\u{1}RPC_METHOD_HERMES_LOGOUT\0\u{1}RPC_METHOD_BACKEND_CONNECTION_TEST\0\u{1}RPC_METHOD_TOOL_APPROVAL_ANSWER\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RPC_METHOD_UNSPECIFIED\0\u{1}RPC_METHOD_AUTH_ACCOUNT\0\u{1}RPC_METHOD_SESSION_LIST\0\u{1}RPC_METHOD_SESSION_ATTACH\0\u{1}RPC_METHOD_SESSION_PULL\0\u{1}RPC_METHOD_SESSION_PENDING_WAITERS\0\u{1}RPC_METHOD_SESSION_DELETE\0\u{1}RPC_METHOD_SET_MODEL_TARGET\0\u{1}RPC_METHOD_RUNTIME_CAPABILITIES\0\u{1}RPC_METHOD_RUNTIME_STEER\0\u{1}RPC_METHOD_RUNTIME_CANCEL_STEER\0\u{1}RPC_METHOD_RUNTIME_DRAIN_PENDING\0\u{1}RPC_METHOD_RUNTIME_ABORT\0\u{1}RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK\0\u{1}RPC_METHOD_RUNTIME_SET_PERMISSION_MODE\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_ANSWER\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION\0\u{1}RPC_METHOD_RUNTIME_RUN\0\u{1}RPC_METHOD_RUNTIME_GOAL_GET\0\u{1}RPC_METHOD_RUNTIME_GOAL_SET\0\u{1}RPC_METHOD_RUNTIME_GOAL_CLEAR\0\u{1}RPC_METHOD_TERMINAL_OPEN\0\u{1}RPC_METHOD_TERMINAL_WRITE\0\u{1}RPC_METHOD_TERMINAL_RESIZE\0\u{1}RPC_METHOD_TERMINAL_CLOSE\0\u{1}RPC_METHOD_MCP_PROXY\0\u{1}RPC_METHOD_PROJECT_SET_LOCAL_PATH\0\u{1}RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH\0\u{1}RPC_METHOD_SKILLS_CATALOG\0\u{1}RPC_METHOD_REMOTE_FS_LIST_DIR\0\u{1}RPC_METHOD_REMOTE_FS_MKDIR\0\u{1}RPC_METHOD_WORKSPACE_FS_LIST_DIR\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_CHANGES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES\0\u{1}RPC_METHOD_WORKSPACE_FS_READ_FILE\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT\0\u{1}RPC_METHOD_WORKSPACE_FS_SEARCH_FILES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_STATE\0\u{1}RPC_METHOD_AUTH_PAIR\0\u{1}RPC_METHOD_AUTH_CONNECT\0\u{1}RPC_METHOD_AUTH_REVOKE\0\u{1}RPC_METHOD_LLM_UPSERT\0\u{1}RPC_METHOD_LLM_DELETE\0\u{1}RPC_METHOD_LLM_LIST\0\u{1}RPC_METHOD_ENGINE_TEST\0\u{1}RPC_METHOD_ENGINE_DISCOVER\0\u{1}RPC_METHOD_ENGINE_SCAN\0\u{1}RPC_METHOD_CLI_RESOLVE_PATH\0\u{1}RPC_METHOD_CLI_PROBE\0\u{1}RPC_METHOD_HEALTH_PING\0\u{1}RPC_METHOD_CLAUDE_CODE_USAGE\0\u{1}RPC_METHOD_SKILLS_LIST\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_SCAN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_OPEN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_TURNS\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE\0\u{1}RPC_METHOD_ACTIVITY_ROLLUP\0\u{1}RPC_METHOD_SET_SESSION_REASONING_EFFORT\0\u{1}RPC_METHOD_AGENTRED_SELF_UPDATE\0\u{1}RPC_METHOD_SESSION_COUNTS\0\u{1}RPC_METHOD_SKILLS_COMMANDS\0\u{1}RPC_METHOD_PORT_FORWARD_LIST\0\u{1}RPC_METHOD_PORT_FORWARD_CREATE\0\u{1}RPC_METHOD_PORT_FORWARD_SET_ENABLED\0\u{1}RPC_METHOD_PORT_FORWARD_DELETE\0\u{1}RPC_METHOD_PORT_FORWARD_OPEN\0\u{1}RPC_METHOD_PORT_FORWARD_WRITE\0\u{1}RPC_METHOD_PORT_FORWARD_CLOSE\0\u{1}RPC_METHOD_PORT_FORWARD_ACK\0\u{1}RPC_METHOD_AUTH_DIRECT\0\u{1}RPC_METHOD_BACKEND_CREDENTIAL_STATUS\0\u{1}RPC_METHOD_OPENCLAW_TOKEN_SET\0\u{1}RPC_METHOD_HERMES_AUTH_PROVIDERS\0\u{1}RPC_METHOD_HERMES_LOGIN\0\u{1}RPC_METHOD_HERMES_LOGOUT\0\u{1}RPC_METHOD_BACKEND_CONNECTION_TEST\0\u{1}RPC_METHOD_TOOL_APPROVAL_ANSWER\0\u{1}RPC_METHOD_CLI_MODELS_LIST\0")
 }
 
 nonisolated extension Agentre_Wire_AgentredSelfUpdateRejectReason: SwiftProtobuf._ProtoNameProviding {
@@ -19735,6 +19802,146 @@ nonisolated extension Agentre_Wire_CtlResponse: SwiftProtobuf.Message, SwiftProt
 
   public static func ==(lhs: Agentre_Wire_CtlResponse, rhs: Agentre_Wire_CtlResponse) -> Bool {
     if lhs.result != rhs.result {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_CLIModelsListRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CLIModelsListRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}backend_type\0\u{3}cli_path\0\u{3}env_json\0\u{3}default_permission_mode\0\u{3}reasoning_effort\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.backendType) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.cliPath) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.envJson) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.defaultPermissionMode) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.reasoningEffort) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.backendType.isEmpty {
+      try visitor.visitSingularStringField(value: self.backendType, fieldNumber: 1)
+    }
+    if !self.cliPath.isEmpty {
+      try visitor.visitSingularStringField(value: self.cliPath, fieldNumber: 2)
+    }
+    if !self.envJson.isEmpty {
+      try visitor.visitSingularStringField(value: self.envJson, fieldNumber: 3)
+    }
+    if !self.defaultPermissionMode.isEmpty {
+      try visitor.visitSingularStringField(value: self.defaultPermissionMode, fieldNumber: 4)
+    }
+    if !self.reasoningEffort.isEmpty {
+      try visitor.visitSingularStringField(value: self.reasoningEffort, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_CLIModelsListRequest, rhs: Agentre_Wire_CLIModelsListRequest) -> Bool {
+    if lhs.backendType != rhs.backendType {return false}
+    if lhs.cliPath != rhs.cliPath {return false}
+    if lhs.envJson != rhs.envJson {return false}
+    if lhs.defaultPermissionMode != rhs.defaultPermissionMode {return false}
+    if lhs.reasoningEffort != rhs.reasoningEffort {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_CLIModel: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CLIModel"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}value\0\u{3}display_name\0\u{3}model_id\0\u{1}group\0\u{1}legacy\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.value) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.displayName) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.modelID) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.group) }()
+      case 5: try { try decoder.decodeSingularBoolField(value: &self.legacy) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.value.isEmpty {
+      try visitor.visitSingularStringField(value: self.value, fieldNumber: 1)
+    }
+    if !self.displayName.isEmpty {
+      try visitor.visitSingularStringField(value: self.displayName, fieldNumber: 2)
+    }
+    if !self.modelID.isEmpty {
+      try visitor.visitSingularStringField(value: self.modelID, fieldNumber: 3)
+    }
+    if !self.group.isEmpty {
+      try visitor.visitSingularStringField(value: self.group, fieldNumber: 4)
+    }
+    if self.legacy != false {
+      try visitor.visitSingularBoolField(value: self.legacy, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_CLIModel, rhs: Agentre_Wire_CLIModel) -> Bool {
+    if lhs.value != rhs.value {return false}
+    if lhs.displayName != rhs.displayName {return false}
+    if lhs.modelID != rhs.modelID {return false}
+    if lhs.group != rhs.group {return false}
+    if lhs.legacy != rhs.legacy {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_CLIModelsListResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CLIModelsListResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}models\0\u{3}effective_value\0\u{3}effective_model_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.models) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.effectiveValue) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.effectiveModelID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.models.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.models, fieldNumber: 1)
+    }
+    if !self.effectiveValue.isEmpty {
+      try visitor.visitSingularStringField(value: self.effectiveValue, fieldNumber: 2)
+    }
+    if !self.effectiveModelID.isEmpty {
+      try visitor.visitSingularStringField(value: self.effectiveModelID, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_CLIModelsListResponse, rhs: Agentre_Wire_CLIModelsListResponse) -> Bool {
+    if lhs.models != rhs.models {return false}
+    if lhs.effectiveValue != rhs.effectiveValue {return false}
+    if lhs.effectiveModelID != rhs.effectiveModelID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -102,6 +102,7 @@ const (
 	RpcMethod_RPC_METHOD_HERMES_LOGOUT                  RpcMethod = 74
 	RpcMethod_RPC_METHOD_BACKEND_CONNECTION_TEST        RpcMethod = 75
 	RpcMethod_RPC_METHOD_TOOL_APPROVAL_ANSWER           RpcMethod = 76
+	RpcMethod_RPC_METHOD_CLI_MODELS_LIST                RpcMethod = 77
 )
 
 // Enum value maps for RpcMethod.
@@ -184,6 +185,7 @@ var (
 		74: "RPC_METHOD_HERMES_LOGOUT",
 		75: "RPC_METHOD_BACKEND_CONNECTION_TEST",
 		76: "RPC_METHOD_TOOL_APPROVAL_ANSWER",
+		77: "RPC_METHOD_CLI_MODELS_LIST",
 	}
 	RpcMethod_value = map[string]int32{
 		"RPC_METHOD_UNSPECIFIED":                    0,
@@ -263,6 +265,7 @@ var (
 		"RPC_METHOD_HERMES_LOGOUT":                  74,
 		"RPC_METHOD_BACKEND_CONNECTION_TEST":        75,
 		"RPC_METHOD_TOOL_APPROVAL_ANSWER":           76,
+		"RPC_METHOD_CLI_MODELS_LIST":                77,
 	}
 )
 
@@ -19135,6 +19138,225 @@ func (*CtlResponse_Get) isCtlResponse_Result() {}
 
 func (*CtlResponse_Write) isCtlResponse_Result() {}
 
+// CLIModelsList 是设备级查询，desktop 与 console 均向实际执行设备发起。
+// 字段名是 agentre-server 的稳定契约：不传供应商、固定模型或会话参数。
+// cli_path 为空时由设备上的 runtime 使用本机默认路径；env_json 是后端的 CLI 登录态环境。
+type CLIModelsListRequest struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	BackendType string                 `protobuf:"bytes,1,opt,name=backend_type,json=backendType,proto3" json:"backend_type,omitempty"`
+	CliPath     string                 `protobuf:"bytes,2,opt,name=cli_path,json=cliPath,proto3" json:"cli_path,omitempty"`
+	EnvJson     string                 `protobuf:"bytes,3,opt,name=env_json,json=envJson,proto3" json:"env_json,omitempty"`
+	// 与本机查询相同的启动配置：权限模式可能改变沙箱环境，effort 由 CLI 校验。
+	DefaultPermissionMode string `protobuf:"bytes,4,opt,name=default_permission_mode,json=defaultPermissionMode,proto3" json:"default_permission_mode,omitempty"`
+	ReasoningEffort       string `protobuf:"bytes,5,opt,name=reasoning_effort,json=reasoningEffort,proto3" json:"reasoning_effort,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *CLIModelsListRequest) Reset() {
+	*x = CLIModelsListRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[260]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CLIModelsListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CLIModelsListRequest) ProtoMessage() {}
+
+func (x *CLIModelsListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[260]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CLIModelsListRequest.ProtoReflect.Descriptor instead.
+func (*CLIModelsListRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{260}
+}
+
+func (x *CLIModelsListRequest) GetBackendType() string {
+	if x != nil {
+		return x.BackendType
+	}
+	return ""
+}
+
+func (x *CLIModelsListRequest) GetCliPath() string {
+	if x != nil {
+		return x.CliPath
+	}
+	return ""
+}
+
+func (x *CLIModelsListRequest) GetEnvJson() string {
+	if x != nil {
+		return x.EnvJson
+	}
+	return ""
+}
+
+func (x *CLIModelsListRequest) GetDefaultPermissionMode() string {
+	if x != nil {
+		return x.DefaultPermissionMode
+	}
+	return ""
+}
+
+func (x *CLIModelsListRequest) GetReasoningEffort() string {
+	if x != nil {
+		return x.ReasoningEffort
+	}
+	return ""
+}
+
+// value 是交给 CLI 的值，model_id 是 CLI 解析出的模型标识；group 用于 Pi 供应商分组。
+type CLIModel struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Value         string                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	DisplayName   string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	ModelId       string                 `protobuf:"bytes,3,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	Group         string                 `protobuf:"bytes,4,opt,name=group,proto3" json:"group,omitempty"`
+	Legacy        bool                   `protobuf:"varint,5,opt,name=legacy,proto3" json:"legacy,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CLIModel) Reset() {
+	*x = CLIModel{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[261]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CLIModel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CLIModel) ProtoMessage() {}
+
+func (x *CLIModel) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[261]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CLIModel.ProtoReflect.Descriptor instead.
+func (*CLIModel) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{261}
+}
+
+func (x *CLIModel) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *CLIModel) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *CLIModel) GetModelId() string {
+	if x != nil {
+		return x.ModelId
+	}
+	return ""
+}
+
+func (x *CLIModel) GetGroup() string {
+	if x != nil {
+		return x.Group
+	}
+	return ""
+}
+
+func (x *CLIModel) GetLegacy() bool {
+	if x != nil {
+		return x.Legacy
+	}
+	return false
+}
+
+// effective_* 是不下发模型参数时 CLI 会用的默认值，不是任何会话的当前模型。
+// 失败通过 RPC error 返回原文，不用空目录冒充成功。
+type CLIModelsListResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Models           []*CLIModel            `protobuf:"bytes,1,rep,name=models,proto3" json:"models,omitempty"`
+	EffectiveValue   string                 `protobuf:"bytes,2,opt,name=effective_value,json=effectiveValue,proto3" json:"effective_value,omitempty"`
+	EffectiveModelId string                 `protobuf:"bytes,3,opt,name=effective_model_id,json=effectiveModelId,proto3" json:"effective_model_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *CLIModelsListResponse) Reset() {
+	*x = CLIModelsListResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[262]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CLIModelsListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CLIModelsListResponse) ProtoMessage() {}
+
+func (x *CLIModelsListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[262]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CLIModelsListResponse.ProtoReflect.Descriptor instead.
+func (*CLIModelsListResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{262}
+}
+
+func (x *CLIModelsListResponse) GetModels() []*CLIModel {
+	if x != nil {
+		return x.Models
+	}
+	return nil
+}
+
+func (x *CLIModelsListResponse) GetEffectiveValue() string {
+	if x != nil {
+		return x.EffectiveValue
+	}
+	return ""
+}
+
+func (x *CLIModelsListResponse) GetEffectiveModelId() string {
+	if x != nil {
+		return x.EffectiveModelId
+	}
+	return ""
+}
+
 var file_agentre_wire_wire_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
@@ -20639,7 +20861,23 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x04list\x18\x01 \x01(\v2\x1d.agentre.wire.CtlListResponseH\x00R\x04list\x120\n" +
 	"\x03get\x18\x02 \x01(\v2\x1c.agentre.wire.CtlGetResponseH\x00R\x03get\x126\n" +
 	"\x05write\x18\x03 \x01(\v2\x1e.agentre.wire.CtlWriteResponseH\x00R\x05writeB\b\n" +
-	"\x06result*\xda\x14\n" +
+	"\x06result\"\xd2\x01\n" +
+	"\x14CLIModelsListRequest\x12!\n" +
+	"\fbackend_type\x18\x01 \x01(\tR\vbackendType\x12\x19\n" +
+	"\bcli_path\x18\x02 \x01(\tR\acliPath\x12\x19\n" +
+	"\benv_json\x18\x03 \x01(\tR\aenvJson\x126\n" +
+	"\x17default_permission_mode\x18\x04 \x01(\tR\x15defaultPermissionMode\x12)\n" +
+	"\x10reasoning_effort\x18\x05 \x01(\tR\x0freasoningEffort\"\x8c\x01\n" +
+	"\bCLIModel\x12\x14\n" +
+	"\x05value\x18\x01 \x01(\tR\x05value\x12!\n" +
+	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x19\n" +
+	"\bmodel_id\x18\x03 \x01(\tR\amodelId\x12\x14\n" +
+	"\x05group\x18\x04 \x01(\tR\x05group\x12\x16\n" +
+	"\x06legacy\x18\x05 \x01(\bR\x06legacy\"\x9e\x01\n" +
+	"\x15CLIModelsListResponse\x12.\n" +
+	"\x06models\x18\x01 \x03(\v2\x16.agentre.wire.CLIModelR\x06models\x12'\n" +
+	"\x0feffective_value\x18\x02 \x01(\tR\x0eeffectiveValue\x12,\n" +
+	"\x12effective_model_id\x18\x03 \x01(\tR\x10effectiveModelId*\xfa\x14\n" +
 	"\tRpcMethod\x12\x1a\n" +
 	"\x16RPC_METHOD_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17RPC_METHOD_AUTH_ACCOUNT\x10\x01\x12\x1b\n" +
@@ -20718,7 +20956,8 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x17RPC_METHOD_HERMES_LOGIN\x10I\x12\x1c\n" +
 	"\x18RPC_METHOD_HERMES_LOGOUT\x10J\x12&\n" +
 	"\"RPC_METHOD_BACKEND_CONNECTION_TEST\x10K\x12#\n" +
-	"\x1fRPC_METHOD_TOOL_APPROVAL_ANSWER\x10L*\xe1\x02\n" +
+	"\x1fRPC_METHOD_TOOL_APPROVAL_ANSWER\x10L\x12\x1e\n" +
+	"\x1aRPC_METHOD_CLI_MODELS_LIST\x10M*\xe1\x02\n" +
 	"\x1eAgentredSelfUpdateRejectReason\x122\n" +
 	".AGENTRED_SELF_UPDATE_REJECT_REASON_UNSPECIFIED\x10\x00\x123\n" +
 	"/AGENTRED_SELF_UPDATE_REJECT_REASON_ACTIVE_TURNS\x10\x01\x122\n" +
@@ -20751,7 +20990,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x17CTL_TOKEN_STATE_UNKNOWN\x10\x03:>\n" +
 	"\n" +
 	"event_kind\x12\x1d.google.protobuf.FieldOptions\x18\xe1\xd4\x03 \x01(\tR\teventKind:I\n" +
-	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.4.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
+	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.5.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
 
 var (
 	file_agentre_wire_wire_proto_rawDescOnce sync.Once
@@ -20766,7 +21005,7 @@ func file_agentre_wire_wire_proto_rawDescGZIP() []byte {
 }
 
 var file_agentre_wire_wire_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 269)
+var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 272)
 var file_agentre_wire_wire_proto_goTypes = []any{
 	(RpcMethod)(0),                             // 0: agentre.wire.RpcMethod
 	(AgentredSelfUpdateRejectReason)(0),        // 1: agentre.wire.AgentredSelfUpdateRejectReason
@@ -21034,17 +21273,20 @@ var file_agentre_wire_wire_proto_goTypes = []any{
 	(*CtlWriteResponse)(nil),                   // 263: agentre.wire.CtlWriteResponse
 	(*CtlRequest)(nil),                         // 264: agentre.wire.CtlRequest
 	(*CtlResponse)(nil),                        // 265: agentre.wire.CtlResponse
-	nil,                                        // 266: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
-	nil,                                        // 267: agentre.wire.LLMProvider.ModelRoutesEntry
-	nil,                                        // 268: agentre.wire.MCPServer.HeadersEntry
-	nil,                                        // 269: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
-	nil,                                        // 270: agentre.wire.MCPProxyRequest.HeadersEntry
-	nil,                                        // 271: agentre.wire.MCPProxyResponse.HeadersEntry
-	nil,                                        // 272: agentre.wire.PortForwardOpenRequest.HeadersEntry
-	nil,                                        // 273: agentre.wire.PortForwardResponseNotification.HeadersEntry
-	nil,                                        // 274: agentre.wire.CtlBackend.EnvEntry
-	(*descriptorpb.FieldOptions)(nil),          // 275: google.protobuf.FieldOptions
-	(*descriptorpb.FileOptions)(nil),           // 276: google.protobuf.FileOptions
+	(*CLIModelsListRequest)(nil),               // 266: agentre.wire.CLIModelsListRequest
+	(*CLIModel)(nil),                           // 267: agentre.wire.CLIModel
+	(*CLIModelsListResponse)(nil),              // 268: agentre.wire.CLIModelsListResponse
+	nil,                                        // 269: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	nil,                                        // 270: agentre.wire.LLMProvider.ModelRoutesEntry
+	nil,                                        // 271: agentre.wire.MCPServer.HeadersEntry
+	nil,                                        // 272: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	nil,                                        // 273: agentre.wire.MCPProxyRequest.HeadersEntry
+	nil,                                        // 274: agentre.wire.MCPProxyResponse.HeadersEntry
+	nil,                                        // 275: agentre.wire.PortForwardOpenRequest.HeadersEntry
+	nil,                                        // 276: agentre.wire.PortForwardResponseNotification.HeadersEntry
+	nil,                                        // 277: agentre.wire.CtlBackend.EnvEntry
+	(*descriptorpb.FieldOptions)(nil),          // 278: google.protobuf.FieldOptions
+	(*descriptorpb.FileOptions)(nil),           // 279: google.protobuf.FileOptions
 }
 var file_agentre_wire_wire_proto_depIdxs = []int32{
 	13,  // 0: agentre.wire.WireFrame.notification:type_name -> agentre.wire.Notification
@@ -21069,9 +21311,9 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	15,  // 19: agentre.wire.Notification.account_mirror_changed:type_name -> agentre.wire.AccountMirrorChanged
 	16,  // 20: agentre.wire.Notification.account_device_presence:type_name -> agentre.wire.AccountDevicePresence
 	27,  // 21: agentre.wire.LLMUpsertRequest.models:type_name -> agentre.wire.LLMModel
-	266, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	269, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
 	27,  // 23: agentre.wire.LLMProvider.models:type_name -> agentre.wire.LLMModel
-	267, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
+	270, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
 	33,  // 25: agentre.wire.LLMListResponse.providers:type_name -> agentre.wire.LLMProvider
 	38,  // 26: agentre.wire.EngineDiscoverResponse.models:type_name -> agentre.wire.EngineModel
 	41,  // 27: agentre.wire.EngineScanResponse.items:type_name -> agentre.wire.EngineScanItem
@@ -21094,16 +21336,16 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	193, // 44: agentre.wire.RuntimeSubmitAnswerRequest.questions:type_name -> agentre.wire.AskQuestion
 	194, // 45: agentre.wire.RuntimeSubmitAnswerRequest.answers:type_name -> agentre.wire.AskAnswer
 	104, // 46: agentre.wire.HistoryMessage.blocks:type_name -> agentre.wire.StoredBlock
-	268, // 47: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
+	271, // 47: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
 	103, // 48: agentre.wire.RuntimeRunRequest.backend:type_name -> agentre.wire.AgentBackend
 	104, // 49: agentre.wire.RuntimeRunRequest.user_blocks:type_name -> agentre.wire.StoredBlock
 	105, // 50: agentre.wire.RuntimeRunRequest.history:type_name -> agentre.wire.HistoryMessage
 	106, // 51: agentre.wire.RuntimeRunRequest.mcp_servers:type_name -> agentre.wire.MCPServer
-	269, // 52: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	272, // 52: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
 	103, // 53: agentre.wire.RuntimeGoalRequest.backend:type_name -> agentre.wire.AgentBackend
 	110, // 54: agentre.wire.RuntimeGoalResponse.goal:type_name -> agentre.wire.Goal
-	270, // 55: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
-	271, // 56: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
+	273, // 55: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
+	274, // 56: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
 	126, // 57: agentre.wire.SkillCatalogRequest.authorized:type_name -> agentre.wire.SkillAuthorization
 	128, // 58: agentre.wire.SkillCatalogResponse.packs:type_name -> agentre.wire.SkillPackSummary
 	126, // 59: agentre.wire.SkillCommandsRequest.authorized:type_name -> agentre.wire.SkillAuthorization
@@ -21167,13 +21409,13 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	214, // 117: agentre.wire.PortForwardListResponse.mappings:type_name -> agentre.wire.PortForwardMapping
 	214, // 118: agentre.wire.PortForwardCreateResponse.mapping:type_name -> agentre.wire.PortForwardMapping
 	214, // 119: agentre.wire.PortForwardSetEnabledResponse.mapping:type_name -> agentre.wire.PortForwardMapping
-	272, // 120: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
-	273, // 121: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
+	275, // 120: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
+	276, // 121: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
 	237, // 122: agentre.wire.HermesAuthProvidersResponse.providers:type_name -> agentre.wire.HermesAuthProvider
 	244, // 123: agentre.wire.BackendConnectionTestResponse.openclaw_agents:type_name -> agentre.wire.OpenClawAgentOption
 	245, // 124: agentre.wire.BackendConnectionTestResponse.openclaw_models:type_name -> agentre.wire.OpenClawModelOption
 	249, // 125: agentre.wire.CtlProject.locations:type_name -> agentre.wire.CtlProjectLocation
-	274, // 126: agentre.wire.CtlBackend.env:type_name -> agentre.wire.CtlBackend.EnvEntry
+	277, // 126: agentre.wire.CtlBackend.env:type_name -> agentre.wire.CtlBackend.EnvEntry
 	5,   // 127: agentre.wire.CtlBackend.token_state:type_name -> agentre.wire.CtlTokenState
 	247, // 128: agentre.wire.CtlResource.agent:type_name -> agentre.wire.CtlAgent
 	248, // 129: agentre.wire.CtlResource.department:type_name -> agentre.wire.CtlDepartment
@@ -21200,17 +21442,18 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	256, // 150: agentre.wire.CtlResponse.list:type_name -> agentre.wire.CtlListResponse
 	258, // 151: agentre.wire.CtlResponse.get:type_name -> agentre.wire.CtlGetResponse
 	263, // 152: agentre.wire.CtlResponse.write:type_name -> agentre.wire.CtlWriteResponse
-	120, // 153: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	120, // 154: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	120, // 155: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	120, // 156: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	275, // 157: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
-	276, // 158: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
-	159, // [159:159] is the sub-list for method output_type
-	159, // [159:159] is the sub-list for method input_type
-	159, // [159:159] is the sub-list for extension type_name
-	157, // [157:159] is the sub-list for extension extendee
-	0,   // [0:157] is the sub-list for field type_name
+	267, // 153: agentre.wire.CLIModelsListResponse.models:type_name -> agentre.wire.CLIModel
+	120, // 154: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	120, // 155: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	120, // 156: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	120, // 157: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	278, // 158: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
+	279, // 159: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
+	160, // [160:160] is the sub-list for method output_type
+	160, // [160:160] is the sub-list for method input_type
+	160, // [160:160] is the sub-list for extension type_name
+	158, // [158:160] is the sub-list for extension extendee
+	0,   // [0:158] is the sub-list for field type_name
 }
 
 func init() { file_agentre_wire_wire_proto_init() }
@@ -21311,7 +21554,7 @@ func file_agentre_wire_wire_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentre_wire_wire_proto_rawDesc), len(file_agentre_wire_wire_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   269,
+			NumMessages:   272,
 			NumExtensions: 2,
 			NumServices:   0,
 		},

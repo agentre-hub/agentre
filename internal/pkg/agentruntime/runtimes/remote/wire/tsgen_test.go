@@ -411,6 +411,7 @@ func tsHostMethodDecls() []tsHostMethodDecl {
 		{agentrewire.RpcMethod_RPC_METHOD_CLAUDE_CODE_USAGE, "claudeCodeUsage"},
 		{agentrewire.RpcMethod_RPC_METHOD_LLM_UPSERT, "llmUpsert"},
 		{agentrewire.RpcMethod_RPC_METHOD_SKILLS_LIST, "skillsList"},
+		{agentrewire.RpcMethod_RPC_METHOD_CLI_MODELS_LIST, "cliModelsList"},
 		{agentrewire.RpcMethod_RPC_METHOD_CLI_PROBE, "cliProbe"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_DRAIN_PENDING, "runtimeDrainPending"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK, "runtimeStopBackgroundTask"},

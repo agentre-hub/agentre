@@ -33,6 +33,9 @@ var HealthPing = Define[*agentrewire.HealthPingRequest](agentrewire.RpcMethod_RP
 var ClaudeCodeUsage = Define[*agentrewire.ClaudeCodeUsageRequest](agentrewire.RpcMethod_RPC_METHOD_CLAUDE_CODE_USAGE,
 	func() *agentrewire.ClaudeCodeUsageResponse { return &agentrewire.ClaudeCodeUsageResponse{} })
 
+var CLIModelsList = Define[*agentrewire.CLIModelsListRequest](agentrewire.RpcMethod_RPC_METHOD_CLI_MODELS_LIST,
+	func() *agentrewire.CLIModelsListResponse { return &agentrewire.CLIModelsListResponse{} })
+
 var CLIProbe = Define[*agentrewire.CLIProbeRequest](agentrewire.RpcMethod_RPC_METHOD_CLI_PROBE,
 	func() *agentrewire.CLIProbeResponse { return &agentrewire.CLIProbeResponse{} })
 
