@@ -131,6 +131,9 @@ func (s *chatSvc) SetChatSessionModelTarget(ctx context.Context, req *SetChatSes
 	if req == nil || req.SessionID <= 0 {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
+	lk := s.modelChoiceLock(req.SessionID)
+	lk.Lock()
+	defer lk.Unlock()
 	providerKey := strings.TrimSpace(req.ProviderKey)
 	modelKey := strings.TrimSpace(req.ModelKey)
 
@@ -148,7 +151,7 @@ func (s *chatSvc) SetChatSessionModelTarget(ctx context.Context, req *SetChatSes
 	// 选中的就是当前生效的同一完整组合（弹层里点已选中的行）：什么都不变，不写库也不
 	// 追加 notice。组合比较：同一 provider 的 provider-default 与 fixed-model 是两个不同
 	// 目标，不能因为 providerKey 相同就误判为 no-op。
-	if providerKey == sess.ProviderKey && modelKey == sess.ModelKey {
+	if providerKey == sess.ProviderKey && modelKey == sess.ModelKey && sess.CLIModelMode == "" && sess.CLIModel == "" {
 		return &SetChatSessionModelTargetResponse{
 			ProviderKey: providerKey, ModelKey: modelKey,
 			AgentProviderKey: be.LLMProviderKey, AgentModelKey: be.LLMModelKey,
@@ -165,6 +168,7 @@ func (s *chatSvc) SetChatSessionModelTarget(ctx context.Context, req *SetChatSes
 	}
 	sess.ProviderKey = providerKey
 	sess.ModelKey = modelKey
+	sess.CLIModelMode, sess.CLIModel = "", ""
 	logger.Ctx(ctx).Info("chat_svc.SetChatSessionModelTarget: session model target switched",
 		zap.Int64("sessionId", sess.ID),
 		zap.String("providerKey", providerKey),

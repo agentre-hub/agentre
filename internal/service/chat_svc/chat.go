@@ -105,6 +105,7 @@ type ChatSvc interface {
 	// SetChatSessionModelTarget 切换已有会话的 LLM ModelTarget（空串 = 跟随 agent 绑定）。
 	// 原子写 provider_key + model_key 两列，自下一轮生效，不打断正在进行的轮。
 	SetChatSessionModelTarget(ctx context.Context, req *SetChatSessionModelTargetRequest) (*SetChatSessionModelTargetResponse, error)
+	SetChatSessionCLIModel(ctx context.Context, req *SetChatSessionCLIModelRequest) (*SetChatSessionCLIModelResponse, error)
 	// SetChatSessionReasoningEffort 切换已有会话的思考力度（空串 = 跟随后端配置）。
 	// 只写 reasoning_effort 一列，自下一轮 spawn 生效，不打断正在进行的轮。
 	SetChatSessionReasoningEffort(ctx context.Context, req *SetChatSessionReasoningEffortRequest) (*SetChatSessionReasoningEffortResponse, error)
@@ -249,6 +250,8 @@ type chatSvc struct {
 	// activeTurns: sessionID(int64) → 当前活跃 turn(*turnRun)。runTurn 起止维护;
 	// 工具审批(BeginToolApproval)据此把审批卡落进这一轮的转录并路由到它的流。
 	activeTurns sync.Map
+	// modelChoiceLocks 串行化同一会话的两套互斥模型选择。
+	modelChoiceLocks sync.Map
 	// previewStreams: sessionID(int64) → 该会话此刻这一轮的预览帧通道
 	// (chan agentruntime.Event)。远端执行的预览帧从 *remote.Runtime 的读循环进来,
 	// 由本轮的 turnRun 消费(见 preview_stream.go)。
@@ -414,6 +417,7 @@ func (s *chatSvc) ListAgents(ctx context.Context, _ *ListAgentsRequest) (*ListAg
 		}
 		if be := backends[a.AgentBackendID]; be != nil {
 			item.BackendType = be.Type
+			item.AgentBackendID, item.AgentCLIModel = be.ID, be.DefaultModel
 			item.LLMProviderKey = be.LLMProviderKey
 			if agent_backend_entity.BackendType(be.Type) == agent_backend_entity.TypeClaudeCode {
 				// 仅 claudecode 透出；entity.Check 限定其它后端为空串。
@@ -647,6 +651,8 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 			PermissionMode:         sess.PermissionMode,
 			PermissionModeAtLaunch: sess.PermissionModeAtLaunch,
 			ProviderKey:            sess.ProviderKey,
+			CLIModelMode:           sess.CLIModelMode,
+			CLIModel:               sess.CLIModel,
 			ModelKey:               sess.ModelKey,
 			ReasoningEffort:        sess.ReasoningEffort,
 			ProjectID:              sess.ProjectID,
@@ -713,6 +719,20 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 				// agent 绑定）解析，与这条会话下一轮真正会用的那家一致；agent 绑定 key
 				// 一并回传，供 composer 的供应商 pill 渲染「跟随绑定」时的标签。
 				prov, _ = s.resolveEffectiveProvider(ctx, sess, be)
+				resp.Session.AgentBackendID, resp.Session.AgentCLIModel = be.ID, be.DefaultModel
+				if !exec_target_svc.BackendTargetsRemote(be) {
+					if runner, err := s.selectRunner(ctx, be, sess.ID); err == nil {
+						if reader, ok := runner.(agentruntime.CLIModelStateReader); ok {
+							state := reader.CLIModelState(ctx, sess.ID)
+							resp.Session.ActualCLIModel, resp.Session.CLIModelError = state.ModelID, state.Error
+							wanted := be.DefaultModel
+							if sess.CLIModelMode != "" {
+								wanted = sess.CLIModel
+							}
+							resp.Session.CLIModelPending = state.Active && state.AppliedValue != wanted && sess.ProviderKey == "" && be.LLMProviderKey == ""
+						}
+					}
+				}
 				resp.Session.AgentProviderKey = be.LLMProviderKey
 				resp.Session.AgentModelKey = be.LLMModelKey
 				// 后端配置的思考力度：弹层「默认」区块的「→ 跟随后端配置 · <档位>」
@@ -1046,6 +1066,10 @@ func (s *chatSvc) send(ctx context.Context, req *SendRequest, opts sendOptions) 
 		// ProviderKey/ModelKey 一起持久化）；双空 = 跟随 agent 绑定。
 		providerKey := strings.TrimSpace(req.ProviderKey)
 		modelKey := strings.TrimSpace(req.ModelKey)
+		req.CLIModelMode, req.CLIModel = strings.TrimSpace(req.CLIModelMode), strings.TrimSpace(req.CLIModel)
+		if err := validateDraftCLIModel(ctx, req, be); err != nil {
+			return nil, err
+		}
 		// 草稿态选中的思考力度同一条规则（spec 2026-09-01「新建会话」）：随首条消息与
 		// Session 一同落库；档位表走 entity 那张唯一的六档表，与
 		// SetChatSessionReasoningEffort 同一口径 —— 非法值在落库前报错，不留给下游
@@ -1080,6 +1104,8 @@ func (s *chatSvc) send(ctx context.Context, req *SendRequest, opts sendOptions) 
 			PermissionModeAtLaunch: permissionMode,
 			ProviderKey:            providerKey,
 			ModelKey:               modelKey,
+			CLIModelMode:           req.CLIModelMode,
+			CLIModel:               req.CLIModel,
 			ReasoningEffort:        reasoningEffort,
 			Title:                  sessionTitleFromFirstMessage(text),
 			// idle 落库;running 由 startTurn 事务内的 Update 原子翻转 —— 事务失败
@@ -2458,6 +2484,7 @@ func (s *chatSvc) buildRunRequest(
 		MCPServers:     appendTurnMCP(ctx, nil, a, sess.ID, runner.Capabilities().Has(capability.CapMCPTools)),
 		EnabledPlugins: enabledPluginsForTurn(ctx, a, be.ID, runner.Capabilities().Has(capability.CapSkills)),
 	}
+	applySessionCLIModel(&req, sess)
 	if userMsg != nil {
 		req.UserText = textOfMessage(userMsg)
 		if bs, err := userMsg.GetBlocks(); err == nil {

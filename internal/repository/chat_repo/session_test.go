@@ -370,6 +370,7 @@ func TestSessionRepo_Create(t *testing.T) {
 			"",                // cwd —— 不钉工作目录,按老规矩每轮现算
 			"",                // purpose
 			0, "", "", "", "", // context_window, permission_mode, permission_mode_at_launch, provider_key, model_key
+			"", "", // cli_model_mode, cli_model
 			"max",                  // reasoning_effort —— 草稿态选好的档位随建档一并落库(spec 2026-09-01「新建会话」)
 			int64(0), "", int64(0), // exec_device_id, exec_device_fingerprint, event_cursor —— 新建会话默认本机执行、无游标
 			int64(0),                                          // exec_agent_backend_id —— 新建会话默认未钉住任何一档
@@ -749,8 +750,8 @@ func TestSessionRepo_UpdateModelTarget(t *testing.T) {
 	repo := chat_repo.NewSession()
 
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `chat_sessions` SET `model_key`=\\?,`provider_key`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
-		WithArgs("mk-haiku", "anthropic-main", sqlmock.AnyArg(), int64(42), consts.ACTIVE).
+	mock.ExpectExec("UPDATE `chat_sessions` SET `cli_model`=\\?,`cli_model_mode`=\\?,`model_key`=\\?,`provider_key`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
+		WithArgs("", "", "mk-haiku", "anthropic-main", sqlmock.AnyArg(), int64(42), consts.ACTIVE).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -766,8 +767,8 @@ func TestSessionRepo_UpdateModelTargetDefault(t *testing.T) {
 	repo := chat_repo.NewSession()
 
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `chat_sessions` SET `model_key`=\\?,`provider_key`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
-		WithArgs("", "", sqlmock.AnyArg(), int64(42), consts.ACTIVE).
+	mock.ExpectExec("UPDATE `chat_sessions` SET `cli_model`=\\?,`cli_model_mode`=\\?,`model_key`=\\?,`provider_key`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
+		WithArgs("", "", "", "", sqlmock.AnyArg(), int64(42), consts.ACTIVE).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -783,8 +784,8 @@ func TestSessionRepo_UpdateModelTargetProviderDefault(t *testing.T) {
 	repo := chat_repo.NewSession()
 
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `chat_sessions` SET `model_key`=\\?,`provider_key`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
-		WithArgs("", "anthropic-main", sqlmock.AnyArg(), int64(42), consts.ACTIVE).
+	mock.ExpectExec("UPDATE `chat_sessions` SET `cli_model`=\\?,`cli_model_mode`=\\?,`model_key`=\\?,`provider_key`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
+		WithArgs("", "", "", "anthropic-main", sqlmock.AnyArg(), int64(42), consts.ACTIVE).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -1315,6 +1316,7 @@ func TestSessionRepo_Create_GivenNoConversationID_ThenMintsOne(t *testing.T) {
 			"",
 			"",
 			0, "", "", "", "",
+			"", "", // cli_model_mode, cli_model
 			"", // reasoning_effort —— 未选档位的新建会话跟随后端配置
 			int64(0), "", int64(0),
 			int64(0),
@@ -1345,6 +1347,7 @@ func TestSessionRepo_Create_GivenACallerSuppliedConversationID_ThenKeepsItVerbat
 			"",
 			"",
 			0, "", "", "", "",
+			"", "", // cli_model_mode, cli_model
 			"", // reasoning_effort —— 未选档位的新建会话跟随后端配置
 			int64(0), "", int64(0),
 			int64(0),

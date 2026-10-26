@@ -93,6 +93,8 @@ type SessionRepo interface {
 	// 不走整行 Save —— 后者会把并发轮次正在写的状态列一起盖掉。同理这两列都在 Update
 	// 的 Omit 清单里:轮次收尾的整行回写拿的是轮次开始时读出的旧实体。
 	UpdateModelTarget(ctx context.Context, sessionID int64, providerKey, modelKey string) error
+	// UpdateCLIModel 原子保存 CLI 选择并清空供应商目标。
+	UpdateCLIModel(ctx context.Context, sessionID int64, mode, value string) error
 	// UpdateReasoningEffort 改写会话级思考力度(chat_sessions.reasoning_effort,spec
 	// 2026-09-01 决策 1)。空串 = 跟随该会话那一档 backend 的配置,是要**显式写下去**
 	// 的值,不是「不改」。由 chat_svc.SetChatSessionReasoningEffort 调用;切换允许发生
@@ -621,10 +623,19 @@ func (r *sessionRepo) UpdateModelTarget(ctx context.Context, sessionID int64, pr
 	return db.Ctx(ctx).Model(&chat_entity.Session{}).
 		Where("id = ? AND status = ?", sessionID, consts.ACTIVE).
 		Updates(map[string]any{
-			"provider_key": providerKey,
-			"model_key":    modelKey,
-			"updatetime":   time.Now().UnixMilli(),
+			"provider_key":   providerKey,
+			"model_key":      modelKey,
+			"cli_model_mode": "",
+			"cli_model":      "",
+			"updatetime":     time.Now().UnixMilli(),
 		}).Error
+}
+
+// UpdateCLIModel 只写互斥的模型选择，不覆盖轮中状态。
+func (r *sessionRepo) UpdateCLIModel(ctx context.Context, sessionID int64, mode, value string) error {
+	return db.Ctx(ctx).Model(&chat_entity.Session{}).
+		Where("id = ? AND status = ?", sessionID, consts.ACTIVE).
+		Updates(map[string]any{"cli_model_mode": mode, "cli_model": value, "provider_key": "", "model_key": "", "updatetime": time.Now().UnixMilli()}).Error
 }
 
 func (r *sessionRepo) UpdateReasoningEffort(ctx context.Context, sessionID int64, effort string) error {

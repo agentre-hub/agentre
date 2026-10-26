@@ -37,7 +37,8 @@ export function isNoticeOnlyMessage(
       (b) =>
         b.type === "notice" &&
         (b.noticeKind === NOTICE_KIND_SWITCH ||
-          b.noticeKind === NOTICE_KIND_REASONING_EFFORT),
+          b.noticeKind === NOTICE_KIND_REASONING_EFFORT ||
+          b.noticeKind === "cli_model"),
     )
   );
 }

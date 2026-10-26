@@ -105,6 +105,10 @@ type Session struct {
 	// 由 chat_svc.SetChatSessionModelTarget 与 provider_key 同一条原子语句写入；普通
 	// Session Save 必须 Omit 这一列，否则轮中切好的模型会被轮次开始时读出的旧实体冲掉。
 	ModelKey string `gorm:"column:model_key;type:text;not null;default:''"`
+	// CLIModelMode 三态：空串跟随 Agent、cli-default 跟随 CLI、fixed 固定值。
+	// 两列仅由专用窄写入口改动，不参与普通 Update。
+	CLIModelMode string `gorm:"column:cli_model_mode;type:text;not null;default:''"`
+	CLIModel     string `gorm:"column:cli_model;type:text;not null;default:''"`
 	// ReasoningEffort 是会话级思考力度档位（chat_sessions.reasoning_effort，spec
 	// 2026-09-01 决策 1）。空串 = 跟随该会话那一档 backend 的配置；非空时在合成本轮
 	// 有效力度时覆盖它。取值与 agent_backend_entity 的六档表同一张

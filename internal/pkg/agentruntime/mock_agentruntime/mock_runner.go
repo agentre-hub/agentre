@@ -131,6 +131,82 @@ func (mr *MockWaiterListerMockRecorder) PendingWaiters(ctx, sessionID any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PendingWaiters", reflect.TypeOf((*MockWaiterLister)(nil).PendingWaiters), ctx, sessionID)
 }
 
+// MockCLIModelSetter is a mock of CLIModelSetter interface.
+type MockCLIModelSetter struct {
+	ctrl     *gomock.Controller
+	recorder *MockCLIModelSetterMockRecorder
+	isgomock struct{}
+}
+
+// MockCLIModelSetterMockRecorder is the mock recorder for MockCLIModelSetter.
+type MockCLIModelSetterMockRecorder struct {
+	mock *MockCLIModelSetter
+}
+
+// NewMockCLIModelSetter creates a new mock instance.
+func NewMockCLIModelSetter(ctrl *gomock.Controller) *MockCLIModelSetter {
+	mock := &MockCLIModelSetter{ctrl: ctrl}
+	mock.recorder = &MockCLIModelSetterMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCLIModelSetter) EXPECT() *MockCLIModelSetterMockRecorder {
+	return m.recorder
+}
+
+// SetCLIModel mocks base method.
+func (m *MockCLIModelSetter) SetCLIModel(ctx context.Context, sessionID int64, value string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetCLIModel", ctx, sessionID, value)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetCLIModel indicates an expected call of SetCLIModel.
+func (mr *MockCLIModelSetterMockRecorder) SetCLIModel(ctx, sessionID, value any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCLIModel", reflect.TypeOf((*MockCLIModelSetter)(nil).SetCLIModel), ctx, sessionID, value)
+}
+
+// MockCLIModelStateReader is a mock of CLIModelStateReader interface.
+type MockCLIModelStateReader struct {
+	ctrl     *gomock.Controller
+	recorder *MockCLIModelStateReaderMockRecorder
+	isgomock struct{}
+}
+
+// MockCLIModelStateReaderMockRecorder is the mock recorder for MockCLIModelStateReader.
+type MockCLIModelStateReaderMockRecorder struct {
+	mock *MockCLIModelStateReader
+}
+
+// NewMockCLIModelStateReader creates a new mock instance.
+func NewMockCLIModelStateReader(ctrl *gomock.Controller) *MockCLIModelStateReader {
+	mock := &MockCLIModelStateReader{ctrl: ctrl}
+	mock.recorder = &MockCLIModelStateReaderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCLIModelStateReader) EXPECT() *MockCLIModelStateReaderMockRecorder {
+	return m.recorder
+}
+
+// CLIModelState mocks base method.
+func (m *MockCLIModelStateReader) CLIModelState(ctx context.Context, sessionID int64) agentruntime.CLIModelState {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CLIModelState", ctx, sessionID)
+	ret0, _ := ret[0].(agentruntime.CLIModelState)
+	return ret0
+}
+
+// CLIModelState indicates an expected call of CLIModelState.
+func (mr *MockCLIModelStateReaderMockRecorder) CLIModelState(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CLIModelState", reflect.TypeOf((*MockCLIModelStateReader)(nil).CLIModelState), ctx, sessionID)
+}
+
 // MockSteerer is a mock of Steerer interface.
 type MockSteerer struct {
 	ctrl     *gomock.Controller

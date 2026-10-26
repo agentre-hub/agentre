@@ -288,10 +288,31 @@ type MCPServerSpec struct {
 	Tools   []string          // 允许的 tool 名(进 --allowedTools 为 mcp__<Name>__<tool>); 按角色裁剪
 }
 
+// CLIModelSetter 切换会话常驻进程的 CLI 模型；空串回到 CLI 默认。
+// 轮中只记录选择，下一轮由 RunRequest 应用；进程不在时返回 ErrNoActiveTurn。
+type CLIModelSetter interface {
+	SetCLIModel(ctx context.Context, sessionID int64, value string) error
+}
+
+// CLIModelState 是会话自己上报的模型与应用失败，不使用设备目录的默认解析。
+type CLIModelState struct {
+	Active       bool
+	AppliedValue string
+	ModelID      string
+	Error        string
+}
+
+type CLIModelStateReader interface {
+	CLIModelState(ctx context.Context, sessionID int64) CLIModelState
+}
+
 // RunRequest 一次 Send 的入参。
 type RunRequest struct {
-	Backend  *agent_backend_entity.AgentBackend
-	Provider *llm_provider_entity.LLMProvider // 可为 nil（CLI 后端走自身 login）
+	// CLIModelMode/CLIModel 是会话三态选择，仅 native 模式消费，不进入启动身份。
+	CLIModelMode string
+	CLIModel     string
+	Backend      *agent_backend_entity.AgentBackend
+	Provider     *llm_provider_entity.LLMProvider // 可为 nil（CLI 后端走自身 login）
 	// Effective 是本轮执行侧唯一解析结果（EffectiveLLMConfig v1 seam）。
 	// chat_svc 通过 ResolveTarget 解析产生；runtime 读取它决定实际 ModelID，
 	// 不再各自从 Provider 旧单模型字段取值。native（无供应商）时为 nil 或

@@ -73,6 +73,39 @@ func (c *Client) QueryModels(ctx context.Context) (ModelCatalog, error) {
 
 // queryControl 与常驻 reader 配对应答；不占用任何 user turn。
 func (s *Session) queryControl(ctx context.Context, subtype string) (json.RawMessage, error) {
+	return s.requestControl(ctx, map[string]any{"subtype": subtype})
+}
+
+// CurrentModel 查询常驻进程当前实际模型。
+func (s *Session) CurrentModel(ctx context.Context) (string, error) {
+	payload, err := s.requestControl(ctx, map[string]any{"subtype": "get_settings"})
+	if err != nil {
+		return "", err
+	}
+	var settings struct {
+		Applied struct {
+			Model string `json:"model"`
+		} `json:"applied"`
+	}
+	if err := json.Unmarshal(payload, &settings); err != nil {
+		return "", fmt.Errorf("claudecode: get_settings: %w", err)
+	}
+	return settings.Applied.Model, nil
+}
+
+// SetModel 切换常驻进程的模型；空串省略 model 字段，回到 CLI 默认。
+func (s *Session) SetModel(ctx context.Context, value string) error {
+	request := map[string]any{"subtype": "set_model"}
+	if value != "" {
+		request["model"] = value
+	}
+	_, err := s.requestControl(ctx, request)
+	return err
+}
+
+// requestControl 统一查询与模型切换的应答配对，不占用用户轮。
+func (s *Session) requestControl(ctx context.Context, request map[string]any) (json.RawMessage, error) {
+	subtype, _ := request["subtype"].(string)
 	reqID := newControlRequestID()
 	ch := make(chan controlResponse, 1)
 	s.stdinMu.Lock()
@@ -87,7 +120,7 @@ func (s *Session) queryControl(ctx context.Context, subtype string) (json.RawMes
 	s.ctrlPending[reqID] = ch
 	s.ctrlMu.Unlock()
 	defer s.forgetControlRequest(reqID)
-	err := json.NewEncoder(s.proc.stdin).Encode(map[string]any{"type": "control_request", "request_id": reqID, "request": map[string]any{"subtype": subtype}})
+	err := json.NewEncoder(s.proc.stdin).Encode(map[string]any{"type": "control_request", "request_id": reqID, "request": request})
 	s.stdinMu.Unlock()
 	if err != nil {
 		return nil, err

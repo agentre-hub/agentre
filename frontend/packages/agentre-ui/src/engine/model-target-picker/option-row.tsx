@@ -23,12 +23,14 @@ import type { ReactNode } from "react";
 
 // CLI 行的身份不经过 providerKey/modelKey，避免与供应商最近使用混在一起。
 export function CliModelRow({
+  icon,
   label,
   sublabel,
   selected,
   follow,
   onSelect,
 }: {
+  icon?: ReactNode;
   label: string;
   sublabel?: ReactNode;
   selected: boolean;
@@ -47,6 +49,7 @@ export function CliModelRow({
       )}
       onClick={onSelect}
     >
+      {icon}
       {follow ? (
         <RefreshCw className="size-3.5 shrink-0" aria-hidden="true" />
       ) : null}

@@ -7,7 +7,7 @@
 //     是宿主的事，留在各自宿主。
 //
 // 入参是一个平坦的视图模型（ProviderPillState），不含任何宿主类型。
-import { RefreshCw, UserRound } from "lucide-react";
+import { Loader2, RefreshCw, UserRound } from "lucide-react";
 import * as React from "react";
 
 import { useUiTranslation as useTranslation } from "../../i18n";
@@ -26,7 +26,15 @@ import { resolveProviderPillLogoTier } from "./pill-state";
  * 一瞬会闪成「CLI 登录态」。
  */
 export type ProviderPillState = {
-  mode: "follow-agent" | "provider-default" | "fixed" | "invalid";
+  mode:
+    | "follow-agent"
+    | "provider-default"
+    | "cli-default"
+    | "fixed"
+    | "invalid";
+  loading?: boolean;
+  nativeCLI?: boolean;
+  pending?: { label: string; mode: "follow-agent" | "cli-default" | "fixed" };
   providerLabel: string;
   providerType: string;
   /** 模型展示名（没填展示名回落模型 ID；失效且解析不到时是原始 key）。 */
@@ -110,7 +118,9 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
   const resolvedTarget =
     state.modelLabel ||
     state.providerLabel ||
-    (state.cliLogin ? t("modelTargetPicker.special.backend") : null);
+    (state.cliLogin && !state.nativeCLI && state.mode !== "cli-default"
+      ? t("modelTargetPicker.special.backend")
+      : null);
 
   const triggerIcon =
     state.mode === "follow-agent"
@@ -151,8 +161,26 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
 
   return (
     <>
-      {triggerIcon}
-      <span className="min-w-0 truncate">{triggerText}</span>
+      {state.loading ? (
+        <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+      ) : (
+        triggerIcon
+      )}
+      <span className="min-w-0 truncate">
+        {state.pending ? (
+          <>
+            {resolvedTarget || t("modelTargetPicker.cli.decides")} →{" "}
+            {state.pending.label ||
+              t(
+                state.pending.mode === "follow-agent"
+                  ? "modelTargetPicker.special.chat"
+                  : "modelTargetPicker.cli.followDefault",
+              )}
+          </>
+        ) : (
+          triggerText || t("modelTargetPicker.special.chat")
+        )}
+      </span>
       {modeMarker}
     </>
   );
@@ -210,7 +238,7 @@ export function ProviderPillResolution({
       >
         <span aria-hidden="true">→</span>
         <span className="min-w-0 truncate">
-          {t("modelTargetPicker.special.backendSublabel")}
+          {fallbackLabel || t("modelTargetPicker.special.backendSublabel")}
         </span>
       </span>
     );

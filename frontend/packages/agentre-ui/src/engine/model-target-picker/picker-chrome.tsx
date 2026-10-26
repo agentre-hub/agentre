@@ -25,6 +25,7 @@ import {
 
 // CLI 目录是一段独立的登录账号选项；Claude / Codex / Pi 共用这一份交互。
 export function CliModelSection({
+  withinListbox = false,
   backendType,
   state,
   search,
@@ -32,6 +33,7 @@ export function CliModelSection({
 }: {
   backendType: string;
   state: CliModelPickerState;
+  withinListbox?: boolean;
   search: string;
   onSelect: (choice: CliModelChoice) => void;
 }) {
@@ -137,7 +139,7 @@ export function CliModelSection({
         </div>
       ) : null}
       <div
-        role="listbox"
+        role={withinListbox ? "group" : "listbox"}
         aria-label={t("modelTargetPicker.cli.heading", { cli })}
       >
         <CliModelRow

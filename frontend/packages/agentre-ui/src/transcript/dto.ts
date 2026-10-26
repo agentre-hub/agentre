@@ -292,6 +292,9 @@ export interface TranscriptBlock {
   // 决策 7）。**空串 + 该 kind = 改回跟随后端配置**，所以判据是 kind 而不是这个
   // 字段是否非空；其它块恒为空。
   reasoningEffort?: string;
+  cliModelMode?: string;
+  cliModel?: string;
+  actualModel?: string;
   // noticeKind==="hermes_unsupported_request" 时携带的只读用途分类（spec
   // 2026-09-17 "Unsupported Hermes requests"，agentruntime.UnsupportedRequestPurpose
   // 镜像，如 "sudo_password" / "secret" / "terminal_read"）。渲染层按它走 i18n

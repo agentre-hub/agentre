@@ -50,6 +50,9 @@ var errStartupTimeout = errors.New("agentruntime/runtimes/claudecode: turn produ
 type Runtime struct {
 	// queryModels 是短命查询进程的测试缝，不接入会话池。
 	queryModels func(context.Context, *claudecode.Client) (claudecode.ModelCatalog, error)
+	// modelFailures 保留尚未建出进程时的模型应用错误，供会话失效态读取。
+	modelFailures sync.Map
+
 	// spawnLocks 按 session key 分桶串行化 acquireSession 的 get-or-spawn,只防同一
 	// session 并发首轮 double-spawn。
 	//
@@ -365,11 +368,13 @@ func (r *Runtime) CloseSession(_ context.Context, sessionID int64) {
 	if sessionID <= 0 {
 		return
 	}
+	r.modelFailures.Delete(sessionID)
 	r.cache.Remove(sessionKey(sessionID))
 }
 
 // CloseAllSessions app shutdown 时调,关掉所有常驻 claude 子进程。
 func (r *Runtime) CloseAllSessions(_ context.Context) {
+	r.modelFailures.Clear()
 	r.cache.RemoveAll()
 }
 
@@ -382,6 +387,9 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 
 	a, launchMode, err := r.acquireSession(ctx, req)
 	if err != nil {
+		if req.CLIModelMode != "" {
+			r.modelFailures.Store(req.SessionID, err.Error())
+		}
 		logger.Ctx(ctx).Error("claudecode.Runtime: acquireSession failed",
 			zap.Int64("sessionId", req.SessionID),
 			zap.Int64("agentId", req.AgentID),
@@ -389,6 +397,7 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 			zap.Error(err))
 		return nil, nil, err
 	}
+	r.modelFailures.Delete(req.SessionID)
 	logger.Ctx(ctx).Info("claudecode.Runtime: turn started",
 		zap.Int64("sessionId", req.SessionID),
 		zap.String("launchPermissionMode", launchMode),
@@ -529,6 +538,10 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 				r.cache.Remove(sessionKey(req.SessionID))
 			}
 		}
+		// CLI 在首个模型报告之前就拒绝首轮时，同样属于尚未成功应用的选择。
+		if req.CLIModelMode != "" && req.EffectiveProviderKey() == "" && result.Model == "" && result.StopErr != nil && ctx.Err() == nil {
+			r.modelFailures.Store(req.SessionID, result.StopErr.Error())
+		}
 		// 最佳努力地从 JSONL 抽 UserAnchor。
 		//
 		// 走反向扫描而不是整文件解析:这段跑在 close(out) **之前**,chat_svc 的
@@ -621,6 +634,14 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 	}
 
 	if cur != nil {
+		if req.EffectiveProviderKey() == "" && cur.cliModel != claudeEffectiveModel(req) {
+			if err := setActiveCLIModel(ctx, cur, claudeEffectiveModel(req)); err != nil {
+				cur.modelMu.Lock()
+				cur.modelState.Error = err.Error()
+				cur.modelMu.Unlock()
+				return nil, "", err
+			}
+		}
 		// 复用现有 CLI 子进程:不重新 spawn,因此本轮没有新的 --permission-mode
 		// 下发。回吐当前缓存的 mode 让 chat_svc 写库幂等(值不变即 noop)。
 		cur.inTurn.Store(true)
@@ -704,6 +725,8 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 		pool:           r.cache,
 		poolKey:        key,
 		permissionMode: runtimeMode,
+		cliModel:       claudeEffectiveModel(req),
+		modelState:     agentruntime.CLIModelState{Active: true, AppliedValue: claudeEffectiveModel(req)},
 		contextWindow:  launchContextWindow(env),
 		tasks:          newTaskAggregator(),
 	}
@@ -725,9 +748,13 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 // 比对交给 CLISessionPool.GetWithIdentity —— 三个后端共用同一条规则,各自只决定自己
 // 的字段集。分隔符用 \x00:这些字段都是标识串,不会含 NUL,拼接不会互相串味。
 func launchIdentity(req agentruntime.RunRequest) string {
+	model := ""
+	if req.EffectiveProviderKey() != "" {
+		model = claudeEffectiveModel(req)
+	}
 	return strings.Join([]string{
 		req.Backend.ReasoningEffort,
-		claudeEffectiveModel(req),
+		model,
 		effectiveModelKey(req),
 		req.EffectiveProviderKey(),
 		strconv.Itoa(effectiveContextWindow(req)),
@@ -786,6 +813,12 @@ func drainStream(stream ccStream, out chan<- agentruntime.Event, result *agentru
 			}
 		}
 		ev := stream.Event()
+		if active != nil && (ev.Kind == claudecode.EventInit || ev.Kind == claudecode.EventDone) && ev.Model != "" {
+			active.modelMu.Lock()
+			active.modelState.ModelID = ev.Model
+			active.modelState.Error = ""
+			active.modelMu.Unlock()
+		}
 		if result.StopErr != nil && claudeEventShowsProgressAfterError(ev.Kind) {
 			result.StopErr = nil
 		}

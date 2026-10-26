@@ -33,6 +33,9 @@ type NoticeBlock = {
   modelName?: string;
   noticeKind?: string;
   reasoningEffort?: string;
+  cliModelMode?: string;
+  cliModel?: string;
+  actualModel?: string;
   noticePurpose?: string;
 };
 
@@ -220,6 +223,37 @@ describe("transcript notice block", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/acme-anthropic/)).not.toBeInTheDocument();
+  });
+
+  it("Given a CLI model switch or deviation, When rendering the persisted notice, Then its choice and actual report are readable", () => {
+    renderRow(
+      noticeRow({
+        noticeKind: "cli_model",
+        cliModelMode: "fixed",
+        cliModel: "sonnet",
+      }),
+    );
+    expect(
+      screen.getByText(
+        i18n.t("modelTargetPicker.cli.switchedFixed", { model: "sonnet" }),
+      ),
+    ).toBeInTheDocument();
+    cleanup();
+    renderRow(
+      noticeRow({
+        noticeKind: "cli_model_deviation",
+        cliModel: "sonnet",
+        actualModel: "opus",
+      }),
+    );
+    expect(
+      screen.getByText(
+        i18n.t("modelTargetPicker.cli.deviation", {
+          selected: "sonnet",
+          actual: "opus",
+        }),
+      ),
+    ).toBeInTheDocument();
   });
 
   it("Given a reasoning-effort switch notice, When it carries a level, Then it reads out which level took over（spec 2026-09-01 决策 7）", () => {

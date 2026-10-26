@@ -99,6 +99,9 @@ type ProviderNotice struct {
 	// 改回跟随后端配置(spec 2026-09-01 决策 7)。档位是自明的序数,没有展示名要带
 	// —— 前端按它选 t() 文案。
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	CLIModelMode    string `json:"cliModelMode,omitempty"`
+	CLIModel        string `json:"cliModel,omitempty"`
+	ActualModel     string `json:"actualModel,omitempty"`
 }
 
 // NoticeKindSwitch 见 ProviderNotice 的 kind 说明。回退提示不写 kind,
@@ -116,7 +119,7 @@ const NoticeKindReasoningEffort = "reasoning_effort"
 // assistant 之后),因此都必须被「末条 assistant = 在跑的那一轮」的推导跳过。回退提示
 // (kind 为空)不在此列:它是轮次自己收尾时追加进那一轮的消息里的。
 func isSessionSwitchKind(kind string) bool {
-	return kind == NoticeKindSwitch || kind == NoticeKindReasoningEffort
+	return kind == NoticeKindSwitch || kind == NoticeKindReasoningEffort || kind == "cli_model"
 }
 
 func EncodeProviderFallback(providerKey, providerName string) string {
@@ -145,6 +148,12 @@ func EncodeReasoningEffortSwitch(effort string) string {
 		Kind:            NoticeKindReasoningEffort,
 		ReasoningEffort: effort,
 	})
+	return string(b)
+}
+
+// EncodeCLIModelSwitch 编码 CLI 三态切换，空 mode 仍由 kind 标识为旁白。
+func EncodeCLIModelSwitch(mode, value string) string {
+	b, _ := json.Marshal(ProviderNotice{Kind: "cli_model", CLIModelMode: mode, CLIModel: value})
 	return string(b)
 }
 

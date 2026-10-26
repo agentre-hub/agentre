@@ -289,6 +289,10 @@ type ChatSessionStatusPatch struct {
 // ChatBlock 是 backend → 前端的简化投影：把 cago/agents StoredBlock 拍平。
 // 已支持的 Type：text / thinking / tool_use / tool_result / notice / ask_user_question / unknown（兜底）。
 type ChatBlock struct {
+	CLIModelMode string `json:"cliModelMode,omitempty"`
+	CLIModel     string `json:"cliModel,omitempty"`
+	ActualModel  string `json:"actualModel,omitempty"`
+
 	Type  string `json:"type"`
 	Text  string `json:"text,omitempty"`  // text / thinking / tool_result / notice 文本
 	Level string `json:"level,omitempty"` // notice 级别
@@ -566,6 +570,15 @@ type ChatSessionDetail struct {
 	// 「有效供应商解析（唯一口径）」）解析，不再单看 agent 绑定 —— 否则会话换了个不同
 	// 类型 / 不同上下文窗口的供应商后，用量条与上下文占比会按另一个供应商算错。
 	LLMProviderType string `json:"llmProviderType"`
+	// CLI 选择与这条会话自己上报的模型分开返回，目录默认不是会话实际模型。
+	AgentBackendID  int64  `json:"agentBackendId"`
+	AgentCLIModel   string `json:"agentCLIModel"`
+	CLIModelMode    string `json:"cliModelMode"`
+	CLIModel        string `json:"cliModel"`
+	ActualCLIModel  string `json:"actualCLIModel"`
+	CLIModelError   string `json:"cliModelError"`
+	CLIModelPending bool   `json:"cliModelPending"`
+
 	// ProviderKey 是这条会话自己选的 LLM 供应商 key；空串 = 跟随 agent 绑定。
 	// AgentProviderKey 是该会话所用那一档 backend 绑定的 key；两者都空 = CLI 登录态。
 	// 前端 composer 的供应商 pill 用这两个值渲染标签（已选 → 供应商名；未选 → agent
@@ -680,6 +693,9 @@ const (
 )
 
 type ChatAgentItem struct {
+	AgentBackendID int64  `json:"agentBackendId"`
+	AgentCLIModel  string `json:"agentCLIModel"`
+
 	ID            int64  `json:"id"`
 	Name          string `json:"name"`
 	AvatarColor   string `json:"avatarColor"`
@@ -889,6 +905,9 @@ type EnsureSessionResponse struct {
 }
 
 type SendRequest struct {
+	CLIModelMode string `json:"cliModelMode"`
+	CLIModel     string `json:"cliModel"`
+
 	SessionID int64       `json:"sessionId"` // 0 = 新建
 	AgentID   int64       `json:"agentId"`
 	Text      string      `json:"text"`
@@ -1165,6 +1184,18 @@ type SetPermissionModeRequest struct {
 type SetPermissionModeResponse struct {
 	Applied bool   `json:"applied"`
 	Mode    string `json:"mode"`
+}
+
+// SetChatSessionCLIModelRequest 保存会话 CLI 三态选择，value 仅 fixed 时填写。
+type SetChatSessionCLIModelRequest struct {
+	SessionID int64  `json:"sessionId"`
+	Mode      string `json:"mode"`
+	Value     string `json:"value"`
+}
+
+type SetChatSessionCLIModelResponse struct {
+	Mode  string `json:"mode"`
+	Value string `json:"value"`
 }
 
 // SetChatSessionModelTargetRequest 切换已有会话的 LLM ModelTarget（spec 2026-08-11

@@ -1,4 +1,5 @@
 import type { EngineID } from "../ports";
+import type { ProviderPillState } from "./provider-pill-trigger";
 
 // CLI 身份与 Agentre 供应商目标分离：value 原样交给对应 CLI，不伪装成 modelKey。
 export type CliModelOption = {
@@ -28,11 +29,66 @@ export type ListCliModels = (request: {
 
 export type CliModelPickerState = CliModelCatalog & {
   loading?: boolean;
+  // 会话切换失败的 CLI 原文，与目录查询错误分开，在弹层底部呈现。
+  switchError?: string;
   // 未选中 CLI 登录态时为空，不能把供应商选中态误画成 CLI 默认。
   choice?: CliModelChoice;
-  onChange: (choice: CliModelChoice) => void;
+  onChange: (
+    choice: CliModelChoice,
+  ) => void | boolean | Promise<void | boolean>;
   onRefresh: () => void;
 };
+
+// resolveCLIPillState 只把会话报告当作实际模型；目录默认仅描述可选择的默认项。
+export function resolveCLIPillState(input: {
+  catalog: CliModelCatalog;
+  choice?: CliModelChoice;
+  backendType: string;
+  boundValue?: string;
+  actualModelId?: string;
+  pending?: boolean;
+  error?: string;
+  loading?: boolean;
+}): ProviderPillState {
+  const { catalog, choice, actualModelId = "", boundValue = "" } = input;
+  const selectedValue =
+    choice?.mode === "fixed" ? choice.value : choice ? "" : boundValue;
+  const selected = selectedValue
+    ? cliModelResolution(catalog, { mode: "fixed", value: selectedValue })
+    : { label: "", modelId: "" };
+  const actual = catalog.models.find((m) => m.modelId === actualModelId);
+  const pending: ProviderPillState["pending"] =
+    input.pending && !input.error
+      ? { label: selected.label, mode: choice?.mode ?? "follow-agent" }
+      : undefined;
+  const modelId = actualModelId || (!pending ? selected.modelId : "");
+  const modelLabel = actualModelId
+    ? actual?.label || actualModelId
+    : !pending
+      ? selected.label
+      : "";
+  return {
+    mode: input.error
+      ? "invalid"
+      : choice?.mode === "cli-default"
+        ? "cli-default"
+        : choice
+          ? "fixed"
+          : "follow-agent",
+    modelId,
+    modelLabel,
+    resolutionLabel: modelLabel,
+    providerLabel: "",
+    providerType: "",
+    dynamic:
+      choice?.mode === "cli-default" || (!choice && input.boundValue === ""),
+    cliLogin: true,
+    nativeCLI: true,
+    backendType: input.backendType,
+    pending,
+    loading: input.loading && !modelId,
+  };
+}
 
 export function cliModelResolution(
   catalog: CliModelCatalog,

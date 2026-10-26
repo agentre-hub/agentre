@@ -398,6 +398,20 @@ func (mr *MockSessionRepoMockRecorder) Update(ctx, s any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockSessionRepo)(nil).Update), ctx, s)
 }
 
+// UpdateCLIModel mocks base method.
+func (m *MockSessionRepo) UpdateCLIModel(ctx context.Context, sessionID int64, mode, value string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCLIModel", ctx, sessionID, mode, value)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCLIModel indicates an expected call of UpdateCLIModel.
+func (mr *MockSessionRepoMockRecorder) UpdateCLIModel(ctx, sessionID, mode, value any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCLIModel", reflect.TypeOf((*MockSessionRepo)(nil).UpdateCLIModel), ctx, sessionID, mode, value)
+}
+
 // UpdateContextWindow mocks base method.
 func (m *MockSessionRepo) UpdateContextWindow(ctx context.Context, sessionID int64, tokens int) error {
 	m.ctrl.T.Helper()

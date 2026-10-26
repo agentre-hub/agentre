@@ -62,6 +62,11 @@ export {
   ProviderPillTrigger,
 } from "./engine/model-target-picker";
 export type { ProviderPillState } from "./engine/model-target-picker";
+export { useCLIModels } from "./engine/backend-editor/use-cli-models";
+export {
+  resolveCLIPillState,
+  cliModelResolution,
+} from "./engine/model-target-picker/cli-models";
 export { resolveProviderPillState } from "./engine/model-target-picker";
 export {
   readRecentTargets,

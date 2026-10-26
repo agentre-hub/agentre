@@ -20,8 +20,10 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 )
 
 // turnRun 承载 runTurn 一轮执行期间的全部可变状态:attachRuntime / initSegment /
@@ -466,6 +468,16 @@ func (t *turnRun) finalize(ctx context.Context) {
 			})
 		}
 	}
+	if t.req.CLIModelMode == "fixed" && t.req.Provider == nil && (t.req.Effective == nil || t.req.Effective.ProviderKey == "") && t.result != nil && t.result.Model != "" && !exec_target_svc.BackendTargetsRemote(t.be) {
+		// 目录只用于解析所选别名；实际使用值始终来自这一轮的 RunResult。
+		var models []agentruntime.CLIModel
+		if catalog, err := agent_backend_svc.AgentBackend().ListCLIModels(ctx, &agent_backend_svc.ListCLIModelsRequest{BackendID: t.be.ID}); err == nil && catalog != nil {
+			models = catalog.Models
+		}
+		if notice := cliModelDeviation(t.req, t.result.Model, models); notice != nil {
+			finalBlocks = append(finalBlocks, *notice)
+		}
+	}
 	t.assistantMsg.TokensPerSec = t.turnCtx.TokensPerSec(t.assistantMsg.CompletionTokens)
 	_ = t.assistantMsg.SetBlocks(finalBlocks)
 	// aborted 已在 acc.Finalize() 之后取出(见上方 MarkRunningSubagentsCancelled 调用)；
@@ -578,6 +590,22 @@ func (t *turnRun) finalize(ctx context.Context) {
 			t.svc.emitter.Emit(finalCtx, t.stream, *payload)
 			if t.be.IsClaudeCode() || t.be.IsCodex() || t.be.IsPiAgent() {
 				t.svc.permissionModes().RefreshForAutoContinue(finalCtx, t.sess)
+			}
+			if _, ok := t.runner.(agentruntime.CLIModelSetter); ok {
+				if err := refreshCLIModelChoice(finalCtx, t.sess); err != nil {
+					t.svc.failTurn(finalCtx, t.sess, nextAssistant, t.stream, err)
+					return
+				}
+				base := t.prov
+				if t.be.LLMProviderKey == "" {
+					base = nil
+				}
+				nextProv, notice, err := t.svc.resolveSessionProvider(finalCtx, t.sess, t.be, base)
+				if err != nil {
+					t.svc.failTurn(finalCtx, t.sess, nextAssistant, t.stream, err)
+					return
+				}
+				t.prov, t.extras.providerFallbackNotice = nextProv, notice
 			}
 			// 同 goroutine + 同锁 + 同 stream 名递归跑下一轮：runTurn 内部
 			// chatMessageForEvent / StreamDone 会以 nextAssistant 为目标 emit，

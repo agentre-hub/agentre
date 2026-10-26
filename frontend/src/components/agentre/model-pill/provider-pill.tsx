@@ -2,6 +2,8 @@ import * as React from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
+  AgentBackendLogo,
+  LlmModelLogo,
   Button,
   Dialog,
   DialogBody,
@@ -27,6 +29,7 @@ export type ProviderPillProps = UseProviderPillReturn;
  * 共享 ModelTargetPicker 继续承载搜索、最近使用、远端门控与键盘交互。
  */
 export function ProviderPill({
+  cliModels,
   providerKey,
   modelKey,
   setTarget,
@@ -91,6 +94,23 @@ export function ProviderPill({
     <>
       <ModelTargetPicker
         scenario="chat"
+        cliModels={cliModels}
+        specialIcon={
+          cliModels ? (
+            boundModelLabel ? (
+              <LlmModelLogo
+                providerType=""
+                model={boundModelLabel}
+                className="size-3.5"
+              />
+            ) : (
+              <AgentBackendLogo
+                backendType={backendType}
+                className="size-3.5"
+              />
+            )
+          ) : undefined
+        }
         backendType={backendType}
         executionLocation={executionLocation}
         selected={{ providerKey, modelKey }}

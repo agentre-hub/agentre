@@ -23,6 +23,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../../ui/popover";
 
 import { resolveTargetLabel } from "./options";
 import type { CliModelPickerState } from "./cli-models";
+import { CliModelRow } from "./option-row";
 import {
   CliModelSection,
   InvalidTargetBanner,
@@ -43,7 +44,7 @@ import {
 
 export type ModelTargetPickerProps = {
   scenario: PickerScenario;
-  // CLI 自带目录只用于 backend 场景，其身份与供应商目标分开传递。
+  // CLI 自带目录用于 backend/chat 场景，其身份与供应商目标分开传递。
   cliModels?: CliModelPickerState;
   // backendType 是 effective backend 类型，用于 provider.type 兼容性过滤。
   backendType: string;
@@ -83,6 +84,7 @@ export type ModelTargetPickerProps = {
   // 回落「由 CLI 自身的登录账号决定」。可以是节点（带品牌标识的「→ [logo] 供应商 ·
   // 模型」）；节点只参与渲染，特殊项的搜索始终只按 specialLabel 匹配（见 Option.searchText）。
   specialSublabel?: React.ReactNode;
+  specialIcon?: React.ReactNode;
   // 远端目录缺少本机 Provider 时的显式同步入口；消费方负责确认与执行凭证复制。
   onSyncProvider?: (provider: PickerProvider) => void;
   // footer：弹层底部常显说明（chat 场景的「自下一轮生效」等），随弹层一起出现。
@@ -124,6 +126,7 @@ export function ModelTargetPicker({
   remoteCatalog,
   deviceLabel,
   specialSublabel,
+  specialIcon,
   onSyncProvider,
   footer,
   compact = false,
@@ -136,7 +139,7 @@ export function ModelTargetPicker({
   "aria-label": ariaLabel,
 }: ModelTargetPickerProps) {
   const { t } = useTranslation();
-  const cliState = scenario === "backend" ? cliModels : undefined;
+  const cliState = scenario !== "route" ? cliModels : undefined;
   const picker = usePickerOptions({
     hideSpecial: Boolean(cliState),
     scenario,
@@ -254,15 +257,32 @@ export function ModelTargetPicker({
         />
 
         {/* 330px / 5px = mockup .pop .plistw。 */}
-        <div className="max-h-[330px] overflow-y-auto p-[5px]">
+        <div
+          className="max-h-[330px] overflow-y-auto p-[5px]"
+          role={cliState && scenario === "chat" ? "listbox" : undefined}
+          aria-label={cliState && scenario === "chat" ? ariaLabel : undefined}
+        >
+          {cliState && scenario === "chat" ? (
+            <CliModelRow
+              icon={specialIcon}
+              label={t("modelTargetPicker.special.chat")}
+              sublabel={specialSublabel}
+              selected={!cliState.choice && isNativeTarget(selected)}
+              onSelect={() => {
+                onChange({ providerKey: "", modelKey: "" });
+                picker.handleOpenChange(false);
+              }}
+            />
+          ) : null}
           {cliState ? (
             <CliModelSection
+              withinListbox={scenario === "chat"}
               backendType={backendType}
               state={cliState}
               search={picker.search}
-              onSelect={(choice) => {
-                cliState.onChange(choice);
-                picker.handleOpenChange(false);
+              onSelect={async (choice) => {
+                const accepted = await cliState.onChange(choice);
+                if (accepted !== false) picker.handleOpenChange(false);
               }}
             />
           ) : null}
@@ -289,6 +309,7 @@ export function ModelTargetPicker({
 
           {!loading && !error && flatOptions.length > 0 ? (
             <PickerOptionList
+              withinListbox={Boolean(cliState) && scenario === "chat"}
               listRef={picker.listRef}
               ariaLabel={ariaLabel}
               options={flatOptions}
@@ -320,6 +341,13 @@ export function ModelTargetPicker({
         ) : null}
         {remoteMissing ? (
           <PickerNote>{t("modelTargetPicker.remoteMissing")}</PickerNote>
+        ) : null}
+        {scenario === "chat" && cliState?.switchError ? (
+          <PickerNote>
+            {t("modelTargetPicker.cli.switchFailed", {
+              error: cliState.switchError,
+            })}
+          </PickerNote>
         ) : null}
         {footer ? <PickerNote>{footer}</PickerNote> : null}
       </PopoverContent>
