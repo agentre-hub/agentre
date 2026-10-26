@@ -322,7 +322,7 @@ func TestPiModelFallback(t *testing.T) {
 
 // TestPiResultModelPlaceholder 锁住 result.Model 在 pi 真实 usage 帧上报前的占位:
 // effectiveModel = firstNonEmpty(解析出的 ModelID, backendDefault)。#26 override 已移除,
-// 占位只随解析出的 ModelID。
+// 占位随解析出的 ModelID 与 CLI 登录态的后端默认模型（spec 2026-10-26 决策 7）。
 func TestPiResultModelPlaceholder(t *testing.T) {
 	Convey("Given pi-agent runtime 且 pi 不报模型(无 usage 帧)", t, func() {
 		restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, _ map[string]string, _ string) (sessionHandle, error) {

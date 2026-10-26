@@ -38,9 +38,11 @@ type activeSession struct {
 }
 
 type Runtime struct {
-	mu       sync.Mutex
-	active   map[int64]*activeSession
-	prepared map[int64]*preparedRun
+	mu     sync.Mutex
+	active map[int64]*activeSession
+	// queryModels 是短命查询进程的测试缝，不接入会话池。
+	queryModels func(context.Context, *pkgpi.Client) (pkgpi.ModelCatalog, error)
+	prepared    map[int64]*preparedRun
 	// pool 让 RPC 会话跨轮活着。pi 的启动参数(--session/--append-system-prompt/
 	// --model/--thinking/--extension)在 spawn 时烤死且逐轮不变,每轮重起付的是进程
 	// 启动 + 扩展加载的钱,买到的是一模一样的东西。
@@ -106,13 +108,13 @@ func sessionKey(id int64) string {
 // 时不回调本包,旁路表只增不减)。分隔符用 \x00:这些字段里 system
 // prompt 是自由文本,用它才不会与内容串味。
 func launchIdentity(req agentruntime.RunRequest, cwd string) string {
-	thinking, model := "", ""
+	thinking := ""
 	if req.Backend != nil {
 		thinking = req.Backend.ReasoningEffort
 	}
-	if req.Effective != nil {
-		model = req.Effective.ModelID
-	}
+	// CLI 模型（--model）烤死在启动参数里,取值规则与 spawn 同源(piModelFallback):
+	// 后端默认模型 / 会话固定值一变就必须逐出旧进程,否则这一轮跑的是旧模型。
+	model := piModelFallback(req)
 	names := make([]string, 0, len(req.MCPServers))
 	for _, srv := range req.MCPServers {
 		names = append(names, srv.Name)

@@ -150,12 +150,20 @@ function fields(
 
 describe("buildBackendDraft default model", () => {
   // spec 2026-10-26 决策 7：CLI 登录态下三种 CLI 都能存一个默认模型，codex 用自己的
-  // 模型 id；绑定供应商期间该值保留但被忽略。
+  // 模型 id、pi 用 "provider/id"；绑定供应商期间该值保留但被忽略。
   it("Given a codex backend, When a CLI model is chosen, Then defaultModel is kept (trimmed) instead of cleared", () => {
     expect(
       buildBackendDraft(fields({ type: "codex", defaultModel: " gpt-6-luna " }))
         .defaultModel,
     ).toBe("gpt-6-luna");
+  });
+
+  it("Given a pi-agent backend, When a CLI model is chosen, Then defaultModel is kept as provider/id", () => {
+    expect(
+      buildBackendDraft(
+        fields({ type: "piagent", defaultModel: " zhipu/glm-5.3 " }),
+      ).defaultModel,
+    ).toBe("zhipu/glm-5.3");
   });
 
   it("Given a Claude Code backend, Then defaultModel is still kept", () => {
@@ -168,11 +176,11 @@ describe("buildBackendDraft default model", () => {
 
   it("Given a backend that has no CLI model binding, Then defaultModel is cleared", () => {
     expect(
-      buildBackendDraft(fields({ type: "piagent", defaultModel: "gpt-6-luna" }))
+      buildBackendDraft(fields({ type: "builtin", defaultModel: "x" }))
         .defaultModel,
     ).toBe("");
     expect(
-      buildBackendDraft(fields({ type: "builtin", defaultModel: "x" }))
+      buildBackendDraft(fields({ type: "openclaw", defaultModel: "x" }))
         .defaultModel,
     ).toBe("");
   });

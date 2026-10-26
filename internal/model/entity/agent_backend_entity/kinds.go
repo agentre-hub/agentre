@@ -180,13 +180,11 @@ func (piAgentKind) AllowsCLIPath() bool         { return true }
 
 func (piAgentKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 	// LLMProviderKey 非空 → 放行（本功能核心：piagent 可绑定自定义供应商）。
-	// ModelRoutes / Sandbox / Approval / DefaultPermissionMode / DefaultModel 对 piagent 无意义，
-	// 非默认值即报错（沿用 InvalidParameter 风格）。
+	// DefaultModel 在 CLI 登录态下可保存（spec 2026-10-26 决策 7），绑供应商时被忽略。
 	if !isEmptyJSONObject(b.ModelRoutes) ||
 		strings.TrimSpace(b.Sandbox) != "" ||
 		strings.TrimSpace(b.Approval) != "" ||
-		strings.TrimSpace(b.DefaultPermissionMode) != "" ||
-		strings.TrimSpace(b.DefaultModel) != "" {
+		strings.TrimSpace(b.DefaultPermissionMode) != "" {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
 	return nil

@@ -272,9 +272,10 @@ func TestAgentBackendCheck(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "piagent rejects non-empty default_model",
-			input:   &AgentBackend{Type: string(TypePiAgent), Name: "pi", DefaultModel: "whatever"},
-			wantErr: true,
+			// spec 2026-10-26 决策 7：piagent 走 CLI 登录态时同样可保存一个 CLI 自带模型。
+			name:    "piagent accepts default_model (CLI 登录态)",
+			input:   &AgentBackend{Type: string(TypePiAgent), Name: "pi", DefaultModel: "zhipu/glm-5.3"},
+			wantErr: false,
 		},
 
 		// llm_model_key（固定模型）——两个 key 都非空 = fixed-model；ProviderKey 非空且

@@ -353,24 +353,34 @@ func providerRunConfig(cfg *agentruntime.EffectiveLLMConfig, env map[string]stri
 	return model, extPath, nil
 }
 
-// piModelFallback 未绑 provider（或解析出的 ModelID 空）时的 --model 兜底：
-// effectiveModel = 空。裸 CLI 模型 id 直接作 --model 下发（走 pi
-// 自身登录/配置），不经 agentre 网关。
+// piModelFallback 未绑 provider（或解析出的 ModelID 空）时的 --model 取值：
+// firstNonEmpty(会话固定模型, backend.DefaultModel)。裸 CLI 模型 id（pi 的
+// "provider/id"）直接作 --model 下发，走 pi 自身登录/配置，不经 agentre 网关
+// （spec 2026-10-26 决策 7：绑了供应商时该值被忽略）。两者皆空 → 不下发，帧与
+// 今天逐字相同。
 func piModelFallback(req agentruntime.RunRequest) string {
-	return ""
+	if model := strings.TrimSpace(req.EffectiveModelID()); model != "" {
+		return model
+	}
+	if req.EffectiveProviderKey() != "" || req.Backend == nil {
+		return ""
+	}
+	switch req.CLIModelMode {
+	case "cli-default":
+		return ""
+	case "fixed":
+		return strings.TrimSpace(req.CLIModel)
+	default:
+		return strings.TrimSpace(req.Backend.DefaultModel)
+	}
 }
 
 // piResultModelPlaceholder 是 RunResult.Model 在 pi 真实 usage 帧上报前的占位：
-// effectiveModel = firstNonEmpty(解析出的 ModelID, backendDefault)。pi 每轮在 usage 帧
-// 上报真实模型 id 会覆盖它（runtime.go result.Model = raw.Model）；仅当 pi 不报模型
-// （极少）时落到这里。
+// firstNonEmpty(解析出的 ModelID, backendDefault)，即本轮真正下发并生效的那个模型。
+// pi 每轮在 usage 帧上报真实模型 id 会覆盖它（runtime.go result.Model = raw.Model）；
+// 仅当 pi 不报模型（极少）时落到这里。没人指定模型时为空——不冒充 CLI 默认。
 func piResultModelPlaceholder(req agentruntime.RunRequest) string {
-	if req.Effective != nil {
-		if pm := strings.TrimSpace(req.Effective.ModelID); pm != "" {
-			return pm
-		}
-	}
-	return ""
+	return piModelFallback(req)
 }
 
 // piUserModelID 把 pi 上报的模型 id 归一为面向用户的原始模型 id。

@@ -235,11 +235,12 @@ export function hermesErrorMessage(
 }
 
 // supportsCLIModel 回答「这个后端类型会不会把 CLI 自带模型存在 defaultModel 里」。
-// spec 2026-10-26 决策 7：claudecode 与 codex 走 CLI 登录态时都能指定默认模型；
-// 其它类型不吃这个字段，提交前清空避免跨类型残留。后端设置的 Picker 也按这条边界决定
-// 是否渲染「<CLI 名> 自带 · CLI 登录账号」段与是否向宿主查询 CLI 目录。
+// spec 2026-10-26 决策 7：claudecode / codex / piagent 走 CLI 登录态时都能指定默认模型
+// （pi 的值是 "provider/id"）；其它类型不吃这个字段，提交前清空避免跨类型残留。
+// 后端设置的 Picker 也按这条边界决定是否渲染「<CLI 名> 自带 · CLI 登录账号」段与
+// 是否向宿主查询 CLI 目录。
 export function supportsCLIModel(t: BackendType): boolean {
-  return t === "claudecode" || t === "codex";
+  return t === "claudecode" || t === "codex" || t === "piagent";
 }
 
 // buildBackendDraft 把编辑器的表单字段收成一份提交草稿：每种 backend 只保留自己
