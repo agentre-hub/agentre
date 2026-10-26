@@ -1165,7 +1165,7 @@ type blockingStartRuntimeSession struct {
 	release chan struct{}
 }
 
-func (s *blockingStartRuntimeSession) Stream(context.Context, string, string) (cxStream, error) {
+func (s *blockingStartRuntimeSession) Stream(context.Context, string, string, string) (cxStream, error) {
 	close(s.entered)
 	<-s.release
 	return s.stream, nil
@@ -1179,10 +1179,10 @@ type startFailRuntimeSession struct {
 func (s *startFailRuntimeSession) Close(context.Context) error { return nil }
 func (s *startFailRuntimeSession) ID() string                  { return s.sid }
 func (*startFailRuntimeSession) Model() string                 { return "" }
-func (s *startFailRuntimeSession) Stream(context.Context, string, string) (cxStream, error) {
+func (s *startFailRuntimeSession) Stream(context.Context, string, string, string) (cxStream, error) {
 	return nil, s.err
 }
-func (s *startFailRuntimeSession) StreamInput(context.Context, []pkgcodex.UserInput, string) (cxStream, error) {
+func (s *startFailRuntimeSession) StreamInput(context.Context, []pkgcodex.UserInput, string, string) (cxStream, error) {
 	return nil, s.err
 }
 func (s *startFailRuntimeSession) Compact(context.Context) (cxStream, error) {
@@ -1202,10 +1202,10 @@ func (*startFailRuntimeSession) ActiveInterruptor() cxInterruptable { return nil
 func (s *fakeRuntimeSession) Close(context.Context) error { return nil }
 func (s *fakeRuntimeSession) ID() string                  { return s.sid }
 func (s *fakeRuntimeSession) Model() string               { return s.model }
-func (s *fakeRuntimeSession) Stream(context.Context, string, string) (cxStream, error) {
+func (s *fakeRuntimeSession) Stream(context.Context, string, string, string) (cxStream, error) {
 	return s.stream, nil
 }
-func (s *fakeRuntimeSession) StreamInput(context.Context, []pkgcodex.UserInput, string) (cxStream, error) {
+func (s *fakeRuntimeSession) StreamInput(context.Context, []pkgcodex.UserInput, string, string) (cxStream, error) {
 	return s.stream, nil
 }
 func (s *fakeRuntimeSession) Compact(context.Context) (cxStream, error)       { return s.stream, nil }
@@ -1251,16 +1251,16 @@ func (s *countingRuntimeSession) ID() string { return s.sid }
 func (s *countingRuntimeSession) Model() string {
 	return ""
 }
-func (s *countingRuntimeSession) Stream(context.Context, string, string) (cxStream, error) {
+func (s *countingRuntimeSession) Stream(context.Context, string, string, string) (cxStream, error) {
 	stream := s.streams[s.streamCalls]
 	s.streamCalls++
 	return stream, nil
 }
-func (s *countingRuntimeSession) StreamInput(context.Context, []pkgcodex.UserInput, string) (cxStream, error) {
-	return s.Stream(context.Background(), "", "")
+func (s *countingRuntimeSession) StreamInput(context.Context, []pkgcodex.UserInput, string, string) (cxStream, error) {
+	return s.Stream(context.Background(), "", "", "")
 }
 func (s *countingRuntimeSession) Compact(context.Context) (cxStream, error) {
-	return s.Stream(context.Background(), "", "")
+	return s.Stream(context.Background(), "", "", "")
 }
 func (s *countingRuntimeSession) GetGoal(context.Context) (*pkgcodex.Goal, error) { return nil, nil }
 func (s *countingRuntimeSession) SetGoal(context.Context, pkgcodex.GoalUpdate) (*pkgcodex.Goal, error) {

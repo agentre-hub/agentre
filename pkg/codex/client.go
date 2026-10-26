@@ -86,7 +86,7 @@ func (c *Client) StreamInput(ctx context.Context, input []UserInput, opts ...Run
 		cleanup()
 		return nil, err
 	}
-	turnParams, err := turnStartParamsInput(thread, input, spec.collaborationMode, c.model)
+	turnParams, err := turnStartParamsInput(thread, input, spec.collaborationMode, c.model, spec.turnModel)
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -164,7 +164,7 @@ func (s *Session) StreamInput(ctx context.Context, input []UserInput, opts ...Ru
 		s.turnMu.Unlock()
 		return nil, err
 	}
-	turnParams, err := turnStartParamsInput(thread, input, spec.collaborationMode, s.client.model)
+	turnParams, err := turnStartParamsInput(thread, input, spec.collaborationMode, s.client.model, spec.turnModel)
 	if err != nil {
 		s.turnMu.Unlock()
 		return nil, err
@@ -182,6 +182,14 @@ func (s *Session) StreamInput(ctx context.Context, input []UserInput, opts ...Ru
 	if turn.Turn.ID == "" {
 		s.turnMu.Unlock()
 		return nil, errors.New("codex: turn/start response missing id")
+	}
+	// turn/start 的 model 覆盖本轮及其后各轮（codex 语义），被接受之后线程跑的就是它。
+	// app-server 不在 turn/start 应答里回报 model，这里按「请求值已生效」记账；
+	// 之后任何一次 thread/start|resume 都以 CLI 回报的 model 为准覆盖。
+	if spec.turnModel != "" {
+		s.mu.Lock()
+		s.model = spec.turnModel
+		s.mu.Unlock()
 	}
 	stream := newStream(s.app, s.client.killGrace, thread.ThreadID, turn.Turn.ID, "")
 	stream.closeAppOnDrain = false

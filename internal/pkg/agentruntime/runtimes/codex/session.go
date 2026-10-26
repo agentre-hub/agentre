@@ -103,11 +103,11 @@ func (a *cxClientAdapter) ensureSession(ctx context.Context) (*codex.Session, er
 	return sess, nil
 }
 
-func (a *cxClientAdapter) Stream(ctx context.Context, prompt string, collaborationMode string) (cxStream, error) {
-	return a.StreamInput(ctx, []codex.UserInput{codex.TextInput(prompt)}, collaborationMode)
+func (a *cxClientAdapter) Stream(ctx context.Context, prompt string, collaborationMode string, model string) (cxStream, error) {
+	return a.StreamInput(ctx, []codex.UserInput{codex.TextInput(prompt)}, collaborationMode, model)
 }
 
-func (a *cxClientAdapter) StreamInput(ctx context.Context, input []codex.UserInput, collaborationMode string) (cxStream, error) {
+func (a *cxClientAdapter) StreamInput(ctx context.Context, input []codex.UserInput, collaborationMode string, model string) (cxStream, error) {
 	var opts []codex.RunOption
 	a.streamMu.Lock()
 	hasSession := a.sess != nil
@@ -117,6 +117,9 @@ func (a *cxClientAdapter) StreamInput(ctx context.Context, input []codex.UserInp
 	}
 	if strings.TrimSpace(collaborationMode) != "" {
 		opts = append(opts, codex.RunCollaborationMode(codex.CollaborationMode(strings.TrimSpace(collaborationMode))))
+	}
+	if strings.TrimSpace(model) != "" {
+		opts = append(opts, codex.RunModel(model))
 	}
 	sess, err := a.ensureSession(ctx)
 	if err != nil {
@@ -310,8 +313,10 @@ type cxSessionHandle interface {
 	Close(context.Context) error
 	ID() string
 	Model() string
-	Stream(ctx context.Context, prompt string, collaborationMode string) (cxStream, error)
-	StreamInput(ctx context.Context, input []codex.UserInput, collaborationMode string) (cxStream, error)
+	// Stream/StreamInput/Compact 的 model 参数是这一轮 turn/start 携带的模型(空串不下发)。
+	// codex 只能在 turn/start 换模型，所以会话选择就是从这条路到 CLI 的。
+	Stream(ctx context.Context, prompt string, collaborationMode string, model string) (cxStream, error)
+	StreamInput(ctx context.Context, input []codex.UserInput, collaborationMode string, model string) (cxStream, error)
 	Compact(ctx context.Context) (cxStream, error)
 	GetGoal(ctx context.Context) (*codex.Goal, error)
 	SetGoal(ctx context.Context, update codex.GoalUpdate) (*codex.Goal, error)

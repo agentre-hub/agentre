@@ -626,6 +626,7 @@ func TestTurnStartParams_CollaborationModeUsesDefaultModel(t *testing.T) {
 		"plan this",
 		CollaborationPlan,
 		"",
+		"",
 	)
 	require.NoError(t, err)
 
