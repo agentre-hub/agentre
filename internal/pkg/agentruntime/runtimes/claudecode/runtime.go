@@ -48,6 +48,8 @@ var errStartupTimeout = errors.New("agentruntime/runtimes/claudecode: turn produ
 
 // Runtime claudecode runtime 实现。
 type Runtime struct {
+	// queryModels 是短命查询进程的测试缝，不接入会话池。
+	queryModels func(context.Context, *claudecode.Client) (claudecode.ModelCatalog, error)
 	// spawnLocks 按 session key 分桶串行化 acquireSession 的 get-or-spawn,只防同一
 	// session 并发首轮 double-spawn。
 	//

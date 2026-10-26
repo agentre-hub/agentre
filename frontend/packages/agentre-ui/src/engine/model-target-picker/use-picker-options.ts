@@ -46,6 +46,7 @@ export interface UsePickerOptionsArgs {
   specialSublabel: React.ReactNode;
   onSyncProvider: ((provider: PickerProvider) => void) | undefined;
   openOnMount: boolean;
+  hideSpecial?: boolean;
   t: TranslateFn;
 }
 
@@ -62,6 +63,7 @@ export function usePickerOptions({
   specialSublabel,
   onSyncProvider,
   openOnMount,
+  hideSpecial = false,
   t,
 }: UsePickerOptionsArgs) {
   const [open, setOpen] = React.useState(openOnMount);
@@ -182,13 +184,21 @@ export function usePickerOptions({
   const flatOptions = React.useMemo(
     () =>
       filterFlatOptions({
+        hideSpecial,
         search,
         specialLabel,
         specialResolution,
         invalidOption,
         catalogOptions,
       }),
-    [search, specialLabel, specialResolution, invalidOption, catalogOptions],
+    [
+      search,
+      specialLabel,
+      specialResolution,
+      invalidOption,
+      catalogOptions,
+      hideSpecial,
+    ],
   );
 
   const syncAnchorByProvider = React.useMemo(

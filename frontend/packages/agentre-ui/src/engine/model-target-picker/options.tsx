@@ -297,6 +297,7 @@ export function buildInvalidOption(args: {
 
 // 搜索过滤：匹配 provider 名 / model id / 特殊项。chips（最近使用）只在未搜索时显示。
 export function filterFlatOptions(args: {
+  hideSpecial?: boolean;
   search: string;
   specialLabel: string;
   specialResolution: ReactNode;
@@ -318,9 +319,9 @@ export function filterFlatOptions(args: {
   const q = search.trim().toLowerCase();
   const base: Option[] = [];
   if (invalidOption) base.push(invalidOption);
-  if (q === "") {
+  if (!args.hideSpecial && q === "") {
     base.push(specialOption);
-  } else if (specialLabel.toLowerCase().includes(q)) {
+  } else if (!args.hideSpecial && specialLabel.toLowerCase().includes(q)) {
     base.push(specialOption);
   }
   base.push(...args.catalogOptions);

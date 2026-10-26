@@ -18,6 +18,52 @@ import { LlmProviderLogo } from "../ai-brand-logo";
 import { formatTokens } from "../../lib/format-tokens";
 import type { Option } from "./options";
 import type { ModelTarget, PickerProvider, PickerScenario } from "./types";
+import { Button } from "../../ui/button";
+import type { ReactNode } from "react";
+
+// CLI 行的身份不经过 providerKey/modelKey，避免与供应商最近使用混在一起。
+export function CliModelRow({
+  label,
+  sublabel,
+  selected,
+  follow,
+  onSelect,
+}: {
+  label: string;
+  sublabel?: ReactNode;
+  selected: boolean;
+  follow?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      variant="ghost"
+      className={cn(
+        "h-auto w-full justify-start gap-2 px-2 py-1.5 text-left text-xs",
+        follow && "bg-primary-soft text-primary-text",
+      )}
+      onClick={onSelect}
+    >
+      {follow ? (
+        <RefreshCw className="size-3.5 shrink-0" aria-hidden="true" />
+      ) : null}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate">{label}</span>
+        {sublabel ? (
+          <span className="truncate text-2xs font-normal text-muted-foreground">
+            {sublabel}
+          </span>
+        ) : null}
+      </span>
+      {selected ? (
+        <Check className="size-3.5 shrink-0" aria-hidden="true" />
+      ) : null}
+    </Button>
+  );
+}
 
 export function PickerOptionRow({
   opt,

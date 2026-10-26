@@ -50,6 +50,13 @@ export {
 } from "./permission-mode";
 export type { PermissionMode } from "./permission-mode";
 export { ModelTargetPicker } from "./engine/model-target-picker";
+export type {
+  CliModelOption,
+  CliModelChoice,
+  CliModelCatalog,
+  CliModelPickerState,
+  ListCliModels,
+} from "./engine/model-target-picker/cli-models";
 export {
   ProviderPillResolution,
   ProviderPillTrigger,

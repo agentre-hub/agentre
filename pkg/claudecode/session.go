@@ -163,8 +163,9 @@ type Session struct {
 // controlResponse 是 control_response 帧 response 字段的最小子集。
 // subtype 通常是 "success" / "error"。
 type controlResponse struct {
-	Subtype string `json:"subtype"`
-	Error   string `json:"error,omitempty"`
+	Subtype  string          `json:"subtype"`
+	Error    string          `json:"error,omitempty"`
+	Response json.RawMessage `json:"response,omitempty"`
 }
 
 // OpenSession spawns a persistent claude subprocess in stream-json mode.
@@ -960,15 +961,16 @@ func (s *Session) dispatchControlResponse(line []byte) {
 func parseControlResponse(line []byte) (controlResponse, string, bool) {
 	var f struct {
 		Response struct {
-			Subtype   string `json:"subtype"`
-			RequestID string `json:"request_id"`
-			Error     string `json:"error,omitempty"`
+			Subtype   string          `json:"subtype"`
+			RequestID string          `json:"request_id"`
+			Error     string          `json:"error,omitempty"`
+			Response  json.RawMessage `json:"response,omitempty"`
 		} `json:"response"`
 	}
 	if err := json.Unmarshal(line, &f); err != nil || f.Response.RequestID == "" {
 		return controlResponse{}, "", false
 	}
-	return controlResponse{Subtype: f.Response.Subtype, Error: f.Response.Error}, f.Response.RequestID, true
+	return controlResponse{Subtype: f.Response.Subtype, Error: f.Response.Error, Response: f.Response.Response}, f.Response.RequestID, true
 }
 
 // Interrupt 写一帧 control_request{subtype:"interrupt"} 让 CLI 软中断当前 turn。

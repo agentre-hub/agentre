@@ -22,7 +22,9 @@ import { Loader2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "../../ui/popover";
 
 import { resolveTargetLabel } from "./options";
+import type { CliModelPickerState } from "./cli-models";
 import {
+  CliModelSection,
   InvalidTargetBanner,
   PickerNote,
   PickerSearchBox,
@@ -41,6 +43,8 @@ import {
 
 export type ModelTargetPickerProps = {
   scenario: PickerScenario;
+  // CLI 自带目录只用于 backend 场景，其身份与供应商目标分开传递。
+  cliModels?: CliModelPickerState;
   // backendType 是 effective backend 类型，用于 provider.type 兼容性过滤。
   backendType: string;
   // executionLocation 空串 = 本机；非空 = 远端设备 id（最近使用指纹隔离）。
@@ -48,6 +52,8 @@ export type ModelTargetPickerProps = {
   selected: ModelTarget | null;
   onChange: (target: ModelTarget) => void;
   catalog: PickerProvider[];
+  // 无兼容供应商时的宿主设置入口，仍保留上方的 CLI 目录。
+  emptyProviderAction?: React.ReactNode;
   loading?: boolean;
   // error：模型目录拉取失败 → 弹层错误行。errorText 覆盖默认错误文案（chat 场景把
   // 持久化切换失败的真实信息透出来）。
@@ -100,11 +106,13 @@ export type ModelTargetPickerProps = {
 
 export function ModelTargetPicker({
   scenario,
+  cliModels,
   backendType,
   executionLocation = "",
   selected,
   onChange,
   catalog,
+  emptyProviderAction,
   loading = false,
   error = false,
   errorText,
@@ -128,7 +136,9 @@ export function ModelTargetPicker({
   "aria-label": ariaLabel,
 }: ModelTargetPickerProps) {
   const { t } = useTranslation();
+  const cliState = scenario === "backend" ? cliModels : undefined;
   const picker = usePickerOptions({
+    hideSpecial: Boolean(cliState),
     scenario,
     backendType,
     executionLocation,
@@ -181,7 +191,49 @@ export function ModelTargetPicker({
         // 让搜索区与 foot 的分隔线贴着圆角收口。min(...) 在极窄视口兜底收缩，
         // 不会把弹层推出屏幕（860×640 最小窗口下恒等于 348px）。
         className="w-[min(348px,calc(100vw-2rem))] overflow-hidden rounded-[10px] p-0"
-        onKeyDown={picker.handleKeyDown}
+        onEscapeKeyDown={(event) => {
+          if (cliState && picker.search) {
+            event.preventDefault();
+            picker.setSearch("");
+          }
+        }}
+        onKeyDown={(event) => {
+          if (!cliState) return picker.handleKeyDown(event);
+          // CLI 与供应商行共用方向键序列；实际焦点负责 Enter，不借用供应商索引。
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            const rows = Array.from(
+              event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                '[role="option"]:not(:disabled):not([aria-disabled="true"])',
+              ),
+            );
+            const index = rows.indexOf(event.target as HTMLButtonElement);
+            const next =
+              index < 0
+                ? event.key === "ArrowDown"
+                  ? 0
+                  : rows.length - 1
+                : Math.max(
+                    0,
+                    Math.min(
+                      rows.length - 1,
+                      index + (event.key === "ArrowDown" ? 1 : -1),
+                    ),
+                  );
+            rows[next]?.focus();
+            rows[next]?.scrollIntoView({ block: "nearest" });
+          } else if (
+            event.key === "Enter" &&
+            event.target === picker.searchRef.current
+          ) {
+            event.preventDefault();
+            event.currentTarget
+              .querySelector<HTMLButtonElement>(
+                '[role="option"]:not(:disabled):not([aria-disabled="true"])',
+              )
+              ?.click();
+          }
+        }}
       >
         {invalid ? (
           <InvalidTargetBanner
@@ -203,6 +255,18 @@ export function ModelTargetPicker({
 
         {/* 330px / 5px = mockup .pop .plistw。 */}
         <div className="max-h-[330px] overflow-y-auto p-[5px]">
+          {cliState ? (
+            <CliModelSection
+              backendType={backendType}
+              state={cliState}
+              search={picker.search}
+              onSelect={(choice) => {
+                cliState.onChange(choice);
+                picker.handleOpenChange(false);
+              }}
+            />
+          ) : null}
+          {cliState ? recentChipsRow : null}
           {loading ? (
             <div className="flex items-center gap-2 px-2.5 py-3 text-xs text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -212,13 +276,14 @@ export function ModelTargetPicker({
             <div className="px-2.5 py-3 text-xs text-status-waiting-text">
               {errorText ?? t("modelTargetPicker.error")}
             </div>
-          ) : catalog.length === 0 && isNativeTarget(selected) ? (
+          ) : !cliState && catalog.length === 0 && isNativeTarget(selected) ? (
             <div className="px-2.5 py-3 text-xs text-muted-foreground">
               {t("modelTargetPicker.empty")}
             </div>
-          ) : catalog.length > 0 && compatible.length === 0 ? (
+          ) : (cliState || catalog.length > 0) && compatible.length === 0 ? (
             <div className="px-2.5 py-3 text-xs text-muted-foreground">
               {t("modelTargetPicker.noCompatibleProviders")}
+              {emptyProviderAction}
             </div>
           ) : null}
 
@@ -241,7 +306,7 @@ export function ModelTargetPicker({
               onSyncProvider={onSyncProvider}
               onActivate={picker.setActiveIndex}
               onSelect={picker.handlePick}
-              recentChipsRow={recentChipsRow}
+              recentChipsRow={cliState ? null : recentChipsRow}
             />
           ) : null}
         </div>

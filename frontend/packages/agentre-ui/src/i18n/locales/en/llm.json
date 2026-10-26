@@ -311,6 +311,26 @@
     }
   },
   "modelTargetPicker": {
+    "cli": {
+      "heading": "{{cli}} built-in · CLI login account",
+      "login": "{{cli}} login account",
+      "loading": "Reading available models from {{cli}}…",
+      "error": "{{cli}}: {{error}}",
+      "refresh": "Refresh CLI models",
+      "retry": "Retry",
+      "followDefault": "Follow CLI default",
+      "decides": "Determined by CLI",
+      "otherVersions": "Other versions ({{count}})",
+      "manualLabel": "Enter another model ID",
+      "manualPlaceholder": "Enter another model ID…",
+      "manualSaved": "Manually entered model ID",
+      "useManual": "Use",
+      "effective": "Effective model: {{model}}",
+      "follows": "Follows changes to the CLI default",
+      "saveFirst": "Save this backend to read its CLI model catalog",
+      "saveChanges": "Save configuration changes to read the CLI model catalog again",
+      "unavailable": "This host does not support CLI model discovery yet"
+    },
     "special": {
       "backend": "CLI login state",
       "chat": "Follow agent binding",
@@ -434,13 +454,6 @@
       "deviceRequired": "Pick the device this backend runs on.",
       "deviceOffline": "That device is offline right now; its login status is unknown.",
       "deviceUnknown": "That device is no longer in this account. Pick another one."
-    },
-    "defaultModel": {
-      "hint": "--model · leave empty to use the provider model / CLI default",
-      "label": "Custom Model",
-      "placeholder": "e.g. claude-fable-5 or an alias like opus/sonnet (used on CLI login)",
-      "cliOnlyDescription": "Only applies with CLI login state. It is retained but ignored after binding an Agentre provider.",
-      "ignoredDescription": "The custom CLI model is retained but ignored while an Agentre provider is bound."
     },
     "deleteDialog": {
       "description": "Delete \"{{name}}\"? Execution targets that reference it will also be deleted; the agent itself is kept.",

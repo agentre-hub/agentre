@@ -152,6 +152,9 @@ func (c *Client) Close(_ context.Context) error { return nil }
 // 也便于单测断言 WithModel 实际进了 Client。
 func (c *Client) Model() string { return c.model }
 
+// Binary 返回解析后的 CLI 启动路径。
+func (c *Client) Binary() string { return c.binary }
+
 // McpConfig 返回 Client 当前持有的 --mcp-config 值（WithMcpConfig 没设置时空串）。
 // 供装配后做 invariant 校验，也便于单测断言注入的 MCP server JSON 进了 Client。
 func (c *Client) McpConfig() string { return c.mcpConfig }
