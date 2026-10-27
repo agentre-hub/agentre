@@ -10,6 +10,7 @@ import (
 
 	"github.com/cago-frame/agents/provider"
 	. "github.com/smartystreets/goconvey/convey"
+	"go.uber.org/mock/gomock"
 	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
@@ -182,8 +183,8 @@ func TestCtlSend_GivenRemoteParent_WhenChildRuns_ThenEventsArePushedToAgentredUn
 			So(inj.calls[0], ShouldEqual, remoteHostCall)
 			inj.mu.Unlock()
 
-			Convey("When 子会话继续(重复投递、结果、用量), Then 嵌套步骤各只推一份,进度跟上;Finish 返回时带最终文本的收尾已送达", func() {
-				deps.svc.mirrorCtlSendChild(ctlChildSessionID, "", agentruntime.ToolCall{ID: "c-1", Name: "Read"})
+			Convey("When 子会话继续(重复投递、结果、用量、换了模型), Then 嵌套步骤各只推一份,进度跟上,模型只推先到的那个;Finish 返回时带最终文本的收尾已送达", func() {
+				deps.svc.mirrorCtlSendChild(ctlChildSessionID, "claude-opus-4", agentruntime.ToolCall{ID: "c-1", Name: "Read"})
 				deps.svc.mirrorCtlSendChild(ctlChildSessionID, "", agentruntime.ToolResult{ToolCallID: "c-1", Content: "package a"})
 				deps.svc.mirrorCtlSendChild(ctlChildSessionID, "", agentruntime.ToolResult{ToolCallID: "c-1", Content: "package a"})
 				deps.svc.mirrorCtlSendChild(ctlChildSessionID, "", agentruntime.UsageUpdate{Usage: &provider.Usage{CompletionTokens: 30}, TotalInputTokens: 1000})
@@ -213,11 +214,41 @@ func TestCtlSend_GivenRemoteParent_WhenChildRuns_ThenEventsArePushedToAgentredUn
 				So(done[0].Info.FinalText, ShouldEqual, "LGTM")
 				So(done[0].Info.ToolUses, ShouldEqual, 1)
 				So(done[0].Info.TotalTokens, ShouldEqual, 1030)
-				So(countEvents[agentruntime.SubagentModel](all), ShouldBeEmpty) // agentred 不收 model 帧
+				models := countEvents[agentruntime.SubagentModel](all)
+				So(models, ShouldResemble, []agentruntime.SubagentModel{{ToolCallID: remoteHostCall, Model: "claude-sonnet-4"}})
 
 				So(localOverlays(parent), ShouldEqual, 0)
 			})
 		})
+	})
+}
+
+func TestCtlSend_GivenRemoteParentAndChildWithoutLiveModel_WhenFinished_ThenModelFromChildFinalMessageIsPushed(t *testing.T) {
+	Convey("Given 远端父会话的卡已绑定、子会话一直没报过模型, When Finish, Then 模型取自子会话最终那条消息,先于收尾推给 agentred", t, func() {
+		deps := setupPeerSessionTest(t)
+		ctx := context.Background()
+		remoteParent(t, deps.svc)
+		inj := &fakeInjector{}
+		w := remoteWatch(deps.svc, inj, nil)
+		defer w.Close()
+		deps.message.EXPECT().Find(gomock.Any(), int64(9901)).
+			Return(&chat_entity.Message{ID: 9901, SessionID: ctlChildSessionID, Model: "gpt-5"}, nil)
+		So(w.Bind(ctx, remoteBind()), ShouldBeTrue)
+
+		w.Finish(ctx, CtlSendOutcome{Status: CtlSendCompleted, FinalText: "ok", AssistantMessageID: 9901})
+
+		all := inj.all()
+		So(countEvents[agentruntime.SubagentModel](all), ShouldResemble, []agentruntime.SubagentModel{{ToolCallID: remoteHostCall, Model: "gpt-5"}})
+		modelIdx, doneIdx := -1, -1
+		for i, ev := range all {
+			switch ev.(type) {
+			case agentruntime.SubagentModel:
+				modelIdx = i
+			case agentruntime.SubagentDone:
+				doneIdx = i
+			}
+		}
+		So(modelIdx, ShouldBeLessThan, doneIdx)
 	})
 }
 
@@ -344,7 +375,7 @@ func TestCtlSend_GivenRemoteParent_WhenAgentredDisconnects_ThenTheTerminalStateS
 
 			deps.svc.mirrorCtlSendChild(ctlChildSessionID, "", agentruntime.ToolCall{ID: "c-1", Name: "Read"})
 			time.Sleep(20 * time.Millisecond)
-			deps.svc.mirrorCtlSendChild(ctlChildSessionID, "", agentruntime.ToolCall{ID: "c-2", Name: "Edit"})
+			deps.svc.mirrorCtlSendChild(ctlChildSessionID, "m-1", agentruntime.ToolCall{ID: "c-2", Name: "Edit"})
 			time.Sleep(20 * time.Millisecond)
 
 			finished := make(chan struct{})
@@ -373,6 +404,8 @@ func TestCtlSend_GivenRemoteParent_WhenAgentredDisconnects_ThenTheTerminalStateS
 			So(done.Info.Status, ShouldEqual, "completed")
 			So(done.Info.FinalText, ShouldEqual, "all done")
 			So(done.Info.ToolUses, ShouldEqual, 2)
+			So(countEvents[agentruntime.SubagentModel](inj.all()), ShouldResemble, // 断线时推的模型也随重试送达
+				[]agentruntime.SubagentModel{{ToolCallID: remoteHostCall, Model: "m-1"}})
 			So(countEvents[agentruntime.SubagentStarted](inj.all()), ShouldHaveLength, 1)
 			So(retrySettled(logs), ShouldBeTrue)
 			time.Sleep(30 * time.Millisecond)

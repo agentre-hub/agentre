@@ -511,16 +511,23 @@ func (p *ctlSendProgress) takeModel(model string) string {
 	return model
 }
 
+// finalModel 子轮没报过模型时,收尾取它最终那条消息上的模型;已报过或取不到时为空。
+// 仓储 IO,不在父轮的锁里做。
+func (p *ctlSendProgress) finalModel(ctx context.Context, out CtlSendOutcome) string {
+	if p.model != "" || out.AssistantMessageID <= 0 {
+		return ""
+	}
+	msg, err := transcript_repo.Message().Find(ctx, out.AssistantMessageID)
+	if err != nil || msg == nil {
+		return ""
+	}
+	return msg.Model
+}
+
 // finish 落终态:SubagentDone 带子轮最终文本、工具数、用量与耗时。
 func (b *ctlSendBinding) finish(ctx context.Context, child int64, out CtlSendOutcome) {
-	model := ""
-	if b.model == "" && out.AssistantMessageID > 0 { // 仓储 IO 不在父轮的锁里做
-		if msg, err := transcript_repo.Message().Find(ctx, out.AssistantMessageID); err == nil && msg != nil {
-			model = msg.Model
-		}
-	}
 	var events []agentruntime.Event
-	if m := b.takeModel(model); m != "" {
+	if m := b.takeModel(b.finalModel(ctx, out)); m != "" {
 		events = append(events, agentruntime.SubagentModel{ToolCallID: b.toolCallID, Model: m})
 	}
 	events = append(events, b.done(b.toolCallID, out, b.startedAt))
@@ -764,9 +771,9 @@ func (s *chatSvc) bindCtlSendRemote(ctx context.Context, child int64, req CtlSen
 // 上做,子会话的事件循环从不等它。
 //
 // 断线(spec「Remote sessions」断线期间):子会话不受影响;断线期间的嵌套步骤与进度帧随失败
-// 的那一批丢弃(可以缺几条,记一条 warn),但 overlay 起始帧与收尾帧留在 pending 里随下一次
-// 推送重发 —— 没有起始帧 agentred 不认这张卡,没有收尾帧卡片会一直停在运行中。Finish 时
-// 仍连不上就交给后台按退避重试,重连后终态与最终文本照样送达。
+// 的那一批丢弃(可以缺几条,记一条 warn),但 overlay 起始帧、模型帧与收尾帧留在 pending 里随
+// 下一次推送重发 —— 没有起始帧 agentred 不认这张卡,模型只推一次(first-wins),没有收尾帧
+// 卡片会一直停在运行中。Finish 时仍连不上就交给后台按退避重试,重连后终态与最终文本照样送达。
 type ctlSendRemote struct {
 	port       ctlSendRemotePort
 	inj        ctlSubagentInjector // 上一次解析出的注入端口;推送失败后作废,下次重新解析
@@ -777,27 +784,36 @@ type ctlSendRemote struct {
 
 	ctlSendProgress
 
-	pending []agentruntime.Event // 还没送达、也不能丢的帧(起始 / 收尾)
+	pending []agentruntime.Event // 还没送达、也不能丢的帧(起始 / 模型 / 收尾)
 	outage  bool                 // 正处在一段断线里(这段的 warn 已经记过)
 }
 
-// mirror 推一批嵌套步骤与进度。模型不推:agentred 只收 agrctl 的 Subagent 帧与嵌套步骤。
-func (r *ctlSendRemote) mirror(ctx context.Context, batch []agentruntime.Event, _ string) {
-	r.push(ctx, r.steps(r.toolCallID, batch))
+// mirror 推一批子会话事件:模型(先到为准,只推一次)、嵌套步骤与进度。
+func (r *ctlSendRemote) mirror(ctx context.Context, batch []agentruntime.Event, model string) {
+	r.push(ctx, append(r.modelFrame(model), r.steps(r.toolCallID, batch)...))
 }
 
-// finish 推收尾帧(带子轮最终文本)。连不上时不等:交给后台重试后返回,子会话与 send 的
-// 应答都不被断线拖住。
+// finish 推收尾帧(带子轮最终文本);子轮没报过模型时先推它最终那条消息上的模型。连不上时
+// 不等:交给后台重试后返回,子会话与 send 的应答都不被断线拖住。
 func (r *ctlSendRemote) finish(ctx context.Context, _ int64, out CtlSendOutcome) {
 	ctx = context.WithoutCancel(ctx)
-	if r.push(ctx, []agentruntime.Event{r.done(r.toolCallID, out, r.startedAt)}) {
+	events := append(r.modelFrame(r.finalModel(ctx, out)), r.done(r.toolCallID, out, r.startedAt))
+	if r.push(ctx, events) {
 		r.logSettled(ctx, out, "chat_svc.ctlSendRemote.finish: subagent card settled")
 		return
 	}
 	go r.retry(ctx, out)
 }
 
-// retry 按退避重推 pending(起始 / 收尾帧),直到送达或超出窗口。
+// modelFrame 这次要推的模型帧(takeModel 的 first-wins);不推时为空。
+func (r *ctlSendRemote) modelFrame(model string) []agentruntime.Event {
+	if m := r.takeModel(model); m != "" {
+		return []agentruntime.Event{agentruntime.SubagentModel{ToolCallID: r.toolCallID, Model: m}}
+	}
+	return nil
+}
+
+// retry 按退避重推 pending(起始 / 模型 / 收尾帧),直到送达或超出窗口。
 func (r *ctlSendRemote) retry(ctx context.Context, out CtlSendOutcome) {
 	backoff := r.port.backoff
 	deadline := time.Now().Add(r.port.window)
@@ -838,7 +854,7 @@ func (r *ctlSendRemote) push(ctx context.Context, events []agentruntime.Event) b
 		var keep []agentruntime.Event
 		for _, ev := range batch {
 			switch ev.(type) {
-			case agentruntime.SubagentStarted, agentruntime.SubagentDone:
+			case agentruntime.SubagentStarted, agentruntime.SubagentModel, agentruntime.SubagentDone:
 				keep = append(keep, ev)
 			}
 		}
