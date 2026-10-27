@@ -957,3 +957,107 @@ describe("chat-streams-store", () => {
     expect(useChatStreamsStore.getState().streams).toBe(before);
   });
 });
+
+describe("agrctl 子代理卡的实时升级", () => {
+  const nested = (over: Record<string, unknown> = {}) => ({
+    toolUseId: "agrctl:2:tu:n1",
+    toolName: "Read",
+    parentToolUseId: "tu",
+    ...over,
+  });
+
+  beforeEach(() => {
+    resetStore();
+    useChatStreamsStore.getState().openStream(baseStream(7));
+  });
+
+  it("Given a live shell block, When an agrctl subagent_started arrives, Then the same block becomes the spawn card with runs[0] and no extra row", () => {
+    const s = useChatStreamsStore.getState();
+    s.appendLiveToolUse(7, 1, { toolUseId: "tu", toolName: "Bash" });
+
+    s.mergeSubagentMeta(7, 1, "tu", {
+      origin: "agrctl",
+      kind: "agrctl_send",
+      subagentType: "reviewer",
+      taskDescription: "审查 diff",
+      childSessionId: 42,
+      isolated: true,
+      status: "running",
+    } as unknown as chat_svc.ChatBlockSubagent);
+
+    const blocks = live(7)!.liveBlocks;
+    expect(blocks).toHaveLength(1);
+    const sa = blocks[0].subagent as unknown as Record<string, unknown>;
+    expect(sa.origin).toBe("agrctl");
+    expect(sa.childSessionId).toBe(42);
+    expect(sa.isolated).toBe(true);
+    expect(sa.runs).toEqual([
+      expect.objectContaining({ agent: "reviewer", task: "审查 diff" }),
+    ]);
+  });
+
+  it("Given an upgraded card, When progress and done (with finalText) follow, Then runs[0] survives and the card finishes in place", () => {
+    const s = useChatStreamsStore.getState();
+    s.appendLiveToolUse(7, 1, { toolUseId: "tu", toolName: "Bash" });
+    s.mergeSubagentMeta(7, 1, "tu", {
+      origin: "agrctl",
+      subagentType: "reviewer",
+      taskDescription: "审查 diff",
+      status: "running",
+    } as unknown as chat_svc.ChatBlockSubagent);
+    s.mergeSubagentMeta(7, 1, "tu", {
+      origin: "agrctl",
+      status: "completed",
+      finalText: "LGTM",
+    } as unknown as chat_svc.ChatBlockSubagent);
+
+    const blocks = live(7)!.liveBlocks;
+    expect(blocks).toHaveLength(1);
+    const sa = blocks[0].subagent as unknown as Record<string, unknown>;
+    expect(sa.status).toBe("completed");
+    expect(sa.finalText).toBe("LGTM");
+    expect(sa.runs).toEqual([
+      expect.objectContaining({ agent: "reviewer", task: "审查 diff" }),
+    ]);
+  });
+
+  it("Given a nested tool_use re-sent, Then it appears once", () => {
+    const s = useChatStreamsStore.getState();
+    s.appendLiveToolUse(7, 1, { toolUseId: "tu", toolName: "Bash" });
+    s.appendLiveToolUse(7, 1, nested());
+    s.appendLiveToolUse(7, 1, nested());
+    expect(
+      live(7)!.liveBlocks.filter((b) => b.toolUseId === "agrctl:2:tu:n1"),
+    ).toHaveLength(1);
+  });
+
+  it("Given a nested tool_result re-sent, Then it appears once", () => {
+    const s = useChatStreamsStore.getState();
+    s.appendLiveToolUse(7, 1, nested());
+    const res = {
+      toolUseId: "agrctl:2:tu:n1",
+      text: "ok",
+      parentToolUseId: "tu",
+    };
+    s.appendLiveToolResult(7, 1, res);
+    s.appendLiveToolResult(7, 1, res);
+    expect(
+      live(7)!.liveBlocks.filter((b) => b.type === "tool_result"),
+    ).toHaveLength(1);
+  });
+
+  it("Given two different nested calls, Then both are kept", () => {
+    const s = useChatStreamsStore.getState();
+    s.appendLiveToolUse(7, 1, nested());
+    s.appendLiveToolUse(7, 1, nested({ toolUseId: "agrctl:2:tu:n2" }));
+    expect(live(7)!.liveBlocks).toHaveLength(2);
+  });
+
+  it("Given a meta event before its shell block exists, Then it is ignored", () => {
+    useChatStreamsStore.getState().mergeSubagentMeta(7, 1, "tu", {
+      origin: "agrctl",
+      subagentType: "reviewer",
+    } as unknown as chat_svc.ChatBlockSubagent);
+    expect(live(7)!.liveBlocks).toHaveLength(0);
+  });
+});

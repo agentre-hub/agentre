@@ -225,3 +225,65 @@ describe("live mergeSubagentMeta run snapshots", () => {
     expect(subagent?.summary).toBe("settled");
   });
 });
+
+describe("agrctl 卡:已落库的 shell 块经会话级事件升级并收尾", () => {
+  const shell = (subagent?: Record<string, unknown>) =>
+    ({
+      type: "tool_use",
+      toolUseId: "tu-ctl",
+      toolName: "Bash",
+      toolInput: { run_in_background: true },
+      subagent,
+    }) as unknown as chat_svc.ChatBlock;
+
+  it("upgrades a persisted shell block that has no overlay yet, in place", () => {
+    const messages = [msg(1, [shell(undefined)])];
+    const out = mergeSubagentMetaInMessages(messages, "tu-ctl", {
+      origin: "agrctl",
+      kind: "local_bash",
+      subagentType: "reviewer",
+      taskDescription: "审查",
+      status: "running",
+    } as unknown as chat_svc.ChatBlockSubagent);
+    expect(out[0].blocks).toHaveLength(1);
+    const sa = out[0].blocks[0].subagent as unknown as Record<string, unknown>;
+    expect(sa.origin).toBe("agrctl");
+    expect(sa.runs).toEqual([
+      expect.objectContaining({ agent: "reviewer", task: "审查" }),
+    ]);
+  });
+
+  it("finishes the persisted card in place and keeps runs[0] and the background kind", () => {
+    const upgraded = mergeSubagentMetaInMessages(
+      [msg(1, [shell(undefined)])],
+      "tu-ctl",
+      {
+        origin: "agrctl",
+        kind: "local_bash",
+        subagentType: "reviewer",
+        taskDescription: "审查",
+        status: "running",
+      } as unknown as chat_svc.ChatBlockSubagent,
+    );
+    const out = mergeSubagentMetaInMessages(upgraded, "tu-ctl", {
+      origin: "agrctl",
+      status: "completed",
+      finalText: "LGTM",
+    } as unknown as chat_svc.ChatBlockSubagent);
+    const sa = out[0].blocks[0].subagent as unknown as Record<string, unknown>;
+    expect(sa).toMatchObject({
+      kind: "local_bash",
+      status: "completed",
+      finalText: "LGTM",
+    });
+    expect((sa.runs as unknown[])[0]).toMatchObject({ agent: "reviewer" });
+  });
+
+  it("does not touch a non-agrctl shell block that has no overlay", () => {
+    const messages = [msg(1, [shell(undefined)])];
+    const out = mergeSubagentMetaInMessages(messages, "tu-ctl", {
+      status: "completed",
+    } as unknown as chat_svc.ChatBlockSubagent);
+    expect(out).toBe(messages);
+  });
+});

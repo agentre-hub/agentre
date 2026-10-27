@@ -1,4 +1,8 @@
 import type { chat_svc } from "../../../../wailsjs/go/models";
+import {
+  applySubagentMeta,
+  isAgrctlSubagentMeta,
+} from "../../../stores/chat-block-reducers";
 
 type ChatBlockSubagentData = Omit<chat_svc.ChatBlockSubagent, "convertValues">;
 
@@ -40,22 +44,24 @@ export function mergeSubagentMetaInMessages(
 ): chat_svc.ChatMessage[] {
   if (!toolUseId || !meta) return messages;
 
+  // agrctl 升级事件可能落在还没有 overlay 的 shell 块上(后台调用早已落库、此前从没有
+  // 过 task 帧):此时按 toolUseId 命中即原地升级;其它事件仍要求块已有 overlay。
+  const upgrade = isAgrctlSubagentMeta(meta);
   let hit = false;
   const next = messages.map((m) => {
     let blockHit = false;
     const blocks = (m.blocks ?? []).map((b) => {
-      if (b.type !== "tool_use" || b.toolUseId !== toolUseId || !b.subagent) {
+      if (
+        b.type !== "tool_use" ||
+        b.toolUseId !== toolUseId ||
+        (!b.subagent && !upgrade)
+      ) {
         return b;
       }
       blockHit = true;
-      const { runs, ...patch } = meta;
       return {
         ...b,
-        subagent: {
-          ...b.subagent,
-          ...patch,
-          ...(runs !== undefined ? { runs } : {}),
-        },
+        subagent: applySubagentMeta(b.subagent, meta),
       } as chat_svc.ChatBlock;
     });
     if (!blockHit) return m;
