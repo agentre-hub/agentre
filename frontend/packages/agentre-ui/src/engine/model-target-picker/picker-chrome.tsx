@@ -57,6 +57,10 @@ export function CliModelSection({
       ? choice.value
       : "";
   const resolution = cliModelResolution(state, { mode: "cli-default" });
+  // 一轮进行中改了选择时，标出这一轮实际在用的那行。
+  const inUse = state.pending?.currentModelId ?? "";
+  const inUseBadge = (modelId: string) =>
+    inUse && modelId === inUse ? t("modelTargetPicker.cli.inUse") : undefined;
   const renderModels = (items: CliModelOption[]) => {
     const groups = new Map<string, CliModelOption[]>();
     for (const model of items) {
@@ -75,6 +79,7 @@ export function CliModelSection({
             key={model.value}
             label={model.label || model.value}
             sublabel={model.modelId}
+            badge={inUseBadge(model.modelId)}
             selected={choice?.mode === "fixed" && choice.value === model.value}
             onSelect={() => onSelect({ mode: "fixed", value: model.value })}
           />

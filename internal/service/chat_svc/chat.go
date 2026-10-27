@@ -720,19 +720,6 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 				// 一并回传，供 composer 的供应商 pill 渲染「跟随绑定」时的标签。
 				prov, _ = s.resolveEffectiveProvider(ctx, sess, be)
 				resp.Session.AgentBackendID, resp.Session.AgentCLIModel = be.ID, be.DefaultModel
-				if !exec_target_svc.BackendTargetsRemote(be) {
-					if runner, err := s.selectRunner(ctx, be, sess.ID); err == nil {
-						if reader, ok := runner.(agentruntime.CLIModelStateReader); ok {
-							state := reader.CLIModelState(ctx, sess.ID)
-							resp.Session.ActualCLIModel, resp.Session.CLIModelError = state.ModelID, state.Error
-							wanted := be.DefaultModel
-							if sess.CLIModelMode != "" {
-								wanted = sess.CLIModel
-							}
-							resp.Session.CLIModelPending = state.Active && state.AppliedValue != wanted && sess.ProviderKey == "" && be.LLMProviderKey == ""
-						}
-					}
-				}
 				resp.Session.AgentProviderKey = be.LLMProviderKey
 				resp.Session.AgentModelKey = be.LLMModelKey
 				// 后端配置的思考力度：弹层「默认」区块的「→ 跟随后端配置 · <档位>」
@@ -764,16 +751,28 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 			// 串，见 remote_device_svc.ExternalDeviceID。本机指纹拿去配对表里查永远查
 			// 不到（不会和自己配对），照远端解析会把本机会话渲染成一台没名字的离线远
 			// 端机；device 字段整组只对真正的远端档才有意义。
+			// pairedDeviceID 供远端会话的 CLI 模型账复用这一次设备查询，不再查第二遍。
+			var pairedDeviceID int64
 			if deviceID := remote_device_svc.ExternalDeviceID(be.DeviceFingerprint); deviceID != "" {
 				resp.Session.DeviceID = deviceID
 				if dv := exec_target_svc.LocalPairedDeviceView(ctx, deviceID); dv != nil {
 					resp.Session.DeviceName = dv.Name
 					resp.Session.Online = dv.Online
+					pairedDeviceID = dv.ID
 				} else {
 					logger.Ctx(ctx).Debug("chat_svc.LoadSession: device lookup degraded",
 						zap.String("deviceFingerprint", string(deviceID)),
 						zap.Int64("sessionID", sess.ID))
 				}
+			}
+			if reader := s.cliModelStateReader(ctx, be, sess.ID, pairedDeviceID); reader != nil {
+				state := reader.CLIModelState(ctx, sess.ID)
+				resp.Session.ActualCLIModel, resp.Session.CLIModelError = state.ModelID, state.Error
+				wanted := be.DefaultModel
+				if sess.CLIModelMode != "" {
+					wanted = sess.CLIModel
+				}
+				resp.Session.CLIModelPending = state.Active && state.AppliedValue != wanted && sess.ProviderKey == "" && be.LLMProviderKey == ""
 			}
 			if cwd, cerr := exec_target_svc.ResolveSessionCwd(ctx, sess, be); cerr == nil {
 				resp.Session.Cwd = cwd

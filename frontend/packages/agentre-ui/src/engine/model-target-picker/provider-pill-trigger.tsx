@@ -170,12 +170,15 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
         {state.pending ? (
           <>
             {resolvedTarget || t("modelTargetPicker.cli.decides")} →{" "}
-            {state.pending.label ||
-              t(
-                state.pending.mode === "follow-agent"
-                  ? "modelTargetPicker.special.chat"
-                  : "modelTargetPicker.cli.followDefault",
-              )}
+            {/* 新模型用 primary 色，与「本轮仍在用」的旧模型区分（spec 会话 pill 脸）。 */}
+            <span className="text-primary-text">
+              {state.pending.label ||
+                t(
+                  state.pending.mode === "follow-agent"
+                    ? "modelTargetPicker.special.chat"
+                    : "modelTargetPicker.cli.followDefault",
+                )}
+            </span>
           </>
         ) : (
           triggerText || t("modelTargetPicker.special.chat")

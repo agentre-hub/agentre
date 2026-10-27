@@ -238,7 +238,9 @@ describe("ModelTargetPicker CLI catalog", () => {
       expect(
         screen.queryByRole("option", { name: /Legacy CLI model/ }),
       ).not.toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: /Other versions/ }));
+      await user.click(
+        screen.getByRole("button", { name: "Other versions · 1" }),
+      );
       await user.click(
         screen.getByRole("option", { name: /Legacy CLI model/ }),
       );

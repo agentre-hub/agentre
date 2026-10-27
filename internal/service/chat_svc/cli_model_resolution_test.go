@@ -21,17 +21,30 @@ func TestCLIModelDeviationAndProjection(t *testing.T) {
 	Convey("Given a fixed alias and CLI reports, When a turn finishes, Then resolved aliases do not warn but real deviations carry both models", t, func() {
 		req := agentruntime.RunRequest{CLIModelMode: "fixed", CLIModel: "sonnet"}
 		models := []agentruntime.CLIModel{{Value: "sonnet", ModelID: "claude-sonnet"}}
-		So(cliModelDeviation(req, "claude-sonnet", models), ShouldBeNil)
-		notice := cliModelDeviation(req, "claude-opus", models)
+		So(cliModelDeviation(req, "claude-sonnet", models, true), ShouldBeNil)
+		notice := cliModelDeviation(req, "claude-opus", models, true)
 		So(notice, ShouldNotBeNil)
 		projected := noticeBlockToChatBlock(*notice)
 		So(projected.NoticeKind, ShouldEqual, "cli_model_deviation")
 		So(projected.CLIModel, ShouldEqual, "sonnet")
 		So(projected.ActualModel, ShouldEqual, "claude-opus")
 		req.CLIModelMode = "cli-default"
-		So(cliModelDeviation(req, "claude-opus", models), ShouldBeNil)
+		So(cliModelDeviation(req, "claude-opus", models, true), ShouldBeNil)
 		projected = noticeBlockToChatBlock(blocks.NoticeBlock{Text: view.EncodeCLIModelSwitch("fixed", "sonnet")})
 		So(projected.CLIModelMode, ShouldEqual, "fixed")
+	})
+}
+
+func TestCLIModelDeviationWithoutCatalog(t *testing.T) {
+	Convey("Given a fixed alias, When the CLI catalog could not be read, Then a differing report is not claimed as a deviation but a literal mismatch-free report stays silent too", t, func() {
+		req := agentruntime.RunRequest{CLIModelMode: "fixed", CLIModel: "sonnet"}
+		So(cliModelDeviation(req, "claude-sonnet-5-5", nil, false), ShouldBeNil)
+		So(cliModelDeviation(req, "sonnet", nil, false), ShouldBeNil)
+	})
+	Convey("Given a manually entered ID absent from a readable catalog, When the CLI reports another model, Then the deviation is reported", t, func() {
+		req := agentruntime.RunRequest{CLIModelMode: "fixed", CLIModel: "my-model"}
+		models := []agentruntime.CLIModel{{Value: "sonnet", ModelID: "claude-sonnet"}}
+		So(cliModelDeviation(req, "claude-sonnet", models, true), ShouldNotBeNil)
 	})
 }
 

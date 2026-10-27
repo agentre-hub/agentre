@@ -19,6 +19,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 )
 
 // validateDraftCLIModel 在建行前拒绝矛盾或不支持的草稿选择。
@@ -60,8 +61,9 @@ func refreshCLIModelChoice(ctx context.Context, sess *chat_entity.Session) error
 }
 
 // cliModelDeviation 按 CLI 目录解析别名后再比较，不能把 sonnet 与完整 ID 的正常映射报成偏离。
-func cliModelDeviation(req agentruntime.RunRequest, actual string, models []agentruntime.CLIModel) *blocks.NoticeBlock {
-	if req.CLIModelMode != "fixed" || actual == "" {
+// 目录读不到（catalogKnown=false）时无从解析别名，不猜，不追加提示。
+func cliModelDeviation(req agentruntime.RunRequest, actual string, models []agentruntime.CLIModel, catalogKnown bool) *blocks.NoticeBlock {
+	if req.CLIModelMode != "fixed" || actual == "" || !catalogKnown {
 		return nil
 	}
 	expected := req.CLIModel
@@ -76,6 +78,26 @@ func cliModelDeviation(req agentruntime.RunRequest, actual string, models []agen
 	}
 	text, _ := json.Marshal(view.ProviderNotice{Kind: "cli_model_deviation", CLIModel: req.CLIModel, ActualModel: actual})
 	return &blocks.NoticeBlock{Level: "warning", Text: string(text)}
+}
+
+// cliModelStateReader 取这条会话 CLI 模型账的读侧。远端只看本机已开着的那条连接
+// （pairedDeviceID 是调用方已解析好的配对行，0 = 本机没配对那台设备），不为打开会话
+// 拨号、占池引用或改执行归属（与 remotePendingSessionWaiters 同一口径）；没有连接时
+// 交 nil，pill 不猜实际模型。
+func (s *chatSvc) cliModelStateReader(ctx context.Context, be *agent_backend_entity.AgentBackend, sessionID, pairedDeviceID int64) agentruntime.CLIModelStateReader {
+	var runner agentruntime.Runtime
+	if exec_target_svc.BackendTargetsRemote(be) {
+		if pairedDeviceID <= 0 {
+			return nil
+		}
+		if rt := s.cachedRemoteRuntime(pairedDeviceID); rt != nil {
+			runner = rt
+		}
+	} else if r, err := s.selectRunner(ctx, be, sessionID); err == nil {
+		runner = r
+	}
+	reader, _ := runner.(agentruntime.CLIModelStateReader)
+	return reader
 }
 
 func (s *chatSvc) modelChoiceLock(id int64) *sync.Mutex {

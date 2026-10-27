@@ -51,6 +51,7 @@ export function ProviderPill({
   disabled,
   disabledReason,
   executionLocation = "",
+  deviceLabel,
   remoteCatalog,
   supportsFixedModel = true,
   remoteMissing = false,
@@ -113,6 +114,7 @@ export function ProviderPill({
         }
         backendType={backendType}
         executionLocation={executionLocation}
+        deviceLabel={deviceLabel}
         selected={{ providerKey, modelKey }}
         onChange={setTarget}
         catalog={catalog}

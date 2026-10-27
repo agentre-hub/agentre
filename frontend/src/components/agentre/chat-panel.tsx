@@ -499,6 +499,7 @@ function ChatPanel({
     actualCLIModel: session?.actualCLIModel,
     cliModelError: session?.cliModelError,
     cliModelPending: session?.cliModelPending,
+    deviceLabel: activeDeviceID ? quotaDeviceLabel : undefined,
     backendType: activeBackendType,
     boundProviderKey:
       sessionId > 0

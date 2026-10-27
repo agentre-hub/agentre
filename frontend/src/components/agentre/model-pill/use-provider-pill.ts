@@ -10,6 +10,7 @@ import {
 } from "../../../../wailsjs/go/app/App";
 import { llm_provider_svc } from "../../../../wailsjs/go/models";
 import i18n from "@/i18n";
+import { AGENTRE_UI_NAMESPACE } from "@agentre-hub/agentre-ui/i18n";
 import { resolveExecutionDevice } from "@agentre-hub/agentre-ui";
 
 import {
@@ -22,6 +23,8 @@ import { useChatCLIModel } from "./use-chat-cli-model";
 import {
   resolveCLIPillState,
   cliModelResolution,
+  supportsCLIModel,
+  type BackendType,
   type CliModelPickerState,
 } from "@agentre-hub/agentre-ui";
 import { useModelTargetCatalog } from "../model-target-picker/catalog";
@@ -100,6 +103,8 @@ export interface UseProviderPillOptions {
   actualCLIModel?: string;
   cliModelError?: string;
   cliModelPending?: boolean;
+  /** 远端执行设备的人读名；CLI 段的列表来自那台机器，弹层顶部要说明在哪执行。 */
+  deviceLabel?: string;
   /** agent 后端类型；非可选择的 backend（openclaw 等）不拉取供应商，pill 常显但
    *   disabled（决策 10：禁用而非隐藏）。 */
   backendType: string;
@@ -183,6 +188,8 @@ export interface UseProviderPillReturn {
   canSyncProvider: boolean;
   /** 目标执行位置（透传自选项，供 ProviderPill 传给共享 Picker）。 */
   executionLocation: string;
+  /** 远端执行时 CLI 段弹层顶部的设备说明；本机或供应商模式为 undefined。 */
+  deviceLabel?: string;
   /** 模型目录加载中 → pill 禁用。 */
   catalogLoading: boolean;
   /** 模型目录拉取失败（全部失败）→ 弹层底部错误行。 */
@@ -251,6 +258,7 @@ export function useProviderPill({
   actualCLIModel,
   cliModelError,
   cliModelPending,
+  deviceLabel,
   backendType,
   boundProviderKey,
   boundModelKey,
@@ -321,11 +329,12 @@ export function useProviderPill({
     setModelKeyState(persistedModelKey ?? "");
   }, [sessionId, backendType, persistedProviderKey, persistedModelKey]);
 
+  // 三种 CLI 本机与远端一致（spec 2026-10-26 Objective）：远端的列表、解析与切换由
+  // 宿主按后端所在设备路由，这里只认后端类型与「确知没绑供应商」。
   const cliAvailable =
-    backendType === "claudecode" &&
+    supportsCLIModel(backendType as BackendType) &&
     boundProviderKey === "" &&
-    Boolean(backendId) &&
-    executionLocation === "";
+    Boolean(backendId);
   const onCLIChosen = React.useCallback(() => {
     setProviderKeyState("");
     setModelKeyState("");
@@ -572,8 +581,22 @@ export function useProviderPill({
     [fetchRemote, remoteDeviceID],
   );
 
+  // 挂起中的切换同时交给弹层：标出本轮在用的那行，并在底部说清何时换上新模型。
+  const cliModels: CliModelPickerState | undefined =
+    cli.cliModels && pillState.pending
+      ? {
+          ...cli.cliModels,
+          pending: {
+            currentModelId: actualCLIModel ?? "",
+            currentLabel: pillState.modelLabel,
+            nextLabel: pillState.pending.label,
+            nextMode: pillState.pending.mode,
+          },
+        }
+      : cli.cliModels;
+
   return {
-    cliModels: cli.cliModels,
+    cliModels,
     cliModelMode: cli.mode,
     cliModel: cli.value,
     providerKey,
@@ -593,7 +616,7 @@ export function useProviderPill({
     resolvedModelLabel: invalid ? "" : pillState.modelLabel,
     resolvedModelId: invalid ? "" : pillState.modelId,
     boundResolutionLabel: cliBound
-      ? `Claude Code${cliBound.label ? ` · ${cliBound.label}` : ""}`
+      ? `${i18n.t(`agentBackends.backendType.${backendType}.shortLabel`, { ns: AGENTRE_UI_NAMESPACE })}${cliBound.label ? ` · ${cliBound.label}` : ""}`
       : boundState.resolutionLabel,
     boundProviderType: boundState.providerType,
     boundProviderLabel: boundState.providerLabel,
@@ -603,6 +626,7 @@ export function useProviderPill({
     disabled: loading || catalogLoading || disabledReason !== null,
     disabledReason,
     executionLocation,
+    deviceLabel: cliAvailable && executionLocation ? deviceLabel : undefined,
     remoteCatalog,
     supportsFixedModel,
     remoteMissing,

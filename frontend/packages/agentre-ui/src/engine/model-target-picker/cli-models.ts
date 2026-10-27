@@ -27,8 +27,18 @@ export type ListCliModels = (request: {
   refresh: boolean;
 }) => Promise<CliModelCatalog>;
 
+// 一轮进行中改了选择：这一轮仍用 current 跑完，next 从下一轮起生效（spec「会话：composer
+// 模型 pill」）。nextLabel 为空时按 nextMode 写跟随文案。
+export type CliModelPendingSwitch = {
+  currentModelId: string;
+  currentLabel: string;
+  nextLabel: string;
+  nextMode: "follow-agent" | "cli-default" | "fixed";
+};
+
 export type CliModelPickerState = CliModelCatalog & {
   loading?: boolean;
+  pending?: CliModelPendingSwitch;
   // 会话切换失败的 CLI 原文，与目录查询错误分开，在弹层底部呈现。
   switchError?: string;
   // 未选中 CLI 登录态时为空，不能把供应商选中态误画成 CLI 默认。

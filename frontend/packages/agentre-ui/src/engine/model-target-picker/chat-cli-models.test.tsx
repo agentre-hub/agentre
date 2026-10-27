@@ -77,7 +77,65 @@ describe("chat CLI model choice", () => {
       actualModelId: "old-model",
       pending: true,
     });
-    render(<ProviderPillTrigger state={state} />);
-    expect(screen.getByText(/old-model → Sonnet/)).toBeInTheDocument();
+    const { container } = render(<ProviderPillTrigger state={state} />);
+    expect(container).toHaveTextContent("old-model → Sonnet");
+    expect(screen.getByText("Sonnet")).toHaveClass("text-primary-text");
+  });
+  it("Given a switch waiting for the next turn, When opening the picker, Then the model in use is tagged for this turn and the footer says when the new one starts", async () => {
+    const user = userEvent.setup();
+    render(
+      <ModelTargetPicker
+        scenario="chat"
+        backendType="claudecode"
+        selected={null}
+        onChange={vi.fn()}
+        catalog={[]}
+        cliModels={{
+          models: [
+            { value: "opus", label: "Opus", modelId: "claude-opus" },
+            { value: "sonnet", label: "Sonnet", modelId: "claude-sonnet" },
+          ],
+          choice: { mode: "fixed", value: "sonnet" },
+          pending: {
+            currentModelId: "claude-opus",
+            currentLabel: "Opus",
+            nextLabel: "Sonnet",
+            nextMode: "fixed",
+          },
+          onChange: vi.fn(),
+          onRefresh: vi.fn(),
+        }}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByRole("option", { name: /^Opus/ })).toHaveTextContent(
+      "In use this turn",
+    );
+    expect(
+      screen.getByRole("option", { name: /^Sonnet/ }),
+    ).not.toHaveTextContent("In use this turn");
+    expect(
+      screen.getByText(
+        "This turn finishes on Opus; Sonnet takes over from the next turn",
+      ),
+    ).toBeInTheDocument();
+  });
+  it("Given no pending switch, When opening the picker, Then neither the in-use tag nor the next-turn footer appears", async () => {
+    const user = userEvent.setup();
+    render(
+      <ModelTargetPicker
+        scenario="chat"
+        backendType="claudecode"
+        selected={null}
+        onChange={vi.fn()}
+        catalog={[]}
+        cliModels={{ ...catalog, onChange: vi.fn(), onRefresh: vi.fn() }}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.queryByText("In use this turn")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/takes over from the next turn/),
+    ).not.toBeInTheDocument();
   });
 });

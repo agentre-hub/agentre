@@ -28,6 +28,7 @@ export function CliModelRow({
   sublabel,
   selected,
   follow,
+  badge,
   onSelect,
 }: {
   icon?: ReactNode;
@@ -35,6 +36,8 @@ export function CliModelRow({
   sublabel?: ReactNode;
   selected: boolean;
   follow?: boolean;
+  // 行尾标签（如「本轮在用」），不参与选中态。
+  badge?: ReactNode;
   onSelect: () => void;
 }) {
   return (
@@ -61,6 +64,11 @@ export function CliModelRow({
           </span>
         ) : null}
       </span>
+      {badge ? (
+        <span className="shrink-0 rounded-sm bg-field-fill px-1 text-2xs font-normal text-muted-foreground">
+          {badge}
+        </span>
+      ) : null}
       {selected ? (
         <Check className="size-3.5 shrink-0" aria-hidden="true" />
       ) : null}

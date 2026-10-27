@@ -349,6 +349,22 @@ export function ModelTargetPicker({
             })}
           </PickerNote>
         ) : null}
+        {scenario === "chat" && cliState?.pending ? (
+          <PickerNote>
+            {t("modelTargetPicker.cli.pendingNote", {
+              current:
+                cliState.pending.currentLabel ||
+                t("modelTargetPicker.cli.decides"),
+              next:
+                cliState.pending.nextLabel ||
+                t(
+                  cliState.pending.nextMode === "follow-agent"
+                    ? "modelTargetPicker.special.chat"
+                    : "modelTargetPicker.cli.followDefault",
+                ),
+            })}
+          </PickerNote>
+        ) : null}
         {footer ? <PickerNote>{footer}</PickerNote> : null}
       </PopoverContent>
     </Popover>

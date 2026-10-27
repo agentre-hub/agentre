@@ -23,7 +23,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
-	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 )
 
 // turnRun 承载 runTurn 一轮执行期间的全部可变状态:attachRuntime / initSegment /
@@ -468,13 +467,16 @@ func (t *turnRun) finalize(ctx context.Context) {
 			})
 		}
 	}
-	if t.req.CLIModelMode == "fixed" && t.req.Provider == nil && (t.req.Effective == nil || t.req.Effective.ProviderKey == "") && t.result != nil && t.result.Model != "" && !exec_target_svc.BackendTargetsRemote(t.be) {
-		// 目录只用于解析所选别名；实际使用值始终来自这一轮的 RunResult。
+	if t.req.CLIModelMode == "fixed" && t.req.Provider == nil && (t.req.Effective == nil || t.req.Effective.ProviderKey == "") && t.result != nil && t.result.Model != "" {
+		// 目录只用于解析所选别名；实际使用值始终来自这一轮的 RunResult。远端后端的目录
+		// 由 ListCLIModels 按后端所在设备路由，本机与远端同一条判据。
 		var models []agentruntime.CLIModel
-		if catalog, err := agent_backend_svc.AgentBackend().ListCLIModels(ctx, &agent_backend_svc.ListCLIModelsRequest{BackendID: t.be.ID}); err == nil && catalog != nil {
+		catalog, err := agent_backend_svc.AgentBackend().ListCLIModels(ctx, &agent_backend_svc.ListCLIModelsRequest{BackendID: t.be.ID})
+		catalogKnown := err == nil && catalog != nil && catalog.Error == ""
+		if catalogKnown {
 			models = catalog.Models
 		}
-		if notice := cliModelDeviation(t.req, t.result.Model, models); notice != nil {
+		if notice := cliModelDeviation(t.req, t.result.Model, models, catalogKnown); notice != nil {
 			finalBlocks = append(finalBlocks, *notice)
 		}
 	}
