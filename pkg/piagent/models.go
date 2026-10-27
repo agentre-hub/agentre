@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // Model 是 pi 自带模型目录里的一条。Provider 是 pi 自己的供应商标识，
@@ -74,4 +75,34 @@ func (c *Client) QueryModels(ctx context.Context) (ModelCatalog, error) {
 		catalog.Effective = *state.Model
 	}
 	return catalog, nil
+}
+
+// SetModel 在本会话的常驻进程上热切换模型（RPC set_model），不重启进程。value 是
+// "provider/id"，只按第一个斜杠拆成 {provider, modelId}（id 本身可以带斜杠）。成功时
+// 交回 pi 应答里的模型对象；pi 拒绝时错误带 pi 的原文（如 "Model not found: p/id"）。
+// 调用方须保证此刻没有在飞的轮：轮内的帧由该轮的流读取，与这里的应答配对互斥。
+func (s *Session) SetModel(ctx context.Context, value string) (Model, error) {
+	provider, modelID, ok := strings.Cut(strings.TrimSpace(value), "/")
+	if !ok || strings.TrimSpace(provider) == "" || strings.TrimSpace(modelID) == "" {
+		return Model{}, fmt.Errorf("piagent: set_model needs provider/id, got %q", value)
+	}
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return Model{}, errSessionClosed
+	}
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	response, err := callRPC(ctx, s.proc,
+		map[string]any{"id": "set-model", "type": "set_model", "provider": provider, "modelId": modelID},
+		"set_model", "set-model")
+	if err != nil {
+		return Model{}, err
+	}
+	var model Model
+	if err := json.Unmarshal(response.Data, &model); err != nil {
+		return Model{}, fmt.Errorf("piagent decode set_model data: %w", err)
+	}
+	return model, nil
 }

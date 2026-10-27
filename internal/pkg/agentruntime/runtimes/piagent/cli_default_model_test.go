@@ -154,18 +154,30 @@ func TestPiLaunchArgsCLIModel(t *testing.T) {
 		})
 	}
 }
-func TestLaunchIdentityIncludesCLIModel(t *testing.T) {
+
+// TestLaunchIdentityCLIModel 锁住决策 6：CLI 登录态下 CLI 模型靠 set_model 热切换，
+// 不进启动身份（换模型不逐出进程）；绑了供应商时模型仍是 --model 启动参数，照旧进身份。
+func TestLaunchIdentityCLIModel(t *testing.T) {
 	Convey("Given 两轮之间只有 CLI 模型选择不同", t, func() {
 		backend := piBackend("")
 		cwd := t.TempDir()
 		base := agentruntime.RunRequest{Backend: backend}
-		Convey("Then 启动身份不同(含后端默认模型与会话选择)", func() {
-			So(launchIdentity(base, cwd), ShouldNotEqual, launchIdentity(agentruntime.RunRequest{
+		Convey("When 未绑供应商 Then 启动身份不变(后端默认模型与会话选择都不进身份)", func() {
+			So(launchIdentity(base, cwd), ShouldEqual, launchIdentity(agentruntime.RunRequest{
 				Backend: piBackend("zhipu/glm-5.3"),
 			}, cwd))
-			So(launchIdentity(base, cwd), ShouldNotEqual, launchIdentity(agentruntime.RunRequest{
+			So(launchIdentity(base, cwd), ShouldEqual, launchIdentity(agentruntime.RunRequest{
 				Backend: backend, CLIModelMode: "fixed", CLIModel: "zhipu/glm-5.3",
 			}, cwd))
+			So(launchIdentity(base, cwd), ShouldEqual, launchIdentity(agentruntime.RunRequest{
+				Backend: piBackend("zhipu/glm-5.3"), CLIModelMode: "cli-default",
+			}, cwd))
+		})
+		Convey("When 绑了供应商 Then 供应商模型变化照旧换身份", func() {
+			other := boundProvider()
+			other.ModelID = "deepseek-v4"
+			So(launchIdentity(agentruntime.RunRequest{Backend: backend, Effective: boundProvider()}, cwd), ShouldNotEqual,
+				launchIdentity(agentruntime.RunRequest{Backend: backend, Effective: other}, cwd))
 		})
 	})
 }

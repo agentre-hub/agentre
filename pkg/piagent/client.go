@@ -978,6 +978,10 @@ func failureResponseError(r rpcResponse) error {
 		return errors.New("piagent rpc fork failed: Invalid entry ID for forking")
 	case "get_commands":
 		return errors.New("piagent rpc get_commands failed: unavailable")
+	case "set_model":
+		// set_model 的失败原文只回显所请求的模型值（"Model not found: <p>/<id>"），
+		// 不含会话内容；会话切换必须把它原样交给用户（spec「CLI 拒绝」）。
+		return fmt.Errorf("piagent rpc set_model failed: %s", strings.TrimSpace(r.Error))
 	default:
 		return fmt.Errorf("piagent rpc %s failed", command)
 	}

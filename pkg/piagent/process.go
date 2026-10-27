@@ -160,7 +160,7 @@ func isFrameSafetyLimitError(err error) bool {
 
 func safeRPCCommand(command string) string {
 	switch strings.TrimSpace(command) {
-	case "get_state", "fork", "get_entries", "prompt", "compact", "get_session_stats", "get_commands", "steer", "abort":
+	case "get_state", "fork", "get_entries", "prompt", "compact", "get_session_stats", "get_commands", "steer", "abort", "set_model":
 		return strings.TrimSpace(command)
 	default:
 		return "request"

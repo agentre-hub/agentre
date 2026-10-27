@@ -233,6 +233,21 @@ func (a *clientAdapter) Compact(ctx context.Context) (stream, error) {
 	return s, nil
 }
 
+// SetModel 在已开出的常驻 RPC 会话上热切换模型;进程还没起来时不为它 spawn。
+func (a *clientAdapter) SetModel(ctx context.Context, value string) (string, error) {
+	a.sessionMu.Lock()
+	session := a.session
+	a.sessionMu.Unlock()
+	if session == nil {
+		return "", agentruntime.ErrNoActiveTurn
+	}
+	model, err := session.SetModel(ctx, value)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(model.ID), nil
+}
+
 func (a *clientAdapter) RewindTo(context.Context, string) (string, error) {
 	return "", agentruntime.ErrUnsupported
 }
