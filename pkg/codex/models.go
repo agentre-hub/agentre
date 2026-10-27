@@ -38,7 +38,8 @@ func (c *Client) QueryModels(ctx context.Context) (ModelCatalog, error) {
 	if err := initializeApp(ctx, app); err != nil {
 		return ModelCatalog{}, err
 	}
-	raw, err := app.Call(ctx, appMethodModelList, nil)
+	// app-server 要求每个请求都带 params 成员(缺了直接 -32600),无参数也得发空对象。
+	raw, err := app.Call(ctx, appMethodModelList, map[string]any{})
 	if err != nil {
 		return ModelCatalog{}, err
 	}
@@ -58,7 +59,7 @@ func (c *Client) QueryModels(ctx context.Context) (ModelCatalog, error) {
 		}
 		catalog.Models = append(catalog.Models, m)
 	}
-	raw, err = app.Call(ctx, appMethodConfigRead, nil)
+	raw, err = app.Call(ctx, appMethodConfigRead, map[string]any{})
 	if err != nil {
 		return ModelCatalog{}, err
 	}

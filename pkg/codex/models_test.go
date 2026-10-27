@@ -19,8 +19,9 @@ func TestClientQueryModels(t *testing.T) {
 
 		listReq := readRPCReq(t, sc)
 		assert.Equal(t, "model/list", listReq.Method)
-		// 查询不带任何模型参数:客户端若配了 model,也不能出现在查询帧里。
-		assert.Empty(t, listReq.Params)
+		// 查询不带任何模型参数:客户端若配了 model,也不能出现在查询帧里;
+		// 但 params 成员必须在(真实 app-server 拒绝缺 params 的请求)。
+		assert.JSONEq(t, `{}`, string(listReq.Params))
 		respondRPC(h, listReq, map[string]any{"data": []map[string]any{
 			{"id": "gpt-6-luna", "model": "gpt-6-luna", "displayName": "GPT-6 Luna", "isDefault": true, "defaultReasoningEffort": "high", "hidden": false},
 			{"id": "gpt-5.5", "model": "gpt-5.5", "displayName": "GPT-5.5", "hidden": false},
@@ -29,6 +30,7 @@ func TestClientQueryModels(t *testing.T) {
 
 		cfgReq := readRPCReq(t, sc)
 		assert.Equal(t, "config/read", cfgReq.Method)
+		assert.JSONEq(t, `{}`, string(cfgReq.Params))
 		respondRPC(h, cfgReq, map[string]any{"config": map[string]any{"model": "gpt-6-luna"}})
 	}
 
@@ -94,4 +96,44 @@ func TestClientQueryModels_UnsupportedCLI(t *testing.T) {
 	_, err := client.QueryModels(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "method not found: model/list")
+}
+
+// rejectParamlessLikeRealAppServer 照真实 codex app-server(0.162.1)的行为:
+// 请求帧缺 params 成员时直接以 -32600 拒绝,不进入方法处理。返回 false 表示已拒绝。
+func rejectParamlessLikeRealAppServer(h *fakeAppServerHandle, req rpcReq) bool {
+	if len(req.Params) == 0 {
+		respondRPCError(h, req, -32600, "Invalid request: missing field `params`")
+		return false
+	}
+	return true
+}
+
+func TestClientQueryModels_RealAppServerRequiresParams(t *testing.T) {
+	// Given an app-server that, like the real codex CLI, rejects any request without params.
+	runner := &fakeAppServerRunner{t: t}
+	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
+		sc := bufio.NewScanner(h.stdinR)
+		respondAppServerInit(t, h, sc)
+		listReq := readRPCReq(t, sc)
+		if !rejectParamlessLikeRealAppServer(h, listReq) {
+			return
+		}
+		respondRPC(h, listReq, map[string]any{"data": []map[string]any{
+			{"id": "gpt-6-luna", "model": "gpt-6-luna", "displayName": "GPT-6 Luna"},
+		}})
+		cfgReq := readRPCReq(t, sc)
+		if !rejectParamlessLikeRealAppServer(h, cfgReq) {
+			return
+		}
+		respondRPC(h, cfgReq, map[string]any{"config": map[string]any{"model": "gpt-6-luna"}})
+	}
+	client := New(WithAppServerRunnerForTesting(runner))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// When querying, Then both model/list and config/read are accepted and answered.
+	catalog, err := client.QueryModels(ctx)
+	require.NoError(t, err)
+	require.Len(t, catalog.Models, 1)
+	assert.Equal(t, "gpt-6-luna", catalog.EffectiveModel)
 }
