@@ -14879,7 +14879,17 @@ type SubagentInfo struct {
 	// the subagent's report on success, the interruption reason on failure. Runs-less
 	// producers carry their conclusion here and nowhere else — a resumed run has no
 	// tool_result of its own, so dropping this loses the report entirely.
-	Summary       string `protobuf:"bytes,13,opt,name=summary,proto3" json:"summary,omitempty"`
+	Summary string `protobuf:"bytes,13,opt,name=summary,proto3" json:"summary,omitempty"`
+	// origin is non-empty ("agrctl") when an injecting host mirrored an `agrctl send
+	// --wait` child session onto the parent shell call; empty for producer-sent frames.
+	Origin string `protobuf:"bytes,14,opt,name=origin,proto3" json:"origin,omitempty"`
+	// child_session_id is the session send created; the card's "open session" entry.
+	ChildSessionId int64 `protobuf:"varint,15,opt,name=child_session_id,json=childSessionId,proto3" json:"child_session_id,omitempty"`
+	// isolated marks a one-shot --isolated child session (no jump entry).
+	Isolated bool `protobuf:"varint,16,opt,name=isolated,proto3" json:"isolated,omitempty"`
+	// final_text is the child turn's final text, kept apart from summary (a background
+	// Bash task_notification.summary is an exit-code line that must not be overwritten).
+	FinalText     string `protobuf:"bytes,17,opt,name=final_text,json=finalText,proto3" json:"final_text,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -15001,6 +15011,34 @@ func (x *SubagentInfo) GetRuns() []*SubagentRun {
 func (x *SubagentInfo) GetSummary() string {
 	if x != nil {
 		return x.Summary
+	}
+	return ""
+}
+
+func (x *SubagentInfo) GetOrigin() string {
+	if x != nil {
+		return x.Origin
+	}
+	return ""
+}
+
+func (x *SubagentInfo) GetChildSessionId() int64 {
+	if x != nil {
+		return x.ChildSessionId
+	}
+	return 0
+}
+
+func (x *SubagentInfo) GetIsolated() bool {
+	if x != nil {
+		return x.Isolated
+	}
+	return false
+}
+
+func (x *SubagentInfo) GetFinalText() string {
+	if x != nil {
+		return x.FinalText
 	}
 	return ""
 }
@@ -20727,7 +20765,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	" \x01(\tR\flastToolName\x12\x1b\n" +
 	"\ttool_uses\x18\v \x01(\x05R\btoolUses\x12\x18\n" +
 	"\asummary\x18\f \x01(\tR\asummary\x12#\n" +
-	"\rerror_message\x18\r \x01(\tR\ferrorMessage\"\x9f\x03\n" +
+	"\rerror_message\x18\r \x01(\tR\ferrorMessage\"\x9c\x04\n" +
 	"\fSubagentInfo\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12#\n" +
 	"\rsubagent_type\x18\x02 \x01(\tR\fsubagentType\x12\x12\n" +
@@ -20743,7 +20781,12 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	" \x01(\tR\x06status\x12\x12\n" +
 	"\x04mode\x18\v \x01(\tR\x04mode\x12-\n" +
 	"\x04runs\x18\f \x03(\v2\x19.agentre.wire.SubagentRunR\x04runs\x12\x18\n" +
-	"\asummary\x18\r \x01(\tR\asummary\"a\n" +
+	"\asummary\x18\r \x01(\tR\asummary\x12\x16\n" +
+	"\x06origin\x18\x0e \x01(\tR\x06origin\x12(\n" +
+	"\x10child_session_id\x18\x0f \x01(\x03R\x0echildSessionId\x12\x1a\n" +
+	"\bisolated\x18\x10 \x01(\bR\bisolated\x12\x1d\n" +
+	"\n" +
+	"final_text\x18\x11 \x01(\tR\tfinalText\"a\n" +
 	"\rSubagentEvent\x12 \n" +
 	"\ftool_call_id\x18\x01 \x01(\tR\n" +
 	"toolCallId\x12.\n" +

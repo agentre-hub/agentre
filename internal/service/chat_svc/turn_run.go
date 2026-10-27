@@ -16,6 +16,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/handlers"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
@@ -218,6 +219,9 @@ func (t *turnRun) applyDurable(ctx context.Context, ev agentruntime.Event) {
 	}
 	if t.durableCtx == nil {
 		t.durableCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
+	}
+	if done, ok := ev.(agentruntime.SubagentDone); ok && restoreSubagentSnapshot(t.acc, done) {
+		return
 	}
 	if err := t.svc.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, t.durableCtx); err != nil {
 		logger.Ctx(ctx).Warn("chat dispatcher Apply failed",
@@ -687,4 +691,40 @@ func (t *turnRun) finalize(ctx context.Context) {
 		Aborted:            aborted,
 		Err:                stopErr,
 	})
+}
+
+// restoreSubagentSnapshot 把持久帧里的 SubagentDone 当作 subagent_state 块的**整份快照**
+// 落进本轮转录。
+//
+// 持久帧是宿主落库之后的那一份事实:agentred 的 subagent_state 块投影成一帧 SubagentDone,
+// 带着卡片的全部内容。回放没有实时那一路的 Started / Progress,SubagentDoneHandler 又只
+// 改已有的 overlay,所以走 dispatcher 时这张卡整张回放不出来(远端的原生子代理卡与
+// agrctl 卡一样)。快照语义也比逐字段合并准确:块里什么就是什么,不受 handler 的写入
+// 分工(注入方 / CLI)约束。
+//
+// 返回 false 表示这不是本轮里一次调用的卡片(发起它的 tool_use 在更早的消息里,例如后台
+// 任务在别的轮完成),交回 dispatcher 走原有路径。Model 不在这里处理:它随后的
+// SubagentModel 帧另带,经 handler 写入这块 overlay。
+func restoreSubagentSnapshot(acc *turn.Accumulator, done agentruntime.SubagentDone) bool {
+	if done.ToolCallID == "" || !acc.HasToolUse(done.ToolCallID) {
+		return false
+	}
+	key := "subagent_state:" + done.ToolCallID
+	info := done.Info
+	apply := func(b *transcriptblocks.SubagentStateBlock) {
+		b.ParentToolCallID = done.ToolCallID
+		b.TaskID, b.Kind, b.Description = info.TaskID, info.Kind, info.TaskDescription
+		b.Status, b.Summary, b.Mode = info.Status, info.Summary, info.Mode
+		b.Runs = append([]agentruntime.SubagentRun(nil), info.Runs...)
+		b.LastToolName, b.ToolUses = info.LastToolName, info.ToolUses
+		b.TotalTokens, b.DurationMs = info.TotalTokens, info.DurationMs
+		b.Origin, b.ChildSessionID, b.Isolated, b.FinalText = info.Origin, info.ChildSessionID, info.Isolated, info.FinalText
+	}
+	if turn.Mutate[transcriptblocks.SubagentStateBlock](acc, key, apply) {
+		return true
+	}
+	blk := &transcriptblocks.SubagentStateBlock{}
+	apply(blk)
+	acc.AddBlock(blk, key)
+	return true
 }

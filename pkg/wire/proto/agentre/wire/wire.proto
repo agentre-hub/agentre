@@ -1402,6 +1402,16 @@ message SubagentInfo {
   // producers carry their conclusion here and nowhere else — a resumed run has no
   // tool_result of its own, so dropping this loses the report entirely.
   string summary = 13;
+  // origin is non-empty ("agrctl") when an injecting host mirrored an `agrctl send
+  // --wait` child session onto the parent shell call; empty for producer-sent frames.
+  string origin = 14;
+  // child_session_id is the session send created; the card's "open session" entry.
+  int64 child_session_id = 15;
+  // isolated marks a one-shot --isolated child session (no jump entry).
+  bool isolated = 16;
+  // final_text is the child turn's final text, kept apart from summary (a background
+  // Bash task_notification.summary is an exit-code line that must not be overwritten).
+  string final_text = 17;
 }
 message SubagentEvent { string tool_call_id = 1; SubagentInfo info = 2; }
 message SubagentModel { string tool_call_id = 1; string model = 2; }
