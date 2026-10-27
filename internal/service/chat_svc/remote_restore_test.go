@@ -74,7 +74,7 @@ func TestApplyDurable_GivenRemoteAgrctlCard_ThenDesktopRestoresCardWithNestedSte
 		`{"type":"tool_result","data":{"tool_use_id":"T","content":[{"type":"text","data":{"text":"全部通过"}}]}},`+
 		`{"type":"subagent_state","data":`+string(state)+`}]`)
 
-	var types []string
+	types := make([]string, 0, len(got))
 	var card transcriptblocks.SubagentStateBlock
 	for _, b := range got {
 		types = append(types, b.Type())
