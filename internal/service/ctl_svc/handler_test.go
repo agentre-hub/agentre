@@ -40,6 +40,7 @@ func (f *fakeProjects) List(context.Context) ([]ProjectInfo, error) { return f.i
 type fakeChat struct {
 	ensured    *chat_svc.EnsureSessionResponse
 	sendResp   *chat_svc.SendResponse
+	sendErr    error
 	turnCh     chan chat_svc.TurnResult
 	finalText  string
 	lastEnsure *chat_svc.EnsureSessionRequest
@@ -61,6 +62,9 @@ func (f *fakeChat) EnsureSession(_ context.Context, req *chat_svc.EnsureSessionR
 }
 func (f *fakeChat) Send(_ context.Context, req *chat_svc.SendRequest) (*chat_svc.SendResponse, error) {
 	f.lastSend = req
+	if f.sendErr != nil {
+		return nil, f.sendErr
+	}
 	return f.sendResp, nil
 }
 func (f *fakeChat) ObserveTurn(int64) (<-chan chat_svc.TurnResult, func()) {

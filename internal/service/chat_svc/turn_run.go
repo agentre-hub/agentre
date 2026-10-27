@@ -267,6 +267,9 @@ func (t *turnRun) applyLive(ctx context.Context, ev agentruntime.Event, preview 
 	// Peer fanout observes the original canonical event before local reduction;
 	// it never replaces the desktop emitter or dispatcher.
 	t.svc.publishPeerEvent(t.sess.ID, ev)
+	// 这一轮若是某次 `agrctl send --wait` 建出的子会话,同一份原始事件交给父转录里的
+	// 子代理卡(ctl_subagent.go)。只入队、不等父轮的锁。
+	t.svc.mirrorCtlSendChild(t.sess.ID, t.assistantMsg.Model, ev)
 	if t.streamStopErr != nil {
 		if eventShowsProgressAfterError(ev) {
 			fields := make([]zap.Field, 0, 6)
