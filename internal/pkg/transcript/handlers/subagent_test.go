@@ -1280,3 +1280,93 @@ func TestAgrctlOverlay_Background(t *testing.T) {
 		})
 	})
 }
+
+// TestAgrctlOverlay_OutlivesTheParentTurn 钉住「卡片状态不说谎」在父轮先结束时的那一半
+// (spec Card lifecycle「前台与后台」):agrctl 卡的子任务不随父轮结束 —— 前台卡由注入方用
+// 子轮结果收尾,后台卡由 CLI 收尾。父轮正常收尾(含自主续轮)不能把它翻成已取消,即便
+// 它是前台 kind(Codex 的命令在父轮结束后仍在跑)。
+func TestAgrctlOverlay_OutlivesTheParentTurn(t *testing.T) {
+	Convey("Given 父轮正常收尾时前台 agrctl 卡的子任务还在跑", t, func() {
+		ctx := context.Background()
+		acc := turn.New()
+		agrctlShell(acc, "sh-1", false)
+		So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "sh-1",
+			Info:       injected(agentruntime.SubagentInfo{Kind: agentruntime.SubagentKindAgrctl, ChildSessionID: 5}),
+		}, acc, nil, &turn.TurnContext{}), ShouldBeNil)
+		turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:sh-1", func(b *blocks.SubagentStateBlock) {
+			b.Mode, b.Runs = "single", []agentruntime.SubagentRun{{ID: "agrctl:5", Status: "running"}}
+		})
+
+		MarkRunningForegroundSubagentsCancelled(acc, acc.Finalize())
+
+		Convey("Then 卡片仍在运行中,等子任务的真实结果收尾", func() {
+			sb := overlaysOf(acc.Snapshot())[0]
+			So(sb.Status, ShouldEqual, "running")
+			So(sb.Runs[0].Status, ShouldEqual, "running")
+		})
+	})
+}
+
+// TestAgrctlOverlay_WriteConflicts 钉住 spec「写入冲突」里落在累加器这一侧的情形,以及
+// 供宿主在父轮结束后改写原消息时复用的同一套写入分工(ApplyAgrctlInfo)。
+func TestAgrctlOverlay_WriteConflicts(t *testing.T) {
+	Convey("Given 已完成的后台 agrctl 卡(单运行快照)", t, func() {
+		ctx := context.Background()
+		tc := &turn.TurnContext{}
+		acc := turn.New()
+		agrctlShell(acc, "sh-bg", true)
+		So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "sh-bg",
+			Info:       injected(agentruntime.SubagentInfo{Kind: agentruntime.SubagentKindLocalBash, ChildSessionID: 9}),
+		}, acc, nil, tc), ShouldBeNil)
+		turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:sh-bg", func(b *blocks.SubagentStateBlock) {
+			b.Mode, b.Runs = "single", []agentruntime.SubagentRun{{ID: "agrctl:9", Status: "running"}}
+		})
+
+		Convey("When CLI 的完成通知翻状态, Then 单运行快照的状态跟着翻(重载时卡片读的是它)", func() {
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-bg", Info: agentruntime.SubagentInfo{Status: "completed", Summary: "Background command completed (exit code 0)"},
+			}, acc, nil, tc), ShouldBeNil)
+			sb := overlaysOf(acc.Snapshot())[0]
+			So(sb.Status, ShouldEqual, "completed")
+			So(sb.Runs[0].Status, ShouldEqual, "completed")
+
+			Convey("When resume 前奏补发这条命令的 stopped 通知, Then 已完成的卡不翻回已取消,summary 也不被改写", func() {
+				So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+					ToolCallID: "sh-bg", Info: agentruntime.SubagentInfo{Status: "canceled", Summary: "stopped"},
+				}, acc, nil, tc), ShouldBeNil)
+				sb := overlaysOf(acc.Snapshot())[0]
+				So(sb.Status, ShouldEqual, "completed")
+				So(sb.Runs[0].Status, ShouldEqual, "completed")
+				So(sb.Summary, ShouldEqual, "Background command completed (exit code 0)")
+			})
+		})
+	})
+
+	Convey("ApplyAgrctlInfo 对单块套用写入分工", t, func() {
+		Convey("不是 agrctl 卡 → bound=false,不动", func() {
+			b := &blocks.SubagentStateBlock{ParentToolCallID: "x", Kind: "local_bash", Status: "running"}
+			bound, accepted, _ := ApplyAgrctlInfo(b, agentruntime.SubagentInfo{Status: "completed"}, "completed")
+			So(bound, ShouldBeFalse)
+			So(accepted, ShouldBeFalse)
+			So(b.Status, ShouldEqual, "running")
+		})
+		Convey("前台卡上 CLI 的帧 → 不收", func() {
+			b := &blocks.SubagentStateBlock{Kind: agentruntime.SubagentKindAgrctl, Origin: agentruntime.SubagentOriginAgrctl, Status: "running"}
+			bound, accepted, _ := ApplyAgrctlInfo(b, agentruntime.SubagentInfo{Status: "failed", Summary: "exit code 143"}, "completed")
+			So(bound, ShouldBeTrue)
+			So(accepted, ShouldBeFalse)
+			So(b.Status, ShouldEqual, "running")
+			So(b.Summary, ShouldBeEmpty)
+		})
+		Convey("用户中止已标取消后,注入方迟到的进度只补内容、不复活", func() {
+			b := &blocks.SubagentStateBlock{Kind: agentruntime.SubagentKindAgrctl, Origin: agentruntime.SubagentOriginAgrctl, Status: "canceled"}
+			_, accepted, applied := ApplyAgrctlInfo(b, injected(agentruntime.SubagentInfo{Status: "running", ToolUses: 3}), "")
+			So(accepted, ShouldBeTrue)
+			So(applied.Status, ShouldBeEmpty)
+			So(b.Status, ShouldEqual, "canceled")
+			So(b.ToolUses, ShouldEqual, 3)
+		})
+	})
+}

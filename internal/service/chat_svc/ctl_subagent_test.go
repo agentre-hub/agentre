@@ -3,6 +3,8 @@ package chat_svc
 import (
 	"context"
 	"encoding/json"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -341,7 +343,6 @@ func TestCtlSend_GivenNoSafeTarget_ThenNothingIsBoundAndTheReasonIsLogged(t *tes
 			{"两条一模一样的命令 → ambiguous", []agentruntime.ToolCall{
 				bashCall("sh-1", reviewCommand, false), bashCall("sh-2", reviewCommand, false),
 			}, string(ctlbind.ReasonAmbiguous)},
-			{"后台(run_in_background)调用 → background(后续任务接手)", []agentruntime.ToolCall{bashCall("sh-1", reviewCommand, true)}, "background"},
 		}
 		for _, tc := range cases {
 			Convey(tc.name, func() {
@@ -397,24 +398,304 @@ func TestCtlSend_GivenParentLockHeld_WhenChildEmits_ThenChildEventLoopNeverWaits
 	})
 }
 
-func TestCtlSend_GivenParentTurnAlreadyEnded_WhenFinished_ThenItDoesNotTouchTheClosedTurn(t *testing.T) {
-	Convey("Given 已绑定但父轮已经收口, When Finish, Then 不再改写那一轮的转录", t, func() {
+func TestCtlSend_GivenForegroundCallStillRunningWhenParentTurnEnds_ThenTheCardIsSettledInTheOriginalMessage(t *testing.T) {
+	Convey("Given 前台卡已绑定,父轮先结束而子任务还在跑(例如 Codex 的命令在父轮结束后仍在运行)", t, func() {
 		rig := startApprovalTurn(t)
 		ctx := context.Background()
+		store := expectCardWrites(rig)
+		rig.deps.message.EXPECT().UpdateUsage(gomock.Any(), int64(9901), gomock.Any()).Return(nil).AnyTimes()
 		rig.feed(bashCall("sh-1", reviewCommand, false), StreamToolUse)
 		watch := rig.svc.WatchCtlSend(ctlChildSessionID)
 		defer watch.Close()
 		So(watch.Bind(ctx, reviewBind()), ShouldBeTrue)
+		child := newCtlChildTurn(rig.svc, "gpt-5")
 		rig.endTurn()
 
-		rig.mu.Lock()
-		before := len(rig.checkpoints)
-		rig.mu.Unlock()
-		watch.Finish(ctx, CtlSendOutcome{Status: CtlSendCompleted, FinalText: "late"})
-		rig.mu.Lock()
-		after := len(rig.checkpoints)
-		rig.mu.Unlock()
-		So(after, ShouldEqual, before)
-		So(rig.subagentEvents(StreamSubagentDone), ShouldBeEmpty)
+		Convey("Then 父轮收尾不把卡片翻成已取消", func() {
+			So(store.load().Status, ShouldEqual, "running")
+		})
+
+		Convey("When 子会话继续出步骤并收尾, Then 步骤、进度与终态写回原消息,不碰已收口那一轮的转录", func() {
+			checkpointsBefore := parentCheckpoints(rig)
+
+			feedChild(child, agentruntime.ToolCall{ID: "c-1", Name: "Read", Input: json.RawMessage(`{"file_path":"a.go"}`)})
+			feedChild(child, agentruntime.ToolResult{ToolCallID: "c-1", Content: "package a"})
+			feedChild(child, agentruntime.ToolCall{ID: "c-1", Name: "Read", Input: json.RawMessage(`{"file_path":"a.go"}`)})
+			So(eventually(func() bool { return len(store.children()) == 2 }), ShouldBeTrue)
+
+			watch.Finish(ctx, CtlSendOutcome{Status: CtlSendCompleted, FinalText: "late"})
+
+			o := store.load()
+			So(o.Status, ShouldEqual, "completed")
+			So(o.FinalText, ShouldEqual, "late")
+			So(o.ToolUses, ShouldEqual, 1)
+			So(o.Model, ShouldEqual, "gpt-5")
+			So(o.Runs, ShouldHaveLength, 1)
+			So(o.Runs[0].Status, ShouldEqual, "completed")
+			So(o.Runs[0].Summary, ShouldEqual, "late")
+			So(o.Runs[0].Agent, ShouldEqual, "reviewer")
+			So(store.children(), ShouldResemble, []string{
+				"nested_tool_use:" + ctlbind.NestedToolCallID("sh-1", "c-1"),
+				"nested_tool_result:" + ctlbind.NestedToolCallID("sh-1", "c-1"),
+			})
+			So(store.childIDs(), ShouldResemble, []string{ctlbind.NestedToolCallID("sh-1", "c-1")})
+
+			So(parentCheckpoints(rig), ShouldEqual, checkpointsBefore)
+			// 实时:写回走会话级旁路(同后台 subagent 的空闲活动),卡片元数据镜像到会话级流。
+			started := rig.subagentEvents(StreamSubagentActivityStarted)
+			So(started, ShouldNotBeEmpty)
+			So(started[0].LaunchMessageID, ShouldEqual, 9001)
+			So(started[0].ToolCallID, ShouldEqual, "sh-1")
+			So(started[0].Stream, ShouldEqual, StreamName(approvalSessionID, 9001))
+			So(rig.subagentEvents(StreamSubagentDone), ShouldHaveLength, 2)
+		})
 	})
+}
+
+func TestCtlSend_GivenClaudeBackgroundBash_ThenTheCardKeepsLocalBashSemanticsAndOutlivesTheTurn(t *testing.T) {
+	Convey("Given 父轮跑 run_in_background 的 `agrctl send --wait`,shell 调用已经拿到结果", t, func() {
+		rig := startApprovalTurn(t)
+		ctx := context.Background()
+		store := expectCardWrites(rig)
+		rig.deps.message.EXPECT().UpdateUsage(gomock.Any(), int64(9901), gomock.Any()).Return(nil).AnyTimes()
+		rig.feed(bashCall("sh-bg", reviewCommand, true), StreamToolUse)
+		rig.feed(agentruntime.ToolResult{ToolCallID: "sh-bg", Content: "Command running in background with ID: bg-1"}, StreamToolResult)
+		watch := rig.svc.WatchCtlSend(ctlChildSessionID)
+		defer watch.Close()
+		child := newCtlChildTurn(rig.svc, "claude-sonnet-4")
+
+		Convey("When 绑定, Then 仍升级成卡片,kind 保留 local_bash,带归属与子会话", func() {
+			So(watch.Bind(ctx, reviewBind()), ShouldBeTrue)
+			o := readParent(rig.svc).overlays[0]
+			So(o.Kind, ShouldEqual, agentruntime.SubagentKindLocalBash)
+			So(o.Origin, ShouldEqual, agentruntime.SubagentOriginAgrctl)
+			So(o.ChildSessionID, ShouldEqual, ctlChildSessionID)
+			So(o.Status, ShouldEqual, "running")
+
+			Convey("When CLI 的 task_started 认领这块、父轮结束, Then 后台面板列着它,停止按钮拿得到 task_id", func() {
+				rig.feed(agentruntime.SubagentStarted{ToolCallID: "sh-bg", Info: agentruntime.SubagentInfo{
+					Kind: agentruntime.SubagentKindLocalBash, TaskID: "bg-1", TaskDescription: "agrctl send",
+				}}, StreamSubagentProgress)
+				rig.endTurn()
+
+				persisted := store.load()
+				So(persisted.Status, ShouldEqual, "running")
+				So(persisted.Kind, ShouldEqual, agentruntime.SubagentKindLocalBash)
+				So(persisted.TaskID, ShouldEqual, "bg-1")
+				So(persisted.Origin, ShouldEqual, agentruntime.SubagentOriginAgrctl)
+				So(rig.svc.bgRunningActive(approvalSessionID), ShouldBeTrue)
+
+				Convey("When 子会话出步骤并收尾, Then 内容写回原消息,状态仍归 CLI", func() {
+					feedChild(child, agentruntime.ToolCall{ID: "c-1", Name: "Grep"})
+					feedChild(child, agentruntime.UsageUpdate{Usage: &provider.Usage{CompletionTokens: 30}, TotalInputTokens: 1000})
+					So(eventually(func() bool {
+						o := store.load()
+						return len(store.children()) == 1 && o.TotalTokens == 1030
+					}), ShouldBeTrue)
+
+					watch.Finish(ctx, CtlSendOutcome{Status: CtlSendCompleted, FinalText: "LGTM"})
+					o := store.load()
+					So(o.FinalText, ShouldEqual, "LGTM")
+					So(o.ToolUses, ShouldEqual, 1)
+					So(o.LastToolName, ShouldEqual, "Grep")
+					So(o.Model, ShouldEqual, "claude-sonnet-4")
+					So(o.Status, ShouldEqual, "running")
+					So(o.Runs[0].Summary, ShouldEqual, "LGTM")
+					So(o.TaskID, ShouldEqual, "bg-1")
+				})
+			})
+		})
+	})
+}
+
+func TestCtlSend_GivenParentAborted_WhenLateChildEventsArrive_ThenTheCanceledCardIsNotRevived(t *testing.T) {
+	Convey("Given 前台卡已绑定,用户中止父轮、收尾把卡片标成已取消", t, func() {
+		rig := startApprovalTurn(t)
+		ctx := context.Background()
+		store := expectCardWrites(rig)
+		rig.deps.message.EXPECT().UpdateUsage(gomock.Any(), int64(9901), gomock.Any()).Return(nil).AnyTimes()
+		rig.feed(bashCall("sh-1", reviewCommand, false), StreamToolUse)
+		watch := rig.svc.WatchCtlSend(ctlChildSessionID)
+		defer watch.Close()
+		So(watch.Bind(ctx, reviewBind()), ShouldBeTrue)
+		child := newCtlChildTurn(rig.svc, "m")
+		rig.svc.aborted.Store(approvalSessionID, struct{}{})
+		rig.endTurn()
+		So(store.load().Status, ShouldEqual, "canceled")
+
+		Convey("When 子会话迟到的步骤、进度与收尾到达, Then 步骤照常写回,卡片仍是已取消", func() {
+			feedChild(child, agentruntime.ToolCall{ID: "c-9", Name: "Bash"})
+			So(eventually(func() bool { return len(store.children()) == 1 && store.load().ToolUses == 1 }), ShouldBeTrue)
+			watch.Finish(ctx, CtlSendOutcome{Status: CtlSendCanceled, FinalText: "stopped"})
+
+			o := store.load()
+			So(o.Status, ShouldEqual, "canceled")
+			So(o.Runs[0].Status, ShouldEqual, "canceled")
+		})
+	})
+}
+
+func TestCtlSend_GivenParentTurnStillPersisting_WhenChildEmits_ThenTheWriteWaitsForTheHandOff(t *testing.T) {
+	Convey("Given 前台卡已绑定,父轮已收口但收尾那一发落库还没完成", t, func() {
+		rig := startApprovalTurn(t)
+		ctx := context.Background()
+		store := expectCardWrites(rig)
+		rig.feed(bashCall("sh-1", reviewCommand, false), StreamToolUse)
+		watch := rig.svc.WatchCtlSend(ctlChildSessionID)
+		defer watch.Close()
+		So(watch.Bind(ctx, reviewBind()), ShouldBeTrue)
+		child := newCtlChildTurn(rig.svc, "m")
+		parent := rig.svc.activeTurn(approvalSessionID)
+
+		rig.mu.Lock() // 收尾的 Update 卡在这把锁上:整条消息的块还没落库
+		close(rig.events)
+		So(eventually(func() bool {
+			parent.mu.Lock()
+			defer parent.mu.Unlock()
+			return parent.approvalsClosed
+		}), ShouldBeTrue)
+
+		Convey("When 子会话此刻吐出一步, Then 收尾落库之前不写原消息(否则会被整条覆盖掉),落库之后补上", func() {
+			feedChild(child, agentruntime.ToolCall{ID: "c-1", Name: "Read"})
+			time.Sleep(50 * time.Millisecond)
+			writesBeforeHandOff := store.appendCalls()
+			rig.mu.Unlock()
+			<-rig.done
+
+			So(writesBeforeHandOff, ShouldEqual, 0)
+			So(eventually(func() bool { return len(store.children()) == 1 }), ShouldBeTrue)
+			So(store.childIDs(), ShouldResemble, []string{ctlbind.NestedToolCallID("sh-1", "c-1")})
+			watch.Finish(ctx, CtlSendOutcome{Status: CtlSendCompleted, FinalText: "ok"})
+			So(store.load().Status, ShouldEqual, "completed")
+		})
+	})
+}
+
+// parentCheckpoints 数父消息的 checkpoint(带卡片的那些;子会话自己那条消息也走同一个桩)。
+func parentCheckpoints(rig *approvalTurnRig) int {
+	rig.mu.Lock()
+	defer rig.mu.Unlock()
+	n := 0
+	for _, raw := range rig.checkpoints {
+		if strings.Contains(raw, `"subagent_state"`) {
+			n++
+		}
+	}
+	return n
+}
+
+// cardStore 是原消息里那张卡在库里的替身:PatchSubagentState 在它上面跑读-改-写(同仓储的
+// 会话锁语义),AppendSubagentChildren 记下追加的子块。卡片的初值取父轮收尾落库的那一份 ——
+// 收尾还没落库时库里没有这块(PatchSubagentState 定位不到)。
+type cardStore struct {
+	rig *approvalTurnRig
+
+	mu      sync.Mutex // 守 overlay;读初值时还会去拿 rig.mu
+	overlay *blocks.SubagentStateBlock
+
+	appendMu sync.Mutex // 守追加记录,与 mu 分开:落库卡在半路时也读得到
+	blocks   []string   // 追加的子块:"<type>:<id>"
+	ids      []string
+	appends  int
+}
+
+func expectCardWrites(rig *approvalTurnRig) *cardStore {
+	store := &cardStore{rig: rig}
+	rig.deps.message.EXPECT().PatchSubagentState(gomock.Any(), approvalSessionID, gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ int64, toolCallID string, mutate func(*blocks.SubagentStateBlock) bool) (bool, error) {
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			cur := store.persistedLocked()
+			if cur == nil || cur.ParentToolCallID != toolCallID {
+				return false, nil
+			}
+			next := cloneOverlay(*cur)
+			if mutate(&next) {
+				store.overlay = &next
+			}
+			return true, nil
+		}).AnyTimes()
+	rig.deps.message.EXPECT().AppendSubagentChildren(gomock.Any(), approvalSessionID, gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ int64, _ string, childJSON string, ids []string) error {
+			var stored []storedBlock
+			if err := json.Unmarshal([]byte(childJSON), &stored); err != nil {
+				return err
+			}
+			store.appendMu.Lock()
+			defer store.appendMu.Unlock()
+			store.appends++
+			for _, b := range stored {
+				var id struct {
+					ID         string `json:"id"`
+					ToolCallID string `json:"tool_call_id"`
+				}
+				_ = json.Unmarshal(b.Data, &id)
+				store.blocks = append(store.blocks, b.Type+":"+id.ID+id.ToolCallID)
+			}
+			store.ids = append(store.ids, ids...)
+			return nil
+		}).AnyTimes()
+	return store
+}
+
+// persistedLocked 交回库里此刻的那张卡:改写过就是改写后的,否则是收尾落库的那一份。
+func (s *cardStore) persistedLocked() *blocks.SubagentStateBlock {
+	if s.overlay != nil {
+		return s.overlay
+	}
+	s.rig.mu.Lock()
+	raw := s.rig.finalBlocks
+	s.rig.mu.Unlock()
+	if raw == "" {
+		return nil
+	}
+	var stored []storedBlock
+	if err := json.Unmarshal([]byte(raw), &stored); err != nil {
+		return nil
+	}
+	for _, b := range stored {
+		if b.Type != "subagent_state" {
+			continue
+		}
+		var sb blocks.SubagentStateBlock
+		if json.Unmarshal(b.Data, &sb) == nil {
+			s.overlay = &sb
+			return s.overlay
+		}
+	}
+	return nil
+}
+
+func (s *cardStore) load() blocks.SubagentStateBlock {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur := s.persistedLocked()
+	if cur == nil {
+		return blocks.SubagentStateBlock{}
+	}
+	return cloneOverlay(*cur)
+}
+
+func (s *cardStore) children() []string {
+	s.appendMu.Lock()
+	defer s.appendMu.Unlock()
+	return append([]string(nil), s.blocks...)
+}
+
+func (s *cardStore) childIDs() []string {
+	s.appendMu.Lock()
+	defer s.appendMu.Unlock()
+	return append([]string(nil), s.ids...)
+}
+
+func (s *cardStore) appendCalls() int {
+	s.appendMu.Lock()
+	defer s.appendMu.Unlock()
+	return s.appends
+}
+
+func cloneOverlay(b blocks.SubagentStateBlock) blocks.SubagentStateBlock {
+	b.Runs = append([]agentruntime.SubagentRun(nil), b.Runs...)
+	b.NestedToolCallIDs = append([]string(nil), b.NestedToolCallIDs...)
+	return b
 }

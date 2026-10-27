@@ -19,6 +19,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/handlers"
 )
 
 // sessionMutexes 是 per-session 的 read-modify-write 锁。FlipSubagentStatus 与
@@ -110,6 +113,13 @@ type MessageRepo interface {
 	// accumulator 早已收尾,进度只能这样落回发起消息(否则重开会话看到的永远是派遣那一刻
 	// 的旧数字)。p 的零值字段跳过;全零 / 找不到命中块则静默返回 nil。
 	PatchSubagentProgress(ctx context.Context, sessionID int64, toolCallID string, p SubagentProgress) error
+	// PatchSubagentState 定向改写本会话里 tool_call_id==toolCallID 的 subagent_state 块:把
+	// 落库的那块解出来交给 mutate,mutate 交回 true 才写回那一个块行。父轮结束后宿主改写
+	// 原消息里的派遣卡(agrctl send 绑定的卡在父轮结束后的步骤、进度与收尾)走这里。
+	// 与 FlipSubagentStatus / PatchSubagentProgress / AppendSubagentChildren 同一把会话锁:
+	// 读-改-写之间对方的写入不会丢,mutate 看到的总是最新那份。mutate 在锁内运行,不得做 IO。
+	// 交回是否定位到了那块;toolCallID 空 / 无命中时 (false, nil),mutate 不被调用。
+	PatchSubagentState(ctx context.Context, sessionID int64, toolCallID string, mutate func(*blocks.SubagentStateBlock) bool) (bool, error)
 	// AppendSubagentChildren 把后台 subagent 内部产生的子块追加进发起消息里对应
 	// subagent_state 块的 nested_tool_call_ids,同时把 childBlocksJSON 里的 StoredBlock
 	// 作为新块行追加到该消息正文末尾。childIDs 自动去重(跳过已在数组中的 id)。
@@ -560,6 +570,28 @@ func (r *messageRepo) PatchSubagentProgress(ctx context.Context, sessionID int64
 	return err
 }
 
+func (r *messageRepo) PatchSubagentState(
+	ctx context.Context, sessionID int64, toolCallID string, mutate func(*blocks.SubagentStateBlock) bool,
+) (bool, error) {
+	if toolCallID == "" || mutate == nil {
+		return false, nil
+	}
+	return r.rewriteSubagentBlock(ctx, sessionID, toolCallID, func(data []byte) ([]byte, bool, error) {
+		var sb blocks.SubagentStateBlock
+		if err := json.Unmarshal(data, &sb); err != nil {
+			return data, false, err
+		}
+		if !mutate(&sb) {
+			return data, false, nil
+		}
+		buf, err := json.Marshal(&sb)
+		if err != nil {
+			return data, false, err
+		}
+		return buf, true, nil
+	})
+}
+
 // decodeBlockObject 把一个块的正文解成 map。数字字段(total_tokens / duration_ms /
 // tool_uses)用 json.Decoder + UseNumber() 保持 json.Number,避免经 map[string]any 的
 // float64 强转把整数重写成科学计数(如 1e+04)。
@@ -594,7 +626,17 @@ func patchSubagentStateData(data []byte, apply func(data map[string]any) bool) (
 // FlipSubagentInBlockData 就地翻转一个 subagent_state 块的 status,返回重写后的正文 +
 // 是否改写过。summary 非空时同时写入 summary 字段。只触碰 status / summary 两个字段。
 // 导出以便直接单测改写逻辑。
+//
+// 翻转的发起方是 CLI(跨消息到达的完成 / 停止通知)。落在 agrctl 绑定的卡上时按那张卡的
+// 写入分工来(flipAgrctlCard),不再无条件改写。
 func FlipSubagentInBlockData(data []byte, status, summary string) ([]byte, bool, error) {
+	decoded, err := decodeBlockObject(data)
+	if err != nil {
+		return data, false, err
+	}
+	if origin, _ := decoded["origin"].(string); origin == agentruntime.SubagentOriginAgrctl {
+		return flipAgrctlCard(data, status, summary)
+	}
 	return patchSubagentStateData(data, func(decoded map[string]any) bool {
 		decoded["status"] = status
 		if summary != "" {
@@ -602,6 +644,26 @@ func FlipSubagentInBlockData(data []byte, status, summary string) ([]byte, bool,
 		}
 		return true
 	})
+}
+
+// flipAgrctlCard 把 CLI 的一次跨消息翻转按 agrctl 卡的写入分工落下(规则与累加器那一侧
+// 同一份:handlers.ApplyAgrctlInfo):前台卡上 CLI 什么都不写;后台卡的状态与退出码文本
+// 归 CLI,但已收尾的卡不被取消覆盖(resume 前奏补发的 stopped),单运行快照跟着翻。
+func flipAgrctlCard(data []byte, status, summary string) ([]byte, bool, error) {
+	var sb blocks.SubagentStateBlock
+	if err := json.Unmarshal(data, &sb); err != nil {
+		return data, false, err
+	}
+	_, accepted, applied := handlers.ApplyAgrctlInfo(&sb,
+		agentruntime.SubagentInfo{Status: status, Summary: summary}, status)
+	if !accepted || (applied.Status == "" && applied.Summary == "" && applied.TaskID == "") {
+		return data, false, nil
+	}
+	buf, err := json.Marshal(&sb)
+	if err != nil {
+		return data, false, err
+	}
+	return buf, true, nil
 }
 
 // SubagentProgress 是 subagent_state 块的运行时进度快照。零值字段代表「这一帧没带这项」,

@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	transcript_entity "github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
+	blocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	transcript_repo "github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -310,6 +311,21 @@ func (m *MockMessageRepo) PatchSubagentProgress(ctx context.Context, sessionID i
 func (mr *MockMessageRepoMockRecorder) PatchSubagentProgress(ctx, sessionID, toolCallID, p any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchSubagentProgress", reflect.TypeOf((*MockMessageRepo)(nil).PatchSubagentProgress), ctx, sessionID, toolCallID, p)
+}
+
+// PatchSubagentState mocks base method.
+func (m *MockMessageRepo) PatchSubagentState(ctx context.Context, sessionID int64, toolCallID string, mutate func(*blocks.SubagentStateBlock) bool) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PatchSubagentState", ctx, sessionID, toolCallID, mutate)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PatchSubagentState indicates an expected call of PatchSubagentState.
+func (mr *MockMessageRepoMockRecorder) PatchSubagentState(ctx, sessionID, toolCallID, mutate any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchSubagentState", reflect.TypeOf((*MockMessageRepo)(nil).PatchSubagentState), ctx, sessionID, toolCallID, mutate)
 }
 
 // ResumeSubagentByTaskID mocks base method.

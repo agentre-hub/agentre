@@ -59,7 +59,14 @@ func markRunningSubagentsCancelled(finalBlocks []cagoblocks.ContentBlock, cancel
 //   - local_bash(Bash):默认前台,只有显式 run_in_background==true 才是后台。
 //
 // 其它 kind(含空 kind 的旧帧)一律按前台处理。
+//
+// agrctl 绑定的卡(Origin = agrctl)例外:它的子任务不随父轮结束,前台卡由注入方用子轮结果
+// 收尾、后台卡由 CLI 收尾(spec「agrctl send 子代理卡」Card lifecycle「前台与后台」)。父轮
+// 正常结束时 Codex 的命令可能还在跑,翻成已取消就是在说谎。
 func isBackgroundSubagent(acc *turn.Accumulator, sb *blocks.SubagentStateBlock) bool {
+	if sb.Origin == agentruntime.SubagentOriginAgrctl {
+		return true
+	}
 	switch sb.Kind {
 	case subagentKindLocalAgent:
 		bg, explicit := runInBackgroundInput(acc, sb.ParentToolCallID)
@@ -449,7 +456,8 @@ func flipSubagentOutsideTurn(
 //   - CLI:后台卡(Kind 仍是 local_bash)的状态、task_id、summary(退出码文本);
 //     前台卡(Kind = SubagentKindAgrctl)上 CLI 的帧一律不收。
 //   - 终态之后,任何一方迟到的非终态更新都不能把卡片写回运行中(例如父轮被中止、卡片
-//     已标成取消后,注入方才到的进度)。
+//     已标成取消后,注入方才到的进度),取消也不能覆盖已收尾的卡(resume 前奏补发的
+//     stopped)。
 
 // isAgrctlFrame 这一帧是否由 agrctl 绑定的注入方发出。
 func isAgrctlFrame(info agentruntime.SubagentInfo) bool {
@@ -517,33 +525,44 @@ func applyAgrctlFrame(
 	acc *turn.Accumulator, toolCallID string, info agentruntime.SubagentInfo, defaultStatus string,
 ) (bound, accepted bool, applied agentruntime.SubagentInfo) {
 	turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:"+toolCallID, func(b *blocks.SubagentStateBlock) {
-		if b.Origin != agentruntime.SubagentOriginAgrctl {
-			return
-		}
-		bound = true
-		fromInjector := isAgrctlFrame(info)
-		background := b.Kind == subagentKindLocalBash
-		if !fromInjector && !background {
-			return // 前台卡:CLI 为这条 shell 调用发的 local_bash 帧一律不收
-		}
-		accepted = true
-		if fromInjector {
-			applied = mergeAgrctlContent(b, info)
-		} else {
-			applied = mergeCLIBackgroundFields(b, info)
-		}
-		// 状态归属:前台卡归注入方,后台卡归 CLI。
-		if fromInjector != background {
-			status := info.Status
-			if status == "" {
-				status = defaultStatus
-			}
-			if setAgrctlStatus(b, status) {
-				applied.Status = status
-			}
-		}
+		bound, accepted, applied = ApplyAgrctlInfo(b, info, defaultStatus)
 	})
 	return bound, accepted, applied
+}
+
+// ApplyAgrctlInfo 按写入分工把一帧落到一块 overlay 上,返回值同 applyAgrctlFrame。它是
+// 累加器之外的同一套规则:父轮结束后,宿主经仓储读-改-写原消息里的那块(注入方的写回、
+// CLI 跨消息的状态翻转)也调它,两边不各写一份。
+func ApplyAgrctlInfo(
+	b *blocks.SubagentStateBlock, info agentruntime.SubagentInfo, defaultStatus string,
+) (bound, accepted bool, applied agentruntime.SubagentInfo) {
+	if b.Origin != agentruntime.SubagentOriginAgrctl {
+		return false, false, applied
+	}
+	fromInjector := isAgrctlFrame(info)
+	background := b.Kind == subagentKindLocalBash
+	if !fromInjector && !background {
+		return true, false, applied // 前台卡:CLI 为这条 shell 调用发的 local_bash 帧一律不收
+	}
+	status := info.Status
+	if status == "" {
+		status = defaultStatus
+	}
+	// CLI 的帧只带状态与退出码文本;状态不被接受时(resume 前奏补发的 stopped 落在已完成
+	// 的卡上)整帧都是过期信息,summary 也不收。
+	if !fromInjector && !agrctlStatusAccepted(b.Status, status) {
+		return true, false, applied
+	}
+	if fromInjector {
+		applied = mergeAgrctlContent(b, info)
+	} else {
+		applied = mergeCLIBackgroundFields(b, info)
+	}
+	// 状态归属:前台卡归注入方,后台卡归 CLI。
+	if fromInjector != background && setAgrctlStatus(b, status) {
+		applied.Status = status
+	}
+	return true, true, applied
 }
 
 // mergeAgrctlContent 落注入方拥有的内容字段;0 / 空值不覆盖已记录值(同 R4 守卫)。
@@ -581,13 +600,27 @@ func mergeCLIBackgroundFields(b *blocks.SubagentStateBlock, info agentruntime.Su
 }
 
 // setAgrctlStatus 写 overlay 状态,但终态之后不接受非终态:卡片一旦完成 / 失败 / 取消,
-// 迟到的运行中更新不能把它写回运行中。
+// 迟到的运行中更新不能把它写回运行中。单运行快照(Mode/Runs,重载时卡片读的是它)的状态
+// 跟着一起写,不论这次写入来自哪一方。
 func setAgrctlStatus(b *blocks.SubagentStateBlock, status string) bool {
-	if status == "" || (isTerminalSubagentStatus(b.Status) && isNonTerminalSubagentStatus(status)) {
+	if status == "" || !agrctlStatusAccepted(b.Status, status) {
 		return false
 	}
 	b.Status = status
+	if len(b.Runs) == 1 {
+		b.Runs[0].Status = status
+	}
 	return true
+}
+
+// agrctlStatusAccepted 已收尾的卡只接受「另一个真实结果」:运行中不能复活它(父轮被中止
+// 后注入方迟到的进度),取消也不能覆盖它 —— 已完成 / 失败的卡收到的取消只可能是过期的
+// (resume 前奏为上个进程补发的 stopped 通知),已取消的卡再取消一次没有意义。
+func agrctlStatusAccepted(current, next string) bool {
+	if next == "" || !isTerminalSubagentStatus(current) {
+		return true
+	}
+	return !isNonTerminalSubagentStatus(next) && next != "canceled"
 }
 
 func emitAgrctlFrame(

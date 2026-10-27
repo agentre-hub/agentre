@@ -13,6 +13,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/ctlbind"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/handlers"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
@@ -22,8 +23,10 @@ import (
 // shell 调用原地升级成子代理卡,子会话的工具调用 / 结果实时镜像成卡片的嵌套步骤,进度、
 // 模型、用量跟着子会话走,终态在 serveSend 写响应(即 shell 调用拿到结果)之前落定。
 //
-// 本文件只做本机、前台、父轮进行中这一条路。后台(run_in_background)绑定、父轮结束后
-// 写回原消息、远端(agentred)父轮由后续切片在 bindCtlSend 的对应分支上接手。
+// 本文件只做本机父轮:前台与 Claude 后台(run_in_background)调用都绑定;父轮先结束、子任务
+// 还在跑时(后台 Bash、Codex 的命令在父轮结束后仍在运行),卡片在原消息里继续更新并由子任务
+// 的真实结果收尾(ctlSendBinding.writeBack)。远端(agentred)父轮由后续切片在 bindCtlSend
+// 的 remote_parent 分支上接手。
 //
 // 写入走 transcript 的 agrctl overlay 约定(handlers/subagent.go):每一帧都带
 // Info.Origin = SubagentOriginAgrctl,只落在本轮累加器里已有的 overlay 上。
@@ -239,7 +242,6 @@ func (w *ctlSendWatch) Close() {
 const (
 	ctlSendNoActiveTurn = "no_active_turn"
 	ctlSendRemoteParent = "remote_parent"
-	ctlSendBackground   = "background"
 )
 
 // ctlSendRunMode 卡片的单运行快照模式:目标 agent 名与任务文本存在 Runs[0] 里,
@@ -249,6 +251,10 @@ const ctlSendRunMode = "single"
 // bindCtlSend 在调用方会话当前这一轮(本机、进行中)里匹配 shell 调用并升级成 overlay。
 // 匹配与升级都在父轮的 t.mu 下:与事件循环、工具审批互斥,匹配时看到的开放调用不会
 // 在升级前变化。
+//
+// 后台(run_in_background)调用同样绑定:它的结果会立刻返回,与 send 请求谁先到是竞争的
+// (Design 9)。后台卡保留 local_bash(binding.Kind),后台面板、停止按钮与轮结束保护照常;
+// 它的状态归 CLI,注入方只写子会话带来的内容(handlers.ApplyAgrctlInfo)。
 func (s *chatSvc) bindCtlSend(ctx context.Context, child int64, req CtlSendBindRequest) (*ctlSendBinding, bool) {
 	notBound := func(reason string) (*ctlSendBinding, bool) {
 		logger.Ctx(ctx).Info("chat_svc.bindCtlSend: subagent card not bound",
@@ -281,16 +287,14 @@ func (s *chatSvc) bindCtlSend(ctx context.Context, child int64, req CtlSendBindR
 	if reason != "" {
 		return notBound(string(reason))
 	}
-	if binding.Background {
-		return notBound(ctlSendBackground)
-	}
 	b := &ctlSendBinding{
-		turn: t, acc: acc, msg: t.assistantMsg, toolCallID: binding.ToolCallID,
+		turn: t, acc: acc, msg: t.assistantMsg, sessionID: t.sess.ID, toolCallID: binding.ToolCallID,
 		run: agentruntime.SubagentRun{
 			ID: fmt.Sprintf("agrctl:%d", child), Agent: req.AgentName, Task: req.Task,
 		},
 		startedAt: time.Now(),
 		seen:      map[string]bool{},
+		delivered: map[string]bool{},
 	}
 	b.apply(ctx, agentruntime.SubagentStarted{ToolCallID: b.toolCallID, Info: agentruntime.SubagentInfo{
 		Kind:            binding.Kind(),
@@ -314,16 +318,29 @@ func (s *chatSvc) bindCtlSend(ctx context.Context, child int64, req CtlSendBindR
 
 // ctlSendBinding 一张已升级的卡:它落在哪一轮、哪只累加器、哪条消息上(插话分段会换掉
 // turnRun 的当前消息,卡却留在它发生的那一条里),以及注入方自己累计的进度。
-// 除构造外,所有字段只在 turn.mu 下读写。
+//
+// 卡片的写入有两段:
+//   - 父轮开着:在父轮的 t.mu 下写进卡所在的累加器并 checkpoint(与事件循环、工具审批互斥)。
+//   - 父轮收口之后(后台 Bash;Codex 的命令在父轮结束后仍在跑;父轮被中止):等收尾把整条
+//     消息落库(交接,turnRun.persistedSignal),此后只经仓储定向改写原消息里的这张卡与它的
+//     子块(writeBack),与 CLI 自己的跨消息写入同一把会话锁。
+//
+// 绑定自己的字段(进度、模型、去重表、detached)只由镜像 goroutine 与 Finish 读写,两者经
+// ctlSendWatch 的 quit/exited 先后排开,不需要 t.mu;acc / msg 的内容只在 t.mu 下碰。
 type ctlSendBinding struct {
 	turn       *turnRun
 	acc        *turn.Accumulator
 	msg        *chat_entity.Message
+	sessionID  int64
 	toolCallID string
 	run        agentruntime.SubagentRun // 身份:ID / Agent / Task
 	startedAt  time.Time
 
+	// detached 父轮已收口且收尾已落库:此后只经仓储写原消息。
+	detached bool
+
 	seen         map[string]bool // 已计数的子会话外层工具调用 ID
+	delivered    map[string]bool // 已投递的嵌套步骤:块类型 + 嵌套 ID(跨两段去重)
 	toolUses     int
 	lastToolName string
 	inputTokens  int // 子轮最近一次调用的输入规模
@@ -335,44 +352,58 @@ type ctlSendBinding struct {
 // 对端。调用方持有 turn.mu。
 func (b *ctlSendBinding) apply(ctx context.Context, ev agentruntime.Event) {
 	t := b.turn
-	t.svc.publishPeerEvent(t.sess.ID, ev)
+	t.svc.publishPeerEvent(b.sessionID, ev)
 	if err := t.svc.dispatcher.Apply(ctx, ev, b.acc, t.dispEmit, t.turnCtx); err != nil {
 		logger.Ctx(ctx).Warn("chat_svc.ctlSendBinding.apply: dispatcher Apply failed",
-			zap.Int64("sessionId", t.sess.ID),
+			zap.Int64("sessionId", b.sessionID),
 			zap.String("eventType", fmt.Sprintf("%T", ev)),
 			zap.Error(err))
 	}
 }
 
-// mirror 把一批子会话事件搬进父转录:嵌套步骤(按 ID 去重由 handler 负责)、模型、进度。
+// mirror 把一批子会话事件搬进父转录:模型、嵌套步骤(按 ID 去重)、进度。
 func (b *ctlSendBinding) mirror(ctx context.Context, batch []agentruntime.Event, model string) {
-	t := b.turn
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.approvalsClosed {
-		return // 父轮已收口:之后的写回归后续切片(写回原消息)
+	var events []agentruntime.Event
+	if m := b.takeModel(model); m != "" {
+		events = append(events, agentruntime.SubagentModel{ToolCallID: b.toolCallID, Model: m})
 	}
-	b.applyModel(ctx, model)
-	checkpoint, progressed := false, false
+	progressed := false
 	for _, ev := range batch {
-		if nested, ok := ctlbind.NestChildEvent(b.toolCallID, ev); ok {
-			b.apply(ctx, nested)
-			checkpoint = checkpoint || shouldCheckpointAssistantAfterEvent(nested)
+		if nested, ok := ctlbind.NestChildEvent(b.toolCallID, ev); ok && b.firstDelivery(nested) {
+			events = append(events, nested)
 		}
 		progressed = b.track(ev) || progressed
 	}
 	if progressed {
-		b.apply(ctx, agentruntime.SubagentProgress{ToolCallID: b.toolCallID, Info: agentruntime.SubagentInfo{
+		events = append(events, agentruntime.SubagentProgress{ToolCallID: b.toolCallID, Info: agentruntime.SubagentInfo{
 			Origin:       agentruntime.SubagentOriginAgrctl,
 			ToolUses:     b.toolUses,
 			LastToolName: b.lastToolName,
 			TotalTokens:  b.inputTokens + b.outputTokens,
 		}})
 	}
-	b.syncRun()
-	if checkpoint {
-		t.svc.checkpointAssistantNew(ctx, b.msg, b.acc)
+	if len(events) > 0 {
+		b.write(ctx, events, false)
 	}
+}
+
+// firstDelivery 嵌套步骤是否头一次投递。父轮那一段 handler 自己也按 ID 去重,但写回那一段
+// 每批用一只新累加器,跨批、跨两段的重复只能在这里认出来。
+func (b *ctlSendBinding) firstDelivery(nested agentruntime.Event) bool {
+	var key string
+	switch e := nested.(type) {
+	case agentruntime.ToolCall:
+		key = "use:" + e.ID
+	case agentruntime.ToolResult:
+		key = "result:" + e.ToolCallID
+	default:
+		return true
+	}
+	if b.delivered[key] {
+		return false
+	}
+	b.delivered[key] = true
+	return true
 }
 
 // track 累计进度,交回这一帧是否改变了进度。子会话外层工具调用按 ID 计一次(同一 ID 的
@@ -400,38 +431,29 @@ func (b *ctlSendBinding) track(ev agentruntime.Event) bool {
 	return false
 }
 
-// applyModel 模型一经记录不再改写(与 SubagentModelHandler 的 first-wins 一致)。
-func (b *ctlSendBinding) applyModel(ctx context.Context, model string) {
+// takeModel 模型一经记录不再改写(与 SubagentModelHandler 的 first-wins 一致);交回这次
+// 要写的模型,不写时为空。
+func (b *ctlSendBinding) takeModel(model string) string {
 	if model == "" || b.model != "" {
-		return
+		return ""
 	}
 	b.model = model
-	b.apply(ctx, agentruntime.SubagentModel{ToolCallID: b.toolCallID, Model: model})
+	return model
 }
 
-// finish 落终态:SubagentDone 带子轮最终文本、工具数、用量与耗时,随后落库。
+// finish 落终态:SubagentDone 带子轮最终文本、工具数、用量与耗时。
 func (b *ctlSendBinding) finish(ctx context.Context, child int64, out CtlSendOutcome) {
-	t := b.turn
-	t.mu.Lock()
-	known, closed := b.model != "", t.approvalsClosed
-	t.mu.Unlock()
-	if closed {
-		return
-	}
 	model := ""
-	if !known && out.AssistantMessageID > 0 { // 仓储 IO 不在父轮的锁里做
+	if b.model == "" && out.AssistantMessageID > 0 { // 仓储 IO 不在父轮的锁里做
 		if msg, err := transcript_repo.Message().Find(ctx, out.AssistantMessageID); err == nil && msg != nil {
 			model = msg.Model
 		}
 	}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.approvalsClosed {
-		return
+	var events []agentruntime.Event
+	if m := b.takeModel(model); m != "" {
+		events = append(events, agentruntime.SubagentModel{ToolCallID: b.toolCallID, Model: m})
 	}
-	b.applyModel(ctx, model)
-	b.apply(ctx, agentruntime.SubagentDone{ToolCallID: b.toolCallID, Info: agentruntime.SubagentInfo{
+	events = append(events, agentruntime.SubagentDone{ToolCallID: b.toolCallID, Info: agentruntime.SubagentInfo{
 		Origin:      agentruntime.SubagentOriginAgrctl,
 		Status:      string(out.Status),
 		FinalText:   out.FinalText,
@@ -439,34 +461,205 @@ func (b *ctlSendBinding) finish(ctx context.Context, child int64, out CtlSendOut
 		TotalTokens: b.inputTokens + b.outputTokens,
 		DurationMs:  int(time.Since(b.startedAt).Milliseconds()),
 	}})
-	b.syncRun()
-	t.svc.checkpointAssistantNew(ctx, b.msg, b.acc)
+	b.write(ctx, events, true)
 	logger.Ctx(ctx).Info("chat_svc.ctlSendBinding.finish: subagent card settled",
-		zap.Int64("sessionId", t.sess.ID),
+		zap.Int64("sessionId", b.sessionID),
 		zap.Int64("childSessionId", child),
 		zap.String("toolCallId", b.toolCallID),
-		zap.String("status", string(out.Status)))
+		zap.String("status", string(out.Status)),
+		zap.Bool("afterParentTurn", b.detached))
 }
 
-// syncRun 把卡片的单运行快照(Mode/Runs)对齐到 overlay 当前的状态。overlay 的 agrctl 写入
-// 路径不收 Runs,而重载时卡片名(目标 agent)只能从 Runs[0] 来,所以由注入方在每次写入后
-// 从 overlay 自身派生,不另存一份会漂移的状态。
-func (b *ctlSendBinding) syncRun() {
-	turn.Mutate[blocks.SubagentStateBlock](b.acc, "subagent_state:"+b.toolCallID, func(sb *blocks.SubagentStateBlock) {
-		if sb.Origin != agentruntime.SubagentOriginAgrctl {
-			return
-		}
-		run := b.run
-		run.Status = sb.Status
-		run.Model = sb.Model
-		run.ToolUses = sb.ToolUses
-		run.LastToolName = sb.LastToolName
-		if sb.Status == string(CtlSendFailed) {
-			run.ErrorMessage = sb.FinalText
-		} else {
-			run.Summary = sb.FinalText
-		}
-		sb.Mode = ctlSendRunMode
-		sb.Runs = []agentruntime.SubagentRun{run}
+// write 把一组帧落到卡上:父轮还开着就写进它的累加器,否则写回原消息。settle 表示这是
+// 收尾那一发(无论有没有嵌套步骤都 checkpoint)。
+func (b *ctlSendBinding) write(ctx context.Context, events []agentruntime.Event, settle bool) {
+	if b.underTurn(ctx, func() { b.applyLive(ctx, events, settle) }) {
+		return
+	}
+	b.writeBack(ctx, events)
+}
+
+// underTurn 父轮仍开着时在 t.mu 下跑 fn 并交回 true。父轮已收口时先等收尾把整条消息
+// 落库(交接,同审批卡归 finalize 的那一刻)再交回 false,此后这张卡只经仓储写原消息 ——
+// 收口到落库之间写进库里的块会被收尾那一发整条覆盖掉。只在镜像 goroutine / Finish 上
+// 等,不持任何锁。
+func (b *ctlSendBinding) underTurn(ctx context.Context, fn func()) bool {
+	if b.detached {
+		return false
+	}
+	t := b.turn
+	t.mu.Lock()
+	if !t.approvalsClosed {
+		defer t.mu.Unlock()
+		fn()
+		return true
+	}
+	t.mu.Unlock()
+	<-t.persistedSignal()
+	b.detached = true
+	logger.Ctx(ctx).Info("chat_svc.ctlSendBinding: parent turn ended; card continues in the original message",
+		zap.Int64("sessionId", b.sessionID),
+		zap.Int64("messageId", b.msg.ID),
+		zap.String("toolCallId", b.toolCallID))
+	return false
+}
+
+// applyLive 父轮那一段:经 dispatcher 写进卡所在的累加器,随后对齐单运行快照并按需
+// checkpoint。调用方持有 turn.mu。
+func (b *ctlSendBinding) applyLive(ctx context.Context, events []agentruntime.Event, settle bool) {
+	checkpoint := settle
+	for _, ev := range events {
+		b.apply(ctx, ev)
+		checkpoint = checkpoint || shouldCheckpointAssistantAfterEvent(ev)
+	}
+	b.syncRun()
+	if checkpoint {
+		b.turn.svc.checkpointAssistantNew(ctx, b.msg, b.acc)
+	}
+}
+
+// writeBack 父轮结束之后那一段:与后台 subagent 的空闲活动同一条路(driveSubagentActivity)
+// —— 经会话级旁路告诉前端「发起卡所在的消息又有活动」,嵌套步骤经 dispatcher 产出实时事件
+// 并跨消息追加进原消息,卡片本身在仓储的会话锁下读-改-写(patchCard)。只在镜像 goroutine /
+// Finish 上跑,从不碰 CLI 的读循环,也不持会话锁去等任何东西。
+func (b *ctlSendBinding) writeBack(ctx context.Context, events []agentruntime.Event) {
+	svc := b.turn.svc
+	ctx = context.WithoutCancel(ctx) // 已经流出去的内容必须落库
+	stream := StreamName(b.sessionID, b.msg.ID)
+	svc.emitter.Emit(ctx, AutonomousStreamName(b.sessionID), ChatStreamEvent{
+		Kind:            StreamSubagentActivityStarted,
+		Stream:          stream,
+		LaunchMessageID: b.msg.ID,
+		ToolCallID:      b.toolCallID,
 	})
+	emit := &subagentActivityEmitter{inner: &dispatcherEmitter{svc: svc}, sessionID: b.sessionID}
+	acc := turn.New()
+	tc := &turn.TurnContext{Stream: stream}
+	var frames []agentruntime.Event
+	for _, ev := range events {
+		svc.publishPeerEvent(b.sessionID, ev)
+		switch ev.(type) {
+		case agentruntime.ToolCall, agentruntime.ToolResult:
+			if err := svc.dispatcher.Apply(ctx, ev, acc, emit, tc); err != nil {
+				logger.Ctx(ctx).Warn("chat_svc.ctlSendBinding.writeBack: dispatcher Apply failed",
+					zap.Int64("sessionId", b.sessionID),
+					zap.String("eventType", fmt.Sprintf("%T", ev)),
+					zap.Error(err))
+			}
+		default:
+			frames = append(frames, ev)
+		}
+	}
+	b.appendChildren(ctx, acc)
+	b.patchCard(ctx, emit, stream, frames)
+	svc.emitter.Emit(ctx, stream, ChatStreamEvent{Kind: StreamDone})
+	svc.emitter.Emit(ctx, AutonomousStreamName(b.sessionID), ChatStreamEvent{
+		Kind:            StreamAutonomousFinished,
+		LaunchMessageID: b.msg.ID,
+	})
+}
+
+// appendChildren 把这一批的嵌套块追加进原消息(块行 + 卡片的 nested_tool_call_ids,同一事务)。
+func (b *ctlSendBinding) appendChildren(ctx context.Context, acc *turn.Accumulator) {
+	children, ids := subagentChildBlocks(acc.Finalize(), b.toolCallID)
+	if len(children) == 0 {
+		return
+	}
+	childJSON, err := encodeStoredBlocks(children)
+	if err == nil {
+		err = transcript_repo.Message().AppendSubagentChildren(ctx, b.sessionID, b.toolCallID, childJSON, ids)
+	}
+	if err != nil {
+		logger.Ctx(ctx).Warn("chat_svc.ctlSendBinding.appendChildren: write back nested steps failed",
+			zap.Int64("sessionId", b.sessionID),
+			zap.String("toolCallId", b.toolCallID),
+			zap.Int("childBlocks", len(children)),
+			zap.Error(err))
+	}
+}
+
+// patchCard 把卡片帧(模型 / 进度 / 收尾)落到原消息里那张卡上。规则与父轮那一段相同
+// (handlers.ApplyAgrctlInfo):后台卡的状态归 CLI;已收尾(含被中止标成取消)的卡不被写回
+// 运行中。在仓储的会话锁下读-改-写,所以比的是库里此刻的那一份 —— CLI 刚写下的状态不会
+// 被这里手上的旧值盖掉。实际生效的部分随后作为实时事件发出。
+func (b *ctlSendBinding) patchCard(ctx context.Context, emit turn.Emitter, stream string, frames []agentruntime.Event) {
+	if len(frames) == 0 {
+		return
+	}
+	var payloads []map[string]any
+	found, err := transcript_repo.Message().PatchSubagentState(ctx, b.sessionID, b.toolCallID,
+		func(sb *blocks.SubagentStateBlock) bool {
+			payloads = payloads[:0]
+			for _, ev := range frames {
+				if p := applyCardFrame(sb, ev); p != nil {
+					p["toolUseId"] = b.toolCallID
+					payloads = append(payloads, p)
+				}
+			}
+			if len(payloads) == 0 {
+				return false
+			}
+			b.syncRunOf(sb)
+			return true
+		})
+	if err != nil || !found {
+		logger.Ctx(ctx).Warn("chat_svc.ctlSendBinding.patchCard: card not written back",
+			zap.Int64("sessionId", b.sessionID),
+			zap.String("toolCallId", b.toolCallID),
+			zap.Bool("found", found),
+			zap.Error(err))
+		return
+	}
+	for _, p := range payloads {
+		emit.Emit(ctx, stream, p)
+	}
+}
+
+// applyCardFrame 把一帧落到卡上,交回它的实时事件载荷(未生效为 nil);载荷形态与父轮那一段
+// handler 发的一致。
+func applyCardFrame(sb *blocks.SubagentStateBlock, ev agentruntime.Event) map[string]any {
+	switch e := ev.(type) {
+	case agentruntime.SubagentModel:
+		if sb.Origin != agentruntime.SubagentOriginAgrctl || sb.Model != "" {
+			return nil
+		}
+		sb.Model = e.Model
+		return map[string]any{"kind": string(StreamSubagentModel), "model": e.Model}
+	case agentruntime.SubagentProgress:
+		if _, ok, applied := handlers.ApplyAgrctlInfo(sb, e.Info, ""); ok {
+			return map[string]any{"kind": string(StreamSubagentProgress), "info": applied}
+		}
+	case agentruntime.SubagentDone:
+		if _, ok, applied := handlers.ApplyAgrctlInfo(sb, e.Info, string(CtlSendCompleted)); ok {
+			return map[string]any{"kind": string(StreamSubagentDone), "info": applied}
+		}
+	}
+	return nil
+}
+
+// syncRun 把卡片的单运行快照(Mode/Runs)对齐到累加器里 overlay 当前的状态。调用方持有
+// turn.mu。
+func (b *ctlSendBinding) syncRun() {
+	turn.Mutate[blocks.SubagentStateBlock](b.acc, "subagent_state:"+b.toolCallID, b.syncRunOf)
+}
+
+// syncRunOf 把单运行快照对齐到 sb。overlay 的 agrctl 写入路径不收 Runs,而重载时卡片名
+// (目标 agent)只能从 Runs[0] 来,所以由注入方在每次写入后从 overlay 自身派生,不另存
+// 一份会漂移的状态。
+func (b *ctlSendBinding) syncRunOf(sb *blocks.SubagentStateBlock) {
+	if sb.Origin != agentruntime.SubagentOriginAgrctl {
+		return
+	}
+	run := b.run
+	run.Status = sb.Status
+	run.Model = sb.Model
+	run.ToolUses = sb.ToolUses
+	run.LastToolName = sb.LastToolName
+	if sb.Status == string(CtlSendFailed) {
+		run.ErrorMessage = sb.FinalText
+	} else {
+		run.Summary = sb.FinalText
+	}
+	sb.Mode = ctlSendRunMode
+	sb.Runs = []agentruntime.SubagentRun{run}
 }

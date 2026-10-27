@@ -71,6 +71,30 @@ type turnRun struct {
 	// approvals 本轮登记的审批卡;approvalsClosed 之后不再登记、不再改写。都由 mu 守。
 	approvals       []*turnApproval
 	approvalsClosed bool
+	// persisted 在 finalize 把这一轮的 assistant 整条落库之后关闭(由 mu 守,惰性创建)。
+	// 收口(approvalsClosed)到落库之间,别处对这条消息的定向写入会被收尾那一发整条覆盖
+	// 掉;父轮结束后还要往原消息里写的(agrctl send 绑定的卡,ctl_subagent.go)等它再写。
+	persisted chan struct{}
+}
+
+// persistedSignal 交回「这一轮的 assistant 已整条落库」的信号,见 turnRun.persisted。
+func (t *turnRun) persistedSignal() <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.persisted == nil {
+		t.persisted = make(chan struct{})
+	}
+	return t.persisted
+}
+
+// markPersisted 由 finalize 在收尾那一发落库之后调用一次。
+func (t *turnRun) markPersisted() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.persisted == nil {
+		t.persisted = make(chan struct{})
+	}
+	close(t.persisted)
 }
 
 // attachRuntime 落 runner-start 侧效果:回吐 provider session id、按 runtime 能力
@@ -504,6 +528,8 @@ func (t *turnRun) finalize(ctx context.Context) {
 	// 用它写 Update 会静默失败，partial 内容就丢了。
 	finalCtx := context.WithoutCancel(ctx)
 	_ = transcript_repo.Message().Update(finalCtx, t.assistantMsg)
+	// 交接:此后对这条消息的定向写入不会再被收尾覆盖。
+	t.markPersisted()
 	// 落库之后立刻把同一份统计发给对端订阅者:Peer Tab 的 meta 与本机看到的是
 	// 同一条 assistant 消息,数不该只有本机有。
 	t.svc.publishPeerTurnDone(finalCtx, t.sess.ID, t.stream, t.assistantMsg)
