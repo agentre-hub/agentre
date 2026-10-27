@@ -158,6 +158,10 @@ type rawFrame struct {
 	// 如 "Background command \"…\" completed (exit code 0)"。
 	Summary string `json:"summary,omitempty"`
 
+	// Tasks 仅 system.subtype == "background_tasks_changed" 帧带:此刻仍在跑的后台任务全集
+	// (CLI 2.1.205 起)。只关心条数,元素不解码。
+	Tasks []json.RawMessage `json:"tasks,omitempty"`
+
 	// system.subtype == "api_retry" 的字段：CLI 把 Anthropic SDK 的可重试错误（429/5xx 等）
 	// 包成 first-class 协议帧推到 stdout。字段直接放在帧顶层，不嵌在 usage / message 里。
 	// ErrorField 字段名避开内置 error。

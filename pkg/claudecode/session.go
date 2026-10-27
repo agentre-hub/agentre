@@ -147,6 +147,12 @@ type Session struct {
 	// 只在持 sinkMu 时读写。
 	backgroundTaskIDs map[string]string
 
+	// backgroundTasks 是 CLI 最近一次 system{subtype:"background_tasks_changed"} 报出的
+	// 后台任务条数(含后台 subagent 自己派出的子任务)。那一帧每次都是当前全集,不是增量,
+	// 所以直接覆盖;比自己配对 task_started / task_notification 可靠 —— 后者在子进程被杀、
+	// 通知没发出来时会永远对不上。readLoop 写、任意 goroutine 读。
+	backgroundTasks atomic.Int32
+
 	// resumeBootstrapPending 只在 --resume 重开的会话上为真,由 readLoop 单 goroutine
 	// 读写。它给「这个进程的第一条 result 可能是恢复应答而不是某一轮的终点」开一次性
 	// 窗口,见 route。首条 result 处理完即落下,一个进程最多吞掉一条。
@@ -407,6 +413,10 @@ func (s *Session) route(f rawFrame, events []Event, done bool) {
 	// 有没有归属轮无关 —— 那一轮落不落得了库,任务都已经在跑了(sess-3797)。
 	if f.Type == "system" && f.Subtype == "task_started" {
 		s.rememberBackgroundTask(f.ToolUseID, f.TaskID)
+	}
+	// 后台任务全集快照同理,而且收尾那一帧(任务清空)恰恰落在空闲态、不属于任何一轮。
+	if f.Type == "system" && f.Subtype == "background_tasks_changed" {
+		s.backgroundTasks.Store(int32(len(f.Tasks)))
 	}
 	at := s.currentTurn(f)
 	if at == nil {

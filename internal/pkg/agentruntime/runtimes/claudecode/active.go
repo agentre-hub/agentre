@@ -135,7 +135,10 @@ func (a *claudeActive) mainThreadBusy() bool {
 // Busy 实现池的 sessionBusyReporter:带外轮(自主续轮 / 后台 subagent 活动轮)在流时
 // 这条会话正忙。用户轮由池的 active 状态覆盖,带外轮不经过 acquireSession,没有任何
 // 人替它 MarkActive —— 只有自报这一条路能让空闲清扫看见它(sess-3244)。
-func (a *claudeActive) Busy() bool { return a.outOfBandActive() }
+//
+// 挂着后台任务同样算忙:那时一轮都不在流,可 CLI 正等着任务跑完再自主续轮;按闲置回收
+// 等于连同任务一起杀掉(sess-4629)。
+func (a *claudeActive) Busy() bool { return a.outOfBandActive() || a.handle.HasBackgroundTasks() }
 
 // nextTurnToken 为新一轮入口分配自增 token 并记录为当前活跃轮,返回新 token。
 // kind 是这一轮的类型(用户轮 / 自主续轮 / 后台 subagent 活动轮)。

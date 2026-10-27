@@ -505,7 +505,12 @@ type fakeCCHandle struct {
 	pid int
 	// exitErr 非 nil 时 ExitErr 返回它 —— 模拟「子进程已经退出」,断言死 handle 被逐出。
 	exitErr error
+	// backgroundTasks 模拟子进程最近一次报出的后台任务全集非空(主线空闲、后台 Bash /
+	// subagent 还在跑)。
+	backgroundTasks atomic.Bool
 }
+
+func (f *fakeCCHandle) HasBackgroundTasks() bool { return f.backgroundTasks.Load() }
 
 func (f *fakeCCHandle) PID() int { return f.pid }
 
@@ -1536,6 +1541,46 @@ func TestAutonomousTurns_GivenTurnInFlight_WhenIdleSweeperRuns_ThenSessionIsNotR
 		close(autoSrc)
 		for range at.Events { //nolint:revive // drain
 		}
+		So(pool.PruneIdleOlderThan(0), ShouldEqual, 1)
+	})
+}
+
+// TestRuntime_GivenBackgroundTaskRunning_WhenIdleSweeperRuns_ThenSessionIsNotReleased
+// 钉死 sess-4629:自主续轮里起了一条超时 1 小时的后台 Bash,那一轮收尾后主线空闲、没有任何
+// 带外轮在流,池里这条是 idle —— 但 CLI 并没闲着,它在等那条 Bash 跑完再自主续轮。空闲清扫
+// 6 分钟后把它回收,测试套件跟着死了;下次 --resume 时 CLI 报「Background shell command
+// didn't finish before the previous session ended」。
+func TestRuntime_GivenBackgroundTaskRunning_WhenIdleSweeperRuns_ThenSessionIsNotReleased(t *testing.T) {
+	Convey("主线空闲但后台任务还在跑时,空闲清扫不该释放这条会话", t, func() {
+		h := &fakeCCHandle{
+			id: "sess-4629",
+			stream: &eventCCStream{events: []claudecode.Event{
+				{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+				{Kind: claudecode.EventDone},
+			}},
+		}
+		restore := SetSessionFactoryForTest(func(ccLaunchSpec) (ccSessionHandle, error) { return h, nil })
+		defer restore()
+
+		pool := agentruntime.NewCLISessionPool(8)
+		r := NewWithPool(pool)
+		events, _, err := r.Run(context.Background(), agentruntime.RunRequest{
+			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+			SessionID: 4629,
+			Cwd:       t.TempDir(),
+			UserText:  "跑一遍测试套件",
+		})
+		So(err, ShouldBeNil)
+		for range events { //nolint:revive // drain
+		}
+		So(pool.Snapshot()[0].State, ShouldEqual, agentruntime.CLISessionIdle)
+
+		h.backgroundTasks.Store(true) // 这一轮里起的后台 Bash 还在跑
+		So(pool.PruneIdleOlderThan(0), ShouldEqual, 0)
+		So(atomic.LoadInt32(&h.closeCalls), ShouldEqual, 0)
+		So(pool.Len(), ShouldEqual, 1)
+
+		h.backgroundTasks.Store(false) // 后台任务全部结束,它才是一条普通的过期 idle 会话
 		So(pool.PruneIdleOlderThan(0), ShouldEqual, 1)
 	})
 }

@@ -159,6 +159,11 @@ func (s *Session) BackgroundTaskID(toolUseID string) (string, bool) {
 	return id, ok
 }
 
+// HasBackgroundTasks 报告 CLI 最近一次报出的后台任务全集是否非空 —— 主线空闲、但还挂着
+// run_in_background 的 Bash / 后台 subagent 在跑。此时子进程在等它们完成后自主续轮,
+// 不是闲着(sess-4629)。
+func (s *Session) HasBackgroundTasks() bool { return s.backgroundTasks.Load() > 0 }
+
 // startsAutonomousTurnLocked 在 isBackgroundTaskNotification 之上再加一道**归属**判定:
 // 只有主线自己派出的后台任务完成才是自主续轮的起始标记。
 //

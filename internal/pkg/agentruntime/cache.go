@@ -263,11 +263,12 @@ const DefaultIdleSessionTTL = 15 * time.Minute
 
 // PruneIdleOlderThan 关掉闲置超过 ttl 的会话,返回清掉的条数。
 // 只看 idle 条目:正在跑一轮(active)和正在等审批(waiting)的一个都不动;自报正忙的
-// (sessionBusyReporter,带外轮在飞)不但不动,还就地把 idleAt 重新打点 —— 它们的 state
-// 停在 idle 只是因为没人替带外轮 MarkActive,闲置计时也就一直从上一个用户轮结束时刻
-// 往上涨。只做「在飞豁免」不够:带外轮一收尾,条目立刻带着那份超龄闲置时长落进下一次
-// tick 的射程,等于把清扫推迟一个 tick 而已(sess-3321)。跟着清扫走的这一次打点,让
-// 闲置计时事实上从带外轮结束那一刻重新起算。
+// (sessionBusyReporter:带外轮在飞,或挂着后台任务)不但不动,还就地把 idleAt 重新打点
+// —— 它们的 state 停在 idle 只是因为没人替它们 MarkActive,闲置计时也就一直从上一个
+// 用户轮结束时刻往上涨。只做「在飞豁免」不够:忙一结束,条目立刻带着那份超龄闲置时长落进
+// 下一次 tick 的射程(sess-3321)。打点也不能只给已超龄的条目打:没超龄就跳过的话,
+// 早先某次 tick 打下的起点会一直留着,忙完之后剩下的寿命只有零头(sess-4629,6 分半)。
+// 每次见它忙都打点,闲置计时就从最后一次见它忙(误差一个清扫间隔)重新起算。
 func (p *CLISessionPool) PruneIdleOlderThan(ttl time.Duration) int {
 	now := time.Now()
 	deadline := now.Add(-ttl)
@@ -277,11 +278,14 @@ func (p *CLISessionPool) PruneIdleOlderThan(ttl time.Duration) int {
 	for el := p.ll.Front(); el != nil; el = next {
 		next = el.Next()
 		ent := el.Value.(*cliSessionEntry)
-		if ent.state != CLISessionIdle || ent.idleAt.After(deadline) {
+		if ent.state != CLISessionIdle {
 			continue
 		}
 		if entryBusy(ent) {
 			ent.idleAt = now
+			continue
+		}
+		if ent.idleAt.After(deadline) {
 			continue
 		}
 		p.ll.Remove(el)
