@@ -35,8 +35,10 @@ type Endpoint struct {
 	// AGENTRE_CTL_ENDPOINT）：只有这种端点拨不通时，agentred 主机上才回落到「没有会话」
 	// 那句提示（dialFailure）。
 	baseFromHandshake bool
-	// codexSandbox 为 true 表示运行在 Codex 沙箱里（环境里有 CODEX_SANDBOX）：沙箱默认挡住
-	// 回环拨号，拨号失败时要说明这一点。在 Resolve 里取一次，dialFailure 不再读环境。
+	// codexSandbox 为 true 表示运行在 Codex 沙箱里（环境里有 CODEX_SANDBOX 或
+	// CODEX_SANDBOX_NETWORK_DISABLED）：沙箱默认挡住回环拨号，拨号失败时要说明这一点。
+	// CODEX_SANDBOX=seatbelt 只有 macOS 注入；断网的沙箱（含 Linux）都注入后者。在 Resolve
+	// 里取一次，dialFailure 不再读环境。
 	codexSandbox bool
 }
 
@@ -64,7 +66,9 @@ var errAgentredHostNoSession = errors.New(
 // Resolve 按优先级解析控制端点：flag > 环境变量 > AppDataDir 握手文件。
 func Resolve(flagURL, flagToken string, lookupEnv func(string) (string, bool)) (Endpoint, error) {
 	ep := Endpoint{Base: strings.TrimRight(flagURL, "/"), Token: flagToken}
-	_, ep.codexSandbox = lookupEnv("CODEX_SANDBOX")
+	_, seatbelt := lookupEnv("CODEX_SANDBOX")
+	_, offline := lookupEnv("CODEX_SANDBOX_NETWORK_DISABLED")
+	ep.codexSandbox = seatbelt || offline
 	if ep.Base == "" {
 		if v, ok := lookupEnv("AGENTRE_CTL_ENDPOINT"); ok {
 			ep.Base = strings.TrimRight(v, "/")

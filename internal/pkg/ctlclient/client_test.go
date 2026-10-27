@@ -278,6 +278,32 @@ func TestGet_DialFailureUnderCodexSandboxNamesTheSandbox(t *testing.T) {
 	}
 }
 
+// TestGet_DialFailureUnderNetworkDisabledCodexSandboxNamesTheSandbox：codex 给每个断网的沙箱
+// 都注入 CODEX_SANDBOX_NETWORK_DISABLED=1，而 CODEX_SANDBOX=seatbelt 只有 macOS 的 seatbelt
+// 才注入（Linux 的 agentred 主机上没有它）。只有前者时拨号失败同样要说明是 Codex 沙箱。
+func TestGet_DialFailureUnderNetworkDisabledCodexSandboxNamesTheSandbox(t *testing.T) {
+	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
+	t.Setenv("AGENTRED_DATA_DIR", t.TempDir())
+
+	ep, err := Resolve("", "", envOf(map[string]string{
+		"AGENTRE_CTL_ENDPOINT":           "http://" + unreachableAddr(t),
+		"AGENTRE_CTL_TOKEN":              "session-token",
+		"CODEX_SANDBOX_NETWORK_DISABLED": "1",
+	}))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	err = ep.Get("/ctl/v1/resources", nil)
+	if err == nil {
+		t.Fatal("want an error when the endpoint can't be reached")
+	}
+	for _, want := range []string{"connect to", "Codex sandbox", "danger-full-access"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %q, want it to contain %q", err.Error(), want)
+		}
+	}
+}
+
 // TestGet_DialFailureWithoutCodexSandboxKeepsPlainMessage：没有 CODEX_SANDBOX 时拨号失败的
 // 报错不变，不提 Codex 沙箱。
 func TestGet_DialFailureWithoutCodexSandboxKeepsPlainMessage(t *testing.T) {

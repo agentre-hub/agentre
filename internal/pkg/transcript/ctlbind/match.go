@@ -63,7 +63,7 @@ const (
 	ReasonNoCandidate Reason = "no_candidate"
 	// ReasonAmbiguous 有多条候选,按任务文本筛完仍不是正好一条。
 	ReasonAmbiguous Reason = "ambiguous"
-	// ReasonAlreadyBound 命中的调用都已经绑过一个子会话(一条调用最多绑一个)。
+	// ReasonAlreadyBound 唯一命中的调用已经绑过一个子会话(一条调用最多绑一个)。
 	ReasonAlreadyBound Reason = "already_bound"
 )
 
@@ -73,34 +73,31 @@ const (
 // 规则:
 //  1. 候选 = 外层 shell 调用,命令文本同时含 `agrctl`、`send` 与目标 agent 名(或
 //     --agent-id 的值);前台调用须还没有结果,后台(run_in_background)调用不论。
-//  2. bound 里的调用(已绑过的)不参与竞争;候选只剩已绑过的 → ReasonAlreadyBound。
-//  3. 正好一条就绑定它;多条时按任务文本筛,仍不是正好一条 → ReasonAmbiguous。
+//     已绑过的调用照样是候选:它的命令里可能还有第二个 send,和别的调用分不清时不能绑。
+//  2. 正好一条就是它;多条时按任务文本筛,仍不是正好一条 → ReasonAmbiguous。
+//  3. 认出的那一条已绑过(在 bound 里)→ ReasonAlreadyBound,一条调用最多绑一个子会话。
 //
 // calls 通常取自 turn.Accumulator.OuterToolUses(),bound 取自 BoundToolCallIDs。
 func Match(calls []turn.OuterToolUse, bound map[string]bool, target Target) (Binding, Reason) {
-	var free, taken []turn.OuterToolUse
+	var cands []turn.OuterToolUse
 	for _, c := range calls {
-		if !isCandidate(c, target) {
-			continue
-		}
-		if bound[c.ID] {
-			taken = append(taken, c)
-		} else {
-			free = append(free, c)
+		if isCandidate(c, target) {
+			cands = append(cands, c)
 		}
 	}
-	switch {
-	case len(free) == 0 && len(taken) > 0:
-		return Binding{}, ReasonAlreadyBound
-	case len(free) == 0:
+	if len(cands) == 0 {
 		return Binding{}, ReasonNoCandidate
-	case len(free) > 1:
-		free = filterByTask(free, target.Task)
-		if len(free) != 1 {
+	}
+	if len(cands) > 1 {
+		cands = filterByTask(cands, target.Task)
+		if len(cands) != 1 {
 			return Binding{}, ReasonAmbiguous
 		}
 	}
-	return Binding{ToolCallID: free[0].ID, Background: runsInBackground(free[0])}, ""
+	if bound[cands[0].ID] {
+		return Binding{}, ReasonAlreadyBound
+	}
+	return Binding{ToolCallID: cands[0].ID, Background: runsInBackground(cands[0])}, ""
 }
 
 // BoundToolCallIDs 从一段块序列(进行中轮的 Accumulator.Snapshot,或已落库消息解出的

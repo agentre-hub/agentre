@@ -145,14 +145,36 @@ func TestMatch(t *testing.T) {
 			reason: ReasonAlreadyBound,
 		},
 		{
-			name: "已绑过的调用不参与竞争,剩下的唯一一条照常绑定",
+			// 规则 5 + 不挂错卡:已绑过的 sh-1 仍开着,它命令里的第二个 send 与 sh-2 的 send
+			// 认不出来是谁发的 —— 已绑过的调用照样算候选,歧义就不绑。
+			name: "已绑过的调用仍算候选:与另一条开着的调用分不清 → 歧义不绑",
 			calls: []turn.OuterToolUse{
-				shell("sh-1", "Bash", `agrctl send --wait --agent reviewer "审一下 PR 42"`, nil, false),
+				shell("sh-1", "Bash", `agrctl send --wait --agent reviewer "审一下 PR 42"; agrctl send --wait --agent reviewer "审一下 PR 42"`, boolPtr(true), true),
+				shell("sh-2", "Bash", `agrctl send --wait --agent reviewer "审一下 PR 42"`, boolPtr(true), true),
+			},
+			bound:  map[string]bool{"sh-1": true},
+			target: reviewer,
+			reason: ReasonAmbiguous,
+		},
+		{
+			name: "已绑过的调用被任务文本筛掉后,剩下的唯一一条照常绑定",
+			calls: []turn.OuterToolUse{
+				shell("sh-1", "Bash", `agrctl send --wait --agent reviewer "看看文档"`, nil, false),
 				shell("sh-2", "Bash", `agrctl send --wait --agent reviewer "审一下 PR 42"`, nil, false),
 			},
 			bound:  map[string]bool{"sh-1": true},
 			target: reviewer,
 			want:   Binding{ToolCallID: "sh-2"},
+		},
+		{
+			name: "按任务文本筛出的唯一一条已绑过 → 不再绑定",
+			calls: []turn.OuterToolUse{
+				shell("sh-1", "Bash", `agrctl send --wait --agent reviewer "审一下 PR 42"; agrctl send --wait --agent reviewer "审一下 PR 42"`, nil, false),
+				shell("sh-2", "Bash", `agrctl send --wait --agent reviewer "看看文档"`, nil, false),
+			},
+			bound:  map[string]bool{"sh-1": true},
+			target: reviewer,
+			reason: ReasonAlreadyBound,
 		},
 	}
 
