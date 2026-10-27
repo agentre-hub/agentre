@@ -46,7 +46,7 @@ Each row is a **reverse channel** (host→backend), **except the final `CapAuton
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `CapSteer` / `"steer"` | `Steerer` | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | mid-turn injection of a user message; chat_svc generates the queuedID, and after the backend actually consumes it, it must emit `SteerConsumed`. OpenClaw does not claim a stable steer RPC |
 | `CapCancelSteer` / `"cancel_steer"` | `SteerCanceler` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | retract after injection; once codex / piagent steer has entered the protocol it cannot be recalled, and OpenClaw does not expose steer |
-| `CapDrainSteer` / `"drain_steer"` | `SteerDrainer` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | leftover between turns is automatically forwarded into the next turn; only claudecode maintains a local hook queue |
+| `CapDrainSteer` / `"drain_steer"` | `SteerDrainer` | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | leftover between turns is automatically forwarded into the next turn; claudecode maintains a local hook queue; piagent holds only the messages queued while a CLI-model switch is pending, so they start the next turn on the new model |
 | `CapAbort` / `"abort"` | `Aborter` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ `session/cancel` | the "Stop" button; must be idempotent + must unblock all blocking I/O, otherwise the frontend will be stuck on "generating" forever. OpenClaw uses `chat.abort {sessionKey,runId}` |
 | `CapSetPermission` / `"set_permission_mode"` | `PermissionModeSetter` | ❌ | ✅ mid-turn | ✅ launch only | ❌ | ❌ | ❌ | ❌ | switch permission mode at runtime; the codex protocol does not allow mid-turn switching, so it persists to DB and takes effect on the next spawn; piagent and OpenClaw do not expose permission mode meta |
 | `CapAnswerUserAsk` / `"answer_user_ask"` | `AskAnswerSink` | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | reverse-asking the user a question (single-select / multi-select / Other / password field); Skip must go through deny rather than an empty map, otherwise the turn silently hangs. OpenClaw requests the `operator.questions` scope at connect and maps Gateway `question.requested` / `question.resolve` onto this sink: each question answers as a string array, per-question `isOther` sets `AskQuestion.DisallowOther`, `isSecret` masks the input and the resolved answer is redacted to "answered, no content" (`agentruntime.RedactSecretAnswers`), and skip sends `{id, cancel:true}`. Hermes maps the v7 `clarify` server request onto this sink: single-select answers the chosen option's text, multi-select answers a JSON-array string, a question with no options answers free text, a batch aggregates by `qid`; single-question skip answers `""`, batch skip cancels the whole group; a question with options never offers Other |
@@ -228,7 +228,7 @@ Implement according to the Capabilities declaration (**if you declared cap=true,
 | --- | --- | --- |
 | `CapSteer` | `Steerer` | supports mid-turn injection of a user message |
 | `CapCancelSteer` | `SteerCanceler` | can still retract after injection (claudecode has it; codex does not) |
-| `CapDrainSteer` | `SteerDrainer` | leftover between turns is auto-forwarded (claudecode only) |
+| `CapDrainSteer` | `SteerDrainer` | leftover between turns is auto-forwarded (claudecode; piagent for messages held during a pending CLI-model switch) |
 | `CapAbort` | `Aborter` | the user's "Stop" button — basically must be implemented |
 | `CapSetPermission` | `PermissionModeSetter` | switch permission mode at runtime |
 | `CapAnswerUserAsk` | `AskAnswerSink` | handle reverse ask_user_question |

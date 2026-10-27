@@ -16,6 +16,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
@@ -99,6 +100,37 @@ func (s *chatSvc) cliModelStateReader(ctx context.Context, be *agent_backend_ent
 	}
 	reader, _ := runner.(agentruntime.CLIModelStateReader)
 	return reader
+}
+
+// cliModelPending 判这条会话的 CLI 模型选择是否还挂着没落到进程上（pill 的「挂起」
+// 与排队消息是否留给下一轮同用这一处）。
+func cliModelPending(state agentruntime.CLIModelState, sess *chat_entity.Session, be *agent_backend_entity.AgentBackend) bool {
+	wanted := agentruntime.CLIModelChoiceValue(sess.CLIModelMode, sess.CLIModel, be.DefaultModel)
+	return state.Active && state.AppliedValue != wanted && sess.ProviderKey == "" && be.LLMProviderKey == ""
+}
+
+// nextTurnSteerer 是能把一条排队消息扣下、留到这一轮结束后作为下一轮 prompt 的
+// runtime（轮末经 SteerDrainer 交回）。CLI 自己会在本轮里消费 steer 的后端（pi）
+// 实现它：轮中切了模型之后排队的消息必须先应用挂起的模型，不能跑在旧模型那一轮里。
+type nextTurnSteerer interface {
+	SteerNextTurn(ctx context.Context, sessionID int64, queuedID, text string) error
+}
+
+// 签名对不上时类型断言会静默落空、排队消息又回到旧模型那一轮，这里在编译期钉住。
+var _ nextTurnSteerer = (*piagentrt.Runtime)(nil)
+
+// queuedSteerFunc 选这条排队消息的去向：CLI 模型切换还挂着时留给下一轮（与手动发送
+// 同一保证：开轮前先应用挂起的模型），否则照常插进当前这一轮。
+func queuedSteerFunc(ctx context.Context, runner agentruntime.Runtime, steerer agentruntime.Steerer, sess *chat_entity.Session, be *agent_backend_entity.AgentBackend) func(context.Context, int64, string, string) error {
+	deferrer, ok := runner.(nextTurnSteerer)
+	if !ok {
+		return steerer.Steer
+	}
+	reader, ok := runner.(agentruntime.CLIModelStateReader)
+	if !ok || !cliModelPending(reader.CLIModelState(ctx, sess.ID), sess, be) {
+		return steerer.Steer
+	}
+	return deferrer.SteerNextTurn
 }
 
 func (s *chatSvc) modelChoiceLock(id int64) *sync.Mutex {

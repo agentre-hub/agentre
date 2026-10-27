@@ -46,7 +46,7 @@ func TestPiAgentCapabilities(t *testing.T) {
 			So(caps.Has(capability.CapForkSession), ShouldBeTrue)
 			So(caps.Has(capability.CapSetPermission), ShouldBeFalse)
 			So(caps.Has(capability.CapCancelSteer), ShouldBeFalse)
-			So(caps.Has(capability.CapDrainSteer), ShouldBeFalse)
+			So(caps.Has(capability.CapDrainSteer), ShouldBeTrue)
 			So(caps.Has(capability.CapToolPermission), ShouldBeFalse)
 			// CapMCPTools=true:pi-agent 经内嵌桥扩展消费 RunRequest.MCPServers。
 			So(caps.Has(capability.CapMCPTools), ShouldBeTrue)

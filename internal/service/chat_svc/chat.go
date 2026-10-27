@@ -768,8 +768,7 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 			if reader := s.cliModelStateReader(ctx, be, sess.ID, pairedDeviceID); reader != nil {
 				state := reader.CLIModelState(ctx, sess.ID)
 				resp.Session.ActualCLIModel, resp.Session.CLIModelError = state.ModelID, state.Error
-				wanted := agentruntime.CLIModelChoiceValue(sess.CLIModelMode, sess.CLIModel, be.DefaultModel)
-				resp.Session.CLIModelPending = state.Active && state.AppliedValue != wanted && sess.ProviderKey == "" && be.LLMProviderKey == ""
+				resp.Session.CLIModelPending = cliModelPending(state, sess, be)
 			}
 			if cwd, cerr := exec_target_svc.ResolveSessionCwd(ctx, sess, be); cerr == nil {
 				resp.Session.Cwd = cwd
@@ -1583,7 +1582,8 @@ func (s *chatSvc) enqueue(ctx context.Context, req *EnqueueRequest) (*EnqueueRes
 		return nil, i18n.NewError(ctx, code.ChatSteerUnsupported)
 	}
 	queuedID := newQueuedID()
-	if err := steerer.Steer(ctx, sess.ID, queuedID, text); err != nil {
+	steer := queuedSteerFunc(ctx, runner, steerer, sess, be)
+	if err := steer(ctx, sess.ID, queuedID, text); err != nil {
 		if errors.Is(err, agentruntime.ErrNoActiveTurn) {
 			return nil, i18n.NewError(ctx, code.ChatSteerNoActive)
 		}

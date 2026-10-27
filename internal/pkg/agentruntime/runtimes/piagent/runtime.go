@@ -45,6 +45,9 @@ type Runtime struct {
 	// queryModels 是短命查询进程的测试缝，不接入会话池。
 	queryModels func(context.Context, *pkgpi.Client) (pkgpi.ModelCatalog, error)
 	prepared    map[int64]*preparedRun
+	// held 按会话扣着留给下一轮的排队消息（见 next_turn_steer.go），与 active/prepared
+	// 同受 mu 保护：判「有没有在飞的一轮」与扣下消息必须原子。
+	held map[int64]*heldSteers
 	// pool 让 RPC 会话跨轮活着。pi 的启动参数(--session/--append-system-prompt/
 	// --model/--thinking/--extension)在 spawn 时烤死且逐轮不变,每轮重起付的是进程
 	// 启动 + 扩展加载的钱,买到的是一模一样的东西。
@@ -98,6 +101,7 @@ func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
 	return &Runtime{
 		active:     map[int64]*activeSession{},
 		prepared:   map[int64]*preparedRun{},
+		held:       map[int64]*heldSteers{},
 		pool:       pool,
 		cliRecords: map[int64]*piCLIRecord{},
 	}
@@ -183,6 +187,8 @@ func (r *Runtime) Capabilities() capability.Capabilities {
 			capability.CapReportContextWindow: true,
 			capability.CapForkSession:         true,
 			capability.CapMCPTools:            true,
+			// 留给下一轮的排队消息扣在 agentre 这边，轮末交回（见 next_turn_steer.go）。
+			capability.CapDrainSteer: true,
 			// 力度经 --thinking 下发。
 			capability.CapReasoningEffort: true,
 		},
@@ -469,10 +475,15 @@ func (r *Runtime) Abort(ctx context.Context, sessionID int64, turnToken uint64) 
 func (r *Runtime) Steer(ctx context.Context, sessionID int64, queuedID string, text string) error {
 	r.mu.Lock()
 	a := r.active[sessionID]
-	r.mu.Unlock()
 	if a == nil || a.stream == nil {
+		held := r.steerDuringHandoffLocked(sessionID, queuedID, text)
+		r.mu.Unlock()
+		if held {
+			return nil
+		}
 		return agentruntime.ErrNoActiveTurn
 	}
+	r.mu.Unlock()
 	a.addPending(queuedID, text)
 	if err := a.stream.Steer(ctx, text); err != nil {
 		a.removePending(queuedID)
@@ -510,6 +521,7 @@ func (r *Runtime) CloseSession(ctx context.Context, sessionID int64) {
 	r.forgetCLIModel(sessionID)
 	r.mu.Lock()
 	owner := r.prepared[sessionID]
+	delete(r.held, sessionID)
 	r.mu.Unlock()
 	if owner != nil {
 		if err := owner.Close(ctx); err != nil {
@@ -534,6 +546,7 @@ func (r *Runtime) CloseAllSessions(ctx context.Context) {
 	clear(r.cliRecords)
 	r.cliModelMu.Unlock()
 	r.mu.Lock()
+	clear(r.held)
 	owners := make([]*preparedRun, 0, len(r.prepared))
 	for _, owner := range r.prepared {
 		owners = append(owners, owner)
@@ -552,6 +565,7 @@ func (r *Runtime) registerPrepared(sessionID int64, owner *preparedRun) {
 	}
 	r.mu.Lock()
 	r.prepared[sessionID] = owner
+	r.endHandoffLocked(sessionID)
 	r.mu.Unlock()
 }
 
