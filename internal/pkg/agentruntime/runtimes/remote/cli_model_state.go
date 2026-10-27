@@ -19,21 +19,6 @@ func (r *Runtime) CLIModelState(_ context.Context, sessionID int64) agentruntime
 	return r.cliModels[sessionID]
 }
 
-// cliModelAppliedValue 是会话口径的选择值（与 chat_svc 判「挂起」的 wanted 同源）：
-// 固定 → 选的值；跟随 CLI 默认 → 空串；跟随 Agent 绑定 → 后端默认模型。
-func cliModelAppliedValue(req agentruntime.RunRequest) string {
-	switch req.CLIModelMode {
-	case "fixed":
-		return strings.TrimSpace(req.CLIModel)
-	case "cli-default":
-		return ""
-	}
-	if req.Backend == nil {
-		return ""
-	}
-	return strings.TrimSpace(req.Backend.DefaultModel)
-}
-
 // noteCLIModelRun 在一轮交给执行端之后记账：成功 = 执行端以这份选择开轮；会话选了 CLI
 // 模型而开轮失败 = 下一轮应用失败，原文留给 pill 的失效态。绑了供应商的轮次 CLI 段不生效，
 // 账一并作废。
@@ -57,7 +42,7 @@ func (r *Runtime) noteCLIModelRun(req agentruntime.RunRequest, err error) {
 		return
 	}
 	prev := r.cliModels[req.SessionID]
-	r.cliModels[req.SessionID] = agentruntime.CLIModelState{Active: true, AppliedValue: cliModelAppliedValue(req), ModelID: prev.ModelID}
+	r.cliModels[req.SessionID] = agentruntime.CLIModelState{Active: true, AppliedValue: req.CLIModelChoiceValue(), ModelID: prev.ModelID}
 }
 
 // noteCLIModelResult 记下执行端这一轮上报的模型；首个模型报告之前就失败的轮次与本机

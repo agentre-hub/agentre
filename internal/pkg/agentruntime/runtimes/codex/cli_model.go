@@ -51,9 +51,9 @@ func (r *Runtime) cliModelTurnValue(ctx context.Context, req agentruntime.RunReq
 	}
 	applied, lastSent := r.cliRecordState(req.SessionID, sess)
 	switch req.CLIModelMode {
-	case "fixed":
+	case agentruntime.CLIModelModeFixed:
 		return strings.TrimSpace(req.CLIModel), nil
-	case "cli-default":
+	case agentruntime.CLIModelModeCLIDefault:
 		return r.resolvedCLIDefault(ctx, req, applied, lastSent)
 	}
 	if model := codexEffectiveModel(req); model != "" {
@@ -134,21 +134,6 @@ func (r *Runtime) CLIModelState(_ context.Context, sessionID int64) agentruntime
 		AppliedValue: applied,
 		ModelID:      strings.TrimSpace(sess.Model()),
 	}
-}
-
-// cliModelAppliedValue 是会话口径的选择值（与 chat_svc 判「挂起」的 wanted 同源）：
-// 跟随 CLI 默认记空串，不拿解析出的模型冒充它，否则 pill 会永远显示挂起。
-func cliModelAppliedValue(req agentruntime.RunRequest) string {
-	switch req.CLIModelMode {
-	case "fixed":
-		return req.CLIModel
-	case "cli-default":
-		return ""
-	}
-	if req.Backend == nil {
-		return ""
-	}
-	return strings.TrimSpace(req.Backend.DefaultModel)
 }
 
 // cliRecordState 在锁内交回这条会话的账（记录来自别的进程时按空账处理）。

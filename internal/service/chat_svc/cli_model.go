@@ -45,7 +45,7 @@ func applySessionCLIModel(req *agentruntime.RunRequest, sess *chat_entity.Sessio
 
 // refreshCLIModelChoice 自动续轮不能复用上一轮开始时的选择快照。
 func refreshCLIModelChoice(ctx context.Context, sess *chat_entity.Session) error {
-	if sess.CLIModelMode == "" && sess.ID <= 0 {
+	if sess.ID <= 0 {
 		return nil
 	}
 	latest, err := chat_repo.Session().Find(ctx, sess.ID)
@@ -61,9 +61,10 @@ func refreshCLIModelChoice(ctx context.Context, sess *chat_entity.Session) error
 }
 
 // cliModelDeviation 按 CLI 目录解析别名后再比较，不能把 sonnet 与完整 ID 的正常映射报成偏离。
+// CLI 报的正是所选值时不算偏离（codex 的 id 与 model 可以不同，线程模型记的是下发的 id）。
 // 目录读不到（catalogKnown=false）时无从解析别名，不猜，不追加提示。
 func cliModelDeviation(req agentruntime.RunRequest, actual string, models []agentruntime.CLIModel, catalogKnown bool) *blocks.NoticeBlock {
-	if req.CLIModelMode != "fixed" || actual == "" || !catalogKnown {
+	if req.CLIModelMode != agentruntime.CLIModelModeFixed || actual == "" || actual == req.CLIModel || !catalogKnown {
 		return nil
 	}
 	expected := req.CLIModel
@@ -76,7 +77,7 @@ func cliModelDeviation(req agentruntime.RunRequest, actual string, models []agen
 	if expected == actual {
 		return nil
 	}
-	text, _ := json.Marshal(view.ProviderNotice{Kind: "cli_model_deviation", CLIModel: req.CLIModel, ActualModel: actual})
+	text, _ := json.Marshal(view.ProviderNotice{Kind: view.NoticeKindCLIModelDeviation, CLIModel: req.CLIModel, ActualModel: actual})
 	return &blocks.NoticeBlock{Level: "warning", Text: string(text)}
 }
 
@@ -144,10 +145,7 @@ func (s *chatSvc) SetChatSessionCLIModel(ctx context.Context, req *SetChatSessio
 	if sess.CLIModelMode == mode && sess.CLIModel == value && sess.ProviderKey == "" && sess.ModelKey == "" {
 		return &SetChatSessionCLIModelResponse{Mode: mode, Value: value}, nil
 	}
-	next := value
-	if mode == "" {
-		next = be.DefaultModel
-	}
+	next := agentruntime.CLIModelChoiceValue(mode, value, be.DefaultModel)
 	applied := false
 	// 从供应商目标切回 CLI 须走下一轮的启动身份边界，不能在旧网关进程上换模型。
 	if sess.AgentStatus != "running" && sess.AgentStatus != "waiting" && sess.ProviderKey == "" {
@@ -160,10 +158,7 @@ func (s *chatSvc) SetChatSessionCLIModel(ctx context.Context, req *SetChatSessio
 	}
 	if err := chat_repo.Session().UpdateCLIModel(ctx, sess.ID, mode, value); err != nil {
 		if applied {
-			previous := sess.CLIModel
-			if sess.CLIModelMode == "" {
-				previous = be.DefaultModel
-			}
+			previous := agentruntime.CLIModelChoiceValue(sess.CLIModelMode, sess.CLIModel, be.DefaultModel)
 			if rollbackErr := setter.SetCLIModel(context.WithoutCancel(ctx), sess.ID, previous); rollbackErr != nil {
 				logger.Ctx(ctx).Error("chat_svc.SetChatSessionCLIModel: rollback failed", zap.Int64("sessionId", sess.ID), zap.Error(rollbackErr))
 			}

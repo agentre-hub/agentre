@@ -397,7 +397,7 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 		return nil, nil, err
 	}
 	if cliModelInPlay {
-		r.settleCLIModelTurn(req.SessionID, sess, turnModel, cliModelAppliedValue(req))
+		r.settleCLIModelTurn(req.SessionID, sess, turnModel, req.CLIModelChoiceValue())
 	}
 	logger.Ctx(ctx).Info("codex.Runtime: turn started",
 		zap.Int64("sessionId", req.SessionID),

@@ -768,10 +768,7 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 			if reader := s.cliModelStateReader(ctx, be, sess.ID, pairedDeviceID); reader != nil {
 				state := reader.CLIModelState(ctx, sess.ID)
 				resp.Session.ActualCLIModel, resp.Session.CLIModelError = state.ModelID, state.Error
-				wanted := be.DefaultModel
-				if sess.CLIModelMode != "" {
-					wanted = sess.CLIModel
-				}
+				wanted := agentruntime.CLIModelChoiceValue(sess.CLIModelMode, sess.CLIModel, be.DefaultModel)
 				resp.Session.CLIModelPending = state.Active && state.AppliedValue != wanted && sess.ProviderKey == "" && be.LLMProviderKey == ""
 			}
 			if cwd, cerr := exec_target_svc.ResolveSessionCwd(ctx, sess, be); cerr == nil {

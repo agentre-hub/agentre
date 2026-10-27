@@ -1,10 +1,12 @@
 import type { TranscriptMessage } from "./dto";
 
-// 两个纯旁白 notice kind,镜像后端 internal/service/chat_svc/view/provider_notice.go
-// 的 NoticeKindSwitch / NoticeKindReasoningEffort —— 判据必须原样跟后端同步,漏一个
-// 都会让那类切换 notice 顶替真正在跑的 assistant 行(见下文)。
+// 纯旁白 notice kind,镜像后端 internal/service/chat_svc/view/provider_notice.go
+// 的 NoticeKindSwitch / NoticeKindReasoningEffort / NoticeKindCLIModel —— 判据必须原样
+// 跟后端同步(isSessionSwitchKind),漏一个都会让那类切换 notice 顶替真正在跑的
+// assistant 行(见下文)。
 const NOTICE_KIND_SWITCH = "switch";
 const NOTICE_KIND_REASONING_EFFORT = "reasoning_effort";
+const NOTICE_KIND_CLI_MODEL = "cli_model";
 
 /**
  * isNoticeOnlyMessage 判断一条消息是不是「只承载切换类 notice 的旁白行」
@@ -38,7 +40,7 @@ export function isNoticeOnlyMessage(
         b.type === "notice" &&
         (b.noticeKind === NOTICE_KIND_SWITCH ||
           b.noticeKind === NOTICE_KIND_REASONING_EFFORT ||
-          b.noticeKind === "cli_model"),
+          b.noticeKind === NOTICE_KIND_CLI_MODEL),
     )
   );
 }

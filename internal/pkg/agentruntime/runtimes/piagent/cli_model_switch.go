@@ -38,21 +38,6 @@ type piCLIRecord struct {
 	modelID string
 }
 
-// cliModelAppliedValue 是会话口径的选择值：固定 → 选的值；跟随 CLI 默认 → 空串；
-// 跟随 Agent 绑定 → 后端默认模型（空 = CLI 默认）。
-func cliModelAppliedValue(req agentruntime.RunRequest) string {
-	switch req.CLIModelMode {
-	case "fixed":
-		return strings.TrimSpace(req.CLIModel)
-	case "cli-default":
-		return ""
-	}
-	if req.Backend == nil {
-		return ""
-	}
-	return strings.TrimSpace(req.Backend.DefaultModel)
-}
-
 // modelLock 串行化同一会话的「切换」与「下一轮开轮」：切换判空闲与开轮登记必须互斥，
 // 否则 set_model 的应答会和刚开的那一轮抢同一个 stdout。
 func (r *Runtime) modelLock(sessionID int64) *sync.Mutex {
@@ -111,7 +96,7 @@ func (r *Runtime) applyPendingCLIModel(ctx context.Context, req agentruntime.Run
 	if req.SessionID <= 0 || req.EffectiveProviderKey() != "" {
 		return nil
 	}
-	wanted := cliModelAppliedValue(req)
+	wanted := req.CLIModelChoiceValue()
 	record := r.cliRecord(req.SessionID, sess)
 	if record == nil {
 		r.putCLIRecord(req.SessionID, &piCLIRecord{sess: sess, backend: req.Backend, appliedValue: wanted})

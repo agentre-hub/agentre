@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/require"
@@ -99,5 +100,24 @@ func TestQueryCLIModels(t *testing.T) {
 	Convey("Given no backend, When requesting the catalog, Then it is rejected", t, func() {
 		_, err := NewWithPool(nil).QueryCLIModels(context.Background(), agentruntime.CLIModelQueryRequest{})
 		So(err, ShouldNotBeNil)
+	})
+
+	Convey("Given a caller without a deadline (a Wails call or the switch back to the CLI default)", t, func() {
+		r := NewWithPool(nil)
+		var bounded bool
+		r.queryModels = func(ctx context.Context, _ *pkgpiagent.Client) (pkgpiagent.ModelCatalog, error) {
+			deadline, ok := ctx.Deadline()
+			bounded = ok && time.Until(deadline) <= agentruntime.CLIModelQueryTimeout
+			return pkgpiagent.ModelCatalog{}, nil
+		}
+
+		_, err := r.QueryCLIModels(context.Background(), agentruntime.CLIModelQueryRequest{
+			Backend: &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)},
+		})
+
+		Convey("Then the query process runs under a bounded context, so a hung pi never holds the session switch lock forever", func() {
+			So(err, ShouldBeNil)
+			So(bounded, ShouldBeTrue)
+		})
 	})
 }

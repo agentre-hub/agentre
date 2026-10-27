@@ -114,12 +114,20 @@ const NoticeKindSwitch = "switch"
 // 有效,不能看字段是否非空。
 const NoticeKindReasoningEffort = "reasoning_effort"
 
+// NoticeKindCLIModel 是会话 CLI 三态切换的旁白（带 cliModelMode / cliModel；空 mode =
+// 改回跟随 Agent 绑定，同样只靠 kind 判定）。NoticeKindCLIModelDeviation 是轮末 CLI
+// 实际所用模型偏离固定选择的警示（带 cliModel / actualModel），属于那一轮自己的消息。
+const (
+	NoticeKindCLIModel          = "cli_model"
+	NoticeKindCLIModelDeviation = "cli_model_deviation"
+)
+
 // isSessionSwitchKind 报告这个 kind 是不是「用户改了某个会话级设置」那类旁白行。
 // 两种切换 notice 都由 chat_svc 独立落库、允许发生在轮中(NextSeq 把它排在在跑的那条
 // assistant 之后),因此都必须被「末条 assistant = 在跑的那一轮」的推导跳过。回退提示
 // (kind 为空)不在此列:它是轮次自己收尾时追加进那一轮的消息里的。
 func isSessionSwitchKind(kind string) bool {
-	return kind == NoticeKindSwitch || kind == NoticeKindReasoningEffort || kind == "cli_model"
+	return kind == NoticeKindSwitch || kind == NoticeKindReasoningEffort || kind == NoticeKindCLIModel
 }
 
 func EncodeProviderFallback(providerKey, providerName string) string {
@@ -153,7 +161,7 @@ func EncodeReasoningEffortSwitch(effort string) string {
 
 // EncodeCLIModelSwitch 编码 CLI 三态切换，空 mode 仍由 kind 标识为旁白。
 func EncodeCLIModelSwitch(mode, value string) string {
-	b, _ := json.Marshal(ProviderNotice{Kind: "cli_model", CLIModelMode: mode, CLIModel: value})
+	b, _ := json.Marshal(ProviderNotice{Kind: NoticeKindCLIModel, CLIModelMode: mode, CLIModel: value})
 	return string(b)
 }
 

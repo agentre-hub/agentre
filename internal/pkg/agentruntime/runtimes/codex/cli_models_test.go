@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/require"
@@ -95,5 +96,24 @@ func TestQueryCLIModels(t *testing.T) {
 	Convey("Given no backend, When requesting the catalog, Then it is rejected", t, func() {
 		_, err := NewWithPool(nil).QueryCLIModels(context.Background(), agentruntime.CLIModelQueryRequest{})
 		So(err, ShouldNotBeNil)
+	})
+
+	Convey("Given a caller without a deadline (a turn resolving the CLI default before turn/start)", t, func() {
+		r := NewWithPool(nil)
+		var bounded bool
+		r.queryModels = func(ctx context.Context, _ *codex.Client) (codex.ModelCatalog, error) {
+			deadline, ok := ctx.Deadline()
+			bounded = ok && time.Until(deadline) <= agentruntime.CLIModelQueryTimeout
+			return codex.ModelCatalog{}, nil
+		}
+
+		_, err := r.QueryCLIModels(context.Background(), agentruntime.CLIModelQueryRequest{
+			Backend: &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex)},
+		})
+
+		Convey("Then the query app-server runs under a bounded context", func() {
+			So(err, ShouldBeNil)
+			So(bounded, ShouldBeTrue)
+		})
 	})
 }

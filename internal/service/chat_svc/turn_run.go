@@ -467,9 +467,10 @@ func (t *turnRun) finalize(ctx context.Context) {
 			})
 		}
 	}
-	if t.req.CLIModelMode == "fixed" && t.req.Provider == nil && (t.req.Effective == nil || t.req.Effective.ProviderKey == "") && t.result != nil && t.result.Model != "" {
+	if t.req.CLIModelMode == agentruntime.CLIModelModeFixed && t.req.Provider == nil && (t.req.Effective == nil || t.req.Effective.ProviderKey == "") && t.result != nil && t.result.Model != "" && t.result.Model != t.req.CLIModel {
 		// 目录只用于解析所选别名；实际使用值始终来自这一轮的 RunResult。远端后端的目录
-		// 由 ListCLIModels 按后端所在设备路由，本机与远端同一条判据。
+		// 由 ListCLIModels 按后端所在设备路由，本机与远端同一条判据。CLI 报的正是所选值
+		// 时无需解析，也不为此起查询进程。
 		var models []agentruntime.CLIModel
 		catalog, err := agent_backend_svc.AgentBackend().ListCLIModels(ctx, &agent_backend_svc.ListCLIModelsRequest{BackendID: t.be.ID})
 		catalogKnown := err == nil && catalog != nil && catalog.Error == ""

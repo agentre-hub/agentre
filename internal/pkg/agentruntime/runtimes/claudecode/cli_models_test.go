@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/require"
@@ -55,5 +56,17 @@ func TestQueryCLIModels(t *testing.T) {
 		_, err := r.QueryCLIModels(context.Background(), agentruntime.CLIModelQueryRequest{Backend: &agent_backend_entity.AgentBackend{Type: "claudecode"}})
 		So(err, ShouldNotBeNil)
 		So(err.Error(), ShouldContainSubstring, "unsupported get_settings")
+	})
+	Convey("Given a caller without a deadline, When querying CLI models, Then the short-lived query process runs under a bounded context", t, func() {
+		r := New()
+		var bounded bool
+		r.queryModels = func(ctx context.Context, _ *claudecode.Client) (claudecode.ModelCatalog, error) {
+			deadline, ok := ctx.Deadline()
+			bounded = ok && time.Until(deadline) <= agentruntime.CLIModelQueryTimeout
+			return claudecode.ModelCatalog{}, nil
+		}
+		_, err := r.QueryCLIModels(context.Background(), agentruntime.CLIModelQueryRequest{Backend: &agent_backend_entity.AgentBackend{Type: "claudecode"}})
+		So(err, ShouldBeNil)
+		So(bounded, ShouldBeTrue)
 	})
 }

@@ -48,6 +48,18 @@ func TestCLIModelDeviationWithoutCatalog(t *testing.T) {
 	})
 }
 
+func TestCLIModelDeviationWhenCLIReportsTheChosenValue(t *testing.T) {
+	Convey("Given a fixed value whose catalog model ID differs from the value, When the CLI reports exactly the chosen value, Then no deviation is claimed", t, func() {
+		// codex 的 model/list 允许 id 与 model 不同，而线程实际模型就记成下发的 id；
+		// pi 没上报模型时占位值是 provider/id。两者都是「CLI 用的正是所选值」。
+		req := agentruntime.RunRequest{CLIModelMode: "fixed", CLIModel: "gpt-6-luna"}
+		models := []agentruntime.CLIModel{{Value: "gpt-6-luna", ModelID: "gpt-6-luna-2026"}}
+		So(cliModelDeviation(req, "gpt-6-luna", models, true), ShouldBeNil)
+		So(cliModelDeviation(req, "gpt-6-luna-2026", models, true), ShouldBeNil)
+		So(cliModelDeviation(req, "gpt-5", models, true), ShouldNotBeNil)
+	})
+}
+
 func TestSessionCLIModelTurnResolution(t *testing.T) {
 	Convey("Given three session choices, When validating a draft and building a turn, Then malformed or conflicting choices fail and valid choices reach the runtime", t, func() {
 		be := &agent_backend_entity.AgentBackend{Type: "claudecode"}

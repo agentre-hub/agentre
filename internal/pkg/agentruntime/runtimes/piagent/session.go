@@ -380,14 +380,7 @@ func piModelFallback(req agentruntime.RunRequest) string {
 	if req.EffectiveProviderKey() != "" || req.Backend == nil {
 		return ""
 	}
-	switch req.CLIModelMode {
-	case "cli-default":
-		return ""
-	case "fixed":
-		return strings.TrimSpace(req.CLIModel)
-	default:
-		return strings.TrimSpace(req.Backend.DefaultModel)
-	}
+	return req.CLIModelChoiceValue()
 }
 
 // piResultModelPlaceholder 是 RunResult.Model 在 pi 真实 usage 帧上报前的占位：

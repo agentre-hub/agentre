@@ -266,14 +266,7 @@ func claudeEffectiveModel(req agentruntime.RunRequest) string {
 			return pm
 		}
 	}
-	switch req.CLIModelMode {
-	case "cli-default":
-		return ""
-	case "fixed":
-		return req.CLIModel
-	default:
-		return strings.TrimSpace(req.Backend.DefaultModel)
-	}
+	return req.CLIModelChoiceValue()
 }
 
 func ccBuildClientOpts(spec ccLaunchSpec, binary string) []claudecode.Option {

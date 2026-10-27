@@ -4,31 +4,9 @@ import {
   type CliModelChoice,
   type CliModelPickerState,
 } from "@agentre-hub/agentre-ui";
-import {
-  ListCLIModels,
-  SetChatSessionCLIModel,
-} from "../../../../wailsjs/go/app/App";
+import { SetChatSessionCLIModel } from "../../../../wailsjs/go/app/App";
 
-// 查询目录的短命进程不带会话模型；它的 effectiveModelId 绝不作为会话的实际报告。
-const listCLIModels = async (request: {
-  backendId: string | number;
-  refresh: boolean;
-}) => {
-  const result = await ListCLIModels({
-    backendId: Number(request.backendId),
-    refresh: request.refresh,
-  });
-  return {
-    ...result,
-    models: result.models.map((model) => ({
-      value: model.value,
-      label: model.displayName,
-      modelId: model.modelId,
-      group: model.group,
-      legacy: model.legacy,
-    })),
-  };
-};
+import { listCLIModels } from "../cli-models-port";
 
 export function useChatCLIModel({
   backendId,

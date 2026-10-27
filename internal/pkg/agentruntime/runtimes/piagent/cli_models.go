@@ -45,7 +45,9 @@ func (r *Runtime) QueryCLIModels(ctx context.Context, req agentruntime.CLIModelQ
 		}
 	}
 	logger.Ctx(ctx).Debug("piagent.QueryCLIModels: starting query process", zap.Int64("backendId", backend.ID))
-	result, err := query(ctx, client)
+	queryCtx, cancel := context.WithTimeout(ctx, agentruntime.CLIModelQueryTimeout)
+	defer cancel()
+	result, err := query(queryCtx, client)
 	if err != nil {
 		return agentruntime.CLIModelCatalog{}, err
 	}

@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/i18n"
@@ -89,7 +88,7 @@ func (s *agentBackendSvc) ListCLIModels(ctx context.Context, req *ListCLIModelsR
 		entry.catalog = nil
 	}
 	if entry.catalog == nil {
-		queryCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		queryCtx, cancel := context.WithTimeout(ctx, agentruntime.CLIModelQueryTimeout)
 		defer cancel()
 		catalog, err := querier.QueryCLIModels(queryCtx, agentruntime.CLIModelQueryRequest{Backend: &backend})
 		if err != nil {
