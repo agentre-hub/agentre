@@ -190,3 +190,61 @@ func TestAccumulator_Snapshot_DoesNotConsumeBufs(t *testing.T) {
 		So(final, ShouldHaveLength, 2)
 	})
 }
+
+func TestAccumulator_OuterToolUses(t *testing.T) {
+	Convey("OuterToolUses 列出本轮外层工具调用", t, func() {
+		Convey("Given 外层调用(指针/值两种形态)、内层嵌套调用与一条外层结果", func() {
+			acc := New()
+			acc.AddText("先跑一下")
+			acc.AddToolUse(&cagoblocks.ToolUseBlock{
+				ID: "sh-1", Name: "Bash", Input: map[string]any{"command": "agrctl send --wait --agent a x"},
+			}, "tool_use:sh-1")
+			acc.AddToolUse(&blocks.NestedToolUseBlock{
+				ID: "n-1", Name: "Bash", ParentToolCallID: "sh-1",
+				Input: map[string]any{"command": "agrctl send --wait --agent a x"},
+			}, "tool_use:n-1")
+			acc.AddToolUse(cagoblocks.ToolUseBlock{ID: "sh-2", Name: "bash"}, "")
+			acc.AddToolResult(&blocks.NestedToolResultBlock{ToolCallID: "n-1", ParentToolCallID: "sh-1"})
+			acc.AddToolResult(cagoblocks.ToolResultBlock{ToolUseID: "sh-2"})
+
+			Convey("Then 按推入顺序只列外层,并标出哪条已有结果", func() {
+				So(acc.OuterToolUses(), ShouldResemble, []OuterToolUse{
+					{ID: "sh-1", Name: "Bash", Input: map[string]any{"command": "agrctl send --wait --agent a x"}},
+					{ID: "sh-2", Name: "bash", HasResult: true},
+				})
+			})
+
+			Convey("When 第一条也拿到结果, Then 它被标成已有结果", func() {
+				acc.AddToolResult(&cagoblocks.ToolResultBlock{ToolUseID: "sh-1"})
+				got := acc.OuterToolUses()
+				So(got, ShouldHaveLength, 2)
+				So(got[0].HasResult, ShouldBeTrue)
+			})
+		})
+
+		Convey("Given 空的 accumulator, Then 返回空列表", func() {
+			So(New().OuterToolUses(), ShouldBeEmpty)
+		})
+	})
+}
+
+func TestContains(t *testing.T) {
+	Convey("Contains[B] 判断是否已有满足条件的某类块", t, func() {
+		acc := New()
+		acc.AddBlock(&blocks.NestedToolUseBlock{ID: "n-ptr"}, "")
+		acc.AddBlock(blocks.NestedToolUseBlock{ID: "n-val"}, "")
+		acc.AddBlock(&blocks.NestedToolResultBlock{ToolCallID: "n-miss"}, "")
+		byID := func(id string) func(*blocks.NestedToolUseBlock) bool {
+			return func(b *blocks.NestedToolUseBlock) bool { return b.ID == id }
+		}
+
+		Convey("Then 指针与值两种形态都能命中", func() {
+			So(Contains(acc, byID("n-ptr")), ShouldBeTrue)
+			So(Contains(acc, byID("n-val")), ShouldBeTrue)
+		})
+		Convey("Then 类型不符或条件不满足时不命中", func() {
+			So(Contains(acc, byID("n-miss")), ShouldBeFalse)
+			So(Contains(acc, byID("absent")), ShouldBeFalse)
+		})
+	})
+}

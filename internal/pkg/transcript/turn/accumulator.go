@@ -119,6 +119,53 @@ func (a *Accumulator) HasOpenToolUse() bool {
 	return len(open) > 0
 }
 
+// OuterToolUse 是本轮一条外层 cago.ToolUseBlock 的只读视图。Input 与块共享同一个
+// map,调用方只读不写。HasResult 表示本轮已收到与它配对的外层 tool_result。
+type OuterToolUse struct {
+	ID        string
+	Name      string
+	Input     map[string]any
+	HasResult bool
+}
+
+// OuterToolUses 按推入顺序列出本轮所有外层 cago.ToolUseBlock(value 或 pointer 形态),
+// 并标出哪些已经拿到配对的 tool_result。口径与 HasOpenToolUse 相同:subagent 内层的
+// NestedToolUseBlock 不在其列。
+//
+// 用于 agrctl send 绑定(ctlbind.Match):在父轮里找发出这次 send 的那条 shell 调用。
+// 已有结果的调用也列出 —— 后台 Bash 会立刻拿到结果,是否仍可绑定由调用方按入参判断。
+func (a *Accumulator) OuterToolUses() []OuterToolUse {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var uses []OuterToolUse
+	index := make(map[string]int)
+	answered := make(map[string]bool)
+	for _, b := range a.finalBlocks {
+		var tu *cagoblocks.ToolUseBlock
+		switch blk := b.(type) {
+		case *cagoblocks.ToolUseBlock:
+			tu = blk
+		case cagoblocks.ToolUseBlock:
+			tu = &blk
+		case *cagoblocks.ToolResultBlock:
+			answered[blk.ToolUseID] = true
+		case cagoblocks.ToolResultBlock:
+			answered[blk.ToolUseID] = true
+		}
+		if tu == nil {
+			continue
+		}
+		index[tu.ID] = len(uses)
+		uses = append(uses, OuterToolUse{ID: tu.ID, Name: tu.Name, Input: tu.Input})
+	}
+	for id := range answered {
+		if i, ok := index[id]; ok {
+			uses[i].HasResult = true
+		}
+	}
+	return uses
+}
+
 // ToolUseInput 返回已 push 的该 ID cago.ToolUseBlock 的原始 Input(value 或 pointer
 // 形态),未找到返回 (nil, false)。SubagentStarted handler 用它读 run_in_background
 // 判定一次 local_bash 帧是真后台 bash 还是普通前台 bash。
@@ -205,6 +252,26 @@ func Mutate[B any](a *Accumulator, key string, fn func(*B)) bool {
 	}
 	fn(b)
 	return true
+}
+
+// Contains[B] 判断本轮是否已有一块满足 pred 的 B(*B 与 B 两种形态都认)。pred 拿到的
+// 是只读视图,值形态时是一份副本,改它不会写回。
+func Contains[B any](a *Accumulator, pred func(*B) bool) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, blk := range a.finalBlocks {
+		switch b := any(blk).(type) {
+		case *B:
+			if pred(b) {
+				return true
+			}
+		case B:
+			if pred(&b) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // AdoptMutateKey[B] 把 alias 这个 mutate key 挂到**已存在**的某一块上:按累积顺序找

@@ -180,3 +180,34 @@ func TestToolResultHandler_WithPriorToolUse(t *testing.T) {
 		So(payload["subagentRunId"], ShouldEqual, "run-1")
 	})
 }
+
+func TestNestedToolEvents_DedupeByID(t *testing.T) {
+	Convey("同一条嵌套 ToolCall / ToolResult 重复投递只落一块", t, func() {
+		ctx := context.Background()
+		acc := turn.New()
+		emit := &fakeEmit{}
+		call := agentruntime.ToolCall{ID: "n-1", Name: "Read", ParentToolCallID: "sh-1"}
+		result := agentruntime.ToolResult{ToolCallID: "n-1", Content: "ok", ParentToolCallID: "sh-1"}
+
+		So(ToolCallHandler{}.Apply(ctx, call, acc, emit, nil), ShouldBeNil)
+		So(ToolResultHandler{}.Apply(ctx, result, acc, emit, nil), ShouldBeNil)
+
+		Convey("When 同 ID 的调用和结果再来一遍, Then 不新增块也不再 emit", func() {
+			So(ToolCallHandler{}.Apply(ctx, call, acc, emit, nil), ShouldBeNil)
+			So(ToolResultHandler{}.Apply(ctx, result, acc, emit, nil), ShouldBeNil)
+
+			final := acc.Finalize()
+			So(final, ShouldHaveLength, 2)
+			_, isUse := final[0].(*blocks.NestedToolUseBlock)
+			So(isUse, ShouldBeTrue)
+			_, isResult := final[1].(*blocks.NestedToolResultBlock)
+			So(isResult, ShouldBeTrue)
+			So(emit.events, ShouldHaveLength, 2)
+		})
+
+		Convey("When 不同 ID 的嵌套调用到达, Then 照常新增", func() {
+			So(ToolCallHandler{}.Apply(ctx, agentruntime.ToolCall{ID: "n-2", Name: "Grep", ParentToolCallID: "sh-1"}, acc, emit, nil), ShouldBeNil)
+			So(acc.Finalize(), ShouldHaveLength, 3)
+		})
+	})
+}

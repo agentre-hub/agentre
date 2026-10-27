@@ -90,6 +90,11 @@ func isNonTerminalSubagentStatus(status string) bool {
 	return status == "waiting" || status == "running"
 }
 
+// isTerminalSubagentStatus 已收尾:completed / failed / canceled / skipped / unknown 等。
+func isTerminalSubagentStatus(status string) bool {
+	return status != "" && !isNonTerminalSubagentStatus(status)
+}
+
 func cloneSubagentRuns(runs []agentruntime.SubagentRun) []agentruntime.SubagentRun {
 	return slices.Clone(runs)
 }
@@ -109,8 +114,8 @@ func mergeNormalizedSnapshot(b *blocks.SubagentStateBlock, info agentruntime.Sub
 // subagentKindLocalBash / subagentKindLocalAgent 是 CLI task_type 里 bash / subagent
 // 的取值(对应 SubagentStateBlock.Kind)。
 const (
-	subagentKindLocalBash  = "local_bash"
-	subagentKindLocalAgent = "local_agent"
+	subagentKindLocalBash  = agentruntime.SubagentKindLocalBash
+	subagentKindLocalAgent = agentruntime.SubagentKindLocalAgent
 )
 
 // trackSubagentState 判定这次 task 帧是否该建/维护 SubagentStateBlock overlay。
@@ -135,6 +140,16 @@ type SubagentStartedHandler struct{}
 
 func (SubagentStartedHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.SubagentStarted)
+	if isAgrctlFrame(r.Info) {
+		return startAgrctlOverlay(ctx, r, acc, emit, tc)
+	}
+	if bound, accepted, applied := applyAgrctlFrame(acc, r.ToolCallID, r.Info, "running"); bound {
+		if accepted {
+			// 卡片已经存在,CLI 这一帧对它只是一次增量更新,不是新建。
+			emitAgrctlFrame(ctx, emit, tc, "subagent_progress", r.ToolCallID, applied)
+		}
+		return nil
+	}
 	if !trackSubagentState(acc, r.ToolCallID, r.Info.Kind) {
 		return nil // 前台 bash:不建 overlay,也不 emit(后续 progress/done 经 Mutate 未命中自然静默)
 	}
@@ -255,6 +270,12 @@ type SubagentProgressHandler struct{}
 
 func (SubagentProgressHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.SubagentProgress)
+	if bound, accepted, applied := applyAgrctlFrame(acc, r.ToolCallID, r.Info, ""); bound || isAgrctlFrame(r.Info) {
+		if accepted {
+			emitAgrctlFrame(ctx, emit, tc, "subagent_progress", r.ToolCallID, applied)
+		}
+		return nil
+	}
 	owner := r.ToolCallID
 	// task_progress 帧不带 task_type,无法自己判前台/后台;靠 Mutate 是否命中既有
 	// overlay 来判定 —— 前台 bash 在 Started 已被跳过,这里命中不到 → 不 emit 孤儿事件。
@@ -341,6 +362,12 @@ type SubagentDoneHandler struct{}
 
 func (SubagentDoneHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.SubagentDone)
+	if bound, accepted, applied := applyAgrctlFrame(acc, r.ToolCallID, r.Info, "completed"); bound || isAgrctlFrame(r.Info) {
+		if accepted {
+			emitAgrctlFrame(ctx, emit, tc, "subagent_done", r.ToolCallID, applied)
+		}
+		return nil
+	}
 	owner := r.ToolCallID
 	hit := turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:"+r.ToolCallID, func(b *blocks.SubagentStateBlock) {
 		owner = b.ParentToolCallID
@@ -411,4 +438,167 @@ func flipSubagentOutsideTurn(
 	// 更早的轮里,别名已随那一轮丢失,只能靠 task_id 让 flipper 找回原卡(sess-4198)。
 	return tc.SubagentFlipper.FlipSubagentStatus(
 		ctx, tc.ResolveSubagentToolCall(r.ToolCallID), r.Info.TaskID, status, r.Info.Summary)
+}
+
+// ---- agrctl send --wait 绑定的 overlay ----
+//
+// 父轮里 agent 跑 `agrctl send --wait` 时,父轮的宿主把子会话绑到那条外层 shell 调用上
+// (ctlbind.Match),并以 Info.Origin = SubagentOriginAgrctl 的 task 帧注入一块 overlay、
+// 推进度与收尾。同一个 tool call ID 上 CLI 也会发自己的 local_bash 帧,写入分工:
+//   - 注入方:嵌套步骤、用量、工具数、子任务最终文本(FinalText);前台卡的状态。
+//   - CLI:后台卡(Kind 仍是 local_bash)的状态、task_id、summary(退出码文本);
+//     前台卡(Kind = SubagentKindAgrctl)上 CLI 的帧一律不收。
+//   - 终态之后,任何一方迟到的非终态更新都不能把卡片写回运行中(例如父轮被中止、卡片
+//     已标成取消后,注入方才到的进度)。
+
+// isAgrctlFrame 这一帧是否由 agrctl 绑定的注入方发出。
+func isAgrctlFrame(info agentruntime.SubagentInfo) bool {
+	return info.Origin == agentruntime.SubagentOriginAgrctl
+}
+
+// startAgrctlOverlay 把注入方的 Started 落成 overlay。CLI 若已为这条后台 Bash 建了
+// local_bash overlay(它的 task_started 可能先于 send 请求到达),就认领那一块,不另起;
+// 这条调用已绑过子会话时整帧忽略 —— 一条 shell 调用最多绑定一个子会话。
+func startAgrctlOverlay(
+	ctx context.Context, r agentruntime.SubagentStarted, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext,
+) error {
+	key := "subagent_state:" + r.ToolCallID
+	var adopted, alreadyBound bool
+	turn.Mutate[blocks.SubagentStateBlock](acc, key, func(b *blocks.SubagentStateBlock) {
+		if b.Origin == agentruntime.SubagentOriginAgrctl {
+			alreadyBound = true
+			return
+		}
+		bindAgrctl(b, r.Info) // 后台卡的状态 / kind / task_id 仍归 CLI,不动
+		adopted = true
+	})
+	if alreadyBound {
+		return nil
+	}
+	if !adopted {
+		status := r.Info.Status
+		if status == "" {
+			status = "running"
+		}
+		blk := &blocks.SubagentStateBlock{ParentToolCallID: r.ToolCallID, Kind: r.Info.Kind, Status: status}
+		bindAgrctl(blk, r.Info)
+		acc.AddBlock(blk, key)
+	}
+	if emit != nil {
+		emit.Emit(ctx, streamOf(tc), map[string]any{
+			"kind":      "subagent_started",
+			"toolUseId": r.ToolCallID,
+			"info":      r.Info,
+		})
+	}
+	return nil
+}
+
+// bindAgrctl 写入绑定时就确定的那几项:归属、子会话、isolated、任务文本。
+func bindAgrctl(b *blocks.SubagentStateBlock, info agentruntime.SubagentInfo) {
+	b.Origin = agentruntime.SubagentOriginAgrctl
+	b.ChildSessionID = info.ChildSessionID
+	b.Isolated = info.Isolated
+	if info.TaskDescription != "" {
+		b.Description = info.TaskDescription
+	}
+}
+
+// applyAgrctlFrame 若 toolCallID 上挂的是 agrctl 绑定的 overlay,就按写入分工把这一帧
+// 落上去。bound=false 表示那里没有 agrctl overlay,调用方走原有逻辑;accepted 表示这一帧
+// 被接收(前台卡上 CLI 的帧不被接收,也不该 emit);applied 是实际生效的字段,供 emit。
+// defaultStatus 是这一帧不带 status 时隐含的状态(Started = running,Done = completed)。
+//
+// 注入方的帧只落在本轮 accumulator 里已有的 agrctl overlay 上:调用方见到
+// isAgrctlFrame 却 bound=false 时直接丢弃,不走 CLI 帧的跨消息翻转那条路 —— 那条路只
+// 认 Summary,会丢掉 FinalText,还会越权改后台卡归 CLI 的状态。父轮结束后的更新由宿主
+// 先把原消息里的 overlay 种进 accumulator 再投递。
+func applyAgrctlFrame(
+	acc *turn.Accumulator, toolCallID string, info agentruntime.SubagentInfo, defaultStatus string,
+) (bound, accepted bool, applied agentruntime.SubagentInfo) {
+	turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:"+toolCallID, func(b *blocks.SubagentStateBlock) {
+		if b.Origin != agentruntime.SubagentOriginAgrctl {
+			return
+		}
+		bound = true
+		fromInjector := isAgrctlFrame(info)
+		background := b.Kind == subagentKindLocalBash
+		if !fromInjector && !background {
+			return // 前台卡:CLI 为这条 shell 调用发的 local_bash 帧一律不收
+		}
+		accepted = true
+		if fromInjector {
+			applied = mergeAgrctlContent(b, info)
+		} else {
+			applied = mergeCLIBackgroundFields(b, info)
+		}
+		// 状态归属:前台卡归注入方,后台卡归 CLI。
+		if fromInjector != background {
+			status := info.Status
+			if status == "" {
+				status = defaultStatus
+			}
+			if setAgrctlStatus(b, status) {
+				applied.Status = status
+			}
+		}
+	})
+	return bound, accepted, applied
+}
+
+// mergeAgrctlContent 落注入方拥有的内容字段;0 / 空值不覆盖已记录值(同 R4 守卫)。
+func mergeAgrctlContent(b *blocks.SubagentStateBlock, info agentruntime.SubagentInfo) agentruntime.SubagentInfo {
+	applied := agentruntime.SubagentInfo{Origin: info.Origin}
+	if info.ToolUses != 0 {
+		b.ToolUses, applied.ToolUses = info.ToolUses, info.ToolUses
+	}
+	if info.TotalTokens != 0 {
+		b.TotalTokens, applied.TotalTokens = info.TotalTokens, info.TotalTokens
+	}
+	if info.DurationMs != 0 {
+		b.DurationMs, applied.DurationMs = info.DurationMs, info.DurationMs
+	}
+	if info.LastToolName != "" {
+		b.LastToolName, applied.LastToolName = info.LastToolName, info.LastToolName
+	}
+	if info.FinalText != "" {
+		b.FinalText, applied.FinalText = info.FinalText, info.FinalText
+	}
+	return applied
+}
+
+// mergeCLIBackgroundFields 落 CLI 在后台卡上仍拥有的字段:task_id(停止按钮靠它下发
+// stop_task)与 summary(退出码文本,和 FinalText 分开存,互不覆盖)。
+func mergeCLIBackgroundFields(b *blocks.SubagentStateBlock, info agentruntime.SubagentInfo) agentruntime.SubagentInfo {
+	var applied agentruntime.SubagentInfo
+	if b.TaskID == "" && info.TaskID != "" {
+		b.TaskID, applied.TaskID = info.TaskID, info.TaskID
+	}
+	if info.Summary != "" {
+		b.Summary, applied.Summary = info.Summary, info.Summary
+	}
+	return applied
+}
+
+// setAgrctlStatus 写 overlay 状态,但终态之后不接受非终态:卡片一旦完成 / 失败 / 取消,
+// 迟到的运行中更新不能把它写回运行中。
+func setAgrctlStatus(b *blocks.SubagentStateBlock, status string) bool {
+	if status == "" || (isTerminalSubagentStatus(b.Status) && isNonTerminalSubagentStatus(status)) {
+		return false
+	}
+	b.Status = status
+	return true
+}
+
+func emitAgrctlFrame(
+	ctx context.Context, emit turn.Emitter, tc *turn.TurnContext, kind, toolCallID string, info agentruntime.SubagentInfo,
+) {
+	if emit == nil {
+		return
+	}
+	emit.Emit(ctx, streamOf(tc), map[string]any{
+		"kind":      kind,
+		"toolUseId": toolCallID,
+		"info":      info,
+	})
 }

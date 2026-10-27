@@ -41,3 +41,25 @@ func TestSubagentStateBlock(t *testing.T) {
 		So(got.Runs[1].Status, ShouldEqual, "running")
 	})
 }
+
+func TestSubagentStateBlock_AgrctlFields(t *testing.T) {
+	Convey("agrctl 绑定的 overlay:归属 / 子会话 / isolated / 子任务最终文本随块往返", t, func() {
+		b := &SubagentStateBlock{
+			ParentToolCallID: "sh-1",
+			Kind:             agentruntime.SubagentKindAgrctl,
+			Origin:           agentruntime.SubagentOriginAgrctl,
+			ChildSessionID:   77,
+			Isolated:         true,
+			Status:           "completed",
+			Summary:          "Background command completed (exit code 0)",
+			FinalText:        "子任务的结论",
+		}
+		sb, err := cagoblocks.Encode(b)
+		So(err, ShouldBeNil)
+		decoded, err := cagoblocks.Decode(sb)
+		So(err, ShouldBeNil)
+		got, ok := decoded.(SubagentStateBlock)
+		So(ok, ShouldBeTrue)
+		So(got, ShouldResemble, *b)
+	})
+}
