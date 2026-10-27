@@ -35,7 +35,14 @@ type Endpoint struct {
 	// AGENTRE_CTL_ENDPOINT）：只有这种端点拨不通时，agentred 主机上才回落到「没有会话」
 	// 那句提示（dialFailure）。
 	baseFromHandshake bool
+	// codexSandbox 为 true 表示运行在 Codex 沙箱里（环境里有 CODEX_SANDBOX）：沙箱默认挡住
+	// 回环拨号，拨号失败时要说明这一点。在 Resolve 里取一次，dialFailure 不再读环境。
+	codexSandbox bool
 }
+
+// codexSandboxHint 是 Codex 沙箱挡住本机网关时追加到拨号失败报错后的说明。
+const codexSandboxHint = "the Codex sandbox blocks the local Agentre gateway: " +
+	"set the sandbox of this Agentre agent backend to danger-full-access"
 
 // ServerError 是控制 API 回的非 2xx 响应;Message 是执行者给出的原始错误消息。
 type ServerError struct {
@@ -57,6 +64,7 @@ var errAgentredHostNoSession = errors.New(
 // Resolve 按优先级解析控制端点：flag > 环境变量 > AppDataDir 握手文件。
 func Resolve(flagURL, flagToken string, lookupEnv func(string) (string, bool)) (Endpoint, error) {
 	ep := Endpoint{Base: strings.TrimRight(flagURL, "/"), Token: flagToken}
+	_, ep.codexSandbox = lookupEnv("CODEX_SANDBOX")
 	if ep.Base == "" {
 		if v, ok := lookupEnv("AGENTRE_CTL_ENDPOINT"); ok {
 			ep.Base = strings.TrimRight(v, "/")
@@ -113,15 +121,20 @@ func isAgentredHost() bool {
 // 陈旧握手文件——回落到与压根没有握手文件时同一句提示。端点来自 flag 或会话注入的环境变量
 // 时（agentred 上的 Agentre 派发会话）那句「没有会话 token」是假的，保留原始拨号错误。
 // 只认真正的拨号失败（net.OpError 的 dial）：连上之后被取消、超时或断开说明那头的桌面
-// 是活的，握手文件并不陈旧。
+// 是活的，握手文件并不陈旧。在 Codex 沙箱里（codexSandbox）拨号失败时，再追加一行说明是
+// 沙箱挡住了本机网关。
 func (e Endpoint) dialFailure(err error) error {
 	var opErr *net.OpError
 	couldNotDial := errors.As(err, &opErr) && opErr.Op == "dial" &&
 		!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
+	failure := fmt.Errorf("connect to desktop: %w", err)
 	if e.baseFromHandshake && couldNotDial && isAgentredHost() {
-		return errAgentredHostNoSession
+		failure = errAgentredHostNoSession
 	}
-	return fmt.Errorf("connect to desktop: %w", err)
+	if e.codexSandbox && couldNotDial {
+		return fmt.Errorf("%w\n%s", failure, codexSandboxHint)
+	}
+	return failure
 }
 
 // Get 发一个 GET 并把 JSON 响应解码进 out(out 可为 nil)。

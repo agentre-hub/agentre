@@ -157,7 +157,9 @@ move on; there is no desktop to start there.
 
 - **`--wait` blocks for the entire remote turn.** Use it only for a short question whose
   answer is needed right now. Dispatch long-running work without `--wait` and let the user
-  follow it in the desktop.
+  follow it in the desktop. Foreground shell tools time out (Claude Code's foreground Bash
+  stops after 10 minutes), so for a long turn run the `--wait` call
+  as a background shell command.
 - **Never dispatch a task back to the agent you are running as.** That agent would be
   waiting on this turn while this turn waits on it, and neither side can finish. Read
   `list agents` and pick a different target.

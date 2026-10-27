@@ -168,7 +168,9 @@ when it contains spaces.
   ```
 
 Reminders: `--wait` blocks for the whole remote turn, and dispatching to the agent this
-session is running as deadlocks both sides.
+session is running as deadlocks both sides. Foreground shell tools time out (Claude Code's
+foreground Bash stops after 10 minutes), so for a long turn run the `--wait` call
+as a background shell command.
 
 ## `acp` (run as an ACP agent)
 
