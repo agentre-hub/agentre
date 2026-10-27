@@ -58,6 +58,7 @@
       "groupedName": "Agents",
       "runToggle": "Toggle run {{index}}: {{name}}",
       "stop": "Stop",
+      "openSession": "Open session",
       "emptyPrompt": "No prompt",
       "emptyResult": "(empty result)",
       "emptySteps": "No child steps",

@@ -51,3 +51,16 @@ export function useOptionalPort<K extends keyof TranscriptPorts>(
 
   return typeof port === "function" ? port : undefined;
 }
+
+/**
+ * 同 `useOptionalPort`，但没有 provider 时也返回 undefined 而不抛。只给「入口是否出现」
+ * 取决于端口的卡片内小控件用：这类卡片在无端口的宿主/测试里同样要能渲染。
+ */
+export function useOptionalPortIfProvided<K extends keyof TranscriptPorts>(
+  name: K,
+): TranscriptPorts[K] | undefined {
+  const ports = React.useContext(TranscriptPortsContext);
+  const port = ports?.[name];
+
+  return typeof port === "function" ? port : undefined;
+}

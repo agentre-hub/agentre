@@ -5,6 +5,7 @@ import { PlanApproveCard } from "./plan-approve-request/card";
 import { AgentSpawnCard } from "./agent-spawn/card";
 import { ToolPermissionCard } from "./tool-permission/card";
 import { RawToolCard } from "./raw/card";
+import { isAgrctlSpawn } from "./agrctl";
 import type { CanonicalCardProps } from "./props";
 import type { CanonicalDTO, CanonicalKind } from "./types";
 
@@ -24,6 +25,8 @@ const REGISTRY: Partial<Record<CanonicalKind, React.FC<CanonicalCardProps>>> = {
 // tool_use 形态的 plan.update 走通用工具路径;type="plan" 且带 actions 的
 // plan.update 在 transcript-row-view.tsx 里直接复用 PlanCard。
 export function CanonicalToolRouter(props: CanonicalCardProps) {
+  // agrctl 升级的 shell 调用：canonical 可能缺或仍是命令类，卡片类型由 overlay 来源决定。
+  if (isAgrctlSpawn(props.toolBlock)) return <AgentSpawnCard {...props} />;
   const canonical = (props.toolBlock as { canonical?: CanonicalDTO }).canonical;
   if (!canonical) {
     return <RawToolCard {...props} />;

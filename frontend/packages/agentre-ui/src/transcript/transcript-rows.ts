@@ -5,6 +5,7 @@ import {
   commandResultOf,
   isFailedCommandResult,
 } from "./canonical-tool/command-result";
+import { isAgrctlSpawn } from "./canonical-tool/agrctl";
 import type { AgentSpawnChildBlocks } from "./canonical-tool/props";
 import { tier, toolCategory, type ToolCategory } from "./canonical-tool/tier";
 import type { CanonicalDTO } from "./canonical-tool/types";
@@ -19,8 +20,9 @@ import type {
 // canonical.agentSpawn,这里直接 dispatch。
 export function isSubagentCanonical(block: {
   canonical?: { kind?: string };
+  subagent?: { origin?: string };
 }): boolean {
-  return block.canonical?.kind === "agent.spawn";
+  return block.canonical?.kind === "agent.spawn" || isAgrctlSpawn(block);
 }
 
 // isAskUserQuestionToolName 旧 tool-summary.ts 同名;此处过滤掉 AskUserQuestion 类工具的

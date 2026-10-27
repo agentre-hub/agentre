@@ -201,6 +201,17 @@ export interface TranscriptBlockSubagent {
   /** 每一次「中断后被重开」时的既有终态,按发生顺序;长度即恢复次数。 */
   resumes?: SubagentInterruption[];
   model?: string;
+  /**
+   * 非空(目前只有 "agrctl")表示这张卡由 `agrctl send --wait` 把父转录里的 shell 调用
+   * 升级而来：它按子代理卡渲染，即便块上没有 agent.spawn canonical。
+   */
+  origin?: string;
+  /** send 建出的子会话 ID，「打开会话」的目标。 */
+  childSessionId?: number;
+  /** 子会话是 `--isolated` 一次性会话：不在侧栏里，不提供跳转入口。 */
+  isolated?: boolean;
+  /** 子轮的最终文本(父 agent 从 stdout 拿到的那段)，单独存放，不与 CLI 的 summary 混写。 */
+  finalText?: string;
 }
 
 /** SubagentInterruption 是一次中断的证据:被覆盖前那一段的终态与它的结论文本。 */

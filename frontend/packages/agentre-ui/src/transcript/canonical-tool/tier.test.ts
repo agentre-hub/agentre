@@ -19,6 +19,28 @@ describe("tier", () => {
     ).toBe("out");
   });
 
+  it("shell 调用上挂着 agrctl 来源的 subagent overlay → out（它是一张子代理卡）", () => {
+    expect(
+      tier(
+        block({
+          toolInput: { command: "agrctl send --wait" },
+          subagent: { origin: "agrctl" },
+        }),
+      ),
+    ).toBe("out");
+  });
+
+  it("没有 agrctl 来源的 shell 调用 overlay（后台 bash）仍按命令 → write", () => {
+    expect(
+      tier(
+        block({
+          toolInput: { command: "sleep 9", run_in_background: true },
+          subagent: { kind: "local_bash" },
+        }),
+      ),
+    ).toBe("write");
+  });
+
   it("canonical.kind user.ask → out", () => {
     expect(
       tier(

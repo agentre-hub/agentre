@@ -488,6 +488,13 @@ type ChatBlockSubagent struct {
 	// Model 是子代理内部 assistant 帧解析出的实际模型(R2),first-wins(R3)。镜像
 	// blocks.SubagentStateBlock.Model；空值表示尚未有内部帧到达 / 老会话数据。
 	Model string `json:"model,omitempty"`
+	// Origin / ChildSessionID / Isolated / FinalText 镜像 blocks.SubagentStateBlock 同名字段：
+	// Origin 非空(agentruntime.SubagentOriginAgrctl)表示这张卡由 `agrctl send --wait` 升级而来，
+	// ChildSessionID 是「打开会话」的目标，Isolated 的子会话不在侧栏里，FinalText 是子轮最终文本。
+	Origin         string `json:"origin,omitempty"`
+	ChildSessionID int64  `json:"childSessionId,omitempty"`
+	Isolated       bool   `json:"isolated,omitempty"`
+	FinalText      string `json:"finalText,omitempty"`
 }
 
 type ChatMessage struct {

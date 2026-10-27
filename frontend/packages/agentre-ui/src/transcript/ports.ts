@@ -115,6 +115,11 @@ export interface TranscriptPorts {
    */
   openMention?(ref: MentionRef): void;
   /**
+   * 切到某个会话（子代理卡展开区的「打开会话」）。宿主不提供时入口不渲染：
+   * 「会话在宿主里长什么样、怎么导航」是宿主的路由与标签页状态，包内不知道。
+   */
+  openSession?(sessionId: number): void;
+  /**
    * 请宿主接手预览这个文件（`path` 是会话级 relPath，与 `readWorkspaceFile`
    * 同一种形状）。返回 `true` 表示宿主已接手（例如桌面端开/复用了右侧栏预览
    * 标签）；返回 `false` 表示宿主眼下谢绝接手（例如设置为「用外部应用打开」），

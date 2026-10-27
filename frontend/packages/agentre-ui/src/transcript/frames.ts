@@ -51,6 +51,7 @@ import type {
   TranscriptBlockSubagent,
   TranscriptMessage,
 } from "./dto";
+import { AGRCTL_ORIGIN, isAgrctlSpawn } from "./canonical-tool/agrctl";
 import type { CanonicalDTO } from "./canonical-tool/types";
 import { storedNoticeBlock } from "./stored-notice";
 import {
@@ -468,6 +469,8 @@ function findSubagentHost(
  * 其它 kind（含空 kind 的旧帧）一律按前台处理。
  */
 function isBackgroundSubagent(block: TranscriptBlock): boolean {
+  // agrctl 升级的卡由子任务的真实结果收尾，父轮结束不能把它翻成已取消(与 Go 侧同源)。
+  if (isAgrctlSpawn(block)) return true;
   const explicit = block.toolInput?.run_in_background;
   const bg = typeof explicit === "boolean" ? explicit : undefined;
   switch (block.subagent?.kind) {
@@ -514,7 +517,14 @@ function mergeSubagentCounters(
   if (numOf("totalTokens")) into.totalTokens = numOf("totalTokens");
   if (numOf("durationMs")) into.durationMs = numOf("durationMs");
   if (textOf("lastToolName")) into.lastToolName = textOf("lastToolName");
-  if (textOf("summary")) into.summary = textOf("summary");
+  if (textOf("origin")) into.origin = textOf("origin");
+  // agrctl 卡的结论在 finalText；CLI 对这条 shell 调用发的 summary 是退出码文本，不写。
+  if (textOf("summary") && into.origin !== AGRCTL_ORIGIN) {
+    into.summary = textOf("summary");
+  }
+  if (numOf("childSessionId")) into.childSessionId = numOf("childSessionId");
+  if (info.isolated === true) into.isolated = true;
+  if (textOf("finalText")) into.finalText = textOf("finalText");
   if (textOf("mode")) into.mode = textOf("mode");
   if (!into.taskId && textOf("taskId")) into.taskId = textOf("taskId");
   if (Array.isArray(info.runs) && info.runs.length > 0) {
@@ -1002,8 +1012,10 @@ function applyFrame(
       if (!host) return;
       // 真实 CLI 对*每一次* Bash 都发 local_bash 帧，但只有 run_in_background 的那些
       // 才是后台任务；给普通前台 bash 挂 overlay 会污染后台任务面板。
+      // agrctl send 升级的 overlay 例外：它是我们自己绑定上去的，不是 CLI 的 bash 帧。
       if (
         kind2 === "local_bash" &&
+        info.origin !== AGRCTL_ORIGIN &&
         host.toolInput?.run_in_background !== true
       ) {
         return;

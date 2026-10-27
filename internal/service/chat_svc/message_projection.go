@@ -113,6 +113,10 @@ func subagentStateToChatBlockSubagent(sb *chatblocks.SubagentStateBlock) *ChatBl
 		Runs:            cloneSubagentRunSnapshot(sb.Runs),
 		Resumes:         cloneSubagentInterruptions(sb.Resumes),
 		Model:           sb.Model,
+		Origin:          sb.Origin,
+		ChildSessionID:  sb.ChildSessionID,
+		Isolated:        sb.Isolated,
+		FinalText:       sb.FinalText,
 	}
 }
 
@@ -127,6 +131,12 @@ func cloneSubagentInterruptions(in []chatblocks.SubagentInterruption) []chatbloc
 
 func attachSubagentStateToChatBlock(cb *ChatBlock, toolName string, sb *chatblocks.SubagentStateBlock) {
 	cb.Subagent = subagentStateToChatBlockSubagent(sb)
+	if isAgrctlShellCard(toolName, sb) {
+		// 这条 shell 调用被 agrctl send --wait 升级过：canonical 按 shell 入参推不出 spawn，
+		// 重载时由 overlay 重新投影，让它仍是同一张子代理卡。
+		cb.Canonical = view.FromCanonical(agrctlAgentSpawn(sb))
+		return
+	}
 	if cb.Canonical != nil || !isNormalizedPiSubagentReplay(toolName, sb) {
 		return
 	}
@@ -141,6 +151,46 @@ func attachSubagentStateToChatBlock(cb *ChatBlock, toolName string, sb *chatbloc
 		DurationMs:      sb.DurationMs,
 		Status:          sb.Status,
 	})
+}
+
+// isAgrctlShellCard：shell 外层调用(Claude Bash / Codex command_execution / Pi bash)
+// 上挂着 agrctl 来源的 overlay。
+func isAgrctlShellCard(toolName string, sb *chatblocks.SubagentStateBlock) bool {
+	if sb == nil || sb.Origin != agentruntime.SubagentOriginAgrctl {
+		return false
+	}
+	switch strings.ToLower(toolName) {
+	case "bash", "command_execution":
+		return true
+	}
+	return false
+}
+
+// agrctlAgentSpawn 把 agrctl overlay 投影成 agent.spawn：名字取 Runs[0].Agent、描述取任务文本、
+// 模型取子会话实际模型。SubagentStateBlock 不持久化 SubagentType，目标 agent 名只在 Runs[0]。
+func agrctlAgentSpawn(sb *chatblocks.SubagentStateBlock) canonical.AgentSpawn {
+	spawn := canonical.AgentSpawn{
+		TaskID:          sb.TaskID,
+		TaskDescription: sb.Description,
+		Model:           sb.Model,
+		Runs:            agentSpawnRunsFromRuntime(sb.Runs),
+		LastToolName:    sb.LastToolName,
+		ToolUses:        sb.ToolUses,
+		TotalTokens:     sb.TotalTokens,
+		DurationMs:      sb.DurationMs,
+		Status:          sb.Status,
+	}
+	if len(sb.Runs) > 0 {
+		run := sb.Runs[0]
+		spawn.SubagentType = run.Agent
+		if run.Task != "" {
+			spawn.TaskDescription = run.Task
+		}
+		if spawn.Model == "" {
+			spawn.Model = run.Model
+		}
+	}
+	return spawn
 }
 
 func isNormalizedPiSubagentReplay(toolName string, sb *chatblocks.SubagentStateBlock) bool {

@@ -1613,3 +1613,107 @@ describe("reduceFrames:后端无关审批", () => {
     ]);
   });
 });
+
+describe("reduceFrames:agrctl send 升级的 shell 调用", () => {
+  const shell = (id: string, input: Record<string, unknown>) =>
+    f({ kind: "tool_use_start", id, name: "Bash", input });
+  const agrctlInfo = (extra: Record<string, unknown> = {}) => ({
+    taskId: "child-1",
+    origin: "agrctl",
+    childSessionId: 42,
+    ...extra,
+  });
+
+  it("给定前台 agrctl_send 的 started 帧，当归约，则同一条 shell 块挂上带归属的 overlay", () => {
+    const [msg] = reduceFrames(
+      [
+        shell("tu-sh", { command: "agrctl send --wait" }),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-sh",
+          info: agrctlInfo({ kind: "agrctl_send", isolated: true }),
+        }),
+      ],
+      SID,
+    );
+    expect(msg.blocks.filter((b) => b.type === "tool_use")).toHaveLength(1);
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-sh")?.subagent,
+    ).toMatchObject({
+      kind: "agrctl_send",
+      origin: "agrctl",
+      childSessionId: 42,
+      isolated: true,
+      status: "running",
+    });
+  });
+
+  it("给定前台 shell 上 origin 为 agrctl 的 local_bash，当归约，则不被「前台 local_bash 不建 overlay」规则丢弃", () => {
+    const [msg] = reduceFrames(
+      [
+        shell("tu-sh", { command: "agrctl send --wait" }),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-sh",
+          info: agrctlInfo({ kind: "local_bash" }),
+        }),
+      ],
+      SID,
+    );
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-sh")?.subagent?.origin,
+    ).toBe("agrctl");
+  });
+
+  it("给定 agrctl overlay 收到 done 帧，当归约，则最终文本落 finalText，CLI 的退出码 summary 不覆盖它", () => {
+    const [msg] = reduceFrames(
+      [
+        shell("tu-sh", {
+          command: "agrctl send --wait",
+          run_in_background: true,
+        }),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-sh",
+          info: agrctlInfo({ kind: "local_bash" }),
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-sh",
+          info: agrctlInfo({ status: "completed", finalText: "LGTM" }),
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-sh",
+          info: {
+            taskId: "child-1",
+            status: "completed",
+            summary: "Background command completed (exit code 0)",
+          },
+        }),
+      ],
+      SID,
+    );
+    const sa = msg.blocks.find((b) => b.toolUseId === "tu-sh")?.subagent;
+    expect(sa?.finalText).toBe("LGTM");
+    expect(sa?.summary).toBeUndefined();
+  });
+
+  it("给定一轮收尾时 agrctl 卡还挂在 running，当归约，则不翻成 canceled（子任务的真实结果收尾）", () => {
+    const [msg] = reduceFrames(
+      [
+        shell("tu-sh", { command: "agrctl send --wait" }),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-sh",
+          info: agrctlInfo({ kind: "agrctl_send" }),
+        }),
+        f({ kind: "done" }),
+      ],
+      SID,
+    );
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-sh")?.subagent?.status,
+    ).toBe("running");
+  });
+});
