@@ -340,6 +340,29 @@ func (t *turnTranscript) observe(ctx context.Context, ev agentruntime.Event) {
 	}
 }
 
+// injectSubagentEvents 把注入方的一批事件(桌面端镜像来的 agrctl send 子会话事件)写进这一轮:
+// 与 beginApproval 同一条路 —— 取 t.mu、进累加器、checkpoint 落库,持久帧随 checkpoint 推出。
+// 这一轮里没有 toolCallID 那条外层调用(别的轮发起的 / 已收口)时什么都不做并交回 false,
+// 调用方改走轮外写回。整批在一次持锁里投完、只 checkpoint 一次。
+func (t *turnTranscript) injectSubagentEvents(ctx context.Context, toolCallID string, events []agentruntime.Event) bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.finished || !t.acc.HasToolUse(toolCallID) {
+		return false
+	}
+	for _, ev := range events {
+		if err := t.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, t.turnCtx); err != nil {
+			logger.Ctx(ctx).Warn("handlers.turnTranscript.injectSubagentEvents: dispatcher apply failed",
+				zap.Int64("messageId", t.msg.ID), zap.String("toolUseId", toolCallID), zap.Error(err))
+		}
+	}
+	t.checkpoint(ctx)
+	return true
+}
+
 // flushPendingSteers 把攒下的插话落成分段:收口当前 assistant、每条插话一行用户消息、
 // 再开一条新的 assistant 承接后半段,并按转录顺序依次取号发布。
 //
@@ -534,10 +557,108 @@ func (c *finishedCards) ResumeSubagentByTaskID(context.Context, string, string) 
 // Patch 找回承载 toolCallID 那张派遣卡的已收口消息,交给 mutate 就地改写;mutate 交回 false
 // 表示没有改动,此时既不落库也不发布。交回是否找到了那张卡。
 //
-// 它是 agentred 上「轮外更新一张派遣卡」的唯一入口:落库只写那一张卡的块行,发布只交出这次
+// 它是 agentred 上「轮外更新一张派遣卡」的入口:落库只写那一张卡的块行,发布只交出这次
 // 改动真正变了的帧(台账由改写前的正文现场种出来)。其它块原样留在原位,不经解码重编。
 func (c *finishedCards) Patch(
 	ctx context.Context, toolCallID string, mutate func(card *transcriptblocks.SubagentStateBlock) bool,
+) (bool, error) {
+	return c.rewrite(ctx, toolCallID, func(stored []blocks.StoredBlock, index int, card *transcriptblocks.SubagentStateBlock) ([]blocks.StoredBlock, bool, error) {
+		if !mutate(card) {
+			return stored, false, nil
+		}
+		encoded, err := blocks.Encode(card)
+		if err != nil {
+			return stored, false, err
+		}
+		stored[index] = encoded
+		return stored, true, nil
+	})
+}
+
+// Inject 把一批注入方事件(见 ctlbind:agrctl 绑定的 Subagent 帧与嵌套的 ToolCall / ToolResult)
+// 写回承载 toolCallID 那张派遣卡的已收口消息:overlay 按写入分工补上,嵌套步骤追加在消息末尾。
+//
+// 事件走的是在途那一轮用的同一张 dispatcher 表,不另写一套「哪种事件落哪种块」。办法是
+// 把原消息里这张卡(以及它已有的嵌套步骤)种进一个新累加器再投递:嵌套事件按 ID 去重由
+// handler 保证,所以重复投递不会再追加;种进去的卡才让 handler 认得「这里已有 agrctl overlay」。
+// 累加器末尾比种入时多出来的块就是新增的嵌套步骤。
+func (c *finishedCards) Inject(ctx context.Context, toolCallID string, events []agentruntime.Event) (bool, error) {
+	return c.rewrite(ctx, toolCallID, func(stored []blocks.StoredBlock, index int, card *transcriptblocks.SubagentStateBlock) ([]blocks.StoredBlock, bool, error) {
+		before, err := blocks.Encode(card)
+		if err != nil {
+			return stored, false, err
+		}
+		acc := turn.New()
+		acc.AddBlock(card, "subagent_state:"+toolCallID)
+		if err := seedNestedBlocks(acc, stored, toolCallID); err != nil {
+			return stored, false, err
+		}
+		seeded := len(acc.Snapshot())
+		dispatcher := transcript.NewTurnDispatcher(transcript.Adapters{})
+		turnCtx := &turn.TurnContext{Waits: turn.NewWaitTracker()}
+		for _, ev := range events {
+			if err := dispatcher.Apply(ctx, ev, acc, discardEmitter{}, turnCtx); err != nil {
+				logger.Ctx(ctx).Warn("handlers.finishedCards.Inject: dispatcher apply failed",
+					zap.String("conversationId", c.conversationID), zap.String("toolUseId", toolCallID), zap.Error(err))
+			}
+		}
+		final := acc.Finalize()
+		changed := false
+		if after, err := blocks.Encode(card); err != nil {
+			return stored, false, err
+		} else if string(after.Data) != string(before.Data) {
+			stored[index], changed = after, true
+		}
+		for _, added := range final[seeded:] {
+			encoded, err := blocks.Encode(added)
+			if err != nil {
+				return stored, false, err
+			}
+			stored, changed = append(stored, encoded), true
+		}
+		return stored, changed, nil
+	})
+}
+
+// seedNestedBlocks 把原消息里挂在 parentToolCallID 下的嵌套步骤按原顺序种进累加器。
+func seedNestedBlocks(acc *turn.Accumulator, stored []blocks.StoredBlock, parentToolCallID string) error {
+	for _, sb := range stored {
+		if sb.Type != (transcriptblocks.NestedToolUseBlock{}).Type() &&
+			sb.Type != (transcriptblocks.NestedToolResultBlock{}).Type() {
+			continue
+		}
+		decoded, err := blocks.Decode(sb)
+		if err != nil {
+			return err
+		}
+		switch b := decoded.(type) {
+		case *transcriptblocks.NestedToolUseBlock:
+			if b.ParentToolCallID == parentToolCallID {
+				acc.AddToolUse(b, "")
+			}
+		case transcriptblocks.NestedToolUseBlock:
+			if b.ParentToolCallID == parentToolCallID {
+				acc.AddToolUse(&b, "")
+			}
+		case *transcriptblocks.NestedToolResultBlock:
+			if b.ParentToolCallID == parentToolCallID {
+				acc.AddToolResult(b)
+			}
+		case transcriptblocks.NestedToolResultBlock:
+			if b.ParentToolCallID == parentToolCallID {
+				acc.AddToolResult(&b)
+			}
+		}
+	}
+	return nil
+}
+
+// rewrite 是轮外改写一条已收口消息的公共部分:找回承载 toolCallID 那张卡的消息,把它的块
+// 与卡的一份副本交给 edit,edit 交回新的块列表与是否有改动;有改动才落库(只写变化的块行)
+// 并发布变了的持久帧,其余不动。交回是否找到了那张卡。
+func (c *finishedCards) rewrite(
+	ctx context.Context, toolCallID string,
+	edit func(stored []blocks.StoredBlock, index int, card *transcriptblocks.SubagentStateBlock) ([]blocks.StoredBlock, bool, error),
 ) (bool, error) {
 	if c == nil || toolCallID == "" {
 		return false, nil
@@ -554,10 +675,8 @@ func (c *finishedCards) Patch(
 	if err != nil || index < 0 {
 		return index >= 0, err
 	}
-	if !mutate(card) {
-		return true, nil
-	}
-	if stored[index], err = blocks.Encode(card); err != nil {
+	stored, changed, err := edit(stored, index, card)
+	if err != nil || !changed {
 		return true, err
 	}
 	body, err := json.Marshal(stored)
@@ -572,16 +691,16 @@ func (c *finishedCards) Patch(
 	// 台账种成「改写前的正文已经全部发过」:它确实发过 —— 那条消息收口时整条都发了。
 	seeded, err := transcript.ProjectKeyedMessage(c.conversationID, &before)
 	if err != nil {
-		logger.Ctx(ctx).Warn("handlers.finishedCards.Patch: project previous body failed; frames withheld",
+		logger.Ctx(ctx).Warn("handlers.finishedCards.rewrite: project previous body failed; frames withheld",
 			zap.Int64("messageId", msg.ID), zap.String("toolUseId", toolCallID), zap.Error(err))
 		return true, nil
 	}
 	publisher := transcript.NewFramePublisher()
 	publisher.Commit(seeded)
 	_, _ = publishMessageFrames(ctx, c.port, publisher, c.publish, c.conversationID, msg, true)
-	logger.Ctx(ctx).Info("handlers.finishedCards.Patch: subagent card rewritten",
+	logger.Ctx(ctx).Info("handlers.finishedCards.rewrite: subagent card message rewritten",
 		zap.String("conversationId", c.conversationID), zap.Int64("messageId", msg.ID),
-		zap.String("toolUseId", toolCallID), zap.String("status", card.Status))
+		zap.String("toolUseId", toolCallID))
 	return true, nil
 }
 

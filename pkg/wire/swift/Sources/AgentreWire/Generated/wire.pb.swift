@@ -107,6 +107,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
   case cliModelsList // = 77
   case runtimeSetCliModel // = 78
   case setSessionCliModel // = 79
+  case runtimeInjectSubagentEvents // = 80
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -195,6 +196,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     case 77: self = .cliModelsList
     case 78: self = .runtimeSetCliModel
     case 79: self = .setSessionCliModel
+    case 80: self = .runtimeInjectSubagentEvents
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -281,6 +283,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     case .cliModelsList: return 77
     case .runtimeSetCliModel: return 78
     case .setSessionCliModel: return 79
+    case .runtimeInjectSubagentEvents: return 80
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -367,6 +370,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     .cliModelsList,
     .runtimeSetCliModel,
     .setSessionCliModel,
+    .runtimeInjectSubagentEvents,
   ]
 
 }
@@ -2668,6 +2672,32 @@ public nonisolated struct Agentre_Wire_RuntimeStopBackgroundTaskRequest: Sendabl
   public var peerFingerprint: String = String()
 
   public var taskID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// RuntimeInjectSubagentEventsRequest is the desktop handing agentred the events of an
+/// `agrctl send --wait` child session, to be written into the parent shell call
+/// tool_call_id on agentred's own transcript. events reuse the runtime event encoding
+/// (RuntimeEventNotification): subagent_started / subagent_progress / subagent_done carrying
+/// SubagentInfo.origin = "agrctl", and nested tool_call / tool_result carrying
+/// parent_tool_call_id. conversation_id / seq / preview on each element are ignored.
+/// Injection is idempotent: a nested id already on the card is not written twice, and a
+/// tool_call_id agentred cannot find is a successful no-op.
+public nonisolated struct Agentre_Wire_RuntimeInjectSubagentEventsRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var conversationID: String = String()
+
+  public var peerFingerprint: String = String()
+
+  public var toolCallID: String = String()
+
+  public var events: [Agentre_Wire_RuntimeEventNotification] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -7203,7 +7233,7 @@ public nonisolated let Agentre_Wire_Extensions_protocol_version = SwiftProtobuf.
 fileprivate nonisolated let _protobuf_package = "agentre.wire"
 
 nonisolated extension Agentre_Wire_RpcMethod: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RPC_METHOD_UNSPECIFIED\0\u{1}RPC_METHOD_AUTH_ACCOUNT\0\u{1}RPC_METHOD_SESSION_LIST\0\u{1}RPC_METHOD_SESSION_ATTACH\0\u{1}RPC_METHOD_SESSION_PULL\0\u{1}RPC_METHOD_SESSION_PENDING_WAITERS\0\u{1}RPC_METHOD_SESSION_DELETE\0\u{1}RPC_METHOD_SET_MODEL_TARGET\0\u{1}RPC_METHOD_RUNTIME_CAPABILITIES\0\u{1}RPC_METHOD_RUNTIME_STEER\0\u{1}RPC_METHOD_RUNTIME_CANCEL_STEER\0\u{1}RPC_METHOD_RUNTIME_DRAIN_PENDING\0\u{1}RPC_METHOD_RUNTIME_ABORT\0\u{1}RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK\0\u{1}RPC_METHOD_RUNTIME_SET_PERMISSION_MODE\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_ANSWER\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION\0\u{1}RPC_METHOD_RUNTIME_RUN\0\u{1}RPC_METHOD_RUNTIME_GOAL_GET\0\u{1}RPC_METHOD_RUNTIME_GOAL_SET\0\u{1}RPC_METHOD_RUNTIME_GOAL_CLEAR\0\u{1}RPC_METHOD_TERMINAL_OPEN\0\u{1}RPC_METHOD_TERMINAL_WRITE\0\u{1}RPC_METHOD_TERMINAL_RESIZE\0\u{1}RPC_METHOD_TERMINAL_CLOSE\0\u{1}RPC_METHOD_MCP_PROXY\0\u{1}RPC_METHOD_PROJECT_SET_LOCAL_PATH\0\u{1}RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH\0\u{1}RPC_METHOD_SKILLS_CATALOG\0\u{1}RPC_METHOD_REMOTE_FS_LIST_DIR\0\u{1}RPC_METHOD_REMOTE_FS_MKDIR\0\u{1}RPC_METHOD_WORKSPACE_FS_LIST_DIR\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_CHANGES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES\0\u{1}RPC_METHOD_WORKSPACE_FS_READ_FILE\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT\0\u{1}RPC_METHOD_WORKSPACE_FS_SEARCH_FILES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_STATE\0\u{1}RPC_METHOD_AUTH_PAIR\0\u{1}RPC_METHOD_AUTH_CONNECT\0\u{1}RPC_METHOD_AUTH_REVOKE\0\u{1}RPC_METHOD_LLM_UPSERT\0\u{1}RPC_METHOD_LLM_DELETE\0\u{1}RPC_METHOD_LLM_LIST\0\u{1}RPC_METHOD_ENGINE_TEST\0\u{1}RPC_METHOD_ENGINE_DISCOVER\0\u{1}RPC_METHOD_ENGINE_SCAN\0\u{1}RPC_METHOD_CLI_RESOLVE_PATH\0\u{1}RPC_METHOD_CLI_PROBE\0\u{1}RPC_METHOD_HEALTH_PING\0\u{1}RPC_METHOD_CLAUDE_CODE_USAGE\0\u{1}RPC_METHOD_SKILLS_LIST\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_SCAN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_OPEN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_TURNS\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE\0\u{1}RPC_METHOD_ACTIVITY_ROLLUP\0\u{1}RPC_METHOD_SET_SESSION_REASONING_EFFORT\0\u{1}RPC_METHOD_AGENTRED_SELF_UPDATE\0\u{1}RPC_METHOD_SESSION_COUNTS\0\u{1}RPC_METHOD_SKILLS_COMMANDS\0\u{1}RPC_METHOD_PORT_FORWARD_LIST\0\u{1}RPC_METHOD_PORT_FORWARD_CREATE\0\u{1}RPC_METHOD_PORT_FORWARD_SET_ENABLED\0\u{1}RPC_METHOD_PORT_FORWARD_DELETE\0\u{1}RPC_METHOD_PORT_FORWARD_OPEN\0\u{1}RPC_METHOD_PORT_FORWARD_WRITE\0\u{1}RPC_METHOD_PORT_FORWARD_CLOSE\0\u{1}RPC_METHOD_PORT_FORWARD_ACK\0\u{1}RPC_METHOD_AUTH_DIRECT\0\u{1}RPC_METHOD_BACKEND_CREDENTIAL_STATUS\0\u{1}RPC_METHOD_OPENCLAW_TOKEN_SET\0\u{1}RPC_METHOD_HERMES_AUTH_PROVIDERS\0\u{1}RPC_METHOD_HERMES_LOGIN\0\u{1}RPC_METHOD_HERMES_LOGOUT\0\u{1}RPC_METHOD_BACKEND_CONNECTION_TEST\0\u{1}RPC_METHOD_TOOL_APPROVAL_ANSWER\0\u{1}RPC_METHOD_CLI_MODELS_LIST\0\u{1}RPC_METHOD_RUNTIME_SET_CLI_MODEL\0\u{1}RPC_METHOD_SET_SESSION_CLI_MODEL\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RPC_METHOD_UNSPECIFIED\0\u{1}RPC_METHOD_AUTH_ACCOUNT\0\u{1}RPC_METHOD_SESSION_LIST\0\u{1}RPC_METHOD_SESSION_ATTACH\0\u{1}RPC_METHOD_SESSION_PULL\0\u{1}RPC_METHOD_SESSION_PENDING_WAITERS\0\u{1}RPC_METHOD_SESSION_DELETE\0\u{1}RPC_METHOD_SET_MODEL_TARGET\0\u{1}RPC_METHOD_RUNTIME_CAPABILITIES\0\u{1}RPC_METHOD_RUNTIME_STEER\0\u{1}RPC_METHOD_RUNTIME_CANCEL_STEER\0\u{1}RPC_METHOD_RUNTIME_DRAIN_PENDING\0\u{1}RPC_METHOD_RUNTIME_ABORT\0\u{1}RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK\0\u{1}RPC_METHOD_RUNTIME_SET_PERMISSION_MODE\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_ANSWER\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION\0\u{1}RPC_METHOD_RUNTIME_RUN\0\u{1}RPC_METHOD_RUNTIME_GOAL_GET\0\u{1}RPC_METHOD_RUNTIME_GOAL_SET\0\u{1}RPC_METHOD_RUNTIME_GOAL_CLEAR\0\u{1}RPC_METHOD_TERMINAL_OPEN\0\u{1}RPC_METHOD_TERMINAL_WRITE\0\u{1}RPC_METHOD_TERMINAL_RESIZE\0\u{1}RPC_METHOD_TERMINAL_CLOSE\0\u{1}RPC_METHOD_MCP_PROXY\0\u{1}RPC_METHOD_PROJECT_SET_LOCAL_PATH\0\u{1}RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH\0\u{1}RPC_METHOD_SKILLS_CATALOG\0\u{1}RPC_METHOD_REMOTE_FS_LIST_DIR\0\u{1}RPC_METHOD_REMOTE_FS_MKDIR\0\u{1}RPC_METHOD_WORKSPACE_FS_LIST_DIR\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_CHANGES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES\0\u{1}RPC_METHOD_WORKSPACE_FS_READ_FILE\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT\0\u{1}RPC_METHOD_WORKSPACE_FS_SEARCH_FILES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_STATE\0\u{1}RPC_METHOD_AUTH_PAIR\0\u{1}RPC_METHOD_AUTH_CONNECT\0\u{1}RPC_METHOD_AUTH_REVOKE\0\u{1}RPC_METHOD_LLM_UPSERT\0\u{1}RPC_METHOD_LLM_DELETE\0\u{1}RPC_METHOD_LLM_LIST\0\u{1}RPC_METHOD_ENGINE_TEST\0\u{1}RPC_METHOD_ENGINE_DISCOVER\0\u{1}RPC_METHOD_ENGINE_SCAN\0\u{1}RPC_METHOD_CLI_RESOLVE_PATH\0\u{1}RPC_METHOD_CLI_PROBE\0\u{1}RPC_METHOD_HEALTH_PING\0\u{1}RPC_METHOD_CLAUDE_CODE_USAGE\0\u{1}RPC_METHOD_SKILLS_LIST\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_SCAN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_OPEN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_TURNS\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE\0\u{1}RPC_METHOD_ACTIVITY_ROLLUP\0\u{1}RPC_METHOD_SET_SESSION_REASONING_EFFORT\0\u{1}RPC_METHOD_AGENTRED_SELF_UPDATE\0\u{1}RPC_METHOD_SESSION_COUNTS\0\u{1}RPC_METHOD_SKILLS_COMMANDS\0\u{1}RPC_METHOD_PORT_FORWARD_LIST\0\u{1}RPC_METHOD_PORT_FORWARD_CREATE\0\u{1}RPC_METHOD_PORT_FORWARD_SET_ENABLED\0\u{1}RPC_METHOD_PORT_FORWARD_DELETE\0\u{1}RPC_METHOD_PORT_FORWARD_OPEN\0\u{1}RPC_METHOD_PORT_FORWARD_WRITE\0\u{1}RPC_METHOD_PORT_FORWARD_CLOSE\0\u{1}RPC_METHOD_PORT_FORWARD_ACK\0\u{1}RPC_METHOD_AUTH_DIRECT\0\u{1}RPC_METHOD_BACKEND_CREDENTIAL_STATUS\0\u{1}RPC_METHOD_OPENCLAW_TOKEN_SET\0\u{1}RPC_METHOD_HERMES_AUTH_PROVIDERS\0\u{1}RPC_METHOD_HERMES_LOGIN\0\u{1}RPC_METHOD_HERMES_LOGOUT\0\u{1}RPC_METHOD_BACKEND_CONNECTION_TEST\0\u{1}RPC_METHOD_TOOL_APPROVAL_ANSWER\0\u{1}RPC_METHOD_CLI_MODELS_LIST\0\u{1}RPC_METHOD_RUNTIME_SET_CLI_MODEL\0\u{1}RPC_METHOD_SET_SESSION_CLI_MODEL\0\u{1}RPC_METHOD_RUNTIME_INJECT_SUBAGENT_EVENTS\0")
 }
 
 nonisolated extension Agentre_Wire_AgentredSelfUpdateRejectReason: SwiftProtobuf._ProtoNameProviding {
@@ -11268,6 +11298,51 @@ nonisolated extension Agentre_Wire_RuntimeStopBackgroundTaskRequest: SwiftProtob
     if lhs.conversationID != rhs.conversationID {return false}
     if lhs.peerFingerprint != rhs.peerFingerprint {return false}
     if lhs.taskID != rhs.taskID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_RuntimeInjectSubagentEventsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RuntimeInjectSubagentEventsRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{3}tool_call_id\0\u{1}events\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.conversationID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.peerFingerprint) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.toolCallID) }()
+      case 4: try { try decoder.decodeRepeatedMessageField(value: &self.events) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.conversationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.conversationID, fieldNumber: 1)
+    }
+    if !self.peerFingerprint.isEmpty {
+      try visitor.visitSingularStringField(value: self.peerFingerprint, fieldNumber: 2)
+    }
+    if !self.toolCallID.isEmpty {
+      try visitor.visitSingularStringField(value: self.toolCallID, fieldNumber: 3)
+    }
+    if !self.events.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.events, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_RuntimeInjectSubagentEventsRequest, rhs: Agentre_Wire_RuntimeInjectSubagentEventsRequest) -> Bool {
+    if lhs.conversationID != rhs.conversationID {return false}
+    if lhs.peerFingerprint != rhs.peerFingerprint {return false}
+    if lhs.toolCallID != rhs.toolCallID {return false}
+    if lhs.events != rhs.events {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

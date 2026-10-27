@@ -103,6 +103,8 @@ func TestPairing_GivenAMethod_ThenItsResponseTypeFollowsTheNamingConvention(t *t
 		agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE,
 		agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_CLI_MODEL,
 		agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK,
+		// 注入子会话事件只报成败:卡片找不到也是成功(桌面端不能因此让子会话失败)。
+		agentrewire.RpcMethod_RPC_METHOD_RUNTIME_INJECT_SUBAGENT_EVENTS,
 		// 转发流的三个控制方法同理:write 送一块字节、close 收尾、ack 回报已消费
 		// 到第几个字节,三者都只报成败。ack 的**信用**方向是请求里那一格
 		// consumed_bytes,不是应答 —— 应答里再放一个窗口值就成了两处真理源。

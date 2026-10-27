@@ -98,6 +98,12 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 		_, err := rh.StopBackgroundTask(ctx, req)
 		return err
 	}, d, guard)
+	registerEmptyControl(reg, agentrewire.RpcMethod_RPC_METHOD_RUNTIME_INJECT_SUBAGENT_EVENTS, func() *agentrewire.RuntimeInjectSubagentEventsRequest {
+		return &agentrewire.RuntimeInjectSubagentEventsRequest{}
+	}, func(ctx context.Context, req *agentrewire.RuntimeInjectSubagentEventsRequest) error {
+		_, err := rh.InjectSubagentEvents(ctx, req)
+		return err
+	}, d, guard)
 	registerGoal := func(method agentrewire.RpcMethod, handler func(context.Context, *agentrewire.RuntimeGoalRequest) (*agentrewire.RuntimeGoalResponse, error)) {
 		protorpc.RegisterMethod(reg, uint32(method), func() *agentrewire.RuntimeGoalRequest { return &agentrewire.RuntimeGoalRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeGoalRequest) (*agentrewire.RuntimeGoalResponse, error) {
 			if err := guard(ctx); err != nil {
