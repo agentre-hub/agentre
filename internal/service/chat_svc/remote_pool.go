@@ -142,6 +142,11 @@ func (s *chatSvc) cachedRemoteRuntime(deviceID int64) *remote.Runtime {
 	return s.remotePool().Cached(deviceID)
 }
 
+// peekRemoteRuntime 见 remotepool.Pool.Peek:只读读账路径专用,轮间 lease 已还也照样交出。
+func (s *chatSvc) peekRemoteRuntime(deviceID int64) *remote.Runtime {
+	return s.remotePool().Peek(deviceID)
+}
+
 // releaseRemoteRuntime 见 remotepool.Pool.Release。
 func (s *chatSvc) releaseRemoteRuntime(deviceID, sessionID int64) {
 	s.remotePool().Release(deviceID, sessionID)

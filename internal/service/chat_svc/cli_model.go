@@ -84,15 +84,16 @@ func cliModelDeviation(req agentruntime.RunRequest, actual string, models []agen
 
 // cliModelStateReader 取这条会话 CLI 模型账的读侧。远端只看本机已开着的那条连接
 // （pairedDeviceID 是调用方已解析好的配对行，0 = 本机没配对那台设备），不为打开会话
-// 拨号、占池引用或改执行归属（与 remotePendingSessionWaiters 同一口径）；没有连接时
-// 交 nil，pill 不猜实际模型。
+// 拨号、占池引用或改执行归属；与 remotePendingSessionWaiters 不同，轮间 lease 已还给池
+// 也照样读那条连接上的 runtime（peekRemoteRuntime）—— 账在轮末记下，用户正是在轮与轮
+// 之间看 pill。没有连接时交 nil，pill 不猜实际模型。
 func (s *chatSvc) cliModelStateReader(ctx context.Context, be *agent_backend_entity.AgentBackend, sessionID, pairedDeviceID int64) agentruntime.CLIModelStateReader {
 	var runner agentruntime.Runtime
 	if exec_target_svc.BackendTargetsRemote(be) {
 		if pairedDeviceID <= 0 {
 			return nil
 		}
-		if rt := s.cachedRemoteRuntime(pairedDeviceID); rt != nil {
+		if rt := s.peekRemoteRuntime(pairedDeviceID); rt != nil {
 			runner = rt
 		}
 	} else if r, err := s.selectRunner(ctx, be, sessionID); err == nil {
