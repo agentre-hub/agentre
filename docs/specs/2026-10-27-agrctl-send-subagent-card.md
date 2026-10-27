@@ -2,7 +2,7 @@
 
 > Status: Approved
 > Owner: desktop app + agentred maintainers（agentre-server 只抬 wire 钉）
-> Last updated: 2026-10-27
+> Last updated: 2026-10-27（Binding 第 1 条修订：后台调用有结果后仍是候选）
 
 **Objective:** Agentre 会话里的 agent 用 shell 跑 `agrctl send --agent <X> --wait "<任务>"` 时，父转录里那条 shell 调用原地变成子代理卡。卡片实时显示子会话的工具调用、模型、用量和状态，结束后显示子任务的最终文本，刷新、重开、远端会话里都一样。
 
@@ -51,7 +51,7 @@
 
 前提：调用方带会话级 token，请求是 `send --wait`，目标会话由桌面端拥有。
 
-1. 父轮的宿主（本机是桌面端，远端是 agentred）在调用方会话**当前这一轮**里，找所有外层、还没有结果的 shell 调用，挑出命令文本里同时含 `agrctl`、`send` 和目标 agent 名（或 `--agent-id` 的值）的那些。
+1. 父轮的宿主（本机是桌面端，远端是 agentred）在调用方会话**当前这一轮**里找外层 shell 调用：前台调用必须还没有结果；后台调用（入参带 `run_in_background`）不论有没有结果都算候选，因为它的结果会立刻返回，和 send 请求谁先到是竞争的（Design 9）。再从中挑出命令文本里同时含 `agrctl`、`send` 和目标 agent 名（或 `--agent-id` 的值）的那些。
 2. 正好一条就绑定它。有多条时，再按任务文本筛；还剩不止一条，就不绑定。
 3. 不绑定的情况：调用方不是会话 token、没带 `--wait`、没有候选、有歧义、目标会话由控制台拥有。这些情况下 send 照今天的流程执行，父转录不变，桌面端记一条 info 日志说明原因。
 4. 绑定以 send 成功建出子会话、起轮为准。agent 名错误等导致的 send 失败不升级，报错和退出码与今天相同。
