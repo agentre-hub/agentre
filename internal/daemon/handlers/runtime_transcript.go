@@ -10,6 +10,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 
@@ -63,6 +64,8 @@ type turnTranscript struct {
 	// tool_use 冻在旧消息里,随后的 tool_result 在新累加器里查不到它,被当孤儿丢弃 ——
 	// 工具卡永远停在 running。判据与桌面端同一条(chat_svc.turnRun.applyLive)。
 	pendingSteers []agentruntime.ConsumedSteer
+	// cards 改写住在更早消息里的后台任务派遣卡(轮外翻转)。nil = 没接 SubagentCardPort。
+	cards *finishedCards
 }
 
 // ctlApprovalCard 是一张审批卡连同它落在的那一段:消息与承接它的累加器。分段后 t.msg /
@@ -114,21 +117,26 @@ func (h *RuntimeHandlers) beginTranscript(
 	if msg == nil {
 		return nil, 0, 0
 	}
+	publish := func(frame wire.EventFrame) {
+		em.emit(wire.NotifyEvent, &frame)
+	}
 	t := &turnTranscript{
-		port:       h.deps.Transcript,
-		dispatcher: transcript.NewTurnDispatcher(transcript.Adapters{}),
-		acc:        turn.New(),
-		// Waits 是待决策 handler 要的那本账;宿主那几格(AssistantMsg / Session)
-		// 留空 —— 它们是桌面端的接线,不共用(规格「复用边界」)。
-		turnCtx:        &turn.TurnContext{Waits: turn.NewWaitTracker()},
+		port:           h.deps.Transcript,
+		dispatcher:     transcript.NewTurnDispatcher(transcript.Adapters{}),
+		acc:            turn.New(),
 		msg:            msg,
 		conversationID: em.conversationID,
-		publish: func(frame wire.EventFrame) {
-			em.emit(wire.NotifyEvent, &frame)
-		},
-		publisher: transcript.NewFramePublisher(),
-		done:      make(chan struct{}),
+		publish:        publish,
+		publisher:      transcript.NewFramePublisher(),
+		done:           make(chan struct{}),
 	}
+	if h.deps.SubagentCards != nil {
+		t.cards = &finishedCards{
+			finder: h.deps.SubagentCards, port: h.deps.Transcript,
+			conversationID: em.conversationID, publish: publish,
+		}
+	}
+	t.turnCtx = t.newTurnContext()
 	// 用户那一行起手就定稿了:它现在就该以持久帧的身份出去,取到的号排在这一轮的
 	// 最前面。晚发(等到补齐才编号)会让它排到这一轮的正文之后 —— 对端的转录里
 	// 提问跑到回答后面去。
@@ -137,6 +145,40 @@ func (h *RuntimeHandlers) beginTranscript(
 	h.deps.Ctl.attachTurn(em.rid, t)
 	t.release = func() { h.deps.Ctl.detachTurn(em.rid, t) }
 	return t, lowest, highest
+}
+
+// newTurnContext 开一段的 TurnContext。Waits 是待决策 handler 要的那本账;SubagentFlipper
+// 让共用的 SubagentDone handler 把「不属于本轮」的后台任务终态翻到它派遣卡所在的那条更早
+// 的消息上。宿主那几格(AssistantMsg / Session)留空 —— 它们是桌面端的接线,不共用
+// (规格「复用边界」)。
+func (t *turnTranscript) newTurnContext() *turn.TurnContext {
+	tc := &turn.TurnContext{Waits: turn.NewWaitTracker()}
+	if t.cards != nil {
+		tc.SubagentFlipper = t.cards
+	}
+	return tc
+}
+
+// finishBackgroundTask 把触发这一轮自主续轮的那个后台任务的终态翻到它的派遣卡上。
+// task 为 nil / 不带 tool call(这一轮不是后台任务完成触发的)时什么都不做。空 status
+// 读作 completed,与 claudecode.CompletedBackgroundTask 的约定、桌面端 emitStarted 同一默认。
+//
+// 不取 t.mu:卡住在更早那条消息里,不碰这一轮的累积状态。
+func (t *turnTranscript) finishBackgroundTask(ctx context.Context, task *agentruntime.CompletedBackgroundTask) {
+	if t == nil || t.cards == nil || task == nil || task.ToolCallID == "" {
+		return
+	}
+	status := task.Status
+	if status == "" {
+		status = "completed"
+	}
+	if err := t.cards.FlipSubagentStatus(ctx, task.ToolCallID, task.TaskID, status, task.Summary); err != nil {
+		logger.Ctx(ctx).Warn("handlers.turnTranscript.finishBackgroundTask: flip failed",
+			zap.String("conversationId", t.conversationID),
+			zap.String("toolUseId", task.ToolCallID),
+			zap.String("taskId", task.TaskID),
+			zap.Error(err))
+	}
 }
 
 // ended 在这一轮收口时关上。
@@ -202,16 +244,29 @@ func (t *turnTranscript) persistApproval(ctx context.Context, card ctlApprovalCa
 func (t *turnTranscript) publishDurable(
 	ctx context.Context, msg *transcript_entity.Message, final bool,
 ) (int64, int64) {
-	if t == nil || msg == nil || t.publish == nil {
+	if t == nil {
 		return 0, 0
 	}
-	keyed, err := transcript.ProjectKeyedMessage(t.conversationID, msg)
+	return publishMessageFrames(ctx, t.port, t.publisher, t.publish, t.conversationID, msg, final)
+}
+
+// publishMessageFrames 是 publishDurable 的本体:按 publisher 的台账挑出 msg 此刻该发的持久帧,
+// 取号、发布、记账。轮外改写一张更早的派遣卡(finishedCards)也走这一条 —— 只是那时的台账
+// 由改写前的正文现场种出来。
+func publishMessageFrames(
+	ctx context.Context, port TranscriptPort, publisher *transcript.FramePublisher,
+	publish func(frame wire.EventFrame), conversationID string, msg *transcript_entity.Message, final bool,
+) (int64, int64) {
+	if msg == nil || publish == nil {
+		return 0, 0
+	}
+	keyed, err := transcript.ProjectKeyedMessage(conversationID, msg)
 	if err != nil {
-		logger.Ctx(ctx).Warn("handlers.turnTranscript.publishDurable: project failed",
+		logger.Ctx(ctx).Warn("handlers.publishMessageFrames: project failed",
 			zap.Int64("messageId", msg.ID), zap.Error(err))
 		return 0, 0
 	}
-	pending := t.publisher.Pending(keyed, final)
+	pending := publisher.Pending(keyed, final)
 	if len(pending) == 0 {
 		return 0, 0
 	}
@@ -219,9 +274,9 @@ func (t *turnTranscript) publishDurable(
 	for _, frame := range pending {
 		keys = append(keys, frame.Key)
 	}
-	seqs, err := t.port.AllocateFrameSeqs(ctx, msg.SessionID, keys)
+	seqs, err := port.AllocateFrameSeqs(ctx, msg.SessionID, keys)
 	if err != nil || len(seqs) != len(pending) {
-		logger.Ctx(ctx).Warn("handlers.turnTranscript.publishDurable: allocate failed; frames withheld",
+		logger.Ctx(ctx).Warn("handlers.publishMessageFrames: allocate failed; frames withheld",
 			zap.Int64("messageId", msg.ID), zap.Error(err))
 		return 0, 0
 	}
@@ -232,9 +287,9 @@ func (t *turnTranscript) publishDurable(
 			lowest = seqs[index]
 		}
 		highest = max(highest, seqs[index])
-		t.publish(pending[index].Frame)
+		publish(pending[index].Frame)
 	}
-	t.publisher.Commit(pending)
+	publisher.Commit(pending)
 	return lowest, highest
 }
 
@@ -325,7 +380,7 @@ func (t *turnTranscript) flushPendingSteers(ctx context.Context) {
 	// 的首字时刻与待决策账本。
 	t.msg = next
 	t.acc = turn.New()
-	t.turnCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
+	t.turnCtx = t.newTurnContext()
 }
 
 // checkpoint 把此刻的累积状态落库(只写变化的块行)。这是在途那一轮唯一的抗崩溃
@@ -419,4 +474,140 @@ func (t *turnTranscript) finish(ctx context.Context, frame wire.RunResultDoneFra
 	}
 	// 收口:正文定稿,连同消息级派生帧(usage / done)一起发出去。
 	_, _ = t.publishDurable(ctx, t.msg, true)
+}
+
+// finishedCards 改写住在**已收口消息**里的后台任务派遣卡(subagent_state 块),并把改动作为
+// 持久帧推出去。
+//
+// 后台任务有权活过发起它的那一轮,它的终态却只在之后才到:自主续轮的 CompletedTask,或并进
+// 别人那一轮的一条 SubagentDone。卡早已随发起它的那条消息落库,过不了当前这一轮的累加器;
+// 不走这里,agentred 落库的那张卡就永远停在 running —— 对端补齐、控制台读到的都是它
+// (spec 2026-10-27-agrctl-send-subagent-card,Problem 7)。
+//
+// 它实现 turn.SubagentFlipper,由共用的 SubagentDone handler 在本轮找不到那张卡时调用;
+// 桌面端的同位实现是 chat_svc.subagentFlipperAdapter。
+//
+// 落库走 TranscriptPort.Checkpoint:差分只写那一张卡的块行。发布只交出这次改动真正变了的
+// 那几帧 —— 那条消息其余的帧早在它收口时就发过了,重发就是对端转录里的「重」。
+//
+// 它只认对话身份与推送出口,不依附任何一轮:父轮早已收口、此刻没有轮在跑时,照样能拿
+// 这两样造一个来用。
+type finishedCards struct {
+	finder         SubagentCardPort
+	port           TranscriptPort
+	conversationID string
+	publish        func(frame wire.EventFrame)
+}
+
+var _ turn.SubagentFlipper = (*finishedCards)(nil)
+
+// FlipSubagentStatus 见 turn.SubagentFlipper:把 toolCallID 那张卡改成 status,summary 非空时
+// 一并写入(只触碰这两格,与桌面端 transcript_repo.FlipSubagentInBlockData 同口径)。
+//
+// taskID 在这里用不上:按 task_id 找回原卡是给跨轮恢复(SendMessage 换了新 tool call)那一段
+// 用的,而 agentred 不认领跨轮恢复(见 ResumeSubagentByTaskID),恢复段的卡就挂在它自己的
+// tool call 上,按 toolCallID 找得到。
+func (c *finishedCards) FlipSubagentStatus(ctx context.Context, toolCallID, _, status, summary string) error {
+	if status == "" {
+		return nil
+	}
+	_, err := c.Patch(ctx, toolCallID, func(card *transcriptblocks.SubagentStateBlock) bool {
+		if card.Status == status && (summary == "" || card.Summary == summary) {
+			return false
+		}
+		card.Status = status
+		if summary != "" {
+			card.Summary = summary
+		}
+		return true
+	})
+	return err
+}
+
+// ResumeSubagentByTaskID 见 turn.SubagentFlipper。agentred 不认领跨轮恢复:按 task_id 定位一张
+// 更早的卡,共用仓储没有给出这一格(桌面端走的是 transcript_repo 里不导出的扫描)。交回空串,
+// 共用 handler 据此退回「在本轮另起一块」—— 与接这条通路之前的行为一致。
+func (c *finishedCards) ResumeSubagentByTaskID(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
+// Patch 找回承载 toolCallID 那张派遣卡的已收口消息,交给 mutate 就地改写;mutate 交回 false
+// 表示没有改动,此时既不落库也不发布。交回是否找到了那张卡。
+//
+// 它是 agentred 上「轮外更新一张派遣卡」的唯一入口:落库只写那一张卡的块行,发布只交出这次
+// 改动真正变了的帧(台账由改写前的正文现场种出来)。其它块原样留在原位,不经解码重编。
+func (c *finishedCards) Patch(
+	ctx context.Context, toolCallID string, mutate func(card *transcriptblocks.SubagentStateBlock) bool,
+) (bool, error) {
+	if c == nil || toolCallID == "" {
+		return false, nil
+	}
+	msg, err := c.finder.FindSubagentCard(ctx, c.conversationID, toolCallID)
+	if err != nil || msg == nil {
+		return false, err
+	}
+	var stored []blocks.StoredBlock
+	if err := json.Unmarshal([]byte(msg.BlocksJSON), &stored); err != nil {
+		return true, err
+	}
+	index, card, err := subagentCardAt(stored, toolCallID)
+	if err != nil || index < 0 {
+		return index >= 0, err
+	}
+	if !mutate(card) {
+		return true, nil
+	}
+	if stored[index], err = blocks.Encode(card); err != nil {
+		return true, err
+	}
+	body, err := json.Marshal(stored)
+	if err != nil {
+		return true, err
+	}
+	before := *msg
+	msg.BlocksJSON = string(body)
+	if err := c.port.Checkpoint(ctx, msg, before.BlocksJSON); err != nil {
+		return true, err
+	}
+	// 台账种成「改写前的正文已经全部发过」:它确实发过 —— 那条消息收口时整条都发了。
+	seeded, err := transcript.ProjectKeyedMessage(c.conversationID, &before)
+	if err != nil {
+		logger.Ctx(ctx).Warn("handlers.finishedCards.Patch: project previous body failed; frames withheld",
+			zap.Int64("messageId", msg.ID), zap.String("toolUseId", toolCallID), zap.Error(err))
+		return true, nil
+	}
+	publisher := transcript.NewFramePublisher()
+	publisher.Commit(seeded)
+	_, _ = publishMessageFrames(ctx, c.port, publisher, c.publish, c.conversationID, msg, true)
+	logger.Ctx(ctx).Info("handlers.finishedCards.Patch: subagent card rewritten",
+		zap.String("conversationId", c.conversationID), zap.Int64("messageId", msg.ID),
+		zap.String("toolUseId", toolCallID), zap.String("status", card.Status))
+	return true, nil
+}
+
+// subagentCardAt 在一条消息的块里找 parent_tool_call_id==toolCallID 的那张派遣卡,交回它的
+// 下标与解出来的一份副本;找不到下标是 -1。
+func subagentCardAt(stored []blocks.StoredBlock, toolCallID string) (int, *transcriptblocks.SubagentStateBlock, error) {
+	for index, sb := range stored {
+		if sb.Type != (transcriptblocks.SubagentStateBlock{}).Type() {
+			continue
+		}
+		decoded, err := blocks.Decode(sb)
+		if err != nil {
+			return -1, nil, err
+		}
+		var card transcriptblocks.SubagentStateBlock
+		switch v := decoded.(type) {
+		case *transcriptblocks.SubagentStateBlock:
+			card = *v
+		case transcriptblocks.SubagentStateBlock:
+			card = v
+		default:
+			continue
+		}
+		if card.ParentToolCallID == toolCallID {
+			return index, &card, nil
+		}
+	}
+	return -1, nil, nil
 }

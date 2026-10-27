@@ -121,6 +121,8 @@ type Daemon struct {
 	// transcript 是转录(消息行 + 块行)的写入口,Daemon 级一份 —— 生产者是活过连接
 	// 的 fanout goroutine,断连重连不重置任何东西。
 	transcript handlers.TranscriptPort
+	// subagentCards 是同一份转录仓储的轮外那一格:找回住在已收口消息里的后台任务派遣卡。
+	subagentCards handlers.SubagentCardPort
 
 	// sessionStore 是会话身份与生命周期的存取口,同样 Daemon 级。
 	sessionStore daemonSessionStore
@@ -853,11 +855,13 @@ func New(opts Options) (*Daemon, error) {
 	rl := pairing.NewRateLimiter(rlOpts)
 
 	backlog := newBacklogMemo()
+	transcripts := transcriptStore{db: gormDB, backlog: backlog}
 	d := &Daemon{
 		opts: opts, state: st, db: gormDB,
-		transcript:   transcriptStore{db: gormDB, backlog: backlog},
-		sessionStore: daemonSessionStore{db: gormDB},
-		pairing:      pm, ratelim: rl,
+		transcript:    transcripts,
+		subagentCards: transcripts,
+		sessionStore:  daemonSessionStore{db: gormDB},
+		pairing:       pm, ratelim: rl,
 		protobufRegistry: protorpc.NewRegistry(),
 		// 只拨声明里存着的目标,open 只带映射 id —— 目标不由请求携带。
 		portForward: portforward.NewHandlers(portforward.Options{
@@ -1759,7 +1763,10 @@ func (d *Daemon) newRuntimeHandlers() *handlers.RuntimeHandlers {
 		// per-conn 的,而它起的 fanout goroutine 会活过这条连接。
 		NotifyFor:  d.notifierForPeer,
 		Transcript: d.transcript,
-		Sessions:   d.sessionStore,
+		// 同一份转录仓储的轮外那一格:后台任务的终态晚于发起它的那一轮到达时,据它找回
+		// 那张派遣卡所在的消息。
+		SubagentCards: d.subagentCards,
+		Sessions:      d.sessionStore,
 		// R17:queuedID → 提交方对端映射是 Daemon 级的 —— Steer RPC 可能落在任意一条
 		// 连接(同设备多条连接 / 他端接管),而 SteerConsumed 由发起会话那条连接的
 		// fanout 发出,两者必须共享同一张表。
@@ -1927,7 +1934,10 @@ type transcriptStore struct {
 	backlog *backlogMemo
 }
 
-var _ handlers.TranscriptPort = transcriptStore{}
+var (
+	_ handlers.TranscriptPort   = transcriptStore{}
+	_ handlers.SubagentCardPort = transcriptStore{}
+)
 
 // StartTurn 落下用户那一行(文本与附件都空时跳过)并建一条空的 assistant 消息。
 //
@@ -2210,6 +2220,22 @@ func (t transcriptStore) Checkpoint(
 	ctx context.Context, m *transcript_entity.Message, prevBlocksJSON string,
 ) error {
 	return transcript_repo.Message().CheckpointBlocks(dbpkg.WithContextDB(ctx, t.db), m, prevBlocksJSON)
+}
+
+// FindSubagentCard 找回承载这张后台任务派遣卡的已收口消息(正文齐全),与桌面端
+// driveSubagentActivity 定位发起消息用的是同一个仓储方法。
+func (t transcriptStore) FindSubagentCard(
+	ctx context.Context, conversationID, toolCallID string,
+) (*transcript_entity.Message, error) {
+	if toolCallID == "" {
+		return nil, nil
+	}
+	ctx = dbpkg.WithContextDB(ctx, t.db)
+	sessionID, err := session_repo.Session().LocalID(ctx, conversationID)
+	if err != nil || sessionID == 0 {
+		return nil, err
+	}
+	return transcript_repo.Message().FindAssistantBySubagentToolCallID(ctx, sessionID, toolCallID)
 }
 
 func (t transcriptStore) FinishTurn(ctx context.Context, m *transcript_entity.Message) error {

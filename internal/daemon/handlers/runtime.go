@@ -56,6 +56,9 @@ type RuntimeDeps struct {
 	// Transcript 是转录的写入口(消息行 + 块行),Daemon 级(每个 daemon 一份),
 	// 不随连接生灭。
 	Transcript TranscriptPort
+	// SubagentCards 找回住在已收口消息里的后台任务派遣卡(Daemon 级),供轮外翻转它的终态。
+	// nil = 不接,后台卡停在它收口时的样子。
+	SubagentCards SubagentCardPort
 	// Sessions 是会话生命周期的写入口,同样 Daemon 级。它落的那一行是重连客户端
 	// 拿会话清单的唯一来源,也是 daemon 启动时把非终态会话标成中断(R10)的对象。
 	Sessions SessionLifecyclePort
@@ -1049,6 +1052,10 @@ func (h *RuntimeHandlers) forwardAutonomousTurn(em *sessionEmitter, at agentrunt
 	count := 0
 	// 自主续轮同样是一轮转录,只是没有用户那一行 —— 它不是任何人发起的。
 	scribe, _, _ := h.beginTranscript(em, "", nil, transcript.UserSource{})
+	// 触发这一轮的后台任务已经完成:它的派遣卡住在更早那条消息里,完成身份只骑在
+	// CompletedTask 上(那一帧本身不进事件流),这里是它唯一的落点。与桌面端
+	// driveAutonomousTurn 同一条路:定向翻转那张卡。
+	scribe.finishBackgroundTask(em.ctx, at.CompletedTask)
 	for ev := range at.Events {
 		count++
 		scribe.observe(em.ctx, ev)

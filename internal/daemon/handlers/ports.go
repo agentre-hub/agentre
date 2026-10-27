@@ -98,6 +98,25 @@ type TranscriptPort interface {
 	AllocateFrameSeqs(ctx context.Context, sessionID int64, keys []transcript.FrameKey) ([]int64, error)
 }
 
+// SubagentCardPort 找回一张**住在已收口消息里**的后台任务派遣卡,供轮外改写它。
+//
+// 后台任务(Claude Code 的后台 Agent、run_in_background 的 Bash)有权活过发起它的那一轮:
+// 它的完成通知在之后的自主续轮、或别人的轮里才到,而派遣卡(subagent_state 块)早已随
+// 发起它的那条消息收口落库,过不了当前这一轮的累加器。改写走「找回那条消息 → 就地改卡
+// → TranscriptPort.Checkpoint 只写变了的块行」,这里只管第一步。
+//
+// 它与 TranscriptPort 分开声明是 ISP:跑一轮的写入侧不必知道怎么在库里定位一张更早的卡,
+// 而轮外改写(这里的完成翻转,以及之后别的轮外更新)只需要这一格。nil = 不接轮外改写,
+// 派遣卡与此前一样停在它收口时的样子。
+type SubagentCardPort interface {
+	// FindSubagentCard 交回这条对话里承载 parent_tool_call_id==toolCallID 的 subagent_state
+	// 块的那条消息,正文齐全。会话身份是 conversation_id,它到本机数字主键的翻译在实现里
+	// (与 StartTurn 同一条,决策 9)—— 轮外的调用方手上没有一轮开出来的消息可借主键。
+	// 对话不在本机 / toolCallID 为空 / 找不到时交回 (nil, nil):任务可能不属于这条会话,
+	// 或卡从没建过(前台 Bash 不建卡)。
+	FindSubagentCard(ctx context.Context, conversationID, toolCallID string) (*transcript_entity.Message, error)
+}
+
 // DBStat 是 agentred 自己那个库此刻的落盘事实:文件在哪、占了多少字节。
 //
 // SizeBytes 是**整个库的体量**(主库文件 + 它的 WAL / SHM 旁文件):WAL 模式下刚写进去
