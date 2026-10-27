@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { tier } from "./canonical-tool/tier";
+import { isSubagentCanonical } from "./transcript-rows";
 
 import {
   createTranscriptProjector,
@@ -1714,6 +1716,65 @@ describe("reduceFrames:agrctl send 升级的 shell 调用", () => {
     );
     expect(
       msg.blocks.find((b) => b.toolUseId === "tu-sh")?.subagent?.status,
+    ).toBe("running");
+  });
+
+  it("给定 run_in_background 的 Bash 上 origin 为 agrctl 的 local_bash，当 started→轮结束→done，则建 overlay、按 spawn 渲染、不被取消、finalText 不被 CLI summary 覆盖", () => {
+    const [msg] = reduceFrames(
+      [
+        shell("tu-bg", {
+          command: "agrctl send --wait",
+          run_in_background: true,
+        }),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-bg",
+          info: agrctlInfo({
+            kind: "local_bash",
+            runs: [{ id: "r0", index: 0, agent: "reviewer", task: "审查" }],
+          }),
+        }),
+        f({ kind: "done" }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-bg",
+          info: agrctlInfo({
+            kind: "local_bash",
+            status: "completed",
+            finalText: "LGTM",
+            summary: "Background command completed (exit code 0)",
+          }),
+        }),
+      ],
+      SID,
+    );
+    const host = msg.blocks.find((b) => b.toolUseId === "tu-bg");
+    expect(host?.subagent).toMatchObject({
+      kind: "local_bash",
+      origin: "agrctl",
+      status: "completed",
+      finalText: "LGTM",
+    });
+    expect(host?.subagent?.summary).toBeUndefined();
+    expect(host && isSubagentCanonical(host)).toBe(true);
+    expect(host && tier(host)).toBe("out");
+  });
+
+  it("给定同样的后台 agrctl 卡，当轮结束而 done 未到，则仍是 running", () => {
+    const [msg] = reduceFrames(
+      [
+        shell("tu-bg", { command: "x", run_in_background: true }),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-bg",
+          info: agrctlInfo({ kind: "local_bash" }),
+        }),
+        f({ kind: "done" }),
+      ],
+      SID,
+    );
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-bg")?.subagent?.status,
     ).toBe("running");
   });
 });
