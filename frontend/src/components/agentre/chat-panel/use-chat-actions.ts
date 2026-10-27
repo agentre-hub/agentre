@@ -88,6 +88,8 @@ type UseChatActionsOptions = {
   effectiveTarget: EffectiveExecTarget | null;
   providerKey: string;
   modelKey: string;
+  cliModelMode?: string;
+  cliModel?: string;
   /** 草稿态选中的思考力度；空串 = 跟随后端配置。仅新建会话随首条消息落库。 */
   reasoningEffort: string;
   /** 新建会话建成（首发 / /goal 起头）后调用：瞬态 ModelTarget 此刻才随会话落库。 */
@@ -140,6 +142,8 @@ function useChatActions({
   effectiveTarget,
   providerKey,
   modelKey,
+  cliModelMode,
+  cliModel,
   reasoningEffort,
   recordDraftTarget,
   editing,
@@ -208,6 +212,9 @@ function useChatActions({
         // 新建会话首发前预选：瞬态 ModelTarget 随 SendRequest.ProviderKey/ModelKey 透传,
         // 与 Session 一同落库（spec 2026-08-11「新建与已有会话流程」）。已有会话后端忽略
         // 该字段（改 target 走 SetChatSessionModelTarget）。
+        ...(targetSessionId === 0 && cliModelMode
+          ? { cliModelMode, cliModel: cliModel ?? "" }
+          : {}),
         ...(targetSessionId === 0 && providerKey
           ? { providerKey, modelKey }
           : {}),

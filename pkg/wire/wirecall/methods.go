@@ -33,6 +33,9 @@ var HealthPing = Define[*agentrewire.HealthPingRequest](agentrewire.RpcMethod_RP
 var ClaudeCodeUsage = Define[*agentrewire.ClaudeCodeUsageRequest](agentrewire.RpcMethod_RPC_METHOD_CLAUDE_CODE_USAGE,
 	func() *agentrewire.ClaudeCodeUsageResponse { return &agentrewire.ClaudeCodeUsageResponse{} })
 
+var CLIModelsList = Define[*agentrewire.CLIModelsListRequest](agentrewire.RpcMethod_RPC_METHOD_CLI_MODELS_LIST,
+	func() *agentrewire.CLIModelsListResponse { return &agentrewire.CLIModelsListResponse{} })
+
 var CLIProbe = Define[*agentrewire.CLIProbeRequest](agentrewire.RpcMethod_RPC_METHOD_CLI_PROBE,
 	func() *agentrewire.CLIProbeResponse { return &agentrewire.CLIProbeResponse{} })
 
@@ -189,6 +192,12 @@ var RuntimeGoalSet = Define[*agentrewire.RuntimeGoalRequest](agentrewire.RpcMeth
 
 var RuntimeRun = Define[*agentrewire.RuntimeRunRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN,
 	func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+
+var RuntimeSetCLIModel = Define[*agentrewire.RuntimeSetCLIModelRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_CLI_MODEL,
+	func() *agentrewire.Empty { return &agentrewire.Empty{} })
+
+var SetSessionCLIModel = Define[*agentrewire.SetSessionCLIModelRequest](agentrewire.RpcMethod_RPC_METHOD_SET_SESSION_CLI_MODEL,
+	func() *agentrewire.SetSessionCLIModelResponse { return &agentrewire.SetSessionCLIModelResponse{} })
 
 var RuntimeSetPermissionMode = Define[*agentrewire.RuntimeSetPermissionModeRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE,
 	func() *agentrewire.Empty { return &agentrewire.Empty{} })

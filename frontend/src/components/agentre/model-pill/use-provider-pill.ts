@@ -10,6 +10,7 @@ import {
 } from "../../../../wailsjs/go/app/App";
 import { llm_provider_svc } from "../../../../wailsjs/go/models";
 import i18n from "@/i18n";
+import { AGENTRE_UI_NAMESPACE } from "@agentre-hub/agentre-ui/i18n";
 import { resolveExecutionDevice } from "@agentre-hub/agentre-ui";
 
 import {
@@ -18,6 +19,14 @@ import {
   type PickerProvider,
 } from "@agentre-hub/agentre-ui";
 
+import { useChatCLIModel } from "./use-chat-cli-model";
+import {
+  resolveCLIPillState,
+  cliModelResolution,
+  supportsCLIModel,
+  type BackendType,
+  type CliModelPickerState,
+} from "@agentre-hub/agentre-ui";
 import { useModelTargetCatalog } from "../model-target-picker/catalog";
 
 // DeviceView / ProviderSummary — local shims matching remote_device_svc DTOs
@@ -87,6 +96,15 @@ export function isProviderCompatible(
 }
 
 export interface UseProviderPillOptions {
+  backendId?: number;
+  boundCLIModel?: string;
+  persistedCLIModelMode?: string;
+  persistedCLIModel?: string;
+  actualCLIModel?: string;
+  cliModelError?: string;
+  cliModelPending?: boolean;
+  /** 远端执行设备的人读名；CLI 段的列表来自那台机器，弹层顶部要说明在哪执行。 */
+  deviceLabel?: string;
   /** agent 后端类型；非可选择的 backend（openclaw 等）不拉取供应商，pill 常显但
    *   disabled（决策 10：禁用而非隐藏）。 */
   backendType: string;
@@ -135,6 +153,9 @@ import type { ProviderPillState } from "@agentre-hub/agentre-ui";
 import { resolveProviderPillState } from "@agentre-hub/agentre-ui";
 
 export interface UseProviderPillReturn {
+  cliModels?: CliModelPickerState;
+  cliModelMode?: string;
+  cliModel?: string;
   /** 当前选择的 provider key；空串 = 跟随 agent 绑定。新建会话是纯瞬态本地值，
    *  已有会话镜像 chat_sessions.provider_key（乐观更新，失败回滚）。 */
   providerKey: string;
@@ -167,6 +188,8 @@ export interface UseProviderPillReturn {
   canSyncProvider: boolean;
   /** 目标执行位置（透传自选项，供 ProviderPill 传给共享 Picker）。 */
   executionLocation: string;
+  /** 远端执行时 CLI 段弹层顶部的设备说明；本机或供应商模式为 undefined。 */
+  deviceLabel?: string;
   /** 模型目录加载中 → pill 禁用。 */
   catalogLoading: boolean;
   /** 模型目录拉取失败（全部失败）→ 弹层底部错误行。 */
@@ -228,6 +251,14 @@ export interface UseProviderPillReturn {
  *  - pill 在任何会话/后端状态下都渲染（决策 10：禁用而非隐藏）。
  */
 export function useProviderPill({
+  backendId,
+  boundCLIModel,
+  persistedCLIModelMode,
+  persistedCLIModel,
+  actualCLIModel,
+  cliModelError,
+  cliModelPending,
+  deviceLabel,
   backendType,
   boundProviderKey,
   boundModelKey,
@@ -298,6 +329,26 @@ export function useProviderPill({
     setModelKeyState(persistedModelKey ?? "");
   }, [sessionId, backendType, persistedProviderKey, persistedModelKey]);
 
+  // 三种 CLI 本机与远端一致（spec 2026-10-26 Objective）：远端的列表、解析与切换由
+  // 宿主按后端所在设备路由，这里只认后端类型与「确知没绑供应商」。
+  const cliAvailable =
+    supportsCLIModel(backendType as BackendType) &&
+    boundProviderKey === "" &&
+    Boolean(backendId);
+  const onCLIChosen = React.useCallback(() => {
+    setProviderKeyState("");
+    setModelKeyState("");
+  }, []);
+  const cli = useChatCLIModel({
+    backendId,
+    enabled: cliAvailable,
+    sessionId,
+    persistedMode: persistedCLIModelMode,
+    persistedValue: persistedCLIModel,
+    onChosen: onCLIChosen,
+    onSwitched,
+  });
+
   const setTarget = React.useCallback(
     (target: ModelTarget) => {
       const nextProvider = target.providerKey ?? "";
@@ -305,7 +356,11 @@ export function useProviderPill({
       // 选中的就是当前已生效的同一完整组合：什么都不做，与后端
       // SetChatSessionModelTarget 的同一处幂等 no-op 语义对齐（避免每点一次已选中项
       // 就打一次 IPC，也避免同一 provider 的 provider-default / fixed-model 误判）。
-      if (nextProvider === providerKey && nextModel === modelKey) {
+      if (!nextProvider && cli.mode) {
+        void cli.inherit();
+        return;
+      }
+      if (nextProvider === providerKey && nextModel === modelKey && !cli.mode) {
         return;
       }
       const previousProvider = providerKey;
@@ -316,6 +371,7 @@ export function useProviderPill({
 
       if (!sessionId || sessionId <= 0) {
         // 新建会话：纯瞬态，首发 Send 时随 SendRequest.ProviderKey/ModelKey 透传。
+        cli.clear();
         return;
       }
       void SetChatSessionModelTarget({
@@ -324,6 +380,7 @@ export function useProviderPill({
         modelKey: nextModel,
       })
         .then(() => {
+          cli.clear();
           // 只有 target 成功持久化后才记录最近使用（spec「UI, accessibility and
           // recent targets」决策 19）。按执行位置指纹隔离：本机会话落 local，远端
           // 会话落 daemon:<deviceID>，远端选择绝不进入本机最近。
@@ -341,7 +398,7 @@ export function useProviderPill({
           setError(msg);
         });
     },
-    [providerKey, modelKey, sessionId, executionLocation, onSwitched],
+    [providerKey, modelKey, sessionId, executionLocation, onSwitched, cli],
   );
 
   // 与上面已有会话那一处同一条规则（决策 19）：只记已落库的目标，按执行位置隔离。
@@ -355,7 +412,7 @@ export function useProviderPill({
   const disabledReason: "unsupportedBackend" | "noCompatibleProviders" | null =
     !selectable
       ? "unsupportedBackend"
-      : !loading && !error && providers.length === 0
+      : !cliAvailable && !loading && !error && providers.length === 0
         ? "noCompatibleProviders"
         : null;
 
@@ -373,7 +430,7 @@ export function useProviderPill({
     [boundModelKey, boundProviderKey, catalog],
   );
 
-  const pillState = React.useMemo(
+  const providerPillState = React.useMemo(
     () =>
       resolveProviderPillState({
         boundProviderKey,
@@ -386,7 +443,29 @@ export function useProviderPill({
 
   // invalid：选中了目标，但它在目录里解析不出来（Provider/Model 缺失/停用/被删）。
   // 未选（inherit-agent / 空 target）恒不 invalid —— 推导在那一路直接给跟随态。
+  const pillState =
+    cliAvailable && !providerKey
+      ? resolveCLIPillState({
+          catalog: cli.catalog,
+          choice: cli.choice,
+          backendType,
+          boundValue: boundCLIModel,
+          actualModelId: actualCLIModel,
+          pending: cliModelPending,
+          error: cliModelError,
+          loading: cli.loading,
+        })
+      : providerPillState;
   const invalid = pillState.mode === "invalid";
+  const cliBound =
+    cliAvailable && boundCLIModel !== undefined
+      ? cliModelResolution(
+          cli.catalog,
+          boundCLIModel
+            ? { mode: "fixed", value: boundCLIModel }
+            : { mode: "cli-default" },
+        )
+      : null;
 
   // ── 远端门控（gap 1）：目标执行设备是远端时，以 daemon 目录为可运行事实源。──────
   // executionLocation 可以是 canonical fingerprint，也兼容遗留 paired-row 数字 ID；
@@ -502,7 +581,24 @@ export function useProviderPill({
     [fetchRemote, remoteDeviceID],
   );
 
+  // 挂起中的切换同时交给弹层：标出本轮在用的那行，并在底部说清何时换上新模型。
+  const cliModels: CliModelPickerState | undefined =
+    cli.cliModels && pillState.pending
+      ? {
+          ...cli.cliModels,
+          pending: {
+            currentModelId: actualCLIModel ?? "",
+            currentLabel: pillState.modelLabel,
+            nextLabel: pillState.pending.label,
+            nextMode: pillState.pending.mode,
+          },
+        }
+      : cli.cliModels;
+
   return {
+    cliModels,
+    cliModelMode: cli.mode,
+    cliModel: cli.value,
     providerKey,
     modelKey,
     setTarget,
@@ -513,21 +609,24 @@ export function useProviderPill({
     catalogLoading,
     catalogError,
     loading,
-    error,
+    error: cliModelError || error,
     unbound: !boundProviderKey,
     effectiveKey: providerKey || boundProviderKey || "",
     pillState,
     resolvedModelLabel: invalid ? "" : pillState.modelLabel,
     resolvedModelId: invalid ? "" : pillState.modelId,
-    boundResolutionLabel: boundState.resolutionLabel,
+    boundResolutionLabel: cliBound
+      ? `${i18n.t(`agentBackends.backendType.${backendType}.shortLabel`, { ns: AGENTRE_UI_NAMESPACE })}${cliBound.label ? ` · ${cliBound.label}` : ""}`
+      : boundState.resolutionLabel,
     boundProviderType: boundState.providerType,
     boundProviderLabel: boundState.providerLabel,
-    boundModelLabel: boundState.modelLabel,
+    boundModelLabel: cliBound?.modelId || boundState.modelLabel,
     boundCliLogin: boundState.cliLogin,
     invalid,
     disabled: loading || catalogLoading || disabledReason !== null,
     disabledReason,
     executionLocation,
+    deviceLabel: cliAvailable && executionLocation ? deviceLabel : undefined,
     remoteCatalog,
     supportsFixedModel,
     remoteMissing,

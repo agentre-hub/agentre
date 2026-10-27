@@ -42,6 +42,7 @@ type inboundSessionAdapter interface {
 	SetPermissionMode(context.Context, *chat_svc.SetPermissionModeRequest) (*chat_svc.SetPermissionModeResponse, error)
 	SetChatSessionModelTarget(context.Context, *chat_svc.SetChatSessionModelTargetRequest) (*chat_svc.SetChatSessionModelTargetResponse, error)
 	SetChatSessionReasoningEffort(context.Context, *chat_svc.SetChatSessionReasoningEffortRequest) (*chat_svc.SetChatSessionReasoningEffortResponse, error)
+	SetChatSessionCLIModel(context.Context, *chat_svc.SetChatSessionCLIModelRequest) (*chat_svc.SetChatSessionCLIModelResponse, error)
 }
 
 // Inbound keeps the desktop registered through one reconnecting relay link and

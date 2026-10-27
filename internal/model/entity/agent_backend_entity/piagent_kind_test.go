@@ -31,7 +31,9 @@ func TestPiAgentKind(t *testing.T) {
 			So(kind.ValidateExtra(ctx, &AgentBackend{Type: string(TypePiAgent), Name: "pi", Sandbox: "read-only", ModelRoutes: "{}", EnvJSON: "{}"}), ShouldNotBeNil)
 			So(kind.ValidateExtra(ctx, &AgentBackend{Type: string(TypePiAgent), Name: "pi", Approval: "never", ModelRoutes: "{}", EnvJSON: "{}"}), ShouldNotBeNil)
 			So(kind.ValidateExtra(ctx, &AgentBackend{Type: string(TypePiAgent), Name: "pi", DefaultPermissionMode: "plan", ModelRoutes: "{}", EnvJSON: "{}"}), ShouldNotBeNil)
-			So(kind.ValidateExtra(ctx, &AgentBackend{Type: string(TypePiAgent), Name: "pi", DefaultModel: "gpt-5", ModelRoutes: "{}", EnvJSON: "{}"}), ShouldNotBeNil)
+			// spec 2026-10-26 决策 7：默认模型是 piagent 在 CLI 登录态下可保存的字段（--model），
+			// 不再是「其它后端独有」的错。
+			So(kind.ValidateExtra(ctx, &AgentBackend{Type: string(TypePiAgent), Name: "pi", DefaultModel: "zhipu/glm-5.3", ModelRoutes: "{}", EnvJSON: "{}"}), ShouldBeNil)
 		})
 	})
 }

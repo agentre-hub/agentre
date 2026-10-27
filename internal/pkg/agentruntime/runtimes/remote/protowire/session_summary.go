@@ -37,6 +37,8 @@ func SessionSummaryToProto(value wire.SessionSummary) *agentrewire.SessionSummar
 		ProviderKey:       value.ProviderKey,
 		ModelKey:          value.ModelKey,
 		ReasoningEffort:   value.ReasoningEffort,
+		CliModelMode:      value.CLIModelMode,
+		CliModel:          value.CLIModel,
 	}
 }
 
@@ -60,5 +62,7 @@ func SessionSummaryFromProto(value *agentrewire.SessionSummary) wire.SessionSumm
 		ProviderKey:       value.GetProviderKey(),
 		ModelKey:          value.GetModelKey(),
 		ReasoningEffort:   value.GetReasoningEffort(),
+		CLIModelMode:      value.GetCliModelMode(),
+		CLIModel:          value.GetCliModel(),
 	}
 }

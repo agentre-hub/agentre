@@ -69,6 +69,7 @@ import { computeComposerContextUsage } from "./chat-panel-context-usage";
 import { deriveComposerCapabilities } from "./chat-panel/composer-capabilities";
 import { usePermissionMode } from "./permission-mode";
 import { ProviderPill, useProviderPill } from "./model-pill";
+import { draftCLIModelBinding } from "./model-pill/draft-cli-binding";
 import {
   ReasoningEffortPill,
   useReasoningEffortPill,
@@ -485,6 +486,20 @@ function ChatPanel({
   // 选中后立即持久化（SetChatSessionModelTarget），成功再 reloadSession() 把新追加的
   // switch notice 拉进 transcript。
   const providerPill = useProviderPill({
+    backendId:
+      sessionId > 0
+        ? session?.agentBackendId
+        : execTargetOverride || newSessionAgent?.agentBackendId,
+    boundCLIModel:
+      sessionId > 0
+        ? session?.agentCLIModel
+        : draftCLIModelBinding(newSessionAgent, execTargetOverride),
+    persistedCLIModelMode: session?.cliModelMode,
+    persistedCLIModel: session?.cliModel,
+    actualCLIModel: session?.actualCLIModel,
+    cliModelError: session?.cliModelError,
+    cliModelPending: session?.cliModelPending,
+    deviceLabel: activeDeviceID ? quotaDeviceLabel : undefined,
     backendType: activeBackendType,
     boundProviderKey:
       sessionId > 0
@@ -594,6 +609,8 @@ function ChatPanel({
     supportsCompactRPC,
     execTargetOverride,
     effectiveTarget,
+    cliModelMode: providerPill.cliModelMode,
+    cliModel: providerPill.cliModel,
     providerKey: providerPill.providerKey,
     modelKey: providerPill.modelKey,
     // 草稿态选中的思考力度随首条消息与会话一同落库(spec 2026-09-01「新建会话」),

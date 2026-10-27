@@ -51,6 +51,7 @@ func productionProtobufInboundDeps(portForward *portforward.Handlers) ProtobufIn
 			Test:           newDesktopEngineTest(desktopEngineProviders{}),
 			ResolveCLIPath: desktopResolveCLIPath,
 		},
+		CLIModelsList: handlers.NewCLIModelsHandlers().List,
 		Peripheral: wireinbound.PeripheralDeps{
 			Skills: handlers.NewSkillsHandlers(), RemoteFS: remotefs.NewHandlers(remotefs.Options{}),
 			// WorkspaceFS 与 RemoteFS 同一形状:零配置构造,与 agentred 那一侧
@@ -124,6 +125,14 @@ func productionProtobufInboundDeps(portForward *portforward.Handlers) ProtobufIn
 				return err
 			}
 			_, err = adapter().SetChatSessionModelTarget(ctx, &chat_svc.SetChatSessionModelTargetRequest{SessionID: sessionID, ProviderKey: providerKey, ModelKey: modelKey})
+			return err
+		},
+		SetSessionCLIModel: func(ctx context.Context, conversationID, mode, value string) error {
+			sessionID, err := chat_svc.ResolvePeerConversation(ctx, conversationID)
+			if err != nil {
+				return err
+			}
+			_, err = adapter().SetChatSessionCLIModel(ctx, &chat_svc.SetChatSessionCLIModelRequest{SessionID: sessionID, Mode: mode, Value: value})
 			return err
 		},
 		SetReasoningEffort: func(ctx context.Context, conversationID string, reasoningEffort string) error {

@@ -8,6 +8,7 @@ import {
   EnvJsonField,
   HermesAuthFields,
   HermesFields,
+  ModelBindingSection,
   ReasoningEffortField,
 } from "./agent-backends-fields";
 
@@ -16,6 +17,84 @@ import {
 // (claudecode / codex / piagent / builtin，调用方按 type !== "openclaw" 门控是否
 // 渲染这颗字段)呈现同一张六档表,codex 不再被单独藏 max。组件本身不再吃 type，
 // 这张表因此对所有调用方恒等。
+describe("Claude CLI model binding", () => {
+  const base = {
+    type: "claudecode" as const,
+    providers: [],
+    value: "",
+    modelKey: "",
+    onTargetChange: vi.fn(),
+    invalid: false,
+    piAgentModelMissing: false,
+    editing: true,
+    catalog: [],
+    catalogLoading: false,
+    catalogError: false,
+    executionLocation: "",
+    supportsFixedModel: true,
+    routes: {
+      OPUS: { providerKey: "", modelKey: "" },
+      SONNET: { providerKey: "", modelKey: "" },
+      HAIKU: { providerKey: "", modelKey: "" },
+    },
+    onRoutesChange: vi.fn(),
+    customModel: "saved-manual-id",
+    onCustomModelChange: vi.fn(),
+    resolvedMainTarget: {
+      mode: "native" as const,
+      providerName: "",
+      providerType: "",
+      modelLabel: "",
+    },
+    openPickerOnMount: false,
+  };
+  it("Given a saved manual CLI model and no providers, When opening the binding picker, Then it is fixed and selectable without a separate custom-model input", async () => {
+    render(
+      <ModelBindingSection
+        {...base}
+        cliCatalog={{ models: [], effectiveModelId: "default-id" }}
+        onRefreshCLIModels={vi.fn()}
+      />,
+    );
+    expect(screen.queryByLabelText("Custom Model")).not.toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "Model binding" });
+    expect(trigger).toHaveTextContent("Claude Code login account");
+    expect(trigger).toHaveTextContent("Fixed");
+    expect(trigger).toHaveTextContent("saved-manual-id");
+    await userEvent.click(trigger);
+    expect(
+      screen.getByRole("option", { name: /saved-manual-id/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    await userEvent.click(
+      screen.getByRole("option", { name: /Follow CLI default/ }),
+    );
+    expect(base.onCustomModelChange).toHaveBeenLastCalledWith("");
+    expect(base.onTargetChange).toHaveBeenLastCalledWith({
+      providerKey: "",
+      modelKey: "",
+    });
+  });
+  it("Given CLI default mode, Then applied settings resolve the trigger and explain following future defaults", () => {
+    render(
+      <ModelBindingSection
+        {...base}
+        customModel=""
+        cliCatalog={{
+          models: [
+            { value: "sonnet", label: "CLI Sonnet", modelId: "sonnet-id" },
+          ],
+          effectiveValue: "sonnet",
+          effectiveModelId: "sonnet-id",
+        }}
+        onRefreshCLIModels={vi.fn()}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Model binding" });
+    expect(trigger).toHaveTextContent("CLI Sonnet · sonnet-id");
+    expect(trigger).toHaveTextContent("Follows changes to the CLI default");
+  });
+});
+
 describe("ReasoningEffortField", () => {
   it("展示同一张六档表(含 max)", async () => {
     render(<ReasoningEffortField value="" onChange={vi.fn()} />);

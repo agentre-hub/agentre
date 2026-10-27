@@ -42,6 +42,9 @@ func noticeBlockToChatBlock(tb blocks.NoticeBlock) ChatBlock {
 			NoticeKind:   p.Kind,
 			// kind=reasoning_effort 的 notice 靠它说出切到了哪一档；其余 kind 恒为空。
 			ReasoningEffort: p.ReasoningEffort,
+			CLIModelMode:    p.CLIModelMode,
+			CLIModel:        p.CLIModel,
+			ActualModel:     p.ActualModel,
 		}
 	}
 	return ChatBlock{Type: ChatBlockTypeNotice, Level: tb.Level, Text: tb.Text}

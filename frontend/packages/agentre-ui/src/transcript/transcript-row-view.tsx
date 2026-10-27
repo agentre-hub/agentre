@@ -891,34 +891,49 @@ function RenderItemView({
       const modelLabel = item.block.modelName || modelKey;
       const noticeKind = item.block.noticeKind;
       const content =
-        noticeKind === "hermes_unsupported_request"
-          ? t("chat.notice.hermesUnsupportedRequest.sentence", {
-              purpose: t(
-                `chat.notice.hermesUnsupportedRequest.purpose.${unsupportedRequestPurposeKey(item.block.noticePurpose)}`,
-              ),
-            })
-          : noticeKind === "reasoning_effort"
-            ? item.block.reasoningEffort
-              ? t("chat.notice.reasoningEffortSwitch.sentence", {
-                  level: item.block.reasoningEffort,
+        noticeKind === "cli_model"
+          ? item.block.cliModelMode === "fixed"
+            ? t("modelTargetPicker.cli.switchedFixed", {
+                model: item.block.cliModel,
+              })
+            : t(
+                item.block.cliModelMode === "cli-default"
+                  ? "modelTargetPicker.cli.switchedDefault"
+                  : "modelTargetPicker.cli.switchedAgent",
+              )
+          : noticeKind === "cli_model_deviation"
+            ? t("modelTargetPicker.cli.deviation", {
+                selected: item.block.cliModel,
+                actual: item.block.actualModel,
+              })
+            : noticeKind === "hermes_unsupported_request"
+              ? t("chat.notice.hermesUnsupportedRequest.sentence", {
+                  purpose: t(
+                    `chat.notice.hermesUnsupportedRequest.purpose.${unsupportedRequestPurposeKey(item.block.noticePurpose)}`,
+                  ),
                 })
-              : t("chat.notice.reasoningEffortSwitch.followBackend")
-            : noticeKind === "switch"
-              ? providerKey
-                ? modelKey
-                  ? t("chat.notice.providerSwitch.fixedModel", {
-                      provider: providerLabel,
-                      model: modelLabel,
+              : noticeKind === "reasoning_effort"
+                ? item.block.reasoningEffort
+                  ? t("chat.notice.reasoningEffortSwitch.sentence", {
+                      level: item.block.reasoningEffort,
                     })
-                  : t("chat.notice.providerSwitch.sentence", {
-                      provider: providerLabel,
-                    })
-                : t("chat.notice.providerSwitch.followAgentBinding")
-              : providerKey
-                ? t("chat.notice.providerFallback.sentence", {
-                    provider: providerLabel,
-                  })
-                : (item.block.text ?? "");
+                  : t("chat.notice.reasoningEffortSwitch.followBackend")
+                : noticeKind === "switch"
+                  ? providerKey
+                    ? modelKey
+                      ? t("chat.notice.providerSwitch.fixedModel", {
+                          provider: providerLabel,
+                          model: modelLabel,
+                        })
+                      : t("chat.notice.providerSwitch.sentence", {
+                          provider: providerLabel,
+                        })
+                    : t("chat.notice.providerSwitch.followAgentBinding")
+                  : providerKey
+                    ? t("chat.notice.providerFallback.sentence", {
+                        provider: providerLabel,
+                      })
+                    : (item.block.text ?? "");
       return (
         <section
           role="status"

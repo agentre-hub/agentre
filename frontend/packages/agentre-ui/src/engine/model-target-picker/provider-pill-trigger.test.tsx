@@ -39,13 +39,15 @@ describe("ProviderPillTrigger", () => {
     expect(screen.getByText(/Follow agent binding/).textContent).toContain(
       "Sonnet 4.6",
     );
-    expect(screen.getByTestId("follow-agent-icon")).toBeInTheDocument();
+    expect(screen.queryByTestId("follow-agent-icon")).not.toBeInTheDocument();
   });
 
-  // 还没解析出任何东西时只写那句话，不硬凑一个「· 」的空尾巴。
+  // 解析不到模型时只剩那句话，不硬凑一个「· 」的空尾巴；图标此时按回落链
+  // 找得到什么画什么，最次也是人形 —— 绝不空着一格。
   it("跟随绑定但还不知道解析到什么：只写那句话", () => {
     render(<ProviderPillTrigger state={state({ mode: "follow-agent" })} />);
     expect(screen.getByText("Follow agent binding")).toBeInTheDocument();
+    expect(screen.getByTestId("follow-agent-icon")).toBeInTheDocument();
   });
 
   // 确知没绑供应商 → 下一轮的模型由 CLI 自己的登录账号决定，这才是真正的来源。
@@ -58,6 +60,94 @@ describe("ProviderPillTrigger", () => {
     expect(screen.getByText(/Follow agent binding/).textContent).toContain(
       "CLI login state",
     );
+  });
+
+  // 决策 8：跟随 Agent 绑定也用**解析到的模型**的品牌标识 —— 品牌比人形更快认出
+  // 模型，供应商模式下同样成立（模型标识优先于供应商）。
+  it("跟随绑定且解析到模型：画模型的品牌标识，不画人形", () => {
+    render(
+      <ProviderPillTrigger
+        state={state({
+          mode: "follow-agent",
+          modelLabel: "Sonnet 4.6",
+          modelId: "claude-sonnet-4-6",
+          providerLabel: "Relay",
+          providerType: "openai-chat",
+        })}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Claude" })).toBeInTheDocument();
+    expect(screen.queryByTestId("follow-agent-icon")).not.toBeInTheDocument();
+  });
+
+  // 回落链第二格：模型 ID 认不出品牌（中转商的私有化命名）时退到供应商标识。
+  it("跟随绑定但模型认不出品牌：退到供应商标识", () => {
+    render(
+      <ProviderPillTrigger
+        state={state({
+          mode: "follow-agent",
+          modelLabel: "relay-1",
+          modelId: "relay-private-1",
+          providerLabel: "Relay",
+          providerType: "anthropic",
+        })}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Anthropic" })).toBeInTheDocument();
+    expect(screen.queryByTestId("follow-agent-icon")).not.toBeInTheDocument();
+  });
+
+  // 回落链第三格：没有供应商可认领（CLI 登录态 / 还没解析出绑定）时退到后端标识
+  // —— 这一轮真跑在哪个 CLI 上，比一个人形更有信息。
+  it("跟随绑定但没有供应商可认领：退到后端标识", () => {
+    render(
+      <ProviderPillTrigger
+        state={state({
+          mode: "follow-agent",
+          modelLabel: "relay-1",
+          modelId: "relay-private-1",
+          providerLabel: "",
+          providerType: "",
+          backendType: "claudecode",
+        })}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Claude" })).toBeInTheDocument();
+    expect(screen.queryByTestId("follow-agent-icon")).not.toBeInTheDocument();
+  });
+
+  // 回落链第四格：模型、供应商、后端全都认不出 → 人形。宁可回到今天的样子，
+  // 也不许空出一格。
+  it("跟随绑定且三格都认不出：回到人形，不留空位", () => {
+    render(
+      <ProviderPillTrigger
+        state={state({
+          mode: "follow-agent",
+          modelId: "relay-private-1",
+          providerLabel: "",
+          providerType: "",
+          backendType: "",
+        })}
+      />,
+    );
+    expect(screen.getByTestId("follow-agent-icon")).toBeInTheDocument();
+  });
+
+  // 确知没绑供应商时解析出的模型来自 CLI 登录账号：一样按模型标识上脸。
+  it("确知没绑供应商且已解析到 CLI 模型：同样画模型的品牌标识", () => {
+    render(
+      <ProviderPillTrigger
+        state={state({
+          mode: "follow-agent",
+          cliLogin: true,
+          modelLabel: "GPT-5.5",
+          modelId: "gpt-5.5",
+          backendType: "codex",
+        })}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "OpenAI" })).toBeInTheDocument();
+    expect(screen.queryByTestId("follow-agent-icon")).not.toBeInTheDocument();
   });
 
   // 展示名是人读文案，不走等宽；品牌标识仍按模型 ID 判定 —— 中转供应商下的

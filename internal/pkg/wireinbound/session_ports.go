@@ -67,6 +67,7 @@ type SessionPorts struct {
 	Delete             func(context.Context, *agentrewire.SessionDeleteRequest) (*agentrewire.SessionDeleteResponse, error)
 	SetModelTarget     func(context.Context, *agentrewire.SetModelTargetRequest) (*agentrewire.SetModelTargetResponse, error)
 	SetReasoningEffort func(context.Context, *agentrewire.SetSessionReasoningEffortRequest) (*agentrewire.SetSessionReasoningEffortResponse, error)
+	SetSessionCLIModel func(context.Context, *agentrewire.SetSessionCLIModelRequest) (*agentrewire.SetSessionCLIModelResponse, error)
 
 	// ── 跑一轮与轮内控制 ────────────────────────────────────────────────────
 	Capabilities         func(context.Context, *agentrewire.RuntimeCapabilitiesRequest) (*agentrewire.RuntimeCapabilitiesResponse, error)
@@ -76,6 +77,7 @@ type SessionPorts struct {
 	SubmitAnswer         func(context.Context, *agentrewire.RuntimeSubmitAnswerRequest) (*agentrewire.PeerSessionControlResponse, error)
 	SubmitToolPermission func(context.Context, *agentrewire.RuntimeSubmitToolPermissionRequest) (*agentrewire.PeerSessionControlResponse, error)
 	SetPermissionMode    func(context.Context, *agentrewire.RuntimeSetPermissionModeRequest) (*agentrewire.Empty, error)
+	SetCLIModel          func(context.Context, *agentrewire.RuntimeSetCLIModelRequest) (*agentrewire.Empty, error)
 	// Abort 停掉这一条会话**正在跑**的那一轮(CancelSteer 撤的是还没被取走的排队
 	// 消息,不是同一件事)。
 	//

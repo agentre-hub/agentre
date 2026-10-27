@@ -18,6 +18,7 @@ import { sameTarget } from "./types";
 import type { LucideIcon } from "lucide-react";
 
 export interface PickerOptionListProps {
+  withinListbox?: boolean;
   listRef: React.RefObject<HTMLUListElement | null>;
   ariaLabel?: string;
   options: Option[];
@@ -38,6 +39,7 @@ export interface PickerOptionListProps {
 }
 
 export function PickerOptionList({
+  withinListbox = false,
   listRef,
   ariaLabel,
   options,
@@ -58,7 +60,7 @@ export function PickerOptionList({
   return (
     <ul
       ref={listRef}
-      role="listbox"
+      role={withinListbox ? "group" : "listbox"}
       aria-label={ariaLabel}
       className="flex flex-col gap-0.5"
     >

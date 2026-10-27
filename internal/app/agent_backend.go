@@ -4,6 +4,11 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 )
 
+// ListCLIModels 查询后端所在设备的 CLI 自带模型与无模型参数时的生效默认值。
+func (a *App) ListCLIModels(req *agent_backend_svc.ListCLIModelsRequest) (*agent_backend_svc.ListCLIModelsResponse, error) {
+	return agent_backend_svc.AgentBackend().ListCLIModels(a.ctx, req)
+}
+
 // ListAgentBackends 列出全部 Agent 后端（已 join LLM 供应商摘要）。
 func (a *App) ListAgentBackends() (*agent_backend_svc.ListBackendsResponse, error) {
 	return agent_backend_svc.AgentBackend().List(a.ctx, &agent_backend_svc.ListBackendsRequest{})

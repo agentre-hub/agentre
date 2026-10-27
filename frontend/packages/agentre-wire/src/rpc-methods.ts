@@ -35,6 +35,12 @@ function method<
 }
 
 export const rpcMethods = {
+  cliModelsList: method(
+    "cliModelsList",
+    77,
+    pb.CLIModelsListRequestSchema,
+    pb.CLIModelsListResponseSchema,
+  ),
   authAccount: method(
     "authAccount",
     1,
@@ -118,6 +124,18 @@ export const rpcMethods = {
     13,
     pb.RuntimeStopBackgroundTaskRequestSchema,
     pb.EmptySchema,
+  ),
+  runtimeSetCLIModel: method(
+    "runtimeSetCLIModel",
+    78,
+    pb.RuntimeSetCLIModelRequestSchema,
+    pb.EmptySchema,
+  ),
+  setSessionCLIModel: method(
+    "setSessionCLIModel",
+    79,
+    pb.SetSessionCLIModelRequestSchema,
+    pb.SetSessionCLIModelResponseSchema,
   ),
   runtimeSetPermissionMode: method(
     "runtimeSetPermissionMode",

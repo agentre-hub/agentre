@@ -237,6 +237,21 @@ func (mr *MockSessionRepoMockRecorder) LocalID(ctx, conversationID any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LocalID", reflect.TypeOf((*MockSessionRepo)(nil).LocalID), ctx, conversationID)
 }
 
+// SetCLIModel mocks base method.
+func (m *MockSessionRepo) SetCLIModel(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, mode, value string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetCLIModel", ctx, peerFingerprint, conversationID, mode, value)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetCLIModel indicates an expected call of SetCLIModel.
+func (mr *MockSessionRepoMockRecorder) SetCLIModel(ctx, peerFingerprint, conversationID, mode, value any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCLIModel", reflect.TypeOf((*MockSessionRepo)(nil).SetCLIModel), ctx, peerFingerprint, conversationID, mode, value)
+}
+
 // SetModelTarget mocks base method.
 func (m *MockSessionRepo) SetModelTarget(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, providerKey, modelKey string) (int64, error) {
 	m.ctrl.T.Helper()

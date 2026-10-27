@@ -320,6 +320,8 @@ func (d *Daemon) registerProtobufMethods() {
 			return response, nil
 		})
 
+	wireinbound.RegisterCLIModelsList(d.protobufRegistry, handlers.NewCLIModelsHandlers().List)
+
 	skillsHandlers := handlers.NewSkillsHandlers()
 	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_SKILLS_LIST),
 		func() *agentrewire.SkillsListRequest { return &agentrewire.SkillsListRequest{} },
@@ -514,6 +516,7 @@ func (d *Daemon) daemonSessionPorts() wireinbound.SessionPorts {
 		Delete:             d.sessionDelete.Delete,
 		SetModelTarget:     d.sessionModelTarget.SetModelTarget,
 		SetReasoningEffort: d.sessionReasoningEffort.SetReasoningEffort,
+		SetSessionCLIModel: d.sessionCLIModel.SetCLIModel,
 		AnswerToolApproval: d.ctl.AnswerToolApproval,
 	}
 }

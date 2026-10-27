@@ -45,7 +45,121 @@ describe("typed protobuf RPC methods", () => {
       74,
       75,
       76,
+      77,
+      78,
+      79,
     ]);
+  });
+
+  it("Given a device query, When encoding CLI models, Then device config and model identities round-trip including an empty catalog", () => {
+    expect(rpcMethods.cliModelsList.id).toBe(RpcMethod.CLI_MODELS_LIST);
+    const request = encodeRpcMethodRequest(8n, rpcMethods.cliModelsList, {
+      backendType: "piagent",
+      cliPath: "/device/pi",
+      envJson: '{"X":"device"}',
+    });
+    expect(ProtobufRpcCodec.decode(request).body).toMatchObject({
+      case: "typedMethodRequest",
+      methodId: RpcMethod.CLI_MODELS_LIST,
+      method: "cliModelsList",
+      value: {
+        backendType: "piagent",
+        cliPath: "/device/pi",
+        envJson: '{"X":"device"}',
+      },
+    });
+    for (const models of [
+      [
+        {
+          value: "provider/id",
+          displayName: "Model",
+          modelId: "id",
+          group: "provider",
+          legacy: true,
+        },
+      ],
+      [],
+    ]) {
+      const response = ProtobufRpcCodec.encodeTypedMethodResponse(
+        8n,
+        rpcMethods.cliModelsList,
+        {
+          models,
+          effectiveValue: "provider/id",
+          effectiveModelId: "id",
+        },
+      );
+      expect(
+        decodeRpcMethodResponse(response, rpcMethods.cliModelsList),
+      ).toMatchObject({
+        models,
+        effectiveValue: "provider/id",
+        effectiveModelId: "id",
+      });
+    }
+  });
+
+  it("Given a session CLI choice, When encoding run, switch, reset and summary frames, Then the raw selection survives", () => {
+    for (const choice of [
+      { mode: "fixed", value: "provider/id" },
+      { mode: "cli-default", value: "" },
+      { mode: "", value: "" },
+    ]) {
+      const run = encodeRpcMethodRequest(10n, rpcMethods.runtimeRun, {
+        conversationId: CONVERSATION_ID,
+        cliModelMode: choice.mode,
+        cliModel: choice.value,
+      });
+      expect(ProtobufRpcCodec.decode(run).body).toMatchObject({
+        case: "typedMethodRequest",
+        value: { cliModelMode: choice.mode, cliModel: choice.value },
+      });
+      const setting = encodeRpcMethodRequest(
+        11n,
+        rpcMethods.setSessionCLIModel,
+        {
+          conversationId: CONVERSATION_ID,
+          ...choice,
+        },
+      );
+      expect(ProtobufRpcCodec.decode(setting).body).toMatchObject({
+        case: "typedMethodRequest",
+        methodId: RpcMethod.SET_SESSION_CLI_MODEL,
+        value: { conversationId: CONVERSATION_ID, ...choice },
+      });
+      const switchModel = encodeRpcMethodRequest(
+        12n,
+        rpcMethods.runtimeSetCLIModel,
+        {
+          conversationId: CONVERSATION_ID,
+          value: choice.value,
+        },
+      );
+      expect(ProtobufRpcCodec.decode(switchModel).body).toMatchObject({
+        case: "typedMethodRequest",
+        methodId: RpcMethod.RUNTIME_SET_CLI_MODEL,
+        value: { conversationId: CONVERSATION_ID, value: choice.value },
+      });
+      const listed = ProtobufRpcCodec.encodeTypedMethodResponse(
+        13n,
+        rpcMethods.sessionList,
+        {
+          sessions: [
+            {
+              conversationId: CONVERSATION_ID,
+              cliModelMode: choice.mode,
+              cliModel: choice.value,
+            },
+          ],
+        },
+      );
+      expect(
+        decodeRpcMethodResponse(listed, rpcMethods.sessionList).sessions[0],
+      ).toMatchObject({
+        cliModelMode: choice.mode,
+        cliModel: choice.value,
+      });
+    }
   });
 
   // 76(toolApproval.answer):控制台按 (对话, requestId) 答任意 toolKey 的工具审批卡。

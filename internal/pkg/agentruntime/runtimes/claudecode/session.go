@@ -266,7 +266,7 @@ func claudeEffectiveModel(req agentruntime.RunRequest) string {
 			return pm
 		}
 	}
-	return strings.TrimSpace(req.Backend.DefaultModel)
+	return req.CLIModelChoiceValue()
 }
 
 func ccBuildClientOpts(spec ccLaunchSpec, binary string) []claudecode.Option {

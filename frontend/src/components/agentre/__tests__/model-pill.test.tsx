@@ -484,12 +484,13 @@ describe("ProviderPill · 新建会话 ModelTarget 选择器", () => {
     expect(pill).toHaveTextContent("Follow agent binding");
     expect(pill).toHaveTextContent("Acme Claude");
     expect(pill).not.toHaveTextContent("claude-sonnet-4-5");
-    const followAgentIcon = screen.getByTestId("follow-agent-icon");
-    expect(followAgentIcon).toBeInTheDocument();
-    // Mockup uses a plain person silhouette (no brand/VCS glyph) for the
-    // follow-agent state — must not render lucide's GitBranch icon.
-    expect(followAgentIcon).toHaveClass("lucide-user-round");
-    expect(followAgentIcon).not.toHaveClass("lucide-git-branch");
+    // Follow-agent no longer stops at the person silhouette: with no bound model key
+    // the brand fallback chain lands on the provider mark, so the pill already says
+    // who it will run through while the text promises only that provider.
+    expect(
+      within(pill).getByRole("img", { name: "Anthropic" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("follow-agent-icon")).not.toBeInTheDocument();
   });
 });
 
@@ -535,9 +536,12 @@ describe("ProviderPill · Composer 四态（mockup ?view=chat：单行，脸上�
     expect(pill.className).not.toMatch(/hover:border-/);
     // focus-visible ring 是键盘用户的唯一定位手段，不能被 hover 改动顺手抹掉。
     expect(pill).toHaveClass("focus-visible:focus-outline");
-    expect(screen.getByTestId("follow-agent-icon")).toBeInTheDocument();
-    // 跟随 Agent 态由人形图标表达，不挂供应商品牌标识（mockup 四态样品第一格）。
-    expect(within(pill).queryByRole("img")).not.toBeInTheDocument();
+    // The follow marker is the resolved model's brand mark (spec decision 8) rather
+    // than the person silhouette, which stays reserved for "no brand could be found".
+    expect(
+      within(pill).getByRole("img", { name: "Claude" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("follow-agent-icon")).not.toBeInTheDocument();
   });
 
   it("Given an existing session follows an agent provider default, when the default resolves, then the pill shows the resolved model with a dynamic marker", async () => {

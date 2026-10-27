@@ -505,6 +505,8 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 		ForkAnchor:        request.GetForkAnchor(),
 		PermissionMode:    request.GetPermissionMode(),
 		CollaborationMode: request.GetCollaborationMode(),
+		CLIModelMode:      request.GetCliModelMode(),
+		CLIModel:          request.GetCliModel(),
 		// 内置工具 MCP server 的 URL 是 desktop 的 127.0.0.1(在 daemon 主机拨不到),
 		// 改写成 daemon 本机 gateway base → CLI 打到本地 /mcp/ 隧道入口,再反向请求回
 		// desktop 执行。Headers(desktop 签的 token)/ Tools / Name 原样保留。
@@ -1454,6 +1456,18 @@ func (h *RuntimeHandlers) StopBackgroundTask(ctx context.Context, req *agentrewi
 		return nil, err
 	}
 	if err := s.StopBackgroundTask(ctx, rid, req.GetTaskId()); err != nil {
+		return nil, err
+	}
+	return &agentrewire.Empty{}, nil
+}
+
+// SetCLIModel 只路由到已附着的本地 runtime，不改写 CLI 的拒绝原文。
+func (h *RuntimeHandlers) SetCLIModel(ctx context.Context, req *agentrewire.RuntimeSetCLIModelRequest) (*agentrewire.Empty, error) {
+	setter, rid, err := resolveSessionCapability[agentruntime.CLIModelSetter](ctx, h, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()))
+	if err != nil {
+		return nil, err
+	}
+	if err := setter.SetCLIModel(ctx, rid, req.GetValue()); err != nil {
 		return nil, err
 	}
 	return &agentrewire.Empty{}, nil

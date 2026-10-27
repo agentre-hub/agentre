@@ -42,7 +42,7 @@ extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-option (agentre.wire.protocol_version) = "0.4.0";
+option (agentre.wire.protocol_version) = "0.6.0";
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -122,6 +122,9 @@ enum RpcMethod {
   RPC_METHOD_HERMES_LOGOUT = 74;
   RPC_METHOD_BACKEND_CONNECTION_TEST = 75;
   RPC_METHOD_TOOL_APPROVAL_ANSWER = 76;
+  RPC_METHOD_CLI_MODELS_LIST = 77;
+  RPC_METHOD_RUNTIME_SET_CLI_MODEL = 78;
+  RPC_METHOD_SET_SESSION_CLI_MODEL = 79;
 }
 
 message WireFrame {
@@ -579,6 +582,11 @@ message SessionSummary {
   // configuration" — a meaningful value, not "unknown". Display only: the
   // executing path takes the effort off the run request, never off this column.
   string reasoning_effort = 16;
+  // CLI 选择三态：空 = 跟随 Agent；cli-default = CLI 默认；fixed = cli_model。
+  // 空值是有效的重置；镜像必须原样保存，不能用后端默认补齐。
+  string cli_model_mode = 17;
+  // fixed 时交给 CLI 的原始 Value（别名、模型 ID 或 provider/id）。
+  string cli_model = 18;
 }
 
 // ActivityRollup is the counts-only channel behind the account's activity
@@ -717,6 +725,16 @@ message SetSessionReasoningEffortRequest {
 
 message SetSessionReasoningEffortResponse {}
 
+// 会话选择的持久化入口；空 mode/value 是重置，不是「不改」。
+message SetSessionCLIModelRequest {
+  string conversation_id = 1;
+  string peer_fingerprint = 2;
+  // 空 = 跟随 Agent；cli-default = CLI 默认；fixed = 固定 value。
+  string mode = 3;
+  string value = 4;
+}
+message SetSessionCLIModelResponse {}
+
 message Empty {}
 
 message RuntimeCapabilitiesRequest { string backend_type = 1; }
@@ -750,6 +768,12 @@ message RuntimeAbortRequest { string conversation_id = 1; string peer_fingerprin
 message RuntimeAbortResponse { string turn_kind = 1; }
 message RuntimeStopBackgroundTaskRequest { string conversation_id = 1; string peer_fingerprint = 2; string task_id = 3; }
 message RuntimeSetPermissionModeRequest { string conversation_id = 1; string peer_fingerprint = 2; string mode = 3; }
+// 已附着会话的 CLI 热切换；value 为空时回到 CLI 默认，不重启进程。
+message RuntimeSetCLIModelRequest {
+  string conversation_id = 1;
+  string peer_fingerprint = 2;
+  string value = 3;
+}
 message RuntimeSubmitAnswerRequest {
   string conversation_id = 1;
   string peer_fingerprint = 2;
@@ -876,6 +900,10 @@ message RuntimeRunRequest {
   // token above is bound to. Sent together with desktop_ctl_token; 0 when the
   // token is empty.
   int64 desktop_session_id = 27;
+  // 本轮会话选择原样透传：空 = 跟随 backend.default_model，cli-default = 不下发，
+  // fixed = 下发 cli_model。与会话摘要同名，不能传成已解析模型而丢掉选择语义。
+  string cli_model_mode = 28;
+  string cli_model = 29;
 }
 message RuntimeRunResponse {
   string conversation_id = 1;
@@ -2002,4 +2030,33 @@ message CtlResponse {
     CtlGetResponse get = 2;
     CtlWriteResponse write = 3;
   }
+}
+
+// CLIModelsList 是设备级查询，desktop 与 console 均向实际执行设备发起。
+// 字段名是 agentre-server 的稳定契约：不传供应商、固定模型或会话参数。
+// cli_path 为空时由设备上的 runtime 使用本机默认路径；env_json 是后端的 CLI 登录态环境。
+message CLIModelsListRequest {
+  string backend_type = 1;
+  string cli_path = 2;
+  string env_json = 3;
+  // 与本机查询相同的启动配置：权限模式可能改变沙箱环境，effort 由 CLI 校验。
+  string default_permission_mode = 4;
+  string reasoning_effort = 5;
+}
+
+// value 是交给 CLI 的值，model_id 是 CLI 解析出的模型标识；group 用于 Pi 供应商分组。
+message CLIModel {
+  string value = 1;
+  string display_name = 2;
+  string model_id = 3;
+  string group = 4;
+  bool legacy = 5;
+}
+
+// effective_* 是不下发模型参数时 CLI 会用的默认值，不是任何会话的当前模型。
+// 失败通过 RPC error 返回原文，不用空目录冒充成功。
+message CLIModelsListResponse {
+  repeated CLIModel models = 1;
+  string effective_value = 2;
+  string effective_model_id = 3;
 }

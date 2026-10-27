@@ -38,6 +38,8 @@ const (
 	MethodAbort              = "runtime.abort"
 	MethodStopBackgroundTask = "runtime.stopBackgroundTask"
 	MethodSetPermissionMode  = "runtime.setPermissionMode"
+	MethodSetCLIModel        = "runtime.setCLIModel"
+	MethodSetSessionCLIModel = "runtime.setSessionCLIModel"
 	MethodSetModelTarget     = "runtime.setModelTarget"
 	// MethodSetSessionReasoningEffort 改这条会话钉的思考力度,与 setModelTarget 同族:
 	// 都是「改这条会话下一轮的 spawn 参数」,不影响正在跑的那一轮。
@@ -412,6 +414,9 @@ type RunParams struct {
 	// 此列:方法集变更已把协议窗口收成单点(MinSupported == Protocol),握手期即被拒。会话真的改回
 	// 「跟随后端配置」时,发起端合成出来的仍是后端配置那个值,两者不冲突。
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	// CLIModelMode/CLIModel 原样承载会话三态；空值表示跟随 Agent，不补后端默认。
+	CLIModelMode string `json:"cliModelMode,omitempty"`
+	CLIModel     string `json:"cliModel,omitempty"`
 	// SourceDevice / SourceDeviceName 是「开新一轮」发起方的设备身份（R18/R19）。
 	// 浏览器**每轮**随 runtime.run 声明自己的设备指纹与显示名（如「Chrome · macOS」）：
 	// 握手（auth.account）只带指纹、不带显示名，而 R19 要的是「人能认出的名字」，所以
@@ -551,6 +556,21 @@ type StopBackgroundTaskParams struct {
 	ConversationID  string             `json:"conversationId"`
 	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
 	TaskID          string             `json:"taskId"`
+}
+
+// SetCLIModelParams 切换已附着进程，空值回到 CLI 默认。
+type SetCLIModelParams struct {
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	Value           string             `json:"value"`
+}
+
+// SetSessionCLIModelParams 保存会话三态；空 mode/value 也是要写入的重置。
+type SetSessionCLIModelParams struct {
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	Mode            string             `json:"mode"`
+	Value           string             `json:"value"`
 }
 
 // SetPermissionModeParams 等同 agentruntime.PermissionModeSetter.SetPermissionMode 的入参。
@@ -713,6 +733,9 @@ type SessionSummary struct {
 	// 与上面两格一样**只供显示**:执行路径的力度取自 RunParams.ReasoningEffort,不读
 	// 这一列。老执行端不发这个字段,解出来是空串。
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	// CLIModelMode/CLIModel 是执行端记下的会话选择，供镜像原样保存。
+	CLIModelMode string `json:"cliModelMode,omitempty"`
+	CLIModel     string `json:"cliModel,omitempty"`
 }
 
 // SessionListParams 是 MethodSessionList 的请求:一页会话。

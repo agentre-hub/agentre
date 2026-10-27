@@ -95,6 +95,7 @@ import {
   referencedProviderKeys,
   safeParseEnv,
   saveBackendDraft,
+  supportsCLIModel,
   type BackendDraft,
   type PendingProviderSync,
 } from "./backend-editor/draft";
@@ -119,8 +120,12 @@ import { useBackendDevices } from "./backend-editor/use-backend-devices";
 import { useCliProbes } from "./backend-editor/use-cli-probes";
 import { useOpenClawFields } from "./backend-editor/use-openclaw-fields";
 import { useRemoteProviderCatalog } from "./backend-editor/use-remote-provider-catalog";
+import { useCLIModels } from "./backend-editor/use-cli-models";
+import type { ListCliModels } from "./model-target-picker/cli-models";
 
 type AgentBackendsPanelProps = {
+  // CLI 目录的宿主查询端口，传输与设备路由不进入共享组件。
+  listCLIModels?: ListCliModels;
   onOpenLlmProviders?: () => void;
   onOpenProxySettings?: () => void;
   // 页头由宿主渲染，面板把自己的页级操作（自动识别 / 新建后端）交进去：按钮要落在
@@ -145,6 +150,7 @@ export function AgentBackendsPanel({
 }
 
 function AgentBackendsPanelBody({
+  listCLIModels,
   onOpenLlmProviders,
   onOpenProxySettings,
   renderHeader,
@@ -522,6 +528,7 @@ function AgentBackendsPanelBody({
 
         {editor.kind !== "closed" ? (
           <BackendEditor
+            listCLIModels={listCLIModels}
             state={editor}
             providers={providers}
             onClose={() => setEditor({ kind: "closed" })}
@@ -571,6 +578,7 @@ function AgentBackendsPanelBody({
 }
 
 function BackendEditor({
+  listCLIModels,
   state,
   providers,
   onClose,
@@ -585,6 +593,7 @@ function BackendEditor({
   canEditOpenClawToken,
   hasLocalDevice,
 }: {
+  listCLIModels?: ListCliModels;
   state: EditorState;
   providers: Provider[];
   onClose: () => void;
@@ -709,6 +718,18 @@ function BackendEditor({
     getCliOverlay: ports.cliPath?.get,
     resolveCliPath: ResolveAgentBackendCLIPath,
     t,
+  });
+  const cliModels = useCLIModels({
+    backendId: editing?.id,
+    // CLI 自带模型段按 backendType 通用渲染（spec 2026-10-26 决策 7），不再只认 Claude Code。
+    enabled: supportsCLIModel(type),
+    listCLIModels,
+    configurationChanged:
+      Boolean(editing) &&
+      (deviceId !== (editing?.deviceId ?? "") ||
+        cli.cliPath !== cli.storedCliPath ||
+        JSON.stringify(envEntries) !==
+          JSON.stringify(safeParseEnv(editing?.envJson ?? ""))),
   });
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   // 走服务端合并那条路的两个本地态：写成了没有、失败的原文。
@@ -1423,6 +1444,16 @@ function BackendEditor({
               onRoutesChange={setRoutes}
               customModel={defaultModel}
               onCustomModelChange={setDefaultModel}
+              cliCatalog={cliModels.catalog}
+              cliModelsLoading={cliModels.loading}
+              onRefreshCLIModels={cliModels.refresh}
+              deviceLabel={
+                remoteExecution
+                  ? deviceState.deviceOptions.find(
+                      (device) => device.value === deviceId,
+                    )?.name
+                  : undefined
+              }
               resolvedMainTarget={resolvedMainTarget}
               openPickerOnMount={state.kind === "edit" && !!state.openBinding}
             />

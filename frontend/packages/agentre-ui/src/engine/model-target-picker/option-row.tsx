@@ -18,6 +18,63 @@ import { LlmProviderLogo } from "../ai-brand-logo";
 import { formatTokens } from "../../lib/format-tokens";
 import type { Option } from "./options";
 import type { ModelTarget, PickerProvider, PickerScenario } from "./types";
+import { Button } from "../../ui/button";
+import type { ReactNode } from "react";
+
+// CLI 行的身份不经过 providerKey/modelKey，避免与供应商最近使用混在一起。
+export function CliModelRow({
+  icon,
+  label,
+  sublabel,
+  selected,
+  follow,
+  badge,
+  onSelect,
+}: {
+  icon?: ReactNode;
+  label: string;
+  sublabel?: ReactNode;
+  selected: boolean;
+  follow?: boolean;
+  // 行尾标签（如「本轮在用」），不参与选中态。
+  badge?: ReactNode;
+  onSelect: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      variant="ghost"
+      className={cn(
+        "h-auto w-full justify-start gap-2 px-2 py-1.5 text-left text-xs",
+        follow && "bg-primary-soft text-primary-text",
+      )}
+      onClick={onSelect}
+    >
+      {icon}
+      {follow ? (
+        <RefreshCw className="size-3.5 shrink-0" aria-hidden="true" />
+      ) : null}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate">{label}</span>
+        {sublabel ? (
+          <span className="truncate text-2xs font-normal text-muted-foreground">
+            {sublabel}
+          </span>
+        ) : null}
+      </span>
+      {badge ? (
+        <span className="shrink-0 rounded-sm bg-field-fill px-1 text-2xs font-normal text-muted-foreground">
+          {badge}
+        </span>
+      ) : null}
+      {selected ? (
+        <Check className="size-3.5 shrink-0" aria-hidden="true" />
+      ) : null}
+    </Button>
+  );
+}
 
 export function PickerOptionRow({
   opt,

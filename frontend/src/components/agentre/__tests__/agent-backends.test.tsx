@@ -513,7 +513,7 @@ describe("AgentBackendsPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("Given a Claude backend editor, When binding mode changes, Then the model-binding block keeps tier routes collapsed and only shows custom model for CLI login", async () => {
+  it("Given a Claude backend editor, When binding mode changes, Then the model-binding block keeps tier routes collapsed and offers CLI models inside the picker", async () => {
     const user = userEvent.setup();
     installAppMock({
       ListLLMModels: vi.fn(() =>
@@ -549,14 +549,22 @@ describe("AgentBackendsPanel", () => {
     // 折叠头的右槽是一句短提示 chip，不再塞实现术语的环境变量名。
     expect(routesToggle).not.toHaveTextContent(/ANTHROPIC_DEFAULT/);
     expect(routesToggle).toHaveTextContent(/no change needed/i);
-    expect(within(block).getByLabelText("Custom Model")).toBeInTheDocument();
     expect(
-      within(block).getByText(/only applies with CLI login/i),
-    ).toBeInTheDocument();
+      within(block).queryByLabelText("Custom Model"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(block).getByRole("button", { name: "Model binding" }),
+    ).toHaveTextContent("Claude Code login account");
 
     await user.click(
       within(block).getByRole("button", { name: "Model binding" }),
     );
+    expect(
+      screen.getByText("Claude Code built-in · CLI login account"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: /Follow CLI default/ }),
+    ).toHaveAttribute("aria-selected", "true");
     await user.click(
       await screen.findByRole("option", {
         name: /Follow this provider's default/,
@@ -565,9 +573,6 @@ describe("AgentBackendsPanel", () => {
     expect(
       within(block).queryByLabelText("Custom Model"),
     ).not.toBeInTheDocument();
-    expect(
-      within(block).getByText(/retained but ignored/i),
-    ).toBeInTheDocument();
 
     await user.click(routesToggle);
     expect(routesToggle).toHaveAttribute("aria-expanded", "true");
@@ -1023,14 +1028,21 @@ describe("AgentBackendsPanel", () => {
     await user.click(
       within(dialog).getByRole("radio", { name: /Claude Code CLI/ }),
     );
-    expect(within(dialog).queryByText(/Strict match/)).not.toBeInTheDocument();
+    await user.click(
+      within(dialog).getByRole("button", { name: "Model binding" }),
+    );
+    const picker = screen.getByTestId("model-target-popover");
     expect(
-      within(dialog).getByText(
+      within(picker).getByText("Claude Code built-in · CLI login account"),
+    ).toBeInTheDocument();
+    expect(within(picker).queryByText(/Strict match/)).not.toBeInTheDocument();
+    expect(
+      within(picker).getByText(
         /No providers compatible with this backend type/,
       ),
     ).toBeInTheDocument();
     await user.click(
-      within(dialog).getByRole("button", { name: "Configure LLM providers" }),
+      within(picker).getByRole("button", { name: "Configure LLM providers" }),
     );
     expect(onOpenLlmProviders).toHaveBeenCalledTimes(1);
   });
@@ -1366,7 +1378,15 @@ describe("AgentBackendsPanel", () => {
       ).not.toBeInTheDocument();
       expect(
         within(dialog).getByRole("button", { name: "Model binding" }),
-      ).toHaveTextContent(/CLI login state/);
+      ).toHaveTextContent(
+        // CLI 自带模型段按 backendType 通用渲染（spec 2026-10-26 决策 7）：三种 CLI 的
+        // 登录态主行都是「<CLI 名> login account + 跟随/固定」。
+        type === "claudecode"
+          ? /Claude Code login account.*Follow default/
+          : type === "codex"
+            ? /Codex login account.*Follow default/
+            : /Pi Agent login account.*Follow default/,
+      );
     },
   );
 
@@ -2507,12 +2527,12 @@ describe("AgentBackendsPanel", () => {
     await user.click(within(row).getByRole("button", { name: /Edit/ }));
 
     const dialog = await screen.findByRole("dialog");
-    // 通过 Picker 顶部特殊项（CLI 自身登录态）清除 provider 关联。
+    // 通过 CLI 目录的「跟随 CLI 默认」同时清除供应商绑定与固定模型。
     await user.click(
       within(dialog).getByRole("button", { name: "Model binding" }),
     );
     await user.click(
-      await screen.findByRole("option", { name: /CLI login state/ }),
+      await screen.findByRole("option", { name: /Follow CLI default/ }),
     );
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
@@ -2521,6 +2541,7 @@ describe("AgentBackendsPanel", () => {
         expect.objectContaining({
           id: 11,
           llmProviderKey: "",
+          defaultModel: "",
         }),
       );
     });

@@ -69,9 +69,18 @@ type codexPermWaiter struct {
 
 // Runtime codex runtime 实现。
 type Runtime struct {
-	mu     sync.Mutex
-	active map[int64]*codexActive
-	pool   *agentruntime.CLISessionPool
+	mu sync.Mutex
+	// queryModels 是短命查询进程的测试缝，不接入会话池。
+	queryModels func(context.Context, *codex.Client) (codex.ModelCatalog, error)
+	active      map[int64]*codexActive
+	pool        *agentruntime.CLISessionPool
+	// cliModelRecords 是每会话的 CLI 模型账（见 cli_model.go）：记住本进程最后一次显式
+	// 下发的 turn/start 模型与会话语义的选择值，由 cliModelMu 守。
+	cliModelMu      sync.Mutex
+	cliModelRecords map[int64]*codexCLIRecord
+	// modelFailures 保留 turn/start 应用失败的 CLI 原文，供 pill 的失效态读取（进程被
+	// 摘掉之后仍要读得到，见 CLIModelState）。
+	modelFailures sync.Map
 }
 
 // launchIdentity 拼出 codex 的启动身份:ReasoningEffort(-c model_reasoning_effort=
@@ -99,8 +108,9 @@ func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
 		pool = agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap)
 	}
 	return &Runtime{
-		active: map[int64]*codexActive{},
-		pool:   pool,
+		active:          map[int64]*codexActive{},
+		pool:            pool,
+		cliModelRecords: map[int64]*codexCLIRecord{},
 	}
 }
 
@@ -336,6 +346,24 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 		}
 	}
 
+	// CLI 模型只在 native（无供应商）模式下消费，且不进入启动身份：codex 只能在
+	// turn/start 换模型，换的是这一轮及其后各轮，进程与线程都不动。compress 自带
+	// thread/compact/start，没有可携带模型的参数，这里不掺和。
+	turnModel := ""
+	cliModelInPlay := req.EffectiveProviderKey() == "" && !req.Compact
+	if cliModelInPlay {
+		turnModel, err = r.cliModelTurnValue(ctx, req, sess)
+		if err != nil {
+			// 解析不出「回到 CLI 默认」该下发的模型：这一轮不开跑，别静默沿用旧模型。
+			r.modelFailures.Store(req.SessionID, err.Error())
+			if req.SessionID > 0 {
+				r.pool.Remove(sessionKey(req.SessionID))
+			}
+			logger.Ctx(ctx).Error("codex.Runtime: resolve CLI model failed",
+				zap.Int64("sessionId", req.SessionID), zap.Error(err))
+			return nil, nil, err
+		}
+	}
 	var stream cxStream
 	var cleanupInputs func()
 	if req.Compact {
@@ -347,11 +375,16 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 			return nil, nil, ierr
 		}
 		cleanupInputs = cleanup
-		stream, err = sess.StreamInput(ctx, inputs, req.CollaborationMode)
+		stream, err = sess.StreamInput(ctx, inputs, req.CollaborationMode, turnModel)
 	} else {
-		stream, err = sess.Stream(ctx, req.UserText, req.CollaborationMode)
+		stream, err = sess.Stream(ctx, req.UserText, req.CollaborationMode, turnModel)
 	}
 	if err != nil {
+		// 这一轮没有开始：原文交给 chat_svc 走既有的 failTurn 通道（spec「下一轮开始前
+		// 应用失败」），选择本身仍留在会话里，下一轮再试一次。
+		if cliModelInPlay && req.CLIModelMode != "" {
+			r.modelFailures.Store(req.SessionID, err.Error())
+		}
 		if requiresEphemeralSession(req) {
 			closeEphemeralSession(req, sess)
 		} else if req.SessionID > 0 {
@@ -363,10 +396,14 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 			zap.String("collaborationMode", req.CollaborationMode), zap.Error(err))
 		return nil, nil, err
 	}
+	if cliModelInPlay {
+		r.settleCLIModelTurn(req.SessionID, sess, turnModel, req.CLIModelChoiceValue())
+	}
 	logger.Ctx(ctx).Info("codex.Runtime: turn started",
 		zap.Int64("sessionId", req.SessionID),
 		zap.String("providerSessionId", sess.ID()),
-		zap.String("collaborationMode", req.CollaborationMode))
+		zap.String("collaborationMode", req.CollaborationMode),
+		zap.String("turnModel", turnModel))
 
 	key := ""
 	if req.SessionID > 0 && !requiresEphemeralSession(req) {
@@ -394,18 +431,16 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 	active.setOut(out)
 
 	// RunResult.Model 上报线程实际模型(sess.Model()),而非启动请求模型:codex 的
-	// thread/resume 返回线程当前 model。绑 provider 时解析出的 ModelID 经 --model 生效后
-	// sess.Model() 即实际运行模型;无 provider 时两者同值,不回归。
+	// thread/resume 返回线程当前 model。绑 provider 时解析出的 ModelID、CLI 登录态下
+	// 后端默认模型经 thread/start|resume 的 model 生效后,sess.Model() 即实际运行模型。
 	modelID := strings.TrimSpace(sess.Model())
 	if modelID == "" {
 		// app-server 没在 thread start/resume 结果里带 model 时 sess.Model() 为空 ——
-		// 此时「观测不到」不等于「跑的是 defaultModelID」:直接落死常量会把一个从没跑过
-		// 的 model id 写进 assistantMsg.Model。回落到本轮请求的 effectiveModel
-		// (解析出的 ModelID),观测不到就按「请求值已生效」处理。
+		// 此时「观测不到」不等于「跑的是某个常量」:直接落死常量会把一个从没跑过的
+		// model id 写进 assistantMsg.Model。回落到本轮请求的 effectiveModel
+		// (解析出的 ModelID / 后端默认模型),观测不到就按「请求值已生效」处理;
+		// 两者皆空(没人指定模型)时宁可不报,也不冒充 CLI 的默认模型。
 		modelID = codexEffectiveModel(req)
-	}
-	if modelID == "" {
-		modelID = defaultModelID
 	}
 	result := &agentruntime.RunResult{ProviderSessionID: sess.ID(), Model: modelID, TurnToken: active.turnToken.Add(1)}
 
@@ -477,10 +512,15 @@ func (r *Runtime) CloseSession(_ context.Context, sessionID int64) {
 	if sessionID <= 0 {
 		return
 	}
+	r.forgetCLIModel(sessionID)
 	r.pool.Remove(sessionKey(sessionID))
 }
 
 func (r *Runtime) CloseAllSessions(_ context.Context) {
+	r.cliModelMu.Lock()
+	clear(r.cliModelRecords)
+	r.cliModelMu.Unlock()
+	r.modelFailures.Clear()
 	r.pool.RemoveAll()
 }
 

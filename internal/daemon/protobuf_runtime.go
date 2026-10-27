@@ -212,6 +212,7 @@ func (d *Daemon) connSessionPorts(conn *protorpc.Conn, rh *handlers.RuntimeHandl
 		SubmitAnswer:         claimed(d, rh.SubmitAnswer),
 		SubmitToolPermission: claimed(d, rh.SubmitToolPermission),
 		SetPermissionMode:    claimed(d, rh.SetPermissionMode),
+		SetCLIModel:          claimed(d, rh.SetCLIModel),
 	}
 }
 

@@ -109,6 +109,212 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
+describe("ModelTargetPicker CLI catalog", () => {
+  it("Given CLI and provider models, When navigating from search with arrows and Enter, Then CLI choices are reachable before provider choices", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <ModelTargetPicker
+        scenario="backend"
+        backendType="claudecode"
+        selected={null}
+        onChange={vi.fn()}
+        catalog={catalog()}
+        openOnMount
+        cliModels={{
+          models: [
+            {
+              value: "cli-value",
+              label: "Unique CLI model",
+              modelId: "unique-id",
+            },
+          ],
+          onChange,
+          onRefresh: vi.fn(),
+        }}
+      />,
+    );
+    const search = screen.getByPlaceholderText("Search providers or models…");
+    await user.click(search);
+    await user.keyboard("{ArrowDown}");
+    expect(
+      screen.getByRole("option", { name: /Follow CLI default/ }),
+    ).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(
+      screen.getByRole("option", { name: /^Unique CLI model/ }),
+    ).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(
+      screen.getByRole("option", { name: /Follow this provider's default/ }),
+    ).toHaveFocus();
+    await user.keyboard("{ArrowUp}{Enter}");
+    expect(onChange).toHaveBeenCalledWith({
+      mode: "fixed",
+      value: "cli-value",
+    });
+  });
+
+  it("Given no providers, When searching CLI models and pressing Escape, Then CLI names and IDs filter and Escape clears search before closing", async () => {
+    const user = userEvent.setup();
+    render(
+      <ModelTargetPicker
+        scenario="backend"
+        backendType="claudecode"
+        selected={null}
+        onChange={vi.fn()}
+        catalog={[]}
+        openOnMount
+        cliModels={{
+          models: [
+            { value: "a", label: "Alpha model", modelId: "alpha-id" },
+            { value: "b", label: "Beta model", modelId: "beta-id" },
+          ],
+          onChange: vi.fn(),
+          onRefresh: vi.fn(),
+        }}
+      />,
+    );
+    const search = screen.getByPlaceholderText("Search providers or models…");
+    await user.type(search, "beta-id");
+    expect(
+      screen.queryByRole("option", { name: /^Alpha model/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: /^Beta model/ }),
+    ).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(search).toHaveValue("");
+    expect(
+      screen.getByRole("option", { name: /^Alpha model/ }),
+    ).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(
+      screen.queryByTestId("model-target-popover"),
+    ).not.toBeInTheDocument();
+  });
+  it.each(["claudecode", "codex", "piagent"])(
+    "Given %s CLI models, When choosing a grouped or legacy model, Then the generic section emits a CLI choice",
+    async (backendType) => {
+      const onChange = vi.fn();
+      const onCliChange = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <ModelTargetPicker
+          scenario="backend"
+          backendType={backendType}
+          selected={{ providerKey: "", modelKey: "" }}
+          onChange={onChange}
+          catalog={catalog()}
+          openOnMount
+          cliModels={{
+            models: [
+              {
+                value: "current",
+                label: "Current CLI model",
+                modelId: "current-id",
+                group: "Account A",
+              },
+              {
+                value: "old",
+                label: "Legacy CLI model",
+                modelId: "old-id",
+                legacy: true,
+              },
+            ],
+            effectiveValue: "current",
+            effectiveModelId: "current-id",
+            choice: { mode: "cli-default" },
+            onChange: onCliChange,
+            onRefresh: vi.fn(),
+          }}
+        />,
+      );
+      expect(screen.getByText("Account A")).toBeInTheDocument();
+      expect(
+        screen.getByRole("option", { name: /Follow CLI default/ }),
+      ).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByText("current-id")).toBeInTheDocument();
+      expect(
+        screen.queryByRole("option", { name: /Legacy CLI model/ }),
+      ).not.toBeInTheDocument();
+      await user.click(
+        screen.getByRole("button", { name: "Other versions · 1" }),
+      );
+      await user.click(
+        screen.getByRole("option", { name: /Legacy CLI model/ }),
+      );
+      expect(onCliChange).toHaveBeenCalledWith({ mode: "fixed", value: "old" });
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
+
+  it("Given a failed CLI catalog and a saved manual ID, When retrying or entering another ID, Then the error remains visible and manual selection works", async () => {
+    const onChange = vi.fn();
+    const onRefresh = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ModelTargetPicker
+        scenario="backend"
+        backendType="claudecode"
+        selected={null}
+        onChange={vi.fn()}
+        catalog={[]}
+        openOnMount
+        cliModels={{
+          models: [],
+          error: "unsupported initialize",
+          choice: { mode: "fixed", value: "saved-id" },
+          onChange,
+          onRefresh,
+        }}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Claude Code");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "unsupported initialize",
+    );
+    expect(screen.getByRole("option", { name: /saved-id/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRefresh).toHaveBeenCalledOnce();
+    await user.type(
+      screen.getByRole("textbox", { name: "Enter another model ID" }),
+      "  my-model  {Enter}",
+    );
+    expect(onChange).toHaveBeenCalledWith({ mode: "fixed", value: "my-model" });
+  });
+
+  it("Given a loading CLI catalog, Then it shows the CLI-specific loading state without hiding provider choices", () => {
+    render(
+      <ModelTargetPicker
+        scenario="backend"
+        backendType="claudecode"
+        selected={null}
+        onChange={vi.fn()}
+        catalog={catalog()}
+        openOnMount
+        cliModels={{
+          models: [],
+          loading: true,
+          choice: { mode: "cli-default" },
+          onChange: vi.fn(),
+          onRefresh: vi.fn(),
+        }}
+      />,
+    );
+    expect(
+      screen.getByText("Reading available models from Claude Code…"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Sonnet/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "Enter another model ID" }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("ModelTargetPicker recents", () => {
   it("按场景 + 执行位置指纹隔离存储，且只存 providerKey/modelKey", () => {
     recordRecentTarget("backend", "", { providerKey: "k-1", modelKey: "mk-1" });

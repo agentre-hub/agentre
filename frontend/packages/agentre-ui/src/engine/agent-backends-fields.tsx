@@ -44,7 +44,13 @@ import {
   type SandboxValue,
   type Translate,
 } from "./agent-backends-shared";
-import { LlmProviderLogo } from "./ai-brand-logo";
+import { AgentBackendLogo, LlmProviderLogo } from "./ai-brand-logo";
+import { supportsCLIModel } from "./backend-editor/draft";
+import {
+  cliModelResolution,
+  type CliModelCatalog,
+  type CliModelPickerState,
+} from "./model-target-picker/cli-models";
 import { ModelTargetPicker, type PickerProvider } from "./model-target-picker";
 import type { HermesAuthProviderView } from "./ports";
 
@@ -145,6 +151,25 @@ function bindingTriggerSub(t: Translate, target: ResolvedModelTarget): string {
     : t("agentBackends.binding.fixedResolution", { model: target.modelLabel });
 }
 
+function CliBindingResolution({ state }: { state: CliModelPickerState }) {
+  const { t } = useTranslation();
+  const resolution = cliModelResolution(
+    state,
+    state.choice ?? { mode: "cli-default" },
+  );
+  const model = resolution.modelId
+    ? `${resolution.label} · ${resolution.modelId}`
+    : t("modelTargetPicker.cli.decides");
+  return (
+    <span className="flex flex-col">
+      <span>{t("modelTargetPicker.cli.effective", { model })}</span>
+      {state.choice?.mode !== "fixed" ? (
+        <span>{t("modelTargetPicker.cli.follows")}</span>
+      ) : null}
+    </span>
+  );
+}
+
 // 分级路由 Picker 顶部「继承主绑定」项的解析副行 —— 与会话场景同一形态：箭头点出
 // 「解析到」，品牌标识让主绑定的供应商一眼可认，模型写展示名。CLI 登录态 / 失效
 // 目标没有可认的供应商，回落既有纯文字说明（宁可少画一个标识，也不画半个空标识）。
@@ -199,6 +224,10 @@ export function ModelBindingSection({
   onRoutesChange,
   customModel,
   onCustomModelChange,
+  cliCatalog,
+  cliModelsLoading,
+  onRefreshCLIModels,
+  deviceLabel,
   resolvedMainTarget,
   openPickerOnMount,
 }: {
@@ -222,11 +251,31 @@ export function ModelBindingSection({
   onRoutesChange: (routes: Record<ClaudeTier, RouteTarget>) => void;
   customModel: string;
   onCustomModelChange: (value: string) => void;
+  cliCatalog?: CliModelCatalog;
+  cliModelsLoading?: boolean;
+  onRefreshCLIModels?: () => void;
+  deviceLabel?: string;
   resolvedMainTarget: ResolvedModelTarget;
   openPickerOnMount: boolean;
 }) {
   const { t } = useTranslation();
   const cliLogin = resolvedMainTarget.mode === "native";
+  const cliModels: CliModelPickerState | undefined = supportsCLIModel(type)
+    ? {
+        ...(cliCatalog ?? { models: [] }),
+        loading: cliModelsLoading,
+        choice: cliLogin
+          ? customModel
+            ? { mode: "fixed", value: customModel }
+            : { mode: "cli-default" }
+          : undefined,
+        onChange: (choice) => {
+          onCustomModelChange(choice.mode === "fixed" ? choice.value : "");
+          onTargetChange({ providerKey: "", modelKey: "" });
+        },
+        onRefresh: onRefreshCLIModels ?? (() => {}),
+      }
+    : undefined;
   return (
     <section
       data-testid="model-binding-block"
@@ -264,20 +313,11 @@ export function ModelBindingSection({
         remoteCatalog={remoteCatalog}
         resolvedTarget={resolvedMainTarget}
         openPickerOnMount={openPickerOnMount}
+        cliModels={cliModels}
+        deviceLabel={deviceLabel}
       />
       {type === "claudecode" ? (
         <>
-          {cliLogin ? (
-            <DefaultModelField
-              value={customModel}
-              onChange={onCustomModelChange}
-              description={t("agentBackends.defaultModel.cliOnlyDescription")}
-            />
-          ) : (
-            <p className="text-2xs text-muted-foreground">
-              {t("agentBackends.defaultModel.ignoredDescription")}
-            </p>
-          )}
           <ModelRoutesField
             catalog={catalog}
             catalogLoading={catalogLoading}
@@ -314,6 +354,8 @@ function ModelTargetField({
   remoteCatalog,
   resolvedTarget,
   openPickerOnMount = false,
+  cliModels,
+  deviceLabel,
 }: {
   type: BackendType;
   providers: Provider[];
@@ -333,6 +375,8 @@ function ModelTargetField({
   remoteCatalog?: PickerProvider[];
   resolvedTarget: ResolvedModelTarget;
   openPickerOnMount?: boolean;
+  cliModels?: CliModelPickerState;
+  deviceLabel?: string;
 }) {
   const { t } = useTranslation();
   // claudecode / codex / piagent 允许「不关联」走 CLI 自身登录；builtin 必填。
@@ -381,7 +425,7 @@ function ModelTargetField({
           </AlertDescription>
         </Alert>
       ) : null}
-      {empty && optional ? (
+      {empty && optional && !cliModels ? (
         <Alert className="bg-field-fill text-xs">
           <AlertCircle className="size-4" aria-hidden="true" />
           <AlertTitle className="text-xs">
@@ -397,6 +441,11 @@ function ModelTargetField({
       ) : (
         <ModelTargetPicker
           scenario="backend"
+          emptyProviderAction={
+            onOpenLlmProviders ? (
+              <ProviderConfigureCta onConfigure={onOpenLlmProviders} />
+            ) : null
+          }
           backendType={type}
           executionLocation={executionLocation}
           selected={selected}
@@ -414,8 +463,37 @@ function ModelTargetField({
           openOnMount={openPickerOnMount}
           supportsFixedModel={supportsFixedModel}
           remoteCatalog={remoteCatalog}
-          triggerLabel={<BindingTriggerLabel target={resolvedTarget} />}
-          triggerSub={bindingTriggerSub(t, resolvedTarget)}
+          cliModels={cliModels}
+          deviceLabel={deviceLabel}
+          triggerLabel={
+            cliModels && resolvedTarget.mode === "native" ? (
+              <>
+                <AgentBackendLogo
+                  backendType={type}
+                  className="size-3.5 shrink-0"
+                />
+                <span className="truncate">
+                  {t("modelTargetPicker.cli.login", {
+                    cli: t(`agentBackends.backendType.${type}.shortLabel`),
+                  })}
+                </span>
+                <Badge variant="secondary" className="px-1 py-0 text-2xs">
+                  {cliModels.choice?.mode === "fixed"
+                    ? t("agentBackends.binding.modeFixed")
+                    : t("agentBackends.binding.modeFollow")}
+                </Badge>
+              </>
+            ) : (
+              <BindingTriggerLabel target={resolvedTarget} />
+            )
+          }
+          triggerSub={
+            cliModels && resolvedTarget.mode === "native" ? (
+              <CliBindingResolution state={cliModels} />
+            ) : (
+              bindingTriggerSub(t, resolvedTarget)
+            )
+          }
           aria-label={t("agentBackends.binding.label")}
         />
       )}
@@ -953,46 +1031,6 @@ export function ReasoningEffortField({
           ))}
         </SelectContent>
       </Select>
-    </div>
-  );
-}
-
-// DefaultModelField 是 claudecode 的「自定义模型」配置：spawn claude 子进程时
-// 下发的 --model 值。主要用于走 CLI 自身登录态（未绑 provider）时指定模型
-// （如 claude-fable-5）；绑了 provider 时 provider.Model 优先，本字段仅兜底。
-// 纯自由文本，CLI 既收别名（fable/opus/sonnet）也收完整模型名。
-function DefaultModelField({
-  value,
-  onChange,
-  description,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  description: string;
-}) {
-  const { t } = useTranslation();
-  return (
-    <div className="flex flex-col gap-1.5 text-xs">
-      <div className="flex items-center justify-between">
-        <span className="font-medium">
-          {t("agentBackends.defaultModel.label")}
-        </span>
-        <span className="font-mono text-2xs text-muted-foreground">
-          {t("agentBackends.defaultModel.hint")}
-        </span>
-      </div>
-      <Input
-        aria-label={t("agentBackends.defaultModel.label")}
-        value={value}
-        autoCapitalize="off"
-        autoComplete="off"
-        autoCorrect="off"
-        spellCheck={false}
-        placeholder={t("agentBackends.defaultModel.placeholder")}
-        onChange={(e) => onChange(e.currentTarget.value)}
-        className="h-9 font-mono text-xs"
-      />
-      <span className="text-2xs text-muted-foreground">{description}</span>
     </div>
   );
 }

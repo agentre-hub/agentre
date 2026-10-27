@@ -157,6 +157,9 @@ type SessionRecord struct {
 	// runtime.setSessionReasoningEffort 单独写入,跟着轮次幂等覆盖会把用户轮中刚选好
 	// 的档位冲回「跟随后端配置」。
 	ReasoningEffort string
+	// CLIModelMode/CLIModel 是会话设置镜像，运行时选择仍取本轮请求。
+	CLIModelMode string
+	CLIModel     string
 }
 
 // SessionLifecyclePort 记录会话生命周期的推进,由跑一轮执行的一侧调用。
@@ -245,6 +248,11 @@ type SessionDeletePort interface {
 // 每轮都会拿零值把用户轮中刚选好的模型静默冲回「跟随 Agent 绑定」。
 type SessionModelTargetPort interface {
 	SetModelTarget(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID, providerKey, modelKey string) (int64, error)
+}
+
+// SessionCLIModelPort 保存会话三态，空 mode/value 是有效的重置。
+type SessionCLIModelPort interface {
+	SetCLIModel(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, mode, value string) (int64, error)
 }
 
 // SessionReasoningEffortPort 改写某会话钉的思考力度,返回受影响行数

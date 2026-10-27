@@ -158,6 +158,11 @@ func (a *App) SetChatSessionModelTarget(req *chat_svc.SetChatSessionModelTargetR
 	return chat_svc.Chat().SetChatSessionModelTarget(a.ctx, req)
 }
 
+// SetChatSessionCLIModel 保存三态选择，并在空闲时热切换会话进程。
+func (a *App) SetChatSessionCLIModel(req *chat_svc.SetChatSessionCLIModelRequest) (*chat_svc.SetChatSessionCLIModelResponse, error) {
+	return chat_svc.Chat().SetChatSessionCLIModel(a.ctx, req)
+}
+
 // SetChatSessionReasoningEffort 切换已有会话的思考力度（空串 = 跟随该会话那一档
 // backend 的配置）。只写 reasoning_effort 一列，自下一轮 spawn 生效，不打断正在进行的
 // 轮、也不驱逐任何进程池条目；档位不在六档表里时拒绝写入并报错，会话保持原档位。

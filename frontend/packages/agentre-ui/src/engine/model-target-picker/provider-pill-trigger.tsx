@@ -7,11 +7,16 @@
 //     是宿主的事，留在各自宿主。
 //
 // 入参是一个平坦的视图模型（ProviderPillState），不含任何宿主类型。
-import { RefreshCw, UserRound } from "lucide-react";
+import { Loader2, RefreshCw, UserRound } from "lucide-react";
 import * as React from "react";
 
 import { useUiTranslation as useTranslation } from "../../i18n";
-import { LlmModelLogo, LlmProviderLogo } from "../ai-brand-logo";
+import {
+  AgentBackendLogo,
+  LlmModelLogo,
+  LlmProviderLogo,
+} from "../ai-brand-logo";
+import { resolveProviderPillLogoTier } from "./pill-state";
 
 /**
  * 这颗 pill 此刻处在四态里的哪一个，以及它解析到了什么。
@@ -21,7 +26,15 @@ import { LlmModelLogo, LlmProviderLogo } from "../ai-brand-logo";
  * 一瞬会闪成「CLI 登录态」。
  */
 export type ProviderPillState = {
-  mode: "follow-agent" | "provider-default" | "fixed" | "invalid";
+  mode:
+    | "follow-agent"
+    | "provider-default"
+    | "cli-default"
+    | "fixed"
+    | "invalid";
+  loading?: boolean;
+  nativeCLI?: boolean;
+  pending?: { label: string; mode: "follow-agent" | "cli-default" | "fixed" };
   providerLabel: string;
   providerType: string;
   /** 模型展示名（没填展示名回落模型 ID；失效且解析不到时是原始 key）。 */
@@ -31,6 +44,13 @@ export type ProviderPillState = {
   resolutionLabel: string;
   dynamic: boolean;
   cliLogin: boolean;
+  /**
+   * 这一轮执行的 CLI 后端类型（claudecode / codex / piagent）。
+   *
+   * 只参与跟随态图标的回落链第三格（模型 → 供应商 → 后端 → 人形），宿主不知道时
+   * 留空即可 —— 所以是可选字段，既有消费方的视图模型不必改。
+   */
+  backendType?: string | null;
 };
 
 /**
@@ -42,15 +62,19 @@ export type ProviderPillState = {
  *
  * 模式不写成一行字，而是由图标（人形 / 品牌标识 / 失效态的警示三角由 Picker 画）
  * 加 ↻（跟随默认才有）表达，省下来的一行让「实际会跑哪个模型」直接上脸。
+ *
+ * 跟随态也画**解析到的模型**的品牌标识（spec 决策 8）：品牌比人形更快认出模型。
+ * 回落链见 `resolveProviderPillLogoTier`——模型 → 供应商 → 后端 → 人形，不留空位。
  */
 export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
   const { t } = useTranslation();
 
+  const logoClass = "size-3.5";
   const providerLogo = state.providerType ? (
     <LlmProviderLogo
       providerType={state.providerType}
       providerName={state.providerLabel}
-      className="size-3.5"
+      className={logoClass}
     />
   ) : null;
   const modelLogo = state.modelId ? (
@@ -58,28 +82,53 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
       model={state.modelId}
       providerType={state.providerType}
       providerName={state.providerLabel}
-      className="size-3.5"
+      className={logoClass}
     />
   ) : (
     providerLogo
   );
 
-  const resolvedTarget =
-    state.modelLabel ||
-    state.providerLabel ||
-    (state.cliLogin ? t("modelTargetPicker.special.backend") : null);
-
-  const triggerIcon =
-    state.mode === "follow-agent" ? (
+  // 跟随态的脸：模型标识 → 供应商标识 → 后端标识 → 人形。宁可和今天一样画人形，
+  // 也不许空出一格。
+  const followAgentIcon = (() => {
+    const tier = resolveProviderPillLogoTier({
+      modelId: state.modelId,
+      providerType: state.providerType,
+      backendType: state.backendType,
+    });
+    if (tier === "model") return modelLogo;
+    if (tier === "provider") return providerLogo;
+    if (tier === "backend" && state.backendType) {
+      return (
+        <AgentBackendLogo
+          backendType={state.backendType}
+          className={logoClass}
+        />
+      );
+    }
+    return (
       <UserRound
         data-testid="follow-agent-icon"
         className="size-3.5 shrink-0 text-muted-foreground"
         aria-hidden="true"
       />
-    ) : state.mode === "invalid" ? null : (
-      // 失效态的警示三角由 Picker 的 invalid 分支画,这里不重复挂图标。
-      modelLogo
     );
+  })();
+
+  const resolvedTarget =
+    state.modelLabel ||
+    state.providerLabel ||
+    (state.cliLogin && !state.nativeCLI && state.mode !== "cli-default"
+      ? t("modelTargetPicker.special.backend")
+      : null);
+
+  const triggerIcon =
+    state.mode === "follow-agent"
+      ? followAgentIcon
+      : state.mode === "invalid"
+        ? null
+        : // 失效态的警示三角由 Picker 的 invalid 分支画,这里不重复挂图标。
+          modelLogo;
 
   const modeMarker = state.dynamic ? (
     <RefreshCw
@@ -112,8 +161,29 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
 
   return (
     <>
-      {triggerIcon}
-      <span className="min-w-0 truncate">{triggerText}</span>
+      {state.loading ? (
+        <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+      ) : (
+        triggerIcon
+      )}
+      <span className="min-w-0 truncate">
+        {state.pending ? (
+          <>
+            {resolvedTarget || t("modelTargetPicker.cli.decides")} →{" "}
+            {/* 新模型用 primary 色，与「本轮仍在用」的旧模型区分（spec 会话 pill 脸）。 */}
+            <span className="text-primary-text">
+              {state.pending.label ||
+                t(
+                  state.pending.mode === "follow-agent"
+                    ? "modelTargetPicker.special.chat"
+                    : "modelTargetPicker.cli.followDefault",
+                )}
+            </span>
+          </>
+        ) : (
+          triggerText || t("modelTargetPicker.special.chat")
+        )}
+      </span>
       {modeMarker}
     </>
   );
@@ -171,7 +241,7 @@ export function ProviderPillResolution({
       >
         <span aria-hidden="true">→</span>
         <span className="min-w-0 truncate">
-          {t("modelTargetPicker.special.backendSublabel")}
+          {fallbackLabel || t("modelTargetPicker.special.backendSublabel")}
         </span>
       </span>
     );

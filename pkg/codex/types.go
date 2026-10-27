@@ -35,6 +35,8 @@ const (
 	appMethodTurnStarted     = "turn/started"
 	appMethodTurnCompleted   = "turn/completed"
 	appMethodSkillsList      = "skills/list"
+	appMethodModelList       = "model/list"
+	appMethodConfigRead      = "config/read"
 
 	appMethodItemStarted                   = "item/started"
 	appMethodItemCompleted                 = "item/completed"
@@ -89,6 +91,8 @@ type runSpec struct {
 	sandbox           SandboxMode
 	approval          ApprovalPolicy
 	collaborationMode CollaborationMode
+	// turnModel 是这一轮 turn/start 携带的 model(RunModel);空串不下发。
+	turnModel string
 }
 
 type ImageDetail string
@@ -372,11 +376,14 @@ func userInput(text string) []UserInput {
 	return []UserInput{TextInput(text)}
 }
 
-func turnStartParams(thread appThreadStartResult, prompt string, mode CollaborationMode, fallbackModel string) (map[string]any, error) {
-	return turnStartParamsInput(thread, userInput(prompt), mode, fallbackModel)
+func turnStartParams(thread appThreadStartResult, prompt string, mode CollaborationMode, fallbackModel, turnModel string) (map[string]any, error) {
+	return turnStartParamsInput(thread, userInput(prompt), mode, fallbackModel, turnModel)
 }
 
-func turnStartParamsInput(thread appThreadStartResult, input []UserInput, mode CollaborationMode, fallbackModel string) (map[string]any, error) {
+// turnStartParamsInput 拼 turn/start 参数。turnModel 非空时它就是这一轮(以及其后各轮)
+// 的模型;collaborationMode 要求内联 settings.model,两者不一致会被 CLI 拿旧模型跑,
+// 因此协作模式的 settings.model 跟着 turnModel 走。
+func turnStartParamsInput(thread appThreadStartResult, input []UserInput, mode CollaborationMode, fallbackModel, turnModel string) (map[string]any, error) {
 	if len(input) == 0 {
 		input = userInput("")
 	}
@@ -384,13 +391,19 @@ func turnStartParamsInput(thread appThreadStartResult, input []UserInput, mode C
 		"threadId": thread.ThreadID,
 		"input":    input,
 	}
+	if model := strings.TrimSpace(turnModel); model != "" {
+		params["model"] = model
+	}
 	if mode == "" {
 		return params, nil
 	}
 	if mode != CollaborationDefault && mode != CollaborationPlan {
 		return nil, fmt.Errorf("codex: invalid collaboration mode %q", mode)
 	}
-	model := strings.TrimSpace(thread.Model)
+	model := strings.TrimSpace(turnModel)
+	if model == "" {
+		model = strings.TrimSpace(thread.Model)
+	}
 	if model == "" {
 		model = strings.TrimSpace(fallbackModel)
 	}

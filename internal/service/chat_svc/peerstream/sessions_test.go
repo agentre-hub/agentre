@@ -121,7 +121,7 @@ func TestListPeerSessions_GivenDesktopSessions_ThenReturnsCompleteNonDegradedSum
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{agent}, nil)
 	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
-			{ID: 41, ConversationID: convID(41), AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", LastMessageAt: 1710000000000, ProviderSessionID: "provider-41", Status: consts.ACTIVE},
+			{ID: 41, ConversationID: convID(41), AgentID: 7, Title: "Ship the release", CLIModelMode: "fixed", CLIModel: "sonnet", AgentStatus: "waiting", LastMessageAt: 1710000000000, ProviderSessionID: "provider-41", Status: consts.ACTIVE},
 			{ID: 42, ConversationID: convID(42), AgentID: 7, Title: "Investigate timeout", AgentStatus: "error", LastMessageAt: 1710000001000, Status: consts.ACTIVE},
 			{ID: 43, ConversationID: convID(43), AgentID: 7, Title: "Document the release", AgentStatus: "idle", LastMessageAt: 1710000002000, Status: consts.ACTIVE},
 		}, nil)
@@ -142,6 +142,8 @@ func TestListPeerSessions_GivenDesktopSessions_ThenReturnsCompleteNonDegradedSum
 		LifecycleState:    wire.SessionLifecycleRunning,
 		WaitingForInput:   true,
 		LastMessageAt:     1710000000000,
+		CLIModelMode:      "fixed",
+		CLIModel:          "sonnet",
 	}, got.Sessions[0])
 	// 桌面端的 AgentStatus="error" 过线是 failed,**不是** interrupted。
 	// interrupted 是自锁终态,消费方对它的既定纪律是不去 attach —— 拿它表达

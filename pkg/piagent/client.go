@@ -324,6 +324,20 @@ func (c *Client) compactOn(ctx context.Context, proc *rpcProcess, ownsProcess bo
 
 func (c *Client) Close(_ context.Context) error { return nil }
 
+// Model 返回 Client 当前持有的 --model 值（空串 = 不下发，走 pi 自身配置）。
+// 与同族的 Binary / Env / Session 一样只读，供调用方装配后做 invariant 校验，
+// 也便于单测断言宿主的模型选择确实进了 Client。
+func (c *Client) Model() string { return c.model }
+
+// Binary 返回解析后的 CLI 启动路径。
+func (c *Client) Binary() string { return c.binary }
+
+// Env 返回 Client 持有的增量 env map（WithEnv 没设置时为 nil）。
+func (c *Client) Env() map[string]string { return c.env }
+
+// Session 返回要恢复的 Pi 原生会话标识（--session）；新会话为空。
+func (c *Client) Session() string { return c.session }
+
 func readSessionState(ctx context.Context, proc *rpcProcess, expected string) (sessionStateWire, error) {
 	const requestID = "session-state"
 	response, err := callRPC(ctx, proc, map[string]any{"id": requestID, "type": "get_state"}, "get_state", requestID)
@@ -964,6 +978,10 @@ func failureResponseError(r rpcResponse) error {
 		return errors.New("piagent rpc fork failed: Invalid entry ID for forking")
 	case "get_commands":
 		return errors.New("piagent rpc get_commands failed: unavailable")
+	case "set_model":
+		// set_model 的失败原文只回显所请求的模型值（"Model not found: <p>/<id>"），
+		// 不含会话内容；会话切换必须把它原样交给用户（spec「CLI 拒绝」）。
+		return fmt.Errorf("piagent rpc set_model failed: %s", strings.TrimSpace(r.Error))
 	default:
 		return fmt.Errorf("piagent rpc %s failed", command)
 	}

@@ -144,6 +144,24 @@ func (p *Pool) Cached(deviceID int64) *remote.Runtime {
 	return entry.runtime
 }
 
+// Peek 交出某台配对 daemon 在 cache 里的那个 *remote.Runtime,**不论它此刻是否握着
+// lease**;没有条目交 nil。与 Cached 一样一件副作用都不做(不借连接、不落库、不记引用)。
+//
+// 它与 Cached 分开,是因为两者问的不是同一件事:Cached 问「本机此刻有没有在那台设备上
+// 开着的轮次」(待决策只可能挂在在飞的轮上),Peek 问「那条连接上的 runtime 还在不在」——
+// 轮与轮之间引用归零只还 lease、不摘 entry,runtime 记下的会话账(如执行端轮末上报的
+// CLI 模型)仍然有效,读这份账的只读路径不能因为轮次结束就当它不存在。连接真被池回收
+// 时 watchLeaseClosed 摘掉 entry,这里随之交 nil。
+func (p *Pool) Peek(deviceID int64) *remote.Runtime {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry, ok := p.cache[deviceID]
+	if !ok {
+		return nil
+	}
+	return entry.runtime
+}
+
 // ForDevice 取(或建)某台配对 daemon 上共享的 *remote.Runtime,并把 sessionIDs 记进
 // 它的引用集;顺带交回该 daemon 此刻的实例标识。
 //

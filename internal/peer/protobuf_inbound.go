@@ -27,6 +27,8 @@ type ProtobufInboundDeps struct {
 	// Engine 是引擎探测一族(engine.* / cli.resolvePath)的端口集。它与 Peripheral
 	// 分开,是因为这一族的族闸门是**端口**:两种执行端对它的准入并不相同。
 	Engine wireinbound.EngineDeps
+	// CLIModelsList 只查询此桌面设备的 CLI，不转调绑定在其他设备的后端。
+	CLIModelsList func(context.Context, *agentrewire.CLIModelsListRequest) (*agentrewire.CLIModelsListResponse, error)
 	// Capabilities 交出这台机器上某个 backend 的能力矩阵。它交的是**领域值**而不是
 	// 线上的应答:折成线格式那一步与 agentred 逐字相同,已经收进 wireinbound。
 	Capabilities func(context.Context, remotewire.CapabilitiesParams) (remotewire.CapabilitiesResult, error)
@@ -55,6 +57,8 @@ type ProtobufInboundDeps struct {
 	// SetModelTarget 同族:空串是要写下去的值(改回跟随后端配置),不是「不改」。
 	SetReasoningEffort func(context.Context, string, string) error
 	SetPermissionMode  func(context.Context, string, string) error
+	// SetSessionCLIModel 把三态选择交给 chat_svc，空值同样必须传到。
+	SetSessionCLIModel func(context.Context, string, string, string) error
 	RunSession         func(context.Context, remotewire.RunParams, chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error)
 	// SteerSession 入队一条插话,并把 chat_svc 认的那个 queuedID 与「撤不撤得掉」
 	// 交回去 —— 调用方拿自己造的号对不上 SteerConsumed(入队侧另造了一个)。
@@ -170,6 +174,7 @@ func NewProtobufInboundRegistry(deps ProtobufInboundDeps) *protorpc.Registry {
 		})
 	wireinbound.RegisterPeripheralMethods(registry, deps.Peripheral)
 	wireinbound.RegisterEngineMethods(registry, deps.Engine)
+	wireinbound.RegisterCLIModelsList(registry, deps.CLIModelsList)
 	wireinbound.RegisterSessionMethods(registry, peerSessionPorts(deps))
 	return registry
 }
@@ -290,6 +295,14 @@ func peerSessionPorts(deps ProtobufInboundDeps) wireinbound.SessionPorts {
 				return nil, err
 			}
 			return &agentrewire.SetModelTargetResponse{}, nil
+		}
+	}
+	if deps.SetSessionCLIModel != nil {
+		ports.SetSessionCLIModel = func(ctx context.Context, request *agentrewire.SetSessionCLIModelRequest) (*agentrewire.SetSessionCLIModelResponse, error) {
+			if err := deps.SetSessionCLIModel(ctx, request.GetConversationId(), request.GetMode(), request.GetValue()); err != nil {
+				return nil, err
+			}
+			return &agentrewire.SetSessionCLIModelResponse{}, nil
 		}
 	}
 	if deps.SetReasoningEffort != nil {

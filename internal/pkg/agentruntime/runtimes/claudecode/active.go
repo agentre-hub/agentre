@@ -27,6 +27,11 @@ type claudeActive struct {
 	pool        *agentruntime.CLISessionPool
 	poolKey     string
 	inTurn      atomic.Bool
+	// cliModel 是最后成功下发的选择，读写由 runtime 的会话启动锁保护。
+	cliModel string
+	// modelState 由帧流与控制应答更新，展示侧只读这个进程自己的报告。
+	modelMu    sync.Mutex
+	modelState agentruntime.CLIModelState
 	// outOfBand 记录本 session 上正在流的「带外轮」数量 —— 自主续轮(后台任务完成
 	// CLI 自主跑的一轮)和后台 subagent 活动轮。它们占着 pkg/claudecode.Session 的
 	// 活跃槽位:期间新起的 user turn 虽已把 user 帧写进 stdin,但真 CLI 要等当前轮

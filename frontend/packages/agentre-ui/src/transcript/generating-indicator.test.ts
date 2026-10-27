@@ -98,6 +98,18 @@ describe("indicatorHostMessageId", () => {
 });
 
 describe("isNoticeOnlyMessage", () => {
+  it("Given a mid-turn CLI switch, When finding the active assistant, Then the switch is transparent but a turn deviation is not", () => {
+    expect(
+      isNoticeOnlyMessage({
+        blocks: [{ type: "notice", noticeKind: "cli_model" }],
+      }),
+    ).toBe(true);
+    expect(
+      isNoticeOnlyMessage({
+        blocks: [{ type: "notice", noticeKind: "cli_model_deviation" }],
+      }),
+    ).toBe(false);
+  });
   it("只有 switch notice:是旁白行", () => {
     expect(
       isNoticeOnlyMessage({

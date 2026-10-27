@@ -370,6 +370,10 @@ export interface RunParams extends WireObject {
    */
   reasoningEffort?: string;
 
+  /** CLIModelMode/CLIModel 原样承载会话三态；空值表示跟随 Agent，不补后端默认。 */
+  cliModelMode?: string;
+  cliModel?: string;
+
   /**
    * SourceDevice / SourceDeviceName 是「开新一轮」发起方的设备身份（R18/R19）。
    * 浏览器**每轮**随 runtime.run 声明自己的设备指纹与显示名（如「Chrome · macOS」）：
@@ -429,6 +433,8 @@ export function decodeRunParams(v: unknown): RunParams {
     o.llmProviderKey = optStr(o.llmProviderKey, "RunParams.llmProviderKey");
     o.llmModelKey = optStr(o.llmModelKey, "RunParams.llmModelKey");
     o.reasoningEffort = optStr(o.reasoningEffort, "RunParams.reasoningEffort");
+    o.cliModelMode = optStr(o.cliModelMode, "RunParams.cliModelMode");
+    o.cliModel = optStr(o.cliModel, "RunParams.cliModel");
     o.sourceDevice = optStr(o.sourceDevice, "RunParams.sourceDevice");
     o.sourceDeviceName = optStr(
       o.sourceDeviceName,
@@ -807,6 +813,66 @@ export function encodeSetPermissionModeParams(
   return encodeWire(v);
 }
 
+/** SetCLIModelParams 切换已附着进程，空值回到 CLI 默认。 */
+export interface SetCLIModelParams extends WireObject {
+  conversationId: string;
+  peerFingerprint?: string;
+  value: string;
+}
+
+export function decodeSetCLIModelParams(v: unknown): SetCLIModelParams {
+  return decodeWire<SetCLIModelParams>(v, "SetCLIModelParams", (o) => {
+    o.conversationId = reqStr(
+      o.conversationId,
+      "SetCLIModelParams.conversationId",
+    );
+    o.peerFingerprint = optStr(
+      o.peerFingerprint,
+      "SetCLIModelParams.peerFingerprint",
+    );
+    o.value = reqStr(o.value, "SetCLIModelParams.value");
+  });
+}
+
+export function encodeSetCLIModelParams(v: SetCLIModelParams): string {
+  return encodeWire(v);
+}
+
+/** SetSessionCLIModelParams 保存会话三态；空 mode/value 也是要写入的重置。 */
+export interface SetSessionCLIModelParams extends WireObject {
+  conversationId: string;
+  peerFingerprint?: string;
+  mode: string;
+  value: string;
+}
+
+export function decodeSetSessionCLIModelParams(
+  v: unknown,
+): SetSessionCLIModelParams {
+  return decodeWire<SetSessionCLIModelParams>(
+    v,
+    "SetSessionCLIModelParams",
+    (o) => {
+      o.conversationId = reqStr(
+        o.conversationId,
+        "SetSessionCLIModelParams.conversationId",
+      );
+      o.peerFingerprint = optStr(
+        o.peerFingerprint,
+        "SetSessionCLIModelParams.peerFingerprint",
+      );
+      o.mode = reqStr(o.mode, "SetSessionCLIModelParams.mode");
+      o.value = reqStr(o.value, "SetSessionCLIModelParams.value");
+    },
+  );
+}
+
+export function encodeSetSessionCLIModelParams(
+  v: SetSessionCLIModelParams,
+): string {
+  return encodeWire(v);
+}
+
 /**
  * SetModelTargetParams 改这条会话钉的 LLM ModelTarget,语义等同桌面端的
  * chat_svc.SetChatSessionModelTarget:
@@ -1034,6 +1100,10 @@ export interface SessionSummary extends WireObject {
    * 这一列。老执行端不发这个字段,解出来是空串。
    */
   reasoningEffort?: string;
+
+  /** CLIModelMode/CLIModel 是执行端记下的会话选择，供镜像原样保存。 */
+  cliModelMode?: string;
+  cliModel?: string;
 }
 
 export function decodeSessionSummary(v: unknown): SessionSummary {
@@ -1072,6 +1142,8 @@ export function decodeSessionSummary(v: unknown): SessionSummary {
       o.reasoningEffort,
       "SessionSummary.reasoningEffort",
     );
+    o.cliModelMode = optStr(o.cliModelMode, "SessionSummary.cliModelMode");
+    o.cliModel = optStr(o.cliModel, "SessionSummary.cliModel");
   });
 }
 

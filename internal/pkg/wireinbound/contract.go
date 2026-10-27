@@ -96,6 +96,8 @@ func Contract() []Requirement {
 			"mirror_svc 经 wirecall.SessionDelete;server 侧不筛 kind"},
 		{agentrewire.RpcMethod_RPC_METHOD_SET_MODEL_TARGET, []Caller{CallerConsole}, both,
 			"SessionDetailView.tsx:1405;sessionMirror.ts:142 写发起端"},
+		{agentrewire.RpcMethod_RPC_METHOD_SET_SESSION_CLI_MODEL, []Caller{CallerConsole}, both,
+			"规格 2026-10-26-cli-native-model-switch「agentre-server web 控制台」:会话选择写承载端与发起端"},
 		{agentrewire.RpcMethod_RPC_METHOD_SET_SESSION_REASONING_EFFORT, []Caller{CallerConsole}, both,
 			"SessionDetailView.tsx:1466;dispatch.ts:466"},
 		{agentrewire.RpcMethod_RPC_METHOD_ACTIVITY_ROLLUP, []Caller{CallerServerBackend}, both,
@@ -123,6 +125,10 @@ func Contract() []Requirement {
 		// 2026-09-22-agrctl-resource-management 问题 5、决策 13)。
 		{agentrewire.RpcMethod_RPC_METHOD_TOOL_APPROVAL_ANSWER, []Caller{CallerConsole}, both,
 			"规格 2026-09-22-agrctl-resource-management「控制台作答」:桌面端(作为 relay 目标)与 agentred 都要处理它"},
+
+		// CLI 默认模型属于执行设备；控制台按设备中继，不筛宿主种类。
+		{agentrewire.RpcMethod_RPC_METHOD_CLI_MODELS_LIST, []Caller{CallerDesktopToAgentred, CallerConsole}, both,
+			"规格 2026-10-26-cli-native-model-switch「远端 agentred / agentre-server web 控制台」:列表与默认解析向承载设备查询"},
 
 		// ── 外围族 ──
 		{agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG, []Caller{CallerConsole}, both,
@@ -185,6 +191,7 @@ func Contract() []Requirement {
 		{agentrewire.RpcMethod_RPC_METHOD_LLM_UPSERT, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote_device_svc/conn_pool.go:154"},
 		{agentrewire.RpcMethod_RPC_METHOD_SKILLS_LIST, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "agent_backend_svc/remote_skills.go:49"},
 		{agentrewire.RpcMethod_RPC_METHOD_CLI_PROBE, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "agent_backend_svc/remote_cli.go:81"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_CLI_MODEL, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote.Runtime.SetCLIModel:已附着会话的即时切换"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_DRAIN_PENDING, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote/runtime.go:1006"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote/runtime.go:1041"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_GET, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote/runtime.go:1113"},

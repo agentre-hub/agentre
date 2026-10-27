@@ -31,6 +31,8 @@ type activeSession struct {
 	interrupter    interruptable
 	pending        []agentruntime.ConsumedSteer
 	abortRequested bool
+	// reportedModel 是 pi 这一轮在 usage 帧上报的模型(不含占位),轮末记进 CLI 模型账。
+	reportedModel string
 	// turnToken 本会话当前活跃轮的 per-turn token(决策 1):每轮入口递增,值随
 	// RunResult 暴露给 chat_svc。Abort(turnToken!=0) 只在该 token 仍是当前活跃轮时
 	// 才中断,否则 stale no-op。piagent 只有用户轮,被中断轮类型恒为 userTurn。
@@ -38,13 +40,25 @@ type activeSession struct {
 }
 
 type Runtime struct {
-	mu       sync.Mutex
-	active   map[int64]*activeSession
-	prepared map[int64]*preparedRun
+	mu     sync.Mutex
+	active map[int64]*activeSession
+	// queryModels 是短命查询进程的测试缝，不接入会话池。
+	queryModels func(context.Context, *pkgpi.Client) (pkgpi.ModelCatalog, error)
+	prepared    map[int64]*preparedRun
+	// held 按会话扣着留给下一轮的排队消息（见 next_turn_steer.go），与 active/prepared
+	// 同受 mu 保护：判「有没有在飞的一轮」与扣下消息必须原子。
+	held map[int64]*heldSteers
 	// pool 让 RPC 会话跨轮活着。pi 的启动参数(--session/--append-system-prompt/
 	// --model/--thinking/--extension)在 spawn 时烤死且逐轮不变,每轮重起付的是进程
 	// 启动 + 扩展加载的钱,买到的是一模一样的东西。
 	pool *agentruntime.CLISessionPool
+
+	// modelLocks 按会话串行化 SetCLIModel 与开轮（见 modelLock）。
+	modelLocks sync.Map
+	// modelFailures 按会话留着模型应用失败的原文，进程被清扫后 pill 仍读得到。
+	modelFailures sync.Map
+	cliModelMu    sync.Mutex
+	cliRecords    map[int64]*piCLIRecord
 }
 
 type PreparedRun interface {
@@ -85,9 +99,11 @@ func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
 		pool = agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap)
 	}
 	return &Runtime{
-		active:   map[int64]*activeSession{},
-		prepared: map[int64]*preparedRun{},
-		pool:     pool,
+		active:     map[int64]*activeSession{},
+		prepared:   map[int64]*preparedRun{},
+		held:       map[int64]*heldSteers{},
+		pool:       pool,
+		cliRecords: map[int64]*piCLIRecord{},
 	}
 }
 
@@ -106,12 +122,15 @@ func sessionKey(id int64) string {
 // 时不回调本包,旁路表只增不减)。分隔符用 \x00:这些字段里 system
 // prompt 是自由文本,用它才不会与内容串味。
 func launchIdentity(req agentruntime.RunRequest, cwd string) string {
-	thinking, model := "", ""
+	thinking := ""
 	if req.Backend != nil {
 		thinking = req.Backend.ReasoningEffort
 	}
-	if req.Effective != nil {
-		model = req.Effective.ModelID
+	// 绑了供应商时 --model 是网关模型、只能随启动参数换,进身份;CLI 登录态的模型靠
+	// set_model 热切换(决策 6),不进身份——换模型不逐出进程,spawn 仍按会话选择下发 --model。
+	model := ""
+	if req.EffectiveProviderKey() != "" {
+		model = piModelFallback(req)
 	}
 	names := make([]string, 0, len(req.MCPServers))
 	for _, srv := range req.MCPServers {
@@ -168,6 +187,8 @@ func (r *Runtime) Capabilities() capability.Capabilities {
 			capability.CapReportContextWindow: true,
 			capability.CapForkSession:         true,
 			capability.CapMCPTools:            true,
+			// 留给下一轮的排队消息扣在 agentre 这边，轮末交回（见 next_turn_steer.go）。
+			capability.CapDrainSteer: true,
 			// 力度经 --thinking 下发。
 			capability.CapReasoningEffort: true,
 		},
@@ -211,9 +232,24 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 			env = agentruntime.BuildPiAgentProviderEnv(env, effective)
 		}
 	}
+	if req.SessionID > 0 {
+		// 切换与开轮互斥:登记 prepared 之后 SetCLIModel 才会看到「轮中」。
+		lk := r.modelLock(req.SessionID)
+		lk.Lock()
+		defer lk.Unlock()
+	}
 	sess, poolKey, err := r.acquireSession(req, env, cwd)
 	if err != nil {
+		r.noteCLIModelFailure(req, err)
 		logger.Ctx(ctx).Error("piagent runtime: session factory failed", zap.Int64("sessionID", req.SessionID), zap.String("cwd", cwd), providerKeyField(req), zap.Error(err))
+		return nil, err
+	}
+	if err := r.applyPendingCLIModel(ctx, req, sess); err != nil {
+		// 进程本身没坏(还在旧模型上),留在池里;这一轮不开始。
+		r.modelFailures.Store(req.SessionID, err.Error())
+		if poolKey != "" {
+			r.pool.MarkIdle(poolKey)
+		}
 		return nil, err
 	}
 	modelID := piResultModelPlaceholder(req)
@@ -237,6 +273,7 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 				turnSpec{forkAnchor: req.ForkAnchor},
 			)
 			if err != nil {
+				r.noteCLIModelFailure(req, err)
 				_ = prepared.Close(context.Background())
 				return nil, mapSessionError(err)
 			}
@@ -248,7 +285,16 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 			}
 		}
 	}
+	r.modelFailures.Delete(req.SessionID)
 	return prepared, nil
+}
+
+// noteCLIModelFailure 会话选了 CLI 模型、进程却没能开出这一轮时,把原文留给 pill 的失效态
+// (与 claudecode 同形:选择尚未被成功应用)。
+func (r *Runtime) noteCLIModelFailure(req agentruntime.RunRequest, err error) {
+	if req.SessionID > 0 && req.CLIModelMode != "" && req.EffectiveProviderKey() == "" {
+		r.modelFailures.Store(req.SessionID, err.Error())
+	}
 }
 
 func (p *preparedRun) ProviderSessionID() string {
@@ -330,6 +376,12 @@ func (p *preparedRun) Start(ctx context.Context) (<-chan agentruntime.Event, *ag
 // 完全正常的那条路上。
 func (p *preparedRun) release(result *agentruntime.RunResult, active *activeSession) {
 	if p.poolKey != "" && p.reusable(result, active) {
+		if active != nil {
+			active.mu.Lock()
+			reported := active.reportedModel
+			active.mu.Unlock()
+			p.runtime.noteTurnModel(p.req.SessionID, p.sess, reported)
+		}
 		if p.closeTurn(context.Background()) {
 			p.runtime.pool.MarkIdle(p.poolKey)
 		}
@@ -423,10 +475,15 @@ func (r *Runtime) Abort(ctx context.Context, sessionID int64, turnToken uint64) 
 func (r *Runtime) Steer(ctx context.Context, sessionID int64, queuedID string, text string) error {
 	r.mu.Lock()
 	a := r.active[sessionID]
-	r.mu.Unlock()
 	if a == nil || a.stream == nil {
+		held := r.steerDuringHandoffLocked(sessionID, queuedID, text)
+		r.mu.Unlock()
+		if held {
+			return nil
+		}
 		return agentruntime.ErrNoActiveTurn
 	}
+	r.mu.Unlock()
 	a.addPending(queuedID, text)
 	if err := a.stream.Steer(ctx, text); err != nil {
 		a.removePending(queuedID)
@@ -461,8 +518,10 @@ func (r *Runtime) CloseSession(ctx context.Context, sessionID int64) {
 	if sessionID <= 0 {
 		return
 	}
+	r.forgetCLIModel(sessionID)
 	r.mu.Lock()
 	owner := r.prepared[sessionID]
+	delete(r.held, sessionID)
 	r.mu.Unlock()
 	if owner != nil {
 		if err := owner.Close(ctx); err != nil {
@@ -482,7 +541,12 @@ func (r *Runtime) CloseSession(ctx context.Context, sessionID int64) {
 // 都够不着它:确认退出时正在跑的一轮,收尾靠的是 Start 那个 goroutine 里的 defer
 // Close —— 宿主进程先它一步退出,而 pi 自带进程组、不会被连坐,留下的就是孤儿。
 func (r *Runtime) CloseAllSessions(ctx context.Context) {
+	r.modelFailures.Clear()
+	r.cliModelMu.Lock()
+	clear(r.cliRecords)
+	r.cliModelMu.Unlock()
 	r.mu.Lock()
+	clear(r.held)
 	owners := make([]*preparedRun, 0, len(r.prepared))
 	for _, owner := range r.prepared {
 		owners = append(owners, owner)
@@ -501,6 +565,7 @@ func (r *Runtime) registerPrepared(sessionID int64, owner *preparedRun) {
 	}
 	r.mu.Lock()
 	r.prepared[sessionID] = owner
+	r.endHandoffLocked(sessionID)
 	r.mu.Unlock()
 }
 
@@ -606,6 +671,11 @@ func drainStream(ctx context.Context, req agentruntime.RunRequest, _ string, s s
 			// 绑 provider 时上报值带 "agentre-<key>/" 前缀，剥掉后再吐给 chat_svc，
 			// 让 transcript 的 model 字段是面向用户的原始模型 id（见 piUserModelID）。
 			result.Model = piUserModelID(req, raw.Model)
+			if active != nil {
+				active.mu.Lock()
+				active.reportedModel = result.Model
+				active.mu.Unlock()
+			}
 		}
 		events, u, err := translate(raw)
 		for _, ev := range events {

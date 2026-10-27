@@ -3,6 +3,7 @@ import type React from "react";
 import { AgentBackendsPanel as SharedAgentBackendsPanel } from "@agentre-hub/agentre-ui";
 import { EventsOn } from "../../../wailsjs/runtime/runtime";
 
+import { listCLIModels } from "./cli-models-port";
 import { createDesktopEngineSettingsPorts } from "./engine-ports-desktop";
 import { useRefreshSignal } from "./use-refresh-signal";
 
@@ -17,6 +18,7 @@ export function AgentBackendsPanel(props: {
   const refreshSignal = useRefreshSignal();
   return (
     <SharedAgentBackendsPanel
+      listCLIModels={listCLIModels}
       ports={createDesktopEngineSettingsPorts({
         onRuntimeDeviceState: (listener) =>
           EventsOn("remote.device.state", listener),

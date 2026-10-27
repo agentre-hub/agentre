@@ -50,11 +50,24 @@ export {
 } from "./permission-mode";
 export type { PermissionMode } from "./permission-mode";
 export { ModelTargetPicker } from "./engine/model-target-picker";
+export type {
+  CliModelOption,
+  CliModelChoice,
+  CliModelCatalog,
+  CliModelPickerState,
+  ListCliModels,
+} from "./engine/model-target-picker/cli-models";
 export {
   ProviderPillResolution,
   ProviderPillTrigger,
 } from "./engine/model-target-picker";
 export type { ProviderPillState } from "./engine/model-target-picker";
+export { useCLIModels } from "./engine/backend-editor/use-cli-models";
+export { supportsCLIModel } from "./engine/backend-editor/draft";
+export {
+  resolveCLIPillState,
+  cliModelResolution,
+} from "./engine/model-target-picker/cli-models";
 export { resolveProviderPillState } from "./engine/model-target-picker";
 export {
   readRecentTargets,

@@ -17,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/backendcred"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
@@ -47,6 +48,7 @@ var errOpenClawTokenSlotMissing = errors.New("openclaw token slot requires a bac
 
 // AgentBackendSvc Agent 后端应用服务。
 type AgentBackendSvc interface {
+	ListCLIModels(ctx context.Context, req *ListCLIModelsRequest) (*ListCLIModelsResponse, error)
 	List(ctx context.Context, req *ListBackendsRequest) (*ListBackendsResponse, error)
 	Create(ctx context.Context, req *CreateBackendRequest) (*CreateBackendResponse, error)
 	CreateOpenClaw(ctx context.Context, req *CreateBackendRequest, token string) (*CreateBackendResponse, error)
@@ -75,10 +77,14 @@ type AgentBackendSvc interface {
 }
 
 type agentBackendSvc struct {
-	now     func() int64
-	prober  Prober
-	gateway httpgateway.TokenIssuer
-	secrets keychain.Keychain
+	// CLI 目录只保存在内存，以设备和后端隔离；配置指纹变化时重新查询。
+	cliModels             sync.Map
+	cliModelQuerier       agentruntime.CLIModelQuerier
+	remoteCLIModelQuerier agentruntime.CLIModelQuerier
+	now                   func() int64
+	prober                Prober
+	gateway               httpgateway.TokenIssuer
+	secrets               keychain.Keychain
 	// hermes 是 gated serve 的凭据存储（login 写 keychain、runtime 取 bearer）。
 	// nil → 统一回落到进程内单例 defaultHermesCredentials。
 	hermes *backendcred.HermesCredentials
