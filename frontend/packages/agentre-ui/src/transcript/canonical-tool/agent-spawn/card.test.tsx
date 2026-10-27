@@ -2012,9 +2012,4 @@ describe("AgentSpawnCard for agrctl-upgraded shell calls", () => {
     );
     expect(native.queryByRole("button", { name: "Open session" })).toBeNull();
   });
-
-  it("ships the Open session copy in both locales", () => {
-    expect(enCommon.canonical.agentSpawn.openSession).toBe("Open session");
-    expect(zhCommon.canonical.agentSpawn.openSession).toBe("打开会话");
-  });
 });

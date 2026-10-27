@@ -486,6 +486,7 @@ func startAgrctlOverlay(
 	ctx context.Context, r agentruntime.SubagentStarted, acc *turn.Accumulator, emit turn.Emitter, tc *turn.TurnContext,
 ) error {
 	key := "subagent_state:" + r.ToolCallID
+	info := r.Info
 	var adopted, alreadyBound bool
 	turn.Mutate[blocks.SubagentStateBlock](acc, key, func(b *blocks.SubagentStateBlock) {
 		if b.Origin == agentruntime.SubagentOriginAgrctl {
@@ -493,6 +494,7 @@ func startAgrctlOverlay(
 			return
 		}
 		bindAgrctl(b, r.Info) // 后台卡的状态 / kind / task_id 仍归 CLI,不动
+		withAgrctlRun(&info, b)
 		adopted = true
 	})
 	if alreadyBound {
@@ -505,16 +507,27 @@ func startAgrctlOverlay(
 		}
 		blk := &blocks.SubagentStateBlock{ParentToolCallID: r.ToolCallID, Kind: r.Info.Kind, Status: status}
 		bindAgrctl(blk, r.Info)
+		withAgrctlRun(&info, blk)
 		acc.AddBlock(blk, key)
 	}
 	if emit != nil {
 		emit.Emit(ctx, streamOf(tc), map[string]any{
 			"kind":      "subagent_started",
 			"toolUseId": r.ToolCallID,
-			"info":      r.Info,
+			"info":      info,
 		})
 	}
 	return nil
+}
+
+// withAgrctlRun 把 overlay 此刻的单运行快照(Mode / Runs)带进要发出的实时事件:快照只在
+// 这一层派生,前端照收即可,实时与重载看到的是同一个运行。
+func withAgrctlRun(info *agentruntime.SubagentInfo, b *blocks.SubagentStateBlock) {
+	if len(b.Runs) == 0 {
+		return
+	}
+	info.Mode = b.Mode
+	info.Runs = cloneSubagentRuns(b.Runs)
 }
 
 // bindAgrctl 写入绑定时就确定的那几项:归属、子会话、isolated、任务文本,以及单运行快照的
@@ -607,7 +620,18 @@ func ApplyAgrctlInfo(
 		applied.Status = status
 	}
 	syncAgrctlRun(b)
+	withAgrctlRun(&applied, b)
 	return true, true, applied
+}
+
+// FlipAgrctlCard 把 CLI 跨消息到达的一次状态翻转(后台任务的完成 / 停止通知落在发起它的
+// 那一轮之外)按 agrctl 卡的写入分工落到 b 上,交回是否改动:前台卡上 CLI 什么都不写;后台
+// 卡的状态与退出码文本归 CLI,但已收尾的卡不被取消覆盖,单运行快照跟着翻。两个宿主的轮外
+// 翻转(桌面端仓储、agentred 的已收口消息改写)都调它,不各写一份。b 不是 agrctl 卡时
+// 交回 false 且不改动,调用方走原有的翻转。
+func FlipAgrctlCard(b *blocks.SubagentStateBlock, status, summary string) bool {
+	_, accepted, applied := ApplyAgrctlInfo(b, agentruntime.SubagentInfo{Status: status, Summary: summary}, status)
+	return accepted && (applied.Status != "" || applied.Summary != "" || applied.TaskID != "")
 }
 
 // mergeAgrctlContent 落注入方拥有的内容字段;0 / 空值不覆盖已记录值(同 R4 守卫)。

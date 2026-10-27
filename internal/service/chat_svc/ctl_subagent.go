@@ -96,17 +96,6 @@ func CtlSendSvcGateway() CtlSendGateway {
 	return gw
 }
 
-// ctlSendKey 登记表的键。表挂在包级、按服务实例分区:同一进程里的多个 chatSvc(测试)
-// 互不可见。
-type ctlSendKey struct {
-	svc   *chatSvc
-	child int64
-}
-
-// ctlSendWatches 子会话 → 它的登记(*ctlSendWatch)。子会话的事件循环经
-// mirrorCtlSendChild 查这张表。
-var ctlSendWatches sync.Map
-
 // WatchCtlSend 登记子会话:此后它的工具调用 / 结果 / 用量先攒在登记里,绑定后补投。
 func (s *chatSvc) WatchCtlSend(childSessionID int64) CtlSendWatch {
 	w := &ctlSendWatch{
@@ -114,7 +103,7 @@ func (s *chatSvc) WatchCtlSend(childSessionID int64) CtlSendWatch {
 		remote: ctlSendRemotePort{resolve: s.ctlSendInjector, backoff: ctlSendRetryBackoff, window: ctlSendRetryWindow},
 		wake:   make(chan struct{}, 1), quit: make(chan struct{}), exited: make(chan struct{}),
 	}
-	ctlSendWatches.Store(ctlSendKey{svc: s, child: childSessionID}, w)
+	s.ctlSendWatches.Store(childSessionID, w)
 	return w
 }
 
@@ -122,7 +111,7 @@ func (s *chatSvc) WatchCtlSend(childSessionID int64) CtlSendWatch {
 // 它。只做入队,**从不**等父轮的锁 —— 子会话的事件循环不能被父轮拖住。model 是子轮此刻
 // 已知的模型(空 = 还不知道)。
 func (s *chatSvc) mirrorCtlSendChild(childSessionID int64, model string, ev agentruntime.Event) {
-	v, ok := ctlSendWatches.Load(ctlSendKey{svc: s, child: childSessionID})
+	v, ok := s.ctlSendWatches.Load(childSessionID)
 	if !ok {
 		return
 	}
@@ -196,6 +185,11 @@ func (w *ctlSendWatch) Bind(ctx context.Context, req CtlSendBindRequest) bool {
 	}
 	b, ok := w.svc.bindCtlSend(ctx, w.child, req, w.remote)
 	if !ok {
+		// 不绑定就没有谁会再搬这些事件:放掉攒下的,此后子会话的事件也不再入队
+		// (子轮可能还要跑很久,工具结果不能一直攥到 send 返回)。
+		w.mu.Lock()
+		w.finished, w.queue = true, nil
+		w.mu.Unlock()
 		return false
 	}
 	w.mu.Lock()
@@ -248,7 +242,7 @@ func (w *ctlSendWatch) Finish(ctx context.Context, out CtlSendOutcome) {
 
 func (w *ctlSendWatch) Close() {
 	w.Finish(context.Background(), CtlSendOutcome{Status: CtlSendCanceled})
-	ctlSendWatches.CompareAndDelete(ctlSendKey{svc: w.svc, child: w.child}, w)
+	w.svc.ctlSendWatches.CompareAndDelete(w.child, w)
 }
 
 // ctlSendSink 一张已绑定的卡的写入端。两个方法只由镜像 goroutine 与 Finish 调用,两者经
@@ -314,7 +308,7 @@ func (s *chatSvc) bindCtlSend(ctx context.Context, child int64, req CtlSendBindR
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.approvalsClosed { // 这一轮已经收口(closeApprovals 之后转录归 finalize)
+	if t.transcriptClosed { // 这一轮已经收口(closeApprovals 之后转录归 finalize)
 		return notBound(ctlSendNoActiveTurn)
 	}
 	target := ctlbind.Target{Task: req.Task}
@@ -559,7 +553,7 @@ func (b *ctlSendBinding) underTurn(ctx context.Context, fn func()) bool {
 	}
 	t := b.turn
 	t.mu.Lock()
-	if !t.approvalsClosed {
+	if !t.transcriptClosed {
 		defer t.mu.Unlock()
 		fn()
 		return true

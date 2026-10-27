@@ -7,6 +7,7 @@
 // payload it returns the same result, and never mutates the input array. Functions that
 // can be a no-op (no matching block, invalid payload) return `null` — the same sentinel
 // chat-streams-store's `updateStream` already uses to skip a state update.
+import { AGRCTL_ORIGIN } from "@agentre-hub/agentre-ui";
 import type { chat_svc, view } from "../../wailsjs/go/models";
 import type {
   ChatBlockData,
@@ -80,45 +81,26 @@ export function appendToolResultBlock(
   return [...blocks, { ...block, type: "tool_result" } as ChatBlockData];
 }
 
-const AGRCTL_ORIGIN = "agrctl";
-
 /** isAgrctlSubagentMeta:这份 meta 是否来自 agrctl 升级(事件带 origin=agrctl)。 */
 export function isAgrctlSubagentMeta(meta: ChatBlockSubagentData): boolean {
-  return (meta as { origin?: string }).origin === AGRCTL_ORIGIN;
+  return meta.origin === AGRCTL_ORIGIN;
 }
 
 /**
- * applySubagentMeta 把一份 subagent 事件 meta 浅合并进块上已有的 overlay(runs 出现时整段
- * 替换)。agrctl 的 live 事件不带 runs,卡片的名字/任务由 subagentType + 任务文本给出,
- * 这里在 overlay 还没有 runs 时补出 runs[0](与注入方写进落库 overlay 的形状一致),
- * 已有 runs(重载来的或先前补过的)一律保留。live 与已落库两条路径共用这一处。
+ * applySubagentMeta 把一份 subagent 事件 meta 浅合并进块上已有的 overlay:runs 是完整快照,
+ * 出现时整段替换,undefined/省略时保留旧值(agrctl 卡的单运行快照由后端派生并随事件带来)。
+ * live 与已落库两条路径共用这一处。
  */
 export function applySubagentMeta(
   existing: ChatBlockSubagentData | undefined,
   meta: ChatBlockSubagentData,
 ): ChatBlockSubagentData {
   const { runs, ...patch } = meta;
-  const merged = {
+  return {
     ...(existing ?? {}),
     ...patch,
     ...(runs !== undefined ? { runs } : {}),
-  } as ChatBlockSubagentData & { origin?: string };
-  if (
-    merged.origin === AGRCTL_ORIGIN &&
-    !merged.runs?.length &&
-    merged.subagentType
-  ) {
-    merged.runs = [
-      {
-        id: "run-1",
-        index: 0,
-        agent: merged.subagentType,
-        task: merged.taskDescription || merged.prompt || "",
-        status: merged.status || "running",
-      },
-    ] as ChatBlockSubagentData["runs"];
-  }
-  return merged;
+  } as ChatBlockSubagentData;
 }
 
 /**

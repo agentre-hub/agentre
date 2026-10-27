@@ -259,6 +259,9 @@ type chatSvc struct {
 	// (chan agentruntime.Event)。远端执行的预览帧从 *remote.Runtime 的读循环进来,
 	// 由本轮的 turnRun 消费(见 preview_stream.go)。
 	previewStreams sync.Map
+	// ctlSendWatches: 子会话 sessionID(int64) → 它的 `agrctl send --wait` 登记
+	// (*ctlSendWatch,见 ctl_subagent.go)。子会话的事件循环经 mirrorCtlSendChild 查它。
+	ctlSendWatches sync.Map
 	// toolApprovalWaiters: requestID(string) → chan bool(buffered=1)。BeginToolApproval
 	// 登记,AnswerToolApproval LoadAndDelete 后回灌决策,FinishToolApproval 终态兜底清。
 	toolApprovalWaiters sync.Map

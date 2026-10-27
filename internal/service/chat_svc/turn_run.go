@@ -68,11 +68,13 @@ type turnRun struct {
 	// FinishToolApproval 进来):两边都往本轮的累加器与 assistant 消息里写、都 checkpoint。
 	// 事件循环逐条事件持有它,审批只在这一轮收口(closeApprovals)之前能拿到它改转录。
 	mu sync.Mutex
-	// approvals 本轮登记的审批卡;approvalsClosed 之后不再登记、不再改写。都由 mu 守。
-	approvals       []*turnApproval
-	approvalsClosed bool
+	// approvals 本轮登记的审批卡;transcriptClosed 之后不再登记、不再改写。都由 mu 守。
+	approvals []*turnApproval
+	// transcriptClosed 这一轮已收口(closeApprovals):此后转录归 finalize,事件循环之外的
+	// 写入方(审批卡、agrctl send 绑定的卡)都不再碰这一轮的累加器。由 mu 守。
+	transcriptClosed bool
 	// persisted 在 finalize 把这一轮的 assistant 整条落库之后关闭(由 mu 守,惰性创建)。
-	// 收口(approvalsClosed)到落库之间,别处对这条消息的定向写入会被收尾那一发整条覆盖
+	// 收口(transcriptClosed)到落库之间,别处对这条消息的定向写入会被收尾那一发整条覆盖
 	// 掉;父轮结束后还要往原消息里写的(agrctl send 绑定的卡,ctl_subagent.go)等它再写。
 	persisted chan struct{}
 }

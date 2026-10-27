@@ -335,3 +335,74 @@ func TestRuntime_GivenBackgroundAgentFromEarlierTurn_WhenItsDoneFrameLandsInALat
 	require.NotEmpty(t, frames)
 	assert.Equal(t, "failed", frames[len(frames)-1].Info.Status)
 }
+
+// Given 一轮里跑过 run_in_background 的 `agrctl send --wait`:CLI 为那条 Bash 建了后台卡,
+// 父轮收口后桌面端把它升级成 agrctl 卡(单运行快照随之建立)
+// When 之后的自主续轮带来 CLI 的完成通知,再来一轮 resume 前奏补发的取消通知
+// Then 轮外翻转与在途那一轮同一套 agrctl 写入分工:状态归 CLI 并带动单运行快照,已完成的卡
+// 不被过期的取消覆盖(与桌面端 transcript_repo.FlipSubagentInBlockData 同口径)
+func TestRuntime_GivenBackgroundAgrctlCardFromEndedTurn_WhenCLIFlipsLandInLaterTurns_ThenAgrctlRulesApply(t *testing.T) {
+	logs := captureRuntimeLogs(t)
+	store, notif := newCardTranscript(), newRecordingOutbound()
+	events := make(chan agentruntime.Event, 8)
+	autoCh := make(chan agentruntime.AutonomousTurn, 1)
+	t.Cleanup(func() { close(autoCh) })
+	rt := &fullRT{}
+	rt.runFn = func(context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		return events, &agentruntime.RunResult{}, nil
+	}
+	rt.autoFn = func(int64) <-chan agentruntime.AutonomousTurn { return autoCh }
+	h := newInjectHandlers(store, notif, rt)
+	conv := convID(42)
+	_, err := h.Run(context.Background(), runRequest(t, conv))
+	require.NoError(t, err)
+	input, err := json.Marshal(map[string]any{"command": "agrctl send --wait --agent reviewer go", "run_in_background": true})
+	require.NoError(t, err)
+	events <- agentruntime.ToolCall{ID: injShellCall, Name: "Bash", Input: input}
+	events <- agentruntime.SubagentStarted{ToolCallID: injShellCall, Info: agentruntime.SubagentInfo{
+		TaskID: "bash-1", Kind: agentruntime.SubagentKindLocalBash, TaskDescription: "agrctl send", Status: "running",
+	}}
+	events <- agentruntime.ToolResult{ToolCallID: injShellCall, Content: "Command running in background"}
+	events <- agentruntime.Done{}
+	close(events)
+	launchID := store.awaitFinished(t)
+	_, err = h.InjectSubagentEvents(context.Background(), injectRequest(t, conv, injShellCall, injectionEvents(t, agentruntime.SubagentInfo{
+		Origin: agentruntime.SubagentOriginAgrctl, Kind: agentruntime.SubagentKindLocalBash,
+		Status: "running", ChildSessionID: 9, SubagentType: "reviewer", TaskDescription: "go",
+	}, true)))
+	require.NoError(t, err)
+	bound := store.card(t, launchID, injShellCall)
+	require.NotNil(t, bound)
+	require.Len(t, bound.Runs, 1, "前提:绑定建立了单运行快照")
+	require.Equal(t, "running", bound.Runs[0].Status)
+
+	deliver := func(task *agentruntime.CompletedBackgroundTask) {
+		t.Helper()
+		turnEvents := make(chan agentruntime.Event, 1)
+		turnEvents <- agentruntime.Done{}
+		close(turnEvents)
+		forwarded := strings.Count(logs.String(), "runtime.autonomousTurn: forwarded")
+		autoCh <- agentruntime.AutonomousTurn{
+			Events: turnEvents, Result: &agentruntime.RunResult{}, Trigger: "background_task", CompletedTask: task,
+		}
+		store.awaitFinished(t)
+		require.Eventually(t, func() bool {
+			return strings.Count(logs.String(), "runtime.autonomousTurn: forwarded") > forwarded
+		}, 2*time.Second, 10*time.Millisecond)
+	}
+
+	deliver(&agentruntime.CompletedBackgroundTask{
+		ToolCallID: injShellCall, TaskID: "bash-1", Status: "completed", Summary: "Background command completed (exit code 0)",
+	})
+	card := store.card(t, launchID, injShellCall)
+	require.NotNil(t, card)
+	assert.Equal(t, "completed", card.Status)
+	require.Len(t, card.Runs, 1)
+	assert.Equal(t, "completed", card.Runs[0].Status, "单运行快照必须跟着状态翻:对端看到的不能是「完成的卡里一个运行中的运行」")
+	assert.Equal(t, "child says hi", card.FinalText)
+
+	deliver(&agentruntime.CompletedBackgroundTask{ToolCallID: injShellCall, TaskID: "bash-1", Status: "canceled"})
+	card = store.card(t, launchID, injShellCall)
+	require.NotNil(t, card)
+	assert.Equal(t, "completed", card.Status, "已完成的卡不被 resume 前奏补发的过期取消覆盖")
+}

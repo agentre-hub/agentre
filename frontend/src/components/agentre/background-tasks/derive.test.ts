@@ -452,7 +452,7 @@ describe("deriveBackgroundTasks: agrctl 子代理卡", () => {
     expect(running).toHaveLength(1);
     expect(running[0].status).toBe("running");
     const done = card("local_bash", true);
-    (done.subagent as unknown as { status: string }).status = "completed";
+    done.subagent!.status = "completed";
     expect(deriveBackgroundTasks([makeMessage(1, [done])], [])[0].status).toBe(
       "completed",
     );

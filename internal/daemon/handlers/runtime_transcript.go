@@ -23,6 +23,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	transcripthandlers "github.com/agentre-hub/agentre/internal/pkg/transcript/handlers"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 )
 
@@ -525,7 +526,8 @@ type finishedCards struct {
 var _ turn.SubagentFlipper = (*finishedCards)(nil)
 
 // FlipSubagentStatus 见 turn.SubagentFlipper:把 toolCallID 那张卡改成 status,summary 非空时
-// 一并写入(只触碰这两格,与桌面端 transcript_repo.FlipSubagentInBlockData 同口径)。
+// 一并写入(只触碰这两格,与桌面端 transcript_repo.FlipSubagentInBlockData 同口径);agrctl
+// 绑定的卡按它的写入分工来(transcripthandlers.FlipAgrctlCard)。
 //
 // taskID 在这里用不上:按 task_id 找回原卡是给跨轮恢复(SendMessage 换了新 tool call)那一段
 // 用的,而 agentred 不认领跨轮恢复(见 ResumeSubagentByTaskID),恢复段的卡就挂在它自己的
@@ -535,6 +537,9 @@ func (c *finishedCards) FlipSubagentStatus(ctx context.Context, toolCallID, _, s
 		return nil
 	}
 	_, err := c.Patch(ctx, toolCallID, func(card *transcriptblocks.SubagentStateBlock) bool {
+		if card.Origin == agentruntime.SubagentOriginAgrctl {
+			return transcripthandlers.FlipAgrctlCard(card, status, summary)
+		}
 		if card.Status == status && (summary == "" || card.Summary == summary) {
 			return false
 		}
@@ -663,6 +668,11 @@ func (c *finishedCards) rewrite(
 	if c == nil || toolCallID == "" {
 		return false, nil
 	}
+	// 读-改-写整段在这条对话的锁下:注入 RPC 各在自己的协程里跑,同一条消息里的两张卡
+	// (两条后台 send)、或一次注入与 fanout 的轮外翻转并发改写时,后写的那一发不能盖掉
+	// 先写的(与桌面端仓储 transcript_repo.lockForSession 同一要求)。
+	unlock := lockFinishedCards(c.conversationID)
+	defer unlock()
 	msg, err := c.finder.FindSubagentCard(ctx, c.conversationID, toolCallID)
 	if err != nil || msg == nil {
 		return false, err
@@ -702,6 +712,18 @@ func (c *finishedCards) rewrite(
 		zap.String("conversationId", c.conversationID), zap.Int64("messageId", msg.ID),
 		zap.String("toolUseId", toolCallID))
 	return true, nil
+}
+
+// finishedCardLocks 是 finishedCards 轮外改写的对话级锁:conversation_id → *sync.Mutex。
+// 它在包级,因为 RuntimeHandlers 每条连接一份,而同一条对话的改写可能从不同连接进来。
+// 锁随对话常驻,对话数实践上有限(同 transcript_repo.sessionMutexes)。
+var finishedCardLocks sync.Map
+
+func lockFinishedCards(conversationID string) func() {
+	v, _ := finishedCardLocks.LoadOrStore(conversationID, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // subagentCardAt 在一条消息的块里找 parent_tool_call_id==toolCallID 的那张派遣卡,交回它的

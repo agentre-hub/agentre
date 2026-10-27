@@ -143,7 +143,7 @@ type turnApproval struct {
 func (t *turnRun) beginApproval(ctx context.Context, blk *blocks.ToolApprovalBlock) (blocks.ToolApprovalBlock, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.approvalsClosed {
+	if t.transcriptClosed {
 		return blocks.ToolApprovalBlock{}, errTurnFinished
 	}
 	t.acc.AddBlock(blk, "")
@@ -157,7 +157,7 @@ func (t *turnRun) beginApproval(ctx context.Context, blk *blocks.ToolApprovalBlo
 func (t *turnRun) resolveApproval(ctx context.Context, requestID, status, result string) (blocks.ToolApprovalBlock, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.approvalsClosed {
+	if t.transcriptClosed {
 		return blocks.ToolApprovalBlock{}, false
 	}
 	for _, a := range t.approvals {
@@ -174,7 +174,7 @@ func (t *turnRun) resolveApproval(ctx context.Context, requestID, status, result
 func (t *turnRun) hasApproval(requestID string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.approvalsClosed {
+	if t.transcriptClosed {
 		return false
 	}
 	for _, a := range t.approvals {
@@ -191,7 +191,7 @@ func (t *turnRun) hasApproval(requestID string) bool {
 func (t *turnRun) closeApprovals(ctx context.Context) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.approvalsClosed = true
+	t.transcriptClosed = true
 	for _, a := range t.approvals {
 		if a.blk.Status != "pending" {
 			continue

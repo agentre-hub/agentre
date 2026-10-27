@@ -654,9 +654,7 @@ func flipAgrctlCard(data []byte, status, summary string) ([]byte, bool, error) {
 	if err := json.Unmarshal(data, &sb); err != nil {
 		return data, false, err
 	}
-	_, accepted, applied := handlers.ApplyAgrctlInfo(&sb,
-		agentruntime.SubagentInfo{Status: status, Summary: summary}, status)
-	if !accepted || (applied.Status == "" && applied.Summary == "" && applied.TaskID == "") {
+	if !handlers.FlipAgrctlCard(&sb, status, summary) {
 		return data, false, nil
 	}
 	buf, err := json.Marshal(&sb)

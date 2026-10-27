@@ -388,6 +388,28 @@ func TestCtlSend_GivenNoSafeTarget_ThenNothingIsBoundAndTheReasonIsLogged(t *tes
 	})
 }
 
+func TestCtlSend_GivenBindFailed_WhenChildKeepsRunning_ThenItsEventsAreNotRetained(t *testing.T) {
+	Convey("Given 子会话起轮前攒了一步、绑定却失败(没有在跑的父轮), When 子会话在 send 返回前继续出步骤, Then 这些事件不再攒在登记里", t, func() {
+		deps := setupPeerSessionTest(t)
+		deps.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes() // 子会话自己的转录
+		ctx := context.Background()
+		w := deps.svc.WatchCtlSend(ctlChildSessionID)
+		defer w.Close()
+		child := newCtlChildTurn(deps.svc, "m")
+		feedChild(child, agentruntime.ToolCall{ID: "c-1", Name: "Read"})
+
+		So(w.Bind(ctx, reviewBind()), ShouldBeFalse)
+		for i := 0; i < 3; i++ {
+			feedChild(child, agentruntime.ToolResult{ToolCallID: "c-1", Content: strings.Repeat("x", 1024)})
+		}
+		watch := w.(*ctlSendWatch)
+		watch.mu.Lock()
+		retained := len(watch.queue)
+		watch.mu.Unlock()
+		So(retained, ShouldEqual, 0)
+	})
+}
+
 func TestCtlSend_GivenParentLockHeld_WhenChildEmits_ThenChildEventLoopNeverWaitsOnParent(t *testing.T) {
 	Convey("Given 已绑定且父轮的 t.mu 正被占着, When 子会话吐事件, Then 子会话的事件循环立刻返回,父轮放手后照样镜像", t, func() {
 		rig := startApprovalTurn(t)
@@ -571,7 +593,7 @@ func TestCtlSend_GivenParentTurnStillPersisting_WhenChildEmits_ThenTheWriteWaits
 		So(eventually(func() bool {
 			parent.mu.Lock()
 			defer parent.mu.Unlock()
-			return parent.approvalsClosed
+			return parent.transcriptClosed
 		}), ShouldBeTrue)
 
 		Convey("When 子会话此刻吐出一步, Then 收尾落库之前不写原消息(否则会被整条覆盖掉),落库之后补上", func() {

@@ -971,7 +971,15 @@ describe("agrctl 子代理卡的实时升级", () => {
     useChatStreamsStore.getState().openStream(baseStream(7));
   });
 
-  it("Given a live shell block, When an agrctl subagent_started arrives, Then the same block becomes the spawn card with runs[0] and no extra row", () => {
+  const run = (status: string) => ({
+    id: "agrctl:42",
+    index: 0,
+    agent: "reviewer",
+    task: "审查 diff",
+    status,
+  });
+
+  it("Given a live shell block, When an agrctl subagent_started arrives, Then the same block becomes the spawn card with the backend's runs[0] and no extra row", () => {
     const s = useChatStreamsStore.getState();
     s.appendLiveToolUse(7, 1, { toolUseId: "tu", toolName: "Bash" });
 
@@ -983,20 +991,20 @@ describe("agrctl 子代理卡的实时升级", () => {
       childSessionId: 42,
       isolated: true,
       status: "running",
-    } as unknown as chat_svc.ChatBlockSubagent);
+      mode: "single",
+      runs: [run("running")],
+    } as chat_svc.ChatBlockSubagent);
 
     const blocks = live(7)!.liveBlocks;
     expect(blocks).toHaveLength(1);
-    const sa = blocks[0].subagent as unknown as Record<string, unknown>;
+    const sa = blocks[0].subagent!;
     expect(sa.origin).toBe("agrctl");
     expect(sa.childSessionId).toBe(42);
     expect(sa.isolated).toBe(true);
-    expect(sa.runs).toEqual([
-      expect.objectContaining({ agent: "reviewer", task: "审查 diff" }),
-    ]);
+    expect(sa.runs).toEqual([run("running")]);
   });
 
-  it("Given an upgraded card, When progress and done (with finalText) follow, Then runs[0] survives and the card finishes in place", () => {
+  it("Given an upgraded card, When progress and done (with finalText) follow, Then the run snapshot follows the backend and the card finishes in place", () => {
     const s = useChatStreamsStore.getState();
     s.appendLiveToolUse(7, 1, { toolUseId: "tu", toolName: "Bash" });
     s.mergeSubagentMeta(7, 1, "tu", {
@@ -1004,21 +1012,25 @@ describe("agrctl 子代理卡的实时升级", () => {
       subagentType: "reviewer",
       taskDescription: "审查 diff",
       status: "running",
-    } as unknown as chat_svc.ChatBlockSubagent);
+      runs: [run("running")],
+    } as chat_svc.ChatBlockSubagent);
+    s.mergeSubagentMeta(7, 1, "tu", {
+      origin: "agrctl",
+      lastToolName: "Read",
+    } as chat_svc.ChatBlockSubagent);
     s.mergeSubagentMeta(7, 1, "tu", {
       origin: "agrctl",
       status: "completed",
       finalText: "LGTM",
-    } as unknown as chat_svc.ChatBlockSubagent);
+      runs: [{ ...run("completed"), summary: "LGTM" }],
+    } as chat_svc.ChatBlockSubagent);
 
     const blocks = live(7)!.liveBlocks;
     expect(blocks).toHaveLength(1);
-    const sa = blocks[0].subagent as unknown as Record<string, unknown>;
+    const sa = blocks[0].subagent!;
     expect(sa.status).toBe("completed");
     expect(sa.finalText).toBe("LGTM");
-    expect(sa.runs).toEqual([
-      expect.objectContaining({ agent: "reviewer", task: "审查 diff" }),
-    ]);
+    expect(sa.runs).toEqual([{ ...run("completed"), summary: "LGTM" }]);
   });
 
   it("Given a nested tool_use re-sent, Then it appears once", () => {
@@ -1057,7 +1069,7 @@ describe("agrctl 子代理卡的实时升级", () => {
     useChatStreamsStore.getState().mergeSubagentMeta(7, 1, "tu", {
       origin: "agrctl",
       subagentType: "reviewer",
-    } as unknown as chat_svc.ChatBlockSubagent);
+    } as chat_svc.ChatBlockSubagent);
     expect(live(7)!.liveBlocks).toHaveLength(0);
   });
 });

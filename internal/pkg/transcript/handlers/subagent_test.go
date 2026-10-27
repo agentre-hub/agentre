@@ -1492,3 +1492,43 @@ func TestAgrctlOverlay_SingleRunSnapshot(t *testing.T) {
 		})
 	})
 }
+
+func TestAgrctlOverlay_LiveEventsCarryTheSingleRunSnapshot(t *testing.T) {
+	Convey("Given 注入方把一条前台 Bash 升级成 agrctl 卡", t, func() {
+		ctx := context.Background()
+		tc := &turn.TurnContext{}
+		acc := turn.New()
+		agrctlShell(acc, "sh-1", false)
+		emit := &fakeEmit{}
+		info := func(i int) agentruntime.SubagentInfo {
+			payload, ok := emit.events[i].payload.(map[string]any)
+			So(ok, ShouldBeTrue)
+			got, ok := payload["info"].(agentruntime.SubagentInfo)
+			So(ok, ShouldBeTrue)
+			return got
+		}
+		So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "sh-1",
+			Info: injected(agentruntime.SubagentInfo{
+				Kind: agentruntime.SubagentKindAgrctl, SubagentType: "reviewer", TaskDescription: "审一下",
+				ChildSessionID: 77, Status: "running",
+			}),
+		}, acc, emit, tc), ShouldBeNil)
+
+		Convey("Then 实时的 started 带着与落库 overlay 同一份单运行快照(重载前后卡片的运行是同一个)", func() {
+			So(emit.events, ShouldHaveLength, 1)
+			So(info(0).Mode, ShouldEqual, "single")
+			So(info(0).Runs, ShouldResemble, overlaysOf(acc.Snapshot())[0].Runs)
+		})
+
+		Convey("When 收尾, Then 实时的 done 带着跟上之后的快照", func() {
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-1", Info: injected(agentruntime.SubagentInfo{Status: "completed", FinalText: "LGTM"}),
+			}, acc, emit, tc), ShouldBeNil)
+			So(emit.events, ShouldHaveLength, 2)
+			So(info(1).Runs, ShouldResemble, []agentruntime.SubagentRun{{
+				ID: "agrctl:77", Agent: "reviewer", Task: "审一下", Status: "completed", Summary: "LGTM",
+			}})
+		})
+	})
+}

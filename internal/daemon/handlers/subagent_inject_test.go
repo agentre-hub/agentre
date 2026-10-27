@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
@@ -478,4 +480,102 @@ func TestRuntime_GivenLiveParentTurn_WhenModelFrameNamesAnotherCall_ThenItIsDrop
 	}
 
 	rig.finish(t)
+}
+
+// rendezvousCards 让并发的轮外改写在「读出原消息」这一步碰头:先到的那个最多等 300ms,
+// 等另一个也读出来再各自往下走 —— 两次读-改-写若没被串行化,就必然读到同一份旧正文。
+type rendezvousCards struct {
+	*cardTranscript
+	mu    sync.Mutex
+	reads int
+	both  chan struct{}
+}
+
+func (r *rendezvousCards) FindSubagentCard(ctx context.Context, conv, toolCallID string) (*transcript_entity.Message, error) {
+	msg, err := r.cardTranscript.FindSubagentCard(ctx, conv, toolCallID)
+	r.mu.Lock()
+	r.reads++
+	if r.reads == 2 {
+		close(r.both)
+	}
+	r.mu.Unlock()
+	select {
+	case <-r.both:
+	case <-time.After(300 * time.Millisecond):
+	}
+	return msg, err
+}
+
+// Given 父轮里两条后台 `agrctl send --wait` 各绑了一张卡,父轮已收口
+// When 桌面端同时为两张卡注入嵌套步骤(两次注入 RPC 并发)
+// Then 两张卡的步骤都写回原消息,谁也不覆盖谁(与桌面端仓储的会话锁同一要求)
+func TestRuntime_GivenTwoCardsInOneEndedMessage_WhenInjectedConcurrently_ThenNeitherWriteIsLost(t *testing.T) {
+	store, notif := newCardTranscript(), newRecordingOutbound()
+	cards := &rendezvousCards{cardTranscript: store, both: make(chan struct{})}
+	events := make(chan agentruntime.Event, 16)
+	rt := &fullRT{}
+	rt.runFn = func(context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		return events, &agentruntime.RunResult{}, nil
+	}
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
+		Transcript: store, SubagentCards: cards,
+		Ctl:        handlers.NewCtlSessions(func() string { return "" }),
+		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+	})
+	conv := convID(42)
+	_, err := h.Run(context.Background(), runRequest(t, conv))
+	require.NoError(t, err)
+	calls := []string{"toolu_sh_a", "toolu_sh_b"}
+	for _, id := range calls {
+		input, err := json.Marshal(map[string]any{"command": "agrctl send --wait --agent reviewer task-" + id, "run_in_background": true})
+		require.NoError(t, err)
+		events <- agentruntime.ToolCall{ID: id, Name: "Bash", Input: input}
+		events <- agentruntime.SubagentStarted{ToolCallID: id, Info: agentruntime.SubagentInfo{
+			TaskID: "bash-" + id, Kind: agentruntime.SubagentKindLocalBash, Status: "running",
+		}}
+		events <- agentruntime.ToolResult{ToolCallID: id, Content: "Command running in background"}
+	}
+	events <- agentruntime.Done{}
+	close(events)
+	msgID := store.awaitFinished(t)
+
+	batch := func(id string) []agentruntime.Event {
+		evs := make([]agentruntime.Event, 0, 3)
+		evs = append(evs, agentruntime.SubagentStarted{ToolCallID: id, Info: agentruntime.SubagentInfo{
+			Origin: agentruntime.SubagentOriginAgrctl, Kind: agentruntime.SubagentKindLocalBash, Status: "running", ChildSessionID: 9,
+		}})
+		for _, child := range []agentruntime.Event{
+			agentruntime.ToolCall{ID: "child-" + id, Name: "Bash", Input: json.RawMessage(`{"command":"ls"}`)},
+			agentruntime.ToolResult{ToolCallID: "child-" + id, Content: "a.txt"},
+		} {
+			nested, ok := ctlbind.NestChildEvent(id, child)
+			require.True(t, ok)
+			evs = append(evs, nested)
+		}
+		return evs
+	}
+	reqs := map[string]*agentrewire.RuntimeInjectSubagentEventsRequest{}
+	for _, id := range calls {
+		reqs[id] = injectRequest(t, conv, id, batch(id))
+	}
+	var wg sync.WaitGroup
+	for _, id := range calls {
+		wg.Add(1)
+		go func(req *agentrewire.RuntimeInjectSubagentEventsRequest) {
+			defer wg.Done()
+			_, err := h.InjectSubagentEvents(context.Background(), req)
+			assert.NoError(t, err)
+		}(reqs[id])
+	}
+	wg.Wait()
+
+	for _, id := range calls {
+		card := store.card(t, msgID, id)
+		require.NotNil(t, card)
+		assert.Equal(t, agentruntime.SubagentOriginAgrctl, card.Origin, "%s 的绑定被另一次注入覆盖掉了", id)
+	}
+	assert.Equal(t, 2, store.storedTypeCount(t, msgID, (transcriptblocks.NestedToolUseBlock{}).Type()), "两张卡的嵌套步骤都要在")
+	assert.Equal(t, 2, store.storedTypeCount(t, msgID, (transcriptblocks.NestedToolResultBlock{}).Type()))
 }
