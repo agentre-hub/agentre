@@ -25,6 +25,30 @@ describe("chat CLI model choice", () => {
       screen.queryByTestId("provider-pill-dynamic-icon"),
     ).not.toBeInTheDocument();
   });
+  it("Given a follow-Agent binding the CLI catalog has not answered yet, When rendering the face, Then it spins without the raw bound value", () => {
+    const state = resolveCLIPillState({
+      catalog: { models: [] },
+      backendType: "claudecode",
+      boundValue: "sonnet",
+      loading: true,
+    });
+    const { container } = render(<ProviderPillTrigger state={state} />);
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(container).toHaveTextContent(/^Follow agent binding$/);
+    expect(state.modelId).toBe("");
+  });
+  it("Given a follow-Agent binding absent from the loaded CLI catalog, When rendering the face, Then the manual value is shown as typed", () => {
+    const state = resolveCLIPillState({
+      catalog,
+      backendType: "claudecode",
+      boundValue: "my-custom-model",
+    });
+    const { container } = render(<ProviderPillTrigger state={state} />);
+    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(container).toHaveTextContent(
+      "Follow agent binding · my-custom-model",
+    );
+  });
   it("Given a chat, When opening the picker, Then follow Agent precedes the CLI section and a rejection keeps the picker open", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn().mockResolvedValue(false);

@@ -63,9 +63,16 @@ export function resolveCLIPillState(input: {
   const { catalog, choice, actualModelId = "", boundValue = "" } = input;
   const selectedValue =
     choice?.mode === "fixed" ? choice.value : choice ? "" : boundValue;
-  const selected = selectedValue
-    ? cliModelResolution(catalog, { mode: "fixed", value: selectedValue })
-    : { label: "", modelId: "" };
+  // 跟随 Agent 绑定的值还在等 CLI 目录（spec「尚未解析」）：原样值不是展示名，宁可转圈不写；
+  // 目录到了仍查不到才是手输值，照原样显示。
+  const awaitingCatalog =
+    !choice &&
+    !!input.loading &&
+    !catalog.models.some((m) => m.value === selectedValue);
+  const selected =
+    selectedValue && !awaitingCatalog
+      ? cliModelResolution(catalog, { mode: "fixed", value: selectedValue })
+      : { label: "", modelId: "" };
   const actual = catalog.models.find((m) => m.modelId === actualModelId);
   const pending: ProviderPillState["pending"] =
     input.pending && !input.error
