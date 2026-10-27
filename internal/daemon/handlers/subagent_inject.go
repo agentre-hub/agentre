@@ -73,7 +73,8 @@ func (h *RuntimeHandlers) InjectSubagentEvents(ctx context.Context, req *agentre
 }
 
 // injectableEvents 解出请求里的事件,并只留注入方有权写的那几类:点名 toolCallID 的
-// agrctl Subagent 帧(Started / Progress / Done),以及挂在 toolCallID 下的嵌套
+// agrctl Subagent 帧(Started / Progress / Done)、点名 toolCallID 的子会话模型帧
+// (SubagentModel 不带归属,只认点名的那条调用),以及挂在 toolCallID 下的嵌套
 // ToolCall / ToolResult。别的一律丢弃 —— 这个口子写的是父转录,不是任意事件的入口。
 func injectableEvents(toolCallID string, frames []*agentrewire.RuntimeEventNotification) ([]agentruntime.Event, error) {
 	out := make([]agentruntime.Event, 0, len(frames))
@@ -103,6 +104,8 @@ func injectable(toolCallID string, ev agentruntime.Event) bool {
 		return e.ToolCallID == toolCallID && e.Info.Origin == agentruntime.SubagentOriginAgrctl
 	case agentruntime.SubagentDone:
 		return e.ToolCallID == toolCallID && e.Info.Origin == agentruntime.SubagentOriginAgrctl
+	case agentruntime.SubagentModel:
+		return e.ToolCallID == toolCallID
 	case agentruntime.ToolCall:
 		return e.ParentToolCallID == toolCallID
 	case agentruntime.ToolResult:

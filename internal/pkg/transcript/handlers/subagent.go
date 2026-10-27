@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
@@ -340,11 +341,7 @@ func (SubagentModelHandler) Apply(ctx context.Context, ev agentruntime.Event, ac
 	owner := r.ToolCallID
 	hit := turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:"+r.ToolCallID, func(b *blocks.SubagentStateBlock) {
 		owner = b.ParentToolCallID
-		if b.Model != "" {
-			return // first-wins(R3):模型一经记录,后续内部帧不再改写
-		}
-		b.Model = r.Model
-		recorded = true
+		recorded = RecordSubagentModel(b, r.Model)
 	})
 	if !hit || !recorded {
 		// 命中不到既有 overlay(如前台 bash 从未 track)→ 不 emit 孤儿事件,同
@@ -363,6 +360,18 @@ func (SubagentModelHandler) Apply(ctx context.Context, ev agentruntime.Event, ac
 		})
 	}
 	return nil
+}
+
+// RecordSubagentModel 把子代理的实际模型记到 overlay 上,交回是否写入。first-wins(R3):
+// 模型一经记录,后续帧不再改写。agrctl 卡的单运行快照跟着对齐。它是累加器之外的同一条规则:
+// 宿主在父轮结束后经仓储改写原消息里的卡时也调它。
+func RecordSubagentModel(b *blocks.SubagentStateBlock, model string) bool {
+	if model == "" || b.Model != "" {
+		return false
+	}
+	b.Model = model
+	syncAgrctlRun(b)
+	return true
 }
 
 type SubagentDoneHandler struct{}
@@ -458,6 +467,12 @@ func flipSubagentOutsideTurn(
 //   - 终态之后,任何一方迟到的非终态更新都不能把卡片写回运行中(例如父轮被中止、卡片
 //     已标成取消后,注入方才到的进度),取消也不能覆盖已收尾的卡(resume 前奏补发的
 //     stopped)。
+//   - 单运行快照(Mode/Runs[0])不归任何一方:每次写入之后都从 overlay 自身重新派生
+//     (syncAgrctlRun)。SubagentStateBlock 不持久化 SubagentType,重载时卡片名只能取
+//     Runs[0].Agent,所以本机与 agentred 都在这一层写它。
+
+// agrctlRunMode 是 agrctl 卡单运行快照的 Mode。
+const agrctlRunMode = "single"
 
 // isAgrctlFrame 这一帧是否由 agrctl 绑定的注入方发出。
 func isAgrctlFrame(info agentruntime.SubagentInfo) bool {
@@ -502,7 +517,8 @@ func startAgrctlOverlay(
 	return nil
 }
 
-// bindAgrctl 写入绑定时就确定的那几项:归属、子会话、isolated、任务文本。
+// bindAgrctl 写入绑定时就确定的那几项:归属、子会话、isolated、任务文本,以及单运行快照的
+// 身份(子会话运行 ID、目标 agent 名、任务文本)。
 func bindAgrctl(b *blocks.SubagentStateBlock, info agentruntime.SubagentInfo) {
 	b.Origin = agentruntime.SubagentOriginAgrctl
 	b.ChildSessionID = info.ChildSessionID
@@ -510,6 +526,34 @@ func bindAgrctl(b *blocks.SubagentStateBlock, info agentruntime.SubagentInfo) {
 	if info.TaskDescription != "" {
 		b.Description = info.TaskDescription
 	}
+	b.Runs = []agentruntime.SubagentRun{{
+		ID:    fmt.Sprintf("agrctl:%d", info.ChildSessionID),
+		Agent: info.SubagentType,
+		Task:  info.TaskDescription,
+	}}
+	syncAgrctlRun(b)
+}
+
+// syncAgrctlRun 把 agrctl 卡的单运行快照对齐到 overlay 当前的状态:身份(ID / Agent / Task)
+// 沿用绑定时写下的,其余从 overlay 派生 —— 不另存一份会漂移的状态。子任务最终文本失败时
+// 是错误信息,否则是结论;CLI 的 summary(退出码文本)不进快照。快照只由 bindAgrctl 建立:
+// 没有它的卡(不知道目标 agent)这里不凭空造一份没有身份的运行。
+func syncAgrctlRun(b *blocks.SubagentStateBlock) {
+	if b.Origin != agentruntime.SubagentOriginAgrctl || len(b.Runs) != 1 {
+		return
+	}
+	run := agentruntime.SubagentRun{ID: b.Runs[0].ID, Agent: b.Runs[0].Agent, Task: b.Runs[0].Task}
+	run.Status = b.Status
+	run.Model = b.Model
+	run.ToolUses = b.ToolUses
+	run.LastToolName = b.LastToolName
+	if b.Status == "failed" {
+		run.ErrorMessage = b.FinalText
+	} else {
+		run.Summary = b.FinalText
+	}
+	b.Mode = agrctlRunMode
+	b.Runs = []agentruntime.SubagentRun{run}
 }
 
 // applyAgrctlFrame 若 toolCallID 上挂的是 agrctl 绑定的 overlay,就按写入分工把这一帧
@@ -562,6 +606,7 @@ func ApplyAgrctlInfo(
 	if fromInjector != background && setAgrctlStatus(b, status) {
 		applied.Status = status
 	}
+	syncAgrctlRun(b)
 	return true, true, applied
 }
 
@@ -600,16 +645,12 @@ func mergeCLIBackgroundFields(b *blocks.SubagentStateBlock, info agentruntime.Su
 }
 
 // setAgrctlStatus 写 overlay 状态,但终态之后不接受非终态:卡片一旦完成 / 失败 / 取消,
-// 迟到的运行中更新不能把它写回运行中。单运行快照(Mode/Runs,重载时卡片读的是它)的状态
-// 跟着一起写,不论这次写入来自哪一方。
+// 迟到的运行中更新不能把它写回运行中。单运行快照随后由调用方 syncAgrctlRun 对齐。
 func setAgrctlStatus(b *blocks.SubagentStateBlock, status string) bool {
 	if status == "" || !agrctlStatusAccepted(b.Status, status) {
 		return false
 	}
 	b.Status = status
-	if len(b.Runs) == 1 {
-		b.Runs[0].Status = status
-	}
 	return true
 }
 

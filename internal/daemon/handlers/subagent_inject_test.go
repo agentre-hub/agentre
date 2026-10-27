@@ -392,3 +392,90 @@ func TestRuntime_GivenLiveParentTurn_WhenBatchCarriesEventsInjectorMayNotWrite_T
 
 	rig.finish(t)
 }
+
+// namedInjection 是带目标 agent 名与子会话模型的一次 send:绑定、模型、收尾。
+func namedInjection(started agentruntime.SubagentInfo) []agentruntime.Event {
+	started.SubagentType = "reviewer"
+	return []agentruntime.Event{
+		agentruntime.SubagentStarted{ToolCallID: injShellCall, Info: started},
+		agentruntime.SubagentModel{ToolCallID: injShellCall, Model: "claude-sonnet-4"},
+		agentruntime.SubagentDone{ToolCallID: injShellCall, Info: agentruntime.SubagentInfo{
+			Origin: agentruntime.SubagentOriginAgrctl, Status: "completed", FinalText: "child says hi",
+		}},
+	}
+}
+
+// Given 远端父轮还在跑,agent 的 `agrctl send --wait` shell 调用正阻塞着
+// When 桌面端把绑定(带目标 agent 名)、子会话模型与收尾交给 agentred
+// Then 落库的卡带单运行快照(重载时卡片名取 Runs[0].Agent)与模型 —— 与本机卡一样
+func TestRuntime_GivenLiveParentTurn_WhenNamedSendWithModelInjected_ThenStoredCardKeepsAgentNameAndModel(t *testing.T) {
+	rig := liveShellRig(t, "agrctl send --wait agent hello", false)
+
+	_, err := rig.h.InjectSubagentEvents(context.Background(),
+		injectRequest(t, rig.conv, injShellCall, namedInjection(foregroundStarted())))
+	require.NoError(t, err)
+
+	card := rig.store.card(t, rig.msgID, injShellCall)
+	require.NotNil(t, card)
+	assert.Equal(t, "claude-sonnet-4", card.Model, "挂在这条调用上的模型帧要被接收")
+	assert.Equal(t, "single", card.Mode)
+	require.Len(t, card.Runs, 1)
+	assert.Equal(t, agentruntime.SubagentRun{
+		ID: "agrctl:9", Agent: "reviewer", Task: "do it", Status: "completed",
+		Model: "claude-sonnet-4", Summary: "child says hi",
+	}, card.Runs[0])
+
+	rig.finish(t)
+}
+
+// Given 远端父轮(后台 shell)已收口,卡片随那一轮落库
+// When 桌面端随后才把绑定、模型与收尾交来
+// Then 写回原消息的卡同样带 agent 名与模型
+func TestRuntime_GivenParentTurnAlreadyEnded_WhenNamedSendWithModelInjected_ThenPatchedCardKeepsAgentNameAndModel(t *testing.T) {
+	rig := liveShellRig(t, "agrctl send --wait agent hello", true)
+	rig.events <- agentruntime.SubagentStarted{ToolCallID: injShellCall, Info: agentruntime.SubagentInfo{
+		TaskID: "bash-1", Kind: agentruntime.SubagentKindLocalBash, TaskDescription: "agrctl send", Status: "running",
+	}}
+	rig.events <- agentruntime.ToolResult{ToolCallID: injShellCall, Content: "Command running in background"}
+	rig.finish(t)
+
+	_, err := rig.h.InjectSubagentEvents(context.Background(),
+		injectRequest(t, rig.conv, injShellCall, namedInjection(agentruntime.SubagentInfo{
+			Origin: agentruntime.SubagentOriginAgrctl, Kind: agentruntime.SubagentKindLocalBash,
+			Status: "running", ChildSessionID: 9, TaskDescription: "do it",
+		})))
+	require.NoError(t, err)
+
+	card := rig.store.card(t, rig.msgID, injShellCall)
+	require.NotNil(t, card)
+	assert.Equal(t, "claude-sonnet-4", card.Model)
+	require.Len(t, card.Runs, 1)
+	assert.Equal(t, "reviewer", card.Runs[0].Agent)
+	assert.Equal(t, "claude-sonnet-4", card.Runs[0].Model)
+	assert.Equal(t, "running", card.Runs[0].Status, "后台卡的状态归 CLI")
+	assert.Equal(t, "child says hi", card.Runs[0].Summary)
+}
+
+// Given 父轮在跑
+// When 批里的模型帧点名的是别的调用
+// Then 被丢弃,不落到这张卡上
+func TestRuntime_GivenLiveParentTurn_WhenModelFrameNamesAnotherCall_ThenItIsDropped(t *testing.T) {
+	rig := liveShellRig(t, "agrctl send --wait agent hello", false)
+	evs := []agentruntime.Event{
+		agentruntime.SubagentStarted{ToolCallID: injShellCall, Info: foregroundStarted()},
+		agentruntime.SubagentModel{ToolCallID: "toolu_other", Model: "forged"},
+	}
+
+	_, err := rig.h.InjectSubagentEvents(context.Background(), injectRequest(t, rig.conv, injShellCall, evs))
+	require.NoError(t, err)
+
+	card := rig.store.card(t, rig.msgID, injShellCall)
+	require.NotNil(t, card)
+	assert.Empty(t, card.Model)
+	for _, ev := range rig.preview() {
+		_, isModel := ev.(agentruntime.SubagentModel)
+		assert.False(t, isModel, "别的调用的模型帧不得作为预览帧推出")
+	}
+
+	rig.finish(t)
+}

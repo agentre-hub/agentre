@@ -283,10 +283,6 @@ const (
 	ctlSendParentUnreachable = "parent_unreachable"
 )
 
-// ctlSendRunMode 卡片的单运行快照模式:目标 agent 名与任务文本存在 Runs[0] 里,
-// SubagentStateBlock 不持久化 SubagentType,重载时卡片名只能从这里来。
-const ctlSendRunMode = "single"
-
 // bindCtlSend 在调用方会话当前这一轮(本机、进行中)里匹配 shell 调用并升级成 overlay。
 // 匹配与升级都在父轮的 t.mu 下:与事件循环、工具审批互斥,匹配时看到的开放调用不会
 // 在升级前变化。
@@ -334,14 +330,10 @@ func (s *chatSvc) bindCtlSend(ctx context.Context, child int64, req CtlSendBindR
 	}
 	b := &ctlSendBinding{
 		turn: t, acc: acc, msg: t.assistantMsg, sessionID: t.sess.ID, toolCallID: binding.ToolCallID,
-		run: agentruntime.SubagentRun{
-			ID: fmt.Sprintf("agrctl:%d", child), Agent: req.AgentName, Task: req.Task,
-		},
 		startedAt:       time.Now(),
 		ctlSendProgress: newCtlSendProgress(),
 	}
 	b.apply(ctx, ctlSendStarted(binding, child, req))
-	b.syncRun()
 	s.checkpointAssistantNew(ctx, b.msg, b.acc)
 	logger.Ctx(ctx).Info("chat_svc.bindCtlSend: subagent card bound",
 		zap.Int64("callerSessionId", req.CallerSessionID),
@@ -352,7 +344,8 @@ func (s *chatSvc) bindCtlSend(ctx context.Context, child int64, req CtlSendBindR
 }
 
 // ctlSendStarted 是升级 overlay 的那一帧:绑定时就确定的归属、子会话、isolated、目标 agent
-// 与任务文本。本机与远端父轮发的是同一帧。
+// 与任务文本。本机与远端父轮发的是同一帧;卡片的单运行快照(重载时的卡片名)由 handler 层
+// 据此写下(handlers.bindAgrctl)。
 func ctlSendStarted(binding ctlbind.Binding, child int64, req CtlSendBindRequest) agentruntime.SubagentStarted {
 	return agentruntime.SubagentStarted{ToolCallID: binding.ToolCallID, Info: agentruntime.SubagentInfo{
 		Kind:            binding.Kind(),
@@ -383,7 +376,6 @@ type ctlSendBinding struct {
 	msg        *chat_entity.Message
 	sessionID  int64
 	toolCallID string
-	run        agentruntime.SubagentRun // 身份:ID / Agent / Task
 	startedAt  time.Time
 
 	// detached 父轮已收口且收尾已落库:此后只经仓储写原消息。
@@ -575,15 +567,14 @@ func (b *ctlSendBinding) underTurn(ctx context.Context, fn func()) bool {
 	return false
 }
 
-// applyLive 父轮那一段:经 dispatcher 写进卡所在的累加器,随后对齐单运行快照并按需
-// checkpoint。调用方持有 turn.mu。
+// applyLive 父轮那一段:经 dispatcher 写进卡所在的累加器,按需 checkpoint。调用方持有
+// turn.mu。
 func (b *ctlSendBinding) applyLive(ctx context.Context, events []agentruntime.Event, settle bool) {
 	checkpoint := settle
 	for _, ev := range events {
 		b.apply(ctx, ev)
 		checkpoint = checkpoint || shouldCheckpointAssistantAfterEvent(ev)
 	}
-	b.syncRun()
 	if checkpoint {
 		b.turn.svc.checkpointAssistantNew(ctx, b.msg, b.acc)
 	}
@@ -667,11 +658,7 @@ func (b *ctlSendBinding) patchCard(ctx context.Context, emit turn.Emitter, strea
 					payloads = append(payloads, p)
 				}
 			}
-			if len(payloads) == 0 {
-				return false
-			}
-			b.syncRunOf(sb)
-			return true
+			return len(payloads) > 0
 		})
 	if err != nil || !found {
 		logger.Ctx(ctx).Warn("chat_svc.ctlSendBinding.patchCard: card not written back",
@@ -691,10 +678,9 @@ func (b *ctlSendBinding) patchCard(ctx context.Context, emit turn.Emitter, strea
 func applyCardFrame(sb *blocks.SubagentStateBlock, ev agentruntime.Event) map[string]any {
 	switch e := ev.(type) {
 	case agentruntime.SubagentModel:
-		if sb.Origin != agentruntime.SubagentOriginAgrctl || sb.Model != "" {
+		if sb.Origin != agentruntime.SubagentOriginAgrctl || !handlers.RecordSubagentModel(sb, e.Model) {
 			return nil
 		}
-		sb.Model = e.Model
 		return map[string]any{"kind": string(StreamSubagentModel), "model": e.Model}
 	case agentruntime.SubagentProgress:
 		if _, ok, applied := handlers.ApplyAgrctlInfo(sb, e.Info, ""); ok {
@@ -706,33 +692,6 @@ func applyCardFrame(sb *blocks.SubagentStateBlock, ev agentruntime.Event) map[st
 		}
 	}
 	return nil
-}
-
-// syncRun 把卡片的单运行快照(Mode/Runs)对齐到累加器里 overlay 当前的状态。调用方持有
-// turn.mu。
-func (b *ctlSendBinding) syncRun() {
-	turn.Mutate[blocks.SubagentStateBlock](b.acc, "subagent_state:"+b.toolCallID, b.syncRunOf)
-}
-
-// syncRunOf 把单运行快照对齐到 sb。overlay 的 agrctl 写入路径不收 Runs,而重载时卡片名
-// (目标 agent)只能从 Runs[0] 来,所以由注入方在每次写入后从 overlay 自身派生,不另存
-// 一份会漂移的状态。
-func (b *ctlSendBinding) syncRunOf(sb *blocks.SubagentStateBlock) {
-	if sb.Origin != agentruntime.SubagentOriginAgrctl {
-		return
-	}
-	run := b.run
-	run.Status = sb.Status
-	run.Model = sb.Model
-	run.ToolUses = sb.ToolUses
-	run.LastToolName = sb.LastToolName
-	if sb.Status == string(CtlSendFailed) {
-		run.ErrorMessage = sb.FinalText
-	} else {
-		run.Summary = sb.FinalText
-	}
-	sb.Mode = ctlSendRunMode
-	sb.Runs = []agentruntime.SubagentRun{run}
 }
 
 // ── 远端父会话(父会话在 agentred 上执行)─────────────────────────────────────

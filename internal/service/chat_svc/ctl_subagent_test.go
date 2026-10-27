@@ -233,6 +233,11 @@ func TestCtlSend_GivenLocalForegroundShellCall_WhenChildRunsToCompletion_ThenCar
 					final := decodeStored(t, rig.finalBlocks)
 					rig.mu.Unlock()
 					So(approvalsOverlayStatus(final), ShouldEqual, "completed")
+					// 重载读的就是这份:卡片名、模型、状态都在单运行快照里。
+					So(storedOverlay(final).Runs, ShouldResemble, []agentruntime.SubagentRun{{
+						ID: "agrctl:99", Agent: "reviewer", Task: "审一下 PR 42",
+						Status: "completed", Model: "claude-sonnet-4", ToolUses: 1, LastToolName: "Read", Summary: "LGTM",
+					}})
 				})
 
 				Convey("When Finish(failed), Then 卡片收成失败,原因进最终文本,已镜像的步骤保留", func() {
@@ -251,6 +256,20 @@ func TestCtlSend_GivenLocalForegroundShellCall_WhenChildRunsToCompletion_ThenCar
 			})
 		})
 	})
+}
+
+// storedOverlay 取落库转录里唯一那块 subagent_state。
+func storedOverlay(stored []storedBlock) blocks.SubagentStateBlock {
+	for _, b := range stored {
+		if b.Type != "subagent_state" {
+			continue
+		}
+		var sb blocks.SubagentStateBlock
+		if err := json.Unmarshal(b.Data, &sb); err == nil {
+			return sb
+		}
+	}
+	return blocks.SubagentStateBlock{}
 }
 
 // approvalsOverlayStatus 取落库转录里唯一那块 subagent_state 的状态。
