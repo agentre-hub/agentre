@@ -191,6 +191,24 @@ func TestServeSend_SubagentCard(t *testing.T) {
 			}})
 		})
 
+		Convey("Given agentred 转来的 send 带着它在父转录里绑定的 shell 调用, Then 绑定请求原样带上调用 ID 与后台标记,响应不变", func() {
+			rig := newSendRig()
+			rig.turnCh <- chat_svc.TurnResult{SessionID: 100, AssistantMessageID: 200}
+			req := httptest.NewRequest(http.MethodPost, "/ctl/v1/send",
+				bytes.NewReader([]byte(`{"agent":"reviewer","text":"审一下 PR 42","wait":true}`)))
+			req.Header.Set("Authorization", "Bearer "+rig.sessionToken())
+			req.Header.Set(HostBindToolCallHeader, "toolu_sh-1")
+			req.Header.Set(HostBindBackgroundHeader, "true")
+			rec := httptest.NewRecorder()
+			rig.h.ServeHTTP(rec, req)
+
+			So(rec.Code, ShouldEqual, http.StatusOK)
+			So(rig.cards.watch.binds, ShouldResemble, []chat_svc.CtlSendBindRequest{{
+				CallerSessionID: 42, AgentName: "reviewer", Task: "审一下 PR 42",
+				HostToolCallID: "toolu_sh-1", HostBackground: true,
+			}})
+		})
+
 		Convey("Given 子轮以错误收场, Then 卡片收成失败(带原因)且先于响应,响应仍是今天的 500", func() {
 			rig := newSendRig()
 			rig.turnCh <- chat_svc.TurnResult{SessionID: 100, AssistantMessageID: 200, Err: errors.New("boom")}

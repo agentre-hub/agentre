@@ -7,6 +7,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/ctlbind"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -49,6 +51,12 @@ type ctlSession struct {
 	hasDesktop bool
 	// turn 是此刻在跑的那一轮转录;控制台拥有的会话的审批卡落在它上面。nil = 没有在跑的轮。
 	turn approvalSink
+	// rid 是这条会话的 backend 会话键(resolve 交出的那份拷贝上才有值)。
+	rid int64
+	// bound 是 turn 这一轮里已经交给桌面端绑定子代理卡的 shell 调用(spec「Binding」规则 5:
+	// 一条调用最多绑一个子会话)。桌面端注入的 overlay 要过一跳才回到累加器里,在那之前
+	// 同一条命令里的下一个 send 只能靠这张表认出它。换轮即清空;只在 CtlSessions.mu 下碰。
+	bound map[string]bool
 }
 
 // approvalSink 是审批卡在本会话转录里的落点(*turnTranscript)。
@@ -137,7 +145,7 @@ func (c *CtlSessions) detachTurn(rid int64, sink approvalSink) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if s := c.sessions[rid]; s != nil && s.turn == sink {
-		s.turn = nil
+		s.turn, s.bound = nil, nil
 	}
 }
 
@@ -149,7 +157,7 @@ func (c *CtlSessions) attachTurn(rid int64, sink approvalSink) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if s := c.sessions[rid]; s != nil {
-		s.turn = sink
+		s.turn, s.bound = sink, nil
 	}
 }
 
@@ -168,7 +176,9 @@ func (c *CtlSessions) resolve(token string) (ctlSession, bool) {
 	if s == nil {
 		return ctlSession{}, false
 	}
-	return *s, true
+	out := *s
+	out.rid, out.bound = ref.SessionID, nil
+	return out, true
 }
 
 // beginWait 挂起一张卡,返回作答 channel(true = 批准)。ended 是卡所在那一轮的收口信号。
@@ -185,4 +195,75 @@ func (c *CtlSessions) endWait(requestID string) {
 	c.mu.Lock()
 	delete(c.waiters, requestID)
 	c.mu.Unlock()
+}
+
+// ── agrctl send --wait 的子代理卡绑定(远端父会话)────────────────────────────
+
+// 不绑定的原因里由本代理判出的那几种(其余取 ctlbind.Reason)。
+const (
+	ctlSendNoWait          = "no_wait"
+	ctlSendExistingSession = "existing_session"
+	ctlSendNoActiveTurn    = "no_active_turn"
+)
+
+// ctlSendTurn 是绑定在途那一轮里要看的东西(*turnTranscript):外层工具调用,以及已经被
+// agrctl overlay 占住的调用。live=false 表示这一轮已经收口。
+type ctlSendTurn interface {
+	ctlSendCandidates() (calls []turn.OuterToolUse, bound map[string]bool, live bool)
+}
+
+// ctlSendCandidates 在 t.mu 下取这一轮当前那一段的外层调用与已绑定的调用(与桌面端
+// chat_svc.bindCtlSend 同一个口径:只看当前累加器)。
+func (t *turnTranscript) ctlSendCandidates() ([]turn.OuterToolUse, map[string]bool, bool) {
+	if t == nil {
+		return nil, nil, false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.finished {
+		return nil, nil, false
+	}
+	return t.acc.OuterToolUses(), ctlbind.BoundToolCallIDs(t.acc.Snapshot()), true
+}
+
+// bindCtlSend 在 owner 那一轮里匹配发出这次 send 的 shell 调用并占住它(spec「Binding」:
+// 父轮的宿主负责绑定)。reason 非空 = 不绑定。转录锁与会话表的锁不嵌套:先在 t.mu 下取
+// 候选,再在 c.mu 下核对这一轮仍是当前轮、并与已占住的调用一起匹配、占位。
+func (c *CtlSessions) bindCtlSend(owner ctlSession, target ctlbind.Target) (ctlbind.Binding, string) {
+	src, ok := owner.turn.(ctlSendTurn)
+	if !ok {
+		return ctlbind.Binding{}, ctlSendNoActiveTurn
+	}
+	calls, bound, live := src.ctlSendCandidates()
+	if !live {
+		return ctlbind.Binding{}, ctlSendNoActiveTurn
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	s := c.sessions[owner.rid]
+	if s == nil || s.turn != owner.turn {
+		return ctlbind.Binding{}, ctlSendNoActiveTurn
+	}
+	for id := range s.bound {
+		bound[id] = true
+	}
+	binding, reason := ctlbind.Match(calls, bound, target)
+	if reason != "" {
+		return ctlbind.Binding{}, string(reason)
+	}
+	if s.bound == nil {
+		s.bound = map[string]bool{}
+	}
+	s.bound[binding.ToolCallID] = true
+	return binding, ""
+}
+
+// unbindCtlSend 放掉一次没有成交的占位(桌面端拒绝了这次 send,规则 4)。桌面端若已把
+// overlay 注入进那一轮,累加器里的 overlay 照样挡住重绑。
+func (c *CtlSessions) unbindCtlSend(owner ctlSession, toolCallID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if s := c.sessions[owner.rid]; s != nil && s.turn == owner.turn {
+		delete(s.bound, toolCallID)
+	}
 }

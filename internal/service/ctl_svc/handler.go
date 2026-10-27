@@ -243,6 +243,8 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 		AgentID:         req.AgentID,
 		Task:            req.Text,
 		Isolated:        req.Isolated,
+		HostToolCallID:  r.Header.Get(HostBindToolCallHeader),
+		HostBackground:  r.Header.Get(HostBindBackgroundHeader) == "true",
 	})
 
 	// 卡片的终态一律在写响应之前落定:前台 shell 调用拿到结果时,卡片已经收尾。

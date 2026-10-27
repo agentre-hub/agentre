@@ -321,7 +321,7 @@ func TestCtlSend_GivenNoSafeTarget_ThenNothingIsBoundAndTheReasonIsLogged(t *tes
 			So(ctlNotBoundReasons(logs), ShouldResemble, []string{"no_active_turn"})
 		})
 
-		Convey("调用方会话的轮在 agentred 上跑(远端父轮)→ remote_parent", func() {
+		Convey("调用方会话的轮在 agentred 上跑(远端父轮)且 agentred 没有附来绑定 → no_host_binding", func() {
 			deps := setupPeerSessionTest(t)
 			parent := &turnRun{
 				svc: deps.svc, sess: &chat_entity.Session{ID: approvalSessionID}, acc: turn.New(),
@@ -331,7 +331,7 @@ func TestCtlSend_GivenNoSafeTarget_ThenNothingIsBoundAndTheReasonIsLogged(t *tes
 			w := deps.svc.WatchCtlSend(ctlChildSessionID)
 			defer w.Close()
 			So(w.Bind(ctx, reviewBind()), ShouldBeFalse)
-			So(ctlNotBoundReasons(logs), ShouldResemble, []string{"remote_parent"})
+			So(ctlNotBoundReasons(logs), ShouldResemble, []string{"no_host_binding"})
 		})
 
 		cases := []struct {

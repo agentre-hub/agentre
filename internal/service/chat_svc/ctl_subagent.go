@@ -2,6 +2,7 @@ package chat_svc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -15,7 +16,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/ctlbind"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/handlers"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 )
 
 // ctl_subagent.go 把 `agrctl send --wait` 的子会话挂到父转录里(spec 2026-10-27
@@ -23,10 +26,10 @@ import (
 // shell 调用原地升级成子代理卡,子会话的工具调用 / 结果实时镜像成卡片的嵌套步骤,进度、
 // 模型、用量跟着子会话走,终态在 serveSend 写响应(即 shell 调用拿到结果)之前落定。
 //
-// 本文件只做本机父轮:前台与 Claude 后台(run_in_background)调用都绑定;父轮先结束、子任务
-// 还在跑时(后台 Bash、Codex 的命令在父轮结束后仍在运行),卡片在原消息里继续更新并由子任务
-// 的真实结果收尾(ctlSendBinding.writeBack)。远端(agentred)父轮由后续切片在 bindCtlSend
-// 的 remote_parent 分支上接手。
+// 本机父轮:前台与 Claude 后台(run_in_background)调用都绑定;父轮先结束、子任务还在跑时
+// (后台 Bash、Codex 的命令在父轮结束后仍在运行),卡片在原消息里继续更新并由子任务的真实结果
+// 收尾(ctlSendBinding.writeBack)。远端父轮(父会话在 agentred 上执行):父转录归 agentred,
+// 绑定由它完成并随请求附来,桌面端只把子会话事件经注入 RPC 交给它(ctlSendRemote)。
 //
 // 写入走 transcript 的 agrctl overlay 约定(handlers/subagent.go):每一帧都带
 // Info.Origin = SubagentOriginAgrctl,只落在本轮累加器里已有的 overlay 上。
@@ -53,6 +56,11 @@ type CtlSendBindRequest struct {
 	Task string
 	// Isolated 子会话是 --isolated 一次性会话(不在侧栏里)。
 	Isolated bool
+	// HostToolCallID / HostBackground 是父轮的宿主(agentred)在它的父转录里替这次 send
+	// 绑定的那条 shell 调用(spec「Remote sessions」第 1 条)。只在父会话于 agentred 上执行时
+	// 采信:本机父轮由桌面端自己匹配,忽略它们。
+	HostToolCallID string
+	HostBackground bool
 }
 
 // CtlSendOutcome 是子轮的结果。
@@ -103,7 +111,8 @@ var ctlSendWatches sync.Map
 func (s *chatSvc) WatchCtlSend(childSessionID int64) CtlSendWatch {
 	w := &ctlSendWatch{
 		svc: s, child: childSessionID,
-		wake: make(chan struct{}, 1), quit: make(chan struct{}), exited: make(chan struct{}),
+		remote: ctlSendRemotePort{resolve: s.ctlSendInjector, backoff: ctlSendRetryBackoff, window: ctlSendRetryWindow},
+		wake:   make(chan struct{}, 1), quit: make(chan struct{}), exited: make(chan struct{}),
 	}
 	ctlSendWatches.Store(ctlSendKey{svc: s, child: childSessionID}, w)
 	return w
@@ -121,15 +130,19 @@ func (s *chatSvc) mirrorCtlSendChild(childSessionID int64, model string, ev agen
 }
 
 // ctlSendWatch 一次 send 的登记。队列由子会话事件循环写、由镜像 goroutine(或 Finish)读,
-// 只在 mu 下碰;绑定后的父转录写入一律在父轮的 t.mu 下进行(ctlSendBinding)。
+// 只在 mu 下碰;绑定后的写入交给 binding:本机父轮在父轮的 t.mu 下写(ctlSendBinding),远端
+// 父轮经注入 RPC 推给 agentred(ctlSendRemote)。
 type ctlSendWatch struct {
 	svc   *chatSvc
 	child int64
 
+	// remote 是远端父会话的注入端口(父会话在 agentred 上执行时用)。
+	remote ctlSendRemotePort
+
 	mu       sync.Mutex
 	queue    []agentruntime.Event
 	model    string
-	binding  *ctlSendBinding
+	binding  ctlSendSink
 	finished bool
 
 	wake   chan struct{}
@@ -181,7 +194,7 @@ func (w *ctlSendWatch) Bind(ctx context.Context, req CtlSendBindRequest) bool {
 	if finished {
 		return false
 	}
-	b, ok := w.svc.bindCtlSend(ctx, w.child, req)
+	b, ok := w.svc.bindCtlSend(ctx, w.child, req, w.remote)
 	if !ok {
 		return false
 	}
@@ -238,10 +251,36 @@ func (w *ctlSendWatch) Close() {
 	ctlSendWatches.CompareAndDelete(ctlSendKey{svc: w.svc, child: w.child}, w)
 }
 
+// ctlSendSink 一张已绑定的卡的写入端。两个方法只由镜像 goroutine 与 Finish 调用,两者经
+// ctlSendWatch 的 quit/exited 先后排开,实现不必自己再加锁。
+type ctlSendSink interface {
+	// mirror 把一批子会话事件(与子轮此刻已知的模型)落到卡上。
+	mirror(ctx context.Context, batch []agentruntime.Event, model string)
+	// finish 落终态;返回时终态已落定(远端断线时已交给重试,见 ctlSendRemote.finish)。
+	finish(ctx context.Context, child int64, out CtlSendOutcome)
+}
+
+// ctlSubagentInjector 把子会话事件交给父会话所在的 agentred(*remote.Runtime 实现)。
+type ctlSubagentInjector interface {
+	InjectSubagentEvents(ctx context.Context, sessionID int64, toolCallID string, events []agentruntime.Event) error
+}
+
+// ctlSendRemotePort 远端父会话的注入端口。
+type ctlSendRemotePort struct {
+	resolve func(ctx context.Context, sessionID int64) (ctlSubagentInjector, error)
+	backoff time.Duration
+	window  time.Duration
+}
+
 // 不绑定的原因(ctlbind.Reason 之外由本服务判出的那几种)。
 const (
 	ctlSendNoActiveTurn = "no_active_turn"
-	ctlSendRemoteParent = "remote_parent"
+	// 父轮在 agentred 上执行,但 agentred 没有附来它绑定的 shell 调用(它判定不绑)。
+	ctlSendNoHostBinding = "no_host_binding"
+	// 带着宿主绑定,父会话却不在 agentred 上执行(本机没有在跑的轮)。
+	ctlSendParentNotRemote = "parent_not_remote"
+	// 带着宿主绑定,此刻却连不上父会话所在的 agentred:无从核实,不绑。
+	ctlSendParentUnreachable = "parent_unreachable"
 )
 
 // ctlSendRunMode 卡片的单运行快照模式:目标 agent 名与任务文本存在 Runs[0] 里,
@@ -255,8 +294,11 @@ const ctlSendRunMode = "single"
 // 后台(run_in_background)调用同样绑定:它的结果会立刻返回,与 send 请求谁先到是竞争的
 // (Design 9)。后台卡保留 local_bash(binding.Kind),后台面板、停止按钮与轮结束保护照常;
 // 它的状态归 CLI,注入方只写子会话带来的内容(handlers.ApplyAgrctlInfo)。
-func (s *chatSvc) bindCtlSend(ctx context.Context, child int64, req CtlSendBindRequest) (*ctlSendBinding, bool) {
-	notBound := func(reason string) (*ctlSendBinding, bool) {
+//
+// 父会话在 agentred 上执行时(本机那一轮只是持久帧的回放,或本机根本没有那一轮)不在本地
+// 匹配,改走 bindCtlSendRemote。
+func (s *chatSvc) bindCtlSend(ctx context.Context, child int64, req CtlSendBindRequest, remote ctlSendRemotePort) (ctlSendSink, bool) {
+	notBound := func(reason string) (ctlSendSink, bool) {
 		logger.Ctx(ctx).Info("chat_svc.bindCtlSend: subagent card not bound",
 			zap.String("reason", reason),
 			zap.Int64("callerSessionId", req.CallerSessionID),
@@ -264,12 +306,15 @@ func (s *chatSvc) bindCtlSend(ctx context.Context, child int64, req CtlSendBindR
 		return nil, false
 	}
 	t := s.activeTurn(req.CallerSessionID)
-	if t == nil {
-		return notBound(ctlSendNoActiveTurn)
-	}
-	// 远端执行的父轮:转录归 agentred,桌面端这只累加器只是持久帧的回放。
-	if t.previews != nil {
-		return notBound(ctlSendRemoteParent)
+	if t == nil || t.previews != nil {
+		if t == nil && req.HostToolCallID == "" {
+			return notBound(ctlSendNoActiveTurn)
+		}
+		r, reason := s.bindCtlSendRemote(ctx, child, req, remote)
+		if reason != "" {
+			return notBound(reason)
+		}
+		return r, true
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -292,20 +337,10 @@ func (s *chatSvc) bindCtlSend(ctx context.Context, child int64, req CtlSendBindR
 		run: agentruntime.SubagentRun{
 			ID: fmt.Sprintf("agrctl:%d", child), Agent: req.AgentName, Task: req.Task,
 		},
-		startedAt: time.Now(),
-		seen:      map[string]bool{},
-		delivered: map[string]bool{},
+		startedAt:       time.Now(),
+		ctlSendProgress: newCtlSendProgress(),
 	}
-	b.apply(ctx, agentruntime.SubagentStarted{ToolCallID: b.toolCallID, Info: agentruntime.SubagentInfo{
-		Kind:            binding.Kind(),
-		Origin:          agentruntime.SubagentOriginAgrctl,
-		ChildSessionID:  child,
-		Isolated:        req.Isolated,
-		SubagentType:    req.AgentName,
-		TaskDescription: req.Task,
-		Prompt:          req.Task,
-		Status:          "running",
-	}})
+	b.apply(ctx, ctlSendStarted(binding, child, req))
 	b.syncRun()
 	s.checkpointAssistantNew(ctx, b.msg, b.acc)
 	logger.Ctx(ctx).Info("chat_svc.bindCtlSend: subagent card bound",
@@ -314,6 +349,21 @@ func (s *chatSvc) bindCtlSend(ctx context.Context, child int64, req CtlSendBindR
 		zap.String("toolCallId", b.toolCallID),
 		zap.String("kind", binding.Kind()))
 	return b, true
+}
+
+// ctlSendStarted 是升级 overlay 的那一帧:绑定时就确定的归属、子会话、isolated、目标 agent
+// 与任务文本。本机与远端父轮发的是同一帧。
+func ctlSendStarted(binding ctlbind.Binding, child int64, req CtlSendBindRequest) agentruntime.SubagentStarted {
+	return agentruntime.SubagentStarted{ToolCallID: binding.ToolCallID, Info: agentruntime.SubagentInfo{
+		Kind:            binding.Kind(),
+		Origin:          agentruntime.SubagentOriginAgrctl,
+		ChildSessionID:  child,
+		Isolated:        req.Isolated,
+		SubagentType:    req.AgentName,
+		TaskDescription: req.Task,
+		Prompt:          req.Task,
+		Status:          "running",
+	}}
 }
 
 // ctlSendBinding 一张已升级的卡:它落在哪一轮、哪只累加器、哪条消息上(插话分段会换掉
@@ -339,13 +389,55 @@ type ctlSendBinding struct {
 	// detached 父轮已收口且收尾已落库:此后只经仓储写原消息。
 	detached bool
 
+	ctlSendProgress
+}
+
+// ctlSendProgress 注入方自己累计的子会话进度与嵌套步骤去重表(本机与远端父轮共用)。
+type ctlSendProgress struct {
 	seen         map[string]bool // 已计数的子会话外层工具调用 ID
-	delivered    map[string]bool // 已投递的嵌套步骤:块类型 + 嵌套 ID(跨两段去重)
+	delivered    map[string]bool // 已投递的嵌套步骤:块类型 + 嵌套 ID(跨批去重)
 	toolUses     int
 	lastToolName string
 	inputTokens  int // 子轮最近一次调用的输入规模
 	outputTokens int // 子轮累计输出
 	model        string
+}
+
+func newCtlSendProgress() ctlSendProgress {
+	return ctlSendProgress{seen: map[string]bool{}, delivered: map[string]bool{}}
+}
+
+// steps 把一批子会话事件翻成卡上的帧:嵌套步骤(按 ID 去重)与进度(变了才发)。
+func (p *ctlSendProgress) steps(toolCallID string, batch []agentruntime.Event) []agentruntime.Event {
+	var events []agentruntime.Event
+	progressed := false
+	for _, ev := range batch {
+		if nested, ok := ctlbind.NestChildEvent(toolCallID, ev); ok && p.firstDelivery(nested) {
+			events = append(events, nested)
+		}
+		progressed = p.track(ev) || progressed
+	}
+	if progressed {
+		events = append(events, agentruntime.SubagentProgress{ToolCallID: toolCallID, Info: agentruntime.SubagentInfo{
+			Origin:       agentruntime.SubagentOriginAgrctl,
+			ToolUses:     p.toolUses,
+			LastToolName: p.lastToolName,
+			TotalTokens:  p.inputTokens + p.outputTokens,
+		}})
+	}
+	return events
+}
+
+// done 是收尾那一帧:子轮最终文本、工具数、用量与耗时。
+func (p *ctlSendProgress) done(toolCallID string, out CtlSendOutcome, startedAt time.Time) agentruntime.SubagentDone {
+	return agentruntime.SubagentDone{ToolCallID: toolCallID, Info: agentruntime.SubagentInfo{
+		Origin:      agentruntime.SubagentOriginAgrctl,
+		Status:      string(out.Status),
+		FinalText:   out.FinalText,
+		ToolUses:    p.toolUses,
+		TotalTokens: p.inputTokens + p.outputTokens,
+		DurationMs:  int(time.Since(startedAt).Milliseconds()),
+	}}
 }
 
 // apply 把一帧经 dispatcher 落进卡所在的累加器(带实时事件),并照 applyLive 的口径扇出给
@@ -367,21 +459,7 @@ func (b *ctlSendBinding) mirror(ctx context.Context, batch []agentruntime.Event,
 	if m := b.takeModel(model); m != "" {
 		events = append(events, agentruntime.SubagentModel{ToolCallID: b.toolCallID, Model: m})
 	}
-	progressed := false
-	for _, ev := range batch {
-		if nested, ok := ctlbind.NestChildEvent(b.toolCallID, ev); ok && b.firstDelivery(nested) {
-			events = append(events, nested)
-		}
-		progressed = b.track(ev) || progressed
-	}
-	if progressed {
-		events = append(events, agentruntime.SubagentProgress{ToolCallID: b.toolCallID, Info: agentruntime.SubagentInfo{
-			Origin:       agentruntime.SubagentOriginAgrctl,
-			ToolUses:     b.toolUses,
-			LastToolName: b.lastToolName,
-			TotalTokens:  b.inputTokens + b.outputTokens,
-		}})
-	}
+	events = append(events, b.steps(b.toolCallID, batch)...)
 	if len(events) > 0 {
 		b.write(ctx, events, false)
 	}
@@ -389,7 +467,7 @@ func (b *ctlSendBinding) mirror(ctx context.Context, batch []agentruntime.Event,
 
 // firstDelivery 嵌套步骤是否头一次投递。父轮那一段 handler 自己也按 ID 去重,但写回那一段
 // 每批用一只新累加器,跨批、跨两段的重复只能在这里认出来。
-func (b *ctlSendBinding) firstDelivery(nested agentruntime.Event) bool {
+func (p *ctlSendProgress) firstDelivery(nested agentruntime.Event) bool {
 	var key string
 	switch e := nested.(type) {
 	case agentruntime.ToolCall:
@@ -399,32 +477,32 @@ func (b *ctlSendBinding) firstDelivery(nested agentruntime.Event) bool {
 	default:
 		return true
 	}
-	if b.delivered[key] {
+	if p.delivered[key] {
 		return false
 	}
-	b.delivered[key] = true
+	p.delivered[key] = true
 	return true
 }
 
 // track 累计进度,交回这一帧是否改变了进度。子会话外层工具调用按 ID 计一次(同一 ID 的
 // 增量更新不重复计数);用量 = 最近一次调用的输入规模 + 累计输出。
-func (b *ctlSendBinding) track(ev agentruntime.Event) bool {
+func (p *ctlSendProgress) track(ev agentruntime.Event) bool {
 	switch e := ev.(type) {
 	case agentruntime.ToolCall:
-		if e.ParentToolCallID != "" || b.seen[e.ID] {
+		if e.ParentToolCallID != "" || p.seen[e.ID] {
 			return false
 		}
-		b.seen[e.ID] = true
-		b.toolUses++
-		b.lastToolName = e.Name
+		p.seen[e.ID] = true
+		p.toolUses++
+		p.lastToolName = e.Name
 		return true
 	case agentruntime.UsageUpdate:
 		if e.Usage == nil {
 			return false
 		}
-		b.outputTokens += e.Usage.CompletionTokens
+		p.outputTokens += e.Usage.CompletionTokens
 		if e.TotalInputTokens > 0 {
-			b.inputTokens = e.TotalInputTokens
+			p.inputTokens = e.TotalInputTokens
 		}
 		return true
 	}
@@ -433,11 +511,11 @@ func (b *ctlSendBinding) track(ev agentruntime.Event) bool {
 
 // takeModel 模型一经记录不再改写(与 SubagentModelHandler 的 first-wins 一致);交回这次
 // 要写的模型,不写时为空。
-func (b *ctlSendBinding) takeModel(model string) string {
-	if model == "" || b.model != "" {
+func (p *ctlSendProgress) takeModel(model string) string {
+	if model == "" || p.model != "" {
 		return ""
 	}
-	b.model = model
+	p.model = model
 	return model
 }
 
@@ -453,14 +531,7 @@ func (b *ctlSendBinding) finish(ctx context.Context, child int64, out CtlSendOut
 	if m := b.takeModel(model); m != "" {
 		events = append(events, agentruntime.SubagentModel{ToolCallID: b.toolCallID, Model: m})
 	}
-	events = append(events, agentruntime.SubagentDone{ToolCallID: b.toolCallID, Info: agentruntime.SubagentInfo{
-		Origin:      agentruntime.SubagentOriginAgrctl,
-		Status:      string(out.Status),
-		FinalText:   out.FinalText,
-		ToolUses:    b.toolUses,
-		TotalTokens: b.inputTokens + b.outputTokens,
-		DurationMs:  int(time.Since(b.startedAt).Milliseconds()),
-	}})
+	events = append(events, b.done(b.toolCallID, out, b.startedAt))
 	b.write(ctx, events, true)
 	logger.Ctx(ctx).Info("chat_svc.ctlSendBinding.finish: subagent card settled",
 		zap.Int64("sessionId", b.sessionID),
@@ -662,4 +733,192 @@ func (b *ctlSendBinding) syncRunOf(sb *blocks.SubagentStateBlock) {
 	}
 	sb.Mode = ctlSendRunMode
 	sb.Runs = []agentruntime.SubagentRun{run}
+}
+
+// ── 远端父会话(父会话在 agentred 上执行)─────────────────────────────────────
+
+// 远端收尾帧的重试节奏:断线时 Finish 不等重连,收尾交给后台按退避重试,直到送达或超出窗口。
+const (
+	ctlSendRetryBackoff    = time.Second
+	ctlSendRetryMaxBackoff = 30 * time.Second
+	ctlSendRetryWindow     = 30 * time.Minute
+)
+
+// ctlSendInjector 是生产的注入端口解析:父会话此刻在 agentred 上执行时交回那台 agentred 的
+// 运行时,在本机执行时交回 nil。与 StopBackgroundTask 同一条解析路径(会话 → 执行目标 →
+// runner);断线重连后连接会换,所以推送失败后要重新解析,不能攥着旧的。
+func (s *chatSvc) ctlSendInjector(ctx context.Context, sessionID int64) (ctlSubagentInjector, error) {
+	sess, err := chat_repo.Session().Find(ctx, sessionID)
+	if err != nil || sess == nil {
+		return nil, err
+	}
+	_, be, _, err := s.resolveAgentBackend(ctx, sess, sess.AgentID, sess.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	if !exec_target_svc.BackendTargetsRemote(be) {
+		return nil, nil
+	}
+	rt, err := s.borrowRemoteRuntime(ctx, be, sessionID)
+	if err != nil {
+		return nil, err // 不把 nil 的 *remote.Runtime 包成非 nil 的接口交出去
+	}
+	return rt, nil
+}
+
+// bindCtlSendRemote 远端父会话的绑定:父转录归 agentred,匹配也由它在转发 send 时做完,
+// 这里只采信它附来的 shell 调用(spec「Remote sessions」第 1 条、Design 12)。没有附来、父会话
+// 并不在 agentred 上执行、或此刻连不上它时不绑定 —— 宁可不升级,也不挂错卡。
+func (s *chatSvc) bindCtlSendRemote(ctx context.Context, child int64, req CtlSendBindRequest, port ctlSendRemotePort) (*ctlSendRemote, string) {
+	if req.HostToolCallID == "" {
+		return nil, ctlSendNoHostBinding
+	}
+	inj, err := port.resolve(ctx, req.CallerSessionID)
+	if err != nil {
+		logger.Ctx(ctx).Warn("chat_svc.bindCtlSend: cannot reach the remote parent",
+			zap.Int64("callerSessionId", req.CallerSessionID),
+			zap.Int64("childSessionId", child),
+			zap.Error(err))
+		return nil, ctlSendParentUnreachable
+	}
+	if inj == nil {
+		return nil, ctlSendParentNotRemote
+	}
+	binding := ctlbind.Binding{ToolCallID: req.HostToolCallID, Background: req.HostBackground}
+	r := &ctlSendRemote{
+		port: port, inj: inj, sessionID: req.CallerSessionID, child: child, toolCallID: binding.ToolCallID,
+		startedAt:       time.Now(),
+		ctlSendProgress: newCtlSendProgress(),
+		pending:         []agentruntime.Event{ctlSendStarted(binding, child, req)},
+	}
+	logger.Ctx(ctx).Info("chat_svc.bindCtlSend: subagent card bound on the remote parent",
+		zap.Int64("callerSessionId", req.CallerSessionID),
+		zap.Int64("childSessionId", child),
+		zap.String("toolCallId", binding.ToolCallID),
+		zap.String("kind", binding.Kind()))
+	return r, ""
+}
+
+// ctlSendRemote 远端父会话上的一张卡:子会话的事件经注入 RPC 成批推给 agentred,由它写进
+// 父转录(进行中的轮直接写,已结束的轮写回原消息),再以预览帧与持久帧回传 —— 桌面端、
+// agentred、重连追帧看到的是同一份。推送只在镜像 goroutine / Finish(以及 Finish 交出的重试)
+// 上做,子会话的事件循环从不等它。
+//
+// 断线(spec「Remote sessions」断线期间):子会话不受影响;断线期间的嵌套步骤与进度帧随失败
+// 的那一批丢弃(可以缺几条,记一条 warn),但 overlay 起始帧与收尾帧留在 pending 里随下一次
+// 推送重发 —— 没有起始帧 agentred 不认这张卡,没有收尾帧卡片会一直停在运行中。Finish 时
+// 仍连不上就交给后台按退避重试,重连后终态与最终文本照样送达。
+type ctlSendRemote struct {
+	port       ctlSendRemotePort
+	inj        ctlSubagentInjector // 上一次解析出的注入端口;推送失败后作废,下次重新解析
+	sessionID  int64               // 父会话
+	child      int64
+	toolCallID string
+	startedAt  time.Time
+
+	ctlSendProgress
+
+	pending []agentruntime.Event // 还没送达、也不能丢的帧(起始 / 收尾)
+	outage  bool                 // 正处在一段断线里(这段的 warn 已经记过)
+}
+
+// mirror 推一批嵌套步骤与进度。模型不推:agentred 只收 agrctl 的 Subagent 帧与嵌套步骤。
+func (r *ctlSendRemote) mirror(ctx context.Context, batch []agentruntime.Event, _ string) {
+	r.push(ctx, r.steps(r.toolCallID, batch))
+}
+
+// finish 推收尾帧(带子轮最终文本)。连不上时不等:交给后台重试后返回,子会话与 send 的
+// 应答都不被断线拖住。
+func (r *ctlSendRemote) finish(ctx context.Context, _ int64, out CtlSendOutcome) {
+	ctx = context.WithoutCancel(ctx)
+	if r.push(ctx, []agentruntime.Event{r.done(r.toolCallID, out, r.startedAt)}) {
+		r.logSettled(ctx, out, "chat_svc.ctlSendRemote.finish: subagent card settled")
+		return
+	}
+	go r.retry(ctx, out)
+}
+
+// retry 按退避重推 pending(起始 / 收尾帧),直到送达或超出窗口。
+func (r *ctlSendRemote) retry(ctx context.Context, out CtlSendOutcome) {
+	backoff := r.port.backoff
+	deadline := time.Now().Add(r.port.window)
+	for {
+		timer := time.NewTimer(backoff)
+		<-timer.C
+		if r.push(ctx, nil) {
+			r.logSettled(ctx, out, "chat_svc.ctlSendRemote.retry: subagent card settled after reconnect")
+			return
+		}
+		if time.Now().After(deadline) {
+			logger.Ctx(ctx).Warn("chat_svc.ctlSendRemote.retry: gave up; the card's final state never reached the remote parent",
+				zap.Int64("sessionId", r.sessionID),
+				zap.Int64("childSessionId", r.child),
+				zap.String("toolCallId", r.toolCallID),
+				zap.String("status", string(out.Status)))
+			return
+		}
+		backoff = min(backoff*2, ctlSendRetryMaxBackoff)
+	}
+}
+
+// push 把 pending 连同这一批推给 agentred,交回是否送达。失败时只留下不能丢的帧。
+func (r *ctlSendRemote) push(ctx context.Context, events []agentruntime.Event) bool {
+	batch := append(r.pending[:len(r.pending):len(r.pending)], events...)
+	if len(batch) == 0 {
+		return true
+	}
+	if err := r.deliver(ctx, batch); err != nil {
+		if !r.outage {
+			r.outage = true
+			logger.Ctx(ctx).Warn("chat_svc.ctlSendRemote: injecting into the remote parent failed; steps until it recovers may be missing",
+				zap.Int64("sessionId", r.sessionID),
+				zap.Int64("childSessionId", r.child),
+				zap.String("toolCallId", r.toolCallID),
+				zap.Error(err))
+		}
+		var keep []agentruntime.Event
+		for _, ev := range batch {
+			switch ev.(type) {
+			case agentruntime.SubagentStarted, agentruntime.SubagentDone:
+				keep = append(keep, ev)
+			}
+		}
+		r.pending = keep
+		return false
+	}
+	if r.outage {
+		r.outage = false
+		logger.Ctx(ctx).Info("chat_svc.ctlSendRemote: the remote parent is reachable again",
+			zap.Int64("sessionId", r.sessionID),
+			zap.String("toolCallId", r.toolCallID))
+	}
+	r.pending = nil
+	return true
+}
+
+// deliver 一次注入往返;端口失效(断线 / 父会话已不在 agentred 上)时作废缓存,下次重新解析。
+func (r *ctlSendRemote) deliver(ctx context.Context, batch []agentruntime.Event) error {
+	if r.inj == nil {
+		inj, err := r.port.resolve(ctx, r.sessionID)
+		if err != nil {
+			return err
+		}
+		if inj == nil {
+			return errors.New("the parent session no longer runs on agentred")
+		}
+		r.inj = inj
+	}
+	if err := r.inj.InjectSubagentEvents(ctx, r.sessionID, r.toolCallID, batch); err != nil {
+		r.inj = nil
+		return err
+	}
+	return nil
+}
+
+func (r *ctlSendRemote) logSettled(ctx context.Context, out CtlSendOutcome, msg string) {
+	logger.Ctx(ctx).Info(msg,
+		zap.Int64("sessionId", r.sessionID),
+		zap.Int64("childSessionId", r.child),
+		zap.String("toolCallId", r.toolCallID),
+		zap.String("status", string(out.Status)))
 }

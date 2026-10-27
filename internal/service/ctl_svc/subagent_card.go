@@ -31,6 +31,15 @@ func (s *ctlSvc) RegisterSubagentCards(c SubagentCards) {
 	s.mu.Unlock()
 }
 
+// HostBindToolCallHeader / HostBindBackgroundHeader 是 agentred 的 ctl 代理转来 send 时附上的
+// 绑定结果:它在自己的父转录里匹配到的 shell 调用 ID 与是否后台(spec 2026-10-27「agrctl send
+// 子代理卡」Remote sessions 第 1 条)。与 agentred handlers 的同名常量同值;代理转发前去掉
+// 调用方自带的同名头,桌面端也只对在 agentred 上执行的父会话采信它们(chat_svc.bindCtlSend)。
+const (
+	HostBindToolCallHeader   = "Agentre-Ctl-Bind-Tool-Call"
+	HostBindBackgroundHeader = "Agentre-Ctl-Bind-Background"
+)
+
 // 不绑定的原因(spec「Binding」规则 3),只进 info 日志。
 const (
 	notBoundHandshake       = "handshake_token"

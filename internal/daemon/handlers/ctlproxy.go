@@ -17,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/ctlbind"
 	"github.com/agentre-hub/agentre/internal/pkg/tunnelheader"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -51,6 +52,11 @@ const (
 	// ctlApprovalPendingHeader 是挂起等审批前那个 102 里的头,与桌面端
 	// ctl_svc.ApprovalPendingHeader、agrctl 的 approvalPendingHeader 同值。
 	ctlApprovalPendingHeader = "Agentre-Ctl-Approval"
+	// ctlBindToolCallHeader / ctlBindBackgroundHeader 把这里绑定的那条 shell 调用(ID 与是否
+	// 后台)带给桌面端(spec 2026-10-27「agrctl send 子代理卡」Remote sessions 第 1 条),与桌面端
+	// ctl_svc 的同名常量同值。只由本代理写:调用方自带的同名头在转发前一律去掉。
+	ctlBindToolCallHeader   = "Agentre-Ctl-Bind-Tool-Call"
+	ctlBindBackgroundHeader = "Agentre-Ctl-Bind-Background"
 	// ctlApprovalTimeout 与桌面端会话审批卡一致(spec 决策 12)。
 	ctlApprovalTimeout = 4 * time.Minute
 	// ctlMaxBody 是请求正文上限:一次写入只是一份资源文档。
@@ -143,13 +149,22 @@ func (p *ctlProxy) forwardToDesktop(w http.ResponseWriter, r *http.Request, owne
 	}
 	headers := tunnelheader.Sanitize(r.Header)
 	headers["Authorization"] = []string{"Bearer " + owner.desktop.Token}
+	delete(headers, ctlBindToolCallHeader)
+	delete(headers, ctlBindBackgroundHeader)
 	if r.URL.Path == ctlResourcesPath && isCtlWrite(body) {
 		announceCtlPending(w, fmt.Sprintf("session=%d", owner.desktop.DesktopSessionID))
+	}
+	var bound string
+	if r.URL.Path == ctlSendPath {
+		bound = p.bindSend(r.Context(), owner, body, headers)
 	}
 	var resp wire.MCPProxyResponse
 	err := n.Request(r.Context(), wire.MethodMCPProxy, wire.MCPProxyRequest{
 		Path: r.URL.RequestURI(), Method: r.Method, Headers: headers, Body: body,
 	}, &resp)
+	if bound != "" && (err != nil || (resp.Status != 0 && resp.Status != http.StatusOK)) {
+		p.deps.Sessions.unbindCtlSend(owner, bound)
+	}
 	if err != nil {
 		logger.Ctx(r.Context()).Warn("handlers.ctlProxy.forwardToDesktop: tunnel failed",
 			zap.String("conversationId", owner.conversationID), zap.String("path", r.URL.Path), zap.Error(err))
@@ -166,6 +181,57 @@ func (p *ctlProxy) forwardToDesktop(w http.ResponseWriter, r *http.Request, owne
 	}
 	w.WriteHeader(resp.Status)
 	_, _ = w.Write(resp.Body)
+}
+
+// ctlSendBody 是 send 请求里绑定要看的那几项(与桌面端 ctl_svc.sendRequest 同形)。
+type ctlSendBody struct {
+	SessionID int64  `json:"sessionId"`
+	Agent     string `json:"agent"`
+	AgentID   int64  `json:"agentId"`
+	Text      string `json:"text"`
+	Wait      bool   `json:"wait"`
+}
+
+// bindSend 在转发一次 send 之前,于这条会话当前这一轮里匹配发出它的那条外层 shell 调用
+// (spec 2026-10-27「agrctl send 子代理卡」Remote sessions 第 1 条、Design 12:父轮的宿主
+// 负责绑定),绑上就把调用 ID 与是否后台写进转给桌面端的请求头,交回被占住的调用 ID。
+// 不绑定时记一条 info 说明原因并交回空串 —— 桌面端照今天的流程执行,父转录不变。
+// 只在桌面端拥有的路径上调用:控制台拥有的会话不绑(Design 4)。
+func (p *ctlProxy) bindSend(ctx context.Context, owner ctlSession, body []byte, headers map[string][]string) string {
+	notBound := func(reason string) string {
+		logger.Ctx(ctx).Info("handlers.ctlProxy.forwardToDesktop: subagent card not bound",
+			zap.String("conversationId", owner.conversationID), zap.String("reason", reason))
+		return ""
+	}
+	var req ctlSendBody
+	if err := json.Unmarshal(body, &req); err != nil {
+		return notBound("invalid_body") // 桌面端会照样以 400 拒绝它
+	}
+	switch {
+	case !req.Wait:
+		return notBound(ctlSendNoWait)
+	case req.SessionID > 0:
+		return notBound(ctlSendExistingSession)
+	}
+	target := ctlbind.Target{Task: req.Text}
+	if req.AgentID > 0 {
+		target.AgentID = req.AgentID
+	} else {
+		target.AgentName = strings.TrimSpace(req.Agent)
+	}
+	binding, reason := p.deps.Sessions.bindCtlSend(owner, target)
+	if reason != "" {
+		return notBound(reason)
+	}
+	headers[ctlBindToolCallHeader] = []string{binding.ToolCallID}
+	if binding.Background {
+		headers[ctlBindBackgroundHeader] = []string{"true"}
+	}
+	logger.Ctx(ctx).Info("handlers.ctlProxy.forwardToDesktop: subagent card bound",
+		zap.String("conversationId", owner.conversationID),
+		zap.String("toolCallId", binding.ToolCallID),
+		zap.Bool("background", binding.Background))
+	return binding.ToolCallID
 }
 
 // isCtlWrite 判断请求是不是一次写入(要审批、要发等待行)。解不开的正文交给执行者报错。
