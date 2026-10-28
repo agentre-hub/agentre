@@ -355,8 +355,9 @@ func (s *chatSvc) appendProviderSwitchNotice(
 // 落库失败只记日志：切换本身已经成功落库，为了一条提示把整个切换报成失败，会让用户
 // 以为没切成（实际下一轮已经换了）——这里的降级方向必须是「少一条提示」。
 //
-// 落库之后立即作为持久帧发给已 attach 的对端：不发的话对端当场看不到，而这条消息的帧
+// 落库之后作为持久帧发给已 attach 的对端：不发的话对端当场看不到，而这条消息的帧
 // 一直没号，要等下一次建编号宇宙才惰性补到末尾号 —— notice 就被排到之后那一轮后面。
+// 轮中切换的那一条扣到本轮收口之后再发（publishSessionNotice）。
 func (s *chatSvc) appendSessionNotice(
 	ctx context.Context,
 	sess *chat_entity.Session,
@@ -385,5 +386,5 @@ func (s *chatSvc) appendSessionNotice(
 			zap.Int64("sessionId", sess.ID), zap.Error(err))
 		return
 	}
-	_, _ = s.publishPeerMessageFrames(ctx, sess.ID, msg, true)
+	s.publishSessionNotice(ctx, sess.ID, msg)
 }

@@ -250,6 +250,9 @@ type chatSvc struct {
 	// activeTurns: sessionID(int64) → 当前活跃 turn(*turnRun)。runTurn 起止维护;
 	// 工具审批(BeginToolApproval)据此把审批卡落进这一轮的转录并路由到它的流。
 	activeTurns sync.Map
+	// peerNoticeHolds: sessionID(int64) → *peerNoticeHold。轮中落库的会话设置切换
+	// notice 扣到本轮收口之后再发给对端,见 peer_notice_hold.go。
+	peerNoticeHolds sync.Map
 	// modelChoiceLocks 串行化同一会话的两套互斥模型选择。
 	modelChoiceLocks sync.Map
 	// previewStreams: sessionID(int64) → 该会话此刻这一轮的预览帧通道
