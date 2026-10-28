@@ -43,6 +43,10 @@ type turnTranscript struct {
 	done chan struct{}
 	// release 在 finish 末尾调用:会话表放掉这一轮(不再是审批卡的落点)。
 	release func()
+	// outerCallSeen 在 observe 每见到一条外层工具调用时关上并作废(广播):在等那条 shell
+	// 调用出现的 send --wait 据此重新匹配(CtlSessions.awaitCtlSendBinding)。nil = 没人在等,
+	// 由 ctlSendCandidates 按需新建。
+	outerCallSeen chan struct{}
 
 	port       TranscriptPort
 	dispatcher *turn.Dispatcher
@@ -334,6 +338,10 @@ func (t *turnTranscript) observe(ctx context.Context, ev agentruntime.Event) {
 	}
 	if transcript.ShouldCheckpointAfter(ev) {
 		t.checkpoint(ctx)
+	}
+	if call, ok := ev.(agentruntime.ToolCall); ok && call.ParentToolCallID == "" && t.outerCallSeen != nil {
+		close(t.outerCallSeen)
+		t.outerCallSeen = nil
 	}
 	// 工具刚刚收口的那一刻,先前攒下的插话可以分段了。
 	if len(t.pendingSteers) > 0 && !t.acc.HasOpenToolUse() {

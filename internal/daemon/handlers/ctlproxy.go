@@ -61,6 +61,12 @@ const (
 	ctlApprovalTimeout = 4 * time.Minute
 	// ctlMaxBody 是请求正文上限:一次写入只是一份资源文档。
 	ctlMaxBody = 1 << 20
+	// ctlSendBindWait 是 send --wait 在父轮里还找不到那条 shell 调用时,转发前最多等它出现
+	// 的时长(awaitCtlSendBinding)。实测 Codex 的 command_execution 比 send 晚约 63ms 开始
+	// (运行时验证 V10),2s 留出三十倍的余量盖住本机负载与事件流转;代价只落在始终匹配不上
+	// 的 send(命令写法认不出)上,而 --wait 本身要等子会话跑完整整一轮,多出的至多 2s
+	// 不改变用户的体感。命中、有歧义、已绑过的 send 都不等。
+	ctlSendBindWait = 2 * time.Second
 )
 
 // CtlServerPort 把一次 ctl 请求交给 server 执行者:pathAndQuery 是 server 上的路径
@@ -80,6 +86,8 @@ type CtlProxyDeps struct {
 	Server CtlServerPort
 	// ApprovalTimeout 是控制台会话审批卡的挂起上限;0 = 4 分钟。
 	ApprovalTimeout time.Duration
+	// SendBindWait 是 send --wait 转发前等它那条 shell 调用出现的上限;0 = ctlSendBindWait。
+	SendBindWait time.Duration
 	// Self 是这台 agentred 的设备指纹:后端的 device_fingerprint 与它相同 = 绑在本机。
 	Self devicefp.Carrier
 	// OpenClawTokens 是本机的设备本地凭据(BackendCredentialHandlers,按后端 syncId 存
@@ -99,6 +107,9 @@ type ctlProxy struct{ deps CtlProxyDeps }
 func NewCtlProxyHandler(deps CtlProxyDeps) http.Handler {
 	if deps.ApprovalTimeout <= 0 {
 		deps.ApprovalTimeout = ctlApprovalTimeout
+	}
+	if deps.SendBindWait <= 0 {
+		deps.SendBindWait = ctlSendBindWait
 	}
 	return &ctlProxy{deps: deps}
 }
@@ -195,6 +206,7 @@ type ctlSendBody struct {
 // bindSend 在转发一次 send 之前,于这条会话当前这一轮里匹配发出它的那条外层 shell 调用
 // (spec 2026-10-27「agrctl send 子代理卡」Remote sessions 第 1 条、Design 12:父轮的宿主
 // 负责绑定),绑上就把调用 ID 与是否后台写进转给桌面端的请求头,交回被占住的调用 ID。
+// 那条调用还没出现时至多等 SendBindWait(见 awaitCtlSendBinding)。
 // 不绑定时记一条 info 说明原因并交回空串 —— 桌面端照今天的流程执行,父转录不变。
 // 只在桌面端拥有的路径上调用:控制台拥有的会话不绑(Design 4)。
 func (p *ctlProxy) bindSend(ctx context.Context, owner ctlSession, body []byte, headers map[string][]string) string {
@@ -219,7 +231,7 @@ func (p *ctlProxy) bindSend(ctx context.Context, owner ctlSession, body []byte, 
 	} else {
 		target.AgentName = strings.TrimSpace(req.Agent)
 	}
-	binding, reason := p.deps.Sessions.bindCtlSend(owner, target)
+	binding, reason := p.deps.Sessions.awaitCtlSendBinding(ctx, owner, target, p.deps.SendBindWait)
 	if reason != "" {
 		return notBound(reason)
 	}

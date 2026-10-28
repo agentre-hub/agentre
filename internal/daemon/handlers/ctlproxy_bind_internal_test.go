@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
@@ -68,6 +69,8 @@ func (f *recordingCtlTunnel) forwarded(t *testing.T, i int) wire.MCPProxyRequest
 func bindTurn(t *testing.T, calls ...agentruntime.ToolCall) *turnTranscript {
 	t.Helper()
 	tt := &turnTranscript{
+		port:       &memTranscript{},
+		msg:        &transcript_entity.Message{ID: 31, SessionID: 12, Role: "assistant", Seq: 2, BlocksJSON: "[]"},
 		acc:        turn.New(),
 		dispatcher: transcript.NewTurnDispatcher(transcript.Adapters{}),
 		done:       make(chan struct{}),
@@ -88,15 +91,27 @@ func shellCall(id, command string, background bool) agentruntime.ToolCall {
 	return agentruntime.ToolCall{ID: id, Name: "Bash", Input: raw}
 }
 
-// desktopOwnedWithTurn 是桌面端拥有、当前轮为 tt 的会话,经 tunnel 转回桌面端。
+// desktopOwnedWithTurn 是桌面端拥有、当前轮为 tt 的会话,经 tunnel 转回桌面端。找不到
+// shell 调用的 send 只等一小会儿:这里的用例不关心那条调用会不会晚到。
 func desktopOwnedWithTurn(t *testing.T, tt *turnTranscript, tunnel *recordingCtlTunnel) (*CtlSessions, string, *httptest.Server) {
+	t.Helper()
+	return desktopOwnedWithTurnWaiting(t, tt, tunnel, 50*time.Millisecond)
+}
+
+// desktopOwnedWithTurnWaiting 同上,send 等那条 shell 调用出现的上限为 wait。
+func desktopOwnedWithTurnWaiting(t *testing.T, tt *turnTranscript, tunnel *recordingCtlTunnel, wait time.Duration) (*CtlSessions, string, *httptest.Server) {
 	t.Helper()
 	c, tok := desktopOwned(t)
 	c.attachTurn(ctlTestRID, tt)
 	srv := httptest.NewServer(NewCtlProxyHandler(CtlProxyDeps{
 		Sessions: c, Tunnel: func(devicefp.Initiator, string) NotifierPort { return tunnel },
+		SendBindWait: wait,
 	}))
-	t.Cleanup(srv.Close)
+	t.Cleanup(func() {
+		// 用例失败时还挂着的 send 随连接断开收场,不拖住 Close。
+		srv.CloseClientConnections()
+		srv.Close()
+	})
 	return c, tok, srv
 }
 
@@ -280,4 +295,161 @@ func logText(logs *observer.ObservedLogs) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// ── send 先于它那条 shell 调用到达(Codex,运行时验证 V10)───────────────────
+
+// longBindWait 远长于任何一个用例:转发若是等到期才发生,用例会在 promptly 上失败。
+const longBindWait = time.Minute
+
+// promptly 是「没有等到期」的上限。
+const promptly = 2 * time.Second
+
+func postCtlAsync(t *testing.T, url, token, body string) <-chan int {
+	done := make(chan int, 1)
+	go func() {
+		status, _, _ := postCtl(t, url, token, body)
+		done <- status
+	}()
+	return done
+}
+
+func awaitCtlStatus(t *testing.T, done <-chan int, within time.Duration) int {
+	t.Helper()
+	select {
+	case status := <-done:
+		return status
+	case <-time.After(within):
+		t.Fatalf("the send was not forwarded within %s", within)
+		return 0
+	}
+}
+
+// heldSends 是此刻停在「等那条 shell 调用出现」上的 send 数。
+func heldSends(c *CtlSessions) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if s := c.sessions[ctlTestRID]; s != nil && s.sends != nil {
+		return len(s.sends.waiting)
+	}
+	return 0
+}
+
+// awaitHeldSends 等到恰好 n 个 send 停在「等那条 shell 调用出现」上。
+func awaitHeldSends(t *testing.T, c *CtlSessions, n int) {
+	t.Helper()
+	require.Eventually(t, func() bool { return heldSends(c) == n },
+		5*time.Second, 5*time.Millisecond, "expected %d sends waiting for their shell call", n)
+}
+
+func TestCtlProxy_GivenSendArrivesBeforeItsShellCall_ThenTheForwardCarriesTheBinding(t *testing.T) {
+	// Codex 的 command_execution 在 send 到达之后才开始:send 先到时父轮里还没有那条调用,
+	// agentred 要等它出现再带着绑定转发,而不是当场按「没有候选」放行。
+	tunnel := &recordingCtlTunnel{}
+	tt := bindTurn(t)
+	c, tok, srv := desktopOwnedWithTurnWaiting(t, tt, tunnel, longBindWait)
+
+	done := postCtlAsync(t, srv.URL+"/ctl/v1/send", tok, reviewerWaitBody)
+	awaitHeldSends(t, c, 1)
+	// 先来一条不相干的调用:它不是候选,send 重新匹配之后接着等下一条。
+	tt.observe(context.Background(), shellCall("sh-other", "ls -la", false))
+	require.Eventually(t, func() bool {
+		tt.mu.Lock()
+		rearmed := tt.outerCallSeen != nil
+		tt.mu.Unlock()
+		return rearmed && heldSends(c) == 1
+	}, 5*time.Second, 5*time.Millisecond, "the send re-matched and kept waiting")
+	tt.observe(context.Background(), shellCall("sh-late", bindTestCommand, false))
+
+	require.Equal(t, http.StatusOK, awaitCtlStatus(t, done, promptly))
+	assert.Equal(t, []string{"sh-late"}, tunnel.forwarded(t, 0).Headers[ctlBindToolCallHeader],
+		"the call that showed up while the send waited is the one bound")
+}
+
+func TestCtlProxy_GivenSendsShellCallNeverShowsUp_WhenTheWaitRunsOut_ThenItIsForwardedUnbound(t *testing.T) {
+	logs := observeHandlerLogs(t)
+	tunnel := &recordingCtlTunnel{}
+	const wait = 150 * time.Millisecond
+	_, tok, srv := desktopOwnedWithTurnWaiting(t, bindTurn(t), tunnel, wait)
+
+	start := time.Now()
+	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/send", tok, reviewerWaitBody)
+	elapsed := time.Since(start)
+
+	require.Equal(t, http.StatusOK, status)
+	assert.GreaterOrEqual(t, elapsed, wait, "a send without a candidate waits for its shell call first")
+	assert.Less(t, elapsed, promptly, "and is forwarded as soon as the wait runs out")
+	assert.Empty(t, tunnel.forwarded(t, 0).Headers[ctlBindToolCallHeader])
+	assert.Equal(t, []string{"no_candidate"}, ctlProxyNotBoundReasons(logs))
+}
+
+func TestCtlProxy_GivenSendWaitingForItsShellCall_WhenTheTurnEnds_ThenItIsForwardedUnboundAtOnce(t *testing.T) {
+	logs := observeHandlerLogs(t)
+	tunnel := &recordingCtlTunnel{}
+	tt := bindTurn(t)
+	c, tok, srv := desktopOwnedWithTurnWaiting(t, tt, tunnel, longBindWait)
+
+	done := postCtlAsync(t, srv.URL+"/ctl/v1/send", tok, reviewerWaitBody)
+	awaitHeldSends(t, c, 1)
+	tt.finish(context.Background(), wire.RunResultDoneFrame{ConversationID: ctlTestConversation})
+
+	require.Equal(t, http.StatusOK, awaitCtlStatus(t, done, promptly))
+	assert.Empty(t, tunnel.forwarded(t, 0).Headers[ctlBindToolCallHeader])
+	assert.Equal(t, []string{"no_active_turn"}, ctlProxyNotBoundReasons(logs))
+}
+
+func TestCtlProxy_GivenTwoSendsWaiting_WhenOneShellCallShowsUpThatFitsBoth_ThenNeitherIsBound(t *testing.T) {
+	// 两个 send 都在等,出现的那一条调用两边都认得:它是谁发的说不准 —— 宁可都不升级,
+	// 也不能把子会话挂到另一个 send 的调用上(Hard invariant「不挂错卡」、规则 5)。
+	logs := observeHandlerLogs(t)
+	tunnel := &recordingCtlTunnel{}
+	tt := bindTurn(t)
+	c, tok, srv := desktopOwnedWithTurnWaiting(t, tt, tunnel, longBindWait)
+
+	first := postCtlAsync(t, srv.URL+"/ctl/v1/send", tok, reviewerWaitBody)
+	second := postCtlAsync(t, srv.URL+"/ctl/v1/send", tok, `{"agent":"reviewer","text":"再审一下 PR 43","wait":true}`)
+	awaitHeldSends(t, c, 2)
+	tt.observe(context.Background(), shellCall("sh-1", bindTestCommand, false))
+
+	require.Equal(t, http.StatusOK, awaitCtlStatus(t, first, promptly))
+	require.Equal(t, http.StatusOK, awaitCtlStatus(t, second, promptly))
+	assert.Empty(t, tunnel.forwarded(t, 0).Headers[ctlBindToolCallHeader])
+	assert.Empty(t, tunnel.forwarded(t, 1).Headers[ctlBindToolCallHeader])
+	assert.Equal(t, []string{"ambiguous", "ambiguous"}, ctlProxyNotBoundReasons(logs))
+
+	// 之后同一条调用里再来一个 send,也不会再把它绑出去。
+	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/send", tok, reviewerWaitBody)
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, tunnel.forwarded(t, 2).Headers[ctlBindToolCallHeader])
+}
+
+func TestCtlProxy_GivenAmbiguousOrAlreadyBoundSend_ThenItIsForwardedWithoutWaiting(t *testing.T) {
+	// 只有「还没有候选」的 send 才等;有歧义、已绑过的,等下去结论也不会变。
+	cases := []struct {
+		name   string
+		calls  []agentruntime.ToolCall
+		sends  int
+		reason string
+	}{
+		{"ambiguous", []agentruntime.ToolCall{
+			shellCall("sh-1", bindTestCommand, false), shellCall("sh-2", bindTestCommand, false),
+		}, 1, "ambiguous"},
+		{"already bound", []agentruntime.ToolCall{shellCall("sh-1", bindTestCommand, false)}, 2, "already_bound"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := observeHandlerLogs(t)
+			tunnel := &recordingCtlTunnel{}
+			_, tok, srv := desktopOwnedWithTurnWaiting(t, bindTurn(t, tc.calls...), tunnel, longBindWait)
+
+			var status int
+			for range tc.sends {
+				status = awaitCtlStatus(t, postCtlAsync(t, srv.URL+"/ctl/v1/send", tok, reviewerWaitBody), promptly)
+			}
+			require.Equal(t, http.StatusOK, status)
+			assert.Empty(t, tunnel.forwarded(t, tc.sends-1).Headers[ctlBindToolCallHeader])
+			reasons := ctlProxyNotBoundReasons(logs)
+			assert.Equal(t, tc.reason, reasons[len(reasons)-1])
+		})
+	}
 }

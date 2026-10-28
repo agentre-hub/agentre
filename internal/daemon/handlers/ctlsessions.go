@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
@@ -53,10 +54,28 @@ type ctlSession struct {
 	turn approvalSink
 	// rid 是这条会话的 backend 会话键(resolve 交出的那份拷贝上才有值)。
 	rid int64
-	// bound 是 turn 这一轮里已经交给桌面端绑定子代理卡的 shell 调用(spec「Binding」规则 5:
-	// 一条调用最多绑一个子会话)。桌面端注入的 overlay 要过一跳才回到累加器里,在那之前
-	// 同一条命令里的下一个 send 只能靠这张表认出它。换轮即清空;只在 CtlSessions.mu 下碰。
+	// sends 是 turn 这一轮里 send --wait 的绑定账(占住的、在等的、说不准的调用)。换轮即
+	// 清空;只在 CtlSessions.mu 下碰,resolve 交出的拷贝上恒为 nil。
+	sends *ctlSendBook
+}
+
+// ctlSendBook 是一轮里 send --wait 绑定的账,让并发的几个 send 守住「不挂错卡」与「一条调用
+// 最多绑一个子会话」(spec「Binding」规则 2、5)。
+type ctlSendBook struct {
+	// bound 是已经交给桌面端绑定子代理卡的 shell 调用。桌面端注入的 overlay 要过一跳才回到
+	// 累加器里,在那之前同一条命令里的下一个 send 只能靠这张表认出它。
 	bound map[string]bool
+	// waiting 是此刻还在等自己那条 shell 调用出现的 send(awaitCtlSendBinding)。
+	waiting map[*ctlSendWaiter]bool
+	// contested 是同时是两个 send 候选的调用:它到底是谁发的说不准,不再绑给任何一个。
+	contested map[string]bool
+}
+
+// ctlSendWaiter 是一个在等自己那条 shell 调用出现的 send。
+type ctlSendWaiter struct{ target ctlbind.Target }
+
+func newCtlSendBook() *ctlSendBook {
+	return &ctlSendBook{bound: map[string]bool{}, waiting: map[*ctlSendWaiter]bool{}, contested: map[string]bool{}}
 }
 
 // approvalSink 是审批卡在本会话转录里的落点(*turnTranscript)。
@@ -145,7 +164,7 @@ func (c *CtlSessions) detachTurn(rid int64, sink approvalSink) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if s := c.sessions[rid]; s != nil && s.turn == sink {
-		s.turn, s.bound = nil, nil
+		s.turn, s.sends = nil, nil
 	}
 }
 
@@ -157,7 +176,7 @@ func (c *CtlSessions) attachTurn(rid int64, sink approvalSink) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if s := c.sessions[rid]; s != nil {
-		s.turn, s.bound = sink, nil
+		s.turn, s.sends = sink, nil
 	}
 }
 
@@ -177,7 +196,7 @@ func (c *CtlSessions) resolve(token string) (ctlSession, bool) {
 		return ctlSession{}, false
 	}
 	out := *s
-	out.rid, out.bound = ref.SessionID, nil
+	out.rid, out.sends = ref.SessionID, nil
 	return out, true
 }
 
@@ -207,55 +226,145 @@ const (
 )
 
 // ctlSendTurn 是绑定在途那一轮里要看的东西(*turnTranscript):外层工具调用,以及已经被
-// agrctl overlay 占住的调用。live=false 表示这一轮已经收口。
+// agrctl overlay 占住的调用。changed 在这一轮此后每见到一条外层工具调用时关上(在等的
+// send 据此重新匹配);live=false 表示这一轮已经收口。
 type ctlSendTurn interface {
-	ctlSendCandidates() (calls []turn.OuterToolUse, bound map[string]bool, live bool)
+	ctlSendCandidates() (calls []turn.OuterToolUse, bound map[string]bool, changed <-chan struct{}, live bool)
 }
 
 // ctlSendCandidates 在 t.mu 下取这一轮当前那一段的外层调用与已绑定的调用(与桌面端
-// chat_svc.bindCtlSend 同一个口径:只看当前累加器)。
-func (t *turnTranscript) ctlSendCandidates() ([]turn.OuterToolUse, map[string]bool, bool) {
+// chat_svc.bindCtlSend 同一个口径:只看当前累加器),连同下一条外层调用的到达信号。
+func (t *turnTranscript) ctlSendCandidates() ([]turn.OuterToolUse, map[string]bool, <-chan struct{}, bool) {
 	if t == nil {
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.finished {
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
-	return t.acc.OuterToolUses(), ctlbind.BoundToolCallIDs(t.acc.Snapshot()), true
+	if t.outerCallSeen == nil {
+		t.outerCallSeen = make(chan struct{})
+	}
+	return t.acc.OuterToolUses(), ctlbind.BoundToolCallIDs(t.acc.Snapshot()), t.outerCallSeen, true
+}
+
+// awaitCtlSendBinding 是转发一次 send --wait 之前的绑定:当场匹配,只有「这一轮里还没有
+// 候选」时才在 wait 之内等 —— Codex 的 command_execution 在 send 到达之后才开始(运行时
+// 验证 V10),那条调用晚到一步不能就此丢了卡。这一轮每见到一条外层调用就重新匹配一次:
+// 命中即交回;到期、这一轮收口、调用方断开时交回最后一次的原因,照不绑定转发。有歧义、
+// 已绑过的 send 当场交回,不等。
+func (c *CtlSessions) awaitCtlSendBinding(ctx context.Context, owner ctlSession, target ctlbind.Target, wait time.Duration) (ctlbind.Binding, string) {
+	self := &ctlSendWaiter{target: target}
+	defer c.forgetCtlSendWaiter(owner, self)
+	binding, reason, changed := c.bindCtlSend(owner, target, self)
+	if reason != string(ctlbind.ReasonNoCandidate) {
+		return binding, reason
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	for {
+		select {
+		case <-changed:
+		case <-owner.turn.ended():
+			// 下一次匹配看到这一轮已收口,交回 no_active_turn。
+		case <-timer.C:
+			return binding, reason
+		case <-ctx.Done():
+			return binding, reason
+		}
+		binding, reason, changed = c.bindCtlSend(owner, target, self)
+		if reason != string(ctlbind.ReasonNoCandidate) {
+			return binding, reason
+		}
+	}
 }
 
 // bindCtlSend 在 owner 那一轮里匹配发出这次 send 的 shell 调用并占住它(spec「Binding」:
-// 父轮的宿主负责绑定)。reason 非空 = 不绑定。转录锁与会话表的锁不嵌套:先在 t.mu 下取
-// 候选,再在 c.mu 下核对这一轮仍是当前轮、并与已占住的调用一起匹配、占位。
-func (c *CtlSessions) bindCtlSend(owner ctlSession, target ctlbind.Target) (ctlbind.Binding, string) {
+// 父轮的宿主负责绑定)。reason 非空 = 不绑定;reason 为 no_candidate 时 self 记进这一轮的
+// 等待名单,changed 是下一条外层调用的到达信号。
+//
+// 转录锁与会话表的锁不嵌套:先在 t.mu 下取候选,再在 c.mu 下核对这一轮仍是当前轮、候选
+// 取出之后没有新的外层调用到达(到达了就重取 —— 歧义按此刻的全部调用判),并与已占住的调用、
+// 别的在等的 send 一起判定、占位。命中的调用若也是别的在等的 send 的候选,它是谁发的说不准:
+// 记成 contested,两边都不绑(Hard invariant「不挂错卡」)。
+func (c *CtlSessions) bindCtlSend(owner ctlSession, target ctlbind.Target, self *ctlSendWaiter) (ctlbind.Binding, string, <-chan struct{}) {
 	src, ok := owner.turn.(ctlSendTurn)
 	if !ok {
-		return ctlbind.Binding{}, ctlSendNoActiveTurn
+		return ctlbind.Binding{}, ctlSendNoActiveTurn, nil
 	}
-	calls, bound, live := src.ctlSendCandidates()
-	if !live {
-		return ctlbind.Binding{}, ctlSendNoActiveTurn
+	for {
+		calls, bound, changed, live := src.ctlSendCandidates()
+		if !live {
+			return ctlbind.Binding{}, ctlSendNoActiveTurn, nil
+		}
+		c.mu.Lock()
+		if isClosed(changed) {
+			c.mu.Unlock()
+			continue
+		}
+		binding, reason := c.settleCtlSendLocked(owner, calls, bound, target, self)
+		c.mu.Unlock()
+		return binding, reason, changed
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+}
+
+// settleCtlSendLocked 是 bindCtlSend 在 c.mu 下的那一段。
+func (c *CtlSessions) settleCtlSendLocked(owner ctlSession, calls []turn.OuterToolUse, bound map[string]bool, target ctlbind.Target, self *ctlSendWaiter) (ctlbind.Binding, string) {
 	s := c.sessions[owner.rid]
 	if s == nil || s.turn != owner.turn {
 		return ctlbind.Binding{}, ctlSendNoActiveTurn
 	}
-	for id := range s.bound {
+	if s.sends == nil {
+		s.sends = newCtlSendBook()
+	}
+	book := s.sends
+	// 只有此刻仍落在「没有候选」上的 send 才算在等:有了结论的,不再与别的 send 争调用。
+	delete(book.waiting, self)
+	for id := range book.bound {
 		bound[id] = true
 	}
 	binding, reason := ctlbind.Match(calls, bound, target)
-	if reason != "" {
+	switch {
+	case reason == ctlbind.ReasonNoCandidate:
+		book.waiting[self] = true
 		return ctlbind.Binding{}, string(reason)
+	case reason != "":
+		return ctlbind.Binding{}, string(reason)
+	case book.contested[binding.ToolCallID] || book.claimedByAnotherWaiter(calls, binding.ToolCallID, self):
+		book.contested[binding.ToolCallID] = true
+		return ctlbind.Binding{}, string(ctlbind.ReasonAmbiguous)
 	}
-	if s.bound == nil {
-		s.bound = map[string]bool{}
-	}
-	s.bound[binding.ToolCallID] = true
+	book.bound[binding.ToolCallID] = true
 	return binding, ""
+}
+
+// claimedByAnotherWaiter:toolCallID 那条调用是不是另一个在等的 send 的候选。
+func (b *ctlSendBook) claimedByAnotherWaiter(calls []turn.OuterToolUse, toolCallID string, self *ctlSendWaiter) bool {
+	var call []turn.OuterToolUse
+	for _, c := range calls {
+		if c.ID == toolCallID {
+			call = append(call, c)
+		}
+	}
+	for w := range b.waiting {
+		if w == self {
+			continue
+		}
+		if _, reason := ctlbind.Match(call, nil, w.target); reason == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// forgetCtlSendWaiter 把 self 移出它那一轮的等待名单(已换轮时那张账早已作废,无事可做)。
+func (c *CtlSessions) forgetCtlSendWaiter(owner ctlSession, self *ctlSendWaiter) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if s := c.sessions[owner.rid]; s != nil && s.turn == owner.turn && s.sends != nil {
+		delete(s.sends.waiting, self)
+	}
 }
 
 // unbindCtlSend 放掉一次没有成交的占位(桌面端拒绝了这次 send,规则 4)。桌面端若已把
@@ -263,7 +372,7 @@ func (c *CtlSessions) bindCtlSend(owner ctlSession, target ctlbind.Target) (ctlb
 func (c *CtlSessions) unbindCtlSend(owner ctlSession, toolCallID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if s := c.sessions[owner.rid]; s != nil && s.turn == owner.turn {
-		delete(s.bound, toolCallID)
+	if s := c.sessions[owner.rid]; s != nil && s.turn == owner.turn && s.sends != nil {
+		delete(s.sends.bound, toolCallID)
 	}
 }
