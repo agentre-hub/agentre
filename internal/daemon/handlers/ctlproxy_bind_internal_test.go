@@ -399,15 +399,15 @@ func TestCtlProxy_GivenSendWaitingForItsShellCall_WhenTheTurnEnds_ThenItIsForwar
 }
 
 func TestCtlProxy_GivenTwoSendsWaiting_WhenOneShellCallShowsUpThatFitsBoth_ThenNeitherIsBound(t *testing.T) {
-	// 两个 send 都在等,出现的那一条调用两边都认得:它是谁发的说不准 —— 宁可都不升级,
-	// 也不能把子会话挂到另一个 send 的调用上(Hard invariant「不挂错卡」、规则 5)。
+	// 两个任务文本相同的 send 都在等,出现的那一条调用两边都认得:它是谁发的说不准 —— 宁可
+	// 都不升级,也不能把子会话挂到另一个 send 的调用上(Hard invariant「不挂错卡」、规则 5)。
 	logs := observeHandlerLogs(t)
 	tunnel := &recordingCtlTunnel{}
 	tt := bindTurn(t)
 	c, tok, srv := desktopOwnedWithTurnWaiting(t, tt, tunnel, longBindWait)
 
 	first := postCtlAsync(t, srv.URL+"/ctl/v1/send", tok, reviewerWaitBody)
-	second := postCtlAsync(t, srv.URL+"/ctl/v1/send", tok, `{"agent":"reviewer","text":"再审一下 PR 43","wait":true}`)
+	second := postCtlAsync(t, srv.URL+"/ctl/v1/send", tok, reviewerWaitBody)
 	awaitHeldSends(t, c, 2)
 	tt.observe(context.Background(), shellCall("sh-1", bindTestCommand, false))
 
@@ -452,4 +452,30 @@ func TestCtlProxy_GivenAmbiguousOrAlreadyBoundSend_ThenItIsForwardedWithoutWaiti
 			assert.Equal(t, tc.reason, reasons[len(reasons)-1])
 		})
 	}
+}
+
+func TestCtlProxy_GivenSendWaiting_WhenAnotherSendsCallToTheSameAgentShowsUp_ThenItKeepsWaitingForItsOwn(t *testing.T) {
+	// send A(任务 X)在等;先登记进来的是另一个发往同一 agent、任务 Y 的 send 的调用。它是
+	// 唯一候选,但命令里没有 A 的任务文本 —— 那不是 A 的调用,A 接着等自己那条(不挂错卡)。
+	tunnel := &recordingCtlTunnel{}
+	tt := bindTurn(t)
+	c, tok, srv := desktopOwnedWithTurnWaiting(t, tt, tunnel, longBindWait)
+
+	done := postCtlAsync(t, srv.URL+"/ctl/v1/send", tok, reviewerWaitBody)
+	awaitHeldSends(t, c, 1)
+	tt.observe(context.Background(), shellCall("sh-b", `agrctl send --wait --agent reviewer "再审一下 PR 43"`, false))
+	require.Eventually(t, func() bool {
+		tunnel.mu.Lock()
+		forwarded := len(tunnel.reqs) > 0
+		tunnel.mu.Unlock()
+		tt.mu.Lock()
+		rearmed := tt.outerCallSeen != nil
+		tt.mu.Unlock()
+		return forwarded || (rearmed && heldSends(c) == 1)
+	}, 5*time.Second, 5*time.Millisecond)
+	tt.observe(context.Background(), shellCall("sh-a", bindTestCommand, false))
+
+	require.Equal(t, http.StatusOK, awaitCtlStatus(t, done, promptly))
+	assert.Equal(t, []string{"sh-a"}, tunnel.forwarded(t, 0).Headers[ctlBindToolCallHeader],
+		"the waiting send binds only the call that carries its own task text")
 }

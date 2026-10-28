@@ -253,11 +253,13 @@ func (t *turnTranscript) ctlSendCandidates() ([]turn.OuterToolUse, map[string]bo
 // 候选」时才在 wait 之内等 —— Codex 的 command_execution 在 send 到达之后才开始(运行时
 // 验证 V10),那条调用晚到一步不能就此丢了卡。这一轮每见到一条外层调用就重新匹配一次:
 // 命中即交回;到期、这一轮收口、调用方断开时交回最后一次的原因,照不绑定转发。有歧义、
-// 已绑过的 send 当场交回,不等。
+// 已绑过的 send 当场交回,不等。到达时那一次按 ctlbind.Match;等着时重新匹配按
+// ctlbind.MatchPending —— 先登记进来的可能是另一个发往同一 agent 的 send 的调用,只认命令
+// 里有自己任务文本的那条。
 func (c *CtlSessions) awaitCtlSendBinding(ctx context.Context, owner ctlSession, target ctlbind.Target, wait time.Duration) (ctlbind.Binding, string) {
 	self := &ctlSendWaiter{target: target}
 	defer c.forgetCtlSendWaiter(owner, self)
-	binding, reason, changed := c.bindCtlSend(owner, target, self)
+	binding, reason, changed := c.bindCtlSend(owner, target, self, ctlbind.Match)
 	if reason != string(ctlbind.ReasonNoCandidate) {
 		return binding, reason
 	}
@@ -273,7 +275,7 @@ func (c *CtlSessions) awaitCtlSendBinding(ctx context.Context, owner ctlSession,
 		case <-ctx.Done():
 			return binding, reason
 		}
-		binding, reason, changed = c.bindCtlSend(owner, target, self)
+		binding, reason, changed = c.bindCtlSend(owner, target, self, ctlbind.MatchPending)
 		if reason != string(ctlbind.ReasonNoCandidate) {
 			return binding, reason
 		}
@@ -281,14 +283,14 @@ func (c *CtlSessions) awaitCtlSendBinding(ctx context.Context, owner ctlSession,
 }
 
 // bindCtlSend 在 owner 那一轮里匹配发出这次 send 的 shell 调用并占住它(spec「Binding」:
-// 父轮的宿主负责绑定)。reason 非空 = 不绑定;reason 为 no_candidate 时 self 记进这一轮的
-// 等待名单,changed 是下一条外层调用的到达信号。
+// 父轮的宿主负责绑定),按 match 判定。reason 非空 = 不绑定;reason 为 no_candidate 时 self
+// 记进这一轮的等待名单,changed 是下一条外层调用的到达信号。
 //
 // 转录锁与会话表的锁不嵌套:先在 t.mu 下取候选,再在 c.mu 下核对这一轮仍是当前轮、候选
 // 取出之后没有新的外层调用到达(到达了就重取 —— 歧义按此刻的全部调用判),并与已占住的调用、
-// 别的在等的 send 一起判定、占位。命中的调用若也是别的在等的 send 的候选,它是谁发的说不准:
-// 记成 contested,两边都不绑(Hard invariant「不挂错卡」)。
-func (c *CtlSessions) bindCtlSend(owner ctlSession, target ctlbind.Target, self *ctlSendWaiter) (ctlbind.Binding, string, <-chan struct{}) {
+// 别的在等的 send 一起判定、占位。命中的调用若也是别的在等的 send 会认的(MatchPending),它
+// 是谁发的说不准:记成 contested,两边都不绑(Hard invariant「不挂错卡」)。
+func (c *CtlSessions) bindCtlSend(owner ctlSession, target ctlbind.Target, self *ctlSendWaiter, match ctlSendMatcher) (ctlbind.Binding, string, <-chan struct{}) {
 	src, ok := owner.turn.(ctlSendTurn)
 	if !ok {
 		return ctlbind.Binding{}, ctlSendNoActiveTurn, nil
@@ -303,14 +305,17 @@ func (c *CtlSessions) bindCtlSend(owner ctlSession, target ctlbind.Target, self 
 			c.mu.Unlock()
 			continue
 		}
-		binding, reason := c.settleCtlSendLocked(owner, calls, bound, target, self)
+		binding, reason := c.settleCtlSendLocked(owner, calls, bound, target, self, match)
 		c.mu.Unlock()
 		return binding, reason, changed
 	}
 }
 
+// ctlSendMatcher 是 ctlbind.Match / ctlbind.MatchPending。
+type ctlSendMatcher func(calls []turn.OuterToolUse, bound map[string]bool, target ctlbind.Target) (ctlbind.Binding, ctlbind.Reason)
+
 // settleCtlSendLocked 是 bindCtlSend 在 c.mu 下的那一段。
-func (c *CtlSessions) settleCtlSendLocked(owner ctlSession, calls []turn.OuterToolUse, bound map[string]bool, target ctlbind.Target, self *ctlSendWaiter) (ctlbind.Binding, string) {
+func (c *CtlSessions) settleCtlSendLocked(owner ctlSession, calls []turn.OuterToolUse, bound map[string]bool, target ctlbind.Target, self *ctlSendWaiter, match ctlSendMatcher) (ctlbind.Binding, string) {
 	s := c.sessions[owner.rid]
 	if s == nil || s.turn != owner.turn {
 		return ctlbind.Binding{}, ctlSendNoActiveTurn
@@ -324,7 +329,7 @@ func (c *CtlSessions) settleCtlSendLocked(owner ctlSession, calls []turn.OuterTo
 	for id := range book.bound {
 		bound[id] = true
 	}
-	binding, reason := ctlbind.Match(calls, bound, target)
+	binding, reason := match(calls, bound, target)
 	switch {
 	case reason == ctlbind.ReasonNoCandidate:
 		book.waiting[self] = true
@@ -339,7 +344,8 @@ func (c *CtlSessions) settleCtlSendLocked(owner ctlSession, calls []turn.OuterTo
 	return binding, ""
 }
 
-// claimedByAnotherWaiter:toolCallID 那条调用是不是另一个在等的 send 的候选。
+// claimedByAnotherWaiter:toolCallID 那条调用是不是另一个在等的 send 会认的(它重新匹配时
+// 按 MatchPending:命令里没有它任务文本的调用不是它的)。
 func (b *ctlSendBook) claimedByAnotherWaiter(calls []turn.OuterToolUse, toolCallID string, self *ctlSendWaiter) bool {
 	var call []turn.OuterToolUse
 	for _, c := range calls {
@@ -351,7 +357,7 @@ func (b *ctlSendBook) claimedByAnotherWaiter(calls []turn.OuterToolUse, toolCall
 		if w == self {
 			continue
 		}
-		if _, reason := ctlbind.Match(call, nil, w.target); reason == "" {
+		if _, reason := ctlbind.MatchPending(call, nil, w.target); reason == "" {
 			return true
 		}
 	}
