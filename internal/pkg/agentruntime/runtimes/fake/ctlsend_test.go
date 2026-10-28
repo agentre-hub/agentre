@@ -51,7 +51,6 @@ func newCtlSendProbe(t *testing.T) *ctlSendProbe {
 
 func startCtlSend(t *testing.T, directive string) (<-chan agentruntime.Event, context.CancelFunc) {
 	t.Helper()
-	t.Setenv("AGENTRE_E2E_FAKE_CTLSEND_DELAY_MS", "1")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	events, _, err := New().Run(ctx, agentruntime.RunRequest{SessionID: 70, AgentID: 3, UserText: directive})
 	require.NoError(t, err)
@@ -149,6 +148,70 @@ func TestRun_CtlSendDirective_BackgroundMarksCallAndResultsImmediately(t *testin
 		}
 	}
 	assert.True(t, sawDone, "turn must finish only after send returns")
+}
+
+func TestRun_CtlSendDirective_LateCallIsRegisteredOnlyAfterTheSendAndTheChildStarted(t *testing.T) {
+	t.Setenv("AGENTRE_E2E_FAKE_STEP_DELAY_MS", "1")
+	p := newCtlSendProbe(t)
+	events, cancel := startCtlSend(t, "e2e-agrctl-send:late:5:lbl")
+	defer cancel()
+
+	select {
+	case <-p.hit:
+	case <-time.After(3 * time.Second):
+		t.Fatal("fake never POSTed /ctl/v1/send")
+	}
+	// send 已到、子会话还没开始干活:shell 调用还不能登记(Codex 的 command_execution 在
+	// 命令跑起来之后才开始)。
+	select {
+	case ev := <-events:
+		if _, isCall := ev.(agentruntime.ToolCall); isCall {
+			t.Fatal("late variant registered the shell call before the child session started")
+		}
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// 目标 agent 的子会话(同一个 fake)开始出步骤之后,shell 调用才登记。
+	ctx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stop()
+	childEvents, _, err := New().Run(ctx, agentruntime.RunRequest{SessionID: 71, UserText: "e2e-child-steps:2 lbl"})
+	require.NoError(t, err)
+	go func() {
+		for range childEvents {
+		}
+	}()
+
+	call, ok := nextToolEvent(t, events).(agentruntime.ToolCall)
+	require.True(t, ok, "the shell call must follow the child's first step")
+	var in map[string]any
+	require.NoError(t, json.Unmarshal(call.Input, &in))
+	cmd, _ := in["command"].(string)
+	for _, want := range []string{"agrctl", "send", "5", "--wait", "lbl"} {
+		assert.Contains(t, cmd, want)
+	}
+	assert.NotContains(t, in, "run_in_background")
+
+	close(p.release)
+	res, ok := nextToolEvent(t, events).(agentruntime.ToolResult)
+	require.True(t, ok)
+	assert.Equal(t, call.ID, res.ToolCallID)
+	assert.Contains(t, res.Content, "child-final-text")
+}
+
+func TestRun_CtlSendDirective_LateCallStillResultsWhenTheSendFails(t *testing.T) {
+	agentruntime.RegisterCtlCredentialSource(func(_, _ int64) agentruntime.CtlCredentials {
+		return agentruntime.CtlCredentials{}
+	})
+	t.Cleanup(func() { agentruntime.RegisterCtlCredentialSource(nil) })
+	events, cancel := startCtlSend(t, "e2e-agrctl-send:late:5:lbl")
+	defer cancel()
+
+	call, ok := nextToolEvent(t, events).(agentruntime.ToolCall)
+	require.True(t, ok)
+	res, ok := nextToolEvent(t, events).(agentruntime.ToolResult)
+	require.True(t, ok)
+	assert.Equal(t, call.ID, res.ToolCallID)
+	assert.True(t, res.IsError)
 }
 
 func TestRun_CtlSendDirective_SendFailureIsAnErrorResult(t *testing.T) {

@@ -283,9 +283,9 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 		}
 		// 子会话慢速步骤接缝:e2e-child-steps:<n> 产出 n 对嵌套可见的 Bash 步骤。
 		if raw, found := parseOnePartDirective(req.UserText, ChildStepsDirectivePrefix); found {
-			count, _, _ := strings.Cut(raw, " ")
+			count, label, _ := strings.Cut(raw, " ")
 			if n, err := strconv.Atoi(count); err == nil && n > 0 {
-				if !runChildSteps(ctx, out, req.SessionID, n) {
+				if !runChildSteps(ctx, out, req.SessionID, n, strings.TrimSpace(label)) {
 					return
 				}
 			}

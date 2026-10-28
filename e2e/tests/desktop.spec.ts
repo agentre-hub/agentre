@@ -137,9 +137,18 @@ test.describe.serial("desktop smoke", () => {
     await expect(page.getByText(`e2e-cwd-ok:${projectPath}`, { exact: false })).toBeVisible();
   });
 
-  for (const mode of ["fg", "bg"] as const) {
-    test(`Given a ${mode === "fg" ? "foreground" : "background"} Bash call running agrctl send --wait, when the child session works and finishes, then the shell call is upgraded in place into one subagent card with live steps and the final text, and it survives a reload`, async ({ page }) => {
+  // late:Codex 的顺序 —— send 先到、子会话已经出了一步,前台 shell 调用才登记进父轮。
+  const agrctlSendShapes = {
+    fg: "a foreground Bash call running agrctl send --wait",
+    bg: "a background Bash call running agrctl send --wait",
+    late: "an agrctl send --wait that reaches the desktop before its foreground Bash call is registered",
+  } as const;
+  for (const mode of ["fg", "bg", "late"] as const) {
+    test(`Given ${agrctlSendShapes[mode]}, when the child session works and finishes, then the shell call is upgraded in place into one subagent card with live steps and the final text, and it survives a reload`, async ({ page }) => {
       const label = `ctl-${mode}-${runID}`;
+      // 库里的卡片计数跨用例累计(同一 kind 的前一个用例已留下一张):只看这一轮新增的。
+      const expectedKind = mode === "bg" ? "local_bash" : "agrctl_send";
+      const overlaysBefore = agrctlOverlayCountOfKind(expectedKind);
       await page.goto("/");
       await expect(page.getByTestId("new-chat-button")).toBeVisible();
       await createChat(page);
@@ -161,8 +170,7 @@ test.describe.serial("desktop smoke", () => {
       await expect.poll(() => runningSessionCount()).toBe(0);
 
       // 落库形态:前台是 agrctl 专属 kind;后台保留 local_bash(后台面板语义)。
-      const expectedKind = mode === "fg" ? "agrctl_send" : "local_bash";
-      await expect.poll(() => agrctlOverlayCountOfKind(expectedKind)).toBe(1);
+      await expect.poll(() => agrctlOverlayCountOfKind(expectedKind)).toBe(overlaysBefore + 1);
 
       // 重载:卡片仍是同一张,步骤与最终文本都在。
       await page.reload();

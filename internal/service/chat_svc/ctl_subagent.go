@@ -74,12 +74,15 @@ type CtlSendOutcome struct {
 }
 
 // CtlSendWatch 是一次 send --wait 的子会话登记。用法:Send 之前 WatchCtlSend,起轮成功后
-// Bind,拿到结果后先 Finish 再写响应,最后 Close。Bind 失败(不绑定)后 Finish 是空操作。
+// Bind,拿到结果后先 Finish 再写响应,最后 Close。不绑定之后 Finish 是空操作。
 type CtlSendWatch interface {
-	// Bind 在调用方会话当前这一轮里找发出这次 send 的 shell 调用并把它升级成子代理卡;
-	// 不能确定时不绑定(记 info 日志说明原因)并交回 false。
+	// Bind 在调用方会话当前这一轮里找发出这次 send 的 shell 调用并把它升级成子代理卡,
+	// 交回此刻是否已经绑定。本机进行中的父轮里还没有候选时(send 早于它的 shell 调用登记)
+	// 绑定保持待定:父轮之后每登记一个外层调用就重新匹配,有界等待到期、父轮收口或 Finish
+	// 时放弃。不能确定时不绑定(记 info 日志说明原因)。Bind 不等那条调用登记。
 	Bind(ctx context.Context, req CtlSendBindRequest) bool
-	// Finish 把子轮结果落成卡片终态。返回时终态已落定(累加器 + 落库 + 实时事件)。
+	// Finish 把子轮结果落成卡片终态。返回时终态已落定(累加器 + 落库 + 实时事件);
+	// 绑定仍待定时就此放弃。
 	Finish(ctx context.Context, out CtlSendOutcome)
 	// Close 注销登记;已绑定却没 Finish 的卡片收成已取消,不让它永远停在运行中。
 	Close()
@@ -100,8 +103,9 @@ func CtlSendSvcGateway() CtlSendGateway {
 func (s *chatSvc) WatchCtlSend(childSessionID int64) CtlSendWatch {
 	w := &ctlSendWatch{
 		svc: s, child: childSessionID,
-		remote: ctlSendRemotePort{resolve: s.ctlSendInjector, backoff: ctlSendRetryBackoff, window: ctlSendRetryWindow},
-		wake:   make(chan struct{}, 1), quit: make(chan struct{}), exited: make(chan struct{}),
+		remote:     ctlSendRemotePort{resolve: s.ctlSendInjector, backoff: ctlSendRetryBackoff, window: ctlSendRetryWindow},
+		bindWindow: ctlSendBindWindow,
+		wake:       make(chan struct{}, 1), quit: make(chan struct{}), exited: make(chan struct{}),
 	}
 	s.ctlSendWatches.Store(childSessionID, w)
 	return w
@@ -120,18 +124,23 @@ func (s *chatSvc) mirrorCtlSendChild(childSessionID int64, model string, ev agen
 
 // ctlSendWatch 一次 send 的登记。队列由子会话事件循环写、由镜像 goroutine(或 Finish)读,
 // 只在 mu 下碰;绑定后的写入交给 binding:本机父轮在父轮的 t.mu 下写(ctlSendBinding),远端
-// 父轮经注入 RPC 推给 agentred(ctlSendRemote)。
+// 父轮经注入 RPC 推给 agentred(ctlSendRemote)。绑定待定期间(pending)事件照样攒着。
+//
+// 锁序:父轮的 t.mu 在前,mu 在后(待定绑定在 t.mu 下解析、再挂上登记)。
 type ctlSendWatch struct {
 	svc   *chatSvc
 	child int64
 
 	// remote 是远端父会话的注入端口(父会话在 agentred 上执行时用)。
 	remote ctlSendRemotePort
+	// bindWindow 父轮里还没有候选时绑定保持待定的时长。
+	bindWindow time.Duration
 
 	mu       sync.Mutex
 	queue    []agentruntime.Event
 	model    string
 	binding  ctlSendSink
+	pending  *ctlSendPendingBind // 挂在父轮上、还没解析的绑定
 	finished bool
 
 	wake   chan struct{}
@@ -183,21 +192,42 @@ func (w *ctlSendWatch) Bind(ctx context.Context, req CtlSendBindRequest) bool {
 	if finished {
 		return false
 	}
-	b, ok := w.svc.bindCtlSend(ctx, w.child, req, w.remote)
-	if !ok {
-		// 不绑定就没有谁会再搬这些事件:放掉攒下的,此后子会话的事件也不再入队
-		// (子轮可能还要跑很久,工具结果不能一直攥到 send 返回)。
-		w.mu.Lock()
-		w.finished, w.queue = true, nil
-		w.mu.Unlock()
+	switch w.svc.bindCtlSend(ctx, w, req) {
+	case ctlSendBound:
+		return true
+	case ctlSendPending:
 		return false
 	}
+	w.release()
+	return false
+}
+
+// attach 挂上已绑定的卡并起镜像 goroutine。待定绑定在父轮的 t.mu 下解析时也走这里。
+func (w *ctlSendWatch) attach(ctx context.Context, b ctlSendSink) {
 	w.mu.Lock()
-	w.binding = b
+	w.binding, w.pending = b, nil
 	w.mu.Unlock()
 	go w.run(context.WithoutCancel(ctx))
 	w.signal() // 绑定之前攒下的那些
-	return true
+}
+
+// release 不绑定:没有谁会再搬这些事件,放掉攒下的,此后子会话的事件也不再入队
+// (子轮可能还要跑很久,工具结果不能一直攥到 send 返回)。幂等。
+func (w *ctlSendWatch) release() {
+	w.mu.Lock()
+	w.finished, w.queue, w.pending = true, nil, nil
+	w.mu.Unlock()
+}
+
+// withdraw 收回仍挂在父轮上的待定绑定(Finish 时)。在父轮的 t.mu 下判:此前已被解析
+// (绑定或放弃)就什么都不做,此后它不会再被解析 —— Finish 读 binding 时看到的是定局。
+func (w *ctlSendWatch) withdraw(ctx context.Context) {
+	w.mu.Lock()
+	p := w.pending
+	w.mu.Unlock()
+	if p != nil {
+		p.turn.giveUpCtlSend(ctx, p, ctlSendGaveUpFinished)
+	}
 }
 
 // run 是镜像 goroutine:有新事件就整批搬进父转录,直到 Finish 叫停。
@@ -222,6 +252,7 @@ func (w *ctlSendWatch) drain(ctx context.Context) {
 }
 
 func (w *ctlSendWatch) Finish(ctx context.Context, out CtlSendOutcome) {
+	w.withdraw(ctx)
 	w.mu.Lock()
 	if w.finished {
 		w.mu.Unlock()
@@ -277,9 +308,32 @@ const (
 	ctlSendParentUnreachable = "parent_unreachable"
 )
 
+// ctlSendBindState 是 bindCtlSend 的结果。
+type ctlSendBindState int
+
+const (
+	ctlSendNotBound ctlSendBindState = iota
+	ctlSendBound
+	ctlSendPending
+)
+
+// ctlSendBindWindow 本机父轮里还没有候选时,绑定待定的最长时间。Codex 的 command_execution
+// 在命令跑起来、send 已经到达之后才开始(运行时实测相差几十毫秒),留足余量;到期仍没有
+// 就保持普通 shell 行。
+const ctlSendBindWindow = 10 * time.Second
+
+// 待定绑定被放弃的时机(日志字段 pendingEnded)。ctlSendDecidedNow 表示不是放弃等待,
+// 而是一匹配就判定不绑(歧义 / 已绑过 / 没有在跑的轮)。
+const (
+	ctlSendDecidedNow       = ""
+	ctlSendGaveUpDeadline   = "deadline"
+	ctlSendGaveUpTurnClosed = "parent_turn_closed"
+	ctlSendGaveUpFinished   = "send_finished"
+)
+
 // bindCtlSend 在调用方会话当前这一轮(本机、进行中)里匹配 shell 调用并升级成 overlay。
 // 匹配与升级都在父轮的 t.mu 下:与事件循环、工具审批互斥,匹配时看到的开放调用不会
-// 在升级前变化。
+// 在升级前变化。此刻还没有候选时绑定挂在父轮上待定(turnRun.resolveCtlSends)。
 //
 // 后台(run_in_background)调用同样绑定:它的结果会立刻返回,与 send 请求谁先到是竞争的
 // (Design 9)。后台卡保留 local_bash(binding.Kind),后台面板、停止按钮与轮结束保护照常;
@@ -287,54 +341,182 @@ const (
 //
 // 父会话在 agentred 上执行时(本机那一轮只是持久帧的回放,或本机根本没有那一轮)不在本地
 // 匹配,改走 bindCtlSendRemote。
-func (s *chatSvc) bindCtlSend(ctx context.Context, child int64, req CtlSendBindRequest, remote ctlSendRemotePort) (ctlSendSink, bool) {
-	notBound := func(reason string) (ctlSendSink, bool) {
-		logger.Ctx(ctx).Info("chat_svc.bindCtlSend: subagent card not bound",
-			zap.String("reason", reason),
-			zap.Int64("callerSessionId", req.CallerSessionID),
-			zap.Int64("childSessionId", child))
-		return nil, false
-	}
+func (s *chatSvc) bindCtlSend(ctx context.Context, w *ctlSendWatch, req CtlSendBindRequest) ctlSendBindState {
 	t := s.activeTurn(req.CallerSessionID)
 	if t == nil || t.previews != nil {
 		if t == nil && req.HostToolCallID == "" {
-			return notBound(ctlSendNoActiveTurn)
+			logCtlSendNotBound(ctx, req, w.child, ctlSendNoActiveTurn, ctlSendDecidedNow)
+			return ctlSendNotBound
 		}
-		r, reason := s.bindCtlSendRemote(ctx, child, req, remote)
+		r, reason := s.bindCtlSendRemote(ctx, w.child, req, w.remote)
 		if reason != "" {
-			return notBound(reason)
+			logCtlSendNotBound(ctx, req, w.child, reason, ctlSendDecidedNow)
+			return ctlSendNotBound
 		}
-		return r, true
+		w.attach(ctx, r)
+		return ctlSendBound
 	}
+	return t.bindCtlSend(ctx, w, req)
+}
+
+func logCtlSendNotBound(ctx context.Context, req CtlSendBindRequest, child int64, reason, pendingEnded string) {
+	fields := []zap.Field{
+		zap.String("reason", reason),
+		zap.Int64("callerSessionId", req.CallerSessionID),
+		zap.Int64("childSessionId", child),
+	}
+	if pendingEnded != "" {
+		fields = append(fields, zap.String("pendingEnded", pendingEnded))
+	}
+	logger.Ctx(ctx).Info("chat_svc.bindCtlSend: subagent card not bound", fields...)
+}
+
+// ctlSendPendingBind 一次待定的绑定:send 已经起轮,发出它的 shell 调用却还没登记进父轮。
+// 挂在父轮上(turnRun.ctlSends),由父轮的 t.mu 守。
+type ctlSendPendingBind struct {
+	turn  *turnRun
+	watch *ctlSendWatch
+	ctx   context.Context // 绑定请求的上下文(已去掉取消):解析时的日志与镜像 goroutine 用
+	req   CtlSendBindRequest
+	timer *time.Timer
+	state ctlSendBindState // 解析结果;ctlSendPending = 还挂着
+}
+
+func (p *ctlSendPendingBind) target() ctlbind.Target {
+	target := ctlbind.Target{Task: p.req.Task}
+	if p.req.AgentID > 0 {
+		target.AgentID = p.req.AgentID
+	} else {
+		target.AgentName = p.req.AgentName
+	}
+	return target
+}
+
+// bindCtlSend 本机父轮这一侧:把这次 send 当作待定绑定挂上并立刻解析一次;仍没有候选就
+// 留着等父轮登记新的外层调用,同时起有界等待。
+func (t *turnRun) bindCtlSend(ctx context.Context, w *ctlSendWatch, req CtlSendBindRequest) ctlSendBindState {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.transcriptClosed { // 这一轮已经收口(closeApprovals 之后转录归 finalize)
-		return notBound(ctlSendNoActiveTurn)
+		logCtlSendNotBound(ctx, req, w.child, ctlSendNoActiveTurn, ctlSendDecidedNow)
+		return ctlSendNotBound
 	}
-	target := ctlbind.Target{Task: req.Task}
-	if req.AgentID > 0 {
-		target.AgentID = req.AgentID
-	} else {
-		target.AgentName = req.AgentName
+	p := &ctlSendPendingBind{turn: t, watch: w, ctx: context.WithoutCancel(ctx), req: req, state: ctlSendPending}
+	t.ctlSends = append(t.ctlSends, p)
+	t.resolveCtlSends(ctx)
+	if p.state != ctlSendPending {
+		return p.state
 	}
-	acc := t.acc
-	binding, reason := ctlbind.Match(acc.OuterToolUses(), ctlbind.BoundToolCallIDs(acc.Snapshot()), target)
-	if reason != "" {
-		return notBound(string(reason))
+	w.mu.Lock()
+	w.pending = p
+	w.mu.Unlock()
+	p.timer = time.AfterFunc(w.bindWindow, func() { t.giveUpCtlSend(p.ctx, p, ctlSendGaveUpDeadline) })
+	logger.Ctx(ctx).Info("chat_svc.bindCtlSend: shell call not in the parent turn yet; binding stays pending",
+		zap.Int64("callerSessionId", req.CallerSessionID),
+		zap.Int64("childSessionId", w.child),
+		zap.Duration("window", w.bindWindow))
+	return ctlSendPending
+}
+
+// resolveCtlSends 用父轮此刻的外层调用重新匹配每个待定绑定。调用方持有 t.mu;事件循环每
+// 登记一个外层调用(applyLive)以及每次新绑定都会调。
+//
+// 仍没有候选的继续挂着;歧义 / 已绑过照常判不绑。所有待定绑定对着同一份快照匹配,两个
+// 落到同一条调用上的都不绑(分不清那条调用是谁发的)—— 宁可不升级,也不挂错卡。
+func (t *turnRun) resolveCtlSends(ctx context.Context) {
+	if len(t.ctlSends) == 0 {
+		return
 	}
+	calls := t.acc.OuterToolUses()
+	bound := ctlbind.BoundToolCallIDs(t.acc.Snapshot())
+	type match struct {
+		binding ctlbind.Binding
+		reason  ctlbind.Reason
+	}
+	matches := make([]match, len(t.ctlSends))
+	claims := map[string]int{}
+	for i, p := range t.ctlSends {
+		b, r := ctlbind.Match(calls, bound, p.target())
+		matches[i] = match{b, r}
+		if r == "" {
+			claims[b.ToolCallID]++
+		}
+	}
+	waiting := t.ctlSends[:0:0]
+	for i, p := range t.ctlSends {
+		m := matches[i]
+		switch {
+		case m.reason == ctlbind.ReasonNoCandidate:
+			waiting = append(waiting, p)
+		case m.reason != "":
+			t.dropCtlSend(ctx, p, string(m.reason), ctlSendDecidedNow)
+		case claims[m.binding.ToolCallID] > 1:
+			t.dropCtlSend(ctx, p, string(ctlbind.ReasonAmbiguous), ctlSendDecidedNow)
+		default:
+			t.upgradeCtlSend(ctx, p, m.binding)
+		}
+	}
+	t.ctlSends = waiting
+}
+
+// upgradeCtlSend 把匹配上的 shell 调用升级成 overlay 并把卡交给登记。调用方持有 t.mu。
+func (t *turnRun) upgradeCtlSend(ctx context.Context, p *ctlSendPendingBind, binding ctlbind.Binding) {
+	p.stop(ctlSendBound)
+	child := p.watch.child
 	b := &ctlSendBinding{
-		turn: t, acc: acc, msg: t.assistantMsg, sessionID: t.sess.ID, toolCallID: binding.ToolCallID,
+		turn: t, acc: t.acc, msg: t.assistantMsg, sessionID: t.sess.ID, toolCallID: binding.ToolCallID,
 		startedAt:       time.Now(),
 		ctlSendProgress: newCtlSendProgress(),
 	}
-	b.apply(ctx, ctlSendStarted(binding, child, req))
-	s.checkpointAssistantNew(ctx, b.msg, b.acc)
+	b.apply(ctx, ctlSendStarted(binding, child, p.req))
+	t.svc.checkpointAssistantNew(ctx, b.msg, b.acc)
 	logger.Ctx(ctx).Info("chat_svc.bindCtlSend: subagent card bound",
-		zap.Int64("callerSessionId", req.CallerSessionID),
+		zap.Int64("callerSessionId", p.req.CallerSessionID),
 		zap.Int64("childSessionId", child),
 		zap.String("toolCallId", b.toolCallID),
 		zap.String("kind", binding.Kind()))
-	return b, true
+	p.watch.attach(p.ctx, b)
+}
+
+// dropCtlSend 判定不绑并放掉登记攒下的事件。调用方持有 t.mu,负责把 p 移出 t.ctlSends。
+func (t *turnRun) dropCtlSend(ctx context.Context, p *ctlSendPendingBind, reason, pendingEnded string) {
+	p.stop(ctlSendNotBound)
+	logCtlSendNotBound(ctx, p.req, p.watch.child, reason, pendingEnded)
+	p.watch.release()
+}
+
+// giveUpCtlSend 放弃仍在等待的绑定(有界等待到期 / Finish);已解析过的不动。
+func (t *turnRun) giveUpCtlSend(ctx context.Context, p *ctlSendPendingBind, why string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if p.state != ctlSendPending {
+		return
+	}
+	for i, q := range t.ctlSends {
+		if q == p {
+			t.ctlSends = append(t.ctlSends[:i:i], t.ctlSends[i+1:]...)
+			break
+		}
+	}
+	t.dropCtlSend(ctx, p, string(ctlbind.ReasonNoCandidate), why)
+}
+
+// abandonCtlSends 父轮收口:不会再有新的外层调用登记,还在等的绑定一律放弃。
+func (t *turnRun) abandonCtlSends(ctx context.Context) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, p := range t.ctlSends {
+		t.dropCtlSend(ctx, p, string(ctlbind.ReasonNoCandidate), ctlSendGaveUpTurnClosed)
+	}
+	t.ctlSends = nil
+}
+
+// stop 记下解析结果并停掉有界等待。调用方持有 t.mu。
+func (p *ctlSendPendingBind) stop(state ctlSendBindState) {
+	p.state = state
+	if p.timer != nil {
+		p.timer.Stop()
+	}
 }
 
 // ctlSendStarted 是升级 overlay 的那一帧:绑定时就确定的归属、子会话、isolated、目标 agent

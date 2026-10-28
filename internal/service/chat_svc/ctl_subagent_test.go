@@ -377,8 +377,9 @@ func TestCtlSend_GivenNoSafeTarget_ThenNothingIsBoundAndTheReasonIsLogged(t *tes
 				feedChild(child, agentruntime.ToolCall{ID: "c-1", Name: "Read"})
 
 				So(w.Bind(ctx, reviewBind()), ShouldBeFalse)
-				So(ctlNotBoundReasons(logs), ShouldResemble, []string{tc.reason})
+				// 没有候选时绑定先待定(调用可能还没登记),send 收尾时才判定不绑。
 				w.Finish(ctx, CtlSendOutcome{Status: CtlSendCompleted, FinalText: "x"})
+				So(ctlNotBoundReasons(logs), ShouldResemble, []string{tc.reason})
 				v := readParent(rig.svc)
 				So(v.overlays, ShouldBeEmpty)
 				So(v.nestedUses, ShouldBeEmpty)
@@ -739,4 +740,162 @@ func cloneOverlay(b blocks.SubagentStateBlock) blocks.SubagentStateBlock {
 	b.Runs = append([]agentruntime.SubagentRun(nil), b.Runs...)
 	b.NestedToolCallIDs = append([]string(nil), b.NestedToolCallIDs...)
 	return b
+}
+
+// ── send 早于它的 shell 调用登记(Codex:command_execution 在 send 到达之后才开始)──────────
+
+// pendingWindow 把这只登记的「待定绑定」时长调到用例的量级。
+func pendingWindow(w CtlSendWatch, d time.Duration) CtlSendWatch {
+	w.(*ctlSendWatch).bindWindow = d
+	return w
+}
+
+// awaitParentTurn 等 runTurn 把父轮登记为进行中(send 到达时什么都还没喂进来)。
+func awaitParentTurn(rig *approvalTurnRig) {
+	So(eventually(func() bool { return rig.svc.activeTurn(approvalSessionID) != nil }), ShouldBeTrue)
+}
+
+func retainedChildEvents(w CtlSendWatch) int {
+	watch := w.(*ctlSendWatch)
+	watch.mu.Lock()
+	defer watch.mu.Unlock()
+	return len(watch.queue)
+}
+
+func TestCtlSend_GivenSendArrivesBeforeItsShellCall_WhenTheCallReachesTheParentTurn_ThenItIsUpgraded(t *testing.T) {
+	Convey("Given 本机父轮进行中,send 已到达、子会话已经吐了一步,而发出它的 shell 调用还没登记进父轮", t, func() {
+		logs := observeChatLogs(t)
+		rig := startApprovalTurn(t)
+		awaitParentTurn(rig)
+		ctx := context.Background()
+		rig.deps.message.EXPECT().UpdateUsage(gomock.Any(), int64(9901), gomock.Any()).Return(nil).AnyTimes()
+		watch := rig.svc.WatchCtlSend(ctlChildSessionID)
+		defer watch.Close()
+		child := newCtlChildTurn(rig.svc, "gpt-5")
+		feedChild(child, agentruntime.ToolCall{ID: "c-1", Name: "Read"})
+
+		So(watch.Bind(ctx, reviewBind()), ShouldBeFalse) // 此刻还没有可绑的调用
+		So(ctlNotBoundReasons(logs), ShouldBeEmpty)      // 不判死:绑定保持待定
+		So(readParent(rig.svc).overlays, ShouldBeEmpty)
+
+		Convey("When 那条 shell 调用随后登记进父轮, Then 它原地升级成卡片,待定期间攒下的步骤补上,收尾照常", func() {
+			rig.feed(bashCall("sh-1", reviewCommand, false), StreamToolUse)
+
+			So(eventually(func() bool {
+				v := readParent(rig.svc)
+				return len(v.overlays) == 1 && len(v.nestedUses) == 1
+			}), ShouldBeTrue)
+			v := readParent(rig.svc)
+			So(v.overlays[0].ParentToolCallID, ShouldEqual, "sh-1")
+			So(v.overlays[0].ChildSessionID, ShouldEqual, ctlChildSessionID)
+			So(v.overlays[0].Runs[0].Agent, ShouldEqual, "reviewer")
+			So(v.nestedUses[0], ShouldEqual, ctlbind.NestedToolCallID("sh-1", "c-1"))
+			So(rig.subagentEvents(StreamSubagentStarted), ShouldHaveLength, 1)
+			So(ctlNotBoundReasons(logs), ShouldBeEmpty)
+
+			watch.Finish(ctx, CtlSendOutcome{Status: CtlSendCompleted, FinalText: "LGTM"})
+			o := readParent(rig.svc).overlays[0]
+			So(o.Status, ShouldEqual, "completed")
+			So(o.FinalText, ShouldEqual, "LGTM")
+		})
+
+		Convey("When 先登记一条不相干的 shell 调用, Then 不绑它,仍等自己那条", func() {
+			rig.feed(bashCall("sh-0", "ls -la", false), StreamToolUse)
+			rig.events <- bashCall("sh-1", reviewCommand, false)
+			So(eventually(func() bool { return len(readParent(rig.svc).overlays) == 1 }), ShouldBeTrue)
+			So(readParent(rig.svc).overlays[0].ParentToolCallID, ShouldEqual, "sh-1")
+		})
+	})
+}
+
+func TestCtlSend_GivenPendingBinding_WhenItCannotResolve_ThenTheShellCallStaysPlain(t *testing.T) {
+	Convey("Given send 到达时父轮里还没有它的 shell 调用(绑定待定)", t, func() {
+		logs := observeChatLogs(t)
+		ctx := context.Background()
+
+		Convey("When 有界的等待到期之后那条调用才登记, Then 不再升级,放掉攒下的子会话事件,记 no_candidate", func() {
+			rig := startApprovalTurn(t)
+			awaitParentTurn(rig)
+			watch := pendingWindow(rig.svc.WatchCtlSend(ctlChildSessionID), 20*time.Millisecond)
+			defer watch.Close()
+			child := newCtlChildTurn(rig.svc, "m")
+			feedChild(child, agentruntime.ToolCall{ID: "c-1", Name: "Read"})
+			So(watch.Bind(ctx, reviewBind()), ShouldBeFalse)
+
+			So(eventually(func() bool { return len(ctlNotBoundReasons(logs)) == 1 }), ShouldBeTrue)
+			So(ctlNotBoundReasons(logs), ShouldResemble, []string{string(ctlbind.ReasonNoCandidate)})
+			So(retainedChildEvents(watch), ShouldEqual, 0)
+
+			rig.feed(bashCall("sh-1", reviewCommand, false), StreamToolUse)
+			So(eventually(func() bool { return outerCalls(rig.svc) == 1 }), ShouldBeTrue)
+			feedChild(child, agentruntime.ToolCall{ID: "c-2", Name: "Read"})
+			watch.Finish(ctx, CtlSendOutcome{Status: CtlSendCompleted, FinalText: "x"})
+			v := readParent(rig.svc)
+			So(v.overlays, ShouldBeEmpty)
+			So(v.nestedUses, ShouldBeEmpty)
+			So(rig.subagentEvents(StreamSubagentStarted), ShouldBeEmpty)
+			So(retainedChildEvents(watch), ShouldEqual, 0)
+		})
+
+		Convey("When 父轮先收口, Then 不再等,记 no_candidate,收尾落库的转录里没有卡片", func() {
+			rig := startApprovalTurn(t)
+			awaitParentTurn(rig)
+			watch := rig.svc.WatchCtlSend(ctlChildSessionID)
+			defer watch.Close()
+			child := newCtlChildTurn(rig.svc, "m")
+			feedChild(child, agentruntime.ToolCall{ID: "c-1", Name: "Read"})
+			So(watch.Bind(ctx, reviewBind()), ShouldBeFalse)
+
+			rig.endTurn()
+			So(ctlNotBoundReasons(logs), ShouldResemble, []string{string(ctlbind.ReasonNoCandidate)})
+			So(retainedChildEvents(watch), ShouldEqual, 0)
+			rig.mu.Lock()
+			final := decodeStored(t, rig.finalBlocks)
+			rig.mu.Unlock()
+			So(blockTypes(final), ShouldNotContain, "subagent_state")
+			watch.Finish(ctx, CtlSendOutcome{Status: CtlSendCompleted, FinalText: "x"})
+			So(ctlNotBoundReasons(logs), ShouldHaveLength, 1)
+		})
+
+		Convey("When send 在调用登记之前就收尾(Finish), Then 之后登记的调用保持普通 shell 行", func() {
+			rig := startApprovalTurn(t)
+			awaitParentTurn(rig)
+			watch := rig.svc.WatchCtlSend(ctlChildSessionID)
+			defer watch.Close()
+			So(watch.Bind(ctx, reviewBind()), ShouldBeFalse)
+			watch.Finish(ctx, CtlSendOutcome{Status: CtlSendFailed, FinalText: "boom"})
+			So(ctlNotBoundReasons(logs), ShouldResemble, []string{string(ctlbind.ReasonNoCandidate)})
+
+			rig.feed(bashCall("sh-1", reviewCommand, false), StreamToolUse)
+			So(eventually(func() bool { return outerCalls(rig.svc) == 1 }), ShouldBeTrue)
+			time.Sleep(20 * time.Millisecond)
+			So(readParent(rig.svc).overlays, ShouldBeEmpty)
+		})
+	})
+}
+
+func TestCtlSend_GivenTwoPendingSends_WhenOneShellCallCouldTakeEither_ThenNeitherBinds(t *testing.T) {
+	Convey("Given 两个 send 都早于各自的 shell 调用到达,目标与任务一样", t, func() {
+		logs := observeChatLogs(t)
+		rig := startApprovalTurn(t)
+		awaitParentTurn(rig)
+		ctx := context.Background()
+		first := rig.svc.WatchCtlSend(ctlChildSessionID)
+		defer first.Close()
+		second := rig.svc.WatchCtlSend(ctlChildSessionID + 1)
+		defer second.Close()
+		So(first.Bind(ctx, reviewBind()), ShouldBeFalse)
+		So(second.Bind(ctx, reviewBind()), ShouldBeFalse)
+
+		Convey("When 只有一条能被它们俩任一认领的调用登记, Then 两个都不绑(分不清是谁的),记 ambiguous,之后的调用也不再绑", func() {
+			rig.feed(bashCall("sh-1", reviewCommand, false), StreamToolUse)
+			So(eventually(func() bool { return len(ctlNotBoundReasons(logs)) == 2 }), ShouldBeTrue)
+			So(ctlNotBoundReasons(logs), ShouldResemble, []string{string(ctlbind.ReasonAmbiguous), string(ctlbind.ReasonAmbiguous)})
+			So(readParent(rig.svc).overlays, ShouldBeEmpty)
+
+			rig.events <- bashCall("sh-2", reviewCommand, false)
+			So(eventually(func() bool { return outerCalls(rig.svc) == 2 }), ShouldBeTrue)
+			So(readParent(rig.svc).overlays, ShouldBeEmpty)
+		})
+	})
 }

@@ -73,6 +73,9 @@ type turnRun struct {
 	// transcriptClosed 这一轮已收口(closeApprovals):此后转录归 finalize,事件循环之外的
 	// 写入方(审批卡、agrctl send 绑定的卡)都不再碰这一轮的累加器。由 mu 守。
 	transcriptClosed bool
+	// ctlSends 还没解析的 agrctl send 绑定:send 已到,发出它的 shell 调用还没登记进这一轮
+	// (ctl_subagent.go)。每登记一个外层调用重新匹配一次,收口时一律放弃。由 mu 守。
+	ctlSends []*ctlSendPendingBind
 	// persisted 在 finalize 把这一轮的 assistant 整条落库之后关闭(由 mu 守,惰性创建)。
 	// 收口(transcriptClosed)到落库之间,别处对这条消息的定向写入会被收尾那一发整条覆盖
 	// 掉;父轮结束后还要往原消息里写的(agrctl send 绑定的卡,ctl_subagent.go)等它再写。
@@ -372,6 +375,11 @@ func (t *turnRun) applyLive(ctx context.Context, ev agentruntime.Event, preview 
 			zap.String("eventType", fmt.Sprintf("%T", ev)),
 			zap.Error(err))
 	}
+	// 外层调用刚登记进本轮转录:早到的 agrctl send 也许等的就是它(Codex 的命令在 send
+	// 到达之后才登记)。远端那一路的绑定归 agentred,这里不挂待定绑定。
+	if call, ok := ev.(agentruntime.ToolCall); ok && !preview && call.ParentToolCallID == "" {
+		t.resolveCtlSends(ctx)
+	}
 	// 在途工具都配上结果了:分段落地,tool_use 与 tool_result 一起留在旧 assistant。
 	if len(t.pendingSteers) > 0 && !t.liveAcc(preview).HasOpenToolUse() {
 		t.flushPendingSteers(ctx)
@@ -387,6 +395,8 @@ func (t *turnRun) finalize(ctx context.Context) {
 	// 先关上审批:之后没有别的 goroutine 再碰本轮转录,仍挂起的卡原地标 expired,
 	// 随下面的落库与 publishPeerTurnDone 出去(卡本来就在累加器里,不再另行追加)。
 	t.closeApprovals(ctx)
+	// 不会再有外层调用登记了:还在等自己那条 shell 调用的 agrctl send 不再绑定。
+	t.abandonCtlSends(ctx)
 	// 流结束时仍在推迟的分段必须落地:steer 已经从 inbox drain 走了,不落就丢。
 	t.flushPendingSteers(ctx)
 	t.turnCtx.ClearWaits()
