@@ -100,6 +100,28 @@ func Match(calls []turn.OuterToolUse, bound map[string]bool, target Target) (Bin
 	return Binding{ToolCallID: cands[0].ID, Background: runsInBackground(cands[0])}, ""
 }
 
+// MatchPending 是 Match 的严格版,给「send 早于它的 shell 调用登记、绑定还在等」的那一侧用:
+// 只有命令文本含这次 send 任务文本(与 Match 消歧同一口径:去掉首尾空白后按子串)的调用才是
+// 候选,其余照 Match 的规则判。
+//
+// 等着的时候,先登记进来的可能是另一个发往同一 agent 的 send 的调用;Match 见到唯一候选就
+// 绑,不看任务文本,会把子会话挂到别人的调用上。这里一条都不含任务文本时交回
+// ReasonNoCandidate,调用方据此接着等自己那条。任务文本为空时没有可比的,与 Match 相同。
+// send 到达时调用已经登记的那一次匹配仍用 Match。
+func MatchPending(calls []turn.OuterToolUse, bound map[string]bool, target Target) (Binding, Reason) {
+	task := strings.TrimSpace(target.Task)
+	if task == "" {
+		return Match(calls, bound, target)
+	}
+	var own []turn.OuterToolUse
+	for _, c := range calls {
+		if containsTask(c, task) {
+			own = append(own, c)
+		}
+	}
+	return Match(own, bound, target)
+}
+
 // BoundToolCallIDs 从一段块序列(进行中轮的 Accumulator.Snapshot,或已落库消息解出的
 // 块)里找出已被 agrctl 绑定的 shell 调用,作为 Match 的 bound 入参。
 func BoundToolCallIDs(snapshot []cagoblocks.ContentBlock) map[string]bool {
@@ -143,11 +165,16 @@ func filterByTask(calls []turn.OuterToolUse, task string) []turn.OuterToolUse {
 	}
 	var out []turn.OuterToolUse
 	for _, c := range calls {
-		if strings.Contains(commandOf(c), task) {
+		if containsTask(c, task) {
 			out = append(out, c)
 		}
 	}
 	return out
+}
+
+// containsTask 命令文本是否含任务文本(task 已去掉首尾空白)。
+func containsTask(c turn.OuterToolUse, task string) bool {
+	return strings.Contains(commandOf(c), task)
 }
 
 // commandOf 取 shell 调用的命令文本。三个后端都是 input.command 一条字符串(Codex 带

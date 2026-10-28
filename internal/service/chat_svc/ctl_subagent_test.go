@@ -899,3 +899,27 @@ func TestCtlSend_GivenTwoPendingSends_WhenOneShellCallCouldTakeEither_ThenNeithe
 		})
 	})
 }
+
+func TestCtlSend_GivenPendingSend_WhenAnotherSendsCallToTheSameAgentArrives_ThenItWaitsForItsOwnCall(t *testing.T) {
+	Convey("Given send A(任务「审一下 PR 42」)早于它的 shell 调用到达、绑定待定", t, func() {
+		logs := observeChatLogs(t)
+		rig := startApprovalTurn(t)
+		awaitParentTurn(rig)
+		ctx := context.Background()
+		watch := rig.svc.WatchCtlSend(ctlChildSessionID)
+		defer watch.Close()
+		So(watch.Bind(ctx, reviewBind()), ShouldBeFalse)
+
+		Convey("When 先登记的是 send B(同一 agent、另一个任务)的调用, Then A 不认领它;A 自己的调用登记后才升级", func() {
+			rig.feed(bashCall("sh-b", `agrctl send --wait --agent reviewer "看一下 PR 43"`, false), StreamToolUse)
+			So(eventually(func() bool { return outerCalls(rig.svc) == 1 }), ShouldBeTrue)
+			time.Sleep(20 * time.Millisecond)
+			So(readParent(rig.svc).overlays, ShouldBeEmpty)
+			So(ctlNotBoundReasons(logs), ShouldBeEmpty) // 仍在等,不判死
+
+			rig.events <- bashCall("sh-a", reviewCommand, false)
+			So(eventually(func() bool { return len(readParent(rig.svc).overlays) == 1 }), ShouldBeTrue)
+			So(readParent(rig.svc).overlays[0].ParentToolCallID, ShouldEqual, "sh-a")
+		})
+	})
+}

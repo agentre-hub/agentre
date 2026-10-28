@@ -200,6 +200,92 @@ func TestMatch(t *testing.T) {
 	})
 }
 
+func TestMatchPending(t *testing.T) {
+	reviewer := Target{AgentName: "reviewer", Task: "审一下 PR 42"}
+	own := `agrctl send --wait --agent reviewer "审一下 PR 42"`
+	other := `agrctl send --wait --agent reviewer "看一下 PR 43"`
+	cases := []struct {
+		name   string
+		calls  []turn.OuterToolUse
+		bound  map[string]bool
+		target Target
+		want   Binding
+		reason Reason
+	}{
+		{
+			name:   "唯一候选的命令含任务文本 → 绑定",
+			calls:  []turn.OuterToolUse{shell("sh-a", "Bash", own, nil, false)},
+			target: reviewer,
+			want:   Binding{ToolCallID: "sh-a"},
+		},
+		{
+			name:   "唯一候选是同一 agent、别的任务的调用 → 继续等(无候选),不像 Match 那样直接绑",
+			calls:  []turn.OuterToolUse{shell("sh-b", "Bash", other, nil, false)},
+			target: reviewer,
+			reason: ReasonNoCandidate,
+		},
+		{
+			name: "自己的调用与别人的调用都在 → 只认含任务文本的那条",
+			calls: []turn.OuterToolUse{
+				shell("sh-b", "Bash", other, nil, false),
+				shell("sh-a", "Bash", own, nil, false),
+			},
+			target: reviewer,
+			want:   Binding{ToolCallID: "sh-a"},
+		},
+		{
+			name:   "任务文本前后空白按 Match 消歧时的口径去掉",
+			calls:  []turn.OuterToolUse{shell("sh-a", "Bash", own, nil, false)},
+			target: Target{AgentName: "reviewer", Task: "  审一下 PR 42\n"},
+			want:   Binding{ToolCallID: "sh-a"},
+		},
+		{
+			name: "含任务文本的调用不止一条 → 歧义不绑",
+			calls: []turn.OuterToolUse{
+				shell("sh-1", "Bash", own, nil, false),
+				shell("sh-2", "Bash", own, nil, false),
+			},
+			target: reviewer,
+			reason: ReasonAmbiguous,
+		},
+		{
+			name:   "含任务文本的唯一一条已绑过 → 不再绑定",
+			calls:  []turn.OuterToolUse{shell("sh-a", "Bash", own, nil, false)},
+			bound:  map[string]bool{"sh-a": true},
+			target: reviewer,
+			reason: ReasonAlreadyBound,
+		},
+		{
+			name:   "含任务文本但前台调用已拿到结果 → 无候选",
+			calls:  []turn.OuterToolUse{shell("sh-a", "Bash", own, nil, true)},
+			target: reviewer,
+			reason: ReasonNoCandidate,
+		},
+		{
+			name:   "--agent-id 目标同样要求任务文本",
+			calls:  []turn.OuterToolUse{shell("sh-b", "Bash", `agrctl send --wait --agent-id 42 "别的活"`, nil, false)},
+			target: Target{AgentID: 42, Task: "跑测试"},
+			reason: ReasonNoCandidate,
+		},
+		{
+			name:   "任务文本为空时没有可比的,规则同 Match",
+			calls:  []turn.OuterToolUse{shell("sh-b", "Bash", other, nil, false)},
+			target: Target{AgentName: "reviewer"},
+			want:   Binding{ToolCallID: "sh-b"},
+		},
+	}
+
+	Convey("MatchPending 给等过的 send 用:候选的命令必须含它的任务文本", t, func() {
+		for _, tc := range cases {
+			Convey(tc.name, func() {
+				got, reason := MatchPending(tc.calls, tc.bound, tc.target)
+				So(reason, ShouldEqual, tc.reason)
+				So(got, ShouldResemble, tc.want)
+			})
+		}
+	})
+}
+
 func TestBinding_Kind(t *testing.T) {
 	Convey("Binding.Kind 决定 overlay 的 kind", t, func() {
 		Convey("前台用 agrctl 专属 kind", func() {

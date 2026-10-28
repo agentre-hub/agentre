@@ -380,6 +380,17 @@ type ctlSendPendingBind struct {
 	req   CtlSendBindRequest
 	timer *time.Timer
 	state ctlSendBindState // 解析结果;ctlSendPending = 还挂着
+	// waited 到达时那一次匹配之后仍在等:此后只认命令含它任务文本的调用(ctlbind.MatchPending),
+	// 先登记进来的可能是另一个发往同一 agent 的 send 的调用。
+	waited bool
+}
+
+// match 到达时那一次照 Binding 规则匹配;等过之后用严格版。
+func (p *ctlSendPendingBind) match(calls []turn.OuterToolUse, bound map[string]bool) (ctlbind.Binding, ctlbind.Reason) {
+	if p.waited {
+		return ctlbind.MatchPending(calls, bound, p.target())
+	}
+	return ctlbind.Match(calls, bound, p.target())
 }
 
 func (p *ctlSendPendingBind) target() ctlbind.Target {
@@ -407,6 +418,7 @@ func (t *turnRun) bindCtlSend(ctx context.Context, w *ctlSendWatch, req CtlSendB
 	if p.state != ctlSendPending {
 		return p.state
 	}
+	p.waited = true
 	w.mu.Lock()
 	w.pending = p
 	w.mu.Unlock()
@@ -421,8 +433,9 @@ func (t *turnRun) bindCtlSend(ctx context.Context, w *ctlSendWatch, req CtlSendB
 // resolveCtlSends 用父轮此刻的外层调用重新匹配每个待定绑定。调用方持有 t.mu;事件循环每
 // 登记一个外层调用(applyLive)以及每次新绑定都会调。
 //
-// 仍没有候选的继续挂着;歧义 / 已绑过照常判不绑。所有待定绑定对着同一份快照匹配,两个
-// 落到同一条调用上的都不绑(分不清那条调用是谁发的)—— 宁可不升级,也不挂错卡。
+// 仍没有候选的继续挂着;歧义 / 已绑过照常判不绑。等过的只认命令含自己任务文本的调用
+// (ctlSendPendingBind.match)。所有待定绑定对着同一份快照匹配,两个落到同一条调用上的
+// 都不绑(分不清那条调用是谁发的)—— 宁可不升级,也不挂错卡。
 func (t *turnRun) resolveCtlSends(ctx context.Context) {
 	if len(t.ctlSends) == 0 {
 		return
@@ -436,7 +449,7 @@ func (t *turnRun) resolveCtlSends(ctx context.Context) {
 	matches := make([]match, len(t.ctlSends))
 	claims := map[string]int{}
 	for i, p := range t.ctlSends {
-		b, r := ctlbind.Match(calls, bound, p.target())
+		b, r := p.match(calls, bound)
 		matches[i] = match{b, r}
 		if r == "" {
 			claims[b.ToolCallID]++
