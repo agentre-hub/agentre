@@ -1076,3 +1076,55 @@ func TestMessageRepo_PatchSubagentState_RewritesTheCardUnderMutate(t *testing.T)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 }
+
+func openCardRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"session_id", "tool_call_id", "codec", "data"})
+}
+
+func TestMessageRepo_ListOpenAgrctlCards_QueriesLocalSessionsByJSONPredicate(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	// 本机判据与 ResetActiveSessions 同源(exec_device_id<=0 OR 指纹为空);JSON 判据在
+	// SQL 里收窄,不读消息正文。
+	mock.ExpectQuery("SELECT .* FROM `chat_message_blocks` JOIN `chat_messages` .* JOIN `chat_sessions` .*"+
+		"`chat_sessions`.`exec_device_id` <= \\? OR `chat_sessions`.`exec_device_fingerprint` = \\?.*"+
+		"json_extract\\(CAST\\(`chat_message_blocks`.`data` AS TEXT\\), '\\$.origin'\\) = \\?.*'\\$.status'\\) IN \\(\\?,\\?\\)").
+		WithArgs("subagent_state", 1, int64(0), "", transcript_entity.BlockCodecRaw, "agrctl", "running", "waiting").
+		WillReturnRows(openCardRows().
+			AddRow(7, "tu1", transcript_entity.BlockCodecRaw,
+				[]byte(`{"parent_tool_call_id":"tu1","kind":"local_bash","status":"running","origin":"agrctl"}`)))
+
+	got, err := transcript_repo.NewMessage().ListOpenAgrctlCards(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []transcript_repo.OpenAgrctlCard{{SessionID: 7, ToolCallID: "tu1"}}, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMessageRepo_ListOpenAgrctlCards_ChecksCompressedBlocksInGo(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	big := `{"parent_tool_call_id":"tu-open","status":"waiting","origin":"agrctl","pad":"` + strings.Repeat("x", 8192) + `"}`
+	done := `{"parent_tool_call_id":"tu-done","status":"completed","origin":"agrctl","pad":"` + strings.Repeat("y", 8192) + `"}`
+	native := `{"parent_tool_call_id":"tu-native","status":"running","pad":"` + strings.Repeat("z", 8192) + `"}`
+	rows := openCardRows()
+	for i, raw := range []struct{ id, data string }{{"tu-open", big}, {"tu-done", done}, {"tu-native", native}} {
+		codec, enc := transcript_entity.EncodeBlockData([]byte(raw.data))
+		require.NotEqual(t, transcript_entity.BlockCodecRaw, codec)
+		rows.AddRow(int64(10+i), raw.id, codec, enc)
+	}
+	mock.ExpectQuery("SELECT .* FROM `chat_message_blocks`").WillReturnRows(rows)
+
+	got, err := transcript_repo.NewMessage().ListOpenAgrctlCards(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []transcript_repo.OpenAgrctlCard{{SessionID: 10, ToolCallID: "tu-open"}}, got,
+		"压缩块 SQL 判不了,Go 里解码后只留 agrctl + 未收尾")
+}
+
+func TestMessageRepo_ListOpenAgrctlCards_NoCards(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	mock.ExpectQuery("SELECT .* FROM `chat_message_blocks`").WillReturnRows(openCardRows())
+
+	got, err := transcript_repo.NewMessage().ListOpenAgrctlCards(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}

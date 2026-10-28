@@ -284,6 +284,21 @@ func (mr *MockMessageRepoMockRecorder) ListMetaBefore(ctx, sessionID, beforeSeq,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMetaBefore", reflect.TypeOf((*MockMessageRepo)(nil).ListMetaBefore), ctx, sessionID, beforeSeq, limit)
 }
 
+// ListOpenAgrctlCards mocks base method.
+func (m *MockMessageRepo) ListOpenAgrctlCards(ctx context.Context) ([]transcript_repo.OpenAgrctlCard, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOpenAgrctlCards", ctx)
+	ret0, _ := ret[0].([]transcript_repo.OpenAgrctlCard)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOpenAgrctlCards indicates an expected call of ListOpenAgrctlCards.
+func (mr *MockMessageRepoMockRecorder) ListOpenAgrctlCards(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOpenAgrctlCards", reflect.TypeOf((*MockMessageRepo)(nil).ListOpenAgrctlCards), ctx)
+}
+
 // NextSeq mocks base method.
 func (m *MockMessageRepo) NextSeq(ctx context.Context, sessionID int64) (int, error) {
 	m.ctrl.T.Helper()

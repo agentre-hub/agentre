@@ -117,6 +117,9 @@ func NewApp(modes ...RuntimeMode) *App {
 
 var resetStaleActiveSessions = bootstrap.ResetStaleActiveSessions
 
+// settleOrphanedAgrctlCards 是启动清理的第二步,见 resetStaleSessionsOnStartup。
+var settleOrphanedAgrctlCards = chat_svc.SettleOrphanedAgrctlCards
+
 // Startup is wired to wails OnStartup. The context is saved so we can call
 // the runtime methods.
 func (a *App) Startup(ctx context.Context) {
@@ -232,6 +235,11 @@ func (a *App) onRemoteDeviceOnline(id int64, online bool) {
 func (a *App) resetStaleSessionsOnStartup(ctx context.Context) {
 	if err := resetStaleActiveSessions(ctx); err != nil {
 		logger.Ctx(ctx).Warn("app.Startup: reset stale active sessions", zap.Error(err))
+	}
+	// 承载 agrctl 的进程随上一个桌面进程死掉,本机父会话里仍 running/waiting 的 agrctl 卡
+	// 再没有谁会给它写终态:紧接着收成已取消。远端父会话的卡归 agentred,不在此列。
+	if _, err := settleOrphanedAgrctlCards(ctx); err != nil {
+		logger.Ctx(ctx).Warn("app.Startup: settle orphaned agrctl cards", zap.Error(err))
 	}
 }
 

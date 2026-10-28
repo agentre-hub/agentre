@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cago-frame/cago/database/db"
+	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -136,6 +137,18 @@ type MessageRepo interface {
 	// 记录的 CLI task_id + 当前 status(供 StopBackgroundTask 下发 stop_task)。定位方式同
 	// FlipSubagentStatus(块表索引点查),只读不改。toolCallID 空 / 无命中时返回 (found=false)。
 	FindSubagentState(ctx context.Context, sessionID int64, toolCallID string) (taskID, status string, found bool, err error)
+	// ListOpenAgrctlCards 列出**本机执行**的会话里仍处于 running / waiting 的 agrctl 绑定卡
+	// (subagent_state 块,origin=agrctl)的定位键。桌面启动清理用它找「承载 agrctl 的进程
+	// 已随上一个桌面进程死掉」的孤儿卡。执行位置在 agentred 的会话(带 exec 设备与指纹)
+	// 不在其列:那些卡归 agentred 与 CatchUpRemoteSessions,与 ResetActiveSessions 同一判据。
+	// 块表按 type 点查、JSON 判据在 SQL 里收窄,不读任何消息正文。
+	ListOpenAgrctlCards(ctx context.Context) ([]OpenAgrctlCard, error)
+}
+
+// OpenAgrctlCard 是一张未收尾 agrctl 卡的定位键,可直接交给 PatchSubagentState。
+type OpenAgrctlCard struct {
+	SessionID  int64
+	ToolCallID string
 }
 
 var defaultMessage MessageRepo
@@ -794,4 +807,56 @@ func (r *messageRepo) DeleteFromSeq(ctx context.Context, sessionID int64, fromSe
 		return 0, err
 	}
 	return deleted, nil
+}
+
+// openAgrctlCardRow 是 ListOpenAgrctlCards 的取材行:定位键 + 块正文(要解码确认)。
+type openAgrctlCardRow struct {
+	SessionID  int64  `gorm:"column:session_id"`
+	ToolCallID string `gorm:"column:tool_call_id"`
+	Codec      int    `gorm:"column:codec"`
+	Data       []byte `gorm:"column:data"`
+}
+
+func (r *messageRepo) ListOpenAgrctlCards(ctx context.Context) ([]OpenAgrctlCard, error) {
+	// 判据都在 SQL 里收窄,只取少数几行块:subagent_state 块本身很小(未压缩的 JSON),
+	// origin / status 用 json_extract 判。压缩过的块(codec≠0)SQL 判不了,放行到 Go 里
+	// 解码再判,不因此漏掉。会话侧的本机判据与 ResetActiveSessions 同源。
+	var rows []openAgrctlCardRow
+	err := db.Ctx(ctx).
+		Model(&transcript_entity.MessageBlock{}).
+		Select("`chat_messages`.`session_id` AS session_id, `chat_message_blocks`.`tool_call_id` AS tool_call_id, "+
+			"`chat_message_blocks`.`codec` AS codec, `chat_message_blocks`.`data` AS data").
+		Joins("JOIN `chat_messages` ON `chat_messages`.`id` = `chat_message_blocks`.`message_id`").
+		Joins("JOIN `chat_sessions` ON `chat_sessions`.`id` = `chat_messages`.`session_id`").
+		Where("`chat_message_blocks`.`type` = ? AND `chat_message_blocks`.`tool_call_id` <> ''",
+			transcript_entity.BlockTypeSubagentState).
+		Where("`chat_sessions`.`status` = ? AND (`chat_sessions`.`exec_device_id` <= ? OR `chat_sessions`.`exec_device_fingerprint` = ?)",
+			consts.ACTIVE, int64(0), "").
+		Where("(`chat_message_blocks`.`codec` <> ? OR ("+
+			"json_extract(CAST(`chat_message_blocks`.`data` AS TEXT), '$.origin') = ? AND "+
+			"json_extract(CAST(`chat_message_blocks`.`data` AS TEXT), '$.status') IN ?))",
+			transcript_entity.BlockCodecRaw, agentruntime.SubagentOriginAgrctl, []string{"running", "waiting"}).
+		Order("`chat_messages`.`session_id`, `chat_message_blocks`.`message_id`, `chat_message_blocks`.`idx`").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	var out []OpenAgrctlCard
+	for _, row := range rows {
+		data, err := transcript_entity.DecodeBlockData(row.Codec, row.Data)
+		if err != nil {
+			return nil, err
+		}
+		decoded, err := decodeBlockObject(data)
+		if err != nil {
+			return nil, err
+		}
+		origin, _ := decoded["origin"].(string)
+		status, _ := decoded["status"].(string)
+		if origin != agentruntime.SubagentOriginAgrctl || (status != "running" && status != "waiting") {
+			continue
+		}
+		out = append(out, OpenAgrctlCard{SessionID: row.SessionID, ToolCallID: row.ToolCallID})
+	}
+	return out, nil
 }
