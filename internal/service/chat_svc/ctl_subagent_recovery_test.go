@@ -30,7 +30,7 @@ func agrctlCard(kind, status string) *blocks.SubagentStateBlock {
 }
 
 // settleWith 让仓储交回 cards 指定的卡,并把 PatchSubagentState 的 mutate 作用在 stored 上。
-func settleWith(t *testing.T, stored *blocks.SubagentStateBlock) (int, error, int) {
+func settleWith(t *testing.T, stored *blocks.SubagentStateBlock) (int, int, error) {
 	ctrl := gomock.NewController(t)
 	repo := mock_transcript_repo.NewMockMessageRepo(ctrl)
 	prev := transcript_repo.Message()
@@ -48,7 +48,7 @@ func settleWith(t *testing.T, stored *blocks.SubagentStateBlock) (int, error, in
 			return true, nil
 		}).AnyTimes()
 	n, err := SettleOrphanedAgrctlCards(context.Background())
-	return n, err, patched
+	return n, patched, err
 }
 
 func TestSettleOrphanedAgrctlCards(t *testing.T) {
@@ -57,7 +57,7 @@ func TestSettleOrphanedAgrctlCards(t *testing.T) {
 			for _, status := range []string{"running", "waiting"} {
 				Convey("when the card is a "+kind+" card in "+status+", then it is settled canceled including runs[0]", func() {
 					card := agrctlCard(kind, status)
-					n, err, patched := settleWith(t, card)
+					n, patched, err := settleWith(t, card)
 					So(err, ShouldBeNil)
 					So(n, ShouldEqual, 1)
 					So(patched, ShouldEqual, 1)
@@ -70,7 +70,7 @@ func TestSettleOrphanedAgrctlCards(t *testing.T) {
 
 		Convey("when the card already completed, then it is untouched", func() {
 			card := agrctlCard("local_bash", "completed")
-			_, err, patched := settleWith(t, card)
+			_, patched, err := settleWith(t, card)
 			So(err, ShouldBeNil)
 			So(patched, ShouldEqual, 0)
 			So(card.Status, ShouldEqual, "completed")
@@ -80,7 +80,7 @@ func TestSettleOrphanedAgrctlCards(t *testing.T) {
 		Convey("when the card is a native background card (no agrctl origin), then it is untouched", func() {
 			card := agrctlCard("local_bash", "running")
 			card.Origin = ""
-			_, err, patched := settleWith(t, card)
+			_, patched, err := settleWith(t, card)
 			So(err, ShouldBeNil)
 			So(patched, ShouldEqual, 0)
 			So(card.Status, ShouldEqual, "running")
