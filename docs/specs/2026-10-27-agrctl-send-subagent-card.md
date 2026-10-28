@@ -2,7 +2,7 @@
 
 > Status: Approved
 > Owner: desktop app + agentred maintainers（agentre-server 只抬 wire 钉）
-> Last updated: 2026-10-27（Binding 第 1 条修订：后台调用有结果后仍是候选）
+> Last updated: 2026-10-28（远端断线条款修订：承载 send 的连接断开即停子会话；自主续轮里的绑定移出本轮）
 
 **Objective:** Agentre 会话里的 agent 用 shell 跑 `agrctl send --agent <X> --wait "<任务>"` 时，父转录里那条 shell 调用原地变成子代理卡。卡片实时显示子会话的工具调用、模型、用量和状态，结束后显示子任务的最终文本，刷新、重开、远端会话里都一样。
 
@@ -90,7 +90,7 @@
 - 桌面端照常建子会话、起轮，并把子会话的事件通过新的 wire RPC 交给 agentred，由 agentred 写进它的父转录，再以预览帧和持久帧回传。桌面端、agentred、重连追帧看到的是同一份。
 - 嵌套调用和结果经持久帧投影到桌面端时不能再丢失（Problem 6）。这一修复同样作用于远端的原生子代理卡。
 - agentred 上要能在父轮结束后继续更新后台卡（Problem 7）。实现这一项之前，先复现「远端原生后台子代理卡收不了尾」：能复现，就连同原生后台卡一起修；复现不出来，停下来和用户确认，不凭推断改。
-- 断线期间：子任务本身不受影响。重连后卡片的最终状态和最终文本必须正确。断线期间产生的嵌套步骤可能缺几条，桌面端记一条 warn 日志。
+- 断线期间：承载 send 的连接断开时按「客户端断开即停止子会话」处理，子会话被停，agrctl 以连接失败退出。桌面端不能因为父轮已结束、连接闲置就把仍有卡片在跑的 agentred 连接断掉。重连后卡片的最终状态和最终文本必须正确，桌面端与 agentred 一致。断线期间产生的嵌套步骤可能缺几条，桌面端记一条 warn 日志。
 - 新增的 wire 消息放在 `pkg/wire`。agentre-server 抬钉，验证构建和测试不受影响，两边成对落地。
 
 ## Backends
@@ -109,6 +109,7 @@
 - 调整 Claude 的 Bash 超时；给 Codex 开沙箱网络。
 - `agrctl send` 的环检测。
 - 调研中发现、与本需求无关的问题，另行跟踪，不在本轮修：Codex 原生 collab agent 没被识别（`transcript-rows.ts:18` 的注释已过时）；Pi `bash` 与 Codex 命令执行的实时输出被丢弃。
+- 父轮的帧被 CLI 自主续轮吞掉时（既有的自主续轮与用户轮冲突），那一轮里的 shell 调用不在「当前这一轮」里，不升级；随该冲突另行修复。
 
 ## Testing decisions
 
