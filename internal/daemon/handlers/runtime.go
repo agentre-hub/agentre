@@ -1115,9 +1115,16 @@ type sessionEmitter struct {
 // 名下(R9),而不是调用方自己名下那条同号会话;省略 origin 时调用方传
 // peerFingerprint(ctx),即「调用方自己的对端」。
 func (h *RuntimeHandlers) newEmitterFor(ctx context.Context, conversationID string, peer devicefp.Initiator) *sessionEmitter {
+	return newSessionEmitter(ctx, h.deps.NotifyFor, conversationID, peer)
+}
+
+// newSessionEmitter 是 newEmitterFor 不依附某条连接的那一份(Daemon 级的写入方用)。
+func newSessionEmitter(
+	ctx context.Context, notifyFor func(devicefp.Initiator) NotifierPort, conversationID string, peer devicefp.Initiator,
+) *sessionEmitter {
 	return &sessionEmitter{
 		ctx:       context.WithoutCancel(ctx),
-		notifyFor: h.deps.NotifyFor,
+		notifyFor: notifyFor,
 		peer:      peer,
 		// 会话表按 conversation_id 认人,peerSessionID 就是对话身份本身。
 		peerSessionID:  conversationID,

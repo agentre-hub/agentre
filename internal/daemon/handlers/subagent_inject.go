@@ -33,43 +33,67 @@ func (h *RuntimeHandlers) InjectSubagentEvents(ctx context.Context, req *agentre
 	if err != nil {
 		return nil, err
 	}
-	em := h.newEmitterFor(ctx, conversationID, peer)
 	events, err := injectableEvents(toolCallID, req.GetEvents())
 	if err != nil {
 		return nil, err
 	}
+	injector := SubagentCardInjector{
+		NotifyFor: h.deps.NotifyFor, Ctl: h.deps.Ctl, Transcript: h.deps.Transcript, Cards: h.deps.SubagentCards,
+	}
+	if err := injector.Inject(ctx, peer, conversationID, toolCallID, events); err != nil {
+		return nil, err
+	}
+	return &agentrewire.Empty{}, nil
+}
+
+// SubagentCardInjector 把注入方事件写进 agentred 自己的父转录(Daemon 级,不随连接生灭):
+// 桌面端经 InjectSubagentEvents 推来的子会话事件走它,ctl 代理在承载 send 的连接断开时
+// 给卡收尾(ctlProxy.settleDroppedSend)也走它 —— 「在途那一轮 / 原消息」的分流只有这一份。
+type SubagentCardInjector struct {
+	NotifyFor  func(peerFingerprint devicefp.Initiator) NotifierPort
+	Ctl        *CtlSessions
+	Transcript TranscriptPort
+	// Cards nil = 不接已收口消息那一格:父轮已结束时这批事件丢弃。
+	Cards SubagentCardPort
+}
+
+// Inject 把一批事件写给 toolCallID 那张卡:父轮还在跑就经 t.mu 写进在途那一轮并推预览帧,
+// 否则写回原消息(finishedCards.Inject),只发变了的持久帧;找不到卡时空操作。
+func (j SubagentCardInjector) Inject(
+	ctx context.Context, peer devicefp.Initiator, conversationID, toolCallID string, events []agentruntime.Event,
+) error {
+	em := newSessionEmitter(ctx, j.NotifyFor, conversationID, peer)
 	if toolCallID == "" || len(events) == 0 {
-		logger.Ctx(em.ctx).Debug("handlers.RuntimeHandlers.InjectSubagentEvents: nothing to inject",
-			zap.String("conversationId", conversationID), zap.String("toolUseId", toolCallID),
-			zap.Int("received", len(req.GetEvents())))
-		return &agentrewire.Empty{}, nil
+		logger.Ctx(em.ctx).Debug("handlers.SubagentCardInjector.Inject: nothing to inject",
+			zap.String("conversationId", conversationID), zap.String("toolUseId", toolCallID))
+		return nil
 	}
 
-	if h.deps.Ctl.injectLive(em.ctx, em.rid, toolCallID, events) {
+	if j.Ctl.injectLive(em.ctx, em.rid, toolCallID, events) {
 		for _, ev := range events {
 			em.emit(wire.NotifyEvent, &wire.EventFrame{ConversationID: conversationID, Event: ev, Preview: true})
 		}
-		return &agentrewire.Empty{}, nil
+		return nil
 	}
 
-	if h.deps.SubagentCards == nil || h.deps.Transcript == nil {
-		logger.Ctx(em.ctx).Debug("handlers.RuntimeHandlers.InjectSubagentEvents: no card store; ignored",
+	if j.Cards == nil || j.Transcript == nil {
+		logger.Ctx(em.ctx).Debug("handlers.SubagentCardInjector.Inject: no card store; ignored",
 			zap.String("conversationId", conversationID), zap.String("toolUseId", toolCallID))
-		return &agentrewire.Empty{}, nil
+		return nil
 	}
 	cards := &finishedCards{
-		finder: h.deps.SubagentCards, port: h.deps.Transcript, conversationID: conversationID,
+		finder: j.Cards, port: j.Transcript, conversationID: conversationID,
 		publish: func(frame wire.EventFrame) { em.emit(wire.NotifyEvent, &frame) },
 	}
 	found, err := cards.Inject(em.ctx, toolCallID, events)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !found {
-		logger.Ctx(em.ctx).Info("handlers.RuntimeHandlers.InjectSubagentEvents: card not found; ignored",
+		logger.Ctx(em.ctx).Info("handlers.SubagentCardInjector.Inject: card not found; ignored",
 			zap.String("conversationId", conversationID), zap.String("toolUseId", toolCallID))
 	}
-	return &agentrewire.Empty{}, nil
+	return nil
 }
 
 // injectableEvents 解出请求里的事件,并只留注入方有权写的那几类:点名 toolCallID 的

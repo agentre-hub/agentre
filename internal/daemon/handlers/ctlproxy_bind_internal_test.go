@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -478,4 +480,89 @@ func TestCtlProxy_GivenSendWaiting_WhenAnotherSendsCallToTheSameAgentShowsUp_The
 	require.Equal(t, http.StatusOK, awaitCtlStatus(t, done, promptly))
 	assert.Equal(t, []string{"sh-a"}, tunnel.forwarded(t, 0).Headers[ctlBindToolCallHeader],
 		"the waiting send binds only the call that carries its own task text")
+}
+
+// ── 承载 send 的连接断开(spec「Remote sessions」断线期间、Hard invariant「卡片状态不说谎」)──
+
+// droppingCtlTunnel 模拟桌面端已经建好子会话、把卡注入了父轮,随后承载这次 send 的连接
+// 断开:桌面端那一侧的请求随之取消,子会话被停(「客户端断开即停止子会话」)。
+type droppingCtlTunnel struct {
+	tt *turnTranscript
+}
+
+func (f *droppingCtlTunnel) Notify(*agentrewire.RpcNotification) error { return nil }
+
+func (f *droppingCtlTunnel) Request(ctx context.Context, _ string, params, _ any) error {
+	req := params.(wire.MCPProxyRequest)
+	callID := req.Headers[ctlBindToolCallHeader][0]
+	started := agentruntime.SubagentStarted{ToolCallID: callID, Info: agentruntime.SubagentInfo{
+		Kind: agentruntime.SubagentKindAgrctl, Origin: agentruntime.SubagentOriginAgrctl,
+		ChildSessionID: 77, SubagentType: "reviewer", TaskDescription: "审一下 PR 42", Status: "running",
+	}}
+	if len(req.Headers[ctlBindBackgroundHeader]) > 0 {
+		started.Info.Kind = "local_bash"
+	}
+	f.tt.injectSubagentEvents(ctx, callID, []agentruntime.Event{started})
+	return errors.New("protorpc: connection closed")
+}
+
+// desktopOwnedByConversation 同 desktopOwned,但会话键与生产一致地由对话 ID 派生
+// (runtimeSessionID):注入方按对话 ID 找在途那一轮。当前轮为 tt。
+func desktopOwnedByConversation(t *testing.T, tt *turnTranscript) (*CtlSessions, string) {
+	t.Helper()
+	rid := runtimeSessionID(ctlTestConversation)
+	c := NewCtlSessions(func() string { return "http://gw" })
+	c.bind(rid, ctlTestPeer, ctlTestConversation, DesktopCtlSession{DesktopSessionID: 55, Token: ctlTestDesktopToken}, true)
+	c.attachTurn(rid, tt)
+	return c, c.Credentials(7, rid).Token
+}
+
+// agrctlCardOf 取 tt 里挂在 toolCallID 上的那张卡。
+func agrctlCardOf(t *testing.T, tt *turnTranscript, toolCallID string) *transcriptblocks.SubagentStateBlock {
+	t.Helper()
+	tt.mu.Lock()
+	defer tt.mu.Unlock()
+	for _, b := range tt.acc.Snapshot() {
+		if sb, ok := b.(*transcriptblocks.SubagentStateBlock); ok && sb.ParentToolCallID == toolCallID {
+			return sb
+		}
+	}
+	t.Fatalf("no card on %s", toolCallID)
+	return nil
+}
+
+func TestCtlProxy_GivenBoundForegroundSend_WhenTheConnectionCarryingItDrops_ThenTheCardSettlesAsCanceled(t *testing.T) {
+	// 桌面端重启 / 崩溃时它手上的收尾重试一起丢了;子会话已随连接断开被停,agentred 是唯一
+	// 还看得见这件事的一方 —— 前台卡不能就此永远停在运行中。
+	tt := bindTurn(t, shellCall("sh-1", bindTestCommand, false))
+	c, tok := desktopOwnedByConversation(t, tt)
+	srv := httptest.NewServer(NewCtlProxyHandler(CtlProxyDeps{
+		Sessions: c, Tunnel: func(devicefp.Initiator, string) NotifierPort { return &droppingCtlTunnel{tt: tt} },
+		Cards: &SubagentCardInjector{Ctl: c},
+	}))
+	t.Cleanup(srv.Close)
+
+	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/send", tok, reviewerWaitBody)
+	require.Equal(t, http.StatusBadGateway, status, "agrctl exits with the connection failure, as today")
+
+	card := agrctlCardOf(t, tt, "sh-1")
+	assert.Equal(t, "canceled", card.Status)
+	require.Len(t, card.Runs, 1)
+	assert.Equal(t, "canceled", card.Runs[0].Status, "the single-run snapshot follows")
+}
+
+func TestCtlProxy_GivenBoundBackgroundSend_WhenTheConnectionCarryingItDrops_ThenTheCardStatusStaysTheCLIs(t *testing.T) {
+	// 后台卡的状态归 CLI(Design 11):agrctl 以失败退出后 CLI 自己会给出结果,这里不抢写。
+	tt := bindTurn(t, shellCall("sh-1", bindTestCommand, true))
+	c, tok := desktopOwnedByConversation(t, tt)
+	srv := httptest.NewServer(NewCtlProxyHandler(CtlProxyDeps{
+		Sessions: c, Tunnel: func(devicefp.Initiator, string) NotifierPort { return &droppingCtlTunnel{tt: tt} },
+		Cards: &SubagentCardInjector{Ctl: c},
+	}))
+	t.Cleanup(srv.Close)
+
+	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/send", tok, reviewerWaitBody)
+	require.Equal(t, http.StatusBadGateway, status)
+
+	assert.Equal(t, "running", agrctlCardOf(t, tt, "sh-1").Status)
 }

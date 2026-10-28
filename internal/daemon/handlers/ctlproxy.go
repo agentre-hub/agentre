@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
@@ -88,6 +89,9 @@ type CtlProxyDeps struct {
 	ApprovalTimeout time.Duration
 	// SendBindWait 是 send --wait 转发前等它那条 shell 调用出现的上限;0 = ctlSendBindWait。
 	SendBindWait time.Duration
+	// Cards 是父转录里子代理卡的写入口:承载一次已绑定 send 的连接断开时,经它给卡收尾
+	// (settleDroppedSend)。nil = 不收尾。
+	Cards *SubagentCardInjector
 	// Self 是这台 agentred 的设备指纹:后端的 device_fingerprint 与它相同 = 绑在本机。
 	Self devicefp.Carrier
 	// OpenClawTokens 是本机的设备本地凭据(BackendCredentialHandlers,按后端 syncId 存
@@ -176,6 +180,9 @@ func (p *ctlProxy) forwardToDesktop(w http.ResponseWriter, r *http.Request, owne
 	if bound != "" && (err != nil || (resp.Status != 0 && resp.Status != http.StatusOK)) {
 		p.deps.Sessions.unbindCtlSend(owner, bound)
 	}
+	if bound != "" && err != nil {
+		p.settleDroppedSend(r.Context(), owner, bound)
+	}
 	if err != nil {
 		logger.Ctx(r.Context()).Warn("handlers.ctlProxy.forwardToDesktop: tunnel failed",
 			zap.String("conversationId", owner.conversationID), zap.String("path", r.URL.Path), zap.Error(err))
@@ -192,6 +199,29 @@ func (p *ctlProxy) forwardToDesktop(w http.ResponseWriter, r *http.Request, owne
 	}
 	w.WriteHeader(resp.Status)
 	_, _ = w.Write(resp.Body)
+}
+
+// settleDroppedSend 承载一次已绑定 send 的连接断开了:桌面端那一侧的请求随之取消,子会话被停
+// (spec「Remote sessions」断线期间:按「客户端断开即停止子会话」处理),agrctl 以连接失败退出。
+// 卡片按注入方的身份收成已取消 —— 桌面端重启 / 崩溃时它手上的收尾重试一起丢了,agentred 是
+// 此刻唯一看得见这件事的一方,不收这张前台卡就永远停在运行中(Hard invariant「卡片状态
+// 不说谎」)。写入分工照旧(handlers.ApplyAgrctlInfo):后台卡的状态归 CLI,这一帧不动它;
+// 已收尾的卡不被取消覆盖;桌面端若随后送达子轮的真实结果,以它为准。卡还没注入时是空操作。
+func (p *ctlProxy) settleDroppedSend(ctx context.Context, owner ctlSession, toolCallID string) {
+	if p.deps.Cards == nil {
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+	done := agentruntime.SubagentDone{ToolCallID: toolCallID, Info: agentruntime.SubagentInfo{
+		Origin: agentruntime.SubagentOriginAgrctl, Status: "canceled",
+	}}
+	if err := p.deps.Cards.Inject(ctx, owner.peer, owner.conversationID, toolCallID, []agentruntime.Event{done}); err != nil {
+		logger.Ctx(ctx).Warn("handlers.ctlProxy.settleDroppedSend: settle the subagent card failed",
+			zap.String("conversationId", owner.conversationID), zap.String("toolUseId", toolCallID), zap.Error(err))
+		return
+	}
+	logger.Ctx(ctx).Info("handlers.ctlProxy.settleDroppedSend: the connection carrying the send dropped; subagent card settled as canceled",
+		zap.String("conversationId", owner.conversationID), zap.String("toolUseId", toolCallID))
 }
 
 // ctlSendBody 是 send 请求里绑定要看的那几项(与桌面端 ctl_svc.sendRequest 同形)。

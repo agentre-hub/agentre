@@ -951,6 +951,10 @@ func New(opts Options) (*Daemon, error) {
 		},
 		Self:           identity.DaemonFingerprint(st.InstanceUUID()),
 		OpenClawTokens: d.backendCredentials,
+		// 与 runtime.injectSubagentEvents 同一份父转录写入口:承载 send 的连接断开时给卡收尾。
+		Cards: &handlers.SubagentCardInjector{
+			NotifyFor: d.notifierForPeer, Ctl: d.ctl, Transcript: d.transcript, Cards: d.subagentCards,
+		},
 	}))
 	d.registerProtobufMethods()
 	return d, nil
