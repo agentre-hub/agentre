@@ -14,15 +14,20 @@ import (
 // 之间,拿帧重建转录的那两个面(浏览器控制台、桌面端 Peer Tab)会把它塞进在跑的回答,
 // 再把收口帧另起一条 —— 一轮回答被劈成两段。
 //
-// 「本轮在跑」以轮次自己的开轮点为准:用户发起的轮在任一条消息的持久帧发出时开(开轮的
-// 用户那一行、轮内 checkpoint、steer 分段);自主续轮没有用户那一行、纯文字回答收口前也
-// 不 checkpoint,在它宣告开轮(emitStarted,assistant 行已落库)时开。收口时关 —— 两条
-// finalize 走 publishPeerTurnDone,没走到收口的失败 / 起跑前中止由 failTurn /
-// abortTurnBeforeStream 关,扣着的 notice 不会被永远压住。只认内存里的开轮点,与会话行上
-// 的 agent_status 无关:后者读出来的那一刻轮次可能已经收口。
+// 扣留按**轮**记账,键是这一轮的流名(StreamName:插话分段与自动接续沿用同一个流名,
+// 自主续轮各有各的):一条会话上可以同时有两轮(用户发起的那一轮排在自主续轮后面),
+// 一轮收口只关它自己那一格,仍有别的轮在跑时 notice 继续扣着。
+//
+// 开轮点是这一轮已经在跑、此后的切换在桌面端必然排在它之后的那一刻:用户发起的轮在
+// 用户那一行发出时(emitTurnStarted)、任何一轮进 runTurn 时(compact 与自动接续没有
+// 前者)、自动接续的那一行落库之后、自主续轮宣告开轮时(emitStarted,assistant 行已
+// 落库)。收口点:两条 finalize 走 publishPeerTurnDone,没走到收口的失败 / 起跑前中止
+// 由 failTurn / abortTurnBeforeStream 关,runTurn 退出时(含被吞掉的 panic)再兜底关一次
+// —— 扣着的 notice 不会被永远压住。只认内存里的开轮点,与会话行上的 agent_status
+// 无关:后者读出来的那一刻轮次可能已经收口。
 type peerNoticeHold struct {
 	mu      sync.Mutex
-	turnOn  bool
+	open    map[string]struct{}
 	pending []*chat_entity.Message
 }
 
@@ -31,22 +36,29 @@ func (s *chatSvc) peerNoticeHoldFor(sessionID int64) *peerNoticeHold {
 	return v.(*peerNoticeHold)
 }
 
-// peerTurnOpened 记下这条会话有一轮开始了:之后落库的切换 notice 扣到它收口之后。
-func (s *chatSvc) peerTurnOpened(sessionID int64) {
+// peerTurnOpened 记下这条会话上 stream 那一轮在跑:之后落库的切换 notice 扣到它收口
+// 之后。同一轮重复开轮是幂等的。
+func (s *chatSvc) peerTurnOpened(sessionID int64, stream string) {
 	hold := s.peerNoticeHoldFor(sessionID)
 	hold.mu.Lock()
-	hold.turnOn = true
+	if hold.open == nil {
+		hold.open = make(map[string]struct{})
+	}
+	hold.open[stream] = struct{}{}
 	hold.mu.Unlock()
 }
 
-// peerTurnSettled 在本轮的收口帧发出之后调用:放行轮中扣下的 notice,按落库先后取号。
-// 放行时持着锁:紧接着开起来的下一轮(自动接续)要先等这几条取完号,它的用户那一行
-// 才不会抢到 notice 前面。
-func (s *chatSvc) peerTurnSettled(ctx context.Context, sessionID int64) {
+// peerTurnSettled 在 stream 那一轮的收口帧发出之后调用。会话上再没有在跑的轮时放行
+// 扣下的 notice,按落库先后取号。放行时持着锁:紧接着开起来的下一轮(自动接续)要先
+// 等这几条取完号,它的用户那一行才不会抢到 notice 前面。
+func (s *chatSvc) peerTurnSettled(ctx context.Context, sessionID int64, stream string) {
 	hold := s.peerNoticeHoldFor(sessionID)
 	hold.mu.Lock()
 	defer hold.mu.Unlock()
-	hold.turnOn = false
+	delete(hold.open, stream)
+	if len(hold.open) > 0 {
+		return
+	}
 	for _, msg := range hold.pending {
 		_, _ = s.peerStream().PublishMessageFrames(context.WithoutCancel(ctx), sessionID, msg, true)
 	}
@@ -58,7 +70,7 @@ func (s *chatSvc) peerTurnSettled(ctx context.Context, sessionID int64) {
 func (s *chatSvc) publishSessionNotice(ctx context.Context, sessionID int64, msg *chat_entity.Message) {
 	hold := s.peerNoticeHoldFor(sessionID)
 	hold.mu.Lock()
-	if hold.turnOn {
+	if len(hold.open) > 0 {
 		hold.pending = append(hold.pending, msg)
 		hold.mu.Unlock()
 		return

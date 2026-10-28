@@ -71,11 +71,11 @@ func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 func (s *chatSvc) publishPeerMessageFrames(
 	ctx context.Context, sessionID int64, msg *chat_entity.Message, userTurn bool,
 ) (minSeq int64, maxSeq int64) {
-	s.peerTurnOpened(sessionID)
 	return s.peerStream().PublishMessageFrames(ctx, sessionID, msg, userTurn)
 }
 
-func (s *chatSvc) publishPeerTurnDone(ctx context.Context, sessionID int64, msg *chat_entity.Message) {
+// stream 是收口的这一轮的流名:它扣下的切换 notice 随之放行(见 peer_notice_hold.go)。
+func (s *chatSvc) publishPeerTurnDone(ctx context.Context, sessionID int64, stream string, msg *chat_entity.Message) {
 	s.peerStream().PublishTurnDone(ctx, sessionID, msg)
-	s.peerTurnSettled(ctx, sessionID)
+	s.peerTurnSettled(ctx, sessionID, stream)
 }

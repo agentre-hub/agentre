@@ -93,6 +93,10 @@ const approvalSessionID = int64(41)
 type approvalTurnOpts struct {
 	result          *agentruntime.RunResult
 	onSessionUpdate func()
+	// backend 是仓储 Find 交回的后端(nil = 没有):要在轮中调会话设置入口的用例给一个。
+	backend *agent_backend_entity.AgentBackend
+	// recoverPanic 像生产的 dispatchTurn(gogo.WithIgnorePanic)那样吞掉 runTurn 的 panic。
+	recoverPanic bool
 }
 
 func startApprovalTurn(t *testing.T) *approvalTurnRig {
@@ -125,7 +129,7 @@ func startApprovalTurnWith(t *testing.T, opts approvalTurnOpts) *approvalTurnRig
 			return nil
 		}).AnyTimes()
 	deps.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(agentForPeerSession(), nil).AnyTimes()
-	deps.backend.EXPECT().Find(gomock.Any(), int64(11)).Return(nil, nil).AnyTimes()
+	deps.backend.EXPECT().Find(gomock.Any(), int64(11)).Return(opts.backend, nil).AnyTimes()
 	deps.message.EXPECT().List(gomock.Any(), approvalSessionID).Return(nil, nil).AnyTimes()
 	deps.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, m *chat_entity.Message, _ string) error {
@@ -151,6 +155,11 @@ func startApprovalTurnWith(t *testing.T, opts approvalTurnOpts) *approvalTurnRig
 	prepared := &preparedTurnRun{runner: approvalFakeRuntime{}, events: rig.events, result: opts.result, release: func() {}}
 	go func() {
 		defer close(rig.done)
+		defer func() {
+			if opts.recoverPanic {
+				_ = recover()
+			}
+		}()
 		deps.svc.runTurn(ctx, sess, &agent_entity.Agent{ID: 7, AgentBackendID: 11},
 			&agent_backend_entity.AgentBackend{ID: 11, Type: string(agent_backend_entity.TypeClaudeCode)}, nil,
 			userMsg, assistant, StreamName(approvalSessionID, 9001), "", false, prepared, turnExtras{})

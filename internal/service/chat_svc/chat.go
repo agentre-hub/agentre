@@ -2620,6 +2620,13 @@ func (s *chatSvc) runTurn(
 	extras turnExtras,
 ) {
 	startedAt := time.Now()
+	// compact 与自动接续不经 emitTurnStarted,在这里开轮(用户发起的轮已开过,幂等):
+	// 这一轮的行已落库,此后的切换 notice 扣到它收口之后(见 peer_notice_hold.go)。
+	// 正常收口早已在 finalize / failTurn / abortTurnBeforeStream 里关过,退出时再关一次
+	// 是空操作;它兜的是 panic(调用方 gogo.WithIgnorePanic 吞掉后应用照常跑)—— 否则这
+	// 一格永远开着,这条会话之后的切换 notice 一条都发不出去。
+	s.peerTurnOpened(sess.ID, stream)
+	defer s.peerTurnSettled(context.WithoutCancel(ctx), sess.ID, stream)
 
 	if prepared == nil {
 		var err error
@@ -2723,12 +2730,16 @@ func shouldCheckpointAssistantAfterEvent(ev agentruntime.Event) bool {
 // previousAssistant 是刚收尾的 assistant（已 Update 过）；payload 里把它放在
 // PreviousAssistantMessage —— 前端 applySteerConsumed 会把它定位到现有位置，
 // 然后在它后面插入新的 user + assistant。
+//
+// stream 是沿用的流名:新的两行一落库,接续的这一轮就在跑(切换 notice 从此扣到它收口
+// 之后);落库之后再失败时,调用方负责把它收掉。
 func (s *chatSvc) persistAutoContinueTurn(
 	ctx context.Context,
 	sess *chat_entity.Session,
 	be *agent_backend_entity.AgentBackend,
 	previousAssistant *chat_entity.Message,
 	model string,
+	stream string,
 	pending []agentruntime.ConsumedSteer,
 ) (*chat_entity.Message, *chat_entity.Message, *ChatStreamEvent, error) {
 	pending = s.withPeerSteerSources(pending)
@@ -2774,6 +2785,7 @@ func (s *chatSvc) persistAutoContinueTurn(
 	}
 
 	// 接续轮插进来的 user 消息也在此刻取号,理由同 persistConsumedSteers。
+	s.peerTurnOpened(sess.ID, stream)
 	_, _ = s.publishPeerMessageFrames(ctx, sess.ID, newUser, true)
 
 	userEvent, err := toChatMessage(newUser)
