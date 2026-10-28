@@ -10,6 +10,7 @@ package ctlbind
 import (
 	"strconv"
 	"strings"
+	"unicode"
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
@@ -101,7 +102,7 @@ func Match(calls []turn.OuterToolUse, bound map[string]bool, target Target) (Bin
 }
 
 // MatchPending 是 Match 的严格版,给「send 早于它的 shell 调用登记、绑定还在等」的那一侧用:
-// 只有命令文本含这次 send 任务文本(与 Match 消歧同一口径:去掉首尾空白后按子串)的调用才是
+// 只有命令文本含这次 send 任务文本(与 Match 消歧同一口径,见 containsTask)的调用才是
 // 候选,其余照 Match 的规则判。
 //
 // 等着的时候,先登记进来的可能是另一个发往同一 agent 的 send 的调用;Match 见到唯一候选就
@@ -172,9 +173,34 @@ func filterByTask(calls []turn.OuterToolUse, task string) []turn.OuterToolUse {
 	return out
 }
 
-// containsTask 命令文本是否含任务文本(task 已去掉首尾空白)。
+// containsTask 命令文本是否含任务文本(task 已去掉首尾空白)。命令是 shell 写法,任务文本是
+// shell 解完引号、agrctl 按单个空格拼好的那段,所以两边都先过 shellText 再比:单引号里
+// 撇号的拼接写法、双引号里的 \"、zsh -lc 再套一层的引号与词间多余空白,都不该让一个
+// send 认不出自己的调用。变量展开、$(...)、$'\n' 这类要执行才知道结果的写法仍认不出
+// (宁可不升级,也不挂错卡)。
 func containsTask(c turn.OuterToolUse, task string) bool {
-	return strings.Contains(commandOf(c), task)
+	return strings.Contains(shellText(commandOf(c)), shellText(task))
+}
+
+// shellText 去掉 shell 的引号与转义字符(' " \),把连续空白压成一个空格。只用于比对。
+func shellText(s string) string {
+	var b strings.Builder
+	space := false
+	for _, r := range s {
+		switch {
+		case r == '\'' || r == '"' || r == '\\':
+			continue
+		case unicode.IsSpace(r):
+			space = true
+			continue
+		}
+		if space && b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		space = false
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // commandOf 取 shell 调用的命令文本。三个后端都是 input.command 一条字符串(Codex 带

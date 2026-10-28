@@ -141,7 +141,8 @@ type MessageRepo interface {
 	// (subagent_state 块,origin=agrctl)的定位键。桌面启动清理用它找「承载 agrctl 的进程
 	// 已随上一个桌面进程死掉」的孤儿卡。执行位置在 agentred 的会话(带 exec 设备与指纹)
 	// 不在其列:那些卡归 agentred 与 CatchUpRemoteSessions,与 ResetActiveSessions 同一判据。
-	// 块表按 type 点查、JSON 判据在 SQL 里收窄,不读任何消息正文。
+	// 块表按 type 点查、JSON 判据在 SQL 里收窄,不读任何消息正文。解不开的块跳过(记 warn),
+	// 不挡住其余的卡。
 	ListOpenAgrctlCards(ctx context.Context) ([]OpenAgrctlCard, error)
 }
 
@@ -843,13 +844,18 @@ func (r *messageRepo) ListOpenAgrctlCards(ctx context.Context) ([]OpenAgrctlCard
 	}
 	var out []OpenAgrctlCard
 	for _, row := range rows {
+		// 一块解不开只跳过它:这是一次清扫,不能因为一张坏卡让其余孤儿卡永远停在运行中。
 		data, err := transcript_entity.DecodeBlockData(row.Codec, row.Data)
-		if err != nil {
-			return nil, err
+		var decoded map[string]any
+		if err == nil {
+			decoded, err = decodeBlockObject(data)
 		}
-		decoded, err := decodeBlockObject(data)
 		if err != nil {
-			return nil, err
+			logger.Ctx(ctx).Warn("transcript_repo.ListOpenAgrctlCards: undecodable subagent_state block skipped",
+				zap.Int64("sessionId", row.SessionID),
+				zap.String("toolUseId", row.ToolCallID),
+				zap.Error(err))
+			continue
 		}
 		origin, _ := decoded["origin"].(string)
 		status, _ := decoded["status"].(string)

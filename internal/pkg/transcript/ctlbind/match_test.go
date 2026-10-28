@@ -273,6 +273,33 @@ func TestMatchPending(t *testing.T) {
 			target: Target{AgentName: "reviewer"},
 			want:   Binding{ToolCallID: "sh-b"},
 		},
+		{
+			// 命令里是 shell 写法,任务文本是 shell 解完引号之后 agrctl 收到的那段。
+			name:   "单引号里的撇号写成 '\\'' 时仍认得出自己的调用",
+			calls:  []turn.OuterToolUse{shell("sh-a", "Bash", `agrctl send --wait --agent reviewer 'it'\''s broken'`, nil, false)},
+			target: Target{AgentName: "reviewer", Task: "it's broken"},
+			want:   Binding{ToolCallID: "sh-a"},
+		},
+		{
+			name:   "双引号里转义的引号仍认得出自己的调用",
+			calls:  []turn.OuterToolUse{shell("sh-a", "Bash", `agrctl send --wait --agent reviewer "say \"hi\" to PR 42"`, nil, false)},
+			target: Target{AgentName: "reviewer", Task: `say "hi" to PR 42`},
+			want:   Binding{ToolCallID: "sh-a"},
+		},
+		{
+			name: "Codex 的 zsh -lc 包装再套一层引号仍认得出自己的调用",
+			calls: []turn.OuterToolUse{shell("item-3", "command_execution",
+				`/bin/zsh -lc 'agrctl send --wait --agent reviewer "it'"'"'s PR 42"'`, nil, false)},
+			target: Target{AgentName: "reviewer", Task: "it's PR 42"},
+			want:   Binding{ToolCallID: "item-3"},
+		},
+		{
+			// agrctl 把位置参数按单个空格拼成任务文本。
+			name:   "不加引号、词间多个空格时仍认得出自己的调用",
+			calls:  []turn.OuterToolUse{shell("sh-a", "Bash", "agrctl send --wait --agent reviewer fix   the\tbug", nil, false)},
+			target: Target{AgentName: "reviewer", Task: "fix the bug"},
+			want:   Binding{ToolCallID: "sh-a"},
+		},
 	}
 
 	Convey("MatchPending 给等过的 send 用:候选的命令必须含它的任务文本", t, func() {

@@ -1128,3 +1128,19 @@ func TestMessageRepo_ListOpenAgrctlCards_NoCards(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+func TestMessageRepo_ListOpenAgrctlCards_SkipsABlockThatCannotBeDecoded(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	// 一块解不开的(损坏的压缩正文)不能让整次启动清理落空:其余的孤儿卡照样交出去。
+	open := `{"parent_tool_call_id":"tu-open","status":"running","origin":"agrctl","pad":"` + strings.Repeat("x", 8192) + `"}`
+	codec, enc := transcript_entity.EncodeBlockData([]byte(open))
+	require.NotEqual(t, transcript_entity.BlockCodecRaw, codec)
+	mock.ExpectQuery("SELECT .* FROM `chat_message_blocks`").WillReturnRows(openCardRows().
+		AddRow(int64(9), "tu-broken", codec, []byte("not a compressed block")).
+		AddRow(int64(10), "tu-open", codec, enc))
+
+	got, err := transcript_repo.NewMessage().ListOpenAgrctlCards(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []transcript_repo.OpenAgrctlCard{{SessionID: 10, ToolCallID: "tu-open"}}, got)
+}
