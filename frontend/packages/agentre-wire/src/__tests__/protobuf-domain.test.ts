@@ -39,6 +39,43 @@ describe("protobuf response to domain wire", () => {
     });
   });
 
+  it("given a session that carries a CLI model choice, then its mode and model cross into the domain shape", () => {
+    // web 端 pill 与每轮运行请求都从这里读会话的 CLI 选择;丢了它,承载机器上
+    // 存着的「固定 opus」在浏览器里就成了「跟随 Agent 绑定」。
+    const response = create(SessionListResponseSchema, {
+      sessions: [
+        create(SessionSummarySchema, {
+          conversationId: CONVERSATION_ID,
+          lifecycleState: "idle",
+          latestSeq: 1n,
+          cliModelMode: "fixed",
+          cliModel: "opus",
+        }),
+      ],
+    });
+
+    expect(sessionListFromProtobuf(response).sessions[0]).toEqual(
+      expect.objectContaining({ cliModelMode: "fixed", cliModel: "opus" }),
+    );
+  });
+
+  it("given a session with no CLI model choice, then no CLI keys are invented", () => {
+    // 空 = 跟随 Agent 绑定;与 providerKey 一样,零值不写成 "",留给调用方按「没选」处理。
+    const response = create(SessionListResponseSchema, {
+      sessions: [
+        create(SessionSummarySchema, {
+          conversationId: CONVERSATION_ID,
+          lifecycleState: "idle",
+          latestSeq: 1n,
+        }),
+      ],
+    });
+
+    const [session] = sessionListFromProtobuf(response).sessions;
+    expect(session.cliModelMode).toBeUndefined();
+    expect(session.cliModel).toBeUndefined();
+  });
+
   it("given a paged session.list answer, then the cursor, hasMore and total cross into the domain shape", () => {
     // 机器轴靠这三格才翻得动:没有它们,浏览器只能整份取回来再自己切。
     const response = create(SessionListResponseSchema, {
