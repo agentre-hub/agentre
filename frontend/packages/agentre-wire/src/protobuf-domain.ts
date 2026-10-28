@@ -88,6 +88,8 @@ export function sessionListFromProtobuf(
         : {}),
       ...(session.providerKey ? { providerKey: session.providerKey } : {}),
       ...(session.modelKey ? { modelKey: session.modelKey } : {}),
+      ...(session.cliModelMode ? { cliModelMode: session.cliModelMode } : {}),
+      ...(session.cliModel ? { cliModel: session.cliModel } : {}),
     })),
     // 翻页那三格。零值一律不填:不认得分页的老对端解出来就是零值,而把 total 写成
     // 0 会让调用方的「查看全部 N」变成「查看全部 0」——「没说」和「一条都没有」
