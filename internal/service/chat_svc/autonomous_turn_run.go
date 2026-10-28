@@ -60,6 +60,8 @@ type autonomousTurnRun struct {
 	// durableCtx 是持久帧那一路自己的轮上下文。理由同 turnRun.durableCtx:持久帧只
 	// 累积、不产生宿主副作用,拿同一个 turnCtx 再走一遍会把已经答完的待决策挂回去。
 	durableCtx *turn.TurnContext
+	// cards 持久帧那一路的子代理卡帧路由,见 durableCards。
+	cards *durableCards
 }
 
 // persistTurnMessages 事务建 assistant 行(R18 下先建 user 行)并把会话翻 running。
@@ -418,6 +420,12 @@ func (t *autonomousTurnRun) applyDurable(ctx context.Context, ev agentruntime.Ev
 	}
 	if t.durableCtx == nil {
 		t.durableCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
+	}
+	if t.cards == nil {
+		t.cards = t.svc.newDurableCards(t.sessionID, t.stream)
+	}
+	if t.cards.restore(ctx, t.acc, ev) {
+		return
 	}
 	if err := t.svc.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, t.durableCtx); err != nil {
 		logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",

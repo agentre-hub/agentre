@@ -56,7 +56,9 @@ type turnRun struct {
 	// durableCtx 是持久帧那一路自己的轮上下文。持久帧只累积、不产生宿主副作用 ——
 	// 待决策的登记、计时、前端流都归实时那一路(它在这条会话上先发生过一次),
 	// 拿同一个 turnCtx 再走一遍会把已经答完的待决策重新挂回去。
-	durableCtx    *turn.TurnContext
+	durableCtx *turn.TurnContext
+	// cards 持久帧那一路的子代理卡帧路由,见 durableCards。
+	cards         *durableCards
 	streamStopErr error
 	segmentStart  time.Time
 	dispEmit      *dispatcherEmitter
@@ -249,7 +251,10 @@ func (t *turnRun) applyDurable(ctx context.Context, ev agentruntime.Event) {
 	if t.durableCtx == nil {
 		t.durableCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
 	}
-	if done, ok := ev.(agentruntime.SubagentDone); ok && restoreSubagentSnapshot(t.acc, done) {
+	if t.cards == nil {
+		t.cards = t.svc.newDurableCards(t.sess.ID, t.stream)
+	}
+	if t.cards.restore(ctx, t.acc, ev) {
 		return
 	}
 	if err := t.svc.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, t.durableCtx); err != nil {
@@ -731,6 +736,41 @@ func (t *turnRun) finalize(ctx context.Context) {
 	})
 }
 
+// durableCards 一轮持久帧里的子代理卡帧怎么落,两条 applyDurable(当前那一轮、补齐 /
+// 自主续轮)各持一只:
+//
+//   - 发起它的调用在本轮:SubagentDone 当整份快照还原进本轮(restoreSubagentSnapshot);
+//   - 发起它的调用在更早的消息里、那是一张 agrctl 卡:写回那条原消息(writeBackEarlierCard,
+//     ctl_subagent.go)。agentred 在父轮结束后改写原消息里的卡,变化的块以新 seq 的持久帧发来,
+//     帧不带消息归属 —— 不认领的话卡片停在旧状态,嵌套步骤落进这一轮新长的那一行。
+//
+// 其余(原生卡、找不到卡)走原有路径。
+type durableCards struct {
+	svc       *chatSvc
+	sessionID int64
+	// liveStream 这一轮自己的流。
+	liveStream string
+	// notAgrctl 已知不归这里写回的发起调用(库里没有这张卡,或它不是 agrctl 卡):同一轮里
+	// 它们的帧不再查库,直接走原有路径 —— 一个原生后台子代理的嵌套步骤可以有成百上千帧。
+	notAgrctl map[string]bool
+}
+
+func (s *chatSvc) newDurableCards(sessionID int64, liveStream string) *durableCards {
+	return &durableCards{svc: s, sessionID: sessionID, liveStream: liveStream, notAgrctl: map[string]bool{}}
+}
+
+// restore 交回 true 表示这一帧已处理、不再进 dispatcher。
+func (c *durableCards) restore(ctx context.Context, acc *turn.Accumulator, ev agentruntime.Event) bool {
+	if done, ok := ev.(agentruntime.SubagentDone); ok && restoreSubagentSnapshot(acc, done) {
+		return true
+	}
+	toolCallID := earlierCardOf(acc, ev)
+	if toolCallID == "" || c.notAgrctl[toolCallID] {
+		return false
+	}
+	return c.writeBackEarlierCard(ctx, toolCallID, ev)
+}
+
 // restoreSubagentSnapshot 把持久帧里的 SubagentDone 当作 subagent_state 块的**整份快照**
 // 落进本轮转录。
 //
@@ -741,23 +781,14 @@ func (t *turnRun) finalize(ctx context.Context) {
 // 分工(注入方 / CLI)约束。
 //
 // 返回 false 表示这不是本轮里一次调用的卡片(发起它的 tool_use 在更早的消息里,例如后台
-// 任务在别的轮完成),交回 dispatcher 走原有路径。Model 不在这里处理:它随后的
-// SubagentModel 帧另带,经 handler 写入这块 overlay。
+// 任务在别的轮完成),交回调用方。Model 不在这里处理:它随后的 SubagentModel 帧另带,经
+// handler 写入这块 overlay。
 func restoreSubagentSnapshot(acc *turn.Accumulator, done agentruntime.SubagentDone) bool {
 	if done.ToolCallID == "" || !acc.HasToolUse(done.ToolCallID) {
 		return false
 	}
 	key := "subagent_state:" + done.ToolCallID
-	info := done.Info
-	apply := func(b *transcriptblocks.SubagentStateBlock) {
-		b.ParentToolCallID = done.ToolCallID
-		b.TaskID, b.Kind, b.Description = info.TaskID, info.Kind, info.TaskDescription
-		b.Status, b.Summary, b.Mode = info.Status, info.Summary, info.Mode
-		b.Runs = append([]agentruntime.SubagentRun(nil), info.Runs...)
-		b.LastToolName, b.ToolUses = info.LastToolName, info.ToolUses
-		b.TotalTokens, b.DurationMs = info.TotalTokens, info.DurationMs
-		b.Origin, b.ChildSessionID, b.Isolated, b.FinalText = info.Origin, info.ChildSessionID, info.Isolated, info.FinalText
-	}
+	apply := func(b *transcriptblocks.SubagentStateBlock) { applySubagentSnapshot(b, done) }
 	if turn.Mutate[transcriptblocks.SubagentStateBlock](acc, key, apply) {
 		return true
 	}
@@ -765,4 +796,17 @@ func restoreSubagentSnapshot(acc *turn.Accumulator, done agentruntime.SubagentDo
 	apply(blk)
 	acc.AddBlock(blk, key)
 	return true
+}
+
+// applySubagentSnapshot 把持久帧带来的整份卡片内容写到 b 上。帧里没有的字段(Model、
+// nested_tool_call_ids、resumes)原样保留:它们另有帧 / 写入方。
+func applySubagentSnapshot(b *transcriptblocks.SubagentStateBlock, done agentruntime.SubagentDone) {
+	info := done.Info
+	b.ParentToolCallID = done.ToolCallID
+	b.TaskID, b.Kind, b.Description = info.TaskID, info.Kind, info.TaskDescription
+	b.Status, b.Summary, b.Mode = info.Status, info.Summary, info.Mode
+	b.Runs = append([]agentruntime.SubagentRun(nil), info.Runs...)
+	b.LastToolName, b.ToolUses = info.LastToolName, info.ToolUses
+	b.TotalTokens, b.DurationMs = info.TotalTokens, info.DurationMs
+	b.Origin, b.ChildSessionID, b.Isolated, b.FinalText = info.Origin, info.ChildSessionID, info.Isolated, info.FinalText
 }

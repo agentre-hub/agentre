@@ -2,11 +2,15 @@ package chat_svc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"slices"
 	"sync"
 	"time"
 
+	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
@@ -649,13 +653,8 @@ func (b *ctlSendBinding) mirror(ctx context.Context, batch []agentruntime.Event,
 // firstDelivery 嵌套步骤是否头一次投递。父轮那一段 handler 自己也按 ID 去重,但写回那一段
 // 每批用一只新累加器,跨批、跨两段的重复只能在这里认出来。
 func (p *ctlSendProgress) firstDelivery(nested agentruntime.Event) bool {
-	var key string
-	switch e := nested.(type) {
-	case agentruntime.ToolCall:
-		key = "use:" + e.ID
-	case agentruntime.ToolResult:
-		key = "result:" + e.ToolCallID
-	default:
+	key := nestedStepKey(nested)
+	if key == "" {
 		return true
 	}
 	if p.delivered[key] {
@@ -663,6 +662,17 @@ func (p *ctlSendProgress) firstDelivery(nested agentruntime.Event) bool {
 	}
 	p.delivered[key] = true
 	return true
+}
+
+// nestedStepKey 嵌套步骤的去重键:块类型 + 嵌套 ID;不是嵌套调用 / 结果时为空。
+func nestedStepKey(ev agentruntime.Event) string {
+	switch e := ev.(type) {
+	case agentruntime.ToolCall:
+		return "use:" + e.ID
+	case agentruntime.ToolResult:
+		return "result:" + e.ToolCallID
+	}
+	return ""
 }
 
 // track 累计进度,交回这一帧是否改变了进度。子会话外层工具调用按 ID 计一次(同一 ID 的
@@ -776,31 +786,56 @@ func (b *ctlSendBinding) applyLive(ctx context.Context, events []agentruntime.Ev
 	}
 }
 
-// writeBack 父轮结束之后那一段:与后台 subagent 的空闲活动同一条路(driveSubagentActivity)
-// —— 经会话级旁路告诉前端「发起卡所在的消息又有活动」,嵌套步骤经 dispatcher 产出实时事件
-// 并跨消息追加进原消息,卡片本身在仓储的会话锁下读-改-写(patchCard)。只在镜像 goroutine /
-// Finish 上跑,从不碰 CLI 的读循环,也不持会话锁去等任何东西。
+// writeBack 父轮结束之后那一段:扇出给对端,再经 writeBackCard 写回原消息。只在镜像
+// goroutine / Finish 上跑,从不碰 CLI 的读循环,也不持会话锁去等任何东西。
 func (b *ctlSendBinding) writeBack(ctx context.Context, events []agentruntime.Event) {
 	svc := b.turn.svc
+	for _, ev := range events {
+		svc.publishPeerEvent(b.sessionID, ev)
+	}
+	svc.writeBackCard(ctx, cardWriteBack{
+		sessionID: b.sessionID, launchMsgID: b.msg.ID, toolCallID: b.toolCallID, apply: applyCardFrame,
+	}, events)
+}
+
+// cardWriteBack 一张卡在它所在的原消息里的位置(发起它的那一轮早已收尾),以及卡片帧落到
+// 卡上的规则:apply 交回实际生效部分的实时事件载荷,未生效为 nil。liveStream 是写回方自己
+// 那一轮还开着的流:原消息恰是它的前一个分段时两者同名,这时不发活动起止 —— 那会让前端把
+// 进行中的那一轮当成结束。
+type cardWriteBack struct {
+	sessionID   int64
+	launchMsgID int64
+	toolCallID  string
+	liveStream  string
+	apply       func(*blocks.SubagentStateBlock, agentruntime.Event) map[string]any
+}
+
+// writeBackCard 把一组帧写回卡所在的原消息,与后台 subagent 的空闲活动同一条路
+// (driveSubagentActivity):经会话级旁路告诉前端「发起卡所在的消息又有活动」,嵌套步骤经
+// dispatcher 产出实时事件并跨消息追加进原消息,卡片本身在仓储的会话锁下读-改-写(patch)。
+// 调用方负责嵌套步骤的去重。
+func (s *chatSvc) writeBackCard(ctx context.Context, w cardWriteBack, events []agentruntime.Event) {
 	ctx = context.WithoutCancel(ctx) // 已经流出去的内容必须落库
-	stream := StreamName(b.sessionID, b.msg.ID)
-	svc.emitter.Emit(ctx, AutonomousStreamName(b.sessionID), ChatStreamEvent{
-		Kind:            StreamSubagentActivityStarted,
-		Stream:          stream,
-		LaunchMessageID: b.msg.ID,
-		ToolCallID:      b.toolCallID,
-	})
-	emit := &subagentActivityEmitter{inner: &dispatcherEmitter{svc: svc}, sessionID: b.sessionID}
+	stream := StreamName(w.sessionID, w.launchMsgID)
+	activity := stream != w.liveStream
+	if activity {
+		s.emitter.Emit(ctx, AutonomousStreamName(w.sessionID), ChatStreamEvent{
+			Kind:            StreamSubagentActivityStarted,
+			Stream:          stream,
+			LaunchMessageID: w.launchMsgID,
+			ToolCallID:      w.toolCallID,
+		})
+	}
+	emit := &subagentActivityEmitter{inner: &dispatcherEmitter{svc: s}, sessionID: w.sessionID}
 	acc := turn.New()
 	tc := &turn.TurnContext{Stream: stream}
 	var frames []agentruntime.Event
 	for _, ev := range events {
-		svc.publishPeerEvent(b.sessionID, ev)
 		switch ev.(type) {
 		case agentruntime.ToolCall, agentruntime.ToolResult:
-			if err := svc.dispatcher.Apply(ctx, ev, acc, emit, tc); err != nil {
-				logger.Ctx(ctx).Warn("chat_svc.ctlSendBinding.writeBack: dispatcher Apply failed",
-					zap.Int64("sessionId", b.sessionID),
+			if err := s.dispatcher.Apply(ctx, ev, acc, emit, tc); err != nil {
+				logger.Ctx(ctx).Warn("chat_svc.writeBackCard: dispatcher Apply failed",
+					zap.Int64("sessionId", w.sessionID),
 					zap.String("eventType", fmt.Sprintf("%T", ev)),
 					zap.Error(err))
 			}
@@ -808,58 +843,60 @@ func (b *ctlSendBinding) writeBack(ctx context.Context, events []agentruntime.Ev
 			frames = append(frames, ev)
 		}
 	}
-	b.appendChildren(ctx, acc)
-	b.patchCard(ctx, emit, stream, frames)
-	svc.emitter.Emit(ctx, stream, ChatStreamEvent{Kind: StreamDone})
-	svc.emitter.Emit(ctx, AutonomousStreamName(b.sessionID), ChatStreamEvent{
+	w.appendChildren(ctx, acc)
+	w.patch(ctx, emit, stream, frames)
+	if !activity {
+		return
+	}
+	s.emitter.Emit(ctx, stream, ChatStreamEvent{Kind: StreamDone})
+	s.emitter.Emit(ctx, AutonomousStreamName(w.sessionID), ChatStreamEvent{
 		Kind:            StreamAutonomousFinished,
-		LaunchMessageID: b.msg.ID,
+		LaunchMessageID: w.launchMsgID,
 	})
 }
 
 // appendChildren 把这一批的嵌套块追加进原消息(块行 + 卡片的 nested_tool_call_ids,同一事务)。
-func (b *ctlSendBinding) appendChildren(ctx context.Context, acc *turn.Accumulator) {
-	children, ids := subagentChildBlocks(acc.Finalize(), b.toolCallID)
+func (w cardWriteBack) appendChildren(ctx context.Context, acc *turn.Accumulator) {
+	children, ids := subagentChildBlocks(acc.Finalize(), w.toolCallID)
 	if len(children) == 0 {
 		return
 	}
 	childJSON, err := encodeStoredBlocks(children)
 	if err == nil {
-		err = transcript_repo.Message().AppendSubagentChildren(ctx, b.sessionID, b.toolCallID, childJSON, ids)
+		err = transcript_repo.Message().AppendSubagentChildren(ctx, w.sessionID, w.toolCallID, childJSON, ids)
 	}
 	if err != nil {
-		logger.Ctx(ctx).Warn("chat_svc.ctlSendBinding.appendChildren: write back nested steps failed",
-			zap.Int64("sessionId", b.sessionID),
-			zap.String("toolCallId", b.toolCallID),
+		logger.Ctx(ctx).Warn("chat_svc.writeBackCard: write back nested steps failed",
+			zap.Int64("sessionId", w.sessionID),
+			zap.String("toolCallId", w.toolCallID),
 			zap.Int("childBlocks", len(children)),
 			zap.Error(err))
 	}
 }
 
-// patchCard 把卡片帧(模型 / 进度 / 收尾)落到原消息里那张卡上。规则与父轮那一段相同
-// (handlers.ApplyAgrctlInfo):后台卡的状态归 CLI;已收尾(含被中止标成取消)的卡不被写回
-// 运行中。在仓储的会话锁下读-改-写,所以比的是库里此刻的那一份 —— CLI 刚写下的状态不会
-// 被这里手上的旧值盖掉。实际生效的部分随后作为实时事件发出。
-func (b *ctlSendBinding) patchCard(ctx context.Context, emit turn.Emitter, stream string, frames []agentruntime.Event) {
+// patch 把卡片帧(模型 / 进度 / 收尾)按 w.apply 落到原消息里那张卡上。在仓储的会话锁下
+// 读-改-写,所以比的是库里此刻的那一份 —— 别人刚写下的状态不会被这里手上的旧值盖掉。实际
+// 生效的部分随后作为实时事件发出。
+func (w cardWriteBack) patch(ctx context.Context, emit turn.Emitter, stream string, frames []agentruntime.Event) {
 	if len(frames) == 0 {
 		return
 	}
 	var payloads []map[string]any
-	found, err := transcript_repo.Message().PatchSubagentState(ctx, b.sessionID, b.toolCallID,
+	found, err := transcript_repo.Message().PatchSubagentState(ctx, w.sessionID, w.toolCallID,
 		func(sb *blocks.SubagentStateBlock) bool {
 			payloads = payloads[:0]
 			for _, ev := range frames {
-				if p := applyCardFrame(sb, ev); p != nil {
-					p["toolUseId"] = b.toolCallID
+				if p := w.apply(sb, ev); p != nil {
+					p["toolUseId"] = w.toolCallID
 					payloads = append(payloads, p)
 				}
 			}
 			return len(payloads) > 0
 		})
 	if err != nil || !found {
-		logger.Ctx(ctx).Warn("chat_svc.ctlSendBinding.patchCard: card not written back",
-			zap.Int64("sessionId", b.sessionID),
-			zap.String("toolCallId", b.toolCallID),
+		logger.Ctx(ctx).Warn("chat_svc.writeBackCard: card not written back",
+			zap.Int64("sessionId", w.sessionID),
+			zap.String("toolCallId", w.toolCallID),
 			zap.Bool("found", found),
 			zap.Error(err))
 		return
@@ -869,7 +906,8 @@ func (b *ctlSendBinding) patchCard(ctx context.Context, emit turn.Emitter, strea
 	}
 }
 
-// applyCardFrame 把一帧落到卡上,交回它的实时事件载荷(未生效为 nil);载荷形态与父轮那一段
+// applyCardFrame 本机注入方的写回规则(handlers.ApplyAgrctlInfo):后台卡的状态归 CLI;已收尾
+// (含被中止标成取消)的卡不被写回运行中。交回实时事件载荷(未生效为 nil),形态与父轮那一段
 // handler 发的一致。
 func applyCardFrame(sb *blocks.SubagentStateBlock, ev agentruntime.Event) map[string]any {
 	switch e := ev.(type) {
@@ -888,6 +926,126 @@ func applyCardFrame(sb *blocks.SubagentStateBlock, ev agentruntime.Event) map[st
 		}
 	}
 	return nil
+}
+
+// ── 持久帧里落在更早消息的 agrctl 卡(远端父会话)──────────────────────────────────────
+//
+// 远端父会话的转录归 agentred:父轮结束后它在原消息里改写卡片(注入方的内容、CLI 的状态),
+// 变化的块以新 seq 的持久帧发来。桌面端此刻的那一轮(进行中的轮、补齐轮)不拥有这张卡,
+// durableCards.restore 把这些帧交到这里写回原消息。
+
+// earlierCardOf 交回这一帧要改的那张卡的发起调用 ID:仅当它可能是 agrctl 卡、且发起调用
+// 不在本轮;否则为空。SubagentDone 自带归属(Info.Origin),模型帧与嵌套步骤不带,要看库里
+// 那张卡。
+func earlierCardOf(acc *turn.Accumulator, ev agentruntime.Event) string {
+	var id string
+	switch e := ev.(type) {
+	case agentruntime.SubagentDone:
+		if e.Info.Origin == agentruntime.SubagentOriginAgrctl {
+			id = e.ToolCallID
+		}
+	case agentruntime.SubagentModel:
+		id = e.ToolCallID
+	case agentruntime.ToolCall:
+		id = e.ParentToolCallID
+	case agentruntime.ToolResult:
+		id = e.ParentToolCallID
+	}
+	if id == "" || acc.HasToolUse(id) {
+		return ""
+	}
+	return id
+}
+
+// writeBackEarlierCard 把一帧写回 toolCallID 那张 agrctl 卡所在的原消息,交回是否已处理。
+// 那里没有这张卡、或它不是 agrctl 卡时记进 notAgrctl 并交回 false,走原有路径。原消息里
+// 已有的嵌套步骤不再追加(补齐会重放、改写会重发)。定位失败时这一帧丢掉并记 warn:缺一步
+// 好过把它落进不拥有它的这一轮。
+func (c *durableCards) writeBackEarlierCard(ctx context.Context, toolCallID string, ev agentruntime.Event) bool {
+	msg, err := transcript_repo.Message().FindAssistantBySubagentToolCallID(ctx, c.sessionID, toolCallID)
+	var card *heldAgrctlCard
+	if err == nil {
+		card, err = agrctlCardIn(msg, toolCallID)
+	}
+	if err != nil {
+		logger.Ctx(ctx).Warn("chat_svc.writeBackEarlierCard: locate the card's message failed; frame dropped",
+			zap.Int64("sessionId", c.sessionID),
+			zap.String("toolCallId", toolCallID),
+			zap.String("eventType", fmt.Sprintf("%T", ev)),
+			zap.Error(err))
+		return true
+	}
+	if card == nil {
+		c.notAgrctl[toolCallID] = true
+		return false
+	}
+	if key := nestedStepKey(ev); key != "" && card.steps[key] {
+		return true
+	}
+	c.svc.writeBackCard(ctx, cardWriteBack{
+		sessionID: c.sessionID, launchMsgID: msg.ID, toolCallID: toolCallID, liveStream: c.liveStream,
+		apply: applyDurableCardFrame,
+	}, []agentruntime.Event{ev})
+	return true
+}
+
+// heldAgrctlCard 原消息里那张 agrctl 卡已有的嵌套步骤(去重键同 nestedStepKey)。
+type heldAgrctlCard struct {
+	steps map[string]bool
+}
+
+// agrctlCardIn 在 msg 里找 toolCallID 那张 agrctl 卡;没有这张卡或它不是 agrctl 卡时为 nil。
+func agrctlCardIn(msg *chat_entity.Message, toolCallID string) (*heldAgrctlCard, error) {
+	if msg == nil {
+		return nil, nil
+	}
+	var stored []cagoblocks.StoredBlock
+	if err := json.Unmarshal([]byte(msg.BlocksJSON), &stored); err != nil {
+		return nil, err
+	}
+	var card *heldAgrctlCard
+	steps := map[string]bool{}
+	for _, b := range stored {
+		switch b.Type {
+		case "subagent_state":
+			var sb blocks.SubagentStateBlock
+			if err := json.Unmarshal(b.Data, &sb); err != nil {
+				return nil, err
+			}
+			if sb.ParentToolCallID == toolCallID && sb.Origin == agentruntime.SubagentOriginAgrctl {
+				card = &heldAgrctlCard{steps: steps}
+			}
+		case "nested_tool_use":
+			var nb blocks.NestedToolUseBlock
+			if json.Unmarshal(b.Data, &nb) == nil && nb.ParentToolCallID == toolCallID {
+				steps["use:"+nb.ID] = true
+			}
+		case "nested_tool_result":
+			var nb blocks.NestedToolResultBlock
+			if json.Unmarshal(b.Data, &nb) == nil && nb.ParentToolCallID == toolCallID {
+				steps["result:"+nb.ToolCallID] = true
+			}
+		}
+	}
+	return card, nil
+}
+
+// applyDurableCardFrame 持久帧的写回规则:SubagentDone 是 agentred 落库之后的整份卡片
+// (注入方与 CLI 的写入分工已在那边定好,单运行快照随它一起来),原样当快照写上 —— 与本轮
+// 里的还原(restoreSubagentSnapshot)同一条规则,桌面端与 agentred 看到同一份;没变时不写。
+// 模型帧照注入方的规则(first-wins)。
+func applyDurableCardFrame(sb *blocks.SubagentStateBlock, ev agentruntime.Event) map[string]any {
+	done, ok := ev.(agentruntime.SubagentDone)
+	if !ok {
+		return applyCardFrame(sb, ev)
+	}
+	before := *sb
+	before.Runs = slices.Clone(sb.Runs)
+	applySubagentSnapshot(sb, done)
+	if reflect.DeepEqual(before, *sb) {
+		return nil
+	}
+	return map[string]any{"kind": string(StreamSubagentDone), "info": done.Info}
 }
 
 // ── 远端父会话(父会话在 agentred 上执行)─────────────────────────────────────
