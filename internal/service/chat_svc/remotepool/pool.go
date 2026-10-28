@@ -16,6 +16,7 @@ package remotepool
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
@@ -68,6 +69,8 @@ type Pool struct {
 	host  Host
 	mu    sync.Mutex
 	cache map[int64]*Entry
+	// holdSeq 给 Hold 发不与任何真实会话 ID 相撞的引用键(负数递减)。
+	holdSeq atomic.Int64
 }
 
 // New 构造一个空池。
@@ -103,6 +106,28 @@ func (p *Pool) BorrowForTurn(
 		return nil, func() {}, err
 	}
 	return rt, func() { p.ReleaseGeneration(deviceID, sessionID, generation) }, nil
+}
+
+// Hold 为某台设备占一个不属于任何会话的连接引用,返回该设备共享的 *remote.Runtime 与释放
+// 函数。持有期间池不会因引用归零而把 lease 还给连接池(也就不会被空闲回收);释放后与
+// 普通引用归零一致。释放函数幂等。
+//
+// 给「寿命超过发起它那一轮」的使用方(agrctl 子代理卡:父轮结束后卡还在跑)用 —— 它们
+// 没有自己的会话键,借用同一个会话键会顶掉那一轮自己的引用。键取负数,不会与会话 ID 相撞;
+// 也不写 RecordExecDaemon:这不是一次会话的执行位置。
+func (p *Pool) Hold(ctx context.Context, deviceRef devicefp.Carrier) (*remote.Runtime, func(), error) {
+	deviceID, ok := p.host.PairedDeviceID(ctx, deviceRef)
+	if !ok {
+		return nil, func() {}, ErrInvalidDevice
+	}
+	key := p.holdSeq.Add(-1)
+	generation := &Generation{}
+	rt, _, err := p.ForDevice(ctx, deviceID, []int64{key}, generation)
+	if err != nil {
+		return nil, func() {}, &DialError{DeviceID: deviceID, Err: err}
+	}
+	var once sync.Once
+	return rt, func() { once.Do(func() { p.ReleaseGeneration(deviceID, key, generation) }) }, nil
 }
 
 func (p *Pool) borrowOwned(

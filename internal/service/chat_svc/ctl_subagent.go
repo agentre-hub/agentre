@@ -14,6 +14,7 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
@@ -107,7 +108,7 @@ func CtlSendSvcGateway() CtlSendGateway {
 func (s *chatSvc) WatchCtlSend(childSessionID int64) CtlSendWatch {
 	w := &ctlSendWatch{
 		svc: s, child: childSessionID,
-		remote:     ctlSendRemotePort{resolve: s.ctlSendInjector, backoff: ctlSendRetryBackoff, window: ctlSendRetryWindow},
+		remote:     ctlSendRemotePort{resolve: s.ctlSendInjector, hold: s.ctlSendHold, backoff: ctlSendRetryBackoff, window: ctlSendRetryWindow},
 		bindWindow: ctlSendBindWindow,
 		wake:       make(chan struct{}, 1), quit: make(chan struct{}), exited: make(chan struct{}),
 	}
@@ -297,6 +298,8 @@ type ctlSubagentInjector interface {
 // ctlSendRemotePort 远端父会话的注入端口。
 type ctlSendRemotePort struct {
 	resolve func(ctx context.Context, sessionID int64) (ctlSubagentInjector, error)
+	// hold 占住父会话所在 agentred 的连接引用,返回释放函数;nil = 不占(单测)。
+	hold    func(ctx context.Context, sessionID int64) (release func(), err error)
 	backoff time.Duration
 	window  time.Duration
 }
@@ -1057,10 +1060,9 @@ const (
 	ctlSendRetryWindow     = 30 * time.Minute
 )
 
-// ctlSendInjector 是生产的注入端口解析:父会话此刻在 agentred 上执行时交回那台 agentred 的
-// 运行时,在本机执行时交回 nil。与 StopBackgroundTask 同一条解析路径(会话 → 执行目标 →
-// runner);断线重连后连接会换,所以推送失败后要重新解析,不能攥着旧的。
-func (s *chatSvc) ctlSendInjector(ctx context.Context, sessionID int64) (ctlSubagentInjector, error) {
+// remoteBackendOf 父会话此刻的执行目标是 agentred 时交回它的 backend,在本机执行时交回 nil。
+// 与 StopBackgroundTask 同一条解析路径(会话 → 执行目标 → runner)。
+func (s *chatSvc) remoteBackendOf(ctx context.Context, sessionID int64) (*agent_backend_entity.AgentBackend, error) {
 	sess, err := chat_repo.Session().Find(ctx, sessionID)
 	if err != nil || sess == nil {
 		return nil, err
@@ -1072,11 +1074,37 @@ func (s *chatSvc) ctlSendInjector(ctx context.Context, sessionID int64) (ctlSuba
 	if !exec_target_svc.BackendTargetsRemote(be) {
 		return nil, nil
 	}
-	rt, err := s.borrowRemoteRuntime(ctx, be, sessionID)
+	return be, nil
+}
+
+// ctlSendInjector 是生产的注入端口解析:父会话此刻在 agentred 上执行时交回那台 agentred 的
+// 运行时,在本机执行时交回 nil。断线重连后连接会换,所以推送失败后要重新解析,不能攥着旧的。
+// 解析只借一下就还:占住连接是卡自己的事(ctlSendHold),不在每次解析里留引用。
+func (s *chatSvc) ctlSendInjector(ctx context.Context, sessionID int64) (ctlSubagentInjector, error) {
+	be, err := s.remoteBackendOf(ctx, sessionID)
+	if err != nil || be == nil {
+		return nil, err
+	}
+	rt, release, err := s.holdRemoteRuntime(ctx, be)
 	if err != nil {
 		return nil, err // 不把 nil 的 *remote.Runtime 包成非 nil 的接口交出去
 	}
+	release()
 	return rt, nil
+}
+
+// ctlSendHold 是生产的连接占用:一张远端卡从绑定到收尾期间占着父会话所在 agentred 的连接
+// 引用,父轮结束后连接池的空闲回收不会把承载 send 的隧道切断。
+func (s *chatSvc) ctlSendHold(ctx context.Context, sessionID int64) (func(), error) {
+	be, err := s.remoteBackendOf(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if be == nil {
+		return nil, errors.New("the parent session no longer runs on agentred")
+	}
+	_, release, err := s.holdRemoteRuntime(ctx, be)
+	return release, err
 }
 
 // bindCtlSendRemote 远端父会话的绑定:父转录归 agentred,匹配也由它在转发 send 时做完,
@@ -1097,9 +1125,19 @@ func (s *chatSvc) bindCtlSendRemote(ctx context.Context, child int64, req CtlSen
 	if inj == nil {
 		return nil, ctlSendParentNotRemote
 	}
+	release := func() {}
+	if port.hold != nil {
+		if release, err = port.hold(ctx, req.CallerSessionID); err != nil {
+			logger.Ctx(ctx).Warn("chat_svc.bindCtlSend: cannot hold the remote parent's connection",
+				zap.Int64("callerSessionId", req.CallerSessionID),
+				zap.Int64("childSessionId", child),
+				zap.Error(err))
+			return nil, ctlSendParentUnreachable
+		}
+	}
 	binding := ctlbind.Binding{ToolCallID: req.HostToolCallID, Background: req.HostBackground}
 	r := &ctlSendRemote{
-		port: port, inj: inj, sessionID: req.CallerSessionID, child: child, toolCallID: binding.ToolCallID,
+		port: port, release: sync.OnceFunc(release), inj: inj, sessionID: req.CallerSessionID, child: child, toolCallID: binding.ToolCallID,
 		startedAt:       time.Now(),
 		ctlSendProgress: newCtlSendProgress(),
 		pending:         []agentruntime.Event{ctlSendStarted(binding, child, req)},
@@ -1123,6 +1161,7 @@ func (s *chatSvc) bindCtlSendRemote(ctx context.Context, child int64, req CtlSen
 // 卡片会一直停在运行中。Finish 时仍连不上就交给后台按退避重试,重连后终态与最终文本照样送达。
 type ctlSendRemote struct {
 	port       ctlSendRemotePort
+	release    func()              // 释放连接引用(幂等);收尾送达或重试放弃时调
 	inj        ctlSubagentInjector // 上一次解析出的注入端口;推送失败后作废,下次重新解析
 	sessionID  int64               // 父会话
 	child      int64
@@ -1146,6 +1185,7 @@ func (r *ctlSendRemote) finish(ctx context.Context, _ int64, out CtlSendOutcome)
 	ctx = context.WithoutCancel(ctx)
 	events := append(r.modelFrame(r.finalModel(ctx, out)), r.done(r.toolCallID, out, r.startedAt))
 	if r.push(ctx, events) {
+		r.release()
 		r.logSettled(ctx, out, "chat_svc.ctlSendRemote.finish: subagent card settled")
 		return
 	}
@@ -1162,6 +1202,7 @@ func (r *ctlSendRemote) modelFrame(model string) []agentruntime.Event {
 
 // retry 按退避重推 pending(起始 / 模型 / 收尾帧),直到送达或超出窗口。
 func (r *ctlSendRemote) retry(ctx context.Context, out CtlSendOutcome) {
+	defer r.release() // 送达与放弃两条出口都释放连接引用
 	backoff := r.port.backoff
 	deadline := time.Now().Add(r.port.window)
 	for {

@@ -92,6 +92,19 @@ func (s *chatSvc) borrowRemoteRuntime(
 	return rt, nil
 }
 
+// holdRemoteRuntime 与 borrowRemoteRuntime 相同,但占的是一个不属于任何会话的引用,
+// 由调用方在用完时释放(见 remotepool.Pool.Hold)。出错时 release 是可安全调用的 no-op。
+func (s *chatSvc) holdRemoteRuntime(
+	ctx context.Context, be *agent_backend_entity.AgentBackend,
+) (*remote.Runtime, func(), error) {
+	rt, release, err := s.remotePool().Hold(ctx, be.DeviceFingerprint)
+	if err != nil {
+		return nil, func() {}, s.mapBorrowError(ctx, err)
+	}
+	s.prefetchRemoteCapabilities(ctx, rt, be)
+	return rt, release, nil
+}
+
 // borrowRemoteRuntimeForTurn 与 borrowRemoteRuntime 相同,但带上本轮自己的
 // generation token,并交回该轮的释放函数(迟到的旧 release 顶不掉新一轮的引用)。
 //

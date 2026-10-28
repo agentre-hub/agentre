@@ -10,9 +10,12 @@ import (
 
 	"github.com/cago-frame/agents/provider"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"go.uber.org/zap/zaptest/observer"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/ctlbind"
@@ -451,4 +454,108 @@ func TestCtlSend_GivenRemoteParent_WhenAgentredDisconnects_ThenTheTerminalStateS
 			So(retrySettled(logs), ShouldBeTrue)
 		})
 	})
+}
+
+// fakeHolds 记下连接引用的占用与释放次数(生产里是 remotepool 的 Hold)。
+type fakeHolds struct {
+	mu       sync.Mutex
+	acquired int
+	released int
+}
+
+func (f *fakeHolds) hold(context.Context, int64) (func(), error) {
+	f.mu.Lock()
+	f.acquired++
+	f.mu.Unlock()
+	return func() {
+		f.mu.Lock()
+		f.released++
+		f.mu.Unlock()
+	}, nil
+}
+
+func (f *fakeHolds) counts() (acquired, released int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.acquired, f.released
+}
+
+func TestCtlSend_GivenRemoteCardBound_WhenParentTurnEnds_ThenTheConnectionRefIsHeldUntilFinish(t *testing.T) {
+	Convey("Given 远端父会话的卡已绑定", t, func() {
+		deps := setupPeerSessionTest(t)
+		ctx := context.Background()
+		remoteParent(t, deps.svc)
+		inj := &fakeInjector{}
+		holds := &fakeHolds{}
+		w := remoteWatch(deps.svc, inj, nil)
+		w.remote.hold = holds.hold
+		defer w.Close()
+		So(w.Bind(ctx, remoteBind()), ShouldBeTrue)
+
+		Convey("When 父轮结束(本机那一轮摘掉), Then 卡仍占着引用且没释放", func() {
+			deps.svc.activeTurns.Delete(approvalSessionID)
+			a, r := holds.counts()
+			So(a, ShouldEqual, 1)
+			So(r, ShouldEqual, 0)
+
+			Convey("When Finish 送达, Then 引用恰好释放一次(重复 Finish / Close 不再释放)", func() {
+				w.Finish(ctx, CtlSendOutcome{Status: CtlSendCompleted, FinalText: "ok"})
+				w.Finish(ctx, CtlSendOutcome{Status: CtlSendCompleted, FinalText: "ok"})
+				w.Close()
+				a, r := holds.counts()
+				So(a, ShouldEqual, 1)
+				So(r, ShouldEqual, 1)
+			})
+		})
+	})
+}
+
+func TestCtlSend_GivenRemoteCardWithAgentredDown_WhenRetryGivesUp_ThenTheConnectionRefIsReleasedOnce(t *testing.T) {
+	Convey("Given 远端卡已绑定、随后 agentred 断线, When Finish 后重试窗口耗尽放弃, Then 引用在放弃时释放且只释放一次", t, func() {
+		deps := setupPeerSessionTest(t)
+		ctx := context.Background()
+		remoteParent(t, deps.svc)
+		inj := &fakeInjector{}
+		holds := &fakeHolds{}
+		w := remoteWatch(deps.svc, inj, nil)
+		w.remote.hold = holds.hold
+		w.remote.window = 50 * time.Millisecond
+		defer w.Close()
+		So(w.Bind(ctx, remoteBind()), ShouldBeTrue)
+		So(eventually(func() bool { return len(countEvents[agentruntime.SubagentStarted](inj.all())) == 1 }), ShouldBeTrue)
+		inj.mu.Lock()
+		inj.down = true
+		inj.mu.Unlock()
+
+		w.Finish(ctx, CtlSendOutcome{Status: CtlSendCompleted, FinalText: "ok"})
+
+		So(eventually(func() bool { _, r := holds.counts(); return r == 1 }), ShouldBeTrue)
+		time.Sleep(50 * time.Millisecond)
+		a, r := holds.counts()
+		So(a, ShouldEqual, 1)
+		So(r, ShouldEqual, 1)
+	})
+}
+
+func TestRemotePoolHold_GivenParentTurnReleased_ThenTheHoldKeepsTheLeaseUntilReleased(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	svc := &chatSvc{}
+	installMockPool(t, ctrl, svc, 7)
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)}
+	ctx := context.Background()
+
+	_, releaseTurn, err := svc.borrowRemoteRuntimeForTurn(ctx, be, 100)
+	require.NoError(t, err)
+	_, releaseHold, err := svc.holdRemoteRuntime(ctx, be)
+	require.NoError(t, err)
+
+	releaseTurn() // 父轮结束
+	assert.Equal(t, 1, svc.remoteRuntimeCount(7), "the hold outlives the turn's own reference")
+	assert.NotNil(t, svc.remotePool().Cached(7), "the lease is still out, so the pool cannot idle-evict it")
+
+	releaseHold()
+	releaseHold() // 幂等
+	assert.Equal(t, 0, svc.remoteRuntimeCount(7))
+	assert.Nil(t, svc.remotePool().Cached(7), "after release the lease goes back to the pool and may be evicted")
 }
