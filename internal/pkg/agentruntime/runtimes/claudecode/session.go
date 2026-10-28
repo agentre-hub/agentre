@@ -54,6 +54,9 @@ type ccSessionHandle interface {
 	// 自己收到的 system{subtype:"task_started"} 帧填出。ok=false = 它从没报过这个
 	// tool_use(不是后台任务 / 会话被 evict 重开)。
 	BackgroundTaskID(toolUseID string) (string, bool)
+	// HasBackgroundTasks 报告子进程最近一次报出的后台任务全集是否非空:主线空闲时它仍在
+	// 等这些任务跑完再自主续轮,不算闲着(sess-4629)。
+	HasBackgroundTasks() bool
 	// ExitErr 子进程已退出时返其分类后的退出错误(如 claudecode.ErrSessionNotFound
 	// 或 *claudecode.ProcessExitError);还活着 / 没 spawn 返 nil。
 	// 0-frame fallback 用它替换 "subprocess produced no events" 通用消息,
@@ -143,6 +146,15 @@ func (a *ccClientAdapter) BackgroundTaskID(toolUseID string) (string, bool) {
 		return "", false
 	}
 	return a.sess.BackgroundTaskID(toolUseID)
+}
+
+// HasBackgroundTasks 转发到底层 claudecode.Session.HasBackgroundTasks。没开 session
+// 视为没有。
+func (a *ccClientAdapter) HasBackgroundTasks() bool {
+	if a.sess == nil {
+		return false
+	}
+	return a.sess.HasBackgroundTasks()
 }
 
 // SetPermissionMode 转发到底层 claudecode.Session.SetPermissionMode。抢 turnMu,

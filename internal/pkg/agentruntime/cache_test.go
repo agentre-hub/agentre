@@ -453,6 +453,28 @@ func TestPruneIdleOlderThan_GivenBusyEntryThatJustFinished_WhenSweeping_ThenItsI
 	assert.Equal(t, 1, p.Len())
 }
 
+// Given 一条闲置还没到期、某次清扫时正自报忙的会话, When 忙结束后清扫再跑过, Then 闲置
+// 计时要从「最后一次见它忙」重新起算,而不是接着上一个用户轮结束的那一刻。
+//
+// 钉死 sess-4629 的第二层:清扫此前只在条目**已经超龄**时才给自报忙的条目重新打点,没超龄
+// 就原样跳过。于是 17:24 那次 tick 打下的起点一直留着,17:33 自主续轮刚收尾、刚起了一条
+// 1 小时的后台 Bash,17:40 就按「闲了 16 分钟」被回收 —— 忙完之后只活了 6 分半。
+func TestPruneIdleOlderThan_GivenBusyEntryWithinTTL_WhenBusyEnds_ThenIdleClockRestartsFromLastBusySweep(t *testing.T) {
+	const ttl = 200 * time.Millisecond
+	p := NewCLISessionPool(8)
+	s := newBusyFakeSession("busy-within-ttl")
+	p.Put("claudecode:4629", s)
+	p.MarkIdle("claudecode:4629")
+
+	time.Sleep(ttl * 3 / 4) // 还没到期,但这次 tick 见它正忙
+	assert.Equal(t, 0, p.PruneIdleOlderThan(ttl))
+
+	s.busy.Store(false)
+	time.Sleep(ttl / 2) // 从转 idle 算已超龄,从最后一次见它忙算还没到期
+	assert.Equal(t, 0, p.PruneIdleOlderThan(ttl), "闲置计时应从最后一次见它忙重新起算")
+	assert.False(t, s.IsClosed())
+}
+
 // Given 一条带启动身份的池内会话, When 下一轮报上同一个身份, Then 复用它。
 //
 // 「启动身份变了就该重开」此前被三个后端各写一遍(claudecode 四段内联比较、codex 一张

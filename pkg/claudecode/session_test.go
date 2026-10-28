@@ -2719,3 +2719,59 @@ func TestSession_SubagentLaunchedBackgroundBashDoesNotStartAutonomousTurn(t *tes
 		"子 agent 自己派的 run_in_background 命令完成不得起自主续轮")
 	assert.Equal(t, "autonomous:subagent-summary", drainTextWithin(t, at.Events, 2*time.Second))
 }
+
+// fakeBackgroundTasksSnapshot 一轮里派出一条 run_in_background 的 Bash:CLI 在 task_started
+// 之后紧跟一帧 system{subtype:"background_tasks_changed"},报出此刻在跑的后台任务全集。轮收尾
+// 后它在空闲态等着,release 一关就补发一帧空快照 —— 真 CLI 后台任务结束时正是这样(不在任何
+// 一轮里)。
+func fakeBackgroundTasksSnapshot(release <-chan struct{}) fakeCLIFunc {
+	return func(stdin io.Reader, stdout io.Writer) {
+		const sid = "sess-bg-tasks-snapshot"
+		sc := bufio.NewScanner(stdin)
+		sc.Buffer(make([]byte, 0, 64<<10), maxFrameBytes)
+		if !sc.Scan() {
+			return
+		}
+		writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"a1","content":[{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"./suite.sh","run_in_background":true}}]}}`)
+		writeFrame(stdout, `{"type":"system","subtype":"task_started","task_id":"bt1","tool_use_id":"tu1","description":"./suite.sh","task_type":"local_bash","is_backgrounded":true,"session_id":%q}`, sid)
+		writeFrame(stdout, `{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"bt1","task_type":"local_bash","description":"./suite.sh"}],"session_id":%q}`, sid)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"a2","content":[{"type":"text","text":"started"}]}}`)
+		writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":1,"output_tokens":1}}`, sid)
+		<-release
+		writeFrame(stdout, `{"type":"system","subtype":"background_tasks_changed","tasks":[],"session_id":%q}`, sid)
+		for sc.Scan() {
+		}
+	}
+}
+
+// TestSession_HasBackgroundTasksFollowsCLISnapshot 钉死「主线空闲、后台任务还在跑」这个状态
+// 必须能从会话上读出来。
+//
+// sess-4629:自主续轮里起了一条超时 1 小时的后台 Bash,6 分钟后空闲清扫把 CLI 当成闲置的回收
+// 了,测试套件跟着被杀;下次 --resume 时 CLI 报「Background shell command didn't finish
+// before the previous session ended」。清扫只能问会话忙不忙,会话得先知道自己挂着后台任务。
+// 权威来源是 CLI 自己的 background_tasks_changed 全集快照 —— 收尾那一帧落在空闲态、不属于任何
+// 一轮,所以必须在轮归属之前就记下。
+func TestSession_HasBackgroundTasksFollowsCLISnapshot(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	release := make(chan struct{})
+	c := New(WithBinary("fake"), pipeSpawner(t, fakeBackgroundTasksSnapshot(release)))
+	sess, err := c.OpenSession(ctx)
+	require.NoError(t, err)
+	defer func() { _ = sess.Close(context.Background()) }()
+
+	assert.False(t, sess.HasBackgroundTasks(), "刚起的子进程没有任何后台任务")
+
+	ch, err := sess.Turn(ctx, "go")
+	require.NoError(t, err)
+	drainText(t, ch) // 轮已收尾:主线空闲,后台 Bash 仍在跑
+
+	assert.True(t, sess.HasBackgroundTasks(), "主线空闲但后台任务在跑,会话必须报有后台任务")
+
+	close(release) // CLI 在空闲态报后台任务清空
+	assert.Eventually(t, func() bool { return !sess.HasBackgroundTasks() }, 2*time.Second, 10*time.Millisecond,
+		"空闲态到达的空快照必须被记下,否则会话永远不能被回收")
+}
