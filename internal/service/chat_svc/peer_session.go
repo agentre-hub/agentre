@@ -71,7 +71,7 @@ func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 func (s *chatSvc) publishPeerMessageFrames(
 	ctx context.Context, sessionID int64, msg *chat_entity.Message, userTurn bool,
 ) (minSeq int64, maxSeq int64) {
-	s.peerTurnFramesStarted(sessionID)
+	s.peerTurnOpened(sessionID)
 	return s.peerStream().PublishMessageFrames(ctx, sessionID, msg, userTurn)
 }
 

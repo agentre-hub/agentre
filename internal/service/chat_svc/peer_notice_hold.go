@@ -14,11 +14,12 @@ import (
 // 之间,拿帧重建转录的那两个面(浏览器控制台、桌面端 Peer Tab)会把它塞进在跑的回答,
 // 再把收口帧另起一条 —— 一轮回答被劈成两段。
 //
-// 「本轮在跑」以对端发布本身为准:轮内任一条消息的持久帧发出即开(开轮的用户那一行、
-// 轮内 checkpoint、steer 分段),收口时关 —— 两条 finalize 走 publishPeerTurnDone,
-// 没走到收口的失败 / 起跑前中止由 failTurn / abortTurnBeforeStream 关,扣着的 notice
-// 不会被永远压住。只认内存里的发布,与会话行上的 agent_status 无关:后者读出来的那一刻
-// 轮次可能已经收口。
+// 「本轮在跑」以轮次自己的开轮点为准:用户发起的轮在任一条消息的持久帧发出时开(开轮的
+// 用户那一行、轮内 checkpoint、steer 分段);自主续轮没有用户那一行、纯文字回答收口前也
+// 不 checkpoint,在它宣告开轮(emitStarted,assistant 行已落库)时开。收口时关 —— 两条
+// finalize 走 publishPeerTurnDone,没走到收口的失败 / 起跑前中止由 failTurn /
+// abortTurnBeforeStream 关,扣着的 notice 不会被永远压住。只认内存里的开轮点,与会话行上
+// 的 agent_status 无关:后者读出来的那一刻轮次可能已经收口。
 type peerNoticeHold struct {
 	mu      sync.Mutex
 	turnOn  bool
@@ -30,8 +31,8 @@ func (s *chatSvc) peerNoticeHoldFor(sessionID int64) *peerNoticeHold {
 	return v.(*peerNoticeHold)
 }
 
-// peerTurnFramesStarted 记下这条会话有一轮的持久帧开始发了。
-func (s *chatSvc) peerTurnFramesStarted(sessionID int64) {
+// peerTurnOpened 记下这条会话有一轮开始了:之后落库的切换 notice 扣到它收口之后。
+func (s *chatSvc) peerTurnOpened(sessionID int64) {
 	hold := s.peerNoticeHoldFor(sessionID)
 	hold.mu.Lock()
 	hold.turnOn = true

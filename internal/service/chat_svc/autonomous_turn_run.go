@@ -210,6 +210,9 @@ func (t *autonomousTurnRun) emitStarted(ctx context.Context) {
 	}
 
 	t.stream = StreamName(t.sessionID, t.assistantMsg.ID)
+	// 这一轮的 assistant 行已落库:此后的切换 notice 在桌面端排在它之后,对端同样扣到
+	// 本轮收口(finalize 的 publishPeerTurnDone)之后再发,见 peer_notice_hold.go。
+	t.svc.peerTurnOpened(t.sessionID)
 	logger.Ctx(ctx).Info("chat_svc: autonomous turn started",
 		zap.Int64("sessionId", t.sessionID),
 		zap.Int64("assistantMsgId", t.assistantMsg.ID),

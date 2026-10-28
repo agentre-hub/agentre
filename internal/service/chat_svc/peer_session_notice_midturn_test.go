@@ -162,3 +162,59 @@ func TestSessionSettingNotice_GivenMidTurnSwitch_WhenTurnFails_ThenNoticeIsRelea
 		return false
 	}, time.Second, time.Millisecond, "失败收尾也要放行扣下的 notice")
 }
+
+// Given 一位对端已 attach,会话正在跑一轮**自主续轮**(后台任务完成后 CLI 自己续的那一轮):
+// 它没有用户那一行,纯文字回答在收口前也不 checkpoint —— 收口之前没有任何持久帧发出;
+// When  这一轮进行中切换了会话级设置,随后本轮收口;
+// Then  切换 notice 同样排在这一轮的收口帧之后 —— 桌面端这一轮的 assistant 行开轮即
+// 落库,notice 由 NextSeq 排在它之后,显示在整轮之后。
+func TestSessionSettingNotice_GivenMidAutonomousTurnSwitch_ThenPublishedAfterTheTurnSettles(t *testing.T) {
+	deps := setupPeerSessionTest(t)
+	ctx := context.Background()
+	sess := chat_entity.Session{ID: 41, AgentID: 7, AgentStatus: "running", Status: consts.ACTIVE}
+	deps.session.EXPECT().Find(gomock.Any(), int64(41)).DoAndReturn(
+		func(context.Context, int64) (*chat_entity.Session, error) {
+			cp := sess
+			return &cp, nil
+		}).AnyTimes()
+	deps.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(agentForPeerSession(), nil).AnyTimes()
+	be := &agent_backend_entity.AgentBackend{
+		ID: 11, Type: string(agent_backend_entity.TypeCodex), Status: consts.ACTIVE,
+	}
+	deps.backend.EXPECT().Find(gomock.Any(), int64(11)).Return(be, nil).AnyTimes()
+	deps.message.EXPECT().List(gomock.Any(), int64(41)).Return(nil, nil).AnyTimes()
+	deps.message.EXPECT().CreateAtNextSeq(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, msgs ...*chat_entity.Message) error {
+			msgs[0].ID, msgs[0].Seq = 72, 3
+			return nil
+		}).Times(1)
+	deps.session.EXPECT().UpdateReasoningEffort(gomock.Any(), int64(41), "high").Return(nil)
+
+	subscriber := newRecordingPeerSubscriber()
+	_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, subscriber)
+	require.NoError(t, err)
+
+	// 自主续轮开轮:assistant 行已落库(persistTurnMessages),随后宣告开轮。
+	assistant := &chat_entity.Message{ID: 71, SessionID: 41, Role: "assistant", Seq: 2, BlocksJSON: "[]"}
+	running := sess
+	turn := &autonomousTurnRun{
+		svc: deps.svc, sessionID: 41, be: be, sess: &running, assistantMsg: assistant,
+		at: agentruntime.AutonomousTurn{Trigger: "background_task"},
+	}
+	turn.emitStarted(ctx)
+
+	_, err = deps.svc.SetChatSessionReasoningEffort(ctx, &SetChatSessionReasoningEffortRequest{SessionID: 41, ReasoningEffort: "high"})
+	require.NoError(t, err)
+	assert.NotContains(t, durableFrameLabelsBySeq(subscriber), "notice", "自主续轮进行中的切换 notice 先扣着")
+
+	assistant.BlocksJSON = `[{"type":"text","data":{"text":"background job finished"}}]`
+	deps.svc.publishPeerTurnDone(ctx, 41, assistant)
+
+	want := []string{"text", "done", "notice", "done"}
+	var got []string
+	require.Eventually(t, func() bool {
+		got = durableFrameLabelsBySeq(subscriber)
+		return len(got) >= len(want)
+	}, time.Second, time.Millisecond, "对端应收到这一轮与 notice 的全部持久帧")
+	assert.Equal(t, want, got, "按号排序后,notice 必须在自主续轮收口之后")
+}
