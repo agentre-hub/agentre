@@ -215,6 +215,8 @@ func (s *chatSvc) failTurn(ctx context.Context, sess *chat_entity.Session, msg *
 		logger.Ctx(finalCtx).Error("chat_svc.failTurn: persist session status failed",
 			zap.Int64("sessionId", sess.ID), zap.Error(uerr))
 	}
+	// 这一轮到此为止:轮中扣下的切换 notice 放行(见 peer_notice_hold.go)。
+	s.peerTurnSettled(finalCtx, sess.ID, stream)
 	// session_status 必须先于 StreamError emit:前端 chat-streams-host 收到 error
 	// 立刻 finishStream 删 LiveStream entry → StreamSubscriber 紧接着 unmount,后到
 	// 的 session_status 永远收不到。后台 session 出错时只靠 bumpDone 不会翻 tab 红点。
@@ -286,6 +288,7 @@ func (s *chatSvc) abortTurnBeforeStream(ctx context.Context, sess *chat_entity.S
 		logger.Ctx(finalCtx).Error("chat_svc.abortTurnBeforeStream: persist session status failed",
 			zap.Int64("sessionId", sess.ID), zap.Error(uerr))
 	}
+	s.peerTurnSettled(finalCtx, sess.ID, stream)
 	s.emitter.Emit(finalCtx, stream, ChatStreamEvent{
 		Kind: StreamSessionStatus,
 		SessionStatus: &ChatSessionStatusPatch{

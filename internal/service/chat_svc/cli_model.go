@@ -201,6 +201,6 @@ func (s *chatSvc) SetChatSessionCLIModel(ctx context.Context, req *SetChatSessio
 	sess.CLIModelMode, sess.CLIModel = mode, value
 	sess.ProviderKey, sess.ModelKey = "", ""
 	logger.Ctx(ctx).Info("chat_svc.SetChatSessionCLIModel: session model switched", zap.Int64("sessionId", sess.ID), zap.String("mode", mode), zap.String("model", value))
-	appendSessionNotice(ctx, sess, be, "chat_svc.SetChatSessionCLIModel", view.EncodeCLIModelSwitch(mode, value))
+	s.appendSessionNotice(ctx, sess, be, "chat_svc.SetChatSessionCLIModel", view.EncodeCLIModelSwitch(mode, value))
 	return &SetChatSessionCLIModelResponse{Mode: mode, Value: value}, nil
 }

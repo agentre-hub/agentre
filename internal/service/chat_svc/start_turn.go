@@ -266,6 +266,9 @@ func (ts *turnStart) emitTurnStarted(ctx context.Context, stream string) {
 	// 用户消息此刻已落库,它的持久帧在这里取号 —— 必须赶在本轮 assistant 的任何一帧
 	// 之前,否则下一次 attach 时它是唯一没编号的那一条,惰性补齐会把它排到整段回答
 	// 之后(编号顺序就是补齐的重放顺序)。
+	//
+	// 这一轮从这里起算在跑:此后的切换 notice 扣到它收口之后(见 peer_notice_hold.go)。
+	ts.svc.peerTurnOpened(ts.sess.ID, stream)
 	ts.userMessageMinSeq, ts.userMessageSeq = ts.svc.publishPeerMessageFrames(ctx, ts.sess.ID, ts.userMsg, true)
 	// 这里不另发 user_message **预览帧**(R18 的发起方标记):上面那一发已经把同一句话
 	// 作为**持久帧**交出去了,而拿帧重建转录的消费方(浏览器控制台、桌面端 Peer Tab)对

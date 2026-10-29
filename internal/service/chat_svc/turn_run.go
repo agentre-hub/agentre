@@ -499,7 +499,7 @@ func (t *turnRun) finalize(ctx context.Context) {
 	_ = transcript_repo.Message().Update(finalCtx, t.assistantMsg)
 	// 落库之后立刻把同一份统计发给对端订阅者:Peer Tab 的 meta 与本机看到的是
 	// 同一条 assistant 消息,数不该只有本机有。
-	t.svc.publishPeerTurnDone(finalCtx, t.sess.ID, t.assistantMsg)
+	t.svc.publishPeerTurnDone(finalCtx, t.sess.ID, t.stream, t.assistantMsg)
 
 	// 对 finalize 时标 expired 的 AskUserQuestion emit 锁定 patch(形态同
 	// UserAskResolvedHandler):前端按 requestId merge,把在屏活卡立即翻到失效态,
@@ -588,7 +588,7 @@ func (t *turnRun) finalize(ctx context.Context) {
 	}
 
 	if len(pending) > 0 {
-		nextUser, nextAssistant, payload, perr := t.svc.persistAutoContinueTurn(finalCtx, t.sess, t.be, t.assistantMsg, t.assistantMsg.Model, pending)
+		nextUser, nextAssistant, payload, perr := t.svc.persistAutoContinueTurn(finalCtx, t.sess, t.be, t.assistantMsg, t.assistantMsg.Model, t.stream, pending)
 		if perr == nil {
 			t.svc.emitter.Emit(finalCtx, t.stream, *payload)
 			if t.be.IsClaudeCode() || t.be.IsCodex() || t.be.IsPiAgent() {
@@ -635,6 +635,8 @@ func (t *turnRun) finalize(ctx context.Context) {
 		t.sess.AgentStatus = "idle"
 		t.sess.NeedsAttention = false
 		_ = t.svc.persistSessionStatus(finalCtx, t.sess)
+		// 接续的两行若已落库,那一轮已被记为在跑(persistAutoContinueTurn),它不会再跑了。
+		t.svc.peerTurnSettled(finalCtx, t.sess.ID, t.stream)
 		// 上面那条 "agent_status finalized" 打的是自动接续的中间态(仍 running)。这条
 		// 恢复分支刚把它改成 idle 并落库,不补一条的话,这次会话在日志里的**最后**一条
 		// 终态记录与库里的值正好相反 —— 排「卡 running」时按日志对时间线会看反。

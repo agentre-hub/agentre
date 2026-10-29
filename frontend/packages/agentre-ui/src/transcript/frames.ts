@@ -52,6 +52,7 @@ import type {
   TranscriptMessage,
 } from "./dto";
 import type { CanonicalDTO } from "./canonical-tool/types";
+import { storedNoticeBlock } from "./stored-notice";
 import {
   EventAskUserQuestion,
   EventAskUserQuestionAnswered,
@@ -1096,6 +1097,15 @@ function applyFrame(
           typeof source.url === "string" ? source.url : "",
           raw.data,
         );
+        return;
+      }
+      // 持久 notice(会话设置切换 / 供应商回退 / 实际模型偏离)的结构化负载在块的
+      // text 里:宿主折帧只认 Hermes 那一种,其余原件过来。解回桌面端同一份 DTO,
+      // 否则负载 JSON 会原样印进正文。
+      const notice =
+        raw.blockType === "notice" ? storedNoticeBlock(raw.data) : undefined;
+      if (notice) {
+        openAssistant(st, sessionId).blocks.push(notice);
         return;
       }
       openAssistant(st, sessionId).blocks.push({
