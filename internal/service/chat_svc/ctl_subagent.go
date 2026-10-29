@@ -964,11 +964,14 @@ func earlierCardOf(acc *turn.Accumulator, ev agentruntime.Event) string {
 // 那里没有这张卡、或它不是 agrctl 卡时记进 notAgrctl 并交回 false,走原有路径。原消息里
 // 已有的嵌套步骤不再追加(补齐会重放、改写会重发)。定位失败时这一帧丢掉并记 warn:缺一步
 // 好过把它落进不拥有它的这一轮。
+//
+// 原消息若正是另一轮还没收尾的当前那一行(父轮在 agentred 上已结束,桌面端那一轮还在
+// finalize),先等它整条落库再按落库后的那一份写 —— 收尾那一发整条保存,会把先写进去的
+// 改动覆盖回去(r2 报告 R4)。本机那一路同理等 persistedSignal(ctlSendBinding.underTurn)。
 func (c *durableCards) writeBackEarlierCard(ctx context.Context, toolCallID string, ev agentruntime.Event) bool {
-	msg, err := transcript_repo.Message().FindAssistantBySubagentToolCallID(ctx, c.sessionID, toolCallID)
-	var card *heldAgrctlCard
-	if err == nil {
-		card, err = agrctlCardIn(msg, toolCallID)
+	msg, card, err := locateAgrctlCard(ctx, c.sessionID, toolCallID)
+	if err == nil && msg != nil && c.awaitFinalSave(msg.ID) {
+		msg, card, err = locateAgrctlCard(ctx, c.sessionID, toolCallID)
 	}
 	if err != nil {
 		logger.Ctx(ctx).Warn("chat_svc.writeBackEarlierCard: locate the card's message failed; frame dropped",
@@ -989,6 +992,32 @@ func (c *durableCards) writeBackEarlierCard(ctx context.Context, toolCallID stri
 		sessionID: c.sessionID, launchMsgID: msg.ID, toolCallID: toolCallID, liveStream: c.liveStream,
 		apply: applyDurableCardFrame,
 	}, []agentruntime.Event{ev})
+	return true
+}
+
+// locateAgrctlCard 找回 toolCallID 那张卡所在的消息与它里面那张 agrctl 卡(不是 agrctl 卡时为 nil)。
+func locateAgrctlCard(ctx context.Context, sessionID int64, toolCallID string) (*chat_entity.Message, *heldAgrctlCard, error) {
+	msg, err := transcript_repo.Message().FindAssistantBySubagentToolCallID(ctx, sessionID, toolCallID)
+	if err != nil {
+		return nil, nil, err
+	}
+	card, err := agrctlCardIn(msg, toolCallID)
+	return msg, card, err
+}
+
+// awaitFinalSave 原消息是这条会话上另一轮还没收尾的当前那一行时,等那一轮整条落库,交回
+// 是否等过。不会永远等下去:登记进 activeTurns 之后那一轮必走 finalize,它不早退地落库并
+// markPersisted(中断的一轮同样如此);本轮自己(owner)不等 —— 它此刻持着自己的 mu。
+func (c *durableCards) awaitFinalSave(messageID int64) bool {
+	t := c.svc.activeTurn(c.sessionID)
+	if t == nil || t == c.owner {
+		return false
+	}
+	saved := t.finalSaveOf(messageID)
+	if saved == nil {
+		return false
+	}
+	<-saved
 	return true
 }
 

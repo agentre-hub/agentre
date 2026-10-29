@@ -9,6 +9,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 )
 
@@ -41,7 +42,8 @@ func (s *chatSvc) startAutonomousWatcher(sessionID int64, be *agent_backend_enti
 
 // driveAutonomousTurn 把一轮自主续轮落成 **纯 assistant 消息(无 user 行)**:
 //  1. 加载 session(取最新状态);
-//  2. 事务建 assistant 消息(seq 续在末尾)+ 翻 running;
+//  2. 事务建 assistant 消息(seq 续在末尾)+ 翻 running(补齐轮推迟到第一次有内容,见
+//     autonomousTurnRun.opensLazily);
 //  3. 经会话级旁路 emit StreamAutonomousStarted —— per-turn 流只有用户 Send 才有入口,
 //     自主轮没有,所以把 stream 名 + 新 assistant 行推给前端,让它插入并 openStream;
 //  4. 用 dispatcher drain at.Events(实时 stream chunk / tool / plan ...);
@@ -93,16 +95,13 @@ func (s *chatSvc) driveAutonomousTurn(ctx context.Context, sessionID int64, be *
 		hasFirst:  hasFirst,
 		prelude:   prelude,
 		previews:  previews,
+		acc:       turn.New(),
 	}
-	if err := t.persistTurnMessages(ctx); err != nil {
-		logger.Ctx(ctx).Error("chat_svc: driveAutonomousTurn persist assistant failed",
-			zap.Int64("sessionId", sessionID), zap.Error(err))
-		s.failAutonomousTurnPersist(ctx, sessionID, sess, be, err, at.Events, at.TurnToken)
+	t.lazy = t.opensLazily(ctx)
+	t.unopened = t.lazy
+	if !t.lazy && !t.open(ctx) {
 		return
 	}
-
-	t.emitStarted(ctx)
-	t.initSegment()
 	t.consumeEvents(ctx)
 	t.finalize(ctx)
 }

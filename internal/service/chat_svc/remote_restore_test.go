@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 	"github.com/stretchr/testify/assert"
@@ -477,4 +478,66 @@ func TestApplyDurable_GivenNativeCardInAnEarlierMessage_ThenItsFramesKeepTheExis
 	assert.Equal(t, "running", store.card(t).Status)
 	assert.Len(t, run.acc.Snapshot(), 2, "原生卡的帧行为不变")
 	assert.Equal(t, 1, store.finds)
+}
+
+// Given 卡所在的那条消息正是一轮还没收尾的当前那一行(那一轮还在 activeTurns 里,收尾那一发
+// 整条落库还没做),When agentred 的改写帧经补齐轮到达,
+// Then 写回等那一轮整条落库之后才改卡 —— 否则收尾那一发会把改好的卡整条覆盖回去(R4)。
+// 当前那一轮的行若不是卡所在的消息,写回不等。
+func TestApplyDurable_GivenTheCardMessagesTurnIsStillFinalizing_ThenWriteBackWaitsForItsFinalSave(t *testing.T) {
+	failed := agentruntime.SubagentDone{ToolCallID: "T", Info: agentruntime.SubagentInfo{
+		TaskID: "bg-1", Kind: agentruntime.SubagentKindLocalBash, TaskDescription: "agrctl send", Status: "failed",
+		Origin: agentruntime.SubagentOriginAgrctl, ChildSessionID: 77, Mode: "single",
+		Runs: []agentruntime.SubagentRun{{ID: "agrctl", Agent: "reviewer", Task: "审一下", Status: "failed"}},
+	}}
+	finalizing := func(svc *chatSvc, rowID int64) *turnRun {
+		parent := &turnRun{
+			svc: svc, sess: &chat_entity.Session{ID: earlierSessionID, ExecDeviceID: 7},
+			assistantMsg: &chat_entity.Message{ID: rowID, SessionID: earlierSessionID},
+		}
+		svc.activeTurns.Store(earlierSessionID, parent)
+		return parent
+	}
+	applyAsync := func(run durableRun) <-chan struct{} {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			run.apply(failed)
+		}()
+		return done
+	}
+
+	t.Run("卡在那一轮当前那一行里:等它整条落库", func(t *testing.T) {
+		store := registerEarlierCardMessage(t, runningBackgroundAgrctlCard())
+		svc := NewChat(&captureEmitter{}).(*chatSvc)
+		parent := finalizing(svc, earlierMessageID)
+
+		done := applyAsync(durableRuns(svc)[1])
+		select {
+		case <-done:
+		case <-time.After(300 * time.Millisecond):
+		}
+		assert.Equal(t, "running", store.card(t).Status, "那一轮整条落库之前不改卡")
+
+		parent.markPersisted()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("那一轮落库之后写回仍没完成")
+		}
+		assert.Equal(t, "failed", store.card(t).Status)
+	})
+
+	t.Run("那一轮当前那一行是别的消息:不等", func(t *testing.T) {
+		store := registerEarlierCardMessage(t, runningBackgroundAgrctlCard())
+		svc := NewChat(&captureEmitter{}).(*chatSvc)
+		finalizing(svc, earlierMessageID+1)
+
+		select {
+		case <-applyAsync(durableRuns(svc)[1]):
+		case <-time.After(5 * time.Second):
+			t.Fatal("写回在等一轮与这张卡无关的收尾")
+		}
+		assert.Equal(t, "failed", store.card(t).Status)
+	})
 }

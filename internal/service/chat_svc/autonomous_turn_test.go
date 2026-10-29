@@ -23,6 +23,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/mock_agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
+	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
@@ -1630,4 +1631,217 @@ func TestDriveAutonomousTurn_PreviewSteerConsumedRendersButDoesNotPersist(t *tes
 			assert.Nil(t, consumed.AssistantMessage, "清 chip 那一发不得携带新 assistant")
 		})
 	})
+}
+
+// ── 补齐轮懒开行(R5)──────────────────────────────────────────────────────────────
+//
+// 远端父会话的父轮结束后,agentred 改写原消息里那张 agrctl 卡,变化的块以新 seq 的持久帧
+// 发来;桌面端没有在飞的轮,这些帧开出一条补齐轮(TriggerCatchUp)。它们全被写回更早那条
+// 消息里的卡 —— 这一轮本身什么都没有,不该长出一行空 assistant、不该把会话翻 running。
+
+// earlierAgrctlCard 是库里那条更早消息(id 6300)里那张 agrctl 后台卡:发起调用 T,running。
+type earlierAgrctlCard struct {
+	mu   sync.Mutex
+	card transcriptblocks.SubagentStateBlock
+}
+
+func (c *earlierAgrctlCard) snapshot() transcriptblocks.SubagentStateBlock {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.card
+}
+
+// catchUpTurnMocks 搭一条远端父会话(空闲)上的补齐轮:m.message 扮演那条更早的消息,
+// 新建行 / 会话状态写入 / 最终落库都记下来供断言。
+type catchUpTurnMocks struct {
+	m           *chatMocks
+	sess        *chat_entity.Session
+	card        *earlierAgrctlCard
+	created     []*chat_entity.Message
+	statuses    []string
+	finalBlocks string
+}
+
+func setupCatchUpTurn(t *testing.T) *catchUpTurnMocks {
+	t.Helper()
+	m := setupChatTest(t)
+	c := &catchUpTurnMocks{
+		m: m,
+		sess: &chat_entity.Session{
+			ID: 100, AgentID: 7, AgentStatus: "idle", ProviderSessionID: "sess-abc",
+			ExecDeviceID: 3, ExecDeviceFingerprint: "sha256:remote",
+		},
+		card: &earlierAgrctlCard{card: transcriptblocks.SubagentStateBlock{
+			ParentToolCallID: "T", Kind: agentruntime.SubagentKindLocalBash, TaskID: "bg-1", Description: "agrctl send",
+			Status: "running", Origin: agentruntime.SubagentOriginAgrctl, ChildSessionID: 77, Mode: "single",
+			Runs: []agentruntime.SubagentRun{{ID: "agrctl", Agent: "reviewer", Task: "审一下", Status: "running"}},
+		}},
+	}
+	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(c.sess, nil).AnyTimes()
+	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, s *chat_entity.Session) error {
+			c.statuses = append(c.statuses, s.AgentStatus)
+			return nil
+		}).AnyTimes()
+	// 父轮那一行早已定稿:补齐没有在飞的那一行可认领。
+	m.message.EXPECT().LatestAssistant(gomock.Any(), int64(100)).Return(&chat_entity.Message{
+		ID: 6300, SessionID: 100, Role: "assistant", Seq: 4, Model: "claude-opus-5", DurationMs: 900,
+	}, nil).AnyTimes()
+	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil).AnyTimes()
+	// 事务配成会成功:修复前这一轮照常落行,失败的理由才是「落了行」,而不是事务出错。
+	m.dbMock.ExpectBegin()
+	m.dbMock.ExpectCommit()
+	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			msg.ID = 2001
+			cp := *msg
+			c.created = append(c.created, &cp)
+			return nil
+		}).AnyTimes()
+	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			c.finalBlocks = msg.BlocksJSON
+			return nil
+		}).AnyTimes()
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	m.message.EXPECT().FindAssistantBySubagentToolCallID(gomock.Any(), int64(100), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ int64, toolCallID string) (*chat_entity.Message, error) {
+			if toolCallID != "T" {
+				return nil, nil
+			}
+			data, err := json.Marshal(c.card.snapshot())
+			if err != nil {
+				return nil, err
+			}
+			return &chat_entity.Message{ID: 6300, SessionID: 100, Role: "assistant", BlocksJSON: `[` +
+				`{"type":"tool_use","data":{"id":"T","name":"Bash","input":{"command":"agrctl send --wait","run_in_background":true}}},` +
+				`{"type":"subagent_state","data":` + string(data) + `}]`}, nil
+		}).AnyTimes()
+	m.message.EXPECT().PatchSubagentState(gomock.Any(), int64(100), "T", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ int64, _ string, mutate func(*transcriptblocks.SubagentStateBlock) bool) (bool, error) {
+			c.card.mu.Lock()
+			defer c.card.mu.Unlock()
+			mutate(&c.card.card)
+			return true, nil
+		}).AnyTimes()
+	m.message.EXPECT().AppendSubagentChildren(gomock.Any(), int64(100), "T", gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	return c
+}
+
+// drive 跑一条补齐轮,依次交来 frames。
+func (c *catchUpTurnMocks) drive(frames ...agentruntime.Event) {
+	evs := make(chan agentruntime.Event, len(frames))
+	for _, f := range frames {
+		evs <- f
+	}
+	close(evs)
+	chat_svc.DriveAutonomousTurnForTest(c.m.ctx, c.m.svc, 100, &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"},
+		agentruntime.AutonomousTurn{Events: evs, Result: &agentruntime.RunResult{}, Trigger: remote.TriggerCatchUp})
+}
+
+func (c *catchUpTurnMocks) events(kind chat_svc.ChatStreamEventKind) []chat_svc.ChatStreamEvent {
+	var out []chat_svc.ChatStreamEvent
+	for _, ev := range c.m.events {
+		if p, ok := ev.Payload.(chat_svc.ChatStreamEvent); ok && p.Kind == kind {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// failedCardRewrite 是 agentred 改写那张卡之后发来的持久帧:CLI 判的 failed 快照与模型。
+func failedCardRewrite() []agentruntime.Event {
+	return []agentruntime.Event{
+		agentruntime.SubagentDone{ToolCallID: "T", Info: agentruntime.SubagentInfo{
+			TaskID: "bg-1", Kind: agentruntime.SubagentKindLocalBash, TaskDescription: "agrctl send",
+			Status: "failed", Summary: "exit 1", Mode: "single", Origin: agentruntime.SubagentOriginAgrctl,
+			ChildSessionID: 77, FinalText: "构建失败",
+			Runs: []agentruntime.SubagentRun{{ID: "agrctl", Agent: "reviewer", Task: "审一下", Status: "failed"}},
+		}},
+		agentruntime.SubagentModel{ToolCallID: "T", Model: "m-1"},
+	}
+}
+
+// Given 远端父会话空闲,父轮那张 agrctl 卡在更早的消息里,
+// When 补齐轮收到的帧全是 agentred 对那张卡的改写,
+// Then 卡在原消息里改好,而这一轮不落 assistant 行、不把会话翻 running、不告诉前端开了一轮。
+func TestDriveAutonomousTurn_GivenCatchUpFramesOnlyRewritingAnEarlierAgrctlCard_ThenNoRowAndStatusUntouched(t *testing.T) {
+	c := setupCatchUpTurn(t)
+
+	c.drive(failedCardRewrite()...)
+
+	card := c.card.snapshot()
+	assert.Equal(t, "failed", card.Status, "改写照旧落到原消息里的卡上")
+	assert.Equal(t, "m-1", card.Model)
+	assert.Empty(t, c.created, "这一轮没有内容,不该落一行空 assistant")
+	assert.NotContains(t, c.statuses, "running", "没有在跑的一轮,会话不该被翻成 running")
+	assert.Equal(t, "idle", c.sess.AgentStatus)
+	assert.Empty(t, c.events(chat_svc.StreamAutonomousStarted), "前端不该插入一行空回合")
+	for _, fin := range c.events(chat_svc.StreamAutonomousFinished) {
+		assert.Equal(t, int64(6300), fin.LaunchMessageID, "只有原消息里那张卡的活动收尾,没有别的回合")
+	}
+}
+
+// Given 同一场景,When 卡片改写帧之后又来了一段真正属于这一轮的正文,
+// Then 只落一行 assistant(补齐轮的 trigger),行里只有那段正文,卡片帧不混进来。
+func TestDriveAutonomousTurn_GivenCatchUpCardRewriteThenText_ThenExactlyOneRowHoldingOnlyTheText(t *testing.T) {
+	c := setupCatchUpTurn(t)
+
+	c.drive(append(failedCardRewrite(), agentruntime.TextDelta{Text: "补齐的正文"})...)
+
+	assert.Equal(t, "failed", c.card.snapshot().Status)
+	require.Len(t, c.created, 1, "正文到来时才落一行")
+	assert.Equal(t, "assistant", c.created[0].Role)
+	assert.Equal(t, remote.TriggerCatchUp, c.created[0].TurnTrigger)
+	var stored []struct {
+		Type string          `json:"type"`
+		Data json.RawMessage `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(c.finalBlocks), &stored))
+	require.Len(t, stored, 1, "行里只有正文:卡片帧已写回原消息")
+	assert.Equal(t, "text", stored[0].Type)
+	assert.Contains(t, string(stored[0].Data), "补齐的正文")
+	started := c.events(chat_svc.StreamAutonomousStarted)
+	require.Len(t, started, 1)
+	assert.Equal(t, chat_svc.StreamName(100, 2001), started[0].Stream)
+	assert.Contains(t, c.statuses, "running")
+	assert.Equal(t, "idle", c.sess.AgentStatus)
+}
+
+// Given 同一场景,When 一段预览帧正文先于任何持久帧内容到达(重新接管的一轮还在出字),
+// Then 这一轮在那一刻落行,逐 token 的正文照旧呈现在这一行的流上。
+func TestDriveAutonomousTurn_GivenCatchUpPreviewBeforeAnyDurableContent_ThenTheRowOpensAndTheTokenRenders(t *testing.T) {
+	c := setupCatchUpTurn(t)
+	evs := make(chan agentruntime.Event)
+	go func() {
+		// 不带缓冲:第一条持久帧被收下,预览通道就已登记。
+		evs <- failedCardRewrite()[0]
+		chat_svc.DeliverRemotePreviewForTest(c.m.svc, 100, agentruntime.SubagentModel{ToolCallID: "unknown", Model: "x"})
+		chat_svc.DeliverRemotePreviewForTest(c.m.svc, 100, agentruntime.TextDelta{Text: "live-token"})
+		close(evs)
+	}()
+	chat_svc.DriveAutonomousTurnForTest(c.m.ctx, c.m.svc, 100, &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"},
+		agentruntime.AutonomousTurn{Events: evs, Result: &agentruntime.RunResult{}, Trigger: remote.TriggerCatchUp})
+
+	require.Len(t, c.created, 1)
+	stream := chat_svc.StreamName(100, 2001)
+	var chunk string
+	startedAt, chunkAt := -1, -1
+	for i, ev := range c.m.events {
+		p, ok := ev.Payload.(chat_svc.ChatStreamEvent)
+		if !ok {
+			continue
+		}
+		if p.Kind == chat_svc.StreamAutonomousStarted && startedAt < 0 {
+			startedAt = i
+		}
+		if p.Kind == chat_svc.StreamChunk && ev.Name == stream {
+			chunk += p.Delta
+			if chunkAt < 0 {
+				chunkAt = i
+			}
+		}
+	}
+	assert.Equal(t, "live-token", chunk)
+	assert.Less(t, startedAt, chunkAt, "先告诉前端开了这一轮,再在它的流上出字")
 }

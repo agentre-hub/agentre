@@ -62,6 +62,75 @@ type autonomousTurnRun struct {
 	durableCtx *turn.TurnContext
 	// cards 持久帧那一路的子代理卡帧路由,见 durableCards。
 	cards *durableCards
+
+	// lazy 这一轮等第一次真正有内容才落行(开轮时定下,见 opensLazily)。
+	lazy bool
+	// unopened 懒开的这一轮还没落行:没有消息行、会话没翻 running、前端没收到开轮。
+	// 第一帧真正给本轮添块的帧到来时落行并清掉它(openOnContent)。
+	unopened bool
+	// openFailed 懒开落行失败:失败处置已做完(会话翻 error、事件流已抽干),此后的帧一律丢弃。
+	openFailed bool
+}
+
+// opensLazily 报这一轮要不要等到第一次有内容才落行。
+//
+// 只有补齐轮(TriggerCatchUp)这样做:远端父轮结束后 agentred 改写原消息里那张 agrctl 卡,
+// 变化的块以新 seq 的持久帧发来,桌面端没有在飞的轮就开出一条补齐轮 —— 这些帧全被写回
+// 更早那条消息(durableCards),这一轮自己什么都没有。先落行就是一行空 assistant、一条
+// 「补齐」分隔、一个停在 running 的会话(r2 报告 R5)。懒开靠持久帧那一路「先累积、后落行」
+// 不产生宿主副作用,所以只在两级帧那一路(previews 非 nil;补齐只发生在远端执行)成立。
+//
+// 其余照旧立刻落行:真·自主续轮(background_task 等)是 CLI 真跑的一轮;带发起方标记的
+// 那一轮要先落用户行(R18);本地有派发时建下、还在飞的那一行时,补齐要立刻认领它
+// (adoptInFlightAssistant)。判不出有没有可认领的那一行时也照旧,失败处置归 open。
+func (t *autonomousTurnRun) opensLazily(ctx context.Context) bool {
+	if t.at.Trigger != remote.TriggerCatchUp || t.prelude != nil || t.previews == nil {
+		return false
+	}
+	latest, err := transcript_repo.Message().LatestAssistant(ctx, t.sessionID)
+	if err != nil {
+		return false
+	}
+	return !assistantRowStillInFlight(latest)
+}
+
+// open 落这一轮的消息行、翻 running、告诉前端开了一轮,并起第一个分段。交回 false 表示
+// 落库失败:失败处置(会话翻 error、推错误事件、中断、抽干事件流)已经做完。
+func (t *autonomousTurnRun) open(ctx context.Context) bool {
+	if err := t.persistTurnMessages(ctx); err != nil {
+		logger.Ctx(ctx).Error("chat_svc: driveAutonomousTurn persist assistant failed",
+			zap.Int64("sessionId", t.sessionID), zap.Error(err))
+		t.openFailed = true
+		t.svc.failAutonomousTurnPersist(ctx, t.sessionID, t.sess, t.be, err, t.at.Events, t.at.TurnToken)
+		return false
+	}
+	t.unopened = false
+	t.emitStarted(ctx)
+	t.initSegment()
+	if t.cards != nil {
+		t.cards.liveStream = t.stream
+	}
+	return true
+}
+
+// openOnContent 交回这一轮此刻有没有行可写。懒开的一轮还没落行时,hasContent 为真才落行。
+func (t *autonomousTurnRun) openOnContent(ctx context.Context, hasContent bool) bool {
+	if !t.unopened {
+		return true
+	}
+	if t.openFailed || !hasContent {
+		return false
+	}
+	return t.open(ctx)
+}
+
+// addsBlock 报一帧单独落进一只空累加器会不会长出块。懒开的一轮还没落行时,预览帧靠它判断
+// 「这一轮开始有内容了」:此刻呈现那一路的累加器本来就是空的,判断与真落进去一致。一次性
+// 累加器配丢弃发射器,不产生宿主副作用(同持久帧那一路)。
+func (t *autonomousTurnRun) addsBlock(ctx context.Context, ev agentruntime.Event) bool {
+	probe := turn.New()
+	_ = t.svc.dispatcher.Apply(ctx, ev, probe, discardEmitter{}, &turn.TurnContext{Waits: turn.NewWaitTracker()})
+	return !probe.Empty()
 }
 
 // persistTurnMessages 事务建 assistant 行(R18 下先建 user 行)并把会话翻 running。
@@ -146,10 +215,12 @@ func (t *autonomousTurnRun) persistTurnMessages(ctx context.Context) error {
 //   - 重放的头一帧不是发起方标记(prelude 为 nil)。带标记的那一路是「别的对端在一条
 //     空闲会话上开了新一轮」(R18),本地本来就没有这一轮,该新建。
 //   - 本地最后那一行 assistant 既没定稿、也还没落过正文(见 assistantRowStillInFlight)。
+//     懒开的一轮在开轮时已经判过没有这样一行(opensLazily),落行时不再认领 —— 那时最后
+//     一行可能已经是之后另起的一轮。
 //
 // 交回 true 表示已把 t.assistantMsg 指到那一行上,调用方不再新建。
 func (t *autonomousTurnRun) adoptInFlightAssistant(ctx context.Context) (bool, error) {
-	if t.at.Trigger != remote.TriggerCatchUp || t.prelude != nil {
+	if t.lazy || t.at.Trigger != remote.TriggerCatchUp || t.prelude != nil {
 		return false, nil
 	}
 	latest, err := transcript_repo.Message().LatestAssistant(ctx, t.sessionID)
@@ -246,9 +317,9 @@ func (t *autonomousTurnRun) emitStarted(ctx context.Context) {
 	})
 }
 
-// initSegment 初始化本轮第一个 assistant 分段的累加器与计时口径。
+// initSegment 初始化本轮第一个 assistant 分段的轮上下文与计时口径。累加器开轮前就在:
+// 懒开的一轮落行之前,持久帧已经往里累积了。
 func (t *autonomousTurnRun) initSegment() {
-	t.acc = turn.New()
 	t.dispEmit = &dispatcherEmitter{svc: t.svc}
 	t.turnCtx = t.svc.newTurnContext(t.assistantMsg, t.sess, t.stream, t.be.Type)
 	t.segmentStart = time.Now()
@@ -407,7 +478,7 @@ func (t *autonomousTurnRun) applyDurable(ctx context.Context, ev agentruntime.Ev
 	// 宿主分段之后发来的那一行用户消息(持久帧投影)。判据是**来源标识**,与 turnRun
 	// 那一处同源:本轮自己那条提问不带来源,插话那一行必带。
 	if um, ok := ev.(agentruntime.UserMessageEvent); ok {
-		if um.SourceDevice == "" {
+		if um.SourceDevice == "" || !t.openOnContent(ctx, true) {
 			return
 		}
 		t.pendingSteers = append(t.pendingSteers, agentruntime.ConsumedSteer{
@@ -422,7 +493,7 @@ func (t *autonomousTurnRun) applyDurable(ctx context.Context, ev agentruntime.Ev
 		t.durableCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
 	}
 	if t.cards == nil {
-		t.cards = t.svc.newDurableCards(t.sessionID, t.stream)
+		t.cards = t.svc.newDurableCards(t.sessionID, t.stream, nil)
 	}
 	if t.cards.restore(ctx, t.acc, ev) {
 		return
@@ -431,6 +502,10 @@ func (t *autonomousTurnRun) applyDurable(ctx context.Context, ev agentruntime.Ev
 		logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
 			zap.String("eventType", fmt.Sprintf("%T", ev)), zap.Error(err))
 	}
+	// 持久帧只累积、不产生宿主副作用,所以先累积、再看累加器长没长出块来决定落不落行。
+	if !t.openOnContent(ctx, !t.acc.Empty()) {
+		return
+	}
 	if shouldCheckpointAssistantAfterEvent(ev) {
 		t.svc.checkpointAssistantNew(ctx, t.assistantMsg, t.acc)
 	}
@@ -438,7 +513,13 @@ func (t *autonomousTurnRun) applyDurable(ctx context.Context, ev agentruntime.Ev
 
 // applyLive 呈现一条实时事件:对端扇出、插话分段这些**宿主副作用**都在这里,内容则
 // 累积进 acc。preview=true 时累积进用完即弃的那只 —— 落库归 at.Events 上的持久帧。
+//
+// 懒开的一轮还没落行时只有预览帧会到这里(懒开只在两级帧那一路):给本轮添块的那一帧先落行
+// 再呈现,其余丢掉 —— 还没有一行可以呈现在上面。
 func (t *autonomousTurnRun) applyLive(ctx context.Context, ev agentruntime.Event, preview bool) {
+	if t.unopened && !t.openOnContent(ctx, t.addsBlock(ctx, ev)) {
+		return
+	}
 	t.svc.publishPeerEvent(t.sessionID, ev)
 	if t.consumeSteer(ctx, ev, preview) {
 		return
@@ -458,7 +539,16 @@ func (t *autonomousTurnRun) applyLive(ctx context.Context, ev agentruntime.Event
 }
 
 // finalize 收尾本轮:落 blocks + usage/model、翻终态、定向翻转后台任务、发终态事件。
+// 懒开的一轮到收尾都没落行(帧全写回了更早的消息,或落行失败已处置)时什么都不做:没有
+// 行可收,会话状态也从没被这一轮动过。
 func (t *autonomousTurnRun) finalize(ctx context.Context) {
+	if t.unopened {
+		if !t.openFailed {
+			logger.Ctx(ctx).Info("chat_svc: catch-up turn closed without content of its own; no row",
+				zap.Int64("sessionId", t.sessionID))
+		}
+		return
+	}
 	finalBlocks := t.acc.Finalize()
 	// 镜像 Send 路径(chat.go):本自主轮结束时仍 running 的 subagent(没等到
 	// SubagentDone,如轮被中断)翻成 "canceled",否则原样落 DB 让前端后台任务芯片

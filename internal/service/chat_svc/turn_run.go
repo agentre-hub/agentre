@@ -88,20 +88,33 @@ type turnRun struct {
 func (t *turnRun) persistedSignal() <-chan struct{} {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.persisted == nil {
-		t.persisted = make(chan struct{})
+	return t.persistedLocked()
+}
+
+// finalSaveOf 交回这一轮收尾整条落库的信号,仅当 messageID 是这一轮此刻那一行 assistant
+// (收尾只整条保存这一行);否则为 nil。
+func (t *turnRun) finalSaveOf(messageID int64) <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.assistantMsg == nil || t.assistantMsg.ID != messageID {
+		return nil
 	}
-	return t.persisted
+	return t.persistedLocked()
 }
 
 // markPersisted 由 finalize 在收尾那一发落库之后调用一次。
 func (t *turnRun) markPersisted() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	close(t.persistedLocked())
+}
+
+// persistedLocked 惰性建出 persisted。调用方持有 mu。
+func (t *turnRun) persistedLocked() chan struct{} {
 	if t.persisted == nil {
 		t.persisted = make(chan struct{})
 	}
-	close(t.persisted)
+	return t.persisted
 }
 
 // attachRuntime 落 runner-start 侧效果:回吐 provider session id、按 runtime 能力
@@ -252,7 +265,7 @@ func (t *turnRun) applyDurable(ctx context.Context, ev agentruntime.Event) {
 		t.durableCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
 	}
 	if t.cards == nil {
-		t.cards = t.svc.newDurableCards(t.sess.ID, t.stream)
+		t.cards = t.svc.newDurableCards(t.sess.ID, t.stream, t)
 	}
 	if t.cards.restore(ctx, t.acc, ev) {
 		return
@@ -753,10 +766,12 @@ type durableCards struct {
 	// notAgrctl 已知不归这里写回的发起调用(库里没有这张卡,或它不是 agrctl 卡):同一轮里
 	// 它们的帧不再查库,直接走原有路径 —— 一个原生后台子代理的嵌套步骤可以有成百上千帧。
 	notAgrctl map[string]bool
+	// owner 持有这只的那一轮(当前那一轮);补齐 / 自主续轮那一路为 nil。
+	owner *turnRun
 }
 
-func (s *chatSvc) newDurableCards(sessionID int64, liveStream string) *durableCards {
-	return &durableCards{svc: s, sessionID: sessionID, liveStream: liveStream, notAgrctl: map[string]bool{}}
+func (s *chatSvc) newDurableCards(sessionID int64, liveStream string, owner *turnRun) *durableCards {
+	return &durableCards{svc: s, sessionID: sessionID, liveStream: liveStream, notAgrctl: map[string]bool{}, owner: owner}
 }
 
 // restore 交回 true 表示这一帧已处理、不再进 dispatcher。
