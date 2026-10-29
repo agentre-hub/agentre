@@ -433,3 +433,34 @@ describe("deriveBackgroundTasks — the message that launched the task", () => {
     expect(task.messageId).toBe(42);
   });
 });
+
+describe("deriveBackgroundTasks: agrctl 子代理卡", () => {
+  const card = (kind: string, runInBackground: boolean) =>
+    ({
+      type: "tool_use",
+      toolUseId: "tu-ctl",
+      toolName: "Bash",
+      toolInput: { run_in_background: runInBackground },
+      subagent: { origin: "agrctl", kind, status: "running" },
+    }) as unknown as chat_svc.ChatBlock;
+
+  it("lists a background agrctl card (kind local_bash) and tracks its finish", () => {
+    const running = deriveBackgroundTasks(
+      [makeMessage(1, [card("local_bash", true)])],
+      [],
+    );
+    expect(running).toHaveLength(1);
+    expect(running[0].status).toBe("running");
+    const done = card("local_bash", true);
+    done.subagent!.status = "completed";
+    expect(deriveBackgroundTasks([makeMessage(1, [done])], [])[0].status).toBe(
+      "completed",
+    );
+  });
+
+  it("does not list a foreground agrctl_send card as a background task", () => {
+    expect(
+      deriveBackgroundTasks([makeMessage(1, [card("agrctl_send", false)])], []),
+    ).toEqual([]);
+  });
+});

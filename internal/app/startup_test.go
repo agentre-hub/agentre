@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -16,12 +17,37 @@ func TestResetStaleSessionsOnStartup(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { resetStaleActiveSessions = orig })
+	origSettle := settleOrphanedAgrctlCards
+	settleOrphanedAgrctlCards = func(context.Context) (int, error) { return 0, nil }
+	t.Cleanup(func() { settleOrphanedAgrctlCards = origSettle })
 
 	a := &App{}
 	a.resetStaleSessionsOnStartup(context.Background())
 
 	if called != 1 {
 		t.Fatalf("resetStaleActiveSessions called %d times, want 1", called)
+	}
+}
+
+// 重启后仍 running/waiting 的本机 agrctl 卡随进程一起成了孤儿:收尾必须排在会话重置之后
+// (同一个启动清理步骤里),且重置失败不挡它 —— 两者各管各的行。
+func TestResetStaleSessionsOnStartup_SettlesOrphanedAgrctlCardsAfterReset(t *testing.T) {
+	var order []string
+	origReset, origSettle := resetStaleActiveSessions, settleOrphanedAgrctlCards
+	resetStaleActiveSessions = func(context.Context) error {
+		order = append(order, "reset")
+		return errors.New("reset failed")
+	}
+	settleOrphanedAgrctlCards = func(context.Context) (int, error) {
+		order = append(order, "settle")
+		return 1, nil
+	}
+	t.Cleanup(func() { resetStaleActiveSessions, settleOrphanedAgrctlCards = origReset, origSettle })
+
+	(&App{}).resetStaleSessionsOnStartup(context.Background())
+
+	if len(order) != 2 || order[0] != "reset" || order[1] != "settle" {
+		t.Fatalf("startup cleanup order = %v, want [reset settle]", order)
 	}
 }
 

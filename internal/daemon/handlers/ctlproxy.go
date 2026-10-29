@@ -14,9 +14,11 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/ctlbind"
 	"github.com/agentre-hub/agentre/internal/pkg/tunnelheader"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -51,10 +53,21 @@ const (
 	// ctlApprovalPendingHeader 是挂起等审批前那个 102 里的头,与桌面端
 	// ctl_svc.ApprovalPendingHeader、agrctl 的 approvalPendingHeader 同值。
 	ctlApprovalPendingHeader = "Agentre-Ctl-Approval"
+	// ctlBindToolCallHeader / ctlBindBackgroundHeader 把这里绑定的那条 shell 调用(ID 与是否
+	// 后台)带给桌面端(spec 2026-10-27「agrctl send 子代理卡」Remote sessions 第 1 条),与桌面端
+	// ctl_svc 的同名常量同值。只由本代理写:调用方自带的同名头在转发前一律去掉。
+	ctlBindToolCallHeader   = "Agentre-Ctl-Bind-Tool-Call"
+	ctlBindBackgroundHeader = "Agentre-Ctl-Bind-Background"
 	// ctlApprovalTimeout 与桌面端会话审批卡一致(spec 决策 12)。
 	ctlApprovalTimeout = 4 * time.Minute
 	// ctlMaxBody 是请求正文上限:一次写入只是一份资源文档。
 	ctlMaxBody = 1 << 20
+	// ctlSendBindWait 是 send --wait 在父轮里还找不到那条 shell 调用时,转发前最多等它出现
+	// 的时长(awaitCtlSendBinding)。实测 Codex 的 command_execution 比 send 晚约 63ms 开始
+	// (运行时验证 V10),2s 留出三十倍的余量盖住本机负载与事件流转;代价只落在始终匹配不上
+	// 的 send(命令写法认不出)上,而 --wait 本身要等子会话跑完整整一轮,多出的至多 2s
+	// 不改变用户的体感。命中、有歧义、已绑过的 send 都不等。
+	ctlSendBindWait = 2 * time.Second
 )
 
 // CtlServerPort 把一次 ctl 请求交给 server 执行者:pathAndQuery 是 server 上的路径
@@ -74,6 +87,11 @@ type CtlProxyDeps struct {
 	Server CtlServerPort
 	// ApprovalTimeout 是控制台会话审批卡的挂起上限;0 = 4 分钟。
 	ApprovalTimeout time.Duration
+	// SendBindWait 是 send --wait 转发前等它那条 shell 调用出现的上限;0 = ctlSendBindWait。
+	SendBindWait time.Duration
+	// Cards 是父转录里子代理卡的写入口:承载一次已绑定 send 的连接断开时,经它给卡收尾
+	// (settleDroppedSend)。nil = 不收尾。
+	Cards *SubagentCardInjector
 	// Self 是这台 agentred 的设备指纹:后端的 device_fingerprint 与它相同 = 绑在本机。
 	Self devicefp.Carrier
 	// OpenClawTokens 是本机的设备本地凭据(BackendCredentialHandlers,按后端 syncId 存
@@ -93,6 +111,9 @@ type ctlProxy struct{ deps CtlProxyDeps }
 func NewCtlProxyHandler(deps CtlProxyDeps) http.Handler {
 	if deps.ApprovalTimeout <= 0 {
 		deps.ApprovalTimeout = ctlApprovalTimeout
+	}
+	if deps.SendBindWait <= 0 {
+		deps.SendBindWait = ctlSendBindWait
 	}
 	return &ctlProxy{deps: deps}
 }
@@ -143,13 +164,25 @@ func (p *ctlProxy) forwardToDesktop(w http.ResponseWriter, r *http.Request, owne
 	}
 	headers := tunnelheader.Sanitize(r.Header)
 	headers["Authorization"] = []string{"Bearer " + owner.desktop.Token}
+	delete(headers, ctlBindToolCallHeader)
+	delete(headers, ctlBindBackgroundHeader)
 	if r.URL.Path == ctlResourcesPath && isCtlWrite(body) {
 		announceCtlPending(w, fmt.Sprintf("session=%d", owner.desktop.DesktopSessionID))
+	}
+	var bound string
+	if r.URL.Path == ctlSendPath {
+		bound = p.bindSend(r.Context(), owner, body, headers)
 	}
 	var resp wire.MCPProxyResponse
 	err := n.Request(r.Context(), wire.MethodMCPProxy, wire.MCPProxyRequest{
 		Path: r.URL.RequestURI(), Method: r.Method, Headers: headers, Body: body,
 	}, &resp)
+	if bound != "" && (err != nil || (resp.Status != 0 && resp.Status != http.StatusOK)) {
+		p.deps.Sessions.unbindCtlSend(owner, bound)
+	}
+	if bound != "" && err != nil {
+		p.settleDroppedSend(r.Context(), owner, bound)
+	}
 	if err != nil {
 		logger.Ctx(r.Context()).Warn("handlers.ctlProxy.forwardToDesktop: tunnel failed",
 			zap.String("conversationId", owner.conversationID), zap.String("path", r.URL.Path), zap.Error(err))
@@ -166,6 +199,81 @@ func (p *ctlProxy) forwardToDesktop(w http.ResponseWriter, r *http.Request, owne
 	}
 	w.WriteHeader(resp.Status)
 	_, _ = w.Write(resp.Body)
+}
+
+// settleDroppedSend 承载一次已绑定 send 的连接断开了:桌面端那一侧的请求随之取消,子会话被停
+// (spec「Remote sessions」断线期间:按「客户端断开即停止子会话」处理),agrctl 以连接失败退出。
+// 卡片按注入方的身份收成已取消 —— 桌面端重启 / 崩溃时它手上的收尾重试一起丢了,agentred 是
+// 此刻唯一看得见这件事的一方,不收这张前台卡就永远停在运行中(Hard invariant「卡片状态
+// 不说谎」)。写入分工照旧(handlers.ApplyAgrctlInfo):后台卡的状态归 CLI,这一帧不动它;
+// 已收尾的卡不被取消覆盖;桌面端若随后送达子轮的真实结果,以它为准。卡还没注入时是空操作。
+func (p *ctlProxy) settleDroppedSend(ctx context.Context, owner ctlSession, toolCallID string) {
+	if p.deps.Cards == nil {
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+	done := agentruntime.SubagentDone{ToolCallID: toolCallID, Info: agentruntime.SubagentInfo{
+		Origin: agentruntime.SubagentOriginAgrctl, Status: "canceled",
+	}}
+	if err := p.deps.Cards.Inject(ctx, owner.peer, owner.conversationID, toolCallID, []agentruntime.Event{done}); err != nil {
+		logger.Ctx(ctx).Warn("handlers.ctlProxy.settleDroppedSend: settle the subagent card failed",
+			zap.String("conversationId", owner.conversationID), zap.String("toolUseId", toolCallID), zap.Error(err))
+		return
+	}
+	logger.Ctx(ctx).Info("handlers.ctlProxy.settleDroppedSend: the connection carrying the send dropped; subagent card settled as canceled",
+		zap.String("conversationId", owner.conversationID), zap.String("toolUseId", toolCallID))
+}
+
+// ctlSendBody 是 send 请求里绑定要看的那几项(与桌面端 ctl_svc.sendRequest 同形)。
+type ctlSendBody struct {
+	SessionID int64  `json:"sessionId"`
+	Agent     string `json:"agent"`
+	AgentID   int64  `json:"agentId"`
+	Text      string `json:"text"`
+	Wait      bool   `json:"wait"`
+}
+
+// bindSend 在转发一次 send 之前,于这条会话当前这一轮里匹配发出它的那条外层 shell 调用
+// (spec 2026-10-27「agrctl send 子代理卡」Remote sessions 第 1 条、Design 12:父轮的宿主
+// 负责绑定),绑上就把调用 ID 与是否后台写进转给桌面端的请求头,交回被占住的调用 ID。
+// 那条调用还没出现时至多等 SendBindWait(见 awaitCtlSendBinding)。
+// 不绑定时记一条 info 说明原因并交回空串 —— 桌面端照今天的流程执行,父转录不变。
+// 只在桌面端拥有的路径上调用:控制台拥有的会话不绑(Design 4)。
+func (p *ctlProxy) bindSend(ctx context.Context, owner ctlSession, body []byte, headers map[string][]string) string {
+	notBound := func(reason string) string {
+		logger.Ctx(ctx).Info("handlers.ctlProxy.forwardToDesktop: subagent card not bound",
+			zap.String("conversationId", owner.conversationID), zap.String("reason", reason))
+		return ""
+	}
+	var req ctlSendBody
+	if err := json.Unmarshal(body, &req); err != nil {
+		return notBound("invalid_body") // 桌面端会照样以 400 拒绝它
+	}
+	switch {
+	case !req.Wait:
+		return notBound(ctlSendNoWait)
+	case req.SessionID > 0:
+		return notBound(ctlSendExistingSession)
+	}
+	target := ctlbind.Target{Task: req.Text}
+	if req.AgentID > 0 {
+		target.AgentID = req.AgentID
+	} else {
+		target.AgentName = strings.TrimSpace(req.Agent)
+	}
+	binding, reason := p.deps.Sessions.awaitCtlSendBinding(ctx, owner, target, p.deps.SendBindWait)
+	if reason != "" {
+		return notBound(reason)
+	}
+	headers[ctlBindToolCallHeader] = []string{binding.ToolCallID}
+	if binding.Background {
+		headers[ctlBindBackgroundHeader] = []string{"true"}
+	}
+	logger.Ctx(ctx).Info("handlers.ctlProxy.forwardToDesktop: subagent card bound",
+		zap.String("conversationId", owner.conversationID),
+		zap.String("toolCallId", binding.ToolCallID),
+		zap.Bool("background", binding.Background))
+	return binding.ToolCallID
 }
 
 // isCtlWrite 判断请求是不是一次写入(要审批、要发等待行)。解不开的正文交给执行者报错。

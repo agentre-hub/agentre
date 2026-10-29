@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 import {
+  agrctlOverlayCountOfKind,
   assistantMessageCountContaining,
   e2eDataDir,
   errorSessionCountContaining,
@@ -23,6 +24,7 @@ const SECOND_TURN_PROMPT = `desktop-smoke-second-turn-${runID}`;
 const PROJECT_NAME = `desktop-project-${runID}`;
 const FAILURE_REASON = `desktop-smoke-boundary-${runID}`;
 const FAILURE_PROMPT = `e2e-runtime-fail:${FAILURE_REASON}`;
+const ReplyPattern = "e2e-fake-reply:";
 const FAILURE_TEXT = `e2e-runtime-failure: ${FAILURE_REASON}`;
 
 async function createChat(page: Page) {
@@ -134,6 +136,51 @@ test.describe.serial("desktop smoke", () => {
     await expect(page.getByText(cwdPrompt, { exact: true }).first()).toBeVisible();
     await expect(page.getByText(`e2e-cwd-ok:${projectPath}`, { exact: false })).toBeVisible();
   });
+
+  // late:Codex 的顺序 —— send 先到、子会话已经出了一步,前台 shell 调用才登记进父轮。
+  const agrctlSendShapes = {
+    fg: "a foreground Bash call running agrctl send --wait",
+    bg: "a background Bash call running agrctl send --wait",
+    late: "an agrctl send --wait that reaches the desktop before its foreground Bash call is registered",
+  } as const;
+  for (const mode of ["fg", "bg", "late"] as const) {
+    test(`Given ${agrctlSendShapes[mode]}, when the child session works and finishes, then the shell call is upgraded in place into one subagent card with live steps and the final text, and it survives a reload`, async ({ page }) => {
+      const label = `ctl-${mode}-${runID}`;
+      // 库里的卡片计数跨用例累计(同一 kind 的前一个用例已留下一张):只看这一轮新增的。
+      const expectedKind = mode === "bg" ? "local_bash" : "agrctl_send";
+      const overlaysBefore = agrctlOverlayCountOfKind(expectedKind);
+      await page.goto("/");
+      await expect(page.getByTestId("new-chat-button")).toBeVisible();
+      await createChat(page);
+      await send(page, `e2e-agrctl-send:${mode}:${seededLocalAgentID()}:${label}`);
+
+      // 升级:父轮的 shell 调用原地变成一张子代理卡(且只有一张)。
+      const card = page.getByTestId("agent-spawn-card");
+      await expect(card).toHaveCount(1);
+      await card.locator('[aria-expanded]').first().click();
+
+      // 实时步骤:子会话的嵌套 Bash 步骤在卡片仍在运行时出现。
+      await expect(card.getByText("echo e2e-step-1").first()).toBeVisible();
+      await expect(card.getByTestId("agent-spawn-status-pill")).toBeVisible();
+
+      // 收尾:子会话最终文本进入 SUMMARY,轮结束。
+      await expect(card.getByText(new RegExp(`${ReplyPattern}.*${label}`))).toBeVisible();
+      await expect(card.getByText("echo e2e-step-2").first()).toBeVisible();
+      await expect(page.getByTestId("tab-spinner")).toHaveCount(0);
+      await expect.poll(() => runningSessionCount()).toBe(0);
+
+      // 落库形态:前台是 agrctl 专属 kind;后台保留 local_bash(后台面板语义)。
+      await expect.poll(() => agrctlOverlayCountOfKind(expectedKind)).toBe(overlaysBefore + 1);
+
+      // 重载:卡片仍是同一张,步骤与最终文本都在。
+      await page.reload();
+      const reloaded = page.getByTestId("agent-spawn-card");
+      await expect(reloaded).toHaveCount(1);
+      await reloaded.locator('[aria-expanded]').first().click();
+      await expect(reloaded.getByText("echo e2e-step-2").first()).toBeVisible();
+      await expect(reloaded.getByText(new RegExp(`${ReplyPattern}.*${label}`))).toBeVisible();
+    });
+  }
 });
 
 type ProjectWailsWindow = {

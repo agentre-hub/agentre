@@ -127,7 +127,7 @@ const (
 type SubagentInfo struct {
 	TaskID          string        `json:"taskId,omitempty"`
 	SubagentType    string        `json:"subagentType,omitempty"`
-	Kind            string        `json:"kind,omitempty"` // local_bash | local_agent（区分后台 bash 与 subagent；空=未知/旧帧）
+	Kind            string        `json:"kind,omitempty"` // local_bash | local_agent | agrctl_send（区分后台 bash、subagent 与前台 agrctl send 卡；空=未知/旧帧）
 	TaskDescription string        `json:"taskDescription,omitempty"`
 	Prompt          string        `json:"prompt,omitempty"`
 	LastToolName    string        `json:"lastToolName,omitempty"`
@@ -142,7 +142,39 @@ type SubagentInfo struct {
 	// 如 "Agent terminated early due to an API error: ...")。不填 Runs 的单运行
 	// 生产者只有这一处承载结论。
 	Summary string `json:"summary,omitempty"`
+
+	// 以下四个字段只由 agrctl 绑定的注入方填写(见 SubagentOriginAgrctl),CLI / 各
+	// runtime 的 task 帧从不带它们。
+	//
+	// Origin 标出这一帧的来源:空 = 生产者(CLI / runtime)自己发的 task 帧;
+	// SubagentOriginAgrctl = 注入方把 `agrctl send --wait` 的子会话镜像到父 shell 调用上。
+	// 绑定过的 overlay 按它分辨写入分工(嵌套步骤 / 用量 / 工具数 / 最终文本归注入方,
+	// 后台卡的状态归 CLI)。
+	Origin string `json:"origin,omitempty"`
+	// ChildSessionID 是 send 建出的子会话 ID,卡片据此跳转到子会话。
+	ChildSessionID int64 `json:"childSessionId,omitempty"`
+	// Isolated 子会话是 `--isolated` 一次性会话(不在侧栏里),卡片不提供跳转入口。
+	Isolated bool `json:"isolated,omitempty"`
+	// FinalText 是子轮的最终文本 —— 也就是父 agent 从 agrctl stdout 拿到的那一段。
+	// 与 Summary 分开存放:后台 Bash 的 task_notification.summary 是退出码文本
+	// (「Background command completed (exit code 0)」),不能把它覆盖掉。
+	FinalText string `json:"finalText,omitempty"`
 }
+
+// SubagentInfo.Kind 的取值。local_bash / local_agent 是 Claude CLI task_type 的原值;
+// SubagentKindAgrctl 是前台 `agrctl send --wait` 绑定出来的子代理卡专用的 kind ——
+// 它既不能用 local_bash(前台 local_bash 在 Started 时就被丢弃),也不能用
+// local_agent(会被当成默认后台的任务)。后台(run_in_background)的 agrctl 卡保留
+// local_bash,后台面板 / 停止按钮 / 轮结束保护都依赖这个 kind。
+const (
+	SubagentKindLocalBash  = "local_bash"
+	SubagentKindLocalAgent = "local_agent"
+	SubagentKindAgrctl     = "agrctl_send"
+)
+
+// SubagentOriginAgrctl 是 SubagentInfo.Origin / SubagentStateBlock.Origin 的取值:
+// 这张卡(或这一帧)来自 agrctl send --wait 的绑定注入方。
+const SubagentOriginAgrctl = "agrctl"
 
 // SubagentRun is one normalized child execution scoped by the outer tool call.
 // Legacy Claude producers may leave SubagentInfo.Runs empty.

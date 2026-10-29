@@ -16,6 +16,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/handlers"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
@@ -55,7 +56,9 @@ type turnRun struct {
 	// durableCtx 是持久帧那一路自己的轮上下文。持久帧只累积、不产生宿主副作用 ——
 	// 待决策的登记、计时、前端流都归实时那一路(它在这条会话上先发生过一次),
 	// 拿同一个 turnCtx 再走一遍会把已经答完的待决策重新挂回去。
-	durableCtx    *turn.TurnContext
+	durableCtx *turn.TurnContext
+	// cards 持久帧那一路的子代理卡帧路由,见 durableCards。
+	cards         *durableCards
 	streamStopErr error
 	segmentStart  time.Time
 	dispEmit      *dispatcherEmitter
@@ -67,9 +70,51 @@ type turnRun struct {
 	// FinishToolApproval 进来):两边都往本轮的累加器与 assistant 消息里写、都 checkpoint。
 	// 事件循环逐条事件持有它,审批只在这一轮收口(closeApprovals)之前能拿到它改转录。
 	mu sync.Mutex
-	// approvals 本轮登记的审批卡;approvalsClosed 之后不再登记、不再改写。都由 mu 守。
-	approvals       []*turnApproval
-	approvalsClosed bool
+	// approvals 本轮登记的审批卡;transcriptClosed 之后不再登记、不再改写。都由 mu 守。
+	approvals []*turnApproval
+	// transcriptClosed 这一轮已收口(closeApprovals):此后转录归 finalize,事件循环之外的
+	// 写入方(审批卡、agrctl send 绑定的卡)都不再碰这一轮的累加器。由 mu 守。
+	transcriptClosed bool
+	// ctlSends 还没解析的 agrctl send 绑定:send 已到,发出它的 shell 调用还没登记进这一轮
+	// (ctl_subagent.go)。每登记一个外层调用重新匹配一次,收口时一律放弃。由 mu 守。
+	ctlSends []*ctlSendPendingBind
+	// persisted 在 finalize 把这一轮的 assistant 整条落库之后关闭(由 mu 守,惰性创建)。
+	// 收口(transcriptClosed)到落库之间,别处对这条消息的定向写入会被收尾那一发整条覆盖
+	// 掉;父轮结束后还要往原消息里写的(agrctl send 绑定的卡,ctl_subagent.go)等它再写。
+	persisted chan struct{}
+}
+
+// persistedSignal 交回「这一轮的 assistant 已整条落库」的信号,见 turnRun.persisted。
+func (t *turnRun) persistedSignal() <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.persistedLocked()
+}
+
+// finalSaveOf 交回这一轮收尾整条落库的信号,仅当 messageID 是这一轮此刻那一行 assistant
+// (收尾只整条保存这一行);否则为 nil。
+func (t *turnRun) finalSaveOf(messageID int64) <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.assistantMsg == nil || t.assistantMsg.ID != messageID {
+		return nil
+	}
+	return t.persistedLocked()
+}
+
+// markPersisted 由 finalize 在收尾那一发落库之后调用一次。
+func (t *turnRun) markPersisted() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	close(t.persistedLocked())
+}
+
+// persistedLocked 惰性建出 persisted。调用方持有 mu。
+func (t *turnRun) persistedLocked() chan struct{} {
+	if t.persisted == nil {
+		t.persisted = make(chan struct{})
+	}
+	return t.persisted
 }
 
 // attachRuntime 落 runner-start 侧效果:回吐 provider session id、按 runtime 能力
@@ -219,6 +264,12 @@ func (t *turnRun) applyDurable(ctx context.Context, ev agentruntime.Event) {
 	if t.durableCtx == nil {
 		t.durableCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
 	}
+	if t.cards == nil {
+		t.cards = t.svc.newDurableCards(t.sess.ID, t.stream, t)
+	}
+	if t.cards.restore(ctx, t.acc, ev) {
+		return
+	}
 	if err := t.svc.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, t.durableCtx); err != nil {
 		logger.Ctx(ctx).Warn("chat dispatcher Apply failed",
 			zap.String("eventType", fmt.Sprintf("%T", ev)),
@@ -267,6 +318,9 @@ func (t *turnRun) applyLive(ctx context.Context, ev agentruntime.Event, preview 
 	// Peer fanout observes the original canonical event before local reduction;
 	// it never replaces the desktop emitter or dispatcher.
 	t.svc.publishPeerEvent(t.sess.ID, ev)
+	// 这一轮若是某次 `agrctl send --wait` 建出的子会话,同一份原始事件交给父转录里的
+	// 子代理卡(ctl_subagent.go)。只入队、不等父轮的锁。
+	t.svc.mirrorCtlSendChild(t.sess.ID, t.assistantMsg.Model, ev)
 	if t.streamStopErr != nil {
 		if eventShowsProgressAfterError(ev) {
 			fields := make([]zap.Field, 0, 6)
@@ -339,6 +393,11 @@ func (t *turnRun) applyLive(ctx context.Context, ev agentruntime.Event, preview 
 			zap.String("eventType", fmt.Sprintf("%T", ev)),
 			zap.Error(err))
 	}
+	// 外层调用刚登记进本轮转录:早到的 agrctl send 也许等的就是它(Codex 的命令在 send
+	// 到达之后才登记)。远端那一路的绑定归 agentred,这里不挂待定绑定。
+	if call, ok := ev.(agentruntime.ToolCall); ok && !preview && call.ParentToolCallID == "" {
+		t.resolveCtlSends(ctx)
+	}
 	// 在途工具都配上结果了:分段落地,tool_use 与 tool_result 一起留在旧 assistant。
 	if len(t.pendingSteers) > 0 && !t.liveAcc(preview).HasOpenToolUse() {
 		t.flushPendingSteers(ctx)
@@ -354,8 +413,11 @@ func (t *turnRun) finalize(ctx context.Context) {
 	// 先关上审批:之后没有别的 goroutine 再碰本轮转录,仍挂起的卡原地标 expired,
 	// 随下面的落库与 publishPeerTurnDone 出去(卡本来就在累加器里,不再另行追加)。
 	t.closeApprovals(ctx)
-	// 流结束时仍在推迟的分段必须落地:steer 已经从 inbox drain 走了,不落就丢。
-	t.flushPendingSteers(ctx)
+	// 不会再有外层调用登记了:还在等自己那条 shell 调用的 agrctl send 不再绑定。
+	t.abandonCtlSends(ctx)
+	// 流结束时仍在推迟的分段必须落地:steer 已经从 inbox drain 走了,不落就丢。分段会换掉
+	// assistantMsg,与事件循环里那几处一样在 mu 下做:补齐轮那条 goroutine 经 finalSaveOf 读它。
+	t.locked(func() { t.flushPendingSteers(ctx) })
 	t.turnCtx.ClearWaits()
 
 	if t.req.CollaborationMode == ipc.ModePlan && !t.compact && t.acc.Empty() {
@@ -497,6 +559,8 @@ func (t *turnRun) finalize(ctx context.Context) {
 	// 用它写 Update 会静默失败，partial 内容就丢了。
 	finalCtx := context.WithoutCancel(ctx)
 	_ = transcript_repo.Message().Update(finalCtx, t.assistantMsg)
+	// 交接:此后对这条消息的定向写入不会再被收尾覆盖。
+	t.markPersisted()
 	// 落库之后立刻把同一份统计发给对端订阅者:Peer Tab 的 meta 与本机看到的是
 	// 同一条 assistant 消息,数不该只有本机有。
 	t.svc.publishPeerTurnDone(finalCtx, t.sess.ID, t.stream, t.assistantMsg)
@@ -684,4 +748,81 @@ func (t *turnRun) finalize(ctx context.Context) {
 		Aborted:            aborted,
 		Err:                stopErr,
 	})
+}
+
+// durableCards 一轮持久帧里的子代理卡帧怎么落,两条 applyDurable(当前那一轮、补齐 /
+// 自主续轮)各持一只:
+//
+//   - 发起它的调用在本轮:SubagentDone 当整份快照还原进本轮(restoreSubagentSnapshot);
+//   - 发起它的调用在更早的消息里、那是一张 agrctl 卡:写回那条原消息(writeBackEarlierCard,
+//     ctl_subagent.go)。agentred 在父轮结束后改写原消息里的卡,变化的块以新 seq 的持久帧发来,
+//     帧不带消息归属 —— 不认领的话卡片停在旧状态,嵌套步骤落进这一轮新长的那一行。
+//
+// 其余(原生卡、找不到卡)走原有路径。
+type durableCards struct {
+	svc       *chatSvc
+	sessionID int64
+	// liveStream 这一轮自己的流。
+	liveStream string
+	// notAgrctl 已知不归这里写回的发起调用(库里没有这张卡,或它不是 agrctl 卡):同一轮里
+	// 它们的帧不再查库,直接走原有路径 —— 一个原生后台子代理的嵌套步骤可以有成百上千帧。
+	notAgrctl map[string]bool
+	// owner 持有这只的那一轮(当前那一轮);补齐 / 自主续轮那一路为 nil。
+	owner *turnRun
+}
+
+func (s *chatSvc) newDurableCards(sessionID int64, liveStream string, owner *turnRun) *durableCards {
+	return &durableCards{svc: s, sessionID: sessionID, liveStream: liveStream, notAgrctl: map[string]bool{}, owner: owner}
+}
+
+// restore 交回 true 表示这一帧已处理、不再进 dispatcher。
+func (c *durableCards) restore(ctx context.Context, acc *turn.Accumulator, ev agentruntime.Event) bool {
+	if done, ok := ev.(agentruntime.SubagentDone); ok && restoreSubagentSnapshot(acc, done) {
+		return true
+	}
+	toolCallID := earlierCardOf(acc, ev)
+	if toolCallID == "" || c.notAgrctl[toolCallID] {
+		return false
+	}
+	return c.writeBackEarlierCard(ctx, toolCallID, ev)
+}
+
+// restoreSubagentSnapshot 把持久帧里的 SubagentDone 当作 subagent_state 块的**整份快照**
+// 落进本轮转录。
+//
+// 持久帧是宿主落库之后的那一份事实:agentred 的 subagent_state 块投影成一帧 SubagentDone,
+// 带着卡片的全部内容。回放没有实时那一路的 Started / Progress,SubagentDoneHandler 又只
+// 改已有的 overlay,所以走 dispatcher 时这张卡整张回放不出来(远端的原生子代理卡与
+// agrctl 卡一样)。快照语义也比逐字段合并准确:块里什么就是什么,不受 handler 的写入
+// 分工(注入方 / CLI)约束。
+//
+// 返回 false 表示这不是本轮里一次调用的卡片(发起它的 tool_use 在更早的消息里,例如后台
+// 任务在别的轮完成),交回调用方。Model 不在这里处理:它随后的 SubagentModel 帧另带,经
+// handler 写入这块 overlay。
+func restoreSubagentSnapshot(acc *turn.Accumulator, done agentruntime.SubagentDone) bool {
+	if done.ToolCallID == "" || !acc.HasToolUse(done.ToolCallID) {
+		return false
+	}
+	key := "subagent_state:" + done.ToolCallID
+	apply := func(b *transcriptblocks.SubagentStateBlock) { applySubagentSnapshot(b, done) }
+	if turn.Mutate[transcriptblocks.SubagentStateBlock](acc, key, apply) {
+		return true
+	}
+	blk := &transcriptblocks.SubagentStateBlock{}
+	apply(blk)
+	acc.AddBlock(blk, key)
+	return true
+}
+
+// applySubagentSnapshot 把持久帧带来的整份卡片内容写到 b 上。帧里没有的字段(Model、
+// nested_tool_call_ids、resumes)原样保留:它们另有帧 / 写入方。
+func applySubagentSnapshot(b *transcriptblocks.SubagentStateBlock, done agentruntime.SubagentDone) {
+	info := done.Info
+	b.ParentToolCallID = done.ToolCallID
+	b.TaskID, b.Kind, b.Description = info.TaskID, info.Kind, info.TaskDescription
+	b.Status, b.Summary, b.Mode = info.Status, info.Summary, info.Mode
+	b.Runs = append([]agentruntime.SubagentRun(nil), info.Runs...)
+	b.LastToolName, b.ToolUses = info.LastToolName, info.ToolUses
+	b.TotalTokens, b.DurationMs = info.TotalTokens, info.DurationMs
+	b.Origin, b.ChildSessionID, b.Isolated, b.FinalText = info.Origin, info.ChildSessionID, info.Isolated, info.FinalText
 }

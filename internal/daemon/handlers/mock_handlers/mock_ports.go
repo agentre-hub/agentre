@@ -242,6 +242,45 @@ func (mr *MockTranscriptPortMockRecorder) StartTurn(ctx, conversationID, userTex
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartTurn", reflect.TypeOf((*MockTranscriptPort)(nil).StartTurn), ctx, conversationID, userText, userBlocks, source)
 }
 
+// MockSubagentCardPort is a mock of SubagentCardPort interface.
+type MockSubagentCardPort struct {
+	ctrl     *gomock.Controller
+	recorder *MockSubagentCardPortMockRecorder
+	isgomock struct{}
+}
+
+// MockSubagentCardPortMockRecorder is the mock recorder for MockSubagentCardPort.
+type MockSubagentCardPortMockRecorder struct {
+	mock *MockSubagentCardPort
+}
+
+// NewMockSubagentCardPort creates a new mock instance.
+func NewMockSubagentCardPort(ctrl *gomock.Controller) *MockSubagentCardPort {
+	mock := &MockSubagentCardPort{ctrl: ctrl}
+	mock.recorder = &MockSubagentCardPortMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockSubagentCardPort) EXPECT() *MockSubagentCardPortMockRecorder {
+	return m.recorder
+}
+
+// FindSubagentCard mocks base method.
+func (m *MockSubagentCardPort) FindSubagentCard(ctx context.Context, conversationID, toolCallID string) (*transcript_entity.Message, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindSubagentCard", ctx, conversationID, toolCallID)
+	ret0, _ := ret[0].(*transcript_entity.Message)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindSubagentCard indicates an expected call of FindSubagentCard.
+func (mr *MockSubagentCardPortMockRecorder) FindSubagentCard(ctx, conversationID, toolCallID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindSubagentCard", reflect.TypeOf((*MockSubagentCardPort)(nil).FindSubagentCard), ctx, conversationID, toolCallID)
+}
+
 // MockDBStatPort is a mock of DBStatPort interface.
 type MockDBStatPort struct {
 	ctrl     *gomock.Controller

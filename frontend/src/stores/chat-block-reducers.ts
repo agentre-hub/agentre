@@ -7,6 +7,7 @@
 // payload it returns the same result, and never mutates the input array. Functions that
 // can be a no-op (no matching block, invalid payload) return `null` — the same sentinel
 // chat-streams-store's `updateStream` already uses to skip a state update.
+import { AGRCTL_ORIGIN } from "@agentre-hub/agentre-ui";
 import type { chat_svc, view } from "../../wailsjs/go/models";
 import type {
   ChatBlockData,
@@ -44,6 +45,26 @@ type LiveToolUseInput = Omit<ChatBlockData, "type" | "subagent"> & {
   subagent?: ChatBlockSubagentData;
 };
 
+/**
+ * isDuplicateNestedBlock 判断一个嵌套(parentToolUseId 非空)的 tool_use / tool_result
+ * 是否已在 blocks 里出现过。agrctl 子会话的步骤会被重发(断线补发、会话级镜像与 per-turn
+ * 流各一份),嵌套调用的 id 由后端按 (父调用, 内层调用) 唯一派生,所以同 id + 同父 + 同类型
+ * 即重复。顶层调用(无 parent)保持不去重。
+ */
+export function isDuplicateNestedBlock(
+  blocks: ChatBlockData[],
+  type: "tool_use" | "tool_result",
+  block: { toolUseId?: string; parentToolUseId?: string },
+): boolean {
+  if (!block.parentToolUseId || !block.toolUseId) return false;
+  return blocks.some(
+    (b) =>
+      b.type === type &&
+      b.toolUseId === block.toolUseId &&
+      b.parentToolUseId === block.parentToolUseId,
+  );
+}
+
 /** appendToolUseBlock 把一个 tool_use block 追加到尾部。 */
 export function appendToolUseBlock(
   blocks: ChatBlockData[],
@@ -58,6 +79,28 @@ export function appendToolResultBlock(
   block: Omit<ChatBlockData, "type">,
 ): ChatBlockData[] {
   return [...blocks, { ...block, type: "tool_result" } as ChatBlockData];
+}
+
+/** isAgrctlSubagentMeta:这份 meta 是否来自 agrctl 升级(事件带 origin=agrctl)。 */
+export function isAgrctlSubagentMeta(meta: ChatBlockSubagentData): boolean {
+  return meta.origin === AGRCTL_ORIGIN;
+}
+
+/**
+ * applySubagentMeta 把一份 subagent 事件 meta 浅合并进块上已有的 overlay:runs 是完整快照,
+ * 出现时整段替换,undefined/省略时保留旧值(agrctl 卡的单运行快照由后端派生并随事件带来)。
+ * live 与已落库两条路径共用这一处。
+ */
+export function applySubagentMeta(
+  existing: ChatBlockSubagentData | undefined,
+  meta: ChatBlockSubagentData,
+): ChatBlockSubagentData {
+  const { runs, ...patch } = meta;
+  return {
+    ...(existing ?? {}),
+    ...patch,
+    ...(runs !== undefined ? { runs } : {}),
+  } as ChatBlockSubagentData;
 }
 
 /**
@@ -96,14 +139,12 @@ export function mergeSubagentMetaBlocks(
   );
   if (targetIdx < 0) return null;
   const target = blocks[targetIdx];
-  const { runs, ...patch } = meta;
   const merged: ChatBlockData = {
     ...target,
-    subagent: {
-      ...(target.subagent ?? {}),
-      ...patch,
-      ...(runs !== undefined ? { runs } : {}),
-    } as chat_svc.ChatBlockSubagent,
+    subagent: applySubagentMeta(
+      target.subagent,
+      meta,
+    ) as chat_svc.ChatBlockSubagent,
   };
   return replaceBlock(blocks, targetIdx, merged);
 }

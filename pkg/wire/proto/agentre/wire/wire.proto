@@ -42,7 +42,7 @@ extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-option (agentre.wire.protocol_version) = "0.6.0";
+option (agentre.wire.protocol_version) = "0.7.0";
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -125,6 +125,7 @@ enum RpcMethod {
   RPC_METHOD_CLI_MODELS_LIST = 77;
   RPC_METHOD_RUNTIME_SET_CLI_MODEL = 78;
   RPC_METHOD_SET_SESSION_CLI_MODEL = 79;
+  RPC_METHOD_RUNTIME_INJECT_SUBAGENT_EVENTS = 80;
 }
 
 message WireFrame {
@@ -767,6 +768,20 @@ message RuntimeDrainPendingResponse { repeated ConsumedSteer steers = 1; }
 message RuntimeAbortRequest { string conversation_id = 1; string peer_fingerprint = 2; uint64 turn_token = 3; }
 message RuntimeAbortResponse { string turn_kind = 1; }
 message RuntimeStopBackgroundTaskRequest { string conversation_id = 1; string peer_fingerprint = 2; string task_id = 3; }
+// RuntimeInjectSubagentEventsRequest is the desktop handing agentred the events of an
+// `agrctl send --wait` child session, to be written into the parent shell call
+// tool_call_id on agentred's own transcript. events reuse the runtime event encoding
+// (RuntimeEventNotification): subagent_started / subagent_progress / subagent_done carrying
+// SubagentInfo.origin = "agrctl", and nested tool_call / tool_result carrying
+// parent_tool_call_id. conversation_id / seq / preview on each element are ignored.
+// Injection is idempotent: a nested id already on the card is not written twice, and a
+// tool_call_id agentred cannot find is a successful no-op.
+message RuntimeInjectSubagentEventsRequest {
+  string conversation_id = 1;
+  string peer_fingerprint = 2;
+  string tool_call_id = 3;
+  repeated RuntimeEventNotification events = 4;
+}
 message RuntimeSetPermissionModeRequest { string conversation_id = 1; string peer_fingerprint = 2; string mode = 3; }
 // 已附着会话的 CLI 热切换；value 为空时回到 CLI 默认，不重启进程。
 message RuntimeSetCLIModelRequest {
@@ -1402,6 +1417,16 @@ message SubagentInfo {
   // producers carry their conclusion here and nowhere else — a resumed run has no
   // tool_result of its own, so dropping this loses the report entirely.
   string summary = 13;
+  // origin is non-empty ("agrctl") when an injecting host mirrored an `agrctl send
+  // --wait` child session onto the parent shell call; empty for producer-sent frames.
+  string origin = 14;
+  // child_session_id is the session send created; the card's "open session" entry.
+  int64 child_session_id = 15;
+  // isolated marks a one-shot --isolated child session (no jump entry).
+  bool isolated = 16;
+  // final_text is the child turn's final text, kept apart from summary (a background
+  // Bash task_notification.summary is an exit-code line that must not be overwritten).
+  string final_text = 17;
 }
 message SubagentEvent { string tool_call_id = 1; SubagentInfo info = 2; }
 message SubagentModel { string tool_call_id = 1; string model = 2; }

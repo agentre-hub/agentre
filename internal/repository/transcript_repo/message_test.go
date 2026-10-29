@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
@@ -984,4 +986,161 @@ func TestMessageRepo_ResumeSubagentByTaskID_EmptyArgsShortCircuit(t *testing.T) 
 	got, err := transcript_repo.NewMessage().ResumeSubagentByTaskID(ctx, 3, "", "running")
 	require.NoError(t, err)
 	require.Equal(t, "", got, "task_id 为空不查库 —— 空 task_id 匹配不出唯一的卡")
+}
+
+// TestFlipSubagentInBlockData_AgrctlCard 钉住 CLI 跨消息翻转落在 agrctl 绑定的卡上时的
+// 写入分工(spec「agrctl send 子代理卡」Design 11 与「写入冲突」):后台卡的状态归 CLI,
+// 但 resume 前奏补发的 stopped 不能把已收尾的卡翻回已取消;前台卡上 CLI 什么都不写;
+// 状态变化同步到单运行快照(重载时卡片读的是它)。
+func TestFlipSubagentInBlockData_AgrctlCard(t *testing.T) {
+	const background = `{"parent_tool_call_id":"sh-bg","kind":"local_bash","origin":"agrctl","child_session_id":9,` +
+		`"status":"%s","final_text":"子任务结论","mode":"single","runs":[{"id":"agrctl:9","agent":"reviewer","status":"%s"}]}`
+
+	t.Run("后台卡运行中 → CLI 的完成通知翻状态并同步单运行快照,最终文本不动", func(t *testing.T) {
+		in := []byte(strings.ReplaceAll(background, "%s", "running"))
+		out, flipped, err := transcript_repo.FlipSubagentInBlockData(in, "completed", "Background command completed (exit code 0)")
+		require.NoError(t, err)
+		assert.True(t, flipped)
+		got := blockData(t, out)
+		assert.Equal(t, "completed", got["status"])
+		assert.Equal(t, "Background command completed (exit code 0)", got["summary"])
+		assert.Equal(t, "子任务结论", got["final_text"])
+		assert.Equal(t, "completed", got["runs"].([]any)[0].(map[string]any)["status"])
+	})
+
+	t.Run("后台卡已完成 → resume 前奏的 stopped(canceled)整帧不收", func(t *testing.T) {
+		in := []byte(strings.ReplaceAll(background, "%s", "completed"))
+		out, flipped, err := transcript_repo.FlipSubagentInBlockData(in, "canceled", "stopped")
+		require.NoError(t, err)
+		assert.False(t, flipped)
+		assert.Equal(t, in, out)
+	})
+
+	t.Run("前台卡 → CLI 的翻转一律不收", func(t *testing.T) {
+		in := []byte(`{"parent_tool_call_id":"sh-1","kind":"agrctl_send","origin":"agrctl","status":"running"}`)
+		out, flipped, err := transcript_repo.FlipSubagentInBlockData(in, "failed", "exit code 143")
+		require.NoError(t, err)
+		assert.False(t, flipped)
+		assert.Equal(t, in, out)
+	})
+}
+
+// TestMessageRepo_PatchSubagentState_RewritesTheCardUnderMutate 钉住父轮结束后宿主改写原消息
+// 里那块 overlay 的入口:按定位键点查到那一个块行,把解出的块交给 mutate 改,改过才写回
+// 那一行(与 FlipSubagentStatus 同一把会话锁,读-改-写不丢对方的写入)。
+func TestMessageRepo_PatchSubagentState_RewritesTheCardUnderMutate(t *testing.T) {
+	const card = `{"parent_tool_call_id":"sh-1","kind":"agrctl_send","origin":"agrctl","status":"running","task_id":"keep"}`
+
+	t.Run("命中 → mutate 看到落库的块,改过的整块写回", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+		expectSubagentBlockLookup(mock, 3, "sh-1", subagentBlockRows(42, "sh-1", card))
+		mock.ExpectExec("UPDATE `chat_message_blocks` SET `codec`=\\?,`data`=\\? WHERE message_id = \\? AND idx = \\?").
+			WithArgs(transcript_entity.BlockCodecRaw, blockDataContains{substrings: []string{
+				`"status":"completed"`, `"final_text":"LGTM"`, `"task_id":"keep"`, `"origin":"agrctl"`,
+			}}, int64(42), 0).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		var seen blocks.SubagentStateBlock
+		found, err := transcript_repo.NewMessage().PatchSubagentState(ctx, 3, "sh-1", func(sb *blocks.SubagentStateBlock) bool {
+			seen = *sb
+			sb.Status, sb.FinalText = "completed", "LGTM"
+			return true
+		})
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, "running", seen.Status)
+		assert.Equal(t, agentruntime.SubagentOriginAgrctl, seen.Origin)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("mutate 说没改 → 不写库", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+		expectSubagentBlockLookup(mock, 3, "sh-1", subagentBlockRows(42, "sh-1", card))
+		found, err := transcript_repo.NewMessage().PatchSubagentState(ctx, 3, "sh-1", func(*blocks.SubagentStateBlock) bool { return false })
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("定位不到 → found=false,不调 mutate、不写库", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+		expectSubagentBlockLookup(mock, 3, "sh-x", emptyBlockRows())
+		called := false
+		found, err := transcript_repo.NewMessage().PatchSubagentState(ctx, 3, "sh-x", func(*blocks.SubagentStateBlock) bool {
+			called = true
+			return true
+		})
+		require.NoError(t, err)
+		assert.False(t, found)
+		assert.False(t, called)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func openCardRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"session_id", "tool_call_id", "codec", "data"})
+}
+
+func TestMessageRepo_ListOpenAgrctlCards_QueriesLocalSessionsByJSONPredicate(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	// 本机判据与 ResetActiveSessions 同源(exec_device_id<=0 OR 指纹为空);JSON 判据在
+	// SQL 里收窄,不读消息正文。
+	mock.ExpectQuery("SELECT .* FROM `chat_message_blocks` JOIN `chat_messages` .* JOIN `chat_sessions` .*"+
+		"`chat_sessions`.`exec_device_id` <= \\? OR `chat_sessions`.`exec_device_fingerprint` = \\?.*"+
+		"json_extract\\(CAST\\(`chat_message_blocks`.`data` AS TEXT\\), '\\$.origin'\\) = \\?.*'\\$.status'\\) IN \\(\\?,\\?\\)").
+		WithArgs("subagent_state", 1, int64(0), "", transcript_entity.BlockCodecRaw, "agrctl", "running", "waiting").
+		WillReturnRows(openCardRows().
+			AddRow(7, "tu1", transcript_entity.BlockCodecRaw,
+				[]byte(`{"parent_tool_call_id":"tu1","kind":"local_bash","status":"running","origin":"agrctl"}`)))
+
+	got, err := transcript_repo.NewMessage().ListOpenAgrctlCards(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []transcript_repo.OpenAgrctlCard{{SessionID: 7, ToolCallID: "tu1"}}, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMessageRepo_ListOpenAgrctlCards_ChecksCompressedBlocksInGo(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	big := `{"parent_tool_call_id":"tu-open","status":"waiting","origin":"agrctl","pad":"` + strings.Repeat("x", 8192) + `"}`
+	done := `{"parent_tool_call_id":"tu-done","status":"completed","origin":"agrctl","pad":"` + strings.Repeat("y", 8192) + `"}`
+	native := `{"parent_tool_call_id":"tu-native","status":"running","pad":"` + strings.Repeat("z", 8192) + `"}`
+	rows := openCardRows()
+	for i, raw := range []struct{ id, data string }{{"tu-open", big}, {"tu-done", done}, {"tu-native", native}} {
+		codec, enc := transcript_entity.EncodeBlockData([]byte(raw.data))
+		require.NotEqual(t, transcript_entity.BlockCodecRaw, codec)
+		rows.AddRow(int64(10+i), raw.id, codec, enc)
+	}
+	mock.ExpectQuery("SELECT .* FROM `chat_message_blocks`").WillReturnRows(rows)
+
+	got, err := transcript_repo.NewMessage().ListOpenAgrctlCards(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []transcript_repo.OpenAgrctlCard{{SessionID: 10, ToolCallID: "tu-open"}}, got,
+		"压缩块 SQL 判不了,Go 里解码后只留 agrctl + 未收尾")
+}
+
+func TestMessageRepo_ListOpenAgrctlCards_NoCards(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	mock.ExpectQuery("SELECT .* FROM `chat_message_blocks`").WillReturnRows(openCardRows())
+
+	got, err := transcript_repo.NewMessage().ListOpenAgrctlCards(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestMessageRepo_ListOpenAgrctlCards_SkipsABlockThatCannotBeDecoded(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	// 一块解不开的(损坏的压缩正文)不能让整次启动清理落空:其余的孤儿卡照样交出去。
+	open := `{"parent_tool_call_id":"tu-open","status":"running","origin":"agrctl","pad":"` + strings.Repeat("x", 8192) + `"}`
+	codec, enc := transcript_entity.EncodeBlockData([]byte(open))
+	require.NotEqual(t, transcript_entity.BlockCodecRaw, codec)
+	mock.ExpectQuery("SELECT .* FROM `chat_message_blocks`").WillReturnRows(openCardRows().
+		AddRow(int64(9), "tu-broken", codec, []byte("not a compressed block")).
+		AddRow(int64(10), "tu-open", codec, enc))
+
+	got, err := transcript_repo.NewMessage().ListOpenAgrctlCards(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []transcript_repo.OpenAgrctlCard{{SessionID: 10, ToolCallID: "tu-open"}}, got)
 }

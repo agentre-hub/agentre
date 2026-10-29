@@ -117,6 +117,9 @@ func NewApp(modes ...RuntimeMode) *App {
 
 var resetStaleActiveSessions = bootstrap.ResetStaleActiveSessions
 
+// settleOrphanedAgrctlCards 是启动清理的第二步,见 resetStaleSessionsOnStartup。
+var settleOrphanedAgrctlCards = chat_svc.SettleOrphanedAgrctlCards
+
 // Startup is wired to wails OnStartup. The context is saved so we can call
 // the runtime methods.
 func (a *App) Startup(ctx context.Context) {
@@ -232,6 +235,11 @@ func (a *App) onRemoteDeviceOnline(id int64, online bool) {
 func (a *App) resetStaleSessionsOnStartup(ctx context.Context) {
 	if err := resetStaleActiveSessions(ctx); err != nil {
 		logger.Ctx(ctx).Warn("app.Startup: reset stale active sessions", zap.Error(err))
+	}
+	// 承载 agrctl 的进程随上一个桌面进程死掉,本机父会话里仍 running/waiting 的 agrctl 卡
+	// 再没有谁会给它写终态:紧接着收成已取消。远端父会话的卡归 agentred,不在此列。
+	if _, err := settleOrphanedAgrctlCards(ctx); err != nil {
+		logger.Ctx(ctx).Warn("app.Startup: settle orphaned agrctl cards", zap.Error(err))
 	}
 }
 
@@ -427,6 +435,8 @@ func (a *App) registerChatService() {
 	// ctl_svc 控制 API 的 chat 依赖也必须在 RegisterChat 之后:ctl_svc 直接持有
 	// chat_svc.Chat(),不再懒解析(bootstrap 里只挂 ControlHandler,这里补齐 deps)。
 	ctl_svc.Default().RegisterDeps(agent_repo.Agent(), ctl_svc.ProjectSvcGateway(), ctl_svc.ChatSvcGateway())
+	// send --wait 的子代理卡端口同样取自 chat_svc 单例,同一时机接线。
+	ctl_svc.Default().RegisterSubagentCards(ctl_svc.ChatSubagentCards())
 
 	// hooktool_svc 依赖:hook_svc.Hook() 满足 HookService;agent_repo.Agent() 满足 AgentLookup;
 	// chat_svc.Chat() 满足 ApprovalGateway。须在 RegisterChat 之后(chat_svc.Chat() 非 nil)。

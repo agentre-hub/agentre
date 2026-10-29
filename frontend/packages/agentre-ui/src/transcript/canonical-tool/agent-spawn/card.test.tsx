@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import type { TranscriptBlock } from "../../dto";
 import { agentreUiResources } from "../../../i18n";
 import { TranscriptUIStateProvider } from "../../transcript-ui-state";
+import type { TranscriptPorts } from "../../ports";
+import { TranscriptPortsProvider } from "../../ports-context";
 
 import { AgentSpawnCard, shortenModelName } from "./card";
 
@@ -1783,5 +1785,231 @@ describe("Subagent step params section", () => {
       "max-h-64",
       "overflow-auto",
     );
+  });
+});
+
+// agrctl send --wait 升级出来的子代理卡：重载时 canonical 是 agent.spawn，live 时只有
+// subagent overlay(没有 canonical)，两条路必须画出同一张卡。
+describe("AgentSpawnCard for agrctl-upgraded shell calls", () => {
+  const upgraded = (
+    sub: Record<string, unknown>,
+    withCanonical = true,
+  ): TranscriptBlock =>
+    ({
+      type: "tool_use",
+      toolName: "Bash",
+      toolUseId: "sh",
+      toolInput: { command: "agrctl send --wait" },
+      ...(withCanonical
+        ? {
+            canonical: {
+              kind: "agent.spawn",
+              agentSpawn: { taskId: "child", taskDescription: "审查 diff" },
+            },
+          }
+        : {}),
+      subagent: {
+        origin: "agrctl",
+        kind: "agrctl_send",
+        taskId: "child",
+        childSessionId: 42,
+        runs: [
+          {
+            id: "r0",
+            index: 0,
+            agent: "reviewer",
+            task: "审查 diff",
+            status: "completed",
+          },
+        ],
+        ...sub,
+      },
+    }) as unknown as TranscriptBlock;
+
+  const withPorts = (ports: Partial<TranscriptPorts>, ui: React.ReactElement) =>
+    render(
+      <TranscriptPortsProvider ports={ports as TranscriptPorts}>
+        {ui}
+      </TranscriptPortsProvider>,
+    );
+
+  it("names the card after the target agent and shows the task as description, from the overlay alone", () => {
+    render(
+      <AgentSpawnCard toolBlock={upgraded({ status: "running" }, false)} />,
+    );
+    expect(screen.getByText("reviewer")).toBeDefined();
+    expect(screen.getByTestId("agent-spawn-status-pill")).toBeDefined();
+  });
+
+  it("shows the child's final text as SUMMARY, not the CLI exit-code summary or the shell result", () => {
+    const { container } = render(
+      <AgentSpawnCard
+        toolBlock={upgraded({
+          status: "completed",
+          finalText: "LGTM, ship it",
+          summary: "Background command completed (exit code 0)",
+        })}
+        resultBlock={
+          {
+            type: "tool_result",
+            text: "Command running in background with ID: x",
+          } as unknown as TranscriptBlock
+        }
+      />,
+    );
+    const details = expandCard(container);
+    expect(within(details).getByText(/LGTM, ship it/)).toBeDefined();
+    expect(within(details).queryByText(/exit code 0/)).toBeNull();
+    expect(within(details).queryByText(/running in background/)).toBeNull();
+  });
+
+  it("settles success as 'N steps · usage · duration' without a status pill", () => {
+    render(
+      <AgentSpawnCard
+        toolBlock={upgraded({
+          status: "completed",
+          toolUses: 3,
+          totalTokens: 1200,
+          durationMs: 12000,
+          finalText: "done",
+        })}
+      />,
+    );
+    expect(screen.getByTestId("agent-spawn-outcome").textContent).toBe(
+      "3 steps · 1.2K tok · 12.0s",
+    );
+    expect(screen.queryByTestId("agent-spawn-status-pill")).toBeNull();
+  });
+
+  it("renders failure on an error tone with the reason as SUMMARY", () => {
+    const { container } = render(
+      <AgentSpawnCard
+        toolBlock={upgraded({
+          status: "failed",
+          finalText: "child crashed: boom",
+          runs: [
+            {
+              id: "r0",
+              index: 0,
+              agent: "reviewer",
+              task: "t",
+              status: "failed",
+            },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByTestId("agent-spawn-card")).toHaveClass(
+      "bg-destructive-soft",
+    );
+    expect(screen.getByTestId("agent-spawn-status-pill").textContent).toMatch(
+      /FAILED/i,
+    );
+    expect(
+      within(expandCard(container)).getByText(/child crashed: boom/),
+    ).toBeDefined();
+  });
+
+  it("renders cancel as stopped", () => {
+    render(
+      <AgentSpawnCard
+        toolBlock={upgraded({
+          status: "canceled",
+          runs: [
+            {
+              id: "r0",
+              index: 0,
+              agent: "reviewer",
+              task: "t",
+              status: "canceled",
+            },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByTestId("agent-spawn-status-pill").textContent).toMatch(
+      /STOPPED/i,
+    );
+  });
+
+  it("offers no stop button on a foreground card, but keeps it on a background one", () => {
+    const onStop = vi.fn();
+    const running = {
+      status: "running",
+      runs: [
+        { id: "r0", index: 0, agent: "reviewer", task: "t", status: "running" },
+      ],
+    };
+    const { unmount } = render(
+      <AgentSpawnCard toolBlock={upgraded(running)} onStopSubagent={onStop} />,
+    );
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    unmount();
+
+    render(
+      <AgentSpawnCard
+        toolBlock={upgraded({ ...running, kind: "local_bash", taskId: "bg-1" })}
+        onStopSubagent={onStop}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(onStop).toHaveBeenCalledWith("sh");
+  });
+
+  it("shows 'Open session' at the right end of the meta row when the host provides the port and the child is not isolated", () => {
+    const openSession = vi.fn();
+    const { container } = withPorts(
+      { openSession },
+      <AgentSpawnCard
+        toolBlock={upgraded({ status: "completed", toolUses: 2 })}
+      />,
+    );
+    const details = expandCard(container);
+    const row = within(details).getByTestId("agent-spawn-meta-row");
+    const button = within(row).getByRole("button", { name: "Open session" });
+    expect(row.lastElementChild).toBe(button);
+    fireEvent.click(button);
+    expect(openSession).toHaveBeenCalledWith(42);
+  });
+
+  it("hides 'Open session' for an isolated child, without the port, and for native cards", () => {
+    const openSession = vi.fn();
+    const isolated = withPorts(
+      { openSession },
+      <AgentSpawnCard
+        toolBlock={upgraded({
+          status: "completed",
+          toolUses: 2,
+          isolated: true,
+        })}
+      />,
+    );
+    expect(isolated.queryByRole("button", { name: "Open session" })).toBeNull();
+    isolated.unmount();
+
+    const noPort = withPorts(
+      {},
+      <AgentSpawnCard
+        toolBlock={upgraded({ status: "completed", toolUses: 2 })}
+      />,
+    );
+    expect(noPort.queryByRole("button", { name: "Open session" })).toBeNull();
+    noPort.unmount();
+
+    const native = withPorts(
+      { openSession },
+      <AgentSpawnCard
+        toolBlock={
+          {
+            type: "tool_use",
+            canonical: {
+              kind: "agent.spawn",
+              agentSpawn: { taskId: "1", status: "completed", toolUses: 2 },
+            },
+          } as unknown as TranscriptBlock
+        }
+      />,
+    );
+    expect(native.queryByRole("button", { name: "Open session" })).toBeNull();
   });
 });

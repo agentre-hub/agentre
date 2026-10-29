@@ -100,3 +100,13 @@ func TestAssets_SkillLeaksNoCredential(t *testing.T) {
 		}
 	}
 }
+
+// TestAssets_SkillAdvisesBackgroundShellForLongWait：前台 shell 调用有超时，长任务的
+// send --wait 要改用后台 shell 执行；两份技能文档都要说到。
+func TestAssets_SkillAdvisesBackgroundShellForLongWait(t *testing.T) {
+	for name, source := range map[string]string{"SKILL.md": assetSkillMD(), "commands.md": assetCommandsMD()} {
+		if !strings.Contains(source, "as a background shell command") {
+			t.Fatalf("%s does not advise a background shell command for a long --wait", name)
+		}
+	}
+}

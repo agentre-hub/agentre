@@ -577,6 +577,26 @@ func TestReplay_UnknownNotificationMethod_DoesNotStallCatchUp(t *testing.T) {
 	assert.Equal(t, "sonnet", rig.result.Model, "终态帧同样要补齐得到")
 }
 
+// Given 补齐页中段夹着一条认不得的通知,When 重连补齐,Then 它**在页序里的位置上**占掉
+// 那一格:排在它前面的已知通知不会因为游标先跳到它而被当成重复丢掉。
+func TestReplay_UnknownNotificationMidPage_IsSkippedInPageOrder(t *testing.T) {
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
+	conn2 := catchUpConn(7, []wire.DurableNotification{
+		durableEvent(4, "before-unknown"),
+		{Seq: 5, Method: "runtime.somethingTheClientDoesNotKnow", Params: json.RawMessage(`{"sessionId":42}`)},
+		durableEvent(6, "after-unknown"),
+		durableDone(7, "sonnet"),
+	}, wire.SessionPendingWaitersResult{})
+	rig.queue(conn2, rigFingerprint, nil)
+
+	_ = rig.conn1.Close()
+
+	assert.Equal(t, []string{"before-unknown", "after-unknown"}, drainTexts(t, rig.events, 3*time.Second),
+		"认不得的那一条只占它自己那一格")
+	assert.Equal(t, "sonnet", rig.result.Model)
+}
+
 // ── R6: 跳号补洞 / 重复丢弃 ──────────────────────────────────────────────────
 
 // Given 本地游标为 3,When 实时帧带着 seq=6 到达(跳号),Then 该帧不被消费,
@@ -622,6 +642,81 @@ func TestLiveFrame_SeqGap_TriggersPull(t *testing.T) {
 	assert.Equal(t, []string{"a", "b", "c"}, texts,
 		"跳号帧本身不消费,补洞拉回来的才是交付内容")
 	assert.NotEmpty(t, rig.conn1.methodCalls(wire.MethodSessionPull), "跳号必须触发增量拉取")
+}
+
+// Given 本地游标为 3,而 4 那个位置在这期间被 agentred 原地改写成了 5(号永不复用,4
+// 成了永久空洞),When 一条 seq=6 的实时帧触发补洞,Then 拉回来的页 [5, 6] 照常按序
+// 交付,游标越过 4 停在页尾。
+//
+// 补洞页走与追帧同一条页规则:Pull 按序列出游标之后的全部现存帧,页里没有的号不属于
+// 任何现存帧。按实时闸门处理这一页,5 被判成跳号丢弃,补洞就补了个空。
+func TestGapFill_GivenThePulledPageSkipsARenumberedSeq_ThenItIsReplayedAndTheCursorReachesItsTail(t *testing.T) {
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
+	rig.conn1.script(func(method string, params, result any) error {
+		if method == wire.MethodSessionPull {
+			p := params.(wire.SessionPullParams)
+			out := wire.SessionPullResult{Cursor: p.Cursor}
+			for _, n := range []wire.DurableNotification{durableEvent(5, "b"), durableEvent(6, "c")} {
+				if n.Seq > p.Cursor {
+					out.Notifications = append(out.Notifications, n)
+					out.Cursor = n.Seq
+				}
+			}
+			*(result.(*wire.SessionPullResult)) = out
+		}
+		return nil
+	})
+
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Event: agentruntime.TextDelta{Text: "gap-frame"}, Seq: 6})
+
+	assert.Equal(t, []string{"b", "c"}, collectTexts(t, rig.events, 2),
+		"补洞页越过空洞照常交付,跳号的实时帧本身不交付")
+	require.Eventually(t, func() bool {
+		saved, ok := rig.cursor.lastSaved()
+		return ok && saved.Seq == 6
+	}, 3*time.Second, 5*time.Millisecond, "游标要停在补洞页的页尾;落库过的:%v", rig.cursor.savedSeqs())
+	select {
+	case ev := <-rig.events:
+		t.Fatalf("同一页的内容不得再交付一次,却又收到了 %#v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// Given 本地游标为 3,When 一条实时帧带着 seq=5 到达(4 已被改写成别的号,但实时这一侧
+// 无从得知),Then 实时闸门照旧:这条帧不直接交付,而是从游标拉一次,交付的是拉回来的
+// 那一份。
+//
+// 只有拉取页才能证明「跳过的号不属于任何现存帧」;单条实时帧证明不了 —— 它前面缺的
+// 可能正是还在路上的帧。
+func TestLiveFrame_GivenItSkipsASeq_ThenItIsNotDeliveredButPulled(t *testing.T) {
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
+	rig.conn1.script(func(method string, params, result any) error {
+		if method == wire.MethodSessionPull {
+			p := params.(wire.SessionPullParams)
+			out := wire.SessionPullResult{Cursor: p.Cursor}
+			if n := durableEvent(5, "pulled"); n.Seq > p.Cursor {
+				out.Notifications = append(out.Notifications, n)
+				out.Cursor = n.Seq
+			}
+			*(result.(*wire.SessionPullResult)) = out
+		}
+		return nil
+	})
+
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Event: agentruntime.TextDelta{Text: "live"}, Seq: 5})
+
+	assert.Equal(t, []string{"pulled"}, collectTexts(t, rig.events, 1),
+		"跳号的实时帧不直接交付,内容由补洞拉回")
+	assert.NotEmpty(t, rig.conn1.methodCalls(wire.MethodSessionPull), "跳号的实时帧必须触发拉取")
+	select {
+	case ev := <-rig.events:
+		t.Fatalf("同一个号不得交付两次,却又收到了 %#v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
 // Given 本地游标为 5,When 实时帧带着 seq=5(重复投递)到达,Then 丢弃。
@@ -1550,7 +1645,7 @@ func TestNotify_TurnStarted_CountsTowardTheSeqGate(t *testing.T) {
 // 「我已经持有的内容」—— 那条用户消息是它自己写下的,补齐不必也不该再交回来
 // (spec 2026-09-07 决策 1)。
 //
-// 推进有闸门,与 skipSeq 同一条:**最低号必须接在游标之后**(不留洞),推进的落点则是
+// 推进有闸门,与实时帧的连续闸同一条:**最低号必须接在游标之后**(不留洞),推进的落点则是
 // 最高号。落后的消费方(重连后补齐还没跑完就发了新一轮)若无条件跳过去,中间那几帧
 // 就被永久跳过 —— 那是硬不变量 1 的「漏」,比「重」更糟。闸门不成立时游标不动。
 //

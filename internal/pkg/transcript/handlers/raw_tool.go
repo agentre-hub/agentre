@@ -26,6 +26,9 @@ func (ToolCallHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *tu
 	}
 
 	if tc2.ParentToolCallID != "" {
+		if hasNestedToolUse(acc, tc2.ID) {
+			return nil // 同一条嵌套调用重复投递:已有一块,不再落块也不再 emit
+		}
 		// Subagent 内层 tool:NestedToolUseBlock (ToUI, 不喂 LLM)
 		acc.AddToolUse(&blocks.NestedToolUseBlock{
 			ID: tc2.ID, Name: tc2.Name, Input: input,
@@ -81,6 +84,9 @@ func (ToolResultHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *
 	}
 
 	if tr.ParentToolCallID != "" {
+		if hasNestedToolResult(acc, tr.ToolCallID) {
+			return nil // 同一条嵌套结果重复投递:已有一块,不再落块也不再 emit
+		}
 		acc.AddToolResult(&blocks.NestedToolResultBlock{
 			ToolCallID:       tr.ToolCallID,
 			Content:          tr.Content,
@@ -112,4 +118,16 @@ func (ToolResultHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *
 		})
 	}
 	return nil
+}
+
+// hasNestedToolUse / hasNestedToolResult:嵌套事件按 ID 去重 —— 同一条嵌套调用或结果
+// 在卡片的 STEPS 里只能出现一次。嵌套事件不只来自 runtime 自己的流,还有宿主从外部
+// 注入的(agrctl send 绑定把子会话的事件镜像过来,见 ctlbind.NestChildEvent),同一条
+// 可能被投递不止一次。
+func hasNestedToolUse(acc *turn.Accumulator, id string) bool {
+	return turn.Contains(acc, func(b *blocks.NestedToolUseBlock) bool { return b.ID == id })
+}
+
+func hasNestedToolResult(acc *turn.Accumulator, toolCallID string) bool {
+	return turn.Contains(acc, func(b *blocks.NestedToolResultBlock) bool { return b.ToolCallID == toolCallID })
 }

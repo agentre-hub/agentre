@@ -14,11 +14,15 @@ import (
 	"time"
 
 	"github.com/cago-frame/cago/database/db"
+	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/handlers"
 )
 
 // sessionMutexes 是 per-session 的 read-modify-write 锁。FlipSubagentStatus 与
@@ -110,6 +114,13 @@ type MessageRepo interface {
 	// accumulator 早已收尾,进度只能这样落回发起消息(否则重开会话看到的永远是派遣那一刻
 	// 的旧数字)。p 的零值字段跳过;全零 / 找不到命中块则静默返回 nil。
 	PatchSubagentProgress(ctx context.Context, sessionID int64, toolCallID string, p SubagentProgress) error
+	// PatchSubagentState 定向改写本会话里 tool_call_id==toolCallID 的 subagent_state 块:把
+	// 落库的那块解出来交给 mutate,mutate 交回 true 才写回那一个块行。父轮结束后宿主改写
+	// 原消息里的派遣卡(agrctl send 绑定的卡在父轮结束后的步骤、进度与收尾)走这里。
+	// 与 FlipSubagentStatus / PatchSubagentProgress / AppendSubagentChildren 同一把会话锁:
+	// 读-改-写之间对方的写入不会丢,mutate 看到的总是最新那份。mutate 在锁内运行,不得做 IO。
+	// 交回是否定位到了那块;toolCallID 空 / 无命中时 (false, nil),mutate 不被调用。
+	PatchSubagentState(ctx context.Context, sessionID int64, toolCallID string, mutate func(*blocks.SubagentStateBlock) bool) (bool, error)
 	// AppendSubagentChildren 把后台 subagent 内部产生的子块追加进发起消息里对应
 	// subagent_state 块的 nested_tool_call_ids,同时把 childBlocksJSON 里的 StoredBlock
 	// 作为新块行追加到该消息正文末尾。childIDs 自动去重(跳过已在数组中的 id)。
@@ -126,6 +137,19 @@ type MessageRepo interface {
 	// 记录的 CLI task_id + 当前 status(供 StopBackgroundTask 下发 stop_task)。定位方式同
 	// FlipSubagentStatus(块表索引点查),只读不改。toolCallID 空 / 无命中时返回 (found=false)。
 	FindSubagentState(ctx context.Context, sessionID int64, toolCallID string) (taskID, status string, found bool, err error)
+	// ListOpenAgrctlCards 列出**本机执行**的会话里仍处于 running / waiting 的 agrctl 绑定卡
+	// (subagent_state 块,origin=agrctl)的定位键。桌面启动清理用它找「承载 agrctl 的进程
+	// 已随上一个桌面进程死掉」的孤儿卡。执行位置在 agentred 的会话(带 exec 设备与指纹)
+	// 不在其列:那些卡归 agentred 与 CatchUpRemoteSessions,与 ResetActiveSessions 同一判据。
+	// 块表按 type 点查、JSON 判据在 SQL 里收窄,不读任何消息正文。解不开的块跳过(记 warn),
+	// 不挡住其余的卡。
+	ListOpenAgrctlCards(ctx context.Context) ([]OpenAgrctlCard, error)
+}
+
+// OpenAgrctlCard 是一张未收尾 agrctl 卡的定位键,可直接交给 PatchSubagentState。
+type OpenAgrctlCard struct {
+	SessionID  int64
+	ToolCallID string
 }
 
 var defaultMessage MessageRepo
@@ -560,6 +584,28 @@ func (r *messageRepo) PatchSubagentProgress(ctx context.Context, sessionID int64
 	return err
 }
 
+func (r *messageRepo) PatchSubagentState(
+	ctx context.Context, sessionID int64, toolCallID string, mutate func(*blocks.SubagentStateBlock) bool,
+) (bool, error) {
+	if toolCallID == "" || mutate == nil {
+		return false, nil
+	}
+	return r.rewriteSubagentBlock(ctx, sessionID, toolCallID, func(data []byte) ([]byte, bool, error) {
+		var sb blocks.SubagentStateBlock
+		if err := json.Unmarshal(data, &sb); err != nil {
+			return data, false, err
+		}
+		if !mutate(&sb) {
+			return data, false, nil
+		}
+		buf, err := json.Marshal(&sb)
+		if err != nil {
+			return data, false, err
+		}
+		return buf, true, nil
+	})
+}
+
 // decodeBlockObject 把一个块的正文解成 map。数字字段(total_tokens / duration_ms /
 // tool_uses)用 json.Decoder + UseNumber() 保持 json.Number,避免经 map[string]any 的
 // float64 强转把整数重写成科学计数(如 1e+04)。
@@ -594,7 +640,17 @@ func patchSubagentStateData(data []byte, apply func(data map[string]any) bool) (
 // FlipSubagentInBlockData 就地翻转一个 subagent_state 块的 status,返回重写后的正文 +
 // 是否改写过。summary 非空时同时写入 summary 字段。只触碰 status / summary 两个字段。
 // 导出以便直接单测改写逻辑。
+//
+// 翻转的发起方是 CLI(跨消息到达的完成 / 停止通知)。落在 agrctl 绑定的卡上时按那张卡的
+// 写入分工来(flipAgrctlCard),不再无条件改写。
 func FlipSubagentInBlockData(data []byte, status, summary string) ([]byte, bool, error) {
+	decoded, err := decodeBlockObject(data)
+	if err != nil {
+		return data, false, err
+	}
+	if origin, _ := decoded["origin"].(string); origin == agentruntime.SubagentOriginAgrctl {
+		return flipAgrctlCard(data, status, summary)
+	}
 	return patchSubagentStateData(data, func(decoded map[string]any) bool {
 		decoded["status"] = status
 		if summary != "" {
@@ -602,6 +658,24 @@ func FlipSubagentInBlockData(data []byte, status, summary string) ([]byte, bool,
 		}
 		return true
 	})
+}
+
+// flipAgrctlCard 把 CLI 的一次跨消息翻转按 agrctl 卡的写入分工落下(规则与累加器那一侧
+// 同一份:handlers.ApplyAgrctlInfo):前台卡上 CLI 什么都不写;后台卡的状态与退出码文本
+// 归 CLI,但已收尾的卡不被取消覆盖(resume 前奏补发的 stopped),单运行快照跟着翻。
+func flipAgrctlCard(data []byte, status, summary string) ([]byte, bool, error) {
+	var sb blocks.SubagentStateBlock
+	if err := json.Unmarshal(data, &sb); err != nil {
+		return data, false, err
+	}
+	if !handlers.FlipAgrctlCard(&sb, status, summary) {
+		return data, false, nil
+	}
+	buf, err := json.Marshal(&sb)
+	if err != nil {
+		return data, false, err
+	}
+	return buf, true, nil
 }
 
 // SubagentProgress 是 subagent_state 块的运行时进度快照。零值字段代表「这一帧没带这项」,
@@ -734,4 +808,61 @@ func (r *messageRepo) DeleteFromSeq(ctx context.Context, sessionID int64, fromSe
 		return 0, err
 	}
 	return deleted, nil
+}
+
+// openAgrctlCardRow 是 ListOpenAgrctlCards 的取材行:定位键 + 块正文(要解码确认)。
+type openAgrctlCardRow struct {
+	SessionID  int64  `gorm:"column:session_id"`
+	ToolCallID string `gorm:"column:tool_call_id"`
+	Codec      int    `gorm:"column:codec"`
+	Data       []byte `gorm:"column:data"`
+}
+
+func (r *messageRepo) ListOpenAgrctlCards(ctx context.Context) ([]OpenAgrctlCard, error) {
+	// 判据都在 SQL 里收窄,只取少数几行块:subagent_state 块本身很小(未压缩的 JSON),
+	// origin / status 用 json_extract 判。压缩过的块(codec≠0)SQL 判不了,放行到 Go 里
+	// 解码再判,不因此漏掉。会话侧的本机判据与 ResetActiveSessions 同源。
+	var rows []openAgrctlCardRow
+	err := db.Ctx(ctx).
+		Model(&transcript_entity.MessageBlock{}).
+		Select("`chat_messages`.`session_id` AS session_id, `chat_message_blocks`.`tool_call_id` AS tool_call_id, "+
+			"`chat_message_blocks`.`codec` AS codec, `chat_message_blocks`.`data` AS data").
+		Joins("JOIN `chat_messages` ON `chat_messages`.`id` = `chat_message_blocks`.`message_id`").
+		Joins("JOIN `chat_sessions` ON `chat_sessions`.`id` = `chat_messages`.`session_id`").
+		Where("`chat_message_blocks`.`type` = ? AND `chat_message_blocks`.`tool_call_id` <> ''",
+			transcript_entity.BlockTypeSubagentState).
+		Where("`chat_sessions`.`status` = ? AND (`chat_sessions`.`exec_device_id` <= ? OR `chat_sessions`.`exec_device_fingerprint` = ?)",
+			consts.ACTIVE, int64(0), "").
+		Where("(`chat_message_blocks`.`codec` <> ? OR ("+
+			"json_extract(CAST(`chat_message_blocks`.`data` AS TEXT), '$.origin') = ? AND "+
+			"json_extract(CAST(`chat_message_blocks`.`data` AS TEXT), '$.status') IN ?))",
+			transcript_entity.BlockCodecRaw, agentruntime.SubagentOriginAgrctl, []string{"running", "waiting"}).
+		Order("`chat_messages`.`session_id`, `chat_message_blocks`.`message_id`, `chat_message_blocks`.`idx`").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	var out []OpenAgrctlCard
+	for _, row := range rows {
+		// 一块解不开只跳过它:这是一次清扫,不能因为一张坏卡让其余孤儿卡永远停在运行中。
+		data, err := transcript_entity.DecodeBlockData(row.Codec, row.Data)
+		var decoded map[string]any
+		if err == nil {
+			decoded, err = decodeBlockObject(data)
+		}
+		if err != nil {
+			logger.Ctx(ctx).Warn("transcript_repo.ListOpenAgrctlCards: undecodable subagent_state block skipped",
+				zap.Int64("sessionId", row.SessionID),
+				zap.String("toolUseId", row.ToolCallID),
+				zap.Error(err))
+			continue
+		}
+		origin, _ := decoded["origin"].(string)
+		status, _ := decoded["status"].(string)
+		if origin != agentruntime.SubagentOriginAgrctl || (status != "running" && status != "waiting") {
+			continue
+		}
+		out = append(out, OpenAgrctlCard{SessionID: row.SessionID, ToolCallID: row.ToolCallID})
+	}
+	return out, nil
 }

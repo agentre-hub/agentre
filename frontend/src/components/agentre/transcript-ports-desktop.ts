@@ -169,6 +169,11 @@ export function useDesktopTranscriptPorts(): TranscriptPorts {
           // 设备的去处是设置里的设备面板 —— 那是这台机器在桌面端唯一的落脚页。
           openSettings("remote-devices");
         },
+        // 会话标签页只在 /chat 下可见：先开/复用标签，再确保人在 /chat 上。
+        openSession: (sessionId: number) => {
+          useChatTabsStore.getState().openSession(sessionId);
+          navigate("/chat");
+        },
       }) satisfies Required<TranscriptPorts>,
     [navigate],
   );

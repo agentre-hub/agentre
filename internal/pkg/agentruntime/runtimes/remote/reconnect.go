@@ -253,6 +253,8 @@ func (r *Runtime) ensureCursorLoaded(ctx context.Context, sid int64, ss *session
 //   - seq >  游标 + 1  → **不消费**,改从游标发起一次增量拉取,拉平后再继续
 //   - seq <= 游标      → 丢弃(重复投递)
 //
+// 第二条只管实时帧;拉取页走 dispatchPulled,见那里。
+//
 // 预览帧在闸门**之前**放行:它按定义不属于这条编号时间线,既不推进游标也不参与去重,
 // 只为即时呈现而来(覆盖同一内容的持久帧随后到达时以持久帧为准)。判别取帧上显式的
 // preview 这一格,不看 seq —— 预览帧本就不带 seq,若拿 seq=0 当判据,一条恰好带上
@@ -265,6 +267,22 @@ func (r *Runtime) dispatchNotification(
 	h notifyHandler,
 	frame any,
 ) (any, error) {
+	return r.dispatch(ctx, method, h, frame, false)
+}
+
+// dispatchPulled 交付拉取页里的一条。它与实时帧只差一条规则:高于游标的号一律消费,
+// 游标越过页里没有的号直接落到这一条上。
+//
+// 这不会漏:Pull 按序列出游标之后**全部**现存帧,页里没有的号就不属于任何现存帧 ——
+// 帧账本每个位置只留最大的号、号永不复用,离线期间被原地改写的位置在旧号上留下永久
+// 空洞(transcript_repo.NumberFrames)。按实时闸门处理拉取页,空洞之后的每一条都被判成
+// 跳号,补洞又原样拉回同一页,agentred 的终态因此永远写不回来。单条实时帧证明不了
+// 「缺的号已不存在」—— 缺的可能正是还在路上的帧 —— 所以实时帧仍守连续闸。
+func (r *Runtime) dispatchPulled(ctx context.Context, method string, h notifyHandler, frame any) (any, error) {
+	return r.dispatch(ctx, method, h, frame, true)
+}
+
+func (r *Runtime) dispatch(ctx context.Context, method string, h notifyHandler, frame any, pulled bool) (any, error) {
 	head, ok := frameRoute(frame)
 	if !ok || head.Preview || head.Seq == 0 {
 		return h(r, ctx, frame)
@@ -286,7 +304,7 @@ func (r *Runtime) dispatchNotification(
 			zap.Int64("sessionId", sid), zap.Int64("seq", head.Seq),
 			zap.String("method", method))
 		return nil, nil
-	case head.Seq > ss.cursor+1:
+	case head.Seq > ss.cursor+1 && !pulled:
 		cursor := ss.cursor
 		ss.mu.Unlock()
 		// 只在真的起了一次拉取时打一行:一个洞后面跟着的每一条实时帧都会走到这里,
@@ -350,8 +368,12 @@ func (r *Runtime) scheduleGapFill(sid int64, ss *sessionSync) bool {
 
 // pullUntilCaughtUp 按游标翻页拉取并重放,直到 daemon 说没有更多。返回重放条数。
 //
-// 每页拉完才重放,重放期间**不持** ss.mu(dispatchNotification 自己按帧取):
-// 实时帧与重放帧因此可以任意交错而不出错 —— 顺序由 seq 闸门保证,不靠一把大锁。
+// 每页拉完才重放,重放期间**不持** ss.mu(dispatchPulled 自己按帧取):实时帧与重放帧
+// 因此可以任意交错而不出错 —— 两条路径都只交付高于游标的号、交付即把游标推到它,
+// 同一个号不会交付两次。
+//
+// 页里的每一条(包括映射不出来、只占一格的那些)严格按页序处理:游标按页规则会越过
+// 跳过的号,先处理靠后的一条会把排在它前面的帧当成重复丢掉。
 func (r *Runtime) pullUntilCaughtUp(ctx context.Context, sid int64, ss *sessionSync) (int, error) {
 	replayed := 0
 	for {
@@ -362,7 +384,7 @@ func (r *Runtime) pullUntilCaughtUp(ctx context.Context, sid int64, ss *sessionS
 		if err != nil {
 			return replayed, fromProtobufError(err)
 		}
-		res := wire.SessionPullResult{Cursor: response.GetCursor(), HasMore: response.GetHasMore(), OldestSeq: response.GetOldestSeq()}
+		r.dropCursorBelowOldest(ctx, sid, ss, response.GetOldestSeq())
 		for _, item := range response.GetNotifications() {
 			protowire.SetNotificationSeq(item.GetPayload(), item.GetSeq())
 			method, params, conversionErr := protowire.ProtoNotificationToWire(item.GetPayload())
@@ -372,13 +394,7 @@ func (r *Runtime) pullUntilCaughtUp(ctx context.Context, sid int64, ss *sessionS
 				r.skipSeq(sid, ss, item.GetSeq())
 				continue
 			}
-			res.Notifications = append(res.Notifications, wire.DurableNotification{Seq: item.GetSeq(), Method: method, Params: params})
-		}
-		// 复位必须在重放**之前**:这一页的第一条要么正是游标+1,要么就落在被回收掉的
-		// 那段之后 —— 后者不先复位,它当场被判成跳号丢弃,这一页一条也交付不出去。
-		r.dropCursorBelowOldest(ctx, sid, ss, res.OldestSeq)
-		for _, n := range res.Notifications {
-			delivered, err := r.replay(ctx, sid, ss, n)
+			delivered, err := r.replay(ctx, sid, ss, wire.DurableNotification{Seq: item.GetSeq(), Method: method, Params: params})
 			if err != nil {
 				return replayed, err
 			}
@@ -386,22 +402,16 @@ func (r *Runtime) pullUntilCaughtUp(ctx context.Context, sid int64, ss *sessionS
 				replayed++
 			}
 		}
-		// 这一页有没有真的消费掉:游标停在页尾那一条上就是消费掉了。停在它之前只有一种
-		// 可能 —— 复位把游标抬到了这一页某些行之上(daemon 读下界与读行之间跑了一轮留存
-		// 回收,下界因此偏低而行更靠后),那些行在闸门里被判成跳号丢掉了。此时还得接着
-		// 拉:不拉就带着 oldest-1 的游标收工,存活的那截要等下一条实时帧再触发一次补洞
-		// 才补得上,而终态会话根本不会再有实时帧。
-		pageConsumed := ss.cursorNow() >= res.Cursor
-		// 空页、daemon 说没有更多且这一页也消费完了、或游标根本没前进(载荷坏了 / daemon
-		// 一直交同一页)都停。最后一条同时是防死循环的闸:每一圈都必须把游标推前。
-		if len(res.Notifications) == 0 || (!res.HasMore && pageConsumed) || ss.cursorNow() <= before {
+		// 空页、daemon 说没有更多、或游标根本没前进(daemon 一直交同一页)都停。最后一条
+		// 同时是防死循环的闸:每一圈都必须把游标推前。
+		if len(response.GetNotifications()) == 0 || !response.GetHasMore() || ss.cursorNow() <= before {
 			return replayed, nil
 		}
 	}
 }
 
-// replay 把补齐页里的一条喂回**实时同一个入口**(dispatchNotification),因此重放帧
-// 与实时帧受同一套 seq 规则约束:重复的被丢、跳号的触发补洞。
+// replay 把补齐页里的一条喂回与实时同一套 handler(经 dispatchPulled),重复的照样被丢;
+// 与实时帧不同的只有页规则 —— 页里跳过的号不触发补洞,见 dispatchPulled。
 //
 // 补齐页里的 payload **不含 seq**(seq 是另记的一格),直接喂进去每一帧都解出
 // seq=0,闸门会当成「老 daemon 不盖 seq」放行却不推进游标 —— 补齐看似成功,游标
@@ -420,21 +430,20 @@ func (r *Runtime) replay(ctx context.Context, sid int64, ss *sessionSync, n wire
 	if !stampSeq(n.Params, n.Seq) {
 		return false, fmt.Errorf("no frame mapping for %s", n.Method)
 	}
-	if _, err := r.dispatchNotification(ctx, n.Method, h, n.Params); err != nil {
+	if _, err := r.dispatchPulled(ctx, n.Method, h, n.Params); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-// skipSeq 让一条交付不出去的通知照样占掉它那一格游标,规则与 dispatchNotification
-// 的闸门一致(只有 seq == 游标 + 1 才推进)。
+// skipSeq 让拉取页里一条交付不出去的通知照样占掉它那一格游标,规则与 dispatchPulled
+// 一致(高于游标就推进到它,连同页里跳过的号)。
 //
-// 不推进的后果不是「少一条」而是「一条也不剩」:游标停在洞前,后面每一条已知通知
-// 都会被判成跳号丢弃,而补洞拉取又原样把这条认不得的通知再拉回来 —— 会话就此卡死
-// 在拉取死循环里,连终态帧都收不到。
+// 不推进的后果不是「少一条」而是「一条也不剩」:游标停在它前面,补洞拉取原样把这条
+// 认不得的通知再拉回来 —— 会话就此卡在同一页上,连终态帧都收不到。
 func (r *Runtime) skipSeq(sid int64, ss *sessionSync, seq int64) {
 	ss.mu.Lock()
-	if seq != ss.cursor+1 {
+	if seq <= ss.cursor {
 		ss.mu.Unlock()
 		return
 	}
@@ -453,7 +462,7 @@ func (r *Runtime) skipSeq(sid int64, ss *sessionSync, seq int64) {
 // 一条用户消息可能占不止一帧(带附件),所以宿主回的是一个闭区间 [minSeq, maxSeq]:
 // 区间里的每一帧都是本端自己写下的那条消息。
 //
-// 闸门与 skipSeq 同一条,只是比的是**最低号**:minSeq 必须不高于「游标 + 1」——
+// 闸门与实时帧的连续闸同一条,只是比的是**最低号**:minSeq 必须不高于「游标 + 1」——
 // 也就是它与游标之间不许有洞。一个落后的消费方(重连后补齐还没跑完就发了新一轮)
 // 若无条件跳过去,中间那几帧就被永久跳过,那是硬不变量 1 的「漏」,比「重」更糟。
 // 闸门成立时落点是 maxSeq:区间内的帧本端全都持有,游标该盖住整段
@@ -838,13 +847,12 @@ func (r *Runtime) dropCursorAboveHighWater(ctx context.Context, sid int64, ss *s
 // dropCursorBelowOldest 把落在「已经不存在的那一段」里的游标抬到现存最老的一行之前。
 //
 // agentred 不回收转录(规格 2026-08-18 决策 8,2026-09-05 未改),但它的库可能被从外部
-// 恢复或截断,老前缀因此仍可能消失。落后不止一格的客户端,它的游标正指向那段已经不存在的区间:
-// 拉回来的每一页第一条都比 游标+1 大,在 dispatchNotification 的第二条规则里被判成跳号
-// 丢弃并触发补洞拉取,而补洞原样拉回同一页 —— 游标永远推不动,此后连实时通知也全被当成
-// 跳号,会话没有错误、没有跳号地冻住(与 dropCursorAboveHighWater 处理的越界冻结同类)。
+// 恢复或截断,老前缀因此仍可能消失。落后不止一格的客户端,它的游标正指向那段已经不存在的区间。
+// 拉取页本身按页规则越过它(dispatchPulled),但页规则分不出「这段内容被截掉了」与「这些号
+// 被原地改写留下了空洞」—— 前者丢的是真内容。
 //
-// 那截尾巴是真的没有了,拿不回来。所以按 daemon 交回的下界复位,从现存最老的一行接着补,
-// 并留一条 Warn 让「这段转录已经不在 daemon 那边了」在日志里看得见。
+// 那截尾巴是真的没有了,拿不回来。所以在重放之前按 daemon 交回的下界复位,从现存最老的一行
+// 接着补,并留一条 Warn 让「这段转录已经不在 daemon 那边了」在日志里看得见。
 //
 // 只在游标真的落在下界之下时动它:正常补齐里 oldest == 游标+1(甚至更小),一动就是把
 // 已经交付过的通知再重放一遍。oldest 为 0 表示 daemon 没报(老 daemon / 读不出来),

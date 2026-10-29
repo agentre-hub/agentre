@@ -165,3 +165,27 @@ func TestTurnRun_DurableUserMessageWhileToolInFlight_DefersTheSegmentation(t *te
 	assert.Equal(t, "mid-tool", rig.tr.pendingSteers[0].Text)
 	assert.Equal(t, devicefp.Initiator("sha256:peer"), rig.tr.pendingSteers[0].SourcePeer)
 }
+
+// Given 收尾时还压着一段插话(工具收口前到的,事件流结束才落地),
+// When finalize 落这段分段、把当前那一行换成新开的 assistant 的同时,补齐轮那条 goroutine
+// 来问「卡所在的那条消息是不是这一轮还没收尾的那一行」(finalSaveOf,awaitFinalSave);
+// Then 两边经 t.mu 串起来 —— 分段落地改 assistantMsg 不在锁外进行(-race 下可观察)。
+func TestTurnRun_GivenFinalizeFlushesASteerSegment_ThenFinalSaveOfReadsTheRowUnderTheLock(t *testing.T) {
+	rig := newDurableSegmentationRig(t, true)
+	rig.tr.pendingSteers = []agentruntime.ConsumedSteer{{Text: "late", SourcePeer: "sha256:peer"}}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		rig.tr.finalize(rig.ctx)
+	}()
+	for {
+		_ = rig.tr.finalSaveOf(rig.assistant.ID)
+		select {
+		case <-done:
+			assert.NotSame(t, rig.assistant, rig.tr.assistantMsg, "收尾那段插话照常分段")
+			return
+		default:
+		}
+	}
+}

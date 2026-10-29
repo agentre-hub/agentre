@@ -219,3 +219,15 @@ func TestRun_StaleHandshakeFileOnAgentredHost(t *testing.T) {
 		t.Fatalf("stderr = %q, want the same agentred-host/session hint as the no-handshake-file case", errs)
 	}
 }
+
+// TestHelp_GivenSendThenLongTasksAdviseBackgroundShell：shell 工具有超时（Claude Code 前台 Bash
+// 最长 10 分钟），帮助文本要让 agent 把长任务的 send --wait 放进后台 shell 执行。
+func TestHelp_GivenSendThenLongTasksAdviseBackgroundShell(t *testing.T) {
+	code, out, errs := runCLI([]string{"help", "send"}, func(string) (string, bool) { return "", false })
+	if code != 0 {
+		t.Fatalf("code = %d, want 0 (stderr=%s)", code, errs)
+	}
+	if !strings.Contains(out, "as a background shell command") {
+		t.Fatalf("stdout = %q, want the long-task background shell advice", out)
+	}
+}

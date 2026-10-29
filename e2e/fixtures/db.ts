@@ -130,6 +130,16 @@ export function assistantMessageCountContaining(text: string): number {
   return queryCount(MESSAGE_BLOCK_MATCH, "assistant", text);
 }
 
+// 落库的 agrctl 绑定 overlay(subagent_state 块,JSON 里带 "kind":"<kind>" 与 origin agrctl)
+// 所在的助手消息数。前台绑定是 agrctl_send,后台保留 local_bash。
+export function agrctlOverlayCountOfKind(kind: string): number {
+  return queryCount(
+    `${MESSAGE_BLOCK_MATCH} AND b.data LIKE '%"origin":"agrctl"%'`,
+    "assistant",
+    `"kind":"${kind}"`,
+  );
+}
+
 export function errorSessionCountContaining(errorText: string): number {
   return queryCount(
     "SELECT COUNT(DISTINCT s.id) AS n FROM chat_sessions s JOIN chat_messages m ON m.session_id = s.id WHERE s.agent_status = 'error' AND m.role = 'assistant' AND m.error_text LIKE '%' || ? || '%'",

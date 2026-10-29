@@ -128,4 +128,23 @@ describe("CanonicalToolRouter", () => {
     renderRouted(<CanonicalToolRouter toolBlock={block} />);
     expect(screen.getByTestId("raw-tool-card")).toBeDefined();
   });
+
+  it("routes a shell call carrying an agrctl overlay to the subagent card", () => {
+    const block = {
+      type: "tool_use",
+      toolName: "Bash",
+      toolUseId: "sh",
+      toolInput: { command: "agrctl send --wait" },
+      canonical: { kind: "command.run", commandRun: {} },
+      subagent: {
+        origin: "agrctl",
+        kind: "agrctl_send",
+        status: "running",
+        runs: [{ id: "r0", index: 0, agent: "reviewer", task: "review" }],
+      },
+    } as unknown as TranscriptBlock;
+    renderRouted(<CanonicalToolRouter toolBlock={block} />);
+    expect(screen.getByTestId("agent-spawn-card")).toBeDefined();
+    expect(screen.getByText("reviewer")).toBeDefined();
+  });
 });

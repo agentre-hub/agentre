@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   RotateCcw,
   Square,
+  SquareArrowOutUpRight,
   TriangleAlert,
   Users,
   Wrench,
@@ -26,6 +27,8 @@ import { statusConfig, type AgentStatus } from "../../agent-status";
 import { useCollapsible } from "../../../hooks/use-collapsible";
 import { useTranscriptBooleanState } from "../../transcript-ui-state";
 import { useUiTranslation } from "../../../i18n";
+import { useOptionalPortIfProvided } from "../../ports-context";
+import { isAgrctlSpawn } from "../agrctl";
 
 import { ActivityBlock } from "../../activity-block/block";
 import type { PendingOutcome } from "../../activity-block/facts";
@@ -45,8 +48,8 @@ import type {
 // 早到的空 meta 把已有进度抹掉。
 function readSpawn(toolBlock: TranscriptBlock): AgentSpawnDTO | undefined {
   const c = (toolBlock as { canonical?: CanonicalDTO }).canonical;
-  if (!c || c.kind !== "agent.spawn") return undefined;
-  const base = c.agentSpawn;
+  const base =
+    c?.kind === "agent.spawn" ? c.agentSpawn : agrctlBaseSpawn(toolBlock);
   if (!base) return undefined;
   const meta = toolBlock.subagent;
   if (!meta) return base;
@@ -66,6 +69,20 @@ function readSpawn(toolBlock: TranscriptBlock): AgentSpawnDTO | undefined {
     resumes: meta.resumes ?? base.resumes,
     // 子代理首帧的实际模型覆盖派遣瞬间的入参别名(R2);两者都缺时 model 仍是 undefined。
     model: meta.model || base.model,
+  };
+}
+
+// agrctl 升级的 shell 调用在 live 路径上没有 agent.spawn canonical(重载时才有)：
+// 静态字段取自 overlay 自己 —— 目标 agent 名与任务文本在 Runs[0]。
+function agrctlBaseSpawn(
+  toolBlock: TranscriptBlock,
+): AgentSpawnDTO | undefined {
+  const meta = toolBlock.subagent;
+  if (!meta || !isAgrctlSpawn(toolBlock)) return undefined;
+  return {
+    taskId: meta.taskId ?? "",
+    taskDescription: meta.taskDescription,
+    subagentType: (meta.runs as AgentSpawnRunDTO[] | undefined)?.[0]?.agent,
   };
 }
 
@@ -364,6 +381,7 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
   const spawn = readSpawn(toolBlock);
   const [expanded, setExpanded] = useTranscriptBooleanState(uiStateKey, false);
   const { mounted, onTransitionEnd } = useCollapsible(expanded);
+  const openSession = useOptionalPortIfProvided("openSession");
 
   if (!spawn) return null;
 
@@ -388,8 +406,12 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
   }
 
   const normalizedRun = spawn.runs?.length === 1 ? spawn.runs[0] : undefined;
+  // agrctl 卡：后台卡的状态归 CLI(overlay 的 status)，注入方的 run 状态只作兜底。
+  const agrctl = isAgrctlSpawn(toolBlock);
   const normalizedStatus = normalizedRun
-    ? (normalizedRun.status ?? spawn.status)
+    ? agrctl
+      ? (spawn.status ?? normalizedRun.status)
+      : (normalizedRun.status ?? spawn.status)
     : undefined;
   const singleSpawn: AgentSpawnDTO = normalizedRun
     ? {
@@ -443,19 +465,21 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
   // 只有这种情况下,summary 越过 tool_result —— 其余路径仍是既有优先级(外层
   // tool_result 有正文就用它,否则退到 normalized run 的 summary/errorMessage)。
   const resumedOutput = resumeCount > 0 ? singleSpawn.summary || "" : "";
-  const summaryResultBlock = resumedOutput
-    ? ({
-        type: "tool_result",
-        text: resumedOutput,
-        isError: singleSpawn.status === "failed",
-      } as TranscriptBlock)
-    : resultBlock?.text || !normalizedOutput
-      ? resultBlock
-      : ({
+  const summaryResultBlock = agrctl
+    ? agrctlSummaryBlock(toolBlock, normalizedRun, resultBlock, status)
+    : resumedOutput
+      ? ({
           type: "tool_result",
-          text: normalizedOutput,
-          isError: normalizedRun?.status === "failed",
-        } as TranscriptBlock);
+          text: resumedOutput,
+          isError: singleSpawn.status === "failed",
+        } as TranscriptBlock)
+      : resultBlock?.text || !normalizedOutput
+        ? resultBlock
+        : ({
+            type: "tool_result",
+            text: normalizedOutput,
+            isError: normalizedRun?.status === "failed",
+          } as TranscriptBlock);
   // Flat single-run and normalized single both attach every child, including
   // missing or unknown run IDs, to their sole STEPS list.
   const steps = pairChildBlocks(allChildBlocks(childBlocks));
@@ -472,8 +496,16 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
     ? buildProgressAriaLabel(t, toolUses, totalTokens)
     : "";
   // R8:展开区 meta 行独立于运行状态存在,只要有值就列出;模型用未裁剪原值。
+  const openSessionTarget =
+    openSession && agrctl && !toolBlock.subagent?.isolated
+      ? toolBlock.subagent?.childSessionId
+      : undefined;
   const hasMetaRow =
-    !!singleSpawn.model || toolUses > 0 || totalTokens > 0 || durationMs > 0;
+    !!singleSpawn.model ||
+    toolUses > 0 ||
+    totalTokens > 0 ||
+    durationMs > 0 ||
+    !!openSessionTarget;
   // 成功 = 落定且没有取消 / 跳过 / 未知 / 部分失败这些非成功语义(它们同样走
   // idle 通道)。只有成功态摘掉状态胶囊,其余标记一律不动(spec 决策 10)。
   const isSuccess =
@@ -591,7 +623,8 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
         {(status === "running" || status === "waiting") &&
           singleSpawn.taskId &&
           onStopSubagent &&
-          toolBlock.toolUseId && (
+          toolBlock.toolUseId &&
+          !isForegroundAgrctl(toolBlock) && (
             <button
               type="button"
               onClick={(event) => {
@@ -688,6 +721,20 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
                     label={t("canonical.agentSpawn.meta.duration")}
                     value={formatDuration(durationMs)}
                   />
+                ) : null}
+                {openSession && openSessionTarget ? (
+                  <button
+                    type="button"
+                    data-testid="agent-spawn-open-session"
+                    onClick={() => openSession(openSessionTarget)}
+                    className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-sm px-1 py-0.5 text-primary transition-colors hover:bg-accent focus-visible:focus-outline"
+                  >
+                    <SquareArrowOutUpRight
+                      className="size-2.5"
+                      aria-hidden="true"
+                    />
+                    {t("canonical.agentSpawn.openSession")}
+                  </button>
                 ) : null}
               </div>
             ) : null}
@@ -1260,6 +1307,32 @@ function AgentSpawnSection({
       {children}
     </div>
   );
+}
+
+// 前台 agrctl 卡由 agrctl 进程的生死带动，没有可单独停的后台任务：不出停止按钮。
+// 后台卡(kind 保留 local_bash)沿用既有的停止链路。
+function isForegroundAgrctl(toolBlock: TranscriptBlock): boolean {
+  return isAgrctlSpawn(toolBlock) && toolBlock.subagent?.kind !== "local_bash";
+}
+
+// agrctl 卡的 SUMMARY 是子任务的最终文本，而不是 CLI 的退出码 summary，也不是后台
+// shell 调用立刻拿到的启动 ACK。没有最终文本时(失败)退到那一路的错误原因；前台卡
+// 最后才退到 shell 自己的结果(stdout 就是最终文本)。
+function agrctlSummaryBlock(
+  toolBlock: TranscriptBlock,
+  run: AgentSpawnRunDTO | undefined,
+  resultBlock: TranscriptBlock | undefined,
+  status: AgentStatus,
+): TranscriptBlock | undefined {
+  const text = toolBlock.subagent?.finalText || run?.errorMessage || "";
+  if (text) {
+    return {
+      type: "tool_result",
+      text,
+      isError: status === "error",
+    } as TranscriptBlock;
+  }
+  return isForegroundAgrctl(toolBlock) ? resultBlock : undefined;
 }
 
 function renderSummary(

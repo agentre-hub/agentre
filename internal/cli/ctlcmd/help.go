@@ -40,7 +40,10 @@ const sendUsage = `agrctl send --agent <name> [flags] <task text...>
   --wait             block until the turn finishes, then print its final text
   --isolated         one-shot isolated session (not shown in the sidebar)
   --endpoint <url>   control endpoint URL   (env AGENTRE_CTL_ENDPOINT)
-  --token <token>    control token          (env AGENTRE_CTL_TOKEN)`
+  --token <token>    control token          (env AGENTRE_CTL_TOKEN)
+
+--wait holds the shell command open until the turn ends. Shell tools time out (Claude Code's
+foreground Bash stops after 10 minutes), so for a long task run it as a background shell command.`
 
 // runHelp：`help [资源 [后端类型]]`。纯客户端，不连接任何执行者。
 func runHelp(args []string, w io.Writer) error {

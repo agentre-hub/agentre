@@ -427,3 +427,87 @@ func TestProjectMessages_GivenUnsupportedRequestNotice_ThenReplaysTheLiveNoticeE
 	assert.Equal(t, agentruntime.UnsupportedRequestNotice{Purpose: agentruntime.UnsupportedRequestVaultCode}, frames[0].Event)
 	assert.Equal(t, agentruntime.EventUnrecognizedBlock, projectedEventKind(t, frames[1].Event))
 }
+
+// roundTripOverWire 把投影出的持久帧逐帧过一遍 protobuf 线格式,拿到对端真正解出的事件。
+func roundTripOverWire(t *testing.T, frames []wire.EventFrame) []agentruntime.Event {
+	t.Helper()
+	out := make([]agentruntime.Event, 0, len(frames))
+	for i, frame := range frames {
+		data, err := protowire.MarshalEventNotification(frame.ConversationID, int64(i+1), frame.Event, false)
+		require.NoError(t, err)
+		n, _, err := protowire.UnmarshalEventNotification(data)
+		require.NoError(t, err)
+		out = append(out, n.Event)
+	}
+	return out
+}
+
+// Given 落库的一条 assistant 消息里,外层调用下挂着嵌套的 tool_use / tool_result,
+// When 折成持久帧并过线格式,Then 嵌套调用与结果带着 parent / run 归属原样到达对端,
+// 而不是落成对端丢弃的 UnrecognizedBlock。
+func TestProjectMessages_GivenNestedToolBlocks_ThenProjectsThemWithParentOverTheWire(t *testing.T) {
+	t.Parallel()
+
+	messages := []*transcript_entity.Message{{
+		SessionID: 42, Role: "assistant", Seq: 2,
+		BlocksJSON: `[` +
+			`{"type":"nested_tool_use","data":{"id":"n1","name":"Read","input":{"path":"a.go"},"parent_tool_call_id":"T","subagent_run_id":"r1"}},` +
+			`{"type":"nested_tool_result","data":{"tool_call_id":"n1","content":"ok","is_error":true,"parent_tool_call_id":"T","subagent_run_id":"r1"}}]`,
+	}}
+
+	frames, _, err := transcript.ProjectMessages("conv-42", messages)
+	require.NoError(t, err)
+	events := roundTripOverWire(t, frames)
+
+	require.Len(t, events, 3, "两个块各一帧,外加消息收尾帧")
+	call, ok := events[0].(agentruntime.ToolCall)
+	require.True(t, ok, "嵌套调用应是 ToolCall,得到 %T", events[0])
+	assert.Equal(t, "n1", call.ID)
+	assert.Equal(t, "Read", call.Name)
+	assert.JSONEq(t, `{"path":"a.go"}`, string(call.Input))
+	assert.Equal(t, "T", call.ParentToolCallID)
+	assert.Equal(t, "r1", call.SubagentRunID)
+	result, ok := events[1].(agentruntime.ToolResult)
+	require.True(t, ok, "嵌套结果应是 ToolResult,得到 %T", events[1])
+	assert.Equal(t, agentruntime.ToolResult{
+		ToolCallID: "n1", Content: "ok", IsError: true, ParentToolCallID: "T", SubagentRunID: "r1",
+	}, result)
+}
+
+// Given 一块带 Summary 与 agrctl 归属字段的 subagent_state,
+// When 折成持久帧并过线格式,Then 整张卡的内容(含 Summary / Origin / ChildSessionID /
+// Isolated / FinalText / Runs)都到达对端,而不只是状态。
+func TestProjectMessages_GivenFullSubagentState_ThenEveryFieldSurvivesTheWire(t *testing.T) {
+	t.Parallel()
+
+	state := transcriptblocks.SubagentStateBlock{
+		ParentToolCallID: "T", TaskID: "task-1", Kind: agentruntime.SubagentKindAgrctl, Description: "写测试",
+		Status: "completed", Summary: "exit 0", Mode: "single", ToolUses: 3, TotalTokens: 99, DurationMs: 1200,
+		LastToolName: "Edit", Origin: agentruntime.SubagentOriginAgrctl, ChildSessionID: 77, Isolated: true,
+		FinalText: "全部通过", Model: "m-1",
+		Runs: []agentruntime.SubagentRun{{ID: "r1", Agent: "coder", Task: "写测试", Status: "completed"}},
+	}
+	data, err := json.Marshal(state)
+	require.NoError(t, err)
+	messages := []*transcript_entity.Message{{
+		SessionID: 42, Role: "assistant", Seq: 2,
+		BlocksJSON: `[{"type":"subagent_state","data":` + string(data) + `}]`,
+	}}
+
+	frames, _, err := transcript.ProjectMessages("conv-42", messages)
+	require.NoError(t, err)
+	events := roundTripOverWire(t, frames)
+
+	require.Len(t, events, 3, "状态帧 + 模型帧,外加消息收尾帧")
+	done, ok := events[0].(agentruntime.SubagentDone)
+	require.True(t, ok, "得到 %T", events[0])
+	assert.Equal(t, "T", done.ToolCallID)
+	assert.Equal(t, agentruntime.SubagentInfo{
+		TaskID: "task-1", Kind: agentruntime.SubagentKindAgrctl, TaskDescription: "写测试",
+		Status: "completed", Summary: "exit 0", Mode: "single", ToolUses: 3, TotalTokens: 99, DurationMs: 1200,
+		LastToolName: "Edit", Origin: agentruntime.SubagentOriginAgrctl, ChildSessionID: 77, Isolated: true,
+		FinalText: "全部通过",
+		Runs:      []agentruntime.SubagentRun{{ID: "r1", Agent: "coder", Task: "写测试", Status: "completed"}},
+	}, done.Info)
+	assert.Equal(t, agentruntime.SubagentModel{ToolCallID: "T", Model: "m-1"}, events[1])
+}

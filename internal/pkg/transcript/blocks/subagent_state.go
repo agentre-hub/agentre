@@ -14,7 +14,7 @@ import (
 type SubagentStateBlock struct {
 	ParentToolCallID  string                     `json:"parent_tool_call_id"`
 	TaskID            string                     `json:"task_id,omitempty"`
-	Kind              string                     `json:"kind,omitempty"`        // local_bash | local_agent
+	Kind              string                     `json:"kind,omitempty"`        // local_bash | local_agent | agrctl_send
 	Description       string                     `json:"description,omitempty"` // 任务名（task_started.description）
 	TotalTokens       int                        `json:"total_tokens,omitempty"`
 	DurationMs        int                        `json:"duration_ms,omitempty"`
@@ -35,6 +35,20 @@ type SubagentStateBlock struct {
 	// first-wins(R3):一经记录不再改写,由 SubagentModelHandler 负责。随本块一起
 	// 落 blocks_json,replay 时随 subagentStateToChatBlockSubagent 一并投影(R6)。
 	Model string `json:"model,omitempty"`
+
+	// Origin 非空(agentruntime.SubagentOriginAgrctl)表示这张卡是把 `agrctl send --wait`
+	// 的子会话绑到父轮那条 shell 调用上得来的,ParentToolCallID 就是那条 shell 调用。
+	// 写入分工:嵌套步骤、模型、用量、工具数、FinalText 归注入方;前台卡(Kind =
+	// agentruntime.SubagentKindAgrctl)不再接受 CLI 为这条调用发的任何 local_bash 帧;
+	// 后台卡(Kind = local_bash)的状态 / task_id / summary 仍归 CLI。
+	Origin string `json:"origin,omitempty"`
+	// ChildSessionID 是 send 建出的子会话 ID(卡片的「打开会话」入口)。
+	ChildSessionID int64 `json:"child_session_id,omitempty"`
+	// Isolated 子会话是 `--isolated` 一次性会话,不在侧栏里,卡片不显示跳转入口。
+	Isolated bool `json:"isolated,omitempty"`
+	// FinalText 是子轮的最终文本(父 agent 从 stdout 拿到的那段)。单独存放,不写
+	// Summary —— 后台 Bash 的 CLI summary 是退出码文本,两者互不覆盖。
+	FinalText string `json:"final_text,omitempty"`
 }
 
 // SubagentInterruption 是一次中断的证据:被覆盖前那一段的终态与它的结论文本。

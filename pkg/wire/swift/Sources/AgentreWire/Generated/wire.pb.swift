@@ -107,6 +107,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
   case cliModelsList // = 77
   case runtimeSetCliModel // = 78
   case setSessionCliModel // = 79
+  case runtimeInjectSubagentEvents // = 80
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -195,6 +196,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     case 77: self = .cliModelsList
     case 78: self = .runtimeSetCliModel
     case 79: self = .setSessionCliModel
+    case 80: self = .runtimeInjectSubagentEvents
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -281,6 +283,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     case .cliModelsList: return 77
     case .runtimeSetCliModel: return 78
     case .setSessionCliModel: return 79
+    case .runtimeInjectSubagentEvents: return 80
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -367,6 +370,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     .cliModelsList,
     .runtimeSetCliModel,
     .setSessionCliModel,
+    .runtimeInjectSubagentEvents,
   ]
 
 }
@@ -2674,6 +2678,32 @@ public nonisolated struct Agentre_Wire_RuntimeStopBackgroundTaskRequest: Sendabl
   public init() {}
 }
 
+/// RuntimeInjectSubagentEventsRequest is the desktop handing agentred the events of an
+/// `agrctl send --wait` child session, to be written into the parent shell call
+/// tool_call_id on agentred's own transcript. events reuse the runtime event encoding
+/// (RuntimeEventNotification): subagent_started / subagent_progress / subagent_done carrying
+/// SubagentInfo.origin = "agrctl", and nested tool_call / tool_result carrying
+/// parent_tool_call_id. conversation_id / seq / preview on each element are ignored.
+/// Injection is idempotent: a nested id already on the card is not written twice, and a
+/// tool_call_id agentred cannot find is a successful no-op.
+public nonisolated struct Agentre_Wire_RuntimeInjectSubagentEventsRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var conversationID: String = String()
+
+  public var peerFingerprint: String = String()
+
+  public var toolCallID: String = String()
+
+  public var events: [Agentre_Wire_RuntimeEventNotification] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public nonisolated struct Agentre_Wire_RuntimeSetPermissionModeRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -4426,277 +4456,265 @@ public nonisolated struct Agentre_Wire_TranscriptImportExecuteResponse: Sendable
 /// treats "seq not greater than my cursor" as a duplicate, so an unnumbered
 /// preview frame read through the numbering would be dropped outright. The
 /// level has to be readable without consulting the numbering at all.
-public nonisolated struct Agentre_Wire_RuntimeEventNotification: @unchecked Sendable {
+public nonisolated struct Agentre_Wire_RuntimeEventNotification: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var conversationID: String {
-    get {_storage._conversationID}
-    set {_uniqueStorage()._conversationID = newValue}
-  }
+  public var conversationID: String = String()
 
-  public var seq: Int64 {
-    get {_storage._seq}
-    set {_uniqueStorage()._seq = newValue}
-  }
+  public var seq: Int64 = 0
 
-  public var preview: Bool {
-    get {_storage._preview}
-    set {_uniqueStorage()._preview = newValue}
-  }
+  public var preview: Bool = false
 
-  public var event: OneOf_Event? {
-    get {return _storage._event}
-    set {_uniqueStorage()._event = newValue}
-  }
+  public var event: Agentre_Wire_RuntimeEventNotification.OneOf_Event? = nil
 
   public var textDelta: Agentre_Wire_TextDelta {
     get {
-      if case .textDelta(let v)? = _storage._event {return v}
+      if case .textDelta(let v)? = event {return v}
       return Agentre_Wire_TextDelta()
     }
-    set {_uniqueStorage()._event = .textDelta(newValue)}
+    set {event = .textDelta(newValue)}
   }
 
   public var thinkingDelta: Agentre_Wire_ThinkingDelta {
     get {
-      if case .thinkingDelta(let v)? = _storage._event {return v}
+      if case .thinkingDelta(let v)? = event {return v}
       return Agentre_Wire_ThinkingDelta()
     }
-    set {_uniqueStorage()._event = .thinkingDelta(newValue)}
+    set {event = .thinkingDelta(newValue)}
   }
 
   public var outputActivity: Agentre_Wire_OutputActivity {
     get {
-      if case .outputActivity(let v)? = _storage._event {return v}
+      if case .outputActivity(let v)? = event {return v}
       return Agentre_Wire_OutputActivity()
     }
-    set {_uniqueStorage()._event = .outputActivity(newValue)}
+    set {event = .outputActivity(newValue)}
   }
 
   public var permissionModeChanged: Agentre_Wire_PermissionModeChanged {
     get {
-      if case .permissionModeChanged(let v)? = _storage._event {return v}
+      if case .permissionModeChanged(let v)? = event {return v}
       return Agentre_Wire_PermissionModeChanged()
     }
-    set {_uniqueStorage()._event = .permissionModeChanged(newValue)}
+    set {event = .permissionModeChanged(newValue)}
   }
 
   public var retry: Agentre_Wire_Retry {
     get {
-      if case .retry(let v)? = _storage._event {return v}
+      if case .retry(let v)? = event {return v}
       return Agentre_Wire_Retry()
     }
-    set {_uniqueStorage()._event = .retry(newValue)}
+    set {event = .retry(newValue)}
   }
 
   public var contextWindowUpdated: Agentre_Wire_ContextWindowUpdated {
     get {
-      if case .contextWindowUpdated(let v)? = _storage._event {return v}
+      if case .contextWindowUpdated(let v)? = event {return v}
       return Agentre_Wire_ContextWindowUpdated()
     }
-    set {_uniqueStorage()._event = .contextWindowUpdated(newValue)}
+    set {event = .contextWindowUpdated(newValue)}
   }
 
   public var compactBoundary: Agentre_Wire_CompactBoundary {
     get {
-      if case .compactBoundary(let v)? = _storage._event {return v}
+      if case .compactBoundary(let v)? = event {return v}
       return Agentre_Wire_CompactBoundary()
     }
-    set {_uniqueStorage()._event = .compactBoundary(newValue)}
+    set {event = .compactBoundary(newValue)}
   }
 
   public var runtimeStatus: Agentre_Wire_RuntimeStatus {
     get {
-      if case .runtimeStatus(let v)? = _storage._event {return v}
+      if case .runtimeStatus(let v)? = event {return v}
       return Agentre_Wire_RuntimeStatus()
     }
-    set {_uniqueStorage()._event = .runtimeStatus(newValue)}
+    set {event = .runtimeStatus(newValue)}
   }
 
   public var done: Agentre_Wire_Done {
     get {
-      if case .done(let v)? = _storage._event {return v}
+      if case .done(let v)? = event {return v}
       return Agentre_Wire_Done()
     }
-    set {_uniqueStorage()._event = .done(newValue)}
+    set {event = .done(newValue)}
   }
 
   public var error: Agentre_Wire_ErrorEvent {
     get {
-      if case .error(let v)? = _storage._event {return v}
+      if case .error(let v)? = event {return v}
       return Agentre_Wire_ErrorEvent()
     }
-    set {_uniqueStorage()._event = .error(newValue)}
+    set {event = .error(newValue)}
   }
 
   public var userMessage: Agentre_Wire_UserMessage {
     get {
-      if case .userMessage(let v)? = _storage._event {return v}
+      if case .userMessage(let v)? = event {return v}
       return Agentre_Wire_UserMessage()
     }
-    set {_uniqueStorage()._event = .userMessage(newValue)}
+    set {event = .userMessage(newValue)}
   }
 
   public var toolCall: Agentre_Wire_ToolCall {
     get {
-      if case .toolCall(let v)? = _storage._event {return v}
+      if case .toolCall(let v)? = event {return v}
       return Agentre_Wire_ToolCall()
     }
-    set {_uniqueStorage()._event = .toolCall(newValue)}
+    set {event = .toolCall(newValue)}
   }
 
   public var toolResult: Agentre_Wire_ToolResult {
     get {
-      if case .toolResult(let v)? = _storage._event {return v}
+      if case .toolResult(let v)? = event {return v}
       return Agentre_Wire_ToolResult()
     }
-    set {_uniqueStorage()._event = .toolResult(newValue)}
+    set {event = .toolResult(newValue)}
   }
 
   public var steerConsumed: Agentre_Wire_SteerConsumed {
     get {
-      if case .steerConsumed(let v)? = _storage._event {return v}
+      if case .steerConsumed(let v)? = event {return v}
       return Agentre_Wire_SteerConsumed()
     }
-    set {_uniqueStorage()._event = .steerConsumed(newValue)}
+    set {event = .steerConsumed(newValue)}
   }
 
   public var userAskRequest: Agentre_Wire_UserAskRequest {
     get {
-      if case .userAskRequest(let v)? = _storage._event {return v}
+      if case .userAskRequest(let v)? = event {return v}
       return Agentre_Wire_UserAskRequest()
     }
-    set {_uniqueStorage()._event = .userAskRequest(newValue)}
+    set {event = .userAskRequest(newValue)}
   }
 
   public var userAskResolved: Agentre_Wire_UserAskResolved {
     get {
-      if case .userAskResolved(let v)? = _storage._event {return v}
+      if case .userAskResolved(let v)? = event {return v}
       return Agentre_Wire_UserAskResolved()
     }
-    set {_uniqueStorage()._event = .userAskResolved(newValue)}
+    set {event = .userAskResolved(newValue)}
   }
 
   public var toolPermissionRequest: Agentre_Wire_ToolPermissionRequest {
     get {
-      if case .toolPermissionRequest(let v)? = _storage._event {return v}
+      if case .toolPermissionRequest(let v)? = event {return v}
       return Agentre_Wire_ToolPermissionRequest()
     }
-    set {_uniqueStorage()._event = .toolPermissionRequest(newValue)}
+    set {event = .toolPermissionRequest(newValue)}
   }
 
   public var toolPermissionResolved: Agentre_Wire_ToolPermissionResolved {
     get {
-      if case .toolPermissionResolved(let v)? = _storage._event {return v}
+      if case .toolPermissionResolved(let v)? = event {return v}
       return Agentre_Wire_ToolPermissionResolved()
     }
-    set {_uniqueStorage()._event = .toolPermissionResolved(newValue)}
+    set {event = .toolPermissionResolved(newValue)}
   }
 
   public var execApprovalRequested: Agentre_Wire_ExecApprovalRequested {
     get {
-      if case .execApprovalRequested(let v)? = _storage._event {return v}
+      if case .execApprovalRequested(let v)? = event {return v}
       return Agentre_Wire_ExecApprovalRequested()
     }
-    set {_uniqueStorage()._event = .execApprovalRequested(newValue)}
+    set {event = .execApprovalRequested(newValue)}
   }
 
   public var execApprovalResolved: Agentre_Wire_ExecApprovalResolved {
     get {
-      if case .execApprovalResolved(let v)? = _storage._event {return v}
+      if case .execApprovalResolved(let v)? = event {return v}
       return Agentre_Wire_ExecApprovalResolved()
     }
-    set {_uniqueStorage()._event = .execApprovalResolved(newValue)}
+    set {event = .execApprovalResolved(newValue)}
   }
 
   public var subagentStarted: Agentre_Wire_SubagentEvent {
     get {
-      if case .subagentStarted(let v)? = _storage._event {return v}
+      if case .subagentStarted(let v)? = event {return v}
       return Agentre_Wire_SubagentEvent()
     }
-    set {_uniqueStorage()._event = .subagentStarted(newValue)}
+    set {event = .subagentStarted(newValue)}
   }
 
   public var subagentProgress: Agentre_Wire_SubagentEvent {
     get {
-      if case .subagentProgress(let v)? = _storage._event {return v}
+      if case .subagentProgress(let v)? = event {return v}
       return Agentre_Wire_SubagentEvent()
     }
-    set {_uniqueStorage()._event = .subagentProgress(newValue)}
+    set {event = .subagentProgress(newValue)}
   }
 
   public var subagentDone: Agentre_Wire_SubagentEvent {
     get {
-      if case .subagentDone(let v)? = _storage._event {return v}
+      if case .subagentDone(let v)? = event {return v}
       return Agentre_Wire_SubagentEvent()
     }
-    set {_uniqueStorage()._event = .subagentDone(newValue)}
+    set {event = .subagentDone(newValue)}
   }
 
   public var subagentModel: Agentre_Wire_SubagentModel {
     get {
-      if case .subagentModel(let v)? = _storage._event {return v}
+      if case .subagentModel(let v)? = event {return v}
       return Agentre_Wire_SubagentModel()
     }
-    set {_uniqueStorage()._event = .subagentModel(newValue)}
+    set {event = .subagentModel(newValue)}
   }
 
   public var usageUpdate: Agentre_Wire_UsageUpdate {
     get {
-      if case .usageUpdate(let v)? = _storage._event {return v}
+      if case .usageUpdate(let v)? = event {return v}
       return Agentre_Wire_UsageUpdate()
     }
-    set {_uniqueStorage()._event = .usageUpdate(newValue)}
+    set {event = .usageUpdate(newValue)}
   }
 
   public var planUpdated: Agentre_Wire_PlanUpdated {
     get {
-      if case .planUpdated(let v)? = _storage._event {return v}
+      if case .planUpdated(let v)? = event {return v}
       return Agentre_Wire_PlanUpdated()
     }
-    set {_uniqueStorage()._event = .planUpdated(newValue)}
+    set {event = .planUpdated(newValue)}
   }
 
   public var unrecognizedBlock: Agentre_Wire_UnrecognizedBlock {
     get {
-      if case .unrecognizedBlock(let v)? = _storage._event {return v}
+      if case .unrecognizedBlock(let v)? = event {return v}
       return Agentre_Wire_UnrecognizedBlock()
     }
-    set {_uniqueStorage()._event = .unrecognizedBlock(newValue)}
+    set {event = .unrecognizedBlock(newValue)}
   }
 
   public var image: Agentre_Wire_ImageBlock {
     get {
-      if case .image(let v)? = _storage._event {return v}
+      if case .image(let v)? = event {return v}
       return Agentre_Wire_ImageBlock()
     }
-    set {_uniqueStorage()._event = .image(newValue)}
+    set {event = .image(newValue)}
   }
 
   public var unsupportedRequestNotice: Agentre_Wire_UnsupportedRequestNotice {
     get {
-      if case .unsupportedRequestNotice(let v)? = _storage._event {return v}
+      if case .unsupportedRequestNotice(let v)? = event {return v}
       return Agentre_Wire_UnsupportedRequestNotice()
     }
-    set {_uniqueStorage()._event = .unsupportedRequestNotice(newValue)}
+    set {event = .unsupportedRequestNotice(newValue)}
   }
 
   public var toolApprovalRequested: Agentre_Wire_ToolApprovalRequested {
     get {
-      if case .toolApprovalRequested(let v)? = _storage._event {return v}
+      if case .toolApprovalRequested(let v)? = event {return v}
       return Agentre_Wire_ToolApprovalRequested()
     }
-    set {_uniqueStorage()._event = .toolApprovalRequested(newValue)}
+    set {event = .toolApprovalRequested(newValue)}
   }
 
   public var toolApprovalResolved: Agentre_Wire_ToolApprovalResolved {
     get {
-      if case .toolApprovalResolved(let v)? = _storage._event {return v}
+      if case .toolApprovalResolved(let v)? = event {return v}
       return Agentre_Wire_ToolApprovalResolved()
     }
-    set {_uniqueStorage()._event = .toolApprovalResolved(newValue)}
+    set {event = .toolApprovalResolved(newValue)}
   }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -4737,8 +4755,6 @@ public nonisolated struct Agentre_Wire_RuntimeEventNotification: @unchecked Send
   }
 
   public init() {}
-
-  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct Agentre_Wire_TextDelta: Sendable {
@@ -5501,44 +5517,111 @@ public nonisolated struct Agentre_Wire_SubagentRun: Sendable {
   public init() {}
 }
 
-public nonisolated struct Agentre_Wire_SubagentInfo: Sendable {
+public nonisolated struct Agentre_Wire_SubagentInfo: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var taskID: String = String()
+  public var taskID: String {
+    get {_storage._taskID}
+    set {_uniqueStorage()._taskID = newValue}
+  }
 
-  public var subagentType: String = String()
+  public var subagentType: String {
+    get {_storage._subagentType}
+    set {_uniqueStorage()._subagentType = newValue}
+  }
 
-  public var kind: String = String()
+  public var kind: String {
+    get {_storage._kind}
+    set {_uniqueStorage()._kind = newValue}
+  }
 
-  public var taskDescription: String = String()
+  public var taskDescription: String {
+    get {_storage._taskDescription}
+    set {_uniqueStorage()._taskDescription = newValue}
+  }
 
-  public var prompt: String = String()
+  public var prompt: String {
+    get {_storage._prompt}
+    set {_uniqueStorage()._prompt = newValue}
+  }
 
-  public var lastToolName: String = String()
+  public var lastToolName: String {
+    get {_storage._lastToolName}
+    set {_uniqueStorage()._lastToolName = newValue}
+  }
 
-  public var toolUses: Int32 = 0
+  public var toolUses: Int32 {
+    get {_storage._toolUses}
+    set {_uniqueStorage()._toolUses = newValue}
+  }
 
-  public var totalTokens: Int32 = 0
+  public var totalTokens: Int32 {
+    get {_storage._totalTokens}
+    set {_uniqueStorage()._totalTokens = newValue}
+  }
 
-  public var durationMs: Int32 = 0
+  public var durationMs: Int32 {
+    get {_storage._durationMs}
+    set {_uniqueStorage()._durationMs = newValue}
+  }
 
-  public var status: String = String()
+  public var status: String {
+    get {_storage._status}
+    set {_uniqueStorage()._status = newValue}
+  }
 
-  public var mode: String = String()
+  public var mode: String {
+    get {_storage._mode}
+    set {_uniqueStorage()._mode = newValue}
+  }
 
-  public var runs: [Agentre_Wire_SubagentRun] = []
+  public var runs: [Agentre_Wire_SubagentRun] {
+    get {_storage._runs}
+    set {_uniqueStorage()._runs = newValue}
+  }
 
   /// summary is the task's own conclusion (claudecode task_notification.summary):
   /// the subagent's report on success, the interruption reason on failure. Runs-less
   /// producers carry their conclusion here and nowhere else — a resumed run has no
   /// tool_result of its own, so dropping this loses the report entirely.
-  public var summary: String = String()
+  public var summary: String {
+    get {_storage._summary}
+    set {_uniqueStorage()._summary = newValue}
+  }
+
+  /// origin is non-empty ("agrctl") when an injecting host mirrored an `agrctl send
+  /// --wait` child session onto the parent shell call; empty for producer-sent frames.
+  public var origin: String {
+    get {_storage._origin}
+    set {_uniqueStorage()._origin = newValue}
+  }
+
+  /// child_session_id is the session send created; the card's "open session" entry.
+  public var childSessionID: Int64 {
+    get {_storage._childSessionID}
+    set {_uniqueStorage()._childSessionID = newValue}
+  }
+
+  /// isolated marks a one-shot --isolated child session (no jump entry).
+  public var isolated: Bool {
+    get {_storage._isolated}
+    set {_uniqueStorage()._isolated = newValue}
+  }
+
+  /// final_text is the child turn's final text, kept apart from summary (a background
+  /// Bash task_notification.summary is an exit-code line that must not be overwritten).
+  public var finalText: String {
+    get {_storage._finalText}
+    set {_uniqueStorage()._finalText = newValue}
+  }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct Agentre_Wire_SubagentEvent: Sendable {
@@ -7150,7 +7233,7 @@ public nonisolated let Agentre_Wire_Extensions_protocol_version = SwiftProtobuf.
 fileprivate nonisolated let _protobuf_package = "agentre.wire"
 
 nonisolated extension Agentre_Wire_RpcMethod: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RPC_METHOD_UNSPECIFIED\0\u{1}RPC_METHOD_AUTH_ACCOUNT\0\u{1}RPC_METHOD_SESSION_LIST\0\u{1}RPC_METHOD_SESSION_ATTACH\0\u{1}RPC_METHOD_SESSION_PULL\0\u{1}RPC_METHOD_SESSION_PENDING_WAITERS\0\u{1}RPC_METHOD_SESSION_DELETE\0\u{1}RPC_METHOD_SET_MODEL_TARGET\0\u{1}RPC_METHOD_RUNTIME_CAPABILITIES\0\u{1}RPC_METHOD_RUNTIME_STEER\0\u{1}RPC_METHOD_RUNTIME_CANCEL_STEER\0\u{1}RPC_METHOD_RUNTIME_DRAIN_PENDING\0\u{1}RPC_METHOD_RUNTIME_ABORT\0\u{1}RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK\0\u{1}RPC_METHOD_RUNTIME_SET_PERMISSION_MODE\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_ANSWER\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION\0\u{1}RPC_METHOD_RUNTIME_RUN\0\u{1}RPC_METHOD_RUNTIME_GOAL_GET\0\u{1}RPC_METHOD_RUNTIME_GOAL_SET\0\u{1}RPC_METHOD_RUNTIME_GOAL_CLEAR\0\u{1}RPC_METHOD_TERMINAL_OPEN\0\u{1}RPC_METHOD_TERMINAL_WRITE\0\u{1}RPC_METHOD_TERMINAL_RESIZE\0\u{1}RPC_METHOD_TERMINAL_CLOSE\0\u{1}RPC_METHOD_MCP_PROXY\0\u{1}RPC_METHOD_PROJECT_SET_LOCAL_PATH\0\u{1}RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH\0\u{1}RPC_METHOD_SKILLS_CATALOG\0\u{1}RPC_METHOD_REMOTE_FS_LIST_DIR\0\u{1}RPC_METHOD_REMOTE_FS_MKDIR\0\u{1}RPC_METHOD_WORKSPACE_FS_LIST_DIR\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_CHANGES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES\0\u{1}RPC_METHOD_WORKSPACE_FS_READ_FILE\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT\0\u{1}RPC_METHOD_WORKSPACE_FS_SEARCH_FILES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_STATE\0\u{1}RPC_METHOD_AUTH_PAIR\0\u{1}RPC_METHOD_AUTH_CONNECT\0\u{1}RPC_METHOD_AUTH_REVOKE\0\u{1}RPC_METHOD_LLM_UPSERT\0\u{1}RPC_METHOD_LLM_DELETE\0\u{1}RPC_METHOD_LLM_LIST\0\u{1}RPC_METHOD_ENGINE_TEST\0\u{1}RPC_METHOD_ENGINE_DISCOVER\0\u{1}RPC_METHOD_ENGINE_SCAN\0\u{1}RPC_METHOD_CLI_RESOLVE_PATH\0\u{1}RPC_METHOD_CLI_PROBE\0\u{1}RPC_METHOD_HEALTH_PING\0\u{1}RPC_METHOD_CLAUDE_CODE_USAGE\0\u{1}RPC_METHOD_SKILLS_LIST\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_SCAN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_OPEN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_TURNS\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE\0\u{1}RPC_METHOD_ACTIVITY_ROLLUP\0\u{1}RPC_METHOD_SET_SESSION_REASONING_EFFORT\0\u{1}RPC_METHOD_AGENTRED_SELF_UPDATE\0\u{1}RPC_METHOD_SESSION_COUNTS\0\u{1}RPC_METHOD_SKILLS_COMMANDS\0\u{1}RPC_METHOD_PORT_FORWARD_LIST\0\u{1}RPC_METHOD_PORT_FORWARD_CREATE\0\u{1}RPC_METHOD_PORT_FORWARD_SET_ENABLED\0\u{1}RPC_METHOD_PORT_FORWARD_DELETE\0\u{1}RPC_METHOD_PORT_FORWARD_OPEN\0\u{1}RPC_METHOD_PORT_FORWARD_WRITE\0\u{1}RPC_METHOD_PORT_FORWARD_CLOSE\0\u{1}RPC_METHOD_PORT_FORWARD_ACK\0\u{1}RPC_METHOD_AUTH_DIRECT\0\u{1}RPC_METHOD_BACKEND_CREDENTIAL_STATUS\0\u{1}RPC_METHOD_OPENCLAW_TOKEN_SET\0\u{1}RPC_METHOD_HERMES_AUTH_PROVIDERS\0\u{1}RPC_METHOD_HERMES_LOGIN\0\u{1}RPC_METHOD_HERMES_LOGOUT\0\u{1}RPC_METHOD_BACKEND_CONNECTION_TEST\0\u{1}RPC_METHOD_TOOL_APPROVAL_ANSWER\0\u{1}RPC_METHOD_CLI_MODELS_LIST\0\u{1}RPC_METHOD_RUNTIME_SET_CLI_MODEL\0\u{1}RPC_METHOD_SET_SESSION_CLI_MODEL\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RPC_METHOD_UNSPECIFIED\0\u{1}RPC_METHOD_AUTH_ACCOUNT\0\u{1}RPC_METHOD_SESSION_LIST\0\u{1}RPC_METHOD_SESSION_ATTACH\0\u{1}RPC_METHOD_SESSION_PULL\0\u{1}RPC_METHOD_SESSION_PENDING_WAITERS\0\u{1}RPC_METHOD_SESSION_DELETE\0\u{1}RPC_METHOD_SET_MODEL_TARGET\0\u{1}RPC_METHOD_RUNTIME_CAPABILITIES\0\u{1}RPC_METHOD_RUNTIME_STEER\0\u{1}RPC_METHOD_RUNTIME_CANCEL_STEER\0\u{1}RPC_METHOD_RUNTIME_DRAIN_PENDING\0\u{1}RPC_METHOD_RUNTIME_ABORT\0\u{1}RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK\0\u{1}RPC_METHOD_RUNTIME_SET_PERMISSION_MODE\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_ANSWER\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION\0\u{1}RPC_METHOD_RUNTIME_RUN\0\u{1}RPC_METHOD_RUNTIME_GOAL_GET\0\u{1}RPC_METHOD_RUNTIME_GOAL_SET\0\u{1}RPC_METHOD_RUNTIME_GOAL_CLEAR\0\u{1}RPC_METHOD_TERMINAL_OPEN\0\u{1}RPC_METHOD_TERMINAL_WRITE\0\u{1}RPC_METHOD_TERMINAL_RESIZE\0\u{1}RPC_METHOD_TERMINAL_CLOSE\0\u{1}RPC_METHOD_MCP_PROXY\0\u{1}RPC_METHOD_PROJECT_SET_LOCAL_PATH\0\u{1}RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH\0\u{1}RPC_METHOD_SKILLS_CATALOG\0\u{1}RPC_METHOD_REMOTE_FS_LIST_DIR\0\u{1}RPC_METHOD_REMOTE_FS_MKDIR\0\u{1}RPC_METHOD_WORKSPACE_FS_LIST_DIR\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_CHANGES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES\0\u{1}RPC_METHOD_WORKSPACE_FS_READ_FILE\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT\0\u{1}RPC_METHOD_WORKSPACE_FS_SEARCH_FILES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_STATE\0\u{1}RPC_METHOD_AUTH_PAIR\0\u{1}RPC_METHOD_AUTH_CONNECT\0\u{1}RPC_METHOD_AUTH_REVOKE\0\u{1}RPC_METHOD_LLM_UPSERT\0\u{1}RPC_METHOD_LLM_DELETE\0\u{1}RPC_METHOD_LLM_LIST\0\u{1}RPC_METHOD_ENGINE_TEST\0\u{1}RPC_METHOD_ENGINE_DISCOVER\0\u{1}RPC_METHOD_ENGINE_SCAN\0\u{1}RPC_METHOD_CLI_RESOLVE_PATH\0\u{1}RPC_METHOD_CLI_PROBE\0\u{1}RPC_METHOD_HEALTH_PING\0\u{1}RPC_METHOD_CLAUDE_CODE_USAGE\0\u{1}RPC_METHOD_SKILLS_LIST\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_SCAN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_OPEN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_TURNS\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE\0\u{1}RPC_METHOD_ACTIVITY_ROLLUP\0\u{1}RPC_METHOD_SET_SESSION_REASONING_EFFORT\0\u{1}RPC_METHOD_AGENTRED_SELF_UPDATE\0\u{1}RPC_METHOD_SESSION_COUNTS\0\u{1}RPC_METHOD_SKILLS_COMMANDS\0\u{1}RPC_METHOD_PORT_FORWARD_LIST\0\u{1}RPC_METHOD_PORT_FORWARD_CREATE\0\u{1}RPC_METHOD_PORT_FORWARD_SET_ENABLED\0\u{1}RPC_METHOD_PORT_FORWARD_DELETE\0\u{1}RPC_METHOD_PORT_FORWARD_OPEN\0\u{1}RPC_METHOD_PORT_FORWARD_WRITE\0\u{1}RPC_METHOD_PORT_FORWARD_CLOSE\0\u{1}RPC_METHOD_PORT_FORWARD_ACK\0\u{1}RPC_METHOD_AUTH_DIRECT\0\u{1}RPC_METHOD_BACKEND_CREDENTIAL_STATUS\0\u{1}RPC_METHOD_OPENCLAW_TOKEN_SET\0\u{1}RPC_METHOD_HERMES_AUTH_PROVIDERS\0\u{1}RPC_METHOD_HERMES_LOGIN\0\u{1}RPC_METHOD_HERMES_LOGOUT\0\u{1}RPC_METHOD_BACKEND_CONNECTION_TEST\0\u{1}RPC_METHOD_TOOL_APPROVAL_ANSWER\0\u{1}RPC_METHOD_CLI_MODELS_LIST\0\u{1}RPC_METHOD_RUNTIME_SET_CLI_MODEL\0\u{1}RPC_METHOD_SET_SESSION_CLI_MODEL\0\u{1}RPC_METHOD_RUNTIME_INJECT_SUBAGENT_EVENTS\0")
 }
 
 nonisolated extension Agentre_Wire_AgentredSelfUpdateRejectReason: SwiftProtobuf._ProtoNameProviding {
@@ -11220,6 +11303,51 @@ nonisolated extension Agentre_Wire_RuntimeStopBackgroundTaskRequest: SwiftProtob
   }
 }
 
+nonisolated extension Agentre_Wire_RuntimeInjectSubagentEventsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RuntimeInjectSubagentEventsRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{3}tool_call_id\0\u{1}events\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.conversationID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.peerFingerprint) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.toolCallID) }()
+      case 4: try { try decoder.decodeRepeatedMessageField(value: &self.events) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.conversationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.conversationID, fieldNumber: 1)
+    }
+    if !self.peerFingerprint.isEmpty {
+      try visitor.visitSingularStringField(value: self.peerFingerprint, fieldNumber: 2)
+    }
+    if !self.toolCallID.isEmpty {
+      try visitor.visitSingularStringField(value: self.toolCallID, fieldNumber: 3)
+    }
+    if !self.events.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.events, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_RuntimeInjectSubagentEventsRequest, rhs: Agentre_Wire_RuntimeInjectSubagentEventsRequest) -> Bool {
+    if lhs.conversationID != rhs.conversationID {return false}
+    if lhs.peerFingerprint != rhs.peerFingerprint {return false}
+    if lhs.toolCallID != rhs.toolCallID {return false}
+    if lhs.events != rhs.events {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Agentre_Wire_RuntimeSetPermissionModeRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RuntimeSetPermissionModeRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{1}mode\0")
@@ -14870,617 +14998,575 @@ nonisolated extension Agentre_Wire_RuntimeEventNotification: SwiftProtobuf.Messa
   public static let protoMessageName: String = _protobuf_package + ".RuntimeEventNotification"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}conversation_id\0\u{1}seq\0\u{3}text_delta\0\u{3}thinking_delta\0\u{3}output_activity\0\u{3}permission_mode_changed\0\u{1}retry\0\u{3}context_window_updated\0\u{3}compact_boundary\0\u{3}runtime_status\0\u{1}done\0\u{1}error\0\u{3}user_message\0\u{3}tool_call\0\u{3}tool_result\0\u{3}steer_consumed\0\u{3}user_ask_request\0\u{3}user_ask_resolved\0\u{3}tool_permission_request\0\u{3}tool_permission_resolved\0\u{3}exec_approval_requested\0\u{3}exec_approval_resolved\0\u{3}subagent_started\0\u{3}subagent_progress\0\u{3}subagent_done\0\u{3}subagent_model\0\u{3}usage_update\0\u{3}plan_updated\0\u{3}unrecognized_block\0\u{1}preview\0\u{1}image\0\u{3}unsupported_request_notice\0\u{3}tool_approval_requested\0\u{3}tool_approval_resolved\0")
 
-  fileprivate class _StorageClass {
-    var _conversationID: String = String()
-    var _seq: Int64 = 0
-    var _preview: Bool = false
-    var _event: Agentre_Wire_RuntimeEventNotification.OneOf_Event?
-
-      // This property is used as the initial default value for new instances of the type.
-      // The type itself is protecting the reference to its storage via CoW semantics.
-      // This will force a copy to be made of this reference when the first mutation occurs;
-      // hence, it is safe to mark this as `nonisolated(unsafe)`.
-      static nonisolated(unsafe) let defaultInstance = _StorageClass()
-
-    private init() {}
-
-    init(copying source: _StorageClass) {
-      _conversationID = source._conversationID
-      _seq = source._seq
-      _preview = source._preview
-      _event = source._event
-    }
-  }
-
-  fileprivate mutating func _uniqueStorage() -> _StorageClass {
-    if !isKnownUniquelyReferenced(&_storage) {
-      _storage = _StorageClass(copying: _storage)
-    }
-    return _storage
-  }
-
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    _ = _uniqueStorage()
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      while let fieldNumber = try decoder.nextFieldNumber() {
-        // The use of inline closures is to circumvent an issue where the compiler
-        // allocates stack space for every case branch when no optimizations are
-        // enabled. https://github.com/apple/swift-protobuf/issues/1034
-        switch fieldNumber {
-        case 1: try { try decoder.decodeSingularStringField(value: &_storage._conversationID) }()
-        case 2: try { try decoder.decodeSingularInt64Field(value: &_storage._seq) }()
-        case 3: try {
-          var v: Agentre_Wire_TextDelta?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .textDelta(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .textDelta(v)
-          }
-        }()
-        case 4: try {
-          var v: Agentre_Wire_ThinkingDelta?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .thinkingDelta(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .thinkingDelta(v)
-          }
-        }()
-        case 5: try {
-          var v: Agentre_Wire_OutputActivity?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .outputActivity(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .outputActivity(v)
-          }
-        }()
-        case 6: try {
-          var v: Agentre_Wire_PermissionModeChanged?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .permissionModeChanged(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .permissionModeChanged(v)
-          }
-        }()
-        case 7: try {
-          var v: Agentre_Wire_Retry?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .retry(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .retry(v)
-          }
-        }()
-        case 8: try {
-          var v: Agentre_Wire_ContextWindowUpdated?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .contextWindowUpdated(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .contextWindowUpdated(v)
-          }
-        }()
-        case 9: try {
-          var v: Agentre_Wire_CompactBoundary?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .compactBoundary(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .compactBoundary(v)
-          }
-        }()
-        case 10: try {
-          var v: Agentre_Wire_RuntimeStatus?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .runtimeStatus(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .runtimeStatus(v)
-          }
-        }()
-        case 11: try {
-          var v: Agentre_Wire_Done?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .done(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .done(v)
-          }
-        }()
-        case 12: try {
-          var v: Agentre_Wire_ErrorEvent?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .error(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .error(v)
-          }
-        }()
-        case 13: try {
-          var v: Agentre_Wire_UserMessage?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .userMessage(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .userMessage(v)
-          }
-        }()
-        case 14: try {
-          var v: Agentre_Wire_ToolCall?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .toolCall(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .toolCall(v)
-          }
-        }()
-        case 15: try {
-          var v: Agentre_Wire_ToolResult?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .toolResult(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .toolResult(v)
-          }
-        }()
-        case 16: try {
-          var v: Agentre_Wire_SteerConsumed?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .steerConsumed(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .steerConsumed(v)
-          }
-        }()
-        case 17: try {
-          var v: Agentre_Wire_UserAskRequest?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .userAskRequest(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .userAskRequest(v)
-          }
-        }()
-        case 18: try {
-          var v: Agentre_Wire_UserAskResolved?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .userAskResolved(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .userAskResolved(v)
-          }
-        }()
-        case 19: try {
-          var v: Agentre_Wire_ToolPermissionRequest?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .toolPermissionRequest(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .toolPermissionRequest(v)
-          }
-        }()
-        case 20: try {
-          var v: Agentre_Wire_ToolPermissionResolved?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .toolPermissionResolved(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .toolPermissionResolved(v)
-          }
-        }()
-        case 21: try {
-          var v: Agentre_Wire_ExecApprovalRequested?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .execApprovalRequested(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .execApprovalRequested(v)
-          }
-        }()
-        case 22: try {
-          var v: Agentre_Wire_ExecApprovalResolved?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .execApprovalResolved(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .execApprovalResolved(v)
-          }
-        }()
-        case 23: try {
-          var v: Agentre_Wire_SubagentEvent?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .subagentStarted(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .subagentStarted(v)
-          }
-        }()
-        case 24: try {
-          var v: Agentre_Wire_SubagentEvent?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .subagentProgress(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .subagentProgress(v)
-          }
-        }()
-        case 25: try {
-          var v: Agentre_Wire_SubagentEvent?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .subagentDone(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .subagentDone(v)
-          }
-        }()
-        case 26: try {
-          var v: Agentre_Wire_SubagentModel?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .subagentModel(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .subagentModel(v)
-          }
-        }()
-        case 27: try {
-          var v: Agentre_Wire_UsageUpdate?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .usageUpdate(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .usageUpdate(v)
-          }
-        }()
-        case 28: try {
-          var v: Agentre_Wire_PlanUpdated?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .planUpdated(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .planUpdated(v)
-          }
-        }()
-        case 29: try {
-          var v: Agentre_Wire_UnrecognizedBlock?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .unrecognizedBlock(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .unrecognizedBlock(v)
-          }
-        }()
-        case 30: try { try decoder.decodeSingularBoolField(value: &_storage._preview) }()
-        case 31: try {
-          var v: Agentre_Wire_ImageBlock?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .image(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .image(v)
-          }
-        }()
-        case 32: try {
-          var v: Agentre_Wire_UnsupportedRequestNotice?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .unsupportedRequestNotice(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .unsupportedRequestNotice(v)
-          }
-        }()
-        case 33: try {
-          var v: Agentre_Wire_ToolApprovalRequested?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .toolApprovalRequested(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .toolApprovalRequested(v)
-          }
-        }()
-        case 34: try {
-          var v: Agentre_Wire_ToolApprovalResolved?
-          var hadOneofValue = false
-          if let current = _storage._event {
-            hadOneofValue = true
-            if case .toolApprovalResolved(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._event = .toolApprovalResolved(v)
-          }
-        }()
-        default: break
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.conversationID) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.seq) }()
+      case 3: try {
+        var v: Agentre_Wire_TextDelta?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .textDelta(let m) = current {v = m}
         }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .textDelta(v)
+        }
+      }()
+      case 4: try {
+        var v: Agentre_Wire_ThinkingDelta?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .thinkingDelta(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .thinkingDelta(v)
+        }
+      }()
+      case 5: try {
+        var v: Agentre_Wire_OutputActivity?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .outputActivity(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .outputActivity(v)
+        }
+      }()
+      case 6: try {
+        var v: Agentre_Wire_PermissionModeChanged?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .permissionModeChanged(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .permissionModeChanged(v)
+        }
+      }()
+      case 7: try {
+        var v: Agentre_Wire_Retry?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .retry(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .retry(v)
+        }
+      }()
+      case 8: try {
+        var v: Agentre_Wire_ContextWindowUpdated?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .contextWindowUpdated(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .contextWindowUpdated(v)
+        }
+      }()
+      case 9: try {
+        var v: Agentre_Wire_CompactBoundary?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .compactBoundary(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .compactBoundary(v)
+        }
+      }()
+      case 10: try {
+        var v: Agentre_Wire_RuntimeStatus?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .runtimeStatus(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .runtimeStatus(v)
+        }
+      }()
+      case 11: try {
+        var v: Agentre_Wire_Done?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .done(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .done(v)
+        }
+      }()
+      case 12: try {
+        var v: Agentre_Wire_ErrorEvent?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .error(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .error(v)
+        }
+      }()
+      case 13: try {
+        var v: Agentre_Wire_UserMessage?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .userMessage(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .userMessage(v)
+        }
+      }()
+      case 14: try {
+        var v: Agentre_Wire_ToolCall?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .toolCall(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .toolCall(v)
+        }
+      }()
+      case 15: try {
+        var v: Agentre_Wire_ToolResult?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .toolResult(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .toolResult(v)
+        }
+      }()
+      case 16: try {
+        var v: Agentre_Wire_SteerConsumed?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .steerConsumed(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .steerConsumed(v)
+        }
+      }()
+      case 17: try {
+        var v: Agentre_Wire_UserAskRequest?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .userAskRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .userAskRequest(v)
+        }
+      }()
+      case 18: try {
+        var v: Agentre_Wire_UserAskResolved?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .userAskResolved(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .userAskResolved(v)
+        }
+      }()
+      case 19: try {
+        var v: Agentre_Wire_ToolPermissionRequest?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .toolPermissionRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .toolPermissionRequest(v)
+        }
+      }()
+      case 20: try {
+        var v: Agentre_Wire_ToolPermissionResolved?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .toolPermissionResolved(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .toolPermissionResolved(v)
+        }
+      }()
+      case 21: try {
+        var v: Agentre_Wire_ExecApprovalRequested?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .execApprovalRequested(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .execApprovalRequested(v)
+        }
+      }()
+      case 22: try {
+        var v: Agentre_Wire_ExecApprovalResolved?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .execApprovalResolved(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .execApprovalResolved(v)
+        }
+      }()
+      case 23: try {
+        var v: Agentre_Wire_SubagentEvent?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .subagentStarted(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .subagentStarted(v)
+        }
+      }()
+      case 24: try {
+        var v: Agentre_Wire_SubagentEvent?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .subagentProgress(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .subagentProgress(v)
+        }
+      }()
+      case 25: try {
+        var v: Agentre_Wire_SubagentEvent?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .subagentDone(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .subagentDone(v)
+        }
+      }()
+      case 26: try {
+        var v: Agentre_Wire_SubagentModel?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .subagentModel(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .subagentModel(v)
+        }
+      }()
+      case 27: try {
+        var v: Agentre_Wire_UsageUpdate?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .usageUpdate(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .usageUpdate(v)
+        }
+      }()
+      case 28: try {
+        var v: Agentre_Wire_PlanUpdated?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .planUpdated(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .planUpdated(v)
+        }
+      }()
+      case 29: try {
+        var v: Agentre_Wire_UnrecognizedBlock?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .unrecognizedBlock(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .unrecognizedBlock(v)
+        }
+      }()
+      case 30: try { try decoder.decodeSingularBoolField(value: &self.preview) }()
+      case 31: try {
+        var v: Agentre_Wire_ImageBlock?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .image(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .image(v)
+        }
+      }()
+      case 32: try {
+        var v: Agentre_Wire_UnsupportedRequestNotice?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .unsupportedRequestNotice(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .unsupportedRequestNotice(v)
+        }
+      }()
+      case 33: try {
+        var v: Agentre_Wire_ToolApprovalRequested?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .toolApprovalRequested(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .toolApprovalRequested(v)
+        }
+      }()
+      case 34: try {
+        var v: Agentre_Wire_ToolApprovalResolved?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .toolApprovalResolved(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .toolApprovalResolved(v)
+        }
+      }()
+      default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every if/case branch local when no optimizations
-      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-      // https://github.com/apple/swift-protobuf/issues/1182
-      if !_storage._conversationID.isEmpty {
-        try visitor.visitSingularStringField(value: _storage._conversationID, fieldNumber: 1)
-      }
-      if _storage._seq != 0 {
-        try visitor.visitSingularInt64Field(value: _storage._seq, fieldNumber: 2)
-      }
-      switch _storage._event {
-      case .textDelta?: try {
-        guard case .textDelta(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-      }()
-      case .thinkingDelta?: try {
-        guard case .thinkingDelta(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
-      }()
-      case .outputActivity?: try {
-        guard case .outputActivity(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
-      }()
-      case .permissionModeChanged?: try {
-        guard case .permissionModeChanged(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
-      }()
-      case .retry?: try {
-        guard case .retry(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
-      }()
-      case .contextWindowUpdated?: try {
-        guard case .contextWindowUpdated(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
-      }()
-      case .compactBoundary?: try {
-        guard case .compactBoundary(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
-      }()
-      case .runtimeStatus?: try {
-        guard case .runtimeStatus(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
-      }()
-      case .done?: try {
-        guard case .done(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
-      }()
-      case .error?: try {
-        guard case .error(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 12)
-      }()
-      case .userMessage?: try {
-        guard case .userMessage(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 13)
-      }()
-      case .toolCall?: try {
-        guard case .toolCall(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 14)
-      }()
-      case .toolResult?: try {
-        guard case .toolResult(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 15)
-      }()
-      case .steerConsumed?: try {
-        guard case .steerConsumed(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 16)
-      }()
-      case .userAskRequest?: try {
-        guard case .userAskRequest(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 17)
-      }()
-      case .userAskResolved?: try {
-        guard case .userAskResolved(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 18)
-      }()
-      case .toolPermissionRequest?: try {
-        guard case .toolPermissionRequest(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 19)
-      }()
-      case .toolPermissionResolved?: try {
-        guard case .toolPermissionResolved(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 20)
-      }()
-      case .execApprovalRequested?: try {
-        guard case .execApprovalRequested(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 21)
-      }()
-      case .execApprovalResolved?: try {
-        guard case .execApprovalResolved(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 22)
-      }()
-      case .subagentStarted?: try {
-        guard case .subagentStarted(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 23)
-      }()
-      case .subagentProgress?: try {
-        guard case .subagentProgress(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 24)
-      }()
-      case .subagentDone?: try {
-        guard case .subagentDone(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 25)
-      }()
-      case .subagentModel?: try {
-        guard case .subagentModel(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 26)
-      }()
-      case .usageUpdate?: try {
-        guard case .usageUpdate(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 27)
-      }()
-      case .planUpdated?: try {
-        guard case .planUpdated(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 28)
-      }()
-      case .unrecognizedBlock?: try {
-        guard case .unrecognizedBlock(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 29)
-      }()
-      default: break
-      }
-      if _storage._preview != false {
-        try visitor.visitSingularBoolField(value: _storage._preview, fieldNumber: 30)
-      }
-      switch _storage._event {
-      case .image?: try {
-        guard case .image(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 31)
-      }()
-      case .unsupportedRequestNotice?: try {
-        guard case .unsupportedRequestNotice(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 32)
-      }()
-      case .toolApprovalRequested?: try {
-        guard case .toolApprovalRequested(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 33)
-      }()
-      case .toolApprovalResolved?: try {
-        guard case .toolApprovalResolved(let v)? = _storage._event else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 34)
-      }()
-      default: break
-      }
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.conversationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.conversationID, fieldNumber: 1)
+    }
+    if self.seq != 0 {
+      try visitor.visitSingularInt64Field(value: self.seq, fieldNumber: 2)
+    }
+    switch self.event {
+    case .textDelta?: try {
+      guard case .textDelta(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    }()
+    case .thinkingDelta?: try {
+      guard case .thinkingDelta(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    }()
+    case .outputActivity?: try {
+      guard case .outputActivity(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    }()
+    case .permissionModeChanged?: try {
+      guard case .permissionModeChanged(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
+    }()
+    case .retry?: try {
+      guard case .retry(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+    }()
+    case .contextWindowUpdated?: try {
+      guard case .contextWindowUpdated(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
+    }()
+    case .compactBoundary?: try {
+      guard case .compactBoundary(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
+    }()
+    case .runtimeStatus?: try {
+      guard case .runtimeStatus(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
+    }()
+    case .done?: try {
+      guard case .done(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
+    }()
+    case .error?: try {
+      guard case .error(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 12)
+    }()
+    case .userMessage?: try {
+      guard case .userMessage(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 13)
+    }()
+    case .toolCall?: try {
+      guard case .toolCall(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 14)
+    }()
+    case .toolResult?: try {
+      guard case .toolResult(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 15)
+    }()
+    case .steerConsumed?: try {
+      guard case .steerConsumed(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 16)
+    }()
+    case .userAskRequest?: try {
+      guard case .userAskRequest(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 17)
+    }()
+    case .userAskResolved?: try {
+      guard case .userAskResolved(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 18)
+    }()
+    case .toolPermissionRequest?: try {
+      guard case .toolPermissionRequest(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 19)
+    }()
+    case .toolPermissionResolved?: try {
+      guard case .toolPermissionResolved(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 20)
+    }()
+    case .execApprovalRequested?: try {
+      guard case .execApprovalRequested(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 21)
+    }()
+    case .execApprovalResolved?: try {
+      guard case .execApprovalResolved(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 22)
+    }()
+    case .subagentStarted?: try {
+      guard case .subagentStarted(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 23)
+    }()
+    case .subagentProgress?: try {
+      guard case .subagentProgress(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 24)
+    }()
+    case .subagentDone?: try {
+      guard case .subagentDone(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 25)
+    }()
+    case .subagentModel?: try {
+      guard case .subagentModel(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 26)
+    }()
+    case .usageUpdate?: try {
+      guard case .usageUpdate(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 27)
+    }()
+    case .planUpdated?: try {
+      guard case .planUpdated(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 28)
+    }()
+    case .unrecognizedBlock?: try {
+      guard case .unrecognizedBlock(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 29)
+    }()
+    default: break
+    }
+    if self.preview != false {
+      try visitor.visitSingularBoolField(value: self.preview, fieldNumber: 30)
+    }
+    switch self.event {
+    case .image?: try {
+      guard case .image(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 31)
+    }()
+    case .unsupportedRequestNotice?: try {
+      guard case .unsupportedRequestNotice(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 32)
+    }()
+    case .toolApprovalRequested?: try {
+      guard case .toolApprovalRequested(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 33)
+    }()
+    case .toolApprovalResolved?: try {
+      guard case .toolApprovalResolved(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 34)
+    }()
+    default: break
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentre_Wire_RuntimeEventNotification, rhs: Agentre_Wire_RuntimeEventNotification) -> Bool {
-    if lhs._storage !== rhs._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
-        let _storage = _args.0
-        let rhs_storage = _args.1
-        if _storage._conversationID != rhs_storage._conversationID {return false}
-        if _storage._seq != rhs_storage._seq {return false}
-        if _storage._preview != rhs_storage._preview {return false}
-        if _storage._event != rhs_storage._event {return false}
-        return true
-      }
-      if !storagesAreEqual {return false}
-    }
+    if lhs.conversationID != rhs.conversationID {return false}
+    if lhs.seq != rhs.seq {return false}
+    if lhs.preview != rhs.preview {return false}
+    if lhs.event != rhs.event {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -17136,89 +17222,177 @@ nonisolated extension Agentre_Wire_SubagentRun: SwiftProtobuf.Message, SwiftProt
 
 nonisolated extension Agentre_Wire_SubagentInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SubagentInfo"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}task_id\0\u{3}subagent_type\0\u{1}kind\0\u{3}task_description\0\u{1}prompt\0\u{3}last_tool_name\0\u{3}tool_uses\0\u{3}total_tokens\0\u{3}duration_ms\0\u{1}status\0\u{1}mode\0\u{1}runs\0\u{1}summary\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}task_id\0\u{3}subagent_type\0\u{1}kind\0\u{3}task_description\0\u{1}prompt\0\u{3}last_tool_name\0\u{3}tool_uses\0\u{3}total_tokens\0\u{3}duration_ms\0\u{1}status\0\u{1}mode\0\u{1}runs\0\u{1}summary\0\u{1}origin\0\u{3}child_session_id\0\u{1}isolated\0\u{3}final_text\0")
+
+  fileprivate class _StorageClass {
+    var _taskID: String = String()
+    var _subagentType: String = String()
+    var _kind: String = String()
+    var _taskDescription: String = String()
+    var _prompt: String = String()
+    var _lastToolName: String = String()
+    var _toolUses: Int32 = 0
+    var _totalTokens: Int32 = 0
+    var _durationMs: Int32 = 0
+    var _status: String = String()
+    var _mode: String = String()
+    var _runs: [Agentre_Wire_SubagentRun] = []
+    var _summary: String = String()
+    var _origin: String = String()
+    var _childSessionID: Int64 = 0
+    var _isolated: Bool = false
+    var _finalText: String = String()
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _taskID = source._taskID
+      _subagentType = source._subagentType
+      _kind = source._kind
+      _taskDescription = source._taskDescription
+      _prompt = source._prompt
+      _lastToolName = source._lastToolName
+      _toolUses = source._toolUses
+      _totalTokens = source._totalTokens
+      _durationMs = source._durationMs
+      _status = source._status
+      _mode = source._mode
+      _runs = source._runs
+      _summary = source._summary
+      _origin = source._origin
+      _childSessionID = source._childSessionID
+      _isolated = source._isolated
+      _finalText = source._finalText
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.taskID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.subagentType) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.kind) }()
-      case 4: try { try decoder.decodeSingularStringField(value: &self.taskDescription) }()
-      case 5: try { try decoder.decodeSingularStringField(value: &self.prompt) }()
-      case 6: try { try decoder.decodeSingularStringField(value: &self.lastToolName) }()
-      case 7: try { try decoder.decodeSingularInt32Field(value: &self.toolUses) }()
-      case 8: try { try decoder.decodeSingularInt32Field(value: &self.totalTokens) }()
-      case 9: try { try decoder.decodeSingularInt32Field(value: &self.durationMs) }()
-      case 10: try { try decoder.decodeSingularStringField(value: &self.status) }()
-      case 11: try { try decoder.decodeSingularStringField(value: &self.mode) }()
-      case 12: try { try decoder.decodeRepeatedMessageField(value: &self.runs) }()
-      case 13: try { try decoder.decodeSingularStringField(value: &self.summary) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularStringField(value: &_storage._taskID) }()
+        case 2: try { try decoder.decodeSingularStringField(value: &_storage._subagentType) }()
+        case 3: try { try decoder.decodeSingularStringField(value: &_storage._kind) }()
+        case 4: try { try decoder.decodeSingularStringField(value: &_storage._taskDescription) }()
+        case 5: try { try decoder.decodeSingularStringField(value: &_storage._prompt) }()
+        case 6: try { try decoder.decodeSingularStringField(value: &_storage._lastToolName) }()
+        case 7: try { try decoder.decodeSingularInt32Field(value: &_storage._toolUses) }()
+        case 8: try { try decoder.decodeSingularInt32Field(value: &_storage._totalTokens) }()
+        case 9: try { try decoder.decodeSingularInt32Field(value: &_storage._durationMs) }()
+        case 10: try { try decoder.decodeSingularStringField(value: &_storage._status) }()
+        case 11: try { try decoder.decodeSingularStringField(value: &_storage._mode) }()
+        case 12: try { try decoder.decodeRepeatedMessageField(value: &_storage._runs) }()
+        case 13: try { try decoder.decodeSingularStringField(value: &_storage._summary) }()
+        case 14: try { try decoder.decodeSingularStringField(value: &_storage._origin) }()
+        case 15: try { try decoder.decodeSingularInt64Field(value: &_storage._childSessionID) }()
+        case 16: try { try decoder.decodeSingularBoolField(value: &_storage._isolated) }()
+        case 17: try { try decoder.decodeSingularStringField(value: &_storage._finalText) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.taskID.isEmpty {
-      try visitor.visitSingularStringField(value: self.taskID, fieldNumber: 1)
-    }
-    if !self.subagentType.isEmpty {
-      try visitor.visitSingularStringField(value: self.subagentType, fieldNumber: 2)
-    }
-    if !self.kind.isEmpty {
-      try visitor.visitSingularStringField(value: self.kind, fieldNumber: 3)
-    }
-    if !self.taskDescription.isEmpty {
-      try visitor.visitSingularStringField(value: self.taskDescription, fieldNumber: 4)
-    }
-    if !self.prompt.isEmpty {
-      try visitor.visitSingularStringField(value: self.prompt, fieldNumber: 5)
-    }
-    if !self.lastToolName.isEmpty {
-      try visitor.visitSingularStringField(value: self.lastToolName, fieldNumber: 6)
-    }
-    if self.toolUses != 0 {
-      try visitor.visitSingularInt32Field(value: self.toolUses, fieldNumber: 7)
-    }
-    if self.totalTokens != 0 {
-      try visitor.visitSingularInt32Field(value: self.totalTokens, fieldNumber: 8)
-    }
-    if self.durationMs != 0 {
-      try visitor.visitSingularInt32Field(value: self.durationMs, fieldNumber: 9)
-    }
-    if !self.status.isEmpty {
-      try visitor.visitSingularStringField(value: self.status, fieldNumber: 10)
-    }
-    if !self.mode.isEmpty {
-      try visitor.visitSingularStringField(value: self.mode, fieldNumber: 11)
-    }
-    if !self.runs.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.runs, fieldNumber: 12)
-    }
-    if !self.summary.isEmpty {
-      try visitor.visitSingularStringField(value: self.summary, fieldNumber: 13)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      if !_storage._taskID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._taskID, fieldNumber: 1)
+      }
+      if !_storage._subagentType.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._subagentType, fieldNumber: 2)
+      }
+      if !_storage._kind.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._kind, fieldNumber: 3)
+      }
+      if !_storage._taskDescription.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._taskDescription, fieldNumber: 4)
+      }
+      if !_storage._prompt.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._prompt, fieldNumber: 5)
+      }
+      if !_storage._lastToolName.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._lastToolName, fieldNumber: 6)
+      }
+      if _storage._toolUses != 0 {
+        try visitor.visitSingularInt32Field(value: _storage._toolUses, fieldNumber: 7)
+      }
+      if _storage._totalTokens != 0 {
+        try visitor.visitSingularInt32Field(value: _storage._totalTokens, fieldNumber: 8)
+      }
+      if _storage._durationMs != 0 {
+        try visitor.visitSingularInt32Field(value: _storage._durationMs, fieldNumber: 9)
+      }
+      if !_storage._status.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._status, fieldNumber: 10)
+      }
+      if !_storage._mode.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._mode, fieldNumber: 11)
+      }
+      if !_storage._runs.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._runs, fieldNumber: 12)
+      }
+      if !_storage._summary.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._summary, fieldNumber: 13)
+      }
+      if !_storage._origin.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._origin, fieldNumber: 14)
+      }
+      if _storage._childSessionID != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._childSessionID, fieldNumber: 15)
+      }
+      if _storage._isolated != false {
+        try visitor.visitSingularBoolField(value: _storage._isolated, fieldNumber: 16)
+      }
+      if !_storage._finalText.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._finalText, fieldNumber: 17)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentre_Wire_SubagentInfo, rhs: Agentre_Wire_SubagentInfo) -> Bool {
-    if lhs.taskID != rhs.taskID {return false}
-    if lhs.subagentType != rhs.subagentType {return false}
-    if lhs.kind != rhs.kind {return false}
-    if lhs.taskDescription != rhs.taskDescription {return false}
-    if lhs.prompt != rhs.prompt {return false}
-    if lhs.lastToolName != rhs.lastToolName {return false}
-    if lhs.toolUses != rhs.toolUses {return false}
-    if lhs.totalTokens != rhs.totalTokens {return false}
-    if lhs.durationMs != rhs.durationMs {return false}
-    if lhs.status != rhs.status {return false}
-    if lhs.mode != rhs.mode {return false}
-    if lhs.runs != rhs.runs {return false}
-    if lhs.summary != rhs.summary {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._taskID != rhs_storage._taskID {return false}
+        if _storage._subagentType != rhs_storage._subagentType {return false}
+        if _storage._kind != rhs_storage._kind {return false}
+        if _storage._taskDescription != rhs_storage._taskDescription {return false}
+        if _storage._prompt != rhs_storage._prompt {return false}
+        if _storage._lastToolName != rhs_storage._lastToolName {return false}
+        if _storage._toolUses != rhs_storage._toolUses {return false}
+        if _storage._totalTokens != rhs_storage._totalTokens {return false}
+        if _storage._durationMs != rhs_storage._durationMs {return false}
+        if _storage._status != rhs_storage._status {return false}
+        if _storage._mode != rhs_storage._mode {return false}
+        if _storage._runs != rhs_storage._runs {return false}
+        if _storage._summary != rhs_storage._summary {return false}
+        if _storage._origin != rhs_storage._origin {return false}
+        if _storage._childSessionID != rhs_storage._childSessionID {return false}
+        if _storage._isolated != rhs_storage._isolated {return false}
+        if _storage._finalText != rhs_storage._finalText {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -1080,6 +1080,44 @@ func (r *Runtime) SetCLIModel(ctx context.Context, sessionID int64, value string
 	return err
 }
 
+// InjectSubagentEvents 把 `agrctl send --wait` 子会话的一批事件交给 agentred,由它写进这条会话
+// 的父转录(spec 2026-10-27「agrctl send 子代理卡」Remote sessions 第 2 条):进行中的轮直接写,
+// 已结束的轮写回原消息。一批一次往返;不看本机是否还登记着这条会话的轮次 —— 后台 shell 调用
+// 的卡在父轮结束后照样要更新,只要认得这条会话的线上身份即可。
+func (r *Runtime) InjectSubagentEvents(ctx context.Context, sessionID int64, toolCallID string, events []agentruntime.Event) error {
+	conversationID := r.conversationID(sessionID)
+	if conversationID == "" {
+		return fmt.Errorf("remote.Runtime.InjectSubagentEvents: session %d has no conversation id", sessionID)
+	}
+	req := &agentrewire.RuntimeInjectSubagentEventsRequest{
+		ConversationId:  conversationID,
+		PeerFingerprint: string(r.originForConversation(conversationID)),
+		ToolCallId:      toolCallID,
+	}
+	for _, ev := range events {
+		frame, err := injectedEventFrame(conversationID, ev)
+		if err != nil {
+			return err
+		}
+		req.Events = append(req.Events, frame)
+	}
+	_, err := callSentinel(ctx, r, wirecall.RuntimeInjectSubagentEvents, req)
+	return err
+}
+
+// injectedEventFrame 按运行时事件通知的同一套编码包一条事件,agentred 那一侧原样解回。
+func injectedEventFrame(conversationID string, ev agentruntime.Event) (*agentrewire.RuntimeEventNotification, error) {
+	raw, err := protowire.MarshalEventNotification(conversationID, 0, ev, false)
+	if err != nil {
+		return nil, err
+	}
+	var frame agentrewire.RpcFrame
+	if err := proto.Unmarshal(raw, &frame); err != nil {
+		return nil, err
+	}
+	return frame.GetNotification().GetRuntimeEvent(), nil
+}
+
 func (r *Runtime) SetPermissionMode(ctx context.Context, sessionID int64, mode string) error {
 	if !r.hasSession(sessionID) {
 		return agentruntime.ErrNoActiveTurn

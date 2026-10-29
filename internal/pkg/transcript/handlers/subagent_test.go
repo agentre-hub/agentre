@@ -1074,3 +1074,461 @@ func TestSubagentDone_CrossTurnAfterResumeInAnEarlierTurn_PassesTheTaskID(t *tes
 		})
 	})
 }
+
+// agrctlShell 往 acc 推一条外层 Bash 调用,模拟父轮里 agent 跑的 `agrctl send --wait`。
+func agrctlShell(acc *turn.Accumulator, id string, background bool) {
+	input := map[string]any{"command": `agrctl send --wait --agent reviewer "审一下"`}
+	if background {
+		input["run_in_background"] = true
+	}
+	acc.AddToolUse(&cagoblocks.ToolUseBlock{ID: id, Name: "Bash", Input: input}, "tool_use:"+id)
+}
+
+// injected 造一帧注入方(agrctl 绑定)发来的 info。
+func injected(info agentruntime.SubagentInfo) agentruntime.SubagentInfo {
+	info.Origin = agentruntime.SubagentOriginAgrctl
+	return info
+}
+
+func overlaysOf(final []cagoblocks.ContentBlock) []*blocks.SubagentStateBlock {
+	var out []*blocks.SubagentStateBlock
+	for _, b := range final {
+		if sb, ok := b.(*blocks.SubagentStateBlock); ok {
+			out = append(out, sb)
+		}
+	}
+	return out
+}
+
+func TestAgrctlOverlay_Foreground(t *testing.T) {
+	Convey("Given 前台 Bash 上绑定的 agrctl overlay", t, func() {
+		ctx := context.Background()
+		tc := &turn.TurnContext{}
+		acc := turn.New()
+		agrctlShell(acc, "sh-1", false)
+		emit := &fakeEmit{}
+		So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "sh-1",
+			Info: injected(agentruntime.SubagentInfo{
+				Kind: agentruntime.SubagentKindAgrctl, TaskDescription: "审一下",
+				ChildSessionID: 77, Isolated: true,
+			}),
+		}, acc, emit, tc), ShouldBeNil)
+
+		Convey("Then overlay 带上归属、子会话、isolated 与任务文本,状态运行中", func() {
+			got := overlaysOf(acc.Snapshot())
+			So(got, ShouldHaveLength, 1)
+			So(got[0].ParentToolCallID, ShouldEqual, "sh-1")
+			So(got[0].Kind, ShouldEqual, agentruntime.SubagentKindAgrctl)
+			So(got[0].Origin, ShouldEqual, agentruntime.SubagentOriginAgrctl)
+			So(got[0].ChildSessionID, ShouldEqual, 77)
+			So(got[0].Isolated, ShouldBeTrue)
+			So(got[0].Description, ShouldEqual, "审一下")
+			So(got[0].Status, ShouldEqual, "running")
+			So(emit.events, ShouldHaveLength, 1)
+		})
+
+		Convey("When CLI 为这条 Bash 发来前台 local_bash 的 Started/Progress/Done, Then 全部不生效也不 emit", func() {
+			emit.events = nil
+			So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+				ToolCallID: "sh-1", Info: agentruntime.SubagentInfo{Kind: "local_bash", TaskID: "b1", TaskDescription: "Run agrctl"},
+			}, acc, emit, tc), ShouldBeNil)
+			So(SubagentProgressHandler{}.Apply(ctx, agentruntime.SubagentProgress{
+				ToolCallID: "sh-1", Info: agentruntime.SubagentInfo{ToolUses: 9, TotalTokens: 5, LastToolName: "Bash", Status: "running"},
+			}, acc, emit, tc), ShouldBeNil)
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-1", Info: agentruntime.SubagentInfo{Status: "failed", Summary: "exit code 143"},
+			}, acc, emit, tc), ShouldBeNil)
+
+			got := overlaysOf(acc.Snapshot())
+			So(got, ShouldHaveLength, 1)
+			So(got[0].Status, ShouldEqual, "running")
+			So(got[0].Summary, ShouldBeEmpty)
+			So(got[0].ToolUses, ShouldEqual, 0)
+			So(got[0].TaskID, ShouldBeEmpty)
+			So(got[0].Description, ShouldEqual, "审一下")
+			So(emit.events, ShouldBeEmpty)
+		})
+
+		Convey("When 注入方推进度再收尾, Then 进度与子任务最终文本落进 overlay,summary 不被占用", func() {
+			So(SubagentProgressHandler{}.Apply(ctx, agentruntime.SubagentProgress{
+				ToolCallID: "sh-1", Info: injected(agentruntime.SubagentInfo{ToolUses: 2, TotalTokens: 300, LastToolName: "Read"}),
+			}, acc, emit, tc), ShouldBeNil)
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-1", Info: injected(agentruntime.SubagentInfo{FinalText: "结论:没问题", DurationMs: 900}),
+			}, acc, emit, tc), ShouldBeNil)
+
+			got := overlaysOf(acc.Snapshot())[0]
+			So(got.ToolUses, ShouldEqual, 2)
+			So(got.TotalTokens, ShouldEqual, 300)
+			So(got.LastToolName, ShouldEqual, "Read")
+			So(got.DurationMs, ShouldEqual, 900)
+			So(got.Status, ShouldEqual, "completed")
+			So(got.FinalText, ShouldEqual, "结论:没问题")
+			So(got.Summary, ShouldBeEmpty)
+		})
+
+		Convey("When 注入方对同一条调用再发一次 Started, Then 不改绑也不新增 overlay", func() {
+			So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+				ToolCallID: "sh-1",
+				Info:       injected(agentruntime.SubagentInfo{Kind: agentruntime.SubagentKindAgrctl, TaskDescription: "另一件事", ChildSessionID: 88}),
+			}, acc, emit, tc), ShouldBeNil)
+			got := overlaysOf(acc.Snapshot())
+			So(got, ShouldHaveLength, 1)
+			So(got[0].ChildSessionID, ShouldEqual, 77)
+			So(got[0].Description, ShouldEqual, "审一下")
+		})
+
+		Convey("When 父轮被中止、卡片已标成取消, Then 注入方迟到的运行中更新不能把它写回运行中", func() {
+			MarkRunningSubagentsCancelled(acc.Snapshot())
+			So(SubagentProgressHandler{}.Apply(ctx, agentruntime.SubagentProgress{
+				ToolCallID: "sh-1", Info: injected(agentruntime.SubagentInfo{Status: "running", ToolUses: 3}),
+			}, acc, emit, tc), ShouldBeNil)
+			So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+				ToolCallID: "sh-1", Info: injected(agentruntime.SubagentInfo{Kind: agentruntime.SubagentKindAgrctl, Status: "running"}),
+			}, acc, emit, tc), ShouldBeNil)
+			got := overlaysOf(acc.Snapshot())
+			So(got, ShouldHaveLength, 1)
+			So(got[0].Status, ShouldEqual, "canceled")
+		})
+	})
+}
+
+func TestAgrctlOverlay_Background(t *testing.T) {
+	Convey("Given run_in_background 的 Bash 上绑定的 agrctl overlay", t, func() {
+		ctx := context.Background()
+		tc := &turn.TurnContext{}
+		cliStarted := agentruntime.SubagentStarted{
+			ToolCallID: "sh-bg", Info: agentruntime.SubagentInfo{Kind: "local_bash", TaskID: "bg1", TaskDescription: "Run agrctl in background"},
+		}
+		agrctlStarted := agentruntime.SubagentStarted{
+			ToolCallID: "sh-bg",
+			Info: injected(agentruntime.SubagentInfo{
+				Kind: agentruntime.SubagentKindLocalBash, TaskDescription: "审一下", ChildSessionID: 9,
+			}),
+		}
+		assertBound := func(acc *turn.Accumulator) *blocks.SubagentStateBlock {
+			got := overlaysOf(acc.Snapshot())
+			So(got, ShouldHaveLength, 1)
+			So(got[0].Kind, ShouldEqual, "local_bash")
+			So(got[0].Origin, ShouldEqual, agentruntime.SubagentOriginAgrctl)
+			So(got[0].TaskID, ShouldEqual, "bg1")
+			So(got[0].Description, ShouldEqual, "审一下")
+			So(got[0].ChildSessionID, ShouldEqual, 9)
+			return got[0]
+		}
+
+		Convey("When CLI 的 task_started 先到、绑定后到, Then 认领同一块 overlay", func() {
+			acc := turn.New()
+			agrctlShell(acc, "sh-bg", true)
+			So(SubagentStartedHandler{}.Apply(ctx, cliStarted, acc, nil, tc), ShouldBeNil)
+			So(SubagentStartedHandler{}.Apply(ctx, agrctlStarted, acc, nil, tc), ShouldBeNil)
+			assertBound(acc)
+		})
+
+		Convey("When 绑定先到、CLI 的 task_started 后到, Then 只回填 task_id,不另起一块", func() {
+			acc := turn.New()
+			agrctlShell(acc, "sh-bg", true)
+			So(SubagentStartedHandler{}.Apply(ctx, agrctlStarted, acc, nil, tc), ShouldBeNil)
+			So(SubagentStartedHandler{}.Apply(ctx, cliStarted, acc, nil, tc), ShouldBeNil)
+			assertBound(acc)
+		})
+
+		Convey("When 子任务与 CLI 先后收尾", func() {
+			acc := turn.New()
+			agrctlShell(acc, "sh-bg", true)
+			So(SubagentStartedHandler{}.Apply(ctx, agrctlStarted, acc, nil, tc), ShouldBeNil)
+			So(SubagentStartedHandler{}.Apply(ctx, cliStarted, acc, nil, tc), ShouldBeNil)
+
+			// CLI 的进度帧不改注入方拥有的工具数/用量。
+			So(SubagentProgressHandler{}.Apply(ctx, agentruntime.SubagentProgress{
+				ToolCallID: "sh-bg", Info: injected(agentruntime.SubagentInfo{ToolUses: 4, TotalTokens: 800}),
+			}, acc, nil, tc), ShouldBeNil)
+			So(SubagentProgressHandler{}.Apply(ctx, agentruntime.SubagentProgress{
+				ToolCallID: "sh-bg", Info: agentruntime.SubagentInfo{ToolUses: 1, TotalTokens: 7},
+			}, acc, nil, tc), ShouldBeNil)
+
+			// 父轮正常结束:后台卡保留 local_bash 语义,不被翻成取消。
+			MarkRunningForegroundSubagentsCancelled(acc, acc.Snapshot())
+			sb := assertBound(acc)
+			So(sb.Status, ShouldEqual, "running")
+			So(sb.ToolUses, ShouldEqual, 4)
+			So(sb.TotalTokens, ShouldEqual, 800)
+
+			// 注入方带来子任务最终文本;后台卡的状态归 CLI,注入方不改。
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-bg", Info: injected(agentruntime.SubagentInfo{FinalText: "子任务结论", Status: "completed"}),
+			}, acc, nil, tc), ShouldBeNil)
+			So(sb.FinalText, ShouldEqual, "子任务结论")
+			So(sb.Status, ShouldEqual, "running")
+
+			// CLI 的完成通知翻状态,summary 是退出码文本,不覆盖最终文本。
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-bg", Info: agentruntime.SubagentInfo{Summary: "Background command completed (exit code 0)"},
+			}, acc, nil, tc), ShouldBeNil)
+			So(sb.Status, ShouldEqual, "completed")
+			So(sb.Summary, ShouldEqual, "Background command completed (exit code 0)")
+			So(sb.FinalText, ShouldEqual, "子任务结论")
+
+			// 终态之后迟到的运行中更新(无论来自哪一方)都不能翻回运行中。
+			So(SubagentProgressHandler{}.Apply(ctx, agentruntime.SubagentProgress{
+				ToolCallID: "sh-bg", Info: agentruntime.SubagentInfo{Status: "running"},
+			}, acc, nil, tc), ShouldBeNil)
+			So(SubagentStartedHandler{}.Apply(ctx, cliStarted, acc, nil, tc), ShouldBeNil)
+			So(sb.Status, ShouldEqual, "completed")
+			So(overlaysOf(acc.Snapshot()), ShouldHaveLength, 1)
+		})
+	})
+}
+
+// TestAgrctlOverlay_OutlivesTheParentTurn 钉住「卡片状态不说谎」在父轮先结束时的那一半
+// (spec Card lifecycle「前台与后台」):agrctl 卡的子任务不随父轮结束 —— 前台卡由注入方用
+// 子轮结果收尾,后台卡由 CLI 收尾。父轮正常收尾(含自主续轮)不能把它翻成已取消,即便
+// 它是前台 kind(Codex 的命令在父轮结束后仍在跑)。
+func TestAgrctlOverlay_OutlivesTheParentTurn(t *testing.T) {
+	Convey("Given 父轮正常收尾时前台 agrctl 卡的子任务还在跑", t, func() {
+		ctx := context.Background()
+		acc := turn.New()
+		agrctlShell(acc, "sh-1", false)
+		So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "sh-1",
+			Info:       injected(agentruntime.SubagentInfo{Kind: agentruntime.SubagentKindAgrctl, ChildSessionID: 5}),
+		}, acc, nil, &turn.TurnContext{}), ShouldBeNil)
+		turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:sh-1", func(b *blocks.SubagentStateBlock) {
+			b.Mode, b.Runs = "single", []agentruntime.SubagentRun{{ID: "agrctl:5", Status: "running"}}
+		})
+
+		MarkRunningForegroundSubagentsCancelled(acc, acc.Finalize())
+
+		Convey("Then 卡片仍在运行中,等子任务的真实结果收尾", func() {
+			sb := overlaysOf(acc.Snapshot())[0]
+			So(sb.Status, ShouldEqual, "running")
+			So(sb.Runs[0].Status, ShouldEqual, "running")
+		})
+	})
+}
+
+// TestAgrctlOverlay_WriteConflicts 钉住 spec「写入冲突」里落在累加器这一侧的情形,以及
+// 供宿主在父轮结束后改写原消息时复用的同一套写入分工(ApplyAgrctlInfo)。
+func TestAgrctlOverlay_WriteConflicts(t *testing.T) {
+	Convey("Given 已完成的后台 agrctl 卡(单运行快照)", t, func() {
+		ctx := context.Background()
+		tc := &turn.TurnContext{}
+		acc := turn.New()
+		agrctlShell(acc, "sh-bg", true)
+		So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "sh-bg",
+			Info:       injected(agentruntime.SubagentInfo{Kind: agentruntime.SubagentKindLocalBash, ChildSessionID: 9}),
+		}, acc, nil, tc), ShouldBeNil)
+		turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:sh-bg", func(b *blocks.SubagentStateBlock) {
+			b.Mode, b.Runs = "single", []agentruntime.SubagentRun{{ID: "agrctl:9", Status: "running"}}
+		})
+
+		Convey("When CLI 的完成通知翻状态, Then 单运行快照的状态跟着翻(重载时卡片读的是它)", func() {
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-bg", Info: agentruntime.SubagentInfo{Status: "completed", Summary: "Background command completed (exit code 0)"},
+			}, acc, nil, tc), ShouldBeNil)
+			sb := overlaysOf(acc.Snapshot())[0]
+			So(sb.Status, ShouldEqual, "completed")
+			So(sb.Runs[0].Status, ShouldEqual, "completed")
+
+			Convey("When resume 前奏补发这条命令的 stopped 通知, Then 已完成的卡不翻回已取消,summary 也不被改写", func() {
+				So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+					ToolCallID: "sh-bg", Info: agentruntime.SubagentInfo{Status: "canceled", Summary: "stopped"},
+				}, acc, nil, tc), ShouldBeNil)
+				sb := overlaysOf(acc.Snapshot())[0]
+				So(sb.Status, ShouldEqual, "completed")
+				So(sb.Runs[0].Status, ShouldEqual, "completed")
+				So(sb.Summary, ShouldEqual, "Background command completed (exit code 0)")
+			})
+		})
+	})
+
+	Convey("ApplyAgrctlInfo 对单块套用写入分工", t, func() {
+		Convey("不是 agrctl 卡 → bound=false,不动", func() {
+			b := &blocks.SubagentStateBlock{ParentToolCallID: "x", Kind: "local_bash", Status: "running"}
+			bound, accepted, _ := ApplyAgrctlInfo(b, agentruntime.SubagentInfo{Status: "completed"}, "completed")
+			So(bound, ShouldBeFalse)
+			So(accepted, ShouldBeFalse)
+			So(b.Status, ShouldEqual, "running")
+		})
+		Convey("前台卡上 CLI 的帧 → 不收", func() {
+			b := &blocks.SubagentStateBlock{Kind: agentruntime.SubagentKindAgrctl, Origin: agentruntime.SubagentOriginAgrctl, Status: "running"}
+			bound, accepted, _ := ApplyAgrctlInfo(b, agentruntime.SubagentInfo{Status: "failed", Summary: "exit code 143"}, "completed")
+			So(bound, ShouldBeTrue)
+			So(accepted, ShouldBeFalse)
+			So(b.Status, ShouldEqual, "running")
+			So(b.Summary, ShouldBeEmpty)
+		})
+		Convey("用户中止已标取消后,注入方迟到的进度只补内容、不复活", func() {
+			b := &blocks.SubagentStateBlock{Kind: agentruntime.SubagentKindAgrctl, Origin: agentruntime.SubagentOriginAgrctl, Status: "canceled"}
+			_, accepted, applied := ApplyAgrctlInfo(b, injected(agentruntime.SubagentInfo{Status: "running", ToolUses: 3}), "")
+			So(accepted, ShouldBeTrue)
+			So(applied.Status, ShouldBeEmpty)
+			So(b.Status, ShouldEqual, "canceled")
+			So(b.ToolUses, ShouldEqual, 3)
+		})
+	})
+}
+
+// TestAgrctlOverlay_SingleRunSnapshot 钉住「重载」那一半(spec Card lifecycle「升级」「重载」):
+// SubagentStateBlock 不持久化 SubagentType,重载后卡片名只能取 Runs[0].Agent。单运行快照
+// (Mode/Runs[0])由这一层随每次写入维护,本机与 agentred 共用同一套 handler,两边都拿得到。
+func TestAgrctlOverlay_SingleRunSnapshot(t *testing.T) {
+	Convey("Given 前台 Bash 上绑定的 agrctl overlay(注入方的 Started 带目标 agent 与任务文本)", t, func() {
+		ctx := context.Background()
+		tc := &turn.TurnContext{}
+		acc := turn.New()
+		agrctlShell(acc, "sh-1", false)
+		So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "sh-1",
+			Info: injected(agentruntime.SubagentInfo{
+				Kind: agentruntime.SubagentKindAgrctl, SubagentType: "reviewer", TaskDescription: "审一下",
+				ChildSessionID: 77, Status: "running",
+			}),
+		}, acc, nil, tc), ShouldBeNil)
+		run := func() agentruntime.SubagentRun {
+			sb := overlaysOf(acc.Snapshot())[0]
+			So(sb.Mode, ShouldEqual, "single")
+			So(sb.Runs, ShouldHaveLength, 1)
+			return sb.Runs[0]
+		}
+
+		Convey("Then 绑定即写下单运行快照:目标 agent 名、任务文本、子会话运行 ID、运行中", func() {
+			So(run(), ShouldResemble, agentruntime.SubagentRun{
+				ID: "agrctl:77", Agent: "reviewer", Task: "审一下", Status: "running",
+			})
+		})
+
+		Convey("When 子会话的模型、进度、收尾依次到达, Then 快照跟上;模型先到为准,最终文本进 Runs[0].Summary", func() {
+			model := func(m string) {
+				So(SubagentModelHandler{}.Apply(ctx, agentruntime.SubagentModel{ToolCallID: "sh-1", Model: m}, acc, nil, tc), ShouldBeNil)
+			}
+			model("claude-sonnet-4")
+			model("claude-opus-4")
+			So(SubagentProgressHandler{}.Apply(ctx, agentruntime.SubagentProgress{
+				ToolCallID: "sh-1", Info: injected(agentruntime.SubagentInfo{ToolUses: 2, LastToolName: "Read"}),
+			}, acc, nil, tc), ShouldBeNil)
+			So(run().Model, ShouldEqual, "claude-sonnet-4")
+			So(run().ToolUses, ShouldEqual, 2)
+			So(run().LastToolName, ShouldEqual, "Read")
+
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-1", Info: injected(agentruntime.SubagentInfo{Status: "completed", FinalText: "LGTM"}),
+			}, acc, nil, tc), ShouldBeNil)
+			So(run(), ShouldResemble, agentruntime.SubagentRun{
+				ID: "agrctl:77", Agent: "reviewer", Task: "审一下", Status: "completed",
+				Model: "claude-sonnet-4", ToolUses: 2, LastToolName: "Read", Summary: "LGTM",
+			})
+		})
+
+		Convey("When 子任务失败, Then 最终文本进 Runs[0].ErrorMessage 而不是 Summary", func() {
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-1", Info: injected(agentruntime.SubagentInfo{Status: "failed", FinalText: "boom"}),
+			}, acc, nil, tc), ShouldBeNil)
+			So(run().Status, ShouldEqual, "failed")
+			So(run().ErrorMessage, ShouldEqual, "boom")
+			So(run().Summary, ShouldBeEmpty)
+		})
+
+		Convey("When CLI 为这条前台 Bash 发来自己的帧, Then 快照不动", func() {
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-1", Info: agentruntime.SubagentInfo{Status: "failed", Summary: "exit code 143"},
+			}, acc, nil, tc), ShouldBeNil)
+			So(run().Status, ShouldEqual, "running")
+			So(run().Summary, ShouldBeEmpty)
+		})
+	})
+
+	Convey("Given CLI 先为后台 Bash 建了 local_bash overlay,注入方随后绑定", t, func() {
+		ctx := context.Background()
+		tc := &turn.TurnContext{}
+		acc := turn.New()
+		agrctlShell(acc, "sh-bg", true)
+		So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "sh-bg", Info: agentruntime.SubagentInfo{Kind: "local_bash", TaskID: "bg1", TaskDescription: "Run agrctl"},
+		}, acc, nil, tc), ShouldBeNil)
+		So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "sh-bg",
+			Info: injected(agentruntime.SubagentInfo{
+				Kind: agentruntime.SubagentKindLocalBash, SubagentType: "reviewer", TaskDescription: "审一下", ChildSessionID: 9,
+			}),
+		}, acc, nil, tc), ShouldBeNil)
+
+		Convey("Then 认领的那块也带上快照,状态取 CLI 的", func() {
+			sb := overlaysOf(acc.Snapshot())[0]
+			So(sb.Mode, ShouldEqual, "single")
+			So(sb.Runs, ShouldResemble, []agentruntime.SubagentRun{{ID: "agrctl:9", Agent: "reviewer", Task: "审一下", Status: "running"}})
+		})
+
+		Convey("When 注入方收尾、CLI 再翻状态, Then 快照状态跟 CLI,Summary 是子任务最终文本而不是退出码文本", func() {
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-bg", Info: injected(agentruntime.SubagentInfo{Status: "completed", FinalText: "子任务结论"}),
+			}, acc, nil, tc), ShouldBeNil)
+			So(overlaysOf(acc.Snapshot())[0].Runs[0].Status, ShouldEqual, "running")
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-bg", Info: agentruntime.SubagentInfo{Status: "completed", Summary: "Background command completed (exit code 0)"},
+			}, acc, nil, tc), ShouldBeNil)
+			run := overlaysOf(acc.Snapshot())[0].Runs[0]
+			So(run.Status, ShouldEqual, "completed")
+			So(run.Summary, ShouldEqual, "子任务结论")
+			So(run.Agent, ShouldEqual, "reviewer")
+		})
+	})
+
+	Convey("Given 不是 agrctl 的 normalized overlay(Pi 的单运行快照)", t, func() {
+		ctx := context.Background()
+		acc := turn.New()
+		acc.AddBlock(&blocks.SubagentStateBlock{
+			ParentToolCallID: "pi-1", Status: "running", Mode: "single",
+			Runs: []agentruntime.SubagentRun{{ID: "r1", Agent: "scout", Task: "看看", Status: "running"}},
+		}, "subagent_state:pi-1")
+
+		Convey("When 模型帧到达, Then 只记 overlay 的模型,Pi 自己的 runs 原样保留", func() {
+			So(SubagentModelHandler{}.Apply(ctx, agentruntime.SubagentModel{ToolCallID: "pi-1", Model: "m"}, acc, nil, &turn.TurnContext{}), ShouldBeNil)
+			sb := overlaysOf(acc.Snapshot())[0]
+			So(sb.Model, ShouldEqual, "m")
+			So(sb.Runs, ShouldResemble, []agentruntime.SubagentRun{{ID: "r1", Agent: "scout", Task: "看看", Status: "running"}})
+		})
+	})
+}
+
+func TestAgrctlOverlay_LiveEventsCarryTheSingleRunSnapshot(t *testing.T) {
+	Convey("Given 注入方把一条前台 Bash 升级成 agrctl 卡", t, func() {
+		ctx := context.Background()
+		tc := &turn.TurnContext{}
+		acc := turn.New()
+		agrctlShell(acc, "sh-1", false)
+		emit := &fakeEmit{}
+		info := func(i int) agentruntime.SubagentInfo {
+			payload, ok := emit.events[i].payload.(map[string]any)
+			So(ok, ShouldBeTrue)
+			got, ok := payload["info"].(agentruntime.SubagentInfo)
+			So(ok, ShouldBeTrue)
+			return got
+		}
+		So(SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "sh-1",
+			Info: injected(agentruntime.SubagentInfo{
+				Kind: agentruntime.SubagentKindAgrctl, SubagentType: "reviewer", TaskDescription: "审一下",
+				ChildSessionID: 77, Status: "running",
+			}),
+		}, acc, emit, tc), ShouldBeNil)
+
+		Convey("Then 实时的 started 带着与落库 overlay 同一份单运行快照(重载前后卡片的运行是同一个)", func() {
+			So(emit.events, ShouldHaveLength, 1)
+			So(info(0).Mode, ShouldEqual, "single")
+			So(info(0).Runs, ShouldResemble, overlaysOf(acc.Snapshot())[0].Runs)
+		})
+
+		Convey("When 收尾, Then 实时的 done 带着跟上之后的快照", func() {
+			So(SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "sh-1", Info: injected(agentruntime.SubagentInfo{Status: "completed", FinalText: "LGTM"}),
+			}, acc, emit, tc), ShouldBeNil)
+			So(emit.events, ShouldHaveLength, 2)
+			So(info(1).Runs, ShouldResemble, []agentruntime.SubagentRun{{
+				ID: "agrctl:77", Agent: "reviewer", Task: "审一下", Status: "completed", Summary: "LGTM",
+			}})
+		})
+	})
+}

@@ -58,6 +58,7 @@
       "groupedName": "多个 Agent",
       "runToggle": "展开或收起第 {{index}} 个运行：{{name}}",
       "stop": "停止",
+      "openSession": "打开会话",
       "emptyPrompt": "无 prompt",
       "emptyResult": "(empty result)",
       "emptySteps": "无子步骤",

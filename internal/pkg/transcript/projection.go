@@ -81,7 +81,8 @@ func ProjectMessages(conversationID string, messages []*transcript_entity.Messag
 				if err := appendEvent(agentruntime.SubagentDone{ToolCallID: data.ParentToolCallID, Info: agentruntime.SubagentInfo{
 					TaskID: data.TaskID, Kind: data.Kind, TaskDescription: data.Description, LastToolName: data.LastToolName,
 					ToolUses: data.ToolUses, TotalTokens: data.TotalTokens, DurationMs: data.DurationMs, Status: data.Status,
-					Mode: data.Mode, Runs: data.Runs,
+					Mode: data.Mode, Runs: data.Runs, Summary: data.Summary,
+					Origin: data.Origin, ChildSessionID: data.ChildSessionID, Isolated: data.Isolated, FinalText: data.FinalText,
 				}}); err != nil {
 					return nil, nil, err
 				}
@@ -274,6 +275,29 @@ func EventForStoredBlock(message *transcript_entity.Message, block cagoblocks.St
 			return nil, false, err
 		}
 		return agentruntime.ToolResult{ToolCallID: data.ToolCallID, Content: projectTextFromStoredBlocks(data.Content), IsError: data.IsError}, true, nil
+	case "nested_tool_use":
+		// subagent 内层的工具调用:折成带 parent / run 归属的 ToolCall,对端的 raw_tool
+		// 处理器据此重建 NestedToolUseBlock。折不出来就落 UnrecognizedBlock,而对端的
+		// dispatcher 把它丢掉 —— 嵌套步骤从此在对端的转录里整段消失。
+		var data transcriptblocks.NestedToolUseBlock
+		if err := json.Unmarshal(block.Data, &data); err != nil {
+			return nil, false, err
+		}
+		var input json.RawMessage
+		if data.Input != nil {
+			raw, err := json.Marshal(data.Input)
+			if err != nil {
+				return nil, false, err
+			}
+			input = raw
+		}
+		return agentruntime.ToolCall{ID: data.ID, Name: data.Name, Input: input, ParentToolCallID: data.ParentToolCallID, SubagentRunID: data.SubagentRunID}, true, nil
+	case "nested_tool_result":
+		var data transcriptblocks.NestedToolResultBlock
+		if err := json.Unmarshal(block.Data, &data); err != nil {
+			return nil, false, err
+		}
+		return agentruntime.ToolResult{ToolCallID: data.ToolCallID, Content: data.Content, IsError: data.IsError, ParentToolCallID: data.ParentToolCallID, SubagentRunID: data.SubagentRunID}, true, nil
 	case "permission_mode_change":
 		var data transcriptblocks.PermissionModeChangeBlock
 		if err := json.Unmarshal(block.Data, &data); err != nil {

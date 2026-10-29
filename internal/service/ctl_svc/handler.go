@@ -27,6 +27,8 @@ type ctlHandler struct {
 	projects  ProjectGateway
 	chat      ChatGateway
 	resources Resources
+	// cards 把 send --wait 的子会话升级成调用方转录里的子代理卡(nil = 不升级)。
+	cards SubagentCards
 	// approvals 在会话里出审批卡；external 是桌面端弹窗的待审批队列（nil = 不可用）。
 	approvals       SessionApprovals
 	external        ExternalApprovals
@@ -54,7 +56,7 @@ func (h *ctlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "sessions":
 		h.serveSessions(w, r)
 	case "send":
-		h.serveSend(w, r)
+		h.serveSend(w, r, cred)
 	case "stop":
 		h.serveStop(w, r)
 	case "answer-permission":
@@ -143,7 +145,9 @@ type sendDTO struct {
 	Done               bool   `json:"done"`
 }
 
-func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request) {
+// serveSend 派发一次任务。cred 只用来判定要不要把子会话升级成调用方转录里的子代理卡
+// (见 watchSubagentCard);请求、响应、状态码与断开即停止子会话都不因它而变。
+func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred credential) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "send requires POST")
 		return
@@ -166,6 +170,7 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request) {
 	var (
 		sessionID int64
 		agentID   int64
+		agentName string
 	)
 	if req.SessionID > 0 {
 		sessionID = req.SessionID
@@ -191,6 +196,7 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request) {
 		}
 		sessionID = ensured.SessionID
 		agentID = a.ID
+		agentName = a.Name
 	}
 
 	// --wait：订阅必须在 Send 之前(快 turn 的回执会丢)。
@@ -200,6 +206,9 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request) {
 		turnCh, cancel = h.chat.ObserveTurn(sessionID)
 		defer cancel()
 	}
+	// 子代理卡:登记同样必须在 Send 之前(子会话起轮第一时间的步骤要攒住)。
+	card := h.watchSubagentCard(r.Context(), cred, req, sessionID)
+	defer card.Close()
 
 	sendResp, err := h.chat.Send(r.Context(), &chat_svc.SendRequest{
 		SessionID:             sessionID,
@@ -227,17 +236,42 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 绑定以起轮成功为准(spec「Binding」规则 4)。不绑定时句柄的后续操作都是空操作。
+	card.Bind(r.Context(), chat_svc.CtlSendBindRequest{
+		CallerSessionID: cred.ref.SessionID,
+		AgentName:       agentName,
+		AgentID:         req.AgentID,
+		Task:            req.Text,
+		Isolated:        req.Isolated,
+		HostToolCallID:  r.Header.Get(HostBindToolCallHeader),
+		HostBackground:  r.Header.Get(HostBindBackgroundHeader) == "true",
+	})
+
+	// 卡片的终态一律在写响应之前落定:前台 shell 调用拿到结果时,卡片已经收尾。
 	select {
 	case res := <-turnCh:
 		if res.Err != nil {
+			card.Finish(r.Context(), chat_svc.CtlSendOutcome{
+				Status: chat_svc.CtlSendFailed, FinalText: res.Err.Error(), AssistantMessageID: res.AssistantMessageID,
+			})
 			writeErr(w, http.StatusInternalServerError, "turn error: "+res.Err.Error())
 			return
 		}
 		text, terr := h.chat.FinalAssistantText(r.Context(), res.AssistantMessageID)
 		if terr != nil {
+			card.Finish(r.Context(), chat_svc.CtlSendOutcome{
+				Status: chat_svc.CtlSendFailed, FinalText: "read final text failed", AssistantMessageID: res.AssistantMessageID,
+			})
 			writeErr(w, http.StatusInternalServerError, "read final text failed")
 			return
 		}
+		status := chat_svc.CtlSendCompleted
+		if res.Aborted {
+			status = chat_svc.CtlSendCanceled
+		}
+		card.Finish(r.Context(), chat_svc.CtlSendOutcome{
+			Status: status, FinalText: text, AssistantMessageID: res.AssistantMessageID,
+		})
 		writeJSON(w, http.StatusOK, sendDTO{
 			SessionID:          sessionID,
 			AssistantMessageID: res.AssistantMessageID,
@@ -247,6 +281,7 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request) {
 	case <-r.Context().Done():
 		// CLI 断开/取消 → 中止该轮，不留悬空 turn（用 Background：请求 ctx 已取消）。
 		_, _ = h.chat.Stop(context.Background(), &chat_svc.StopRequest{SessionID: sessionID})
+		card.Finish(context.WithoutCancel(r.Context()), chat_svc.CtlSendOutcome{Status: chat_svc.CtlSendCanceled})
 		writeErr(w, http.StatusRequestTimeout, "canceled")
 	}
 }

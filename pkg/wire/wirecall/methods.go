@@ -190,6 +190,9 @@ var RuntimeGoalGet = Define[*agentrewire.RuntimeGoalRequest](agentrewire.RpcMeth
 var RuntimeGoalSet = Define[*agentrewire.RuntimeGoalRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_SET,
 	func() *agentrewire.RuntimeGoalResponse { return &agentrewire.RuntimeGoalResponse{} })
 
+var RuntimeInjectSubagentEvents = Define[*agentrewire.RuntimeInjectSubagentEventsRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_INJECT_SUBAGENT_EVENTS,
+	func() *agentrewire.Empty { return &agentrewire.Empty{} })
+
 var RuntimeRun = Define[*agentrewire.RuntimeRunRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN,
 	func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
 

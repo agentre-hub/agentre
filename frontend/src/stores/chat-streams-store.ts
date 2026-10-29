@@ -18,6 +18,7 @@ import {
   markExecApprovalResolvedBlocks,
   markToolApprovalResolvedBlocks,
   markToolPermissionResolvedBlocks,
+  isDuplicateNestedBlock,
   mergeSubagentMetaBlocks,
   upsertExecApprovalBlock,
   upsertPlanBlock,
@@ -259,6 +260,8 @@ export const useChatStreamsStore = create<State & Actions>((set) => {
     appendLiveToolUse: (sessionId, assistantMessageId, block) =>
       flushingSet((state) =>
         updateStream(state, sessionId, assistantMessageId, (cur) => {
+          if (isDuplicateNestedBlock(cur.liveBlocks, "tool_use", block))
+            return null;
           // 内层（subagent 内部）工具不碰表 —— 派遣它的那个外层 Task 调用已经把表
           // 按住了，内层再加减一遍只会在孤儿帧上留下按死表的挂账。
           //
@@ -285,6 +288,8 @@ export const useChatStreamsStore = create<State & Actions>((set) => {
     appendLiveToolResult: (sessionId, assistantMessageId, block) =>
       flushingSet((state) =>
         updateStream(state, sessionId, assistantMessageId, (cur) => {
+          if (isDuplicateNestedBlock(cur.liveBlocks, "tool_result", block))
+            return null;
           // 工具跑完，模型要接着生成了 → 重新开表（并行工具全部回齐才真开）。
           const resumed =
             block.parentToolUseId || !block.toolUseId

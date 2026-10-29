@@ -276,6 +276,25 @@ describe("buildRenderItems", () => {
     expect(children?.byRun.size).toBe(0);
   });
 
+  it("agrctl 升级的 shell 调用按子代理卡处理：嵌套子块归集进 childBlocks，不再上顶层", () => {
+    const items = buildRenderItems({
+      messageId: 1,
+      blocks: [
+        toolUse("toolu-sh", "Bash", {
+          toolInput: { command: "agrctl send --wait" },
+          subagent: { origin: "agrctl", kind: "agrctl_send" },
+        } as unknown as Partial<TranscriptBlock>),
+        toolUse("toolu-child", "Read", { parentToolUseId: "toolu-sh" }),
+        toolResult("toolu-child", "hello", { parentToolUseId: "toolu-sh" }),
+        toolResult("toolu-sh", "final"),
+      ],
+    });
+
+    expect(items).toHaveLength(1);
+    const children = items[0].type === "tool" ? items[0].childBlocks : null;
+    expect(children?.all).toHaveLength(2);
+  });
+
   it("Given interleaved child blocks with reused call IDs, When rows are built, Then children group by parent and run while missing run IDs remain available to the parent", () => {
     const items = buildRenderItems({
       messageId: 1,

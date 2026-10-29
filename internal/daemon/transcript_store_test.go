@@ -3,7 +3,9 @@ package daemon
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/cago-frame/cago/pkg/utils/testutils"
@@ -214,4 +216,81 @@ func TestTranscriptStore_GivenBacklogReadFailed_WhenStartingNextTurn_ThenBacklog
 	f.startTurn(t, ctx)
 
 	assert.NoError(t, f.sqlmock.ExpectationsWereMet())
+}
+
+// fakeFrameLedger 是帧台账的内存版:同一位置多次分配时取最大号,号只增不减(同 frameSeqRepo)。
+type fakeFrameLedger struct {
+	mu   sync.Mutex
+	rows []transcript_repo.FrameSeqRow
+}
+
+func (l *fakeFrameLedger) load(context.Context, int64) (map[transcript.FrameKey]int64, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := map[transcript.FrameKey]int64{}
+	for _, row := range l.rows {
+		key := transcript.FrameKey{MessageID: row.MessageID, BlockIdx: row.BlockIdx, Ordinal: row.Ordinal}
+		out[key] = max(out[key], row.Seq)
+	}
+	return out, nil
+}
+
+func (l *fakeFrameLedger) allocate(_ context.Context, sessionID int64, keys []transcript.FrameKey) ([]int64, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var latest int64
+	for _, row := range l.rows {
+		latest = max(latest, row.Seq)
+	}
+	seqs := make([]int64, 0, len(keys))
+	for i, key := range keys {
+		seq := latest + int64(i) + 1
+		l.rows = append(l.rows, transcript_repo.FrameSeqRow{
+			SessionID: sessionID, MessageID: key.MessageID, BlockIdx: key.BlockIdx, Ordinal: key.Ordinal, Seq: seq,
+		})
+		seqs = append(seqs, seq)
+	}
+	return seqs, nil
+}
+
+// Given 一次拉取已经读完转录(这一刻还看不到实时那一轮刚要落的那条消息),
+// When 实时那一轮在拉取给转录编号之前落库并取号(AllocateFrameSeqs),
+// Then 拉取交回的页里不会跳过那个号 —— 页内缺的号会被消费方当成「早已被改写的旧号」越过,
+// 那一帧随后实时到达时就成了重复帧被丢掉,内容永久缺失。取号要等拉取编完号再进行。
+func TestDurableFrameReader_GivenALiveWriterAllocatesDuringAPull_ThenThePageNeverSkipsItsNumber(t *testing.T) {
+	ctx, f := setupTranscriptStoreTest(t)
+	ledger := &fakeFrameLedger{}
+	f.frameSeqs.EXPECT().Load(gomock.Any(), storeTestSessionID).DoAndReturn(ledger.load).AnyTimes()
+	f.frameSeqs.EXPECT().Allocate(gomock.Any(), storeTestSessionID, gomock.Any()).DoAndReturn(ledger.allocate).AnyTimes()
+	f.sessions.EXPECT().Find(gomock.Any(), storeTestPeer, storeTestConversationID).
+		Return(&session_repo.DaemonSession{ID: storeTestSessionID, LifecycleState: "idle"}, nil).AnyTimes()
+
+	live := []transcript.FrameKey{{MessageID: 2, BlockIdx: transcript.MessageDerivedBlockIdx}}
+	liveDone := make(chan []int64, 1)
+	f.messages.EXPECT().List(gomock.Any(), storeTestSessionID).DoAndReturn(
+		func(context.Context, int64) ([]*transcript_entity.Message, error) {
+			// 读完转录之后、编号之前,实时那一轮给它刚落库的消息 2 取号。
+			go func() {
+				seqs, err := f.store.AllocateFrameSeqs(ctx, storeTestSessionID, live)
+				assert.NoError(t, err)
+				liveDone <- seqs
+			}()
+			select {
+			case seqs := <-liveDone:
+				liveDone <- seqs
+			case <-time.After(200 * time.Millisecond):
+			}
+			return []*transcript_entity.Message{{ID: 1, SessionID: storeTestSessionID, Role: "assistant", BlocksJSON: "[]"}}, nil
+		})
+
+	rows, _, err := durableFrameReader{}.ListSince(ctx, storeTestPeer, storeTestConversationID, 0, 100)
+	require.NoError(t, err)
+	liveSeqs := <-liveDone
+
+	require.NotEmpty(t, rows)
+	for i, row := range rows {
+		assert.Equal(t, int64(i+1), row.Seq, "页内的号从游标之后连续排下来")
+	}
+	require.Len(t, liveSeqs, 1)
+	assert.Greater(t, liveSeqs[0], rows[len(rows)-1].Seq, "实时那一帧的号排在这一页之后,随后实时送达")
 }
