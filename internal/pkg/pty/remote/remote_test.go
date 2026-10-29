@@ -291,15 +291,15 @@ func observeGuardianOpen(
 	core, logs := observer.New(zapcore.DebugLevel)
 	ctx := logger.WithContextLogger(context.Background(), zap.New(core))
 	return ctx, pty.Spec{
-		TerminalID: terminalID,
-		Cwd:        sensitiveGuardianCwd,
-		Command:    sensitiveGuardianCommand,
-	}, logs, []string{
-		sensitiveGuardianCommand,
-		sensitiveGuardianCwd,
-		sensitiveGuardianCleanupError,
-		sensitiveGuardianAbortError,
-	}
+			TerminalID: terminalID,
+			Cwd:        sensitiveGuardianCwd,
+			Command:    sensitiveGuardianCommand,
+		}, logs, []string{
+			sensitiveGuardianCommand,
+			sensitiveGuardianCwd,
+			sensitiveGuardianCleanupError,
+			sensitiveGuardianAbortError,
+		}
 }
 
 func requireGuardianLogs(
