@@ -1778,3 +1778,181 @@ describe("reduceFrames:agrctl send 升级的 shell 调用", () => {
     ).toBe("running");
   });
 });
+
+/**
+ * 拉取页 / 对端补齐里的子代理卡：`internal/pkg/transcript/projection.go` 把落库的
+ * `subagent_state` 投影成**一帧** `subagent_done`（带整张卡的终态快照）+
+ * `subagent_model`，不重放 `subagent_started`。Go 侧收到这种 done 时去翻库里那张
+ * 原卡（`flipSubagentOutsideTurn`）；本包从帧现折转录，没有「库里那张」可翻，
+ * 只能从这份快照把卡建出来——否则 web 控制台与桌面端 Peer Tab 上的卡全部丢掉。
+ */
+describe("reduceFrames:只有 done 快照的落库子代理卡", () => {
+  it("给定前台 agrctl send 卡只投影出 done + model，当归约，则 shell 块照样挂上 agrctl overlay 并按子代理卡渲染", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "tu-sh",
+          name: "Bash",
+          input: { command: "agrctl send --agent helper --wait 'x'" },
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-sh",
+          info: {
+            kind: "agrctl_send",
+            taskDescription: "x",
+            origin: "agrctl",
+            childSessionId: 3,
+            status: "completed",
+            toolUses: 6,
+            totalTokens: 32170,
+            finalText: "WEB-FG-OK",
+          },
+        }),
+        f({
+          kind: "subagent_model",
+          toolCallId: "tu-sh",
+          model: "claude-opus-5-5",
+        }),
+      ],
+      SID,
+    );
+    const host = msg.blocks.find((b) => b.toolUseId === "tu-sh");
+    expect(host?.subagent).toMatchObject({
+      kind: "agrctl_send",
+      taskDescription: "x",
+      origin: "agrctl",
+      childSessionId: 3,
+      status: "completed",
+      toolUses: 6,
+      totalTokens: 32170,
+      finalText: "WEB-FG-OK",
+      model: "claude-opus-5-5",
+    });
+    expect(isSubagentCanonical(host!)).toBe(true);
+  });
+
+  it("给定 Agent 派遣卡只投影出 done，当归约，则外层卡拿到终态与计数，而不是停在没有运行时信息的空壳", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "tu-A",
+          name: "Agent",
+          input: {},
+          canonical: { kind: "agent.spawn", taskDescription: "Fact-check" },
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-A",
+          info: {
+            taskId: "T",
+            kind: "local_agent",
+            status: "failed",
+            totalTokens: 7,
+            summary: "中断原因",
+          },
+        }),
+      ],
+      SID,
+    );
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-A")?.subagent,
+    ).toMatchObject({
+      taskId: "T",
+      kind: "local_agent",
+      status: "failed",
+      totalTokens: 7,
+      summary: "中断原因",
+    });
+  });
+
+  it("给定普通前台 Bash 只收到 local_bash 的 done，当归约，则仍不挂 overlay（与 started 同一道闸门）", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "tu-bash",
+          name: "Bash",
+          input: { command: "ls" },
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-bash",
+          info: { taskId: "B", kind: "local_bash", status: "completed" },
+        }),
+      ],
+      SID,
+    );
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-bash")?.subagent,
+    ).toBeUndefined();
+  });
+});
+
+/**
+ * 后台 agrctl 卡在父轮结束之后还在长：子任务的步骤块与卡片终态都是 `done` 之后才写进
+ * 原消息的，帧账本按「写入先后」取号，于是它们的号全都排在那条消息的 `done` 之后。
+ * 按号归约时 `done` 已经关上了消息 —— 父调用在更早那条消息里的内层帧要回到父卡那条
+ * 消息，否则步骤落进一条只装着内层块的新消息，父卡的 STEPS 是空的（Go 侧同一件事
+ * 由 writeBackEarlierCard 写回原卡）。
+ */
+describe("reduceFrames:父轮结束后才到的内层步骤", () => {
+  it("给定父调用所在消息已经 done，当后续内层帧到达，则归回父调用那条消息而不另起一条", () => {
+    const msgs = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "tu-sh",
+          name: "Bash",
+          input: { command: "agrctl send --wait x", run_in_background: true },
+        }),
+        f({ kind: "text_delta", text: "running in the background" }),
+        f({ kind: "done" }),
+        f({
+          kind: "tool_use_start",
+          id: "agrctl:30:tu-sh:c1",
+          name: "Bash",
+          input: { command: "sleep 6" },
+          parentToolCallId: "tu-sh",
+        }),
+        f({
+          kind: "tool_result",
+          toolCallId: "agrctl:30:tu-sh:c1",
+          content: "",
+          parentToolCallId: "tu-sh",
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-sh",
+          info: { kind: "local_bash", origin: "agrctl", status: "completed" },
+        }),
+      ],
+      SID,
+    );
+    const assistant = msgs.filter((m) => m.role === "assistant");
+    expect(assistant).toHaveLength(1);
+    expect(
+      assistant[0].blocks
+        .filter((b) => b.parentToolUseId === "tu-sh")
+        .map((b) => b.type),
+    ).toEqual(["tool_use", "tool_result"]);
+  });
+
+  it("给定内层帧的父调用不在转录里，当归约，则照旧落进当前这条消息", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "c1",
+          name: "Bash",
+          input: {},
+          parentToolCallId: "unknown-parent",
+        }),
+      ],
+      SID,
+    );
+    expect(msg.blocks.map((b) => b.toolUseId)).toEqual(["c1"]);
+  });
+});

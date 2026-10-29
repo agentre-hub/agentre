@@ -397,6 +397,33 @@ function attachNesting(block: TranscriptBlock, ev: unknown): void {
 }
 
 /**
+ * 一个工具块该落进哪条消息。内层块（带父调用）归父调用所在的那条：后台子代理的步骤
+ * 在父轮 `done` 之后才写进原消息，帧号因此排在 `done` 之后，而 `done` 已经关上了那条
+ * 消息 —— 照常 openAssistant 会把步骤落进一条只装着内层块的新消息，父卡的 STEPS
+ * 是空的（Go 侧同一件事由 writeBackEarlierCard 写回原卡）。父调用不在转录里时照旧。
+ */
+function messageForBlock(
+  st: State,
+  sessionId: number,
+  block: TranscriptBlock,
+): TranscriptMessage {
+  const parent = block.parentToolUseId;
+  if (parent) {
+    for (let i = st.messages.length - 1; i >= 0; i--) {
+      const msg = st.messages[i];
+      if (msg === st.open) break;
+      if (
+        msg.blocks.some((b) => b.type === "tool_use" && b.toolUseId === parent)
+      ) {
+        st.touched.add(msg);
+        return msg;
+      }
+    }
+  }
+  return openAssistant(st, sessionId);
+}
+
+/**
  * kind → `CanonicalDTO` 上承载它的那个属性名。与 Go 侧
  * `view.CanonicalDTO` 的 json 标签一一对应（chat_svc/view/chat_block.go）——
  * 桌面端喂进来的就是那个结构体，两边必须同名，否则同一张卡一侧读得到一侧读不到。
@@ -468,6 +495,45 @@ function findSubagentHost(
  *   - local_bash（Bash）：默认前台，只有显式 run_in_background===true 才是后台。
  * 其它 kind（含空 kind 的旧帧）一律按前台处理。
  */
+/**
+ * 给 toolCallId 那条 tool_use 挂上 subagent overlay，并把 info 里的累计并进去。
+ * started 与「没有先行 started 的 done 快照」共用这一处，所以「前台 bash 不建
+ * overlay」只有这一道闸门。
+ */
+function attachSubagentOverlay(
+  st: State,
+  toolCallId: string,
+  info: Record<string, unknown>,
+  status: string,
+): void {
+  const host = findBlock(
+    st,
+    (b) => b.toolUseId === toolCallId && b.type === "tool_use",
+  );
+  if (!host) return;
+  const kind = typeof info.kind === "string" ? info.kind : "";
+  // 真实 CLI 对*每一次* Bash 都发 local_bash 帧，但只有 run_in_background 的那些
+  // 才是后台任务；给普通前台 bash 挂 overlay 会污染后台任务面板。
+  // agrctl send 升级的 overlay 例外：它是我们自己绑定上去的，不是 CLI 的 bash 帧。
+  if (
+    kind === "local_bash" &&
+    info.origin !== AGRCTL_ORIGIN &&
+    host.toolInput?.run_in_background !== true
+  ) {
+    return;
+  }
+  host.subagent = {
+    taskId: typeof info.taskId === "string" ? info.taskId : "",
+    kind: kind || undefined,
+    taskDescription:
+      typeof info.taskDescription === "string"
+        ? info.taskDescription
+        : undefined,
+    status,
+  };
+  mergeSubagentCounters(host.subagent, info);
+}
+
 function isBackgroundSubagent(block: TranscriptBlock): boolean {
   // agrctl 升级的卡由子任务的真实结果收尾，父轮结束不能把它翻成已取消(与 Go 侧同源)。
   if (isAgrctlSpawn(block)) return true;
@@ -689,7 +755,7 @@ function applyFrame(
       attachNesting(block, ev);
       const c = canonicalFromWire(ev);
       if (c) block.canonical = c;
-      openAssistant(st, sessionId).blocks.push(block);
+      messageForBlock(st, sessionId, block).blocks.push(block);
       return;
     }
 
@@ -704,7 +770,7 @@ function applyFrame(
         isError: bool(ev, "isError") ?? false,
       };
       attachNesting(block, ev);
-      openAssistant(st, sessionId).blocks.push(block);
+      messageForBlock(st, sessionId, block).blocks.push(block);
       return;
     }
 
@@ -980,7 +1046,6 @@ function applyFrame(
       const toolCallId = str(ev, "toolCallId") ?? "";
       const info = record(ev, "info");
       const taskId = typeof info.taskId === "string" ? info.taskId : "";
-      const kind2 = typeof info.kind === "string" ? info.kind : "";
       const status =
         (typeof info.status === "string" && info.status) || "running";
 
@@ -1005,31 +1070,7 @@ function applyFrame(
         return;
       }
 
-      const host = findBlock(
-        st,
-        (b) => b.toolUseId === toolCallId && b.type === "tool_use",
-      );
-      if (!host) return;
-      // 真实 CLI 对*每一次* Bash 都发 local_bash 帧，但只有 run_in_background 的那些
-      // 才是后台任务；给普通前台 bash 挂 overlay 会污染后台任务面板。
-      // agrctl send 升级的 overlay 例外：它是我们自己绑定上去的，不是 CLI 的 bash 帧。
-      if (
-        kind2 === "local_bash" &&
-        info.origin !== AGRCTL_ORIGIN &&
-        host.toolInput?.run_in_background !== true
-      ) {
-        return;
-      }
-      host.subagent = {
-        taskId,
-        kind: kind2 || undefined,
-        taskDescription:
-          typeof info.taskDescription === "string"
-            ? info.taskDescription
-            : undefined,
-        status,
-      };
-      mergeSubagentCounters(host.subagent, info);
+      attachSubagentOverlay(st, toolCallId, info, status);
       return;
     }
 
@@ -1049,15 +1090,23 @@ function applyFrame(
     }
 
     case EventSubagentDone: {
+      const toolCallId = str(ev, "toolCallId") ?? "";
       const info = record(ev, "info");
+      const status =
+        (typeof info.status === "string" && info.status) || "completed";
       const host = findSubagentHost(
         st,
-        str(ev, "toolCallId") ?? "",
+        toolCallId,
         typeof info.taskId === "string" ? info.taskId : "",
       );
-      if (!host?.subagent) return;
-      host.subagent.status =
-        (typeof info.status === "string" && info.status) || "completed";
+      if (!host?.subagent) {
+        // 落库的卡投影成帧时只有这一帧 done（整张卡的终态快照，见
+        // internal/pkg/transcript/projection.go）。Go 侧落空时去翻库里的原卡；
+        // 本包从帧现折、没有原卡可翻，就从快照把卡建出来（闸门与 started 相同）。
+        attachSubagentOverlay(st, toolCallId, info, status);
+        return;
+      }
+      host.subagent.status = status;
       mergeSubagentCounters(host.subagent, info);
       return;
     }
