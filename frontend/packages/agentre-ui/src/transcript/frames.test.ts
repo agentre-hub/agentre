@@ -1890,3 +1890,69 @@ describe("reduceFrames:只有 done 快照的落库子代理卡", () => {
     ).toBeUndefined();
   });
 });
+
+/**
+ * 后台 agrctl 卡在父轮结束之后还在长：子任务的步骤块与卡片终态都是 `done` 之后才写进
+ * 原消息的，帧账本按「写入先后」取号，于是它们的号全都排在那条消息的 `done` 之后。
+ * 按号归约时 `done` 已经关上了消息 —— 父调用在更早那条消息里的内层帧要回到父卡那条
+ * 消息，否则步骤落进一条只装着内层块的新消息，父卡的 STEPS 是空的（Go 侧同一件事
+ * 由 writeBackEarlierCard 写回原卡）。
+ */
+describe("reduceFrames:父轮结束后才到的内层步骤", () => {
+  it("给定父调用所在消息已经 done，当后续内层帧到达，则归回父调用那条消息而不另起一条", () => {
+    const msgs = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "tu-sh",
+          name: "Bash",
+          input: { command: "agrctl send --wait x", run_in_background: true },
+        }),
+        f({ kind: "text_delta", text: "running in the background" }),
+        f({ kind: "done" }),
+        f({
+          kind: "tool_use_start",
+          id: "agrctl:30:tu-sh:c1",
+          name: "Bash",
+          input: { command: "sleep 6" },
+          parentToolCallId: "tu-sh",
+        }),
+        f({
+          kind: "tool_result",
+          toolCallId: "agrctl:30:tu-sh:c1",
+          content: "",
+          parentToolCallId: "tu-sh",
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-sh",
+          info: { kind: "local_bash", origin: "agrctl", status: "completed" },
+        }),
+      ],
+      SID,
+    );
+    const assistant = msgs.filter((m) => m.role === "assistant");
+    expect(assistant).toHaveLength(1);
+    expect(
+      assistant[0].blocks
+        .filter((b) => b.parentToolUseId === "tu-sh")
+        .map((b) => b.type),
+    ).toEqual(["tool_use", "tool_result"]);
+  });
+
+  it("给定内层帧的父调用不在转录里，当归约，则照旧落进当前这条消息", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "c1",
+          name: "Bash",
+          input: {},
+          parentToolCallId: "unknown-parent",
+        }),
+      ],
+      SID,
+    );
+    expect(msg.blocks.map((b) => b.toolUseId)).toEqual(["c1"]);
+  });
+});

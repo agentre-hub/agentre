@@ -397,6 +397,33 @@ function attachNesting(block: TranscriptBlock, ev: unknown): void {
 }
 
 /**
+ * 一个工具块该落进哪条消息。内层块（带父调用）归父调用所在的那条：后台子代理的步骤
+ * 在父轮 `done` 之后才写进原消息，帧号因此排在 `done` 之后，而 `done` 已经关上了那条
+ * 消息 —— 照常 openAssistant 会把步骤落进一条只装着内层块的新消息，父卡的 STEPS
+ * 是空的（Go 侧同一件事由 writeBackEarlierCard 写回原卡）。父调用不在转录里时照旧。
+ */
+function messageForBlock(
+  st: State,
+  sessionId: number,
+  block: TranscriptBlock,
+): TranscriptMessage {
+  const parent = block.parentToolUseId;
+  if (parent) {
+    for (let i = st.messages.length - 1; i >= 0; i--) {
+      const msg = st.messages[i];
+      if (msg === st.open) break;
+      if (
+        msg.blocks.some((b) => b.type === "tool_use" && b.toolUseId === parent)
+      ) {
+        st.touched.add(msg);
+        return msg;
+      }
+    }
+  }
+  return openAssistant(st, sessionId);
+}
+
+/**
  * kind → `CanonicalDTO` 上承载它的那个属性名。与 Go 侧
  * `view.CanonicalDTO` 的 json 标签一一对应（chat_svc/view/chat_block.go）——
  * 桌面端喂进来的就是那个结构体，两边必须同名，否则同一张卡一侧读得到一侧读不到。
@@ -728,7 +755,7 @@ function applyFrame(
       attachNesting(block, ev);
       const c = canonicalFromWire(ev);
       if (c) block.canonical = c;
-      openAssistant(st, sessionId).blocks.push(block);
+      messageForBlock(st, sessionId, block).blocks.push(block);
       return;
     }
 
@@ -743,7 +770,7 @@ function applyFrame(
         isError: bool(ev, "isError") ?? false,
       };
       attachNesting(block, ev);
-      openAssistant(st, sessionId).blocks.push(block);
+      messageForBlock(st, sessionId, block).blocks.push(block);
       return;
     }
 
