@@ -113,6 +113,30 @@ func (t *autonomousTurnRun) open(ctx context.Context) bool {
 	return true
 }
 
+// refreshSession 重读这条会话;读不到时留着手上那份。
+func (t *autonomousTurnRun) refreshSession(ctx context.Context) {
+	sess, err := chat_repo.Session().Find(ctx, t.sessionID)
+	if err != nil || sess == nil {
+		logger.Ctx(ctx).Warn("chat_svc.autonomousTurnRun: reload session failed; keeping the snapshot taken at turn start",
+			zap.Int64("sessionId", t.sessionID), zap.Error(err))
+		return
+	}
+	t.sess = sess
+}
+
+// settlesActiveSession 报懒开、到收尾都没落行的这一轮该不该在收尾时落行:会话在库里还停在
+// running / waiting,而本进程里没有别的一轮在管它。这时这一轮的终态就是它唯一会到来的终态
+// —— 典型是桌面端在远端一轮中途退出、重开后补齐接回来的那一轮,剩下的帧全写回了更早的卡。
+// 不落行,会话永远停在 running,截断理由(StopErr)也没处可看。会话本来就空闲时不落:没有
+// 要收的东西,把截断报成一条错误回合是假失败。
+func (t *autonomousTurnRun) settlesActiveSession(ctx context.Context) bool {
+	if _, busy := t.svc.activeCancels.Load(t.sessionID); busy {
+		return false
+	}
+	t.refreshSession(ctx)
+	return t.sess.AgentStatus == "running" || t.sess.AgentStatus == "waiting"
+}
+
 // openOnContent 交回这一轮此刻有没有行可写。懒开的一轮还没落行时,hasContent 为真才落行。
 func (t *autonomousTurnRun) openOnContent(ctx context.Context, hasContent bool) bool {
 	if !t.unopened {
@@ -539,15 +563,23 @@ func (t *autonomousTurnRun) applyLive(ctx context.Context, ev agentruntime.Event
 }
 
 // finalize 收尾本轮:落 blocks + usage/model、翻终态、定向翻转后台任务、发终态事件。
-// 懒开的一轮到收尾都没落行(帧全写回了更早的消息,或落行失败已处置)时什么都不做:没有
-// 行可收,会话状态也从没被这一轮动过。
+// 懒开的一轮到收尾都没落行(帧全写回了更早的消息,或落行失败已处置)时,只有会话还停在
+// 运行中才在此刻落行收尾(见 settlesActiveSession);否则什么都不做:没有行可收,会话状态
+// 也从没被这一轮动过。
 func (t *autonomousTurnRun) finalize(ctx context.Context) {
 	if t.unopened {
-		if !t.openFailed {
-			logger.Ctx(ctx).Info("chat_svc: catch-up turn closed without content of its own; no row",
-				zap.Int64("sessionId", t.sessionID))
+		if t.openFailed {
+			return
 		}
-		return
+		if !t.settlesActiveSession(ctx) {
+			logger.Ctx(ctx).Info("chat_svc: catch-up turn closed without content of its own; no row",
+				zap.Int64("sessionId", t.sessionID),
+				zap.Bool("hasStopErr", t.at.Result != nil && t.at.Result.StopErr != nil))
+			return
+		}
+		if !t.open(ctx) {
+			return
+		}
 	}
 	finalBlocks := t.acc.Finalize()
 	// 镜像 Send 路径(chat.go):本自主轮结束时仍 running 的 subagent(没等到

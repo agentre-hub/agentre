@@ -1180,12 +1180,13 @@ func (s *chatSvc) bindCtlSendRemote(ctx context.Context, child int64, req CtlSen
 }
 
 // ctlSendRemote 远端父会话上的一张卡:子会话的事件经注入 RPC 成批推给 agentred,由它写进
-// 父转录(进行中的轮直接写,已结束的轮写回原消息),再以预览帧与持久帧回传 —— 桌面端、
-// agentred、重连追帧看到的是同一份。推送只在镜像 goroutine / Finish(以及 Finish 交出的重试)
-// 上做,子会话的事件循环从不等它。
+// 父转录(进行中的轮直接写,以预览帧与持久帧回传;已结束的轮写回原消息,只回传变了的持久帧)
+// —— 桌面端、agentred、重连追帧看到的是同一份。推送只在镜像 goroutine / Finish(以及 Finish
+// 交出的重试)上做,子会话的事件循环从不等它。
 //
-// 断线(spec「Remote sessions」断线期间):子会话不受影响;断线期间的嵌套步骤与进度帧随失败
-// 的那一批丢弃(可以缺几条,记一条 warn),但 overlay 起始帧、模型帧与收尾帧留在 pending 里随
+// 断线(spec「Remote sessions」):承载这次 send 的隧道随连接一起断,send 的请求被取消,子会话
+// 随之中止、卡以取消收尾(ctl_svc 的 send handler)。推送失败期间的嵌套步骤与进度帧随失败的
+// 那一批丢弃(可以缺几条,记一条 warn),但 overlay 起始帧、模型帧与收尾帧留在 pending 里随
 // 下一次推送重发 —— 没有起始帧 agentred 不认这张卡,模型只推一次(first-wins),没有收尾帧
 // 卡片会一直停在运行中。Finish 时仍连不上就交给后台按退避重试,重连后终态与最终文本照样送达。
 type ctlSendRemote struct {

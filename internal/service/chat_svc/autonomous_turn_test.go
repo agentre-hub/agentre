@@ -1660,6 +1660,7 @@ type catchUpTurnMocks struct {
 	created     []*chat_entity.Message
 	statuses    []string
 	finalBlocks string
+	finalError  string
 }
 
 func setupCatchUpTurn(t *testing.T) *catchUpTurnMocks {
@@ -1701,6 +1702,7 @@ func setupCatchUpTurn(t *testing.T) *catchUpTurnMocks {
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
 			c.finalBlocks = msg.BlocksJSON
+			c.finalError = msg.ErrorText
 			return nil
 		}).AnyTimes()
 	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -1730,13 +1732,18 @@ func setupCatchUpTurn(t *testing.T) *catchUpTurnMocks {
 
 // drive 跑一条补齐轮,依次交来 frames。
 func (c *catchUpTurnMocks) drive(frames ...agentruntime.Event) {
+	c.driveEndingWith(&agentruntime.RunResult{}, frames...)
+}
+
+// driveEndingWith 同 drive,这一轮以 result 收尾。
+func (c *catchUpTurnMocks) driveEndingWith(result *agentruntime.RunResult, frames ...agentruntime.Event) {
 	evs := make(chan agentruntime.Event, len(frames))
 	for _, f := range frames {
 		evs <- f
 	}
 	close(evs)
 	chat_svc.DriveAutonomousTurnForTest(c.m.ctx, c.m.svc, 100, &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"},
-		agentruntime.AutonomousTurn{Events: evs, Result: &agentruntime.RunResult{}, Trigger: remote.TriggerCatchUp})
+		agentruntime.AutonomousTurn{Events: evs, Result: result, Trigger: remote.TriggerCatchUp})
 }
 
 func (c *catchUpTurnMocks) events(kind chat_svc.ChatStreamEventKind) []chat_svc.ChatStreamEvent {
@@ -1844,4 +1851,50 @@ func TestDriveAutonomousTurn_GivenCatchUpPreviewBeforeAnyDurableContent_ThenTheR
 	}
 	assert.Equal(t, "live-token", chunk)
 	assert.Less(t, startedAt, chunkAt, "先告诉前端开了这一轮,再在它的流上出字")
+}
+
+// Given 远端父会话在桌面端库里还停在 running(上一个桌面进程在那一轮中途退出,daemon 说
+// 它还在跑),而补齐轮收到的帧全写回了更早那张 agrctl 卡,
+// When 这一轮以终态收尾(被截断带 StopErr,或正常跑完),
+// Then 它是这条会话唯一会到来的终态:落一行补齐 assistant 把会话收到 error / idle,
+// 截断理由写在那一行上 —— 不落行就是一条永远停在 running、也看不到为什么停下的会话。
+// 会话本来就空闲时,同样的收尾不落行、不动状态(没有要收的东西,报错是假失败)。
+func TestDriveAutonomousTurn_GivenContentFreeCatchUpTurnEnds_ThenItSettlesOnlyASessionStillActive(t *testing.T) {
+	cases := []struct {
+		name       string
+		status     string
+		stopErr    error
+		wantRow    bool
+		wantStatus string
+		wantError  bool
+	}{
+		{name: "running+截断", status: "running", stopErr: remote.ErrRunInterrupted, wantRow: true, wantStatus: "error", wantError: true},
+		{name: "running+正常收尾", status: "running", wantRow: true, wantStatus: "idle"},
+		{name: "waiting+断连", status: "waiting", stopErr: remote.ErrDaemonDisconnected, wantRow: true, wantStatus: "error", wantError: true},
+		{name: "idle+截断", status: "idle", stopErr: remote.ErrRunInterrupted, wantStatus: "idle"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := setupCatchUpTurn(t)
+			c.sess.AgentStatus = tc.status
+
+			c.driveEndingWith(&agentruntime.RunResult{StopErr: tc.stopErr}, failedCardRewrite()...)
+
+			assert.Equal(t, "failed", c.card.snapshot().Status, "改写照旧落到原消息里的卡上")
+			assert.Equal(t, tc.wantStatus, c.sess.AgentStatus)
+			if !tc.wantRow {
+				assert.Empty(t, c.created)
+				assert.Empty(t, c.statuses, "会话没有要收的东西,状态一笔都不写")
+				return
+			}
+			require.Len(t, c.created, 1)
+			assert.Equal(t, remote.TriggerCatchUp, c.created[0].TurnTrigger)
+			assert.JSONEq(t, "[]", c.finalBlocks, "卡片帧已写回原消息,这一行没有正文")
+			if tc.wantError {
+				assert.NotEmpty(t, c.finalError, "截断理由要写在这一行上")
+			} else {
+				assert.Empty(t, c.finalError)
+			}
+		})
+	}
 }

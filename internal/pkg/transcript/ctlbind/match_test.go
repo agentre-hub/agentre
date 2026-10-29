@@ -300,6 +300,14 @@ func TestMatchPending(t *testing.T) {
 			target: Target{AgentName: "reviewer", Task: "fix the bug"},
 			want:   Binding{ToolCallID: "sh-a"},
 		},
+		{
+			// 去掉引号与转义后什么都不剩的任务文本没有可比的:空串是任何命令的子串,
+			// 拿它当口径就是把别人的调用认成自己的。宁可不升级。
+			name:   "任务文本只有引号/反斜杠时,别的任务的调用不被认成自己的",
+			calls:  []turn.OuterToolUse{shell("sh-b", "Bash", other, nil, false)},
+			target: Target{AgentName: "reviewer", Task: `"`},
+			reason: ReasonNoCandidate,
+		},
 	}
 
 	Convey("MatchPending 给等过的 send 用:候选的命令必须含它的任务文本", t, func() {

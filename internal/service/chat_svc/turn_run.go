@@ -415,8 +415,9 @@ func (t *turnRun) finalize(ctx context.Context) {
 	t.closeApprovals(ctx)
 	// 不会再有外层调用登记了:还在等自己那条 shell 调用的 agrctl send 不再绑定。
 	t.abandonCtlSends(ctx)
-	// 流结束时仍在推迟的分段必须落地:steer 已经从 inbox drain 走了,不落就丢。
-	t.flushPendingSteers(ctx)
+	// 流结束时仍在推迟的分段必须落地:steer 已经从 inbox drain 走了,不落就丢。分段会换掉
+	// assistantMsg,与事件循环里那几处一样在 mu 下做:补齐轮那条 goroutine 经 finalSaveOf 读它。
+	t.locked(func() { t.flushPendingSteers(ctx) })
 	t.turnCtx.ClearWaits()
 
 	if t.req.CollaborationMode == ipc.ModePlan && !t.compact && t.acc.Empty() {

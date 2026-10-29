@@ -177,9 +177,11 @@ func filterByTask(calls []turn.OuterToolUse, task string) []turn.OuterToolUse {
 // shell 解完引号、agrctl 按单个空格拼好的那段,所以两边都先过 shellText 再比:单引号里
 // 撇号的拼接写法、双引号里的 \"、zsh -lc 再套一层的引号与词间多余空白,都不该让一个
 // send 认不出自己的调用。变量展开、$(...)、$'\n' 这类要执行才知道结果的写法仍认不出
-// (宁可不升级,也不挂错卡)。
+// (宁可不升级,也不挂错卡)。任务文本去掉引号与转义后什么都不剩时谁都不含它:空串是任何
+// 命令的子串,拿它比就是把别人的调用认成自己的。
 func containsTask(c turn.OuterToolUse, task string) bool {
-	return strings.Contains(shellText(commandOf(c)), shellText(task))
+	want := shellText(task)
+	return want != "" && strings.Contains(shellText(commandOf(c)), want)
 }
 
 // shellText 去掉 shell 的引号与转义字符(' " \),把连续空白压成一个空格。只用于比对。

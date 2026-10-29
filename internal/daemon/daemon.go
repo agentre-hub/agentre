@@ -2083,8 +2083,10 @@ func (t transcriptStore) SegmentTurn(
 	return users, next, nil
 }
 
-// numberBacklog 给这条转录里此刻还没有号的既有帧补齐编号。开轮时调一次。
+// numberBacklog 给这条转录里此刻还没有号的既有帧补齐编号。开轮时调一次。读转录与编号
+// 在这条会话的取号锁下(见 lockFrameNumbering)。
 func (t transcriptStore) numberBacklog(ctx context.Context, conversationID string, sessionID int64) error {
+	defer lockFrameNumbering(sessionID)()
 	messages, err := transcript_repo.Message().List(ctx, sessionID)
 	if err != nil {
 		return err
@@ -2206,11 +2208,30 @@ func (m *backlogMemo) forget(sessionID int64) {
 	m.forgets++
 }
 
+// frameNumberingLocks 是帧取号的会话级锁:session_id → *sync.Mutex。凡是在这条会话上取号
+// 的都持它 —— 实时发布(AllocateFrameSeqs)、开轮补齐(numberBacklog)、补齐读侧的「读转录
+// + 编号」(durableFrameReader.durableFrames)。
+//
+// 补齐页的消费方会越过页内缺的号(remote.Runtime.dispatchPulled),依据是「页里没有的号
+// 不属于任何现存帧」。这要求读转录与编号之间没有别人取号:实时那一轮若在拉取读完转录之后
+// 才落库、却赶在拉取编号之前取到号,那个号小于页尾却不在页里,消费方越过它,随后实时到达的
+// 那一帧又被当成重复丢掉 —— 内容永久缺失。锁随会话常驻(同 transcript_repo.sessionMutexes)。
+var frameNumberingLocks sync.Map
+
+// lockFrameNumbering 取这条会话的取号锁,交回解锁函数。
+func lockFrameNumbering(sessionID int64) func() {
+	v, _ := frameNumberingLocks.LoadOrStore(sessionID, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
 // AllocateFrameSeqs 给这些帧位置取下一串号并落库。取号与发布不可分:调用方取到了才
 // 发得出去(规格「帧编号」)。
 func (t transcriptStore) AllocateFrameSeqs(
 	ctx context.Context, sessionID int64, keys []transcript.FrameKey,
 ) ([]int64, error) {
+	defer lockFrameNumbering(sessionID)()
 	seqs, err := transcript_repo.FrameSeq().Allocate(dbpkg.WithContextDB(ctx, t.db), sessionID, keys)
 	if err != nil {
 		t.backlog.forget(sessionID)
@@ -2547,35 +2568,54 @@ var _ handlers.DurableFrameReaderPort = durableFrameReader{}
 // 取号(写库)刻意留在调用方:只有真被补齐的那一条路(ListSince)才惰性补齐编号,
 // 清单那条只读探测按台账预测(见 LatestSeq)。
 func (j durableFrameReader) keyedFrames(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, []transcript.KeyedFrame, error) {
-	row, err := session_repo.Session().Find(ctx, peerFingerprint, peerSessionID)
-	if err != nil || row == nil || row.ID == 0 {
+	row, err := localSession(ctx, peerFingerprint, peerSessionID)
+	if err != nil || row == nil {
 		return 0, nil, err
 	}
-	sessionID := row.ID
-	messages, err := transcript_repo.Message().List(ctx, sessionID)
+	keyed, err := projectSession(ctx, peerSessionID, row)
 	if err != nil {
 		return 0, nil, err
+	}
+	return row.ID, keyed, nil
+}
+
+// localSession 解出本机会话行;解不出时为 nil、不报错(见 keyedFrames)。
+func localSession(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (*session_repo.DaemonSession, error) {
+	row, err := session_repo.Session().Find(ctx, peerFingerprint, peerSessionID)
+	if err != nil || row == nil || row.ID == 0 {
+		return nil, err
+	}
+	return row, nil
+}
+
+// projectSession 读回这条会话的整段转录,投影出带位置的持久帧(不取号)。
+func projectSession(ctx context.Context, peerSessionID string, row *session_repo.DaemonSession) ([]transcript.KeyedFrame, error) {
+	messages, err := transcript_repo.Message().List(ctx, row.ID)
+	if err != nil {
+		return nil, err
 	}
 	keyed, err := transcript.ProjectKeyedMessages(peerSessionID, messages)
 	if err != nil {
-		return 0, nil, err
+		return nil, err
 	}
 	if row.LifecycleState == wire.SessionLifecycleRunning && len(messages) > 0 {
 		// 在飞那条消息里还没定稿的尾巴不进补齐:定稿判据与实时发布那一侧是同一行
 		// 代码,两个时刻因此在同一帧上定稿(transcript.WithoutUnsettledTail)。
 		keyed = transcript.WithoutUnsettledTail(keyed, messages[len(messages)-1].ID)
 	}
-	return sessionID, keyed, nil
+	return keyed, nil
 }
 
 // durableFrames 是补齐真正读的那一份:在 keyedFrames 之上把缺号的位置**当场补齐并
 // 落库**(与桌面端 chat_svc 的 attach 同一条纪律,那边在 peerstream.initializePeerPublication)。
+// 读转录与编号在这条会话的取号锁下,理由见 frameNumberingLocks。
 func (j durableFrameReader) durableFrames(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) ([]wire.EventFrame, []int64, error) {
-	sessionID, keyed, err := j.keyedFrames(ctx, peerFingerprint, peerSessionID)
-	if err != nil || sessionID == 0 {
+	row, err := localSession(ctx, peerFingerprint, peerSessionID)
+	if err != nil || row == nil {
 		return nil, nil, err
 	}
-	if err := transcript_repo.NumberFrames(ctx, sessionID, keyed); err != nil {
+	keyed, err := numberedFrames(ctx, peerSessionID, row)
+	if err != nil {
 		return nil, nil, err
 	}
 	frames := make([]wire.EventFrame, len(keyed))
@@ -2614,6 +2654,19 @@ func (j durableFrameReader) ListSince(ctx context.Context, peerFingerprint devic
 		hasMore = true
 	}
 	return rows, hasMore, nil
+}
+
+// numberedFrames 在取号锁下读回转录、投影并补齐编号。
+func numberedFrames(ctx context.Context, peerSessionID string, row *session_repo.DaemonSession) ([]transcript.KeyedFrame, error) {
+	defer lockFrameNumbering(row.ID)()
+	keyed, err := projectSession(ctx, peerSessionID, row)
+	if err != nil {
+		return nil, err
+	}
+	if err := transcript_repo.NumberFrames(ctx, row.ID, keyed); err != nil {
+		return nil, err
+	}
+	return keyed, nil
 }
 
 // LatestSeq 报这条会话的持久编号计数器此刻的末尾(规格「生命周期与删除」)。
