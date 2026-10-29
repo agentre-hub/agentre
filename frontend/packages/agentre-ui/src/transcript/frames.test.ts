@@ -1778,3 +1778,115 @@ describe("reduceFrames:agrctl send 升级的 shell 调用", () => {
     ).toBe("running");
   });
 });
+
+/**
+ * 拉取页 / 对端补齐里的子代理卡：`internal/pkg/transcript/projection.go` 把落库的
+ * `subagent_state` 投影成**一帧** `subagent_done`（带整张卡的终态快照）+
+ * `subagent_model`，不重放 `subagent_started`。Go 侧收到这种 done 时去翻库里那张
+ * 原卡（`flipSubagentOutsideTurn`）；本包从帧现折转录，没有「库里那张」可翻，
+ * 只能从这份快照把卡建出来——否则 web 控制台与桌面端 Peer Tab 上的卡全部丢掉。
+ */
+describe("reduceFrames:只有 done 快照的落库子代理卡", () => {
+  it("给定前台 agrctl send 卡只投影出 done + model，当归约，则 shell 块照样挂上 agrctl overlay 并按子代理卡渲染", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "tu-sh",
+          name: "Bash",
+          input: { command: "agrctl send --agent helper --wait 'x'" },
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-sh",
+          info: {
+            kind: "agrctl_send",
+            taskDescription: "x",
+            origin: "agrctl",
+            childSessionId: 3,
+            status: "completed",
+            toolUses: 6,
+            totalTokens: 32170,
+            finalText: "WEB-FG-OK",
+          },
+        }),
+        f({
+          kind: "subagent_model",
+          toolCallId: "tu-sh",
+          model: "claude-opus-5-5",
+        }),
+      ],
+      SID,
+    );
+    const host = msg.blocks.find((b) => b.toolUseId === "tu-sh");
+    expect(host?.subagent).toMatchObject({
+      kind: "agrctl_send",
+      taskDescription: "x",
+      origin: "agrctl",
+      childSessionId: 3,
+      status: "completed",
+      toolUses: 6,
+      totalTokens: 32170,
+      finalText: "WEB-FG-OK",
+      model: "claude-opus-5-5",
+    });
+    expect(isSubagentCanonical(host!)).toBe(true);
+  });
+
+  it("给定 Agent 派遣卡只投影出 done，当归约，则外层卡拿到终态与计数，而不是停在没有运行时信息的空壳", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "tu-A",
+          name: "Agent",
+          input: {},
+          canonical: { kind: "agent.spawn", taskDescription: "Fact-check" },
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-A",
+          info: {
+            taskId: "T",
+            kind: "local_agent",
+            status: "failed",
+            totalTokens: 7,
+            summary: "中断原因",
+          },
+        }),
+      ],
+      SID,
+    );
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-A")?.subagent,
+    ).toMatchObject({
+      taskId: "T",
+      kind: "local_agent",
+      status: "failed",
+      totalTokens: 7,
+      summary: "中断原因",
+    });
+  });
+
+  it("给定普通前台 Bash 只收到 local_bash 的 done，当归约，则仍不挂 overlay（与 started 同一道闸门）", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "tu-bash",
+          name: "Bash",
+          input: { command: "ls" },
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-bash",
+          info: { taskId: "B", kind: "local_bash", status: "completed" },
+        }),
+      ],
+      SID,
+    );
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-bash")?.subagent,
+    ).toBeUndefined();
+  });
+});

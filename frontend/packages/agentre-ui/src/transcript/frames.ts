@@ -468,6 +468,45 @@ function findSubagentHost(
  *   - local_bash（Bash）：默认前台，只有显式 run_in_background===true 才是后台。
  * 其它 kind（含空 kind 的旧帧）一律按前台处理。
  */
+/**
+ * 给 toolCallId 那条 tool_use 挂上 subagent overlay，并把 info 里的累计并进去。
+ * started 与「没有先行 started 的 done 快照」共用这一处，所以「前台 bash 不建
+ * overlay」只有这一道闸门。
+ */
+function attachSubagentOverlay(
+  st: State,
+  toolCallId: string,
+  info: Record<string, unknown>,
+  status: string,
+): void {
+  const host = findBlock(
+    st,
+    (b) => b.toolUseId === toolCallId && b.type === "tool_use",
+  );
+  if (!host) return;
+  const kind = typeof info.kind === "string" ? info.kind : "";
+  // 真实 CLI 对*每一次* Bash 都发 local_bash 帧，但只有 run_in_background 的那些
+  // 才是后台任务；给普通前台 bash 挂 overlay 会污染后台任务面板。
+  // agrctl send 升级的 overlay 例外：它是我们自己绑定上去的，不是 CLI 的 bash 帧。
+  if (
+    kind === "local_bash" &&
+    info.origin !== AGRCTL_ORIGIN &&
+    host.toolInput?.run_in_background !== true
+  ) {
+    return;
+  }
+  host.subagent = {
+    taskId: typeof info.taskId === "string" ? info.taskId : "",
+    kind: kind || undefined,
+    taskDescription:
+      typeof info.taskDescription === "string"
+        ? info.taskDescription
+        : undefined,
+    status,
+  };
+  mergeSubagentCounters(host.subagent, info);
+}
+
 function isBackgroundSubagent(block: TranscriptBlock): boolean {
   // agrctl 升级的卡由子任务的真实结果收尾，父轮结束不能把它翻成已取消(与 Go 侧同源)。
   if (isAgrctlSpawn(block)) return true;
@@ -980,7 +1019,6 @@ function applyFrame(
       const toolCallId = str(ev, "toolCallId") ?? "";
       const info = record(ev, "info");
       const taskId = typeof info.taskId === "string" ? info.taskId : "";
-      const kind2 = typeof info.kind === "string" ? info.kind : "";
       const status =
         (typeof info.status === "string" && info.status) || "running";
 
@@ -1005,31 +1043,7 @@ function applyFrame(
         return;
       }
 
-      const host = findBlock(
-        st,
-        (b) => b.toolUseId === toolCallId && b.type === "tool_use",
-      );
-      if (!host) return;
-      // 真实 CLI 对*每一次* Bash 都发 local_bash 帧，但只有 run_in_background 的那些
-      // 才是后台任务；给普通前台 bash 挂 overlay 会污染后台任务面板。
-      // agrctl send 升级的 overlay 例外：它是我们自己绑定上去的，不是 CLI 的 bash 帧。
-      if (
-        kind2 === "local_bash" &&
-        info.origin !== AGRCTL_ORIGIN &&
-        host.toolInput?.run_in_background !== true
-      ) {
-        return;
-      }
-      host.subagent = {
-        taskId,
-        kind: kind2 || undefined,
-        taskDescription:
-          typeof info.taskDescription === "string"
-            ? info.taskDescription
-            : undefined,
-        status,
-      };
-      mergeSubagentCounters(host.subagent, info);
+      attachSubagentOverlay(st, toolCallId, info, status);
       return;
     }
 
@@ -1049,15 +1063,23 @@ function applyFrame(
     }
 
     case EventSubagentDone: {
+      const toolCallId = str(ev, "toolCallId") ?? "";
       const info = record(ev, "info");
+      const status =
+        (typeof info.status === "string" && info.status) || "completed";
       const host = findSubagentHost(
         st,
-        str(ev, "toolCallId") ?? "",
+        toolCallId,
         typeof info.taskId === "string" ? info.taskId : "",
       );
-      if (!host?.subagent) return;
-      host.subagent.status =
-        (typeof info.status === "string" && info.status) || "completed";
+      if (!host?.subagent) {
+        // 落库的卡投影成帧时只有这一帧 done（整张卡的终态快照，见
+        // internal/pkg/transcript/projection.go）。Go 侧落空时去翻库里的原卡；
+        // 本包从帧现折、没有原卡可翻，就从快照把卡建出来（闸门与 started 相同）。
+        attachSubagentOverlay(st, toolCallId, info, status);
+        return;
+      }
+      host.subagent.status = status;
       mergeSubagentCounters(host.subagent, info);
       return;
     }
