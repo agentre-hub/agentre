@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -439,19 +440,18 @@ func TestCatchUpSessions_ReclaimedPrefix_ResetsCursorInsteadOfFreezing(t *testin
 }
 
 // Given 留存回收恰好跑在 daemon 为这一页读下界与读行之间(下界还是回收前的那个,页里
-// 却只剩回收之后存活的那截),When 客户端按下界复位后发现这一页一条也交付不出去,
-// Then 它从复位后的游标再拉一页,把存活的那段取回来 —— 而不是带着 oldest-1 的游标收工、
-// 等下一条实时帧再触发一次补洞。
+// 却只剩回收之后存活的那截),When 客户端按偏低的下界复位后重放这一页,
+// Then 存活的那段照常交付、游标推到页尾 —— 而不是带着 oldest-1 的游标收工、等下一条
+// 实时帧再触发一次补洞。
 //
 // 终态会话上没有「下一条实时帧」:那一页不补回来,这段转录就要等到用户下次开新一轮才
 // 露面(而开新一轮时它又会以「已结束轮次」的身份被分走)。
-func TestCatchUpSessions_PageEntirelyBelowTheNewFloor_PullsAgain(t *testing.T) {
+func TestCatchUpSessions_PageAboveAStaleFloor_StillReplaysTheSurvivors(t *testing.T) {
 	// 日志此刻只剩 30、31:下界读到的却还是回收前的 10。
 	durable := []wire.DurableNotification{
 		durableEvent(30, "survivor"),
 		durableDone(31, "sonnet"),
 	}
-	// 重放里那条被判成跳号的行会另起一次补洞拉取,计数器因此有并发写者。
 	var pulls atomic.Int64
 	conn := newFakeConn()
 	conn.script(func(method string, params, result any) error {
@@ -492,12 +492,70 @@ func TestCatchUpSessions_PageEntirelyBelowTheNewFloor_PullsAgain(t *testing.T) {
 
 	at := takeTurn(t, turns)
 	assert.Equal(t, []string{"survivor"}, drainTexts(t, at.Events, 2*time.Second),
-		"复位之后这一页一条也交付不出去,就得再拉一页把存活的那截取回来")
-	assert.GreaterOrEqual(t, pulls.Load(), int64(2), "复位没能消费掉这一页时必须接着拉")
+		"下界偏低不能让存活的那截交付不出去")
 
 	saved, ok := cursor.lastSaved()
 	require.True(t, ok)
 	assert.Equal(t, int64(31), saved.Seq, "游标要推到日志末尾,否则下次还是从洞里开始")
+}
+
+// Given 桌面端离线期间 agentred 把游标之后的那个帧位置原地改写了(帧账本每个位置只留
+// 最大的号、号永不复用,于是旧号 4 成了永久空洞,改写后的内容拿到 5),
+// When App 重开后补齐,Then 拉回来的这一页照常按序交付,游标越过空洞停在页尾。
+//
+// 页里的号跳过 4 并不说明缺了什么:Pull 按序列出游标之后**全部**现存帧,4 不在页里就是
+// 它已不属于任何现存帧。把它当跳号丢掉,这一页一条也交付不出去 —— agentred 的终态
+// 再也写不回桌面(R6:游标停在 7,拉回来的第一条是 9)。
+func TestCatchUpSessions_GivenTheFirstSeqAfterTheCursorWasRenumbered_ThenThePageIsReplayed(t *testing.T) {
+	durable := []wire.DurableNotification{
+		// 桌面端已经持有的那一帧:agentred 从不回收转录,现存最老的号因此在游标之下。
+		durableEvent(3, "already-held"),
+		durableEvent(5, "rewritten"),
+		durableDone(6, "sonnet"),
+	}
+	conn := restartConn([]wire.SessionSummary{{
+		ConversationID: convOf(rigSessionID),
+		LifecycleState: wire.SessionLifecycleIdle,
+		LatestSeq:      6,
+	}}, durable)
+	rt, cursor, _ := newRestartRuntime(t, conn, 3)
+
+	turns := rt.AutonomousTurns(rigSessionID)
+	_, err := rt.CatchUpSessions(context.Background(), []int64{rigSessionID})
+	require.NoError(t, err)
+
+	at := takeTurn(t, turns)
+	assert.Equal(t, []string{"rewritten"}, drainTexts(t, at.Events, 2*time.Second),
+		"空洞之后的现存帧必须交付,已持有的那一帧不得再交一次")
+	assert.Equal(t, "sonnet", at.Result.Model, "终态帧同样要写回")
+
+	saved, ok := cursor.lastSaved()
+	require.True(t, ok)
+	assert.Equal(t, int64(6), saved.Seq, "游标要越过空洞停在页尾,否则下次开 App 还卡在洞前")
+}
+
+// Given 游标之后的一页里只有本客户端映射不出来的通知,且号本身也跳过了一格,
+// When 补齐,Then 这些通知照样各占一格,游标停在页尾。
+//
+// 停在页尾之前的后果是这条会话此后每次补齐都拉回同一页、一条也推不动。
+func TestCatchUpSessions_GivenAPageOfOnlyUnmappableFrames_ThenTheCursorReachesItsTail(t *testing.T) {
+	unknown := func(seq int64) wire.DurableNotification {
+		return wire.DurableNotification{Seq: seq, Method: "runtime.somethingTheClientDoesNotKnow",
+			Params: json.RawMessage(`{"sessionId":42}`)}
+	}
+	conn := restartConn([]wire.SessionSummary{{
+		ConversationID: convOf(rigSessionID),
+		LifecycleState: wire.SessionLifecycleIdle,
+		LatestSeq:      6,
+	}}, []wire.DurableNotification{durableEvent(3, "already-held"), unknown(4), unknown(6)})
+	rt, cursor, _ := newRestartRuntime(t, conn, 3)
+
+	_, err := rt.CatchUpSessions(context.Background(), []int64{rigSessionID})
+	require.NoError(t, err)
+
+	saved, ok := cursor.lastSaved()
+	require.True(t, ok)
+	assert.Equal(t, int64(6), saved.Seq, "映射不出来的通知也要占掉它那一格,连同页里跳过的号")
 }
 
 // Given daemon 进程在桌面端离线期间重启过,把这条会话按 R10 标成了中断态,
