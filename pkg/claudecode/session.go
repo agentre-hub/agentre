@@ -480,6 +480,8 @@ func isMainThreadTurnFrame(f rawFrame) bool {
 //     Turn 在排队 → 收尾当前活动轮,落到下方认领那一轮。用户在活动轮开着时发消息,CLI 为
 //     它起的整轮都是主线帧;不让位的话这一轮会被整段喂进活动轮、连 result 都收错轮,
 //     user 的 activeTurn 永远留在 pendingTurns(sess-2974)。
+//   - 活动轮收到主线 assistant 帧而没有 user Turn 排队 → 同样收尾活动轮,落到下方开外部轮:
+//     这是 CLI 自起的一轮主线撞上了开着的活动轮(sess-4629)。
 //   - 后台型 task_notification → 自主轮,经 autoCh 吐出,返回 nil(调用方丢弃起始标记)。
 //   - 无资格起轮的帧(control_response / 空闲 status / 后台任务状态帧 / 任何未知
 //     类型)→ 返回 nil,不认领排队的 user Turn;否则读循环会被这些会话级帧卡死在
@@ -527,11 +529,18 @@ func (s *Session) currentTurn(f rawFrame) *activeTurn {
 		// user 那一轮的 activeTurn 永远留在 pendingTurns、ch 不 close,会话就此卡死。
 		// 必须带 len(pendingTurns)>0 这个前提:空闲态 CLI 会自发重播 system:init(sess-2187),
 		// 没有轮在排队时让位只会白白腰斩一轮正常的子 agent 活动。
+		//
+		// 没有轮排队时,主线 assistant 帧(startsExternalTurn)照样让位,落到下方开外部轮
+		// (sess-4629):后台完成通知落在上一轮**轮内**时,CLI 收尾后自起下一轮,首帧只有
+		// init(空闲到达被丢弃),子 agent 的内部帧又抢先开了活动轮。不让位的话这一轮的正文、
+		// AskUserQuestion 与它的许可请求全被喂进活动轮、被消费方滤掉,CLI 却卡在等回答。
+		// 判据与空闲态起外部轮同一条:init 仍然不算,它会被空手重播。
 		owner := subagentOwnerID(f)
 		yield := s.active.subagentToolUseID != "" &&
 			(s.startsAutonomousTurnLocked(f) ||
 				(owner != "" && owner != s.active.subagentToolUseID) ||
-				(isMainThreadTurnFrame(f) && len(s.pendingTurns) > 0))
+				(isMainThreadTurnFrame(f) && len(s.pendingTurns) > 0) ||
+				startsExternalTurn(f))
 		if !yield {
 			at := s.active
 			s.sinkMu.Unlock()

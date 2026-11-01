@@ -1928,6 +1928,116 @@ func TestSession_IdleMainThreadTurnSurfacesAsExternalAutoTurn(t *testing.T) {
 	assert.Equal(t, "echo:beta", drainText(t, ch2))
 }
 
+// fakeSelfStartedTurnDuringSubagentActivity 复刻 sess-4629 的帧序(CLI 2.1.2xx):一轮派出
+// run_in_background 的 Agent 并收尾;另一个后台完成通知落在**上一轮轮内**,所以 CLI 收尾后
+// 立刻自起下一轮主线,首帧只有 init(不以 task_notification 打头,也没有 user Turn 在排队)。
+// init 空闲到达被丢弃,紧接着后台 subagent 的内部帧先开了活动轮;此后主线的正文、
+// AskUserQuestion 的 tool_use 与 can_use_tool 许可请求,与子 agent 的内部帧交错到达。
+func fakeSelfStartedTurnDuringSubagentActivity(stdin io.Reader, stdout io.Writer) {
+	const sid = "sess-self-turn-during-activity"
+	sc := bufio.NewScanner(stdin)
+	sc.Buffer(make([]byte, 0, 64<<10), maxFrameBytes)
+	turn := 0
+	for sc.Scan() {
+		turn++
+		reply := extractTextField(sc.Text())
+		if turn == 1 {
+			writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+			writeFrame(stdout, `{"type":"assistant","message":{"id":"a1","content":[{"type":"tool_use","id":%q,"name":"Agent","input":{"subagent_type":"general-purpose","description":"T13","prompt":"go","run_in_background":true}}]}}`, fakeBgSubAgentTU)
+			writeFrame(stdout, `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":%q,"content":"Async agent launched. output_file: /tmp/tasks/a.output"}]}}`, fakeBgSubAgentTU)
+			writeFrame(stdout, `{"type":"assistant","message":{"id":"a2","content":[{"type":"text","text":"started:%s"}]}}`, reply)
+			writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":1,"output_tokens":1}}`, sid)
+			// —— CLI 自起的下一轮主线:init 先到(空闲、无排队轮 → 丢弃) ——
+			writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+			// 后台 subagent 的内部帧抢先开了活动轮。
+			writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s1","content":[{"type":"text","text":"A1"}]}}`, fakeBgSubAgentTU)
+			// 主线正文与子 agent 内部帧交错。
+			writeFrame(stdout, `{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"self:resumed"}]}}`)
+			writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s2","content":[{"type":"text","text":"A2"}]}}`, fakeBgSubAgentTU)
+			writeFrame(stdout, `{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"toolu_ask","name":"AskUserQuestion","input":{"questions":[]}}]}}`)
+			writeFrame(stdout, `{"type":"control_request","request_id":"req-ask","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[]},"tool_use_id":"toolu_ask"}}`)
+			writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":2,"output_tokens":2}}`, sid)
+			continue
+		}
+		writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"a5","content":[{"type":"text","text":"echo:%s"}]}}`, reply)
+		writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":1,"output_tokens":1}}`, sid)
+	}
+}
+
+// TestSession_SelfStartedMainTurnDuringSubagentActivitySurfaces 锁定 sess-4629:没有 user
+// Turn 在排队时,CLI 自起的主线一轮撞上已经开着的后台 subagent 活动轮,主线帧也必须让位
+// 浮现成一条外部轮,而不是被喂进活动轮。
+//
+// 现场:活动轮只在「有 user Turn 排队」时给主线帧让位(sess-2974),外部轮(sess-3797)只在
+// active 为空时起 —— 两条都不满足,主线正文与 AskUserQuestion 全进了活动轮,被消费方按
+// ParentToolCallID 滤掉:问题卡从未出现,随后又被一条假自主轮把会话翻回 running,CLI 卡在
+// 等回答,会话假死一个半小时直到用户手动停止。
+func TestSession_SelfStartedMainTurnDuringSubagentActivitySurfaces(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c := New(WithBinary("fake"), pipeSpawner(t, fakeSelfStartedTurnDuringSubagentActivity))
+	sess, err := c.OpenSession(ctx)
+	require.NoError(t, err)
+	defer func() { _ = sess.Close(context.Background()) }()
+
+	// 活动轮里不得出现任何主线(无 parent_tool_use_id)的正文或许可请求。
+	leaked := make(chan string, 16)
+	go func() {
+		for act := range sess.SubagentActivity() {
+			go func(a *SubagentActivity) {
+				for ev := range a.Events {
+					if ev.ParentToolUseID != "" {
+						continue
+					}
+					switch {
+					case ev.Kind == EventTextDelta:
+						leaked <- ev.Text
+					case ev.Kind == EventControlRequest:
+						leaked <- "control_request"
+					}
+				}
+			}(act)
+		}
+	}()
+
+	ch1, err := sess.Turn(ctx, "alpha")
+	require.NoError(t, err)
+	assert.Equal(t, "started:alpha", drainText(t, ch1))
+
+	var at *AutoTurn
+	select {
+	case at = <-sess.AutonomousTurns():
+	case <-time.After(2 * time.Second):
+		t.Fatal("活动轮开着时 CLI 自起的主线一轮没有浮现:主线帧被喂进了活动轮(sess-4629)")
+	}
+	require.NotNil(t, at)
+	assert.Equal(t, triggerExternal, at.Trigger)
+	var text strings.Builder
+	var ask *ControlRequestEvent
+	for ev := range at.Events {
+		switch ev.Kind {
+		case EventTextDelta:
+			text.WriteString(ev.Text)
+		case EventControlRequest:
+			ask = ev.ControlRequest
+		}
+	}
+	assert.Equal(t, "self:resumed", text.String(), "子 agent 内部帧不得混进主线轮")
+	require.NotNil(t, ask, "AskUserQuestion 的许可请求必须落在主线轮上,否则问题卡永远不出现")
+	assert.Equal(t, "AskUserQuestion", ask.ToolName)
+
+	ch2, err := sess.Turn(ctx, "beta")
+	require.NoError(t, err)
+	assert.Equal(t, "echo:beta", drainText(t, ch2))
+
+	select {
+	case got := <-leaked:
+		t.Fatalf("主线帧漏进了活动轮: %q", got)
+	default:
+	}
+}
+
 // fakeBackgroundTaskStarted 一轮里派出一个 run_in_background 的 Agent:CLI 先给 tool_use,
 // 再以 system{subtype:"task_started"} 把这个 tool_use id 与它的 CLI task_id 绑上。
 func fakeBackgroundTaskStarted(stdin io.Reader, stdout io.Writer) {
