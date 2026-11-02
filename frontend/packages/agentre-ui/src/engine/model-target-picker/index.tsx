@@ -5,7 +5,8 @@
 //   - chat：顶部特殊项 = 跟随 Agent 绑定（inherit-agent）；
 //   - route：顶部特殊项 = 继承主绑定（inherit-main）。
 //
-// 主体交互：搜索、最近使用（localStorage，按执行位置指纹隔离，单行横向可移除 chip）、
+// 主体交互：搜索、最近使用（localStorage，按执行位置指纹隔离，单行横向可移除 chip，
+// 排在列表最上面）、
 // Provider 分组（sticky 组头承载品牌标识 + 供应商名）、provider-default 首项（强调底色 +
 // 动态图标 + 当前解析模型）、fixed-model 列表（display name + 上下文/最大输出）、
 // 兼容性过滤（effective backend type）、loading/empty/error/invalid/remote 状态、
@@ -160,14 +161,6 @@ export function ModelTargetPicker({
 
   const triggerText = triggerLabel ?? picker.selectedLabel;
 
-  const recentChipsRow = picker.showChips ? (
-    <RecentChipsRow
-      chips={picker.recents}
-      onPick={picker.handlePick}
-      onRemove={picker.handleRemoveRecent}
-    />
-  ) : null;
-
   return (
     <Popover open={picker.open} onOpenChange={picker.handleOpenChange}>
       <PopoverTrigger asChild>
@@ -262,6 +255,14 @@ export function ModelTargetPicker({
           role={cliState && scenario === "chat" ? "listbox" : undefined}
           aria-label={cliState && scenario === "chat" ? ariaLabel : undefined}
         >
+          {/* 最近使用是最常回头选的，放在最上面，不被特殊项 / CLI 模型列表压下去。 */}
+          {picker.showChips ? (
+            <RecentChipsRow
+              chips={picker.recents}
+              onPick={picker.handlePick}
+              onRemove={picker.handleRemoveRecent}
+            />
+          ) : null}
           {cliState && scenario === "chat" ? (
             <CliModelRow
               icon={specialIcon}
@@ -286,7 +287,6 @@ export function ModelTargetPicker({
               }}
             />
           ) : null}
-          {cliState ? recentChipsRow : null}
           {loading ? (
             <div className="flex items-center gap-2 px-2.5 py-3 text-xs text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -327,7 +327,6 @@ export function ModelTargetPicker({
               onSyncProvider={onSyncProvider}
               onActivate={picker.setActiveIndex}
               onSelect={picker.handlePick}
-              recentChipsRow={cliState ? null : recentChipsRow}
             />
           ) : null}
         </div>

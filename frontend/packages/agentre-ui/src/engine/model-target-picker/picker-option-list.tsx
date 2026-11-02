@@ -3,9 +3,6 @@
  *
  * 分组不是在数据里预先切好的，而是**看相邻两行是否同组**当场决定要不要画组头——
  * 搜索会把中间的行滤掉，预切的分组在过滤后会留下空标题。
- *
- * 「最近使用」那一条横排紧跟在顶部特殊项之后，由调用方把整块传进来：它读的是
- * localStorage，与这份纯呈现件不是一件事。
  */
 import * as React from "react";
 
@@ -34,8 +31,6 @@ export interface PickerOptionListProps {
   onSyncProvider?: (provider: PickerProvider) => void;
   onActivate: (index: number) => void;
   onSelect: (target: ModelTarget) => void;
-  /** 顶部特殊项之后插入的「最近使用」横条；不显示时传 null。 */
-  recentChipsRow: React.ReactNode;
 }
 
 export function PickerOptionList({
@@ -53,7 +48,6 @@ export function PickerOptionList({
   onSyncProvider,
   onActivate,
   onSelect,
-  recentChipsRow,
 }: PickerOptionListProps) {
   const { t } = useTranslation();
 
@@ -85,27 +79,25 @@ export function PickerOptionList({
             ? compatible.find((p) => p.providerKey === opt.target.providerKey)
             : undefined;
         return (
-          <React.Fragment key={opt.key}>
-            <PickerOptionRow
-              opt={opt}
-              index={i}
-              active={i === activeIndex}
-              selectedNow={sameTarget(opt.target, selected)}
-              showGroup={Boolean(showGroup)}
-              showFixedSection={showFixedSection}
-              // 远端：组头标注该供应商在目标设备上已存在（不代表模型齐全，
-              // 行内另有原因）。
-              groupOnDevice={isProviderOnDevice(opt.target.providerKey)}
-              inlineHint={inlineHint}
-              scenario={scenario}
-              SpecialIcon={SpecialIcon}
-              syncProvider={syncProvider}
-              onSyncProvider={onSyncProvider}
-              onActivate={onActivate}
-              onSelect={onSelect}
-            />
-            {opt.kind === "special" ? recentChipsRow : null}
-          </React.Fragment>
+          <PickerOptionRow
+            key={opt.key}
+            opt={opt}
+            index={i}
+            active={i === activeIndex}
+            selectedNow={sameTarget(opt.target, selected)}
+            showGroup={Boolean(showGroup)}
+            showFixedSection={showFixedSection}
+            // 远端：组头标注该供应商在目标设备上已存在（不代表模型齐全，
+            // 行内另有原因）。
+            groupOnDevice={isProviderOnDevice(opt.target.providerKey)}
+            inlineHint={inlineHint}
+            scenario={scenario}
+            SpecialIcon={SpecialIcon}
+            syncProvider={syncProvider}
+            onSyncProvider={onSyncProvider}
+            onActivate={onActivate}
+            onSelect={onSelect}
+          />
         );
       })}
     </ul>

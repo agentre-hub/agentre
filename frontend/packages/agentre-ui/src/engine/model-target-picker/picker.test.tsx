@@ -986,7 +986,7 @@ describe("ModelTargetPicker", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("最近使用排在顶部特殊项之后、供应商分组之前，并带「最近使用」标签", async () => {
+  it("最近使用排在弹层列表最上面（顶部特殊项与供应商分组之前），并带「最近使用」标签", async () => {
     const user = userEvent.setup();
     recordRecentTarget("backend", "", {
       providerKey: "k-anthropic",
@@ -1008,20 +1008,60 @@ describe("ModelTargetPicker", () => {
     const special = within(list).getByRole("option", {
       name: /CLI login state/,
     });
-    const chips = within(list).getByTestId("recent-chips");
+    const chips = screen.getByTestId("recent-chips");
     const providerDefault = within(list).getByRole("option", {
       name: /Follow this provider's default/,
     });
-    // 顺序：特殊项 → 最近使用 → 供应商分组。
+    // 顺序：最近使用 → 特殊项 → 供应商分组。
     expect(
-      special.compareDocumentPosition(chips) & Node.DOCUMENT_POSITION_FOLLOWING,
+      chips.compareDocumentPosition(special) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      chips.compareDocumentPosition(providerDefault) &
+      special.compareDocumentPosition(providerDefault) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     // chip 横条自带标签，不再是一排无名 chip。
     expect(within(chips).getByText("Recently used")).toBeInTheDocument();
+  });
+
+  it("Given 对话框接了 CLI 自带模型, When 打开模型选择, Then 最近使用排在跟随 Agent 与 CLI 模型之前", async () => {
+    const user = userEvent.setup();
+    recordRecentTarget("chat", "", {
+      providerKey: "k-anthropic",
+      modelKey: "mk-opus",
+    });
+    render(
+      <ModelTargetPicker
+        scenario="chat"
+        aria-label="Model"
+        backendType="claudecode"
+        selected={null}
+        onChange={vi.fn()}
+        catalog={catalog()}
+        cliModels={{
+          models: [
+            { value: "sonnet", label: "CLI Sonnet", modelId: "claude-sonnet" },
+          ],
+          onChange: vi.fn(),
+          onRefresh: vi.fn(),
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Model" }));
+    const chips = await screen.findByTestId("recent-chips");
+    const followAgent = screen.getByRole("option", {
+      name: /Follow agent binding/,
+    });
+    const cliModel = screen.getByRole("option", { name: /CLI Sonnet/ });
+    expect(
+      chips.compareDocumentPosition(followAgent) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      chips.compareDocumentPosition(cliModel) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("recent chip 里非默认但启用的固定模型仍可选", async () => {
