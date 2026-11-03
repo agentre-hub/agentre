@@ -25,7 +25,8 @@ describe("项目这一面的对外契约", () => {
       "DialogShellBody",
       "DialogShellFooter",
       "DialogShellSubmit",
-      // 项目表单三件
+      // 身份区与项目表单
+      "IdentityFields",
       "ProjectSettingsDialog",
       "ProjectCreateDialog",
       "ProjectDeleteDialog",
@@ -47,6 +48,7 @@ describe("项目这一面的对外契约", () => {
     const { join } = await import("node:path");
     const barrel = readFileSync(join(__dirname, "..", "index.ts"), "utf8");
     const missing = [
+      "IdentityFieldsProps",
       "ProjectFsPort",
       "ListDirOutcome",
       "MkdirOutcome",

@@ -26,7 +26,7 @@ vi.mock("../../../../wailsjs/runtime/runtime", async (importOriginal) => ({
   EventsOff: vi.fn(),
 }));
 
-import { useChatAgentsStore } from "@/stores/chat-agents-store";
+import { useChatAgentsStore, type AgentSlim } from "@/stores/chat-agents-store";
 
 import {
   ProjectGroupHeader,
@@ -263,6 +263,31 @@ describe("ProjectGroupHeader ＋ member picker", () => {
     appMocks.ProjectLocationList.mockResolvedValue([]);
     appMocks.RemoteDeviceList.mockResolvedValue([]);
     appMocks.ServerListDevices.mockResolvedValue([]);
+  });
+
+  it("Given member preset keys and a store fallback When ＋ opens Then the adapter passes keys without converting them to nodes", async () => {
+    useChatAgentsStore.setState({
+      agents: [
+        { id: 9, name: "Relay", avatarIcon: "preset:agent-architect" },
+      ] as AgentSlim[],
+    });
+    appMocks.ProjectGet.mockResolvedValue({
+      project: null,
+      directMembers: [
+        { agentID: 7, agentName: "Scout", avatarIcon: "preset:brand-claude" },
+      ],
+      inheritedMembers: [{ agentID: 9, inherited: true }],
+    });
+    renderHeader();
+    await setupUser().click(screen.getByTestId("project-add-1"));
+    expect(
+      (await screen.findByTestId("project-member-option-7")).querySelector(
+        "img",
+      ),
+    ).not.toBeNull();
+    expect(
+      screen.getByTestId("project-member-option-9").querySelector("img"),
+    ).not.toBeNull();
   });
 
   it("Given exactly one member, When ＋ is clicked, Then that member starts a session and no popover ever opens", async () => {

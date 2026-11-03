@@ -7,12 +7,14 @@ import { AgentAvatar, StatusDot } from "@agentre-hub/agentre-ui";
 
 import { cn } from "@agentre-hub/agentre-ui";
 
+import type { SessionAvatar } from "../session-avatar";
+
 export type TabStatus = "idle" | "running" | "waiting" | "error";
 
 export type TabProps = {
   title: string;
   kind?: "session" | "new" | "terminal" | "run" | "peer";
-  avatar: { letter: string; color: string };
+  avatar: SessionAvatar;
   active: boolean;
   isPreview: boolean;
   isPinned: boolean;
@@ -102,6 +104,8 @@ export const Tab = React.forwardRef<
           aria-hidden="true"
           name=""
           initials={avatar.letter}
+          avatarDataUrl={avatar.avatarDataUrl}
+          iconKey={avatar.avatarIcon}
           size="xs"
           style={{ backgroundColor: avatar.color }}
         />

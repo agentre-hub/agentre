@@ -8,7 +8,6 @@ import {
   AgentAvatar as UiAgentAvatar,
   Button,
   StatusDot,
-  iconNode,
 } from "@agentre-hub/agentre-ui";
 
 import { cn } from "@agentre-hub/agentre-ui";
@@ -20,10 +19,10 @@ import { type AgentColor, type AgentStatus, statusConfig } from "./types";
  * 身份方块的实现已经搬进共享包 `@agentre-hub/agentre-ui`（规格 2026-08-21
  * 「身份字形归一」）—— 同一枚记号此前在桌面端、包里和 agentre-server 各有一份。
  *
- * 这里只剩**宿主那一半**：把 `avatarIcon` 这个 icon key 解成一个画好的节点递进去。
- * 词表与「key → 节点」这一步都在包里（`org/icon-registry` 的 `iconNode`）——此前
- * 解 key 留在这里，于是包拿得到词表却画不出图标，agentre-server 的字形一律退回首字。
- * 仓库内 26 个引用点因此一个字都不用改。
+ * 这里只剩**宿主那一半**：把 `avatarIcon` 这个持久化 key 原样递进去。词表、预设
+ * 注册表与「key → 节点」这一步都在包里（`org/icon-registry` 的 `iconNode`、
+ * `presets/preset-registry` 的 `presetForKey`）—— 转发节点会让这一层看不见预设，
+ * 所以这里递 key（`iconKey`）。仓库内 26 个引用点因此一个字都不用改。
  */
 type AgentAvatarSize = "xs" | "sm" | "md" | "lg";
 
@@ -37,7 +36,7 @@ type AgentAvatarProps = Omit<React.ComponentProps<"span">, "color"> & {
 };
 
 function AgentAvatar({ avatarIcon, ...props }: AgentAvatarProps) {
-  return <UiAgentAvatar {...props} icon={iconNode(avatarIcon)} />;
+  return <UiAgentAvatar {...props} iconKey={avatarIcon} />;
 }
 
 type StatusPillProps = React.ComponentProps<"span"> & {

@@ -169,6 +169,39 @@ describe("换一个项目打开", () => {
 });
 
 describe("成员", () => {
+  it("Given direct, inherited and candidate preset keys When settings opens Then the adapter preserves every key", async () => {
+    mockProject();
+    const detail = await appMocks.ProjectGet();
+    appMocks.ProjectGet.mockResolvedValue({
+      ...detail,
+      directMembers: [
+        {
+          agentID: 5,
+          agentName: "Builder",
+          avatarIcon: "preset:agent-architect",
+        },
+      ],
+      inheritedMembers: [
+        { agentID: 6, agentName: "Scout", avatarIcon: "preset:brand-claude" },
+      ],
+    });
+    appMocks.ListChatAgents.mockResolvedValue({
+      agents: [
+        { id: 7, name: "Candidate", avatarIcon: "preset:agent-architect" },
+      ],
+    });
+    renderDrawer();
+    expect(
+      (await screen.findByTestId("project-member-row-5")).querySelector("img"),
+    ).not.toBeNull();
+    expect(
+      screen.getByTestId("project-member-row-inherited-6").querySelector("img"),
+    ).not.toBeNull();
+    fireEvent.click(screen.getByTestId("project-member-add-open"));
+    expect(
+      (await screen.findByTestId("project-member-add-7")).querySelector("img"),
+    ).not.toBeNull();
+  });
   it("ProjectGet 带回来的显示名压过 Agent #id 那个兜底", async () => {
     mockProject();
     appMocks.ProjectGet.mockResolvedValue({

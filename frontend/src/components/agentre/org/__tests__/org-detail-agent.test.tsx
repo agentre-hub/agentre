@@ -169,36 +169,27 @@ describe("OrgDetailAgent", () => {
     expect(screen.queryByLabelText("agent-initials")).toBeNull();
   });
 
-  it("renders only the four design-aligned basic fields", () => {
+  it("renders identity fields and all sixteen colors inside the shared mark popover", async () => {
+    const user = userEvent.setup();
     renderPanel();
     expect(screen.getByLabelText("Name")).toBeInTheDocument();
     expect(screen.getByLabelText("Description")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Change avatar")).toHaveLength(1);
+    await user.click(screen.getByLabelText("Change avatar"));
+    const colors = screen.getByRole("group", { name: "Color" });
+    expect(within(colors).getAllByRole("button")).toHaveLength(16);
     expect(
-      screen.getByRole("button", { name: "Upload Image" }),
+      within(colors).getByRole("button", { name: "agent-16" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("PNG / JPG / WEBP · Max 2 MB")).toBeInTheDocument();
-    expect(
-      screen.getByRole("radiogroup", { name: "Avatar Color" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getAllByRole("radio", { name: /Avatar color agent-/ }),
-    ).toHaveLength(16);
-    expect(
-      screen.getByRole("radio", { name: "Avatar color agent-16" }),
-    ).toBeInTheDocument();
-    // 头像编辑入口仍用于选择图标 / 字母备用头像。
-    expect(screen.getAllByLabelText("Change avatar").length).toBeGreaterThan(0);
   });
 
-  it("keeps image upload out of the avatar popover", async () => {
+  it("offers preset, icon, letter and image modes in the shared avatar popover", async () => {
     const user = userEvent.setup();
     renderPanel();
-    await user.click(screen.getAllByLabelText("Change avatar")[0]);
-    expect(
-      await screen.findByRole("tab", { name: /Icon/ }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /Letter/ })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: /Image/ })).toBeNull();
+    await user.click(screen.getByLabelText("Change avatar"));
+    for (const name of ["Presets", "Icons", "Letters", "Image"]) {
+      expect(screen.getByRole("tab", { name })).toBeInTheDocument();
+    }
   });
 
   it("renders the execution targets section as a single-target row (R15/R20)", async () => {
@@ -249,42 +240,58 @@ describe("OrgDetailAgent", () => {
     expect(screen.getByText(/7 chars/)).toBeInTheDocument();
   });
 
-  it("uploads avatar from the inline detail row control", async () => {
-    const { onUploadAvatar } = renderPanel();
-    expect(
-      screen.getByRole("button", { name: "Upload Image" }),
-    ).toBeInTheDocument();
-    const file = new File([new Uint8Array([1, 2, 3])], "a.png", {
-      type: "image/png",
-    });
-    const input = document.querySelector(
-      'input[type="file"]',
-    ) as HTMLInputElement | null;
-    if (!input) throw new Error("file input not found");
-    fireEvent.change(input, { target: { files: [file] } });
-    // FileReader.readAsDataURL 是异步的,等条件而不是等时钟:固定 50ms 在整套并发下
-    // 不够用,onload 还没触发断言就落在「调用次数 0」上(同文件另外三处已用 waitFor)。
-    await waitFor(() =>
-      expect(onUploadAvatar).toHaveBeenCalledWith({
-        id: 7,
-        dataUrl: expect.stringMatching(/^data:image\/png;base64,/),
-      }),
-    );
-  });
+  it.each(["", "data:image/png;base64,aGVsbG8="])(
+    "Given uploaded image %s, When uploading or replacing through the shared image port, Then the Wails callback receives the new data URL",
+    async (avatarDataUrl) => {
+      const user = userEvent.setup();
+      const { onUploadAvatar } = renderPanel({ avatarDataUrl });
+      await user.click(screen.getByLabelText("Change avatar"));
+      await user.click(screen.getByRole("tab", { name: "Image" }));
+      expect(
+        screen.getByRole("button", {
+          name: avatarDataUrl ? "Replace" : "Upload",
+        }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("PNG / JPG / WEBP · Max 2MB"),
+      ).toBeInTheDocument();
+      const file = new File([new Uint8Array([1, 2, 3])], "a.png", {
+        type: "image/png",
+      });
+      const input = document.querySelector(
+        'input[type="file"]',
+      ) as HTMLInputElement | null;
+      if (!input) throw new Error("file input not found");
+      fireEvent.change(input, { target: { files: [file] } });
+      // FileReader.readAsDataURL 是异步的,等条件而不是等时钟:固定 50ms 在整套并发下
+      // 不够用,onload 还没触发断言就落在「调用次数 0」上(同文件另外三处已用 waitFor)。
+      await waitFor(() =>
+        expect(onUploadAvatar).toHaveBeenCalledWith({
+          id: 7,
+          dataUrl: expect.stringMatching(/^data:image\/png;base64,/),
+        }),
+      );
+    },
+  );
 
-  it("deletes an uploaded avatar from the inline detail row control", async () => {
+  it("deletes an uploaded avatar through the shared image port", async () => {
     const user = userEvent.setup();
     const { onDeleteAvatar } = renderPanel({
       avatarDataUrl: "data:image/png;base64,aGVsbG8=",
     });
+    await user.click(screen.getByLabelText("Change avatar"));
+    expect(screen.getByRole("button", { name: "Replace" })).toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: "Delete uploaded avatar" }),
     );
     expect(onDeleteAvatar).toHaveBeenCalledWith({ id: 7 });
   });
 
-  it("rejects inline avatar files over 2MB before upload", async () => {
+  it("rejects avatar files over 2MB before the upload port is called", async () => {
+    const user = userEvent.setup();
     const { onUploadAvatar } = renderPanel();
+    await user.click(screen.getByLabelText("Change avatar"));
+    await user.click(screen.getByRole("tab", { name: "Image" }));
     const file = new File([new Uint8Array(2 * 1024 * 1024 + 1)], "large.png", {
       type: "image/png",
     });
@@ -294,7 +301,9 @@ describe("OrgDetailAgent", () => {
     if (!input) throw new Error("file input not found");
     fireEvent.change(input, { target: { files: [file] } });
     expect(
-      await screen.findByText("Image is too large. Upload a file under 2 MB."),
+      await screen.findByText(
+        "Image too large. Please upload a file under 2MB",
+      ),
     ).toBeInTheDocument();
     expect(onUploadAvatar).not.toHaveBeenCalled();
   });

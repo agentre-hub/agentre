@@ -9,7 +9,6 @@ import { CapabilityPicker } from "../capability/capability-picker";
 import { emptyDraft } from "../hooks-page-model";
 import { HooksSidebar } from "../hooks-page-sidebar";
 import { ScriptTab } from "../hooks-page/script-tab";
-import { IconPicker } from "../icon-picker";
 
 // 宿主里手写的字段：无边、同一个字段填充。
 //
@@ -130,21 +129,6 @@ describe("hand-written fields in the desktop host", () => {
 
     const frame = screen.getByLabelText("Search skills").parentElement;
     expect(focusWithin(frame)).toEqual(sharedSearchFocus());
-  });
-
-  it("Given the icon picker's dropdown trigger, When it rests, Then it has the shared Input's fill and no edge", () => {
-    render(
-      <IconPicker
-        value="hammer"
-        onChange={vi.fn()}
-        accentColor="agent-1"
-        ariaLabel="Icon"
-      />,
-    );
-
-    const trigger = screen.getByRole("button", { name: "Icon" });
-    expect(restingEdges(trigger)).toEqual([]);
-    expect(fillOf(trigger)).toEqual(sharedInputFill());
   });
 
   it("Given the Hooks script editor below the Name input, When it rests, Then it has the shared Input's fill and no edge", () => {

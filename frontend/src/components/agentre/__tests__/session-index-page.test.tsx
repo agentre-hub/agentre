@@ -125,6 +125,7 @@ import { useSidebarAxisStore } from "@/stores/sidebar-axis-store";
 import { reloadSidebarSources } from "@/stores/sidebar-reload";
 
 import { SessionIndexPage } from "../session-index/index-page";
+import { presetForKey } from "@agentre-hub/agentre-ui";
 import type { app } from "../../../../wailsjs/go/models";
 
 // ── 种子与渲染 ──────────────────────────────────────────────────────────────
@@ -145,6 +146,8 @@ type SeedAgent = {
   id: number;
   name: string;
   avatarColor?: string;
+  avatarIcon?: string;
+  avatarDataUrl?: string;
   chattable?: boolean;
   blockReason?: string;
   pinned?: boolean;
@@ -439,6 +442,26 @@ describe("SessionIndexPage grouping axes", () => {
     // 每条会话只落在自己项目的组里 —— 自由会话不混进项目组。
     expect(sessionRow("Backend work")).toBeInTheDocument();
     expect(sessionRow("Quick question")).toBeInTheDocument();
+  });
+
+  it("Given an Agent with a preset avatar, When the project axis renders, Then its session row shows the preset image", async () => {
+    seedAgents([
+      {
+        id: 7,
+        name: "Eng",
+        avatarIcon: "preset:agent-assistant",
+        sessions: sessions.slice(0, 2),
+      },
+    ]);
+    expandGroups("project:1");
+    renderIndex();
+
+    await screen.findByRole("button", { name: /Root work/ });
+    expect(
+      document
+        .querySelector("[data-testid='row-leading-slot'] img")
+        ?.getAttribute("src"),
+    ).toBe(presetForKey("preset:agent-assistant")?.src);
   });
 
   it("Given the project axis, When the picker switches to Agent, Then the list regroups by agent and the project chrome disappears", async () => {

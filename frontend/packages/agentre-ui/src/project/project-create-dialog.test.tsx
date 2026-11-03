@@ -165,6 +165,54 @@ describe("常驻挂载：每次打开都认这一次点的父项目", () => {
   });
 });
 
+describe("身份草稿", () => {
+  it("Given an untouched draft When opening the mark Then agent-1 is selected without submitting unset fields", async () => {
+    const { ports: p } = open();
+    fireEvent.click(screen.getByRole("button", { name: "Change icon" }));
+    expect(screen.getByRole("button", { name: "agent-1" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.keyDown(document.activeElement ?? document.body, {
+      key: "Escape",
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Atlas" },
+    });
+    fireEvent.blur(screen.getByRole("textbox", { name: "Name" }));
+    expect(p.create).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    await waitFor(() =>
+      expect(p.create).toHaveBeenCalledExactlyOnceWith({ name: "Atlas" }),
+    );
+  });
+
+  it("Given edited identity fields When picking a preset and colour Then only Create submits the complete draft", async () => {
+    const { ports: p } = open();
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Atlas" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
+      target: { value: "Maps" },
+    });
+    fireEvent.blur(screen.getByRole("textbox", { name: "Description" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change icon" }));
+    fireEvent.click(screen.getByRole("button", { name: "agent-5" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Presets" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Terminal" }));
+    expect(p.create).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    await waitFor(() =>
+      expect(p.create).toHaveBeenCalledExactlyOnceWith({
+        name: "Atlas",
+        description: "Maps",
+        icon: "preset:project-terminal",
+        color: "agent-5",
+      }),
+    );
+  });
+});
+
 describe("路径不必填", () => {
   it("只填名字就建得出来，递下去的 draft 里没有 localPath", async () => {
     const { ports: p, onCreated } = open();

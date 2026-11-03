@@ -14,21 +14,15 @@
       "loading": "正在加载组织架构…",
       "newAgent": {
         "agentOption": "Agent · {{name}}",
-        "avatar": "头像",
-        "avatarColor": "头像配色",
-        "avatarColorNamed": "头像配色 {{color}}",
-        "avatarHint": "点击头像选图标，创建后可在详情页上传图片",
         "backend": "后端",
         "departmentOption": "部门 · {{name}}",
         "description": "设置 Agent 的名称、挂载位置和执行后端。",
         "intentHint": "创建后先配后端再对话",
         "intentSettings": "去设置 → Agent 后端",
-        "optionalSuffix": "（可选）",
         "placement": "选择部门或上级 Agent"
       },
       "newDepartment": {
-        "description": "选择父级、图标和主题色，创建后会出现在组织架构中。",
-        "iconAria": "新部门图标"
+        "description": "选择父级、图标和主题色，创建后会出现在组织架构中。"
       },
       "summary": "{{departments}} 部门 · {{subDepartments}} 子部门 · {{agents}} Agent",
       "title": "组织架构"
@@ -89,10 +83,6 @@
       "actions": {
         "deleteAgent": "删除 Agent"
       },
-      "avatar": {
-        "replaceImage": "替换图片",
-        "uploadImage": "上传图片"
-      },
       "backend": {
         "configureProvider": "去配置 LLM 供应商",
         "goAgentBackendSettings": "去 Agent 后端设置",
@@ -125,8 +115,6 @@
         "title": "确认删除 Agent「{{name}}」？"
       },
       "departmentLead": "{{name}} 部门长",
-      "descriptionHint": "可选 · 显示在索引行的副标题",
-      "fallbackName": "Agent",
       "skills": {
         "manage": "管理技能",
         "count": "继承 {{inherit}} · 强制开 {{on}} · 强制关 {{off}}",
@@ -158,7 +146,6 @@
     "department": {
       "addGroup": "添加 Agent 或子部门",
       "addAgent": "Agent",
-      "basicInfo": "基本信息",
       "deleteDepartment": "删除部门",
       "deleteDialog": {
         "cascadeDescription": "连同所有子部门 / Agent 一并软删",
@@ -172,9 +159,6 @@
         "title": "确认删除「{{name}}」？"
       },
       "departmentMemberCount": "{{count}} 名成员",
-      "description": "简介",
-      "editEyebrow": "编辑部门",
-      "icon": "图标",
       "leadHint": "从直属 Agent 中选",
       "leadBadge": "LEAD",
       "leader": "负责人",
@@ -185,8 +169,6 @@
       "parent": "归属",
       "path": "路径",
       "subDepartment": "子部门",
-      "themeColor": "主题色",
-      "themeColorNamed": "主题色 {{color}}",
       "topLevel": "公司顶层（CEO 之下）",
       "viewAgent": "查看 Agent {{name}}",
       "viewDepartment": "查看部门 {{name}}"

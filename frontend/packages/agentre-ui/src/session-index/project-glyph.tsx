@@ -1,6 +1,5 @@
 import { MessagesSquare } from "lucide-react";
 
-import { iconNode } from "../org/icon-registry";
 import { AgentAvatar } from "../ui/agent-avatar";
 import { NeutralGlyph, initialOf } from "./glyph";
 
@@ -18,11 +17,12 @@ import { NeutralGlyph, initialOf } from "./glyph";
  * 有身份的那一枚就是 `AgentAvatar`（规格 2026-08-21「身份字形归一」）：项目与 Agent
  * 共用同一枚记号，只是喂进去的身份不同。
  *
- * 项目自己选的图标（`ProjectNode.icon`）就在这里解：词表与「key → 图标节点」都在包里
- * （`org/icon-registry` 的 `iconNode`），宿主只管把 key 带着走。此前这里是一个
- * `glyph` 插槽 —— 词表已经归包、解 key 却留在宿主，于是桌面端填了、agentre-server
- * 没填，同一个项目在控制台里永远只是一个字母。词表不认得的 key 退回项目名首字：
- * 猜一枚图标比一个字母更糟。
+ * 项目自己选的图标（`ProjectNode.icon`）就在这里解：词表与预设注册表都在包里
+ * （`org/icon-registry` 的 `iconNode`、`presets/preset-registry` 的 `presetForKey`），
+ * 宿主只管把 key 带着走。此前这里是一个 `glyph` 插槽 —— 词表已经归包、解 key 却
+ * 留在宿主，于是桌面端填了、agentre-server 没填，同一个项目在控制台里永远只是
+ * 一个字母。三档优先级（规格 2026-11-02「预置头像」）：预设 ▸ 图标 ▸ 项目名首字；
+ * 词表与预设表都不认得的 key 退回首字 —— 猜一枚图标比一个字母更糟。
  */
 
 /** 画一个项目字形要且只要这两件事（`ProjectNode` 结构上满足它）。 */
@@ -30,7 +30,7 @@ export type ProjectGlyphInfo = {
   name: string;
   /** 颜色 token，如 "agent-1"；不是调色板 token 时退回中性面。 */
   color?: string;
-  /** 图标词表的 key，如 "rocket"；空 / 表里没有时退回项目名首字。 */
+  /** 图标词表或预设注册表的 key，如 "rocket" / "preset:project-git"；空 / 两张表都不认得时退回项目名首字。 */
   icon?: string;
 };
 
@@ -63,7 +63,7 @@ export function ProjectGlyph({
       // 不让 AgentAvatar 走它给 Agent 用的那套大写规则。
       initials={initialOf(project.name)}
       color={project.color}
-      icon={iconNode(project.icon)}
+      iconKey={project.icon}
       size="xs"
       className={className}
     />

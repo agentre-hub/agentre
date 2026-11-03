@@ -1,11 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { presetForKey } from "../presets/preset-registry";
 import { edgeTokenOf } from "../styles/__testing__/tokens";
 import { Input } from "../ui/input";
 
+import { OrgAgentRow } from "./org-agent-row";
 import { OrgExecTargetRow } from "./org-exec-target-row";
+import type { OrgIndexRow } from "./org-index-model";
 import { OrgPlacementField } from "./org-placement-field";
 import { OrgToolList } from "./org-tool-list";
 import type { OrgAgentModel, OrgDepartmentModel } from "./types";
@@ -29,6 +32,50 @@ const agents: OrgAgentModel[] = [
 ];
 
 describe("OrgPlacementField（只吃 props）", () => {
+  it.each([
+    [
+      "preset:agent-architect",
+      "data:image/png;base64,AA",
+      "data:image/png;base64,AA",
+    ],
+    ["preset:agent-architect", "", "agent-architect.webp"],
+    ["rocket", "", "icon"],
+    ["preset:future", "", "letter"],
+  ])(
+    "Given manager key %s and upload %s When no avatar slot is supplied Then the selected manager and options show %s",
+    async (avatarIcon, avatarDataUrl, expected) => {
+      const manager = { ...agents[0], avatarIcon, avatarDataUrl };
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      render(
+        <OrgPlacementField
+          agent={agents[2]}
+          agents={[manager, ...agents.slice(1)]}
+          departments={departments}
+          placement={{ kind: "agent", id: manager.id }}
+          reportTarget={null}
+          onPick={vi.fn()}
+        />,
+      );
+      const assertMark = (container: HTMLElement) => {
+        const mark = within(container).getByRole("img", { name: "CEO" });
+        if (expected === "icon") {
+          expect(mark.querySelector("svg")).toHaveClass("lucide-rocket");
+        } else if (expected === "letter") {
+          expect(mark).toHaveTextContent(/^C$/);
+          expect(mark.querySelector("img, svg")).toBeNull();
+        } else {
+          expect(mark.querySelector("img")).toHaveAttribute(
+            "src",
+            expect.stringContaining(expected),
+          );
+        }
+      };
+      assertMark(screen.getByRole("combobox"));
+      await user.click(screen.getByRole("combobox"));
+      assertMark(screen.getByRole("option", { name: /CEO/ }));
+    },
+  );
+
   async function openField(agentId: number) {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     const onPick = vi.fn();
@@ -532,5 +579,137 @@ describe("org 呈现件无结构线", () => {
 
     expect(await screen.findByRole("listbox")).toBeInTheDocument();
     expect(borderTokens(document.body)).toEqual([]);
+  });
+});
+
+describe("OrgPlacementField 的部门记号", () => {
+  const departmentsWithMarks: OrgDepartmentModel[] = [
+    {
+      id: 1,
+      name: "Engineering",
+      icon: "preset:team-dev",
+      accentColor: "agent-3",
+    },
+    {
+      id: 2,
+      name: "Platform",
+      icon: "preset:not-registered-yet",
+      accentColor: "agent-4",
+    },
+  ];
+
+  async function openFieldWithMarks() {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <OrgPlacementField
+        agent={agents[1]}
+        agents={agents}
+        departments={departmentsWithMarks}
+        placement={{ kind: "department", id: 1 }}
+        reportTarget={null}
+        onPick={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("combobox"));
+    return user;
+  }
+
+  it("部门选了预设，选中项与下拉里的那一格都画预设图，不再是一块纯色片", async () => {
+    const preset = presetForKey("preset:team-dev");
+    await openFieldWithMarks();
+
+    const selected = within(screen.getByRole("combobox")).getByRole("img", {
+      name: "Engineering",
+    });
+    expect(selected.querySelector("img")?.getAttribute("src")).toBe(
+      preset?.src,
+    );
+
+    const option = screen.getByRole("option", { name: /Engineering/ });
+    const glyph = within(option).getByRole("img", { name: "Engineering" });
+    expect(glyph.querySelector("img")?.getAttribute("src")).toBe(preset?.src);
+  });
+
+  it("认不出的 preset key 退回部门名首字，而不是空白或破图", async () => {
+    await openFieldWithMarks();
+
+    const option = screen.getByRole("option", { name: /Platform/ });
+    const glyph = within(option).getByRole("img", { name: "Platform" });
+    expect(glyph).toHaveTextContent(/^P$/);
+    expect(glyph.querySelector("img")).toBeNull();
+  });
+});
+
+describe("OrgAgentRow 的默认记号", () => {
+  function rowOf(agent: OrgAgentModel): OrgIndexRow {
+    return {
+      agent,
+      departmentId: 1,
+      parentAgentId: 0,
+      reportsToName: "",
+      bucketIndex: 0,
+      bucketOrderedIds: [agent.id],
+    };
+  }
+
+  function renderRow(agent: OrgAgentModel) {
+    render(
+      <OrgAgentRow
+        row={rowOf(agent)}
+        indent={0}
+        selected={false}
+        onSelect={vi.fn()}
+      />,
+    );
+    return screen.getByRole("img", { name: agent.name });
+  }
+
+  it("Agent 选了预设就整格画预设图", () => {
+    const preset = presetForKey("preset:agent-assistant");
+    const glyph = renderRow({
+      id: 9,
+      name: "Eva",
+      avatarColor: "agent-2",
+      avatarIcon: "preset:agent-assistant",
+    });
+
+    expect(glyph.querySelector("img")?.getAttribute("src")).toBe(preset?.src);
+    // xs 档的预设图不是首字母：这一格整块让给图片。
+    expect(glyph).toHaveTextContent("");
+  });
+
+  it("上传头像压过预设", () => {
+    const glyph = renderRow({
+      id: 9,
+      name: "Eva",
+      avatarIcon: "preset:agent-assistant",
+      avatarDataUrl: "data:image/png;base64,AAAA",
+    });
+
+    expect(glyph.querySelector("img")?.getAttribute("src")).toBe(
+      "data:image/png;base64,AAAA",
+    );
+  });
+
+  it("普通图标 key 仍画词表里那一枚", () => {
+    const glyph = renderRow({ id: 9, name: "Eva", avatarIcon: "rocket" });
+
+    expect(glyph.querySelector("svg")?.getAttribute("class")).toContain(
+      "lucide-rocket",
+    );
+    expect(glyph.querySelector("img")).toBeNull();
+  });
+
+  it("认不出的 preset key 退回名字首字母", () => {
+    const glyph = renderRow({
+      id: 9,
+      name: "Eva",
+      avatarColor: "agent-2",
+      avatarIcon: "preset:not-registered-yet",
+    });
+
+    expect(glyph).toHaveTextContent(/^E$/);
+    expect(glyph.querySelector("img")).toBeNull();
+    expect(glyph.style.backgroundColor).toBe("var(--agent-2)");
   });
 });

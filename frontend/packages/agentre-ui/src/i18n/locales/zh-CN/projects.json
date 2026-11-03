@@ -29,6 +29,11 @@
       "unknown": "读不到 {{machine}} 上的这个目录。{{message}}"
     }
   },
+  "identityFields": {
+    "name": "名称",
+    "description": "描述",
+    "descriptionPlaceholder": "添加描述"
+  },
   "projectSettings": {
     "title": "项目设置",
     "done": "完成",
@@ -37,19 +42,11 @@
       "paths": "机器与路径"
     },
     "field": {
-      "name": "名字",
-      "description": "简介",
-      "color": "颜色",
       "parent": "父项目",
       "noParent": "无（挂在根上）"
     },
     "identity": {
-      "glyphAria": "改「{{name}}」的图标与颜色",
-      "namePlaceholder": "项目名字",
-      "descriptionPlaceholder": "简介（选填）",
-      "iconSearch": "搜索图标…",
-      "iconResults": "搜索结果",
-      "iconNoMatch": "没有匹配的图标。"
+      "iconResults": "搜索结果"
     },
     "members": {
       "empty": "这个项目还没有成员。",

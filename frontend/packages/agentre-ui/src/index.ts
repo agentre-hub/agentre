@@ -13,6 +13,11 @@ export {
   useUiTranslation,
 } from "./i18n";
 export { cn } from "./lib/utils";
+export { IdentityFields } from "./identity/identity-fields";
+export type { IdentityFieldsProps } from "./identity/identity-fields";
+export { IdentityMarkPicker } from "./identity/identity-mark-picker";
+export type { IdentityMarkPickerProps } from "./identity/identity-mark-picker";
+export type { IdentityImageUpload } from "./identity/image-panel";
 export { LlmProvidersPanel, AgentBackendsPanel } from "./engine/panels";
 // 引擎设置端口经 context 下发：两个面板同时挂载时各用各的那一份，与谁最后渲染无关。
 export {
@@ -600,6 +605,8 @@ export type {
 } from "./org/types";
 export type { OrgSortableRowBinding } from "./org/drag-binding";
 export { OrgAgentRow } from "./org/org-agent-row";
+export { DepartmentMark } from "./org/department-mark";
+export type { DepartmentMarkProps } from "./org/department-mark";
 export { OrgGroupHeader } from "./org/org-group-header";
 export { OrgInsertLine } from "./org/org-insert-line";
 export { OrgPlacementField } from "./org/org-placement-field";
@@ -634,6 +641,14 @@ export {
   searchIcons,
 } from "./org/icon-registry";
 export type { IconCategory, IconMeta } from "./org/icon-registry";
+// 预设头像：64 张贴纸 webp 的注册表（key 为持久化值 `preset:<group>-<name>`）。
+export {
+  isPresetKey,
+  presetForKey,
+  presetsByGroup,
+  searchPresets,
+} from "./presets/preset-registry";
+export type { PresetAvatar, PresetGroup } from "./presets/preset-registry";
 // 相对时间:同一套 60 秒 / 60 分 / 24 小时阶梯的三种输出形态。
 export {
   formatCompactRelativeTime,

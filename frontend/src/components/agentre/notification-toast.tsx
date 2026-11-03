@@ -22,6 +22,8 @@ import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { pendingAnnouncement, useUpdateStore } from "@/stores/update-store";
 
 import { avatarFromMeta } from "./session-avatar";
+import { AgentAvatar } from "./primitives";
+import { useAgentIdentity } from "./use-agent-identity";
 
 // done 自动消失时长（ms）。error / waiting 需要用户处理，不自动消失。
 const AUTO_DISMISS_MS = 6000;
@@ -65,7 +67,9 @@ function NotificationToastCard({
 }) {
   const { t } = useTranslation();
   const meta = useSessionMetaStore((s) => s.metas.get(toast.sessionId));
-  const avatar = avatarFromMeta(meta);
+  // meta 只有名字 / 颜色；图标与上传图片在 agents 列表里（规格 2026-11-02 决策 17）。
+  const identity = useAgentIdentity(meta?.agentId);
+  const avatar = avatarFromMeta(meta, identity);
   const style = KIND_STYLE[toast.kind];
   const { Icon } = style;
 
@@ -96,14 +100,16 @@ function NotificationToastCard({
       />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <span
-            className="inline-flex size-6 shrink-0 items-center justify-center rounded-full"
+          <AgentAvatar
+            name={identity?.name || meta?.agentName || ""}
+            initials={avatar.letter}
+            size="sm"
+            // 沿用这一枚原来的尺寸与圆角（不跟着身份档改形）。
+            className="rounded-full"
             style={{ backgroundColor: avatar.color }}
-          >
-            <span className="text-2xs font-semibold text-agent-foreground">
-              {avatar.letter}
-            </span>
-          </span>
+            avatarDataUrl={avatar.avatarDataUrl}
+            avatarIcon={avatar.avatarIcon}
+          />
           <span className="min-w-0 flex-1 truncate text-aux font-semibold text-foreground">
             {toast.title}
           </span>

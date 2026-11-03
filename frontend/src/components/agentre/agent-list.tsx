@@ -62,6 +62,10 @@ type AgentGroupProps = React.ComponentProps<"article"> & {
   notChattable?: boolean;
   expanded?: boolean;
   initials?: string;
+  /** 图标 key（预设 / 词表）：组头记号的后两档（规格 2026-11-02 决策 17）。 */
+  avatarIcon?: string;
+  /** 上传的头像图片：组头记号的第一档（规格 2026-11-02 决策 17）。 */
+  avatarDataUrl?: string;
   name: string;
   onNewSession?: () => void;
   // 头部 ＋ 之后那一格：宿主自己的动作（会话索引的「导入本地会话…」⋮ 就挂在这里）。
@@ -104,6 +108,8 @@ function AgentGroup({
   notChattable = false,
   expanded: expandedProp,
   initials,
+  avatarIcon,
+  avatarDataUrl,
   name,
   onHeaderClick,
   onNewSession,
@@ -173,6 +179,8 @@ function AgentGroup({
             name={name}
             initials={initials}
             color={color}
+            avatarIcon={avatarIcon}
+            avatarDataUrl={avatarDataUrl}
             size="sm"
           />
           <span className="min-w-0 truncate text-sm font-semibold">{name}</span>

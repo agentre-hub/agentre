@@ -83,6 +83,8 @@ export function TaskExecPills({
               <AgentAvatar
                 name={agent.name}
                 color={agent.color}
+                iconKey={agent.avatarIcon}
+                avatarDataUrl={agent.avatarDataUrl}
                 size="xs"
                 className="size-3.5 shrink-0"
               />
@@ -113,6 +115,8 @@ export function TaskExecPills({
               <AgentAvatar
                 name={option.name}
                 color={option.color}
+                iconKey={option.avatarIcon}
+                avatarDataUrl={option.avatarDataUrl}
                 size="xs"
                 className="size-4 shrink-0"
               />

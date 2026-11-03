@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { presetForKey } from "../presets/preset-registry";
+
 import { RowSecondaryLine } from "./row-secondary-line";
 
 const agent = { name: "Atlas", color: "agent-3" };
@@ -142,5 +144,54 @@ describe("RowSecondaryLine", () => {
         .querySelector("[data-kind='project-avatar'] svg")
         ?.getAttribute("class"),
     ).toContain("lucide-rocket");
+  });
+
+  describe("Agent 的完整身份（决策 17）", () => {
+    const withIdentity = (identity: {
+      avatarIcon?: string;
+      avatarDataUrl?: string;
+    }) => (
+      <RowSecondaryLine
+        axis="time"
+        agent={{ ...agent, ...identity }}
+        project={project}
+      />
+    );
+
+    it("上传图片：第二行里画的是图片", () => {
+      render(withIdentity({ avatarDataUrl: "data:image/png;base64,AAAA" }));
+
+      expect(
+        screen
+          .getByRole("img", { name: "Atlas" })
+          .querySelector("img")
+          ?.getAttribute("src"),
+      ).toBe("data:image/png;base64,AAAA");
+    });
+
+    it("预设 key：画注册表里的预设图", () => {
+      render(withIdentity({ avatarIcon: "preset:agent-assistant" }));
+
+      expect(
+        screen
+          .getByRole("img", { name: "Atlas" })
+          .querySelector("img")
+          ?.getAttribute("src"),
+      ).toBe(presetForKey("preset:agent-assistant")?.src);
+    });
+
+    it("图标 key：画词表里的图标，而不是首字母", () => {
+      render(withIdentity({ avatarIcon: "hammer" }));
+
+      const glyph = screen.getByRole("img", { name: "Atlas" });
+      expect(glyph.querySelector("svg")).not.toBeNull();
+      expect(glyph).not.toHaveTextContent("A");
+    });
+
+    it("什么都没有：照旧画首字母", () => {
+      render(withIdentity({}));
+
+      expect(screen.getByRole("img", { name: "Atlas" })).toHaveTextContent("A");
+    });
   });
 });

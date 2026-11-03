@@ -7,6 +7,7 @@ import { NeutralGlyph } from "../session-index/glyph";
 import { SearchInput } from "../ui/search-input";
 import { AgentAvatar } from "../ui/agent-avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { DepartmentMark } from "./department-mark";
 import { isValidOrgDrop } from "./org-drop";
 import {
   isOrgSystemAgent,
@@ -67,6 +68,8 @@ export function OrgPlacementField(props: OrgPlacementFieldProps) {
       <AgentAvatar
         name={agent.name}
         color={agent.avatarColor}
+        iconKey={agent.avatarIcon}
+        avatarDataUrl={agent.avatarDataUrl}
         size="xs"
         className={className}
       />
@@ -74,13 +77,13 @@ export function OrgPlacementField(props: OrgPlacementFieldProps) {
 
   const glyphOf = (department: OrgDepartmentModel | undefined) =>
     props.renderDepartmentGlyph?.(department) ??
-    // 部门那一枚是**色片**不是身份字形：不写字母，也不报名字（部门名就在同一行的
-    // 文字里，再报一遍等于读两遍）。部门缺席时连色都没有，退回中性占位。
+    // 部门那一枚与 Agent / 项目同一个记号（预设 ▸ 图标 ▸ 首字）：此前这里是一块
+    // 纯色片，部门选了预设也看不出来。部门缺席时连身份都没有，退回中性占位。
     (department ? (
-      <AgentAvatar
-        name=""
-        initials=""
-        color={department.accentColor}
+      <DepartmentMark
+        name={department.name}
+        icon={department.icon}
+        accentColor={department.accentColor}
         size="xs"
         className="size-5 shrink-0 rounded-sm"
       />

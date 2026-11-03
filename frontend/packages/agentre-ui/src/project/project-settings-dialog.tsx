@@ -16,7 +16,7 @@
  *
  * ### 2026-08-27 这一轮换掉的四件事
  *
- * 1. **身份区合一**（`ProjectIdentityFields`）：字形预览 + 名字 + 简介一块，图标与
+ * 1. **身份区合一**（`IdentityFields`）：字形预览 + 名字 + 简介一块，图标与
  *    颜色收进字形那个弹层。头部标题因此改回静态「项目设置」—— 名字已经在正文第一行，
  *    再当一次标题就是同一句话说两遍。
  * 2. **节的语法统一**成「细标题 + 分隔线」，不再有描边方块（此前「基本」没标题没
@@ -56,7 +56,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { DirectoryPicker } from "./directory-picker";
 import { useFailureText } from "./failure-text";
 import { ParentSelect } from "./parent-select";
-import { ProjectIdentityFields } from "./project-identity-fields";
+import { IdentityFields } from "../identity/identity-fields";
 import type {
   PickerMachine,
   ProjectCandidateView,
@@ -288,12 +288,17 @@ export function ProjectSettingsDialog({
         />
         <DialogShellBody>
           <div data-testid="project-section-identity" className="space-y-4">
-            <ProjectIdentityFields
+            <IdentityFields
+              kind="project"
               testIdPrefix="project-settings"
               name={name}
               description={description}
-              icon={project.icon}
-              color={project.color}
+              mark={{
+                iconKey: project.icon ?? "",
+                color: project.color || "agent-1",
+                onPickIcon: (icon) => saveFields({ icon }),
+                onPickColor: (color) => saveFields({ color }),
+              }}
               nameError={nameError}
               onNameChange={(next) => {
                 setName(next);
@@ -305,8 +310,6 @@ export function ProjectSettingsDialog({
               onDescriptionBlur={() =>
                 commit("description", description.trim(), project.description)
               }
-              onPickIcon={(icon) => saveFields({ icon })}
-              onPickColor={(color) => saveFields({ color })}
             />
             {/* 父项目那一格是**能力**：宿主给得出候选（除它自己以外还有别人）
                 才画。少画一格比画一个按了没反应的下拉好。 */}
@@ -595,6 +598,7 @@ function AddMemberPopover({
                   name={a.name}
                   color={a.color}
                   icon={a.avatarIcon}
+                  iconKey={a.avatarIconKey}
                   avatarDataUrl={a.avatarDataUrl}
                   size="xs"
                 />
@@ -649,6 +653,7 @@ function MembersSection({
             name={m.name}
             color={m.color}
             icon={m.avatarIcon}
+            iconKey={m.avatarIconKey}
             avatarDataUrl={m.avatarDataUrl}
             size="xs"
           />

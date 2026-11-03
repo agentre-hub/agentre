@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { presetForKey } from "../presets/preset-registry";
+
 import { ProjectGlyph } from "./project-glyph";
 
 describe("ProjectGlyph", () => {
@@ -26,6 +28,37 @@ describe("ProjectGlyph", () => {
       "lucide-rocket",
     );
     expect(glyph).not.toHaveTextContent("A");
+  });
+
+  it("项目图标是预设 key 就整格画预设图：不再画项目名首字", () => {
+    const preset = presetForKey("preset:project-git");
+    render(
+      <ProjectGlyph
+        project={{
+          name: "Agentre",
+          color: "agent-7",
+          icon: "preset:project-git",
+        }}
+      />,
+    );
+
+    const glyph = screen.getByRole("img", { name: "Agentre" });
+    expect(glyph.querySelector("img")?.getAttribute("src")).toBe(preset?.src);
+    expect(glyph).not.toHaveTextContent("A");
+    // 预设图本身就是那一格，不再叠项目色底。
+    expect(glyph.style.backgroundColor).toBe("");
+  });
+
+  it("认不出的 preset key 退回项目名首字：不空白、不破图", () => {
+    render(
+      <ProjectGlyph
+        project={{ name: "Agentre", color: "agent-7", icon: "preset:nope" }}
+      />,
+    );
+
+    const glyph = screen.getByRole("img", { name: "Agentre" });
+    expect(glyph).toHaveTextContent("A");
+    expect(glyph.querySelector("img")).toBeNull();
   });
 
   it("词表不认得的 key 退回项目名首字：猜一枚图标比一个字母更糟", () => {

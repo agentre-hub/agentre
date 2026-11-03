@@ -2,6 +2,7 @@
 // { letter, color }，供 tab 条与通知 toast 等处复用，避免各自再实现一遍。
 // token → css 变量的映射本身归共享包（词汇表与 tokens.css 同源）。
 import { tokenToCssColor } from "@agentre-hub/agentre-ui";
+import type { AgentIdentity } from "./use-agent-identity";
 
 // firstLetter 取名字首字符作头像字母；空名回落 "?"。
 export function firstLetter(name: string | null | undefined): string {
@@ -16,17 +17,29 @@ export type AvatarMeta =
   | null
   | undefined;
 
-// avatarFromMeta 从 session meta 推导头像；meta 缺失时回落灰底问号。
-export function avatarFromMeta(meta: AvatarMeta): {
+export type SessionAvatar = {
   letter: string;
   color: string;
-} {
+  avatarIcon?: string;
+  avatarDataUrl?: string;
+};
+
+// avatarFromMeta 从 session meta（并可用 agent 身份覆盖）推导头像；
+// meta 与身份都缺失时回落灰底问号。
+export function avatarFromMeta(
+  meta: AvatarMeta,
+  identity?: AgentIdentity | null,
+): SessionAvatar {
+  const name = identity?.name || meta?.agentName;
+  const colorToken = identity?.color || meta?.agentColor;
   return {
-    letter: firstLetter(meta?.agentName),
+    letter: firstLetter(name),
     // meta 缺失时的兜底底色。同 types.ts 里的 `neutral`：共享包的身份色板没有
     // 中性那一档，补 --agent-neutral 之前只能写字面色。两处的值目前还不一样
     // （这里偏浅），补 token 时应当一并统一。
     // eslint-disable-next-line no-restricted-syntax
-    color: tokenToCssColor(meta?.agentColor) ?? "#94a3b8",
+    color: tokenToCssColor(colorToken) ?? "#94a3b8",
+    avatarIcon: identity?.avatarIcon ?? "",
+    avatarDataUrl: identity?.avatarDataUrl ?? "",
   };
 }

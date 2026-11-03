@@ -10,7 +10,6 @@ import {
   type DeleteDepartmentStrategy,
 } from "./delete-department-dialog";
 import { OrgDetailDepartmentHeader } from "./org-detail-department-header";
-import { OrgDetailDepartmentIdentity } from "./org-detail-department-identity";
 import { OrgDetailDepartmentMembers } from "./org-detail-department-members";
 import { OrgDetailDepartmentStructure } from "./org-detail-department-structure";
 
@@ -36,7 +35,9 @@ export function OrgDetailDepartment(props: Props) {
       initial: {
         name: props.department.name,
         description: props.department.description,
-        icon: props.department.icon || "puzzle",
+        // 没有图标就是没有图标：旧代码在这里兜底成 "puzzle"，随后每次自动保存都把
+        // 它写回库里，用户再也得不到「没设图标」这个状态。
+        icon: props.department.icon || "",
         accentColor: safeAgentColor(props.department.accentColor),
         leadAgentId: props.department.leadAgentId,
       },
@@ -83,29 +84,35 @@ export function OrgDetailDepartment(props: Props) {
       <OrgDetailDepartmentHeader
         department={props.department}
         allDepartments={props.allDepartments}
-        icon={icon}
-        accentColor={accentColor}
+        identity={{
+          name,
+          description,
+          onNameChange: (name) => patch({ name }),
+          onNameBlur: flush,
+          onDescriptionChange: (description) => patch({ description }),
+          onDescriptionBlur: flush,
+          mark: {
+            iconKey: icon,
+            color: accentColor,
+            onPickIcon: (icon) => patch({ icon }, { immediate: true }),
+            onPickColor: (color) =>
+              patch(
+                { accentColor: safeAgentColor(color) },
+                { immediate: true },
+              ),
+          },
+        }}
         onDelete={() => setDeletePromptOpen(true)}
         onClose={props.onClose}
       />
 
-      {/* 与 Agent 详情同一套三栏：身份 / 结构 / 成员。栏宽按**容器**分档（详情是
-          主区里的一块，视口宽不等于它宽），每一栏 min-w-0，长部门名/长描述才不会
-          顶着栏宽不收缩、把溢出交给外层滚动容器藏起来。 */}
+      {/* 身份整块搬进 header 后，往下只剩 结构 / 成员 两栏；栏宽同样按**容器**
+          分档，每一栏 min-w-0，长部门名/长描述才不会顶着栏宽不收缩。 */}
       <div className="@container min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-5">
         <div
-          className="grid min-w-0 grid-cols-1 items-start gap-6 @xl:grid-cols-2 @3xl:grid-cols-3"
+          className="grid min-w-0 grid-cols-1 items-start gap-6 @xl:grid-cols-2"
           data-slot="org-detail-columns"
         >
-          <OrgDetailDepartmentIdentity
-            name={name}
-            description={description}
-            icon={icon}
-            accentColor={accentColor}
-            patch={patch}
-            flush={flush}
-          />
-
           <OrgDetailDepartmentStructure
             department={props.department}
             allDepartments={props.allDepartments}

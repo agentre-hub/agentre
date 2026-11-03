@@ -118,7 +118,7 @@ describe("OrgDetailAgent placement dropdown", () => {
 
     const departments = screen.getByRole("group", { name: "Departments" });
     expect(
-      within(departments).getByRole("option", { name: "工程部" }),
+      within(departments).getByRole("option", { name: /工程部$/ }),
     ).toBeInTheDocument();
 
     const parents = screen.getByRole("group", { name: "Parent agent" });
@@ -177,7 +177,7 @@ describe("OrgDetailAgent placement dropdown", () => {
     renderPanel();
     await openPlacement();
     expect(
-      screen.getByRole("option", { name: "工程部 / 平台组" }),
+      screen.getByRole("option", { name: /工程部 \/ 平台组$/ }),
     ).toBeInTheDocument();
   });
 

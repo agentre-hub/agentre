@@ -421,8 +421,10 @@ import {
   loadTranscriptScrollState,
   LocalCommandCard,
   LocalCommandsProvider,
+  presetForKey,
   TerminalTransportProvider,
 } from "@agentre-hub/agentre-ui";
+import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import {
   streamForMessage,
   useChatStreamsStore,
@@ -6842,5 +6844,86 @@ describe("ChatPanel · 右侧栏渲染在聊天内容页之外", () => {
     expect(
       screen.queryByRole("complementary", { name: "Chat context" }),
     ).toBeNull();
+  });
+});
+
+// ─── 2026-11-02 预置头像 · 决策 17：聊天 header 的 Agent 记号 ──────────────────
+//
+// 这枚记号此前只画首字母 + 颜色；会话 meta 里没有图标 key 与上传图片，完整身份
+// 只能从 chat-agents-store 按 agentId 补齐。
+describe("ChatPanel · 头部 Agent 记号按完整身份显示", () => {
+  function renderHeaderMark(identity: {
+    avatarIcon?: string;
+    avatarDataUrl?: string;
+  }) {
+    useChatAgentsStore.setState({
+      agents: [
+        {
+          id: 7,
+          name: "Eng",
+          avatarColor: "agent-1",
+          avatarIcon: "",
+          avatarDataUrl: "",
+          sessionIds: [],
+          ...identity,
+        },
+      ] as never,
+    });
+    onTestFinished(() => useChatAgentsStore.getState().__reset());
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, agentId: 7 });
+
+    render(<ChatPanel sessionId={42} />);
+
+    return within(screen.getByTestId("chat-header-meta-agent")).getByRole(
+      "img",
+      { name: "Eng" },
+    );
+  }
+
+  it("上传图片：记号画的是图片", () => {
+    const mark = renderHeaderMark({
+      avatarDataUrl: "data:image/png;base64,AAAA",
+    });
+
+    expect(mark.querySelector("img")?.getAttribute("src")).toBe(
+      "data:image/png;base64,AAAA",
+    );
+  });
+
+  it("预设 key：记号画注册表里的预设图", () => {
+    const mark = renderHeaderMark({ avatarIcon: "preset:agent-assistant" });
+
+    expect(mark.querySelector("img")?.getAttribute("src")).toBe(
+      presetForKey("preset:agent-assistant")?.src,
+    );
+  });
+
+  it("图标 key：记号画词表里的图标，而不是首字母", () => {
+    const mark = renderHeaderMark({ avatarIcon: "hammer" });
+
+    expect(mark.querySelector("svg")).not.toBeNull();
+    expect(mark).not.toHaveTextContent("E");
+  });
+
+  it("没有图标：记号照旧画首字母", () => {
+    const mark = renderHeaderMark({});
+
+    expect(mark).toHaveTextContent("E");
+  });
+
+  it("Agent 不在 store 里：记号回落会话 meta 的名字与首字母", () => {
+    onTestFinished(() => useChatAgentsStore.getState().__reset());
+    useChatAgentsStore.setState({ agents: [] });
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, agentId: 7 });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const mark = within(screen.getByTestId("chat-header-meta-agent")).getByRole(
+      "img",
+      { name: "Eng" },
+    );
+    expect(mark).toHaveTextContent("E");
   });
 });

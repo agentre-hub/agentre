@@ -90,10 +90,10 @@ export function OrgDetailDepartmentStructure({
             {parentOptions.map((d) => (
               <SelectItem key={d.id} value={String(d.id)}>
                 <DepartmentIconBadge
+                  name={d.name}
                   icon={d.icon}
                   accentColor={d.accentColor}
                   className="size-[22px] rounded"
-                  iconClassName="size-3"
                 />
                 <span>{d.name}</span>
               </SelectItem>
@@ -150,10 +150,10 @@ function DepartmentSelectPreview({
   return (
     <div className="flex min-w-0 items-center gap-2">
       <DepartmentIconBadge
+        name={department.name}
         icon={department.icon}
         accentColor={department.accentColor}
         className="size-[22px] rounded"
-        iconClassName="size-3"
       />
       <span className="truncate text-sm font-medium">{department.name}</span>
     </div>

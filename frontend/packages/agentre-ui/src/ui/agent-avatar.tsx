@@ -1,20 +1,23 @@
 import * as React from "react";
 
+import { uploadedAvatarSrc } from "../identity/avatar-image";
 import { tokenToCssColor } from "../lib/agent-color";
 import { cn } from "../lib/utils";
+import { iconNode } from "../org/icon-registry";
+import { presetForKey } from "../presets/preset-registry";
 
 /**
  * 身份方块：Agent、项目、任何「一个有名字有颜色的东西」在界面上的**唯一**那一枚记号
  * （规格 2026-08-21「身份字形归一」）。
  *
  * 实现由桌面端的 `src/components/agentre/primitives.tsx` 迁入，**以它为准**：
- * 三档身份（上传头像 ▸ 图标 ▸ 首字母）、四档尺寸、首字母算法一律照搬。此前这一枚
- * 记号有三份实现（桌面端的 `AgentAvatar`、包内私有的 `Glyph`、agentre-server 的
- * `AgentGlyph`），三份的兜底规则各不相同 —— 同一个 Agent 在三处长成三个样子。
+ * 四档身份（上传图片 ▸ 预设 ▸ 图标 ▸ 首字母）、四档尺寸、首字母算法一律照搬。此前
+ * 这一枚记号有三份实现（桌面端的 `AgentAvatar`、包内私有的 `Glyph`、agentre-server
+ * 的 `AgentGlyph`），三份的兜底规则各不相同 —— 同一个 Agent 在三处长成三个样子。
  *
- * **图标不在这里解**：把 icon key 换成图标的那张注册表是宿主的产品决定
- * （桌面端 383 行的 icon-registry，server 根本没有），所以这里收的是已经画好的
- * `icon` 节点，不是 key。
+ * 图标与预设都在本层认：图标词表（`org/icon-registry`）与 64 张预设 webp
+ * （`presets/preset-registry`）都在包里，两端共用同一份。宿主仍可直接递一枚画好的
+ * `icon` 节点（server 的自定义图标），它排在词表解出来的图标之前。
  *
  * 上色走 `tokenToCssColor` 的内联 css 变量而不是 `bg-agent-*` 类名：类名要靠宿主的
  * Tailwind 扫到包源码才生成得出来，消费方少配一条 content 路径字形就静默变透明；
@@ -87,6 +90,11 @@ export type AgentAvatarProps = Omit<React.ComponentProps<"span">, "color"> & {
   avatarDataUrl?: string;
   /** 宿主图标注册表解出来的那枚图标。 */
   icon?: React.ReactNode;
+  /**
+   * 图标字段里的持久化 key（`avatar_icon`）：认得出的预设整格画成预设图，否则解成
+   * 词表里的图标。认不出的 `preset:` key 与「没有图标」同一条路（退回首字母）。
+   */
+  iconKey?: string;
   testId?: string;
 };
 
@@ -98,10 +106,16 @@ export function AgentAvatar({
   size = "md",
   avatarDataUrl,
   icon,
+  iconKey,
   testId,
   ...props
 }: AgentAvatarProps) {
-  if (avatarDataUrl) {
+  // 四档身份（规格 2026-11-02「预置头像」）：上传图片 ▸ 预设 ▸ 图标 ▸ 首字母。
+  // 预设只有 64 个 key 且都在包里，认不出的 `preset:` key 就当没设过图标。
+  const imageSrc =
+    uploadedAvatarSrc(avatarDataUrl) || presetForKey(iconKey ?? "")?.src;
+
+  if (imageSrc) {
     return (
       <span
         role="img"
@@ -113,13 +127,15 @@ export function AgentAvatar({
           className,
         )}
         {...props}
+        style={props.style && { ...props.style, backgroundColor: undefined }}
       >
         {/*
           外层已经带了可及名，内层的 alt 留空当装饰 —— 两处都报同一个名字会让
           读屏把一枚头像念两遍，也会让 getByRole("img", { name }) 撞见两个元素。
+          预设图同一条：它是装饰，身份仍然是这个对象的名字（不是预设名）。
         */}
         <img
-          src={avatarDataUrl}
+          src={imageSrc}
           alt=""
           className="size-full object-cover"
           draggable={false}
@@ -133,6 +149,9 @@ export function AgentAvatar({
   // 把它一并退成 agent-1 会让用户选的灰渲染成蓝。
   const css = tokenToCssColor(color || "agent-1");
   const text = glyphText(name, initials, size);
+  // 宿主给的节点优先：它可能是词表里没有的东西；只有 key 时解词表（没解出节点就退回
+  // 首字母，不拿拼图顶上）。
+  const glyph = icon ?? iconNode(iconKey);
 
   return (
     <span
@@ -142,7 +161,7 @@ export function AgentAvatar({
       className={cn(
         "inline-flex shrink-0 items-center justify-center font-semibold",
         // 两个字母收一点字距，别顶到方块两边。
-        !icon && text.length > 1 && "tracking-tight",
+        !glyph && text.length > 1 && "tracking-tight",
         // 中性面要跟着换前景色：白字落在浅色的 secondary 面上读不出来。
         css
           ? "text-agent-foreground"
@@ -153,7 +172,7 @@ export function AgentAvatar({
       style={css ? { backgroundColor: css } : undefined}
       {...props}
     >
-      {icon ?? text}
+      {glyph ?? text}
     </span>
   );
 }

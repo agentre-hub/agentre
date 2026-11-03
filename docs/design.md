@@ -440,7 +440,7 @@ Project blocks in [`components/agentre/primitives.tsx`](../frontend/src/componen
 
 | Component | Use |
 | --- | --- |
-| `AgentAvatar` | Agent identity avatar. Sizes `xs`/`sm`/`md`/`lg` (`size-3.5`/`6`/`8`/`10`); `xs` is the sub-20px tier and draws a single initial. Renders, in priority: a custom image (`avatarDataUrl`), a registry icon (`avatarIcon`), else initials — on the `agentColorClassNames[color]` fill with white text. Defaults: `color="agent-1"`, `size="md"`. |
+| `AgentAvatar` | Agent identity avatar. Sizes `xs`/`sm`/`md`/`lg` (`size-3.5`/`6`/`8`/`10`); `xs` is the sub-20px tier and draws a single initial. Renders, in priority: a custom image (`avatarDataUrl`), a built-in preset image (`avatarIcon` / `iconKey` starting `preset:`), a registry icon (`avatarIcon` / `iconKey`), else initials — images fill the tile with no colour fill; initials and icons sit on the `agentColorClassNames[color]` fill with white text. Defaults: `color="agent-1"`, `size="md"`. |
 | `StatusDot` | Colored run-state dot. Sizes `xs`/`sm`/`md` (`size-1.5`/`2`/`2.5`); `aria-label` = `"<status> status"`. |
 | `StatusPill` | Dot + uppercase label pill — `font-mono text-2xs`, `rounded-sm`, on the status' tinted bg. The canonical "agent is RUNNING/WAITING/…" chip. |
 | `SidebarButton` | Icon rail button — `ghost`/`icon`, `size-10 rounded-lg`, `sidebar-icon` color; active = `bg-raised text-sidebar-icon-active shadow-xs`; ships its own hover/focus tooltip (300ms hover delay) and `aria-current`. |

@@ -3,6 +3,7 @@ import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useTabsView } from "../use-tabs-view";
+import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { useChatStreamsStore } from "@/stores/chat-streams-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
@@ -54,6 +55,7 @@ describe("useTabsView 数据派生", () => {
     useChatStreamsStore.setState({
       streams: new Map(),
     });
+    useChatAgentsStore.getState().__reset();
     useSessionMetaStore.getState().__reset();
     useSessionStatusStore.getState().__reset();
   });
@@ -188,5 +190,84 @@ describe("useTabsView 数据派生", () => {
     const { result } = renderHook(() => useTabsView());
     expect(result.current[0].status).toBe("error");
     expect(result.current[0].pillText).toBe("Error");
+  });
+
+  describe("Given Agent 在 chat-agents-store 里, When tab 投影, Then 头像带上完整身份", () => {
+    const seedAgent = (over: Record<string, unknown>) => {
+      useChatAgentsStore.setState({
+        agents: [
+          {
+            id: 3,
+            name: "设计师",
+            avatarColor: "agent-9",
+            avatarIcon: "",
+            avatarDataUrl: "",
+            ...over,
+          },
+        ] as never,
+      });
+    };
+    it("Given a new-session tab without session metadata When its selected agent is loaded Then it already has the selected agent's mark", () => {
+      seedAgent({ avatarIcon: "preset:agent-architect" });
+      useChatTabsStore.getState().openNewSession(0, 3, "");
+      const { result } = renderHook(() => useTabsView());
+      expect(result.current[0].avatar).toMatchObject({
+        avatarIcon: "preset:agent-architect",
+        color: "var(--agent-9)",
+      });
+    });
+
+    const openMeta = () => {
+      useChatTabsStore.getState().openSessionInNewTab(101);
+      useSessionMetaStore.getState().setMeta(101, {
+        agentId: 3,
+        agentName: "旧名字",
+        agentColor: "agent-2",
+        projectId: 0,
+        title: "周一例会",
+      });
+    };
+
+    it("上传图片：avatar 带上 avatarDataUrl", () => {
+      seedAgent({ avatarDataUrl: "data:image/png;base64,AAAA" });
+      openMeta();
+
+      const { result } = renderHook(() => useTabsView());
+      expect(result.current[0].avatar.avatarDataUrl).toBe(
+        "data:image/png;base64,AAAA",
+      );
+      expect(result.current[0].avatar.letter).toBe("设");
+      expect(result.current[0].avatar.color).toBe("var(--agent-9)");
+    });
+
+    it("预设 key：avatar 带上 avatarIcon", () => {
+      seedAgent({ avatarIcon: "preset:agent-assistant" });
+      openMeta();
+
+      const { result } = renderHook(() => useTabsView());
+      expect(result.current[0].avatar.avatarIcon).toBe(
+        "preset:agent-assistant",
+      );
+    });
+
+    it("图标 key：avatar 带上 avatarIcon", () => {
+      seedAgent({ avatarIcon: "hammer" });
+      openMeta();
+
+      const { result } = renderHook(() => useTabsView());
+      expect(result.current[0].avatar.avatarIcon).toBe("hammer");
+    });
+
+    it("Agent 不在 store 里：回落 meta 的名字与颜色，没有图标/图片", () => {
+      openMeta();
+
+      const { result } = renderHook(() => useTabsView());
+      expect(result.current[0].avatar).toEqual({
+        letter: "旧",
+        color: "var(--agent-2)",
+        avatarIcon: "",
+        avatarDataUrl: "",
+      });
+    });
   });
 });

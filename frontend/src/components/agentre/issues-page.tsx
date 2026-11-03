@@ -111,6 +111,8 @@ function IssuesPage() {
         id: agent.id,
         name: agent.name,
         color: agent.avatarColor,
+        avatarIcon: agent.avatarIcon,
+        avatarDataUrl: agent.avatarDataUrl,
       })),
     [agents],
   );

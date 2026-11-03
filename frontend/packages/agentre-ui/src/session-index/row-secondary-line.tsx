@@ -31,7 +31,13 @@ const GLYPH_CLASS_NAME = "size-full";
 
 export type RowSecondaryLineProps = {
   axis: IndexAxis;
-  agent?: { name: string; color?: string } | null;
+  /** 会话的 Agent；`avatarIcon` / `avatarDataUrl` 是完整身份（决策 17）。 */
+  agent?: {
+    name: string;
+    color?: string;
+    avatarIcon?: string;
+    avatarDataUrl?: string;
+  } | null;
   project?: ProjectGlyphInfo | null;
   machine?: { name: string; online: boolean } | null;
   /**
@@ -63,6 +69,8 @@ export function RowSecondaryLine({
           <AgentAvatar
             name={agent.name}
             color={agent.color}
+            avatarDataUrl={agent.avatarDataUrl}
+            iconKey={agent.avatarIcon}
             icon={agentGlyph}
             size="xs"
             className={GLYPH_CLASS_NAME}

@@ -28,7 +28,6 @@ import {
   ProjectHeaderActions,
   ProjectHeaderContextMenu,
   cn,
-  iconNode,
   type ProjectHeaderActionsProps,
   type ProjectHeaderMember,
 } from "@agentre-hub/agentre-ui";
@@ -135,7 +134,7 @@ export function ProjectGroupHeader({
           id: String(m.agentID),
           name,
           color: m.avatarColor || agent?.avatarColor,
-          avatarIcon: iconNode(m.avatarIcon || agent?.avatarIcon || ""),
+          avatarIconKey: m.avatarIcon || agent?.avatarIcon,
           avatarDataUrl: m.avatarDataUrl || agent?.avatarDataUrl,
           inherited,
         };

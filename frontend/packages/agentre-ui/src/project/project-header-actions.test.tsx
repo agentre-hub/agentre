@@ -126,6 +126,25 @@ describe("一份定义、两种容器", () => {
 });
 
 describe("条目全集与能力开关", () => {
+  it("Given a legacy host-rendered member icon When opening new chat choices Then its custom node remains supported", async () => {
+    render(
+      <ProjectHeaderActions
+        {...props({
+          loadMembers: async () => [
+            {
+              id: "a1",
+              name: "Reviewer",
+              avatarIcon: <span>host custom icon</span>,
+            },
+            { id: "a2", name: "Scout" },
+          ],
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("project-add-p1"));
+    expect(await screen.findByText("host custom icon")).toBeInTheDocument();
+  });
+
   it("中间那一组一条都没有时不留分隔线 —— 不许贴边，也不许两条挨在一起", async () => {
     render(<ProjectHeaderActions {...props()} />);
     openMenu(screen.getByTestId("project-menu-p1"));
@@ -214,6 +233,33 @@ describe("条目全集与能力开关", () => {
 });
 
 describe("＋ 的成员浮层", () => {
+  it("Given preset and icon member keys When the picker opens Then each member mark resolves its own key", async () => {
+    render(
+      <ProjectHeaderActions
+        {...props({
+          loadMembers: vi.fn(async () => [
+            {
+              id: "a1",
+              name: "Reviewer",
+              avatarIconKey: "preset:agent-architect",
+            },
+            { id: "a2", name: "Scout", avatarIconKey: "rocket" },
+          ]),
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("project-add-p1"));
+    const reviewer = await screen.findByTestId("project-member-option-a1");
+    const scout = screen.getByTestId("project-member-option-a2");
+    expect(
+      within(reviewer)
+        .getByRole("img", { name: "Reviewer" })
+        .querySelector("img"),
+    ).not.toBeNull();
+    expect(
+      within(scout).getByRole("img", { name: "Scout" }).querySelector("svg"),
+    ).not.toBeNull();
+  });
   it("恰好一个成员时不弹浮层，直接开对话", async () => {
     const onNewChat = vi.fn();
     render(

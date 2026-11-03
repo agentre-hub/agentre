@@ -40,16 +40,45 @@ beforeEach(() => {
 });
 
 describe("接缝", () => {
+  it("Given a new project When editing identity Then presets remain draft-only until Create crosses the desktop port", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Atlas" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
+      target: { value: "Maps" },
+    });
+    fireEvent.blur(screen.getByRole("textbox", { name: "Description" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change icon" }));
+    expect(screen.getByRole("button", { name: "agent-1" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Presets" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Terminal" }));
+    expect(appMocks.ProjectCreate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    await waitFor(() =>
+      expect(appMocks.ProjectCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Atlas",
+          description: "Maps",
+          icon: "preset:project-terminal",
+          color: "agent-1",
+        }),
+      ),
+    );
+  });
   it("整套调色板都在，选中的那个原样送进 ProjectCreate", async () => {
     const { onCreated } = renderDialog();
 
     // 调色板收进了字形弹层（2026-08-27）：图标与颜色合成同一枚记号，挑的时候
     // 就该在一起。
-    fireEvent.click(screen.getByTestId("project-glyph-trigger"));
+    fireEvent.click(screen.getByRole("button", { name: "Change icon" }));
     expect(screen.getAllByRole("button", { name: /^agent-\d+$/ })).toHaveLength(
       16,
     );
-    fireEvent.click(screen.getByTestId("project-glyph-color-agent-16"));
+    fireEvent.click(screen.getByRole("button", { name: "agent-16" }));
     fireEvent.keyDown(document.activeElement ?? document.body, {
       key: "Escape",
     });
