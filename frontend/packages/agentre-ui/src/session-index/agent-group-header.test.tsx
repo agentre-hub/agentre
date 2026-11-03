@@ -2,6 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { presetForKey } from "../presets/preset-registry";
+
 import { AgentGroupHeader } from "./agent-group-header";
 
 describe("AgentGroupHeader", () => {
@@ -108,5 +110,57 @@ describe("AgentGroupHeader", () => {
     expect(
       screen.queryByRole("button", { name: /New conversation/ }),
     ).not.toBeInTheDocument();
+  });
+
+  describe("组头也画 Agent 的完整身份（决策 17）", () => {
+    const renderWithIdentity = (identity: {
+      avatarIcon?: string;
+      avatarDataUrl?: string;
+    }) =>
+      render(
+        <AgentGroupHeader
+          agent={{ name: "Ada", color: "agent-3", ...identity }}
+          expanded
+          onToggle={vi.fn()}
+          attentionCount={0}
+          attentionTone={null}
+        />,
+      );
+
+    it("上传图片：组头那一枚换成图片", () => {
+      renderWithIdentity({ avatarDataUrl: "data:image/png;base64,AAAA" });
+
+      expect(
+        screen
+          .getByTestId("agent-group-avatar")
+          .querySelector("img")
+          ?.getAttribute("src"),
+      ).toBe("data:image/png;base64,AAAA");
+    });
+
+    it("预设 key：画注册表里的预设图", () => {
+      renderWithIdentity({ avatarIcon: "preset:agent-assistant" });
+
+      expect(
+        screen
+          .getByTestId("agent-group-avatar")
+          .querySelector("img")
+          ?.getAttribute("src"),
+      ).toBe(presetForKey("preset:agent-assistant")?.src);
+    });
+
+    it("图标 key：画词表里的图标，而不是首字母", () => {
+      renderWithIdentity({ avatarIcon: "hammer" });
+
+      const glyph = screen.getByTestId("agent-group-avatar");
+      expect(glyph.querySelector("svg")).not.toBeNull();
+      expect(glyph).not.toHaveTextContent("A");
+    });
+
+    it("什么都没有：照旧画首字母", () => {
+      renderWithIdentity({});
+
+      expect(screen.getByTestId("agent-group-avatar")).toHaveTextContent("A");
+    });
   });
 });

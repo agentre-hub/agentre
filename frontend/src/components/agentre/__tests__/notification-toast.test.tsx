@@ -6,9 +6,13 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }));
 
+import { presetForKey } from "@agentre-hub/agentre-ui";
+
 import { NotificationToastViewport } from "../notification-toast";
+import { useChatAgentsStore } from "../../../stores/chat-agents-store";
 import { useChatTabsStore } from "../../../stores/chat-tabs-store";
 import { useNotificationToastStore } from "../../../stores/notification-toast-store";
+import { useSessionMetaStore } from "../../../stores/session-meta-store";
 import {
   INITIAL_UPDATE_STATE,
   useUpdateStore,
@@ -233,5 +237,78 @@ describe("NotificationToastViewport 的新版本到达提示", () => {
     });
 
     expect(screen.queryByText("update.toast.title")).not.toBeInTheDocument();
+  });
+});
+
+describe("Given Agent 有完整身份, When 通知卡渲染, Then 头像按上传图片 ▸ 预设 ▸ 图标 ▸ 首字母显示", () => {
+  const seedAgent = (over: Record<string, unknown>) => {
+    useChatAgentsStore.setState({
+      agents: [
+        {
+          id: 3,
+          name: "设计师",
+          avatarColor: "agent-9",
+          avatarIcon: "",
+          avatarDataUrl: "",
+          ...over,
+        },
+      ] as never,
+    });
+  };
+  const renderToast = () => {
+    useSessionMetaStore.getState().setMeta(42, {
+      agentId: 3,
+      agentName: "旧名字",
+      agentColor: "agent-2",
+      projectId: 0,
+      title: "t",
+    });
+    render(<NotificationToastViewport />);
+    act(() => {
+      useNotificationToastStore.getState().push({
+        sessionId: 42,
+        kind: "done",
+        title: "T",
+        body: "B",
+      });
+    });
+    return screen.getByRole("status").querySelector("[role='img']");
+  };
+
+  beforeEach(() => {
+    useChatAgentsStore.getState().__reset();
+    useSessionMetaStore.getState().__reset();
+  });
+
+  it("上传图片：头像画的是图片", () => {
+    seedAgent({ avatarDataUrl: "data:image/png;base64,AAAA" });
+
+    expect(renderToast()?.querySelector("img")?.getAttribute("src")).toBe(
+      "data:image/png;base64,AAAA",
+    );
+  });
+
+  it("预设 key：头像画注册表里的预设图", () => {
+    seedAgent({ avatarIcon: "preset:agent-assistant" });
+
+    expect(renderToast()?.querySelector("img")?.getAttribute("src")).toBe(
+      presetForKey("preset:agent-assistant")?.src,
+    );
+  });
+
+  it("图标 key：头像画词表里的图标，而不是首字母", () => {
+    seedAgent({ avatarIcon: "hammer" });
+
+    const glyph = renderToast();
+    expect(glyph?.querySelector("svg")).not.toBeNull();
+    expect(glyph).not.toHaveTextContent("设");
+  });
+
+  it("什么都没有：头像照旧画首字母，可及名是 Agent 名字", () => {
+    seedAgent({});
+
+    const glyph = renderToast();
+    expect(glyph).toHaveTextContent("设");
+    expect(glyph).toHaveAccessibleName("设计师");
   });
 });

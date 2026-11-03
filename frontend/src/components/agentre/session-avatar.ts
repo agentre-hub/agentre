@@ -16,17 +16,39 @@ export type AvatarMeta =
   | null
   | undefined;
 
-// avatarFromMeta 从 session meta 推导头像；meta 缺失时回落灰底问号。
-export function avatarFromMeta(meta: AvatarMeta): {
+// AvatarIdentity 是 chat-agents-store 里那份完整身份（useAgentIdentity 的产物）。
+// 会话 meta 没有图标 / 上传图片这两项，所以有 agent 身份时以它为准；没有时回落 meta。
+export type AvatarIdentity =
+  | {
+      name?: string | null;
+      color?: string | null;
+      avatarIcon?: string | null;
+      avatarDataUrl?: string | null;
+    }
+  | null
+  | undefined;
+
+// avatarFromMeta 从 session meta（并可用 agent 身份覆盖）推导头像；
+// meta 与身份都缺失时回落灰底问号。
+export function avatarFromMeta(
+  meta: AvatarMeta,
+  identity?: AvatarIdentity,
+): {
   letter: string;
   color: string;
+  avatarIcon: string;
+  avatarDataUrl: string;
 } {
+  const name = identity?.name || meta?.agentName;
+  const colorToken = identity?.color || meta?.agentColor;
   return {
-    letter: firstLetter(meta?.agentName),
+    letter: firstLetter(name),
     // meta 缺失时的兜底底色。同 types.ts 里的 `neutral`：共享包的身份色板没有
     // 中性那一档，补 --agent-neutral 之前只能写字面色。两处的值目前还不一样
     // （这里偏浅），补 token 时应当一并统一。
     // eslint-disable-next-line no-restricted-syntax
-    color: tokenToCssColor(meta?.agentColor) ?? "#94a3b8",
+    color: tokenToCssColor(colorToken) ?? "#94a3b8",
+    avatarIcon: identity?.avatarIcon ?? "",
+    avatarDataUrl: identity?.avatarDataUrl ?? "",
   };
 }

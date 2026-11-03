@@ -10,18 +10,25 @@ import {
   useSessionAttentionList,
   type AttentionReason,
 } from "@/stores/attention-store";
+import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 import { avatarFromMeta } from "../session-avatar";
+import { agentIdentityOf, type AgentIdentity } from "../use-agent-identity";
 import type { TabStatus } from "./tab";
 
 export type TabView = {
   id: string;
   title: string;
   kind: "session" | "new" | "terminal" | "peer";
-  avatar: { letter: string; color: string };
+  avatar: {
+    letter: string;
+    color: string;
+    avatarIcon?: string;
+    avatarDataUrl?: string;
+  };
   isPreview: boolean;
   isPinned: boolean;
   status: TabStatus;
@@ -39,7 +46,19 @@ export function useTabsView(): TabView[] {
   const tabs = useChatTabsStore((s) => s.tabs);
   const statuses = useSessionStatusStore((s) => s.statuses);
   const metas = useSessionMetaStore((s) => s.metas);
+  const agents = useChatAgentsStore((s) => s.agents);
   const { tree } = useProjectTree();
+
+  // 会话 meta 只有 agentId / agentName / agentColor；图标与上传图片在 agents 列表里
+  // （规格 2026-11-02 决策 17）。按 id 建一张表，避免每个 tab 各扫一遍。
+  const agentByID = React.useMemo(() => {
+    const m = new Map<number, AgentIdentity>();
+    for (const a of agents) {
+      const identity = agentIdentityOf(a);
+      if (identity) m.set(a.id, identity);
+    }
+    return m;
+  }, [agents]);
 
   const sessionTabIds = React.useMemo(
     () => tabs.map((t) => sessionIdOf(t.meta)).filter((sid) => sid > 0),
@@ -88,7 +107,12 @@ export function useTabsView(): TabView[] {
         id: tab.id,
         title: peerActive.title,
         kind: "peer",
-        avatar: { letter: "⌁", color: "var(--status-waiting)" },
+        avatar: {
+          letter: "⌁",
+          color: "var(--status-waiting)",
+          avatarIcon: "",
+          avatarDataUrl: "",
+        },
         isPreview: tab.isPreview,
         isPinned: tab.isPinned,
         status: peerActive.status,
@@ -104,11 +128,13 @@ export function useTabsView(): TabView[] {
     const projectColor =
       pid > 0 ? tokenToCssColor(findProjectColorToken(tree, pid)) : null;
     const chain = pid > 0 ? projectChain(tree, pid) : [];
+    // Agent 在 store 里时以它的完整身份为准；不在时 avatarFromMeta 回落 meta。
+    const identity = agentByID.get(meta?.agentId ?? 0) ?? null;
     return {
       id: tab.id,
       title: meta?.title ?? tab.title ?? t("chatTabs.fallbackSession"),
       kind: tab.meta.kind,
-      avatar: avatarFromMeta(meta),
+      avatar: avatarFromMeta(meta, identity),
       isPreview: tab.isPreview,
       isPinned: tab.isPinned,
       status,

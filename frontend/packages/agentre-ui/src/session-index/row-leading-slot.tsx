@@ -26,8 +26,17 @@ const GLYPH_CLASS_NAME = "size-full";
 
 export type RowLeadingSlotProps = {
   axis: IndexAxis;
-  /** 会话的 Agent；`null` = 发起端没报过 Agent 标识的会话。 */
-  agent?: { name: string; color?: string } | null;
+  /**
+   * 会话的 Agent；`null` = 发起端没报过 Agent 标识的会话。
+   * `avatarIcon` / `avatarDataUrl` 是完整身份（规格 2026-11-02 决策 17）：
+   * 上传图片 ▸ 预设 ▸ 图标 ▸ 首字母。
+   */
+  agent?: {
+    name: string;
+    color?: string;
+    avatarIcon?: string;
+    avatarDataUrl?: string;
+  } | null;
   /** 会话所属项目；`null` = 不属于任何项目。 */
   project?: ProjectGlyphInfo | null;
   /** 宿主自带的 Agent 头像（桌面端的 AgentAvatar）。不给就用包内字形。 */
@@ -65,6 +74,8 @@ export function RowLeadingSlot({
       <AgentAvatar
         name={agent?.name ?? ""}
         color={agent?.color}
+        avatarDataUrl={agent?.avatarDataUrl}
+        iconKey={agent?.avatarIcon}
         icon={agentGlyph}
         size="xs"
         className={GLYPH_CLASS_NAME}

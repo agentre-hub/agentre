@@ -27,6 +27,7 @@ import {
   type IndexGroupHandlers,
 } from "../session-index/index-group-row";
 import type { IndexGroup } from "../session-index/use-index-groups";
+import { presetForKey } from "@agentre-hub/agentre-ui";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import type { AgentStatus } from "@/stores/types";
@@ -453,5 +454,58 @@ describe("组头上的导入入口", () => {
     expect(
       screen.queryByTestId("project-menu-item-import-local-session"),
     ).toBeNull();
+  });
+
+  describe("Given 会话行, When Agent 有完整身份, Then 行首那一槽按上传图片 ▸ 预设 ▸ 图标 ▸ 首字母显示", () => {
+    const renderWithIdentity = (identity: {
+      avatarIcon?: string;
+      avatarDataUrl?: string;
+    }) => {
+      seed(1, { agentId: 7, projectId: 1, lastMessageAt: 100 });
+      renderRow({
+        group: group({ sessionIDs: [1] }),
+        subtreeSessionIDs: [1],
+        agentInfoOf: () => ({
+          name: "设计师",
+          color: "agent-9",
+          ...identity,
+        }),
+      });
+      return screen.getByTestId("row-leading-slot");
+    };
+
+    it("上传图片：行首画的是图片", () => {
+      const slot = renderWithIdentity({
+        avatarDataUrl: "data:image/png;base64,AAAA",
+      });
+
+      expect(slot.querySelector("[role='img'] img")?.getAttribute("src")).toBe(
+        "data:image/png;base64,AAAA",
+      );
+    });
+
+    it("预设 key：行首画注册表里的预设图", () => {
+      const slot = renderWithIdentity({
+        avatarIcon: "preset:agent-assistant",
+      });
+
+      expect(slot.querySelector("[role='img'] img")?.getAttribute("src")).toBe(
+        presetForKey("preset:agent-assistant")?.src,
+      );
+    });
+
+    it("图标 key：行首画词表里的图标", () => {
+      const slot = renderWithIdentity({ avatarIcon: "hammer" });
+
+      const glyph = slot.querySelector("[role='img']");
+      expect(glyph?.querySelector("svg")).not.toBeNull();
+      expect(glyph).not.toHaveTextContent("设");
+    });
+
+    it("没有图标：行首照旧画首字母", () => {
+      const slot = renderWithIdentity({});
+
+      expect(slot.querySelector("[role='img']")).toHaveTextContent("设");
+    });
   });
 });

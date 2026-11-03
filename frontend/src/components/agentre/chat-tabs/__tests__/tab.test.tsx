@@ -2,6 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { presetForKey } from "@agentre-hub/agentre-ui";
+
 import { Tab } from "../tab";
 
 describe("Tab 组件", () => {
@@ -171,5 +173,58 @@ describe("Tab · 状态点与身份方块来自共享原语", () => {
     expect(avatar).toHaveClass("size-3.5");
     expect(avatar).toHaveClass("rounded-[3.5px]");
     expect(avatar).toHaveTextContent("C");
+  });
+
+  describe("Given Agent 有完整身份, When tab 渲染, Then 身份方块按上传图片 ▸ 预设 ▸ 图标 ▸ 首字母显示", () => {
+    const renderAvatar = (avatar: {
+      letter: string;
+      color: string;
+      avatarIcon?: string;
+      avatarDataUrl?: string;
+    }) => {
+      render(<Tab {...baseProps} avatar={avatar} />);
+      return screen.getByTestId("tab-avatar");
+    };
+
+    it("上传图片：画的是图片", () => {
+      const glyph = renderAvatar({
+        letter: "C",
+        color: "#3b82f6",
+        avatarDataUrl: "data:image/png;base64,AAAA",
+      });
+
+      expect(glyph.querySelector("img")?.getAttribute("src")).toBe(
+        "data:image/png;base64,AAAA",
+      );
+    });
+
+    it("预设 key：画注册表里的预设图", () => {
+      const glyph = renderAvatar({
+        letter: "C",
+        color: "#3b82f6",
+        avatarIcon: "preset:agent-assistant",
+      });
+
+      expect(glyph.querySelector("img")?.getAttribute("src")).toBe(
+        presetForKey("preset:agent-assistant")?.src,
+      );
+    });
+
+    it("图标 key：画词表里的图标，而不是首字母", () => {
+      const glyph = renderAvatar({
+        letter: "C",
+        color: "#3b82f6",
+        avatarIcon: "hammer",
+      });
+
+      expect(glyph.querySelector("svg")).not.toBeNull();
+      expect(glyph).not.toHaveTextContent("C");
+    });
+
+    it("什么都没有：照旧画首字母", () => {
+      const glyph = renderAvatar({ letter: "C", color: "#3b82f6" });
+
+      expect(glyph).toHaveTextContent("C");
+    });
   });
 });

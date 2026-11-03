@@ -21,7 +21,16 @@ import {
  * 图标同样不在这里解：那张注册表是宿主的产品决定，收的是已经画好的节点。
  */
 export type AgentGroupHeaderProps = {
-  agent: { name: string; color?: string };
+  /**
+   * 这一组的 Agent。`avatarIcon` / `avatarDataUrl` 是完整身份（规格 2026-11-02
+   * 决策 17）：上传图片 ▸ 预设 ▸ 图标 ▸ 首字母。
+   */
+  agent: {
+    name: string;
+    color?: string;
+    avatarIcon?: string;
+    avatarDataUrl?: string;
+  };
   /** 宿主图标注册表解出来的那枚图标。 */
   glyph?: React.ReactNode;
   /**
@@ -76,6 +85,8 @@ export function AgentGroupHeader({
           testId="agent-group-avatar"
           name={agent.name}
           color={agent.color}
+          avatarDataUrl={agent.avatarDataUrl}
+          iconKey={agent.avatarIcon}
           icon={glyph}
           size="sm"
           className={className}

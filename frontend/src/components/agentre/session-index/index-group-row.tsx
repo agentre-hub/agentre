@@ -95,12 +95,18 @@ export type IndexGroupRowProps = {
    */
   projectInfoOf: (projectID: number) => ProjectGlyphInfo | null;
   /**
-   * agent id → 名称 / 颜色。**不能只读 meta.agentName** —— 索引 RPC 的载荷里没有
-   * 这两个字段（只有 agentId），只有 ListChatAgents 那条路会顺带写。凡是落在某个
-   * agent 前 5 条窗口之外的会话，读 meta 会拿到空名字 + 默认色，
-   * 正好把决策 4 的行首字形与决策 5 的第二行打空。
+   * agent id → 名称 / 颜色 / 完整身份（图标 key 与上传图片）。**不能只读
+   * meta.agentName** —— 索引 RPC 的载荷里没有这些字段（只有 agentId），只有
+   * ListChatAgents 那条路会顺带写。凡是落在某个 agent 前 5 条窗口之外的会话，
+   * 读 meta 会拿到空名字 + 默认色，正好把决策 4 的行首字形与决策 5 的第二行打空。
+   * 图标与上传图片同理：meta 里根本没有它们（规格 2026-11-02 决策 17）。
    */
-  agentInfoOf: (agentID: number) => { name: string; color: string };
+  agentInfoOf: (agentID: number) => {
+    name: string;
+    color: string;
+    avatarIcon?: string;
+    avatarDataUrl?: string;
+  };
   handlers: IndexGroupHandlers;
   /** 子项目递归插槽（仅项目轴）。 */
   children?: React.ReactNode;
@@ -165,13 +171,21 @@ export function IndexGroupRow({
       const agentName = resolved.name || (meta.agentName ?? "");
       const agentColor = resolved.color || meta.agentColor || "agent-1";
       const project = projectID > 0 ? projectInfoOf(projectID) : null;
+      // 行首与第二行都画**完整身份**（规格 2026-11-02 决策 17）：颜色之外还带上
+      // 图标 key 与上传图片，否则这里只能永远是首字母。
+      const agentMark = {
+        name: agentName,
+        color: agentColor,
+        avatarIcon: resolved.avatarIcon,
+        avatarDataUrl: resolved.avatarDataUrl,
+      };
       if (axis === "time") {
         return {
           ...row,
           secondaryLabel: (
             <RowSecondaryLine
               axis={axis}
-              agent={{ name: agentName, color: agentColor }}
+              agent={agentMark}
               project={project}
               // 自由会话报「随手对话」而不是空 —— 它有去处，只是那个去处不是项目。
               freeLabel={t("sessionIndex.free.name")}
@@ -182,11 +196,7 @@ export function IndexGroupRow({
       return {
         ...row,
         leading: (
-          <RowLeadingSlot
-            axis={axis}
-            agent={{ name: agentName, color: agentColor }}
-            project={project}
-          />
+          <RowLeadingSlot axis={axis} agent={agentMark} project={project} />
         ),
       };
     },
