@@ -20,8 +20,8 @@ STYLE_P="Die-cut sticker style, optimized for tiny sizes: chunky shapes, one thi
 
 ## 模型 / 工具组（16 张）：确定性生成，不经模型
 
-源 = 仓库内官方 logo `frontend/packages/agentre-ui/src/engine/assets/brands/*`。
-1. `node raster.mjs`：headless Chromium（e2e 的 @playwright/test）把每个 svg/png 渲成 560px 透明 png（用 file:// 页面 goto，setContent 载不了 file:// 图）。
+源 = 仓库内官方 logo `frontend/packages/agentre-ui/src/engine/assets/brands/*`（目录由脚本按自身位置解析，换机器不用改）。
+1. `node <本目录>/raster.mjs --playwright <仓库>/e2e/node_modules/@playwright/test/index.mjs --out <输出目录>`：headless Chromium（e2e 的 @playwright/test，路径必填，也可用环境变量 `PLAYWRIGHT_MODULE`）把每个 svg/png 渲成 560px 透明 png（用 file:// 页面 goto，setContent 载不了 file:// 图），写到 `<输出目录>/r-<name>.png`（`--out` 默认当前目录，也可用 `RASTER_OUT_DIR`；临时页面 `_r.html` 也在这里）。`--help` 有完整说明，`--brands <dir>` 可换 logo 目录。
 2. `./stk.sh r-<name>.png b-NN-<name> <粉彩底> <单色填充或空>`：dilate Disk:9 出 #26262b 深色描边、Disk:14 出白色贴纸边，强制 sRGB/PNG32，512 底上 logo 缩到 384，再缩 128 webp q90。
 参数（顺序即 brand-01..16）：
 claude #f6ddd0 - | anthropic #efe6da #191919 | openai #e6e8ec #111111 | codex #dfe3ee - | pi #ece6f5 - | openclaw #fadcdc - | hermes #f6ecd2 - | deepseek #dce6fb - | glm #dfe3fa - | gemini #e5e4fb - | qwen #e8e3fb - | kimi #e4e4ea #111111 | minimax #fbe0e7 - | mistral #fbe9d3 - | xai #e2e2e7 #111111 | meta #dbe8fb -
@@ -35,5 +35,5 @@ claude #f6ddd0 - | anthropic #efe6da #191919 | openai #e6e8ec #111111 | codex #d
 
 - `gen.py`：调图像生成接口的薄封装；运行时从使用者本机的 pi 配置读取密钥，文件本身不含任何密钥，也不要把密钥写进仓库。
 - `slice2.py` / `clean_edges.py`：切图与清理（需要 ImageMagick `magick`、Python3 + Pillow + numpy）。
-- `raster.mjs` / `stk.sh`：品牌组渲染与贴纸外框。`raster.mjs` 里的 logo 目录与 playwright 路径是作者机器上的绝对路径，重跑时按本机改；logo 目录是 `src/engine/assets/brands/`。
+- `raster.mjs` / `stk.sh`：品牌组渲染与贴纸外框。logo 目录相对脚本解析（`src/engine/assets/brands/`），playwright 模块与输出目录走参数或环境变量（`--playwright` / `PLAYWRIGHT_MODULE`、`--out` / `RASTER_OUT_DIR`），`--help` 打印用法。
 - 脚本与本说明不进发布包（`package.json` 的 `files` 只含 `src` 与 `styles`）。
