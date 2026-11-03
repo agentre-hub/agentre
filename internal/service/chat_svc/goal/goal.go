@@ -304,6 +304,7 @@ func (c *Controller) controllerForSession(
 	}
 	return controller, agentruntime.GoalRequest{
 		SessionID:         sess.ID,
+		ConversationID:    sess.ConversationID,
 		ProviderSessionID: sess.ProviderSessionID,
 		Backend:           be,
 		Provider:          prov,

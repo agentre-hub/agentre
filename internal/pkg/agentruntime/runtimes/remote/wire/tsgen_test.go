@@ -313,6 +313,9 @@ func tsRPCErrorDecls() []tsRPCErrorDecl {
 		{"ErrCodePortForwardNameResolution", "CodePortForwardNameResolution", rpcerror.CodePortForwardNameResolution},
 		{"ErrCodePortForwardTLSVerification", "CodePortForwardTLSVerification", rpcerror.CodePortForwardTLSVerification},
 
+		// ── 会话进程(-32080)──
+		{"ErrCodeSessionProcessNotOwned", "CodeSessionProcessNotOwned", rpcerror.CodeSessionProcessNotOwned},
+
 		// ── daemon 会话/鉴权(-32001..-32007)与 JSON-RPC 标准码 ──
 		//
 		// 这一批在 Go 侧是 int32 有类型常量(住在 error.go),上面几族是无类型的。
@@ -421,6 +424,9 @@ func tsHostMethodDecls() []tsHostMethodDecl {
 		{agentrewire.RpcMethod_RPC_METHOD_CLI_PROBE, "cliProbe"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_DRAIN_PENDING, "runtimeDrainPending"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK, "runtimeStopBackgroundTask"},
+		// 会话进程两条只有桌面端的 Go 远程 runtime 在发,浏览器没有调用点。
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_LIST_SESSION_PROCESSES, ""},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_KILL_SESSION_PROCESS, ""},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_GET, "runtimeGoalGet"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_SET, "runtimeGoalSet"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_CLEAR, "runtimeGoalClear"},

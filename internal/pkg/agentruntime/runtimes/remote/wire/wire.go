@@ -163,6 +163,8 @@ const (
 	ErrCodeUnsupported     = rpcerror.CodeRuntimeUnsupported
 	ErrCodeAborted         = rpcerror.CodeRuntimeAborted
 	ErrCodeSessionNotFound = rpcerror.CodeRuntimeSessionNotFound
+	// ErrCodeSessionProcessNotOwned:要结束的进程已不属于这条会话(见 agentruntime.ErrSessionProcessNotOwned)。
+	ErrCodeSessionProcessNotOwned = rpcerror.CodeSessionProcessNotOwned
 	// ErrCodePeerExecutionUnavailable:会话钉住的执行目标(agentred)当前不可用。
 	//
 	// 与上面五个不同,它**不进 SentinelFromCode**:那张表翻的是 daemon 回给
@@ -223,6 +225,8 @@ func SentinelFromCode(code int) error {
 		return agentruntime.ErrAborted
 	case ErrCodeSessionNotFound:
 		return agentruntime.ErrSessionNotFound
+	case ErrCodeSessionProcessNotOwned:
+		return agentruntime.ErrSessionProcessNotOwned
 	}
 	return nil
 }
@@ -241,6 +245,8 @@ func CodeForSentinel(err error) (int, bool) {
 		return ErrCodeAborted, true
 	case errors.Is(err, agentruntime.ErrSessionNotFound):
 		return ErrCodeSessionNotFound, true
+	case errors.Is(err, agentruntime.ErrSessionProcessNotOwned):
+		return ErrCodeSessionProcessNotOwned, true
 	}
 	return 0, false
 }

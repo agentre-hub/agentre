@@ -15,6 +15,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-hub/agentre/internal/pkg/procscan"
 )
 
 func readProcessStdout(t *testing.T, p *process) string {
@@ -342,3 +344,35 @@ func TestProcess_GivenContextCanceledBeforeSpawn_ThenNothingStarts(t *testing.T)
 	require.Nil(t, p, "ctx 已取消时不该起进程")
 	assert.ErrorIs(t, err, context.Canceled)
 }
+
+// 起来的 CLI 进程登记进宿主 CLI 表（认领时据此排除），退出后释放。
+func TestProcess_GivenStartedCLI_ThenTrackedUntilExit(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	p, err := startProcess(ctx, processSpec{binary: "/bin/sh", args: []string{"-c", "read x"}})
+	require.NoError(t, err)
+	pid := p.cmd.Process.Pid
+	scanner := procscan.NewWith(trackFakeOS{pid: pid}, 0)
+
+	got, err := scanner.List(ctx, "conv-track")
+	require.NoError(t, err)
+	assert.Empty(t, got, "存活的 CLI 进程已登记，不当作会话遗留进程")
+
+	require.NoError(t, p.stdin.Close())
+	_, _ = p.wait(ctx)
+	assert.Eventually(t, func() bool {
+		l, lerr := scanner.List(ctx, "conv-track")
+		return lerr == nil && len(l) == 1
+	}, 2*time.Second, 10*time.Millisecond, "退出后释放登记")
+}
+
+// trackFakeOS 快照里只有一个带标记且监听端口的进程。
+type trackFakeOS struct{ pid int }
+
+func (f trackFakeOS) Snapshot(context.Context) ([]procscan.Proc, error) {
+	return []procscan.Proc{{PID: f.pid, PPID: 1, Marker: "conv-track", Ports: []uint16{8080}}}, nil
+}
+func (trackFakeOS) Inspect(context.Context, int) (procscan.Proc, bool, error) {
+	return procscan.Proc{}, false, nil
+}
+func (trackFakeOS) Terminate(int, bool) error { return nil }

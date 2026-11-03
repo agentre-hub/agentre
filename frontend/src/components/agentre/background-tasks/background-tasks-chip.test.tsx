@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PanelShownContext } from "../chat-panel/panel-shown";
 import { BackgroundTasksChip } from "./background-tasks-chip";
 import { BackgroundTasksPopoverContent } from "./background-tasks-popover";
-import type { BackgroundTask } from "./types";
+import type { BackgroundTask, SessionProcess } from "./types";
 
 // 任何用 vi.useFakeTimers() 的用例若断言抛错,真实计时器不会被恢复,会泄漏到
 // 后续测试。统一在 afterEach 兜底恢复。
@@ -763,5 +763,71 @@ describe("BackgroundTasksPopoverContent — stop button", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: /停止|stop/i })).toBeNull();
+  });
+});
+
+describe("BackgroundTasksChip processes", () => {
+  const proc: SessionProcess = {
+    pid: 1,
+    command: "vite",
+    ports: [5391],
+    startedAt: 1700000000000,
+  };
+
+  it("Given no running task but a live process, When rendered, Then the button shows and its name carries both counts", () => {
+    render(<BackgroundTasksChip tasks={[completed]} processes={[proc]} />);
+    expect(
+      screen.getByRole("button", {
+        name: "Background tasks: 0 running, 1 processes",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given a running task and processes, When rendered, Then the name reports both counts", () => {
+    render(<BackgroundTasksChip tasks={[running]} processes={[proc, proc]} />);
+    expect(
+      screen.getByRole("button", {
+        name: "Background tasks: 1 running, 2 processes",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given neither tasks nor processes, When rendered, Then nothing is shown", () => {
+    const { container } = render(
+      <BackgroundTasksChip tasks={[completed]} processes={[]} />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("Given a process-only chip, When opened, Then the popover shows the processes section and onOpenChange fires true then false", async () => {
+    const onOpenChange = vi.fn();
+    render(
+      <BackgroundTasksChip
+        tasks={[]}
+        processes={[proc]}
+        onOpenChange={onOpenChange}
+      />,
+    );
+    await openChip();
+    await screen.findByRole("region", { name: "Processes & ports" });
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(onOpenChange).toHaveBeenLastCalledWith(false));
+  });
+
+  it("Given a process-only chip, When its stop button is clicked, Then onKillProcess receives the process", async () => {
+    const onKill = vi.fn();
+    render(
+      <BackgroundTasksChip
+        tasks={[]}
+        processes={[proc]}
+        onKillProcess={onKill}
+      />,
+    );
+    await openChip();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Stop process" }),
+    );
+    expect(onKill).toHaveBeenCalledWith(proc);
   });
 });

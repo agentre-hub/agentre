@@ -16,6 +16,7 @@ package port_forward_svc
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strconv"
 
 	"github.com/cago-frame/cago/pkg/i18n"
@@ -47,6 +48,10 @@ type PortForwardSvc interface {
 	// Delete 删除一条声明。**幂等**:两个客户端同时删同一条时,后到的那次不是
 	// 错误 —— 用户要的结果已经达成了(设备侧同一口径)。
 	Delete(ctx context.Context, deviceID, mappingID string) error
+	// EnsureForPort 保证这台设备上有一条启用着的、指向其环回 port 的声明并交回它:
+	// 已有就复用(停用的先启用),没有才新建。「打开会话进程的端口」靠它免去用户
+	// 先去手动声明一次。
+	EnsureForPort(ctx context.Context, deviceID string, port int) (*MappingView, error)
 }
 
 // MappingView 是一条映射在界面上的那一行。字段与共享包的
@@ -157,6 +162,41 @@ func (s *portForwardImpl) Delete(ctx context.Context, deviceID, mappingID string
 	// 「两个客户端同时删同一条」在后到的那一侧变成一次失败。
 	_, err = call(ctx, s, dID, wirecall.PortForwardDelete, &agentrewire.PortForwardDeleteRequest{Id: mID})
 	return err
+}
+
+func (s *portForwardImpl) EnsureForPort(ctx context.Context, deviceID string, port int) (*MappingView, error) {
+	views, err := s.List(ctx, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range views {
+		if !targetsLoopbackPort(v.Target, port) {
+			continue
+		}
+		if v.Enabled {
+			v := v
+			return &v, nil
+		}
+		// 声明还在只是被停用:启用它,不要再建一条(同一目标设备侧会拒成「已占用」)。
+		return s.SetEnabled(ctx, deviceID, v.ID, true)
+	}
+	// 纯端口写法由设备侧规范化成环回目标;名字用端口号,列表里一眼认得出。
+	return s.Create(ctx, deviceID, strconv.Itoa(port), strconv.Itoa(port), false)
+}
+
+// targetsLoopbackPort 判断设备规范化后的 target(形如 http(s)://host:port)是否指向
+// 设备自己环回上的 port。host 只认 127.0.0.1 / localhost / ::1。
+func targetsLoopbackPort(target string, port int) bool {
+	u, err := url.Parse(target)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+	default:
+		return false
+	}
+	return u.Port() == strconv.Itoa(port)
 }
 
 // ── 出站 ────────────────────────────────────────────────────────────────────

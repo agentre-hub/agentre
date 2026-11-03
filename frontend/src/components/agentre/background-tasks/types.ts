@@ -21,3 +21,12 @@ export interface BackgroundTask {
   model?: string; // 实际跑的模型;首帧还没到时是派遣时的入参别名
   toolUses?: number; // 已走的步数
 }
+
+// 会话留下的一个存活进程(本机或远程执行设备上)。
+export interface SessionProcess {
+  pid: number;
+  command: string; // 完整命令行,动态值
+  ports: number[]; // 监听中的 TCP 端口,可能为空
+  startedAt: number; // epoch ms — 实时运行时长的基准
+  cwd?: string;
+}

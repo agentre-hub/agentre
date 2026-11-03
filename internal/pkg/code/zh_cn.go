@@ -289,4 +289,6 @@ var zhCN = map[int]string{
 	PortForwardPortTaken:     "这个端口在这台设备上已经映射过了",
 	PortForwardInvalidPort:   "端口必须是 1~65535 之间的整数",
 	PortForwardInvalidTarget: "请输入端口、host:port 或 http(s)://主机[:端口]。",
+
+	SessionProcessNotOwned: "该进程已不属于这条会话（可能已退出）",
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/clienv"
 	"github.com/agentre-hub/agentre/internal/pkg/procattr"
+	"github.com/agentre-hub/agentre/internal/pkg/procscan"
 )
 
 type Options struct {
@@ -35,12 +36,18 @@ type execHandle struct {
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
 	stderr io.ReadCloser
+	// release 撤销 procscan 的 CLI pid 登记，幂等。
+	release func()
 }
 
 func (h *execHandle) Stdin() io.Writer  { return h.stdin }
 func (h *execHandle) Stdout() io.Reader { return h.stdout }
 func (h *execHandle) Stderr() io.Reader { return h.stderr }
-func (h *execHandle) Wait() error       { return h.cmd.Wait() }
+func (h *execHandle) Wait() error {
+	err := h.cmd.Wait()
+	h.release()
+	return err
+}
 
 // Kill 收掉整棵进程树:CLI 自己派生的孙进程握着 stdout 写端,只杀父进程会让读端
 // 永远等不到 EOF。
@@ -102,7 +109,8 @@ func Start(ctx context.Context, opts Options, binaryNotFound error) (Handle, err
 		}
 		return nil, err
 	}
-	return &execHandle{cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr}, nil
+	// 登记宿主自己的 CLI pid，认领会话进程时据此排除；Wait 返回（进程被回收）后释放。
+	return &execHandle{cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr, release: procscan.TrackCLI(cmd.Process.Pid)}, nil
 }
 
 func envListToMap(items []string) map[string]string {

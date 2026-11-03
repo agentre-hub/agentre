@@ -340,6 +340,10 @@ type CLIModelStateReader interface {
 
 // RunRequest 一次 Send 的入参。
 type RunRequest struct {
+	// ConversationID 是这条对话的全局身份（chat_sessions.conversation_id）。CLI 子进程
+	// 以它作 AGENTRE_SESSION 标记，宿主靠标记认领会话留下的进程与端口。
+	// 空 = 没有对话身份（探测类调用点），不写标记。
+	ConversationID string
 	// CLIModelMode/CLIModel 是会话三态选择，仅 native 模式消费，不进入启动身份。
 	CLIModelMode string
 	CLIModel     string

@@ -24,7 +24,7 @@ import type { ChatSessionDetail } from "@/hooks/use-chat-session";
 import { cn } from "@agentre-hub/agentre-ui";
 
 import { BackgroundTasksChip } from "../background-tasks/background-tasks-chip";
-import type { BackgroundTask } from "../background-tasks/types";
+import type { BackgroundTask, SessionProcess } from "../background-tasks/types";
 import { DeviceTag } from "../primitives";
 import type { AgentColor, AgentStatus } from "../types";
 import { statusConfig } from "../types";
@@ -45,6 +45,10 @@ type ChatPanelHeaderProps = {
   agentName: string;
   metaTail: string;
   backgroundTasks: BackgroundTask[];
+  processes?: SessionProcess[];
+  onOpenProcess?: (process: SessionProcess) => void;
+  onKillProcess?: (process: SessionProcess) => void;
+  onProcessesOpenChange?: (open: boolean) => void;
   onClearCompletedTasks: () => void;
   onStopTask?: (task: BackgroundTask) => void;
   onLocateTask?: (task: BackgroundTask) => void;
@@ -75,6 +79,10 @@ function ChatPanelHeader({
   agentName,
   metaTail,
   backgroundTasks,
+  processes,
+  onOpenProcess,
+  onKillProcess,
+  onProcessesOpenChange,
   onClearCompletedTasks,
   onStopTask,
   onLocateTask,
@@ -194,6 +202,10 @@ function ChatPanelHeader({
             /* 后台任务胶囊：有后台任务时显示，点击展开弹层 */
             <BackgroundTasksChip
               tasks={backgroundTasks}
+              processes={processes}
+              onOpenProcess={onOpenProcess}
+              onKillProcess={onKillProcess}
+              onOpenChange={onProcessesOpenChange}
               onClearCompleted={onClearCompletedTasks}
               onStopTask={onStopTask}
               onLocateTask={onLocateTask}

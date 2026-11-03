@@ -496,6 +496,7 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 		AgentID:           request.GetAgentId(),
 		AgentSyncID:       request.GetAgentSyncId(),
 		SessionID:         em.rid,
+		ConversationID:    em.conversationID,
 		Cwd:               request.GetCwd(),
 		SystemPrompt:      request.GetSystemPrompt(),
 		ProviderSessionID: request.GetProviderSessionId(),

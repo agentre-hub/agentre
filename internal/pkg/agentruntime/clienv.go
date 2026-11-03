@@ -44,6 +44,9 @@ type CLIDeps struct {
 	// Ctl 是本轮会话的 agrctl 凭证（RunRequest.CtlCredentials()）；四类 CLI 子进程都
 	// 注入。零值 = 没有会话身份（探测类调用点），不注入。
 	Ctl CtlCredentials
+	// Session 是本轮会话的 conversation_id（RunRequest.ConversationID），四类 CLI 子进程
+	// 都以 AGENTRE_SESSION 带上，宿主据此认领会话留下的进程。空 = 不写。
+	Session string
 }
 
 // BuildClaudeCodeEnv 装配 claudecode 子进程的环境变量：
@@ -109,6 +112,7 @@ func BuildClaudeCodeEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map
 	}
 	maps.Copy(env, user)
 	applyCtlEnv(env, deps.Ctl)
+	applySessionEnv(env, deps.Session)
 	return env, nil
 }
 
@@ -129,6 +133,7 @@ func BuildCodexEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map[stri
 	}
 	maps.Copy(env, user)
 	applyCtlEnv(env, deps.Ctl)
+	applySessionEnv(env, deps.Session)
 	return env, nil
 }
 
@@ -145,6 +150,7 @@ func BuildPiAgentEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map[st
 	}
 	maps.Copy(env, user)
 	applyCtlEnv(env, deps.Ctl)
+	applySessionEnv(env, deps.Session)
 	return env, nil
 }
 
@@ -163,6 +169,7 @@ func BuildACPEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map[string
 		env[k] = v
 	}
 	applyCtlEnv(env, deps.Ctl)
+	applySessionEnv(env, deps.Session)
 	return env, nil
 }
 

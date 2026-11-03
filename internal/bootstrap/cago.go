@@ -23,6 +23,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/ctlendpoint"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/pkg/procscan"
 	"github.com/agentre-hub/agentre/internal/pkg/sysnotify"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
@@ -181,6 +182,8 @@ func Init(ctx context.Context) (*Runtime, error) {
 	agent_backend_svc.RegisterGateway(gw)
 	app_settings_svc.RegisterGateway(gw)
 	chat_svc.RegisterGateway(gw)
+	// 会话进程与端口:本机会话的进程扫描/结束(后台任务弹层「进程与端口」一节)。
+	chat_svc.RegisterSessionProcessScanner(procscan.New())
 	exec_target_svc.RegisterGateway(gw)
 
 	// 挂组织架构工具 MCP handler(/mcp/org/),并注册 TurnMCPProvider:

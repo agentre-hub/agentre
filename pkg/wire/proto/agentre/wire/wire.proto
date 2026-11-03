@@ -42,7 +42,7 @@ extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-option (agentre.wire.protocol_version) = "0.7.0";
+option (agentre.wire.protocol_version) = "0.8.0";
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -126,6 +126,8 @@ enum RpcMethod {
   RPC_METHOD_RUNTIME_SET_CLI_MODEL = 78;
   RPC_METHOD_SET_SESSION_CLI_MODEL = 79;
   RPC_METHOD_RUNTIME_INJECT_SUBAGENT_EVENTS = 80;
+  RPC_METHOD_RUNTIME_LIST_SESSION_PROCESSES = 81;
+  RPC_METHOD_RUNTIME_KILL_SESSION_PROCESS = 82;
 }
 
 message WireFrame {
@@ -773,6 +775,31 @@ message RuntimeDrainPendingResponse { repeated ConsumedSteer steers = 1; }
 message RuntimeAbortRequest { string conversation_id = 1; string peer_fingerprint = 2; uint64 turn_token = 3; }
 message RuntimeAbortResponse { string turn_kind = 1; }
 message RuntimeStopBackgroundTaskRequest { string conversation_id = 1; string peer_fingerprint = 2; string task_id = 3; }
+// RuntimeListSessionProcessesRequest 让 agentred 列出这条会话在它那台机器上留下的进程:
+// 环境里 AGENTRE_SESSION 等于 conversation_id、且在监听 TCP 端口或已脱离父进程的那些,
+// agentred 自己作为 CLI 启动、仍在运行的不列。它不要求会话挂着 CLI —— CLI 被空闲清扫
+// 回收之后,它此前留下的进程照样属于这条会话。
+message RuntimeListSessionProcessesRequest { string conversation_id = 1; string peer_fingerprint = 2; }
+// SessionProcess 是列出的一行。command 是参数拼接(超长截断);ports 是它监听的 TCP
+// 端口(可能为空);started_at_ms 是启动时刻,结束时原样带回
+// RuntimeKillSessionProcessRequest,pid 被复用时就不会误杀;cwd 读不到时为空。
+message SessionProcess {
+  uint32 pid = 1;
+  string command = 2;
+  repeated uint32 ports = 3;
+  int64 started_at_ms = 4;
+  string cwd = 5;
+}
+message RuntimeListSessionProcessesResponse { repeated SessionProcess processes = 1; }
+// RuntimeKillSessionProcessRequest 结束列出的某一个进程。发信号之前 agentred 重新核对:
+// 该 pid 仍存在、仍带本会话标记、启动时刻仍是 started_at_ms;任一不符就一个信号都不发,
+// 答 CodeSessionProcessNotOwned。只对这一个 pid 发 SIGTERM、宽限后 SIGKILL,不碰进程组。
+message RuntimeKillSessionProcessRequest {
+  string conversation_id = 1;
+  string peer_fingerprint = 2;
+  uint32 pid = 3;
+  int64 started_at_ms = 4;
+}
 // RuntimeInjectSubagentEventsRequest is the desktop handing agentred the events of an
 // `agrctl send --wait` child session, to be written into the parent shell call
 // tool_call_id on agentred's own transcript. events reuse the runtime event encoding

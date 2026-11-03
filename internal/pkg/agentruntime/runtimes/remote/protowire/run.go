@@ -150,6 +150,7 @@ func GoalRequestToDomain(value *agentrewire.RuntimeGoalRequest) (agentruntime.Go
 	return agentruntime.GoalRequest{
 		AgentID:           value.GetAgentId(),
 		AgentSyncID:       value.GetAgentSyncId(),
+		ConversationID:    value.GetConversationId(),
 		ProviderSessionID: value.GetProviderSessionId(),
 		Backend:           BackendFromProto(value.GetBackend()),
 		Cwd:               value.GetCwd(),

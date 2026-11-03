@@ -18,6 +18,7 @@ package rpcerror
 //	-32050..-32052   project.*
 //	-32060..-32062   transcriptImport.*
 //	-32070..-32076   portforward.*
+//	-32080           runtime 会话进程(listSessionProcesses / killSessionProcess)
 //	-32600..-32700   JSON-RPC 标准码(见 error.go)
 //	-32800           取消(见 error.go)
 //
@@ -147,4 +148,16 @@ const (
 	// 主机名不符)。与「连不上」分开,因为用户能做的事不同:内网自签证书的出路是给
 	// 这条映射勾选「忽略证书错误」。
 	CodePortForwardTLSVerification = -32078
+)
+
+// ── 会话进程 ──────────────────────────────────────────────────────────
+//
+// 「列出 / 结束会话留下的进程」那一族(runtime.listSessionProcesses /
+// runtime.killSessionProcess)。它单独起一个十位段 -3208x:-32079 是 portforward.*
+// 十位段里的最后一个空号,留给那一族,不拿来给别人用。
+const (
+	// CodeSessionProcessNotOwned:要结束的进程已不属于这条会话 —— 已经退出、环境标记
+	// 不再是本会话,或启动时刻与列出时不符(pid 被复用)。执行端此时一个信号都不发。
+	// 与「权限不足 / 设备离线」分开:这一种的出路是刷新列表,而不是重试。
+	CodeSessionProcessNotOwned = -32080
 )

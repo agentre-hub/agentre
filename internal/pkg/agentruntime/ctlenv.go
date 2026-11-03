@@ -1,5 +1,7 @@
 package agentruntime
 
+import "github.com/agentre-hub/agentre/internal/pkg/procscan"
+
 // agrctl 会话级凭证（spec「Routing and approval」会话级 token）：CLI 类 agent 子进程
 // 启动时带上执行者的控制端点和绑定 (agent, session) 的 token，子进程里跑的 agrctl
 // 据此以「会话调用」身份访问执行者。
@@ -46,4 +48,13 @@ func applyCtlEnv(env map[string]string, c CtlCredentials) {
 	}
 	env[CtlEndpointEnv] = c.Endpoint
 	env[CtlTokenEnv] = c.Token
+}
+
+// applySessionEnv 把会话标记写进 env。与 applyCtlEnv 一样在用户 env_json 之后调用：
+// 标记是宿主认领进程的依据，不能被后端配置盖掉。空 conversation_id 不写。
+func applySessionEnv(env map[string]string, conversationID string) {
+	if conversationID == "" {
+		return
+	}
+	env[procscan.MarkerEnv] = conversationID
 }

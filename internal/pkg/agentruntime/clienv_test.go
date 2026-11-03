@@ -240,3 +240,33 @@ func TestRunRequest_CtlCredentials(t *testing.T) {
 		"没有本地 agent id（跨主机派发只带 agent sync id）照样签：会话身份只看会话")
 	assert.Equal(t, CtlCredentials{}, RunRequest{AgentID: 7}.CtlCredentials(), "没有会话 → 不签")
 }
+
+// 四类 CLI 子进程都带 AGENTRE_SESSION=<conversation_id>，宿主靠它认领会话留下的进程；
+// 在 env_json 之后写入，用户配置覆盖不了；没有会话身份（探测类调用点）时不写。
+func TestCLIEnv_InjectsSessionMarker(t *testing.T) {
+	builders := map[string]func(*agent_backend_entity.AgentBackend, CLIDeps) (map[string]string, error){
+		"claudecode": BuildClaudeCodeEnv,
+		"codex":      BuildCodexEnv,
+		"piagent":    BuildPiAgentEnv,
+		"acp":        BuildACPEnv,
+	}
+	for name, build := range builders {
+		t.Run(name+"：有会话身份 → 注入", func(t *testing.T) {
+			env, err := build(&agent_backend_entity.AgentBackend{}, CLIDeps{Session: "conv-1"})
+			require.NoError(t, err)
+			assert.Equal(t, "conv-1", env["AGENTRE_SESSION"])
+		})
+		t.Run(name+"：没有会话身份 → 不注入", func(t *testing.T) {
+			env, err := build(&agent_backend_entity.AgentBackend{}, CLIDeps{})
+			require.NoError(t, err)
+			_, has := env["AGENTRE_SESSION"]
+			assert.False(t, has)
+		})
+		t.Run(name+"：env_json 同名键盖不掉", func(t *testing.T) {
+			b := &agent_backend_entity.AgentBackend{EnvJSON: `{"AGENTRE_SESSION":"forged"}`}
+			env, err := build(b, CLIDeps{Session: "conv-1"})
+			require.NoError(t, err)
+			assert.Equal(t, "conv-1", env["AGENTRE_SESSION"])
+		})
+	}
+}

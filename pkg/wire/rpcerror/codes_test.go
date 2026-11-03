@@ -44,6 +44,8 @@ func TestDomainCodes_GivenReleasedPeers_WhenTheyBranchOnTheNumber_ThenTheValuesN
 		{"CodeProjectNotSynced", rpcerror.CodeProjectNotSynced, -32050},
 		{"CodeProjectInvalidPath", rpcerror.CodeProjectInvalidPath, -32051},
 		{"CodeProjectPathNotFound", rpcerror.CodeProjectPathNotFound, -32052},
+
+		{"CodeSessionProcessNotOwned", rpcerror.CodeSessionProcessNotOwned, -32080},
 	} {
 		require.Equalf(t, c.want, c.got, "%s 是过线的稳定值,改它就是协议破坏", c.name)
 	}

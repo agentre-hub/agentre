@@ -206,6 +206,17 @@ export const LoadChatSession = windowBackedMock("LoadChatSession", () =>
 export const MarkChatSessionRead = windowBackedMock("MarkChatSessionRead", () =>
   Promise.resolve({}),
 );
+export const ListSessionProcesses = windowBackedMock(
+  "ListSessionProcesses",
+  () => Promise.resolve({ processes: [] }),
+);
+export const KillSessionProcess = windowBackedMock("KillSessionProcess", () =>
+  Promise.resolve(),
+);
+export const OpenSessionProcessPort = windowBackedMock(
+  "OpenSessionProcessPort",
+  () => Promise.resolve(""),
+);
 export const ResolveLocalCommandScope = typedWindowBackedMock<
   [request: ResolveLocalCommandScopeRequest],
   Promise<LocalCommandScope>

@@ -339,7 +339,13 @@
       "back": "返回",
       "locate": "在对话中定位",
       "stop": "停止",
-      "ariaRunning": "后台任务：{{count}} 个运行中"
+      "ariaRunning": "后台任务：{{count}} 个运行中",
+      "processes": "进程与端口",
+      "noPort": "无监听端口",
+      "openPort": "在浏览器打开",
+      "killProcess": "结束进程",
+      "ariaWithProcesses": "后台任务：{{count}} 个运行中，{{processes}} 个进程",
+      "killProcessFailed": "结束进程失败：{{msg}}"
     },
     "toolbar": {
       "aria": "会话工具栏",

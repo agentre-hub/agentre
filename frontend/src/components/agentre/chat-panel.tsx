@@ -19,6 +19,7 @@ import { useProjectTree } from "@/hooks/use-project-tree";
 import { useVisibleMessageId } from "@/hooks/use-visible-message-id";
 import { reasonToDisplayStatus } from "@/lib/attention-display";
 import { splitErrorDetail } from "@/lib/error-detail";
+import { toast } from "sonner";
 import {
   findProjectColorToken,
   findProjectPath,
@@ -77,16 +78,25 @@ import {
 import { NewSessionExecTargetLine } from "./session-exec-target";
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { deriveBackgroundTasks } from "./background-tasks/derive";
+import type { SessionProcess } from "./background-tasks/types";
+import { useSessionProcesses } from "./background-tasks/use-session-processes";
+import { usePanelShown } from "./chat-panel/panel-shown";
 import { deriveTaskProgress } from "./task-progress/derive";
 import { TaskProgressBar } from "./task-progress/task-progress-bar";
 import type { AgentColor, AgentStatus } from "./types";
 import { agentIconColorClassName } from "./types";
 
 import {
+  KillSessionProcess,
   MarkChatSessionRead,
+  OpenSessionProcessPort,
   StopBackgroundTask,
 } from "../../../wailsjs/go/app/App";
+import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
 import type { chat_svc } from "../../../wailsjs/go/models";
+
+// `internal/app/coded_error.go` 那一侧的同一条契约(端口转发失败经它过桥)。
+const CODED_PREFIX = /^agentre-code:(\d+)\s?([\s\S]*)$/;
 
 type ChatAgentItem = chat_svc.ChatAgentItem;
 
@@ -449,6 +459,52 @@ function ChatPanel({
     },
     [sessionId, reloadSession, t],
   );
+  // 会话进程:面板真摆在眼前且有会话时才轮询;弹层打开立刻补拉,结束后立刻刷新。
+  const panelShown = usePanelShown();
+  const { processes: sessionProcesses, refresh: refreshProcesses } =
+    useSessionProcesses(sessionId > 0 ? sessionId : undefined, panelShown);
+  const handleProcessesOpenChange = React.useCallback(
+    (open: boolean) => {
+      if (open) void refreshProcesses();
+    },
+    [refreshProcesses],
+  );
+  const handleKillProcess = React.useCallback(
+    async (p: SessionProcess) => {
+      if (sessionId <= 0) return;
+      try {
+        await KillSessionProcess(sessionId, p.pid, p.startedAt);
+      } catch (e: unknown) {
+        console.error("[chat] kill session process failed", e);
+        toast.error(
+          t("chatPanel.backgroundTasks.killProcessFailed", {
+            msg: splitErrorDetail(e).msg,
+          }),
+        );
+      }
+      await refreshProcesses();
+    },
+    [sessionId, refreshProcesses, t],
+  );
+  const handleOpenProcess = React.useCallback(
+    async (p: SessionProcess) => {
+      if (sessionId <= 0 || p.ports.length === 0) return;
+      try {
+        const url = await OpenSessionProcessPort(sessionId, p.ports[0]);
+        BrowserOpenURL(url);
+      } catch (e: unknown) {
+        console.error("[chat] open session process port failed", e);
+        // 沿用端口转发现有的失败文案;过桥的业务码前缀是内部记号,剥掉。
+        const { msg } = splitErrorDetail(e);
+        toast.error(
+          t("remoteDevices.portForward.actionFailed", {
+            message: CODED_PREFIX.exec(msg)?.[2] ?? msg,
+          }),
+        );
+      }
+    },
+    [sessionId, t],
+  );
   // PermissionMode pill 数据从 caps.permissionModeMeta 拉;caps 未到位时
   // 用空 meta 做 placeholder(pill 整体被 isModeSwitchable 守护)。
   const permissionModeMeta = caps?.permissionModeMeta ?? {
@@ -753,6 +809,10 @@ function ChatPanel({
               agentName={headerAgentName}
               metaTail={headerMetaTail}
               backgroundTasks={backgroundTasks}
+              processes={sessionProcesses}
+              onOpenProcess={(p) => void handleOpenProcess(p)}
+              onKillProcess={(p) => void handleKillProcess(p)}
+              onProcessesOpenChange={handleProcessesOpenChange}
               onClearCompletedTasks={handleClearCompleted}
               onStopTask={
                 canStopBackgroundTask

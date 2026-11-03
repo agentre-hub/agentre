@@ -395,6 +395,13 @@ export const ErrCodePortForwardNameResolution = -32077;
  */
 export const ErrCodePortForwardTLSVerification = -32078;
 
+/**
+ * CodeSessionProcessNotOwned:要结束的进程已不属于这条会话 —— 已经退出、环境标记
+ * 不再是本会话,或启动时刻与列出时不符(pid 被复用)。执行端此时一个信号都不发。
+ * 与「权限不足 / 设备离线」分开:这一种的出路是刷新列表,而不是重试。
+ */
+export const ErrCodeSessionProcessNotOwned = -32080;
+
 export const ErrCodeUnauthorized = -32001;
 
 export const ErrCodeSessionMissing = -32002;

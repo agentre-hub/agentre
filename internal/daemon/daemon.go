@@ -47,6 +47,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/cagoenvelope"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
+	"github.com/agentre-hub/agentre/internal/pkg/procscan"
 	"github.com/agentre-hub/agentre/internal/pkg/pty"
 	"github.com/agentre-hub/agentre/internal/pkg/pty/local"
 	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
@@ -143,6 +144,9 @@ type Daemon struct {
 	// 参数,同为 Daemon 级、静态注册。
 	sessionReasoningEffort *handlers.SessionReasoningEffortHandlers
 	sessionCLIModel        *handlers.SessionCLIModelHandlers
+	// sessionProcess 列出 / 结束会话留下的进程。Daemon 级:扫描按会话标记进行,与
+	// 哪条连接在问、会话此刻挂没挂着 CLI 都无关。
+	sessionProcess *handlers.SessionProcessHandlers
 
 	mu  sync.RWMutex
 	lan *protorpc.LANServer
@@ -919,6 +923,11 @@ func New(opts Options) (*Daemon, error) {
 		LoggedInAccountID: d.loggedInAccountID,
 	})
 	d.sessionCLIModel = handlers.NewSessionCLIModelHandlers(handlers.SessionCLIModelDeps{Sessions: d.sessionStore, LoggedInAccountID: d.loggedInAccountID})
+	d.sessionProcess = handlers.NewSessionProcessHandlers(handlers.SessionProcessDeps{
+		Scanner:           procscan.New(),
+		Sessions:          d.sessionStore,
+		LoggedInAccountID: d.loggedInAccountID,
+	})
 	d.sessionReasoningEffort = handlers.NewSessionReasoningEffortHandlers(handlers.SessionReasoningEffortDeps{
 		Sessions:          d.sessionStore,
 		LoggedInAccountID: d.loggedInAccountID,

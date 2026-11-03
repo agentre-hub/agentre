@@ -1271,3 +1271,33 @@ type EditRequest struct {
 	Text           string `json:"text"`      // 新的 user 文本
 	PermissionMode string `json:"permissionMode,omitempty"`
 }
+
+// ListSessionProcessesRequest 列出会话留下的进程与监听端口。
+type ListSessionProcessesRequest struct {
+	SessionID int64 `json:"sessionId"`
+}
+
+// SessionProcessView 是「进程与端口」一节的一行。StartedAt 是毫秒时间戳，结束进程时原样回传，
+// 用来核对 PID 没有被复用。
+type SessionProcessView struct {
+	PID       int    `json:"pid"`
+	Command   string `json:"command"`
+	Ports     []int  `json:"ports"`
+	StartedAt int64  `json:"startedAt"`
+	Cwd       string `json:"cwd"`
+}
+
+// ListSessionProcessesResponse 扫描失败时 Processes 为空，不是错误。
+type ListSessionProcessesResponse struct {
+	Processes []SessionProcessView `json:"processes"`
+}
+
+// KillSessionProcessRequest 结束会话留下的一个进程；StartedAt 取自列表那一行。
+type KillSessionProcessRequest struct {
+	SessionID int64 `json:"sessionId"`
+	PID       int   `json:"pid"`
+	StartedAt int64 `json:"startedAt"`
+}
+
+// KillSessionProcessResponse 成功时为空。
+type KillSessionProcessResponse struct{}

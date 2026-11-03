@@ -38,6 +38,7 @@ var codeSegments = []struct {
 	{"project.*", -32052, -32050},
 	{"transcriptImport.*", -32062, -32060},
 	{"portforward.*", -32078, -32070},
+	{"sessionprocess.*", -32080, -32080},
 }
 
 // TestCodeSegments_GivenTwoFamiliesOnOneConnection_WhenAFamilyAllocatesANewCode_ThenItCannotReuseAnotherFamilysNumber

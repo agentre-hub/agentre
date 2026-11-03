@@ -7,6 +7,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/clienv"
 	"github.com/agentre-hub/agentre/internal/pkg/procattr"
+	"github.com/agentre-hub/agentre/internal/pkg/procscan"
 )
 
 type processSpec struct {
@@ -82,6 +83,8 @@ func startProcess(ctx context.Context, spec processSpec) (*process, error) {
 		_ = stdoutWriter.Close()
 		return nil, classifyExecErr(err)
 	}
+	// 登记宿主自己的 CLI pid，认领会话进程时据此排除；reaper 收到退出后释放。
+	releaseCLI := procscan.TrackCLI(cmd.Process.Pid)
 	stdoutDone := make(chan struct{})
 	go func() {
 		_, copyErr := io.Copy(stdoutWriter, cmdStdout)
@@ -103,6 +106,7 @@ func startProcess(ctx context.Context, spec processSpec) (*process, error) {
 		// in-flight caller read and turning a clean EOF into os.ErrClosed.
 		<-stdoutDone
 		werr := cmd.Wait()
+		releaseCLI()
 		exit := 0
 		if ee, ok := werr.(*exec.ExitError); ok {
 			exit = ee.ExitCode()

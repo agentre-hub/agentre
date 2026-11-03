@@ -1105,6 +1105,42 @@ func (r *Runtime) InjectSubagentEvents(ctx context.Context, sessionID int64, too
 	return err
 }
 
+// ListSessionProcesses 问执行端这条会话留下的存活进程及其监听端口。agentred 按发起端指纹与会话归属授权，
+// 不要求会话挂着 CLI；conversationID 就是线上身份，无需再经会话键翻译。
+func (r *Runtime) ListSessionProcesses(ctx context.Context, conversationID string) ([]agentruntime.SessionProcess, error) {
+	resp, err := callSentinel(ctx, r, wirecall.RuntimeListSessionProcesses, &agentrewire.RuntimeListSessionProcessesRequest{
+		ConversationId:  conversationID,
+		PeerFingerprint: string(r.originForConversation(conversationID)),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agentruntime.SessionProcess, 0, len(resp.GetProcesses()))
+	for _, p := range resp.GetProcesses() {
+		var ports []int
+		for _, port := range p.GetPorts() {
+			ports = append(ports, int(port))
+		}
+		out = append(out, agentruntime.SessionProcess{
+			PID: int(p.GetPid()), Command: p.GetCommand(), Ports: ports,
+			StartedAtMs: p.GetStartedAtMs(), Cwd: p.GetCwd(),
+		})
+	}
+	return out, nil
+}
+
+// KillSessionProcess 让执行端结束这条会话的一个进程；进程已不属于该会话时落成
+// agentruntime.ErrSessionProcessNotOwned。
+func (r *Runtime) KillSessionProcess(ctx context.Context, conversationID string, pid int, startedAtMs int64) error {
+	_, err := callSentinel(ctx, r, wirecall.RuntimeKillSessionProcess, &agentrewire.RuntimeKillSessionProcessRequest{
+		ConversationId:  conversationID,
+		PeerFingerprint: string(r.originForConversation(conversationID)),
+		Pid:             uint32(pid),
+		StartedAtMs:     startedAtMs,
+	})
+	return err
+}
+
 // injectedEventFrame 按运行时事件通知的同一套编码包一条事件,agentred 那一侧原样解回。
 func injectedEventFrame(conversationID string, ev agentruntime.Event) (*agentrewire.RuntimeEventNotification, error) {
 	raw, err := protowire.MarshalEventNotification(conversationID, 0, ev, false)

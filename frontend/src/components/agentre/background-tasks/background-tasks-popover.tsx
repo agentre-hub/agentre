@@ -3,6 +3,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   LoaderCircle,
   Square,
   X,
@@ -12,7 +13,7 @@ import { useTranslation } from "react-i18next";
 
 import { cn, shortenModelName } from "@agentre-hub/agentre-ui";
 
-import type { BackgroundTask } from "./types";
+import type { BackgroundTask, SessionProcess } from "./types";
 
 // formatElapsed 将毫秒数格式化为紧凑耗时字符串（computed — 不走 t()）。
 // < 60s → "12s"  |  < 60m → "3m 05s"  |  else → "1h 02m"
@@ -37,6 +38,10 @@ type BackgroundTasksPopoverContentProps = {
   onStopTask?: (task: BackgroundTask) => void;
   // onLocateTask 把对话滚到发起这个任务的那张卡片(仅当该任务的消息已落库)。
   onLocateTask?: (task: BackgroundTask) => void;
+  // 会话留下的存活进程;按钮回调只在宿主提供时才渲染对应按钮。
+  processes?: SessionProcess[];
+  onOpenProcess?: (process: SessionProcess) => void;
+  onKillProcess?: (process: SessionProcess) => void;
 };
 
 // 弹层只回答「现在在跑什么」:运行中的按类型分节列出来,已结束的收成底部一行,
@@ -46,18 +51,23 @@ export function BackgroundTasksPopoverContent({
   onClearCompleted,
   onStopTask,
   onLocateTask,
+  processes,
+  onOpenProcess,
+  onKillProcess,
 }: BackgroundTasksPopoverContentProps) {
   const { t } = useTranslation();
+  const liveProcesses = processes ?? [];
 
   const [now, setNow] = React.useState(() => Date.now());
   const hasLiveElapsed = tasks.some(
     (task) => task.status === "running" && task.startedAt != null,
   );
+  const needsTick = hasLiveElapsed || liveProcesses.length > 0;
   React.useEffect(() => {
-    if (!hasLiveElapsed) return;
+    if (!needsTick) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [hasLiveElapsed]);
+  }, [needsTick]);
 
   const [endedOpen, setEndedOpen] = React.useState(false);
 
@@ -77,7 +87,7 @@ export function BackgroundTasksPopoverContent({
     />
   );
 
-  const endedOnly = running.length === 0;
+  const endedOnly = running.length === 0 && liveProcesses.length === 0;
   // 清理之后已结束的没了,就回到运行中那一页,不停在一张空页上。
   if (endedOnly || (endedOpen && ended.length > 0)) {
     return (
@@ -139,6 +149,22 @@ export function BackgroundTasksPopoverContent({
             count={commands.length}
           >
             {commands.map(renderRow)}
+          </TaskSection>
+        )}
+        {liveProcesses.length > 0 && (
+          <TaskSection
+            label={t("chatPanel.backgroundTasks.processes")}
+            count={liveProcesses.length}
+          >
+            {liveProcesses.map((process) => (
+              <ProcessRow
+                key={process.pid}
+                process={process}
+                now={now}
+                onOpenProcess={onOpenProcess}
+                onKillProcess={onKillProcess}
+              />
+            ))}
           </TaskSection>
         )}
       </div>
@@ -315,6 +341,94 @@ function TaskRow({
           className="mr-1.5 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text outline-none focus-visible:focus-outline"
         >
           <Square className="size-3 fill-current" />
+        </button>
+      )}
+    </li>
+  );
+}
+
+// 进程行:没有定位动作,行本身不可点;只有行尾的「打开」(有端口时)和「结束」。
+// command / 端口 / PID / cwd 都是动态值,不走 t()。
+function ProcessRow({
+  process,
+  now,
+  onOpenProcess,
+  onKillProcess,
+}: {
+  process: SessionProcess;
+  now: number;
+  onOpenProcess?: (process: SessionProcess) => void;
+  onKillProcess?: (process: SessionProcess) => void;
+}) {
+  const { t } = useTranslation();
+  const hasPorts = process.ports.length > 0;
+  const meta: React.ReactNode[] = [
+    hasPorts ? (
+      <span className="text-foreground">
+        {process.ports.map((port) => `:${port}`).join(" ")}
+      </span>
+    ) : (
+      t("chatPanel.backgroundTasks.noPort")
+    ),
+    `PID ${process.pid}`,
+    <span className="tabular-nums" data-testid="elapsed">
+      {formatElapsed(Math.max(0, now - process.startedAt))}
+    </span>,
+  ];
+  if (process.cwd) meta.push(process.cwd);
+
+  return (
+    <li className="flex items-center rounded-md transition-colors hover:bg-accent">
+      <div className="flex min-w-0 flex-1 items-start gap-2.5 px-2 py-1.5">
+        <span
+          className="mt-[5px] size-1.5 shrink-0 rounded-full bg-status-running"
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-mono text-xs leading-snug text-foreground">
+            {process.command}
+          </span>
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 font-mono text-3xs text-muted-foreground">
+            {meta.map((part, i) => (
+              <React.Fragment key={i}>
+                {i > 0 && (
+                  <span className="text-muted-foreground/50" aria-hidden="true">
+                    ·
+                  </span>
+                )}
+                <span
+                  className={cn(
+                    "whitespace-nowrap",
+                    i === meta.length - 1 && "min-w-0 truncate",
+                  )}
+                >
+                  {part}
+                </span>
+              </React.Fragment>
+            ))}
+          </span>
+        </span>
+      </div>
+      {hasPorts && onOpenProcess && (
+        <button
+          type="button"
+          onClick={() => onOpenProcess(process)}
+          aria-label={t("chatPanel.backgroundTasks.openPort")}
+          title={t("chatPanel.backgroundTasks.openPort")}
+          className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-background hover:text-foreground outline-none focus-visible:focus-outline"
+        >
+          <ExternalLink className="size-3" aria-hidden="true" />
+        </button>
+      )}
+      {onKillProcess && (
+        <button
+          type="button"
+          onClick={() => onKillProcess(process)}
+          aria-label={t("chatPanel.backgroundTasks.killProcess")}
+          title={t("chatPanel.backgroundTasks.killProcess")}
+          className="mr-1.5 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text outline-none focus-visible:focus-outline"
+        >
+          <Square className="size-3 fill-current" aria-hidden="true" />
         </button>
       )}
     </li>

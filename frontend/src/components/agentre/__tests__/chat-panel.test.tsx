@@ -39,6 +39,9 @@ const appMocks = vi.hoisted(() => ({
   EnsureChatSession: vi.fn(),
   GetCCUsage: vi.fn().mockResolvedValue({ reason: "" }),
   GetChatLaunchCommand: vi.fn(),
+  ListSessionProcesses: vi.fn(),
+  KillSessionProcess: vi.fn(),
+  OpenSessionProcessPort: vi.fn(),
   GetChatGoal: vi.fn(),
   ListLLMProviders: vi.fn().mockResolvedValue({ items: [] }),
   ListLLMModels: vi.fn().mockResolvedValue({ items: [] }),
@@ -133,6 +136,7 @@ const componentMocks = vi.hoisted(() => ({
 // ── wailsjs runtime mock（EventsOn / EventsOff）────────────────────────────
 
 const runtimeMocks = vi.hoisted(() => ({
+  BrowserOpenURL: vi.fn(),
   EventsOff: vi.fn(),
   EventsOn: vi.fn((_event?: string, _handler?: (...args: unknown[]) => void) =>
     vi.fn(),
@@ -457,6 +461,9 @@ function render(
   return rtlRender(ui, { ...options, wrapper: TerminalTransportHost });
 }
 
+// 面板挂着时自带一个会话进程轮询 interval;断言「没有本地命令遗留计时器」时把它算进基线。
+const PROCESS_POLL_TIMERS = 1;
+
 /** 清 store streams 以避免测试间串台 */
 function resetStore() {
   __resetChatPanelScrollStateForTesting();
@@ -527,6 +534,13 @@ function resetStore() {
   appMocks.SetChatSessionReasoningEffort.mockReset();
   localCommandRuntimeStore.resetForTesting();
   useLocalCommandsStore.setState({ entries: {} });
+  appMocks.ListSessionProcesses.mockReset();
+  appMocks.ListSessionProcesses.mockResolvedValue({ processes: [] });
+  appMocks.KillSessionProcess.mockReset();
+  appMocks.KillSessionProcess.mockResolvedValue(undefined);
+  appMocks.OpenSessionProcessPort.mockReset();
+  appMocks.OpenSessionProcessPort.mockResolvedValue("http://localhost:5391");
+  runtimeMocks.BrowserOpenURL.mockReset();
   sonnerMocks.toast.error.mockClear();
   sonnerMocks.toast.success.mockClear();
 }
@@ -2002,7 +2016,7 @@ describe("ChatPanel · local command scope and execution", () => {
       expect(activeListeners.get(exitEvent)?.size ?? 0).toBe(0);
       expect(finish).toHaveBeenCalledTimes(1);
       expect(finish).toHaveBeenCalledWith(terminalId, "done", 0);
-      expect(vi.getTimerCount()).toBe(0);
+      expect(vi.getTimerCount()).toBe(PROCESS_POLL_TIMERS);
     },
   );
 
@@ -2183,7 +2197,7 @@ describe("ChatPanel · local command scope and execution", () => {
     });
     expect(finish).toHaveBeenCalledTimes(1);
     expect(finish).toHaveBeenCalledWith(terminalId, "failed", -1);
-    expect(vi.getTimerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(PROCESS_POLL_TIMERS);
   });
 
   it("Given observers are unavailable and TerminalRunCommand rejects before scope, When defensive close is pending, Then submission returns undefined promptly and failure waits for close authority", async () => {
@@ -2340,7 +2354,7 @@ describe("ChatPanel · local command scope and execution", () => {
     // 撤不掉的那个监听留在运行时里,但它扇给的订阅表是空的 —— 它再吐字节也
     // 进不了卡片、更不会二次结算。所以既不需要一个不断重试的清理看门狗,也
     // 不该退回 `EventsOff(event)`:那一步会把同一条 PTY 上别人的订阅一起摘掉。
-    expect(vi.getTimerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(PROCESS_POLL_TIMERS);
     expect(runtimeMocks.EventsOff).not.toHaveBeenCalled();
 
     act(() => {
@@ -6925,5 +6939,150 @@ describe("ChatPanel · 头部 Agent 记号按完整身份显示", () => {
       { name: "Eng" },
     );
     expect(mark).toHaveTextContent("E");
+  });
+});
+
+// ─── 会话进程与端口:面板接线 ─────────────────────────────────────────────────
+
+describe("ChatPanel · 会话进程与端口", () => {
+  const proc = {
+    pid: 4242,
+    command: "vite --port 5391",
+    ports: [5391],
+    startedAt: 1_700_000_000_000,
+    cwd: "/w",
+  };
+
+  async function renderWithProcess() {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 1 });
+    appMocks.ListSessionProcesses.mockResolvedValue({ processes: [proc] });
+    render(<ChatPanel sessionId={1} />);
+    const chip = await screen.findByRole("button", {
+      name: /Background tasks/,
+    });
+    await userEvent.click(chip);
+    await screen.findByRole("region", { name: "Processes & ports" });
+  }
+
+  it("Given a live process and no tasks, When the panel is shown, Then the chip appears", async () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 1 });
+    appMocks.ListSessionProcesses.mockResolvedValue({ processes: [proc] });
+    render(<ChatPanel sessionId={1} />);
+    expect(
+      await screen.findByRole("button", { name: /1 processes/ }),
+    ).toBeTruthy();
+    expect(appMocks.ListSessionProcesses).toHaveBeenCalledWith(1);
+  });
+
+  it("Given the listing fails, When the panel is shown, Then no chip and no toast", async () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 1 });
+    appMocks.ListSessionProcesses.mockRejectedValue(new Error("boom"));
+    render(<ChatPanel sessionId={1} />);
+    await waitFor(() =>
+      expect(appMocks.ListSessionProcesses).toHaveBeenCalled(),
+    );
+    expect(
+      screen.queryByRole("button", { name: /Background tasks/ }),
+    ).toBeNull();
+    expect(sonnerMocks.toast.error).not.toHaveBeenCalled();
+  });
+
+  it("Given the popover opens, Then the list is refreshed", async () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 1 });
+    appMocks.ListSessionProcesses.mockResolvedValue({ processes: [proc] });
+    render(<ChatPanel sessionId={1} />);
+    const chip = await screen.findByRole("button", {
+      name: /Background tasks/,
+    });
+    const before = appMocks.ListSessionProcesses.mock.calls.length;
+    await userEvent.click(chip);
+    await waitFor(() =>
+      expect(appMocks.ListSessionProcesses.mock.calls.length).toBeGreaterThan(
+        before,
+      ),
+    );
+  });
+
+  it("Given a process, When stop is clicked, Then KillSessionProcess runs with (session, pid, startedAt) and the list is re-fetched", async () => {
+    await renderWithProcess();
+    const before = appMocks.ListSessionProcesses.mock.calls.length;
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Stop process" }),
+    );
+    await waitFor(() =>
+      expect(appMocks.KillSessionProcess).toHaveBeenCalledWith(
+        1,
+        4242,
+        1_700_000_000_000,
+      ),
+    );
+    await waitFor(() =>
+      expect(appMocks.ListSessionProcesses.mock.calls.length).toBeGreaterThan(
+        before,
+      ),
+    );
+    expect(sonnerMocks.toast.error).not.toHaveBeenCalled();
+  });
+
+  it("Given the kill fails, When stop is clicked, Then an error toast shows", async () => {
+    await renderWithProcess();
+    appMocks.KillSessionProcess.mockRejectedValue(new Error("denied"));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Stop process" }),
+    );
+    await waitFor(() =>
+      expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
+        "Failed to stop process: denied",
+      ),
+    );
+  });
+
+  it("Given a process with a port, When open is clicked, Then the binding runs and the URL opens", async () => {
+    await renderWithProcess();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open in browser" }),
+    );
+    await waitFor(() =>
+      expect(appMocks.OpenSessionProcessPort).toHaveBeenCalledWith(1, 5391),
+    );
+    await waitFor(() =>
+      expect(runtimeMocks.BrowserOpenURL).toHaveBeenCalledWith(
+        "http://localhost:5391",
+      ),
+    );
+  });
+
+  // spec「打开端口」:转发建立或打开失败沿用端口转发现有的失败文案;过桥的业务码前缀是内部记号,不进文案。
+  it("Given opening the port fails with a coded port-forward error, Then the toast reuses the port-forward failure copy without the code prefix and nothing opens", async () => {
+    await renderWithProcess();
+    appMocks.OpenSessionProcessPort.mockRejectedValue(
+      new Error("agentre-code:21000 Device offline"),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open in browser" }),
+    );
+    await waitFor(() =>
+      expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
+        "Action failed: Device offline",
+      ),
+    );
+    expect(runtimeMocks.BrowserOpenURL).not.toHaveBeenCalled();
+  });
+
+  it("Given opening the port fails with an uncoded error, Then the toast carries the raw message in the same copy", async () => {
+    await renderWithProcess();
+    appMocks.OpenSessionProcessPort.mockRejectedValue(new Error("gone"));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open in browser" }),
+    );
+    await waitFor(() =>
+      expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
+        "Action failed: gone",
+      ),
+    );
   });
 });

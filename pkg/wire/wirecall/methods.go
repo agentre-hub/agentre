@@ -193,6 +193,14 @@ var RuntimeGoalSet = Define[*agentrewire.RuntimeGoalRequest](agentrewire.RpcMeth
 var RuntimeInjectSubagentEvents = Define[*agentrewire.RuntimeInjectSubagentEventsRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_INJECT_SUBAGENT_EVENTS,
 	func() *agentrewire.Empty { return &agentrewire.Empty{} })
 
+var RuntimeKillSessionProcess = Define[*agentrewire.RuntimeKillSessionProcessRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_KILL_SESSION_PROCESS,
+	func() *agentrewire.Empty { return &agentrewire.Empty{} })
+
+var RuntimeListSessionProcesses = Define[*agentrewire.RuntimeListSessionProcessesRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_LIST_SESSION_PROCESSES,
+	func() *agentrewire.RuntimeListSessionProcessesResponse {
+		return &agentrewire.RuntimeListSessionProcessesResponse{}
+	})
+
 var RuntimeRun = Define[*agentrewire.RuntimeRunRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN,
 	func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
 

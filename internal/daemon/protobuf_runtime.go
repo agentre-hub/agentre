@@ -104,6 +104,28 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 		_, err := rh.InjectSubagentEvents(ctx, req)
 		return err
 	}, d, guard)
+	// 会话进程两条只要连接已鉴权,会话归属由 handler 按对端收窄查库判定。刻意**不认领**
+	// 这条连接:列表是面板可见期间每 5 秒一次的只读轮询,结束进程也不产生任何要推回
+	// 的事件 —— 认领会把这条会话的事件推送目标改到发问的那条连接上,而这两条没有理由
+	// 改变它。
+	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_LIST_SESSION_PROCESSES), func() *agentrewire.RuntimeListSessionProcessesRequest {
+		return &agentrewire.RuntimeListSessionProcessesRequest{}
+	}, func(ctx context.Context, req *agentrewire.RuntimeListSessionProcessesRequest) (*agentrewire.RuntimeListSessionProcessesResponse, error) {
+		if err := guard(ctx); err != nil {
+			return nil, err
+		}
+		response, err := d.sessionProcess.List(ctx, req)
+		return response, protobufRuntimeError(err)
+	})
+	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_KILL_SESSION_PROCESS), func() *agentrewire.RuntimeKillSessionProcessRequest {
+		return &agentrewire.RuntimeKillSessionProcessRequest{}
+	}, func(ctx context.Context, req *agentrewire.RuntimeKillSessionProcessRequest) (*agentrewire.Empty, error) {
+		if err := guard(ctx); err != nil {
+			return nil, err
+		}
+		response, err := d.sessionProcess.Kill(ctx, req)
+		return response, protobufRuntimeError(err)
+	})
 	registerGoal := func(method agentrewire.RpcMethod, handler func(context.Context, *agentrewire.RuntimeGoalRequest) (*agentrewire.RuntimeGoalResponse, error)) {
 		protorpc.RegisterMethod(reg, uint32(method), func() *agentrewire.RuntimeGoalRequest { return &agentrewire.RuntimeGoalRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeGoalRequest) (*agentrewire.RuntimeGoalResponse, error) {
 			if err := guard(ctx); err != nil {

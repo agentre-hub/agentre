@@ -27,7 +27,10 @@ type Goal struct {
 
 type GoalRequest struct {
 	SessionID int64
-	AgentID   int64
+	// ConversationID 是这条对话的全局身份，与 RunRequest.ConversationID 同源同义：
+	// goal 路径也可能新起 CLI，要靠它注入 AGENTRE_SESSION 会话标记。
+	ConversationID string
+	AgentID        int64
 	// AgentSyncID 是 Agent 的账号级同步标识，与 RunRequest.AgentSyncID 同源同义：
 	// Cwd 为空时的兜底目录由它定（AgentID=0 的 web 发起会话没有本地主键可用），
 	// 跨机执行也只发它——agent_id 是发起端库里的自增主键，两台桌面端同号会在同一个

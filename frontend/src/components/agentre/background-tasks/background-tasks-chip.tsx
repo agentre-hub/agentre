@@ -11,7 +11,7 @@ import {
 
 import { usePanelShown } from "../chat-panel/panel-shown";
 import { BackgroundTasksPopoverContent } from "./background-tasks-popover";
-import type { BackgroundTask } from "./types";
+import type { BackgroundTask, SessionProcess } from "./types";
 
 // 指针停在按钮上多久才打开；离开按钮、又没进弹层多久才收起（留出跨过两者
 // 之间那道缝的时间）。
@@ -23,6 +23,12 @@ type BackgroundTasksChipProps = {
   onClearCompleted?: () => void;
   onStopTask?: (task: BackgroundTask) => void;
   onLocateTask?: (task: BackgroundTask) => void;
+  // 会话留下的存活进程;有进程时按钮即使没有运行中的任务也保留。
+  processes?: SessionProcess[];
+  onOpenProcess?: (process: SessionProcess) => void;
+  onKillProcess?: (process: SessionProcess) => void;
+  // 弹层每次打开 / 收起都回调,宿主据此立刻刷新进程列表。
+  onOpenChange?: (open: boolean) => void;
 };
 
 // hover:指针悬停打开，离开就收；pinned:点开（含 Enter / Space），只有再点一次、
@@ -34,6 +40,10 @@ export function BackgroundTasksChip({
   onClearCompleted,
   onStopTask,
   onLocateTask,
+  processes,
+  onOpenProcess,
+  onKillProcess,
+  onOpenChange,
 }: BackgroundTasksChipProps) {
   const { t } = useTranslation();
   const [mode, setMode] = React.useState<OpenMode>("closed");
@@ -51,7 +61,8 @@ export function BackgroundTasksChip({
   React.useEffect(() => clearTimers, [clearTimers]);
 
   const runningCount = tasks.filter((task) => task.status === "running").length;
-  const hidden = runningCount === 0;
+  const processCount = processes?.length ?? 0;
+  const hidden = runningCount === 0 && processCount === 0;
   const panelShown = usePanelShown();
 
   // 两种情况 Radix 都不会回调 onOpenChange(false)，得自己收起：
@@ -61,13 +72,20 @@ export function BackgroundTasksChip({
   // 还在等的悬停打开一并作废：指针没动就切走时收不到离开，延迟到点照样会打开，
   // 而那时弹层没了锚点，会被挪到窗口左上角、漂在别的页面上。
   const dismissed = hidden || !panelShown;
+  // 开合状态的每次变化都告诉宿主(含上面的自动收起)。
+  const notifiedOpenRef = React.useRef(false);
+  React.useEffect(() => {
+    if (notifiedOpenRef.current === open) return;
+    notifiedOpenRef.current = open;
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
   React.useEffect(() => {
     if (!dismissed) return;
     clearTimers();
     setMode("closed");
   }, [dismissed, clearTimers]);
 
-  // 只在有任务在跑时出现;全部结束就收起,历史留在弹层的「已结束」页里。
+  // 只在有任务在跑或有存活进程时出现;全部结束就收起,历史留在弹层的「已结束」页里。
   if (hidden) return null;
 
   const scheduleClose = () => {
@@ -127,9 +145,16 @@ export function BackgroundTasksChip({
           type="button"
           variant="ghost"
           size="icon-sm"
-          aria-label={t("chatPanel.backgroundTasks.ariaRunning", {
-            count: runningCount,
-          })}
+          aria-label={
+            processCount > 0
+              ? t("chatPanel.backgroundTasks.ariaWithProcesses", {
+                  count: runningCount,
+                  processes: processCount,
+                })
+              : t("chatPanel.backgroundTasks.ariaRunning", {
+                  count: runningCount,
+                })
+          }
           onPointerEnter={onTriggerPointerEnter}
           onPointerLeave={onTriggerPointerLeave}
           onClick={onTriggerClick}
@@ -165,6 +190,9 @@ export function BackgroundTasksChip({
           tasks={tasks}
           onClearCompleted={onClearCompleted}
           onStopTask={onStopTask}
+          processes={processes}
+          onOpenProcess={onOpenProcess}
+          onKillProcess={onKillProcess}
           onLocateTask={
             onLocateTask &&
             ((task) => {

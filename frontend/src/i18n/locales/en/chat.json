@@ -339,7 +339,13 @@
       "back": "Back",
       "locate": "Show in conversation",
       "stop": "Stop",
-      "ariaRunning": "Background tasks: {{count}} running"
+      "ariaRunning": "Background tasks: {{count}} running",
+      "processes": "Processes & ports",
+      "noPort": "No listening port",
+      "openPort": "Open in browser",
+      "killProcess": "Stop process",
+      "ariaWithProcesses": "Background tasks: {{count}} running, {{processes}} processes",
+      "killProcessFailed": "Failed to stop process: {{msg}}"
     },
     "toolbar": {
       "aria": "Session toolbar",

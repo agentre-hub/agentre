@@ -2472,6 +2472,7 @@ func (s *chatSvc) buildRunRequest(
 		Effective:         cfg,
 		AgentID:           a.ID,
 		SessionID:         sess.ID,
+		ConversationID:    sess.ConversationID,
 		Cwd:               cwd,
 		Title:             sess.Title,
 		AgentSyncID:       a.SyncID,

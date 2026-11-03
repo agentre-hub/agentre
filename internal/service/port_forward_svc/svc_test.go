@@ -378,6 +378,121 @@ func TestDelete(t *testing.T) {
 	})
 }
 
+// ── EnsureForPort ───────────────────────────────────────────────────────────
+
+func TestEnsureForPort(t *testing.T) {
+	convey.Convey("EnsureForPort", t, func() {
+		listOf := func(ms ...*agentrewire.PortForwardMapping) func(*agentrewire.PortForwardListRequest) (*agentrewire.PortForwardListResponse, error) {
+			return func(*agentrewire.PortForwardListRequest) (*agentrewire.PortForwardListResponse, error) {
+				return &agentrewire.PortForwardListResponse{Mappings: ms}, nil
+			}
+		}
+
+		convey.Convey("已有启用的环回映射指向该端口 → 直接复用,不再新建", func() {
+			r := newRig(t)
+			r.expectRoundTrip(t, 7)
+			onList(r, listOf(
+				&agentrewire.PortForwardMapping{Id: 10, Port: 8080, Enabled: true, Target: "http://127.0.0.1:8080"},
+				&agentrewire.PortForwardMapping{Id: 11, Port: 3000, Enabled: true, Target: "http://localhost:3000"},
+			))
+			onCreate(r, func(*agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error) {
+				t.Fatal("已有映射时不该 Create")
+				return nil, nil
+			})
+
+			view, err := r.svc.EnsureForPort(r.ctx, "7", 3000)
+			require.NoError(t, err)
+			assert.Equal(t, "11", view.ID)
+			assert.True(t, view.Enabled)
+		})
+
+		convey.Convey("目标是别的主机的同端口映射不算数 → 新建", func() {
+			r := newRig(t)
+			r.expectRoundTrip(t, 7)
+			r.expectRoundTrip(t, 7)
+			onList(r, listOf(
+				&agentrewire.PortForwardMapping{Id: 10, Port: 3000, Enabled: true, Target: "http://10.0.0.5:3000"},
+			))
+			onCreate(r, func(request *agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error) {
+				require.Equal(t, "3000", request.GetTarget())
+				require.False(t, request.GetInsecure())
+				return &agentrewire.PortForwardCreateResponse{Mapping: &agentrewire.PortForwardMapping{
+					Id: 12, Port: 3000, Enabled: true, Target: "http://127.0.0.1:3000",
+				}}, nil
+			})
+
+			view, err := r.svc.EnsureForPort(r.ctx, "7", 3000)
+			require.NoError(t, err)
+			assert.Equal(t, "12", view.ID)
+		})
+
+		convey.Convey("匹配的映射被停用 → 启用它而不是再建一条", func() {
+			r := newRig(t)
+			r.expectRoundTrip(t, 7)
+			r.expectRoundTrip(t, 7)
+			onList(r, listOf(
+				&agentrewire.PortForwardMapping{Id: 11, Port: 3000, Enabled: false, Target: "https://127.0.0.1:3000"},
+			))
+			onSetEnabled(r, func(request *agentrewire.PortForwardSetEnabledRequest) (*agentrewire.PortForwardSetEnabledResponse, error) {
+				require.Equal(t, int64(11), request.GetId())
+				require.True(t, request.GetEnabled())
+				return &agentrewire.PortForwardSetEnabledResponse{Mapping: &agentrewire.PortForwardMapping{
+					Id: 11, Port: 3000, Enabled: true, Target: "https://127.0.0.1:3000",
+				}}, nil
+			})
+			onCreate(r, func(*agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error) {
+				t.Fatal("停用的映射该被启用,不该 Create")
+				return nil, nil
+			})
+
+			view, err := r.svc.EnsureForPort(r.ctx, "7", 3000)
+			require.NoError(t, err)
+			assert.Equal(t, "11", view.ID)
+			assert.True(t, view.Enabled)
+		})
+
+		convey.Convey("一条匹配的都没有 → 新建(纯端口,不忽略证书)", func() {
+			r := newRig(t)
+			r.expectRoundTrip(t, 7)
+			r.expectRoundTrip(t, 7)
+			onList(r, listOf())
+			onCreate(r, func(request *agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error) {
+				require.Equal(t, "3000", request.GetTarget())
+				require.NotEmpty(t, request.GetName())
+				require.False(t, request.GetInsecure())
+				return &agentrewire.PortForwardCreateResponse{Mapping: &agentrewire.PortForwardMapping{
+					Id: 13, Port: 3000, Name: request.GetName(), Enabled: true, Target: "http://127.0.0.1:3000",
+				}}, nil
+			})
+
+			view, err := r.svc.EnsureForPort(r.ctx, "7", 3000)
+			require.NoError(t, err)
+			assert.Equal(t, "13", view.ID)
+		})
+
+		convey.Convey("设备离线 → 离线码,不新建", func() {
+			r := newRig(t)
+			r.expectBorrowFails(7, errors.New("connection refused"))
+
+			_, err := r.svc.EnsureForPort(r.ctx, "7", 3000)
+			assert.Equal(t, code.PortForwardDeviceOffline, codeOf(t, err))
+		})
+
+		convey.Convey("新建失败 → 照码透传", func() {
+			r := newRig(t)
+			r.expectRoundTrip(t, 7)
+			r.expectRoundTrip(t, 7)
+			onList(r, listOf())
+			onCreate(r, func(*agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error) {
+				return nil, rpcErr(rpcerror.CodePortForwardInvalidPort)
+			})
+
+			_, err := r.svc.EnsureForPort(r.ctx, "7", 3000)
+			assert.Equal(t, code.PortForwardInvalidPort, codeOf(t, err))
+		})
+	})
+}
+
 // ── 单例 ────────────────────────────────────────────────────────────────────
 
 func TestDefaultIsWired(t *testing.T) {

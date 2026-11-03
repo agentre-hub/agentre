@@ -346,7 +346,7 @@ type codexLaunchSpec struct {
 // 也要装配，否则 chat_svc 签的 token 永远传不到 BuildCodexConfig，登录态无法被接管。
 // 会话级 agrctl 凭证（Ctl）与网关门控无关，两种情况都带。
 func gatewayDeps(req agentruntime.RunRequest) agentruntime.CLIDeps {
-	deps := agentruntime.CLIDeps{Ctl: req.CtlCredentials()}
+	deps := agentruntime.CLIDeps{Ctl: req.CtlCredentials(), Session: req.ConversationID}
 	if req.Backend == nil || req.EffectiveProviderKey() == "" {
 		return deps
 	}

@@ -289,4 +289,6 @@ var enUS = map[int]string{
 	PortForwardPortTaken:     "That port is already mapped on this device",
 	PortForwardInvalidPort:   "Port must be an integer between 1 and 65535",
 	PortForwardInvalidTarget: "Enter a port, host:port, or http(s)://host[:port].",
+
+	SessionProcessNotOwned: "That process no longer belongs to this session",
 }

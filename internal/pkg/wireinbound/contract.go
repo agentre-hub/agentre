@@ -194,6 +194,12 @@ func Contract() []Requirement {
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_CLI_MODEL, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote.Runtime.SetCLIModel:已附着会话的即时切换"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_DRAIN_PENDING, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote/runtime.go:1006"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote/runtime.go:1041"},
+		// 会话进程两条只由桌面端发给远程会话的执行设备;本机会话桌面端自己扫描,不经 RPC,
+		// 控制台没有后台任务弹层(spec 2026-11-03-session-process-ports 决策 10)。
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_LIST_SESSION_PROCESSES, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred},
+			"remote.Runtime.ListSessionProcesses:后台任务弹层「进程与端口」"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_KILL_SESSION_PROCESS, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred},
+			"remote.Runtime.KillSessionProcess:「进程与端口」行的「结束进程」"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_GET, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote/runtime.go:1113"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_SET, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote/runtime.go:1129"},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_CLEAR, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote/runtime.go:1145"},

@@ -14,6 +14,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-hub/agentre/internal/pkg/procscan"
 )
 
 func TestStart_GivenEnvShebangInterpreterNextToBinary_WhenStartingProcess_ThenItBoots(t *testing.T) {
@@ -160,3 +162,38 @@ func TestKill_GivenProcessSpawnedGrandchild_WhenKilling_ThenWholeTreeGoesDown(t 
 		t.Fatal("Kill 之后 stdout 仍未 EOF,说明孙进程还活着并握着管道写端")
 	}
 }
+
+// 起来的 CLI 进程登记进宿主 CLI 表（认领时据此排除），Wait 返回后释放。
+func TestStart_GivenStartedCLI_ThenTrackedUntilWaitReturns(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses /bin/sh")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	h, err := Start(ctx, Options{Binary: "/bin/sh", Args: []string{"-c", "read x"}}, errors.New("missing"))
+	require.NoError(t, err)
+	pid := h.(*execHandle).cmd.Process.Pid
+	scanner := procscan.NewWith(trackFakeOS{pid: pid}, 0)
+
+	got, err := scanner.List(ctx, "conv-track")
+	require.NoError(t, err)
+	assert.Empty(t, got, "存活的 CLI 进程已登记，不当作会话遗留进程")
+
+	require.NoError(t, h.Stdin().(io.Closer).Close())
+	_, _ = io.ReadAll(h.Stdout())
+	_ = h.Wait()
+	got, err = scanner.List(ctx, "conv-track")
+	require.NoError(t, err)
+	assert.Len(t, got, 1, "Wait 返回后释放登记")
+}
+
+// trackFakeOS 快照里只有一个带标记且监听端口的进程。
+type trackFakeOS struct{ pid int }
+
+func (f trackFakeOS) Snapshot(context.Context) ([]procscan.Proc, error) {
+	return []procscan.Proc{{PID: f.pid, PPID: 1, Marker: "conv-track", Ports: []uint16{8080}}}, nil
+}
+func (trackFakeOS) Inspect(context.Context, int) (procscan.Proc, bool, error) {
+	return procscan.Proc{}, false, nil
+}
+func (trackFakeOS) Terminate(int, bool) error { return nil }

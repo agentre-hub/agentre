@@ -412,3 +412,8 @@ const (
 	// 指着目标那一格说。
 	PortForwardInvalidTarget = iota + 21004
 )
+
+// 会话进程与端口(后台任务弹层「进程与端口」一节)。
+const (
+	SessionProcessNotOwned = iota + 21010 // 要结束的进程不属于这条会话(已退出、PID 被复用或不是它留下的)
+)
