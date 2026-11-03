@@ -53,14 +53,14 @@ function QuitConfirmRow({ row }: { row: ActiveRow }) {
     <div className="flex items-center gap-2.5 rounded-md bg-field-fill px-3 py-2.5">
       <AgentAvatar
         name={identity?.name || row.agentName}
-        color={row.agentColor as AgentColor}
+        color={(identity?.color || row.agentColor) as AgentColor}
         avatarIcon={identity?.avatarIcon}
         avatarDataUrl={identity?.avatarDataUrl}
         size="sm"
       />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-sm font-semibold text-foreground">
-          {row.agentName}
+          {identity?.name || row.agentName}
         </span>
         {row.title ? (
           <span className="truncate text-xs text-muted-foreground">

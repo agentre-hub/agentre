@@ -4,41 +4,35 @@ import { Upload, X } from "lucide-react";
 import { useUiTranslation } from "../i18n";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { avatarMimeTypes, maxAvatarBytes } from "./avatar-image";
 
 export interface IdentityImageUpload {
   onUpload(file: File): Promise<void>;
   onDelete(): Promise<void>;
 }
 
-const ACCEPT = "image/png,image/jpeg,image/webp";
-const MAX_BYTES = 2 * 1024 * 1024;
-
+// 操作归选择器所有，不随图片面板切换或弹层关闭而丢失互斥锁与错误。
 // 文件约束在共享入口校验，宿主端口只负责上传与删除。
-export function ImagePanel({
-  name,
-  avatarDataUrl,
-  upload,
-}: {
-  name: string;
-  avatarDataUrl?: string;
-  upload: IdentityImageUpload | "after-create";
-}) {
+export function useIdentityImageUpload(
+  upload: IdentityImageUpload | "after-create" | undefined,
+) {
   const { t } = useUiTranslation();
-  const input = React.useRef<HTMLInputElement>(null);
+  const pendingRef = React.useRef(false);
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState("");
 
   async function run(file?: File) {
-    if (upload === "after-create" || pending) return;
+    if (!upload || upload === "after-create" || pendingRef.current) return;
     setError("");
-    if (file && file.size > MAX_BYTES) {
+    if (file && file.size > maxAvatarBytes) {
       setError(t("identityMark.tooLarge"));
       return;
     }
-    if (file && !ACCEPT.split(",").includes(file.type)) {
+    if (file && !avatarMimeTypes.includes(file.type)) {
       setError(t("identityMark.invalidType"));
       return;
     }
+    pendingRef.current = true;
     setPending(true);
     try {
       if (file) await upload.onUpload(file);
@@ -52,9 +46,28 @@ export function ImagePanel({
             : t("identityMark.deleteFailed"),
       );
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }
+
+  return { pending, error, run };
+}
+
+export function ImagePanel({
+  name,
+  avatarDataUrl,
+  upload,
+  operation,
+}: {
+  name: string;
+  avatarDataUrl?: string;
+  upload: IdentityImageUpload | "after-create";
+  operation: ReturnType<typeof useIdentityImageUpload>;
+}) {
+  const { t } = useUiTranslation();
+  const input = React.useRef<HTMLInputElement>(null);
+  const { pending, error, run } = operation;
 
   if (upload === "after-create")
     return (
@@ -119,7 +132,7 @@ export function ImagePanel({
       <Input
         ref={input}
         type="file"
-        accept={ACCEPT}
+        accept={avatarMimeTypes.join(",")}
         aria-label={t("identityMark.uploadImage")}
         className="hidden"
         disabled={pending}

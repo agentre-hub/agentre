@@ -1,5 +1,5 @@
 # 清理预设素材边缘：见 README.md「入库前清理」。依赖 Pillow + numpy。
-import sys,glob,os,numpy as np
+import sys,glob,os
 from PIL import Image
 import numpy as np
 from collections import deque
@@ -34,7 +34,8 @@ for f in sorted(glob.glob(src+'/*.webp')):
     im=np.array(Image.open(f).convert('RGB')).astype(int)
     bg=im[0,0];d=np.abs(im-bg).sum(2)
     lab,sz=comps(d>12)
-    main=lab==(1+int(np.argmax(sz)))
+    # 纯底色图没有贴纸连通块；保留空掩码，不对空列表求 argmax。
+    main=lab==(1+int(np.argmax(sz))) if sz else np.zeros(lab.shape, dtype=bool)
     keep=dil(main,2)
     stray=(d>0)&~keep
     print(n,'stray px',int(stray.sum()),'of which strong',int((stray&(d>12)).sum()))

@@ -18,9 +18,14 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from "../ui/segmented-control";
+import { uploadedAvatarSrc } from "./avatar-image";
 import { ColorPalette } from "./color-palette";
 import { IconGrid } from "./icon-grid";
-import { ImagePanel, type IdentityImageUpload } from "./image-panel";
+import {
+  ImagePanel,
+  useIdentityImageUpload,
+  type IdentityImageUpload,
+} from "./image-panel";
 import { PresetGrid } from "./preset-grid";
 
 export interface IdentityMarkPickerProps {
@@ -47,13 +52,15 @@ export function IdentityMarkPicker({
   name,
   iconKey,
   color,
-  avatarDataUrl,
+  avatarDataUrl: storedAvatar,
   upload,
   onPickIcon,
   onPickColor,
 }: IdentityMarkPickerProps) {
   const { t } = useUiTranslation();
   const [open, setOpen] = React.useState(false);
+  const imageOperation = useIdentityImageUpload(upload);
+  const avatarDataUrl = uploadedAvatarSrc(storedAvatar);
   const preset = presetForKey(iconKey);
   const icon = iconMeta(iconKey, t);
   const effective: Mode =
@@ -64,7 +71,8 @@ export function IdentityMarkPicker({
         : hasIcon(iconKey)
           ? "icon"
           : "letter";
-  const [mode, setMode] = React.useState<Mode>(effective);
+  const [selectedMode, setMode] = React.useState<Mode>(effective);
+  const mode = selectedMode === "image" && !upload ? effective : selectedMode;
   const id = React.useId();
   const initials =
     kind === "agent" ? getAgentInitials(name) : (initialOf(name) ?? "?");
@@ -269,6 +277,7 @@ export function IdentityMarkPicker({
               name={name}
               avatarDataUrl={avatarDataUrl}
               upload={upload}
+              operation={imageOperation}
             />
           )}
         </div>

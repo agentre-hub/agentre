@@ -207,6 +207,16 @@ describe("useTabsView 数据派生", () => {
         ] as never,
       });
     };
+    it("Given a new-session tab without session metadata When its selected agent is loaded Then it already has the selected agent's mark", () => {
+      seedAgent({ avatarIcon: "preset:agent-architect" });
+      useChatTabsStore.getState().openNewSession(0, 3, "");
+      const { result } = renderHook(() => useTabsView());
+      expect(result.current[0].avatar).toMatchObject({
+        avatarIcon: "preset:agent-architect",
+        color: "var(--agent-9)",
+      });
+    });
+
     const openMeta = () => {
       useChatTabsStore.getState().openSessionInNewTab(101);
       useSessionMetaStore.getState().setMeta(101, {

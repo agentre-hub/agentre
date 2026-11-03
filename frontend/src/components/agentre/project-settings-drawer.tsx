@@ -322,7 +322,7 @@ function ProjectSettingsDrawer({
       id: String(m.agentID),
       name: m.agentName || `Agent #${m.agentID}`,
       color: m.avatarColor,
-      avatarIcon: m.avatarIcon,
+      avatarIconKey: m.avatarIcon,
       avatarDataUrl: m.avatarDataUrl,
     })),
     ...inherited.map((m) => ({
@@ -330,7 +330,7 @@ function ProjectSettingsDrawer({
       id: `inherited-${m.agentID}`,
       name: m.agentName || `Agent #${m.agentID}`,
       color: m.avatarColor,
-      avatarIcon: m.avatarIcon,
+      avatarIconKey: m.avatarIcon,
       avatarDataUrl: m.avatarDataUrl,
       inherited: true,
       inheritedFrom: m.fromName,
@@ -347,7 +347,7 @@ function ProjectSettingsDrawer({
         id: String(a.id),
         name: a.name,
         color: a.avatarColor,
-        avatarIcon: a.avatarIcon,
+        avatarIconKey: a.avatarIcon,
         avatarDataUrl: a.avatarDataUrl,
         disabled: blocked,
         disabledReason: blocked

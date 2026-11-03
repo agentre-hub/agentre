@@ -34,6 +34,7 @@ import { useNewAgentIntentStore } from "@/stores/new-agent-intent-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 
 import { SessionsPopover } from "../sessions-popover";
+import { agentIdentityOf } from "../use-agent-identity";
 import * as WailsApp from "../../../../wailsjs/go/app/App";
 import type { app } from "../../../../wailsjs/go/models";
 
@@ -455,17 +456,13 @@ export function SessionIndexPage() {
     [projectByID],
   );
   const agentInfoOf = React.useCallback(
-    (agentID: number) => {
-      const a = agentByID.get(agentID);
-      return {
-        name: a?.name ?? "",
-        color: a?.avatarColor || "",
-        // 会话 meta 没有图标 / 上传图片（规格 2026-11-02 决策 17）：行首与第二行
-        // 要画完整身份，只能从 agents 列表补齐。
-        avatarIcon: a?.avatarIcon || "",
-        avatarDataUrl: a?.avatarDataUrl || "",
-      };
-    },
+    (agentID: number) =>
+      agentIdentityOf(agentByID.get(agentID)) ?? {
+        name: "",
+        color: "",
+        avatarIcon: "",
+        avatarDataUrl: "",
+      },
     [agentByID],
   );
 

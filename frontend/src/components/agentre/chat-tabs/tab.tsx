@@ -3,22 +3,18 @@ import * as React from "react";
 import { Loader2, MonitorUp, Pin, TerminalSquare, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { AgentAvatar, presetForKey, StatusDot } from "@agentre-hub/agentre-ui";
+import { AgentAvatar, StatusDot } from "@agentre-hub/agentre-ui";
 
 import { cn } from "@agentre-hub/agentre-ui";
+
+import type { SessionAvatar } from "../session-avatar";
 
 export type TabStatus = "idle" | "running" | "waiting" | "error";
 
 export type TabProps = {
   title: string;
   kind?: "session" | "new" | "terminal" | "run" | "peer";
-  avatar: {
-    letter: string;
-    color: string;
-    /** 图标 key（预设 / 词表）：完整身份的第二、三档（决策 17）。 */
-    avatarIcon?: string;
-    avatarDataUrl?: string;
-  };
+  avatar: SessionAvatar;
   active: boolean;
   isPreview: boolean;
   isPinned: boolean;
@@ -57,9 +53,6 @@ export const Tab = React.forwardRef<
   ref,
 ) {
   const { t } = useTranslation();
-  // 上传图片 / 预设整格画图时不叠颜色底（规格 2026-11-02 决策 17）。
-  const avatarImage =
-    avatar.avatarDataUrl || presetForKey(avatar.avatarIcon ?? "")?.src;
 
   return (
     <div
@@ -114,7 +107,7 @@ export const Tab = React.forwardRef<
           avatarDataUrl={avatar.avatarDataUrl}
           iconKey={avatar.avatarIcon}
           size="xs"
-          style={avatarImage ? undefined : { backgroundColor: avatar.color }}
+          style={{ backgroundColor: avatar.color }}
         />
       )}
       {isPinned ? (

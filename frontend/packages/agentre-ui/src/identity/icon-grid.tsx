@@ -8,7 +8,7 @@ import { searchPresets, type PresetGroup } from "../presets/preset-registry";
 import { Input } from "../ui/input";
 import { PresetGrid } from "./preset-grid";
 
-// 项目旧入口与统一记号弹层共用图标搜索；预设只进搜索结果，不改图标词表。
+// 统一记号弹层的图标搜索；预设只进搜索结果，不改图标词表。
 export function IconGrid({
   value,
   onPick,
@@ -16,14 +16,12 @@ export function IconGrid({
 }: {
   value: string;
   onPick(key: string): void;
-  presetGroups?: readonly PresetGroup[];
+  presetGroups: readonly PresetGroup[];
 }) {
   const { t } = useUiTranslation();
   const [query, setQuery] = React.useState("");
   const trimmed = query.trim();
-  const searchLabel = presetGroups
-    ? t("identityMark.search")
-    : t("projectSettings.identity.iconSearch");
+  const searchLabel = t("identityMark.search");
   const groups = React.useMemo(
     () =>
       trimmed
@@ -37,8 +35,7 @@ export function IconGrid({
         : iconsByCategory(t),
     [t, trimmed],
   );
-  const presets =
-    trimmed && presetGroups ? searchPresets(trimmed, t, presetGroups) : [];
+  const presets = trimmed ? searchPresets(trimmed, t, presetGroups) : [];
 
   return (
     <div data-testid="project-glyph-icons">
@@ -100,9 +97,7 @@ export function IconGrid({
             data-testid="project-glyph-icon-none"
             className="py-2 text-2xs text-muted-foreground"
           >
-            {presetGroups
-              ? t("identityMark.noMatches")
-              : t("projectSettings.identity.iconNoMatch")}
+            {t("identityMark.noMatches")}
           </p>
         )}
       </div>

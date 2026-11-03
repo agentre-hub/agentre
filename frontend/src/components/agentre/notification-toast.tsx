@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { cn, presetForKey } from "@agentre-hub/agentre-ui";
+import { cn } from "@agentre-hub/agentre-ui";
 import type { NotifyKind } from "@/lib/turn-notify";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import {
@@ -70,9 +70,6 @@ function NotificationToastCard({
   // meta 只有名字 / 颜色；图标与上传图片在 agents 列表里（规格 2026-11-02 决策 17）。
   const identity = useAgentIdentity(meta?.agentId);
   const avatar = avatarFromMeta(meta, identity);
-  // 上传图片 / 预设整格画图时不叠颜色底（规格 2026-11-02 决策 17）。
-  const avatarImage =
-    avatar.avatarDataUrl || presetForKey(avatar.avatarIcon)?.src;
   const style = KIND_STYLE[toast.kind];
   const { Icon } = style;
 
@@ -109,7 +106,7 @@ function NotificationToastCard({
             size="sm"
             // 沿用这一枚原来的尺寸与圆角（不跟着身份档改形）。
             className="rounded-full"
-            style={avatarImage ? undefined : { backgroundColor: avatar.color }}
+            style={{ backgroundColor: avatar.color }}
             avatarDataUrl={avatar.avatarDataUrl}
             avatarIcon={avatar.avatarIcon}
           />

@@ -5,7 +5,7 @@
 // 这个全局，也没有 `console` —— 所以 Node 的东西一律从 globalThis 取，回执走 stdout。
 // 图片用 file:// 页面 goto 渲染：setContent 载不了本地的 file:// 图。
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -13,7 +13,10 @@ const nodeProcess = globalThis.process;
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 
 // logo 目录跟着脚本走：<包根>/src/engine/assets/brands，换台机器照样能跑。
-const defaultBrandsDir = "../../src/engine/assets/brands";
+const defaultBrandsDir = path.resolve(
+  scriptDir,
+  "../../src/engine/assets/brands",
+);
 const names = [
   "claude.svg",
   "anthropic.svg",
@@ -40,7 +43,7 @@ const usage = `用法：node raster.mjs --playwright <path> [--out <dir>] [--bra
   --playwright <path>  @playwright/test 的 ESM 入口，通常是
                        <仓库>/e2e/node_modules/@playwright/test/index.mjs
                        也可用环境变量 PLAYWRIGHT_MODULE 给
-  --out <dir>          r-<name>.png 与临时页面 _r.html 的输出目录
+  --out <dir>          r-<name>.png 的输出目录
                        默认当前目录，也可用环境变量 RASTER_OUT_DIR
   --brands <dir>       logo 目录，默认本包的 src/engine/assets/brands
   -h, --help           显示这段说明
@@ -86,30 +89,39 @@ if (!options.playwright) {
   fail("缺少 --playwright（@playwright/test 的 ESM 入口路径）");
 }
 
-const brandsDir = path.resolve(scriptDir, options.brands);
+const brandsDir = path.resolve(options.brands);
 const outDir = path.resolve(options.out);
 mkdirSync(outDir, { recursive: true });
 
-const pagePath = path.join(outDir, "_r.html");
-const pageUrl = pathToFileURL(pagePath).href;
 const { chromium } = await import(
   pathToFileURL(path.resolve(options.playwright)).href
 );
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 600, height: 600 } });
-for (const name of names) {
-  const logoUrl = pathToFileURL(path.join(brandsDir, name)).href;
-  writeFileSync(
-    pagePath,
-    `<html><body style="margin:0;background:transparent"><img id="i" src="${logoUrl}" style="width:560px;height:560px;object-fit:contain;margin:20px"></body></html>`,
-  );
-  await page.goto(pageUrl);
-  await page.waitForTimeout(150);
-  await page.locator("#i").screenshot({
-    path: path.join(outDir, `r-${name.replace(/\.(svg|png)$/, "")}.png`),
-    omitBackground: true,
-  });
+let scratch;
+try {
+  scratch = mkdtempSync(path.join(outDir, ".raster-"));
+  const pagePath = path.join(scratch, "page.html");
+  const pageUrl = pathToFileURL(pagePath).href;
+  const page = await browser.newPage({ viewport: { width: 600, height: 600 } });
+  for (const name of names) {
+    const logoUrl = pathToFileURL(path.join(brandsDir, name)).href;
+    writeFileSync(
+      pagePath,
+      `<html><body style="margin:0;background:transparent"><img id="i" src="${logoUrl}" style="width:560px;height:560px;object-fit:contain;margin:20px"></body></html>`,
+    );
+    await page.goto(pageUrl);
+    await page.locator("#i").evaluate((image) => image.decode());
+    await page.locator("#i").screenshot({
+      path: path.join(outDir, `r-${name.replace(/\.(svg|png)$/, "")}.png`),
+      omitBackground: true,
+    });
+  }
+} finally {
+  try {
+    await browser.close();
+  } finally {
+    if (scratch) rmSync(scratch, { recursive: true, force: true });
+  }
 }
-await browser.close();
 nodeProcess.stdout.write(`ok: ${names.length} 张 → ${outDir}\n`);

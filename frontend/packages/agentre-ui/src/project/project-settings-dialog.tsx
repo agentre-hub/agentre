@@ -597,7 +597,8 @@ function AddMemberPopover({
                 <AgentAvatar
                   name={a.name}
                   color={a.color}
-                  iconKey={a.avatarIcon}
+                  icon={a.avatarIcon}
+                  iconKey={a.avatarIconKey}
                   avatarDataUrl={a.avatarDataUrl}
                   size="xs"
                 />
@@ -651,7 +652,8 @@ function MembersSection({
           <AgentAvatar
             name={m.name}
             color={m.color}
-            iconKey={m.avatarIcon}
+            icon={m.avatarIcon}
+            iconKey={m.avatarIconKey}
             avatarDataUrl={m.avatarDataUrl}
             size="xs"
           />

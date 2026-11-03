@@ -186,14 +186,45 @@ describe("即时保存", () => {
     );
   });
 
+  it("Given legacy host-rendered member and candidate icons When rows render Then both custom nodes remain supported", async () => {
+    open({
+      project: {
+        ...PROJECT,
+        members: [
+          {
+            id: "m1",
+            name: "Reviewer",
+            avatarIcon: <span>member custom icon</span>,
+          },
+        ],
+        candidates: [
+          {
+            id: "a9",
+            name: "Builder",
+            avatarIcon: <span>candidate custom icon</span>,
+          },
+        ],
+      },
+    });
+    expect(await screen.findByText("member custom icon")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("project-member-add-open"));
+    expect(
+      await screen.findByText("candidate custom icon"),
+    ).toBeInTheDocument();
+  });
+
   it("Given member and candidate icon keys When rows render Then presets and legacy icons render by key", async () => {
     open({
       project: {
         ...PROJECT,
         members: [
-          { id: "m1", name: "Reviewer", avatarIcon: "preset:agent-architect" },
+          {
+            id: "m1",
+            name: "Reviewer",
+            avatarIconKey: "preset:agent-architect",
+          },
         ],
-        candidates: [{ id: "a9", name: "Builder", avatarIcon: "rocket" }],
+        candidates: [{ id: "a9", name: "Builder", avatarIconKey: "rocket" }],
       },
     });
     expect(

@@ -76,6 +76,33 @@ describe("IdentityMarkPicker", () => {
     },
   );
 
+  it("Given a remote URL instead of an uploaded raster When opened Then the picker uses its fallback without loading the remote image", async () => {
+    const { user } = await open({
+      upload: port(),
+      iconKey: "rocket",
+      avatarDataUrl: "https://other.example/track",
+    });
+    expect(tab("图标")).toHaveAttribute("aria-selected", "true");
+    await user.click(tab("图片"));
+    expect(
+      document.querySelector('img[src="https://other.example/track"]'),
+    ).toBeNull();
+  });
+
+  it("Given the image tab is open When its upload capability is withdrawn Then an available tab stays selected", async () => {
+    const { user, props, rerender } = await open({
+      upload: port(),
+      iconKey: "rocket",
+    });
+    await user.click(tab("图片"));
+    rerender(<IdentityMarkPicker {...props} upload={undefined} />);
+    expect(screen.queryByRole("tab", { name: "图片" })).not.toBeInTheDocument();
+    expect(tab("图标")).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByRole("textbox", { name: "搜索图标" }),
+    ).toBeInTheDocument();
+  });
+
   it.each([port(), "after-create"] as const)(
     "Given upload capability %s When opened Then the image tab follows the letter tab",
     async (upload) => {
@@ -293,6 +320,44 @@ describe("IdentityMarkPicker", () => {
     await user.click(screen.getByRole("button", { name: "删除上传头像" }));
     expect(upload.onDelete).toHaveBeenCalledOnce();
   });
+
+  it.each(["tab", "popover"])(
+    "Given an upload in flight When the image panel is reopened via %s Then writes remain disabled and failures remain visible",
+    async (navigation) => {
+      let fail!: (error: Error) => void;
+      const upload = port();
+      upload.onUpload.mockImplementationOnce(
+        () =>
+          new Promise<void>((_, reject) => {
+            fail = reject;
+          }),
+      );
+      const { user } = await open({
+        upload,
+        avatarDataUrl: "data:image/png;base64,AA",
+      });
+      fireEvent.change(screen.getByLabelText("上传图片"), {
+        target: { files: [new File(["ok"], "a.png", { type: "image/png" })] },
+      });
+      if (navigation === "tab") {
+        await user.click(tab("字母"));
+        await user.click(tab("图片"));
+      } else {
+        await user.keyboard("{Escape}");
+        await user.click(screen.getByRole("button", { name: "更改头像" }));
+      }
+      expect(screen.getByRole("button", { name: "替换" })).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "删除上传头像" }),
+      ).toBeDisabled();
+      fail(new Error("network unavailable"));
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "network unavailable",
+      );
+      await user.click(screen.getByRole("button", { name: "删除上传头像" }));
+      expect(upload.onDelete).toHaveBeenCalledOnce();
+    },
+  );
 
   it("Given a failing upload or delete When the port rejects Then a localized failure is shown without an unhandled rejection", async () => {
     const upload = port();

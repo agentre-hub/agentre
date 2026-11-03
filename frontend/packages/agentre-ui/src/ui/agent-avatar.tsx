@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { uploadedAvatarSrc } from "../identity/avatar-image";
 import { tokenToCssColor } from "../lib/agent-color";
 import { cn } from "../lib/utils";
 import { iconNode } from "../org/icon-registry";
@@ -111,7 +112,8 @@ export function AgentAvatar({
 }: AgentAvatarProps) {
   // 四档身份（规格 2026-11-02「预置头像」）：上传图片 ▸ 预设 ▸ 图标 ▸ 首字母。
   // 预设只有 64 个 key 且都在包里，认不出的 `preset:` key 就当没设过图标。
-  const imageSrc = avatarDataUrl || presetForKey(iconKey ?? "")?.src;
+  const imageSrc =
+    uploadedAvatarSrc(avatarDataUrl) || presetForKey(iconKey ?? "")?.src;
 
   if (imageSrc) {
     return (
@@ -125,6 +127,7 @@ export function AgentAvatar({
           className,
         )}
         {...props}
+        style={props.style && { ...props.style, backgroundColor: undefined }}
       >
         {/*
           外层已经带了可及名，内层的 alt 留空当装饰 —— 两处都报同一个名字会让

@@ -46,9 +46,7 @@
       "noParent": "无（挂在根上）"
     },
     "identity": {
-      "iconSearch": "搜索图标…",
-      "iconResults": "搜索结果",
-      "iconNoMatch": "没有匹配的图标。"
+      "iconResults": "搜索结果"
     },
     "members": {
       "empty": "这个项目还没有成员。",

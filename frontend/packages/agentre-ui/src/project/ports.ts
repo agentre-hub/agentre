@@ -218,8 +218,10 @@ export interface ProjectMemberView {
   name: string;
   /** 颜色 token，画身份方块用。 */
   color?: string;
+  /** 宿主提供的图标节点，保留旧消费者的插槽契约。 */
+  avatarIcon?: React.ReactNode;
   /** 图标或预设的持久化 key。 */
-  avatarIcon?: string;
+  avatarIconKey?: string;
   avatarDataUrl?: string;
   /** 继承自祖先项目：能用，但**不在这个项目里**，所以这里移除不了它。 */
   inherited?: boolean;
@@ -231,8 +233,10 @@ export interface ProjectCandidateView {
   id: string;
   name: string;
   color?: string;
+  /** 宿主提供的图标节点，保留旧消费者的插槽契约。 */
+  avatarIcon?: React.ReactNode;
   /** 图标或预设的持久化 key。 */
-  avatarIcon?: string;
+  avatarIconKey?: string;
   avatarDataUrl?: string;
   /**
    * 加不了。**留在列表里并说出原因**，不是静默消失 —— 一个用户以为自己有的 Agent

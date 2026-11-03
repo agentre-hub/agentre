@@ -137,6 +137,8 @@ describe("QuitConfirmDialog · Agent 记号显示完整身份", () => {
   function renderRowAvatar(identity: {
     avatarIcon?: string;
     avatarDataUrl?: string;
+    avatarColor?: string;
+    name?: string;
   }) {
     useChatAgentsStore.setState({
       agents: [
@@ -159,7 +161,7 @@ describe("QuitConfirmDialog · Agent 记号显示完整身份", () => {
     emitQuitBlocked(1);
 
     return within(screen.getByRole("dialog")).getByRole("img", {
-      name: "Backend",
+      name: identity.name ?? "Backend",
     });
   }
 
@@ -186,6 +188,19 @@ describe("QuitConfirmDialog · Agent 记号显示完整身份", () => {
 
     expect(avatar.querySelector("svg")).not.toBeNull();
     expect(avatar).not.toHaveTextContent("B");
+  });
+
+  it("Given stale session metadata When quit is blocked Then the row uses the live agent name and colour", () => {
+    const avatar = renderRowAvatar({ avatarColor: "agent-7", name: "Renamed" });
+    expect(avatar.style.backgroundColor).toBe("var(--agent-7)");
+    expect(screen.getByText("Renamed")).toBeInTheDocument();
+    expect(screen.queryByText("Backend")).not.toBeInTheDocument();
+  });
+
+  it("Given an agent without a colour When quit is blocked Then the session metadata colour remains the fallback", () => {
+    expect(renderRowAvatar({ avatarColor: "" }).style.backgroundColor).toBe(
+      "var(--agent-1)",
+    );
   });
 
   it("没有图标：记号照旧画首字母", () => {

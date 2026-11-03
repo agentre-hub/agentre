@@ -2,6 +2,7 @@
 // { letter, color }，供 tab 条与通知 toast 等处复用，避免各自再实现一遍。
 // token → css 变量的映射本身归共享包（词汇表与 tokens.css 同源）。
 import { tokenToCssColor } from "@agentre-hub/agentre-ui";
+import type { AgentIdentity } from "./use-agent-identity";
 
 // firstLetter 取名字首字符作头像字母；空名回落 "?"。
 export function firstLetter(name: string | null | undefined): string {
@@ -16,29 +17,19 @@ export type AvatarMeta =
   | null
   | undefined;
 
-// AvatarIdentity 是 chat-agents-store 里那份完整身份（useAgentIdentity 的产物）。
-// 会话 meta 没有图标 / 上传图片这两项，所以有 agent 身份时以它为准；没有时回落 meta。
-export type AvatarIdentity =
-  | {
-      name?: string | null;
-      color?: string | null;
-      avatarIcon?: string | null;
-      avatarDataUrl?: string | null;
-    }
-  | null
-  | undefined;
+export type SessionAvatar = {
+  letter: string;
+  color: string;
+  avatarIcon?: string;
+  avatarDataUrl?: string;
+};
 
 // avatarFromMeta 从 session meta（并可用 agent 身份覆盖）推导头像；
 // meta 与身份都缺失时回落灰底问号。
 export function avatarFromMeta(
   meta: AvatarMeta,
-  identity?: AvatarIdentity,
-): {
-  letter: string;
-  color: string;
-  avatarIcon: string;
-  avatarDataUrl: string;
-} {
+  identity?: AgentIdentity | null,
+): SessionAvatar {
   const name = identity?.name || meta?.agentName;
   const colorToken = identity?.color || meta?.agentColor;
   return {

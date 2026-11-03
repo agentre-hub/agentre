@@ -7,6 +7,24 @@ import { AgentAvatar } from "./agent-avatar";
 
 describe("AgentAvatar", () => {
   describe("三档身份", () => {
+    it.each(["upload", "preset"])(
+      "Given %s and a host fallback background When rendering Then the image has no identity tint but keeps layout styles",
+      (source) => {
+        render(
+          <AgentAvatar
+            name="Agentre"
+            avatarDataUrl={
+              source === "upload" ? "data:image/png;base64,AAAA" : undefined
+            }
+            iconKey={source === "preset" ? "preset:agent-assistant" : undefined}
+            style={{ backgroundColor: "var(--agent-7)", borderRadius: 12 }}
+          />,
+        );
+        const mark = screen.getByRole("img", { name: "Agentre" });
+        expect(mark.style.backgroundColor).toBe("");
+        expect(mark.style.borderRadius).toBe("12px");
+      },
+    );
     it("给了上传头像就整块换成图片：不上底色、裁切填满", () => {
       render(
         <AgentAvatar
@@ -48,6 +66,28 @@ describe("AgentAvatar", () => {
   });
 
   describe("预设（preset key）", () => {
+    it.each([
+      "https://other.example/track",
+      "file:///private/picture",
+      "data:image/svg+xml,<svg/>",
+    ])(
+      "Given an untrusted uploaded source %s When rendering Then only the registered fallback image is used",
+      (avatarDataUrl) => {
+        render(
+          <AgentAvatar
+            name="Reviewer"
+            iconKey="preset:agent-architect"
+            avatarDataUrl={avatarDataUrl}
+          />,
+        );
+        expect(
+          screen
+            .getByRole("img", { name: "Reviewer" })
+            .querySelector("img")
+            ?.getAttribute("src"),
+        ).toBe(presetForKey("preset:agent-architect")?.src);
+      },
+    );
     it("iconKey 是认得出的预设就整格画成预设图：不叠色底、不画首字母", () => {
       const preset = presetForKey("preset:agent-assistant");
       render(

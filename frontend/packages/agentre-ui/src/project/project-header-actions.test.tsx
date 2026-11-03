@@ -126,6 +126,25 @@ describe("一份定义、两种容器", () => {
 });
 
 describe("条目全集与能力开关", () => {
+  it("Given a legacy host-rendered member icon When opening new chat choices Then its custom node remains supported", async () => {
+    render(
+      <ProjectHeaderActions
+        {...props({
+          loadMembers: async () => [
+            {
+              id: "a1",
+              name: "Reviewer",
+              avatarIcon: <span>host custom icon</span>,
+            },
+            { id: "a2", name: "Scout" },
+          ],
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("project-add-p1"));
+    expect(await screen.findByText("host custom icon")).toBeInTheDocument();
+  });
+
   it("中间那一组一条都没有时不留分隔线 —— 不许贴边，也不许两条挨在一起", async () => {
     render(<ProjectHeaderActions {...props()} />);
     openMenu(screen.getByTestId("project-menu-p1"));
@@ -222,9 +241,9 @@ describe("＋ 的成员浮层", () => {
             {
               id: "a1",
               name: "Reviewer",
-              avatarIcon: "preset:agent-architect",
+              avatarIconKey: "preset:agent-architect",
             },
-            { id: "a2", name: "Scout", avatarIcon: "rocket" },
+            { id: "a2", name: "Scout", avatarIconKey: "rocket" },
           ]),
         })}
       />,

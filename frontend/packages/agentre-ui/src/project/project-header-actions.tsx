@@ -56,7 +56,9 @@ export interface ProjectHeaderMember {
   id: string;
   name: string;
   color?: string;
-  avatarIcon?: string;
+  /** 宿主图标插槽保持兼容；持久化 key 通过新字段传入。 */
+  avatarIcon?: React.ReactNode;
+  avatarIconKey?: string;
   avatarDataUrl?: string;
   /**
    * 从祖先项目继承来的。照样能选 —— 这里问的是「在这个项目里开对话」，不是「管这个
@@ -449,7 +451,8 @@ export function ProjectHeaderActions(props: ProjectHeaderActionsProps) {
                     <AgentAvatar
                       name={m.name}
                       color={m.color}
-                      iconKey={m.avatarIcon}
+                      icon={m.avatarIcon}
+                      iconKey={m.avatarIconKey}
                       avatarDataUrl={m.avatarDataUrl}
                       size="xs"
                     />

@@ -134,7 +134,7 @@ export function ProjectGroupHeader({
           id: String(m.agentID),
           name,
           color: m.avatarColor || agent?.avatarColor,
-          avatarIcon: m.avatarIcon || agent?.avatarIcon,
+          avatarIconKey: m.avatarIcon || agent?.avatarIcon,
           avatarDataUrl: m.avatarDataUrl || agent?.avatarDataUrl,
           inherited,
         };

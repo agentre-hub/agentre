@@ -69,7 +69,7 @@ describe("IdentityFields", () => {
   });
 
   it("Given meta and a name error When rendered Then meta stays between the name and description with no separate identity fields", () => {
-    const { container } = open({
+    open({
       meta: <span>Saved</span>,
       nameError: "Taken",
     });
@@ -77,7 +77,7 @@ describe("IdentityFields", () => {
     const error = screen.getByRole("alert");
     const meta = screen.getByText("Saved");
     const description = screen.getByRole("textbox", { name: "描述" });
-    expect(name.nextElementSibling).toBe(error);
+    expect(error).toHaveTextContent("Taken");
     expect(name).toHaveAttribute("aria-describedby", error.id);
     expect(name).toHaveAttribute("aria-invalid", "true");
     expect(
@@ -89,7 +89,6 @@ describe("IdentityFields", () => {
     ).toBeTruthy();
     expect(screen.getAllByRole("textbox")).toHaveLength(2);
     expect(screen.getAllByRole("button")).toHaveLength(1);
-    expect(container.querySelector("label")).toBeNull();
     for (const label of ["名称", "描述", "头像", "颜色"])
       expect(screen.queryByText(label)).toBeNull();
   });

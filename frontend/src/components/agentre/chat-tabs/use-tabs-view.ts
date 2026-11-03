@@ -15,7 +15,7 @@ import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
-import { avatarFromMeta } from "../session-avatar";
+import { avatarFromMeta, type SessionAvatar } from "../session-avatar";
 import { agentIdentityOf, type AgentIdentity } from "../use-agent-identity";
 import type { TabStatus } from "./tab";
 
@@ -23,12 +23,7 @@ export type TabView = {
   id: string;
   title: string;
   kind: "session" | "new" | "terminal" | "peer";
-  avatar: {
-    letter: string;
-    color: string;
-    avatarIcon?: string;
-    avatarDataUrl?: string;
-  };
+  avatar: SessionAvatar;
   isPreview: boolean;
   isPinned: boolean;
   status: TabStatus;
@@ -110,8 +105,6 @@ export function useTabsView(): TabView[] {
         avatar: {
           letter: "⌁",
           color: "var(--status-waiting)",
-          avatarIcon: "",
-          avatarDataUrl: "",
         },
         isPreview: tab.isPreview,
         isPinned: tab.isPinned,
@@ -129,7 +122,8 @@ export function useTabsView(): TabView[] {
       pid > 0 ? tokenToCssColor(findProjectColorToken(tree, pid)) : null;
     const chain = pid > 0 ? projectChain(tree, pid) : [];
     // Agent 在 store 里时以它的完整身份为准；不在时 avatarFromMeta 回落 meta。
-    const identity = agentByID.get(meta?.agentId ?? 0) ?? null;
+    const agentId = tab.meta.kind === "new" ? tab.meta.agentId : meta?.agentId;
+    const identity = agentId ? agentByID.get(agentId) : undefined;
     return {
       id: tab.id,
       title: meta?.title ?? tab.title ?? t("chatTabs.fallbackSession"),

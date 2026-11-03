@@ -46,9 +46,7 @@
       "noParent": "None (top level)"
     },
     "identity": {
-      "iconSearch": "Search icons…",
-      "iconResults": "Results",
-      "iconNoMatch": "No icon matches that."
+      "iconResults": "Results"
     },
     "members": {
       "empty": "This project has no members yet.",
