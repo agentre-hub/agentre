@@ -634,6 +634,14 @@ export {
   searchIcons,
 } from "./org/icon-registry";
 export type { IconCategory, IconMeta } from "./org/icon-registry";
+// 预设头像：64 张贴纸 webp 的注册表（key 为持久化值 `preset:<group>-<name>`）。
+export {
+  isPresetKey,
+  presetForKey,
+  presetsByGroup,
+  searchPresets,
+} from "./presets/preset-registry";
+export type { PresetAvatar, PresetGroup } from "./presets/preset-registry";
 // 相对时间:同一套 60 秒 / 60 分 / 24 小时阶梯的三种输出形态。
 export {
   formatCompactRelativeTime,
