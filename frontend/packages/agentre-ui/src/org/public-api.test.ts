@@ -33,6 +33,8 @@ describe("组织索引与详情的对外契约", () => {
       "OrgToolList",
       "OrgExecTargetRow",
       "orgExecTargetReasonLabel",
+      // 部门记号：与 AgentAvatar / ProjectGlyph 同一套预设优先级
+      "DepartmentMark",
     ].filter((name) => !(name in pkg));
 
     expect(missing).toEqual([]);

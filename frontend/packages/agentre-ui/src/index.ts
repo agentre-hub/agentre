@@ -600,6 +600,8 @@ export type {
 } from "./org/types";
 export type { OrgSortableRowBinding } from "./org/drag-binding";
 export { OrgAgentRow } from "./org/org-agent-row";
+export { DepartmentMark } from "./org/department-mark";
+export type { DepartmentMarkProps } from "./org/department-mark";
 export { OrgGroupHeader } from "./org/org-group-header";
 export { OrgInsertLine } from "./org/org-insert-line";
 export { OrgPlacementField } from "./org/org-placement-field";

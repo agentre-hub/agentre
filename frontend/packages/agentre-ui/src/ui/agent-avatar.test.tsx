@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { presetForKey } from "../presets/preset-registry";
+
 import { AgentAvatar } from "./agent-avatar";
 
 describe("AgentAvatar", () => {
@@ -42,6 +44,102 @@ describe("AgentAvatar", () => {
       const glyph = screen.getByRole("img", { name: "Agentre" });
       expect(glyph).toHaveTextContent("A");
       expect(glyph.style.backgroundColor).toBe("var(--agent-7)");
+    });
+  });
+
+  describe("预设（preset key）", () => {
+    it("iconKey 是认得出的预设就整格画成预设图：不叠色底、不画首字母", () => {
+      const preset = presetForKey("preset:agent-assistant");
+      render(
+        <AgentAvatar
+          name="Agentre"
+          color="agent-7"
+          iconKey="preset:agent-assistant"
+          testId="preset"
+        />,
+      );
+
+      const glyph = screen.getByTestId("preset");
+      expect(glyph.querySelector("img")?.getAttribute("src")).toBe(preset?.src);
+      expect(glyph).not.toHaveTextContent("A");
+      expect(glyph.style.backgroundColor).toBe("");
+    });
+
+    it("预设图是装饰：可及名仍是对象的名字，不念预设名", () => {
+      const { container } = render(
+        <AgentAvatar name="Agentre" iconKey="preset:agent-assistant" />,
+      );
+
+      // 内层 <img> 的 alt 留空，外层那一枚才是这个对象的身份。
+      expect(screen.getByRole("img", { name: "Agentre" })).toBeInTheDocument();
+      expect(screen.getAllByRole("img")).toHaveLength(1);
+      expect(container.querySelector("img")?.getAttribute("alt")).toBe("");
+    });
+
+    it("上传图片压过预设：图片本身就是身份", () => {
+      render(
+        <AgentAvatar
+          name="Agentre"
+          avatarDataUrl="data:image/png;base64,AAAA"
+          iconKey="preset:agent-assistant"
+          testId="uploaded"
+        />,
+      );
+
+      const glyph = screen.getByTestId("uploaded");
+      expect(glyph.querySelectorAll("img")).toHaveLength(1);
+      expect(glyph.querySelector("img")?.getAttribute("src")).toBe(
+        "data:image/png;base64,AAAA",
+      );
+    });
+
+    it("预设压过 icon 节点：宿主递进来的节点只是图标那一档", () => {
+      render(
+        <AgentAvatar
+          name="Agentre"
+          iconKey="preset:agent-assistant"
+          icon={<span data-testid="host-icon">🚀</span>}
+          testId="preset-over-icon"
+        />,
+      );
+
+      expect(screen.queryByTestId("host-icon")).toBeNull();
+      expect(
+        screen.getByTestId("preset-over-icon").querySelector("img"),
+      ).not.toBeNull();
+    });
+
+    it("认不出的 preset key 与没有图标一样画首字母：不空白、不破图", () => {
+      render(
+        <AgentAvatar
+          name="Agentre"
+          color="agent-7"
+          iconKey="preset:not-registered-yet"
+          testId="unknown-preset"
+        />,
+      );
+
+      const glyph = screen.getByTestId("unknown-preset");
+      expect(glyph).toHaveTextContent("A");
+      expect(glyph.querySelector("img")).toBeNull();
+      expect(glyph.style.backgroundColor).toBe("var(--agent-7)");
+    });
+
+    it("非预设的 icon key 仍画词表里那一枚图标，不画图片", () => {
+      render(
+        <AgentAvatar
+          name="Agentre"
+          color="agent-7"
+          iconKey="rocket"
+          testId="registry-icon"
+        />,
+      );
+
+      const glyph = screen.getByTestId("registry-icon");
+      expect(glyph.querySelector("svg")?.getAttribute("class")).toContain(
+        "lucide-rocket",
+      );
+      expect(glyph.querySelector("img")).toBeNull();
     });
   });
 

@@ -37,7 +37,7 @@ export type OrgAgentRowProps = {
    * 宿主，都走这一条：少画一个柄会让这一行的左缘比邻居往左缩，整列参差。
    */
   dragHandle?: OrgDragHandleBinding;
-  /** 宿主自带的 Agent 头像。不给就用包内字形（名字首字 + 调色板底色）。 */
+  /** 宿主自带的 Agent 头像。不给就用包内记号：预设 ▸ 图标 ▸ 首字母。 */
   avatar?: React.ReactNode;
 };
 
@@ -119,6 +119,8 @@ export function OrgAgentRow({
           <AgentAvatar
             name={agent.name}
             color={agent.avatarColor}
+            iconKey={agent.avatarIcon}
+            avatarDataUrl={agent.avatarDataUrl}
             size="xs"
             className="size-4.5 shrink-0 rounded-[4.5px] text-2xs"
           />
