@@ -11,6 +11,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/procscan"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
@@ -140,17 +141,25 @@ func (s *chatSvc) listLocalSessionProcesses(ctx context.Context, sess *chat_enti
 	return views
 }
 
-// holdRemoteInspector 取会话所在设备的远端查询端（默认借设备共享的 remote runtime）。
-// 出错时交回的 release 是可安全调用的 no-op。
+// holdRemoteInspector 取会话所在设备的远端查询端:从连接池借一条已鉴权连接,包成无状态的
+// remote.SessionProcessClient,release 把连接还回池。出错时交回的 release 是可安全调用的 no-op。
+//
+// **不借、也不建设备的 *remote.Runtime**:runtime 是连接上通知 handler 的属主。面板每 5 秒轮询,
+// 断连后旧 runtime 重连前那一窗口里若为查询新建一个 runtime,它会先在新连接上注册 handler,
+// 旧 runtime 重连 adoptConn 时再注册同一批 —— protorpc 当场 panic,整个 App 退出。
 func (s *chatSvc) holdRemoteInspector(ctx context.Context, be *agent_backend_entity.AgentBackend) (agentruntime.SessionProcessInspector, func(), error) {
 	if remoteSessionProcessInspector != nil {
 		return remoteSessionProcessInspector(ctx, be)
 	}
-	rt, release, err := s.holdRemoteRuntime(ctx, be)
-	if err != nil {
-		return nil, release, err
+	deviceID, ok := exec_target_svc.LocalPairedDeviceID(ctx, be.DeviceFingerprint)
+	if !ok {
+		return nil, func() {}, i18n.NewError(ctx, code.RemoteDeviceNotFound)
 	}
-	return rt, release, nil
+	lease, err := s.pool().Borrow(ctx, deviceID)
+	if err != nil {
+		return nil, func() {}, s.mapBorrowError(ctx, err)
+	}
+	return remote.NewSessionProcessClient(lease.Client()), lease.Release, nil
 }
 
 // listRemoteSessionProcesses 经执行设备列出远程会话的进程。设备离线、RPC 失败、不支持都按「没有可列的」
