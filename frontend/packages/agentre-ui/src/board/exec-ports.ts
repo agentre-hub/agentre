@@ -3,7 +3,7 @@ import type * as React from "react";
 /**
  * 执行归属三颗 pill 的**端口契约**。
  *
- * Agent 的候选是纯数据（名字 + 头像色），包里画得出来；机器与模型不是 —— 机器要
+ * Agent 的候选是纯数据（名字 + 头像色 + 图标 key / 上传图片），包里画得出来；机器与模型不是 —— 机器要
  * `useExecTargetCandidates(agentId, projectId)`（Wails + `remote.device.state`
  * 事件），模型要宿主自己的供应商目录与兼容判据。两者都留在宿主，包只把**同一形状
  * 的触发器类串**递过去，宿主把它并进自己触发器的 `cn()`：三颗 pill 摆在同一排，
@@ -15,6 +15,9 @@ export interface BoardAgentOption {
   name: string;
   /** 头像色 token，如 "agent-1"。 */
   color?: string;
+  /** 完整身份：上传图片 ▸ 预设 ▸ 图标 ▸ 首字母。 */
+  avatarIcon?: string;
+  avatarDataUrl?: string;
 }
 
 export interface ExecPillContext {

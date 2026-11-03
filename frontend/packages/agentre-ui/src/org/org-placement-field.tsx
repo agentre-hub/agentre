@@ -68,6 +68,8 @@ export function OrgPlacementField(props: OrgPlacementFieldProps) {
       <AgentAvatar
         name={agent.name}
         color={agent.avatarColor}
+        iconKey={agent.avatarIcon}
+        avatarDataUrl={agent.avatarDataUrl}
         size="xs"
         className={className}
       />

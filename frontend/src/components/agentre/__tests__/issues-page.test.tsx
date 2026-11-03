@@ -92,6 +92,54 @@ beforeEach(() => {
 });
 
 describe("IssuesPage", () => {
+  it.each([
+    [
+      "preset:agent-architect",
+      "data:image/png;base64,AA",
+      "data:image/png;base64,AA",
+    ],
+    ["preset:agent-architect", "", "agent-architect.webp"],
+    ["rocket", "", "icon"],
+    ["preset:future", "", "letter"],
+  ])(
+    "Given agent key %s and upload %s When editing a task Then the desktop passes its complete identity as %s",
+    async (avatarIcon, avatarDataUrl, expected) => {
+      appMocks.ListChatAgents.mockResolvedValue({
+        agents: [
+          {
+            id: 7,
+            name: "Reviewer",
+            avatarColor: "agent-3",
+            avatarIcon,
+            avatarDataUrl,
+            sessions: [],
+          },
+        ],
+      });
+      appMocks.IssueList.mockResolvedValue(
+        boardResponse({ issues: [{ ...card, assigneeAgentID: 7 }] }),
+      );
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      render(<IssuesPage />);
+      await user.click(await screen.findByTestId("board-card-body-142"));
+      const trigger = await screen.findByTestId("task-pill-agent");
+      await waitFor(() => {
+        const mark = within(trigger).getByRole("img", { name: "Reviewer" });
+        if (expected === "icon") {
+          expect(mark.querySelector("svg")).toHaveClass("lucide-rocket");
+        } else if (expected === "letter") {
+          expect(mark).toHaveTextContent(/^R$/);
+          expect(mark.querySelector("img, svg")).toBeNull();
+        } else {
+          expect(mark.querySelector("img")).toHaveAttribute(
+            "src",
+            expect.stringContaining(expected),
+          );
+        }
+      });
+    },
+  );
+
   it("Given tasks from the binding, When the board renders, Then each card shows up under its column", async () => {
     render(<IssuesPage />);
 

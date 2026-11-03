@@ -32,6 +32,50 @@ const agents: OrgAgentModel[] = [
 ];
 
 describe("OrgPlacementField（只吃 props）", () => {
+  it.each([
+    [
+      "preset:agent-architect",
+      "data:image/png;base64,AA",
+      "data:image/png;base64,AA",
+    ],
+    ["preset:agent-architect", "", "agent-architect.webp"],
+    ["rocket", "", "icon"],
+    ["preset:future", "", "letter"],
+  ])(
+    "Given manager key %s and upload %s When no avatar slot is supplied Then the selected manager and options show %s",
+    async (avatarIcon, avatarDataUrl, expected) => {
+      const manager = { ...agents[0], avatarIcon, avatarDataUrl };
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      render(
+        <OrgPlacementField
+          agent={agents[2]}
+          agents={[manager, ...agents.slice(1)]}
+          departments={departments}
+          placement={{ kind: "agent", id: manager.id }}
+          reportTarget={null}
+          onPick={vi.fn()}
+        />,
+      );
+      const assertMark = (container: HTMLElement) => {
+        const mark = within(container).getByRole("img", { name: "CEO" });
+        if (expected === "icon") {
+          expect(mark.querySelector("svg")).toHaveClass("lucide-rocket");
+        } else if (expected === "letter") {
+          expect(mark).toHaveTextContent(/^C$/);
+          expect(mark.querySelector("img, svg")).toBeNull();
+        } else {
+          expect(mark.querySelector("img")).toHaveAttribute(
+            "src",
+            expect.stringContaining(expected),
+          );
+        }
+      };
+      assertMark(screen.getByRole("combobox"));
+      await user.click(screen.getByRole("combobox"));
+      assertMark(screen.getByRole("option", { name: /CEO/ }));
+    },
+  );
+
   async function openField(agentId: number) {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     const onPick = vi.fn();
