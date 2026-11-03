@@ -8,8 +8,6 @@
  * **能力差异用可选 port 表达，不用 `isDesktop` 分支**：没有那个 port 就没有那个入口。
  */
 
-import type * as React from "react";
-
 /** 选择器左栏里的一台机器。`id` 在服务端是指纹、在桌面端是 deviceID，包不关心。 */
 export interface PickerMachine {
   id: string;
@@ -220,7 +218,8 @@ export interface ProjectMemberView {
   name: string;
   /** 颜色 token，画身份方块用。 */
   color?: string;
-  avatarIcon?: React.ReactNode;
+  /** 图标或预设的持久化 key。 */
+  avatarIcon?: string;
   avatarDataUrl?: string;
   /** 继承自祖先项目：能用，但**不在这个项目里**，所以这里移除不了它。 */
   inherited?: boolean;
@@ -232,7 +231,8 @@ export interface ProjectCandidateView {
   id: string;
   name: string;
   color?: string;
-  avatarIcon?: React.ReactNode;
+  /** 图标或预设的持久化 key。 */
+  avatarIcon?: string;
   avatarDataUrl?: string;
   /**
    * 加不了。**留在列表里并说出原因**，不是静默消失 —— 一个用户以为自己有的 Agent

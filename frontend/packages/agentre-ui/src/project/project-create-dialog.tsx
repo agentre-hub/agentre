@@ -29,7 +29,7 @@ import { Input } from "../ui/input";
 import { DirectoryPicker } from "./directory-picker";
 import { useFailureText } from "./failure-text";
 import { ParentSelect } from "./parent-select";
-import { ProjectIdentityFields } from "./project-identity-fields";
+import { IdentityFields } from "../identity/identity-fields";
 import type {
   PickerMachine,
   ProjectCreateDraft,
@@ -397,19 +397,22 @@ export function ProjectCreateDialog({
           busy={busy}
         />
         <DialogShellBody className="space-y-4">
-          {/* 身份区与「项目设置」共用那一份 —— 两个弹窗此前各写一遍，于是分叉成了
-            「新建用 IconPicker、设置要手打 icon key」。 */}
-          <ProjectIdentityFields
+          {/* 身份区只改草稿，点「创建」才提交。 */}
+          <IdentityFields
+            kind="project"
             testIdPrefix="project-create"
             autoFocusName
             name={name}
             description={description}
-            icon={icon}
-            color={color}
+            mark={{
+              iconKey: icon,
+              // 显示默认色，但没选择过的字段仍不进入创建请求。
+              color: color || "agent-1",
+              onPickIcon: setIcon,
+              onPickColor: setColor,
+            }}
             onNameChange={setName}
             onDescriptionChange={setDescription}
-            onPickIcon={setIcon}
-            onPickColor={setColor}
           />
 
           {canPickLocalPath ? (

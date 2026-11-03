@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -163,10 +169,51 @@ describe("一屏三节", () => {
 });
 
 describe("即时保存", () => {
+  it("Given a description draft When typing and then blurring Then only a changed value commits", async () => {
+    const { ports: p } = open();
+    const description = await screen.findByRole("textbox", {
+      name: "Description",
+    });
+    fireEvent.blur(description);
+    expect(p.updateFields).not.toHaveBeenCalled();
+    fireEvent.change(description, { target: { value: "  New maps  " } });
+    expect(p.updateFields).not.toHaveBeenCalled();
+    fireEvent.blur(description);
+    await waitFor(() =>
+      expect(p.updateFields).toHaveBeenCalledExactlyOnceWith("p1", {
+        description: "New maps",
+      }),
+    );
+  });
+
+  it("Given member and candidate icon keys When rows render Then presets and legacy icons render by key", async () => {
+    open({
+      project: {
+        ...PROJECT,
+        members: [
+          { id: "m1", name: "Reviewer", avatarIcon: "preset:agent-architect" },
+        ],
+        candidates: [{ id: "a9", name: "Builder", avatarIcon: "rocket" }],
+      },
+    });
+    expect(
+      within(await screen.findByTestId("project-member-row-m1"))
+        .getByRole("img", { name: "Reviewer" })
+        .querySelector("img"),
+    ).not.toBeNull();
+    fireEvent.click(screen.getByTestId("project-member-add-open"));
+    const candidate = await screen.findByTestId("project-member-add-a9");
+    expect(
+      within(candidate)
+        .getByRole("img", { name: "Builder" })
+        .querySelector("svg"),
+    ).not.toBeNull();
+  });
   it("值变了才发一次写，头部走一遍保存态", async () => {
     const { ports: p } = open();
     const name = await screen.findByTestId("project-settings-name");
     fireEvent.change(name, { target: { value: "Atlas II" } });
+    expect(p.updateFields).not.toHaveBeenCalled();
     fireEvent.blur(name);
     await waitFor(() =>
       expect(p.updateFields).toHaveBeenCalledWith("p1", { name: "Atlas II" }),
@@ -387,16 +434,19 @@ describe("宿主能力", () => {
    */
   it("图标与颜色都在字形弹层里，写走同一条即时保存", async () => {
     const { ports: p } = open();
-    fireEvent.click(await screen.findByTestId("project-glyph-trigger"));
-    fireEvent.click(await screen.findByTestId("project-glyph-color-agent-7"));
+    fireEvent.click(await screen.findByRole("button", { name: "Change icon" }));
+    fireEvent.click(await screen.findByRole("button", { name: "agent-7" }));
     await waitFor(() =>
       expect(p.updateFields).toHaveBeenCalledWith("p1", { color: "agent-7" }),
     );
 
     // 挑颜色不关弹层：一次打开里可能既要换色也要换图标。
-    fireEvent.click(await screen.findByTestId("project-glyph-icon-rocket"));
+    fireEvent.click(screen.getByRole("tab", { name: "Presets" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Terminal" }));
     await waitFor(() =>
-      expect(p.updateFields).toHaveBeenCalledWith("p1", { icon: "rocket" }),
+      expect(p.updateFields).toHaveBeenCalledWith("p1", {
+        icon: "preset:project-terminal",
+      }),
     );
   });
 
@@ -596,6 +646,11 @@ describe("字段级失败", () => {
     expect(
       await screen.findByTestId("project-settings-name-error"),
     ).toHaveTextContent("已经有一个叫这个名字的项目了");
+    expect(name.nextElementSibling).toBe(screen.getByRole("alert"));
+    expect(name).toHaveAttribute(
+      "aria-describedby",
+      "project-settings-name-error",
+    );
     const footer = screen.getByTestId("project-settings-footer");
     expect(footer.textContent).not.toContain("已经有一个叫这个名字的项目了");
   });

@@ -13,6 +13,8 @@ export {
   useUiTranslation,
 } from "./i18n";
 export { cn } from "./lib/utils";
+export { IdentityFields } from "./identity/identity-fields";
+export type { IdentityFieldsProps } from "./identity/identity-fields";
 export { IdentityMarkPicker } from "./identity/identity-mark-picker";
 export type { IdentityMarkPickerProps } from "./identity/identity-mark-picker";
 export type { IdentityImageUpload } from "./identity/image-panel";

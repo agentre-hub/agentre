@@ -214,6 +214,33 @@ describe("条目全集与能力开关", () => {
 });
 
 describe("＋ 的成员浮层", () => {
+  it("Given preset and icon member keys When the picker opens Then each member mark resolves its own key", async () => {
+    render(
+      <ProjectHeaderActions
+        {...props({
+          loadMembers: vi.fn(async () => [
+            {
+              id: "a1",
+              name: "Reviewer",
+              avatarIcon: "preset:agent-architect",
+            },
+            { id: "a2", name: "Scout", avatarIcon: "rocket" },
+          ]),
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("project-add-p1"));
+    const reviewer = await screen.findByTestId("project-member-option-a1");
+    const scout = screen.getByTestId("project-member-option-a2");
+    expect(
+      within(reviewer)
+        .getByRole("img", { name: "Reviewer" })
+        .querySelector("img"),
+    ).not.toBeNull();
+    expect(
+      within(scout).getByRole("img", { name: "Scout" }).querySelector("svg"),
+    ).not.toBeNull();
+  });
   it("恰好一个成员时不弹浮层，直接开对话", async () => {
     const onNewChat = vi.fn();
     render(

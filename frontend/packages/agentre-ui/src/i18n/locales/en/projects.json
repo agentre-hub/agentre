@@ -29,6 +29,11 @@
       "unknown": "Could not read this folder on {{machine}}. {{message}}"
     }
   },
+  "identityFields": {
+    "name": "Name",
+    "description": "Description",
+    "descriptionPlaceholder": "Add a description"
+  },
   "projectSettings": {
     "title": "Project settings",
     "done": "Done",
@@ -37,16 +42,10 @@
       "paths": "Machines and paths"
     },
     "field": {
-      "name": "Name",
-      "description": "Description",
-      "color": "Colour",
       "parent": "Parent project",
       "noParent": "None (top level)"
     },
     "identity": {
-      "glyphAria": "Change the icon and colour of “{{name}}”",
-      "namePlaceholder": "Project name",
-      "descriptionPlaceholder": "Description (optional)",
       "iconSearch": "Search icons…",
       "iconResults": "Results",
       "iconNoMatch": "No icon matches that."
