@@ -2,99 +2,87 @@ import * as React from "react";
 import { ChevronRight, CornerDownRight, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@agentre-hub/agentre-ui";
-import { cn } from "@agentre-hub/agentre-ui";
+import {
+  Button,
+  IdentityFields,
+  cn,
+  type IdentityFieldsProps,
+} from "@agentre-hub/agentre-ui";
 
-import { agentColorClassNames, type AgentColor } from "../types";
+import type { OrgDepartment } from "./types";
 
-import { iconForKey, type OrgDepartment } from "./types";
-
-/** 部门详情的顶栏：字形 / 名字 / 删除与关闭，外加一条从根部门数下来的路径。 */
+/** 部门详情的唯一身份区：可编辑身份 + 原有的路径 + 删除、关闭。 */
 export function OrgDetailDepartmentHeader({
   department,
   allDepartments,
-  icon,
-  accentColor,
+  identity,
   onDelete,
   onClose,
 }: {
   department: OrgDepartment;
   allDepartments: OrgDepartment[];
-  icon: string;
-  accentColor: AgentColor;
+  // 名字 / 描述 / 记号 / 主题色都归这一行，header 不再另画一枚只读的字形与名字。
+  identity: Omit<IdentityFieldsProps, "kind" | "testIdPrefix" | "meta">;
   onDelete: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const path = buildPath(department, allDepartments);
-  const iconNode = React.createElement(iconForKey(icon), {
-    className: "size-5 text-agent-foreground",
-    "aria-hidden": true,
-  });
 
   return (
-    <header className="space-y-3 px-5 py-4">
-      <div className="flex items-start gap-3">
-        <span
-          className={cn(
-            "inline-flex size-10 shrink-0 items-center justify-center rounded-lg",
-            agentColorClassNames[accentColor],
-          )}
-        >
-          {iconNode}
-        </span>
-        <div className="flex-1 min-w-0">
-          <div className="font-mono text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {t("org.department.editEyebrow")}
-          </div>
-          <div className="truncate text-base font-semibold">
-            {department.name}
-          </div>
-        </div>
-        <div className="flex shrink-0 gap-1">
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-8"
-            aria-label={t("org.department.deleteDepartment")}
-            onClick={onDelete}
-          >
-            <Trash2 className="size-4 text-destructive" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-8"
-            aria-label={t("common.close")}
-            onClick={onClose}
-          >
-            <X className="size-4" />
-          </Button>
-        </div>
+    <header className="flex shrink-0 items-start gap-3 px-5 py-4">
+      <div className="min-w-0 flex-1">
+        <IdentityFields
+          {...identity}
+          kind="department"
+          testIdPrefix="department-detail"
+          meta={
+            <div className="flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
+              <CornerDownRight className="size-3" aria-hidden="true" />
+              <span>{t("org.department.path")}</span>
+              {path.map((node, i) => (
+                <React.Fragment key={node.id}>
+                  {i > 0 && (
+                    <ChevronRight
+                      className="size-3 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-mono text-2xs",
+                      i === path.length - 1
+                        ? "bg-primary-soft text-primary-text"
+                        : "bg-secondary text-foreground",
+                    )}
+                  >
+                    {node.name}
+                  </span>
+                </React.Fragment>
+              ))}
+            </div>
+          }
+        />
       </div>
-      <div className="flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
-        <CornerDownRight className="size-3" aria-hidden="true" />
-        <span>{t("org.department.path")}</span>
-        {path.map((node, i) => (
-          <React.Fragment key={node.id}>
-            {i > 0 && (
-              <ChevronRight
-                className="size-3 text-muted-foreground"
-                aria-hidden="true"
-              />
-            )}
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-mono text-2xs",
-                i === path.length - 1
-                  ? "bg-primary-soft text-primary-text"
-                  : "bg-secondary text-foreground",
-              )}
-            >
-              {node.name}
-            </span>
-          </React.Fragment>
-        ))}
+      <div className="flex shrink-0 gap-1">
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8"
+          aria-label={t("org.department.deleteDepartment")}
+          onClick={onDelete}
+        >
+          <Trash2 className="size-4 text-destructive" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8"
+          aria-label={t("common.close")}
+          onClick={onClose}
+        >
+          <X className="size-4" />
+        </Button>
       </div>
     </header>
   );

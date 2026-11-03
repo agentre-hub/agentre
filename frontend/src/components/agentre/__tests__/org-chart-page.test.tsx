@@ -22,9 +22,6 @@ vi.mock("../org/org-detail-agent", () => ({
 vi.mock("../org/org-detail-department", () => ({
   OrgDetailDepartment: () => <div data-testid="department-detail" />,
 }));
-vi.mock("../icon-picker", () => ({
-  IconPicker: () => <div data-testid="icon-picker" />,
-}));
 
 import { OrgChartPage } from "../org-chart-page";
 

@@ -22,7 +22,6 @@
     "loading": "Loading...",
     "moreActions": "More actions",
     "operationFailed": "Operation failed",
-    "optional": "Optional",
     "reject": "Reject",
     "retry": "Retry",
     "save": "Save",
@@ -35,16 +34,6 @@
   "deviceTag": {
     "local": "Local",
     "offline": "{{name}} · offline"
-  },
-  "iconPicker": {
-    "search": {
-      "aria": "Search icons",
-      "clearIcon": "Clear icon and fall back to letter",
-      "noMatches": "No matches",
-      "placeholder": "Search icons...",
-      "results": "Search results"
-    },
-    "selectIcon": "Select icon"
   },
   "language": {
     "en": "English",

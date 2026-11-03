@@ -78,18 +78,18 @@ describe("OrgDetailDepartment editor layout", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Icon" })).toHaveTextContent(
-      "Hammer",
+    // 身份只有一行：记号按钮里才是图标 / 主题色，三栏里不再单独摆这两个字段。
+    expect(screen.getAllByRole("button", { name: "Change icon" })).toHaveLength(
+      1,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Change icon" }));
+    expect(screen.getByRole("button", { name: "agent-2" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
     );
     expect(
-      screen.getByRole("radiogroup", { name: "Theme Color" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getAllByRole("radio", { name: /Theme color agent-/ }),
+      screen.getByRole("group", { name: "Color" }).querySelectorAll("button"),
     ).toHaveLength(16);
-    expect(
-      screen.getByRole("radio", { name: "Theme color agent-16" }),
-    ).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Parent" })).toHaveTextContent(
       "工程部",
     );
@@ -169,8 +169,9 @@ describe("OrgDetailDepartment auto-save", () => {
   it("saves immediately when a theme color is picked", async () => {
     const onUpdate = vi.fn().mockResolvedValue(undefined);
     render(<OrgDetailDepartment {...baseProps(onUpdate)} />);
+    fireEvent.click(screen.getByRole("button", { name: "Change icon" }));
     await act(async () => {
-      fireEvent.click(screen.getByRole("radio", { name: /agent-5/ }));
+      fireEvent.click(screen.getByRole("button", { name: "agent-5" }));
     });
     expect(onUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ accentColor: "agent-5" }),

@@ -6,8 +6,9 @@ import { OrgDetailAgent } from "../org-detail-agent";
 import { OrgDetailDepartment } from "../org-detail-department";
 import type { OrgAgent, OrgDepartment } from "../types";
 
-// 详情落在主区，分三栏：身份 / 行为 / 执行（部门是 身份 / 结构 / 成员）。
-// 三栏各自是一个具名 region，读屏能直接跳；字段集合与今天一致，变的是它们落在哪一栏。
+// 详情落在主区，分三栏：身份 / 行为 / 执行。部门没有第二组身份字段，它的名字 / 描述 /
+// 记号 / 主题色全在共享身份区那一行里，往下只剩 结构 / 成员 两栏。
+// 每一栏都是一个具名 region，读屏能直接跳；字段集合与今天一致，变的是它们落在哪一栏。
 
 const dept: OrgDepartment = {
   id: 1,
@@ -136,7 +137,7 @@ describe("agent detail columns", () => {
 });
 
 describe("department detail columns", () => {
-  it("Given a department is selected, When the detail renders, Then it has three columns and the same fields as today", () => {
+  it("Given a department is selected, When the detail renders, Then identity sits in the header and structure / members keep their columns", () => {
     render(
       <OrgDetailDepartment
         department={dept}
@@ -151,12 +152,11 @@ describe("department detail columns", () => {
       />,
     );
 
-    const identity = screen.getByRole("region", { name: "Identity" });
-    expect(within(identity).getByLabelText("Name")).toBeInTheDocument();
-    expect(within(identity).getByLabelText("Description")).toBeInTheDocument();
-    expect(
-      within(identity).getByRole("radiogroup", { name: "Theme Color" }),
-    ).toBeInTheDocument();
+    // 身份只有 header 里那一行：名字 / 描述 / 记号 / 主题色都在里面。
+    const header = screen.getByLabelText("Name").closest("header")!;
+    expect(within(header).getByLabelText("Description")).toBeInTheDocument();
+    expect(within(header).getByLabelText("Change icon")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Identity" })).toBeNull();
 
     const structure = screen.getByRole("region", { name: "Structure" });
     expect(

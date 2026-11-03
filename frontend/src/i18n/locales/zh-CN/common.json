@@ -22,7 +22,6 @@
     "loading": "加载中...",
     "moreActions": "更多操作",
     "operationFailed": "操作失败",
-    "optional": "可选",
     "reject": "拒绝",
     "retry": "重试",
     "save": "保存",
@@ -35,16 +34,6 @@
   "deviceTag": {
     "local": "本地",
     "offline": "{{name}} · offline"
-  },
-  "iconPicker": {
-    "search": {
-      "aria": "搜索图标",
-      "clearIcon": "取消图标，回退到字母",
-      "noMatches": "没有匹配项",
-      "placeholder": "搜索图标…",
-      "results": "搜索结果"
-    },
-    "selectIcon": "选择图标"
   },
   "language": {
     "en": "English",

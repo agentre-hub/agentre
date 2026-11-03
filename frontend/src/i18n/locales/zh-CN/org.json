@@ -22,8 +22,7 @@
         "placement": "选择部门或上级 Agent"
       },
       "newDepartment": {
-        "description": "选择父级、图标和主题色，创建后会出现在组织架构中。",
-        "iconAria": "新部门图标"
+        "description": "选择父级、图标和主题色，创建后会出现在组织架构中。"
       },
       "summary": "{{departments}} 部门 · {{subDepartments}} 子部门 · {{agents}} Agent",
       "title": "组织架构"
@@ -147,7 +146,6 @@
     "department": {
       "addGroup": "添加 Agent 或子部门",
       "addAgent": "Agent",
-      "basicInfo": "基本信息",
       "deleteDepartment": "删除部门",
       "deleteDialog": {
         "cascadeDescription": "连同所有子部门 / Agent 一并软删",
@@ -161,9 +159,6 @@
         "title": "确认删除「{{name}}」？"
       },
       "departmentMemberCount": "{{count}} 名成员",
-      "description": "简介",
-      "editEyebrow": "编辑部门",
-      "icon": "图标",
       "leadHint": "从直属 Agent 中选",
       "leadBadge": "LEAD",
       "leader": "负责人",
@@ -174,8 +169,6 @@
       "parent": "归属",
       "path": "路径",
       "subDepartment": "子部门",
-      "themeColor": "主题色",
-      "themeColorNamed": "主题色 {{color}}",
       "topLevel": "公司顶层（CEO 之下）",
       "viewAgent": "查看 Agent {{name}}",
       "viewDepartment": "查看部门 {{name}}"

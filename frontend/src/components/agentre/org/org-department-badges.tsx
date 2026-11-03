@@ -1,43 +1,32 @@
-import * as React from "react";
 import { Crown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { cn } from "@agentre-hub/agentre-ui";
+import { cn, DepartmentMark } from "@agentre-hub/agentre-ui";
 
-import {
-  agentColorClassNames,
-  agentIconColorClassNames,
-  type AgentColor,
-} from "../types";
+import { agentIconColorClassNames, type AgentColor } from "../types";
 
-import { iconForKey, safeAgentColor } from "./types";
+import { safeAgentColor } from "./types";
 
-/** 部门字形：结构栏的下拉项与成员栏的部门行共用同一枚。 */
+/** 部门记号：结构栏的下拉项与成员栏的部门行共用同一枚（预设 ▸ 图标 ▸ 首字）。 */
 export function DepartmentIconBadge({
   accentColor,
   className,
   icon,
-  iconClassName,
+  name,
 }: {
   accentColor: string;
   className?: string;
   icon: string;
-  iconClassName?: string;
+  /** 部门名：既是首字兜底的来源，也是这一格的可及名。 */
+  name: string;
 }) {
-  const Icon = iconForKey(icon);
   return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center text-agent-foreground",
-        agentColorClassNames[safeAgentColor(accentColor)],
-        className,
-      )}
-      aria-hidden="true"
-    >
-      {React.createElement(Icon, {
-        className: cn("size-3.5", iconClassName),
-      })}
-    </span>
+    <DepartmentMark
+      name={name}
+      icon={icon}
+      accentColor={safeAgentColor(accentColor)}
+      className={className}
+    />
   );
 }
 

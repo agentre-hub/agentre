@@ -22,8 +22,7 @@
         "placement": "Select a department or parent agent"
       },
       "newDepartment": {
-        "description": "Choose the parent, icon, and theme color. It appears in the org chart after creation.",
-        "iconAria": "New department icon"
+        "description": "Choose the parent, icon, and theme color. It appears in the org chart after creation."
       },
       "summary": "{{departments}} departments · {{subDepartments}} sub-departments · {{agents}} agents",
       "title": "Org Chart"
@@ -147,7 +146,6 @@
     "department": {
       "addGroup": "Add agent or sub-department",
       "addAgent": "Agent",
-      "basicInfo": "Basic Info",
       "deleteDepartment": "Delete department",
       "deleteDialog": {
         "cascadeDescription": "Soft-delete all sub-departments and agents as well",
@@ -161,9 +159,6 @@
         "title": "Delete \"{{name}}\"?"
       },
       "departmentMemberCount": "{{count}} members",
-      "description": "Description",
-      "editEyebrow": "Edit Department",
-      "icon": "Icon",
       "leadHint": "Choose from direct agents",
       "leadBadge": "LEAD",
       "leader": "Leader",
@@ -174,8 +169,6 @@
       "parent": "Parent",
       "path": "Path",
       "subDepartment": "Sub-department",
-      "themeColor": "Theme Color",
-      "themeColorNamed": "Theme color {{color}}",
       "topLevel": "Company top level (under CEO)",
       "viewAgent": "View agent {{name}}",
       "viewDepartment": "View department {{name}}"

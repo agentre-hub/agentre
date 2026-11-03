@@ -1,11 +1,13 @@
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { agentreUiResources } from "@agentre-hub/agentre-ui";
+import {
+  IdentityMarkPicker,
+  agentreUiResources,
+} from "@agentre-hub/agentre-ui";
 
 import i18n from "@/i18n";
 
-import { IconPicker } from "../icon-picker";
 import { iconsByCategory, searchIcons } from "../icon-registry";
 
 function engineeringLabel(): string | undefined {
@@ -71,10 +73,18 @@ describe("icon registry localization", () => {
     ).not.toContain("hammer");
   });
 
-  it("Given a rendered IconPicker showing the selected icon label, When the language switches to zh-CN, Then the trigger label is re-rendered in the new language", async () => {
+  it("Given a rendered mark picker showing the selected icon label, When the language switches to zh-CN, Then the label is re-rendered in the new language", async () => {
     render(
-      <IconPicker value="hammer" onChange={() => {}} accentColor="agent-1" />,
+      <IdentityMarkPicker
+        kind="department"
+        name="Engineering"
+        iconKey="hammer"
+        color="agent-1"
+        onPickIcon={() => {}}
+        onPickColor={() => {}}
+      />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Change icon" }));
 
     expect(
       screen.getByText(agentreUiResources.en.iconRegistry.icons.hammer),
