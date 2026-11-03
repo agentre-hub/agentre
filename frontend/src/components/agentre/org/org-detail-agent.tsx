@@ -287,13 +287,32 @@ export function OrgDetailAgent(props: Props) {
       className="flex h-full min-w-0 flex-col bg-card"
     >
       <OrgDetailAgentHeader
-        agent={props.agent}
-        name={name}
-        avatarColor={avatarColor}
-        avatarIcon={avatarIcon}
+        identity={{
+          name,
+          description,
+          onNameChange: (name) => patch({ name }),
+          onNameBlur: flush,
+          onDescriptionChange: (description) => patch({ description }),
+          onDescriptionBlur: flush,
+          mark: {
+            iconKey: avatarIcon,
+            color: avatarColor,
+            avatarDataUrl: props.agent.avatarDataUrl,
+            onPickIcon: (avatarIcon) =>
+              patch({ avatarIcon }, { immediate: true }),
+            onPickColor: (color) =>
+              patch(
+                { avatarColor: safeAgentColor(color) },
+                { immediate: true },
+              ),
+            upload: {
+              onUpload: handleUploadFile,
+              onDelete: handleDeleteAvatar,
+            },
+          },
+        }}
         isLeadOf={props.isLeadOf}
         isCEO={isCEO}
-        onChangeIcon={(v) => patch({ avatarIcon: v }, { immediate: true })}
         onDelete={() => setDeletePromptOpen(true)}
         onClose={props.onClose}
       />
@@ -310,17 +329,9 @@ export function OrgDetailAgent(props: Props) {
             agent={props.agent}
             agents={props.agents}
             departments={props.departments}
-            name={name}
-            description={description}
-            avatarColor={avatarColor}
-            avatarIcon={avatarIcon}
-            patch={patch}
-            flush={flush}
             placement={placement}
             reportTarget={reportTarget}
             onPlacementPick={handlePlacementPick}
-            onUploadFile={handleUploadFile}
-            onDeleteAvatar={handleDeleteAvatar}
           />
 
           <section

@@ -107,18 +107,14 @@ describe("agent detail columns", () => {
     ).toBeInTheDocument();
   });
 
-  it("Given the three columns, When the fields are placed, Then the field set is exactly today's, regrouped", async () => {
+  it("Given the shared identity header, When the columns render, Then placement, behavior and execution remain in their columns", async () => {
     renderAgent();
 
     const identity = screen.getByRole("region", { name: "Identity" });
-    expect(within(identity).getByLabelText("Name")).toBeInTheDocument();
-    expect(within(identity).getByLabelText("Description")).toBeInTheDocument();
-    expect(
-      within(identity).getByRole("radiogroup", { name: "Avatar Color" }),
-    ).toBeInTheDocument();
-    expect(
-      within(identity).getAllByLabelText("Change avatar").length,
-    ).toBeGreaterThan(0);
+    const header = screen.getByLabelText("Name").closest("header")!;
+    expect(within(header).getByLabelText("Description")).toBeInTheDocument();
+    expect(within(header).getByLabelText("Change avatar")).toBeInTheDocument();
+    expect(within(identity).queryByLabelText("Name")).toBeNull();
     // 归属：身份栏里的那一个下拉（部门 / 上级 Agent 二选一）。
     expect(
       within(identity).getByRole("combobox", { name: "Placement" }),

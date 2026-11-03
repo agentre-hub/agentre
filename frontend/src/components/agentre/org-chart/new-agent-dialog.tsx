@@ -9,22 +9,16 @@ import {
   DialogShellBody,
   DialogShellFooter,
   DialogShellHeader,
-  Input,
+  IdentityFields,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@agentre-hub/agentre-ui";
-import { cn } from "@agentre-hub/agentre-ui";
-
-import {
-  agentColorClassNames,
-  agentColorOrder,
-  type AgentColor,
-} from "../types";
+import { safeAgentColor } from "../org/types";
+import { type AgentColor } from "../types";
 import { openSettings } from "@/stores/settings-dialog-store";
-import { AgentAvatarPicker } from "../icon-picker";
 import { type OrgAgent, type OrgDepartment } from "../org/types";
 import { useOrgData } from "../org/use-org-data";
 
@@ -37,9 +31,9 @@ export type NewAgentProps = {
   defaultDepartmentId?: number;
   onSubmit: (req: {
     name: string;
-    description: string;
+    description?: string;
     avatarColor: string;
-    avatarIcon: string;
+    avatarIcon?: string;
     departmentId: number;
     parentAgentId: number;
     agentBackendId: number;
@@ -110,9 +104,9 @@ export function NewAgentDialogBody(props: NewAgentProps) {
     if (!canSubmit) return;
     await props.onSubmit({
       name: name.trim(),
-      description: description.trim(),
+      ...(description.trim() ? { description: description.trim() } : {}),
       avatarColor,
-      avatarIcon,
+      ...(avatarIcon ? { avatarIcon } : {}),
       departmentId: parsedPlacement.departmentId,
       parentAgentId: parsedPlacement.parentAgentId,
       agentBackendId: backendId,
@@ -151,77 +145,22 @@ export function NewAgentDialogBody(props: NewAgentProps) {
             </Button>
           </div>
         ) : null}
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="text-2xs text-muted-foreground">
-            {t("org.department.name")}
-          </span>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoFocus
-            aria-label={t("org.department.name")}
-          />
-        </label>
-        <label className="flex flex-col gap-1.5 text-xs">
-          <span className="text-2xs text-muted-foreground">
-            {t("org.department.description")}{" "}
-            <span className="opacity-60">
-              {t("org.chart.newAgent.optionalSuffix")}
-            </span>
-          </span>
-          <Input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            aria-label={t("org.department.description")}
-          />
-        </label>
-        <div className="flex flex-col gap-1.5">
-          <span className="text-2xs text-muted-foreground">
-            {t("org.chart.newAgent.avatar")}
-          </span>
-          <div className="flex items-center gap-3">
-            <AgentAvatarPicker
-              name={name || t("org.agent.fallbackName")}
-              avatarColor={avatarColor}
-              avatarIcon={avatarIcon}
-              avatarDataUrl=""
-              onChangeIcon={setAvatarIcon}
-              allowUpload={false}
-              triggerSize="lg"
-            />
-            <span className="font-mono text-2xs text-muted-foreground">
-              {t("org.chart.newAgent.avatarHint")}
-            </span>
-          </div>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <span className="text-2xs text-muted-foreground">
-            {t("org.chart.newAgent.avatarColor")}
-          </span>
-          <div
-            className="grid grid-cols-5 gap-2"
-            role="radiogroup"
-            aria-label={t("org.chart.newAgent.avatarColor")}
-          >
-            {agentColorOrder.map((c) => (
-              <button
-                key={c}
-                type="button"
-                role="radio"
-                aria-checked={avatarColor === c}
-                aria-label={t("org.chart.newAgent.avatarColorNamed", {
-                  color: c,
-                })}
-                onClick={() => setAvatarColor(c)}
-                className={cn(
-                  "size-6 rounded-full ring-offset-2 transition-all",
-                  agentColorClassNames[c],
-                  avatarColor === c && "size-7 ring-2 ring-primary",
-                )}
-              />
-            ))}
-          </div>
-        </div>
+        <IdentityFields
+          kind="agent"
+          testIdPrefix="new-agent"
+          name={name}
+          description={description}
+          onNameChange={setName}
+          onDescriptionChange={setDescription}
+          autoFocusName
+          mark={{
+            iconKey: avatarIcon,
+            color: avatarColor,
+            onPickIcon: setAvatarIcon,
+            onPickColor: (color) => setAvatarColor(safeAgentColor(color)),
+            upload: "after-create",
+          }}
+        />
         <label className="flex flex-col gap-1 text-xs">
           <span className="text-2xs text-muted-foreground">
             {t("org.chart.newAgent.placement")}

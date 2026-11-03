@@ -23,7 +23,6 @@ vi.mock("../org/org-detail-department", () => ({
   OrgDetailDepartment: () => <div data-testid="department-detail" />,
 }));
 vi.mock("../icon-picker", () => ({
-  AgentAvatarPicker: () => <div data-testid="agent-avatar-picker" />,
   IconPicker: () => <div data-testid="icon-picker" />,
 }));
 

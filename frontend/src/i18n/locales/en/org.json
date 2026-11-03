@@ -14,16 +14,11 @@
       "loading": "Loading org chart...",
       "newAgent": {
         "agentOption": "Agent · {{name}}",
-        "avatar": "Avatar",
-        "avatarColor": "Avatar Color",
-        "avatarColorNamed": "Avatar color {{color}}",
-        "avatarHint": "Click the avatar to pick an icon. Upload an image from the detail page after creation.",
         "backend": "Backend",
         "departmentOption": "Department · {{name}}",
         "description": "Set the agent name, placement, and execution backend.",
         "intentHint": "Configure the backend after creating the agent, then start chatting",
         "intentSettings": "Go to settings → Agent backend",
-        "optionalSuffix": "(optional)",
         "placement": "Select a department or parent agent"
       },
       "newDepartment": {
@@ -89,10 +84,6 @@
       "actions": {
         "deleteAgent": "Delete Agent"
       },
-      "avatar": {
-        "replaceImage": "Replace Image",
-        "uploadImage": "Upload Image"
-      },
       "backend": {
         "configureProvider": "Configure LLM providers",
         "goAgentBackendSettings": "Go to Agent backend settings",
@@ -125,8 +116,6 @@
         "title": "Delete agent \"{{name}}\"?"
       },
       "departmentLead": "{{name}} department lead",
-      "descriptionHint": "Optional · shown as the row subtitle in the index",
-      "fallbackName": "Agent",
       "skills": {
         "manage": "Manage skills",
         "count": "{{inherit}} inherited · {{on}} on · {{off}} off",

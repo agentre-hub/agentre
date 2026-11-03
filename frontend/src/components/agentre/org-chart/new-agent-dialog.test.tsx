@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,8 +7,7 @@ import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 import { NewAgentDialog, type NewAgentProps } from "./new-agent-dialog";
 import type { OrgAgent, OrgDepartment } from "../org/types";
 
-// 可及性:名称 / 简介两个输入框必须有可及名称,且名称来自它自己的 <label> ——
-// 读屏用户靠它分辨字段,键盘用户靠原生关联点标题就能聚焦到控件。
+// 共享身份区只修改草稿，输入框用可及名代替独立标签。
 
 const DEPARTMENT = {
   id: 1,
@@ -51,13 +50,71 @@ describe("NewAgentDialog accessibility", () => {
     ).toBeInTheDocument();
   });
 
-  it("associates each field with its own label element", () => {
+  it("Given a new draft, When rendered, Then one identity area replaces separate labels and disallows upload until creation", () => {
     renderDialog();
-    const name = screen.getByRole("textbox", { name: "Name" });
-    const description = screen.getByRole("textbox", { name: /^Description/ });
-    expect(name.closest("label")).not.toBeNull();
-    expect(description.closest("label")).not.toBeNull();
-    expect(name.closest("label")).not.toBe(description.closest("label"));
+    expect(
+      screen.getAllByRole("button", { name: "Change avatar" }),
+    ).toHaveLength(1);
+    for (const label of ["Name", "Description", "Avatar", "Avatar Color"]) {
+      expect(screen.queryByText(label, { selector: "label, span" })).toBeNull();
+    }
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Change avatar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Image" }));
+    expect(
+      screen.getByText(
+        "Upload an avatar after creating this agent. Pick an icon or initials first.",
+      ),
+    ).toBeInTheDocument();
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+  });
+
+  it("Given untouched optional fields, When created, Then defaults are preserved and unset description/icon are omitted", async () => {
+    const { onSubmit } = renderDialog();
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: " New Agent " },
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    const payload = vi.mocked(onSubmit).mock.calls[0][0];
+    expect(payload).toMatchObject({
+      name: "New Agent",
+      avatarColor: "agent-1",
+      departmentId: 1,
+      parentAgentId: 0,
+      agentBackendId: 0,
+      prompt: [],
+      skills: [],
+    });
+    expect(payload).not.toHaveProperty("avatarIcon");
+    expect(payload).not.toHaveProperty("description");
+  });
+
+  it("Given identity edits, When a preset and color are picked, Then only the draft changes until submit includes them", async () => {
+    const { onSubmit } = renderDialog();
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Draft" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
+      target: { value: " Description " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Change avatar" }));
+    fireEvent.click(screen.getByRole("button", { name: "agent-16" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Presets" }));
+    fireEvent.click(screen.getByRole("radio", { name: "CEO Assistant" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          name: "Draft",
+          description: "Description",
+          avatarColor: "agent-16",
+          avatarIcon: "preset:agent-assistant",
+        }),
+      ),
+    );
   });
 });
 

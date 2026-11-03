@@ -9,54 +9,42 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  IdentityFields,
+  type IdentityFieldsProps,
 } from "@agentre-hub/agentre-ui";
 
-import { AgentAvatarPicker } from "../icon-picker";
-import type { AgentColor } from "../types";
+import type { OrgDepartment } from "./types";
 
-import type { OrgAgent, OrgDepartment } from "./types";
-
-/** Agent 详情的顶栏：头像 / 名字 / 主管徽标 + 删除、关闭两颗按钮。 */
+/** Agent 详情的唯一身份区：可编辑身份 / 主管信息 + 删除、关闭。 */
 export function OrgDetailAgentHeader({
-  agent,
-  name,
-  avatarColor,
-  avatarIcon,
+  identity,
   isLeadOf,
   isCEO,
-  onChangeIcon,
   onDelete,
   onClose,
 }: {
-  agent: OrgAgent;
-  name: string;
-  avatarColor: AgentColor;
-  avatarIcon: string;
+  identity: Omit<IdentityFieldsProps, "kind" | "testIdPrefix" | "meta">;
   isLeadOf: OrgDepartment | null;
   isCEO: boolean;
-  onChangeIcon: (icon: string) => void;
   onDelete: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   return (
     <header className="flex shrink-0 items-start gap-3 px-5 py-4">
-      <AgentAvatarPicker
-        name={name || agent.name}
-        avatarColor={avatarColor}
-        avatarIcon={avatarIcon}
-        avatarDataUrl={agent.avatarDataUrl}
-        onChangeIcon={onChangeIcon}
-        showImageMode={false}
-        triggerSize="lg"
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-base font-semibold">{agent.name}</span>
-        {isLeadOf && (
-          <span className="truncate font-mono text-2xs text-primary-text">
-            {t("org.agent.departmentLead", { name: isLeadOf.name })}
-          </span>
-        )}
+      <div className="min-w-0 flex-1">
+        <IdentityFields
+          {...identity}
+          kind="agent"
+          testIdPrefix="agent-detail"
+          meta={
+            isLeadOf ? (
+              <span className="block truncate font-mono text-2xs text-primary-text">
+                {t("org.agent.departmentLead", { name: isLeadOf.name })}
+              </span>
+            ) : null
+          }
+        />
       </div>
       <div className="flex shrink-0 gap-1">
         <Button

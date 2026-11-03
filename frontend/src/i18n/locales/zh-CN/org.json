@@ -14,16 +14,11 @@
       "loading": "正在加载组织架构…",
       "newAgent": {
         "agentOption": "Agent · {{name}}",
-        "avatar": "头像",
-        "avatarColor": "头像配色",
-        "avatarColorNamed": "头像配色 {{color}}",
-        "avatarHint": "点击头像选图标，创建后可在详情页上传图片",
         "backend": "后端",
         "departmentOption": "部门 · {{name}}",
         "description": "设置 Agent 的名称、挂载位置和执行后端。",
         "intentHint": "创建后先配后端再对话",
         "intentSettings": "去设置 → Agent 后端",
-        "optionalSuffix": "（可选）",
         "placement": "选择部门或上级 Agent"
       },
       "newDepartment": {
@@ -89,10 +84,6 @@
       "actions": {
         "deleteAgent": "删除 Agent"
       },
-      "avatar": {
-        "replaceImage": "替换图片",
-        "uploadImage": "上传图片"
-      },
       "backend": {
         "configureProvider": "去配置 LLM 供应商",
         "goAgentBackendSettings": "去 Agent 后端设置",
@@ -125,8 +116,6 @@
         "title": "确认删除 Agent「{{name}}」？"
       },
       "departmentLead": "{{name}} 部门长",
-      "descriptionHint": "可选 · 显示在索引行的副标题",
-      "fallbackName": "Agent",
       "skills": {
         "manage": "管理技能",
         "count": "继承 {{inherit}} · 强制开 {{on}} · 强制关 {{off}}",
