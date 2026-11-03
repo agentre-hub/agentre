@@ -12,8 +12,11 @@ import "time"
 // RateLimits 是 /api/oauth/usage 响应的归一化结果。百分比统一在 [0,100]，
 // resets_at 字段缺失时为 nil。按模型的周配额（Fable / Opus / Sonnet 等）可选，
 // account 没有就为空。
+//
+// FiveHourPercent 为 nil 表示这个账号此刻没有 5 小时窗口（响应里 five_hour 是 null），
+// 与「这个窗口用了 0%」是两件事：前者界面整档不画，后者照常画 0%。
 type RateLimits struct {
-	FiveHourPercent  float64    `json:"fiveHourPercent"`
+	FiveHourPercent  *float64   `json:"fiveHourPercent,omitempty"`
 	WeeklyPercent    float64    `json:"weeklyPercent"`
 	FiveHourResetsAt *time.Time `json:"fiveHourResetsAt,omitempty"`
 	WeeklyResetsAt   *time.Time `json:"weeklyResetsAt,omitempty"`

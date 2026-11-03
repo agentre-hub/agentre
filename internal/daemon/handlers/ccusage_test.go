@@ -13,13 +13,13 @@ import (
 
 func TestCCUsage(t *testing.T) {
 	Convey("CCUsage 在 fetch 成功时返回 reason='ok' + Data", t, func() {
-		rl := &ccoauth.RateLimits{FiveHourPercent: 42, WeeklyPercent: 18}
+		rl := &ccoauth.RateLimits{FiveHourPercent: new(42.0), WeeklyPercent: 18}
 		res := handlers.CCUsage(context.Background(), func(_ context.Context) (*ccoauth.RateLimits, error) {
 			return rl, nil
 		})
 		So(res.Reason, ShouldEqual, "ok")
 		So(res.Data, ShouldNotBeNil)
-		So(res.Data.FiveHourPercent, ShouldEqual, 42)
+		So(*res.Data.FiveHourPercent, ShouldEqual, 42)
 	})
 
 	Convey("CCUsage 在 ErrNoCredentials 时返回 reason='no_credentials' + Data 为 nil", t, func() {

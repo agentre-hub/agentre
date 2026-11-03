@@ -3872,9 +3872,14 @@ type ClaudeCodeRateLimits struct {
 	OpusWeeklyResetsAtMs *int64 `protobuf:"varint,8,opt,name=opus_weekly_resets_at_ms,json=opusWeeklyResetsAtMs,proto3,oneof" json:"opus_weekly_resets_at_ms,omitempty"`
 	// Weekly quotas that count only one model (Fable, Opus, Sonnet, ...), in the
 	// order Anthropic lists them. Empty when the account has none.
-	ModelWeekly   []*ClaudeCodeModelWeeklyLimit `protobuf:"bytes,9,rep,name=model_weekly,json=modelWeekly,proto3" json:"model_weekly,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ModelWeekly []*ClaudeCodeModelWeeklyLimit `protobuf:"bytes,9,rep,name=model_weekly,json=modelWeekly,proto3" json:"model_weekly,omitempty"`
+	// Set when Anthropic reported no 5-hour window for the account; five_hour_percent
+	// and five_hour_resets_at_ms then carry nothing. five_hour_percent cannot gain
+	// explicit presence (that would change its cardinality), so absence travels here.
+	// Daemons that predate this field never set it, which keeps their 5-hour value.
+	FiveHourAbsent bool `protobuf:"varint,10,opt,name=five_hour_absent,json=fiveHourAbsent,proto3" json:"five_hour_absent,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ClaudeCodeRateLimits) Reset() {
@@ -3972,6 +3977,13 @@ func (x *ClaudeCodeRateLimits) GetModelWeekly() []*ClaudeCodeModelWeeklyLimit {
 		return x.ModelWeekly
 	}
 	return nil
+}
+
+func (x *ClaudeCodeRateLimits) GetFiveHourAbsent() bool {
+	if x != nil {
+		return x.FiveHourAbsent
+	}
+	return false
 }
 
 // One model-scoped weekly quota. model is Anthropic's display name, passed
@@ -19945,7 +19957,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12!\n" +
 	"\factive_turns\x18\x04 \x01(\x05R\vactiveTurns\x12%\n" +
 	"\x0etarget_version\x18\x05 \x01(\tR\rtargetVersion\"\x18\n" +
-	"\x16ClaudeCodeUsageRequest\"\xc0\x05\n" +
+	"\x16ClaudeCodeUsageRequest\"\xea\x05\n" +
 	"\x14ClaudeCodeRateLimits\x12*\n" +
 	"\x11five_hour_percent\x18\x01 \x01(\x01R\x0ffiveHourPercent\x12%\n" +
 	"\x0eweekly_percent\x18\x02 \x01(\x01R\rweeklyPercent\x127\n" +
@@ -19955,7 +19967,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x1asonnet_weekly_resets_at_ms\x18\x06 \x01(\x03B\x02\x18\x01H\x03R\x16sonnetWeeklyResetsAtMs\x88\x01\x01\x127\n" +
 	"\x13opus_weekly_percent\x18\a \x01(\x01B\x02\x18\x01H\x04R\x11opusWeeklyPercent\x88\x01\x01\x12?\n" +
 	"\x18opus_weekly_resets_at_ms\x18\b \x01(\x03B\x02\x18\x01H\x05R\x14opusWeeklyResetsAtMs\x88\x01\x01\x12K\n" +
-	"\fmodel_weekly\x18\t \x03(\v2(.agentre.wire.ClaudeCodeModelWeeklyLimitR\vmodelWeeklyB\x19\n" +
+	"\fmodel_weekly\x18\t \x03(\v2(.agentre.wire.ClaudeCodeModelWeeklyLimitR\vmodelWeekly\x12(\n" +
+	"\x10five_hour_absent\x18\n" +
+	" \x01(\bR\x0efiveHourAbsentB\x19\n" +
 	"\x17_five_hour_resets_at_msB\x16\n" +
 	"\x14_weekly_resets_at_msB\x18\n" +
 	"\x16_sonnet_weekly_percentB\x1d\n" +

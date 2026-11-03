@@ -2152,6 +2152,39 @@ describe("QuotaMeter", () => {
     );
     expect(screen.getByLabelText(/Claude.*quota/)).toHaveTextContent("5h —%");
   });
+
+  it("账号没有 5 小时窗口时底栏与面板都不画 5h, 只剩 7d", () => {
+    // 2026-11 起 Anthropic 对 Max 账号回 five_hour: null —— 后端据此不给 fiveHourPercent。
+    // 缺席不是 0%: 画成「5h 0%」会让人以为取不到或者没用过。
+    vi.useFakeTimers();
+    vi.setSystemTime(resetNow);
+    try {
+      render(
+        <QuotaMeter
+          data={
+            {
+              reason: "ok",
+              data: { weeklyPercent: 28 },
+              fetchedAtMs: 1,
+            } as never
+          }
+        />,
+      );
+      const meter = screen.getByLabelText(/Claude.*quota/);
+      expect(meter).toHaveTextContent("7d 28%");
+      expect(meter).not.toHaveTextContent("5h");
+      expect(meter).not.toHaveTextContent("·");
+      expect(meter.getAttribute("aria-label")).not.toContain("5h");
+      act(() => {
+        fireEvent.focusIn(meter);
+        vi.advanceTimersByTime(500);
+      });
+      expect(screen.getByText("7-day window")).toBeInTheDocument();
+      expect(screen.queryByText("5-hour window")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("ChatTranscript message meta", () => {

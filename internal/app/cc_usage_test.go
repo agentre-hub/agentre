@@ -60,7 +60,7 @@ func TestManager_ProbeKeepsKeysSeparate(t *testing.T) {
 				return nil, cc_usage_svc.ErrDeviceOffline
 			}
 			return func(_ context.Context) (*ccoauth.RateLimits, error) {
-				return &ccoauth.RateLimits{FiveHourPercent: marker, WeeklyPercent: marker}, nil
+				return &ccoauth.RateLimits{FiveHourPercent: new(marker), WeeklyPercent: marker}, nil
 			}, nil
 		})
 
@@ -70,11 +70,11 @@ func TestManager_ProbeKeepsKeysSeparate(t *testing.T) {
 		local, ok := mgr.Get(cc_usage_svc.LocalKey)
 		So(ok, ShouldBeTrue)
 		So(local.Data, ShouldNotBeNil)
-		So(local.Data.FiveHourPercent, ShouldEqual, 11)
+		So(*local.Data.FiveHourPercent, ShouldEqual, 11)
 
 		remote, ok := mgr.Get(cc_usage_svc.DeviceKey("remote:1"))
 		So(ok, ShouldBeTrue)
 		So(remote.Data, ShouldNotBeNil)
-		So(remote.Data.FiveHourPercent, ShouldEqual, 77)
+		So(*remote.Data.FiveHourPercent, ShouldEqual, 77)
 	})
 }

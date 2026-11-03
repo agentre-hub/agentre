@@ -71,6 +71,7 @@ const QUOTA_HOVER_CLOSE_DELAY_MS = 100;
 //   - undefined / 空 reason / "no_credentials" → 整块不渲染(API key 用户、未首探)
 //   - "ok" / "rate_limited"+stale / "network"+stale → 5h X% · 7d Y%(stale 不可见标记,只在面板脚注里提示)
 //   - "auth_expired" / "device_offline" / "network"无stale → 灰态占位 "5h —%"
+//   - 有数据但 fiveHourPercent 缺席(账号此刻没有 5 小时窗口)→ 底栏与面板都不画 5h,只剩 7d
 //
 // 详情(重置倒计时 / 按模型的周配额 / 异常态)在 HoverCard 面板里,不再用原生
 // title —— 原生 title 不可键盘触达、不可着色、多行渲染跨平台不一致。
@@ -86,7 +87,12 @@ export function QuotaMeter({
   if (data.reason === "no_credentials") return null;
 
   const showNumbers = data.data && (data.reason === "ok" || !!data.stale);
-  const fiveH = data.data ? Math.round(data.data.fiveHourPercent) : null;
+  // 没有数据时(灰态占位)两个窗口照常占位;有数据却没有 5h,是这个账号没有这一档。
+  const hasFiveHour = !data.data || data.data.fiveHourPercent != null;
+  const fiveH =
+    data.data?.fiveHourPercent != null
+      ? Math.round(data.data.fiveHourPercent)
+      : null;
   const sevenD = data.data ? Math.round(data.data.weeklyPercent) : null;
 
   const offline =
@@ -116,24 +122,35 @@ export function QuotaMeter({
             "focus-visible:bg-accent focus-visible:focus-outline",
             offline ? "text-muted-foreground" : "text-muted-foreground",
           )}
-          aria-label={t("chat.quota.aria", {
-            device: deviceLabel || "local",
-            five: fiveH ?? "—",
-            seven: sevenD ?? "—",
-          })}
+          aria-label={
+            hasFiveHour
+              ? t("chat.quota.aria", {
+                  device: deviceLabel || "local",
+                  five: fiveH ?? "—",
+                  seven: sevenD ?? "—",
+                })
+              : t("chat.quota.ariaWeekly", {
+                  device: deviceLabel || "local",
+                  seven: sevenD ?? "—",
+                })
+          }
         >
           <Timer className="size-2.5 shrink-0" aria-hidden="true" />
-          <span className={fiveTone}>
-            {/* 窄档隐藏 5h/7d 前缀,只留两个百分比;语义由 aria-label 与面板保留。 */}
-            <span
-              data-quota-prefix="5h"
-              className="@max-[800px]/composer:hidden"
-            >
-              5h{" "}
-            </span>
-            {showNumbers && fiveH !== null ? `${fiveH}%` : "—%"}
-          </span>
-          <span className="text-decorative-foreground">·</span>
+          {hasFiveHour ? (
+            <>
+              <span className={fiveTone}>
+                {/* 窄档隐藏 5h/7d 前缀,只留两个百分比;语义由 aria-label 与面板保留。 */}
+                <span
+                  data-quota-prefix="5h"
+                  className="@max-[800px]/composer:hidden"
+                >
+                  5h{" "}
+                </span>
+                {showNumbers && fiveH !== null ? `${fiveH}%` : "—%"}
+              </span>
+              <span className="text-decorative-foreground">·</span>
+            </>
+          ) : null}
           <span className={sevenTone}>
             <span
               data-quota-prefix="7d"
@@ -225,7 +242,7 @@ function QuotaRow({
   );
 }
 
-// QuotaPanel 是 HoverCard 的内容:标题 + 设备名 + 两个主窗口 + 可选的
+// QuotaPanel 是 HoverCard 的内容:标题 + 设备名 + 两个主窗口(5h 缺席时只有 7d) + 可选的
 // 按模型 7 天分组(Fable / Opus / Sonnet 等,顺序与名字都照后端给的) + 脚注。
 function QuotaPanel({
   data,
@@ -256,12 +273,14 @@ function QuotaPanel({
       </div>
       {d ? (
         <div className="flex flex-col gap-2.5 px-3 py-2.5">
-          <QuotaRow
-            label={t("chat.quota.panel.fiveHour")}
-            percent={d.fiveHourPercent}
-            resetsAt={d.fiveHourResetsAt}
-            t={t}
-          />
+          {d.fiveHourPercent != null ? (
+            <QuotaRow
+              label={t("chat.quota.panel.fiveHour")}
+              percent={d.fiveHourPercent}
+              resetsAt={d.fiveHourResetsAt}
+              t={t}
+            />
+          ) : null}
           <QuotaRow
             label={t("chat.quota.panel.weekly")}
             percent={d.weeklyPercent}

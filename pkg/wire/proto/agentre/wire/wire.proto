@@ -498,6 +498,11 @@ message ClaudeCodeRateLimits {
   // Weekly quotas that count only one model (Fable, Opus, Sonnet, ...), in the
   // order Anthropic lists them. Empty when the account has none.
   repeated ClaudeCodeModelWeeklyLimit model_weekly = 9;
+  // Set when Anthropic reported no 5-hour window for the account; five_hour_percent
+  // and five_hour_resets_at_ms then carry nothing. five_hour_percent cannot gain
+  // explicit presence (that would change its cardinality), so absence travels here.
+  // Daemons that predate this field never set it, which keeps their 5-hour value.
+  bool five_hour_absent = 10;
 }
 // One model-scoped weekly quota. model is Anthropic's display name, passed
 // through as-is.

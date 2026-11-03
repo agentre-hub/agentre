@@ -1994,7 +1994,7 @@ func TestIntegration_HealthPing(t *testing.T) {
 func TestIntegration_CCUsage(t *testing.T) {
 	fableResetsAt := time.UnixMilli(1_790_000_000_000)
 	stub := func(_ context.Context) (*ccoauth.RateLimits, error) {
-		return &ccoauth.RateLimits{FiveHourPercent: 73, WeeklyPercent: 25, ModelWeekly: []ccoauth.ModelWeeklyLimit{
+		return &ccoauth.RateLimits{FiveHourPercent: new(73.0), WeeklyPercent: 25, ModelWeekly: []ccoauth.ModelWeeklyLimit{
 			{Model: "Fable", Percent: 4, ResetsAt: &fableResetsAt},
 		}}, nil
 	}

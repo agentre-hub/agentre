@@ -29,7 +29,7 @@ func TestRateLimitsFromResponse_GivenOK_WhenConverted_ThenEveryBucketSurvives(t 
 	})
 
 	require.NoError(t, err)
-	require.InDelta(t, 42.0, limits.FiveHourPercent, 0.001)
+	require.InDelta(t, 42.0, *limits.FiveHourPercent, 0.001)
 	require.InDelta(t, 7.0, limits.WeeklyPercent, 0.001)
 	require.NotNil(t, limits.FiveHourResetsAt)
 	require.Equal(t, time.UnixMilli(fiveHour), *limits.FiveHourResetsAt)
@@ -79,4 +79,60 @@ func TestRateLimitsFromResponse_GivenAFailureReason_WhenConverted_ThenItMapsToTh
 			require.ErrorIs(t, err, want)
 		})
 	}
+}
+
+// Given 远端报告这个账号此刻没有 5 小时窗口;When 翻译;Then 5h 窗口缺席(连同重置时刻),
+// 而不是一个 0% —— 界面据此整档不画。
+func TestRateLimitsFromResponse_GivenFiveHourAbsent_WhenConverted_ThenTheWindowIsAbsent(t *testing.T) {
+	t.Parallel()
+
+	limits, err := ccoauth.RateLimitsFromResponse(&agentrewire.ClaudeCodeUsageResponse{
+		Reason: "ok",
+		Data:   &agentrewire.ClaudeCodeRateLimits{FiveHourAbsent: true, WeeklyPercent: 28},
+	})
+
+	require.NoError(t, err)
+	require.Nil(t, limits.FiveHourPercent)
+	require.Nil(t, limits.FiveHourResetsAt)
+	require.InDelta(t, 28.0, limits.WeeklyPercent, 0.001)
+}
+
+// Given agentred 自己探到的配额没有 5 小时窗口;When 编码上 wire;Then 带上缺席标记,
+// 桌面端翻回来仍是缺席。
+func TestRateLimitsToProto_GivenNoFiveHourWindow_WhenEncoded_ThenAbsenceSurvivesTheRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	encoded := ccoauth.RateLimitsToProto(&ccoauth.RateLimits{WeeklyPercent: 28})
+	require.True(t, encoded.GetFiveHourAbsent())
+	require.Nil(t, encoded.FiveHourResetsAtMs)
+
+	decoded, err := ccoauth.RateLimitsFromResponse(&agentrewire.ClaudeCodeUsageResponse{Reason: "ok", Data: encoded})
+	require.NoError(t, err)
+	require.Nil(t, decoded.FiveHourPercent)
+	require.InDelta(t, 28.0, decoded.WeeklyPercent, 0.001)
+}
+
+// Given 一份完整的配额(5h 用了 0%、带各档重置时刻);When 编码再解码;Then 逐档还原 ——
+// 0% 是「用了 0%」,不能被当成缺席。
+func TestRateLimitsToProto_GivenEveryBucket_WhenRoundTripped_ThenNothingIsLost(t *testing.T) {
+	t.Parallel()
+
+	fiveHourResetsAt := time.UnixMilli(1_700_000_000_000)
+	weeklyResetsAt := time.UnixMilli(1_700_000_300_000)
+	fableResetsAt := time.UnixMilli(1_700_000_500_000)
+	original := &ccoauth.RateLimits{
+		FiveHourPercent: new(0.0), FiveHourResetsAt: &fiveHourResetsAt,
+		WeeklyPercent: 7, WeeklyResetsAt: &weeklyResetsAt,
+		ModelWeekly: []ccoauth.ModelWeeklyLimit{
+			{Model: "Fable", Percent: 12.5, ResetsAt: &fableResetsAt},
+			{Model: "Opus", Percent: 3},
+		},
+	}
+
+	encoded := ccoauth.RateLimitsToProto(original)
+	require.False(t, encoded.GetFiveHourAbsent())
+	decoded, err := ccoauth.RateLimitsFromResponse(&agentrewire.ClaudeCodeUsageResponse{Reason: "ok", Data: encoded})
+
+	require.NoError(t, err)
+	require.Equal(t, original, decoded)
 }

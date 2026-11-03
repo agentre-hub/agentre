@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/cago-frame/cago/configs"
 	"github.com/cago-frame/cago/pkg/logger"
@@ -306,18 +305,7 @@ func (d *Daemon) registerProtobufMethods() {
 				return nil, err
 			}
 			result := handlers.CCUsage(ctx, ccFetcher)
-			response := &agentrewire.ClaudeCodeUsageResponse{Reason: result.Reason}
-			if result.Data != nil {
-				response.Data = &agentrewire.ClaudeCodeRateLimits{FiveHourPercent: result.Data.FiveHourPercent, WeeklyPercent: result.Data.WeeklyPercent}
-				response.Data.FiveHourResetsAtMs = timePointerMillis(result.Data.FiveHourResetsAt)
-				response.Data.WeeklyResetsAtMs = timePointerMillis(result.Data.WeeklyResetsAt)
-				for _, limit := range result.Data.ModelWeekly {
-					response.Data.ModelWeekly = append(response.Data.ModelWeekly, &agentrewire.ClaudeCodeModelWeeklyLimit{
-						Model: limit.Model, Percent: limit.Percent, ResetsAtMs: timePointerMillis(limit.ResetsAt),
-					})
-				}
-			}
-			return response, nil
+			return &agentrewire.ClaudeCodeUsageResponse{Reason: result.Reason, Data: ccoauth.RateLimitsToProto(result.Data)}, nil
 		})
 
 	wireinbound.RegisterCLIModelsList(d.protobufRegistry, handlers.NewCLIModelsHandlers().List)
@@ -481,14 +469,6 @@ func (d *Daemon) requireProtobufLoggedIn(ctx context.Context) error {
 		return &protorpc.Error{Code: int32(rpcerror.ErrUnauthorized.Code), Message: rpcerror.ErrUnauthorized.Message}
 	}
 	return nil
-}
-
-func timePointerMillis(value *time.Time) *int64 {
-	if value == nil {
-		return nil
-	}
-	millis := value.UnixMilli()
-	return &millis
 }
 
 // daemonSessionPorts 是会话族里**不依赖某一条连接**的那一半端口。

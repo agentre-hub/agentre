@@ -1796,6 +1796,12 @@ public nonisolated struct Agentre_Wire_ClaudeCodeRateLimits: Sendable {
   /// order Anthropic lists them. Empty when the account has none.
   public var modelWeekly: [Agentre_Wire_ClaudeCodeModelWeeklyLimit] = []
 
+  /// Set when Anthropic reported no 5-hour window for the account; five_hour_percent
+  /// and five_hour_resets_at_ms then carry nothing. five_hour_percent cannot gain
+  /// explicit presence (that would change its cardinality), so absence travels here.
+  /// Daemons that predate this field never set it, which keeps their 5-hour value.
+  public var fiveHourAbsent: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -9450,7 +9456,7 @@ nonisolated extension Agentre_Wire_ClaudeCodeUsageRequest: SwiftProtobuf.Message
 
 nonisolated extension Agentre_Wire_ClaudeCodeRateLimits: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ClaudeCodeRateLimits"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}five_hour_percent\0\u{3}weekly_percent\0\u{3}five_hour_resets_at_ms\0\u{3}weekly_resets_at_ms\0\u{3}sonnet_weekly_percent\0\u{3}sonnet_weekly_resets_at_ms\0\u{3}opus_weekly_percent\0\u{3}opus_weekly_resets_at_ms\0\u{3}model_weekly\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}five_hour_percent\0\u{3}weekly_percent\0\u{3}five_hour_resets_at_ms\0\u{3}weekly_resets_at_ms\0\u{3}sonnet_weekly_percent\0\u{3}sonnet_weekly_resets_at_ms\0\u{3}opus_weekly_percent\0\u{3}opus_weekly_resets_at_ms\0\u{3}model_weekly\0\u{3}five_hour_absent\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -9467,6 +9473,7 @@ nonisolated extension Agentre_Wire_ClaudeCodeRateLimits: SwiftProtobuf.Message, 
       case 7: try { try decoder.decodeSingularDoubleField(value: &self._opusWeeklyPercent) }()
       case 8: try { try decoder.decodeSingularInt64Field(value: &self._opusWeeklyResetsAtMs) }()
       case 9: try { try decoder.decodeRepeatedMessageField(value: &self.modelWeekly) }()
+      case 10: try { try decoder.decodeSingularBoolField(value: &self.fiveHourAbsent) }()
       default: break
       }
     }
@@ -9504,6 +9511,9 @@ nonisolated extension Agentre_Wire_ClaudeCodeRateLimits: SwiftProtobuf.Message, 
     if !self.modelWeekly.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.modelWeekly, fieldNumber: 9)
     }
+    if self.fiveHourAbsent != false {
+      try visitor.visitSingularBoolField(value: self.fiveHourAbsent, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -9517,6 +9527,7 @@ nonisolated extension Agentre_Wire_ClaudeCodeRateLimits: SwiftProtobuf.Message, 
     if lhs._opusWeeklyPercent != rhs._opusWeeklyPercent {return false}
     if lhs._opusWeeklyResetsAtMs != rhs._opusWeeklyResetsAtMs {return false}
     if lhs.modelWeekly != rhs.modelWeekly {return false}
+    if lhs.fiveHourAbsent != rhs.fiveHourAbsent {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

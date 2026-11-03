@@ -22,6 +22,7 @@
     },
     "quota": {
       "aria": "Claude Code quota 5h {{five}}% 7d {{seven}}% from {{device}}",
+      "ariaWeekly": "Claude Code quota 7d {{seven}}% from {{device}}",
       "panel": {
         "fiveHour": "5-hour window",
         "modelWeekly": "{{model}} 7-day",

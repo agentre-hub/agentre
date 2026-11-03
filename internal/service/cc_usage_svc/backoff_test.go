@@ -55,7 +55,7 @@ func TestProbe_Backoff429(t *testing.T) {
 				if c == 1 {
 					return nil, ccoauth.ErrRateLimited // 第 1 次 429
 				}
-				return &ccoauth.RateLimits{FiveHourPercent: 1}, nil // 之后都成功
+				return &ccoauth.RateLimits{FiveHourPercent: new(1.0)}, nil // 之后都成功
 			}, nil
 		})
 

@@ -56,7 +56,7 @@ func ParseUsageResponse(body []byte) (*RateLimits, error) {
 
 	out := &RateLimits{}
 	if fiveH != nil {
-		out.FiveHourPercent = clamp(*fiveH)
+		out.FiveHourPercent = new(clamp(*fiveH))
 		out.FiveHourResetsAt = parseTime(raw.FiveHour.ResetsAt)
 	}
 	if sevenD != nil {

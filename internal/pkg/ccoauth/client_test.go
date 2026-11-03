@@ -29,7 +29,7 @@ func TestClientFetchUsage(t *testing.T) {
 		client := ccoauth.NewClient(srv.URL)
 		got, err := client.FetchUsage(context.Background(), "tok-123")
 		So(err, ShouldBeNil)
-		So(got.FiveHourPercent, ShouldAlmostEqual, 33.3, 0.001)
+		So(*got.FiveHourPercent, ShouldAlmostEqual, 33.3, 0.001)
 		So(gotAuth, ShouldEqual, "Bearer tok-123")
 		So(gotBeta, ShouldEqual, "oauth-2025-04-20")
 		So(gotPath, ShouldEqual, "/api/oauth/usage")

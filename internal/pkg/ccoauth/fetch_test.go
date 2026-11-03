@@ -34,7 +34,7 @@ func TestFetch(t *testing.T) {
 			HTTPClient:         ccoauth.NewClient(srv.URL),
 		})
 		So(err, ShouldBeNil)
-		So(rl.FiveHourPercent, ShouldEqual, 20)
+		So(*rl.FiveHourPercent, ShouldEqual, 20)
 		So(gotAuth, ShouldEqual, "Bearer kc-tok")
 	})
 
@@ -57,7 +57,7 @@ func TestFetch(t *testing.T) {
 			HTTPClient:      ccoauth.NewClient(srv.URL),
 		})
 		So(err, ShouldBeNil)
-		So(rl.FiveHourPercent, ShouldEqual, 10)
+		So(*rl.FiveHourPercent, ShouldEqual, 10)
 		So(gotAuth, ShouldEqual, "Bearer file-tok")
 	})
 
@@ -88,7 +88,7 @@ func TestFetch(t *testing.T) {
 			HTTPClient:      ccoauth.NewClient(srv.URL),
 		})
 		So(err, ShouldBeNil)
-		So(rl.FiveHourPercent, ShouldEqual, 5)
+		So(*rl.FiveHourPercent, ShouldEqual, 5)
 	})
 
 	Convey("Fetch 在 token 有效但 API 返回 401 时透传 ErrAuthExpired", t, func() {
@@ -129,7 +129,7 @@ func TestFetch(t *testing.T) {
 			HTTPClient:         ccoauth.NewClient(srv.URL),
 		})
 		So(err, ShouldBeNil)
-		So(rl.FiveHourPercent, ShouldEqual, 1)
+		So(*rl.FiveHourPercent, ShouldEqual, 1)
 		So(gotAuth, ShouldEqual, "Bearer hashed-tok")
 	})
 }

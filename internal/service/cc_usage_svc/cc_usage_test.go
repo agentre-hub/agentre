@@ -39,7 +39,7 @@ func TestProbe_Success(t *testing.T) {
 		mgr.SetEmitter(rec.emit)
 		mgr.SetFetcherResolver(func(_ cc_usage_svc.DeviceKey) (cc_usage_svc.Fetcher, error) {
 			return func(_ context.Context) (*ccoauth.RateLimits, error) {
-				return &ccoauth.RateLimits{FiveHourPercent: 25, WeeklyPercent: 7}, nil
+				return &ccoauth.RateLimits{FiveHourPercent: new(25.0), WeeklyPercent: 7}, nil
 			}, nil
 		})
 
@@ -49,7 +49,7 @@ func TestProbe_Success(t *testing.T) {
 		So(ok, ShouldBeTrue)
 		So(state.Reason, ShouldEqual, "ok")
 		So(state.Data, ShouldNotBeNil)
-		So(state.Data.FiveHourPercent, ShouldEqual, 25)
+		So(*state.Data.FiveHourPercent, ShouldEqual, 25)
 		So(state.Stale, ShouldBeFalse)
 
 		emits := rec.all()
@@ -99,7 +99,7 @@ func TestProbe_StaleDataOnTransientError(t *testing.T) {
 			return func(_ context.Context) (*ccoauth.RateLimits, error) {
 				callCount++
 				if callCount == 1 {
-					return &ccoauth.RateLimits{FiveHourPercent: 50}, nil
+					return &ccoauth.RateLimits{FiveHourPercent: new(50.0)}, nil
 				}
 				return nil, ccoauth.ErrRateLimited
 			}, nil
@@ -112,7 +112,7 @@ func TestProbe_StaleDataOnTransientError(t *testing.T) {
 		So(state.Reason, ShouldEqual, "rate_limited")
 		So(state.Stale, ShouldBeTrue)
 		So(state.Data, ShouldNotBeNil)
-		So(state.Data.FiveHourPercent, ShouldEqual, 50)
+		So(*state.Data.FiveHourPercent, ShouldEqual, 50)
 	})
 
 	Convey("Probe 在 auth_expired 时清空 Data(凭证失效则旧数据无意义)", t, func() {
@@ -122,7 +122,7 @@ func TestProbe_StaleDataOnTransientError(t *testing.T) {
 			return func(_ context.Context) (*ccoauth.RateLimits, error) {
 				callCount++
 				if callCount == 1 {
-					return &ccoauth.RateLimits{FiveHourPercent: 80}, nil
+					return &ccoauth.RateLimits{FiveHourPercent: new(80.0)}, nil
 				}
 				return nil, ccoauth.ErrAuthExpired
 			}, nil

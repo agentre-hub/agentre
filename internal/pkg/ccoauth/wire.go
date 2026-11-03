@@ -29,7 +29,8 @@ func RateLimitsFromResponse(response *agentrewire.ClaudeCodeUsageResponse) (*Rat
 	}
 }
 
-// rateLimitsFromProto 还原两个主窗口与各档模型周配额的「百分比 + 重置时刻」。
+// rateLimitsFromProto 还原两个主窗口与各档模型周配额的「百分比 + 重置时刻」;
+// 远端报告 5 小时窗口缺席时,这一档留 nil。
 //
 // 时刻在 wire 上是可选的 unix 毫秒:字段缺失表示「这一档没有重置时刻」,而不是
 // 1970 年 —— 所以逐个判 nil,不能拿零值直接 UnixMilli。
@@ -38,9 +39,13 @@ func rateLimitsFromProto(value *agentrewire.ClaudeCodeRateLimits) *RateLimits {
 		return nil
 	}
 	result := &RateLimits{
-		FiveHourPercent: value.GetFiveHourPercent(), WeeklyPercent: value.GetWeeklyPercent(),
-		FiveHourResetsAt: timeFromMillis(value.FiveHourResetsAtMs),
-		WeeklyResetsAt:   timeFromMillis(value.WeeklyResetsAtMs),
+		WeeklyPercent:  value.GetWeeklyPercent(),
+		WeeklyResetsAt: timeFromMillis(value.WeeklyResetsAtMs),
+	}
+	// 缺席标记是后加的:老 daemon 从不设它,它们的 five_hour_percent 照旧当数值读。
+	if !value.GetFiveHourAbsent() {
+		result.FiveHourPercent = new(value.GetFiveHourPercent())
+		result.FiveHourResetsAt = timeFromMillis(value.FiveHourResetsAtMs)
 	}
 	for _, limit := range value.GetModelWeekly() {
 		result.ModelWeekly = append(result.ModelWeekly, ModelWeeklyLimit{
@@ -48,6 +53,39 @@ func rateLimitsFromProto(value *agentrewire.ClaudeCodeRateLimits) *RateLimits {
 		})
 	}
 	return result
+}
+
+// RateLimitsToProto 是 rateLimitsFromProto 的反方向:agentred 把自己探到的配额编码上
+// wire。没有 5 小时窗口时设 five_hour_absent —— five_hour_percent 是隐式存在的
+// double,单靠它分不出「缺席」和「用了 0%」。
+func RateLimitsToProto(value *RateLimits) *agentrewire.ClaudeCodeRateLimits {
+	if value == nil {
+		return nil
+	}
+	result := &agentrewire.ClaudeCodeRateLimits{
+		WeeklyPercent:    value.WeeklyPercent,
+		WeeklyResetsAtMs: millisFromTime(value.WeeklyResetsAt),
+	}
+	if value.FiveHourPercent == nil {
+		result.FiveHourAbsent = true
+	} else {
+		result.FiveHourPercent = *value.FiveHourPercent
+		result.FiveHourResetsAtMs = millisFromTime(value.FiveHourResetsAt)
+	}
+	for _, limit := range value.ModelWeekly {
+		result.ModelWeekly = append(result.ModelWeekly, &agentrewire.ClaudeCodeModelWeeklyLimit{
+			Model: limit.Model, Percent: limit.Percent, ResetsAtMs: millisFromTime(limit.ResetsAt),
+		})
+	}
+	return result
+}
+
+func millisFromTime(value *time.Time) *int64 {
+	if value == nil {
+		return nil
+	}
+	millis := value.UnixMilli()
+	return &millis
 }
 
 func timeFromMillis(ms *int64) *time.Time {

@@ -19,7 +19,7 @@ func TestParseUsageResponse(t *testing.T) {
 		got, err := ccoauth.ParseUsageResponse(body)
 		So(err, ShouldBeNil)
 		So(got, ShouldNotBeNil)
-		So(got.FiveHourPercent, ShouldAlmostEqual, 42.5, 0.001)
+		So(*got.FiveHourPercent, ShouldAlmostEqual, 42.5, 0.001)
 		So(got.WeeklyPercent, ShouldAlmostEqual, 18.2, 0.001)
 		So(got.FiveHourResetsAt, ShouldNotBeNil)
 		So(got.FiveHourResetsAt.Equal(time.Date(2026, 5, 28, 13, 0, 0, 0, time.UTC)), ShouldBeTrue)
@@ -80,10 +80,28 @@ func TestParseUsageResponse(t *testing.T) {
 
 		got, err := ccoauth.ParseUsageResponse(body)
 		So(err, ShouldBeNil)
-		So(got.FiveHourPercent, ShouldAlmostEqual, 10, 0.001)
+		So(*got.FiveHourPercent, ShouldAlmostEqual, 10, 0.001)
 		So(got.WeeklyPercent, ShouldEqual, 0)
 		So(got.WeeklyResetsAt, ShouldBeNil)
 		So(got.ModelWeekly, ShouldBeEmpty)
+	})
+
+	Convey("ParseUsageResponse 在 five_hour 为 null 时 5h 窗口缺席，而不是 0%（2026-11 实测形状）", t, func() {
+		// 2026-11 起 Max 账号的响应里 five_hour 是 null、limits[] 也没有 session 条目：
+		// 这个账号此刻没有 5 小时窗口。缺席与「这个窗口用了 0%」是两件事。
+		body := []byte(`{
+			"five_hour": null,
+			"seven_day": {"utilization": 28.0, "resets_at": "2026-11-05T12:00:00.068876+00:00"},
+			"limits": [
+				{"kind": "weekly_all", "group": "weekly", "percent": 28, "resets_at": "2026-11-05T12:00:00.068876+00:00", "scope": null}
+			]
+		}`)
+
+		got, err := ccoauth.ParseUsageResponse(body)
+		So(err, ShouldBeNil)
+		So(got.FiveHourPercent, ShouldBeNil)
+		So(got.FiveHourResetsAt, ShouldBeNil)
+		So(got.WeeklyPercent, ShouldAlmostEqual, 28, 0.001)
 	})
 
 	Convey("ParseUsageResponse 把 utilization 钳制到 [0, 100]", t, func() {
@@ -94,7 +112,7 @@ func TestParseUsageResponse(t *testing.T) {
 
 		got, err := ccoauth.ParseUsageResponse(body)
 		So(err, ShouldBeNil)
-		So(got.FiveHourPercent, ShouldEqual, 0)
+		So(*got.FiveHourPercent, ShouldEqual, 0)
 		So(got.WeeklyPercent, ShouldEqual, 100)
 	})
 
