@@ -17,6 +17,7 @@ import {
   DialogShellHeader,
 } from "@agentre-hub/agentre-ui";
 import { AgentAvatar, StatusPill } from "@/components/agentre/primitives";
+import { useAgentIdentity } from "@/components/agentre/use-agent-identity";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
@@ -32,10 +33,52 @@ const MAX_VISIBLE = 3;
 type ActiveRow = {
   sessionId: number;
   status: AgentStatus;
+  agentId: number;
   agentName: string;
   agentColor: string;
   title: string;
 };
+
+/**
+ * 列表里的那一行。单独一个组件是因为完整身份要按 agentId 取（规格 2026-11-02
+ * 决策 17）——meta 只有名字与颜色，图标 key / 上传图片在 chat-agents-store 里；
+ * 一个 hook 不能写在 map 里。
+ */
+function QuitConfirmRow({ row }: { row: ActiveRow }) {
+  const { t } = useTranslation();
+  // 完整身份在 store 里时以它为准；不在时回落会话 meta 的名字与颜色。
+  const identity = useAgentIdentity(row.agentId);
+
+  return (
+    <div className="flex items-center gap-2.5 rounded-md bg-field-fill px-3 py-2.5">
+      <AgentAvatar
+        name={identity?.name || row.agentName}
+        color={row.agentColor as AgentColor}
+        avatarIcon={identity?.avatarIcon}
+        avatarDataUrl={identity?.avatarDataUrl}
+        size="sm"
+      />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-sm font-semibold text-foreground">
+          {row.agentName}
+        </span>
+        {row.title ? (
+          <span className="truncate text-xs text-muted-foreground">
+            {row.title}
+          </span>
+        ) : null}
+      </div>
+      <StatusPill
+        status={row.status}
+        label={
+          row.status === "running"
+            ? t("quitConfirm.statusRunning")
+            : t("quitConfirm.statusWaiting")
+        }
+      />
+    </div>
+  );
+}
 
 export function QuitConfirmDialog() {
   const { t } = useTranslation();
@@ -63,6 +106,7 @@ export function QuitConfirmDialog() {
       rows.push({
         sessionId,
         status: status.agentStatus,
+        agentId: meta?.agentId ?? 0,
         agentName: meta?.agentName ?? t("quitConfirm.unknownSession"),
         agentColor: meta?.agentColor ?? "neutral",
         title: meta?.title ?? "",
@@ -98,34 +142,7 @@ export function QuitConfirmDialog() {
         </p>
         <div className="flex max-h-[168px] flex-col gap-2 overflow-y-auto">
           {visible.map((row) => (
-            <div
-              key={row.sessionId}
-              className="flex items-center gap-2.5 rounded-md bg-field-fill px-3 py-2.5"
-            >
-              <AgentAvatar
-                name={row.agentName}
-                color={row.agentColor as AgentColor}
-                size="sm"
-              />
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="truncate text-sm font-semibold text-foreground">
-                  {row.agentName}
-                </span>
-                {row.title ? (
-                  <span className="truncate text-xs text-muted-foreground">
-                    {row.title}
-                  </span>
-                ) : null}
-              </div>
-              <StatusPill
-                status={row.status}
-                label={
-                  row.status === "running"
-                    ? t("quitConfirm.statusRunning")
-                    : t("quitConfirm.statusWaiting")
-                }
-              />
-            </div>
+            <QuitConfirmRow key={row.sessionId} row={row} />
           ))}
           {overflow > 0 ? (
             <p className="px-1 py-1 text-center text-xs font-medium text-muted-foreground">

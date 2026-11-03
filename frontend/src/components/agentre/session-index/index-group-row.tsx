@@ -272,6 +272,9 @@ export function IndexGroupRow({
         persistenceKey={group.key}
         name={agent.name}
         color={(agent.avatarColor || "agent-1") as never}
+        // 组头记号也画完整身份（规格 2026-11-02 决策 17）：meta 没有图标 / 上传图片。
+        avatarIcon={agent.avatarIcon || ""}
+        avatarDataUrl={agent.avatarDataUrl || ""}
         activeCount={attentionCount}
         notChattable={!agent.chattable}
         blockReason={agent.blockReason}

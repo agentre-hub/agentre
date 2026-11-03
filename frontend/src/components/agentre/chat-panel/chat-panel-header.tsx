@@ -28,6 +28,7 @@ import type { BackgroundTask } from "../background-tasks/types";
 import { DeviceTag } from "../primitives";
 import type { AgentColor, AgentStatus } from "../types";
 import { statusConfig } from "../types";
+import { useAgentIdentity } from "../use-agent-identity";
 
 import type { chat_svc } from "../../../../wailsjs/go/models";
 
@@ -86,6 +87,9 @@ function ChatPanelHeader({
   onDelete,
 }: ChatPanelHeaderProps) {
   const { t } = useTranslation();
+  // 会话 meta 只有名字与颜色；图标 key 与上传图片在 chat-agents-store 里
+  // （规格 2026-11-02 决策 17）。新建未首发态用即将使用的那个 Agent 的 id。
+  const identity = useAgentIdentity(session?.agentId ?? newSessionAgent?.id);
   /* meta 行的各段。只有拿得出来的才进来，分隔符由顶带夹在真的存在的两段之间。 */
   const metaParts: SessionHeaderMetaPart[] = [];
   if (topline) {
@@ -104,6 +108,7 @@ function ChatPanelHeader({
   /* 身份缩成 meta 行里的一枚小头像（顶带不再有 32px 方块，那副样子和转录里每条消息
      一模一样）；状态点挂在它右下角，空闲维持「没有记号」。 */
   const identityColor =
+    (identity?.color as AgentColor) ||
     (session?.agentColor as AgentColor) ||
     (showNewSessionPrompt
       ? (newSessionAgent?.avatarColor as AgentColor)
@@ -115,8 +120,11 @@ function ChatPanelHeader({
       node: (
         <span className="inline-flex shrink-0 items-center gap-1.5">
           <SessionHeaderAgentMark
-            name={agentName}
+            // 完整身份在 store 里时以它为准；不在时回落 meta 的名字与颜色。
+            name={identity?.name || agentName}
             color={identityColor}
+            iconKey={identity?.avatarIcon}
+            avatarDataUrl={identity?.avatarDataUrl}
             status={status}
             badgeTestId="chat-header-status-badge"
           />

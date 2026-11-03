@@ -11,6 +11,13 @@ export type SessionHeaderAgentMarkProps = {
   color?: string;
   /** 宿主已经解好的图标节点；不给就画首字母。图标词表是宿主的事，包不认 key。 */
   icon?: React.ReactNode;
+  /**
+   * 图标字段里的持久化 key（`avatar_icon`）：完整身份的第二、三档（规格 2026-11-02
+   * 决策 17）。预设与词表都在包里，这一层只把这个 key 递下去。
+   */
+  iconKey?: string;
+  /** 上传的头像图片：完整身份的第一档（规格 2026-11-02 决策 17）。 */
+  avatarDataUrl?: string;
   /** 这一轮的状态；空闲或说不出来（null）时角上不挂点。 */
   status: AgentStatus | null;
   badgeTestId?: string;
@@ -28,6 +35,8 @@ export function SessionHeaderAgentMark({
   name,
   color,
   icon,
+  iconKey,
+  avatarDataUrl,
   status,
   badgeTestId,
 }: SessionHeaderAgentMarkProps) {
@@ -39,6 +48,8 @@ export function SessionHeaderAgentMark({
         initials={name.charAt(0)}
         color={color}
         icon={icon}
+        iconKey={iconKey}
+        avatarDataUrl={avatarDataUrl}
         size="xs"
       />
       {status && status !== "idle" ? (

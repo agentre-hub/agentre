@@ -4,9 +4,13 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
+import { presetForKey } from "@agentre-hub/agentre-ui";
+
+import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
@@ -124,5 +128,69 @@ describe("QuitConfirmDialog", () => {
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText(/3 more/i)).toBeInTheDocument();
+  });
+});
+
+// 规格 2026-11-02 决策 17：退出确认里每一行的 Agent 记号此前只画首字母 + 颜色，
+// 现在按上传图片 ▸ 预设 ▸ 图标 ▸ 首字母显示完整身份（meta 里只有名字与颜色）。
+describe("QuitConfirmDialog · Agent 记号显示完整身份", () => {
+  function renderRowAvatar(identity: {
+    avatarIcon?: string;
+    avatarDataUrl?: string;
+  }) {
+    useChatAgentsStore.setState({
+      agents: [
+        {
+          id: 1,
+          name: "Backend",
+          avatarColor: "agent-1",
+          avatarIcon: "",
+          avatarDataUrl: "",
+          sessionIds: [],
+          ...identity,
+        },
+      ] as never,
+    });
+    onTestFinished(() => useChatAgentsStore.getState().__reset());
+    installConfirmQuit();
+    seedSession(1, "running", "Backend", "Drop group table");
+
+    render(<QuitConfirmDialog />);
+    emitQuitBlocked(1);
+
+    return within(screen.getByRole("dialog")).getByRole("img", {
+      name: "Backend",
+    });
+  }
+
+  it("上传图片：记号画的是图片", () => {
+    const avatar = renderRowAvatar({
+      avatarDataUrl: "data:image/png;base64,AAAA",
+    });
+
+    expect(avatar.querySelector("img")?.getAttribute("src")).toBe(
+      "data:image/png;base64,AAAA",
+    );
+  });
+
+  it("预设 key：记号画注册表里的预设图", () => {
+    const avatar = renderRowAvatar({ avatarIcon: "preset:agent-assistant" });
+
+    expect(avatar.querySelector("img")?.getAttribute("src")).toBe(
+      presetForKey("preset:agent-assistant")?.src,
+    );
+  });
+
+  it("图标 key：记号画词表里的图标，而不是首字母", () => {
+    const avatar = renderRowAvatar({ avatarIcon: "hammer" });
+
+    expect(avatar.querySelector("svg")).not.toBeNull();
+    expect(avatar).not.toHaveTextContent("B");
+  });
+
+  it("没有图标：记号照旧画首字母", () => {
+    const avatar = renderRowAvatar({});
+
+    expect(avatar).toHaveTextContent("B");
   });
 });

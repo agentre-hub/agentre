@@ -19,9 +19,11 @@ import {
   type TranscriptRow,
 } from "@agentre-hub/agentre-ui";
 
+import { useSessionMetaStore } from "../../../../stores/session-meta-store";
 import { useTranscriptCallbacks } from "../../use-transcript-callbacks";
 import { AgentAvatar } from "../../primitives";
 import type { AgentColor } from "../../types";
+import { useAgentIdentity } from "../../use-agent-identity";
 // 只借组件的 live 内容契约(它比包的 LiveRowContent 多带 liveRetry / liveTurn);
 // type-only 导入,不会和 ../../transcript 成运行时环。
 import type { TranscriptLiveContent } from "../transcript";
@@ -91,6 +93,13 @@ export function useTranscriptRowView({
     onStopLocalCommand,
   });
 
+  // 转录头像也画**完整身份**（规格 2026-11-02 决策 17）：会话 meta 只有名字与颜色，
+  // 图标 key 与上传图片要按 sessionId 找回 agentId，再从 chat-agents-store 取。
+  const agentId = useSessionMetaStore((s) =>
+    sessionId ? s.metas.get(sessionId)?.agentId : undefined,
+  );
+  const identity = useAgentIdentity(agentId);
+
   const renderCtx = React.useMemo<TranscriptRenderContextValue>(
     () => ({
       agentName,
@@ -98,9 +107,12 @@ export function useTranscriptRowView({
       // agent 调色板与 icon-registry，只借包的 MESSAGE_AVATAR_CLASS 对齐头像列尺寸。
       agentAvatar: (
         <AgentAvatar
-          name={agentName}
-          initials={agentName.charAt(0)}
-          color={agentColor}
+          // 完整身份在 store 里时以它为准；不在时回落会话 meta 的名字与颜色。
+          name={identity?.name || agentName}
+          initials={(identity?.name || agentName).charAt(0)}
+          color={(identity?.color as AgentColor) || agentColor}
+          avatarIcon={identity?.avatarIcon}
+          avatarDataUrl={identity?.avatarDataUrl}
           size="md"
           className={MESSAGE_AVATAR_CLASS}
         />
@@ -123,6 +135,7 @@ export function useTranscriptRowView({
       agentColor,
       agentName,
       cwd,
+      identity,
       hasStopLocalCommand,
       onEdit,
       onContinue,

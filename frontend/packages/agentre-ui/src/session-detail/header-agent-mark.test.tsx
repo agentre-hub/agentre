@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { presetForKey } from "../presets/preset-registry";
+
 import { SessionHeaderAgentMark } from "./header-agent-mark";
 
 describe("SessionHeaderAgentMark", () => {
@@ -64,5 +66,54 @@ describe("SessionHeaderAgentMark", () => {
     );
 
     expect(screen.getByTestId("icon")).toBeInTheDocument();
+  });
+
+  // 规格 2026-11-02 决策 17：这枚记号此前只画首字母，现在按完整身份显示。
+  it("Given 上传图片, When 渲染, Then 画的是图片", () => {
+    render(
+      <SessionHeaderAgentMark
+        name="Eng"
+        color="agent-1"
+        avatarDataUrl="data:image/png;base64,AAAA"
+        status="idle"
+      />,
+    );
+
+    const mark = screen.getByRole("img", { name: "Eng" });
+    expect(mark.querySelector("img")?.getAttribute("src")).toBe(
+      "data:image/png;base64,AAAA",
+    );
+    expect(mark).toHaveClass("size-3.5");
+  });
+
+  it("Given 预设 key, When 渲染, Then 画注册表里的预设图", () => {
+    render(
+      <SessionHeaderAgentMark
+        name="Eng"
+        color="agent-1"
+        iconKey="preset:agent-assistant"
+        status="idle"
+      />,
+    );
+
+    const mark = screen.getByRole("img", { name: "Eng" });
+    expect(mark.querySelector("img")?.getAttribute("src")).toBe(
+      presetForKey("preset:agent-assistant")?.src,
+    );
+  });
+
+  it("Given 图标 key, When 渲染, Then 画词表里的图标而不是首字母", () => {
+    render(
+      <SessionHeaderAgentMark
+        name="Eng"
+        color="agent-1"
+        iconKey="hammer"
+        status="idle"
+      />,
+    );
+
+    const mark = screen.getByRole("img", { name: "Eng" });
+    expect(mark.querySelector("svg")).not.toBeNull();
+    expect(mark).not.toHaveTextContent("E");
   });
 });
