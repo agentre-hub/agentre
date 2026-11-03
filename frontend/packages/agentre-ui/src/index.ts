@@ -13,6 +13,9 @@ export {
   useUiTranslation,
 } from "./i18n";
 export { cn } from "./lib/utils";
+export { IdentityMarkPicker } from "./identity/identity-mark-picker";
+export type { IdentityMarkPickerProps } from "./identity/identity-mark-picker";
+export type { IdentityImageUpload } from "./identity/image-panel";
 export { LlmProvidersPanel, AgentBackendsPanel } from "./engine/panels";
 // 引擎设置端口经 context 下发：两个面板同时挂载时各用各的那一份，与谁最后渲染无关。
 export {
