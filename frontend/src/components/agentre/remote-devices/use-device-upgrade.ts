@@ -16,6 +16,8 @@ import {
   type AgentredUpgradePhase,
 } from "@agentre-hub/agentre-ui";
 
+import { classifyAppError } from "@/lib/app-error";
+
 import {
   RemoteDeviceGet,
   RemoteDeviceUpgrade,
@@ -31,7 +33,14 @@ export function useDeviceUpgrade(
   const ports = useMemo(
     () => ({
       requestUpgrade: async (force: boolean) => {
-        const result = await RemoteDeviceUpgrade(deviceId, force);
+        const result = await RemoteDeviceUpgrade(deviceId, force).catch(
+          (e: unknown) => {
+            // 桥上的串带着 `agentre-code:<码>` 前缀：去掉前缀，只留后端那句中文；
+            // 没有码时保留原话 —— 它只会出现在失败卡片的等宽详情里。
+            const failure = classifyAppError(e);
+            throw new Error(failure.message || failure.detail || "");
+          },
+        );
         return {
           accepted: result.accepted,
           rejectReason: result.rejectReason,

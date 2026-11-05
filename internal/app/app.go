@@ -493,7 +493,7 @@ func (a *App) ExportData(req data_svc.ExportRequest) (*ExportFileResult, error) 
 	ctx := a.ctx
 	res, err := data_svc.Default().Export(ctx, &req)
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	defaultName := "agentre-export-" + time.Now().Format("20060102-150405") + ".json"
 	path, err := wailsruntime.SaveFileDialog(ctx, wailsruntime.SaveDialogOptions{
@@ -511,7 +511,7 @@ func (a *App) ExportData(req data_svc.ExportRequest) (*ExportFileResult, error) 
 	}
 	if err := os.WriteFile(path, res.JSON, 0o600); err != nil {
 		logger.Ctx(ctx).Error("app.ExportData: write file failed", zap.String("path", path), zap.Error(err))
-		return nil, i18n.NewError(ctx, code.DataExportWriteFailed)
+		return nil, codedError(i18n.NewError(ctx, code.DataExportWriteFailed))
 	}
 	return &ExportFileResult{Path: path, Summary: res.Summary}, nil
 }
@@ -530,15 +530,21 @@ func (a *App) PreviewImportData() (*data_svc.ImportPreview, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, nil
 	}
+	return a.previewImportFile(path)
+}
+
+// previewImportFile 读 path 并预览；成功后缓存 path 供 ApplyImportData 重载。
+func (a *App) previewImportFile(path string) (*data_svc.ImportPreview, error) {
+	ctx := a.ctx
 	//nolint:gosec // G304: path is user-selected via OS open dialog
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		logger.Ctx(ctx).Warn("app.PreviewImportData: read failed", zap.String("path", path), zap.Error(err))
-		return nil, i18n.NewError(ctx, code.DataImportReadFailed)
+		return nil, codedError(i18n.NewError(ctx, code.DataImportReadFailed))
 	}
 	pv, err := data_svc.Default().PreviewImport(ctx, raw)
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	a.lastImportPathMu.Lock()
 	a.lastImportPath = path
@@ -559,16 +565,20 @@ func (a *App) ApplyImportData(req ApplyImportFrontendRequest) (*data_svc.ApplyIm
 	path := a.lastImportPath
 	a.lastImportPathMu.Unlock()
 	if strings.TrimSpace(path) == "" {
-		return nil, i18n.NewError(ctx, code.DataImportReadFailed)
+		return nil, codedError(i18n.NewError(ctx, code.DataImportReadFailed))
 	}
 	//nolint:gosec // G304: path was previously cached from a user-selected OS open dialog
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, i18n.NewError(ctx, code.DataImportReadFailed)
+		return nil, codedError(i18n.NewError(ctx, code.DataImportReadFailed))
 	}
-	return data_svc.Default().ApplyImport(ctx, &data_svc.ApplyImportRequest{
+	res, err := data_svc.Default().ApplyImport(ctx, &data_svc.ApplyImportRequest{
 		Raw:              raw,
 		Actions:          req.Actions,
 		FallbackStrategy: req.FallbackStrategy,
 	})
+	if err != nil {
+		return nil, codedError(err)
+	}
+	return res, nil
 }

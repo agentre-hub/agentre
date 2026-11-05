@@ -13,16 +13,21 @@
       "failed": "Export failed",
       "includeSecrets": "Include secrets",
       "includeSecretsDescription": "Exports API keys, TLS certificates, and other secrets in plain text. Keep the file secure.",
+      "retry": "Retry",
       "secretsWarning": "The export contains plain-text secrets. Anyone with this file can use your accounts.",
       "selectOne": "Select at least one scope",
       "success": "Exported {{count}} records",
       "title": "Export"
     },
+    "failure": {
+      "details": "Details"
+    },
     "import": {
       "chooseFile": "Choose File...",
       "description": "Choose an Agentre export JSON file, preview it, then import.",
       "failed": "Import failed",
-      "parseFailed": "Failed to parse file",
+      "notBackup": "This file is not an Agentre backup",
+      "pickAgain": "Choose another file",
       "title": "Import"
     },
     "importPreview": {

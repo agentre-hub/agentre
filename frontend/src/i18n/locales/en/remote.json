@@ -336,6 +336,12 @@
         "projectLocation": "Project path",
         "projectMember": "Project member"
       },
+      "errors": {
+        "notFound": "This change no longer exists.",
+        "offline": "Can't reach the sync server. Try again once the network is back.",
+        "retry": "Retry",
+        "unknown": "That didn't go through. You can try again."
+      },
       "originServer": "the server (browser)",
       "overwrittenFrom": "from \"{{device}}\"",
       "reason": {

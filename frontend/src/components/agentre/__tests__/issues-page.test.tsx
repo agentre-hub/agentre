@@ -225,6 +225,52 @@ describe("IssuesPage", () => {
     await waitFor(() => expect(appMocks.IssueList).toHaveBeenCalledTimes(2));
   });
 
+  // S5：写失败说中文事实 + 对应出口；机器原话只在折叠的「详情」里。
+  it("Given a move whose task is gone, When it fails, Then the alert states the fact and offers a refresh", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    appMocks.IssueMove.mockRejectedValue("agentre-code:18200 Task missing");
+    render(<IssuesPage />);
+    await screen.findByTestId("board-card-142");
+
+    await user.click(screen.getByTestId("board-card-menu-142"));
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowRight}");
+    await user.click(
+      await screen.findByRole("menuitem", { name: "In progress" }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "This task no longer exists. Refresh to bring the board up to date",
+    );
+    await user.click(
+      within(alert).getByRole("button", { name: "Refresh board" }),
+    );
+    await waitFor(() => expect(appMocks.IssueList).toHaveBeenCalledTimes(2));
+  });
+
+  it("Given an uncoded write failure, When it is shown, Then the raw text sits only inside the collapsed details", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    appMocks.IssueMove.mockRejectedValue(
+      new Error("rpc error: code = Unavailable"),
+    );
+    render(<IssuesPage />);
+    await screen.findByTestId("board-card-142");
+
+    await user.click(screen.getByTestId("board-card-menu-142"));
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowRight}");
+    await user.click(
+      await screen.findByRole("menuitem", { name: "In progress" }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("That change was not saved");
+    const details = alert.querySelector("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+    expect(details).toHaveTextContent("rpc error: code = Unavailable");
+    expect(alert.querySelector("p")).not.toHaveTextContent("rpc error");
+  });
+
   it("Given an empty board with no filter, When it renders, Then it offers to create the first task", async () => {
     appMocks.IssueList.mockResolvedValue(
       boardResponse({ issues: [], stageCounts: {}, stageTotals: {} }),

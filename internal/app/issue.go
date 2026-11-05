@@ -218,7 +218,7 @@ func (a *App) IssueGet(id int64) (*IssueItem, error) {
 func (a *App) IssueCreate(req *IssueCreateRequest) (*IssueItem, error) {
 	d, err := issue_svc.Default().Create(a.ctx, toCreateIssueRequest(req))
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	return toIssueItem(d), nil
 }
@@ -227,14 +227,14 @@ func (a *App) IssueCreate(req *IssueCreateRequest) (*IssueItem, error) {
 func (a *App) IssueUpdate(req *IssueUpdateRequest) (*IssueItem, error) {
 	d, err := issue_svc.Default().Update(a.ctx, toUpdateIssueRequest(req))
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	return toIssueItem(d), nil
 }
 
 // IssueDelete 软删 issue。
 func (a *App) IssueDelete(id int64) error {
-	return issue_svc.Default().Delete(a.ctx, id)
+	return codedError(issue_svc.Default().Delete(a.ctx, id))
 }
 
 // IssueListLabels 列出全部标签（含「被 N 个任务使用」）。
@@ -256,7 +256,7 @@ func (a *App) IssueCreateLabel(req *IssueLabelRequest) (*LabelItem, error) {
 		Name: req.Name, Tone: req.Tone,
 	})
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	return toLabelItem(d), nil
 }
@@ -267,14 +267,14 @@ func (a *App) IssueUpdateLabel(req *IssueLabelRequest) (*LabelItem, error) {
 		ID: req.ID, Name: req.Name, Tone: req.Tone,
 	})
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	return toLabelItem(d), nil
 }
 
 // IssueDeleteLabel 软删标签，并把它从全部任务上摘掉。
 func (a *App) IssueDeleteLabel(id int64) error {
-	return issue_svc.Default().DeleteLabel(a.ctx, id)
+	return codedError(issue_svc.Default().DeleteLabel(a.ctx, id))
 }
 
 // IssueMove 拖拽:改 stage + 列内 position。
@@ -283,7 +283,7 @@ func (a *App) IssueMove(req *IssueMoveRequest) (*IssueItem, error) {
 		ID: req.ID, Stage: req.Stage, AfterID: req.AfterID,
 	})
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	return toIssueItem(d), nil
 }

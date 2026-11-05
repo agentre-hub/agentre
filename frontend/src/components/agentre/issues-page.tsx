@@ -200,12 +200,37 @@ function IssuesPage() {
       </div>
 
       {board.error ? (
-        <p
+        <div
           role="alert"
-          className="shrink-0 bg-destructive-soft px-5 py-2 text-2xs text-destructive-text"
+          className="flex shrink-0 flex-col gap-1 bg-destructive-soft px-5 py-2 text-2xs text-destructive-text"
         >
-          {board.error}
-        </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="font-medium">{board.error.title}</p>
+            {board.error.kind === "notFound" ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void board.reload()}
+              >
+                {t("issues.errors.refresh")}
+              </Button>
+            ) : null}
+          </div>
+          {board.error.message ? <p>{board.error.message}</p> : null}
+          {board.error.detail ? (
+            <details>
+              <summary className="cursor-pointer">
+                {t("projects.errors.details")}
+              </summary>
+              <pre
+                data-selectable-text="true"
+                className="mt-1 font-mono text-2xs break-all whitespace-pre-wrap"
+              >
+                {board.error.detail}
+              </pre>
+            </details>
+          ) : null}
+        </div>
       ) : null}
 
       <IssueBoard

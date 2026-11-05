@@ -336,6 +336,12 @@
         "projectLocation": "项目路径",
         "projectMember": "项目成员"
       },
+      "errors": {
+        "notFound": "这条改动已经不在了",
+        "offline": "连不上同步服务器，网络恢复后再试",
+        "retry": "重试",
+        "unknown": "这次操作没有成功，可以再试一次"
+      },
       "originServer": "服务端（浏览器）",
       "overwrittenFrom": "来自「{{device}}」",
       "reason": {

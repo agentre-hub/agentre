@@ -5,10 +5,13 @@ import { toast } from "sonner";
 
 import { Button } from "@agentre-hub/agentre-ui";
 
+import { classifyAppError } from "@/lib/app-error";
+
 import {
   ApplyImportData,
   PreviewImportData,
 } from "../../../../wailsjs/go/app/App";
+import { FailureBody } from "./failure-body";
 import { ImportPreviewDialog, type PreviewItem } from "./import-preview-dialog";
 import type { ItemAction } from "./types";
 
@@ -25,6 +28,30 @@ export function ImportSection({
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
 
+  // 失败说中文事实：不是备份 → 「这个文件不是 Agentre 导出的备份」；其余统一
+  // 「导入失败」。后端那句人话作正文，机器原话只进折叠的「详情」。
+  const reportFailure = (e: unknown, offerRepick: boolean) => {
+    const failure = classifyAppError(e);
+    const notBackup = failure.kind === "invalidFile";
+    toast.error(
+      notBackup
+        ? t("dataBackup.import.notBackup")
+        : t("dataBackup.import.failed"),
+      {
+        description: (
+          <FailureBody message={failure.message} detail={failure.detail} />
+        ),
+        action:
+          offerRepick || notBackup
+            ? {
+                label: t("dataBackup.import.pickAgain"),
+                onClick: () => void pick(),
+              }
+            : undefined,
+      },
+    );
+  };
+
   const pick = async () => {
     setBusy(true);
     try {
@@ -36,9 +63,8 @@ export function ImportSection({
       });
       setOpen(true);
     } catch (e) {
-      toast.error(t("dataBackup.import.parseFailed"), {
-        description: String(e),
-      });
+      // 选中的文件读不了 / 不是备份：不管哪一类，出口都是换一个文件。
+      reportFailure(e, true);
     } finally {
       setBusy(false);
     }
@@ -56,7 +82,7 @@ export function ImportSection({
       setOpen(false);
       onResult(res.counts ?? {});
     } catch (e) {
-      toast.error(t("dataBackup.import.failed"), { description: String(e) });
+      reportFailure(e, false);
     }
   };
 

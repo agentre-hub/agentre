@@ -19,24 +19,28 @@ func (a *App) SyncListLostChanges() ([]*sync_svc.LostChangeView, error) {
 // 被删除时明确失败，RestoreOutcome.TargetDeleted 据此驱动前端切换到「按这份
 // 内容新建」（R5a）。
 func (a *App) SyncRestoreLostChange(id int64) (*sync_svc.RestoreOutcome, error) {
-	return sync_svc.Default().RestoreLostChange(a.ctx, id)
+	out, err := sync_svc.Default().RestoreLostChange(a.ctx, id)
+	if err != nil {
+		return nil, codedError(err)
+	}
+	return out, nil
 }
 
 // SyncRecreateFromLostChange 按这份内容新建一个对象：分配新的同步标识，作为
 // 一个新对象正常上行——原来那个仍然是墓碑，删除不会被复活（R5a、R6）。
 func (a *App) SyncRecreateFromLostChange(id int64) error {
-	return sync_svc.Default().RecreateFromLostChange(a.ctx, id)
+	return codedError(sync_svc.Default().RecreateFromLostChange(a.ctx, id))
 }
 
 // SyncDiscardLostChange 丢掉一条「没能同步的改动」记录（用户看过了、不想要了）。
 func (a *App) SyncDiscardLostChange(id int64) error {
-	return sync_svc.Default().DiscardLostChange(a.ctx, id)
+	return codedError(sync_svc.Default().DiscardLostChange(a.ctx, id))
 }
 
 // SyncNow 立即跑一次同步来回，供设置页「立即重试」按钮使用。后台轮询仍按
 // 30 秒周期跑（R3）；这只是提前触发一次，结果反映在下一次 SyncStatus 里。
 func (a *App) SyncNow() error {
-	return sync_svc.Default().SyncOnce(a.ctx)
+	return codedError(sync_svc.Default().SyncOnce(a.ctx))
 }
 
 // SyncAcknowledgeBoardJoinNotice 销掉「看板首次并入同步组」那条一次性说明：

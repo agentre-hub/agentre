@@ -20,6 +20,13 @@
         "daemon": "Compute node"
       }
     },
+    "errors": {
+      "loadFailed": "The board could not be loaded",
+      "writeFailed": "That change was not saved",
+      "offline": "Can't reach the service, so the change was not saved. Try again later",
+      "notFound": "This task no longer exists. Refresh to bring the board up to date",
+      "refresh": "Refresh board"
+    },
     "deleted": "Deleted \"{{title}}\"",
     "undo": "Undo"
   },

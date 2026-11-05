@@ -172,7 +172,14 @@ describe("useBoard", () => {
     issueList.mockRejectedValue(new Error("boom"));
     const { result } = renderHook(() => useBoard(query(), () => null));
 
-    await waitFor(() => expect(result.current.error).toBe("boom"));
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "unknown",
+        title: "The board could not be loaded",
+        message: "",
+        detail: "boom",
+      }),
+    );
   });
 
   // 连打几个字会让多次取数重叠：先发的那一次晚返回时不能把新结果盖回旧的。这是
@@ -344,7 +351,14 @@ describe("useBoard", () => {
       await vi.advanceTimersByTimeAsync(6000);
     });
     vi.useRealTimers();
-    await waitFor(() => expect(result.current.error).toBe("row is gone"));
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "unknown",
+        title: "That change was not saved",
+        message: "",
+        detail: "row is gone",
+      }),
+    );
     // 写没过去就不该重拉：拉回来的还是同一块板，只会把报错洗掉。
     expect(issueList).toHaveBeenCalledTimes(1);
 
@@ -352,7 +366,14 @@ describe("useBoard", () => {
       new Error("move failed"),
     );
     await expect(result.current.moveIssue(1, "todo", 0)).resolves.toBe(false);
-    await waitFor(() => expect(result.current.error).toBe("move failed"));
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "unknown",
+        title: "That change was not saved",
+        message: "",
+        detail: "move failed",
+      }),
+    );
 
     (IssueCreateLabel as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("name taken"),
@@ -360,7 +381,51 @@ describe("useBoard", () => {
     await expect(
       result.current.mutateLabel({ kind: "create", name: "bug", tone: "red" }),
     ).resolves.toBe(false);
-    await waitFor(() => expect(result.current.error).toBe("name taken"));
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "unknown",
+        title: "That change was not saved",
+        message: "",
+        detail: "name taken",
+      }),
+    );
+  });
+
+  // S5：写失败按码分类 —— 已经不在了 / 连不上各说各的中文事实，机器原话不当标题。
+  it("Given a write rejected with a coded not-found error, When it settles, Then the error carries kind notFound and the backend sentence", async () => {
+    const { result } = renderHook(() => useBoard(query(), () => null));
+    await waitFor(() => expect(result.current.viewModel.loading).toBe(false));
+
+    (IssueMove as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      "agentre-code:18200 任务不存在",
+    );
+    await expect(result.current.moveIssue(1, "todo", 0)).resolves.toBe(false);
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "notFound",
+        title:
+          "This task no longer exists. Refresh to bring the board up to date",
+        message: "任务不存在",
+        detail: undefined,
+      }),
+    );
+  });
+
+  it("Given a write rejected with a coded offline error, When it settles, Then the error carries kind offline", async () => {
+    const { result } = renderHook(() => useBoard(query(), () => null));
+    await waitFor(() => expect(result.current.viewModel.loading).toBe(false));
+
+    (IssueMove as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("agentre-code:20301 服务器不可达"),
+    );
+    await result.current.moveIssue(1, "todo", 0);
+    await waitFor(() =>
+      expect(result.current.error).toMatchObject({
+        kind: "offline",
+        title:
+          "Can't reach the service, so the change was not saved. Try again later",
+      }),
+    );
   });
 
   it("Given a write that goes through, When it settles, Then it resolves true and clears an earlier error", async () => {
@@ -376,7 +441,14 @@ describe("useBoard", () => {
       await vi.advanceTimersByTimeAsync(6000);
     });
     vi.useRealTimers();
-    await waitFor(() => expect(result.current.error).toBe("row is gone"));
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "unknown",
+        title: "That change was not saved",
+        message: "",
+        detail: "row is gone",
+      }),
+    );
 
     vi.useFakeTimers();
     await result.current.deleteTask(1);
@@ -501,7 +573,7 @@ describe("useBoard", () => {
         await result.current.deleteTask(1);
         await vi.advanceTimersByTimeAsync(6000);
       });
-      expect(result.current.error).toBe("row is gone");
+      expect(result.current.error).toMatchObject({ detail: "row is gone" });
       expect(cardIDs(result).sort()).toEqual([1, 2]);
     });
 

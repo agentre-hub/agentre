@@ -20,6 +20,13 @@
         "daemon": "计算节点"
       }
     },
+    "errors": {
+      "loadFailed": "看板没能加载出来",
+      "writeFailed": "这次改动没保存",
+      "offline": "连不上服务，这次改动没保存，稍后再试",
+      "notFound": "这个任务已经不在了，刷新后看板会和最新数据一致",
+      "refresh": "刷新看板"
+    },
     "deleted": "已删除「{{title}}」",
     "undo": "撤销"
   },

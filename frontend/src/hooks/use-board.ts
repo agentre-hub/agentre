@@ -21,6 +21,7 @@ import {
   toTaskFormValue,
   type BoardCardProjectResolver,
 } from "@/components/agentre/board/board-wire";
+import { classifyAppError, type AppErrorKind } from "@/lib/app-error";
 
 import {
   IssueCreate,
@@ -48,7 +49,7 @@ export interface UseBoardResult {
   taskOf: (id: number) => TaskFormValue | null;
   /** 取数在途；旧结果留在原地，只有输入框右端那枚转圈在动。 */
   searching: boolean;
-  error: string | null;
+  error: BoardError | null;
   reload: () => Promise<void>;
   /**
    * 四条写路径**都不会 reject**：失败就地记进 `error`（页面上那条 role="alert"
@@ -76,8 +77,16 @@ const EMPTY_RESPONSE = {
 /** 删除的撤销窗口：toast 在这段时间里挂着，到点才真的 IssueDelete。 */
 const DELETE_UNDO_MS = 6000;
 
-function reasonOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+/**
+ * 看板失败的呈现形状（S5）：`title` 是 i18n key 之外的中文事实句已经渲染好的文本，
+ * `message` 是后端按语言渲染的那句业务文案（可能为空），`detail` 是机器原话，
+ * 页面只把它放进默认折叠的「详情」。
+ */
+export interface BoardError {
+  kind: AppErrorKind;
+  title: string;
+  message: string;
+  detail?: string;
 }
 
 /**
@@ -95,8 +104,23 @@ export function useBoard(
   const [labels, setLabels] = React.useState<LabelUsageView[]>([]);
   const [loaded, setLoaded] = React.useState(false);
   const [searching, setSearching] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<BoardError | null>(null);
   const { t } = useTranslation();
+  // 失败翻成中文事实：已经不在了 / 连不上各说各的，其余统一「没保存」；
+  // 取数失败单独一句。机器原话只留在 detail。
+  const toBoardError = React.useCallback(
+    (cause: unknown, fallbackTitle: string): BoardError => {
+      const failure = classifyAppError(cause);
+      const title =
+        failure.kind === "notFound"
+          ? t("issues.errors.notFound")
+          : failure.kind === "offline"
+            ? t("issues.errors.offline")
+            : t(fallbackTitle);
+      return { ...failure, title };
+    },
+    [t],
+  );
   // 已点删除但还没落库的卡片：视图模型把它们滤掉，撤销就是把它们放回来。
   const [pendingDeletes, setPendingDeletes] = React.useState<
     ReadonlySet<number>
@@ -134,7 +158,7 @@ export function useBoard(
       setError(null);
     } catch (cause) {
       if (request !== requestRef.current) return;
-      setError(reasonOf(cause));
+      setError(toBoardError(cause, "issues.errors.loadFailed"));
     } finally {
       if (request === requestRef.current) {
         setSearching(false);
@@ -205,13 +229,13 @@ export function useBoard(
         await run();
         setError(null);
       } catch (cause) {
-        setError(reasonOf(cause));
+        setError(toBoardError(cause, "issues.errors.writeFailed"));
         return false;
       }
       await reload();
       return true;
     },
-    [reload],
+    [reload, toBoardError],
   );
 
   const moveIssue = React.useCallback(

@@ -112,4 +112,22 @@ describe("useDeviceUpgrade", () => {
     expect(mockUpgrade).toHaveBeenLastCalledWith(42, true);
     expect(result.current.phase.kind).toBe("upgrading");
   });
+
+  // S5：调用自己抛了（连不上设备等）时，详情区放的是后端那句中文业务文案，
+  // 不是带 `agentre-code:` 前缀的桥上原串。
+  it("strips the bridge code prefix from a rejected call before it reaches the failure detail", async () => {
+    mockUpgrade.mockRejectedValue("agentre-code:20405 连不上设备");
+    const { result } = renderHook(() => useDeviceUpgrade(42, "0.5.2"));
+
+    await act(async () => {
+      result.current.start();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.phase).toMatchObject({
+      kind: "failed",
+      reason: null,
+      message: "连不上设备",
+    });
+  });
 });

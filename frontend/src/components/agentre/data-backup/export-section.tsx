@@ -13,6 +13,8 @@ import {
 } from "@agentre-hub/agentre-ui";
 
 import { ExportData } from "../../../../wailsjs/go/app/App";
+import { classifyAppError } from "@/lib/app-error";
+import { FailureBody } from "./failure-body";
 import type { Scope } from "./types";
 
 const ALL_SCOPES: Scope[] = [
@@ -61,7 +63,16 @@ export function ExportSection() {
         description: res.path,
       });
     } catch (e) {
-      toast.error(t("dataBackup.export.failed"), { description: String(e) });
+      const failure = classifyAppError(e);
+      toast.error(t("dataBackup.export.failed"), {
+        description: (
+          <FailureBody message={failure.message} detail={failure.detail} />
+        ),
+        action: {
+          label: t("dataBackup.export.retry"),
+          onClick: () => void handleExport(),
+        },
+      });
     } finally {
       setRunning(false);
     }
