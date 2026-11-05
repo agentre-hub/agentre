@@ -81,3 +81,80 @@ describe("design tokens", () => {
     expect(missing).toEqual([]);
   });
 });
+
+// 守卫:源码里的 `status-*` 颜色类必须对应 tokens.css 的 `--color-status-*`。
+// Tailwind v4 不会为未定义的颜色生成 utility 也不报错——类名照样留在 DOM 里,
+// 只是没有任何样式(重试卡曾因 bg-status-warning 无底色而退化成一段灰字)。
+const STATUS_CLASS_RE =
+  /(?<![\w-])(?:bg|text|border|ring|fill|stroke|from|via|to|outline|decoration|divide|accent|caret|shadow)-(status-[a-z]+(?:-[a-z]+)*)(?![\w-])/g;
+
+function definedStatusColors(css: string): Set<string> {
+  return new Set(
+    [...css.matchAll(/--color-(status-[a-z]+(?:-[a-z]+)*)\s*:/g)].map(
+      (m) => m[1],
+    ),
+  );
+}
+
+function undefinedStatusClasses(source: string, defined: Set<string>) {
+  return [...source.matchAll(STATUS_CLASS_RE)]
+    .map((m) => m[1])
+    .filter((name) => !defined.has(name));
+}
+
+function sourceFiles(dir: string): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      return ["node_modules", "dist", "__tests__", "wailsjs"].includes(
+        entry.name,
+      )
+        ? []
+        : sourceFiles(full);
+    }
+    return /\.(ts|tsx)$/.test(entry.name) && !/\.test\./.test(entry.name)
+      ? [full]
+      : [];
+  });
+}
+
+describe("status-* 颜色类守卫", () => {
+  const defined = definedStatusColors(fs.readFileSync(TOKENS_CSS, "utf8"));
+
+  it("tokens.css 定义了 running / waiting / idle / error", () => {
+    expect(defined.has("status-waiting")).toBe(true);
+    expect(defined.has("status-error")).toBe(true);
+    expect(defined.has("status-warning")).toBe(false);
+  });
+
+  it("未定义的 status-* 类会被抓到(含透明度与变体前缀),已定义的不误报", () => {
+    const fixture =
+      'className="bg-status-warning/10 dark:text-status-warning bg-status-waiting/10 text-status-running-text"';
+    expect(undefinedStatusClasses(fixture, defined)).toEqual([
+      "status-warning",
+      "status-warning",
+    ]);
+  });
+
+  // 既有违例:provider-sync.tsx 的 bg-status-error-bg 同样没有对应 token(不在本任务
+  // 的改动范围内)。收敛后从这里删掉;新增违例不得往这里加。
+  const KNOWN_OFFENDERS = new Set([
+    "packages/agentre-ui/src/engine/backend-editor/provider-sync.tsx: status-error-bg",
+  ]);
+
+  it("源码里没有引用未定义的 status-* 颜色类", () => {
+    const roots = [
+      path.resolve(__dirname, ".."),
+      path.resolve(__dirname, "../../packages/agentre-ui/src"),
+    ];
+    const offenders = roots
+      .flatMap(sourceFiles)
+      .flatMap((file) =>
+        undefinedStatusClasses(fs.readFileSync(file, "utf8"), defined).map(
+          (name) => `${path.relative(process.cwd(), file)}: ${name}`,
+        ),
+      )
+      .filter((entry) => !KNOWN_OFFENDERS.has(entry));
+    expect(offenders).toEqual([]);
+  });
+});

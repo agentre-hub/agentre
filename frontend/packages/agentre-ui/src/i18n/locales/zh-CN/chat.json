@@ -35,11 +35,9 @@
       "retryTurn": "重试这一轮"
     },
     "retry": {
-      "aria": "正在重试",
-      "defaultMessage": "上游连接暂时中断",
-      "title": "正在重试",
-      "titleWithAttempt": "正在重试 {{attempt}}",
-      "titleWithMax": "正在重试 {{attempt}}/{{max}}"
+      "label": "上游连接中断，正在重试 {{attempt}}/{{max}}",
+      "labelPlain": "上游连接中断，正在重试",
+      "labelWithAttempt": "上游连接中断，正在重试 {{attempt}}"
     },
     "typing": {
       "aria": "正在生成"

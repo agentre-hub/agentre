@@ -35,11 +35,9 @@
       "retryTurn": "Retry this turn"
     },
     "retry": {
-      "aria": "Retrying",
-      "defaultMessage": "Upstream connection interrupted temporarily",
-      "title": "Retrying",
-      "titleWithAttempt": "Retrying {{attempt}}",
-      "titleWithMax": "Retrying {{attempt}}/{{max}}"
+      "label": "Upstream connection lost, retrying {{attempt}}/{{max}}",
+      "labelPlain": "Upstream connection lost, retrying",
+      "labelWithAttempt": "Upstream connection lost, retrying {{attempt}}"
     },
     "typing": {
       "aria": "Generating"

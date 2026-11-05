@@ -1847,10 +1847,10 @@ describe("ChatTranscript message tail attachments", () => {
       />,
     );
 
+    expect(screen.getByTestId("transcript-retry")).toBeInTheDocument();
     expect(
-      screen.getByRole("status", { name: "Retrying" }),
+      screen.getByText("Upstream connection lost, retrying 2/5"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Retrying 2/5")).toBeInTheDocument();
   });
 
   it("Given a streaming empty assistant placeholder on the virtualized path, When rendered, Then its row and the typing indicator mount", async () => {

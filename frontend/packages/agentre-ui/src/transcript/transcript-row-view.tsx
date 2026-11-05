@@ -103,12 +103,6 @@ function formatHHmm(ms: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-function formatHHmmss(ms: number): string {
-  if (!ms) return "";
-  const d = new Date(ms);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
-}
-
 type ChatMessageProps = React.ComponentProps<"article"> & {
   author: string;
   /**
@@ -636,52 +630,35 @@ function ErrorCard({
   );
 }
 
-function RetryNoticeCard({ retry }: { retry: RetryNotice }) {
+// RetryIndicator 是 Typing / Compacting / Disconnected 的第四个兄弟:同一个位置、
+// 一行、互斥。上游在退避重试是"在等"而不是"出错",所以只用 status-waiting 的
+// spinner + 一句中文事实 + 次数;retry.message 是机器原话,只进 title,不上屏。
+function RetryIndicator({ retry }: { retry: RetryNotice }) {
   const { t } = useUiTranslation();
-  const hasCount = retry.attempt > 0 && retry.maxAttempts > 0;
-  const title = hasCount
-    ? t("chat.retry.titleWithMax", {
-        attempt: retry.attempt,
-        max: retry.maxAttempts,
-      })
-    : retry.attempt > 0
-      ? t("chat.retry.titleWithAttempt", { attempt: retry.attempt })
-      : t("chat.retry.title");
-  const message = retry.message || t("chat.retry.defaultMessage");
-  const at = formatHHmmss(retry.at);
+  const label =
+    retry.attempt > 0 && retry.maxAttempts > 0
+      ? t("chat.retry.label", {
+          attempt: retry.attempt,
+          max: retry.maxAttempts,
+        })
+      : retry.attempt > 0
+        ? t("chat.retry.labelWithAttempt", { attempt: retry.attempt })
+        : t("chat.retry.labelPlain");
 
   return (
-    <section
-      data-selectable-text="true"
+    <div
+      data-testid="transcript-retry"
       role="status"
-      aria-label={t("chat.retry.aria")}
-      className="flex w-full max-w-measure items-start gap-3 rounded-lg bg-status-warning/10 px-4 py-2.5"
+      aria-live="polite"
+      title={retry.message || undefined}
+      className="flex items-center gap-2 py-1 text-aux text-muted-foreground"
     >
       <RefreshCw
-        className="mt-0.5 size-4 shrink-0 animate-spin text-status-warning motion-reduce:animate-none"
+        className="size-3.5 shrink-0 animate-spin text-status-waiting motion-reduce:animate-none"
         aria-hidden="true"
       />
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="text-aux font-semibold text-status-warning">
-            {title}
-          </span>
-          {at ? (
-            <span className="font-mono text-meta text-muted-foreground">
-              {at}
-            </span>
-          ) : null}
-        </div>
-        <div className="mt-1 min-w-0 break-words font-mono text-meta text-foreground">
-          {message}
-        </div>
-        {retry.details ? (
-          <div className="mt-1 min-w-0 break-words text-meta leading-snug text-muted-foreground">
-            {retry.details}
-          </div>
-        ) : null}
-      </div>
-    </section>
+      <span>{label}</span>
+    </div>
   );
 }
 
@@ -1206,8 +1183,9 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
 
   const tailAttachments = row.isLastOfMessage ? (
     <>
-      {liveRetry ? <RetryNoticeCard retry={liveRetry} /> : null}
-      {showIndicator ? (
+      {liveRetry ? (
+        <RetryIndicator retry={liveRetry} />
+      ) : showIndicator ? (
         reconnecting ? (
           <DisconnectedIndicator />
         ) : compacting ? (
