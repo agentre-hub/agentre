@@ -42,7 +42,7 @@ func (d *darwinOS) Snapshot(ctx context.Context) ([]Proc, error) {
 			marked = append(marked, p.PID)
 		}
 	}
-	ports := parseLsofPorts(runLsof(ctx, "-nP", "-F", "pcn", "-a", "-u", strconv.Itoa(os.Getuid()), "-iTCP", "-sTCP:LISTEN"))
+	ports := lsofPorts(ctx, marked)
 	cwds := lsofCwds(ctx, marked)
 	for i := range procs {
 		procs[i].Ports = ports[procs[i].PID]
@@ -107,16 +107,34 @@ func procFromKinfo(kp *unix.KinfoProc) (Proc, bool) {
 	}, true
 }
 
+// lsofPortArgs 只查候选 pid 的 TCP 监听（Claim 只看带标记进程的端口），
+// 避免全机 lsof 扫描。
+func lsofPortArgs(pids []int) []string {
+	return []string{"-nP", "-F", "pcn", "-a", "-p", joinPIDs(pids), "-iTCP", "-sTCP:LISTEN"}
+}
+
+// lsofPorts 取一批候选 pid 的监听端口；没有候选时不启动 lsof。
+func lsofPorts(ctx context.Context, pids []int) map[int][]uint16 {
+	if len(pids) == 0 {
+		return nil
+	}
+	return parseLsofPorts(runLsof(ctx, lsofPortArgs(pids)...))
+}
+
+func joinPIDs(pids []int) string {
+	ids := make([]string, len(pids))
+	for i, p := range pids {
+		ids[i] = strconv.Itoa(p)
+	}
+	return strings.Join(ids, ",")
+}
+
 // lsofCwds 用一次 lsof 取一批 pid 的工作目录。
 func lsofCwds(ctx context.Context, pids []int) map[int]string {
 	if len(pids) == 0 {
 		return nil
 	}
-	ids := make([]string, len(pids))
-	for i, p := range pids {
-		ids[i] = strconv.Itoa(p)
-	}
-	return parseLsofCwd(runLsof(ctx, "-nP", "-F", "pfn", "-a", "-d", "cwd", "-p", strings.Join(ids, ",")))
+	return parseLsofCwd(runLsof(ctx, "-nP", "-F", "pfn", "-a", "-d", "cwd", "-p", joinPIDs(pids)))
 }
 
 // runLsof 运行 lsof 并返回标准输出；lsof 缺失或失败返回 nil。

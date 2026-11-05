@@ -7,6 +7,7 @@ package procscan
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 )
 
@@ -62,6 +63,13 @@ var platformOS func() OS
 type Scanner struct {
 	os    OS
 	grace time.Duration
+	now   func() time.Time
+
+	// mu 串行化快照：并发的 List 等同一次快照，而不是各跑一遍。
+	mu      sync.Mutex
+	snap    []Proc
+	snapAt  time.Time
+	hasSnap bool
 }
 
 // New 返回当前平台的 Scanner；平台没有实现时所有方法返回 ErrUnsupported。
@@ -74,12 +82,12 @@ func New() *Scanner {
 
 // NewWith 用给定 OS 与 SIGTERM 宽限期构造 Scanner。
 func NewWith(os OS, grace time.Duration) *Scanner {
-	return &Scanner{os: os, grace: grace}
+	return &Scanner{os: os, grace: grace, now: time.Now}
 }
 
 // List 列出 convID 会话当前留下的进程；快照失败时返回错误（调用方据此什么都不画）。
 func (s *Scanner) List(ctx context.Context, convID string) ([]Listed, error) {
-	snap, err := s.os.Snapshot(ctx)
+	snap, err := s.snapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
