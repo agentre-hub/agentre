@@ -31,8 +31,8 @@ export type TranscriptJumpControlProps = {
   turnsBelow?: number;
   /**
    * 视口下沿之后还有几项没回答的审批 / 提问，由宿主按活状态算好传入，与补齐无关。
-   * 传了（包括 0）就以它为准；不传时退回 `catchUp.pendingDecisions`，
-   * `agentre-server` 那端因此维持原样。
+   * 与 `catchUp.pendingDecisions` 取较大者显示（两者是同一批决策，不相加）；
+   * 不传时只看补齐，`agentre-server` 那端因此维持原样。
    */
   pendingBelow?: number;
   className?: string;
@@ -77,7 +77,12 @@ export function TranscriptJumpControl({
   turnsBelow = 0,
 }: TranscriptJumpControlProps): React.ReactElement {
   const { t } = useUiTranslation();
-  const pendingCount = pendingBelow ?? catchUp?.pendingDecisions ?? 0;
+  // 两个来源数的是同一批待决策（补齐里没回答的，通常也在视口下方），相加会重复计数；
+  // 取较大者：宿主按活状态算得更准时以它为准，补齐账更大时不被 0 盖掉。
+  const pendingCount = Math.max(
+    pendingBelow ?? 0,
+    catchUp?.pendingDecisions ?? 0,
+  );
 
   return (
     <div

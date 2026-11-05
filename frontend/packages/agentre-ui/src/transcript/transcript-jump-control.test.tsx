@@ -77,7 +77,20 @@ describe("TranscriptJumpControl", () => {
     expect(screen.queryByTestId("transcript-jump-pending")).toBeNull();
   });
 
-  it("Given 补齐里有 3 项待决策、宿主也传了 pendingBelow, When 渲染, Then 只显示一段待处理（补齐的数不重复叠加）", () => {
+  it("Given 补齐有 3 项待决策、宿主 pendingBelow 为 0, When 渲染, Then 补齐的数不被 0 盖掉", () => {
+    render(
+      <TranscriptJumpControl
+        onJump={vi.fn()}
+        catchUp={{ newRows: 5, pendingDecisions: 3 }}
+        pendingBelow={0}
+      />,
+    );
+    expect(screen.getByTestId("transcript-jump-pending")).toHaveTextContent(
+      "3 pending",
+    );
+  });
+
+  it("Given 补齐里有 3 项待决策、宿主也传了 pendingBelow, When 渲染, Then 只显示一段待处理（取较大者，不叠加）", () => {
     render(
       <TranscriptJumpControl
         onJump={vi.fn()}
