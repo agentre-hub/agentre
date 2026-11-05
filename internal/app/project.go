@@ -45,6 +45,21 @@ type ProjectMergeRequest struct {
 	TargetID int64 `json:"targetID"`
 }
 
+// ProjectMergePreview 合并结果预览（S4）：真的合并时留下哪一边、消失哪一边。
+type ProjectMergePreview struct {
+	Keep ProjectMergePreviewSide `json:"keep"`
+	Drop ProjectMergePreviewSide `json:"drop"`
+}
+
+// ProjectMergePreviewSide 预览里一边的摘要。ParentPath 是根 → 直接父级的名称链，
+// 顶层项目为空；Claimed 表示账号侧已认领。
+type ProjectMergePreviewSide struct {
+	ID         int64    `json:"id"`
+	Name       string   `json:"name"`
+	ParentPath []string `json:"parentPath"`
+	Claimed    bool     `json:"claimed"`
+}
+
 // ProjectItem 项目摘要 —— 树节点 / 列表 / 详情共用。
 type ProjectItem struct {
 	ID          int64  `json:"id"`
@@ -247,6 +262,23 @@ func (a *App) ProjectMerge(req *ProjectMergeRequest) (*ProjectItem, error) {
 		return nil, err
 	}
 	return toProjectItem(p), nil
+}
+
+// ProjectMergePreview 只读地预览 ProjectMerge(sourceID, targetID) 的结果（S4）：
+// 判据只在后端那一份（chooseMergeWinner），前端照着显示。
+func (a *App) ProjectMergePreview(sourceID, targetID int64) (*ProjectMergePreview, error) {
+	p, err := project_svc.Default().MergePreview(a.ctx, sourceID, targetID)
+	if err != nil {
+		return nil, err
+	}
+	return &ProjectMergePreview{
+		Keep: toProjectMergePreviewSide(p.Keep),
+		Drop: toProjectMergePreviewSide(p.Drop),
+	}, nil
+}
+
+func toProjectMergePreviewSide(s project_svc.MergePreviewSide) ProjectMergePreviewSide {
+	return ProjectMergePreviewSide{ID: s.ID, Name: s.Name, ParentPath: s.ParentPath, Claimed: s.Claimed}
 }
 
 // ProjectDetectGitRepo 新建项目模态用：选完目录后探测一次 git 仓库状态。

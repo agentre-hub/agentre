@@ -24,18 +24,30 @@
     "undo": "撤销"
   },
   "projectMerge": {
-    "title": "合并到已有项目",
+    "title": "合并「{{name}}」与另一个项目",
     "description": "两个项目会变成一个。这个动作不能一键撤销。",
-    "pickTargetLabel": "合并到",
-    "pickTargetPlaceholder": "选择要合并到的项目…",
+    "pickTargetLabel": "和哪个项目合并",
+    "pickTargetPlaceholder": "选择项目…",
+    "filterPlaceholder": "过滤项目…",
+    "noMatches": "没有匹配的项目",
     "noCandidates": "没有其它项目可以合并",
     "keepPathNote": "保留本机项目的本机路径，会话照常能起。",
     "reassignNote": "两边的会话、成员 Agent、子项目与远端路径记录都会归到合并后的项目下。",
-    "identityNote": "以账号里那一个为准：名称、图标、颜色、描述取账号侧的值。",
     "confirm": "合并",
+    "confirmAs": "合并为 {{name}}",
+    "preview": {
+      "keep": "合并后保留：",
+      "drop": "并入后消失：",
+      "meta": "（{{location}} · {{origin}}）",
+      "under": "{{path}} 下",
+      "topLevel": "顶层",
+      "accountSide": "账号中的项目",
+      "localOnly": "仅本机"
+    },
     "cancel": "取消",
     "errors": {
-      "mergeFailed": "合并失败：{{error}}"
+      "mergeFailed": "合并失败：{{error}}",
+      "previewFailed": "没能算出合并后留下哪一个，暂时不能合并。重新选一次项目可以再试。"
     }
   },
   "projectNew": {

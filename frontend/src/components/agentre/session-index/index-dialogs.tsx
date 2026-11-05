@@ -8,7 +8,7 @@ import { reloadSidebarSources } from "@/stores/sidebar-reload";
 
 import { DeleteProjectDialog } from "../delete-project-dialog";
 import { NotChattableDialog } from "../not-chattable/not-chattable-dialog";
-import { ProjectMergeDialog } from "../project-merge-dialog";
+import { mergeCandidates, ProjectMergeDialog } from "../project-merge-dialog";
 import { ProjectNewDialog } from "../project-new-dialog";
 import { ProjectSettingsDrawer } from "../project-settings-drawer";
 
@@ -107,9 +107,7 @@ function IndexDialogs({
         source={mergeSource}
         candidates={
           mergeSource
-            ? [...projectByID.values()]
-                .filter((p) => p.id !== mergeSource.id)
-                .sort((a, b) => a.name.localeCompare(b.name))
+            ? mergeCandidates(projectByID.values(), mergeSource.id)
             : []
         }
         onClose={() => dialogs.setMergeSource(null)}

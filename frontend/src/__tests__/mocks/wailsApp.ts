@@ -276,6 +276,14 @@ export const ProjectSetLocalPath = windowBackedMock("ProjectSetLocalPath", () =>
 export const ProjectMerge = windowBackedMock("ProjectMerge", () =>
   Promise.resolve({ id: 1 }),
 );
+export const ProjectMergePreview = windowBackedMock(
+  "ProjectMergePreview",
+  (sourceID, targetID) =>
+    Promise.resolve({
+      keep: { id: sourceID, name: "", parentPath: [], claimed: false },
+      drop: { id: targetID, name: "", parentPath: [], claimed: false },
+    }),
+);
 
 // Issue bindings
 const emptyIssue = {
