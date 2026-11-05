@@ -10,7 +10,9 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+import { toast } from "sonner";
 
+import { classifyAppError, type AppError } from "@/lib/app-error";
 import type { IndexAxis } from "@/lib/session-axis";
 
 import * as WailsApp from "../../../../wailsjs/go/app/App";
@@ -30,7 +32,6 @@ type ProjectReorder = {
   sensors: ReturnType<typeof useSensors>;
   collisionDetection: CollisionDetection;
   handleDragEnd: (event: DragEndEvent) => Promise<void>;
-  reorderError: string | null;
 };
 
 /**
@@ -52,6 +53,41 @@ const sameLevelCollision: CollisionDetection = (args) => {
   });
 };
 
+/**
+ * 失败 toast 的正文：后端带码的那句人话当正文；机器原话只进默认折叠的「详情」。
+ * 这个文件是 .ts，所以用 createElement 而不是 JSX。
+ */
+function failureDescription(
+  err: AppError,
+  detailsLabel: string,
+): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  if (err.message)
+    parts.push(React.createElement("p", { key: "m" }, err.message));
+  if (err.detail) {
+    parts.push(
+      React.createElement(
+        "details",
+        { key: "d" },
+        React.createElement(
+          "summary",
+          { className: "cursor-pointer" },
+          detailsLabel,
+        ),
+        React.createElement(
+          "pre",
+          {
+            className: "mt-1 font-mono text-2xs whitespace-pre-wrap break-all",
+            "data-selectable-text": "true",
+          },
+          err.detail,
+        ),
+      ),
+    );
+  }
+  return parts.length > 0 ? parts : undefined;
+}
+
 // useProjectReorder 收拢项目组的同级拖拽排序:开关条件、dnd-kit 传感器、落点计算与
 // 失败提示。
 function useProjectReorder({
@@ -61,7 +97,6 @@ function useProjectReorder({
   refreshProjectData,
 }: UseProjectReorderOptions): ProjectReorder {
   const { t } = useTranslation();
-  const [reorderError, setReorderError] = React.useState<string | null>(null);
 
   const dragDisabled = axis !== "project" || filtering;
   const sensors = useSensors(
@@ -76,6 +111,29 @@ function useProjectReorder({
         end: ["Space", "Enter"],
       },
     }),
+  );
+  // 顺序来自后端树，本地没有乐观重排 —— 失败时项目已经弹回原位。失败必须就地说
+  // 出来并给「重试」，否则用户看到的是「拖了一下，松手弹回去，什么都没发生」。
+  const save = React.useCallback(
+    async function saveOrder(parentID: number, orderedIDs: number[]) {
+      try {
+        await WailsApp.ProjectReorder({ parentID, orderedIDs } as never);
+      } catch (e) {
+        toast.error(t("projects.errors.reorderFailed"), {
+          description: failureDescription(
+            classifyAppError(e),
+            t("projects.errors.details"),
+          ),
+          action: {
+            label: t("common.retry"),
+            onClick: () => void saveOrder(parentID, orderedIDs),
+          },
+        });
+        return;
+      }
+      refreshProjectData();
+    },
+    [refreshProjectData, t],
   );
   const handleDragEnd = React.useCallback(
     async (event: DragEndEvent) => {
@@ -94,23 +152,9 @@ function useProjectReorder({
       const to = siblings.indexOf(overID);
       if (from < 0 || to < 0) return;
       siblings.splice(to, 0, ...siblings.splice(from, 1));
-      // 顺序来自后端树，本地没有乐观重排可回滚 —— 但失败必须说出来，否则用户看到的
-      // 是「拖了一下，松手弹回去，什么都没发生」。
-      setReorderError(null);
-      try {
-        await WailsApp.ProjectReorder({
-          parentID: parentOf(activeID),
-          orderedIDs: siblings,
-        } as never);
-      } catch (e) {
-        setReorderError(
-          t("projects.errors.reorderFailed", { error: String(e) }),
-        );
-        return;
-      }
-      refreshProjectData();
+      await save(parentOf(activeID), siblings);
     },
-    [dragDisabled, projectByID, refreshProjectData, t],
+    [dragDisabled, projectByID, save],
   );
 
   return {
@@ -118,7 +162,6 @@ function useProjectReorder({
     sensors,
     collisionDetection: sameLevelCollision,
     handleDragEnd,
-    reorderError,
   };
 }
 

@@ -46,7 +46,8 @@
     },
     "cancel": "Cancel",
     "errors": {
-      "mergeFailed": "Merge failed: {{error}}",
+      "mergeFailed": "Merge failed",
+      "notFound": "One of these projects no longer exists — pick another project to merge with",
       "previewFailed": "Couldn't work out the merge result, so merging is unavailable for now. Pick the project again to retry."
     }
   },
@@ -63,7 +64,8 @@
   },
   "projects": {
     "errors": {
-      "reorderFailed": "Failed to save project order: {{error}}"
+      "details": "Details",
+      "reorderFailed": "Project order wasn't saved — the original order is back"
     },
     "localPath": {
       "allMissingTitle": "This device hasn't configured a path for any project yet",

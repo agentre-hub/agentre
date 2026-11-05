@@ -46,7 +46,8 @@
     },
     "cancel": "取消",
     "errors": {
-      "mergeFailed": "合并失败：{{error}}",
+      "mergeFailed": "合并失败",
+      "notFound": "其中一个项目已经不在了，重新选一个要合并的项目",
       "previewFailed": "没能算出合并后留下哪一个，暂时不能合并。重新选一次项目可以再试。"
     }
   },
@@ -63,7 +64,8 @@
   },
   "projects": {
     "errors": {
-      "reorderFailed": "项目顺序保存失败：{{error}}"
+      "details": "详情",
+      "reorderFailed": "项目顺序没保存，已恢复原来的顺序"
     },
     "localPath": {
       "allMissingTitle": "这台设备还没有为任何项目配置路径",

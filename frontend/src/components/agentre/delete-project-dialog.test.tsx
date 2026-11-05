@@ -62,17 +62,53 @@ describe("接缝", () => {
     await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1));
   });
 
-  it("后端拒绝时那句原文就地透出，onDeleted 不发", async () => {
-    appMocks.ProjectDelete.mockRejectedValue(new Error("has active sessions"));
-    const { onDeleted } = renderDialog({ id: 7, name: "Nebula" });
-
+  function submitDelete() {
     fireEvent.change(screen.getByTestId("delete-project-confirm"), {
       target: { value: "Nebula" },
     });
     fireEvent.click(screen.getByTestId("delete-project-submit"));
+  }
 
-    expect(await screen.findByText(/has active sessions/)).toBeInTheDocument();
+  it("Given the backend rejects with a coded business error, When deleting, Then its sentence shows without the code prefix and onDeleted is not fired", async () => {
+    appMocks.ProjectDelete.mockRejectedValue(
+      new Error("agentre-code:18011 The project still has active sessions"),
+    );
+    const { onDeleted } = renderDialog({ id: 7, name: "Nebula" });
+
+    submitDelete();
+
+    expect(
+      await screen.findByText("The project still has active sessions"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/agentre-code/)).toBeNull();
     expect(onDeleted).not.toHaveBeenCalled();
+  });
+
+  it("Given an uncoded raw Go error, When deleting, Then the dialog states the failure in its own words instead of the raw text", async () => {
+    appMocks.ProjectDelete.mockRejectedValue(
+      new Error("sql: database is locked"),
+    );
+    const { onDeleted } = renderDialog({ id: 7, name: "Nebula" });
+
+    submitDelete();
+
+    expect(
+      await screen.findByText("Could not delete the project."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/database is locked/)).toBeNull();
+    expect(onDeleted).not.toHaveBeenCalled();
+  });
+
+  it("Given Wails rejects with a bare coded string, When deleting, Then it is read like an Error", async () => {
+    appMocks.ProjectDelete.mockRejectedValue(
+      "agentre-code:18000 Project not found",
+    );
+    renderDialog({ id: 7, name: "Nebula" });
+
+    submitDelete();
+
+    expect(await screen.findByText("Project not found")).toBeInTheDocument();
+    expect(screen.queryByText(/agentre-code/)).toBeNull();
   });
 
   it("配了这个项目又离线的那几台点名说出来；没配的那台不算", async () => {

@@ -5,7 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/cago-frame/cago/pkg/utils/httputils"
+
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
 )
 
@@ -189,5 +192,60 @@ func TestProjectMergePreview_SurfacesTheError(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatalf("expected no preview on failure, got %#v", got)
+	}
+}
+
+// codedFailingProjects 让每条写绑定都以一个带业务码的 cago 错误失败。
+type codedFailingProjects struct {
+	project_svc.ProjectSvc
+	err error
+}
+
+func (f *codedFailingProjects) Reorder(context.Context, *project_svc.ReorderProjectsRequest) error {
+	return f.err
+}
+
+func (f *codedFailingProjects) Delete(context.Context, int64) error { return f.err }
+
+func (f *codedFailingProjects) Merge(context.Context, *project_svc.MergeProjectsRequest) (*project_entity.Project, error) {
+	return nil, f.err
+}
+
+func (f *codedFailingProjects) MergePreview(context.Context, int64, int64) (*project_svc.MergePreview, error) {
+	return nil, f.err
+}
+
+// S5：项目页按错误类别给出口（「项目已经不在了」与「还有活跃会话」出路不同），
+// 前端只能凭码分得开 —— 而 cago 的 Error() 只剩文案。项目类写绑定的失败要带着
+// `agentre-code:<码>` 过桥，与 coded_error.go 那条契约同形。
+func TestProjectBindings_CarryTheBusinessCode(t *testing.T) {
+	svcErr := &httputils.Error{Code: code.ProjectHasActiveSessions, Msg: "项目下还有未归档会话"}
+	want := "agentre-code:18011 项目下还有未归档会话"
+	prev := project_svc.Default()
+	project_svc.SetDefault(&codedFailingProjects{err: svcErr})
+	t.Cleanup(func() { project_svc.SetDefault(prev) })
+	a := &App{}
+
+	cases := map[string]func() error{
+		"ProjectReorder": func() error {
+			return a.ProjectReorder(&ProjectReorderRequest{OrderedIDs: []int64{2, 1}})
+		},
+		"ProjectDelete": func() error { return a.ProjectDelete(7) },
+		"ProjectMerge": func() error {
+			_, err := a.ProjectMerge(&ProjectMergeRequest{SourceID: 1, TargetID: 2})
+			return err
+		},
+		"ProjectMergePreview": func() error {
+			_, err := a.ProjectMergePreview(1, 2)
+			return err
+		},
+	}
+	for name, call := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := call()
+			if err == nil || err.Error() != want {
+				t.Fatalf("expected %q across the bridge, got %v", want, err)
+			}
+		})
 	}
 }

@@ -2,6 +2,8 @@ import * as React from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { classifyAppError, type AppError } from "@/lib/app-error";
+
 import { ProjectMerge, ProjectMergePreview } from "../../../wailsjs/go/app/App";
 import type { app } from "../../../wailsjs/go/models";
 import {
@@ -88,7 +90,7 @@ export function ProjectMergeDialog({
   const [pickNonce, setPickNonce] = React.useState(0);
   const [preview, setPreview] = React.useState<PreviewState>({ kind: "idle" });
   const [busy, setBusy] = React.useState(false);
-  const [err, setErr] = React.useState<string | null>(null);
+  const [err, setErr] = React.useState<AppError | null>(null);
 
   React.useEffect(() => {
     setTargetID(null);
@@ -125,7 +127,7 @@ export function ProjectMergeDialog({
       // 成了就关：留在窗里只剩一颗重新亮起来的「合并」，再点一次是「项目不存在」。
       onClose();
     } catch (e) {
-      setErr(t("projectMerge.errors.mergeFailed", { error: String(e) }));
+      setErr(classifyAppError(e));
     } finally {
       setBusy(false);
     }
@@ -193,11 +195,7 @@ export function ProjectMergeDialog({
               {t("projectMerge.errors.previewFailed")}
             </div>
           ) : null}
-          {err ? (
-            <div className="rounded-md bg-destructive-soft px-3 py-2 text-2xs text-destructive-text">
-              {err}
-            </div>
-          ) : null}
+          {err ? <MergeFailure err={err} /> : null}
         </DialogBody>
         <DialogFooter>
           <Button
@@ -225,6 +223,41 @@ export function ProjectMergeDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * 合并失败（S5）：先说事实，再按类别给出口。项目已经不在了 → 回去重新选一个；
+ * 其余说「合并失败」，后端带码的那句人话作正文，机器原话只进默认折叠的「详情」。
+ */
+function MergeFailure({ err }: { err: AppError }) {
+  const { t } = useTranslation();
+  const notFound = err.kind === "notFound";
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-1 rounded-md bg-destructive-soft px-3 py-2 text-2xs text-destructive-text"
+    >
+      <p className="font-medium">
+        {notFound
+          ? t("projectMerge.errors.notFound")
+          : t("projectMerge.errors.mergeFailed")}
+      </p>
+      {!notFound && err.message ? <p>{err.message}</p> : null}
+      {err.detail ? (
+        <details>
+          <summary className="cursor-pointer">
+            {t("projects.errors.details")}
+          </summary>
+          <pre
+            data-selectable-text="true"
+            className="mt-1 font-mono text-2xs break-all whitespace-pre-wrap"
+          >
+            {err.detail}
+          </pre>
+        </details>
+      ) : null}
+    </div>
   );
 }
 
