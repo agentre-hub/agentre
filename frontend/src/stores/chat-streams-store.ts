@@ -94,7 +94,7 @@ function bufferDelta(
 // 真身拿得到 create 里的 set,在 create 时接上;模块级先给个空实现让 bufferDelta 可引。
 let flushLiveDeltasImpl: () => void = () => {};
 
-export const useChatStreamsStore = create<State & Actions>((set) => {
+export const useChatStreamsStore = create<State & Actions>((set, get) => {
   const rawSet = set;
   flushLiveDeltasImpl = (): void => {
     if (pendingDeltas.size === 0) return;
@@ -243,12 +243,19 @@ export const useChatStreamsStore = create<State & Actions>((set) => {
         })),
       ),
 
-    clearLiveRetry: (sessionId, assistantMessageId) =>
+    clearLiveRetry: (sessionId, assistantMessageId) => {
+      // host 在每个 chunk/thinking/tool 事件前都会调它;没有重试提示在显示时它必须
+      // 是纯空操作 —— 走 flushingSet 会每帧冲掉 delta 缓冲,让 90ms 合帧形同虚设。
+      const showing =
+        get().streams.get(sessionId)?.get(assistantMessageId)?.liveRetry !=
+        null;
+      if (!showing) return;
       flushingSet((state) =>
         updateStream(state, sessionId, assistantMessageId, (cur) =>
           cur.liveRetry === null ? null : { ...cur, liveRetry: null },
         ),
-      ),
+      );
+    },
 
     noteOutputActivity: (sessionId, assistantMessageId) =>
       flushingSet((state) =>
