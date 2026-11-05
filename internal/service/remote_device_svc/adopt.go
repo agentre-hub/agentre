@@ -213,9 +213,7 @@ func (s *service) DiscardAdoptedDevices(ctx context.Context) (int, error) {
 		if err := s.repo.Purge(ctx, row.ID); err != nil {
 			return discarded, err
 		}
-		if s.watcher != nil {
-			s.watcher.Stop(row.ID)
-		}
+		s.stopWatching(row.ID)
 		discarded++
 		logger.Ctx(ctx).Info("remote_device_svc.DiscardAdoptedDevices: dropped an adopted account agentred",
 			zap.String("fingerprint", string(row.DaemonFingerprint)), zap.Int64("deviceID", row.ID))

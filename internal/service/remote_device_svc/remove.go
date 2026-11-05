@@ -32,12 +32,17 @@ func (s *service) Remove(ctx context.Context, id int64) error {
 		logger.Ctx(ctx).Warn("remote_device remove: keychain delete failed; id not reused, leak is harmless",
 			zap.Int64("id", id), zap.Error(err))
 	}
+	s.stopWatching(id)
+	return nil
+}
+
+// stopWatching 停掉一台被移出本机的设备的在线监视。停掉的 watcher 不会再报离线:由这里
+// 撤掉池子对它的保温,池连接回到空闲回收(Remove 与登出时的 DiscardAdoptedDevices 共用)。
+func (s *service) stopWatching(id int64) {
 	if s.watcher != nil {
 		s.watcher.Stop(id)
 	}
-	// 停掉的 watcher 不会再报离线:由这里撤掉池子对它的保温,池连接回到空闲回收。
 	if sink, ok := s.pool.(DeviceOnlineSink); ok {
 		sink.SetDeviceOnline(id, false)
 	}
-	return nil
 }

@@ -72,7 +72,11 @@ type DiscoveryCache struct {
 
 	mu      sync.Mutex
 	entries map[string]cacheEntry
-	group   singleflight.Group
+	// epoch 是缓存自己的失效代数:InvalidatePrefix / refresh 推进它。在途的加载只有在
+	// epoch 没变时才写回,singleflight 的 key 也带上它 —— 失效之后到达的请求不去搭失效
+	// 之前那次加载的车,在途那次晚完成也盖不掉更新的结果。
+	epoch uint64
+	group singleflight.Group
 }
 
 // NewDiscoveryCache 生产默认:5 分钟 TTL、真实时钟。
@@ -92,6 +96,7 @@ func (c *DiscoveryCache) InvalidatePrefix(prefix string) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.epoch++
 	for k := range c.entries {
 		if strings.HasPrefix(k, prefix) {
 			delete(c.entries, k)
@@ -121,13 +126,17 @@ func CachedDiscovery[T any](c *DiscoveryCache, key, stamp string, refresh bool, 
 	}
 	if refresh {
 		c.mu.Lock()
+		c.epoch++
 		delete(c.entries, key)
 		c.mu.Unlock()
-		c.group.Forget(key)
 	} else if v, ok := c.lookup(key, stamp); ok {
 		return v.(T), nil
 	}
-	v, err, _ := c.group.Do(key, func() (any, error) {
+	c.mu.Lock()
+	epoch := c.epoch
+	c.mu.Unlock()
+	flight := key + "\x00" + strconv.FormatUint(epoch, 10)
+	v, err, _ := c.group.Do(flight, func() (any, error) {
 		// 代数 / 时间在加载**前**取:加载期间发生的失效不会被这次结果盖掉。
 		gen, at := Generation(), c.now()
 		val, err := load()
@@ -135,7 +144,9 @@ func CachedDiscovery[T any](c *DiscoveryCache, key, stamp string, refresh bool, 
 			return nil, err
 		}
 		c.mu.Lock()
-		c.entries[key] = cacheEntry{value: val, at: at, gen: gen, stamp: stamp}
+		if c.epoch == epoch {
+			c.entries[key] = cacheEntry{value: val, at: at, gen: gen, stamp: stamp}
+		}
 		c.mu.Unlock()
 		return val, nil
 	})

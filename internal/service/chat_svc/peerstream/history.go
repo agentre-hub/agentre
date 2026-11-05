@@ -309,6 +309,11 @@ func (s *Publisher) attachPeerTranscript(ctx context.Context, sessionID int64, c
 		var once sync.Once
 		detach := func() {
 			once.Do(func() {
+				// 释放要等在途的「取号 → 发布」做完(锁序同 PublishMessageFrames:先
+				// publishMu 后 mu):先释放的话,重新 attach 建出的新宇宙会在另一把
+				// publishMu 下给同一批位置编号,与在途那次取到的号各记一份。
+				publication.publishMu.Lock()
+				defer publication.publishMu.Unlock()
 				publication.mu.Lock()
 				if publication.subscribers[key] == subscription {
 					delete(publication.subscribers, key)
@@ -458,10 +463,11 @@ func (s *Publisher) PublishMessageFrames(
 	defer publication.publishMu.Unlock()
 
 	publication.mu.Lock()
-	initialized := publication.initialized
+	initialized, closed := publication.initialized, publication.closed
 	publication.mu.Unlock()
 	// 没人 attach 过就没有编号宇宙可言:这条消息的号留给下一次 attach 惰性补齐。
-	if !initialized {
+	// 拿到 publishMu 之前这份宇宙已被释放时同理 —— 下一份宇宙装前缀时会给它编号。
+	if !initialized || closed {
 		return 0, 0
 	}
 	keyed, err := transcript.ProjectKeyedMessage(publication.conversationID, msg)

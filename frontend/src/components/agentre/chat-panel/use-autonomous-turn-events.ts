@@ -161,6 +161,9 @@ function useAutonomousTurnEvents({
         sessionId,
         assistantMessageId: amsg.id,
         streamStartedAt: Date.now(),
+        // 自主轮的 assistant 行刚建出、正文还空:没挂载的 tab 首次加载时据此不把库里
+        // 已 checkpoint 的块与 liveBlocks 各画一遍。
+        startsEmpty: true,
       });
       setMessages((prev) => {
         if (prev.some((m) => m.id === amsg.id)) return prev;

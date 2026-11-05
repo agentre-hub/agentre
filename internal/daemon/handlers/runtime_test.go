@@ -3657,6 +3657,13 @@ func TestRuntime_FanoutLogsEventClassificationWithoutSerializedPayload(t *testin
 	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(66)})
 	require.NoError(t, err)
 	_ = notif.waitFrames(t, 2)
+	// 「event delivered」那一行在 emit 返回**之后**才写:等帧不等于等日志,满载时断言会
+	// 跑在它前面。等这一轮 fanout 的最后一行(本会话的 session ended)—— 同一个协程里
+	// 它排在所有逐事件日志之后,等到它,这一轮要写的日志就都写完了。
+	require.Eventually(t, func() bool {
+		return logs.logs.FilterMessage("handlers.RuntimeHandlers.fanout: session ended").
+			FilterField(zap.String("conversationId", convID(66))).Len() > 0
+	}, 5*time.Second, time.Millisecond)
 
 	assert.Contains(t, logs.String(), "eventKind:ErrorEvent")
 	assert.NotContains(t, logs.String(), secret)

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode/utf16"
 )
 
 // ErrSessionJSONLNotFound 在指定 root 下没有找到 <sid>.jsonl 文件。
@@ -107,16 +108,24 @@ func findSessionJSONL(root, sessionID string) (string, error) {
 }
 
 // projectDirSlug 复刻 claude CLI 由 cwd 推导 ~/.claude/projects 子目录名的规则：
-// 每个非 ASCII 字母数字字符（含 "/" "." "_" 与非 ASCII）都换成 "-"。
+// 每个非 ASCII 字母数字字符（含 "/" "." "_" 与非 ASCII）都换成 "-"。CLI 的替换跑在 JS
+// 字符串上，按 UTF-16 码元计：BMP 内的字符换成一个 "-"，代理对换成两个（不是按 UTF-8 字节）。
 // 超长路径 CLI 会截断加哈希，这里推不出来——调用方靠全量遍历兜底。
 func projectDirSlug(cwd string) string {
-	b := []byte(cwd)
-	for i, c := range b {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
-			b[i] = '-'
+	var b strings.Builder
+	b.Grow(len(cwd))
+	for _, r := range cwd {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+			continue
 		}
+		units := utf16.RuneLen(r)
+		if units < 1 {
+			units = 1 // 非法 UTF-8 字节:按一个码元算
+		}
+		b.WriteString(strings.Repeat("-", units))
 	}
-	return string(b)
+	return b.String()
 }
 
 // sessionJSONLFinder 定位 <sid>.jsonl：先查缓存，再试 cwd 推导的项目目录，

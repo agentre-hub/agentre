@@ -3,6 +3,7 @@ package chat_svc
 import (
 	"context"
 	"errors"
+	"math"
 	"sort"
 	"testing"
 	"time"
@@ -252,6 +253,29 @@ func TestTurnRunFinalize_GivenPersistFails_ThenLogsErrorAndStillEmitsDone(t *tes
 	require.NotNil(t, done)
 	require.NotNil(t, done.Message)
 	require.Len(t, done.Message.Blocks, 1)
+}
+
+// Given 收尾时某一块编码失败(工具入参里有 JSON 编不出的值),这一轮带着错误结束
+// When  finalize 收尾
+// Then  块行一行不交(库里留着上一次成功 checkpoint 的块),但元数据行照样落库 —— 错误文本 /
+//
+//	耗时不随编码失败一起丢掉(改动前 SetBlocks 失败也照样 Update 元数据)。
+func TestTurnRunFinalize_GivenFinalBlockFailsToEncode_ThenStillPersistsMetadata(t *testing.T) {
+	logs := observeChatLogs(t)
+	rig := newTurnEndRig(t)
+	tr := rig.tr
+	tr.acc.AddToolUse(&cagoblocks.ToolUseBlock{ID: "tu-1", Name: "Bash", Input: map[string]any{"n": math.NaN()}},
+		"tool_use:tu-1")
+	tr.streamStopErr = errors.New("cli exited")
+
+	tr.finalize(rig.ctx)
+
+	require.Len(t, rig.store.calls, 1, "编码失败也要落一次元数据行")
+	assert.Empty(t, rig.store.last().idx, "编码失败时不交任何块行")
+	assert.Equal(t, -1, rig.store.last().truncateFrom)
+	assert.Equal(t, "cli exited", tr.assistantMsg.ErrorText)
+	require.Len(t, logs.FilterMessage("chat_svc.runTurn: persist assistant message failed").All(), 1,
+		"编码失败按收尾落库失败记 Error")
 }
 
 // Given 一段已 checkpoint 过 tool_use 的 assistant,插话到来要分段

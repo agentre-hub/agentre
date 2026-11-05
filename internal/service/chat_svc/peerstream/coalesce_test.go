@@ -222,3 +222,38 @@ func TestAttach_GivenReattachAfterRelease_ThenRebuildsFromStoreAndDeliversLiveFr
 	fresh, _ := deps.svc.peerPublications.Load(int64(41))
 	assert.NotSame(t, old, fresh)
 }
+
+// Given 一次持久帧发布正停在取号(publishMu 已持有、号还没交回)
+// When  最后一个订阅者此刻离开
+// Then  这份宇宙要等那次发布做完才释放 —— 先释放的话,紧接着的重新 attach 会在另一份
+//
+//	宇宙(另一把 publishMu)里给同一批位置惰性编号,与在途那次取到的号各记一份。
+func TestDetach_GivenPublishInFlight_ThenReleaseWaitsForIt(t *testing.T) {
+	clock := &manualClock{t: time.Unix(1000, 0)}
+	deps, sub := attachReadyCoalescingPeer(t, clock)
+	value, ok := deps.svc.peerPublications.Load(int64(41))
+	require.True(t, ok)
+	publication := value.(*peerSessionPublication)
+
+	entered, release := deps.ledger.holdNextAllocate()
+	published := make(chan struct{})
+	go func() {
+		defer close(published)
+		publishPeerDurableFrame(t, deps.svc, 41, 93, "in flight")
+	}()
+	<-entered
+
+	close(sub.done)
+	assert.Never(t, func() bool {
+		_, present := deps.svc.peerPublications.Load(int64(41))
+		return !present
+	}, 200*time.Millisecond, 5*time.Millisecond, "发布还在取号,宇宙不能先被释放")
+
+	release()
+	<-published
+	select {
+	case <-publication.loopDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("publication not released after the in-flight publish finished")
+	}
+}

@@ -27,6 +27,7 @@ import {
 
 import type { AgentSession } from "../agent-list";
 import { indexRowFromMeta } from "./row-model";
+import { useMinuteClock } from "./use-minute-clock";
 
 export type GroupRows = {
   /** 常规列表。SessionGroup 会自动与气泡去重。 */
@@ -77,6 +78,7 @@ type RowCacheEntry = {
   reason: AttentionReason | null;
   rank: AgentSession["attentionRank"];
   t: TFunction;
+  minute: number;
   row: AgentSession;
 };
 
@@ -105,6 +107,8 @@ export function useGroupRows(
   const overrideValues = useReadOverrideSlice(allIDs);
   // 未变的行复用同一个对象：下游（行 memo）靠引用判断「这一行没动」。
   const [rowCache] = React.useState(() => new Map<string, RowCacheEntry>());
+  // 行尾相对时间按分钟走:跨过一分钟时整组重建一次行(行对象换新,行 memo 随之重渲染)。
+  const minute = useMinuteClock();
 
   return React.useMemo(() => {
     if (poolIDs.length === 0) return EMPTY;
@@ -154,7 +158,8 @@ export function useGroupRows(
         hit.meta === meta &&
         hit.status === status &&
         hit.reason === reason &&
-        hit.t === t
+        hit.t === t &&
+        hit.minute === minute
       ) {
         return hit.row;
       }
@@ -173,6 +178,7 @@ export function useGroupRows(
         reason,
         rank: attentionRank,
         t,
+        minute,
         row,
       });
       return row;
@@ -220,5 +226,6 @@ export function useGroupRows(
     overrideValues,
     selectedSessionID,
     t,
+    minute,
   ]);
 }

@@ -8,6 +8,7 @@ vi.mock("../../../wailsjs/go/app/App", () => ({
 }));
 
 import {
+  LoadChatMessageBlocks,
   LoadChatSession,
   LoadChatSessionBlocksByType,
 } from "../../../wailsjs/go/app/App";
@@ -26,6 +27,7 @@ const loadChatSession = LoadChatSession as ReturnType<typeof vi.fn>;
 const loadBlocksByType = LoadChatSessionBlocksByType as ReturnType<
   typeof vi.fn
 >;
+const loadMessageBlocks = LoadChatMessageBlocks as ReturnType<typeof vi.fn>;
 
 // ─── 假后端 ──────────────────────────────────────────────────────────────────
 //
@@ -287,6 +289,7 @@ function sinceVersions(
 function resetAll(): void {
   loadChatSession.mockReset();
   loadBlocksByType.mockReset();
+  loadMessageBlocks.mockReset();
   useChatStreamsStore.setState({ streams: new Map() });
   useSessionConnStore.getState().__reset();
   useSessionMetaStore.getState().__reset();
@@ -516,6 +519,97 @@ describe("useChatSession incremental reload (spec 2026-11-05 decision 4)", () =>
       text("final"),
     ]);
     expect(merged).toEqual(full);
+  });
+
+  // 恢复后没点开过的 tab(DormantSessionTab)也接自主续轮:它在 assistant 行建出的那一刻
+  // 开流,之后全局宿主把这一轮的块攒进 liveBlocks,后端同时在轮内 checkpoint 落库。tab
+  // 首次被点开时面板手上一条消息都没有 —— 库里那份正文与 liveBlocks 是同一段,两路各画
+  // 一遍就是重复的工具卡(sess-3396 的撞 key)。开流时消息还是空的,正文应冻在空上。
+  it("Given an autonomous turn streamed into a never-opened tab, When the tab's first load lands mid-turn, Then its checkpointed blocks are not drawn a second time", async () => {
+    const db = new FakeDb(9, true, [
+      { id: 40, seq: 1, role: "user", blocks: [text("go")] },
+      { id: 42, seq: 2, role: "assistant", blocks: [] },
+    ]);
+    serve(db);
+    act(() => {
+      useChatStreamsStore.getState().openStream({
+        name: "chat:event:9:42",
+        sessionId: 9,
+        assistantMessageId: 42,
+        streamStartedAt: 1,
+        startsEmpty: true,
+      });
+      useChatStreamsStore.getState().appendLiveToolUse(9, 42, {
+        toolName: "Bash",
+        toolUseId: "tu-live",
+      });
+    });
+    db.patch(42, [
+      { type: "tool_use", toolName: "Bash", toolUseId: "tu-live" },
+    ]);
+
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const persisted = result.current.messages.find((m) => m.id === 42);
+    const live =
+      useChatStreamsStore.getState().streams.get(9)?.get(42)?.liveBlocks ?? [];
+    const drawn = [...(persisted?.blocks ?? []), ...live].filter(
+      (b) => b.toolUseId === "tu-live",
+    );
+    expect(drawn).toHaveLength(1);
+  });
+
+  // 往上取正文的请求在途时一轮收尾:增量 reload 先落、把游标推过了窗口外那条旧消息的新
+  // 版本,随后才回来的取正文响应带的是那条消息改写**之前**的正文。游标若不退回到这份
+  // 旧正文的版本,之后的增量读再也不交回它,后台任务面板就永远停在旧状态(改动前每次
+  // reload 都全量点查,会把它修回来)。
+  it("Given an earlier-blocks fetch that lands after an incremental reload already passed a rewritten message, When the next reload runs, Then the stale copy is refreshed", async () => {
+    const db = new FakeDb(9, true, seedRows());
+    serve(db);
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // 取正文请求发出那一刻的快照:消息 1、2 改写之前的完整正文。
+    const staleEarlier = {
+      messages: db.rows
+        .filter((r) => r.seq < 3)
+        .map((r) => ({
+          id: r.id,
+          sessionId: 9,
+          role: r.role,
+          seq: r.seq,
+          createtime: r.seq * 1000,
+          blocks: structuredClone(r.blocks),
+          blocksLoaded: true,
+          version: r.version,
+        })),
+      hasMore: false,
+    };
+    let resolveEarlier!: (v: unknown) => void;
+    loadMessageBlocks.mockReturnValueOnce(
+      new Promise((r) => (resolveEarlier = r)),
+    );
+    let earlier!: Promise<void>;
+    act(() => {
+      earlier = result.current.loadEarlierBlocks();
+    });
+
+    finishTurn(db);
+    await act(async () => {
+      await result.current.reload();
+    });
+    await act(async () => {
+      resolveEarlier(staleEarlier);
+      await earlier;
+    });
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    expect(
+      deriveBackgroundTasks(result.current.messages, []).map((t) => t.status),
+    ).toEqual(["completed"]);
   });
 
   // 两次 reload 在途、先发的那次后回来:它带着更旧的快照,不能盖掉后发那次已经落下的

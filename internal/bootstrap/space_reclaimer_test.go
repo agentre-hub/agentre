@@ -13,10 +13,16 @@ import (
 )
 
 // newVacuumTestDB 建一个真实临时 SQLite(本包允许),autoVacuum 取 "0"/"2",
-// 并制造出一批空闲页:写入大块 blob 后全部删除。
+// 并制造出一批空闲页:写入大块 blob 后全部删除。"0" 模拟 sqliteDSN 定下 INCREMENTAL
+// 之前就建好的老库,所以不经 sqliteDSN 打开(它会把新库定成 2)。
 func newVacuumTestDB(t *testing.T, autoVacuum string) *gorm.DB {
 	t.Helper()
-	g, err := gorm.Open(sqlite.Open(sqliteDSN(filepath.Join(t.TempDir(), "v.db"))), &gorm.Config{})
+	path := filepath.Join(t.TempDir(), "v.db")
+	dsn := sqliteDSN(path)
+	if autoVacuum == "0" {
+		dsn = path
+	}
+	g, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	sqlDB, err := g.DB()
 	require.NoError(t, err)

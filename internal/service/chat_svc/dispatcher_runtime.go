@@ -2,6 +2,8 @@ package chat_svc
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/cago/pkg/logger"
@@ -50,12 +52,16 @@ func (s *chatSvc) checkpointAssistantNew(ctx context.Context, msg *chat_entity.M
 //
 // msg.BlocksJSON 无论写库成败都推进到 final 的整份正文:随后的终态事件与对端帧带的是它,
 // 界面行为与写库是否成功无关。写库失败时不提交,累加器下一次仍交出这些块。
+//
+// 某一块编码失败时块行一行不交(库里留着上一次成功 checkpoint 的块),元数据行照样写:
+// 错误文本 / 用量 / 耗时不随编码失败一起丢掉。
 func persistAssistantFinal(
 	ctx context.Context, msg *chat_entity.Message, acc *turn.Accumulator, final []cagoblocks.ContentBlock,
 ) error {
 	cp, err := prepareAssistantFinal(msg, acc, final)
 	if err != nil {
-		return err
+		return errors.Join(fmt.Errorf("encode final blocks: %w", err),
+			transcript_repo.Message().UpsertBlocks(ctx, msg, nil, -1))
 	}
 	if err := upsertCheckpoint(ctx, msg, cp); err != nil {
 		return err

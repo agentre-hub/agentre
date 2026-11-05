@@ -232,9 +232,6 @@ func TestSQLiteDSNShape(t *testing.T) {
 	if !strings.Contains(dsn, "_pragma=synchronous(NORMAL)") {
 		t.Fatalf("dsn = %q, want it to contain _pragma=synchronous(NORMAL)", dsn)
 	}
-	if !strings.Contains(dsn, "_pragma=journal_size_limit(67108864)") {
-		t.Fatalf("dsn = %q, want it to contain _pragma=journal_size_limit(67108864) (caps the WAL file at 64 MiB after a checkpoint)", dsn)
-	}
 	if strings.Contains(dsn, "busy_timeout") {
 		t.Fatalf("dsn = %q, must not contain busy_timeout (driver hardcodes it unconditionally on every connection)", dsn)
 	}
@@ -268,6 +265,28 @@ func TestSQLiteDSNAppliesPragmas(t *testing.T) {
 	}
 	if busyTimeout != 5000 {
 		t.Fatalf("busy_timeout = %d, want 5000 (driver default, unaffected by removing the DSN param)", busyTimeout)
+	}
+
+	// 检查点之后 -wal 文件截回 64 MiB 以内。
+	var journalSizeLimit int64
+	if err := gormDB.Raw("PRAGMA journal_size_limit").Scan(&journalSizeLimit).Error; err != nil {
+		t.Fatalf("PRAGMA journal_size_limit query error = %v", err)
+	}
+	if journalSizeLimit != 64<<20 {
+		t.Fatalf("journal_size_limit = %d, want %d (64 MiB)", journalSizeLimit, 64<<20)
+	}
+
+	// 新建的库必须是 INCREMENTAL(=2):空闲页回收(spaceReclaimer)只在这个模式下归还
+	// 空间,而模式只能在建表之前定下(之后要整库 VACUUM 才能改)。
+	if err := gormDB.Exec("CREATE TABLE probe (id INTEGER PRIMARY KEY)").Error; err != nil {
+		t.Fatalf("create probe table error = %v", err)
+	}
+	var autoVacuum int
+	if err := gormDB.Raw("PRAGMA auto_vacuum").Scan(&autoVacuum).Error; err != nil {
+		t.Fatalf("PRAGMA auto_vacuum query error = %v", err)
+	}
+	if autoVacuum != 2 {
+		t.Fatalf("auto_vacuum = %d, want 2 (INCREMENTAL) on a freshly created database", autoVacuum)
 	}
 }
 

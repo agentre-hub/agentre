@@ -250,17 +250,29 @@ function retainLoadedBlocks(
 //
 // 返回值同时带出**冻住了哪些行**:它们手上的正文比交回的版本旧,下一次增量读的
 // 游标不能越过它们(见 cursorAfterLoad)。
+//
+// 手上没有旧副本(tab 首次挂载,流是它没挂载时开的)但流开在消息刚建出、正文还空的那一刻
+// (startsEmpty)时,「开流那一刻的样子」就是空正文:冻在空上,liveBlocks 独自画全这一轮。
 function retainLiveMessageBlocks(
   prev: readonly ChatMessage[],
   loaded: ChatMessage[],
-  liveMessageIds: ReadonlySet<number>,
+  liveStreams: ReadonlyMap<number, { startsEmpty?: boolean }>,
 ): { messages: ChatMessage[]; frozenIds: Set<number> } {
   const frozenIds = new Set<number>();
-  if (liveMessageIds.size === 0) return { messages: loaded, frozenIds };
+  if (liveStreams.size === 0) return { messages: loaded, frozenIds };
   const prevById = new Map(prev.map((m) => [m.id, m]));
   const messages = loaded.map((m) => {
-    if (!liveMessageIds.has(m.id)) return m;
+    const stream = liveStreams.get(m.id);
+    if (!stream) return m;
     const old = prevById.get(m.id);
+    if (!old && stream.startsEmpty) {
+      frozenIds.add(m.id);
+      return {
+        ...m,
+        blocks: [] as typeof m.blocks,
+        blocksLoaded: true,
+      } as ChatMessage;
+    }
     if (!old || old.blocksLoaded === false) return m;
     frozenIds.add(m.id);
     return { ...m, blocks: old.blocks, blocksLoaded: true } as ChatMessage;
@@ -377,8 +389,8 @@ export function useChatSession(sessionId: number) {
       // tool_approval 块),setMessages 统一挪到该分支之后执行。
       // 「这次 load 之前就已经在流的消息」—— 必须在下面 activeStream 分支
       // openStream 之前取,那条流刚开、liveBlocks 还是空的,它要的正是这份新快照。
-      const liveBeforeLoad = new Set<number>(
-        useChatStreamsStore.getState().streams.get(sessionId)?.keys() ?? [],
+      const liveBeforeLoad = new Map(
+        useChatStreamsStore.getState().streams.get(sessionId) ?? [],
       );
       // Cache session 的静态字段 (agentColor / agentName / projectId / title /
       // lastMessageAt / lastReadAt) 到 session-meta-store, 让 TabStrip 在不主动
@@ -663,7 +675,30 @@ export function useChatSession(sessionId: number) {
       });
       const loaded = new Map((resp.messages ?? []).map((m) => [m.id, m]));
       if (loaded.size === 0) return;
-      setMessages((prev) => prev.map((m) => loaded.get(m.id) ?? m));
+      setMessages((prev) => {
+        // 这份正文是请求发出那一刻的快照:请求在途时一次增量 reload 可能已经落下、把
+        // 游标推过了其中某条消息后来的版本。换上这份更旧的正文后,游标得退回它的版本
+        // 之下(与 cursorAfterLoad 对冻住的行同一口径),下一次增量读才会再交回那条
+        // 消息、把它的派生块换新 —— 否则旧正文就永远留着。同一个 updater 里改游标。
+        let floor = Number.POSITIVE_INFINITY;
+        const next = prev.map((m) => {
+          const fetched = loaded.get(m.id);
+          if (!fetched) return m;
+          if ((fetched.version ?? 0) < (m.version ?? 0)) {
+            floor = Math.min(floor, fetched.version ? fetched.version - 1 : 0);
+          }
+          return fetched;
+        });
+        const held = cursorRef.current;
+        if (
+          floor !== Number.POSITIVE_INFINITY &&
+          held?.sessionId === sessionId
+        ) {
+          const version = Math.min(held.version, floor);
+          cursorRef.current = version > 0 ? { sessionId, version } : null;
+        }
+        return next;
+      });
     } catch (e: unknown) {
       clientLog.warn("use-chat-session", "loading earlier blocks failed", {
         sessionId,

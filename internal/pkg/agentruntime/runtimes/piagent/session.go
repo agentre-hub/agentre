@@ -322,7 +322,7 @@ func piRawFrameEnabled() bool {
 // consumed. Only subagent tools feed a tracker (see selectCandidate); every
 // other tool's progress frame is dropped, so pkg/piagent skips decoding it.
 func piProgressTool(name string) bool {
-	return strings.Contains(strings.ToLower(name), "subagent")
+	return isSubagentToolName(name)
 }
 
 func safePiFrameType(frameType string) (string, bool) {

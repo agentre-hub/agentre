@@ -68,6 +68,18 @@ func TestScannerSharesSnapshot(t *testing.T) {
 			So(cos.snaps.Load(), ShouldEqual, 1)
 		})
 
+		// 第一个调用方的 ctx 被取消时,OS 层的辅助查询(darwin 的 lsof)会被一起杀掉、只交回
+		// 一份缺端口 / cwd 的残缺快照却不报错。这份快照不能拿去在 TTL 内喂给别的会话。
+		Convey("when the caller's ctx ended during the snapshot, then that snapshot is not shared", func() {
+			canceled, cancel := context.WithCancel(ctx)
+			cancel()
+			_, _ = s.List(canceled, "c1")
+			l, err := s.List(ctx, "c1")
+			So(err, ShouldBeNil)
+			So(l, ShouldHaveLength, 1)
+			So(cos.snaps.Load(), ShouldEqual, 2)
+		})
+
 		Convey("when a snapshot fails, then the error is not cached", func() {
 			base.snapErr = context.Canceled
 			_, err := s.List(ctx, "c1")

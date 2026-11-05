@@ -19,7 +19,11 @@ func (s *Scanner) snapshot(ctx context.Context) ([]Proc, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.snap, s.snapAt, s.hasSnap = snap, s.now(), true
+	// ctx 在拍快照期间结束时,OS 层的辅助查询(darwin 的 lsof)会被一起杀掉,交回的是
+	// 缺端口 / cwd 却不报错的残缺快照:只给这一个调用方,不拿去共享。
+	if ctx.Err() == nil {
+		s.snap, s.snapAt, s.hasSnap = snap, s.now(), true
+	}
 	return snap, nil
 }
 

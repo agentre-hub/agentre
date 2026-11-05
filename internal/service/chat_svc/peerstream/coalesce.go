@@ -159,6 +159,8 @@ func (s *Publisher) closeLocked(publication *peerSessionPublication) {
 
 // releaseIfIdle 在没有订阅者时释放 publication(首次装载失败时用)。
 func (s *Publisher) releaseIfIdle(publication *peerSessionPublication) {
+	publication.publishMu.Lock() // 锁序与释放的理由同 attachPeerTranscript 的 detach
+	defer publication.publishMu.Unlock()
 	publication.mu.Lock()
 	defer publication.mu.Unlock()
 	if len(publication.subscribers) == 0 {

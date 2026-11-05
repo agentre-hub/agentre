@@ -34,6 +34,10 @@ func TestProjectDirSlug_MatchesClaudeCodeNaming(t *testing.T) {
 		"-Users-codfrm-Code-agentre-agentre--dev-kit-worktrees-perf-sweep",
 		projectDirSlug("/Users/codfrm/Code/agentre/agentre/.dev-kit/worktrees/perf-sweep"))
 	assert.Equal(t, "-tmp-a-b-c", projectDirSlug("/tmp/a_b/c"))
+	// CLI 的替换跑在 JS 字符串上(按 UTF-16 码元):BMP 内的非 ASCII 字符(中文、é)各换成
+	// 一个 "-",BMP 之外的(emoji,代理对)换成两个 —— 不是按 UTF-8 字节数。
+	assert.Equal(t, "-Users-me------x", projectDirSlug("/Users/me/项目_é/x"))
+	assert.Equal(t, "-tmp---a", projectDirSlug("/tmp/😀a"))
 }
 
 func TestSessionJSONLFinder_CwdSlugDirHitSkipsFullWalk(t *testing.T) {

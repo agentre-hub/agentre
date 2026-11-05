@@ -401,6 +401,9 @@ func AppDataDir() (string, error) { return paths.AppDataDir() }
 // _pragma=journal_size_limit(67108864): 检查点把 WAL 写完后把 -wal 文件截回 64 MiB 以内
 // (默认不限,一次大写入撑大的 WAL 会永远留在磁盘上,实测 1.38 GB)。
 //
+// _pragma=auto_vacuum(2): 新建的库定为 INCREMENTAL,空闲页回收(spaceReclaimer)才有空间
+// 可还。模式只在建表之前生效;已有的 NONE 库上这一句是空操作(转换要整库 VACUUM,不做)。
+//
 // 不带 busy_timeout: glebarez 驱动在每个连接建立时无条件硬编码执行
 // `pragma BUSY_TIMEOUT(5000)`(glebarez/go-sqlite@v1.21.2/sqlite.go:880,且早于处理
 // _pragma),该 DSN 参数从未改变过任何行为,保留只会让读代码的人误以为超时是本项目
@@ -409,7 +412,7 @@ func AppDataDir() (string, error) { return paths.AppDataDir() }
 // journal_mode 不在这里设置 —— 见 convertToWAL 的 doc 注释：_pragma 对每个连接无条件
 // 执行，首次转换失败会让那次连接建立本身失败进而阻断启动。
 func sqliteDSN(dbPath string) string {
-	return dbPath + "?_txlock=immediate&_pragma=synchronous(NORMAL)&_pragma=journal_size_limit(67108864)"
+	return dbPath + "?_txlock=immediate&_pragma=synchronous(NORMAL)&_pragma=journal_size_limit(67108864)&_pragma=auto_vacuum(2)"
 }
 
 // convertToWAL 启动时把数据库转换成 WAL journal 模式，仅需成功执行一次 —— 该属性
