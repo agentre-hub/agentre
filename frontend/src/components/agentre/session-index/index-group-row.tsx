@@ -17,9 +17,9 @@ import {
   type ProjectGlyphInfo,
 } from "@agentre-hub/agentre-ui";
 
+import type { SessionMeta } from "@/stores/session-meta-store";
 import { strongestAttentionTone } from "@/lib/attention-display";
 import type { IndexAxis } from "@/lib/session-axis";
-import { useSessionMetaStore } from "@/stores/session-meta-store";
 
 import { AgentGroup } from "../agent-list";
 import type { AgentSession } from "../agent-list";
@@ -30,7 +30,8 @@ import type { MachineRosterEntry } from "./machine-roster";
 
 import { ProjectGroupHeader } from "./project-group-header";
 import type { IndexGroup } from "./use-index-groups";
-import { useGroupRows } from "./use-group-rows";
+import { DecorateCache } from "./decorate-cache";
+import { useGroupRows, useMetaSlice } from "./use-group-rows";
 
 export type IndexGroupHandlers = {
   onSessionSelect: (sessionID: number, opts?: { newTab?: boolean }) => void;
@@ -132,7 +133,6 @@ export function IndexGroupRow({
 }: IndexGroupRowProps) {
   const { t } = useTranslation();
   const { t: uiT } = useUiTranslation();
-  const metas = useSessionMetaStore((s) => s.metas);
 
   // 常规列表只铺「最近会话」（agent 轴 = 前 5 条，recentIDs）；attention 池单独喂气泡。
   // 否则池里已读的 error 会漏进常规列表（sess-1819 那类：读过也永远挂着）。
@@ -159,13 +159,18 @@ export function IndexGroupRow({
     return subtreeSessionIDs.filter((id) => visibleSessionIDs.has(id));
   }, [subtreeSessionIDs, visibleSessionIDs]);
   const subtree = useGroupRows(subtreeIDs, selectedSessionID, t);
+  // 装饰只看本组出现过的行（常规 + 气泡池 + 子树）的 meta，不订阅整张表。
+  const decorateIDs = React.useMemo(
+    () => Array.from(new Set([...sessionIDs, ...recentIDs, ...subtreeIDs])),
+    [sessionIDs, recentIDs, subtreeIDs],
+  );
+  const metas = useMetaSlice(decorateIDs);
 
   // 行首那一维（决策 4）与时间轴的第二行（决策 5）。两者都只是「分组没说的那一维」，
   // 所以在同一处按 axis 决定，避免两套投影再次分叉。
-  const decorate = React.useCallback(
-    (row: AgentSession): AgentSession => {
-      const meta = metas.get(Number(row.id));
-      if (!meta) return row;
+  // 装饰结果按 (行对象, meta) 缓存（见 DecorateCache）。
+  const decorateUncached = React.useCallback(
+    (row: AgentSession, meta: SessionMeta): AgentSession => {
       const projectID = meta.projectId ?? 0;
       const resolved = agentInfoOf(meta.agentId ?? 0);
       const agentName = resolved.name || (meta.agentName ?? "");
@@ -200,7 +205,32 @@ export function IndexGroupRow({
         ),
       };
     },
-    [axis, metas, projectInfoOf, agentInfoOf, t],
+    [axis, projectInfoOf, agentInfoOf, t],
+  );
+
+  const [decorateCache] = React.useState(
+    () => new DecorateCache<AgentSession>(),
+  );
+  const decorate = React.useCallback(
+    (row: AgentSession): AgentSession => {
+      const meta = metas.get(Number(row.id));
+      if (!meta) return row;
+      return decorateCache.get(
+        row,
+        meta,
+        [axis, projectInfoOf, agentInfoOf, t],
+        () => decorateUncached(row, meta),
+      );
+    },
+    [
+      axis,
+      metas,
+      projectInfoOf,
+      agentInfoOf,
+      t,
+      decorateUncached,
+      decorateCache,
+    ],
   );
 
   const decoratedSessions = React.useMemo(

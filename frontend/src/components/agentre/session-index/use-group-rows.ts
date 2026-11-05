@@ -11,10 +11,19 @@
 // 只算一次、只有 store 里那一处。
 import * as React from "react";
 import type { TFunction } from "i18next";
+import { useShallow } from "zustand/react/shallow";
 
-import { useSessionAttentionList } from "@/stores/attention-store";
-import { useSessionMetaStore } from "@/stores/session-meta-store";
-import { useSessionStatusStore } from "@/stores/session-status-store";
+import { attentionReasonFor } from "@/stores/attention-store";
+import type { AttentionReason } from "@/stores/attention-store";
+import {
+  useSessionMetaStore,
+  type SessionMeta,
+} from "@/stores/session-meta-store";
+import { useSessionReadStore } from "@/stores/session-read-store";
+import {
+  useSessionStatusStore,
+  type SessionStatusValue,
+} from "@/stores/session-status-store";
 
 import type { AgentSession } from "../agent-list";
 import { indexRowFromMeta } from "./row-model";
@@ -27,6 +36,49 @@ export type GroupRows = {
 };
 
 const EMPTY: GroupRows = { sessions: [], attentionSessions: [] };
+
+/**
+ * 只订阅这一批 id 在 meta-store 里的条目。整张 map 每次任何会话变动都换引用，
+ * 订阅它会让每个组在别的组的会话变化时也重算；这里按 id 取值并 shallow 比较，
+ * 只有本批 id 的条目真的换了才通知。
+ */
+export function useMetaSlice(
+  ids: readonly number[],
+): ReadonlyMap<number, SessionMeta> {
+  const values = useSessionMetaStore(
+    useShallow((s) => ids.map((id) => s.metas.get(id))),
+  );
+  return React.useMemo(() => {
+    const out = new Map<number, SessionMeta>();
+    ids.forEach((id, i) => {
+      const v = values[i];
+      if (v) out.set(id, v);
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values]);
+}
+
+function useStatusSlice(ids: readonly number[]) {
+  return useSessionStatusStore(
+    useShallow((s) => ids.map((id) => s.statuses.get(id))),
+  );
+}
+
+function useReadOverrideSlice(ids: readonly number[]) {
+  return useSessionReadStore(
+    useShallow((s) => ids.map((id) => s.overrides.get(id))),
+  );
+}
+
+type RowCacheEntry = {
+  meta: SessionMeta;
+  status: SessionStatusValue | undefined;
+  reason: AttentionReason | null;
+  rank: AgentSession["attentionRank"];
+  t: TFunction;
+  row: AgentSession;
+};
 
 export function useGroupRows(
   sessionIDs: readonly number[],
@@ -41,18 +93,48 @@ export function useGroupRows(
     attentionPoolIDs?: readonly number[];
   },
 ): GroupRows {
-  const metas = useSessionMetaStore((s) => s.metas);
-  const statuses = useSessionStatusStore((s) => s.statuses);
   // 气泡只从 attention 池算；常规列表只用 sessionIDs。两者合一（其余轴）时行为不变。
   const poolIDs = opts?.attentionPoolIDs ?? sessionIDs;
-  const attentionItems = useSessionAttentionList(poolIDs);
+  // 本组关心的 id = 池 ∪ 常规列表；订阅只覆盖这一批。
+  const allIDs = React.useMemo(
+    () => Array.from(new Set([...poolIDs, ...sessionIDs])),
+    [poolIDs, sessionIDs],
+  );
+  const metas = useMetaSlice(allIDs);
+  const statusValues = useStatusSlice(allIDs);
+  const overrideValues = useReadOverrideSlice(allIDs);
+  // 未变的行复用同一个对象：下游（行 memo）靠引用判断「这一行没动」。
+  const [rowCache] = React.useState(() => new Map<string, RowCacheEntry>());
 
   return React.useMemo(() => {
     if (poolIDs.length === 0) return EMPTY;
 
-    const reasons = new Map(
-      attentionItems.map((item) => [item.sessionId, item.reason]),
-    );
+    const statuses = new Map<number, SessionStatusValue | undefined>();
+    const overrides = new Map<number, number | undefined>();
+    allIDs.forEach((id, i) => {
+      statuses.set(id, statusValues[i]);
+      overrides.set(id, overrideValues[i]);
+    });
+
+    // attention 判定：与 useSessionAttentionList 同一个纯函数、同一个口径，
+    // 只是输入限定在本组的 id。
+    const reasons = new Map<number, AttentionReason>();
+    for (const sid of poolIDs) {
+      const meta = metas.get(sid);
+      if (!meta) continue;
+      const reason = attentionReasonFor(
+        meta,
+        statuses.get(sid),
+        overrides.get(sid),
+      );
+      if (reason !== null) reasons.set(sid, reason);
+    }
+    const attentionItems = Array.from(reasons, ([sessionId, reason]) => ({
+      sessionId,
+      reason,
+    }));
+    const cache = rowCache;
+    const seen = new Set<string>();
 
     const build = (
       sid: number,
@@ -62,15 +144,38 @@ export function useGroupRows(
       // meta 缺失 = 这条会话还没被任何一条列表查询覆盖到。如实跳过而不是渲染一行
       // 「无标题 / idle / 空时间」的假行 —— 那种行点进去才发现是别的会话。
       if (!meta) return null;
-      return indexRowFromMeta({
+      const status = statuses.get(sid);
+      const reason = reasons.get(sid) ?? null;
+      const cacheKey = `${sid}:${attentionRank ?? ""}`;
+      seen.add(cacheKey);
+      const hit = cache.get(cacheKey);
+      if (
+        hit &&
+        hit.meta === meta &&
+        hit.status === status &&
+        hit.reason === reason &&
+        hit.t === t
+      ) {
+        return hit.row;
+      }
+      const row = indexRowFromMeta({
         sessionID: sid,
         title: meta.title ?? "",
         lastMessageAt: meta.lastMessageAt ?? 0,
-        agentStatus: statuses.get(sid)?.agentStatus ?? "idle",
-        reason: reasons.get(sid) ?? null,
+        agentStatus: status?.agentStatus ?? "idle",
+        reason,
         ...(attentionRank !== undefined ? { attentionRank } : {}),
         t,
       });
+      cache.set(cacheKey, {
+        meta,
+        status,
+        reason,
+        rank: attentionRank,
+        t,
+        row,
+      });
+      return row;
     };
 
     // 气泡：按最近活动倒序（不是按 reason 优先级 —— 五个 reason 平权，
@@ -103,13 +208,16 @@ export function useGroupRows(
       return row ? [row] : [];
     });
 
+    for (const key of cache.keys()) if (!seen.has(key)) cache.delete(key);
     return { sessions, attentionSessions };
   }, [
     sessionIDs,
     poolIDs,
-    attentionItems,
+    allIDs,
+    rowCache,
     metas,
-    statuses,
+    statusValues,
+    overrideValues,
     selectedSessionID,
     t,
   ]);
