@@ -140,6 +140,53 @@ type ChatPanelProps = {
   scrollStateKey?: string;
 };
 
+// 一个块若是仍未回答的审批 / 提问,返回它的 requestId,否则 null。
+// 覆盖 canonical 与旧形态两套载荷;与卡片自己的「已决」判据同口径。
+function pendingDecisionId(block: ChatBlockData): string | null {
+  const c = block.canonical;
+  if (c?.kind === "tool.permission" && c.toolPermission) {
+    return c.toolPermission.resolved ? null : c.toolPermission.requestId;
+  }
+  if (c?.kind === "user.ask" && c.userAsk) {
+    const a = c.userAsk;
+    return a.answered || a.skipped || a.expired ? null : a.requestId;
+  }
+  const p = block.toolPermission;
+  if (p) return p.resolved ? null : p.requestId;
+  const q = block.askUserQuestion;
+  if (q) return q.answered || q.skipped || q.expired ? null : q.requestId;
+  const a = block.toolApproval;
+  if (a) return a.status === "pending" ? a.requestId : null;
+  return null;
+}
+
+// countPendingBelow:id 大于视口下沿那条消息的消息里,仍未决的审批 / 提问个数。
+// 持久化块与在流 liveBlocks 按 requestId 去重(同一张卡可能两处都有)。
+// 视口下沿未知(null)时数不出「下面」,记 0 —— 与 turnsBelow 同口径。
+function countPendingBelow(
+  messages: readonly { id: number; blocks?: ChatBlockData[] }[],
+  streams: ReadonlyMap<number, LiveStream> | null,
+  bottomVisibleId: number | null,
+): number {
+  if (bottomVisibleId === null) return 0;
+  const pending = new Set<string>();
+  const scan = (blocks: readonly ChatBlockData[] | undefined) => {
+    for (const b of blocks ?? []) {
+      const id = pendingDecisionId(b);
+      if (id) pending.add(id);
+    }
+  };
+  for (const m of messages) {
+    if (m.id > bottomVisibleId) scan(m.blocks);
+  }
+  if (streams) {
+    for (const [messageId, stream] of streams) {
+      if (messageId > bottomVisibleId) scan(stream.liveBlocks);
+    }
+  }
+  return pending.size;
+}
+
 function ChatPanel({
   sessionId,
   newSessionAgent,
@@ -295,6 +342,7 @@ function ChatPanel({
   // 宿主只递 tab / 活跃态 / 消息与流式内容的身份进去,并把锚点恢复转交给转录渲染器
   // (只有虚拟器知道某条消息此刻落在哪一行)。
   const {
+    bottomVisibleId,
     followBottom: followTranscriptBottom,
     onScroll: handleTranscriptScroll,
     scrollElement: transcriptElement,
@@ -324,6 +372,15 @@ function ChatPanel({
     if (!sessionStreams) return [] as ChatBlockData[];
     return Array.from(sessionStreams.values()).flatMap((s) => s.liveBlocks);
   }, [sessionStreams]);
+  // 回到底部药丸的「N 项待处理」:视口下沿之后仍未决的审批 / 提问,按活状态现算,
+  // 与补齐(catch-up)无关。
+  const pendingBelow = React.useMemo(
+    () =>
+      showBackToBottom
+        ? countPendingBelow(messages, sessionStreams, bottomVisibleId)
+        : 0,
+    [bottomVisibleId, messages, sessionStreams, showBackToBottom],
+  );
   // 会话级读数取主流。
   const liveUsage = currentStream?.liveUsage ?? null;
   const liveContextWindow = currentStream?.liveContextWindow ?? 0;
@@ -929,6 +986,7 @@ function ChatPanel({
                         <TranscriptJumpControl
                           catchUp={catchUp}
                           turnsBelow={turnsBelow}
+                          pendingBelow={pendingBelow}
                           onJump={handleBackToBottom}
                           // 这一端的转录列靠左（滚动容器是整面板宽的 px-7，列本身
                           // 让出 40px 头像 gutter 再封顶 max-w-measure，没有
