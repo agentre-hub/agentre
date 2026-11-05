@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // ErrSessionJSONLNotFound 在指定 root 下没有找到 <sid>.jsonl 文件。
@@ -105,6 +106,73 @@ func findSessionJSONL(root, sessionID string) (string, error) {
 	return found, nil
 }
 
+// projectDirSlug 复刻 claude CLI 由 cwd 推导 ~/.claude/projects 子目录名的规则：
+// 每个非 ASCII 字母数字字符（含 "/" "." "_" 与非 ASCII）都换成 "-"。
+// 超长路径 CLI 会截断加哈希，这里推不出来——调用方靠全量遍历兜底。
+func projectDirSlug(cwd string) string {
+	b := []byte(cwd)
+	for i, c := range b {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+			b[i] = '-'
+		}
+	}
+	return string(b)
+}
+
+// sessionJSONLFinder 定位 <sid>.jsonl：先查缓存，再试 cwd 推导的项目目录，
+// 最后才退回全量遍历 root。每个 claude 轮次收尾都要定位一次，全量遍历
+// 会随历史项目数线性变慢，而同一会话的文件位置基本不变。
+type sessionJSONLFinder struct {
+	mu    sync.Mutex
+	cache map[string]string // root + "\x00" + sid -> 路径
+	walk  func(root, sessionID string) (string, error)
+}
+
+func newSessionJSONLFinder() *sessionJSONLFinder {
+	return &sessionJSONLFinder{cache: map[string]string{}, walk: findSessionJSONL}
+}
+
+// defaultSessionJSONLFinder 是进程级共享实例，让同一会话的后续轮次命中缓存。
+var defaultSessionJSONLFinder = newSessionJSONLFinder()
+
+func (f *sessionJSONLFinder) find(root, cwd, sessionID string) (string, error) {
+	key := root + "\x00" + sessionID
+	f.mu.Lock()
+	cached, ok := f.cache[key]
+	f.mu.Unlock()
+	if ok {
+		if isRegularFile(cached) {
+			return cached, nil
+		}
+		f.mu.Lock()
+		delete(f.cache, key) // 文件被搬走/删除：丢弃陈旧条目，重新定位
+		f.mu.Unlock()
+	}
+
+	path := ""
+	if cwd != "" {
+		cand := filepath.Join(root, projectDirSlug(cwd), sessionID+".jsonl")
+		if isRegularFile(cand) {
+			path = cand
+		}
+	}
+	if path == "" {
+		var err error
+		if path, err = f.walk(root, sessionID); err != nil {
+			return "", err
+		}
+	}
+	f.mu.Lock()
+	f.cache[key] = path
+	f.mu.Unlock()
+	return path, nil
+}
+
+func isRegularFile(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && st.Mode().IsRegular()
+}
+
 // FindUserAnchorByText 给定 user 发送的 prompt 文本，反向定位它对应的 JSONL 消息，
 // 然后从它往回走找到**最近一条 assistant 消息**，返回 assistant 的 UUID。
 //
@@ -185,10 +253,17 @@ func parseSessionMessageLine(line []byte) (SessionMessage, bool) {
 // 语义与旧路径逐字相同:取**最后一条**文本匹配的 user,再往回找最近的 assistant;
 // 找不到匹配的 user、或它前面没有 assistant,都返回空串(nil error)。
 func FindUserAnchorInSessionJSONL(root, sessionID, userText string) (string, error) {
+	return FindUserAnchorInSessionJSONLForCwd(root, "", sessionID, userText)
+}
+
+// FindUserAnchorInSessionJSONLForCwd 同 FindUserAnchorInSessionJSONL，但额外接收
+// 会话 cwd：先试 root/<cwd 推导的 slug>/<sid>.jsonl，并缓存定位结果，
+// 命不中才退回全量遍历。cwd 为空等价于不走快路径。
+func FindUserAnchorInSessionJSONLForCwd(root, cwd, sessionID, userText string) (string, error) {
 	if sessionID == "" {
 		return "", fmt.Errorf("claudecode: empty session id")
 	}
-	path, err := findSessionJSONL(root, sessionID)
+	path, err := defaultSessionJSONLFinder.find(root, cwd, sessionID)
 	if err != nil {
 		return "", err
 	}

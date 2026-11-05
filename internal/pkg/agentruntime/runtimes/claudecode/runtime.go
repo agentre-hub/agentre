@@ -549,7 +549,12 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 		// 尾部空转。anchor 永远在文件末尾附近,实测真实的 70MB 转录上整文件解析
 		// 618ms/17MB,反向扫描 7.9ms/1.1MB。
 		if root := projectsRoot(); root != "" && result.ProviderSessionID != "" {
-			if anchor, err := claudecode.FindUserAnchorInSessionJSONL(root, result.ProviderSessionID, req.UserText); err == nil {
+			// cwd 与启动 CLI 时一致（空则同样按 Agent 解析），用来直达 CLI 的项目目录，免于遍历 root。
+			cwd := req.Cwd
+			if cwd == "" {
+				cwd, _ = agentruntime.ResolveAgentCwd(req.AgentID, req.AgentSyncID)
+			}
+			if anchor, err := claudecode.FindUserAnchorInSessionJSONLForCwd(root, cwd, result.ProviderSessionID, req.UserText); err == nil {
 				result.UserAnchor = anchor
 			}
 		}
