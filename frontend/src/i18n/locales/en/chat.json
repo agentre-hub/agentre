@@ -383,7 +383,7 @@
       "unpin": "Unpin"
     },
     "empty": {
-      "description": "Choose one from the left sidebar, or dispatch a new task to an Agent · ⌘P opens the command palette",
+      "description": "Pick a conversation on the left, or press {{chord}} to open the command palette",
       "shortcuts": {
         "close": "Close Tab",
         "openInNewTab": "Open in New Tab",

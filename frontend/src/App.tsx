@@ -4,7 +4,13 @@
 // 判定(lib/platform.ts)、选区助手(lib/text-selection.ts)与两个钩子
 // (use-prevent-global-select-all、use-persisted-window-size)。
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentProps,
+} from "react";
 // 与 base.css 里的滚动条规则是一对：那半边把滑块颜色绑到 --sb-thumb 并默认
 // 透明，这半边在滚动时改值。两端共用同一份 hook。
 import {
@@ -48,6 +54,8 @@ import {
   ThemeToggle,
   type DesktopPlatform,
 } from "@/components/agentre";
+import { formatChord } from "@/components/agentre/shortcuts/format";
+import { useOptionalShortcutsContext } from "@/components/agentre/shortcuts/shortcuts-provider";
 import { ThemeProvider, useTheme } from "@agentre-hub/agentre-ui";
 import { SettingsDialog } from "@/components/agentre/settings/page";
 import { TabStrip } from "@/components/agentre/chat-tabs/tab-strip";
@@ -91,6 +99,27 @@ import {
   hasWailsRuntime,
   type RuntimeMode,
 } from "./lib/platform";
+
+// 图标栏导航项 → 快捷键绑定 id（shortcuts/registry.ts 的 nav.*）。
+const NAV_BINDING_IDS: Record<string, string> = {
+  "/chat": "nav.chat",
+  "/issues": "nav.issues",
+  "/org": "nav.org",
+  "/hooks": "nav.hooks",
+};
+
+// AppLayout 挂在 ShortcutsProvider 外层，读不到上下文；这个小包装在 Provider 里面，
+// 按当前绑定与平台把 chord 格式化后交给 SidebarButton。
+function RailButton({
+  bindingId,
+  ...props
+}: ComponentProps<typeof SidebarButton> & { bindingId?: string }) {
+  const shortcuts = useOptionalShortcutsContext();
+  const chord = bindingId ? shortcuts?.bindings.get(bindingId) : undefined;
+  const shortcut =
+    shortcuts && chord ? formatChord(chord, shortcuts.platform) : undefined;
+  return <SidebarButton {...props} shortcut={shortcut} />;
+}
 
 function AppLayout() {
   const { t } = useTranslation();
@@ -237,8 +266,11 @@ function AppLayout() {
                         const pendingApprovals =
                           item.path === "/chat" ? railApprovals : 0;
                         return (
-                          <SidebarButton
+                          <RailButton
                             key={item.labelKey}
+                            bindingId={
+                              item.path ? NAV_BINDING_IDS[item.path] : undefined
+                            }
                             data-testid={`nav-${item.path?.slice(1) ?? item.labelKey}`}
                             label={
                               pendingApprovals > 0
@@ -261,7 +293,8 @@ function AppLayout() {
                       {/* 外壳样式归宿主：wails-no-drag 与导航栏配色是桌面独有的，
                           按钮说什么、点一下变成什么在共享包里。 */}
                       <ThemeToggle className="wails-no-drag mt-auto size-10 rounded-lg text-sidebar-icon hover:bg-rail-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]" />
-                      <SidebarButton
+                      <RailButton
+                        bindingId="nav.settings"
                         data-testid="nav-settings"
                         label={settingsLabel}
                         icon={settingsNavItem.icon}

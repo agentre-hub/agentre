@@ -15,7 +15,12 @@ import { ChatPanel } from "../chat-panel";
 import { PanelShownContext } from "../chat-panel/panel-shown";
 import { PeerPanel } from "../peer/peer-panel";
 import { formatChord, formatPrimaryModifier } from "../shortcuts/format";
-import { TAB_CHIP_IDS, TAB_CLOSE_ID } from "../shortcuts/registry";
+import {
+  PALETTE_OPEN_ID,
+  TAB_CHIP_IDS,
+  TAB_CLOSE_ID,
+  getDefaultBindings,
+} from "../shortcuts/registry";
 import { useOptionalShortcutsContext } from "../shortcuts/shortcuts-provider";
 import type { KeyChord } from "../shortcuts/types";
 import { openAgentGaps } from "@/lib/agent-setup-link";
@@ -131,6 +136,16 @@ function ChatEmptyState() {
     .filter((a) => a.blockReason === "no-backend")
     .map((a) => a.id);
 
+  // 命令面板的 chord 跟随用户绑定与平台，不写死 ⌘P。
+  const shortcuts = useOptionalShortcutsContext();
+  const paletteChord =
+    shortcuts?.bindings.get(PALETTE_OPEN_ID) ??
+    getDefaultBindings().get(PALETTE_OPEN_ID)!;
+  const paletteLabel = formatChord(
+    paletteChord,
+    shortcuts?.platform ?? detectBrowserPlatform(),
+  );
+
   if (!loading && !error && !hasChattable) {
     return (
       // content-sheet 自带 overflow-hidden 裁圆角；清单矮窗口下要能滚，滚动放在里面一层。
@@ -140,7 +155,6 @@ function ChatEmptyState() {
             <Sparkles className="size-6 text-primary" aria-hidden="true" />
           </span>
           <SetupChecklist />
-          <ChatShortcuts />
         </div>
       </main>
     );
@@ -153,7 +167,7 @@ function ChatEmptyState() {
       </span>
       <div className="text-base font-semibold">{t("chatTabs.empty.title")}</div>
       <div className="text-xs text-muted-foreground">
-        {t("chatTabs.empty.description")}
+        {t("chatTabs.empty.description", { chord: paletteLabel })}
       </div>
       {unconfiguredIds.length > 0 ? (
         <div className="mt-3 flex items-center gap-2 text-xs">

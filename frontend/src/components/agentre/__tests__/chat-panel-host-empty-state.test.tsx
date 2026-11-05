@@ -128,9 +128,9 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
       within(start).getByRole("button", { name: "Waiting" }),
     ).toBeDisabled();
 
-    // 保留快捷键提示 (文本节点与 kbd 混排, 用正则匹配)
-    expect(screen.getByText(/Close Tab/)).toBeInTheDocument();
-    expect(screen.getByText(/Switch Tab/)).toBeInTheDocument();
+    // 引导态没有任何标签页，不讲标签快捷键
+    expect(screen.queryByText(/Close Tab/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Switch Tab/)).not.toBeInTheDocument();
   });
 
   it("1B: with a backend but no provider, the backend step is done and the provider step becomes the only primary action", () => {
@@ -163,8 +163,23 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
     ).toBeDisabled();
   });
 
-  it("1B: shortcut hints follow the desktop platform", () => {
+  it("setup state does not render the tab shortcut list", () => {
     seedAgents([]);
+
+    render(
+      <MemoryRouter initialEntries={["/chat"]}>
+        <ShortcutsProvider platform="darwin">
+          <ChatPanelHost />
+        </ShortcutsProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("⌘1..⌘9")).not.toBeInTheDocument();
+    expect(screen.queryByText("⌘W")).not.toBeInTheDocument();
+  });
+
+  it("ready state: tab shortcut hints follow the desktop platform", () => {
+    seedAgents([{ id: 1, name: "CEO", chattable: true }]);
 
     render(
       <MemoryRouter initialEntries={["/chat"]}>
@@ -179,8 +194,8 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
     expect(screen.getByText("⌘ Click")).toBeInTheDocument();
   });
 
-  it("1B: shortcut hints use Ctrl on non-macOS platforms", () => {
-    seedAgents([]);
+  it("ready state: tab shortcut hints use Ctrl on non-macOS platforms", () => {
+    seedAgents([{ id: 1, name: "CEO", chattable: true }]);
 
     render(
       <MemoryRouter initialEntries={["/chat"]}>
@@ -193,6 +208,51 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
     expect(screen.getByText("Ctrl+1..9")).toBeInTheDocument();
     expect(screen.getByText("Ctrl+W")).toBeInTheDocument();
     expect(screen.getByText("Ctrl+Click")).toBeInTheDocument();
+  });
+
+  it("ready state: the empty-state hint names the palette chord for the platform, not a hard-coded ⌘P", () => {
+    seedAgents([{ id: 1, name: "CEO", chattable: true }]);
+
+    render(
+      <MemoryRouter initialEntries={["/chat"]}>
+        <ShortcutsProvider platform="windows">
+          <ChatPanelHost />
+        </ShortcutsProvider>
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByText(
+        "Pick a conversation on the left, or press Ctrl+P to open the command palette",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/sidebar/i)).not.toBeInTheDocument();
+  });
+
+  it("ready state: the empty-state hint follows the user's palette rebinding", () => {
+    localStorage.setItem(
+      "agentre.shortcuts",
+      JSON.stringify({
+        version: 1,
+        bindings: { "palette.open": { mod: "primary", key: "K" } },
+      }),
+    );
+    seedAgents([{ id: 1, name: "CEO", chattable: true }]);
+
+    render(
+      <MemoryRouter initialEntries={["/chat"]}>
+        <ShortcutsProvider platform="darwin">
+          <ChatPanelHost />
+        </ShortcutsProvider>
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByText(
+        "Pick a conversation on the left, or press ⌘K to open the command palette",
+      ),
+    ).toBeInTheDocument();
+    localStorage.removeItem("agentre.shortcuts");
   });
 
   it("does not show the checklist before the agent snapshot has loaded", () => {

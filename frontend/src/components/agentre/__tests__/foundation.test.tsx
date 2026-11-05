@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MessageSquare } from "lucide-react";
 import { MemoryRouter } from "react-router-dom";
@@ -735,5 +735,21 @@ describe("SidebarButton 角标", () => {
     );
 
     expect(container.querySelector("[data-slot='sidebar-badge']")).toBeNull();
+  });
+});
+
+describe("SidebarButton 快捷键提示", () => {
+  it("Given 传入快捷键, When 渲染, Then tooltip 同时显示名称与快捷键", () => {
+    render(<SidebarButton label="看板" icon={MessageSquare} shortcut="⌘B" />);
+
+    const tooltip = screen.getByRole("tooltip");
+    expect(within(tooltip).getByText("看板")).toBeInTheDocument();
+    expect(within(tooltip).getByText("⌘B")).toBeInTheDocument();
+  });
+
+  it("Given 没有快捷键, When 渲染, Then tooltip 只有名称", () => {
+    render(<SidebarButton label="看板" icon={MessageSquare} />);
+
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/^看板$/);
   });
 });

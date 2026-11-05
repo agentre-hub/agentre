@@ -87,6 +87,8 @@ type SidebarButtonProps = Omit<
   badgeTone?: "primary" | "waiting";
   icon: SidebarIcon;
   label: string;
+  /** 已格式化好的快捷键（如 ⌘B），跟在名称后面显示在 tooltip 里。 */
+  shortcut?: string;
 };
 
 function SidebarButton({
@@ -96,6 +98,7 @@ function SidebarButton({
   className,
   icon,
   label,
+  shortcut,
   ...props
 }: SidebarButtonProps) {
   const tooltipId = React.useId();
@@ -141,6 +144,11 @@ function SidebarButton({
           className="absolute -left-1 top-1/2 size-2 -translate-y-1/2 rotate-45 bg-popover"
         />
         <span className="relative">{label}</span>
+        {shortcut ? (
+          <kbd className="relative ml-2 rounded-sm bg-button-fill px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground">
+            {shortcut}
+          </kbd>
+        ) : null}
       </span>
     </Button>
   );
