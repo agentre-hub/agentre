@@ -1,7 +1,15 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
+import type { Editor } from "@tiptap/react";
 
 import { ChatComposer, type ChatComposerHandle } from "./chat-composer";
 import type { AIChatInputHandle } from "../chat-input";
@@ -178,11 +186,16 @@ describe("ChatComposer · running turn", () => {
     expect(onStop).not.toHaveBeenCalled();
   });
 
-  it("Given a running turn and an empty draft, When Escape is pressed in the editor, Then the turn is stopped", () => {
+  // Esc 的用例一律经 pressEscape 发真实按键（带 keyCode 27），走编辑器自己的
+  // 按键处理 —— 只带 key 的合成事件会绕过 ProseMirror，让坏掉的 Esc 也测成绿的。
+  it("Given a running turn and focus in the empty editor, When the user presses Escape on the keyboard, Then the turn is stopped", async () => {
+    const user = userEvent.setup();
     const onStop = vi.fn();
     render(<ChatComposer running onStop={onStop} onSubmit={vi.fn()} />);
 
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+    const editor = screen.getByRole("textbox");
+    await user.click(editor);
+    pressEscape(editor);
     expect(onStop).toHaveBeenCalledTimes(1);
   });
 
@@ -200,7 +213,7 @@ describe("ChatComposer · running turn", () => {
 
     inputHandle.current?.loadDraft("half a thought");
     await screen.findByRole("button", { name: "Send" });
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+    pressEscape(screen.getByRole("textbox"));
     expect(onStop).not.toHaveBeenCalled();
   });
 
@@ -216,18 +229,33 @@ describe("ChatComposer · running turn", () => {
     );
 
     await attachPng("pending.png");
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+    pressEscape(screen.getByRole("textbox"));
     expect(onStop).not.toHaveBeenCalled();
   });
 
-  it("Given a popover already consumed Escape, When it reaches the composer, Then nothing is stopped", () => {
+  it("Given an open mention popover, When Escape is pressed, Then it only closes the popover", async () => {
+    const editorRef = createRef<Editor | null>();
     const onStop = vi.fn();
-    render(<ChatComposer running onStop={onStop} onSubmit={vi.fn()} />);
+    render(
+      <ChatComposer
+        editorRef={editorRef}
+        mentionSources={{
+          agents: [{ kind: "agent", refId: 1, label: "Reviewer" }],
+          projects: [],
+          devices: [],
+        }}
+        running
+        onStop={onStop}
+        onSubmit={vi.fn()}
+      />,
+    );
 
-    // slash / mention 弹层在编辑器上先吃掉 Esc（preventDefault）再冒泡到表单。
-    const editor = screen.getByRole("textbox");
-    editor.addEventListener("keydown", (event) => event.preventDefault());
-    fireEvent.keyDown(editor, { key: "Escape" });
+    act(() => {
+      editorRef.current?.commands.insertContent("@");
+    });
+    await screen.findByRole("listbox");
+    pressEscape(screen.getByRole("textbox"));
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
     expect(onStop).not.toHaveBeenCalled();
   });
 
@@ -235,10 +263,7 @@ describe("ChatComposer · running turn", () => {
     const onStop = vi.fn();
     render(<ChatComposer running onStop={onStop} onSubmit={vi.fn()} />);
 
-    fireEvent.keyDown(screen.getByRole("textbox"), {
-      key: "Escape",
-      isComposing: true,
-    });
+    pressEscape(screen.getByRole("textbox"), { isComposing: true });
     expect(onStop).not.toHaveBeenCalled();
   });
 
@@ -255,7 +280,7 @@ describe("ChatComposer · running turn", () => {
       />,
     );
 
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+    pressEscape(screen.getByRole("textbox"));
     expect(onCancelEdit).toHaveBeenCalledTimes(1);
     expect(onStop).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
@@ -272,9 +297,7 @@ describe("ChatComposer · running turn", () => {
       />,
     );
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "pill" }), {
-      key: "Escape",
-    });
+    pressEscape(screen.getByRole("button", { name: "pill" }));
     expect(onStop).not.toHaveBeenCalled();
   });
 
@@ -284,7 +307,7 @@ describe("ChatComposer · running turn", () => {
       <ChatComposer running stopping onStop={onStop} onSubmit={vi.fn()} />,
     );
 
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+    pressEscape(screen.getByRole("textbox"));
     expect(onStop).not.toHaveBeenCalled();
   });
 
@@ -776,6 +799,21 @@ describe("ChatComposer · top slot", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
+
+/**
+ * 浏览器里真实的 Esc 按键：除了 key 还带 keyCode 27。ProseMirror 按 keyCode 认
+ * Esc，并对没人处理的 Esc 一律 preventDefault —— 只带 key 的合成事件（happy-dom 下
+ * user-event 也是 keyCode 0）绕过了这一层，测不到真机上的行为。
+ */
+function pressEscape(target: Element, init: KeyboardEventInit = {}): boolean {
+  return fireEvent.keyDown(target, {
+    key: "Escape",
+    code: "Escape",
+    keyCode: 27,
+    which: 27,
+    ...init,
+  });
+}
 
 function sendButton(): HTMLElement {
   return screen.getByRole("button", { name: /Send|Save|Run command|Sending/ });

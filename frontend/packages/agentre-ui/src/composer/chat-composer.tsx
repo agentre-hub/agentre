@@ -56,7 +56,7 @@ export type ChatComposerDropZone = {
 
 export type ChatComposerProps = Omit<
   AIChatInputProps,
-  "onSubmit" | "onEmptyChange" | "onCommandModeChange"
+  "onSubmit" | "onEmptyChange" | "onCommandModeChange" | "onEscape"
 > & {
   onSubmit: (message: ChatComposerSubmit) => void;
   supportsImageInput?: boolean;
@@ -398,9 +398,16 @@ export const ChatComposer = React.forwardRef<
     void addFiles(pasted);
   }
 
-  // Esc 取消编辑：TipTap 的 handleKeyDown 不处理 Esc，所以在 form 层捕获。非编辑
-  // 态下，一轮在跑、焦点在编辑器里、草稿为空时 Esc 停止这一轮；slash / mention 弹层
-  // 先在编辑器上消费掉的 Esc（defaultPrevented）与 IME 组词中的 Esc 都不算。
+  // 一轮在跑、草稿为空时，编辑器里的 Esc 停止这一轮。由编辑器的按键处理转来：
+  // 那里已经排除了 slash / mention / 命令历史弹层吃掉的 Esc 与 IME 组词中的 Esc。
+  // 不能在 form 层判 defaultPrevented —— ProseMirror 对每个真实 Esc 都会 preventDefault。
+  function handleEditorEscape(): boolean {
+    if (!stopAvailable || stopping || !empty || images.length > 0) return false;
+    onStop?.();
+    return true;
+  }
+
+  // Esc 取消编辑：TipTap 的 handleKeyDown 不处理 Esc，所以在 form 层捕获。
   //
   // Shift+Tab 交给宿主（桌面端拿它循环切换 permission mode）。本地命令历史的清除
   // 控件保留原生反向焦点；编辑模式也不消费。
@@ -423,21 +430,6 @@ export const ChatComposer = React.forwardRef<
     if (editing && event.key === "Escape") {
       event.preventDefault();
       onCancelEdit?.();
-      return;
-    }
-    if (
-      stopAvailable &&
-      !stopping &&
-      event.key === "Escape" &&
-      !event.defaultPrevented &&
-      !event.nativeEvent.isComposing &&
-      empty &&
-      images.length === 0 &&
-      event.target instanceof Element &&
-      event.target.closest(EDITOR_SELECTOR)
-    ) {
-      event.preventDefault();
-      onStop?.();
       return;
     }
     if (
@@ -593,6 +585,7 @@ export const ChatComposer = React.forwardRef<
           autoFocus={inputProps.autoFocus || autoFocusOnMount}
           disabled={disabled}
           onEmptyChange={setEmpty}
+          onEscape={handleEditorEscape}
           onCommandModeChange={(active) => {
             setCommandMode(active);
             onCommandModeChange?.(active);
@@ -782,8 +775,5 @@ function StopButton({
     </Button>
   );
 }
-
-/** 编辑器本体（TipTap 的 contenteditable）。Esc 停止只认焦点在这里的按键。 */
-const EDITOR_SELECTOR = "[contenteditable='true']";
 
 const noopRegistrar: DropZoneRegistrar = () => () => {};
