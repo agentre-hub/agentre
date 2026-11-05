@@ -353,9 +353,15 @@ func (s *Session) readLoop() {
 		if s.rawSink != nil {
 			s.rawSink(line)
 		}
-		events, done := s.parseLine(line) // 同时把 control_response dispatch 给 ctrlPending
-		var f rawFrame
-		_ = json.Unmarshal(line, &f) // 仅供归属判定(后台型 task_notification)
+		// 每行只解码一次:同一个 rawFrame 既喂 parseFrame 也供 route 做归属判定
+		// (后台型 task_notification)。解码失败时 f 保持 json 留下的样子(通常零值),
+		// 与此前「再解一遍并忽略错误」的路由输入一致。
+		f, err := decodeRawFrame(line)
+		var events []Event
+		var done bool
+		if err == nil {
+			events, done = s.parseFrame(line, f) // 同时把 control_response dispatch 给 ctrlPending
+		}
 		s.route(f, events, done)
 	}
 	if exitErr := s.proc.exitErrIfDone(); exitErr != nil {
@@ -851,10 +857,21 @@ func (s *Session) ExitErr() error {
 // parseLine 是 frameDecoder.decodeLine 的"无状态副本"——session 多轮场景下不能
 // 用 frameDecoder.done 把 reader 钉死。返回 (events, isResult)。
 func (s *Session) parseLine(line []byte) ([]Event, bool) {
-	var f rawFrame
-	if err := json.Unmarshal(line, &f); err != nil {
+	f, err := decodeRawFrame(line)
+	if err != nil {
 		return nil, false
 	}
+	return s.parseFrame(line, f)
+}
+
+func decodeRawFrame(line []byte) (rawFrame, error) {
+	var f rawFrame
+	err := json.Unmarshal(line, &f)
+	return f, err
+}
+
+// parseFrame 翻译已解码的帧;line 仅供 control_* 帧按各自 schema 再取内层字段。
+func (s *Session) parseFrame(line []byte, f rawFrame) ([]Event, bool) {
 	switch f.Type {
 	case "system":
 		if f.Subtype == "init" {
