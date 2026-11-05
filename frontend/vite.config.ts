@@ -56,6 +56,14 @@ export default defineConfig({
       "@agentre-hub/agentre-ui/i18n": fileURLToPath(
         new URL("./packages/agentre-ui/src/i18n/index.ts", import.meta.url),
       ),
+      // 终端面板的窄入口（排在包名之前）：xterm 整棵树只在打开终端标签时才拉，
+      // 宿主用 `import("@agentre-hub/agentre-ui/terminal")` 把它切成独立 chunk。
+      "@agentre-hub/agentre-ui/terminal": fileURLToPath(
+        new URL(
+          "./packages/agentre-ui/src/terminal/terminal-panel.tsx",
+          import.meta.url,
+        ),
+      ),
       // 桌面端直接吃共享包的源码，而不是 prepare 产出的 dist：否则改一行包内
       // 代码就得先 `pnpm build` 才看得到，HMR 与 vitest 全部失真。
       // agentre-server 那侧走 git 依赖，消费的仍是 dist（见包 exports）。

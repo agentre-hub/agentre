@@ -6,11 +6,11 @@ import { useNavigate } from "react-router-dom";
 import {
   Badge,
   Button,
-  TerminalPanel,
   cn,
   pruneChatPanelScrollState,
 } from "@agentre-hub/agentre-ui";
 
+import { lazyView } from "../lazy-boundary";
 import { ChatPanel } from "../chat-panel";
 import { PanelShownContext } from "../chat-panel/panel-shown";
 import { useAutonomousTurnEvents } from "../chat-panel/use-autonomous-turn-events";
@@ -596,6 +596,15 @@ const HostedPanel = React.memo(function HostedPanel({
     </div>
   );
 });
+
+// xterm 整棵树只在出现终端标签时才拉；失败时由 lazyView 的边界显示重试。
+const TerminalPanel = lazyView(
+  () =>
+    import("@agentre-hub/agentre-ui/terminal").then((m) => ({
+      default: m.TerminalPanel,
+    })),
+  { overlay: true },
+);
 
 const HostedTerminalPanel = React.memo(function HostedTerminalPanel({
   tab,

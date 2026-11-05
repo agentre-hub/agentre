@@ -17,10 +17,8 @@ vi.mock("../../../../../wailsjs/runtime/runtime", async (importOriginal) => ({
   EventsOn: vi.fn(() => () => {}),
 }));
 
-// TerminalPanel 已搬进共享包;这里只替换那一个导出,其余(pruneChatPanelScrollState
-// 等)保持真实实现。
-vi.mock("@agentre-hub/agentre-ui", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agentre-hub/agentre-ui")>()),
+// TerminalPanel 在共享包的窄入口里,宿主按需 import 它;这里替换那个入口。
+vi.mock("@agentre-hub/agentre-ui/terminal", () => ({
   TerminalPanel: ({
     terminalID,
     active,
@@ -264,12 +262,15 @@ describe("ChatPanelHost", () => {
     );
   });
 
-  it("Given terminal tabs, When the active tab changes, Then TerminalPanel receives active for focus management", () => {
+  it("Given terminal tabs, When the active tab changes, Then TerminalPanel receives active for focus management", async () => {
     useChatTabsStore.getState().openTerminal(7, "", undefined);
     useChatTabsStore.getState().openTerminal(8, "", undefined);
     const firstId = useChatTabsStore.getState().tabs[0].id;
 
     const { rerender } = render(<ChatPanelHost />);
+    await waitFor(() =>
+      expect(screen.getAllByTestId("terminal-panel")).toHaveLength(2),
+    );
     const panels = screen.getAllByTestId("terminal-panel");
     expect(panels[0]).toHaveTextContent("inactive");
     expect(panels[1]).toHaveTextContent("active");
@@ -380,10 +381,10 @@ describe("ChatPanelHost", () => {
     indexReload.mockRestore();
   });
 
-  it("Given a terminal tab is open, When ChatPanelHost renders, Then it shows terminal-panel not a ChatPanel", () => {
+  it("Given a terminal tab is open, When ChatPanelHost renders, Then it shows terminal-panel not a ChatPanel", async () => {
     useChatTabsStore.getState().openTerminal(7, "", undefined);
     render(<ChatPanelHost />);
-    expect(screen.getByTestId("terminal-panel")).toBeInTheDocument();
+    expect(await screen.findByTestId("terminal-panel")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-panel-0")).not.toBeInTheDocument();
   });
 

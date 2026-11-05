@@ -48,6 +48,7 @@ The public exports are listed in `packages/agentre-ui/package.json`. CSS is spli
 | `@agentre-hub/agentre-ui/base.css` | shared base element styles |
 | `@agentre-hub/agentre-ui/toast.css` | shared toast presentation |
 | `@agentre-hub/agentre-ui/i18n` | locale bundles + namespace, without pulling in components |
+| `@agentre-hub/agentre-ui/terminal` | `TerminalPanel` alone (xterm tree), so a host can `import()` it on demand as its own chunk |
 | `@agentre-hub/agentre-ui` | shared components, host-neutral contracts, interaction helpers, and primitives |
 
 **What belongs in it:** anything both hosts render — transcript components, the row model, the DTO contract, tokens. **What does not:** anything that needs the host's state, navigation, or platform. Reach for a port or a prop instead of importing the host.

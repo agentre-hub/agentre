@@ -19,6 +19,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "@agentre-hub/agentre-ui": ["./packages/agentre-ui/src/index.ts"],
+      "@agentre-hub/agentre-ui/terminal": ["./packages/agentre-ui/src/terminal/terminal-panel.tsx"],
       "@agentre-hub/agentre-ui/i18n": ["./packages/agentre-ui/src/i18n/index.ts"]
     }
   },
