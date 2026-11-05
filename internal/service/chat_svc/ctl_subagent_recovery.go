@@ -2,6 +2,7 @@ package chat_svc
 
 import (
 	"context"
+	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
@@ -21,8 +22,8 @@ import (
 // 已排除):执行方是 agentred,由 CatchUpRemoteSessions 与 agentred 的转录补齐。
 //
 // 状态走与运行期同一条写入分工(handlers.ApplyAgrctlInfo),单运行快照 runs[0] 跟着翻;
-// 单张卡写失败只记 warn,不挡住其余卡。
-func SettleOrphanedAgrctlCards(ctx context.Context) (int, error) {
+// 单张卡写失败只记 warn,不挡住其余卡。只收宿主消息建于 cutoff 之前的卡(见 createdBefore)。
+func SettleOrphanedAgrctlCards(ctx context.Context, cutoff time.Time) (int, error) {
 	repo := transcript_repo.Message()
 	cards, err := repo.ListOpenAgrctlCards(ctx)
 	if err != nil {
@@ -31,6 +32,9 @@ func SettleOrphanedAgrctlCards(ctx context.Context) (int, error) {
 	}
 	settled := 0
 	for _, c := range cards {
+		if !createdBefore(ctx, repo, c, cutoff) {
+			continue
+		}
 		changed := false
 		_, err := repo.PatchSubagentState(ctx, c.SessionID, c.ToolCallID, func(b *blocks.SubagentStateBlock) bool {
 			changed = cancelOrphanedAgrctlCard(b)
@@ -50,6 +54,19 @@ func SettleOrphanedAgrctlCards(ctx context.Context) (int, error) {
 			zap.Int("count", settled))
 	}
 	return settled, nil
+}
+
+// createdBefore 判断一张卡的宿主消息是否建于 cutoff(启动时刻)之前。清扫在聊天服务就绪
+// 之后才在后台跑,启动之后新开的卡属于本进程里活着的运行,不是孤儿,不能收掉。宿主消息
+// 查不到或查询失败时按「不是孤儿」处理:漏收一张卡可由下次启动补上,误收一张活卡无法挽回。
+func createdBefore(ctx context.Context, repo transcript_repo.MessageRepo, c transcript_repo.OpenAgrctlCard, cutoff time.Time) bool {
+	host, err := repo.FindAssistantBySubagentToolCallID(ctx, c.SessionID, c.ToolCallID)
+	if err != nil {
+		logger.Ctx(ctx).Warn("chat_svc.SettleOrphanedAgrctlCards: locate card host message failed",
+			zap.Int64("sessionId", c.SessionID), zap.String("toolUseId", c.ToolCallID), zap.Error(err))
+		return false
+	}
+	return host != nil && host.Createtime < cutoff.UnixMilli()
 }
 
 // cancelOrphanedAgrctlCard 把一张未收尾的 agrctl 卡写成已取消。后台卡的状态归 CLI、前台卡

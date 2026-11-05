@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,9 +18,6 @@ func TestResetStaleSessionsOnStartup(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { resetStaleActiveSessions = orig })
-	origSettle := settleOrphanedAgrctlCards
-	settleOrphanedAgrctlCards = func(context.Context) (int, error) { return 0, nil }
-	t.Cleanup(func() { settleOrphanedAgrctlCards = origSettle })
 
 	a := &App{}
 	a.resetStaleSessionsOnStartup(context.Background())
@@ -29,25 +27,60 @@ func TestResetStaleSessionsOnStartup(t *testing.T) {
 	}
 }
 
-// 重启后仍 running/waiting 的本机 agrctl 卡随进程一起成了孤儿:收尾必须排在会话重置之后
-// (同一个启动清理步骤里),且重置失败不挡它 —— 两者各管各的行。
-func TestResetStaleSessionsOnStartup_SettlesOrphanedAgrctlCardsAfterReset(t *testing.T) {
+// 重启后仍 running/waiting 的本机 agrctl 卡随进程一起成了孤儿:收尾排在会话重置之后,
+// 但跑在后台、聊天服务就绪之后 —— 大库上它要几十秒,聊天绑定不能等它。重置失败不挡它,
+// 两者各管各的行。
+func TestRunStartupRecovery_SettlesOrphanedAgrctlCardsInBackgroundAfterReset(t *testing.T) {
+	var mu sync.Mutex
 	var order []string
+	record := func(step string) {
+		mu.Lock()
+		defer mu.Unlock()
+		order = append(order, step)
+	}
 	origReset, origSettle := resetStaleActiveSessions, settleOrphanedAgrctlCards
 	resetStaleActiveSessions = func(context.Context) error {
-		order = append(order, "reset")
+		record("reset")
 		return errors.New("reset failed")
 	}
-	settleOrphanedAgrctlCards = func(context.Context) (int, error) {
-		order = append(order, "settle")
-		return 1, nil
+	settleDone := make(chan struct{})
+	release := make(chan struct{})
+	var gotCutoff time.Time
+	settleOrphanedAgrctlCards = func(_ context.Context, cutoff time.Time) (int, error) {
+		record("settle")
+		gotCutoff = cutoff
+		<-release
+		close(settleDone)
+		return 1, errors.New("settle failed")
 	}
 	t.Cleanup(func() { resetStaleActiveSessions, settleOrphanedAgrctlCards = origReset, origSettle })
 
-	(&App{}).resetStaleSessionsOnStartup(context.Background())
+	before := time.Now()
+	returned := make(chan struct{})
+	go func() {
+		(&App{}).runStartupRecovery(context.Background(), func() { record("register") })
+		close(returned)
+	}()
 
-	if len(order) != 2 || order[0] != "reset" || order[1] != "settle" {
-		t.Fatalf("startup cleanup order = %v, want [reset settle]", order)
+	select {
+	case <-returned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("启动被慢的 agrctl 卡收尾按住了:聊天服务注册要等它跑完")
+	}
+	close(release)
+	select {
+	case <-settleDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("agrctl 卡收尾没有在后台跑起来")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if want := []string{"reset", "register", "settle"}; len(order) != 3 || order[0] != want[0] || order[1] != want[1] || order[2] != want[2] {
+		t.Fatalf("startup order = %v, want %v", order, want)
+	}
+	if gotCutoff.Before(before) || gotCutoff.After(time.Now()) {
+		t.Fatalf("settle cutoff %v is not the startup instant (started %v)", gotCutoff, before)
 	}
 }
 
