@@ -392,7 +392,7 @@ func TestCtlSend_GivenNoSafeTarget_ThenNothingIsBoundAndTheReasonIsLogged(t *tes
 func TestCtlSend_GivenBindFailed_WhenChildKeepsRunning_ThenItsEventsAreNotRetained(t *testing.T) {
 	Convey("Given 子会话起轮前攒了一步、绑定却失败(没有在跑的父轮), When 子会话在 send 返回前继续出步骤, Then 这些事件不再攒在登记里", t, func() {
 		deps := setupPeerSessionTest(t)
-		deps.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes() // 子会话自己的转录
+		deps.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes() // 子会话自己的转录
 		ctx := context.Background()
 		w := deps.svc.WatchCtlSend(ctlChildSessionID)
 		defer w.Close()

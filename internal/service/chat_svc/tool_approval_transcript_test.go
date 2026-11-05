@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
@@ -40,7 +41,7 @@ type approvalTurnRig struct {
 	done       chan struct{}
 
 	mu          sync.Mutex
-	checkpoints []string // 每次 CheckpointBlocks 落库时 assistant 的 BlocksJSON
+	checkpoints []string // 每次轮内 checkpoint(UpsertBlocks)落库时 assistant 的 BlocksJSON
 	finalBlocks string   // 收口 Update 落库的 assistant BlocksJSON
 }
 
@@ -131,8 +132,8 @@ func startApprovalTurnWith(t *testing.T, opts approvalTurnOpts) *approvalTurnRig
 	deps.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(agentForPeerSession(), nil).AnyTimes()
 	deps.backend.EXPECT().Find(gomock.Any(), int64(11)).Return(opts.backend, nil).AnyTimes()
 	deps.message.EXPECT().List(gomock.Any(), approvalSessionID).Return(nil, nil).AnyTimes()
-	deps.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, m *chat_entity.Message, _ string) error {
+	deps.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, m *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			rig.mu.Lock()
 			rig.checkpoints = append(rig.checkpoints, m.BlocksJSON)
 			rig.mu.Unlock()

@@ -221,3 +221,65 @@ func TestMessageRepo_CheckpointBlocksSkipsUnchangedBody(t *testing.T) {
 	require.NoError(t, transcript_repo.NewMessage().CheckpointBlocks(ctx, m, same))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// TestMessageRepo_UpsertBlocksWritesOnlyTheGivenRows 钉住增量 checkpoint 的仓储入口:
+// 调用方(累加器)已经算好了变化的块行,仓储只做「元数据整行 Save + 交来的行按
+// (message_id, idx) upsert」,不再解任何一份整条正文,也绝不出现无条件的
+// DELETE … WHERE message_id = ?。
+func TestMessageRepo_UpsertBlocksWritesOnlyTheGivenRows(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	row := transcript_entity.BlockRow(42, 2, cagoblocks.StoredBlock{
+		Type: "tool_result", Data: []byte(`{"tool_use_id":"tu-1"}`),
+	})
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_messages`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO `chat_message_blocks` .* (ON DUPLICATE KEY UPDATE|ON CONFLICT)").
+		WithArgs(
+			int64(42), 2, "tool_result", "tu-1", transcript_entity.BlockCodecRaw,
+			[]byte(`{"tool_use_id":"tu-1"}`),
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	m := &transcript_entity.Message{ID: 42, SessionID: 3, Role: "assistant", BlocksJSON: "[]", Seq: 1}
+	require.NoError(t, transcript_repo.NewMessage().UpsertBlocks(ctx, m, []*transcript_entity.MessageBlock{row}, -1))
+	assert.NotZero(t, m.Updatetime)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestMessageRepo_UpsertBlocksTruncatesFromTheGivenIndex 证明 truncateFrom >= 0 时只删
+// idx >= truncateFrom 的残块(带 idx 条件),再写交来的行。
+func TestMessageRepo_UpsertBlocksTruncatesFromTheGivenIndex(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	row := transcript_entity.BlockRow(42, 0, cagoblocks.StoredBlock{Type: "text", Data: []byte(`{"text":"a"}`)})
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_messages`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM `chat_message_blocks` WHERE message_id = \\? AND idx >= \\?").
+		WithArgs(int64(42), 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO `chat_message_blocks`").
+		WithArgs(int64(42), 0, "text", "", transcript_entity.BlockCodecRaw, []byte(`{"text":"a"}`)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	m := &transcript_entity.Message{ID: 42, SessionID: 3, Role: "assistant", BlocksJSON: "[]", Seq: 1}
+	require.NoError(t, transcript_repo.NewMessage().UpsertBlocks(ctx, m, []*transcript_entity.MessageBlock{row}, 1))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestMessageRepo_UpsertBlocksWithoutRowsSavesMetadataOnly 证明没有变化的块时只写元数据行。
+func TestMessageRepo_UpsertBlocksWithoutRowsSavesMetadataOnly(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_messages`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	m := &transcript_entity.Message{ID: 42, SessionID: 3, Role: "assistant", BlocksJSON: "[]", Seq: 1}
+	require.NoError(t, transcript_repo.NewMessage().UpsertBlocks(ctx, m, nil, -1))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

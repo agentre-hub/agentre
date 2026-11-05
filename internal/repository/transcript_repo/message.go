@@ -80,6 +80,14 @@ type MessageRepo interface {
 	// 用在一轮一次的收尾;CheckpointBlocks 用在轮内每个 ToolResult 之后的高频
 	// checkpoint —— 整表替换在那里是 O(N²),理由见 syncBlocks 的注释。
 	CheckpointBlocks(ctx context.Context, m *transcript_entity.Message, prevBlocksJSON string) error
+	// UpsertBlocks 把消息推进到 m 的当前状态,正文只写调用方交来的块行。
+	//
+	// 与 CheckpointBlocks 的区别是谁来算差分:CheckpointBlocks 拿两份整条正文自己解开比较
+	// (每次 O(消息大小)),UpsertBlocks 信任调用方 —— 轮内累加器记着哪些块是新增 / 被改动
+	// 的,只把这几块编成行交来(transcript_entity.BlockRow),于是一次 checkpoint 的代价与
+	// 消息长度无关。rows 按 (message_id, idx) upsert;truncateFrom >= 0 时先删掉
+	// idx >= truncateFrom 的残块,-1 表示不截断。元数据整行 Save(更新 updatetime)。
+	UpsertBlocks(ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) error
 	// UpdateUsage 只写 token 计数那几列。
 	//
 	// 不要退回 Update:整行 Save 会把调用方手上那份实体的正文一起重写(整批块行删了重插),
@@ -302,6 +310,18 @@ func (r *messageRepo) CheckpointBlocks(ctx context.Context, m *transcript_entity
 			return err
 		}
 		return syncBlocks(txCtx, m.ID, prevBlocksJSON, m.BlocksJSON)
+	})
+}
+
+// UpsertBlocks 见接口注释。
+func (r *messageRepo) UpsertBlocks(ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) error {
+	m.Updatetime = time.Now().UnixMilli()
+	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
+		txCtx := db.WithContextDB(ctx, tx)
+		if err := tx.Save(m).Error; err != nil {
+			return err
+		}
+		return writeBlockRows(txCtx, m.ID, rows, truncateFrom)
 	})
 }
 

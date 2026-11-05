@@ -48,21 +48,28 @@ func syncBlocks(ctx context.Context, messageID int64, prev, next string) error {
 	if err != nil {
 		return err
 	}
-	if diff.TruncateFrom >= 0 {
+	return writeBlockRows(ctx, messageID, diff.Upserts, diff.TruncateFrom)
+}
+
+// writeBlockRows 是差分写的落库半边:truncateFrom >= 0 时先删 idx >= truncateFrom 的残块,
+// 再把 rows 按 (message_id, idx) upsert。syncBlocks(自己算差分)与 UpsertBlocks(调用方
+// 交来差分)共用它,两条路径写出的语句一致。
+func writeBlockRows(ctx context.Context, messageID int64, rows []*transcript_entity.MessageBlock, truncateFrom int) error {
+	if truncateFrom >= 0 {
 		if err := db.Ctx(ctx).Exec(
 			"DELETE FROM `chat_message_blocks` WHERE message_id = ? AND idx >= ?",
-			messageID, diff.TruncateFrom,
+			messageID, truncateFrom,
 		).Error; err != nil {
 			return err
 		}
 	}
-	if len(diff.Upserts) == 0 {
+	if len(rows) == 0 {
 		return nil
 	}
 	return db.Ctx(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "message_id"}, {Name: "idx"}},
 		DoUpdates: clause.AssignmentColumns([]string{"type", "tool_call_id", "codec", "data"}),
-	}).Create(&diff.Upserts).Error
+	}).Create(&rows).Error
 }
 
 // loadBlocksBatch 是一次 IN 查询里最多带几个 message id。SQLite 的绑定变量有上限

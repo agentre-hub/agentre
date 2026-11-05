@@ -25,6 +25,11 @@ type Accumulator struct {
 	textBuf     strings.Builder
 	thinkingBuf strings.Builder
 	mutateIndex map[string]int
+	// dirty 记下自上一次提交的 checkpoint 以来被就地改过的块下标(值是改动戳),
+	// 见 checkpoint.go。
+	dirty map[int]uint64
+	stamp uint64
+	ckpt  checkpointState
 }
 
 func New() *Accumulator {
@@ -201,13 +206,7 @@ func (a *Accumulator) Snapshot() []cagoblocks.ContentBlock {
 	defer a.mu.Unlock()
 	out := make([]cagoblocks.ContentBlock, 0, len(a.finalBlocks)+2)
 	out = append(out, a.finalBlocks...)
-	if a.thinkingBuf.Len() > 0 {
-		out = append(out, &cagoblocks.ThinkingBlock{Text: a.thinkingBuf.String()})
-	}
-	if a.textBuf.Len() > 0 {
-		out = append(out, &cagoblocks.TextBlock{Text: a.textBuf.String()})
-	}
-	return out
+	return append(out, a.tailBlocksLocked()...)
 }
 
 // Finalize 收尾:flush 剩余段(thinking → text)到末尾。thinking 不再整体
@@ -251,6 +250,7 @@ func Mutate[B any](a *Accumulator, key string, fn func(*B)) bool {
 		return false
 	}
 	fn(b)
+	a.markDirtyLocked(idx)
 	return true
 }
 
@@ -294,6 +294,7 @@ func AdoptMutateKey[B any](a *Accumulator, alias string, pred func(*B) bool, fn 
 		}
 		if fn != nil {
 			fn(b)
+			a.markDirtyLocked(i)
 		}
 		return true
 	}

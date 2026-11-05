@@ -1705,7 +1705,7 @@ func setupCatchUpTurn(t *testing.T) *catchUpTurnMocks {
 			c.finalError = msg.ErrorText
 			return nil
 		}).AnyTimes()
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	m.message.EXPECT().FindAssistantBySubagentToolCallID(gomock.Any(), int64(100), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ int64, toolCallID string) (*chat_entity.Message, error) {
 			if toolCallID != "T" {
