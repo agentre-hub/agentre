@@ -286,7 +286,7 @@ describe("Settings setup guidance (task 7)", () => {
       renderSettings();
 
       await user.click(
-        within(settingsNav()).getByRole("button", { name: "LLM Providers" }),
+        within(settingsNav()).getByTestId("settings-nav-llm-providers"),
       );
 
       const list = await screen.findByRole("list", { name: "Needs setup" });
