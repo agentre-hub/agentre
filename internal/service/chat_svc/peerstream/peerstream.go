@@ -19,6 +19,7 @@ package peerstream
 import (
 	"context"
 	"sync"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -30,6 +31,10 @@ type Publisher struct {
 	// peerPublications keeps remote account peers in a separate ordered stream,
 	// so attachment adds presence without replacing the desktop Wails emitter.
 	peerPublications sync.Map
+
+	// now / afterFunc 是预览文本合帧的时钟与尾巴定时器,零值走真实时钟,单测注入假的。
+	now       func() time.Time
+	afterFunc func(d time.Duration, f func()) previewTimer
 }
 
 // New 构造一个空的出口。

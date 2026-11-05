@@ -61,6 +61,14 @@ type peerSessionPublication struct {
 	// startOnce guarantees at most one worker per publication.
 	wake      chan struct{}
 	startOnce sync.Once
+	// stop 在最后一个订阅者离开、publication 被摘除时关闭,flush worker 随之退出;
+	// loopDone 在 worker 真正退出后关闭(单测据此确认没有遗留 goroutine)。
+	// closed 受 mu 保护:一旦为真,这份 publication 已不在表里,不再接受订阅与发布。
+	stop     chan struct{}
+	loopDone chan struct{}
+	closed   bool
+	// preview 是还没发出的预览文本(见 coalesce.go),受 mu 保护。
+	preview previewCoalescer
 }
 
 // peerSubscriberQueueDepth 是**每个订阅者**的投递缓冲深度。
@@ -96,6 +104,8 @@ func (s *Publisher) peerPublication(sessionID int64, conversationID string) *pee
 		subscribers:    map[string]*peerSessionSubscription{},
 		publisher:      transcript.NewFramePublisher(),
 		wake:           make(chan struct{}, 1),
+		stop:           make(chan struct{}),
+		loopDone:       make(chan struct{}),
 	})
 	publication := value.(*peerSessionPublication)
 	publication.startOnce.Do(func() { go s.peerFlushLoop(publication) })
@@ -106,8 +116,14 @@ func (s *Publisher) peerPublication(sessionID int64, conversationID string) *pee
 // own goroutine. A blocked Notify (stalled peer / relay) pauses only this
 // session's peer fan-out, never the local turn's event loop.
 func (s *Publisher) peerFlushLoop(publication *peerSessionPublication) {
-	for range publication.wake {
-		s.flushPeerPending(publication)
+	defer close(publication.loopDone)
+	for {
+		select {
+		case <-publication.wake:
+			s.flushPeerPending(publication)
+		case <-publication.stop:
+			return
+		}
 	}
 }
 
@@ -196,7 +212,13 @@ func (s *Publisher) PullPeerSession(ctx context.Context, params wire.SessionPull
 	if err != nil {
 		return wire.SessionPullResult{}, err
 	}
-	publication := s.peerPublication(sessionID, params.ConversationID)
+	// 只查不建:publication 已随最后一个订阅者释放时,pull 不得把它再建出来(否则
+	// 又留下一条无人订阅的 flush goroutine)。
+	value, ok := s.peerPublications.Load(sessionID)
+	if !ok {
+		return wire.SessionPullResult{}, ErrPeerSessionNotFound
+	}
+	publication := value.(*peerSessionPublication)
 	key := peerSubscriberKey(subscriber)
 	publication.mu.Lock()
 
@@ -264,30 +286,43 @@ func clampPeerPullLimit(limit int) int {
 // 它这一轮的消息级派生帧都还没定稿,不能在这一刻取号 —— 判据与实时发布那一侧、与
 // agentred 的补齐读侧都是同一行代码(transcript.WithoutUnsettledTail)。
 func (s *Publisher) attachPeerTranscript(ctx context.Context, sessionID int64, conversationID string, running bool, subscriber PeerSessionSubscriber) (int64, func(), error) {
-	publication := s.peerPublication(sessionID, conversationID)
-	if err := initializePeerPublication(ctx, publication, running); err != nil {
-		return 0, nil, err
-	}
 	key := peerSubscriberKey(subscriber)
-	// 高水位与注册在同一把锁下取:一条持久帧要么已经在 1..H 里,要么在 H 之后才装入
-	// 并排给这个订阅者。
-	publication.mu.Lock()
-	highWater := publication.nextSeq
-	subscription := &peerSessionSubscription{subscriber: subscriber, highWater: highWater}
-	publication.subscribers[key] = subscription
-	publication.mu.Unlock()
-
-	var once sync.Once
-	detach := func() {
-		once.Do(func() {
-			publication.mu.Lock()
-			if publication.subscribers[key] == subscription {
-				delete(publication.subscribers, key)
-			}
+	for {
+		publication := s.peerPublication(sessionID, conversationID)
+		if err := initializePeerPublication(ctx, publication, running); err != nil {
+			s.releaseIfIdle(publication)
+			return 0, nil, err
+		}
+		// 高水位与注册在同一把锁下取:一条持久帧要么已经在 1..H 里,要么在 H 之后才装入
+		// 并排给这个订阅者。
+		publication.mu.Lock()
+		if publication.closed {
+			// 初始化期间最后一个订阅者走了、这份宇宙被释放:换一份新的重来。
 			publication.mu.Unlock()
-		})
+			continue
+		}
+		highWater := publication.nextSeq
+		subscription := &peerSessionSubscription{subscriber: subscriber, highWater: highWater}
+		publication.subscribers[key] = subscription
+		publication.mu.Unlock()
+
+		var once sync.Once
+		detach := func() {
+			once.Do(func() {
+				publication.mu.Lock()
+				if publication.subscribers[key] == subscription {
+					delete(publication.subscribers, key)
+				}
+				// 写失败的订阅者已被投递循环摘掉,所以不论这次有没有删到,
+				// 只要没人订阅了就释放这份宇宙(历史、worker、待发文本)。
+				if len(publication.subscribers) == 0 {
+					s.closeLocked(publication)
+				}
+				publication.mu.Unlock()
+			})
+		}
+		return highWater, detach, nil
 	}
-	return highWater, detach, nil
 }
 
 // initializePeerPublication 用落库的转录给这份宇宙装上初始前缀;每个进程里每条会话只装一次。
@@ -368,19 +403,27 @@ func (s *Publisher) PublishEvent(sessionID int64, event agentruntime.Event) {
 		return
 	}
 	publication := value.(*peerSessionPublication)
-	frame := wire.EventFrame{ConversationID: publication.conversationID, Event: event, Preview: true}
+	kind, text := previewKindOf(event)
 	publication.mu.Lock()
-	for _, subscription := range publication.subscribers {
-		// Queue only: the flush worker performs the (potentially blocking) relay
-		// write. Never Notify inline from a canonical event loop — a stalled
-		// peer must not stall this desktop's own turn.
-		enqueuePeerFrame(subscription, frame)
+	if publication.closed || (len(publication.subscribers) == 0 && publication.preview.kind == previewNone) {
+		publication.mu.Unlock()
+		return
+	}
+	// Queue only: the flush worker performs the (potentially blocking) relay
+	// write. Never Notify inline from a canonical event loop — a stalled
+	// peer must not stall this desktop's own turn.
+	switch {
+	case kind == previewNone:
+		// 非文本帧(工具、终态…):先把攒着的文本发出去,再发它,顺序与不合帧时一致。
+		s.flushPreviewLocked(publication)
+		enqueuePreviewLocked(publication, event)
+	case text == "":
+		// 空 delta 既不该造出一条空帧,也不该打断合帧。
+	default:
+		s.addPreviewTextLocked(publication, kind, text)
 	}
 	publication.mu.Unlock()
-	select {
-	case publication.wake <- struct{}{}:
-	default:
-	}
+	publication.signal()
 }
 
 // PublishMessageFrames 把一条**已落库**的消息此刻投影出的持久帧发给对端。
@@ -445,6 +488,8 @@ func (s *Publisher) PublishMessageFrames(
 	}
 	var lowest, highest int64
 	publication.mu.Lock()
+	// 攒着的预览文本先于这批持久帧排队,对端看到的相对顺序与不合帧时一致。
+	s.flushPreviewLocked(publication)
 	for index := range pending {
 		pending[index].Frame.Seq = seqs[index]
 		if lowest == 0 || seqs[index] < lowest {
