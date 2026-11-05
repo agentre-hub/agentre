@@ -398,16 +398,22 @@ export const ChatComposer = React.forwardRef<
     void addFiles(pasted);
   }
 
-  // 一轮在跑、草稿为空时，编辑器里的 Esc 停止这一轮。由编辑器的按键处理转来：
-  // 那里已经排除了 slash / mention / 命令历史弹层吃掉的 Esc 与 IME 组词中的 Esc。
-  // 不能在 form 层判 defaultPrevented —— ProseMirror 对每个真实 Esc 都会 preventDefault。
+  // 编辑器里的 Esc：编辑态取消编辑；否则一轮在跑、草稿为空时停止这一轮。由编辑器的
+  // 按键处理转来：那里已经排除了 slash / mention / 命令历史弹层吃掉的 Esc 与 IME 组词
+  // 中的 Esc。不能在 form 层判 —— ProseMirror 对每个真实 Esc 都会 preventDefault，
+  // 冒泡上来时已分不清是不是弹层吃掉的。
   function handleEditorEscape(): boolean {
+    if (editing) {
+      onCancelEdit?.();
+      return true;
+    }
     if (!stopAvailable || stopping || !empty || images.length > 0) return false;
     onStop?.();
     return true;
   }
 
-  // Esc 取消编辑：TipTap 的 handleKeyDown 不处理 Esc，所以在 form 层捕获。
+  // 编辑态里焦点不在编辑器（例如横幅上的按钮）时的 Esc 也取消编辑；编辑器里来的 Esc
+  // 已经在上面处理过（或被弹层吃掉），都带着 defaultPrevented，这里不再重复。
   //
   // Shift+Tab 交给宿主（桌面端拿它循环切换 permission mode）。本地命令历史的清除
   // 控件保留原生反向焦点；编辑模式也不消费。
@@ -427,7 +433,12 @@ export const ChatComposer = React.forwardRef<
       submit("");
       return;
     }
-    if (editing && event.key === "Escape") {
+    if (
+      editing &&
+      event.key === "Escape" &&
+      !event.defaultPrevented &&
+      !event.nativeEvent.isComposing
+    ) {
       event.preventDefault();
       onCancelEdit?.();
       return;

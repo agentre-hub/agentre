@@ -342,7 +342,7 @@ describe("ChatComposer · running turn", () => {
     expect(onStop).not.toHaveBeenCalled();
   });
 
-  it("Given a host that wires no stop (agentre-server), When a turn runs, Then the submit slot is the plain send control and Escape does nothing", () => {
+  it("Given a host that wires no stop (agentre-server), When a turn runs, Then the submit slot is the plain send control", () => {
     const { container } = render(<ChatComposer running onSubmit={vi.fn()} />);
 
     const send = screen.getByRole("button", { name: "Send" });
@@ -351,11 +351,6 @@ describe("ChatComposer · running turn", () => {
     expect(
       container.querySelectorAll("[data-slot='composer-bar'] button"),
     ).toHaveLength(2);
-
-    const escape = fireEvent.keyDown(screen.getByRole("textbox"), {
-      key: "Escape",
-    });
-    expect(escape).toBe(true);
   });
 });
 
@@ -390,6 +385,57 @@ describe("ChatComposer · editing", () => {
 
     fireEvent.keyDown(formOf(container), { key: "Escape" });
     expect(onCancelEdit).toHaveBeenCalled();
+  });
+
+  it("Given edit mode and focus in the editor, When the user presses Escape on the keyboard, Then the edit is cancelled once", () => {
+    const onCancelEdit = vi.fn();
+    render(
+      <ChatComposer
+        editing
+        editDraft="old text"
+        onCancelEdit={onCancelEdit}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    pressEscape(screen.getByRole("textbox"));
+    expect(onCancelEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given edit mode with an open mention popover, When Escape is pressed, Then it only closes the popover and the edit survives", async () => {
+    const editorRef = createRef<Editor | null>();
+    const onCancelEdit = vi.fn();
+    render(
+      <ChatComposer
+        editing
+        editorRef={editorRef}
+        mentionSources={{
+          agents: [{ kind: "agent", refId: 1, label: "Reviewer" }],
+          projects: [],
+          devices: [],
+        }}
+        onCancelEdit={onCancelEdit}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    act(() => {
+      editorRef.current?.commands.insertContent("@");
+    });
+    await screen.findByRole("listbox");
+    pressEscape(screen.getByRole("textbox"));
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(onCancelEdit).not.toHaveBeenCalled();
+  });
+
+  it("Given edit mode, When Escape dismisses an IME composition, Then the edit is not cancelled", () => {
+    const onCancelEdit = vi.fn();
+    render(
+      <ChatComposer editing onCancelEdit={onCancelEdit} onSubmit={vi.fn()} />,
+    );
+
+    pressEscape(screen.getByRole("textbox"), { isComposing: true });
+    expect(onCancelEdit).not.toHaveBeenCalled();
   });
 
   it("Given edit mode, When rendered, Then the image entry and the host's bottom-bar slots stand down", () => {
