@@ -72,8 +72,9 @@ var runtime *Runtime
 
 // Runtime owns the cago config and lifecycle hooks used by the desktop app.
 type Runtime struct {
-	config  *configs.Config
-	dataDir string
+	config    *configs.Config
+	dataDir   string
+	reclaimer *spaceReclaimer
 }
 
 // Init initializes the cago config/logger/database stack for the process.
@@ -267,7 +268,18 @@ func Init(ctx context.Context) (*Runtime, error) {
 	ctlskill_svc.Register(agrctlPath, ctlSkillVersion())
 	ctlskill_svc.CtlSkill().InstallOnBoot(ctx)
 
-	runtime = &Runtime{config: cfg, dataDir: dataDir}
+	// 空闲页回收:删除会话后触发 + 低频定时,分批短事务,不阻塞写入。
+	if runtime != nil && runtime.reclaimer != nil {
+		runtime.reclaimer.Stop() // 重复 Init(测试)时不留下指向旧库的 goroutine
+	}
+	reclaimer := newSpaceReclaimer(db.Default(), spaceReclaimerOptions{})
+	reclaimer.Start(ctx)
+	chat_svc.RegisterSessionDeletedHook(func(context.Context) error {
+		reclaimer.Trigger()
+		return nil
+	})
+
+	runtime = &Runtime{config: cfg, dataDir: dataDir, reclaimer: reclaimer}
 	return runtime, nil
 }
 
@@ -361,6 +373,9 @@ func (r *Runtime) DataDir() string {
 
 // Close flushes logger buffers.
 func (r *Runtime) Close() {
+	if r != nil && r.reclaimer != nil {
+		r.reclaimer.Stop()
+	}
 	if err := logger.Default().Sync(); err != nil {
 		logger.Default().Debug("sync logger", zap.Error(err))
 	}
@@ -383,6 +398,9 @@ func AppDataDir() (string, error) { return paths.AppDataDir() }
 // _pragma=synchronous(NORMAL): 配合 WAL(见 convertToWAL)仍崩溃安全 —— 进程崩溃不
 // 会损坏数据库,只在断电/内核崩溃时可能丢失最后若干已提交事务,换来 WAL 写性能收益。
 //
+// _pragma=journal_size_limit(67108864): 检查点把 WAL 写完后把 -wal 文件截回 64 MiB 以内
+// (默认不限,一次大写入撑大的 WAL 会永远留在磁盘上,实测 1.38 GB)。
+//
 // 不带 busy_timeout: glebarez 驱动在每个连接建立时无条件硬编码执行
 // `pragma BUSY_TIMEOUT(5000)`(glebarez/go-sqlite@v1.21.2/sqlite.go:880,且早于处理
 // _pragma),该 DSN 参数从未改变过任何行为,保留只会让读代码的人误以为超时是本项目
@@ -391,7 +409,7 @@ func AppDataDir() (string, error) { return paths.AppDataDir() }
 // journal_mode 不在这里设置 —— 见 convertToWAL 的 doc 注释：_pragma 对每个连接无条件
 // 执行，首次转换失败会让那次连接建立本身失败进而阻断启动。
 func sqliteDSN(dbPath string) string {
-	return dbPath + "?_txlock=immediate&_pragma=synchronous(NORMAL)"
+	return dbPath + "?_txlock=immediate&_pragma=synchronous(NORMAL)&_pragma=journal_size_limit(67108864)"
 }
 
 // convertToWAL 启动时把数据库转换成 WAL journal 模式，仅需成功执行一次 —— 该属性

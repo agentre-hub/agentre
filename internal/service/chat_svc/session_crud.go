@@ -10,6 +10,7 @@ import (
 	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/i18n"
+	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
@@ -69,6 +70,34 @@ func (s *chatSvc) Rename(ctx context.Context, req *RenameRequest) (*RenameRespon
 	return &RenameResponse{}, nil
 }
 
+// SessionDeletedHook 在会话被彻底删除后调用,用于让宿主做与会话无关的善后(如回收
+// 数据库空闲页)。它跑在独立 goroutine 里、返回的错误只记日志,不影响 Delete 的结果。
+type SessionDeletedHook func(ctx context.Context) error
+
+var sessionDeletedHook SessionDeletedHook
+
+// RegisterSessionDeletedHook 由 bootstrap 注入;传 nil 清除。
+func RegisterSessionDeletedHook(h SessionDeletedHook) { sessionDeletedHook = h }
+
+// fireSessionDeleted 异步触发钩子:不阻塞 Delete,钩子的 panic/错误都吞掉并记日志。
+func fireSessionDeleted(ctx context.Context, sessionID int64) {
+	h := sessionDeletedHook
+	if h == nil {
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Ctx(ctx).Warn("chat_svc.fireSessionDeleted: hook panicked", zap.Int64("sessionId", sessionID), zap.Any("panic", r))
+			}
+		}()
+		if err := h(ctx); err != nil {
+			logger.Ctx(ctx).Warn("chat_svc.fireSessionDeleted: hook failed", zap.Int64("sessionId", sessionID), zap.Error(err))
+		}
+	}()
+}
+
 // Delete 软删会话行，并物理清除它的转录（消息/块）、帧编号台账与替换恢复状态
 // （规格「可观察的要求」6）：会话删除后不留可恢复的转录残余，只有 chat_sessions 行
 // 本身保持软删（不回填历史上已软删的会话，见决策 6）。任一清理步骤失败都直接把错误
@@ -97,6 +126,7 @@ func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteRespon
 	if _, err := chat_repo.ReplacementRecoveryCleanup().DeleteReplacementRecovery(ctx, req.SessionID); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
+	fireSessionDeleted(ctx, req.SessionID)
 	return &DeleteResponse{}, nil
 }
 

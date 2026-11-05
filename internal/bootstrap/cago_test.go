@@ -232,6 +232,9 @@ func TestSQLiteDSNShape(t *testing.T) {
 	if !strings.Contains(dsn, "_pragma=synchronous(NORMAL)") {
 		t.Fatalf("dsn = %q, want it to contain _pragma=synchronous(NORMAL)", dsn)
 	}
+	if !strings.Contains(dsn, "_pragma=journal_size_limit(67108864)") {
+		t.Fatalf("dsn = %q, want it to contain _pragma=journal_size_limit(67108864) (caps the WAL file at 64 MiB after a checkpoint)", dsn)
+	}
 	if strings.Contains(dsn, "busy_timeout") {
 		t.Fatalf("dsn = %q, must not contain busy_timeout (driver hardcodes it unconditionally on every connection)", dsn)
 	}
