@@ -81,48 +81,6 @@ func TestDialProtobuf_GivenBinaryDaemon_WhenCallingTypedMethod_ThenNegotiatesPro
 	}
 }
 
-func TestDialRelayProtobuf_GivenAccountCredential_WhenAuthenticating_ThenUsesTypedPayload(t *testing.T) {
-	got := make(chan *agentrewire.AuthAccountRequest, 1)
-	upgrader := websocket.Upgrader{Subprotocols: []string{protorpc.Subprotocol}}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "Bearer relay-token", r.Header.Get("Authorization"))
-		ws, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer func() { _ = ws.Close() }()
-		_, payload, err := ws.ReadMessage()
-		if err != nil {
-			return
-		}
-		var frame agentrewire.RpcFrame
-		if proto.Unmarshal(payload, &frame) != nil {
-			return
-		}
-		rpcRequest := frame.GetRequest()
-		request := &agentrewire.AuthAccountRequest{}
-		if proto.Unmarshal(rpcRequest.GetEncodedPayload(), request) != nil {
-			return
-		}
-		got <- request
-		encodedResponse, _ := proto.Marshal(&agentrewire.AuthAccountResponse{Ok: true, ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported})
-		payload, _ = proto.Marshal(&agentrewire.RpcFrame{Id: frame.GetId(), Body: &agentrewire.RpcFrame_Response{Response: &agentrewire.Response{MethodId: rpcRequest.GetMethodId(), EncodedPayload: encodedResponse}}})
-		_ = ws.WriteMessage(websocket.BinaryMessage, payload)
-		<-r.Context().Done()
-	}))
-	defer server.Close()
-
-	client, err := DialRelayProtobuf(context.Background(), RelayOptions{
-		URL:         "ws" + strings.TrimPrefix(server.URL, "http"),
-		AccessToken: "relay-token",
-	})
-	require.NoError(t, err)
-	defer func() { _ = client.Close() }()
-
-	request := <-got
-	assert.Equal(t, "relay-token", request.GetCredential())
-}
-
 func TestDialProtobuf_GivenInflightCall_WhenContextIsCanceled_ThenSendsMatchingCancelFrame(t *testing.T) {
 	requestID := make(chan uint64, 1)
 	canceledID := make(chan uint64, 1)
@@ -198,35 +156,6 @@ func TestBuildTLSConfigModes(t *testing.T) {
 			assert.Equal(t, tc.wantSkip, cfg.InsecureSkipVerify)
 		})
 	}
-}
-
-func TestDialRelayProtobufClassifiesHandshakeFailures(t *testing.T) {
-	tests := []struct {
-		name   string
-		status int
-		want   error
-	}{
-		{"never registered", http.StatusNotFound, ErrRelayDaemonNotFound},
-		{"offline", http.StatusConflict, ErrRelayDaemonOffline},
-		{"forward failed", http.StatusBadGateway, ErrRelayForwardFailed},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(tc.status) }))
-			defer server.Close()
-			_, err := DialRelayProtobuf(t.Context(), RelayOptions{URL: "ws" + strings.TrimPrefix(server.URL, "http"), AccessToken: "token"})
-			require.Error(t, err)
-			assert.ErrorIs(t, err, tc.want)
-		})
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
-	defer server.Close()
-	_, err := DialRelayProtobuf(t.Context(), RelayOptions{URL: "ws" + strings.TrimPrefix(server.URL, "http")})
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrRelayDaemonNotFound)
-	assert.NotErrorIs(t, err, ErrRelayDaemonOffline)
-	assert.NotErrorIs(t, err, ErrRelayForwardFailed)
 }
 
 // Given RaceProtobuf has picked a winning path, When the daemon sends a reverse

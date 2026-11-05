@@ -16,9 +16,6 @@ import (
 // PeerSessionSubscriber 是已鉴权账号对端注册进来的通知出口。
 type PeerSessionSubscriber = peerstream.PeerSessionSubscriber
 
-// PeerSessionSubscriberKeyer 让同一条连接在 attach 与 pull 两次调用间有稳定身份。
-type PeerSessionSubscriberKeyer = peerstream.PeerSessionSubscriberKeyer
-
 var (
 	// ErrPeerSessionNotFound 见 peerstream。
 	ErrPeerSessionNotFound = peerstream.ErrPeerSessionNotFound

@@ -116,7 +116,7 @@ function useAutonomousTurnEvents({
         return;
       }
       // error:自主续轮的 assistant 消息落库最终失败,后端已把会话翻 error、丢弃这一轮
-      // 并中断 CLI 那一轮(见 docs/specs/2026-08-07-autonomous-turn-resilience.md
+      // 并中断 CLI 那一轮(见规格 2026-08-07
       // 「自主续轮落库失败时的可观察结果」)。失败的正是**建 assistant 行**那次写,所以
       // 这一轮既没有消息行也没有 per-turn 流 —— ChatStreamsHost 按 assistantMessageId
       // 收口的 error 路径接不住,只能就地渲染成 composer 上方的 notice。文案是后端

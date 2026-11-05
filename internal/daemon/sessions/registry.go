@@ -29,7 +29,7 @@ func NewRegistry() *Registry {
 	}
 }
 
-// ClaimRuntimeGeneration reserves one Agentre session for the exact WebSocket
+// ClaimProtobufRuntimeGeneration reserves one Agentre session for the exact WebSocket
 // connection and opaque Pi generation token that created it. A reconnect must
 // wait for the old owner to finish cleanup rather than racing a SessionID-only
 // Abort against the new process.
@@ -53,7 +53,7 @@ func (r *Registry) ClaimConnection(connection connection.Conn, sessionID int64, 
 	return true
 }
 
-// ReleaseRuntimeGeneration removes only the exact connection/generation claim.
+// ReleaseProtobufRuntimeGeneration removes only the exact connection/generation claim.
 // A delayed cleanup from an old socket therefore cannot release a reconnect's
 // generation even when both use the same Agentre and provider session IDs.
 func (r *Registry) ReleaseProtobufRuntimeGeneration(conn *protorpc.Conn, sessionID int64, generation string) bool {

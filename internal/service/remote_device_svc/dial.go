@@ -67,7 +67,7 @@ func (realDial) Connect(ctx context.Context, args ConnectArgs) (ConnectResult, e
 
 // Open 与 Connect 同样跑 TLS 握手 + auth.connect 鉴权，但**不**关闭连接，
 // 把 *client.Client 直接交给调用方。调用方必须 defer c.Close()。
-// 给 DialOnce 这类「短 RPC 但需要保持已鉴权会话」的场景用。
+// ConnPool 用它建立池化复用的已鉴权连接。
 func (realDial) Open(ctx context.Context, args ConnectArgs) (client.ProtobufConnection, error) {
 	tlsCfg, err := client.BuildTLSConfig(client.TLSMode(args.TLSMode), args.TLSCertPEM)
 	if err != nil {

@@ -14,26 +14,6 @@ export type { AgentColor } from "@agentre-hub/agentre-ui";
 
 import type { AgentColor } from "@agentre-hub/agentre-ui";
 
-export const agentColorClassNames: Record<AgentColor, string> = {
-  "agent-1": "bg-agent-1",
-  "agent-2": "bg-agent-2",
-  "agent-3": "bg-agent-3",
-  "agent-4": "bg-agent-4",
-  "agent-5": "bg-agent-5",
-  "agent-6": "bg-agent-6",
-  "agent-7": "bg-agent-7",
-  "agent-8": "bg-agent-8",
-  "agent-9": "bg-agent-9",
-  "agent-10": "bg-agent-10",
-  "agent-11": "bg-agent-11",
-  "agent-12": "bg-agent-12",
-  "agent-13": "bg-agent-13",
-  "agent-14": "bg-agent-14",
-  "agent-15": "bg-agent-15",
-  "agent-16": "bg-agent-16",
-  neutral: "bg-agent-neutral",
-};
-
 /**
  * 身份色画在**图标**上时的类名。只给图形用：身份色是为「色块 + 白字」调的，
  * 当文字读不出来（暗色对 card 3.5）。文字用中性色，见 docs/design.md §3.6。

@@ -168,7 +168,7 @@ func (s *service) ensureDeviceFingerprint() (devicefp.Carrier, error) {
 }
 
 // translatePairError maps DaemonDialPort errors back to local i18n codes. The
-// real DialPort implementation in dial.go wraps typed RPC error codes into
+// real DaemonDialPort implementation (realDial in dial.go) wraps typed RPC error codes into
 // sentinel errors below; the unit tests just pass plain errors and get the
 // generic Unauthorized code.
 var (

@@ -6,7 +6,7 @@
 // activeCancels、前端 Wails 流。宿主(chat_svc)在轮里单向调 PublishEvent /
 // PublishMessageFrames / PublishTurnDone 把帧交进来,本包不回调宿主。
 //
-// 生命周期不变量(每一条都对应过一次真实事故,改前先读 publication / flushLoop 的注释):
+// 生命周期不变量(每一条都对应过一次真实事故,改前先读 publication / peerFlushLoop 的注释):
 //   - 一条会话只有一份通知宇宙,持久转录做前缀、实时帧接在后面,重连共用同一套去重编号;
 //   - 投递由每条 publication 一条 worker goroutine 串行化,绝不在轮的事件循环里内联
 //     阻塞 Notify;

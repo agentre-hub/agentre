@@ -393,7 +393,7 @@ describe("peer-transcript 交互卡归 Peer Panel", () => {
  * Peer Tab 的转录与 agentre-server 的控制台走同一个共享投影器，所以这一侧一行
  * 归约代码都不用写 —— 缺的一直是**数据**：对端桌面端从前发的是一个空的 `Done{}`，
  * 而那四个数就在它刚落库的那条 assistant 消息上（`chat_svc` 的 `publishPeerTurnDone`
- * 与 `synthesizePeerHistory` 现在都填）。这条用例守的是「送到了就画得出来」。
+ * 与历史回放用的 `transcript.ProjectMessages` 现在都填）。这条用例守的是「送到了就画得出来」。
  */
 describe("peer-transcript 的一轮 meta", () => {
   it("done 带着本轮统计时落到这一轮的助手消息上", () => {

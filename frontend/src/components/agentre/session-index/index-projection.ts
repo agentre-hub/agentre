@@ -1,7 +1,7 @@
 // frontend/src/components/agentre/session-index/index-projection.ts
 //
 // 桌面端的组骨架 ⇄ 共享轴投影（`@agentre-hub/agentre-ui` 的 `buildAxisGroups`）之间
-// 的适配层（规格：docs/specs/2026-08-18-org-index-convergence.md「共享包承载什么」）。
+// 的适配层（规格 2026-08-18「共享包承载什么」）。
 //
 // 两边说的不是一套话，这一层就是唯一的翻译处：
 //   - **组的词汇**：桌面端是 project / agent / free / flat，共享包是 project /

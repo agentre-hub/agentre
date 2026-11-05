@@ -119,7 +119,7 @@ export type ChatStreamEvent = {
   // tool_approval: agent 内置写工具审批。status="pending" 为新卡(appendLiveToolApproval),
   // "approved"|"denied"|"expired" 为决议更新(markToolApprovalResolved,同 requestId)。
   // 这些字段平铺在事件上(不像 toolPermission 走一个嵌套对象),ChatStreamsHost 据此
-  // 合成 ToolApprovalData。toolKey 标识来源工具(org / workflow / ...);requestId
+  // 合成 ToolApprovalData。toolKey 标识来源工具(org / hook / ctl / ...);requestId
   // 同时被 tool_approval 与未来其它按 id 关联的事件共用。
   toolKey?: string;
   requestId?: string;

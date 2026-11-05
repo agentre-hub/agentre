@@ -12,7 +12,6 @@ import (
 var (
 	ErrBinaryNotFound  = errors.New("claudecode: claude binary not found in PATH or configured CLIPath")
 	ErrSessionNotFound = errors.New("claudecode: provider session no longer exists")
-	ErrSchemaUnknown   = errors.New("claudecode: stream-json schema unrecognized; please update agentre")
 	// ErrAPIError 标记 CLI 合成的 API 错误消息帧（isApiErrorMessage:true）。上层用
 	// errors.Is 把「turn 被 API 错误终止」这一类与普通子进程退出错误区分开。
 	ErrAPIError = errors.New("claudecode: api error")

@@ -16,7 +16,7 @@ import (
 //   - Pair / Connect 走「短连接」语义：内部 Dial + 调一个 RPC + 关闭，
 //     仅返回握手结果，连接不会留给调用方。
 //   - Open 走「长连接」语义：内部 Dial + auth.connect 鉴权 + 把连接保留给
-//     调用方，由调用方负责 defer Close。给 DialOnce 这类短 RPC 场景用。
+//     调用方，由调用方负责 defer Close。ConnPool 用它建立池化复用的连接。
 //   - OpenAccount 与 Open 同为长连接语义，但出示的是账号凭据（auth.account）：
 //     本机对这台 daemon 没有配对时走它。
 //   - OpenDirect 同为长连接语义，给「来自账号的直连」行用（D7）：对 DirectArgs.URLs

@@ -276,7 +276,8 @@ func (ts *turnStart) emitTurnStarted(ctx context.Context, stream string) {
 	// 进转录、参与补齐,预览帧这三样一样都没有。来源标识在 persistPeerMessageSource 里
 	// 就盖上了。
 	//
-	// 非查看者发起的轮(群成员轮经 scheduler dispatch):per-turn 流名只有发起者能从
+	// 非查看者发起的轮(子 agent 调用 / ctl 派发 / 账号对端,见
+	// SendRequest.EmitTurnStartedBypass):per-turn 流名只有发起者能从
 	// Send 响应拿到,该会话已打开(可能在后台)的 ChatPanel 拿不到 → 不接流、不翻 running。
 	// 复用 autonomous 会话级旁路把流名 + 新 assistant 行推给它,让它走与自主轮相同的
 	// openStream 路径实时渲染。前端 Send 默认不带此标志,避免发起者重复 openStream 双开流。

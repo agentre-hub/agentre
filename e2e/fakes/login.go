@@ -30,7 +30,7 @@ import (
 // a server. Login normally goes through RFC 8628 Device Flow whose terminus is
 // GitHub OAuth — nobody can click that in an e2e — so the runner seeds the
 // account, the device row and one refresh token straight into the server's
-// PostgreSQL and hands the resulting identity to this process through env.
+// MySQL and hands the resulting identity to this process through env.
 //
 // What is seeded here is exactly what a completed login leaves behind: the
 // single server_state row plus the two keychain entries. The access token is NOT

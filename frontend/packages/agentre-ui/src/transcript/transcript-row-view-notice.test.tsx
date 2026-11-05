@@ -23,7 +23,7 @@ import type { TranscriptRow } from "./transcript-rows";
 
 // 供应商回退等持久 notice 走既有 NoticeBlock 渲染：Text 原样显示。
 // （#26 的结构化模型偏离提示已随 model_override 整体移除，ChatBlock 不再有
-// selectedModel / actualModel 字段，见 specs/2026-08-09-new-session-provider-select.md。）
+// selectedModel / actualModel 字段，见规格 2026-08-09。）
 
 type NoticeBlock = {
   text?: string;

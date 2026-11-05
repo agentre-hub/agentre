@@ -1,7 +1,7 @@
 // frontend/src/components/agentre/session-index/use-index-groups.ts
 //
 // 把「当前轴」变成一串待渲染的组。这是单一会话索引的装配层
-// （规格：docs/specs/2026-08-16-unified-chat-index.md）。
+// （规格 2026-08-16）。
 //
 // 三个轴的组**来源不同**，这是有意的 —— 每个轴各自有一条能给出完整答案的查询：
 //   - 项目：组顺序 = 项目树摊平；每组的会话 = ListChatIndexSessions(scope=project)

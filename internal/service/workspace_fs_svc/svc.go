@@ -620,7 +620,7 @@ func mapLocalErr(ctx context.Context, err error) error {
 
 // isCode 回答一个已经被 i18n 包装过的错误是不是某个业务码。Wails 边界只过
 // Error() 字符串,服务层内部因此只能这样把码读回来 —— 与 chat_svc 的
-// cwdUnavailableReasonFor 同一手法。
+// exec_target_svc.CwdUnavailableReasonFor 同一手法。
 func isCode(err error, want int) bool {
 	var appErr *httputils.Error
 	if !errors.As(err, &appErr) {

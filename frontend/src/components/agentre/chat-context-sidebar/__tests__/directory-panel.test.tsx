@@ -22,7 +22,7 @@ const selectDirectoryMock = vi.fn();
 const setLocalPathMock = vi.fn();
 const searchMock = vi.fn();
 // git 绑定这里只需要能被安全调用（本文件不断言它），断言在
-// files-panel-git.test.tsx。
+// directory-git-overlay.test.tsx。
 const gitMocks = vi.hoisted(() => ({
   changes: async () => ({
     notARepo: false,

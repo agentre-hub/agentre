@@ -1,8 +1,8 @@
 # agentred
 
-`agentred` is Agentre's headless compute daemon. It runs Claude Code and Codex
-subprocesses on a remote macOS, Linux, or Windows machine and connects to the
-desktop over binary Protobuf RPC on WebSocket.
+`agentred` is Agentre's headless compute daemon. It runs Claude Code, Codex, Pi
+and ACP agent subprocesses on a remote macOS, Linux, or Windows machine and
+connects to the desktop over binary Protobuf RPC on WebSocket.
 
 The daemon is stateful: it keeps runtime/account configuration in `state.json`
 and durable sessions and their transcripts in its own `agentred.db` SQLite
@@ -110,10 +110,11 @@ listen or account-server settings.
 | `agentred claudecode <args...>` | Internal Claude Code hook passthrough used by spawned subprocesses. |
 
 `agentred run` accepts `--host`, `--port`, `--tls`, `--tls-cert`, `--tls-key`,
-`--server`, and `--log-level`. Resolution order is explicit flag, environment,
-persisted state, then default. The corresponding environment variables are
-`AGENTRED_HOST`, `AGENTRED_PORT`, `AGENTRED_TLS`, `AGENTRED_TLS_CERT`,
-`AGENTRED_TLS_KEY`, `AGENTRED_SERVER_URL`, and `AGENTRED_LOG_LEVEL`.
+`--advertise-addr`, `--server`, and `--log-level`. Resolution order is explicit
+flag, environment, persisted state, then default. The corresponding environment
+variables are `AGENTRED_HOST`, `AGENTRED_PORT`, `AGENTRED_TLS`,
+`AGENTRED_TLS_CERT`, `AGENTRED_TLS_KEY`, `AGENTRED_ADVERTISE_ADDR`,
+`AGENTRED_SERVER_URL`, and `AGENTRED_LOG_LEVEL`.
 
 ## Logs
 

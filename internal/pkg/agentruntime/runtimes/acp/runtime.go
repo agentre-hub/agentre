@@ -29,10 +29,6 @@ func init() {
 	agentruntime.RegisterRuntime(agent_backend_entity.TypeACP, defaultRuntime)
 }
 
-// Default 返回包级默认 *Runtime,供宿主关机调 CloseAllSessions / 会话关闭调
-// CloseSession。
-func Default() *Runtime { return defaultRuntime }
-
 // defaultAbortGrace 是 Abort 后等待 agent 自行收尾的宽限期:超时还没回
 // prompt response 就整进程收掉,让 drain 解阻塞 —— 绝不让前端停在「生成中」。
 const defaultAbortGrace = 10 * time.Second

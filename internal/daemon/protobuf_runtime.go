@@ -190,7 +190,9 @@ func registerEmptyControl[Req interface {
 //
 // 认领必须先于调用:这一轮的事件要推回**这条**连接,而认领失败(点名了别人的 origin、
 // 或对端不在这台机器的账号下)时那一轮根本不该起。调用失败则要把认领撤回来,否则这条
-// 会话会一直挂在一条什么都没在跑的连接上。
+// 会话会一直挂在一条什么都没在跑的连接上 —— 接管的凭据是「daemon 受理了它」,不是
+// 「它发出过」:同指纹的另一条连接随便发一条会被拒的 runtime.* 就能把正在跑的会话的
+// 推送整个抢走,发起会话的那条从此一条也收不到,既没有错误也没有 seq 跳号。
 func (d *Daemon) claimThen(ctx context.Context, conversationID string, peerFingerprint devicefp.Initiator, call func() error) error {
 	ticket, err := d.claimProtobuf(ctx, conversationID, peerFingerprint)
 	if err != nil {
@@ -221,6 +223,20 @@ func (d *Daemon) connSessionPorts(conn *protorpc.Conn, rh *handlers.RuntimeHandl
 		Auth:         requireProtobufAuth,
 		Error:        protobufRuntimeError,
 		Capabilities: rh.Capabilities,
+		// Attach 是显式接管:d.catchup.Attach 先校验这条会话确实是调用方的、且还接得回去,
+		// **受理之后**才真正把它交给这条连接。两件事一起发生,缺一个接管都是半截的:
+		//
+		//   - 推送目标改到这条连接(conns.claimFor)—— 否则通知继续只落库不推送,补齐完了
+		//     实时流还是不通;
+		//   - 这条连接的 RuntimeHandlers 认下这条会话(rh.AdoptForPeer)—— RuntimeHandlers
+		//     是 per-conn 构造的,重连后那张内存会话表是空的,不认下来的话客户端刚补齐完、
+		//     正要回答一条待决策,submitToolPermission 会解不出会话,再被 R8 的幂等折成
+		//     「成功」:waiter 没人回答、客户端以为答过了,叠加 R9 的不设过期 = 会话永久挂死。
+		//
+		// 认领放在 handler **之后**(与 claimThen 的「之前认领 + 失败回滚」相反):接管不
+		// 启动任何一轮执行,没有「记晚了首批事件会丢」的问题,而被拒的接管绝不能改变任何
+		// 东西。接管与读高水位之间落库的那几条不会丢 —— 客户端随后按自己的游标 pull,那一轮
+		// pull 发生在认领之后。
 		Attach: func(ctx context.Context, request *agentrewire.SessionAttachRequest) (*agentrewire.SessionAttachResponse, error) {
 			peer, err := handlers.ResolveSessionPeer(ctx, devicefp.Initiator(request.GetPeerFingerprint()), d.loggedInAccountID)
 			if err != nil {

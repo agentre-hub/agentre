@@ -51,7 +51,7 @@ type RuntimeDeps struct {
 	// NotifyFor 解析「此刻活着的、属于该对端的」推送端口,没有则返回 nil。它是函数而
 	// 不是一个 NotifierPort,因为 RuntimeHandlers 是 per-connection 构造的,而 fanout /
 	// forwardAutonomousTurn 的 goroutine 会活过那条连接:静态捕获的端口在客户端重连后
-	// 仍指向已死的旧连接,通知就再也发不出去了(见 daemon.bindConn 注释)。
+	// 仍指向已死的旧连接,通知就再也发不出去了(见 daemon.bindProtobufConn 注释)。
 	NotifyFor func(peerFingerprint devicefp.Initiator) NotifierPort
 	// Transcript 是转录的写入口(消息行 + 块行),Daemon 级(每个 daemon 一份),
 	// 不随连接生灭。
@@ -1094,7 +1094,7 @@ func (h *RuntimeHandlers) forwardAutonomousTurn(em *sessionEmitter, at agentrunt
 //   - 对端指纹只在 runtime.run 的请求 ctx 上拿得到,而 fanout / forwardAutonomousTurn
 //     跑在脱离请求 ctx 的 goroutine 里,只能在 run 期间捕获后随会话带下去;
 //   - RuntimeHandlers 自己是 per-connection 构造的,把推送目标静态捕获进来会让客户端
-//     重连之后的通知一直发往那条死连接(见 daemon.bindConn 注释),所以推送目标每次
+//     重连之后的通知一直发往那条死连接(见 daemon.bindProtobufConn 注释),所以推送目标每次
 //     发送时才解析。
 type sessionEmitter struct {
 	// ctx 派生自 runtime.run 的请求 ctx 但去掉了取消:转录落库要活过发起它的那次请求
@@ -1923,7 +1923,7 @@ func (h *RuntimeHandlers) unregister(sid int64, owner *runtimeSession) bool {
 	h.mu.Unlock()
 	// 释放**无条件**发生:内存表里的这一格可能已经被别人换掉(例如重连后的
 	// runtime.session.attach 会 Adopt 同一条会话),但 generation 属主表里那份
-	// 预约仍然记在这个 owner 名下。ReleaseRuntimeGeneration 按 (连接, token)
+	// 预约仍然记在这个 owner 名下。ReleaseConnection 按 (连接, token)
 	// 精确匹配,重复调用与非属主调用都是 no-op。
 	h.releaseGeneration(sid, owner)
 	return current

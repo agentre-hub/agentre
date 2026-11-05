@@ -24,7 +24,7 @@ Before adding a component, check whether `frontend/packages/agentre-ui/src/ui` a
 New user-visible UI copy must be explicitly wired to i18n; do not add hardcoded Chinese.
 
 - New UI copy uses `react-i18next`'s `useTranslation()` / `t("...")`, with keys placed under `frontend/src/i18n/locales/{zh-CN,en}/`; both languages must be filled in at the same time. Copy that lives in the shared package goes to its own bundle and its own hook instead — see [Shared UI Package](#shared-ui-package-agentre-hubagentre-ui).
-- The `common` namespace is **one tree physically split into domain modules** — `agents` / `chat` / `common` / `hooks` / `org` / `projects` / `remote` / `session` / `settings` (each a `.json`), merged by `locales/<lang>/index.ts`. The module name is **not** part of the key: copy living in `chat.json` is still `t("chatPanel.title")`. Put a new key in the module that owns its top-level prefix, in the same file for both languages. A new module file must be imported into both barrels, and no two modules may claim the same top-level key — `src/__tests__/i18n-locale-modules.test.ts` guards both.
+- The `common` namespace is **one tree physically split into domain modules** — `agents` / `chat` / `common` / `ctl-approval` / `hooks` / `org` / `projects` / `remote` / `session` / `settings` (each a `.json`), merged by `locales/<lang>/index.ts`. The module name is **not** part of the key: copy living in `chat.json` is still `t("chatPanel.title")`. Put a new key in the module that owns its top-level prefix, in the same file for both languages. A new module file must be imported into both barrels, and no two modules may claim the same top-level key — `src/__tests__/i18n-locale-modules.test.ts` guards both.
 - Do not introduce any bypass text-rewriting mechanism; static UI copy must be wired explicitly to `t(...)` in the component or module.
 - Do not translate dynamic content such as agent output, user input, terminal output, file contents, diffs, code blocks, or markdown rendering; by nature it never enters `t(...)`.
 - `eslint-plugin-i18next`'s `i18next/no-literal-string` catches hardcoded Chinese copy in JSX text and in visible attributes such as `aria-label` / `title` / `placeholder` / `alt`; if you need to display copy, change it to `t(...)`.
@@ -133,6 +133,10 @@ The remaining generated domain-value codecs use **`wire.go` as their single sour
 | `src/runtime.ts` | hand | the validation primitives (`decodeWire` / `reqStr` / `optArrOf` / …) the generated code calls. Stable — it does not change when a wire struct does |
 | `src/account.ts` | hand | typed Protobuf account-channel codec |
 | `src/rpc.ts` | hand | typed Protobuf bidirectional RPC codec |
+| `src/rpc-methods.ts` | hand | the `rpcMethods` table (method name → descriptor ID + request/response schemas) and the typed method-frame encoders/decoders |
+| `src/relay-envelope.ts` | hand | relay channel envelope codec, the TS counterpart of `pkg/wire/relayenvelope` |
+| `src/event-kind.ts` | hand | `RuntimeEventNotification` oneof case ↔ transcript event kind, read from the `.proto`'s `(agentre.wire.event_kind)` option via the generated descriptor |
+| `src/protobuf-domain.ts` | hand | adapters from generated Protobuf responses to the remaining domain-codec values |
 | `src/protocol-version.ts` | hand | `PROTOCOL_VERSION`, read from the `.proto`'s `(agentre.wire.protocol_version)` option via the generated descriptor; `package.json`'s `version` restates it |
 | `src/index.ts` | hand | Protobuf codecs, generated messages and domain-codec re-exports |
 | `src/*.gen.ts` | generated | every frame type, codec, protocol constant, and the three vocabularies |

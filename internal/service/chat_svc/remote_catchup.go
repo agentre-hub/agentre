@@ -134,8 +134,8 @@ func (s *chatSvc) catchUpDevice(ctx context.Context, deviceID int64, sessions []
 
 // releaseCatchUpRefs 把补齐借的池连接引用还回去 —— daemon 说还在跑的那些除外。
 //
-// 引用是 remoteRuntimeForDevice 按会话逐条加的,而唯一的减引用 releaseRemoteRuntime
-// 只从 runTurn 的 defer 调:补齐出来的会话永远不跑 turn,不还就是 entry.sessions 永不
+// 引用是 remotePool().ForDevice 按会话逐条加的,而会话自己的那份引用只在 runTurn 收尾
+// 时还:补齐出来的会话永远不跑 turn,不还就是 entry.sessions 永不
 // 清空、lease.Release() 永不发生 —— 那条 daemon 连接在整个进程存活期内都不能被空闲回收,
 // 开销还随「历史上远端跑过的会话数」线性增长。
 //

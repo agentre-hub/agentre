@@ -59,6 +59,8 @@ Each row is a **reverse channel** (host→backend), **except the final `CapAuton
 | `CapGoal` / `"goal"` | `GoalController` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | session/thread-level **objective** state: the host reads/sets/clears a persistent goal (`Objective` + `Status` + optional `TokenBudget`, plus `TokensUsed` / `TimeUsedSeconds` counters) bound to the provider thread. Only codex has it natively (app-server thread-goal protocol, `runtimes/codex/runtime.go` `GetGoal/SetGoal/ClearGoal`); chat_svc surfaces it via `GetGoal` / `SetGoal` / `StartGoal` / `ClearGoal`, and `remote.Runtime` forwards it over `runtime.goal.{get,set,clear}`. builtin / claudecode / piagent / OpenClaw don't declare it, so chat_svc returns `ErrUnsupported` |
 | `CapMCPTools` / `"mcp_tools"` | `RunRequest.MCPServers` (no sub-interface) | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | host→backend **launch-time MCP injection**: the runtime accepts `RunRequest.MCPServers` (`[]MCPServerSpec`: `Name` / `URL` / `Headers`, http transport) and starts the turn with those extra MCP tool servers wired in. claudecode renders each spec into a `--mcp-config` entry (`{"mcpServers":{"<name>":{"type":"http","url":"...","headers":{...}}}}`) and auto-adds `mcp__<Name>__<tool>` entries to `--allowedTools`; codex renders each spec into one-shot `--config mcp_servers.<name>...` overrides (`url`, `http_headers`, `enabled_tools`, `default_tools_approval_mode="approve"`) and bypasses its persistent app-server cache for MCP-injected turns so launch-time config is always loaded. The `org` and `subagent` MCP tools are the primary consumers — `chat_svc` checks `AgentBackendHasCapability(CapMCPTools)` before injecting tool servers; builtin / piagent ignore `RunRequest.MCPServers`, while OpenClaw tools remain Gateway-owned |
 | `CapSkills` / `"skills"` | `RunRequest.EnabledPlugins` (no sub-interface) | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | host→backend **launch-time skill-pack/plugin injection**: the runtime accepts `RunRequest.EnabledPlugins` (`map[string]bool`, **sparse** — only the agent's explicit overrides: force-on=true / force-off=false; plugins not listed inherit the user's global CLI config). claudecode merges it into `--settings`'s `enabledPlugins` at spawn (`buildSkillsSettings`); codex renders it into one-shot `--config plugins."<id>".enabled=<bool>` overrides and bypasses its persistent app-server cache for plugin-injected turns so launch-time config is always loaded. Granularity is **per-plugin / skill-pack only** for Agentre's cross-backend UI. builtin / piagent ignore `RunRequest.EnabledPlugins`; OpenClaw plugin approvals are not implemented. See §7 |
+| `CapStopBackgroundTask` / `"stop_background_task"` | `BackgroundTaskStopper` | ❌ | ✅ `control_request{stop_task}` | ❌ | ❌ | ❌ | ❌ | ❌ | stop one background task (a `run_in_background` Bash or a subagent) by its CLI task id — the "Stop" button on a background-task panel row / AgentSpawn card. Unlike `Aborter` it must not require an in-flight turn, only the still-alive backend session; backends without background tasks don't declare it, which hides the button |
+| `CapReasoningEffort` / `"reasoning_effort"` | `Backend.ReasoningEffort` (no sub-interface) | ✅ | ✅ `--effort` | ✅ `model_reasoning_effort` | ✅ `--thinking` | ❌ | ❌ | ❌ | the runtime really passes the backend's reasoning effort to its engine; the composer's session-level reasoning-effort picker renders only for a backend that declares it, and is not rendered at all otherwise |
 | `CapAutonomousTurn` / `"autonomous_turn"` | `AutonomousTurnSource` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | **the only forward channel (backend→host)**: the backend spontaneously runs a whole turn with *no* user input. claudecode's CLI, after a `run_in_background` Bash task completes, autonomously injects `<task-notification>` and runs a full turn (a second `result` frame); `pkg/claudecode.Session`'s persistent reader routes it to `AutonomousTurns()`, the runtime bridges each one to `agentruntime.AutonomousTurn`, and chat_svc's per-session watcher (`driveAutonomousTurn`) persists it as a **pure assistant turn (no user row)** and surfaces it live via the session-level `chat:autonomous:<sessionID>` event. Backends without this behavior simply don't declare the cap |
 
 > **Rule**: calling the corresponding interface of an undeclared cap must return `agentruntime.ErrUnsupported` (a sentinel error, transparent across processes, which chat_svc translates into a wire code accordingly). Declaring cap=true but not implementing the interface will be caught by the `TestXxxCapabilities` matrix test (type-assert failure).
@@ -125,11 +127,11 @@ A new backend = one cut along each of the following 7 layers, none of which can 
 
   ```go
   type myAgentKind struct{}
-  func (myAgentKind) Type() BackendType { return TypeMyAgent }
   func (myAgentKind) KnownAliases() []string { return nil }            // nil if there are no model_routes
   func (myAgentKind) ProviderTypeMatch(t llm_provider_entity.ProviderType) bool {
       return t == llm_provider_entity.TypeXxx
   }
+  func (myAgentKind) RequiresProviderModel() bool { return false }     // true if the bound provider must carry a Model
   func (myAgentKind) AllowsCLIPath() bool { return true }              // fill true for the CLI kind
   func (myAgentKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
       // validate the kind-specific fields here: sandbox / approval / default_permission_mode / env_json;
@@ -139,7 +141,7 @@ A new backend = one cut along each of the following 7 layers, none of which can 
   }
   ```
 
-- Settings that **only your type owns** get a `gorm:"-"` field on `AgentBackend` plus a matching `omitempty` key in `backendConfig` (`config.go`). They persist inside the single `config_json` column, so adding a backend costs no migration and no new column — `agent_backends` is shared by every type, and a column that only one type ever writes states nothing that `BackendKind` does not already own. A migration is only needed for a setting that **several** types read (`cli_path`, `reasoning_effort`, `env_json` are the existing ones).
+- Settings that **only your type owns** get a `gorm:"-"` field on `AgentBackend` plus a matching `omitempty` field in the shared `syncwire.AgentBackendConfig` contract (`pkg/syncwire/payload.go`), mapped by `AgentBackend.Config` / `SetConfig` in `config.go`. They persist inside the single `config_json` column, so adding a backend costs no migration and no new column — `agent_backends` is shared by every type, and a column that only one type ever writes states nothing that `BackendKind` does not already own. A migration is only needed for a setting that **several** types read (`cli_path`, `reasoning_effort`, `env_json` are the existing ones).
 
   The trade-off is that these settings cannot be query predicates. That has never been needed: they are read on one path only — resolve the backend, then start the subprocess.
 
@@ -240,6 +242,8 @@ Implement according to the Capabilities declaration (**if you declared cap=true,
 | `CapGoal` | `GoalController` | exposes a session/thread-level objective the host can get / set / clear (codex thread goal; remote-forwarded) |
 | `CapMCPTools` | `RunRequest.MCPServers` (no sub-interface) | the runtime consumes MCP tool servers injected at launch; the org/subagent MCP tools gate on this cap — see the matrix above |
 | `CapSkills` | `RunRequest.EnabledPlugins` (no sub-interface) | the runtime injects per-agent skill-pack/plugin overrides at launch; sparse map, unlisted plugins inherit global CLI config — see the matrix above and §7 |
+| `CapStopBackgroundTask` | `BackgroundTaskStopper` | stops a single background task by CLI task id without an in-flight turn (claudecode `stop_task`) |
+| `CapReasoningEffort` | `Backend.ReasoningEffort` (no sub-interface) | the runtime forwards the backend's reasoning effort to its engine; gates the composer's reasoning-effort picker |
 | `CapAutonomousTurn` | `AutonomousTurnSource` | the backend spontaneously produces a turn with no user input (claudecode background-task auto-continue) — **the only forward channel**; see item I below |
 
 For caps you do not implement: **chat_svc returns `ErrUnsupported` when it receives the frontend request** — the error code has already been made a sentinel at the wire layer for transparent cross-process propagation, so **do not invent your own error**.
@@ -280,10 +284,11 @@ Interface signature (`Aborter` in `internal/pkg/agentruntime/runner.go`):
 
 ```go
 type Aborter interface {
-    Abort(ctx context.Context, sessionID int64) error
+    Abort(ctx context.Context, sessionID int64, turnToken uint64) (AbortOutcome, error)
 }
 ```
 
+- **`turnToken` addresses one turn**: `0` aborts whatever turn is currently active on the session; a non-zero token (exposed on `RunResult` / `AutonomousTurn` / `SubagentActivity`) aborts only while that turn is still the active one, otherwise it is a stale no-op returning `(AbortOutcome{}, nil)` — a late abort must never kill a newer turn. `AbortOutcome.TurnKind` reports which kind of turn was interrupted (`TurnKindUser` / `TurnKindAutonomous` / `TurnKindSubagentActivity`, or `TurnKindNone`).
 - **Idempotent + concurrency-safe**: it may be called at the same time as the runner's own drain goroutine.
 - **Must unblock I/O**: claudecode writes a `control_request{interrupt}` frame to stdin; codex calls the `turn/interrupt` RPC; piagent calls the Pi RPC stream `Interrupt`; builtin cancels `turnCtx`. **The ctx cancel must unblock all blocking reads** — this is the prerequisite for "Stop" to take effect.
 - **Return value**: when the sessionID has no in-flight turn, return `ErrNoActiveTurn`, which chat_svc translates into `code.ChatStopNoActive`.
@@ -575,6 +580,7 @@ To let a new backend run on the `agentred` daemon, change **only** `internal/dae
 
 ```go
 import (
+    _ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/acp"
     _ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/builtin"
     _ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
     _ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/codex"

@@ -206,7 +206,7 @@ func (m *Multiplexer) onDisconnect(error) {
 }
 
 // closeChannel 关掉一条通道,并告诉对端这条通道没了 —— 一帧空载荷,与对端关通道时
-// 用的是同一个约定(agentre-server relay_svc.UnwrapEnvelope 的注释)。
+// 用的是同一个约定(agentre-server relay_ctr 的 clientChannels.handle:载荷为空 = 关这条通道)。
 //
 // 这一帧不是可有可无的礼貌。目标在通道级、两端各一条常驻物理连接,通道的关闭没有
 // 别的信号可依。不发的话,account server 那侧的通道登记(clientChannels.open、帧

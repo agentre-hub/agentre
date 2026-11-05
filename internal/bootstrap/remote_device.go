@@ -25,7 +25,7 @@ func (a relayDialAdapter) Open(ctx context.Context, daemonFingerprint devicefp.C
 // InitRemoteDevice wires the repo + svc default impls. Must run after the
 // SQLite DB component is registered (i.e., inside bootstrap.Init after
 // migrations.RunMigrations) and after keychain.SetDefault has been called
-// (done inside InitHub).
+// (done inside initKeychain).
 //
 // 构造 device-shared ConnPool 一并注入 svc:idle=30s。注入 server_svc 作 relay
 // 路径后,Borrow 会并发直连+中转选路(R6)。app.Shutdown 通过

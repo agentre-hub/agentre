@@ -406,24 +406,6 @@ func TestSyncOnce_GivenLocallyDeletedRowServerNeverSaw_PushesNothing(t *testing.
 	assert.Empty(t, h.transport.pushed)
 }
 
-// TestNotifyRuntimeClaim_GivenLoggedOut_QueuesUntilAuthentication R13：认领不依赖
-// 登录态；它先写同一条出站队列，认证后才归属账号并上传。
-func TestNotifyRuntimeClaim_GivenLoggedOut_QueuesUntilAuthentication(t *testing.T) {
-	h := newHarness(t, false)
-	h.svc.NotifyRuntimeClaim(context.Background(), LocalChange{
-		Kind: "project", LocalID: 1, Op: OpDelete,
-		Meta: syncmeta_entity.SyncMeta{SyncID: "relative-old"},
-	})
-	require.Len(t, h.outbound.rows, 1)
-	assert.Equal(t, int64(0), h.outbound.rows[0].SyncAccountID)
-	assert.Empty(t, h.transport.pushed)
-
-	require.NoError(t, h.svc.claimAnonymousQueue(context.Background(), 7))
-	require.Len(t, h.outbound.rows, 1)
-	assert.Equal(t, int64(7), h.outbound.rows[0].SyncAccountID)
-	assert.Equal(t, "relative-old", h.outbound.rows[0].EntitySyncID)
-}
-
 // TestClaimAnonymousQueue_GivenSeveralRows_ReassignsThemInOneWrite 要求 15：匿名出站
 // 队列认领是一次写入。此前是先 ListByAccount(0) 整批读出来,再逐行 Create + Delete，
 // 3 行就是 1 次读 + 6 次写事务,且这一对不是原子的。改成集合 UPDATE 后原行的 id、

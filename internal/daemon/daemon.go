@@ -130,7 +130,7 @@ type Daemon struct {
 
 	// catchup 是断连重连的补齐族 handler(清单 / 拉取 / 待决策 / 接管)。它按对端
 	// 限定、不随连接生灭,所以是 Daemon 级构造、静态注册的 —— 唯一的例外是显式接管,
-	// 它要知道是**哪条连接**在接管,见 bindConn。
+	// 它要知道是**哪条连接**在接管,见 bindProtobufConn。
 	catchup *handlers.SessionCatchupHandlers
 	// activity 只回答「哪天有几条」——活跃统计的纯计数上报。刻意与 catchup 分开:
 	// 同一张表,交出去的东西完全不同,合成一个类型会让那条边界随时间被磨掉。
@@ -187,7 +187,7 @@ type Daemon struct {
 
 	// runtimeHandlers 记住每条连接的 RuntimeHandlers,只为**关机时**能把每条连接
 	// 拥有的 Pi generation 逐个收掉(见 closeRuntimeConnections)。连接自己断开时
-	// 由 bindConn 的 Done 监视直接调它那一个 rh.Close。
+	// 由 bindProtobufConn 的 Done 监视直接调它那一个 rh.Close。
 	runtimeMu        sync.RWMutex
 	runtimeHandlers  map[connection.Conn]*handlers.RuntimeHandlers
 	protobufRegistry *protorpc.Registry
@@ -225,7 +225,7 @@ type sessionKey struct {
 
 // connRegistry 记录 daemon 此刻能把通知推给谁,两张互补的表:
 //   - live:已认证且还活着的连接。登记只发生在 auth.pair / auth.connect / auth.account 成功那一刻
-//     (bindConn 是 LANServer 的 OnConn 回调,跑在鉴权**之前**),所以完成 WS 升级却
+//     (bindProtobufConn 是 LANServer 的 OnConn 回调,跑在鉴权**之前**),所以完成 WS 升级却
 //     从不认证的连接(LAN 扫描器 / 鉴权失败的客户端 / 掉队的重连)根本进不来;
 //   - claims:每条会话的推送目标 —— **发起该会话的那条连接**。
 //
@@ -236,7 +236,7 @@ type sessionKey struct {
 // 用的那条一并删掉(此后只落库不推送)。两种表现都是整轮无限期卡住,且不需要任何异常连接。
 //
 // 接管规则:一条会话的推送目标是最近为它发过 runtime.* 的那条连接,起点是创建它的
-// runtime.run(见 trackSessionOwner)。key 里的指纹取自发起调用的那条连接自己的
+// runtime.run(见 claimThen)。key 里的指纹取自发起调用的那条连接自己的
 // rpcerror.AuthState,所以只有**同指纹**的连接接得走一条会话 —— 指纹是接管的授权,不是路由
 // 键。属主连接断开 → 该会话的登记随之撤销 → 通知照常落库、不推送(会话挂起,R2),
 // 等同指纹的新连接再发一次 runtime.* 接管(与重连补齐是同一件事)。
@@ -401,7 +401,7 @@ type sessionClaim struct {
 
 // peerIdentity 取连接的对端身份(设备指纹)。身份是鉴权成功那一刻才成立的,报了指纹
 // 没通过鉴权不算;空指纹不构成可匹配身份(否则一条空指纹连接就能冒领会话的通知),
-// 空指纹在 registerMethods 的 auth.* 入参处就已挡下,这里是第二道。
+// 空指纹在 registerProtobufMethods 的 auth.* 入参处就已挡下,这里是第二道。
 func peerIdentity(c connection.Conn) (devicefp.Initiator, bool) {
 	if c == nil {
 		return "", false
@@ -452,7 +452,7 @@ func (r *connRegistry) add(raw any, n handlers.NotifierPort) {
 	r.live[c] = entry
 }
 
-// claimTicket 是一次认领的回执,交给 undoClaim 还原用(见 trackSessionOwner:认领跑在
+// claimTicket 是一次认领的回执,交给 undoClaim 还原用(见 claimThen:认领跑在
 // handler 之前,handler 拒了这一条就得还原)。ok 为假表示这次调用什么都没改。
 type claimTicket struct {
 	key  sessionKey
@@ -1501,10 +1501,6 @@ func (r *credentialRefresher) refreshOnce(ctx context.Context, refreshToken stri
 	return &token, false, nil
 }
 
-// decodeServerEnvelope handles both the raw JSON payload and cago's
-// {data: ...} response envelope, mirroring the login flow's decoder. Agentre
-// must not import agentre-server; this keeps the daemon-side contract in sync.
-
 func waitForRefresh(ctx context.Context, delay time.Duration) error {
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
@@ -1761,13 +1757,13 @@ func (d *Daemon) serveAccountSignal(ctx context.Context, channel relaytransport.
 	}
 }
 
-// bindConn is called once per LAN or relay connection.
+// bindProtobufConn is called once per LAN or relay connection.
 // 挂载 runtime.* 13 个 RPC 到这条连接的私有 registry。RuntimeHandlers 持有 per-session backend
 // type cache,所以是 per-conn 构造的;会话通知**不**推回「这条」连接 —— 它在发送那一刻
 // 按会话解析属主连接(见 notifierForPeer / connRegistry),因为 fanout goroutine 会活过
 // 这条连接。
 //
-// bindConn 跑在鉴权**之前**(它是 OnConn 回调,auth.pair / auth.connect / auth.account 是之后才到的
+// bindProtobufConn 跑在鉴权**之前**(它是 OnConn 回调,auth.pair / auth.connect / auth.account 是之后才到的
 // RPC),所以这里**不**把连接登记成推送目标 —— 登记只发生在鉴权成功那一刻,会话认领
 // 更要等到它真为某条会话发 runtime.*,否则一条从不认证的连接就能顶掉正主。
 func (d *Daemon) newRuntimeHandlers() *handlers.RuntimeHandlers {
@@ -1851,31 +1847,6 @@ func (d *Daemon) closeRuntimeConnections(ctx context.Context) error {
 	return cleanupErr
 }
 
-// trackSessionOwner 包住 runtime.* 的注册:daemon **受理**了哪条连接为某会话发的
-// runtime.*,该会话此后的通知就推给哪条(接管规则见 connRegistry)。会话 id 直接读参数
-// 上的 sessionId —— 13 个 runtime.* 参数里除 capabilities 外都带它,没带的自然不认领。
-//
-// 必须在 handler **之前**认领:runtime.run 一返回,fanout goroutine 就开始推事件,
-// 记晚了首批事件会被当成「没有活属主」只落库,而客户端此刻还没有补齐能力。
-//
-// 而 handler 拒了这一条时必须还原属主:接管的凭据是「daemon 受理了它」,不是「它发出过」。
-// 否则同指纹的另一条连接随便发一条会被拒的 runtime.*(会话 id 不存在于本 daemon、backend
-// 不支持该能力、参数非法……)就能把正在跑的会话的推送整个抢走 —— 它不消费,发起会话的那条
-// 从此一条也收不到,既没有错误也没有 seq 跳号。
-// attachSession 是显式接管的注册:handler 先校验这条会话确实是调用方的、且还接得回去,
-// **受理之后**才真正把它交给这条连接。两件事一起发生,缺一个接管都是半截的:
-//
-//   - 推送目标改到这条连接(conns.claim)—— 否则通知继续只落库不推送,补齐完了实时流
-//     还是不通;
-//   - 这条连接的 RuntimeHandlers 认下这条会话(rh.Adopt)—— RuntimeHandlers 是
-//     per-conn 构造的,重连后那张内存会话表是空的,不认下来的话客户端刚补齐完、正要
-//     回答一条待决策,submitToolPermission 会解不出会话,再被 R8 的幂等折成「成功」:
-//     waiter 没人回答、客户端以为答过了,叠加 R9 的不设过期 = 会话永久挂死。
-//
-// 认领放在 handler **之后**(与 trackSessionOwner 的「之前认领 + 失败回滚」相反):
-// 接管不启动任何一轮执行,没有「记晚了首批事件会丢」的问题,而被拒的接管绝不能改变
-// 任何东西。接管与读高水位之间落库的那几条不会丢 —— 客户端随后按自己的游标 pull,
-// 那一轮 pull 发生在认领之后。
 // openDB opens agentred's own SQLite handle at <dataDir>/agentred.db (state.Load
 // already created dataDir with 0700 before this is called). Deliberately a
 // plain gorm.Open — not a cago db.Database() component — because cago's

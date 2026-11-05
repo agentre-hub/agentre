@@ -966,13 +966,13 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
  * SteerParams 手写形状契约（**不是** Go 生成的黄金样本）。
  *
  * golden_test.go 还没有为 SteerParams 出样本,而黄金样本的帧清单不属于本任务的
- * 改动范围。所以这一组照抄 wire.go:353-359 的 JSON tag 手写断言：
+ * 改动范围。所以这一组照抄 wire.go 里 SteerParams 的 JSON tag 手写断言：
  *
  *	type SteerParams struct {
- *	    SessionID       int64  `json:"sessionId"`
- *	    PeerFingerprint string `json:"peerFingerprint,omitempty"`
- *	    QueuedID        string `json:"queuedId,omitempty"`
- *	    Text            string `json:"text"`
+ *	    ConversationID  string             `json:"conversationId"`
+ *	    PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+ *	    QueuedID        string             `json:"queuedId,omitempty"`
+ *	    Text            string             `json:"text"`
  *	}
  *
  * 等 golden_test.go 补上 steer-params.json 样本后，这一组应改成 assertRoundTrip。

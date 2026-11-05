@@ -44,7 +44,7 @@ Agentre 把这套工作流放进一个桌面应用。每个 **Agent** 都有自�
 | **对话** | 驱动 Agent 会话、查看工具调用、审批动作、排队追问、继续被中断的任务。 |
 | **看板** | 用四列跟踪任务，按项目子树收窄、筛选、就地编辑；任务上记着打算交给哪个 Agent、在哪台机器上、用什么模型。 |
 | **组织** | 用部门和子部门管理 Agent，配置负责人、颜色和角色资料。 |
-| **Hooks** | 把 Webhook、通知、定时器、消息等外部触发路由到 Agent 工作流。 |
+| **Hooks** | 按 cron 定时运行脚本；每次运行由 stdout 产出事件与延续状态，记入该 Hook 的运行日志。 |
 | **设置** | 配置 Agent 后端、远端设备、项目成员和会话权限模式。 |
 
 ## 核心概念
@@ -56,7 +56,7 @@ Agentre 把这套工作流放进一个桌面应用。每个 **Agent** 都有自�
 | **会话** | 一次对话或任务执行，状态包括 `running`、`waiting`、`idle`。 |
 | **项目** | 围绕某个代码库或目标的工作范围，绑定成员、Agent 和会话。 |
 | **任务** | 看板上的一张卡：落在四列之一，可挂在项目下，带标签，并记着打算交给哪个 Agent、在哪台机器上、用什么模型。 |
-| **Hook** | 外部事件入口，可通过路由规则把工作派发给 Agent。 |
+| **Hook** | 一段定时运行的脚本（bash、sh、node、python、PowerShell、cmd），运行时产出事件；Agent 可通过内置的 hook 工具管理 Hook。 |
 
 ## 远端执行
 
@@ -96,7 +96,7 @@ make install-deps    # 安装前端依赖
 make dev             # 开发模式（热重载）
 make test            # 后端 Go 测试 + 前端 Vitest
 make build           # 构建当前平台的生产版本
-make install         # 安装应用包（macOS: /Applications/Agentre.app）
+make install         # 安装应用包（macOS: /Applications/Agentre Dev.app；CHANNEL=stable 安装 /Applications/Agentre.app）
 ```
 
 安装到其它 macOS 目录：

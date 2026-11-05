@@ -33,7 +33,7 @@ import (
 
 	// 显式 blank import 触发本地 runtime 子包 init() 把 *Runtime 注册到 RuntimeFor。
 	// remote 是显式构造,不参与全局注册;以下几种为本地后端,必须自注册才能被
-	// selectRunner 与 permissionModeMetaFor 解析到。
+	// selectRunner 与 ipc.PermissionModeMetaFor 解析到。
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/acp"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/builtin"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
@@ -141,8 +141,6 @@ type ChatSvc interface {
 	FinishToolApproval(ctx context.Context, sessionID int64, requestID, status, result string) error
 	// FinalAssistantText 读取某 assistant message 的纯文本(拼接所有 TextBlock)。
 	FinalAssistantText(ctx context.Context, messageID int64) (string, error)
-	// LatestAssistantText 按 sessionID 取末条 assistant 文本(running peek;无 → 空串)。
-	LatestAssistantText(ctx context.Context, sessionID int64) (string, error)
 	// SessionProjectID 返回某会话所属的 project id(0=未挂项目);子 agent 工具用它继承调用方项目/cwd。
 	SessionProjectID(ctx context.Context, sessionID int64) (int64, error)
 	// CatchUpRemoteSessions 在 App 启动后按 chat_sessions.exec_device_id 连回各台配对
@@ -299,10 +297,6 @@ type chatSvc struct {
 	tokenCacheOnce sync.Once
 	chatTokens     *agentruntime.SessionTokenCache
 
-	// remoteCache 是 device → (runtime, lease) 的 session 引用计数缓存。
-	// runtime 复用底层 lease.Client(),lease 由 remote_device_svc.Pool 管理 conn
-	// 复用 + idle 回收 + daemon drop evict。lease.Closed() 关闭时 watchLeaseClosed
-	// 把 entry 从 map 摘掉,下次 borrow 走冷路径重建。
 	// goalsImpl 惰性构造,见「目标」一节。
 	goalsOnce sync.Once
 	goalsImpl *goal.Controller

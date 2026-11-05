@@ -133,7 +133,7 @@ func (c *CtlSessions) Credentials(agentID, sessionID int64) agentruntime.CtlCred
 
 // bind 由 runtime.run 在交给 backend 之前调用:登记这条会话与它此刻的归属。不带桌面
 // token 的一轮(控制台在桌面端的会话上派发)不抹掉已有的桌面归属 —— token 绑定的是
-// 会话,不是轮次(与 recordDesktopCtl 同一条规则)。
+// 会话,不是轮次。
 func (c *CtlSessions) bind(rid int64, peer devicefp.Initiator, conversationID string, desktop DesktopCtlSession, hasDesktop bool) {
 	if c == nil {
 		return

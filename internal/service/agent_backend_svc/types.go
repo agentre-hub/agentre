@@ -423,7 +423,7 @@ type SurveyDanglingBackendReferencesResponse struct {
 
 // ProbeDeps 由 svc.Test 装配后传给 Prober。
 //
-//   - 对 builtin 的 codingProber 全部留空（不依赖 gateway）；
+//   - 对 builtin 的 builtinProber 全部留空（不依赖 gateway）；
 //   - CLI 子进程类 Prober 若经本地 gateway 测试，需要 Token + GatewayURL + Model。
 type ProbeDeps struct {
 	GatewayURL string

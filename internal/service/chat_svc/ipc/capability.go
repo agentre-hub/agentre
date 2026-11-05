@@ -46,8 +46,8 @@ type GetSessionCapabilitiesModeMeta struct {
 // 返给前端做 UI gating。本函数从 agentruntime.RuntimeFor 注册表反查;NEW runtime
 // 子包 init() 已自注册,顶部 blank import 保证依赖图触达。
 //
-// remote backend 暂未接 Capabilities IPC(remote runner 持 DaemonClientPort,
-// 构造代价高且 caps 由远端决定),返空 caps;后续加远端 caps 透传。
+// 这里不区分本机/远端:远端 backend 同样按 backend type 查本地注册表,不向 daemon
+// 透传它实际声明的 caps。
 func GetSessionCapabilities(ctx context.Context, req *GetSessionCapabilitiesRequest) (*GetSessionCapabilitiesResponse, error) {
 	if req == nil || req.SessionID <= 0 {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)

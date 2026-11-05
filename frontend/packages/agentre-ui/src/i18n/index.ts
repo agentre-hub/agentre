@@ -29,7 +29,7 @@ export const AGENTRE_UI_NAMESPACE = "agentreUi";
 /**
  * 宿主在 `i18n.init({ resources })` 里把它挂到 `AGENTRE_UI_NAMESPACE` 下；
  * 已经 init 过的宿主也可以走 `i18n.addResourceBundle(lng, ns, bundle)`。
- * 语言键与宿主的 `supportedLanguages` 对齐。
+ * 语言键与宿主的 `SupportedLanguage` 对齐。
  *
  * 每个领域模块用 `.json`，再由语言目录的 `index.ts` 合成一棵资源树，
  * 这样组件搬迁时仍能把宿主 locale 的子树整块剪过来。代价：`tsc` 产出的 dist 里是不带

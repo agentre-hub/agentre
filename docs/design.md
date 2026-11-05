@@ -316,7 +316,7 @@ type AppThemePreference = AppTheme | "system";   // user choice
 - **System sync:** a `matchMedia("(prefers-color-scheme: dark)")` listener updates `systemTheme`; when preference is `"system"`, `effectiveTheme` follows the OS live.
 - **Toast theme:** `<Toaster theme={effectiveTheme} />` keeps Sonner in sync (§6.5).
 
-**Known gap — no flash prevention.** `.dark` is applied in a `useLayoutEffect`, *after* first paint, and there is no inline pre-mount script in `index.html`/`main.tsx`. A dark-mode user can see a brief light frame on cold start. If you add flash-prevention, set `.dark` before React mounts and document it here.
+**Flash prevention.** An inline script in [`frontend/index.html`](../frontend/index.html) reads `agentre.theme` (falling back to `prefers-color-scheme` when it is not an explicit `light`) and sets `.dark` / `data-theme` / `colorScheme` before React mounts, so a dark-mode cold start shows no light frame; `applyDocumentTheme` takes over in a `useLayoutEffect` once the provider mounts.
 
 **Correct usage (do / don't):**
 
@@ -395,15 +395,21 @@ The palette is pruned to what's actually imported. **Present** in [`packages/age
 | `badge.tsx` | Status / label badges |
 | `alert.tsx` | Inline alert block (`default` / `destructive`) |
 | `input.tsx` / `textarea.tsx` | Text input |
+| `search-input.tsx` | `SearchInput` — the search field with its leading magnifier, shared by every list filter |
+| `label.tsx` / `field.tsx` | Form label / field layout (`Field`, `FieldLabel`, `FieldDescription`, `FieldError`, …) |
 | `select.tsx` | Select (trigger sizes `sm` / `md`) |
 | `checkbox.tsx` / `switch.tsx` / `radio-group.tsx` | Boolean / choice controls (`switch` sizes `sm` / `default`) |
 | `dialog.tsx` | Modal dialog (`DialogHeader` / `Body` / `Footer` / `Title` / `Description` helpers) |
+| `dialog-shell.tsx` | `DialogShell` — the shared dialog frame (size steps, header / footer slots) |
 | `dropdown-menu.tsx` / `context-menu.tsx` | Dropdown / right-click menu |
 | `popover.tsx` / `hover-card.tsx` / `tooltip.tsx` | Floating layers |
 | `table.tsx` | Table subcomponents |
 | `toggle.tsx` | Pressed-state toggle |
 | `segmented-control.tsx` | `SegmentedControl` / `SegmentedControlItem` — the tab-like switch (`role="tablist"` / `role="tab"`, arrow-key navigation). Use it wherever an underline tab strip would have gone: no track fill, the current item `bg-button-fill` (8% of `foreground`), the others transparent until hovered (`bg-field-fill`) |
-| `skeleton.tsx` | Placeholder block while content loads |
+| `skeleton.tsx` / `spinner.tsx` | Placeholder block while content loads / inline loading spinner |
+| `separator.tsx` | `Separator` |
+| `agent-avatar.tsx` / `status-dot.tsx` | `AgentAvatar` / `StatusDot` — re-exported to the desktop through `components/agentre/primitives.tsx` (§6.4) |
+| `resizable-sidebar.tsx` | Drag-resized, persisted sidebar shell (§7) |
 
 **Absent** (commonly expected, but *not* in the codebase — don't import or assume them): `card`, `tabs` (use `SegmentedControl`; no underline tabs), `sheet`, `progress`, `accordion`, `collapsible`, `sonner` (the `Toaster` is imported straight from `sonner`), `command` (there's a custom command palette), `form` (no form library — see §9).
 
@@ -446,7 +452,7 @@ Project blocks in [`components/agentre/primitives.tsx`](../frontend/src/componen
 | `SidebarButton` | Icon rail button — `ghost`/`icon`, `size-10 rounded-lg`, `sidebar-icon` color; active = `bg-raised text-sidebar-icon-active shadow-xs`; ships its own hover/focus tooltip (300ms hover delay) and `aria-current`. |
 | `DeviceTag` | Local/remote device chip (online/offline). |
 
-> Other high-reuse blocks worth knowing before building. In the shared package: `code-block` (highlighted code + copy), `markdown-text` (agent markdown renderer) and `thinking-block` under `transcript/`, `resizable-sidebar` (drag-resized, persisted sidebar shell, §7) under `ui/`, `app-dialog` (generic dialog host) under `engine/`. In [`components/agentre/`](../frontend/src/components/agentre/): `compact-history-fold` (collapsible transcript region) and `icon-picker`. Search both before hand-rolling.
+> Other high-reuse blocks worth knowing before building. In the shared package: `code-block` (highlighted code + copy), `markdown-text` (agent markdown renderer) and `thinking-block` under `transcript/`, `resizable-sidebar` (drag-resized, persisted sidebar shell, §7) under `ui/`, `identity-mark-picker` (upload / preset / icon identity picker) under `identity/`. In [`components/agentre/`](../frontend/src/components/agentre/): `compact-history-fold` (collapsible transcript region). Search both before hand-rolling.
 
 ### 6.5 Toasts & notifications
 
@@ -562,7 +568,7 @@ Ties break by DOM/portal order, not a bespoke number. A new "always on top" need
 
 ## 9. State patterns
 
-Every async flow covers loading / empty / error / success consistently. **Important:** unlike some shadcn apps, agentre has **no shared `StateScreen` / `EmptyState` / `LoadingState` / `Progress` components yet** (only a `Skeleton` primitive) — these states are currently composed ad hoc. Follow the conventions below, and **when a state block repeats across two or more pages, extract a shared component** rather than copy-pasting (Principle 6).
+Every async flow covers loading / empty / error / success consistently. **Important:** unlike some shadcn apps, agentre has **no shared `StateScreen` / `EmptyState` / `LoadingState` / `Progress` components yet** (only the `Skeleton` and `Spinner` primitives) — these states are currently composed ad hoc. Follow the conventions below, and **when a state block repeats across two or more pages, extract a shared component** rather than copy-pasting (Principle 6).
 
 | State | Convention today |
 | --- | --- |

@@ -5,8 +5,8 @@
 // 命名约定与 internal/pkg/agentruntime/runtimes/remote/wire 一致:
 //   - 方法在 "remotefs.*" 命名空间下
 //   - 字段名 lowerCamelCase
-//   - 错误码 -32030..-32035 是稳定 wire 值,wrapGuarded handler 返回
-//     *rpcerror.Error 由本包翻译,客户端用 FromRPCError rehydrate。数值本身住在
+//   - 错误码 -32030..-32035 是稳定 wire 值,handler 返回的 sentinel 经
+//     ToRPCError 翻成 *rpcerror.Error,客户端用 FromRPCError rehydrate。数值本身住在
 //     共享 module 的 pkg/wire/rpcerror(全段位撞号守卫在那里),本包只留别名。
 package wire
 

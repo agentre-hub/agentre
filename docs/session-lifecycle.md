@@ -25,9 +25,9 @@ The left sidebar reads from `chat-agents-store`, a snapshot loaded by the `ListC
 
 Sessions created **outside** a `ChatPanel` bypass that path: they will not appear in the sidebar list — and, having no row, cannot show a running indicator — until some unrelated reload happens.
 
-The single reusable entry point is `ensureSessionInSidebar(sessionId)` in `frontend/src/stores/sidebar-reload.ts`: if the id is not yet known to `chat-agents-store` it triggers `reloadSidebarSources()`, otherwise it short-circuits (cheap to call per turn). Any frontend event handler that learns of a new out-of-band session should call this so the session enters the list and the agent's run-light turns on.
+The single reusable entry point is `reloadSidebarSources()` in `frontend/src/stores/sidebar-reload.ts`: it reloads `chat-agents-store`, every session-index scope that has already been opened, and the project tree when it has been loaded. Any frontend event handler that learns of a new out-of-band session should call it so the session enters the list and the agent's run-light turns on.
 
-Any future out-of-band session-creation path — a remote daemon creating a session, issue/hook dispatch — should reuse `ensureSessionInSidebar` from its frontend event handler instead of re-implementing the reload, so the sidebar stays correct without each producer hand-rolling it.
+Any future out-of-band session-creation path — a remote daemon creating a session, issue/hook dispatch — should reuse `reloadSidebarSources` from its frontend event handler instead of re-implementing the reload, so the sidebar stays correct without each producer hand-rolling it.
 
 ### Issue And Hook Dispatch
 
@@ -69,5 +69,5 @@ When adding a new feature that creates sessions:
 2. Add the smallest `SessionPurpose` and request fields needed by `chat_svc.EnsureSession`.
 3. Keep the feature service dependent on a narrow gateway/interface rather than on `chat_repo`.
 4. Emit a domain event if the creating service stores the returned `SessionID` and the frontend needs to update live state.
-5. If the session is created outside a `ChatPanel` (remote dispatch, issue/hook), have the frontend event handler call `ensureSessionInSidebar(sessionId)` so the new row appears in the sidebar and can show run state.
+5. If the session is created outside a `ChatPanel` (remote dispatch, issue/hook), have the frontend event handler call `reloadSidebarSources()` so the new row appears in the sidebar and can show run state.
 6. Document the new purpose in this file.

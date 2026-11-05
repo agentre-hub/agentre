@@ -1,7 +1,7 @@
 // frontend/src/components/agentre/session-index/index-page.tsx
 //
 // 单一会话索引 —— 合并前的「对话」与「项目」两个页面
-// （规格：docs/specs/2026-08-16-unified-chat-index.md）。
+// （规格 2026-08-16）。
 //
 // 右栏一行不改：TabStrip + ChatPanelHost 本来就挂在 AppLayout 上、两条路由共用同一份
 // 实例。本页只是左栏 + 它的数据通路。

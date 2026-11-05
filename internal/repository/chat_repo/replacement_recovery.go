@@ -242,20 +242,6 @@ func FindReplacementRecoveryForSession(ctx context.Context, sessionID int64) (*R
 	return recovery, nil
 }
 
-func FindReplacementRecoveryForMessage(ctx context.Context, sessionID, messageID int64) (*ReplacementRecovery, error) {
-	if messageID <= 0 {
-		return nil, nil
-	}
-	recovery, err := FindReplacementRecoveryForSession(ctx, sessionID)
-	if err != nil || recovery == nil {
-		return nil, err
-	}
-	if recovery.UserMessageID != messageID && recovery.AssistantMessageID != messageID {
-		return nil, nil
-	}
-	return recovery, nil
-}
-
 // EnsureReplacementActiveTailOwned rejects a legacy hybrid transcript before
 // restoration. FromSeq and the two active row IDs are persisted in the marker;
 // no content, timestamp, or inferred ordering is used.

@@ -50,8 +50,6 @@ func (c Capabilities) Has(key Capability) bool {
 }
 
 // PermissionModeMeta 把"哪些 mode 合法 / 默认是哪个 / 能否运行时切换"结构化。
-// 替代当前散落在 chat_svc 的 isKnownPermissionMode / normalizeStoredPermissionMode /
-// validateRequestedPermissionMode 等硬编码 switch。
 type PermissionModeMeta struct {
 	AllowedModes         []string // 例 claudecode {default,acceptEdits,plan,bypassPermissions}
 	DefaultMode          string   // 例 claudecode "acceptEdits"

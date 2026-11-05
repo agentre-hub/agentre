@@ -36,6 +36,3 @@ func (r *RecordDecoder) Decode(line []byte) ([]Event, bool) {
 	}
 	return r.d.decodeLine(line)
 }
-
-// SessionID 返回目前为止从记录里读到的 session id;磁盘方言不带该字段时为空串。
-func (r *RecordDecoder) SessionID() string { return r.d.SessionID() }

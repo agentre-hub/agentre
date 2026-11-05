@@ -678,8 +678,8 @@ func (t *turnRun) finalize(ctx context.Context) {
 			// chatMessageForEvent / StreamDone 会以 nextAssistant 为目标 emit，
 			// 前端 store 通过 StreamSteerConsumed.AssistantMessage 已经把活动
 			// assistant 切到 nextAssistant。
-			// 自动续轮沿用本轮 extras:群成员会话的 MCP 注入 + 群上下文 suffix
-			// 需要在同一会话的整个生命周期内保持,而非只在首轮生效。
+			// 自动续轮沿用本轮 extras(如 providerFallbackNotice):它们需要在同一会话的
+			// 整个续轮链上保持,而非只在首轮生效。
 			t.svc.runTurn(ctx, t.sess, t.a, t.be, t.prov, nextUser, nextAssistant, t.stream, "", false, nil, t.extras)
 			return
 		}

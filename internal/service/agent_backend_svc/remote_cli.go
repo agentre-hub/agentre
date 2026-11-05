@@ -24,7 +24,7 @@ import (
 // 用户操作都是「去远端启 daemon 后重试」。
 var ErrRemoteDialFailed = errors.New("remote device dial failed")
 
-// ErrRemoteDeviceNotFound 当底层 DialOnce 返回 device-row-missing 时透传。
+// ErrRemoteDeviceNotFound 当底层拨号返回 device-row-missing 时透传。
 // 与 remote_device_svc.ErrDeviceNotFound 等价；独立一份让调用方不依赖
 // remote_device_svc 包。
 var ErrRemoteDeviceNotFound = errors.New("remote device not found")

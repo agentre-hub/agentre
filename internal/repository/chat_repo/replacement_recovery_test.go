@@ -280,40 +280,6 @@ func TestReplacementRecovery_DeleteOwnedMessagesUsesExactGenerationIDs(t *testin
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestReplacementRecovery_FindForMessageUsesExactOwnership(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-	useRealAppSettings(t)
-
-	marker, err := chat_repo.NewReplacementRecoveryMarker(sampleRecovery())
-	require.NoError(t, err)
-
-	for _, tc := range []struct {
-		name      string
-		messageID int64
-		wantFound bool
-	}{
-		{name: "生成拥有的 assistant 行", messageID: 52, wantFound: true},
-		{name: "不属于该生成的行", messageID: 99, wantFound: false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			mock.ExpectQuery("SELECT \\* FROM `app_settings` WHERE `key` = \\?").
-				WithArgs("chat.pi_recovery:3", 1).
-				WillReturnRows(sqlmock.NewRows([]string{"key", "value", "updatetime"}).
-					AddRow(marker.Key, marker.Value, marker.Updatetime))
-
-			got, err := chat_repo.FindReplacementRecoveryForMessage(ctx, 3, tc.messageID)
-			require.NoError(t, err)
-			if tc.wantFound {
-				require.NotNil(t, got)
-				assert.Equal(t, int64(41), got.RequestMessageID)
-			} else {
-				assert.Nil(t, got)
-			}
-		})
-	}
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 func TestReplacementRecovery_EnsureActiveTailOwnedUsesPersistedIDsAndSequence(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

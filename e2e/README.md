@@ -37,7 +37,7 @@ Prerequisites are Go, Node 24+, pnpm, the Wails CLI, Chromium, and the platform 
 | `tests/sync-client.spec.ts` | Desktop sync client against a loopback protocol recorder; push/pull identity, payload, version/cursor and UI/SQLite convergence; rejection/invalid-response queue retention and visible error state. |
 | `tests/remote-peer.spec.ts` | Desktop direct remote transport against a loopback binary Protobuf RPC/WebSocket peer; auth/capability/session/run protocol, streamed persistence, reconnect/disconnect terminal state, protocol-error terminal state, and credential redaction. |
 
-No external Server, OAuth, PostgreSQL, Redis, daemon process, LAN discovery, relay, or real agent CLI is configured by this suite. Fakes bind only dynamic loopback ports and receive generated test identities and credentials.
+No external Server, OAuth, MySQL, Redis, daemon process, LAN discovery, relay, or real agent CLI is configured by this suite. Fakes bind only dynamic loopback ports and receive generated test identities and credentials.
 
 ### Isolation contract
 

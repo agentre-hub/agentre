@@ -1029,13 +1029,11 @@ function applyFrame(
     case EventContextWindowUpdated: // → 会话的上下文窗口（桌面端 Composer 进度条）
     case EventRuntimeStatus: // → 过渡态，桌面端 handler 明写「不落 block」
     case EventPermissionModeChanged: // → 会话的 permission_mode
-    case EventToolUseEnd: // → 新 API 里没有对应 Event（event_convert.go:15）
+    case EventToolUseEnd: // → 新 API 里没有对应 Event
     case EventRetry: // → 桌面端 RetryHandler 明写「只 emit 不落 block」
     case EventOutputActivity: // → 纯计时信号（记首 token），本身没有正文
-      // output_activity 随 agentre 那边**另一轮**在途改动进入词表（那一轮的规格是
-      // `agentre/docs/specs/2026-08-23-chat-surface-alignment.md`，wire 事件这一侧尚未
-      // 落地）。这里按「认得但不落正文」处理 —— 与两个宿主今日的可观察行为一致；
-      // 真正的落点（比如首 token 之前的等待呈现）由那一轮决定，不在这里替它定。
+      // output_activity 按「认得但不落正文」处理 —— 与两个宿主今日的可观察行为一致；
+      // 真正的落点（比如首 token 之前的等待呈现）不在归约器里定。
       return;
 
     // subagent 生命周期：累计进外层那张 tool_use 卡的 `subagent`，由
@@ -1348,7 +1346,7 @@ const RETRY_SURVIVES: ReadonlySet<string> = new Set<EventKind>([
   EventContextWindowUpdated,
   EventRuntimeStatus,
   EventPermissionModeChanged,
-  // 新 API 里没有对应事件（event_convert.go），留在这里只为词表完整。
+  // 新 API 里没有对应事件，留在这里只为词表完整。
   EventToolUseEnd,
 ]);
 

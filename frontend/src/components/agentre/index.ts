@@ -1,19 +1,6 @@
-export {
-  AgentAvatar,
-  SidebarButton,
-  StatusDot,
-  StatusPill,
-} from "./primitives";
-export {
-  AppStatusBar,
-  AppTopBar,
-  CommandPaletteTrigger,
-  NativeWindowControlsInset,
-  ThemeToggle,
-  WindowsWindowControls,
-} from "./chrome";
-export { AgentGroup, AgentPanelSection, SessionRow } from "./agent-list";
-export type { AgentSession } from "./agent-list";
+export { AgentAvatar, SidebarButton, StatusPill } from "./primitives";
+export { AppStatusBar, AppTopBar, ThemeToggle } from "./chrome";
+export { AgentGroup, SessionRow } from "./agent-list";
 export { SessionIndexPage } from "./session-index/index-page";
 export { ChatStreamsHost } from "./chat-streams-host";
 export { TurnCompleteNotifier } from "./turn-complete-notifier";
@@ -24,21 +11,11 @@ export { ExternalApprovalDialog } from "./external-approval-dialog";
 export { HooksPage } from "./hooks-page";
 export { IssuesPage } from "./issues-page";
 export { OrgChartPage } from "./org-chart-page";
-export { UnderConstructionPage } from "./under-construction-page";
-export {
-  ApprovalGate,
-  ChatComposer,
-  ChatMessage,
-  MessageMeta,
-  ToolCall,
-} from "./chat";
-export { CodeBlock, MarkdownText } from "@agentre-hub/agentre-ui";
-export { SettingsPage } from "./settings";
+export { ApprovalGate, ChatComposer } from "./chat";
 export {
   ShortcutsProvider,
   ChatTabsShortcuts,
   isPrimaryShortcut,
 } from "./shortcuts";
 export { CommandPalette, PaletteScopeBridge } from "./command-palette";
-export type { AppTheme, AppThemePreference, DesktopPlatform } from "./chrome";
-export type { AgentColor, AgentStatus } from "./types";
+export type { DesktopPlatform } from "./chrome";

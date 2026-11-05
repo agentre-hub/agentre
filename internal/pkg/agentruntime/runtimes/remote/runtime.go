@@ -93,7 +93,7 @@ func (r *Runtime) dispatchProtobufNotification(ctx context.Context, message *age
 	}
 }
 
-// Runtime 包装 DaemonClientPort 把 chat session 委托给远端 daemon。生命周期:
+// Runtime 包装 client.ProtobufConnection 把 chat session 委托给远端 daemon。生命周期:
 //   - New(client) 立即向 client 注册两条 server-push handler
 //   - Run() 调 runtime.run 注册 session,后续 runtime.event / runtime.runResultDone
 //     按 sessionID 路由；Pi PrepareRun 复用同一方法分三阶段完成

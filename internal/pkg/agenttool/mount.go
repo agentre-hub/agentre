@@ -11,9 +11,9 @@ import (
 
 // Mount 是三个内置工具服务(org / hook / subagent)共用的挂载脚手架:懒初始化共享
 // MCP server(per-process HMAC secret 首次访问时生成)+ 记录 gateway base URL,并提供
-// BuildTurnMCP 的公共骨架。各家只差 AgenttoolKey 与 NewServer 构造函数。
+// BuildTurnMCP 的公共骨架。各家只差 toolKey 与 newServer 构造函数。
 //
-// 内嵌进宿主服务即可:Handler / SetGatewayBaseURL / BuildTurnMCP 三个方法随之提升。
+// 内嵌进宿主服务即可:MCPHandler / SetGatewayBaseURL / BuildTurnMCP 三个方法随之提升。
 type Mount struct {
 	toolKey   string
 	newServer func() *Server
@@ -24,7 +24,7 @@ type Mount struct {
 }
 
 // NewMount 造一个挂载点。newServer 由宿主给出(通常是宿主自己的 newMCPServer 方法),
-// 在首次 Handler / BuildTurnMCP 访问时调用一次。
+// 在首次 MCPHandler / BuildTurnMCP 访问时调用一次。
 func NewMount(toolKey string, newServer func() *Server) *Mount {
 	return &Mount{toolKey: toolKey, newServer: newServer}
 }

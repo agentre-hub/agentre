@@ -1,6 +1,6 @@
 // frontend/src/stores/session-index-store.ts
 //
-// 单一会话索引的分页来源（规格：docs/specs/2026-08-16-unified-chat-index.md）。
+// 单一会话索引的分页来源（规格 2026-08-16）。
 //
 // 它是**唯一**的会话清单通路：
 //   - ListChatAgents 每个 agent 只给前 5 条 → 并起来是窗口，不是全量，「按时间」无源；

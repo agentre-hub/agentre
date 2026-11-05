@@ -101,7 +101,7 @@ func (d *dispatcherEmitter) Emit(ctx context.Context, stream string, raw any) {
 
 	case string(StreamSubagentStarted), string(StreamSubagentProgress), string(StreamSubagentDone):
 		ev.ToolCallID = stringOf(m, "toolUseId")
-		// info → ChatBlockSubagent (复用已有投影 subagentInfoToChatBlock)
+		// info → ChatBlockSubagent (复用已有投影 subagentInfoMapToChatBlock)
 		ev.Subagent = subagentInfoMapToChatBlock(m["info"])
 		if ev.Subagent != nil {
 			ev.Canonical = view.FromCanonical(canonical.AgentSpawn{

@@ -32,14 +32,3 @@ export function reloadSidebarSources(): void {
     void reloadProjectTreeCache();
   }
 }
-
-// isSessionKnownToSidebar 判断某 session 是否已经被左栏收录。chat-agents-store 是
-// 「agent → 其会话」的唯一索引 (sessionIds 是去重后的全量 session id), 每个 agent 的
-// 所有会话都归在其名下, 所以这里只需问 chat-agents-store。
-export function isSessionKnownToSidebar(sessionId: number): boolean {
-  if (sessionId <= 0) return false;
-  for (const a of useChatAgentsStore.getState().agents) {
-    if (a.sessionIds.includes(sessionId)) return true;
-  }
-  return false;
-}

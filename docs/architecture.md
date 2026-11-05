@@ -7,12 +7,13 @@ Agentre's code organization, layering conventions, remote execution architecture
 ```text
 main.go                        (wails bootstrap; GUI-only — no CLI subcommands)
 cmd/agentred/                  (headless daemon binary: run, pair/login, status, service management, and local client commands)
-cmd/agrctl/                    (companion CLI binary: `claudecode` hook shim + `ctl` control CLI)
+cmd/agrctl/                    (companion CLI binary: `claudecode` hook shim, `acp`, and the top-level control verbs)
 internal/
   app/                         (Wails bindings — one file per domain: app.go / agent.go / chat.go / project.go / …,
                                 methods only do parse → svc.Xxx().Method(ctx, …) → return)
   bootstrap/                   (startup order: dataDir → cago memory config → logger → SQLite → migrations)
-  cli/{claudecodecmd,ctlcmd}/  (subcommand implementations, compiled into the agrctl binary)
+  desktop/                     (Wails desktop lifecycle shared by main.go and the E2E entrypoint; channelidentity/)
+  cli/{acpcmd,claudecodecmd,ctlcmd}/ (subcommand implementations, compiled into the agrctl binary)
   daemon/                      (agentred-side daemon: authentication, connection/relay transport, method registration,
                                 handlers, persistence, sessions, engine snapshots, and remote workspaces.
                                 The RPC engine itself is no longer here — see pkg/wire/protorpc below)
@@ -22,6 +23,8 @@ internal/
   model/entity/<domain>_entity/(rich domain entity; GORM tag + business methods)
   pkg/                         (single-responsibility cross-cutting packages for runtimes, protocols, CLI processes,
                                 logging, credentials, filesystems, notifications, and other shared infrastructure)
+  peer/                        (desktop-side peer RPC: inbound method registration and the outbound session client)
+  guard/                       (repository-wide guard tests)
   buildinfo/                   (CommitID ldflag target)
 migrations/                    (gormigrate sequential migrations, filename prefix YYYYMMDDNNNN)
 pkg/                           (externally reusable packages: agentred, claudecode, codex, piagent, and the shared

@@ -120,7 +120,7 @@ Per-line exceptions live beside the relevant Go statement. `.golangci.yml` separ
 **`//nolint:nilerr` — a deliberate alternate outcome instead of propagating the source error.** The current sites do not all share one shape, so there is no blanket exemption. Every new or modified waiver must state the caller-visible fallback it preserves, and its test must cover that degraded outcome; existing bare waivers are debt, not precedent. Existing categories include:
 
 - carrying the failure in a response or status (`remote_device_svc`'s `LastError`, `llm_provider_svc`'s connection-test response, `httpgateway`'s status);
-- optional discovery or push-event handling that fails open to an empty result / discarded malformed event (`agentskill`, `pty/remote`);
+- optional discovery or push-event handling that fails open to an empty result / discarded malformed event (`agentskill`, `runtimes/hermes`);
 - mapping malformed local state to the domain's zero state (`project_svc` / `chat_svc` "not a git repo", `update_svc` "never checked");
 - preserving the original payload when an optional transformation cannot parse it (`httpgateway/llmforward.go`).
 

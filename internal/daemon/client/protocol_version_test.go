@@ -208,17 +208,3 @@ func TestDialProtobuf_GivenPeerRefusesTheSubprotocol_WhenDialing_ThenFailsWithPr
 	assert.ErrorIs(t, err, ErrPeerProtocolUnsupported)
 	assert.NotErrorIs(t, err, ErrPeerProtocolVersionMismatch)
 }
-
-// Same rejection, but arriving through the relay: 426 used to fall into the
-// default branch and surface as "relay rejected the connection with 426".
-func TestDialRelayProtobuf_GivenRelayPeerRefusesTheSubprotocol_WhenDialing_ThenFailsWithProtocolUnsupported(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusUpgradeRequired)
-	}))
-	defer server.Close()
-
-	_, err := DialRelayProtobuf(t.Context(), RelayOptions{URL: "ws" + strings.TrimPrefix(server.URL, "http"), AccessToken: "token"})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrPeerProtocolUnsupported)
-	assert.NotErrorIs(t, err, ErrRelayDaemonNotFound)
-}

@@ -16,9 +16,8 @@ import type { SessionRowModel } from "./types";
 // chrome），body 部分负责标准能力：折叠态可见的 attention bubble、grid 平滑展开动画、
 // 常规会话列表（自动跟 attention 去重）、「查看全部 N」溢出 Popover、空态、子节点插槽。
 //
-// **分组本身不在这里**：桌面端按项目 / Agent / 时间三轴（用户选），agentre-server 按
-// Agent / 状态（视口决定）。两边都对，塞进包就得二选一 —— 所以包收已经建好的组，
-// `buildGroups` 留在各自宿主。
+// **分组本身不在这里**：这个组件只收已经建好的组。分组投影是同包
+// `session-index/axis-groups.ts` 的 `buildAxisGroups`，选哪条轴留在各自宿主。
 type SessionGroupProps = React.ComponentProps<"article"> & {
   // 头部 slot：完全由调用方控制 chrome（avatar / 名称 / 各种 badge / chevron 位置），
   // SessionGroup 把 expanded / toggle 回传给它使用。

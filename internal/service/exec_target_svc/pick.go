@@ -522,7 +522,7 @@ func LocalPairedDeviceID(ctx context.Context, deviceID devicefp.Carrier) (int64,
 }
 
 // evalRemoteDeviceAvailability 见 evalAvailability 步骤 2。与 ListAgents 里
-// deviceViews 的取法一致：Get 出错（含未配对时的 not-found）一律当未配对处理，不当成
+// fingerprintViews 的取法一致：Get 出错（含未配对时的 not-found）一律当未配对处理，不当成
 // 真失败中断挑选 —— 未配对本就是这一档的正常状态之一（R2b），不是异常。
 func (s *execTargetSvc) evalRemoteDeviceAvailability(ctx context.Context, src availabilitySources, be *agent_backend_entity.AgentBackend) (BlockReason, string, error) {
 	// 具名指纹目标（另一台桌面端 / 账号 agentred）：在线态只在中继登记里有真相（R2），

@@ -21,7 +21,7 @@ export type LiveToolUseInput = Omit<ChatBlockData, "type" | "subagent"> & {
   subagent?: ChatBlockSubagentData;
 };
 
-// ToolApprovalData 是 agent 内置写工具(org / workflow 等)审批卡片的纯
+// ToolApprovalData 是 agent 内置写工具(org / hook / ctl 等)审批卡片的纯
 // 数据形态,逐字对齐后端 chat_svc.ChatBlockToolApproval(去掉 wails 注入的 convertValues)。
 // 流事件 payload 与持久化/overlay block.toolApproval 都是这个形状,store/card 共用一份类型。
 export type ToolApprovalData = Omit<

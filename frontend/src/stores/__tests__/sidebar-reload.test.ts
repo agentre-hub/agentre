@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // 只 mock 到 reload 的依赖边界: chat-agents-store / session-index-store 在 import
 // 时会拉 App binding 与 project-tree hook, 这里替身掉, 让 sidebar-reload 的纯逻辑
-// (是否已知 + 是否触发 reload) 可以脱离 Wails 单测。
+// (是否触发 reload) 可以脱离 Wails 单测。
 vi.mock("../../../wailsjs/go/app/App", () => ({
   ListChatAgents: vi.fn(),
   ListChatIndexSessions: vi.fn(),
@@ -15,22 +15,9 @@ vi.mock("@/hooks/use-project-tree", () => ({
     reloadProjectTreeCache(...args),
 }));
 
-import { useChatAgentsStore, type AgentSlim } from "../chat-agents-store";
+import { useChatAgentsStore } from "../chat-agents-store";
 import { useSessionIndexStore } from "../session-index-store";
-import {
-  isSessionKnownToSidebar,
-  reloadSidebarSources,
-} from "../sidebar-reload";
-
-function seedAgents(...sessionIds: number[]) {
-  useChatAgentsStore.setState({
-    agents: [
-      { id: 1, name: "Eng", sessions: [], sessionIds } as unknown as AgentSlim,
-    ],
-    loading: false,
-    error: null,
-  });
-}
+import { reloadSidebarSources } from "../sidebar-reload";
 
 function setTreeLoaded(loaded: boolean) {
   treeLoaded.value = loaded;
@@ -46,24 +33,6 @@ describe("sidebar-reload helpers", () => {
     setTreeLoaded(false);
     useChatAgentsStore.getState().__reset();
     useSessionIndexStore.getState().__reset();
-  });
-
-  describe("isSessionKnownToSidebar", () => {
-    it("returns true when an agent already lists the session id", () => {
-      seedAgents(99);
-      expect(isSessionKnownToSidebar(99)).toBe(true);
-    });
-
-    it("returns false for a session id no agent lists", () => {
-      seedAgents(99);
-      expect(isSessionKnownToSidebar(11)).toBe(false);
-    });
-
-    it("returns false for non-positive ids", () => {
-      seedAgents(99);
-      expect(isSessionKnownToSidebar(0)).toBe(false);
-      expect(isSessionKnownToSidebar(-1)).toBe(false);
-    });
   });
 
   describe("reloadSidebarSources", () => {

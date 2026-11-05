@@ -5405,7 +5405,7 @@ describe("ChatPanel · T32 会话级 autonomous_finished 兜底漏掉的 per-tur
 // ─── T33: 自主续轮落库失败的会话级错误事件 ─────────────────────────────────────
 // 自主续轮的 assistant 消息落库最终失败时,后端把会话翻 error、经**会话级**流推一条
 // error 事件、中断 CLI 这一轮,再抽干事件(见
-// docs/specs/2026-08-07-autonomous-turn-resilience.md「自主续轮落库失败时的可观察结果」)。
+// 规格 2026-08-07「自主续轮落库失败时的可观察结果」)。
 // 这一轮压根没有 assistant 行 —— 失败的正是建那一行的写事务,per-turn 流也从未开过,
 // ChatStreamsHost 按 assistantMessageId 收口的 error 路径接不住。会话级 handler 必须
 // 自己把它渲染出来:否则用户在会话里什么都看不到,状态胶囊还停在上一态(规范

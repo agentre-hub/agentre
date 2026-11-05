@@ -1,6 +1,6 @@
 // frontend/src/components/agentre/__tests__/session-index-page.test.tsx
 //
-// 单一会话索引的**页面级**测试（规格 docs/specs/2026-08-16-unified-chat-index.md）。
+// 单一会话索引的**页面级**测试（规格 2026-08-16）。
 // 合并自已删除的 chat-page.test.tsx + project-page.test.tsx，两份里对同一行为的重复
 // 断言在这里只剩一份。
 //

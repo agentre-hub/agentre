@@ -25,7 +25,7 @@ export function isSubagentCanonical(block: {
   return block.canonical?.kind === "agent.spawn" || isAgrctlSpawn(block);
 }
 
-// isAskUserQuestionToolName 旧 tool-summary.ts 同名;此处过滤掉 AskUserQuestion 类工具的
+// isAskUserQuestionToolName 用来过滤掉 AskUserQuestion 类工具的
 // tool_use 块,避免与 ask_user_question 独立 block 渲染的 UserAskCard 重复出卡。
 export function isAskUserQuestionToolName(
   toolName: string | undefined,

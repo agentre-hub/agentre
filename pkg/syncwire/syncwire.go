@@ -94,7 +94,7 @@ const (
 	// PushRejectReasonKind 对象类型不属于同步组、与该同步标识已有行的类型不符,
 	// 或缺少该类型必需的自然键。
 	PushRejectReasonKind = "kind_invalid"
-	// PushRejectReasonPayload 载荷过不了服务端 ValidatePayload 的守卫。
+	// PushRejectReasonPayload 载荷过不了服务端 GuardPayload 的守卫。
 	PushRejectReasonPayload = "payload_rejected"
 )
 

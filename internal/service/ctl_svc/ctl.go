@@ -149,7 +149,7 @@ func (s *ctlSvc) SessionCredentials(agentID, sessionID int64) agentruntime.CtlCr
 // 返回的 handler **不持有 deps 快照**（每次请求现读）：bootstrap 起 gateway 时就要挂上它，
 // 而 deps 要等 app.Startup(registerChatService → RegisterChat 之后)才 RegisterDeps。
 // 若在构造时把 deps 拷进 handler，挂上去的那份永远是 nil，各端点恒 503 —— 单测直接
-// newCtlHandler 传 deps 是抓不到的。
+// 直接构造 ctlHandler 传 deps 是抓不到的。
 func (s *ctlSvc) ControlHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.RLock()

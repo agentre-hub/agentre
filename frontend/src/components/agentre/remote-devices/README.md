@@ -10,6 +10,7 @@ Desktop UI for pairing and managing agentred LAN devices.
 | `device-row.tsx` | 单台 agentred 行卡片 |
 | `device-row-version.tsx` | 副行的版本呈现：版本文字（决策 5 开发构建）、可升级/协议不匹配徽标（决策 17）、协议不匹配的强提示与命令卡（决策 18） |
 | `device-row-upgrade.tsx` | 行卡片下方/菜单里的「一键升级」呈现：菜单项文案与可用性（决策 5/20/21）、准备中/升级中/成功/超时的一句话反馈、活跃轮次的二次确认（决策 8/21） |
+| `removed-devices.tsx` | 从本机移除过、仍在账号里的设备：默认收起，逐台恢复 |
 | `desktop-device-row.tsx` | 账号设备清单里 kind=desktop 行的展开区：会话列表 / 「Agentre 未运行」 |
 | `device-action-menu.tsx` | 行右侧 `…` 菜单（Refresh / Rename / Edit TLS / Remove） |
 | `agentred-onboarding.tsx` | 三步接入引导（安装 / 常驻 / 配对），页头「添加 agentred」召唤，页面上有设备行时默认收起、可收起。安装与常驻两段、命令与步骤条来自 `@agentre-hub/agentre-ui` 的引导域，与 agentre-server 同一份 |
@@ -25,7 +26,7 @@ Desktop UI for pairing and managing agentred LAN devices.
 | `use-device-upgrade.ts` | 桌面端取数适配：把共享包 `useAgentredUpgrade` 接到 Wails 绑定 |
 | `use-latest-agentred-version.ts` | 「桌面端已知的最新 agentred 版本」：update store 结果 + 本机构建标识 |
 | `use-server-login.ts` | 账号登录态 hook（ServerGetState / StartLogin / Poll / Logout + `server.state` 事件） |
-| `format.ts` | `relativeTime` / `deriveDeviceName` / `friendlyLastError` |
+| `format.ts` | `deriveDeviceName` / `friendlyLastError` / `friendlyLoginError` / `formatCountdown` / `hostOf` |
 
 ## Data flow
 

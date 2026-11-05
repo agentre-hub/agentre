@@ -450,8 +450,3 @@ function ensureSubscribed() {
     });
   });
 }
-
-// 供测试注入：重置订阅（vitest 模块隔离下自动）。
-export const __resetPeerSubscriptionForTesting = () => {
-  subscribed = false;
-};

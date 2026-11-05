@@ -15,33 +15,6 @@ import type { AttentionReason } from "@/stores/attention-store";
 import { AgentAvatar, StatusDot } from "./primitives";
 import type { AgentColor } from "./types";
 
-type AgentPanelSectionProps = React.ComponentProps<"div"> & {
-  label: string;
-  icon?: "pin";
-};
-
-function AgentPanelSection({
-  className,
-  label,
-  icon,
-  ...props
-}: AgentPanelSectionProps) {
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-1 px-2 pb-0.5 font-mono text-2xs font-semibold text-muted-foreground",
-        className,
-      )}
-      {...props}
-    >
-      {icon === "pin" ? (
-        <Pin className="size-2.5 -rotate-[30deg]" aria-hidden="true" />
-      ) : null}
-      <span>{label}</span>
-    </div>
-  );
-}
-
 /**
  * 会话行的展示模型。定义随 `SessionRow` / `SessionGroup` 一起搬进
  * `@agentre-hub/agentre-ui`（agentre-server 的会话列表要用同一件东西）；
@@ -291,5 +264,5 @@ function AgentGroup({
   );
 }
 
-export { AgentGroup, AgentPanelSection, SessionRow };
+export { AgentGroup, SessionRow };
 export type { AgentSession };

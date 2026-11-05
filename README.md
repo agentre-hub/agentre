@@ -44,7 +44,7 @@ Agentre gives that workflow one desktop home. Each **Agent** has a role, avatar,
 | **Chat** | Drive agent sessions, inspect tool calls, approve actions, queue follow-up messages, and resume interrupted work. |
 | **Board** | Track tasks across four columns, narrow the board to a project subtree, filter and edit in place; tasks record which agent, machine and model they are meant for. |
 | **Org** | Model agents as departments and sub-departments, with leads, colors, and role-specific profiles. |
-| **Hooks** | Route external triggers such as webhooks, notifications, timers, or messages into agent workflows. |
+| **Hooks** | Run scripts on a cron schedule; each run's stdout emits events and carried-over state into the hook's run log. |
 | **Settings** | Configure agent backends, remote devices, project membership, and session permission modes. |
 
 ## Core Concepts
@@ -56,7 +56,7 @@ Agentre gives that workflow one desktop home. Each **Agent** has a role, avatar,
 | **Session** | One conversation or task run, with states such as `running`, `waiting`, and `idle`. |
 | **Project** | A workspace scope for a codebase or initiative, bundling members, agents, and sessions. |
 | **Task** | A card on the board: one of four columns, optionally under a project, with labels and an intended agent, machine and model. |
-| **Hook** | An external event source that can dispatch work to agents through routing rules. |
+| **Hook** | A scheduled script (bash, sh, node, python, PowerShell, cmd) whose runs emit events; agents can manage hooks through the built-in hook tool. |
 
 ## Remote Execution
 
@@ -96,7 +96,7 @@ make install-deps    # Install frontend dependencies
 make dev             # Development mode with hot reload
 make test            # Backend Go tests + frontend Vitest
 make build           # Production build for the current platform
-make install         # Install the app bundle (macOS: /Applications/Agentre.app)
+make install         # Install the app bundle (macOS: /Applications/Agentre Dev.app; CHANNEL=stable installs /Applications/Agentre.app)
 ```
 
 To target another macOS install location:

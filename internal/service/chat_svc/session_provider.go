@@ -35,10 +35,6 @@ import (
 // 正是「会话选了供应商却打到 agent 绑定那家」的成因。goal 尤其不能漏：它与 turn 共用同
 // 一个 CLI 会话池，两边解析不一致会让启动期比对键（决策 4）反复翻转、把在用的子进程
 // evict 掉重 spawn。
-//
-// 已知残留（本地已收口，远端未）：远端 goal 的 wire.GoalParams 不带 provider key，daemon
-// 的 hydrateGoalProvider 仍按 agent 绑定自解 —— 补齐需要给该 RPC 加 wire 字段（与
-// RunParams.LLMProviderKey 同形），属协议改动。
 func effectiveProviderKey(sess *chat_entity.Session, be *agent_backend_entity.AgentBackend) string {
 	var sessKey, agentKey string
 	if sess != nil {

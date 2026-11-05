@@ -22,15 +22,6 @@ type Options struct {
 	TLSConfig *tls.Config
 }
 
-// RelayOptions 是中继客户端拨号的入参。它**没有**本端指纹:auth.account 的对端身份
-// 由响应方从 AccessToken 里验出来(决策 8),本端在这条连接上的身份从应答回写
-// (见 ProtobufClient.SelfFingerprint)。
-type RelayOptions struct {
-	URL         string
-	AccessToken string
-	TLSConfig   *tls.Config
-}
-
 var (
 	ErrRelayDaemonNotFound = errors.New("relay: daemon is not registered under this account")
 	ErrRelayDaemonOffline  = errors.New("relay: daemon is registered but currently offline")
@@ -65,24 +56,6 @@ func classifyDialError(err error, resp *http.Response) error {
 		return fmt.Errorf("%w: %w", ErrPeerProtocolUnsupported, err)
 	}
 	return err
-}
-
-func classifyRelayDialError(err error, resp *http.Response) error {
-	if resp == nil || !errors.Is(err, websocket.ErrBadHandshake) {
-		return err
-	}
-	switch resp.StatusCode {
-	case http.StatusUpgradeRequired:
-		return fmt.Errorf("%w: %w", ErrPeerProtocolUnsupported, err)
-	case http.StatusNotFound:
-		return fmt.Errorf("%w: %w", ErrRelayDaemonNotFound, err)
-	case http.StatusConflict:
-		return fmt.Errorf("%w: %w", ErrRelayDaemonOffline, err)
-	case http.StatusBadGateway:
-		return fmt.Errorf("%w: %w", ErrRelayForwardFailed, err)
-	default:
-		return fmt.Errorf("relay rejected the connection with %s: %w", resp.Status, err)
-	}
 }
 
 // PeerProtocolVersionError renders the one rejection every handshake shares.
@@ -264,32 +237,6 @@ func newProtobufClient(ctx context.Context, ws *websocket.Conn) *ProtobufClient 
 	client := &ProtobufClient{conn: conn}
 	go conn.Serve(ctx)
 	return client
-}
-
-// DialRelayProtobuf connects through the account relay and completes the
-// typed auth.account handshake before returning the connection to callers.
-func DialRelayProtobuf(ctx context.Context, opts RelayOptions) (*ProtobufClient, error) {
-	dialer := *websocket.DefaultDialer
-	dialer.TLSClientConfig = opts.TLSConfig
-	dialer.Subprotocols = []string{protorpc.Subprotocol}
-	headers := http.Header{}
-	headers.Set("Authorization", "Bearer "+opts.AccessToken)
-	ws, resp, err := dialer.DialContext(ctx, opts.URL, headers)
-	closeHandshakeBody(resp)
-	if err != nil {
-		return nil, classifyRelayDialError(err, resp)
-	}
-	client := newProtobufClient(ctx, ws)
-	result, err := client.AuthAccount(ctx, &agentrewire.AuthAccountRequest{Credential: opts.AccessToken})
-	if err != nil {
-		_ = client.Close()
-		return nil, err
-	}
-	if !result.GetOk() {
-		_ = client.Close()
-		return nil, errors.New("client.DialRelayProtobuf: daemon rejected account authentication")
-	}
-	return client, nil
 }
 
 // AuthAccount authenticates an account relay connection through the stable

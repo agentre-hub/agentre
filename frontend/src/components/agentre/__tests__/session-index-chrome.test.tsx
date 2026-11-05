@@ -1,6 +1,6 @@
 // 统一会话索引的三件外壳：分组选择器 / 「随手对话」组头 / 行首 14px 槽位。
 // 每个 describe 里都带一条**决策守卫** —— 规格
-// docs/specs/2026-08-16-unified-chat-index.md 的决策 3 / 4 / 6 各自有一句
+// 2026-08-16 的决策 3 / 4 / 6 各自有一句
 // 「不能有什么」，那句话是这些组件存在的理由，光测「渲染出来了」测不到。
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

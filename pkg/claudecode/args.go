@@ -44,7 +44,7 @@ type runSpec struct {
 	maxTurns        int
 	settings        string
 	// mcpConfig 非空 = 下发 --mcp-config <json-or-file>。claude CLI 原生兼容
-	// JSON 串或文件路径，注入额外 MCP tool server（如编排的 dispatch）。
+	// JSON 串或文件路径，注入额外 MCP tool server（如内置的 org / hook / subagent 工具）。
 	mcpConfig           string
 	resumeID            string
 	resumeSessionAtUUID string

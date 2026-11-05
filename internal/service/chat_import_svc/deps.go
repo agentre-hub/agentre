@@ -59,8 +59,7 @@ type AgentBackendPort interface {
 }
 
 // sessionRepoDelegate / messageRepoDelegate / agentRepoDelegate / agentBackendRepoDelegate
-// 生产实现:懒解析对应的仓储单例,兼容 bootstrap 接线早于 Register 的时序
-// (同 ctl_svc.chatSvcGateway)。
+// 生产实现:懒解析对应的仓储单例,兼容 bootstrap 接线早于 Register 的时序。
 
 type sessionRepoDelegate struct{}
 

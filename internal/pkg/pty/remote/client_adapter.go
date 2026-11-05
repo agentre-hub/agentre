@@ -11,10 +11,9 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
-// DaemonClient is the subset of internal/daemon/client.Client and
-// agentruntime.DaemonClientPort that ClientAdapter consumes. Declared here
-// to avoid this package depending on daemon/client; production wires the
-// real *client.Client.
+// DaemonClient is the subset of *client.ProtobufClient (internal/daemon/client)
+// that ClientAdapter consumes. Declared here to avoid this package depending
+// on daemon/client; production wires the real *client.ProtobufClient.
 type DaemonClient interface {
 	Conn() *protorpc.Conn
 	Closed() <-chan struct{}

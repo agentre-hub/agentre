@@ -55,7 +55,7 @@ export const desktopLocalCommandsAccess: LocalCommandsAccess = {
       written = entry.output.length;
     };
 
-    flush(); // 订阅当场同步 seed 一次积压输出（契约见 access.ts）。
+    flush(); // 订阅当场同步 seed 一次积压输出（契约见共享包 transcript/local-command/access.tsx）。
 
     return useLocalCommandsStore.subscribe(flush);
   },

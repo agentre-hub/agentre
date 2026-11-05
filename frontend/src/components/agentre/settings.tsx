@@ -7,6 +7,5 @@
 //   sections.tsx   其余各分区本体
 //   page.tsx       外壳:Header + 导航 + 当前分区
 //
-// 这里只再导出 SettingsPage,原样保持既有对外名字 —— App、index.ts 与几个用例都从
-// "./settings" 取它。
+// 这里只再导出 SettingsPage,原样保持既有对外名字 —— 几个用例都从 "./settings" 取它。
 export { SettingsPage } from "./settings/page";

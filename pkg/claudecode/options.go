@@ -36,12 +36,12 @@ func WithSettingsEnv(env map[string]string) Option {
 }
 
 // WithMcpConfig 下发 --mcp-config <json-or-file>。claude CLI 原生兼容 JSON 串
-// 或文件路径，用来注入额外的 MCP tool server（如编排的 dispatch）。注入的
+// 或文件路径，用来注入额外的 MCP tool server（如内置的 org / hook / subagent 工具）。注入的
 // tool 还需经 WithAllowedTools 放进 --allowedTools 才会被 CLI 实际暴露。
 func WithMcpConfig(value string) Option { return func(c *Client) { c.mcpConfig = value } }
 
 // WithAllowedTools 追加 --allowedTools 白名单条目。多次调用累加（不是覆盖），
-// 便于在已有 client 选项之上叠加注入工具（如 mcp__orchestrate__dispatch）。空入参
+// 便于在已有 client 选项之上叠加注入工具（如 mcp__org__org_create_department）。空入参
 // 忽略。
 func WithAllowedTools(tools ...string) Option {
 	return func(c *Client) {

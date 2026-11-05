@@ -31,7 +31,7 @@ type AgentPort interface {
 }
 
 // sessionRepoDelegate 生产实现:懒解析 chat_repo.Session(),兼容 bootstrap 接线早于
-// RegisterSession 的时序(同 ctl_svc.chatSvcGateway)。
+// RegisterSession 的时序。
 type sessionRepoDelegate struct{}
 
 func (sessionRepoDelegate) CountActiveByProject(ctx context.Context, projectID int64, agentStatuses []string) (int64, error) {

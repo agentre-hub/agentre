@@ -204,7 +204,7 @@ func cleanupRecovery(
 	})
 }
 
-// reconcileTranscriptReplacement is the single session-level recovery boundary
+// Reconcile is the single session-level recovery boundary
 // for a session that may still own a Pi replacement marker. Pi activation writes
 // AgentStatus=running and the new provider session atomically with the marker, so
 // that durable state keeps the gate active even if the configured backend changes.
@@ -299,7 +299,7 @@ func MessageHasImage(m *chat_entity.Message) bool {
 	return false
 }
 
-// backendForkAnchor 是 Regenerate / Edit 共享的"按后端类型决定 fork 锚点"分流逻辑。
+// BackendForkAnchor 是 Regenerate / Edit 共享的"按后端类型决定 fork 锚点"分流逻辑。
 // claudecode 首轮 user msg 没有 anchor 时会清空 sess.ProviderSessionID，让上层
 // startTurn → runner 当作新建会话发起；Pi 只有明确失败且从未建立原生会话的首轮
 // 才能无 fork 重试，已经建立过上下文的会话丢失 provider ID 后必须 fail closed。

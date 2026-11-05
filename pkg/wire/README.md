@@ -16,7 +16,7 @@
 
 - 桌面仓通过本地 `replace` 用它;
 - `agentre-server` 钉一个**已推送的不可变 revision**;
-- 这里的代码**从不 import 宿主代码** —— 上面的依赖方向表就是这条约束的形状。
+- 这里的代码**从不 import 宿主代码** —— 下面的依赖方向表就是这条约束的形状。
 
 整个工作区只有一份 `wire.pb.go`,`internal/guard` 与 `pkg/wire/guard` 各有守卫,
 出现第二份就判红。

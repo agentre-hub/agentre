@@ -106,10 +106,11 @@ func New(client *serverClient, emit func(any)) ServerSvc {
 	return &service{client: client, emitState: emit, sleepFn: waitOrDone}
 }
 
-// Refresh exposes the package-private refresh() for callers like bootstrap.HubBoot.
+// Refresh exposes the package-private refresh() for callers like remote_device_svc's
+// ConnPool (AccountCredentialPort), which retries a rejected account credential once.
 func (s *service) Refresh(ctx context.Context) error { return s.refresh(ctx) }
 
-// SetEmitter swaps the Wails event emitter at runtime. Called from app.go.startup
+// SetEmitter swaps the Wails event emitter at runtime. Called from App.Startup
 // once the wails context exists; safe to call before any concurrent reader.
 func (s *service) SetEmitter(emit func(any)) {
 	s.mu.Lock()

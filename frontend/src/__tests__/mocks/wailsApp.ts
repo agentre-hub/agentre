@@ -243,9 +243,6 @@ export const ProjectListTree = windowBackedMock("ProjectListTree", () =>
 export const ProjectGet = windowBackedMock("ProjectGet", () =>
   Promise.resolve({ item: null }),
 );
-export const ProjectListSessions = windowBackedMock("ProjectListSessions", () =>
-  Promise.resolve([]),
-);
 export const ProjectLocationList = windowBackedMock("ProjectLocationList", () =>
   Promise.resolve([]),
 );

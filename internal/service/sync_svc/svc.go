@@ -157,36 +157,6 @@ func New(transport Transport) SyncSvc {
 	}
 }
 
-func (s *service) NotifyRuntimeClaim(ctx context.Context, ch LocalChange) {
-	if !kindKnown(ch.Kind) || ch.Meta.SyncID == "" {
-		return
-	}
-	accountID, _, _, _, loggedIn := s.account(ctx)
-	if loggedIn && !ch.Meta.EligibleForSync(accountID) {
-		return
-	}
-	if !loggedIn {
-		// A row already owned by an account stays queued for that account; only
-		// genuinely unowned legacy rows use the anonymous holding key.
-		accountID = ch.Meta.SyncAccountID
-	}
-	if err := s.enqueue(ctx, accountID, ch); err != nil {
-		logger.Ctx(ctx).Warn("sync_svc.NotifyRuntimeClaim: enqueue failed",
-			zap.String("kind", ch.Kind), zap.String("op", ch.Op), zap.Error(err))
-		return
-	}
-	if !loggedIn {
-		return
-	}
-	bgCtx := context.WithoutCancel(ctx)
-	s.background(func() {
-		if err := s.SyncOnce(bgCtx); err != nil {
-			logger.Ctx(bgCtx).Debug("sync_svc.NotifyRuntimeClaim: push failed, staying queued",
-				zap.String("kind", ch.Kind), zap.Error(err))
-		}
-	})
-}
-
 func (s *service) getTransport() Transport {
 	s.mu.Lock()
 	defer s.mu.Unlock()

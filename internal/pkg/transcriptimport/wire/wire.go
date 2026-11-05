@@ -99,7 +99,7 @@ const (
 	StatusUnavailable = "unavailable"
 )
 
-// ScanParams 是 MethodScan 的请求。Backends 为空表示「这台设备上注册的全部」。
+// ScanParams 是 RPC_METHOD_TRANSCRIPT_IMPORT_SCAN 的请求。Backends 为空表示「这台设备上注册的全部」。
 type ScanParams struct {
 	Backends []string                `json:"backends,omitempty"`
 	Filter   transcriptimport.Filter `json:"filter"`
@@ -113,14 +113,14 @@ type BackendScan struct {
 	Candidates []transcriptimport.Candidate `json:"candidates,omitempty"`
 }
 
-// ScanResult 是 MethodScan 的应答:按后端分档,一档失败不影响其余。
+// ScanResult 是 RPC_METHOD_TRANSCRIPT_IMPORT_SCAN 的应答:按后端分档,一档失败不影响其余。
 type ScanResult struct {
 	Backends []BackendScan `json:"backends"`
 }
 
 // ── Open ────────────────────────────────────────────────────────────────────
 
-// OpenParams 是 MethodOpen 的请求。
+// OpenParams 是 RPC_METHOD_TRANSCRIPT_IMPORT_OPEN 的请求。
 type OpenParams struct {
 	Backend string `json:"backend"`
 	Locator string `json:"locator"`
@@ -141,7 +141,7 @@ const (
 	MaxTurnsPerPage = 32
 )
 
-// TurnsParams 是 MethodTurns 的请求:从 StartIndex 起取至多 MaxTurns 轮。
+// TurnsParams 是 RPC_METHOD_TRANSCRIPT_IMPORT_TURNS 的请求:从 StartIndex 起取至多 MaxTurns 轮。
 // MaxTurns <= 0 用 DefaultMaxTurns,超过 MaxTurnsPerPage 按上限裁。
 type TurnsParams struct {
 	Backend    string `json:"backend"`
@@ -161,7 +161,7 @@ type TurnsResult struct {
 
 // ── Execute ─────────────────────────────────────────────────────────────────
 
-// ExecuteParams 是 MethodExecute 的请求:在这台机器上把 {后端, 定位符} 那份转录
+// ExecuteParams 是 RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE 的请求:在这台机器上把 {后端, 定位符} 那份转录
 // 落成一条归本机执行的会话。
 //
 // ConversationID 由**调用方**铸(与 runtime.run 同一条规矩:发起端铸这条对话的
@@ -182,7 +182,7 @@ type ExecuteParams struct {
 	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
 }
 
-// ExecuteResult 是 MethodExecute 的应答。
+// ExecuteResult 是 RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE 的应答。
 //
 // AlreadyImported 为真表示这条 provider 会话在这台对端名下已经有一条会话了,
 // ConversationID 指的是**库里那条**(未必等于请求里铸的号),Turns 为 0 —— 日志一条

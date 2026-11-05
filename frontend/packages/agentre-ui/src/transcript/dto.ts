@@ -7,7 +7,7 @@
  * agentre-server 那侧则由 `reduceFrames()` 把 relay 上来的 wire 帧归约成同一形态。
  *
  * 这里是手写的第二份声明，因此桌面端配了一条编译期可赋值性守卫
- * （frontend/src/components/agentre/__tests__/transcript-dto-contract.ts）：
+ * （frontend/src/components/agentre/__tests__/transcript-dto-contract.test.ts）：
  * 后端一旦改动生成类型而本文件没跟上，`tsc -b` 会直接红，而不是运行时才炸。
  */
 

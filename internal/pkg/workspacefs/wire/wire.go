@@ -14,7 +14,7 @@
 //   - 字段名 lowerCamelCase
 //   - 错误码 -32040..-32043 是稳定 wire 值,与既有方法族的 code 段不重叠。
 //     数值本身与那张全族段位表都住在共享 module 的 pkg/wire/rpcerror,本包只留
-//     别名;wrapGuarded handler 返回 *rpcerror.Error 由本包翻译,客户端用
+//     别名;handler 返回的 sentinel 经 ToRPCError 翻成 *rpcerror.Error,客户端用
 //     FromRPCError rehydrate。
 package wire
 
