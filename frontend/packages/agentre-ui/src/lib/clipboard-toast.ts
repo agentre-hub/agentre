@@ -17,9 +17,22 @@ type CopyTextWithToastOptions = {
   successTitle: string;
 };
 
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
+// 没有任何可用复制通道：和「有通道但这次被拒」是两回事，文案不同。
+class NoClipboardChannelError extends Error {}
+
+/**
+ * 把复制失败翻成给用户看的中文事实句。浏览器 / Go 的原话（err.message）永远
+ * 不进可见文案——它是英文且描述的是 API 调用而不是用户能做的事。
+ * `NotAllowedError` 同时覆盖权限被拒与文档未聚焦两种情形。
+ */
+function copyFailureDescription(err: unknown): string {
+  if (err instanceof NoClipboardChannelError) {
+    return i18n.t("clipboard.insecureContext", { ns: AGENTRE_UI_NAMESPACE });
+  }
+  if (err instanceof DOMException && err.name === "NotAllowedError") {
+    return i18n.t("common.copyPermissionDenied", { ns: AGENTRE_UI_NAMESPACE });
+  }
+  return i18n.t("common.copyFailedRetry", { ns: AGENTRE_UI_NAMESPACE });
 }
 
 /**
@@ -130,9 +143,7 @@ export async function copyTextWithToast(
 ): Promise<boolean> {
   try {
     if (!(await copyTextToClipboard(text))) {
-      throw new Error(
-        i18n.t("clipboard.insecureContext", { ns: AGENTRE_UI_NAMESPACE }),
-      );
+      throw new NoClipboardChannelError();
     }
     toast.success(successTitle, {
       description: successDescription,
@@ -142,7 +153,7 @@ export async function copyTextWithToast(
     return true;
   } catch (err) {
     toast.error(errorTitle, {
-      description: errorMessage(err),
+      description: copyFailureDescription(err),
       duration: COPY_TOAST_ERROR_DURATION_MS,
       position: "bottom-right",
     });

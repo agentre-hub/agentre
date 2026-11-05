@@ -69,12 +69,42 @@ describe("copyTextWithToast", () => {
     expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
       "复制命令失败",
       expect.objectContaining({
-        description: "denied",
+        description: "Copy did not go through this time. Please try again.",
         duration: COPY_TOAST_ERROR_DURATION_MS,
         position: "bottom-right",
       }),
     );
     expect(sonnerMocks.toast.success).not.toHaveBeenCalled();
+    expect(JSON.stringify(sonnerMocks.toast.error.mock.calls)).not.toContain(
+      "denied",
+    );
+  });
+
+  it("Given the browser denies clipboard write, When text is copied, Then the toast states the fact instead of the raw browser message", async () => {
+    const raw =
+      "Failed to execute 'writeText' on 'Clipboard': Write permission denied.";
+    const writeText = vi
+      .fn()
+      .mockRejectedValue(new DOMException(raw, "NotAllowedError"));
+    installClipboard(writeText);
+
+    const copied = await copyTextWithToast("agentred run", {
+      errorTitle: "复制命令失败",
+      successTitle: "已复制命令",
+    });
+
+    expect(copied).toBe(false);
+    expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
+      "复制命令失败",
+      expect.objectContaining({
+        description:
+          "The browser did not allow clipboard writes. Click the page and try again, or select and copy manually.",
+        duration: COPY_TOAST_ERROR_DURATION_MS,
+      }),
+    );
+    expect(JSON.stringify(sonnerMocks.toast.error.mock.calls)).not.toContain(
+      "writeText",
+    );
   });
 
   it("Given no Clipboard API, When text is copied, Then execCommand copies the selection and success is reported", async () => {
@@ -268,7 +298,7 @@ describe("copyTextToClipboard with a host clipboard writer", () => {
     expect(writeText).not.toHaveBeenCalled();
   });
 
-  it("Given a host writer that rejects, When text is copied with a toast, Then the error toast carries the host's reason", async () => {
+  it("Given a host writer that rejects, When text is copied with a toast, Then the error toast says the generic fact, not the host's raw reason", async () => {
     setClipboardWriter(vi.fn().mockRejectedValue(new Error("pasteboard busy")));
 
     await expect(
@@ -276,7 +306,9 @@ describe("copyTextToClipboard with a host clipboard writer", () => {
     ).resolves.toBe(false);
     expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ description: "pasteboard busy" }),
+      expect.objectContaining({
+        description: "Copy did not go through this time. Please try again.",
+      }),
     );
     expect(sonnerMocks.toast.success).not.toHaveBeenCalled();
   });

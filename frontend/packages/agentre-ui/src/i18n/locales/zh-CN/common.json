@@ -43,6 +43,8 @@
     "copy": "复制",
     "copied": "已复制",
     "copyFailed": "复制失败",
+    "copyFailedRetry": "这次没复制成，请再试一次。",
+    "copyPermissionDenied": "浏览器没有允许写入剪贴板，请点一下页面再试，或手动选中复制。",
     "delete": "删除",
     "edit": "编辑",
     "errorOccurred": "出错了",
