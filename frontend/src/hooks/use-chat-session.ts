@@ -149,16 +149,64 @@ function refreshRetainedDerivedBlocks(
 //
 // 只动 blocksLoaded===false 的行:窗口内那些消息手上是**完整**正文,拿点名类型的
 // 子集去覆盖,转录立刻就少掉工具结果。合进去的仍是子集,所以 blocksLoaded 保持假。
+//
+// scope 是这次读真正交回来的那些消息(增量读;null = 全量读,每一行都交回了)。
+// 范围外的行是手上原样保住的,它们早先补过的派生块仍然有效 —— 增量点查本来就不
+// 交回它们,按「没交回 = 没有块」去覆盖就把整条会话的派生视图抹空了。
 function mergeDerivedViewBlocks(
   messages: ChatMessage[],
   byType: ChatMessage[],
+  scope: ReadonlySet<number> | null,
 ): ChatMessage[] {
   const blocksById = new Map(byType.map((m) => [m.id, m.blocks ?? []]));
   return messages.map((m) =>
-    m.blocksLoaded === false
+    m.blocksLoaded === false && (scope === null || scope.has(m.id))
       ? ({ ...m, blocks: blocksById.get(m.id) ?? [] } as ChatMessage)
       : m,
   );
+}
+
+// mergeChangedMessages 把增量读交回的消息合进手上已持有的那份,拼出「全量读会给的
+// 那张表」:按 messageIds(本会话当前全部消息,seq 升序)逐个取 —— 交回了就用交回
+// 的(新增 / 刚收尾 / 块后来被改写过),没交回就用手上那条(自游标以来没变过)。
+// 不在 messageIds 里的手上消息就此消失(编辑重发 / 截断删掉的)。
+//
+// 返回 null 表示拼不出来:某个 id 既不在手上也没交回 —— 有消息不经版本推进就进了
+// 会话(恢复流程),只能以游标 0 全量重读。
+function mergeChangedMessages(
+  held: readonly ChatMessage[],
+  changed: readonly ChatMessage[],
+  messageIds: readonly number[] | undefined,
+): ChatMessage[] | null {
+  if (!messageIds) return null;
+  const changedById = new Map(changed.map((m) => [m.id, m]));
+  const heldById = new Map(held.map((m) => [m.id, m]));
+  const merged: ChatMessage[] = [];
+  for (const id of messageIds) {
+    const m = changedById.get(id) ?? heldById.get(id);
+    if (!m) return null;
+    merged.push(m);
+  }
+  return merged;
+}
+
+// cursorAfterLoad 算下一次增量读的游标。
+//
+// 游标的含义是「版本不超过它的改动手上都有」。响应的 version 满足这一点,唯独被
+// retainLiveMessageBlocks 冻住的那些行例外:手上留的是开流那一刻的旧正文,比它们
+// 交回的版本旧。游标退到它们的版本之下,流收尾后的下一次增量读才会把它们的最终
+// 正文再取一次 —— 否则那段旧正文就永远留在转录里。缺版本的一律退回全量(0)。
+function cursorAfterLoad(
+  respVersion: number | undefined,
+  messages: readonly ChatMessage[],
+  frozenIds: ReadonlySet<number>,
+): number {
+  let cursor = respVersion ?? 0;
+  for (const m of messages) {
+    if (!frozenIds.has(m.id)) continue;
+    cursor = m.version ? Math.min(cursor, m.version - 1) : 0;
+  }
+  return Math.max(cursor, 0);
 }
 
 // retainLoadedBlocks 保住「用户已经往上取回来」的那些正文。
@@ -199,19 +247,25 @@ function retainLoadedBlocks(
 // 冻住这一段,重复就无从产生;流一收尾(finishStream 删掉 entry)下一次 load 自然
 // 拿回完整正文。窗口外还没取回正文的消息(blocksLoaded === false)不冻 —— 那份
 // 「旧快照」是空的,冻了等于把正文抹掉。
+//
+// 返回值同时带出**冻住了哪些行**:它们手上的正文比交回的版本旧,下一次增量读的
+// 游标不能越过它们(见 cursorAfterLoad)。
 function retainLiveMessageBlocks(
   prev: readonly ChatMessage[],
   loaded: ChatMessage[],
   liveMessageIds: ReadonlySet<number>,
-): ChatMessage[] {
-  if (liveMessageIds.size === 0) return loaded;
+): { messages: ChatMessage[]; frozenIds: Set<number> } {
+  const frozenIds = new Set<number>();
+  if (liveMessageIds.size === 0) return { messages: loaded, frozenIds };
   const prevById = new Map(prev.map((m) => [m.id, m]));
-  return loaded.map((m) => {
+  const messages = loaded.map((m) => {
     if (!liveMessageIds.has(m.id)) return m;
     const old = prevById.get(m.id);
     if (!old || old.blocksLoaded === false) return m;
+    frozenIds.add(m.id);
     return { ...m, blocks: old.blocks, blocksLoaded: true } as ChatMessage;
   });
+  return { messages, frozenIds };
 }
 
 export function useChatSession(sessionId: number) {
@@ -228,6 +282,14 @@ export function useChatSession(sessionId: number) {
   // loadEarlierBlocks,滚动事件更是一路连发。用 ref 而不是 loadingEarlierBlocks
   // 这个 state —— 同一帧里连着来的几次调用读到的 state 还是旧值。
   const earlierInFlightRef = useRef(false);
+  // cursorRef 是增量 reload 的游标:手上这份消息表对应的消息版本,连同它属于哪个
+  // 会话(切换会话后旧游标作废,下一次读自然是全量)。它只在落表的同一个 updater
+  // 里改写,与 messagesRef 成对推进 —— 先推游标、后落表的空档里起手的 reload 会拿
+  // 新游标去配旧消息表,两次之间的改动就再也取不回来。
+  const cursorRef = useRef<{ sessionId: number; version: number } | null>(null);
+  // loadSeqRef 给每次 reload 编号。只有最后发起的那一次落表:更早发起的响应带着更旧
+  // 的快照,晚到时盖掉新结果、再把游标拨回去,手上数据就与游标对不上了。
+  const loadSeqRef = useRef(0);
   const setMessages = useCallback<Dispatch<SetStateAction<ChatMessage[]>>>(
     (action) => {
       setMessagesState((prev) => {
@@ -248,7 +310,10 @@ export function useChatSession(sessionId: number) {
   const overlay = useSessionWithOverlays(sessionId);
 
   const reload = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
+    const superseded = () => seq !== loadSeqRef.current;
     if (!sessionId) {
+      cursorRef.current = null;
       setSession(null);
       setMessages([]);
       setLoading(false);
@@ -260,27 +325,56 @@ export function useChatSession(sessionId: number) {
       // 快照的「已知世界」——在第一次 await 之前取,响应回来时据它区分
       // 「load 在途期间新插入的行」与「后端真删了的行」。
       const idsBeforeLoad = new Set(messagesRef.current.map((m) => m.id));
-      const startedDoneTick =
-        useSessionStatusStore.getState().statuses.get(sessionId)?.doneTick ?? 0;
-      let resp = await LoadChatSession({ sessionId });
-      const returnedDoneTick =
-        useSessionStatusStore.getState().statuses.get(sessionId)?.doneTick ?? 0;
-      if (returnedDoneTick > startedDoneTick) {
+      const held = cursorRef.current;
+      let sinceVersion = held?.sessionId === sessionId ? held.version : 0;
+      const fetchSession = async (since: number) => {
+        const req =
+          since > 0 ? { sessionId, sinceVersion: since } : { sessionId };
+        const startedDoneTick =
+          useSessionStatusStore.getState().statuses.get(sessionId)?.doneTick ??
+          0;
+        const first = await LoadChatSession(req);
+        const returnedDoneTick =
+          useSessionStatusStore.getState().statuses.get(sessionId)?.doneTick ??
+          0;
+        if (returnedDoneTick <= startedDoneTick) return first;
         clientLog.warn(
           "use-chat-session",
           "reloading session because a turn finished during LoadChatSession",
-          {
-            sessionId,
-            startedDoneTick,
-            returnedDoneTick,
-          },
+          { sessionId, startedDoneTick, returnedDoneTick },
         );
-        resp = await LoadChatSession({ sessionId });
+        return LoadChatSession(req);
+      };
+      let resp = await fetchSession(sinceVersion);
+      if (superseded()) return;
+      // 增量读:把交回的消息合进手上那份,拼成全量读会给的那张表。changedIds 是
+      // 这次真正交回来的消息,派生视图的补数只需要照顾它们(null = 全量,全部)。
+      let loadedMessages = resp.messages ?? [];
+      let changedIds: Set<number> | null = null;
+      if (sinceVersion > 0) {
+        const merged = mergeChangedMessages(
+          messagesRef.current,
+          loadedMessages,
+          resp.messageIds,
+        );
+        if (merged) {
+          changedIds = new Set(loadedMessages.map((m) => m.id));
+          loadedMessages = merged;
+        } else {
+          clientLog.warn(
+            "use-chat-session",
+            "incremental reload cannot account for every message; reloading in full",
+            { sessionId, sinceVersion },
+          );
+          sinceVersion = 0;
+          resp = await fetchSession(0);
+          if (superseded()) return;
+          loadedMessages = resp.messages ?? [];
+        }
       }
       setSession(resp.session);
       // loadedMessages 可能在下方 activeStream 分支被替换(剥离 overlay pending
       // tool_approval 块),setMessages 统一挪到该分支之后执行。
-      let loadedMessages = resp.messages ?? [];
       // 「这次 load 之前就已经在流的消息」—— 必须在下面 activeStream 分支
       // openStream 之前取,那条流刚开、liveBlocks 还是空的,它要的正是这份新快照。
       const liveBeforeLoad = new Set<number>(
@@ -462,23 +556,38 @@ export function useChatSession(sessionId: number) {
       const retained = retainLoadedBlocks(messagesRef.current, loadedMessages);
       loadedMessages = retained.messages;
       // 在流的消息:正文冻在开流那一刻,别把 liveBlocks 已经持有的那一段再发一遍。
-      loadedMessages = retainLiveMessageBlocks(
+      const frozen = retainLiveMessageBlocks(
         messagesRef.current,
         loadedMessages,
         liveBeforeLoad,
       );
+      loadedMessages = frozen.messages;
       // 派生视图的补数:窗口外的消息只拿到了元数据,而后台任务面板 / 大纲 / 变更
       // 要看整条会话。按类型点查把它们需要的那几类块补回去,数据集合与「整条转录
       // 都在本地」时等价。补数失败不影响会话打开 —— 转录本身已经就绪。
-      if (hasUnloadedBlocks(loadedMessages) || retained.retainedIds.size > 0) {
+      // 增量读时点查带同一个游标,只补这次交回来的那几条;手上原样保住的行早先补过。
+      const needsDerivedBlocks =
+        retained.retainedIds.size > 0 ||
+        loadedMessages.some(
+          (m) =>
+            m.blocksLoaded === false &&
+            (changedIds === null || changedIds.has(m.id)),
+        );
+      // 点查失败时这次交回的窗口外消息缺着派生块:游标不越过这次的起点,下一次
+      // 增量读把它们再交回一遍(全量读失败则下一次照旧全量)。
+      let derivedBlocksMissing = false;
+      if (needsDerivedBlocks) {
         try {
-          const byType = await LoadChatSessionBlocksByType({
-            sessionId,
-            types: DERIVED_VIEW_BLOCK_TYPES,
-          });
+          const byType = await LoadChatSessionBlocksByType(
+            sinceVersion > 0
+              ? { sessionId, types: DERIVED_VIEW_BLOCK_TYPES, sinceVersion }
+              : { sessionId, types: DERIVED_VIEW_BLOCK_TYPES },
+          );
+          if (superseded()) return;
           loadedMessages = mergeDerivedViewBlocks(
             loadedMessages,
             byType.messages ?? [],
+            changedIds,
           );
           // 保住的那些行 blocksLoaded 已是 true,上一句认不出它们;它们的派生视图
           // 块在这里按 toolUseId 单独换新。
@@ -488,6 +597,7 @@ export function useChatSession(sessionId: number) {
             retained.retainedIds,
           );
         } catch (e: unknown) {
+          derivedBlocksMissing = true;
           clientLog.warn(
             "use-chat-session",
             "derived-view block query failed; panels fall back to the loaded window",
@@ -495,25 +605,39 @@ export function useChatSession(sessionId: number) {
           );
         }
       }
-      setMessages((prev) =>
-        preserveMessageIdentity(
+      const cursor = cursorAfterLoad(
+        resp.version,
+        loadedMessages,
+        frozen.frozenIds,
+      );
+      const nextCursor = derivedBlocksMissing
+        ? Math.min(sinceVersion, cursor)
+        : cursor;
+      setMessages((prev) => {
+        // 游标与消息表在同一个 updater 里推进(见 cursorRef)。
+        cursorRef.current =
+          nextCursor > 0 ? { sessionId, version: nextCursor } : null;
+        return preserveMessageIdentity(
           prev,
           reconcileLoadedMessages(prev, loadedMessages, idsBeforeLoad),
-        ),
-      );
+        );
+      });
       // 注:不在这里 MarkRead。语义上"用户已读到 lastMessageAt"只能由
       // ChatPanel 根据 active prop 判断 —— 隐藏 tab 也会 mount useChatSession,
       // 在这里无条件 MarkRead 会把用户没看过的 session 标记成已读。
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!superseded()) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (!superseded()) setLoading(false);
     }
     // setMessages 是 [] 依赖的 useCallback,身份恒定 —— 列进来只为满足
     // exhaustive-deps,reload 仍然只随 sessionId 变化,不会多触发一次加载。
   }, [sessionId, setMessages]);
 
+  // 打开会话(含切换到另一条会话)一律全量读:先作废游标。之后的 reload(轮次收尾、
+  // 停止、切换供应商……)有游标就走增量,只取「上次之后变了什么」。
   useEffect(() => {
+    cursorRef.current = null;
     void reload();
   }, [reload]);
 
