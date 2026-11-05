@@ -142,7 +142,8 @@ export const ToolApprovalCard: React.FC<{
           </Button>
           <Button
             size="sm"
-            variant="outline"
+            variant="ghost"
+            className="text-destructive-text"
             disabled={submitting}
             onClick={() => answer(false)}
           >

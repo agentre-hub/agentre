@@ -3009,11 +3009,12 @@ describe("ChatTranscript permission + tool merge", () => {
       "data-copyable-control-text",
       "true",
     );
-    expect(screen.getByText("printf hi")).toHaveAttribute(
+    // 待审批卡默认展开,命令在 header 摘要与正文各出现一次;header 摘要在前。
+    expect(screen.getAllByText("printf hi")[0]).toHaveAttribute(
       "data-copyable-control-text",
       "true",
     );
-    expect(screen.getByText("Allow Once")).not.toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Allow" })).not.toHaveAttribute(
       "data-copyable-control-text",
     );
   });
@@ -3095,7 +3096,7 @@ describe("ChatTranscript permission + tool merge", () => {
     );
 
     // 待审批态留三个操作按钮,confirm 卡片确实出现。
-    expect(screen.getByText("Allow Once")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument();
     expect(screen.getByText("Always Allow This Session")).toBeInTheDocument();
     expect(screen.getByText("Reject")).toBeInTheDocument();
   });

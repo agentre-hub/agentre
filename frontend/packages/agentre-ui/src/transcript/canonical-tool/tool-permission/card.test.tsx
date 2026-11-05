@@ -66,8 +66,8 @@ describe("ToolPermissionCard JSON input", () => {
     renderCard(
       <ToolPermissionCard toolBlock={block} sessionId={1} messageId={1} />,
     );
-    // 卡片默认折叠;展开后 JSON 入参出现并带折叠控制
-    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    // 待审批卡默认展开;JSON 入参直接可见
+    expect(screen.getByRole("button", { expanded: true })).toBeDefined();
     expect(screen.queryByRole("button", { name: "Expand all" })).toBeNull();
   });
 
@@ -89,8 +89,7 @@ describe("ToolPermissionCard JSON input", () => {
     renderCard(
       <ToolPermissionCard toolBlock={block} sessionId={1} messageId={1} />,
     );
-    const header = screen.getByRole("button", { expanded: false });
-    fireEvent.click(header);
+    const header = screen.getByRole("button", { expanded: true });
     expect(header).toHaveAttribute("aria-expanded", "true");
     const grid = header.nextElementSibling as HTMLElement;
     expect(within(grid).getByText(/system_prompt/)).toBeDefined();
@@ -135,7 +134,7 @@ describe("ToolPermissionCard optimistic resolution", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Allow Once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
 
     expect(markToolPermissionResolved).toHaveBeenCalledWith({
       sessionId: 7,
@@ -187,5 +186,246 @@ describe("ToolPermissionCard optimistic resolution", () => {
         alwaysAllow: false,
       },
     });
+  });
+});
+
+function permBlock(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  requestId = "req-1",
+  resolved = false,
+): TranscriptBlock {
+  return {
+    type: "tool_use",
+    toolName,
+    toolUseId: `perm-${requestId}`,
+    canonical: {
+      kind: "tool.permission",
+      toolPermission: { requestId, toolName, toolInput, resolved },
+    },
+  } as unknown as TranscriptBlock;
+}
+
+describe("ToolPermissionCard expansion and summaries", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("is expanded while pending and collapsed once resolved", () => {
+    const { unmount } = renderCard(
+      <ToolPermissionCard
+        toolBlock={permBlock("Bash", { command: "ls" })}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    expect(screen.getByRole("button", { expanded: true })).toBeDefined();
+    unmount();
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={permBlock("Bash", { command: "ls" }, "req-1", true)}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    expect(screen.getByRole("button", { expanded: false })).toBeDefined();
+  });
+
+  it("shows the command for Bash", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={permBlock("Bash", { command: "rm -rf build && make" })}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    const body = screen.getByTestId("tool-permission-body");
+    expect(body.textContent).toContain("rm -rf build && make");
+    expect(body.textContent).not.toContain('"command"');
+  });
+
+  it("shows path and a small diff for Edit", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={permBlock("Edit", {
+          file_path: "/src/app.ts",
+          old_string: "const a = 1;",
+          new_string: "const a = 2;",
+        })}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    const body = screen.getByTestId("tool-permission-body");
+    expect(body.textContent).toContain("/src/app.ts");
+    expect(
+      screen.getByTestId("tool-permission-diff-del").textContent,
+    ).toContain("const a = 1;");
+    expect(
+      screen.getByTestId("tool-permission-diff-add").textContent,
+    ).toContain("const a = 2;");
+    expect(body.textContent).not.toContain("old_string");
+  });
+
+  it("shows path and line count for Write", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={permBlock("Write", {
+          file_path: "/src/new.ts",
+          content: "a\nb\nc",
+        })}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    const body = screen.getByTestId("tool-permission-body");
+    expect(body.textContent).toContain("/src/new.ts");
+    expect(body.textContent).toContain("3 lines");
+    expect(body.textContent).not.toContain('"content"');
+  });
+
+  it("falls back to formatted JSON for other tools", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={permBlock("WebFetch", { url: "https://x.dev" })}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    expect(screen.getByTestId("tool-permission-body").textContent).toContain(
+      '"url": "https://x.dev"',
+    );
+  });
+
+  it("falls back to JSON when Edit input is malformed", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={permBlock("Edit", { file_path: 5 })}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    expect(screen.getByTestId("tool-permission-body").textContent).toContain(
+      '"file_path": 5',
+    );
+  });
+});
+
+describe("ToolPermissionCard buttons and keyboard", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const one = (id = "req-1") => (
+    <ToolPermissionCard
+      toolBlock={permBlock("Bash", { command: "ls" }, id)}
+      sessionId={7}
+      messageId={42}
+    />
+  );
+
+  it("styles Allow primary, session-allow ghost, Reject ghost destructive", () => {
+    renderCard(one());
+    expect(screen.getByRole("button", { name: "Allow" })).toHaveAttribute(
+      "data-variant",
+      "default",
+    );
+    const session = screen.getByRole("button", {
+      name: "Always Allow This Session",
+    });
+    expect(session).toHaveAttribute("data-variant", "ghost");
+    const reject = screen.getByRole("button", { name: "Reject" });
+    expect(reject).toHaveAttribute("data-variant", "ghost");
+    expect(reject.className).toContain("text-destructive-text");
+  });
+
+  it("shows kbd hints on Allow and Reject", () => {
+    renderCard(one());
+    expect(
+      within(screen.getByRole("button", { name: "Allow" })).getByText("↵")
+        .tagName,
+    ).toBe("KBD");
+    expect(
+      within(screen.getByRole("button", { name: "Reject" })).getByText("Esc")
+        .tagName,
+    ).toBe("KBD");
+  });
+
+  it("focuses Allow on mount", () => {
+    renderCard(one());
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Allow" }),
+    );
+  });
+
+  it("does not steal focus from a composer textarea", () => {
+    const ta = document.createElement("textarea");
+    document.body.appendChild(ta);
+    ta.focus();
+    renderCard(one());
+    expect(document.activeElement).toBe(ta);
+    ta.remove();
+  });
+
+  it("Enter allows and Esc denies", async () => {
+    const { unmount } = renderCard(one());
+    fireEvent.keyDown(screen.getByRole("button", { name: "Allow" }), {
+      key: "Enter",
+    });
+    await waitFor(() =>
+      expect(answerToolPermission).toHaveBeenCalledWith(
+        expect.objectContaining({ allow: true, alwaysAllowSession: false }),
+      ),
+    );
+    unmount();
+    vi.clearAllMocks();
+    renderCard(one());
+    fireEvent.keyDown(screen.getByRole("button", { name: "Allow" }), {
+      key: "Escape",
+    });
+    await waitFor(() =>
+      expect(answerToolPermission).toHaveBeenCalledWith(
+        expect.objectContaining({ allow: false }),
+      ),
+    );
+  });
+
+  it("ignores keys during IME composition", () => {
+    renderCard(one());
+    fireEvent.keyDown(screen.getByRole("button", { name: "Allow" }), {
+      key: "Enter",
+      isComposing: true,
+    });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Allow" }), {
+      key: "Escape",
+      keyCode: 229,
+    });
+    expect(answerToolPermission).not.toHaveBeenCalled();
+  });
+
+  it("only the card containing focus responds when several are pending", async () => {
+    renderCard(
+      <>
+        {one("req-1")}
+        {one("req-2")}
+      </>,
+    );
+    const allows = screen.getAllByRole("button", { name: "Allow" });
+    expect(document.activeElement).toBe(allows[0]);
+    fireEvent.keyDown(allows[1], { key: "Escape" });
+    await waitFor(() => expect(answerToolPermission).toHaveBeenCalledTimes(1));
+    expect(answerToolPermission).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: "req-2", allow: false }),
+    );
+  });
+
+  it("does not respond to keys outside the card", () => {
+    renderCard(one());
+    fireEvent.keyDown(document.body, { key: "Enter" });
+    expect(answerToolPermission).not.toHaveBeenCalled();
+  });
+
+  it("does not hijack Enter on the Reject button", () => {
+    renderCard(one());
+    fireEvent.keyDown(screen.getByRole("button", { name: "Reject" }), {
+      key: "Enter",
+    });
+    expect(answerToolPermission).not.toHaveBeenCalled();
   });
 });

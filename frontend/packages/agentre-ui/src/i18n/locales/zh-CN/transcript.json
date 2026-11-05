@@ -208,7 +208,10 @@
       "backgroundRunning": "后台运行"
     },
     "toolPermission": {
-      "allowOnce": "仅本次允许",
+      "lines": "{{count}} 行",
+      "lines_one": "{{count}} 行",
+      "lines_other": "{{count}} 行",
+      "allowOnce": "允许",
       "allowSession": "本会话始终允许",
       "allowed": "已允许",
       "allowedSession": "已允许(本会话)",
