@@ -51,6 +51,18 @@ func (f *failingSync) RecreateFromLostChange(context.Context, int64) error { ret
 func (f *failingSync) DiscardLostChange(context.Context, int64) error      { return f.err }
 func (f *failingSync) SyncOnce(context.Context) error                      { return f.err }
 
+// bridgeErrorMatches 报告 err 是否就是 want；want 以空格结尾时只比前缀
+// （码固定、文案由 i18n 渲染）。
+func bridgeErrorMatches(err error, want string) bool {
+	if err == nil {
+		return false
+	}
+	if strings.HasSuffix(want, " ") {
+		return strings.HasPrefix(err.Error(), want)
+	}
+	return err.Error() == want
+}
+
 // S5：看板写入 / 同步 / 数据导入导出 / 设备升级的失败都要带着 `agentre-code:<码>`
 // 过桥，前端才能分出「文件不是备份」「设备离线」等不同出路。
 func TestWriteBindings_CarryTheBusinessCode(t *testing.T) {
@@ -121,7 +133,7 @@ func TestWriteBindings_CarryTheBusinessCode(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			err := c.call()
-			if err == nil || !(err.Error() == c.want || (strings.HasSuffix(c.want, " ") && strings.HasPrefix(err.Error(), c.want))) {
+			if !bridgeErrorMatches(err, c.want) {
 				t.Fatalf("expected %q across the bridge, got %v", c.want, err)
 			}
 		})
