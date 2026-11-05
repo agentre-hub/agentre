@@ -259,6 +259,37 @@ describe("ChatComposer · running turn", () => {
     expect(onStop).not.toHaveBeenCalled();
   });
 
+  it("Given an open slash popover, When Escape is pressed, Then it only closes the popover", async () => {
+    const editorRef = createRef<Editor | null>();
+    const onStop = vi.fn();
+    render(
+      <ChatComposer
+        editorRef={editorRef}
+        backendType="claudecode"
+        onSlashSelect={vi.fn()}
+        slashCommands={[
+          {
+            name: "compact",
+            label: "/compact",
+            trigger: "/",
+            resolve: () => ({ kind: "literal_text", text: "/compact" }),
+          },
+        ]}
+        running
+        onStop={onStop}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    act(() => {
+      editorRef.current?.commands.insertContent("/");
+    });
+    await screen.findByRole("listbox");
+    pressEscape(screen.getByRole("textbox"));
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(onStop).not.toHaveBeenCalled();
+  });
+
   it("Given an IME composition is in progress, When Escape is pressed, Then it is left to the IME", () => {
     const onStop = vi.fn();
     render(<ChatComposer running onStop={onStop} onSubmit={vi.fn()} />);
