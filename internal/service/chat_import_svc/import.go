@@ -24,7 +24,8 @@ import (
 //     CLI 那边根本不认识这个 id(spec「续跑」),必须在写任何一行之前拒掉。
 //  2. 打开转录拿到 provider session id,再判重 —— 定位符不是 id,不打开就无从判重。
 //  3. 判重命中直接指回库里那条,连事务都不开(硬约束 4)。
-//  4. 其余写入全部收在一个事务里:整条落库,或者一条都不留。
+//  4. 读转录 + 回放在事务外完成(慢 IO 不占 SQLite 写者锁),再用一个短事务把
+//     会话与全部消息一次写入:整条落库,或者一条都不留。
 func (s *chatImportSvc) Import(ctx context.Context, req *ImportRequest, onProgress ProgressFunc) (*ImportResponse, error) {
 	if req == nil || strings.TrimSpace(req.Locator) == "" || strings.TrimSpace(req.Backend) == "" {
 		return nil, errInvalid(ctx)
@@ -100,55 +101,65 @@ func (s *chatImportSvc) Import(ctx context.Context, req *ImportRequest, onProgre
 		sess.ExecDeviceID = req.DeviceID
 	}
 
+	// 读转录与回放都在事务外:本机解析 JSONL、远端按页 RPC 都是慢 IO,SQLite 只有
+	// 一个写者,把它们圈进事务会让整段导入期间其它会话的写入全被挡住。
+	// 回放需要 sess.ID,而它要等事务内建行才有 —— 先在内存里攒好消息,SessionID
+	// 到写入时再填。
 	imported := 0
-	err = s.tx.RunInTx(ctx, func(txCtx context.Context) error {
-		if err := s.sessions.Create(txCtx, sess); err != nil {
+	gaps := newGapNotifier(meta.Gaps)
+	seq := 1
+	lastAt := sess.LastMessageAt
+	var pairs []turnPair
+	err = tr.Turns(ctx, func(t transcriptimport.Turn) error {
+		// 取消在轮与轮之间生效:读取器各有各的检查点(本机按行、远端按页),
+		// 这里再看一眼,取消的落点因此与读取器无关。
+		if err := ctx.Err(); err != nil {
 			return err
 		}
-		gaps := newGapNotifier(meta.Gaps)
-		seq := 1
-		lastAt := sess.LastMessageAt
-		replayErr := tr.Turns(txCtx, func(t transcriptimport.Turn) error {
-			// 取消在轮与轮之间生效:读取器各有各的检查点(本机按行、远端按页),
-			// 这里再看一眼,取消的落点因此与读取器无关。
-			if err := txCtx.Err(); err != nil {
-				return err
-			}
-			pair, err := s.replayTurn(txCtx, sess, req.Backend, t, seq, gaps)
-			if err != nil {
-				return err
-			}
-			if err := s.messages.Create(txCtx, pair.user); err != nil {
-				return err
-			}
-			if err := s.messages.Create(txCtx, pair.assistant); err != nil {
-				return err
-			}
-			seq += 2
-			imported++
-			if pair.assistant.Createtime > lastAt {
-				lastAt = pair.assistant.Createtime
-			}
-			// 标题:元信息没给时取首条用户消息的首行(codex 另有现成标题,已在 meta 里)。
-			// 判据是"这是写下的第一轮"而不是 t.Index —— Index 由读取器给,不该让标题
-			// 依赖它从 0 起算。
-			if sess.Title == "" && imported == 1 {
-				sess.Title = firstLine(t.UserText)
-			}
-			if onProgress != nil {
-				onProgress(imported, meta.Turns)
-			}
-			return nil
-		})
-		if replayErr != nil {
-			return replayErr
+		pair, err := s.replayTurn(ctx, sess, req.Backend, t, seq, gaps)
+		if err != nil {
+			return err
 		}
-		if imported == 0 {
-			return errEmptyTranscript
+		pairs = append(pairs, pair)
+		seq += 2
+		imported++
+		if pair.assistant.Createtime > lastAt {
+			lastAt = pair.assistant.Createtime
 		}
-		sess.LastMessageAt = lastAt
-		return s.sessions.Update(txCtx, sess)
+		// 标题:元信息没给时取首条用户消息的首行(codex 另有现成标题,已在 meta 里)。
+		// 判据是"这是写下的第一轮"而不是 t.Index —— Index 由读取器给,不该让标题
+		// 依赖它从 0 起算。
+		if sess.Title == "" && imported == 1 {
+			sess.Title = firstLine(t.UserText)
+		}
+		if onProgress != nil {
+			onProgress(imported, meta.Turns)
+		}
+		return nil
 	})
+	if err == nil && imported == 0 {
+		err = errEmptyTranscript
+	}
+	if err == nil {
+		sess.LastMessageAt = lastAt
+		// 事务里只剩写入:建会话 + 逐条落消息 + 回写末条时间,整条落库或一条不留。
+		err = s.tx.RunInTx(ctx, func(txCtx context.Context) error {
+			if err := s.sessions.Create(txCtx, sess); err != nil {
+				return err
+			}
+			for _, pair := range pairs {
+				pair.user.SessionID = sess.ID
+				pair.assistant.SessionID = sess.ID
+				if err := s.messages.Create(txCtx, pair.user); err != nil {
+					return err
+				}
+				if err := s.messages.Create(txCtx, pair.assistant); err != nil {
+					return err
+				}
+			}
+			return s.sessions.Update(txCtx, sess)
+		})
+	}
 	if err != nil {
 		if errors.Is(err, errEmptyTranscript) {
 			return nil, failed(ctx, code.ChatImportTranscriptEmpty, nil, zap.String("backend", req.Backend))

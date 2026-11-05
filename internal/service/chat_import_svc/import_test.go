@@ -407,9 +407,7 @@ func TestImport_CancelStopsMidwayAndCommitsNothing(t *testing.T) {
 
 	m.session.EXPECT().ListIDsByProviderSessions(gomock.Any(), []string{testSession}).
 		Return(map[string]int64{}, nil)
-	m.session.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	// 只写得下第一轮那一对:第二轮之前取消已经生效。
-	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).Times(2).Return(nil)
+	// 读与回放在事务外:第二轮之前取消已经生效,事务一次都不会开,什么都没写。
 
 	req := importReq()
 	req.RequestID = "req-cancel-1"
@@ -427,7 +425,7 @@ func TestImport_CancelStopsMidwayAndCommitsNothing(t *testing.T) {
 	assert.Nil(t, resp)
 	require.NotNil(t, canceled)
 	assert.True(t, canceled.Canceled, "取消要命中那一笔在跑的导入")
-	assert.True(t, m.tx.rolledBack, "取消后事务必须回滚")
+	assert.Equal(t, 0, m.tx.ran, "取消发生在读取阶段,事务不得开启")
 	assert.False(t, m.tx.committed)
 }
 
