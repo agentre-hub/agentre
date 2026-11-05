@@ -22,6 +22,7 @@ import {
   COPY_TOAST_ERROR_DURATION_MS,
   copyTextToClipboard,
   copyTextWithToast,
+  setClipboardWriter,
 } from "./clipboard-toast";
 
 describe("copyTextWithToast", () => {
@@ -235,5 +236,60 @@ describe("copyTextToClipboard", () => {
     installClipboard(vi.fn().mockRejectedValue(new Error("denied")));
 
     await expect(copyTextToClipboard("agentred run")).rejects.toThrow("denied");
+  });
+});
+
+/*
+  宿主可以装自己的剪贴板通道。
+
+  桌面端跑在 WKWebView 里：Clipboard API 只在 WebKit 认定「正在处理用户手势」时
+  放行，否则拒成 NotAllowedError（"The request is not allowed by the user agent
+  or the platform in the current context…"）。宿主手里有不看手势的原生通道
+  （Wails ClipboardSetText → NSPasteboard），装上之后共享层的每个复制入口都走它。
+*/
+describe("copyTextToClipboard with a host clipboard writer", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    setClipboardWriter(null);
+    restoreClipboardEnv();
+  });
+
+  it("Given a host writer, When text is copied, Then the host writer gets the text and the Clipboard API is not touched", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("NotAllowedError"));
+    installClipboard(writeText);
+    const hostWrite = vi.fn().mockResolvedValue(undefined);
+    setClipboardWriter(hostWrite);
+
+    await expect(copyTextToClipboard("agentred run")).resolves.toBe(true);
+    expect(hostWrite).toHaveBeenCalledWith("agentred run");
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("Given a host writer that rejects, When text is copied with a toast, Then the error toast carries the host's reason", async () => {
+    setClipboardWriter(vi.fn().mockRejectedValue(new Error("pasteboard busy")));
+
+    await expect(
+      copyTextWithToast("agentred run", { successTitle: "已复制" }),
+    ).resolves.toBe(false);
+    expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ description: "pasteboard busy" }),
+    );
+    expect(sonnerMocks.toast.success).not.toHaveBeenCalled();
+  });
+
+  it("Given the host writer was removed, When text is copied, Then the Clipboard API is used again", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    installClipboard(writeText);
+    const hostWrite = vi.fn().mockResolvedValue(undefined);
+    setClipboardWriter(hostWrite);
+    setClipboardWriter(null);
+
+    await expect(copyTextToClipboard("agentred run")).resolves.toBe(true);
+    expect(writeText).toHaveBeenCalledWith("agentred run");
+    expect(hostWrite).not.toHaveBeenCalled();
   });
 });

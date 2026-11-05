@@ -103,7 +103,12 @@ export { resolveExecutionDevice } from "./engine/device-identity";
 // agent 调色板的 token 词汇表（与 tokens.css 同源）+ token → css 变量。
 export { agentColorOrder, tokenToCssColor } from "./lib/agent-color";
 export type { AgentColor } from "./lib/agent-color";
-export { copyTextToClipboard, copyTextWithToast } from "./lib/clipboard-toast";
+export {
+  copyTextToClipboard,
+  copyTextWithToast,
+  setClipboardWriter,
+} from "./lib/clipboard-toast";
+export type { ClipboardWriter } from "./lib/clipboard-toast";
 export { AgentAvatar, getAgentInitials } from "./ui/agent-avatar";
 export { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 export { Badge } from "./ui/badge";

@@ -82,6 +82,23 @@ function copyViaExecCommand(text: string): boolean {
 }
 
 /**
+ * 宿主自己的剪贴板通道：resolve 表示写进去了，reject 带上没写进去的原因。
+ *
+ * 桌面端跑在 WKWebView 里，Clipboard API 只在 WebKit 认定「正在处理用户手势」
+ * 时才放行，否则拒成 NotAllowedError——而桌面端手里有不看手势的原生通道
+ * （Wails `ClipboardSetText`）。宿主在启动时装一次，共享层所有复制入口都走它；
+ * 不装就是浏览器那两条路。
+ */
+export type ClipboardWriter = (text: string) => Promise<void>;
+
+let hostClipboardWriter: ClipboardWriter | null = null;
+
+/** 装上（或传 `null` 卸下）宿主的剪贴板通道。 */
+export function setClipboardWriter(writer: ClipboardWriter | null): void {
+  hostClipboardWriter = writer;
+}
+
+/**
  * 复制本身，不带任何反馈。
  *
  * 调用方已经有就地反馈时（`AddDeviceGuide` 的复制按钮会翻成「已复制」）用这一层，
@@ -92,6 +109,10 @@ function copyViaExecCommand(text: string): boolean {
  * 压成同一个 false 会让上层没法区分「不能复制」和「这次没复制成」。
  */
 export async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (hostClipboardWriter) {
+    await hostClipboardWriter(text);
+    return true;
+  }
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
     return true;

@@ -11,6 +11,9 @@
       "minimize": "Minimize window"
     }
   },
+  "clipboard": {
+    "writeRefused": "The system clipboard did not accept the text"
+  },
   "common": {
     "all": "All",
     "cancel": "Cancel",

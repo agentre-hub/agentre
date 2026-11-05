@@ -11,6 +11,9 @@
       "minimize": "最小化窗口"
     }
   },
+  "clipboard": {
+    "writeRefused": "系统剪贴板没有接收这段文本"
+  },
   "common": {
     "all": "全部",
     "cancel": "取消",

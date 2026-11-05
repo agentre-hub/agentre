@@ -3,7 +3,10 @@ import { createRoot } from "react-dom/client";
 
 import App from "./App";
 import "./i18n";
+import { installNativeClipboard } from "./lib/native-clipboard";
 import "./styles/globals.css";
+
+installNativeClipboard();
 
 const container = document.getElementById("root");
 
