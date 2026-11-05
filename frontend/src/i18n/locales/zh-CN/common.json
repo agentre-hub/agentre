@@ -60,8 +60,7 @@
       "waiting": "需要你的操作"
     },
     "openSession": "跳转到会话",
-    "dismiss": "关闭",
-    "justNow": "刚刚"
+    "dismiss": "关闭"
   },
   "quitConfirm": {
     "title": "退出 Agentre？",

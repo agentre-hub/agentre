@@ -60,8 +60,7 @@
       "waiting": "Waiting for your input"
     },
     "openSession": "Open session",
-    "dismiss": "Dismiss",
-    "justNow": "Just now"
+    "dismiss": "Dismiss"
   },
   "quitConfirm": {
     "title": "Quit Agentre?",

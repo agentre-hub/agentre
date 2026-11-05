@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useNotificationToastStore } from "../notification-toast-store";
 
@@ -47,5 +47,44 @@ describe("notification-toast-store", () => {
     expect(toasts).toHaveLength(5);
     expect(toasts[0].title).toBe("2");
     expect(toasts[4].title).toBe("6");
+  });
+
+  it("push 记录 createdAt(当前时间)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    useNotificationToastStore
+      .getState()
+      .push({ sessionId: 1, kind: "done", title: "A", body: "x" });
+    vi.useRealTimers();
+    expect(useNotificationToastStore.getState().toasts[0].createdAt).toBe(
+      1_700_000_000_000,
+    );
+  });
+
+  it("同一会话只留最新一张,其他会话不受影响", () => {
+    const s = useNotificationToastStore.getState();
+    s.push({ sessionId: 1, kind: "waiting", title: "A", body: "old" });
+    s.push({ sessionId: 2, kind: "done", title: "B", body: "b" });
+    const latest = s.push({
+      sessionId: 1,
+      kind: "error",
+      title: "A",
+      body: "new",
+    });
+    const { toasts } = useNotificationToastStore.getState();
+    expect(toasts.map((x) => x.sessionId)).toEqual([2, 1]);
+    expect(toasts[1]).toMatchObject({ id: latest, body: "new" });
+  });
+
+  it("dismissBySession 移除该会话的通知,保留其他会话", () => {
+    const s = useNotificationToastStore.getState();
+    s.push({ sessionId: 1, kind: "waiting", title: "A", body: "a" });
+    s.push({ sessionId: 2, kind: "error", title: "B", body: "b" });
+    s.dismissBySession(1);
+    expect(
+      useNotificationToastStore.getState().toasts.map((x) => x.sessionId),
+    ).toEqual([2]);
+    s.dismissBySession(99);
+    expect(useNotificationToastStore.getState().toasts).toHaveLength(1);
   });
 });

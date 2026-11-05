@@ -90,4 +90,36 @@ describe("TurnCompleteNotifier", () => {
     const tab = st.tabs.find((x) => x.id === st.activeTabId);
     expect(tab?.meta).toMatchObject({ kind: "session", sessionId: 99 });
   });
+
+  it("attention 清除 → 移除该会话通知,其他会话保留", async () => {
+    render(<TurnCompleteNotifier />);
+    await act(async () => {});
+    const up = useSessionStatusStore.getState().upsert;
+    act(() => {
+      up(42, { agentStatus: "running", needsAttention: false });
+      up(43, { agentStatus: "running", needsAttention: false });
+    });
+    act(() => {
+      up(42, { agentStatus: "waiting", needsAttention: true });
+      up(43, { agentStatus: "waiting", needsAttention: true });
+    });
+    expect(useNotificationToastStore.getState().toasts).toHaveLength(2);
+    act(() => {
+      up(42, { agentStatus: "waiting", needsAttention: false });
+    });
+    expect(
+      useNotificationToastStore.getState().toasts.map((x) => x.sessionId),
+    ).toEqual([43]);
+  });
+
+  it("新一轮开始(进入 running)→ 移除该会话旧通知", async () => {
+    render(<TurnCompleteNotifier />);
+    await act(async () => {});
+    const up = useSessionStatusStore.getState().upsert;
+    act(() => up(42, { agentStatus: "running", needsAttention: false }));
+    act(() => up(42, { agentStatus: "error", needsAttention: true }));
+    expect(useNotificationToastStore.getState().toasts).toHaveLength(1);
+    act(() => up(42, { agentStatus: "running", needsAttention: true }));
+    expect(useNotificationToastStore.getState().toasts).toHaveLength(0);
+  });
 });
