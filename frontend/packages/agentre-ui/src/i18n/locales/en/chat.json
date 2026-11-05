@@ -21,8 +21,18 @@
     },
     "errorCard": {
       "continue": "Continue",
-      "message": "Agent call failed: {{text}}",
-      "regenerate": "↻ Regenerate"
+      "copyDetails": "Copy the raw error",
+      "details": "Details",
+      "fact": {
+        "authExpired": "The login has expired; this turn did not finish.",
+        "network": "The network connection dropped; this turn did not finish.",
+        "overloaded": "The model service is temporarily overloaded; this turn did not finish.",
+        "processExited": "The agent process exited early; this turn did not finish.",
+        "rateLimited": "The model service's rate or usage limit was reached; this turn did not finish.",
+        "unknown": "This turn did not finish."
+      },
+      "loginLabel": "Run in a terminal, then send again",
+      "retryTurn": "Retry this turn"
     },
     "retry": {
       "aria": "Retrying",

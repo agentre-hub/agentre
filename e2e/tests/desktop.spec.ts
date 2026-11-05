@@ -100,7 +100,10 @@ test.describe.serial("desktop smoke", () => {
     await createChat(page);
     await send(page, FAILURE_PROMPT);
 
-    await expect(page.getByText(new RegExp(`Agent call failed: ${FAILURE_TEXT}`))).toBeVisible();
+    const errorCard = page.getByTestId("turn-error-card");
+    await expect(errorCard.getByText("This turn did not finish.")).toBeVisible();
+    await errorCard.getByRole("button", { name: "Details" }).click();
+    await expect(errorCard.getByText(FAILURE_TEXT)).toBeVisible();
     await expect(page.getByTestId("tab-spinner")).toHaveCount(0);
     await expect.poll(() => runningSessionCount()).toBe(0);
     await expect.poll(() => errorSessionCountContaining(FAILURE_TEXT)).toBe(1);

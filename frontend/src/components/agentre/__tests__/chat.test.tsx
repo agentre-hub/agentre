@@ -1785,9 +1785,7 @@ describe("ChatTranscript message tail attachments", () => {
       />,
     );
 
-    expect(
-      screen.getByText("Agent call failed: api timeout"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("This turn did not finish.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Regenerate/ }));
     expect(calls).toEqual([7]);
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -1813,7 +1811,7 @@ describe("ChatTranscript message tail attachments", () => {
     );
 
     expect(
-      await screen.findByText("Agent call failed: boom"),
+      await screen.findByText("This turn did not finish."),
     ).toBeInTheDocument();
   });
 

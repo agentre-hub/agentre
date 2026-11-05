@@ -51,6 +51,7 @@ type MessageActions = {
   setPendingRegenId: React.Dispatch<React.SetStateAction<number | null>>;
   handleRegenerate: (messageId: number) => void;
   confirmRegenerate: () => Promise<void>;
+  handleRetryTurn: (messageId: number) => void;
   pendingDeleteId: number | null;
   setPendingDeleteId: React.Dispatch<React.SetStateAction<number | null>>;
   handleDelete: (id: number) => void;
@@ -106,12 +107,24 @@ function useMessageActions({
 
   async function confirmRegenerate() {
     const messageId = pendingRegenId;
-    if (messageId == null || !sessionId) {
-      setPendingRegenId(null);
+    setPendingRegenId(null);
+    if (messageId == null) return;
+    await regenerate(messageId);
+  }
+
+  // 瞬态失败（过载 / 限流 / 网络）的「重试这一轮」：同一条用户消息原样再跑一次。
+  // 失败的是最后一轮时，被替换的只有那条失败的回复，不弹「永久丢失」确认；
+  // 它后面还有对话时，重试会一并丢掉它们，仍走确认。
+  function handleRetryTurn(messageId: number) {
+    if (messages.at(-1)?.id !== messageId) {
+      handleRegenerate(messageId);
       return;
     }
-    setPendingRegenId(null);
+    void regenerate(messageId);
+  }
 
+  async function regenerate(messageId: number) {
+    if (!sessionId) return;
     const snapshot = messages;
     const targetIdx = snapshot.findIndex((m) => m.id === messageId);
     if (targetIdx < 0) return;
@@ -257,6 +270,7 @@ function useMessageActions({
     setPendingRegenId,
     handleRegenerate,
     confirmRegenerate,
+    handleRetryTurn,
     pendingDeleteId,
     setPendingDeleteId,
     handleDelete,

@@ -236,6 +236,9 @@
       "description": "删除后此会话的所有消息会被一并清除，且无法恢复。",
       "title": "删除会话"
     },
+    "errorCard": {
+      "continueMessage": "继续"
+    },
     "errors": {
       "cancelQueued": "撤回失败：{{msg}}",
       "compact": "压缩上下文失败：{{msg}}",

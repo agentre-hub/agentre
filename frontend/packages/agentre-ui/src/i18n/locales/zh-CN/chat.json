@@ -21,8 +21,18 @@
     },
     "errorCard": {
       "continue": "继续",
-      "message": "Agent 调用失败：{{text}}",
-      "regenerate": "↻ 重新生成"
+      "copyDetails": "复制错误原文",
+      "details": "详情",
+      "fact": {
+        "authExpired": "登录已过期，这一轮没有完成。",
+        "network": "网络连接中断，这一轮没有完成。",
+        "overloaded": "模型服务暂时过载，这一轮没有完成。",
+        "processExited": "Agent 进程中途退出，这一轮没有完成。",
+        "rateLimited": "已达到模型服务的速率或用量上限，这一轮没有完成。",
+        "unknown": "这一轮没有完成。"
+      },
+      "loginLabel": "在终端运行，重新登录后再发送",
+      "retryTurn": "重试这一轮"
     },
     "retry": {
       "aria": "正在重试",

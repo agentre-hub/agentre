@@ -7,6 +7,7 @@ import * as React from "react";
 import {
   ArrowDown,
   ArrowUp,
+  ChevronDown,
   Pencil,
   RefreshCw,
   TriangleAlert,
@@ -20,6 +21,7 @@ import {
 import { useUiTranslation } from "../i18n";
 import { formatTokensPerSec, formatTurnDuration } from "../lib/format-duration";
 import { cn } from "../lib/utils";
+import { CommandCard } from "../onboarding/command-card";
 import { Button } from "../ui/button";
 import {
   Tooltip,
@@ -47,6 +49,11 @@ import { useOptionalPort } from "./ports-context";
 import { ThinkingBlock } from "./thinking-block";
 import { ToolApprovalCard } from "./tool-approval/card";
 import type { TranscriptRow, TranscriptRowItem } from "./transcript-rows";
+import {
+  classifyTurnFailure,
+  loginCommandFor,
+  turnFailureFact,
+} from "./turn-failure";
 import { computeLiveTurnStats, type LiveTurnInput } from "./turn-stats";
 
 // ─── 会话级静态渲染依赖 ───────────────────────────────────────────────────────
@@ -74,6 +81,13 @@ export type TranscriptRenderContextValue = {
   onRerun?: (messageId: number) => void;
   /** 只读模式下不传；有值时错误卡渲染「继续」按钮。 */
   onContinue?: (messageId: number) => void;
+  /**
+   * 原样重试这条失败消息对应的那一轮，**不经**「永久丢失」确认 —— 只挂在瞬态失败
+   * （过载 / 限流 / 网络）的错误卡上。不传时这些卡退回「继续 / 重新生成」。
+   */
+  onRetryTurn?: (messageId: number) => void;
+  /** 会话的后端类型（如 `claudecode`），错误卡据此给登录失效的命令卡；不传不给。 */
+  backendType?: string;
   /** 只读模式下不传；有值时才渲染「编辑」按钮。 */
   onEdit?: (messageId: number) => void;
 };
@@ -379,6 +393,39 @@ function MessageMeta({
   );
 }
 
+// 页脚的 meta 段（模型 · token · 耗时 · 重新生成）出不出现。错误卡要据此判断页脚
+// 是否已经有「重新生成」，所以与页脚共用这一个判据。
+function showsMessageMeta({
+  durationMs,
+  liveTurn,
+  model,
+  promptTokens,
+  completionTokens,
+  cachedTokens,
+  cacheCreationTokens,
+  reasoningTokens,
+}: {
+  durationMs: number;
+  liveTurn?: LiveTurnInput | null;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  cachedTokens?: number;
+  cacheCreationTokens?: number;
+  reasoningTokens?: number;
+}): boolean {
+  return (
+    durationMs > 0 ||
+    liveTurn != null ||
+    promptTokens > 0 ||
+    completionTokens > 0 ||
+    (cachedTokens ?? 0) > 0 ||
+    (cacheCreationTokens ?? 0) > 0 ||
+    (reasoningTokens ?? 0) > 0 ||
+    Boolean(model)
+  );
+}
+
 type AssistantMessageActionsProps = {
   cacheCreationTokens?: number;
   cachedTokens?: number;
@@ -409,16 +456,19 @@ function AssistantMessageActions({
   tokensPerSec,
 }: AssistantMessageActionsProps) {
   const { t } = useUiTranslation();
-  const hasUsage =
-    promptTokens > 0 ||
-    completionTokens > 0 ||
-    (cachedTokens ?? 0) > 0 ||
-    (cacheCreationTokens ?? 0) > 0 ||
-    (reasoningTokens ?? 0) > 0;
 
   return (
     <>
-      {durationMs > 0 || liveTurn != null || hasUsage || model ? (
+      {showsMessageMeta({
+        durationMs,
+        liveTurn,
+        model,
+        promptTokens,
+        completionTokens,
+        cachedTokens,
+        cacheCreationTokens,
+        reasoningTokens,
+      }) ? (
         <MessageMeta
           model={model}
           promptTokens={promptTokens}
@@ -464,45 +514,124 @@ function UserMessageActions({ onEdit }: { onEdit: () => void }) {
   );
 }
 
+// ErrorCard：一轮失败时挂在 assistant 消息末尾。标题是按类别写好的一句事实，原文
+// （stopErr.Error()，常是英文 + JSON）只进默认折叠的「详情」；出口按类别给 ——
+// 只给这一类走得通的那条路（见 turn-failure.ts）。
 function ErrorCard({
   text,
+  backendType,
+  footerHasRerun = false,
   onContinue,
   onRerun,
+  onRetryTurn,
 }: {
   text: string;
+  backendType?: string;
+  /** 页脚已经有「重新生成」时卡内不再放一颗同样的。 */
+  footerHasRerun?: boolean;
   onContinue?: () => void;
   onRerun?: () => void;
+  onRetryTurn?: () => void;
 }) {
   const { t } = useUiTranslation();
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const detailsId = React.useId();
+  const kind = classifyTurnFailure(text);
+  const transient =
+    kind === "overloaded" || kind === "rateLimited" || kind === "network";
+  const loginCommand =
+    kind === "authExpired" ? loginCommandFor(backendType) : undefined;
+  // 瞬态失败原样重试同一条消息；宿主没接这条路（agentre-server 的钉）时退回
+  // 「继续 / 重新生成」。登录失效重试必然再失败，不给任何重来的按钮。
+  const retryTurn = transient ? onRetryTurn : undefined;
+  const resume = kind !== "authExpired" && !retryTurn;
+  const continueAction = resume ? onContinue : undefined;
+  const rerunAction = resume && !footerHasRerun ? onRerun : undefined;
+
   return (
     <section
+      data-testid="turn-error-card"
       data-selectable-text="true"
-      className="flex w-full max-w-measure items-center gap-3 rounded-lg bg-destructive-soft px-4 py-2.5"
+      className="flex w-full max-w-measure flex-col gap-2 rounded-lg bg-destructive-soft px-4 py-2.5"
     >
-      <TriangleAlert
-        className="size-4 shrink-0 text-status-error"
-        aria-hidden="true"
-      />
-      <span className="min-w-0 flex-1 text-aux text-destructive-text">
-        {t("chat.errorCard.message", { text })}
-      </span>
-      <div className="flex shrink-0 items-center gap-2">
-        {onContinue ? (
+      <div className="flex items-center gap-3">
+        <TriangleAlert
+          className="size-4 shrink-0 text-status-error"
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1 text-aux text-destructive-text">
+          {turnFailureFact(kind, t)}
+        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          {retryTurn ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={retryTurn}
+            >
+              {t("chat.errorCard.retryTurn")}
+            </Button>
+          ) : null}
+          {continueAction ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={continueAction}
+            >
+              {t("chat.errorCard.continue")}
+            </Button>
+          ) : null}
+          {rerunAction ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={rerunAction}
+            >
+              <RefreshCw data-icon="inline-start" aria-hidden="true" />
+              {t("chat.actions.regenerate")}
+            </Button>
+          ) : null}
           <Button
             type="button"
             size="xs"
-            variant="outline"
-            onClick={onContinue}
+            variant="ghost"
+            className="text-muted-foreground"
+            aria-expanded={detailsOpen}
+            aria-controls={detailsId}
+            onClick={() => setDetailsOpen((open) => !open)}
           >
-            {t("chat.errorCard.continue")}
+            <ChevronDown
+              data-icon="inline-start"
+              aria-hidden="true"
+              className={cn(
+                "transition-transform motion-reduce:transition-none",
+                detailsOpen && "rotate-180",
+              )}
+            />
+            {t("chat.errorCard.details")}
           </Button>
-        ) : null}
-        {onRerun ? (
-          <Button type="button" size="xs" variant="outline" onClick={onRerun}>
-            {t("chat.errorCard.regenerate")}
-          </Button>
-        ) : null}
+        </div>
       </div>
+      {loginCommand ? (
+        <CommandCard
+          label={t("chat.errorCard.loginLabel")}
+          command={loginCommand}
+        />
+      ) : null}
+      {detailsOpen ? (
+        <div id={detailsId} className="flex flex-col items-start gap-1">
+          <pre className="max-h-48 w-full select-text overflow-auto whitespace-pre-wrap break-all rounded-md bg-code-surface px-3 py-2 font-mono text-xs text-code-foreground">
+            {text}
+          </pre>
+          <MessageCopyButton
+            text={text}
+            ariaLabel={t("chat.errorCard.copyDetails")}
+          />
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1047,6 +1176,8 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
     isAssistant && ctx?.onRerun ? () => ctx.onRerun!(m.id) : undefined;
   const continueHandler =
     isAssistant && ctx?.onContinue ? () => ctx.onContinue!(m.id) : undefined;
+  const retryTurnHandler =
+    isAssistant && ctx?.onRetryTurn ? () => ctx.onRetryTurn!(m.id) : undefined;
   const copyText =
     isAssistant && row.isLastOfMessage
       ? extractAssistantOutputText(m.blocks ?? [], liveBlocks ?? [], liveTail)
@@ -1063,6 +1194,16 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
     row.isLastOfMessage &&
     (turnRunning ?? (liveBlocks !== undefined || liveTail.length > 0));
 
+  const footerModel = m.model || liveTurn?.model || fallbackModel;
+  const showsAssistantFooter =
+    row.isLastOfMessage &&
+    isAssistant &&
+    (m.durationMs > 0 || copyText !== "" || liveTurn != null);
+  const footerHasRerun =
+    showsAssistantFooter &&
+    rerunHandler !== undefined &&
+    showsMessageMeta({ ...m, liveTurn, model: footerModel });
+
   const tailAttachments = row.isLastOfMessage ? (
     <>
       {liveRetry ? <RetryNoticeCard retry={liveRetry} /> : null}
@@ -1078,17 +1219,19 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
       {isAssistant && m.errorText ? (
         <ErrorCard
           text={m.errorText}
+          backendType={ctx?.backendType}
+          footerHasRerun={footerHasRerun}
           onContinue={continueHandler}
           onRerun={rerunHandler}
+          onRetryTurn={retryTurnHandler}
         />
       ) : null}
     </>
   ) : null;
 
-  const meta = !row.isLastOfMessage ? undefined : isAssistant &&
-    (m.durationMs > 0 || copyText || liveTurn != null) ? (
+  const meta = !row.isLastOfMessage ? undefined : showsAssistantFooter ? (
     <AssistantMessageActions
-      model={m.model || liveTurn?.model || fallbackModel}
+      model={footerModel}
       promptTokens={m.promptTokens}
       completionTokens={m.completionTokens}
       cachedTokens={m.cachedTokens}

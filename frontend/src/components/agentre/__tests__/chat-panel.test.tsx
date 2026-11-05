@@ -596,7 +596,7 @@ function deferred<T>() {
 }
 
 describe("ChatPanel error recovery actions", () => {
-  it("Given a failed turn, When Continue is clicked, Then it sends the literal continue message", async () => {
+  it("Given a failed turn, When Continue is clicked, Then it sends the localized continue message", async () => {
     mockSessionStore.session = makeSession({ id: 42, agentId: 9 });
     appMocks.SendChatMessage.mockResolvedValue({
       assistantMessageId: 102,
@@ -619,7 +619,7 @@ describe("ChatPanel error recovery actions", () => {
     expect(appMocks.SendChatMessage.mock.calls[0]?.[0]).toMatchObject({
       agentId: 9,
       sessionId: 42,
-      text: "continue",
+      text: "Continue",
     });
   });
 

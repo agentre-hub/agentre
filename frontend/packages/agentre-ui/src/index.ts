@@ -475,6 +475,12 @@ export {
   TranscriptRowView,
 } from "./transcript/transcript-row-view";
 export type { TranscriptRenderContextValue } from "./transcript/transcript-row-view";
+// 一轮失败的分类与那句事实：失败卡与宿主的出错通知共用这一个匹配点（spec C3）。
+export {
+  classifyTurnFailure,
+  turnFailureFact,
+} from "./transcript/turn-failure";
+export type { TurnFailureKind } from "./transcript/turn-failure";
 export { AutoTriggerBanner } from "./transcript/auto-trigger-banner";
 export { CodeBlock } from "./transcript/code-block";
 export { CompactBoundaryDivider } from "./transcript/compact-boundary-divider";

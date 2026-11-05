@@ -236,6 +236,9 @@
       "description": "Deleting this session also removes all of its messages and cannot be undone.",
       "title": "Delete Session"
     },
+    "errorCard": {
+      "continueMessage": "Continue"
+    },
     "errors": {
       "cancelQueued": "Failed to cancel queued message: {{msg}}",
       "compact": "Failed to compact context: {{msg}}",

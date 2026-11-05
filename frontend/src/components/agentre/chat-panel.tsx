@@ -609,6 +609,7 @@ function ChatPanel({
     setPendingRegenId,
     handleRegenerate,
     confirmRegenerate,
+    handleRetryTurn,
     pendingDeleteId,
     setPendingDeleteId,
     handleDelete,
@@ -910,9 +911,11 @@ function ChatPanel({
                         onContinue={() => {
                           if (!session) return;
                           void doSend(session.id, session.agentId, {
-                            text: "continue",
+                            text: t("chatPanel.errorCard.continueMessage"),
                           });
                         }}
+                        onRetryTurn={(messageId) => handleRetryTurn(messageId)}
+                        backendType={session?.backendType}
                         onRerun={(messageId) => handleRegenerate(messageId)}
                         onEdit={(messageId) => handleEdit(messageId)}
                         onPlanActionStarted={handlePlanActionStarted}
