@@ -567,11 +567,12 @@ func TestPool_Borrow_NoLocalPairing_AccountRejected_StaysDeviceUnauthorized(t *t
 // 用的是同一份账号材料,且直连侧已经没有任何可自报的身份字段。
 func TestPool_Borrow_NoLocalPairing_BothPathsPresentSamePeerIdentity(t *testing.T) {
 	Convey("account credential on both paths: one credential decides the identity on both", t, func() {
-		var relayPeerFP devicefp.Initiator
+		// 直连赢下时 Borrow 不等中转那条 goroutine 收场,它看到的参数经 channel 交接。
+		relayPeerFP := make(chan devicefp.Initiator, 1)
 		f := newPoolFixture(t,
 			remote_device_svc.WithAccountCredential(stubAccountCredential{value: "acct-jwt"}),
 			remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _ devicefp.Carrier, peerFP devicefp.Initiator) (client.ProtobufConnection, error) {
-				relayPeerFP = peerFP
+				relayPeerFP <- peerFP
 				return nil, errors.New("relay down")
 			}}))
 		_ = f.kc.Delete("agentre-daemon-token-42")
@@ -588,7 +589,7 @@ func TestPool_Borrow_NoLocalPairing_BothPathsPresentSamePeerIdentity(t *testing.
 		So(err, ShouldBeNil)
 		So(lease.Client(), ShouldNotBeNil)
 		So(directCredential, ShouldEqual, "acct-jwt")
-		So(relayPeerFP, ShouldEqual, devicefp.Initiator("fp-x"))
+		So(<-relayPeerFP, ShouldEqual, devicefp.Initiator("fp-x"))
 	})
 }
 

@@ -35,5 +35,9 @@ func (s *service) Remove(ctx context.Context, id int64) error {
 	if s.watcher != nil {
 		s.watcher.Stop(id)
 	}
+	// 停掉的 watcher 不会再报离线:由这里撤掉池子对它的保温,池连接回到空闲回收。
+	if sink, ok := s.pool.(DeviceOnlineSink); ok {
+		sink.SetDeviceOnline(id, false)
+	}
 	return nil
 }

@@ -215,7 +215,14 @@ func (a *App) catchUpRemoteSessions() {
 // 挂在同一条信号上),补齐挂上去即可,不必另起一个轮询。
 //
 // 补成过的设备再上线是 no-op(判据在 chat_svc 那侧),所以设备抖动不会变成 attach 风暴。
+//
+// 上线/下线两种信号都先转给连接池:在线期间池连接不因空闲关闭,下线后恢复空闲回收。
 func (a *App) onRemoteDeviceOnline(id int64, online bool) {
+	if rd := remote_device_svc.Default(); rd != nil {
+		if sink, ok := rd.Pool().(remote_device_svc.DeviceOnlineSink); ok {
+			sink.SetDeviceOnline(id, online)
+		}
+	}
 	if !online {
 		return
 	}

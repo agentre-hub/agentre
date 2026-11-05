@@ -10,6 +10,9 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 )
 
 func TestRemove(t *testing.T) {
@@ -30,6 +33,27 @@ func TestRemove(t *testing.T) {
 		w.EXPECT().Stop(int64(1))
 		err := svc.Remove(context.Background(), 1)
 		So(err, ShouldBeNil)
+	})
+	// 移除不会让 watcher 报一次离线(它只是被停掉):池子必须被单独告知,否则这台设备
+	// 最后一次上线留下的保温让它的池连接永远不按空闲回收。
+	Convey("removing a device stops its pooled connection being kept warm", t, func() {
+		ctrl := gomock.NewController(t)
+		repo := mock_remote_device_repo.NewMockPairedAgentredRepo(ctrl)
+		kc := mock_remote_device_svc.NewMockKeychainPort(ctrl)
+		w := mock_remote_device_svc.NewMockWatcherPort(ctrl)
+		sink := mock_remote_device_svc.NewMockDeviceOnlineSink(ctrl)
+		svc := remote_device_svc.New(repo, mock_remote_device_svc.NewMockDaemonDialPort(ctrl), kc, struct {
+			remote_device_svc.ConnPool
+			remote_device_svc.DeviceOnlineSink
+		}{DeviceOnlineSink: sink})
+		svc.SetWatcher(w)
+		repo.EXPECT().Get(gomock.Any(), int64(1)).Return(manualRow, nil).AnyTimes()
+		repo.EXPECT().Delete(gomock.Any(), int64(1)).Return(nil)
+		kc.EXPECT().Delete("agentre-daemon-token-1").Return(nil)
+		w.EXPECT().Stop(int64(1))
+		sink.EXPECT().SetDeviceOnline(int64(1), false)
+
+		So(svc.Remove(context.Background(), 1), ShouldBeNil)
 	})
 	Convey("keychain delete failure does not error (logged)", t, func() {
 		repo, _, kc, w, svc := setupSvc(t)
