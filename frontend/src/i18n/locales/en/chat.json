@@ -465,8 +465,6 @@
   },
   "taskProgress": {
     "allCompleted": "All done",
-    "completed": "Completed",
-    "current": "Current",
     "status": {
       "cancelled": "CANCELLED",
       "completed": "DONE",

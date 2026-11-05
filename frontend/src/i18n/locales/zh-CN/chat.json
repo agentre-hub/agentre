@@ -465,8 +465,6 @@
   },
   "taskProgress": {
     "allCompleted": "全部完成",
-    "completed": "已完成",
-    "current": "当前",
     "status": {
       "cancelled": "CANCELLED",
       "completed": "DONE",
