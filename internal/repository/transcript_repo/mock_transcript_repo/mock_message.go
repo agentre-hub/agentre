@@ -284,6 +284,21 @@ func (mr *MockMessageRepoMockRecorder) ListMetaBefore(ctx, sessionID, beforeSeq,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMetaBefore", reflect.TypeOf((*MockMessageRepo)(nil).ListMetaBefore), ctx, sessionID, beforeSeq, limit)
 }
 
+// ListMetaSince mocks base method.
+func (m *MockMessageRepo) ListMetaSince(ctx context.Context, sessionID, sinceVersion int64) ([]*transcript_entity.Message, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListMetaSince", ctx, sessionID, sinceVersion)
+	ret0, _ := ret[0].([]*transcript_entity.Message)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListMetaSince indicates an expected call of ListMetaSince.
+func (mr *MockMessageRepoMockRecorder) ListMetaSince(ctx, sessionID, sinceVersion any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMetaSince", reflect.TypeOf((*MockMessageRepo)(nil).ListMetaSince), ctx, sessionID, sinceVersion)
+}
+
 // ListOpenAgrctlCards mocks base method.
 func (m *MockMessageRepo) ListOpenAgrctlCards(ctx context.Context) ([]transcript_repo.OpenAgrctlCard, error) {
 	m.ctrl.T.Helper()
@@ -297,6 +312,21 @@ func (m *MockMessageRepo) ListOpenAgrctlCards(ctx context.Context) ([]transcript
 func (mr *MockMessageRepoMockRecorder) ListOpenAgrctlCards(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOpenAgrctlCards", reflect.TypeOf((*MockMessageRepo)(nil).ListOpenAgrctlCards), ctx)
+}
+
+// ListVersions mocks base method.
+func (m *MockMessageRepo) ListVersions(ctx context.Context, sessionID int64) ([]transcript_repo.MessageVersion, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListVersions", ctx, sessionID)
+	ret0, _ := ret[0].([]transcript_repo.MessageVersion)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListVersions indicates an expected call of ListVersions.
+func (mr *MockMessageRepoMockRecorder) ListVersions(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVersions", reflect.TypeOf((*MockMessageRepo)(nil).ListVersions), ctx, sessionID)
 }
 
 // NextSeq mocks base method.

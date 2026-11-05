@@ -537,6 +537,10 @@ type ChatMessage struct {
 	// BlocksLoaded=true 的消息 —— 把半份正文当整份渲染,用户看到的就是缺了工具结果的
 	// 假转录。
 	BlocksLoaded bool `json:"blocksLoaded"`
+	// Version 是这条消息的版本(chat_messages.updatetime):任何一次改动它正文或元数据
+	// 的写入都把它推到更大的值,包括轮次收尾很久以后才改写的旧消息块(后台任务翻转 /
+	// 进度 / 子块追加)。增量读的游标就是它 —— 见 LoadSessionRequest.SinceVersion。
+	Version int64 `json:"version"`
 }
 
 type ChatSessionLite struct {
@@ -772,12 +776,25 @@ type ListAgentsResponse struct {
 	Agents []ChatAgentItem `json:"agents"`
 }
 
+// LoadSessionRequest.SinceVersion 是增量读的游标(spec 2026-11-05 决策 4):前端手上
+// 已持有的最大消息版本(上一次响应的 Version)。>0 时 Messages 只含版本大于它的消息
+// (新增的、刚收尾的、以及块后来被改写过的旧消息),每条与全量读里同一条消息逐字一致
+// —— 窗口内带完整正文,窗口外只给元数据;0 = 全量读,与改动前一致。
 type LoadSessionRequest struct {
-	SessionID int64 `json:"sessionId"`
+	SessionID    int64 `json:"sessionId"`
+	SinceVersion int64 `json:"sinceVersion,omitempty"`
 }
+
+// LoadSessionResponse.Version 是本会话当前的最大消息版本,即下一次增量读的游标;
+// MessageIDs 是本会话当前**全部**消息的 id(按 seq 升序),无论是否增量都给全。
+// 增量读不交回没变的消息,删除(编辑重发 / 截断)只能由此看出:不在 MessageIDs 里的
+// 本地消息已被删除;在 MessageIDs 里、本地没有、Messages 里也没有的 id,说明有消息
+// 不经版本推进就进了这条会话(恢复流程把原消息搬回),前端应当以游标 0 全量重读。
 type LoadSessionResponse struct {
-	Session  ChatSessionDetail `json:"session"`
-	Messages []ChatMessage     `json:"messages"`
+	Session    ChatSessionDetail `json:"session"`
+	Messages   []ChatMessage     `json:"messages"`
+	Version    int64             `json:"version"`
+	MessageIDs []int64           `json:"messageIds"`
 }
 
 // LoadMessageBlocksRequest 是「向上滚动继续取更早的正文」的入参。
@@ -799,15 +816,21 @@ type LoadMessageBlocksResponse struct {
 // LoadSessionBlocksByTypeRequest 是派生视图(后台任务面板 / 大纲 / 变更)的取数入参:
 // 点名它需要的**投影后**块类型,后端按块表的 type 列点查整条会话的这几类块。
 // Types 为空是错误 —— 那等于把整条转录再要一遍。
+//
+// SinceVersion 与 LoadSessionRequest.SinceVersion 同一口径:>0 时只交回版本大于它的消息。
 type LoadSessionBlocksByTypeRequest struct {
-	SessionID int64    `json:"sessionId"`
-	Types     []string `json:"types"`
+	SessionID    int64    `json:"sessionId"`
+	Types        []string `json:"types"`
+	SinceVersion int64    `json:"sinceVersion,omitempty"`
 }
 
-// LoadSessionBlocksByTypeResponse 覆盖整条会话的全部消息(元数据全量),每条只带点名
-// 类型的块,因此 BlocksLoaded 一律为 false:这是派生视图的取数,不是转录正文。
+// LoadSessionBlocksByTypeResponse 覆盖整条会话的全部消息(元数据全量;增量读时只含
+// 版本新于游标的那些),每条只带点名类型的块,因此 BlocksLoaded 一律为 false:这是
+// 派生视图的取数,不是转录正文。Version / MessageIDs 与 LoadSessionResponse 同义。
 type LoadSessionBlocksByTypeResponse struct {
-	Messages []ChatMessage `json:"messages"`
+	Messages   []ChatMessage `json:"messages"`
+	Version    int64         `json:"version"`
+	MessageIDs []int64       `json:"messageIds"`
 }
 
 // ListAgentSessionsRequest 给「查看全部 N 个会话」popover 翻页拉数据用。

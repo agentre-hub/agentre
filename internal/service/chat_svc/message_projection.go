@@ -80,6 +80,7 @@ func toChatMessage(m *chat_entity.Message) (ChatMessage, error) {
 		// 仓储只在补过正文的消息上写 BlocksJSON(ListMeta 留空串,FillBlocks 至少写
 		// "[]"),空串因此就是「这条消息的正文还没取」。前端据此决定渲不渲染这一行。
 		BlocksLoaded: m.BlocksJSON != "",
+		Version:      m.Updatetime,
 	}
 	return out, nil
 }

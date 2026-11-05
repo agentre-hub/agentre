@@ -2,12 +2,15 @@ package chat_svc
 
 import (
 	"context"
+	"slices"
+	"sync"
 
 	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
@@ -29,57 +32,130 @@ import (
 // 返回的是工具调用里的原始路径:多数后端给绝对路径,少数给相对路径。这里不做
 // 归一,因为"相对谁"要由持有 cwd 的调用方决定(相对路径天然落在会话 cwd 内,
 // 认领不到新的工作根)。
+//
+// 增量维护(spec 2026-11-05 决策 4):WorkRoots 每次轮末都要这份清单,而会话的工具历史
+// 绝大多数自上一轮起没变过。这里只取每条消息的 (id, 版本),按会话缓存每条消息写过的
+// 路径;只有版本变了的(新增 / 被改写)消息重读工具调用块,不在列的(被删 / 截断)直接
+// 丢掉。版本由仓储在每次写入时于写锁内签发,所以「版本没变」就是「块没变」。
 func SessionWrittenPaths(ctx context.Context, sessionID int64) ([]string, error) {
 	if sessionID <= 0 {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
 	repo := transcript_repo.Message()
-	msgs, err := repo.ListMeta(ctx, sessionID)
+	versions, err := repo.ListVersions(ctx, sessionID)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
+	prev := writtenPathsCache.get(sessionID)
+	var stale []*chat_entity.Message
+	for _, v := range versions {
+		if prev != nil {
+			if cached, ok := prev[v.ID]; ok && cached.version == v.Version {
+				continue
+			}
+		}
+		stale = append(stale, &chat_entity.Message{ID: v.ID, SessionID: sessionID})
+	}
 	// 写入路径只会出现在工具调用块里:按类型点查,其余正文不进内存。
-	if err := repo.FillBlocksByType(ctx, msgs, toolUseBlockTypes); err != nil {
-		return nil, operationFailedWithCause(ctx, err)
+	fresh := make(map[int64][]string, len(stale))
+	if len(stale) > 0 {
+		if err := repo.FillBlocksByType(ctx, stale, toolUseBlockTypes); err != nil {
+			return nil, operationFailedWithCause(ctx, err)
+		}
+		for _, m := range stale {
+			fresh[m.ID] = writtenPathsOfMessage(ctx, sessionID, m)
+		}
 	}
 
+	next := make(map[int64]messageWrittenPaths, len(versions))
 	seen := make(map[string]struct{})
 	paths := make([]string, 0, 8)
-	add := func(p string) {
-		if p == "" {
-			return
+	for _, v := range versions {
+		ps, ok := fresh[v.ID]
+		if !ok {
+			ps = prev[v.ID].paths
 		}
-		if _, ok := seen[p]; ok {
-			return
+		next[v.ID] = messageWrittenPaths{version: v.Version, paths: ps}
+		for _, p := range ps {
+			if _, dup := seen[p]; dup {
+				continue
+			}
+			seen[p] = struct{}{}
+			paths = append(paths, p)
 		}
-		seen[p] = struct{}{}
-		paths = append(paths, p)
 	}
+	writtenPathsCache.put(sessionID, next)
+	return paths, nil
+}
 
-	for _, m := range msgs {
-		bs, berr := m.GetBlocks()
-		if berr != nil {
-			// 单条消息解码失败不致命:少认一条写入路径,顶多少认领一个工作根
-			// (集合外仍然一律拒绝),不该让整个侧栏取数失败。
-			logger.Ctx(ctx).Warn("chat_svc.SessionWrittenPaths: decode blocks failed",
-				zap.Int64("sessionID", sessionID), zap.Int64("messageID", m.ID), zap.Error(berr))
+// writtenPathsOfMessage 取一条(已按工具调用类型补过块的)消息里写到的路径,保序、不去重。
+func writtenPathsOfMessage(ctx context.Context, sessionID int64, m *chat_entity.Message) []string {
+	bs, err := m.GetBlocks()
+	if err != nil {
+		// 单条消息解码失败不致命:少认一条写入路径,顶多少认领一个工作根
+		// (集合外仍然一律拒绝),不该让整个侧栏取数失败。
+		logger.Ctx(ctx).Warn("chat_svc.SessionWrittenPaths: decode blocks failed",
+			zap.Int64("sessionID", sessionID), zap.Int64("messageID", m.ID), zap.Error(err))
+		return nil
+	}
+	var out []string
+	for _, b := range bs {
+		name, input, ok := toolUseOfBlock(b)
+		if !ok {
 			continue
 		}
-		for _, b := range bs {
-			name, input, ok := toolUseOfBlock(b)
-			if !ok {
-				continue
-			}
-			c, ok := canonical.FromToolUse(name, input)
-			if !ok {
-				continue
-			}
-			for _, p := range writtenPathsOfCanonical(c) {
-				add(p)
+		c, ok := canonical.FromToolUse(name, input)
+		if !ok {
+			continue
+		}
+		for _, p := range writtenPathsOfCanonical(c) {
+			if p != "" {
+				out = append(out, p)
 			}
 		}
 	}
-	return paths, nil
+	return out
+}
+
+// messageWrittenPaths 是一条消息在某个版本下写过的路径。
+type messageWrittenPaths struct {
+	version int64
+	paths   []string
+}
+
+// writtenPathsCacheSessions 是写过路径缓存最多记住几条会话。缓存的是「侧栏正开着的
+// 那几条会话」,超出时丢掉最久没问过的那条 —— 被丢掉的下次问时整条重读一次,结论不变。
+const writtenPathsCacheSessions = 64
+
+// writtenPathsCache 按会话记着每条消息写过的路径。存进去的 map 不再被改写(每次都换
+// 新的一份),读出来的那份可以在锁外使用。
+var writtenPathsCache = &sessionWrittenPathsCache{}
+
+type sessionWrittenPathsCache struct {
+	mu        sync.Mutex
+	bySession map[int64]map[int64]messageWrittenPaths
+	recent    []int64 // 最久没问过的在前
+}
+
+func (c *sessionWrittenPathsCache) get(sessionID int64) map[int64]messageWrittenPaths {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bySession[sessionID]
+}
+
+func (c *sessionWrittenPathsCache) put(sessionID int64, entry map[int64]messageWrittenPaths) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.bySession == nil {
+		c.bySession = make(map[int64]map[int64]messageWrittenPaths)
+	}
+	c.recent = slices.DeleteFunc(c.recent, func(id int64) bool { return id == sessionID })
+	c.recent = append(c.recent, sessionID)
+	c.bySession[sessionID] = entry
+	for len(c.recent) > writtenPathsCacheSessions {
+		delete(c.bySession, c.recent[0])
+		c.recent = c.recent[1:]
+	}
 }
 
 // toolUseBlockTypes 是 toolUseOfBlock 认得的两类块的存储类型,两处须同步。
