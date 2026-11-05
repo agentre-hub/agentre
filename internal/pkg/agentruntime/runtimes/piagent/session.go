@@ -310,7 +310,7 @@ func piRawFrameSink(sessionID int64, providerSessionID string) func([]byte) {
 	}
 }
 
-// piRawFrameEnabled gates the raw-frame sink. Sanitising a frame is a full
+// piRawFrameEnabled gates the raw-frame sink. Sanitizing a frame is a full
 // unmarshal+marshal and the sink only writes a Debug entry, so skip it unless
 // the logger installed right now (it is replaced when Debug Logging flips)
 // would record Debug.

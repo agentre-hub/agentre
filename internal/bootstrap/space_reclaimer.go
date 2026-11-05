@@ -141,7 +141,7 @@ func (r *spaceReclaimer) reclaimOnce(ctx context.Context) (int, error) {
 	batches := 0
 	for batches < r.opts.MaxBatches {
 		if ctx.Err() != nil {
-			return batches, nil
+			return batches, nil //nolint:nilerr // ctx 结束即安静停止,不是回收失败
 		}
 		var free int
 		if err := r.db.WithContext(ctx).Raw("PRAGMA freelist_count").Scan(&free).Error; err != nil {
@@ -152,7 +152,7 @@ func (r *spaceReclaimer) reclaimOnce(ctx context.Context) (int, error) {
 		}
 		if err := r.vacuumBatch(ctx); err != nil {
 			if ctx.Err() != nil {
-				return batches, nil
+				return batches, nil //nolint:nilerr // vacuum 报错源于 ctx 被取消(关停),不算回收失败
 			}
 			return batches, fmt.Errorf("incremental_vacuum: %w", err)
 		}
@@ -173,7 +173,7 @@ func (r *spaceReclaimer) vacuumBatch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 	}
 	return rows.Err()

@@ -386,7 +386,7 @@ func (s *Stream) drainLine(ctx context.Context, rawLine []byte, emitDiagnostic b
 }
 
 // decodeEvent turns one event frame into an rpcEvent with a single main decode.
-// Hot frame types decode into lean structs that never materialise the large
+// Hot frame types decode into lean structs that never materialize the large
 // cumulative payloads the consumers ignore: message_update repeats the whole
 // message twice (message and assistantMessageEvent.partial), and
 // tool_execution_update for a tool whose progress nobody reads carries its
