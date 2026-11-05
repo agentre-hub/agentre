@@ -150,7 +150,7 @@ func TestSessionSettingNotice_GivenMidTurnSwitch_WhenTurnFails_ThenNoticeIsRelea
 			return nil
 		}).Times(1)
 	deps.session.EXPECT().UpdateReasoningEffort(gomock.Any(), int64(41), "high").Return(nil)
-	deps.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	deps.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Nil(), -1).Return(nil)
 	deps.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 
 	subscriber := newRecordingPeerSubscriber()

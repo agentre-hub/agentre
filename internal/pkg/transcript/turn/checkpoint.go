@@ -29,14 +29,15 @@ type EncodedBlock struct {
 	Block cagoblocks.StoredBlock
 }
 
-// Checkpoint 是 PrepareCheckpoint 交出的写集合:把已提交的那版正文推到累加器当前状态
-// 所需的最小块集合。写库成功后必须交回 CommitCheckpoint,否则下一次仍会交出这些块。
+// Checkpoint 是 PrepareCheckpoint / PrepareFinalCheckpoint 交出的写集合:把已提交的那版正文
+// 推到这一版所需的最小块集合。写库成功后必须交回 CommitCheckpoint,否则下一次仍会交出这些块。
 type Checkpoint struct {
 	// Changed 按 Idx 升序,只含内容与上一次提交不同(或新增)的块。
 	Changed []EncodedBlock
 	// TruncateFrom >= 0 表示新版比上一次提交短,idx >= TruncateFrom 的残块要删掉;-1 不截断。
 	TruncateFrom int
-	// BlocksJSON 是累加器当前状态的整份正文,与 Message.SetBlocks(Snapshot()) 逐字节相等。
+	// BlocksJSON 是这一版的整份正文,与 Message.SetBlocks(Snapshot()) 逐字节相等(收尾那一次
+	// 则与 SetBlocks(final) 相等)。
 	BlocksJSON string
 
 	gen      uint64
@@ -44,7 +45,6 @@ type Checkpoint struct {
 	finalLen int
 	elems    [][]byte // 与 Changed 一一对应的 JSON 元素
 	captured map[int]uint64
-	seed     [][]byte // 非 nil:这是第一次 checkpoint,提交时以它为已提交的基准
 }
 
 // checkpointState 是最近一次提交的 checkpoint 留下的状态。
@@ -57,44 +57,95 @@ type checkpointState struct {
 }
 
 // PrepareCheckpoint 编码自上一次提交以来新增、被改动的块与末尾还在长的尾巴,交出写集合
-// 与整份正文。不改动已提交状态:写库失败时丢掉返回值即可,下一次照样交出这些块。
+// 与整份正文。除了第一次记下基准(见 seedLocked)不改动已提交状态:写库失败时丢掉返回值
+// 即可,下一次照样交出这些块。
 //
 // baseline 是消息此刻在库里的正文,只在这个累加器第一次 checkpoint 时作为差分基准
 // (消息刚建时是 "[]" / 空串);之后以累加器自己提交过的状态为准。
 func (a *Accumulator) PrepareCheckpoint(baseline string) (*Checkpoint, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-
-	cp := &Checkpoint{TruncateFrom: -1, gen: a.ckpt.gen, finalLen: len(a.finalBlocks)}
-	base, baseFinal := a.ckpt.elems, a.ckpt.finalLen
-	if !a.ckpt.seeded {
-		seed, err := splitBlocksJSONElems(baseline)
-		if err != nil {
-			return nil, err
-		}
-		cp.seed, base, baseFinal = seed, seed, 0
+	if err := a.seedLocked(baseline); err != nil {
+		return nil, err
 	}
+
 	tail := a.tailBlocksLocked()
-	cp.length = len(a.finalBlocks) + len(tail)
-
-	if len(a.dirty) > 0 {
-		cp.captured = make(map[int]uint64, len(a.dirty))
-	}
+	length := len(a.finalBlocks) + len(tail)
+	baseFinal := a.ckpt.finalLen
 	var candidates []int
-	for idx, stamp := range a.dirty {
-		cp.captured[idx] = stamp
+	for idx := range a.dirty {
 		if idx < baseFinal {
 			candidates = append(candidates, idx)
 		}
 	}
 	sort.Ints(candidates)
-	for idx := baseFinal; idx < cp.length; idx++ {
+	for idx := baseFinal; idx < length; idx++ {
 		candidates = append(candidates, idx)
 	}
+	return a.prepareLocked(func(idx int) cagoblocks.ContentBlock {
+		return tailOr(a.finalBlocks, tail, idx)
+	}, length, len(a.finalBlocks), candidates)
+}
 
+// PrepareFinalCheckpoint 是收尾那一次(轮末 / 中止 / 插话分段)的 checkpoint:final 是这一段
+// 要落库的整份正文 —— Finalize 交回的块(必须是它的前缀),外加收尾时追加在末尾的 notice。
+//
+// 与 PrepareCheckpoint 不同,它把 final 的每一块都重新编码、与已提交版本逐块比较:收尾时
+// 有不经累加器的就地改写(MarkRunningSubagentsCancelled / MarkUnansweredUserAsksExpired
+// 直接改 Finalize 交回的块指针),只看脏标记会漏掉它们。一轮只做一次,编码代价与原先
+// SetBlocks(final) 相同;省下的是写:只交出内容变了的块,不再整条删了重插。
+//
+// baseline 与提交语义同 PrepareCheckpoint。
+func (a *Accumulator) PrepareFinalCheckpoint(baseline string, final []cagoblocks.ContentBlock) (*Checkpoint, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.seedLocked(baseline); err != nil {
+		return nil, err
+	}
+	candidates := make([]int, len(final))
+	for idx := range candidates {
+		candidates[idx] = idx
+	}
+	return a.prepareLocked(func(idx int) cagoblocks.ContentBlock {
+		return final[idx]
+	}, len(final), min(len(final), len(a.finalBlocks)), candidates)
+}
+
+// seedLocked 在第一次 checkpoint 时把 baseline 记为已提交的基准。baseline 描述的是库里此刻
+// 的那份正文 —— 无论这一次写库成败它都成立,所以准备时就记下,而不是等提交:调用方在写库
+// 前就把内存正文换成了新版,写库失败后下一次交来的 baseline 已经不是库里那份。
+func (a *Accumulator) seedLocked(baseline string) error {
+	if a.ckpt.seeded {
+		return nil
+	}
+	seed, err := splitBlocksJSONElems(baseline)
+	if err != nil {
+		return err
+	}
+	a.ckpt = checkpointState{
+		seeded: true,
+		gen:    a.ckpt.gen,
+		elems:  seed,
+		json:   joinElems(seed, &Checkpoint{length: len(seed)}),
+	}
+	return nil
+}
+
+// prepareLocked 编码 candidates(升序)处的块,与已提交版本比较,交出写集合。length 是这一版
+// 的块数,finalLen 是其中已落成块的前缀长度(提交后更靠后的下标一律重新比较)。
+func (a *Accumulator) prepareLocked(
+	blockAt func(int) cagoblocks.ContentBlock, length, finalLen int, candidates []int,
+) (*Checkpoint, error) {
+	base := a.ckpt.elems
+	cp := &Checkpoint{TruncateFrom: -1, gen: a.ckpt.gen, finalLen: finalLen, length: length}
+	if len(a.dirty) > 0 {
+		cp.captured = make(map[int]uint64, len(a.dirty))
+		for idx, stamp := range a.dirty {
+			cp.captured[idx] = stamp
+		}
+	}
 	for _, idx := range candidates {
-		b := tailOr(a.finalBlocks, tail, idx)
-		sb, err := cagoblocks.Encode(b)
+		sb, err := cagoblocks.Encode(blockAt(idx))
 		if err != nil {
 			return nil, err
 		}
@@ -112,7 +163,7 @@ func (a *Accumulator) PrepareCheckpoint(baseline string) (*Checkpoint, error) {
 		cp.TruncateFrom = cp.length
 	}
 
-	if a.ckpt.seeded && len(cp.Changed) == 0 && cp.length == len(base) {
+	if len(cp.Changed) == 0 && cp.length == len(base) {
 		cp.BlocksJSON = a.ckpt.json
 	} else {
 		cp.BlocksJSON = joinElems(base, cp)
@@ -132,9 +183,6 @@ func (a *Accumulator) CommitCheckpoint(cp *Checkpoint) {
 		return
 	}
 	elems := a.ckpt.elems
-	if cp.seed != nil {
-		elems = cp.seed
-	}
 	if cp.length < len(elems) {
 		clear(elems[cp.length:])
 		elems = elems[:cp.length]

@@ -242,6 +242,20 @@ func (mr *MockTranscriptPortMockRecorder) StartTurn(ctx, conversationID, userTex
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartTurn", reflect.TypeOf((*MockTranscriptPort)(nil).StartTurn), ctx, conversationID, userText, userBlocks, source)
 }
 
+// UpsertBlocks mocks base method.
+func (m_2 *MockTranscriptPort) UpsertBlocks(ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) error {
+	m_2.ctrl.T.Helper()
+	ret := m_2.ctrl.Call(m_2, "UpsertBlocks", ctx, m, rows, truncateFrom)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertBlocks indicates an expected call of UpsertBlocks.
+func (mr *MockTranscriptPortMockRecorder) UpsertBlocks(ctx, m, rows, truncateFrom any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertBlocks", reflect.TypeOf((*MockTranscriptPort)(nil).UpsertBlocks), ctx, m, rows, truncateFrom)
+}
+
 // MockSubagentCardPort is a mock of SubagentCardPort interface.
 type MockSubagentCardPort struct {
 	ctrl     *gomock.Controller

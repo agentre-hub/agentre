@@ -589,7 +589,8 @@ func TestCtlSend_GivenParentTurnStillPersisting_WhenChildEmits_ThenTheWriteWaits
 		child := newCtlChildTurn(rig.svc, "m")
 		parent := rig.svc.activeTurn(approvalSessionID)
 
-		rig.mu.Lock() // 收尾的 Update 卡在这把锁上:整条消息的块还没落库
+		rig.mu.Lock() // 收尾的写库卡在这把锁上:整条消息的块还没落库
+		rig.ending.Store(true)
 		close(rig.events)
 		So(eventually(func() bool {
 			parent.mu.Lock()

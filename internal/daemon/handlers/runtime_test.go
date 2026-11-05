@@ -4277,6 +4277,7 @@ func TestRuntime_Run_GivenTranscriptStarted_ThenAckCarriesUserMessageHighestFram
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(1)).
 		Return([]int64{7}, nil).Times(1)
 	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("assistant frames not under test")).AnyTimes()
@@ -4331,6 +4332,7 @@ func TestRuntime_Run_GivenUserMessageSpansSeveralFrames_ThenAckCarriesBothEndsOf
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(2)).
 		Return([]int64{7, 8}, nil).Times(1)
 	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("assistant frames not under test")).AnyTimes()
@@ -4390,6 +4392,7 @@ func TestRuntime_Run_GivenPeerSubmittedTurn_ThenTheUserMessageGoesOutExactlyOnce
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(1)).
 		Return([]int64{7}, nil).Times(1)
 	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("assistant frames not under test")).AnyTimes()
@@ -4467,6 +4470,7 @@ func TestRuntime_Run_GivenSegmentTurnFails_ThenTheSteerIsRetriedNotDropped(t *te
 	tp.EXPECT().StartTurn(gomock.Any(), gomock.Any(), "hello", gomock.Any(), gomock.Any()).
 		Return(user, assistant, nil).Times(1)
 	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	// 收口是本用例唯一确定属于**自己**这一轮的信号:等日志里那句 "session ended" 会
 	// 撞上前面用例泄漏出来的 fanout 协程(全局 logger 是共用的),一撞就在插话还没进
 	// SegmentTurn 时提前收工,断言于是随机判红。FinishTurn 在 flushPendingSteers 之后

@@ -65,6 +65,7 @@ func newDurableSegmentationRig(t *testing.T, expectSegment bool) *durableSegment
 	dbMock.ExpectBegin()
 	dbMock.ExpectCommit()
 	msgRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	msgRepo.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	msgRepo.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(7, nil).AnyTimes()
 	sessRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	msgRepo.EXPECT().Create(gomock.Any(), gomock.Any()).

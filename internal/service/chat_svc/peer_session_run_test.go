@@ -148,6 +148,7 @@ func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRun
 	}, nil).AnyTimes()
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	adapter, ok := m.svc.(peerRunAdapter)
 	require.True(t, ok, "chatSvc must implement the peer run adapter")
@@ -265,6 +266,7 @@ func TestRunPeerSession_GivenExistingSession_ThenContinuesThatSession(t *testing
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().List(gomock.Any(), int64(41)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	adapter, ok := m.svc.(peerRunAdapter)
 	require.True(t, ok)
@@ -508,6 +510,7 @@ func assertPeerRunLandsTheAttachment(t *testing.T, sent []blocks.ContentBlock) {
 	}, nil).AnyTimes()
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	stored, err := blocks.EncodeAll(sent)
 	require.NoError(t, err)

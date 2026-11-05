@@ -41,8 +41,10 @@ type approvalTurnRig struct {
 	done       chan struct{}
 
 	mu          sync.Mutex
-	checkpoints []string // 每次轮内 checkpoint(UpsertBlocks)落库时 assistant 的 BlocksJSON
-	finalBlocks string   // 收口 Update 落库的 assistant BlocksJSON
+	checkpoints []string // 每次 UpsertBlocks 落库时 assistant 的 BlocksJSON(含收口那一次)
+	finalBlocks string   // 收口那一发落库的 assistant BlocksJSON
+	// ending 在关上事件流之前置上:此后的 UpsertBlocks 只会是收口那一发。
+	ending atomic.Bool
 }
 
 // syncRecordEmitter 是 recordEmitter 的并发安全版:事件循环与审批 goroutine 同时 Emit。
@@ -136,13 +138,11 @@ func startApprovalTurnWith(t *testing.T, opts approvalTurnOpts) *approvalTurnRig
 		func(_ context.Context, m *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			rig.mu.Lock()
 			rig.checkpoints = append(rig.checkpoints, m.BlocksJSON)
-			rig.mu.Unlock()
-			return nil
-		}).AnyTimes()
-	deps.message.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, m *chat_entity.Message) error {
-			rig.mu.Lock()
-			rig.finalBlocks = m.BlocksJSON
+			// 收尾那一发同样走 UpsertBlocks(只写变了的块行):事件流关上之后、这条会话上的
+			// 那一次就是它(同一只 mock 也收 agrctl 子会话那一轮的写入)。
+			if rig.ending.Load() && m.SessionID == approvalSessionID {
+				rig.finalBlocks = m.BlocksJSON
+			}
 			rig.mu.Unlock()
 			return nil
 		}).AnyTimes()
@@ -177,6 +177,7 @@ func (r *approvalTurnRig) feed(ev agentruntime.Event, emitted ChatStreamEventKin
 
 func (r *approvalTurnRig) endTurn() {
 	r.t.Helper()
+	r.ending.Store(true)
 	close(r.events)
 	select {
 	case <-r.done:

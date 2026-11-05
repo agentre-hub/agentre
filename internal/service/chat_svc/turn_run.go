@@ -20,7 +20,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/handlers"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
@@ -429,7 +428,7 @@ func (t *turnRun) finalize(ctx context.Context) {
 		}
 	}
 	finalBlocks := t.acc.Finalize()
-	// abort flag 提前到这里取(原在下方 LoadAndDelete) —— 若已 abort,需要在 SetBlocks
+	// abort flag 提前到这里取(原在下方 LoadAndDelete) —— 若已 abort,需要在落库
 	// 之前把仍 running 的 subagent 状态改成 "canceled"。否则 CLI 被 interrupt
 	// 后没有 SubagentDone 事件到达,running 会被原样落 DB 让前端 AgentSpawnCard
 	// 永远 spin。
@@ -514,7 +513,7 @@ func (t *turnRun) finalize(ctx context.Context) {
 		}
 		// 会话所选供应商缺失/停用/不兼容、本轮回退 agent 绑定(spec 决策 8,本地):追加
 		// 一条持久 notice。必须排在 assistantMsg.Model 被 result.Model 覆盖之后与
-		// SetBlocks 之前。
+		// 落库之前。
 		if t.extras.providerFallbackNotice != nil {
 			finalBlocks = append(finalBlocks, *t.extras.providerFallbackNotice)
 		}
@@ -544,7 +543,6 @@ func (t *turnRun) finalize(ctx context.Context) {
 		}
 	}
 	t.assistantMsg.TokensPerSec = t.turnCtx.TokensPerSec(t.assistantMsg.CompletionTokens)
-	_ = t.assistantMsg.SetBlocks(finalBlocks)
 	// aborted 已在 acc.Finalize() 之后取出(见上方 MarkRunningSubagentsCancelled 调用)；
 	// 这里的判定决定 StreamAborted vs StreamError/Done,以及 abort 路径跳过自动接续。
 	awaitingPlanAction := stopErr == nil && !aborted &&
@@ -556,9 +554,15 @@ func (t *turnRun) finalize(ctx context.Context) {
 		t.assistantMsg.ErrorText = stopErr.Error()
 	}
 	// finalCtx：去掉 cancel 信号但保留 DB 句柄。abort 路径下 turnCtx 已 cancel，
-	// 用它写 Update 会静默失败，partial 内容就丢了。
+	// 用它写库会静默失败，partial 内容就丢了。
 	finalCtx := context.WithoutCancel(ctx)
-	_ = transcript_repo.Message().Update(finalCtx, t.assistantMsg)
+	// 只写相对已落库版本变了的块(收尾就地翻的卡、追加的 notice 也在比较之列),不整条重写。
+	if err := persistAssistantFinal(finalCtx, t.assistantMsg, t.acc, finalBlocks); err != nil {
+		logger.Ctx(finalCtx).Error("chat_svc.runTurn: persist assistant message failed",
+			zap.Int64("sessionId", t.sess.ID),
+			zap.Int64("assistantMsgId", t.assistantMsg.ID),
+			zap.Error(err))
+	}
 	// 交接:此后对这条消息的定向写入不会再被收尾覆盖。
 	t.markPersisted()
 	// 落库之后立刻把同一份统计发给对端订阅者:Peer Tab 的 meta 与本机看到的是

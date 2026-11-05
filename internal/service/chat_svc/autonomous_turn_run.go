@@ -596,7 +596,6 @@ func (t *autonomousTurnRun) finalize(ctx context.Context) {
 	} else {
 		handlers.MarkRunningForegroundSubagentsCancelled(t.acc, finalBlocks)
 	}
-	_ = t.assistantMsg.SetBlocks(finalBlocks)
 	// 与用户轮同一套收表口径(turn_run.finalize):同一条会话里自动续的轮与用户发起的轮
 	// 一样要有耗时 / 首字 / 速率。
 	t.assistantMsg.DurationMs = int(time.Since(t.segmentStart).Milliseconds())
@@ -634,7 +633,13 @@ func (t *autonomousTurnRun) finalize(ctx context.Context) {
 			zap.Int64("assistantMsgId", t.assistantMsg.ID),
 			zap.Error(t.at.Result.StopErr))
 	}
-	_ = transcript_repo.Message().Update(finalCtx, t.assistantMsg)
+	// 只写相对已落库版本变了的块,不整条重写(同 turnRun.finalize)。
+	if err := persistAssistantFinal(finalCtx, t.assistantMsg, t.acc, finalBlocks); err != nil {
+		logger.Ctx(finalCtx).Error("chat_svc.driveAutonomousTurn: persist assistant message failed",
+			zap.Int64("sessionId", t.sessionID),
+			zap.Int64("assistantMsgId", t.assistantMsg.ID),
+			zap.Error(err))
+	}
 	t.svc.publishPeerTurnDone(finalCtx, t.sessionID, t.stream, t.assistantMsg)
 
 	t.sess.AgentStatus = "idle"

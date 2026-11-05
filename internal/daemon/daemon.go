@@ -2227,6 +2227,12 @@ func (t transcriptStore) Checkpoint(
 	return transcript_repo.Message().CheckpointBlocks(dbpkg.WithContextDB(ctx, t.db), m, prevBlocksJSON)
 }
 
+func (t transcriptStore) UpsertBlocks(
+	ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int,
+) error {
+	return transcript_repo.Message().UpsertBlocks(dbpkg.WithContextDB(ctx, t.db), m, rows, truncateFrom)
+}
+
 // FindSubagentCard 找回承载这张后台任务派遣卡的已收口消息(正文齐全),与桌面端
 // driveSubagentActivity 定位发起消息用的是同一个仓储方法。
 func (t transcriptStore) FindSubagentCard(

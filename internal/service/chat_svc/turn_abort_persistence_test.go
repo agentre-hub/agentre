@@ -10,6 +10,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
@@ -47,8 +48,8 @@ func TestFailTurn_PersistsWithDetachedContext(t *testing.T) {
 				return nil
 			},
 		)
-		msgRepo.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
-			func(ctx context.Context, msg *chat_entity.Message) error {
+		msgRepo.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Nil(), -1).DoAndReturn(
+			func(ctx context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 				So(ctx.Err(), ShouldBeNil)
 				persistedErrText = msg.ErrorText
 				return nil
@@ -92,8 +93,8 @@ func TestRunTurn_AbortBeforeStreamConvergesToIdle(t *testing.T) {
 				return nil
 			},
 		)
-		msgRepo.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
-			func(ctx context.Context, msg *chat_entity.Message) error {
+		msgRepo.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Nil(), -1).DoAndReturn(
+			func(ctx context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 				So(ctx.Err(), ShouldBeNil)
 				So(msg.ErrorText, ShouldBeEmpty)
 				return nil

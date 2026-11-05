@@ -2846,7 +2846,12 @@ func (s *chatSvc) persistConsumedSteers(
 		return nil, nil, nil
 	}
 
-	_ = current.SetBlocks(acc.Finalize())
+	// 收口这一段只写相对已落库版本变了的块。写集合在事务提交之后才提交:事务回滚时块行
+	// 并没有落,下一次(轮末那一发)仍要交出它们。
+	cp, err := prepareAssistantFinal(current, acc, acc.Finalize())
+	if err != nil {
+		return nil, nil, fmt.Errorf("persist consumed steer: %w", err)
+	}
 	current.DurationMs = int(time.Since(segmentStart).Milliseconds())
 	current.FirstTokenMs = turnCtx.FirstTokenMs()
 	turnCtx.PauseGeneration()
@@ -2863,7 +2868,7 @@ func (s *chatSvc) persistConsumedSteers(
 
 	if err := db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		txCtx := db.WithContextDB(ctx, tx)
-		if err := transcript_repo.Message().Update(txCtx, current); err != nil {
+		if err := upsertCheckpoint(txCtx, current, cp); err != nil {
 			return err
 		}
 		nextSeq, err := transcript_repo.Message().NextSeq(txCtx, sess.ID)
@@ -2897,6 +2902,7 @@ func (s *chatSvc) persistConsumedSteers(
 	}); err != nil {
 		return nil, nil, fmt.Errorf("persist consumed steer: %w", err)
 	}
+	acc.CommitCheckpoint(cp)
 
 	// 分段落地:收口的 assistant 与插进来的 user 都已落库,按转录顺序依次取号 ——
 	// 编号顺序就是补齐的重放顺序,晚一步取号的那条会排到整段之后。

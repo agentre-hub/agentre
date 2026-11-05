@@ -97,6 +97,7 @@ func TestSend_GivenNoLoggedInAccount_ThenCreatesAndRunsAConversationWithoutAnyNe
 	}, nil).AnyTimes()
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{AgentID: 7, Text: firstUserText})
 	require.NoError(t, err)

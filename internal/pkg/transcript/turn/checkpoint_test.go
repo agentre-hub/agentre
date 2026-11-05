@@ -208,3 +208,85 @@ func TestAccumulator_CheckpointConcurrentWithMutations(t *testing.T) {
 		checkpointOnce(acc, "")
 	})
 }
+
+func TestAccumulator_CheckpointBaselineSurvivesAFailedFirstWrite(t *testing.T) {
+	Convey("第一次 checkpoint 写库失败、调用方已把内存正文换成新版时,下一次仍以库里那份为基准", t, func() {
+		acc := New()
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{ID: "tu-1"}, "tool_use:tu-1")
+		failed, err := acc.PrepareCheckpoint("[]")
+		So(err, ShouldBeNil)
+		So(changedIdx(failed), ShouldResemble, []int{0})
+		// 写库失败:不提交。调用方手上那份正文此刻已是 failed.BlocksJSON(库里并没有它)。
+		acc.AddToolResult(&cagoblocks.ToolResultBlock{ToolUseID: "tu-1"})
+		So(changedIdx(checkpointOnce(acc, failed.BlocksJSON)), ShouldResemble, []int{0, 1})
+	})
+}
+
+// fullJSON 是 Message.SetBlocks(bs) 的整份编码口径。
+func fullJSON(bs []cagoblocks.ContentBlock) string {
+	stored, err := cagoblocks.EncodeAll(bs)
+	So(err, ShouldBeNil)
+	buf, err := json.Marshal(stored)
+	So(err, ShouldBeNil)
+	return string(buf)
+}
+
+func TestAccumulator_FinalCheckpoint(t *testing.T) {
+	Convey("收尾那一次 checkpoint 交出相对已提交版本变了的每一块", t, func() {
+		acc := New()
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{ID: "tu-1", Name: "Task"}, "tool_use:tu-1")
+		sub := &blocks.SubagentStateBlock{ParentToolCallID: "tu-1", TaskID: "task-1", Status: "running"}
+		acc.AddBlock(sub, "subagent_state:tu-1")
+		ask := &blocks.UserAskBlock{RequestID: "ask-1"}
+		acc.AddBlock(ask, "user_ask:ask-1")
+		acc.AddText("partial")
+		checkpointOnce(acc, "[]")
+
+		Convey("收尾就地改过(未标脏)的卡、长完的尾巴与追加的 notice 都交出,没变的块不交出", func() {
+			acc.AddText(" answer")
+			final := acc.Finalize()
+			sub.Status = "canceled" // MarkRunningSubagentsCancelled 的写法:不经累加器
+			ask.Expired = true      // MarkUnansweredUserAsksExpired 同样
+			final = append(final, cagoblocks.NoticeBlock{Level: "info", Text: "fallback"})
+
+			cp, err := acc.PrepareFinalCheckpoint("ignored", final)
+			So(err, ShouldBeNil)
+			So(changedIdx(cp), ShouldResemble, []int{1, 2, 3, 4})
+			So(cp.TruncateFrom, ShouldEqual, -1)
+			So(cp.BlocksJSON, ShouldEqual, fullJSON(final))
+
+			Convey("写库失败不提交:再来一次交出同样的块", func() {
+				again, err := acc.PrepareFinalCheckpoint("ignored", final)
+				So(err, ShouldBeNil)
+				So(changedIdx(again), ShouldResemble, []int{1, 2, 3, 4})
+			})
+
+			Convey("提交之后再来一次什么都不交出", func() {
+				acc.CommitCheckpoint(cp)
+				again, err := acc.PrepareFinalCheckpoint("", final)
+				So(err, ShouldBeNil)
+				So(again.Changed, ShouldBeEmpty)
+				So(again.BlocksJSON, ShouldEqual, fullJSON(final))
+			})
+		})
+
+		Convey("比已提交版本短时截掉残块", func() {
+			cp, err := acc.PrepareFinalCheckpoint("", acc.Finalize()[:2])
+			So(err, ShouldBeNil)
+			So(cp.Changed, ShouldBeEmpty)
+			So(cp.TruncateFrom, ShouldEqual, 2)
+		})
+	})
+
+	Convey("从未落过块的消息:收尾交出全部块", t, func() {
+		acc := New()
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{ID: "tu-1"}, "tool_use:tu-1")
+		acc.AddText("hi")
+		final := acc.Finalize()
+		cp, err := acc.PrepareFinalCheckpoint("[]", final)
+		So(err, ShouldBeNil)
+		So(changedIdx(cp), ShouldResemble, []int{0, 1})
+		So(cp.TruncateFrom, ShouldEqual, -1)
+		So(cp.BlocksJSON, ShouldEqual, fullJSON(final))
+	})
+}

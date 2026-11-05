@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -35,6 +36,16 @@ type memTranscript struct {
 	next *transcript_entity.Message
 	// persisted 按消息 id 记最近一次落库的块正文(Checkpoint / SegmentTurn / FinishTurn)。
 	persisted map[int64]string
+	// upserts 记每次增量 checkpoint(UpsertBlocks)交来的块行下标与截断点。
+	upserts []memUpsert
+	// failUpserts > 0 时接下来这么多次 UpsertBlocks 失败。
+	failUpserts int
+}
+
+type memUpsert struct {
+	messageID    int64
+	idx          []int
+	truncateFrom int
 }
 
 func (m *memTranscript) persistLocked(msg *transcript_entity.Message) {
@@ -60,6 +71,31 @@ func (m *memTranscript) Checkpoint(_ context.Context, msg *transcript_entity.Mes
 	m.checkpoints = append(m.checkpoints, msg.BlocksJSON)
 	m.persistLocked(msg)
 	return nil
+}
+
+func (m *memTranscript) UpsertBlocks(
+	_ context.Context, msg *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	up := memUpsert{messageID: msg.ID, truncateFrom: truncateFrom}
+	for _, r := range rows {
+		up.idx = append(up.idx, r.Idx)
+	}
+	m.upserts = append(m.upserts, up)
+	if m.failUpserts > 0 {
+		m.failUpserts--
+		return errors.New("database is locked")
+	}
+	m.checkpoints = append(m.checkpoints, msg.BlocksJSON)
+	m.persistLocked(msg)
+	return nil
+}
+
+func (m *memTranscript) upsertLog() []memUpsert {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]memUpsert(nil), m.upserts...)
 }
 
 func (m *memTranscript) SegmentTurn(_ context.Context, current *transcript_entity.Message, _ []agentruntime.ConsumedSteer) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
@@ -275,4 +311,37 @@ func TestTurnTranscript_GivenPendingApprovalInSegmentedMessage_WhenTurnFinishes_
 	resolved, ok := lastResolved(sink.snapshot())
 	require.True(t, ok, "the expiry goes out as a durable tool_approval_resolved frame")
 	assert.Equal(t, agentruntime.ToolApprovalResolved{RequestID: "req-seg", Status: "expired"}, resolved)
+}
+
+// 轮内 checkpoint 只编码、只写新增与被改动的块(累加器的增量写集合),与消息已有多少块无关;
+// 一次写库失败不吞块:下一次 checkpoint 照样交出它们。
+func TestTurnTranscript_GivenGrowingTurn_WhenCheckpointing_ThenOnlyChangedBlocksAreWritten(t *testing.T) {
+	scribe, mem, _ := newApprovalTurn(t)
+	ctx := context.Background()
+
+	scribe.observe(ctx, agentruntime.ToolCall{ID: "tu-1", Name: "Bash"})
+	scribe.observe(ctx, agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"})
+	scribe.observe(ctx, agentruntime.ToolCall{ID: "tu-2", Name: "Bash"})
+	scribe.observe(ctx, agentruntime.ToolResult{ToolCallID: "tu-2", Content: "ok"})
+	log := mem.upsertLog()
+	require.NotEmpty(t, log)
+	assert.Equal(t, memUpsert{messageID: 21, idx: []int{2, 3}, truncateFrom: -1}, log[len(log)-1],
+		"the second tool round writes only its own two blocks")
+
+	_, err := scribe.beginApproval(ctx, ctlCard("req-1"))
+	require.NoError(t, err)
+	scribe.resolveApproval(ctx, "req-1", "approved", "done")
+	log = mem.upsertLog()
+	assert.Equal(t, []int{4}, log[len(log)-1].idx, "resolving the card rewrites just the card")
+	assert.Contains(t, mem.lastCheckpoint(), `"approved"`)
+
+	mem.mu.Lock()
+	mem.failUpserts = 1
+	mem.mu.Unlock()
+	scribe.observe(ctx, agentruntime.ToolCall{ID: "tu-3", Name: "Bash"})
+	scribe.observe(ctx, agentruntime.ToolResult{ToolCallID: "tu-3", Content: "ok"})
+	scribe.observe(ctx, agentruntime.ToolCall{ID: "tu-4", Name: "Bash"})
+	scribe.observe(ctx, agentruntime.ToolResult{ToolCallID: "tu-4", Content: "ok"})
+	log = mem.upsertLog()
+	assert.Equal(t, []int{5, 6, 7, 8}, log[len(log)-1].idx, "blocks of a failed write are written by the next checkpoint")
 }
