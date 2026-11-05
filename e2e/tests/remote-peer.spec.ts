@@ -172,7 +172,11 @@ test.describe.serial("remote peer smoke", () => {
     await createRemoteChat(page);
     await send(page, prompt);
 
-    await expect(page.getByText(/e2e remote protocol failure/i)).toBeVisible();
+    // 失败卡标题是分类后的事实句，后端原文只在默认折叠的「详情」里。
+    const errorCard = page.getByTestId("turn-error-card").last();
+    await expect(errorCard.getByText(/this turn did not finish|这一轮没有完成/i)).toBeVisible();
+    await errorCard.getByRole("button", { name: /details|详情/i }).click();
+    await expect(errorCard.getByText(/e2e remote protocol failure/i)).toBeVisible();
     await expect(page.getByTestId("tab-spinner")).toHaveCount(0);
     await expect.poll(() => runningSessionCount()).toBe(0);
     await expect.poll(() => remoteSessionByPrompt(prompt)?.agent_status).toBe("error");

@@ -50,14 +50,19 @@ const SAMPLES: Array<[TurnFailureKind, string]> = [
     "agentruntime/runtimes/claudecode: subprocess produced no events (likely exited on startup)",
   ],
   ["processExited", "acp agent process exited: exit status 1"],
+  // 远端运行被打断（ChatRemoteRunInterrupted）不是进程退出：agentred 重启或会话在
+  // 那台机器上被中断，内容都还在 —— 必须单独成类，不能被说成「进程中途退出」。
   [
-    "processExited",
+    "interrupted",
     "本轮在这里被打断了：远端 agentred 重启，这条会话已中断，不是运行失败。以上内容已保留，直接发消息即可开始新的一轮",
   ],
   [
-    "processExited",
+    "interrupted",
     "This turn was interrupted here: the remote agentred restarted and the session was cut short — it did not fail. Everything above is kept; send a message to start a new turn.",
   ],
+  ["interrupted", "remote: run interrupted"],
+  ["interrupted", "the session was interrupted by the daemon"],
+  ["interrupted", "会话被中断，未完成"],
   [
     "network",
     "API Error: Connection closed mid-response. The response above may be incomplete.",
@@ -103,6 +108,7 @@ describe("turnFailureFact", () => {
     "rateLimited",
     "authExpired",
     "processExited",
+    "interrupted",
     "network",
     "unknown",
   ];

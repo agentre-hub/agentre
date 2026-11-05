@@ -25,6 +25,7 @@
       "details": "Details",
       "fact": {
         "authExpired": "The login has expired; this turn did not finish.",
+        "interrupted": "This turn was interrupted; everything above is kept — send a message to start a new turn.",
         "network": "The network connection dropped; this turn did not finish.",
         "overloaded": "The model service is temporarily overloaded; this turn did not finish.",
         "processExited": "The agent process exited early; this turn did not finish.",

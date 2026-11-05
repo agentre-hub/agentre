@@ -5,7 +5,9 @@ import type { TFunction } from "i18next";
  *
  * - `overloaded` / `rateLimited` / `network`：瞬态，原样重试同一条消息就可能成。
  * - `authExpired`：CLI 登录失效，只有在终端重新登录才修得好，重试必然再失败。
- * - `processExited`：agent 进程中途退出或这一轮被打断，接着做（继续）或重来。
+ * - `processExited`：agent 进程中途退出，接着做（继续）或重来。
+ * - `interrupted`：这一轮被打断（如远端 agentred 重启），进程没出错、内容都保留，
+ *   出口与 `processExited` 相同，但事实句不能说成进程退出。
  * - `unknown`：分不出类。
  */
 export type TurnFailureKind =
@@ -13,6 +15,7 @@ export type TurnFailureKind =
   | "rateLimited"
   | "authExpired"
   | "processExited"
+  | "interrupted"
   | "network"
   | "unknown";
 
@@ -37,9 +40,12 @@ const RULES: ReadonlyArray<readonly [TurnFailureKind, RegExp]> = [
     "network",
     /connection (?:closed|refused|reset)|econn(?:reset|refused)|enotfound|etimedout|socket hang up|fetch failed|request timed out|dial tcp|no such host|i\/o timeout|network is unreachable|stream disconnected|agentred is unreachable|连不上/i,
   ],
+  // 被打断排在进程退出前：远端中断的文案（ChatRemoteRunInterrupted）可能被包在
+  // 「exit status」之类的前缀里，它说的事实仍是「被打断」。
+  ["interrupted", /run interrupted|was interrupted|被打断|被中断/i],
   [
     "processExited",
-    /process exited|subprocess exited|exited on startup|\bexit(?: status)? \d+|signal: (?:killed|terminated)|run interrupted|was interrupted|被打断/i,
+    /process exited|subprocess exited|exited on startup|\bexit(?: status)? \d+|signal: (?:killed|terminated)/i,
   ],
 ];
 
@@ -67,6 +73,8 @@ export function turnFailureFact(kind: TurnFailureKind, t: TFunction): string {
       return t("chat.errorCard.fact.authExpired");
     case "processExited":
       return t("chat.errorCard.fact.processExited");
+    case "interrupted":
+      return t("chat.errorCard.fact.interrupted");
     case "network":
       return t("chat.errorCard.fact.network");
     case "unknown":

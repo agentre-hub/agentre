@@ -25,6 +25,7 @@
       "details": "详情",
       "fact": {
         "authExpired": "登录已过期，这一轮没有完成。",
+        "interrupted": "这一轮被中断了，上面的内容都保留着，直接发消息就能开始新的一轮。",
         "network": "网络连接中断，这一轮没有完成。",
         "overloaded": "模型服务暂时过载，这一轮没有完成。",
         "processExited": "Agent 进程中途退出，这一轮没有完成。",

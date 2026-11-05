@@ -19,6 +19,11 @@ const OVERLOADED =
   'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
 const AUTH_EXPIRED = "Failed to authenticate. API Error: 403";
 const PROCESS_EXITED = "codex: process exited unexpectedly";
+// internal/pkg/code 的 ChatRemoteRunInterrupted 中英两句（远端 agentred 重启打断了这一轮）。
+const REMOTE_INTERRUPTED_ZH =
+  "本轮在这里被打断了：远端 agentred 重启，这条会话已中断，不是运行失败。以上内容已保留，直接发消息即可开始新的一轮";
+const REMOTE_INTERRUPTED_EN =
+  "This turn was interrupted here: the remote agentred restarted and the session was cut short — it did not fail. Everything above is kept; send a message to start a new turn.";
 
 function failedRow(
   errorText: string,
@@ -212,6 +217,38 @@ describe("ErrorCard · exits per failure kind", () => {
     expect(onContinue).toHaveBeenCalledWith(9);
     expect(onRerun).toHaveBeenCalledWith(9);
   });
+
+  it.each([REMOTE_INTERRUPTED_ZH, REMOTE_INTERRUPTED_EN])(
+    "Given a remote run that was interrupted (%s), When rendered, Then the visible title says the turn was interrupted — not that the process exited — and offers 继续 and 重新生成",
+    (errorText) => {
+      const onRerun = vi.fn();
+      const onContinue = vi.fn();
+      const card = renderFailed(failedRow(errorText), {
+        onRetryTurn: vi.fn(),
+        onRerun,
+        onContinue,
+      });
+
+      const title = within(card).getByText(
+        t("chat.errorCard.fact.interrupted"),
+      );
+      expect(title.textContent).toMatch(/interrupted|中断/i);
+      expect(
+        within(card).queryByText(t("chat.errorCard.fact.processExited")),
+      ).toBeNull();
+      expect(buttonNames(card)).toEqual([
+        t("chat.errorCard.continue"),
+        t("chat.actions.regenerate"),
+        t("chat.errorCard.details"),
+      ]);
+      fireEvent.click(
+        within(card).getByRole("button", {
+          name: t("chat.errorCard.continue"),
+        }),
+      );
+      expect(onContinue).toHaveBeenCalledWith(9);
+    },
+  );
 
   it("Given the footer already offers 重新生成, When an unknown failure renders, Then the card keeps 继续 and the page shows 重新生成 once", () => {
     const card = renderFailed(

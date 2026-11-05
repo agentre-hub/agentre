@@ -234,6 +234,21 @@ describe("maybeNotify 正文带回复摘要", () => {
     );
   });
 
+  it("error 是远端运行被打断 → 被中断事实句,不说成进程退出", () => {
+    const ev = {
+      kind: "error",
+      error:
+        "本轮在这里被打断了：远端 agentred 重启，这条会话已中断，不是运行失败。以上内容已保留，直接发消息即可开始新的一轮",
+    } as unknown as DoneEvent;
+    const d = deps({ getDoneEvent: () => ev });
+    maybeNotify(42, "error", d);
+    expect(d.showSystemNotification).toHaveBeenCalledWith(
+      42,
+      "我的会话",
+      "notify.body.error · ui:chat.errorCard.fact.interrupted",
+    );
+  });
+
   it("error 无错误文案 → 只有状态词", () => {
     const d = deps({ getDoneEvent: () => ({ kind: "error" }) as DoneEvent });
     maybeNotify(42, "error", d);
