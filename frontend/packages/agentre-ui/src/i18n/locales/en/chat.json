@@ -290,8 +290,11 @@
     "dropHint": "Drop to add files / folder paths",
     "sending": "Sending…",
     "sendTitle": "Send (Enter)",
+    "sendAfterAITitle": "Insert after AI finishes (Enter)",
+    "stop": "Stop",
+    "stopping": "Stopping…",
+    "stopTitle": "Stop current turn (Esc)",
     "shortcuts": {
-      "send": "↵ Send · ⇧↵ New line",
       "edit": "↵ Save · Esc Cancel"
     },
     "editing": {

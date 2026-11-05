@@ -117,6 +117,194 @@ describe("ChatComposer · sending", () => {
   });
 });
 
+describe("ChatComposer · running turn", () => {
+  it("Given a turn is running and the draft is empty, When the submit slot is read, Then it is a stop control that stops the turn", async () => {
+    const onStop = vi.fn();
+    render(<ChatComposer running onStop={onStop} onSubmit={vi.fn()} />);
+
+    const stop = screen.getByRole("button", { name: "Stop" });
+    expect(stop).toHaveAttribute("title", "Stop current turn (Esc)");
+    expect(stop).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+
+    fireEvent.click(stop);
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given a turn is running and there is a draft, When the submit slot is read, Then stop and send sit side by side and send says it inserts after the AI", async () => {
+    const inputHandle = createRef<AIChatInputHandle>();
+    const onSubmit = vi.fn();
+    const { container } = render(
+      <ChatComposer
+        inputHandleRef={inputHandle}
+        running
+        onStop={vi.fn()}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    inputHandle.current?.loadDraft("also handle the empty list");
+    const send = await screen.findByRole("button", { name: "Send" });
+    await waitFor(() => expect(send).toBeEnabled());
+    expect(send).toHaveAttribute("title", "Insert after AI finishes (Enter)");
+    const stop = screen.getByRole("button", { name: "Stop" });
+
+    // 两颗都贴在底栏最右，停止在左、发送在最末。
+    const bar = container.querySelector("[data-slot='composer-bar']");
+    const buttons: Element[] = Array.from(
+      bar?.querySelectorAll("button") ?? [],
+    );
+    expect(buttons.indexOf(stop)).toBe(buttons.length - 2);
+    expect(buttons.indexOf(send)).toBe(buttons.length - 1);
+
+    fireEvent.click(send);
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith({
+        text: "also handle the empty list",
+      }),
+    );
+  });
+
+  it("Given stop was pressed, When the turn has not ended yet, Then the stop control spins and is disabled", async () => {
+    const onStop = vi.fn();
+    render(
+      <ChatComposer running stopping onStop={onStop} onSubmit={vi.fn()} />,
+    );
+
+    const stop = screen.getByRole("button", { name: "Stopping…" });
+    expect(stop).toBeDisabled();
+    expect(stop.querySelector(".animate-spin")).not.toBeNull();
+    fireEvent.click(stop);
+    expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("Given a running turn and an empty draft, When Escape is pressed in the editor, Then the turn is stopped", () => {
+    const onStop = vi.fn();
+    render(<ChatComposer running onStop={onStop} onSubmit={vi.fn()} />);
+
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given a running turn but a draft is typed, When Escape is pressed, Then nothing is stopped", async () => {
+    const inputHandle = createRef<AIChatInputHandle>();
+    const onStop = vi.fn();
+    render(
+      <ChatComposer
+        inputHandleRef={inputHandle}
+        running
+        onStop={onStop}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    inputHandle.current?.loadDraft("half a thought");
+    await screen.findByRole("button", { name: "Send" });
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+    expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("Given a running turn with an image attached, When Escape is pressed, Then nothing is stopped", async () => {
+    const onStop = vi.fn();
+    render(
+      <ChatComposer
+        running
+        supportsImageInput
+        onStop={onStop}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    await attachPng("pending.png");
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+    expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("Given a popover already consumed Escape, When it reaches the composer, Then nothing is stopped", () => {
+    const onStop = vi.fn();
+    render(<ChatComposer running onStop={onStop} onSubmit={vi.fn()} />);
+
+    // slash / mention 弹层在编辑器上先吃掉 Esc（preventDefault）再冒泡到表单。
+    const editor = screen.getByRole("textbox");
+    editor.addEventListener("keydown", (event) => event.preventDefault());
+    fireEvent.keyDown(editor, { key: "Escape" });
+    expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("Given an IME composition is in progress, When Escape is pressed, Then it is left to the IME", () => {
+    const onStop = vi.fn();
+    render(<ChatComposer running onStop={onStop} onSubmit={vi.fn()} />);
+
+    fireEvent.keyDown(screen.getByRole("textbox"), {
+      key: "Escape",
+      isComposing: true,
+    });
+    expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("Given edit mode during a running turn, When Escape is pressed, Then it cancels the edit instead of stopping", () => {
+    const onStop = vi.fn();
+    const onCancelEdit = vi.fn();
+    render(
+      <ChatComposer
+        editing
+        running
+        onStop={onStop}
+        onCancelEdit={onCancelEdit}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+    expect(onCancelEdit).toHaveBeenCalledTimes(1);
+    expect(onStop).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
+  it("Given focus is on a bottom-bar control rather than the editor, When Escape is pressed, Then nothing is stopped", () => {
+    const onStop = vi.fn();
+    render(
+      <ChatComposer
+        running
+        onStop={onStop}
+        leadingControls={<button type="button">pill</button>}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "pill" }), {
+      key: "Escape",
+    });
+    expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("Given stop is already in flight, When Escape is pressed again, Then the host is not asked twice", () => {
+    const onStop = vi.fn();
+    render(
+      <ChatComposer running stopping onStop={onStop} onSubmit={vi.fn()} />,
+    );
+
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+    expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("Given a host that wires no stop (agentre-server), When a turn runs, Then the submit slot is the plain send control and Escape does nothing", () => {
+    const { container } = render(<ChatComposer running onSubmit={vi.fn()} />);
+
+    const send = screen.getByRole("button", { name: "Send" });
+    expect(send).toHaveAttribute("title", "Send (Enter)");
+    expect(screen.queryByRole("button", { name: /Stop/ })).toBeNull();
+    expect(
+      container.querySelectorAll("[data-slot='composer-bar'] button"),
+    ).toHaveLength(2);
+
+    const escape = fireEvent.keyDown(screen.getByRole("textbox"), {
+      key: "Escape",
+    });
+    expect(escape).toBe(true);
+  });
+});
+
 describe("ChatComposer · editing", () => {
   it("Given the host enters edit mode, When rendered, Then a banner explains it and the submit control becomes Save", async () => {
     render(<ChatComposer editing editDraft="old text" onSubmit={vi.fn()} />);
@@ -490,9 +678,14 @@ describe("ChatComposer · bottom bar", () => {
     expect(order.indexOf("trail")).toBeLessThan(order.length - 1);
   });
 
-  it("Given the default hint, When the bar is read, Then it states how to send and how to break a line", () => {
-    render(<ChatComposer onSubmit={vi.fn()} />);
-    expect(screen.getByText("↵ Send · ⇧↵ New line")).toBeInTheDocument();
+  it("Given the host passes no hint, When the bar is read, Then no standing shortcut hint is shown", () => {
+    const { container } = render(<ChatComposer onSubmit={vi.fn()} />);
+
+    // 发送与换行是人人都会的操作，常驻教学文案只占底栏（C7）。
+    expect(container.querySelector("[data-slot='composer-shortcuts']")).toBe(
+      null,
+    );
+    expect(screen.queryByText(/New line/)).toBeNull();
   });
 
   it("Given the host supplies its own hint, When rendered, Then it replaces the built-in one", () => {
@@ -501,12 +694,11 @@ describe("ChatComposer · bottom bar", () => {
     );
 
     expect(screen.getByText("offline")).toBeInTheDocument();
-    expect(screen.queryByText("↵ Send · ⇧↵ New line")).toBeNull();
   });
 
-  it("Given the host suppresses the hint, When rendered, Then no hint is shown at all", () => {
-    render(<ChatComposer shortcutsHint={null} onSubmit={vi.fn()} />);
-    expect(screen.queryByText("↵ Send · ⇧↵ New line")).toBeNull();
+  it("Given the host suppresses the hint in edit mode, When rendered, Then not even the edit hint is shown", () => {
+    render(<ChatComposer editing shortcutsHint={null} onSubmit={vi.fn()} />);
+    expect(screen.queryByText("↵ Save · Esc Cancel")).toBeNull();
   });
 });
 

@@ -633,11 +633,28 @@ function ChatPanel({
     setNotice,
   });
 
+  const headerStatus = reasonToDisplayStatus(
+    attentionReason,
+    (session?.agentStatus as AgentStatus) || "idle",
+  );
+  // canStop 双源：
+  //   1. currentStream !== null —— 本客户端刚起的 turn，openStream 是同步 store 写，
+  //      比 useChatSession.reload 早；解决 Regenerate / Edit / Send-existing 的「服务端
+  //      已 running 但前端 agentStatus 还是上轮 idle」窗口。
+  //   2. status === running/waiting —— 服务端权威态，覆盖「app 重启时另一会话仍在跑」
+  //      场景（store 里没 entry）。
+  const canStop =
+    currentStream !== null ||
+    headerStatus === "running" ||
+    headerStatus === "waiting";
+
   // composer / 头部触发的那一族会话 RPC(首发与续发、压缩、goal、排队与撤销、软中断、
-  // 复制启动命令)与回车的分派整块住在 useChatActions 里。
+  // 复制启动命令)与回车的分派整块住在 useChatActions 里。停止的两个入口(提交位与
+  // 顶带)共用这里的 doStop 与 stopping。
   const {
     doSend,
     doStop,
+    stopping,
     doCancelQueued,
     handleCopyLaunchCommand,
     handleComposerSubmit,
@@ -657,6 +674,7 @@ function ChatPanel({
     onPeerSessionCreated,
     onSidebarShouldReload,
     streaming,
+    canStop,
     activeBackendType,
     canSteer,
     isModeSwitchable,
@@ -736,20 +754,6 @@ function ChatPanel({
   // 头部在「已有会话 / 新建未首发 / 加载中 / 加载失败」四态都渲染，高度写死为两行
   // 标题的高度、内容整块垂直居中：首发消息落地、切 tab、标题长短都不再顶动版面
   // （规格 2026-08-23 决策 2/3）。
-  const headerStatus = reasonToDisplayStatus(
-    attentionReason,
-    (session?.agentStatus as AgentStatus) || "idle",
-  );
-  // canStop 双源：
-  //   1. currentStream !== null —— 本客户端刚起的 turn，openStream 是同步 store 写，
-  //      比 useChatSession.reload 早；解决 Regenerate / Edit / Send-existing 的「服务端
-  //      已 running 但前端 agentStatus 还是上轮 idle」窗口。
-  //   2. status === running/waiting —— 服务端权威态，覆盖「app 重启时另一会话仍在跑」
-  //      场景（store 里没 entry）。
-  const canStop =
-    currentStream !== null ||
-    headerStatus === "running" ||
-    headerStatus === "waiting";
   const headerTitle = session
     ? session.title || t("chatPanel.untitled")
     : showNewSessionPrompt
@@ -825,6 +829,7 @@ function ChatPanel({
                 }
               }}
               canStop={canStop}
+              stopping={stopping}
               onStop={(id) => void doStop(id)}
               sidebarOpen={sidebarOpen}
               onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
@@ -989,6 +994,10 @@ function ChatPanel({
                   <ChatComposer
                     ref={composerRef}
                     sending={sendInFlight}
+                    // 已有会话的这一轮在跑时提交位让给停止键,Esc 也能停(C2)。
+                    running={!!session && canStop}
+                    onStop={session ? () => void doStop(session.id) : undefined}
+                    stopping={stopping}
                     editing={activeEditing !== null}
                     editDraft={activeEditing?.text}
                     onCancelEdit={() => setEditingMessage(null)}
@@ -1002,7 +1011,7 @@ function ChatPanel({
                         ? t("chatPanel.newSession.guard.placeholder")
                         : undefined
                     }
-                    // 底栏：设置项（pills）跟在快捷键提示后，计量器贴着提交键 ——
+                    // 底栏：设置项（pills）靠左，计量器贴着提交键 ——
                     // 「发之前看一眼还剩多少」的读序，与 agentre-server 同一套。
                     leadingControls={
                       isModeSwitchable || activeBackendType ? (

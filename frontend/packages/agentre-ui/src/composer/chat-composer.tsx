@@ -5,6 +5,7 @@ import {
   LoaderCircle,
   Pencil,
   SendHorizontal,
+  Square,
   SquareTerminal,
   X,
 } from "lucide-react";
@@ -68,8 +69,8 @@ export type ChatComposerProps = Omit<
   /** 输入框上方、卡片内的插槽（例：排队消息条）。 */
   topSlot?: React.ReactNode;
   /**
-   * 快捷键提示。省略走内置那句（按是否编辑模式选词）；显式传 `null` 整条不摆；
-   * 传节点则替换 —— agentre-server 在发不出去时用它说明原因。
+   * 快捷键提示。省略时只有编辑态摆内置那句（「↵ 保存 · Esc 取消」），平时不摆；
+   * 显式传 `null` 整条不摆；传节点则替换 —— agentre-server 在发不出去时用它说明原因。
    */
   shortcutsHint?: React.ReactNode;
   /** 编辑既有消息。true 时挂提示条、提交键变「保存」、附件与宿主槽位全部收起。 */
@@ -80,6 +81,15 @@ export type ChatComposerProps = Omit<
   onCancelEdit?: () => void;
   /** 发送 RPC 在途。true 时提交键转 spinner 并禁用。 */
   sending?: boolean;
+  /**
+   * 宿主会话有一轮正在跑。与 `onStop` 同时给出时提交位让给停止键（有草稿时与发送键
+   * 并排），输入框为空时 Esc 也会停止。只给 `running` 不给 `onStop` 等于没给。
+   */
+  running?: boolean;
+  /** 停止当前这一轮。 */
+  onStop?: () => void;
+  /** 停止已发出、这一轮还没结束。true 时停止键转 spinner 并禁用。 */
+  stopping?: boolean;
   /** 焦点在 composer 内按下 Shift+Tab（桌面端用来循环切换 permission mode）。 */
   onShiftTab?: () => void;
   /** 挂载即聚焦输入框。新建会话场景下让用户一打开就能打字。 */
@@ -208,6 +218,9 @@ export const ChatComposer = React.forwardRef<
     editDraft,
     onCancelEdit,
     sending = false,
+    running = false,
+    onStop,
+    stopping = false,
     onShiftTab,
     autoFocusOnMount = false,
     onCommandModeChange,
@@ -226,6 +239,8 @@ export const ChatComposer = React.forwardRef<
   const [images, setImages] = React.useState<ChatImageAttachment[]>([]);
   const [imageError, setImageError] = React.useState("");
   const [commandMode, setCommandMode] = React.useState(false);
+  // 停止只在宿主真的接了 onStop 时出现 —— agentre-server 不接，行为与从前一样。
+  const stopAvailable = running && !!onStop && !editing;
 
   React.useImperativeHandle(
     ref,
@@ -383,8 +398,9 @@ export const ChatComposer = React.forwardRef<
     void addFiles(pasted);
   }
 
-  // Esc 取消编辑：TipTap 的 handleKeyDown 不处理 Esc，所以在 form 层捕获；非编辑
-  // 态不消费，让默认行为走。
+  // Esc 取消编辑：TipTap 的 handleKeyDown 不处理 Esc，所以在 form 层捕获。非编辑
+  // 态下，一轮在跑、焦点在编辑器里、草稿为空时 Esc 停止这一轮；slash / mention 弹层
+  // 先在编辑器上消费掉的 Esc（defaultPrevented）与 IME 组词中的 Esc 都不算。
   //
   // Shift+Tab 交给宿主（桌面端拿它循环切换 permission mode）。本地命令历史的清除
   // 控件保留原生反向焦点；编辑模式也不消费。
@@ -410,6 +426,21 @@ export const ChatComposer = React.forwardRef<
       return;
     }
     if (
+      stopAvailable &&
+      !stopping &&
+      event.key === "Escape" &&
+      !event.defaultPrevented &&
+      !event.nativeEvent.isComposing &&
+      empty &&
+      images.length === 0 &&
+      event.target instanceof Element &&
+      event.target.closest(EDITOR_SELECTOR)
+    ) {
+      event.preventDefault();
+      onStop?.();
+      return;
+    }
+    if (
       !event.defaultPrevented &&
       !editing &&
       onShiftTab &&
@@ -432,19 +463,18 @@ export const ChatComposer = React.forwardRef<
 
   const showImageEntry = supportsImageInput && !editing;
   const showHostControls = !editing && !commandMode;
+  // 发送 / 换行人人都会，平时不摆常驻教学文案；编辑态的保存 / 取消不显然，留着。
   const hint =
-    shortcutsHint === undefined ? (
+    shortcutsHint !== undefined ? (
+      shortcutsHint
+    ) : editing ? (
       <span
         data-slot="composer-shortcuts"
         className="shrink-0 font-mono text-meta leading-none whitespace-nowrap text-muted-foreground @max-[1000px]/composer:hidden"
       >
-        {editing
-          ? t("chatComposer.shortcuts.edit")
-          : t("chatComposer.shortcuts.send")}
+        {t("chatComposer.shortcuts.edit")}
       </span>
-    ) : (
-      shortcutsHint
-    );
+    ) : null;
 
   return (
     <form
@@ -609,6 +639,8 @@ export const ChatComposer = React.forwardRef<
             empty={empty}
             hasImages={images.length > 0}
             sending={sending}
+            onStop={stopAvailable ? onStop : undefined}
+            stopping={stopping}
             testId={sendButtonTestId}
           />
         </div>
@@ -623,8 +655,11 @@ export const ChatComposer = React.forwardRef<
 });
 
 /**
- * 提交键三态。命令模式与编辑模式各换一副样子 —— 同一个按钮在这三种情形下做的
+ * 提交位。命令模式与编辑模式各换一副样子 —— 同一个按钮在这三种情形下做的
  * 是三件不同的事，长得一样会让人按错。
+ *
+ * 一轮在跑（`onStop` 给出）时提交位让出停止键：草稿为空只有停止键；有草稿时停止键
+ * 与发送键并排，发送键写明它是「AI 完成后插入」；已点停止则停止键转 spinner 并禁用。
  */
 function SubmitControl({
   commandMode,
@@ -633,6 +668,8 @@ function SubmitControl({
   empty,
   hasImages,
   sending,
+  onStop,
+  stopping,
   testId,
 }: {
   commandMode: boolean;
@@ -641,6 +678,8 @@ function SubmitControl({
   empty: boolean;
   hasImages: boolean;
   sending: boolean;
+  onStop?: () => void;
+  stopping: boolean;
   testId?: string;
 }) {
   const { t } = useUiTranslation();
@@ -663,35 +702,88 @@ function SubmitControl({
 
   if (commandMode) {
     return (
+      <>
+        {onStop ? <StopButton onStop={onStop} stopping={stopping} /> : null}
+        <Button
+          type="submit"
+          data-testid={testId}
+          size="icon-sm"
+          className="shrink-0"
+          aria-label={t("chatComposer.command.run")}
+        >
+          <SquareTerminal className="size-4" aria-hidden="true" />
+        </Button>
+      </>
+    );
+  }
+
+  const hasDraft = !empty || hasImages;
+  if (onStop && !hasDraft) {
+    return <StopButton onStop={onStop} stopping={stopping} />;
+  }
+
+  return (
+    <>
+      {onStop ? <StopButton onStop={onStop} stopping={stopping} /> : null}
       <Button
         type="submit"
         data-testid={testId}
         size="icon-sm"
         className="shrink-0"
-        aria-label={t("chatComposer.command.run")}
+        disabled={disabled || sending || !hasDraft}
+        aria-label={
+          sending ? t("chatComposer.sending") : t("chatComposer.send")
+        }
+        title={
+          onStop
+            ? t("chatComposer.sendAfterAITitle")
+            : t("chatComposer.sendTitle")
+        }
       >
-        <SquareTerminal className="size-4" aria-hidden="true" />
+        {sending ? (
+          <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+        ) : (
+          <SendHorizontal aria-hidden="true" className="size-4" />
+        )}
       </Button>
-    );
-  }
+    </>
+  );
+}
 
+/**
+ * 提交位上的停止键。前景色实底，与 primary 的发送键一眼区分；点下后转 spinner 并
+ * 禁用到这一轮结束 —— 用按钮状态说「已经在停了」，不另挂横幅。
+ */
+function StopButton({
+  onStop,
+  stopping,
+}: {
+  onStop: () => void;
+  stopping: boolean;
+}) {
+  const { t } = useUiTranslation();
   return (
     <Button
-      type="submit"
-      data-testid={testId}
+      type="button"
       size="icon-sm"
-      className="shrink-0"
-      disabled={disabled || sending || (empty && !hasImages)}
-      aria-label={sending ? t("chatComposer.sending") : t("chatComposer.send")}
-      title={t("chatComposer.sendTitle")}
+      className="shrink-0 bg-foreground text-background hover:bg-foreground/85"
+      disabled={stopping}
+      aria-label={
+        stopping ? t("chatComposer.stopping") : t("chatComposer.stop")
+      }
+      title={t("chatComposer.stopTitle")}
+      onClick={onStop}
     >
-      {sending ? (
+      {stopping ? (
         <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
       ) : (
-        <SendHorizontal aria-hidden="true" className="size-4" />
+        <Square className="size-3 fill-current" aria-hidden="true" />
       )}
     </Button>
   );
 }
+
+/** 编辑器本体（TipTap 的 contenteditable）。Esc 停止只认焦点在这里的按键。 */
+const EDITOR_SELECTOR = "[contenteditable='true']";
 
 const noopRegistrar: DropZoneRegistrar = () => () => {};

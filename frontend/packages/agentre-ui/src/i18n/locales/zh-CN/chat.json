@@ -290,8 +290,11 @@
     "dropHint": "松开以添加文件 / 文件夹路径",
     "sending": "正在发送…",
     "sendTitle": "发送 (Enter)",
+    "sendAfterAITitle": "AI 完成后插入 (Enter)",
+    "stop": "停止",
+    "stopping": "正在停止…",
+    "stopTitle": "停止当前回合 (Esc)",
     "shortcuts": {
-      "send": "↵ 发送 · ⇧↵ 换行",
       "edit": "↵ 保存 · Esc 取消"
     },
     "editing": {
