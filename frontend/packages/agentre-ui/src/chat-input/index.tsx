@@ -15,6 +15,7 @@ import HardBreak from "@tiptap/extension-hard-break";
 import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
+import type { EditorView } from "@tiptap/pm/view";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 
 import { useUiTranslation } from "../i18n";
@@ -58,6 +59,14 @@ import "./chat-input.css";
 // 同 useSlashMenu 里的常量:行内 `[]` 默认值每次 render 都是新身份,会把 slash
 // 菜单的订阅 effect 变成「每次提交都重跑」。
 const EMPTY_SLASH_COMMANDS: SlashCommand[] = [];
+
+// 复制 / 剪切写进剪贴板的纯文本:这个编辑器里一行就是一个段落(粘贴、草稿
+// 回填、历史消息都按行建段),TipTap 默认却拿 "\n\n" 分隔段落 —— 复制三行
+// 贴出去就成了五行。与 extractPlainText 的口径对齐:段落边界 = 一个 \n。
+// 模块级常量:内联对象每次渲染都是新身份,会让 useEditor 每次都重设选项。
+const CORE_EXTENSION_OPTIONS = {
+  clipboardTextSerializer: { blockSeparator: "\n" },
+};
 
 export type {
   AIChatInputDraft,
@@ -245,9 +254,17 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     );
     const placeholderRef = useRef(resolvedPlaceholder);
 
-    const editor = useEditor({
-      autofocus: autoFocus ? "end" : false,
-      extensions: [
+    // 按键处理器要读活的编辑器，但它住在只建一次的 editorProps 里 —— 经 ref 读，
+    // 不把某一次渲染的 `editor` 闭包进去。
+    const liveEditorRef = useRef<Editor | null>(null);
+
+    // ── 编辑器选项 ──────────────────────────────────────────────────────────
+    // useEditor 每次渲染都拿这份选项与编辑器手里那份逐键比身份，不同就整份
+    // `setOptions`（view.setProps 级的重配置）。所以扩展与 editorProps 必须身份
+    // 稳定：会变的值（占位文案、合法命令名、各类回调）一律经 ref 读，只有真正
+    // 改了 DOM 属性的 className 才换一份 editorProps。
+    const extensions = useMemo(
+      () => [
         Document,
         HardBreak,
         Paragraph,
@@ -263,13 +280,10 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
         }),
         Mention,
       ],
-      // 复制 / 剪切写进剪贴板的纯文本:这个编辑器里一行就是一个段落(粘贴、草稿
-      // 回填、历史消息都按行建段),TipTap 默认却拿 "\n\n" 分隔段落 —— 复制三行
-      // 贴出去就成了五行。与 extractPlainText 的口径对齐:段落边界 = 一个 \n。
-      coreExtensionOptions: {
-        clipboardTextSerializer: { blockSeparator: "\n" },
-      },
-      editorProps: {
+      [],
+    );
+    const editorProps = useMemo(
+      () => ({
         clipboardTextParser: parsePlainTextClipboard,
         handleDOMEvents: { paste: pastePlainTextOverForeignHtml },
         attributes: {
@@ -292,12 +306,10 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
           autocorrect: "off",
           spellcheck: "false",
         },
-        // 显式标注返回类型：处理器要读同一句里正在声明的 `editor`，不标注的话
-        // TS 得先推出它的返回类型才能推 `editor`，两边互相等（TS7022/7023）。
-        handleKeyDown: (view, event): boolean =>
+        handleKeyDown: (view: EditorView, event: KeyboardEvent): boolean =>
           handleComposerKeyDown(
             {
-              editor,
+              editor: liveEditorRef.current,
               commandModeRef,
               commandHistoryKeyDownRef,
               mentionKeyDownRef,
@@ -312,7 +324,15 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
             view,
             event,
           ),
-      },
+      }),
+      [className],
+    );
+
+    const editor = useEditor({
+      autofocus: autoFocus ? "end" : false,
+      extensions,
+      coreExtensionOptions: CORE_EXTENSION_OPTIONS,
+      editorProps,
       onUpdate: ({ editor: ed }) =>
         handleComposerUpdate(
           {
@@ -327,6 +347,10 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
         ),
       editable: !disabled,
     });
+
+    useEffect(() => {
+      liveEditorRef.current = editor ?? null;
+    }, [editor]);
 
     useEffect(() => {
       if (editorRef) editorRef.current = editor ?? null;

@@ -6,7 +6,9 @@
 // 下面那段再导出是**有意的**:25 个消费者一直从 "@/stores/chat-streams-store" 取那些
 // 类型与取值函数,拆文件不该让它们跟着改 import 路径。
 
+import { useMemo } from "react";
 import { create } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 
 import {
   appendCompactBoundaryBlock,
@@ -37,7 +39,7 @@ import {
   updateStream,
   dropStream,
 } from "./chat-streams/live";
-import { type State, Actions } from "./chat-streams/types";
+import { type ChatBlockData, type State, Actions } from "./chat-streams/types";
 
 // ── delta 提交节流 ──────────────────────────────────────────────────────────────
 // 流式正文/思考每 ~30ms 一帧,每帧一次 set = Map 重建 + 订阅者重渲染 + 增长中文本
@@ -548,6 +550,30 @@ export const useChatStreamsStore = create<State & Actions>((set, get) => {
       }),
   };
 });
+
+// ── 会话级块集合的订阅 ──────────────────────────────────────────────────────────
+//
+// 后台任务 / 任务进度 / 「变更」页是**会话级**视图,要的只是本会话全部在流的块集合。
+// 直接订阅整张 per-message Map 的话,每个文字 delta 都换一次 Map 身份,派生就跟着
+// 每帧全量重扫。liveBlocks 数组只在块边界(工具 / 计划 / 审批 / 压缩 …)换身份,
+// 文字 delta 原样保留它 —— 于是按「每条流的 liveBlocks 身份列表」浅比即可。
+const EMPTY_BLOCK_LISTS: ChatBlockData[][] = [];
+const EMPTY_LIVE_BLOCKS: ChatBlockData[] = [];
+
+/** useSessionLiveBlocks 取本会话全部在流的 liveBlocks 拍平;只在块集合变化时换身份。 */
+export function useSessionLiveBlocks(sessionId: number): ChatBlockData[] {
+  const lists = useChatStreamsStore(
+    useShallow((s): ChatBlockData[][] => {
+      const perMessage = sessionId ? s.streams.get(sessionId) : undefined;
+      if (!perMessage || perMessage.size === 0) return EMPTY_BLOCK_LISTS;
+      return Array.from(perMessage.values(), (stream) => stream.liveBlocks);
+    }),
+  );
+  return useMemo(
+    () => (lists.length === 0 ? EMPTY_LIVE_BLOCKS : lists.flat()),
+    [lists],
+  );
+}
 
 // ── 原先住在本文件里的那些名字,在这里再导出一次 ──────────────────────────────
 //

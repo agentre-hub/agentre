@@ -349,6 +349,8 @@ export function useProviderPill({
     onSwitched,
   });
 
+  // 只取用到的那几格:cli 对象整体随目录 / 加载态换身份,setTarget 不该跟着换。
+  const { mode: cliMode, inherit: cliInherit, clear: cliClear } = cli;
   const setTarget = React.useCallback(
     (target: ModelTarget) => {
       const nextProvider = target.providerKey ?? "";
@@ -356,11 +358,11 @@ export function useProviderPill({
       // 选中的就是当前已生效的同一完整组合：什么都不做，与后端
       // SetChatSessionModelTarget 的同一处幂等 no-op 语义对齐（避免每点一次已选中项
       // 就打一次 IPC，也避免同一 provider 的 provider-default / fixed-model 误判）。
-      if (!nextProvider && cli.mode) {
-        void cli.inherit();
+      if (!nextProvider && cliMode) {
+        void cliInherit();
         return;
       }
-      if (nextProvider === providerKey && nextModel === modelKey && !cli.mode) {
+      if (nextProvider === providerKey && nextModel === modelKey && !cliMode) {
         return;
       }
       const previousProvider = providerKey;
@@ -371,7 +373,7 @@ export function useProviderPill({
 
       if (!sessionId || sessionId <= 0) {
         // 新建会话：纯瞬态，首发 Send 时随 SendRequest.ProviderKey/ModelKey 透传。
-        cli.clear();
+        cliClear();
         return;
       }
       void SetChatSessionModelTarget({
@@ -380,7 +382,7 @@ export function useProviderPill({
         modelKey: nextModel,
       })
         .then(() => {
-          cli.clear();
+          cliClear();
           // 只有 target 成功持久化后才记录最近使用（spec「UI, accessibility and
           // recent targets」决策 19）。按执行位置指纹隔离：本机会话落 local，远端
           // 会话落 daemon:<deviceID>，远端选择绝不进入本机最近。
@@ -398,7 +400,16 @@ export function useProviderPill({
           setError(msg);
         });
     },
-    [providerKey, modelKey, sessionId, executionLocation, onSwitched, cli],
+    [
+      providerKey,
+      modelKey,
+      sessionId,
+      executionLocation,
+      onSwitched,
+      cliMode,
+      cliInherit,
+      cliClear,
+    ],
   );
 
   // 与上面已有会话那一处同一条规则（决策 19）：只记已落库的目标，按执行位置隔离。
@@ -443,19 +454,34 @@ export function useProviderPill({
 
   // invalid：选中了目标，但它在目录里解析不出来（Provider/Model 缺失/停用/被删）。
   // 未选（inherit-agent / 空 target）恒不 invalid —— 推导在那一路直接给跟随态。
-  const pillState =
-    cliAvailable && !providerKey
-      ? resolveCLIPillState({
-          catalog: cli.catalog,
-          choice: cli.choice,
-          backendType,
-          boundValue: boundCLIModel,
-          actualModelId: actualCLIModel,
-          pending: cliModelPending,
-          error: cliModelError,
-          loading: cli.loading,
-        })
-      : providerPillState;
+  const cliPillActive = cliAvailable && !providerKey;
+  const cliPillState = React.useMemo(
+    () =>
+      cliPillActive
+        ? resolveCLIPillState({
+            catalog: cli.catalog,
+            choice: cli.choice,
+            backendType,
+            boundValue: boundCLIModel,
+            actualModelId: actualCLIModel,
+            pending: cliModelPending,
+            error: cliModelError,
+            loading: cli.loading,
+          })
+        : null,
+    [
+      cliPillActive,
+      cli.catalog,
+      cli.choice,
+      backendType,
+      boundCLIModel,
+      actualCLIModel,
+      cliModelPending,
+      cliModelError,
+      cli.loading,
+    ],
+  );
+  const pillState = cliPillState ?? providerPillState;
   const invalid = pillState.mode === "invalid";
   const cliBound =
     cliAvailable && boundCLIModel !== undefined
@@ -582,18 +608,21 @@ export function useProviderPill({
   );
 
   // 挂起中的切换同时交给弹层：标出本轮在用的那行，并在底部说清何时换上新模型。
-  const cliModels: CliModelPickerState | undefined =
-    cli.cliModels && pillState.pending
-      ? {
-          ...cli.cliModels,
-          pending: {
-            currentModelId: actualCLIModel ?? "",
-            currentLabel: pillState.modelLabel,
-            nextLabel: pillState.pending.label,
-            nextMode: pillState.pending.mode,
-          },
-        }
-      : cli.cliModels;
+  const cliModels = React.useMemo<CliModelPickerState | undefined>(
+    () =>
+      cli.cliModels && pillState.pending
+        ? {
+            ...cli.cliModels,
+            pending: {
+              currentModelId: actualCLIModel ?? "",
+              currentLabel: pillState.modelLabel,
+              nextLabel: pillState.pending.label,
+              nextMode: pillState.pending.mode,
+            },
+          }
+        : cli.cliModels,
+    [cli.cliModels, pillState.pending, pillState.modelLabel, actualCLIModel],
+  );
 
   return {
     cliModels,

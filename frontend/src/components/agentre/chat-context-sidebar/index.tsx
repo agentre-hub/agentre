@@ -2,10 +2,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
-import {
-  useChatStreamsStore,
-  type ChatBlockData,
-} from "@/stores/chat-streams-store";
+import { useSessionLiveBlocks } from "@/stores/chat-streams-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
 
 import type { chat_svc } from "../../../../wailsjs/go/models";
@@ -25,8 +22,6 @@ import { useWorkRoots } from "./views/use-work-roots";
 
 type Msg = chat_svc.ChatMessage;
 
-const EMPTY_LIVE_BLOCKS: ChatBlockData[] = [];
-
 type Props = {
   sessionId: number;
   messages: Msg[];
@@ -42,7 +37,7 @@ type Props = {
   onCwdSpecified?: () => void;
 };
 
-export function ChatContextSidebar({
+function ChatContextSidebarImpl({
   sessionId,
   messages,
   activeMessageId,
@@ -84,14 +79,9 @@ export function ChatContextSidebar({
   // 真正的消息替换），它们住在 chat-streams-store。「变更」页读的是**会话级**
   // 事实，用户轮 / 自主续轮 / 后台活动轮的在流一并收进来 —— 只读 messages 就等于
   // AI 改文件的整个过程里这一页恒为空。直接订阅 store 而不是让 chat-panel 再传
-  // 一个 prop：本侧栏本就自持 sidebar / session-status 两个 store。
-  const sessionStreams = useChatStreamsStore((s) =>
-    sessionId ? (s.streams.get(sessionId) ?? null) : null,
-  );
-  const liveBlocks = React.useMemo(() => {
-    if (!sessionStreams) return EMPTY_LIVE_BLOCKS;
-    return Array.from(sessionStreams.values()).flatMap((s) => s.liveBlocks);
-  }, [sessionStreams]);
+  // 一个 prop：本侧栏本就自持 sidebar / session-status 两个 store。只订阅块集合
+  // —— 文字 delta 不改变哪个文件被改过，不该让下面的派生每帧重扫。
+  const liveBlocks = useSessionLiveBlocks(sessionId);
 
   const outline = React.useMemo(() => deriveOutline(messages), [messages]);
   // 「本次会话」的行只从 canonical 块派生，当前工作根之外的路径在这里就被挡掉
@@ -253,3 +243,7 @@ export function ChatContextSidebar({
     </ResizableSidebar>
   );
 }
+
+// memo：父级 ChatPanel 在流式输出期间随每个文字 delta 重渲染，而本侧栏的输入
+// （消息、工作根、块集合）一个都没变。
+export const ChatContextSidebar = React.memo(ChatContextSidebarImpl);

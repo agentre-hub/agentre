@@ -1,4 +1,11 @@
-import { render, screen, within } from "@testing-library/react";
+import {
+  act,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -156,5 +163,112 @@ describe("ProviderPill · CLI 自带模型覆盖三种 CLI 与远端执行", () 
         "This turn finishes on Opus; Sonnet takes over from the next turn",
       ),
     ).toBeInTheDocument();
+  });
+});
+
+describe("useProviderPill · 输入不变时身份稳定", () => {
+  const PROVIDERS = [
+    {
+      id: 1,
+      providerKey: "anthropic",
+      name: "Anthropic",
+      type: "anthropic",
+      enabled: true,
+    },
+  ];
+  const MODELS = [
+    {
+      id: 11,
+      modelKey: "sonnet",
+      modelId: "claude-sonnet",
+      name: "Sonnet",
+      enabled: true,
+    },
+  ];
+
+  it.each([
+    [
+      "a provider-bound session",
+      { boundProviderKey: "anthropic", persistedProviderKey: "anthropic" },
+    ],
+    [
+      "a session on the CLI login with a pending switch",
+      { cliModelPending: true },
+    ],
+  ])(
+    "Given %s, When the host re-renders with unchanged inputs, Then setTarget, catalog, pillState and cliModels keep their identity",
+    async (_name, overrides) => {
+      appMocks.ListLLMProviders.mockResolvedValue({ items: PROVIDERS });
+      appMocks.ListLLMModels.mockResolvedValue({ items: MODELS });
+      appMocks.ListCLIModels.mockResolvedValue({
+        models: [
+          { value: "opus", displayName: "Opus", modelId: "claude-opus" },
+        ],
+        effectiveValue: "opus",
+        effectiveModelId: "claude-opus",
+      });
+      const props: UseProviderPillOptions = {
+        ...nativeSession,
+        backendType: "claudecode",
+        executionLocation: "",
+        persistedCLIModelMode: "fixed",
+        persistedCLIModel: "opus",
+        actualCLIModel: "claude-opus",
+        ...overrides,
+      };
+      const { result, rerender } = renderHook(
+        (p: UseProviderPillOptions) => useProviderPill(p),
+        { initialProps: props },
+      );
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false);
+        expect(result.current.catalogLoading).toBe(false);
+        expect(result.current.catalog.length).toBe(1);
+      });
+      // 目录与 CLI 列表都是异步到的:多让几轮宏任务,等在途请求全部落地。
+      for (let i = 0; i < 5; i++) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+      const settled = result.current;
+
+      rerender({ ...props });
+
+      expect(result.current.setTarget).toBe(settled.setTarget);
+      expect(result.current.catalog).toBe(settled.catalog);
+      expect(result.current.pillState).toBe(settled.pillState);
+      expect(result.current.cliModels).toBe(settled.cliModels);
+    },
+  );
+
+  it("Given a settled pill, When the persisted target really changes, Then pillState and setTarget follow it", async () => {
+    appMocks.ListLLMProviders.mockResolvedValue({ items: PROVIDERS });
+    appMocks.ListLLMModels.mockResolvedValue({ items: MODELS });
+    const props: UseProviderPillOptions = {
+      ...nativeSession,
+      backendType: "claudecode",
+      executionLocation: "",
+      boundProviderKey: "anthropic",
+      persistedProviderKey: "",
+      persistedModelKey: "",
+    };
+    const { result, rerender } = renderHook(
+      (p: UseProviderPillOptions) => useProviderPill(p),
+      { initialProps: props },
+    );
+    await waitFor(() => expect(result.current.catalog.length).toBe(1));
+    const settled = result.current;
+
+    rerender({
+      ...props,
+      persistedProviderKey: "anthropic",
+      persistedModelKey: "sonnet",
+    });
+
+    await waitFor(() => expect(result.current.modelKey).toBe("sonnet"));
+    expect(result.current.pillState).not.toBe(settled.pillState);
+    expect(result.current.setTarget).not.toBe(settled.setTarget);
+    expect(result.current.catalog).toBe(settled.catalog);
   });
 });

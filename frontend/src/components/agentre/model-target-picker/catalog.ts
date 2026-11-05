@@ -73,8 +73,14 @@ export function useModelTargetCatalog(
     };
   }, [refresh]);
 
+  // 身份只随供应商列表 / 模型表变:pill 的状态推导与 composer 底栏都按身份判变化。
+  const catalog = React.useMemo(
+    () => buildPickerCatalog(providers, modelsByProvider),
+    [providers, modelsByProvider],
+  );
+
   return {
-    catalog: buildPickerCatalog(providers, modelsByProvider),
+    catalog,
     loading,
     error,
     refresh,
