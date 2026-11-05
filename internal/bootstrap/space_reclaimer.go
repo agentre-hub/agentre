@@ -25,6 +25,7 @@ const (
 	// 批间让出时间,让排队的写事务拿到锁。
 	defaultReclaimYield = 20 * time.Millisecond
 	// 空闲定时回收的间隔:低频兜底,主要覆盖升级后遗留的历史空闲页和未触发的删除。
+	// 到点时应用不空闲(Busy)就跳过,等下一次。
 	defaultReclaimInterval = 15 * time.Minute
 )
 
@@ -33,6 +34,9 @@ type spaceReclaimerOptions struct {
 	MaxBatches int
 	Yield      time.Duration
 	Interval   time.Duration
+	// Busy 报应用此刻不空闲(有轮次在跑)时,定时那一次跳过,留给下一次;nil = 总是空闲。
+	// 删除会话后的触发不看它。
+	Busy func() bool
 }
 
 // spaceReclaimer 把 SQLite 的空闲页分批还给文件系统(PRAGMA incremental_vacuum(N))。
@@ -116,6 +120,10 @@ func (r *spaceReclaimer) run(ctx context.Context) {
 			return
 		case <-r.trigger:
 		case <-ticker.C:
+			// 定时回收只在空闲时做(spec 2026-11-05 决策 15):有轮次在跑就跳过这一次。
+			if r.opts.Busy != nil && r.opts.Busy() {
+				continue
+			}
 		}
 		batches, err := r.reclaimOnce(runCtx)
 		switch {

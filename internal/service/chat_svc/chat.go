@@ -164,6 +164,22 @@ func RegisterChat(impl ChatSvc) {
 	defaultChat = impl
 }
 
+// HasActiveTurns 报本机此刻是否有任一会话的轮次在跑(按 activeCancels:每个在跑的轮次
+// 都登记一个控制对象)。宿主据它判断应用空不空闲 —— 空闲页的定时回收只在空闲时做。
+// 聊天服务还没注册时视为空闲。
+func HasActiveTurns() bool {
+	s, ok := defaultChat.(*chatSvc)
+	if !ok || s == nil || s.activeCancels == nil {
+		return false
+	}
+	active := false
+	s.activeCancels.Range(func(_, _ any) bool {
+		active = true
+		return false
+	})
+	return active
+}
+
 func NewChat(emitter Emitter) ChatSvc {
 	if emitter == nil {
 		emitter = NoopEmitter{}

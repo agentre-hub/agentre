@@ -95,9 +95,11 @@ type TranscriptPort interface {
 	UpsertBlocks(ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) error
 	// SegmentTurn 把 current(正文已由调用方定稿)落库,再在它后面依次建每条插话的
 	// 用户消息行与一条空的新 assistant 行,一并交回。一次事务:半截分段会让转录里
-	// 出现一条没有下文的用户消息。steers 为空时是 no-op。
-	SegmentTurn(ctx context.Context, current *transcript_entity.Message, steers []agentruntime.ConsumedSteer) (users []*transcript_entity.Message, next *transcript_entity.Message, err error)
-	FinishTurn(ctx context.Context, m *transcript_entity.Message) error
+	// 出现一条没有下文的用户消息。steers 为空时是 no-op。current 的块行只写 rows /
+	// truncateFrom(与 UpsertBlocks 同义,收尾那一发的增量写集合),不整条删了重插。
+	SegmentTurn(ctx context.Context, current *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int, steers []agentruntime.ConsumedSteer) (users []*transcript_entity.Message, next *transcript_entity.Message, err error)
+	// FinishTurn 收口 m:元数据整行写库,块行只写 rows / truncateFrom(与 UpsertBlocks 同义)。
+	FinishTurn(ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) error
 	// AllocateFrameSeqs 依次给这些帧位置取下一个号并落库,返回与 keys 一一对应的编号。
 	// 取号失败即没有分配,调用方据此**不发布**这一帧 —— 否则对端会持有一个宿主认不
 	// 回来的号。

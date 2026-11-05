@@ -10,6 +10,7 @@ import (
 	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
@@ -40,6 +41,19 @@ type memTranscript struct {
 	upserts []memUpsert
 	// failUpserts > 0 时接下来这么多次 UpsertBlocks 失败。
 	failUpserts int
+	// segments / finishes 记每次插话分段(SegmentTurn)与收口(FinishTurn)交来的块行下标与截断点。
+	segments []memUpsert
+	finishes []memUpsert
+	// failFinish 非空时 FinishTurn 以它失败。
+	failFinish error
+}
+
+func upsertOf(msg *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) memUpsert {
+	up := memUpsert{messageID: msg.ID, truncateFrom: truncateFrom}
+	for _, r := range rows {
+		up.idx = append(up.idx, r.Idx)
+	}
+	return up
 }
 
 type memUpsert struct {
@@ -78,11 +92,7 @@ func (m *memTranscript) UpsertBlocks(
 ) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	up := memUpsert{messageID: msg.ID, truncateFrom: truncateFrom}
-	for _, r := range rows {
-		up.idx = append(up.idx, r.Idx)
-	}
-	m.upserts = append(m.upserts, up)
+	m.upserts = append(m.upserts, upsertOf(msg, rows, truncateFrom))
 	if m.failUpserts > 0 {
 		m.failUpserts--
 		return errors.New("database is locked")
@@ -98,19 +108,29 @@ func (m *memTranscript) upsertLog() []memUpsert {
 	return append([]memUpsert(nil), m.upserts...)
 }
 
-func (m *memTranscript) SegmentTurn(_ context.Context, current *transcript_entity.Message, _ []agentruntime.ConsumedSteer) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
+func (m *memTranscript) SegmentTurn(
+	_ context.Context, current *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int,
+	_ []agentruntime.ConsumedSteer,
+) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.next == nil {
 		return nil, nil, nil
 	}
+	m.segments = append(m.segments, upsertOf(current, rows, truncateFrom))
 	m.persistLocked(current)
 	return nil, m.next, nil
 }
 
-func (m *memTranscript) FinishTurn(_ context.Context, msg *transcript_entity.Message) error {
+func (m *memTranscript) FinishTurn(
+	_ context.Context, msg *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int,
+) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.finishes = append(m.finishes, upsertOf(msg, rows, truncateFrom))
+	if m.failFinish != nil {
+		return m.failFinish
+	}
 	m.finished = append(m.finished, msg.BlocksJSON)
 	m.persistLocked(msg)
 	return nil
@@ -344,4 +364,67 @@ func TestTurnTranscript_GivenGrowingTurn_WhenCheckpointing_ThenOnlyChangedBlocks
 	scribe.observe(ctx, agentruntime.ToolResult{ToolCallID: "tu-4", Content: "ok"})
 	log = mem.upsertLog()
 	assert.Equal(t, []int{5, 6, 7, 8}, log[len(log)-1].idx, "blocks of a failed write are written by the next checkpoint")
+}
+
+// Given 一轮已 checkpoint 过两轮工具([tool_use, tool_result] ×2),收尾前又长出一段正文
+// When  finish 收口
+// Then  FinishTurn 只交新正文那一块,不整条重写已落库的工具块;收口正文与整条重写逐字一致
+func TestTurnTranscript_GivenCheckpointedTurn_WhenFinishing_ThenOnlyChangedBlocksAreWritten(t *testing.T) {
+	scribe, mem, _ := newApprovalTurn(t)
+	ctx := context.Background()
+	scribe.observe(ctx, agentruntime.ToolCall{ID: "tu-1", Name: "Bash"})
+	scribe.observe(ctx, agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"})
+	scribe.observe(ctx, agentruntime.ToolCall{ID: "tu-2", Name: "Bash"})
+	scribe.observe(ctx, agentruntime.ToolResult{ToolCallID: "tu-2", Content: "ok"})
+	scribe.observe(ctx, agentruntime.TextDelta{Text: "done"})
+
+	scribe.finish(ctx, wire.RunResultDoneFrame{ConversationID: ctlTestConversation})
+
+	require.Len(t, mem.finishes, 1)
+	assert.Equal(t, memUpsert{messageID: 21, idx: []int{4}, truncateFrom: -1}, mem.finishes[0])
+	want := &transcript_entity.Message{}
+	require.NoError(t, want.SetBlocks(scribe.acc.Finalize()))
+	assert.Equal(t, want.BlocksJSON, mem.persistedBody(21))
+}
+
+// Given 一段已 checkpoint 过工具往返的 assistant,之后长出一段正文,插话到来
+// When  插话把这一轮切段
+// Then  SegmentTurn 收口前一段时只交新正文那一块,不整条重写
+func TestTurnTranscript_GivenCheckpointedTurn_WhenSteerSegments_ThenOnlyChangedBlocksAreWritten(t *testing.T) {
+	scribe, mem, _ := newApprovalTurn(t)
+	mem.next = &transcript_entity.Message{ID: 23, SessionID: 12, Role: "assistant", Seq: 4, BlocksJSON: "[]"}
+	ctx := context.Background()
+	scribe.observe(ctx, agentruntime.ToolCall{ID: "tu-1", Name: "Bash"})
+	scribe.observe(ctx, agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"})
+	scribe.observe(ctx, agentruntime.TextDelta{Text: "between"})
+
+	scribe.observe(ctx, agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{QueuedID: "q1", Text: "顺便看下日志"}}})
+
+	require.Equal(t, int64(23), scribe.msg.ID, "the steer segments the turn")
+	require.Len(t, mem.segments, 1)
+	assert.Equal(t, memUpsert{messageID: 21, idx: []int{2}, truncateFrom: -1}, mem.segments[0])
+	assert.Contains(t, mem.persistedBody(21), `"between"`)
+}
+
+// Given 收口写库失败
+// When  finish 收口
+// Then  记一条 Error,带 sessionId / assistantMsgId / error(spec 2026-11-05 决策 7:轮末落库
+//
+//	失败一律记 Error 并带这两个 id)。
+func TestTurnTranscript_GivenFinishPersistFails_ThenLogsErrorWithSessionAndAssistantIDs(t *testing.T) {
+	logs := observeHandlerLogs(t)
+	scribe, mem, _ := newApprovalTurn(t)
+	mem.failFinish = errors.New("database is locked")
+	ctx := context.Background()
+	scribe.observe(ctx, agentruntime.TextDelta{Text: "answer"})
+
+	scribe.finish(ctx, wire.RunResultDoneFrame{ConversationID: ctlTestConversation})
+
+	entries := logs.FilterMessage("handlers.turnTranscript.finish: persist failed").All()
+	require.Len(t, entries, 1)
+	assert.Equal(t, zapcore.ErrorLevel, entries[0].Level)
+	fields := entries[0].ContextMap()
+	assert.Equal(t, int64(12), fields["sessionId"])
+	assert.Equal(t, int64(21), fields["assistantMsgId"])
+	assert.Equal(t, "database is locked", fields["error"])
 }

@@ -337,3 +337,41 @@ func TestFailAndAbortBeforeStream_WriteMetadataOnly(t *testing.T) {
 		})
 	}
 }
+
+// Given 还没开始流式就结束的一轮(failTurn / abortTurnBeforeStream),收尾写库失败
+// When  收尾
+// Then  记一条 Error,带 sessionId / assistantMsgId / error(spec 2026-11-05 决策 7:轮末 / 中止 /
+//
+//	出错路径的落库失败一律带这两个 id)。
+func TestFailAndAbortBeforeStream_GivenPersistFails_ThenLogsErrorWithSessionAndAssistantIDs(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		message string
+		run     func(s *chatSvc, ctx context.Context, sess *chat_entity.Session, msg *chat_entity.Message)
+	}{
+		{"failTurn", "chat_svc.failTurn: persist error text failed",
+			func(s *chatSvc, ctx context.Context, sess *chat_entity.Session, msg *chat_entity.Message) {
+				s.failTurn(ctx, sess, msg, "chat:100:9001", errors.New("boom"))
+			}},
+		{"abortTurnBeforeStream", "chat_svc.abortTurnBeforeStream: persist message failed",
+			func(s *chatSvc, ctx context.Context, sess *chat_entity.Session, msg *chat_entity.Message) {
+				s.abortTurnBeforeStream(ctx, sess, msg, "chat:100:9001")
+			}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := observeChatLogs(t)
+			rig := newTurnEndRig(t)
+			rig.store.fail = errors.New("database is locked")
+
+			tc.run(rig.tr.svc, rig.ctx, rig.tr.sess, rig.tr.assistantMsg)
+
+			entries := logs.FilterMessage(tc.message).All()
+			require.Len(t, entries, 1)
+			assert.Equal(t, zapcore.ErrorLevel, entries[0].Level)
+			fields := entries[0].ContextMap()
+			assert.Equal(t, int64(100), fields["sessionId"])
+			assert.Equal(t, int64(9001), fields["assistantMsgId"])
+			assert.Equal(t, "database is locked", fields["error"])
+		})
+	}
+}

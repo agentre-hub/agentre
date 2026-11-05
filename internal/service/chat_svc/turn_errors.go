@@ -214,7 +214,7 @@ func (s *chatSvc) failTurn(ctx context.Context, sess *chat_entity.Session, msg *
 	msg.ErrorText = err.Error()
 	if uerr := persistUnstreamedAssistant(finalCtx, msg); uerr != nil {
 		logger.Ctx(finalCtx).Error("chat_svc.failTurn: persist error text failed",
-			zap.Int64("messageId", msg.ID), zap.Error(uerr))
+			zap.Int64("sessionId", sess.ID), zap.Int64("assistantMsgId", msg.ID), zap.Error(uerr))
 	}
 	sess.AgentStatus = "error"
 	sess.NeedsAttention = false
@@ -287,7 +287,7 @@ func (s *chatSvc) abortTurnBeforeStream(ctx context.Context, sess *chat_entity.S
 		zap.String("stream", stream))
 	if uerr := persistUnstreamedAssistant(finalCtx, msg); uerr != nil {
 		logger.Ctx(finalCtx).Error("chat_svc.abortTurnBeforeStream: persist message failed",
-			zap.Int64("messageId", msg.ID), zap.Error(uerr))
+			zap.Int64("sessionId", sess.ID), zap.Int64("assistantMsgId", msg.ID), zap.Error(uerr))
 	}
 	sess.AgentStatus = "idle"
 	sess.NeedsAttention = false

@@ -305,7 +305,7 @@ func (f *fakeTranscriptStore) StartTurn(
 	return user, assistant, nil
 }
 
-func (f *fakeTranscriptStore) FinishTurn(_ context.Context, _ *transcript_entity.Message) error {
+func (f *fakeTranscriptStore) FinishTurn(_ context.Context, _ *transcript_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 	// 实体是按指针交出去的,收口时调用方就地改的就是 msgs 里那一条。
 	return nil
 }

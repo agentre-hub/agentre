@@ -272,7 +272,7 @@ func Init(ctx context.Context) (*Runtime, error) {
 	if runtime != nil && runtime.reclaimer != nil {
 		runtime.reclaimer.Stop() // 重复 Init(测试)时不留下指向旧库的 goroutine
 	}
-	reclaimer := newSpaceReclaimer(db.Default(), spaceReclaimerOptions{})
+	reclaimer := newSpaceReclaimer(db.Default(), spaceReclaimerOptions{Busy: chat_svc.HasActiveTurns})
 	reclaimer.Start(ctx)
 	chat_svc.RegisterSessionDeletedHook(func(context.Context) error {
 		reclaimer.Trigger()

@@ -391,19 +391,26 @@ func (t *turnTranscript) flushPendingSteers(ctx context.Context) {
 	}
 	steers := t.pendingSteers
 	t.pendingSteers = nil
-	if err := t.msg.SetBlocks(t.acc.Finalize()); err != nil {
+	// 收口这一段只写相对已落库版本变了的块(与桌面端 persistConsumedSteers 同一条路)。
+	// 写集合在分段事务成功之后才提交:回滚时块行并没有落,下一次仍要交出它们。
+	cp, err := t.acc.PrepareFinalCheckpoint(t.msg.BlocksJSON, t.acc.Finalize())
+	if err != nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.flushPendingSteers: encode failed",
 			zap.Int64("messageId", t.msg.ID), zap.Error(err))
 		t.pendingSteers = steers
 		return
 	}
-	users, next, err := t.port.SegmentTurn(ctx, t.msg, steers)
+	prev := t.msg.BlocksJSON
+	t.msg.BlocksJSON = cp.BlocksJSON
+	users, next, err := t.port.SegmentTurn(ctx, t.msg, checkpointRows(t.msg.ID, cp), cp.TruncateFrom, steers)
 	if err != nil || next == nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.flushPendingSteers: persist failed",
 			zap.Int64("messageId", t.msg.ID), zap.Int("steers", len(steers)), zap.Error(err))
+		t.msg.BlocksJSON = prev
 		t.pendingSteers = steers
 		return
 	}
+	t.acc.CommitCheckpoint(cp)
 	// 取号顺序就是补齐的重放顺序:收口的那一条在前,插话那几行紧随其后。晚一步取号
 	// 的会排到整段之后 —— 对端的转录里插话就跑到后半段回答的后面去了。
 	_, _ = t.publishDurable(ctx, t.msg, true)
@@ -439,13 +446,9 @@ func (t *turnTranscript) checkpointMessage(
 			zap.Int64("messageId", msg.ID), zap.Error(err))
 		return
 	}
-	var rows []*transcript_entity.MessageBlock
-	for _, c := range cp.Changed {
-		rows = append(rows, transcript_entity.BlockRow(msg.ID, c.Idx, c.Block))
-	}
 	prev := msg.BlocksJSON
 	msg.BlocksJSON = cp.BlocksJSON
-	if err := t.port.UpsertBlocks(ctx, msg, rows, cp.TruncateFrom); err != nil {
+	if err := t.port.UpsertBlocks(ctx, msg, checkpointRows(msg.ID, cp), cp.TruncateFrom); err != nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.checkpoint: persist failed",
 			zap.Int64("messageId", msg.ID), zap.Error(err))
 		// 落库失败时把内存正文退回上一次落库的那份,写集合不提交:下一次 checkpoint
@@ -456,6 +459,18 @@ func (t *turnTranscript) checkpointMessage(
 	acc.CommitCheckpoint(cp)
 	// 块落了库才轮到取号(决策 3)。
 	_, _ = t.publishDurable(ctx, msg, final)
+}
+
+// checkpointRows 把写集合里变了的块编成块行(没有变化的块时为 nil:只写元数据行)。
+func checkpointRows(messageID int64, cp *turn.Checkpoint) []*transcript_entity.MessageBlock {
+	if len(cp.Changed) == 0 {
+		return nil
+	}
+	rows := make([]*transcript_entity.MessageBlock, 0, len(cp.Changed))
+	for _, c := range cp.Changed {
+		rows = append(rows, transcript_entity.BlockRow(messageID, c.Idx, c.Block))
+	}
+	return rows
 }
 
 // finish 收口本轮:正文定稿,并把这一轮的模型 / 用量 / 计时 / 错误写在同一行上。
@@ -491,11 +506,14 @@ func (t *turnTranscript) finish(ctx context.Context, frame wire.RunResultDoneFra
 	// 那正是 2026-09-05 不变量 1 的「漏」。此刻不再看 HasOpenToolUse:这一轮已经没有
 	// 后续事件能等到那个 tool_result 了。
 	t.flushPendingSteers(ctx)
-	if err := t.msg.SetBlocks(t.acc.Finalize()); err != nil {
+	// 收口只写相对已落库版本变了的块,不整条删了重插(与桌面端 persistAssistantFinal 同一条路)。
+	cp, err := t.acc.PrepareFinalCheckpoint(t.msg.BlocksJSON, t.acc.Finalize())
+	if err != nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.finish: encode failed",
 			zap.Int64("messageId", t.msg.ID), zap.Error(err))
 		return
 	}
+	t.msg.BlocksJSON = cp.BlocksJSON
 	t.msg.Model = frame.Model
 	t.msg.ErrorText = frame.StopErrMsg
 	t.msg.DurationMs = frame.DurationMs
@@ -509,11 +527,13 @@ func (t *turnTranscript) finish(ctx context.Context, frame wire.RunResultDoneFra
 		t.msg.ReasoningTokens = u.ReasoningTokens
 		t.msg.TotalInputTokens = u.PromptTokens + u.CachedTokens + u.CacheCreationTokens
 	}
-	if err := t.port.FinishTurn(ctx, t.msg); err != nil {
-		logger.Ctx(ctx).Warn("handlers.turnTranscript.finish: persist failed",
-			zap.Int64("messageId", t.msg.ID), zap.Error(err))
+	if err := t.port.FinishTurn(ctx, t.msg, checkpointRows(t.msg.ID, cp), cp.TruncateFrom); err != nil {
+		// 收口是这一轮正文的最后一次落库机会:失败即丢,按 Error 记(与桌面端 runTurn 同口径)。
+		logger.Ctx(ctx).Error("handlers.turnTranscript.finish: persist failed",
+			zap.Int64("sessionId", t.msg.SessionID), zap.Int64("assistantMsgId", t.msg.ID), zap.Error(err))
 		return
 	}
+	t.acc.CommitCheckpoint(cp)
 	// 收口:正文定稿,连同消息级派生帧(usage / done)一起发出去。
 	_, _ = t.publishDurable(ctx, t.msg, true)
 }

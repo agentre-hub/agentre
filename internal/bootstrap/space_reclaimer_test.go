@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -94,4 +95,41 @@ func TestSpaceReclaimerTriggerCoalescesAndStopJoins(t *testing.T) {
 	}
 	r.Stop()    // idempotent
 	r.Trigger() // safe after stop
+}
+
+// Given 定时回收到点,但应用此刻不空闲(Busy 报有轮次在跑)
+// When  定时器触发
+// Then  这一次跳过,不回收;空闲后下一次定时照常回收(spec 2026-11-05 决策 15「空闲时」)。
+func TestSpaceReclaimerTimerRunsOnlyWhenIdle(t *testing.T) {
+	g := newVacuumTestDB(t, "2")
+	before := freelist(t, g)
+	var busy atomic.Bool
+	busy.Store(true)
+	r := newSpaceReclaimer(g, spaceReclaimerOptions{
+		BatchPages: 50, MaxBatches: 1000, Interval: 20 * time.Millisecond,
+		Busy: busy.Load,
+	})
+	r.Start(context.Background())
+	t.Cleanup(r.Stop)
+
+	time.Sleep(200 * time.Millisecond)
+	require.Equal(t, before, freelist(t, g), "a busy app is not idle: the timer must not reclaim")
+
+	busy.Store(false)
+	require.Eventually(t, func() bool { return freelist(t, g) == 0 }, 5*time.Second, 20*time.Millisecond)
+}
+
+// Given 应用不空闲
+// When  删除会话触发回收
+// Then  照常回收:删除后的回收不受空闲判定限制。
+func TestSpaceReclaimerTriggerRunsEvenWhenBusy(t *testing.T) {
+	g := newVacuumTestDB(t, "2")
+	r := newSpaceReclaimer(g, spaceReclaimerOptions{
+		BatchPages: 50, MaxBatches: 1000, Interval: time.Hour,
+		Busy: func() bool { return true },
+	})
+	r.Start(context.Background())
+	t.Cleanup(r.Stop)
+	r.Trigger()
+	require.Eventually(t, func() bool { return freelist(t, g) == 0 }, 5*time.Second, 20*time.Millisecond)
 }

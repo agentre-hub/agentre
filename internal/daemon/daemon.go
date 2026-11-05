@@ -2018,7 +2018,8 @@ func (t transcriptStore) StartTurn(
 // 用户那一行的正文走与 StartTurn 同一条(共用累加器),来源标识走与桌面端同一份
 // (transcript.StampUserMessageSource):同一句插话在两台宿主上必须落成逐字节相同的块。
 func (t transcriptStore) SegmentTurn(
-	ctx context.Context, current *transcript_entity.Message, steers []agentruntime.ConsumedSteer,
+	ctx context.Context, current *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int,
+	steers []agentruntime.ConsumedSteer,
 ) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
 	if current == nil || len(steers) == 0 {
 		return nil, nil, nil
@@ -2029,7 +2030,8 @@ func (t transcriptStore) SegmentTurn(
 	next := &transcript_entity.Message{SessionID: sessionID, Role: "assistant", BlocksJSON: "[]"}
 	if err := t.db.Transaction(func(tx *gorm.DB) error {
 		txCtx := dbpkg.WithContextDB(ctx, tx)
-		if err := transcript_repo.Message().Update(txCtx, current); err != nil {
+		// 收口的 current 只写变了的块行(调用方交来的增量写集合),不整条删了重插。
+		if err := transcript_repo.Message().UpsertBlocks(txCtx, current, rows, truncateFrom); err != nil {
 			return err
 		}
 		nextSeq, err := transcript_repo.Message().NextSeq(txCtx, sessionID)
@@ -2249,8 +2251,12 @@ func (t transcriptStore) FindSubagentCard(
 	return transcript_repo.Message().FindAssistantBySubagentToolCallID(ctx, sessionID, toolCallID)
 }
 
-func (t transcriptStore) FinishTurn(ctx context.Context, m *transcript_entity.Message) error {
-	if err := transcript_repo.Message().Update(dbpkg.WithContextDB(ctx, t.db), m); err != nil {
+// FinishTurn 收口:元数据整行写库,块行只写 rows / truncateFrom(收尾那一发的增量写集合,
+// 此前一块都没落过的消息就是它的全部块),不整条删了重插。
+func (t transcriptStore) FinishTurn(
+	ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int,
+) error {
+	if err := transcript_repo.Message().UpsertBlocks(dbpkg.WithContextDB(ctx, t.db), m, rows, truncateFrom); err != nil {
 		return err
 	}
 	t.backlog.finished(m.SessionID, m.ID)
