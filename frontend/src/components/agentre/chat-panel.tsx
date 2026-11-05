@@ -18,6 +18,7 @@ import { useChatSession } from "@/hooks/use-chat-session";
 import { useProjectTree } from "@/hooks/use-project-tree";
 import { useVisibleMessageId } from "@/hooks/use-visible-message-id";
 import { reasonToDisplayStatus } from "@/lib/attention-display";
+import { parseCodedError } from "@/lib/app-error";
 import { splitErrorDetail } from "@/lib/error-detail";
 import { toast } from "sonner";
 import {
@@ -50,6 +51,7 @@ import {
   type ChatComposerHandle,
   type ChatTranscriptHandle,
 } from "./chat";
+import { isResolvedAskState } from "./ask-event-state";
 import { ChatContextSidebar } from "./chat-context-sidebar";
 import { ChatPanelHeader } from "./chat-panel/chat-panel-header";
 import { ChatPanelConfirmDialogs } from "./chat-panel/confirm-dialogs";
@@ -94,9 +96,6 @@ import {
 } from "../../../wailsjs/go/app/App";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
 import type { chat_svc } from "../../../wailsjs/go/models";
-
-// `internal/app/coded_error.go` 那一侧的同一条契约(端口转发失败经它过桥)。
-const CODED_PREFIX = /^agentre-code:(\d+)\s?([\s\S]*)$/;
 
 type ChatAgentItem = chat_svc.ChatAgentItem;
 
@@ -148,15 +147,16 @@ function pendingDecisionId(block: ChatBlockData): string | null {
     return c.toolPermission.resolved ? null : c.toolPermission.requestId;
   }
   if (c?.kind === "user.ask" && c.userAsk) {
-    const a = c.userAsk;
-    return a.answered || a.skipped || a.expired ? null : a.requestId;
+    return isResolvedAskState(c.userAsk) ? null : c.userAsk.requestId;
   }
   const p = block.toolPermission;
   if (p) return p.resolved ? null : p.requestId;
   const q = block.askUserQuestion;
-  if (q) return q.answered || q.skipped || q.expired ? null : q.requestId;
+  if (q) return isResolvedAskState(q) ? null : q.requestId;
   const a = block.toolApproval;
   if (a) return a.status === "pending" ? a.requestId : null;
+  const e = block.execApproval;
+  if (e) return e.status === "pending" ? e.id : null;
   return null;
 }
 
@@ -555,7 +555,8 @@ function ChatPanel({
         const { msg } = splitErrorDetail(e);
         toast.error(
           t("remoteDevices.portForward.actionFailed", {
-            message: CODED_PREFIX.exec(msg)?.[2] ?? msg,
+            // 端口转发失败经 coded_error.go 过桥，前缀是内部记号，剥掉再上屏。
+            message: parseCodedError(msg)?.message ?? msg,
           }),
         );
       }

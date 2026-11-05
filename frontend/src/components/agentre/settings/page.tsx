@@ -28,6 +28,7 @@ import {
   CtlSkillSettings,
   LlmProviderSettings,
   SettingsUnderConstruction,
+  isProviderGap,
 } from "./sections";
 
 export type SettingsPageProps = {
@@ -59,11 +60,8 @@ export function SettingsPage({
   const backendGap = agents.filter(
     (a) => a.blockReason === "no-backend" && !a.hasBackendTarget,
   ).length;
-  const providerGap = agents.filter(
-    (a) =>
-      a.blockReason === "provider-inactive" ||
-      a.blockReason === "backend-requires-provider",
-  ).length;
+  const providerGapAgents = agents.filter((a) => isProviderGap(a.blockReason));
+  const providerGap = providerGapAgents.length;
 
   // R12:未登录时「同步」这一项整个不存在——不是灰掉、不是点进去提示先登录。
   // `Status()` 未登录时返回 `{enabled:false}` 而不是抛错,`status` 初始为
@@ -112,7 +110,7 @@ export function SettingsPage({
           ) : activePage === "llm-providers" ? (
             <LlmProviderSettings
               onOpenAgentBackends={() => setActivePage("agent-backend")}
-              providerGap={providerGap > 0}
+              providerGapAgents={providerGapAgents}
             />
           ) : activePage === "local-proxy" ? (
             <LocalProxySettings />

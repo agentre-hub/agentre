@@ -18,6 +18,8 @@ import {
   type PortForwardMappingView,
 } from "@agentre-hub/agentre-ui";
 
+import { errorText, parseCodedError } from "@/lib/app-error";
+
 import {
   PortForwardCreate,
   PortForwardDelete,
@@ -28,9 +30,6 @@ import {
 import { BrowserOpenURL } from "../../../../wailsjs/runtime/runtime";
 
 // ── 过桥的业务码 ─────────────────────────────────────────────────────────────
-
-/** `internal/app/coded_error.go` 那一侧的同一条契约。 */
-const CODED_PREFIX = /^agentre-code:(\d+)\s?([\s\S]*)$/;
 
 /**
  * `internal/pkg/code/code.go` 的 21000~ 段(稳定 wire 值)。按码分辨,不按文案 ——
@@ -49,10 +48,8 @@ type Coded = { code: number; message: string };
 
 /** 认不出码时 code 记 0 并把原文带上;前缀本身要剥掉,它是内部记号。 */
 function classify(err: unknown): Coded {
-  const raw = err instanceof Error ? err.message : String(err);
-  const m = CODED_PREFIX.exec(raw);
-  if (!m) return { code: 0, message: raw };
-  return { code: Number(m[1]), message: m[2] };
+  const raw = errorText(err);
+  return parseCodedError(raw) ?? { code: 0, message: raw };
 }
 
 // ── 组件 ─────────────────────────────────────────────────────────────────────

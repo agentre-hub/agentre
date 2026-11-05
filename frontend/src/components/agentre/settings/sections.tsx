@@ -9,7 +9,7 @@ import { ArrowRight } from "lucide-react";
 
 import { Button } from "@agentre-hub/agentre-ui";
 
-import { useChatAgents } from "@/hooks/use-chat-agents";
+import type { AgentSlim } from "@/hooks/use-chat-agents";
 import { openAgentSetup } from "@/lib/agent-setup-link";
 import { closeSettings } from "@/stores/settings-dialog-store";
 import { AgentBackendsPanel } from "../agent-backends";
@@ -80,10 +80,11 @@ export function CtlSkillSettings() {
 
 export function LlmProviderSettings({
   onOpenAgentBackends,
-  providerGap,
+  providerGapAgents,
 }: {
   onOpenAgentBackends: () => void;
-  providerGap: boolean;
+  /** 缺已激活供应商的 Agent（按 isProviderGap 筛好），空 = 没有缺口。 */
+  providerGapAgents: readonly AgentSlim[];
 }) {
   const { t } = useTranslation();
 
@@ -100,14 +101,17 @@ export function LlmProviderSettings({
             description={t("settings.llmProvider.description")}
             actions={actions}
           />
-          {providerGap ? <ProviderGapList /> : null}
+          {providerGapAgents.length > 0 ? (
+            <ProviderGapList agents={providerGapAgents} />
+          ) : null}
         </>
       )}
     />
   );
 }
 
-// 这一页管的缺口：后端绑了未激活 / 缺失的供应商（与设置导航那颗点同一判据）。
+// 这一页管的缺口：后端绑了未激活 / 缺失的供应商。设置导航那颗点经 isProviderGap
+// 用的是这同一张表。
 const PROVIDER_GAP_COPY = new Map<string, string>([
   [
     "provider-inactive",
@@ -119,19 +123,22 @@ const PROVIDER_GAP_COPY = new Map<string, string>([
   ],
 ]);
 
+/** LLM 供应商页管的缺口（blockReason 为 provider-inactive / backend-requires-provider）。 */
+export function isProviderGap(blockReason: string): boolean {
+  return PROVIDER_GAP_COPY.has(blockReason);
+}
+
 /**
  * 「待补齐」：谁缺、缺哪一环、去哪修。每行直达组织架构里的那个 Agent —— 修的地方
  * 是 Agent 详情（给它选后端 / 供应商），不是这一页。数据与导航点同源（ListChatAgents）。
  */
-function ProviderGapList() {
+function ProviderGapList({ agents }: { agents: readonly AgentSlim[] }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { agents } = useChatAgents();
   const gaps = agents.flatMap((agent) => {
     const reasonKey = PROVIDER_GAP_COPY.get(agent.blockReason);
     return reasonKey ? [{ agent, reasonKey }] : [];
   });
-  if (gaps.length === 0) return null;
   const title = t("settings.llmProvider.gapList.title");
 
   return (

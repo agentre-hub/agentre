@@ -279,6 +279,32 @@ describe("ChatPanel · pendingBelow", () => {
     expect(screen.queryByTestId("transcript-jump-pending")).toBeNull();
   });
 
+  it("Given 视口下方有未决的 exec 审批（OpenClaw）, When 药丸显示, Then 也计入", () => {
+    sessionStore.messages = [
+      msg(1),
+      msg(2, [
+        {
+          type: "exec_approval",
+          execApproval: {
+            id: "ex1",
+            commandText: "rm -rf x",
+            status: "pending",
+          },
+        },
+        {
+          type: "exec_approval",
+          execApproval: { id: "ex2", commandText: "ls", status: "approved" },
+        },
+      ]),
+    ];
+
+    render(<ChatPanel sessionId={42} />);
+
+    expect(screen.getByTestId("transcript-jump-pending")).toHaveTextContent(
+      "1 pending",
+    );
+  });
+
   it("Given 未决项只在视口上方, When 药丸显示, Then 不计入", () => {
     sessionStore.messages = [msg(1, [perm("above", false)]), msg(2)];
 

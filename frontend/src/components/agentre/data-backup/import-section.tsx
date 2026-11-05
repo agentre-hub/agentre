@@ -11,7 +11,7 @@ import {
   ApplyImportData,
   PreviewImportData,
 } from "../../../../wailsjs/go/app/App";
-import { FailureBody } from "./failure-body";
+import { FailureBody } from "../failure-body";
 import { ImportPreviewDialog, type PreviewItem } from "./import-preview-dialog";
 import type { ItemAction } from "./types";
 

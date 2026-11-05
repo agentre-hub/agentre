@@ -19,9 +19,6 @@
       "success": "已导出 {{count}} 条数据",
       "title": "导出"
     },
-    "failure": {
-      "details": "详情"
-    },
     "import": {
       "chooseFile": "选择文件...",
       "description": "选择 Agentre 导出的 JSON 文件，预览后再写入。",

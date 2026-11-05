@@ -71,7 +71,6 @@
   },
   "projects": {
     "errors": {
-      "details": "详情",
       "reorderFailed": "项目顺序没保存，已恢复原来的顺序"
     },
     "localPath": {

@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 
 import { classifyAppError, type AppError } from "@/lib/app-error";
 
+import { FailureBody } from "./failure-body";
+
 import { ProjectMerge, ProjectMergePreview } from "../../../wailsjs/go/app/App";
 import type { app } from "../../../wailsjs/go/models";
 import {
@@ -243,20 +245,7 @@ function MergeFailure({ err }: { err: AppError }) {
           ? t("projectMerge.errors.notFound")
           : t("projectMerge.errors.mergeFailed")}
       </p>
-      {!notFound && err.message ? <p>{err.message}</p> : null}
-      {err.detail ? (
-        <details>
-          <summary className="cursor-pointer">
-            {t("projects.errors.details")}
-          </summary>
-          <pre
-            data-selectable-text="true"
-            className="mt-1 font-mono text-2xs break-all whitespace-pre-wrap"
-          >
-            {err.detail}
-          </pre>
-        </details>
-      ) : null}
+      <FailureBody message={notFound ? "" : err.message} detail={err.detail} />
     </div>
   );
 }

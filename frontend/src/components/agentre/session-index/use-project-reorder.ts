@@ -15,6 +15,8 @@ import { toast } from "sonner";
 import { classifyAppError, type AppError } from "@/lib/app-error";
 import type { IndexAxis } from "@/lib/session-axis";
 
+import { FailureBody } from "../failure-body";
+
 import * as WailsApp from "../../../../wailsjs/go/app/App";
 import type { app } from "../../../../wailsjs/go/models";
 
@@ -57,35 +59,12 @@ const sameLevelCollision: CollisionDetection = (args) => {
  * 失败 toast 的正文：后端带码的那句人话当正文；机器原话只进默认折叠的「详情」。
  * 这个文件是 .ts，所以用 createElement 而不是 JSX。
  */
-function failureDescription(
-  err: AppError,
-  detailsLabel: string,
-): React.ReactNode {
-  const parts: React.ReactNode[] = [];
-  if (err.message)
-    parts.push(React.createElement("p", { key: "m" }, err.message));
-  if (err.detail) {
-    parts.push(
-      React.createElement(
-        "details",
-        { key: "d" },
-        React.createElement(
-          "summary",
-          { className: "cursor-pointer" },
-          detailsLabel,
-        ),
-        React.createElement(
-          "pre",
-          {
-            className: "mt-1 font-mono text-2xs whitespace-pre-wrap break-all",
-            "data-selectable-text": "true",
-          },
-          err.detail,
-        ),
-      ),
-    );
-  }
-  return parts.length > 0 ? parts : undefined;
+function failureDescription(err: AppError): React.ReactNode {
+  if (!err.message && !err.detail) return undefined;
+  return React.createElement(FailureBody, {
+    message: err.message,
+    detail: err.detail,
+  });
 }
 
 // useProjectReorder 收拢项目组的同级拖拽排序:开关条件、dnd-kit 传感器、落点计算与
@@ -120,10 +99,7 @@ function useProjectReorder({
         await WailsApp.ProjectReorder({ parentID, orderedIDs } as never);
       } catch (e) {
         toast.error(t("projects.errors.reorderFailed"), {
-          description: failureDescription(
-            classifyAppError(e),
-            t("projects.errors.details"),
-          ),
+          description: failureDescription(classifyAppError(e)),
           action: {
             label: t("common.retry"),
             onClick: () => void saveOrder(parentID, orderedIDs),

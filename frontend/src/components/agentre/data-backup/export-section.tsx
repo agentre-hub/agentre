@@ -14,7 +14,7 @@ import {
 
 import { ExportData } from "../../../../wailsjs/go/app/App";
 import { classifyAppError } from "@/lib/app-error";
-import { FailureBody } from "./failure-body";
+import { FailureBody } from "../failure-body";
 import type { Scope } from "./types";
 
 const ALL_SCOPES: Scope[] = [

@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { cn, formatRelativeTime } from "@agentre-hub/agentre-ui";
+import { useNow } from "@/hooks/use-now";
 import type { NotifyKind } from "@/lib/turn-notify";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import {
@@ -31,19 +32,6 @@ const AUTO_DISMISS_MS = 6000;
 
 // 相对时间的刷新间隔（ms）；formatRelativeTime 最细到分钟。
 const RELATIVE_TIME_TICK_MS = 30_000;
-
-// useNow 每隔一段时间刷新当前时间，让相对时间自己走。
-function useNow(): number {
-  const [now, setNow] = React.useState(() => Date.now());
-  React.useEffect(() => {
-    const timer = window.setInterval(
-      () => setNow(Date.now()),
-      RELATIVE_TIME_TICK_MS,
-    );
-    return () => window.clearInterval(timer);
-  }, []);
-  return now;
-}
 
 // 新版本到达提示的自动消失时长（ms）。比 done 长一点，但不常驻：
 // 状态栏胶囊已经兜住了「错过」，让它一直占着右下角只是重复。
@@ -87,7 +75,7 @@ function NotificationToastCard({
   // meta 只有名字 / 颜色；图标与上传图片在 agents 列表里（规格 2026-11-02 决策 17）。
   const identity = useAgentIdentity(meta?.agentId);
   const avatar = avatarFromMeta(meta, identity);
-  const now = useNow();
+  const now = useNow(RELATIVE_TIME_TICK_MS);
   const style = KIND_STYLE[toast.kind];
   const { Icon } = style;
 

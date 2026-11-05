@@ -8,7 +8,7 @@ import { cn, formatRelativeTime } from "@agentre-hub/agentre-ui";
 
 import { classifyAppError } from "@/lib/app-error";
 
-import { FailureBody } from "../data-backup/failure-body";
+import { FailureBody } from "../failure-body";
 
 import {
   entityLabel,

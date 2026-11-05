@@ -71,7 +71,6 @@
   },
   "projects": {
     "errors": {
-      "details": "Details",
       "reorderFailed": "Project order wasn't saved — the original order is back"
     },
     "localPath": {

@@ -19,9 +19,6 @@
       "success": "Exported {{count}} records",
       "title": "Export"
     },
-    "failure": {
-      "details": "Details"
-    },
     "import": {
       "chooseFile": "Choose File...",
       "description": "Choose an Agentre export JSON file, preview it, then import.",

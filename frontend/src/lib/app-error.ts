@@ -29,6 +29,18 @@ export type AppError = {
 const CODED_PREFIX = /^agentre-code:(\d+)\s?([\s\S]*)$/;
 
 /**
+ * 拆开过桥串前面的 `agentre-code:<码> ` —— 这条契约在前端的**唯一**解析点。
+ * 不带前缀返回 null；带前缀时 message 是剥掉前缀后的余下全文（前缀是内部记号，
+ * 不该出现在用户读到的那句话里）。
+ */
+export function parseCodedError(
+  raw: string,
+): { code: number; message: string } | null {
+  const m = CODED_PREFIX.exec(raw);
+  return m ? { code: Number(m[1]), message: m[2] } : null;
+}
+
+/**
  * 业务码 → 类别。数值出处是 `internal/pkg/code/code.go`（稳定 wire 值），注释是常量名。
  */
 const KIND_BY_CODE: Record<number, AppErrorKind> = {
@@ -77,7 +89,8 @@ const KIND_BY_CODE: Record<number, AppErrorKind> = {
   20801: "permission", // WorkspaceFsPathRefused
 };
 
-function rawText(e: unknown): string {
+/** 一次失败的原始文本：Wails 拒绝时可能是 Error、裸字符串或带 message 的对象。 */
+export function errorText(e: unknown): string {
   if (e === undefined || e === null) return "";
   if (e instanceof Error) return e.message;
   if (typeof e === "string") return e;
@@ -90,14 +103,14 @@ function rawText(e: unknown): string {
 
 /** 把一次失败（Wails 拒绝时可能是 Error，也可能是裸字符串）分成一类。 */
 export function classifyAppError(e: unknown): AppError {
-  const raw = rawText(e).trim();
-  const m = CODED_PREFIX.exec(raw);
-  if (!m) {
+  const raw = errorText(e).trim();
+  const coded = parseCodedError(raw);
+  if (!coded) {
     return { kind: "unknown", message: "", detail: raw || undefined };
   }
-  const { msg, detail } = splitErrorDetail(m[2]);
+  const { msg, detail } = splitErrorDetail(coded.message);
   return {
-    kind: KIND_BY_CODE[Number(m[1])] ?? "unknown",
+    kind: KIND_BY_CODE[coded.code] ?? "unknown",
     message: msg.trim(),
     detail,
   };

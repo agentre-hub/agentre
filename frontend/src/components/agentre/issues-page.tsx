@@ -30,6 +30,7 @@ import { useBoard } from "@/hooks/use-board";
 import { useChatAgents, type AgentSlim } from "@/hooks/use-chat-agents";
 import { useProjectList } from "@/hooks/use-project-list";
 
+import { FailureBody } from "./failure-body";
 import { scopeShowsGlyphs } from "./board/board-wire";
 import { BoardJoinNotice } from "./board/board-join-notice";
 import { BoardExecTargetPill } from "./board/exec-target-pill";
@@ -216,20 +217,10 @@ function IssuesPage() {
               </Button>
             ) : null}
           </div>
-          {board.error.message ? <p>{board.error.message}</p> : null}
-          {board.error.detail ? (
-            <details>
-              <summary className="cursor-pointer">
-                {t("projects.errors.details")}
-              </summary>
-              <pre
-                data-selectable-text="true"
-                className="mt-1 font-mono text-2xs break-all whitespace-pre-wrap"
-              >
-                {board.error.detail}
-              </pre>
-            </details>
-          ) : null}
+          <FailureBody
+            message={board.error.message}
+            detail={board.error.detail}
+          />
         </div>
       ) : null}
 
