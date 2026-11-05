@@ -13,6 +13,8 @@ import {
 
 import { ChatPanel } from "../chat-panel";
 import { PanelShownContext } from "../chat-panel/panel-shown";
+import { useAutonomousTurnEvents } from "../chat-panel/use-autonomous-turn-events";
+import { useTurnSettledCleanup } from "../chat-panel/use-turn-settled-cleanup";
 import { PeerPanel } from "../peer/peer-panel";
 import { formatChord, formatPrimaryModifier } from "../shortcuts/format";
 import {
@@ -29,11 +31,15 @@ import { reloadSidebarSources } from "@/stores/sidebar-reload";
 import type { ChatTab, TabKind } from "@/stores/chat-tabs-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
+import { useChatStreamsStore } from "@/stores/chat-streams-store";
 import { openSettings } from "@/stores/settings-dialog-store";
 
-type PanelOrderState = {
+type PanelHostState = {
   tabs: ChatTab[];
+  activeTabId: string | null;
   order: string[];
+  /** 被激活过的 tab：对话面板首次激活时才挂载，之后一直保持挂载。 */
+  activated: ReadonlySet<string>;
 };
 
 function reconcilePanelOrder(order: string[], tabs: ChatTab[]) {
@@ -48,6 +54,38 @@ function reconcilePanelOrder(order: string[], tabs: ChatTab[]) {
   }
 
   return next;
+}
+
+// 已关闭的 tab 移出集合，当前活动 tab 加进集合；没有变化时原样返回同一引用。
+function reconcileActivated(
+  activated: ReadonlySet<string>,
+  tabs: ChatTab[],
+  activeTabId: string | null,
+): ReadonlySet<string> {
+  const liveIds = new Set(tabs.map((tab) => tab.id));
+  const stale = [...activated].some((id) => !liveIds.has(id));
+  const addActive =
+    activeTabId !== null &&
+    liveIds.has(activeTabId) &&
+    !activated.has(activeTabId);
+  if (!stale && !addActive) return activated;
+  const next = new Set([...activated].filter((id) => liveIds.has(id)));
+  if (addActive) next.add(activeTabId);
+  return next;
+}
+
+function nextHostState(
+  prev: PanelHostState,
+  tabs: ChatTab[],
+  activeTabId: string | null,
+): PanelHostState {
+  return {
+    tabs,
+    activeTabId,
+    order:
+      prev.tabs === tabs ? prev.order : reconcilePanelOrder(prev.order, tabs),
+    activated: reconcileActivated(prev.activated, tabs, activeTabId),
+  };
 }
 
 function tabsByPanelOrder(tabs: ChatTab[], order: string[]) {
@@ -65,18 +103,19 @@ export function ChatPanelHost({
 } = {}) {
   const tabs = useChatTabsStore((s) => s.tabs);
   const activeTabId = useChatTabsStore((s) => s.activeTabId);
-  const [panelOrderState, setPanelOrderState] = React.useState<PanelOrderState>(
-    () => ({
-      tabs,
-      order: reconcilePanelOrder([], tabs),
-    }),
-  );
+  const [hostState, setHostState] = React.useState<PanelHostState>(() => ({
+    tabs,
+    activeTabId,
+    order: reconcilePanelOrder([], tabs),
+    activated: reconcileActivated(new Set(), tabs, activeTabId),
+  }));
 
-  let panelOrder = panelOrderState.order;
-  if (panelOrderState.tabs !== tabs) {
-    panelOrder = reconcilePanelOrder(panelOrderState.order, tabs);
-    setPanelOrderState({ tabs, order: panelOrder });
+  let current = hostState;
+  if (hostState.tabs !== tabs || hostState.activeTabId !== activeTabId) {
+    current = nextHostState(hostState, tabs, activeTabId);
+    setHostState(current);
   }
+  const { order: panelOrder, activated } = current;
 
   const panelTabs = React.useMemo(
     () => tabsByPanelOrder(tabs, panelOrder),
@@ -101,13 +140,16 @@ export function ChatPanelHost({
           />
         ) : t.meta.kind === "peer" ? (
           <HostedPeerPanel key={t.id} tab={t} active={t.id === activeTabId} />
-        ) : (
+        ) : activated.has(t.id) ? (
           <HostedPanel
             key={t.id}
             tab={t}
             active={t.id === activeTabId}
             shown={shown && t.id === activeTabId}
           />
+        ) : (
+          // 恢复后还没被点开过的对话 tab 不挂面板（启动时只有活动 tab 发请求）。
+          <DormantSessionTab key={t.id} tab={t} />
         ),
       )}
     </div>
@@ -394,6 +436,34 @@ function SetupChecklistRow({
     </div>
   );
 }
+
+const noop = () => {};
+const noopAsync = () => Promise.resolve();
+
+// 未挂载面板的对话 tab 仍要接住面板自己订阅的会话级旁路事件：自主续轮 / 后台
+// subagent 活动轮起手时翻 running 并开流（之后由全局 ChatStreamsHost 接管），
+// 轮次落定时刷新侧栏来源。转录与 notice 属于面板，首次激活挂载时从后端加载。
+const DormantSessionTab = React.memo(function DormantSessionTab({
+  tab,
+}: {
+  tab: ChatTab;
+}) {
+  const sessionId = tab.meta.kind === "session" ? tab.meta.sessionId : 0;
+  const openStream = useChatStreamsStore((s) => s.openStream);
+  useAutonomousTurnEvents({
+    sessionId,
+    openStream,
+    setMessages: noop,
+    setNotice: noop,
+  });
+  useTurnSettledCleanup({
+    sessionId,
+    setMessages: noop,
+    reloadSession: noopAsync,
+    onSidebarShouldReload: reloadSidebarSources,
+  });
+  return null;
+});
 
 const HostedPanel = React.memo(function HostedPanel({
   tab,

@@ -143,6 +143,40 @@ function useShallowStable<T>(value: T): T {
   return useShallow((v: T) => v)(value);
 }
 
+type SessionStreams = Map<number, LiveStream>;
+
+// 本会话在流的 assistantMessageId 集合，编码成原始值，只在流起停时变化。
+function streamIdsKey(streams: SessionStreams | undefined): string {
+  return streams ? Array.from(streams.keys()).join(",") : "";
+}
+
+/**
+ * 本会话的全部在流。活动 tab 逐帧订阅；非活动 tab 只订阅「有哪些流」(起停)这一粗粒度
+ * 变化,流内容(文字 delta 等)不触发重渲染 —— 它此刻看不见,读的是起停那一刻的快照。
+ * 重新激活时换回逐帧订阅,那一帧直接读到 store 里的最新内容。
+ */
+function usePanelSessionStreams(
+  sessionId: number,
+  active: boolean,
+): SessionStreams | null {
+  const live = useChatStreamsStore((s) =>
+    active && sessionId ? (s.streams.get(sessionId) ?? null) : null,
+  );
+  const idsKey = useChatStreamsStore((s) =>
+    sessionId ? streamIdsKey(s.streams.get(sessionId)) : "",
+  );
+  const snapshot = React.useMemo(
+    () =>
+      !active && sessionId
+        ? (useChatStreamsStore.getState().streams.get(sessionId) ?? null)
+        : null,
+    // idsKey 只作重取信号：流起停时重新拍一张快照。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [active, sessionId, idsKey],
+  );
+  return active ? live : snapshot;
+}
+
 // ─── ChatPanel ───────────────────────────────────────────────────────────────
 
 type NewSessionContext = {
@@ -248,10 +282,9 @@ function ChatPanel({
   // 等其它路由再切回来时,store 里累积的 liveDelta / liveBlocks / queued 都能直接还原。
   const openStream = useChatStreamsStore((s) => s.openStream);
   // 本会话的全部在流(用户轮 / 自主续轮 / 后台 subagent 活动轮),按 assistantMessageId
-  // 索引。引用只在本会话有流增删 / 内容变动时才变,别的会话在流不会触发本 panel 重渲染。
-  const sessionStreams = useChatStreamsStore((s) =>
-    sessionId ? (s.streams.get(sessionId) ?? null) : null,
-  );
+  // 索引。引用只在本会话有流增删 / 内容变动时才变,别的会话在流不会触发本 panel 重渲染;
+  // 非活动 tab 连本会话的内容变动也不跟(见 usePanelSessionStreams)。
+  const sessionStreams = usePanelSessionStreams(sessionId, active);
   // 主流 = 最近开的那条,供会话级读数(进度条 / typing indicator / 停止按钮)。
   const currentStream = React.useMemo(() => {
     if (!sessionStreams || sessionStreams.size === 0) return null;
