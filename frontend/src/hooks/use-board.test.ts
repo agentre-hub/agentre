@@ -532,6 +532,41 @@ describe("useBoard", () => {
       expect(IssueDelete).not.toHaveBeenCalled();
     });
 
+    it("Given server counts, When a delete is pending, Then totals and matched drop the card and undo restores them", async () => {
+      issueList.mockResolvedValue({
+        ...boardResponse([
+          { id: 1, stage: "doing" },
+          { id: 2, stage: "todo" },
+        ]),
+        stageTotals: { doing: 1, todo: 1 },
+        stageCounts: { doing: 1, todo: 1 },
+      });
+      const hook = renderHook(() => useBoard(query(), () => null));
+      await waitFor(() =>
+        expect(hook.result.current.viewModel.loading).toBe(false),
+      );
+      vi.useFakeTimers();
+      const { result } = hook;
+      await act(async () => {
+        await result.current.deleteTask(1);
+      });
+      const cols = result.current.viewModel.columns;
+      expect(cols.doing?.total).toBe(0);
+      expect(cols.doing?.matched).toBe(0);
+      expect(cols.todo?.total).toBe(1);
+      expect(result.current.matchedCount).toBe(1);
+
+      const [, options] = toastMock.mock.calls[0] as unknown as [
+        string,
+        { action: { onClick: () => void } },
+      ];
+      act(() => options.action.onClick());
+      const back = result.current.viewModel.columns;
+      expect(back.doing?.total).toBe(1);
+      expect(back.doing?.matched).toBe(1);
+      expect(result.current.matchedCount).toBe(2);
+    });
+
     it("Given two deletes in a row, When the first is undone, Then only the second is committed", async () => {
       const { result } = await setup();
       await act(async () => {

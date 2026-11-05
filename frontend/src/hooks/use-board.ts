@@ -180,6 +180,28 @@ export function useBoard(
     [],
   );
 
+  // 待删卡片不只从列表里滤掉，也要从各列总数 / 命中数里扣掉，头部计数才与列表一致；
+  // 撤销后 pendingDeletes 清空，原始计数原样回来。
+  const visibleResponse = React.useMemo(() => {
+    if (pendingDeletes.size === 0) return response;
+    const issues = response.issues ?? [];
+    const stageTotals = { ...(response.stageTotals ?? {}) };
+    const stageCounts = { ...(response.stageCounts ?? {}) };
+    for (const issue of issues) {
+      if (!pendingDeletes.has(issue.id)) continue;
+      if (stageTotals[issue.stage] !== undefined)
+        stageTotals[issue.stage] = Math.max(0, stageTotals[issue.stage] - 1);
+      if (stageCounts[issue.stage] !== undefined)
+        stageCounts[issue.stage] = Math.max(0, stageCounts[issue.stage] - 1);
+    }
+    return {
+      ...response,
+      issues: issues.filter((issue) => !pendingDeletes.has(issue.id)),
+      stageTotals,
+      stageCounts,
+    } as app.IssueListResponse;
+  }, [pendingDeletes, response]);
+
   const viewModel = React.useMemo<BoardViewModel>(() => {
     // 空态那句的范围：`unassigned` 是范围本身说死的；`project` 的名字从
     // `projectOf` 取，取不到（例如宿主为别的判据让它返回 null）就不给 scope，
@@ -195,23 +217,13 @@ export function useBoard(
           : undefined;
 
     return {
-      columns: toBoardColumns(
-        pendingDeletes.size === 0
-          ? response
-          : ({
-              ...response,
-              issues: (response.issues ?? []).filter(
-                (issue) => !pendingDeletes.has(issue.id),
-              ),
-            } as app.IssueListResponse),
-        projectOf,
-      ),
+      columns: toBoardColumns(visibleResponse, projectOf),
       filtering: isFiltering(query),
       keyword: query.keyword.trim(),
       loading: !loaded,
       emptyScope,
     };
-  }, [loaded, pendingDeletes, projectOf, query, response]);
+  }, [loaded, projectOf, query, visibleResponse]);
 
   const taskOf = React.useCallback(
     (id: number) => {
@@ -382,7 +394,7 @@ export function useBoard(
       [response.projectCounts],
     ),
     unassignedCount: projectCountOf(response.projectCounts, 0),
-    matchedCount: matchedTotal(response.stageCounts ?? {}),
+    matchedCount: matchedTotal(visibleResponse.stageCounts ?? {}),
     taskOf,
     searching,
     error,
