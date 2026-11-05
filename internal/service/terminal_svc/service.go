@@ -33,6 +33,13 @@ var (
 	ErrTerminalNotOpen = errors.New("terminal not open")
 )
 
+// startFlushTimer is the pump's wakeup source: it returns the channel that
+// fires for a flush and a stop func. Tests swap it via export_test.go.
+var startFlushTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
+	timer := time.NewTimer(d)
+	return timer.C, timer.Stop
+}
+
 type Service struct {
 	selector             *BackendSelector
 	emitter              Emitter
@@ -476,11 +483,20 @@ func (s *Service) pump(terminalID string, entry *sessionEntry) {
 	dataCh := entry.handle.Data()
 	exitCh := entry.handle.Exit()
 
-	ticker := time.NewTicker(flushInterval)
-	defer ticker.Stop()
+	// The flush timer exists only while bytes are pending, so an idle terminal
+	// has no timer and cannot wake up. flush disarms it.
+	var flushC <-chan time.Time
+	var stopFlush func() bool
+	disarm := func() {
+		if stopFlush != nil {
+			stopFlush()
+		}
+		flushC, stopFlush = nil, nil
+	}
 
 	var pending []byte
 	flush := func() {
+		disarm()
 		if len(pending) == 0 {
 			return
 		}
@@ -507,8 +523,10 @@ stream:
 			pending = append(pending, data...)
 			if len(pending) >= flushThreshold {
 				flush()
+			} else if flushC == nil && len(pending) > 0 {
+				flushC, stopFlush = startFlushTimer(flushInterval)
 			}
-		case <-ticker.C:
+		case <-flushC:
 			flush()
 		case info := <-exitCh:
 			exitInfo = info
