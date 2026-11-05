@@ -623,7 +623,12 @@ function NeedsSetupHost(
       onMoveDepartment={vi.fn()}
       onReorderAgent={vi.fn()}
       onCreateDepartment={vi.fn()}
-      needsSetupAgentIds={[5, 6]}
+      needsSetupReasons={
+        new Map([
+          [5, "No agent backend configured"],
+          [6, "LLM provider not active"],
+        ])
+      }
       needsSetup={needsSetup}
       onNeedsSetupChange={setNeedsSetup}
       {...rest}
@@ -651,13 +656,16 @@ describe("OrgIndex 「待配置」筛选", () => {
     expect(screen.getByTestId("org-row-2")).toBeInTheDocument();
   });
 
-  it("不能对话的 Agent 行带 status-waiting 点与可读名里的原因，能对话的没有", () => {
+  it("不能对话的 Agent 行带 status-waiting 点与可读名里它自己缺的那一环，能对话的没有", () => {
     render(<NeedsSetupHost />);
 
     const gapRow = screen.getByTestId("org-row-5");
     expect(gapRow.querySelector("[data-gap-dot]")).not.toBeNull();
     expect(screen.getByTestId("org-row-select-5")).toHaveAccessibleName(
-      /, Can't chat yet, needs setup$/,
+      /, No agent backend configured$/,
+    );
+    expect(screen.getByTestId("org-row-select-6")).toHaveAccessibleName(
+      /, LLM provider not active$/,
     );
 
     const okRow = screen.getByTestId("org-row-2");
@@ -669,7 +677,7 @@ describe("OrgIndex 「待配置」筛选", () => {
 
   it("开着「待配置」却没有缺口时走无结果空态，「清除全部条件」把它也关掉", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    render(<NeedsSetupHost initialNeedsSetup needsSetupAgentIds={[]} />);
+    render(<NeedsSetupHost initialNeedsSetup needsSetupReasons={new Map()} />);
 
     expect(await screen.findByText("No agents found")).toBeInTheDocument();
     expect(
@@ -746,6 +754,26 @@ describe("OrgChartPage 深链落地「待配置」", () => {
     expect(screen.getByTestId("org-row-5")).toBeInTheDocument();
     expect(screen.getByTestId("org-row-6")).toBeInTheDocument();
     expect(screen.queryByTestId("org-row-2")).toBeNull();
+  });
+
+  // 规格 S2「可读名带原因」：原因是这个 Agent 的 blockReason 说的那一环，
+  // 与对话侧「暂不能对话」弹窗同一句短文案，不是一句笼统的「需要配置」。
+  it("索引行的可读名带上各自 blockReason 的原因", () => {
+    render(
+      <MemoryRouter initialEntries={["/org"]}>
+        <OrgChartPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId("org-row-select-5")).toHaveAccessibleName(
+      /, No agent backend configured$/,
+    );
+    expect(screen.getByTestId("org-row-select-6")).toHaveAccessibleName(
+      /, LLM provider not active$/,
+    );
+    expect(screen.getByTestId("org-row-select-2")).not.toHaveAttribute(
+      "aria-label",
+    );
   });
 
   it("不带意图进来时不预选", () => {

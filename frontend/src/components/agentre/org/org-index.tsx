@@ -51,17 +51,22 @@ export type OrgIndexProps = {
    */
   onCreateAgent?: (departmentId: number) => void;
   /**
-   * 「待配置」那一维：不能对话的 Agent（宿主从 ListChatAgents 算）。不给就没有这一维。
+   * 「待配置」那一维：不能对话的 Agent → 它缺的那一环（宿主从 ListChatAgents 的
+   * blockReason 翻译好）。键是筛选名单，值进该行的缺口点与可读名。不给就没有这一维。
    * 开关受控于宿主 —— 深链会预选它（见 @/lib/agent-setup-link）。
    */
-  needsSetupAgentIds?: readonly number[];
+  needsSetupReasons?: ReadonlyMap<number, string>;
   needsSetup?: boolean;
   onNeedsSetupChange?: (needsSetup: boolean) => void;
 };
 
 export function OrgIndex(props: OrgIndexProps) {
   const { t } = useTranslation();
-  const { agents, departments, backends, needsSetupAgentIds } = props;
+  const { agents, departments, backends, needsSetupReasons } = props;
+  const needsSetupAgentIds = React.useMemo(
+    () => (needsSetupReasons ? [...needsSetupReasons.keys()] : undefined),
+    [needsSetupReasons],
+  );
   const needsSetup = Boolean(needsSetupAgentIds && props.needsSetup);
   const setNeedsSetup = (on: boolean) => props.onNeedsSetupChange?.(on);
 
@@ -368,7 +373,7 @@ export function OrgIndex(props: OrgIndexProps) {
                     props.selected?.kind === "agent" &&
                     props.selected.id === unit.row.agent.id
                   }
-                  needsSetup={needsSetupAgentIds?.includes(unit.row.agent.id)}
+                  gap={needsSetupReasons?.get(unit.row.agent.id)}
                   onSelect={props.onSelect}
                   onDragKeyDown={handleDragKeyDown}
                 />

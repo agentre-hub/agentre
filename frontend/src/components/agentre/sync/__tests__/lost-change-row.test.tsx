@@ -126,7 +126,8 @@ describe("LostChangeRow 失败的呈现", () => {
     await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
     const [title, options] = sonnerMocks.toast.error.mock.calls[0];
     expect(title).toBe("Restore failed");
-    expect(options.description).toBe(
+    const { container } = render(<>{options.description}</>);
+    expect(container).toHaveTextContent(
       "Can't reach the sync server. Try again once the network is back.",
     );
     expect(options.action.label).toBe("Retry");
@@ -134,7 +135,8 @@ describe("LostChangeRow 失败的呈现", () => {
     await waitFor(() => expect(onRestore).toHaveBeenCalledTimes(2));
   });
 
-  it("没有码的失败不把原话当正文", async () => {
+  // 规格 S5「unknown：中文标题 + 折叠详情」：原话不当正文，但也不丢 —— 进默认折叠的详情。
+  it("没有码的失败不把原话当正文，原话进默认折叠的详情", async () => {
     const user = renderFailing(
       vi.fn().mockRejectedValue(new Error("rpc error: code = Unavailable")),
     );
@@ -143,9 +145,15 @@ describe("LostChangeRow 失败的呈现", () => {
 
     await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
     const [, options] = sonnerMocks.toast.error.mock.calls[0];
-    expect(JSON.stringify(options)).not.toContain("rpc error");
-    expect(options.description).toBe(
+    const { container } = render(<>{options.description}</>);
+    const body = container.querySelector("p");
+    expect(body).toHaveTextContent(
       "That didn't go through. You can try again.",
     );
+    expect(body).not.toHaveTextContent("rpc error");
+    const details = container.querySelector("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+    expect(details).toHaveTextContent("rpc error: code = Unavailable");
   });
 });

@@ -17,6 +17,7 @@ import { type OrgAgent, type OrgDepartment } from "./org/types";
 import { OrgIndex } from "./org/org-index";
 import { useOrgData } from "./org/use-org-data";
 import { useOrgIndexView } from "./org/use-org-index-view";
+import { blockReasonToCta } from "./not-chattable/mapping";
 
 import { renderDetail } from "./org-chart/detail";
 import { NewAgentDialog } from "./org-chart/new-agent-dialog";
@@ -58,10 +59,19 @@ export function OrgChartPage() {
   }, [location.state, setSelected, setNeedsSetup]);
 
   // 「待配置」= 现在不能对话的 Agent；与对话侧同一份 ListChatAgents，不另开 RPC。
+  // 原因用「暂不能对话」弹窗那一档 blockReason 的短文案：缺哪一环就说哪一环。
   const { agents: chatAgents } = useChatAgents();
-  const needsSetupAgentIds = React.useMemo(
-    () => chatAgents.filter((a) => !a.chattable).map((a) => a.id),
-    [chatAgents],
+  const needsSetupReasons = React.useMemo(
+    () =>
+      new Map(
+        chatAgents
+          .filter((a) => !a.chattable)
+          .map((a) => [
+            a.id,
+            t(`${blockReasonToCta(a.blockReason).copyKey}.short`),
+          ]),
+      ),
+    [chatAgents, t],
   );
 
   const [newDeptOpen, setNewDeptOpen] = React.useState(false);
@@ -226,7 +236,7 @@ export function OrgChartPage() {
             backends={backends}
             selected={view.selected}
             onSelect={view.setSelected}
-            needsSetupAgentIds={needsSetupAgentIds}
+            needsSetupReasons={needsSetupReasons}
             needsSetup={view.needsSetup}
             onNeedsSetupChange={setNeedsSetup}
             onMoveAgent={(id, placement) => {

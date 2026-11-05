@@ -999,6 +999,26 @@ describe("App", () => {
     expect(ctrlEvent.defaultPrevented).toBe(true);
   });
 
+  // 规格 S6：图标栏 tooltip 显示页面快捷键，从 bindings 读、按平台格式化。
+  it.each([
+    ["darwin", /⌘B/],
+    ["windows", /Ctrl\+B/],
+  ])(
+    "Given the app on %s, When the rail renders, Then the Board tooltip shows its bound shortcut",
+    async (platform, chord) => {
+      const runtime = mockWailsRuntime({ platform });
+
+      render(<App />);
+
+      await waitFor(() => expect(runtime.Environment).toHaveBeenCalled());
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "Board" }),
+        ).toHaveAccessibleDescription(chord),
+      );
+    },
+  );
+
   it("switches between implemented pages from the left rail", async () => {
     const user = userEvent.setup();
 

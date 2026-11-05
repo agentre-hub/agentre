@@ -21,7 +21,8 @@ type State = {
   toasts: NotificationToast[];
   push: (toast: Omit<NotificationToast, "id" | "createdAt">) => number;
   dismiss: (id: number) => void;
-  // 会话的 attention 被清除（审批已处理 / 会话被打开 / 新一轮开始）时移除其通知。
+  // 会话的 attention 被清除（审批已处理 / 会话被打开 / 新一轮开始）时移除其
+  // waiting / error 通知；done 卡不是 attention，按自己的计时收。
   dismissBySession: (sessionId: number) => void;
   clear: () => void;
 };
@@ -48,6 +49,10 @@ export const useNotificationToastStore = create<State>((set) => ({
   dismiss: (id) =>
     set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
   dismissBySession: (sessionId) =>
-    set((s) => ({ toasts: s.toasts.filter((x) => x.sessionId !== sessionId) })),
+    set((s) => ({
+      toasts: s.toasts.filter(
+        (x) => x.sessionId !== sessionId || x.kind === "done",
+      ),
+    })),
   clear: () => set({ toasts: [] }),
 }));

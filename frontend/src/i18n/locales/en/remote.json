@@ -300,6 +300,7 @@
       },
       "copySuccess": "Command copied",
       "failed": {
+        "details": "Details",
         "unknownTitle": "The upgrade did not start",
         "inProgressTitle": "An upgrade is already running on this machine",
         "inProgressBody": "Wait for it to finish, then try again.",

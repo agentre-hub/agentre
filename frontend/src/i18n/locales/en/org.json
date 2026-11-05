@@ -79,8 +79,7 @@
         "reasonSystem": "the system agent can't be moved",
         "reasonSystemTarget": "the system agent doesn't accept drops",
         "reasonGeneric": "this target doesn't accept it"
-      },
-      "needsSetupReason": "Can't chat yet, needs setup"
+      }
     },
     "agent": {
       "actions": {

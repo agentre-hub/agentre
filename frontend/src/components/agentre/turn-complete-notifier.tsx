@@ -69,6 +69,19 @@ export function TurnCompleteNotifier(): null {
     return () => EventsOff("notification:click");
   }, []);
 
+  // 会话被打开（切成当前会话）：它的 waiting / error 通知已经没有要叫你回来的事了。
+  React.useEffect(() => {
+    let prevActive = activeSessionId();
+    return useChatTabsStore.subscribe(() => {
+      const active = activeSessionId();
+      if (active === prevActive) return;
+      prevActive = active;
+      if (active !== null) {
+        useNotificationToastStore.getState().dismissBySession(active);
+      }
+    });
+  }, []);
+
   React.useEffect(() => {
     const prev = new Map<number, string>();
     const prevAttention = new Map<number, boolean>();
@@ -78,7 +91,7 @@ export function TurnCompleteNotifier(): null {
     }
     const unsub = useSessionStatusStore.subscribe((state) => {
       for (const [id, v] of state.statuses) {
-        // attention 清除（审批已处理 / 会话被打开）或新一轮开始：该会话的旧通知作废。
+        // attention 清除（审批已处理）或新一轮开始：该会话的旧通知作废。
         const attentionBefore = prevAttention.get(id) ?? false;
         prevAttention.set(id, v.needsAttention);
         const before = prev.get(id);

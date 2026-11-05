@@ -564,6 +564,25 @@ describe("useBoard", () => {
       expect(IssueDelete).toHaveBeenCalledTimes(1);
     });
 
+    // 规格 S1「组件卸载/窗口关闭前立即提交未决删除」：关窗 / 退出应用时 React 不会
+    // 卸载，只会发 beforeunload / pagehide —— 6 秒窗口里的删除不能因此静默丢掉。
+    it.each(["beforeunload", "pagehide"])(
+      "Given a pending delete, When the window fires %s, Then it commits at once and the timer does not fire twice",
+      async (eventName) => {
+        const { result, unmount } = await setup();
+        await act(async () => {
+          await result.current.deleteTask(1);
+        });
+        expect(IssueDelete).not.toHaveBeenCalled();
+
+        window.dispatchEvent(new Event(eventName));
+        expect(IssueDelete).toHaveBeenCalledWith(1);
+        await vi.advanceTimersByTimeAsync(10000);
+        unmount();
+        expect(IssueDelete).toHaveBeenCalledTimes(1);
+      },
+    );
+
     it("Given a delete that fails after the delay, When it settles, Then the card returns and the error is surfaced", async () => {
       const { result } = await setup();
       (IssueDelete as ReturnType<typeof vi.fn>).mockRejectedValueOnce(

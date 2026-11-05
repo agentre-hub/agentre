@@ -668,7 +668,7 @@ describe("reduceSessionState:会话级状态", () => {
  * 重试提示。
  *
  * 它跟上面两样同属「认得但不进正文」那一档（`applyFrame` 里 `EventRetry` 是
- * `return`），归宿却不是底栏而是转录末行那张 `RetryNoticeCard` —— 桌面端的原话是
+ * `return`），归宿却不是底栏而是转录末行那一行 `RetryIndicator` —— 桌面端的原话是
  * 「只 emit 不落 block」：上游连不上、runtime 正在等下一次尝试，这件事必须当场看得
  * 见，但它不是对话内容，一轮重试三次不该在正文里留三段。
  *

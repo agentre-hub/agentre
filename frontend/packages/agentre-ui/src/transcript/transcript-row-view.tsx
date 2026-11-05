@@ -632,7 +632,7 @@ function ErrorCard({
 
 // RetryIndicator 是 Typing / Compacting / Disconnected 的第四个兄弟:同一个位置、
 // 一行、互斥。上游在退避重试是"在等"而不是"出错",所以只用 status-waiting 的
-// spinner + 一句中文事实 + 次数;retry.message 是机器原话,只进 title,不上屏。
+// spinner + 一句中文事实 + 次数;retry.message / retry.details 是机器原话,只进 title,不上屏。
 function RetryIndicator({ retry }: { retry: RetryNotice }) {
   const { t } = useUiTranslation();
   const label =
@@ -650,7 +650,9 @@ function RetryIndicator({ retry }: { retry: RetryNotice }) {
       data-testid="transcript-retry"
       role="status"
       aria-live="polite"
-      title={retry.message || undefined}
+      title={
+        [retry.message, retry.details].filter(Boolean).join("\n") || undefined
+      }
       className="flex items-center gap-2 py-1 text-aux text-muted-foreground"
     >
       <RefreshCw

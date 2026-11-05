@@ -362,7 +362,7 @@ describe("transcript notice block", () => {
       at: 0,
     };
 
-    it("Given a live retry, When rendered, Then it is one status-waiting line with the Chinese fact and count, raw message only in title", () => {
+    it("Given a live retry, When rendered, Then it is one status-waiting line with the Chinese fact and count, raw message and details only in title", () => {
       renderRow(noticeRow({ text: "x" }), { liveRetry: retry });
 
       const line = screen.getByTestId("transcript-retry");
@@ -370,7 +370,12 @@ describe("transcript notice block", () => {
         i18n.t("chat.retry.label", { attempt: 2, max: 10 }),
       );
       expect(line).toHaveTextContent("2/10");
-      expect(line).toHaveAttribute("title", "API Error: Connection error.");
+      // 原文整段进 title：message 与 details 都是 wire 带来的机器原话，丢掉 details
+      // 就把这一次重试唯一的底层线索（如 ECONNRESET）弄没了。
+      expect(line).toHaveAttribute(
+        "title",
+        "API Error: Connection error.\nECONNRESET",
+      );
       expect(line).not.toHaveTextContent("API Error");
       expect(line).not.toHaveTextContent("ECONNRESET");
       expect(line.innerHTML).toContain("status-waiting");
@@ -379,7 +384,7 @@ describe("transcript notice block", () => {
 
     it("Given a retry without a known max, When rendered, Then only the attempt is shown", () => {
       renderRow(noticeRow({ text: "x" }), {
-        liveRetry: { ...retry, maxAttempts: 0, message: "" },
+        liveRetry: { ...retry, maxAttempts: 0, message: "", details: "" },
       });
       const line = screen.getByTestId("transcript-retry");
       expect(line).toHaveTextContent(

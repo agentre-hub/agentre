@@ -330,16 +330,24 @@ export function useBoard(
     [commitDelete, response.issues, t, undoDelete],
   );
 
-  // 卸载（含窗口关闭）前立即提交未决删除：不能让用户以为删了、实际没删。
+  // 卸载或窗口关闭前立即提交未决删除：不能让用户以为删了、实际没删。关窗 / 退出
+  // 应用不会卸载 React，只会发 beforeunload / pagehide，所以两条路都接上。
   React.useEffect(() => {
     const pending = pendingRef.current;
-    return () => {
+    const flush = () => {
       for (const [id, entry] of pending) {
         clearTimeout(entry.timer);
         toast.dismiss(entry.toastId);
         void Promise.resolve(IssueDelete(id)).catch(() => undefined);
       }
       pending.clear();
+    };
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+      flush();
     };
   }, []);
 

@@ -101,7 +101,7 @@ export function ChatStreamsHost(): React.ReactElement | null {
   const handleEvent = React.useCallback(
     (sessionId: number, assistantMessageId: number, ev: ChatStreamEvent) => {
       // retry 是「正在等下次尝试」的瞬时态;下面这些进展事件到达就意味着上一次重试已经成功
-      // 拿到了新内容,RetryNoticeCard 该撤掉。store 内部 null→null 是 referential no-op,
+      // 拿到了新内容,RetryIndicator 该撤掉。store 内部 null→null 是 referential no-op,
       // 这里只要在事件入口顺手调一次就够了。done/error/closed/aborted/steer_consumed
       // 走各自的 finish/consume 路径已经隐式清空 liveRetry,无需重复调用。
       switch (ev.kind) {

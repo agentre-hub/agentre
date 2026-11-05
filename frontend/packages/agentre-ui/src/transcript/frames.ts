@@ -40,7 +40,7 @@
  *
  * 「不进正文」不等于丢弃，是**另有归宿**：`reduceSessionState` 把这一档单独归约一遍，
  * 交给正文之外的那些显示面 —— 上下文窗口与权限模式归 Composer 底栏，retry 归转录末行
- * 那张 `RetryNoticeCard`（桌面端明写「只 emit 不落 block」，说的正是这件事：看得见，
+ * 那一行 `RetryIndicator`（桌面端明写「只 emit 不落 block」，说的正是这件事：看得见，
  * 但不在正文里留下一段）。仍然没有承载面的（runtime_status 的「正在压缩上下文…」）
  * 才是已知缺口 —— 缺的是显示面，不是数据。
  */
@@ -1322,7 +1322,7 @@ export interface SessionRuntimeState {
   /**
    * 此刻还没被正文盖掉的那一次重试。null = 没有在等的重试。
    *
-   * 它的显示面是转录末行那张 `RetryNoticeCard`（不是底栏），寿命规则见
+   * 它的显示面是转录末行那一行 `RetryIndicator`（不是底栏），寿命规则见
    * `nextRetry`。宿主只负责把它挂到哪一行、以及自己还信不信这一轮在跑。
    */
   retry: RetryNotice | null;

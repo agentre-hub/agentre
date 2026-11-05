@@ -1765,7 +1765,7 @@ describe("ChatTranscript block-level virtualization", () => {
 });
 
 // 特征化测试:钉住 transcript 行模型重构会触碰、但此前无直接覆盖的现状行为
-// (ErrorCard / RetryNoticeCard / 虚拟化路径下的 indicator·banner·空占位行)。
+// (ErrorCard / RetryIndicator / 虚拟化路径下的 indicator·banner·空占位行)。
 describe("ChatTranscript message tail attachments", () => {
   it("Given an assistant message with errorText, When rendered, Then the ErrorCard offers regenerate and continue actions", () => {
     const calls: number[] = [];
@@ -1815,7 +1815,7 @@ describe("ChatTranscript message tail attachments", () => {
     ).toBeInTheDocument();
   });
 
-  it("Given a live retry notice, When rendered on the live target, Then the RetryNoticeCard is visible", () => {
+  it("Given a live retry notice, When rendered on the live target, Then the RetryIndicator is visible", () => {
     render(
       <ChatTranscript
         liveByMessageId={

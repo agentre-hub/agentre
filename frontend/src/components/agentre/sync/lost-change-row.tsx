@@ -8,6 +8,8 @@ import { cn, formatRelativeTime } from "@agentre-hub/agentre-ui";
 
 import { classifyAppError } from "@/lib/app-error";
 
+import { FailureBody } from "../data-backup/failure-body";
+
 import {
   entityLabel,
   formatPayload,
@@ -80,7 +82,7 @@ export function LostChangeRow({
   }
 
   // 失败说中文事实、给对应出口：连不上 / 没码的未知失败都可以再试一次；
-  // 已经不在了没有可重试的事。机器原话不进界面。
+  // 已经不在了没有可重试的事。机器原话不当正文，只进默认折叠的详情。
   const reportFailure = (
     title: string,
     e: unknown,
@@ -97,7 +99,9 @@ export function LostChangeRow({
       description = failure.message || t("sync.lostChanges.errors.unknown");
     }
     toast.error(title, {
-      description,
+      description: (
+        <FailureBody message={description} detail={failure.detail} />
+      ),
       action: gone
         ? undefined
         : {

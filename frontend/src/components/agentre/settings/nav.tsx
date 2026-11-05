@@ -12,14 +12,16 @@ import { settingsNavSections, type SettingsPageId } from "./pages";
 
 export type SettingsNavButtonProps = {
   activePage: SettingsPageId;
-  backendGap: boolean;
+  /** 有几个 Agent 缺后端；0 = 没有缺口。 */
+  backendGap: number;
   item: {
     icon: LucideIcon;
     id?: SettingsPageId;
     labelKey: string;
   };
   onPageChange: (page: SettingsPageId) => void;
-  providerGap: boolean;
+  /** 有几个 Agent 缺已激活的 LLM 供应商；0 = 没有缺口。 */
+  providerGap: number;
 };
 
 export function SettingsNavButton({
@@ -34,15 +36,12 @@ export function SettingsNavButton({
   const active = item.id === activePage;
   const pageId = item.id;
   const label = t(item.labelKey);
-  const gapDot =
-    item.id === "agent-backend"
-      ? backendGap
-        ? t("settings.nav.agentBackendDot")
-        : undefined
-      : item.id === "llm-providers"
-        ? providerGap
-          ? t("settings.nav.llmProviderDot")
-          : undefined
+  // 点是 aria-hidden 的，缺口（含几个 Agent）整句并入按钮可读名，读屏才听得到。
+  const gapName =
+    item.id === "agent-backend" && backendGap > 0
+      ? t("settings.nav.agentBackendGap", { label, count: backendGap })
+      : item.id === "llm-providers" && providerGap > 0
+        ? t("settings.nav.llmProviderGap", { label, count: providerGap })
         : undefined;
 
   return (
@@ -52,8 +51,7 @@ export function SettingsNavButton({
       variant="ghost"
       data-testid={pageId ? `settings-nav-${pageId}` : undefined}
       aria-current={active ? "page" : undefined}
-      // 点是 aria-hidden 的，缺口信息并入按钮可读名，读屏才听得到。
-      aria-label={gapDot ? `${label}, ${gapDot}` : undefined}
+      aria-label={gapName}
       className={cn(
         "h-[34px] w-full shrink-0 justify-start gap-2 rounded-lg px-2.5 text-sm font-normal whitespace-nowrap text-foreground",
         // 当前项：前景色 8% 的相对填充（与按钮填充同一档），不用品牌色。
@@ -64,7 +62,7 @@ export function SettingsNavButton({
     >
       <Icon data-icon="inline-start" aria-hidden="true" />
       {label}
-      {gapDot ? (
+      {gapName ? (
         <span
           aria-hidden="true"
           className="ml-auto inline-block size-1.5 shrink-0 rounded-full bg-status-waiting"
@@ -77,9 +75,9 @@ export function SettingsNavButton({
 
 export type SettingsNavProps = {
   activePage: SettingsPageId;
-  backendGap: boolean;
+  backendGap: number;
   onPageChange: (page: SettingsPageId) => void;
-  providerGap: boolean;
+  providerGap: number;
   // R12:未登录时「同步」这个导航项整个不出现(不是灰掉)。
   syncEnabled: boolean;
   /**

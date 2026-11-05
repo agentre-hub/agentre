@@ -113,9 +113,9 @@ describe("useDeviceUpgrade", () => {
     expect(result.current.phase.kind).toBe("upgrading");
   });
 
-  // S5：调用自己抛了（连不上设备等）时，详情区放的是后端那句中文业务文案，
-  // 不是带 `agentre-code:` 前缀的桥上原串。
-  it("strips the bridge code prefix from a rejected call before it reaches the failure detail", async () => {
+  // S5：调用自己抛了（连不上设备等）时，桥上的串原样交给失败态 —— 带不带码、哪句
+  // 是正文哪段进详情，由失败卡片按 classifyAppError 拆（device-row-upgrade.tsx）。
+  it("hands a rejected call's bridge string to the failure phase unchanged", async () => {
     mockUpgrade.mockRejectedValue("agentre-code:20405 连不上设备");
     const { result } = renderHook(() => useDeviceUpgrade(42, "0.5.2"));
 
@@ -127,7 +127,7 @@ describe("useDeviceUpgrade", () => {
     expect(result.current.phase).toMatchObject({
       kind: "failed",
       reason: null,
-      message: "连不上设备",
+      message: "agentre-code:20405 连不上设备",
     });
   });
 });

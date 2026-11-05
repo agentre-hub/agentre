@@ -112,6 +112,25 @@ describe("TurnCompleteNotifier", () => {
     ).toEqual([43]);
   });
 
+  it("会话被打开(切成当前会话)→ 移除该会话通知,其他会话保留", async () => {
+    render(<TurnCompleteNotifier />);
+    await act(async () => {});
+    const up = useSessionStatusStore.getState().upsert;
+    act(() => {
+      up(42, { agentStatus: "running", needsAttention: false });
+      up(43, { agentStatus: "running", needsAttention: false });
+    });
+    act(() => {
+      up(42, { agentStatus: "error", needsAttention: false });
+      up(43, { agentStatus: "error", needsAttention: false });
+    });
+    expect(useNotificationToastStore.getState().toasts).toHaveLength(2);
+    act(() => useChatTabsStore.getState().openSession(42));
+    expect(
+      useNotificationToastStore.getState().toasts.map((x) => x.sessionId),
+    ).toEqual([43]);
+  });
+
   it("新一轮开始(进入 running)→ 移除该会话旧通知", async () => {
     render(<TurnCompleteNotifier />);
     await act(async () => {});

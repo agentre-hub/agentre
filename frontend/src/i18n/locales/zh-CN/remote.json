@@ -300,6 +300,7 @@
       },
       "copySuccess": "命令已复制",
       "failed": {
+        "details": "详情",
         "unknownTitle": "升级没能开始",
         "inProgressTitle": "这台机器上已经有一次升级在跑",
         "inProgressBody": "等它跑完再来。",

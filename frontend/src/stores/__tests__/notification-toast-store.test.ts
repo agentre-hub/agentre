@@ -87,4 +87,16 @@ describe("notification-toast-store", () => {
     s.dismissBySession(99);
     expect(useNotificationToastStore.getState().toasts).toHaveLength(1);
   });
+
+  // 规格 C8：attention 清除时移除的是该会话的 waiting / error 通知；「完成」卡不是
+  // attention，有自己的计时，不跟着收。
+  it("dismissBySession 只移除 waiting / error,同会话的 done 卡保留", () => {
+    const s = useNotificationToastStore.getState();
+    s.push({ sessionId: 1, kind: "done", title: "A", body: "a" });
+    s.dismissBySession(1);
+    expect(useNotificationToastStore.getState().toasts).toHaveLength(1);
+    s.push({ sessionId: 1, kind: "error", title: "A", body: "e" });
+    s.dismissBySession(1);
+    expect(useNotificationToastStore.getState().toasts).toHaveLength(0);
+  });
 });

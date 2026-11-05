@@ -28,14 +28,14 @@ function findRunning(tasks: Task[]): Task | undefined {
 // 状态词是要读的字，用 -text 角色（docs/design.md §3.5）。分表而不是共用一张。
 const STATUS_ICON_TONE: Record<Task["status"], string> = {
   queued: "text-muted-foreground",
-  running: "text-status-waiting",
+  running: "text-status-running",
   completed: "text-status-running",
   cancelled: "text-muted-foreground",
   failed: "text-status-error",
 };
 const STATUS_TEXT_TONE: Record<Task["status"], string> = {
   queued: "text-muted-foreground",
-  running: "text-status-waiting-text",
+  running: "text-status-running-text",
   completed: "text-status-running-text",
   cancelled: "text-muted-foreground",
   failed: "text-destructive-text",
