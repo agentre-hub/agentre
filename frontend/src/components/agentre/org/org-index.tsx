@@ -368,6 +368,7 @@ export function OrgIndex(props: OrgIndexProps) {
                     props.selected?.kind === "agent" &&
                     props.selected.id === unit.row.agent.id
                   }
+                  needsSetup={needsSetupAgentIds?.includes(unit.row.agent.id)}
                   onSelect={props.onSelect}
                   onDragKeyDown={handleDragKeyDown}
                 />

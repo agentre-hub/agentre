@@ -9,7 +9,8 @@
       "drag": {
         "agentHandle": "拖拽 {{name}}（空格拾起）",
         "departmentHandle": "拖拽部门 {{name}}（空格拾起）"
-      }
+      },
+      "gapName": "{{name}}，{{reason}}"
     },
     "department": {
       "departmentMemberCount": "{{count}} 名成员",

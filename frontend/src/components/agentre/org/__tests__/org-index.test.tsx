@@ -651,6 +651,22 @@ describe("OrgIndex 「待配置」筛选", () => {
     expect(screen.getByTestId("org-row-2")).toBeInTheDocument();
   });
 
+  it("不能对话的 Agent 行带 status-waiting 点与可读名里的原因，能对话的没有", () => {
+    render(<NeedsSetupHost />);
+
+    const gapRow = screen.getByTestId("org-row-5");
+    expect(gapRow.querySelector("[data-gap-dot]")).not.toBeNull();
+    expect(screen.getByTestId("org-row-select-5")).toHaveAccessibleName(
+      /, Can't chat yet, needs setup$/,
+    );
+
+    const okRow = screen.getByTestId("org-row-2");
+    expect(okRow.querySelector("[data-gap-dot]")).toBeNull();
+    expect(screen.getByTestId("org-row-select-2")).not.toHaveAttribute(
+      "aria-label",
+    );
+  });
+
   it("开着「待配置」却没有缺口时走无结果空态，「清除全部条件」把它也关掉", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<NeedsSetupHost initialNeedsSetup needsSetupAgentIds={[]} />);

@@ -79,7 +79,8 @@
         "reasonSystem": "系统 Agent 不可移动",
         "reasonSystemTarget": "系统 Agent 不接受落点",
         "reasonGeneric": "这个落点不接受它"
-      }
+      },
+      "needsSetupReason": "暂不能对话，需要配置"
     },
     "agent": {
       "actions": {

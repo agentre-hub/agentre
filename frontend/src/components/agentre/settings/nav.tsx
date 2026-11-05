@@ -52,6 +52,8 @@ export function SettingsNavButton({
       variant="ghost"
       data-testid={pageId ? `settings-nav-${pageId}` : undefined}
       aria-current={active ? "page" : undefined}
+      // 点是 aria-hidden 的，缺口信息并入按钮可读名，读屏才听得到。
+      aria-label={gapDot ? `${label}, ${gapDot}` : undefined}
       className={cn(
         "h-[34px] w-full shrink-0 justify-start gap-2 rounded-lg px-2.5 text-sm font-normal whitespace-nowrap text-foreground",
         // 当前项：前景色 8% 的相对填充（与按钮填充同一档），不用品牌色。
@@ -67,7 +69,6 @@ export function SettingsNavButton({
           aria-hidden="true"
           className="ml-auto inline-block size-1.5 shrink-0 rounded-full bg-status-waiting"
           data-gap-dot={item.id}
-          title={gapDot}
         />
       ) : null}
     </Button>
