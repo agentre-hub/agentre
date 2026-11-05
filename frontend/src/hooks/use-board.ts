@@ -1,4 +1,6 @@
 import * as React from "react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import {
   type BoardEmptyScope,
@@ -71,6 +73,9 @@ const EMPTY_RESPONSE = {
   projectCounts: [],
 } as unknown as app.IssueListResponse;
 
+/** 删除的撤销窗口：toast 在这段时间里挂着，到点才真的 IssueDelete。 */
+const DELETE_UNDO_MS = 6000;
+
 function reasonOf(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
@@ -91,6 +96,11 @@ export function useBoard(
   const [loaded, setLoaded] = React.useState(false);
   const [searching, setSearching] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const { t } = useTranslation();
+  // 已点删除但还没落库的卡片：视图模型把它们滤掉，撤销就是把它们放回来。
+  const [pendingDeletes, setPendingDeletes] = React.useState<
+    ReadonlySet<number>
+  >(new Set());
 
   // 只有最新一次请求可以写状态：连打几个字会让多次取数重叠，先发的那次晚返回时
   // 不能把新结果盖回旧的。
@@ -161,13 +171,23 @@ export function useBoard(
           : undefined;
 
     return {
-      columns: toBoardColumns(response, projectOf),
+      columns: toBoardColumns(
+        pendingDeletes.size === 0
+          ? response
+          : ({
+              ...response,
+              issues: (response.issues ?? []).filter(
+                (issue) => !pendingDeletes.has(issue.id),
+              ),
+            } as app.IssueListResponse),
+        projectOf,
+      ),
       filtering: isFiltering(query),
       keyword: query.keyword.trim(),
       loading: !loaded,
       emptyScope,
     };
-  }, [loaded, projectOf, query, response]);
+  }, [loaded, pendingDeletes, projectOf, query, response]);
 
   const taskOf = React.useCallback(
     (id: number) => {
@@ -222,10 +242,82 @@ export function useBoard(
     [write],
   );
 
-  const deleteTask = React.useCallback(
-    (id: number) => write(() => IssueDelete(id)),
-    [write],
+  // 撤销窗口内的删除：id → 定时器与 toast。落库（到点或卸载）后条目即删，
+  // 之后再点「撤销」什么都不会发生。
+  const pendingRef = React.useRef(
+    new Map<
+      number,
+      { timer: ReturnType<typeof setTimeout>; toastId: string | number }
+    >(),
   );
+
+  const releasePending = React.useCallback((id: number) => {
+    setPendingDeletes((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const commitDelete = React.useCallback(
+    async (id: number) => {
+      const entry = pendingRef.current.get(id);
+      if (!entry) return;
+      clearTimeout(entry.timer);
+      pendingRef.current.delete(id);
+      toast.dismiss(entry.toastId);
+      // 写成功并重拉后才放开隐藏，否则卡片会在重拉回来前闪一下；失败则放开后
+      // 卡片回到原位，报错由 write 记进 error。
+      await write(() => IssueDelete(id));
+      releasePending(id);
+    },
+    [releasePending, write],
+  );
+
+  const undoDelete = React.useCallback(
+    (id: number) => {
+      const entry = pendingRef.current.get(id);
+      if (!entry) return;
+      clearTimeout(entry.timer);
+      pendingRef.current.delete(id);
+      releasePending(id);
+    },
+    [releasePending],
+  );
+
+  const deleteTask = React.useCallback(
+    async (id: number) => {
+      if (pendingRef.current.has(id)) return true;
+      const title =
+        (response.issues ?? []).find((issue) => issue.id === id)?.title ?? "";
+      const timer = setTimeout(() => void commitDelete(id), DELETE_UNDO_MS);
+      const toastId = toast(t("issues.deleted", { title }), {
+        duration: DELETE_UNDO_MS,
+        action: {
+          label: t("issues.undo"),
+          onClick: () => undoDelete(id),
+        },
+      });
+      pendingRef.current.set(id, { timer, toastId });
+      setPendingDeletes((prev) => new Set(prev).add(id));
+      return true;
+    },
+    [commitDelete, response.issues, t, undoDelete],
+  );
+
+  // 卸载（含窗口关闭）前立即提交未决删除：不能让用户以为删了、实际没删。
+  React.useEffect(() => {
+    const pending = pendingRef.current;
+    return () => {
+      for (const [id, entry] of pending) {
+        clearTimeout(entry.timer);
+        toast.dismiss(entry.toastId);
+        void Promise.resolve(IssueDelete(id)).catch(() => undefined);
+      }
+      pending.clear();
+    };
+  }, []);
 
   const mutateLabel = React.useCallback(
     (mutation: LabelMutation) =>

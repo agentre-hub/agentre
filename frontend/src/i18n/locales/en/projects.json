@@ -19,7 +19,9 @@
         "desktop": "Another desktop",
         "daemon": "Compute node"
       }
-    }
+    },
+    "deleted": "Deleted \"{{title}}\"",
+    "undo": "Undo"
   },
   "projectMerge": {
     "title": "Merge into existing project",

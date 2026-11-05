@@ -19,7 +19,9 @@
         "desktop": "另一台桌面端",
         "daemon": "计算节点"
       }
-    }
+    },
+    "deleted": "已删除「{{title}}」",
+    "undo": "撤销"
   },
   "projectMerge": {
     "title": "合并到已有项目",

@@ -1,5 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const toastMock = vi.hoisted(() =>
+  Object.assign(
+    vi.fn(() => "toast-1"),
+    { dismiss: vi.fn() },
+  ),
+);
+vi.mock("sonner", () => ({ toast: toastMock }));
 
 vi.mock("../../wailsjs/go/app/App", () => ({
   IssueList: vi.fn(),
@@ -330,7 +338,12 @@ describe("useBoard", () => {
     (IssueDelete as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("row is gone"),
     );
-    await expect(result.current.deleteTask(1)).resolves.toBe(false);
+    vi.useFakeTimers();
+    await expect(result.current.deleteTask(1)).resolves.toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    vi.useRealTimers();
     await waitFor(() => expect(result.current.error).toBe("row is gone"));
     // 写没过去就不该重拉：拉回来的还是同一块板，只会把报错洗掉。
     expect(issueList).toHaveBeenCalledTimes(1);
@@ -357,21 +370,153 @@ describe("useBoard", () => {
     (IssueDelete as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("row is gone"),
     );
+    vi.useFakeTimers();
     await result.current.deleteTask(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    vi.useRealTimers();
     await waitFor(() => expect(result.current.error).toBe("row is gone"));
 
-    await expect(result.current.deleteTask(1)).resolves.toBe(true);
+    vi.useFakeTimers();
+    await result.current.deleteTask(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    vi.useRealTimers();
     await waitFor(() => expect(result.current.error).toBeNull());
     expect(issueList).toHaveBeenCalledTimes(2);
   });
 
-  it("Given a deleted task, When it is removed, Then the binding is called and the board refetches", async () => {
-    const { result } = renderHook(() => useBoard(query(), () => null));
-    await waitFor(() => expect(result.current.viewModel.loading).toBe(false));
+  describe("deferred delete", () => {
+    const cardIDs = (result: { current: ReturnType<typeof useBoard> }) =>
+      Object.values(result.current.viewModel.columns).flatMap((column) =>
+        (column?.cards ?? []).map((card) => card.id),
+      );
 
-    await result.current.deleteTask(1);
+    async function setup() {
+      issueList.mockResolvedValue(
+        boardResponse([
+          { id: 1, stage: "todo" },
+          { id: 2, stage: "todo" },
+        ]),
+      );
+      const hook = renderHook(() => useBoard(query(), () => null));
+      await waitFor(() =>
+        expect(hook.result.current.viewModel.loading).toBe(false),
+      );
+      vi.useFakeTimers();
+      return hook;
+    }
 
-    expect(IssueDelete).toHaveBeenCalledWith(1);
-    await waitFor(() => expect(issueList).toHaveBeenCalledTimes(2));
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("Given a delete, When it is requested, Then the card hides at once with an undo toast and IssueDelete waits ~6s", async () => {
+      const { result } = await setup();
+
+      let ok: boolean | undefined;
+      await act(async () => {
+        ok = await result.current.deleteTask(1);
+      });
+
+      expect(ok).toBe(true);
+      expect(cardIDs(result)).toEqual([2]);
+      expect(toastMock).toHaveBeenCalledTimes(1);
+      const [, options] = toastMock.mock.calls[0] as unknown as [
+        string,
+        { action: { label: string; onClick: () => void } },
+      ];
+      expect(options.action.onClick).toBeTypeOf("function");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5900);
+      });
+      expect(IssueDelete).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      expect(IssueDelete).toHaveBeenCalledTimes(1);
+      expect(IssueDelete).toHaveBeenCalledWith(1);
+    });
+
+    it("Given a pending delete, When undo is clicked, Then the card returns and IssueDelete never fires", async () => {
+      const { result } = await setup();
+      await act(async () => {
+        await result.current.deleteTask(1);
+      });
+      const [, options] = toastMock.mock.calls[0] as unknown as [
+        string,
+        { action: { onClick: () => void } },
+      ];
+
+      act(() => options.action.onClick());
+      expect(cardIDs(result).sort()).toEqual([1, 2]);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10000);
+      });
+      expect(IssueDelete).not.toHaveBeenCalled();
+    });
+
+    it("Given two deletes in a row, When the first is undone, Then only the second is committed", async () => {
+      const { result } = await setup();
+      await act(async () => {
+        await result.current.deleteTask(1);
+        await result.current.deleteTask(2);
+      });
+      expect(cardIDs(result)).toEqual([]);
+      const [, first] = toastMock.mock.calls[0] as unknown as [
+        string,
+        { action: { onClick: () => void } },
+      ];
+      act(() => first.action.onClick());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(IssueDelete).toHaveBeenCalledTimes(1);
+      expect(IssueDelete).toHaveBeenCalledWith(2);
+    });
+
+    it("Given a pending delete, When the host unmounts, Then it commits at once and the timer does not fire twice", async () => {
+      const { result, unmount } = await setup();
+      await act(async () => {
+        await result.current.deleteTask(1);
+      });
+      expect(IssueDelete).not.toHaveBeenCalled();
+
+      unmount();
+      expect(IssueDelete).toHaveBeenCalledWith(1);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(IssueDelete).toHaveBeenCalledTimes(1);
+    });
+
+    it("Given a delete that fails after the delay, When it settles, Then the card returns and the error is surfaced", async () => {
+      const { result } = await setup();
+      (IssueDelete as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error("row is gone"),
+      );
+      await act(async () => {
+        await result.current.deleteTask(1);
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(result.current.error).toBe("row is gone");
+      expect(cardIDs(result).sort()).toEqual([1, 2]);
+    });
+
+    it("Given a committed delete, When undo is clicked late, Then nothing is restored or re-sent", async () => {
+      const { result } = await setup();
+      await act(async () => {
+        await result.current.deleteTask(1);
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      const [, options] = toastMock.mock.calls[0] as unknown as [
+        string,
+        { action: { onClick: () => void } },
+      ];
+      act(() => options.action.onClick());
+      expect(IssueDelete).toHaveBeenCalledTimes(1);
+    });
   });
 });
