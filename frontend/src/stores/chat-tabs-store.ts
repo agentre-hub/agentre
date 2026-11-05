@@ -51,7 +51,6 @@ type Actions = {
   closeTabsToRight: (id: string) => void;
   setActive: (id: string) => void;
   moveTab: (fromIndex: number, toIndex: number) => void;
-  bumpToAfterPinned: (id: string) => void;
   resolveNewTab: (tabId: string, sessionId: number) => void;
   reconcileMissingSessions: (existingSessionIds: Set<number>) => void;
   openTerminal: (
@@ -252,24 +251,6 @@ export const useChatTabsStore = create<State & Actions>((set, _get) => ({
       if (moved.isPinned && finalIdx > lastPinnedPrefixIndex) {
         tabs[finalIdx] = { ...moved, isPinned: false, pinAt: 0 };
       }
-      return { tabs };
-    }),
-  bumpToAfterPinned: (id) =>
-    set((state) => {
-      const idx = state.tabs.findIndex((t) => t.id === id);
-      if (idx < 0) return state;
-      let lastPinnedPrefixIndex = -1;
-      for (let i = 0; i < state.tabs.length; i++) {
-        if (state.tabs[i].isPinned) lastPinnedPrefixIndex = i;
-        else break;
-      }
-      const target = lastPinnedPrefixIndex + 1;
-      if (idx === target) return state;
-      const tabs = [...state.tabs];
-      const [moved] = tabs.splice(idx, 1);
-      // 注意: 如果 idx < target, splice 后 target 要 -1
-      const insertAt = idx < target ? target - 1 : target;
-      tabs.splice(insertAt, 0, moved);
       return { tabs };
     }),
   resolveNewTab: (tabId, sessionId) =>

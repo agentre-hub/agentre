@@ -144,7 +144,6 @@ describe("Tab · 状态点与身份方块来自共享原语", () => {
   };
 
   it.each([
-    ["running", "bg-status-running"],
     ["waiting", "bg-status-waiting"],
     ["error", "bg-status-error"],
   ] as const)(
@@ -158,6 +157,13 @@ describe("Tab · 状态点与身份方块来自共享原语", () => {
       expect(dot).toHaveAccessibleName(`${status} status`);
     },
   );
+
+  it("Given status=running, When 渲染, Then 只有 spinner 一个记号，不再同时画状态点", () => {
+    render(<Tab {...baseProps} status="running" />);
+
+    expect(screen.getByTestId("tab-spinner")).toBeInTheDocument();
+    expect(screen.queryByTestId("tab-status-dot")).toBeNull();
+  });
 
   it("Given status=idle, When 渲染, Then 仍然不摆状态点（tab 条上闲置就是没记号）", () => {
     render(<Tab {...baseProps} status="idle" />);

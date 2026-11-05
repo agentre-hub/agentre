@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { TabOverflowMenu } from "../tab-overflow-menu";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 // Radix DropdownMenu 在 jsdom 中需要关闭 pointerEvents 检查。
@@ -146,5 +147,52 @@ describe("TabOverflowMenu · 状态点来自共享 statusConfig", () => {
     expect(screen.getByTestId("overflow-row-status-dot")).toHaveClass(
       "bg-transparent",
     );
+  });
+
+  describe("attention count on the overflow button", () => {
+    function seedAttention(sid: number) {
+      useChatTabsStore.getState().openSessionInNewTab(sid);
+      useSessionMetaStore.getState().setMeta(sid, {
+        agentId: 1,
+        agentName: "A",
+        agentColor: "agent-1",
+        projectId: 0,
+        title: `s${sid}`,
+        lastMessageAt: 100,
+        lastReadAt: 0,
+      });
+      useSessionStatusStore.getState().upsert(sid, {
+        agentStatus: "waiting",
+        needsAttention: true,
+      });
+    }
+
+    beforeEach(() => {
+      useSessionMetaStore.getState().__reset();
+      useSessionStatusStore.getState().__reset();
+    });
+
+    it("Given 两个需要关注的 tab 只有一个不可见, Then 计数为 1 并用 status-waiting 色", () => {
+      seedAttention(1);
+      seedAttention(2);
+      const hidden = new Set([useChatTabsStore.getState().tabs[1].id]);
+      render(<TabOverflowMenu hiddenTabIds={hidden} />);
+      const badge = screen.getByTestId("tab-overflow-attention-count");
+      expect(badge).toHaveTextContent("1");
+      expect(badge.className).toContain("status-waiting");
+    });
+
+    it("Given 需要关注的 tab 都可见, Then 不显示计数", () => {
+      seedAttention(1);
+      render(<TabOverflowMenu hiddenTabIds={new Set()} />);
+      expect(screen.queryByTestId("tab-overflow-attention-count")).toBeNull();
+    });
+
+    it("Given 不可见的 tab 不需要关注, Then 不显示计数", () => {
+      useChatTabsStore.getState().openSessionInNewTab(3);
+      const hidden = new Set([useChatTabsStore.getState().tabs[0].id]);
+      render(<TabOverflowMenu hiddenTabIds={hidden} />);
+      expect(screen.queryByTestId("tab-overflow-attention-count")).toBeNull();
+    });
   });
 });

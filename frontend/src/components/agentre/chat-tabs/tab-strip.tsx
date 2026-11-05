@@ -35,16 +35,19 @@ import {
   cn,
 } from "@agentre-hub/agentre-ui";
 
-import { useSessionAttentionList } from "@/stores/attention-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 
 import { Tab } from "./tab";
 import { TabOverflowMenu } from "./tab-overflow-menu";
 import { TabTooltip } from "./tab-tooltip";
-import { useAttentionBump } from "./use-attention-bump";
+import { useHiddenTabIds } from "./use-hidden-tab-ids";
 import { useTabsView, type TabView } from "./use-tabs-view";
 
-export function TabStrip() {
+export function TabStrip({
+  hiddenTabIds: hiddenTabIdsOverride,
+}: {
+  hiddenTabIds?: ReadonlySet<string>;
+} = {}) {
   const sortedTabs = useTabsView();
   const tabs = useChatTabsStore((s) => s.tabs);
   const activeTabId = useChatTabsStore((s) => s.activeTabId);
@@ -56,28 +59,14 @@ export function TabStrip() {
   const togglePin = useChatTabsStore((s) => s.togglePin);
   const moveTab = useChatTabsStore((s) => s.moveTab);
 
-  // attention bump: 只对 session tab 计算
-  const sessionTabIds = React.useMemo(
-    () =>
-      tabs
-        .map((t) => (t.meta.kind === "session" ? t.meta.sessionId : 0))
-        .filter((sid) => sid > 0),
-    [tabs],
+  // 溢出按钮要知道哪些 tab 被挤出可视区。happy-dom 没有 IntersectionObserver，
+  // 测试经 hiddenTabIds 注入；生产不传，走观察器。
+  const scrollerRef = React.useRef<HTMLDivElement>(null);
+  const observedHidden = useHiddenTabIds(
+    scrollerRef,
+    tabs.map((t) => t.id),
   );
-  const attentionItems = useSessionAttentionList(sessionTabIds);
-  const attentionTabIds = React.useMemo(() => {
-    const ids = new Set<string>();
-    const bySid = new Map<number, true>();
-    for (const x of attentionItems) bySid.set(x.sessionId, true);
-    for (const t of tabs) {
-      if (t.meta.kind !== "session") {
-        continue;
-      }
-      if (bySid.has(t.meta.sessionId)) ids.add(t.id);
-    }
-    return ids;
-  }, [attentionItems, tabs]);
-  useAttentionBump(attentionTabIds);
+  const hiddenTabIds = hiddenTabIdsOverride ?? observedHidden;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -105,7 +94,10 @@ export function TabStrip() {
           isolate：所有 tab 共用这一个层叠上下文（tab 在负层、活动 tab 高一层、项目色线
           再高一层、键盘焦点环在最上）。各个外壳自成层的话，后一格的悬停底会画在前一格
           活动 tab 的反向圆角之上，项目色线也会被反向圆角咬出缺口。 */}
-      <div className="scrollbar-none isolate flex h-full min-h-0 min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden pl-5 pr-2">
+      <div
+        ref={scrollerRef}
+        className="scrollbar-none isolate flex h-full min-h-0 min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden pl-5 pr-2"
+      >
         {/* 悬停卡的延迟由这一个 Provider 统一管：首次停 400ms，卡片开过之后 0.5s 内滑到
             相邻 Tab 立刻换卡，不再每格重新等。 */}
         <TooltipProvider delayDuration={400} skipDelayDuration={500}>
@@ -131,6 +123,7 @@ export function TabStrip() {
                     lastMessageAt={t.lastMessageAt}
                   >
                     <SortableTab
+                      data-tab-id={t.id}
                       tab={t}
                       active={t.id === activeTabId}
                       isLast={isLast}
@@ -155,7 +148,7 @@ export function TabStrip() {
       </div>
       {sortedTabs.length > 0 ? (
         <div className="flex h-full items-center gap-1 px-1">
-          <TabOverflowMenu />
+          <TabOverflowMenu hiddenTabIds={hiddenTabIds} />
         </div>
       ) : null}
     </div>

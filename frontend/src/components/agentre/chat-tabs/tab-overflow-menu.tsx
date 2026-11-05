@@ -15,7 +15,12 @@ import { useChatTabsStore } from "@/stores/chat-tabs-store";
 
 import { useTabsView } from "./use-tabs-view";
 
-export function TabOverflowMenu() {
+export function TabOverflowMenu({
+  hiddenTabIds,
+}: {
+  /** 当前挤出 tab 条可视区的 tab id；不传即视为都可见。 */
+  hiddenTabIds?: ReadonlySet<string>;
+} = {}) {
   const { t } = useTranslation();
   // Overflow menu shows tabs in stable openedAt order (not active-first),
   // so users get a consistent temporal list.
@@ -26,6 +31,12 @@ export function TabOverflowMenu() {
     .map((t) => viewMap.get(t.id))
     .filter((v): v is NonNullable<typeof v> => v != null);
 
+  // 看不见、又需要用户的 tab（出错 / 审批 / 提问等，都落在 pillText 上）计数。
+  const attentionHidden = hiddenTabIds
+    ? sortedTabs.filter((v) => hiddenTabIds.has(v.id) && v.pillText != null)
+        .length
+    : 0;
+
   const activeTabId = useChatTabsStore((s) => s.activeTabId);
   const setActive = useChatTabsStore((s) => s.setActive);
 
@@ -35,9 +46,17 @@ export function TabOverflowMenu() {
         <button
           type="button"
           aria-label={t("chatTabs.overflow.openMenu")}
-          className="inline-flex size-7 items-center justify-center rounded-md hover:bg-accent"
+          className="relative inline-flex size-7 items-center justify-center rounded-md hover:bg-accent"
         >
           <ChevronDown className="size-3.5" aria-hidden="true" />
+          {attentionHidden > 0 ? (
+            <span
+              data-testid="tab-overflow-attention-count"
+              className="absolute -right-0.5 -top-0.5 inline-flex min-w-3.5 items-center justify-center rounded-full bg-status-waiting-bg px-1 text-[9px] font-semibold text-status-waiting-text"
+            >
+              {attentionHidden}
+            </span>
+          ) : null}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={4} className="w-96 p-0">

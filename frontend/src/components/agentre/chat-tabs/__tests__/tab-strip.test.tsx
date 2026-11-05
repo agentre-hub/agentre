@@ -8,6 +8,7 @@ import { TabStrip } from "../tab-strip";
 import type { SessionMeta } from "@/stores/session-meta-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import { useSessionStatusStore } from "@/stores/session-status-store";
 
 describe("TabStrip", () => {
   beforeEach(() => {
@@ -41,6 +42,34 @@ describe("TabStrip", () => {
     render(<TabStrip />);
     const tabs = screen.getAllByRole("tab");
     expect(tabs).toHaveLength(2);
+  });
+
+  it("Given 一个需要关注的 tab 被挤出可视区, When 渲染, Then 溢出按钮挂计数且 tab 顺序不变", () => {
+    useChatTabsStore.getState().openSessionInNewTab(1);
+    useChatTabsStore.getState().openSessionInNewTab(2);
+    useSessionMetaStore.getState().setMeta(2, {
+      agentId: 1,
+      agentName: "A",
+      agentColor: "agent-1",
+      projectId: 0,
+      title: "s2",
+      lastMessageAt: 100,
+      lastReadAt: 0,
+    } as SessionMeta);
+    useSessionStatusStore.getState().upsert(2, {
+      agentStatus: "waiting",
+      needsAttention: true,
+    });
+    const [, second] = useChatTabsStore.getState().tabs;
+    render(<TabStrip hiddenTabIds={new Set([second.id])} />);
+    expect(
+      screen.getByTestId("tab-overflow-attention-count"),
+    ).toHaveTextContent("1");
+    expect(
+      useChatTabsStore
+        .getState()
+        .tabs.map((t) => (t.meta as { sessionId: number }).sessionId),
+    ).toEqual([1, 2]);
   });
 
   it("有 tabs 时渲染 chevron", () => {
