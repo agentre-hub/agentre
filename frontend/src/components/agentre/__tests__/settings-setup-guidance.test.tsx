@@ -262,8 +262,8 @@ describe("Settings setup guidance (task 7)", () => {
     });
   });
 
-  describe("LLM provider page gap banner", () => {
-    it("shows the banner with a Go to org chart link when a provider gap exists", async () => {
+  describe("LLM provider page gap list", () => {
+    it("lists each agent missing a provider link, and 去配置 deep-links to that agent", async () => {
       const user = userEvent.setup();
       useSettingsDialogStore.setState({ open: true });
       seedAgents([
@@ -273,6 +273,15 @@ describe("Settings setup guidance (task 7)", () => {
           chattable: false,
           blockReason: "provider-inactive",
         },
+        {
+          id: 2,
+          name: "Doc",
+          chattable: false,
+          blockReason: "backend-requires-provider",
+        },
+        // 缺的是后端不是供应商：不归这一页管
+        { id: 3, name: "CEO", chattable: false, blockReason: "no-backend" },
+        { id: 4, name: "Ops", chattable: true },
       ]);
       renderSettings();
 
@@ -280,23 +289,44 @@ describe("Settings setup guidance (task 7)", () => {
         within(settingsNav()).getByRole("button", { name: "LLM Providers" }),
       );
 
-      const alert = await screen.findByRole("alert");
+      const list = await screen.findByRole("list", { name: "Needs setup" });
+      // 不再是一条解释性横幅
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       expect(
-        within(alert).getByText("Some agents still need this"),
+        screen.getByRole("heading", { name: "Needs setup · 2" }),
       ).toBeInTheDocument();
+      const rows = within(list).getAllByRole("listitem");
+      expect(rows).toHaveLength(2);
+      expect(within(rows[0]).getByRole("img", { name: "Eng" })).toBeVisible();
+      expect(within(rows[0]).getByText("Eng")).toBeInTheDocument();
+      expect(
+        within(rows[0]).getByText("Provider not activated"),
+      ).toBeInTheDocument();
+      expect(within(rows[1]).getByText("Doc")).toBeInTheDocument();
+      expect(
+        within(rows[1]).getByText("Backend has no provider"),
+      ).toBeInTheDocument();
+      expect(within(list).queryByText("CEO")).not.toBeInTheDocument();
 
       await user.click(
-        within(alert).getByRole("button", { name: "Go to org chart" }),
+        within(rows[1]).getByRole("button", { name: "Configure Doc" }),
       );
 
       expect(screen.getByTestId("location")).toHaveTextContent("/org");
+      // 落点就是这个 Agent：组织页记住的选中键已写好
+      expect(localStorage.getItem("agentre.orgTree.selected")).toBe(
+        JSON.stringify({ kind: "agent", id: 2 }),
+      );
       // 先关设置再跳转：对话框不能带着自己落到组织页上。
       expect(useSettingsDialogStore.getState().open).toBe(false);
     });
 
-    it("hides the banner when no agent lacks a provider", async () => {
+    it("hides the list when no agent lacks a provider", async () => {
       const user = userEvent.setup();
-      seedAgents([{ id: 1, name: "CEO", chattable: true }]);
+      seedAgents([
+        { id: 1, name: "CEO", chattable: true },
+        { id: 2, name: "Ops", chattable: false, blockReason: "no-backend" },
+      ]);
       renderSettings();
 
       await user.click(
@@ -305,7 +335,7 @@ describe("Settings setup guidance (task 7)", () => {
 
       await screen.findByText("No LLM providers configured");
       expect(
-        screen.queryByText("Some agents still need this"),
+        screen.queryByRole("list", { name: "Needs setup" }),
       ).not.toBeInTheDocument();
     });
   });

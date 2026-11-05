@@ -5,17 +5,16 @@
 
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-  Button,
-} from "@agentre-hub/agentre-ui";
+import { Button } from "@agentre-hub/agentre-ui";
 
+import { useChatAgents } from "@/hooks/use-chat-agents";
+import { openAgentSetup } from "@/lib/agent-setup-link";
 import { closeSettings } from "@/stores/settings-dialog-store";
 import { AgentBackendsPanel } from "../agent-backends";
+import { AgentAvatar } from "../primitives";
+import type { AgentColor } from "../types";
 import { CtlSkillPanel } from "../ctl-skill";
 import { LlmProvidersPanel } from "../llm-providers";
 import { SettingsProxyPanel } from "../settings-proxy";
@@ -87,11 +86,10 @@ export function LlmProviderSettings({
   providerGap: boolean;
 }) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
 
   // 「新增供应商」是页级操作，位置属于 H1 行，但它开的创建弹窗归面板自己管：
-  // 这里把页头(以及必须夹在页头与工作区之间的黄条)交给面板渲染，面板只把按钮
-  // 塞进 actions 槽，弹窗状态不用上提。
+  // 这里把页头(以及必须夹在页头与工作区之间的「待补齐」清单)交给面板渲染，面板只把
+  // 按钮塞进 actions 槽，弹窗状态不用上提。
   return (
     <LlmProvidersPanel
       onOpenAgentBackends={onOpenAgentBackends}
@@ -102,31 +100,85 @@ export function LlmProviderSettings({
             description={t("settings.llmProvider.description")}
             actions={actions}
           />
-          {providerGap ? (
-            <Alert className="border-status-waiting/40 bg-status-waiting/10 text-status-waiting-text">
-              <AlertCircle className="size-4" aria-hidden="true" />
-              <AlertTitle className="text-xs font-semibold">
-                {t("settings.llmProvider.gapBanner.title")}
-              </AlertTitle>
-              <AlertDescription className="text-2xs leading-relaxed">
-                {t("settings.llmProvider.gapBanner.description")}
-                <Button
-                  type="button"
-                  variant="link"
-                  className="h-auto px-0 text-2xs"
-                  onClick={() => {
-                    closeSettings();
-                    navigate("/org");
-                  }}
-                >
-                  {t("settings.llmProvider.gapBanner.goToOrg")}
-                </Button>
-              </AlertDescription>
-            </Alert>
-          ) : null}
+          {providerGap ? <ProviderGapList /> : null}
         </>
       )}
     />
+  );
+}
+
+// 这一页管的缺口：后端绑了未激活 / 缺失的供应商（与设置导航那颗点同一判据）。
+const PROVIDER_GAP_COPY = new Map<string, string>([
+  [
+    "provider-inactive",
+    "settings.llmProvider.gapList.reasons.providerInactive",
+  ],
+  [
+    "backend-requires-provider",
+    "settings.llmProvider.gapList.reasons.backendRequiresProvider",
+  ],
+]);
+
+/**
+ * 「待补齐」：谁缺、缺哪一环、去哪修。每行直达组织架构里的那个 Agent —— 修的地方
+ * 是 Agent 详情（给它选后端 / 供应商），不是这一页。数据与导航点同源（ListChatAgents）。
+ */
+function ProviderGapList() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { agents } = useChatAgents();
+  const gaps = agents.flatMap((agent) => {
+    const reasonKey = PROVIDER_GAP_COPY.get(agent.blockReason);
+    return reasonKey ? [{ agent, reasonKey }] : [];
+  });
+  if (gaps.length === 0) return null;
+  const title = t("settings.llmProvider.gapList.title");
+
+  return (
+    <section
+      className="flex flex-col gap-1 rounded-lg bg-status-waiting-bg p-3"
+      data-slot="llm-provider-gap-list"
+    >
+      <h2 className="px-1 text-xs font-semibold text-foreground">
+        {t("settings.llmProvider.gapList.heading", { count: gaps.length })}
+      </h2>
+      <ul aria-label={title} className="flex flex-col">
+        {gaps.map(({ agent, reasonKey }) => (
+          <li
+            key={agent.id}
+            className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-xs"
+          >
+            <AgentAvatar
+              name={agent.name}
+              color={agent.avatarColor as AgentColor}
+              avatarIcon={agent.avatarIcon}
+              avatarDataUrl={agent.avatarDataUrl}
+              size="xs"
+            />
+            <span className="min-w-0 truncate font-medium">{agent.name}</span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">
+              {t(reasonKey)}
+            </span>
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto shrink-0 gap-1 px-0 text-xs"
+              aria-label={t("settings.llmProvider.gapList.configureAria", {
+                name: agent.name,
+              })}
+              onClick={() => {
+                // 先关设置再跳转：对话框不能带着自己落到组织页上。
+                closeSettings();
+                openAgentSetup(navigate, agent.id);
+              }}
+            >
+              {t("settings.llmProvider.gapList.configure")}
+              <ArrowRight className="size-3" aria-hidden="true" />
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

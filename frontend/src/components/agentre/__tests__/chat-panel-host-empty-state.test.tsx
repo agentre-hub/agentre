@@ -21,7 +21,18 @@ vi.mock("@agentre-hub/agentre-ui", async (importOriginal) => ({
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="location">{location.pathname}</output>;
+  return (
+    <>
+      <output data-testid="location">{location.pathname}</output>
+      <output data-testid="location-state">
+        {JSON.stringify(location.state ?? null)}
+      </output>
+    </>
+  );
+}
+
+function locationState() {
+  return JSON.parse(screen.getByTestId("location-state").textContent ?? "null");
 }
 
 type SeedAgent = {
@@ -298,7 +309,7 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
     ).toBeInTheDocument();
   });
 
-  it("1C: the org link navigates to /org", () => {
+  it("1C: with a single gap the org link deep-links straight to that Agent", () => {
     seedAgents([
       { id: 1, name: "CEO", chattable: false, blockReason: "no-backend" },
       { id: 2, name: "Eng", chattable: true },
@@ -312,6 +323,27 @@ describe("ChatPanelHost empty chat state — setup checklist (task 5)", () => {
     });
 
     expect(screen.getByTestId("location")).toHaveTextContent("/org");
+    expect(locationState()).toEqual({
+      orgSelection: { kind: "agent", id: 1 },
+    });
+  });
+
+  it("1C: with several gaps the org link lands on /org with the 待配置 filter preselected", () => {
+    seedAgents([
+      { id: 1, name: "CEO", chattable: false, blockReason: "no-backend" },
+      { id: 3, name: "Ops", chattable: false, blockReason: "no-backend" },
+      { id: 2, name: "Eng", chattable: true },
+    ]);
+    renderHost();
+
+    act(() => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Go to org chart setup →" }),
+      );
+    });
+
+    expect(screen.getByTestId("location")).toHaveTextContent("/org");
+    expect(locationState()).toEqual({ orgFilter: "needs-setup" });
   });
 
   it("1C: counts only Agents blocked by a missing backend", () => {

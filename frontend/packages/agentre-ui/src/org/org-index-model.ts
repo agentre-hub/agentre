@@ -19,6 +19,11 @@ export type OrgIndexFilters = {
   search: string;
   backendId: number;
   reportsToId: number;
+  /**
+   * 「待配置」：只看这些 Agent（不能对话的那批，由宿主算）。不给 = 不按这一维筛；
+   * 给空数组 = 筛选开着但没有缺口，一行都不命中。
+   */
+  needsSetupAgentIds?: readonly number[];
 };
 
 export type OrgIndexRow = {
@@ -177,8 +182,12 @@ function matchedAgentIds(
     filters.reportsToId > 0
       ? buildOrgReportToMap(agents, departments)
       : new Map<number, number>();
+  const needsSetup = filters.needsSetupAgentIds
+    ? new Set(filters.needsSetupAgentIds)
+    : null;
   const matched = new Set<number>();
   for (const agent of agents) {
+    if (needsSetup && !needsSetup.has(agent.id)) continue;
     if (
       filters.backendId > 0 &&
       (agent.agentBackendId ?? 0) !== filters.backendId

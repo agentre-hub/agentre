@@ -18,6 +18,7 @@ import { formatChord, formatPrimaryModifier } from "../shortcuts/format";
 import { TAB_CHIP_IDS, TAB_CLOSE_ID } from "../shortcuts/registry";
 import { useOptionalShortcutsContext } from "../shortcuts/shortcuts-provider";
 import type { KeyChord } from "../shortcuts/types";
+import { openAgentGaps } from "@/lib/agent-setup-link";
 import { detectBrowserPlatform } from "@/lib/platform";
 import { reloadSidebarSources } from "@/stores/sidebar-reload";
 import type { ChatTab, TabKind } from "@/stores/chat-tabs-store";
@@ -126,9 +127,9 @@ function ChatEmptyState() {
   }, []);
 
   const hasChattable = agents.some((a) => a.chattable);
-  const unconfiguredCount = agents.filter(
-    (a) => a.blockReason === "no-backend",
-  ).length;
+  const unconfiguredIds = agents
+    .filter((a) => a.blockReason === "no-backend")
+    .map((a) => a.id);
 
   if (!loading && !error && !hasChattable) {
     return (
@@ -154,21 +155,21 @@ function ChatEmptyState() {
       <div className="text-xs text-muted-foreground">
         {t("chatTabs.empty.description")}
       </div>
-      {unconfiguredCount > 0 ? (
+      {unconfiguredIds.length > 0 ? (
         <div className="mt-3 flex items-center gap-2 text-xs">
           <Badge
             variant="outline"
             className="bg-status-waiting-bg px-2 py-0 text-2xs text-foreground"
           >
             {t("chatTabs.empty.unconfigured.count", {
-              count: unconfiguredCount,
+              count: unconfiguredIds.length,
             })}
           </Badge>
           <Button
             type="button"
             variant="link"
             className="h-auto px-0 text-xs"
-            onClick={() => navigate("/org")}
+            onClick={() => openAgentGaps(navigate, unconfiguredIds)}
           >
             {t("chatTabs.empty.unconfigured.goOrg")}
           </Button>

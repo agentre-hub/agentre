@@ -104,10 +104,15 @@
     },
     "llmProvider": {
       "description": "Configure available model sources. After saving, Agentre can fetch the models available under the account and fill in each model's capabilities automatically.",
-      "gapBanner": {
-        "description": "Some agents are bound to backends that have no activated LLM provider. Once you've configured a provider, go to the org chart to assign it to those agents.",
-        "goToOrg": "Go to org chart",
-        "title": "Some agents still need this"
+      "gapList": {
+        "configure": "Configure",
+        "configureAria": "Configure {{name}}",
+        "heading": "Needs setup · {{count}}",
+        "reasons": {
+          "providerInactive": "Provider not activated",
+          "backendRequiresProvider": "Backend has no provider"
+        },
+        "title": "Needs setup"
       },
       "title": "LLM Providers"
     },

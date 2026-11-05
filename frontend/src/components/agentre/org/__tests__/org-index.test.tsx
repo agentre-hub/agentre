@@ -1,10 +1,19 @@
+import * as React from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { useChatAgentsStore } from "@/stores/chat-agents-store";
 
 import type { agent_backend_svc } from "../../../../../wailsjs/go/models";
+import { OrgChartPage } from "../../org-chart-page";
 import { OrgIndex, type OrgIndexProps } from "../org-index";
 import type { OrgAgent, OrgDepartment } from "../types";
+
+// 只有「深链落地」那组用到整页：组织数据换成夹具，索引与视图状态走真实现。
+const orgDataMock = vi.hoisted(() => ({ useOrgData: vi.fn() }));
+vi.mock("../use-org-data", () => ({ useOrgData: orgDataMock.useOrgData }));
 
 function dept(p: Partial<OrgDepartment> & { id: number }): OrgDepartment {
   return {
@@ -594,5 +603,143 @@ describe("OrgIndex 键盘拖拽：拾起 / 移动 / 落下 / 取消", () => {
 
     expect(screen.queryByTestId("org-row-handle-1")).toBeNull();
     expect(screen.getByTestId("org-row-handle-5")).toBeInTheDocument();
+  });
+});
+
+/** 「待配置」受控于宿主：这里用一个最小的宿主把开关接上。 */
+function NeedsSetupHost(
+  props: Partial<OrgIndexProps> & { initialNeedsSetup?: boolean },
+) {
+  const { initialNeedsSetup = false, ...rest } = props;
+  const [needsSetup, setNeedsSetup] = React.useState(initialNeedsSetup);
+  return (
+    <OrgIndex
+      departments={departments}
+      agents={agents}
+      backends={backends}
+      selected={null}
+      onSelect={vi.fn()}
+      onMoveAgent={vi.fn()}
+      onMoveDepartment={vi.fn()}
+      onReorderAgent={vi.fn()}
+      onCreateDepartment={vi.fn()}
+      needsSetupAgentIds={[5, 6]}
+      needsSetup={needsSetup}
+      onNeedsSetupChange={setNeedsSetup}
+      {...rest}
+    />
+  );
+}
+
+describe("OrgIndex 「待配置」筛选", () => {
+  it("筛选入口里多一项「待配置」，选上后只剩缺口 Agent，并长出可清除的 chip", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<NeedsSetupHost />);
+
+    expect(screen.getByTestId("org-row-2")).toBeInTheDocument();
+    await user.click(screen.getByTestId("org-filter-entry"));
+    await user.click(await screen.findByTestId("org-filter-setup-option-1"));
+
+    expect(screen.getByTestId("org-row-5")).toBeInTheDocument();
+    expect(screen.getByTestId("org-row-6")).toBeInTheDocument();
+    expect(screen.queryByTestId("org-row-2")).toBeNull();
+    expect(screen.queryByTestId("org-row-1")).toBeNull();
+
+    await user.click(
+      screen.getByRole("button", { name: "Clear filter Needs setup" }),
+    );
+    expect(screen.getByTestId("org-row-2")).toBeInTheDocument();
+  });
+
+  it("开着「待配置」却没有缺口时走无结果空态，「清除全部条件」把它也关掉", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<NeedsSetupHost initialNeedsSetup needsSetupAgentIds={[]} />);
+
+    expect(await screen.findByText("No agents found")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("org-index-no-match-conditions"),
+    ).toHaveTextContent("Needs setup");
+
+    await user.click(screen.getByRole("button", { name: "Clear all filters" }));
+    expect(screen.getByTestId("org-row-2")).toBeInTheDocument();
+  });
+
+  it("宿主不给缺口名单时没有这一维（与 server 侧/旧调用方一致）", async () => {
+    const { user } = setup();
+
+    await user.click(screen.getByTestId("org-filter-entry"));
+    await screen.findByTestId("org-filter-backend-option-6");
+    expect(screen.queryByTestId("org-filter-setup-option-1")).toBeNull();
+  });
+});
+
+describe("OrgChartPage 深链落地「待配置」", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    orgDataMock.useOrgData.mockReturnValue({
+      loading: false,
+      error: null,
+      departments,
+      agents,
+      backends,
+      availableTools: [],
+      moveAgent: vi.fn(),
+      moveDepartment: vi.fn(),
+      reorderAgents: vi.fn(),
+      updateDepartment: vi.fn(),
+      deleteDepartment: vi.fn(),
+      updateAgent: vi.fn(),
+      deleteAgent: vi.fn(),
+      uploadAgentAvatar: vi.fn(),
+      deleteAgentAvatar: vi.fn(),
+      createDepartment: vi.fn(),
+      createAgent: vi.fn(),
+    });
+    useChatAgentsStore.getState().__reset();
+    vi.spyOn(useChatAgentsStore.getState(), "reload").mockResolvedValue();
+    useChatAgentsStore.setState({
+      agents: [
+        { id: 2, name: "Eva", chattable: true, blockReason: "" },
+        { id: 5, name: "Dan", chattable: false, blockReason: "no-backend" },
+        {
+          id: 6,
+          name: "Ann",
+          chattable: false,
+          blockReason: "provider-inactive",
+        },
+      ] as never,
+      loading: false,
+      error: null,
+    });
+  });
+
+  it("带 orgFilter=needs-setup 进来时预选「待配置」，只列出不能对话的 Agent", async () => {
+    render(
+      <MemoryRouter
+        initialEntries={[
+          { pathname: "/org", state: { orgFilter: "needs-setup" } },
+        ]}
+      >
+        <OrgChartPage />
+      </MemoryRouter>,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Clear filter Needs setup" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("org-row-5")).toBeInTheDocument();
+    expect(screen.getByTestId("org-row-6")).toBeInTheDocument();
+    expect(screen.queryByTestId("org-row-2")).toBeNull();
+  });
+
+  it("不带意图进来时不预选", () => {
+    render(
+      <MemoryRouter initialEntries={["/org"]}>
+        <OrgChartPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByTestId("org-index-chips")).toBeNull();
+    expect(screen.getByTestId("org-row-2")).toBeInTheDocument();
   });
 });

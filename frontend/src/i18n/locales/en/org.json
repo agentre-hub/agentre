@@ -49,7 +49,9 @@
         "reportsToLabel": "Reports to: {{name}}",
         "searchLabel": "Search: {{value}}",
         "clear": "Clear filter {{label}}",
-        "clearAll": "Clear all filters"
+        "clearAll": "Clear all filters",
+        "needsSetup": "Needs setup",
+        "needsSetupAria": "Filter by setup status"
       },
       "noMatch": {
         "title": "No agents found",

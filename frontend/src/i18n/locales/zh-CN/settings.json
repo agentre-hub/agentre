@@ -104,10 +104,15 @@
     },
     "llmProvider": {
       "description": "配置可用模型来源。保存后可拉取该账号下的可用模型，并自动补全各模型的能力参数。",
-      "gapBanner": {
-        "description": "部分 Agent 绑定的后端还没有关联已激活的 LLM 供应商。配置好供应商后，去组织架构给这些 Agent 选上即可。",
-        "goToOrg": "去组织架构",
-        "title": "还有 Agent 缺这个"
+      "gapList": {
+        "configure": "去配置",
+        "configureAria": "去配置 {{name}}",
+        "heading": "待补齐 · {{count}}",
+        "reasons": {
+          "providerInactive": "供应商未激活",
+          "backendRequiresProvider": "后端未关联供应商"
+        },
+        "title": "待补齐"
       },
       "title": "LLM 供应商"
     },
