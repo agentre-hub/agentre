@@ -29,9 +29,8 @@ function renderStatusBar(onOpenUpdateSettings?: () => void) {
     <AppStatusBar
       agentCount={4}
       runningCount={1}
-      approvalCount={0}
-      unreadCount={0}
-      attentionIds={[]}
+      approvals={[]}
+      unread={[]}
       onAttentionClick={() => {}}
       status="running"
       version="v0.9.1"

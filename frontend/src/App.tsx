@@ -58,7 +58,10 @@ import { useDesktopTranscriptPorts } from "@/components/agentre/transcript-ports
 import { desktopTerminalTransport } from "@/components/agentre/terminal/terminal-transport-desktop";
 import { ChatPanelHost } from "@/components/agentre/chat-tabs/chat-panel-host";
 import { useChatAgents } from "@/hooks/use-chat-agents";
-import { deriveAppStatusBarState } from "@/lib/app-status-bar";
+import {
+  deriveAppStatusBarState,
+  railApprovalCount,
+} from "@/lib/app-status-bar";
 import {
   unskippedUpdate,
   useUpdateStore,
@@ -194,6 +197,11 @@ function AppLayout() {
   const hasChat = location.pathname === "/chat";
 
   const ports = useDesktopTranscriptPorts();
+  // 不在对话页时，审批只在状态栏里说一次太弱：图标栏「对话」按钮也亮琥珀点。
+  const railApprovals = railApprovalCount(
+    statusBarState.approvalIds.length,
+    hasChat,
+  );
 
   return (
     // 端口挂在应用根而不是转录子树：markdown-text 被三棵树共用(转录、文件预览
@@ -225,21 +233,31 @@ function AppLayout() {
                       aria-label={t("app.navigationLabel")}
                       className="flex w-14 shrink-0 flex-col items-center gap-1 bg-chrome px-2 py-3"
                     >
-                      {navItems.map((item) => (
-                        <SidebarButton
-                          key={item.labelKey}
-                          data-testid={`nav-${item.path?.slice(1) ?? item.labelKey}`}
-                          label={t(item.labelKey)}
-                          icon={item.icon}
-                          active={
-                            !settingsOpen &&
-                            isNavItemActive(location.pathname, item.path)
-                          }
-                          onClick={
-                            item.path ? () => navigate(item.path!) : undefined
-                          }
-                        />
-                      ))}
+                      {navItems.map((item) => {
+                        const pendingApprovals =
+                          item.path === "/chat" ? railApprovals : 0;
+                        return (
+                          <SidebarButton
+                            key={item.labelKey}
+                            data-testid={`nav-${item.path?.slice(1) ?? item.labelKey}`}
+                            label={
+                              pendingApprovals > 0
+                                ? `${t(item.labelKey)}${t("nav.chatPendingApprovals", { count: pendingApprovals })}`
+                                : t(item.labelKey)
+                            }
+                            badge={pendingApprovals > 0}
+                            badgeTone="waiting"
+                            icon={item.icon}
+                            active={
+                              !settingsOpen &&
+                              isNavItemActive(location.pathname, item.path)
+                            }
+                            onClick={
+                              item.path ? () => navigate(item.path!) : undefined
+                            }
+                          />
+                        );
+                      })}
                       {/* 外壳样式归宿主：wails-no-drag 与导航栏配色是桌面独有的，
                           按钮说什么、点一下变成什么在共享包里。 */}
                       <ThemeToggle className="wails-no-drag mt-auto size-10 rounded-lg text-sidebar-icon hover:bg-rail-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]" />
@@ -268,12 +286,8 @@ function AppLayout() {
                   <AppStatusBar
                     agentCount={statusBarState.agentCount}
                     runningCount={statusBarState.runningCount}
-                    approvalCount={statusBarState.approvalIds.length}
-                    unreadCount={statusBarState.unreadIds.length}
-                    attentionIds={[
-                      ...statusBarState.approvalIds,
-                      ...statusBarState.unreadIds,
-                    ]}
+                    approvals={statusBarState.approvals}
+                    unread={statusBarState.unread}
                     status={statusBarState.indicatorStatus}
                     version={appVersion}
                     onAttentionClick={(sessionId) => openSession(sessionId)}

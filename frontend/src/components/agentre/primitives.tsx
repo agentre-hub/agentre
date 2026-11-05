@@ -83,6 +83,8 @@ type SidebarButtonProps = Omit<
   active?: boolean;
   /** 图标右上角的小圆点：表示这一项底下有新东西，不解释是什么。 */
   badge?: boolean;
+  /** 圆点的语气：默认品牌色（「有新东西」）；waiting 表示「有人在等你」。 */
+  badgeTone?: "primary" | "waiting";
   icon: SidebarIcon;
   label: string;
 };
@@ -90,6 +92,7 @@ type SidebarButtonProps = Omit<
 function SidebarButton({
   active = false,
   badge = false,
+  badgeTone = "primary",
   className,
   icon,
   label,
@@ -121,7 +124,10 @@ function SidebarButton({
         <span
           data-slot="sidebar-badge"
           aria-hidden="true"
-          className="absolute right-1.5 top-1.5 size-[7px] rounded-full bg-primary ring-2 ring-chrome"
+          className={cn(
+            "absolute right-1.5 top-1.5 size-[7px] rounded-full ring-2 ring-chrome",
+            badgeTone === "waiting" ? "bg-status-waiting" : "bg-primary",
+          )}
         />
       ) : null}
       <span

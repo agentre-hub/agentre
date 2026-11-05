@@ -45,6 +45,8 @@
   },
   "nav": {
     "chat": "Chat",
+    "chatPendingApprovals_one": ", {{count}} approval pending",
+    "chatPendingApprovals_other": ", {{count}} approvals pending",
     "hooks": "Hooks",
     "issues": "Board",
     "org": "Organization",
@@ -74,13 +76,19 @@
     "unknownSession": "Untitled session"
   },
   "statusBar": {
-    "agentSummary_one": "{{count}} agent · {{running}} running",
-    "agentSummary_other": "{{count}} agents · {{running}} running",
+    "sessionSummary_one": "{{count}} session running",
+    "sessionSummary_other": "{{count}} sessions running",
+    "sessionsIdle": "No sessions running",
+    "agentCount_one": "{{count}} agent",
+    "agentCount_other": "{{count}} agents",
     "approval_one": "{{count}} approval",
     "approval_other": "{{count}} approvals",
     "unread_one": "{{count}} unread",
     "unread_other": "{{count}} unread",
-    "attentionAria": "{{summary}} — click to open the first session needing attention"
+    "groupApproval": "Pending approval",
+    "groupUnread": "Unread",
+    "attentionOpenAria": "{{summary}} — click to open the session",
+    "attentionListAria": "{{summary}} — click to choose a session"
   },
   "theme": {
     "dark": "Dark",

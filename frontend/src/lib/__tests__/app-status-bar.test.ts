@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveAppStatusBarState } from "../app-status-bar";
+import { deriveAppStatusBarState, railApprovalCount } from "../app-status-bar";
 
 describe("deriveAppStatusBarState", () => {
   it("counts actual agents and running sessions", () => {
@@ -77,5 +77,77 @@ describe("deriveAppStatusBarState", () => {
     expect(state.approvalIds).toEqual([]);
     expect(state.unreadIds).toEqual([]);
     expect(state.indicatorStatus).toBe("idle");
+  });
+
+  it("keeps the indicator running/idle when sessions are only unread", () => {
+    const unreadOnly = deriveAppStatusBarState(
+      [{ sessions: [{ id: 1, status: "idle", lastMessageAt: 200 }] }],
+      new Map(),
+      new Map(),
+      new Map(),
+    );
+    expect(unreadOnly.unreadIds).toEqual([1]);
+    expect(unreadOnly.indicatorStatus).toBe("idle");
+
+    const unreadWhileRunning = deriveAppStatusBarState(
+      [
+        {
+          sessions: [
+            { id: 1, status: "idle", lastMessageAt: 200 },
+            { id: 2, status: "running" },
+          ],
+        },
+      ],
+      new Map(),
+      new Map(),
+      new Map(),
+    );
+    expect(unreadWhileRunning.indicatorStatus).toBe("running");
+  });
+
+  it("resolves attention items with the session title and its agent identity", () => {
+    const state = deriveAppStatusBarState(
+      [
+        {
+          name: "Reviewer",
+          avatarColor: "agent-3",
+          avatarIcon: "bot",
+          avatarDataUrl: "",
+          sessions: [
+            {
+              id: 1,
+              title: "Fix login",
+              status: "waiting",
+              needsAttention: true,
+            },
+            { id: 2, title: "", status: "idle", lastMessageAt: 5 },
+          ],
+        },
+      ],
+      new Map(),
+      new Map(),
+      new Map(),
+    );
+
+    expect(state.approvals).toEqual([
+      expect.objectContaining({
+        id: 1,
+        title: "Fix login",
+        agentName: "Reviewer",
+        avatarColor: "agent-3",
+        avatarIcon: "bot",
+      }),
+    ]);
+    expect(state.unread).toEqual([
+      expect.objectContaining({ id: 2, title: "", agentName: "Reviewer" }),
+    ]);
+  });
+});
+
+describe("railApprovalCount", () => {
+  it("shows pending approvals on the rail only away from the chat page", () => {
+    expect(railApprovalCount(3, false)).toBe(3);
+    expect(railApprovalCount(3, true)).toBe(0);
+    expect(railApprovalCount(0, false)).toBe(0);
   });
 });

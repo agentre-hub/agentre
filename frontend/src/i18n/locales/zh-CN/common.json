@@ -45,6 +45,8 @@
   },
   "nav": {
     "chat": "对话",
+    "chatPendingApprovals_one": "，{{count}} 个待审批",
+    "chatPendingApprovals_other": "，{{count}} 个待审批",
     "hooks": "Hooks",
     "issues": "看板",
     "org": "组织",
@@ -74,13 +76,19 @@
     "unknownSession": "未命名会话"
   },
   "statusBar": {
-    "agentSummary_one": "{{count}} 个 agent · {{running}} 个运行中",
-    "agentSummary_other": "{{count}} 个 agent · {{running}} 个运行中",
+    "sessionSummary_one": "{{count}} 个会话运行中",
+    "sessionSummary_other": "{{count}} 个会话运行中",
+    "sessionsIdle": "没有运行中的会话",
+    "agentCount_one": "{{count}} 个 agent",
+    "agentCount_other": "{{count}} 个 agent",
     "approval_one": "{{count}} 个待审批",
     "approval_other": "{{count}} 个待审批",
     "unread_one": "{{count}} 条未读",
     "unread_other": "{{count}} 条未读",
-    "attentionAria": "{{summary}}，点击打开第一个待处理会话"
+    "groupApproval": "待审批",
+    "groupUnread": "未读",
+    "attentionOpenAria": "{{summary}}，点击打开该会话",
+    "attentionListAria": "{{summary}}，点击选择要打开的会话"
   },
   "theme": {
     "dark": "深色",
