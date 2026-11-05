@@ -617,7 +617,7 @@ function ErrorCard({
       ) : null}
       {detailsOpen ? (
         <div id={detailsId} className="flex flex-col items-start gap-1">
-          <pre className="max-h-48 w-full select-text overflow-auto whitespace-pre-wrap break-all rounded-md bg-code-surface px-3 py-2 font-mono text-xs text-code-foreground">
+          <pre className="max-h-48 w-full select-text overflow-auto whitespace-pre-wrap break-all rounded-lg bg-code-surface px-3 py-2 font-mono text-xs text-code-foreground">
             {text}
           </pre>
           <MessageCopyButton
