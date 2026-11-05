@@ -46,11 +46,11 @@ func skillTarget(items ...agent_entity.AgentSkillItem) *agent_entity.AgentExecTa
 }
 
 func newForTest(a AgentLookup, b BackendLookup, et ExecTargetLookup) *Service {
-	return &Service{agent: a, backend: b, execTarget: et}
+	return &Service{agent: a, backend: b, execTarget: et, cache: agentskill.NewDiscoveryCache()}
 }
 
 func newForTestRemote(a AgentLookup, b BackendLookup, et ExecTargetLookup, r RemoteDiscoverer) *Service {
-	return &Service{agent: a, backend: b, execTarget: et, remote: r}
+	return &Service{agent: a, backend: b, execTarget: et, remote: r, cache: agentskill.NewDiscoveryCache()}
 }
 
 // fakeRemoteDisc 替身远端发现器:记录入参,回预置 daemon 包。

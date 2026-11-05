@@ -11,6 +11,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
 	"github.com/agentre-hub/agentre/internal/pkg/ctlskill"
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo/mock_app_setting_repo"
@@ -114,6 +115,23 @@ func TestInstall_ClearsDeclinedFlagAndInstalls(t *testing.T) {
 		assert.NoError(t, err)
 		assert.True(t, info.PluginInstalled)
 		assert.True(t, info.UniversalInstalled)
+	})
+}
+
+func TestInstallUninstall_InvalidateSkillDiscoveryCache(t *testing.T) {
+	convey.Convey("安装 / 卸载 ctl 技能包后技能发现缓存代数前进", t, func() {
+		ctx, repo, svc := setupSvcTest(t)
+		repo.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+
+		before := agentskill.Generation()
+		_, err := svc.Install(ctx)
+		assert.NoError(t, err)
+		afterInstall := agentskill.Generation()
+		assert.Greater(t, afterInstall, before)
+
+		_, err = svc.Uninstall(ctx)
+		assert.NoError(t, err)
+		assert.Greater(t, agentskill.Generation(), afterInstall)
 	})
 }
 

@@ -2,6 +2,10 @@ package skill_svc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
@@ -18,6 +22,38 @@ type Service struct {
 	backend    BackendLookup
 	execTarget ExecTargetLookup // 技能授权挂在执行目标行上(R15e),不再挂在 Agent 行
 	remote     RemoteDiscoverer // 远端 backend 走 daemon 发现;本地 backend 不用
+
+	// cache 记忆发现结果:每次发现都要起 CLI 子进程(~3s),composer 每次挂载都会问。
+	cache *agentskill.DiscoveryCache
+	// localStamp 给本机条目取插件注册文件指纹;nil = agentskill.RegistryStamp。
+	localStamp func() string
+}
+
+// scopeOf 返回缓存作用域前缀「机器|后端类型|」:手动刷新按它清掉同一机器 + 后端的
+// 全部条目(packs 与各 cwd 的 commands)。远端按桌面端 paired 行 ID 区分设备。
+func scopeOf(deviceID int64, remote bool, backendType string) string {
+	if remote {
+		return "dev" + strconv.FormatInt(deviceID, 10) + "|" + backendType + "|"
+	}
+	return "local|" + backendType + "|"
+}
+
+// stampFor 本机条目带插件注册文件指纹(mtime 变化即失效);远端观测不到文件,只靠 TTL。
+func (s *Service) stampFor(remote bool) string {
+	if remote {
+		return ""
+	}
+	if s.localStamp != nil {
+		return s.localStamp()
+	}
+	return agentskill.RegistryStamp()
+}
+
+// authKey 把授权列表摊成稳定短摘要(进缓存 key:远端命令清单依赖它)。
+func authKey(authorized []agent_entity.AgentSkillItem) string {
+	b, _ := json.Marshal(authorized)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:8])
 }
 
 type discoveryResult struct {
@@ -29,7 +65,7 @@ type discoveryResult struct {
 // discoverForBackend 拿指定 backend 的已安装包(无发现器的 backend 为空)。按**给
 // 定的执行目标**发现,而不是按 Agent 的主档 —— 组织架构页"一档一块"的入口
 // (ListAgentSkillPacksForTarget)就是把目标那一档的 backend 交到这里。
-func (s *Service) discoverForBackend(ctx context.Context, be *agent_backend_entity.AgentBackend) (discoveryResult, error) {
+func (s *Service) discoverForBackend(ctx context.Context, be *agent_backend_entity.AgentBackend, refresh bool) (discoveryResult, error) {
 	backendType := agent_backend_entity.BackendType(be.Type)
 	// 远端 backend:技能包装在 daemon 那台机器上,desktop 本地的 claude plugin list
 	// 看不到。经 RemoteDiscoverer 走 daemon skills.list 发现(借 device 连接池)。
@@ -40,7 +76,8 @@ func (s *Service) discoverForBackend(ctx context.Context, be *agent_backend_enti
 		if !ok || s.remote == nil {
 			return discoveryResult{backendType: backendType, backend: be, packs: []agentskill.SkillPack{}}, nil
 		}
-		packs, err := s.remote.ListSkills(ctx, deviceID, be.Type)
+		packs, err := agentskill.CachedDiscovery(s.cache, scopeOf(deviceID, true, be.Type)+"packs", s.stampFor(true), refresh,
+			func() ([]agentskill.SkillPack, error) { return s.remote.ListSkills(ctx, deviceID, be.Type) })
 		if err != nil {
 			return discoveryResult{}, err
 		}
@@ -53,10 +90,16 @@ func (s *Service) discoverForBackend(ctx context.Context, be *agent_backend_enti
 	if !ok {
 		return discoveryResult{backendType: backendType, backend: be, packs: []agentskill.SkillPack{}}, nil
 	}
-	packs, err := d.Discover(ctx, agentskill.DiscoverQuery{
-		CLIPath: be.CLIPath,
-	})
+	packs, err := s.localPacks(ctx, d, be, refresh)
 	return discoveryResult{backendType: backendType, backend: be, packs: packs}, err
+}
+
+// localPacks 本机已装包,按(后端类型、CLI 路径)缓存。
+func (s *Service) localPacks(ctx context.Context, d agentskill.Discoverer, be *agent_backend_entity.AgentBackend, refresh bool) ([]agentskill.SkillPack, error) {
+	return agentskill.CachedDiscovery(s.cache, scopeOf(0, false, be.Type)+"packs|"+be.CLIPath, s.stampFor(false), refresh,
+		func() ([]agentskill.SkillPack, error) {
+			return d.Discover(ctx, agentskill.DiscoverQuery{CLIPath: be.CLIPath})
+		})
 }
 
 // pairedDeviceID 把 backend 的 DeviceID（规范指纹）解析成本机 paired_agentreds 的
@@ -144,7 +187,7 @@ func catalogOf(discovered discoveryResult, authorized []agent_entity.AgentSkillI
 // agentID 名下 agentBackendID 对应的那一档执行目标上（R15e，任务 12"组织架构页
 // 一档一块"）：一档一块，互不干扰、不做并集。找不到该档（agentBackendID 不在这个
 // Agent 的列表里，例如前端还没保存完就切换了）返回空目录、不是错误。
-func (s *Service) ListAgentSkillPacksForTarget(ctx context.Context, agentID, agentBackendID int64, _ bool) (SkillCatalogDTO, error) {
+func (s *Service) ListAgentSkillPacksForTarget(ctx context.Context, agentID, agentBackendID int64, refresh bool) (SkillCatalogDTO, error) {
 	targets, err := s.execTarget.ListByAgent(ctx, agentID)
 	if err != nil {
 		return SkillCatalogDTO{}, err
@@ -163,7 +206,11 @@ func (s *Service) ListAgentSkillPacksForTarget(ctx context.Context, agentID, age
 	if err != nil || be == nil {
 		return SkillCatalogDTO{}, err
 	}
-	discovered, err := s.discoverForBackend(ctx, be)
+	if refresh {
+		// 手动刷新:同一机器 + 后端的 commands 清单也一并作废,免得 composer 还拿旧的。
+		s.invalidateScope(ctx, be)
+	}
+	discovered, err := s.discoverForBackend(ctx, be, refresh)
 	if err != nil {
 		return SkillCatalogDTO{}, err
 	}
@@ -197,7 +244,7 @@ func (s *Service) ListAgentSkillCommands(ctx context.Context, agentID int64, cwd
 		return SkillCommandCatalogDTO{}, err
 	}
 
-	commands, err := s.discoverCommands(ctx, be, strings.TrimSpace(cwd), authorized)
+	commands, err := s.cachedCommands(ctx, be, strings.TrimSpace(cwd), authorized)
 	if err != nil {
 		return SkillCommandCatalogDTO{}, err
 	}
@@ -206,6 +253,39 @@ func (s *Service) ListAgentSkillCommands(ctx context.Context, agentID int64, cwd
 		dto = append(dto, SkillCommandDTO{Name: command.Name, Description: command.Description})
 	}
 	return SkillCommandCatalogDTO{Commands: dto}, nil
+}
+
+// invalidateScope 清掉 be 所在机器 + 后端的全部缓存条目。
+func (s *Service) invalidateScope(ctx context.Context, be *agent_backend_entity.AgentBackend) {
+	if remote_device_svc.TargetsAnotherMachine(be.DeviceFingerprint) {
+		if deviceID, ok := pairedDeviceID(ctx, be.DeviceFingerprint); ok {
+			s.cache.InvalidatePrefix(scopeOf(deviceID, true, be.Type))
+		}
+		return
+	}
+	s.cache.InvalidatePrefix(scopeOf(0, false, be.Type))
+}
+
+// cachedCommands 给 discoverCommands 套上缓存:key 含机器、后端类型,本机再含 CLI 路径,
+// 并都含 cwd 与授权摘要(项目级 skill 依赖 cwd;授权决定哪些包出命令)。
+func (s *Service) cachedCommands(
+	ctx context.Context, be *agent_backend_entity.AgentBackend, cwd string,
+	authorized []agent_entity.AgentSkillItem,
+) ([]agentskill.SkillCommand, error) {
+	remote := remote_device_svc.TargetsAnotherMachine(be.DeviceFingerprint)
+	var key string
+	if remote {
+		deviceID, ok := pairedDeviceID(ctx, be.DeviceFingerprint)
+		if !ok || s.remote == nil {
+			return s.discoverCommands(ctx, be, cwd, authorized) // 空清单,无子进程
+		}
+		key = scopeOf(deviceID, true, be.Type) + "cmds|"
+	} else {
+		key = scopeOf(0, false, be.Type) + "cmds|" + be.CLIPath + "|"
+	}
+	key += cwd + "|" + authKey(authorized)
+	return agentskill.CachedDiscovery(s.cache, key, s.stampFor(remote), false,
+		func() ([]agentskill.SkillCommand, error) { return s.discoverCommands(ctx, be, cwd, authorized) })
 }
 
 // discoverCommands 按执行目标落在哪台机器上,选出答这份清单的那一方。
@@ -226,7 +306,7 @@ func (s *Service) discoverCommands(
 	backendType := agent_backend_entity.BackendType(be.Type)
 	var installed []agentskill.SkillPack
 	if d, ok := agentskill.DiscovererFor(backendType); ok {
-		packs, err := d.Discover(ctx, agentskill.DiscoverQuery{CLIPath: be.CLIPath})
+		packs, err := s.localPacks(ctx, d, be, false)
 		if err != nil {
 			return nil, err
 		}
