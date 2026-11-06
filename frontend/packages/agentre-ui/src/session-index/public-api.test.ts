@@ -45,6 +45,10 @@ describe("会话索引的对外契约", () => {
       // 项目树：平铺深度列表还原成树，父项目自己的会话下沉进子分组（两端同一份）。
       "nestProjectGroups",
       "ProjectSessionGroup",
+      // 手机形态：分段、范围列表与通用组头
+      "phaseSections",
+      "ScopeList",
+      "IndexGroupHeader",
     ].filter((name) => !(name in pkg));
 
     expect(missing).toEqual([]);
