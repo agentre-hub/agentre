@@ -47,6 +47,12 @@ export interface TaskFormShellProps {
   onDelete?: () => void;
   /** 相对时间的「现在」；不给就取 `Date.now()`。 */
   nowMs?: number;
+  /**
+   * 整页档（手机）：宿主给一个定高容器（dvh），表单撑满它。头部自带「✕ · 面包屑 · ⋯ 保存」，
+   * 没有底部取消 / 保存行；标题与描述 16px 以上；pill 行贴在底部、可折两行、每颗 44px 命中区。
+   * 键盘升起时 pill 行跟着容器停在键盘上方，不在这里监听 visualViewport。不传时与从前一致。
+   */
+  page?: boolean;
   className?: string;
 }
 
@@ -70,6 +76,7 @@ export function TaskFormShell({
   onClose,
   onDelete,
   nowMs,
+  page = false,
   className,
 }: TaskFormShellProps) {
   const { t } = useUiTranslation();
@@ -81,6 +88,31 @@ export function TaskFormShell({
   const [openedAt] = React.useState(Date.now);
   const resolvedNow = nowMs ?? openedAt;
 
+  const submitButton = (
+    <button
+      type="submit"
+      data-testid="task-form-submit"
+      disabled={!form.canSubmit}
+      className={cn(
+        "inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-primary font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50",
+        page ? "h-11 px-4 text-sm" : "h-8 px-3 text-xs",
+      )}
+    >
+      {submitting ? <Spinner className="size-3" /> : null}
+      {value.id ? t("board.form.save") : t("board.form.create")}
+    </button>
+  );
+
+  const errorBlock = form.error ? (
+    <p
+      data-testid="task-form-error"
+      role="alert"
+      className="rounded-md bg-destructive-soft px-2.5 py-1.5 text-2xs text-destructive-text"
+    >
+      {form.error}
+    </p>
+  ) : null;
+
   return (
     <form
       data-testid="task-form"
@@ -88,9 +120,20 @@ export function TaskFormShell({
         event.preventDefault();
         void form.submit();
       }}
-      className={cn("flex min-h-0 flex-col", className)}
+      className={cn("flex min-h-0 flex-col", page && "h-full", className)}
     >
       <header className="flex shrink-0 items-center gap-2 px-4 py-2.5">
+        {page && onClose ? (
+          <button
+            type="button"
+            data-testid="task-form-close"
+            aria-label={t("board.form.close")}
+            onClick={onClose}
+            className="-ml-2 inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline"
+          >
+            <X className="size-5" aria-hidden="true" />
+          </button>
+        ) : null}
         <nav
           data-testid="task-form-breadcrumb"
           aria-label={t("board.form.breadcrumb")}
@@ -120,7 +163,10 @@ export function TaskFormShell({
                   type="button"
                   data-testid="task-form-more"
                   aria-label={t("board.form.more")}
-                  className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline"
+                  className={cn(
+                    "cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline",
+                    page && "inline-flex size-11 items-center justify-center",
+                  )}
                 >
                   <MoreHorizontal className="size-4" aria-hidden="true" />
                 </button>
@@ -137,7 +183,7 @@ export function TaskFormShell({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
-          {onClose ? (
+          {onClose && !page ? (
             <button
               type="button"
               data-testid="task-form-close"
@@ -148,6 +194,7 @@ export function TaskFormShell({
               <X className="size-4" aria-hidden="true" />
             </button>
           ) : null}
+          {page ? submitButton : null}
         </div>
       </header>
 
@@ -173,13 +220,21 @@ export function TaskFormShell({
           placeholder={t("board.form.descriptionPlaceholder")}
           aria-label={t("board.form.description")}
           variant="inline"
-          className="min-h-32 flex-1 resize-none px-0 text-sm"
+          className={cn(
+            "min-h-32 flex-1 resize-none px-0",
+            page ? "text-base" : "text-sm",
+          )}
         />
       </div>
 
       <div
         data-testid="task-form-pills"
-        className="flex shrink-0 flex-wrap items-center gap-1.5 px-4 py-2"
+        className={cn(
+          "flex shrink-0 flex-wrap items-center gap-1.5 px-4 py-2",
+          // 每颗 44px 命中区：宿主端口渲染的机器 / 模型 pill 也是 button，靠容器统一抬。
+          page &&
+            "min-h-11 gap-2 [&_button:not([data-testid^=task-label-remove])]:min-h-11 [&_button:not([data-testid^=task-label-remove])]:min-w-11",
+        )}
       >
         <TaskStagePill
           stage={value.stage}
@@ -220,43 +275,33 @@ export function TaskFormShell({
         />
       </div>
 
-      <footer
-        data-testid="task-form-footer"
-        className="flex shrink-0 flex-col gap-2 px-4 py-3"
-      >
-        {/* 错误块在提交按钮**正上方**：摆在表单末尾时，长表单里失败在视野之外。 */}
-        {form.error ? (
-          <p
-            data-testid="task-form-error"
-            role="alert"
-            className="rounded-md bg-destructive-soft px-2.5 py-1.5 text-2xs text-destructive-text"
-          >
-            {form.error}
-          </p>
-        ) : null}
-        <div className="flex items-center justify-end gap-2">
-          {onClose ? (
-            <button
-              type="button"
-              data-testid="task-form-cancel"
-              onClick={onClose}
-              disabled={submitting}
-              className="h-8 cursor-pointer rounded-lg px-3 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {t("board.form.cancel")}
-            </button>
-          ) : null}
-          <button
-            type="submit"
-            data-testid="task-form-submit"
-            disabled={!form.canSubmit}
-            className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {submitting ? <Spinner className="size-3" /> : null}
-            {value.id ? t("board.form.save") : t("board.form.create")}
-          </button>
-        </div>
-      </footer>
+      {page ? (
+        errorBlock ? (
+          <div className="shrink-0 px-4 pb-2">{errorBlock}</div>
+        ) : null
+      ) : (
+        <footer
+          data-testid="task-form-footer"
+          className="flex shrink-0 flex-col gap-2 px-4 py-3"
+        >
+          {/* 错误块在提交按钮**正上方**：摆在表单末尾时，长表单里失败在视野之外。 */}
+          {errorBlock}
+          <div className="flex items-center justify-end gap-2">
+            {onClose ? (
+              <button
+                type="button"
+                data-testid="task-form-cancel"
+                onClick={onClose}
+                disabled={submitting}
+                className="h-8 cursor-pointer rounded-lg px-3 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("board.form.cancel")}
+              </button>
+            ) : null}
+            {submitButton}
+          </div>
+        </footer>
+      )}
     </form>
   );
 }
