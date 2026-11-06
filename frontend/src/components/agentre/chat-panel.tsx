@@ -34,6 +34,7 @@ import { useClearedBackgroundTasksStore } from "@/stores/cleared-background-task
 import {
   useChatStreamsStore,
   useSessionLiveBlocks,
+  type ChatBlockData,
   type LiveStream,
 } from "@/stores/chat-streams-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
@@ -835,6 +836,9 @@ function ChatPanel({
     () => setEditingMessage(null),
     [setEditingMessage],
   );
+  const handleComposerStop = useLatestCallback(() => {
+    if (session) void doStop(session.id);
+  });
   const handleCommandSubmit = useLatestCallback((command: string) =>
     runLocalCommand(sessionId, command),
   );
@@ -1257,7 +1261,7 @@ function ChatPanel({
                     sending={sendInFlight}
                     // 已有会话的这一轮在跑时提交位让给停止键,Esc 也能停(C2)。
                     running={!!session && canStop}
-                    onStop={session ? () => void doStop(session.id) : undefined}
+                    onStop={session ? handleComposerStop : undefined}
                     stopping={stopping}
                     editing={activeEditing !== null}
                     editDraft={activeEditing?.text}
