@@ -170,6 +170,7 @@
     "cardMenu": "Task actions",
     "edit": "Edit",
     "moveTo": "Move to",
+    "moveCardTo": "Move #{{id}} to",
     "delete": "Delete",
     "stages": {
       "todo": "To do",

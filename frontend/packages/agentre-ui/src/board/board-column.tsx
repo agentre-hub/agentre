@@ -23,6 +23,8 @@ export interface BoardColumnProps {
   cardDrag?: (cardId: number) => BoardCardDragBinding | undefined;
   onExpand?: () => void;
   nowMs?: number;
+  /** 阶段档：本列独占整屏宽，卡片走触屏档。不传时与桌面一致。 */
+  layout?: "columns" | "stage";
 }
 
 /**
@@ -40,7 +42,9 @@ export function BoardColumn({
   cardDrag,
   onExpand,
   nowMs,
+  layout = "columns",
 }: BoardColumnProps) {
+  const stageLayout = layout === "stage";
   const { t } = useUiTranslation();
   const meta = BOARD_STAGE_META[state.stage];
   const Icon = meta.icon;
@@ -57,7 +61,8 @@ export function BoardColumn({
       data-drop-state={drag?.dropState}
       aria-label={label}
       className={cn(
-        "flex h-full max-h-full w-[300px] min-w-0 shrink-0 flex-col rounded-lg transition-colors",
+        "flex h-full max-h-full min-w-0 shrink-0 flex-col rounded-lg transition-colors",
+        stageLayout ? "w-full" : "w-[300px]",
         drag?.dropState === "over" &&
           "bg-primary-soft ring-1 ring-primary/30 ring-inset",
       )}
@@ -90,7 +95,8 @@ export function BoardColumn({
             aria-label={t("board.addTask", { stage: label })}
             onClick={() => ports.onCreateTask?.(state.stage)}
             className={cn(
-              "ml-auto inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors",
+              stageLayout ? "size-11" : "size-5",
+              "ml-auto inline-flex cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors",
               "hover:bg-accent hover:text-foreground",
               "focus-visible:focus-outline",
             )}
@@ -111,6 +117,7 @@ export function BoardColumn({
             keyword={keyword}
             drag={cardDrag?.(card.id)}
             nowMs={nowMs}
+            touch={stageLayout}
           />
         ))}
         {state.hiddenCount > 0 ? (

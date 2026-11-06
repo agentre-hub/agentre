@@ -41,7 +41,12 @@ export interface BoardCardProps {
   drag?: BoardCardDragBinding;
   /** 相对时间的「现在」；不给就取 `Date.now()`。 */
   nowMs?: number;
+  /** 触屏档：菜单常显、换底部弹层，长按卡片同样打开。不传时与桌面一致。 */
+  touch?: boolean;
 }
+
+/** 长按多久算「长按」。 */
+const LONG_PRESS_MS = 500;
 
 /**
  * 看板上的一张卡。
@@ -55,8 +60,18 @@ export function BoardCard({
   keyword,
   drag,
   nowMs,
+  touch = false,
 }: BoardCardProps) {
   const { t } = useUiTranslation();
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const pressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 长按触发后，随后那一下 click 不该再当成「点开编辑」。
+  const longPressed = React.useRef(false);
+  const cancelPress = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+  };
+  React.useEffect(() => cancelPress, []);
   const dragState = drag?.state;
   // 与 IssueBoard 同一条：宿主的 nowMs 优先，不给才退回挂载那一刻（渲染期调
   // Date.now() 是不纯的）。看板里这个值本来就由 IssueBoard 统一递下来。
@@ -79,7 +94,32 @@ export function BoardCard({
         {...drag?.listeners}
         type="button"
         data-testid={`board-card-body-${card.id}`}
-        onClick={() => ports.onEdit(card.id)}
+        onPointerDown={
+          touch
+            ? (event) => {
+                drag?.listeners?.onPointerDown?.(event);
+                if (event.pointerType === "mouse") return;
+                longPressed.current = false;
+                cancelPress();
+                pressTimer.current = setTimeout(() => {
+                  pressTimer.current = null;
+                  longPressed.current = true;
+                  setMenuOpen(true);
+                }, LONG_PRESS_MS);
+              }
+            : drag?.listeners?.onPointerDown
+        }
+        onPointerUp={touch ? cancelPress : undefined}
+        onPointerCancel={touch ? cancelPress : undefined}
+        onPointerLeave={touch ? cancelPress : undefined}
+        onContextMenu={touch ? (event) => event.preventDefault() : undefined}
+        onClick={() => {
+          if (longPressed.current) {
+            longPressed.current = false;
+            return;
+          }
+          ports.onEdit(card.id);
+        }}
         className={cn(
           "flex w-full cursor-pointer flex-col gap-2 rounded-md px-3 py-2.5 text-left transition-colors",
           "focus-visible:focus-outline",
@@ -91,7 +131,9 @@ export function BoardCard({
             "rotate-2 bg-sheet shadow-overlay ring-1 ring-primary",
         )}
       >
-        <span className="flex items-center gap-1.5 pr-6">
+        <span
+          className={cn("flex items-center gap-1.5", touch ? "pr-11" : "pr-6")}
+        >
           <span className="font-mono text-2xs font-semibold text-primary-text">
             {`#${card.id}`}
           </span>
@@ -146,7 +188,12 @@ export function BoardCard({
         cardId={card.id}
         stage={card.stage}
         ports={ports}
-        className="absolute top-1.5 right-1.5"
+        className={
+          touch ? "absolute top-0 right-0" : "absolute top-1.5 right-1.5"
+        }
+        touch={touch}
+        open={touch ? menuOpen : undefined}
+        onOpenChange={touch ? setMenuOpen : undefined}
       />
     </article>
   );

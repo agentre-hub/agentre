@@ -170,6 +170,7 @@
     "cardMenu": "任务操作",
     "edit": "编辑",
     "moveTo": "移动到",
+    "moveCardTo": "把 #{{id}} 移动到",
     "delete": "删除",
     "stages": {
       "todo": "待办",
