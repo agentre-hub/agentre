@@ -13,6 +13,7 @@
       "prompt": "Sent (prompt)",
       "reasoning": "Reasoning",
       "tokenDetails": "Token usage details",
+      "turnDetails": "This turn",
       "firstToken": "First token",
       "outputSpeed": "Output speed",
       "tokensPerSec": "{{value}} tok/s",

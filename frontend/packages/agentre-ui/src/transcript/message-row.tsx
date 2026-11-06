@@ -28,6 +28,11 @@ type MessageRowProps = Omit<React.ComponentProps<"article">, "children"> & {
   headerExtra?: React.ReactNode;
   /** 动作行 / token 行的挂载点(复制按钮)。 */
   footer?: React.ReactNode;
+  /**
+   * 对齐：`"end"` 把整行镜像到尾侧(头像在右、内容列贴右，宿主拿来右对齐用户消息)。
+   * 不传即 `"start"`，与原排版一致。
+   */
+  align?: "start" | "end";
   children: React.ReactNode;
 };
 
@@ -38,15 +43,26 @@ function MessageRow({
   name,
   headerExtra,
   footer,
+  align = "start",
   children,
   className,
   ...props
 }: MessageRowProps) {
   const showHeader = name != null || headerExtra != null;
+  const end = align === "end";
   return (
-    <article className={cn("flex gap-3 text-sm", className)} {...props}>
+    <article
+      data-align={end ? "end" : undefined}
+      className={cn("flex gap-3 text-sm", end && "flex-row-reverse", className)}
+      {...props}
+    >
       {avatar}
-      <div className="flex min-w-0 max-w-measure flex-1 flex-col gap-1">
+      <div
+        className={cn(
+          "flex min-w-0 max-w-measure flex-1 flex-col gap-1",
+          end && "items-end",
+        )}
+      >
         {showHeader ? (
           <div className="flex items-center gap-2">
             {name != null ? (
@@ -78,6 +94,8 @@ type MessageCopyButtonProps = {
   successTitle?: string;
   /** 复制失败 toast 标题，默认走 copyTextWithToast 内置的 common.copyFailed。 */
   errorTitle?: string;
+  /** 纯图标、44px 命中区(触屏)；可见文案不渲染，名字只靠 aria-label。 */
+  iconOnly?: boolean;
 };
 
 // MessageCopyButton：通用「复制消息正文」按钮。text 为空时不渲染。
@@ -87,6 +105,7 @@ function MessageCopyButton({
   ariaLabel,
   successTitle,
   errorTitle,
+  iconOnly = false,
 }: MessageCopyButtonProps) {
   const { t } = useUiTranslation();
   if (text.length === 0) return null;
@@ -101,13 +120,22 @@ function MessageCopyButton({
     <Button
       type="button"
       variant="ghost"
-      size="xs"
-      className="h-6 gap-1 px-1.5 text-meta text-muted-foreground"
+      size={iconOnly ? "icon" : "xs"}
+      className={
+        iconOnly
+          ? // 命中区 44px，负外边距让它不把所在那一行撑高。
+            "-my-3 size-11 text-muted-foreground"
+          : "h-6 gap-1 px-1.5 text-meta text-muted-foreground"
+      }
       aria-label={ariaLabel ?? visible}
       onClick={() => void handleCopy()}
     >
-      <Copy data-icon="inline-start" aria-hidden="true" />
-      {visible}
+      <Copy
+        data-icon={iconOnly ? undefined : "inline-start"}
+        className={iconOnly ? "size-3.5" : undefined}
+        aria-hidden="true"
+      />
+      {iconOnly ? null : visible}
     </Button>
   );
 }

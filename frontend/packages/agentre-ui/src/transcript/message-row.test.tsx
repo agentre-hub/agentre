@@ -55,6 +55,31 @@ describe("MessageRow", () => {
 
     expect(screen.getByText("页脚")).toBeInTheDocument();
   });
+
+  it("Given align end, When rendered, Then the row is mirrored to the end edge", () => {
+    const { container } = render(
+      <MessageRow avatar={<span aria-label="avatar" />} name={null} align="end">
+        正文
+      </MessageRow>,
+    );
+
+    const article = container.querySelector("article");
+    expect(article?.getAttribute("data-align")).toBe("end");
+    expect(article?.className).toContain("flex-row-reverse");
+    expect(article?.lastElementChild?.className).toContain("items-end");
+  });
+
+  it("Given no align, When rendered, Then the row keeps the start layout", () => {
+    const { container } = render(
+      <MessageRow avatar={<span aria-label="avatar" />} name={null}>
+        正文
+      </MessageRow>,
+    );
+
+    const article = container.querySelector("article");
+    expect(article?.hasAttribute("data-align")).toBe(false);
+    expect(article?.className).not.toContain("flex-row-reverse");
+  });
 });
 
 describe("MessageCopyButton", () => {
@@ -68,6 +93,14 @@ describe("MessageCopyButton", () => {
     // 默认标题走 useUiTranslation()，证明 common.copied 落在包的 namespace 上
     // 而不是宿主的 common（宿主删掉那条 key 后才暴露的那类失败）。
     expect(copySpy.mock.calls[0][1]).toMatchObject({ successTitle: "Copied" });
+  });
+
+  it("Given iconOnly, When rendered, Then it is a 44px icon button named by its aria-label", () => {
+    render(<MessageCopyButton text="hello" ariaLabel="复制输出" iconOnly />);
+
+    const button = screen.getByRole("button", { name: "复制输出" });
+    expect(button.textContent).toBe("");
+    expect(button.className).toContain("size-11");
   });
 
   it("Given empty text, When rendered, Then nothing is mounted", () => {

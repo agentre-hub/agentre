@@ -13,6 +13,7 @@
       "prompt": "发送 (prompt)",
       "reasoning": "思考",
       "tokenDetails": "token 用量明细",
+      "turnDetails": "这一轮",
       "firstToken": "首 token",
       "outputSpeed": "输出速度",
       "tokensPerSec": "{{value}} tok/s",
