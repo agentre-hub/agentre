@@ -40,11 +40,7 @@ import {
   ChatTabsShortcuts,
   TurnCompleteNotifier,
   NotificationToastViewport,
-  CommandPalette,
-  HooksPage,
-  IssuesPage,
   SessionIndexPage,
-  OrgChartPage,
   ExternalApprovalDialog,
   PaletteScopeBridge,
   QuitConfirmDialog,
@@ -57,7 +53,7 @@ import {
 import { formatChord } from "@/components/agentre/shortcuts/format";
 import { useOptionalShortcutsContext } from "@/components/agentre/shortcuts/shortcuts-provider";
 import { ThemeProvider, useTheme } from "@agentre-hub/agentre-ui";
-import { SettingsDialog } from "@/components/agentre/settings/page";
+import { lazyView } from "@/components/agentre/lazy-boundary";
 import { TabStrip } from "@/components/agentre/chat-tabs/tab-strip";
 import { desktopLocalCommandHistoryAccess } from "@/components/agentre/local-command-history-access-desktop";
 import { desktopLocalCommandsAccess } from "@/components/agentre/local-commands-access-desktop";
@@ -76,6 +72,7 @@ import {
   useUpdateWatch,
 } from "@/stores/update-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
@@ -119,6 +116,45 @@ function RailButton({
   const shortcut =
     shortcuts && chord ? formatChord(chord, shortcuts.platform) : undefined;
   return <SidebarButton {...props} shortcut={shortcut} />;
+}
+
+// 非聊天路由、设置对话框、命令面板不进启动包：第一次用到才拉 chunk。
+// 聊天视图（SessionIndexPage + ChatPanelHost）仍是同步的，首屏不受影响。
+const HooksPage = lazyView(() =>
+  import("@/components/agentre/hooks-page").then((m) => ({
+    default: m.HooksPage,
+  })),
+);
+const IssuesPage = lazyView(() =>
+  import("@/components/agentre/issues-page").then((m) => ({
+    default: m.IssuesPage,
+  })),
+);
+const OrgChartPage = lazyView(() =>
+  import("@/components/agentre/org-chart-page").then((m) => ({
+    default: m.OrgChartPage,
+  })),
+);
+const SettingsDialog = lazyView(
+  () =>
+    import("@/components/agentre/settings/page").then((m) => ({
+      default: m.SettingsDialog,
+    })),
+  { overlay: true },
+);
+const CommandPalette = lazyView(
+  () =>
+    import("@/components/agentre/command-palette/command-palette").then(
+      (m) => ({ default: m.CommandPalette }),
+    ),
+  { overlay: true },
+);
+
+/** 一旦为真就一直为真：用来「第一次打开才挂载」。 */
+function useEverTrue(value: boolean): boolean {
+  const [seen, setSeen] = useState(value);
+  if (value && !seen) setSeen(true);
+  return seen;
 }
 
 function AppLayout() {
@@ -188,6 +224,10 @@ function AppLayout() {
   // 设置是浮在当前页面上的对话框，不是路由：齿轮、⌘,、命令面板与各处深链都改 store。
   const settingsOpen = useSettingsDialogStore((s) => s.open);
   const openSettings = useSettingsDialogStore((s) => s.openSettings);
+  // 对话框第一次打开才挂载（拉 chunk），挂上之后保持挂载以保留关闭动画与回焦。
+  const settingsMounted = useEverTrue(settingsOpen);
+  const paletteOpen = useCommandPaletteStore((s) => s.open);
+  const paletteMounted = useEverTrue(paletteOpen);
   const openUpdateSettings = useCallback(() => {
     openSettings("version-logs");
   }, [openSettings]);
@@ -326,13 +366,15 @@ function AppLayout() {
                     onAttentionClick={(sessionId) => openSession(sessionId)}
                     onOpenUpdateSettings={openUpdateSettings}
                   />
-                  <SettingsDialog
-                    effectiveTheme={effectiveTheme}
-                    onThemePreferenceChange={setThemePreference}
-                    themePreference={themePreference}
-                  />
+                  {settingsMounted && (
+                    <SettingsDialog
+                      effectiveTheme={effectiveTheme}
+                      onThemePreferenceChange={setThemePreference}
+                      themePreference={themePreference}
+                    />
+                  )}
                   <PaletteScopeBridge />
-                  <CommandPalette />
+                  {paletteMounted && <CommandPalette />}
                   <Toaster
                     position="bottom-right"
                     richColors

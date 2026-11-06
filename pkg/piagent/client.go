@@ -55,6 +55,9 @@ type Client struct {
 	// rawSink 若非 nil,子进程 stdout JSON-RPC 帧会先投影成不含 prompt、图片、
 	// Session 内容或凭证的诊断摘要，再同步回调一次。debug 协议诊断用。
 	rawSink func([]byte)
+	// rawSinkEnabled / progressTool see rpcProcess for semantics.
+	rawSinkEnabled func() bool
+	progressTool   func(toolName string) bool
 }
 
 func New(opts ...Option) *Client {
@@ -506,6 +509,10 @@ func emitRawFrame(proc *rpcProcess, line []byte) {
 	if proc == nil || proc.rawSink == nil {
 		return
 	}
+	// 脱敏要完整 unmarshal+marshal;sink 只在调试日志开着时才有人看,关着就别白做。
+	if proc.rawSinkEnabled != nil && !proc.rawSinkEnabled() {
+		return
+	}
 	if diagnostic := sanitizeDiagnosticFrame(line); len(diagnostic) > 0 {
 		proc.rawSink(diagnostic)
 	}
@@ -634,15 +641,17 @@ func (c *Client) startRPC(ctx context.Context) (*rpcProcess, error) {
 	}
 	lines := newAsyncRPCLineScanner(h.Stdout())
 	p := &rpcProcess{
-		handle:     h,
-		stdin:      h.Stdin(),
-		writeCtx:   ctx,
-		lines:      lines,
-		linesDone:  lines.Done(),
-		rawSink:    c.rawSink,
-		stderr:     &lockedBuffer{},
-		stderrDone: make(chan struct{}),
-		done:       make(chan struct{}),
+		handle:         h,
+		stdin:          h.Stdin(),
+		writeCtx:       ctx,
+		lines:          lines,
+		linesDone:      lines.Done(),
+		rawSink:        c.rawSink,
+		rawSinkEnabled: c.rawSinkEnabled,
+		progressTool:   c.progressTool,
+		stderr:         &lockedBuffer{},
+		stderrDone:     make(chan struct{}),
+		done:           make(chan struct{}),
 	}
 	go func() {
 		defer close(p.stderrDone)
@@ -742,16 +751,20 @@ func (s *asyncRPCLineScanner) Stop() {
 func (s *asyncRPCLineScanner) Done() <-chan struct{} { return s.done }
 
 type rpcProcess struct {
-	handle     processHandle
-	stdin      io.Writer
-	writeCtx   context.Context
-	lines      rpcLineScanner
-	linesDone  <-chan struct{}
-	rawSink    func([]byte) // 非 nil时回调不含敏感 payload 的 stdout 诊断摘要
-	stderr     *lockedBuffer
-	stderrDone chan struct{}
-	done       chan struct{} // closed when waitErr is available to every observer
-	waitErr    error         // immutable after done is closed
+	handle    processHandle
+	stdin     io.Writer
+	writeCtx  context.Context
+	lines     rpcLineScanner
+	linesDone <-chan struct{}
+	rawSink   func([]byte) // 非 nil时回调不含敏感 payload 的 stdout 诊断摘要
+	// rawSinkEnabled 非 nil 时先问它:返回 false 就连脱敏都不做(调试日志关闭时零开销)。
+	rawSinkEnabled func() bool
+	// progressTool 非 nil 时只有它认可的工具才解码 tool_execution_update 的 partialResult。
+	progressTool func(toolName string) bool
+	stderr       *lockedBuffer
+	stderrDone   chan struct{}
+	done         chan struct{} // closed when waitErr is available to every observer
+	waitErr      error         // immutable after done is closed
 
 	writerOnce     sync.Once
 	writerStopOnce sync.Once

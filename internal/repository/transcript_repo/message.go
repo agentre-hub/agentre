@@ -55,6 +55,14 @@ type MessageRepo interface {
 	// 走 (session_id, seq) 索引的 keyset 分页:只读末尾这一段,不再把整条会话的元数据
 	// 读回内存再切片 —— 长会话（几千条消息）打开一次向上滚动不再是 O(会话长度)。
 	ListMetaBefore(ctx context.Context, sessionID int64, beforeSeq, limit int) ([]*transcript_entity.Message, error)
+	// ListMetaSince 只取版本(updatetime)大于 sinceVersion 的消息元数据,按 seq 升序。
+	// 增量读的取数:前端带上手上最大的版本,只拿那之后新增或被改写过的消息。版本由
+	// 每一次写入在写锁内签发(见 nextVersion),旧消息的块被后来改写同样推进它的版本。
+	ListMetaSince(ctx context.Context, sessionID, sinceVersion int64) ([]*transcript_entity.Message, error)
+	// ListVersions 只取本会话每条消息的 (id, 版本),按 seq 升序,不读其余元数据、不碰块表。
+	// 增量读据它告诉前端「现在有哪些消息」(删除 / 截断由此可见),写过路径的缓存据它判断
+	// 哪几条消息需要重读。
+	ListVersions(ctx context.Context, sessionID int64) ([]MessageVersion, error)
 	// FillBlocks 给点名的这几条消息补上全部正文(一次 IN 查询)。就地改写传入的实体。
 	FillBlocks(ctx context.Context, msgs []*transcript_entity.Message) error
 	// FillBlocksByType 只补指定类型的块。派生视图(后台任务面板 / 大纲 / 变更)按类型
@@ -80,6 +88,14 @@ type MessageRepo interface {
 	// 用在一轮一次的收尾;CheckpointBlocks 用在轮内每个 ToolResult 之后的高频
 	// checkpoint —— 整表替换在那里是 O(N²),理由见 syncBlocks 的注释。
 	CheckpointBlocks(ctx context.Context, m *transcript_entity.Message, prevBlocksJSON string) error
+	// UpsertBlocks 把消息推进到 m 的当前状态,正文只写调用方交来的块行。
+	//
+	// 与 CheckpointBlocks 的区别是谁来算差分:CheckpointBlocks 拿两份整条正文自己解开比较
+	// (每次 O(消息大小)),UpsertBlocks 信任调用方 —— 轮内累加器记着哪些块是新增 / 被改动
+	// 的,只把这几块编成行交来(transcript_entity.BlockRow),于是一次 checkpoint 的代价与
+	// 消息长度无关。rows 按 (message_id, idx) upsert;truncateFrom >= 0 时先删掉
+	// idx >= truncateFrom 的残块,-1 表示不截断。元数据整行 Save(更新 updatetime)。
+	UpsertBlocks(ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) error
 	// UpdateUsage 只写 token 计数那几列。
 	//
 	// 不要退回 Update:整行 Save 会把调用方手上那份实体的正文一起重写(整批块行删了重插),
@@ -146,6 +162,12 @@ type MessageRepo interface {
 	ListOpenAgrctlCards(ctx context.Context) ([]OpenAgrctlCard, error)
 }
 
+// MessageVersion 是一条消息的 id 与它当前的版本(chat_messages.updatetime)。
+type MessageVersion struct {
+	ID      int64 `gorm:"column:id"`
+	Version int64 `gorm:"column:updatetime"`
+}
+
 // OpenAgrctlCard 是一张未收尾 agrctl 卡的定位键,可直接交给 PatchSubagentState。
 type OpenAgrctlCard struct {
 	SessionID  int64
@@ -177,6 +199,30 @@ func (r *messageRepo) ListMeta(ctx context.Context, sessionID int64) ([]*transcr
 		Where("session_id = ?", sessionID).
 		Order("seq ASC").
 		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *messageRepo) ListMetaSince(ctx context.Context, sessionID, sinceVersion int64) ([]*transcript_entity.Message, error) {
+	var rows []*transcript_entity.Message
+	if err := db.Ctx(ctx).
+		Where("session_id = ? AND updatetime > ?", sessionID, sinceVersion).
+		Order("seq ASC").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *messageRepo) ListVersions(ctx context.Context, sessionID int64) ([]MessageVersion, error) {
+	var rows []MessageVersion
+	if err := db.Ctx(ctx).
+		Model(&transcript_entity.Message{}).
+		Select("id, updatetime").
+		Where("session_id = ?", sessionID).
+		Order("seq ASC").
+		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -267,7 +313,7 @@ func insertMessage(txCtx context.Context, m *transcript_entity.Message, now int6
 	if m.Createtime == 0 {
 		m.Createtime = now
 	}
-	m.Updatetime = now
+	m.Updatetime = nextVersion()
 	if err := db.Ctx(txCtx).Create(m).Error; err != nil {
 		return err
 	}
@@ -295,9 +341,9 @@ func (r *messageRepo) LatestBeforeSeq(ctx context.Context, sessionID int64, role
 
 // CheckpointBlocks 见接口注释:元数据整行 Save,正文只写差分。
 func (r *messageRepo) CheckpointBlocks(ctx context.Context, m *transcript_entity.Message, prevBlocksJSON string) error {
-	m.Updatetime = time.Now().UnixMilli()
 	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		txCtx := db.WithContextDB(ctx, tx)
+		m.Updatetime = nextVersion()
 		if err := tx.Save(m).Error; err != nil {
 			return err
 		}
@@ -305,10 +351,22 @@ func (r *messageRepo) CheckpointBlocks(ctx context.Context, m *transcript_entity
 	})
 }
 
-func (r *messageRepo) Update(ctx context.Context, m *transcript_entity.Message) error {
-	m.Updatetime = time.Now().UnixMilli()
+// UpsertBlocks 见接口注释。
+func (r *messageRepo) UpsertBlocks(ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) error {
 	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		txCtx := db.WithContextDB(ctx, tx)
+		m.Updatetime = nextVersion()
+		if err := tx.Save(m).Error; err != nil {
+			return err
+		}
+		return writeBlockRows(txCtx, m.ID, rows, truncateFrom)
+	})
+}
+
+func (r *messageRepo) Update(ctx context.Context, m *transcript_entity.Message) error {
+	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
+		txCtx := db.WithContextDB(ctx, tx)
+		m.Updatetime = nextVersion()
 		if err := tx.Save(m).Error; err != nil {
 			return err
 		}
@@ -328,26 +386,28 @@ type MessageUsage struct {
 }
 
 func (r *messageRepo) UpdateUsage(ctx context.Context, id int64, u MessageUsage) error {
-	return db.Ctx(ctx).Model(&transcript_entity.Message{}).
-		Where("id = ?", id).
-		Updates(map[string]any{
-			"prompt_tokens":         u.PromptTokens,
-			"completion_tokens":     u.CompletionTokens,
-			"cached_tokens":         u.CachedTokens,
-			"cache_creation_tokens": u.CacheCreationTokens,
-			"reasoning_tokens":      u.ReasoningTokens,
-			"total_input_tokens":    u.TotalInputTokens,
-			"updatetime":            time.Now().UnixMilli(),
-		}).Error
+	return updateMessageColumns(ctx, id, map[string]any{
+		"prompt_tokens":         u.PromptTokens,
+		"completion_tokens":     u.CompletionTokens,
+		"cached_tokens":         u.CachedTokens,
+		"cache_creation_tokens": u.CacheCreationTokens,
+		"reasoning_tokens":      u.ReasoningTokens,
+		"total_input_tokens":    u.TotalInputTokens,
+	})
 }
 
 func (r *messageRepo) UpdateErrorText(ctx context.Context, id int64, text string) error {
-	return db.Ctx(ctx).Model(&transcript_entity.Message{}).
-		Where("id = ?", id).
-		Updates(map[string]any{
-			"error_text": text,
-			"updatetime": time.Now().UnixMilli(),
-		}).Error
+	return updateMessageColumns(ctx, id, map[string]any{"error_text": text})
+}
+
+// updateMessageColumns 只写一条消息的这几列,并在同一个写事务里推进它的版本。
+// 版本在事务内签发(见 nextVersion):gorm 自带的单语句事务里,map 的值在 BEGIN 之前
+// 就算好了,版本会早于写锁签出。
+func updateMessageColumns(ctx context.Context, id int64, cols map[string]any) error {
+	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
+		cols["updatetime"] = nextVersion()
+		return tx.Model(&transcript_entity.Message{}).Where("id = ?", id).Updates(cols).Error
+	})
 }
 
 func (r *messageRepo) Find(ctx context.Context, id int64) (*transcript_entity.Message, error) {
@@ -448,7 +508,21 @@ func rewriteBlockRow(
 	if !changed {
 		return nil
 	}
-	return updateBlockData(ctx, row, rewritten)
+	return rewriteBlockData(ctx, row, rewritten)
+}
+
+// rewriteBlockData 改写一个已落库的块行,并在同一个写事务里推进宿主消息的版本。
+//
+// 走这里的都是「轮次早已收尾之后才改写旧消息」的路(后台任务翻转 / 进度 / 恢复 /
+// agrctl 卡):不推版本,增量读按游标取数时就看不见这次改写。
+func rewriteBlockData(ctx context.Context, row *transcript_entity.MessageBlock, data []byte) error {
+	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
+		txCtx := db.WithContextDB(ctx, tx)
+		if err := updateBlockData(txCtx, row, data); err != nil {
+			return err
+		}
+		return touchMessage(txCtx, row.MessageID)
+	})
 }
 
 func (r *messageRepo) FlipSubagentStatus(
@@ -545,7 +619,7 @@ func (r *messageRepo) ResumeSubagentByTaskID(
 		logger.Ctx(ctx).Info("chat_repo.ResumeSubagentByTaskID: reopening earlier subagent card",
 			zap.Int64("sessionId", sessionID), zap.String("taskId", taskID),
 			zap.String("toolUseId", row.ToolCallID))
-		if err := updateBlockData(ctx, row, rewritten); err != nil {
+		if err := rewriteBlockData(ctx, row, rewritten); err != nil {
 			return "", err
 		}
 		return row.ToolCallID, nil
@@ -777,7 +851,10 @@ func (r *messageRepo) AppendSubagentChildren(ctx context.Context, sessionID int6
 				return err
 			}
 		}
-		return appendBlocks(txCtx, row.MessageID, childBlocksJSON)
+		if err := appendBlocks(txCtx, row.MessageID, childBlocksJSON); err != nil {
+			return err
+		}
+		return touchMessage(txCtx, row.MessageID)
 	})
 }
 

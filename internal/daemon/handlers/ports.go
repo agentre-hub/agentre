@@ -86,12 +86,20 @@ type NotifierPort interface {
 //     而不是补齐读侧:一条持续在线的对端靠它推进游标,重连补齐才只补它真缺的那一段。
 type TranscriptPort interface {
 	StartTurn(ctx context.Context, conversationID, userText string, userBlocks []blocks.ContentBlock, source transcript.UserSource) (user, assistant *transcript_entity.Message, err error)
+	// Checkpoint 把 m 推进到它的当前正文,差分由实现拿 prevBlocksJSON 自己算(只写变化的块行)。
+	// 轮外改写一张已收口消息里的卡(finishedCards)走这里:那时手上没有累加器。
 	Checkpoint(ctx context.Context, m *transcript_entity.Message, prevBlocksJSON string) error
+	// UpsertBlocks 把 m 的元数据整行写库,块行只写 rows —— 轮内累加器交出的新增 / 被改动块
+	// (turn.Checkpoint),truncateFrom >= 0 时先删 idx >= truncateFrom 的残块。轮内 checkpoint
+	// 每个 ToolResult 一次,代价因此与消息已有多少块无关。
+	UpsertBlocks(ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) error
 	// SegmentTurn 把 current(正文已由调用方定稿)落库,再在它后面依次建每条插话的
 	// 用户消息行与一条空的新 assistant 行,一并交回。一次事务:半截分段会让转录里
-	// 出现一条没有下文的用户消息。steers 为空时是 no-op。
-	SegmentTurn(ctx context.Context, current *transcript_entity.Message, steers []agentruntime.ConsumedSteer) (users []*transcript_entity.Message, next *transcript_entity.Message, err error)
-	FinishTurn(ctx context.Context, m *transcript_entity.Message) error
+	// 出现一条没有下文的用户消息。steers 为空时是 no-op。current 的块行只写 rows /
+	// truncateFrom(与 UpsertBlocks 同义,收尾那一发的增量写集合),不整条删了重插。
+	SegmentTurn(ctx context.Context, current *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int, steers []agentruntime.ConsumedSteer) (users []*transcript_entity.Message, next *transcript_entity.Message, err error)
+	// FinishTurn 收口 m:元数据整行写库,块行只写 rows / truncateFrom(与 UpsertBlocks 同义)。
+	FinishTurn(ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) error
 	// AllocateFrameSeqs 依次给这些帧位置取下一个号并落库,返回与 keys 一一对应的编号。
 	// 取号失败即没有分配,调用方据此**不发布**这一帧 —— 否则对端会持有一个宿主认不
 	// 回来的号。

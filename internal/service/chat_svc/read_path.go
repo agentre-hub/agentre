@@ -128,7 +128,7 @@ func (s *chatSvc) LoadSessionBlocksByType(ctx context.Context, req *LoadSessionB
 	if req == nil || req.SessionID <= 0 || len(req.Types) == 0 {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
-	msgs, err := transcript_repo.Message().ListMeta(ctx, req.SessionID)
+	msgs, version, ids, err := blocksByTypeMessages(ctx, req.SessionID, req.SinceVersion)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
@@ -139,7 +139,11 @@ func (s *chatSvc) LoadSessionBlocksByType(ctx context.Context, req *LoadSessionB
 	for _, t := range req.Types {
 		wanted[t] = struct{}{}
 	}
-	resp := &LoadSessionBlocksByTypeResponse{Messages: make([]ChatMessage, 0, len(msgs))}
+	resp := &LoadSessionBlocksByTypeResponse{
+		Messages:   make([]ChatMessage, 0, len(msgs)),
+		Version:    version,
+		MessageIDs: ids,
+	}
 	for _, m := range msgs {
 		cm, err := toChatMessage(m)
 		if err != nil {
@@ -163,6 +167,75 @@ func (s *chatSvc) LoadSessionBlocksByType(ctx context.Context, req *LoadSessionB
 	logger.Ctx(ctx).Debug("chat_svc: LoadSessionBlocksByType served",
 		zap.Int64("sessionId", req.SessionID),
 		zap.Strings("blockTypes", req.Types),
+		zap.Int64("sinceVersion", req.SinceVersion),
 		zap.Int("messageCount", len(resp.Messages)))
 	return resp, nil
+}
+
+// blocksByTypeMessages 取派生视图要补块的那批消息元数据,连同本会话当前的游标与 id 列表。
+//
+// 全量(sinceVersion<=0)时一次 ListMeta 全都有。增量时版本筛选交给 SQL(ListMetaSince),
+// 游标与 id 列表另由 ListVersions 取,而且**先**取:两次查询之间落库的消息版本必然大于
+// 这次交出去的游标,下一次增量读照样拿得到;它此刻不在 id 列表里,本次就不交回,免得
+// 交出一条「id 列表里没有」的消息。
+func blocksByTypeMessages(
+	ctx context.Context, sessionID, sinceVersion int64,
+) ([]*chat_entity.Message, int64, []int64, error) {
+	repo := transcript_repo.Message()
+	if sinceVersion <= 0 {
+		msgs, err := repo.ListMeta(ctx, sessionID)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		version, ids := transcriptCursor(msgs)
+		return msgs, version, ids, nil
+	}
+	versions, err := repo.ListVersions(ctx, sessionID)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	changed, err := repo.ListMetaSince(ctx, sessionID, sinceVersion)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	version := sinceVersion
+	ids := make([]int64, 0, len(versions))
+	present := make(map[int64]struct{}, len(versions))
+	for _, v := range versions {
+		ids = append(ids, v.ID)
+		present[v.ID] = struct{}{}
+		version = max(version, v.Version)
+	}
+	kept := changed[:0]
+	for _, m := range changed {
+		if _, ok := present[m.ID]; ok {
+			kept = append(kept, m)
+		}
+	}
+	return kept, version, ids, nil
+}
+
+// changedSince 挑出版本大于 sinceVersion 的消息;sinceVersion<=0 时原样交回(全量读)。
+func changedSince(msgs []*chat_entity.Message, sinceVersion int64) []*chat_entity.Message {
+	if sinceVersion <= 0 {
+		return msgs
+	}
+	out := make([]*chat_entity.Message, 0, 4)
+	for _, m := range msgs {
+		if m.Updatetime > sinceVersion {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// transcriptCursor 给出一批(整条会话的)消息元数据对应的游标:最大版本 + 全部 id(按 seq)。
+func transcriptCursor(msgs []*chat_entity.Message) (int64, []int64) {
+	var version int64
+	ids := make([]int64, 0, len(msgs))
+	for _, m := range msgs {
+		ids = append(ids, m.ID)
+		version = max(version, m.Updatetime)
+	}
+	return version, ids
 }

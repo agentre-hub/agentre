@@ -63,7 +63,7 @@ const DESKTOP_DROP_ZONE: ChatComposerDropZone = {
 //   - <1h → "Nm"(向上取整,避免 30s 显示 0m)
 //   - <24h → "Nh"(向下取整)
 //   - >=24h → "XdYh"(Yh=0 时省略,写 "Xd")
-export const ChatComposer = React.forwardRef<
+const DesktopChatComposer = React.forwardRef<
   ChatComposerHandle,
   DesktopChatComposerProps
 >(function ChatComposer({ agentId = 0, cwd = "", onSlashRpc, ...rest }, ref) {
@@ -83,6 +83,15 @@ export const ChatComposer = React.forwardRef<
     extraCommands: desktopSlashCommands,
   });
 
+  // 经 props 一路透到 memo 的 AIChatInput,身份必须稳定。
+  const handleSlashSelect = React.useCallback(
+    (cmd: SlashCommand, exec: SlashExec) => {
+      // literal_text 由包内部直接填回编辑器(不自动发送),这里只接 rpc 类。
+      if (exec.kind === "rpc") onSlashRpc?.(cmd, exec);
+    },
+    [onSlashRpc],
+  );
+
   return (
     <SharedChatComposer
       {...rest}
@@ -90,10 +99,12 @@ export const ChatComposer = React.forwardRef<
       dropZone={DESKTOP_DROP_ZONE}
       mentionSources={mentionSources}
       slashCommands={slashCommands}
-      onSlashSelect={(cmd, exec) => {
-        // literal_text 由包内部直接填回编辑器(不自动发送),这里只接 rpc 类。
-        if (exec.kind === "rpc") onSlashRpc?.(cmd, exec);
-      }}
+      onSlashSelect={handleSlashSelect}
     />
   );
 });
+
+// memo：ChatPanel 在 agent 输出期间随每个文字 delta 重渲染，而 composer 的输入
+// 一个都没变 —— 在这里挡住，编辑器连同底栏都不跟着流式更新重渲染。前提是宿主
+// 递进来的 props 身份稳定（见 chat-panel.tsx 的 composer 那一段）。
+export const ChatComposer = React.memo(DesktopChatComposer);

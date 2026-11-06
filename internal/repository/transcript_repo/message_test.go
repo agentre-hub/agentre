@@ -319,11 +319,14 @@ func TestMessageRepo_FlipSubagentStatus_FlipsMatchingBlock(t *testing.T) {
 	expectSubagentBlockLookup(mock, 3, "tu1", subagentBlockRows(42, "tu1",
 		`{"parent_tool_call_id":"tu1","kind":"local_bash","description":"sleep 20","status":"running"}`))
 	// 命中后只重写那一个块行,不再读出并重写宿主消息的全部块。
+	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE `chat_message_blocks` SET `codec`=\\?,`data`=\\? WHERE message_id = \\? AND idx = \\?").
 		WithArgs(transcript_entity.BlockCodecRaw, blockDataContains{substrings: []string{
 			`"status":"completed"`, `"summary":"Background command completed"`, `"description":"sleep 20"`,
 		}}, int64(42), 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectVersionBump(mock, 42)
+	mock.ExpectCommit()
 
 	got, err := transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "tu1", "", "completed", "Background command completed")
 	assert.NoError(t, err)
@@ -357,11 +360,14 @@ func TestMessageRepo_FlipSubagentStatus_FallsBackToTaskID(t *testing.T) {
 		AddRow(int64(40), 5, "subagent_state", "tu-A", transcript_entity.BlockCodecRaw,
 			[]byte(`{"parent_tool_call_id":"tu-A","task_id":"T","status":"running"}`))
 	expectSubagentBlocksByType(mock, 3, rows)
+	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE `chat_message_blocks` SET `codec`=\\?,`data`=\\? WHERE message_id = \\? AND idx = \\?").
 		WithArgs(transcript_entity.BlockCodecRaw, blockDataContains{substrings: []string{
 			`"parent_tool_call_id":"tu-A"`, `"status":"completed"`, `"summary":"报告"`,
 		}}, int64(40), 5).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectVersionBump(mock, 40)
+	mock.ExpectCommit()
 
 	got, err := transcript_repo.NewMessage().FlipSubagentStatus(ctx, 3, "tu-B", "T", "completed", "报告")
 	assert.NoError(t, err)
@@ -414,6 +420,8 @@ func TestMessageRepo_AppendSubagentChildren_AppendsBlocks(t *testing.T) {
 	mock.ExpectExec("INSERT INTO `chat_message_blocks`").
 		WithArgs(int64(42), 2, "tool_use", "sub_bash", transcript_entity.BlockCodecRaw, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	// 子块追加改的是宿主消息的正文:同一事务里推进它的版本,增量读才看得见这次追加。
+	expectVersionBump(mock, 42)
 	mock.ExpectCommit()
 
 	err := transcript_repo.NewMessage().AppendSubagentChildren(ctx, 3, "toolu_agent", childBlocksJSON, []string{"sub_bash"})
@@ -775,11 +783,14 @@ func TestMessageRepo_PatchSubagentProgress_UpdatesMatchingBlock(t *testing.T) {
 
 	expectSubagentBlockLookup(mock, 3, "tu1", subagentBlockRows(42, "tu1",
 		`{"parent_tool_call_id":"tu1","kind":"local_agent","status":"running","tool_uses":9}`))
+	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE `chat_message_blocks` SET `codec`=\\?,`data`=\\? WHERE message_id = \\? AND idx = \\?").
 		WithArgs(transcript_entity.BlockCodecRaw, blockDataContains{substrings: []string{
 			`"tool_uses":21`, `"total_tokens":132480`,
 		}}, int64(42), 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectVersionBump(mock, 42)
+	mock.ExpectCommit()
 
 	err := transcript_repo.NewMessage().PatchSubagentProgress(ctx, 3, "tu1", transcript_repo.SubagentProgress{ToolUses: 21, TotalTokens: 132480})
 	assert.NoError(t, err)
@@ -957,6 +968,7 @@ func TestMessageRepo_ResumeSubagentByTaskID_ReopensTheEarlierCard(t *testing.T) 
 		AddRow(int64(42), 5, "subagent_state", "tu-A", transcript_entity.BlockCodecRaw,
 			[]byte(`{"parent_tool_call_id":"tu-A","task_id":"T","status":"failed","summary":"API error","tool_uses":61}`))
 	expectSubagentBlocksByType(mock, 3, rows)
+	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE `chat_message_blocks` SET `codec`=\\?,`data`=\\? WHERE message_id = \\? AND idx = \\?").
 		WithArgs(transcript_entity.BlockCodecRaw, blockDataContains{substrings: []string{
 			`"status":"running"`,
@@ -964,6 +976,8 @@ func TestMessageRepo_ResumeSubagentByTaskID_ReopensTheEarlierCard(t *testing.T) 
 			`"tool_uses":61`,
 		}}, int64(42), 5).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectVersionBump(mock, 42)
+	mock.ExpectCommit()
 
 	got, err := transcript_repo.NewMessage().ResumeSubagentByTaskID(ctx, 3, "T", "running")
 	assert.NoError(t, err)
@@ -1034,11 +1048,14 @@ func TestMessageRepo_PatchSubagentState_RewritesTheCardUnderMutate(t *testing.T)
 	t.Run("命中 → mutate 看到落库的块,改过的整块写回", func(t *testing.T) {
 		ctx, _, mock := testutils.Database(t)
 		expectSubagentBlockLookup(mock, 3, "sh-1", subagentBlockRows(42, "sh-1", card))
+		mock.ExpectBegin()
 		mock.ExpectExec("UPDATE `chat_message_blocks` SET `codec`=\\?,`data`=\\? WHERE message_id = \\? AND idx = \\?").
 			WithArgs(transcript_entity.BlockCodecRaw, blockDataContains{substrings: []string{
 				`"status":"completed"`, `"final_text":"LGTM"`, `"task_id":"keep"`, `"origin":"agrctl"`,
 			}}, int64(42), 0).
 			WillReturnResult(sqlmock.NewResult(0, 1))
+		expectVersionBump(mock, 42)
+		mock.ExpectCommit()
 
 		var seen blocks.SubagentStateBlock
 		found, err := transcript_repo.NewMessage().PatchSubagentState(ctx, 3, "sh-1", func(sb *blocks.SubagentStateBlock) bool {

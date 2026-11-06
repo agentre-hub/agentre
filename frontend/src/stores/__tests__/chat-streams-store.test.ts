@@ -139,6 +139,53 @@ describe("chat-streams-store", () => {
       unsub();
     });
 
+    it("Given 没有重试提示, When 按 host 调用序(clearLiveRetry→append)在同窗内重复, Then 通知不超过 leading+trailing 两次", () => {
+      vi.useFakeTimers();
+      const actions = useChatStreamsStore.getState();
+      armThrottle(actions);
+      actions.openStream(baseStream(7));
+      const listener = vi.fn();
+      const unsub = useChatStreamsStore.subscribe(listener);
+
+      for (let i = 0; i < 4; i++) {
+        actions.clearLiveRetry(7, 1);
+        actions.appendLiveText(7, 1, `x${i}`);
+      }
+      vi.advanceTimersByTime(90);
+      expect(listener.mock.calls.length).toBeLessThanOrEqual(2);
+      expect(live(7)!.liveDelta).toBe("x0x1x2x3");
+      unsub();
+    });
+
+    it("Given 正显示重试提示, When clearLiveRetry, Then 清掉提示且 text→tool→text 顺序不乱", () => {
+      vi.useFakeTimers();
+      const actions = useChatStreamsStore.getState();
+      armThrottle(actions);
+      actions.openStream(baseStream(7));
+      actions.appendLiveText(7, 1, "a"); // leading
+      actions.appendLiveText(7, 1, "b"); // 缓冲
+      actions.setLiveRetry(7, 1, {
+        attempt: 1,
+        maxRetries: 3,
+        errorStatus: 529,
+        error: "overloaded",
+        retryDelayMs: 100,
+      } as never);
+      actions.clearLiveRetry(7, 1);
+      expect(live(7)!.liveRetry).toBeNull();
+      actions.appendLiveToolUse(7, 1, {
+        type: "tool_use",
+        toolUseId: "t1",
+        name: "Bash",
+        input: {},
+      } as never);
+      actions.appendLiveText(7, 1, "c");
+      vi.advanceTimersByTime(90);
+      const s = live(7)!;
+      expect(s.liveBlocks.map((b) => b.type)).toEqual(["text", "tool_use"]);
+      expect(s.liveDelta).toBe("c");
+    });
+
     it("Given 缓冲中的 text, When 同窗内来了 tool_use, Then 先 flush 再冻块,顺序不乱", () => {
       vi.useFakeTimers();
       const actions = useChatStreamsStore.getState();

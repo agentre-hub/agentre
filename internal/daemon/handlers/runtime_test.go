@@ -3657,6 +3657,13 @@ func TestRuntime_FanoutLogsEventClassificationWithoutSerializedPayload(t *testin
 	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(66)})
 	require.NoError(t, err)
 	_ = notif.waitFrames(t, 2)
+	// 「event delivered」那一行在 emit 返回**之后**才写:等帧不等于等日志,满载时断言会
+	// 跑在它前面。等这一轮 fanout 的最后一行(本会话的 session ended)—— 同一个协程里
+	// 它排在所有逐事件日志之后,等到它,这一轮要写的日志就都写完了。
+	require.Eventually(t, func() bool {
+		return logs.logs.FilterMessage("handlers.RuntimeHandlers.fanout: session ended").
+			FilterField(zap.String("conversationId", convID(66))).Len() > 0
+	}, 5*time.Second, time.Millisecond)
 
 	assert.Contains(t, logs.String(), "eventKind:ErrorEvent")
 	assert.NotContains(t, logs.String(), secret)
@@ -4277,7 +4284,8 @@ func TestRuntime_Run_GivenTranscriptStarted_ThenAckCarriesUserMessageHighestFram
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(1)).
 		Return([]int64{7}, nil).Times(1)
 	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("assistant frames not under test")).AnyTimes()
 
@@ -4331,7 +4339,8 @@ func TestRuntime_Run_GivenUserMessageSpansSeveralFrames_ThenAckCarriesBothEndsOf
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(2)).
 		Return([]int64{7, 8}, nil).Times(1)
 	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("assistant frames not under test")).AnyTimes()
 
@@ -4390,7 +4399,8 @@ func TestRuntime_Run_GivenPeerSubmittedTurn_ThenTheUserMessageGoesOutExactlyOnce
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(1)).
 		Return([]int64{7}, nil).Times(1)
 	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("assistant frames not under test")).AnyTimes()
 
@@ -4467,14 +4477,15 @@ func TestRuntime_Run_GivenSegmentTurnFails_ThenTheSteerIsRetriedNotDropped(t *te
 	tp.EXPECT().StartTurn(gomock.Any(), gomock.Any(), "hello", gomock.Any(), gomock.Any()).
 		Return(user, assistant, nil).Times(1)
 	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	// 收口是本用例唯一确定属于**自己**这一轮的信号:等日志里那句 "session ended" 会
 	// 撞上前面用例泄漏出来的 fanout 协程(全局 logger 是共用的),一撞就在插话还没进
 	// SegmentTurn 时提前收工,断言于是随机判红。FinishTurn 在 flushPendingSteers 之后
 	// 才调,等到它就等到了两次尝试都已发生。
 	finished := make(chan struct{})
 	var finishOnce sync.Once
-	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(context.Context, *transcript_entity.Message) error {
+	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(context.Context, *transcript_entity.Message, []*transcript_entity.MessageBlock, int) error {
 			finishOnce.Do(func() { close(finished) })
 			return nil
 		}).AnyTimes()
@@ -4485,8 +4496,8 @@ func TestRuntime_Run_GivenSegmentTurnFails_ThenTheSteerIsRetriedNotDropped(t *te
 		segmentMu    sync.Mutex
 		segmentTexts []string
 	)
-	tp.EXPECT().SegmentTurn(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ *transcript_entity.Message, steers []agentruntime.ConsumedSteer) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
+	tp.EXPECT().SegmentTurn(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ *transcript_entity.Message, _ []*transcript_entity.MessageBlock, _ int, steers []agentruntime.ConsumedSteer) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
 			segmentMu.Lock()
 			defer segmentMu.Unlock()
 			for _, s := range steers {

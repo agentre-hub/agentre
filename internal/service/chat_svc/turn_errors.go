@@ -187,6 +187,13 @@ func chatRuntimeErrorLogFields(err error) []zap.Field {
 	return fields
 }
 
+// persistUnstreamedAssistant 落一条还没开始流式的 assistant 的终态(failTurn /
+// abortTurnBeforeStream):这一轮在 runner 吐出任何事件之前就结束了,正文仍是建行时落下的
+// 那份,要写的只有元数据(error_text 等)。只写元数据行,不交块行 —— 不再整条删了重插。
+func persistUnstreamedAssistant(ctx context.Context, msg *chat_entity.Message) error {
+	return transcript_repo.Message().UpsertBlocks(ctx, msg, nil, -1)
+}
+
 func (s *chatSvc) failTurn(ctx context.Context, sess *chat_entity.Session, msg *chat_entity.Message, stream string, err error) {
 	// 一次落地点收所有 turn 级别错误(selectRunner / resolveSessionCwd / runner.Run /
 	// stream loop streamStopErr 等),给运维保留安全分类与定位 ID；完整错误仅继续走
@@ -205,9 +212,9 @@ func (s *chatSvc) failTurn(ctx context.Context, sess *chat_entity.Session, msg *
 	// agent_status 永远停在 running、error_text 也写不进去(前端既不报错也停不掉)。
 	finalCtx := context.WithoutCancel(ctx)
 	msg.ErrorText = err.Error()
-	if uerr := transcript_repo.Message().Update(finalCtx, msg); uerr != nil {
+	if uerr := persistUnstreamedAssistant(finalCtx, msg); uerr != nil {
 		logger.Ctx(finalCtx).Error("chat_svc.failTurn: persist error text failed",
-			zap.Int64("messageId", msg.ID), zap.Error(uerr))
+			zap.Int64("sessionId", sess.ID), zap.Int64("assistantMsgId", msg.ID), zap.Error(uerr))
 	}
 	sess.AgentStatus = "error"
 	sess.NeedsAttention = false
@@ -278,9 +285,9 @@ func (s *chatSvc) abortTurnBeforeStream(ctx context.Context, sess *chat_entity.S
 		zap.Int64("sessionId", sess.ID),
 		zap.Int64("assistantMsgId", msg.ID),
 		zap.String("stream", stream))
-	if uerr := transcript_repo.Message().Update(finalCtx, msg); uerr != nil {
+	if uerr := persistUnstreamedAssistant(finalCtx, msg); uerr != nil {
 		logger.Ctx(finalCtx).Error("chat_svc.abortTurnBeforeStream: persist message failed",
-			zap.Int64("messageId", msg.ID), zap.Error(uerr))
+			zap.Int64("sessionId", sess.ID), zap.Int64("assistantMsgId", msg.ID), zap.Error(uerr))
 	}
 	sess.AgentStatus = "idle"
 	sess.NeedsAttention = false

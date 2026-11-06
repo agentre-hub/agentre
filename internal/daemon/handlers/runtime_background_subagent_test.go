@@ -68,13 +68,24 @@ func (c *cardTranscript) Checkpoint(_ context.Context, msg *transcript_entity.Me
 	return nil
 }
 
+func (c *cardTranscript) UpsertBlocks(
+	_ context.Context, msg *transcript_entity.Message, _ []*transcript_entity.MessageBlock, _ int,
+) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.bodies[msg.ID] = msg.BlocksJSON
+	return nil
+}
+
 func (c *cardTranscript) SegmentTurn(
-	context.Context, *transcript_entity.Message, []agentruntime.ConsumedSteer,
+	context.Context, *transcript_entity.Message, []*transcript_entity.MessageBlock, int, []agentruntime.ConsumedSteer,
 ) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
 	return nil, nil, nil
 }
 
-func (c *cardTranscript) FinishTurn(_ context.Context, msg *transcript_entity.Message) error {
+func (c *cardTranscript) FinishTurn(
+	_ context.Context, msg *transcript_entity.Message, _ []*transcript_entity.MessageBlock, _ int,
+) error {
 	c.mu.Lock()
 	c.bodies[msg.ID] = msg.BlocksJSON
 	c.mu.Unlock()

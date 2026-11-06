@@ -37,7 +37,7 @@ func newToolApprovalSvc(t *testing.T) (*chatSvc, *syncRecordEmitter) {
 			return &chat_entity.Session{ID: id, AgentStatus: "running"}, nil
 		}).AnyTimes()
 	sessRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	msgRepo.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	msgRepo.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	em := &syncRecordEmitter{}
 	return &chatSvc{emitter: em}, em

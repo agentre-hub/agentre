@@ -248,6 +248,34 @@ func TestDiscardAdoptedDevices_GivenLogout_ThenRelayOnlyRowsArePurged(t *testing
 	})
 }
 
+// 登出与 Remove 一样只是停掉 watcher,watcher 不会再报一次离线:池子必须被单独告知,
+// 否则收编设备最后一次上线留下的保温让它的池连接永远不按空闲回收、在线表也一直留着它。
+func TestDiscardAdoptedDevices_GivenLogout_ThenPooledConnectionStopsBeingKeptWarm(t *testing.T) {
+	Convey("logging out releases the keep-warm of every discarded device", t, func() {
+		ctrl := gomock.NewController(t)
+		repo := repomock.NewMockPairedAgentredRepo(ctrl)
+		w := svcmock.NewMockWatcherPort(ctrl)
+		sink := svcmock.NewMockDeviceOnlineSink(ctrl)
+		svc := remote_device_svc.New(repo, svcmock.NewMockDaemonDialPort(ctrl), keychain.NewMemory(), struct {
+			remote_device_svc.ConnPool
+			remote_device_svc.DeviceOnlineSink
+		}{DeviceOnlineSink: sink})
+		svc.SetWatcher(w)
+		repo.EXPECT().List(gomock.Any()).Return([]*paired_agentred_entity.PairedAgentred{
+			{ID: 3, DaemonFingerprint: "sha256:adopted"},
+		}, nil)
+		repo.EXPECT().Delete(gomock.Any(), int64(3)).Return(nil)
+		repo.EXPECT().Purge(gomock.Any(), int64(3)).Return(nil)
+		w.EXPECT().Stop(int64(3))
+		sink.EXPECT().SetDeviceOnline(int64(3), false)
+
+		n, err := svc.DiscardAdoptedDevices(context.Background())
+
+		So(err, ShouldBeNil)
+		So(n, ShouldEqual, 1)
+	})
+}
+
 // LAN 配对是本机自己的东西，与账号无关：登出不该动它。上面的用例已经用「只对 3
 // 有 Delete/Purge 期望」守住了这一点，这里再单独守一次空账号的情形。
 func TestDiscardAdoptedDevices_GivenOnlyLANPairings_ThenNothingIsRemoved(t *testing.T) {

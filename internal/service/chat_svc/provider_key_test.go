@@ -17,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
@@ -91,6 +92,7 @@ func TestSend_NewSession_PersistsAndValidatesProviderKey(t *testing.T) {
 		m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 		resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{AgentID: 7, Text: "hi", ProviderKey: "key-99"})
 		require.NoError(t, err)
@@ -183,6 +185,7 @@ func TestSend_NewSession_FixedModelPersistsAndDrivesTurn(t *testing.T) {
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{AgentID: 7, Text: "hi", ProviderKey: "key-99", ModelKey: "mk-fixed"})
 	require.NoError(t, err)
@@ -270,6 +273,7 @@ func TestSend_ExistingSession_ProviderKeyOverridesAgentBinding(t *testing.T) {
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{
 		SessionID: 100, Text: "hi", ProviderKey: "ignored-key",
@@ -321,6 +325,7 @@ func TestSend_ExistingSession_NoProviderKeyUsesAgentBinding(t *testing.T) {
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, Text: "hi"})
 	require.NoError(t, err)
@@ -385,6 +390,7 @@ func TestRegenerate_ExistingSession_ProviderKeyOverridesAgentBinding(t *testing.
 		}).Times(2)
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
 	assert.NoError(t, err)
@@ -437,8 +443,8 @@ func TestSend_ExistingSession_MissingSessionProviderFallsBackWithNotice(t *testi
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	var persisted *chat_entity.Message
-	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, msg *chat_entity.Message) error {
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			msgCopy := *msg
 			persisted = &msgCopy
 			return nil
@@ -518,8 +524,8 @@ func TestSend_ExistingSession_DisabledProviderDefaultsFallsBack(t *testing.T) {
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	var persisted *chat_entity.Message
-	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, msg *chat_entity.Message) error {
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			msgCopy := *msg
 			persisted = &msgCopy
 			return nil

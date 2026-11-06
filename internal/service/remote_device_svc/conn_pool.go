@@ -65,6 +65,14 @@ type ConnPool interface {
 	Close() error
 }
 
+// DeviceOnlineSink 是 ConnPool 的可选能力:设备监视报告的在线/离线信号经它告诉池子。
+type DeviceOnlineSink interface {
+	SetDeviceOnline(deviceID int64, online bool)
+}
+
+// defaultDialTimeout 是一次冷拨号的期限,与设备监视的 DialTimeout 一致。
+const defaultDialTimeout = 15 * time.Second
+
 // Lease 一次借用的句柄。语义:
 //   - Client() 在 Release 前永远非 nil 且可用(底层若已 Close 则 Call 会返
 //     net.ErrClosed 等错误,调用方据此重新 Borrow)。
@@ -89,6 +97,16 @@ type Option func(*pool)
 // 测试用 50ms / 0(立即 evict)。默认 30s。
 func WithIdleTimeout(d time.Duration) Option {
 	return func(p *pool) { p.idleTimeout = d }
+}
+
+// WithDialTimeout 覆盖一次冷拨号的期限。默认 defaultDialTimeout。
+func WithDialTimeout(d time.Duration) Option {
+	return func(p *pool) { p.dialTimeout = d }
+}
+
+// withIdleAfterFunc 替换空闲计时器的来源,只给单测用手动时钟(见 export_test.go)。
+func withIdleAfterFunc(fn func(time.Duration, func()) idleTimer) Option {
+	return func(p *pool) { p.afterFunc = fn }
 }
 
 // WithRelayDial 注入账号中转拨号端口。注入后 Borrow 会并发发起直连与中转两条
@@ -125,7 +143,11 @@ func NewConnPool(
 		kc:          kc,
 		dial:        dial,
 		idleTimeout: 30 * time.Second,
+		dialTimeout: defaultDialTimeout,
+		afterFunc:   realAfterFunc,
 		entries:     map[int64]*entry{},
+		flights:     map[int64]*dialFlight{},
+		online:      map[int64]struct{}{},
 	}
 	for _, o := range opts {
 		o(p)
@@ -143,12 +165,16 @@ type pool struct {
 	credentials AccountCredentialPort     // 可空:未注入时直连只认配对令牌
 	recorder    AccountDirectRecorderPort // 可空:未注入时账号握手下发内容不落地（task 9）
 	idleTimeout time.Duration
+	dialTimeout time.Duration
+	afterFunc   func(time.Duration, func()) idleTimer
 
 	// refreshMu 让「换一张账号凭据」在这个池子里单飞，见 retryWithFreshCredential。
 	refreshMu sync.Mutex
 
 	mu      sync.Mutex
 	entries map[int64]*entry
+	flights map[int64]*dialFlight // 正在进行的冷拨号,同一台设备至多一次(见 Borrow)
+	online  map[int64]struct{}    // 设备监视报告在线的设备,池连接保温(SetDeviceOnline)
 	closed  bool
 }
 
@@ -171,6 +197,11 @@ type accountDirectDeliverer interface {
 	AccountDirectDelivery() (urls []string, certPEM, credential string, ok bool)
 }
 
+// idleTimer 是 entry 空闲计时器的窄接口:生产是 *time.Timer,单测换成手动时钟。
+type idleTimer interface{ Stop() bool }
+
+func realAfterFunc(d time.Duration, f func()) idleTimer { return time.AfterFunc(d, f) }
+
 // pooledClient 是 entry.client 的窄接口,允许 internal test 用 fake 替身。
 // 生产路径 = *client.Client(已实现 DaemonClientPort,即 pooledClient)。
 type pooledClient interface {
@@ -185,7 +216,7 @@ type entry struct {
 
 	mu        sync.Mutex
 	refcount  int
-	idleTimer *time.Timer
+	idleTimer idleTimer
 	evicted   bool // markDone 用,防多关 closedCh
 }
 
@@ -250,9 +281,93 @@ func (p *pool) Borrow(ctx context.Context, deviceID int64) (Lease, error) {
 		p.mu.Unlock()
 		return &lease{e: e, pool: p}, nil
 	}
+	// 冷拨号按设备单飞:同一台设备并发到来的冷借用共用这一次拨号。快路径与加入拨号在
+	// 同一把锁下判,拨号收场也在这把锁下把 entry 登记进去,所以一次借用要么看到 entry、
+	// 要么看到正在进行的拨号,同一台设备不会同时有两次冷拨号。
+	f, ok := p.flights[deviceID]
+	if ok {
+		f.waiters++
+	} else {
+		f = &dialFlight{done: make(chan struct{}), waiters: 1}
+		if p.flights == nil {
+			p.flights = map[int64]*dialFlight{}
+		}
+		p.flights[deviceID] = f
+		// 拨号脱离调用方的取消(只保留 ctx 携带的值):领头的那次借用被取消,不能连累
+		// 正等着同一次拨号的其它借用。拨号自己的期限由 openTarget 的 dialTimeout 兜住。
+		go p.runFlight(context.WithoutCancel(ctx), deviceID, f)
+	}
 	p.mu.Unlock()
 
-	// 释放 pool.mu 再做慢操作(repo / keychain / dial)。
+	select {
+	case <-f.done:
+		if f.err != nil {
+			return nil, f.err
+		}
+		return &lease{e: f.entry, pool: p}, nil
+	case <-ctx.Done():
+		p.mu.Lock()
+		select {
+		case <-f.done:
+			// 拨号恰好已经收场,这次借用那一份已经计进 refcount:原样还回去。
+			p.mu.Unlock()
+			if f.err == nil {
+				(&lease{e: f.entry, pool: p}).Release()
+			}
+		default:
+			f.waiters--
+			p.mu.Unlock()
+		}
+		return nil, ctx.Err()
+	}
+}
+
+// dialFlight 是同一台设备正在进行的一次冷拨号。waiters 是仍在等它的借用数(p.mu 保护):
+// 拨号收场时 entry 的 refcount 直接记成 waiters,每个等到结果的借用拿走一份,中途被取消
+// 的借用在收场前自己从 waiters 里退出。
+type dialFlight struct {
+	done    chan struct{}
+	waiters int
+	entry   *entry
+	err     error
+}
+
+// runFlight 执行一次冷拨号,收场时在 p.mu 下把结果登记成 entry 并唤醒全部等待者。
+func (p *pool) runFlight(ctx context.Context, deviceID int64, f *dialFlight) {
+	c, err := p.dialDevice(ctx, deviceID)
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	defer close(f.done)
+	delete(p.flights, deviceID)
+	if err != nil {
+		f.err = err
+		return
+	}
+	if p.closed {
+		_ = c.Close()
+		f.err = ErrPoolClosed
+		return
+	}
+	e := &entry{
+		deviceID: deviceID,
+		client:   c,
+		closedCh: make(chan struct{}),
+		refcount: f.waiters,
+	}
+	if _, online := p.online[deviceID]; e.refcount == 0 && !online {
+		// 等着的借用全被取消了:连接照常进入空闲回收,而不是没人持有也永不回收。
+		p.armIdle(e)
+	}
+	p.entries[deviceID] = e
+	f.entry = e
+	go p.watchClient(e)
+	logger.Ctx(ctx).Info("conn pool: new entry, dialed daemon",
+		zap.Int64("deviceID", deviceID), zap.Int("waiters", f.waiters))
+}
+
+// dialDevice 解析设备行与凭据并拨通 daemon。
+func (p *pool) dialDevice(ctx context.Context, deviceID int64) (client.ProtobufConnection, error) {
 	row, err := p.repo.Get(ctx, deviceID)
 	if err != nil {
 		return nil, err
@@ -323,32 +438,7 @@ func (p *pool) Borrow(ctx context.Context, deviceID int64) (Lease, error) {
 		}
 	}
 
-	p.mu.Lock()
-	if p.closed {
-		p.mu.Unlock()
-		_ = c.Close()
-		return nil, ErrPoolClosed
-	}
-	if existing, ok := p.entries[deviceID]; ok && !existing.isEvicted() {
-		// 并发输家:用赢家的 entry,关掉自己刚拨的 client。
-		existing.acquire()
-		p.mu.Unlock()
-		_ = c.Close()
-		return &lease{e: existing, pool: p}, nil
-	}
-	e := &entry{
-		deviceID: deviceID,
-		client:   c,
-		closedCh: make(chan struct{}),
-		refcount: 1,
-	}
-	p.entries[deviceID] = e
-	go p.watchClient(e)
-	p.mu.Unlock()
-
-	logger.Ctx(ctx).Info("conn pool: new entry, dialed daemon",
-		zap.Int64("deviceID", deviceID))
-	return &lease{e: e, pool: p}, nil
+	return c, nil
 }
 
 // retryWithFreshCredential 换一张账号凭据再拨一次。
@@ -426,7 +516,17 @@ type dialTarget struct {
 }
 
 // openTarget 按行的来源选路,交回连接与直连赢下时所用的地址(否则为空)。
+//
+// 每次拨号都带 dialTimeout 的期限:Borrow 的冷拨号已经脱离调用方的取消,而 Wails 绑定
+// 交进来的 ctx 本来就没有期限——中转那条路在服务端不可达时会一直等常驻链路连上,没有
+// 这个期限 Borrow 就永远挂着。期限只管拨号与握手:连接建好之后的寿命归连接自己
+// (protorpc.Conn.Serve 剥掉了拨号 ctx 的取消)。
 func (p *pool) openTarget(ctx context.Context, target dialTarget, credential string) (client.ProtobufConnection, string, error) {
+	if p.dialTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.dialTimeout)
+		defer cancel()
+	}
 	if target.direct != nil {
 		return RaceAccountDirect(ctx, p.dial, p.relay, *target.direct, devicefp.Initiator(target.DeviceFingerprint))
 	}
@@ -615,27 +715,79 @@ func (p *pool) Close() error {
 }
 
 func (p *pool) releaseEntry(e *entry) {
+	// 先 p.mu 后 e.mu(与 tryEvictIdle / SetDeviceOnline 同序):「设备在不在线」与
+	// 「refcount 落到 0」必须在同一把锁下判,否则与 SetDeviceOnline(false) 交错时
+	// 两边都以为对方会起空闲计时,entry 就离线了还永远不回收。
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.refcount <= 0 {
 		// 已经全部释放(典型场景:Pool.Close 已 evict);幂等。
-		e.mu.Unlock()
 		return
 	}
 	e.refcount--
 	if e.refcount > 0 {
-		e.mu.Unlock()
 		return
 	}
-	// refcount 落到 0:启动 idle timer。
-	e.idleTimer = time.AfterFunc(p.idleTimeout, func() { p.tryEvictIdle(e) })
-	e.mu.Unlock()
+	// refcount 落到 0:设备在线就保温,否则启动 idle timer。
+	if _, online := p.online[e.deviceID]; online {
+		return
+	}
+	p.armIdle(e)
+}
+
+// armIdle 给一个 refcount=0 的 entry 起空闲计时。调用方持有 e.mu。
+func (p *pool) armIdle(e *entry) {
+	after := p.afterFunc
+	if after == nil {
+		after = realAfterFunc
+	}
+	e.idleTimer = after(p.idleTimeout, func() { p.tryEvictIdle(e) })
+}
+
+// SetDeviceOnline 实现 DeviceOnlineSink。设备在线期间它的池连接不因空闲关闭——watcher
+// 另持一条探活连接,在线就说明这台机器随时可能被用到,空闲 30 秒就关意味着下一次借用
+// 要重走钥匙串 + 拨号 + 握手。离线后恢复正常的空闲回收。
+//
+// 离线信号可能随 watcher 的每次重拨失败反复到来:已经在走的空闲计时不重起,否则离线
+// 事件比空闲期限来得勤时 entry 永远回收不掉。
+func (p *pool) SetDeviceOnline(deviceID int64, online bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if online {
+		if p.online == nil {
+			p.online = map[int64]struct{}{}
+		}
+		p.online[deviceID] = struct{}{}
+	} else {
+		delete(p.online, deviceID)
+	}
+	e, ok := p.entries[deviceID]
+	if !ok {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if online {
+		if e.idleTimer != nil {
+			e.idleTimer.Stop()
+			e.idleTimer = nil
+		}
+		return
+	}
+	if e.refcount == 0 && !e.evicted && e.idleTimer == nil {
+		p.armIdle(e)
+	}
 }
 
 // tryEvictIdle 由 idleTimer 触发。重检 refcount + entry 在 map 中。
 func (p *pool) tryEvictIdle(e *entry) {
 	p.mu.Lock()
 	e.mu.Lock()
-	if e.refcount != 0 || e.evicted {
+	_, online := p.online[e.deviceID]
+	if e.refcount != 0 || e.evicted || online {
+		// online:设备在计时到点的同一刻上线,Stop 没拦住这次回调。
 		e.mu.Unlock()
 		p.mu.Unlock()
 		return

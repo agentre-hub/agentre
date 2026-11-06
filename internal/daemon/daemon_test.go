@@ -1423,7 +1423,11 @@ func seedTranscriptTurn(ctx context.Context, d *Daemon, conversationID, text str
 	if err := msg.SetBlocks(acc.Finalize()); err != nil {
 		return err
 	}
-	return d.transcript.FinishTurn(ctx, msg)
+	rows, err := transcript_entity.SplitBlocksJSON(msg.ID, msg.BlocksJSON)
+	if err != nil {
+		return err
+	}
+	return d.transcript.FinishTurn(ctx, msg, rows, -1)
 }
 
 // Given 一条由带设备身份的对端(浏览器控制台 / 手机)提交的轮次;

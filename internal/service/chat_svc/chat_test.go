@@ -37,6 +37,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
@@ -1568,6 +1569,7 @@ func TestSend_ImageInput(t *testing.T) {
 			m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 			m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 			m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+			m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			var userBlocks []blocks.ContentBlock
 			m.dbMock.ExpectBegin()
@@ -2313,6 +2315,7 @@ func TestSend_PersistsProviderSessionIDBeforeStreamDrains(t *testing.T) {
 			return nil
 		}).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -2369,6 +2372,7 @@ func TestSend_FreshSessionReflectsLocalProviderSessionID(t *testing.T) {
 			m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(backend, nil)
 			m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 			m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+			m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 			m.dbMock.ExpectBegin()
 			m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(1, nil)
 			m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
@@ -2553,6 +2557,7 @@ func TestSend_NewSession(t *testing.T) {
 		}, nil).AnyTimes()
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes() // post-turn updates
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 		resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{
 			AgentID: 7, Text: firstUserText,
@@ -2666,6 +2671,7 @@ func TestSend_NewSessionWithExecTargetOverride_GivenValidNonFirstTarget_ThenReso
 		}).Times(2)
 	dbMock.ExpectCommit()
 	messageMock.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	messageMock.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := svc.Send(dbCtx, &chat_svc.SendRequest{
 		AgentID: 7, Text: "hi", ExecTargetOverride: 52,
@@ -2719,6 +2725,7 @@ func TestSend_ExistingSessionUsesSessionAgentBackend(t *testing.T) {
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{
 		SessionID: 100, AgentID: 99, Text: "hi",
@@ -2771,6 +2778,7 @@ func TestSend_CodexPermissionModePersistsAndStartsTurnInMode(t *testing.T) {
 		}).Times(2)
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{
 		SessionID:      100,
@@ -2827,6 +2835,7 @@ func TestSend_CodexLocalDoesNotInjectGatewayDeps(t *testing.T) {
 		}).Times(2)
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{
 		SessionID: 100,
@@ -2894,6 +2903,7 @@ func TestSend_CodexLoginStateWithSessionProviderInjectsGatewayDeps(t *testing.T)
 		}).Times(2)
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{
 		SessionID: 100,
@@ -2949,6 +2959,7 @@ func TestCompact_CodexStartsCompactTurnWithoutUserMessage(t *testing.T) {
 		}).Times(1)
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Compact(ctx, &chat_svc.CompactRequest{SessionID: 100})
 	assert.NoError(t, err)
@@ -3029,6 +3040,7 @@ func TestCompact_ExistingSession_ProviderKeyOverridesAgentBinding(t *testing.T) 
 		}).Times(1)
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Compact(ctx, &chat_svc.CompactRequest{SessionID: 100})
 	assert.NoError(t, err)
@@ -3088,8 +3100,8 @@ func TestCompact_ExistingSession_MissingSessionProviderFallsBackWithNotice(t *te
 		}).Times(1)
 	m.dbMock.ExpectCommit()
 	var persisted *chat_entity.Message
-	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, msg *chat_entity.Message) error {
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			msgCopy := *msg
 			persisted = &msgCopy
 			return nil
@@ -3168,6 +3180,7 @@ func TestSend_PiAgentPersistsNativeSessionBeforeTurnDrain(t *testing.T) {
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(m.ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -3647,6 +3660,7 @@ func TestSend_ClaudeCodeLocalKeepsGatewayDepsForHooks(t *testing.T) {
 		}).Times(2)
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{
 		SessionID: 100,
@@ -3841,6 +3855,7 @@ func TestSend_ClaudeCodeRemoteSkipsClientGatewayDeps(t *testing.T) {
 		}).Times(2)
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{
 		SessionID: 100, AgentID: 7, Text: "hi",
@@ -3917,6 +3932,7 @@ func TestSend_NewClaudeCodeBypassSessionPersistsPermissionModeAtLaunch(t *testin
 			}).Times(2)
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 		resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{
 			AgentID:        7,
@@ -3962,6 +3978,7 @@ func TestSend_NewCodexSessionStoresPermissionModeBeforeFirstTurn(t *testing.T) {
 		}).Times(2)
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{
 		AgentID:        7,
@@ -4023,10 +4040,10 @@ func TestSend_CodexPlanUpdatedPersistsVisiblePlanBlock(t *testing.T) {
 			final = &cp
 			return nil
 		}).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			cp := *msg
 			final = &cp
 			return nil
@@ -4105,10 +4122,10 @@ func TestSend_UnansweredAskUserQuestionExpiresAtFinalize(t *testing.T) {
 			final = &cp
 			return nil
 		}).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			cp := *msg
 			final = &cp
 			return nil
@@ -4182,10 +4199,10 @@ func TestSend_CodexPlanItemTextPersistsVisiblePlanBlock(t *testing.T) {
 			final = &cp
 			return nil
 		}).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			cp := *msg
 			final = &cp
 			return nil
@@ -4266,10 +4283,10 @@ func TestSend_ActionablePlanBlockMarksSessionWaiting(t *testing.T) {
 			final = &cp
 			return nil
 		}).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			cp := *msg
 			final = &cp
 			return nil
@@ -4378,10 +4395,10 @@ func TestSend_TerminalDaemonDisconnectLandsErrorStatus(t *testing.T) {
 			final = &cp
 			return nil
 		}).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			cp := *msg
 			final = &cp
 			return nil
@@ -4452,10 +4469,10 @@ func runStopErrTurnErrorText(t *testing.T, stop error) string {
 			final = &cp
 			return nil
 		}).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			cp := *msg
 			final = &cp
 			return nil
@@ -4549,6 +4566,7 @@ func TestResolvePlanAction_CodexExecuteContinuesWaitingPlan(t *testing.T) {
 	m.dbMock.ExpectCommit()
 	var clearedPlanActions bool
 	var planCheckpoints int
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
 			if msg.ID == planMsg.ID {
@@ -4634,10 +4652,10 @@ func TestSend_CodexPlanEmptyTurnPersistsFallbackText(t *testing.T) {
 			final = &cp
 			return nil
 		}).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			cp := *msg
 			final = &cp
 			return nil
@@ -4763,8 +4781,8 @@ func TestSend_RuntimeErrorsStayVisibleAndPersistedWithoutEnteringLogs(t *testing
 			m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 			var persistedMu sync.Mutex
 			persistedErrorText := ""
-			m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
-				DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 					if msg != nil && msg.ErrorText != "" {
 						persistedMu.Lock()
 						persistedErrorText = msg.ErrorText
@@ -4888,6 +4906,7 @@ func TestSend_StreamErrorEventCarriesFinalAssistantMessage(t *testing.T) {
 
 			m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 			m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+			m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 			require.NoError(t, err)
@@ -4956,6 +4975,7 @@ func TestSend_StreamErrorAlsoEmitsSessionStatusError(t *testing.T) {
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -5021,8 +5041,8 @@ func TestSend_StreamErrorFollowedByProgressDoesNotFailTurn(t *testing.T) {
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	var assistantSnaps []chat_entity.Message
-	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			if msg != nil && msg.Role == "assistant" {
 				assistantSnaps = append(assistantSnaps, *msg)
 			}
@@ -5097,6 +5117,7 @@ func TestSend_StreamErrorFollowedOnlyByMetadataStillFailsTurn(t *testing.T) {
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 	var sessionSnaps []chat_entity.Session
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, s *chat_entity.Session) error {
@@ -5161,6 +5182,7 @@ func TestSend_FailTurnEmitsSessionStatusError(t *testing.T) {
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -5226,6 +5248,7 @@ func TestSend_StreamRetryEventIsForwardedWithoutFailingTurn(t *testing.T) {
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 	assert.NoError(t, err)
@@ -5309,10 +5332,10 @@ func TestSend_StreamUsageEventsAreForwardedAndPersisted(t *testing.T) {
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 
-	// 记录 assistant 消息 Update 的所有快照，确保 turn 末尾写到最新值。
+	// 记录 assistant 消息收尾写库的所有快照，确保 turn 末尾写到最新值。
 	var assistantSnaps []chat_entity.Message
-	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, msg *chat_entity.Message) error {
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			if msg.Role == "assistant" {
 				assistantSnaps = append(assistantSnaps, *msg)
 			}
@@ -5454,10 +5477,10 @@ func standardSendMocks(t *testing.T, m *chatMocks, sessionID, agentID, backendID
 	t.Helper()
 	captured := standardSendMocksWithoutMessageUpdate(t, m, sessionID, agentID, backendID, providerKey)
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks)。这条兜底许可同样要覆盖它,否则任何跑到 tool_result
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew)。这条兜底许可同样要覆盖它,否则任何跑到 tool_result
 	// 的用例都会撞上「未预期的调用」。想观察 checkpoint 内容的用例自己再挂捕获。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
 	return captured
 }
@@ -5535,6 +5558,7 @@ func TestSend_ErrorSessionMarksRunningAtTurnStart(t *testing.T) {
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 	captured := make([]chat_entity.Session, 0, 2)
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, s *chat_entity.Session) error {
@@ -5720,10 +5744,10 @@ func TestSend_AskUserQuestionCheckpointsWaitingCard(t *testing.T) {
 			}
 			return nil
 		}).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			if msg.Role == "assistant" {
 				updates = append(updates, *msg)
 			}
@@ -5762,10 +5786,10 @@ func TestSend_ToolPermissionCheckpointsWaitingCard(t *testing.T) {
 			}
 			return nil
 		}).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			if msg.Role == "assistant" {
 				updates = append(updates, *msg)
 			}
@@ -5893,10 +5917,10 @@ func TestSend_CheckpointsAssistantWhenToolResultArrives(t *testing.T) {
 			updates = append(updates, *msg)
 			return nil
 		}).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			updates = append(updates, *msg)
 			return nil
 		}).AnyTimes()
@@ -6044,6 +6068,7 @@ func TestSend_SteerConsumedSplitsMessages(t *testing.T) {
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	m.dbMock.ExpectBegin()
 	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(3, nil)
@@ -6172,6 +6197,7 @@ func TestSend_AutoContinuesWhenSteerInboxNonEmpty(t *testing.T) {
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	// 4 个 Create：first turn user/assistant + auto-continue user/assistant。
 	createIDs := []int64{1000, 1001, 1002, 1003}
@@ -6279,6 +6305,7 @@ func TestSend_AutoContinuesMultipleLevels(t *testing.T) {
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	// 6 个 Create：3 轮 × (user+assistant)。
 	createIDs := []int64{1000, 1001, 1002, 1003, 1004, 1005}
@@ -6412,6 +6439,7 @@ func TestSend_AutoContinuePersistFailure_FinalAgentStatusLogMatchesPersistedStat
 		}).AnyTimes()
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	createIdx := int64(1000)
 	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
@@ -6562,8 +6590,8 @@ func TestSend_Errors(t *testing.T) {
 
 			var capturedErrText string
 			var mu sync.Mutex
-			m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
-				DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 					if msg.ErrorText != "" {
 						mu.Lock()
 						capturedErrText = msg.ErrorText
@@ -6668,6 +6696,7 @@ func TestSend_Errors(t *testing.T) {
 			// List is called inside runTurn (before stream blocks), so mock it
 			m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 			m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 			// First Send — acquires lock, spawns goroutine that blocks on stream
 			resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
@@ -6870,6 +6899,11 @@ func startBlockingBuiltinTurn(
 		messageUpdate = func(context.Context, *chat_entity.Message) error { return nil }
 	}
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(messageUpdate).AnyTimes()
+	// 收尾那一发不再走 Update,而是只写变了的块行(UpsertBlocks):同一个钩子收两条路。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
+			return messageUpdate(ctx, msg)
+		}).AnyTimes()
 
 	resp, err := m.svc.Send(m.ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -6988,6 +7022,8 @@ func TestRegenerate_BuiltinTruncatesAndRestartsTurn(t *testing.T) {
 
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+
 		resp, err := m.svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
 		assert.NoError(t, err)
 		assert.Equal(t, int64(100), resp.SessionID)
@@ -7053,6 +7089,8 @@ func TestRegenerate_BuiltinWithProviderSessionStillRestartsTurn(t *testing.T) {
 
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+
 		resp, err := m.svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
 		assert.NoError(t, err, "builtin 有 ProviderSessionID 不应当作未支持")
 		assert.Equal(t, int64(100), resp.SessionID)
@@ -7111,6 +7149,7 @@ func TestRegenerate_CodexRollsBackProviderTurns(t *testing.T) {
 			}).Times(2)
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 		resp, err := m.svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
 		assert.NoError(t, err)
@@ -7173,6 +7212,7 @@ func expectRegeneratedFromSeq(m *chatMocks, fromSeq int, deleted int64) {
 		}).Times(2)
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 }
 
 func requireRegeneratedCodexTurn(t *testing.T, m *chatMocks, runner *recordingRunner, resp *chat_svc.SendResponse, wantText, wantAnchor string) {
@@ -7375,6 +7415,7 @@ func TestSend_PiUserAnchorPersistenceRetriesAndSurfacesPermanentFailure(t *testi
 					}
 					return nil
 				}).AnyTimes()
+			m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 			resp, err := m.svc.Send(m.ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hello"})
 			require.NoError(t, err)
@@ -7463,6 +7504,7 @@ func TestSend_NonPiUserAnchorPersistenceFailureKeepsCompletedTurn(t *testing.T) 
 					}
 					return nil
 				}).AnyTimes()
+			m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 			resp, err := m.svc.Send(m.ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hello"})
 			require.NoError(t, err)
@@ -7820,6 +7862,7 @@ func TestPiRestart_FirstRestoreFailureRecoversExactRowsAndSessionOnRetry(t *test
 			return nil
 		}).Times(2)
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session *chat_entity.Session) error {
 			assert.Equal(t, "pi-session-new", session.ProviderSessionID)
@@ -7966,6 +8009,7 @@ func TestPiRecoveryGate_PendingMarkerCannotCreateHybridFollowupHistory(t *testin
 	}, nil).AnyTimes()
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(3, nil).Times(1)
 	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, message *chat_entity.Message) error {
@@ -8065,6 +8109,7 @@ func TestPiRecoveryGate_FirstRestoreWriteFailureRetriesBeforeAppending(t *testin
 	}, nil).AnyTimes()
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	m.dbMock.ExpectQuery("SELECT \\* FROM `app_settings` WHERE `key` = \\?").
 		WithArgs(marker.Key, 1).WillReturnRows(markerRows())
@@ -8161,6 +8206,7 @@ func TestPiRecoveryGate_AcknowledgedMarkerCleansHiddenOriginalsBeforeResume(t *t
 	}, nil)
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	m.dbMock.ExpectQuery("SELECT \\* FROM `app_settings` WHERE `key` = \\?").
 		WithArgs(marker.Key, 1).
@@ -8470,6 +8516,7 @@ func TestPiRestart_UnresolvedAcknowledgementStopsTurnAndRestoresPendingGeneratio
 	}, nil)
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	pendingMarker := piRecoveryMarker(chat_repo.ReplacementRecoveryPending, 1, 2000, 2001)
 	m.dbMock.ExpectQuery("SELECT \\* FROM `app_settings` WHERE `key` = \\?").
@@ -8629,6 +8676,7 @@ func TestPiRestart_AcknowledgedPromptActivatesTranscriptWithForkedSessionAtomica
 			return nil
 		}).Times(2)
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(updateCtx context.Context, session *chat_entity.Session) error {
 			if session.AgentStatus == "running" {
@@ -8754,6 +8802,7 @@ func TestPiRestart_PromptRejectionRestoresOriginalRowsAndProviderIdentity(t *tes
 			return nil
 		}).Times(2)
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session *chat_entity.Session) error {
 			assert.Equal(t, "pi-session-new", session.ProviderSessionID)
@@ -8866,6 +8915,7 @@ func expectAcknowledgedPiReplacement(
 			return nil
 		}).Times(2)
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 	return recoverySessionID
 }
@@ -9501,6 +9551,7 @@ func TestRegenerate_ClaudeCodeForksViaAnchor(t *testing.T) {
 			}).Times(2)
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 		resp, err := m.svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
 		assert.NoError(t, err)
@@ -9602,6 +9653,7 @@ func TestRegenerate_ClaudeCodeFailedForkKeepsOldProviderSession(t *testing.T) {
 			}).Times(2)
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 		resp, err := m.svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
 		require.NoError(t, err)
@@ -9663,6 +9715,7 @@ func TestRegenerate_ClaudeCodeWithoutAnchorDropsSession(t *testing.T) {
 			}).Times(2)
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 		resp, err := m.svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
 		assert.NoError(t, err)
@@ -9738,6 +9791,7 @@ func TestEdit_BuiltinTruncatesAndReplaysNewText(t *testing.T) {
 			}).Times(2)
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 		resp, err := m.svc.Edit(ctx, &chat_svc.EditRequest{SessionID: 100, MessageID: 1000, Text: "yo"})
 		assert.NoError(t, err)
@@ -9795,6 +9849,7 @@ func TestEdit_CodexRollsBackProviderTurns(t *testing.T) {
 			}).Times(2)
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 		_, err := m.svc.Edit(ctx, &chat_svc.EditRequest{SessionID: 100, MessageID: 1002, Text: "second edited"})
 		assert.NoError(t, err)
@@ -9849,6 +9904,7 @@ func TestEdit_ClaudeCodeForksViaTargetAnchor(t *testing.T) {
 			}).Times(2)
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 		_, err := m.svc.Edit(ctx, &chat_svc.EditRequest{SessionID: 100, MessageID: 1000, Text: "看看xx目录"})
 		assert.NoError(t, err)
@@ -10259,6 +10315,7 @@ func TestStop_LocalPiCancellationCannotHangBehindAcceptedTurnAbort(t *testing.T)
 			}
 			return nil
 		}).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	expectNoPiTranscriptRecovery(m, 100)
 	m.dbMock.ExpectBegin()
 	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(1, nil)
@@ -10355,6 +10412,10 @@ func TestStop_PiAnchorPersistenceFailureRemainsExplicitAfterAbort(t *testing.T) 
 			if msg.Role == "user" {
 				return errors.New("anchor update permanently failed")
 			}
+			return nil
+		}).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			persistedAssistantError = msg.ErrorText
 			return nil
 		}).AnyTimes()
@@ -11099,6 +11160,7 @@ func TestSend_ClaudeCodeProviderSessionGoneEarlyClearsAndSurfacesI18n(t *testing
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -11168,6 +11230,7 @@ func TestSend_PiAgentNativeSessionGoneClearsAndSurfacesI18n(t *testing.T) {
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(m.ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -11239,6 +11302,7 @@ func TestSend_ClaudeCodeProviderSessionGoneViaStopErrClearsAndSurfacesI18n(t *te
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -11330,6 +11394,7 @@ func TestSend_PassivePermissionModeChangePersistsAndEmitsPatch(t *testing.T) {
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -11417,9 +11482,9 @@ func TestSend_StreamToolUseCarriesCanonical(t *testing.T) {
 	m.message.EXPECT().List(gomock.Any(), int64(201)).Return(nil, nil).AnyTimes()
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 201, AgentID: 7, Text: "hi"})
@@ -11562,9 +11627,9 @@ func TestSend_CoalescedStreamPreservesTextAndOrdering(t *testing.T) {
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
-	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+	// 轮内 checkpoint 已从 Update 改走 UpsertBlocks(整表替换 → 只写新增与被改动的块,见
+	// checkpointAssistantNew);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
 	m.message.EXPECT().UpdateUsage(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 

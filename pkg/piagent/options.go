@@ -17,6 +17,18 @@ func WithBinary(path string) Option { return func(c *Client) { c.binary = path }
 // scanner 复用缓冲,**不得跨调用留存**。nil(默认)=零采样开销。
 func WithRawSink(sink func([]byte)) Option { return func(c *Client) { c.rawSink = sink } }
 
+// WithRawSinkEnabled 给 WithRawSink 加一道门:返回 false 的帧连脱敏投影都跳过
+// (脱敏是完整 unmarshal+marshal)。runtime 用它绑定调试日志级别,关着时热路径零开销。
+func WithRawSinkEnabled(enabled func() bool) Option {
+	return func(c *Client) { c.rawSinkEnabled = enabled }
+}
+
+// WithProgressTools 声明哪些工具的 tool_execution_update 进度有人消费。其余工具的
+// 进度帧不解码也不产出 EventToolUseUpdate。nil(默认)=所有工具都产出。
+func WithProgressTools(wanted func(toolName string) bool) Option {
+	return func(c *Client) { c.progressTool = wanted }
+}
+
 func WithCwd(path string) Option { return func(c *Client) { c.cwd = path } }
 
 // WithNoSession 使用 Pi 的临时 Session 模式（--no-session），不持久化 JSONL。

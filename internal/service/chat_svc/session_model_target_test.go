@@ -71,6 +71,7 @@ func runSendAndCapture(t *testing.T, m *chatMocks, sess *chat_entity.Session, ba
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(m.ctx, &chat_svc.SendRequest{SessionID: 100, Text: "hi"})
 	require.NoError(t, err)
@@ -155,6 +156,7 @@ func TestSend_ExistingSession_InheritAgentUsesBackendFixedModel(t *testing.T) {
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	resp, err := m.svc.Send(m.ctx, &chat_svc.SendRequest{SessionID: 100, Text: "hi"})
 	require.NoError(t, err)

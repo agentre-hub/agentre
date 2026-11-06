@@ -79,6 +79,74 @@ type SessionGroupProps = React.ComponentProps<"article"> & {
   attentionAriaLabel?: string;
 };
 
+// 宿主每次渲染都会新建 handler；包住成稳定引用，GroupRow 的 memo 才不会被它们击穿。
+function useStableCallback<A extends unknown[], R>(
+  fn: ((...args: A) => R) | undefined,
+): (...args: A) => R | undefined {
+  const ref = React.useRef(fn);
+  React.useLayoutEffect(() => {
+    ref.current = fn;
+  });
+  return React.useCallback((...args: A) => ref.current?.(...args), []);
+}
+
+type GroupRowProps = {
+  session: SessionRowModel;
+  selected: boolean;
+  /** 常规列表的行带 aria-hidden / disabled（= 折叠）；气泡里的行不带，故用 undefined 区分。 */
+  hidden?: boolean;
+  /** 点击是否可用（有 onSessionSelect，且常规列表行要求展开）。 */
+  clickable: boolean;
+  renderLink?: SessionRowLinkRenderer;
+  hasOpenInNewTab: boolean;
+  hasRename: boolean;
+  canDelete: boolean;
+  onSelect: (id: string, opts?: { newTab?: boolean }) => void;
+  onOpenInNewTab: (id: string) => void;
+  onRename: (id: string, title: string) => void;
+  onDelete: (id: string) => void;
+};
+
+// 一行 = 一个 memo 单元：session 对象 / selected / 稳定 handler 都没变就不重渲染。
+const GroupRow = React.memo(function GroupRow({
+  session,
+  selected,
+  hidden,
+  clickable,
+  renderLink,
+  hasOpenInNewTab,
+  hasRename,
+  canDelete,
+  onSelect,
+  onOpenInNewTab,
+  onRename,
+  onDelete,
+}: GroupRowProps) {
+  return (
+    <SessionRow
+      {...session}
+      sessionId={session.id}
+      renderLink={renderLink}
+      {...(hidden === undefined
+        ? {}
+        : { "aria-hidden": hidden, disabled: hidden })}
+      selected={selected}
+      onClick={
+        clickable
+          ? (e) => onSelect(session.id, { newTab: isOpenInNewTabModifier(e) })
+          : undefined
+      }
+      onOpenInNewTab={
+        hasOpenInNewTab ? () => onOpenInNewTab(session.id) : undefined
+      }
+      onRenameSession={
+        hasRename ? () => onRename(session.id, session.title) : undefined
+      }
+      onDeleteSession={canDelete ? () => onDelete(session.id) : undefined}
+    />
+  );
+});
+
 function SessionGroup({
   className,
   renderHeader,
@@ -112,13 +180,24 @@ function SessionGroup({
     defaultExpanded ?? false,
   );
 
-  const deleteHandlerFor = (sessionId: string) => {
-    const deleteSession = onDeleteSession;
-    if (!deleteSession || (canDeleteSession && !canDeleteSession(sessionId))) {
-      return undefined;
-    }
-    return () => deleteSession(sessionId);
+  const stableSelect = useStableCallback(onSessionSelect);
+  const stableOpen = useStableCallback(onOpenInNewTab);
+  const stableRename = useStableCallback(onRenameSession);
+  const stableDelete = useStableCallback(onDeleteSession);
+  const isSelected = (session: SessionRowModel) =>
+    selectedSessionId ? session.id === selectedSessionId : !!session.selected;
+  const rowShared = {
+    renderLink,
+    hasOpenInNewTab: Boolean(onOpenInNewTab),
+    hasRename: Boolean(onRenameSession),
+    onSelect: stableSelect,
+    onOpenInNewTab: stableOpen,
+    onRename: stableRename,
+    onDelete: stableDelete,
   };
+  // 逐行限制 Delete：能力是布尔，handler 本身稳定。
+  const canDeleteRow = (id: string) =>
+    Boolean(onDeleteSession) && (!canDeleteSession || canDeleteSession(id));
 
   // 展开态下仅把 selected 从 bubble 过滤掉（让它回到常规列表它本来的时间序位置）。
   // unread 保留在 bubble 里 —— 这样按住 ⌘ 时未读会话也能拿到 ⌘N chip,
@@ -175,33 +254,13 @@ function SessionGroup({
           aria-label={attentionAriaLabel}
         >
           {visibleAttention.map((session) => (
-            <SessionRow
+            <GroupRow
               key={`attn-${session.id}`}
-              {...session}
-              sessionId={session.id}
-              renderLink={renderLink}
-              selected={
-                selectedSessionId
-                  ? session.id === selectedSessionId
-                  : session.selected
-              }
-              onClick={
-                onSessionSelect
-                  ? (e) =>
-                      onSessionSelect(session.id, {
-                        newTab: isOpenInNewTabModifier(e),
-                      })
-                  : undefined
-              }
-              onOpenInNewTab={
-                onOpenInNewTab ? () => onOpenInNewTab(session.id) : undefined
-              }
-              onRenameSession={
-                onRenameSession
-                  ? () => onRenameSession(session.id, session.title)
-                  : undefined
-              }
-              onDeleteSession={deleteHandlerFor(session.id)}
+              session={session}
+              {...rowShared}
+              canDelete={canDeleteRow(session.id)}
+              selected={isSelected(session)}
+              clickable={Boolean(onSessionSelect)}
             />
           ))}
         </div>
@@ -218,37 +277,14 @@ function SessionGroup({
             {dedupedSessions.length > 0 ? (
               <div className="flex flex-col gap-px">
                 {dedupedSessions.map((session) => (
-                  <SessionRow
+                  <GroupRow
                     key={session.id}
-                    {...session}
-                    sessionId={session.id}
-                    renderLink={renderLink}
-                    aria-hidden={!expanded}
-                    disabled={!expanded}
-                    selected={
-                      selectedSessionId
-                        ? session.id === selectedSessionId
-                        : session.selected
-                    }
-                    onClick={
-                      onSessionSelect && expanded
-                        ? (e) =>
-                            onSessionSelect(session.id, {
-                              newTab: isOpenInNewTabModifier(e),
-                            })
-                        : undefined
-                    }
-                    onOpenInNewTab={
-                      onOpenInNewTab
-                        ? () => onOpenInNewTab(session.id)
-                        : undefined
-                    }
-                    onRenameSession={
-                      onRenameSession
-                        ? () => onRenameSession(session.id, session.title)
-                        : undefined
-                    }
-                    onDeleteSession={deleteHandlerFor(session.id)}
+                    session={session}
+                    {...rowShared}
+                    canDelete={canDeleteRow(session.id)}
+                    hidden={!expanded}
+                    selected={isSelected(session)}
+                    clickable={Boolean(onSessionSelect) && expanded}
                   />
                 ))}
               </div>

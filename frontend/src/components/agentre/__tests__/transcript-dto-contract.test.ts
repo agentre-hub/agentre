@@ -36,6 +36,17 @@ export type MessageIsAssignable = Assert<
   chat_svc.ChatMessage extends TranscriptMessage ? true : false
 >;
 
+/**
+ * 消息 DTO 的**反向键集合**：包里声明了、生成类型却没有的键，就是桌面端永远读到
+ * undefined 的那一格。可选字段（如增量 reload 的游标 `version`）让上面的单向断言
+ * 接不住这种漂移，这里补上。
+ */
+export type MessageFieldsEmittedByHost = Assert<
+  Exclude<keyof TranscriptMessage, keyof chat_svc.ChatMessage> extends never
+    ? true
+    : false
+>;
+
 export type BlockIsAssignable = Assert<
   chat_svc.ChatBlock extends TranscriptBlock ? true : false
 >;
@@ -109,7 +120,9 @@ describe("transcript DTO contract", () => {
   it("keeps generated chat_svc models assignable to the shared package DTO", () => {
     // 类型断言在 tsc 阶段生效（见上方 Assert<>）；这里只留一条运行时锚点，
     // 说明这份守卫的失败信号来自类型检查而不是断言表达式。
-    const proof: MessageIsAssignable & BlockIsAssignable = true;
+    const proof: MessageIsAssignable &
+      MessageFieldsEmittedByHost &
+      BlockIsAssignable = true;
 
     expect(proof).toBe(true);
   });

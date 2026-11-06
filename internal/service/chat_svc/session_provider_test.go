@@ -762,6 +762,7 @@ func expectFirstTurnWrites(m *chatMocks, sessionID int64) {
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().List(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 }
 
 func expectExistingTurnWrites(m *chatMocks, sessionID int64) {
@@ -780,4 +781,5 @@ func expectExistingTurnWrites(m *chatMocks, sessionID int64) {
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().List(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 }

@@ -56,8 +56,14 @@ var defaultSubagentSelector = subagentSelector{
 	newTracker: newSubagentTracker,
 }
 
+// isSubagentToolName 判定一个工具名是否可能是 subagent 工具:selectCandidate 只考虑这些,
+// 进度帧的懒解码(piProgressTool)也只为它们解码,两处共用这一条规则。
+func isSubagentToolName(name string) bool {
+	return strings.Contains(strings.ToLower(name), "subagent")
+}
+
 func (s subagentSelector) selectCandidate(name, outerToolCallID string, input []byte) (*subagentTracker, *canonical.AgentSpawn) {
-	if !strings.Contains(strings.ToLower(name), "subagent") {
+	if !isSubagentToolName(name) {
 		return nil, nil
 	}
 	inv, ok := s.classify(input)

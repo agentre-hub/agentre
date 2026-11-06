@@ -58,7 +58,7 @@ func TestFailTurn_PublishesExactlyOneErrTerminal(t *testing.T) {
 		t.Cleanup(func() { chat_repo.RegisterSession(prevSess) })
 
 		// failTurn 写一次 message + 一次 session, 都成功即可。
-		msgRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+		msgRepo.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Nil(), -1).Return(nil)
 		sessRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 
 		svc := chat_svc.NewChatForTest(chat_svc.NoopEmitter{})

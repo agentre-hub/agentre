@@ -68,7 +68,16 @@ type Watcher struct {
 	// 还在应答的机器的 last_seen 倒拨回几小时前 —— 设备面板与派发前的可用性判据
 	// 都从这一列推出来(5 分钟窗口),于是中转一断,同一个局域网里的机器当场被判离线。
 	lastSeen int64
+
+	// lastPersistMs 是上一次 last_seen 落库的时刻(clock)。心跳成功只在距上次落库
+	// 满 lastSeenPersistIntervalMs 时才写库;上线 / 报错这两类状态变化不受节流,
+	// 每次都立即写(见 persistLastSeen)。同样只由 Run 那一条 goroutine 读写。
+	lastPersistMs int64
 }
+
+// lastSeenPersistIntervalMs 是心跳成功时 last_seen 落库的最小间隔。在线判定窗口是
+// 5 分钟,60 s 粒度足够;每 5 s 写一次会让每台设备每天约 1.7 万次 SQLite 写。
+const lastSeenPersistIntervalMs int64 = 60_000
 
 // keychainTokenAccount 与 remote_device_svc.keychainAccountForToken 同步;
 // watcher_svc 单独定义避免反向依赖。
@@ -231,7 +240,11 @@ func (w *Watcher) heartbeat(ctx context.Context, c client.ProtobufConnection, ro
 				w.emitError(row, "dial_failed:"+err.Error())
 				return true
 			}
-			_ = w.repo.UpdateLastSeen(context.Background(), w.deviceID, w.markSeen(w.clock.NowMs()), "")
+			now := w.clock.NowMs()
+			seen := w.markSeen(now)
+			if d := now - w.lastPersistMs; d < 0 || d >= lastSeenPersistIntervalMs {
+				w.persistLastSeen(seen, "")
+			}
 			recordHealth(w.recorder, w.deviceID, res)
 			// online 状态持续:不再 emit,避免事件风暴
 		}
@@ -269,9 +282,16 @@ func (w *Watcher) markSeen(nowMs int64) int64 {
 	return w.lastSeen
 }
 
+// persistLastSeen 立即把 last_seen 落库,并记下落库时刻。状态变化(上线 / 报错)
+// 走这里,不受心跳节流约束。
+func (w *Watcher) persistLastSeen(lastSeen int64, errMsg string) {
+	_ = w.repo.UpdateLastSeen(context.Background(), w.deviceID, lastSeen, errMsg)
+	w.lastPersistMs = w.clock.NowMs()
+}
+
 func (w *Watcher) emitOnline(row *paired_agentred_entity.PairedAgentred) {
 	now := w.markSeen(w.clock.NowMs())
-	_ = w.repo.UpdateLastSeen(context.Background(), w.deviceID, now, "")
+	w.persistLastSeen(now, "")
 	w.emit.Emit(StateEvent{
 		ID: w.deviceID, Name: row.Name, Online: true,
 		LastSeenAt: now, LastError: "",
@@ -287,7 +307,7 @@ func (w *Watcher) emitError(row *paired_agentred_entity.PairedAgentred, errMsg s
 	}
 	// 失败不改变「最后一次见到它」是什么时候:拿行快照回写只会把它倒拨回拨号那一刻。
 	lastSeen = w.markSeen(lastSeen)
-	_ = w.repo.UpdateLastSeen(context.Background(), w.deviceID, lastSeen, errMsg)
+	w.persistLastSeen(lastSeen, errMsg)
 	w.emit.Emit(StateEvent{
 		ID: w.deviceID, Name: name, Online: false,
 		LastSeenAt: lastSeen, LastError: errMsg,

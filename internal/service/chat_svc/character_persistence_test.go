@@ -8,6 +8,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
@@ -61,8 +62,8 @@ func TestCharacterization_Persistence_CheckpointAssistantSurvivesCancel(t *testi
 		canceledCtx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		msgRepo.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-			func(ctx context.Context, _ *chat_entity.Message, _ string) error {
+		msgRepo.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, _ *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 				So(ctx.Err(), ShouldBeNil)
 				return nil
 			},

@@ -117,7 +117,7 @@ func NewApp(modes ...RuntimeMode) *App {
 
 var resetStaleActiveSessions = bootstrap.ResetStaleActiveSessions
 
-// settleOrphanedAgrctlCards 是启动清理的第二步,见 resetStaleSessionsOnStartup。
+// settleOrphanedAgrctlCards 是启动清理的第二步,见 runStartupRecovery。
 var settleOrphanedAgrctlCards = chat_svc.SettleOrphanedAgrctlCards
 
 // Startup is wired to wails OnStartup. The context is saved so we can call
@@ -125,8 +125,7 @@ var settleOrphanedAgrctlCards = chat_svc.SettleOrphanedAgrctlCards
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 	a.registerNotificationHandlers()
-	a.resetStaleSessionsOnStartup(ctx)
-	a.registerChatService()
+	a.runStartupRecovery(ctx, a.registerChatService)
 	// 桌面端全局审批弹窗背后的队列：装在这里而不是 registerChatService，因为它不依赖
 	// chat_svc，只要 a.ctx 就绪即可推事件（ctl_svc.RegisterDeps 在 registerChatService
 	// 里另外接，互不影响）。
@@ -216,7 +215,14 @@ func (a *App) catchUpRemoteSessions() {
 // 挂在同一条信号上),补齐挂上去即可,不必另起一个轮询。
 //
 // 补成过的设备再上线是 no-op(判据在 chat_svc 那侧),所以设备抖动不会变成 attach 风暴。
+//
+// 上线/下线两种信号都先转给连接池:在线期间池连接不因空闲关闭,下线后恢复空闲回收。
 func (a *App) onRemoteDeviceOnline(id int64, online bool) {
+	if rd := remote_device_svc.Default(); rd != nil {
+		if sink, ok := rd.Pool().(remote_device_svc.DeviceOnlineSink); ok {
+			sink.SetDeviceOnline(id, online)
+		}
+	}
 	if !online {
 		return
 	}
@@ -232,14 +238,26 @@ func (a *App) onRemoteDeviceOnline(id int64, online bool) {
 	}()
 }
 
+// runStartupRecovery 是启动清理的编排:会话重置 → 聊天服务就绪 → 后台收尾孤儿 agrctl 卡。
+// 先记下启动时刻 cutoff,收尾只处理建于它之前的卡。
+func (a *App) runStartupRecovery(ctx context.Context, registerChat func()) {
+	cutoff := time.Now()
+	a.resetStaleSessionsOnStartup(ctx)
+	registerChat()
+	// 承载 agrctl 的进程随上一个桌面进程死掉,本机父会话里仍 running/waiting 的 agrctl 卡
+	// 再没有谁会给它写终态:收成已取消。远端父会话的卡归 agentred,不在此列。大库上这一步
+	// 要几十秒,所以排在聊天服务就绪之后、跑在后台,失败只记日志;cutoff 保证它碰不到
+	// 启动之后新开的卡。
+	go func() {
+		if _, err := settleOrphanedAgrctlCards(ctx, cutoff); err != nil {
+			logger.Ctx(ctx).Warn("app.Startup: settle orphaned agrctl cards", zap.Error(err))
+		}
+	}()
+}
+
 func (a *App) resetStaleSessionsOnStartup(ctx context.Context) {
 	if err := resetStaleActiveSessions(ctx); err != nil {
 		logger.Ctx(ctx).Warn("app.Startup: reset stale active sessions", zap.Error(err))
-	}
-	// 承载 agrctl 的进程随上一个桌面进程死掉,本机父会话里仍 running/waiting 的 agrctl 卡
-	// 再没有谁会给它写终态:紧接着收成已取消。远端父会话的卡归 agentred,不在此列。
-	if _, err := settleOrphanedAgrctlCards(ctx); err != nil {
-		logger.Ctx(ctx).Warn("app.Startup: settle orphaned agrctl cards", zap.Error(err))
 	}
 }
 

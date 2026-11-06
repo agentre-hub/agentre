@@ -37,6 +37,7 @@ func (r *Runtime) QueryCLIModels(ctx context.Context, req agentruntime.CLIModelQ
 		pkgpiagent.WithBinary(binary),
 		pkgpiagent.WithEnv(env),
 		pkgpiagent.WithRawSink(piRawFrameSink(0, "")),
+		pkgpiagent.WithRawSinkEnabled(piRawFrameEnabled),
 	)
 	query := r.queryModels
 	if query == nil {

@@ -10,15 +10,20 @@ import (
 
 	"github.com/cago-frame/agents/provider"
 	"github.com/cago-frame/cago/pkg/consts"
+	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/mock_agentruntime"
@@ -137,6 +142,7 @@ func TestDriveAutonomousTurn_PersistsPureAssistantTurn(t *testing.T) {
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 		evs := make(chan agentruntime.Event, 2)
 		evs <- agentruntime.TextDelta{Text: "autonomous:listing"}
@@ -281,6 +287,7 @@ func TestDriveAutonomousTurn_PersistsTurnTriggerOnTheAssistantRow(t *testing.T) 
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 		evs := make(chan agentruntime.Event, 2)
 		evs <- agentruntime.TextDelta{Text: "继续分派其余审查 agent。"}
@@ -320,8 +327,8 @@ func TestDriveAutonomousTurn_TruncatedTurn_PersistsTerminatedNotCompleted(t *tes
 		m.dbMock.ExpectCommit()
 
 		var final *chat_entity.Message
-		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
-			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 				cp := *msg
 				final = &cp
 				return nil
@@ -404,6 +411,7 @@ func TestDriveAutonomousTurn_BrowserInitiatedRound_PersistsUserMessageWithSource
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 		// 事件流开头是 daemon 注入的 user_message 标记,后面才是后端真正的事件。
 		evs := make(chan agentruntime.Event, 3)
@@ -512,6 +520,7 @@ func TestDriveAutonomousTurn_BrowserInitiatedRound_NameMissing_FallsBackWithoutB
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 		evs := make(chan agentruntime.Event, 2)
 		evs <- agentruntime.UserMessageEvent{Text: "继续", SourceDevice: "sha256:web-device"}
@@ -587,6 +596,7 @@ func TestDriveAutonomousTurn_LocalInitiatedRound_PersistsUserMessageWithoutSourc
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 		evs := make(chan agentruntime.Event, 2)
 		evs <- agentruntime.UserMessageEvent{Text: "本机发的消息"}
@@ -903,6 +913,7 @@ func TestDriveAutonomousTurn_BackgroundTaskCompletionFlipsAndEmits(t *testing.T)
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 		// 关键断言:finalize 后定向翻转上一条消息里的 subagent_state（含 summary）。
 		m.message.EXPECT().
@@ -970,6 +981,7 @@ func TestDriveAutonomousTurn_CompletionOfAResumedTask_FlipsTheOriginalCard(t *te
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		m.dbMock.ExpectCommit()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 		m.message.EXPECT().
 			FlipSubagentStatus(gomock.Any(), int64(100), "tu-B", "T", "completed", "报告").
@@ -1023,8 +1035,8 @@ func TestDriveAutonomousTurn_CancelsInFlightSubagent(t *testing.T) {
 
 		// 捕获最终落库的 blocks_json(收尾 Update)。
 		var finalBlocksJSON string
-		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
-			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 				finalBlocksJSON = msg.BlocksJSON
 				return nil
 			}).AnyTimes()
@@ -1083,8 +1095,8 @@ func TestDriveAutonomousTurn_KeepsBackgroundSubagentRunning(t *testing.T) {
 		m.dbMock.ExpectCommit()
 
 		var finalBlocksJSON string
-		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
-			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 				finalBlocksJSON = msg.BlocksJSON
 				return nil
 			}).AnyTimes()
@@ -1141,8 +1153,8 @@ func TestDriveAutonomousTurn_TruncatedTurn_CancelsBackgroundSubagent(t *testing.
 		m.dbMock.ExpectCommit()
 
 		var finalBlocksJSON string
-		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
-			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 				finalBlocksJSON = msg.BlocksJSON
 				return nil
 			}).AnyTimes()
@@ -1267,6 +1279,7 @@ func TestRunTurn_MountsAutonomousWatcher(t *testing.T) {
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 		m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		m.dbMock.ExpectBegin()
 		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(1, nil)
 		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
@@ -1330,6 +1343,7 @@ func TestDriveAutonomousTurn_SteerConsumedSegmentsTheTurn(t *testing.T) {
 			}).AnyTimes()
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 		evs := make(chan agentruntime.Event, 4)
 		evs <- agentruntime.TextDelta{Text: "后台任务跑完了,我接着说"}
@@ -1416,8 +1430,8 @@ func TestDriveAutonomousTurn_RemotePreviewFramesStillRenderPerToken(t *testing.T
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		m.dbMock.ExpectCommit()
 		var finalBlocks string
-		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
-			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 				finalBlocks = msg.BlocksJSON
 				return nil
 			}).AnyTimes()
@@ -1518,6 +1532,7 @@ func TestDriveAutonomousTurn_CatchUpReplay_ReusesTheLocalInFlightAssistantRow(t 
 			m.message.EXPECT().LatestAssistant(gomock.Any(), int64(100)).Return(tc.latest, nil).AnyTimes()
 			m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil).AnyTimes()
 			m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 			m.dbMock.ExpectBegin()
 			created := 0
@@ -1595,6 +1610,7 @@ func TestDriveAutonomousTurn_PreviewSteerConsumedRendersButDoesNotPersist(t *tes
 			}).AnyTimes()
 		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 		evs := make(chan agentruntime.Event)
 		go func() {
@@ -1699,13 +1715,12 @@ func setupCatchUpTurn(t *testing.T) *catchUpTurnMocks {
 			c.created = append(c.created, &cp)
 			return nil
 		}).AnyTimes()
-	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ []*transcript_entity.MessageBlock, _ int) error {
 			c.finalBlocks = msg.BlocksJSON
 			c.finalError = msg.ErrorText
 			return nil
 		}).AnyTimes()
-	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	m.message.EXPECT().FindAssistantBySubagentToolCallID(gomock.Any(), int64(100), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ int64, toolCallID string) (*chat_entity.Message, error) {
 			if toolCallID != "T" {
@@ -1897,4 +1912,56 @@ func TestDriveAutonomousTurn_GivenContentFreeCatchUpTurnEnds_ThenItSettlesOnlyAS
 			}
 		})
 	}
+}
+
+// Given 自主续轮收尾写库失败(例如别的会话长时间持有写锁)
+// When  driveAutonomousTurn 收尾
+// Then  记一条 Error(chat_svc.driveAutonomousTurn: 前缀,带 sessionId / assistantMsgId / error),
+//
+//	不再被 `_ =` 吞掉;收尾只交变了的块行,不经 Update。
+func TestDriveAutonomousTurn_GivenFinalPersistFails_ThenLogsError(t *testing.T) {
+	core, logs := observer.New(zapcore.InfoLevel)
+	old := logger.Default()
+	logger.SetLogger(zap.New(core))
+	t.Cleanup(func() { logger.SetLogger(old) })
+
+	m := setupChatTest(t)
+	sess := &chat_entity.Session{ID: 100, AgentID: 7, AgentStatus: "idle"}
+	be := &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"}
+	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
+	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	m.dbMock.ExpectBegin()
+	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil)
+	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			msg.ID = 2001
+			return nil
+		})
+	m.dbMock.ExpectCommit()
+	var rows [][]int
+	m.message.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ *chat_entity.Message, blockRows []*transcript_entity.MessageBlock, _ int) error {
+			idx := make([]int, 0, len(blockRows))
+			for _, r := range blockRows {
+				idx = append(idx, r.Idx)
+			}
+			rows = append(rows, idx)
+			return errors.New("database is locked")
+		})
+
+	evs := make(chan agentruntime.Event, 1)
+	evs <- agentruntime.TextDelta{Text: "autonomous answer"}
+	close(evs)
+	chat_svc.DriveAutonomousTurnForTest(m.ctx, m.svc, 100, be, agentruntime.AutonomousTurn{
+		Events: evs, Result: &agentruntime.RunResult{}, Trigger: "background_task",
+	})
+
+	assert.Equal(t, [][]int{{0}}, rows)
+	entries := logs.FilterMessage("chat_svc.driveAutonomousTurn: persist assistant message failed").All()
+	require.Len(t, entries, 1)
+	assert.Equal(t, zapcore.ErrorLevel, entries[0].Level)
+	fields := entries[0].ContextMap()
+	assert.Equal(t, int64(100), fields["sessionId"])
+	assert.Equal(t, int64(2001), fields["assistantMsgId"])
+	assert.Equal(t, "database is locked", fields["error"])
 }

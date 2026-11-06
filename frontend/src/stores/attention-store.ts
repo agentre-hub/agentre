@@ -34,6 +34,27 @@ function useStableArray<T>(arr: readonly T[]): readonly T[] {
 // 原样转出来，本仓库的 import 路径与单测一个都不用改；下面两个 hook 自己也用它。
 export { computeAttention };
 
+/**
+ * 单个会话的 attention 判定，输入是该会话在三个 store 里各自的条目。
+ * useSessionAttentionList 与侧栏按组切片的订阅共用它 —— 判定只此一处。
+ */
+export function attentionReasonFor(
+  meta: { lastMessageAt?: number; lastReadAt?: number },
+  status:
+    | { agentStatus?: string; needsAttention?: boolean; bgRunning?: boolean }
+    | undefined,
+  readOverride: number | undefined,
+): AttentionReason | null {
+  return computeAttention({
+    agentStatus: (status?.agentStatus ??
+      "idle") as AttentionInput["agentStatus"],
+    needsAttention: status?.needsAttention ?? false,
+    lastMessageAt: meta.lastMessageAt ?? 0,
+    lastReadAt: Math.max(meta.lastReadAt ?? 0, readOverride ?? 0),
+    bgRunning: status?.bgRunning ?? false,
+  });
+}
+
 export function useSessionAttention(sessionId: number): {
   reason: AttentionReason | null;
   isAttention: boolean;
@@ -67,18 +88,11 @@ export function useSessionAttentionList(
     for (const sid of stable) {
       const meta = metas.get(sid);
       if (!meta) continue;
-      const status = statuses.get(sid);
-      const lastReadAt = Math.max(
-        meta.lastReadAt ?? 0,
-        overrides.get(sid) ?? 0,
+      const reason = attentionReasonFor(
+        meta,
+        statuses.get(sid),
+        overrides.get(sid),
       );
-      const reason = computeAttention({
-        agentStatus: status?.agentStatus ?? "idle",
-        needsAttention: status?.needsAttention ?? false,
-        lastMessageAt: meta.lastMessageAt ?? 0,
-        lastReadAt,
-        bgRunning: status?.bgRunning ?? false,
-      });
       if (reason !== null) out.push({ sessionId: sid, reason });
     }
     return out;

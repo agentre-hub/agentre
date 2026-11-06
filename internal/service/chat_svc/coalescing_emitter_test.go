@@ -41,17 +41,73 @@ func (r *coalesceRecorder) events() []ChatStreamEvent {
 	return out
 }
 
-// fixedClock 让 flush 的时间判定在测试里完全确定,不依赖真实时钟。
-type fixedClock struct{ t time.Time }
+// fixedClock 让 flush 的时间判定在测试里完全确定,不依赖真实时钟;同时充当假定时器:
+// advance 推进时间并同步触发到期的定时器,add 只推进时间(模拟「没有定时器介入」)。
+type fixedClock struct {
+	t      time.Time
+	timers []*fakeTimer
+}
+
+type fakeTimer struct {
+	due     time.Time
+	f       func()
+	stopped bool
+	fired   bool
+}
+
+func (f *fakeTimer) Stop() bool {
+	was := !f.stopped && !f.fired
+	f.stopped = true
+	return was
+}
 
 func (c *fixedClock) now() time.Time      { return c.t }
 func (c *fixedClock) add(d time.Duration) { c.t = c.t.Add(d) }
+
+func (c *fixedClock) afterFunc(d time.Duration, f func()) timerStopper {
+	ft := &fakeTimer{due: c.t.Add(d), f: f}
+	c.timers = append(c.timers, ft)
+	return ft
+}
+
+// advance 推进时间,并触发所有到期且未停止的定时器。
+func (c *fixedClock) advance(d time.Duration) {
+	c.t = c.t.Add(d)
+	for _, ft := range c.timers {
+		if !ft.stopped && !ft.fired && !ft.due.After(c.t) {
+			ft.fired = true
+			ft.f()
+		}
+	}
+}
+
+// live 返回仍然挂着(未触发、未停止)的定时器数。
+func (c *fixedClock) live() int {
+	n := 0
+	for _, ft := range c.timers {
+		if !ft.stopped && !ft.fired {
+			n++
+		}
+	}
+	return n
+}
 
 func newTestCoalescer(inner Emitter) (*coalescingEmitter, *fixedClock) {
 	clk := &fixedClock{t: time.Unix(0, 0)}
 	ce := NewCoalescingEmitter(inner).(*coalescingEmitter)
 	ce.now = clk.now
+	ce.afterFunc = clk.afterFunc
 	return ce, clk
+}
+
+// prime 让某路流"刚刚发过一次",之后的 delta 才会进入攒批路径;随后清空记录。
+func prime(ce *coalescingEmitter, rec *coalesceRecorder, streams ...string) {
+	for _, s := range streams {
+		ce.Emit(context.Background(), s, ChatStreamEvent{Kind: StreamChunk, Delta: "."})
+	}
+	rec.mu.Lock()
+	rec.rows = nil
+	rec.mu.Unlock()
 }
 
 func TestCoalescingEmitter_MergesConsecutiveDeltasOnTheSameStream(t *testing.T) {
@@ -59,6 +115,7 @@ func TestCoalescingEmitter_MergesConsecutiveDeltasOnTheSameStream(t *testing.T) 
 		rec := &coalesceRecorder{}
 		ce, clk := newTestCoalescer(rec)
 		ctx := context.Background()
+		prime(ce, rec, "s1")
 
 		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "he"})
 		clk.add(time.Millisecond)
@@ -87,6 +144,7 @@ func TestCoalescingEmitter_FlushesBeforeAnyNonTextEvent(t *testing.T) {
 		rec := &coalesceRecorder{}
 		ce, _ := newTestCoalescer(rec)
 		ctx := context.Background()
+		prime(ce, rec, "s1")
 
 		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "let me check"})
 		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamToolUse, ToolCallID: "t1", ToolName: "Read"})
@@ -110,6 +168,7 @@ func TestCoalescingEmitter_DoesNotMixChunkAndThinking(t *testing.T) {
 		rec := &coalesceRecorder{}
 		ce, _ := newTestCoalescer(rec)
 		ctx := context.Background()
+		prime(ce, rec, "s1")
 
 		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamThinking, Delta: "hmm"})
 		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "answer"})
@@ -131,6 +190,7 @@ func TestCoalescingEmitter_KeepsStreamsIndependent(t *testing.T) {
 		rec := &coalesceRecorder{}
 		ce, _ := newTestCoalescer(rec)
 		ctx := context.Background()
+		prime(ce, rec, "s1", "s2")
 
 		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "A1"})
 		ce.Emit(ctx, "s2", ChatStreamEvent{Kind: StreamChunk, Delta: "B1"})
@@ -152,27 +212,140 @@ func TestCoalescingEmitter_KeepsStreamsIndependent(t *testing.T) {
 }
 
 func TestCoalescingEmitter_FlushesOnceIntervalElapsed(t *testing.T) {
-	Convey("攒够一个间隔就发,单条流不会被无限期攒住", t, func() {
+	Convey("距本流上次发送已过一个间隔的 delta 立即发出,带上此前攒着的", t, func() {
 		rec := &coalesceRecorder{}
 		ce, clk := newTestCoalescer(rec)
 		ctx := context.Background()
+		prime(ce, rec, "s1")
 
 		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "a"})
 		clk.add(deltaFlushInterval / 2)
 		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "b"})
 		So(len(rec.events()), ShouldEqual, 0)
 
-		// 越过间隔的这一条把自己也一并带出去。
+		// 没经过定时器(时钟只前进)而越过间隔的这一条把自己也一并带出去。
 		clk.add(deltaFlushInterval)
 		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "c"})
 
 		evs := rec.events()
 		So(len(evs), ShouldEqual, 1)
 		So(evs[0].Delta, ShouldEqual, "abc")
+		// 立即发出后旧定时器被停掉,不会再发第二遍。
+		So(clk.live(), ShouldEqual, 0)
 
-		// flush 之后重新起算,下一条不该立刻又发。
+		// 刚发过,下一条重新攒,不该立刻又发。
 		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "d"})
 		So(len(rec.events()), ShouldEqual, 1)
+	})
+}
+
+func TestCoalescingEmitter_TrailingTimerFlushesStalledTail(t *testing.T) {
+	Convey("攒着的尾巴在一个间隔内由定时器发出,之后没有任何事件也不丢", t, func() {
+		rec := &coalesceRecorder{}
+		ce, clk := newTestCoalescer(rec)
+		ctx := context.Background()
+		prime(ce, rec, "s1")
+
+		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "a"})
+		clk.add(5 * time.Millisecond)
+		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "b"})
+		So(len(rec.events()), ShouldEqual, 0)
+		So(clk.live(), ShouldEqual, 1)
+
+		// 定时器未到期不发;到期(距上次发送 16ms)一次发出合并后的 "ab"。
+		clk.advance(5 * time.Millisecond)
+		So(len(rec.events()), ShouldEqual, 0)
+		clk.advance(6 * time.Millisecond)
+		evs := rec.events()
+		So(len(evs), ShouldEqual, 1)
+		So(evs[0].Delta, ShouldEqual, "ab")
+		So(clk.live(), ShouldEqual, 0)
+
+		// 再久也不会重复发。
+		clk.advance(time.Second)
+		So(len(rec.events()), ShouldEqual, 1)
+	})
+}
+
+func TestCoalescingEmitter_TimerDoesNotOvertakeOrOutliveTerminal(t *testing.T) {
+	Convey("非文本 / 终态事件先发掉文本并停定时器,终态之后不再有文字", t, func() {
+		rec := &coalesceRecorder{}
+		ce, clk := newTestCoalescer(rec)
+		ctx := context.Background()
+		prime(ce, rec, "s1")
+
+		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "tail"})
+		So(clk.live(), ShouldEqual, 1)
+		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamToolUse, ToolCallID: "t1"})
+		So(clk.live(), ShouldEqual, 0)
+
+		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "last"})
+		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamAborted})
+		clk.advance(time.Second)
+
+		evs := rec.events()
+		So(len(evs), ShouldEqual, 4)
+		So(evs[0].Delta, ShouldEqual, "tail")
+		So(evs[1].Kind, ShouldEqual, StreamToolUse)
+		So(evs[2].Delta, ShouldEqual, "last")
+		So(evs[3].Kind, ShouldEqual, StreamAborted)
+		So(clk.live(), ShouldEqual, 0)
+		ce.mu.Lock()
+		defer ce.mu.Unlock()
+		So(len(ce.streams), ShouldEqual, 0)
+	})
+}
+
+func TestCoalescingEmitter_StaleTimerCallbackEmitsNothing(t *testing.T) {
+	Convey("已被别的 flush 接管的过期定时器回调什么都不发", t, func() {
+		rec := &coalesceRecorder{}
+		ce, clk := newTestCoalescer(rec)
+		ctx := context.Background()
+		prime(ce, rec, "s1")
+
+		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "x"})
+		stale := clk.timers[len(clk.timers)-1]
+		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamDone})
+		// 模拟定时器已出队、Stop 来不及:直接调用回调。
+		stale.f()
+
+		evs := rec.events()
+		So(len(evs), ShouldEqual, 2)
+		So(evs[0].Delta, ShouldEqual, "x")
+		So(evs[1].Kind, ShouldEqual, StreamDone)
+	})
+}
+
+func TestCoalescingEmitter_RealTimerFlushesTailWithoutFurtherEvents(t *testing.T) {
+	Convey("默认(真实)定时器同样把尾巴发出去", t, func() {
+		rec := &coalesceRecorder{}
+		ce := NewCoalescingEmitter(rec)
+		ctx := context.Background()
+
+		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "a"})
+		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "b"})
+
+		deadline := time.Now().Add(2 * time.Second)
+		for len(rec.events()) < 2 && time.Now().Before(deadline) {
+			time.Sleep(2 * time.Millisecond)
+		}
+		evs := rec.events()
+		So(len(evs), ShouldEqual, 2)
+		So(evs[0].Delta+evs[1].Delta, ShouldEqual, "ab")
+	})
+}
+
+func TestCoalescingEmitter_FirstDeltaIsNotHeldForNextEvent(t *testing.T) {
+	Convey("一条 delta 之后没有任何后续事件,也不会一直不可见", t, func() {
+		rec := &coalesceRecorder{}
+		ce, clk := newTestCoalescer(rec)
+
+		ce.Emit(context.Background(), "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "a"})
+		clk.add(20 * time.Millisecond)
+
+		evs := rec.events()
+		So(len(evs), ShouldEqual, 1)
+		So(evs[0].Delta, ShouldEqual, "a")
 	})
 }
 
@@ -198,6 +371,7 @@ func TestCoalescingEmitter_PassesThroughForeignPayloads(t *testing.T) {
 		rec := &coalesceRecorder{}
 		ce, _ := newTestCoalescer(rec)
 		ctx := context.Background()
+		prime(ce, rec, "s1")
 
 		ce.Emit(ctx, "s1", ChatStreamEvent{Kind: StreamChunk, Delta: "text"})
 		ce.Emit(ctx, "s1", map[string]any{"kind": "something_else"})
@@ -225,10 +399,10 @@ func TestCoalescingEmitter_EmptyDeltaDoesNotEmitEmptyEvent(t *testing.T) {
 	})
 }
 
-// TestCoalescingEmitter_ReleasesStreamStateAfterFlush 缓冲表只能装"此刻有待发文本"
-// 的流。会话开开关关是常态,flush 之后不删条目就是一张只增不减的表。
+// TestCoalescingEmitter_ReleasesStreamStateAfterFlush 状态表在终态事件后必须释放。
+// 会话开开关关是常态,不删条目就是一张只增不减的表。
 func TestCoalescingEmitter_ReleasesStreamStateAfterFlush(t *testing.T) {
-	Convey("flush 之后不留下 per-stream 条目", t, func() {
+	Convey("终态之后不留下 per-stream 条目", t, func() {
 		rec := &coalesceRecorder{}
 		ce, _ := newTestCoalescer(rec)
 		ctx := context.Background()
@@ -241,7 +415,7 @@ func TestCoalescingEmitter_ReleasesStreamStateAfterFlush(t *testing.T) {
 
 		ce.mu.Lock()
 		defer ce.mu.Unlock()
-		So(len(ce.pending), ShouldEqual, 0)
+		So(len(ce.streams), ShouldEqual, 0)
 	})
 }
 

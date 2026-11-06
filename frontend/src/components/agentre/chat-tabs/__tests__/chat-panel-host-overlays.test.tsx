@@ -8,6 +8,14 @@ import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionIndexStore } from "@/stores/session-index-store";
 
+// 未挂载面板的 tab 仍订阅会话级旁路事件（DormantSessionTab）；runtime 换成空订阅。
+vi.mock("../../../../../wailsjs/runtime/runtime", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../../../../wailsjs/runtime/runtime")
+  >()),
+  EventsOn: vi.fn(() => () => {}),
+}));
+
 // 面板换成只挂真实后台任务按钮的桩：可见性信号从真实宿主（ChatPanelHost →
 // HostedPanel → PanelShownContext）一路传到真实按钮，中间不经手写的隐藏祖先。
 vi.mock("../../chat-panel", async () => {

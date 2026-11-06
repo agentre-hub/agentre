@@ -310,6 +310,21 @@ func piRawFrameSink(sessionID int64, providerSessionID string) func([]byte) {
 	}
 }
 
+// piRawFrameEnabled gates the raw-frame sink. Sanitizing a frame is a full
+// unmarshal+marshal and the sink only writes a Debug entry, so skip it unless
+// the logger installed right now (it is replaced when Debug Logging flips)
+// would record Debug.
+func piRawFrameEnabled() bool {
+	return logger.Default().Core().Enabled(zap.DebugLevel)
+}
+
+// piProgressTool reports whether a tool's tool_execution_update progress is
+// consumed. Only subagent tools feed a tracker (see selectCandidate); every
+// other tool's progress frame is dropped, so pkg/piagent skips decoding it.
+func piProgressTool(name string) bool {
+	return isSubagentToolName(name)
+}
+
 func safePiFrameType(frameType string) (string, bool) {
 	switch frameType {
 	case "response",
@@ -454,6 +469,8 @@ var sessionFactory = func(req agentruntime.RunRequest, env map[string]string, cw
 		piagent.WithSystemPrompt(req.SystemPrompt),
 		piagent.WithThinking(req.Backend.ReasoningEffort),
 		piagent.WithRawSink(piRawFrameSink(req.SessionID, req.ProviderSessionID)),
+		piagent.WithRawSinkEnabled(piRawFrameEnabled),
+		piagent.WithProgressTools(piProgressTool),
 	}
 	for _, ep := range extPaths {
 		opts = append(opts, piagent.WithExtension(ep))

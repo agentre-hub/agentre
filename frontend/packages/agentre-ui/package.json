@@ -15,6 +15,9 @@
     "./i18n": {
       "default": "./src/i18n/index.ts"
     },
+    "./terminal": {
+      "default": "./src/terminal/terminal-panel.tsx"
+    },
     ".": {
       "default": "./src/index.ts"
     }

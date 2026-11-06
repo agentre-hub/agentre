@@ -146,4 +146,39 @@ describe("local session CLI models", () => {
     expect(clear).not.toHaveBeenCalled();
     expect(result.current.error).toContain("Model denied by CLI");
   });
+  it("Given unchanged inputs, When the host re-renders, Then the hook hands back the same object, inherit callback and picker state; When the persisted choice changes, Then those follow", async () => {
+    const onChosen = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ mode, value }: { mode: string; value: string }) =>
+        useChatCLIModel({
+          backendId: 7,
+          enabled: true,
+          sessionId: 42,
+          persistedMode: mode,
+          persistedValue: value,
+          onChosen,
+        }),
+      { initialProps: { mode: "fixed", value: "opus" } },
+    );
+    await waitFor(() =>
+      expect(result.current.cliModels?.models).toHaveLength(1),
+    );
+    const settled = result.current;
+    rerender({ mode: "fixed", value: "opus" });
+    expect(result.current).toBe(settled);
+    expect(result.current.inherit).toBe(settled.inherit);
+    expect(result.current.cliModels).toBe(settled.cliModels);
+    expect(result.current.choice).toBe(settled.choice);
+
+    rerender({ mode: "fixed", value: "sonnet" });
+    await waitFor(() =>
+      expect(result.current.choice).toEqual({ mode: "fixed", value: "sonnet" }),
+    );
+    expect(result.current).not.toBe(settled);
+    expect(result.current.cliModels).not.toBe(settled.cliModels);
+    expect(result.current.cliModels?.choice).toEqual({
+      mode: "fixed",
+      value: "sonnet",
+    });
+  });
 });

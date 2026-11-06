@@ -59,7 +59,7 @@ type SessionDeleter interface {
 // 这里进库 —— 本包不另开第二条落块路径,块怎么攒出来同样归共用的那只累积器。
 type Transcript interface {
 	StartTurn(ctx context.Context, conversationID, userText string, userBlocks []blocks.ContentBlock, source transcript.UserSource) (user, assistant *transcript_entity.Message, err error)
-	FinishTurn(ctx context.Context, m *transcript_entity.Message) error
+	FinishTurn(ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) error
 }
 
 // TranscriptPurger 清空某会话的全部转录(同 handlers.TranscriptPurgePort)。本路径
@@ -276,7 +276,12 @@ func (h *Handlers) importTurn(
 		msg.ReasoningTokens = u.ReasoningTokens
 		msg.TotalInputTokens = u.PromptTokens + u.CachedTokens + u.CacheCreationTokens
 	}
-	if err := h.transcript.FinishTurn(ctx, msg); err != nil {
+	// 回放出的 assistant 建行时正文为空,收口就是把它的全部块整条写入。
+	rows, err := transcript_entity.SplitBlocksJSON(msg.ID, msg.BlocksJSON)
+	if err != nil {
+		return fmt.Errorf("transcriptimport: split blocks: %w", err)
+	}
+	if err := h.transcript.FinishTurn(ctx, msg, rows, -1); err != nil {
 		return fmt.Errorf("transcriptimport: finish turn: %w", err)
 	}
 	counters.turns++

@@ -1,6 +1,7 @@
 package piagent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -238,8 +239,9 @@ func (s *Stream) drain(ctx context.Context, pendingFrames ...[][]byte) {
 		}
 	}
 	for scanRPCLine(drainCtx, s.proc.lines) {
-		line := append([]byte(nil), s.proc.lines.Bytes()...)
-		if !s.drainLine(drainCtx, line, true) {
+		// drainLine consumes the frame synchronously and decoding copies every
+		// retained RawMessage, so the scanner's buffer needs no defensive copy.
+		if !s.drainLine(drainCtx, s.proc.lines.Bytes(), true) {
 			s.terminateCanceledProcess(ctx)
 			return
 		}
@@ -305,8 +307,8 @@ func (s *Stream) drainLine(ctx context.Context, rawLine []byte, emitDiagnostic b
 		return false
 	default:
 	}
-	line := strings.TrimSpace(string(rawLine))
-	if line == "" {
+	line := bytes.TrimSpace(rawLine)
+	if len(line) == 0 {
 		return true
 	}
 	var probe struct {
@@ -364,8 +366,8 @@ func (s *Stream) drainLine(ctx context.Context, rawLine []byte, emitDiagnostic b
 		}
 		return true
 	}
-	var ev rpcEvent
-	if err := json.Unmarshal(rawLine, &ev); err != nil {
+	ev, ok := s.decodeEvent(probe.Type, rawLine)
+	if !ok {
 		return true
 	}
 	if err := s.handleRPCEvent(ctx, ev); err != nil {
@@ -373,12 +375,62 @@ func (s *Stream) drainLine(ctx context.Context, rawLine []byte, emitDiagnostic b
 		s.emit(Event{Kind: EventError, Err: err})
 		return false
 	}
-	s.observeAgentEnd(ev, line)
+	if ev.Type == "agent_end" {
+		s.observeAgentEnd(ev, string(line))
+	}
 	if isTerminalEvent(ev) {
 		s.settle(ctx)
 		return false
 	}
 	return true
+}
+
+// decodeEvent turns one event frame into an rpcEvent with a single main decode.
+// Hot frame types decode into lean structs that never materialize the large
+// cumulative payloads the consumers ignore: message_update repeats the whole
+// message twice (message and assistantMessageEvent.partial), and
+// tool_execution_update for a tool whose progress nobody reads carries its
+// whole partialResult. ok=false means the frame is unusable or intentionally
+// dropped.
+func (s *Stream) decodeEvent(frameType string, raw []byte) (rpcEvent, bool) {
+	switch frameType {
+	case "message_update":
+		var lean struct {
+			AssistantMessageEvent struct {
+				Type    string `json:"type"`
+				Delta   string `json:"delta"`
+				Content string `json:"content"`
+				Reason  string `json:"reason"`
+			} `json:"assistantMessageEvent"`
+		}
+		if err := json.Unmarshal(raw, &lean); err != nil {
+			return rpcEvent{}, false
+		}
+		return rpcEvent{Type: frameType, AssistantMessageEvent: assistantDelta{
+			Type:    lean.AssistantMessageEvent.Type,
+			Delta:   lean.AssistantMessageEvent.Delta,
+			Content: lean.AssistantMessageEvent.Content,
+			Reason:  lean.AssistantMessageEvent.Reason,
+		}}, true
+	case "tool_execution_update":
+		if s.proc != nil && s.proc.progressTool != nil {
+			var lean struct {
+				ToolCallID string `json:"toolCallId"`
+				ToolName   string `json:"toolName"`
+			}
+			if err := json.Unmarshal(raw, &lean); err != nil {
+				return rpcEvent{}, false
+			}
+			if !s.proc.progressTool(lean.ToolName) {
+				return rpcEvent{}, false
+			}
+		}
+	}
+	var ev rpcEvent
+	if err := json.Unmarshal(raw, &ev); err != nil {
+		return rpcEvent{}, false
+	}
+	return ev, true
 }
 
 func (s *Stream) finish(ctx context.Context) {

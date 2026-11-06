@@ -197,23 +197,23 @@ func (mr *MockTranscriptPortMockRecorder) Checkpoint(ctx, m, prevBlocksJSON any)
 }
 
 // FinishTurn mocks base method.
-func (m_2 *MockTranscriptPort) FinishTurn(ctx context.Context, m *transcript_entity.Message) error {
+func (m_2 *MockTranscriptPort) FinishTurn(ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) error {
 	m_2.ctrl.T.Helper()
-	ret := m_2.ctrl.Call(m_2, "FinishTurn", ctx, m)
+	ret := m_2.ctrl.Call(m_2, "FinishTurn", ctx, m, rows, truncateFrom)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // FinishTurn indicates an expected call of FinishTurn.
-func (mr *MockTranscriptPortMockRecorder) FinishTurn(ctx, m any) *gomock.Call {
+func (mr *MockTranscriptPortMockRecorder) FinishTurn(ctx, m, rows, truncateFrom any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishTurn", reflect.TypeOf((*MockTranscriptPort)(nil).FinishTurn), ctx, m)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishTurn", reflect.TypeOf((*MockTranscriptPort)(nil).FinishTurn), ctx, m, rows, truncateFrom)
 }
 
 // SegmentTurn mocks base method.
-func (m *MockTranscriptPort) SegmentTurn(ctx context.Context, current *transcript_entity.Message, steers []agentruntime.ConsumedSteer) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
+func (m *MockTranscriptPort) SegmentTurn(ctx context.Context, current *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int, steers []agentruntime.ConsumedSteer) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SegmentTurn", ctx, current, steers)
+	ret := m.ctrl.Call(m, "SegmentTurn", ctx, current, rows, truncateFrom, steers)
 	ret0, _ := ret[0].([]*transcript_entity.Message)
 	ret1, _ := ret[1].(*transcript_entity.Message)
 	ret2, _ := ret[2].(error)
@@ -221,9 +221,9 @@ func (m *MockTranscriptPort) SegmentTurn(ctx context.Context, current *transcrip
 }
 
 // SegmentTurn indicates an expected call of SegmentTurn.
-func (mr *MockTranscriptPortMockRecorder) SegmentTurn(ctx, current, steers any) *gomock.Call {
+func (mr *MockTranscriptPortMockRecorder) SegmentTurn(ctx, current, rows, truncateFrom, steers any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SegmentTurn", reflect.TypeOf((*MockTranscriptPort)(nil).SegmentTurn), ctx, current, steers)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SegmentTurn", reflect.TypeOf((*MockTranscriptPort)(nil).SegmentTurn), ctx, current, rows, truncateFrom, steers)
 }
 
 // StartTurn mocks base method.
@@ -240,6 +240,20 @@ func (m *MockTranscriptPort) StartTurn(ctx context.Context, conversationID, user
 func (mr *MockTranscriptPortMockRecorder) StartTurn(ctx, conversationID, userText, userBlocks, source any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartTurn", reflect.TypeOf((*MockTranscriptPort)(nil).StartTurn), ctx, conversationID, userText, userBlocks, source)
+}
+
+// UpsertBlocks mocks base method.
+func (m_2 *MockTranscriptPort) UpsertBlocks(ctx context.Context, m *transcript_entity.Message, rows []*transcript_entity.MessageBlock, truncateFrom int) error {
+	m_2.ctrl.T.Helper()
+	ret := m_2.ctrl.Call(m_2, "UpsertBlocks", ctx, m, rows, truncateFrom)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertBlocks indicates an expected call of UpsertBlocks.
+func (mr *MockTranscriptPortMockRecorder) UpsertBlocks(ctx, m, rows, truncateFrom any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertBlocks", reflect.TypeOf((*MockTranscriptPort)(nil).UpsertBlocks), ctx, m, rows, truncateFrom)
 }
 
 // MockSubagentCardPort is a mock of SubagentCardPort interface.

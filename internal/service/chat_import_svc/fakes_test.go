@@ -17,11 +17,18 @@ type fakeTranscript struct {
 	meta   transcriptimport.Meta
 	turns  []transcriptimport.Turn
 	closed bool
+	// onTurns 在 Turns 入口回调,用来断言「读取转录」发生在哪个上下文里(事务内外)。
+	onTurns func()
+	// turnsErr 在所有轮都 yield 完后由 Turns 返回,模拟读到一半 / 读尾失败。
+	turnsErr error
 }
 
 func (f *fakeTranscript) Meta() transcriptimport.Meta { return f.meta }
 
 func (f *fakeTranscript) Turns(ctx context.Context, yield func(transcriptimport.Turn) error) error {
+	if f.onTurns != nil {
+		f.onTurns()
+	}
 	for _, t := range f.turns {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -30,7 +37,7 @@ func (f *fakeTranscript) Turns(ctx context.Context, yield func(transcriptimport.
 			return err
 		}
 	}
-	return nil
+	return f.turnsErr
 }
 
 func (f *fakeTranscript) Close() error {

@@ -162,7 +162,8 @@ func (t *turnRun) resolveApproval(ctx context.Context, requestID, status, result
 	}
 	for _, a := range t.approvals {
 		if a.blk.RequestID == requestID {
-			a.blk.Status, a.blk.Result = status, result
+			// 经累加器改:卡被记为已改动,增量 checkpoint 才会重新编码这一块。
+			a.acc.MutateBlock(a.blk, func() { a.blk.Status, a.blk.Result = status, result })
 			t.svc.checkpointAssistantNew(ctx, a.msg, a.acc)
 			return *a.blk, true
 		}
@@ -196,7 +197,7 @@ func (t *turnRun) closeApprovals(ctx context.Context) {
 		if a.blk.Status != "pending" {
 			continue
 		}
-		a.blk.Status = "expired"
+		a.acc.MutateBlock(a.blk, func() { a.blk.Status = "expired" })
 		if a.msg != t.assistantMsg {
 			t.svc.checkpointAssistantNew(ctx, a.msg, a.acc)
 		}

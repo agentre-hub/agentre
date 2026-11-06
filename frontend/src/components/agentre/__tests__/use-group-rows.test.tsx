@@ -1,5 +1,5 @@
-import { renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TFunction } from "i18next";
 
 import { useGroupRows } from "../session-index/use-group-rows";
@@ -169,5 +169,30 @@ describe("useGroupRows", () => {
     // 但气泡里它在 —— 未读 error 依然需要用户去看。
     expect(result.current.attentionSessions.map((s) => s.id)).toEqual(["1819"]);
     expect(result.current.attentionSessions[0].attentionRank).toBe("error");
+  });
+  describe("relative time on the row", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // 行对象按会话缓存:只看自己的 meta / 状态有没有变。行尾的「2m」却是相对此刻算的 ——
+    // 别的会话在动、这一行没动时,它不能一直停在算出来的那一刻。
+    it("Given a row whose session stays idle, When minutes pass, Then its relative time moves on", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-11-05T10:00:00Z"));
+      seed(1, {
+        lastMessageAt: Date.now() - 2 * 60_000,
+        lastReadAt: Date.now(),
+      });
+
+      const { result } = renderHook(() => useGroupRows([1], 0, t));
+      expect(result.current.sessions[0].trailingLabel).toBe("2m");
+
+      act(() => {
+        vi.advanceTimersByTime(10 * 60_000);
+      });
+
+      expect(result.current.sessions[0].trailingLabel).toBe("12m");
+    });
   });
 });

@@ -99,8 +99,8 @@ func (f *transcriptStoreFixture) startTurn(t *testing.T, ctx context.Context) *t
 
 func (f *transcriptStoreFixture) finishTurn(t *testing.T, ctx context.Context, assistant *transcript_entity.Message) {
 	t.Helper()
-	f.messages.EXPECT().Update(gomock.Any(), assistant).Return(nil)
-	require.NoError(t, f.store.FinishTurn(ctx, assistant))
+	f.messages.EXPECT().UpsertBlocks(gomock.Any(), assistant, gomock.Nil(), -1).Return(nil)
+	require.NoError(t, f.store.FinishTurn(ctx, assistant, nil, -1))
 }
 
 // allocate 给这条消息的一帧取号;allocErr 非空时台账那一侧失败。

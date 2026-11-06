@@ -73,6 +73,42 @@ func (mr *MockConnPoolMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockConnPool)(nil).Close))
 }
 
+// MockDeviceOnlineSink is a mock of DeviceOnlineSink interface.
+type MockDeviceOnlineSink struct {
+	ctrl     *gomock.Controller
+	recorder *MockDeviceOnlineSinkMockRecorder
+	isgomock struct{}
+}
+
+// MockDeviceOnlineSinkMockRecorder is the mock recorder for MockDeviceOnlineSink.
+type MockDeviceOnlineSinkMockRecorder struct {
+	mock *MockDeviceOnlineSink
+}
+
+// NewMockDeviceOnlineSink creates a new mock instance.
+func NewMockDeviceOnlineSink(ctrl *gomock.Controller) *MockDeviceOnlineSink {
+	mock := &MockDeviceOnlineSink{ctrl: ctrl}
+	mock.recorder = &MockDeviceOnlineSinkMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockDeviceOnlineSink) EXPECT() *MockDeviceOnlineSinkMockRecorder {
+	return m.recorder
+}
+
+// SetDeviceOnline mocks base method.
+func (m *MockDeviceOnlineSink) SetDeviceOnline(deviceID int64, online bool) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetDeviceOnline", deviceID, online)
+}
+
+// SetDeviceOnline indicates an expected call of SetDeviceOnline.
+func (mr *MockDeviceOnlineSinkMockRecorder) SetDeviceOnline(deviceID, online any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDeviceOnline", reflect.TypeOf((*MockDeviceOnlineSink)(nil).SetDeviceOnline), deviceID, online)
+}
+
 // MockLease is a mock of Lease interface.
 type MockLease struct {
 	ctrl     *gomock.Controller
@@ -206,6 +242,44 @@ func (m *MockaccountDirectDeliverer) AccountDirectDelivery() ([]string, string, 
 func (mr *MockaccountDirectDelivererMockRecorder) AccountDirectDelivery() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AccountDirectDelivery", reflect.TypeOf((*MockaccountDirectDeliverer)(nil).AccountDirectDelivery))
+}
+
+// MockidleTimer is a mock of idleTimer interface.
+type MockidleTimer struct {
+	ctrl     *gomock.Controller
+	recorder *MockidleTimerMockRecorder
+	isgomock struct{}
+}
+
+// MockidleTimerMockRecorder is the mock recorder for MockidleTimer.
+type MockidleTimerMockRecorder struct {
+	mock *MockidleTimer
+}
+
+// NewMockidleTimer creates a new mock instance.
+func NewMockidleTimer(ctrl *gomock.Controller) *MockidleTimer {
+	mock := &MockidleTimer{ctrl: ctrl}
+	mock.recorder = &MockidleTimerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockidleTimer) EXPECT() *MockidleTimerMockRecorder {
+	return m.recorder
+}
+
+// Stop mocks base method.
+func (m *MockidleTimer) Stop() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Stop")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// Stop indicates an expected call of Stop.
+func (mr *MockidleTimerMockRecorder) Stop() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockidleTimer)(nil).Stop))
 }
 
 // MockpooledClient is a mock of pooledClient interface.

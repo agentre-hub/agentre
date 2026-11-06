@@ -1123,7 +1123,8 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Organization" }));
 
-    // wait for LoadOrg promise to resolve
+    // 组织页是按需加载的 chunk：先等它挂上，再等 LoadOrg promise 落地
+    await screen.findByText("工程部");
     await waitFor(() => {
       expect(
         screen.queryByText("Loading org chart..."),
@@ -1143,6 +1144,8 @@ describe("App", () => {
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "Organization" }));
+    // 组织页是按需加载的 chunk：先等它挂上、数据到位，再断言其余。
+    await screen.findByText("工程部");
     await waitFor(() => {
       expect(
         screen.queryByText("Loading org chart..."),
@@ -1187,6 +1190,8 @@ describe("App", () => {
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "Organization" }));
+    // 组织页是按需加载的 chunk：先等它挂上、数据到位，再断言其余。
+    await screen.findByText("工程部");
     await waitFor(() => {
       expect(
         screen.queryByText("Loading org chart..."),
@@ -1218,6 +1223,8 @@ describe("App", () => {
     const { container } = render(<App />);
 
     await user.click(screen.getByRole("button", { name: "Organization" }));
+    // 组织页是按需加载的 chunk：先等它挂上、数据到位，再断言其余。
+    await screen.findByText("工程部");
     await waitFor(() => {
       expect(
         screen.queryByText("Loading org chart..."),

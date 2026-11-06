@@ -365,6 +365,17 @@ export const ChatComposer = React.forwardRef<
     registerDropZone: dropZone?.registerDropZone ?? noopRegistrar,
   });
 
+  // 递给 AIChatInput 的回调必须身份稳定：它是 memo 的，一个内联箭头就让外壳每次
+  // 重渲染都连带重渲染编辑器。宿主的回调经 ref 读最新值。
+  const onCommandModeChangeRef = React.useRef(onCommandModeChange);
+  React.useEffect(() => {
+    onCommandModeChangeRef.current = onCommandModeChange;
+  }, [onCommandModeChange]);
+  const handleCommandModeChange = React.useCallback((active: boolean) => {
+    setCommandMode(active);
+    onCommandModeChangeRef.current?.(active);
+  }, []);
+
   const submit = React.useCallback(
     (text: string) => {
       if (disabled) return;
@@ -402,7 +413,7 @@ export const ChatComposer = React.forwardRef<
   // 按键处理转来：那里已经排除了 slash / mention / 命令历史弹层吃掉的 Esc 与 IME 组词
   // 中的 Esc。不能在 form 层判 —— ProseMirror 对每个真实 Esc 都会 preventDefault，
   // 冒泡上来时已分不清是不是弹层吃掉的。
-  function handleEditorEscape(): boolean {
+  function editorEscape(): boolean {
     if (editing) {
       onCancelEdit?.();
       return true;
@@ -411,6 +422,16 @@ export const ChatComposer = React.forwardRef<
     onStop?.();
     return true;
   }
+  // 传给 AIChatInput 的引用要稳定，否则它的 memo 在每次流式更新时都失效；按 Esc 时
+  // 读到的仍是最新一次渲染的判断。
+  const editorEscapeRef = React.useRef(editorEscape);
+  React.useLayoutEffect(() => {
+    editorEscapeRef.current = editorEscape;
+  });
+  const handleEditorEscape = React.useCallback(
+    () => editorEscapeRef.current(),
+    [],
+  );
 
   // 编辑态里焦点不在编辑器（例如横幅上的按钮）时的 Esc 也取消编辑；编辑器里来的 Esc
   // 已经在上面处理过（或被弹层吃掉），都带着 defaultPrevented，这里不再重复。
@@ -597,10 +618,7 @@ export const ChatComposer = React.forwardRef<
           disabled={disabled}
           onEmptyChange={setEmpty}
           onEscape={handleEditorEscape}
-          onCommandModeChange={(active) => {
-            setCommandMode(active);
-            onCommandModeChange?.(active);
-          }}
+          onCommandModeChange={handleCommandModeChange}
           onSubmit={submit}
         />
         {/* 底栏恒为单行（Hard invariant 1），且不得横向溢出（Hard invariant 2）。 */}

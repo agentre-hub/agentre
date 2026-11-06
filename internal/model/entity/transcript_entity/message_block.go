@@ -140,17 +140,24 @@ func SplitBlocksJSON(messageID int64, blocksJSON string) ([]*MessageBlock, error
 	}
 	rows := make([]*MessageBlock, 0, len(stored))
 	for i := range stored {
-		codec, data := EncodeBlockData(stored[i].Data)
-		rows = append(rows, &MessageBlock{
-			MessageID:  messageID,
-			Idx:        i,
-			Type:       stored[i].Type,
-			ToolCallID: blockToolCallID(stored[i].Type, stored[i].Data),
-			Codec:      codec,
-			Data:       data,
-		})
+		rows = append(rows, BlockRow(messageID, i, stored[i]))
 	}
 	return rows, nil
+}
+
+// BlockRow 把正文数组第 idx 个块编成它的块行:type 原样、定位键按块类型推出、data 按
+// 阈值压缩。SplitBlocksJSON / DiffBlocks 与增量 checkpoint 都经它编行,同一个块永远编出
+// 同一行。
+func BlockRow(messageID int64, idx int, sb blocks.StoredBlock) *MessageBlock {
+	codec, data := EncodeBlockData(sb.Data)
+	return &MessageBlock{
+		MessageID:  messageID,
+		Idx:        idx,
+		Type:       sb.Type,
+		ToolCallID: blockToolCallID(sb.Type, sb.Data),
+		Codec:      codec,
+		Data:       data,
+	}
 }
 
 // JoinBlocks 把块行按 idx 升序重组成正文 —— 与拆解前逐块字节等价。
@@ -210,15 +217,7 @@ func DiffBlocks(messageID int64, prev, next string) (BlockDiff, error) {
 		if i < len(prevBlocks) && sameStoredBlock(prevBlocks[i], nextBlocks[i]) {
 			continue
 		}
-		codec, data := EncodeBlockData(nextBlocks[i].Data)
-		diff.Upserts = append(diff.Upserts, &MessageBlock{
-			MessageID:  messageID,
-			Idx:        i,
-			Type:       nextBlocks[i].Type,
-			ToolCallID: blockToolCallID(nextBlocks[i].Type, nextBlocks[i].Data),
-			Codec:      codec,
-			Data:       data,
-		})
+		diff.Upserts = append(diff.Upserts, BlockRow(messageID, i, nextBlocks[i]))
 	}
 	if len(nextBlocks) < len(prevBlocks) {
 		diff.TruncateFrom = len(nextBlocks)

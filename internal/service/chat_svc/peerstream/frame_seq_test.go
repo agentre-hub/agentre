@@ -75,6 +75,19 @@ type fakeFrameSeqLedger struct {
 	mu       sync.Mutex
 	rows     []transcript_repo.FrameSeqRow
 	allocErr error
+	// gate 非 nil 时,下一次取号先报到 entered、再等 gate 关闭才继续(只拦一次):
+	// 让用例把一次发布停在「取号进行中」。
+	gate    chan struct{}
+	entered chan struct{}
+}
+
+// holdNextAllocate 拦住下一次取号,交回「已进入取号」与「放行」两个信号。
+func (l *fakeFrameSeqLedger) holdNextAllocate() (entered <-chan struct{}, release func()) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.gate, l.entered = make(chan struct{}), make(chan struct{})
+	gate := l.gate
+	return l.entered, func() { close(gate) }
 }
 
 func (l *fakeFrameSeqLedger) Load(_ context.Context, sessionID int64) (map[transcript_repo.FrameKey]int64, error) {
@@ -104,6 +117,13 @@ func (l *fakeFrameSeqLedger) failAllocate(err error) {
 
 func (l *fakeFrameSeqLedger) Allocate(_ context.Context, sessionID int64, keys []transcript_repo.FrameKey) ([]int64, error) {
 	l.mu.Lock()
+	if gate, entered := l.gate, l.entered; gate != nil {
+		l.gate, l.entered = nil, nil
+		l.mu.Unlock()
+		close(entered)
+		<-gate
+		l.mu.Lock()
+	}
 	defer l.mu.Unlock()
 	if l.allocErr != nil {
 		return nil, l.allocErr

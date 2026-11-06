@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
 	"github.com/agentre-hub/agentre/internal/pkg/ctlskill"
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
 )
@@ -74,6 +75,7 @@ func (s *ctlSkillSvc) Install(ctx context.Context) (*ctlskill.Info, error) {
 	if err := ctlskill.Install(ctlskill.Options{Home: home, AgrctlPath: s.agrctlPath, Version: s.version}); err != nil {
 		return nil, err
 	}
+	agentskill.BumpGeneration() // 技能发现缓存里的插件清单已过期
 	info := ctlskill.Status(home)
 	return &info, nil
 }
@@ -86,6 +88,7 @@ func (s *ctlSkillSvc) Uninstall(ctx context.Context) (*ctlskill.Info, error) {
 	if err := ctlskill.Uninstall(home); err != nil {
 		return nil, err
 	}
+	agentskill.BumpGeneration()
 	if err := s.setDeclined(ctx, true); err != nil {
 		return nil, err
 	}
@@ -115,7 +118,9 @@ func (s *ctlSkillSvc) InstallOnBoot(ctx context.Context) {
 	}
 	if err := ctlskill.Install(ctlskill.Options{Home: home, AgrctlPath: s.agrctlPath, Version: s.version}); err != nil {
 		logger.Default().Warn("ctlskill_svc.InstallOnBoot: install", zap.Error(err))
+		return
 	}
+	agentskill.BumpGeneration()
 }
 
 func (s *ctlSkillSvc) home() (string, error) {

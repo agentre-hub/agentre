@@ -216,7 +216,8 @@ func (t *turnTranscript) resolveApproval(ctx context.Context, requestID, status,
 	}
 	for _, card := range t.approvals {
 		if card.blk.RequestID == requestID {
-			card.blk.Status, card.blk.Result = status, result
+			// 经累加器改:卡被标为改动过,增量 checkpoint 才会重写它。
+			card.acc.MutateBlock(card.blk, func() { card.blk.Status, card.blk.Result = status, result })
 			t.persistApproval(ctx, card)
 			return
 		}
@@ -231,7 +232,8 @@ func (t *turnTranscript) persistApproval(ctx context.Context, card ctlApprovalCa
 		t.checkpoint(ctx)
 		return
 	}
-	t.checkpointMessage(ctx, card.msg, card.acc.Finalize(), true)
+	card.acc.Finalize()
+	t.checkpointMessage(ctx, card.msg, card.acc, true)
 }
 
 // publishDurable 把 msg 此刻可以定稿的持久帧取号发出去。
@@ -389,19 +391,26 @@ func (t *turnTranscript) flushPendingSteers(ctx context.Context) {
 	}
 	steers := t.pendingSteers
 	t.pendingSteers = nil
-	if err := t.msg.SetBlocks(t.acc.Finalize()); err != nil {
+	// 收口这一段只写相对已落库版本变了的块(与桌面端 persistConsumedSteers 同一条路)。
+	// 写集合在分段事务成功之后才提交:回滚时块行并没有落,下一次仍要交出它们。
+	cp, err := t.acc.PrepareFinalCheckpoint(t.msg.BlocksJSON, t.acc.Finalize())
+	if err != nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.flushPendingSteers: encode failed",
 			zap.Int64("messageId", t.msg.ID), zap.Error(err))
 		t.pendingSteers = steers
 		return
 	}
-	users, next, err := t.port.SegmentTurn(ctx, t.msg, steers)
+	prev := t.msg.BlocksJSON
+	t.msg.BlocksJSON = cp.BlocksJSON
+	users, next, err := t.port.SegmentTurn(ctx, t.msg, checkpointRows(t.msg.ID, cp), cp.TruncateFrom, steers)
 	if err != nil || next == nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.flushPendingSteers: persist failed",
 			zap.Int64("messageId", t.msg.ID), zap.Int("steers", len(steers)), zap.Error(err))
+		t.msg.BlocksJSON = prev
 		t.pendingSteers = steers
 		return
 	}
+	t.acc.CommitCheckpoint(cp)
 	// 取号顺序就是补齐的重放顺序:收口的那一条在前,插话那几行紧随其后。晚一步取号
 	// 的会排到整段之后 —— 对端的转录里插话就跑到后半段回答的后面去了。
 	_, _ = t.publishDurable(ctx, t.msg, true)
@@ -419,33 +428,49 @@ func (t *turnTranscript) flushPendingSteers(ctx context.Context) {
 // 手段(决策 5):宿主在轮中消失时,checkpoint 过的块留下,没 checkpoint 的尾巴丢失。
 func (t *turnTranscript) checkpoint(ctx context.Context) {
 	// 轮内只发已经定稿的那些帧 —— 结尾还会继续长的正文块与消息级派生帧留给收口那一发。
-	t.checkpointMessage(ctx, t.msg, t.acc.Snapshot(), false)
+	t.checkpointMessage(ctx, t.msg, t.acc, false)
 }
 
-// checkpointMessage 把 msg 的块正文换成 content 落库(只写变化的块行),再取号发布。
-// final 与 publishDurable 同义:已收口的消息按收口口径发。
+// checkpointMessage 把 msg 推进到 acc 此刻的状态落库,再取号发布。final 与 publishDurable
+// 同义:已收口的消息按收口口径发。
+//
+// 只编码、只写自上一次成功 checkpoint 以来新增与被改动的块(acc.PrepareCheckpoint):
+// checkpoint 是每个 ToolResult 一次的高频调用,整份重编码 + 整份差分让一轮成本 O(N²)
+// (实测一条消息被 checkpoint 840 次)。与桌面端 chat_svc.checkpointAssistantNew 同一条路。
 func (t *turnTranscript) checkpointMessage(
-	ctx context.Context, msg *transcript_entity.Message, content []blocks.ContentBlock, final bool,
+	ctx context.Context, msg *transcript_entity.Message, acc *turn.Accumulator, final bool,
 ) {
-	// 差分的基准是内存里那份**上一次落库成功**的正文:SetBlocks 马上就要覆写它,所以
-	// 在覆写前留一份。不留就只能整表替换,而 checkpoint 是每个 ToolResult 一次的高频
-	// 调用(理由见 transcript_repo.syncBlocks:实测一条消息被 checkpoint 840 次)。
-	prev := msg.BlocksJSON
-	if err := msg.SetBlocks(content); err != nil {
+	cp, err := acc.PrepareCheckpoint(msg.BlocksJSON)
+	if err != nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.checkpoint: encode failed",
 			zap.Int64("messageId", msg.ID), zap.Error(err))
 		return
 	}
-	if err := t.port.Checkpoint(ctx, msg, prev); err != nil {
+	prev := msg.BlocksJSON
+	msg.BlocksJSON = cp.BlocksJSON
+	if err := t.port.UpsertBlocks(ctx, msg, checkpointRows(msg.ID, cp), cp.TruncateFrom); err != nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.checkpoint: persist failed",
 			zap.Int64("messageId", msg.ID), zap.Error(err))
-		// 落库失败时把内存正文退回上一次落库的那份:留着没落库的新正文会让下一次
-		// checkpoint 拿一个库里并不存在的基准做差分,差出来的块行从此对不上。
+		// 落库失败时把内存正文退回上一次落库的那份,写集合不提交:下一次 checkpoint
+		// 照样交出这些块。
 		msg.BlocksJSON = prev
 		return
 	}
+	acc.CommitCheckpoint(cp)
 	// 块落了库才轮到取号(决策 3)。
 	_, _ = t.publishDurable(ctx, msg, final)
+}
+
+// checkpointRows 把写集合里变了的块编成块行(没有变化的块时为 nil:只写元数据行)。
+func checkpointRows(messageID int64, cp *turn.Checkpoint) []*transcript_entity.MessageBlock {
+	if len(cp.Changed) == 0 {
+		return nil
+	}
+	rows := make([]*transcript_entity.MessageBlock, 0, len(cp.Changed))
+	for _, c := range cp.Changed {
+		rows = append(rows, transcript_entity.BlockRow(messageID, c.Idx, c.Block))
+	}
+	return rows
 }
 
 // finish 收口本轮:正文定稿,并把这一轮的模型 / 用量 / 计时 / 错误写在同一行上。
@@ -468,7 +493,7 @@ func (t *turnTranscript) finish(ctx context.Context, frame wire.RunResultDoneFra
 		if card.blk.Status != "pending" {
 			continue
 		}
-		card.blk.Status = "expired"
+		card.acc.MutateBlock(card.blk, func() { card.blk.Status = "expired" })
 		if card.msg != t.msg {
 			t.persistApproval(ctx, card)
 		}
@@ -481,11 +506,14 @@ func (t *turnTranscript) finish(ctx context.Context, frame wire.RunResultDoneFra
 	// 那正是 2026-09-05 不变量 1 的「漏」。此刻不再看 HasOpenToolUse:这一轮已经没有
 	// 后续事件能等到那个 tool_result 了。
 	t.flushPendingSteers(ctx)
-	if err := t.msg.SetBlocks(t.acc.Finalize()); err != nil {
+	// 收口只写相对已落库版本变了的块,不整条删了重插(与桌面端 persistAssistantFinal 同一条路)。
+	cp, err := t.acc.PrepareFinalCheckpoint(t.msg.BlocksJSON, t.acc.Finalize())
+	if err != nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.finish: encode failed",
 			zap.Int64("messageId", t.msg.ID), zap.Error(err))
 		return
 	}
+	t.msg.BlocksJSON = cp.BlocksJSON
 	t.msg.Model = frame.Model
 	t.msg.ErrorText = frame.StopErrMsg
 	t.msg.DurationMs = frame.DurationMs
@@ -499,11 +527,13 @@ func (t *turnTranscript) finish(ctx context.Context, frame wire.RunResultDoneFra
 		t.msg.ReasoningTokens = u.ReasoningTokens
 		t.msg.TotalInputTokens = u.PromptTokens + u.CachedTokens + u.CacheCreationTokens
 	}
-	if err := t.port.FinishTurn(ctx, t.msg); err != nil {
-		logger.Ctx(ctx).Warn("handlers.turnTranscript.finish: persist failed",
-			zap.Int64("messageId", t.msg.ID), zap.Error(err))
+	if err := t.port.FinishTurn(ctx, t.msg, checkpointRows(t.msg.ID, cp), cp.TruncateFrom); err != nil {
+		// 收口是这一轮正文的最后一次落库机会:失败即丢,按 Error 记(与桌面端 runTurn 同口径)。
+		logger.Ctx(ctx).Error("handlers.turnTranscript.finish: persist failed",
+			zap.Int64("sessionId", t.msg.SessionID), zap.Int64("assistantMsgId", t.msg.ID), zap.Error(err))
 		return
 	}
+	t.acc.CommitCheckpoint(cp)
 	// 收口:正文定稿,连同消息级派生帧(usage / done)一起发出去。
 	_, _ = t.publishDurable(ctx, t.msg, true)
 }

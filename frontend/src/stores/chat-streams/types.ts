@@ -62,6 +62,10 @@ export type LiveStream = {
   sessionId: number;
   assistantMessageId: number;
   streamStartedAt: number;
+  // startsEmpty:开流的那一刻这条 assistant 消息刚建出、持久化正文还是空的(自主续轮
+  // 起手)。手上没有这条消息的旧副本时(tab 首次挂载),库里正文与 liveBlocks 是同一段,
+  // 正文据此冻在空上(见 use-chat-session 的 retainLiveMessageBlocks)。
+  startsEmpty?: boolean;
   liveDelta: string;
   liveThinking: string;
   liveBlocks: ChatBlockData[];

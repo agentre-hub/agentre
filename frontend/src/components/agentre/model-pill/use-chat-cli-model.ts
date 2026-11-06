@@ -1,12 +1,15 @@
 import * as React from "react";
 import {
   useCLIModels,
+  type CliModelCatalog,
   type CliModelChoice,
   type CliModelPickerState,
 } from "@agentre-hub/agentre-ui";
 import { SetChatSessionCLIModel } from "../../../../wailsjs/go/app/App";
 
 import { listCLIModels } from "../cli-models-port";
+
+const EMPTY_CLI_CATALOG: CliModelCatalog = { models: [] };
 
 export function useChatCLIModel({
   backendId,
@@ -69,31 +72,64 @@ export function useChatCLIModel({
     setValue("");
     setError(null);
   }, []);
-  const choice: CliModelChoice | undefined =
-    mode === "fixed"
-      ? { mode: "fixed", value }
-      : mode === "cli-default"
-        ? { mode: "cli-default" }
-        : undefined;
-  const cliModels: CliModelPickerState | undefined = enabled
-    ? {
-        ...directory.catalog,
-        loading: directory.loading,
-        choice,
-        switchError: error ?? undefined,
-        onChange: choose,
-        onRefresh: directory.refresh,
-      }
-    : undefined;
-  return {
-    mode,
-    value,
-    error,
-    choice,
-    cliModels,
-    clear,
-    inherit: () => choose(),
-    catalog: directory.catalog,
-    loading: directory.loading,
-  };
+  // 下面几样都会经 useProviderPill 递进 memo 的 composer 底栏:输入不变时身份必须
+  // 不变,否则宿主每重渲染一次(流式输出期间是每个文字 delta)底栏就跟着重渲染。
+  const choice = React.useMemo<CliModelChoice | undefined>(
+    () =>
+      mode === "fixed"
+        ? { mode: "fixed", value }
+        : mode === "cli-default"
+          ? { mode: "cli-default" }
+          : undefined,
+    [mode, value],
+  );
+  // 未启用时共享包每次渲染都现拼一份空目录;这一侧收成同一个常量。
+  const catalog = enabled ? directory.catalog : EMPTY_CLI_CATALOG;
+  const cliModels = React.useMemo<CliModelPickerState | undefined>(
+    () =>
+      enabled
+        ? {
+            ...directory.catalog,
+            loading: directory.loading,
+            choice,
+            switchError: error ?? undefined,
+            onChange: choose,
+            onRefresh: directory.refresh,
+          }
+        : undefined,
+    [
+      enabled,
+      directory.catalog,
+      directory.loading,
+      directory.refresh,
+      choice,
+      error,
+      choose,
+    ],
+  );
+  const inherit = React.useCallback(() => choose(), [choose]);
+  return React.useMemo(
+    () => ({
+      mode,
+      value,
+      error,
+      choice,
+      cliModels,
+      clear,
+      inherit,
+      catalog,
+      loading: directory.loading,
+    }),
+    [
+      mode,
+      value,
+      error,
+      choice,
+      cliModels,
+      clear,
+      inherit,
+      catalog,
+      directory.loading,
+    ],
+  );
 }

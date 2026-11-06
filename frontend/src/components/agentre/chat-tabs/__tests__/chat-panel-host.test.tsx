@@ -9,10 +9,16 @@ import { useSessionIndexStore } from "@/stores/session-index-store";
 
 const chatPanelRenderCounts = vi.hoisted(() => new Map<number, number>());
 
-// TerminalPanel 已搬进共享包;这里只替换那一个导出,其余(pruneChatPanelScrollState
-// 等)保持真实实现。
-vi.mock("@agentre-hub/agentre-ui", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agentre-hub/agentre-ui")>()),
+// 未挂载面板的 tab 仍订阅会话级旁路事件（DormantSessionTab）；runtime 换成空订阅。
+vi.mock("../../../../../wailsjs/runtime/runtime", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../../../../wailsjs/runtime/runtime")
+  >()),
+  EventsOn: vi.fn(() => () => {}),
+}));
+
+// TerminalPanel 在共享包的窄入口里,宿主按需 import 它;这里替换那个入口。
+vi.mock("@agentre-hub/agentre-ui/terminal", () => ({
   TerminalPanel: ({
     terminalID,
     active,
@@ -131,12 +137,39 @@ describe("ChatPanelHost", () => {
     reloadSpy.mockRestore();
   });
 
-  it("每个 kind:'session' tab 渲染一个 ChatPanel mount", () => {
+  it("Given 宿主渲染前已有的 session tab When 宿主渲染 Then 只挂活动 tab；其它 tab 首次激活时挂载，之后保持挂载", () => {
     useChatTabsStore.getState().openSessionInNewTab(1);
     useChatTabsStore.getState().openSessionInNewTab(2);
+    const firstId = useChatTabsStore.getState().tabs[0].id;
+    const secondId = useChatTabsStore.getState().tabs[1].id;
     render(<ChatPanelHost />);
+    expect(screen.queryByTestId("chat-panel-1")).not.toBeInTheDocument();
+    expect(screen.getByTestId("chat-panel-2")).toBeInTheDocument();
+
+    act(() => {
+      useChatTabsStore.getState().setActive(firstId);
+    });
     expect(screen.getByTestId("chat-panel-1")).toBeInTheDocument();
     expect(screen.getByTestId("chat-panel-2")).toBeInTheDocument();
+
+    act(() => {
+      useChatTabsStore.getState().setActive(secondId);
+    });
+    expect(screen.getByTestId("chat-panel-1")).toBeInTheDocument();
+  });
+
+  it("Given 一个从未激活的 tab When 关掉活动 tab Then 相邻 tab 被激活并挂载", () => {
+    useChatTabsStore.getState().openSessionInNewTab(1);
+    useChatTabsStore.getState().openSessionInNewTab(2);
+    const secondId = useChatTabsStore.getState().tabs[1].id;
+    render(<ChatPanelHost />);
+    expect(screen.queryByTestId("chat-panel-1")).not.toBeInTheDocument();
+
+    act(() => {
+      useChatTabsStore.getState().closeTab(secondId);
+    });
+    expect(screen.getByTestId("chat-panel-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-panel-2")).not.toBeInTheDocument();
   });
 
   it("passes the tab id as ChatPanel scrollStateKey", () => {
@@ -155,8 +188,16 @@ describe("ChatPanelHost", () => {
     useChatTabsStore.getState().openSessionInNewTab(1);
     useChatTabsStore.getState().openSessionInNewTab(2);
     useChatTabsStore.getState().openSessionInNewTab(3);
-    const secondId = useChatTabsStore.getState().tabs[1].id;
+    const [firstTab, secondTab, thirdTab] = useChatTabsStore.getState().tabs;
+    const secondId = secondTab.id;
     render(<ChatPanelHost />);
+    // 先把三个都激活一遍，让它们都挂上。
+    act(() => {
+      useChatTabsStore.getState().setActive(firstTab.id);
+    });
+    act(() => {
+      useChatTabsStore.getState().setActive(thirdTab.id);
+    });
 
     const unrelatedBefore = chatPanelRenderCounts.get(1) ?? 0;
     const oldActiveBefore = chatPanelRenderCounts.get(3) ?? 0;
@@ -175,8 +216,10 @@ describe("ChatPanelHost", () => {
     useChatTabsStore.getState().openSessionInNewTab(1);
     useChatTabsStore.getState().openSessionInNewTab(2);
     const firstId = useChatTabsStore.getState().tabs[0].id;
-    useChatTabsStore.getState().setActive(firstId);
     render(<ChatPanelHost />);
+    act(() => {
+      useChatTabsStore.getState().setActive(firstId);
+    });
     const wrap2 = screen.getByTestId("chat-panel-2").parentElement!;
     expect(wrap2).not.toHaveStyle({ display: "none" });
     expect(wrap2).toHaveAttribute("aria-hidden", "true");
@@ -187,9 +230,11 @@ describe("ChatPanelHost", () => {
     useChatTabsStore.getState().openSessionInNewTab(1);
     useChatTabsStore.getState().openSessionInNewTab(2);
     const firstId = useChatTabsStore.getState().tabs[0].id;
-    useChatTabsStore.getState().setActive(firstId);
 
     render(<ChatPanelHost />);
+    act(() => {
+      useChatTabsStore.getState().setActive(firstId);
+    });
 
     expect(screen.getByTestId("chat-panel-1")).toHaveAttribute(
       "data-panel-shown",
@@ -217,12 +262,15 @@ describe("ChatPanelHost", () => {
     );
   });
 
-  it("Given terminal tabs, When the active tab changes, Then TerminalPanel receives active for focus management", () => {
+  it("Given terminal tabs, When the active tab changes, Then TerminalPanel receives active for focus management", async () => {
     useChatTabsStore.getState().openTerminal(7, "", undefined);
     useChatTabsStore.getState().openTerminal(8, "", undefined);
     const firstId = useChatTabsStore.getState().tabs[0].id;
 
     const { rerender } = render(<ChatPanelHost />);
+    await waitFor(() =>
+      expect(screen.getAllByTestId("terminal-panel")).toHaveLength(2),
+    );
     const panels = screen.getAllByTestId("terminal-panel");
     expect(panels[0]).toHaveTextContent("inactive");
     expect(panels[1]).toHaveTextContent("active");
@@ -333,10 +381,10 @@ describe("ChatPanelHost", () => {
     indexReload.mockRestore();
   });
 
-  it("Given a terminal tab is open, When ChatPanelHost renders, Then it shows terminal-panel not a ChatPanel", () => {
+  it("Given a terminal tab is open, When ChatPanelHost renders, Then it shows terminal-panel not a ChatPanel", async () => {
     useChatTabsStore.getState().openTerminal(7, "", undefined);
     render(<ChatPanelHost />);
-    expect(screen.getByTestId("terminal-panel")).toBeInTheDocument();
+    expect(await screen.findByTestId("terminal-panel")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-panel-0")).not.toBeInTheDocument();
   });
 

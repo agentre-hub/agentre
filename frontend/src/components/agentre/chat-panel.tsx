@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import {
   ContextMeter,
   MachineOfflineBanner,
@@ -35,11 +36,15 @@ import { useSessionAttention } from "@/stores/attention-store";
 import { useClearedBackgroundTasksStore } from "@/stores/cleared-background-tasks-store";
 import {
   useChatStreamsStore,
+  useSessionLiveBlocks,
   type ChatBlockData,
   type LiveStream,
 } from "@/stores/chat-streams-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
-import { useQueuedMessagesStore } from "@/stores/queued-messages-store";
+import {
+  useQueuedMessagesStore,
+  type QueuedMessage,
+} from "@/stores/queued-messages-store";
 import { useSessionConnectionState } from "@/stores/session-conn-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
 
@@ -102,6 +107,78 @@ import type { chat_svc } from "../../../wailsjs/go/models";
 type ChatAgentItem = chat_svc.ChatAgentItem;
 
 const EMPTY_CLEARED: string[] = [];
+const EMPTY_QUEUED: QueuedMessage[] = [];
+// caps 未到位时的占位 meta。模块级常量:内联字面量每次渲染都是新身份,会让
+// usePermissionMode 的重置 effect 每次都跑、cycleMode 每次都换身份。
+const EMPTY_PERMISSION_MODE_META = {
+  allowedModes: [] as string[],
+  defaultMode: "",
+  switchableDuringTurn: false,
+  order: [] as string[],
+};
+
+function restoreDroppedQueue() {
+  useQueuedMessagesStore.getState().restoreDropped();
+}
+
+function dismissDroppedQueue() {
+  useQueuedMessagesStore.getState().dismissDropped();
+}
+
+// ── composer 的 props 身份 ───────────────────────────────────────────────────
+// ChatPanel 订阅本会话的流,随每个文字 delta 重渲染(转录区要它)。composer 是 memo
+// 的,只要递给它的 props 身份不变,它和里面的编辑器就不跟着重渲染。下面两个小工具
+// 用来把「每次渲染新建、值却没变」的东西压回同一个身份。
+
+/** 身份恒定的回调,调用时总是转给最近一次渲染传进来的那个 fn(不会读到旧闭包)。 */
+function useLatestCallback<A extends unknown[], R>(
+  fn: (...args: A) => R,
+): (...args: A) => R {
+  const ref = React.useRef(fn);
+  React.useLayoutEffect(() => {
+    ref.current = fn;
+  });
+  return React.useCallback((...args: A) => ref.current(...args), []);
+}
+
+/** 与上一次浅比相等时沿用上一次的对象(借 zustand 的 useShallow:按浅比记住上次结果)。 */
+function useShallowStable<T>(value: T): T {
+  return useShallow((v: T) => v)(value);
+}
+
+type SessionStreams = Map<number, LiveStream>;
+
+// 本会话在流的 assistantMessageId 集合，编码成原始值，只在流起停时变化。
+function streamIdsKey(streams: SessionStreams | undefined): string {
+  return streams ? Array.from(streams.keys()).join(",") : "";
+}
+
+/**
+ * 本会话的全部在流。活动 tab 逐帧订阅；非活动 tab 只订阅「有哪些流」(起停)这一粗粒度
+ * 变化,流内容(文字 delta 等)不触发重渲染 —— 它此刻看不见,读的是起停那一刻的快照。
+ * 重新激活时换回逐帧订阅,那一帧直接读到 store 里的最新内容。
+ */
+function usePanelSessionStreams(
+  sessionId: number,
+  active: boolean,
+): SessionStreams | null {
+  const live = useChatStreamsStore((s) =>
+    active && sessionId ? (s.streams.get(sessionId) ?? null) : null,
+  );
+  const idsKey = useChatStreamsStore((s) =>
+    sessionId ? streamIdsKey(s.streams.get(sessionId)) : "",
+  );
+  const snapshot = React.useMemo(
+    () =>
+      !active && sessionId
+        ? (useChatStreamsStore.getState().streams.get(sessionId) ?? null)
+        : null,
+    // idsKey 只作重取信号：流起停时重新拍一张快照。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [active, sessionId, idsKey],
+  );
+  return active ? live : snapshot;
+}
 
 // ─── ChatPanel ───────────────────────────────────────────────────────────────
 
@@ -160,10 +237,9 @@ function ChatPanel({
   // 等其它路由再切回来时,store 里累积的 liveDelta / liveBlocks / queued 都能直接还原。
   const openStream = useChatStreamsStore((s) => s.openStream);
   // 本会话的全部在流(用户轮 / 自主续轮 / 后台 subagent 活动轮),按 assistantMessageId
-  // 索引。引用只在本会话有流增删 / 内容变动时才变,别的会话在流不会触发本 panel 重渲染。
-  const sessionStreams = useChatStreamsStore((s) =>
-    sessionId ? (s.streams.get(sessionId) ?? null) : null,
-  );
+  // 索引。引用只在本会话有流增删 / 内容变动时才变,别的会话在流不会触发本 panel 重渲染;
+  // 非活动 tab 连本会话的内容变动也不跟(见 usePanelSessionStreams)。
+  const sessionStreams = usePanelSessionStreams(sessionId, active);
   // 主流 = 最近开的那条,供会话级读数(进度条 / typing indicator / 停止按钮)。
   const currentStream = React.useMemo(() => {
     if (!sessionStreams || sessionStreams.size === 0) return null;
@@ -322,10 +398,8 @@ function ChatPanel({
   const activeMessageId = useVisibleMessageId(transcriptRef);
   // 全部在流的 liveBlocks 拍平 —— 后台任务面板 / task-progress 是**会话级**视图,
   // 用户轮和后台流里起的任务都要收进来。
-  const allLiveBlocks = React.useMemo(() => {
-    if (!sessionStreams) return [] as ChatBlockData[];
-    return Array.from(sessionStreams.values()).flatMap((s) => s.liveBlocks);
-  }, [sessionStreams]);
+  // 只订阅块集合:文字 delta 不改变它,下面的会话级派生因此不随每帧重扫。
+  const allLiveBlocks = useSessionLiveBlocks(sessionId);
   // 回到底部药丸的「N 项待处理」:视口下沿之后仍未决的审批 / 提问,按活状态现算,
   // 与补齐(catch-up)无关。
   const pendingBelow = React.useMemo(
@@ -457,6 +531,12 @@ function ChatPanel({
       .map((tk) => tk.toolUseId);
     clearCompletedTasks(sessionId, doneIds);
   }, [sessionId, backgroundTasks, clearCompletedTasks]);
+  // 切换供应商 / 思考力度、指定工作目录之后重载会话。身份稳定:两颗 pill 的回调
+  // 依赖它,它一变 pill 就跟着换身份,memo 的 composer 随之每次重渲染。
+  const reloadAfterChange = React.useCallback(
+    () => void reloadSession(),
+    [reloadSession],
+  );
   // handleStopSubagent 停掉一个正在运行的后台任务/子 agent(下发 CLI stop_task,按发起它的
   // tool_use_id 定位;后端从持久化 subagent_state 读出 CLI task_id)。停成功后把块翻 canceled,
   // reload 让面板/卡片显示「已停止」。后台任务面板与转录 AgentSpawn 卡片共用它。
@@ -529,12 +609,8 @@ function ChatPanel({
   );
   // PermissionMode pill 数据从 caps.permissionModeMeta 拉;caps 未到位时
   // 用空 meta 做 placeholder(pill 整体被 isModeSwitchable 守护)。
-  const permissionModeMeta = caps?.permissionModeMeta ?? {
-    allowedModes: [],
-    defaultMode: "",
-    switchableDuringTurn: false,
-    order: [],
-  };
+  const permissionModeMeta =
+    caps?.permissionModeMeta ?? EMPTY_PERMISSION_MODE_META;
   const permissionMode = usePermissionMode({
     sessionId: isModeSwitchable && sessionId > 0 ? sessionId : undefined,
     permissionModeMeta,
@@ -596,7 +672,7 @@ function ChatPanel({
       sessionId > 0
         ? (session?.deviceID ?? "")
         : (effectiveTarget?.deviceId ?? newSessionAgent?.deviceID ?? ""),
-    onSwitched: () => void reloadSession(),
+    onSwitched: reloadAfterChange,
   });
 
   // ReasoningEffortPill:composer 底栏 trailing 侧的会话级思考力度控件(spec
@@ -621,7 +697,7 @@ function ChatPanel({
       sessionId > 0
         ? ((session?.agentReasoningEffort ?? "") as ReasoningEffortValue)
         : undefined,
-    onSwitched: () => void reloadSession(),
+    onSwitched: reloadAfterChange,
   });
 
   // 重生成 / 编辑 / 删除 / 改名这一族(确认弹窗 state + RPC + 乐观截断重排)整块
@@ -717,6 +793,133 @@ function ChatPanel({
     editing: activeEditing !== null,
     confirmEdit,
   });
+
+  // ── composer 的 props(身份稳定,见文件顶 useLatestCallback 那段)──
+  const handleComposerSubmitStable = useLatestCallback(handleComposerSubmit);
+  const handleCancelEdit = React.useCallback(
+    () => setEditingMessage(null),
+    [setEditingMessage],
+  );
+  const handleComposerStop = useLatestCallback(() => {
+    if (session) void doStop(session.id);
+  });
+  const handleCommandSubmit = useLatestCallback((command: string) =>
+    runLocalCommand(sessionId, command),
+  );
+  const handleSlashRpc = useLatestCallback((cmd: { name: string }) => {
+    console.warn(
+      `slash rpc not wired: cmd=${cmd.name} backend=${activeBackendType}`,
+    );
+  });
+  const handleCancelQueued = useLatestCallback(
+    (id: string) => void doCancelQueued(sessionId, id),
+  );
+  const handleClearQueued = useLatestCallback(
+    () => void doCancelQueued(sessionId, ""),
+  );
+  const stableProviderPill = useShallowStable(providerPill);
+  const stableReasoningEffortPill = useShallowStable(reasoningEffortPill);
+  const queuedItems = currentQueued ?? EMPTY_QUEUED;
+  const droppedItems =
+    droppedQueue && droppedQueue.sessionId === sessionId
+      ? droppedQueue.items
+      : null;
+  const {
+    mode: permissionModeValue,
+    setMode: setPermissionMode,
+    error: permissionModeError,
+    permissionModeAtLaunch,
+    hasActiveSession: permissionHasActiveSession,
+    cycleMode: cyclePermissionMode,
+  } = permissionMode;
+  // 底栏：设置项（pills）靠左，计量器贴着提交键 ——
+  // 「发之前看一眼还剩多少」的读序，与 agentre-server 同一套。
+  const composerLeadingControls = React.useMemo(
+    () =>
+      isModeSwitchable || activeBackendType ? (
+        <div className="flex shrink-0 items-center gap-1">
+          {isModeSwitchable ? (
+            <PermissionModePill
+              mode={permissionModeValue}
+              modes={permissionModeMeta.order}
+              onSelect={setPermissionMode}
+              errorMessage={permissionModeError}
+              disabled={modeSwitchingDisabled}
+              runtimeKey={activeBackendType}
+              permissionModeAtLaunch={permissionModeAtLaunch}
+              hasActiveSession={permissionHasActiveSession}
+            />
+          ) : null}
+          {activeBackendType && activeBackendType !== "hermes" ? (
+            <ProviderPill {...stableProviderPill} />
+          ) : null}
+        </div>
+      ) : null,
+    [
+      activeBackendType,
+      isModeSwitchable,
+      modeSwitchingDisabled,
+      permissionHasActiveSession,
+      permissionModeAtLaunch,
+      permissionModeError,
+      permissionModeMeta.order,
+      permissionModeValue,
+      setPermissionMode,
+      stableProviderPill,
+    ],
+  );
+  const composerTrailingControls = React.useMemo(
+    () => (
+      <>
+        <QuotaMeter data={quotaUsage} deviceLabel={quotaDeviceLabel} />
+        {composerContextUsage && composerContextUsage.max > 0 ? (
+          <ContextMeter
+            used={composerContextUsage.used}
+            max={composerContextUsage.max}
+          />
+        ) : null}
+        {/* 紧邻提交键(决策 9):trailingControls 整体排在 ChatComposer
+            的提交键之前,这里放在片段末尾让它成为 trailing 侧最靠右
+            的一个。 */}
+        {supportsReasoningEffort ? (
+          <ReasoningEffortPill {...stableReasoningEffortPill} />
+        ) : null}
+      </>
+    ),
+    [
+      composerContextUsage,
+      quotaDeviceLabel,
+      quotaUsage,
+      stableReasoningEffortPill,
+      supportsReasoningEffort,
+    ],
+  );
+  const composerTopSlot = React.useMemo(
+    () => (
+      <>
+        <TaskProgressBar progress={taskProgress} />
+        <QueuedMessagesBar
+          queued={queuedItems}
+          onCancel={handleCancelQueued}
+          onClearAll={handleClearQueued}
+          dropped={droppedItems}
+          onRestoreDropped={restoreDroppedQueue}
+          onDiscardDropped={dismissDroppedQueue}
+        />
+      </>
+    ),
+    [
+      droppedItems,
+      handleCancelQueued,
+      handleClearQueued,
+      queuedItems,
+      taskProgress,
+    ],
+  );
+  // 侧栏是 memo 的:跳转与「指定路径后重载」的回调同样要身份稳定。
+  const handleJumpToMessage = React.useCallback((mid: number) => {
+    transcriptHandleRef.current?.scrollToMessage(mid);
+  }, []);
 
   // prop 优先，无 prop 时降级到内部派生值。
   const effectiveTopline = headerTopline ?? derivedTopline;
@@ -1022,11 +1225,11 @@ function ChatPanel({
                     sending={sendInFlight}
                     // 已有会话的这一轮在跑时提交位让给停止键,Esc 也能停(C2)。
                     running={!!session && canStop}
-                    onStop={session ? () => void doStop(session.id) : undefined}
+                    onStop={session ? handleComposerStop : undefined}
                     stopping={stopping}
                     editing={activeEditing !== null}
                     editDraft={activeEditing?.text}
-                    onCancelEdit={() => setEditingMessage(null)}
+                    onCancelEdit={handleCancelEdit}
                     // 新建会话场景下，ChatPanel 的 key 变化让 Composer 重新挂载 → 自动抓焦点，
                     // 用户一进来就能直接打字。续聊已有会话不抢焦点，避免打断侧栏切换的鼠标交互。
                     // 不可对话 Agent 的输入框已禁用，不再抢焦点。
@@ -1037,94 +1240,23 @@ function ChatPanel({
                         ? t("chatPanel.newSession.guard.placeholder")
                         : undefined
                     }
-                    // 底栏：设置项（pills）靠左，计量器贴着提交键 ——
-                    // 「发之前看一眼还剩多少」的读序，与 agentre-server 同一套。
-                    leadingControls={
-                      isModeSwitchable || activeBackendType ? (
-                        <div className="flex shrink-0 items-center gap-1">
-                          {isModeSwitchable ? (
-                            <PermissionModePill
-                              mode={permissionMode.mode}
-                              modes={permissionModeMeta.order}
-                              onSelect={permissionMode.setMode}
-                              errorMessage={permissionMode.error}
-                              disabled={modeSwitchingDisabled}
-                              runtimeKey={activeBackendType}
-                              permissionModeAtLaunch={
-                                permissionMode.permissionModeAtLaunch
-                              }
-                              hasActiveSession={permissionMode.hasActiveSession}
-                            />
-                          ) : null}
-                          {activeBackendType &&
-                          activeBackendType !== "hermes" ? (
-                            <ProviderPill {...providerPill} />
-                          ) : null}
-                        </div>
-                      ) : null
-                    }
-                    trailingControls={
-                      <>
-                        <QuotaMeter
-                          data={quotaUsage}
-                          deviceLabel={quotaDeviceLabel}
-                        />
-                        {composerContextUsage &&
-                        composerContextUsage.max > 0 ? (
-                          <ContextMeter
-                            used={composerContextUsage.used}
-                            max={composerContextUsage.max}
-                          />
-                        ) : null}
-                        {/* 紧邻提交键(决策 9):trailingControls 整体排在 ChatComposer
-                            的提交键之前,这里放在片段末尾让它成为 trailing 侧最靠右
-                            的一个。 */}
-                        {supportsReasoningEffort ? (
-                          <ReasoningEffortPill {...reasoningEffortPill} />
-                        ) : null}
-                      </>
-                    }
+                    leadingControls={composerLeadingControls}
+                    trailingControls={composerTrailingControls}
                     onShiftTab={
                       isModeSwitchable && !modeSwitchingDisabled
-                        ? permissionMode.cycleMode
+                        ? cyclePermissionMode
                         : undefined
                     }
-                    topSlot={
-                      <>
-                        <TaskProgressBar progress={taskProgress} />
-                        <QueuedMessagesBar
-                          queued={currentQueued ?? []}
-                          onCancel={(id) => void doCancelQueued(sessionId, id)}
-                          onClearAll={() => void doCancelQueued(sessionId, "")}
-                          dropped={
-                            droppedQueue && droppedQueue.sessionId === sessionId
-                              ? droppedQueue.items
-                              : null
-                          }
-                          onRestoreDropped={() =>
-                            useQueuedMessagesStore.getState().restoreDropped()
-                          }
-                          onDiscardDropped={() =>
-                            useQueuedMessagesStore.getState().dismissDropped()
-                          }
-                        />
-                      </>
-                    }
-                    onSubmit={handleComposerSubmit}
+                    topSlot={composerTopSlot}
+                    onSubmit={handleComposerSubmitStable}
                     backendType={activeBackendType}
                     agentId={session?.agentId ?? newSessionAgent?.id ?? 0}
                     cwd={composerCwd}
                     localCommandHistoryScope={localCommandHistoryScope}
                     onCommandModeChange={handleLocalCommandModeChange}
                     supportsImageInput={supportsImageInput}
-                    onCommandSubmit={(command: string) =>
-                      runLocalCommand(sessionId, command)
-                    }
-                    onSlashRpc={(cmd) => {
-                      console.warn(
-                        `slash rpc not wired: cmd=${cmd.name} backend=${activeBackendType}`,
-                      );
-                    }}
+                    onCommandSubmit={handleCommandSubmit}
+                    onSlashRpc={handleSlashRpc}
                   />
                 </div>
               </div>
@@ -1139,10 +1271,8 @@ function ChatPanel({
               remote={Boolean(session?.deviceID)}
               cwdUnavailableReason={session?.cwdUnavailableReason}
               projectId={session?.projectId}
-              onCwdSpecified={() => void reloadSession()}
-              onJumpToMessage={(mid) => {
-                transcriptHandleRef.current?.scrollToMessage(mid);
-              }}
+              onCwdSpecified={reloadAfterChange}
+              onJumpToMessage={handleJumpToMessage}
             />
           ) : null}
           {/* 最右一栏:文件预览面板。仅在选中了可预览文件时渲染(内部自行返回

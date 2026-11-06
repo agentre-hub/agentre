@@ -164,6 +164,22 @@ func RegisterChat(impl ChatSvc) {
 	defaultChat = impl
 }
 
+// HasActiveTurns 报本机此刻是否有任一会话的轮次在跑(按 activeCancels:每个在跑的轮次
+// 都登记一个控制对象)。宿主据它判断应用空不空闲 —— 空闲页的定时回收只在空闲时做。
+// 聊天服务还没注册时视为空闲。
+func HasActiveTurns() bool {
+	s, ok := defaultChat.(*chatSvc)
+	if !ok || s == nil || s.activeCancels == nil {
+		return false
+	}
+	active := false
+	s.activeCancels.Range(func(_, _ any) bool {
+		active = true
+		return false
+	})
+	return active
+}
+
 func NewChat(emitter Emitter) ChatSvc {
 	if emitter == nil {
 		emitter = NoopEmitter{}
@@ -634,8 +650,14 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
-	if err := transcript_repo.Message().FillBlocks(ctx, transcriptWindow(msgs)); err != nil {
-		return nil, operationFailedWithCause(ctx, err)
+	// 增量读(SinceVersion>0)只交回版本新于游标的消息,正文也只补其中落在窗口里的那几条;
+	// 交回的每一条与全量读里的同一条逐字一致。元数据仍取全量:活跃流名、上下文窗口
+	// 与 id 列表都要看整条会话,而它不碰块表。
+	served := changedSince(msgs, req.SinceVersion)
+	if window := changedSince(transcriptWindow(msgs), req.SinceVersion); req.SinceVersion <= 0 || len(window) > 0 {
+		if err := transcript_repo.Message().FillBlocks(ctx, window); err != nil {
+			return nil, operationFailedWithCause(ctx, err)
+		}
 	}
 	resp := &LoadSessionResponse{
 		Session: ChatSessionDetail{
@@ -657,8 +679,12 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 			ReasoningEffort:        sess.ReasoningEffort,
 			ProjectID:              sess.ProjectID,
 		},
-		Messages: make([]ChatMessage, 0, len(msgs)),
+		Messages: make([]ChatMessage, 0, len(served)),
 	}
+	resp.Version, resp.MessageIDs = transcriptCursor(msgs)
+	// 游标只进不退:最大版本那条消息被删时,现存消息的最大版本会低于前端的游标,而之后
+	// 签发的版本都大于任何已签发的版本,留着更高的游标不会漏掉谁。
+	resp.Version = max(resp.Version, req.SinceVersion)
 	// 诊断: 记录这次 serve 出去的 agentStatus + 后端此刻是否有活跃 turn。
 	// 前端「过期快照覆盖 running」竞态在 serve 端通常看着无辜(turn 还没起、DB 还是
 	// idle),但若 serve 时已有活跃 turn 却吐 非 running/waiting,就是后端侧能直接抓到
@@ -780,7 +806,7 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 			}
 		}
 	}
-	for _, m := range msgs {
+	for _, m := range served {
 		cm, err := toChatMessage(m)
 		if err != nil {
 			return nil, i18n.NewError(ctx, code.ChatBlocksMalformed)
@@ -2846,7 +2872,12 @@ func (s *chatSvc) persistConsumedSteers(
 		return nil, nil, nil
 	}
 
-	_ = current.SetBlocks(acc.Finalize())
+	// 收口这一段只写相对已落库版本变了的块。写集合在事务提交之后才提交:事务回滚时块行
+	// 并没有落,下一次(轮末那一发)仍要交出它们。
+	cp, err := prepareAssistantFinal(current, acc, acc.Finalize())
+	if err != nil {
+		return nil, nil, fmt.Errorf("persist consumed steer: %w", err)
+	}
 	current.DurationMs = int(time.Since(segmentStart).Milliseconds())
 	current.FirstTokenMs = turnCtx.FirstTokenMs()
 	turnCtx.PauseGeneration()
@@ -2863,7 +2894,7 @@ func (s *chatSvc) persistConsumedSteers(
 
 	if err := db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		txCtx := db.WithContextDB(ctx, tx)
-		if err := transcript_repo.Message().Update(txCtx, current); err != nil {
+		if err := upsertCheckpoint(txCtx, current, cp); err != nil {
 			return err
 		}
 		nextSeq, err := transcript_repo.Message().NextSeq(txCtx, sess.ID)
@@ -2897,6 +2928,7 @@ func (s *chatSvc) persistConsumedSteers(
 	}); err != nil {
 		return nil, nil, fmt.Errorf("persist consumed steer: %w", err)
 	}
+	acc.CommitCheckpoint(cp)
 
 	// 分段落地:收口的 assistant 与插进来的 user 都已落库,按转录顺序依次取号 ——
 	// 编号顺序就是补齐的重放顺序,晚一步取号的那条会排到整段之后。
