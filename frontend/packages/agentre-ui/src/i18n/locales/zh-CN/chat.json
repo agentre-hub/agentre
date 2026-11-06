@@ -338,8 +338,8 @@
   },
   "queuedMessages": {
     "aria": "排队中的消息",
-    "cancelOne": "撤回这条排队消息",
-    "cancelOneTitle": "撤回 (尚未被 AI 取走时有效)",
+    "cancelOne": "删除这条排队消息",
+    "cancelOneTitle": "删除（不放回输入框）",
     "clear": "清空",
     "clearAria": "清空排队消息",
     "clearTitle": "清空全部排队消息",
@@ -353,6 +353,9 @@
     "noCancelSupport": "这个后端不支持撤回",
     "noCancelSupportTitle": "这个后端不支持撤回排队消息",
     "notCancellable": "不可撤回（这个后端不支持）",
-    "notCancellableTitle": "这个后端的插话一发即不可撤"
+    "notCancellableTitle": "这个后端的插话一发即不可撤",
+    "withdrawDisabledEditing": "先完成或取消编辑",
+    "withdrawOne": "撤回到输入框",
+    "withdrawOneTitle": "撤回到输入框编辑"
   }
 }

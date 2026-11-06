@@ -152,3 +152,95 @@ describe("QueuedMessagesBar · 无边框", () => {
     expect(edgeClasses(screen.getByRole("alert"))).toEqual([]);
   });
 });
+
+describe("QueuedMessagesBar · 撤回到输入框", () => {
+  function renderWithdraw(
+    queued: QueuedItem[],
+    extra: { withdrawDisabled?: boolean } = {},
+  ) {
+    const onWithdraw = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <QueuedMessagesBar
+        queued={queued}
+        onCancel={onCancel}
+        onClearAll={vi.fn()}
+        onWithdraw={onWithdraw}
+        withdrawDisabled={extra.withdrawDisabled}
+      />,
+    );
+    return { onWithdraw, onCancel };
+  }
+
+  it("Given the host wired withdraw, When a cancellable item is shown, Then it offers both move-back and delete, each reporting its own id", () => {
+    const { onWithdraw, onCancel } = renderWithdraw([
+      { id: "a", text: "first", cancellable: true },
+      { id: "b", text: "second", cancellable: true },
+    ]);
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Move back to input" })[1],
+    );
+    expect(onWithdraw).toHaveBeenCalledWith("b");
+    expect(onCancel).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Delete this queued message" })[0],
+    );
+    expect(onCancel).toHaveBeenCalledWith("a");
+    expect(onWithdraw).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given the host did not wire withdraw, When rendered, Then only delete is offered", () => {
+    renderBar([{ id: "a", text: "first", cancellable: true }]);
+
+    expect(
+      screen.queryByRole("button", { name: "Move back to input" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Delete this queued message" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given an item is being withdrawn, When rendered, Then both of its buttons are disabled and the other items stay usable", () => {
+    renderWithdraw([
+      { id: "a", text: "first", cancellable: true, withdrawing: true },
+      { id: "b", text: "second", cancellable: true },
+    ]);
+
+    const moveBack = screen.getAllByRole("button", {
+      name: "Move back to input",
+    });
+    const del = screen.getAllByRole("button", {
+      name: "Delete this queued message",
+    });
+    expect(moveBack[0]).toBeDisabled();
+    expect(del[0]).toBeDisabled();
+    expect(moveBack[1]).toBeEnabled();
+    expect(del[1]).toBeEnabled();
+  });
+
+  it("Given the composer is editing a message, When rendered, Then move-back is disabled with a reason while delete still works", () => {
+    const { onCancel } = renderWithdraw(
+      [{ id: "a", text: "first", cancellable: true }],
+      { withdrawDisabled: true },
+    );
+
+    const moveBack = screen.getByRole("button", { name: "Move back to input" });
+    expect(moveBack).toBeDisabled();
+    expect(moveBack).toHaveAttribute("title", "Finish or cancel editing first");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete this queued message" }),
+    );
+    expect(onCancel).toHaveBeenCalledWith("a");
+  });
+
+  it("Given the backend cannot cancel this item, When rendered, Then neither move-back nor delete is offered", () => {
+    renderWithdraw([{ id: "a", text: "first", cancellable: false }]);
+
+    expect(
+      screen.queryAllByRole("button", { name: /Move back|Delete/ }),
+    ).toEqual([]);
+  });
+});

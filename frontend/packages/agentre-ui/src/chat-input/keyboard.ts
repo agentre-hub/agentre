@@ -60,3 +60,25 @@ export function applyInputHistoryMessage(
   editor.commands.setContent(buildEditorDocFromMessage(nextMessage));
   editor.commands.focus("end");
 }
+
+/**
+ * 把一段字接到现有草稿后面：空编辑器直接填入，否则先空一行再接上，光标停在末尾。
+ *
+ * 追加的是**节点**而不是「读出整段字 → 拼串 → setContent」：现有草稿里的 @ 提及
+ * chip 走一趟纯文本会被拍平，原样留在文档里才不丢。
+ */
+export function appendEditorDraft(editor: Editor, text: string) {
+  if (editor.isEmpty) {
+    applyInputHistoryMessage(editor, text);
+    return;
+  }
+  const { content } = buildEditorDocFromMessage(text);
+  editor
+    .chain()
+    .insertContentAt(editor.state.doc.content.size, [
+      { type: "paragraph" },
+      ...content,
+    ])
+    .focus("end")
+    .run();
+}

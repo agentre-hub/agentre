@@ -1,4 +1,12 @@
-import { Hourglass, Lock, Trash2, TriangleAlert, X } from "lucide-react";
+import {
+  Hourglass,
+  Loader2,
+  Lock,
+  Trash2,
+  TriangleAlert,
+  Undo2,
+  X,
+} from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
@@ -6,8 +14,15 @@ import type { QueuedItem } from "./steer-queue";
 
 type Props = {
   queued: QueuedItem[];
-  /** 用户点单条 chip 上的 X。父组件负责调 CancelQueuedChatMessage 并同步本地 state。 */
+  /** 用户点单条 chip 上的 X（删除，不放回输入框）。父组件负责调 CancelQueuedChatMessage 并同步本地 state。 */
   onCancel: (id: string) => void;
+  /**
+   * 用户点单条 chip 上的「撤回到输入框」。宿主负责撤回、对端确认移除之后把原文追加进
+   * 输入框。可选：不接的宿主只有删除那一颗，与从前一样。
+   */
+  onWithdraw?: (id: string) => void;
+  /** 输入框正在编辑一条历史消息：撤回下来的字会被当成对它的修改，所以先不让撤。 */
+  withdrawDisabled?: boolean;
   /** 用户点 header「清空」。父组件负责调 CancelQueuedChatMessage({queuedId: ""})。 */
   onClearAll: () => void;
   /** 回合收尾时还没被 AI 消费、被暂存的排队条目。宿主只在它属于当前这条会话时
@@ -19,6 +34,12 @@ type Props = {
   /** 点「丢弃」。宿主负责把暂存的那一份扔掉。 */
   onDiscardDropped?: () => void;
 };
+
+// chip 上撤回 / 删除两颗按钮同一个样式。禁用态（撤回在途、编辑中）不再响应悬停。
+const chipButtonClass = cn(
+  "inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+  "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
+);
 
 // QueuedMessagesBar 显示这条会话此刻还没被 AI 取走的排队消息。
 // 挂在 ChatComposer 内的 card 顶部（编辑模式 banner 同位，走 topSlot），样式上用
@@ -33,6 +54,8 @@ type Props = {
 export function QueuedMessagesBar({
   queued,
   onCancel,
+  onWithdraw,
+  withdrawDisabled = false,
   onClearAll,
   dropped,
   onRestoreDropped,
@@ -162,15 +185,41 @@ export function QueuedMessagesBar({
               {q.text}
             </span>
             {q.cancellable ? (
-              <button
-                type="button"
-                aria-label={t("queuedMessages.cancelOne")}
-                title={t("queuedMessages.cancelOneTitle")}
-                onClick={() => onCancel(q.id)}
-                className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <X className="size-3" aria-hidden="true" />
-              </button>
+              <span className="flex shrink-0 items-center gap-0.5">
+                {onWithdraw ? (
+                  <button
+                    type="button"
+                    aria-label={t("queuedMessages.withdrawOne")}
+                    title={
+                      withdrawDisabled
+                        ? t("queuedMessages.withdrawDisabledEditing")
+                        : t("queuedMessages.withdrawOneTitle")
+                    }
+                    disabled={q.withdrawing || withdrawDisabled}
+                    onClick={() => onWithdraw(q.id)}
+                    className={chipButtonClass}
+                  >
+                    {q.withdrawing ? (
+                      <Loader2
+                        className="size-3 animate-spin motion-reduce:animate-none"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <Undo2 className="size-3" aria-hidden="true" />
+                    )}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  aria-label={t("queuedMessages.cancelOne")}
+                  title={t("queuedMessages.cancelOneTitle")}
+                  disabled={q.withdrawing}
+                  onClick={() => onCancel(q.id)}
+                  className={chipButtonClass}
+                >
+                  <X className="size-3" aria-hidden="true" />
+                </button>
+              </span>
             ) : (
               <span
                 aria-label={t("queuedMessages.notCancellable")}

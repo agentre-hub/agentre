@@ -8,6 +8,7 @@ import {
   emptySteerQueue,
   enqueueSteer,
   markSteerNotCancellable,
+  markSteerWithdrawing,
   type SteerQueueState,
 } from "./steer-queue";
 
@@ -153,5 +154,37 @@ describe("steer queue", () => {
     const state = clearSteerQueue(settled("desktop-42", "等一下"));
 
     expect(state).toEqual(emptySteerQueue);
+  });
+});
+
+describe("steer queue · 撤回到输入框", () => {
+  it("给定一条可撤回的插话，当标记撤回中，则只有这一条带 withdrawing，其余不动", () => {
+    const base = adoptSteerHandle(
+      enqueueSteer(settled("a", "第一条"), { id: "local-b", text: "第二条" }),
+      "local-b",
+      { queuedId: "b", cancellable: true },
+    );
+
+    const state = markSteerWithdrawing(base, "a", true);
+
+    expect(state.items.map((q) => [q.id, q.withdrawing ?? false])).toEqual([
+      ["a", true],
+      ["b", false],
+    ]);
+  });
+
+  it("给定一条撤回中的插话，当撤回被拒，则撤回中标记被清掉、条目留在原位", () => {
+    const pending = markSteerWithdrawing(settled("a", "第一条"), "a", true);
+
+    const state = markSteerWithdrawing(pending, "a", false);
+
+    expect(state.items).toHaveLength(1);
+    expect(state.items[0].withdrawing).toBeFalsy();
+  });
+
+  it("给定队列里没有这一条（已被取走），当标记撤回中，则原样返回", () => {
+    const base = settled("a", "第一条");
+
+    expect(markSteerWithdrawing(base, "gone", true)).toBe(base);
   });
 });

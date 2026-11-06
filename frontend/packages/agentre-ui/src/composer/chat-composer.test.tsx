@@ -550,6 +550,85 @@ describe("ChatComposer · draft handle", () => {
   });
 });
 
+describe("ChatComposer · append draft", () => {
+  it("Given an empty input, When the host appends text, Then the input holds exactly that text", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    const onSubmit = vi.fn();
+    render(<ChatComposer ref={handle} onSubmit={onSubmit} />);
+
+    act(() => handle.current?.appendDraft("moved back"));
+
+    await waitFor(() => expect(sendButton()).toBeEnabled());
+    fireEvent.click(sendButton());
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "moved back" }),
+      ),
+    );
+  });
+
+  it("Given a draft with an image, When the host appends text, Then the new text follows after a blank line and the image stays", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    const onSubmit = vi.fn();
+    render(
+      <ChatComposer ref={handle} supportsImageInput onSubmit={onSubmit} />,
+    );
+    act(() =>
+      handle.current?.restoreDraft("half written", [
+        {
+          dataUrl: "data:image/png;base64,AAA",
+          mediaType: "image/png",
+          name: "keep.png",
+        },
+      ]),
+    );
+    await screen.findByAltText("keep.png");
+
+    act(() => handle.current?.appendDraft("moved back"));
+
+    expect(screen.getByAltText("keep.png")).toBeInTheDocument();
+    fireEvent.click(sendButton());
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "half written\n\nmoved back" }),
+      ),
+    );
+  });
+
+  it("Given the composer is editing a message, When the host appends text, Then the edit draft is untouched and the text lands once editing ends", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    const onSubmit = vi.fn();
+    const { rerender } = render(
+      <ChatComposer
+        ref={handle}
+        editing
+        editDraft="old text"
+        onSubmit={onSubmit}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
+    );
+
+    act(() => handle.current?.appendDraft("moved back"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith(
+        expect.objectContaining({ text: "old text" }),
+      ),
+    );
+
+    rerender(<ChatComposer ref={handle} onSubmit={onSubmit} />);
+    await waitFor(() => expect(sendButton()).toBeEnabled());
+    fireEvent.click(sendButton());
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith(
+        expect.objectContaining({ text: "moved back" }),
+      ),
+    );
+  });
+});
+
 describe("ChatComposer · shift+tab", () => {
   it("Given the host wired shift+tab, When it is pressed inside the composer, Then the host is notified once", () => {
     const onShiftTab = vi.fn();

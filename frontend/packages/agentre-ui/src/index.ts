@@ -383,6 +383,7 @@ export {
   enqueueSettledSteer,
   enqueueSteer,
   markSteerNotCancellable,
+  markSteerWithdrawing,
 } from "./composer/steer-queue";
 export type {
   ConsumedSteerRef,

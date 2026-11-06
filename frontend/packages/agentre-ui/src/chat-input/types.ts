@@ -18,6 +18,8 @@ export interface AIChatInputHandle {
   submit: () => void;
   loadDraft: (draft: string | AIChatInputDraft) => void;
   insertText: (text: string) => void;
+  /** 接到现有草稿后面（空则直接填入，否则空一行再接），光标停在末尾。 */
+  appendDraft: (text: string) => void;
 }
 
 export interface ProseMirrorLikeNode {
