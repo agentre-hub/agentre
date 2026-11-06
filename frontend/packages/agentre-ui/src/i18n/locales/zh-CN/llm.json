@@ -172,7 +172,11 @@
       "noModelsTitle": "还没有配置模型",
       "noModelsDescription": "先从远端发现并导入，或手动添加一个模型 ID。",
       "discoverModels": "发现模型",
-      "addModelManual": "手动添加模型"
+      "addModelManual": "手动添加模型",
+      "connectionList": "连接信息",
+      "modelsList": "模型",
+      "metaEndpoint": "接口地址",
+      "metaApiKey": "API Key"
     },
     "modelsTable": {
       "ariaLabel": "模型列表",

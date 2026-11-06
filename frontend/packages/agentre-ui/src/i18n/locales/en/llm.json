@@ -172,7 +172,11 @@
       "noModelsTitle": "No models configured yet",
       "noModelsDescription": "Discover and import models from the remote, or add a model ID manually.",
       "discoverModels": "Discover models",
-      "addModelManual": "Add model manually"
+      "addModelManual": "Add model manually",
+      "connectionList": "Connection",
+      "modelsList": "Models",
+      "metaEndpoint": "Endpoint",
+      "metaApiKey": "API key"
     },
     "modelsTable": {
       "ariaLabel": "Model list",

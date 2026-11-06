@@ -8,6 +8,7 @@ import {
   type BatchDeleteResult,
   BatchDeleteDialog,
 } from "./batch-delete-dialog";
+import { ModelsList } from "./models-list";
 import { ModelsTable } from "./models-table";
 import { ProviderWorkspaceHeader } from "./workspace-header";
 import { ModelsToolbar } from "./workspace-toolbar";
@@ -60,7 +61,10 @@ export function ProviderWorkspace({
   passedModelTests,
   providerRefCounts,
   modelRefCounts,
+  stacked = false,
 }: {
+  // 逐层档：详情单独占一页 —— 连接信息一项一行，模型一行一个，不再有表格。
+  stacked?: boolean;
   provider: Provider;
   models: Model[];
   modelsError: string | null;
@@ -129,6 +133,7 @@ export function ProviderWorkspace({
         onEditConnection={onEditConnection}
         onCopyProviderKey={onCopyProviderKey}
         onDeleteProvider={onDeleteProvider}
+        stacked={stacked}
       />
 
       <ModelsToolbar
@@ -208,30 +213,44 @@ export function ProviderWorkspace({
         </div>
       ) : (
         <div className="min-w-0 flex-1 overflow-auto">
-          <ModelsTable
-            provider={provider}
-            models={visible}
-            selected={selected}
-            allVisibleSelected={allVisibleSelected}
-            onSelectAll={() => setSelected(new Set(visible.map((m) => m.id)))}
-            onClearSelection={() => setSelected(new Set())}
-            onToggleRow={(modelId, checked) =>
-              setSelected((prev) => {
-                const next = new Set(prev);
-                if (checked) next.add(modelId);
-                else next.delete(modelId);
-                return next;
-              })
-            }
-            modelRefCounts={modelRefCounts}
-            passedModelTests={passedModelTests}
-            testingModelId={testingModelId}
-            onSetDefault={onSetDefault}
-            onToggleModelEnabled={onToggleModelEnabled}
-            onTestModel={onTestModel}
-            onEditModel={onEditModel}
-            onDeleteModel={onDeleteModel}
-          />
+          {stacked ? (
+            <ModelsList
+              provider={provider}
+              models={visible}
+              passedModelTests={passedModelTests}
+              testingModelId={testingModelId}
+              onSetDefault={onSetDefault}
+              onToggleModelEnabled={onToggleModelEnabled}
+              onTestModel={onTestModel}
+              onEditModel={onEditModel}
+              onDeleteModel={onDeleteModel}
+            />
+          ) : (
+            <ModelsTable
+              provider={provider}
+              models={visible}
+              selected={selected}
+              allVisibleSelected={allVisibleSelected}
+              onSelectAll={() => setSelected(new Set(visible.map((m) => m.id)))}
+              onClearSelection={() => setSelected(new Set())}
+              onToggleRow={(modelId, checked) =>
+                setSelected((prev) => {
+                  const next = new Set(prev);
+                  if (checked) next.add(modelId);
+                  else next.delete(modelId);
+                  return next;
+                })
+              }
+              modelRefCounts={modelRefCounts}
+              passedModelTests={passedModelTests}
+              testingModelId={testingModelId}
+              onSetDefault={onSetDefault}
+              onToggleModelEnabled={onToggleModelEnabled}
+              onTestModel={onTestModel}
+              onEditModel={onEditModel}
+              onDeleteModel={onDeleteModel}
+            />
+          )}
         </div>
       )}
 

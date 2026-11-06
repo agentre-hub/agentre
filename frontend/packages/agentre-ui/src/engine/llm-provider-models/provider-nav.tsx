@@ -18,7 +18,10 @@ export function ProviderNav({
   providers,
   selectedId,
   onSelect,
+  fullWidth = false,
 }: {
+  // 逐层档的列表页独占整页宽，不再是 w-60 的左栏。
+  fullWidth?: boolean;
   providers: Provider[];
   selectedId: number | null;
   onSelect: (id: number) => void;
@@ -56,7 +59,7 @@ export function ProviderNav({
     <aside
       role="complementary"
       aria-label={t("llmProviders.nav.ariaLabel")}
-      className="flex w-60 shrink-0 flex-col"
+      className={cn("flex shrink-0 flex-col", fullWidth ? "w-full" : "w-60")}
     >
       <div className="p-2">
         <SearchInput
