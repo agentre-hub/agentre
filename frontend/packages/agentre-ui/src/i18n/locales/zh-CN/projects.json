@@ -206,6 +206,8 @@
       "count": "{{count}}"
     },
     "filter": {
+      "apply": "完成",
+      "showCount": "查看 {{count}} 条任务",
       "button": "筛选",
       "labels": "标签",
       "matchAny": "任意一个",

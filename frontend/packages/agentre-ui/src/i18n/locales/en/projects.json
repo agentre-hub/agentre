@@ -206,6 +206,8 @@
       "count": "{{count}}"
     },
     "filter": {
+      "apply": "Done",
+      "showCount": "Show {{count}} tasks",
       "button": "Filter",
       "labels": "Labels",
       "matchAny": "Any of them",

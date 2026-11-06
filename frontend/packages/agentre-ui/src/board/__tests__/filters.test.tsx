@@ -322,3 +322,56 @@ describe("窄到最小窗口宽度", () => {
     expect(trigger).toHaveAttribute("aria-label", "Filter");
   });
 });
+
+describe("筛选弹层档（sheet）", () => {
+  it("Given sheet, When opened, Then it is a bottom sheet whose button says how many tasks match and closes it", async () => {
+    const user = userEvent.setup();
+    renderBar({ sheet: true, matchedCount: 12 });
+
+    await user.click(screen.getByTestId("filter-trigger"));
+    const sheet = await screen.findByTestId("filter-sheet");
+    expect(sheet.className).toContain("bottom-0");
+    const apply = within(sheet).getByTestId("filter-sheet-apply");
+    expect(apply.textContent).toContain("12");
+    expect(apply.className).toContain("min-h-11");
+
+    await user.click(apply);
+    expect(screen.queryByTestId("filter-sheet")).toBeNull();
+  });
+
+  it("Given sheet, When options and date inputs render, Then chips and inputs are touch sized with 16px text", async () => {
+    const user = userEvent.setup();
+    renderBar({
+      sheet: true,
+      query: query({ updated: { preset: "custom" } }),
+    });
+
+    await user.click(screen.getByTestId("filter-trigger"));
+    const sheet = await screen.findByTestId("filter-sheet");
+    expect(within(sheet).getByTestId("filter-label-1").className).toContain(
+      "min-h-11",
+    );
+    expect(within(sheet).getByTestId("filter-updated-any").className).toContain(
+      "min-h-11",
+    );
+    expect(
+      within(sheet).getByTestId("filter-updated-from").className,
+    ).toContain("text-base");
+  });
+
+  it("Given sheet without a count, When opened, Then the button is a plain done", async () => {
+    const user = userEvent.setup();
+    renderBar({ sheet: true });
+    await user.click(screen.getByTestId("filter-trigger"));
+    const apply = await screen.findByTestId("filter-sheet-apply");
+    expect(apply.textContent).not.toMatch(/\d/);
+  });
+
+  it("Given no sheet prop, When opened, Then it is the desktop popover", async () => {
+    const user = userEvent.setup();
+    renderBar({ matchedCount: 12 });
+    await user.click(screen.getByTestId("filter-trigger"));
+    expect(await screen.findByTestId("filter-label-1")).toBeTruthy();
+    expect(screen.queryByTestId("filter-sheet")).toBeNull();
+  });
+});
