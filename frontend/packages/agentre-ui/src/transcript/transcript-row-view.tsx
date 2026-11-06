@@ -44,6 +44,8 @@ import { AutoTriggerBanner } from "./auto-trigger-banner";
 import { PlanApproveCard } from "./canonical-tool/plan-approve-request/card";
 import type { PlanActionStream } from "./canonical-tool/props";
 import { CanonicalToolRouter } from "./canonical-tool/registry";
+import { ShortcutHintsProvider } from "./canonical-tool/tool-permission/shortcut-hints";
+import { isPendingToolPermission } from "./canonical-tool/tool-permission/use-tool-permission-decision";
 import { CompactBoundaryDivider } from "./compact-boundary-divider";
 import type {
   RetryNotice,
@@ -112,6 +114,17 @@ export type TranscriptRenderContextValue = {
   metaDensity?: "default" | "compact";
   /** 用户消息的对齐；`"end"` 把用户消息排到尾侧。不传与桌面一致。 */
   userMessageAlign?: "start" | "end";
+  /**
+   * 待决工具权限请求画在哪。`"docked"`：宿主把它交给 `ToolPermissionDock` 停在
+   * 输入框的位置，转录不再画待决的工具权限卡（已决的照常显示；提问卡、计划审批
+   * 不受影响）。不传即桌面那一档 `"inline"`。
+   */
+  decisionPlacement?: "inline" | "docked";
+  /**
+   * 审批卡不画 ↵ / Esc 键帽（触屏）。转录之外直接用 `CanonicalToolRouter` 的宿主
+   * 改用 `ShortcutHintsProvider`。不传与桌面一致。
+   */
+  hideShortcutHints?: boolean;
 };
 
 export const TranscriptRenderContext =
@@ -1137,21 +1150,45 @@ function unsupportedRequestPurposeKey(purpose: string | undefined): string {
 
 // ─── RenderItem → JSX ────────────────────────────────────────────────────────
 
+// 停靠档下待决的工具权限请求由宿主的 ToolPermissionDock 画，转录这一项留空。
+function isDockedDecision(
+  item: TranscriptRowItem,
+  ctx: TranscriptRenderContextValue | null,
+): boolean {
+  return (
+    ctx?.decisionPlacement === "docked" &&
+    item.type === "tool_permission_request" &&
+    isPendingToolPermission(item.block)
+  );
+}
+
 // messageId 是本行所属的 assistant 消息 —— 审批 / 权限卡做乐观更新时要用它定位
 // chat-streams-store 里对应的那条流(一个会话可同时有多条流,只给 sessionId 定位不到)。
-function RenderItemView({
-  item,
-  messageId,
-  running,
-  durationMs,
-}: {
+type RenderItemViewProps = {
   item: TranscriptRowItem;
   messageId: number;
   /** 本行是「这一轮在跑」的末行 —— 尾部的活动块此刻正在跑。 */
   running: boolean;
   /** 消息级耗时(块级无来源),活动块组头的耗时槽用;运行中不显示。 */
   durationMs?: number;
-}) {
+};
+
+function RenderItemView(props: RenderItemViewProps) {
+  const ctx = React.useContext(TranscriptRenderContext);
+  if (isDockedDecision(props.item, ctx)) return null;
+  return (
+    <ShortcutHintsProvider hidden={ctx?.hideShortcutHints}>
+      <RenderItemContent {...props} />
+    </ShortcutHintsProvider>
+  );
+}
+
+function RenderItemContent({
+  item,
+  messageId,
+  running,
+  durationMs,
+}: RenderItemViewProps) {
   const { t } = useUiTranslation();
   const ctx = React.useContext(TranscriptRenderContext);
   switch (item.type) {
@@ -1446,6 +1483,14 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
   const m = row.message;
   // 类型收窄:只有 local_command 行缺 message(已在上方返回),其余行恒有 message。
   if (!m) return null;
+  // 停靠走的待决审批若是消息中间的分片行,这一行没有任何别的内容 —— 整行不画。
+  if (
+    !row.isFirstOfMessage &&
+    !row.isLastOfMessage &&
+    isDockedDecision(row.item, ctx)
+  ) {
+    return null;
+  }
   const isAssistant = m.role === "assistant";
   // 每条 assistant 都允许重新生成；只读模式下 ctx.onRerun 为 undefined 时不渲染按钮。
   const rerunHandler =

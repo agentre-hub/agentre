@@ -17,6 +17,7 @@ import {
 import { TranscriptPortsProvider } from "../../ports-context";
 
 import { ToolPermissionCard } from "./card";
+import { ShortcutHintsProvider } from "./shortcut-hints";
 
 // 卡片从 TranscriptPortsProvider 取动作端口,少了 provider 会在挂载期就抛。
 const answerToolPermission = vi.fn().mockResolvedValue(undefined);
@@ -345,6 +346,22 @@ describe("ToolPermissionCard buttons and keyboard", () => {
       within(screen.getByRole("button", { name: "Reject" })).getByText("Esc")
         .tagName,
     ).toBe("KBD");
+  });
+
+  it("Given ShortcutHintsProvider hidden, Then Allow and Reject carry no keycaps", () => {
+    renderCard(<ShortcutHintsProvider hidden>{one()}</ShortcutHintsProvider>);
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeDefined();
+    expect(document.querySelector("kbd")).toBeNull();
+  });
+
+  it("Given a nested provider without a value, Then the outer hidden switch still applies", () => {
+    renderCard(
+      <ShortcutHintsProvider hidden>
+        <ShortcutHintsProvider>{one()}</ShortcutHintsProvider>
+      </ShortcutHintsProvider>,
+    );
+    expect(document.querySelector("kbd")).toBeNull();
   });
 
   it("focuses Allow on mount", () => {
