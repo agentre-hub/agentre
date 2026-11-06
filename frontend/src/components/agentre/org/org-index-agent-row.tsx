@@ -21,6 +21,7 @@ export function AgentRow({
   valid,
   current,
   selected,
+  gap,
   onSelect,
   onDragKeyDown,
 }: {
@@ -30,6 +31,8 @@ export function AgentRow({
   valid?: boolean;
   current: boolean;
   selected: boolean;
+  /** 现在不能对话的原因（宿主按 blockReason 翻译好，由 org-index 递进来）；能对话时不给。 */
+  gap?: string;
   onSelect: (sel: OrgSelection) => void;
   onDragKeyDown: (
     event: React.KeyboardEvent<HTMLElement>,
@@ -58,6 +61,7 @@ export function AgentRow({
       droppable={Boolean(target)}
       dropState={dropStateOf(valid, current || isOver)}
       dropRef={setNodeRef}
+      gap={gap}
       // 系统 Agent 不可拖动：不给绑定，包里画的就是那个等宽占位。
       dragHandle={
         isSystem

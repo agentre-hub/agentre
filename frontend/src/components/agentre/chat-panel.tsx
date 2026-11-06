@@ -18,6 +18,7 @@ import { useChatSession } from "@/hooks/use-chat-session";
 import { useProjectTree } from "@/hooks/use-project-tree";
 import { useVisibleMessageId } from "@/hooks/use-visible-message-id";
 import { reasonToDisplayStatus } from "@/lib/attention-display";
+import { parseCodedError } from "@/lib/app-error";
 import { splitErrorDetail } from "@/lib/error-detail";
 import { toast } from "sonner";
 import {
@@ -50,6 +51,7 @@ import {
   type ChatComposerHandle,
   type ChatTranscriptHandle,
 } from "./chat";
+import { isResolvedAskState } from "./ask-event-state";
 import { ChatContextSidebar } from "./chat-context-sidebar";
 import { ChatPanelHeader } from "./chat-panel/chat-panel-header";
 import { ChatPanelConfirmDialogs } from "./chat-panel/confirm-dialogs";
@@ -95,9 +97,6 @@ import {
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
 import type { chat_svc } from "../../../wailsjs/go/models";
 
-// `internal/app/coded_error.go` 那一侧的同一条契约(端口转发失败经它过桥)。
-const CODED_PREFIX = /^agentre-code:(\d+)\s?([\s\S]*)$/;
-
 type ChatAgentItem = chat_svc.ChatAgentItem;
 
 const EMPTY_CLEARED: string[] = [];
@@ -139,6 +138,54 @@ type ChatPanelProps = {
   /** 当前 mounted tab 的稳定 id。用于跨路由 remount 恢复滚动；关闭 tab 后新 id 不复用。*/
   scrollStateKey?: string;
 };
+
+// 一个块若是仍未回答的审批 / 提问,返回它的 requestId,否则 null。
+// 覆盖 canonical 与旧形态两套载荷;与卡片自己的「已决」判据同口径。
+function pendingDecisionId(block: ChatBlockData): string | null {
+  const c = block.canonical;
+  if (c?.kind === "tool.permission" && c.toolPermission) {
+    return c.toolPermission.resolved ? null : c.toolPermission.requestId;
+  }
+  if (c?.kind === "user.ask" && c.userAsk) {
+    return isResolvedAskState(c.userAsk) ? null : c.userAsk.requestId;
+  }
+  const p = block.toolPermission;
+  if (p) return p.resolved ? null : p.requestId;
+  const q = block.askUserQuestion;
+  if (q) return isResolvedAskState(q) ? null : q.requestId;
+  const a = block.toolApproval;
+  if (a) return a.status === "pending" ? a.requestId : null;
+  const e = block.execApproval;
+  if (e) return e.status === "pending" ? e.id : null;
+  return null;
+}
+
+// countPendingBelow:id 大于视口下沿那条消息的消息里,仍未决的审批 / 提问个数。
+// 持久化块与在流 liveBlocks 按 requestId 去重(同一张卡可能两处都有)。
+// 视口下沿未知(null)时数不出「下面」,记 0 —— 与 turnsBelow 同口径。
+function countPendingBelow(
+  messages: readonly { id: number; blocks?: ChatBlockData[] }[],
+  streams: ReadonlyMap<number, LiveStream> | null,
+  bottomVisibleId: number | null,
+): number {
+  if (bottomVisibleId === null) return 0;
+  const pending = new Set<string>();
+  const scan = (blocks: readonly ChatBlockData[] | undefined) => {
+    for (const b of blocks ?? []) {
+      const id = pendingDecisionId(b);
+      if (id) pending.add(id);
+    }
+  };
+  for (const m of messages) {
+    if (m.id > bottomVisibleId) scan(m.blocks);
+  }
+  if (streams) {
+    for (const [messageId, stream] of streams) {
+      if (messageId > bottomVisibleId) scan(stream.liveBlocks);
+    }
+  }
+  return pending.size;
+}
 
 function ChatPanel({
   sessionId,
@@ -295,6 +342,7 @@ function ChatPanel({
   // 宿主只递 tab / 活跃态 / 消息与流式内容的身份进去,并把锚点恢复转交给转录渲染器
   // (只有虚拟器知道某条消息此刻落在哪一行)。
   const {
+    bottomVisibleId,
     followBottom: followTranscriptBottom,
     onScroll: handleTranscriptScroll,
     scrollElement: transcriptElement,
@@ -324,6 +372,15 @@ function ChatPanel({
     if (!sessionStreams) return [] as ChatBlockData[];
     return Array.from(sessionStreams.values()).flatMap((s) => s.liveBlocks);
   }, [sessionStreams]);
+  // 回到底部药丸的「N 项待处理」:视口下沿之后仍未决的审批 / 提问,按活状态现算,
+  // 与补齐(catch-up)无关。
+  const pendingBelow = React.useMemo(
+    () =>
+      showBackToBottom
+        ? countPendingBelow(messages, sessionStreams, bottomVisibleId)
+        : 0,
+    [bottomVisibleId, messages, sessionStreams, showBackToBottom],
+  );
   // 会话级读数取主流。
   const liveUsage = currentStream?.liveUsage ?? null;
   const liveContextWindow = currentStream?.liveContextWindow ?? 0;
@@ -498,7 +555,8 @@ function ChatPanel({
         const { msg } = splitErrorDetail(e);
         toast.error(
           t("remoteDevices.portForward.actionFailed", {
-            message: CODED_PREFIX.exec(msg)?.[2] ?? msg,
+            // 端口转发失败经 coded_error.go 过桥，前缀是内部记号，剥掉再上屏。
+            message: parseCodedError(msg)?.message ?? msg,
           }),
         );
       }
@@ -609,6 +667,7 @@ function ChatPanel({
     setPendingRegenId,
     handleRegenerate,
     confirmRegenerate,
+    handleRetryTurn,
     pendingDeleteId,
     setPendingDeleteId,
     handleDelete,
@@ -633,11 +692,28 @@ function ChatPanel({
     setNotice,
   });
 
+  const headerStatus = reasonToDisplayStatus(
+    attentionReason,
+    (session?.agentStatus as AgentStatus) || "idle",
+  );
+  // canStop 双源：
+  //   1. currentStream !== null —— 本客户端刚起的 turn，openStream 是同步 store 写，
+  //      比 useChatSession.reload 早；解决 Regenerate / Edit / Send-existing 的「服务端
+  //      已 running 但前端 agentStatus 还是上轮 idle」窗口。
+  //   2. status === running/waiting —— 服务端权威态，覆盖「app 重启时另一会话仍在跑」
+  //      场景（store 里没 entry）。
+  const canStop =
+    currentStream !== null ||
+    headerStatus === "running" ||
+    headerStatus === "waiting";
+
   // composer / 头部触发的那一族会话 RPC(首发与续发、压缩、goal、排队与撤销、软中断、
-  // 复制启动命令)与回车的分派整块住在 useChatActions 里。
+  // 复制启动命令)与回车的分派整块住在 useChatActions 里。停止的两个入口(提交位与
+  // 顶带)共用这里的 doStop 与 stopping。
   const {
     doSend,
     doStop,
+    stopping,
     doCancelQueued,
     handleCopyLaunchCommand,
     handleComposerSubmit,
@@ -657,6 +733,7 @@ function ChatPanel({
     onPeerSessionCreated,
     onSidebarShouldReload,
     streaming,
+    canStop,
     activeBackendType,
     canSteer,
     isModeSwitchable,
@@ -736,20 +813,6 @@ function ChatPanel({
   // 头部在「已有会话 / 新建未首发 / 加载中 / 加载失败」四态都渲染，高度写死为两行
   // 标题的高度、内容整块垂直居中：首发消息落地、切 tab、标题长短都不再顶动版面
   // （规格 2026-08-23 决策 2/3）。
-  const headerStatus = reasonToDisplayStatus(
-    attentionReason,
-    (session?.agentStatus as AgentStatus) || "idle",
-  );
-  // canStop 双源：
-  //   1. currentStream !== null —— 本客户端刚起的 turn，openStream 是同步 store 写，
-  //      比 useChatSession.reload 早；解决 Regenerate / Edit / Send-existing 的「服务端
-  //      已 running 但前端 agentStatus 还是上轮 idle」窗口。
-  //   2. status === running/waiting —— 服务端权威态，覆盖「app 重启时另一会话仍在跑」
-  //      场景（store 里没 entry）。
-  const canStop =
-    currentStream !== null ||
-    headerStatus === "running" ||
-    headerStatus === "waiting";
   const headerTitle = session
     ? session.title || t("chatPanel.untitled")
     : showNewSessionPrompt
@@ -825,6 +888,7 @@ function ChatPanel({
                 }
               }}
               canStop={canStop}
+              stopping={stopping}
               onStop={(id) => void doStop(id)}
               sidebarOpen={sidebarOpen}
               onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
@@ -905,9 +969,11 @@ function ChatPanel({
                         onContinue={() => {
                           if (!session) return;
                           void doSend(session.id, session.agentId, {
-                            text: "continue",
+                            text: t("chatPanel.errorCard.continueMessage"),
                           });
                         }}
+                        onRetryTurn={(messageId) => handleRetryTurn(messageId)}
+                        backendType={session?.backendType}
                         onRerun={(messageId) => handleRegenerate(messageId)}
                         onEdit={(messageId) => handleEdit(messageId)}
                         onPlanActionStarted={handlePlanActionStarted}
@@ -921,6 +987,7 @@ function ChatPanel({
                         <TranscriptJumpControl
                           catchUp={catchUp}
                           turnsBelow={turnsBelow}
+                          pendingBelow={pendingBelow}
                           onJump={handleBackToBottom}
                           // 这一端的转录列靠左（滚动容器是整面板宽的 px-7，列本身
                           // 让出 40px 头像 gutter 再封顶 max-w-measure，没有
@@ -989,6 +1056,10 @@ function ChatPanel({
                   <ChatComposer
                     ref={composerRef}
                     sending={sendInFlight}
+                    // 已有会话的这一轮在跑时提交位让给停止键,Esc 也能停(C2)。
+                    running={!!session && canStop}
+                    onStop={session ? () => void doStop(session.id) : undefined}
+                    stopping={stopping}
                     editing={activeEditing !== null}
                     editDraft={activeEditing?.text}
                     onCancelEdit={() => setEditingMessage(null)}
@@ -1002,7 +1073,7 @@ function ChatPanel({
                         ? t("chatPanel.newSession.guard.placeholder")
                         : undefined
                     }
-                    // 底栏：设置项（pills）跟在快捷键提示后，计量器贴着提交键 ——
+                    // 底栏：设置项（pills）靠左，计量器贴着提交键 ——
                     // 「发之前看一眼还剩多少」的读序，与 agentre-server 同一套。
                     leadingControls={
                       isModeSwitchable || activeBackendType ? (

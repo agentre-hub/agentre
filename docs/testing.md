@@ -141,7 +141,7 @@ A **guard test** pins a convention that has no natural home in ordinary tests �
 | `internal/desktop/darwin_bundle_test.go` | `wails dev` macOS identity (`Info.dev.plist`) stays distinct from the installed app — stops Dock/Spaces swallowing the hidden startup window |
 | `frontend/src/__tests__/i18n.test.ts` | Static `t("…")` keys resolve, and `zh-CN` / `en` expose the same key set |
 | `frontend/src/__tests__/eslint-i18n.test.ts` | The i18n ESLint rule is really loaded, at the right severity and scope |
-| `frontend/src/__tests__/design-tokens.test.ts` | Color tokens are used instead of literal colors |
+| `frontend/src/__tests__/design-tokens.test.ts` | Color tokens are used instead of literal colors, and every `status-*` color class in the sources names a `--color-status-*` token that `tokens.css` defines (Tailwind v4 emits nothing for an undefined one) |
 | `frontend/src/components/agentre/__tests__/transcript-typography-guard.test.ts` | Transcript typography stays on the shared scale |
 | `internal/pkg/agentruntime/runtimes/remote/wire/golden_test.go` (`TestGoldenFixturesFresh`) | The committed `@agentre-hub/agentre-wire` golden samples are what the Go marshaler emits today — regenerates into a temp dir and compares byte for byte |
 | `internal/pkg/agentruntime/runtimes/remote/wire/tsgen_test.go` (`TestGeneratedTSFresh`) | The committed `@agentre-hub/agentre-wire` `src/*.gen.ts` are what the generator writes today — same temp-dir-and-compare shape. Catches what the golden samples cannot: an added `omitempty` field changes no fixture byte, but does change the codec |

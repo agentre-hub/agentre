@@ -45,6 +45,21 @@ type ProjectMergeRequest struct {
 	TargetID int64 `json:"targetID"`
 }
 
+// ProjectMergePreview 合并结果预览（S4）：真的合并时留下哪一边、消失哪一边。
+type ProjectMergePreview struct {
+	Keep ProjectMergePreviewSide `json:"keep"`
+	Drop ProjectMergePreviewSide `json:"drop"`
+}
+
+// ProjectMergePreviewSide 预览里一边的摘要。ParentPath 是根 → 直接父级的名称链，
+// 顶层项目为空；Claimed 表示账号侧已认领。
+type ProjectMergePreviewSide struct {
+	ID         int64    `json:"id"`
+	Name       string   `json:"name"`
+	ParentPath []string `json:"parentPath"`
+	Claimed    bool     `json:"claimed"`
+}
+
 // ProjectItem 项目摘要 —— 树节点 / 列表 / 详情共用。
 type ProjectItem struct {
 	ID          int64  `json:"id"`
@@ -149,6 +164,9 @@ func (a *App) ProjectMove(req *ProjectMoveRequest) (*ProjectItem, error) {
 }
 
 // ProjectReorder 持久化同一父项目下的项目顺序。
+//
+// 本组写绑定（排序 / 删除 / 合并 / 合并预览）的失败都经 codedError 带码过桥：
+// 管理页按码分出「已经不在了」「还有冲突」等不同出路（S5）。
 func (a *App) ProjectReorder(req *ProjectReorderRequest) error {
 	var svcReq *project_svc.ReorderProjectsRequest
 	if req != nil {
@@ -157,12 +175,12 @@ func (a *App) ProjectReorder(req *ProjectReorderRequest) error {
 			OrderedIDs: req.OrderedIDs,
 		}
 	}
-	return project_svc.Default().Reorder(a.ctx, svcReq)
+	return codedError(project_svc.Default().Reorder(a.ctx, svcReq))
 }
 
 // ProjectDelete 软删除项目连同它的整棵子树；子树里还有活跃会话时整体拒绝。
 func (a *App) ProjectDelete(id int64) error {
-	return project_svc.Default().Delete(a.ctx, id)
+	return codedError(project_svc.Default().Delete(a.ctx, id))
 }
 
 // ProjectGet 拉单个项目详情 + 成员（直接 + 继承）。
@@ -244,9 +262,26 @@ func (a *App) ProjectMerge(req *ProjectMergeRequest) (*ProjectItem, error) {
 	}
 	p, err := project_svc.Default().Merge(a.ctx, svcReq)
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	return toProjectItem(p), nil
+}
+
+// ProjectMergePreview 只读地预览 ProjectMerge(sourceID, targetID) 的结果（S4）：
+// 判据只在后端那一份（chooseMergeWinner），前端照着显示。
+func (a *App) ProjectMergePreview(sourceID, targetID int64) (*ProjectMergePreview, error) {
+	p, err := project_svc.Default().MergePreview(a.ctx, sourceID, targetID)
+	if err != nil {
+		return nil, codedError(err)
+	}
+	return &ProjectMergePreview{
+		Keep: toProjectMergePreviewSide(p.Keep),
+		Drop: toProjectMergePreviewSide(p.Drop),
+	}, nil
+}
+
+func toProjectMergePreviewSide(s project_svc.MergePreviewSide) ProjectMergePreviewSide {
+	return ProjectMergePreviewSide{ID: s.ID, Name: s.Name, ParentPath: s.ParentPath, Claimed: s.Claimed}
 }
 
 // ProjectDetectGitRepo 新建项目模态用：选完目录后探测一次 git 仓库状态。

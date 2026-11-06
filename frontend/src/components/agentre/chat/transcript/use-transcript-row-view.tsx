@@ -34,8 +34,10 @@ export function useTranscriptRowView({
   cwd,
   sessionId,
   tabStateKey,
+  backendType,
   onRerun,
   onContinue,
+  onRetryTurn,
   onEdit,
   onPlanActionStarted,
   onStopSubagent,
@@ -55,8 +57,11 @@ export function useTranscriptRowView({
   sessionId?: number;
   /** Stable mounted chat tab key for UI drafts that survive route/tab remounts. */
   tabStateKey?: string;
+  /** 会话的后端类型,登录失效的错误卡据此给命令。 */
+  backendType?: string;
   onRerun?: (messageId: number) => void;
   onContinue?: (messageId: number) => void;
+  onRetryTurn?: (messageId: number) => void;
   onEdit?: (messageId: number) => void;
   onPlanActionStarted?: (stream: PlanActionStream, userText: string) => void;
   onStopSubagent?: (toolUseId: string) => void;
@@ -79,6 +84,7 @@ export function useTranscriptRowView({
   const {
     stableOnRerun,
     stableOnContinue,
+    stableOnRetryTurn,
     stableOnEdit,
     stableOnPlanActionStarted,
     stableOnStopSubagent,
@@ -87,6 +93,7 @@ export function useTranscriptRowView({
   } = useTranscriptCallbacks({
     onRerun,
     onContinue,
+    onRetryTurn,
     onEdit,
     onPlanActionStarted,
     onStopSubagent,
@@ -122,6 +129,8 @@ export function useTranscriptRowView({
       // 此处有条件地传入稳定代理，让行视图能用 ctx?.onEdit 作存在性门控。
       onEdit: onEdit ? stableOnEdit : undefined,
       onContinue: onContinue ? stableOnContinue : undefined,
+      onRetryTurn: onRetryTurn ? stableOnRetryTurn : undefined,
+      backendType,
       onPlanActionStarted: stableOnPlanActionStarted,
       onStopLocalCommand: hasStopLocalCommand
         ? stableOnStopLocalCommand
@@ -134,16 +143,19 @@ export function useTranscriptRowView({
     [
       agentColor,
       agentName,
+      backendType,
       cwd,
       identity,
       hasStopLocalCommand,
       onEdit,
       onContinue,
+      onRetryTurn,
       onRerun,
       onStopSubagent,
       sessionId,
       stableOnEdit,
       stableOnContinue,
+      stableOnRetryTurn,
       stableOnPlanActionStarted,
       stableOnStopLocalCommand,
       stableOnStopSubagent,

@@ -112,4 +112,22 @@ describe("useDeviceUpgrade", () => {
     expect(mockUpgrade).toHaveBeenLastCalledWith(42, true);
     expect(result.current.phase.kind).toBe("upgrading");
   });
+
+  // S5：调用自己抛了（连不上设备等）时，桥上的串原样交给失败态 —— 带不带码、哪句
+  // 是正文哪段进详情，由失败卡片按 classifyAppError 拆（device-row-upgrade.tsx）。
+  it("hands a rejected call's bridge string to the failure phase unchanged", async () => {
+    mockUpgrade.mockRejectedValue("agentre-code:20405 连不上设备");
+    const { result } = renderHook(() => useDeviceUpgrade(42, "0.5.2"));
+
+    await act(async () => {
+      result.current.start();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.phase).toMatchObject({
+      kind: "failed",
+      reason: null,
+      message: "agentre-code:20405 连不上设备",
+    });
+  });
 });

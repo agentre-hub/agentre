@@ -13,7 +13,10 @@ import * as React from "react";
 import {
   ProjectDeleteDialog,
   type ProjectDeletePorts,
+  type ProjectWriteFailure,
 } from "@agentre-hub/agentre-ui";
+
+import { classifyAppError } from "@/lib/app-error";
 
 import {
   ProjectDelete,
@@ -30,6 +33,21 @@ export type DeleteProjectTarget = {
 
 type ProjectLocationView = { deviceId: string; path: string };
 type DeviceView = { id: number; name: string; online: boolean };
+
+/**
+ * 过桥失败 → 共享弹窗认识的那一档（S5）。
+ *
+ * 带码时后端那句本地化文案就是事实，原样交进 `message`；不带码的是机器原话
+ * （Go 包装错误），不交 —— 包会说它自己的「项目没删成」。共享弹窗没有「详情」位，
+ * 原话因此不上界面。
+ */
+function toDeleteFailure(e: unknown): ProjectWriteFailure {
+  const err = classifyAppError(e);
+  return {
+    kind: err.kind === "offline" ? "disconnected" : "unknown",
+    message: err.message || undefined,
+  };
+}
 
 export function DeleteProjectDialog({
   target,
@@ -83,10 +101,7 @@ export function DeleteProjectDialog({
           await ProjectDelete(Number(id));
           return { ok: true };
         } catch (e) {
-          return {
-            ok: false,
-            failure: { kind: "unknown", message: String(e) },
-          };
+          return { ok: false, failure: toDeleteFailure(e) };
         }
       },
     }),

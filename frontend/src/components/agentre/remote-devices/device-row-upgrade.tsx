@@ -17,6 +17,8 @@ import {
   DialogTitle,
 } from "@agentre-hub/agentre-ui";
 
+import { classifyAppError } from "@/lib/app-error";
+
 import type { BuildChannel } from "../update-api";
 import type { AgentredVersionState } from "./agentred-version";
 import type { UpgradeMenuItem } from "./device-action-menu";
@@ -221,23 +223,32 @@ function UpgradeFailure({
   t: TFunction;
 }) {
   const copy = phase.reason ? FAILURE_COPY[phase.reason] : undefined;
+  // 调用自己抛了（reason 为 null）时 message 是桥上的串：带码的那句后端文案是事实，
+  // 当正文；没码的是机器原话。daemon 的结构化拒绝里 message 是它那句 Go 原话。
+  // 机器原话一律只进默认折叠的详情（规格 2026-11-05 S5）。
+  const thrown = phase.reason === null ? classifyAppError(phase.message) : null;
+  const body = copy ? t(copy.body) : thrown?.message;
+  const detail = thrown ? thrown.detail : phase.message;
   return (
     <div className="flex flex-col gap-1.5 rounded-md bg-destructive/5 p-2.5">
       <div className="text-xs font-semibold text-destructive-text">
         {t(copy?.title ?? "remoteDevices.upgrade.failed.unknownTitle")}
       </div>
-      {copy ? (
-        <div className="text-xs text-muted-foreground">{t(copy.body)}</div>
+      {body ? (
+        <div className="text-xs text-muted-foreground">{body}</div>
       ) : null}
-      {phase.message ? (
-        <div data-selectable-text="true">
+      {detail ? (
+        <details data-selectable-text="true">
+          <summary className="cursor-pointer text-2xs text-muted-foreground">
+            {t("remoteDevices.upgrade.failed.details")}
+          </summary>
           <pre
             data-testid={`device-upgrade-detail-${deviceId}`}
-            className="overflow-x-auto whitespace-pre-wrap font-mono text-2xs leading-relaxed text-muted-foreground"
+            className="mt-1 overflow-x-auto whitespace-pre-wrap font-mono text-2xs leading-relaxed text-muted-foreground"
           >
-            {phase.message}
+            {detail}
           </pre>
-        </div>
+        </details>
       ) : null}
     </div>
   );

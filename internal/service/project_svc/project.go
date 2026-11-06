@@ -51,6 +51,10 @@ type ProjectSvc interface {
 	// chat_sessions / project_agents / projects.parent_id / issues /
 	// project_locations 五类引用全部改挂到保留下来的那一行，另一行随后被软删。
 	Merge(ctx context.Context, req *MergeProjectsRequest) (*project_entity.Project, error)
+	// MergePreview 只读地给出 Merge(sourceID, targetID) 会留下哪一行、消失哪一行
+	// （判据与 Merge 同一份 chooseMergeWinner），不写库。入参与缺行的拒绝口径与
+	// Merge 一致。
+	MergePreview(ctx context.Context, sourceID, targetID int64) (*MergePreview, error)
 	AddMember(ctx context.Context, projectID, agentID int64) error
 	RemoveMember(ctx context.Context, projectID, agentID int64) error
 	DetectGitRepo(ctx context.Context, path string) (*GitRepoInfo, error)

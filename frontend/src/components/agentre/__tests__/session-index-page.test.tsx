@@ -42,6 +42,7 @@ const appMocks = vi.hoisted(() => ({
   ProjectListTree: vi.fn(),
   ProjectLocationList: vi.fn(),
   ProjectMerge: vi.fn(),
+  ProjectMergePreview: vi.fn(),
   ProjectReorder: vi.fn(),
   ProjectSetLocalPath: vi.fn(),
   ProjectUpdate: vi.fn(),
@@ -1223,10 +1224,10 @@ describe("SessionIndexPage project group actions", () => {
     await user.click(await screen.findByText("Merge into an existing project"));
 
     expect(
-      await screen.findByText("Merge into existing project"),
+      await screen.findByText("Merge “agentre-hub” with another project"),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("combobox", { name: /merge into/i }),
+      screen.getByRole("combobox", { name: "Merge with" }),
     ).toBeInTheDocument();
   });
 
@@ -1245,6 +1246,10 @@ describe("SessionIndexPage project group actions", () => {
       seedTree([projectNode({ id: 1, name: "Agentre" })]);
       return { id: 1, name: "Agentre" };
     });
+    appMocks.ProjectMergePreview.mockResolvedValue({
+      keep: { id: 1, name: "Agentre", parentPath: [], claimed: false },
+      drop: { id: 2, name: "agentre-hub", parentPath: [], claimed: false },
+    });
     renderIndex();
     await screen.findByText("agentre-hub");
 
@@ -1255,10 +1260,12 @@ describe("SessionIndexPage project group actions", () => {
     );
     await user.click(await screen.findByText("Merge into an existing project"));
     await user.click(
-      await screen.findByRole("combobox", { name: /merge into/i }),
+      await screen.findByRole("combobox", { name: "Merge with" }),
     );
     await user.click(await screen.findByRole("option", { name: "Agentre" }));
-    await user.click(screen.getByRole("button", { name: "Merge" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Merge as Agentre" }),
+    );
 
     await waitFor(() =>
       expect(appMocks.ProjectMerge).toHaveBeenCalledWith({

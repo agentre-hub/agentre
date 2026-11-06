@@ -604,9 +604,10 @@ describe("DeviceRow", () => {
       expect(
         screen.getByText("No permission to replace agentred"),
       ).toBeInTheDocument();
-      // 原话留着,但它是技术细节:等宽小字,不是那句解释。
+      // 原话留着,但它是技术细节:默认折叠的等宽小字,不是那句解释。
       const detail = screen.getByTestId("device-upgrade-detail-1");
       expect(detail.textContent).toContain("permission denied");
+      expect(detail.closest("details")).not.toHaveAttribute("open");
     });
 
     /**
@@ -631,6 +632,35 @@ describe("DeviceRow", () => {
       expect(
         screen.getByTestId("device-upgrade-detail-1").textContent,
       ).toContain("relay is offline");
+      // 规格 S5「unknown：中文标题 + 折叠详情」：原话只在默认折叠的详情里。
+      const details = screen
+        .getByTestId("device-upgrade-detail-1")
+        .closest("details");
+      expect(details).not.toBeNull();
+      expect(details).not.toHaveAttribute("open");
+    });
+
+    // 规格 S5：带码的失败，后端那句本地化文案就是事实，当正文说出来；桥上的
+    // `agentre-code:` 前缀不上界面，也不被折进详情里藏起来。
+    it("Given a coded bridge failure, When the upgrade is refused, Then the backend sentence is the body and no detail is shown", async () => {
+      mockUpgrade.mockRejectedValueOnce("agentre-code:20405 连不上设备");
+      render(
+        <DeviceRow
+          device={upgradable}
+          now={1_000_000}
+          actions={noopActions}
+          latestVersion="0.6.0"
+        />,
+      );
+
+      await openMenuAndClickUpgrade();
+      await flush();
+
+      expect(screen.getByText("The upgrade did not start")).toBeInTheDocument();
+      const body = screen.getByText("连不上设备");
+      expect(body.closest("details")).toBeNull();
+      expect(screen.queryByTestId("device-upgrade-detail-1")).toBeNull();
+      expect(document.body).not.toHaveTextContent("agentre-code");
     });
 
     // 决策 18:一键升级与可复制的命令**始终并列**在同一处,不按状态二选一 ——

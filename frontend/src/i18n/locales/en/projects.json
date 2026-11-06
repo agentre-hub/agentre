@@ -19,21 +19,43 @@
         "desktop": "Another desktop",
         "daemon": "Compute node"
       }
-    }
+    },
+    "errors": {
+      "loadFailed": "The board could not be loaded",
+      "writeFailed": "That change was not saved",
+      "offline": "Can't reach the service, so the change was not saved. Try again later",
+      "notFound": "This task no longer exists. Refresh to bring the board up to date",
+      "refresh": "Refresh board"
+    },
+    "deleted": "Deleted \"{{title}}\"",
+    "undo": "Undo"
   },
   "projectMerge": {
-    "title": "Merge into existing project",
+    "title": "Merge “{{name}}” with another project",
     "description": "The two projects become one. This action can't be undone with a single click.",
-    "pickTargetLabel": "Merge into",
-    "pickTargetPlaceholder": "Choose a project to merge into…",
+    "pickTargetLabel": "Merge with",
+    "pickTargetPlaceholder": "Choose a project…",
+    "filterPlaceholder": "Filter projects…",
+    "noMatches": "No matching project",
     "noCandidates": "No other project to merge into",
     "keepPathNote": "The local project's local path is kept, so sessions can still start.",
     "reassignNote": "Sessions, member agents, sub-projects, and remote path records from both sides move to the merged project.",
-    "identityNote": "The account-side project wins: name, icon, color, and description take its values.",
     "confirm": "Merge",
+    "confirmAs": "Merge as {{name}}",
+    "preview": {
+      "keep": "Kept after merge:",
+      "drop": "Gone after merge:",
+      "meta": "({{location}} · {{origin}})",
+      "under": "under {{path}}",
+      "topLevel": "top level",
+      "accountSide": "account project",
+      "localOnly": "this device only"
+    },
     "cancel": "Cancel",
     "errors": {
-      "mergeFailed": "Merge failed: {{error}}"
+      "mergeFailed": "Merge failed",
+      "notFound": "One of these projects no longer exists — pick another project to merge with",
+      "previewFailed": "Couldn't work out the merge result, so merging is unavailable for now. Pick the project again to retry."
     }
   },
   "projectNew": {
@@ -49,7 +71,7 @@
   },
   "projects": {
     "errors": {
-      "reorderFailed": "Failed to save project order: {{error}}"
+      "reorderFailed": "Project order wasn't saved — the original order is back"
     },
     "localPath": {
       "allMissingTitle": "This device hasn't configured a path for any project yet",

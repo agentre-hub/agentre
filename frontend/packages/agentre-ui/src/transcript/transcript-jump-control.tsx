@@ -29,6 +29,12 @@ export type TranscriptJumpControlProps = {
    * 药丸继续只写「回到底部」。
    */
   turnsBelow?: number;
+  /**
+   * 视口下沿之后还有几项没回答的审批 / 提问，由宿主按活状态算好传入，与补齐无关。
+   * 传了（包括 0）就以它为准；不传时退回 `catchUp.pendingDecisions`，
+   * `agentre-server` 那端因此维持原样。
+   */
+  pendingBelow?: number;
   className?: string;
 };
 
@@ -67,9 +73,13 @@ export function TranscriptJumpControl({
   catchUp,
   className,
   onJump,
+  pendingBelow,
   turnsBelow = 0,
 }: TranscriptJumpControlProps): React.ReactElement {
   const { t } = useUiTranslation();
+  // 补齐的 pendingDecisions 是重连那一刻的会话级快照（答掉了、滚过去了都不减），
+  // 宿主按视口与活状态算的才是「下面还有几项」，所以传了就只认它。
+  const pendingCount = pendingBelow ?? catchUp?.pendingDecisions ?? 0;
 
   return (
     <div
@@ -106,7 +116,7 @@ export function TranscriptJumpControl({
               ? t("transcriptJump.turnsBelow", { count: turnsBelow })
               : t("transcriptJump.backToBottom")}
         </span>
-        {catchUp && catchUp.pendingDecisions > 0 ? (
+        {pendingCount > 0 ? (
           <span
             data-testid="transcript-jump-pending"
             className="flex items-center gap-1"
@@ -116,7 +126,7 @@ export function TranscriptJumpControl({
               className="size-1.5 rounded-full bg-status-waiting"
             />
             {t("transcriptJump.pendingCount", {
-              count: catchUp.pendingDecisions,
+              count: pendingCount,
             })}
           </span>
         ) : null}

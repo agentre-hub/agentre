@@ -456,7 +456,6 @@ const shellAndSettingsKeys = [
   "notify.body.done",
   "notify.openSession",
   "notify.dismiss",
-  "notify.justNow",
   "settings.underConstruction.mcpServers.description",
   "settings.underConstruction.mcpServers.title",
   "settings.underConstruction.skillsTools.description",

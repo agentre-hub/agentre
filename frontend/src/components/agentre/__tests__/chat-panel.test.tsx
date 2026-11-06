@@ -596,7 +596,7 @@ function deferred<T>() {
 }
 
 describe("ChatPanel error recovery actions", () => {
-  it("Given a failed turn, When Continue is clicked, Then it sends the literal continue message", async () => {
+  it("Given a failed turn, When Continue is clicked, Then it sends the localized continue message", async () => {
     mockSessionStore.session = makeSession({ id: 42, agentId: 9 });
     appMocks.SendChatMessage.mockResolvedValue({
       assistantMessageId: 102,
@@ -619,7 +619,7 @@ describe("ChatPanel error recovery actions", () => {
     expect(appMocks.SendChatMessage.mock.calls[0]?.[0]).toMatchObject({
       agentId: 9,
       sessionId: 42,
-      text: "continue",
+      text: "Continue",
     });
   });
 
@@ -1016,7 +1016,11 @@ describe("ChatPanel · 补齐落定与跳转控件 (R14)", () => {
     expect(screen.queryByTestId("transcript-jump-pending")).toBeNull();
   });
 
-  it("Given the catch-up carries unanswered decisions, Then the same control states the pending count in TEXT, not by a status dot alone", () => {
+  // 规格 2026-11-05 C4:待处理项数由宿主按视口与活状态算(pendingBelow),不再挂在
+  // catchUp 上 —— 补齐摘要里的 pendingDecisions 是重连那一刻的快照,答掉了、滚过去了
+  // 都不减。按活状态计数与「数是文字、进可访问名」见 chat-panel-pending-below.test.tsx
+  // 与共享包 transcript-jump-control.test.tsx。
+  it("Given the catch-up summary carries unanswered decisions the host doesn't see below the viewport, Then the control states the new rows but not the snapshot's pending count", () => {
     resetStore();
     mockSessionStore.session = makeSession({ id: 42 });
     const view = render(
@@ -1027,13 +1031,10 @@ describe("ChatPanel · 补齐落定与跳转控件 (R14)", () => {
 
     catchUpLands(view, { items: 12, pending: 3 });
 
-    const pending = screen.getByTestId("transcript-jump-pending");
-    expect(pending).toHaveTextContent("3");
-    // 无障碍:待处理项数必须进可访问名,颜色/圆点只能是修饰 —— 只靠色点的实现
-    // 在这里就红:纯装饰节点 aria-hidden 后可访问名里根本没有那个 3。
-    expect(screen.getByTestId("transcript-jump-control")).toHaveAccessibleName(
-      expect.stringContaining("3"),
+    expect(screen.getByTestId("transcript-jump-control")).toHaveTextContent(
+      "12",
     );
+    expect(screen.queryByTestId("transcript-jump-pending")).toBeNull();
   });
 
   it("Given the jump control is showing, When the user clicks it, Then the transcript jumps to the latest position and the control goes away", () => {
@@ -1243,9 +1244,9 @@ describe("ChatPanel · 跳转控件按转录行计数 (R14 修复轮)", () => {
     expect(digitsIn(control)).toBe("");
   });
 
-  // 待决策的条数与转录行数是两笔账:后者可能一行都没多,前者仍然必须报出来 ——
-  // 断连期间埋进来的待决策不写在这里就等于没人知道。
-  it("Given a catch-up with no new rows but an unanswered decision, Then the pending count still shows", () => {
+  // 补齐可能一行都没多(delta 全追加进已有那一行),回去的路照样要给(R14)。待决策
+  // 数不再取补齐快照(C4),由宿主按视口下方的活状态算,见 chat-panel-pending-below。
+  it("Given a catch-up with no new rows but an unanswered decision, Then the control still surfaces without the snapshot's pending count", () => {
     resetStore();
     streamingSession([{ text: "回复已经开了个头", type: "text" }]);
     const view = render(
@@ -1263,9 +1264,8 @@ describe("ChatPanel · 跳转控件按转录行计数 (R14 修复轮)", () => {
       recordCatchUp(42, 600, 2);
     });
 
-    expect(screen.getByTestId("transcript-jump-pending")).toHaveTextContent(
-      "2",
-    );
+    expect(screen.getByTestId("transcript-jump-control")).toBeInTheDocument();
+    expect(screen.queryByTestId("transcript-jump-pending")).toBeNull();
   });
 });
 

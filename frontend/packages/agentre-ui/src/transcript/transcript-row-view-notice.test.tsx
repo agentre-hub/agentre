@@ -67,7 +67,15 @@ function noticeRow(block: NoticeBlock): TranscriptRow {
   } as unknown as TranscriptRow;
 }
 
-function renderRow(row: TranscriptRow) {
+function renderRow(
+  row: TranscriptRow,
+  tail: {
+    liveRetry?: React.ComponentProps<typeof TranscriptRowView>["liveRetry"];
+    showIndicator?: boolean;
+    compacting?: boolean;
+    reconnecting?: boolean;
+  } = {},
+) {
   render(
     <TooltipProvider>
       <TranscriptRenderContext.Provider
@@ -77,10 +85,10 @@ function renderRow(row: TranscriptRow) {
           row={row}
           liveTail=""
           liveBlocks={undefined}
-          liveRetry={null}
-          showIndicator={false}
-          compacting={false}
-          reconnecting={false}
+          liveRetry={tail.liveRetry ?? null}
+          showIndicator={tail.showIndicator ?? false}
+          compacting={tail.compacting ?? false}
+          reconnecting={tail.reconnecting ?? false}
         />
       </TranscriptRenderContext.Provider>
     </TooltipProvider>,
@@ -343,5 +351,65 @@ describe("transcript notice block", () => {
         screen.queryByText(/hermesUnsupportedRequest/),
       ).not.toBeInTheDocument();
     }
+  });
+
+  describe("retry indicator（C5）", () => {
+    const retry = {
+      attempt: 2,
+      maxAttempts: 10,
+      message: "API Error: Connection error.",
+      details: "ECONNRESET",
+      at: 0,
+    };
+
+    it("Given a live retry, When rendered, Then it is one status-waiting line with the Chinese fact and count, raw message and details only in title", () => {
+      renderRow(noticeRow({ text: "x" }), { liveRetry: retry });
+
+      const line = screen.getByTestId("transcript-retry");
+      expect(line).toHaveTextContent(
+        i18n.t("chat.retry.label", { attempt: 2, max: 10 }),
+      );
+      expect(line).toHaveTextContent("2/10");
+      // 原文整段进 title：message 与 details 都是 wire 带来的机器原话，丢掉 details
+      // 就把这一次重试唯一的底层线索（如 ECONNRESET）弄没了。
+      expect(line).toHaveAttribute(
+        "title",
+        "API Error: Connection error.\nECONNRESET",
+      );
+      expect(line).not.toHaveTextContent("API Error");
+      expect(line).not.toHaveTextContent("ECONNRESET");
+      expect(line.innerHTML).toContain("status-waiting");
+      expect(line.innerHTML).not.toContain("status-warning");
+    });
+
+    it("Given a retry without a known max, When rendered, Then only the attempt is shown", () => {
+      renderRow(noticeRow({ text: "x" }), {
+        liveRetry: { ...retry, maxAttempts: 0, message: "", details: "" },
+      });
+      const line = screen.getByTestId("transcript-retry");
+      expect(line).toHaveTextContent(
+        i18n.t("chat.retry.labelWithAttempt", { attempt: 2 }),
+      );
+      expect(line).not.toHaveAttribute("title");
+    });
+
+    it("Given a retry together with typing / compacting / disconnected, When rendered, Then only the retry line shows", () => {
+      for (const flags of [
+        { showIndicator: true },
+        { showIndicator: true, compacting: true },
+        { showIndicator: true, reconnecting: true },
+      ]) {
+        cleanup();
+        renderRow(noticeRow({ text: "x" }), { liveRetry: retry, ...flags });
+        expect(screen.getAllByTestId("transcript-retry")).toHaveLength(1);
+        for (const key of [
+          "chat.typing.aria",
+          "chat.compacting.aria",
+          "chat.disconnected.aria",
+        ]) {
+          expect(screen.queryByLabelText(i18n.t(key))).not.toBeInTheDocument();
+        }
+      }
+    });
   });
 });

@@ -5,7 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/cago-frame/cago/pkg/utils/httputils"
+
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
 )
 
@@ -131,5 +134,118 @@ func TestProjectClearLocalPath_SurfacesTheError(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatalf("expected no project item on failure, got %#v", got)
+	}
+}
+
+// mergePreviewRecordingProjects 只接 MergePreview，其余方法交给内嵌接口。
+type mergePreviewRecordingProjects struct {
+	project_svc.ProjectSvc
+	gotSource, gotTarget int64
+	preview              *project_svc.MergePreview
+	err                  error
+}
+
+func (r *mergePreviewRecordingProjects) MergePreview(_ context.Context, sourceID, targetID int64) (*project_svc.MergePreview, error) {
+	r.gotSource, r.gotTarget = sourceID, targetID
+	return r.preview, r.err
+}
+
+// S4：合并对话框的「合并后保留 / 并入后消失」由这一个只读绑定给出，前端不猜。
+// 绑定把两个 id 原样交给服务，再把两边的摘要（名称、父路径、是否账号侧）透给前端。
+func TestProjectMergePreview_MapsBothSides(t *testing.T) {
+	rec := &mergePreviewRecordingProjects{preview: &project_svc.MergePreview{
+		Keep: project_svc.MergePreviewSide{ID: 2, Name: "api", ParentPath: []string{"agentre-server"}, Claimed: true},
+		Drop: project_svc.MergePreviewSide{ID: 1, Name: "api", ParentPath: []string{"agentre"}},
+	}}
+	prev := project_svc.Default()
+	project_svc.SetDefault(rec)
+	t.Cleanup(func() { project_svc.SetDefault(prev) })
+
+	got, err := (&App{}).ProjectMergePreview(1, 2)
+
+	if err != nil {
+		t.Fatalf("expected the binding to succeed, got %v", err)
+	}
+	if rec.gotSource != 1 || rec.gotTarget != 2 {
+		t.Fatalf("expected ids (1, 2) passed through, got (%d, %d)", rec.gotSource, rec.gotTarget)
+	}
+	if got == nil || got.Keep.ID != 2 || got.Keep.Name != "api" || !got.Keep.Claimed ||
+		len(got.Keep.ParentPath) != 1 || got.Keep.ParentPath[0] != "agentre-server" {
+		t.Fatalf("expected keep side mapped, got %#v", got)
+	}
+	if got.Drop.ID != 1 || got.Drop.Claimed || len(got.Drop.ParentPath) != 1 || got.Drop.ParentPath[0] != "agentre" {
+		t.Fatalf("expected drop side mapped, got %#v", got.Drop)
+	}
+}
+
+// 预览失败时错误原样交给前端，不交回半份预览。
+func TestProjectMergePreview_SurfacesTheError(t *testing.T) {
+	rec := &mergePreviewRecordingProjects{err: errors.New("项目不存在")}
+	prev := project_svc.Default()
+	project_svc.SetDefault(rec)
+	t.Cleanup(func() { project_svc.SetDefault(prev) })
+
+	got, err := (&App{}).ProjectMergePreview(1, 404)
+
+	if err == nil || err.Error() != "项目不存在" {
+		t.Fatalf("expected the service error to surface unchanged, got %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected no preview on failure, got %#v", got)
+	}
+}
+
+// codedFailingProjects 让每条写绑定都以一个带业务码的 cago 错误失败。
+type codedFailingProjects struct {
+	project_svc.ProjectSvc
+	err error
+}
+
+func (f *codedFailingProjects) Reorder(context.Context, *project_svc.ReorderProjectsRequest) error {
+	return f.err
+}
+
+func (f *codedFailingProjects) Delete(context.Context, int64) error { return f.err }
+
+func (f *codedFailingProjects) Merge(context.Context, *project_svc.MergeProjectsRequest) (*project_entity.Project, error) {
+	return nil, f.err
+}
+
+func (f *codedFailingProjects) MergePreview(context.Context, int64, int64) (*project_svc.MergePreview, error) {
+	return nil, f.err
+}
+
+// S5：项目页按错误类别给出口（「项目已经不在了」与「还有活跃会话」出路不同），
+// 前端只能凭码分得开 —— 而 cago 的 Error() 只剩文案。项目类写绑定的失败要带着
+// `agentre-code:<码>` 过桥，与 coded_error.go 那条契约同形。
+func TestProjectBindings_CarryTheBusinessCode(t *testing.T) {
+	svcErr := &httputils.Error{Code: code.ProjectHasActiveSessions, Msg: "项目下还有未归档会话"}
+	want := "agentre-code:18011 项目下还有未归档会话"
+	prev := project_svc.Default()
+	project_svc.SetDefault(&codedFailingProjects{err: svcErr})
+	t.Cleanup(func() { project_svc.SetDefault(prev) })
+	a := &App{}
+
+	cases := map[string]func() error{
+		"ProjectReorder": func() error {
+			return a.ProjectReorder(&ProjectReorderRequest{OrderedIDs: []int64{2, 1}})
+		},
+		"ProjectDelete": func() error { return a.ProjectDelete(7) },
+		"ProjectMerge": func() error {
+			_, err := a.ProjectMerge(&ProjectMergeRequest{SourceID: 1, TargetID: 2})
+			return err
+		},
+		"ProjectMergePreview": func() error {
+			_, err := a.ProjectMergePreview(1, 2)
+			return err
+		},
+	}
+	for name, call := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := call()
+			if err == nil || err.Error() != want {
+				t.Fatalf("expected %q across the bridge, got %v", want, err)
+			}
+		})
 	}
 }

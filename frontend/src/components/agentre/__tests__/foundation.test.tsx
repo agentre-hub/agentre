@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MessageSquare } from "lucide-react";
 import { MemoryRouter } from "react-router-dom";
@@ -289,9 +289,18 @@ describe("Agentre foundation components", () => {
             <AppStatusBar
               agentCount={7}
               runningCount={12}
-              approvalCount={1}
-              unreadCount={2}
-              attentionIds={[101, 202]}
+              approvals={[
+                {
+                  id: 101,
+                  title: "A",
+                  agentName: "A",
+                  avatarColor: "agent-1",
+                },
+              ]}
+              unread={[
+                { id: 202, title: "B", agentName: "B", avatarColor: "agent-2" },
+                { id: 203, title: "C", agentName: "C", avatarColor: "agent-3" },
+              ]}
               status="waiting"
               version="0.1.0"
               onAttentionClick={onAttentionClick}
@@ -345,10 +354,10 @@ describe("Agentre foundation components", () => {
     expect(
       screen.queryByRole("button", { name: "用户菜单" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("7 agents · 12 running")).toBeInTheDocument();
+    expect(screen.getByText("12 sessions running")).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
-        name: /1 approval · 2 unread — click to open the first session needing attention/,
+        name: /1 approval · 2 unread — click to choose a session/,
       }),
     ).toBeInTheDocument();
     expect(screen.queryByText("main · ~/Code/agentre")).not.toBeInTheDocument();
@@ -364,9 +373,8 @@ describe("Agentre foundation components", () => {
           <AppStatusBar
             agentCount={1}
             runningCount={0}
-            approvalCount={0}
-            unreadCount={0}
-            attentionIds={[]}
+            approvals={[]}
+            unread={[]}
             status="idle"
             version="0.1.0"
             onAttentionClick={vi.fn()}
@@ -396,47 +404,167 @@ describe("Agentre foundation components", () => {
     );
   });
 
-  it("uses the singular agent summary when only one Agent is tracked", () => {
+  const item = (id: number, title: string, agentName = "Reviewer") => ({
+    id,
+    title,
+    agentName,
+    avatarColor: "agent-1",
+    avatarIcon: "",
+    avatarDataUrl: "",
+  });
+
+  it("counts running sessions in the summary and moves the agent count to the tooltip", () => {
     render(
       <AppStatusBar
-        agentCount={1}
-        runningCount={0}
-        approvalCount={0}
-        unreadCount={0}
-        attentionIds={[]}
-        status="idle"
+        agentCount={7}
+        runningCount={5}
+        approvals={[]}
+        unread={[]}
+        status="running"
         version="0.1.0"
         onAttentionClick={() => {}}
       />,
     );
 
-    expect(screen.getByText("1 agent · 0 running")).toBeInTheDocument();
+    const summary = screen.getByText("5 sessions running");
+    expect(summary).toBeInTheDocument();
+    expect(summary.closest("[title]")).toHaveAttribute("title", "7 agents");
+    expect(screen.queryByText(/agent ·/)).not.toBeInTheDocument();
   });
 
-  it("opens the first attention session when the status bar segment is clicked", async () => {
+  it("jumps straight to the only pending session without a chevron", async () => {
     const user = userEvent.setup();
     const onAttentionClick = vi.fn();
 
-    render(
+    const { container } = render(
       <AppStatusBar
-        agentCount={7}
-        runningCount={12}
-        approvalCount={1}
-        unreadCount={2}
-        attentionIds={[101, 202]}
+        agentCount={1}
+        runningCount={0}
+        approvals={[item(101, "Fix login")]}
+        unread={[]}
         status="waiting"
         version="0.1.0"
         onAttentionClick={onAttentionClick}
       />,
     );
 
-    await user.click(
-      screen.getByRole("button", {
-        name: /click to open the first session needing attention/,
-      }),
+    const button = screen.getByRole("button", { name: /1 approval/ });
+    expect(button).not.toHaveAttribute("aria-haspopup");
+    expect(container.querySelector("footer .lucide-chevron-up")).toBeNull();
+    await user.click(button);
+    expect(onAttentionClick).toHaveBeenCalledWith(101);
+  });
+
+  it("opens an upward popover grouped approvals then unread when several are pending", async () => {
+    const user = userEvent.setup();
+    const onAttentionClick = vi.fn();
+
+    render(
+      <AppStatusBar
+        agentCount={3}
+        runningCount={0}
+        approvals={[item(101, "Fix login")]}
+        unread={[item(202, "Write docs", "Writer"), item(303, "Refactor")]}
+        status="waiting"
+        version="0.1.0"
+        onAttentionClick={onAttentionClick}
+      />,
     );
 
-    expect(onAttentionClick).toHaveBeenCalledWith(101);
+    await user.click(screen.getByRole("button", { name: /1 approval/ }));
+    expect(onAttentionClick).not.toHaveBeenCalled();
+
+    const headings = screen.getAllByRole("heading").map((h) => h.textContent);
+    expect(headings).toEqual(["Pending approval", "Unread"]);
+    const rows = screen.getAllByRole("button", {
+      name: /Fix login|Write docs|Refactor/,
+    });
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining("Fix login"),
+      expect.stringContaining("Write docs"),
+      expect.stringContaining("Refactor"),
+    ]);
+
+    await user.click(rows[1]);
+    expect(onAttentionClick).toHaveBeenCalledWith(202);
+  });
+
+  it("tints the dot and text amber only for approvals; unread alone stays muted", () => {
+    const { container, rerender } = render(
+      <AppStatusBar
+        agentCount={1}
+        runningCount={0}
+        approvals={[]}
+        unread={[item(202, "Write docs")]}
+        status="idle"
+        version="0.1.0"
+        onAttentionClick={() => {}}
+      />,
+    );
+
+    const unreadText = screen.getByText("1 unread");
+    expect(unreadText).toHaveClass("text-muted-foreground");
+    expect(unreadText.closest("button")?.className).not.toMatch(
+      /status-waiting/,
+    );
+    expect(
+      container.querySelector('footer [aria-label$=" status"]'),
+    ).toHaveAttribute("aria-label", "idle status");
+
+    rerender(
+      <AppStatusBar
+        agentCount={1}
+        runningCount={0}
+        approvals={[item(101, "Fix login")]}
+        unread={[]}
+        status="waiting"
+        version="0.1.0"
+        onAttentionClick={() => {}}
+      />,
+    );
+    expect(screen.getByText("1 approval")).toHaveClass(
+      "text-status-waiting-text",
+    );
+  });
+
+  it("renders no pending entry when nothing needs attention", () => {
+    render(
+      <AppStatusBar
+        agentCount={1}
+        runningCount={0}
+        approvals={[]}
+        unread={[]}
+        status="idle"
+        version="0.1.0"
+        onAttentionClick={() => {}}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: /approval|unread/ }),
+    ).toBeNull();
+  });
+
+  it("tones the rail badge: waiting for approvals, primary by default", () => {
+    const { rerender } = render(
+      <SidebarButton label="Chat" icon={MessageSquare} badge />,
+    );
+    expect(document.querySelector('[data-slot="sidebar-badge"]')).toHaveClass(
+      "bg-primary",
+    );
+    rerender(
+      <SidebarButton
+        label="Chat, 2 approvals pending"
+        icon={MessageSquare}
+        badge
+        badgeTone="waiting"
+      />,
+    );
+    const badge = document.querySelector('[data-slot="sidebar-badge"]');
+    expect(badge).toHaveClass("bg-status-waiting");
+    expect(badge).not.toHaveClass("bg-primary");
+    expect(
+      screen.getByRole("button", { name: "Chat, 2 approvals pending" }),
+    ).toBeInTheDocument();
   });
 
   it("reserves native traffic-light space only on macOS", () => {
@@ -607,5 +735,21 @@ describe("SidebarButton 角标", () => {
     );
 
     expect(container.querySelector("[data-slot='sidebar-badge']")).toBeNull();
+  });
+});
+
+describe("SidebarButton 快捷键提示", () => {
+  it("Given 传入快捷键, When 渲染, Then tooltip 同时显示名称与快捷键", () => {
+    render(<SidebarButton label="看板" icon={MessageSquare} shortcut="⌘B" />);
+
+    const tooltip = screen.getByRole("tooltip");
+    expect(within(tooltip).getByText("看板")).toBeInTheDocument();
+    expect(within(tooltip).getByText("⌘B")).toBeInTheDocument();
+  });
+
+  it("Given 没有快捷键, When 渲染, Then tooltip 只有名称", () => {
+    render(<SidebarButton label="看板" icon={MessageSquare} />);
+
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/^看板$/);
   });
 });

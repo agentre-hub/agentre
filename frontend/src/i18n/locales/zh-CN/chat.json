@@ -236,6 +236,9 @@
       "description": "删除后此会话的所有消息会被一并清除，且无法恢复。",
       "title": "删除会话"
     },
+    "errorCard": {
+      "continueMessage": "继续"
+    },
     "errors": {
       "cancelQueued": "撤回失败：{{msg}}",
       "compact": "压缩上下文失败：{{msg}}",
@@ -380,7 +383,7 @@
       "unpin": "取消置顶"
     },
     "empty": {
-      "description": "在左侧 sidebar 选一个，或派发新任务给指定 Agent · ⌘P 打开命令面板",
+      "description": "在左侧选一个会话，或用 {{chord}} 打开命令面板",
       "shortcuts": {
         "close": "关闭 Tab",
         "openInNewTab": "在新 Tab 打开",
@@ -462,8 +465,6 @@
   },
   "taskProgress": {
     "allCompleted": "全部完成",
-    "completed": "已完成",
-    "current": "当前",
     "status": {
       "cancelled": "CANCELLED",
       "completed": "DONE",

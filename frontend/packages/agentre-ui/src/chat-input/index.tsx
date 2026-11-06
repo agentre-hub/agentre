@@ -105,6 +105,9 @@ export interface AIChatInputProps {
    *  执行能力 —— agentre-server 的 wire 上就没有任何 PTY / 本地执行方法。
    *  只影响占位文案:提示里写着、按下去没反应,比不写更糟。 */
   localCommandsEnabled?: boolean;
+  /** 编辑器里按下、且没被 slash / mention / 命令历史弹层或 IME 消费的 Esc。
+   *  返回 true 表示已处理。 */
+  onEscape?: () => boolean;
 }
 
 const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
@@ -127,6 +130,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
       slashCommands = EMPTY_SLASH_COMMANDS,
       localCommandHistoryScope,
       localCommandsEnabled,
+      onEscape,
     },
     ref,
   ) {
@@ -143,6 +147,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     const applyingHistoryRef = useRef(false);
     const lastIsEmptyRef = useRef<boolean | null>(null);
     const triggerSubmitRef = useRef<() => void>(() => {});
+    const escapeRef = useRef(onEscape);
     const slashKeyDownRef = useRef<(e: KeyboardEvent) => boolean>(() => false);
     const mentionKeyDownRef = useRef<(e: KeyboardEvent) => boolean>(
       () => false,
@@ -182,6 +187,10 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     useEffect(() => {
       onEmptyChangeRef.current = onEmptyChange;
     }, [onEmptyChange]);
+
+    useEffect(() => {
+      escapeRef.current = onEscape;
+    }, [onEscape]);
 
     useEffect(() => {
       historyRef.current = userMessageHistory;
@@ -298,6 +307,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
               historyIndexRef,
               applyingHistoryRef,
               triggerSubmitRef,
+              escapeRef,
             },
             view,
             event,

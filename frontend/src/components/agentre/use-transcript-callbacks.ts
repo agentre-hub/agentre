@@ -5,6 +5,7 @@ import type { PlanActionStream } from "@agentre-hub/agentre-ui";
 type UseTranscriptCallbacksOptions = {
   onRerun?: (messageId: number) => void;
   onContinue?: (messageId: number) => void;
+  onRetryTurn?: (messageId: number) => void;
   onEdit?: (messageId: number) => void;
   onPlanActionStarted?: (stream: PlanActionStream, userText: string) => void;
   onStopSubagent?: (toolUseId: string) => void;
@@ -14,6 +15,7 @@ type UseTranscriptCallbacksOptions = {
 type TranscriptCallbacks = {
   stableOnRerun: (id: number) => void;
   stableOnContinue: (id: number) => void;
+  stableOnRetryTurn: (id: number) => void;
   stableOnEdit: (id: number) => void;
   stableOnPlanActionStarted: (
     stream: PlanActionStream,
@@ -30,6 +32,7 @@ type TranscriptCallbacks = {
 function useTranscriptCallbacks({
   onRerun,
   onContinue,
+  onRetryTurn,
   onEdit,
   onPlanActionStarted,
   onStopSubagent,
@@ -37,6 +40,7 @@ function useTranscriptCallbacks({
 }: UseTranscriptCallbacksOptions): TranscriptCallbacks {
   const onRerunRef = React.useRef(onRerun);
   const onContinueRef = React.useRef(onContinue);
+  const onRetryTurnRef = React.useRef(onRetryTurn);
   const onEditRef = React.useRef(onEdit);
   const onPlanActionStartedRef = React.useRef(onPlanActionStarted);
   const onStopSubagentRef = React.useRef(onStopSubagent);
@@ -44,6 +48,7 @@ function useTranscriptCallbacks({
   React.useEffect(() => {
     onRerunRef.current = onRerun;
     onContinueRef.current = onContinue;
+    onRetryTurnRef.current = onRetryTurn;
     onEditRef.current = onEdit;
     onPlanActionStartedRef.current = onPlanActionStarted;
     onStopSubagentRef.current = onStopSubagent;
@@ -54,6 +59,9 @@ function useTranscriptCallbacks({
   }, []);
   const stableOnContinue = React.useCallback((id: number) => {
     onContinueRef.current?.(id);
+  }, []);
+  const stableOnRetryTurn = React.useCallback((id: number) => {
+    onRetryTurnRef.current?.(id);
   }, []);
   const stableOnEdit = React.useCallback((id: number) => {
     onEditRef.current?.(id);
@@ -75,6 +83,7 @@ function useTranscriptCallbacks({
   return {
     stableOnRerun,
     stableOnContinue,
+    stableOnRetryTurn,
     stableOnEdit,
     stableOnPlanActionStarted,
     stableOnStopSubagent,

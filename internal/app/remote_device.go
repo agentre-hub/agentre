@@ -102,7 +102,11 @@ func (a *App) RemoteDeviceSyncProvider(id int64, providerKey string) error {
 // 推断升级中→成功/超时失败。
 func (a *App) RemoteDeviceUpgrade(id int64, force bool) (*remote_device_svc.UpgradeResult, error) {
 	if svc := remote_device_svc.Default(); svc != nil {
-		return svc.Upgrade(a.ctx, id, force)
+		res, err := svc.Upgrade(a.ctx, id, force)
+		if err != nil {
+			return nil, codedError(err)
+		}
+		return res, nil
 	}
 	return nil, errRemoteDeviceServiceUnavailable
 }

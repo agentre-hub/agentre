@@ -1,5 +1,6 @@
-import * as React from "react";
 import { useTranslation } from "react-i18next";
+
+import { useNow } from "@/hooks/use-now";
 
 import { LostChangesCard } from "./lost-changes-card";
 import { SyncStatusCard } from "./sync-status-card";
@@ -8,15 +9,6 @@ import { useSyncStatus } from "./use-sync-status";
 // 相对时间(「2 分钟前」)每分钟刷新一次;渲染期间不直接调用 `Date.now()`
 // (react-hooks/purity),状态卡与列表行共享同一份 `now`。
 const NOW_REFRESH_INTERVAL_MS = 60_000;
-
-function useNow(intervalMs: number): number {
-  const [now, setNow] = React.useState(() => Date.now());
-  React.useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
-    return () => window.clearInterval(id);
-  }, [intervalMs]);
-  return now;
-}
 
 /**
  * 设置 → 同步(整页新增):同步状态卡 + 「没能同步的改动」卡。未登录时

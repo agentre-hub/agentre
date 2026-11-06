@@ -54,6 +54,22 @@ type MergeProjectsRequest struct {
 	TargetID int64
 }
 
+// MergePreview 是 MergePreview() 的结果：合并之后留下的一边与消失的一边。
+type MergePreview struct {
+	Keep MergePreviewSide
+	Drop MergePreviewSide
+}
+
+// MergePreviewSide 合并预览里一边的摘要，够用户分清不同父项目下的同名项目。
+type MergePreviewSide struct {
+	ID   int64
+	Name string
+	// ParentPath 根 → 直接父级的名称链；顶层项目为空切片（非 nil）。
+	ParentPath []string
+	// Claimed 已被账号认领（账号侧的项目）；false 即只在本机。
+	Claimed bool
+}
+
 // ProjectAgentMember 项目成员视图，区分直接成员 vs 继承成员。
 type ProjectAgentMember struct {
 	AgentID       int64

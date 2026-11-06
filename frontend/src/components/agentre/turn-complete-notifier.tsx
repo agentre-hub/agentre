@@ -1,6 +1,8 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { useUiTranslation } from "@agentre-hub/agentre-ui";
+
 import { ShowNotification } from "../../../wailsjs/go/app/App";
 import { EventsOn, EventsOff } from "../../../wailsjs/runtime/runtime";
 import { isWindowFocused } from "../../lib/window-focus";
@@ -31,6 +33,7 @@ function sessionTitle(sessionId: number): string | undefined {
 // TurnCompleteNotifier 常驻 App 根、不渲染任何 UI；订阅 session 状态转换并在合适时机通知。
 export function TurnCompleteNotifier(): null {
   const { t } = useTranslation();
+  const { t: uiT } = useUiTranslation();
 
   const deps = React.useMemo<NotifyDeps>(
     () => ({
@@ -50,8 +53,9 @@ export function TurnCompleteNotifier(): null {
           .push({ sessionId, kind, title, body });
       },
       t,
+      uiT,
     }),
-    [t],
+    [t, uiT],
   );
 
   React.useEffect(() => {
@@ -65,15 +69,39 @@ export function TurnCompleteNotifier(): null {
     return () => EventsOff("notification:click");
   }, []);
 
+  // 会话被打开（切成当前会话）：它的 waiting / error 通知已经没有要叫你回来的事了。
+  React.useEffect(() => {
+    let prevActive = activeSessionId();
+    return useChatTabsStore.subscribe(() => {
+      const active = activeSessionId();
+      if (active === prevActive) return;
+      prevActive = active;
+      if (active !== null) {
+        useNotificationToastStore.getState().dismissBySession(active);
+      }
+    });
+  }, []);
+
   React.useEffect(() => {
     const prev = new Map<number, string>();
+    const prevAttention = new Map<number, boolean>();
     for (const [id, v] of useSessionStatusStore.getState().statuses) {
       prev.set(id, v.agentStatus);
+      prevAttention.set(id, v.needsAttention);
     }
     const unsub = useSessionStatusStore.subscribe((state) => {
       for (const [id, v] of state.statuses) {
+        // attention 清除（审批已处理）或新一轮开始：该会话的旧通知作废。
+        const attentionBefore = prevAttention.get(id) ?? false;
+        prevAttention.set(id, v.needsAttention);
         const before = prev.get(id);
         const after = v.agentStatus;
+        if (
+          (attentionBefore && !v.needsAttention) ||
+          (after === "running" && before !== "running")
+        ) {
+          useNotificationToastStore.getState().dismissBySession(id);
+        }
         if (before === after) continue;
         prev.set(id, after);
         const kind = classifyTransition(

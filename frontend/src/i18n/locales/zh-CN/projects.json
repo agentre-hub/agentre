@@ -19,21 +19,43 @@
         "desktop": "另一台桌面端",
         "daemon": "计算节点"
       }
-    }
+    },
+    "errors": {
+      "loadFailed": "看板没能加载出来",
+      "writeFailed": "这次改动没保存",
+      "offline": "连不上服务，这次改动没保存，稍后再试",
+      "notFound": "这个任务已经不在了，刷新后看板会和最新数据一致",
+      "refresh": "刷新看板"
+    },
+    "deleted": "已删除「{{title}}」",
+    "undo": "撤销"
   },
   "projectMerge": {
-    "title": "合并到已有项目",
+    "title": "合并「{{name}}」与另一个项目",
     "description": "两个项目会变成一个。这个动作不能一键撤销。",
-    "pickTargetLabel": "合并到",
-    "pickTargetPlaceholder": "选择要合并到的项目…",
+    "pickTargetLabel": "和哪个项目合并",
+    "pickTargetPlaceholder": "选择项目…",
+    "filterPlaceholder": "过滤项目…",
+    "noMatches": "没有匹配的项目",
     "noCandidates": "没有其它项目可以合并",
     "keepPathNote": "保留本机项目的本机路径，会话照常能起。",
     "reassignNote": "两边的会话、成员 Agent、子项目与远端路径记录都会归到合并后的项目下。",
-    "identityNote": "以账号里那一个为准：名称、图标、颜色、描述取账号侧的值。",
     "confirm": "合并",
+    "confirmAs": "合并为 {{name}}",
+    "preview": {
+      "keep": "合并后保留：",
+      "drop": "并入后消失：",
+      "meta": "（{{location}} · {{origin}}）",
+      "under": "{{path}} 下",
+      "topLevel": "顶层",
+      "accountSide": "账号中的项目",
+      "localOnly": "仅本机"
+    },
     "cancel": "取消",
     "errors": {
-      "mergeFailed": "合并失败：{{error}}"
+      "mergeFailed": "合并失败",
+      "notFound": "其中一个项目已经不在了，重新选一个要合并的项目",
+      "previewFailed": "没能算出合并后留下哪一个，暂时不能合并。重新选一次项目可以再试。"
     }
   },
   "projectNew": {
@@ -49,7 +71,7 @@
   },
   "projects": {
     "errors": {
-      "reorderFailed": "项目顺序保存失败：{{error}}"
+      "reorderFailed": "项目顺序没保存，已恢复原来的顺序"
     },
     "localPath": {
       "allMissingTitle": "这台设备还没有为任何项目配置路径",

@@ -176,4 +176,15 @@ describe("ToolApprovalCard", () => {
     expect(screen.getByText(/legacy payload/)).toBeDefined();
     expect(screen.queryByText("Config change")).toBeNull();
   });
+
+  it("styles Approve primary and Reject ghost with destructive text", () => {
+    renderCard(pending());
+    expect(screen.getByRole("button", { name: "Approve" })).toHaveAttribute(
+      "data-variant",
+      "default",
+    );
+    const reject = screen.getByRole("button", { name: "Reject" });
+    expect(reject).toHaveAttribute("data-variant", "ghost");
+    expect(reject.className).toContain("text-destructive-text");
+  });
 });

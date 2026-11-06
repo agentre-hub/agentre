@@ -6,6 +6,10 @@ import { toast } from "sonner";
 import { Badge, Button } from "@agentre-hub/agentre-ui";
 import { cn, formatRelativeTime } from "@agentre-hub/agentre-ui";
 
+import { classifyAppError } from "@/lib/app-error";
+
+import { FailureBody } from "../failure-body";
+
 import {
   entityLabel,
   formatPayload,
@@ -77,6 +81,36 @@ export function LostChangeRow({
     subtitleParts.push(t("sync.lostChanges.rejectedDetail"));
   }
 
+  // 失败说中文事实、给对应出口：连不上 / 没码的未知失败都可以再试一次；
+  // 已经不在了没有可重试的事。机器原话不当正文，只进默认折叠的详情。
+  const reportFailure = (
+    title: string,
+    e: unknown,
+    retry: () => Promise<void>,
+  ) => {
+    const failure = classifyAppError(e);
+    const gone = failure.kind === "notFound";
+    let description: string;
+    if (failure.kind === "offline") {
+      description = t("sync.lostChanges.errors.offline");
+    } else if (gone) {
+      description = t("sync.lostChanges.errors.notFound");
+    } else {
+      description = failure.message || t("sync.lostChanges.errors.unknown");
+    }
+    toast.error(title, {
+      description: (
+        <FailureBody message={description} detail={failure.detail} />
+      ),
+      action: gone
+        ? undefined
+        : {
+            label: t("sync.lostChanges.errors.retry"),
+            onClick: () => void retry(),
+          },
+    });
+  };
+
   const handleRestore = async () => {
     setBusy("restore");
     try {
@@ -87,9 +121,7 @@ export function LostChangeRow({
         toast.success(t("sync.lostChanges.restoreSucceeded"));
       }
     } catch (e) {
-      toast.error(t("sync.lostChanges.restoreFailed"), {
-        description: String(e),
-      });
+      reportFailure(t("sync.lostChanges.restoreFailed"), e, handleRestore);
     } finally {
       setBusy(null);
     }
@@ -101,9 +133,7 @@ export function LostChangeRow({
       await onRecreate(row.id);
       toast.success(t("sync.lostChanges.recreateSucceeded"));
     } catch (e) {
-      toast.error(t("sync.lostChanges.recreateFailed"), {
-        description: String(e),
-      });
+      reportFailure(t("sync.lostChanges.recreateFailed"), e, handleRecreate);
     } finally {
       setBusy(null);
     }
@@ -114,9 +144,7 @@ export function LostChangeRow({
     try {
       await onDiscard(row.id);
     } catch (e) {
-      toast.error(t("sync.lostChanges.discardFailed"), {
-        description: String(e),
-      });
+      reportFailure(t("sync.lostChanges.discardFailed"), e, handleDiscard);
     } finally {
       setBusy(null);
     }

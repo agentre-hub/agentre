@@ -4,10 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
 
+import { ORG_SELECTED_STORAGE_KEY } from "@/lib/agent-setup-link";
 import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 
 import { NotChattableDialog } from "./not-chattable-dialog";
-import { blockReasonToCta, ORG_SELECTED_STORAGE_KEY } from "./mapping";
+import { blockReasonToCta } from "./mapping";
 
 function LocationProbe() {
   const location = useLocation();

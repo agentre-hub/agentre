@@ -1,5 +1,6 @@
 import type * as React from "react";
 import {
+  LoaderCircle,
   MoreHorizontal,
   PanelRight,
   PanelRightClose,
@@ -53,6 +54,8 @@ type ChatPanelHeaderProps = {
   onStopTask?: (task: BackgroundTask) => void;
   onLocateTask?: (task: BackgroundTask) => void;
   canStop: boolean;
+  /** 已点停止、这一轮还没结束。与输入框提交位的停止键共用同一份。 */
+  stopping?: boolean;
   onStop: (sessionId: number) => void;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
@@ -87,6 +90,7 @@ function ChatPanelHeader({
   onStopTask,
   onLocateTask,
   canStop,
+  stopping = false,
   onStop,
   sidebarOpen,
   onToggleSidebar,
@@ -218,15 +222,24 @@ function ChatPanelHeader({
               variant="ghost"
               size="icon-sm"
               onClick={() => onStop(session.id)}
+              disabled={stopping}
               aria-label={t("chatPanel.toolbar.stop")}
               title={t("chatPanel.toolbar.stopActiveTitle")}
               className="hover:bg-destructive/15 hover:text-destructive-text dark:hover:bg-destructive/20"
             >
-              <Square
-                data-icon="only"
-                className="size-3.5 fill-current"
-                aria-hidden="true"
-              />
+              {stopping ? (
+                <LoaderCircle
+                  data-icon="only"
+                  className="size-3.5 animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Square
+                  data-icon="only"
+                  className="size-3.5 fill-current"
+                  aria-hidden="true"
+                />
+              )}
             </Button>
           ) : null}
           <Button

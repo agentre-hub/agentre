@@ -28,6 +28,7 @@ import {
   CtlSkillSettings,
   LlmProviderSettings,
   SettingsUnderConstruction,
+  isProviderGap,
 } from "./sections";
 
 export type SettingsPageProps = {
@@ -51,19 +52,16 @@ export function SettingsPage({
   const activePage = useSettingsDialogStore((s) => s.page);
   const setActivePage = useSettingsDialogStore((s) => s.setPage);
 
-  // 设置导航打点 + LLM 供应商页黄条的数据源：一次共享的 ListChatAgents
-  // (useChatAgents)。gap 只在「确有缺口」时出现：Agent 后端页缺「有 Agent 没绑
-  // 后端」，LLM 供应商页缺「有后端绑了未激活/缺失的供应商」(= blockReason
+  // 设置导航打点 + LLM 供应商页「待补齐」清单的数据源：一次共享的 ListChatAgents
+  // (useChatAgents)。gap 是缺口 Agent 的个数，0 = 没有缺口：Agent 后端页缺「有
+  // Agent 没绑后端」，LLM 供应商页缺「有后端绑了未激活/缺失的供应商」(= blockReason
   // provider-inactive / backend-requires-provider)。
   const { agents } = useChatAgents();
-  const backendGap = agents.some(
+  const backendGap = agents.filter(
     (a) => a.blockReason === "no-backend" && !a.hasBackendTarget,
-  );
-  const providerGap = agents.some(
-    (a) =>
-      a.blockReason === "provider-inactive" ||
-      a.blockReason === "backend-requires-provider",
-  );
+  ).length;
+  const providerGapAgents = agents.filter((a) => isProviderGap(a.blockReason));
+  const providerGap = providerGapAgents.length;
 
   // R12:未登录时「同步」这一项整个不存在——不是灰掉、不是点进去提示先登录。
   // `Status()` 未登录时返回 `{enabled:false}` 而不是抛错,`status` 初始为
@@ -112,7 +110,7 @@ export function SettingsPage({
           ) : activePage === "llm-providers" ? (
             <LlmProviderSettings
               onOpenAgentBackends={() => setActivePage("agent-backend")}
-              providerGap={providerGap}
+              providerGapAgents={providerGapAgents}
             />
           ) : activePage === "local-proxy" ? (
             <LocalProxySettings />

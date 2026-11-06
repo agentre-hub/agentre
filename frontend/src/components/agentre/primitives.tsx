@@ -83,16 +83,22 @@ type SidebarButtonProps = Omit<
   active?: boolean;
   /** 图标右上角的小圆点：表示这一项底下有新东西，不解释是什么。 */
   badge?: boolean;
+  /** 圆点的语气：默认品牌色（「有新东西」）；waiting 表示「有人在等你」。 */
+  badgeTone?: "primary" | "waiting";
   icon: SidebarIcon;
   label: string;
+  /** 已格式化好的快捷键（如 ⌘B），跟在名称后面显示在 tooltip 里。 */
+  shortcut?: string;
 };
 
 function SidebarButton({
   active = false,
   badge = false,
+  badgeTone = "primary",
   className,
   icon,
   label,
+  shortcut,
   ...props
 }: SidebarButtonProps) {
   const tooltipId = React.useId();
@@ -121,7 +127,10 @@ function SidebarButton({
         <span
           data-slot="sidebar-badge"
           aria-hidden="true"
-          className="absolute right-1.5 top-1.5 size-[7px] rounded-full bg-primary ring-2 ring-chrome"
+          className={cn(
+            "absolute right-1.5 top-1.5 size-[7px] rounded-full ring-2 ring-chrome",
+            badgeTone === "waiting" ? "bg-status-waiting" : "bg-primary",
+          )}
         />
       ) : null}
       <span
@@ -135,6 +144,11 @@ function SidebarButton({
           className="absolute -left-1 top-1/2 size-2 -translate-y-1/2 rotate-45 bg-popover"
         />
         <span className="relative">{label}</span>
+        {shortcut ? (
+          <kbd className="relative ml-2 rounded-sm bg-button-fill px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground">
+            {shortcut}
+          </kbd>
+        ) : null}
       </span>
     </Button>
   );

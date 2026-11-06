@@ -1,10 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const sonnerMocks = vi.hoisted(() => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+vi.mock("sonner", () => sonnerMocks);
 
 import { LostChangeRow } from "../lost-change-row";
 import type { LostChangeView } from "../use-sync-status";
@@ -91,5 +94,66 @@ describe("LostChangeRow 的覆盖来源", () => {
     expect(
       await screen.findByText(/deleted on "the server \(browser\)"/),
     ).toBeInTheDocument();
+  });
+});
+
+// S5：同步写失败说中文事实 + 对应出口，不把 String(e) 当正文。
+describe("LostChangeRow 失败的呈现", () => {
+  function renderFailing(onRestore: () => Promise<never>) {
+    sonnerMocks.toast.error.mockClear();
+    render(
+      <LostChangeRow
+        row={overwrittenRow("Work Mac mini")}
+        expanded
+        onToggleExpand={() => {}}
+        onRestore={onRestore}
+        onRecreate={() => Promise.resolve()}
+        onDiscard={() => Promise.resolve()}
+        now={NOW}
+      />,
+    );
+    return userEvent.setup();
+  }
+
+  it("连不上同步服务时说连不上，并给「重试」把同一次恢复再跑一遍", async () => {
+    const onRestore = vi
+      .fn()
+      .mockRejectedValue("agentre-code:20301 Server unreachable");
+    const user = renderFailing(onRestore);
+
+    await user.click(screen.getByRole("button", { name: /restore/i }));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    const [title, options] = sonnerMocks.toast.error.mock.calls[0];
+    expect(title).toBe("Restore failed");
+    const { container } = render(<>{options.description}</>);
+    expect(container).toHaveTextContent(
+      "Can't reach the sync server. Try again once the network is back.",
+    );
+    expect(options.action.label).toBe("Retry");
+    options.action.onClick();
+    await waitFor(() => expect(onRestore).toHaveBeenCalledTimes(2));
+  });
+
+  // 规格 S5「unknown：中文标题 + 折叠详情」：原话不当正文，但也不丢 —— 进默认折叠的详情。
+  it("没有码的失败不把原话当正文，原话进默认折叠的详情", async () => {
+    const user = renderFailing(
+      vi.fn().mockRejectedValue(new Error("rpc error: code = Unavailable")),
+    );
+
+    await user.click(screen.getByRole("button", { name: /restore/i }));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    const [, options] = sonnerMocks.toast.error.mock.calls[0];
+    const { container } = render(<>{options.description}</>);
+    const body = container.querySelector("p");
+    expect(body).toHaveTextContent(
+      "That didn't go through. You can try again.",
+    );
+    expect(body).not.toHaveTextContent("rpc error");
+    const details = container.querySelector("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+    expect(details).toHaveTextContent("rpc error: code = Unavailable");
   });
 });

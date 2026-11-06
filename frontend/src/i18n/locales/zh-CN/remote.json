@@ -300,6 +300,7 @@
       },
       "copySuccess": "命令已复制",
       "failed": {
+        "details": "详情",
         "unknownTitle": "升级没能开始",
         "inProgressTitle": "这台机器上已经有一次升级在跑",
         "inProgressBody": "等它跑完再来。",
@@ -335,6 +336,12 @@
         "project": "项目",
         "projectLocation": "项目路径",
         "projectMember": "项目成员"
+      },
+      "errors": {
+        "notFound": "这条改动已经不在了",
+        "offline": "连不上同步服务器，网络恢复后再试",
+        "retry": "重试",
+        "unknown": "这次操作没有成功，可以再试一次"
       },
       "originServer": "服务端（浏览器）",
       "overwrittenFrom": "来自「{{device}}」",

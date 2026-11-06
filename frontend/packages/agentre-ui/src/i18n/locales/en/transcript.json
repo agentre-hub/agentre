@@ -208,7 +208,10 @@
       "backgroundRunning": "Background"
     },
     "toolPermission": {
-      "allowOnce": "Allow Once",
+      "lines": "{{count}} lines",
+      "lines_one": "{{count}} line",
+      "lines_other": "{{count}} lines",
+      "allowOnce": "Allow",
       "allowSession": "Always Allow This Session",
       "allowed": "Allowed",
       "allowedSession": "Allowed (this session)",

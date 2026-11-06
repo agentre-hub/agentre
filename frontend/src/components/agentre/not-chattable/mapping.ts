@@ -78,8 +78,6 @@ export function blockReasonToCta(blockReason: string): BlockReasonCta {
   );
 }
 
-export const ORG_SELECTED_STORAGE_KEY = "agentre.orgTree.selected";
-
 export function isBlockReason(value: string): value is BlockReason {
   return value in ctaByReason;
 }

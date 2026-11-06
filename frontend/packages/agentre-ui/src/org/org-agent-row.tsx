@@ -39,6 +39,12 @@ export type OrgAgentRowProps = {
   dragHandle?: OrgDragHandleBinding;
   /** 宿主自带的 Agent 头像。不给就用包内记号：预设 ▸ 图标 ▸ 首字母。 */
   avatar?: React.ReactNode;
+  /**
+   * 这个 Agent 现在还有缺口（如不能对话）的原因文案，宿主翻译好了递进来。给了就在
+   * 名字后画一枚 6px status-waiting 点，并把原因并入选择按钮的可读名；不给则整行
+   * 与此前一致（agentre-server 不传）。
+   */
+  gap?: string;
 };
 
 export function OrgAgentRow({
@@ -51,6 +57,7 @@ export function OrgAgentRow({
   dropRef,
   dragHandle,
   avatar,
+  gap,
 }: OrgAgentRowProps) {
   const { t } = useUiTranslation();
   // 解构而不是留着 `dragHandle.` 前缀：把它的 ref 挂到 ref= 上会让整个绑定对象被
@@ -112,6 +119,11 @@ export function OrgAgentRow({
       <button
         type="button"
         data-testid={`org-row-select-${agent.id}`}
+        aria-label={
+          gap
+            ? t("org.index.gapName", { name: agent.name, reason: gap })
+            : undefined
+        }
         onClick={() => onSelect({ kind: "agent", id: agent.id })}
         className="flex min-w-0 flex-1 items-center gap-[7px] text-left"
       >
@@ -133,6 +145,13 @@ export function OrgAgentRow({
         >
           {agent.name}
         </span>
+        {gap && (
+          <span
+            aria-hidden="true"
+            data-gap-dot
+            className="inline-block size-1.5 shrink-0 rounded-full bg-status-waiting"
+          />
+        )}
         {row.reportsToName && (
           <span
             data-slot="org-row-reports-to"

@@ -20,6 +20,8 @@ import type {
   ProjectFsPort,
 } from "@agentre-hub/agentre-ui";
 
+import { errorText, parseCodedError } from "@/lib/app-error";
+
 import { RemoteFsListDir, RemoteFsMkdir } from "../../../wailsjs/go/app/App";
 
 // 与 wailsjs codegen 类型一致；codegen 跑后可改回 import remote_fs_svc.ListDirView。
@@ -36,9 +38,6 @@ type ListDirView = {
   entries: EntryView[];
   truncated: boolean;
 };
-
-/** `internal/app/coded_error.go` 那一侧的同一条契约。 */
-const CODED_PREFIX = /^agentre-code:(\d+)\s?([\s\S]*)$/;
 
 /**
  * 业务码 → 选择器认识的那一档。数值出处是 `internal/pkg/code/code.go` 的
@@ -62,11 +61,13 @@ const KIND_BY_CODE: Record<number, DirectoryFailureKind> = {
  * 在用户读到的那句话里。
  */
 function toFailure(err: unknown): DirectoryFailure {
-  const raw = err instanceof Error ? err.message : String(err);
-  const m = CODED_PREFIX.exec(raw);
-  if (!m) return { kind: "unknown", message: raw };
-  const message = m[2];
-  return { kind: KIND_BY_CODE[Number(m[1])] ?? "unknown", message };
+  const raw = errorText(err);
+  const coded = parseCodedError(raw);
+  if (!coded) return { kind: "unknown", message: raw };
+  return {
+    kind: KIND_BY_CODE[coded.code] ?? "unknown",
+    message: coded.message,
+  };
 }
 
 /**

@@ -57,6 +57,56 @@ describe("TranscriptJumpControl", () => {
     );
   });
 
+  it("Given 没有补齐、宿主报下方有 2 项待处理, When 渲染, Then 药丸写「2 pending」文字且仍说回到底部", () => {
+    render(<TranscriptJumpControl onJump={vi.fn()} pendingBelow={2} />);
+
+    const control = screen.getByTestId("transcript-jump-control");
+    expect(screen.getByTestId("transcript-jump-pending")).toHaveTextContent(
+      "2 pending",
+    );
+    expect(control).toHaveTextContent("Back to bottom");
+    expect(control).toHaveAccessibleName(/2 pending/);
+  });
+
+  it("Given pendingBelow 为 0 或未传, When 渲染, Then 不出现待处理段", () => {
+    const { rerender } = render(
+      <TranscriptJumpControl onJump={vi.fn()} pendingBelow={0} />,
+    );
+    expect(screen.queryByTestId("transcript-jump-pending")).toBeNull();
+    rerender(<TranscriptJumpControl onJump={vi.fn()} />);
+    expect(screen.queryByTestId("transcript-jump-pending")).toBeNull();
+  });
+
+  // 规格 C4：待处理数由宿主独立传入，不再挂在 catchUp 上。补齐的 pendingDecisions
+  // 是重连那一刻的会话级快照（答掉了、滚过去了都不减），宿主按视口与活状态算的
+  // 才是「下面还有几项」；它说 0 就是 0。
+  it("Given 补齐有 3 项待决策、宿主 pendingBelow 为 0, When 渲染, Then 以宿主为准，不出现待处理段", () => {
+    render(
+      <TranscriptJumpControl
+        onJump={vi.fn()}
+        catchUp={{ newRows: 5, pendingDecisions: 3 }}
+        pendingBelow={0}
+      />,
+    );
+    expect(screen.queryByTestId("transcript-jump-pending")).toBeNull();
+    expect(screen.getByTestId("transcript-jump-control")).toHaveTextContent(
+      "5 new",
+    );
+  });
+
+  it("Given 补齐里有 3 项待决策、宿主传了 pendingBelow=1, When 渲染, Then 只显示一段待处理，数取宿主的", () => {
+    render(
+      <TranscriptJumpControl
+        onJump={vi.fn()}
+        catchUp={{ newRows: 5, pendingDecisions: 3 }}
+        pendingBelow={1}
+      />,
+    );
+    const pending = screen.getAllByTestId("transcript-jump-pending");
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toHaveTextContent("1 pending");
+  });
+
   it("Given 药丸, When 点它, Then 调用 onJump", async () => {
     const onJump = vi.fn();
     render(<TranscriptJumpControl onJump={onJump} />);

@@ -4,7 +4,13 @@
 // 判定(lib/platform.ts)、选区助手(lib/text-selection.ts)与两个钩子
 // (use-prevent-global-select-all、use-persisted-window-size)。
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentProps,
+} from "react";
 // 与 base.css 里的滚动条规则是一对：那半边把滑块颜色绑到 --sb-thumb 并默认
 // 透明，这半边在滚动时改值。两端共用同一份 hook。
 import {
@@ -48,6 +54,8 @@ import {
   ThemeToggle,
   type DesktopPlatform,
 } from "@/components/agentre";
+import { formatChord } from "@/components/agentre/shortcuts/format";
+import { useOptionalShortcutsContext } from "@/components/agentre/shortcuts/shortcuts-provider";
 import { ThemeProvider, useTheme } from "@agentre-hub/agentre-ui";
 import { SettingsDialog } from "@/components/agentre/settings/page";
 import { TabStrip } from "@/components/agentre/chat-tabs/tab-strip";
@@ -58,7 +66,10 @@ import { useDesktopTranscriptPorts } from "@/components/agentre/transcript-ports
 import { desktopTerminalTransport } from "@/components/agentre/terminal/terminal-transport-desktop";
 import { ChatPanelHost } from "@/components/agentre/chat-tabs/chat-panel-host";
 import { useChatAgents } from "@/hooks/use-chat-agents";
-import { deriveAppStatusBarState } from "@/lib/app-status-bar";
+import {
+  deriveAppStatusBarState,
+  railApprovalCount,
+} from "@/lib/app-status-bar";
 import {
   unskippedUpdate,
   useUpdateStore,
@@ -88,6 +99,27 @@ import {
   hasWailsRuntime,
   type RuntimeMode,
 } from "./lib/platform";
+
+// 图标栏导航项 → 快捷键绑定 id（shortcuts/registry.ts 的 nav.*）。
+const NAV_BINDING_IDS: Record<string, string> = {
+  "/chat": "nav.chat",
+  "/issues": "nav.issues",
+  "/org": "nav.org",
+  "/hooks": "nav.hooks",
+};
+
+// AppLayout 挂在 ShortcutsProvider 外层，读不到上下文；这个小包装在 Provider 里面，
+// 按当前绑定与平台把 chord 格式化后交给 SidebarButton。
+function RailButton({
+  bindingId,
+  ...props
+}: ComponentProps<typeof SidebarButton> & { bindingId?: string }) {
+  const shortcuts = useOptionalShortcutsContext();
+  const chord = bindingId ? shortcuts?.bindings.get(bindingId) : undefined;
+  const shortcut =
+    shortcuts && chord ? formatChord(chord, shortcuts.platform) : undefined;
+  return <SidebarButton {...props} shortcut={shortcut} />;
+}
 
 function AppLayout() {
   const { t } = useTranslation();
@@ -194,6 +226,11 @@ function AppLayout() {
   const hasChat = location.pathname === "/chat";
 
   const ports = useDesktopTranscriptPorts();
+  // 不在对话页时，审批只在状态栏里说一次太弱：图标栏「对话」按钮也亮琥珀点。
+  const railApprovals = railApprovalCount(
+    statusBarState.approvalIds.length,
+    hasChat,
+  );
 
   return (
     // 端口挂在应用根而不是转录子树：markdown-text 被三棵树共用(转录、文件预览
@@ -225,25 +262,39 @@ function AppLayout() {
                       aria-label={t("app.navigationLabel")}
                       className="flex w-14 shrink-0 flex-col items-center gap-1 bg-chrome px-2 py-3"
                     >
-                      {navItems.map((item) => (
-                        <SidebarButton
-                          key={item.labelKey}
-                          data-testid={`nav-${item.path?.slice(1) ?? item.labelKey}`}
-                          label={t(item.labelKey)}
-                          icon={item.icon}
-                          active={
-                            !settingsOpen &&
-                            isNavItemActive(location.pathname, item.path)
-                          }
-                          onClick={
-                            item.path ? () => navigate(item.path!) : undefined
-                          }
-                        />
-                      ))}
+                      {navItems.map((item) => {
+                        const pendingApprovals =
+                          item.path === "/chat" ? railApprovals : 0;
+                        return (
+                          <RailButton
+                            key={item.labelKey}
+                            bindingId={
+                              item.path ? NAV_BINDING_IDS[item.path] : undefined
+                            }
+                            data-testid={`nav-${item.path?.slice(1) ?? item.labelKey}`}
+                            label={
+                              pendingApprovals > 0
+                                ? `${t(item.labelKey)}${t("nav.chatPendingApprovals", { count: pendingApprovals })}`
+                                : t(item.labelKey)
+                            }
+                            badge={pendingApprovals > 0}
+                            badgeTone="waiting"
+                            icon={item.icon}
+                            active={
+                              !settingsOpen &&
+                              isNavItemActive(location.pathname, item.path)
+                            }
+                            onClick={
+                              item.path ? () => navigate(item.path!) : undefined
+                            }
+                          />
+                        );
+                      })}
                       {/* 外壳样式归宿主：wails-no-drag 与导航栏配色是桌面独有的，
                           按钮说什么、点一下变成什么在共享包里。 */}
                       <ThemeToggle className="wails-no-drag mt-auto size-10 rounded-lg text-sidebar-icon hover:bg-rail-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]" />
-                      <SidebarButton
+                      <RailButton
+                        bindingId="nav.settings"
                         data-testid="nav-settings"
                         label={settingsLabel}
                         icon={settingsNavItem.icon}
@@ -268,12 +319,8 @@ function AppLayout() {
                   <AppStatusBar
                     agentCount={statusBarState.agentCount}
                     runningCount={statusBarState.runningCount}
-                    approvalCount={statusBarState.approvalIds.length}
-                    unreadCount={statusBarState.unreadIds.length}
-                    attentionIds={[
-                      ...statusBarState.approvalIds,
-                      ...statusBarState.unreadIds,
-                    ]}
+                    approvals={statusBarState.approvals}
+                    unread={statusBarState.unread}
                     status={statusBarState.indicatorStatus}
                     version={appVersion}
                     onAttentionClick={(sessionId) => openSession(sessionId)}

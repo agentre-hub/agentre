@@ -31,6 +31,8 @@ export function useDeviceUpgrade(
   const ports = useMemo(
     () => ({
       requestUpgrade: async (force: boolean) => {
+        // 抛出的桥上串（可能带 `agentre-code:<码>` 前缀）原样进失败态，由失败卡片
+        // 按 classifyAppError 拆成正文与折叠详情（device-row-upgrade.tsx）。
         const result = await RemoteDeviceUpgrade(deviceId, force);
         return {
           accepted: result.accepted,

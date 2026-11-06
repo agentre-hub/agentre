@@ -36,7 +36,7 @@ import (
 // 发出：NotifyLocalChange 用拿到的 ctx 写出站队列，再以 context.WithoutCancel(ctx)
 // 起后台同步，事务的 ctx 会把一个已经提交的 tx 交给它；回滚之后，发出去的通知也收不回来。
 func (s *projectSvc) Merge(ctx context.Context, req *MergeProjectsRequest) (*project_entity.Project, error) {
-	if req == nil || req.SourceID <= 0 || req.TargetID <= 0 || req.SourceID == req.TargetID {
+	if req == nil || !validMergePair(req.SourceID, req.TargetID) {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
 	var keep *project_entity.Project
@@ -63,19 +63,10 @@ func (s *projectSvc) Merge(ctx context.Context, req *MergeProjectsRequest) (*pro
 func (s *projectSvc) mergeRows(
 	ctx context.Context, req *MergeProjectsRequest,
 ) (*project_entity.Project, []sync_svc.LocalChange, error) {
-	a, err := project_repo.Project().Find(ctx, req.SourceID)
+	keep, drop, err := findMergePair(ctx, req.SourceID, req.TargetID)
 	if err != nil {
 		return nil, nil, err
 	}
-	b, err := project_repo.Project().Find(ctx, req.TargetID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if a == nil || b == nil {
-		return nil, nil, i18n.NewError(ctx, code.ProjectNotFound)
-	}
-
-	keep, drop := chooseMergeWinner(a, b)
 
 	// 保留本机项目的本机路径：keep 自己已经配了路径就不动，没配才借 drop 的。
 	if keep.LocalPathMissing && !drop.LocalPathMissing {
@@ -130,6 +121,86 @@ func (s *projectSvc) mergeRows(
 		return nil, nil, err
 	}
 	return keep, append(changes, deleted), nil
+}
+
+// MergePreview 见 ProjectSvc 接口注释（S4）。只读：不开事务、不发同步通知。
+func (s *projectSvc) MergePreview(ctx context.Context, sourceID, targetID int64) (*MergePreview, error) {
+	if !validMergePair(sourceID, targetID) {
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	keep, drop, err := findMergePair(ctx, sourceID, targetID)
+	if err != nil {
+		return nil, err
+	}
+
+	var all []*project_entity.Project
+	if keep.ParentID != 0 || drop.ParentID != 0 {
+		if all, err = project_repo.Project().List(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return &MergePreview{
+		Keep: mergePreviewSide(keep, all),
+		Drop: mergePreviewSide(drop, all),
+	}, nil
+}
+
+// validMergePair 是 Merge 与 MergePreview 共用的入参口径：两个正 id，且不是同一个项目。
+func validMergePair(sourceID, targetID int64) bool {
+	return sourceID > 0 && targetID > 0 && sourceID != targetID
+}
+
+// findMergePair 读出两行并按 chooseMergeWinner 分出 keep / drop——Merge 与
+// MergePreview 走的是这同一段，预览给出的结果因此不会与真的合并分叉。任一行不存在
+// （或已软删）即 ProjectNotFound。
+func findMergePair(ctx context.Context, sourceID, targetID int64) (keep, drop *project_entity.Project, err error) {
+	a, err := project_repo.Project().Find(ctx, sourceID)
+	if err != nil {
+		return nil, nil, err
+	}
+	b, err := project_repo.Project().Find(ctx, targetID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if a == nil || b == nil {
+		return nil, nil, i18n.NewError(ctx, code.ProjectNotFound)
+	}
+	keep, drop = chooseMergeWinner(a, b)
+	return keep, drop, nil
+}
+
+func mergePreviewSide(p *project_entity.Project, all []*project_entity.Project) MergePreviewSide {
+	return MergePreviewSide{
+		ID:         p.ID,
+		Name:       p.Name,
+		ParentPath: ancestorNames(all, p.ParentID),
+		Claimed:    p.IsClaimed(),
+	}
+}
+
+// ancestorNames 从 parentID 顺着父链往上走，返回根 → parentID 的名称链（顶层是空
+// 切片而不是 nil，经 Wails 到前端是 [] 而不是 null）。父链断在
+// 找不到的行（软删 / 悬空引用）就到此为止；遇到环也停，不会走不完。
+func ancestorNames(all []*project_entity.Project, parentID int64) []string {
+	index := make(map[int64]*project_entity.Project, len(all))
+	for _, p := range all {
+		index[p.ID] = p
+	}
+	names := []string{}
+	seen := make(map[int64]struct{}, len(all))
+	for cur := parentID; cur > 0; {
+		if _, visited := seen[cur]; visited {
+			break
+		}
+		seen[cur] = struct{}{}
+		p, ok := index[cur]
+		if !ok {
+			break
+		}
+		names = append([]string{p.Name}, names...)
+		cur = p.ParentID
+	}
+	return names
 }
 
 // isUnderProject 判 p 是不是挂在 ancestorID 的子树里（任意深度）。顶层项目与直接

@@ -68,6 +68,10 @@ type ChatTranscriptProps = {
   onRerun?: (messageId: number) => void;
   /** 错误卡点击「继续」时回调，参数是失败的 assistant 消息 id。 */
   onContinue?: (messageId: number) => void;
+  /** 瞬态失败的错误卡点「重试这一轮」时回调（不经确认），参数是失败的 assistant 消息 id。 */
+  onRetryTurn?: (messageId: number) => void;
+  /** 会话的后端类型；登录失效的错误卡据此给重新登录的命令。 */
+  backendType?: string;
   /** 用户点某条 user 消息上的「编辑」时回调，参数是 user 消息 id。 */
   onEdit?: (messageId: number) => void;
   /** stream 是否进行中。true 时在末尾 assistant 内挂 typing 指示器，覆盖首 chunk 前 / 工具返回后的空窗期。 */
@@ -129,6 +133,8 @@ export const ChatTranscript = React.forwardRef<
     messages: allMessages,
     liveByMessageId,
     onContinue,
+    onRetryTurn,
+    backendType,
     onRerun,
     onEdit,
     onPlanActionStarted,
@@ -166,8 +172,10 @@ export const ChatTranscript = React.forwardRef<
     cwd,
     sessionId,
     tabStateKey,
+    backendType,
     onRerun,
     onContinue,
+    onRetryTurn,
     onEdit,
     onPlanActionStarted,
     onStopSubagent,

@@ -81,8 +81,9 @@ export const Tab = React.forwardRef<
       onDoubleClick={onDoublePromote}
     >
       {/* 颜色与可及名都来自共享 statusConfig（规格 2026-08-23 决策 9 的同源要求）。
-          闲置维持今天的「没有记号」—— tab 条上一排灰点只是噪音。 */}
-      {status === "idle" ? null : (
+          闲置维持今天的「没有记号」—— tab 条上一排灰点只是噪音。
+          running 只留右侧 spinner：它本身有形状，不只靠颜色，不再叠一个点。 */}
+      {status === "idle" || status === "running" ? null : (
         <StatusDot data-testid="tab-status-dot" status={status} size="xs" />
       )}
       {kind === "terminal" ? (

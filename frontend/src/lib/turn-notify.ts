@@ -1,5 +1,7 @@
 import type { TFunction } from "i18next";
 
+import { classifyTurnFailure, turnFailureFact } from "@agentre-hub/agentre-ui";
+
 import type { chat_svc } from "../../wailsjs/go/models";
 import type { AgentStatus } from "../stores/types";
 import type { DoneEvent } from "../stores/session-status-store";
@@ -31,12 +33,14 @@ function messageSnippet(message: chat_svc.ChatMessage | undefined): string {
   return "";
 }
 
-// notifyBody 在状态词后拼一段动态摘要：done 取 agent 末条回复，error 取错误文案；
-// 取不到（无消息 / 仅工具调用 / waiting）时退回纯状态词。摘要是 agent 原始输出，不翻译。
+// notifyBody 在状态词后拼一段动态摘要：done 取 agent 末条回复（agent 原始输出，不翻译），
+// error 取分类后的中文事实句（不贴 CLI 原文）；取不到（无消息 / 仅工具调用 / 无错误文案 /
+// waiting）时退回纯状态词。uiT 须绑在 AGENTRE_UI_NAMESPACE 上。
 export function notifyBody(
   kind: NotifyKind,
   event: DoneEvent | null,
   t: TFunction,
+  uiT: TFunction,
 ): string {
   const base = t(`notify.body.${kind}`);
   let detail = "";
@@ -44,7 +48,7 @@ export function notifyBody(
     detail = messageSnippet(event.message);
   } else if (kind === "error" && event?.kind === "error") {
     const errText = event.error ?? event.message?.errorText;
-    detail = errText ? clip(errText) : "";
+    detail = errText ? turnFailureFact(classifyTurnFailure(errText), uiT) : "";
   }
   return detail ? `${base} · ${detail}` : base;
 }
@@ -68,6 +72,8 @@ export type NotifyDeps = {
     body: string,
   ) => void;
   t: TFunction;
+  // 绑在 AGENTRE_UI_NAMESPACE 上的 t，取共享包的失败事实句。
+  uiT: TFunction;
 };
 
 // classifyTransition 把一次 agentStatus 转换归类为通知类型；仅在「离开 running」时触发。
@@ -100,7 +106,7 @@ export function maybeNotify(
   if (suppress) return;
 
   const title = deps.getSessionTitle(sessionId) ?? deps.t("notify.app");
-  const body = notifyBody(kind, deps.getDoneEvent(sessionId), deps.t);
+  const body = notifyBody(kind, deps.getDoneEvent(sessionId), deps.t, deps.uiT);
   if (s.system) deps.showSystemNotification(sessionId, title, body);
   if (s.toast) deps.showToast(sessionId, kind, title, body);
 }

@@ -287,20 +287,15 @@ export function SessionIndexPage() {
   const sessionActions = useSessionActions();
 
   // ── 拖拽排序：只在「按项目」下开启，且筛选生效时禁用（决策 9） ─────────────
-  const {
-    dragDisabled,
-    sensors,
-    collisionDetection,
-    handleDragEnd,
-    reorderError,
-  } = useProjectReorder({
-    axis,
-    // 搜索与状态 chip 都让顺序失去意义（决策 9）—— 前者现在是取数级的过滤，
-    // 不再体现在 visibleSessionIDs 上，得单独报给拖拽。
-    filtering: searching || visibleSessionIDs !== null,
-    projectByID,
-    refreshProjectData,
-  });
+  const { dragDisabled, sensors, collisionDetection, handleDragEnd } =
+    useProjectReorder({
+      axis,
+      // 搜索与状态 chip 都让顺序失去意义（决策 9）—— 前者现在是取数级的过滤，
+      // 不再体现在 visibleSessionIDs 上，得单独报给拖拽。
+      filtering: searching || visibleSessionIDs !== null,
+      projectByID,
+      refreshProjectData,
+    });
 
   // ── 组的公共 handlers ─────────────────────────────────────────────────────
   const handlers = React.useMemo<IndexGroupHandlers>(
@@ -631,16 +626,6 @@ export function SessionIndexPage() {
               })}
             </p>
           </div>
-        ) : null}
-
-        {reorderError ? (
-          <p
-            data-testid="reorder-error"
-            role="alert"
-            className="bg-destructive-soft px-4 py-2 text-2xs text-destructive-text"
-          >
-            {reorderError}
-          </p>
         ) : null}
 
         <div className="min-h-0 flex-1 overflow-auto px-2 py-3">

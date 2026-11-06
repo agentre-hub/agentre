@@ -13,6 +13,7 @@
       "failed": "Export failed",
       "includeSecrets": "Include secrets",
       "includeSecretsDescription": "Exports API keys, TLS certificates, and other secrets in plain text. Keep the file secure.",
+      "retry": "Retry",
       "secretsWarning": "The export contains plain-text secrets. Anyone with this file can use your accounts.",
       "selectOne": "Select at least one scope",
       "success": "Exported {{count}} records",
@@ -22,7 +23,8 @@
       "chooseFile": "Choose File...",
       "description": "Choose an Agentre export JSON file, preview it, then import.",
       "failed": "Import failed",
-      "parseFailed": "Failed to parse file",
+      "notBackup": "This file is not an Agentre backup",
+      "pickAgain": "Choose another file",
       "title": "Import"
     },
     "importPreview": {
@@ -104,10 +106,15 @@
     },
     "llmProvider": {
       "description": "Configure available model sources. After saving, Agentre can fetch the models available under the account and fill in each model's capabilities automatically.",
-      "gapBanner": {
-        "description": "Some agents are bound to backends that have no activated LLM provider. Once you've configured a provider, go to the org chart to assign it to those agents.",
-        "goToOrg": "Go to org chart",
-        "title": "Some agents still need this"
+      "gapList": {
+        "configure": "Configure",
+        "configureAria": "Configure {{name}}",
+        "heading": "Needs setup · {{count}}",
+        "reasons": {
+          "providerInactive": "Provider not activated",
+          "backendRequiresProvider": "Backend has no provider"
+        },
+        "title": "Needs setup"
       },
       "title": "LLM Providers"
     },
@@ -141,7 +148,9 @@
     "nav": {
       "about": "About",
       "agentBackend": "Agent Backends",
-      "agentBackendDot": "Some agents don't have a backend yet",
+      "agentBackendGap": "{{label}}, {{count}} agent has no backend yet",
+      "agentBackendGap_one": "{{label}}, {{count}} agent has no backend yet",
+      "agentBackendGap_other": "{{label}}, {{count}} agents have no backend yet",
       "appearance": "Appearance",
       "dataBackup": "Data & Backup",
       "engine": "Engine",
@@ -151,7 +160,9 @@
       "keyboardShortcuts": "Keyboard Shortcuts",
       "localProxy": "Local HTTP Proxy",
       "llmProvider": "LLM Providers",
-      "llmProviderDot": "Some backends are missing an activated LLM provider",
+      "llmProviderGap": "{{label}}, {{count}} agent needs an activated LLM provider",
+      "llmProviderGap_one": "{{label}}, {{count}} agent needs an activated LLM provider",
+      "llmProviderGap_other": "{{label}}, {{count}} agents need an activated LLM provider",
       "mcpServers": "MCP Servers",
       "notifications": "Notifications",
       "remoteDevices": "Remote",

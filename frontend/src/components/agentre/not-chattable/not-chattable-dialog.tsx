@@ -16,12 +16,12 @@ import {
   DialogTitle,
 } from "@agentre-hub/agentre-ui";
 import type { AgentSlim } from "@/hooks/use-chat-agents";
+import { openAgentSetup } from "@/lib/agent-setup-link";
 import { openSettings } from "@/stores/settings-dialog-store";
 import type { SettingsPageId } from "../settings/pages";
 
 import {
   blockReasonToCta,
-  ORG_SELECTED_STORAGE_KEY,
   type BlockReason,
   type GuidanceTarget,
 } from "./mapping";
@@ -71,13 +71,7 @@ function navigateToTarget(
   agentId: number,
 ) {
   if (target === "org-agent:<id>") {
-    localStorage.setItem(
-      ORG_SELECTED_STORAGE_KEY,
-      JSON.stringify({ kind: "agent", id: agentId }),
-    );
-    navigate("/org", {
-      state: { orgSelection: { kind: "agent", id: agentId } },
-    });
+    openAgentSetup(navigate, agentId);
     return;
   }
 

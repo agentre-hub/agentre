@@ -2,6 +2,7 @@ import type { AgentStatus } from "@/stores/types";
 
 type StatusBarSession = {
   id?: number;
+  title?: string;
   lastMessageAt?: number;
   lastReadAt?: number;
   needsAttention?: boolean;
@@ -9,6 +10,10 @@ type StatusBarSession = {
 };
 
 export type StatusBarAgent = {
+  name?: string;
+  avatarColor?: string;
+  avatarIcon?: string;
+  avatarDataUrl?: string;
   sessions?: StatusBarSession[];
 };
 
@@ -22,11 +27,23 @@ export type StatusBarSessionMeta = {
   lastReadAt?: number;
 };
 
+/** 状态栏「待处理」里的一行：哪个会话、属于哪个 agent（头像用）。 */
+export type AttentionItem = {
+  id: number;
+  title: string;
+  agentName: string;
+  avatarColor?: string;
+  avatarIcon?: string;
+  avatarDataUrl?: string;
+};
+
 export type AppStatusBarState = {
   agentCount: number;
   runningCount: number;
   approvalIds: number[];
   unreadIds: number[];
+  approvals: AttentionItem[];
+  unread: AttentionItem[];
   indicatorStatus: AgentStatus;
 };
 
@@ -49,12 +66,14 @@ export function deriveAppStatusBarState(
   readOverrides: ReadonlyMap<number, number>,
 ): AppStatusBarState {
   const sessionsById = new Map<number, StatusBarSession>();
+  const ownerById = new Map<number, StatusBarAgent>();
 
   for (const agent of agents) {
     for (const session of agent.sessions ?? []) {
       const sessionId = session.id ?? 0;
       if (sessionId > 0) {
         sessionsById.set(sessionId, session);
+        ownerById.set(sessionId, agent);
       }
     }
   }
@@ -62,6 +81,19 @@ export function deriveAppStatusBarState(
   let runningCount = 0;
   const approvalIds: number[] = [];
   const unreadIds: number[] = [];
+  const approvals: AttentionItem[] = [];
+  const unread: AttentionItem[] = [];
+  const toItem = (sessionId: number, session: StatusBarSession) => {
+    const owner = ownerById.get(sessionId);
+    return {
+      id: sessionId,
+      title: session.title ?? "",
+      agentName: owner?.name ?? "",
+      avatarColor: owner?.avatarColor,
+      avatarIcon: owner?.avatarIcon,
+      avatarDataUrl: owner?.avatarDataUrl,
+    };
+  };
 
   for (const [sessionId, session] of sessionsById) {
     const liveStatus = statuses.get(sessionId);
@@ -83,11 +115,13 @@ export function deriveAppStatusBarState(
 
     if (isWaitingForUser) {
       approvalIds.push(sessionId);
+      approvals.push(toItem(sessionId, session));
       continue;
     }
 
     if (agentStatus !== "running" && lastMessageAt > lastReadAt) {
       unreadIds.push(sessionId);
+      unread.push(toItem(sessionId, session));
     }
   }
 
@@ -96,11 +130,22 @@ export function deriveAppStatusBarState(
     runningCount,
     approvalIds,
     unreadIds,
+    approvals,
+    unread,
+    // 只有待审批才染琥珀：未读不是「有人在等你」，保持 running / idle。
     indicatorStatus:
-      approvalIds.length > 0 || unreadIds.length > 0
+      approvalIds.length > 0
         ? "waiting"
         : runningCount > 0
           ? "running"
           : "idle",
   };
+}
+
+/** 不在对话页时，图标栏「对话」按钮才需要提示待审批；在对话页里 tab 条已经在说了。 */
+export function railApprovalCount(
+  approvalCount: number,
+  onChatPage: boolean,
+): number {
+  return onChatPage ? 0 : approvalCount;
 }

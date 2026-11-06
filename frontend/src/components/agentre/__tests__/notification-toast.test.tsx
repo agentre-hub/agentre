@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (k: string) => k }),
+  useTranslation: () => ({
+    t: (k: string, o?: { count?: number }) =>
+      o?.count === undefined ? k : `${k}|${o.count}`,
+  }),
 }));
 
 import { presetForKey } from "@agentre-hub/agentre-ui";
@@ -310,5 +313,44 @@ describe("Given Agent 有完整身份, When 通知卡渲染, Then 头像按上�
     const glyph = renderToast();
     expect(glyph).toHaveTextContent("设");
     expect(glyph).toHaveAccessibleName("设计师");
+  });
+
+  it("时间随 createdAt 推移更新,不再写死「刚刚」", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    render(<NotificationToastViewport />);
+    act(() => {
+      useNotificationToastStore.getState().push({
+        sessionId: 42,
+        kind: "waiting",
+        title: "T",
+        body: "b",
+      });
+    });
+    expect(
+      screen.getByText("agentreUi:relativeTime.justNow"),
+    ).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(5 * 60_000);
+    });
+    expect(
+      screen.getByText("agentreUi:relativeTime.minutesAgo|5"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("agentreUi:relativeTime.justNow"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("视口容器不再用 z-[100]", () => {
+    render(<NotificationToastViewport />);
+    act(() => {
+      useNotificationToastStore.getState().push({
+        sessionId: 1,
+        kind: "done",
+        title: "T",
+        body: "b",
+      });
+    });
+    expect(document.body.innerHTML).not.toContain("z-[100]");
   });
 });

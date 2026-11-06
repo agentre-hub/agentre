@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { TaskProgressBar } from "../task-progress-bar";
@@ -51,7 +51,7 @@ describe("TaskProgressBar", () => {
 
   it.each([
     ["DONE", "text-status-running", "text-status-running-text"],
-    ["RUNNING", "text-status-waiting", "text-status-waiting-text"],
+    ["RUNNING", "text-status-running", "text-status-running-text"],
     ["FAILED", "text-status-error", "text-destructive-text"],
   ])(
     "Given an expanded %s row, Then its icon keeps the fill color and only the status word takes the -text role",
@@ -129,5 +129,63 @@ describe("TaskProgressBar · 无边框", () => {
     fireEvent.click(screen.getByRole("button", { expanded: false }));
 
     expect(edgeClasses(screen.getByRole("region"))).toEqual([]);
+  });
+});
+
+describe("TaskProgressBar · 折叠态一行", () => {
+  it("Given a running task, When collapsed, Then one header row carries the count, the current task and a thin bar, and no second row", () => {
+    render(<TaskProgressBar progress={claude3} />);
+    const header = screen.getByRole("button", { expanded: false });
+
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(header).toHaveTextContent(/^1\/3/);
+    expect(within(header).getByText("B")).toBeInTheDocument();
+    const bar = within(header).getByRole("progressbar");
+    expect(bar).toHaveAttribute("aria-valuenow", "1");
+    expect(bar).toHaveClass("h-1");
+  });
+
+  it("Given a collapsed row, When rendered, Then it repeats neither the title, the completed label nor a percentage", () => {
+    render(<TaskProgressBar progress={claude3} />);
+    const header = screen.getByRole("button", { expanded: false });
+
+    expect(header.textContent).not.toMatch(/Task Progress|Completed|%/);
+  });
+
+  it("Given a running task, When collapsed, Then its spinner uses the status-running token, not status-waiting", () => {
+    render(<TaskProgressBar progress={claude3} />);
+    const header = screen.getByRole("button", { expanded: false });
+    const spinner = header.querySelector("svg.animate-spin");
+
+    expect(spinner).toHaveClass("text-status-running");
+    expect(spinner).not.toHaveClass("text-status-waiting");
+  });
+
+  // 规格 C6「运行中 spinner 用 status-running」：展开态列表的结构不变，但它那枚
+  // 运行中 spinner 与状态词同样不能再借「需要你注意」的琥珀。
+  it("Given a running task, When expanded, Then its row spinner and status word use status-running, not status-waiting", () => {
+    render(<TaskProgressBar progress={claude3} />);
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    const row = screen.getByText("B").closest("li")!;
+    const spinner = row.querySelector("svg.animate-spin");
+
+    expect(spinner).toHaveClass("text-status-running");
+    expect(spinner).not.toHaveClass("text-status-waiting");
+    expect(within(row).getByText("RUNNING")).toHaveClass(
+      "text-status-running-text",
+    );
+  });
+
+  it("Given every task is completed, When collapsed, Then the single row shows the recap in place of the current task", () => {
+    render(
+      <TaskProgressBar
+        progress={{
+          tasks: [{ id: "t_1", description: "A", status: "completed" }],
+        }}
+      />,
+    );
+    const header = screen.getByRole("button", { expanded: false });
+
+    expect(within(header).getByText(/All done/)).toBeInTheDocument();
   });
 });

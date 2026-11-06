@@ -236,6 +236,9 @@
       "description": "Deleting this session also removes all of its messages and cannot be undone.",
       "title": "Delete Session"
     },
+    "errorCard": {
+      "continueMessage": "Continue"
+    },
     "errors": {
       "cancelQueued": "Failed to cancel queued message: {{msg}}",
       "compact": "Failed to compact context: {{msg}}",
@@ -380,7 +383,7 @@
       "unpin": "Unpin"
     },
     "empty": {
-      "description": "Choose one from the left sidebar, or dispatch a new task to an Agent · ⌘P opens the command palette",
+      "description": "Pick a conversation on the left, or press {{chord}} to open the command palette",
       "shortcuts": {
         "close": "Close Tab",
         "openInNewTab": "Open in New Tab",
@@ -462,8 +465,6 @@
   },
   "taskProgress": {
     "allCompleted": "All done",
-    "completed": "Completed",
-    "current": "Current",
     "status": {
       "cancelled": "CANCELLED",
       "completed": "DONE",

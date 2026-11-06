@@ -55,7 +55,7 @@ describe("ChatStreamsHost", () => {
     resetStores();
   });
 
-  it("Given an open tab behind others, When a tool permission event arrives, Then the tab moves after pinned tabs", async () => {
+  it("Given an open tab behind others, When a tool permission event arrives, Then no tab moves (order is only changed by the user)", async () => {
     useChatTabsStore.getState().openSessionInNewTab(1);
     useChatTabsStore.getState().openSessionInNewTab(2);
     useChatTabsStore.getState().openSessionInNewTab(42);
@@ -89,7 +89,7 @@ describe("ChatStreamsHost", () => {
       useChatTabsStore
         .getState()
         .tabs.map((t) => (t.meta as { sessionId: number }).sessionId),
-    ).toEqual([1, 42, 2]);
+    ).toEqual([1, 2, 42]);
   });
 
   // sess-3241：一跳纯工具调用时，后端已经把首 token 记在 output_activity 上；前端

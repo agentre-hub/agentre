@@ -13,6 +13,7 @@
       "failed": "导出失败",
       "includeSecrets": "包含凭证",
       "includeSecretsDescription": "勾选后导出 API Key / TLS 证书等明文。请妥善保管文件。",
+      "retry": "重试",
       "secretsWarning": "导出文件含明文凭证，任何拿到该文件的人都可使用你的账号。",
       "selectOne": "请至少选择一个范围",
       "success": "已导出 {{count}} 条数据",
@@ -22,7 +23,8 @@
       "chooseFile": "选择文件...",
       "description": "选择 Agentre 导出的 JSON 文件，预览后再写入。",
       "failed": "导入失败",
-      "parseFailed": "解析文件失败",
+      "notBackup": "这个文件不是 Agentre 导出的备份",
+      "pickAgain": "重新选择文件",
       "title": "导入"
     },
     "importPreview": {
@@ -104,10 +106,15 @@
     },
     "llmProvider": {
       "description": "配置可用模型来源。保存后可拉取该账号下的可用模型，并自动补全各模型的能力参数。",
-      "gapBanner": {
-        "description": "部分 Agent 绑定的后端还没有关联已激活的 LLM 供应商。配置好供应商后，去组织架构给这些 Agent 选上即可。",
-        "goToOrg": "去组织架构",
-        "title": "还有 Agent 缺这个"
+      "gapList": {
+        "configure": "去配置",
+        "configureAria": "去配置 {{name}}",
+        "heading": "待补齐 · {{count}}",
+        "reasons": {
+          "providerInactive": "供应商未激活",
+          "backendRequiresProvider": "后端未关联供应商"
+        },
+        "title": "待补齐"
       },
       "title": "LLM 供应商"
     },
@@ -141,7 +148,9 @@
     "nav": {
       "about": "关于",
       "agentBackend": "Agent 后端",
-      "agentBackendDot": "有 Agent 还没配置后端",
+      "agentBackendGap": "{{label}}，有 {{count}} 个 Agent 未配置",
+      "agentBackendGap_one": "{{label}}，有 {{count}} 个 Agent 未配置",
+      "agentBackendGap_other": "{{label}}，有 {{count}} 个 Agent 未配置",
       "appearance": "外观",
       "dataBackup": "数据 & 备份",
       "engine": "引擎",
@@ -151,7 +160,9 @@
       "keyboardShortcuts": "键盘快捷键",
       "localProxy": "本地 HTTP 代理",
       "llmProvider": "LLM 供应商",
-      "llmProviderDot": "有后端缺激活的 LLM 供应商",
+      "llmProviderGap": "{{label}}，有 {{count}} 个 Agent 缺已激活的 LLM 供应商",
+      "llmProviderGap_one": "{{label}}，有 {{count}} 个 Agent 缺已激活的 LLM 供应商",
+      "llmProviderGap_other": "{{label}}，有 {{count}} 个 Agent 缺已激活的 LLM 供应商",
       "mcpServers": "MCP 服务器",
       "notifications": "通知",
       "remoteDevices": "远端",

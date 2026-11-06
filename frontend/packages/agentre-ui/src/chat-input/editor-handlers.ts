@@ -32,6 +32,7 @@ export interface ComposerKeyDownContext {
   historyIndexRef: Cell<number>;
   applyingHistoryRef: Cell<boolean>;
   triggerSubmitRef: Cell<() => void>;
+  escapeRef: Cell<(() => boolean) | undefined>;
 }
 
 export function handleComposerKeyDown(
@@ -52,6 +53,10 @@ export function handleComposerKeyDown(
     (ctx.mentionKeyDownRef.current(event) || ctx.slashKeyDownRef.current(event))
   )
     return true;
+
+  // 没被弹层吃掉的 Esc 交给宿主。必须在这里接：ProseMirror 对它没处理的 Esc
+  // （keyCode 27）一律 preventDefault，冒泡到外层时已分不清是不是弹层吃掉的。
+  if (event.key === "Escape" && ctx.escapeRef.current?.()) return true;
 
   const shouldSendOnEnter = ctx.sendOnEnterRef.current;
   const isEnter = event.key === "Enter";

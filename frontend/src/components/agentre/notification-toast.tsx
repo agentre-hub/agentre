@@ -9,9 +9,11 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
-import { cn } from "@agentre-hub/agentre-ui";
+import { cn, formatRelativeTime } from "@agentre-hub/agentre-ui";
+import { useNow } from "@/hooks/use-now";
 import type { NotifyKind } from "@/lib/turn-notify";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import {
@@ -27,6 +29,9 @@ import { useAgentIdentity } from "./use-agent-identity";
 
 // done 自动消失时长（ms）。error / waiting 需要用户处理，不自动消失。
 const AUTO_DISMISS_MS = 6000;
+
+// 相对时间的刷新间隔（ms）；formatRelativeTime 最细到分钟。
+const RELATIVE_TIME_TICK_MS = 30_000;
 
 // 新版本到达提示的自动消失时长（ms）。比 done 长一点，但不常驻：
 // 状态栏胶囊已经兜住了「错过」，让它一直占着右下角只是重复。
@@ -70,6 +75,7 @@ function NotificationToastCard({
   // meta 只有名字 / 颜色；图标与上传图片在 agents 列表里（规格 2026-11-02 决策 17）。
   const identity = useAgentIdentity(meta?.agentId);
   const avatar = avatarFromMeta(meta, identity);
+  const now = useNow(RELATIVE_TIME_TICK_MS);
   const style = KIND_STYLE[toast.kind];
   const { Icon } = style;
 
@@ -144,7 +150,11 @@ function NotificationToastCard({
             />
           </button>
           <span className="font-mono text-3xs text-muted-foreground">
-            {t("notify.justNow")}
+            {formatRelativeTime(
+              toast.createdAt,
+              Math.max(now, toast.createdAt),
+              t,
+            )}
           </span>
         </div>
       </div>
@@ -237,8 +247,9 @@ export function NotificationToastViewport() {
 
   if (toasts.length === 0 && announcement === null) return null;
 
-  return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
+  // portal 到 body 末尾：层级由 DOM/portal 顺序决定（design.md 层级规范），不手写 z-index。
+  return createPortal(
+    <div className="pointer-events-none fixed bottom-4 right-4 flex flex-col gap-2">
       <UpdateToastCard />
       {toasts.map((toast) => (
         <NotificationToastCard
@@ -251,6 +262,7 @@ export function NotificationToastViewport() {
           }}
         />
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }

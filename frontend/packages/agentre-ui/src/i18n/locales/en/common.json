@@ -43,6 +43,8 @@
     "copy": "Copy",
     "copied": "Copied",
     "copyFailed": "Copy failed",
+    "copyFailedRetry": "Copy did not go through this time. Please try again.",
+    "copyPermissionDenied": "The browser did not allow clipboard writes. Click the page and try again, or select and copy manually.",
     "delete": "Delete",
     "edit": "Edit",
     "errorOccurred": "Something went wrong",

@@ -49,7 +49,9 @@
         "reportsToLabel": "汇报给：{{name}}",
         "searchLabel": "搜索：{{value}}",
         "clear": "清除条件 {{label}}",
-        "clearAll": "清除全部条件"
+        "clearAll": "清除全部条件",
+        "needsSetup": "待配置",
+        "needsSetupAria": "按配置状态筛选"
       },
       "noMatch": {
         "title": "未找到 Agent",

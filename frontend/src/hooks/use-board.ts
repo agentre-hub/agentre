@@ -1,4 +1,6 @@
 import * as React from "react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import {
   type BoardEmptyScope,
@@ -19,6 +21,7 @@ import {
   toTaskFormValue,
   type BoardCardProjectResolver,
 } from "@/components/agentre/board/board-wire";
+import { classifyAppError, type AppErrorKind } from "@/lib/app-error";
 
 import {
   IssueCreate,
@@ -46,7 +49,7 @@ export interface UseBoardResult {
   taskOf: (id: number) => TaskFormValue | null;
   /** 取数在途；旧结果留在原地，只有输入框右端那枚转圈在动。 */
   searching: boolean;
-  error: string | null;
+  error: BoardError | null;
   reload: () => Promise<void>;
   /**
    * 四条写路径**都不会 reject**：失败就地记进 `error`（页面上那条 role="alert"
@@ -71,8 +74,19 @@ const EMPTY_RESPONSE = {
   projectCounts: [],
 } as unknown as app.IssueListResponse;
 
-function reasonOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+/** 删除的撤销窗口：toast 在这段时间里挂着，到点才真的 IssueDelete。 */
+const DELETE_UNDO_MS = 6000;
+
+/**
+ * 看板失败的呈现形状（S5）：`title` 是 i18n key 之外的中文事实句已经渲染好的文本，
+ * `message` 是后端按语言渲染的那句业务文案（可能为空），`detail` 是机器原话，
+ * 页面只把它放进默认折叠的「详情」。
+ */
+export interface BoardError {
+  kind: AppErrorKind;
+  title: string;
+  message: string;
+  detail?: string;
 }
 
 /**
@@ -90,7 +104,27 @@ export function useBoard(
   const [labels, setLabels] = React.useState<LabelUsageView[]>([]);
   const [loaded, setLoaded] = React.useState(false);
   const [searching, setSearching] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<BoardError | null>(null);
+  const { t } = useTranslation();
+  // 失败翻成中文事实：已经不在了 / 连不上各说各的，其余统一「没保存」；
+  // 取数失败单独一句。机器原话只留在 detail。
+  const toBoardError = React.useCallback(
+    (cause: unknown, fallbackTitle: string): BoardError => {
+      const failure = classifyAppError(cause);
+      const title =
+        failure.kind === "notFound"
+          ? t("issues.errors.notFound")
+          : failure.kind === "offline"
+            ? t("issues.errors.offline")
+            : t(fallbackTitle);
+      return { ...failure, title };
+    },
+    [t],
+  );
+  // 已点删除但还没落库的卡片：视图模型把它们滤掉，撤销就是把它们放回来。
+  const [pendingDeletes, setPendingDeletes] = React.useState<
+    ReadonlySet<number>
+  >(new Set());
 
   // 只有最新一次请求可以写状态：连打几个字会让多次取数重叠，先发的那次晚返回时
   // 不能把新结果盖回旧的。
@@ -124,7 +158,7 @@ export function useBoard(
       setError(null);
     } catch (cause) {
       if (request !== requestRef.current) return;
-      setError(reasonOf(cause));
+      setError(toBoardError(cause, "issues.errors.loadFailed"));
     } finally {
       if (request === requestRef.current) {
         setSearching(false);
@@ -146,6 +180,28 @@ export function useBoard(
     [],
   );
 
+  // 待删卡片不只从列表里滤掉，也要从各列总数 / 命中数里扣掉，头部计数才与列表一致；
+  // 撤销后 pendingDeletes 清空，原始计数原样回来。
+  const visibleResponse = React.useMemo(() => {
+    if (pendingDeletes.size === 0) return response;
+    const issues = response.issues ?? [];
+    const stageTotals = { ...(response.stageTotals ?? {}) };
+    const stageCounts = { ...(response.stageCounts ?? {}) };
+    for (const issue of issues) {
+      if (!pendingDeletes.has(issue.id)) continue;
+      if (stageTotals[issue.stage] !== undefined)
+        stageTotals[issue.stage] = Math.max(0, stageTotals[issue.stage] - 1);
+      if (stageCounts[issue.stage] !== undefined)
+        stageCounts[issue.stage] = Math.max(0, stageCounts[issue.stage] - 1);
+    }
+    return {
+      ...response,
+      issues: issues.filter((issue) => !pendingDeletes.has(issue.id)),
+      stageTotals,
+      stageCounts,
+    } as app.IssueListResponse;
+  }, [pendingDeletes, response]);
+
   const viewModel = React.useMemo<BoardViewModel>(() => {
     // 空态那句的范围：`unassigned` 是范围本身说死的；`project` 的名字从
     // `projectOf` 取，取不到（例如宿主为别的判据让它返回 null）就不给 scope，
@@ -161,13 +217,13 @@ export function useBoard(
           : undefined;
 
     return {
-      columns: toBoardColumns(response, projectOf),
+      columns: toBoardColumns(visibleResponse, projectOf),
       filtering: isFiltering(query),
       keyword: query.keyword.trim(),
       loading: !loaded,
       emptyScope,
     };
-  }, [loaded, projectOf, query, response]);
+  }, [loaded, projectOf, query, visibleResponse]);
 
   const taskOf = React.useCallback(
     (id: number) => {
@@ -185,13 +241,13 @@ export function useBoard(
         await run();
         setError(null);
       } catch (cause) {
-        setError(reasonOf(cause));
+        setError(toBoardError(cause, "issues.errors.writeFailed"));
         return false;
       }
       await reload();
       return true;
     },
-    [reload],
+    [reload, toBoardError],
   );
 
   const moveIssue = React.useCallback(
@@ -222,10 +278,90 @@ export function useBoard(
     [write],
   );
 
-  const deleteTask = React.useCallback(
-    (id: number) => write(() => IssueDelete(id)),
-    [write],
+  // 撤销窗口内的删除：id → 定时器与 toast。落库（到点或卸载）后条目即删，
+  // 之后再点「撤销」什么都不会发生。
+  const pendingRef = React.useRef(
+    new Map<
+      number,
+      { timer: ReturnType<typeof setTimeout>; toastId: string | number }
+    >(),
   );
+
+  const releasePending = React.useCallback((id: number) => {
+    setPendingDeletes((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const commitDelete = React.useCallback(
+    async (id: number) => {
+      const entry = pendingRef.current.get(id);
+      if (!entry) return;
+      clearTimeout(entry.timer);
+      pendingRef.current.delete(id);
+      toast.dismiss(entry.toastId);
+      // 写成功并重拉后才放开隐藏，否则卡片会在重拉回来前闪一下；失败则放开后
+      // 卡片回到原位，报错由 write 记进 error。
+      await write(() => IssueDelete(id));
+      releasePending(id);
+    },
+    [releasePending, write],
+  );
+
+  const undoDelete = React.useCallback(
+    (id: number) => {
+      const entry = pendingRef.current.get(id);
+      if (!entry) return;
+      clearTimeout(entry.timer);
+      pendingRef.current.delete(id);
+      releasePending(id);
+    },
+    [releasePending],
+  );
+
+  const deleteTask = React.useCallback(
+    async (id: number) => {
+      if (pendingRef.current.has(id)) return true;
+      const title =
+        (response.issues ?? []).find((issue) => issue.id === id)?.title ?? "";
+      const timer = setTimeout(() => void commitDelete(id), DELETE_UNDO_MS);
+      const toastId = toast(t("issues.deleted", { title }), {
+        duration: DELETE_UNDO_MS,
+        action: {
+          label: t("issues.undo"),
+          onClick: () => undoDelete(id),
+        },
+      });
+      pendingRef.current.set(id, { timer, toastId });
+      setPendingDeletes((prev) => new Set(prev).add(id));
+      return true;
+    },
+    [commitDelete, response.issues, t, undoDelete],
+  );
+
+  // 卸载或窗口关闭前立即提交未决删除：不能让用户以为删了、实际没删。关窗 / 退出
+  // 应用不会卸载 React，只会发 beforeunload / pagehide，所以两条路都接上。
+  React.useEffect(() => {
+    const pending = pendingRef.current;
+    const flush = () => {
+      for (const [id, entry] of pending) {
+        clearTimeout(entry.timer);
+        toast.dismiss(entry.toastId);
+        void Promise.resolve(IssueDelete(id)).catch(() => undefined);
+      }
+      pending.clear();
+    };
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, []);
 
   const mutateLabel = React.useCallback(
     (mutation: LabelMutation) =>
@@ -258,7 +394,7 @@ export function useBoard(
       [response.projectCounts],
     ),
     unassignedCount: projectCountOf(response.projectCounts, 0),
-    matchedCount: matchedTotal(response.stageCounts ?? {}),
+    matchedCount: matchedTotal(visibleResponse.stageCounts ?? {}),
     taskOf,
     searching,
     error,

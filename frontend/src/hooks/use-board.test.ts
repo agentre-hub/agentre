@@ -1,5 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const toastMock = vi.hoisted(() =>
+  Object.assign(
+    vi.fn(() => "toast-1"),
+    { dismiss: vi.fn() },
+  ),
+);
+vi.mock("sonner", () => ({ toast: toastMock }));
 
 vi.mock("../../wailsjs/go/app/App", () => ({
   IssueList: vi.fn(),
@@ -164,7 +172,14 @@ describe("useBoard", () => {
     issueList.mockRejectedValue(new Error("boom"));
     const { result } = renderHook(() => useBoard(query(), () => null));
 
-    await waitFor(() => expect(result.current.error).toBe("boom"));
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "unknown",
+        title: "The board could not be loaded",
+        message: "",
+        detail: "boom",
+      }),
+    );
   });
 
   // 连打几个字会让多次取数重叠：先发的那一次晚返回时不能把新结果盖回旧的。这是
@@ -330,8 +345,20 @@ describe("useBoard", () => {
     (IssueDelete as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("row is gone"),
     );
-    await expect(result.current.deleteTask(1)).resolves.toBe(false);
-    await waitFor(() => expect(result.current.error).toBe("row is gone"));
+    vi.useFakeTimers();
+    await expect(result.current.deleteTask(1)).resolves.toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    vi.useRealTimers();
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "unknown",
+        title: "That change was not saved",
+        message: "",
+        detail: "row is gone",
+      }),
+    );
     // 写没过去就不该重拉：拉回来的还是同一块板，只会把报错洗掉。
     expect(issueList).toHaveBeenCalledTimes(1);
 
@@ -339,7 +366,14 @@ describe("useBoard", () => {
       new Error("move failed"),
     );
     await expect(result.current.moveIssue(1, "todo", 0)).resolves.toBe(false);
-    await waitFor(() => expect(result.current.error).toBe("move failed"));
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "unknown",
+        title: "That change was not saved",
+        message: "",
+        detail: "move failed",
+      }),
+    );
 
     (IssueCreateLabel as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("name taken"),
@@ -347,7 +381,51 @@ describe("useBoard", () => {
     await expect(
       result.current.mutateLabel({ kind: "create", name: "bug", tone: "red" }),
     ).resolves.toBe(false);
-    await waitFor(() => expect(result.current.error).toBe("name taken"));
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "unknown",
+        title: "That change was not saved",
+        message: "",
+        detail: "name taken",
+      }),
+    );
+  });
+
+  // S5：写失败按码分类 —— 已经不在了 / 连不上各说各的中文事实，机器原话不当标题。
+  it("Given a write rejected with a coded not-found error, When it settles, Then the error carries kind notFound and the backend sentence", async () => {
+    const { result } = renderHook(() => useBoard(query(), () => null));
+    await waitFor(() => expect(result.current.viewModel.loading).toBe(false));
+
+    (IssueMove as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      "agentre-code:18200 任务不存在",
+    );
+    await expect(result.current.moveIssue(1, "todo", 0)).resolves.toBe(false);
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "notFound",
+        title:
+          "This task no longer exists. Refresh to bring the board up to date",
+        message: "任务不存在",
+        detail: undefined,
+      }),
+    );
+  });
+
+  it("Given a write rejected with a coded offline error, When it settles, Then the error carries kind offline", async () => {
+    const { result } = renderHook(() => useBoard(query(), () => null));
+    await waitFor(() => expect(result.current.viewModel.loading).toBe(false));
+
+    (IssueMove as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("agentre-code:20301 服务器不可达"),
+    );
+    await result.current.moveIssue(1, "todo", 0);
+    await waitFor(() =>
+      expect(result.current.error).toMatchObject({
+        kind: "offline",
+        title:
+          "Can't reach the service, so the change was not saved. Try again later",
+      }),
+    );
   });
 
   it("Given a write that goes through, When it settles, Then it resolves true and clears an earlier error", async () => {
@@ -357,21 +435,214 @@ describe("useBoard", () => {
     (IssueDelete as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("row is gone"),
     );
+    vi.useFakeTimers();
     await result.current.deleteTask(1);
-    await waitFor(() => expect(result.current.error).toBe("row is gone"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    vi.useRealTimers();
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "unknown",
+        title: "That change was not saved",
+        message: "",
+        detail: "row is gone",
+      }),
+    );
 
-    await expect(result.current.deleteTask(1)).resolves.toBe(true);
+    vi.useFakeTimers();
+    await result.current.deleteTask(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    vi.useRealTimers();
     await waitFor(() => expect(result.current.error).toBeNull());
     expect(issueList).toHaveBeenCalledTimes(2);
   });
 
-  it("Given a deleted task, When it is removed, Then the binding is called and the board refetches", async () => {
-    const { result } = renderHook(() => useBoard(query(), () => null));
-    await waitFor(() => expect(result.current.viewModel.loading).toBe(false));
+  describe("deferred delete", () => {
+    const cardIDs = (result: { current: ReturnType<typeof useBoard> }) =>
+      Object.values(result.current.viewModel.columns).flatMap((column) =>
+        (column?.cards ?? []).map((card) => card.id),
+      );
 
-    await result.current.deleteTask(1);
+    async function setup() {
+      issueList.mockResolvedValue(
+        boardResponse([
+          { id: 1, stage: "todo" },
+          { id: 2, stage: "todo" },
+        ]),
+      );
+      const hook = renderHook(() => useBoard(query(), () => null));
+      await waitFor(() =>
+        expect(hook.result.current.viewModel.loading).toBe(false),
+      );
+      vi.useFakeTimers();
+      return hook;
+    }
 
-    expect(IssueDelete).toHaveBeenCalledWith(1);
-    await waitFor(() => expect(issueList).toHaveBeenCalledTimes(2));
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("Given a delete, When it is requested, Then the card hides at once with an undo toast and IssueDelete waits ~6s", async () => {
+      const { result } = await setup();
+
+      let ok: boolean | undefined;
+      await act(async () => {
+        ok = await result.current.deleteTask(1);
+      });
+
+      expect(ok).toBe(true);
+      expect(cardIDs(result)).toEqual([2]);
+      expect(toastMock).toHaveBeenCalledTimes(1);
+      const [, options] = toastMock.mock.calls[0] as unknown as [
+        string,
+        { action: { label: string; onClick: () => void } },
+      ];
+      expect(options.action.onClick).toBeTypeOf("function");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5900);
+      });
+      expect(IssueDelete).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      expect(IssueDelete).toHaveBeenCalledTimes(1);
+      expect(IssueDelete).toHaveBeenCalledWith(1);
+    });
+
+    it("Given a pending delete, When undo is clicked, Then the card returns and IssueDelete never fires", async () => {
+      const { result } = await setup();
+      await act(async () => {
+        await result.current.deleteTask(1);
+      });
+      const [, options] = toastMock.mock.calls[0] as unknown as [
+        string,
+        { action: { onClick: () => void } },
+      ];
+
+      act(() => options.action.onClick());
+      expect(cardIDs(result).sort()).toEqual([1, 2]);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10000);
+      });
+      expect(IssueDelete).not.toHaveBeenCalled();
+    });
+
+    it("Given server counts, When a delete is pending, Then totals and matched drop the card and undo restores them", async () => {
+      issueList.mockResolvedValue({
+        ...boardResponse([
+          { id: 1, stage: "doing" },
+          { id: 2, stage: "todo" },
+        ]),
+        stageTotals: { doing: 1, todo: 1 },
+        stageCounts: { doing: 1, todo: 1 },
+      });
+      const hook = renderHook(() => useBoard(query(), () => null));
+      await waitFor(() =>
+        expect(hook.result.current.viewModel.loading).toBe(false),
+      );
+      vi.useFakeTimers();
+      const { result } = hook;
+      await act(async () => {
+        await result.current.deleteTask(1);
+      });
+      const cols = result.current.viewModel.columns;
+      expect(cols.doing?.total).toBe(0);
+      expect(cols.doing?.matched).toBe(0);
+      expect(cols.todo?.total).toBe(1);
+      expect(result.current.matchedCount).toBe(1);
+
+      const [, options] = toastMock.mock.calls[0] as unknown as [
+        string,
+        { action: { onClick: () => void } },
+      ];
+      act(() => options.action.onClick());
+      const back = result.current.viewModel.columns;
+      expect(back.doing?.total).toBe(1);
+      expect(back.doing?.matched).toBe(1);
+      expect(result.current.matchedCount).toBe(2);
+    });
+
+    it("Given two deletes in a row, When the first is undone, Then only the second is committed", async () => {
+      const { result } = await setup();
+      await act(async () => {
+        await result.current.deleteTask(1);
+        await result.current.deleteTask(2);
+      });
+      expect(cardIDs(result)).toEqual([]);
+      const [, first] = toastMock.mock.calls[0] as unknown as [
+        string,
+        { action: { onClick: () => void } },
+      ];
+      act(() => first.action.onClick());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(IssueDelete).toHaveBeenCalledTimes(1);
+      expect(IssueDelete).toHaveBeenCalledWith(2);
+    });
+
+    it("Given a pending delete, When the host unmounts, Then it commits at once and the timer does not fire twice", async () => {
+      const { result, unmount } = await setup();
+      await act(async () => {
+        await result.current.deleteTask(1);
+      });
+      expect(IssueDelete).not.toHaveBeenCalled();
+
+      unmount();
+      expect(IssueDelete).toHaveBeenCalledWith(1);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(IssueDelete).toHaveBeenCalledTimes(1);
+    });
+
+    // 规格 S1「组件卸载/窗口关闭前立即提交未决删除」：关窗 / 退出应用时 React 不会
+    // 卸载，只会发 beforeunload / pagehide —— 6 秒窗口里的删除不能因此静默丢掉。
+    it.each(["beforeunload", "pagehide"])(
+      "Given a pending delete, When the window fires %s, Then it commits at once and the timer does not fire twice",
+      async (eventName) => {
+        const { result, unmount } = await setup();
+        await act(async () => {
+          await result.current.deleteTask(1);
+        });
+        expect(IssueDelete).not.toHaveBeenCalled();
+
+        window.dispatchEvent(new Event(eventName));
+        expect(IssueDelete).toHaveBeenCalledWith(1);
+        await vi.advanceTimersByTimeAsync(10000);
+        unmount();
+        expect(IssueDelete).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("Given a delete that fails after the delay, When it settles, Then the card returns and the error is surfaced", async () => {
+      const { result } = await setup();
+      (IssueDelete as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error("row is gone"),
+      );
+      await act(async () => {
+        await result.current.deleteTask(1);
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(result.current.error).toMatchObject({ detail: "row is gone" });
+      expect(cardIDs(result).sort()).toEqual([1, 2]);
+    });
+
+    it("Given a committed delete, When undo is clicked late, Then nothing is restored or re-sent", async () => {
+      const { result } = await setup();
+      await act(async () => {
+        await result.current.deleteTask(1);
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      const [, options] = toastMock.mock.calls[0] as unknown as [
+        string,
+        { action: { onClick: () => void } },
+      ];
+      act(() => options.action.onClick());
+      expect(IssueDelete).toHaveBeenCalledTimes(1);
+    });
   });
 });

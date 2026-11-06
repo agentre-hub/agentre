@@ -6,7 +6,6 @@ import {
   streamForMessage,
   useChatStreamsStore,
 } from "@/stores/chat-streams-store";
-import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionConnStore } from "@/stores/session-conn-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
@@ -17,15 +16,6 @@ import { StreamSubscriber } from "./stream-subscriber";
 import type { chat_svc } from "../../../wailsjs/go/models";
 import type { ChatStreamEvent } from "@/hooks/use-chat-stream";
 import type { AgentStatus } from "@/stores/types";
-
-function bumpSessionTabToAfterPinned(sessionId: number): void {
-  const tabsState = useChatTabsStore.getState();
-  const tab = tabsState.tabs.find(
-    (t) => t.meta.kind === "session" && t.meta.sessionId === sessionId,
-  );
-  if (!tab) return;
-  tabsState.bumpToAfterPinned(tab.id);
-}
 
 // ChatStreamsHost 是「无 DOM 的全局订阅器」。挂在 App 顶层、Routes 同级,
 // 跨路由 不会 unmount —— 即使 /chat 被切走,这里的 <StreamSubscriber> 依然
@@ -111,7 +101,7 @@ export function ChatStreamsHost(): React.ReactElement | null {
   const handleEvent = React.useCallback(
     (sessionId: number, assistantMessageId: number, ev: ChatStreamEvent) => {
       // retry 是「正在等下次尝试」的瞬时态;下面这些进展事件到达就意味着上一次重试已经成功
-      // 拿到了新内容,RetryNoticeCard 该撤掉。store 内部 null→null 是 referential no-op,
+      // 拿到了新内容,RetryIndicator 该撤掉。store 内部 null→null 是 referential no-op,
       // 这里只要在事件入口顺手调一次就够了。done/error/closed/aborted/steer_consumed
       // 走各自的 finish/consume 路径已经隐式清空 liveRetry,无需重复调用。
       switch (ev.kind) {
@@ -205,7 +195,6 @@ export function ChatStreamsHost(): React.ReactElement | null {
               ev.canonical,
             );
           } else {
-            bumpSessionTabToAfterPinned(sessionId);
             appendLiveAskUserQuestion(
               sessionId,
               assistantMessageId,
@@ -237,7 +226,6 @@ export function ChatStreamsHost(): React.ReactElement | null {
               ev.canonical,
             );
           } else {
-            bumpSessionTabToAfterPinned(sessionId);
             appendLiveToolPermissionRequest(
               sessionId,
               assistantMessageId,
@@ -259,7 +247,6 @@ export function ChatStreamsHost(): React.ReactElement | null {
             result: ev.result,
           };
           if (ev.status === "pending") {
-            bumpSessionTabToAfterPinned(sessionId);
             appendLiveToolApproval(sessionId, assistantMessageId, payload);
           } else {
             markToolApprovalResolved(sessionId, assistantMessageId, payload);
@@ -270,7 +257,6 @@ export function ChatStreamsHost(): React.ReactElement | null {
           if (!ev.execApproval?.id) return;
           clearLiveRetry(sessionId, assistantMessageId);
           if (ev.execApproval.status === "pending") {
-            bumpSessionTabToAfterPinned(sessionId);
             appendLiveExecApproval(
               sessionId,
               assistantMessageId,
@@ -328,15 +314,6 @@ export function ChatStreamsHost(): React.ReactElement | null {
               );
             }
           }
-          if (
-            hasStatus &&
-            (ev.sessionStatus.needsAttention ||
-              nextStatus === "running" ||
-              nextStatus === "waiting" ||
-              nextStatus === "error")
-          ) {
-            bumpSessionTabToAfterPinned(sessionId);
-          }
           useSessionStatusStore.getState().upsert(sessionId, {
             // Wails boundary: backend sends agentStatus as string; cast to AgentStatus.
             agentStatus: (hasStatus
@@ -390,9 +367,6 @@ export function ChatStreamsHost(): React.ReactElement | null {
         case "error":
         case "closed":
         case "aborted":
-          if (ev.kind !== "closed") {
-            bumpSessionTabToAfterPinned(sessionId);
-          }
           finishStream(sessionId, assistantMessageId, ev);
           return;
       }

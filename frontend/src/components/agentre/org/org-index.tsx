@@ -5,7 +5,7 @@
 
 import * as React from "react";
 import { DndContext } from "@dnd-kit/core";
-import { CornerDownRight, Search, Server, X } from "lucide-react";
+import { CircleAlert, CornerDownRight, Search, Server, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -50,11 +50,25 @@ export type OrgIndexProps = {
    * （给 0）。调用方忽略这个参数也合法，只是新建对话框不会预选部门。
    */
   onCreateAgent?: (departmentId: number) => void;
+  /**
+   * 「待配置」那一维：不能对话的 Agent → 它缺的那一环（宿主从 ListChatAgents 的
+   * blockReason 翻译好）。键是筛选名单，值进该行的缺口点与可读名。不给就没有这一维。
+   * 开关受控于宿主 —— 深链会预选它（见 @/lib/agent-setup-link）。
+   */
+  needsSetupReasons?: ReadonlyMap<number, string>;
+  needsSetup?: boolean;
+  onNeedsSetupChange?: (needsSetup: boolean) => void;
 };
 
 export function OrgIndex(props: OrgIndexProps) {
   const { t } = useTranslation();
-  const { agents, departments, backends } = props;
+  const { agents, departments, backends, needsSetupReasons } = props;
+  const needsSetupAgentIds = React.useMemo(
+    () => (needsSetupReasons ? [...needsSetupReasons.keys()] : undefined),
+    [needsSetupReasons],
+  );
+  const needsSetup = Boolean(needsSetupAgentIds && props.needsSetup);
+  const setNeedsSetup = (on: boolean) => props.onNeedsSetupChange?.(on);
 
   const [search, setSearch] = React.useState("");
   const [backendId, setBackendId] = React.useState(0);
@@ -68,8 +82,13 @@ export function OrgIndex(props: OrgIndexProps) {
   );
 
   const filters = React.useMemo(
-    () => ({ search, backendId, reportsToId }),
-    [search, backendId, reportsToId],
+    () => ({
+      search,
+      backendId,
+      reportsToId,
+      needsSetupAgentIds: needsSetup ? needsSetupAgentIds : undefined,
+    }),
+    [search, backendId, reportsToId, needsSetup, needsSetupAgentIds],
   );
   // 「一档执行目标都没有」是宿主算的，不由包从 backend 缺席反推（见共享包
   // types.ts 的 noExecTarget）。LoadOrg 每个 Agent 都带 execTargets（空也是 `[]`），
@@ -159,6 +178,13 @@ export function OrgIndex(props: OrgIndexProps) {
           clear: () => setReportsToId(0),
         }
       : null,
+    needsSetup
+      ? {
+          key: "setup",
+          label: t("org.index.filters.needsSetup"),
+          clear: () => setNeedsSetup(false),
+        }
+      : null,
   ].filter((c): c is { key: string; label: string; clear: () => void } =>
     Boolean(c),
   );
@@ -166,6 +192,7 @@ export function OrgIndex(props: OrgIndexProps) {
     setSearch("");
     setBackendId(0);
     setReportsToId(0);
+    setNeedsSetup(false);
   };
   // chip 只替**筛选**说话：搜索词已经摆在搜索框里了，再长一枚 chip 是复述
   // （规格「顶栏只有搜索框与筛选入口；筛选命中后才在下方长出可清除的 chip」）。
@@ -217,6 +244,23 @@ export function OrgIndex(props: OrgIndexProps) {
                 label: a.name,
               })),
             },
+            ...(needsSetupAgentIds
+              ? [
+                  {
+                    key: "setup",
+                    heading: t("org.index.filters.needsSetupAria"),
+                    icon: (
+                      <CircleAlert className="size-3.5" aria-hidden="true" />
+                    ),
+                    value: needsSetup ? "1" : "0",
+                    onValueChange: (value: string) =>
+                      setNeedsSetup(value === "1"),
+                    options: [
+                      { id: 1, label: t("org.index.filters.needsSetup") },
+                    ],
+                  },
+                ]
+              : []),
           ]}
         />
       </div>
@@ -329,6 +373,7 @@ export function OrgIndex(props: OrgIndexProps) {
                     props.selected?.kind === "agent" &&
                     props.selected.id === unit.row.agent.id
                   }
+                  gap={needsSetupReasons?.get(unit.row.agent.id)}
                   onSelect={props.onSelect}
                   onDragKeyDown={handleDragKeyDown}
                 />

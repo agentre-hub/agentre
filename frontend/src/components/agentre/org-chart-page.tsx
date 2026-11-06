@@ -8,17 +8,16 @@ import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 
 import { Button } from "@agentre-hub/agentre-ui";
+import { useChatAgents } from "@/hooks/use-chat-agents";
+import { readOrgLinkState } from "@/lib/agent-setup-link";
 import { useNewAgentIntentStore } from "@/stores/new-agent-intent-store";
 
 import { agent_svc, department_svc } from "../../../wailsjs/go/models";
-import {
-  type OrgAgent,
-  type OrgDepartment,
-  type OrgSelection,
-} from "./org/types";
+import { type OrgAgent, type OrgDepartment } from "./org/types";
 import { OrgIndex } from "./org/org-index";
 import { useOrgData } from "./org/use-org-data";
 import { useOrgIndexView } from "./org/use-org-index-view";
+import { blockReasonToCta } from "./not-chattable/mapping";
 
 import { renderDetail } from "./org-chart/detail";
 import { NewAgentDialog } from "./org-chart/new-agent-dialog";
@@ -49,16 +48,31 @@ export function OrgChartPage() {
   // setSelected 单独解出来再进依赖：写成 `view.setSelected` 时 exhaustive-deps 看到的
   // 是成员访问，只能要求整个 `view` 进依赖（而 view.selected 每次选中都变，那会让这个
   // effect 在每次选中后重跑一遍，把 location.state 里的旧选择又写回去）。
-  const { setSelected } = view;
+  const { setSelected, setNeedsSetup } = view;
   const location = useLocation();
 
+  // 「缺配置」深链的落点意图（@/lib/agent-setup-link）：选中某个 Agent，或预选「待配置」。
   React.useEffect(() => {
-    const selection = (location.state as { orgSelection?: OrgSelection } | null)
-      ?.orgSelection;
-    if (selection?.kind && selection.id > 0) {
-      setSelected(selection);
-    }
-  }, [location.state, setSelected]);
+    const { selection, needsSetup } = readOrgLinkState(location.state);
+    if (selection) setSelected(selection);
+    if (needsSetup) setNeedsSetup(true);
+  }, [location.state, setSelected, setNeedsSetup]);
+
+  // 「待配置」= 现在不能对话的 Agent；与对话侧同一份 ListChatAgents，不另开 RPC。
+  // 原因用「暂不能对话」弹窗那一档 blockReason 的短文案：缺哪一环就说哪一环。
+  const { agents: chatAgents } = useChatAgents();
+  const needsSetupReasons = React.useMemo(
+    () =>
+      new Map(
+        chatAgents
+          .filter((a) => !a.chattable)
+          .map((a) => [
+            a.id,
+            t(`${blockReasonToCta(a.blockReason).copyKey}.short`),
+          ]),
+      ),
+    [chatAgents, t],
+  );
 
   const [newDeptOpen, setNewDeptOpen] = React.useState(false);
   const [newAgentOpen, setNewAgentOpen] = React.useState(false);
@@ -222,6 +236,9 @@ export function OrgChartPage() {
             backends={backends}
             selected={view.selected}
             onSelect={view.setSelected}
+            needsSetupReasons={needsSetupReasons}
+            needsSetup={view.needsSetup}
+            onNeedsSetupChange={setNeedsSetup}
             onMoveAgent={(id, placement) => {
               void moveAgent({
                 id,

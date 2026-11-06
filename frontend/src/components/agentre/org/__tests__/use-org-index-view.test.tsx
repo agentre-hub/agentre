@@ -41,6 +41,28 @@ describe("useOrgIndexView", () => {
     expect("viewMode" in result.current).toBe(false);
   });
 
+  it("「待配置」筛选默认关，可开可关，且不落 localStorage（每次进来都从全部看起）", () => {
+    const storedKeys = () =>
+      Array.from({ length: localStorage.length }, (_, i) =>
+        localStorage.key(i),
+      ).sort();
+    localStorage.removeItem(ORG_INDEX_VIEW_TEST_KEYS.selected);
+    const before = storedKeys();
+    const { result } = renderHook(() => useOrgIndexView());
+    expect(result.current.needsSetup).toBe(false);
+
+    act(() => result.current.setNeedsSetup(true));
+    expect(result.current.needsSetup).toBe(true);
+
+    act(() => result.current.setNeedsSetup(false));
+    expect(result.current.needsSetup).toBe(false);
+
+    // 只多出选中态那一个键，开关本身没落盘
+    expect(storedKeys()).toEqual(
+      [...before, ORG_INDEX_VIEW_TEST_KEYS.selected].sort(),
+    );
+  });
+
   it("选中态存的是坏 JSON 时退回未选中，而不是抛出来", () => {
     localStorage.setItem(ORG_INDEX_VIEW_TEST_KEYS.selected, "{not json");
 

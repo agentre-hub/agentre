@@ -5,7 +5,6 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
-  ListChecks,
   LoaderCircle,
 } from "lucide-react";
 
@@ -29,14 +28,14 @@ function findRunning(tasks: Task[]): Task | undefined {
 // 状态词是要读的字，用 -text 角色（docs/design.md §3.5）。分表而不是共用一张。
 const STATUS_ICON_TONE: Record<Task["status"], string> = {
   queued: "text-muted-foreground",
-  running: "text-status-waiting",
+  running: "text-status-running",
   completed: "text-status-running",
   cancelled: "text-muted-foreground",
   failed: "text-status-error",
 };
 const STATUS_TEXT_TONE: Record<Task["status"], string> = {
   queued: "text-muted-foreground",
-  running: "text-status-waiting-text",
+  running: "text-status-running-text",
   completed: "text-status-running-text",
   cancelled: "text-muted-foreground",
   failed: "text-destructive-text",
@@ -109,6 +108,7 @@ export function TaskProgressBar({ progress }: Props) {
 
   const pct = total === 0 ? 0 : Math.round((done / total) * 100);
   const running = findRunning(tasks);
+  const recap = allCompleted ? t("taskProgress.allCompleted") : null;
 
   return (
     <div
@@ -122,43 +122,38 @@ export function TaskProgressBar({ progress }: Props) {
         aria-expanded={expanded}
         className="flex items-center gap-2 bg-primary-soft px-3 py-2 text-left hover:bg-primary-soft/80"
       >
-        <ListChecks
-          className="size-3.5 shrink-0 text-primary-text"
-          aria-hidden
-        />
-        <span className="shrink-0 text-2xs font-bold text-primary-text">
-          {t("taskProgress.title")}
-        </span>
-        <span className="inline-flex items-baseline gap-0.5 tabular-nums">
-          <span className="text-aux font-bold text-status-running-text">
-            {done}
-          </span>
-          <span className="text-xs text-muted-foreground">/</span>
-          <span className="text-aux font-semibold text-foreground">
-            {total}
-          </span>
-        </span>
-        <span className="text-3xs text-muted-foreground">
-          {allCompleted
-            ? t("taskProgress.allCompleted")
-            : t("taskProgress.completed")}
+        {!expanded && running ? (
+          <LoaderCircle
+            className="size-3 shrink-0 animate-spin text-status-running motion-reduce:animate-none"
+            aria-hidden
+          />
+        ) : null}
+        <span className="inline-flex shrink-0 items-baseline font-mono text-2xs tabular-nums">
+          <span className="font-bold text-status-running-text">{done}</span>
+          <span className="text-muted-foreground">/</span>
+          <span className="font-semibold text-foreground">{total}</span>
         </span>
         <span
-          className="ml-2 h-1.5 w-28 overflow-hidden rounded-sm bg-border"
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            !expanded && !running && "text-3xs text-muted-foreground",
+          )}
+        >
+          {expanded ? null : (running?.description ?? recap)}
+        </span>
+        <span
+          className="h-1 w-16 shrink-0 overflow-hidden rounded-sm bg-border"
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={total}
           aria-valuenow={done}
         >
           <span
-            className="block h-1.5 rounded-sm bg-status-running transition-[width]"
+            className="block h-1 rounded-sm bg-status-running transition-[width]"
             style={{ width: `${pct}%` }}
           />
         </span>
-        <span className="text-2xs font-semibold text-status-running-text">
-          {pct}%
-        </span>
-        <span className="ml-auto inline-flex shrink-0 items-center text-muted-foreground">
+        <span className="inline-flex shrink-0 items-center text-muted-foreground">
           {expanded ? (
             <ChevronDown className="size-3.5" aria-hidden />
           ) : (
@@ -172,20 +167,6 @@ export function TaskProgressBar({ progress }: Props) {
             <TaskRow key={t.id} index={i} task={t} />
           ))}
         </ul>
-      ) : running ? (
-        <div className="flex items-center gap-2 px-3 py-1.5 font-mono text-2xs">
-          <LoaderCircle
-            className="size-3 shrink-0 animate-spin text-status-waiting motion-reduce:animate-none"
-            aria-hidden
-          />
-          <span className="font-sans text-3xs font-bold text-muted-foreground">
-            {t("taskProgress.current")}
-          </span>
-          <span className="text-muted-foreground">·</span>
-          <span className="min-w-0 truncate text-foreground">
-            {running.description}
-          </span>
-        </div>
       ) : null}
     </div>
   );

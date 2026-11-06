@@ -77,6 +77,11 @@ type UseChatActionsOptions = {
   }) => void;
   onSidebarShouldReload?: () => void;
   streaming: boolean;
+  /**
+   * 当前会话这一轮还停得下来（chat-panel 的 canStop：本地 stream 或服务端
+   * running/waiting）。它落回 false 即回合结束，stopping 随之复位。省略视为 false。
+   */
+  canStop?: boolean;
   activeBackendType: string;
   /** 当前 runtime 支持生成中插入消息（steer）。false 时不排队，提示等本轮结束。 */
   canSteer: boolean;
@@ -107,6 +112,8 @@ type ChatActions = {
     permissionModeOverride?: string,
   ) => Promise<void>;
   doStop: (sid: number) => Promise<void>;
+  /** 当前会话已点停止、这一轮还没结束。提交位与顶带的停止键共用这一份。 */
+  stopping: boolean;
   doCancelQueued: (sid: number, queuedId: string) => Promise<void>;
   handleCopyLaunchCommand: (sid: number) => Promise<void>;
   handleComposerSubmit: (message: ChatComposerSubmit | string) => void;
@@ -132,6 +139,7 @@ function useChatActions({
   onPeerSessionCreated,
   onSidebarShouldReload,
   streaming,
+  canStop = false,
   activeBackendType,
   canSteer,
   isModeSwitchable,
@@ -150,6 +158,17 @@ function useChatActions({
   confirmEdit,
 }: UseChatActionsOptions): ChatActions {
   const { t } = useTranslation();
+
+  // 点了停止的那个会话。停止 RPC 回来不等于这一轮结束（aborted 事件稍后才到），
+  // 所以它一直挂到 canStop 落回 false；按会话记，切到别的会话不会把那边也显示成在停。
+  const [stoppingSessionId, setStoppingSessionId] = React.useState<
+    number | null
+  >(null);
+  React.useEffect(() => {
+    if (!canStop) setStoppingSessionId(null);
+  }, [canStop]);
+  const stopping =
+    canStop && stoppingSessionId !== null && stoppingSessionId === sessionId;
 
   async function doSend(
     targetSessionId: number,
@@ -479,8 +498,10 @@ function useChatActions({
 
   // doStop 软中断当前 turn。后端会按 backend 分别走 control_request{interrupt}
   // /turn/interrupt/ctx-cancel，子进程都保留，发个 StreamAborted 事件让 store
-  // bump tick → reload 拿 partial 内容。这里不做乐观 UI，等 aborted 事件回来。
+  // bump tick → reload 拿 partial 内容。转录不做乐观更新，等 aborted 事件回来；
+  // 停止键自己先进 stopping（spinner + 禁用），回合结束或停止失败时才放开。
   async function doStop(sid: number) {
+    setStoppingSessionId(sid);
     try {
       await StopChatMessage({ sessionId: sid });
       // 「重启遗孤」会话(DB 卡在 running/waiting 但本地无活跃 stream):后端已把它
@@ -493,6 +514,7 @@ function useChatActions({
       // turn 已自然完成与点击 Stop 发生 race —— 后端 activeCancels 已经清掉了，
       // 不算错，静默即可（用户的意图是「让这轮停下」，结果已经停了）。但前端视图可能
       // 还停在 running,reload 一次把 DB 的终态拉回来,避免按钮一直亮着点了没反应。
+      setStoppingSessionId(null);
       if (isChatStopNoActiveError(msg)) {
         console.warn("[chat] stop race-lost (turn already finished)");
         await reloadSession();
@@ -641,6 +663,7 @@ function useChatActions({
   return {
     doSend,
     doStop,
+    stopping,
     doCancelQueued,
     handleCopyLaunchCommand,
     handleComposerSubmit,

@@ -1765,7 +1765,7 @@ describe("ChatTranscript block-level virtualization", () => {
 });
 
 // 特征化测试:钉住 transcript 行模型重构会触碰、但此前无直接覆盖的现状行为
-// (ErrorCard / RetryNoticeCard / 虚拟化路径下的 indicator·banner·空占位行)。
+// (ErrorCard / RetryIndicator / 虚拟化路径下的 indicator·banner·空占位行)。
 describe("ChatTranscript message tail attachments", () => {
   it("Given an assistant message with errorText, When rendered, Then the ErrorCard offers regenerate and continue actions", () => {
     const calls: number[] = [];
@@ -1785,9 +1785,7 @@ describe("ChatTranscript message tail attachments", () => {
       />,
     );
 
-    expect(
-      screen.getByText("Agent call failed: api timeout"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("This turn did not finish.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Regenerate/ }));
     expect(calls).toEqual([7]);
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -1813,11 +1811,11 @@ describe("ChatTranscript message tail attachments", () => {
     );
 
     expect(
-      await screen.findByText("Agent call failed: boom"),
+      await screen.findByText("This turn did not finish."),
     ).toBeInTheDocument();
   });
 
-  it("Given a live retry notice, When rendered on the live target, Then the RetryNoticeCard is visible", () => {
+  it("Given a live retry notice, When rendered on the live target, Then the RetryIndicator is visible", () => {
     render(
       <ChatTranscript
         liveByMessageId={
@@ -1849,10 +1847,10 @@ describe("ChatTranscript message tail attachments", () => {
       />,
     );
 
+    expect(screen.getByTestId("transcript-retry")).toBeInTheDocument();
     expect(
-      screen.getByRole("status", { name: "Retrying" }),
+      screen.getByText("Upstream connection lost, retrying 2/5"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Retrying 2/5")).toBeInTheDocument();
   });
 
   it("Given a streaming empty assistant placeholder on the virtualized path, When rendered, Then its row and the typing indicator mount", async () => {
@@ -3011,11 +3009,12 @@ describe("ChatTranscript permission + tool merge", () => {
       "data-copyable-control-text",
       "true",
     );
-    expect(screen.getByText("printf hi")).toHaveAttribute(
+    // 待审批卡默认展开,命令在 header 摘要与正文各出现一次;header 摘要在前。
+    expect(screen.getAllByText("printf hi")[0]).toHaveAttribute(
       "data-copyable-control-text",
       "true",
     );
-    expect(screen.getByText("Allow Once")).not.toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Allow" })).not.toHaveAttribute(
       "data-copyable-control-text",
     );
   });
@@ -3097,7 +3096,7 @@ describe("ChatTranscript permission + tool merge", () => {
     );
 
     // 待审批态留三个操作按钮,confirm 卡片确实出现。
-    expect(screen.getByText("Allow Once")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument();
     expect(screen.getByText("Always Allow This Session")).toBeInTheDocument();
     expect(screen.getByText("Reject")).toBeInTheDocument();
   });

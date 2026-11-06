@@ -10,6 +10,8 @@ export type NotificationToast = {
   kind: NotifyKind;
   title: string;
   body: string;
+  // push 时刻（ms epoch），供通知卡显示相对时间。
+  createdAt: number;
 };
 
 // 同时最多保留几条，超出丢弃最旧，避免会话密集完成时无限堆叠。
@@ -17,8 +19,11 @@ const MAX_TOASTS = 5;
 
 type State = {
   toasts: NotificationToast[];
-  push: (toast: Omit<NotificationToast, "id">) => number;
+  push: (toast: Omit<NotificationToast, "id" | "createdAt">) => number;
   dismiss: (id: number) => void;
+  // 会话的 attention 被清除（审批已处理 / 会话被打开 / 新一轮开始）时移除其
+  // waiting / error 通知；done 卡不是 attention，按自己的计时收。
+  dismissBySession: (sessionId: number) => void;
   clear: () => void;
 };
 
@@ -29,7 +34,9 @@ export const useNotificationToastStore = create<State>((set) => ({
   push: (toast) => {
     const id = ++seq;
     set((s) => {
-      const next = [...s.toasts, { ...toast, id }];
+      // 同一会话只留最新一张。
+      const kept = s.toasts.filter((x) => x.sessionId !== toast.sessionId);
+      const next = [...kept, { ...toast, id, createdAt: Date.now() }];
       return {
         toasts:
           next.length > MAX_TOASTS
@@ -41,5 +48,11 @@ export const useNotificationToastStore = create<State>((set) => ({
   },
   dismiss: (id) =>
     set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
+  dismissBySession: (sessionId) =>
+    set((s) => ({
+      toasts: s.toasts.filter(
+        (x) => x.sessionId !== sessionId || x.kind === "done",
+      ),
+    })),
   clear: () => set({ toasts: [] }),
 }));

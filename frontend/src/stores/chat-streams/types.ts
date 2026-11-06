@@ -298,7 +298,7 @@ export type Actions = {
   ) => void;
   // clearLiveRetry 把 liveRetry 置空。retry 是「正在等下次尝试」的瞬时态,下一个非 retry
   // 的进展事件(chunk/thinking/tool_use 等)到达 = 重试已成功 = 状态过期。由 ChatStreamsHost
-  // 在那些事件入口顺手调一次,避免回复内容已经流出来了 RetryNoticeCard 还挂着。
+  // 在那些事件入口顺手调一次,避免回复内容已经流出来了 RetryIndicator 还挂着。
   // 无 stream 或 liveRetry 本就是 null 时是 referential no-op,不触发 zustand 重渲染。
   clearLiveRetry: (sessionId: number, assistantMessageId: number) => void;
   // finishStream 统一处理 done/error/closed:写入 lastDoneEvent 缓存、bump tick、删掉**这一条**

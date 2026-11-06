@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import { ORG_SELECTED_STORAGE_KEY } from "@/lib/agent-setup-link";
+
 import type { OrgSelection } from "./types";
 
 // 索引的视图状态只剩一件：选中了哪一行。缩放 / 平移 / 折叠随画布一起没了，
@@ -7,10 +9,11 @@ import type { OrgSelection } from "./types";
 // 存量的任何旧值因此都只是 localStorage 里一条无人问津的记录，既不会报错，
 // 也不会连累其他键（不主动删除：忽略就是忽略）。
 //
-// 选中态的键沿用 `agentre.orgTree.selected`：not-chattable 对话框会先写这个键再跳到
-// /org（见 ../not-chattable/mapping.ts 的 ORG_SELECTED_STORAGE_KEY），改名等于把那条
-// 跳转打断。
-const KEY_SELECTED = "agentre.orgTree.selected";
+// 选中态的键与「缺配置」深链共用（@/lib/agent-setup-link 先写这个键再跳到 /org）。
+//
+// 「待配置」筛选也归这里：它由深链预选（路由 state 的 orgFilter），所以开关得在页面
+// 这一层而不是索引内部。它不落 localStorage —— 每次进来都从全部看起。
+const KEY_SELECTED = ORG_SELECTED_STORAGE_KEY;
 
 function safeParse<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback;
@@ -35,7 +38,9 @@ export function useOrgIndexView() {
     [],
   );
 
-  return { selected, setSelected };
+  const [needsSetup, setNeedsSetup] = React.useState(false);
+
+  return { selected, setSelected, needsSetup, setNeedsSetup };
 }
 
 export const ORG_INDEX_VIEW_TEST_KEYS = {

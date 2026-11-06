@@ -33,7 +33,9 @@ import {
   WindowToggleMaximise,
 } from "../../../wailsjs/runtime/runtime";
 
-import { StatusDot } from "./primitives";
+import { AgentAvatar, StatusDot } from "./primitives";
+import { avatarFromMeta } from "./session-avatar";
+import type { AttentionItem } from "@/lib/app-status-bar";
 import { UpdatePanel } from "./update-panel";
 import { formatChord } from "./shortcuts/format";
 import { useOptionalShortcutsContext } from "./shortcuts/shortcuts-provider";
@@ -377,9 +379,10 @@ function UpdateStatusPill({
 type AppStatusBarProps = React.ComponentProps<"footer"> & {
   agentCount: number;
   runningCount: number;
-  approvalCount: number;
-  unreadCount: number;
-  attentionIds: number[];
+  /** 等你审批的会话；非空才会染琥珀。 */
+  approvals?: AttentionItem[];
+  /** 有未读消息的会话；单独存在时只是安静的提示。 */
+  unread?: AttentionItem[];
   onAttentionClick: (sessionId: number) => void;
   /** 更新面板里的「打开更新设置」——宿主负责深链到设置页。 */
   onOpenUpdateSettings?: () => void;
@@ -387,12 +390,46 @@ type AppStatusBarProps = React.ComponentProps<"footer"> & {
   version: string;
 };
 
+function AttentionRow({
+  item,
+  onSelect,
+}: {
+  item: AttentionItem;
+  onSelect: (sessionId: number) => void;
+}) {
+  const avatar = avatarFromMeta(null, {
+    name: item.agentName,
+    color: item.avatarColor ?? "",
+    avatarIcon: item.avatarIcon ?? "",
+    avatarDataUrl: item.avatarDataUrl ?? "",
+  });
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(item.id)}
+      className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent focus-visible:focus-outline"
+    >
+      <AgentAvatar
+        aria-hidden="true"
+        name=""
+        initials={avatar.letter}
+        avatarDataUrl={avatar.avatarDataUrl}
+        avatarIcon={avatar.avatarIcon}
+        size="xs"
+        style={{ backgroundColor: avatar.color }}
+      />
+      <span className="min-w-0 flex-1 truncate">
+        {item.title || item.agentName}
+      </span>
+    </button>
+  );
+}
+
 function AppStatusBar({
   agentCount,
   runningCount,
-  approvalCount,
-  unreadCount,
-  attentionIds,
+  approvals = [],
+  unread = [],
   className,
   onAttentionClick,
   onOpenUpdateSettings,
@@ -401,22 +438,61 @@ function AppStatusBar({
   ...props
 }: AppStatusBarProps) {
   const { t } = useTranslation();
-  const agentSummary = t("statusBar.agentSummary", {
-    count: agentCount,
-    running: runningCount,
-  });
+  const [listOpen, setListOpen] = React.useState(false);
+  const sessionSummary =
+    runningCount > 0
+      ? t("statusBar.sessionSummary", { count: runningCount })
+      : t("statusBar.sessionsIdle");
 
-  const attentionParts: string[] = [];
-  if (approvalCount > 0) {
-    attentionParts.push(t("statusBar.approval", { count: approvalCount }));
-  }
-  if (unreadCount > 0) {
-    attentionParts.push(t("statusBar.unread", { count: unreadCount }));
-  }
+  const approvalText =
+    approvals.length > 0
+      ? t("statusBar.approval", { count: approvals.length })
+      : null;
+  const unreadText =
+    unread.length > 0 ? t("statusBar.unread", { count: unread.length }) : null;
+  const pending = [...approvals, ...unread];
+  const attentionSummary = [approvalText, unreadText]
+    .filter((part) => part !== null)
+    .join(" · ");
 
-  const attentionSummary =
-    attentionParts.length > 0 ? attentionParts.join(" · ") : null;
-  const firstAttentionId = attentionIds[0];
+  // 触发器的内容：有待审批才用琥珀 + 警示图标；只有未读就是一句安静的灰字。
+  const triggerClassName = cn(
+    "group flex min-w-0 cursor-pointer items-center gap-1.5 rounded font-medium text-muted-foreground transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:focus-outline",
+  );
+  const triggerBody = (withChevron: boolean) => (
+    <>
+      {approvalText !== null ? (
+        <CircleAlert
+          className="size-3.5 shrink-0 text-status-waiting-text"
+          aria-hidden="true"
+        />
+      ) : null}
+      {approvalText !== null ? (
+        <span className="min-w-0 truncate text-status-waiting-text">
+          {approvalText}
+        </span>
+      ) : null}
+      {approvalText !== null && unreadText !== null ? (
+        <span aria-hidden="true">·</span>
+      ) : null}
+      {unreadText !== null ? (
+        <span className="min-w-0 truncate text-muted-foreground">
+          {unreadText}
+        </span>
+      ) : null}
+      {withChevron ? (
+        <ChevronUp
+          className="size-3 shrink-0 opacity-60 transition-opacity group-hover:opacity-100"
+          aria-hidden="true"
+        />
+      ) : null}
+    </>
+  );
+
+  const select = (sessionId: number) => {
+    setListOpen(false);
+    onAttentionClick(sessionId);
+  };
 
   return (
     <footer
@@ -426,29 +502,80 @@ function AppStatusBar({
       )}
       {...props}
     >
-      <span className="flex items-center gap-1.5 font-medium">
+      <span
+        className="flex items-center gap-1.5 font-medium"
+        title={t("statusBar.agentCount", { count: agentCount })}
+      >
         <StatusDot status={status} size="xs" />
-        {agentSummary}
+        {sessionSummary}
       </span>
-      {attentionSummary !== null && firstAttentionId !== undefined ? (
+      {pending.length === 1 ? (
         <>
           <span className="hidden text-border-strong sm:inline">·</span>
           <button
             type="button"
-            onClick={() => onAttentionClick(firstAttentionId)}
-            aria-label={t("statusBar.attentionAria", {
+            onClick={() => onAttentionClick(pending[0].id)}
+            aria-label={t("statusBar.attentionOpenAria", {
               summary: attentionSummary,
             })}
             title={attentionSummary}
-            className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded font-medium text-status-waiting-text transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:focus-outline"
+            className={triggerClassName}
           >
-            <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 truncate">{attentionSummary}</span>
-            <ChevronUp
-              className="size-3 shrink-0 opacity-60 transition-opacity group-hover:opacity-100"
-              aria-hidden="true"
-            />
+            {triggerBody(false)}
           </button>
+        </>
+      ) : null}
+      {pending.length > 1 ? (
+        <>
+          <span className="hidden text-border-strong sm:inline">·</span>
+          <Popover open={listOpen} onOpenChange={setListOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("statusBar.attentionListAria", {
+                  summary: attentionSummary,
+                })}
+                title={attentionSummary}
+                className={triggerClassName}
+              >
+                {triggerBody(true)}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              side="top"
+              sideOffset={8}
+              className="w-[280px] p-1.5 font-sans"
+            >
+              {[
+                {
+                  key: "approval",
+                  label: t("statusBar.groupApproval"),
+                  items: approvals,
+                },
+                {
+                  key: "unread",
+                  label: t("statusBar.groupUnread"),
+                  items: unread,
+                },
+              ]
+                .filter((group) => group.items.length > 0)
+                .map((group) => (
+                  <section key={group.key}>
+                    <h3 className="px-2 py-1 text-2xs font-medium text-muted-foreground">
+                      {group.label}
+                    </h3>
+                    {group.items.map((item) => (
+                      <AttentionRow
+                        key={item.id}
+                        item={item}
+                        onSelect={select}
+                      />
+                    ))}
+                  </section>
+                ))}
+            </PopoverContent>
+          </Popover>
         </>
       ) : null}
       <span className="min-w-0 flex-1" />
