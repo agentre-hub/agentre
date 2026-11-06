@@ -10,7 +10,9 @@
         "agentHandle": "拖拽 {{name}}（空格拾起）",
         "departmentHandle": "拖拽部门 {{name}}（空格拾起）"
       },
-      "gapName": "{{name}}，{{reason}}"
+      "gapName": "{{name}}，{{reason}}",
+      "machineBackend": "{{machine}} · {{backend}}",
+      "memberSummary": "{{count}} 人 ›"
     },
     "department": {
       "departmentMemberCount": "{{count}} 名成员",

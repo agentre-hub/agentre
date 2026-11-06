@@ -43,6 +43,11 @@ export type OrgGroupHeaderProps = {
    * 渲染在「选中」那个按钮**之外** —— `<button>` 不能嵌 `<button>`。
    */
   actions?: React.ReactNode;
+  /**
+   * 摘要档（手机）：Lead 徽标、`actions` 都不画，右侧收成「N 人 ›」，整个组头是一个
+   * ≥44px 的可点控件。不传 = 与此前一致。
+   */
+  summary?: boolean;
 };
 
 export function OrgGroupHeader({
@@ -56,6 +61,7 @@ export function OrgGroupHeader({
   expanded = true,
   onToggleExpanded,
   actions,
+  summary,
 }: OrgGroupHeaderProps) {
   const { t } = useUiTranslation();
   // 解构而不是留着 `dragHandle.` 前缀：把它的 ref 挂到 ref= 上会让整个绑定对象被
@@ -133,11 +139,14 @@ export function OrgGroupHeader({
         type="button"
         data-testid={`org-group-select-${department.id}`}
         onClick={() => onSelect({ kind: "department", id: department.id })}
-        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-1.5 text-left",
+          summary && "min-h-11",
+        )}
       >
         {/* 组头与行同字号，字距是把「部门名」和「Agent 名」拉开的最后一档。 */}
         <span className="truncate tracking-[0.045em]">{department.name}</span>
-        {department.leadAgentName && (
+        {!summary && department.leadAgentName && (
           <span className="inline-flex min-w-0 items-center gap-1 rounded-sm bg-secondary px-1.5 text-2xs font-normal text-muted-foreground">
             <span className="truncate">
               {t("org.index.lead", { name: department.leadAgentName })}
@@ -145,12 +154,16 @@ export function OrgGroupHeader({
           </span>
         )}
         <span className="ml-auto shrink-0 font-mono text-2xs font-normal text-muted-foreground">
-          {t("org.department.departmentMemberCount", {
-            count: department.memberCount ?? 0,
-          })}
+          {summary
+            ? t("org.index.memberSummary", {
+                count: department.memberCount ?? 0,
+              })
+            : t("org.department.departmentMemberCount", {
+                count: department.memberCount ?? 0,
+              })}
         </span>
       </button>
-      {actions}
+      {!summary && actions}
     </div>
   );
 }

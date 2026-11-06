@@ -45,6 +45,14 @@ export type OrgAgentRowProps = {
    * 与此前一致（agentre-server 不传）。
    */
   gap?: string;
+  /**
+   * 行的密度。不传 = 桌面的单行；`"stacked"` = 两行档（手机）：第二行写「机器 · 后端」，
+   * 有 `gap` 时第二行改写原因（可见文字，不再只有 aria-label 与 6px 点），无目标时写
+   * 「无目标」。点照旧保留；整行命中区 ≥44px，行尾的后端名并入第二行不再重复。
+   */
+  density?: "default" | "stacked";
+  /** 两行档第二行的机器名，宿主解析好递进来（本机 / 设备名）；不给就只写后端名。 */
+  machine?: string;
 };
 
 export function OrgAgentRow({
@@ -58,6 +66,8 @@ export function OrgAgentRow({
   dragHandle,
   avatar,
   gap,
+  density,
+  machine,
 }: OrgAgentRowProps) {
   const { t } = useUiTranslation();
   // 解构而不是留着 `dragHandle.` 前缀：把它的 ref 挂到 ref= 上会让整个绑定对象被
@@ -73,6 +83,26 @@ export function OrgAgentRow({
   // 两者都没有就什么都不画 —— 「没喂」不是「没有」（见 types.ts 的 noExecTarget）。
   const noTarget = agent.noExecTarget === true;
   const tail = noTarget ? t("org.index.noExecTarget") : agent.backend?.name;
+  const stacked = density === "stacked";
+  // 两行档的第二行：原因 > 无目标 > 「机器 · 后端」。远端没解析出名字时不写机器。
+  let second: string | undefined;
+  let secondIsProblem = false;
+  if (stacked) {
+    if (gap) {
+      second = gap;
+      secondIsProblem = true;
+    } else if (noTarget) {
+      second = t("org.index.noExecTarget");
+      secondIsProblem = true;
+    } else if (agent.backend) {
+      second = machine
+        ? t("org.index.machineBackend", {
+            machine,
+            backend: agent.backend.name,
+          })
+        : agent.backend.name;
+    }
+  }
 
   return (
     <div
@@ -125,7 +155,10 @@ export function OrgAgentRow({
             : undefined
         }
         onClick={() => onSelect({ kind: "agent", id: agent.id })}
-        className="flex min-w-0 flex-1 items-center gap-[7px] text-left"
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-[7px] text-left",
+          stacked && "min-h-11",
+        )}
       >
         {avatar ?? (
           <AgentAvatar
@@ -137,13 +170,28 @@ export function OrgAgentRow({
             className="size-4.5 shrink-0 rounded-[4.5px] text-2xs"
           />
         )}
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate",
-            selected && "font-medium text-primary-text",
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span
+            className={cn(
+              "truncate",
+              selected && "font-medium text-primary-text",
+            )}
+          >
+            {agent.name}
+          </span>
+          {second && (
+            <span
+              data-testid={`org-row-second-${agent.id}`}
+              className={cn(
+                "truncate text-2xs",
+                secondIsProblem
+                  ? "text-destructive-text"
+                  : "text-muted-foreground",
+              )}
+            >
+              {second}
+            </span>
           )}
-        >
-          {agent.name}
         </span>
         {gap && (
           <span
@@ -168,7 +216,7 @@ export function OrgAgentRow({
             {t("org.index.systemBadge")}
           </span>
         )}
-        {tail && (
+        {tail && !stacked && (
           <span
             data-testid={`org-row-tail-${agent.id}`}
             className={cn(
