@@ -1382,3 +1382,80 @@ function fakeDropZone(): {
     },
   };
 }
+
+describe("ChatComposer · remove last append", () => {
+  it("Given a draft and a host append, When the host removes the last append, Then the draft is back to what it was and it returns true", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    const onSubmit = vi.fn();
+    render(<ChatComposer ref={handle} onSubmit={onSubmit} />);
+    act(() => handle.current?.restoreDraft("half written", []));
+    act(() => handle.current?.appendDraft("moved back"));
+
+    let removed: boolean | undefined;
+    act(() => {
+      removed = handle.current?.removeLastAppend();
+    });
+
+    expect(removed).toBe(true);
+    fireEvent.click(sendButton());
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "half written" }),
+      ),
+    );
+  });
+
+  it("Given an empty input and a host append, When the host removes the last append, Then the input is empty again", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    render(<ChatComposer ref={handle} onSubmit={vi.fn()} />);
+    act(() => handle.current?.appendDraft("moved back"));
+    await waitFor(() => expect(sendButton()).toBeEnabled());
+
+    let removed: boolean | undefined;
+    act(() => {
+      removed = handle.current?.removeLastAppend();
+    });
+
+    expect(removed).toBe(true);
+    await waitFor(() => expect(sendButton()).toBeDisabled());
+  });
+
+  it("Given the user typed after the append, When the host removes the last append, Then nothing changes and it returns false", async () => {
+    const user = userEvent.setup();
+    const handle = createRef<ChatComposerHandle>();
+    const onSubmit = vi.fn();
+    render(<ChatComposer ref={handle} onSubmit={onSubmit} />);
+    act(() => handle.current?.appendDraft("moved back"));
+    await waitFor(() => expect(sendButton()).toBeEnabled());
+    await user.keyboard("!");
+
+    let removed: boolean | undefined;
+    act(() => {
+      removed = handle.current?.removeLastAppend();
+    });
+
+    expect(removed).toBe(false);
+    fireEvent.click(sendButton());
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "moved back!" }),
+      ),
+    );
+  });
+
+  it("Given no append happened, When the host removes the last append, Then it returns false", () => {
+    const handle = createRef<ChatComposerHandle>();
+    render(<ChatComposer ref={handle} onSubmit={vi.fn()} />);
+    expect(handle.current?.removeLastAppend()).toBe(false);
+  });
+
+  it("Given an append was already removed, When the host removes again, Then it returns false", () => {
+    const handle = createRef<ChatComposerHandle>();
+    render(<ChatComposer ref={handle} onSubmit={vi.fn()} />);
+    act(() => handle.current?.appendDraft("moved back"));
+    act(() => {
+      handle.current?.removeLastAppend();
+    });
+    expect(handle.current?.removeLastAppend()).toBe(false);
+  });
+});

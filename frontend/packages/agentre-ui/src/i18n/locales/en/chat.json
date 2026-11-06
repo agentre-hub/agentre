@@ -359,6 +359,10 @@
     "noCancelSupportTitle": "This backend does not support cancelling queued messages",
     "notCancellable": "Not cancellable (unsupported by this backend)",
     "notCancellableTitle": "A steer on this backend cannot be withdrawn once sent",
+    "undelivered": {
+      "notice": "{{count}} steer(s) not delivered, put back in the input",
+      "clear": "Dismiss"
+    },
     "withdrawDisabledEditing": "Finish or cancel editing first",
     "withdrawOne": "Move back to input",
     "withdrawOneTitle": "Move back to the input to edit"

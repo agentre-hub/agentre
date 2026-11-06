@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import * as React from "react";
+import type { Editor, JSONContent } from "@tiptap/react";
 
 import { MaxAttachmentBytes } from "../limits.gen";
 import { AIChatInput } from "../chat-input";
@@ -53,6 +54,12 @@ export type ChatComposerHandle = {
    * （输入框被清空）之后再按顺序接上，一个字都不丢。
    */
   appendDraft: (text: string) => void;
+  /**
+   * 撤销最近一次 `appendDraft`（轮末放回输入框的插话被用户点了「清掉」）：只有输入框
+   * 自那次追加后一个字都没被改过才生效，返回 true；用户已动过、没有可撤的追加或追加
+   * 还在编辑期暂存里之外的任何情况都不动作，返回 false。
+   */
+  removeLastAppend: () => boolean;
 };
 
 /** 宿主注入的原生拖入通道。浏览器里拿不到落盘绝对路径，所以这是可选的。 */
@@ -273,6 +280,29 @@ export const ChatComposer = React.forwardRef<
     if (editing) editingRef.current = true;
   }, [editing]);
   const deferredAppendsRef = React.useRef<string[]>([]);
+  // 最近一次落进编辑器的追加：追加前 / 后的文档快照，供 removeLastAppend 比对与还原。
+  const lastAppendRef = React.useRef<{
+    before: JSONContent;
+    after: string;
+  } | null>(null);
+  const editorOf = React.useCallback((): Editor | null => {
+    const dom = formRef.current?.querySelector<
+      HTMLElement & { editor?: Editor }
+    >("[contenteditable]");
+    return dom?.editor ?? null;
+  }, []);
+  const appendNow = React.useCallback(
+    (text: string) => {
+      const editor = editorOf();
+      const before = editor?.getJSON();
+      inputRef.current?.appendDraft(text);
+      lastAppendRef.current =
+        editor && before
+          ? { before, after: JSON.stringify(editor.getJSON()) }
+          : null;
+    },
+    [editorOf, inputRef],
+  );
 
   React.useImperativeHandle(
     ref,
@@ -292,10 +322,19 @@ export const ChatComposer = React.forwardRef<
           deferredAppendsRef.current.push(text);
           return;
         }
-        inputRef.current?.appendDraft(text);
+        appendNow(text);
+      },
+      removeLastAppend: () => {
+        const editor = editorOf();
+        const last = lastAppendRef.current;
+        if (!editor || !last) return false;
+        if (JSON.stringify(editor.getJSON()) !== last.after) return false;
+        lastAppendRef.current = null;
+        editor.chain().setContent(last.before).focus("end").run();
+        return true;
       },
     }),
-    [inputRef],
+    [inputRef, editorOf, appendNow],
   );
 
   // 切进编辑模式（或换了编辑目标）时把目标文本载进编辑器并抓回焦点；退出时清空，
@@ -311,11 +350,11 @@ export const ChatComposer = React.forwardRef<
       inputRef.current?.clear();
       const deferred = deferredAppendsRef.current;
       deferredAppendsRef.current = [];
-      for (const text of deferred) inputRef.current?.appendDraft(text);
+      for (const text of deferred) appendNow(text);
       editingRef.current = false;
     }
     wasEditingRef.current = editing;
-  }, [editing, editDraft, inputRef]);
+  }, [editing, editDraft, inputRef, appendNow]);
 
   const wasAutoFocusRef = React.useRef(autoFocusOnMount);
   React.useEffect(() => {

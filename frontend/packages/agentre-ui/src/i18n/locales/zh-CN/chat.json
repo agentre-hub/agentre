@@ -359,6 +359,10 @@
     "noCancelSupportTitle": "这个后端不支持撤回排队消息",
     "notCancellable": "不可撤回（这个后端不支持）",
     "notCancellableTitle": "这个后端的插话一发即不可撤",
+    "undelivered": {
+      "notice": "{{count}} 条插话没送到，已放回输入框",
+      "clear": "清掉"
+    },
     "withdrawDisabledEditing": "先完成或取消编辑",
     "withdrawOne": "撤回到输入框",
     "withdrawOneTitle": "撤回到输入框编辑"
