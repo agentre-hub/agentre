@@ -483,7 +483,12 @@
     "editor": {
       "createTitle": "New Agent Backend",
       "description": "Choose an execution engine and link an LLM provider. CLI backends route requests through the local HTTP proxy, so claude/codex login is not required.",
-      "editTitle": "Edit Agent Backend"
+      "editTitle": "Edit Agent Backend",
+      "groups": {
+        "advanced": "Advanced",
+        "basics": "Basics",
+        "runtime": "Runtime"
+      }
     },
     "empty": {
       "addFirst": "Add First Backend",

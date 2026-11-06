@@ -483,7 +483,12 @@
     "editor": {
       "createTitle": "新增 Agent 后端",
       "description": "选择执行引擎并关联 LLM 供应商；CLI 后端通过本地 HTTP 代理转发请求，无需 claude/codex login。",
-      "editTitle": "编辑 Agent 后端"
+      "editTitle": "编辑 Agent 后端",
+      "groups": {
+        "advanced": "高级",
+        "basics": "基本",
+        "runtime": "运行方式"
+      }
     },
     "empty": {
       "addFirst": "新增第一个后端",
