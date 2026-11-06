@@ -115,6 +115,7 @@ type ChatActions = {
   /** 当前会话已点停止、这一轮还没结束。提交位与顶带的停止键共用这一份。 */
   stopping: boolean;
   doCancelQueued: (sid: number, queuedId: string) => Promise<void>;
+  doWithdrawQueued: (sid: number, queuedId: string) => Promise<void>;
   handleCopyLaunchCommand: (sid: number) => Promise<void>;
   handleComposerSubmit: (message: ChatComposerSubmit | string) => void;
 };
@@ -496,6 +497,36 @@ function useChatActions({
     }
   }
 
+  // doWithdrawQueued 把一条排队消息撤回到输入框。只有对端确认移除了**这一条**才把原文
+  // 接进输入框：它若在等应答时被 AI 取走，转录里已经有了，再回填就成了两份。
+  async function doWithdrawQueued(sid: number, queuedId: string) {
+    const store = useQueuedMessagesStore.getState();
+    const item = store.queuedBySession
+      .get(sid)
+      ?.items.find((q) => q.id === queuedId);
+    if (!item) return;
+    store.setWithdrawing(sid, queuedId, true);
+    try {
+      const resp = await CancelQueuedChatMessage({ sessionId: sid, queuedId });
+      const removed = resp.removed ?? [];
+      useQueuedMessagesStore.getState().consume(sid, removed);
+      if (removed.includes(queuedId)) {
+        composerRef.current?.appendDraft(item.text);
+      } else {
+        useQueuedMessagesStore.getState().setWithdrawing(sid, queuedId, false);
+      }
+    } catch (e: unknown) {
+      useQueuedMessagesStore.getState().setWithdrawing(sid, queuedId, false);
+      const { msg, detail } = splitErrorDetail(e);
+      console.error("[chat] withdraw queued failed", e);
+      setNotice({
+        kind: "error",
+        text: t("chatPanel.errors.cancelQueued", { msg }),
+        detail,
+      });
+    }
+  }
+
   // doStop 软中断当前 turn。后端会按 backend 分别走 control_request{interrupt}
   // /turn/interrupt/ctx-cancel，子进程都保留，发个 StreamAborted 事件让 store
   // bump tick → reload 拿 partial 内容。转录不做乐观更新，等 aborted 事件回来；
@@ -665,6 +696,7 @@ function useChatActions({
     doStop,
     stopping,
     doCancelQueued,
+    doWithdrawQueued,
     handleCopyLaunchCommand,
     handleComposerSubmit,
   };

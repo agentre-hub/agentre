@@ -198,3 +198,26 @@ func itoa(n int) string {
 	}
 	return string(buf[pos:])
 }
+
+// 用户清空排队是撤回，不是消费：取走的条目不能广播给 drain 订阅方，否则会被当成
+// 「AI 已取走」落进转录。
+func TestSteerInbox_WithdrawAllDoesNotNotifySubscribers(t *testing.T) {
+	ib := NewSteerInbox()
+	ch, cancel := ib.SubscribeDrain("sid-1")
+	defer cancel()
+
+	ib.Push("sid-1", "id-a", "hello")
+	ib.Push("sid-1", "id-b", "world")
+	got := ib.WithdrawAll("sid-1")
+	if len(got) != 2 || got[0].ID != "id-a" || got[1].ID != "id-b" {
+		t.Fatalf("WithdrawAll returned %v", got)
+	}
+	if rest := ib.Drain("sid-1"); len(rest) != 0 {
+		t.Fatalf("queue not cleared: %v", rest)
+	}
+	select {
+	case batch := <-ch:
+		t.Fatalf("subscriber notified of a withdrawal: %v", batch)
+	case <-time.After(50 * time.Millisecond):
+	}
+}

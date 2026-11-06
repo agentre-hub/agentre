@@ -338,8 +338,8 @@
   },
   "queuedMessages": {
     "aria": "Queued messages",
-    "cancelOne": "Cancel this queued message",
-    "cancelOneTitle": "Cancel before AI picks it up",
+    "cancelOne": "Delete this queued message",
+    "cancelOneTitle": "Delete (not moved back to the input)",
     "clear": "Clear",
     "clearAria": "Clear queued messages",
     "clearTitle": "Clear all queued messages",
@@ -353,6 +353,9 @@
     "noCancelSupport": "This backend cannot cancel",
     "noCancelSupportTitle": "This backend does not support cancelling queued messages",
     "notCancellable": "Not cancellable (unsupported by this backend)",
-    "notCancellableTitle": "A steer on this backend cannot be withdrawn once sent"
+    "notCancellableTitle": "A steer on this backend cannot be withdrawn once sent",
+    "withdrawDisabledEditing": "Finish or cancel editing first",
+    "withdrawOne": "Move back to input",
+    "withdrawOneTitle": "Move back to the input to edit"
   }
 }

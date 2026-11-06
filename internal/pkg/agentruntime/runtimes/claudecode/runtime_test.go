@@ -1959,3 +1959,50 @@ func TestRun_DeadSubprocessIsEvictedEvenWhenTurnWasCancelled(t *testing.T) {
 		r.CloseAllSessions(context.Background())
 	})
 }
+
+// TestRuntime_CancelSteer_ClearAllIsNotConsumption 钉死「清空排队」与「AI 取走」是两件
+// 事。Run 在活跃轮上订阅 inbox 的 drain，把每一批转成 SteerConsumed（hook 取走插话
+// 的那条记账路径）。清空若复用同一个 drain，被用户扔掉的那几条就会被当成 AI 已经
+// 取走，落成用户消息（运行时验证 queued-withdraw V4：清空后约 0.4 秒两条插话照样
+// 进了转录）。
+func TestRuntime_CancelSteer_ClearAllIsNotConsumption(t *testing.T) {
+	Convey("Given 活跃轮订阅着 inbox、排着两条插话", t, func() {
+		r := New()
+		r.SetSteerInbox(httpgateway.NewSteerInbox())
+		a := &claudeActive{handle: &fakeCCHandle{}, sessionUUID: "uuid-clear"}
+		a.inTurn.Store(true)
+		r.cache.Put(sessionKey(601), a)
+		consumed, cancel := r.steer.SubscribeDrain("uuid-clear")
+		defer cancel()
+		So(r.Steer(context.Background(), 601, "q-1", "第一条"), ShouldBeNil)
+		So(r.Steer(context.Background(), 601, "q-2", "第二条"), ShouldBeNil)
+
+		Convey("When 清空（queuedID 为空）", func() {
+			removed, err := r.CancelSteer(context.Background(), 601, "")
+
+			Convey("Then 返回两条的 id、inbox 清空，且订阅方收不到任何「已取走」批次", func() {
+				So(err, ShouldBeNil)
+				So(removed, ShouldResemble, []string{"q-1", "q-2"})
+				So(r.steer.Drain("uuid-clear"), ShouldBeEmpty)
+				select {
+				case batch := <-consumed:
+					So(batch, ShouldBeEmpty)
+				case <-time.After(100 * time.Millisecond):
+				}
+			})
+		})
+
+		Convey("When 什么都没排时清空", func() {
+			_ = r.steer.Drain("uuid-clear")
+			for len(consumed) > 0 {
+				<-consumed
+			}
+			removed, err := r.CancelSteer(context.Background(), 601, "")
+
+			Convey("Then 返回空列表、不报错", func() {
+				So(err, ShouldBeNil)
+				So(removed, ShouldBeEmpty)
+			})
+		})
+	})
+}

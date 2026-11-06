@@ -7,7 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef } from "react";
+import { createRef, useLayoutEffect, type RefObject } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { Editor } from "@tiptap/react";
 
@@ -549,6 +549,161 @@ describe("ChatComposer · draft handle", () => {
     await waitFor(() => expect(sendButton()).toBeDisabled());
   });
 });
+
+describe("ChatComposer · append draft", () => {
+  it("Given an empty input, When the host appends text, Then the input holds exactly that text", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    const onSubmit = vi.fn();
+    render(<ChatComposer ref={handle} onSubmit={onSubmit} />);
+
+    act(() => handle.current?.appendDraft("moved back"));
+
+    await waitFor(() => expect(sendButton()).toBeEnabled());
+    fireEvent.click(sendButton());
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "moved back" }),
+      ),
+    );
+  });
+
+  it("Given a draft with an image, When the host appends text, Then the new text follows after a blank line and the image stays", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    const onSubmit = vi.fn();
+    render(
+      <ChatComposer ref={handle} supportsImageInput onSubmit={onSubmit} />,
+    );
+    act(() =>
+      handle.current?.restoreDraft("half written", [
+        {
+          dataUrl: "data:image/png;base64,AAA",
+          mediaType: "image/png",
+          name: "keep.png",
+        },
+      ]),
+    );
+    await screen.findByAltText("keep.png");
+
+    act(() => handle.current?.appendDraft("moved back"));
+
+    expect(screen.getByAltText("keep.png")).toBeInTheDocument();
+    fireEvent.click(sendButton());
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "half written\n\nmoved back" }),
+      ),
+    );
+  });
+
+  it("Given a draft, When the host appends text, Then the input takes focus with the caret at the end of the appended text", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    render(<ChatComposer ref={handle} onSubmit={vi.fn()} />);
+    act(() => handle.current?.restoreDraft("half written", []));
+    const textbox = screen.getByRole("textbox");
+    expect(textbox).not.toHaveFocus();
+
+    act(() => handle.current?.appendDraft("moved back"));
+
+    await waitFor(() => expect(textbox).toHaveFocus());
+    const selection = window.getSelection();
+    expect(selection?.isCollapsed).toBe(true);
+    expect(selection?.focusNode?.textContent).toBe("moved back");
+    expect(selection?.focusOffset).toBe("moved back".length);
+  });
+
+  it("Given the composer is editing a message, When the host appends text, Then the edit draft is untouched and the text lands once editing ends", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    const onSubmit = vi.fn();
+    const { rerender } = render(
+      <ChatComposer
+        ref={handle}
+        editing
+        editDraft="old text"
+        onSubmit={onSubmit}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
+    );
+
+    act(() => handle.current?.appendDraft("moved back"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith(
+        expect.objectContaining({ text: "old text" }),
+      ),
+    );
+
+    rerender(<ChatComposer ref={handle} onSubmit={onSubmit} />);
+    await waitFor(() => expect(sendButton()).toBeEnabled());
+    fireEvent.click(sendButton());
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith(
+        expect.objectContaining({ text: "moved back" }),
+      ),
+    );
+  });
+
+  // 退出编辑之后、输入框还没被清空之前（提交 → 渲染 → 被动 effect 之间）回来的追加，
+  // 不能先落进输入框、再被「退出编辑清空」那一下抹掉。
+  it("Given editing has just ended but the input is not cleared yet, When the host appends text in that gap, Then the text survives", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    const onSubmit = vi.fn();
+    const { rerender } = render(
+      <AppendOnEditExit handle={handle} editing onSubmit={onSubmit} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
+    );
+
+    rerender(
+      <AppendOnEditExit handle={handle} editing={false} onSubmit={onSubmit} />,
+    );
+    await waitFor(() => expect(sendButton()).toBeEnabled());
+    fireEvent.click(sendButton());
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith(
+        expect.objectContaining({ text: "moved back" }),
+      ),
+    );
+  });
+});
+
+/** 在编辑态翻成 false 的那一次提交的 layout 阶段（被动 effect 之前）追加一段字。 */
+function AppendOnEditExit({
+  handle,
+  editing,
+  onSubmit,
+}: {
+  handle: RefObject<ChatComposerHandle | null>;
+  editing: boolean;
+  onSubmit: (message: unknown) => void;
+}) {
+  return (
+    <>
+      <ChatComposer
+        ref={handle}
+        editing={editing}
+        editDraft={editing ? "old text" : undefined}
+        onSubmit={onSubmit}
+      />
+      <AppendWhen when={!editing} handle={handle} />
+    </>
+  );
+}
+
+function AppendWhen({
+  when,
+  handle,
+}: {
+  when: boolean;
+  handle: RefObject<ChatComposerHandle | null>;
+}) {
+  useLayoutEffect(() => {
+    if (when) handle.current?.appendDraft("moved back");
+  }, [when, handle]);
+  return null;
+}
 
 describe("ChatComposer · shift+tab", () => {
   it("Given the host wired shift+tab, When it is pressed inside the composer, Then the host is notified once", () => {

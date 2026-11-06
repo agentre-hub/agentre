@@ -198,7 +198,8 @@ func (r *Runtime) CancelSteer(_ context.Context, sessionID int64, queuedID strin
 		return nil, agentruntime.ErrNoActiveTurn
 	}
 	if queuedID == "" {
-		items := r.steer.Drain(a.sessionUUID)
+		// 撤回不是消费：不能走 Drain，它会把这批广播给 Run 的订阅方，被记成「AI 已取走」。
+		items := r.steer.WithdrawAll(a.sessionUUID)
 		out := make([]string, 0, len(items))
 		for _, it := range items {
 			out = append(out, it.ID)

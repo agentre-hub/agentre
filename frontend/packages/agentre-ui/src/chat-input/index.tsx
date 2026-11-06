@@ -29,7 +29,7 @@ import { ComposerPopovers } from "./composer-popovers";
 import { extractPlainText } from "./content";
 import { handleComposerKeyDown, handleComposerUpdate } from "./editor-handlers";
 import { composerCapabilities, composerPlaceholder } from "./placeholder";
-import { applyInputHistoryMessage } from "./keyboard";
+import { appendEditorDraft, applyInputHistoryMessage } from "./keyboard";
 import { submitLocalCommand } from "./local-command-submit";
 import { useOptionalLocalCommandHistoryAccess } from "./local-command-history/access";
 import { useLocalCommandHistoryCombobox } from "./local-command-history/use-history-combobox";
@@ -432,6 +432,11 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
           // 与 slash literal_text 插入同手法(slashSelectHandler):
           // focus + insertContent,插在当前光标处,不自动发送。
           editor?.chain().focus().insertContent(text).run();
+        },
+        appendDraft: (text) => {
+          if (!editor) return;
+          historyIndexRef.current = -1;
+          appendEditorDraft(editor, text);
         },
       }),
       [editor],

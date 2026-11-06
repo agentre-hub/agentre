@@ -111,6 +111,7 @@ const componentMocks = vi.hoisted(() => ({
   composerHandle: {
     restoreDraft: vi.fn(),
     clearDraft: vi.fn(),
+    appendDraft: vi.fn(),
   },
   // 控制 useSessionCapabilities 桩返回的 caps;测试按 backend 切换 switchableDuringTurn。
   capsSwitchableDuringTurn: true,
@@ -435,6 +436,7 @@ import {
 } from "@/stores/chat-streams-store";
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import { useQueuedMessagesStore } from "@/stores/queued-messages-store";
 import { useSessionConnStore } from "@/stores/session-conn-store";
 import { localCommandRuntimeStore } from "@/stores/local-command-runtime-store";
 import { useLocalCommandsStore } from "@/stores/local-commands-store";
@@ -489,6 +491,7 @@ function resetStore() {
   componentMocks.permissionModePillProps.length = 0;
   componentMocks.composerHandle.restoreDraft.mockClear();
   componentMocks.composerHandle.clearDraft.mockClear();
+  componentMocks.composerHandle.appendDraft.mockClear();
   componentMocks.permissionMode = "plan";
   componentMocks.localCommandMenuActive = false;
   // 默认 claudecode-like caps(允许 turn 中切 mode);Codex 测试用例显式置 false。
@@ -642,6 +645,141 @@ describe("ChatPanel error recovery actions", () => {
         /permanently discards this reply and all later conversation history/i,
       ),
     ).toBeInTheDocument();
+  });
+});
+
+describe("ChatPanel · 排队消息撤回到输入框", () => {
+  // 本文件不挂 beforeEach，每条用例自己清场。
+  function queue(...items: Array<{ id: string; text: string }>) {
+    resetStore();
+    useQueuedMessagesStore.getState().__reset();
+    appMocks.CancelQueuedChatMessage.mockReset();
+    mockSessionStore.session = makeSession({ id: 42, agentId: 9 });
+    for (const item of items) {
+      useQueuedMessagesStore
+        .getState()
+        .append(42, { ...item, cancellable: true });
+    }
+  }
+
+  it("Given a queued message, When it is moved back and the backend confirms the removal, Then its text is appended to the composer and the chip is gone", async () => {
+    queue({ id: "q1", text: "first" }, { id: "q2", text: "second" });
+    appMocks.CancelQueuedChatMessage.mockResolvedValue({ removed: ["q2"] });
+
+    render(<ChatPanel active sessionId={42} />);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Move back to input" })[1],
+    );
+
+    await waitFor(() =>
+      expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalledWith(
+        "second",
+      ),
+    );
+    expect(appMocks.CancelQueuedChatMessage).toHaveBeenCalledWith({
+      sessionId: 42,
+      queuedId: "q2",
+    });
+    expect(screen.queryByText("second")).toBeNull();
+    expect(screen.getByText("first")).toBeInTheDocument();
+  });
+
+  it("Given the AI already took the message, When it is moved back and the backend refuses, Then the composer is untouched, the failure is shown and the chip is usable again", async () => {
+    queue({ id: "q1", text: "first" });
+    appMocks.CancelQueuedChatMessage.mockRejectedValue(
+      new Error("Queued message is already processed or does not exist"),
+    );
+
+    render(<ChatPanel active sessionId={42} />);
+    fireEvent.click(screen.getByRole("button", { name: "Move back to input" }));
+
+    expect(
+      await screen.findByText(
+        /Failed to cancel queued message: Queued message is already processed/,
+      ),
+    ).toBeInTheDocument();
+    expect(componentMocks.composerHandle.appendDraft).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Move back to input" }),
+    ).toBeEnabled();
+  });
+
+  it("Given a move-back is in flight, When the item is rendered, Then its buttons are disabled until the backend answers", async () => {
+    queue({ id: "q1", text: "first" });
+    let answer: (v: { removed: string[] }) => void = () => {};
+    appMocks.CancelQueuedChatMessage.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+
+    render(<ChatPanel active sessionId={42} />);
+    fireEvent.click(screen.getByRole("button", { name: "Move back to input" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Delete this queued message" }),
+      ).toBeDisabled(),
+    );
+    await act(async () => answer({ removed: ["q1"] }));
+    expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalledWith(
+      "first",
+    );
+  });
+
+  it("Given the backend answers without removing that message, When it is moved back, Then nothing is appended", async () => {
+    queue({ id: "q1", text: "first" });
+    appMocks.CancelQueuedChatMessage.mockResolvedValue({ removed: [] });
+
+    render(<ChatPanel active sessionId={42} />);
+    fireEvent.click(screen.getByRole("button", { name: "Move back to input" }));
+
+    await waitFor(() =>
+      expect(appMocks.CancelQueuedChatMessage).toHaveBeenCalledOnce(),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Move back to input" }),
+      ).toBeEnabled(),
+    );
+    expect(componentMocks.composerHandle.appendDraft).not.toHaveBeenCalled();
+  });
+
+  it("Given the composer is editing a message, When the queue renders, Then move-back is disabled", () => {
+    queue({ id: "q1", text: "first" });
+    mockSessionStore.messages = [
+      { blocks: [{ text: "earlier", type: "text" }], id: 1, role: "user" },
+    ];
+
+    render(<ChatPanel active sessionId={42} />);
+    const onEdit = componentMocks.chatTranscriptProps.at(-1)?.onEdit as
+      | ((messageId: number) => void)
+      | undefined;
+    act(() => onEdit?.(1));
+
+    expect(
+      screen.getByRole("button", { name: "Move back to input" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Delete this queued message" }),
+    ).toBeEnabled();
+  });
+
+  it("Given messages were not sent when the turn ended, When restored as draft, Then they are appended to the composer in order with a blank line between and nothing is re-queued", () => {
+    queue({ id: "q1", text: "first" }, { id: "q2", text: "second" });
+    useQueuedMessagesStore.getState().markDropped(42);
+
+    render(<ChatPanel active sessionId={42} />);
+    fireEvent.click(screen.getByRole("button", { name: "Restore as draft" }));
+
+    expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalledOnce();
+    expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalledWith(
+      "first\n\nsecond",
+    );
+    expect(
+      useQueuedMessagesStore.getState().queuedBySession.get(42)?.items ?? [],
+    ).toEqual([]);
+    expect(useQueuedMessagesStore.getState().dropped).toBeNull();
   });
 });
 

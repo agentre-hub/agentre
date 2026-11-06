@@ -44,6 +44,14 @@ export type ChatComposerSubmit = {
 export type ChatComposerHandle = {
   restoreDraft: (text: string, images: ChatImageAttachment[]) => void;
   clearDraft: () => void;
+  /**
+   * 把一段字接到现有草稿后面（排队消息撤回、轮末未发出的恢复为草稿）：空则直接填入，
+   * 否则空一行再接，附件不动，光标停在末尾。
+   *
+   * 编辑历史消息期间输入框里是那条消息，接进去会被当成对它的修改——先暂存，退出编辑
+   * （输入框被清空）之后再按顺序接上，一个字都不丢。
+   */
+  appendDraft: (text: string) => void;
 };
 
 /** 宿主注入的原生拖入通道。浏览器里拿不到落盘绝对路径，所以这是可选的。 */
@@ -242,6 +250,16 @@ export const ChatComposer = React.forwardRef<
   // 停止只在宿主真的接了 onStop 时出现 —— agentre-server 不接，行为与从前一样。
   const stopAvailable = running && !!onStop && !editing;
 
+  // appendDraft 是命令式调用，读的是此刻的编辑态，不能等下一次渲染闭包更新。
+  // 进入编辑在 layout 阶段就算数（下面的被动 effect 会把编辑目标载进来盖掉输入框）；
+  // 退出编辑要等那个 effect 清空输入框、补上暂存的追加之后才算——两者之间回来的追加
+  // 若直接落进输入框，紧接着就会被清空抹掉。
+  const editingRef = React.useRef(editing);
+  React.useLayoutEffect(() => {
+    if (editing) editingRef.current = true;
+  }, [editing]);
+  const deferredAppendsRef = React.useRef<string[]>([]);
+
   React.useImperativeHandle(
     ref,
     () => ({
@@ -254,6 +272,13 @@ export const ChatComposer = React.forwardRef<
         inputRef.current?.loadDraft(text);
         setImages(restoreImages);
         setImageError("");
+      },
+      appendDraft: (text: string) => {
+        if (editingRef.current) {
+          deferredAppendsRef.current.push(text);
+          return;
+        }
+        inputRef.current?.appendDraft(text);
       },
     }),
     [inputRef],
@@ -270,6 +295,10 @@ export const ChatComposer = React.forwardRef<
       setImageError("");
     } else if (wasEditingRef.current) {
       inputRef.current?.clear();
+      const deferred = deferredAppendsRef.current;
+      deferredAppendsRef.current = [];
+      for (const text of deferred) inputRef.current?.appendDraft(text);
+      editingRef.current = false;
     }
     wasEditingRef.current = editing;
   }, [editing, editDraft, inputRef]);

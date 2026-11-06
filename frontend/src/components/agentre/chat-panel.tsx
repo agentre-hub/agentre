@@ -37,7 +37,6 @@ import { useClearedBackgroundTasksStore } from "@/stores/cleared-background-task
 import {
   useChatStreamsStore,
   useSessionLiveBlocks,
-  type ChatBlockData,
   type LiveStream,
 } from "@/stores/chat-streams-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
@@ -116,10 +115,6 @@ const EMPTY_PERMISSION_MODE_META = {
   switchableDuringTurn: false,
   order: [] as string[],
 };
-
-function restoreDroppedQueue() {
-  useQueuedMessagesStore.getState().restoreDropped();
-}
 
 function dismissDroppedQueue() {
   useQueuedMessagesStore.getState().dismissDropped();
@@ -755,6 +750,7 @@ function ChatPanel({
     doStop,
     stopping,
     doCancelQueued,
+    doWithdrawQueued,
     handleCopyLaunchCommand,
     handleComposerSubmit,
   } = useChatActions({
@@ -817,6 +813,15 @@ function ChatPanel({
   const handleClearQueued = useLatestCallback(
     () => void doCancelQueued(sessionId, ""),
   );
+  const handleWithdrawQueued = useLatestCallback(
+    (id: string) => void doWithdrawQueued(sessionId, id),
+  );
+  // 「恢复为草稿」：这一轮已经结束，文字交给输入框接住（接在现有草稿后面）。
+  const handleRestoreDropped = useLatestCallback(() => {
+    const draft = useQueuedMessagesStore.getState().takeDroppedDraft();
+    if (draft) composerRef.current?.appendDraft(draft);
+  });
+  const composerEditing = activeEditing !== null;
   const stableProviderPill = useShallowStable(providerPill);
   const stableReasoningEffortPill = useShallowStable(reasoningEffortPill);
   const queuedItems = currentQueued ?? EMPTY_QUEUED;
@@ -901,17 +906,22 @@ function ChatPanel({
         <QueuedMessagesBar
           queued={queuedItems}
           onCancel={handleCancelQueued}
+          onWithdraw={handleWithdrawQueued}
+          withdrawDisabled={composerEditing}
           onClearAll={handleClearQueued}
           dropped={droppedItems}
-          onRestoreDropped={restoreDroppedQueue}
+          onRestoreDropped={handleRestoreDropped}
           onDiscardDropped={dismissDroppedQueue}
         />
       </>
     ),
     [
+      composerEditing,
       droppedItems,
       handleCancelQueued,
       handleClearQueued,
+      handleRestoreDropped,
+      handleWithdrawQueued,
       queuedItems,
       taskProgress,
     ],

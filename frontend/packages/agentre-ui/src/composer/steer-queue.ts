@@ -28,6 +28,11 @@ export type QueuedItem = {
    * 通用的「这个后端不支持撤回」。
    */
   note?: string;
+  /**
+   * 用户点了「撤回到输入框」，正在等对端确认移除。这段时间里这一条的撤回、删除都不可
+   * 点——连点会对同一个句柄发两次撤回，第二次必然被拒。确认或被拒之后清掉。
+   */
+  withdrawing?: boolean;
 };
 
 /** 一条被后端取走的插话，来自 `steer_consumed`。 */
@@ -177,6 +182,24 @@ export function markSteerNotCancellable(
   if (index < 0) return state;
   const items = [...state.items];
   items[index] = { ...items[index], cancellable: false, note };
+  return { ...state, items };
+}
+
+/**
+ * 「撤回到输入框」在途：给这一条挂上（或摘掉）撤回中标记。
+ *
+ * 这一条已经不在队列里（等应答的这会儿被取走了）时原样返回——消费事件已经替它收了尾。
+ */
+export function markSteerWithdrawing(
+  state: SteerQueueState,
+  id: string,
+  withdrawing: boolean,
+): SteerQueueState {
+  const index = state.items.findIndex((q) => q.id === id);
+  if (index < 0) return state;
+  const items = [...state.items];
+  const { withdrawing: _was, ...rest } = items[index];
+  items[index] = withdrawing ? { ...rest, withdrawing: true } : rest;
   return { ...state, items };
 }
 
