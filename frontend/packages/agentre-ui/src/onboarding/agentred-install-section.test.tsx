@@ -115,3 +115,15 @@ describe("AgentredInstallDocsLink", () => {
     );
   });
 });
+
+describe("AgentredInstallSection compact", () => {
+  it("只给一张命令卡，选项是不小于 44px 的 chips", () => {
+    const { onOsChange } = renderSection({ compact: true });
+    expect(screen.getAllByRole("group")).toHaveLength(1);
+    expect(commandsOf()[0]).toContain("install.sh");
+    const mac = screen.getByRole("button", { name: "macOS" });
+    expect(mac.className).toContain("min-h-11");
+    fireEvent.click(mac);
+    expect(onOsChange).toHaveBeenCalledWith("macos");
+  });
+});

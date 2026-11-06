@@ -22,6 +22,8 @@ export type GuideStepRailProps = {
   disabled?: boolean;
   /** 省略即不可收起——宿主没有可回退的地方（列表为空）时就是这种。 */
   onDismiss?: () => void;
+  /** 触屏档：只画 01 ✓ 02 ✓ 03 这样的序号徽标条。省略即与今天一致。 */
+  compact?: boolean;
 };
 
 /**
@@ -37,12 +39,18 @@ export function GuideStepRail({
   onSelect,
   disabled = false,
   onDismiss,
+  compact = false,
 }: GuideStepRailProps) {
   const { t } = useUiTranslation();
 
   return (
     <div className="flex items-stretch bg-muted/50">
-      <ol className="grid min-w-0 flex-1 grid-cols-1 sm:grid-cols-3">
+      <ol
+        className={cn(
+          "grid min-w-0 flex-1",
+          compact ? "grid-cols-3" : "grid-cols-1 sm:grid-cols-3",
+        )}
+      >
         {steps.map((step, index) => {
           const number = index + 1;
           const finished = done.includes(number);
@@ -61,7 +69,9 @@ export function GuideStepRail({
                   title: step.title,
                 })}
                 className={cn(
-                  "h-auto min-w-0 flex-1 items-start justify-start gap-3 rounded-none p-4 text-left font-normal",
+                  compact
+                    ? "h-auto min-h-11 min-w-0 flex-1 items-center justify-center rounded-none p-2 font-normal"
+                    : "h-auto min-w-0 flex-1 items-start justify-start gap-3 rounded-none p-4 text-left font-normal",
                   active && "bg-primary-soft",
                 )}
                 disabled={disabled}
@@ -81,14 +91,16 @@ export function GuideStepRail({
                     String(number).padStart(2, "0")
                   )}
                 </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-xs font-semibold">
-                    {step.title}
+                {compact ? null : (
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-semibold">
+                      {step.title}
+                    </span>
+                    <span className="mt-0.5 block truncate text-2xs text-muted-foreground">
+                      {finished && step.doneLabel ? step.doneLabel : step.hint}
+                    </span>
                   </span>
-                  <span className="mt-0.5 block truncate text-2xs text-muted-foreground">
-                    {finished && step.doneLabel ? step.doneLabel : step.hint}
-                  </span>
-                </span>
+                )}
               </Button>
             </li>
           );

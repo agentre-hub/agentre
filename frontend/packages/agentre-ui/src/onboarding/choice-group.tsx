@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { cn } from "../lib/utils";
 import { Button } from "../ui/button";
 
 export type Choice<T extends string> = {
@@ -20,12 +21,15 @@ export function ChoiceGroup<T extends string>({
   value,
   choices,
   onChange,
+  compact = false,
 }: {
   label: ReactNode;
   hint?: ReactNode;
   value: T;
   choices: readonly Choice<T>[];
   onChange: (next: T) => void;
+  /** 触屏档：chips，命中区不小于 44px。省略即与今天一致。 */
+  compact?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -41,6 +45,7 @@ export function ChoiceGroup<T extends string>({
             key={choice.value}
             type="button"
             size="sm"
+            className={cn(compact && "min-h-11 rounded-full px-4")}
             variant={choice.value === value ? "default" : "outline"}
             aria-pressed={choice.value === value}
             onClick={() => onChange(choice.value)}

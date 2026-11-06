@@ -17,6 +17,8 @@ export type AgentredInstallSectionProps = {
   onOsChange: (next: AgentredTargetOS) => void;
   installTestId?: string;
   installCopyTestId?: string;
+  /** 触屏档：chips 选择、只留一张安装命令卡。省略即与今天一致。 */
+  compact?: boolean;
 };
 
 /**
@@ -33,6 +35,7 @@ export function AgentredInstallSection({
   onOsChange,
   installTestId,
   installCopyTestId,
+  compact = false,
 }: AgentredInstallSectionProps) {
   const { t } = useUiTranslation();
   const docker = method === "docker";
@@ -47,6 +50,7 @@ export function AgentredInstallSection({
           { value: "docker", label: t("onboarding.install.docker") },
         ]}
         onChange={onMethodChange}
+        compact={compact}
       />
 
       {/* 容器方式下宿主系统不改变任何命令，留着那排按钮只会让人以为它有用。 */}
@@ -61,6 +65,7 @@ export function AgentredInstallSection({
             { value: "windows", label: t("onboarding.install.windows") },
           ]}
           onChange={onOsChange}
+          compact={compact}
         />
       )}
 
@@ -77,14 +82,16 @@ export function AgentredInstallSection({
           testId={installTestId}
           copyTestId={installCopyTestId}
         />
-        <CommandCard
-          label={
-            docker
-              ? t("onboarding.install.verifyImage")
-              : t("onboarding.install.verify")
-          }
-          command={agentredVersionCommand(method)}
-        />
+        {compact ? null : (
+          <CommandCard
+            label={
+              docker
+                ? t("onboarding.install.verifyImage")
+                : t("onboarding.install.verify")
+            }
+            command={agentredVersionCommand(method)}
+          />
+        )}
       </div>
     </div>
   );

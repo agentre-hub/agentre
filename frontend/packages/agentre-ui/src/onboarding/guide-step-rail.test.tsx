@@ -101,3 +101,29 @@ describe("GuideStepRail", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("GuideStepRail compact", () => {
+  it("紧凑档只画序号徽标，仍是三个可点按钮，完成态打勾", () => {
+    const { onSelect } = renderRail({
+      compact: true,
+      current: 3,
+      done: [1, 2],
+    });
+
+    const cells = screen.getAllByRole("button", { name: /^Step \d/ });
+    expect(cells).toHaveLength(3);
+    expect(cells[2]).toHaveAttribute("aria-current", "step");
+    expect(screen.queryByText("Keep it running")).toBeNull();
+    expect(screen.queryByText("Stay online")).toBeNull();
+    fireEvent.click(cells[0]);
+    expect(onSelect).toHaveBeenCalledWith(1);
+  });
+
+  it("紧凑档保留收起按钮与 disabled", () => {
+    const onDismiss = vi.fn();
+    renderRail({ compact: true, onDismiss, disabled: true });
+    expect(
+      screen.getByRole("button", { name: "Collapse guide" }),
+    ).toBeDisabled();
+  });
+});
