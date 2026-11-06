@@ -107,6 +107,19 @@ func (s *SteerInbox) SubscribeDrain(sid string) (<-chan []SteerItem, func()) {
 	return ch, cancel
 }
 
+// WithdrawAll returns the queue for sid (FIFO) and clears it **without**
+// notifying SubscribeDrain subscribers. It is the user withdrawing everything
+// still queued (CancelSteer with an empty id), not the hook consuming it:
+// a subscriber reports each batch it receives as "the AI took these", which
+// would put the withdrawn messages into the transcript.
+func (s *SteerInbox) WithdrawAll(sid string) []SteerItem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.q[sid]
+	delete(s.q, sid)
+	return out
+}
+
 // Remove deletes the queued entry with matching id from sid's queue without
 // affecting other entries. Returns true on hit, false if sid or id is unknown
 // (the entry was already drained / never existed).
