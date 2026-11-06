@@ -72,6 +72,15 @@
       "true": "No conversations yet",
       "showAll": "View all sessions",
       "clearSearch": "Clear search"
+    },
+    "scope": {
+      "all": "All conversations",
+      "search": "Search",
+      "empty": "No matches",
+      "online": "Online",
+      "offline": "Offline",
+      "tabs": "Scope type",
+      "toggle": "Toggle {{name}}"
     }
   },
   "sessionStatus": {

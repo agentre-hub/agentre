@@ -72,6 +72,15 @@
       "true": "还没有任何对话",
       "showAll": "查看全部会话",
       "clearSearch": "清除搜索"
+    },
+    "scope": {
+      "all": "全部对话",
+      "search": "搜索",
+      "empty": "没有匹配项",
+      "online": "在线",
+      "offline": "离线",
+      "tabs": "范围分类",
+      "toggle": "展开/收起 {{name}}"
     }
   },
   "sessionStatus": {
