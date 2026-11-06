@@ -226,7 +226,13 @@ function SessionRow({
   );
 
   const statusBadgeText =
-    status === "idle" ? null : t(`sessionRow.status.${status}`);
+    status === "waiting"
+      ? t("sessionRow.status.waiting")
+      : status === "running"
+        ? t("sessionRow.status.running")
+        : status === "error"
+          ? t("sessionRow.status.error")
+          : null;
   const phoneTitle = (
     <span className="block truncate text-sm">
       {highlight
