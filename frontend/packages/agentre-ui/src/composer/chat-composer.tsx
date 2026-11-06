@@ -251,9 +251,12 @@ export const ChatComposer = React.forwardRef<
   const stopAvailable = running && !!onStop && !editing;
 
   // appendDraft 是命令式调用，读的是此刻的编辑态，不能等下一次渲染闭包更新。
+  // 进入编辑在 layout 阶段就算数（下面的被动 effect 会把编辑目标载进来盖掉输入框）；
+  // 退出编辑要等那个 effect 清空输入框、补上暂存的追加之后才算——两者之间回来的追加
+  // 若直接落进输入框，紧接着就会被清空抹掉。
   const editingRef = React.useRef(editing);
   React.useLayoutEffect(() => {
-    editingRef.current = editing;
+    if (editing) editingRef.current = true;
   }, [editing]);
   const deferredAppendsRef = React.useRef<string[]>([]);
 
@@ -295,6 +298,7 @@ export const ChatComposer = React.forwardRef<
       const deferred = deferredAppendsRef.current;
       deferredAppendsRef.current = [];
       for (const text of deferred) inputRef.current?.appendDraft(text);
+      editingRef.current = false;
     }
     wasEditingRef.current = editing;
   }, [editing, editDraft, inputRef]);

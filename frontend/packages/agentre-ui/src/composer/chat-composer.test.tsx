@@ -7,7 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef } from "react";
+import { createRef, useLayoutEffect, type RefObject } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { Editor } from "@tiptap/react";
 
@@ -643,7 +643,67 @@ describe("ChatComposer · append draft", () => {
       ),
     );
   });
+
+  // 退出编辑之后、输入框还没被清空之前（提交 → 渲染 → 被动 effect 之间）回来的追加，
+  // 不能先落进输入框、再被「退出编辑清空」那一下抹掉。
+  it("Given editing has just ended but the input is not cleared yet, When the host appends text in that gap, Then the text survives", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    const onSubmit = vi.fn();
+    const { rerender } = render(
+      <AppendOnEditExit handle={handle} editing onSubmit={onSubmit} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
+    );
+
+    rerender(
+      <AppendOnEditExit handle={handle} editing={false} onSubmit={onSubmit} />,
+    );
+    await waitFor(() => expect(sendButton()).toBeEnabled());
+    fireEvent.click(sendButton());
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith(
+        expect.objectContaining({ text: "moved back" }),
+      ),
+    );
+  });
 });
+
+/** 在编辑态翻成 false 的那一次提交的 layout 阶段（被动 effect 之前）追加一段字。 */
+function AppendOnEditExit({
+  handle,
+  editing,
+  onSubmit,
+}: {
+  handle: RefObject<ChatComposerHandle | null>;
+  editing: boolean;
+  onSubmit: (message: unknown) => void;
+}) {
+  return (
+    <>
+      <ChatComposer
+        ref={handle}
+        editing={editing}
+        editDraft={editing ? "old text" : undefined}
+        onSubmit={onSubmit}
+      />
+      <AppendWhen when={!editing} handle={handle} />
+    </>
+  );
+}
+
+function AppendWhen({
+  when,
+  handle,
+}: {
+  when: boolean;
+  handle: RefObject<ChatComposerHandle | null>;
+}) {
+  useLayoutEffect(() => {
+    if (when) handle.current?.appendDraft("moved back");
+  }, [when, handle]);
+  return null;
+}
 
 describe("ChatComposer · shift+tab", () => {
   it("Given the host wired shift+tab, When it is pressed inside the composer, Then the host is notified once", () => {
