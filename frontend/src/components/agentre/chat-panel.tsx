@@ -37,7 +37,6 @@ import { useClearedBackgroundTasksStore } from "@/stores/cleared-background-task
 import {
   useChatStreamsStore,
   useSessionLiveBlocks,
-  type ChatBlockData,
   type LiveStream,
 } from "@/stores/chat-streams-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
