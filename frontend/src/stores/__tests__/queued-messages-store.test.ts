@@ -116,22 +116,26 @@ describe("queued-messages-store", () => {
     );
   });
 
-  it("restoreDropped appends dropped items back into the original session", () => {
+  it("Given dropped items, When the draft is taken, Then their texts come back in order joined by a blank line and nothing is re-queued", () => {
     useQueuedMessagesStore
       .getState()
-      .append(1, { id: "a", text: "hello", cancellable: true });
+      .append(1, { id: "a", text: "first", cancellable: true });
+    useQueuedMessagesStore
+      .getState()
+      .append(1, { id: "b", text: "second", cancellable: true });
     useQueuedMessagesStore.getState().markDropped(1);
     // 其它会话的队列不受影响
     useQueuedMessagesStore
       .getState()
       .append(2, { id: "z", text: "other", cancellable: true });
 
-    useQueuedMessagesStore.getState().restoreDropped();
+    const draft = useQueuedMessagesStore.getState().takeDroppedDraft();
 
+    expect(draft).toBe("first\n\nsecond");
     expect(useQueuedMessagesStore.getState().dropped).toBeNull();
-    const restored = useQueuedMessagesStore.getState().queuedBySession.get(1);
-    expect(restored?.items.map((m) => m.id)).toEqual(["a"]);
-    // 会话 2 的队列原样保留
+    expect(useQueuedMessagesStore.getState().queuedBySession.has(1)).toBe(
+      false,
+    );
     expect(
       useQueuedMessagesStore
         .getState()
@@ -140,29 +144,35 @@ describe("queued-messages-store", () => {
     ).toEqual(["z"]);
   });
 
-  it("restoreDropped appends after existing queued items of that session", () => {
+  it("Given a queued item, When its move-back starts and is refused, Then the withdrawing mark is set and then cleared on that item only", () => {
     useQueuedMessagesStore
       .getState()
       .append(1, { id: "a", text: "first", cancellable: true });
-    useQueuedMessagesStore.getState().markDropped(1);
-    // 恢复前又有新的排队条目进来
     useQueuedMessagesStore
       .getState()
-      .append(1, { id: "b", text: "newer", cancellable: true });
+      .append(1, { id: "b", text: "second", cancellable: true });
 
-    useQueuedMessagesStore.getState().restoreDropped();
-
+    useQueuedMessagesStore.getState().setWithdrawing(1, "a", true);
     expect(
       useQueuedMessagesStore
         .getState()
         .queuedBySession.get(1)
-        ?.items.map((m) => m.id),
-    ).toEqual(["b", "a"]);
+        ?.items.map((m) => [m.id, m.withdrawing ?? false]),
+    ).toEqual([
+      ["a", true],
+      ["b", false],
+    ]);
+
+    useQueuedMessagesStore.getState().setWithdrawing(1, "a", false);
+    expect(
+      useQueuedMessagesStore.getState().queuedBySession.get(1)?.items[0]
+        ?.withdrawing,
+    ).toBeFalsy();
   });
 
-  it("restoreDropped / dismissDropped with nothing dropped are referential no-ops", () => {
+  it("takeDroppedDraft / dismissDropped with nothing dropped are referential no-ops", () => {
     const before = useQueuedMessagesStore.getState().queuedBySession;
-    useQueuedMessagesStore.getState().restoreDropped();
+    expect(useQueuedMessagesStore.getState().takeDroppedDraft()).toBe("");
     useQueuedMessagesStore.getState().dismissDropped();
     expect(useQueuedMessagesStore.getState().queuedBySession).toBe(before);
   });

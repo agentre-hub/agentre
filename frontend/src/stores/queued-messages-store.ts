@@ -9,7 +9,8 @@
 //
 // 消费方：
 //   - chat-panel.tsx: 读 queuedBySession.get(sid) 渲染 QueuedMessagesBar。
-//   - chat-panel/use-chat-actions.ts: 入队调 append；撤回调 consume（按 id 过滤）。
+//   - chat-panel/use-chat-actions.ts: 入队调 append；删除 / 撤回到输入框调 consume（按 id
+//     过滤），撤回在途期间用 setWithdrawing 挂撤回中标记。
 //   - chat-streams-store.finishStream: 调 markDropped 暂存该 session 的残留。
 //   - chat-streams-store.consumeSteer: 调 consume（按 ids 过滤）消费掉被后端取走的条目。
 
@@ -18,6 +19,7 @@ import {
   consumeSteers,
   emptySteerQueue,
   enqueueSettledSteer,
+  markSteerWithdrawing,
   type QueuedItem,
   type SteerQueueState,
 } from "@agentre-hub/agentre-ui";
@@ -28,7 +30,7 @@ import { create } from "zustand";
 export type QueuedMessage = QueuedItem;
 
 // DroppedQueue 记录「回合收尾时还没被 AI 消费、原本会静默丢弃」的排队条目。
-// sessionId 记录来源会话，restoreDropped 按它把条目放回原队列。
+// sessionId 记录来源会话（横幅只贴在那条会话的输入框上）。
 export type DroppedQueue = {
   sessionId: number;
   items: QueuedMessage[];
@@ -52,8 +54,12 @@ type Actions = {
   markDropped: (sessionId: number) => void;
   // dismissDropped 丢弃 dropped 记录（用户选择「丢弃」）。
   dismissDropped: () => void;
-  // restoreDropped 把 dropped 条目按原 session 追加回排队队列（用户选择「恢复为草稿」）。
-  restoreDropped: () => void;
+  // setWithdrawing 给一条排队消息挂上 / 摘掉「撤回到输入框在途」标记。
+  setWithdrawing: (sessionId: number, id: string, withdrawing: boolean) => void;
+  // takeDroppedDraft 取走 dropped 条目的文字（按排队顺序、空行分隔）并清掉横幅，
+  // 用户选择「恢复为草稿」时由输入框接住。不放回排队队列：这一轮已经结束，没人会来取。
+  // 没有 dropped 时返回空串。
+  takeDroppedDraft: () => string;
   // 测试隔离用，生产代码不该调。
   __reset: () => void;
 };
@@ -147,19 +153,20 @@ export const useQueuedMessagesStore = create<State & Actions>((set, get) => ({
 
   dismissDropped: () => set({ dropped: null }),
 
-  restoreDropped: () =>
+  setWithdrawing: (sessionId, id, withdrawing) =>
     set((state) => {
-      if (!state.dropped) return state;
-      const { sessionId, items } = state.dropped;
-      const next = items.reduce(
-        (queue, item) => enqueueSettledSteer(queue, item),
-        queueOf(state, sessionId),
-      );
-      return {
-        queuedBySession: withQueue(state, sessionId, next),
-        dropped: null,
-      };
+      const current = queueOf(state, sessionId);
+      const next = markSteerWithdrawing(current, id, withdrawing);
+      if (next === current) return state;
+      return { queuedBySession: withQueue(state, sessionId, next) };
     }),
+
+  takeDroppedDraft: () => {
+    const { dropped } = get();
+    if (!dropped) return "";
+    set({ dropped: null });
+    return dropped.items.map((item) => item.text).join("\n\n");
+  },
 
   __reset: () => set({ queuedBySession: new Map(), dropped: null }),
 }));
