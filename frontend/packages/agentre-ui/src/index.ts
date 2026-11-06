@@ -487,6 +487,10 @@ export { CompactBoundaryDivider } from "./transcript/compact-boundary-divider";
 export { TranscriptSkeleton } from "./transcript/transcript-skeleton";
 export { TranscriptJumpControl } from "./transcript/transcript-jump-control";
 export {
+  countPendingBelow,
+  pendingDecisionId,
+} from "./transcript/pending-below";
+export {
   autonomousTurnMessageIds,
   computeBottomVisibleMessageId,
   countTurnsAfterMessage,

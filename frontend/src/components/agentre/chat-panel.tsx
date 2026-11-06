@@ -26,7 +26,10 @@ import {
   findProjectPath,
   projectChain,
 } from "@/lib/project-chain";
-import { formatCompactRelativeTime as relativeTime } from "@agentre-hub/agentre-ui";
+import {
+  countPendingBelow,
+  formatCompactRelativeTime as relativeTime,
+} from "@agentre-hub/agentre-ui";
 import { cn } from "@agentre-hub/agentre-ui";
 import { useSessionAttention } from "@/stores/attention-store";
 import { useClearedBackgroundTasksStore } from "@/stores/cleared-background-tasks-store";
@@ -51,7 +54,6 @@ import {
   type ChatComposerHandle,
   type ChatTranscriptHandle,
 } from "./chat";
-import { isResolvedAskState } from "./ask-event-state";
 import { ChatContextSidebar } from "./chat-context-sidebar";
 import { ChatPanelHeader } from "./chat-panel/chat-panel-header";
 import { ChatPanelConfirmDialogs } from "./chat-panel/confirm-dialogs";
@@ -138,54 +140,6 @@ type ChatPanelProps = {
   /** 当前 mounted tab 的稳定 id。用于跨路由 remount 恢复滚动；关闭 tab 后新 id 不复用。*/
   scrollStateKey?: string;
 };
-
-// 一个块若是仍未回答的审批 / 提问,返回它的 requestId,否则 null。
-// 覆盖 canonical 与旧形态两套载荷;与卡片自己的「已决」判据同口径。
-function pendingDecisionId(block: ChatBlockData): string | null {
-  const c = block.canonical;
-  if (c?.kind === "tool.permission" && c.toolPermission) {
-    return c.toolPermission.resolved ? null : c.toolPermission.requestId;
-  }
-  if (c?.kind === "user.ask" && c.userAsk) {
-    return isResolvedAskState(c.userAsk) ? null : c.userAsk.requestId;
-  }
-  const p = block.toolPermission;
-  if (p) return p.resolved ? null : p.requestId;
-  const q = block.askUserQuestion;
-  if (q) return isResolvedAskState(q) ? null : q.requestId;
-  const a = block.toolApproval;
-  if (a) return a.status === "pending" ? a.requestId : null;
-  const e = block.execApproval;
-  if (e) return e.status === "pending" ? e.id : null;
-  return null;
-}
-
-// countPendingBelow:id 大于视口下沿那条消息的消息里,仍未决的审批 / 提问个数。
-// 持久化块与在流 liveBlocks 按 requestId 去重(同一张卡可能两处都有)。
-// 视口下沿未知(null)时数不出「下面」,记 0 —— 与 turnsBelow 同口径。
-function countPendingBelow(
-  messages: readonly { id: number; blocks?: ChatBlockData[] }[],
-  streams: ReadonlyMap<number, LiveStream> | null,
-  bottomVisibleId: number | null,
-): number {
-  if (bottomVisibleId === null) return 0;
-  const pending = new Set<string>();
-  const scan = (blocks: readonly ChatBlockData[] | undefined) => {
-    for (const b of blocks ?? []) {
-      const id = pendingDecisionId(b);
-      if (id) pending.add(id);
-    }
-  };
-  for (const m of messages) {
-    if (m.id > bottomVisibleId) scan(m.blocks);
-  }
-  if (streams) {
-    for (const [messageId, stream] of streams) {
-      if (messageId > bottomVisibleId) scan(stream.liveBlocks);
-    }
-  }
-  return pending.size;
-}
 
 function ChatPanel({
   sessionId,
@@ -377,7 +331,17 @@ function ChatPanel({
   const pendingBelow = React.useMemo(
     () =>
       showBackToBottom
-        ? countPendingBelow(messages, sessionStreams, bottomVisibleId)
+        ? countPendingBelow(
+            [
+              ...messages,
+              // 在流消息的 liveBlocks 与持久化块按 requestId 去重(同一张卡可能两处都有)。
+              ...Array.from(sessionStreams ?? [], ([id, s]) => ({
+                id,
+                blocks: s.liveBlocks,
+              })),
+            ],
+            bottomVisibleId,
+          )
         : 0,
     [bottomVisibleId, messages, sessionStreams, showBackToBottom],
   );
