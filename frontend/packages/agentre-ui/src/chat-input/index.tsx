@@ -7,6 +7,7 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  type HTMLAttributes,
   type RefObject,
 } from "react";
 
@@ -117,6 +118,14 @@ export interface AIChatInputProps {
   /** 编辑器里按下、且没被 slash / mention / 命令历史弹层或 IME 消费的 Esc。
    *  返回 true 表示已处理。 */
   onEscape?: () => boolean;
+  /** 写到可编辑区的 `enterkeyhint`：决定软键盘回车键上的字。省略则不写这个属性。 */
+  enterKeyHint?: HTMLAttributes<HTMLElement>["enterKeyHint"];
+  /**
+   * 键盘能不能发送。默认 true（回车 / Mod+回车按 `sendOnEnter` 发送）；false 时任何
+   * 回车组合都只换行，只有 `submit()`（宿主的发送按钮）发送 —— 触屏上回车键离字太近，
+   * 按错一下整条就发出去了。
+   */
+  keyboardSubmit?: boolean;
 }
 
 const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
@@ -140,6 +149,8 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
       localCommandHistoryScope,
       localCommandsEnabled,
       onEscape,
+      enterKeyHint,
+      keyboardSubmit = true,
     },
     ref,
   ) {
@@ -150,6 +161,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     const localCommandHistoryRef = useRef(localCommandHistory);
     const submitRef = useRef(onSubmit);
     const sendOnEnterRef = useRef(sendOnEnter);
+    const keyboardSubmitRef = useRef(keyboardSubmit);
     const onEmptyChangeRef = useRef(onEmptyChange);
     const historyRef = useRef(userMessageHistory);
     const historyIndexRef = useRef(-1);
@@ -192,6 +204,10 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     useEffect(() => {
       sendOnEnterRef.current = sendOnEnter;
     }, [sendOnEnter]);
+
+    useEffect(() => {
+      keyboardSubmitRef.current = keyboardSubmit;
+    }, [keyboardSubmit]);
 
     useEffect(() => {
       onEmptyChangeRef.current = onEmptyChange;
@@ -305,6 +321,8 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
           autocomplete: "off",
           autocorrect: "off",
           spellcheck: "false",
+          // 不传就不写：桌面端的可编辑区属性与从前逐字一致。
+          ...(enterKeyHint ? { enterkeyhint: enterKeyHint } : {}),
         },
         handleKeyDown: (view: EditorView, event: KeyboardEvent): boolean =>
           handleComposerKeyDown(
@@ -315,6 +333,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
               mentionKeyDownRef,
               slashKeyDownRef,
               sendOnEnterRef,
+              keyboardSubmitRef,
               historyRef,
               historyIndexRef,
               applyingHistoryRef,
@@ -325,7 +344,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
             event,
           ),
       }),
-      [className],
+      [className, enterKeyHint],
     );
 
     const editor = useEditor({

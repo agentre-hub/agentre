@@ -316,6 +316,11 @@
     "command": {
       "banner": "Command mode · runs in the project directory · Enter to run · delete ! to exit",
       "run": "Run command"
+    },
+    "touch": {
+      "sendAfterAITitle": "Insert after AI finishes",
+      "stopTitle": "Stop current turn",
+      "commandBanner": "Command mode · runs in the project directory · delete ! to exit"
     }
   },
   "contextMeter": {

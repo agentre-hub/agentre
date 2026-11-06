@@ -28,6 +28,8 @@ export interface ComposerKeyDownContext {
   mentionKeyDownRef: Cell<(event: KeyboardEvent) => boolean>;
   slashKeyDownRef: Cell<(event: KeyboardEvent) => boolean>;
   sendOnEnterRef: Cell<boolean>;
+  /** false：回车的任何组合都不发送，交还编辑器换行。 */
+  keyboardSubmitRef: Cell<boolean>;
   historyRef: Cell<string[]>;
   historyIndexRef: Cell<number>;
   applyingHistoryRef: Cell<boolean>;
@@ -90,6 +92,7 @@ export function handleComposerKeyDown(
     }
   }
 
+  if (isEnter && !ctx.keyboardSubmitRef.current) return false;
   if (isEnter && shouldSendOnEnter && !event.shiftKey && !mod) {
     event.preventDefault();
     ctx.triggerSubmitRef.current();
