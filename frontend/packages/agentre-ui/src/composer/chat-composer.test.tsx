@@ -595,6 +595,22 @@ describe("ChatComposer · append draft", () => {
     );
   });
 
+  it("Given a draft, When the host appends text, Then the input takes focus with the caret at the end of the appended text", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    render(<ChatComposer ref={handle} onSubmit={vi.fn()} />);
+    act(() => handle.current?.restoreDraft("half written", []));
+    const textbox = screen.getByRole("textbox");
+    expect(textbox).not.toHaveFocus();
+
+    act(() => handle.current?.appendDraft("moved back"));
+
+    await waitFor(() => expect(textbox).toHaveFocus());
+    const selection = window.getSelection();
+    expect(selection?.isCollapsed).toBe(true);
+    expect(selection?.focusNode?.textContent).toBe("moved back");
+    expect(selection?.focusOffset).toBe("moved back".length);
+  });
+
   it("Given the composer is editing a message, When the host appends text, Then the edit draft is untouched and the text lands once editing ends", async () => {
     const handle = createRef<ChatComposerHandle>();
     const onSubmit = vi.fn();
