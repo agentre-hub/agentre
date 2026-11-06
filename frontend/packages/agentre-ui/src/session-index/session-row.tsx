@@ -1,8 +1,16 @@
 import * as React from "react";
-import { ExternalLink, Pencil, Trash2 } from "lucide-react";
+import {
+  ExternalLink,
+  Filter,
+  Monitor,
+  Pencil,
+  Square,
+  Trash2,
+} from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
+import { splitMatch } from "../board/scope-tree";
 import { statusConfig } from "../transcript/agent-status";
 import type { AgentStatus } from "../transcript/agent-status";
 import {
@@ -12,6 +20,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "../ui/context-menu";
+import { AgentAvatar } from "../ui/agent-avatar";
+import type { AgentAvatarProps } from "../ui/agent-avatar";
 import { StatusDot } from "../ui/status-dot";
 
 /**
@@ -113,6 +123,22 @@ type SessionRowProps = Omit<React.ComponentProps<"button">, "onClick"> & {
   onOpenInNewTab?: () => void;
   onRenameSession?: () => void;
   onDeleteSession?: () => void;
+  /**
+   * 手机档（不传 = 今天的桌面密度）：44px Agent 头像、两行（标题 + 时间 / 第二行 +
+   * 状态牌或未读点）、行高不低于 64px、按压态。时间取 `trailingLabel`，第二行取
+   * `secondaryLabel`（「Agent · 项目路径」由宿主拼）。
+   */
+  variant?: "phone";
+  /** 手机档的头像身份；尺寸由行定（44px），不接受 `size`。 */
+  agent?: Omit<AgentAvatarProps, "size">;
+  /** 手机档：没有状态牌（空闲）时，未读画成一枚点。判据由宿主按包里那一处未读判断给。 */
+  unread?: boolean;
+  /** 手机档：标题里命中的这段关键词高亮（大小写不敏感）。 */
+  highlight?: string;
+  /** 行菜单追加项；各自回调存在时才出现。 */
+  onStopTurn?: () => void;
+  onFilterAgent?: () => void;
+  onFilterMachine?: () => void;
 };
 
 function SessionRow({
@@ -135,14 +161,27 @@ function SessionRow({
   onOpenInNewTab,
   onRenameSession,
   onDeleteSession,
+  variant,
+  agent,
+  unread = false,
+  highlight,
+  onStopTurn,
+  onFilterAgent,
+  onFilterMachine,
   ...props
 }: SessionRowProps) {
   const { t } = useUiTranslation();
   const config = statusConfig[status];
   const hiddenFromAccessibility = ariaHidden === true || ariaHidden === "true";
   const hasContextMenu = Boolean(
-    onOpenInNewTab || onRenameSession || onDeleteSession,
+    onOpenInNewTab ||
+    onRenameSession ||
+    onDeleteSession ||
+    onStopTurn ||
+    onFilterAgent ||
+    onFilterMachine,
   );
+  const phone = variant === "phone";
 
   // 两行行的状态点与尾标跟**第一行**对齐，而不是跟两行整块居中 —— 居中会把点压到
   // 两行的缝里，读起来像它属于第二行。单行行照旧居中。
@@ -150,7 +189,11 @@ function SessionRow({
 
   const rowClassName = cn(
     "flex cursor-pointer gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none transition-colors focus-visible:focus-outline-inset",
-    twoLine ? "items-start" : "items-center",
+    phone
+      ? "min-h-16 items-center gap-3 py-2.5 active:bg-field-fill-hover"
+      : twoLine
+        ? "items-start"
+        : "items-center",
     // 有行尾操作时行成为 flex 子项，宽度交给容器；否则照旧独占一行。
     rowActions ? "min-w-0 flex-1" : "w-full",
     // hover 只发给**未选中**的行。同时挂两个类时 `hover:` 那个在编译产物里排在后面
@@ -182,7 +225,77 @@ function SessionRow({
     </span>
   );
 
-  const content = (
+  const statusBadgeText =
+    status === "idle" ? null : t(`sessionRow.status.${status}`);
+  const phoneTitle = (
+    <span className="block truncate text-sm">
+      {highlight
+        ? splitMatch(title, highlight).map((segment, index) =>
+            segment.match ? (
+              <mark
+                key={index}
+                className="bg-transparent font-semibold text-primary-text"
+              >
+                {segment.text}
+              </mark>
+            ) : (
+              <React.Fragment key={index}>{segment.text}</React.Fragment>
+            ),
+          )
+        : title}
+    </span>
+  );
+
+  const phoneContent = (
+    <>
+      {agent ? (
+        <AgentAvatar {...agent} size="md" className="size-11 rounded-xl" />
+      ) : null}
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex items-baseline gap-2">
+          <span
+            className={cn(
+              "min-w-0 flex-1",
+              selected ? "font-medium text-primary-text" : "text-foreground",
+            )}
+          >
+            {phoneTitle}
+          </span>
+          {trailingLabel === undefined ? null : (
+            <span className="shrink-0 text-2xs text-muted-foreground">
+              {trailingLabel}
+            </span>
+          )}
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            {secondaryLabel}
+          </span>
+          {statusBadgeText ? (
+            <span
+              className={cn(
+                "shrink-0 rounded-full px-2 py-0.5 text-2xs font-medium",
+                config.pillClassName,
+              )}
+            >
+              {statusBadgeText}
+            </span>
+          ) : unread ? (
+            <span
+              role="img"
+              aria-label={t("attention.unread")}
+              className="size-2 shrink-0 rounded-full bg-status-waiting"
+            />
+          ) : null}
+        </span>
+      </span>
+      {trailing}
+    </>
+  );
+
+  const content = phone ? (
+    phoneContent
+  ) : (
     <>
       <StatusDot
         status={status}
@@ -274,6 +387,24 @@ function SessionRow({
             <span>{t("sessionRow.menu.rename")}</span>
           </ContextMenuItem>
         ) : null}
+        {onStopTurn ? (
+          <ContextMenuItem onSelect={onStopTurn}>
+            <Square className="size-4" aria-hidden="true" />
+            <span>{t("sessionRow.menu.stopTurn")}</span>
+          </ContextMenuItem>
+        ) : null}
+        {onFilterAgent ? (
+          <ContextMenuItem onSelect={onFilterAgent}>
+            <Filter className="size-4" aria-hidden="true" />
+            <span>{t("sessionRow.menu.filterAgent")}</span>
+          </ContextMenuItem>
+        ) : null}
+        {onFilterMachine ? (
+          <ContextMenuItem onSelect={onFilterMachine}>
+            <Monitor className="size-4" aria-hidden="true" />
+            <span>{t("sessionRow.menu.filterMachine")}</span>
+          </ContextMenuItem>
+        ) : null}
         {onOpenInNewTab ? (
           <ContextMenuItem onSelect={onOpenInNewTab}>
             <ExternalLink className="size-4" aria-hidden="true" />
@@ -282,7 +413,11 @@ function SessionRow({
         ) : null}
         {onDeleteSession ? (
           <>
-            {onRenameSession || onOpenInNewTab ? (
+            {onRenameSession ||
+            onOpenInNewTab ||
+            onStopTurn ||
+            onFilterAgent ||
+            onFilterMachine ? (
               <ContextMenuSeparator />
             ) : null}
             <ContextMenuItem variant="destructive" onSelect={onDeleteSession}>

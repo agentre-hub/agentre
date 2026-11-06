@@ -20,8 +20,16 @@
   "sessionRow": {
     "menu": {
       "delete": "Delete",
+      "filterAgent": "Only this agent",
+      "filterMachine": "Only this machine",
       "openInNewTab": "Open in new tab",
-      "rename": "Rename"
+      "rename": "Rename",
+      "stopTurn": "Stop this turn"
+    },
+    "status": {
+      "error": "Error",
+      "running": "Running",
+      "waiting": "Needs you"
     }
   },
   "sessionIndex": {
@@ -51,10 +59,12 @@
     "filter": {
       "aria": "Filter sessions",
       "all": "All",
+      "attention": "Needs you",
       "running": "Running",
       "unread": "Unread"
     },
     "empty": {
+      "attention": "No sessions need you",
       "running": "No running sessions",
       "unread": "No unread sessions",
       "outside": "{{count}} sessions are outside this filter.",
