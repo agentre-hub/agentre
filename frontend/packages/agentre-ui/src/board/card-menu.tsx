@@ -4,12 +4,10 @@ import { Check, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "../ui/dialog";
+  DialogShell,
+  DialogShellBody,
+  DialogShellHeader,
+} from "../ui/dialog-shell";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,82 +68,83 @@ export function BoardCardMenu({
 
   if (touch) {
     return (
-      <Dialog open={sheetOpen} onOpenChange={setSheetOpen}>
-        <DialogTrigger asChild>
-          <button
-            type="button"
-            data-testid={`board-card-menu-${cardId}`}
-            aria-label={t("board.cardMenu")}
-            className={cn(
-              "inline-flex size-11 cursor-pointer items-center justify-center rounded-md text-muted-foreground",
-              "hover:bg-accent hover:text-foreground focus-visible:focus-outline",
-              className,
-            )}
-          >
-            <MoreHorizontal className="size-4" aria-hidden="true" />
-          </button>
-        </DialogTrigger>
-        <DialogContent
-          aria-describedby={undefined}
-          data-testid={`board-card-sheet-${cardId}`}
-          className="top-auto bottom-0 left-0 max-w-none translate-x-0 translate-y-0 rounded-b-none pb-[env(safe-area-inset-bottom)] w-full"
+      <>
+        <button
+          type="button"
+          data-testid={`board-card-menu-${cardId}`}
+          aria-label={t("board.cardMenu")}
+          aria-haspopup="dialog"
+          aria-expanded={sheetOpen}
+          onClick={() => setSheetOpen(true)}
+          className={cn(
+            "inline-flex size-11 cursor-pointer items-center justify-center rounded-md text-muted-foreground",
+            "hover:bg-accent hover:text-foreground focus-visible:focus-outline",
+            className,
+          )}
         >
-          <DialogHeader>
-            <DialogTitle>{t("board.moveCardTo", { id: cardId })}</DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col gap-3 px-4 pb-4">
-            <div className="flex flex-col overflow-hidden rounded-xl bg-field-fill">
-              {BOARD_STAGES.map((target) => (
+          <MoreHorizontal className="size-4" aria-hidden="true" />
+        </button>
+        {/* 底部弹层统一走 DialogShell：<640px 贴底，640–767px 居中浮卡。 */}
+        <DialogShell open={sheetOpen} onOpenChange={setSheetOpen} size="sm">
+          <div data-testid={`board-card-sheet-${cardId}`} className="contents">
+            <DialogShellHeader
+              title={t("board.moveCardTo", { id: cardId })}
+              onClose={() => setSheetOpen(false)}
+            />
+            <DialogShellBody className="flex flex-col gap-3 px-4 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
+              <div className="flex flex-col overflow-hidden rounded-xl bg-field-fill">
+                {BOARD_STAGES.map((target) => (
+                  <button
+                    key={target}
+                    type="button"
+                    disabled={target === stage}
+                    aria-current={target === stage ? "true" : undefined}
+                    onClick={() => {
+                      setSheetOpen(false);
+                      ports.onMove(cardId, target);
+                    }}
+                    className={sheetItem}
+                  >
+                    <span className="flex-1">
+                      {t(BOARD_STAGE_META[target].labelKey)}
+                    </span>
+                    {target === stage ? (
+                      <Check
+                        className="size-4 text-primary-text"
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-col overflow-hidden rounded-xl bg-field-fill">
                 <button
-                  key={target}
                   type="button"
-                  disabled={target === stage}
-                  aria-current={target === stage ? "true" : undefined}
                   onClick={() => {
                     setSheetOpen(false);
-                    ports.onMove(cardId, target);
+                    ports.onEdit(cardId);
                   }}
                   className={sheetItem}
                 >
-                  <span className="flex-1">
-                    {t(BOARD_STAGE_META[target].labelKey)}
-                  </span>
-                  {target === stage ? (
-                    <Check
-                      className="size-4 text-primary-text"
-                      aria-hidden="true"
-                    />
-                  ) : null}
+                  <Pencil className="size-4" aria-hidden="true" />
+                  {t("board.edit")}
                 </button>
-              ))}
-            </div>
-            <div className="flex flex-col overflow-hidden rounded-xl bg-field-fill">
-              <button
-                type="button"
-                onClick={() => {
-                  setSheetOpen(false);
-                  ports.onEdit(cardId);
-                }}
-                className={sheetItem}
-              >
-                <Pencil className="size-4" aria-hidden="true" />
-                {t("board.edit")}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSheetOpen(false);
-                  ports.onDelete(cardId);
-                }}
-                className={cn(sheetItem, "text-destructive")}
-              >
-                <Trash2 className="size-4" aria-hidden="true" />
-                {t("board.delete")}
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSheetOpen(false);
+                    ports.onDelete(cardId);
+                  }}
+                  className={cn(sheetItem, "text-destructive")}
+                >
+                  <Trash2 className="size-4" aria-hidden="true" />
+                  {t("board.delete")}
+                </button>
+              </div>
+            </DialogShellBody>
           </div>
-        </DialogContent>
-      </Dialog>
+        </DialogShell>
+      </>
     );
   }
 

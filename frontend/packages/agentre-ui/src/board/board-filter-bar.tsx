@@ -4,12 +4,11 @@ import { SlidersHorizontal } from "lucide-react";
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "../ui/dialog";
+  DialogShell,
+  DialogShellBody,
+  DialogShellFooter,
+  DialogShellHeader,
+} from "../ui/dialog-shell";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 import { BoardFilterChips } from "./filter-chips";
@@ -109,37 +108,42 @@ export function BoardFilterBar({
         matchedCount={matchedCount}
       />
       {sheet ? (
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>{trigger}</DialogTrigger>
-          <DialogContent
-            aria-describedby={undefined}
-            data-testid="filter-sheet"
-            className="top-auto bottom-0 left-0 max-w-none translate-x-0 translate-y-0 rounded-b-none pb-[env(safe-area-inset-bottom)] w-full"
-          >
-            <DialogHeader>
-              <DialogTitle>{t("board.filter.button")}</DialogTitle>
-            </DialogHeader>
-            <BoardFilterPanel
-              sheet
-              query={query}
-              labels={labels}
-              patch={state.patch}
-              onManageLabels={manageLabels}
-            />
-            <div className="p-4">
-              <button
-                type="button"
-                data-testid="filter-sheet-apply"
-                onClick={() => setOpen(false)}
-                className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground focus-visible:focus-outline"
-              >
-                {matchedCount === undefined
-                  ? t("board.filter.apply")
-                  : t("board.filter.showCount", { count: matchedCount })}
-              </button>
+        <>
+          {React.cloneElement(trigger, {
+            "aria-haspopup": "dialog",
+            onClick: () => setOpen(true),
+          })}
+          {/* 底部弹层统一走 DialogShell：<640px 贴底，640–767px 居中浮卡。 */}
+          <DialogShell open={open} onOpenChange={setOpen} size="sm">
+            <div data-testid="filter-sheet" className="contents">
+              <DialogShellHeader
+                title={t("board.filter.button")}
+                onClose={() => setOpen(false)}
+              />
+              <DialogShellBody className="px-0 py-0">
+                <BoardFilterPanel
+                  sheet
+                  query={query}
+                  labels={labels}
+                  patch={state.patch}
+                  onManageLabels={manageLabels}
+                />
+              </DialogShellBody>
+              <DialogShellFooter stack>
+                <button
+                  type="button"
+                  data-testid="filter-sheet-apply"
+                  onClick={() => setOpen(false)}
+                  className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground focus-visible:focus-outline"
+                >
+                  {matchedCount === undefined
+                    ? t("board.filter.apply")
+                    : t("board.filter.showCount", { count: matchedCount })}
+                </button>
+              </DialogShellFooter>
             </div>
-          </DialogContent>
-        </Dialog>
+          </DialogShell>
+        </>
       ) : (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>{trigger}</PopoverTrigger>

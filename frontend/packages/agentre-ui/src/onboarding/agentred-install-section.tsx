@@ -19,6 +19,11 @@ export type AgentredInstallSectionProps = {
   installCopyTestId?: string;
   /** 触屏档：chips 选择、只留一张安装命令卡。省略即与今天一致。 */
   compact?: boolean;
+  /**
+   * 紧凑档里装完紧接着要跑的那一条（如宿主的 `agentred login`）：并进同一张命令卡、
+   * 排在安装命令下一行，一屏仍只有一张卡、一次复制。只在 `compact` 下生效。
+   */
+  thenCommand?: string;
 };
 
 /**
@@ -36,6 +41,7 @@ export function AgentredInstallSection({
   installTestId,
   installCopyTestId,
   compact = false,
+  thenCommand,
 }: AgentredInstallSectionProps) {
   const { t } = useUiTranslation();
   const docker = method === "docker";
@@ -78,7 +84,11 @@ export function AgentredInstallSection({
                 ? t("onboarding.install.powershell")
                 : t("onboarding.install.terminal")
           }
-          command={agentredInstallCommand(method, os)}
+          command={
+            compact && thenCommand
+              ? `${agentredInstallCommand(method, os)}\n${thenCommand}`
+              : agentredInstallCommand(method, os)
+          }
           testId={installTestId}
           copyTestId={installCopyTestId}
         />

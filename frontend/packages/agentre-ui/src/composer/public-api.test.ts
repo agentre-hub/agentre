@@ -8,9 +8,7 @@ import * as pkg from "../index";
  */
 describe("输入框的对外契约", () => {
   it("从 barrel 出得去", () => {
-    const missing = [
-      "ChatComposer",
-    ].filter((name) => !(name in pkg));
+    const missing = ["ChatComposer"].filter((name) => !(name in pkg));
 
     expect(missing).toEqual([]);
   });

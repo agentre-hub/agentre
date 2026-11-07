@@ -240,7 +240,8 @@ describe("范围弹层档（sheet）", () => {
 
     await user.click(screen.getByRole("button", { name: /./ }));
     const sheet = await screen.findByTestId("scope-sheet");
-    expect(sheet.className).toContain("bottom-0");
+    // 底部弹层走共享的 DialogShell（<640px 贴底、640–767px 居中），不自写一套定位。
+    expect(sheet.closest('[data-slot="dialog-shell-content"]')).not.toBeNull();
     expect(within(sheet).getByTestId("scope-search").className).toContain(
       "text-base",
     );

@@ -1,12 +1,11 @@
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "../ui/dialog";
+  DialogShell,
+  DialogShellBody,
+  DialogShellFooter,
+  DialogShellHeader,
+} from "../ui/dialog-shell";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 import { ProjectScopePopover } from "./scope-popover";
@@ -48,48 +47,50 @@ export function ProjectScopePicker({
 
   if (sheet) {
     return (
-      <Dialog open={state.open} onOpenChange={state.setOpen}>
-        <DialogTrigger asChild>
-          <ProjectScopeTrigger
-            scope={scope}
-            selected={state.selected}
-            open={state.open}
-            className={cn("min-h-11", className)}
-          />
-        </DialogTrigger>
-        <DialogContent
-          aria-describedby={undefined}
-          data-testid="scope-sheet"
-          className="top-auto bottom-0 left-0 max-w-none translate-x-0 translate-y-0 rounded-b-none pb-[env(safe-area-inset-bottom)] w-full"
-        >
-          <DialogHeader>
-            <DialogTitle>{t("board.scope.label")}</DialogTitle>
-          </DialogHeader>
-          <ProjectScopePopover
-            sheet
-            scope={scope}
-            rows={state.rows}
-            needle={state.needle}
-            onNeedleChange={state.setNeedle}
-            onSearchKeyDown={state.onSearchKeyDown}
-            cursor={state.cursor}
-            unassignedCount={unassignedCount}
-            onPick={onScopeChange}
-          />
-          <div className="p-4">
-            <button
-              type="button"
-              data-testid="scope-sheet-apply"
-              onClick={() => state.setOpen(false)}
-              className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground focus-visible:focus-outline"
-            >
-              {matchedCount === undefined
-                ? t("board.filter.apply")
-                : t("board.filter.showCount", { count: matchedCount })}
-            </button>
+      <>
+        <ProjectScopeTrigger
+          scope={scope}
+          selected={state.selected}
+          open={state.open}
+          aria-haspopup="dialog"
+          onClick={() => state.setOpen(true)}
+          className={cn("min-h-11", className)}
+        />
+        {/* 底部弹层统一走 DialogShell：<640px 贴底，640–767px 居中浮卡。 */}
+        <DialogShell open={state.open} onOpenChange={state.setOpen} size="sm">
+          <div data-testid="scope-sheet" className="contents">
+            <DialogShellHeader
+              title={t("board.scope.label")}
+              onClose={() => state.setOpen(false)}
+            />
+            <DialogShellBody className="px-0 py-0">
+              <ProjectScopePopover
+                sheet
+                scope={scope}
+                rows={state.rows}
+                needle={state.needle}
+                onNeedleChange={state.setNeedle}
+                onSearchKeyDown={state.onSearchKeyDown}
+                cursor={state.cursor}
+                unassignedCount={unassignedCount}
+                onPick={onScopeChange}
+              />
+            </DialogShellBody>
+            <DialogShellFooter stack>
+              <button
+                type="button"
+                data-testid="scope-sheet-apply"
+                onClick={() => state.setOpen(false)}
+                className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground focus-visible:focus-outline"
+              >
+                {matchedCount === undefined
+                  ? t("board.filter.apply")
+                  : t("board.filter.showCount", { count: matchedCount })}
+              </button>
+            </DialogShellFooter>
           </div>
-        </DialogContent>
-      </Dialog>
+        </DialogShell>
+      </>
     );
   }
 

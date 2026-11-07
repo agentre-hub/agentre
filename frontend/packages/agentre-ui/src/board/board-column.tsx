@@ -87,7 +87,8 @@ export function BoardColumn({
               })
             : state.total}
         </span>
-        {ports.onCreateTask ? (
+        {/* 阶段档（手机）不摆：「新建任务」在页头的 ＋，同一件事不在两处各放一颗。 */}
+        {ports.onCreateTask && !stageLayout ? (
           // 从这一列建出来的任务落在这一列：阶段预置成它，不必建完再拖一次。
           <button
             type="button"
@@ -95,8 +96,7 @@ export function BoardColumn({
             aria-label={t("board.addTask", { stage: label })}
             onClick={() => ports.onCreateTask?.(state.stage)}
             className={cn(
-              stageLayout ? "size-11" : "size-5",
-              "ml-auto inline-flex cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors",
+              "ml-auto inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors",
               "hover:bg-accent hover:text-foreground",
               "focus-visible:focus-outline",
             )}

@@ -596,6 +596,12 @@ describe("阶段档（手机）：一次一个阶段", () => {
     renderBoard(model());
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });
+
+  it("Given layout=stage, When the column renders, Then it has no per-stage ＋ (新建任务 lives in the page header)", () => {
+    renderStage(model(), ports({ onCreateTask: vi.fn() }));
+
+    expect(screen.queryByTestId("board-column-add-todo")).toBeNull();
+  });
 });
 
 describe("卡片菜单触屏档", () => {
@@ -616,6 +622,12 @@ describe("卡片菜单触屏档", () => {
     await user.click(screen.getByTestId("board-card-menu-6"));
 
     expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+    // 底部弹层走共享的 DialogShell（<640px 贴底、640–767px 居中），不自写一套定位。
+    expect(
+      screen
+        .getByTestId("board-card-sheet-6")
+        .closest('[data-slot="dialog-shell-content"]'),
+    ).not.toBeNull();
     expect(screen.getByRole("button", { name: "To do" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Review" }));
     expect(p.onMove).toHaveBeenCalledWith(6, "review");

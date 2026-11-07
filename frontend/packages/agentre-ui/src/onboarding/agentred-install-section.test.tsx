@@ -126,4 +126,15 @@ describe("AgentredInstallSection compact", () => {
     fireEvent.click(mac);
     expect(onOsChange).toHaveBeenCalledWith("macos");
   });
+
+  it("给了 thenCommand：接着要跑的那一条并进同一张卡（安装在上、它在下），仍只有一张", () => {
+    renderSection({ compact: true, thenCommand: "agentred login --server x" });
+    expect(screen.getAllByRole("group")).toHaveLength(1);
+    const lines = (
+      screen.getByRole("group").querySelector("code")?.textContent ?? ""
+    ).split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("install.sh");
+    expect(lines[1]).toBe("agentred login --server x");
+  });
 });

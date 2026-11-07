@@ -330,7 +330,8 @@ describe("筛选弹层档（sheet）", () => {
 
     await user.click(screen.getByTestId("filter-trigger"));
     const sheet = await screen.findByTestId("filter-sheet");
-    expect(sheet.className).toContain("bottom-0");
+    // 底部弹层走共享的 DialogShell（<640px 贴底、640–767px 居中），不自写一套定位。
+    expect(sheet.closest('[data-slot="dialog-shell-content"]')).not.toBeNull();
     const apply = within(sheet).getByTestId("filter-sheet-apply");
     expect(apply.textContent).toContain("12");
     expect(apply.className).toContain("min-h-11");
