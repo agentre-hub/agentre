@@ -9,29 +9,9 @@ import { ProjectGlyph } from "../session-index/project-glyph";
 import { BoardCardLabels } from "./card-labels";
 import { BoardCardMenu } from "./card-menu";
 import { matchExcerpt } from "./card-excerpt";
-import { splitMatch, type MatchSegment } from "./scope-tree";
+import { MatchHighlight } from "./match-highlight";
+import { splitMatch } from "./scope-tree";
 import type { BoardCardDragBinding, BoardCardView, BoardPorts } from "./types";
-
-/** 命中片段高亮：颜色沿用范围选择器里那一处，不为它新造一档。 */
-function Highlighted({ segments }: { segments: MatchSegment[] }) {
-  return (
-    <>
-      {segments.map((segment, index) =>
-        segment.match ? (
-          <mark
-            key={index}
-            data-slot="board-card-match"
-            className="bg-transparent font-semibold text-primary-text"
-          >
-            {segment.text}
-          </mark>
-        ) : (
-          <React.Fragment key={index}>{segment.text}</React.Fragment>
-        ),
-      )}
-    </>
-  );
-}
 
 export interface BoardCardProps {
   card: BoardCardView;
@@ -158,7 +138,10 @@ export function BoardCard({
         {/* break-words:标题可能是没有空格的长串(测试名 / 路径 / URL),不折行会被
             line-clamp 的 overflow:hidden 从词中间裁掉。 */}
         <h3 className="line-clamp-2 text-xs leading-normal font-semibold break-words">
-          <Highlighted segments={splitMatch(card.title, keyword ?? "")} />
+          <MatchHighlight
+            segments={splitMatch(card.title, keyword ?? "")}
+            slot="board-card-match"
+          />
         </h3>
         {excerpt ? (
           // 命中落在描述里时才有这一行，且**只有一行**：卡片不是正文的容器。
@@ -166,7 +149,7 @@ export function BoardCard({
             data-testid={`board-card-excerpt-${card.id}`}
             className="truncate text-2xs text-muted-foreground"
           >
-            <Highlighted segments={excerpt} />
+            <MatchHighlight segments={excerpt} slot="board-card-match" />
           </p>
         ) : null}
         <BoardCardLabels labels={card.labels} />

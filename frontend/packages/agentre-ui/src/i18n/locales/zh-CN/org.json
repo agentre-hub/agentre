@@ -12,7 +12,9 @@
       },
       "gapName": "{{name}}，{{reason}}",
       "machineBackend": "{{machine}} · {{backend}}",
-      "memberSummary": "{{count}} 人 ›"
+      "memberSummary": "{{count}} 人 ›",
+      "memberSummary_one": "{{count}} 人 ›",
+      "memberSummary_other": "{{count}} 人 ›"
     },
     "department": {
       "departmentMemberCount": "{{count}} 名成员",

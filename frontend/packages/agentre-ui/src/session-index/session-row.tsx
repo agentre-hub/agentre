@@ -10,6 +10,7 @@ import {
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
+import { MatchHighlight } from "../board/match-highlight";
 import { splitMatch } from "../board/scope-tree";
 import { statusConfig } from "../transcript/agent-status";
 import type { AgentStatus } from "../transcript/agent-status";
@@ -235,20 +236,11 @@ function SessionRow({
           : null;
   const phoneTitle = (
     <span className="block truncate text-sm">
-      {highlight
-        ? splitMatch(title, highlight).map((segment, index) =>
-            segment.match ? (
-              <mark
-                key={index}
-                className="bg-transparent font-semibold text-primary-text"
-              >
-                {segment.text}
-              </mark>
-            ) : (
-              <React.Fragment key={index}>{segment.text}</React.Fragment>
-            ),
-          )
-        : title}
+      {highlight ? (
+        <MatchHighlight segments={splitMatch(title, highlight)} />
+      ) : (
+        title
+      )}
     </span>
   );
 

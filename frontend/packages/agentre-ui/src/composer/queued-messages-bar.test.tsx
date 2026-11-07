@@ -322,6 +322,31 @@ describe("QueuedMessagesBar · touch", () => {
     expect(onClear).toHaveBeenCalledTimes(1);
   });
 
+  it("words the notice in the singular for one steer and the plural for more", () => {
+    const { rerender } = render(
+      <QueuedMessagesBar
+        queued={[]}
+        onCancel={vi.fn()}
+        onClearAll={vi.fn()}
+        undeliveredNotice={{ count: 1, onClear: vi.fn() }}
+      />,
+    );
+    expect(screen.getByTestId("undelivered-notice").textContent).toContain(
+      "1 steer not delivered, put back in the input",
+    );
+    rerender(
+      <QueuedMessagesBar
+        queued={[]}
+        onCancel={vi.fn()}
+        onClearAll={vi.fn()}
+        undeliveredNotice={{ count: 2, onClear: vi.fn() }}
+      />,
+    );
+    expect(screen.getByTestId("undelivered-notice").textContent).toContain(
+      "2 steers not delivered, put back in the input",
+    );
+  });
+
   it("renders nothing for a zero-count notice with an empty queue", () => {
     const { container } = render(
       <QueuedMessagesBar

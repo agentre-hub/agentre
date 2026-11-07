@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Check, ChevronDown } from "lucide-react";
 
+import { MatchHighlight } from "../board/match-highlight";
 import { splitMatch } from "../board/scope-tree";
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
@@ -74,25 +75,6 @@ export type ScopeListProps = {
 const ROW =
   "flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-md px-3 text-left text-sm outline-none transition-colors focus-visible:focus-outline motion-reduce:transition-none";
 
-function Highlight({ text, needle }: { text: string; needle: string }) {
-  return (
-    <>
-      {splitMatch(text, needle).map((segment, index) =>
-        segment.match ? (
-          <mark
-            key={index}
-            className="rounded-sm bg-primary-soft text-primary-text"
-          >
-            {segment.text}
-          </mark>
-        ) : (
-          <React.Fragment key={index}>{segment.text}</React.Fragment>
-        ),
-      )}
-    </>
-  );
-}
-
 type ItemRowProps = {
   testId: string;
   selected: boolean;
@@ -138,7 +120,7 @@ function ItemRow({
       {leading}
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate">
-          <Highlight text={name} needle={needle} />
+          <MatchHighlight segments={splitMatch(name, needle)} />
         </span>
         {subtitle ? (
           <span className="truncate text-xs font-normal text-muted-foreground">
@@ -212,8 +194,10 @@ function ProjectTree({
     <>
       {nodes.map((node) => {
         const hasChildren = (node.children?.length ?? 0) > 0;
-        // 搜索中一律展开：命中项藏在折叠里等于没搜到。
-        const open = !!needle.trim() || !collapsed.has(node.id);
+        // 搜索中一律展开：命中项藏在折叠里等于没搜到。箭头因此也点不动——点了看不出
+        // 变化，却会在背后翻转折叠态，清掉搜索后树莫名其妙收起来。
+        const searching = !!needle.trim();
+        const open = searching || !collapsed.has(node.id);
         return (
           <li key={node.id} className="list-none">
             <div className="flex items-center">
@@ -224,8 +208,9 @@ function ProjectTree({
                     name: node.name,
                   })}
                   aria-expanded={open}
+                  disabled={searching}
                   onClick={() => onToggle(node.id)}
-                  className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-field-fill-hover focus-visible:focus-outline"
+                  className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-field-fill-hover focus-visible:focus-outline disabled:cursor-default disabled:hover:bg-transparent"
                   style={{ marginLeft: depth * 16 }}
                 >
                   <ChevronDown

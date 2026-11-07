@@ -340,6 +340,17 @@ describe("筛选弹层档（sheet）", () => {
     expect(screen.queryByTestId("filter-sheet")).toBeNull();
   });
 
+  it("Given sheet and exactly one match, When opened, Then the button reads in the singular", async () => {
+    const user = userEvent.setup();
+    renderBar({ sheet: true, matchedCount: 1 });
+
+    await user.click(screen.getByTestId("filter-trigger"));
+    const sheet = await screen.findByTestId("filter-sheet");
+    expect(within(sheet).getByTestId("filter-sheet-apply").textContent).toBe(
+      "Show 1 task",
+    );
+  });
+
   it("Given sheet, When options and date inputs render, Then chips and inputs are touch sized with 16px text", async () => {
     const user = userEvent.setup();
     renderBar({

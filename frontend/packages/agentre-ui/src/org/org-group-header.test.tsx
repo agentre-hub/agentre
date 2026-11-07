@@ -32,6 +32,23 @@ describe("OrgGroupHeader 摘要档（summary）", () => {
     expect(onSelect).toHaveBeenCalledWith({ kind: "department", id: 3 });
   });
 
+  it("英文单数：一个人的组写「1 person ›」，不是「1 people ›」", () => {
+    render(
+      <OrgGroupHeader
+        group={{
+          ...group,
+          department: { ...group.department, memberCount: 1 },
+        }}
+        selected={false}
+        onSelect={vi.fn()}
+        summary
+      />,
+    );
+    expect(screen.getByTestId("org-group-select-3")).toHaveTextContent(
+      "1 person ›",
+    );
+  });
+
   it("不传 summary：Lead 徽标与动作照旧", () => {
     render(
       <OrgGroupHeader

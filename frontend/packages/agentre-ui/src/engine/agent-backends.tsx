@@ -232,6 +232,8 @@ function AgentBackendsPanelBody({
 
   async function openEditor(backend: Backend, openBinding = false) {
     if (layer !== undefined) {
+      // 整页档由宿主切到编辑层再开编辑器：「换绑定」的意图在这里记下，开页时带上。
+      bindingIntentRef.current = openBinding ? backend.id : null;
       onSelect?.(backend.id);
       return;
     }
@@ -430,6 +432,8 @@ function AgentBackendsPanelBody({
   // 后台刷新换掉清单数组时不重开（那会把正在填的表单换成一份新的初值）。
   const getCliPath = ports.cliPath?.get;
   const pageTargetRef = React.useRef<BackendEditorTarget | null>(null);
+  // 列表层上点的是「换绑定」而不是「编辑」：编辑页开出来时直接弹出模型选择器。
+  const bindingIntentRef = React.useRef<number | null>(null);
   React.useEffect(() => {
     if (layer === undefined) return;
     if (layer !== "editor" || selectedId == null) {
@@ -439,6 +443,8 @@ function AgentBackendsPanelBody({
     }
     if (loading || pageTargetRef.current === selectedId) return;
     pageTargetRef.current = selectedId;
+    const openBinding = bindingIntentRef.current === selectedId;
+    bindingIntentRef.current = null;
     if (selectedId === "new") {
       setEditor({ kind: "create" });
       return;
@@ -465,7 +471,7 @@ function AgentBackendsPanelBody({
       }
       // 等待期间宿主换了目标：丢弃这次应答。
       if (pageTargetRef.current !== backend.id) return;
-      setEditor({ kind: "edit", backend, cliPath });
+      setEditor({ kind: "edit", backend, cliPath, openBinding });
     })();
   }, [layer, selectedId, loading, visibleBackends, getCliPath, onSelect, t]);
 

@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentBackendsPanel } from "./agent-backends";
@@ -239,6 +240,43 @@ describe("AgentBackendsPanel editor page mode", () => {
 
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("form")).toBeNull();
+  });
+
+  it("Given layer=list, When Change binding is pressed, Then the editor page the host opens next comes up with the model picker open (Edit does not)", async () => {
+    const { ports } = setup();
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    const props = {
+      ports,
+      onSelect,
+      renderHeader: (actions: ReactNode) => <div>{actions}</div>,
+    };
+    const { rerender } = render(
+      <AgentBackendsPanel {...props} layer="list" selectedId={null} />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Change binding for My Claude",
+      }),
+    );
+    expect(onSelect).toHaveBeenLastCalledWith(7);
+    rerender(<AgentBackendsPanel {...props} layer="editor" selectedId={7} />);
+    await screen.findByRole("form", { name: "Edit Agent Backend" });
+    expect(
+      await screen.findByPlaceholderText("Search providers or models…"),
+    ).toBeInTheDocument();
+
+    // ✕ 回到列表，再走「编辑」：这一次不该自动弹出选择器。
+    rerender(<AgentBackendsPanel {...props} layer="list" selectedId={null} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Edit My Claude" }),
+    );
+    rerender(<AgentBackendsPanel {...props} layer="editor" selectedId={7} />);
+    await screen.findByRole("form", { name: "Edit Agent Backend" });
+    expect(
+      screen.queryByPlaceholderText("Search providers or models…"),
+    ).toBeNull();
   });
 
   it("Given no layer, When Edit is pressed, Then the editor still opens as a dialog without groups", async () => {

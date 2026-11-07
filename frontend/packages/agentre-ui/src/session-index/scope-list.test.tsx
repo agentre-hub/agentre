@@ -192,4 +192,15 @@ describe("ScopeList", () => {
     await user.type(input, "zzz");
     expect(screen.getByText("No matches")).toBeInTheDocument();
   });
+
+  it("Given a search keeps a parent forced open, When its chevron is tapped, Then nothing hidden flips and the tree is still open after clearing", async () => {
+    const { user } = setup();
+    const input = screen.getByRole("searchbox");
+    await user.type(input, "front");
+    // 搜索中树一律展开：箭头点了看不出变化，就不该在背后把它折起来。
+    await user.click(screen.getByRole("button", { name: "Toggle agentre" }));
+    expect(screen.getByText("front")).toBeInTheDocument();
+    await user.clear(input);
+    expect(screen.getByTestId("scope-item-project-p1a")).toBeInTheDocument();
+  });
 });

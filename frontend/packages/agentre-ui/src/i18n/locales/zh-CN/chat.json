@@ -362,6 +362,8 @@
     "notCancellableTitle": "这个后端的插话一发即不可撤",
     "undelivered": {
       "notice": "{{count}} 条插话没送到，已放回输入框",
+      "notice_one": "{{count}} 条插话没送到，已放回输入框",
+      "notice_other": "{{count}} 条插话没送到，已放回输入框",
       "clear": "清掉"
     },
     "withdrawDisabledEditing": "先完成或取消编辑",

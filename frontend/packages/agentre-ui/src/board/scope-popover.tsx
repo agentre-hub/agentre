@@ -5,6 +5,7 @@ import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 import { ProjectGlyph } from "../session-index/project-glyph";
 
+import { MatchHighlight } from "./match-highlight";
 import { splitMatch, type ScopeRow } from "./scope-tree";
 import type { ProjectScope } from "./query-types";
 
@@ -213,19 +214,10 @@ export function ProjectScopePopover({
                 className="size-3.5 shrink-0 rounded-[4px]"
               />
               <span className="truncate">
-                {splitMatch(row.node.name, needle).map((segment, i) =>
-                  segment.match ? (
-                    <mark
-                      key={i}
-                      data-slot="scope-match"
-                      className="bg-transparent font-semibold text-primary-text"
-                    >
-                      {segment.text}
-                    </mark>
-                  ) : (
-                    <React.Fragment key={i}>{segment.text}</React.Fragment>
-                  ),
-                )}
+                <MatchHighlight
+                  segments={splitMatch(row.node.name, needle)}
+                  slot="scope-match"
+                />
               </span>
               <CountBadge
                 id={String(row.node.id)}
