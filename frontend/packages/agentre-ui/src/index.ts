@@ -320,7 +320,6 @@ export { ProjectGroupHeader } from "./session-index/project-group-header";
 export { AgentGroupHeader } from "./session-index/agent-group-header";
 export { MachineGroupHeader } from "./session-index/machine-group-header";
 export { FreeGroupHeader } from "./session-index/free-group-header";
-export { IndexGroupHeader } from "./session-index/group-header";
 export { phaseSections } from "./session-index/phase-sections";
 export type {
   PhaseSection,
@@ -415,23 +414,9 @@ export type { ReasoningEffortValue } from "./engine/agent-backends-shared";
 export { usageLevel } from "./composer/usage-level";
 export type { UsageLevel } from "./composer/usage-level";
 export { formatTokens } from "./lib/format-tokens";
-export { formatCompactTurnDuration } from "./lib/format-duration";
-export {
-  compactTokenCount,
-  fitMetaLine,
-  normalizeModelName,
-} from "./transcript/meta-fit";
-export type {
-  MetaFit,
-  MetaFitInput,
-  MetaFitLevel,
-} from "./transcript/meta-fit";
 export { ToolPermissionDock } from "./transcript/canonical-tool/tool-permission/dock";
 export type { ToolPermissionDockProps } from "./transcript/canonical-tool/tool-permission/dock";
-export {
-  ShortcutHintsProvider,
-  useShortcutHintsHidden,
-} from "./transcript/canonical-tool/tool-permission/shortcut-hints";
+export { ShortcutHintsProvider } from "./transcript/canonical-tool/tool-permission/shortcut-hints";
 export type { ShortcutHintsProviderProps } from "./transcript/canonical-tool/tool-permission/shortcut-hints";
 export { isPendingToolPermission } from "./transcript/canonical-tool/tool-permission/use-tool-permission-decision";
 export { groupAgentsForPicking } from "./lib/agent-picking";
@@ -742,9 +727,6 @@ export { TaskFormShell } from "./board/task-form";
 export type { BoardAgentOption, ExecPillContext } from "./board/exec-ports";
 export { initialTaskFormValue } from "./board/use-task-form";
 export { LabelManagerPanel } from "./board/label-manager";
-export { BoardCardMenu } from "./board/card-menu";
-export { BoardFilterPanel } from "./board/filter-panel";
-export { ProjectScopePopover } from "./board/scope-popover";
 export { ALL_PROJECTS_SCOPE, EMPTY_BOARD_QUERY } from "./board/query-types";
 export type {
   BoardQuery,

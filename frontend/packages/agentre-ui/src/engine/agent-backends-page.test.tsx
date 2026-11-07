@@ -168,6 +168,53 @@ describe("AgentBackendsPanel editor page mode", () => {
     expect(screen.queryByRole("form")).toBeNull();
   });
 
+  it("Given layer=editor and the CLI path lookup fails, When it settles, Then the host is sent back to the list and the list says why", async () => {
+    const { ports } = setup();
+    (ports.cliPath!.get as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("cli overlays unreachable"),
+    );
+    const onSelect = vi.fn();
+    const { rerender } = render(
+      <AgentBackendsPanel
+        ports={ports}
+        layer="editor"
+        selectedId={7}
+        onSelect={onSelect}
+      />,
+    );
+
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(null));
+    rerender(
+      <AgentBackendsPanel
+        ports={ports}
+        layer="list"
+        selectedId={null}
+        onSelect={onSelect}
+      />,
+    );
+    expect(
+      await screen.findByText(/cli overlays unreachable/),
+    ).toBeInTheDocument();
+  });
+
+  it("Given layer=editor while the CLI path is still being read, When it renders, Then a loading line holds the page instead of a blank screen", async () => {
+    const { ports } = setup();
+    (ports.cliPath!.get as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise(() => {}),
+    );
+    render(
+      <AgentBackendsPanel
+        ports={ports}
+        layer="editor"
+        selectedId={7}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(ports.cliPath!.get).toHaveBeenCalled());
+    expect(screen.getByText("Loading...")).toBeInTheDocument();
+  });
+
   it("Given layer=list, When Edit or New is pressed, Then the host is asked to open that editor and no dialog opens", async () => {
     const { ports } = setup();
     const onSelect = vi.fn();

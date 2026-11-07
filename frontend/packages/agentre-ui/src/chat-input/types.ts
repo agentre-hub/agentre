@@ -20,6 +20,11 @@ export interface AIChatInputHandle {
   insertText: (text: string) => void;
   /** 接到现有草稿后面（空则直接填入，否则空一行再接），光标停在末尾。 */
   appendDraft: (text: string) => void;
+  /**
+   * 撤销最近一次 `appendDraft`：只有文档自那次追加后一个字都没被改过才生效，返回 true；
+   * 没有可撤的追加、或已被改过（见 `onAppendEdited`）时不动作，返回 false。
+   */
+  removeLastAppend: () => boolean;
 }
 
 export interface ProseMirrorLikeNode {

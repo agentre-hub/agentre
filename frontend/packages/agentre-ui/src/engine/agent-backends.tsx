@@ -104,7 +104,10 @@ import {
   credentialGateMessage,
 } from "./backend-editor/credential-gate";
 import { BackendEditorFooter } from "./backend-editor/editor-footer";
-import { BackendEditorPage } from "./backend-editor/editor-page";
+import {
+  BackendEditorPage,
+  type BackendEditorGroup,
+} from "./backend-editor/editor-page";
 import type { EditorState } from "./backend-editor/editor-types";
 import { OpenClawSection } from "./backend-editor/openclaw-section";
 import { useBackendCredentialStatus } from "./backend-editor/use-credential-status";
@@ -447,13 +450,24 @@ function AgentBackendsPanelBody({
       return;
     }
     void (async () => {
-      const cliPath =
-        (await getCliPath?.(backend.syncId, backend.deviceId ?? "")) ?? "";
+      let cliPath: string;
+      try {
+        cliPath =
+          (await getCliPath?.(backend.syncId, backend.deviceId ?? "")) ?? "";
+      } catch (err) {
+        // 读不到这台机器上的 CLI 路径覆盖就不开编辑页：按空值开的话，一次保存会把
+        // 原有的覆盖清掉。退回清单，由清单上的 flash 说明原因。
+        if (pageTargetRef.current !== backend.id) return;
+        pageTargetRef.current = null;
+        setFlash({ kind: "err", text: messageFromError(err, t) });
+        onSelect?.(null);
+        return;
+      }
       // 等待期间宿主换了目标：丢弃这次应答。
       if (pageTargetRef.current !== backend.id) return;
       setEditor({ kind: "edit", backend, cliPath });
     })();
-  }, [layer, selectedId, loading, visibleBackends, getCliPath, onSelect]);
+  }, [layer, selectedId, loading, visibleBackends, getCliPath, onSelect, t]);
 
   // 没有本机可扫的宿主要先点名一台机器，候选就是账号里的执行端设备。
   // 有本机的宿主不拉这份清单：桌面端的 ServerListDevices 内部会写库收编设备，
@@ -583,14 +597,15 @@ function AgentBackendsPanelBody({
     ) : null;
 
   if (layer === "editor") {
+    // 编辑页还没装上（清单在取、或这台机器的 CLI 路径在读）时占住整页：宿主在这一层
+    // 不画自己的页头，空着就是一块没有出口的白屏。
     return (
-      editorNode ??
-      (loading ? (
+      editorNode ?? (
         <div className="flex items-center justify-center gap-2 px-4 py-6 text-xs text-muted-foreground">
           <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
           {t("common.loading")}
         </div>
-      ) : null)
+      )
     );
   }
 
@@ -1706,6 +1721,33 @@ function BackendEditor({
     state.kind === "edit"
       ? t("agentBackends.editor.editTitle")
       : t("agentBackends.editor.createTitle");
+  // 字段只列一遍：弹窗按这个顺序平铺，整页档按 group 分进三组（组内保持同一顺序）。
+  // 校验摘要不进组 —— 弹窗里它夹在字段中间，整页档压在分组之后。
+  const fields: {
+    key: string;
+    node: React.ReactNode;
+    group: BackendEditorGroup["id"] | null;
+  }[] = [
+    { key: "type", node: typeField, group: "basics" },
+    { key: "name", node: nameField, group: "basics" },
+    { key: "device", node: deviceField, group: "basics" },
+    { key: "binding", node: bindingField, group: "basics" },
+    { key: "manualSync", node: manualSyncField, group: "basics" },
+    { key: "cliPath", node: cliPathField, group: "advanced" },
+    { key: "hermes", node: hermesField, group: "basics" },
+    { key: "permission", node: permissionField, group: "runtime" },
+    { key: "codex", node: codexField, group: "runtime" },
+    { key: "summary", node: summaryField, group: null },
+    { key: "reasoning", node: reasoningField, group: "runtime" },
+    { key: "env", node: envField, group: "advanced" },
+    { key: "proxy", node: proxyField, group: "runtime" },
+  ];
+  const pageGroups: BackendEditorGroup[] = (
+    ["basics", "runtime", "advanced"] as const
+  ).map((id) => ({
+    id,
+    fields: fields.filter((field) => field.group === id),
+  }));
   const footer = (
     <BackendEditorFooter
       saveResult={saveResult}
@@ -1735,35 +1777,7 @@ function BackendEditor({
           busy={submitting || syncingProvider}
           saveDisabled={submitDisabled || syncingProvider}
           saving={submitting}
-          groups={[
-            {
-              id: "basics",
-              fields: [
-                { key: "type", node: typeField },
-                { key: "name", node: nameField },
-                { key: "device", node: deviceField },
-                { key: "binding", node: bindingField },
-                { key: "manualSync", node: manualSyncField },
-                { key: "hermes", node: hermesField },
-              ],
-            },
-            {
-              id: "runtime",
-              fields: [
-                { key: "permission", node: permissionField },
-                { key: "codex", node: codexField },
-                { key: "reasoning", node: reasoningField },
-                { key: "proxy", node: proxyField },
-              ],
-            },
-            {
-              id: "advanced",
-              fields: [
-                { key: "cliPath", node: cliPathField },
-                { key: "env", node: envField },
-              ],
-            },
-          ]}
+          groups={pageGroups}
           summary={summaryField}
           footer={footer}
         />
@@ -1779,19 +1793,9 @@ function BackendEditor({
             onClose={onClose}
           />
           <DialogShellBody className="flex flex-col gap-4">
-            {typeField}
-            {nameField}
-            {deviceField}
-            {bindingField}
-            {manualSyncField}
-            {cliPathField}
-            {hermesField}
-            {permissionField}
-            {codexField}
-            {summaryField}
-            {reasoningField}
-            {envField}
-            {proxyField}
+            {fields.map((field) => (
+              <React.Fragment key={field.key}>{field.node}</React.Fragment>
+            ))}
           </DialogShellBody>
           <DialogShellFooter stack>{footer}</DialogShellFooter>
         </DialogShell>

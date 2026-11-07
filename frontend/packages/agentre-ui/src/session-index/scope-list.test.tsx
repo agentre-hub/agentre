@@ -71,6 +71,20 @@ describe("ScopeList", () => {
     expect(onSelect).toHaveBeenCalledWith({ kind: "all" });
   });
 
+  it("Given counts the host cannot tell, When rendered, Then rows show no number rather than a made-up one", () => {
+    setup({
+      allCount: undefined,
+      projects: [{ id: "p2", name: "docs" }],
+      machines: [{ id: "m1", name: "本机", online: true }],
+    });
+    expect(screen.getByTestId("scope-all").textContent).toBe(
+      "All conversations",
+    );
+    expect(screen.getByTestId("scope-item-project-p2").textContent).not.toMatch(
+      /\d/,
+    );
+  });
+
   it("offers three tabs, starting on projects", () => {
     setup();
     const tabs = screen.getAllByRole("tab");

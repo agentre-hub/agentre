@@ -32,10 +32,6 @@ describe("看板呈现件的对外契约", () => {
       "initialTaskFormValue",
       // 标签管理
       "LabelManagerPanel",
-      // 手机形态：卡片菜单、筛选面板、范围弹层
-      "BoardCardMenu",
-      "BoardFilterPanel",
-      "ProjectScopePopover",
     ].filter((name) => !(name in pkg));
 
     expect(missing).toEqual([]);

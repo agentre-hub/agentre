@@ -29,8 +29,8 @@ export type ScopeTab = "project" | "agent" | "machine";
 type ScopeItemBase = {
   id: string;
   name: string;
-  /** 范围内的对话数。 */
-  count: number;
+  /** 范围内的对话数。宿主数不出来时省略：不摆数，而不是摆一个 0。 */
+  count?: number;
   /** 有事等你：名字旁摆一枚 waiting 色点。 */
   needsYou?: boolean;
 };
@@ -58,8 +58,8 @@ export type ScopeAgentGroup = {
 export type ScopeMachineItem = ScopeItemBase & { online: boolean };
 
 export type ScopeListProps = {
-  /** 「全部对话」的条数。 */
-  allCount: number;
+  /** 「全部对话」的条数。省略 = 还数不出来，这一行不摆数。 */
+  allCount?: number;
   selected: ScopeValue;
   onSelect: (scope: ScopeValue) => void;
   projects: ScopeProjectNode[];
@@ -102,7 +102,7 @@ type ItemRowProps = {
   name: string;
   needle: string;
   subtitle?: string;
-  count: number;
+  count?: number;
   needsYou?: boolean;
   className?: string;
 };
@@ -153,9 +153,11 @@ function ItemRow({
           className="size-2 shrink-0 rounded-full bg-status-waiting"
         />
       ) : null}
-      <span className="shrink-0 font-mono text-xs text-muted-foreground">
-        {count}
-      </span>
+      {count === undefined ? null : (
+        <span className="shrink-0 font-mono text-xs text-muted-foreground">
+          {count}
+        </span>
+      )}
       {selected ? (
         <Check
           data-testid="scope-check"

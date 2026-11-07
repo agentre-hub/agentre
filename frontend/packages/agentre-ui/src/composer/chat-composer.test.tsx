@@ -1253,12 +1253,20 @@ describe("ChatComposer · touch input mode", () => {
 
     const editable = screen.getByRole("textbox");
     await user.click(editable);
-    await user.keyboard("hi");
+    // 内容经编辑器自己的命令改，不靠 jsdom 里模拟的逐键输入：后者要等 ProseMirror 的
+    // DOM 观察者回读，机器一忙就会读出一个多余的空段落，草稿永远不空。这里要钉的是
+    // 外壳随草稿空 / 非空换形、不重挂、不丢焦点，与按键怎么变成文档无关。
+    const editor = editorRef.current!;
+    act(() => {
+      editor.commands.insertContent("hi");
+    });
     await waitFor(() => expect(form).toHaveAttribute("data-shape", "card"));
     expect(screen.getByRole("textbox")).toBe(editable);
     expect(editable).toHaveFocus();
 
-    await user.keyboard("{Backspace}{Backspace}");
+    act(() => {
+      editor.commands.clearContent(true);
+    });
     await waitFor(() => expect(form).toHaveAttribute("data-shape", "pill"));
     expect(screen.getByRole("textbox")).toBe(editable);
     expect(editable).toHaveFocus();
@@ -1447,6 +1455,44 @@ describe("ChatComposer · remove last append", () => {
     const handle = createRef<ChatComposerHandle>();
     render(<ChatComposer ref={handle} onSubmit={vi.fn()} />);
     expect(handle.current?.removeLastAppend()).toBe(false);
+  });
+
+  it("Given a host append, When the user then types, Then onAppendEdited fires once and the append can no longer be removed", async () => {
+    const user = userEvent.setup();
+    const handle = createRef<ChatComposerHandle>();
+    const onAppendEdited = vi.fn();
+    render(
+      <ChatComposer
+        ref={handle}
+        onAppendEdited={onAppendEdited}
+        onSubmit={vi.fn()}
+      />,
+    );
+    act(() => handle.current?.appendDraft("moved back"));
+    await waitFor(() => expect(sendButton()).toBeEnabled());
+    expect(onAppendEdited).not.toHaveBeenCalled();
+
+    await user.keyboard("!?");
+
+    expect(onAppendEdited).toHaveBeenCalledTimes(1);
+    expect(handle.current?.removeLastAppend()).toBe(false);
+  });
+
+  it("Given a host append, When the host removes it, Then onAppendEdited is not called", () => {
+    const handle = createRef<ChatComposerHandle>();
+    const onAppendEdited = vi.fn();
+    render(
+      <ChatComposer
+        ref={handle}
+        onAppendEdited={onAppendEdited}
+        onSubmit={vi.fn()}
+      />,
+    );
+    act(() => handle.current?.appendDraft("moved back"));
+    act(() => {
+      handle.current?.removeLastAppend();
+    });
+    expect(onAppendEdited).not.toHaveBeenCalled();
   });
 
   it("Given an append was already removed, When the host removes again, Then it returns false", () => {
