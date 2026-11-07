@@ -75,4 +75,17 @@ describe("AIChatInput 自带占位文字样式", () => {
 
     expect(source).toMatch(/import\s+["']\.\/chat-input\.css["']/);
   });
+
+  it("触屏胶囊里占位文字单行截断（jsdom 不跑布局，只能守声明）", () => {
+    const css = declarationsOf("src/chat-input/chat-input.css");
+    const rule = css.match(
+      /\[data-slot="composer-editor"\][^{]*is-editor-empty:first-child::before\s*\{([^}]*)\}/,
+    );
+
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toMatch(/white-space:\s*nowrap/);
+    expect(rule![1]).toMatch(/overflow:\s*hidden/);
+    expect(rule![1]).toMatch(/text-overflow:\s*ellipsis/);
+    expect(rule![1]).toMatch(/max-width:\s*100%/);
+  });
 });

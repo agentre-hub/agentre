@@ -663,7 +663,7 @@ export const ChatComposer = React.forwardRef<
       <div
         className={
           pill
-            ? "flex flex-row items-center gap-1 py-0.5 pr-1 pl-0.5"
+            ? "flex flex-row items-center gap-1 py-0.5 pr-3.5 pl-0.5"
             : "flex flex-col gap-1 px-3.5 pt-2.5 pb-1"
         }
       >

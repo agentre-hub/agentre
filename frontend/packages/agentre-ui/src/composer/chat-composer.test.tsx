@@ -1238,6 +1238,35 @@ describe("ChatComposer · touch input mode", () => {
     expectNoShortcutCopy(container);
   });
 
+  it("Given touch mode, When the shape changes, Then pill and card share the same right inset class for the submit slot (jsdom has no layout)", async () => {
+    const editorRef = createRef<Editor | null>();
+    const { container } = render(
+      <ChatComposer
+        inputMode="touch"
+        editorRef={editorRef}
+        onSubmit={vi.fn()}
+      />,
+    );
+    const inset = () => {
+      const bar = container.querySelector('[data-slot="composer-bar"]')!;
+      const holder = bar
+        .closest("form")!
+        .querySelector('[data-slot="composer-editor"]')!.parentElement!;
+      return holder.className.split(/\s+/).filter((c) => /^pr-|^px-/.test(c));
+    };
+    const pillInset = inset().filter((c) => c.startsWith("pr-"));
+    act(() => {
+      editorRef.current!.commands.insertContent("hi");
+    });
+    await waitFor(() =>
+      expect(formOf(container)).toHaveAttribute("data-shape", "card"),
+    );
+    // 卡片的 px-* 与胶囊的 pr-* 必须是同一档（px-3.5 ⇒ 右 14px）。
+    const cardInset = inset();
+    expect(pillInset).toEqual(["pr-3.5"]);
+    expect(cardInset).toContain("px-3.5");
+  });
+
   it("Given touch mode, When the draft goes from empty to typed and back, Then the shell turns pill → card → pill without remounting the editor or losing focus", async () => {
     const user = userEvent.setup();
     const editorRef = createRef<Editor | null>();

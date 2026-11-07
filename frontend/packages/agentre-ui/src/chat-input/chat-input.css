@@ -24,3 +24,13 @@
   pointer-events: none;
   color: var(--muted-foreground);
 }
+
+/* 触屏胶囊（composer-editor 槽内）：占位文字恒为单行，放不下就省略号，
+ * 不换行（否则在 50px 的胶囊里被裁掉半行）。float 已使其块级化，max-width
+ * 限定在编辑器宽度内才会触发 text-overflow。桌面端不在该槽里，不受影响。 */
+[data-slot="composer-editor"] .ProseMirror p.is-editor-empty:first-child::before {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
