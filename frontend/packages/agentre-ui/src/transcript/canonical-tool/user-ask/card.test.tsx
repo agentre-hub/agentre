@@ -635,3 +635,32 @@ describe("UserAskCard borderless", () => {
     expect(screen.getByText("Second?")).toBeDefined();
   });
 });
+
+/**
+ * 控制台手机形态（agentre-server 规格 2026-11-05「对话页 · 触屏输入」：所有输入框字号不低于
+ * 16px）：提问照旧在转录里作答，那一格自填答案若是 14px，iOS 聚焦时会把整个视口放大。
+ * 口径同包内 `<Input>`：移动端 16px、md 及以上回到原字号（桌面最小窗宽 860，逐像素不变）。
+ */
+describe("UserAskCard 自填答案的字号", () => {
+  it("移动端 16px、md 以上回到 14px，不留裸 text-sm", () => {
+    const block = {
+      type: "tool_use",
+      toolName: "AskUserQuestion",
+      canonical: {
+        kind: "user.ask",
+        userAsk: {
+          requestId: "req-font",
+          questions: [{ question: "Q?", header: "Q", options: [] }],
+        },
+      },
+    } as unknown as TranscriptBlock;
+    renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
+    const classes = screen
+      .getByPlaceholderText("Custom answer - enter your own response...")
+      .className.split(/\s+/);
+
+    expect(classes).toContain("text-base");
+    expect(classes).toContain("md:text-sm");
+    expect(classes).not.toContain("text-sm");
+  });
+});

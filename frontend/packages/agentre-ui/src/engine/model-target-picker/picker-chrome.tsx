@@ -194,7 +194,8 @@ export function CliModelSection({
       </div>
       <div className="flex gap-1 p-2">
         <Input
-          className="h-8 text-xs"
+          // 移动端 16px（iOS 聚焦小于 16px 的输入会放大视口），md 及以上 12px。
+          className="h-8 text-base md:text-xs"
           value={manual}
           aria-label={t("modelTargetPicker.cli.manualLabel")}
           placeholder={t("modelTargetPicker.cli.manualPlaceholder")}
@@ -285,7 +286,7 @@ export function PickerSearchBox({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={t("modelTargetPicker.searchPlaceholder")}
-          className="h-8 rounded-[7px] pl-7 pr-7 text-xs"
+          className="h-8 rounded-[7px] pl-7 pr-7 text-base md:text-xs"
         />
         {value ? (
           <button

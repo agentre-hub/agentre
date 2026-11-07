@@ -524,3 +524,25 @@ describe("PlanApproveCard", () => {
     });
   });
 });
+
+/**
+ * 控制台手机形态（agentre-server 规格 2026-11-05「对话页 · 触屏输入」：所有输入框字号不低于
+ * 16px）：计划卡的反馈框在转录里，14px 会让 iOS 聚焦时放大视口。移动端 16px、md 以上 14px。
+ */
+describe("PlanApproveCard 反馈框的字号", () => {
+  it("移动端 16px、md 以上回到 14px，不留裸 text-sm", () => {
+    const block = blockWithActions([
+      { id: "plan.approve.manual", kind: "approve" },
+      { id: "plan.refine", kind: "refine", requiresFeedback: true },
+    ]);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    fireEvent.click(screen.getByText("Continue Planning"));
+    const classes = screen
+      .getByPlaceholderText(/step 2/)
+      .className.split(/\s+/);
+
+    expect(classes).toContain("text-base");
+    expect(classes).toContain("md:text-sm");
+    expect(classes).not.toContain("text-sm");
+  });
+});

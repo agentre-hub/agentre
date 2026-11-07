@@ -383,7 +383,8 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
             placeholder={t("canonical.plan.feedback.placeholder")}
             rows={3}
             disabled={actionsDisabled}
-            className="text-sm"
+            // 移动端 16px（iOS 聚焦小于 16px 的输入会放大视口），md 及以上 14px。
+            className="text-base md:text-sm"
           />
           <div className="flex items-center justify-between gap-2">
             <span className="font-mono text-meta text-muted-foreground">
