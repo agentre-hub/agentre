@@ -170,6 +170,7 @@
     "cardMenu": "任务操作",
     "edit": "编辑",
     "moveTo": "移动到",
+    "moveCardTo": "把 #{{id}} 移动到",
     "delete": "删除",
     "stages": {
       "todo": "待办",
@@ -205,6 +206,10 @@
       "count": "{{count}}"
     },
     "filter": {
+      "apply": "完成",
+      "showCount": "查看 {{count}} 条任务",
+      "showCount_one": "查看 {{count}} 条任务",
+      "showCount_other": "查看 {{count}} 条任务",
       "button": "筛选",
       "labels": "标签",
       "matchAny": "任意一个",

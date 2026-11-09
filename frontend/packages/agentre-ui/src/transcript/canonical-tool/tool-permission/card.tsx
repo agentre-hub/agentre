@@ -1,8 +1,7 @@
 import * as React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Check, ChevronDown, ShieldAlert, X } from "lucide-react";
 
-import type { TranscriptBlockToolPermission } from "../../dto";
 import { Button } from "../../../ui/button";
 import { CollapsibleCode } from "../../collapsible-code";
 import {
@@ -14,19 +13,13 @@ import {
 import { cn } from "../../../lib/utils";
 import { shouldIgnoreClickForSelection } from "../../../lib/copyable-text";
 import { useCollapsible } from "../../../hooks/use-collapsible";
-import { useMarkToolPermissionResolved } from "../../live-state";
 import { useTranscriptBooleanState } from "../../transcript-ui-state";
-import { useTranscriptPorts } from "../../ports-context";
 import { useUiTranslation } from "../../../i18n";
 
 import type { CanonicalCardProps } from "../props";
-import type { CanonicalDTO, ToolPermissionDTO } from "../types";
 
-function readPermission(toolBlock: unknown): ToolPermissionDTO | undefined {
-  const c = (toolBlock as { canonical?: CanonicalDTO }).canonical;
-  if (!c || c.kind !== "tool.permission") return undefined;
-  return c.toolPermission;
-}
+import { useShortcutHintsHidden } from "./shortcut-hints";
+import { useToolPermissionDecision } from "./use-tool-permission-decision";
 
 // formatToolSummary 给 header 当一行摘要:Bash 突出 command,Edit/Write 突出路径,
 // 其它工具退回压缩 JSON(截断 100 字符),让卡片不展开也能看清意图。
@@ -62,8 +55,8 @@ function clipLines(text: string): string[] {
 }
 
 // ToolInputBody 按工具给可读正文:Edit=路径+小 diff,Write=路径+行数,
-// Bash=命令,其余(或入参形状不符)退回格式化 JSON。
-function ToolInputBody({
+// Bash=命令,其余(或入参形状不符)退回格式化 JSON。停靠形态也用它。
+export function ToolInputBody({
   toolName,
   input,
 }: {
@@ -162,19 +155,17 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
   uiStateKey,
 }) => {
   const { t } = useUiTranslation();
-  const ports = useTranscriptPorts();
-  const payload = readPermission(toolBlock);
-  const markToolPermissionResolved = useMarkToolPermissionResolved();
+  // submit 必须在任何 early-return 前取到,否则两次 render 之间 hook 数会变化。
+  const { payload, isResolved, submitting, error, submit } =
+    useToolPermissionDecision({ toolBlock, sessionId, messageId });
+  const hideShortcutHints = useShortcutHintsHidden();
 
   const [collapsed, setCollapsed] = useTranscriptBooleanState(
     uiStateKey,
-    !!payload?.resolved,
+    isResolved,
   );
   const { mounted, onTransitionEnd } = useCollapsible(!collapsed);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const isResolved = !!payload?.resolved;
   const allowRef = useRef<HTMLButtonElement>(null);
 
   // 卡片出现且用户不在打字(输入框/另一张审批卡已持有焦点)时,焦点落到「允许」。
@@ -185,68 +176,6 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
     if (active?.closest("[data-approval-card]")) return;
     allowRef.current?.focus({ preventScroll: true });
   }, [isResolved]);
-
-  // submit 必须在任何 early-return 前声明,否则两次 render 之间 hook 数会变化。
-  const submit = useCallback(
-    async (allow: boolean, alwaysAllowSession: boolean) => {
-      if (!payload || !payload.requestId || !sessionId) return;
-      if (isResolved || submitting) return;
-      setError(null);
-      setSubmitting(true);
-      const optimistic: TranscriptBlockToolPermission = {
-        requestId: payload.requestId,
-        toolName: payload.toolName,
-        toolInput: (payload.toolInput ?? {}) as Record<string, unknown>,
-        resolved: true,
-        allowed: allow,
-        alwaysAllow: alwaysAllowSession,
-      };
-      try {
-        markToolPermissionResolved({
-          sessionId,
-          assistantMessageId: messageId ?? 0,
-          toolPermission: optimistic,
-        });
-        await ports.answerToolPermission({
-          sessionId,
-          requestId: payload.requestId,
-          allow,
-          alwaysAllowSession,
-        });
-      } catch (err) {
-        // 后端 takePermWaiter 在 RespondToControl 失败前已经 take+delete,
-        // 回滚后再点也会 "no waiting tool permission" 失败;切回未决态只是
-        // 为了把错误文案露出来。
-        markToolPermissionResolved({
-          sessionId,
-          assistantMessageId: messageId ?? 0,
-          toolPermission: {
-            ...optimistic,
-            resolved: false,
-            allowed: false,
-            alwaysAllow: false,
-          },
-        });
-        setError(
-          err instanceof Error
-            ? err.message
-            : t("canonical.toolPermission.submitFailed"),
-        );
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [
-      payload,
-      ports,
-      sessionId,
-      messageId,
-      isResolved,
-      submitting,
-      markToolPermissionResolved,
-      t,
-    ],
-  );
 
   if (!payload || !payload.requestId) return null;
 
@@ -368,15 +297,17 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
           >
             <Check className="mr-1 h-3.5 w-3.5" />
             {t("canonical.toolPermission.allowOnce")}
-            <kbd
-              aria-hidden="true"
-              className={cn(
-                KBD_CLASS,
-                "text-primary-foreground/80 bg-primary-foreground/15",
-              )}
-            >
-              ↵
-            </kbd>
+            {!hideShortcutHints && (
+              <kbd
+                aria-hidden="true"
+                className={cn(
+                  KBD_CLASS,
+                  "text-primary-foreground/80 bg-primary-foreground/15",
+                )}
+              >
+                ↵
+              </kbd>
+            )}
           </Button>
           <Button
             size="sm"
@@ -395,9 +326,11 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
           >
             <X className="mr-1 h-3.5 w-3.5" />
             {t("common.reject")}
-            <kbd aria-hidden="true" className={KBD_CLASS}>
-              Esc
-            </kbd>
+            {!hideShortcutHints && (
+              <kbd aria-hidden="true" className={KBD_CLASS}>
+                Esc
+              </kbd>
+            )}
           </Button>
           {error && (
             <span className="text-aux text-destructive-text">{error}</span>

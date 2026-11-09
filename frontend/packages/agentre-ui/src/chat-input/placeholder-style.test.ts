@@ -75,4 +75,36 @@ describe("AIChatInput 自带占位文字样式", () => {
 
     expect(source).toMatch(/import\s+["']\.\/chat-input\.css["']/);
   });
+
+  it("触屏胶囊里占位文字单行截断（jsdom 不跑布局，只能守声明）", () => {
+    const css = declarationsOf("src/chat-input/chat-input.css");
+    const rule = css.match(
+      /\[data-slot="composer-editor"\][^{]*is-editor-empty:first-child::before\s*\{([^}]*)\}/,
+    );
+
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toMatch(/white-space:\s*nowrap/);
+    expect(rule![1]).toMatch(/overflow:\s*hidden/);
+    expect(rule![1]).toMatch(/text-overflow:\s*ellipsis/);
+    expect(rule![1]).toMatch(/max-width:\s*100%/);
+  });
+
+  it("触屏胶囊里截断不裁掉整行：裁剪框得有一行高，靠绝对定位而不是 height:0 不占位", () => {
+    // 基础规则的 float + height:0 再叠 overflow:hidden，裁剪框是 0 高，占位文字整行
+    // 被裁光（Chromium 与 WebKit 实测皆空白）。截断那条规则必须把高度还回来，改由
+    // 绝对定位（锚在空段落上）让它不参与布局。
+    const css = declarationsOf("src/chat-input/chat-input.css");
+    const before = css.match(
+      /\[data-slot="composer-editor"\][^{]*is-editor-empty:first-child::before\s*\{([^}]*)\}/,
+    );
+    const anchor = css.match(
+      /\[data-slot="composer-editor"\][^{,]*is-editor-empty:first-child\s*\{([^}]*)\}/,
+    );
+
+    expect(before).not.toBeNull();
+    expect(before![1]).toMatch(/height:\s*auto/);
+    expect(before![1]).toMatch(/position:\s*absolute/);
+    expect(anchor).not.toBeNull();
+    expect(anchor![1]).toMatch(/position:\s*relative/);
+  });
 });

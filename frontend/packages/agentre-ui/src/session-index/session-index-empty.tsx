@@ -7,7 +7,7 @@ import { Button } from "../ui/button";
 import type { SessionFilterValue } from "./session-filter-chips";
 
 type SessionIndexEmptyProps = {
-  filter: SessionFilterValue;
+  filter: SessionFilterValue | "attention";
   searching?: boolean;
   /** Account-wide count in the host's current query scope; omitted means unknown. */
   total?: number;
@@ -30,7 +30,9 @@ function SessionIndexEmpty({
     ? t(
         filter === "running"
           ? "sessionIndex.empty.running"
-          : "sessionIndex.empty.unread",
+          : filter === "attention"
+            ? "sessionIndex.empty.attention"
+            : "sessionIndex.empty.unread",
       )
     : searching
       ? t("sessionIndex.empty.search")

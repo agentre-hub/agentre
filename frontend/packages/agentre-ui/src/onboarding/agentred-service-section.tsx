@@ -18,6 +18,8 @@ export type AgentredServiceSectionProps = {
   onRunModeChange?: (next: AgentredRunMode) => void;
   serviceTestId?: string;
   serviceCopyTestId?: string;
+  /** 触屏档：只留一张命令卡（状态、重启不画）。省略即与今天一致。 */
+  compact?: boolean;
 };
 
 /**
@@ -32,6 +34,7 @@ export function AgentredServiceSection({
   onRunModeChange,
   serviceTestId,
   serviceCopyTestId,
+  compact = false,
 }: AgentredServiceSectionProps) {
   const { t } = useUiTranslation();
   const docker = method === "docker";
@@ -49,6 +52,7 @@ export function AgentredServiceSection({
             { value: "foreground", label: t("onboarding.service.foreground") },
           ]}
           onChange={onRunModeChange}
+          compact={compact}
         />
       ) : null}
 
@@ -73,28 +77,30 @@ export function AgentredServiceSection({
             testId={serviceTestId}
             copyTestId={serviceCopyTestId}
           />
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <CommandCard
-              label={t("onboarding.service.status")}
-              command={
-                docker
-                  ? agentredCommands.composePs
-                  : agentredCommands.serviceStatus
-              }
-            />
-            <CommandCard
-              label={
-                docker
-                  ? t("onboarding.service.composeLogs")
-                  : t("onboarding.service.restart")
-              }
-              command={
-                docker
-                  ? agentredCommands.composeLogs
-                  : agentredCommands.serviceRestart
-              }
-            />
-          </div>
+          {compact ? null : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <CommandCard
+                label={t("onboarding.service.status")}
+                command={
+                  docker
+                    ? agentredCommands.composePs
+                    : agentredCommands.serviceStatus
+                }
+              />
+              <CommandCard
+                label={
+                  docker
+                    ? t("onboarding.service.composeLogs")
+                    : t("onboarding.service.restart")
+                }
+                command={
+                  docker
+                    ? agentredCommands.composeLogs
+                    : agentredCommands.serviceRestart
+                }
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -497,5 +497,134 @@ describe("SessionRow overline", () => {
     expect(screen.getByText("session-1").parentElement!.childElementCount).toBe(
       1,
     );
+  });
+});
+
+describe("SessionRow phone variant", () => {
+  const agent = { name: "Reviewer", color: "agent-2" };
+
+  it("Given variant phone with an agent, When it renders, Then a 44px avatar, a two-line body and a row at least 64px tall appear", () => {
+    render(
+      <SessionRow
+        variant="phone"
+        status="idle"
+        title="Fix login"
+        trailingLabel="5m"
+        agent={agent}
+        secondaryLabel="Reviewer · ~/code/app"
+      />,
+    );
+
+    const row = screen.getByRole("button", { name: /Fix login/ });
+    expect(row).toHaveClass("min-h-16");
+    expect(row).toHaveClass("active:bg-field-fill-hover");
+    expect(screen.getByRole("img", { name: "Reviewer" })).toHaveClass(
+      "size-11",
+    );
+    expect(screen.getByText("5m")).toBeTruthy();
+    expect(screen.getByText("Reviewer · ~/code/app")).toBeTruthy();
+  });
+
+  it.each([
+    ["waiting", "Needs you"],
+    ["running", "Running"],
+    ["error", "Error"],
+  ] as const)(
+    "Given status %s, When it renders, Then the badge reads %s",
+    (status, text) => {
+      render(<SessionRow variant="phone" status={status} title="t" />);
+      expect(screen.getByText(text)).toBeTruthy();
+    },
+  );
+
+  it("Given an idle unread row, Then it shows an unread dot and no status badge; read idle shows neither", () => {
+    const { rerender } = render(
+      <SessionRow variant="phone" status="idle" title="t" unread />,
+    );
+    expect(screen.getByLabelText("Unread")).toBeTruthy();
+    expect(screen.queryByText("Running")).toBeNull();
+
+    rerender(<SessionRow variant="phone" status="idle" title="t" />);
+    expect(screen.queryByLabelText("Unread")).toBeNull();
+  });
+
+  it("Given a status badge and unread, Then the badge wins and no dot is drawn", () => {
+    render(<SessionRow variant="phone" status="waiting" title="t" unread />);
+    expect(screen.getByText("Needs you")).toBeTruthy();
+    expect(screen.queryByLabelText("Unread")).toBeNull();
+  });
+
+  it("Given a highlight keyword, Then the matching part of the title is marked case-insensitively", () => {
+    render(
+      <SessionRow
+        variant="phone"
+        status="idle"
+        title="Fix Login bug"
+        highlight="login"
+      />,
+    );
+    expect(screen.getByText("Login").tagName).toBe("MARK");
+  });
+
+  it("Given no highlight, Then the title has no mark", () => {
+    const { container } = render(
+      <SessionRow variant="phone" status="idle" title="Fix Login bug" />,
+    );
+    expect(container.querySelector("mark")).toBeNull();
+  });
+
+  it("Given the three optional callbacks, When the menu opens, Then each item shows and fires its own callback, with Delete kept", async () => {
+    const onStopTurn = vi.fn();
+    const onFilterAgent = vi.fn();
+    const onFilterMachine = vi.fn();
+    const onDeleteSession = vi.fn();
+    render(
+      <SessionRow
+        variant="phone"
+        status="running"
+        title="t"
+        onStopTurn={onStopTurn}
+        onFilterAgent={onFilterAgent}
+        onFilterMachine={onFilterMachine}
+        onDeleteSession={onDeleteSession}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByRole("button", { name: /t/ }));
+    expect(
+      await screen.findByRole("menuitem", { name: "Delete" }),
+    ).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole("menuitem", { name: "Stop this turn" }),
+    );
+    expect(onStopTurn).toHaveBeenCalledTimes(1);
+    expect(onFilterAgent).not.toHaveBeenCalled();
+  });
+
+  it("Given only a stop callback, When the menu opens, Then the other two items are absent", async () => {
+    render(
+      <SessionRow
+        variant="phone"
+        status="running"
+        title="t"
+        onStopTurn={vi.fn()}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByRole("button", { name: /t/ }));
+    expect(
+      await screen.findByRole("menuitem", { name: "Stop this turn" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: "Only this agent" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: "Only this machine" }),
+    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+  });
+
+  it("Given a default row, Then none of the phone parts leak in", () => {
+    render(<SessionRow status="idle" title="t" />);
+    const row = screen.getByRole("button", { name: /t/ });
+    expect(row).not.toHaveClass("min-h-16");
   });
 });

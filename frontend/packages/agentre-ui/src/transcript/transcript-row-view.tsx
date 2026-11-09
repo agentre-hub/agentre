@@ -19,10 +19,19 @@ import {
   prepareMentionText,
 } from "../chat-input/mentions/transcript";
 import { useUiTranslation } from "../i18n";
-import { formatTokensPerSec, formatTurnDuration } from "../lib/format-duration";
+import {
+  formatCompactTurnDuration,
+  formatTokensPerSec,
+  formatTurnDuration,
+} from "../lib/format-duration";
 import { cn } from "../lib/utils";
 import { CommandCard } from "../onboarding/command-card";
 import { Button } from "../ui/button";
+import {
+  DialogShell,
+  DialogShellBody,
+  DialogShellHeader,
+} from "../ui/dialog-shell";
 import {
   Tooltip,
   TooltipContent,
@@ -35,6 +44,8 @@ import { AutoTriggerBanner } from "./auto-trigger-banner";
 import { PlanApproveCard } from "./canonical-tool/plan-approve-request/card";
 import type { PlanActionStream } from "./canonical-tool/props";
 import { CanonicalToolRouter } from "./canonical-tool/registry";
+import { ShortcutHintsProvider } from "./canonical-tool/tool-permission/shortcut-hints";
+import { isPendingToolPermission } from "./canonical-tool/tool-permission/use-tool-permission-decision";
 import { CompactBoundaryDivider } from "./compact-boundary-divider";
 import type {
   RetryNotice,
@@ -44,6 +55,12 @@ import type {
 import { LocalCommandCard } from "./local-command/card";
 import { MarkdownText, StreamingMarkdown } from "./markdown-text";
 import { MessageCopyButton, MessageRow } from "./message-row";
+import {
+  compactTokenCount,
+  fitMetaLine,
+  normalizeModelName,
+  type MetaFit,
+} from "./meta-fit";
 import { OpenClawExecApprovalCard } from "./openclaw-exec-approval/card";
 import { useOptionalPort } from "./ports-context";
 import { ThinkingBlock } from "./thinking-block";
@@ -90,6 +107,24 @@ export type TranscriptRenderContextValue = {
   backendType?: string;
   /** 只读模式下不传；有值时才渲染「编辑」按钮。 */
   onEdit?: (messageId: number) => void;
+  /**
+   * 统计行的密度。`"compact"`（手机宽度）：一行、数字缩写、放不下按 tok/s → 用时 →
+   * 截模型名的顺序让、点行开「这一轮」明细、复制只剩 44px 图标。不传即桌面那一档。
+   */
+  metaDensity?: "default" | "compact";
+  /** 用户消息的对齐；`"end"` 把用户消息排到尾侧。不传与桌面一致。 */
+  userMessageAlign?: "start" | "end";
+  /**
+   * 待决工具权限请求画在哪。`"docked"`：宿主把它交给 `ToolPermissionDock` 停在
+   * 输入框的位置，转录不再画待决的工具权限卡（已决的照常显示；提问卡、计划审批
+   * 不受影响）。不传即桌面那一档 `"inline"`。
+   */
+  decisionPlacement?: "inline" | "docked";
+  /**
+   * 审批卡不画 ↵ / Esc 键帽（触屏）。转录之外直接用 `CanonicalToolRouter` 的宿主
+   * 改用 `ShortcutHintsProvider`。不传与桌面一致。
+   */
+  hideShortcutHints?: boolean;
 };
 
 export const TranscriptRenderContext =
@@ -115,6 +150,8 @@ type ChatMessageProps = React.ComponentProps<"article"> & {
   /** R17:非本机发出的用户消息的来源设备显示名;undefined = 不渲染来源标识。 */
   source?: string;
   time: string;
+  /** 透传给 MessageRow 的对齐。 */
+  align?: "start" | "end";
   /** "assistant" (默认): 渲染 agent avatar + 名字。
    *  "user": 渲染中性的「我」头像 —— 与 agent 头像视觉对称，但走 muted
    *  色阶不抢焦点，把主视觉留给 agent。 */
@@ -122,6 +159,7 @@ type ChatMessageProps = React.ComponentProps<"article"> & {
 };
 
 function ChatMessage({
+  align,
   author,
   avatar,
   children,
@@ -136,6 +174,7 @@ function ChatMessage({
   const isUser = variant === "user";
   return (
     <MessageRow
+      align={align}
       className={className}
       avatar={
         isUser ? (
@@ -171,10 +210,14 @@ function ChatMessage({
   );
 }
 
+type MetaDensity = NonNullable<TranscriptRenderContextValue["metaDensity"]>;
+
 type MessageMetaProps = {
   cacheCreationTokens?: number;
   cachedTokens?: number;
   completionTokens: number;
+  /** 不传即桌面那一档；见 TranscriptRenderContextValue.metaDensity。 */
+  density?: MetaDensity;
   durationMs: number;
   firstTokenMs?: number;
   liveTurn?: LiveTurnInput | null;
@@ -200,6 +243,7 @@ function MessageMeta({
   cacheCreationTokens = 0,
   cachedTokens = 0,
   completionTokens,
+  density = "default",
   durationMs,
   firstTokenMs = 0,
   liveTurn,
@@ -248,8 +292,8 @@ function MessageMeta({
     value: formatTokensPerSec(displayTokensPerSec),
   })}`;
 
-  // tooltip 里需要拆分展示，所以这里给一个稳定的 row 渲染器避免重复。
-  const rows: { label: string; value: string }[] = [
+  // 明细行：桌面的悬停 tooltip 与紧凑档的「这一轮」弹层共用这一份构造。
+  const rows: MetaDetailRow[] = [
     { label: t("chat.meta.model"), value: displayModel || "—" },
   ];
   if (hasUsage) {
@@ -298,6 +342,27 @@ function MessageMeta({
   rows.push({ label: t("chat.meta.duration"), value: durationLabel });
   if (showSpeed) {
     rows.push({ label: t("chat.meta.outputSpeed"), value: speedLabel });
+  }
+
+  if (density === "compact") {
+    return (
+      <CompactMessageMeta
+        model={normalizeModelName(displayModel)}
+        counts={
+          hasUsage
+            ? {
+                prompt:
+                  displayPrompt > 0 ? compactTokenCount(displayPrompt) : null,
+                completion: `${approxMark}${compactTokenCount(displayCompletion)}`,
+              }
+            : null
+        }
+        duration={formatCompactTurnDuration(displayDurationMs)}
+        speed={showSpeed ? speedLabel : null}
+        rows={rows}
+        onRerun={onRerun}
+      />
+    );
   }
 
   return (
@@ -371,18 +436,259 @@ function MessageMeta({
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      {onRerun ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          className="ml-1 h-6 gap-1 px-1.5 text-meta text-muted-foreground"
-          onClick={onRerun}
-        >
-          <RefreshCw data-icon="inline-start" aria-hidden="true" />
-          {t("chat.actions.regenerate")}
-        </Button>
+      {onRerun ? <RerunButton onRerun={onRerun} /> : null}
+    </div>
+  );
+}
+
+type MetaDetailRow = { label: string; value: string };
+
+function RerunButton({ onRerun }: { onRerun: () => void }) {
+  const { t } = useUiTranslation();
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      className="ml-1 h-6 gap-1 px-1.5 text-meta text-muted-foreground"
+      onClick={onRerun}
+    >
+      <RefreshCw data-icon="inline-start" aria-hidden="true" />
+      {t("chat.actions.regenerate")}
+    </Button>
+  );
+}
+
+type CompactMetaSegments = {
+  /** 规整后的模型名；空串 = 没有模型名这一段。 */
+  model: string;
+  /** ↑↓ 计数（已缩写）；null = 后端没上报用量，整段不画。 */
+  counts: { prompt: string | null; completion: string } | null;
+  duration: string;
+  speed: string | null;
+};
+
+const META_SEPARATOR = <span className="text-border-strong">·</span>;
+
+// 各段的内容。可见行与量宽度用的标尺画的是同一份，宽度才量得准。
+function MetaCountsSegment({
+  counts,
+}: {
+  counts: NonNullable<CompactMetaSegments["counts"]>;
+}) {
+  return (
+    <>
+      {counts.prompt !== null ? (
+        <span className="inline-flex items-center gap-0.5">
+          <ArrowUp className="size-2.5" aria-hidden="true" />
+          {counts.prompt}
+        </span>
       ) : null}
+      <span className="inline-flex items-center gap-0.5">
+        <ArrowDown className="size-2.5" aria-hidden="true" />
+        {counts.completion}
+      </span>
+    </>
+  );
+}
+
+const SEGMENT_CLASS = "inline-flex shrink-0 items-center gap-1";
+
+// 紧凑档的统计行：一行。放不下时由 fitMetaLine 判定让到哪一档 —— 这里只负责量宽度
+// （标尺里每段的实际渲染宽度 + 行的可用宽度）并按结果渲染。宽度变化（转屏、字体载入）
+// 由 ResizeObserver 触发，运行中那一轮每次刷新内容都会变，由 layout effect 重判。
+function CompactMessageMeta({
+  model,
+  counts,
+  duration,
+  speed,
+  rows,
+  onRerun,
+}: CompactMetaSegments & {
+  rows: MetaDetailRow[];
+  onRerun?: () => void;
+}) {
+  const { t } = useUiTranslation();
+  const [open, setOpen] = React.useState(false);
+  const [fit, setFit] = React.useState<MetaFit & { modelMin: number }>({
+    level: 0,
+    more: false,
+    modelMin: 0,
+  });
+  const lineRef = React.useRef<HTMLButtonElement>(null);
+  const segmentsRef = React.useRef<HTMLSpanElement>(null);
+  const rulerRef = React.useRef<HTMLSpanElement>(null);
+
+  const refit = React.useCallback(() => {
+    const line = lineRef.current;
+    const segments = segmentsRef.current;
+    const ruler = rulerRef.current;
+    if (!line || !segments || !ruler) return;
+    const gap = Number.parseFloat(getComputedStyle(segments).columnGap) || 0;
+    const width = (kind: string) =>
+      ruler
+        .querySelector(`[data-meta-ruler="${kind}"]`)
+        ?.getBoundingClientRect().width ?? 0;
+    // 每段都把它前面的间距算进去；第一段前面没有间距，可用宽度相应补回一份。
+    const withGap = (kind: string) => {
+      const w = width(kind);
+      return w > 0 ? w + gap : 0;
+    };
+    const available = line.getBoundingClientRect().width;
+    const next = fitMetaLine({
+      available: available > 0 ? available + gap : 0,
+      model: withGap("model"),
+      modelMin: withGap("model-min"),
+      fixed: withGap("counts"),
+      duration: withGap("duration"),
+      speed: withGap("speed"),
+      more: withGap("more"),
+    });
+    const modelMin = width("model-min");
+    setFit((prev) =>
+      prev.level === next.level &&
+      prev.more === next.more &&
+      prev.modelMin === modelMin
+        ? prev
+        : { ...next, modelMin },
+    );
+  }, []);
+
+  const countsKey = counts ? `${counts.prompt}|${counts.completion}` : "";
+  React.useLayoutEffect(() => {
+    refit();
+  }, [refit, model, countsKey, duration, speed]);
+
+  React.useEffect(() => {
+    const line = lineRef.current;
+    const ruler = rulerRef.current;
+    if (!line || !ruler || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => refit());
+    observer.observe(line);
+    // 标尺的宽度随字体载入变化，行宽却不变 —— 两个都得看。
+    observer.observe(ruler);
+    return () => observer.disconnect();
+  }, [refit]);
+
+  const truncateModel = fit.level >= 3;
+  const modelMinText = model.length > 6 ? `${model.slice(0, 6)}…` : model;
+  const durationSep = model !== "" || counts !== null;
+
+  return (
+    <div
+      data-meta-density="compact"
+      className="flex min-w-0 flex-1 basis-0 items-center gap-1.5 font-sans tabular-nums"
+    >
+      <button
+        ref={lineRef}
+        type="button"
+        data-testid="message-meta-line"
+        aria-label={t("chat.meta.tokenDetails")}
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+        className="relative flex min-w-0 flex-1 basis-0 items-center overflow-hidden whitespace-nowrap rounded py-0.5 text-left"
+      >
+        <span
+          ref={segmentsRef}
+          data-testid="message-meta-visible"
+          className="flex min-w-0 items-center gap-1"
+        >
+          {model ? (
+            <span
+              data-testid="message-meta-model"
+              className={truncateModel ? "min-w-0 truncate" : "shrink-0"}
+              style={truncateModel ? { minWidth: fit.modelMin } : undefined}
+            >
+              {model}
+            </span>
+          ) : null}
+          {counts ? (
+            <span className={SEGMENT_CLASS}>
+              {model ? META_SEPARATOR : null}
+              <MetaCountsSegment counts={counts} />
+            </span>
+          ) : null}
+          {fit.level < 2 ? (
+            <span className={SEGMENT_CLASS}>
+              {durationSep ? META_SEPARATOR : null}
+              {duration}
+            </span>
+          ) : null}
+          {fit.level < 1 && speed !== null ? (
+            <span className={SEGMENT_CLASS}>
+              {META_SEPARATOR}
+              {speed}
+            </span>
+          ) : null}
+          {fit.more ? (
+            <span
+              data-testid="message-meta-more"
+              aria-hidden="true"
+              className="shrink-0 px-0.5"
+            >
+              ›
+            </span>
+          ) : null}
+        </span>
+        {/* 标尺：每段各画一份、不受档位影响，只用来量宽度。 */}
+        <span
+          ref={rulerRef}
+          aria-hidden="true"
+          className="pointer-events-none invisible absolute left-0 top-0 flex w-max items-center gap-1"
+        >
+          {model ? (
+            <>
+              <span data-meta-ruler="model" className="shrink-0">
+                {model}
+              </span>
+              <span data-meta-ruler="model-min" className="shrink-0">
+                {modelMinText}
+              </span>
+            </>
+          ) : null}
+          {counts ? (
+            <span data-meta-ruler="counts" className={SEGMENT_CLASS}>
+              {model ? META_SEPARATOR : null}
+              <MetaCountsSegment counts={counts} />
+            </span>
+          ) : null}
+          <span data-meta-ruler="duration" className={SEGMENT_CLASS}>
+            {durationSep ? META_SEPARATOR : null}
+            {duration}
+          </span>
+          {speed !== null ? (
+            <span data-meta-ruler="speed" className={SEGMENT_CLASS}>
+              {META_SEPARATOR}
+              {speed}
+            </span>
+          ) : null}
+          <span data-meta-ruler="more" className="shrink-0 px-0.5">
+            ›
+          </span>
+        </span>
+      </button>
+      {onRerun ? <RerunButton onRerun={onRerun} /> : null}
+      <DialogShell open={open} onOpenChange={setOpen} size="sm">
+        <DialogShellHeader
+          title={t("chat.meta.turnDetails")}
+          onClose={() => setOpen(false)}
+        />
+        <DialogShellBody>
+          <dl className="flex flex-col overflow-hidden rounded-lg bg-field-fill py-1">
+            {rows.map((row) => (
+              <div
+                key={row.label}
+                className="flex min-h-11 items-center gap-3 px-3.5 text-sm"
+              >
+                <dt className="shrink-0 text-foreground">{row.label}</dt>
+                <dd className="ml-auto truncate font-mono text-xs tabular-nums text-muted-foreground">
+                  {row.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </DialogShellBody>
+      </DialogShell>
     </div>
   );
 }
@@ -425,6 +731,7 @@ type AssistantMessageActionsProps = {
   cachedTokens?: number;
   completionTokens: number;
   copyText: string;
+  density?: MetaDensity;
   durationMs: number;
   firstTokenMs?: number;
   liveTurn?: LiveTurnInput | null;
@@ -440,6 +747,7 @@ function AssistantMessageActions({
   cachedTokens,
   completionTokens,
   copyText,
+  density,
   durationMs,
   firstTokenMs,
   liveTurn,
@@ -475,6 +783,7 @@ function AssistantMessageActions({
           tokensPerSec={tokensPerSec}
           liveTurn={liveTurn}
           onRerun={onRerun}
+          density={density}
         />
       ) : null}
       <MessageCopyButton
@@ -483,6 +792,7 @@ function AssistantMessageActions({
         ariaLabel={t("chat.actions.copyOutput")}
         successTitle={t("chat.actions.copyOutputDone")}
         errorTitle={t("chat.actions.copyOutputFailed")}
+        iconOnly={density === "compact"}
       />
     </>
   );
@@ -840,21 +1150,45 @@ function unsupportedRequestPurposeKey(purpose: string | undefined): string {
 
 // ─── RenderItem → JSX ────────────────────────────────────────────────────────
 
+// 停靠档下待决的工具权限请求由宿主的 ToolPermissionDock 画，转录这一项留空。
+function isDockedDecision(
+  item: TranscriptRowItem,
+  ctx: TranscriptRenderContextValue | null,
+): boolean {
+  return (
+    ctx?.decisionPlacement === "docked" &&
+    item.type === "tool_permission_request" &&
+    isPendingToolPermission(item.block)
+  );
+}
+
 // messageId 是本行所属的 assistant 消息 —— 审批 / 权限卡做乐观更新时要用它定位
 // chat-streams-store 里对应的那条流(一个会话可同时有多条流,只给 sessionId 定位不到)。
-function RenderItemView({
-  item,
-  messageId,
-  running,
-  durationMs,
-}: {
+type RenderItemViewProps = {
   item: TranscriptRowItem;
   messageId: number;
   /** 本行是「这一轮在跑」的末行 —— 尾部的活动块此刻正在跑。 */
   running: boolean;
   /** 消息级耗时(块级无来源),活动块组头的耗时槽用;运行中不显示。 */
   durationMs?: number;
-}) {
+};
+
+function RenderItemView(props: RenderItemViewProps) {
+  const ctx = React.useContext(TranscriptRenderContext);
+  if (isDockedDecision(props.item, ctx)) return null;
+  return (
+    <ShortcutHintsProvider hidden={ctx?.hideShortcutHints}>
+      <RenderItemContent {...props} />
+    </ShortcutHintsProvider>
+  );
+}
+
+function RenderItemContent({
+  item,
+  messageId,
+  running,
+  durationMs,
+}: RenderItemViewProps) {
   const { t } = useUiTranslation();
   const ctx = React.useContext(TranscriptRenderContext);
   switch (item.type) {
@@ -1149,6 +1483,14 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
   const m = row.message;
   // 类型收窄:只有 local_command 行缺 message(已在上方返回),其余行恒有 message。
   if (!m) return null;
+  // 停靠走的待决审批若是消息中间的分片行,这一行没有任何别的内容 —— 整行不画。
+  if (
+    !row.isFirstOfMessage &&
+    !row.isLastOfMessage &&
+    isDockedDecision(row.item, ctx)
+  ) {
+    return null;
+  }
   const isAssistant = m.role === "assistant";
   // 每条 assistant 都允许重新生成；只读模式下 ctx.onRerun 为 undefined 时不渲染按钮。
   const rerunHandler =
@@ -1223,10 +1565,13 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
       liveTurn={liveTurn}
       onRerun={rerunHandler}
       copyText={copyText}
+      density={ctx?.metaDensity}
     />
   ) : !isAssistant && ctx?.onEdit ? (
     <UserMessageActions onEdit={() => ctx.onEdit!(m.id)} />
   ) : undefined;
+
+  const alignEnd = !isAssistant && ctx?.userMessageAlign === "end";
 
   if (row.isFirstOfMessage) {
     return (
@@ -1238,6 +1583,7 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
           author={isAssistant ? (ctx?.agentName ?? "") : ""}
           avatar={ctx?.agentAvatar}
           variant={isAssistant ? "assistant" : "user"}
+          align={alignEnd ? "end" : undefined}
           time={formatHHmm(m.createtime)}
           source={isAssistant ? undefined : row.sourceDevice}
           meta={meta}
@@ -1257,9 +1603,17 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
   // 消息的后续分片行:左侧 w-7 幽灵 gutter 对齐头像列,内容列与 MessageRow
   // 完全同构(max-w-measure / data-selectable-text / footer 槽样式)。
   return (
-    <div className="flex gap-3 text-sm">
+    <div
+      data-align={alignEnd ? "end" : undefined}
+      className={cn("flex gap-3 text-sm", alignEnd && "flex-row-reverse")}
+    >
       <div aria-hidden className="w-7 shrink-0" />
-      <div className="flex min-w-0 max-w-measure flex-1 flex-col gap-1">
+      <div
+        className={cn(
+          "flex min-w-0 max-w-measure flex-1 flex-col gap-1",
+          alignEnd && "items-end",
+        )}
+      >
         <div data-selectable-text="true" className="flex flex-col gap-2">
           <RenderItemView
             item={row.item}

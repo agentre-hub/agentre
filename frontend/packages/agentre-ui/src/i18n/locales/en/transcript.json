@@ -216,7 +216,12 @@
       "allowed": "Allowed",
       "allowedSession": "Allowed (this session)",
       "denied": "Denied",
-      "submitFailed": "Approval submission failed"
+      "submitFailed": "Approval submission failed",
+      "dock": {
+        "eyebrow": "Decision needed",
+        "titleCommand": "Run this command?",
+        "titleTool": "Allow {{tool}}?"
+      }
     },
     "userAsk": {
       "answered": "ANSWERED",

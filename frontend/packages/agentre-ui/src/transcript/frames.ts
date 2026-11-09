@@ -840,12 +840,14 @@ function applyFrame(
       const alwaysAllow = bool(ev, "alwaysAllow");
       block.toolPermission.resolved = true;
       block.toolPermission.allowed = allowed;
-      if (alwaysAllow !== undefined) block.toolPermission.alwaysAllow = true;
+      if (alwaysAllow !== undefined) {
+        block.toolPermission.alwaysAllow = alwaysAllow;
+      }
       if (block.canonical?.toolPermission) {
         block.canonical.toolPermission.resolved = true;
         block.canonical.toolPermission.allowed = allowed;
         if (alwaysAllow !== undefined) {
-          block.canonical.toolPermission.alwaysAllow = true;
+          block.canonical.toolPermission.alwaysAllow = alwaysAllow;
         }
       }
       return;

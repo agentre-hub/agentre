@@ -244,3 +244,118 @@ describe("QueuedMessagesBar · 撤回到输入框", () => {
     ).toEqual([]);
   });
 });
+
+describe("QueuedMessagesBar · touch", () => {
+  const items: QueuedItem[] = [{ id: "a", text: "排队的", cancellable: true }];
+
+  it("gives withdraw and delete 44px hit areas with 8px between them", () => {
+    render(
+      <QueuedMessagesBar
+        queued={items}
+        onCancel={vi.fn()}
+        onWithdraw={vi.fn()}
+        onClearAll={vi.fn()}
+        inputMode="touch"
+      />,
+    );
+    const withdraw = screen.getByRole("button", {
+      name: /Move back|放回|撤回/,
+    });
+    const del = screen.getByRole("button", { name: /Delete this|删除/ });
+    for (const b of [withdraw, del]) {
+      expect(b.className).toContain("size-11");
+    }
+    expect(withdraw.parentElement?.className).toContain("gap-2");
+  });
+
+  it("keeps today's 20px buttons without the prop", () => {
+    render(
+      <QueuedMessagesBar
+        queued={items}
+        onCancel={vi.fn()}
+        onWithdraw={vi.fn()}
+        onClearAll={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /Delete this|删除/ }).className,
+    ).toContain("size-5");
+  });
+
+  it("shows the withdraw-disabled reason as visible text in touch mode only", () => {
+    const { rerender } = render(
+      <QueuedMessagesBar
+        queued={items}
+        onCancel={vi.fn()}
+        onWithdraw={vi.fn()}
+        withdrawDisabled
+        onClearAll={vi.fn()}
+        inputMode="touch"
+      />,
+    );
+    expect(screen.getByTestId("withdraw-disabled-reason")).toBeVisible();
+    rerender(
+      <QueuedMessagesBar
+        queued={items}
+        onCancel={vi.fn()}
+        onWithdraw={vi.fn()}
+        withdrawDisabled
+        onClearAll={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("withdraw-disabled-reason")).toBeNull();
+  });
+
+  it("renders the notice line and fires onClear, independent of the queue", () => {
+    const onClear = vi.fn();
+    render(
+      <QueuedMessagesBar
+        queued={[]}
+        onCancel={vi.fn()}
+        onClearAll={vi.fn()}
+        undeliveredNotice={{ count: 2, onClear }}
+      />,
+    );
+    const line = screen.getByTestId("undelivered-notice");
+    expect(line.textContent).toMatch(/2/);
+    fireEvent.click(screen.getByRole("button", { name: /清掉|Dismiss/ }));
+    expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it("words the notice in the singular for one steer and the plural for more", () => {
+    const { rerender } = render(
+      <QueuedMessagesBar
+        queued={[]}
+        onCancel={vi.fn()}
+        onClearAll={vi.fn()}
+        undeliveredNotice={{ count: 1, onClear: vi.fn() }}
+      />,
+    );
+    expect(screen.getByTestId("undelivered-notice").textContent).toContain(
+      "1 steer not delivered, put back in the input",
+    );
+    rerender(
+      <QueuedMessagesBar
+        queued={[]}
+        onCancel={vi.fn()}
+        onClearAll={vi.fn()}
+        undeliveredNotice={{ count: 2, onClear: vi.fn() }}
+      />,
+    );
+    expect(screen.getByTestId("undelivered-notice").textContent).toContain(
+      "2 steers not delivered, put back in the input",
+    );
+  });
+
+  it("renders nothing for a zero-count notice with an empty queue", () => {
+    const { container } = render(
+      <QueuedMessagesBar
+        queued={[]}
+        onCancel={vi.fn()}
+        onClearAll={vi.fn()}
+        undeliveredNotice={{ count: 0, onClear: vi.fn() }}
+      />,
+    );
+    expect(container.firstChild).toBeNull();
+  });
+});

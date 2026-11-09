@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { BoardCardMenu } from "../card-menu";
 import { IssueBoard } from "../issue-board";
 import type {
   BoardCardView,
@@ -539,5 +540,165 @@ describe("焦点环", () => {
 
     const body = screen.getByTestId("board-card-body-1");
     expect(body.className).toContain("focus-visible:focus-outline");
+  });
+});
+
+describe("阶段档（手机）：一次一个阶段", () => {
+  function renderStage(model: BoardViewModel, p: BoardPorts = ports()) {
+    return render(
+      <IssueBoard viewModel={model} ports={p} nowMs={NOW} layout="stage" />,
+    );
+  }
+  const model = () =>
+    viewModel({
+      columns: {
+        todo: column([card(1), card(3)]),
+        doing: column([card(2, { stage: "doing" })]),
+        review: column([]),
+        done: column([]),
+      },
+    });
+
+  it("Given layout=stage, When it renders, Then four stage tabs carry counts and only the selected stage's cards show", () => {
+    renderStage(model());
+
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs).toHaveLength(4);
+    expect(tabs[0]).toHaveTextContent("To do");
+    expect(tabs[0]).toHaveTextContent("2");
+    expect(tabs[1]).toHaveTextContent("1");
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("board-card-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("board-card-2")).not.toBeInTheDocument();
+    expect(
+      document.querySelectorAll('[data-slot="board-column"]'),
+    ).toHaveLength(1);
+  });
+
+  it("Given layout=stage, When another tab is pressed, Then that stage's cards replace the previous ones, full width", async () => {
+    const user = userEvent.setup();
+    renderStage(model());
+
+    await user.click(screen.getAllByRole("tab")[1]);
+
+    expect(screen.getByTestId("board-card-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("board-card-1")).not.toBeInTheDocument();
+    expect(screen.getByTestId("board-column-doing").className).toContain(
+      "w-full",
+    );
+    expect(screen.getAllByRole("tab")[1]).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("Given the default layout, When it renders, Then there are no tabs", () => {
+    renderBoard(model());
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+  });
+
+  it("Given layout=stage, When the column renders, Then it has no per-stage ＋ (新建任务 lives in the page header)", () => {
+    renderStage(model(), ports({ onCreateTask: vi.fn() }));
+
+    expect(screen.queryByTestId("board-column-add-todo")).toBeNull();
+  });
+});
+
+describe("卡片菜单触屏档", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("Given touch, When the trigger renders, Then it is always visible with a >=44px hit area", () => {
+    render(<BoardCardMenu cardId={6} stage="todo" ports={ports()} touch />);
+    const trigger = screen.getByTestId("board-card-menu-6");
+    expect(trigger.className).not.toContain("opacity-0");
+    expect(trigger.className).toContain("size-11");
+  });
+
+  it("Given touch, When opened, Then the four stages are laid flat, the current one is disabled, and edit/delete are a separate group", async () => {
+    const user = userEvent.setup();
+    const p = ports();
+    render(<BoardCardMenu cardId={6} stage="todo" ports={p} touch />);
+
+    await user.click(screen.getByTestId("board-card-menu-6"));
+
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+    // 底部弹层走共享的 DialogShell（<640px 贴底、640–767px 居中），不自写一套定位。
+    expect(
+      screen
+        .getByTestId("board-card-sheet-6")
+        .closest('[data-slot="dialog-shell-content"]'),
+    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: "To do" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    expect(p.onMove).toHaveBeenCalledWith(6, "review");
+  });
+
+  it("Given the touch sheet, When Edit / Delete are chosen, Then the ports fire", async () => {
+    const user = userEvent.setup();
+    const p = ports();
+    render(<BoardCardMenu cardId={6} stage="todo" ports={p} touch />);
+
+    await user.click(screen.getByTestId("board-card-menu-6"));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(p.onEdit).toHaveBeenCalledWith(6);
+
+    await user.click(screen.getByTestId("board-card-menu-6"));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(p.onDelete).toHaveBeenCalledWith(6);
+  });
+
+  it("Given a stage-layout card, When it is pressed and held, Then the sheet opens and the release does not open the editor", () => {
+    vi.useFakeTimers();
+    const p = ports();
+    render(
+      <IssueBoard
+        viewModel={viewModel()}
+        ports={p}
+        nowMs={NOW}
+        layout="stage"
+      />,
+    );
+    const body = screen.getByTestId("board-card-body-1");
+
+    fireEvent.pointerDown(body, { pointerType: "touch" });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(screen.getByRole("button", { name: "Review" })).toBeInTheDocument();
+
+    fireEvent.pointerUp(body, { pointerType: "touch" });
+    fireEvent.click(body);
+    expect(p.onEdit).not.toHaveBeenCalled();
+  });
+
+  it("Given a stage-layout card, When it is only tapped, Then the editor opens and no sheet appears", () => {
+    vi.useFakeTimers();
+    const p = ports();
+    render(
+      <IssueBoard
+        viewModel={viewModel()}
+        ports={p}
+        nowMs={NOW}
+        layout="stage"
+      />,
+    );
+    const body = screen.getByTestId("board-card-body-1");
+    fireEvent.pointerDown(body, { pointerType: "touch" });
+    fireEvent.pointerUp(body, { pointerType: "touch" });
+    fireEvent.click(body);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(p.onEdit).toHaveBeenCalledWith(1);
+    expect(
+      screen.queryByRole("button", { name: "Review" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Given the default (desktop) menu, When it renders, Then it keeps the hover reveal", () => {
+    render(<BoardCardMenu cardId={6} stage="todo" ports={ports()} />);
+    expect(screen.getByTestId("board-card-menu-6").className).toContain(
+      "opacity-0",
+    );
   });
 });

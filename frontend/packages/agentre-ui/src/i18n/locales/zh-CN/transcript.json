@@ -216,7 +216,12 @@
       "allowed": "已允许",
       "allowedSession": "已允许(本会话)",
       "denied": "已拒绝",
-      "submitFailed": "审批提交失败"
+      "submitFailed": "审批提交失败",
+      "dock": {
+        "eyebrow": "需要你决定",
+        "titleCommand": "运行这条命令？",
+        "titleTool": "允许使用 {{tool}}？"
+      }
     },
     "userAsk": {
       "answered": "ANSWERED",

@@ -56,6 +56,13 @@ type LlmProvidersPanelProps = {
   // 宿主在得知账号数据有同步变化时换一个新值：面板经端口重拉供应商与当前模型表，
   // 已打开的弹窗保留用户正在编辑的内容。首次挂载时的值不触发额外拉取。
   refreshSignal?: number | string;
+  // 逐层档（手机）：宿主自己管列表页与详情页之间的导航，面板一次只渲染其中一层。
+  // 不传 layer 时仍是今天的左右双栏。
+  layer?: "list" | "detail";
+  // 受控选中：传了 selectedId 或 onSelect 即由宿主持有选中项（目录加载后不自动选第一个；
+  // 选中项从目录里消失时以 null 调 onSelect）。
+  selectedId?: number | null;
+  onSelect?: (id: number | null) => void;
 };
 
 // 宿主传进来的那一份端口只覆盖本面板的子树：两个面板同时挂载时各用各的，
@@ -75,6 +82,9 @@ function LlmProvidersPanelBody({
   onOpenAgentBackends,
   renderHeader,
   refreshSignal,
+  layer,
+  selectedId: controlledId,
+  onSelect: onControlledSelect,
 }: LlmProvidersPanelProps) {
   const ports = useEngineSettingsPorts();
   const bridge = useEngineSettingsBridge();
@@ -82,7 +92,18 @@ function LlmProvidersPanelBody({
   const [flash, setFlash] = React.useState<FlashState>(null);
   // 读路径（清单 / 模型表 / 引用计数）与写路径（测试、启停、播报）各自成钩子，
   // 中间只靠 flash 槽位与两个 refresh 相连。
-  const catalog = useProviderCatalog({ bridge, setFlash });
+  const isControlled =
+    controlledId !== undefined || onControlledSelect !== undefined;
+  const catalog = useProviderCatalog({
+    bridge,
+    setFlash,
+    controlled: isControlled
+      ? {
+          selectedId: controlledId ?? null,
+          onSelect: (id) => onControlledSelect?.(id),
+        }
+      : undefined,
+  });
   const {
     providers,
     providersLoading,
@@ -258,6 +279,7 @@ function LlmProvidersPanelBody({
               providers={providers}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              layer={layer}
               selectedProvider={selectedProvider}
               models={models}
               modelsLoading={modelsLoading}
@@ -349,6 +371,7 @@ function ProviderManagement({
   providers,
   selectedId,
   onSelect,
+  layer,
   selectedProvider,
   models,
   modelsLoading,
@@ -379,6 +402,7 @@ function ProviderManagement({
   providers: Provider[];
   selectedId: number | null;
   onSelect: (id: number) => void;
+  layer?: "list" | "detail";
   selectedProvider: Provider | null;
   models: Model[];
   modelsLoading: boolean;
@@ -406,17 +430,23 @@ function ProviderManagement({
   providerRefCounts: ReferenceCounts | null;
   modelRefCounts: Map<string, ReferenceCounts>;
 }) {
+  const showNav = layer !== "detail";
+  const showWorkspace = layer !== "list";
   return (
     <div className="flex min-w-0">
-      <ProviderNav
-        providers={providers}
-        selectedId={selectedId}
-        onSelect={onSelect}
-      />
+      {showNav ? (
+        <ProviderNav
+          providers={providers}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          fullWidth={layer === "list"}
+        />
+      ) : null}
 
-      <div className="min-w-0 flex-1">
-        {selectedProvider ? (
+      <div className={cn("min-w-0 flex-1", !showWorkspace && "hidden")}>
+        {showWorkspace && selectedProvider ? (
           <ProviderWorkspace
+            stacked={layer === "detail"}
             provider={selectedProvider}
             models={models}
             modelsLoading={modelsLoading}

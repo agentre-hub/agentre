@@ -33,11 +33,13 @@ function OptionButton({
   testId,
   onClick,
   children,
+  sheet,
 }: {
   active: boolean;
   testId: string;
   onClick: () => void;
   children: React.ReactNode;
+  sheet?: boolean;
 }) {
   return (
     <button
@@ -48,6 +50,7 @@ function OptionButton({
       onClick={onClick}
       className={cn(
         "cursor-pointer rounded-md px-2 py-1 text-2xs transition-colors",
+        sheet && "inline-flex min-h-11 items-center rounded-full px-4 text-sm",
         "focus-visible:focus-outline",
         active
           ? "bg-primary-soft text-primary-text"
@@ -62,13 +65,27 @@ function OptionButton({
 function Section({
   title,
   children,
+  sheet,
 }: {
   title: string;
   children: React.ReactNode;
+  sheet?: boolean;
 }) {
   return (
-    <section className="flex flex-col gap-1.5 px-3 py-2.5">
-      <h3 className="text-2xs font-semibold text-muted-foreground">{title}</h3>
+    <section
+      className={cn(
+        "flex flex-col gap-1.5 px-3 py-2.5",
+        sheet && "gap-2 px-4 py-3",
+      )}
+    >
+      <h3
+        className={cn(
+          "text-2xs font-semibold text-muted-foreground",
+          sheet && "text-xs",
+        )}
+      >
+        {title}
+      </h3>
       {children}
     </section>
   );
@@ -80,22 +97,27 @@ function TimeSection({
   field,
   range,
   onChange,
+  sheet,
 }: {
   title: string;
   field: "updated" | "created";
   range: TimeRange;
   onChange: (next: TimeRange) => void;
+  sheet?: boolean;
 }) {
   const { t } = useUiTranslation();
 
   return (
-    <Section title={title}>
-      <div className="flex flex-wrap items-center gap-1">
+    <Section title={title} sheet={sheet}>
+      <div
+        className={cn("flex flex-wrap items-center gap-1", sheet && "gap-2")}
+      >
         {TIME_PRESETS.map(({ preset, labelKey }) => (
           <OptionButton
             key={preset}
             active={range.preset === preset}
             testId={`filter-${field}-${preset}`}
+            sheet={sheet}
             onClick={() => onChange({ preset })}
           >
             {t(labelKey)}
@@ -112,7 +134,7 @@ function TimeSection({
             onChange={(event) =>
               onChange({ ...range, from: fromDateInput(event.target.value) })
             }
-            className="h-7 text-2xs"
+            className={sheet ? "h-11 text-base" : "h-7 text-2xs"}
           />
           <span className="text-2xs text-muted-foreground">
             {t("board.filter.to")}
@@ -128,7 +150,7 @@ function TimeSection({
                 to: endOfDay(fromDateInput(event.target.value)),
               })
             }
-            className="h-7 text-2xs"
+            className={sheet ? "h-11 text-base" : "h-7 text-2xs"}
           />
         </div>
       ) : null}
@@ -168,6 +190,8 @@ export interface BoardFilterPanelProps {
   labels: LabelUsageView[];
   patch: (partial: Partial<BoardQuery>) => void;
   onManageLabels?: () => void;
+  /** 弹层档：选项成 44px 的 chip、日期输入 16px；不传时与桌面一致。 */
+  sheet?: boolean;
 }
 
 /**
@@ -181,13 +205,21 @@ export function BoardFilterPanel({
   labels,
   patch,
   onManageLabels,
+  sheet,
 }: BoardFilterPanelProps) {
   const { t } = useUiTranslation();
 
   return (
-    <div className="flex max-h-[28rem] flex-col overflow-y-auto">
-      <Section title={t("board.filter.labels")}>
-        <div className="flex flex-wrap items-center gap-1">
+    <div
+      className={cn(
+        "flex flex-col overflow-y-auto",
+        sheet ? "max-h-[60vh]" : "max-h-[28rem]",
+      )}
+    >
+      <Section title={t("board.filter.labels")} sheet={sheet}>
+        <div
+          className={cn("flex flex-wrap items-center gap-1", sheet && "gap-2")}
+        >
           {labels.map((label) => {
             const active = query.labelIds.includes(label.id);
             return (
@@ -207,6 +239,7 @@ export function BoardFilterPanel({
                 }
                 className={cn(
                   "cursor-pointer rounded-full px-2 py-0.5 text-2xs transition-opacity",
+                  sheet && "inline-flex min-h-11 items-center px-4 text-sm",
                   "focus-visible:focus-outline",
                   toneClass(label.tone),
                   active
@@ -219,8 +252,9 @@ export function BoardFilterPanel({
             );
           })}
         </div>
-        <div className="flex items-center gap-1">
+        <div className={cn("flex items-center gap-1", sheet && "gap-2")}>
           <OptionButton
+            sheet={sheet}
             active={query.labelMatch === "any"}
             testId="filter-match-any"
             onClick={() => patch({ labelMatch: "any" })}
@@ -228,6 +262,7 @@ export function BoardFilterPanel({
             {t("board.filter.matchAny")}
           </OptionButton>
           <OptionButton
+            sheet={sheet}
             active={query.labelMatch === "all"}
             testId="filter-match-all"
             onClick={() => patch({ labelMatch: "all" })}
@@ -235,6 +270,7 @@ export function BoardFilterPanel({
             {t("board.filter.matchAll")}
           </OptionButton>
           <OptionButton
+            sheet={sheet}
             active={query.noLabelOnly}
             testId="filter-no-label"
             onClick={() =>
@@ -249,18 +285,23 @@ export function BoardFilterPanel({
         title={t("board.filter.updated")}
         field="updated"
         range={query.updated}
+        sheet={sheet}
         onChange={(updated) => patch({ updated })}
       />
       <TimeSection
         title={t("board.filter.created")}
         field="created"
         range={query.created}
+        sheet={sheet}
         onChange={(created) => patch({ created })}
       />
-      <Section title={t("board.filter.done")}>
-        <div className="flex flex-wrap items-center gap-1">
+      <Section title={t("board.filter.done")} sheet={sheet}>
+        <div
+          className={cn("flex flex-wrap items-center gap-1", sheet && "gap-2")}
+        >
           {RETENTIONS.map(({ value, labelKey }) => (
             <OptionButton
+              sheet={sheet}
               key={value}
               active={query.doneRetention === value}
               testId={`filter-done-${value}`}
@@ -277,7 +318,10 @@ export function BoardFilterPanel({
             type="button"
             data-testid="filter-manage-labels"
             onClick={onManageLabels}
-            className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-2xs text-muted-foreground transition-colors hover:bg-accent/60 hover:on-accent hover:text-foreground focus-visible:focus-outline"
+            className={cn(
+              "flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-2xs text-muted-foreground transition-colors hover:bg-accent/60 hover:on-accent hover:text-foreground focus-visible:focus-outline",
+              sheet && "min-h-11 px-3 text-sm",
+            )}
           >
             <Tags className="size-3.5" aria-hidden="true" />
             {t("board.filter.manageLabels")}

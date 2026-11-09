@@ -1,4 +1,5 @@
 import {
+  ArrowUp,
   Check,
   EyeOff,
   ImagePlus,
@@ -52,6 +53,12 @@ export type ChatComposerHandle = {
    * （输入框被清空）之后再按顺序接上，一个字都不丢。
    */
   appendDraft: (text: string) => void;
+  /**
+   * 撤销最近一次 `appendDraft`（轮末放回输入框的插话被用户点了「清掉」）：只有输入框
+   * 自那次追加后一个字都没被改过才生效，返回 true；用户已动过（宿主经 `onAppendEdited`
+   * 得知）、没有可撤的追加、或追加还在编辑期暂存里时都不动作，返回 false。
+   */
+  removeLastAppend: () => boolean;
 };
 
 /** 宿主注入的原生拖入通道。浏览器里拿不到落盘绝对路径，所以这是可选的。 */
@@ -64,7 +71,11 @@ export type ChatComposerDropZone = {
 
 export type ChatComposerProps = Omit<
   AIChatInputProps,
-  "onSubmit" | "onEmptyChange" | "onCommandModeChange" | "onEscape"
+  | "onSubmit"
+  | "onEmptyChange"
+  | "onCommandModeChange"
+  | "onEscape"
+  | "keyboardSubmit"
 > & {
   onSubmit: (message: ChatComposerSubmit) => void;
   supportsImageInput?: boolean;
@@ -107,6 +118,13 @@ export type ChatComposerProps = Omit<
   dropZone?: ChatComposerDropZone;
   onPasteCapture?: (event: React.ClipboardEvent<HTMLFormElement>) => void;
   className?: string;
+  /**
+   * 触屏档。`"touch"` 时：回车（含只有图片的草稿）只换行，只有按钮发送；提示文案不带
+   * 快捷键；运行中提交位恒为 ■ 与 ↑ 两格（无字时 ↑ 置灰）、各 44px 命中区；草稿为空时
+   * 外壳是胶囊、有内容时是卡片（`data-shape`），两种形态间编辑器不重挂载。物理键盘的
+   * Esc 停止照旧。省略时与桌面端一致。
+   */
+  inputMode?: "touch";
 };
 
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
@@ -234,6 +252,7 @@ export const ChatComposer = React.forwardRef<
     onCommandModeChange,
     dropZone,
     onPasteCapture,
+    inputMode,
     ...inputProps
   },
   ref,
@@ -249,6 +268,7 @@ export const ChatComposer = React.forwardRef<
   const [commandMode, setCommandMode] = React.useState(false);
   // 停止只在宿主真的接了 onStop 时出现 —— agentre-server 不接，行为与从前一样。
   const stopAvailable = running && !!onStop && !editing;
+  const touch = inputMode === "touch";
 
   // appendDraft 是命令式调用，读的是此刻的编辑态，不能等下一次渲染闭包更新。
   // 进入编辑在 layout 阶段就算数（下面的被动 effect 会把编辑目标载进来盖掉输入框）；
@@ -280,6 +300,9 @@ export const ChatComposer = React.forwardRef<
         }
         inputRef.current?.appendDraft(text);
       },
+      // 追加的记录与比对归编辑器那一层（它握着文档）；编辑期暂存里的追加还没落进
+      // 编辑器，这里自然撤不到。
+      removeLastAppend: () => inputRef.current?.removeLastAppend() ?? false,
     }),
     [inputRef],
   );
@@ -468,7 +491,9 @@ export const ChatComposer = React.forwardRef<
   // Shift+Tab 交给宿主（桌面端拿它循环切换 permission mode）。本地命令历史的清除
   // 控件保留原生反向焦点；编辑模式也不消费。
   function handleFormKeyDown(event: React.KeyboardEvent<HTMLFormElement>) {
+    // 只有图片的草稿按回车直接发出去 —— 触屏档除外：那里回车只换行，只有按钮发送。
     if (
+      !touch &&
       !editing &&
       empty &&
       images.length > 0 &&
@@ -514,13 +539,19 @@ export const ChatComposer = React.forwardRef<
     }
   }
 
+  const hasDraft = !empty || images.length > 0;
+  // 触屏档的外壳：草稿为空是一行胶囊（＋ · 输入框 · 提交位），有内容长成卡片。两种
+  // 形态只换类名、不换树 —— 编辑器挂在同一个位置上，切换时不重挂载、焦点不丢。
+  // 附件报错要占一行，摆不进胶囊，按卡片画。
+  const pill = touch && !hasDraft && !editing && !imageError;
   const showImageEntry = supportsImageInput && !editing;
-  const showHostControls = !editing && !commandMode;
+  const showHostControls = !editing && !commandMode && !pill;
   // 发送 / 换行人人都会，平时不摆常驻教学文案；编辑态的保存 / 取消不显然，留着。
+  // 触屏档没有键盘可教，内置那句整条不摆。
   const hint =
     shortcutsHint !== undefined ? (
       shortcutsHint
-    ) : editing ? (
+    ) : editing && !touch ? (
       <span
         data-slot="composer-shortcuts"
         className="shrink-0 font-mono text-meta leading-none whitespace-nowrap text-muted-foreground @max-[1000px]/composer:hidden"
@@ -528,6 +559,23 @@ export const ChatComposer = React.forwardRef<
         {t("chatComposer.shortcuts.edit")}
       </span>
     ) : null;
+
+  const input = (
+    <AIChatInput
+      {...inputProps}
+      ref={inputRef}
+      // 挂载即聚焦走 TipTap 自己的 autofocus:它会等 view 附加到 DOM 之后再
+      // focus,绕开 mount 时 view 还没挂上的时序问题。下面那个 effect 只管
+      // 「挂载之后才被打开」这一档(宿主从 false 翻成 true),两条路都要有。
+      autoFocus={inputProps.autoFocus || autoFocusOnMount}
+      disabled={disabled}
+      keyboardSubmit={!touch}
+      onEmptyChange={setEmpty}
+      onEscape={handleEditorEscape}
+      onCommandModeChange={handleCommandModeChange}
+      onSubmit={submit}
+    />
+  );
 
   return (
     <form
@@ -541,8 +589,10 @@ export const ChatComposer = React.forwardRef<
         // focus-within 之后，不加 not-focus-within 会把内容页色盖回填充色。
         "@container/composer relative flex w-full flex-col overflow-hidden rounded-xl bg-field-fill transition-colors not-focus-within:hover:bg-field-fill-hover",
         "focus-within:bg-sheet focus-within:focus-outline",
+        touch && (pill ? "rounded-[25px]" : "rounded-[22px]"),
         className,
       )}
+      data-shape={touch ? (pill ? "pill" : "card") : undefined}
       onSubmit={handleFormSubmit}
       onKeyDown={handleFormKeyDown}
       onPasteCapture={handlePasteCapture}
@@ -579,7 +629,11 @@ export const ChatComposer = React.forwardRef<
             size="icon-sm"
             className="size-5 shrink-0"
             aria-label={t("chatComposer.editing.cancel")}
-            title={t("chatComposer.editing.cancelTitle")}
+            title={
+              touch
+                ? t("chatComposer.editing.cancel")
+                : t("chatComposer.editing.cancelTitle")
+            }
             onClick={() => onCancelEdit?.()}
           >
             <X className="size-3" aria-hidden="true" />
@@ -596,7 +650,9 @@ export const ChatComposer = React.forwardRef<
             aria-hidden="true"
           />
           <span className="min-w-0 flex-1 truncate font-medium text-primary-text">
-            {t("chatComposer.command.banner")}
+            {touch
+              ? t("chatComposer.touch.commandBanner")
+              : t("chatComposer.command.banner")}
           </span>
           <span className="inline-flex items-center gap-1 text-muted-foreground">
             <EyeOff className="size-3" aria-hidden="true" />
@@ -604,7 +660,15 @@ export const ChatComposer = React.forwardRef<
           </span>
         </div>
       ) : null}
-      <div className="flex flex-col gap-1 px-3.5 pt-2.5 pb-1">
+      <div
+        className={
+          pill
+            ? "flex flex-row items-center gap-1 py-0.5 pr-3.5 pl-0.5"
+            : touch
+              ? "flex flex-col gap-1 px-3.5 pt-2.5 pb-0"
+              : "flex flex-col gap-1 px-3.5 pt-2.5 pb-1"
+        }
+      >
         {!editing && images.length ? (
           <div className="flex flex-wrap gap-2 pb-1">
             {images.map((image, index) => (
@@ -637,23 +701,28 @@ export const ChatComposer = React.forwardRef<
             ))}
           </div>
         ) : null}
-        <AIChatInput
-          {...inputProps}
-          ref={inputRef}
-          // 挂载即聚焦走 TipTap 自己的 autofocus:它会等 view 附加到 DOM 之后再
-          // focus,绕开 mount 时 view 还没挂上的时序问题。下面那个 effect 只管
-          // 「挂载之后才被打开」这一档(宿主从 false 翻成 true),两条路都要有。
-          autoFocus={inputProps.autoFocus || autoFocusOnMount}
-          disabled={disabled}
-          onEmptyChange={setEmpty}
-          onEscape={handleEditorEscape}
-          onCommandModeChange={handleCommandModeChange}
-          onSubmit={submit}
-        />
+        {touch ? (
+          <div
+            data-slot="composer-editor"
+            className={pill ? "min-w-0 flex-1" : undefined}
+          >
+            {input}
+          </div>
+        ) : (
+          input
+        )}
         {/* 底栏恒为单行（Hard invariant 1），且不得横向溢出（Hard invariant 2）。 */}
+        {/* 胶囊里底栏拆进同一行（contents）：＋ 排到输入框前，提交位留在最右。 */}
         <div
           data-slot="composer-bar"
-          className="flex flex-nowrap items-center gap-2 py-1"
+          className={
+            pill
+              ? "contents"
+              : touch
+                ? // 底距 2px，与胶囊里 44px 键在 48px 里居中的底距一致，翻形态时 ■/↑ 纵向不动。
+                  "flex flex-nowrap items-center gap-2 pt-1 pb-0.5"
+                : "flex flex-nowrap items-center gap-2 py-1"
+          }
         >
           {showImageEntry ? (
             <>
@@ -670,7 +739,11 @@ export const ChatComposer = React.forwardRef<
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="shrink-0"
+                className={cn(
+                  "shrink-0",
+                  touch && "size-11",
+                  pill && "-order-1",
+                )}
                 aria-label={t("chatComposer.images.add")}
                 disabled={disabled || images.length >= MAX_IMAGE_COUNT}
                 onClick={() => fileRef.current?.click()}
@@ -681,7 +754,10 @@ export const ChatComposer = React.forwardRef<
           ) : null}
           {hint}
           {showHostControls ? leadingControls : null}
-          <div data-slot="composer-gap" className="min-w-0 flex-1" />
+          <div
+            data-slot="composer-gap"
+            className={pill ? "hidden" : "min-w-0 flex-1"}
+          />
           {showHostControls ? trailingControls : null}
           <SubmitControl
             commandMode={commandMode}
@@ -693,10 +769,16 @@ export const ChatComposer = React.forwardRef<
             onStop={stopAvailable ? onStop : undefined}
             stopping={stopping}
             testId={sendButtonTestId}
+            touch={touch}
           />
         </div>
         {imageError ? (
-          <p role="alert" className="text-xs text-destructive-text">
+          // 触屏卡片的外层底内边距是 0（让给提交位对齐），报错是最后一行时自己补回 4px，
+          // 不贴着 22px 圆角的底边。
+          <p
+            role="alert"
+            className={cn("text-xs text-destructive-text", touch && "pb-1")}
+          >
             {imageError}
           </p>
         ) : null}
@@ -711,6 +793,9 @@ export const ChatComposer = React.forwardRef<
  *
  * 一轮在跑（`onStop` 给出）时提交位让出停止键：草稿为空只有停止键；有草稿时停止键
  * 与发送键并排，发送键写明它是「AI 完成后插入」；已点停止则停止键转 spinner 并禁用。
+ *
+ * 触屏档：两格收进一组（间距 8px、各 44px 命中区），运行中发送键常驻、无字时置灰 ——
+ * 插话发出、草稿清空的那一刻两格都不挪，手指不会落到挪过来的停止键上。
  */
 function SubmitControl({
   commandMode,
@@ -722,6 +807,7 @@ function SubmitControl({
   onStop,
   stopping,
   testId,
+  touch,
 }: {
   commandMode: boolean;
   disabled: boolean;
@@ -732,8 +818,10 @@ function SubmitControl({
   onStop?: () => void;
   stopping: boolean;
   testId?: string;
+  touch: boolean;
 }) {
   const { t } = useUiTranslation();
+  const cell = touch ? "size-11 shrink-0 rounded-full" : "shrink-0";
 
   if (editing) {
     return (
@@ -751,52 +839,71 @@ function SubmitControl({
     );
   }
 
+  const stop = onStop ? (
+    <StopButton onStop={onStop} stopping={stopping} touch={touch} />
+  ) : null;
+
+  let send: React.ReactNode;
   if (commandMode) {
-    return (
-      <>
-        {onStop ? <StopButton onStop={onStop} stopping={stopping} /> : null}
-        <Button
-          type="submit"
-          data-testid={testId}
-          size="icon-sm"
-          className="shrink-0"
-          aria-label={t("chatComposer.command.run")}
-        >
-          <SquareTerminal className="size-4" aria-hidden="true" />
-        </Button>
-      </>
-    );
-  }
-
-  const hasDraft = !empty || hasImages;
-  if (onStop && !hasDraft) {
-    return <StopButton onStop={onStop} stopping={stopping} />;
-  }
-
-  return (
-    <>
-      {onStop ? <StopButton onStop={onStop} stopping={stopping} /> : null}
+    send = (
       <Button
         type="submit"
         data-testid={testId}
         size="icon-sm"
-        className="shrink-0"
+        className={cell}
+        aria-label={t("chatComposer.command.run")}
+      >
+        <SquareTerminal className="size-4" aria-hidden="true" />
+      </Button>
+    );
+  } else {
+    const hasDraft = !empty || hasImages;
+    if (onStop && !hasDraft && !touch) return stop;
+    const title = touch
+      ? onStop
+        ? t("chatComposer.touch.sendAfterAITitle")
+        : t("chatComposer.send")
+      : onStop
+        ? t("chatComposer.sendAfterAITitle")
+        : t("chatComposer.sendTitle");
+    send = (
+      <Button
+        type="submit"
+        data-testid={testId}
+        size="icon-sm"
+        className={cell}
         disabled={disabled || sending || !hasDraft}
         aria-label={
           sending ? t("chatComposer.sending") : t("chatComposer.send")
         }
-        title={
-          onStop
-            ? t("chatComposer.sendAfterAITitle")
-            : t("chatComposer.sendTitle")
-        }
+        title={title}
       >
         {sending ? (
           <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+        ) : touch ? (
+          <ArrowUp aria-hidden="true" className="size-5" />
         ) : (
           <SendHorizontal aria-hidden="true" className="size-4" />
         )}
       </Button>
+    );
+  }
+
+  if (touch) {
+    return (
+      <div
+        data-slot="composer-submit"
+        className="flex shrink-0 items-center gap-2"
+      >
+        {stop}
+        {send}
+      </div>
+    );
+  }
+  return (
+    <>
+      {stop}
+      {send}
     </>
   );
 }
@@ -808,21 +915,28 @@ function SubmitControl({
 function StopButton({
   onStop,
   stopping,
+  touch,
 }: {
   onStop: () => void;
   stopping: boolean;
+  touch: boolean;
 }) {
   const { t } = useUiTranslation();
   return (
     <Button
       type="button"
       size="icon-sm"
-      className="shrink-0 bg-foreground text-background hover:bg-foreground/85"
+      className={cn(
+        "shrink-0 bg-foreground text-background hover:bg-foreground/85",
+        touch && "size-11 rounded-full",
+      )}
       disabled={stopping}
       aria-label={
         stopping ? t("chatComposer.stopping") : t("chatComposer.stop")
       }
-      title={t("chatComposer.stopTitle")}
+      title={
+        touch ? t("chatComposer.touch.stopTitle") : t("chatComposer.stopTitle")
+      }
       onClick={onStop}
     >
       {stopping ? (

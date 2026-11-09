@@ -170,6 +170,7 @@
     "cardMenu": "Task actions",
     "edit": "Edit",
     "moveTo": "Move to",
+    "moveCardTo": "Move #{{id}} to",
     "delete": "Delete",
     "stages": {
       "todo": "To do",
@@ -205,6 +206,10 @@
       "count": "{{count}}"
     },
     "filter": {
+      "apply": "Done",
+      "showCount": "Show {{count}} tasks",
+      "showCount_one": "Show {{count}} task",
+      "showCount_other": "Show {{count}} tasks",
       "button": "Filter",
       "labels": "Labels",
       "matchAny": "Any of them",

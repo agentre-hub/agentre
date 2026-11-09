@@ -13,6 +13,7 @@
       "prompt": "发送 (prompt)",
       "reasoning": "思考",
       "tokenDetails": "token 用量明细",
+      "turnDetails": "这一轮",
       "firstToken": "首 token",
       "outputSpeed": "输出速度",
       "tokensPerSec": "{{value}} tok/s",
@@ -316,6 +317,11 @@
     "command": {
       "banner": "命令模式 · 在项目目录直接执行 · Enter 运行 · 删除 ! 退出",
       "run": "运行命令"
+    },
+    "touch": {
+      "sendAfterAITitle": "AI 完成后插入",
+      "stopTitle": "停止当前回合",
+      "commandBanner": "命令模式 · 在项目目录直接执行 · 删除 ! 退出"
     }
   },
   "contextMeter": {
@@ -354,6 +360,12 @@
     "noCancelSupportTitle": "这个后端不支持撤回排队消息",
     "notCancellable": "不可撤回（这个后端不支持）",
     "notCancellableTitle": "这个后端的插话一发即不可撤",
+    "undelivered": {
+      "notice": "{{count}} 条插话没送到，已放回输入框",
+      "notice_one": "{{count}} 条插话没送到，已放回输入框",
+      "notice_other": "{{count}} 条插话没送到，已放回输入框",
+      "clear": "清掉"
+    },
     "withdrawDisabledEditing": "先完成或取消编辑",
     "withdrawOne": "撤回到输入框",
     "withdrawOneTitle": "撤回到输入框编辑"

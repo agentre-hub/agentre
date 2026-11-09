@@ -5,11 +5,17 @@ import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 import { ProjectGlyph } from "../session-index/project-glyph";
 
+import { MatchHighlight } from "./match-highlight";
 import { splitMatch, type ScopeRow } from "./scope-tree";
 import type { ProjectScope } from "./query-types";
 
 /** 行的共同外壳：选中态与游标态是**两个**视觉，不共用一块底色。 */
-function rowClassName(selected: boolean, cursor: boolean, dimmed: boolean) {
+function rowClassName(
+  selected: boolean,
+  cursor: boolean,
+  dimmed: boolean,
+  sheet = false,
+) {
   return cn(
     "flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
     "focus-visible:focus-outline",
@@ -19,6 +25,7 @@ function rowClassName(selected: boolean, cursor: boolean, dimmed: boolean) {
     // 已选中项：primary 软底 + ✓，与游标各说各的。
     selected && "bg-primary-soft text-primary-text",
     dimmed && "opacity-60",
+    sheet && "min-h-11 px-3 text-sm",
   );
 }
 
@@ -43,6 +50,8 @@ export interface ProjectScopePopoverProps {
   /** 未归属的未完成任务数；0 = 这一项**根本不出现**。 */
   unassignedCount: number;
   onPick: (scope: ProjectScope) => void;
+  /** 弹层档：行 ≥44px、搜索输入 16px、树占满弹层；不传时与桌面一致。 */
+  sheet?: boolean;
 }
 
 /**
@@ -60,6 +69,7 @@ export function ProjectScopePopover({
   cursor,
   unassignedCount,
   onPick,
+  sheet = false,
 }: ProjectScopePopoverProps) {
   const { t } = useUiTranslation();
   const selectedRef = React.useRef<HTMLButtonElement | null>(null);
@@ -70,7 +80,12 @@ export function ProjectScopePopover({
   }, []);
 
   return (
-    <div className="flex max-h-[24rem] min-h-0 flex-col">
+    <div
+      className={cn(
+        "flex min-h-0 flex-col",
+        sheet ? "max-h-[60vh]" : "max-h-[24rem]",
+      )}
+    >
       <div
         data-testid="scope-pinned"
         className="flex shrink-0 flex-col gap-0.5 p-1"
@@ -80,7 +95,7 @@ export function ProjectScopePopover({
           data-testid="scope-row-all"
           data-selected={scope.kind === "all" ? "true" : undefined}
           onClick={() => onPick({ kind: "all" })}
-          className={rowClassName(scope.kind === "all", false, false)}
+          className={rowClassName(scope.kind === "all", false, false, sheet)}
         >
           <FolderOpen
             className="size-3.5 shrink-0 text-muted-foreground"
@@ -101,7 +116,12 @@ export function ProjectScopePopover({
             data-testid="scope-row-unassigned"
             data-selected={scope.kind === "unassigned" ? "true" : undefined}
             onClick={() => onPick({ kind: "unassigned" })}
-            className={rowClassName(scope.kind === "unassigned", false, false)}
+            className={rowClassName(
+              scope.kind === "unassigned",
+              false,
+              false,
+              sheet,
+            )}
           >
             <Inbox
               className="size-3.5 shrink-0 text-muted-foreground"
@@ -135,7 +155,10 @@ export function ProjectScopePopover({
             onKeyDown={onSearchKeyDown}
             placeholder={t("board.scope.searchPlaceholder")}
             aria-label={t("board.scope.searchPlaceholder")}
-            className="h-6 w-full min-w-0 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+            className={cn(
+              "h-6 w-full min-w-0 bg-transparent text-xs outline-none placeholder:text-muted-foreground",
+              sheet && "h-11 text-base",
+            )}
           />
         </div>
       </div>
@@ -166,7 +189,12 @@ export function ProjectScopePopover({
               onClick={() =>
                 onPick({ kind: "project", projectId: row.node.id })
               }
-              className={rowClassName(selected, isCursor, row.ancestorOnly)}
+              className={rowClassName(
+                selected,
+                isCursor,
+                row.ancestorOnly,
+                sheet,
+              )}
             >
               {Array.from({ length: row.node.depth }).map((_, level) => (
                 // 逐级一条竖引导线：第三层及更深也认得出挂在谁下面。
@@ -186,19 +214,10 @@ export function ProjectScopePopover({
                 className="size-3.5 shrink-0 rounded-[4px]"
               />
               <span className="truncate">
-                {splitMatch(row.node.name, needle).map((segment, i) =>
-                  segment.match ? (
-                    <mark
-                      key={i}
-                      data-slot="scope-match"
-                      className="bg-transparent font-semibold text-primary-text"
-                    >
-                      {segment.text}
-                    </mark>
-                  ) : (
-                    <React.Fragment key={i}>{segment.text}</React.Fragment>
-                  ),
-                )}
+                <MatchHighlight
+                  segments={splitMatch(row.node.name, needle)}
+                  slot="scope-match"
+                />
               </span>
               <CountBadge
                 id={String(row.node.id)}

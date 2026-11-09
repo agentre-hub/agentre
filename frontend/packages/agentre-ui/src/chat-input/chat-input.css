@@ -24,3 +24,21 @@
   pointer-events: none;
   color: var(--muted-foreground);
 }
+
+/* 触屏胶囊（composer-editor 槽内）：占位文字恒为单行，放不下就省略号，
+ * 不换行（否则在 50px 的胶囊里被裁掉半行）。text-overflow 要求裁剪，而基础规则
+ * 的 height:0 叠上 overflow:hidden 会把整行裁光——所以这里把高度还回来，改用
+ * 锚在空段落上的绝对定位让它不参与布局；max-width 限定在段落宽度内才会触发
+ * 省略号。桌面端不在该槽里，不受影响。 */
+[data-slot="composer-editor"] .ProseMirror p.is-editor-empty:first-child {
+  position: relative;
+}
+
+[data-slot="composer-editor"] .ProseMirror p.is-editor-empty:first-child::before {
+  position: absolute;
+  height: auto;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

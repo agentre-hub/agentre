@@ -532,7 +532,8 @@ function QuestionGroup({
                 if (!text && has) onToggle(qIdx, OTHER_LABEL, multi);
               }}
               variant="inline"
-              className="h-7 p-0 text-sm"
+              // 移动端 16px（iOS 聚焦小于 16px 的输入会放大视口），md 及以上 14px。
+              className="h-7 p-0 text-base md:text-sm"
             />
           </div>
         ) : null}

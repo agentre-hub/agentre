@@ -10,7 +10,11 @@
         "agentHandle": "Drag {{name}} (press Space to pick up)",
         "departmentHandle": "Drag department {{name}} (press Space to pick up)"
       },
-      "gapName": "{{name}}, {{reason}}"
+      "gapName": "{{name}}, {{reason}}",
+      "machineBackend": "{{machine}} · {{backend}}",
+      "memberSummary": "{{count}} people ›",
+      "memberSummary_one": "{{count}} person ›",
+      "memberSummary_other": "{{count}} people ›"
     },
     "department": {
       "departmentMemberCount": "{{count}} members",

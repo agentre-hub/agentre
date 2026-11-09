@@ -115,3 +115,26 @@ describe("AgentredInstallDocsLink", () => {
     );
   });
 });
+
+describe("AgentredInstallSection compact", () => {
+  it("只给一张命令卡，选项是不小于 44px 的 chips", () => {
+    const { onOsChange } = renderSection({ compact: true });
+    expect(screen.getAllByRole("group")).toHaveLength(1);
+    expect(commandsOf()[0]).toContain("install.sh");
+    const mac = screen.getByRole("button", { name: "macOS" });
+    expect(mac.className).toContain("min-h-11");
+    fireEvent.click(mac);
+    expect(onOsChange).toHaveBeenCalledWith("macos");
+  });
+
+  it("给了 thenCommand：接着要跑的那一条并进同一张卡（安装在上、它在下），仍只有一张", () => {
+    renderSection({ compact: true, thenCommand: "agentred login --server x" });
+    expect(screen.getAllByRole("group")).toHaveLength(1);
+    const lines = (
+      screen.getByRole("group").querySelector("code")?.textContent ?? ""
+    ).split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("install.sh");
+    expect(lines[1]).toBe("agentred login --server x");
+  });
+});

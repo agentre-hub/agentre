@@ -19,9 +19,17 @@ export type ProviderCatalogBridge = Pick<
   | "LLMProviderRefCounts"
 >;
 
+type ControlledSelection = {
+  selectedId: number | null;
+  onSelect: (id: number | null) => void;
+};
+
 export function useProviderCatalog(args: {
   bridge: ProviderCatalogBridge;
   setFlash: (flash: FlashState) => void;
+  // 受控选中（逐层档）：宿主持有选中项，目录加载后不自动选第一个；
+  // 选中项不在清单里时上报 null，由宿主决定回到哪一页。
+  controlled?: ControlledSelection;
 }) {
   const { setFlash } = args;
   const {
@@ -33,7 +41,19 @@ export function useProviderCatalog(args: {
   const { t } = useTranslation();
   const [providers, setProviders] = React.useState<Provider[]>([]);
   const [providersLoading, setProvidersLoading] = React.useState(true);
-  const [selectedId, setSelectedId] = React.useState<number | null>(null);
+  const controlled = args.controlled;
+  const controlledRef = React.useRef(controlled);
+  React.useEffect(() => {
+    controlledRef.current = controlled;
+  });
+  const [innerSelectedId, setInnerSelectedId] = React.useState<number | null>(
+    null,
+  );
+  const selectedId = controlled ? controlled.selectedId : innerSelectedId;
+  const setSelectedId = React.useCallback((id: number | null) => {
+    if (controlledRef.current) controlledRef.current.onSelect(id);
+    else setInnerSelectedId(id);
+  }, []);
   const [models, setModels] = React.useState<Model[]>([]);
   const [modelsLoading, setModelsLoading] = React.useState(false);
   const [modelsError, setModelsError] = React.useState<string | null>(null);
@@ -50,7 +70,8 @@ export function useProviderCatalog(args: {
     try {
       const items = (await ListLLMProviders()).items ?? [];
       setProviders(items);
-      setSelectedId((prev) =>
+      if (reportVanishedSelection(controlledRef.current, items)) return;
+      setInnerSelectedId((prev) =>
         prev !== null && items.some((p) => p.id === prev)
           ? prev
           : items.length > 0
@@ -87,7 +108,9 @@ export function useProviderCatalog(args: {
         const items = (await ListLLMProviders()).items ?? [];
         if (!mounted) return;
         setProviders(items);
-        setSelectedId(items.length > 0 ? items[0].id : null);
+        if (!reportVanishedSelection(controlledRef.current, items)) {
+          setInnerSelectedId(items.length > 0 ? items[0].id : null);
+        }
       } catch (err) {
         if (mounted) {
           setFlash({
@@ -214,4 +237,22 @@ export function useProviderCatalog(args: {
     refreshProviders,
     refreshModels,
   };
+}
+
+/**
+ * 受控档里取回一份清单之后：宿主选中的那一项不在清单里了就上报 null（回到哪一页由
+ * 宿主定），受控档从不自己挑一个。返回是否受控 —— 非受控档由调用方自己选。
+ */
+function reportVanishedSelection(
+  controlled: ControlledSelection | undefined,
+  items: readonly { id: number }[],
+): boolean {
+  if (!controlled) return false;
+  if (
+    controlled.selectedId !== null &&
+    !items.some((p) => p.id === controlled.selectedId)
+  ) {
+    controlled.onSelect(null);
+  }
+  return true;
 }

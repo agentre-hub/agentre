@@ -225,6 +225,33 @@ describe("TranscriptJumpControl", () => {
     expect(control).not.toHaveClass("bg-primary");
   });
 
+  it("Given 手机档 pendingOnly、下方有 2 项待处理, When 渲染, Then 药丸只写「↓ 2 项待处理」，不再说回到底部或轮数", () => {
+    render(
+      <TranscriptJumpControl
+        onJump={vi.fn()}
+        pendingOnly
+        turnsBelow={3}
+        pendingBelow={2}
+      />,
+    );
+
+    const control = screen.getByTestId("transcript-jump-control");
+    expect(control).toHaveTextContent(/^2 pending$/);
+    expect(control).not.toHaveTextContent("Back to bottom");
+    expect(control).not.toHaveTextContent(/3 turns/);
+  });
+
+  it("Given 手机档 pendingOnly、下方没有待处理, When 渲染, Then 仍是普通的回到底部药丸", () => {
+    render(
+      <TranscriptJumpControl onJump={vi.fn()} pendingOnly pendingBelow={0} />,
+    );
+
+    expect(screen.getByTestId("transcript-jump-control")).toHaveTextContent(
+      "Back to bottom",
+    );
+    expect(screen.queryByTestId("transcript-jump-pending")).toBeNull();
+  });
+
   it("Given 补齐带来了新内容, When 渲染, Then 药丸换成主色实心，一眼认得出「有新消息」", () => {
     render(
       <TranscriptJumpControl

@@ -20,8 +20,16 @@
   "sessionRow": {
     "menu": {
       "delete": "删除",
+      "filterAgent": "只看这个 Agent",
+      "filterMachine": "只看这台机器",
       "openInNewTab": "新标签打开",
-      "rename": "改名"
+      "rename": "改名",
+      "stopTurn": "停止这一轮"
+    },
+    "status": {
+      "error": "出错",
+      "running": "运行中",
+      "waiting": "等你"
     }
   },
   "sessionIndex": {
@@ -51,10 +59,12 @@
     "filter": {
       "aria": "筛选会话",
       "all": "全部",
+      "attention": "需要你",
       "running": "运行中",
       "unread": "未读"
     },
     "empty": {
+      "attention": "没有需要你的会话",
       "running": "没有运行中的会话",
       "unread": "没有未读会话",
       "outside": "{{count}} 个会话不在当前筛选结果中。",
@@ -62,6 +72,15 @@
       "true": "还没有任何对话",
       "showAll": "查看全部会话",
       "clearSearch": "清除搜索"
+    },
+    "scope": {
+      "all": "全部对话",
+      "search": "搜索",
+      "empty": "没有匹配项",
+      "online": "在线",
+      "offline": "离线",
+      "tabs": "范围分类",
+      "toggle": "展开/收起 {{name}}"
     }
   },
   "sessionStatus": {

@@ -23,6 +23,8 @@ export interface BoardColumnProps {
   cardDrag?: (cardId: number) => BoardCardDragBinding | undefined;
   onExpand?: () => void;
   nowMs?: number;
+  /** 阶段档：本列独占整屏宽，卡片走触屏档。不传时与桌面一致。 */
+  layout?: "columns" | "stage";
 }
 
 /**
@@ -40,7 +42,9 @@ export function BoardColumn({
   cardDrag,
   onExpand,
   nowMs,
+  layout = "columns",
 }: BoardColumnProps) {
+  const stageLayout = layout === "stage";
   const { t } = useUiTranslation();
   const meta = BOARD_STAGE_META[state.stage];
   const Icon = meta.icon;
@@ -57,7 +61,8 @@ export function BoardColumn({
       data-drop-state={drag?.dropState}
       aria-label={label}
       className={cn(
-        "flex h-full max-h-full w-[300px] min-w-0 shrink-0 flex-col rounded-lg transition-colors",
+        "flex h-full max-h-full min-w-0 shrink-0 flex-col rounded-lg transition-colors",
+        stageLayout ? "w-full" : "w-[300px]",
         drag?.dropState === "over" &&
           "bg-primary-soft ring-1 ring-primary/30 ring-inset",
       )}
@@ -82,7 +87,8 @@ export function BoardColumn({
               })
             : state.total}
         </span>
-        {ports.onCreateTask ? (
+        {/* 阶段档（手机）不摆：「新建任务」在页头的 ＋，同一件事不在两处各放一颗。 */}
+        {ports.onCreateTask && !stageLayout ? (
           // 从这一列建出来的任务落在这一列：阶段预置成它，不必建完再拖一次。
           <button
             type="button"
@@ -111,6 +117,7 @@ export function BoardColumn({
             keyword={keyword}
             drag={cardDrag?.(card.id)}
             nowMs={nowMs}
+            touch={stageLayout}
           />
         ))}
         {state.hiddenCount > 0 ? (

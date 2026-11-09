@@ -7,6 +7,7 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  type HTMLAttributes,
   type RefObject,
 } from "react";
 
@@ -16,7 +17,12 @@ import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
 import type { EditorView } from "@tiptap/pm/view";
-import { EditorContent, useEditor, type Editor } from "@tiptap/react";
+import {
+  EditorContent,
+  useEditor,
+  type Editor,
+  type JSONContent,
+} from "@tiptap/react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
@@ -117,6 +123,20 @@ export interface AIChatInputProps {
   /** 编辑器里按下、且没被 slash / mention / 命令历史弹层或 IME 消费的 Esc。
    *  返回 true 表示已处理。 */
   onEscape?: () => boolean;
+  /** 写到可编辑区的 `enterkeyhint`：决定软键盘回车键上的字。省略则不写这个属性。 */
+  enterKeyHint?: HTMLAttributes<HTMLElement>["enterKeyHint"];
+  /**
+   * 键盘能不能发送。默认 true（回车 / Mod+回车按 `sendOnEnter` 发送）；false 时任何
+   * 回车组合都只换行，只有 `submit()`（宿主的发送按钮）发送 —— 触屏上回车键离字太近，
+   * 按错一下整条就发出去了。
+   */
+  keyboardSubmit?: boolean;
+  /**
+   * 最近一次 `appendDraft` 落下的那段之后，文档头一回被改动（用户打字、宿主载入 / 清空、
+   * 发送清空）时通知一次。追加本身与 `removeLastAppend` 的还原都不算。宿主拿它判断
+   * 「放回去的那段字用户已经动过了」，不必自己去摸编辑器。
+   */
+  onAppendEdited?: () => void;
 }
 
 const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
@@ -140,6 +160,9 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
       localCommandHistoryScope,
       localCommandsEnabled,
       onEscape,
+      enterKeyHint,
+      keyboardSubmit = true,
+      onAppendEdited,
     },
     ref,
   ) {
@@ -150,7 +173,13 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     const localCommandHistoryRef = useRef(localCommandHistory);
     const submitRef = useRef(onSubmit);
     const sendOnEnterRef = useRef(sendOnEnter);
+    const keyboardSubmitRef = useRef(keyboardSubmit);
     const onEmptyChangeRef = useRef(onEmptyChange);
+    const onAppendEditedRef = useRef(onAppendEdited);
+    /** 最近一次追加：追加前的文档与追加后的快照，供 removeLastAppend 还原、比对。 */
+    const lastAppendRef = useRef<{ before: JSONContent; after: string } | null>(
+      null,
+    );
     const historyRef = useRef(userMessageHistory);
     const historyIndexRef = useRef(-1);
     const applyingHistoryRef = useRef(false);
@@ -194,8 +223,16 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     }, [sendOnEnter]);
 
     useEffect(() => {
+      keyboardSubmitRef.current = keyboardSubmit;
+    }, [keyboardSubmit]);
+
+    useEffect(() => {
       onEmptyChangeRef.current = onEmptyChange;
     }, [onEmptyChange]);
+
+    useEffect(() => {
+      onAppendEditedRef.current = onAppendEdited;
+    }, [onAppendEdited]);
 
     useEffect(() => {
       escapeRef.current = onEscape;
@@ -305,6 +342,8 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
           autocomplete: "off",
           autocorrect: "off",
           spellcheck: "false",
+          // 不传就不写：桌面端的可编辑区属性与从前逐字一致。
+          ...(enterKeyHint ? { enterkeyhint: enterKeyHint } : {}),
         },
         handleKeyDown: (view: EditorView, event: KeyboardEvent): boolean =>
           handleComposerKeyDown(
@@ -315,6 +354,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
               mentionKeyDownRef,
               slashKeyDownRef,
               sendOnEnterRef,
+              keyboardSubmitRef,
               historyRef,
               historyIndexRef,
               applyingHistoryRef,
@@ -325,7 +365,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
             event,
           ),
       }),
-      [className],
+      [className, enterKeyHint],
     );
 
     const editor = useEditor({
@@ -333,7 +373,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
       extensions,
       coreExtensionOptions: CORE_EXTENSION_OPTIONS,
       editorProps,
-      onUpdate: ({ editor: ed }) =>
+      onUpdate: ({ editor: ed }) => {
         handleComposerUpdate(
           {
             applyingHistoryRef,
@@ -344,7 +384,13 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
             onCommandModeChangeRef,
           },
           ed,
-        ),
+        );
+        const last = lastAppendRef.current;
+        if (last && JSON.stringify(ed.getJSON()) !== last.after) {
+          lastAppendRef.current = null;
+          onAppendEditedRef.current?.();
+        }
+      },
       editable: !disabled,
     });
 
@@ -436,7 +482,22 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
         appendDraft: (text) => {
           if (!editor) return;
           historyIndexRef.current = -1;
+          const before = editor.getJSON();
+          // 追加自己触发的 update 不算「被改过」：先摘掉上一次的记录再追加。
+          lastAppendRef.current = null;
           appendEditorDraft(editor, text);
+          lastAppendRef.current = {
+            before,
+            after: JSON.stringify(editor.getJSON()),
+          };
+        },
+        removeLastAppend: () => {
+          const last = lastAppendRef.current;
+          if (!editor || !last) return false;
+          if (JSON.stringify(editor.getJSON()) !== last.after) return false;
+          lastAppendRef.current = null;
+          editor.chain().setContent(last.before).focus("end").run();
+          return true;
         },
       }),
       [editor],

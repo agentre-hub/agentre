@@ -66,3 +66,46 @@ describe("SessionFilterChips", () => {
     expect(unread.querySelector("[data-slot='unread-count']")).toBeNull();
   });
 });
+
+describe("SessionFilterChips item list and touch size", () => {
+  it("Given items with counts, Then only counts above zero show and the attention chip has its label", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <SessionFilterChips
+        value="all"
+        onChange={onChange}
+        items={[
+          { value: "all" },
+          { value: "attention", count: 2 },
+          { value: "running", count: 0 },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId("filter-chip-attention")).toHaveTextContent(
+      /Needs you\s*2/,
+    );
+    expect(screen.getByTestId("filter-chip-running")).toHaveTextContent(
+      /^Running$/,
+    );
+    expect(screen.queryByTestId("filter-chip-unread")).toBeNull();
+    await user.click(screen.getByTestId("filter-chip-attention"));
+    expect(onChange).toHaveBeenCalledWith("attention");
+  });
+
+  it("Given the touch size, Then every chip has a 44px hit area; default stays compact", () => {
+    const { rerender } = render(
+      <SessionFilterChips
+        value="all"
+        unreadCount={0}
+        onChange={() => {}}
+        size="touch"
+      />,
+    );
+    expect(screen.getByTestId("filter-chip-all")).toHaveClass("min-h-11");
+    rerender(
+      <SessionFilterChips value="all" unreadCount={0} onChange={() => {}} />,
+    );
+    expect(screen.getByTestId("filter-chip-all")).not.toHaveClass("min-h-11");
+  });
+});

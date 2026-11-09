@@ -2116,3 +2116,38 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     );
   });
 });
+
+/**
+ * 控制台手机形态（agentre-server 规格 2026-11-05「对话页 · 触屏输入」：所有输入框字号不低于
+ * 16px）：输入框卡片上的运行参数胶囊打开这只选择器，搜索框与「另填模型 ID」若是 12px，
+ * iOS 聚焦时会放大视口。移动端 16px、md 以上回到 12px（桌面最小窗宽 860，逐像素不变）。
+ */
+describe("ModelTargetPicker 输入框的字号", () => {
+  it("搜索框与另填模型 ID：移动端 16px、md 以上回到 12px，不留裸 text-xs", () => {
+    render(
+      <ModelTargetPicker
+        scenario="backend"
+        backendType="claudecode"
+        selected={null}
+        onChange={vi.fn()}
+        catalog={catalog()}
+        openOnMount
+        cliModels={{
+          models: [{ value: "a", label: "Alpha model", modelId: "alpha-id" }],
+          choice: { mode: "cli-default" },
+          onChange: vi.fn(),
+          onRefresh: vi.fn(),
+        }}
+      />,
+    );
+    for (const input of [
+      screen.getByPlaceholderText("Search providers or models…"),
+      screen.getByRole("textbox", { name: "Enter another model ID" }),
+    ]) {
+      const classes = input.className.split(/\s+/);
+      expect(classes).toContain("text-base");
+      expect(classes).toContain("md:text-xs");
+      expect(classes).not.toContain("text-xs");
+    }
+  });
+});

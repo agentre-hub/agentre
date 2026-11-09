@@ -420,3 +420,61 @@ describe("表单上的标签", () => {
     expect(remove).not.toHaveClass("focus-visible:outline-none");
   });
 });
+
+describe("整页档 page", () => {
+  it("Given page mode, When it renders, Then the header carries close, breadcrumb, more and save, and no footer row remains", () => {
+    renderForm({
+      page: true,
+      initial: { ...initialTaskFormValue({ scope: { kind: "all" } }), id: 7 },
+    });
+
+    const header = screen.getByRole("banner");
+    expect(within(header).getByTestId("task-form-close")).toBeInTheDocument();
+    expect(
+      within(header).getByTestId("task-form-breadcrumb"),
+    ).toBeInTheDocument();
+    expect(within(header).getByTestId("task-form-more")).toBeInTheDocument();
+    expect(within(header).getByTestId("task-form-submit")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-form-footer")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("task-form-cancel")).not.toBeInTheDocument();
+  });
+
+  it("Given page mode, When the title is filled and save is pressed in the header, Then onSave runs with the same value", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderForm({ page: true });
+
+    await user.type(screen.getByTestId("task-title"), "ship it");
+    await user.click(screen.getByTestId("task-form-submit"));
+
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "ship it" }),
+      ),
+    );
+  });
+
+  it("Given page mode, When it renders, Then title and description are at least 16px, the pill row wraps and every pill has a 44px hit area", () => {
+    renderForm({ page: true });
+
+    expect(screen.getByTestId("task-title").className).toMatch(
+      /text-(base|lg|xl)/,
+    );
+    expect(screen.getByTestId("task-description").className).toMatch(
+      /text-(base|lg)/,
+    );
+    const pills = screen.getByTestId("task-form-pills");
+    expect(pills.className).toContain("flex-wrap");
+    expect(pills.className).toContain("min-h-11");
+  });
+
+  it("Given page mode, When it renders, Then the form fills the host height so the pill row docks at the bottom", () => {
+    renderForm({ page: true });
+    expect(screen.getByTestId("task-form").className).toContain("h-full");
+  });
+
+  it("Given no page prop, When it renders, Then the footer row stays", () => {
+    renderForm();
+    expect(screen.getByTestId("task-form-footer")).toBeInTheDocument();
+    expect(screen.getByTestId("task-form-cancel")).toBeInTheDocument();
+  });
+});

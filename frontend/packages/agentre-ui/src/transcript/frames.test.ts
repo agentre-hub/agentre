@@ -372,6 +372,34 @@ describe("reduceFrames:审批与提问 —— 决议要回填原卡，不是另�
     });
   });
 
+  it("给定回执带 alwaysAllow=false(允许一次)，当归约，则 alwaysAllow 不为真；=true 才为真", () => {
+    const run = (alwaysAllow: boolean) =>
+      reduceFrames(
+        [
+          f({
+            kind: "tool_permission_request",
+            requestId: "r9",
+            toolName: "Bash",
+            input: {},
+          }),
+          f({
+            kind: "tool_permission_resolved",
+            requestId: "r9",
+            allowed: true,
+            alwaysAllow,
+          }),
+        ],
+        SID,
+      )[0].blocks[0];
+
+    const once = run(false);
+    expect(once.toolPermission?.alwaysAllow).toBeFalsy();
+    expect(once.canonical?.toolPermission?.alwaysAllow).toBeFalsy();
+    const always = run(true);
+    expect(always.toolPermission?.alwaysAllow).toBe(true);
+    expect(always.canonical?.toolPermission?.alwaysAllow).toBe(true);
+  });
+
   it("给定授权被拒绝，当归约，则回填 allowed=false", () => {
     const [msg] = reduceFrames(
       [

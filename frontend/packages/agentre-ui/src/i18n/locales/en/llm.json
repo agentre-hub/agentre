@@ -172,7 +172,11 @@
       "noModelsTitle": "No models configured yet",
       "noModelsDescription": "Discover and import models from the remote, or add a model ID manually.",
       "discoverModels": "Discover models",
-      "addModelManual": "Add model manually"
+      "addModelManual": "Add model manually",
+      "connectionList": "Connection",
+      "modelsList": "Models",
+      "metaEndpoint": "Endpoint",
+      "metaApiKey": "API key"
     },
     "modelsTable": {
       "ariaLabel": "Model list",
@@ -479,7 +483,12 @@
     "editor": {
       "createTitle": "New Agent Backend",
       "description": "Choose an execution engine and link an LLM provider. CLI backends route requests through the local HTTP proxy, so claude/codex login is not required.",
-      "editTitle": "Edit Agent Backend"
+      "editTitle": "Edit Agent Backend",
+      "groups": {
+        "advanced": "Advanced",
+        "basics": "Basics",
+        "runtime": "Runtime"
+      }
     },
     "empty": {
       "addFirst": "Add First Backend",

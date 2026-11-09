@@ -320,6 +320,23 @@ export { ProjectGroupHeader } from "./session-index/project-group-header";
 export { AgentGroupHeader } from "./session-index/agent-group-header";
 export { MachineGroupHeader } from "./session-index/machine-group-header";
 export { FreeGroupHeader } from "./session-index/free-group-header";
+export { phaseSections } from "./session-index/phase-sections";
+export type {
+  PhaseSection,
+  PhaseSectionInput,
+  PhaseSectionKey,
+} from "./session-index/phase-sections";
+// 手机形态的范围列表。ScopeProjectNode 的名字已被看板的查询面占用，这里换名导出。
+export { ScopeList } from "./session-index/scope-list";
+export type {
+  ScopeAgentGroup,
+  ScopeAgentItem,
+  ScopeListProps,
+  ScopeMachineItem,
+  ScopeProjectNode as ScopeListProjectNode,
+  ScopeTab,
+  ScopeValue,
+} from "./session-index/scope-list";
 // 导入本地会话（规格 2026-08-26）：入口条目、候选列表、转录预览与对话框都归包，
 // 宿主只提供 ports（发现 / 预览 / 写入 / 打开会话）。
 export { ImportLocalSessionMenu } from "./session-import/import-menu";
@@ -397,6 +414,11 @@ export type { ReasoningEffortValue } from "./engine/agent-backends-shared";
 export { usageLevel } from "./composer/usage-level";
 export type { UsageLevel } from "./composer/usage-level";
 export { formatTokens } from "./lib/format-tokens";
+export { ToolPermissionDock } from "./transcript/canonical-tool/tool-permission/dock";
+export type { ToolPermissionDockProps } from "./transcript/canonical-tool/tool-permission/dock";
+export { ShortcutHintsProvider } from "./transcript/canonical-tool/tool-permission/shortcut-hints";
+export type { ShortcutHintsProviderProps } from "./transcript/canonical-tool/tool-permission/shortcut-hints";
+export { isPendingToolPermission } from "./transcript/canonical-tool/tool-permission/use-tool-permission-decision";
 export { groupAgentsForPicking } from "./lib/agent-picking";
 export { StatusBanner } from "./session-status/status-banner";
 export type { StatusBannerTone } from "./session-status/status-banner";

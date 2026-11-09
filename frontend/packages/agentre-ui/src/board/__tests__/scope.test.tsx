@@ -226,3 +226,38 @@ describe("范围弹层", () => {
     });
   });
 });
+
+describe("范围弹层档（sheet）", () => {
+  it("Given sheet, When opened, Then it is a bottom sheet with 44px rows, a 16px search and a count button", async () => {
+    const user = userEvent.setup();
+    const { onScopeChange } = renderPicker(
+      { kind: "all" },
+      {
+        sheet: true,
+        matchedCount: 9,
+      },
+    );
+
+    await user.click(screen.getByRole("button", { name: /./ }));
+    const sheet = await screen.findByTestId("scope-sheet");
+    // 底部弹层走共享的 DialogShell（<640px 贴底、640–767px 居中），不自写一套定位。
+    expect(sheet.closest('[data-slot="dialog-shell-content"]')).not.toBeNull();
+    expect(within(sheet).getByTestId("scope-search").className).toContain(
+      "text-base",
+    );
+    expect(within(sheet).getByTestId("scope-row-1").className).toContain(
+      "min-h-11",
+    );
+
+    await user.click(within(sheet).getByTestId("scope-row-1"));
+    expect(onScopeChange).toHaveBeenCalledWith({
+      kind: "project",
+      projectId: 1,
+    });
+    // 弹层档选完不自动关：底部按钮先说出会看到几条。
+    const apply = screen.getByTestId("scope-sheet-apply");
+    expect(apply.textContent).toContain("9");
+    await user.click(apply);
+    expect(screen.queryByTestId("scope-sheet")).toBeNull();
+  });
+});

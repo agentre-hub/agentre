@@ -35,6 +35,11 @@ export type TranscriptJumpControlProps = {
    * `agentre-server` 那端因此维持原样。
    */
   pendingBelow?: number;
+  /**
+   * 手机档：下方有待处理时药丸只写「↓ N 项待处理」，不再并写「回到底部」或轮数；
+   * 没有待处理时仍是普通的那一句。不传时与桌面一致。
+   */
+  pendingOnly?: boolean;
   className?: string;
 };
 
@@ -74,12 +79,14 @@ export function TranscriptJumpControl({
   className,
   onJump,
   pendingBelow,
+  pendingOnly = false,
   turnsBelow = 0,
 }: TranscriptJumpControlProps): React.ReactElement {
   const { t } = useUiTranslation();
   // 补齐的 pendingDecisions 是重连那一刻的会话级快照（答掉了、滚过去了都不减），
   // 宿主按视口与活状态算的才是「下面还有几项」，所以传了就只认它。
   const pendingCount = pendingBelow ?? catchUp?.pendingDecisions ?? 0;
+  const onlyPending = pendingOnly && pendingCount > 0;
 
   return (
     <div
@@ -107,15 +114,17 @@ export function TranscriptJumpControl({
         )}
       >
         <ArrowDown aria-hidden="true" />
-        <span className="truncate">
-          {catchUp
-            ? catchUp.newRows > 0
-              ? t("transcriptJump.newCount", { count: catchUp.newRows })
-              : t("transcriptJump.newSome")
-            : turnsBelow > 0
-              ? t("transcriptJump.turnsBelow", { count: turnsBelow })
-              : t("transcriptJump.backToBottom")}
-        </span>
+        {onlyPending ? null : (
+          <span className="truncate">
+            {catchUp
+              ? catchUp.newRows > 0
+                ? t("transcriptJump.newCount", { count: catchUp.newRows })
+                : t("transcriptJump.newSome")
+              : turnsBelow > 0
+                ? t("transcriptJump.turnsBelow", { count: turnsBelow })
+                : t("transcriptJump.backToBottom")}
+          </span>
+        )}
         {pendingCount > 0 ? (
           <span
             data-testid="transcript-jump-pending"

@@ -48,7 +48,10 @@ export function ProviderWorkspaceHeader({
   onEditConnection,
   onCopyProviderKey,
   onDeleteProvider,
+  stacked = false,
 }: {
+  // 逐层档：连接信息一项一行（列表语义），不传时仍是单行元信息。
+  stacked?: boolean;
   provider: Provider;
   models: Model[];
   providerRefCounts: ReferenceCounts | null;
@@ -236,27 +239,54 @@ export function ProviderWorkspaceHeader({
         </div>
       </div>
 
-      {/* 元信息行：endpoint / 掩码 key / 默认模型 / 被引用 */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-2xs text-muted-foreground">
-        <span className="truncate">{endpoint}</span>
-        <span className="truncate">
-          {provider.hasApiKey
-            ? provider.maskedApiKey
-            : t("llmProviders.row.noApiKey")}
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="text-muted-foreground">
-            {t("llmProviders.workspace.metaDefaultModel")}
+      {/* 元信息：默认是一行 endpoint / 掩码 key / 默认模型 / 被引用；逐层档一项一行 */}
+      {stacked ? (
+        <ul
+          aria-label={t("llmProviders.workspace.connectionList")}
+          className="mt-3 flex flex-col gap-px overflow-hidden rounded-md bg-field-fill text-xs"
+        >
+          {[
+            [t("llmProviders.workspace.metaEndpoint"), endpoint],
+            [
+              t("llmProviders.workspace.metaApiKey"),
+              provider.hasApiKey
+                ? provider.maskedApiKey
+                : t("llmProviders.row.noApiKey"),
+            ],
+            [t("llmProviders.workspace.metaDefaultModel"), defaultModelName],
+            [t("llmProviders.workspace.metaReferenced"), refsText || "—"],
+          ].map(([label, value]) => (
+            <li
+              key={label}
+              className="flex min-w-0 items-baseline justify-between gap-3 px-3 py-2"
+            >
+              <span className="shrink-0 text-muted-foreground">{label}</span>
+              <span className="min-w-0 truncate font-mono">{value}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-2xs text-muted-foreground">
+          <span className="truncate">{endpoint}</span>
+          <span className="truncate">
+            {provider.hasApiKey
+              ? provider.maskedApiKey
+              : t("llmProviders.row.noApiKey")}
           </span>
-          <span>{defaultModelName}</span>
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="text-muted-foreground">
-            {t("llmProviders.workspace.metaReferenced")}
+          <span className="flex items-center gap-1">
+            <span className="text-muted-foreground">
+              {t("llmProviders.workspace.metaDefaultModel")}
+            </span>
+            <span>{defaultModelName}</span>
           </span>
-          <span>{refsText || "—"}</span>
-        </span>
-      </div>
+          <span className="flex items-center gap-1">
+            <span className="text-muted-foreground">
+              {t("llmProviders.workspace.metaReferenced")}
+            </span>
+            <span>{refsText || "—"}</span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

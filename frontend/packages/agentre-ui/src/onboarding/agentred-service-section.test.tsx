@@ -82,3 +82,17 @@ describe("AgentredServiceSection", () => {
     ).toBeNull();
   });
 });
+
+describe("AgentredServiceSection compact", () => {
+  it("原生后台只给一张命令卡", () => {
+    renderSection({ compact: true });
+    expect(screen.getAllByRole("group")).toHaveLength(1);
+    expect(bodyText()).toContain("agentred service install --start");
+  });
+
+  it("容器方式只给启动命令一张卡", () => {
+    renderSection({ compact: true, method: "docker" });
+    expect(screen.getAllByRole("group")).toHaveLength(1);
+    expect(bodyText()).toContain("docker compose up");
+  });
+});
