@@ -1,8 +1,10 @@
 import * as React from "react";
 import { Boxes, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import {
+  Button,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -16,6 +18,7 @@ import type {
 
 import type { TriState } from "../capability/catalog";
 import { CapabilityPicker } from "../capability/capability-picker";
+import { FailureBody } from "../failure-body";
 
 import { useSkillCatalog } from "./use-skill-catalog";
 
@@ -103,10 +106,27 @@ export function ExecTargetSkillsBlock(props: Props) {
     state: it.state ? skillStateOf(it.id) : undefined,
   }));
 
+  // 弹层盖住了块内的错误行，弹层里触发的那次加载失败就地用 toast 说。
+  const loadFromPicker = (refresh: boolean) => {
+    void skillCatalog.load(refresh).then((failure) => {
+      if (!failure) return;
+      toast.error(t("org.agent.skills.loadFailed"), {
+        description:
+          failure.message || failure.detail ? (
+            <FailureBody message={failure.message} detail={failure.detail} />
+          ) : undefined,
+        action: {
+          label: t("common.retry"),
+          onClick: () => loadFromPicker(refresh),
+        },
+      });
+    });
+  };
+
   const openPicker = () => {
     if (!online) return;
     setPickerOpen(true);
-    if (!skillCatalog.fetched) void skillCatalog.load(false);
+    if (!skillCatalog.fetched) loadFromPicker(false);
   };
 
   const machine = props.backend?.deviceId
@@ -302,6 +322,30 @@ export function ExecTargetSkillsBlock(props: Props) {
             </Popover>
           )}
         </div>
+        {online && skillCatalog.error && (
+          <div className="flex flex-col gap-1 text-2xs">
+            <div className="flex items-center gap-2">
+              <span className="text-destructive-text">
+                {t("org.agent.skills.loadFailed")}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+                onClick={() => void skillCatalog.load(false)}
+              >
+                {t("common.retry")}
+              </Button>
+            </div>
+            <div className="text-muted-foreground">
+              <FailureBody
+                message={skillCatalog.error.message}
+                detail={skillCatalog.error.detail}
+              />
+            </div>
+          </div>
+        )}
         {!online && (
           <p className="font-mono text-2xs text-muted-foreground">
             {t("org.agent.skills.offlineNote")}
@@ -331,7 +375,7 @@ export function ExecTargetSkillsBlock(props: Props) {
         onSetState={setSkillState}
         onConfirm={() => setPickerOpen(false)}
         onCancel={() => setPickerOpen(false)}
-        onRescan={() => void skillCatalog.load(true)}
+        onRescan={() => loadFromPicker(true)}
       />
     </div>
   );

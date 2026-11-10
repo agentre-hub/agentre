@@ -6,11 +6,14 @@ import { useTranslation } from "react-i18next";
 
 import { Button, copyTextWithToast } from "@agentre-hub/agentre-ui";
 
+import { classifyAppError, type AppError } from "@/lib/app-error";
+
 import {
   ListAgentBackends,
   ListLLMProviders,
   RemoteDeviceListProviders,
 } from "../../../../wailsjs/go/app/App";
+import { FailureBody } from "../failure-body";
 
 // ── Local shims (wailsjs/ is gitignored; types match the Go JSON shapes) ──────
 
@@ -61,7 +64,7 @@ type ProviderRow = {
 type SyncState =
   | { phase: "idle" }
   | { phase: "loading" }
-  | { phase: "error"; message: string }
+  | { phase: "error"; error: AppError }
   | { phase: "ready"; rows: ProviderRow[] };
 
 // ── component ─────────────────────────────────────────────────────────────────
@@ -72,6 +75,7 @@ export function DeviceProvidersSync({ deviceId }: Props) {
   const { t } = useTranslation();
   const [state, setState] = useState<SyncState>({ phase: "idle" });
   const [copied, setCopied] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -129,14 +133,13 @@ export function DeviceProvidersSync({ deviceId }: Props) {
       })
       .catch((err: unknown) => {
         if (!mounted) return;
-        const msg = err instanceof Error ? err.message : String(err);
-        setState({ phase: "error", message: msg });
+        setState({ phase: "error", error: classifyAppError(err) });
       });
 
     return () => {
       mounted = false;
     };
-  }, [deviceId]);
+  }, [deviceId, loadAttempt]);
 
   if (state.phase === "idle" || state.phase === "loading") {
     return (
@@ -149,8 +152,27 @@ export function DeviceProvidersSync({ deviceId }: Props) {
 
   if (state.phase === "error") {
     return (
-      <div className="px-3 py-2 text-xs text-destructive-text">
-        {t("remoteDevices.providers.loadFailed", { message: state.message })}
+      <div className="flex flex-col gap-1.5 px-3 py-2 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-destructive-text">
+            {t("remoteDevices.providers.loadFailed")}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            onClick={() => setLoadAttempt((n) => n + 1)}
+          >
+            {t("common.retry")}
+          </Button>
+        </div>
+        <div className="text-muted-foreground">
+          <FailureBody
+            message={state.error.message}
+            detail={state.error.detail}
+          />
+        </div>
       </div>
     );
   }

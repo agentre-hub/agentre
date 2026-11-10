@@ -56,15 +56,45 @@ describe("useSkillCatalog", () => {
     expect(fn).toHaveBeenCalledWith(7, 51, true);
   });
 
-  it("captures errors", async () => {
+  it("captures errors classified: raw machine text goes to detail, never to the message", async () => {
     const fn = vi.fn().mockRejectedValue(new Error("boom"));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).go = { app: { App: { ListAgentSkillPacks: fn } } };
+    const { result } = renderHook(() => useSkillCatalog(7, 51));
+    let returned: unknown;
+    await act(async () => {
+      returned = await result.current.load(false);
+    });
+    await waitFor(() =>
+      expect(result.current.error).toEqual({
+        kind: "unknown",
+        message: "",
+        detail: "boom",
+      }),
+    );
+    // load 把这一次的失败交回调用方，好让弹层里的触发点就地报。
+    expect(returned).toEqual(result.current.error);
+    expect(result.current.fetched).toBe(false);
+  });
+
+  it("clears the error when a later load succeeds", async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValue({ packs: [] });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (window as any).go = { app: { App: { ListAgentSkillPacks: fn } } };
     const { result } = renderHook(() => useSkillCatalog(7, 51));
     await act(async () => {
       await result.current.load(false);
     });
-    await waitFor(() => expect(result.current.error).toBeTruthy());
+    expect(result.current.error).not.toBeNull();
+    let returned: unknown;
+    await act(async () => {
+      returned = await result.current.load(false);
+    });
+    expect(result.current.error).toBeNull();
+    expect(returned).toBeNull();
   });
 
   it("auto-loads once on mount when autoLoad is true", async () => {

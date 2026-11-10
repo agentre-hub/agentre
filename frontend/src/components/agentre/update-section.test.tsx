@@ -9,6 +9,22 @@ const runtimeMocks = vi.hoisted(() => ({
 
 vi.mock("../../../wailsjs/runtime/runtime", () => runtimeMocks);
 
+const sonnerMocks = vi.hoisted(() => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+vi.mock("sonner", () => sonnerMocks);
+
+/** 最近一条失败 toast 的标题与折叠详情里的原文。 */
+function lastErrorToast(): { title: string; detail: string | null } {
+  const calls = sonnerMocks.toast.error.mock.calls;
+  const [title, options] = calls[calls.length - 1];
+  if (!options?.description) return { title, detail: null };
+  const { container, unmount } = render(<>{options.description}</>);
+  const detail = container.querySelector("details pre")?.textContent ?? null;
+  unmount();
+  return { title, detail };
+}
+
 import { Info } from "../../../wailsjs/go/app/App";
 import { UpdateSection } from "./update-section";
 import { INITIAL_UPDATE_STATE, useUpdateStore } from "@/stores/update-store";
@@ -67,6 +83,8 @@ function installUpdateBindings(overrides?: {
 }
 
 beforeEach(() => {
+  sonnerMocks.toast.success.mockReset();
+  sonnerMocks.toast.error.mockReset();
   runtimeMocks.BrowserOpenURL.mockReset();
   runtimeMocks.EventsOff.mockReset();
   runtimeMocks.EventsOn.mockReset();
@@ -146,6 +164,21 @@ describe("UpdateSection open logs", () => {
 
     await waitFor(() => expect(app.OpenLogsDir).toHaveBeenCalledTimes(1));
   });
+
+  it("Given opening the logs folder fails, When the user clicks Open Logs, Then the toast title is the localized fact and the raw text only sits in the folded detail", async () => {
+    const raw = 'exec: "open": executable file not found in $PATH';
+    const app = installUpdateBindings();
+    app.OpenLogsDir.mockImplementation(() => Promise.reject(new Error(raw)));
+
+    render(<UpdateSection />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /open logs/i }));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    const { title, detail } = lastErrorToast();
+    expect(title).toBe("Could not open the logs folder");
+    expect(detail).toBe(raw);
+  });
 });
 
 describe("UpdateSection debug logging", () => {
@@ -169,6 +202,43 @@ describe("UpdateSection debug logging", () => {
     fireEvent.click(screen.getByRole("switch"));
 
     await waitFor(() => expect(app.SetDebugLogging).toHaveBeenCalledWith(true));
+  });
+
+  it("Given persisting debug logging fails, When the user toggles the switch on, Then the switch rolls back and the toast title is the localized fact with the raw text folded", async () => {
+    const raw = "write settings: database is locked";
+    const app = installUpdateBindings();
+    app.SetDebugLogging.mockImplementation(() =>
+      Promise.reject(new Error(raw)),
+    );
+
+    render(<UpdateSection />);
+
+    await waitFor(() => expect(app.GetDebugLogging).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("switch"));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    const { title, detail } = lastErrorToast();
+    expect(title).toBe("Could not turn on debug logging");
+    expect(detail).toBe(raw);
+    expect(screen.getByRole("switch")).not.toBeChecked();
+  });
+
+  it("Given debug logging is on and persisting fails, When the user toggles it off, Then the toast says it could not be turned off", async () => {
+    const app = installUpdateBindings({
+      getDebugLogging: vi.fn(() => Promise.resolve(true)),
+    });
+    app.SetDebugLogging.mockImplementation(() =>
+      Promise.reject(new Error("boom")),
+    );
+
+    render(<UpdateSection />);
+
+    await waitFor(() => expect(screen.getByRole("switch")).toBeChecked());
+    fireEvent.click(screen.getByRole("switch"));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    expect(lastErrorToast().title).toBe("Could not turn off debug logging");
+    expect(screen.getByRole("switch")).toBeChecked();
   });
 });
 

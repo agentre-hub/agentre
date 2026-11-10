@@ -131,6 +131,7 @@
         "countCompact": "{{inherit}} inherited · {{on}} on · {{off}} off",
         "inheritNote": "Gray = inherited from global · Blue = forced on for this agent · Red = forced off for this agent (global untouched). Changes apply on the agent's next new session.",
         "empty": "No skill packs granted",
+        "loadFailed": "Could not list the skill packs for this target",
         "copyFrom": "Copy from",
         "copyFromDisabledHint": "Different backend type — package ids don't match",
         "offlineNote": "Machine is offline, can't list packs to add · already-granted ones can still be removed"

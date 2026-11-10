@@ -2,7 +2,23 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const sonnerMocks = vi.hoisted(() => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+vi.mock("sonner", () => sonnerMocks);
+
 import { CtlSkillPanel } from "./ctl-skill";
+
+/** 最近一条失败 toast 的标题与折叠详情里的原文。 */
+function lastErrorToast(): { title: string; detail: string | null } {
+  const calls = sonnerMocks.toast.error.mock.calls;
+  const [title, options] = calls[calls.length - 1];
+  if (!options?.description) return { title, detail: null };
+  const { container, unmount } = render(<>{options.description}</>);
+  const detail = container.querySelector("details pre")?.textContent ?? null;
+  unmount();
+  return { title, detail };
+}
 
 type AppMock = Record<string, ReturnType<typeof vi.fn>>;
 
@@ -35,6 +51,7 @@ function installCtlSkillBindings(overrides?: Partial<AppMock>): AppMock {
 }
 
 beforeEach(() => {
+  sonnerMocks.toast.error.mockClear();
   installCtlSkillBindings();
 });
 
@@ -110,5 +127,38 @@ describe("CtlSkillPanel", () => {
       screen.queryByRole("button", { name: "Uninstall" }),
     ).not.toBeInTheDocument();
     expect(app.InstallCtlSkill).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given the install binding rejects with machine text, When the user clicks install, Then the toast title is the localized fact and the raw text only sits in the folded detail", async () => {
+    const raw = "mkdir /Users/tester/.agents/skills: permission denied";
+    const user = userEvent.setup();
+    installCtlSkillBindings({
+      InstallCtlSkill: vi.fn(() => Promise.reject(new Error(raw))),
+    });
+    render(<CtlSkillPanel />);
+
+    await user.click(await screen.findByRole("button", { name: "Install" }));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    const { title, detail } = lastErrorToast();
+    expect(title).toBe("Failed to install the ctl skill");
+    expect(detail).toBe(raw);
+  });
+
+  it("Given the uninstall binding rejects with machine text, When the user clicks uninstall, Then the toast title is the localized fact and the raw text only sits in the folded detail", async () => {
+    const raw = "remove /Users/tester/.agents/skills/agrctl: busy";
+    const user = userEvent.setup();
+    installCtlSkillBindings({
+      GetCtlSkillStatus: vi.fn(() => Promise.resolve(INSTALLED)),
+      UninstallCtlSkill: vi.fn(() => Promise.reject(raw)),
+    });
+    render(<CtlSkillPanel />);
+
+    await user.click(await screen.findByRole("button", { name: "Uninstall" }));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    const { title, detail } = lastErrorToast();
+    expect(title).toBe("Failed to uninstall the ctl skill");
+    expect(detail).toBe(raw);
   });
 });

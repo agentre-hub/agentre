@@ -198,7 +198,7 @@
       "copyDone": "已复制修复命令",
       "copyFailed": "复制修复命令失败",
       "empty": "该设备上没有关联任何本地 Agent 后端 Provider。",
-      "loadFailed": "加载失败：{{message}}",
+      "loadFailed": "没能读取这台设备的 Provider 同步状态",
       "loading": "正在加载 Provider 同步状态…",
       "missing": "缺失",
       "synced": "已同步",

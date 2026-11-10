@@ -260,11 +260,14 @@
     },
     "debug": {
       "description": "Lower the log level to debug for troubleshooting. Turn it off once you're done.",
+      "disableFailed": "Could not turn off debug logging",
       "disabledToast": "Debug logging disabled",
+      "enableFailed": "Could not turn on debug logging",
       "enabledToast": "Debug logging enabled",
       "title": "Debug Logging"
     },
     "error": {
+      "openLogsFailed": "Could not open the logs folder",
       "title": "Operation Failed"
     },
     "header": {

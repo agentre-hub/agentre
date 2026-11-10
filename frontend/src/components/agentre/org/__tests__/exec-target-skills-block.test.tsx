@@ -2,6 +2,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const sonnerMocks = vi.hoisted(() => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+vi.mock("sonner", () => sonnerMocks);
+
 import { ExecTargetSkillsBlock } from "../exec-target-skills-block";
 import type { agent_backend_svc } from "../../../../../wailsjs/go/models";
 
@@ -63,6 +68,115 @@ function withCaps(caps: string[], packs: Array<Record<string, unknown>> = []) {
 afterEach(() => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   delete (window as any).go;
+  sonnerMocks.toast.error.mockReset();
+});
+
+function withFailingCatalog(listPacks: ReturnType<typeof vi.fn>) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).go = {
+    app: {
+      App: {
+        GetBackendCapabilities: vi.fn().mockResolvedValue({
+          capabilities: ["skills"],
+          permissionModeMeta: {
+            allowedModes: [],
+            defaultMode: "",
+            switchableDuringTurn: false,
+            order: [],
+          },
+        }),
+        ListAgentSkillPacks: listPacks,
+      },
+    },
+  };
+}
+
+const CATALOG_FAILED = "Could not list the skill packs for this target";
+
+describe("ExecTargetSkillsBlock catalog load failure", () => {
+  it("Given the catalog load fails with machine text, Then the block states the fact, keeps the raw text folded, and Retry loads it again", async () => {
+    const raw = "rpc error: daemon closed the stream";
+    const listPacks = vi
+      .fn()
+      .mockRejectedValueOnce(new Error(raw))
+      .mockResolvedValue({
+        packs: [
+          {
+            id: "superpowers@m",
+            name: "superpowers",
+            description: "d",
+            skills: ["a"],
+            source: "installed",
+            recommended: false,
+            installed: true,
+            enabled: true,
+            globallyEnabled: true,
+          },
+        ],
+      });
+    withFailingCatalog(listPacks);
+    const user = userEvent.setup();
+    const { container } = render(
+      <ExecTargetSkillsBlock
+        agentId={7}
+        index={0}
+        total={1}
+        backend={backend({ id: 51 })}
+        skills={[]}
+        onSkillsChange={vi.fn()}
+        copySources={[]}
+      />,
+    );
+
+    expect(await screen.findByText(CATALOG_FAILED)).toBeInTheDocument();
+    const detail = container.querySelector("details");
+    expect(detail).not.toHaveAttribute("open");
+    expect(detail?.querySelector("pre")).toHaveTextContent(raw);
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("superpowers")).toBeInTheDocument();
+    expect(screen.queryByText(CATALOG_FAILED)).toBeNull();
+    expect(listPacks).toHaveBeenCalledTimes(2);
+  });
+
+  it("Given the picker is open, When its rescan fails, Then a toast states the fact with the raw text folded and a retry", async () => {
+    const raw = "scan plugins: context deadline exceeded";
+    const listPacks = vi
+      .fn()
+      .mockResolvedValueOnce({ packs: [] })
+      .mockRejectedValue(new Error(raw));
+    withFailingCatalog(listPacks);
+    const user = userEvent.setup();
+    render(
+      <ExecTargetSkillsBlock
+        agentId={7}
+        index={0}
+        total={1}
+        backend={backend({ id: 51 })}
+        skills={[]}
+        onSkillsChange={vi.fn()}
+        copySources={[]}
+      />,
+    );
+    await waitFor(() => expect(listPacks).toHaveBeenCalledTimes(1));
+
+    await user.click(
+      await screen.findByRole("button", { name: "Manage skills" }),
+    );
+    await user.click(await screen.findByRole("button", { name: /rescan/i }));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    const [title, options] = sonnerMocks.toast.error.mock.calls[0];
+    expect(title).toBe(CATALOG_FAILED);
+    const { container, unmount } = render(<>{options.description}</>);
+    expect(container.querySelector("details pre")).toHaveTextContent(raw);
+    unmount();
+    expect(options.action.label).toBe("Retry");
+    options.action.onClick();
+    await waitFor(() => expect(listPacks).toHaveBeenCalledTimes(3));
+    expect(listPacks).toHaveBeenLastCalledWith(7, 51, true);
+  });
 });
 
 describe("ExecTargetSkillsBlock", () => {

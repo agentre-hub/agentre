@@ -198,7 +198,7 @@
       "copyDone": "Fix command copied",
       "copyFailed": "Failed to copy fix command",
       "empty": "No local Agent Backend providers are linked to this device.",
-      "loadFailed": "Load failed: {{message}}",
+      "loadFailed": "Could not load the provider sync status for this device",
       "loading": "Loading Provider sync status...",
       "missing": "Missing",
       "synced": "Synced",

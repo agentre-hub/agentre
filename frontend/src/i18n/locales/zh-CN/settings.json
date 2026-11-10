@@ -260,11 +260,14 @@
     },
     "debug": {
       "description": "开启后日志级别降为 debug，便于排查问题；问题解决后建议关闭。",
+      "disableFailed": "没能关闭 Debug 日志",
       "disabledToast": "Debug 日志已关闭",
+      "enableFailed": "没能开启 Debug 日志",
       "enabledToast": "Debug 日志已开启",
       "title": "Debug 日志"
     },
     "error": {
+      "openLogsFailed": "没能打开日志文件夹",
       "title": "操作失败"
     },
     "header": {

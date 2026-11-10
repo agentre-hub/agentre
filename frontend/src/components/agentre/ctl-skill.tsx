@@ -5,12 +5,16 @@ import { toast } from "sonner";
 
 import { Badge, Button } from "@agentre-hub/agentre-ui";
 
+import { classifyAppError } from "@/lib/app-error";
+
 import {
   GetCtlSkillStatus,
   InstallCtlSkill,
   UninstallCtlSkill,
 } from "../../../wailsjs/go/app/App";
 import type { ctlskill } from "../../../wailsjs/go/models";
+
+import { FailureBody } from "./failure-body";
 
 // 通用目录 ~/.agents/skills/agrctl 的读取方一览，来自 spec 的既有事实核实
 // （Problem 5）。产品名是专有名词，不进 i18n。
@@ -30,6 +34,17 @@ const UNIVERSAL_SKILL_HOSTS = [
 ] as const;
 
 type PendingAction = "install" | "uninstall" | null;
+
+/** 失败 toast：标题是本地化事实句，后端带码的那句当正文，机器原话只进折叠「详情」。 */
+function toastFailure(title: string, err: unknown) {
+  const { message, detail } = classifyAppError(err);
+  toast.error(title, {
+    description:
+      message || detail ? (
+        <FailureBody message={message} detail={detail} />
+      ) : undefined,
+  });
+}
 
 /**
  * CtlSkillPanel 呈现 ctl 控制通道技能包的两种落地形态（Claude Code 插件 / 通用
@@ -68,11 +83,7 @@ export function CtlSkillPanel() {
       const next = await InstallCtlSkill();
       setInfo(next);
     } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : t("settings.ctlSkill.toast.installFailed"),
-      );
+      toastFailure(t("settings.ctlSkill.toast.installFailed"), err);
     } finally {
       setPending(null);
     }
@@ -84,11 +95,7 @@ export function CtlSkillPanel() {
       const next = await UninstallCtlSkill();
       setInfo(next);
     } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : t("settings.ctlSkill.toast.uninstallFailed"),
-      );
+      toastFailure(t("settings.ctlSkill.toast.uninstallFailed"), err);
     } finally {
       setPending(null);
     }
