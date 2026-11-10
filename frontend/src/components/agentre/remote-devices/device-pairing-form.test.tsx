@@ -54,34 +54,43 @@ describe("DevicePairingForm", () => {
     expect(submit).toBeEnabled();
   });
 
-  it("shows the address and pairing-code rules inline, and only once something was typed", async () => {
+  it("shows the address and code errors only after blur, then revalidates live while typing", async () => {
     const user = userEvent.setup();
     renderForm();
+    const urlError =
+      "Address must end with /rpc, e.g. ws://192.168.1.100:7456/rpc";
+    const codeError = "Pairing code must be exactly 6 characters";
 
     expect(screen.getByText("6-character pairing code")).toBeInTheDocument();
-    expect(
-      screen.queryByText(
-        "Address must end with /rpc, e.g. ws://192.168.1.100:7456/rpc",
-      ),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("Pairing code must be exactly 6 characters"),
-    ).not.toBeInTheDocument();
-
     await user.type(
       screen.getByLabelText("Address"),
       "ws://192.168.1.100:7456",
     );
-    expect(
-      screen.getByText(
-        "Address must end with /rpc, e.g. ws://192.168.1.100:7456/rpc",
-      ),
-    ).toBeInTheDocument();
-
+    expect(screen.queryByText(urlError)).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("Pairing Code"), "ABCDE");
-    expect(
-      screen.getByText("Pairing code must be exactly 6 characters"),
-    ).toBeInTheDocument();
+    expect(screen.getByText(urlError)).toBeInTheDocument();
+    expect(screen.queryByText(codeError)).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Display Name (optional)"));
+    expect(screen.getByText(codeError)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Pairing Code"), "F");
+    expect(screen.queryByText(codeError)).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Address"), "/rpc");
+    expect(screen.queryByText(urlError)).not.toBeInTheDocument();
+  });
+
+  it("shows the localized TLS mode name instead of the internal value", async () => {
+    const user = userEvent.setup();
+    renderForm();
+
+    await user.click(screen.getByRole("button", { name: /Advanced/ }));
+    await user.click(screen.getByLabelText("Skip Verification"));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    const entry = screen.getByRole("button", { name: /Advanced/ });
+    expect(entry).toHaveTextContent("Skip Verification");
+    expect(entry).not.toHaveTextContent("skip-verify");
   });
 
   it("accepts any six characters as the pairing code, without alphabet validation", async () => {
