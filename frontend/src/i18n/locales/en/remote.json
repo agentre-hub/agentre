@@ -3,15 +3,7 @@
     "alreadyHandled": "That decision was already handled; state refreshed",
     "composerPlaceholder": "Send a message to the remote session…",
     "decision": {
-      "allow": "Allow",
-      "answer": "Answer",
-      "askAnswered": "That question was already answered",
-      "askSkipped": "That question was skipped",
-      "askTitle": "The remote session is waiting for your answer",
-      "deny": "Deny",
-      "permissionAllowed": "Tool permission was allowed",
-      "permissionDenied": "Tool permission was denied",
-      "permissionTitle": "{{tool}} is requesting tool permission"
+      "submitFailed": "Your reply didn't reach the other computer"
     },
     "error": {
       "description": "Could not reach Agentre on {{device}}. Make sure Agentre is running on that computer.",

@@ -1,17 +1,22 @@
 // frontend/src/components/agentre/peer/peer-panel.tsx
 //
 // 远端桌面会话的 Peer Tab（R19，决策 13）。attach/pull/live 与发送/回答/权限由
-// peer-session-store 编排；转录复用桌面端自己的 ChatTranscript / ChatComposer，
-// ask_user_question / tool_permission_request 归约成的待决策在此自绘可操作卡片
-// （提交走 peer 绑定，AlreadyHandled 时如实显示「已被处理」并刷新）。关闭 Tab 只
-// detach（R19：不删除对端会话）。
+// peer-session-store 编排；转录复用桌面端自己的 ChatTranscript / ChatComposer。
+// 对端的未决提问 / 工具授权就是转录里共享包的那两张卡（与本机对话同一张）；它们
+// 的答复经本面板自己那份动作端口走 peer 绑定（peer-ports.ts），AlreadyHandled 与
+// 没送到都在提示条上如实说。关闭 Tab 只 detach（R19：不删除对端会话）。
 
 import * as React from "react";
 import { Loader2, MonitorUp, TriangleAlert, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@agentre-hub/agentre-ui";
-import { cn } from "@agentre-hub/agentre-ui";
+import {
+  Button,
+  FailureDetail,
+  TranscriptPortsProvider,
+  cn,
+  isAskExpiredError,
+} from "@agentre-hub/agentre-ui";
 
 import {
   ChatComposer,
@@ -23,7 +28,12 @@ import {
   peerKeyOf,
   usePeerSessionsStore,
 } from "../../../stores/peer-session-store";
-import type { PeerDecision, PeerChatMessage } from "./peer-transcript";
+import {
+  PEER_CARD_SESSION_ID,
+  usePeerTranscriptPorts,
+  type PeerReplyOutcome,
+} from "./peer-ports";
+import type { PeerChatMessage } from "./peer-transcript";
 import { classifyPeerSendFailure } from "./send-failure";
 import type { chat_svc } from "../../../../wailsjs/go/models";
 
@@ -42,7 +52,7 @@ export type PeerPanelProps = {
 // 两者形状逐字相同（dto.ts 就是照着 Wails 生成的 chat_svc.ChatMessage 手写的，
 // transcript-dto-contract 那条编译期守卫钉着这件事），所以这里只是换个类型名。
 //
-// 归约器已经按 Peer Tab 的口径把 sessionId 填成 0（本机没有这条会话，见
+// 归约器已经按 Peer Tab 的口径把消息上的 sessionId 填成 0（本机没有这条会话，见
 // peer-transcript.ts），所以这里**原样交还同一个引用** —— 转录行缓存以消息对象为
 // WeakMap 键，在这里复制一份会让上游增量投影省下的那次重建白做。
 function peerMessageToChatMessage(m: PeerChatMessage): chat_svc.ChatMessage {
@@ -61,13 +71,10 @@ export function PeerPanel({
   const key = peerKeyOf(fingerprint, conversationId);
   const session = usePeerSessionsStore((s) => s.sessions[key]);
   const attach = usePeerSessionsStore((s) => s.attach);
+  const reattach = usePeerSessionsStore((s) => s.reattach);
   const detach = usePeerSessionsStore((s) => s.detach);
   const steer = usePeerSessionsStore((s) => s.steer);
   const run = usePeerSessionsStore((s) => s.run);
-  const submitAnswer = usePeerSessionsStore((s) => s.submitAnswer);
-  const submitToolPermission = usePeerSessionsStore(
-    (s) => s.submitToolPermission,
-  );
   const composerRef = React.useRef<ChatComposerHandle>(null);
   const [notice, setNotice] = React.useState<{
     text: string;
@@ -97,7 +104,6 @@ export function PeerPanel({
       ),
     [session?.transcript.messages],
   );
-  const decisions = session?.transcript.decisions ?? [];
   const status = session?.status ?? "attaching";
   const sending = session?.sending ?? false;
   // 「对端这条会话此刻在不在跑」——attach 交回的初值 + 实时帧推进（见 store）。
@@ -132,40 +138,31 @@ export function PeerPanel({
     [steer, run, turnRunning, fingerprint, conversationId, key, t],
   );
 
-  const handleAnswer = React.useCallback(
-    async (decision: PeerDecision & { kind: "ask" }) => {
-      const res = await submitAnswer({
-        fingerprint,
-        conversationId,
-        requestId: decision.requestId,
-        answers: [],
-        skipped: true,
-      });
-      if ("error" in res) {
-        setNotice({ kind: "error", text: res.error });
-      } else if (res.alreadyHandled) {
+  // 提问卡 / 授权卡的答复收场。卡片自己会画失败态；提示条补的是只有这枚 Tab 知道
+  // 的那半句 —— 答复是发给另一台电脑的，它没送到，或那边已经有人处理过了。
+  const handleReplyOutcome = React.useCallback(
+    (outcome: PeerReplyOutcome) => {
+      // 「那条请求已经不在等了」与「已被处理」对用户是同一件事。
+      if (
+        outcome.kind === "alreadyHandled" ||
+        isAskExpiredError(outcome.error)
+      ) {
         setNotice({ kind: "info", text: t("peerPanel.alreadyHandled") });
+        return;
       }
-    },
-    [submitAnswer, fingerprint, conversationId, t],
-  );
-
-  const handlePermission = React.useCallback(
-    async (decision: PeerDecision & { kind: "permission" }, allow: boolean) => {
-      const res = await submitToolPermission({
-        fingerprint,
-        conversationId,
-        requestId: decision.requestId,
-        allow,
+      setNotice({
+        kind: "error",
+        text: t("peerPanel.decision.submitFailed"),
+        detail: outcome.error || undefined,
       });
-      if ("error" in res) {
-        setNotice({ kind: "error", text: res.error });
-      } else if (res.alreadyHandled) {
-        setNotice({ kind: "info", text: t("peerPanel.alreadyHandled") });
-      }
     },
-    [submitToolPermission, fingerprint, conversationId, t],
+    [t],
   );
+  const ports = usePeerTranscriptPorts({
+    fingerprint,
+    conversationId,
+    onOutcome: handleReplyOutcome,
+  });
 
   return (
     <main className="content-sheet flex min-h-0 min-w-0 flex-1 flex-col">
@@ -215,17 +212,28 @@ export function PeerPanel({
       {notice ? (
         <div
           className={cn(
-            "mx-4 mt-2 rounded-md px-3 py-2 text-xs",
+            "mx-4 mt-2 flex items-start gap-2 rounded-md px-3 py-2 text-xs",
             notice.kind === "error"
               ? "bg-destructive-soft text-destructive-text"
-              : "bg-status-waiting-bg text-foreground",
+              : "bg-field-fill text-muted-foreground",
           )}
           data-testid="peer-notice"
+          data-kind={notice.kind}
         >
-          {notice.text}
-          {notice.detail ? (
-            <div className="mt-1 break-all opacity-70">{notice.detail}</div>
-          ) : null}
+          <div className="min-w-0 flex-1">
+            {notice.text}
+            <FailureDetail detail={notice.detail} className="mt-1" />
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="size-5 shrink-0"
+            aria-label={t("common.close")}
+            onClick={() => setNotice(null)}
+          >
+            <X className="size-3" aria-hidden="true" />
+          </Button>
         </div>
       ) : null}
 
@@ -241,43 +249,35 @@ export function PeerPanel({
           <div className="max-w-md text-xs text-muted-foreground">
             {t("peerPanel.error.description", { device: deviceName })}
           </div>
-          <div className="text-xs text-muted-foreground">{session?.error}</div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void reattach(fingerprint, conversationId)}
+          >
+            {t("common.retry")}
+          </Button>
+          <FailureDetail
+            detail={session?.error}
+            className="max-w-md text-xs text-muted-foreground"
+          />
         </div>
       ) : (
         <div className="min-h-0 flex-1">
-          <ChatTranscript
-            agentName={title || deviceName}
-            agentColor="agent-3"
-            cwd={undefined}
-            sessionId={0}
-            active={active}
-            messages={messages}
-            streaming={
-              session?.transcript.waitingForInput ? false : status === "ready"
-            }
-          />
+          <TranscriptPortsProvider ports={ports}>
+            <ChatTranscript
+              agentName={title || deviceName}
+              agentColor="agent-3"
+              cwd={undefined}
+              sessionId={PEER_CARD_SESSION_ID}
+              active={active}
+              messages={messages}
+              // 生成中指示只在对端那一轮真的在跑、且不是停下来等我的时候出现。
+              streaming={turnRunning && !session?.transcript.waitingForInput}
+            />
+          </TranscriptPortsProvider>
         </div>
       )}
-
-      {decisions.length > 0 ? (
-        <div className="flex flex-col gap-2 px-4 pb-2">
-          {decisions.map((d) =>
-            d.kind === "ask" ? (
-              <AskDecisionCard
-                key={d.requestId}
-                decision={d}
-                onAnswer={() => void handleAnswer(d)}
-              />
-            ) : (
-              <PermissionDecisionCard
-                key={d.requestId}
-                decision={d}
-                onDecide={(allow) => void handlePermission(d, allow)}
-              />
-            ),
-          )}
-        </div>
-      ) : null}
 
       <ChatComposer
         ref={composerRef}
@@ -292,90 +292,5 @@ export function PeerPanel({
         supportsImageInput={false}
       />
     </main>
-  );
-}
-
-function AskDecisionCard({
-  decision,
-  onAnswer,
-}: {
-  decision: PeerDecision & { kind: "ask" };
-  onAnswer: () => void;
-}) {
-  const { t } = useTranslation();
-  if (decision.answered) {
-    return (
-      <div
-        className="rounded-md bg-field-fill px-3 py-2 text-xs text-muted-foreground"
-        data-testid="peer-ask-handled"
-      >
-        {decision.skipped
-          ? t("peerPanel.decision.askSkipped")
-          : t("peerPanel.decision.askAnswered")}
-      </div>
-    );
-  }
-  return (
-    <div
-      className="flex items-center justify-between gap-2 rounded-md bg-status-waiting-bg px-3 py-2 text-xs"
-      data-testid="peer-ask-card"
-    >
-      <span className="min-w-0 flex-1 truncate">
-        {decision.questions[0]?.question ?? t("peerPanel.decision.askTitle")}
-      </span>
-      <Button type="button" variant="outline" size="sm" onClick={onAnswer}>
-        {t("peerPanel.decision.answer")}
-      </Button>
-    </div>
-  );
-}
-
-function PermissionDecisionCard({
-  decision,
-  onDecide,
-}: {
-  decision: PeerDecision & { kind: "permission" };
-  onDecide: (allow: boolean) => void;
-}) {
-  const { t } = useTranslation();
-  if (decision.resolved) {
-    return (
-      <div
-        className="rounded-md bg-field-fill px-3 py-2 text-xs text-muted-foreground"
-        data-testid="peer-permission-handled"
-      >
-        {decision.allowed
-          ? t("peerPanel.decision.permissionAllowed")
-          : t("peerPanel.decision.permissionDenied")}
-      </div>
-    );
-  }
-  return (
-    <div
-      className="flex items-center justify-between gap-2 rounded-md bg-status-waiting-bg px-3 py-2 text-xs"
-      data-testid="peer-permission-card"
-    >
-      <span className="min-w-0 flex-1 truncate">
-        {t("peerPanel.decision.permissionTitle", { tool: decision.toolName })}
-      </span>
-      <div className="flex shrink-0 items-center gap-1.5">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onDecide(true)}
-        >
-          {t("peerPanel.decision.allow")}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => onDecide(false)}
-        >
-          {t("peerPanel.decision.deny")}
-        </Button>
-      </div>
-    </div>
   );
 }

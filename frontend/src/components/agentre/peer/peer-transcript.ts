@@ -12,14 +12,15 @@
 // （packages/agentre-ui/src/transcript/frames.ts），两侧此后只保留各自的帧来源：
 // 本文件是 peer_svc 的 Wails 事件，agentre-server 那侧是它的 relay socket。
 //
-// 本文件因此只剩三件宿主自己的事：
+// 本文件因此只剩两件宿主自己的事：
 //   1. seq 去重（pull 补齐与实时推送会重复投递同一帧）与帧序列的累积；
-//   2. 待决策清单 —— ask_user_question / tool_permission_request 归约出的那两种块
-//      **不进 Peer Tab 的转录**：包里那两张卡按下去会调 TranscriptPorts，而桌面端
-//      在 App 顶层注入的是**本机**会话的 Wails 绑定，拿远端的对话身份去答本地
-//      会话是答错人。Peer Tab 自绘可操作卡片走 peer 绑定，见 peer-panel.tsx。
-//   3. waitingForInput —— 「对端此刻在等我」这枚灯是 Peer Tab 自己的 UI 状态
+//   2. waitingForInput —— 「对端此刻在等我」这枚灯是 Peer Tab 自己的 UI 状态
 //      （决定转录显不显示流式指示），不是转录内容。
+//
+// ask_user_question / tool_permission_request 归约出的那两种块**留在转录里**，由包里
+// 的提问卡 / 授权卡渲染（与本机对话同一张）。那两张卡按下去会调 TranscriptPorts，
+// 而 App 顶层注入的是**本机**会话的 Wails 绑定 —— 所以 Peer Tab 在自己这棵子树上
+// 换了一份动作端口，答复走 peer 绑定、按对话身份寻址，见 peer-ports.ts。
 
 import {
   createTranscriptProjector,
@@ -49,37 +50,9 @@ export type PeerEventFrame = {
 /** Peer Tab 的消息就是共享包的 DTO —— 转录渲染器吃的正是这一份。 */
 export type PeerChatMessage = TranscriptMessage;
 
-export type PeerAskQuestion = {
-  id?: string;
-  question: string;
-  header: string;
-  multiSelect?: boolean;
-  isOther?: boolean;
-  isSecret?: boolean;
-  options: { label: string; description: string; preview?: string }[];
-};
-
-export type PeerDecision =
-  | {
-      kind: "ask";
-      requestId: string;
-      questions: PeerAskQuestion[];
-      answered?: boolean;
-      skipped?: boolean;
-    }
-  | {
-      kind: "permission";
-      requestId: string;
-      toolName: string;
-      input?: Record<string, unknown>;
-      resolved?: boolean;
-      allowed?: boolean;
-    };
-
 export type PeerTranscriptState = {
-  /** 已经摘掉待决策卡的转录，直接喂 ChatTranscript。 */
+  /** 去掉空消息后的转录，直接喂 ChatTranscript。 */
   messages: PeerChatMessage[];
-  decisions: PeerDecision[];
   /** 已归约到的最高 seq；≤ 它的帧是重复投递，丢弃。 */
   cursor: number;
   waitingForInput: boolean;
@@ -100,7 +73,6 @@ const peerLocalSessionID = 0;
 
 export const createPeerTranscript = (): PeerTranscriptState => ({
   messages: [],
-  decisions: [],
   cursor: 0,
   waitingForInput: false,
   frames: [],
@@ -178,7 +150,6 @@ function advance(
 
   return {
     messages: visibleMessages(reduced),
-    decisions: collectDecisions(reduced),
     cursor,
     waitingForInput,
     frames,
@@ -233,72 +204,13 @@ export function nextLifecycleState(
   }
 }
 
-const HOSTED_BY_PANEL = new Set([
-  "ask_user_question",
-  "tool_permission_request",
-]);
-
 /**
- * 摘掉由 Peer Panel 自绘的那两种交互卡后的转录。
+ * 归约器会为纯消息级的帧（usage）开一条没有任何块的助手消息 —— 那会渲染成一个
+ * 空气泡，不显示。
  *
- * 缓存以**源消息对象**为键：投影器对没变过的消息交还同一个引用，摘完之后必须还是
- * 同一个引用，否则下游的 WeakMap 行缓存每帧全表 miss —— 投影器省下的那次重建就白做了。
+ * 只筛不改：留下来的每一条都是投影器交还的**同一个引用**，下游以消息对象为键的
+ * WeakMap 行缓存才不会每帧全表 miss。
  */
-const visibleCache = new WeakMap<TranscriptMessage, TranscriptMessage>();
-
 function visibleMessages(messages: TranscriptMessage[]): PeerChatMessage[] {
-  const out: PeerChatMessage[] = [];
-  for (const msg of messages) {
-    const cached = visibleCache.get(msg);
-    if (cached !== undefined) {
-      if (cached.blocks.length > 0 || cached.errorText) out.push(cached);
-      continue;
-    }
-    const blocks = msg.blocks.filter((b) => !HOSTED_BY_PANEL.has(b.type));
-    const next = blocks.length === msg.blocks.length ? msg : { ...msg, blocks };
-    visibleCache.set(msg, next);
-    // 摘空之后只剩一条没有正文的助手消息(比如整轮只有一张提问卡)——那会渲染成
-    // 一个空气泡。归约器本身也会为纯消息级帧(usage)开一条空消息,同理不显示。
-    if (next.blocks.length > 0 || next.errorText) out.push(next);
-  }
-  return out;
-}
-
-/**
- * 待决策清单：从归约结果里把两种交互卡摘出来，按出现顺序排。
- *
- * 判据取块本身而不是另记一份事件账 —— 决议帧回填的是**那张卡**，卡上的
- * answered / resolved 就是权威，两处各记一遍必然漂移。
- */
-function collectDecisions(messages: TranscriptMessage[]): PeerDecision[] {
-  const decisions: PeerDecision[] = [];
-  for (const msg of messages) {
-    for (const block of msg.blocks) {
-      const ask = block.askUserQuestion;
-      if (ask) {
-        decisions.push({
-          kind: "ask",
-          requestId: ask.requestId,
-          questions: (Array.isArray(ask.questions)
-            ? ask.questions
-            : []) as PeerAskQuestion[],
-          answered: ask.answered,
-          skipped: ask.skipped,
-        });
-        continue;
-      }
-      const perm = block.toolPermission;
-      if (perm) {
-        decisions.push({
-          kind: "permission",
-          requestId: perm.requestId,
-          toolName: perm.toolName,
-          input: perm.toolInput,
-          resolved: perm.resolved,
-          allowed: perm.allowed,
-        });
-      }
-    }
-  }
-  return decisions;
+  return messages.filter((msg) => msg.blocks.length > 0 || !!msg.errorText);
 }

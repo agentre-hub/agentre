@@ -597,4 +597,75 @@ describe("peer-session-store", () => {
     expect(s.status).toBe("error");
     expect(s.error).toContain("not running");
   });
+
+  // 接入失败页的「重试」。attach 对已有的那条会话是空操作（Tab 重渲染不该重复
+  // 接入），所以失败之后再调它什么也不会发生 —— 重试要一条自己的路。
+  describe("reattach", () => {
+    const args = {
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      title: "t",
+      deviceName: "d",
+    };
+    const key = peerKeyOf("sha256:peer-desktop", conv(7));
+
+    it("Given 接入失败, When reattach, Then 重新接入并补齐历史,错误清掉", async () => {
+      mocks.PeerAttach.mockRejectedValue(new Error("not running"));
+      mocks.PeerPull.mockRejectedValue(new Error("not running"));
+      await usePeerSessionsStore.getState().attach(args);
+      expect(usePeerSessionsStore.getState().sessions[key].status).toBe(
+        "error",
+      );
+
+      mocks.PeerAttach.mockResolvedValue({
+        latestSeq: 1,
+        lifecycleState: "idle",
+      });
+      mocks.PeerPull.mockResolvedValue({
+        notifications: [
+          {
+            seq: 1,
+            params: {
+              conversationId: conv(7),
+              event: { kind: "text_delta", text: "hello" },
+            },
+          },
+        ],
+        cursor: 1,
+        hasMore: false,
+        oldestSeq: 1,
+      });
+      await usePeerSessionsStore.getState().reattach(args.fingerprint, conv(7));
+
+      const s = usePeerSessionsStore.getState().sessions[key];
+      expect(s.status).toBe("ready");
+      expect(s.error).toBeUndefined();
+      expect(s.title).toBe("t");
+      expect(s.deviceName).toBe("d");
+      expect(s.transcript.messages).toHaveLength(1);
+      expect(mocks.PeerAttach).toHaveBeenCalledTimes(2);
+      // 重试是重新接入,不是关掉这枚 Tab。
+      expect(mocks.PeerDetach).not.toHaveBeenCalled();
+    });
+
+    it("Given 会话已接入, When reattach, Then 什么都不做(不打断正在用的那条)", async () => {
+      mocks.PeerAttach.mockResolvedValue({
+        latestSeq: 0,
+        lifecycleState: "idle",
+      });
+      mocks.PeerPull.mockResolvedValue({
+        notifications: [],
+        cursor: 0,
+        hasMore: false,
+        oldestSeq: 0,
+      });
+      await usePeerSessionsStore.getState().attach(args);
+      const before = usePeerSessionsStore.getState().sessions[key];
+
+      await usePeerSessionsStore.getState().reattach(args.fingerprint, conv(7));
+
+      expect(usePeerSessionsStore.getState().sessions[key]).toBe(before);
+      expect(mocks.PeerAttach).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -3,15 +3,7 @@
     "alreadyHandled": "该决策已被处理，状态已刷新",
     "composerPlaceholder": "发送消息到远端会话…",
     "decision": {
-      "allow": "允许",
-      "answer": "回答",
-      "askAnswered": "该提问已被回答",
-      "askSkipped": "该提问已被跳过",
-      "askTitle": "远端会话在等待你的回答",
-      "deny": "拒绝",
-      "permissionAllowed": "该工具权限已允许",
-      "permissionDenied": "该工具权限已拒绝",
-      "permissionTitle": "{{tool}} 请求工具权限"
+      "submitFailed": "答复没有送到对端"
     },
     "error": {
       "description": "无法连接到 {{device}} 上的 Agentre。请确认那台电脑上的 Agentre 正在运行。",

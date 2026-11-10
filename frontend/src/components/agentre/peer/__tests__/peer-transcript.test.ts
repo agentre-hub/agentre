@@ -115,7 +115,7 @@ describe("peer-transcript", () => {
     });
   });
 
-  it("ask_user_question becomes a pending decision; answered marks it", () => {
+  it("ask_user_question lights the waiting flag; answered marks the card and clears it", () => {
     let s = createPeerTranscript();
     s = reducePeerEvent(
       s,
@@ -126,8 +126,9 @@ describe("peer-transcript", () => {
         ],
       }),
     );
-    expect(s.decisions).toHaveLength(1);
-    expect(s.decisions[0]).toMatchObject({ kind: "ask", requestId: "req-1" });
+    expect(s.messages[0].blocks[0].askUserQuestion).toMatchObject({
+      requestId: "req-1",
+    });
     expect(s.waitingForInput).toBe(true);
     s = reducePeerEvent(
       s,
@@ -136,11 +137,13 @@ describe("peer-transcript", () => {
         skipped: false,
       }),
     );
-    expect(s.decisions[0]).toMatchObject({ kind: "ask", answered: true });
+    expect(s.messages[0].blocks[0].askUserQuestion).toMatchObject({
+      answered: true,
+    });
     expect(s.waitingForInput).toBe(false);
   });
 
-  it("tool_permission_request becomes a pending decision; resolved marks it", () => {
+  it("tool_permission_request stays in the transcript; resolved marks that card", () => {
     let s = createPeerTranscript();
     s = reducePeerEvent(
       s,
@@ -150,8 +153,7 @@ describe("peer-transcript", () => {
         toolCallId: "t1",
       }),
     );
-    expect(s.decisions[0]).toMatchObject({
-      kind: "permission",
+    expect(s.messages[0].blocks[0].toolPermission).toMatchObject({
       requestId: "p-1",
       toolName: "Bash",
     });
@@ -159,8 +161,7 @@ describe("peer-transcript", () => {
       s,
       frame(2, "tool_permission_resolved", { requestId: "p-1", allowed: true }),
     );
-    expect(s.decisions[0]).toMatchObject({
-      kind: "permission",
+    expect(s.messages[0].blocks[0].toolPermission).toMatchObject({
       resolved: true,
       allowed: true,
     });
@@ -343,12 +344,13 @@ describe("peer-transcript 改用共享归约器后新出现的块", () => {
   });
 });
 
-// Given 对端要我批一次工具 / 回答一个问题;When 归约;Then 那张卡**不进转录**,只进
-// 待决策清单 —— 包里的交互卡按下去会调 TranscriptPorts,而桌面端顶层注入的是本机
-// 会话的 Wails 绑定,拿远端的对话身份去答本地会话是答错人。Peer Panel 自绘的卡片
-// 走 peer 绑定,这条边界因此是故意的,不是漏渲染。
-describe("peer-transcript 交互卡归 Peer Panel", () => {
-  it("提问卡不进转录,只进待决策清单", () => {
+// Given 对端要我批一次工具 / 回答一个问题;When 归约;Then 那张卡**留在转录里**。
+// 「答错人」由 Peer Panel 自己那份动作端口兜住(peer-ports.ts:答复走 peer 绑定,
+// 按对话身份寻址),不靠把卡摘出转录。
+// 提问卡 / 授权卡留在转录里,由共享包的那两张卡渲染(与本机对话同一张)。它们带着
+// canonical —— 没有它 CanonicalToolRouter 会回落成普通工具卡,动作端口永远调不到。
+describe("peer-transcript 交互卡留在转录里", () => {
+  it("提问卡是转录里的一块,带 canonical", () => {
     let s = createPeerTranscript();
     s = reducePeerEvent(
       s,
@@ -358,13 +360,16 @@ describe("peer-transcript 交互卡归 Peer Panel", () => {
       }),
     );
 
-    // 摘空之后不留一条没有正文的空气泡。
-    expect(s.messages).toHaveLength(0);
-    expect(s.decisions).toHaveLength(1);
-    expect(s.decisions[0]).toMatchObject({ kind: "ask", requestId: "q1" });
+    expect(s.messages).toHaveLength(1);
+    expect(s.messages[0].blocks.map((b) => b.type)).toEqual([
+      "ask_user_question",
+    ]);
+    expect(s.messages[0].blocks[0].canonical).toMatchObject({
+      kind: "user.ask",
+    });
   });
 
-  it("授权卡不进转录,但同一轮的正文照常渲染", () => {
+  it("授权卡排在同一轮正文之后,带着工具输入", () => {
     let s = createPeerTranscript();
     s = reducePeerEvent(s, frame(1, EventTextDelta, { text: "我跑一下。" }));
     s = reducePeerEvent(
@@ -377,12 +382,14 @@ describe("peer-transcript 交互卡归 Peer Panel", () => {
     );
 
     expect(s.messages).toHaveLength(1);
-    expect(s.messages[0].blocks.map((b) => b.type)).toEqual(["text"]);
-    expect(s.decisions[0]).toMatchObject({
-      kind: "permission",
+    expect(s.messages[0].blocks.map((b) => b.type)).toEqual([
+      "text",
+      "tool_permission_request",
+    ]);
+    expect(s.messages[0].blocks[1].toolPermission).toMatchObject({
       requestId: "p1",
       toolName: "Bash",
-      input: { command: "ls" },
+      toolInput: { command: "ls" },
     });
   });
 });
