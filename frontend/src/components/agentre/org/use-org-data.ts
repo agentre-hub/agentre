@@ -30,6 +30,10 @@ import { applyAgentOrder, applyDepartmentOrder } from "./reorder";
 
 type State = {
   loading: boolean;
+  /**
+   * 只表示「从没加载出来过」：首次加载失败的原话（页面只放进 `title`）。加载成功过
+   * 之后的任何失败 —— 后台重拉、写入 —— 都不进这里，页面内容原样留着。
+   */
   error: string | null;
   departments: OrgDepartment[];
   agents: OrgAgent[];
@@ -49,6 +53,7 @@ const initialState: State = {
 export function useOrgData() {
   const [state, setState] = React.useState<State>(initialState);
   const inFlight = React.useRef(0);
+  const loaded = React.useRef(false);
 
   const reload = React.useCallback(async () => {
     try {
@@ -56,6 +61,7 @@ export function useOrgData() {
         LoadOrg(),
         ListAgentBackends(),
       ]);
+      loaded.current = true;
       setState({
         loading: false,
         error: null,
@@ -65,14 +71,22 @@ export function useOrgData() {
         availableTools: res.availableTools ?? [],
       });
     } catch (err) {
+      // 已经有内容时，一次重拉失败不值得把整页换掉：留着上一份，下一次事件 / 写入
+      // 会再拉。
+      if (loaded.current) return;
       setState((s) => ({ ...s, loading: false, error: messageOf(err) }));
     }
   }, []);
 
-  React.useEffect(() => {
+  // 首次加载，也是失败态上「重试」走的那条路：回到加载占位再拉一次。
+  const load = React.useCallback(() => {
     setState((s) => ({ ...s, loading: true }));
     void reload();
   }, [reload]);
+
+  React.useEffect(() => {
+    load();
+  }, [load]);
 
   // config:changed（本机写入）/ sync:applied（多端同步落地）到达时就地重拉——用不
   // 带 loading 置位的 `reload`，页面不会因为一次后台刷新回退到加载占位或提示条
@@ -92,15 +106,13 @@ export function useOrgData() {
     };
   }, [reload]);
 
+  // 写失败原样抛回调用方：弹窗、自动保存、拖拽各有各的说法，这里替它们说只能是把
+  // 整页换成一句原话。成败都重拉一次，页面以库里的为准。
   const mutate = React.useCallback(
-    async <T>(fn: () => Promise<T>): Promise<T | null> => {
+    async <T>(fn: () => Promise<T>): Promise<T> => {
       inFlight.current += 1;
       try {
-        const result = await fn();
-        return result;
-      } catch (err) {
-        setState((s) => ({ ...s, error: messageOf(err) }));
-        return null;
+        return await fn();
       } finally {
         inFlight.current -= 1;
         if (inFlight.current === 0) {
@@ -114,6 +126,7 @@ export function useOrgData() {
   return {
     ...state,
     reload,
+    retryLoad: load,
     createDepartment: (req: department_svc.CreateDepartmentRequest) =>
       mutate(() => CreateDepartment(req)),
     updateDepartment: (req: department_svc.UpdateDepartmentRequest) =>
@@ -139,6 +152,7 @@ export function useOrgData() {
       parentAgentId: number,
       orderedIds: number[],
     ) => {
+      const before = state.agents;
       setState((s) => ({
         ...s,
         agents: applyAgentOrder(
@@ -150,14 +164,24 @@ export function useOrgData() {
       }));
       return mutate(() =>
         ReorderAgents({ departmentId, parentAgentId, orderedIds }),
-      );
+      ).catch((err: unknown) => {
+        // 乐观重排没落库：先退回拖之前的顺序，不等那次可能同样失败的重拉。
+        setState((s) => ({ ...s, agents: before }));
+        throw err;
+      });
     },
     reorderDepartments: (parentId: number, orderedIds: number[]) => {
+      const before = state.departments;
       setState((s) => ({
         ...s,
         departments: applyDepartmentOrder(s.departments, parentId, orderedIds),
       }));
-      return mutate(() => ReorderDepartments({ parentId, orderedIds }));
+      return mutate(() => ReorderDepartments({ parentId, orderedIds })).catch(
+        (err: unknown) => {
+          setState((s) => ({ ...s, departments: before }));
+          throw err;
+        },
+      );
     },
   };
 }

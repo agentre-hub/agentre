@@ -25,6 +25,7 @@ import {
   OrgDetailAgentHeader,
 } from "./org-detail-agent-chrome";
 import { OrgDetailAgentIdentity } from "./org-detail-agent-identity";
+import { toastOrgWriteFailure } from "./write-failure-toast";
 import { OrgDetailAgentExecution } from "./org-detail-agent-execution";
 
 type Props = {
@@ -246,7 +247,13 @@ export function OrgDetailAgent(props: Props) {
   };
 
   const handleConfirmDeleteAgent = async () => {
-    await props.onDelete({ id: props.agent.id });
+    try {
+      await props.onDelete({ id: props.agent.id });
+    } catch (err) {
+      // 没删掉：确认框留着，用户可以再点一次或取消。
+      toastOrgWriteFailure(t("org.chart.errors.deleteFailed"), err);
+      return;
+    }
     setDeletePromptOpen(false);
   };
 

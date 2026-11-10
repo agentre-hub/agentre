@@ -17,6 +17,7 @@ import { type OrgAgent, type OrgDepartment } from "./org/types";
 import { OrgIndex } from "./org/org-index";
 import { useOrgData } from "./org/use-org-data";
 import { useOrgIndexView } from "./org/use-org-index-view";
+import { toastOrgWriteFailure } from "./org/write-failure-toast";
 import { blockReasonToCta } from "./not-chattable/mapping";
 
 import { renderDetail } from "./org-chart/detail";
@@ -43,6 +44,7 @@ export function OrgChartPage() {
     deleteAgentAvatar,
     createDepartment,
     createAgent,
+    retryLoad,
   } = useOrgData();
   const view = useOrgIndexView();
   // setSelected 单独解出来再进依赖：写成 `view.setSelected` 时 exhaustive-deps 看到的
@@ -136,10 +138,15 @@ export function OrgChartPage() {
   if (error) {
     return (
       <div
-        className="flex min-h-0 min-w-0 flex-1 items-center justify-center text-destructive-text"
+        className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-3"
         data-slot="org-chart-error"
       >
-        {error}
+        <span className="text-sm text-destructive-text" title={error}>
+          {t("org.chart.loadFailed")}
+        </span>
+        <Button variant="outline" size="sm" onClick={retryLoad}>
+          {t("common.retry")}
+        </Button>
       </div>
     );
   }
@@ -240,22 +247,32 @@ export function OrgChartPage() {
             needsSetup={view.needsSetup}
             onNeedsSetupChange={setNeedsSetup}
             onMoveAgent={(id, placement) => {
-              void moveAgent({
+              moveAgent({
                 id,
                 newDepartmentId: placement.departmentId,
                 newParentAgentId: placement.parentAgentId,
                 newSortOrder: 0,
-              });
+              }).catch((err: unknown) =>
+                toastOrgWriteFailure(t("org.chart.errors.moveFailed"), err),
+              );
             }}
             onMoveDepartment={(id, parentId) => {
-              void moveDepartment({
+              moveDepartment({
                 id,
                 newParentId: parentId,
                 newSortOrder: 0,
-              });
+              }).catch((err: unknown) =>
+                toastOrgWriteFailure(t("org.chart.errors.moveFailed"), err),
+              );
             }}
             onReorderAgent={(departmentId, parentAgentId, orderedIds) => {
-              void reorderAgents(departmentId, parentAgentId, orderedIds);
+              reorderAgents(departmentId, parentAgentId, orderedIds).catch(
+                (err: unknown) =>
+                  toastOrgWriteFailure(
+                    t("org.chart.errors.reorderFailed"),
+                    err,
+                  ),
+              );
             }}
             onCreateDepartment={() => {
               setNewSubDeptParentId(0);
@@ -288,9 +305,18 @@ export function OrgChartPage() {
         agents={agents}
         defaultParentId={newSubDeptParentId}
         onSubmit={async (req) => {
-          await createDepartment(
-            department_svc.CreateDepartmentRequest.createFrom(req),
-          );
+          // 对话框今天是「提交即关」，失败先在这里说出来；等它自己接住失败（留窗、
+          // 页脚报错）之后，这里改成把 createDepartment 的拒绝原样交给它。
+          try {
+            await createDepartment(
+              department_svc.CreateDepartmentRequest.createFrom(req),
+            );
+          } catch (err) {
+            toastOrgWriteFailure(
+              t("org.chart.errors.createDepartmentFailed"),
+              err,
+            );
+          }
           setNewDeptOpen(false);
         }}
         onClose={() => setNewDeptOpen(false)}
@@ -302,7 +328,11 @@ export function OrgChartPage() {
         backends={backends}
         defaultDepartmentId={newAgentParentDeptId}
         onSubmit={async (req) => {
-          await createAgent(agent_svc.CreateAgentRequest.createFrom(req));
+          try {
+            await createAgent(agent_svc.CreateAgentRequest.createFrom(req));
+          } catch (err) {
+            toastOrgWriteFailure(t("org.chart.errors.createAgentFailed"), err);
+          }
           setNewAgentOpen(false);
           setNewAgentFromIntent(false);
         }}

@@ -11,6 +11,14 @@
       "empty": {
         "noMountNodes": "No nodes available to mount"
       },
+      "errors": {
+        "createAgentFailed": "The agent wasn't created",
+        "createDepartmentFailed": "The department wasn't created",
+        "deleteFailed": "Couldn't delete it",
+        "moveFailed": "The move wasn't saved, so it's back where it was",
+        "reorderFailed": "The order wasn't saved, so the original order is back"
+      },
+      "loadFailed": "Failed to load",
       "loading": "Loading org chart...",
       "newAgent": {
         "agentOption": "Agent · {{name}}",

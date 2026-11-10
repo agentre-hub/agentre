@@ -9,6 +9,9 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const toastError = vi.hoisted(() => vi.fn());
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
+
 import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 import { OrgDetailAgent } from "../org-detail-agent";
 import type { OrgAgent, OrgDepartment } from "../types";
@@ -617,5 +620,46 @@ describe("OrgDetailAgent", () => {
         expect.objectContaining({ name: "Boris 二号" }),
       );
     });
+  });
+});
+
+describe("OrgDetailAgent 删除失败", () => {
+  it("Given 删除写入失败, When 确认删除, Then 确认框留着，失败用 toast 说出来", async () => {
+    toastError.mockReset();
+    const onDelete = vi
+      .fn()
+      .mockRejectedValue(new Error("agentre-code:14000 Agent 不存在"));
+    render(
+      <MemoryRouter initialEntries={["/org"]}>
+        <OrgDetailAgent
+          agent={agent()}
+          departments={[dept]}
+          agents={[]}
+          backends={[]}
+          isLeadOf={null}
+          availableTools={[]}
+          onUpdate={vi.fn().mockResolvedValue(undefined)}
+          onMove={vi.fn().mockResolvedValue(undefined)}
+          onDelete={onDelete}
+          onUploadAvatar={vi.fn().mockResolvedValue(undefined)}
+          onDeleteAvatar={vi.fn().mockResolvedValue(undefined)}
+          onClose={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Delete Agent" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Confirm Delete/ }),
+    );
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        "Couldn't delete it",
+        expect.anything(),
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: /Confirm Delete/ }),
+    ).toBeInTheDocument();
   });
 });

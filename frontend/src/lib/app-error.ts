@@ -56,6 +56,10 @@ const KIND_BY_CODE: Record<number, AppErrorKind> = {
   20911: "offline", // ChatImportDeviceOffline
   21000: "offline", // PortForwardDeviceOffline
   // conflict：和现有数据撞上了，换个做法才行
+  13001: "conflict", // DepartmentNameDuplicated
+  13005: "conflict", // DepartmentCircularReference
+  14001: "conflict", // AgentNameDuplicated
+  14011: "conflict", // AgentCircularReference
   18001: "conflict", // ProjectNameDuplicated
   18007: "conflict", // ProjectCircularReference
   18010: "conflict", // ProjectHasChildren
@@ -67,6 +71,11 @@ const KIND_BY_CODE: Record<number, AppErrorKind> = {
   21002: "conflict", // PortForwardPortTaken
   // notFound：要动的东西已经不在了
   10002: "notFound", // NotFound
+  13000: "notFound", // DepartmentNotFound
+  13003: "notFound", // DepartmentParentNotFound
+  14000: "notFound", // AgentNotFound
+  14005: "notFound", // AgentDepartmentNotFound
+  14010: "notFound", // AgentParentNotFound
   17000: "notFound", // ChatSessionNotFound
   18000: "notFound", // ProjectNotFound
   18004: "notFound", // ProjectPathNotExist

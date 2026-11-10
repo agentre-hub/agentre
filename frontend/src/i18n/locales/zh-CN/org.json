@@ -11,6 +11,14 @@
       "empty": {
         "noMountNodes": "暂无可挂载节点"
       },
+      "errors": {
+        "createAgentFailed": "Agent 没有创建成功",
+        "createDepartmentFailed": "部门没有创建成功",
+        "deleteFailed": "没有删除成功",
+        "moveFailed": "没有移动成功，已回到原来的位置",
+        "reorderFailed": "顺序没保存，已恢复原来的顺序"
+      },
+      "loadFailed": "加载失败",
       "loading": "正在加载组织架构…",
       "newAgent": {
         "agentOption": "Agent · {{name}}",

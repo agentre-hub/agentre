@@ -26,6 +26,28 @@ describe("classifyAppError", () => {
     },
   );
 
+  // B1：组织架构写入的码（13xxx 部门 / 14xxx Agent）。
+  it.each([
+    ["conflict", 13001, "同级下已存在同名部门"], // DepartmentNameDuplicated
+    ["conflict", 13005, "父部门不能指向自身或子部门"], // DepartmentCircularReference
+    ["conflict", 14001, "已经有同名 Agent"], // AgentNameDuplicated
+    ["conflict", 14011, "上级 Agent 不能指向自身或下属"], // AgentCircularReference
+    ["notFound", 13000, "部门不存在"], // DepartmentNotFound
+    ["notFound", 13003, "父部门不存在"], // DepartmentParentNotFound
+    ["notFound", 14000, "Agent 不存在"], // AgentNotFound
+    ["notFound", 14005, "指定的部门不存在"], // AgentDepartmentNotFound
+    ["notFound", 14010, "指定的上级 Agent 不存在"], // AgentParentNotFound
+  ] as const)(
+    "Given an org write fails coded %s (%i), When classified, Then the kind follows the code",
+    (kind, n, msg) => {
+      expect(classifyAppError(`agentre-code:${n} ${msg}`)).toEqual({
+        kind,
+        message: msg,
+        detail: undefined,
+      });
+    },
+  );
+
   it("Given Wails rejects with a bare string, When classified, Then it reads the code the same way", () => {
     expect(classifyAppError("agentre-code:18000 项目不存在")).toEqual({
       kind: "notFound",

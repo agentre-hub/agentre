@@ -8,7 +8,10 @@ import { useNewAgentIntentStore } from "@/stores/new-agent-intent-store";
 const mocks = vi.hoisted(() => ({
   useOrgData: vi.fn(),
   useOrgIndexView: vi.fn(),
+  toastError: vi.fn(),
 }));
+
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 
 vi.mock("../org/use-org-data", () => ({
   useOrgData: mocks.useOrgData,
@@ -105,6 +108,7 @@ function orgData(overrides: Record<string, unknown> = {}) {
     deleteAgentAvatar: vi.fn(),
     createDepartment: vi.fn(),
     createAgent: vi.fn(),
+    retryLoad: vi.fn(),
     ...overrides,
   };
 }
@@ -139,6 +143,7 @@ async function moveUntil(
 
 beforeEach(() => {
   useNewAgentIntentStore.getState().consume();
+  mocks.toastError.mockReset();
   mocks.useOrgIndexView.mockReturnValue({
     selected: null,
     setSelected: vi.fn(),
@@ -403,5 +408,160 @@ describe("OrgChartPage navigation intents", () => {
         name: "Select a department or parent agent",
       }),
     ).toHaveTextContent("Agent · CEO 助手");
+  });
+});
+
+// B1：写失败时页面内容保持；拖拽 / 排序失败用 toast 说事实；只有首次加载失败才整页
+// 换成失败态，而且不贴机器原话。
+describe("OrgChartPage 写失败与加载失败", () => {
+  const rejected = () =>
+    vi.fn().mockRejectedValue(new Error("agentre-code:14011 上级不能成环"));
+
+  /** toast 的 description 是个 React 节点：渲染出来才看得到正文。 */
+  function lastToastBody(): string {
+    const [, options] = mocks.toastError.mock.calls.at(-1)!;
+    const { container } = render(<>{options.description}</>);
+    return container.textContent ?? "";
+  }
+
+  it("Given 排序写入失败, When 落在细线上, Then toast 说顺序没保存，页面还在", async () => {
+    const data = orgData({ reorderAgents: rejected() });
+    mocks.useOrgData.mockReturnValue(data);
+    const user = userEvent.setup();
+    renderPage();
+
+    await pickUp(user, "org-row-handle-5");
+    await moveUntil(user, /place before Eva/);
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "The order wasn't saved, so the original order is back",
+        expect.anything(),
+      ),
+    );
+    // 后端按语言渲染的那句话当正文，前缀不外露。
+    expect(lastToastBody()).toBe("上级不能成环");
+    expect(screen.getByTestId("org-index-pane")).toBeInTheDocument();
+  });
+
+  it("Given 移动 Agent 失败, When 落在组头上, Then toast 说没移动成功", async () => {
+    const data = orgData({ moveAgent: rejected() });
+    mocks.useOrgData.mockReturnValue(data);
+    const user = userEvent.setup();
+    renderPage();
+
+    await pickUp(user, "org-row-handle-3");
+    await moveUntil(user, /move into 产品部/);
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "The move wasn't saved, so it's back where it was",
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("Given 移动部门失败且错误不带码, When 落在部门组头上, Then 原话只进折叠的详情", async () => {
+    const data = orgData({
+      moveDepartment: vi.fn().mockRejectedValue(new Error("SQLITE_BUSY")),
+    });
+    mocks.useOrgData.mockReturnValue(data);
+    const user = userEvent.setup();
+    renderPage();
+
+    await pickUp(user, "org-group-handle-2");
+    await moveUntil(user, /move into 产品部/);
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledOnce());
+    const [, options] = mocks.toastError.mock.calls[0];
+    const { container } = render(<>{options.description}</>);
+    expect(container.querySelector("details")).not.toHaveAttribute("open");
+    expect(container.querySelector("details pre")).toHaveTextContent(
+      "SQLITE_BUSY",
+    );
+    expect(container.querySelector("p")).toBeNull();
+  });
+
+  it("Given 新建部门写入失败, When 提交, Then 对话框照旧关上，失败用 toast 说出来", async () => {
+    const createDepartment = rejected();
+    mocks.useOrgData.mockReturnValue(orgData({ createDepartment }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "New Department" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "New Department",
+    });
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Name" }),
+      "设计部",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "The department wasn't created",
+        expect.anything(),
+      ),
+    );
+    expect(createDepartment).toHaveBeenCalledOnce();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "New Department" }),
+      ).toBeNull(),
+    );
+  });
+
+  it("Given 新建 Agent 写入失败, When 提交, Then 对话框照旧关上，失败用 toast 说出来", async () => {
+    const createAgent = rejected();
+    mocks.useOrgData.mockReturnValue(orgData({ createAgent }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "New Agent" }));
+    const dialog = await screen.findByRole("dialog", { name: "New Agent" });
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Name" }),
+      "Zoe",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "The agent wasn't created",
+        expect.anything(),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "New Agent" })).toBeNull(),
+    );
+  });
+
+  it("Given 首次加载失败, When 渲染, Then 整页是「加载失败」与「重试」，原话不上正文", async () => {
+    const retryLoad = vi.fn();
+    mocks.useOrgData.mockReturnValue(
+      orgData({
+        error: "dial unix /tmp/agentre.sock: connection refused",
+        departments: [],
+        agents: [],
+        retryLoad,
+      }),
+    );
+    const user = userEvent.setup();
+    const { container } = renderPage();
+
+    const failed = container.querySelector<HTMLElement>(
+      '[data-slot="org-chart-error"]',
+    );
+    expect(failed).not.toBeNull();
+    expect(within(failed!).getByText("Failed to load")).toBeInTheDocument();
+    expect(failed).not.toHaveTextContent("connection refused");
+    expect(screen.queryByTestId("org-index-pane")).toBeNull();
+
+    await user.click(within(failed!).getByRole("button", { name: "Retry" }));
+    expect(retryLoad).toHaveBeenCalledOnce();
   });
 });

@@ -15,6 +15,24 @@ vi.mock("../../../../../wailsjs/runtime/runtime", () => ({
   },
 }));
 
+// 测试用的 App 替身（vite.config 的别名）没有两个重排绑定；补上并照样转给
+// window.go，下面的 installAppMock 才接得住。
+vi.mock("../../../../../wailsjs/go/app/App", async (importOriginal) => {
+  const callApp =
+    (name: string) =>
+    (...args: unknown[]) =>
+      (
+        window as unknown as {
+          go: { app: { App: Record<string, (...a: unknown[]) => unknown> } };
+        }
+      ).go.app.App[name](...args);
+  return {
+    ...(await importOriginal<Record<string, unknown>>()),
+    ReorderAgents: callApp("ReorderAgents"),
+    ReorderDepartments: callApp("ReorderDepartments"),
+  };
+});
+
 function emitRuntimeEvent(name: string) {
   for (const cb of [...(runtimeHandlers.get(name) ?? [])]) cb(undefined);
 }
@@ -191,5 +209,142 @@ describe("useOrgData", () => {
 
     expect(runtimeHandlers.get("config:changed")?.size ?? 0).toBe(0);
     expect(runtimeHandlers.get("sync:applied")?.size ?? 0).toBe(0);
+  });
+});
+
+// B1：写失败不再把整页换成一句原话 —— 失败抛回调用方（弹窗 / 自动保存 / 拖拽各自
+// 决定怎么说），页面内容原样留着；只有「从没加载出来过」才是整页的失败态。
+describe("useOrgData 写失败与加载失败", () => {
+  const EVA = { id: 2, name: "Eva", departmentId: 1, sortOrder: 1 };
+  const DAN = { id: 5, name: "Dan", departmentId: 1, sortOrder: 2 };
+  const ENGINEERING = { id: 1, name: "工程部", parentId: 0, sortOrder: 1 };
+  const PRODUCT = { id: 3, name: "产品部", parentId: 0, sortOrder: 2 };
+  const loaded = () =>
+    Promise.resolve({
+      departments: [ENGINEERING, PRODUCT],
+      agents: [EVA, DAN],
+    });
+
+  it("Given a loaded page, When a write fails, Then the rejection reaches the caller and the page keeps its content", async () => {
+    installAppMock({
+      LoadOrg: vi.fn(loaded),
+      CreateAgent: vi.fn(() =>
+        Promise.reject(new Error("agentre-code:14001 已经有同名 Agent")),
+      ),
+    });
+    const { result } = renderHook(() => useOrgData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let failure: unknown;
+    await act(async () => {
+      await result.current
+        .createAgent({ name: "Eva" } as never)
+        .catch((e: unknown) => {
+          failure = e;
+        });
+    });
+
+    expect(failure).toEqual(new Error("agentre-code:14001 已经有同名 Agent"));
+    expect(result.current.error).toBeNull();
+    expect(result.current.agents.map((a) => a.id)).toEqual([2, 5]);
+    // 失败之后仍然重拉一次：乐观更新要以库里的为准。
+    await waitFor(() =>
+      expect(vi.mocked(appMock.LoadOrg)).toHaveBeenCalledTimes(2),
+    );
+  });
+
+  it("Given an optimistic agent reorder, When the write fails and the follow-up reload fails too, Then the list is back in its original order", async () => {
+    installAppMock({
+      LoadOrg: vi
+        .fn()
+        .mockImplementationOnce(loaded)
+        .mockImplementation(() => Promise.reject(new Error("db locked"))),
+      ReorderAgents: vi.fn(() => Promise.reject(new Error("boom"))),
+    });
+    const { result } = renderHook(() => useOrgData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let failure: unknown;
+    await act(async () => {
+      await result.current.reorderAgents(1, 0, [5, 2]).catch((e: unknown) => {
+        failure = e;
+      });
+    });
+
+    expect(failure).toEqual(new Error("boom"));
+    const order = [...result.current.agents]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((a) => a.id);
+    expect(order).toEqual([2, 5]);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("Given an optimistic department reorder, When the write fails, Then the departments are back in their original order", async () => {
+    installAppMock({
+      LoadOrg: vi
+        .fn()
+        .mockImplementationOnce(loaded)
+        .mockImplementation(() => Promise.reject(new Error("db locked"))),
+      ReorderDepartments: vi.fn(() => Promise.reject(new Error("boom"))),
+    });
+    const { result } = renderHook(() => useOrgData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let failure: unknown;
+    await act(async () => {
+      await result.current.reorderDepartments(0, [3, 1]).catch((e: unknown) => {
+        failure = e;
+      });
+    });
+
+    expect(failure).toEqual(new Error("boom"));
+    const order = [...result.current.departments]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((d) => d.id);
+    expect(order).toEqual([1, 3]);
+  });
+
+  it("Given the page already loaded, When a background reload fails, Then the content stays and no page-level error appears", async () => {
+    runtimeHandlers.clear();
+    installAppMock({
+      LoadOrg: vi
+        .fn()
+        .mockImplementationOnce(loaded)
+        .mockImplementation(() => Promise.reject(new Error("db locked"))),
+    });
+    const { result } = renderHook(() => useOrgData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      emitRuntimeEvent("config:changed");
+    });
+    await waitFor(() =>
+      expect(vi.mocked(appMock.LoadOrg)).toHaveBeenCalledTimes(2),
+    );
+    await act(async () => {});
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.agents).toHaveLength(2);
+  });
+
+  it("Given the first load failed, When retried and the backend answers, Then the error clears and the content shows", async () => {
+    installAppMock({
+      LoadOrg: vi
+        .fn()
+        .mockImplementationOnce(() => Promise.reject(new Error("boom")))
+        .mockImplementation(loaded),
+    });
+    const { result } = renderHook(() => useOrgData());
+    await waitFor(() => expect(result.current.error).toBe("boom"));
+
+    act(() => {
+      result.current.retryLoad();
+    });
+    // 重试期间回到加载占位，而不是一直挂着失败态。
+    expect(result.current.loading).toBe(true);
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeNull();
+    expect(result.current.agents).toHaveLength(2);
   });
 });
