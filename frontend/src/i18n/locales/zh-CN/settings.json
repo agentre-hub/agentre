@@ -188,13 +188,18 @@
       "copyUrl": "复制 URL",
       "restart": "重启代理"
     },
+    "errors": {
+      "loadFailed": "代理设置没有加载出来",
+      "restartFailed": "代理没有重启成功",
+      "saveFailed": "设置没有保存",
+      "savedButStopped": "设置已保存，但代理没有启动",
+      "stillStopped": "代理仍未启动"
+    },
     "flash": {
       "applied": "已应用并重启代理",
       "copyUrlDone": "已复制 URL",
       "copyUrlFailed": "复制 URL 失败",
-      "restarted": "已重启本地 HTTP 代理",
-      "restartFailed": "代理仍未启动：{{reason}}",
-      "savedButStopped": "已保存设置，但代理未启动：{{reason}}"
+      "restarted": "已重启本地 HTTP 代理"
     },
     "listener": {
       "currentUrl": "当前 URL",
@@ -221,7 +226,7 @@
       "title": "密钥不出 App"
     },
     "status": {
-      "notStarted": "未启动{{reason}}",
+      "notStarted": "未启动",
       "running": "运行中",
       "stopped": "已停止"
     },

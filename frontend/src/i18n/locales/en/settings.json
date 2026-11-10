@@ -188,13 +188,18 @@
       "copyUrl": "Copy URL",
       "restart": "Restart Proxy"
     },
+    "errors": {
+      "loadFailed": "Couldn't load the proxy settings",
+      "restartFailed": "The proxy couldn't be restarted",
+      "saveFailed": "Settings weren't saved",
+      "savedButStopped": "Settings saved, but the proxy didn't start",
+      "stillStopped": "The proxy still isn't running"
+    },
     "flash": {
       "applied": "Applied and restarted proxy",
       "copyUrlDone": "URL copied",
       "copyUrlFailed": "Failed to copy URL",
-      "restarted": "Local HTTP proxy restarted",
-      "restartFailed": "Proxy is still not running: {{reason}}",
-      "savedButStopped": "Settings saved, but the proxy did not start: {{reason}}"
+      "restarted": "Local HTTP proxy restarted"
     },
     "listener": {
       "currentUrl": "Current URL",
@@ -221,7 +226,7 @@
       "title": "Secrets Stay in the App"
     },
     "status": {
-      "notStarted": "Not started{{reason}}",
+      "notStarted": "Not started",
       "running": "Running",
       "stopped": "Stopped"
     },
