@@ -6891,7 +6891,10 @@ describe("ChatPanel · 会话级思考力度控件（trailing 侧，决策 6/9�
 
     // select() 一点即关弹层,失败原因要重新打开才看得到。
     await user.click(pill);
-    expect(await screen.findByRole("alert")).toHaveTextContent("db down");
+    // A2：弹层只说本地化事实，原话进失败 toast 的折叠详情。
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The last switch didn't go through",
+    );
   });
 });
 

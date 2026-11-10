@@ -352,6 +352,18 @@ export function useProviderPill({
   const onCLIChosen = React.useCallback(() => {
     setProviderKeyState("");
     setModelKeyState("");
+    setSwitchError(null);
+  }, []);
+  // CLI 自带模型的切换失败与供应商目标那一路同一种告知（A2）。
+  const onCLIFailed = React.useCallback((cause: unknown) => {
+    console.error("[provider-pill] cli model switch failed", cause);
+    setSwitchError(pillLastSwitchFailedText());
+    toastPillSwitchFailed(
+      i18n.t("chatPanel.pillSwitch.modelFailed", {
+        label: faceLabelRef.current,
+      }),
+      cause,
+    );
   }, []);
   const cli = useChatCLIModel({
     backendId,
@@ -361,6 +373,7 @@ export function useProviderPill({
     persistedValue: persistedCLIModel,
     onChosen: onCLIChosen,
     onSwitched,
+    onFailed: onCLIFailed,
   });
 
   // 只取用到的那几格:cli 对象整体随目录 / 加载态换身份,setTarget 不该跟着换。

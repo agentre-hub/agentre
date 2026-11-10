@@ -139,3 +139,74 @@ describe("useProviderPill · switch failure", () => {
     expect(sonnerMocks.toast.error).not.toHaveBeenCalled();
   });
 });
+
+describe("useProviderPill · CLI-native model switch failure", () => {
+  async function chooseDeniedCLIModel() {
+    appMocks.ListLLMProviders.mockResolvedValue({ items: [] });
+    appMocks.ListCLIModels.mockResolvedValue({
+      models: [
+        { value: "opus", displayName: "Opus", modelId: "claude-opus" },
+        { value: "denied", displayName: "Denied model", modelId: "denied" },
+      ],
+      effectiveValue: "opus",
+      effectiveModelId: "claude-opus",
+    });
+    appMocks.SetChatSessionCLIModel.mockRejectedValue(
+      new Error("Model 'denied' not found"),
+    );
+    render(
+      <Harness
+        backendType="claudecode"
+        backendId={9}
+        sessionId={42}
+        boundProviderKey=""
+        boundModelKey=""
+        boundCLIModel=""
+        persistedProviderKey=""
+        persistedModelKey=""
+        persistedCLIModelMode="fixed"
+        persistedCLIModel="opus"
+      />,
+    );
+    const pill = screen.getByTestId("provider-pill");
+    await waitFor(() => expect(pill).toHaveTextContent("Opus"));
+    const user = userEvent.setup();
+    await user.click(pill);
+    const popover = await screen.findByTestId("model-target-popover");
+    await user.click(
+      await within(popover).findByRole("option", { name: /Denied model/ }),
+    );
+    return { pill, popover };
+  }
+
+  it("Given the CLI rejects the model, When it is picked, Then the pill keeps the previous model and a toast says so with the raw text only in a collapsed Details", async () => {
+    const { pill } = await chooseDeniedCLIModel();
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    const { title, options } = lastErrorToast();
+    expect(title).toBe("Model didn't switch — still Opus");
+    expect(pill).toHaveTextContent("Opus");
+    expect(pill).not.toHaveTextContent("Denied model");
+
+    render(<>{options.description as React.ReactNode}</>);
+    const details = screen
+      .getAllByText(/'denied' not found/)[0]
+      .closest("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+  });
+
+  it("Given the CLI rejects the model, When the popover stays open, Then it shows the localized failure line below the list and never the raw text", async () => {
+    const { popover } = await chooseDeniedCLIModel();
+
+    await waitFor(() =>
+      expect(within(popover).getByRole("alert")).toHaveTextContent(
+        "The last switch didn't go through",
+      ),
+    );
+    expect(within(popover).queryByText(/'denied' not found/)).toBeNull();
+    expect(
+      within(popover).getByRole("option", { name: /Denied model/ }),
+    ).toBeInTheDocument();
+  });
+});
