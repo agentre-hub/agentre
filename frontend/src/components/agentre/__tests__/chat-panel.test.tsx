@@ -7148,12 +7148,13 @@ describe("ChatPanel · 会话进程与端口", () => {
     );
   });
 
-  it("Given a process, When stop is clicked, Then KillSessionProcess runs with (session, pid, startedAt) and the list is re-fetched", async () => {
+  it("Given a process, When stop is clicked and confirmed, Then KillSessionProcess runs with (session, pid, startedAt) and the list is re-fetched", async () => {
     await renderWithProcess();
     const before = appMocks.ListSessionProcesses.mock.calls.length;
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Stop process" }),
-    );
+    const kill = await screen.findByRole("button", { name: "Stop process" });
+    await userEvent.click(kill);
+    expect(appMocks.KillSessionProcess).not.toHaveBeenCalled();
+    await userEvent.click(kill);
     await waitFor(() =>
       expect(appMocks.KillSessionProcess).toHaveBeenCalledWith(
         1,
@@ -7169,12 +7170,12 @@ describe("ChatPanel · 会话进程与端口", () => {
     expect(sonnerMocks.toast.error).not.toHaveBeenCalled();
   });
 
-  it("Given the kill fails, When stop is clicked, Then an error toast shows", async () => {
+  it("Given the kill fails, When stop is clicked and confirmed, Then an error toast shows", async () => {
     await renderWithProcess();
     appMocks.KillSessionProcess.mockRejectedValue(new Error("denied"));
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Stop process" }),
-    );
+    const kill = await screen.findByRole("button", { name: "Stop process" });
+    await userEvent.click(kill);
+    await userEvent.click(kill);
     await waitFor(() =>
       expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
         "Failed to stop process: denied",
