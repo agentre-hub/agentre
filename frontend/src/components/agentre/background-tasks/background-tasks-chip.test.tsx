@@ -815,7 +815,7 @@ describe("BackgroundTasksChip processes", () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenLastCalledWith(false));
   });
 
-  it("Given a process-only chip, When its stop button is clicked, Then onKillProcess receives the process", async () => {
+  it("Given a process-only chip, When its stop button is clicked and confirmed, Then onKillProcess receives the process", async () => {
     const onKill = vi.fn();
     render(
       <BackgroundTasksChip
@@ -825,9 +825,10 @@ describe("BackgroundTasksChip processes", () => {
       />,
     );
     await openChip();
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Stop process" }),
-    );
+    const button = await screen.findByRole("button", { name: "Stop process" });
+    await userEvent.click(button);
+    expect(onKill).not.toHaveBeenCalled();
+    await userEvent.click(button);
     expect(onKill).toHaveBeenCalledWith(proc);
   });
 });

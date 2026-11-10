@@ -535,7 +535,7 @@ function ChatPanel({
   // stopSubagent 停掉一个正在运行的后台任务/子 agent(下发 CLI stop_task,按发起它的
   // tool_use_id 定位;后端从持久化 subagent_state 读出 CLI task_id)。停成功后把块翻 canceled,
   // reload 让面板/卡片显示「已停止」。失败时报错、reload 后把错误抛回调用方 ——
-  // 转录 AgentSpawn 卡片靠这个 reject 把停止键从进行态复原。
+  // 转录 AgentSpawn 卡片与后台任务弹层都靠这个 reject 把停止键从进行态复原。
   const stopSubagent = React.useCallback(
     async (toolUseId: string) => {
       if (sessionId <= 0 || !toolUseId) return;
@@ -557,11 +557,6 @@ function ChatPanel({
     },
     [sessionId, reloadSession, t],
   );
-  // handleStopSubagent —— 后台任务面板的入口:它不消费结果,失败已由 stopSubagent 报告。
-  const handleStopSubagent = React.useCallback(
-    (toolUseId: string) => stopSubagent(toolUseId).catch(() => {}),
-    [stopSubagent],
-  );
   // 会话进程:面板真摆在眼前且有会话时才轮询;弹层打开立刻补拉,结束后立刻刷新。
   const panelShown = usePanelShown();
   const { processes: sessionProcesses, refresh: refreshProcesses } =
@@ -572,6 +567,8 @@ function ChatPanel({
     },
     [refreshProcesses],
   );
+  // 结束成功 toast 写明结束了哪条命令;失败报错后把错误抛回弹层,让结束键从进行态复原。
+  // 两种结果都刷新列表:成功时行随之消失。
   const handleKillProcess = React.useCallback(
     async (p: SessionProcess) => {
       if (sessionId <= 0) return;
@@ -584,16 +581,22 @@ function ChatPanel({
             msg: splitErrorDetail(e).msg,
           }),
         );
+        await refreshProcesses();
+        throw e;
       }
+      toast.success(
+        t("chatPanel.backgroundTasks.killedProcess", { command: p.command }),
+      );
       await refreshProcesses();
     },
     [sessionId, refreshProcesses, t],
   );
+  // 打开被点的那个端口:多端口进程每个端口各有一颗按钮。
   const handleOpenProcess = React.useCallback(
-    async (p: SessionProcess) => {
-      if (sessionId <= 0 || p.ports.length === 0) return;
+    async (port: number) => {
+      if (sessionId <= 0) return;
       try {
-        const url = await OpenSessionProcessPort(sessionId, p.ports[0]);
+        const url = await OpenSessionProcessPort(sessionId, port);
         BrowserOpenURL(url);
       } catch (e: unknown) {
         console.error("[chat] open session process port failed", e);
@@ -1057,13 +1060,13 @@ function ChatPanel({
               metaTail={headerMetaTail}
               backgroundTasks={backgroundTasks}
               processes={sessionProcesses}
-              onOpenProcess={(p) => void handleOpenProcess(p)}
-              onKillProcess={(p) => void handleKillProcess(p)}
+              onOpenProcess={(_process, port) => void handleOpenProcess(port)}
+              onKillProcess={handleKillProcess}
               onProcessesOpenChange={handleProcessesOpenChange}
               onClearCompletedTasks={handleClearCompleted}
               onStopTask={
                 canStopBackgroundTask
-                  ? (task) => handleStopSubagent(task.toolUseId)
+                  ? (task) => stopSubagent(task.toolUseId)
                   : undefined
               }
               onLocateTask={(task) => {

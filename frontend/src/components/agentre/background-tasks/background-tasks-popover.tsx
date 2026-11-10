@@ -31,18 +31,44 @@ export function formatElapsed(ms: number): string {
   return `${hours}h ${remMin.toString().padStart(2, "0")}m`;
 }
 
+// 停止 / 结束这类回调:返回的 Promise 失败(宿主已报过错)时按钮复原;成功则保持
+// 进行态,直到行随状态变化翻态或消失。
+export type PendingAction<T> = (target: T) => void | Promise<void>;
+
+// 第一次点「结束进程」变成红色「结束？」,这段时间内再点才执行,否则复原。
+export const KILL_CONFIRM_WINDOW_MS = 2000;
+
 type BackgroundTasksPopoverContentProps = {
   tasks: BackgroundTask[];
   onClearCompleted?: () => void;
   // onStopTask 停掉一个正在运行的后台任务/子 agent(仅当 backend 支持且该行有 taskId)。
-  onStopTask?: (task: BackgroundTask) => void;
+  onStopTask?: PendingAction<BackgroundTask>;
   // onLocateTask 把对话滚到发起这个任务的那张卡片(仅当该任务的消息已落库)。
   onLocateTask?: (task: BackgroundTask) => void;
   // 会话留下的存活进程;按钮回调只在宿主提供时才渲染对应按钮。
   processes?: SessionProcess[];
-  onOpenProcess?: (process: SessionProcess) => void;
-  onKillProcess?: (process: SessionProcess) => void;
+  // port 是被点的那个端口:多端口时每个端口各有一颗按钮。
+  onOpenProcess?: (process: SessionProcess, port: number) => void;
+  onKillProcess?: PendingAction<SessionProcess>;
 };
+
+// usePendingAction 跑一次宿主回调并给出进行态:回调 reject(或同步抛错)才复原。
+function usePendingAction(): [
+  boolean,
+  (call: () => void | Promise<void>) => void,
+] {
+  const [pending, setPending] = React.useState(false);
+  const run = (call: () => void | Promise<void>) => {
+    setPending(true);
+    const settleFailed = () => setPending(false);
+    try {
+      Promise.resolve(call()).catch(settleFailed);
+    } catch {
+      settleFailed();
+    }
+  };
+  return [pending, run];
+}
 
 // 弹层只回答「现在在跑什么」:运行中的按类型分节列出来,已结束的收成底部一行,
 // 点开在同一个弹层里换页。没有运行中的任务时,已结束列表就是全部内容。
@@ -221,11 +247,12 @@ function TaskRow({
 }: {
   task: BackgroundTask;
   now: number;
-  onStopTask?: (task: BackgroundTask) => void;
+  onStopTask?: PendingAction<BackgroundTask>;
   onLocateTask?: (task: BackgroundTask) => void;
 }) {
   const { t } = useTranslation();
   const isSubagent = task.kind === "local_agent";
+  const [stopping, runStop] = usePendingAction();
 
   let elapsedLabel: string | undefined;
   if (task.status === "running" && task.startedAt != null) {
@@ -335,19 +362,31 @@ function TaskRow({
       {task.status === "running" && task.taskId && onStopTask && (
         <button
           type="button"
-          onClick={() => onStopTask(task)}
+          onClick={() => runStop(() => onStopTask(task))}
+          disabled={stopping}
+          aria-busy={stopping || undefined}
           aria-label={t("chatPanel.backgroundTasks.stop")}
           title={t("chatPanel.backgroundTasks.stop")}
-          className="mr-1.5 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text outline-none focus-visible:focus-outline"
+          className={cn(rowIconButtonClassName, "mr-1.5")}
         >
-          <Square className="size-3 fill-current" />
+          {stopping ? (
+            <LoaderCircle className={spinnerClassName} aria-hidden="true" />
+          ) : (
+            <Square className="size-3 fill-current" aria-hidden="true" />
+          )}
         </button>
       )}
     </li>
   );
 }
 
-// 进程行:没有定位动作,行本身不可点;只有行尾的「打开」(有端口时)和「结束」。
+// 行尾停止 / 结束键:24px 命中区;进行中禁用、不再有悬停反馈。
+const rowIconButtonClassName =
+  "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text outline-none focus-visible:focus-outline disabled:pointer-events-none disabled:opacity-60";
+const spinnerClassName = "size-3 animate-spin motion-reduce:animate-none";
+
+// 进程行:没有定位动作,行本身不可点、没有悬停底;只有端口的「打开」和行尾的「结束」。
+// 命令可换行、可选中;cwd 从头部截断(省略号落在开头,留住末尾的目录名)。
 // command / 端口 / PID / cwd 都是动态值,不走 t()。
 function ProcessRow({
   process,
@@ -357,13 +396,31 @@ function ProcessRow({
 }: {
   process: SessionProcess;
   now: number;
-  onOpenProcess?: (process: SessionProcess) => void;
-  onKillProcess?: (process: SessionProcess) => void;
+  onOpenProcess?: (process: SessionProcess, port: number) => void;
+  onKillProcess?: PendingAction<SessionProcess>;
 }) {
   const { t } = useTranslation();
   const hasPorts = process.ports.length > 0;
+  // 多端口时每个端口各自是一颗按钮;单端口沿用行尾的打开键。
+  const portButtons = process.ports.length > 1 && onOpenProcess != null;
   const meta: React.ReactNode[] = [
-    hasPorts ? (
+    portButtons ? (
+      <span className="inline-flex items-center gap-1">
+        {process.ports.map((port) => (
+          <button
+            key={port}
+            type="button"
+            onClick={() => onOpenProcess(process, port)}
+            aria-label={t("chatPanel.backgroundTasks.openPortNumber", { port })}
+            title={t("chatPanel.backgroundTasks.openPortNumber", { port })}
+            className="inline-flex cursor-pointer items-center gap-0.5 rounded bg-button-fill px-1 text-foreground transition-colors hover:bg-button-fill-hover outline-none focus-visible:focus-outline"
+          >
+            {`:${port}`}
+            <ExternalLink className="size-2.5" aria-hidden="true" />
+          </button>
+        ))}
+      </span>
+    ) : hasPorts ? (
       <span className="text-foreground">
         {process.ports.map((port) => `:${port}`).join(" ")}
       </span>
@@ -375,63 +432,126 @@ function ProcessRow({
       {formatElapsed(Math.max(0, now - process.startedAt))}
     </span>,
   ];
-  if (process.cwd) meta.push(process.cwd);
 
   return (
-    <li className="flex items-center rounded-md transition-colors hover:bg-accent">
+    <li className="flex items-center rounded-md">
       <div className="flex min-w-0 flex-1 items-start gap-2.5 px-2 py-1.5">
         <span
           className="mt-[5px] size-1.5 shrink-0 rounded-full bg-status-running"
           aria-hidden="true"
         />
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-mono text-xs leading-snug text-foreground">
+          <span
+            data-selectable-text="true"
+            className="block whitespace-pre-wrap break-all font-mono text-xs leading-snug text-foreground"
+          >
             {process.command}
           </span>
           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 font-mono text-3xs text-muted-foreground">
             {meta.map((part, i) => (
               <React.Fragment key={i}>
-                {i > 0 && (
-                  <span className="text-muted-foreground/50" aria-hidden="true">
-                    ·
-                  </span>
-                )}
+                {i > 0 && <MetaDot />}
                 <span
                   className={cn(
                     "whitespace-nowrap",
-                    i === meta.length - 1 && "min-w-0 truncate",
+                    !process.cwd && i === meta.length - 1 && "min-w-0 truncate",
                   )}
                 >
                   {part}
                 </span>
               </React.Fragment>
             ))}
+            {process.cwd && (
+              <>
+                <MetaDot />
+                {/* rtl 让省略号落在开头;bdi 把路径本身隔成 ltr,开头的 / 或 ~ 不被挪到末尾。 */}
+                <span
+                  dir="rtl"
+                  data-selectable-text="true"
+                  title={process.cwd}
+                  className="min-w-0 truncate text-left"
+                >
+                  <bdi>{process.cwd}</bdi>
+                </span>
+              </>
+            )}
           </span>
         </span>
       </div>
-      {hasPorts && onOpenProcess && (
+      {process.ports.length === 1 && onOpenProcess && (
         <button
           type="button"
-          onClick={() => onOpenProcess(process)}
+          onClick={() => onOpenProcess(process, process.ports[0])}
           aria-label={t("chatPanel.backgroundTasks.openPort")}
           title={t("chatPanel.backgroundTasks.openPort")}
-          className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-background hover:text-foreground outline-none focus-visible:focus-outline"
+          className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground outline-none focus-visible:focus-outline"
         >
           <ExternalLink className="size-3" aria-hidden="true" />
         </button>
       )}
       {onKillProcess && (
-        <button
-          type="button"
-          onClick={() => onKillProcess(process)}
-          aria-label={t("chatPanel.backgroundTasks.killProcess")}
-          title={t("chatPanel.backgroundTasks.killProcess")}
-          className="mr-1.5 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text outline-none focus-visible:focus-outline"
-        >
-          <Square className="size-3 fill-current" aria-hidden="true" />
-        </button>
+        <KillProcessButton process={process} onKillProcess={onKillProcess} />
       )}
     </li>
+  );
+}
+
+function MetaDot() {
+  return (
+    <span className="text-muted-foreground/50" aria-hidden="true">
+      ·
+    </span>
+  );
+}
+
+// 结束进程不可恢复,两段式:第一次点变成红色「结束？」,KILL_CONFIRM_WINDOW_MS 内再点
+// 才执行,否则复原;执行中转圈并禁用,失败复原。
+function KillProcessButton({
+  process,
+  onKillProcess,
+}: {
+  process: SessionProcess;
+  onKillProcess: PendingAction<SessionProcess>;
+}) {
+  const { t } = useTranslation();
+  const [armed, setArmed] = React.useState(false);
+  const [killing, runKill] = usePendingAction();
+  React.useEffect(() => {
+    if (!armed) return;
+    const id = setTimeout(() => setArmed(false), KILL_CONFIRM_WINDOW_MS);
+    return () => clearTimeout(id);
+  }, [armed]);
+
+  if (armed) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setArmed(false);
+          runKill(() => onKillProcess(process));
+        }}
+        className="mr-1.5 inline-flex h-6 shrink-0 cursor-pointer items-center justify-center rounded bg-destructive px-1.5 text-2xs font-medium text-destructive-foreground transition-colors hover:bg-destructive/90 dark:bg-destructive/60 outline-none focus-visible:focus-outline"
+      >
+        {t("chatPanel.backgroundTasks.killProcessConfirm")}
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setArmed(true)}
+      disabled={killing}
+      aria-busy={killing || undefined}
+      aria-label={t("chatPanel.backgroundTasks.killProcess")}
+      title={t("chatPanel.backgroundTasks.killProcess")}
+      className={cn(rowIconButtonClassName, "mr-1.5")}
+    >
+      {killing ? (
+        <LoaderCircle className={spinnerClassName} aria-hidden="true" />
+      ) : (
+        <X className="size-3.5" aria-hidden="true" />
+      )}
+    </button>
   );
 }
 
