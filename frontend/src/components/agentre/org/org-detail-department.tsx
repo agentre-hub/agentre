@@ -13,7 +13,7 @@ import {
 import { OrgDetailDepartmentHeader } from "./org-detail-department-header";
 import { OrgDetailDepartmentMembers } from "./org-detail-department-members";
 import { OrgDetailDepartmentStructure } from "./org-detail-department-structure";
-import { deleteFailureOf, type DeleteFailure } from "./delete-failure";
+import { writeFailureOf, type WriteFailure } from "./write-failure-line";
 
 type Props = {
   department: OrgDepartment;
@@ -63,8 +63,9 @@ export function OrgDetailDepartment(props: Props) {
   const [strategy, setStrategy] =
     React.useState<DeleteDepartmentStrategy>("reparent");
 
-  const [deleteFailure, setDeleteFailure] =
-    React.useState<DeleteFailure | null>(null);
+  const [deleteFailure, setDeleteFailure] = React.useState<WriteFailure | null>(
+    null,
+  );
   const setDeleteDialogOpen = (open: boolean) => {
     setDeleteFailure(null);
     setDeletePromptOpen(open);
@@ -76,9 +77,7 @@ export function OrgDetailDepartment(props: Props) {
       await props.onDelete({ id: props.department.id, strategy });
     } catch (err) {
       // 没删掉：确认框与详情都留着、话说在确认框的页脚，用户可以再点一次或取消。
-      setDeleteFailure(
-        deleteFailureOf(err, t("org.chart.errors.deleteFailed")),
-      );
+      setDeleteFailure(writeFailureOf(err, t("org.chart.errors.deleteFailed")));
       return;
     }
     props.onClose();

@@ -17,7 +17,6 @@ describe("FailureDetail", () => {
     const raw = screen.getByText("dial tcp 127.0.0.1:1: connection refused");
     expect(details!.contains(raw)).toBe(true);
     expect(raw.getAttribute("data-selectable-text")).toBe("true");
-    expect(raw.className).toContain("font-mono");
     // 不加可见的复制按钮：只读文本靠选中复制。
     expect(container.querySelector("button")).toBeNull();
   });

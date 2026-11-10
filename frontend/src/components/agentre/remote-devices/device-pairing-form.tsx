@@ -15,7 +15,7 @@ import {
 import { cn } from "@agentre-hub/agentre-ui";
 
 import { deriveDeviceName } from "./format";
-import { TLSTrustDialog } from "./tls-trust-dialog";
+import { TLSTrustDialog, tlsModeLabelKey } from "./tls-trust-dialog";
 
 // Local type — mirrors remote_device_svc.AddRequest; avoids transitive wailsjs import.
 export type AddRequest = {
@@ -24,13 +24,6 @@ export type AddRequest = {
   displayName?: string;
   tlsMode: string;
   tlsCertPEM?: string;
-};
-
-const TLS_MODE_LABEL_KEYS: Record<string, string> = {
-  default: "remoteDevices.tls.modes.default.label",
-  "pin-cert": "remoteDevices.tls.modes.pinCert.label",
-  "ca-bundle": "remoteDevices.tls.modes.caBundle.label",
-  "skip-verify": "remoteDevices.tls.modes.skipVerify.label",
 };
 
 const URL_RE = /^wss?:\/\/[^/]+\/rpc$/;
@@ -218,10 +211,7 @@ function DevicePairingFields({ pairing }: DevicePairingFieldsProps) {
       >
         <ChevronRight data-icon="inline-start" aria-hidden="true" />
         {t("remoteDevices.add.advancedTls", {
-          mode: t(
-            TLS_MODE_LABEL_KEYS[pairing.tlsMode] ??
-              "remoteDevices.tls.modes.default.label",
-          ),
+          mode: t(tlsModeLabelKey(pairing.tlsMode)),
         })}
       </Button>
 

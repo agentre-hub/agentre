@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -173,7 +173,7 @@ describe("ExecTargetSkillsBlock catalog load failure", () => {
     expect(container.querySelector("details pre")).toHaveTextContent(raw);
     unmount();
     expect(options.action.label).toBe("Retry");
-    options.action.onClick();
+    act(() => options.action.onClick());
     await waitFor(() => expect(listPacks).toHaveBeenCalledTimes(3));
     expect(listPacks).toHaveBeenLastCalledWith(7, 51, true);
   });

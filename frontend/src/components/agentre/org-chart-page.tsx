@@ -17,8 +17,8 @@ import { type OrgAgent, type OrgDepartment } from "./org/types";
 import { OrgIndex } from "./org/org-index";
 import { useOrgData } from "./org/use-org-data";
 import { useOrgIndexView } from "./org/use-org-index-view";
-import { toastOrgWriteFailure } from "./org/write-failure-toast";
 import { blockReasonToCta } from "./not-chattable/mapping";
+import { toastFailure } from "./failure-toast";
 
 import { renderDetail } from "./org-chart/detail";
 import { NewAgentDialog } from "./org-chart/new-agent-dialog";
@@ -253,7 +253,7 @@ export function OrgChartPage() {
                 newParentAgentId: placement.parentAgentId,
                 newSortOrder: 0,
               }).catch((err: unknown) =>
-                toastOrgWriteFailure(t("org.chart.errors.moveFailed"), err),
+                toastFailure(t("org.chart.errors.moveFailed"), err),
               );
             }}
             onMoveDepartment={(id, parentId) => {
@@ -262,16 +262,13 @@ export function OrgChartPage() {
                 newParentId: parentId,
                 newSortOrder: 0,
               }).catch((err: unknown) =>
-                toastOrgWriteFailure(t("org.chart.errors.moveFailed"), err),
+                toastFailure(t("org.chart.errors.moveFailed"), err),
               );
             }}
             onReorderAgent={(departmentId, parentAgentId, orderedIds) => {
               reorderAgents(departmentId, parentAgentId, orderedIds).catch(
                 (err: unknown) =>
-                  toastOrgWriteFailure(
-                    t("org.chart.errors.reorderFailed"),
-                    err,
-                  ),
+                  toastFailure(t("org.chart.errors.reorderFailed"), err),
               );
             }}
             onCreateDepartment={() => {

@@ -4,7 +4,6 @@
 // 从合并前的对话页原样搬出来（chat-page.tsx 的 pendingRename / pendingDeleteId），
 // 拆成 hook + 对话框，让索引页不必自己扛这两段 state 与它们的确认弹层。
 import * as React from "react";
-import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -14,6 +13,7 @@ import {
   DialogContent,
   DialogFooter,
   DialogHeader,
+  DialogShellSubmit,
   DialogTitle,
   Input,
 } from "@agentre-hub/agentre-ui";
@@ -22,7 +22,7 @@ import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { reloadSidebarSources } from "@/stores/sidebar-reload";
 
-import { FailureBody } from "../failure-body";
+import { FailureCallout } from "../failure-toast";
 
 import {
   DeleteChatSession,
@@ -161,21 +161,6 @@ export function useSessionActions(): SessionActions {
   };
 }
 
-/**
- * 写入失败（S5）：先说事实；后端带码的那句人话作正文，机器原话只进默认折叠的「详情」。
- */
-function ActionFailure({ title, err }: { title: string; err: AppError }) {
-  return (
-    <div
-      role="alert"
-      className="flex flex-col gap-1 rounded-md bg-destructive-soft px-3 py-2 text-2xs text-destructive-text"
-    >
-      <p className="font-medium">{title}</p>
-      <FailureBody message={err.message} detail={err.detail} />
-    </div>
-  );
-}
-
 export function SessionActionDialogs({ actions }: { actions: SessionActions }) {
   const { t } = useTranslation();
   const {
@@ -212,7 +197,7 @@ export function SessionActionDialogs({ actions }: { actions: SessionActions }) {
               })}
             </p>
             {deleteError ? (
-              <ActionFailure
+              <FailureCallout
                 title={t("sessionIndex.deleteDialog.failed")}
                 err={deleteError}
               />
@@ -227,17 +212,14 @@ export function SessionActionDialogs({ actions }: { actions: SessionActions }) {
             >
               {t("common.cancel")}
             </Button>
-            <Button
+            <DialogShellSubmit
               size="sm"
               variant="destructive"
-              disabled={deleteBusy}
+              busy={deleteBusy}
               onClick={() => void confirmDelete()}
             >
-              {deleteBusy ? (
-                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-              ) : null}
               {t("common.delete")}
-            </Button>
+            </DialogShellSubmit>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -270,7 +252,7 @@ export function SessionActionDialogs({ actions }: { actions: SessionActions }) {
               />
             </form>
             {renameError ? (
-              <ActionFailure
+              <FailureCallout
                 title={t("sessionIndex.renameDialog.failed")}
                 err={renameError}
               />
@@ -285,21 +267,17 @@ export function SessionActionDialogs({ actions }: { actions: SessionActions }) {
             >
               {t("common.cancel")}
             </Button>
-            <Button
+            <DialogShellSubmit
               type="submit"
               form={RENAME_FORM_ID}
               size="sm"
+              busy={renameBusy}
               disabled={
-                renameBusy ||
-                !pendingRename ||
-                pendingRename.draft.trim().length === 0
+                !pendingRename || pendingRename.draft.trim().length === 0
               }
             >
-              {renameBusy ? (
-                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-              ) : null}
               {t("common.save")}
-            </Button>
+            </DialogShellSubmit>
           </DialogFooter>
         </DialogContent>
       </Dialog>

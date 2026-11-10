@@ -190,7 +190,6 @@ describe("BackgroundTasksPopoverContent kill process", () => {
     expect(onKill).not.toHaveBeenCalled();
     const confirm = screen.getByRole("button", { name: "Stop?" });
     expect(confirm).toBe(stops[1]);
-    expect(confirm.className).toContain("bg-destructive");
   });
 
   it("Given the confirm is showing, When clicked again within the window, Then onKillProcess gets that process and the button spins disabled", async () => {

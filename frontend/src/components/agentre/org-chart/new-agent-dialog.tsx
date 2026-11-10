@@ -22,7 +22,8 @@ import { type AgentColor } from "../types";
 import { openSettings } from "@/stores/settings-dialog-store";
 import { type OrgAgent, type OrgDepartment } from "../org/types";
 import { useOrgData } from "../org/use-org-data";
-import { CreateFailureLine, useCreateSubmit } from "./create-submit";
+import { WriteFailureLine } from "../org/write-failure-line";
+import { useCreateSubmit } from "./create-submit";
 
 export type NewAgentProps = {
   open: boolean;
@@ -92,8 +93,12 @@ export function NewAgentDialogBody(props: NewAgentProps) {
     props.fromIntent,
   ]);
   const [placement, setPlacement] = React.useState<string>(initialPlacement);
-  const initialBackendId = props.fromIntent ? 0 : (props.backends[0]?.id ?? 0);
-  const [backendId, setBackendId] = React.useState<number>(initialBackendId);
+  const [backendId, setBackendId] = React.useState<number>(
+    props.fromIntent ? 0 : (props.backends[0]?.id ?? 0),
+  );
+  // 草稿的基线是这次打开时落进表单的那两个初值，不随之后的列表重拉变：后台一次
+  // 重拉把别的部门 / 后端排到第一位，不等于用户填过东西。
+  const [opened] = React.useState({ placement, backendId });
   const parsedPlacement = parsePlacement(placement);
   const { busy, failure, run } = useCreateSubmit(
     t("org.chart.errors.createAgentFailed"),
@@ -108,8 +113,8 @@ export function NewAgentDialogBody(props: NewAgentProps) {
     description !== "" ||
     avatarIcon !== "" ||
     avatarColor !== "agent-1" ||
-    placement !== initialPlacement ||
-    backendId !== initialBackendId;
+    placement !== opened.placement ||
+    backendId !== opened.backendId;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -218,7 +223,8 @@ export function NewAgentDialogBody(props: NewAgentProps) {
         </label>
       </DialogShellBody>
       <DialogShellFooter
-        left={failure ? <CreateFailureLine failure={failure} /> : null}
+        // 外壳的 `error` 只收字符串、带不了 `title`，所以走 `left`。
+        left={failure ? <WriteFailureLine failure={failure} /> : null}
       >
         <Button
           type="button"

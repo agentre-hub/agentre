@@ -15,7 +15,7 @@ import {
 } from "@agentre-hub/agentre-ui";
 import { cn } from "@agentre-hub/agentre-ui";
 
-import { DeleteFailureLine, type DeleteFailure } from "./delete-failure";
+import { WriteFailureLine, type WriteFailure } from "./write-failure-line";
 
 export type DeleteDepartmentStrategy = "reparent" | "cascade";
 
@@ -34,7 +34,7 @@ export function DeleteDepartmentDialog({
   departmentName: string;
   strategy: DeleteDepartmentStrategy;
   /** 上一次确认没删掉：页脚说这一句，框不关。 */
-  failure?: DeleteFailure | null;
+  failure?: WriteFailure | null;
   onStrategyChange: (next: DeleteDepartmentStrategy) => void;
   onOpenChange: (open: boolean) => void;
   onCancel: () => void;
@@ -95,7 +95,7 @@ export function DeleteDepartmentDialog({
           </DialogBody>
           <DialogFooter>
             {failure ? (
-              <DeleteFailureLine failure={failure} />
+              <WriteFailureLine failure={failure} className="mr-auto min-w-0" />
             ) : (
               <span className="mr-auto font-mono text-2xs text-muted-foreground">
                 {t("org.department.deleteDialog.irreversible")}

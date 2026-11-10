@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -194,7 +194,7 @@ describe("SettingsProxyPanel machine text", () => {
     expect(screen.queryByText("load boom")).toBeNull();
 
     const options = sonnerMocks.toast.error.mock.calls[0][1];
-    options.action.onClick();
+    act(() => options.action.onClick());
     expect(await screen.findByDisplayValue("52401")).toBeInTheDocument();
   });
 });

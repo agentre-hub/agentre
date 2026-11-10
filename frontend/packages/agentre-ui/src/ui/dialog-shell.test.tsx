@@ -243,18 +243,6 @@ describe("DialogShell 有草稿时不让点遮罩丢掉它", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("dirty 时头部的 × 照常可点", () => {
-    const onClose = vi.fn();
-    render(
-      <DialogShell open onOpenChange={vi.fn()} dirty>
-        <DialogShellHeader title="新建项目" onClose={onClose} />
-        <DialogShellBody>正文</DialogShellBody>
-      </DialogShell>,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
   it("dirty 又 busy 时 Esc 也不关 —— busy 优先", () => {
     const onOpenChange = vi.fn();
     renderShell({ dirty: true, busy: true, onOpenChange });

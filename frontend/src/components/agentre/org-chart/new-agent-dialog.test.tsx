@@ -222,4 +222,37 @@ describe("NewAgentDialog submit", () => {
     await pointerDownOnOverlay();
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it("Given an untouched form, When a background reload puts another backend and department first, Then the overlay click still closes", async () => {
+    const onClose = vi.fn();
+    const backend = (id: number) =>
+      ({ id, name: `backend-${id}` }) as NewAgentProps["backends"][number];
+    const props: NewAgentProps = {
+      open: true,
+      departments: [DEPARTMENT],
+      agents: [CEO],
+      backends: [backend(7)],
+      onSubmit: vi.fn().mockResolvedValue(undefined),
+      onClose,
+    };
+    const view = render(
+      <MemoryRouter>
+        <NewAgentDialog {...props} />
+      </MemoryRouter>,
+    );
+    view.rerender(
+      <MemoryRouter>
+        <NewAgentDialog
+          {...props}
+          departments={[
+            { id: 2, name: "设计部", parentId: 0 } as unknown as OrgDepartment,
+            DEPARTMENT,
+          ]}
+          backends={[backend(3), backend(7)]}
+        />
+      </MemoryRouter>,
+    );
+    await pointerDownOnOverlay();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
 });

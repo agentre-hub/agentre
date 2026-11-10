@@ -22,9 +22,7 @@ import {
   UpdateAppSettings,
 } from "../../../wailsjs/go/app/App";
 import { app_settings_svc, httpgateway } from "../../../wailsjs/go/models";
-import { classifyAppError, type AppError } from "@/lib/app-error";
-
-import { FailureBody } from "./failure-body";
+import { failureDescription, toastFailure } from "./failure-toast";
 
 const KEY_HOST = "proxy.listen_host";
 const KEY_PORT = "proxy.listen_port";
@@ -81,22 +79,9 @@ function validatePort(v: string, t: TFunction): string | null {
   return null;
 }
 
-/**
- * 失败 toast 的正文：后端带码的那句人话当正文；机器原话（含网关的 reason）只进
- * 默认折叠的「详情」。两样都没有就不给正文。
- */
-function failureDescription(err: AppError): React.ReactNode {
-  if (!err.message && !err.detail) return undefined;
-  return <FailureBody message={err.message} detail={err.detail} />;
-}
-
 /** 网关没跑起来时，reason 是它的原话：只作详情。 */
 function gatewayFailure(s: httpgateway.GatewayStatus | null | undefined) {
-  return failureDescription({
-    kind: "unknown",
-    message: "",
-    detail: s?.reason || undefined,
-  });
+  return failureDescription({ message: "", detail: s?.reason || undefined });
 }
 
 export function SettingsProxyPanel() {
@@ -132,14 +117,11 @@ export function SettingsProxyPanel() {
       })
       .catch((err: unknown) => {
         if (!mounted) return;
-        toast.error(t("settingsProxy.errors.loadFailed"), {
-          description: failureDescription(classifyAppError(err)),
-          action: {
-            label: t("common.retry"),
-            onClick: () => {
-              setLoading(true);
-              setLoadAttempt((n) => n + 1);
-            },
+        toastFailure(t("settingsProxy.errors.loadFailed"), err, {
+          label: t("common.retry"),
+          onClick: () => {
+            setLoading(true);
+            setLoadAttempt((n) => n + 1);
           },
         });
       })
@@ -183,9 +165,7 @@ export function SettingsProxyPanel() {
         });
       }
     } catch (err) {
-      toast.error(t("settingsProxy.errors.saveFailed"), {
-        description: failureDescription(classifyAppError(err)),
-      });
+      toastFailure(t("settingsProxy.errors.saveFailed"), err);
     } finally {
       setApplying(false);
     }
@@ -205,9 +185,7 @@ export function SettingsProxyPanel() {
         });
       }
     } catch (err) {
-      toast.error(t("settingsProxy.errors.restartFailed"), {
-        description: failureDescription(classifyAppError(err)),
-      });
+      toastFailure(t("settingsProxy.errors.restartFailed"), err);
     } finally {
       setRestarting(false);
     }

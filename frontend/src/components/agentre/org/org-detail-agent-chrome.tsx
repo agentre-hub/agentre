@@ -13,7 +13,7 @@ import {
   type IdentityFieldsProps,
 } from "@agentre-hub/agentre-ui";
 
-import { DeleteFailureLine, type DeleteFailure } from "./delete-failure";
+import { WriteFailureLine, type WriteFailure } from "./write-failure-line";
 import type { OrgDepartment } from "./types";
 
 /** Agent 详情的唯一身份区：可编辑身份 / 主管信息 + 删除、关闭。 */
@@ -84,7 +84,7 @@ export function DeleteAgentDialog({
   open: boolean;
   agentName: string;
   /** 上一次确认没删掉：页脚说这一句，框不关。 */
-  failure?: DeleteFailure | null;
+  failure?: WriteFailure | null;
   onOpenChange: (open: boolean) => void;
   onCancel: () => void;
   onConfirm: () => void;
@@ -110,7 +110,7 @@ export function DeleteAgentDialog({
           </DialogHeader>
           <DialogFooter>
             {failure ? (
-              <DeleteFailureLine failure={failure} />
+              <WriteFailureLine failure={failure} className="mr-auto min-w-0" />
             ) : (
               <span className="mr-auto font-mono text-2xs text-muted-foreground">
                 {t("org.department.deleteDialog.irreversible")}

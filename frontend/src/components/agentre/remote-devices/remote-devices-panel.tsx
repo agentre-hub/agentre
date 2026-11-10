@@ -26,7 +26,8 @@ import { DeviceRow } from "./device-row";
 import { hostOf } from "./format";
 import { LoginDialog } from "./login-dialog";
 import { RemovedDevices } from "./removed-devices";
-import { DeviceWriteFailure, TLSTrustDialog } from "./tls-trust-dialog";
+import { FailureCallout } from "../failure-toast";
+import { TLSTrustDialog } from "./tls-trust-dialog";
 import { useLatestAgentredVersion } from "./use-latest-agentred-version";
 import { useRemoteDevices, type DeviceView } from "./use-remote-devices";
 import { useServerLogin } from "./use-server-login";
@@ -370,7 +371,7 @@ export function RemoteDevicesPanel({
               })}
             </p>
             {removeWrite.error ? (
-              <DeviceWriteFailure
+              <FailureCallout
                 title={t("remoteDevices.actions.removeFailed")}
                 err={removeWrite.error}
               />
@@ -429,7 +430,7 @@ export function RemoteDevicesPanel({
               />
             </form>
             {renameWrite.error ? (
-              <DeviceWriteFailure
+              <FailureCallout
                 title={t("remoteDevices.actions.renameFailed")}
                 err={renameWrite.error}
               />

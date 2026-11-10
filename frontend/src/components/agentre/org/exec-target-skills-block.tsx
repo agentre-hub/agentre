@@ -19,6 +19,7 @@ import type {
 import type { TriState } from "../capability/catalog";
 import { CapabilityPicker } from "../capability/capability-picker";
 import { FailureBody } from "../failure-body";
+import { failureDescription } from "../failure-toast";
 
 import { useSkillCatalog } from "./use-skill-catalog";
 
@@ -111,10 +112,7 @@ export function ExecTargetSkillsBlock(props: Props) {
     void skillCatalog.load(refresh).then((failure) => {
       if (!failure) return;
       toast.error(t("org.agent.skills.loadFailed"), {
-        description:
-          failure.message || failure.detail ? (
-            <FailureBody message={failure.message} detail={failure.detail} />
-          ) : undefined,
+        description: failureDescription(failure),
         action: {
           label: t("common.retry"),
           onClick: () => loadFromPicker(refresh),

@@ -15,7 +15,7 @@ import {
 } from "@agentre-hub/agentre-ui";
 import { classifyAppError, type AppError } from "@/lib/app-error";
 
-import { FailureBody } from "../failure-body";
+import { FailureCallout } from "../failure-toast";
 
 type Props = {
   open: boolean;
@@ -25,28 +25,6 @@ type Props = {
   /** 成功由调用方关窗；抛出即失败，窗留着、在窗里说清楚。 */
   onApply: (mode: string, pem: string) => void | Promise<void>;
 };
-
-/**
- * 设备弹窗里的写入失败（B4）：先说事实；后端带码的那句人话作正文，机器原话只进
- * 默认折叠的「详情」。设备面板的解除配对 / 改名窗共用这一份。
- */
-export function DeviceWriteFailure({
-  title,
-  err,
-}: {
-  title: string;
-  err: AppError;
-}) {
-  return (
-    <div
-      role="alert"
-      className="flex flex-col gap-1 rounded-md bg-destructive-soft px-3 py-2 text-2xs text-destructive-text"
-    >
-      <p className="font-medium">{title}</p>
-      <FailureBody message={err.message} detail={err.detail} />
-    </div>
-  );
-}
 
 const PEM_HEADER = "-----BEGIN CERTIFICATE-----";
 const PEM_FOOTER = "-----END CERTIFICATE-----";
@@ -85,6 +63,11 @@ const MODES = [
     danger: true,
   },
 ];
+
+/** 一种 TLS 模式的名称 key；认不得的模式按默认那一种说。配对表单的入口与本窗共用。 */
+export function tlsModeLabelKey(mode: string): string {
+  return (MODES.find((m) => m.value === mode) ?? MODES[0]).labelKey;
+}
 
 export function TLSTrustDialog({
   open,
@@ -223,7 +206,7 @@ export function TLSTrustDialog({
         ) : null}
 
         {failure ? (
-          <DeviceWriteFailure
+          <FailureCallout
             title={t("remoteDevices.tls.applyFailed")}
             err={failure}
           />

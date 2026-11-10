@@ -7,9 +7,14 @@
  * 进行态由共享包的 agent-spawn/card.test.tsx 覆盖。
  */
 
-import { render as rtlRender, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  render as rtlRender,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import * as React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const appMocks = vi.hoisted(() => ({
   GetCCUsage: vi.fn().mockResolvedValue({ reason: "" }),
@@ -187,18 +192,31 @@ function lastStopSubagent(): (toolUseId: string) => void | Promise<void> {
   return fn as (toolUseId: string) => void | Promise<void>;
 }
 
+/** 在 act 里跑完一次停止（它会改 ChatPanel 的 state），再把它的结局原样交回。 */
+async function stopInAct(toolUseId: string): Promise<void> {
+  let result!: Promise<void>;
+  await act(async () => {
+    result = Promise.resolve(lastStopSubagent()(toolUseId));
+    await result.catch(() => {});
+  });
+  return result;
+}
+
 describe("ChatPanel · sub-agent card stop", () => {
   beforeEach(() => {
     transcriptProps.length = 0;
     appMocks.StopBackgroundTask.mockReset();
     sessionStore.session = makeSession({ agentStatus: "running" });
   });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it("Given the stop RPC succeeds, When the card stops a sub-agent, Then the callback resolves after calling StopBackgroundTask", async () => {
     appMocks.StopBackgroundTask.mockResolvedValue({});
     render(<ChatPanel sessionId={42} />);
 
-    await expect(lastStopSubagent()("toolu-1")).resolves.toBeUndefined();
+    await expect(stopInAct("toolu-1")).resolves.toBeUndefined();
     expect(appMocks.StopBackgroundTask).toHaveBeenCalledWith({
       sessionId: 42,
       toolUseId: "toolu-1",
@@ -210,9 +228,7 @@ describe("ChatPanel · sub-agent card stop", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     render(<ChatPanel sessionId={42} />);
 
-    await expect(lastStopSubagent()("toolu-1")).rejects.toThrow(
-      "missing task id",
-    );
+    await expect(stopInAct("toolu-1")).rejects.toThrow("missing task id");
     await waitFor(() =>
       expect(
         screen.getByText(/Failed to stop background task/),

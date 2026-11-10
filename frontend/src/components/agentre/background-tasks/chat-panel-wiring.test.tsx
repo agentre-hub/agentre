@@ -6,9 +6,9 @@
  * 进行态与两段式确认由 background-tasks-popover.test.tsx 覆盖。
  */
 
-import { render as rtlRender } from "@testing-library/react";
+import { act, render as rtlRender } from "@testing-library/react";
 import * as React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BackgroundTask, SessionProcess } from "./types";
 
@@ -204,6 +204,16 @@ function lastHeaderProp<T>(name: string): T {
   return fn as T;
 }
 
+/** 在 act 里跑完一次回调（它会改 ChatPanel 的 state），再把它的结局原样交回。 */
+async function settled(call: () => Promise<void>): Promise<void> {
+  let result!: Promise<void>;
+  await act(async () => {
+    result = call();
+    await result.catch(() => {});
+  });
+  return result;
+}
+
 const proc: SessionProcess = {
   pid: 4242,
   command: "node server.js --inspect=9229",
@@ -232,13 +242,18 @@ describe("ChatPanel · background tasks popover wiring", () => {
     sessionStore.session = makeSession({ agentStatus: "running" });
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it("Given the stop RPC fails, When the popover stops a task, Then the callback rejects so the button can recover", async () => {
     appMocks.StopBackgroundTask.mockRejectedValue(new Error("missing task id"));
     render(<ChatPanel sessionId={42} />);
     const onStopTask =
       lastHeaderProp<(t: BackgroundTask) => Promise<void>>("onStopTask");
-    await expect(onStopTask(task)).rejects.toThrow("missing task id");
+    await expect(settled(() => onStopTask(task))).rejects.toThrow(
+      "missing task id",
+    );
     expect(appMocks.StopBackgroundTask).toHaveBeenCalledWith({
       sessionId: 42,
       toolUseId: "toolu-1",
@@ -250,7 +265,7 @@ describe("ChatPanel · background tasks popover wiring", () => {
     render(<ChatPanel sessionId={42} />);
     const onKill =
       lastHeaderProp<(p: SessionProcess) => Promise<void>>("onKillProcess");
-    await expect(onKill(proc)).resolves.toBeUndefined();
+    await expect(settled(() => onKill(proc))).resolves.toBeUndefined();
     expect(appMocks.KillSessionProcess).toHaveBeenCalledWith(
       42,
       4242,
@@ -267,7 +282,7 @@ describe("ChatPanel · background tasks popover wiring", () => {
     render(<ChatPanel sessionId={42} />);
     const onKill =
       lastHeaderProp<(p: SessionProcess) => Promise<void>>("onKillProcess");
-    await expect(onKill(proc)).rejects.toThrow("denied");
+    await expect(settled(() => onKill(proc))).rejects.toThrow("denied");
     expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
       "Failed to stop process: denied",
     );
@@ -281,7 +296,7 @@ describe("ChatPanel · background tasks popover wiring", () => {
       lastHeaderProp<(p: SessionProcess, port: number) => void>(
         "onOpenProcess",
       );
-    onOpen(proc, 9229);
+    act(() => onOpen(proc, 9229));
     await vi.waitFor(() =>
       expect(appMocks.OpenSessionProcessPort).toHaveBeenCalledWith(42, 9229),
     );

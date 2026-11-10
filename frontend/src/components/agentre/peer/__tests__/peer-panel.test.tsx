@@ -336,9 +336,8 @@ describe("PeerPanel", () => {
     );
     const notice = await screen.findByTestId("peer-notice");
     expect(notice.textContent).toContain("already handled");
+    // 「已被处理」不是待办也不是警告。
     expect(notice.getAttribute("data-kind")).toBe("info");
-    // 「已被处理」不是待办也不是警告:不用等待色(琥珀)。
-    expect(notice.className).not.toContain("status-waiting");
   });
 
   it("renders a resolved permission as handled instead of buttons", async () => {

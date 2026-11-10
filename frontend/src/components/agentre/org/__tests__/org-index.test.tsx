@@ -417,13 +417,26 @@ describe("OrgIndex 选中的那一行露出来", () => {
   }
 
   let scrollIntoView: ReturnType<typeof vi.fn>;
+  const nativeScrollIntoView = Object.getOwnPropertyDescriptor(
+    Element.prototype,
+    "scrollIntoView",
+  );
   beforeEach(() => {
     scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView =
       scrollIntoView as unknown as Element["scrollIntoView"];
   });
   afterEach(() => {
-    delete (Element.prototype as Partial<Element>).scrollIntoView;
+    // 还原成测试环境原来的样子（有就放回去，没有才删），不留给后面的用例一个缺口。
+    if (nativeScrollIntoView) {
+      Object.defineProperty(
+        Element.prototype,
+        "scrollIntoView",
+        nativeScrollIntoView,
+      );
+    } else {
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
   });
 
   it("Given 祖先部门已收起且新 Agent 还没进数据, When 选中它、随后数据落地, Then 祖先展开、行被选中并滚到可见", async () => {

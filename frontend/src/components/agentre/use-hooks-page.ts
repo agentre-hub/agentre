@@ -14,7 +14,7 @@ import {
 import { hook_svc } from "../../../wailsjs/go/models";
 import { classifyAppError, type AppError } from "@/lib/app-error";
 
-import { FailureBody } from "./failure-body";
+import { failureDescription, toastFailure } from "./failure-toast";
 import {
   draftFromHook,
   draftsEqual,
@@ -35,18 +35,6 @@ type LoadState = "loading" | "failed" | "ready";
 
 /** 有未保存修改时被拦下的那次离开：切到另一条，或新建。 */
 type PendingLeave = { kind: "select"; hook: HookItem } | { kind: "create" };
-
-/**
- * 失败 toast 的正文：后端带码的那句人话当正文；机器原话只进默认折叠的「详情」。
- * 这个文件是 .ts，所以用 createElement 而不是 JSX。
- */
-function failureDescription(err: AppError): React.ReactNode {
-  if (!err.message && !err.detail) return undefined;
-  return React.createElement(FailureBody, {
-    message: err.message,
-    detail: err.detail,
-  });
-}
 
 /**
  * HooksPage 的取数与写入：列表 / 选中 / 草稿 / 运行结果各自的状态，加上保存、
@@ -79,11 +67,6 @@ export function useHooksPage() {
   const [interpreters, setInterpreters] = React.useState<InterpreterOption[]>(
     [],
   );
-
-  const notifyFailure = (title: string, err: unknown) =>
-    toast.error(title, {
-      description: failureDescription(classifyAppError(err)),
-    });
 
   const loadEvents = React.useCallback(async (hookId: number) => {
     try {
@@ -234,7 +217,7 @@ export function useHooksPage() {
       await reload(saved.id);
       return saved.id;
     } catch (err) {
-      notifyFailure(t("hooks.flash.saveFailed"), err);
+      toastFailure(t("hooks.flash.saveFailed"), err);
       return null;
     } finally {
       setBusy(false);
@@ -254,7 +237,7 @@ export function useHooksPage() {
         updated.enabled ? t("hooks.flash.enabled") : t("hooks.flash.disabled"),
       );
     } catch (err) {
-      notifyFailure(
+      toastFailure(
         hook.enabled
           ? t("hooks.flash.disableFailed")
           : t("hooks.flash.enableFailed"),
@@ -273,7 +256,7 @@ export function useHooksPage() {
     try {
       await DeleteHook(target.id);
     } catch (err) {
-      notifyFailure(t("hooks.flash.deleteFailed"), err);
+      toastFailure(t("hooks.flash.deleteFailed"), err);
       setBusy(false);
       return;
     }
@@ -302,14 +285,13 @@ export function useHooksPage() {
       try {
         result = await RunHook({ id, dryRun: true });
       } catch (err) {
-        notifyFailure(t("hooks.flash.runFailed"), err);
+        toastFailure(t("hooks.flash.runFailed"), err);
         return;
       }
       setRunResult(result);
       if (!runOk(result))
         toast.error(t("hooks.flash.runFailed"), {
           description: failureDescription({
-            kind: "unknown",
             message: "",
             detail:
               result.parseError || result.stderr || `exit ${result.exitCode}`,

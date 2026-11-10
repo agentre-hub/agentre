@@ -20,7 +20,8 @@ import {
 
 import { safeAgentColor } from "../org/types";
 import { type OrgAgent, type OrgDepartment } from "../org/types";
-import { CreateFailureLine, useCreateSubmit } from "./create-submit";
+import { WriteFailureLine } from "../org/write-failure-line";
+import { useCreateSubmit } from "./create-submit";
 
 export type NewDeptProps = {
   open: boolean;
@@ -133,7 +134,8 @@ export function NewDepartmentDialogBody(props: NewDeptProps) {
         </label>
       </DialogShellBody>
       <DialogShellFooter
-        left={failure ? <CreateFailureLine failure={failure} /> : null}
+        // 外壳的 `error` 只收字符串、带不了 `title`，所以走 `left`。
+        left={failure ? <WriteFailureLine failure={failure} /> : null}
       >
         <Button
           type="button"

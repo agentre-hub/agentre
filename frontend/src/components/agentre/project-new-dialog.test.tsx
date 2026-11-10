@@ -260,4 +260,25 @@ describe("草稿保护", () => {
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  it("Given an untouched form When clicking the overlay Then the dialog closes", async () => {
+    const onOpenChange = vi.fn();
+    render(
+      <ProjectNewDialog
+        open
+        onOpenChange={onOpenChange}
+        tree={[]}
+        onCreated={vi.fn()}
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.pointerDown(
+      document.querySelector(
+        '[data-slot="dialog-shell-overlay"]',
+      ) as HTMLElement,
+      { button: 0 },
+    );
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
 });
