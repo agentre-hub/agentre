@@ -485,7 +485,7 @@ describe("OrgChartPage 写失败与加载失败", () => {
     expect(container.querySelector("p")).toBeNull();
   });
 
-  it("Given 新建部门写入失败, When 提交, Then 对话框照旧关上，失败用 toast 说出来", async () => {
+  it("Given 新建部门写入失败, When 提交, Then 对话框留着、页脚说事实，不另弹 toast", async () => {
     const createDepartment = rejected();
     mocks.useOrgData.mockReturnValue(orgData({ createDepartment }));
     const user = userEvent.setup();
@@ -501,21 +501,17 @@ describe("OrgChartPage 写失败与加载失败", () => {
     );
     await user.click(within(dialog).getByRole("button", { name: "Create" }));
 
-    await waitFor(() =>
-      expect(mocks.toastError).toHaveBeenCalledWith(
-        "The department wasn't created",
-        expect.anything(),
-      ),
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "上级不能成环",
     );
     expect(createDepartment).toHaveBeenCalledOnce();
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("dialog", { name: "New Department" }),
-      ).toBeNull(),
-    );
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("dialog", { name: "New Department" }),
+    ).toBeInTheDocument();
   });
 
-  it("Given 新建 Agent 写入失败, When 提交, Then 对话框照旧关上，失败用 toast 说出来", async () => {
+  it("Given 新建 Agent 写入失败, When 提交, Then 对话框留着、页脚说事实，不另弹 toast", async () => {
     const createAgent = rejected();
     mocks.useOrgData.mockReturnValue(orgData({ createAgent }));
     const user = userEvent.setup();
@@ -529,15 +525,13 @@ describe("OrgChartPage 写失败与加载失败", () => {
     );
     await user.click(within(dialog).getByRole("button", { name: "Create" }));
 
-    await waitFor(() =>
-      expect(mocks.toastError).toHaveBeenCalledWith(
-        "The agent wasn't created",
-        expect.anything(),
-      ),
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "上级不能成环",
     );
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "New Agent" })).toBeNull(),
-    );
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("dialog", { name: "New Agent" }),
+    ).toBeInTheDocument();
   });
 
   it("Given 首次加载失败, When 渲染, Then 整页是「加载失败」与「重试」，原话不上正文", async () => {
@@ -563,5 +557,60 @@ describe("OrgChartPage 写失败与加载失败", () => {
 
     await user.click(within(failed!).getByRole("button", { name: "Retry" }));
     expect(retryLoad).toHaveBeenCalledOnce();
+  });
+});
+
+// B3：建成之后新节点被选中（索引负责展开祖先、滚到可见，见 org-index.test.tsx）。
+describe("OrgChartPage 新建成功", () => {
+  it("Given 新建 Agent 成功, When 提交, Then 对话框关上并选中新 Agent", async () => {
+    const setSelected = vi.fn();
+    mocks.useOrgIndexView.mockReturnValue({ selected: null, setSelected });
+    const createAgent = vi.fn().mockResolvedValue({ item: { id: 9 } });
+    mocks.useOrgData.mockReturnValue(orgData({ createAgent }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "New Agent" }));
+    const dialog = await screen.findByRole("dialog", { name: "New Agent" });
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Name" }),
+      "Zoe",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(setSelected).toHaveBeenCalledWith({ kind: "agent", id: 9 }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "New Agent" })).toBeNull(),
+    );
+  });
+
+  it("Given 新建部门成功, When 提交, Then 对话框关上并选中新部门", async () => {
+    const setSelected = vi.fn();
+    mocks.useOrgIndexView.mockReturnValue({ selected: null, setSelected });
+    const createDepartment = vi.fn().mockResolvedValue({ item: { id: 4 } });
+    mocks.useOrgData.mockReturnValue(orgData({ createDepartment }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "New Department" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "New Department",
+    });
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Name" }),
+      "设计部",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(setSelected).toHaveBeenCalledWith({ kind: "department", id: 4 }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "New Department" }),
+      ).toBeNull(),
+    );
   });
 });

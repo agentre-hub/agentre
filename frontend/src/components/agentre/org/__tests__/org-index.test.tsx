@@ -2,7 +2,7 @@ import * as React from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
 
@@ -395,6 +395,97 @@ describe("OrgIndex 组头上的入口与收放", () => {
 
     await user.click(screen.getByTestId("org-group-toggle-1"));
     expect(screen.getByTestId("org-row-2")).toBeInTheDocument();
+  });
+});
+
+// B3：新建成功后宿主把选中态交给索引；索引负责让那一行真的露出来 —— 收起的祖先
+// 展开、滚到可见。新节点要等那次重拉落地才进数据，所以「选中了却还找不到」时要等着。
+describe("OrgIndex 选中的那一行露出来", () => {
+  function props(overrides: Partial<OrgIndexProps> = {}): OrgIndexProps {
+    return {
+      departments,
+      agents,
+      backends,
+      selected: null,
+      onSelect: vi.fn(),
+      onMoveAgent: vi.fn(),
+      onMoveDepartment: vi.fn(),
+      onReorderAgent: vi.fn(),
+      onCreateDepartment: vi.fn(),
+      ...overrides,
+    };
+  }
+
+  let scrollIntoView: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView =
+      scrollIntoView as unknown as Element["scrollIntoView"];
+  });
+  afterEach(() => {
+    delete (Element.prototype as Partial<Element>).scrollIntoView;
+  });
+
+  it("Given 祖先部门已收起且新 Agent 还没进数据, When 选中它、随后数据落地, Then 祖先展开、行被选中并滚到可见", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const view = render(<OrgIndex {...props()} />);
+    await user.click(screen.getByTestId("org-group-toggle-1"));
+    expect(screen.queryByTestId("org-group-2")).toBeNull();
+
+    const selected = { kind: "agent" as const, id: 9 };
+    view.rerender(<OrgIndex {...props({ selected })} />);
+    const zoe = agent({ id: 9, name: "Zoe", departmentId: 2, sortOrder: 2 });
+    view.rerender(
+      <OrgIndex {...props({ selected, agents: [...agents, zoe] })} />,
+    );
+
+    const row = await screen.findByTestId("org-row-9");
+    expect(row).toHaveAttribute("aria-current", "true");
+    expect(screen.getByTestId("org-group-toggle-1")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(row);
+  });
+
+  it("Given 父部门已收起, When 选中它下面新建的子部门, Then 父部门展开、子部门组头被选中并滚到可见", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const view = render(<OrgIndex {...props()} />);
+    await user.click(screen.getByTestId("org-group-toggle-1"));
+
+    const design = dept({ id: 4, name: "设计组", parentId: 1, sortOrder: 2 });
+    view.rerender(
+      <OrgIndex
+        {...props({
+          selected: { kind: "department", id: 4 },
+          departments: [...departments, design],
+        })}
+      />,
+    );
+
+    const header = await screen.findByTestId("org-group-4");
+    expect(header).toHaveAttribute("aria-current", "true");
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(header);
+  });
+
+  it("Given 用户自己收起了一个部门, When 选中别处的行, Then 不去动那个收起", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const view = render(<OrgIndex {...props()} />);
+    await user.click(screen.getByTestId("org-group-toggle-1"));
+
+    view.rerender(
+      <OrgIndex {...props({ selected: { kind: "agent", id: 7 } })} />,
+    );
+
+    expect(screen.getByTestId("org-row-7")).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(screen.getByTestId("org-group-toggle-1")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
   });
 });
 

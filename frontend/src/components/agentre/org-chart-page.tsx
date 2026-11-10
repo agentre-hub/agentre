@@ -304,20 +304,14 @@ export function OrgChartPage() {
         departments={departments}
         agents={agents}
         defaultParentId={newSubDeptParentId}
+        // 失败原样交给对话框：它留着、把话说在页脚。建成才关窗并选中新部门（索引
+        // 负责展开祖先、滚到它）。
         onSubmit={async (req) => {
-          // 对话框今天是「提交即关」，失败先在这里说出来；等它自己接住失败（留窗、
-          // 页脚报错）之后，这里改成把 createDepartment 的拒绝原样交给它。
-          try {
-            await createDepartment(
-              department_svc.CreateDepartmentRequest.createFrom(req),
-            );
-          } catch (err) {
-            toastOrgWriteFailure(
-              t("org.chart.errors.createDepartmentFailed"),
-              err,
-            );
-          }
+          const res = await createDepartment(
+            department_svc.CreateDepartmentRequest.createFrom(req),
+          );
           setNewDeptOpen(false);
+          if (res.item) setSelected({ kind: "department", id: res.item.id });
         }}
         onClose={() => setNewDeptOpen(false)}
       />
@@ -328,13 +322,12 @@ export function OrgChartPage() {
         backends={backends}
         defaultDepartmentId={newAgentParentDeptId}
         onSubmit={async (req) => {
-          try {
-            await createAgent(agent_svc.CreateAgentRequest.createFrom(req));
-          } catch (err) {
-            toastOrgWriteFailure(t("org.chart.errors.createAgentFailed"), err);
-          }
+          const res = await createAgent(
+            agent_svc.CreateAgentRequest.createFrom(req),
+          );
           setNewAgentOpen(false);
           setNewAgentFromIntent(false);
+          if (res.item) setSelected({ kind: "agent", id: res.item.id });
         }}
         fromIntent={newAgentFromIntent}
         onClose={() => {

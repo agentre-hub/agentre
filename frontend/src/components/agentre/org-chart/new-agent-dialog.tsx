@@ -9,6 +9,7 @@ import {
   DialogShellBody,
   DialogShellFooter,
   DialogShellHeader,
+  DialogShellSubmit,
   IdentityFields,
   Select,
   SelectContent,
@@ -21,6 +22,7 @@ import { type AgentColor } from "../types";
 import { openSettings } from "@/stores/settings-dialog-store";
 import { type OrgAgent, type OrgDepartment } from "../org/types";
 import { useOrgData } from "../org/use-org-data";
+import { CreateFailureLine, useCreateSubmit } from "./create-submit";
 
 export type NewAgentProps = {
   open: boolean;
@@ -90,29 +92,41 @@ export function NewAgentDialogBody(props: NewAgentProps) {
     props.fromIntent,
   ]);
   const [placement, setPlacement] = React.useState<string>(initialPlacement);
-  const [backendId, setBackendId] = React.useState<number>(
-    props.fromIntent ? 0 : (props.backends[0]?.id ?? 0),
-  );
+  const initialBackendId = props.fromIntent ? 0 : (props.backends[0]?.id ?? 0);
+  const [backendId, setBackendId] = React.useState<number>(initialBackendId);
   const parsedPlacement = parsePlacement(placement);
+  const { busy, failure, run } = useCreateSubmit(
+    t("org.chart.errors.createAgentFailed"),
+  );
 
   const canSubmit =
     name.trim().length > 0 &&
     (parsedPlacement.departmentId > 0 || parsedPlacement.parentAgentId > 0);
+  // 填过任何一格就算有草稿：点遮罩不再丢掉它（Esc 与 × 照常关）。
+  const dirty =
+    name !== "" ||
+    description !== "" ||
+    avatarIcon !== "" ||
+    avatarColor !== "agent-1" ||
+    placement !== initialPlacement ||
+    backendId !== initialBackendId;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canSubmit) return;
-    await props.onSubmit({
-      name: name.trim(),
-      ...(description.trim() ? { description: description.trim() } : {}),
-      avatarColor,
-      ...(avatarIcon ? { avatarIcon } : {}),
-      departmentId: parsedPlacement.departmentId,
-      parentAgentId: parsedPlacement.parentAgentId,
-      agentBackendId: backendId,
-      prompt: [],
-      skills: [],
-    });
+    await run(() =>
+      props.onSubmit({
+        name: name.trim(),
+        ...(description.trim() ? { description: description.trim() } : {}),
+        avatarColor,
+        ...(avatarIcon ? { avatarIcon } : {}),
+        departmentId: parsedPlacement.departmentId,
+        parentAgentId: parsedPlacement.parentAgentId,
+        agentBackendId: backendId,
+        prompt: [],
+        skills: [],
+      }),
+    );
   }
 
   return (
@@ -120,11 +134,14 @@ export function NewAgentDialogBody(props: NewAgentProps) {
       open={props.open}
       onOpenChange={(o) => !o && props.onClose()}
       onSubmit={handleSubmit}
+      busy={busy}
+      dirty={dirty}
     >
       <DialogShellHeader
         title={t("org.chart.actions.newAgent")}
         subtitle={t("org.chart.newAgent.description")}
         onClose={props.onClose}
+        busy={busy}
       />
       <DialogShellBody className="flex flex-col gap-4">
         {props.fromIntent ? (
@@ -135,6 +152,7 @@ export function NewAgentDialogBody(props: NewAgentProps) {
               variant="link"
               size="sm"
               className="h-auto px-0 text-2xs"
+              disabled={busy}
               onClick={() => {
                 // 先关掉本对话框再开设置，不叠两层。
                 props.onClose();
@@ -199,13 +217,20 @@ export function NewAgentDialogBody(props: NewAgentProps) {
           </Select>
         </label>
       </DialogShellBody>
-      <DialogShellFooter>
-        <Button type="button" variant="outline" onClick={props.onClose}>
+      <DialogShellFooter
+        left={failure ? <CreateFailureLine failure={failure} /> : null}
+      >
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={props.onClose}
+        >
           {t("common.cancel")}
         </Button>
-        <Button type="submit" disabled={!canSubmit}>
+        <DialogShellSubmit type="submit" busy={busy} disabled={!canSubmit}>
           {t("common.create")}
-        </Button>
+        </DialogShellSubmit>
       </DialogShellFooter>
     </DialogShell>
   );
