@@ -211,3 +211,33 @@ describe("接缝", () => {
     ).toBe("");
   });
 });
+
+describe("草稿保护", () => {
+  it("Given a typed name When clicking the overlay Then the desktop keeps the dialog open, while Esc still closes it", async () => {
+    const onOpenChange = vi.fn();
+    render(
+      <ProjectNewDialog
+        open
+        onOpenChange={onOpenChange}
+        tree={[]}
+        onCreated={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("project-create-name"), {
+      target: { value: "Ledger" },
+    });
+
+    // Radix 在打开后的下一拍才挂上 document 的 pointerdown 监听。
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.pointerDown(
+      document.querySelector(
+        '[data-slot="dialog-shell-overlay"]',
+      ) as HTMLElement,
+      { button: 0 },
+    );
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});

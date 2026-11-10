@@ -586,6 +586,7 @@ Forms are plain `useState` + controlled shadcn components — **no react-hook-fo
 - **Error sits with the field:** a short `text-destructive-text text-xs` line under the input, mark the control (`aria-invalid`). For a failed *submit*, raise a Sonner error toast (there is no `Alert`-banner convention for form-level errors).
 - **Don't lose input on failure** — a failed save keeps every field as-is.
 - **Submit in flight:** disable the button + inline `Loader2`.
+- **A draft survives a stray backdrop click.** A form dialog on `DialogShell` ([`dialog-shell.tsx`](../frontend/packages/agentre-ui/src/ui/dialog-shell.tsx)) passes `dirty` once any field has left the value it opened with: a click on the backdrop no longer closes it, while Esc and × still do — the backdrop is where misclicks come from, Esc and × are explicit intent — and no "discard changes?" confirmation is raised. `busy` still blocks all three. The caller decides what counts as a draft; the shell doesn't know a form's initial values. A shared dialog whose other host must keep closing on the backdrop takes the guard as an opt-in prop instead of turning it on by default: `ProjectCreateDialog`'s `guardDraft`, which the desktop's [`project-new-dialog.tsx`](../frontend/src/components/agentre/project-new-dialog.tsx) passes and `agentre-server` doesn't.
 
 ### Writing & microcopy
 

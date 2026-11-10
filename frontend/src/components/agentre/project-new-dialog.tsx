@@ -122,6 +122,7 @@ function ProjectNewDialog({
       initialParentId={initialParentID > 0 ? String(initialParentID) : ""}
       ports={ports}
       onCreated={(id) => onCreated(Number(id))}
+      guardDraft
     />
   );
 }

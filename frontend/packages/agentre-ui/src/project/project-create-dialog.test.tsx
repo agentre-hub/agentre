@@ -641,3 +641,74 @@ describe("宿主能力：在别的机器上配路径", () => {
     });
   });
 });
+
+describe("草稿保护（宿主显式开启）", () => {
+  function mountGuard(guardDraft?: boolean) {
+    const onOpenChange = vi.fn();
+    render(
+      <ProjectCreateDialog
+        open
+        onOpenChange={onOpenChange}
+        parentOptions={[]}
+        ports={ports()}
+        onCreated={vi.fn()}
+        guardDraft={guardDraft}
+      />,
+    );
+    return { onOpenChange };
+  }
+
+  /** Radix 在打开后的下一拍才挂上 document 的 pointerdown 监听，所以先等一拍。 */
+  async function clickOverlay() {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.pointerDown(
+      document.querySelector(
+        '[data-slot="dialog-shell-overlay"]',
+      ) as HTMLElement,
+      { button: 0 },
+    );
+  }
+
+  it("Given guardDraft and a typed name When clicking the overlay Then the dialog stays open", async () => {
+    const { onOpenChange } = mountGuard(true);
+    fireEvent.change(screen.getByTestId("project-create-name"), {
+      target: { value: "Ledger" },
+    });
+    await clickOverlay();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("project-create-name")).toHaveValue("Ledger");
+  });
+
+  it("Given guardDraft and only a description When clicking the overlay Then the dialog stays open", async () => {
+    const { onOpenChange } = mountGuard(true);
+    fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
+      target: { value: "ledger service" },
+    });
+    await clickOverlay();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("Given guardDraft and a typed name When pressing Esc Then the dialog closes as usual", () => {
+    const { onOpenChange } = mountGuard(true);
+    fireEvent.change(screen.getByTestId("project-create-name"), {
+      target: { value: "Ledger" },
+    });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("Given guardDraft and an untouched form When clicking the overlay Then the dialog closes", async () => {
+    const { onOpenChange } = mountGuard(true);
+    await clickOverlay();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("Given no guardDraft (agentre-server) and a typed name When clicking the overlay Then the dialog closes as before", async () => {
+    const { onOpenChange } = mountGuard(undefined);
+    fireEvent.change(screen.getByTestId("project-create-name"), {
+      target: { value: "Ledger" },
+    });
+    await clickOverlay();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});

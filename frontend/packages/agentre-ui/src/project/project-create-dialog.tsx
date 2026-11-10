@@ -52,6 +52,11 @@ export interface ProjectCreateDialogProps {
   parentName?: string;
   ports: ProjectCreatePorts;
   onCreated(projectId: string): void;
+  /**
+   * 填过内容后点遮罩不关窗（Esc 与 × 照常）。**宿主显式开启**：不给就和以前一样，
+   * 点遮罩即关。
+   */
+  guardDraft?: boolean;
 }
 
 /** git 探测的防抖：手打路径时每敲一下探一次，既慢又吵。 */
@@ -65,6 +70,7 @@ export function ProjectCreateDialog({
   parentName,
   ports,
   onCreated,
+  guardDraft = false,
 }: ProjectCreateDialogProps) {
   const { t } = useUiTranslation();
   const [name, setName] = React.useState("");
@@ -202,6 +208,15 @@ export function ProjectCreateDialog({
     : undefined;
   // 名字是**唯一**必填的一格：路径不必填（决策 9），两端一套校验。
   const canSubmit = !!trimmedName && !busy;
+  // 「填过内容」= 任一格离开了这一次打开时的初值；只写空白不算。
+  const hasDraft =
+    !!trimmedName ||
+    !!description.trim() ||
+    !!icon ||
+    !!color ||
+    !!trimmedPath ||
+    !!picked ||
+    parentId !== initialParentId;
 
   async function handleBrowse() {
     const picked = await ports.pickLocalDirectory?.();
@@ -384,6 +399,7 @@ export function ProjectCreateDialog({
         onOpenChange={handleOpenChange}
         size="md"
         busy={busy}
+        dirty={guardDraft && hasDraft}
       >
         <DialogShellHeader
           title={

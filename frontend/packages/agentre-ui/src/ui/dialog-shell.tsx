@@ -18,7 +18,8 @@
  *  4. **错误落在弹窗里**：整窗级错误摆在脚部左侧、与按钮同一行——点了按钮的人视线
  *     就在那。字段级错误归调用方摆在字段下面。
  *  5. **主按钮自带 busy**：转圈 + 禁用，且 busy 期间 Esc 与点遮罩都不关窗——写请求
- *     正在飞，关掉只会让人以为没提交。
+ *     正在飞，关掉只会让人以为没提交。**有草稿（`dirty`）时只挡点遮罩**：遮罩是误触
+ *     的来源，Esc 与 × 是明确意图，照常关；也不弹「放弃修改？」。
  *  6. **危险确认是一种形态**，不是一段文案：头部一道 danger 分隔线 + destructive
  *     主按钮，后果写在正文，不写进标题。
  *  7. **即时保存的弹窗没有「保存」**：保存态显示在头部右侧，脚部只有「完成」。
@@ -45,21 +46,17 @@ const SIZE_CLASS: Record<DialogShellSize, string> = {
   lg: "sm:max-w-[760px]",
 };
 
-export function DialogShell({
-  open,
-  onOpenChange,
-  size = "md",
-  busy = false,
-  danger = false,
-  className,
-  onSubmit,
-  children,
-}: {
+export interface DialogShellProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   size?: DialogShellSize;
   /** busy 期间不许 Esc / 点遮罩关窗（规范 5）。 */
   busy?: boolean;
+  /**
+   * 表单里有还没提交的草稿：点遮罩不关窗，Esc 与 × 照常（规范 5）。草稿算不算
+   * 「有」由调用方判定 —— 外壳不知道哪几格是初值。不给就和以前一样。
+   */
+  dirty?: boolean;
   danger?: boolean;
   className?: string;
   /**
@@ -68,12 +65,30 @@ export function DialogShell({
    */
   onSubmit?: React.FormEventHandler<HTMLFormElement>;
   children: React.ReactNode;
-}) {
+}
+
+export function DialogShell({
+  open,
+  onOpenChange,
+  size = "md",
+  busy = false,
+  dirty = false,
+  danger = false,
+  className,
+  onSubmit,
+  children,
+}: DialogShellProps) {
   const blockWhileBusy = React.useCallback(
     (event: { preventDefault: () => void }) => {
       if (busy) event.preventDefault();
     },
     [busy],
+  );
+  const blockOutsideWhileBusyOrDirty = React.useCallback(
+    (event: { preventDefault: () => void }) => {
+      if (busy || dirty) event.preventDefault();
+    },
+    [busy, dirty],
   );
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -86,8 +101,8 @@ export function DialogShell({
           data-slot="dialog-shell-content"
           data-danger={danger || undefined}
           onEscapeKeyDown={blockWhileBusy}
-          onPointerDownOutside={blockWhileBusy}
-          onInteractOutside={blockWhileBusy}
+          onPointerDownOutside={blockOutsideWhileBusyOrDirty}
+          onInteractOutside={blockOutsideWhileBusyOrDirty}
           className={cn(
             "fixed z-50 flex flex-col overflow-hidden bg-card text-card-foreground shadow-overlay outline-none",
             // 窄屏（基础）：贴底、满宽、上圆角、从下滑入。
