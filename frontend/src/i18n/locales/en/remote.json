@@ -31,8 +31,10 @@
       "editTls": "Edit TLS Trust",
       "refreshStatus": "Refresh Status",
       "removeConfirm": "Unpair \"{{name}}\"? This desktop will clear the token and fingerprint pin for this agentred. The remote agentred state.json.pairedPeers will not be cleaned up automatically.",
+      "removeFailed": "Couldn't unpair this device",
       "removePairing": "Unpair",
       "rename": "Rename",
+      "renameFailed": "Couldn't rename this device",
       "renamePrompt": "Rename to"
     },
     "add": {
@@ -224,6 +226,7 @@
     "thisDevice": "This device",
     "tls": {
       "apply": "Apply",
+      "applyFailed": "Couldn't apply the TLS trust setting",
       "badges": {
         "notRecommended": "Not recommended",
         "recommended": "Recommended"

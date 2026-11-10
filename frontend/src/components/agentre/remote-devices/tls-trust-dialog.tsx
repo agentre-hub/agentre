@@ -8,18 +8,45 @@ import {
   DialogShellBody,
   DialogShellFooter,
   DialogShellHeader,
+  DialogShellSubmit,
   RadioGroup,
   RadioGroupItem,
   Textarea,
 } from "@agentre-hub/agentre-ui";
+import { classifyAppError, type AppError } from "@/lib/app-error";
+
+import { FailureBody } from "../failure-body";
 
 type Props = {
   open: boolean;
   initialMode: string;
   initialPEM: string;
   onClose: () => void;
+  /** 成功由调用方关窗；抛出即失败，窗留着、在窗里说清楚。 */
   onApply: (mode: string, pem: string) => void | Promise<void>;
 };
+
+/**
+ * 设备弹窗里的写入失败（B4）：先说事实；后端带码的那句人话作正文，机器原话只进
+ * 默认折叠的「详情」。设备面板的解除配对 / 改名窗共用这一份。
+ */
+export function DeviceWriteFailure({
+  title,
+  err,
+}: {
+  title: string;
+  err: AppError;
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-1 rounded-md bg-destructive-soft px-3 py-2 text-2xs text-destructive-text"
+    >
+      <p className="font-medium">{title}</p>
+      <FailureBody message={err.message} detail={err.detail} />
+    </div>
+  );
+}
 
 const PEM_HEADER = "-----BEGIN CERTIFICATE-----";
 const PEM_FOOTER = "-----END CERTIFICATE-----";
@@ -70,6 +97,8 @@ export function TLSTrustDialog({
   const [mode, setMode] = useState(initialMode || "default");
   const [pem, setPem] = useState(initialPEM ?? "");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<AppError | null>(null);
   // RadioGroupItem 渲染成内容为空的 <button role="radio">,button 的可及名称按
   // 「名称来自内容」算,包裹它的 <label> 并不会给它命名 —— 每一项都显式把名称指到
   // 自己那行标题,说明文字挂 aria-describedby(hook 不能进 map,故用同一个前缀派生)。
@@ -80,13 +109,16 @@ export function TLSTrustDialog({
       setMode(initialMode || "default");
       setPem(initialPEM ?? "");
       setError(null);
+      setFailure(null);
     }
   }, [open, initialMode, initialPEM]);
 
   const needsPEM = mode === "pin-cert" || mode === "ca-bundle";
 
   const apply = async () => {
+    if (busy) return;
     setError(null);
+    setFailure(null);
     if (needsPEM) {
       const e = validatePEM(pem, t);
       if (e) {
@@ -94,12 +126,21 @@ export function TLSTrustDialog({
         return;
       }
     }
-    await onApply(mode, needsPEM ? pem.trim() : "");
+    setBusy(true);
+    try {
+      await onApply(mode, needsPEM ? pem.trim() : "");
+    } catch (e) {
+      // 留窗、留所选：原样再点一次「应用」就是重试。
+      setFailure(classifyAppError(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <DialogShell
       open={open}
+      busy={busy}
       onOpenChange={(o) => {
         if (!o) onClose();
       }}
@@ -108,6 +149,7 @@ export function TLSTrustDialog({
         title={t("remoteDevices.tls.title")}
         subtitle={t("remoteDevices.tls.description")}
         onClose={onClose}
+        busy={busy}
       />
       <DialogShellBody className="flex flex-col gap-3.5">
         <RadioGroup value={mode} onValueChange={setMode} className="gap-3">
@@ -179,12 +221,21 @@ export function TLSTrustDialog({
         {error ? (
           <div className="text-sm text-destructive-text">{error}</div>
         ) : null}
+
+        {failure ? (
+          <DeviceWriteFailure
+            title={t("remoteDevices.tls.applyFailed")}
+            err={failure}
+          />
+        ) : null}
       </DialogShellBody>
       <DialogShellFooter>
-        <Button variant="ghost" onClick={onClose}>
+        <Button variant="ghost" disabled={busy} onClick={onClose}>
           {t("common.cancel")}
         </Button>
-        <Button onClick={apply}>{t("remoteDevices.tls.apply")}</Button>
+        <DialogShellSubmit busy={busy} onClick={() => void apply()}>
+          {t("remoteDevices.tls.apply")}
+        </DialogShellSubmit>
       </DialogShellFooter>
     </DialogShell>
   );

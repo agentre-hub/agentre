@@ -13,10 +13,12 @@ import {
   DialogContent,
   DialogFooter,
   DialogHeader,
+  DialogShellSubmit,
   DialogTitle,
   Input,
   Spinner,
 } from "@agentre-hub/agentre-ui";
+import { classifyAppError, type AppError } from "@/lib/app-error";
 
 import { DesktopDeviceRow } from "./desktop-device-row";
 import { AgentredOnboarding } from "./agentred-onboarding";
@@ -24,7 +26,7 @@ import { DeviceRow } from "./device-row";
 import { hostOf } from "./format";
 import { LoginDialog } from "./login-dialog";
 import { RemovedDevices } from "./removed-devices";
-import { TLSTrustDialog } from "./tls-trust-dialog";
+import { DeviceWriteFailure, TLSTrustDialog } from "./tls-trust-dialog";
 import { useLatestAgentredVersion } from "./use-latest-agentred-version";
 import { useRemoteDevices, type DeviceView } from "./use-remote-devices";
 import { useServerLogin } from "./use-server-login";
@@ -84,6 +86,30 @@ function AccountStatus({
   );
 }
 
+/**
+ * 确认类弹窗的一次写入（B4）：进行中确认键为进行态、窗关不掉；成功才关窗；失败留窗，
+ * 在窗里说事实。`run` 返回是否成功，成功后的关窗由调用方做。
+ */
+function useDialogWrite() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<AppError | null>(null);
+  const run = async (write: () => Promise<void>): Promise<boolean> => {
+    if (busy) return false;
+    setError(null);
+    setBusy(true);
+    try {
+      await write();
+      return true;
+    } catch (e) {
+      setError(classifyAppError(e));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, error, run, clearError: () => setError(null) };
+}
+
 export type RemoteDevicesPanelProps = {
   onOpenAgentBackends?: () => void;
 };
@@ -119,6 +145,34 @@ export function RemoteDevicesPanel({
     id: number;
     draft: string;
   } | null>(null);
+  const removeWrite = useDialogWrite();
+  const renameWrite = useDialogWrite();
+  const openRemove = (device: DeviceView) => {
+    removeWrite.clearError();
+    setRemoveFor(device);
+  };
+  const closeRemove = () => {
+    if (!removeWrite.busy) setRemoveFor(null);
+  };
+  const openRename = (id: number, draft: string) => {
+    renameWrite.clearError();
+    setRenameFor({ id, draft });
+  };
+  const closeRename = () => {
+    if (!renameWrite.busy) setRenameFor(null);
+  };
+  const confirmRemove = async () => {
+    if (!removeFor) return;
+    const { id } = removeFor;
+    if (await removeWrite.run(() => remove(id))) setRemoveFor(null);
+  };
+  const confirmRename = async () => {
+    if (!renameFor) return;
+    const { id } = renameFor;
+    const name = renameFor.draft.trim();
+    if (!name) return;
+    if (await renameWrite.run(() => rename(id, name))) setRenameFor(null);
+  };
 
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -270,12 +324,11 @@ export function RemoteDevicesPanel({
                         onRefresh: hasLanAddress
                           ? () => void refresh(lan.id)
                           : undefined,
-                        onRename: () =>
-                          setRenameFor({ id: lan.id, draft: lan.name }),
+                        onRename: () => openRename(lan.id, lan.name),
                         onEditTLS: hasLanAddress
                           ? () => setEditTLSFor(lan)
                           : undefined,
-                        onRemove: () => setRemoveFor(lan),
+                        onRemove: () => openRemove(lan),
                       }
                     : undefined
                 }
@@ -301,7 +354,7 @@ export function RemoteDevicesPanel({
       <Dialog
         open={removeFor !== null}
         onOpenChange={(open) => {
-          if (!open) setRemoveFor(null);
+          if (!open) closeRemove();
         }}
       >
         <DialogContent className="sm:max-w-md">
@@ -310,31 +363,36 @@ export function RemoteDevicesPanel({
               {t("remoteDevices.actions.removePairing")}
             </DialogTitle>
           </DialogHeader>
-          <DialogBody>
+          <DialogBody className="flex flex-col gap-3">
             <p className="text-sm text-muted-foreground">
               {t("remoteDevices.actions.removeConfirm", {
                 name: removeFor?.name ?? "",
               })}
             </p>
+            {removeWrite.error ? (
+              <DeviceWriteFailure
+                title={t("remoteDevices.actions.removeFailed")}
+                err={removeWrite.error}
+              />
+            ) : null}
           </DialogBody>
           <DialogFooter>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setRemoveFor(null)}
+              disabled={removeWrite.busy}
+              onClick={closeRemove}
             >
               {t("common.cancel")}
             </Button>
-            <Button
+            <DialogShellSubmit
               size="sm"
               variant="destructive"
-              onClick={() => {
-                if (removeFor) void remove(removeFor.id);
-                setRemoveFor(null);
-              }}
+              busy={removeWrite.busy}
+              onClick={() => void confirmRemove()}
             >
               {t("remoteDevices.actions.removePairing")}
-            </Button>
+            </DialogShellSubmit>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -342,27 +400,25 @@ export function RemoteDevicesPanel({
       <Dialog
         open={renameFor !== null}
         onOpenChange={(open) => {
-          if (!open) setRenameFor(null);
+          if (!open) closeRename();
         }}
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t("remoteDevices.actions.rename")}</DialogTitle>
           </DialogHeader>
-          <DialogBody>
+          <DialogBody className="flex flex-col gap-3">
             <form
               id="rename-device-form"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (renameFor && renameFor.draft.trim()) {
-                  void rename(renameFor.id, renameFor.draft.trim());
-                  setRenameFor(null);
-                }
+                void confirmRename();
               }}
             >
               <Input
                 autoFocus
                 value={renameFor?.draft ?? ""}
+                readOnly={renameWrite.busy}
                 onChange={(e) =>
                   setRenameFor((prev) =>
                     prev ? { ...prev, draft: e.target.value } : prev,
@@ -372,23 +428,31 @@ export function RemoteDevicesPanel({
                 aria-label={t("remoteDevices.actions.renamePrompt")}
               />
             </form>
+            {renameWrite.error ? (
+              <DeviceWriteFailure
+                title={t("remoteDevices.actions.renameFailed")}
+                err={renameWrite.error}
+              />
+            ) : null}
           </DialogBody>
           <DialogFooter>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setRenameFor(null)}
+              disabled={renameWrite.busy}
+              onClick={closeRename}
             >
               {t("common.cancel")}
             </Button>
-            <Button
+            <DialogShellSubmit
               type="submit"
               form="rename-device-form"
               size="sm"
+              busy={renameWrite.busy}
               disabled={!renameFor || renameFor.draft.trim().length === 0}
             >
               {t("common.save")}
-            </Button>
+            </DialogShellSubmit>
           </DialogFooter>
         </DialogContent>
       </Dialog>
