@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useUiTranslation as useTranslation } from "../i18n";
 import { ExternalLink, Loader2, Plus, Radar } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   DropdownMenu,
@@ -21,6 +22,7 @@ import { cn } from "../lib/utils";
 
 import {
   accountDeviceOptions,
+  failureNotice,
   messageFromError,
   type DeviceOption,
 } from "./agent-backends-utils";
@@ -69,6 +71,7 @@ import {
   type BackendType,
   type ClaudeTier,
   type EnvEntry,
+  type FailureNotice,
   type FlashState,
   type Provider,
   type ReasoningEffortValue,
@@ -142,10 +145,14 @@ type AgentBackendsPanelProps = {
   // 一层——list 只有清单，「编辑 / 换绑 / 新建」不再开弹窗而是以目标调 onSelect；
   // editor 只有 selectedId 指向的那张整屏编辑页（"new" 为新建），✕ 与保存成功后以
   // null 调 onSelect，目标不在清单里时同样以 null 调。不传 layer 时仍是今天的清单 +
-  // 编辑弹窗。宿主在两层之间保持同一个面板实例，保存后的提示条就会留在清单页上。
+  // 编辑弹窗。宿主在两层之间保持同一个面板实例，编辑页读不到 CLI 路径而退回清单时，
+  // 清单上的失败提示条才留得住。
   layer?: "list" | "editor";
   selectedId?: BackendEditorTarget | null;
   onSelect?: (target: BackendEditorTarget | null) => void;
+  // 编辑弹窗的草稿保护，宿主显式开启：表单被改过之后点遮罩不关窗（Esc 与 × 照常）。
+  // 不传时点遮罩照旧关窗。保存 / 同步供应商期间不可关闭与它无关，那是默认行为。
+  guardDraft?: boolean;
 };
 
 type BackendEditorTarget = number | "new";
@@ -172,6 +179,7 @@ function AgentBackendsPanelBody({
   layer,
   selectedId,
   onSelect,
+  guardDraft = false,
 }: AgentBackendsPanelProps) {
   const ports = useEngineSettingsPorts();
   const {
@@ -201,7 +209,12 @@ function AgentBackendsPanelBody({
   const [pendingDelete, setPendingDelete] = React.useState<Backend | null>(
     null,
   );
-  const [flash, setFlash] = React.useState<FlashState>(null);
+  // 清单顶部的提示条只承载定位不到某一行的失败；成功一律 toast。
+  const [flash, setFlash] = React.useState<FailureNotice | null>(null);
+  // 行内测试的失败贴在那一行下面，直到这一行再测一次。
+  const [rowTestFailure, setRowTestFailure] = React.useState<
+    ({ backendId: number } & FailureNotice) | null
+  >(null);
   const [testingId, setTestingId] = React.useState<number | null>(null);
   const [scanning, setScanning] = React.useState(false);
   // 页级扫描的候选机器；只有没有本机可扫的宿主才需要它。
@@ -210,24 +223,32 @@ function AgentBackendsPanelBody({
   // 用 ref 而不是 state，避免 await TestAgentBackend 拿到的是闭包里的旧值。
   const testReqIdRef = React.useRef<string | null>(null);
 
-  function flashFromTestResponse(
+  function reportRowTest(
     res: agent_backend_svc.TestBackendResponse,
-    backendType: string,
+    backend: Backend,
   ) {
     if (res.ok) {
-      setFlash({
-        kind: "ok",
-        text: `✅ ${res.latencyMs}ms · ${res.message}`,
-      });
-    } else {
-      const text = backendTestErrorMessage(
-        backendType,
-        res.code ?? "",
-        res.message ?? "",
-        t,
+      toast.success(
+        t("agentBackends.test.passed", {
+          latency: res.latencyMs,
+          message: res.message,
+        }),
       );
-      setFlash({ kind: "err", text: `❌ ${text}` });
+      return;
     }
+    const raw = res.message ?? "";
+    const text = backendTestErrorMessage(backend.type, res.code ?? "", raw, t);
+    // 认得错误码的类型给出的是本地化事实句，那一句就是全部（协议原文不上屏）；
+    // 认不得时拿回来的就是后端原话，它只进详情，正文用通用句。
+    setRowTestFailure(
+      text === raw
+        ? {
+            backendId: backend.id,
+            text: t("agentBackends.flash.testFailed"),
+            detail: raw,
+          }
+        : { backendId: backend.id, text },
+    );
   }
 
   async function openEditor(backend: Backend, openBinding = false) {
@@ -260,6 +281,7 @@ function AgentBackendsPanelBody({
     const requestId = newRequestId();
     testReqIdRef.current = requestId;
     setTestingId(backend.id);
+    setRowTestFailure(null);
     try {
       const request = {
         id: backend.id,
@@ -276,10 +298,13 @@ function AgentBackendsPanelBody({
           : await TestAgentBackend(request);
       // 用户在等待期间点了取消 → testReqIdRef 已被清掉，丢弃 stale 响应。
       if (testReqIdRef.current !== requestId) return;
-      flashFromTestResponse(res, backend.type);
+      reportRowTest(res, backend);
     } catch (err) {
       if (testReqIdRef.current !== requestId) return;
-      setFlash({ kind: "err", text: messageFromError(err, t) });
+      setRowTestFailure({
+        backendId: backend.id,
+        ...failureNotice(t("agentBackends.flash.testFailed"), err, t),
+      });
     } finally {
       if (testReqIdRef.current === requestId) {
         testReqIdRef.current = null;
@@ -330,9 +355,8 @@ function AgentBackendsPanelBody({
         const createdNames = created.map((r) => r.name).join(", ");
         if (skipped.length > 0) {
           const skippedNames = skipped.map((r) => r.name).join(", ");
-          setFlash({
-            kind: "ok",
-            text: onDevice(
+          toast.success(
+            onDevice(
               t("agentBackends.autoScan.partialFound", {
                 createdCount: created.length,
                 createdNames,
@@ -340,38 +364,35 @@ function AgentBackendsPanelBody({
                 skippedNames,
               }),
             ),
-          });
+          );
         } else {
-          setFlash({
-            kind: "ok",
-            text: onDevice(
+          toast.success(
+            onDevice(
               t("agentBackends.autoScan.created", {
                 count: created.length,
                 names: createdNames,
               }),
             ),
-          });
+          );
         }
         await reload();
       } else if (skipped.length > 0) {
         const names = skipped.map((r) => r.name).join(", ");
-        setFlash({
-          kind: "ok",
-          text: onDevice(
+        toast.success(
+          onDevice(
             t("agentBackends.autoScan.skipped", {
               count: skipped.length,
               names,
             }),
           ),
-        });
+        );
       } else if (!foundAny) {
-        setFlash({
-          kind: "err",
-          text: onDevice(t("agentBackends.autoScan.nothingFound")),
-        });
+        setFlash({ text: onDevice(t("agentBackends.autoScan.nothingFound")) });
       }
     } catch (err) {
-      setFlash({ kind: "err", text: onDevice(messageFromError(err, t)) });
+      setFlash(
+        failureNotice(onDevice(t("agentBackends.flash.scanFailed")), err, t),
+      );
     } finally {
       setScanning(false);
     }
@@ -389,7 +410,7 @@ function AgentBackendsPanelBody({
         setBackends(b?.items ?? []);
         setProviders(p?.items ?? []);
       } catch (err) {
-        setFlash({ kind: "err", text: messageFromError(err, t) });
+        setFlash(failureNotice(t("agentBackends.flash.loadFailed"), err, t));
       } finally {
         setLoading(false);
       }
@@ -407,7 +428,7 @@ function AgentBackendsPanelBody({
       })
       .catch((err: unknown) => {
         if (!mounted) return;
-        setFlash({ kind: "err", text: messageFromError(err, t) });
+        setFlash(failureNotice(t("agentBackends.flash.loadFailed"), err, t));
       })
       .finally(() => {
         if (!mounted) return;
@@ -465,7 +486,9 @@ function AgentBackendsPanelBody({
         // 原有的覆盖清掉。退回清单，由清单上的 flash 说明原因。
         if (pageTargetRef.current !== backend.id) return;
         pageTargetRef.current = null;
-        setFlash({ kind: "err", text: messageFromError(err, t) });
+        setFlash(
+          failureNotice(t("agentBackends.flash.cliPathReadFailed"), err, t),
+        );
         onSelect?.(null);
         return;
       }
@@ -578,7 +601,7 @@ function AgentBackendsPanelBody({
         onClose={closeEditor}
         onSaved={async (message) => {
           closeEditor();
-          setFlash({ kind: "ok", text: message });
+          toast.success(message);
           await reload();
         }}
         onOpenProxySettings={onOpenProxySettings}
@@ -599,6 +622,7 @@ function AgentBackendsPanelBody({
         )}
         hasLocalDevice={hasLocalDevice}
         presentation={layer === "editor" ? "page" : "dialog"}
+        guardDraft={guardDraft}
       />
     ) : null;
 
@@ -619,9 +643,7 @@ function AgentBackendsPanelBody({
     <>
       {renderHeader?.(headerActions)}
       <section className="min-w-0 overflow-hidden rounded-lg bg-field-fill">
-        {flash ? (
-          <FlashBanner state={flash} onDismiss={() => setFlash(null)} />
-        ) : null}
+        <FlashBanner failure={flash} onDismiss={() => setFlash(null)} />
         <div className="flex min-w-0 flex-col">
           {loading ? (
             <div className="flex items-center justify-center gap-2 px-4 py-6 text-xs text-muted-foreground">
@@ -646,6 +668,9 @@ function AgentBackendsPanelBody({
                   hasLocalDevice={hasLocalDevice}
                   testing={testingId === b.id}
                   testDisabled={testingId !== null}
+                  testFailure={
+                    rowTestFailure?.backendId === b.id ? rowTestFailure : null
+                  }
                   onTest={() => handleTestRow(b)}
                   onCancelTest={handleCancelRow}
                   onEdit={() => void openEditor(b)}
@@ -665,12 +690,12 @@ function AgentBackendsPanelBody({
             onCancel={() => setPendingDelete(null)}
             onConfirmed={async () => {
               setPendingDelete(null);
-              setFlash({ kind: "ok", text: t("agentBackends.flash.deleted") });
+              toast.success(t("agentBackends.flash.deleted"));
               await reload();
             }}
-            onError={(text) => {
+            onError={(failure) => {
               setPendingDelete(null);
-              setFlash({ kind: "err", text });
+              setFlash(failure);
             }}
           />
         ) : null}
@@ -695,6 +720,7 @@ function BackendEditor({
   canEditOpenClawToken,
   hasLocalDevice,
   presentation = "dialog",
+  guardDraft = false,
 }: {
   listCLIModels?: ListCliModels;
   state: EditorState;
@@ -712,6 +738,8 @@ function BackendEditor({
   hasLocalDevice: boolean;
   // page：手机上的整屏编辑页（见 ./backend-editor/editor-page）；字段与保存同一份。
   presentation?: "dialog" | "page";
+  // 弹窗档的草稿保护（宿主开启）：表单被改过之后点遮罩不关窗。
+  guardDraft?: boolean;
 }) {
   const bridge = useEngineSettingsBridge();
   const {
@@ -1165,6 +1193,24 @@ function BackendEditor({
     state.kind === "edit" ? buildDraft() : null,
   );
 
+  // 「有没有草稿」：用户第一次动表单那一刻的表单内容是基线，之后与它不同才算有。
+  // 基线不取挂载那一刻 —— 运行设备、CLI 路径、默认名称都会在打开后自己填进来，
+  // 那些不是用户填的；改了又改回去也不算（没有东西会丢）。
+  const draftFingerprint = JSON.stringify([
+    buildDraft(),
+    openClaw.token,
+    hermesUsername,
+    hermesPassword,
+  ]);
+  const [touchedFingerprint, setTouchedFingerprint] = React.useState<
+    string | null
+  >(null);
+  const hasDraft =
+    touchedFingerprint !== null && touchedFingerprint !== draftFingerprint;
+  function markTouched() {
+    if (touchedFingerprint === null) setTouchedFingerprint(draftFingerprint);
+  }
+
   function inspectDraft(draft: BackendDraft) {
     return inspectRemoteDraft({
       draft,
@@ -1262,7 +1308,10 @@ function BackendEditor({
       }
     } catch (err) {
       if (testReqIdRef.current !== requestId) return;
-      setTestResult({ kind: "err", text: messageFromError(err, t) });
+      setTestResult({
+        kind: "err",
+        ...failureNotice(t("agentBackends.flash.testFailed"), err, t),
+      });
     } finally {
       if (testReqIdRef.current === requestId) {
         testReqIdRef.current = null;
@@ -1339,7 +1388,10 @@ function BackendEditor({
       }
       await saveDraft(draft);
     } catch (err) {
-      setSaveResult({ kind: "err", text: messageFromError(err, t) });
+      setSaveResult({
+        kind: "err",
+        ...failureNotice(t("agentBackends.flash.saveFailed"), err, t),
+      });
     } finally {
       setSubmitting(false);
     }
@@ -1379,10 +1431,7 @@ function BackendEditor({
       } else {
         setPendingProviderSync(null);
         await refreshRemoteProviders();
-        setSaveResult({
-          kind: "ok",
-          text: t("agentBackends.flash.providerSynced"),
-        });
+        toast.success(t("agentBackends.flash.providerSynced"));
       }
     } catch (err) {
       setProviderSyncError(messageFromError(err, t));
@@ -1754,6 +1803,7 @@ function BackendEditor({
     id,
     fields: fields.filter((field) => field.group === id),
   }));
+  const busy = submitting || syncingProvider;
   const footer = (
     <BackendEditorFooter
       saveResult={saveResult}
@@ -1780,7 +1830,7 @@ function BackendEditor({
           title={editorTitle}
           onClose={onClose}
           onSubmit={handleSubmit}
-          busy={submitting || syncingProvider}
+          busy={busy}
           saveDisabled={submitDisabled || syncingProvider}
           saving={submitting}
           groups={pageGroups}
@@ -1792,16 +1842,29 @@ function BackendEditor({
           open={open}
           onOpenChange={(o) => (!o ? onClose() : undefined)}
           onSubmit={handleSubmit}
+          // 写请求在飞（保存 / 往远端同步供应商）时不可关闭：关掉只会让人以为没提交。
+          busy={busy}
+          dirty={guardDraft && hasDraft}
         >
           <DialogShellHeader
             title={editorTitle}
             subtitle={t("agentBackends.editor.description")}
             onClose={onClose}
+            busy={busy}
           />
           <DialogShellBody className="flex flex-col gap-4">
-            {fields.map((field) => (
-              <React.Fragment key={field.key}>{field.node}</React.Fragment>
-            ))}
+            {/* 用户第一次动表单的那一刻记下基线（捕获阶段，早于这次改动落进 state）。 */}
+            <div
+              className="contents"
+              onInputCapture={markTouched}
+              onChangeCapture={markTouched}
+              onClickCapture={markTouched}
+              onKeyDownCapture={markTouched}
+            >
+              {fields.map((field) => (
+                <React.Fragment key={field.key}>{field.node}</React.Fragment>
+              ))}
+            </div>
           </DialogShellBody>
           <DialogShellFooter stack>{footer}</DialogShellFooter>
         </DialogShell>
@@ -1896,7 +1959,7 @@ function DeleteDialog({
   backend: Backend;
   onCancel: () => void;
   onConfirmed: () => Promise<void> | void;
-  onError: (text: string) => void;
+  onError: (failure: FailureNotice) => void;
 }) {
   const { DeleteAgentBackend } = useEngineSettingsBridge();
   const { t } = useTranslation();
@@ -1937,7 +2000,9 @@ function DeleteDialog({
               } as agent_backend_svc.DeleteBackendRequest);
               await onConfirmed();
             } catch (err) {
-              onError(messageFromError(err, t));
+              onError(
+                failureNotice(t("agentBackends.flash.deleteFailed"), err, t),
+              );
             } finally {
               setSubmitting(false);
             }

@@ -1,4 +1,11 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -291,5 +298,49 @@ describe("AgentBackendsPanel editor page mode", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).queryByRole("region")).toBeNull();
     expect(within(dialog).getByRole("button", { name: "Save" })).toBeVisible();
+  });
+});
+
+// 草稿保护是宿主显式开启的（规格 2026-11-10 B7 / Compatibility）：不传 guardDraft 的
+// 宿主（agentre-server）点遮罩照旧关窗；保存中不可关闭则是两端共同的默认行为。
+describe("AgentBackendsPanel editor dialog draft guard", () => {
+  // Radix 在打开后的下一拍才挂上 document 的 pointerdown 监听，所以先等一拍。
+  async function pointerDownOnOverlay() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.pointerDown(
+      document.querySelector(
+        '[data-slot="dialog-shell-overlay"]',
+      ) as HTMLElement,
+      { button: 0 },
+    );
+  }
+
+  async function openEditorWithDraft(guardDraft?: boolean) {
+    const { ports } = setup();
+    const user = userEvent.setup();
+    render(<AgentBackendsPanel ports={ports} guardDraft={guardDraft} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Edit My Claude" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByDisplayValue("My Claude"), " 2");
+  }
+
+  it("Given a host that did not opt in, When the backdrop is clicked on a typed draft, Then the dialog closes as it always did", async () => {
+    await openEditorWithDraft();
+
+    await pointerDownOnOverlay();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("Given a host that passes guardDraft, When the backdrop is clicked on a typed draft, Then the dialog stays open", async () => {
+    await openEditorWithDraft(true);
+
+    await pointerDownOnOverlay();
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });

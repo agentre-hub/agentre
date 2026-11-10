@@ -5,6 +5,13 @@ import { createInstance } from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
 import { describe, expect, it, vi } from "vitest";
 
+// 扫描的成功结果走 Sonner；用例只看说了哪一句。
+const sonnerMocks = vi.hoisted(() => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock("sonner", () => sonnerMocks);
+
 import {
   AGENTRE_UI_NAMESPACE,
   AgentBackendsPanel,
@@ -303,7 +310,12 @@ describe("engine settings auto scan", () => {
     await waitFor(() =>
       expect(scanBackendResults).toHaveBeenCalledWith("fp-laptop"),
     );
-    expect(await screen.findByText(/laptop/)).toBeTruthy();
+    // 结论点名是哪台机器。
+    await waitFor(() =>
+      expect(sonnerMocks.toast.success).toHaveBeenCalledWith(
+        expect.stringMatching(/^laptop: /),
+      ),
+    );
   });
 
   it("Given a host with a local device, When auto scan runs, Then it stays a single click on this machine", async () => {

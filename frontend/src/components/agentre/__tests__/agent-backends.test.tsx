@@ -59,6 +59,13 @@ vi.mock("../../../../wailsjs/runtime/runtime", () => ({
   EventsOn: runtimeMocks.EventsOn,
 }));
 
+// 成功结果走 Sonner（design.md §6.5）；用例只关心「说了哪一句」，不挂真的 Toaster。
+const sonnerMocks = vi.hoisted(() => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock("sonner", () => sonnerMocks);
+
 import { AgentBackendsPanel as AgentBackendsPanelBase } from "../agent-backends";
 
 // 页级操作(自动识别 / 新建后端)通过 renderHeader 交给宿主的 H1 行
@@ -1098,7 +1105,7 @@ describe("AgentBackendsPanel", () => {
     });
   });
 
-  it("clicking 测试连接 on a row shows success flash with latency + reply", async () => {
+  it("clicking 测试连接 on a row toasts success with latency + reply", async () => {
     const mocks = installAppMock({
       TestAgentBackend: vi.fn(() =>
         Promise.resolve({ ok: true, latencyMs: 128, message: "pong" }),
@@ -1114,10 +1121,11 @@ describe("AgentBackendsPanel", () => {
       within(row).getByRole("button", { name: /Test connection/ }),
     );
 
-    await waitFor(() => {
-      expect(screen.getByText(/128ms/)).toBeInTheDocument();
-      expect(screen.getByText(/pong/)).toBeInTheDocument();
-    });
+    await waitFor(() =>
+      expect(sonnerMocks.toast.success).toHaveBeenCalledWith(
+        expect.stringMatching(/128ms.*pong/),
+      ),
+    );
     expect(mocks.TestAgentBackend).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 1,
@@ -1130,7 +1138,7 @@ describe("AgentBackendsPanel", () => {
     );
   });
 
-  it("clicking 测试连接 on a row shows error flash on OK=false", async () => {
+  it("clicking 测试连接 on a row shows the reply on OK=false", async () => {
     installAppMock({
       TestAgentBackend: vi.fn(() =>
         Promise.resolve({
@@ -1848,7 +1856,9 @@ describe("AgentBackendsPanel", () => {
     await waitFor(() => {
       expect(mocks.RemoteDeviceSyncProvider).toHaveBeenCalledWith(7, "key-1");
       expect(mocks.CreateAgentBackend).not.toHaveBeenCalled();
-      expect(screen.getByText(/Remote provider synced/)).toBeInTheDocument();
+      expect(sonnerMocks.toast.success).toHaveBeenCalledWith(
+        "Remote provider synced",
+      );
       expect(editorDialog).toBeInTheDocument();
     });
   });
@@ -2790,7 +2800,7 @@ describe("AgentBackendsPanel", () => {
     );
   });
 
-  it("flash banner 长 message 被截断到 80 字 + …，完整内容放 title", async () => {
+  it("行内测试失败的长原话整段留在折叠详情里，正文只有一句事实", async () => {
     const long = "x".repeat(300);
     installAppMock({
       TestAgentBackend: vi.fn(() =>
@@ -2807,14 +2817,10 @@ describe("AgentBackendsPanel", () => {
       within(row).getByRole("button", { name: /Test connection/ }),
     );
 
-    const banner = await screen.findByRole("status");
-    // banner 文本应短于完整 message
-    const span = banner.querySelector("span[title]") as HTMLElement | null;
-    expect(span).not.toBeNull();
-    expect(span!.textContent!.length).toBeLessThan(long.length);
-    expect(span!.textContent!.endsWith("…")).toBe(true);
-    // title 应包含完整 message
-    expect(span!.getAttribute("title")).toContain(long);
+    const failure = await within(row).findByRole("alert");
+    expect(failure.querySelector("p")).toHaveTextContent("Couldn't connect");
+    // 原话不截断、不进正文：整段在 details 里，可展开、可选中。
+    expect(failure.querySelector("details pre")).toHaveTextContent(long);
   });
 
   it("远端 claudecode + bypassPermissions 显示 IS_SANDBOX 提示;点按钮把 IS_SANDBOX=1 一键写进 env_json", async () => {
@@ -3202,9 +3208,11 @@ describe("AgentBackendsPanel page header", () => {
     await waitFor(() =>
       expect(mocks.ScanAndCreateAgentBackends).toHaveBeenCalledTimes(1),
     );
-    expect(
-      await screen.findByText("Created 1 backend(s): Claude Code"),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(sonnerMocks.toast.success).toHaveBeenCalledWith(
+        "Created 1 backend(s): Claude Code",
+      ),
+    );
   });
 
   it("Given no backends exist, When the panel loads, Then Auto Scan stays on the title row and the empty state keeps the only add entry", async () => {
@@ -3600,4 +3608,350 @@ describe("AgentBackendsPanel real-time refresh", () => {
       expect(screen.queryByText(/loading/i)).toBeNull();
     },
   );
+});
+
+// 结果提示（规格 2026-11-10 B5 / B6 / B7）：成功是 toast，提示条只剩失败且用 × 关，
+// 行内测试的失败贴在那一行下面；机器原话只进折叠的「Details」。
+describe("AgentBackendsPanel result feedback", () => {
+  function rowOf(name: string) {
+    return screen.getByText(name).closest('[role="listitem"]') as HTMLElement;
+  }
+
+  // Radix 在打开后的下一拍才挂上 document 的 pointerdown 监听，所以先等一拍。
+  async function pointerDownOnOverlay() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const overlay = document.querySelector(
+      '[data-slot="dialog-shell-overlay"]',
+    ) as HTMLElement;
+    fireEvent.pointerDown(overlay, { button: 0 });
+  }
+
+  it("Given a row test that passes, When it settles, Then the result is a success toast and no banner appears", async () => {
+    installAppMock({
+      TestAgentBackend: vi.fn(() =>
+        Promise.resolve({ ok: true, latencyMs: 128, message: "pong" }),
+      ),
+    });
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+
+    fireEvent.click(
+      within(rowOf("默认助手")).getByRole("button", {
+        name: /Test connection/,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(sonnerMocks.toast.success).toHaveBeenCalledWith(
+        "Test passed · 128ms · pong",
+      ),
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("Given a row test the backend answers with ok=false, When it settles, Then the failure sits under that row as a fact sentence with the raw reply folded into Details", async () => {
+    installAppMock({
+      ListAgentBackends: vi.fn(() =>
+        Promise.resolve({
+          items: [
+            { id: 1, type: "builtin", name: "默认助手", agentCount: 0 },
+            { id: 2, type: "builtin", name: "另一个", agentCount: 0 },
+          ],
+        }),
+      ),
+      TestAgentBackend: vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          latencyMs: 30,
+          message: "401 Unauthorized",
+        }),
+      ),
+    });
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+
+    fireEvent.click(
+      within(rowOf("默认助手")).getByRole("button", {
+        name: /Test connection/,
+      }),
+    );
+
+    const failure = await within(rowOf("默认助手")).findByRole("alert");
+    expect(within(failure).getByText("Couldn't connect")).toBeInTheDocument();
+    const raw = within(failure).getByText("401 Unauthorized");
+    expect(raw.closest("details")).not.toBeNull();
+    expect(raw.closest("details")).not.toHaveAttribute("open");
+    // 只贴在出错的那一行：别的行与页面顶部都没有它。
+    expect(within(rowOf("另一个")).queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(sonnerMocks.toast.success).not.toHaveBeenCalled();
+  });
+
+  it("Given a row test whose call throws, When it settles, Then the same row carries the fact sentence and the thrown text only inside Details", async () => {
+    installAppMock({
+      TestAgentBackend: vi.fn(() =>
+        Promise.reject(new Error("dial tcp 10.0.0.1:443: i/o timeout")),
+      ),
+    });
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+
+    fireEvent.click(
+      within(rowOf("默认助手")).getByRole("button", {
+        name: /Test connection/,
+      }),
+    );
+
+    const failure = await within(rowOf("默认助手")).findByRole("alert");
+    expect(within(failure).getByText("Couldn't connect")).toBeInTheDocument();
+    expect(
+      within(failure)
+        .getByText("dial tcp 10.0.0.1:443: i/o timeout")
+        .closest("details"),
+    ).not.toBeNull();
+  });
+
+  it("Given a row that failed its test, When the test is run again and passes, Then the row's failure is gone", async () => {
+    let attempt = 0;
+    installAppMock({
+      TestAgentBackend: vi.fn(() =>
+        Promise.resolve(
+          ++attempt === 1
+            ? { ok: false, latencyMs: 1, message: "nope" }
+            : { ok: true, latencyMs: 2, message: "pong" },
+        ),
+      ),
+    });
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+    const testButton = () =>
+      within(rowOf("默认助手")).getByRole("button", {
+        name: /Test connection/,
+      });
+
+    fireEvent.click(testButton());
+    await within(rowOf("默认助手")).findByRole("alert");
+    fireEvent.click(testButton());
+
+    await waitFor(() =>
+      expect(sonnerMocks.toast.success).toHaveBeenCalledTimes(1),
+    );
+    expect(within(rowOf("默认助手")).queryByRole("alert")).toBeNull();
+  });
+
+  it("Given a new backend, When it is saved, Then a success toast says so and the list shows no banner", async () => {
+    const user = userEvent.setup();
+    installAppMock();
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+    await user.click(screen.getByRole("button", { name: /New Backend/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(
+      within(dialog).getByPlaceholderText("Example: Local · Claude Code"),
+      { target: { value: "新后端" } },
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(sonnerMocks.toast.success).toHaveBeenCalledWith(
+        "Agent backend added",
+      ),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("Given a backend, When it is deleted, Then a success toast says so and no banner appears", async () => {
+    const user = userEvent.setup();
+    installAppMock();
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+    await user.click(screen.getByRole("button", { name: "Delete 默认助手" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() =>
+      expect(sonnerMocks.toast.success).toHaveBeenCalledWith("Deleted"),
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("Given a delete the backend refuses, When it settles, Then the banner states the fact, folds the raw text into Details and closes with ×", async () => {
+    const user = userEvent.setup();
+    installAppMock({
+      DeleteAgentBackend: vi.fn(() =>
+        Promise.reject(new Error("FOREIGN KEY constraint failed")),
+      ),
+    });
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+    await user.click(screen.getByRole("button", { name: "Delete 默认助手" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    const banner = await screen.findByRole("status");
+    expect(within(banner).getByText("Not deleted")).toBeInTheDocument();
+    expect(
+      within(banner)
+        .getByText("FOREIGN KEY constraint failed")
+        .closest("details"),
+    ).not.toBeNull();
+    const close = within(banner).getByRole("button", { name: "Close notice" });
+    expect(close.querySelector("svg.lucide-x")).not.toBeNull();
+
+    await user.click(close);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("Given the backend list cannot be read, When the panel loads, Then the banner says it didn't load and keeps the raw error in Details", async () => {
+    installAppMock({
+      ListAgentBackends: vi.fn(() =>
+        Promise.reject(new Error("database is locked")),
+      ),
+    });
+    render(<AgentBackendsPanel />);
+
+    const banner = await screen.findByRole("status");
+    expect(
+      within(banner).getByText("Agent backends didn't load"),
+    ).toBeInTheDocument();
+    expect(
+      within(banner).getByText("database is locked").closest("details"),
+    ).not.toBeNull();
+  });
+
+  it("Given a scan that throws, When it settles, Then the banner says the scan didn't finish and keeps the raw error in Details", async () => {
+    const user = userEvent.setup();
+    installAppMock({
+      ScanAndCreateAgentBackends: vi.fn(() =>
+        Promise.reject(new Error("exec: permission denied")),
+      ),
+    });
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+
+    await user.click(
+      within(screen.getByTestId("page-header")).getByRole("button", {
+        name: /Auto Scan/,
+      }),
+    );
+
+    const banner = await screen.findByRole("status");
+    expect(
+      within(banner).getByText("The scan didn't finish"),
+    ).toBeInTheDocument();
+    expect(
+      within(banner).getByText("exec: permission denied").closest("details"),
+    ).not.toBeNull();
+  });
+
+  it("Given a save the backend refuses, When it settles, Then the dialog states the fact and folds the raw text into Details", async () => {
+    const user = userEvent.setup();
+    installAppMock({
+      CreateAgentBackend: vi.fn(() =>
+        Promise.reject(new Error("UNIQUE constraint failed: name")),
+      ),
+    });
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+    await user.click(screen.getByRole("button", { name: /New Backend/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(
+      within(dialog).getByPlaceholderText("Example: Local · Claude Code"),
+      { target: { value: "重名" } },
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(await within(dialog).findByText("Not saved")).toBeInTheDocument();
+    expect(
+      within(dialog)
+        .getByText("UNIQUE constraint failed: name")
+        .closest("details"),
+    ).not.toBeNull();
+  });
+
+  it("Given the editor dialog while a save is in flight, When Esc is pressed or × is tried, Then the dialog stays open", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<{ item: { id: number } }>();
+    installAppMock({ CreateAgentBackend: vi.fn(() => pending.promise) });
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+    await user.click(screen.getByRole("button", { name: /New Backend/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(
+      within(dialog).getByPlaceholderText("Example: Local · Claude Code"),
+      { target: { value: "慢保存" } },
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "Saving..." }),
+      ).toBeInTheDocument(),
+    );
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "Close" }),
+    ).toBeDisabled();
+
+    await act(async () => {
+      pending.resolve({ item: { id: 2 } });
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("Given the desktop editor dialog with a typed draft, When the backdrop is clicked, Then the dialog stays; Esc still closes it", async () => {
+    const user = userEvent.setup();
+    installAppMock();
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+    await user.click(screen.getByRole("button", { name: /New Backend/ }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByPlaceholderText("Example: Local · Claude Code"),
+      "草稿",
+    );
+
+    await pointerDownOnOverlay();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("Given the desktop editor dialog opened and left untouched, When the backdrop is clicked, Then it closes as before", async () => {
+    const user = userEvent.setup();
+    installAppMock();
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+    await user.click(screen.getByRole("button", { name: "Edit 默认助手" }));
+    await screen.findByRole("dialog");
+
+    await pointerDownOnOverlay();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("Given a draft that was typed and then put back, When the backdrop is clicked, Then it closes — nothing would be lost", async () => {
+    const user = userEvent.setup();
+    installAppMock();
+    render(<AgentBackendsPanel />);
+    await screen.findByText("默认助手");
+    await user.click(screen.getByRole("button", { name: "Edit 默认助手" }));
+    const dialog = await screen.findByRole("dialog");
+    const name = within(dialog).getByDisplayValue("默认助手");
+    fireEvent.change(name, { target: { value: "默认助手2" } });
+    fireEvent.change(name, { target: { value: "默认助手" } });
+
+    await pointerDownOnOverlay();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
 });

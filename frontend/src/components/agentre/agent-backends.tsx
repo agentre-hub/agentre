@@ -24,6 +24,8 @@ export function AgentBackendsPanel(props: {
           EventsOn("remote.device.state", listener),
       })}
       refreshSignal={refreshSignal}
+      // 桌面端开启草稿保护：编辑窗里填过内容后点遮罩不关（Esc 与 × 照常）。
+      guardDraft
       {...props}
     />
   );

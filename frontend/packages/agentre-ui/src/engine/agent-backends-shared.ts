@@ -25,9 +25,15 @@ export type Translate = ReturnType<typeof useTranslation>["t"];
 export type CLIProbeState = "probing" | "installed" | "missing" | "failed";
 export type CLIProbe = { state: CLIProbeState; path: string };
 
+/**
+ * 一次失败给人看的两层：`text` 是本地化的事实句，`detail` 是机器原话（后端 / CLI
+ * 的错误串），只进折叠的「详情」——原话不当正文。
+ */
+export type FailureNotice = { text: string; detail?: string };
+
 export type FlashState =
   | { kind: "ok"; text: string }
-  | { kind: "err"; text: string }
+  | ({ kind: "err" } & FailureNotice)
   | null;
 
 export type SandboxValue =

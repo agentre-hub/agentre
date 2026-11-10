@@ -16,12 +16,14 @@ import { useUiTranslation as useTranslation } from "../i18n";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { cn } from "../lib/utils";
+import { FailureDetail } from "../transcript/failure-detail";
 
 import { backendDeviceLocation } from "./agent-backends-utils";
 import {
   isCliBackend,
   type Backend,
   type BackendType,
+  type FailureNotice,
   type Translate,
 } from "./agent-backends-shared";
 import {
@@ -217,6 +219,7 @@ export function BackendRow({
   hasLocalDevice,
   testing,
   testDisabled,
+  testFailure = null,
   onTest,
   onCancelTest,
   onEdit,
@@ -227,6 +230,8 @@ export function BackendRow({
   hasLocalDevice: boolean;
   testing: boolean;
   testDisabled: boolean;
+  // 这一行上一次「测试连接」的失败：贴在行下面，不上页面顶部。
+  testFailure?: FailureNotice | null;
   onTest: () => void;
   onCancelTest: () => void;
   onEdit: () => void;
@@ -399,6 +404,16 @@ export function BackendRow({
           </Button>
         </div>
       </div>
+      {testFailure ? (
+        // 与名称左对齐（28px logo + 10px 间距）。
+        <div
+          role="alert"
+          className="min-w-0 pl-[38px] text-xs text-destructive-text"
+        >
+          <p className="break-words">{testFailure.text}</p>
+          <FailureDetail detail={testFailure.detail} className="mt-1" />
+        </div>
+      ) : null}
     </div>
   );
 }
