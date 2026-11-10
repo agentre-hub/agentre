@@ -8,7 +8,7 @@ type UseTranscriptCallbacksOptions = {
   onRetryTurn?: (messageId: number) => void;
   onEdit?: (messageId: number) => void;
   onPlanActionStarted?: (stream: PlanActionStream, userText: string) => void;
-  onStopSubagent?: (toolUseId: string) => void;
+  onStopSubagent?: (toolUseId: string) => void | Promise<void>;
   onStopLocalCommand?: (terminalId: string) => void | Promise<void>;
 };
 
@@ -21,7 +21,7 @@ type TranscriptCallbacks = {
     stream: PlanActionStream,
     userText: string,
   ) => void;
-  stableOnStopSubagent: (toolUseId: string) => void;
+  stableOnStopSubagent: (toolUseId: string) => void | Promise<void>;
   stableOnStopLocalCommand: (terminalId: string) => void | Promise<void>;
   hasStopLocalCommand: boolean;
 };
@@ -72,8 +72,9 @@ function useTranscriptCallbacks({
     },
     [],
   );
+  // 原样交还宿主的 Promise:子代理卡靠它的 reject 复原停止键。
   const stableOnStopSubagent = React.useCallback((toolUseId: string) => {
-    onStopSubagentRef.current?.(toolUseId);
+    return onStopSubagentRef.current?.(toolUseId);
   }, []);
   const stableOnStopLocalCommand = React.useCallback((terminalId: string) => {
     return onStopLocalCommandRef.current?.(terminalId);

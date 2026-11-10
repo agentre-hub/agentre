@@ -366,6 +366,57 @@ function isGroupedSpawn(spawn: AgentSpawnDTO): boolean {
   );
 }
 
+// StopSubagentButton —— 卡头的停止键(不加确认,设计决策 3)。宿主回调返回 Promise 时
+// 点下即进入进行态:禁用 + spinner,直到卡片状态变化(按 statusKey 判定)或调用失败
+// (Promise reject)才复原;成功 resolve 后继续转,等状态落定把它换掉。回调不返回
+// Promise 的宿主拿不到失败信号,保持旧行为(不进入进行态),免得 spinner 永远卡住。
+function StopSubagentButton({
+  toolUseId,
+  statusKey,
+  onStop,
+}: {
+  toolUseId: string;
+  statusKey: string;
+  onStop: NonNullable<CanonicalCardProps["onStopSubagent"]>;
+}): React.ReactElement {
+  const { t } = useUiTranslation();
+  const [pendingFor, setPendingFor] = React.useState<string | null>(null);
+  // 状态一变,进行态就作废 —— 渲染期按 prop 调整 state,不必等一轮 effect。
+  if (pendingFor !== null && pendingFor !== statusKey) setPendingFor(null);
+  const pending = pendingFor === statusKey;
+  const label = pending
+    ? t("canonical.agentSpawn.stopping")
+    : t("canonical.agentSpawn.stop");
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      aria-busy={pending || undefined}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (pending) return;
+        const result = onStop(toolUseId);
+        if (!result || typeof result.then !== "function") return;
+        setPendingFor(statusKey);
+        // 失败由宿主报告;卡片只负责把按钮复原。
+        result.then(undefined, () => setPendingFor(null));
+      }}
+      aria-label={label}
+      title={label}
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors enabled:hover:bg-destructive/10 enabled:hover:text-destructive-text focus-visible:focus-outline"
+    >
+      {pending ? (
+        <LoaderCircle
+          className="size-3 animate-spin motion-reduce:animate-none"
+          aria-hidden="true"
+        />
+      ) : (
+        <Square className="size-2.5 fill-current" aria-hidden="true" />
+      )}
+    </button>
+  );
+}
+
 // AgentSpawnCard remains the single production renderer. Single-run data (no runs
 // array) keeps the flat layout; normalized parallel/chain state branches into
 // grouped runs.
@@ -625,18 +676,11 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
           onStopSubagent &&
           toolBlock.toolUseId &&
           !isForegroundAgrctl(toolBlock) && (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onStopSubagent(toolBlock.toolUseId!);
-              }}
-              aria-label={t("canonical.agentSpawn.stop")}
-              title={t("canonical.agentSpawn.stop")}
-              className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text focus-visible:focus-outline"
-            >
-              <Square className="size-2.5 fill-current" aria-hidden="true" />
-            </button>
+            <StopSubagentButton
+              toolUseId={toolBlock.toolUseId}
+              statusKey={status}
+              onStop={onStopSubagent}
+            />
           )}
         {resumeCount > 0 ? (
           // 归一到原卡不等于把「失败发生过」抹掉:中断次数留在头部,原因进 title。
@@ -808,7 +852,7 @@ type GroupedAgentSpawnCardProps = {
   setExpanded: React.Dispatch<React.SetStateAction<boolean>>;
   /** 卡片级折叠态前缀,run / 步骤的 key 都从它派生。 */
   keyBase: string;
-  onStopSubagent?: (toolUseId: string) => void;
+  onStopSubagent?: CanonicalCardProps["onStopSubagent"];
 };
 
 function isTerminalRunStatus(status: AgentSpawnStatus): boolean {
@@ -1001,18 +1045,11 @@ function GroupedAgentSpawnCard({
           spawn.taskId &&
           onStopSubagent &&
           toolBlock.toolUseId && (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onStopSubagent(toolBlock.toolUseId!);
-              }}
-              aria-label={t("canonical.agentSpawn.stop")}
-              title={t("canonical.agentSpawn.stop")}
-              className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text focus-visible:focus-outline"
-            >
-              <Square className="size-2.5 fill-current" aria-hidden="true" />
-            </button>
+            <StopSubagentButton
+              toolUseId={toolBlock.toolUseId}
+              statusKey={outerStatus}
+              onStop={onStopSubagent}
+            />
           )}
         {outerStatus === "completed" ? (
           outcomeSummary ? (

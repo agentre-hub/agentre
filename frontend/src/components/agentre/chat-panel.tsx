@@ -532,10 +532,11 @@ function ChatPanel({
     () => void reloadSession(),
     [reloadSession],
   );
-  // handleStopSubagent 停掉一个正在运行的后台任务/子 agent(下发 CLI stop_task,按发起它的
+  // stopSubagent 停掉一个正在运行的后台任务/子 agent(下发 CLI stop_task,按发起它的
   // tool_use_id 定位;后端从持久化 subagent_state 读出 CLI task_id)。停成功后把块翻 canceled,
-  // reload 让面板/卡片显示「已停止」。后台任务面板与转录 AgentSpawn 卡片共用它。
-  const handleStopSubagent = React.useCallback(
+  // reload 让面板/卡片显示「已停止」。失败时报错、reload 后把错误抛回调用方 ——
+  // 转录 AgentSpawn 卡片靠这个 reject 把停止键从进行态复原。
+  const stopSubagent = React.useCallback(
     async (toolUseId: string) => {
       if (sessionId <= 0 || !toolUseId) return;
       try {
@@ -551,9 +552,15 @@ function ChatPanel({
         });
         // 后端没停成(如缺 task_id / 已 evict):reload 把真实状态拉回,避免按钮点了没反应。
         await reloadSession();
+        throw e;
       }
     },
     [sessionId, reloadSession, t],
+  );
+  // handleStopSubagent —— 后台任务面板的入口:它不消费结果,失败已由 stopSubagent 报告。
+  const handleStopSubagent = React.useCallback(
+    (toolUseId: string) => stopSubagent(toolUseId).catch(() => {}),
+    [stopSubagent],
   );
   // 会话进程:面板真摆在眼前且有会话时才轮询;弹层打开立刻补拉,结束后立刻刷新。
   const panelShown = usePanelShown();
@@ -1155,7 +1162,7 @@ function ChatPanel({
                         onEdit={(messageId) => handleEdit(messageId)}
                         onPlanActionStarted={handlePlanActionStarted}
                         onStopSubagent={
-                          canStopBackgroundTask ? handleStopSubagent : undefined
+                          canStopBackgroundTask ? stopSubagent : undefined
                         }
                         onStopLocalCommand={handleStopLocalCommand}
                         tabStateKey={scrollStateKey}
