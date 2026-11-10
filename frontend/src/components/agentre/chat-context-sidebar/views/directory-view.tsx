@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import { ProjectSetLocalPath, SelectDirectory } from "@/../wailsjs/go/app/App";
 import { Button, Spinner } from "@agentre-hub/agentre-ui";
 
+import { classifyAppError } from "@/lib/app-error";
+
 import type { Change } from "../git-rows";
 
 import { DirectorySearchPanel } from "./directory-search-panel";
@@ -115,7 +117,9 @@ export function DirectoryView({
       await ProjectSetLocalPath({ id: projectId, path: picked });
       onCwdSpecified?.();
     } catch (e) {
-      setSpecifyErr(String(e));
+      setSpecifyErr(
+        classifyAppError(e).message || t("chatContext.directory.specifyFailed"),
+      );
     } finally {
       setSpecifying(false);
     }

@@ -41,7 +41,7 @@
   },
   "chatContext": {
     "files": {
-      "openFailed": "Failed to open file: {{error}}",
+      "openFailed": "Failed to open file",
       "expandFolder": "Expand {{name}}",
       "collapseFolder": "Collapse {{name}}"
     },
@@ -62,6 +62,7 @@
       "localPathMissingTitle": "This computer hasn't configured a path for this project yet",
       "localPathMissingHint": "This project was synced from your account — the file panel needs a local working directory to list its contents.",
       "localPathMissingAction": "Specify local path",
+      "specifyFailed": "Couldn't set the local path",
       "treeAria": "Working directory files",
       "subtreeChanges": "{{count}} changed files",
       "subtreeChanges_one": "{{count}} changed file",
@@ -126,7 +127,7 @@
       "jumpToTurn": "Jump to turn",
       "openWith": "Open with default app",
       "reveal": "Show in file manager",
-      "revealFailed": "Failed to show in file manager: {{error}}",
+      "revealFailed": "Failed to show in file manager",
       "copyRelPath": "Copy relative path",
       "copyAbsPath": "Copy absolute path",
       "copyFileName": "Copy file name",

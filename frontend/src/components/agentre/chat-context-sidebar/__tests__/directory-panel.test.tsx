@@ -315,6 +315,42 @@ describe("DirectoryPanel 目录页", () => {
     expect(onCwdSpecified).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the backend sentence without the agentre-code prefix when specifying a path fails with a coded error", async () => {
+    selectDirectoryMock.mockResolvedValue("/nope");
+    setLocalPathMock.mockRejectedValue(
+      "agentre-code:18004 The path does not exist",
+    );
+    renderPanel({
+      cwd: "",
+      cwdUnavailableReason: "local-path-missing",
+      projectId: 9,
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /specify local path/i }),
+    );
+    expect(
+      await screen.findByText("The path does not exist"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/agentre-code/)).not.toBeInTheDocument();
+  });
+
+  it("falls back to a localized sentence, not the raw text, when specifying a path fails without a code", async () => {
+    selectDirectoryMock.mockResolvedValue("/nope");
+    setLocalPathMock.mockRejectedValue(new Error("sqlite: disk I/O error"));
+    renderPanel({
+      cwd: "",
+      cwdUnavailableReason: "local-path-missing",
+      projectId: 9,
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /specify local path/i }),
+    );
+    expect(
+      await screen.findByText(/couldn't set the local path/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/sqlite/)).not.toBeInTheDocument();
+  });
+
   it("surfaces a remote-offline failure with a retry that re-requests", async () => {
     listDirMock.mockRejectedValueOnce("Remote device offline");
     listDirMock.mockResolvedValue(listing([entry("main.go")]));

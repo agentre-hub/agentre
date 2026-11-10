@@ -41,7 +41,7 @@
   },
   "chatContext": {
     "files": {
-      "openFailed": "打开文件失败：{{error}}",
+      "openFailed": "打开文件失败",
       "expandFolder": "展开 {{name}}",
       "collapseFolder": "收起 {{name}}"
     },
@@ -62,6 +62,7 @@
       "localPathMissingTitle": "这台电脑还没有为这个项目配置路径",
       "localPathMissingHint": "这个项目是从账号里同步来的，文件面板需要一个本机工作目录才能列出内容。",
       "localPathMissingAction": "指定本机路径",
+      "specifyFailed": "无法设置本机路径",
       "treeAria": "工作目录文件",
       "subtreeChanges": "{{count}} 个文件有变动",
       "subtreeChanges_one": "{{count}} 个文件有变动",
@@ -126,7 +127,7 @@
       "jumpToTurn": "跳到对应轮次",
       "openWith": "用默认应用打开",
       "reveal": "在文件管理器中显示",
-      "revealFailed": "在文件管理器中显示失败：{{error}}",
+      "revealFailed": "在文件管理器中显示失败",
       "copyRelPath": "复制相对路径",
       "copyAbsPath": "复制绝对路径",
       "copyFileName": "复制文件名",
