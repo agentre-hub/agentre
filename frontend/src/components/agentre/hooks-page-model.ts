@@ -26,7 +26,6 @@ export type Draft = {
   enabled: boolean;
 };
 
-export type FlashState = { kind: "ok" | "err"; text: string } | null;
 export type HookTab = "script" | "runLog";
 export type HookStatus = "ok" | "failed" | "running" | "disabled" | "idle";
 
@@ -103,6 +102,27 @@ export function emptyDraft(t: TFunction): Draft {
     env: [],
     enabled: true,
   };
+}
+
+/** 两份草稿逐字段相同 —— 「有没有未保存的修改」只有这一个判据。 */
+export function draftsEqual(a: Draft, b: Draft): boolean {
+  return (
+    a.id === b.id &&
+    a.name === b.name &&
+    a.interpreter === b.interpreter &&
+    a.interpreterPath === b.interpreterPath &&
+    a.command === b.command &&
+    a.scheduleExpr === b.scheduleExpr &&
+    a.timezone === b.timezone &&
+    a.enabled === b.enabled &&
+    a.env.length === b.env.length &&
+    a.env.every((e, i) => {
+      const o = b.env[i];
+      return (
+        e.key === o.key && e.value === o.value && !!e.secret === !!o.secret
+      );
+    })
+  );
 }
 
 export function hookMatchesQuery(h: HookItem, query: string): boolean {

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,6 +22,11 @@ const appMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../../wailsjs/go/app/App", () => appMocks);
+
+const sonnerMocks = vi.hoisted(() => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+vi.mock("sonner", () => sonnerMocks);
 
 import { HooksPage } from "../hooks-page";
 import {
@@ -372,6 +383,414 @@ describe("HooksPage", () => {
     expect(screen.getByLabelText("Name")).toHaveValue("New Hook");
     await userEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(app.CreateHook).toHaveBeenCalled());
+  });
+});
+
+/** 把当前草稿改脏：脚本正文换成一段没保存过的内容。 */
+function editScript(value = "echo edited") {
+  fireEvent.change(screen.getByLabelText("Script"), { target: { value } });
+}
+
+function sidebarRow(name: string): HTMLElement {
+  const aside = document.querySelector("aside")!;
+  return within(aside as HTMLElement)
+    .getByText(name)
+    .closest("button")!;
+}
+
+/** 最近一条失败 toast 的标题与折叠详情里的原文。 */
+function lastErrorToast(): { title: string; detail: string | null } {
+  const calls = sonnerMocks.toast.error.mock.calls;
+  const [title, options] = calls[calls.length - 1];
+  if (!options?.description) return { title, detail: null };
+  const { container, unmount } = render(<>{options.description}</>);
+  const detail = container.querySelector("details pre")?.textContent ?? null;
+  unmount();
+  return { title, detail };
+}
+
+describe("HooksPage unsaved draft", () => {
+  it("marks the edited hook's row with a dot only while the draft differs from the saved hook", async () => {
+    setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    expect(screen.queryByTitle("Unsaved changes")).toBeNull();
+
+    editScript();
+    expect(
+      within(sidebarRow("Jira urgent")).getByTitle("Unsaved changes"),
+    ).toBeInTheDocument();
+    expect(
+      within(sidebarRow("RSS advisories")).queryByTitle("Unsaved changes"),
+    ).toBeNull();
+
+    // 改回已保存的内容就不再是脏的。
+    editScript("echo '{\"events\":[]}'");
+    expect(screen.queryByTitle("Unsaved changes")).toBeNull();
+  });
+
+  it("asks before switching away from an edited hook and stays put on Keep editing", async () => {
+    setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+    editScript();
+
+    await userEvent.click(sidebarRow("RSS advisories"));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText("Discard changes to “Jira urgent”?"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Bash Hook")).toBeInTheDocument();
+
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Keep editing" }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByText("Bash Hook")).toBeInTheDocument();
+    expect(screen.getByLabelText("Script")).toHaveValue("echo edited");
+  });
+
+  it("switches to the other hook only after Discard changes", async () => {
+    setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+    editScript();
+
+    await userEvent.click(sidebarRow("RSS advisories"));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Discard changes" }),
+    );
+
+    expect(await screen.findByText("Node Hook")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByTitle("Unsaved changes")).toBeNull();
+  });
+
+  it("asks before + replaces an edited draft with a new hook", async () => {
+    setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+    editScript();
+
+    await userEvent.click(screen.getByTestId("hook-create"));
+    expect(
+      await screen.findByText("Discard changes to “Jira urgent”?"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveValue("Jira urgent");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Discard changes" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Name")).toHaveValue("New Hook"),
+    );
+  });
+
+  it("asks before leaving an edited new hook, but not an untouched one", async () => {
+    setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    await userEvent.click(screen.getByTestId("hook-create"));
+    await userEvent.click(sidebarRow("RSS advisories"));
+    expect(await screen.findByText("Node Hook")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await userEvent.click(screen.getByTestId("hook-create"));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Nightly sweep" },
+    });
+    await userEvent.click(sidebarRow("Jira urgent"));
+    expect(
+      await screen.findByText("Discard changes to “Nightly sweep”?"),
+    ).toBeInTheDocument();
+  });
+
+  it("switches without asking when nothing was edited", async () => {
+    setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    await userEvent.click(sidebarRow("RSS advisories"));
+    expect(await screen.findByText("Node Hook")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("toggling changes only the hook's enabled state and keeps the edited draft", async () => {
+    const app = setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+    editScript();
+
+    await userEvent.click(screen.getByRole("button", { name: "Disable" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Enable" }),
+    ).toBeInTheDocument();
+    expect(app.ToggleHook).toHaveBeenCalledWith(2, false);
+    expect(screen.getByLabelText("Script")).toHaveValue("echo edited");
+    expect(
+      within(sidebarRow("Jira urgent")).getByTitle("Unsaved changes"),
+    ).toBeInTheDocument();
+    expect(sonnerMocks.toast.success).toHaveBeenCalledWith("Disabled");
+
+    // 草稿随后保存时带的是启停后的状态，不把它改回去。
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(app.UpdateHook).toHaveBeenCalledWith(
+        expect.objectContaining({ command: "echo edited", enabled: false }),
+      ),
+    );
+  });
+
+  it("reports a failed toggle without touching the draft", async () => {
+    setBridge({ ToggleHook: () => Promise.reject(new Error("db locked")) });
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+    editScript();
+
+    await userEvent.click(screen.getByRole("button", { name: "Disable" }));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    expect(lastErrorToast()).toEqual({
+      title: "Disable failed",
+      detail: "db locked",
+    });
+    expect(screen.getByRole("button", { name: "Disable" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Script")).toHaveValue("echo edited");
+  });
+});
+
+describe("HooksPage save and run", () => {
+  it("saves the edited draft first and then dry-runs it", async () => {
+    const app = setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    expect(screen.queryByRole("button", { name: "Save and run" })).toBeNull();
+    editScript();
+    expect(screen.queryByRole("button", { name: "Dry run" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Save and run" }));
+
+    await waitFor(() =>
+      expect(app.RunHook).toHaveBeenCalledWith({ id: 2, dryRun: true }),
+    );
+    expect(app.UpdateHook).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 2, command: "echo edited" }),
+    );
+    expect(app.UpdateHook.mock.invocationCallOrder[0]).toBeLessThan(
+      app.RunHook.mock.invocationCallOrder[0],
+    );
+    expect(await screen.findByText("Dry run · exit 0")).toBeInTheDocument();
+  });
+
+  it("creates an edited new hook and runs the hook that was just created", async () => {
+    const app = setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    await userEvent.click(screen.getByTestId("hook-create"));
+    expect(screen.getByRole("button", { name: "Dry run" })).toBeDisabled();
+    editScript("echo new");
+    await userEvent.click(screen.getByRole("button", { name: "Save and run" }));
+
+    await waitFor(() =>
+      expect(app.RunHook).toHaveBeenCalledWith({ id: 9, dryRun: true }),
+    );
+    expect(app.CreateHook).toHaveBeenCalledWith(
+      expect.objectContaining({ command: "echo new" }),
+    );
+  });
+
+  it("does not run when the save fails", async () => {
+    const app = setBridge({
+      UpdateHook: () => Promise.reject(new Error("disk full")),
+    });
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+    editScript();
+
+    await userEvent.click(screen.getByRole("button", { name: "Save and run" }));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    expect(lastErrorToast()).toEqual({
+      title: "Save failed",
+      detail: "disk full",
+    });
+    expect(app.RunHook).not.toHaveBeenCalled();
+    // 草稿还在，按钮仍是「保存并运行」。
+    expect(screen.getByLabelText("Script")).toHaveValue("echo edited");
+    expect(
+      screen.getByRole("button", { name: "Save and run" }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("HooksPage result feedback", () => {
+  it("reports a save through a toast, with no banner on the page", async () => {
+    setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+    editScript();
+
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(sonnerMocks.toast.success).toHaveBeenCalledWith(
+        "Saved Hook Jira urgent",
+      ),
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText("Saved Hook Jira urgent")).toBeNull();
+  });
+
+  it("says the delete failed when a delete fails", async () => {
+    setBridge({ DeleteHook: () => Promise.reject(new Error("fk violation")) });
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Delete" }),
+    );
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Delete",
+      }),
+    );
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    expect(lastErrorToast()).toEqual({
+      title: "Delete failed",
+      detail: "fk violation",
+    });
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("reports a successful delete through a toast", async () => {
+    const app = setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Delete" }),
+    );
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Delete",
+      }),
+    );
+
+    await waitFor(() => expect(app.DeleteHook).toHaveBeenCalledWith(2));
+    await waitFor(() =>
+      expect(sonnerMocks.toast.success).toHaveBeenCalledWith(
+        "Deleted Hook Jira urgent",
+      ),
+    );
+  });
+
+  it("does not call a delete failed when only the list refresh after it fails", async () => {
+    const app = setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+    app.LoadHooks.mockImplementation(() => Promise.reject(new Error("busy")));
+
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Delete" }),
+    );
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Delete",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(sonnerMocks.toast.success).toHaveBeenCalledWith(
+        "Deleted Hook Jira urgent",
+      ),
+    );
+    await waitFor(() => expect(screen.queryByText("Jira urgent")).toBeNull());
+    expect(sonnerMocks.toast.error).not.toHaveBeenCalled();
+    expect(screen.getByText("RSS advisories")).toBeInTheDocument();
+  });
+
+  it("reports a run that could not start, keeping the raw error folded", async () => {
+    setBridge({ RunHook: () => Promise.reject(new Error("spawn ENOENT")) });
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    await userEvent.click(screen.getByRole("button", { name: "Dry run" }));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    expect(lastErrorToast()).toEqual({
+      title: "Run failed",
+      detail: "spawn ENOENT",
+    });
+  });
+
+  it("reports a run that exited non-zero, keeping stderr folded", async () => {
+    setBridge({
+      RunHook: () =>
+        Promise.resolve({
+          exitCode: 2,
+          durationMs: 5,
+          timedOut: false,
+          stdout: "",
+          stderr: "jq: parse error",
+          parseError: "",
+          events: [],
+          newCount: 0,
+          dupCount: 0,
+          persisted: false,
+        }),
+    });
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    await userEvent.click(screen.getByRole("button", { name: "Dry run" }));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    expect(lastErrorToast()).toEqual({
+      title: "Run failed",
+      detail: "jq: parse error",
+    });
+  });
+});
+
+describe("HooksPage load failure", () => {
+  it("shows its own state with Retry instead of the empty-state create prompt", async () => {
+    const app = setBridge({
+      LoadHooks: () => Promise.reject(new Error("database is locked")),
+    });
+    render(<HooksPage />);
+
+    expect(await screen.findByText("Hooks didn't load")).toBeInTheDocument();
+    expect(screen.queryByText("No Hooks yet")).toBeNull();
+    expect(screen.queryByRole("button", { name: "New Hook" })).toBeNull();
+    expect(screen.queryByText(/Save failed/)).toBeNull();
+    expect(sonnerMocks.toast.error).not.toHaveBeenCalled();
+
+    app.LoadHooks.mockImplementation(() =>
+      Promise.resolve({ hooks: [makeHook()], events: [] }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findAllByText("Jira urgent")).not.toHaveLength(0);
+    expect(screen.queryByText("Hooks didn't load")).toBeNull();
+  });
+
+  it("keeps the empty state for a list that loaded with no hooks", async () => {
+    setBridge({ LoadHooks: () => Promise.resolve({ hooks: [], events: [] }) });
+    render(<HooksPage />);
+
+    expect((await screen.findAllByText("No Hooks yet")).length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.queryByText("Hooks didn't load")).toBeNull();
   });
 });
 

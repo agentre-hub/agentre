@@ -12,6 +12,7 @@ export function HooksSidebar({
   filtered,
   query,
   selectedId,
+  dirty = false,
   onQueryChange,
   onSelect,
   onCreate,
@@ -21,6 +22,8 @@ export function HooksSidebar({
   filtered: HookItem[];
   query: string;
   selectedId: number | null;
+  /** 选中的那条有未保存的修改。 */
+  dirty?: boolean;
   onQueryChange: (value: string) => void;
   onSelect: (hook: HookItem) => void;
   onCreate: () => void;
@@ -79,6 +82,7 @@ export function HooksSidebar({
                 key={hook.id}
                 hook={hook}
                 selected={hook.id === selectedId}
+                dirty={dirty && hook.id === selectedId}
                 onSelect={() => onSelect(hook)}
                 t={t}
               />
@@ -93,11 +97,13 @@ export function HooksSidebar({
 function HookListItem({
   hook,
   selected,
+  dirty,
   onSelect,
   t,
 }: {
   hook: HookItem;
   selected: boolean;
+  dirty: boolean;
   onSelect: () => void;
   t: TFunction;
 }) {
@@ -144,6 +150,14 @@ function HookListItem({
           )}
         />
       )}
+      {dirty ? (
+        <span
+          role="img"
+          title={t("hooks.list.unsaved")}
+          aria-label={t("hooks.list.unsaved")}
+          className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
+        />
+      ) : null}
     </button>
   );
 }

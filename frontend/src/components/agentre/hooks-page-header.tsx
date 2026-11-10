@@ -31,6 +31,7 @@ export function HookDetailHeader({
   headerMeta,
   selectedHook,
   selectedId,
+  dirty,
   running,
   busy,
   onRun,
@@ -42,6 +43,8 @@ export function HookDetailHeader({
   headerMeta: ReturnType<typeof interpMeta> | null;
   selectedHook: HookItem | null;
   selectedId: number | null;
+  /** 草稿有未保存的修改：运行键先保存再运行，跑的就是眼前这份。 */
+  dirty: boolean;
   running: boolean;
   busy: boolean;
   onRun: () => void;
@@ -106,14 +109,18 @@ export function HookDetailHeader({
             type="button"
             size="sm"
             onClick={onRun}
-            disabled={running || selectedId == null}
+            disabled={
+              running ||
+              busy ||
+              (dirty ? !draft.name.trim() : selectedId == null)
+            }
           >
             {running ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
             ) : (
               <Play className="mr-1.5 h-3.5 w-3.5" />
             )}
-            {t("hooks.header.run")}
+            {dirty ? t("hooks.header.saveAndRun") : t("hooks.header.run")}
           </Button>
           {selectedHook ? (
             <Button
