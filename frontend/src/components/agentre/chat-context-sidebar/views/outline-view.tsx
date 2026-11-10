@@ -40,6 +40,7 @@ export function OutlineView({ items, activeMessageId, onSelect }: Props) {
             key={it.messageId}
             type="button"
             onClick={() => onSelect(it.messageId)}
+            aria-current={active ? "true" : undefined}
             data-active={active}
             data-outline-message-id={it.messageId}
             className={cn(
@@ -68,7 +69,10 @@ export function OutlineView({ items, activeMessageId, onSelect }: Props) {
                 >
                   <Pencil className="size-2.5" aria-hidden="true" />
                   {it.edits}
-                  <span className="sr-only"> edits</span>
+                  <span className="sr-only">
+                    {" "}
+                    {t("chatContext.outline.edits")}
+                  </span>
                 </span>
               ) : null}
             </div>
@@ -86,7 +90,7 @@ export function OutlineView({ items, activeMessageId, onSelect }: Props) {
               <div className="flex items-center gap-1.5">
                 <span className="inline-flex items-center gap-1 rounded-sm bg-destructive/10 px-1.5 py-0.5 text-3xs font-medium text-destructive-text">
                   <CircleX className="size-2.5" aria-hidden="true" />
-                  error
+                  {t("chatContext.outline.failed")}
                 </span>
               </div>
             ) : null}

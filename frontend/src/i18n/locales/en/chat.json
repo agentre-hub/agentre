@@ -100,7 +100,9 @@
       "tabLimit": "Preview tabs are full (max {{limit}}). Close one first."
     },
     "outline": {
+      "edits": "edits",
       "empty": "No messages in this session",
+      "failed": "error",
       "label": "Outline",
       "turn": "Turn {{turn}}"
     },

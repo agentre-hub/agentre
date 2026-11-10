@@ -4,6 +4,8 @@ import { cn } from "@agentre-hub/agentre-ui";
 
 import type { ChangesScope } from "@/stores/chat-sidebar-store";
 
+import { handleTablistKeyDown } from "../tab-bar";
+
 import type { ChangeRow } from "../derive";
 
 import { GitView } from "./git-view";
@@ -54,14 +56,19 @@ export function ChangesPanel({
           role="tablist"
           aria-label={t("chatContext.changes.scope.label")}
           className="inline-flex shrink-0 gap-0.5"
+          onKeyDown={(e) =>
+            handleTablistKeyDown<ChangesScope>(e, onScopeChange)
+          }
         >
           <ScopeTab
+            value="session"
             label={t("chatContext.changes.scope.session")}
             active={scope === "session"}
             onClick={() => onScopeChange("session")}
           />
           {uncommittedAvailable ? (
             <ScopeTab
+              value="uncommitted"
               label={t("chatContext.changes.scope.uncommitted")}
               active={scope === "uncommitted"}
               onClick={() => onScopeChange("uncommitted")}
@@ -97,10 +104,12 @@ export function ChangesPanel({
  * whitespace-nowrap，侧栏被拖窄到 190px 时不换行。
  */
 function ScopeTab({
+  value,
   label,
   active,
   onClick,
 }: {
+  value: ChangesScope;
   label: string;
   active: boolean;
   onClick: () => void;
@@ -109,7 +118,9 @@ function ScopeTab({
     <button
       type="button"
       role="tab"
+      data-value={value}
       aria-selected={active}
+      tabIndex={active ? 0 : -1}
       onClick={onClick}
       className={cn(
         "rounded-full px-2 py-0.5 text-3xs whitespace-nowrap transition-colors",

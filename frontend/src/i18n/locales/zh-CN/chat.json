@@ -100,7 +100,9 @@
       "tabLimit": "预览标签已满（最多 {{limit}} 个），请先关闭一个"
     },
     "outline": {
+      "edits": "处改动",
       "empty": "本会话还没有消息",
+      "failed": "出错",
       "label": "大纲",
       "turn": "第 {{turn}} 轮"
     },

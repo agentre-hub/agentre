@@ -711,7 +711,7 @@ describe("复制与在文件管理器中显示", () => {
     );
   });
 
-  it("RevealPath 失败时提示里带上系统返回的原因", async () => {
+  it("RevealPath 失败时提示标题说事实，系统返回的原因进描述", async () => {
     revealPathMock.mockRejectedValue(new Error("no such file"));
     renderChanges({});
     const menu = await openRowMenu("chat.go");
@@ -721,7 +721,10 @@ describe("复制与在文件管理器中显示", () => {
 
     await vi.waitFor(() =>
       expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
-        "Failed to show in file manager: no such file",
+        "Failed to show in file manager",
+        expect.objectContaining({
+          description: expect.stringContaining("no such file"),
+        }),
       ),
     );
   });

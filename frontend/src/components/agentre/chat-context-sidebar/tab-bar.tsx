@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { cn } from "@agentre-hub/agentre-ui";
@@ -31,20 +32,27 @@ export function TabBar({
 }: Props) {
   const { t } = useTranslation();
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 px-3" role="tablist">
+    <div
+      className="flex h-9 shrink-0 items-center gap-1 px-3"
+      role="tablist"
+      onKeyDown={(e) => handleTablistKeyDown<ChatSidebarTab>(e, onChange)}
+    >
       <Tab
+        value="outline"
         label={t("chatContext.outline.label")}
         count={outlineCount}
         active={active === "outline"}
         onClick={() => onChange("outline")}
       />
       <Tab
+        value="changes"
         label={t("chatContext.changes.label")}
         count={changesCount}
         active={active === "changes"}
         onClick={() => onChange("changes")}
       />
       <Tab
+        value="directory"
         label={t("chatContext.directory.label")}
         count={null}
         active={active === "directory"}
@@ -54,12 +62,60 @@ export function TabBar({
   );
 }
 
+/**
+ * 侧栏里手写 tablist 的键盘模型，与共享 `SegmentedControl` 相同：←/→ 回绕移动、
+ * Home/End 到两端，焦点与选中一起走；配合每个 tab 的 roving tabindex（只有当前
+ * 项是 0），Tab 键一次就离开整组。这里不直接换成 `SegmentedControl`——它的基础
+ * 类（h-7 / px-3 / text-sm / 悬停配色）与这两处的外观不同，换了视觉就变了。
+ *
+ * 每个 tab 用 `data-value` 携带自己的取值。
+ */
+export function handleTablistKeyDown<T extends string>(
+  event: KeyboardEvent<HTMLElement>,
+  onSelect: (value: T) => void,
+) {
+  const tabs = Array.from(
+    event.currentTarget.querySelectorAll<HTMLElement>(
+      '[role="tab"]:not(:disabled)',
+    ),
+  );
+  if (tabs.length === 0) return;
+  const current = tabs.indexOf(document.activeElement as HTMLElement);
+  let next: number;
+  switch (event.key) {
+    case "ArrowRight":
+      next = current < 0 ? 0 : (current + 1) % tabs.length;
+      break;
+    case "ArrowLeft":
+      next =
+        current < 0
+          ? tabs.length - 1
+          : (current - 1 + tabs.length) % tabs.length;
+      break;
+    case "Home":
+      next = 0;
+      break;
+    case "End":
+      next = tabs.length - 1;
+      break;
+    default:
+      return;
+  }
+  event.preventDefault();
+  const target = tabs[next];
+  target.focus();
+  const value = target.dataset.value;
+  if (value !== undefined) onSelect(value as T);
+}
+
 function Tab({
+  value,
   label,
   count,
   active,
   onClick,
 }: {
+  value: string;
   label: string;
   count: number | null;
   active: boolean;
@@ -69,7 +125,9 @@ function Tab({
     <button
       type="button"
       role="tab"
+      data-value={value}
       aria-selected={active}
+      tabIndex={active ? 0 : -1}
       onClick={onClick}
       className={cn(
         "inline-flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md px-1 py-1.5 text-xs font-medium whitespace-nowrap transition-colors",
