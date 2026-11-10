@@ -28,6 +28,7 @@ import {
   type ProjectWriteOutcome,
 } from "@agentre-hub/agentre-ui";
 import { useChatAgents } from "@/hooks/use-chat-agents";
+import { classifyProjectWriteError } from "@/lib/app-error";
 
 import {
   ProjectAddMember,
@@ -100,9 +101,8 @@ const fsPort = createRemoteFsPort();
 const SELF_ID = "";
 
 /**
- * 桌面端分不出写失败是哪一类：Go 那侧的错误跨 wails 只剩一句文本，没有码可读
- * （与 `remote-fs-port.ts` 同一处缺口）。所以一律交 `unknown` 并把原文带上 ——
- * 包会原样透出它，用户看到的仍是 Go 那句人话。
+ * 写失败按 `agentre-code:<码>` 分进包的那几类（`classifyProjectWriteError`）：分得出
+ * 类时包说它自己那一句；分不出时带码的后端业务文案原样透出，不带码的机器原话不进正文。
  */
 async function attempt(
   run: () => Promise<unknown>,
@@ -111,7 +111,7 @@ async function attempt(
     await run();
     return { ok: true };
   } catch (e) {
-    return { ok: false, failure: { kind: "unknown", message: String(e) } };
+    return { ok: false, failure: classifyProjectWriteError(e) };
   }
 }
 

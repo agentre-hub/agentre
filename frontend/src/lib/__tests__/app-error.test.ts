@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyAppError } from "../app-error";
+import { classifyAppError, classifyProjectWriteError } from "../app-error";
 
 /**
  * 管理页错误分类（S5）。码的形状与数值是 `internal/app/coded_error.go` 与
@@ -122,5 +122,49 @@ describe("classifyAppError", () => {
       message: "远端权限不足",
       detail: undefined,
     });
+  });
+});
+
+/**
+ * B5：新建项目 / 项目设置的写入失败按码落进共享包 `ProjectWriteFailureKind` 那几类。
+ * 分得出类时包用自己的那一句；分不出类时带码的业务文案进 `message`，不带码的机器原话
+ * 不进 `message`（包会把它当正文贴出来）。
+ */
+describe("classifyProjectWriteError", () => {
+  it.each([
+    ["pathNotFound", 18004, "项目路径不存在"], // ProjectPathNotExist
+    ["invalidPath", 18003, "项目路径非法"], // ProjectInvalidPath
+    ["invalidPath", 18101, "项目路径必须是绝对路径"], // ProjectLocationInvalidPath
+    ["disconnected", 20405, "连不上设备"], // RemoteDeviceDialFailed（offline 一类）
+  ] as const)(
+    "Given a project write fails coded %s (%i), When classified, Then it lands in that shared kind",
+    (kind, n, msg) => {
+      expect(classifyProjectWriteError(`agentre-code:${n} ${msg}`)).toEqual({
+        kind,
+        message: msg,
+      });
+    },
+  );
+
+  it("Given a coded business error with no shared kind, When classified, Then kind is unknown and the backend sentence is the message", () => {
+    expect(
+      classifyProjectWriteError(
+        new Error("agentre-code:18001 同级下已存在同名项目"),
+      ),
+    ).toEqual({ kind: "unknown", message: "同级下已存在同名项目" });
+  });
+
+  it("Given a coded headline followed by a raw cause, When classified, Then only the headline becomes the message", () => {
+    expect(
+      classifyProjectWriteError(
+        new Error("agentre-code:10000 操作失败\nsql: database is locked"),
+      ),
+    ).toEqual({ kind: "unknown", message: "操作失败" });
+  });
+
+  it("Given an uncoded raw error, When classified, Then kind is unknown and the machine text is not the message", () => {
+    expect(
+      classifyProjectWriteError(new Error("sql: database is locked")),
+    ).toEqual({ kind: "unknown", message: undefined });
   });
 });

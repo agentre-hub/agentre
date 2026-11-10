@@ -124,7 +124,7 @@ func (a *App) ProjectCreate(req *ProjectCreateRequest) (*ProjectItem, error) {
 		InitialAgentIDs: req.InitialAgentIDs,
 	})
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	return toProjectItem(p), nil
 }
@@ -139,7 +139,7 @@ func (a *App) ProjectUpdate(req *ProjectUpdateRequest) (*ProjectItem, error) {
 		Description: req.Description,
 	})
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	return toProjectItem(p), nil
 }
@@ -158,7 +158,7 @@ func (a *App) ProjectMove(req *ProjectMoveRequest) (*ProjectItem, error) {
 	}
 	p, err := project_svc.Default().Move(a.ctx, svcReq)
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	return toProjectItem(p), nil
 }
@@ -207,12 +207,12 @@ func (a *App) ProjectListTree() ([]*ProjectTreeNode, error) {
 
 // ProjectAddMember 向项目追加一个直接成员。
 func (a *App) ProjectAddMember(projectID, agentID int64) error {
-	return project_svc.Default().AddMember(a.ctx, projectID, agentID)
+	return codedError(project_svc.Default().AddMember(a.ctx, projectID, agentID))
 }
 
 // ProjectRemoveMember 移除项目直接成员（继承成员需要去父项目移除）。
 func (a *App) ProjectRemoveMember(projectID, agentID int64) error {
-	return project_svc.Default().RemoveMember(a.ctx, projectID, agentID)
+	return codedError(project_svc.Default().RemoveMember(a.ctx, projectID, agentID))
 }
 
 // ProjectLocationList 列出某项目在所有远端设备上配置的路径。
@@ -222,12 +222,16 @@ func (a *App) ProjectLocationList(projectID int64) ([]*project_location_svc.Proj
 
 // ProjectLocationUpsert 添加 / 更新某项目在某远端设备上的路径（deviceID = paired_agentred.id 字符串化）。
 func (a *App) ProjectLocationUpsert(projectID int64, deviceID, path string) (*project_location_svc.ProjectLocationView, error) {
-	return project_location_svc.Default().Upsert(a.ctx, projectID, deviceID, path)
+	v, err := project_location_svc.Default().Upsert(a.ctx, projectID, deviceID, path)
+	if err != nil {
+		return nil, codedError(err)
+	}
+	return v, nil
 }
 
 // ProjectLocationRemove 删除某项目在某远端设备上的路径（软删，status=DELETE）。
 func (a *App) ProjectLocationRemove(projectID int64, deviceID string) error {
-	return project_location_svc.Default().RemoveByProjectAndDevice(a.ctx, projectID, deviceID)
+	return codedError(project_location_svc.Default().RemoveByProjectAndDevice(a.ctx, projectID, deviceID))
 }
 
 // ProjectSetLocalPath 就地指定本机路径，解除「本机未配置路径」状态（R10）。
@@ -239,7 +243,7 @@ func (a *App) ProjectSetLocalPath(req *ProjectSetLocalPathRequest) (*ProjectItem
 	}
 	p, err := project_svc.Default().SetLocalPath(a.ctx, id, path)
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	return toProjectItem(p), nil
 }
@@ -249,7 +253,7 @@ func (a *App) ProjectSetLocalPath(req *ProjectSetLocalPathRequest) (*ProjectItem
 func (a *App) ProjectClearLocalPath(id int64) (*ProjectItem, error) {
 	p, err := project_svc.Default().ClearLocalPath(a.ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, codedError(err)
 	}
 	return toProjectItem(p), nil
 }

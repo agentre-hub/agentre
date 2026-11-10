@@ -17,6 +17,7 @@ import {
   ProjectCreateDialog,
   type ProjectCreatePorts,
 } from "@agentre-hub/agentre-ui";
+import { classifyProjectWriteError } from "@/lib/app-error";
 
 import {
   ProjectCreate,
@@ -80,11 +81,8 @@ function ProjectNewDialog({
           });
           return { ok: true, id: String(created.id) };
         } catch (e) {
-          // 跨 wails 只剩一句本地化文本、没有码可读，所以分不出类就说分不出。
-          return {
-            ok: false,
-            failure: { kind: "unknown", message: String(e) },
-          };
+          // 按 `agentre-code:` 分类；不带码的机器原话不进正文。
+          return { ok: false, failure: classifyProjectWriteError(e) };
         }
       },
       pickLocalDirectory: async () => {

@@ -408,19 +408,56 @@ describe("本机那一行", () => {
     expect(appMocks.ProjectSetLocalPath).not.toHaveBeenCalled();
   });
 
-  it("后端拒绝时那句原文就地透出 —— 桌面端分不出类，所以不折成一句", async () => {
+  async function typeLocalPath(next: string) {
     const user = setupUser();
-    mockProject();
-    appMocks.ProjectSetLocalPath.mockRejectedValue("path does not exist");
-
-    renderDrawer();
-
     const input = await screen.findByDisplayValue("/Users/me/Code/agentre");
     await user.clear(input);
-    await user.type(input, "/Users/me/Code/gone");
+    await user.type(input, next);
     fireEvent.blur(input);
+  }
 
-    expect(await screen.findByText(/path does not exist/)).toBeInTheDocument();
+  it("Given the local path write fails coded ProjectPathNotExist When saving Then the shared pathNotFound sentence shows instead of the backend text", async () => {
+    mockProject();
+    appMocks.ProjectSetLocalPath.mockRejectedValue(
+      "agentre-code:18004 path does not exist",
+    );
+
+    renderDrawer();
+    await typeLocalPath("/Users/me/Code/gone");
+
+    expect(
+      await screen.findByText("That machine has no such directory."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/path does not exist/)).toBeNull();
+  });
+
+  it("Given the local path write fails coded ProjectInvalidPath When saving Then the shared invalidPath sentence shows", async () => {
+    mockProject();
+    appMocks.ProjectSetLocalPath.mockRejectedValue(
+      new Error("agentre-code:18003 invalid project path"),
+    );
+
+    renderDrawer();
+    await typeLocalPath("/Users/me/Code/bad");
+
+    expect(
+      await screen.findByText("That path cannot be used."),
+    ).toBeInTheDocument();
+  });
+
+  it("Given the write fails with uncoded machine text When saving Then the generic sentence shows and the raw text does not", async () => {
+    mockProject();
+    appMocks.ProjectSetLocalPath.mockRejectedValue(
+      new Error("sql: database is locked"),
+    );
+
+    renderDrawer();
+    await typeLocalPath("/Users/me/Code/gone");
+
+    expect(
+      await screen.findByText("That change did not go through."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/database is locked/)).toBeNull();
   });
 });
 

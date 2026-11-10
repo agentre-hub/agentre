@@ -9,16 +9,21 @@ import (
 
 	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo/mock_department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo/mock_project_location_repo"
 	"github.com/agentre-hub/agentre/internal/service/agent_svc"
 	"github.com/agentre-hub/agentre/internal/service/data_svc"
 	"github.com/agentre-hub/agentre/internal/service/department_svc"
 	"github.com/agentre-hub/agentre/internal/service/issue_svc"
+	"github.com/agentre-hub/agentre/internal/service/project_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
@@ -216,6 +221,89 @@ func TestOrgWriteBindings_CarryTheBusinessCode(t *testing.T) {
 		}},
 		"ReorderDepartments": {"agentre-code:10001 ", func() error {
 			return a.ReorderDepartments(&department_svc.ReorderDepartmentsRequest{})
+		}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := c.call()
+			if !bridgeErrorMatches(err, c.want) {
+				t.Fatalf("expected %q across the bridge, got %v", c.want, err)
+			}
+		})
+	}
+}
+
+type failingProjects struct {
+	project_svc.ProjectSvc
+	err error
+}
+
+func (f *failingProjects) Create(context.Context, *project_svc.CreateProjectRequest) (*project_entity.Project, error) {
+	return nil, f.err
+}
+func (f *failingProjects) Update(context.Context, *project_svc.UpdateProjectRequest) (*project_entity.Project, error) {
+	return nil, f.err
+}
+func (f *failingProjects) Move(context.Context, *project_svc.MoveProjectRequest) (*project_entity.Project, error) {
+	return nil, f.err
+}
+func (f *failingProjects) AddMember(context.Context, int64, int64) error    { return f.err }
+func (f *failingProjects) RemoveMember(context.Context, int64, int64) error { return f.err }
+func (f *failingProjects) SetLocalPath(context.Context, int64, string) (*project_entity.Project, error) {
+	return nil, f.err
+}
+func (f *failingProjects) ClearLocalPath(context.Context, int64) (*project_entity.Project, error) {
+	return nil, f.err
+}
+
+// B5：新建项目 / 项目设置的写入失败也要带着 `agentre-code:<码>` 过桥 —— 前端据此把
+// 「路径不存在」「路径不能用」分进共享包那几类失败文案，而不是一律 unknown + 原文。
+// 位置服务没有可替换的默认实现，所以由真实服务自己产出带码错误。
+func TestProjectWriteBindings_CarryTheBusinessCode(t *testing.T) {
+	ctx := context.Background()
+	a := &App{ctx: ctx}
+	ctrl := gomock.NewController(t)
+
+	projectErr := &httputils.Error{Code: code.ProjectPathNotExist, Msg: "项目路径不存在"}
+	prevProjects := project_svc.Default()
+	project_svc.SetDefault(&failingProjects{err: projectErr})
+	t.Cleanup(func() { project_svc.SetDefault(prevProjects) })
+
+	locations := mock_project_location_repo.NewMockProjectLocationRepo(ctrl)
+	locations.EXPECT().FindByProjectAndDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, gorm.ErrRecordNotFound).AnyTimes()
+	prevLocations := project_location_repo.ProjectLocation()
+	project_location_repo.RegisterProjectLocation(locations)
+	t.Cleanup(func() { project_location_repo.RegisterProjectLocation(prevLocations) })
+
+	const pathNotExist = "agentre-code:18004 项目路径不存在"
+	cases := map[string]struct {
+		want string
+		call func() error
+	}{
+		"ProjectCreate": {pathNotExist, func() error { _, err := a.ProjectCreate(&ProjectCreateRequest{}); return err }},
+		"ProjectUpdate": {pathNotExist, func() error { _, err := a.ProjectUpdate(&ProjectUpdateRequest{}); return err }},
+		"ProjectMove":   {pathNotExist, func() error { _, err := a.ProjectMove(&ProjectMoveRequest{}); return err }},
+		"ProjectAddMember": {pathNotExist, func() error {
+			return a.ProjectAddMember(1, 2)
+		}},
+		"ProjectRemoveMember": {pathNotExist, func() error {
+			return a.ProjectRemoveMember(1, 2)
+		}},
+		"ProjectSetLocalPath": {pathNotExist, func() error {
+			_, err := a.ProjectSetLocalPath(&ProjectSetLocalPathRequest{ID: 1, Path: "/gone"})
+			return err
+		}},
+		"ProjectClearLocalPath": {pathNotExist, func() error {
+			_, err := a.ProjectClearLocalPath(1)
+			return err
+		}},
+		"ProjectLocationUpsert": {"agentre-code:18101 ", func() error {
+			_, err := a.ProjectLocationUpsert(1, "", "relative/path")
+			return err
+		}},
+		"ProjectLocationRemove": {"agentre-code:18100 ", func() error {
+			return a.ProjectLocationRemove(1, "7")
 		}},
 	}
 	for name, c := range cases {

@@ -178,8 +178,10 @@ describe("接缝", () => {
     );
   });
 
-  it("后端拒绝时那句原文就地透出，窗不关、内容不清", async () => {
-    appMocks.ProjectCreate.mockRejectedValue("project path does not exist");
+  it("Given the backend rejects with a coded sentence When creating Then that sentence shows without the code prefix, the dialog stays and keeps the draft", async () => {
+    appMocks.ProjectCreate.mockRejectedValue(
+      "agentre-code:18004 project path does not exist",
+    );
 
     const { onCreated } = renderDialog();
     fireEvent.change(screen.getByTestId("project-create-path"), {
@@ -191,12 +193,30 @@ describe("接缝", () => {
     fireEvent.click(screen.getByTestId("project-create-submit"));
 
     expect(
-      await screen.findByText(/project path does not exist/),
+      await screen.findByText("project path does not exist"),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/agentre-code/)).toBeNull();
     expect(
       (screen.getByTestId("project-create-name") as HTMLInputElement).value,
     ).toBe("Nebula");
     expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("Given the backend rejects with uncoded machine text When creating Then the generic sentence shows and the raw text does not", async () => {
+    appMocks.ProjectCreate.mockRejectedValue(
+      new Error("sql: database is locked"),
+    );
+
+    renderDialog();
+    fireEvent.change(screen.getByTestId("project-create-name"), {
+      target: { value: "Nebula" },
+    });
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+
+    expect(
+      await screen.findByText("Could not create the project."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/database is locked/)).toBeNull();
   });
 
   it("挑目录被取消时不当成失败", async () => {
