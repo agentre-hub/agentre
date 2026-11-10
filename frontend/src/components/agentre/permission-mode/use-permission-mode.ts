@@ -1,15 +1,23 @@
 import * as React from "react";
 
 import { SetChatPermissionMode } from "@/../wailsjs/go/app/App";
+import i18n from "@/i18n";
 
 import type { PermissionModeMeta } from "../capability/types";
 
 import {
+  PERMISSION_MODE_META_UI,
+  fallbackPermissionModeMetaUI,
   isPermissionModeDisabled,
   nextPermissionMode,
   normalizePermissionMode,
   type PermissionMode,
 } from "@agentre-hub/agentre-ui";
+
+import {
+  pillLastSwitchFailedText,
+  toastPillSwitchFailed,
+} from "../model-pill/pill-switch-failure";
 
 export interface UsePermissionModeOptions {
   /** chat session id;0 / null / undefined = 当前没选会话 */
@@ -64,7 +72,8 @@ export interface UsePermissionModeReturn {
  *    拿到 detail.permissionMode 后通过 initialMode 注入。
  *  - 切换走 SetChatPermissionMode IPC:后端 DB-first 持久化,再 best-effort 下
  *    发到活跃 CLI;CLI 不在时不报错。
- *  - 乐观更新:先 setState 让 pill 即刻反映;失败时回滚到上一次成功值并 setError。
+ *  - 乐观更新:先 setState 让 pill 即刻反映;失败时回滚到上一次成功值,toast 说
+ *    「没切换成功,仍是 <原档>」(原话进详情),error 只留本地化事实给弹层底栏。
  */
 export function usePermissionMode({
   sessionId,
@@ -117,11 +126,18 @@ export function usePermissionMode({
           setError(null);
         })
         .catch((e: unknown) => {
-          const msg = e instanceof Error ? e.message : String(e);
           console.error("[permission-mode] set failed", e);
           setModeState(previous);
           lastModeRef.current = previous;
-          setError(msg);
+          setError(pillLastSwitchFailedText());
+          const label = (
+            PERMISSION_MODE_META_UI[previous] ??
+            fallbackPermissionModeMetaUI(previous)
+          ).label;
+          toastPillSwitchFailed(
+            i18n.t("chatPanel.pillSwitch.permissionModeFailed", { label }),
+            e,
+          );
         });
     },
     [mode, sessionId],

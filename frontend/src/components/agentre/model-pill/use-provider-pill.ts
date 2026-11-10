@@ -28,6 +28,10 @@ import {
   type CliModelPickerState,
 } from "@agentre-hub/agentre-ui";
 import { useModelTargetCatalog } from "../model-target-picker/catalog";
+import {
+  pillLastSwitchFailedText,
+  toastPillSwitchFailed,
+} from "./pill-switch-failure";
 
 // DeviceView / ProviderSummary — local shims matching remote_device_svc DTOs
 //（wailsjs/go/models 是构建期生成，此处按 agent-backends 同款做法本地声明）。
@@ -196,8 +200,10 @@ export interface UseProviderPillReturn {
   catalogError: boolean;
   /** 列表加载中 → pill 禁用。 */
   loading: boolean;
-  /** 拉取失败 或 持久化切换失败 → 弹层底部错误行。 */
+  /** 供应商列表拉取失败（或会话的 CLI 模型错误）→ 弹层里顶替列表的错误行。 */
   error: string | null;
+  /** 上一次持久化切换失败 → 弹层列表下方一行本地化事实；原话只在失败 toast 的详情里。 */
+  switchError: string | null;
   /** 未绑 agent（CLI 登录态）。 */
   unbound: boolean;
   /** 生效 key：providerKey || boundProviderKey（用于 pill 标签 / 高亮）。 */
@@ -278,6 +284,10 @@ export function useProviderPill({
   >([]);
   const [loading, setLoading] = React.useState(selectable);
   const [error, setError] = React.useState<string | null>(null);
+  const [switchError, setSwitchError] = React.useState<string | null>(null);
+  // 切换那一刻 pill 脸上写的值：失败 toast 要说「仍是 <它>」。pillState 在下面才算出，
+  // 经 ref 交给 setTarget，免得 setTarget 跟着每次目录变化换身份。
+  const faceLabelRef = React.useRef("");
 
   // backendTypeRef 让在途的 ListLLMProviders 响应按「解析时刻的当前 backend」过滤，
   // 避免 agent 快速切换时旧请求晚到、把上一后端的兼容集合短暂画进弹层。
@@ -328,6 +338,10 @@ export function useProviderPill({
     setProviderKeyState(persistedProviderKey ?? "");
     setModelKeyState(persistedModelKey ?? "");
   }, [sessionId, backendType, persistedProviderKey, persistedModelKey]);
+  // 换了会话 / 后端，上一处的切换失败不再相干。
+  React.useEffect(() => {
+    setSwitchError(null);
+  }, [sessionId, backendType]);
 
   // 三种 CLI 本机与远端一致（spec 2026-10-26 Objective）：远端的列表、解析与切换由
   // 宿主按后端所在设备路由，这里只认后端类型与「确知没绑供应商」。
@@ -367,9 +381,11 @@ export function useProviderPill({
       }
       const previousProvider = providerKey;
       const previousModel = modelKey;
+      const previousLabel = faceLabelRef.current;
       setProviderKeyState(nextProvider);
       setModelKeyState(nextModel);
       setError(null);
+      setSwitchError(null);
 
       if (!sessionId || sessionId <= 0) {
         // 新建会话：纯瞬态，首发 Send 时随 SendRequest.ProviderKey/ModelKey 透传。
@@ -393,11 +409,16 @@ export function useProviderPill({
           onSwitched?.();
         })
         .catch((e: unknown) => {
-          const msg = e instanceof Error ? e.message : String(e);
           console.error("[provider-pill] switch failed", e);
           setProviderKeyState(previousProvider);
           setModelKeyState(previousModel);
-          setError(msg);
+          setSwitchError(pillLastSwitchFailedText());
+          toastPillSwitchFailed(
+            i18n.t("chatPanel.pillSwitch.modelFailed", {
+              label: previousLabel,
+            }),
+            e,
+          );
         });
     },
     [
@@ -483,6 +504,14 @@ export function useProviderPill({
   );
   const pillState = cliPillState ?? providerPillState;
   const invalid = pillState.mode === "invalid";
+  const faceLabel =
+    pillState.modelLabel ||
+    pillState.providerLabel ||
+    pillState.resolutionLabel ||
+    i18n.t(`${AGENTRE_UI_NAMESPACE}:modelTargetPicker.special.chat`);
+  React.useEffect(() => {
+    faceLabelRef.current = faceLabel;
+  }, [faceLabel]);
   const cliBound =
     cliAvailable && boundCLIModel !== undefined
       ? cliModelResolution(
@@ -639,6 +668,7 @@ export function useProviderPill({
     catalogError,
     loading,
     error: cliModelError || error,
+    switchError,
     unbound: !boundProviderKey,
     effectiveKey: providerKey || boundProviderKey || "",
     pillState,

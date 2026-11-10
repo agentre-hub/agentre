@@ -372,6 +372,12 @@
     },
     "loading": {
       "aria": "正在加载会话…"
+    },
+    "pillSwitch": {
+      "modelFailed": "模型没切换成功，仍是 {{label}}",
+      "permissionModeFailed": "权限模式没切换成功，仍是 {{label}}",
+      "reasoningEffortFailed": "思考强度没切换成功，仍是 {{label}}",
+      "lastFailed": "上次切换没有成功"
     }
   },
   "chatTabs": {

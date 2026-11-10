@@ -39,6 +39,7 @@ export function ProviderPill({
   catalogLoading,
   catalogError,
   error,
+  switchError,
   unbound,
   effectiveKey,
   pillState,
@@ -121,6 +122,7 @@ export function ProviderPill({
         loading={loading || catalogLoading}
         error={catalogError || error !== null}
         errorText={error ?? undefined}
+        switchError={switchError ?? undefined}
         disabled={disabled}
         invalid={invalid}
         specialSublabel={specialSublabel}

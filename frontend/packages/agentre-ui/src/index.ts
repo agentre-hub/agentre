@@ -49,6 +49,8 @@ export {
 export type { ParsedPortForwardTarget } from "./port-forward/target";
 export { PermissionModePill } from "./permission-mode";
 export {
+  PERMISSION_MODE_META_UI,
+  fallbackPermissionModeMetaUI,
   isPermissionModeDisabled,
   nextPermissionMode,
   normalizePermissionMode,

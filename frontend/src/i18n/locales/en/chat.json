@@ -372,6 +372,12 @@
     },
     "loading": {
       "aria": "Loading session…"
+    },
+    "pillSwitch": {
+      "modelFailed": "Model didn't switch — still {{label}}",
+      "permissionModeFailed": "Permission mode didn't switch — still {{label}}",
+      "reasoningEffortFailed": "Reasoning effort didn't switch — still {{label}}",
+      "lastFailed": "The last switch didn't go through"
     }
   },
   "chatTabs": {
