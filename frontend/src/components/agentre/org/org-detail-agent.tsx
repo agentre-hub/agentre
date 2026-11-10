@@ -25,7 +25,7 @@ import {
   OrgDetailAgentHeader,
 } from "./org-detail-agent-chrome";
 import { OrgDetailAgentIdentity } from "./org-detail-agent-identity";
-import { toastOrgWriteFailure } from "./write-failure-toast";
+import { deleteFailureOf, type DeleteFailure } from "./delete-failure";
 import { OrgDetailAgentExecution } from "./org-detail-agent-execution";
 
 type Props = {
@@ -246,12 +246,21 @@ export function OrgDetailAgent(props: Props) {
     await wrap(() => props.onDeleteAvatar({ id: props.agent.id }));
   };
 
+  const [deleteFailure, setDeleteFailure] =
+    React.useState<DeleteFailure | null>(null);
+  const setDeleteDialogOpen = (open: boolean) => {
+    setDeleteFailure(null);
+    setDeletePromptOpen(open);
+  };
   const handleConfirmDeleteAgent = async () => {
+    setDeleteFailure(null);
     try {
       await props.onDelete({ id: props.agent.id });
     } catch (err) {
-      // 没删掉：确认框留着，用户可以再点一次或取消。
-      toastOrgWriteFailure(t("org.chart.errors.deleteFailed"), err);
+      // 没删掉：确认框留着、话说在它的页脚，用户可以再点一次或取消。
+      setDeleteFailure(
+        deleteFailureOf(err, t("org.chart.errors.deleteFailed")),
+      );
       return;
     }
     setDeletePromptOpen(false);
@@ -402,8 +411,9 @@ export function OrgDetailAgent(props: Props) {
       <DeleteAgentDialog
         open={deletePromptOpen}
         agentName={props.agent.name}
-        onOpenChange={(o) => !o && setDeletePromptOpen(false)}
-        onCancel={() => setDeletePromptOpen(false)}
+        failure={deleteFailure}
+        onOpenChange={(o) => !o && setDeleteDialogOpen(false)}
+        onCancel={() => setDeleteDialogOpen(false)}
         onConfirm={() => void handleConfirmDeleteAgent()}
       />
     </div>

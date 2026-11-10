@@ -13,7 +13,7 @@ import {
 import { OrgDetailDepartmentHeader } from "./org-detail-department-header";
 import { OrgDetailDepartmentMembers } from "./org-detail-department-members";
 import { OrgDetailDepartmentStructure } from "./org-detail-department-structure";
-import { toastOrgWriteFailure } from "./write-failure-toast";
+import { deleteFailureOf, type DeleteFailure } from "./delete-failure";
 
 type Props = {
   department: OrgDepartment;
@@ -63,12 +63,22 @@ export function OrgDetailDepartment(props: Props) {
   const [strategy, setStrategy] =
     React.useState<DeleteDepartmentStrategy>("reparent");
 
+  const [deleteFailure, setDeleteFailure] =
+    React.useState<DeleteFailure | null>(null);
+  const setDeleteDialogOpen = (open: boolean) => {
+    setDeleteFailure(null);
+    setDeletePromptOpen(open);
+  };
+
   const handleConfirmDelete = React.useCallback(async () => {
+    setDeleteFailure(null);
     try {
       await props.onDelete({ id: props.department.id, strategy });
     } catch (err) {
-      // 没删掉：确认框与详情都留着，用户可以再点一次或取消。
-      toastOrgWriteFailure(t("org.chart.errors.deleteFailed"), err);
+      // 没删掉：确认框与详情都留着、话说在确认框的页脚，用户可以再点一次或取消。
+      setDeleteFailure(
+        deleteFailureOf(err, t("org.chart.errors.deleteFailed")),
+      );
       return;
     }
     props.onClose();
@@ -154,9 +164,10 @@ export function OrgDetailDepartment(props: Props) {
         open={deletePromptOpen}
         departmentName={props.department.name}
         strategy={strategy}
+        failure={deleteFailure}
         onStrategyChange={setStrategy}
-        onOpenChange={(o) => !o && setDeletePromptOpen(false)}
-        onCancel={() => setDeletePromptOpen(false)}
+        onOpenChange={(o) => !o && setDeleteDialogOpen(false)}
+        onCancel={() => setDeleteDialogOpen(false)}
         onConfirm={handleConfirmDelete}
       />
     </div>

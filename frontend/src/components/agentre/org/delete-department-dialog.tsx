@@ -15,6 +15,8 @@ import {
 } from "@agentre-hub/agentre-ui";
 import { cn } from "@agentre-hub/agentre-ui";
 
+import { DeleteFailureLine, type DeleteFailure } from "./delete-failure";
+
 export type DeleteDepartmentStrategy = "reparent" | "cascade";
 
 /** 删除确认：部门要先说清子节点怎么办，所以比 Agent 那一支多一组策略。 */
@@ -22,6 +24,7 @@ export function DeleteDepartmentDialog({
   open,
   departmentName,
   strategy,
+  failure = null,
   onStrategyChange,
   onOpenChange,
   onCancel,
@@ -30,6 +33,8 @@ export function DeleteDepartmentDialog({
   open: boolean;
   departmentName: string;
   strategy: DeleteDepartmentStrategy;
+  /** 上一次确认没删掉：页脚说这一句，框不关。 */
+  failure?: DeleteFailure | null;
   onStrategyChange: (next: DeleteDepartmentStrategy) => void;
   onOpenChange: (open: boolean) => void;
   onCancel: () => void;
@@ -89,9 +94,13 @@ export function DeleteDepartmentDialog({
             </RadioGroup>
           </DialogBody>
           <DialogFooter>
-            <span className="mr-auto font-mono text-2xs text-muted-foreground">
-              {t("org.department.deleteDialog.irreversible")}
-            </span>
+            {failure ? (
+              <DeleteFailureLine failure={failure} />
+            ) : (
+              <span className="mr-auto font-mono text-2xs text-muted-foreground">
+                {t("org.department.deleteDialog.irreversible")}
+              </span>
+            )}
             <Button variant="outline" size="sm" onClick={onCancel}>
               {t("common.cancel")}
             </Button>

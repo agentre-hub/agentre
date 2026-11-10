@@ -331,10 +331,14 @@ describe("DirectoryPanel 目录页", () => {
     expect(
       await screen.findByText("The path does not exist"),
     ).toBeInTheDocument();
+    // 标题永远是那句本地化事实，后端带码的那句话是它下面的正文。
+    expect(
+      screen.getByText(/couldn't set the local path/i),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/agentre-code/)).not.toBeInTheDocument();
   });
 
-  it("falls back to a localized sentence, not the raw text, when specifying a path fails without a code", async () => {
+  it("says a localized sentence and keeps the raw text in the collapsed details when specifying a path fails without a code", async () => {
     selectDirectoryMock.mockResolvedValue("/nope");
     setLocalPathMock.mockRejectedValue(new Error("sqlite: disk I/O error"));
     renderPanel({
@@ -348,7 +352,11 @@ describe("DirectoryPanel 目录页", () => {
     expect(
       await screen.findByText(/couldn't set the local path/i),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/sqlite/)).not.toBeInTheDocument();
+    // 机器原话不当正文，但也不丢：进默认折叠的「详情」。
+    const raw = screen.getByText("sqlite: disk I/O error");
+    const details = raw.closest("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
   });
 
   it("surfaces a remote-offline failure with a retry that re-requests", async () => {

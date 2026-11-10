@@ -234,7 +234,7 @@ describe("OrgDetailDepartment delete dialog", () => {
 });
 
 describe("OrgDetailDepartment 删除失败", () => {
-  it("Given 删除写入失败, When 确认删除, Then 确认框留着、详情不关，失败用 toast 说出来", async () => {
+  it("Given 删除写入失败, When 确认删除, Then 确认框留着、详情不关，后端那句话在页脚、原文进 title，不弹 toast", async () => {
     toastError.mockReset();
     const onDelete = vi
       .fn()
@@ -260,12 +260,10 @@ describe("OrgDetailDepartment 删除失败", () => {
       screen.getByRole("button", { name: /Confirm Delete/ }),
     );
 
-    await vi.waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        "Couldn't delete it",
-        expect.anything(),
-      ),
-    );
+    const line = await screen.findByRole("alert");
+    expect(line).toHaveTextContent("部门不存在");
+    expect(line).toHaveAttribute("title", "agentre-code:13000 部门不存在");
+    expect(toastError).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     expect(
       screen.getByRole("button", { name: /Confirm Delete/ }),
