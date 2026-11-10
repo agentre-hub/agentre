@@ -214,15 +214,15 @@
   },
   "terminal": {
     "banner": {
-      "connectionLost": "连接已断开 — 终端会话不可恢复"
+      "connectionLost": "连接已断开 — 终端会话不可恢复",
+      "newTerminal": "新开终端"
     },
     "toast": {
       "agentredClosed": "agentred 已关闭",
-      "connectionLost": "终端连接已断开",
       "shellExited": "shell 退出 (code {{code}})",
-      "startFailed": "终端启动失败: {{message}}"
+      "startFailed": "终端启动失败"
     },
-    "unknown": "unknown"
+    "opening": "正在连接终端…"
   },
   "toolApproval": {
     "title": "组织架构操作审批",

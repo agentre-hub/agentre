@@ -214,15 +214,15 @@
   },
   "terminal": {
     "banner": {
-      "connectionLost": "Connection lost — terminal session cannot be recovered"
+      "connectionLost": "Connection lost — terminal session cannot be recovered",
+      "newTerminal": "New terminal"
     },
     "toast": {
       "agentredClosed": "agentred has shut down",
-      "connectionLost": "Terminal connection lost",
       "shellExited": "Shell exited (code {{code}})",
-      "startFailed": "Terminal failed to start: {{message}}"
+      "startFailed": "Terminal failed to start"
     },
-    "unknown": "unknown"
+    "opening": "Connecting to terminal…"
   },
   "toolApproval": {
     "title": "Org structure operation approval",

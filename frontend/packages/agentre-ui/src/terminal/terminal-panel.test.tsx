@@ -423,7 +423,7 @@ describe("TerminalPanel", () => {
     expect(disposeMock).toHaveBeenCalled();
   });
 
-  it("onExit with reason=error → toast.error and calls onClose", () => {
+  it("Given the PTY fails to start, When onExit reports error, Then the toast title is a localized fact, the raw text is its description, and the tab closes", () => {
     const onClose = vi.fn();
     render(
       <TerminalPanel
@@ -437,9 +437,54 @@ describe("TerminalPanel", () => {
       capturedArgs?.onExit?.({ code: -1, reason: "error", msg: "no such cwd" }),
     );
     expect(toastMocks.toast.error).toHaveBeenCalledWith(
-      expect.stringContaining("no such cwd"),
+      "Terminal failed to start",
+      { description: "no such cwd" },
     );
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("Given the start failure carries no raw text, When onExit reports error, Then the toast has only the localized title", () => {
+    render(
+      <TerminalPanel
+        terminalID="t1"
+        projectId={42}
+        deviceId=""
+        onClose={vi.fn()}
+      />,
+    );
+    act(() => capturedArgs?.onExit?.({ code: -1, reason: "error" }));
+    expect(toastMocks.toast.error).toHaveBeenCalledWith(
+      "Terminal failed to start",
+      undefined,
+    );
+  });
+
+  it("Given the PTY is still opening, When the panel renders, Then a centred status reads Connecting to terminal…", () => {
+    vi.mocked(useTerminal).mockImplementation((args) => {
+      capturedArgs = args;
+      return { state: "opening", write: writeProxy, resize: resizeProxy };
+    });
+    const { getByRole } = render(
+      <TerminalPanel
+        terminalID="t1"
+        projectId={42}
+        deviceId=""
+        onClose={vi.fn()}
+      />,
+    );
+    expect(getByRole("status")).toHaveTextContent("Connecting to terminal…");
+  });
+
+  it("Given the PTY is open, When the panel renders, Then no connecting status is shown", () => {
+    const { queryByRole } = render(
+      <TerminalPanel
+        terminalID="t1"
+        projectId={42}
+        deviceId=""
+        onClose={vi.fn()}
+      />,
+    );
+    expect(queryByRole("status")).toBeNull();
   });
 
   it("onExit with reason=natural code=0 → silent close, no toast", () => {
@@ -486,10 +531,48 @@ describe("TerminalPanel", () => {
       />,
     );
     act(() => capturedArgs?.onExit?.({ code: 0, reason: "connection_lost" }));
-    expect(toastMocks.toast.error).toHaveBeenCalled();
+    // The banner is the only report — no duplicate toast.
+    expect(toastMocks.toast.error).not.toHaveBeenCalled();
+    expect(toastMocks.toast.warning).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     // Banner should be rendered with role=alert
     expect(getByRole("alert")).toHaveTextContent("Connection lost");
+  });
+
+  it("Given the connection is lost and the host can open terminals, When New terminal is clicked, Then the host opens a fresh one and this tab stays", () => {
+    const onClose = vi.fn();
+    const onNewTerminal = vi.fn();
+    const { getByRole } = render(
+      <TerminalPanel
+        terminalID="t1"
+        projectId={42}
+        deviceId=""
+        onClose={onClose}
+        onNewTerminal={onNewTerminal}
+      />,
+    );
+    act(() => capturedArgs?.onExit?.({ code: 0, reason: "connection_lost" }));
+
+    act(() => getByRole("button", { name: "New terminal" }).click());
+    expect(onNewTerminal).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+
+    act(() => getByRole("button", { name: "Close" }).click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given the host supplies no onNewTerminal, When the connection is lost, Then the banner offers only Close", () => {
+    const { getByRole, queryByRole } = render(
+      <TerminalPanel
+        terminalID="t1"
+        projectId={42}
+        deviceId=""
+        onClose={vi.fn()}
+      />,
+    );
+    act(() => capturedArgs?.onExit?.({ code: 0, reason: "connection_lost" }));
+    expect(getByRole("button", { name: "Close" })).toBeInTheDocument();
+    expect(queryByRole("button", { name: "New terminal" })).toBeNull();
   });
 
   it("Given the connection-lost banner, When rendered, Then it and its close button are fills without edges", () => {

@@ -22,12 +22,19 @@ vi.mock("@agentre-hub/agentre-ui/terminal", () => ({
   TerminalPanel: ({
     terminalID,
     active,
+    onNewTerminal,
   }: {
     terminalID: string;
     active: boolean;
+    onNewTerminal?: () => void;
   }) => (
     <div data-testid="terminal-panel" data-terminal-id={terminalID}>
       terminal {terminalID} {active ? "active" : "inactive"}
+      {onNewTerminal ? (
+        <button type="button" onClick={onNewTerminal}>
+          new-terminal-{terminalID}
+        </button>
+      ) : null}
     </div>
   ),
 }));
@@ -283,6 +290,32 @@ describe("ChatPanelHost", () => {
     const nextPanels = screen.getAllByTestId("terminal-panel");
     expect(nextPanels[0]).toHaveTextContent("active");
     expect(nextPanels[1]).toHaveTextContent("inactive");
+  });
+
+  it("Given a terminal tab lost its connection, When New terminal is clicked, Then a fresh terminal tab opens for the same project and device and the old tab stays", async () => {
+    useChatTabsStore.getState().openTerminal(7, "dev-1", undefined);
+    const old = useChatTabsStore.getState().tabs[0];
+    const oldMeta = old.meta as Extract<typeof old.meta, { kind: "terminal" }>;
+
+    render(<ChatPanelHost />);
+    const button = await screen.findByRole("button", {
+      name: `new-terminal-${oldMeta.terminalId}`,
+    });
+    act(() => button.click());
+
+    const tabs = useChatTabsStore.getState().tabs;
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0].id).toBe(old.id);
+    const fresh = tabs[1];
+    expect(fresh.meta).toMatchObject({
+      kind: "terminal",
+      projectId: 7,
+      deviceId: "dev-1",
+    });
+    expect((fresh.meta as typeof oldMeta).terminalId).not.toBe(
+      oldMeta.terminalId,
+    );
+    expect(useChatTabsStore.getState().activeTabId).toBe(fresh.id);
   });
 
   it("kind:'new' tab 从 chat-agents-store 取 agent 并渲染新会话面板", () => {
