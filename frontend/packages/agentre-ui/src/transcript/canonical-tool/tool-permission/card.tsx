@@ -156,7 +156,7 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
 }) => {
   const { t } = useUiTranslation();
   // submit 必须在任何 early-return 前取到,否则两次 render 之间 hook 数会变化。
-  const { payload, isResolved, submitting, error, submit } =
+  const { payload, isResolved, submitting, error, errorDetail, submit } =
     useToolPermissionDecision({ toolBlock, sessionId, messageId });
   const hideShortcutHints = useShortcutHintsHidden();
 
@@ -333,7 +333,12 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
             )}
           </Button>
           {error && (
-            <span className="text-aux text-destructive-text">{error}</span>
+            <span
+              title={errorDetail}
+              className="text-aux text-destructive-text"
+            >
+              {error}
+            </span>
           )}
         </TranscriptCardBody>
       )}

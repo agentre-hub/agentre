@@ -181,7 +181,11 @@ describe("ToolPermissionDock submits through the card's path", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
 
-    expect(await screen.findByText("no waiting")).toBeDefined();
+    // 正文是本地化事实句，机器原话只进 title。
+    const fact = await screen.findByRole("alert");
+    expect(fact.textContent).toBe("Approval submission failed");
+    expect(fact.getAttribute("title")).toBe("no waiting");
+    expect(screen.queryByText("no waiting")).toBeNull();
     expect(markToolPermissionResolved).toHaveBeenLastCalledWith(
       expect.objectContaining({
         toolPermission: expect.objectContaining({ resolved: false }),

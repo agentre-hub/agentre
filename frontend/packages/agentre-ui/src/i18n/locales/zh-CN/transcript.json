@@ -175,6 +175,7 @@
         "sendWithoutFeedback": "不填反馈直接继续规划",
         "title": "附反馈继续规划"
       },
+      "submitFailed": "计划操作没提交成功",
       "refineDefaultPrompt": "继续完善上述计划。",
       "subtitle": {
         "approved": "开始执行计划",
@@ -229,7 +230,8 @@
       "errors": {
         "optionRequired": "请先选择一个选项再提交",
         "otherRequired": "已选「自定义答案」请填写内容",
-        "expired": "提问已失效：会话已结束或已被新消息跳过"
+        "expired": "提问已失效：会话已结束或已被新消息跳过",
+        "submitFailed": "没提交成功"
       },
       "multi": "多选",
       "otherPlaceholder": "自定义答案 — 输入你自己的方案…",

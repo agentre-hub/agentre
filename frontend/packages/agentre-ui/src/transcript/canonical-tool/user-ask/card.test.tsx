@@ -311,10 +311,8 @@ describe("UserAskCard", () => {
     expect(screen.queryByText("Submit reply")).toBeNull();
   });
 
-  it("on submit failure shows expired message and locks the card", async () => {
-    const user = userEvent.setup();
-    answerUserQuestion.mockRejectedValueOnce("no waiting AskUserQuestion");
-    const block = {
+  function singleBlock(): TranscriptBlock {
+    return {
       type: "tool_use",
       toolName: "AskUserQuestion",
       canonical: {
@@ -331,14 +329,100 @@ describe("UserAskCard", () => {
         },
       },
     } as unknown as TranscriptBlock;
-    renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
+  }
+
+  it("Given the question no longer exists, When submit fails with the runtime's no-waiter signal, Then the card shows expired and locks", async () => {
+    const user = userEvent.setup();
+    answerUserQuestion.mockRejectedValueOnce(
+      "agentruntime/runtimes/claudecode: no waiting AskUserQuestion for requestID req-1: agentruntime: no waiting request for requestID",
+    );
+    renderCard(<UserAskCard toolBlock={singleBlock()} sessionId={1} />);
     await user.click(screen.getByText("A"));
     await user.click(screen.getByText("Submit Reply"));
     await waitFor(() => {
-      expect(screen.getByText(/提问已失效|已结束|superseded/i)).toBeDefined();
+      expect(screen.getByText(/superseded/i)).toBeDefined();
     });
+    expect(screen.getByText("EXPIRED")).toBeDefined();
     // 锁卡:提交按钮消失
     expect(screen.queryByText("Submit Reply")).toBeNull();
+    // 已失效不是「没提交成功」，也不贴原文。
+    expect(screen.queryByText("Couldn't submit")).toBeNull();
+    expect(screen.queryByText(/no waiting/)).toBeNull();
+  });
+
+  it("Given any other submit failure, When it fails, Then the card stays unlocked with the selection kept, says it was not submitted with the raw text folded, and can be resubmitted", async () => {
+    const user = userEvent.setup();
+    answerUserQuestion.mockRejectedValueOnce(
+      new Error("websocket: close 1006 (abnormal closure)"),
+    );
+    renderCard(<UserAskCard toolBlock={singleBlock()} sessionId={1} />);
+    await user.type(screen.getByRole("textbox"), "my own answer");
+    await user.click(screen.getByText("Submit Reply"));
+
+    expect(await screen.findByText("Couldn't submit")).toBeDefined();
+    // 原文只在默认折叠的详情里。
+    const raw = screen.getByText("websocket: close 1006 (abnormal closure)");
+    const details = raw.closest("details");
+    expect(details).not.toBeNull();
+    expect(details!.open).toBe(false);
+    // 不锁卡、不判失效。
+    expect(screen.queryByText("EXPIRED")).toBeNull();
+    expect(screen.queryByText(/superseded/i)).toBeNull();
+    expect(screen.getByText(/WAITING/)).toBeDefined();
+    // 选择保留。
+    expect(screen.getByRole("textbox")).toHaveValue("my own answer");
+    expect(screen.getByRole("textbox")).not.toBeDisabled();
+
+    // 可再次提交：带着同一份答案，成功后失败提示消失。
+    await user.click(screen.getByText("Submit Reply"));
+    await waitFor(() => expect(answerUserQuestion).toHaveBeenCalledTimes(2));
+    expect(answerUserQuestion.mock.calls[1][0]).toEqual(
+      answerUserQuestion.mock.calls[0][0],
+    );
+    expect(answerUserQuestion.mock.calls[1][0].answers).toEqual([
+      {
+        questionIndex: 0,
+        labels: ["__other__"],
+        otherText: "my own answer",
+      },
+    ]);
+    await waitFor(() =>
+      expect(screen.queryByText("Couldn't submit")).toBeNull(),
+    );
+  });
+
+  it("Given several questions with a later one unanswered, When submitting, Then the card switches to the first unanswered question and shows the error there", async () => {
+    const user = userEvent.setup();
+    renderCard(<UserAskCard toolBlock={draftBlock()} sessionId={1} />);
+    // 只答第一题，停在第一题上提交。
+    await user.click(screen.getByText("A"));
+    await user.click(screen.getByText("Submit Reply"));
+
+    expect(await screen.findByText("Second question?")).toBeDefined();
+    expect(screen.queryByText("First question?")).toBeNull();
+    expect(
+      screen.getByText("Select an option before submitting"),
+    ).toBeDefined();
+    expect(answerUserQuestion).not.toHaveBeenCalled();
+
+    // 错误属于缺答的那一题：切回已答的题不跟着显示。
+    await user.click(screen.getByRole("tab", { name: /Q1/ }));
+    expect(screen.getByText("First question?")).toBeDefined();
+    expect(screen.queryByText("Select an option before submitting")).toBeNull();
+  });
+
+  it("Given several questions with an earlier one unanswered, When submitting from the last one, Then the card switches back to the first unanswered question", async () => {
+    const user = userEvent.setup();
+    renderCard(<UserAskCard toolBlock={draftBlock()} sessionId={1} />);
+    await user.click(screen.getByRole("tab", { name: /Q2/ }));
+    await user.click(screen.getByText("B"));
+    await user.click(screen.getByText("Submit Reply"));
+
+    expect(await screen.findByText("First question?")).toBeDefined();
+    expect(
+      screen.getByText("Select an option before submitting"),
+    ).toBeDefined();
+    expect(answerUserQuestion).not.toHaveBeenCalled();
   });
 
   it("Given a saved draft, When the answer is submitted, Then remounting does not restore it", async () => {

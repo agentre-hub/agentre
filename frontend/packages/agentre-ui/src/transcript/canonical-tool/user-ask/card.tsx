@@ -31,6 +31,8 @@ import { cn } from "../../../lib/utils";
 import { useCollapsible } from "../../../hooks/use-collapsible";
 import { useTranscriptBooleanState } from "../../transcript-ui-state";
 import { useUiTranslation } from "../../../i18n";
+import { isAskExpiredError } from "../../ask-expired";
+import { FailureDetail, failureDetailText } from "../../failure-detail";
 
 import type { CanonicalCardProps } from "../props";
 import type {
@@ -46,6 +48,9 @@ const OTHER_LABEL = "__other__";
 
 type Selection = { labels: string[]; otherText: string };
 type UserAskDraftState = { activeQIdx: number; selections: Selection[] };
+// 卡内的一条错误。qIdx 有值时它属于那一题(漏答),只在那一题下显示;detail 是
+// 提交失败的机器原话,只进折叠的详情。
+type CardError = { message: string; qIdx?: number; detail?: string };
 
 function readUserAsk(toolBlock: unknown): UserAskDTO | undefined {
   const c = (toolBlock as { canonical?: CanonicalDTO }).canonical;
@@ -94,8 +99,9 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
     return saved?.selections ?? initialSelections(payload);
   });
   const [submitting, setSubmitting] = React.useState(false);
-  const [failed, setFailed] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  // 提交时运行时答复「提问已不存在」——只有这种失败锁卡。
+  const [expiredOnSubmit, setExpiredOnSubmit] = React.useState(false);
+  const [error, setError] = React.useState<CardError | null>(null);
   const totalQs = payload?.questions?.length ?? 0;
   const [activeQIdx, setActiveQIdx] = React.useState(() => {
     const saved = loadTranscriptDraftState<UserAskDraftState>(
@@ -109,7 +115,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
 
   const isAnswered = !!payload?.answered;
   const isSkipped = !!payload?.skipped;
-  const isExpired = !!payload?.expired || failed;
+  const isExpired = !!payload?.expired || expiredOnSubmit;
   const isLocked = isAnswered || isSkipped || isExpired || submitting;
 
   React.useEffect(() => {
@@ -166,14 +172,18 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
       setError(null);
       const skipped = !!overrideSkipped;
       if (!skipped) {
+        // 漏答:切到第一道缺答的题,错误挂在那一题下。
         for (let i = 0; i < (payload.questions ?? []).length; i++) {
           const sel = selections[i];
-          if (!sel || sel.labels.length === 0) {
-            setError(t("canonical.userAsk.errors.optionRequired"));
-            return;
-          }
-          if (sel.labels.includes(OTHER_LABEL) && !sel.otherText.trim()) {
-            setError(t("canonical.userAsk.errors.otherRequired"));
+          const missing =
+            !sel || sel.labels.length === 0
+              ? "canonical.userAsk.errors.optionRequired"
+              : sel.labels.includes(OTHER_LABEL) && !sel.otherText.trim()
+                ? "canonical.userAsk.errors.otherRequired"
+                : null;
+          if (missing) {
+            setActiveQIdx(i);
+            setError({ message: t(missing), qIdx: i });
             return;
           }
         }
@@ -196,9 +206,17 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
         draftClearedRef.current = true;
         clearTranscriptDraftState(tabStateKey, draftKey);
         setCollapsed(true);
-      } catch {
-        setFailed(true);
-        setError(t("canonical.userAsk.errors.expired"));
+      } catch (err) {
+        if (isAskExpiredError(err)) {
+          setExpiredOnSubmit(true);
+          setError({ message: t("canonical.userAsk.errors.expired") });
+        } else {
+          // 其余失败可重试:不锁卡,选择原样留着。
+          setError({
+            message: t("canonical.userAsk.errors.submitFailed"),
+            detail: failureDetailText(err),
+          });
+        }
       } finally {
         setSubmitting(false);
       }
@@ -292,11 +310,16 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
                     onOther={setOtherText}
                   />
                 )}
-                {error && (
-                  <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive-text">
-                    {error}
-                  </div>
-                )}
+                {error &&
+                  (error.qIdx === undefined || error.qIdx === activeQIdx) && (
+                    <div
+                      role="alert"
+                      className="flex flex-col gap-1 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive-text"
+                    >
+                      <p>{error.message}</p>
+                      <FailureDetail detail={error.detail} />
+                    </div>
+                  )}
               </TranscriptCardBody>
 
               {!isLocked && (
