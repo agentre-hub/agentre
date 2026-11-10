@@ -6,9 +6,10 @@
  * 与单后端两种故障条。**答不出的机器不得被折成「这台机器没有会话」**
  * （规格「远端」），所以故障条与空态各占各的位置，谁都不吞掉谁。
  */
-import { CircleAlert, Loader2, TriangleAlert } from "lucide-react";
+import { Loader2, TriangleAlert } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
+import { FailureDetail } from "../transcript/failure-detail";
 import { Button } from "../ui/button";
 import { SearchInput } from "../ui/search-input";
 import {
@@ -248,17 +249,31 @@ export function CandidateColumn({
           </div>
         ) : null}
 
+        {/*
+          与「已停止」同一版式、同一个出口：失败也是「这一次没扫完」，能做的
+          事一样是再扫一次。机器原话只进折叠的详情（规格 A6）。
+        */}
         {scan.kind === "failed" ? (
           <div
             data-testid="import-scan-failed"
             role="alert"
-            className="flex items-start gap-2 rounded-md bg-destructive-soft px-3 py-2.5 text-destructive-text"
+            className="flex flex-col items-center gap-2 px-4 py-8 text-center"
           >
-            <CircleAlert
-              className="mt-0.5 size-3.5 shrink-0"
-              aria-hidden="true"
+            <span className="text-xs text-destructive-text">
+              {t("importSession.scan.failed")}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onRescan}
+            >
+              {t("importSession.scan.rescan")}
+            </Button>
+            <FailureDetail
+              detail={scan.message}
+              className="w-full text-left text-2xs text-muted-foreground"
             />
-            <span className="text-2xs break-words">{scan.message}</span>
           </div>
         ) : null}
 

@@ -7,6 +7,8 @@
  */
 import * as React from "react";
 
+import { failureDetailText } from "../transcript/failure-detail";
+
 import type { PreviewState } from "./preview-pane";
 import type {
   ImportAgentOption,
@@ -55,6 +57,7 @@ export type ScanState =
   | { kind: "done"; result: ImportCandidatesResult }
   /** 用户按了「停止」：不再等这一次的结果（后台那次扫描的结果直接丢弃）。 */
   | { kind: "stopped" }
+  /** `message` 是机器原话，只进折叠的「详情」；可能为空串（取不到原文）。 */
   | { kind: "failed"; message: string };
 
 /** 导入进行中的进度。`requestId` 是宿主用来叫停这一笔的凭据。 */
@@ -62,11 +65,6 @@ export interface ImportProgress {
   done: number;
   total: number;
   requestId: string;
-}
-
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
 }
 
 export interface UseImportSessionArgs {
@@ -104,7 +102,8 @@ export interface ImportSessionState {
   agent: ImportAgentOption | null;
   setAgentId(id: string): void;
   importing: ImportProgress | null;
-  importError: string;
+  /** 导入失败的机器原话；`null` 表示没失败（原话可能取不到，是空串）。 */
+  importError: string | null;
   canImport: boolean;
   runImport(): void;
   stopScan(): void;
@@ -140,7 +139,7 @@ export function useImportSession({
    * （规格「续跑」的那条出口）。换一条候选就作废：它是跟着某一条会话选的。
    */
   const [cwdOverride, setCwdOverride] = React.useState("");
-  const [importError, setImportError] = React.useState("");
+  const [importError, setImportError] = React.useState<string | null>(null);
   /** 「重新扫描」靠它推一把：筛选条件没变，只靠 deps 是不会重跑的。 */
   const [scanNonce, setScanNonce] = React.useState(0);
   /** 每次「现在」只取一次：分组与时刻格式化共用，免得每行各 new 一个 Date。 */
@@ -174,7 +173,7 @@ export function useImportSession({
             },
             (err: unknown) => {
               if (scanToken.current !== token) return;
-              setScan({ kind: "failed", message: errorMessage(err) });
+              setScan({ kind: "failed", message: failureDetailText(err) });
             },
           );
         // 输入中不要每个字符打一次磁盘遍历；首次打开（query 为空）立刻扫。
@@ -232,7 +231,7 @@ export function useImportSession({
         },
         (err: unknown) => {
           if (previewToken.current !== token) return;
-          setPreview({ kind: "error", message: errorMessage(err) });
+          setPreview({ kind: "error", message: failureDetailText(err) });
         },
       );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -282,7 +281,7 @@ export function useImportSession({
 
   const runImport = React.useCallback(() => {
     if (!active || !agent) return;
-    setImportError("");
+    setImportError(null);
     canceledRef.current = false;
     const requestId = newRequestId();
     setImporting({ done: 0, total: previewReady?.meta.turns ?? 0, requestId });
@@ -306,7 +305,7 @@ export function useImportSession({
           setImporting(null);
           // 取消之后那次失败是用户自己要的，报出来只会让人以为出了别的问题。
           if (canceledRef.current) return;
-          setImportError(errorMessage(err));
+          setImportError(failureDetailText(err));
         },
       );
     // eslint-disable-next-line react-hooks/exhaustive-deps

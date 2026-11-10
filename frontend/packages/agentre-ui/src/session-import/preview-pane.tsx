@@ -16,6 +16,7 @@ import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 import { AgentBackendLogo } from "../engine/ai-brand-logo";
 import { Button } from "../ui/button";
+import { FailureDetail } from "../transcript/failure-detail";
 import { MESSAGE_AVATAR_CLASS } from "../transcript/message-row";
 import { buildSettledTranscriptRows } from "../transcript/transcript-rows";
 import {
@@ -218,7 +219,7 @@ export function PreviewPane({ state, onOpenImported }: PreviewPaneProps) {
               <span className="text-xs font-semibold">
                 {t("importSession.preview.failedTitle")}
               </span>
-              <span className="text-2xs break-words">{state.message}</span>
+              <FailureDetail detail={state.message} className="text-2xs" />
             </div>
           </div>
         ) : null}

@@ -127,7 +127,8 @@
       "running": "Scanning local sessions…",
       "stop": "Stop",
       "stopped": "Scan stopped",
-      "rescan": "Scan again"
+      "rescan": "Scan again",
+      "failed": "Scan did not finish"
     },
     "empty": {
       "title": "No sessions to import",
@@ -177,7 +178,8 @@
       "title": "Importing “{{title}}”",
       "progress": "{{done}} / {{total}} turns written",
       "progressUnknown": "{{done}} turns written",
-      "cancel": "Cancel import"
+      "cancel": "Cancel import",
+      "failed": "Import did not finish"
     }
   }
 }
