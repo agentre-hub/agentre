@@ -95,6 +95,10 @@
       "time": "时间",
       "title": "分组方式"
     },
+    "deleteDialog": {
+      "description": "删除「{{title}}」？它的所有消息会被一并清除，且无法恢复。",
+      "failed": "没能删除这条会话"
+    },
     "free": {
       "empty": "还没有随手对话",
       "name": "随手对话"
@@ -104,6 +108,9 @@
     },
     "machine": {
       "local": "本机"
+    },
+    "renameDialog": {
+      "failed": "没能重命名这条会话"
     },
     "search": {
       "aria": "搜索会话、项目或 Agent",

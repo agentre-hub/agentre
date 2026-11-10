@@ -95,6 +95,10 @@
       "time": "Time",
       "title": "Group by"
     },
+    "deleteDialog": {
+      "description": "Delete “{{title}}”? All of its messages are removed too, and this cannot be undone.",
+      "failed": "Couldn't delete this session"
+    },
     "free": {
       "empty": "No quick chats yet",
       "name": "Quick chats"
@@ -104,6 +108,9 @@
     },
     "machine": {
       "local": "This machine"
+    },
+    "renameDialog": {
+      "failed": "Couldn't rename this session"
     },
     "search": {
       "aria": "Search sessions, projects or agents",
