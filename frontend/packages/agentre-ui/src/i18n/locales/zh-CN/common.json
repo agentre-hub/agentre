@@ -67,6 +67,9 @@
     "insecureContext": "当前页面不支持复制图片，需要通过 HTTPS 访问"
   },
   "imageViewer": {
+    "open": "查看大图",
+    "openWithName": "查看大图：{{name}}",
+    "copyImage": "复制图片",
     "title": "图片查看",
     "titleWithName": "图片查看：{{name}}",
     "copy": "复制",

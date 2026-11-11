@@ -67,6 +67,9 @@
     "insecureContext": "This page cannot copy images. Open it over HTTPS to copy images."
   },
   "imageViewer": {
+    "open": "View image",
+    "openWithName": "View image: {{name}}",
+    "copyImage": "Copy image",
     "title": "Image viewer",
     "titleWithName": "Image viewer: {{name}}",
     "copy": "Copy",

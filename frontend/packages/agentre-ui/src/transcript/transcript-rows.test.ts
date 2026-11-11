@@ -54,11 +54,51 @@ function toolResult(
   return { text, toolUseId, type: "tool_result", ...extra } as TranscriptBlock;
 }
 
+function image(dataUrl: string, name?: string): TranscriptBlock {
+  return {
+    type: "image",
+    image: { dataUrl, mediaType: dataUrl.slice(5, dataUrl.indexOf(";")), name },
+  } as TranscriptBlock;
+}
+
 function text(t: string): TranscriptBlock {
   return { type: "text", text: t } as TranscriptBlock;
 }
 
 describe("buildRenderItems", () => {
+  it("同一条消息里的图片块（含 liveBlocks）共用一组，按出现顺序；子代理内部的图不进组", () => {
+    const a = image("data:image/png;base64,AAAA", "a.png");
+    const b = image("data:image/png;base64,BBBB", "b.png");
+    const live = image("data:image/jpeg;base64,CCCC");
+    const nested = {
+      ...image("data:image/png;base64,DDDD"),
+      parentToolUseId: "toolu-agent",
+    };
+    const items = buildRenderItems({
+      messageId: 7,
+      blocks: [a, text("中间的说明"), b, nested],
+      liveBlocks: [live],
+    });
+
+    const images = items.filter((item) => item.type === "image");
+    expect(images).toHaveLength(3);
+    for (const item of images) {
+      expect(item.type === "image" && item.group).toEqual([a, b, live]);
+    }
+    expect(images.map((item) => item.type === "image" && item.block)).toEqual([
+      a,
+      b,
+      live,
+    ]);
+  });
+
+  it("只有一张图时 group 只有它自己", () => {
+    const only = image("data:image/png;base64,AAAA");
+    const [item] = buildRenderItems({ messageId: 8, blocks: [only] });
+
+    expect(item).toMatchObject({ type: "image", group: [only] });
+  });
+
   it("合并连续 text block,并把 tool_use/tool_result 按 toolUseId 配对成单个 tool item", () => {
     const items = buildRenderItems({
       messageId: 5,
@@ -946,7 +986,12 @@ describe("estimateRowSize", () => {
       case "placeholder":
         return { type: "placeholder" };
       case "image":
-        return { block: {} as TranscriptBlock, type: "image", uiStateKey: "k" };
+        return {
+          block: {} as TranscriptBlock,
+          group: [],
+          type: "image",
+          uiStateKey: "k",
+        };
       case "thinking":
         return {
           block: {} as TranscriptBlock,
