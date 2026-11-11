@@ -111,6 +111,16 @@ export {
   setClipboardWriter,
 } from "./lib/clipboard-toast";
 export type { ClipboardWriter } from "./lib/clipboard-toast";
+export {
+  copyImageToClipboard,
+  copyImageWithToast,
+  imageToPngBlob,
+  setClipboardImageWriter,
+} from "./lib/clipboard-image";
+export type {
+  ClipboardImageWriter,
+  CopyableImage,
+} from "./lib/clipboard-image";
 export { AgentAvatar, getAgentInitials } from "./ui/agent-avatar";
 export { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 export { Badge } from "./ui/badge";

@@ -61,6 +61,11 @@
     "unknownError": "未知错误",
     "saveChanges": "保存更改"
   },
+  "imageCopy": {
+    "copied": "已复制图片",
+    "failed": "复制图片失败",
+    "insecureContext": "当前页面不支持复制图片，需要通过 HTTPS 访问"
+  },
   "theme": {
     "dark": "深色",
     "darkMode": "深色模式",

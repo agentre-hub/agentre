@@ -18,16 +18,22 @@ type CopyTextWithToastOptions = {
 };
 
 // 没有任何可用复制通道：和「有通道但这次被拒」是两回事，文案不同。
-class NoClipboardChannelError extends Error {}
+export class NoClipboardChannelError extends Error {}
 
 /**
  * 把复制失败翻成给用户看的中文事实句。浏览器 / Go 的原话（err.message）永远
  * 不进可见文案——它是英文且描述的是 API 调用而不是用户能做的事。
  * `NotAllowedError` 同时覆盖权限被拒与文档未聚焦两种情形。
+ *
+ * `insecureContextKey`：「没有通道」时说哪句。文字和图片的出路不同（文字在
+ * localhost 上也能复制，图片的 execCommand 兜底不存在），所以由调用方给。
  */
-function copyFailureDescription(err: unknown): string {
+export function copyFailureDescription(
+  err: unknown,
+  insecureContextKey = "clipboard.insecureContext",
+): string {
   if (err instanceof NoClipboardChannelError) {
-    return i18n.t("clipboard.insecureContext", { ns: AGENTRE_UI_NAMESPACE });
+    return i18n.t(insecureContextKey, { ns: AGENTRE_UI_NAMESPACE });
   }
   if (err instanceof DOMException && err.name === "NotAllowedError") {
     return i18n.t("common.copyPermissionDenied", { ns: AGENTRE_UI_NAMESPACE });

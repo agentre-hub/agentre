@@ -61,6 +61,11 @@
     "unknownError": "Unknown error",
     "saveChanges": "Save changes"
   },
+  "imageCopy": {
+    "copied": "Image copied",
+    "failed": "Failed to copy image",
+    "insecureContext": "This page cannot copy images. Open it over HTTPS to copy images."
+  },
   "theme": {
     "dark": "Dark",
     "darkMode": "Dark mode",
