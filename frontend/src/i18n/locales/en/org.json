@@ -122,7 +122,11 @@
       "charCount": "{{count}} chars",
       "deleteDialog": {
         "description": "This also clears the agent's conversations, skills, and state records. This action cannot be undone.",
-        "title": "Delete agent \"{{name}}\"?"
+        "title": "Delete agent \"{{name}}\"?",
+        "memories": "Its {{count}} memories are deleted too.",
+        "memories_one": "Its {{count}} memory is deleted too.",
+        "memories_other": "Its {{count}} memories are deleted too.",
+        "noMemories": "It has no memories."
       },
       "departmentLead": "{{name}} department lead",
       "skills": {
@@ -167,7 +171,11 @@
         "reparentDescription": "Recommended / safe · Move direct children to this department's parent",
         "reparentTitle": "Move members to parent department",
         "strategyTitle": "Choose how to handle children",
-        "title": "Delete \"{{name}}\"?"
+        "title": "Delete \"{{name}}\"?",
+        "memories": "Its {{count}} memories are deleted too.",
+        "memories_one": "Its {{count}} memory is deleted too.",
+        "memories_other": "Its {{count}} memories are deleted too.",
+        "noMemories": "It has no memories."
       },
       "departmentMemberCount": "{{count}} members",
       "leadHint": "Choose from direct agents",

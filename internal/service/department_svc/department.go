@@ -11,9 +11,11 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/service/memory_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
@@ -439,6 +441,9 @@ func (s *departmentSvc) Delete(ctx context.Context, req *DeleteDepartmentRequest
 		movedAgents   []*agent_entity.Agent
 		deletedAgents []*agent_entity.Agent
 		deletedDepts  []*department_entity.Department
+		// memoryOwners 随这次删除一并消失的归属；它们名下的记忆在同一个事务里删。
+		memoryOwners     []memory_entity.Owner
+		memoryTombstones []sync_svc.LocalChange
 	)
 	err = s.tx.RunInTx(ctx, func(txCtx context.Context) error {
 		switch strategy {
@@ -495,6 +500,7 @@ func (s *departmentSvc) Delete(ctx context.Context, req *DeleteDepartmentRequest
 				if a := byID[agentID]; a != nil {
 					deletedAgents = append(deletedAgents, a)
 				}
+				memoryOwners = append(memoryOwners, memory_entity.Owner{Kind: memory_entity.OwnerAgent, ID: agentID})
 			}
 			deptByID := make(map[int64]*department_entity.Department, len(all))
 			for _, d := range all {
@@ -507,15 +513,26 @@ func (s *departmentSvc) Delete(ctx context.Context, req *DeleteDepartmentRequest
 				if d := deptByID[id]; d != nil {
 					deletedDepts = append(deletedDepts, d)
 				}
+				memoryOwners = append(memoryOwners, memory_entity.Owner{Kind: memory_entity.OwnerDepartment, ID: id})
 			}
-			return nil
+			memoryTombstones, err = memory_svc.DeleteOwned(txCtx, memoryOwners...)
+			return err
 		default:
 			return i18n.NewError(ctx, code.InvalidParameter)
+		}
+		var err error
+		memoryTombstones, err = memory_svc.DeleteOwned(txCtx, memory_entity.Owner{Kind: memory_entity.OwnerDepartment, ID: existing.ID})
+		if err != nil {
+			return err
 		}
 		return department_repo.Department().Delete(txCtx, existing.ID)
 	})
 	if err != nil {
 		return nil, err
+	}
+	// 记忆是硬删，墓碑凭删前读到的元数据，提交成功之后才发。
+	for _, ch := range memoryTombstones {
+		sync_svc.Notify(ctx, ch)
 	}
 	for _, a := range movedAgents {
 		sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, a.ID, a.SyncMeta)

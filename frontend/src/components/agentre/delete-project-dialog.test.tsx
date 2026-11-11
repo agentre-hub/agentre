@@ -5,6 +5,8 @@ const appMocks = vi.hoisted(() => ({
   ProjectDelete: vi.fn(),
   ProjectLocationList: vi.fn(),
   RemoteDeviceList: vi.fn(),
+  ProjectListTree: vi.fn(),
+  MemoryCountsByOwner: vi.fn(),
 }));
 
 vi.mock("../../../wailsjs/go/app/App", () => appMocks);
@@ -35,6 +37,45 @@ beforeEach(() => {
   appMocks.ProjectDelete.mockResolvedValue(undefined);
   appMocks.ProjectLocationList.mockResolvedValue([]);
   appMocks.RemoteDeviceList.mockResolvedValue([]);
+  appMocks.ProjectListTree.mockResolvedValue([]);
+  appMocks.MemoryCountsByOwner.mockResolvedValue([]);
+});
+
+describe("名下的记忆", () => {
+  const node = (id: number, children: unknown[] = []) => ({
+    project: { id },
+    children,
+  });
+
+  it("把这棵子树里每个项目的记忆加起来；别的项目的不算", async () => {
+    appMocks.ProjectListTree.mockResolvedValue([
+      node(7, [node(8, [node(9)])]),
+      node(20),
+    ]);
+    appMocks.MemoryCountsByOwner.mockResolvedValue([
+      { owner: { kind: "project", id: 7 }, count: 2 },
+      { owner: { kind: "project", id: 9 }, count: 4 },
+      { owner: { kind: "project", id: 20 }, count: 50 },
+      { owner: { kind: "agent", id: 7 }, count: 60 },
+    ]);
+    renderDialog({ id: 7, name: "Nebula", childCount: 2 });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("delete-project-memories")).toHaveTextContent(
+        "6",
+      ),
+    );
+  });
+
+  it("读不上来就不提记忆，而不是说「没有记忆」", async () => {
+    appMocks.MemoryCountsByOwner.mockRejectedValue(new Error("boom"));
+    renderDialog({ id: 7, name: "Nebula" });
+
+    await waitFor(() =>
+      expect(appMocks.MemoryCountsByOwner).toHaveBeenCalled(),
+    );
+    expect(screen.queryByTestId("delete-project-memories")).toBeNull();
+  });
 });
 
 describe("接缝", () => {

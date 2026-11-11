@@ -35,6 +35,11 @@ export interface ProjectDeleteDialogProps {
   /** 这棵子树下还有几个项目（不含它自己）。 */
   childCount: number;
   /**
+   * 这棵子树（含它自己）名下会一并删掉的记忆条数，由宿主汇总。不传就不画这一行——
+   * 没有记忆功能的宿主（或还没读到数）不该被说成「没有记忆」。
+   */
+  memoryCount?: number;
+  /**
    * 配了这个项目、但此刻联系不上的机器名。空数组 = 都在线。
    *
    * 由宿主点名而不是包去猜：这两句话说的是**不同的事**，给一个空名单配上「这些
@@ -50,6 +55,7 @@ export function ProjectDeleteDialog({
   onOpenChange,
   project,
   childCount,
+  memoryCount,
   offlineMachines,
   ports,
   onDeleted,
@@ -117,6 +123,13 @@ export function ProjectDeleteDialog({
               ? t("projectSettings.delete.children", { count: childCount })
               : t("projectSettings.delete.noChildren")}
           </li>
+          {memoryCount !== undefined ? (
+            <li data-testid="delete-project-memories">
+              {memoryCount > 0
+                ? t("projectSettings.delete.memories", { count: memoryCount })
+                : t("projectSettings.delete.noMemories")}
+            </li>
+          ) : null}
           <li data-testid="delete-project-sessions">
             {t("projectSettings.delete.sessions")}
           </li>

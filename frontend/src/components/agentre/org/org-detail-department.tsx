@@ -1,10 +1,13 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import type { MemoryOwnerRef } from "@agentre-hub/agentre-ui";
+
 import type { department_svc } from "../../../../wailsjs/go/models";
 
 import { safeAgentColor, type OrgAgent, type OrgDepartment } from "./types";
 import { useAutoSave } from "./use-auto-save";
+import { useMemoryDeleteCount } from "./use-memory-delete-count";
 import { AutoSaveStatus } from "./auto-save-status";
 import {
   DeleteDepartmentDialog,
@@ -14,6 +17,24 @@ import { OrgDetailDepartmentHeader } from "./org-detail-department-header";
 import { OrgDetailDepartmentMembers } from "./org-detail-department-members";
 import { OrgDetailDepartmentStructure } from "./org-detail-department-structure";
 import { writeFailureOf, type WriteFailure } from "./write-failure-line";
+
+/** 某个部门连同它所有后代部门的 id。 */
+function departmentSubtreeIds(
+  all: OrgDepartment[],
+  rootId: number,
+): Set<number> {
+  const ids = new Set<number>([rootId]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const d of all) {
+      if (!ids.has(d.id) && ids.has(d.parentId)) {
+        ids.add(d.id);
+        grew = true;
+      }
+    }
+  }
+  return ids;
+}
 
 type Props = {
   department: OrgDepartment;
@@ -62,6 +83,31 @@ export function OrgDetailDepartment(props: Props) {
   const [deletePromptOpen, setDeletePromptOpen] = React.useState(false);
   const [strategy, setStrategy] =
     React.useState<DeleteDepartmentStrategy>("reparent");
+
+  // 级联会连子部门和它们名下的 agent 一并删，记忆也跟着走（口径同后端
+  // department_svc.Delete：部门子树 + 子树里的 agent）。
+  const deleteMemoryOwners = React.useMemo(() => {
+    const owners: MemoryOwnerRef[] = [
+      { kind: "department", id: props.department.id },
+    ];
+    if (strategy === "cascade") {
+      const ids = departmentSubtreeIds(
+        props.allDepartments,
+        props.department.id,
+      );
+      for (const id of ids) {
+        if (id !== props.department.id) owners.push({ kind: "department", id });
+      }
+      for (const a of props.allAgents) {
+        if (ids.has(a.departmentId)) owners.push({ kind: "agent", id: a.id });
+      }
+    }
+    return owners;
+  }, [strategy, props.department.id, props.allDepartments, props.allAgents]);
+  const deleteMemoryCount = useMemoryDeleteCount(
+    deleteMemoryOwners,
+    deletePromptOpen,
+  );
 
   const [deleteFailure, setDeleteFailure] = React.useState<WriteFailure | null>(
     null,
@@ -163,6 +209,7 @@ export function OrgDetailDepartment(props: Props) {
         open={deletePromptOpen}
         departmentName={props.department.name}
         strategy={strategy}
+        memoryCount={deleteMemoryCount}
         failure={deleteFailure}
         onStrategyChange={setStrategy}
         onOpenChange={(o) => !o && setDeleteDialogOpen(false)}

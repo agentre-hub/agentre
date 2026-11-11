@@ -12,11 +12,13 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/service/department_svc"
+	"github.com/agentre-hub/agentre/internal/service/memory_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
@@ -303,6 +305,7 @@ func (s *agentSvc) Delete(ctx context.Context, req *DeleteAgentRequest) (*Delete
 	if existing.IsSystem() {
 		return nil, i18n.NewError(ctx, code.AgentSystemImmutable)
 	}
+	var memoryTombstones []sync_svc.LocalChange
 	err = s.tx.RunInTx(ctx, func(txCtx context.Context) error {
 		if err := agent_repo.Agent().ClearLeadOfDepartment(txCtx, existing.ID); err != nil {
 			return err
@@ -310,10 +313,20 @@ func (s *agentSvc) Delete(ctx context.Context, req *DeleteAgentRequest) (*Delete
 		if err := agent_repo.Agent().ReparentChildren(txCtx, existing.ID, existing.DepartmentID, existing.ParentAgentID); err != nil {
 			return err
 		}
+		// 名下的记忆随它一并删，与 agent 行同一个事务。
+		var err error
+		memoryTombstones, err = memory_svc.DeleteOwned(txCtx, memory_entity.Owner{Kind: memory_entity.OwnerAgent, ID: existing.ID})
+		if err != nil {
+			return err
+		}
 		return agent_repo.Agent().Delete(txCtx, existing.ID)
 	})
 	if err != nil {
 		return nil, err
+	}
+	// 记忆是硬删，墓碑只能凭删前读到的元数据，提交成功之后才发。
+	for _, ch := range memoryTombstones {
+		sync_svc.Notify(ctx, ch)
 	}
 	// 成员关系与执行目标列表项随它一并落墓碑，级联在同步层展开（R6）。
 	sync_svc.NotifyDelete(ctx, syncwire.KindAgent, existing.ID, existing.SyncMeta)

@@ -17,6 +17,7 @@ import {
 import { useBackendCapabilities } from "../capability/use-capabilities";
 import { safeAgentColor, type OrgAgent, type OrgDepartment } from "./types";
 import { useAutoSave } from "./use-auto-save";
+import { useMemoryDeleteCount } from "./use-memory-delete-count";
 import { AutoSaveStatus } from "./auto-save-status";
 import { type ExecTargetRow } from "./exec-target-list";
 import { useExecTargetOrder } from "./use-exec-target-order";
@@ -112,6 +113,13 @@ export function OrgDetailAgent(props: Props) {
   } = values;
 
   const [deletePromptOpen, setDeletePromptOpen] = React.useState(false);
+  const deleteMemoryCount = useMemoryDeleteCount(
+    React.useMemo(
+      () => [{ kind: "agent", id: props.agent.id }],
+      [props.agent.id],
+    ),
+    deletePromptOpen,
+  );
 
   // 汇报对象走统一解析：显式上级 ▸ 部门 leader（沿父部门链递归） ▸ CEO 兜底。
   const reportToId = resolveReportTo(
@@ -410,6 +418,7 @@ export function OrgDetailAgent(props: Props) {
       <DeleteAgentDialog
         open={deletePromptOpen}
         agentName={props.agent.name}
+        memoryCount={deleteMemoryCount}
         failure={deleteFailure}
         onOpenChange={(o) => !o && setDeleteDialogOpen(false)}
         onCancel={() => setDeleteDialogOpen(false)}

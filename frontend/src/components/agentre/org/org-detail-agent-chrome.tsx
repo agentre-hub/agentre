@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   Button,
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -76,6 +77,7 @@ export function OrgDetailAgentHeader({
 export function DeleteAgentDialog({
   open,
   agentName,
+  memoryCount = null,
   failure = null,
   onOpenChange,
   onCancel,
@@ -83,6 +85,8 @@ export function DeleteAgentDialog({
 }: {
   open: boolean;
   agentName: string;
+  /** 名下会一并删掉的记忆条数；还没读到（或读失败）是 null，这时不提记忆。 */
+  memoryCount?: number | null;
   /** 上一次确认没删掉：页脚说这一句，框不关。 */
   failure?: WriteFailure | null;
   onOpenChange: (open: boolean) => void;
@@ -108,6 +112,15 @@ export function DeleteAgentDialog({
               {t("org.agent.deleteDialog.description")}
             </DialogDescription>
           </DialogHeader>
+          {memoryCount !== null && (
+            <DialogBody>
+              <p className="text-xs text-muted-foreground">
+                {memoryCount > 0
+                  ? t("org.agent.deleteDialog.memories", { count: memoryCount })
+                  : t("org.agent.deleteDialog.noMemories")}
+              </p>
+            </DialogBody>
+          )}
           <DialogFooter>
             {failure ? (
               <WriteFailureLine failure={failure} className="mr-auto min-w-0" />

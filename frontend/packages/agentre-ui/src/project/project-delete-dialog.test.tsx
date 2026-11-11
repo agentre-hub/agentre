@@ -28,6 +28,7 @@ function open(
     ports?: Partial<ProjectDeletePorts>;
     childCount?: number;
     offlineMachines?: string[];
+    memoryCount?: number;
   } = {},
 ) {
   const p = ports(over.ports);
@@ -39,6 +40,7 @@ function open(
       project={{ id: "p1", name: "Atlas" }}
       childCount={over.childCount ?? 0}
       offlineMachines={over.offlineMachines ?? []}
+      memoryCount={over.memoryCount}
       ports={p}
       onDeleted={onDeleted}
     />,
@@ -47,6 +49,34 @@ function open(
 }
 
 beforeEach(() => vi.clearAllMocks());
+
+describe("名下的记忆", () => {
+  it("宿主给了条数就说会删掉几条，子项目的也算在内由宿主汇总", () => {
+    open({ memoryCount: 7 });
+    expect(screen.getByTestId("delete-project-memories").textContent).toContain(
+      "7",
+    );
+  });
+
+  it("只有一条用单数", () => {
+    open({ memoryCount: 1 });
+    expect(screen.getByTestId("delete-project-memories").textContent).toMatch(
+      /1 memory/,
+    );
+  });
+
+  it("一条都没有也说一句，不是留空", () => {
+    open({ memoryCount: 0 });
+    expect(screen.getByTestId("delete-project-memories").textContent).toMatch(
+      /no memories/i,
+    );
+  });
+
+  it("宿主不传（server 今天的用法）就不画这一行", () => {
+    open();
+    expect(screen.queryByTestId("delete-project-memories")).toBeNull();
+  });
+});
 
 describe("四件后果逐条写清", () => {
   it("子项目一并删 —— 有几个就说几个", () => {

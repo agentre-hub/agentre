@@ -163,3 +163,48 @@ func TestMemoryDelete_IsHardDelete(t *testing.T) {
 	require.NoError(t, repo.Delete(ctx, 9))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestMemoryListByOwners_IncludesArchived(t *testing.T) {
+	ctx, mock, repo := setupMemoryRepo(t)
+	mock.ExpectQuery("SELECT \\* FROM `memories` WHERE \\(owner_kind = \\? AND owner_id = \\?\\) OR \\(owner_kind = \\? AND owner_id = \\?\\) ORDER BY pinned DESC, changed_at DESC, id DESC").
+		WithArgs("agent", int64(5), "project", int64(2)).
+		WillReturnRows(sqlmock.NewRows(memoryColumns).AddRow(1, "agent", 5, "a", "", false, "archived", 1))
+	got, err := repo.ListByOwners(ctx, []memory_entity.Owner{
+		{Kind: memory_entity.OwnerAgent, ID: 5}, {Kind: memory_entity.OwnerProject, ID: 2},
+	})
+	require.NoError(t, err)
+	assert.Len(t, got, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+
+	got, err = repo.ListByOwners(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, got, "没有归属时不查库")
+}
+
+func TestMemoryDeleteByOwners_HardDeletesEveryState(t *testing.T) {
+	ctx, mock, repo := setupMemoryRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `memories` WHERE \\(owner_kind = \\? AND owner_id = \\?\\) OR \\(owner_kind = \\? AND owner_id = \\?\\)").
+		WithArgs("agent", int64(5), "department", int64(3)).
+		WillReturnResult(sqlmock.NewResult(0, 4))
+	mock.ExpectCommit()
+	require.NoError(t, repo.DeleteByOwners(ctx, []memory_entity.Owner{
+		{Kind: memory_entity.OwnerAgent, ID: 5}, {Kind: memory_entity.OwnerDepartment, ID: 3},
+	}))
+	assert.NoError(t, mock.ExpectationsWereMet())
+
+	require.NoError(t, repo.DeleteByOwners(ctx, nil), "没有归属时不删，更不能删光整张表")
+}
+
+func TestMemoryReassignOwner_MovesEveryStateAndStampsUpdatetime(t *testing.T) {
+	ctx, mock, repo := setupMemoryRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `memories` SET `owner_id`=\\?,`updatetime`=\\? WHERE owner_kind = \\? AND owner_id = \\?").
+		WithArgs(int64(8), sqlmock.AnyArg(), "project", int64(2)).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectCommit()
+	require.NoError(t, repo.ReassignOwner(ctx,
+		memory_entity.Owner{Kind: memory_entity.OwnerProject, ID: 2},
+		memory_entity.Owner{Kind: memory_entity.OwnerProject, ID: 8}))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

@@ -85,6 +85,20 @@ func (mr *MockMemoryRepoMockRecorder) Delete(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockMemoryRepo)(nil).Delete), ctx, id)
 }
 
+// DeleteByOwners mocks base method.
+func (m *MockMemoryRepo) DeleteByOwners(ctx context.Context, owners []memory_entity.Owner) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteByOwners", ctx, owners)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteByOwners indicates an expected call of DeleteByOwners.
+func (mr *MockMemoryRepoMockRecorder) DeleteByOwners(ctx, owners any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteByOwners", reflect.TypeOf((*MockMemoryRepo)(nil).DeleteByOwners), ctx, owners)
+}
+
 // Find mocks base method.
 func (m *MockMemoryRepo) Find(ctx context.Context, id int64) (*memory_entity.Memory, error) {
 	m.ctrl.T.Helper()
@@ -130,6 +144,21 @@ func (mr *MockMemoryRepoMockRecorder) ListByOwner(ctx, owner any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByOwner", reflect.TypeOf((*MockMemoryRepo)(nil).ListByOwner), ctx, owner)
 }
 
+// ListByOwners mocks base method.
+func (m *MockMemoryRepo) ListByOwners(ctx context.Context, owners []memory_entity.Owner) ([]*memory_entity.Memory, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByOwners", ctx, owners)
+	ret0, _ := ret[0].([]*memory_entity.Memory)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByOwners indicates an expected call of ListByOwners.
+func (mr *MockMemoryRepoMockRecorder) ListByOwners(ctx, owners any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByOwners", reflect.TypeOf((*MockMemoryRepo)(nil).ListByOwners), ctx, owners)
+}
+
 // ListChangedSince mocks base method.
 func (m *MockMemoryRepo) ListChangedSince(ctx context.Context, since int64) ([]*memory_entity.Memory, error) {
 	m.ctrl.T.Helper()
@@ -158,6 +187,20 @@ func (m *MockMemoryRepo) ListNormalByOwners(ctx context.Context, owners []memory
 func (mr *MockMemoryRepoMockRecorder) ListNormalByOwners(ctx, owners any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListNormalByOwners", reflect.TypeOf((*MockMemoryRepo)(nil).ListNormalByOwners), ctx, owners)
+}
+
+// ReassignOwner mocks base method.
+func (m *MockMemoryRepo) ReassignOwner(ctx context.Context, from, to memory_entity.Owner) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReassignOwner", ctx, from, to)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReassignOwner indicates an expected call of ReassignOwner.
+func (mr *MockMemoryRepoMockRecorder) ReassignOwner(ctx, from, to any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignOwner", reflect.TypeOf((*MockMemoryRepo)(nil).ReassignOwner), ctx, from, to)
 }
 
 // Search mocks base method.

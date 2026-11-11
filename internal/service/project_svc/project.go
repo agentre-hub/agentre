@@ -14,11 +14,13 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/procattr"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/service/memory_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
@@ -417,10 +419,14 @@ func (s *projectSvc) Delete(ctx context.Context, id int64) error {
 	}); err != nil {
 		return err
 	}
+	cascaded := -1
 	for _, ch := range deleted {
 		sync_svc.Notify(ctx, ch)
+		if ch.Kind == syncwire.KindProject {
+			cascaded++
+		}
 	}
-	if cascaded := len(deleted) - 1; cascaded > 0 {
+	if cascaded > 0 {
 		// 项目名与路径不进日志，只报数。
 		logger.Ctx(ctx).Info("project_svc.Delete: subtree deleted with the project",
 			zap.Int64("projectId", id), zap.Int("cascadedCount", cascaded))
@@ -432,7 +438,7 @@ func (s *projectSvc) Delete(ctx context.Context, id int64) error {
 // DeleteLeaf 见 ProjectSvc 接口注释。摘会话与软删项目行在同一个事务里，通知在提交
 // 之后发出，与 Delete 同一条口径。
 func (s *projectSvc) DeleteLeaf(ctx context.Context, id int64) error {
-	var deleted sync_svc.LocalChange
+	var deleted []sync_svc.LocalChange
 	if err := s.tx.RunInTx(ctx, func(txCtx context.Context) error {
 		var err error
 		deleted, err = s.deleteRows(txCtx, id)
@@ -440,7 +446,9 @@ func (s *projectSvc) DeleteLeaf(ctx context.Context, id int64) error {
 	}); err != nil {
 		return err
 	}
-	sync_svc.Notify(ctx, deleted)
+	for _, ch := range deleted {
+		sync_svc.Notify(ctx, ch)
+	}
 	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	return nil
 }
@@ -471,11 +479,11 @@ func (s *projectSvc) deleteSubtreeRows(ctx context.Context, id int64) ([]sync_sv
 	}
 	deleted := make([]sync_svc.LocalChange, 0, len(subtree))
 	for _, p := range subtree {
-		ch, err := s.detachSessionsAndDeleteRow(ctx, p)
+		chs, err := s.detachSessionsAndDeleteRow(ctx, p)
 		if err != nil {
 			return nil, err
 		}
-		deleted = append(deleted, ch)
+		deleted = append(deleted, chs...)
 	}
 	return deleted, nil
 }
@@ -521,23 +529,23 @@ func projectSubtreeChildrenFirst(all []*project_entity.Project, rootID int64) []
 // 与 Delete 不同，这里遇到子项目是**拒绝**而不是级联。对 Merge 而言走到这一步时
 // drop 的子项目应当已经全部改挂到 keep 名下，还剩下任何一个都说明改挂漏了，这时把
 // 它连同子树一起删掉会把用户没打算删的项目带走。
-func (s *projectSvc) deleteRows(ctx context.Context, id int64) (sync_svc.LocalChange, error) {
+func (s *projectSvc) deleteRows(ctx context.Context, id int64) ([]sync_svc.LocalChange, error) {
 	existing, err := project_repo.Project().Find(ctx, id)
 	if err != nil {
-		return sync_svc.LocalChange{}, err
+		return nil, err
 	}
 	if existing == nil {
-		return sync_svc.LocalChange{}, i18n.NewError(ctx, code.ProjectNotFound)
+		return nil, i18n.NewError(ctx, code.ProjectNotFound)
 	}
 	hasChildren, err := project_repo.Project().HasActiveChildren(ctx, id)
 	if err != nil {
-		return sync_svc.LocalChange{}, err
+		return nil, err
 	}
 	if hasChildren {
-		return sync_svc.LocalChange{}, i18n.NewError(ctx, code.ProjectHasChildren)
+		return nil, i18n.NewError(ctx, code.ProjectHasChildren)
 	}
 	if err := s.refuseIfSessionsInFlight(ctx, id); err != nil {
-		return sync_svc.LocalChange{}, err
+		return nil, err
 	}
 	return s.detachSessionsAndDeleteRow(ctx, existing)
 }
@@ -558,7 +566,7 @@ func (s *projectSvc) refuseIfSessionsInFlight(ctx context.Context, id int64) err
 // detachSessionsAndDeleteRow 是删一行项目的写入部分，守卫由调用方先做完。
 func (s *projectSvc) detachSessionsAndDeleteRow(
 	ctx context.Context, p *project_entity.Project,
-) (sync_svc.LocalChange, error) {
+) ([]sync_svc.LocalChange, error) {
 	// 名下幸存的（idle / error）会话改挂成自由会话，而不是留下指向已删项目的悬空
 	// project_id。ReassignProject 刻意不带 status / purpose 过滤（见 chat_repo 那边
 	// 的注释），软删会话与子 agent 委派会话一并摘干净，与 R11a 合并同一条要求。
@@ -566,15 +574,21 @@ func (s *projectSvc) detachSessionsAndDeleteRow(
 	// 顺序是「先摘引用、再删项目行」：中途失败时项目还在，用户可以重试；反过来会
 	// 留下一批指向不存在项目的会话。失败即整体失败，不留半个状态。
 	if err := s.sessions.ReassignProject(ctx, p.ID, 0); err != nil {
-		return sync_svc.LocalChange{}, err
+		return nil, err
+	}
+	// 名下的记忆随它一并删，与项目行同一个事务。记忆是硬删，墓碑凭删前读到的元数据，
+	// 排在项目的墓碑之前（与子在前同理：每个中间状态都不留孤儿）。
+	changes, err := memory_svc.DeleteOwned(ctx, memory_entity.Owner{Kind: memory_entity.OwnerProject, ID: p.ID})
+	if err != nil {
+		return nil, err
 	}
 	if err := project_repo.Project().Delete(ctx, p.ID); err != nil {
-		return sync_svc.LocalChange{}, err
+		return nil, err
 	}
 	// 名下的路径记录与成员关系随它一并落墓碑，级联在同步层展开（R6）。
-	return sync_svc.LocalChange{
+	return append(changes, sync_svc.LocalChange{
 		Kind: syncwire.KindProject, LocalID: p.ID, Op: sync_svc.OpDelete, Meta: p.SyncMeta,
-	}, nil
+	}), nil
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
@@ -123,6 +124,9 @@ func (departmentAdapter) apply(ctx context.Context, in *inbound, resolved map[st
 func (departmentAdapter) remove(ctx context.Context, in *inbound) error {
 	id, err := syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindDepartment, in.SyncID)
 	if err != nil || id == 0 {
+		return err
+	}
+	if err := removeOwnedMemories(ctx, memory_entity.Owner{Kind: memory_entity.OwnerDepartment, ID: id}); err != nil {
 		return err
 	}
 	return department_repo.Department().Delete(ctx, id)
@@ -295,6 +299,9 @@ func (a *agentAdapter) resolveAvatarDataURL(ctx context.Context, syncID, existin
 func (*agentAdapter) remove(ctx context.Context, in *inbound) error {
 	id, err := syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindAgent, in.SyncID)
 	if err != nil || id == 0 {
+		return err
+	}
+	if err := removeOwnedMemories(ctx, memory_entity.Owner{Kind: memory_entity.OwnerAgent, ID: id}); err != nil {
 		return err
 	}
 	return agent_repo.Agent().Delete(ctx, id)

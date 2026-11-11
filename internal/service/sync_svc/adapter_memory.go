@@ -3,11 +3,14 @@ package sync_svc
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/repository/memory_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
@@ -141,4 +144,39 @@ func (memoryAdapter) remove(ctx context.Context, in *inbound) error {
 		return err
 	}
 	return memory_repo.Memory().Delete(ctx, row.ID)
+}
+
+// removeOwnedMemories 归属被同步落地的墓碑删掉时，把它名下的记忆（含已归档）一并删掉。
+//
+// 记忆是硬删，删后读不到同步元数据，所以先读出来；已经在账号上的每一条排一条出站墓碑
+// （R6：删除必须到达各端），与归属行的删除跑在同一个 ctx（同一个落地事务）里——要么都
+// 落、要么都不落。从没上过账号的行（SyncAccountID == 0）server 上没有副本，不欠墓碑。
+func removeOwnedMemories(ctx context.Context, owner memory_entity.Owner) error {
+	rows, err := memory_repo.Memory().ListByOwners(ctx, []memory_entity.Owner{owner})
+	if err != nil || len(rows) == 0 {
+		return err
+	}
+	if err := memory_repo.Memory().DeleteByOwners(ctx, []memory_entity.Owner{owner}); err != nil {
+		return err
+	}
+	now := time.Now().UnixMilli()
+	items := make([]*syncqueue_entity.OutboundQueueItem, 0, len(rows))
+	for _, m := range rows {
+		if m.SyncID == "" || m.SyncAccountID == 0 {
+			continue
+		}
+		items = append(items, &syncqueue_entity.OutboundQueueItem{
+			SyncAccountID: m.SyncAccountID,
+			EntityType:    syncwire.KindMemory,
+			LocalID:       m.ID,
+			EntitySyncID:  m.SyncID,
+			Op:            OpDelete,
+			BaseVersion:   m.SyncVersion,
+			QueuedAt:      now,
+		})
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	return syncqueue_repo.OutboundQueue().CreateMany(ctx, items)
 }

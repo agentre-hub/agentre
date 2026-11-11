@@ -36,6 +36,13 @@ type MemoryRepo interface {
 	ListByOwner(ctx context.Context, owner memory_entity.Owner) ([]*memory_entity.Memory, error)
 	// ListNormalByOwners 若干层的正常条目，按预算序；owners 为空时不查库。
 	ListNormalByOwners(ctx context.Context, owners []memory_entity.Owner) ([]*memory_entity.Memory, error)
+	// ListByOwners 若干层的全部条目（含已归档）；owners 为空时不查库。归属被删时用它先读出
+	// 要落墓碑的行（记忆是硬删，删后就读不到了）。
+	ListByOwners(ctx context.Context, owners []memory_entity.Owner) ([]*memory_entity.Memory, error)
+	// DeleteByOwners 彻底删掉若干层的全部条目；owners 为空时什么都不删。
+	DeleteByOwners(ctx context.Context, owners []memory_entity.Owner) error
+	// ReassignOwner 把 from 层的全部条目（含已归档）改挂到同类的 to 层（项目合并）。
+	ReassignOwner(ctx context.Context, from, to memory_entity.Owner) error
 	CountNormalByOwner(ctx context.Context) ([]*OwnerCount, error)
 	// ListChangedSince 最近一次变更不早于 since（毫秒 epoch）的条目，新的在前。
 	ListChangedSince(ctx context.Context, since int64) ([]*memory_entity.Memory, error)
@@ -127,19 +134,49 @@ func (r *memoryRepo) ListNormalByOwners(ctx context.Context, owners []memory_ent
 	if len(owners) == 0 {
 		return nil, nil
 	}
+	clause, args := ownersClause(owners)
+	var rows []*memory_entity.Memory
+	err := db.Ctx(ctx).
+		Where("state = ?", memory_entity.StateNormal).
+		Where(clause, args...).
+		Order(budgetOrder).
+		Find(&rows).Error
+	return rows, err
+}
+
+// ownersClause 把若干层拼成一个 OR 条件；调用方保证 owners 非空。
+func ownersClause(owners []memory_entity.Owner) (string, []any) {
 	clauses := make([]string, 0, len(owners))
 	args := make([]any, 0, 2*len(owners))
 	for _, o := range owners {
 		clauses = append(clauses, "(owner_kind = ? AND owner_id = ?)")
 		args = append(args, o.Kind, o.ID)
 	}
+	return strings.Join(clauses, " OR "), args
+}
+
+func (r *memoryRepo) ListByOwners(ctx context.Context, owners []memory_entity.Owner) ([]*memory_entity.Memory, error) {
+	if len(owners) == 0 {
+		return nil, nil
+	}
+	clause, args := ownersClause(owners)
 	var rows []*memory_entity.Memory
-	err := db.Ctx(ctx).
-		Where("state = ?", memory_entity.StateNormal).
-		Where(strings.Join(clauses, " OR "), args...).
-		Order(budgetOrder).
-		Find(&rows).Error
+	err := db.Ctx(ctx).Where(clause, args...).Order(budgetOrder).Find(&rows).Error
 	return rows, err
+}
+
+func (r *memoryRepo) DeleteByOwners(ctx context.Context, owners []memory_entity.Owner) error {
+	if len(owners) == 0 {
+		return nil
+	}
+	clause, args := ownersClause(owners)
+	return db.Ctx(ctx).Where(clause, args...).Delete(&memory_entity.Memory{}).Error
+}
+
+func (r *memoryRepo) ReassignOwner(ctx context.Context, from, to memory_entity.Owner) error {
+	return db.Ctx(ctx).Model(&memory_entity.Memory{}).
+		Where("owner_kind = ? AND owner_id = ?", from.Kind, from.ID).
+		Updates(map[string]any{"owner_id": to.ID, "updatetime": time.Now().UnixMilli()}).Error
 }
 
 func (r *memoryRepo) CountNormalByOwner(ctx context.Context) ([]*OwnerCount, error) {
