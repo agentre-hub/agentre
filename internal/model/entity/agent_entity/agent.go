@@ -56,6 +56,10 @@ type Agent struct {
 	Updatetime int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
 	// SyncMeta 是账号级同步元数据。
 	syncmeta_entity.SyncMeta `gorm:"embedded"`
+
+	// MemoryEnabled 该 Agent 的会话是否带上记忆、能否写记忆。默认开（决策 17），迁移
+	// 也把已有的 Agent 一并设为开；零值的新行靠列默认值落成开。
+	MemoryEnabled bool `gorm:"column:memory_enabled;type:boolean;not null;default:1"`
 }
 
 func (*Agent) TableName() string { return "agents" }

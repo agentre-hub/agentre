@@ -108,7 +108,7 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		"llm_provider_models":        {"model_key", "model_id"},
 		"agent_backends":             {"model_key", "sync_id", "device_fingerprint", "sync_origin_fingerprint"},
 		"agent_backend_cli_overlays": {"backend_sync_id", "agentred_fingerprint", "cli_path", "sync_origin_fingerprint"},
-		"agents":                     {"sync_origin_fingerprint"},
+		"agents":                     {"sync_origin_fingerprint", "memory_enabled"},
 		"agent_exec_targets":         {"sync_origin_fingerprint"},
 		"departments":                {"sync_origin_fingerprint"},
 		"projects":                   {"sync_origin_fingerprint"},
@@ -123,6 +123,7 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		"issues":       {"agent_backend_id", "llm_provider_key", "llm_model_key", "sync_id", "sync_origin_fingerprint"},
 		"labels":       {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
 		"issue_labels": {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
+		"memories":     {"owner_kind", "owner_id", "summary", "prev_summary", "state", "changed_at", "sync_id", "sync_origin_fingerprint"},
 	} {
 		if !gormDB.Migrator().HasTable(table) {
 			t.Errorf("current table %q was not created", table)

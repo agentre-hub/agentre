@@ -51,6 +51,12 @@ func (a *App) SetAgentPinned(req *agent_svc.SetPinnedRequest) (*agent_svc.SetPin
 	return agent_svc.Agent().SetPinned(a.ctx, req)
 }
 
+// SetAgentMemoryEnabled 打开 / 关闭某 Agent 的记忆。
+func (a *App) SetAgentMemoryEnabled(req *agent_svc.SetMemoryEnabledRequest) (*agent_svc.SetMemoryEnabledResponse, error) {
+	res, err := agent_svc.Agent().SetMemoryEnabled(a.ctx, req)
+	return res, codedError(err)
+}
+
 // ListAgentSkillPacks 返回某 agent 名下 agentBackendID 这一档执行目标可见的技能包
 // 目录(推荐 + 发现 + 已授权)——R15e「一档一块」：发现来源与授权都钉死在这一档，
 // 不与 Agent 名下别的档合并（任务 12：组织架构页技能节改成一档一块之后，每块各自

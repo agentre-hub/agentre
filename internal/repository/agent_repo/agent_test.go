@@ -207,3 +207,15 @@ func TestAgentReorderSiblings(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestAgentSetMemoryEnabled(t *testing.T) {
+	ctx, mock, repo := setupRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `agents` SET `memory_enabled`=\\?,`updatetime`=\\? WHERE id = \\?").
+		WithArgs(false, sqlmock.AnyArg(), int64(42)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.SetMemoryEnabled(ctx, 42, false))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

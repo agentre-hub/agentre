@@ -42,6 +42,7 @@ type AgentSvc interface {
 	UploadAvatar(ctx context.Context, req *UploadAvatarRequest) (*UploadAvatarResponse, error)
 	DeleteAvatar(ctx context.Context, req *DeleteAvatarRequest) (*DeleteAvatarResponse, error)
 	SetPinned(ctx context.Context, req *SetPinnedRequest) (*SetPinnedResponse, error)
+	SetMemoryEnabled(ctx context.Context, req *SetMemoryEnabledRequest) (*SetMemoryEnabledResponse, error)
 	Reorder(ctx context.Context, req *ReorderAgentsRequest) error
 }
 
@@ -65,6 +66,7 @@ func (s *agentSvc) Create(ctx context.Context, req *CreateAgentRequest) (*Create
 		ParentAgentID:  req.ParentAgentID,
 		AgentBackendID: req.AgentBackendID,
 		Status:         consts.ACTIVE,
+		MemoryEnabled:  true,
 		Createtime:     now,
 		Updatetime:     now,
 	}
@@ -379,6 +381,23 @@ func (s *agentSvc) SetPinned(ctx context.Context, req *SetPinnedRequest) (*SetPi
 	sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, existing.ID, existing.SyncMeta)
 	sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	return &SetPinnedResponse{ID: existing.ID, Pinned: req.Pinned}, nil
+}
+
+// SetMemoryEnabled 切换 Agent 的记忆开关（记忆页 agent 头部）。
+func (s *agentSvc) SetMemoryEnabled(ctx context.Context, req *SetMemoryEnabledRequest) (*SetMemoryEnabledResponse, error) {
+	existing, err := agent_repo.Agent().Find(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, i18n.NewError(ctx, code.AgentNotFound)
+	}
+	if err := agent_repo.Agent().SetMemoryEnabled(ctx, existing.ID, req.Enabled); err != nil {
+		return nil, err
+	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgent)
+	return &SetMemoryEnabledResponse{ID: existing.ID, Enabled: req.Enabled}, nil
 }
 
 func validateAvatarDataURL(ctx context.Context, dataURL string) error {

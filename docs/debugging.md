@@ -66,6 +66,7 @@ jq -c 'select(.sessionId == 42)' "$LOG"
 | `departments` | Org structure for the org-chart UI |
 | `projects`, `project_agents`, `project_locations` | Projects, their member agents, and working-directory locations |
 | `issues`, `labels`, `issue_labels` | Issue tracker (issues + labels + join) |
+| `memories` | Agent memory entries: owner layer (`owner_kind` global/department/agent/project + `owner_id`), summary/detail, one previous version, pinned, `state` normal/archived, creator and last change; the per-agent toggle is `agents.memory_enabled` |
 | `paired_agentreds` | Paired remote `agentred` (LAN daemon) records |
 | `server_state` | Desktop ↔ SaaS Server connection state (single row, `id=1`) |
 | `migrations` | gormigrate ledger — one row per applied migration id |

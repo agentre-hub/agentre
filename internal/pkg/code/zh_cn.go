@@ -291,4 +291,16 @@ var zhCN = map[int]string{
 	PortForwardInvalidTarget: "请输入端口、host:port 或 http(s)://主机[:端口]。",
 
 	SessionProcessNotOwned: "该进程已不属于这条会话（可能已退出）",
+
+	MemoryNotFound:         "记忆不存在",
+	MemoryInvalidOwner:     "记忆的归属不合法",
+	MemoryOwnerNotFound:    "记忆归属的部门、agent 或项目不存在",
+	MemoryInvalidActor:     "记忆的写入者不合法",
+	MemorySummaryRequired:  "记忆摘要不能为空",
+	MemorySummaryTooLong:   "记忆摘要至多 200 字",
+	MemorySummaryMultiline: "记忆摘要只能是一行，不能含换行",
+	MemoryDetailTooLong:    "记忆详情至多 4000 字",
+	MemoryInvisibleChars:   "记忆内容含有不可见字符，请删掉后再保存",
+	MemorySensitiveContent: "记忆内容像是密钥或令牌，不能写进记忆",
+	MemoryNoPrevious:       "这条记忆没有上一版可恢复",
 }
