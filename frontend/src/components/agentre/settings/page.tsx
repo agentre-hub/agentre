@@ -14,6 +14,7 @@ import { useChatAgents } from "@/hooks/use-chat-agents";
 import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 import { DataBackupPanel } from "../data-backup";
 import { FileSettingsPanel } from "../file-settings-panel";
+import { MemorySettings } from "./memory";
 import { RemoteDevicesPanel } from "../remote-devices/remote-devices-panel";
 import { NotificationsPanel } from "../notifications-panel";
 import { KeyboardShortcutsPanel } from "../shortcuts";
@@ -120,6 +121,8 @@ export function SettingsPage({
             <DataBackupPanel />
           ) : activePage === "files" ? (
             <FileSettingsPanel />
+          ) : activePage === "memory" ? (
+            <MemorySettings />
           ) : activePage === "notifications" ? (
             <NotificationsPanel />
           ) : activePage === "skills-tools" ? (

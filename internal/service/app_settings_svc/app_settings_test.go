@@ -282,3 +282,46 @@ func TestUpdate_SkippedUpdateVersion(t *testing.T) {
 		})
 	})
 }
+
+func TestClaudeNativeMemory(t *testing.T) {
+	convey.Convey("Claude Code 原生记忆开关", t, func() {
+		ctx, repo, _, svc := setupSvcTest(t)
+
+		convey.Convey("键不存在 → 缺省保留", func() {
+			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyClaudeNativeMemory).Return(nil, nil)
+			assert.True(t, svc.ClaudeNativeMemoryEnabled(ctx))
+		})
+
+		convey.Convey("读库出错 → 保留(不因故障悄悄关掉)", func() {
+			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyClaudeNativeMemory).Return(nil, errors.New("boom"))
+			assert.True(t, svc.ClaudeNativeMemoryEnabled(ctx))
+		})
+
+		convey.Convey("写 false 后读到关闭;写 true 后读到保留", func() {
+			var stored string
+			repo.EXPECT().Set(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, s *app_setting_entity.AppSetting) error {
+					assert.Equal(t, app_setting_entity.KeyClaudeNativeMemory, s.Key)
+					stored = s.Value
+					return nil
+				}).Times(2)
+			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyClaudeNativeMemory).DoAndReturn(
+				func(context.Context, string) (*app_setting_entity.AppSetting, error) {
+					return &app_setting_entity.AppSetting{Key: app_setting_entity.KeyClaudeNativeMemory, Value: stored}, nil
+				}).Times(2)
+
+			_, err := svc.Update(ctx, &UpdateRequest{Entries: []SettingEntry{{Key: app_setting_entity.KeyClaudeNativeMemory, Value: "false"}}})
+			assert.NoError(t, err)
+			assert.False(t, svc.ClaudeNativeMemoryEnabled(ctx))
+
+			_, err = svc.Update(ctx, &UpdateRequest{Entries: []SettingEntry{{Key: app_setting_entity.KeyClaudeNativeMemory, Value: "true"}}})
+			assert.NoError(t, err)
+			assert.True(t, svc.ClaudeNativeMemoryEnabled(ctx))
+		})
+
+		convey.Convey("非法取值直接拒,不落库", func() {
+			_, err := svc.Update(ctx, &UpdateRequest{Entries: []SettingEntry{{Key: app_setting_entity.KeyClaudeNativeMemory, Value: "maybe"}}})
+			assert.Error(t, err)
+		})
+	})
+}

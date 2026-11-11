@@ -19,3 +19,21 @@ func buildSkillsSettings(enabled map[string]bool, base string) string {
 	}
 	return string(b)
 }
+
+// buildAutoMemorySettings 在 disable 为真时把 autoMemoryEnabled:false 合进 --settings
+// JSON(保留 base 既有键);否则原样返回 base。
+func buildAutoMemorySettings(disable bool, base string) string {
+	if !disable {
+		return base
+	}
+	m := map[string]any{}
+	if base != "" {
+		_ = json.Unmarshal([]byte(base), &m) // 非对象/坏 JSON → 空起,不阻断
+	}
+	m["autoMemoryEnabled"] = false
+	b, err := json.Marshal(m)
+	if err != nil || len(b) == 0 {
+		return base
+	}
+	return string(b)
+}

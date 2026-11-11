@@ -406,6 +406,12 @@ type RunRequest struct {
 	// 其它 runtime 忽略。
 	EnabledPlugins map[string]bool
 
+	// DisableNativeAutoMemory = true 时,claudecode 新启动的进程在 --settings 里带
+	// autoMemoryEnabled:false,关掉 Claude Code 自带的 auto-memory。零值 = 保留。
+	// 只在新进程 spawn 时生效(复用中的进程不变);其它 runtime 忽略。由 chat_svc
+	// 仅对本机执行目标置位,远程执行不带。
+	DisableNativeAutoMemory bool
+
 	// ForkAnchor 非空时 = "重新生成"路径：runner 应当把 provider 会话从 ForkAnchor
 	// 之后的所有内容丢弃，再以 UserText 重发一次。
 	//

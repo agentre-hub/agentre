@@ -197,6 +197,7 @@ export function SettingsUnderConstruction({ page }: { page: SettingsPageId }) {
     page === "agent-backend" ||
     page === "remote-devices" ||
     page === "files" ||
+    page === "memory" ||
     page === "keyboard-shortcuts" ||
     page === "llm-providers" ||
     page === "local-proxy" ||

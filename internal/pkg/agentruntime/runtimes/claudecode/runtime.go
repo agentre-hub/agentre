@@ -665,6 +665,7 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 		return nil, "", fmt.Errorf("agentruntime/runtimes/claudecode: build hook settings: %w", err)
 	}
 	settingsJSON = buildSkillsSettings(req.EnabledPlugins, settingsJSON)
+	settingsJSON = buildAutoMemorySettings(req.DisableNativeAutoMemory, settingsJSON)
 
 	pureResume := req.ProviderSessionID != "" && req.ForkAnchor == ""
 	var cliSessionUUID, inboxKey string
