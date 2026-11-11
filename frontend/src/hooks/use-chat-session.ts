@@ -384,9 +384,9 @@ export function useChatSession(sessionId: number) {
           loadedMessages = resp.messages ?? [];
         }
       }
-      setSession(resp.session);
       // loadedMessages 可能在下方 activeStream 分支被替换(剥离 overlay pending
-      // tool_approval 块),setMessages 统一挪到该分支之后执行。
+      // tool_approval 块),setMessages 统一挪到该分支之后执行。会话详情也跟着
+      // 消息一起落(见末尾):详情一落面板就收起骨架,而派生块点查还要再等一轮。
       // 「这次 load 之前就已经在流的消息」—— 必须在下面 activeStream 分支
       // openStream 之前取,那条流刚开、liveBlocks 还是空的,它要的正是这份新快照。
       const liveBeforeLoad = new Map(
@@ -625,6 +625,9 @@ export function useChatSession(sessionId: number) {
       const nextCursor = derivedBlocksMissing
         ? Math.min(sinceVersion, cursor)
         : cursor;
+      // 详情与消息同一批落下:先落详情会让面板在派生块点查期间既无骨架也无内容
+      // (真实大库上这次点查要几秒,转录区整段空白)。
+      setSession(resp.session);
       setMessages((prev) => {
         // 游标与消息表在同一个 updater 里推进(见 cursorRef)。
         cursorRef.current =

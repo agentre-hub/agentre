@@ -3,9 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../wailsjs/go/app/App", () => ({
   LoadChatSession: vi.fn(),
+  LoadChatSessionBlocksByType: vi.fn(),
 }));
 
-import { LoadChatSession } from "../../../wailsjs/go/app/App";
+import {
+  LoadChatSession,
+  LoadChatSessionBlocksByType,
+} from "../../../wailsjs/go/app/App";
 import { useChatStreamsStore } from "@/stores/chat-streams-store";
 import { useSessionConnStore } from "@/stores/session-conn-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
@@ -14,6 +18,9 @@ import type { SessionConnectionState } from "@/stores/types";
 import { useChatSession } from "../use-chat-session";
 
 const loadChatSession = LoadChatSession as ReturnType<typeof vi.fn>;
+const loadBlocksByType = LoadChatSessionBlocksByType as ReturnType<
+  typeof vi.fn
+>;
 
 // respondWith 造一份 LoadSession 响应:一条正在跑的远端会话(activeStream 非空 ——
 // R4 之后断连不再终结会话,turn goroutine 活着,重挂的前端照旧拿得到流名),
@@ -112,5 +119,83 @@ describe("useChatSession 播种连接态 (R13)", () => {
     const { result } = renderHook(() => useChatSession(42));
     await waitFor(() => expect(result.current.session).not.toBeNull());
     expect(useSessionConnStore.getState().conns.size).toBe(0);
+  });
+});
+
+// ─── 首次打开:会话与消息一起落下 ─────────────────────────────────────────────
+//
+// 会话详情一落,面板就不再画骨架(骨架只在「还没有会话、也没有消息」时出现)。
+// 窗口外消息的派生视图块要再点查一次,这次点查在真实大库上要几秒 —— 若详情先落、
+// 消息后落,中间这几秒转录区既没有骨架也没有内容,只剩头部(2026-11-09 用户报
+// 「切 tab 过去空白几秒才正常」,真 WKWebView 截帧复现)。
+describe("useChatSession 首次打开:会话详情不先于消息落下", () => {
+  const SID = 77;
+
+  beforeEach(() => {
+    loadChatSession.mockReset();
+    loadBlocksByType.mockReset();
+    useChatStreamsStore.setState({ streams: new Map() });
+    useSessionConnStore.getState().__reset();
+    useSessionMetaStore.getState().__reset();
+    useSessionStatusStore.getState().__reset();
+    // 一条窗口外消息(只有元数据)+ 一条窗口内消息 —— 前者触发派生块点查。
+    loadChatSession.mockResolvedValue({
+      session: {
+        id: SID,
+        agentId: 10,
+        agentName: "Eng",
+        title: "t",
+        agentStatus: "idle",
+        lastMessageAt: 100,
+      },
+      messages: [
+        {
+          id: 1,
+          sessionId: SID,
+          role: "user",
+          seq: 1,
+          blocks: [],
+          blocksLoaded: false,
+        },
+        {
+          id: 2,
+          sessionId: SID,
+          role: "assistant",
+          seq: 2,
+          blocks: [{ type: "text", text: "hi" }],
+          blocksLoaded: true,
+        },
+      ],
+    });
+  });
+
+  it("派生块点查未返回时不交出会话详情;返回后详情与消息同时就绪", async () => {
+    let resolveByType!: (v: unknown) => void;
+    loadBlocksByType.mockReturnValue(
+      new Promise((resolve) => {
+        resolveByType = resolve;
+      }),
+    );
+    const { result } = renderHook(() => useChatSession(SID));
+
+    await waitFor(() => expect(loadBlocksByType).toHaveBeenCalled());
+    expect(result.current.loading).toBe(true);
+    expect(result.current.session).toBeNull();
+    expect(result.current.messages).toEqual([]);
+
+    resolveByType({ messages: [] });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.session?.id).toBe(SID);
+    expect(result.current.messages.map((m) => m.id)).toEqual([1, 2]);
+  });
+
+  it("派生块点查失败:会话详情与消息照样一起落下,不报错", async () => {
+    loadBlocksByType.mockRejectedValue(new Error("db busy"));
+    const { result } = renderHook(() => useChatSession(SID));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeNull();
+    expect(result.current.session?.id).toBe(SID);
+    expect(result.current.messages.map((m) => m.id)).toEqual([1, 2]);
   });
 });
