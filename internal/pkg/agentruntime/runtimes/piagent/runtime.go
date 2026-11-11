@@ -191,6 +191,8 @@ func (r *Runtime) Capabilities() capability.Capabilities {
 			capability.CapDrainSteer: true,
 			// 力度经 --thinking 下发。
 			capability.CapReasoningEffort: true,
+			// 会话里能跑 agrctl 的记忆命令,带完整记忆段落。
+			capability.CapMemory: true,
 		},
 	}
 }

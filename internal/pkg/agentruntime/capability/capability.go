@@ -32,6 +32,10 @@ const (
 	// builtin 的模型参数)。composer 的会话级思考力度选择器据此渲染;为假的后端
 	// (openclaw)整颗控件不渲染,而不是置灰(spec 2026-09-01 决策 6)。
 	CapReasoningEffort Capability = "reasoning_effort"
+	// CapMemory 标记该 runtime 的 CLI 能在会话里跑 agrctl 的记忆命令(读详情、检索、
+	// 写入),会话因此带上完整的记忆段落(spec 2026-11-11 决策 12)。远程设备按自身
+	// 构建上报:随它发布的 agrctl 认识记忆命令时才有这一项,旧设备不报即不带。
+	CapMemory Capability = "memory"
 )
 
 // Capabilities 一个 runtime 的能力矩阵 + permission mode 元数据。

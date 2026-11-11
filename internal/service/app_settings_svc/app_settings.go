@@ -21,6 +21,10 @@ type AppSettingsSvc interface {
 	RestartGateway(ctx context.Context) (*RestartGatewayResponse, error)
 	// ClaudeNativeMemoryEnabled 报告是否保留 Claude Code 自带记忆；缺省与读取失败都按保留。
 	ClaudeNativeMemoryEnabled(ctx context.Context) bool
+	// SetUILanguage 记下前端当前的界面语言；只接受 zh-CN / en。
+	SetUILanguage(ctx context.Context, language string) error
+	// UILanguage 界面语言；从未上报或读取失败都按 en（与前端的回落语言一致）。
+	UILanguage(ctx context.Context) string
 }
 
 type appSettingsSvc struct {
@@ -178,4 +182,27 @@ func (s *appSettingsSvc) ClaudeNativeMemoryEnabled(ctx context.Context) bool {
 		return true
 	}
 	return strings.TrimSpace(got.Value) != "false"
+}
+
+func (s *appSettingsSvc) SetUILanguage(ctx context.Context, language string) error {
+	lang, ok := app_setting_entity.ParseUILanguage(language)
+	if !ok {
+		return i18n.NewError(ctx, code.InvalidParameter)
+	}
+	return app_setting_repo.AppSetting().Set(ctx, &app_setting_entity.AppSetting{
+		Key:        app_setting_entity.KeyUILanguage,
+		Value:      lang,
+		Updatetime: s.now(),
+	})
+}
+
+func (s *appSettingsSvc) UILanguage(ctx context.Context) string {
+	got, err := app_setting_repo.AppSetting().Get(ctx, app_setting_entity.KeyUILanguage)
+	if err != nil || got == nil {
+		return app_setting_entity.UILanguageEn
+	}
+	if lang, ok := app_setting_entity.ParseUILanguage(got.Value); ok {
+		return lang
+	}
+	return app_setting_entity.UILanguageEn
 }

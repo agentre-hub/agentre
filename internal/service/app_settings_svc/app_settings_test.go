@@ -325,3 +325,47 @@ func TestClaudeNativeMemory(t *testing.T) {
 		})
 	})
 }
+
+func TestUILanguage(t *testing.T) {
+	convey.Convey("界面语言（前端上报，记忆段落的固定文字随它）", t, func() {
+		ctx, repo, _, svc := setupSvcTest(t)
+
+		convey.Convey("从未上报 → 按 en（与前端的回落语言一致）", func() {
+			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyUILanguage).Return(nil, nil)
+			assert.Equal(t, app_setting_entity.UILanguageEn, svc.UILanguage(ctx))
+		})
+
+		convey.Convey("读库出错 → 按 en", func() {
+			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyUILanguage).Return(nil, errors.New("boom"))
+			assert.Equal(t, app_setting_entity.UILanguageEn, svc.UILanguage(ctx))
+		})
+
+		convey.Convey("上报 zh-cn → 规范成 zh-CN 落库，之后读到 zh-CN", func() {
+			var stored string
+			repo.EXPECT().Set(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, s *app_setting_entity.AppSetting) error {
+					assert.Equal(t, app_setting_entity.KeyUILanguage, s.Key)
+					assert.Equal(t, int64(1700000000), s.Updatetime)
+					stored = s.Value
+					return nil
+				})
+			repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyUILanguage).DoAndReturn(
+				func(context.Context, string) (*app_setting_entity.AppSetting, error) {
+					return &app_setting_entity.AppSetting{Key: app_setting_entity.KeyUILanguage, Value: stored}, nil
+				})
+
+			assert.NoError(t, svc.SetUILanguage(ctx, "zh-cn"))
+			assert.Equal(t, app_setting_entity.UILanguageZhCN, stored)
+			assert.Equal(t, app_setting_entity.UILanguageZhCN, svc.UILanguage(ctx))
+		})
+
+		convey.Convey("上报不认识的语言 → 拒绝，不落库", func() {
+			assert.Error(t, svc.SetUILanguage(ctx, "fr"))
+		})
+
+		convey.Convey("落库失败 → 报错", func() {
+			repo.EXPECT().Set(gomock.Any(), gomock.Any()).Return(errors.New("disk full"))
+			assert.Error(t, svc.SetUILanguage(ctx, "en"))
+		})
+	})
+}

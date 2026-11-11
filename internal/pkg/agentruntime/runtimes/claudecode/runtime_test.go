@@ -329,6 +329,8 @@ func TestClaudeCodeCapabilities(t *testing.T) {
 		// CapReasoningEffort=true:claude CLI 接受 --effort 五档,composer 因此渲染
 		// 会话级思考力度选择器(spec 2026-09-01 决策 6)。
 		So(caps.Has(capability.CapReasoningEffort), ShouldBeTrue)
+		// CapMemory=true:CLI 能在会话里跑 agrctl 的记忆命令,会话带完整记忆段落。
+		So(caps.Has(capability.CapMemory), ShouldBeTrue)
 		_, ok := agentruntime.Runtime(r).(agentruntime.AutonomousTurnSource)
 		So(ok, ShouldBeTrue)
 	})

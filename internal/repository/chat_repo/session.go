@@ -107,6 +107,11 @@ type SessionRepo interface {
 	// agent_status=running / last_message_at 会被那份旧快照原样拍回去,会话在库里退
 	// 回 idle(sess-2974)。所以这里只碰 context_window 一列。
 	UpdateContextWindow(ctx context.Context, sessionID int64, tokens int) error
+	// SaveMemorySnapshot 在会话首个回合存下它的记忆快照(spec 2026-11-11 决策 11),
+	// 空串同样是一份快照:「这条会话不带记忆」也在首个回合定下。只在还没取过时写入,
+	// saved=false 表示这条会话早已有快照(或已不存在),调用方应改用库里那份。快照两列
+	// 不在 sessionUpdateWhitelist 里,整行回写碰不到它们。
+	SaveMemorySnapshot(ctx context.Context, sessionID int64, snapshot string) (saved bool, err error)
 	// UpdateExecDaemon 记录执行该会话的配对 daemon(paired_agentreds.id)及其实例标识
 	// (sha256:<hex>)、以及这条会话钉住的执行目标档(agentBackendID,R15b / 决策36)。
 	// deviceID=0 + 空标识表示回到本机执行；agentBackendID=0 表示尚未钉住。三列同一条
@@ -654,6 +659,20 @@ func (r *sessionRepo) UpdateContextWindow(ctx context.Context, sessionID int64, 
 			"context_window": tokens,
 			"updatetime":     time.Now().UnixMilli(),
 		}).Error
+}
+
+func (r *sessionRepo) SaveMemorySnapshot(ctx context.Context, sessionID int64, snapshot string) (bool, error) {
+	res := db.Ctx(ctx).Model(&chat_entity.Session{}).
+		Where("id = ? AND memory_snapshot_taken = ?", sessionID, false).
+		Updates(map[string]any{
+			"memory_snapshot":       snapshot,
+			"memory_snapshot_taken": true,
+			"updatetime":            time.Now().UnixMilli(),
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
 }
 
 func (r *sessionRepo) UpdateExecDaemon(ctx context.Context, sessionID int64, deviceID int64, daemonFingerprint devicefp.Carrier, agentBackendID int64) error {

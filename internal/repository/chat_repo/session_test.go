@@ -373,7 +373,8 @@ func TestSessionRepo_Create(t *testing.T) {
 			"", "", // cli_model_mode, cli_model
 			"max",                  // reasoning_effort —— 草稿态选好的档位随建档一并落库(spec 2026-09-01「新建会话」)
 			int64(0), "", int64(0), // exec_device_id, exec_device_fingerprint, event_cursor —— 新建会话默认本机执行、无游标
-			int64(0),                                          // exec_agent_backend_id —— 新建会话默认未钉住任何一档
+			int64(0),  // exec_agent_backend_id —— 新建会话默认未钉住任何一档
+			"", false, // memory_snapshot, memory_snapshot_taken —— 新建会话等首个回合再取记忆快照
 			consts.ACTIVE, sqlmock.AnyArg(), sqlmock.AnyArg(), // status, createtime, updatetime
 		).
 		WillReturnResult(sqlmock.NewResult(99, 1))
@@ -597,6 +598,67 @@ func TestSessionRepo_UpdateExecDaemon(t *testing.T) {
 
 	require.NoError(t, repo.UpdateExecDaemon(ctx, 42, 3, "sha256:beef", 51))
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_SaveMemorySnapshot 钉死会话记忆快照的写入(spec 2026-11-11 决策 11):
+// 只写快照两列,且 WHERE 守住「还没取过」—— 快照在首个回合定下后不再变,一份读得早
+// 的实体再取一次也盖不掉已经存下的那份。
+func TestSessionRepo_SaveMemorySnapshot(t *testing.T) {
+	const update = "UPDATE `chat_sessions` SET `memory_snapshot`=\\?,`memory_snapshot_taken`=\\?,`updatetime`=\\? WHERE id = \\? AND memory_snapshot_taken = \\?"
+
+	t.Run("Given the session has no snapshot yet, When saving, Then it is written and reported saved", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+		mock.ExpectBegin()
+		mock.ExpectExec(update).
+			WithArgs("## memory", true, sqlmock.AnyArg(), int64(42), false).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+
+		saved, err := chat_repo.NewSession().SaveMemorySnapshot(ctx, 42, "## memory")
+		require.NoError(t, err)
+		assert.True(t, saved)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given an empty snapshot (carries nothing), When saving, Then the empty text is still frozen", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+		mock.ExpectBegin()
+		mock.ExpectExec(update).
+			WithArgs("", true, sqlmock.AnyArg(), int64(42), false).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+
+		saved, err := chat_repo.NewSession().SaveMemorySnapshot(ctx, 42, "")
+		require.NoError(t, err)
+		assert.True(t, saved)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given the snapshot was already taken, When saving again, Then nothing changes and it reports not saved", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+		mock.ExpectBegin()
+		mock.ExpectExec(update).
+			WithArgs("## later", true, sqlmock.AnyArg(), int64(42), false).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectCommit()
+
+		saved, err := chat_repo.NewSession().SaveMemorySnapshot(ctx, 42, "## later")
+		require.NoError(t, err)
+		assert.False(t, saved)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given the write fails, When saving, Then the error is returned", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+		mock.ExpectBegin()
+		mock.ExpectExec(update).WillReturnError(errors.New("disk full"))
+		mock.ExpectRollback()
+
+		saved, err := chat_repo.NewSession().SaveMemorySnapshot(ctx, 42, "## memory")
+		require.Error(t, err)
+		assert.False(t, saved)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
 }
 
 // TestSessionRepo_UpdateEventCursor 钉死游标推进的写入 SQL:只动 event_cursor,
@@ -1320,6 +1382,7 @@ func TestSessionRepo_Create_GivenNoConversationID_ThenMintsOne(t *testing.T) {
 			"", // reasoning_effort —— 未选档位的新建会话跟随后端配置
 			int64(0), "", int64(0),
 			int64(0),
+			"", false, // memory_snapshot, memory_snapshot_taken
 			consts.ACTIVE, sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
 		WillReturnResult(sqlmock.NewResult(99, 1))
@@ -1351,6 +1414,7 @@ func TestSessionRepo_Create_GivenACallerSuppliedConversationID_ThenKeepsItVerbat
 			"", // reasoning_effort —— 未选档位的新建会话跟随后端配置
 			int64(0), "", int64(0),
 			int64(0),
+			"", false, // memory_snapshot, memory_snapshot_taken
 			consts.ACTIVE, sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
 		WillReturnResult(sqlmock.NewResult(99, 1))

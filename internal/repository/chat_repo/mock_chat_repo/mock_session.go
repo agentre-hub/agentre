@@ -370,6 +370,21 @@ func (mr *MockSessionRepoMockRecorder) ResetActiveSessionsByIDs(ctx, ids any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetActiveSessionsByIDs", reflect.TypeOf((*MockSessionRepo)(nil).ResetActiveSessionsByIDs), ctx, ids)
 }
 
+// SaveMemorySnapshot mocks base method.
+func (m *MockSessionRepo) SaveMemorySnapshot(ctx context.Context, sessionID int64, snapshot string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveMemorySnapshot", ctx, sessionID, snapshot)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SaveMemorySnapshot indicates an expected call of SaveMemorySnapshot.
+func (mr *MockSessionRepoMockRecorder) SaveMemorySnapshot(ctx, sessionID, snapshot any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveMemorySnapshot", reflect.TypeOf((*MockSessionRepo)(nil).SaveMemorySnapshot), ctx, sessionID, snapshot)
+}
+
 // SoftDelete mocks base method.
 func (m *MockSessionRepo) SoftDelete(ctx context.Context, id int64) error {
 	m.ctrl.T.Helper()

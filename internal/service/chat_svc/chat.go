@@ -54,6 +54,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/app_settings_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/goal"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/peerstream"
@@ -2486,6 +2487,11 @@ func (s *chatSvc) buildRunRequest(
 	if err != nil {
 		return agentruntime.RunRequest{}, err
 	}
+	// 记忆快照按本轮选中的 runtime 判档,首个回合取下后各回合原样沿用(spec 2026-11-11 决策 11/12)。
+	memorySnapshot, err := s.sessionMemorySnapshot(ctx, sess, a, MemoryTier(runner.Capabilities(), be.Type))
+	if err != nil {
+		return agentruntime.RunRequest{}, err
+	}
 	req := agentruntime.RunRequest{
 		Backend:           effectiveBackendForSession(sess, be),
 		Provider:          prov,
@@ -2497,7 +2503,7 @@ func (s *chatSvc) buildRunRequest(
 		Title:             sess.Title,
 		AgentSyncID:       a.SyncID,
 		ProjectSyncID:     projectSyncID,
-		SystemPrompt:      strings.Join(a.GetPrompt(), "\n"),
+		SystemPrompt:      appendMemorySnapshot(strings.Join(a.GetPrompt(), "\n"), memorySnapshot),
 		ProviderSessionID: sess.ProviderSessionID,
 		// 挂账修复(2026-08-11):本地没有可续的原生会话(regenerate 无锚点 / provider 会话
 		// 失效恢复 / 首轮)时声明 freshSession,远端 daemon 据此不拿落库旧 id 续话。
@@ -2562,6 +2568,10 @@ func (s *chatSvc) buildRunRequest(
 	switch agent_backend_entity.BackendType(be.Type) {
 	case agent_backend_entity.TypeClaudeCode:
 		req.PermissionMode = ipc.NormalizeStoredPermissionMode(agent_backend_entity.TypeClaudeCode, sess.PermissionMode)
+		// 原生记忆开关只存本机(决策 13):只管本机起的 Claude Code,远程设备上的不受它管。
+		if !exec_target_svc.BackendTargetsRemote(be) {
+			req.DisableNativeAutoMemory = !app_settings_svc.AppSettings().ClaudeNativeMemoryEnabled(ctx)
+		}
 	case agent_backend_entity.TypeCodex:
 		req.CollaborationMode = ipc.NormalizeStoredPermissionMode(agent_backend_entity.TypeCodex, sess.PermissionMode)
 	case agent_backend_entity.TypeHermes:

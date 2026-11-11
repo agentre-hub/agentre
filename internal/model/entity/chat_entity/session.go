@@ -139,9 +139,16 @@ type Session struct {
 	// 本身（连带它的 backend 配置与技能授权），不是机器。三列由同一条专用单列
 	// 更新 UpdateExecDaemon 一并写入、一并加进 Update 的 Omit 清单，同生共死。
 	ExecAgentBackendID int64 `gorm:"column:exec_agent_backend_id;type:bigint;not null;default:0"`
-	Status             int   `gorm:"column:status;type:int;not null;default:1"`
-	Createtime         int64 `gorm:"column:createtime;type:bigint;not null;default:0"`
-	Updatetime         int64 `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	// MemorySnapshot 是会话首个回合取下的记忆段落(spec 2026-11-11 决策 11),此后每个
+	// 回合原样接在 agent 提示词之后 —— 回退、重新生成、编辑重发、进程与应用重启都不重取。
+	// 空串 + MemorySnapshotTaken = 这条会话不带记忆(开关为关、后端不支持、设备太旧,
+	// 或升级前就已开始)。两列只由 chat_repo.SaveMemorySnapshot 写一次,不在整行回写
+	// 的白名单里;只存本机,不同步(决策 15)。
+	MemorySnapshot      string `gorm:"column:memory_snapshot;type:text;not null;default:''"`
+	MemorySnapshotTaken bool   `gorm:"column:memory_snapshot_taken;type:boolean;not null;default:0"`
+	Status              int    `gorm:"column:status;type:int;not null;default:1"`
+	Createtime          int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
+	Updatetime          int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
 }
 
 func (*Session) TableName() string { return "chat_sessions" }

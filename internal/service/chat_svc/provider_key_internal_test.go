@@ -76,6 +76,9 @@ func setupDirectRunTest(t *testing.T) (*directRunMocks, context.Context) {
 	llm_provider_repo.RegisterLLMProvider(m.provider)
 	chat_repo.RegisterSession(m.session)
 	transcript_repo.RegisterMessage(m.message)
+	// 首个回合存记忆快照、读本机原生记忆开关:与这批用例无关,放行。
+	m.session.EXPECT().SaveMemorySnapshot(gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+	allowUnsetAppSettings(t, ctrl)
 	return m, context.Background()
 }
 

@@ -40,6 +40,8 @@ func TestCodexCapabilities(t *testing.T) {
 		So(caps.Has(capability.CapSkills), ShouldBeTrue)
 		// CapReasoningEffort=true:codex 经 -c model_reasoning_effort 吃下六档词表。
 		So(caps.Has(capability.CapReasoningEffort), ShouldBeTrue)
+		// CapMemory=true:CLI 能在会话里跑 agrctl 的记忆命令,会话带完整记忆段落。
+		So(caps.Has(capability.CapMemory), ShouldBeTrue)
 	})
 
 	Convey("codex PermissionModeMeta", t, func() {

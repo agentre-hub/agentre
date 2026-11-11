@@ -314,6 +314,7 @@ func TestPrepareTurnRun_LocalTokenRoutesToTurnProvider(t *testing.T) {
 	s := &chatSvc{gateway: gw}
 	runner := &directRunRunner{request: make(chan agentruntime.RunRequest, 1)}
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, runner))
+	allowTurnMemoryDefaults(t)
 	prevCwd := exec_target_svc.CurrentCwdResolver()
 	t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(prevCwd) })
 	dir := t.TempDir()
@@ -350,6 +351,7 @@ func TestPrepareTurnRun_SessionProviderNeedsRunningGateway(t *testing.T) {
 		t.Helper()
 		runner := &directRunRunner{request: make(chan agentruntime.RunRequest, 1)}
 		t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, runner))
+		allowTurnMemoryDefaults(t)
 		prevCwd := exec_target_svc.CurrentCwdResolver()
 		t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(prevCwd) })
 		dir := t.TempDir()
@@ -396,6 +398,7 @@ func TestPrepareTurnRun_PiAgentSessionProviderRunsWithoutGateway(t *testing.T) {
 	registerProviderMockForTurn(t, "session-picked", "", string(llm_provider_entity.TypeAnthropic))
 	runner := &directRunRunner{request: make(chan agentruntime.RunRequest, 1)}
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypePiAgent, runner))
+	allowTurnMemoryDefaults(t)
 	prevCwd := exec_target_svc.CurrentCwdResolver()
 	t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(prevCwd) })
 	dir := t.TempDir()
@@ -426,6 +429,7 @@ func TestPrepareTurnRun_BackendFixedModelResolvesSpecificChild(t *testing.T) {
 	registerProviderMockForTurn(t, "key-1", "mk-fixed", "")
 	runner := &directRunRunner{request: make(chan agentruntime.RunRequest, 1)}
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, runner))
+	allowTurnMemoryDefaults(t)
 	prevCwd := exec_target_svc.CurrentCwdResolver()
 	t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(prevCwd) })
 	dir := t.TempDir()
@@ -460,6 +464,7 @@ func TestPrepareTurnRun_BackendProviderDefaultFollowsCurrentDefault(t *testing.T
 	registerProviderMockForTurn(t, "key-1", "", "")
 	runner := &directRunRunner{request: make(chan agentruntime.RunRequest, 1)}
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, runner))
+	allowTurnMemoryDefaults(t)
 	prevCwd := exec_target_svc.CurrentCwdResolver()
 	t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(prevCwd) })
 	dir := t.TempDir()

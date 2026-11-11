@@ -32,5 +32,7 @@ func TestBuiltinCapabilities(t *testing.T) {
 		// CapReasoningEffort=true:builtin 起 runner 时把 Backend.ReasoningEffort
 		// 交给模型(runtime.go 的 reasoning effort 分支)。
 		So(caps.Has(capability.CapReasoningEffort), ShouldBeTrue)
+		// CapMemory=false:builtin 拿不到 agrctl 端点,只读得到提示词里的摘要。
+		So(caps.Has(capability.CapMemory), ShouldBeFalse)
 	})
 }
