@@ -90,10 +90,7 @@ static int agentreWritePNG(const guchar *bytes, gsize length, char *errbuf, gsiz
 */
 import "C"
 
-import (
-	"fmt"
-	"unsafe"
-)
+import "fmt"
 
 func writePNG(png []byte) error {
 	if len(png) == 0 {
