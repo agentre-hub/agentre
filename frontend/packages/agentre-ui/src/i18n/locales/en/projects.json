@@ -115,6 +115,11 @@
       "confirmName": "Type “{{name}}” to confirm",
       "submit": "Delete project",
       "failed": "Could not delete the project."
+    },
+    "memory": {
+      "row": "{{count}} memories",
+      "row_one": "{{count}} memory",
+      "row_other": "{{count}} memories"
     }
   },
   "projectHeader": {

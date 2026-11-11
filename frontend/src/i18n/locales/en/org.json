@@ -188,6 +188,10 @@
       "sort": {
         "status": "Status"
       }
+    },
+    "memory": {
+      "row_one": "{{count}} memory",
+      "row_other": "{{count}} memories"
     }
   }
 }

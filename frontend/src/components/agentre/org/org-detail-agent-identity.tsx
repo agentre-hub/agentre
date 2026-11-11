@@ -7,6 +7,7 @@ import {
 } from "@agentre-hub/agentre-ui";
 
 import { AgentAvatar } from "../primitives";
+import { OrgMemoryRow } from "./org-memory-row";
 import { safeAgentColor, type OrgAgent, type OrgDepartment } from "./types";
 
 /** 三栏里的身份栏保留归属；可编辑的身份区统一放在顶栏。 */
@@ -64,6 +65,7 @@ export function OrgDetailAgentIdentity({
           ) : null
         }
       />
+      <OrgMemoryRow owner={{ kind: "agent", id: agent.id }} />
     </section>
   );
 }

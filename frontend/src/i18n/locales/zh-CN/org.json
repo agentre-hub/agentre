@@ -188,6 +188,10 @@
       "sort": {
         "status": "状态"
       }
+    },
+    "memory": {
+      "row_one": "记忆 {{count}} 条",
+      "row_other": "记忆 {{count}} 条"
     }
   }
 }
