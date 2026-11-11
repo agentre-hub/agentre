@@ -49,6 +49,9 @@ export const ResolvePlanAction = vi.fn(() => Promise.resolve({}));
 // 桌面端全局审批弹窗（ExternalApprovalDialog 常驻挂载）：挂载时补拉一次当前队列。
 export const PendingCtlApprovals = vi.fn(() => Promise.resolve([]));
 export const AnswerCtlApproval = vi.fn(() => Promise.resolve());
+export const CopyImageToClipboard = vi.fn((_pngBase64: string) =>
+  Promise.resolve(),
+);
 
 export const Info = vi.fn(() =>
   Promise.resolve({
