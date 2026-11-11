@@ -1,11 +1,14 @@
 import {
+  copyImageToClipboard,
   copyTextToClipboard,
+  setClipboardImageWriter,
   setClipboardWriter,
 } from "@agentre-hub/agentre-ui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import i18n from "@/i18n";
 
+import { CopyImageToClipboard } from "../../../wailsjs/go/app/App";
 import { ClipboardSetText } from "../../../wailsjs/runtime/runtime";
 import { installNativeClipboard } from "../native-clipboard";
 
@@ -35,6 +38,7 @@ describe("installNativeClipboard", () => {
 
   afterEach(() => {
     setClipboardWriter(null);
+    setClipboardImageWriter(null);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: originalClipboard,
@@ -63,5 +67,44 @@ describe("installNativeClipboard", () => {
     await expect(copyTextToClipboard("agentred run")).rejects.toThrow(
       i18n.t("clipboard.writeRefused"),
     );
+  });
+
+  describe("images", () => {
+    // 1×1 透明 PNG。
+    const PNG_BASE64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const webWrite = vi.fn();
+
+    beforeEach(() => {
+      vi.mocked(CopyImageToClipboard).mockReset();
+      webWrite.mockReset();
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { write: webWrite, writeText: webWriteText },
+      });
+    });
+
+    it("Given the native clipboard is installed, When an image is copied, Then the PNG goes to Go as base64 and the WebView clipboard is not touched", async () => {
+      vi.mocked(CopyImageToClipboard).mockResolvedValue(undefined);
+
+      await copyImageToClipboard({
+        dataUrl: `data:image/png;base64,${PNG_BASE64}`,
+      });
+
+      expect(CopyImageToClipboard).toHaveBeenCalledWith(PNG_BASE64);
+      expect(webWrite).not.toHaveBeenCalled();
+    });
+
+    it("Given the Go write fails, When an image is copied, Then the Go error reaches the caller", async () => {
+      vi.mocked(CopyImageToClipboard).mockRejectedValue(
+        "clipboardimg: NSPasteboard setData failed (step 2)",
+      );
+
+      await expect(
+        copyImageToClipboard({
+          dataUrl: `data:image/png;base64,${PNG_BASE64}`,
+        }),
+      ).rejects.toThrow("NSPasteboard setData failed");
+    });
   });
 });

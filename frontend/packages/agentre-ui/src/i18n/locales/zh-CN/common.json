@@ -61,6 +61,29 @@
     "unknownError": "未知错误",
     "saveChanges": "保存更改"
   },
+  "imageCopy": {
+    "copied": "已复制图片",
+    "failed": "复制图片失败",
+    "insecureContext": "当前页面不支持复制图片，需要通过 HTTPS 访问"
+  },
+  "imageViewer": {
+    "open": "查看大图",
+    "openWithName": "查看大图：{{name}}",
+    "copyImage": "复制图片",
+    "title": "图片查看",
+    "titleWithName": "图片查看：{{name}}",
+    "copy": "复制",
+    "actualSize": "原始大小",
+    "fitToWindow": "适应窗口",
+    "close": "关闭",
+    "previous": "上一张",
+    "next": "下一张",
+    "decodeFailed": "图片无法显示",
+    "hintClose": "Esc 关闭",
+    "hintSwitch": "← → 切换",
+    "hintCopy": "{{mod}}C 复制",
+    "hintToggle": "点图片切换原始大小"
+  },
   "theme": {
     "dark": "深色",
     "darkMode": "深色模式",

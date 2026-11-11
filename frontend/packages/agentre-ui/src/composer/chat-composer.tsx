@@ -23,6 +23,7 @@ import {
   type DropZoneRegistrar,
 } from "../chat-input/use-file-drop";
 import { useUiTranslation } from "../i18n";
+import { ImageViewer } from "../image-viewer/image-viewer";
 import { cn } from "../lib/utils";
 import { Button } from "../ui/button";
 
@@ -264,6 +265,16 @@ export const ChatComposer = React.forwardRef<
   const formRef = React.useRef<HTMLFormElement>(null);
   const [empty, setEmpty] = React.useState(true);
   const [images, setImages] = React.useState<ChatImageAttachment[]>([]);
+  // 从哪张附件点开的查看器（null = 没开）。按附件本身记而不是按下标：遮罩挡住了输入框，
+  // 但宿主仍可能换掉附件（clearDraft / restoreDraft / 换成不收图的 agent），那张附件
+  // 不在了查看器就跟着关，之后再加进来的附件也不会让它自己弹开。
+  const [viewing, setViewing] = React.useState<ChatImageAttachment | null>(
+    null,
+  );
+  const viewingIndex = viewing ? images.indexOf(viewing) : -1;
+  if (viewing && viewingIndex < 0) setViewing(null);
+  // 关掉查看器后焦点回到点开它的那张缩略图。
+  const viewerReturnFocusRef = React.useRef<HTMLElement | null>(null);
   const [imageError, setImageError] = React.useState("");
   const [commandMode, setCommandMode] = React.useState(false);
   // 停止只在宿主真的接了 onStop 时出现 —— agentre-server 不接，行为与从前一样。
@@ -676,11 +687,25 @@ export const ChatComposer = React.forwardRef<
                 key={`${image.name}-${index}`}
                 className="group relative h-16 w-20 overflow-hidden rounded-md bg-muted"
               >
-                <img
-                  src={image.dataUrl}
-                  alt={image.name || t("chatComposer.images.attachmentAlt")}
-                  className="h-full w-full object-cover"
-                />
+                <button
+                  type="button"
+                  aria-label={
+                    image.name
+                      ? t("imageViewer.openWithName", { name: image.name })
+                      : t("imageViewer.open")
+                  }
+                  onClick={(event) => {
+                    viewerReturnFocusRef.current = event.currentTarget;
+                    setViewing(image);
+                  }}
+                  className="block h-full w-full cursor-zoom-in focus-visible:focus-outline-inset"
+                >
+                  <img
+                    src={image.dataUrl}
+                    alt={image.name || t("chatComposer.images.attachmentAlt")}
+                    className="h-full w-full object-cover"
+                  />
+                </button>
                 <Button
                   type="button"
                   variant="ghost"
@@ -701,6 +726,15 @@ export const ChatComposer = React.forwardRef<
             ))}
           </div>
         ) : null}
+        <ImageViewer
+          images={images}
+          startIndex={Math.max(viewingIndex, 0)}
+          open={viewingIndex >= 0}
+          onOpenChange={(open) => {
+            if (!open) setViewing(null);
+          }}
+          returnFocusTo={viewerReturnFocusRef}
+        />
         {touch ? (
           <div
             data-slot="composer-editor"

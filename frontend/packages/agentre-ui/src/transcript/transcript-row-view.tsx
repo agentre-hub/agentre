@@ -7,7 +7,9 @@ import * as React from "react";
 import {
   ArrowDown,
   ArrowUp,
+  Check,
   ChevronDown,
+  Copy,
   Pencil,
   RefreshCw,
   TriangleAlert,
@@ -19,6 +21,8 @@ import {
   prepareMentionText,
 } from "../chat-input/mentions/transcript";
 import { useUiTranslation } from "../i18n";
+import { ImageViewer, type ViewerImage } from "../image-viewer/image-viewer";
+import { copyImageWithToast } from "../lib/clipboard-image";
 import {
   formatCompactTurnDuration,
   formatTokensPerSec,
@@ -1051,27 +1055,100 @@ function DisconnectedIndicator() {
   );
 }
 
-function ImageBlockView({ block }: { block: TranscriptBlock }) {
-  const { t } = useUiTranslation();
-  const image = (
-    block as TranscriptBlock & {
-      image?: { dataUrl?: string; mediaType?: string; name?: string };
-    }
-  ).image;
+type ImageBlockPayload = {
+  image?: { dataUrl?: string; mediaType?: string; name?: string };
+};
+
+function viewerImageOf(block: TranscriptBlock): ViewerImage | null {
+  const image = (block as TranscriptBlock & ImageBlockPayload).image;
   if (!image?.dataUrl) return null;
+  return {
+    dataUrl: image.dataUrl,
+    mediaType: image.mediaType,
+    name: image.name,
+  };
+}
+
+/** 复制成功后按钮上的 ✓ 停留多久（spec「转录里的图片缩略图」）。 */
+const COPIED_FEEDBACK_MS = 1500;
+
+/**
+ * 转录里的一张图：整张缩略图是按钮，点开全窗口查看器（同组 = 同一条消息的所有图片块）；
+ * 悬停或聚焦时右上角出现复制按钮。缩略图样式与尺寸沿用原来的（最高 288px）。
+ */
+function ImageBlockView({
+  block,
+  group,
+}: {
+  block: TranscriptBlock;
+  group: TranscriptBlock[];
+}) {
+  const { t } = useUiTranslation();
+  const [open, setOpen] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const thumbRef = React.useRef<HTMLButtonElement>(null);
+
+  React.useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  const image = viewerImageOf(block);
+  if (!image) return null;
+
+  const members = group.filter((member) => viewerImageOf(member) !== null);
+  const images = members.map((member) => viewerImageOf(member)!);
+  const startIndex = Math.max(members.indexOf(block), 0);
+
+  const copy = async () => {
+    if (await copyImageWithToast(image)) setCopied(true);
+  };
+
   return (
-    <a
-      href={image.dataUrl}
-      target="_blank"
-      rel="noreferrer"
-      className="block w-fit overflow-hidden rounded-lg bg-muted"
-    >
-      <img
-        src={image.dataUrl}
-        alt={image.name || image.mediaType || t("chat.image.alt")}
-        className="max-h-72 max-w-full object-contain"
+    <div className="group/img relative w-fit overflow-hidden rounded-lg bg-muted">
+      <button
+        ref={thumbRef}
+        type="button"
+        aria-label={
+          image.name
+            ? t("imageViewer.openWithName", { name: image.name })
+            : t("imageViewer.open")
+        }
+        onClick={() => setOpen(true)}
+        className="block cursor-zoom-in focus-visible:focus-outline-inset"
+      >
+        <img
+          src={image.dataUrl}
+          alt={image.name || image.mediaType || t("chat.image.alt")}
+          className="max-h-72 max-w-full object-contain"
+        />
+      </button>
+      <button
+        type="button"
+        aria-label={t("imageViewer.copyImage")}
+        title={t("imageViewer.copyImage")}
+        data-copied={copied ? "true" : undefined}
+        onClick={() => void copy()}
+        className={cn(
+          "absolute top-1.5 right-1.5 inline-flex size-7 cursor-pointer items-center justify-center rounded bg-background/90 text-foreground transition-opacity hover:bg-background focus-visible:opacity-100 focus-visible:focus-outline",
+          copied ? "opacity-100" : "opacity-0 group-hover/img:opacity-100",
+        )}
+      >
+        {copied ? (
+          <Check aria-hidden="true" className="size-3.5 text-status-running" />
+        ) : (
+          <Copy aria-hidden="true" className="size-3.5" />
+        )}
+      </button>
+      <ImageViewer
+        images={images}
+        startIndex={startIndex}
+        open={open}
+        onOpenChange={setOpen}
+        returnFocusTo={thumbRef}
       />
-    </a>
+    </div>
   );
 }
 
@@ -1243,7 +1320,7 @@ function RenderItemContent({
         />
       );
     case "image":
-      return <ImageBlockView block={item.block} />;
+      return <ImageBlockView block={item.block} group={item.group} />;
     case "tool":
       // 工具卡统一走 CanonicalToolRouter:
       //   - block.canonical 非空且 kind 已注册 → 分发到 canonical-tool/<kind>/card.tsx

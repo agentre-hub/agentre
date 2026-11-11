@@ -1594,3 +1594,97 @@ describe("ChatComposer · remove last append", () => {
     expect(handle.current?.removeLastAppend()).toBe(false);
   });
 });
+
+describe("ChatComposer · 附件查看大图", () => {
+  const TWO = [
+    {
+      dataUrl: "data:image/png;base64,AAA",
+      mediaType: "image/png",
+      name: "a.png",
+    },
+    {
+      dataUrl: "data:image/png;base64,BBB",
+      mediaType: "image/png",
+      name: "b.png",
+    },
+  ];
+
+  async function renderWithAttachments() {
+    const handle = createRef<ChatComposerHandle>();
+    render(<ChatComposer ref={handle} supportsImageInput onSubmit={vi.fn()} />);
+    act(() => handle.current?.restoreDraft("", TWO));
+    await screen.findByAltText("b.png");
+  }
+
+  it("Given two attachments, When the second thumbnail is clicked, Then the viewer opens on it with every attachment in the group", async () => {
+    await renderWithAttachments();
+
+    fireEvent.click(screen.getByRole("button", { name: "View image: b.png" }));
+
+    expect(screen.getByRole("dialog")).toHaveAccessibleName(
+      "Image viewer: b.png",
+    );
+    expect(screen.getByText("2 / 2")).toBeInTheDocument();
+  });
+
+  it("Given an attachment, When its remove button is clicked, Then it is removed and no viewer opens", async () => {
+    await renderWithAttachments();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove image a.png" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByAltText("a.png")).toBeNull();
+    expect(screen.getByAltText("b.png")).toBeInTheDocument();
+  });
+
+  it("Given the viewer was opened from an attachment, When it closes, Then focus returns to that thumbnail", async () => {
+    await renderWithAttachments();
+    const thumb = screen.getByRole("button", { name: "View image: a.png" });
+
+    fireEvent.click(thumb);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "View image: a.png" }),
+      ).toHaveFocus(),
+    );
+  });
+});
+
+describe("ChatComposer · 查看器开着时宿主换掉附件", () => {
+  const ONE = [
+    {
+      dataUrl: "data:image/png;base64,AAA",
+      mediaType: "image/png",
+      name: "a.png",
+    },
+  ];
+
+  it("Given the viewer is open on an attachment, When the host clears the draft, Then the viewer closes completely and does not reopen when attachments come back", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    render(<ChatComposer ref={handle} supportsImageInput onSubmit={vi.fn()} />);
+    act(() => handle.current?.restoreDraft("", ONE));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "View image: a.png" }),
+    );
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    act(() => handle.current?.clearDraft());
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      document.querySelector('[data-slot="image-viewer-overlay"]'),
+    ).toBeNull();
+
+    act(() =>
+      handle.current?.restoreDraft(
+        "",
+        ONE.map((i) => ({ ...i })),
+      ),
+    );
+    await screen.findByAltText("a.png");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});

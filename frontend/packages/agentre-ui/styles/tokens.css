@@ -213,6 +213,11 @@
      比表单弹窗的 --overlay-scrim 轻，且是中性黑。见 docs/specs/2026-10-15-borderless-ui.md
      「设置对话框 · 外观」。 */
   --settings-scrim: rgba(0, 0, 0, 0.32);
+  /* 图片查看器：浅色主题下也是深色遮罩（看图工具的通行做法，截图边缘在深底上才
+     看得清），所以只在这里声明一次，.dark 不覆盖。前景是遮罩上的文件名、按钮与提示。
+     见 docs/specs/2026-11-06-image-viewer-and-copy.md 决策 2。 */
+  --media-scrim: rgba(0, 0, 0, 0.88);
+  --media-foreground: #ffffff;
 
   /* Code / console surfaces — monospace output (hook logs, command output).
      Light-adaptive: a light code surface in light theme, deep console near-black in dark. */
@@ -636,6 +641,8 @@
   --shadow-overlay: var(--overlay-shadow);
   --color-scrim: var(--overlay-scrim);
   --color-settings-scrim: var(--settings-scrim);
+  --color-media-scrim: var(--media-scrim);
+  --color-media-foreground: var(--media-foreground);
   --color-traffic-close: var(--traffic-close);
   --color-traffic-minimize: var(--traffic-minimize);
   --color-traffic-zoom: var(--traffic-zoom);

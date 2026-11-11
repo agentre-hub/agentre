@@ -69,6 +69,12 @@ export type RenderItem =
     }
   | {
       block: TranscriptBlock;
+      /**
+       * 同一条消息里的全部图片块（含本轮 liveBlocks，按出现顺序，含 block 自己）。
+       * 查看器的「同组」就是它（spec 2026-11-06-image-viewer-and-copy 决策 4）：
+       * 每个图片块各占一行虚拟行，渲染那一行时看不到兄弟行，所以在这里一次算好。
+       */
+      group: TranscriptBlock[];
       type: "image";
     }
   | {
@@ -207,6 +213,8 @@ export function buildRenderItems({
   liveBlocks.forEach(collectChildren);
 
   const items: RenderItem[] = [];
+  // 本条消息所有图片项共用这一个数组：consumeBlock 走完，它就是完整的一组。
+  const imageGroup: TranscriptBlock[] = [];
   const pendingToolIndexes = new Map<string, number>();
   const pendingAnonymousToolIndexes: number[] = [];
   // SKIPPED_TOOL_INDEX 给 AskUserQuestion 的 tool_use 占位用:tool_use 本身不入 items,
@@ -242,7 +250,8 @@ export function buildRenderItems({
         items.push({ block: b, streaming: false, type: "thinking" });
         break;
       case "image":
-        items.push({ block: b, type: "image" });
+        imageGroup.push(b);
+        items.push({ block: b, group: imageGroup, type: "image" });
         break;
       case "plan":
         // Most plan.update blocks are progress data for TaskProgressBar only.
