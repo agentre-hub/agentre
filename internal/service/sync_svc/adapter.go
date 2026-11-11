@@ -82,6 +82,7 @@ func defaultAdapters(avatar avatarTransport) map[string]adapter {
 		&agentExecTargetAdapter{},
 		&projectAgentAdapter{},
 		&projectLocationAdapter{},
+		&memoryAdapter{},
 		&llmProviderAdapter{},
 		&labelAdapter{},
 		&issueAdapter{},

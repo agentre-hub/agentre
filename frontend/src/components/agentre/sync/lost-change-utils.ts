@@ -11,6 +11,7 @@ const ENTITY_LABEL_KEYS: Record<string, string> = {
   agent_exec_target: "sync.lostChanges.entity.execTarget",
   project_agent: "sync.lostChanges.entity.projectMember",
   project_location: "sync.lostChanges.entity.projectLocation",
+  memory: "sync.lostChanges.entity.memory",
 };
 
 // reason 字面量,与 syncqueue_entity.Reason* 逐字一致。
@@ -33,7 +34,8 @@ export function reasonLabel(reason: string, t: TFunction): string {
 /**
  * 从载荷正文里摘一个人类可读的标题片段。多数对象类型的载荷带 `name`;
  * `project_location` 只有 `path`(项目名 / 机器名的解析属于同步元数据,不在
- * 这份载荷里,所以退而求其次显示路径)。解析失败或两者都没有时返回空串,
+ * 这份载荷里,所以退而求其次显示路径);`memory` 用它的一句话摘要。解析失败或
+ * 都没有时返回空串,
  * 调用方只显示对象类型。
  */
 export function payloadTitleDetail(payloadJSON: string): string {
@@ -41,6 +43,8 @@ export function payloadTitleDetail(payloadJSON: string): string {
     const parsed = JSON.parse(payloadJSON) as Record<string, unknown>;
     if (typeof parsed.name === "string" && parsed.name) return parsed.name;
     if (typeof parsed.path === "string" && parsed.path) return parsed.path;
+    if (typeof parsed.summary === "string" && parsed.summary)
+      return parsed.summary;
   } catch {
     // 不是合法 JSON:没有可摘的标题片段。
   }

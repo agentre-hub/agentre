@@ -123,6 +123,9 @@ type AgentPayload struct {
 	PromptJSON string `json:"prompt_json"`
 	ToolsJSON  string `json:"tools_json"`
 	Pinned     bool   `json:"pinned"`
+	// MemoryEnabled 是 Agent 的记忆开关。指针：键不在 = 对端是不认识这个字段的旧版本，
+	// 接收端保持本机现状，而不是把它当成「关」。
+	MemoryEnabled *bool `json:"memory_enabled,omitempty"`
 }
 
 // AgentBackendPayload 是 kind=agent_backend 的载荷:后端的**账号级身份**。
@@ -281,6 +284,31 @@ type IssueLabelPayload struct {
 	LabelSyncID string `json:"label_sync_id"`
 }
 
+// ── 记忆 ────────────────────────────────────────────────────────────────────
+
+// MemoryPayload 是 kind=memory 的载荷:一条 Agent 记忆,含状态、置顶与上一版。
+//
+// 归属用 OwnerKind + OwnerSyncID 表达:全局层没有同步标识(OwnerSyncID 缺席),其余
+// 三层是对应部门 / Agent / 项目的同步标识。没有会话号与 Agent 本地 ID —— 创建者与最近
+// 变更者只带种类(user / ai),具体是哪个会话只在产生它的那台机器上有意义。
+type MemoryPayload struct {
+	OwnerKind   string `json:"owner_kind"`
+	OwnerSyncID string `json:"owner_sync_id,omitempty"`
+	Summary     string `json:"summary"`
+	Detail      string `json:"detail"`
+	PrevSummary string `json:"prev_summary"`
+	PrevDetail  string `json:"prev_detail"`
+	Pinned      bool   `json:"pinned"`
+	// State 是 normal / archived。彻底删除是墓碑,不走这个字段。
+	State       string `json:"state"`
+	CreatorKind string `json:"creator_kind"`
+	// ChangeAction / ChangeActorKind / ChangedAt 是最近一次变更;「最近变更」页与预算
+	// 取舍里的「最近修改」都读 ChangedAt(Unix 毫秒)。
+	ChangeAction    string `json:"change_action"`
+	ChangeActorKind string `json:"change_actor_kind"`
+	ChangedAt       int64  `json:"changed_at"`
+}
+
 // ── kind ↔ 载荷类型 ─────────────────────────────────────────────────────────
 
 // payloadTypes 是「哪种 kind 对应哪个载荷类型」这件事的唯一答案。
@@ -297,6 +325,7 @@ var payloadTypes = map[string]reflect.Type{
 	KindAgentExecTarget: reflect.TypeOf(AgentExecTargetPayload{}),
 	KindProjectAgent:    reflect.TypeOf(ProjectAgentPayload{}),
 	KindProjectLocation: reflect.TypeOf(ProjectLocationPayload{}),
+	KindMemory:          reflect.TypeOf(MemoryPayload{}),
 	KindLLMProvider:     reflect.TypeOf(LLMProviderPayload{}),
 	KindLabel:           reflect.TypeOf(LabelPayload{}),
 	KindIssue:           reflect.TypeOf(IssuePayload{}),

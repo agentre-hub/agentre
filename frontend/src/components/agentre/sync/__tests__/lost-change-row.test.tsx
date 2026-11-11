@@ -157,3 +157,34 @@ describe("LostChangeRow 失败的呈现", () => {
     expect(details).toHaveTextContent("rpc error: code = Unavailable");
   });
 });
+
+/** 记忆被另一台设备覆盖:列表里要说出种类名与那一条的摘要,而不是裸的 "memory"。 */
+describe("LostChangeRow 的记忆条目", () => {
+  it("显示种类名「Memory」和条目摘要", () => {
+    renderRow({
+      ...overwrittenRow("Work Mac mini"),
+      entityType: "memory",
+      entitySyncID: "sync-mem-1",
+      payloadJSON: JSON.stringify({
+        owner_kind: "global",
+        summary: "Prefers pnpm over npm",
+        detail: "",
+      }),
+    });
+
+    expect(
+      screen.getByText(/Memory · Prefers pnpm over npm/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^memory/)).not.toBeInTheDocument();
+  });
+
+  it("载荷里没有摘要时只显示种类名", () => {
+    renderRow({
+      ...overwrittenRow("Work Mac mini"),
+      entityType: "memory",
+      payloadJSON: "{}",
+    });
+
+    expect(screen.getByText("Memory")).toBeInTheDocument();
+  });
+});

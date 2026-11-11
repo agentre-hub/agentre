@@ -68,6 +68,7 @@ func TestKinds_GivenTheVocabulary_ThenMembershipIsStatedOnce(t *testing.T) {
 		syncwire.KindAgentExecTarget,
 		syncwire.KindProjectAgent,
 		syncwire.KindProjectLocation,
+		syncwire.KindMemory,
 		syncwire.KindLLMProvider,
 		syncwire.KindLabel,
 		syncwire.KindIssue,
@@ -100,6 +101,9 @@ func TestKinds_GivenTheOrder_ThenReferencedKindsComeFirst(t *testing.T) {
 		{syncwire.KindLabel, syncwire.KindIssueLabel},
 		{syncwire.KindIssue, syncwire.KindIssueLabel},
 		{syncwire.KindProject, syncwire.KindIssue},
+		{syncwire.KindDepartment, syncwire.KindMemory},
+		{syncwire.KindAgent, syncwire.KindMemory},
+		{syncwire.KindProject, syncwire.KindMemory},
 	} {
 		require.Less(t, index[pair[0]], index[pair[1]], "%s 必须排在 %s 之前", pair[0], pair[1])
 	}

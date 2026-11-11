@@ -21,6 +21,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/repository/memory_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // MemorySvc Agent 记忆应用服务。
@@ -98,6 +100,7 @@ func (s *memorySvc) Create(ctx context.Context, req *CreateRequest) (*CreateResu
 	if err := memory_repo.Memory().Create(ctx, m); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyCreate(ctx, syncwire.KindMemory, m.ID, m.SyncMeta)
 	logWrite(ctx, m, string(memory_entity.ActionCreated))
 	return &CreateResult{Item: toItem(m)}, nil
 }
@@ -190,6 +193,7 @@ func (s *memorySvc) Delete(ctx context.Context, id int64) error {
 	if err := memory_repo.Memory().Delete(ctx, m.ID); err != nil {
 		return err
 	}
+	sync_svc.NotifyDelete(ctx, syncwire.KindMemory, m.ID, m.SyncMeta)
 	logWrite(ctx, m, "deleted")
 	return nil
 }
@@ -218,6 +222,7 @@ func (s *memorySvc) mutate(ctx context.Context, id int64, op string, apply func(
 		if err := memory_repo.Memory().Update(ctx, m); err != nil {
 			return nil, err
 		}
+		sync_svc.NotifyUpdate(ctx, syncwire.KindMemory, m.ID, m.SyncMeta)
 		logWrite(ctx, m, op)
 	}
 	return toItem(m), nil

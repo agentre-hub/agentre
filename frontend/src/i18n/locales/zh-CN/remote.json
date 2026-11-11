@@ -328,6 +328,7 @@
         "agentBackend": "Agent 后端",
         "department": "部门",
         "execTarget": "执行目标",
+        "memory": "记忆",
         "project": "项目",
         "projectLocation": "项目路径",
         "projectMember": "项目成员"

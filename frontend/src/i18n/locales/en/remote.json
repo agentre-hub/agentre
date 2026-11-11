@@ -328,6 +328,7 @@
         "agentBackend": "Agent backend",
         "department": "Department",
         "execTarget": "Execution target",
+        "memory": "Memory",
         "project": "Project",
         "projectLocation": "Project path",
         "projectMember": "Project member"
