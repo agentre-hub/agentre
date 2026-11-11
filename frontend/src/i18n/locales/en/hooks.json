@@ -2,17 +2,20 @@
   "hooks": {
     "title": "Hooks",
     "loading": "Loading Hooks…",
+    "loadFailed": "Hooks didn't load",
     "list": {
       "search": "Search Hooks",
       "groupScheduled": "Scheduled",
       "empty": "No Hooks yet",
       "emptyHint": "Click + at the top right to create a script Hook",
       "addAria": "New Hook",
-      "disabled": "Off"
+      "disabled": "Off",
+      "unsaved": "Unsaved changes"
     },
     "header": {
       "kindLabel": "{{interp}} Hook",
       "run": "Dry run",
+      "saveAndRun": "Save and run",
       "enable": "Enable",
       "disable": "Disable",
       "more": "More actions",
@@ -97,14 +100,22 @@
       "deleted": "Deleted Hook {{name}}",
       "enabled": "Enabled",
       "disabled": "Disabled",
-      "saveFailed": "Save failed: {{error}}",
-      "runFailed": "Run failed: {{error}}"
+      "saveFailed": "Save failed",
+      "runFailed": "Run failed",
+      "deleteFailed": "Delete failed",
+      "enableFailed": "Enable failed",
+      "disableFailed": "Disable failed"
     },
     "del": {
       "title": "Delete Hook",
       "description": "Delete \"{{name}}\"? This cannot be undone.",
       "confirm": "Delete",
       "cancel": "Cancel"
+    },
+    "discard": {
+      "title": "Discard changes to “{{name}}”?",
+      "keep": "Keep editing",
+      "confirm": "Discard changes"
     },
     "create": {
       "defaultName": "New Hook"

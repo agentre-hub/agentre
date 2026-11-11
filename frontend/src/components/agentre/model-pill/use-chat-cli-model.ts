@@ -19,6 +19,7 @@ export function useChatCLIModel({
   persistedValue = "",
   onChosen,
   onSwitched,
+  onFailed,
 }: {
   backendId?: number;
   enabled: boolean;
@@ -27,24 +28,26 @@ export function useChatCLIModel({
   persistedValue?: string;
   onChosen: () => void;
   onSwitched?: () => void;
+  /**
+   * 持久化切换被拒（spec 2026-11-10 A2）：值本来就没动，宿主负责告知——toast 说
+   * 「仍是 <原值>」、原话进详情、弹层列表下方一行本地化事实。原话不回到弹层里。
+   */
+  onFailed?: (cause: unknown) => void;
 }) {
   const [mode, setMode] = React.useState(persistedMode);
   const [value, setValue] = React.useState(persistedValue);
-  const [error, setError] = React.useState<string | null>(null);
   const generation = React.useRef(0);
   const directory = useCLIModels({ backendId, enabled, listCLIModels });
   React.useEffect(() => {
     generation.current++;
     setMode(persistedMode);
     setValue(persistedValue);
-    setError(null);
   }, [sessionId, backendId, persistedMode, persistedValue]);
   const choose = React.useCallback(
     async (choice?: CliModelChoice) => {
       const current = ++generation.current;
       const nextMode = choice?.mode ?? "",
         nextValue = choice?.mode === "fixed" ? choice.value : "";
-      setError(null);
       try {
         if (sessionId > 0)
           await SetChatSessionCLIModel({
@@ -59,18 +62,16 @@ export function useChatCLIModel({
         if (sessionId > 0) onSwitched?.();
         return true;
       } catch (err) {
-        if (current === generation.current)
-          setError(err instanceof Error ? err.message : String(err));
+        if (current === generation.current) onFailed?.(err);
         return false;
       }
     },
-    [sessionId, onChosen, onSwitched],
+    [sessionId, onChosen, onSwitched, onFailed],
   );
   const clear = React.useCallback(() => {
     generation.current++;
     setMode("");
     setValue("");
-    setError(null);
   }, []);
   // 下面几样都会经 useProviderPill 递进 memo 的 composer 底栏:输入不变时身份必须
   // 不变,否则宿主每重渲染一次(流式输出期间是每个文字 delta)底栏就跟着重渲染。
@@ -92,7 +93,6 @@ export function useChatCLIModel({
             ...directory.catalog,
             loading: directory.loading,
             choice,
-            switchError: error ?? undefined,
             onChange: choose,
             onRefresh: directory.refresh,
           }
@@ -103,7 +103,6 @@ export function useChatCLIModel({
       directory.loading,
       directory.refresh,
       choice,
-      error,
       choose,
     ],
   );
@@ -112,7 +111,6 @@ export function useChatCLIModel({
     () => ({
       mode,
       value,
-      error,
       choice,
       cliModels,
       clear,
@@ -123,7 +121,6 @@ export function useChatCLIModel({
     [
       mode,
       value,
-      error,
       choice,
       cliModels,
       clear,

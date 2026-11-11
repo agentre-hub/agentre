@@ -1,6 +1,7 @@
 import { modelDisplayName } from "./model-display-name";
 import type { PickerProvider } from "./model-target-picker";
 import type { AccountDeviceView } from "./ports";
+import type { FailureNotice } from "./agent-backends-shared";
 
 const FLASH_DISPLAY_LIMIT = 80;
 
@@ -148,4 +149,16 @@ export function messageFromError(
   } catch {
     return translate("common.unknownError");
   }
+}
+
+/**
+ * 把一个 catch 到的未知值说成「事实句 + 折叠详情」：正文是调用方给的那句本地化
+ * 事实，机器原话只进 `detail`。
+ */
+export function failureNotice(
+  text: string,
+  err: unknown,
+  translate: (key: string) => string,
+): FailureNotice {
+  return { text, detail: messageFromError(err, translate) };
 }

@@ -125,6 +125,42 @@ export function OrgIndex(props: OrgIndexProps) {
       collapsed.has(group.department.id) ? { ...group, rows: [] } : group,
     );
   }, [model.groups, collapsed]);
+  // 选中的那一行要真的露出来（规格 B3「祖先展开并滚动到可见」）：新建成功、深链、
+  // 详情里点成员都只改选中态。新节点要等那次重拉落地才进数据，所以「还找不到」时
+  // 不算数、等下一次数据；每个选中只露一次，之后用户自己再收起就不去顶它。
+  const bodyRef = React.useRef<HTMLDivElement>(null);
+  const revealedKey = React.useRef<string | null>(null);
+  const selectedKind = props.selected?.kind;
+  const selectedId = props.selected?.id;
+  React.useEffect(() => {
+    if (!selectedKind || !selectedId) return;
+    const key = `${selectedKind}:${selectedId}`;
+    if (revealedKey.current === key) return;
+    const ancestors = ancestorsInIndex(
+      selectedKind,
+      selectedId,
+      model,
+      departments,
+    );
+    if (!ancestors) return;
+    const toExpand = ancestors.filter((id) => collapsed.has(id));
+    if (toExpand.length > 0) {
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        for (const id of toExpand) next.delete(id);
+        return next;
+      });
+      return;
+    }
+    const selector =
+      selectedKind === "agent"
+        ? `[data-slot="org-index-row"][data-agent-id="${selectedId}"]`
+        : `[data-slot="org-group-header"][data-department-id="${selectedId}"]`;
+    const node = bodyRef.current?.querySelector(selector);
+    if (!node) return;
+    revealedKey.current = key;
+    node.scrollIntoView?.({ block: "nearest" });
+  }, [selectedKind, selectedId, model, departments, collapsed]);
   const toggleCollapsed = React.useCallback((departmentId: number) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -300,6 +336,7 @@ export function OrgIndex(props: OrgIndexProps) {
       {/* 行与组头是**内缩的圆角块**而不是通栏条，所以左右内缩由这一层给
           （mockup `.rows { padding: 2px 6px 8px }`）——包里的行只管自己那点内边距。 */}
       <div
+        ref={bodyRef}
         className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2 pt-0.5"
         data-slot="org-index-body"
       >
@@ -391,4 +428,38 @@ export function OrgIndex(props: OrgIndexProps) {
       </div>
     </div>
   );
+}
+
+/**
+ * 要展开哪些部门，选中的那个节点才露得出来；它还不在（这次筛选下的）索引里时为 null。
+ * 部门自己收起不算挡住它的组头，只看它的上级链。
+ */
+function ancestorsInIndex(
+  kind: "agent" | "department",
+  id: number,
+  model: ReturnType<typeof buildOrgIndex>,
+  departments: OrgDepartment[],
+): number[] | null {
+  const parentOf = new Map(departments.map((d) => [d.id, d.parentId]));
+  const chainAbove = (departmentId: number) => {
+    const out: number[] = [];
+    let parent = parentOf.get(departmentId) ?? 0;
+    while (parent > 0 && !out.includes(parent)) {
+      out.push(parent);
+      parent = parentOf.get(parent) ?? 0;
+    }
+    return out;
+  };
+  if (kind === "department") {
+    return model.groups.some((g) => g.department.id === id)
+      ? chainAbove(id)
+      : null;
+  }
+  if (model.topRows.some((row) => row.agent.id === id)) return [];
+  const group = model.groups.find((g) =>
+    g.rows.some((row) => row.agent.id === id),
+  );
+  return group
+    ? [group.department.id, ...chainAbove(group.department.id)]
+    : null;
 }

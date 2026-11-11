@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 
 vi.mock("../../../../../wailsjs/go/app/App", () => ({
   PeerAttach: vi.fn(),
@@ -28,6 +29,7 @@ import {
   PeerPull,
   PeerRun,
   PeerSteer,
+  PeerSubmitAnswer,
   PeerSubmitToolPermission,
   PeerDetach,
 } from "../../../../../wailsjs/go/app/App";
@@ -36,7 +38,11 @@ import {
   peerKeyOf,
   usePeerSessionsStore,
 } from "../../../../stores/peer-session-store";
-import { createPeerTranscript, reducePeerEvent } from "../peer-transcript";
+import {
+  createPeerTranscript,
+  reducePeerEvent,
+  type PeerTranscriptState,
+} from "../peer-transcript";
 
 // conv 是这些用例里那条对话的身份（uuid 字符串）——Peer Tab 按它寻址。
 const conv = (n: number) =>
@@ -45,13 +51,19 @@ const conv = (n: number) =>
 const mockPerm = PeerSubmitToolPermission as unknown as ReturnType<
   typeof vi.fn
 >;
+const mockAnswer = PeerSubmitAnswer as unknown as ReturnType<typeof vi.fn>;
+const mockAttach = PeerAttach as unknown as ReturnType<typeof vi.fn>;
+const mockPull = PeerPull as unknown as ReturnType<typeof vi.fn>;
 const mockDetach = PeerDetach as unknown as ReturnType<typeof vi.fn>;
 const mockRun = PeerRun as unknown as ReturnType<typeof vi.fn>;
 const mockSteer = PeerSteer as unknown as ReturnType<typeof vi.fn>;
 
 // readySession 造一条「已接入」的 Peer Tab 会话,lifecycleState 由用例点名 ——
 // 它正是「这条会话此刻在不在跑」,也正是发送走 run 还是 steer 的判据。
-function readySession(lifecycleState: string) {
+function readySession(
+  lifecycleState: string,
+  transcript: PeerTranscriptState = createPeerTranscript(),
+) {
   const key = peerKeyOf("sha256:peer-desktop", conv(7));
   usePeerSessionsStore.setState({
     sessions: {
@@ -65,23 +77,77 @@ function readySession(lifecycleState: string) {
         lifecycleState,
         highWater: 0,
         sending: false,
-        transcript: createPeerTranscript(),
+        transcript,
       },
     },
   });
   return key;
 }
 
+// 转录一律由**真的帧**归约出来 —— 面板画什么取决于归约器给的块,手写一份块等于
+// 绕开被测的那条路。
+function transcriptOf(
+  events: Array<{ kind: string } & Record<string, unknown>>,
+): PeerTranscriptState {
+  let transcript = createPeerTranscript();
+  events.forEach((event, i) => {
+    transcript = reducePeerEvent(transcript, {
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      seq: i + 1,
+      event,
+    } as never);
+  });
+  return transcript;
+}
+
+const withAsk = () =>
+  transcriptOf([
+    { kind: "text_delta", text: "need a decision" },
+    {
+      kind: "ask_user_question",
+      requestId: "q-1",
+      questions: [
+        {
+          question: "Which database?",
+          header: "DB",
+          options: [
+            { label: "MySQL", description: "the one prod runs" },
+            { label: "Postgres", description: "the other one" },
+          ],
+        },
+      ],
+    },
+  ]);
+
+const withPermission = () =>
+  transcriptOf([
+    { kind: "text_delta", text: "let me look" },
+    {
+      kind: "tool_permission_request",
+      requestId: "p-1",
+      toolName: "Bash",
+      input: { command: "ls -la /srv" },
+    },
+  ]);
+
+const withReply = () =>
+  transcriptOf([{ kind: "text_delta", text: "done with the task" }]);
+
+// MemoryRouter:面板把共享卡的动作端口改接到对端,其余端口沿用桌面端那一份 ——
+// 而那一份里「点 @提及去哪」要 navigate。
 function renderPanel() {
   return render(
-    <PeerPanel
-      fingerprint="sha256:peer-desktop"
-      conversationId={conv(7)}
-      title="t"
-      deviceName="MacBook Pro"
-      active
-      onClose={() => {}}
-    />,
+    <MemoryRouter>
+      <PeerPanel
+        fingerprint="sha256:peer-desktop"
+        conversationId={conv(7)}
+        title="t"
+        deviceName="MacBook Pro"
+        active
+        onClose={() => {}}
+      />
+    </MemoryRouter>,
   );
 }
 
@@ -124,16 +190,7 @@ describe("PeerPanel", () => {
       hasMore: false,
       oldestSeq: 0,
     });
-    const { unmount } = render(
-      <PeerPanel
-        fingerprint="sha256:peer-desktop"
-        conversationId={conv(7)}
-        title="t"
-        deviceName="MacBook Pro"
-        active
-        onClose={() => {}}
-      />,
-    );
+    const { unmount } = renderPanel();
     await waitFor(() => {
       expect(PeerAttach).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -146,48 +203,129 @@ describe("PeerPanel", () => {
     expect(mockDetach).toHaveBeenCalledWith("sha256:peer-desktop", conv(7));
   });
 
-  it("renders a pending tool-permission decision and shows the already-handled notice on submit", async () => {
-    mockPerm.mockResolvedValue({ alreadyHandled: true });
-    const key = peerKeyOf("sha256:peer-desktop", conv(7));
-    usePeerSessionsStore.setState({
-      sessions: {
-        [key]: {
-          key,
-          fingerprint: "sha256:peer-desktop",
-          conversationId: conv(7),
-          title: "t",
-          deviceName: "MacBook Pro",
-          status: "ready",
-          lifecycleState: "idle",
-          highWater: 0,
-          sending: false,
-          transcript: {
-            ...createPeerTranscript(),
-            decisions: [
-              {
-                kind: "permission",
-                requestId: "p-1",
-                toolName: "Bash",
-              },
-            ],
-          },
-        },
-      },
-    });
+  // ── 未决提问 / 授权:与本机对话同一张卡,提交的是用户真实的选择 ─────────────
+  //
+  // 此前面板自绘一条决策条:「回答」提交的是 skipped:true + 空答案,选项根本不可见;
+  // 授权条不显示工具输入,也没有「本会话始终允许」。
 
-    render(
-      <PeerPanel
-        fingerprint="sha256:peer-desktop"
-        conversationId={conv(7)}
-        title="t"
-        deviceName="MacBook Pro"
-        active
-        onClose={() => {}}
-      />,
+  it("Given 对端有未决提问, When 选了选项再提交, Then 提交的是用户选的答案", async () => {
+    mockAnswer.mockResolvedValue({ alreadyHandled: false });
+    readySession("running", withAsk());
+    renderPanel();
+
+    expect(await screen.findByTestId("user-ask-card")).toBeTruthy();
+    // 题目与全部选项可见。
+    expect(screen.getByText("Which database?")).toBeTruthy();
+    expect(screen.getByText("MySQL")).toBeTruthy();
+    await userEvent.click(screen.getByText("Postgres"));
+    await userEvent.click(screen.getByRole("button", { name: "Submit Reply" }));
+
+    await waitFor(() => expect(mockAnswer).toHaveBeenCalledTimes(1));
+    const sent = mockAnswer.mock.calls[0][0];
+    expect(sent).toMatchObject({
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      requestId: "q-1",
+    });
+    expect(sent.skipped).toBeFalsy();
+    expect(sent.answers).toEqual([
+      expect.objectContaining({ questionIndex: 0, labels: ["Postgres"] }),
+    ]);
+  });
+
+  it("Given 对端有未决提问, When 点「跳过」, Then 提交 skipped 而不带答案", async () => {
+    mockAnswer.mockResolvedValue({ alreadyHandled: false });
+    readySession("running", withAsk());
+    renderPanel();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Skip" }));
+
+    await waitFor(() => expect(mockAnswer).toHaveBeenCalledTimes(1));
+    expect(mockAnswer.mock.calls[0][0]).toMatchObject({
+      requestId: "q-1",
+      skipped: true,
+      answers: [],
+    });
+  });
+
+  it("Given 提交答复被对端拒绝, Then 卡不锁、选择还在, 提示条说本地化事实句且原话只在折叠详情里, 可关闭", async () => {
+    mockAnswer.mockRejectedValue(new Error("relay: upstream timed out"));
+    readySession("running", withAsk());
+    renderPanel();
+
+    await userEvent.click(await screen.findByText("Postgres"));
+    await userEvent.click(screen.getByRole("button", { name: "Submit Reply" }));
+
+    const notice = await screen.findByTestId("peer-notice");
+    expect(notice.textContent).toContain("didn't reach");
+    expect(notice.getAttribute("data-kind")).toBe("error");
+    // 原话是证据:只在默认折叠的详情里。
+    const raw = within(notice).getByText("relay: upstream timed out");
+    expect(raw.closest("details")).not.toBeNull();
+    expect(raw.closest("details")!.hasAttribute("open")).toBe(false);
+    // 卡没被锁死:还能再提交一次。
+    const submit = screen.getByRole("button", { name: "Submit Reply" });
+    expect(submit).toBeEnabled();
+    await userEvent.click(submit);
+    await waitFor(() => expect(mockAnswer).toHaveBeenCalledTimes(2));
+
+    await userEvent.click(
+      within(screen.getByTestId("peer-notice")).getByRole("button", {
+        name: "Close",
+      }),
+    );
+    expect(screen.queryByTestId("peer-notice")).toBeNull();
+  });
+
+  it("Given 对端说那条提问已经不在等了, Then 提示条按「已被处理」说(中性底), 不当成没送到", async () => {
+    mockAnswer.mockRejectedValue(
+      new Error("claudecode: no waiting request for requestID q-1"),
+    );
+    readySession("running", withAsk());
+    renderPanel();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Skip" }));
+
+    const notice = await screen.findByTestId("peer-notice");
+    expect(notice.getAttribute("data-kind")).toBe("info");
+    expect(notice.textContent).toContain("already handled");
+    expect(notice.textContent).not.toContain("no waiting request");
+  });
+
+  it("Given 对端有未决授权, Then 显示工具输入, 「本会话始终允许」提交 alwaysAllowSession", async () => {
+    mockPerm.mockResolvedValue({ alreadyHandled: false });
+    readySession("running", withPermission());
+    renderPanel();
+
+    const card = await screen.findByTestId("tool-permission-card");
+    // 工具输入的可读摘要:要运行的那条命令看得见。
+    expect(within(card).getAllByText("ls -la /srv").length).toBeGreaterThan(0);
+    expect(within(card).getByRole("button", { name: /^Allow/ })).toBeTruthy();
+    expect(
+      within(card).getByRole("button", { name: /Deny|Reject/ }),
+    ).toBeTruthy();
+    await userEvent.click(
+      within(card).getByRole("button", { name: /Always Allow This Session/ }),
     );
 
-    expect(screen.getByTestId("peer-permission-card")).toBeTruthy();
-    await userEvent.click(screen.getByText("Allow"));
+    await waitFor(() => expect(mockPerm).toHaveBeenCalledTimes(1));
+    expect(mockPerm.mock.calls[0][0]).toMatchObject({
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      requestId: "p-1",
+      allow: true,
+      alwaysAllowSession: true,
+    });
+  });
+
+  it("Given 授权已被别处处理, When 提交, Then 提示条用中性底说「已被处理」", async () => {
+    mockPerm.mockResolvedValue({ alreadyHandled: true });
+    readySession("running", withPermission());
+    renderPanel();
+
+    const card = await screen.findByTestId("tool-permission-card");
+    await userEvent.click(within(card).getByRole("button", { name: /^Allow/ }));
+
     expect(mockPerm).toHaveBeenCalledWith(
       expect.objectContaining({
         fingerprint: "sha256:peer-desktop",
@@ -196,56 +334,87 @@ describe("PeerPanel", () => {
         allow: true,
       }),
     );
-    await waitFor(() => {
-      expect(screen.getByTestId("peer-notice").textContent).toContain(
-        "already handled",
-      );
-    });
+    const notice = await screen.findByTestId("peer-notice");
+    expect(notice.textContent).toContain("already handled");
+    // 「已被处理」不是待办也不是警告。
+    expect(notice.getAttribute("data-kind")).toBe("info");
   });
 
   it("renders a resolved permission as handled instead of buttons", async () => {
-    const key = peerKeyOf("sha256:peer-desktop", conv(7));
-    usePeerSessionsStore.setState({
-      sessions: {
-        [key]: {
-          key,
-          fingerprint: "sha256:peer-desktop",
-          conversationId: conv(7),
-          title: "t",
-          deviceName: "MacBook Pro",
-          status: "ready",
-          lifecycleState: "idle",
-          highWater: 0,
-          sending: false,
-          transcript: {
-            ...createPeerTranscript(),
-            decisions: [
-              {
-                kind: "permission",
-                requestId: "p-1",
-                toolName: "Bash",
-                resolved: true,
-                allowed: true,
-              },
-            ],
-          },
-        },
+    let transcript = withPermission();
+    transcript = reducePeerEvent(transcript, {
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      seq: 3,
+      event: {
+        kind: "tool_permission_resolved",
+        requestId: "p-1",
+        allowed: true,
       },
     });
+    readySession("idle", transcript);
+    renderPanel();
 
-    render(
-      <PeerPanel
-        fingerprint="sha256:peer-desktop"
-        conversationId={conv(7)}
-        title="t"
-        deviceName="MacBook Pro"
-        active
-        onClose={() => {}}
-      />,
+    const card = await screen.findByTestId("tool-permission-card");
+    expect(within(card).getByText("Allowed")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Allow/ })).toBeNull();
+  });
+
+  // ── 生成中指示:只在对端那一轮真的在跑时出现 ─────────────────────────────────
+  //
+  // 此前判据是「已接入且不在等我」—— 对端闲着的时候它恒为真,转录末尾常驻三点。
+
+  it("Given 对端那一轮已经结束, Then 转录末尾没有生成中指示", async () => {
+    readySession("idle", withReply());
+    renderPanel();
+
+    expect(await screen.findByText("done with the task")).toBeTruthy();
+    expect(screen.queryByLabelText("Generating")).toBeNull();
+  });
+
+  it("Given 对端那一轮正在跑, Then 转录末尾有生成中指示", async () => {
+    readySession("running", withReply());
+    renderPanel();
+
+    expect(await screen.findByLabelText("Generating")).toBeTruthy();
+  });
+
+  // ── 接入失败页 ─────────────────────────────────────────────────────────────
+
+  it("Given 接入失败, Then 有「重试」重新接入, 原始错误只在折叠详情里", async () => {
+    const key = readySession("idle");
+    usePeerSessionsStore.setState((state) => ({
+      sessions: {
+        [key]: {
+          ...state.sessions[key],
+          status: "error",
+          error: "dial tcp 10.0.0.2:7456: connection refused",
+        },
+      },
+    }));
+    mockAttach.mockResolvedValue({ latestSeq: 0, lifecycleState: "idle" });
+    mockPull.mockResolvedValue({
+      notifications: [],
+      cursor: 0,
+      hasMore: false,
+      oldestSeq: 0,
+    });
+    renderPanel();
+
+    const raw = screen.getByText("dial tcp 10.0.0.2:7456: connection refused");
+    expect(raw.closest("details")).not.toBeNull();
+    expect(raw.closest("details")!.hasAttribute("open")).toBe(false);
+    expect(mockAttach).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(mockAttach).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(usePeerSessionsStore.getState().sessions[key]?.status).toBe(
+        "ready",
+      ),
     );
-
-    expect(screen.getByTestId("peer-permission-handled")).toBeTruthy();
-    expect(screen.queryByText("Allow")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
   // Given 归约器现在产出 plan / notice 这些 Peer Tab 从前一律落 raw 的块;When 面板把它们
@@ -284,16 +453,7 @@ describe("PeerPanel", () => {
       },
     });
 
-    render(
-      <PeerPanel
-        fingerprint="sha256:peer-desktop"
-        conversationId={conv(7)}
-        title="t"
-        deviceName="MacBook Pro"
-        active
-        onClose={() => {}}
-      />,
-    );
+    renderPanel();
 
     // 压缩边界从前是 raw,现在走包的 CompactBoundaryDivider。
     expect(

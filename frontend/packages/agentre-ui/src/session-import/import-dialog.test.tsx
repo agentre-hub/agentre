@@ -583,3 +583,107 @@ describe("两颗「停」各自待在它该待的地方", () => {
     ).toBe(true);
   });
 });
+
+/**
+ * A6（规格 2026-11-10）：扫描 / 预览 / 导入三处失败同一写法 —— 一句本地化事实，
+ * 机器原话只进默认折叠的「详情」；扫描失败与「已停止」一样给「重新扫描」。
+ */
+describe("三处失败同一写法（A6）", () => {
+  /** 原话必须在一个**收起的** `<details>` 里，正文里不许出现。 */
+  function expectRawOnlyInFoldedDetail(box: HTMLElement, raw: string) {
+    const details = box.querySelector("details");
+    expect(details).not.toBeNull();
+    expect(details!.open).toBe(false);
+    expect(details!.textContent).toContain(raw);
+    const clone = box.cloneNode(true) as HTMLElement;
+    clone.querySelector("details")!.remove();
+    expect(clone.textContent).not.toContain(raw);
+  }
+
+  it("Given 扫描失败（宿主 reject 一条裸字符串）, When 渲染, Then 本地化事实句 +「重新扫描」+ 折叠详情，按下重扫拿到结果", async () => {
+    const listCandidates = vi
+      .fn<SessionImportPorts["listCandidates"]>()
+      .mockRejectedValueOnce(
+        "open /Users/demo/.claude/projects: permission denied",
+      )
+      .mockResolvedValue({ candidates: [candidate()], issues: [] });
+    const p = ports({ listCandidates });
+    renderDialog(p);
+
+    const box = await screen.findByTestId("import-scan-failed");
+    expect(box.getAttribute("role")).toBe("alert");
+    expect(box.textContent).toContain("Scan did not finish");
+    expectRawOnlyInFoldedDetail(box, "permission denied");
+
+    fireEvent.click(screen.getByRole("button", { name: "Scan again" }));
+    expect(await screen.findByTestId("import-candidate-sess-1")).toBeTruthy();
+    expect(listCandidates).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("import-scan-failed")).toBeNull();
+  });
+
+  it("Given 预览失败, When 渲染, Then 本地化标题 + 折叠详情，原文不在正文", async () => {
+    const p = ports({
+      preview: vi.fn(async () => {
+        throw new Error("unexpected end of JSON input");
+      }),
+    });
+    renderDialog(p, { agentId: "7" });
+
+    fireEvent.click(await screen.findByTestId("import-candidate-sess-1"));
+    const box = await screen.findByTestId("import-preview-error");
+    expect(box.textContent).toContain("This transcript cannot be opened");
+    expectRawOnlyInFoldedDetail(box, "unexpected end of JSON input");
+  });
+
+  it("Given 导入失败, When 渲染, Then 页脚是本地化事实句 + 折叠详情，导入键仍可再按", async () => {
+    const p = ports({
+      runImport: vi.fn(async () => {
+        throw new Error("agent backend 12 not found");
+      }),
+    });
+    renderDialog(p, { agentId: "7" });
+
+    fireEvent.click(await screen.findByTestId("import-candidate-sess-1"));
+    await waitFor(() =>
+      expect(screen.getByTestId("import-submit").hasAttribute("disabled")).toBe(
+        false,
+      ),
+    );
+    fireEvent.click(screen.getByTestId("import-submit"));
+
+    const box = await screen.findByTestId("import-error");
+    expect(box.getAttribute("role")).toBe("alert");
+    expect(box.textContent).toContain("Import did not finish");
+    expectRawOnlyInFoldedDetail(box, "agent backend 12 not found");
+    expect(screen.getByTestId("import-submit").hasAttribute("disabled")).toBe(
+      false,
+    );
+  });
+
+  it("Given 扫描失败但取不到原文（认不出的 reject）, When 渲染, Then 仍是事实句 + 重新扫描，不渲染空的详情", async () => {
+    const p = ports({ listCandidates: vi.fn().mockRejectedValue({}) });
+    renderDialog(p);
+
+    const box = await screen.findByTestId("import-scan-failed");
+    expect(box.textContent).toContain("Scan did not finish");
+    expect(box.querySelector("details")).toBeNull();
+    expect(screen.getByRole("button", { name: "Scan again" })).toBeTruthy();
+  });
+
+  it("Given 导入失败但取不到原文, When 渲染, Then 页脚仍报「没导入成功」（失败不因原话缺席而消失）", async () => {
+    const p = ports({ runImport: vi.fn().mockRejectedValue({}) });
+    renderDialog(p, { agentId: "7" });
+
+    fireEvent.click(await screen.findByTestId("import-candidate-sess-1"));
+    await waitFor(() =>
+      expect(screen.getByTestId("import-submit").hasAttribute("disabled")).toBe(
+        false,
+      ),
+    );
+    fireEvent.click(screen.getByTestId("import-submit"));
+
+    const box = await screen.findByTestId("import-error");
+    expect(box.textContent).toContain("Import did not finish");
+    expect(box.querySelector("details")).toBeNull();
+  });
+});

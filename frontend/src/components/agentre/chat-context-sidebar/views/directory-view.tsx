@@ -5,6 +5,10 @@ import { useTranslation } from "react-i18next";
 import { ProjectSetLocalPath, SelectDirectory } from "@/../wailsjs/go/app/App";
 import { Button, Spinner } from "@agentre-hub/agentre-ui";
 
+import { classifyAppError, type AppError } from "@/lib/app-error";
+
+import { FailureBody } from "../../failure-body";
+
 import type { Change } from "../git-rows";
 
 import { DirectorySearchPanel } from "./directory-search-panel";
@@ -103,7 +107,7 @@ export function DirectoryView({
   );
   // R10「本机未配置路径」空态专用：就地指定路径的忙碌态与错误信息。
   const [specifying, setSpecifying] = React.useState(false);
-  const [specifyErr, setSpecifyErr] = React.useState<string | null>(null);
+  const [specifyErr, setSpecifyErr] = React.useState<AppError | null>(null);
 
   const handleSpecifyPath = async () => {
     if (!projectId) return;
@@ -115,7 +119,7 @@ export function DirectoryView({
       await ProjectSetLocalPath({ id: projectId, path: picked });
       onCwdSpecified?.();
     } catch (e) {
-      setSpecifyErr(String(e));
+      setSpecifyErr(classifyAppError(e));
     } finally {
       setSpecifying(false);
     }
@@ -179,8 +183,18 @@ export function DirectoryView({
             ) : null}
             {t("chatContext.directory.localPathMissingAction")}
           </Button>
+          {/* 标题是本地化事实句；后端带码的那句作正文，机器原话只进折叠的「详情」。 */}
           {specifyErr ? (
-            <p className="text-2xs text-destructive-text">{specifyErr}</p>
+            <div
+              role="alert"
+              className="flex max-w-[22rem] flex-col gap-1 text-2xs text-destructive-text"
+            >
+              <p>{t("chatContext.directory.specifyFailed")}</p>
+              <FailureBody
+                message={specifyErr.message}
+                detail={specifyErr.detail}
+              />
+            </div>
           ) : null}
         </div>
       );

@@ -1,8 +1,15 @@
 import * as React from "react";
 
 import type { ReasoningEffortValue } from "@agentre-hub/agentre-ui";
+import { AGENTRE_UI_NAMESPACE } from "@agentre-hub/agentre-ui/i18n";
 
+import i18n from "@/i18n";
 import { SetChatSessionReasoningEffort } from "../../../../wailsjs/go/app/App";
+
+import {
+  pillLastSwitchFailedText,
+  toastPillSwitchFailed,
+} from "../model-pill/pill-switch-failure";
 
 export interface UseReasoningEffortPillOptions {
   /**
@@ -33,7 +40,7 @@ export interface UseReasoningEffortPillReturn {
   /** 选中一档;真的变化时才调 IPC(共享 Picker 已经做过一次 no-op 短路,这里的
    *  相等判断只是双保险,避免宿主直接调用 onChange 时也打一次无意义的 IPC)。 */
   onChange: (next: ReasoningEffortValue) => void;
-  /** 写库失败的原因;弹层底部据此追加错误行。 */
+  /** 上次写库失败的本地化事实;弹层底部据此追加错误行(原话只在失败 toast 的详情里)。 */
   error: string | null;
 }
 
@@ -58,6 +65,7 @@ export function useReasoningEffortPill({
     persistedReasoningEffort ?? "",
   );
   const [error, setError] = React.useState<string | null>(null);
+  const backendValue = persistedBackendReasoningEffort ?? "";
 
   // 会话切换、或持久化值被外部改写(reload)时,把显示值同步回当前值。
   React.useEffect(() => {
@@ -84,19 +92,29 @@ export function useReasoningEffortPill({
           onSwitched?.();
         })
         .catch((e: unknown) => {
-          const msg = e instanceof Error ? e.message : String(e);
           console.error("[reasoning-effort-pill] switch failed", e);
-          // 写库失败:回滚到上一档,如实报出原因(spec「失败与恢复」)。
+          // 写库失败:回滚到上一档,toast 说清现在仍是哪一档(spec 2026-11-10 A2)。
+          // 「哪一档」与控件脸上的有效档位同一规则:会话值 → 后端配置 → 默认。
           setValue(previous);
-          setError(msg);
+          setError(pillLastSwitchFailedText());
+          const label =
+            previous ||
+            backendValue ||
+            i18n.t(
+              `${AGENTRE_UI_NAMESPACE}:reasoningEffortPicker.defaultLabel`,
+            );
+          toastPillSwitchFailed(
+            i18n.t("chatPanel.pillSwitch.reasoningEffortFailed", { label }),
+            e,
+          );
         });
     },
-    [value, sessionId, onSwitched],
+    [value, backendValue, sessionId, onSwitched],
   );
 
   return {
     value,
-    backendValue: persistedBackendReasoningEffort ?? "",
+    backendValue,
     onChange,
     error,
   };

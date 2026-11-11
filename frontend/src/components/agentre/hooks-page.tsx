@@ -17,8 +17,7 @@ import {
   SegmentedControlItem,
 } from "@agentre-hub/agentre-ui";
 
-import { cn } from "@agentre-hub/agentre-ui";
-
+import { FailureBody } from "./failure-body";
 import { HookDetailHeader } from "./hooks-page-header";
 import { HooksSidebar } from "./hooks-page-sidebar";
 import { useHooksPage } from "./use-hooks-page";
@@ -37,10 +36,15 @@ export function HooksPage() {
     setDraft,
     activeTab,
     setActiveTab,
-    loading,
+    loadState,
+    loadError,
+    retryLoad,
+    dirty,
+    pendingLeave,
+    confirmLeave,
+    cancelLeave,
     busy,
     running,
-    flash,
     query,
     setQuery,
     runResult,
@@ -60,11 +64,30 @@ export function HooksPage() {
     run,
   } = useHooksPage();
 
-  if (loading) {
+  if (loadState === "loading") {
     return (
       <div className="flex h-full min-w-0 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
         {t("hooks.loading")}
+      </div>
+    );
+  }
+
+  if (loadState === "failed") {
+    return (
+      <div className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+        <p>{t("hooks.loadFailed")}</p>
+        {loadError ? (
+          <div className="max-w-md text-xs">
+            <FailureBody
+              message={loadError.message}
+              detail={loadError.detail}
+            />
+          </div>
+        ) : null}
+        <Button type="button" variant="outline" size="sm" onClick={retryLoad}>
+          {t("common.retry")}
+        </Button>
       </div>
     );
   }
@@ -76,6 +99,7 @@ export function HooksPage() {
         filtered={filtered}
         query={query}
         selectedId={selectedId}
+        dirty={dirty}
         onQueryChange={setQuery}
         onSelect={selectHook}
         onCreate={startCreate}
@@ -84,20 +108,6 @@ export function HooksPage() {
 
       {/* Main */}
       <main className="content-sheet flex min-w-0 flex-1 flex-col">
-        {flash ? (
-          <div
-            className={cn(
-              "flex items-center gap-2 px-7 py-2 text-xs",
-              flash.kind === "ok"
-                ? "bg-status-running-bg text-status-running-text"
-                : "bg-destructive-soft text-destructive-text",
-            )}
-            role="status"
-          >
-            {flash.text}
-          </div>
-        ) : null}
-
         {!draft ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
             <p>{t("hooks.list.empty")}</p>
@@ -113,6 +123,7 @@ export function HooksPage() {
               headerMeta={headerMeta}
               selectedHook={selectedHook}
               selectedId={selectedId}
+              dirty={dirty}
               running={running}
               busy={busy}
               onRun={run}
@@ -207,6 +218,28 @@ export function HooksPage() {
             </Button>
             <Button type="button" variant="destructive" onClick={confirmDelete}>
               {t("hooks.del.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Discard confirm */}
+      <Dialog
+        open={pendingLeave != null}
+        onOpenChange={(open) => !open && cancelLeave()}
+      >
+        <DialogContent showCloseButton={false} aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>
+              {t("hooks.discard.title", { name: draft?.name ?? "" })}
+            </DialogTitle>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={cancelLeave}>
+              {t("hooks.discard.keep")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={confirmLeave}>
+              {t("hooks.discard.confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

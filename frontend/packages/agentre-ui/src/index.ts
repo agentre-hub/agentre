@@ -49,6 +49,8 @@ export {
 export type { ParsedPortForwardTarget } from "./port-forward/target";
 export { PermissionModePill } from "./permission-mode";
 export {
+  PERMISSION_MODE_META_UI,
+  fallbackPermissionModeMetaUI,
   isPermissionModeDisabled,
   nextPermissionMode,
   normalizePermissionMode,
@@ -504,6 +506,10 @@ export {
   turnFailureFact,
 } from "./transcript/turn-failure";
 export type { TurnFailureKind } from "./transcript/turn-failure";
+// 提问卡提交失败是不是「提问已不存在」：共享卡与宿主的远端决策条共用这一个判据。
+export { isAskExpiredError } from "./transcript/ask-expired";
+// 失败的机器原话：默认折叠、等宽、可选中的「详情」。
+export { FailureDetail } from "./transcript/failure-detail";
 export { AutoTriggerBanner } from "./transcript/auto-trigger-banner";
 export { CodeBlock } from "./transcript/code-block";
 export { CompactBoundaryDivider } from "./transcript/compact-boundary-divider";

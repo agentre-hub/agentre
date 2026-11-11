@@ -1,15 +1,8 @@
 import * as React from "react";
 import type { TFunction } from "i18next";
-import {
-  AlertCircle,
-  CheckCircle2,
-  Copy,
-  Info,
-  Loader2,
-  RotateCcw,
-  ShieldCheck,
-} from "lucide-react";
+import { Copy, Loader2, RotateCcw, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import {
   Alert,
@@ -29,11 +22,7 @@ import {
   UpdateAppSettings,
 } from "../../../wailsjs/go/app/App";
 import { app_settings_svc, httpgateway } from "../../../wailsjs/go/models";
-
-type FlashState =
-  | { kind: "ok"; text: string }
-  | { kind: "err"; text: string }
-  | null;
+import { failureDescription, toastFailure } from "./failure-toast";
 
 const KEY_HOST = "proxy.listen_host";
 const KEY_PORT = "proxy.listen_port";
@@ -90,6 +79,11 @@ function validatePort(v: string, t: TFunction): string | null {
   return null;
 }
 
+/** 网关没跑起来时，reason 是它的原话：只作详情。 */
+function gatewayFailure(s: httpgateway.GatewayStatus | null | undefined) {
+  return failureDescription({ message: "", detail: s?.reason || undefined });
+}
+
 export function SettingsProxyPanel() {
   const { t } = useTranslation();
   const [host, setHost] = React.useState("");
@@ -102,7 +96,9 @@ export function SettingsProxyPanel() {
   const [loading, setLoading] = React.useState(true);
   const [applying, setApplying] = React.useState(false);
   const [restarting, setRestarting] = React.useState(false);
-  const [flash, setFlash] = React.useState<FlashState>(null);
+  // 字段在失焦或提交之后才报错，此后随输入实时复验。
+  const [touched, setTouched] = React.useState({ host: false, port: false });
+  const [loadAttempt, setLoadAttempt] = React.useState(0);
 
   React.useEffect(() => {
     let mounted = true;
@@ -121,7 +117,13 @@ export function SettingsProxyPanel() {
       })
       .catch((err: unknown) => {
         if (!mounted) return;
-        setFlash({ kind: "err", text: messageFromError(err, t) });
+        toastFailure(t("settingsProxy.errors.loadFailed"), err, {
+          label: t("common.retry"),
+          onClick: () => {
+            setLoading(true);
+            setLoadAttempt((n) => n + 1);
+          },
+        });
       })
       .finally(() => {
         if (!mounted) return;
@@ -130,17 +132,20 @@ export function SettingsProxyPanel() {
     return () => {
       mounted = false;
     };
-  }, [t]);
+  }, [t, loadAttempt]);
 
   const hostErr = validateHost(host, t);
   const portErr = validatePort(port, t);
   const dirty = host !== savedHost || port !== savedPort;
-  const canApply = !applying && !restarting && dirty && !hostErr && !portErr;
+  const canApply = !applying && !restarting && dirty;
 
   async function handleApply() {
     if (!canApply) return;
+    if (hostErr || portErr) {
+      setTouched({ host: true, port: true });
+      return;
+    }
     setApplying(true);
-    setFlash(null);
     try {
       await UpdateAppSettings({
         entries: [
@@ -153,17 +158,14 @@ export function SettingsProxyPanel() {
       setSavedHost(host.trim());
       setSavedPort(port.trim());
       if (s?.status === "running") {
-        setFlash({ kind: "ok", text: t("settingsProxy.flash.applied") });
+        toast.success(t("settingsProxy.flash.applied"));
       } else {
-        setFlash({
-          kind: "err",
-          text: t("settingsProxy.flash.savedButStopped", {
-            reason: s?.reason || t("common.errorOccurred"),
-          }),
+        toast.error(t("settingsProxy.errors.savedButStopped"), {
+          description: gatewayFailure(s),
         });
       }
     } catch (err) {
-      setFlash({ kind: "err", text: messageFromError(err, t) });
+      toastFailure(t("settingsProxy.errors.saveFailed"), err);
     } finally {
       setApplying(false);
     }
@@ -172,22 +174,18 @@ export function SettingsProxyPanel() {
   async function handleRestart() {
     if (restarting || applying) return;
     setRestarting(true);
-    setFlash(null);
     try {
       const res = await RestartGateway();
       setStatus(res?.status ?? null);
       if (res?.status?.status === "running") {
-        setFlash({ kind: "ok", text: t("settingsProxy.flash.restarted") });
+        toast.success(t("settingsProxy.flash.restarted"));
       } else {
-        setFlash({
-          kind: "err",
-          text: t("settingsProxy.flash.restartFailed", {
-            reason: res?.status?.reason || t("common.errorOccurred"),
-          }),
+        toast.error(t("settingsProxy.errors.stillStopped"), {
+          description: gatewayFailure(res?.status),
         });
       }
     } catch (err) {
-      setFlash({ kind: "err", text: messageFromError(err, t) });
+      toastFailure(t("settingsProxy.errors.restartFailed"), err);
     } finally {
       setRestarting(false);
     }
@@ -203,10 +201,6 @@ export function SettingsProxyPanel() {
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      {flash ? (
-        <FlashBanner state={flash} onDismiss={() => setFlash(null)} />
-      ) : null}
-
       <section className="overflow-hidden rounded-lg bg-field-fill">
         <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
           <div className="flex min-w-0 flex-col gap-0.5">
@@ -224,11 +218,13 @@ export function SettingsProxyPanel() {
           <FormField
             label={t("settingsProxy.listener.host")}
             hint={t("settingsProxy.listener.hostHint")}
-            error={dirty ? hostErr : null}
+            error={touched.host ? hostErr : null}
           >
             <Input
               value={host}
               onChange={(e) => setHost(e.target.value)}
+              onBlur={() => setTouched((v) => ({ ...v, host: true }))}
+              aria-invalid={touched.host && hostErr ? true : undefined}
               placeholder="127.0.0.1"
               className="font-mono"
               disabled={loading}
@@ -237,11 +233,13 @@ export function SettingsProxyPanel() {
           <FormField
             label={t("settingsProxy.listener.port")}
             hint={t("settingsProxy.listener.portHint")}
-            error={dirty ? portErr : null}
+            error={touched.port ? portErr : null}
           >
             <Input
               value={port}
               onChange={(e) => setPort(e.target.value)}
+              onBlur={() => setTouched((v) => ({ ...v, port: true }))}
+              aria-invalid={touched.port && portErr ? true : undefined}
               placeholder="52401"
               className="font-mono"
               disabled={loading}
@@ -453,59 +451,13 @@ function UrlReadout({
       </div>
     );
   }
-  return (
-    <div className="flex h-9 items-center truncate rounded-md bg-destructive-soft px-3 font-mono text-2xs text-destructive-text">
-      {t("settingsProxy.status.notStarted", {
-        reason: status?.reason ? ` · ${status.reason}` : "",
-      })}
-    </div>
-  );
-}
-
-function FlashBanner({
-  state,
-  onDismiss,
-}: {
-  state: Exclude<FlashState, null>;
-  onDismiss: () => void;
-}) {
-  const { t } = useTranslation();
-  const ok = state.kind === "ok";
+  // 读数格只说状态；网关的原话只进失败 toast 的详情，或悬停的 title。
   return (
     <div
-      className={cn(
-        "flex items-start gap-2 rounded-md px-3 py-2 text-xs",
-        ok
-          ? "bg-status-running-bg text-status-running-text"
-          : "bg-destructive-soft text-destructive-text",
-      )}
-      role="status"
+      title={status?.reason || undefined}
+      className="flex h-9 items-center truncate rounded-md bg-destructive-soft px-3 font-mono text-2xs text-destructive-text"
     >
-      {ok ? (
-        <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-      ) : (
-        <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-      )}
-      <span className="min-w-0 flex-1 break-words">{state.text}</span>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
-        onClick={onDismiss}
-        aria-label={t("chatPanel.notice.close")}
-      >
-        <Info data-icon="only" aria-hidden="true" />
-      </Button>
+      {t("settingsProxy.status.notStarted")}
     </div>
   );
-}
-
-function messageFromError(err: unknown, t: TFunction): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return t("common.errorOccurred");
-  }
 }

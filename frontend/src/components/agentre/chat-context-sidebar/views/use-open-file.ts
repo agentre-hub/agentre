@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { classifyLink, useUiTranslation } from "@agentre-hub/agentre-ui";
 
 import { OpenPath, RevealPath } from "@/../wailsjs/go/app/App";
+import { classifyAppError } from "@/lib/app-error";
 
 /**
  * openTarget 把面板里的一条路径解析成能交给系统打开的绝对路径：工具调用给的
@@ -38,11 +39,9 @@ export function useOpenFile(cwd: string): (path: string) => void {
           }
         },
         (err: unknown) => {
-          toast.error(
-            t("chatContext.files.openFailed", {
-              error: errorMessage(err),
-            }),
-          );
+          toast.error(t("chatContext.files.openFailed"), {
+            description: failureDetail(err),
+          });
         },
       );
     },
@@ -60,15 +59,17 @@ export function useRevealFile(cwd: string): (path: string) => void {
   return React.useCallback(
     (path: string) => {
       RevealPath(openTarget(path, cwd)).catch((err: unknown) => {
-        toast.error(
-          t("chatContext.row.revealFailed", { error: errorMessage(err) }),
-        );
+        toast.error(t("chatContext.row.revealFailed"), {
+          description: failureDetail(err),
+        });
       });
     },
     [cwd, t],
   );
 }
 
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+/** toast 描述里的原文：带码的取去掉 `agentre-code:<n>` 前缀的后端句子（加其 cause），否则原样。 */
+function failureDetail(err: unknown): string | undefined {
+  const { message, detail } = classifyAppError(err);
+  return [message, detail].filter(Boolean).join("\n") || undefined;
 }

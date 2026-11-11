@@ -1024,6 +1024,95 @@ describe("RemoteDevicesPanel", () => {
       await user.click(screen.getByRole("button", { name: "Save" }));
       expect(mockRename).toHaveBeenCalledWith(1, "new-name");
     });
+
+    // B4：确认键进行态，成功才关窗；失败留窗，事实句 + 默认折叠的详情。
+    function deferred() {
+      let resolve!: () => void;
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<void>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    }
+
+    it("Given unpair is in flight, Then the confirm key is pending and the dialog stays until it succeeds", async () => {
+      const user = userEvent.setup();
+      const pending = deferred();
+      mockRemove.mockReturnValue(pending.promise);
+      await renderOneRow(user);
+      await user.click(await screen.findByText("Unpair"));
+      await user.click(screen.getByRole("button", { name: "Unpair" }));
+
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Unpair" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+      // 进行中再点一次不产生第二次写入。
+      fireEvent.click(screen.getByRole("button", { name: "Unpair" }));
+      expect(mockRemove).toHaveBeenCalledTimes(1);
+
+      pending.resolve();
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+    });
+
+    it("Given unpair fails, Then the dialog stays with a factual sentence and the raw text only in folded details", async () => {
+      const user = userEvent.setup();
+      mockRemove.mockRejectedValue(new Error("sql: database is locked"));
+      await renderOneRow(user);
+      await user.click(await screen.findByText("Unpair"));
+      await user.click(screen.getByRole("button", { name: "Unpair" }));
+
+      const alert = await screen.findByRole("alert");
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(alert).toHaveTextContent("Couldn't unpair this device");
+      const raw = screen.getByText("sql: database is locked");
+      expect(raw.closest("details")).not.toBeNull();
+      expect(raw.closest("details")).not.toHaveAttribute("open");
+      // 留窗即可重试：确认键回到可点。
+      expect(screen.getByRole("button", { name: "Unpair" })).toBeEnabled();
+    });
+
+    it("Given rename is in flight, Then Save is pending and the dialog closes only once it succeeds", async () => {
+      const user = userEvent.setup();
+      const pending = deferred();
+      mockRename.mockReturnValue(pending.promise);
+      await renderOneRow(user);
+      await user.click(await screen.findByText("Rename"));
+      const input = screen.getByLabelText("Rename to");
+      await user.clear(input);
+      await user.type(input, "new-name");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+
+      pending.resolve();
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+    });
+
+    it("Given rename fails with a coded error, Then the dialog keeps the draft and says the backend's sentence", async () => {
+      const user = userEvent.setup();
+      mockRename.mockRejectedValue(
+        new Error("agentre-code:20404 That device refused the request"),
+      );
+      await renderOneRow(user);
+      await user.click(await screen.findByText("Rename"));
+      const input = screen.getByLabelText("Rename to");
+      await user.clear(input);
+      await user.type(input, "new-name");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Couldn't rename this device");
+      expect(alert).toHaveTextContent("That device refused the request");
+      expect(alert).not.toHaveTextContent("agentre-code");
+      expect(screen.getByLabelText("Rename to")).toHaveValue("new-name");
+    });
   });
 
   // 规格「界面与交互 › 登录」:设备面板是账号登录的入口。

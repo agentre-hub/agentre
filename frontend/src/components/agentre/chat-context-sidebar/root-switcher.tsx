@@ -78,10 +78,15 @@ export function RootSwitcher({
               key={root.path}
               data-testid="root-option"
               data-root={root.path}
+              current={root.path === active.path}
+              title={root.path}
               onSelect={() => onSelect(root.path)}
               className="gap-1.5 text-xs"
             >
-              <span className="min-w-0 flex-1 truncate">{root.name}</span>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate">{root.name}</span>
+                <ParentPath path={root.path} />
+              </span>
               <RootKind root={root} />
               <ChangeCount count={changeCounts.get(root.path) ?? 0} />
             </DropdownMenuItem>
@@ -90,6 +95,33 @@ export function RootSwitcher({
       </DropdownMenu>
     </div>
   );
+}
+
+/**
+ * 一个根所在的父目录：两个同名 worktree 在菜单里只靠它分得出来。路径过长时从
+ * 左侧省略（rtl 截断 + `<bdi>` 保住路径本身的书写方向），留住离根最近的那几段。
+ */
+function ParentPath({ path }: { path: string }) {
+  const parent = parentDir(path);
+  if (!parent) return null;
+  return (
+    <span
+      data-testid="root-option-parent"
+      dir="rtl"
+      className="truncate text-left font-mono text-3xs opacity-70"
+    >
+      <bdi>{parent}</bdi>
+    </span>
+  );
+}
+
+/** 绝对路径的父目录（"/" 与 "\\" 都认，Windows 会话的根用反斜杠）；没有父目录时返回空串。 */
+function parentDir(path: string): string {
+  const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  if (i < 0) return "";
+  // 父目录就是文件系统根（"/x"、"C:\x"）时保留分隔符，否则只剩 "" 或 "C:"。
+  if (i === 0 || path[i - 1] === ":") return path.slice(0, i + 1);
+  return path.slice(0, i);
 }
 
 /** 一个根是主仓库还是 worktree；两者都不是（罕见）时不加任何标注。 */

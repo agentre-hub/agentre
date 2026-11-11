@@ -47,11 +47,11 @@ type ChatPanelHeaderProps = {
   metaTail: string;
   backgroundTasks: BackgroundTask[];
   processes?: SessionProcess[];
-  onOpenProcess?: (process: SessionProcess) => void;
-  onKillProcess?: (process: SessionProcess) => void;
+  onOpenProcess?: (process: SessionProcess, port: number) => void;
+  onKillProcess?: (process: SessionProcess) => void | Promise<void>;
   onProcessesOpenChange?: (open: boolean) => void;
   onClearCompletedTasks: () => void;
-  onStopTask?: (task: BackgroundTask) => void;
+  onStopTask?: (task: BackgroundTask) => void | Promise<void>;
   onLocateTask?: (task: BackgroundTask) => void;
   canStop: boolean;
   /** 已点停止、这一轮还没结束。与输入框提交位的停止键共用同一份。 */

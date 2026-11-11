@@ -15,7 +15,7 @@ import {
 import { cn } from "@agentre-hub/agentre-ui";
 
 import { deriveDeviceName } from "./format";
-import { TLSTrustDialog } from "./tls-trust-dialog";
+import { TLSTrustDialog, tlsModeLabelKey } from "./tls-trust-dialog";
 
 // Local type — mirrors remote_device_svc.AddRequest; avoids transitive wailsjs import.
 export type AddRequest = {
@@ -50,6 +50,9 @@ function useDevicePairingForm({
   const [tlsOpen, setTlsOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 校验错误只在失焦或提交尝试后出现，之后随输入实时复验。
+  const [urlTouched, setUrlTouched] = useState(false);
+  const [codeTouched, setCodeTouched] = useState(false);
 
   const urlValid = URL_RE.test(url);
   const codeValid = code.trim().length === 6;
@@ -63,12 +66,18 @@ function useDevicePairingForm({
     setTlsCertPEM("");
     setTlsOpen(false);
     setError(null);
+    setUrlTouched(false);
+    setCodeTouched(false);
     setSubmitting(false);
     onSubmittingChange?.(false);
   };
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit) {
+      setUrlTouched(true);
+      setCodeTouched(true);
+      return;
+    }
     setError(null);
     setSubmitting(true);
     onSubmittingChange?.(true);
@@ -101,6 +110,10 @@ function useDevicePairingForm({
     error,
     name,
     reset,
+    codeTouched,
+    touchCode: () => setCodeTouched(true),
+    touchURL: () => setUrlTouched(true),
+    urlTouched,
     setCode: (value: string) => setCode(limitCode(value)),
     setName,
     setTLSCertPEM: setTlsCertPEM,
@@ -133,7 +146,7 @@ function DevicePairingFields({ pairing }: DevicePairingFieldsProps) {
   return (
     <>
       <FieldGroup className="gap-4">
-        <Field data-invalid={pairing.url.length > 0 && !pairing.urlValid}>
+        <Field data-invalid={pairing.urlTouched && !pairing.urlValid}>
           <FieldLabel htmlFor={urlId}>
             {t("remoteDevices.add.fields.url")}
           </FieldLabel>
@@ -143,14 +156,15 @@ function DevicePairingFields({ pairing }: DevicePairingFieldsProps) {
             onChange={(event) => pairing.setURL(event.target.value)}
             placeholder="ws://192.168.1.100:7456/rpc"
             disabled={pairing.submitting}
-            aria-invalid={pairing.url.length > 0 && !pairing.urlValid}
+            onBlur={pairing.touchURL}
+            aria-invalid={pairing.urlTouched && !pairing.urlValid}
           />
-          {pairing.url.length > 0 && !pairing.urlValid ? (
+          {pairing.urlTouched && !pairing.urlValid ? (
             <FieldError>{t("remoteDevices.add.fields.urlInvalid")}</FieldError>
           ) : null}
         </Field>
 
-        <Field data-invalid={pairing.code.length > 0 && !pairing.codeValid}>
+        <Field data-invalid={pairing.codeTouched && !pairing.codeValid}>
           <FieldLabel htmlFor={codeId}>
             {t("remoteDevices.add.fields.pairingCode")}
           </FieldLabel>
@@ -161,13 +175,14 @@ function DevicePairingFields({ pairing }: DevicePairingFieldsProps) {
             placeholder="ABC2DE"
             maxLength={6}
             disabled={pairing.submitting}
-            aria-invalid={pairing.code.length > 0 && !pairing.codeValid}
+            onBlur={pairing.touchCode}
+            aria-invalid={pairing.codeTouched && !pairing.codeValid}
             className="text-center font-mono text-lg tracking-widest"
           />
           <FieldDescription className="text-xs">
             {t("remoteDevices.add.fields.pairingCodeHint")}
           </FieldDescription>
-          {pairing.code.length > 0 && !pairing.codeValid ? (
+          {pairing.codeTouched && !pairing.codeValid ? (
             <FieldError>{t("remoteDevices.add.fields.codeInvalid")}</FieldError>
           ) : null}
         </Field>
@@ -196,10 +211,7 @@ function DevicePairingFields({ pairing }: DevicePairingFieldsProps) {
       >
         <ChevronRight data-icon="inline-start" aria-hidden="true" />
         {t("remoteDevices.add.advancedTls", {
-          mode:
-            pairing.tlsMode === "default"
-              ? t("remoteDevices.tls.modes.default.label")
-              : pairing.tlsMode,
+          mode: t(tlsModeLabelKey(pairing.tlsMode)),
         })}
       </Button>
 

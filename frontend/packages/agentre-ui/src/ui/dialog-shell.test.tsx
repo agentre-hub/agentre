@@ -210,6 +210,47 @@ describe("DialogShell 在写请求飞着的时候不关窗", () => {
   });
 });
 
+/**
+ * 点遮罩：Radix 在打开后的下一拍才挂上 document 的 pointerdown 监听，所以先等一拍。
+ */
+async function pointerDownOnOverlay() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const overlay = document.querySelector(
+    '[data-slot="dialog-shell-overlay"]',
+  ) as HTMLElement;
+  fireEvent.pointerDown(overlay, { button: 0 });
+}
+
+describe("DialogShell 有草稿时不让点遮罩丢掉它", () => {
+  it("没传 dirty 时点遮罩照旧关窗", async () => {
+    const onOpenChange = vi.fn();
+    renderShell({ onOpenChange });
+    await pointerDownOnOverlay();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("dirty 时点遮罩不关窗 —— 遮罩是误触的来源", async () => {
+    const onOpenChange = vi.fn();
+    renderShell({ dirty: true, onOpenChange });
+    await pointerDownOnOverlay();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("dirty 时 Esc 照常关窗 —— 那是明确的意图", () => {
+    const onOpenChange = vi.fn();
+    renderShell({ dirty: true, onOpenChange });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("dirty 又 busy 时 Esc 也不关 —— busy 优先", () => {
+    const onOpenChange = vi.fn();
+    renderShell({ dirty: true, busy: true, onOpenChange });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
+
 describe("DialogShell 的危险形态", () => {
   it("danger 档给头部与浮卡各自的记号，而不是靠一段文案", () => {
     render(

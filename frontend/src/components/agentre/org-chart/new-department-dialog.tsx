@@ -9,6 +9,7 @@ import {
   DialogShellBody,
   DialogShellFooter,
   DialogShellHeader,
+  DialogShellSubmit,
   IdentityFields,
   Select,
   SelectContent,
@@ -19,6 +20,8 @@ import {
 
 import { safeAgentColor } from "../org/types";
 import { type OrgAgent, type OrgDepartment } from "../org/types";
+import { WriteFailureLine } from "../org/write-failure-line";
+import { useCreateSubmit } from "./create-submit";
 
 export type NewDeptProps = {
   open: boolean;
@@ -48,23 +51,34 @@ export function NewDepartmentDialogBody(props: NewDeptProps) {
   // 默认值不变：hammer 图标 + agent-2 主题色。
   const [icon, setIcon] = React.useState("hammer");
   const [accentColor, setAccentColor] = React.useState("agent-2");
-  const [parentId, setParentId] = React.useState<number>(
-    props.defaultParentId ?? 0,
+  const initialParentId = props.defaultParentId ?? 0;
+  const [parentId, setParentId] = React.useState<number>(initialParentId);
+  const { busy, failure, run } = useCreateSubmit(
+    t("org.chart.errors.createDepartmentFailed"),
   );
 
   const canSubmit = name.trim().length > 0;
+  // 填过任何一格就算有草稿：点遮罩不再丢掉它（Esc 与 × 照常关）。
+  const dirty =
+    name !== "" ||
+    description !== "" ||
+    icon !== "hammer" ||
+    accentColor !== "agent-2" ||
+    parentId !== initialParentId;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canSubmit) return;
     const trimmedDescription = description.trim();
-    await props.onSubmit({
-      name: name.trim(),
-      ...(trimmedDescription ? { description: trimmedDescription } : {}),
-      ...(icon ? { icon } : {}),
-      accentColor,
-      parentId,
-    });
+    await run(() =>
+      props.onSubmit({
+        name: name.trim(),
+        ...(trimmedDescription ? { description: trimmedDescription } : {}),
+        ...(icon ? { icon } : {}),
+        accentColor,
+        parentId,
+      }),
+    );
   }
 
   return (
@@ -72,11 +86,14 @@ export function NewDepartmentDialogBody(props: NewDeptProps) {
       open={props.open}
       onOpenChange={(o) => !o && props.onClose()}
       onSubmit={handleSubmit}
+      busy={busy}
+      dirty={dirty}
     >
       <DialogShellHeader
         title={t("org.chart.actions.newDepartment")}
         subtitle={t("org.chart.newDepartment.description")}
         onClose={props.onClose}
+        busy={busy}
       />
       <DialogShellBody className="flex flex-col gap-4">
         <IdentityFields
@@ -116,13 +133,21 @@ export function NewDepartmentDialogBody(props: NewDeptProps) {
           </Select>
         </label>
       </DialogShellBody>
-      <DialogShellFooter>
-        <Button type="button" variant="outline" onClick={props.onClose}>
+      <DialogShellFooter
+        // 外壳的 `error` 只收字符串、带不了 `title`，所以走 `left`。
+        left={failure ? <WriteFailureLine failure={failure} /> : null}
+      >
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={props.onClose}
+        >
           {t("common.cancel")}
         </Button>
-        <Button type="submit" disabled={!canSubmit}>
+        <DialogShellSubmit type="submit" busy={busy} disabled={!canSubmit}>
           {t("common.create")}
-        </Button>
+        </DialogShellSubmit>
       </DialogShellFooter>
     </DialogShell>
   );

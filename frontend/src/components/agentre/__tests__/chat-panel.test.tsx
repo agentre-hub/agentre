@@ -6891,7 +6891,10 @@ describe("ChatPanel · 会话级思考力度控件（trailing 侧，决策 6/9�
 
     // select() 一点即关弹层,失败原因要重新打开才看得到。
     await user.click(pill);
-    expect(await screen.findByRole("alert")).toHaveTextContent("db down");
+    // A2：弹层只说本地化事实，原话进失败 toast 的折叠详情。
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The last switch didn't go through",
+    );
   });
 });
 
@@ -7145,12 +7148,13 @@ describe("ChatPanel · 会话进程与端口", () => {
     );
   });
 
-  it("Given a process, When stop is clicked, Then KillSessionProcess runs with (session, pid, startedAt) and the list is re-fetched", async () => {
+  it("Given a process, When stop is clicked and confirmed, Then KillSessionProcess runs with (session, pid, startedAt) and the list is re-fetched", async () => {
     await renderWithProcess();
     const before = appMocks.ListSessionProcesses.mock.calls.length;
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Stop process" }),
-    );
+    const kill = await screen.findByRole("button", { name: "Stop process" });
+    await userEvent.click(kill);
+    expect(appMocks.KillSessionProcess).not.toHaveBeenCalled();
+    await userEvent.click(kill);
     await waitFor(() =>
       expect(appMocks.KillSessionProcess).toHaveBeenCalledWith(
         1,
@@ -7166,12 +7170,12 @@ describe("ChatPanel · 会话进程与端口", () => {
     expect(sonnerMocks.toast.error).not.toHaveBeenCalled();
   });
 
-  it("Given the kill fails, When stop is clicked, Then an error toast shows", async () => {
+  it("Given the kill fails, When stop is clicked and confirmed, Then an error toast shows", async () => {
     await renderWithProcess();
     appMocks.KillSessionProcess.mockRejectedValue(new Error("denied"));
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Stop process" }),
-    );
+    const kill = await screen.findByRole("button", { name: "Stop process" });
+    await userEvent.click(kill);
+    await userEvent.click(kill);
     await waitFor(() =>
       expect(sonnerMocks.toast.error).toHaveBeenCalledWith(
         "Failed to stop process: denied",

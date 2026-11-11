@@ -8,6 +8,7 @@
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 import { AgentBackendLogo } from "../engine/ai-brand-logo";
+import { FailureDetail } from "../transcript/failure-detail";
 import { Button } from "../ui/button";
 import { DialogFooter } from "../ui/dialog";
 import {
@@ -35,7 +36,8 @@ export interface ImportFooterProps {
   cwdExists: boolean;
   cwdOverride: string;
   importing: ImportProgress | null;
-  importError: string;
+  /** 导入失败的机器原话；`null` 表示没失败。 */
+  importError: string | null;
   canImport: boolean;
   onSubmit(): void;
   onDismiss(): void;
@@ -239,14 +241,16 @@ export function ImportFooter({
             {t("importSession.adopt.pickDirectory")}
           </Button>
         ) : null}
-        {importError ? (
-          <span
+        {/* 与扫描、预览失败同一写法：一句事实，原话折进详情（规格 A6）。 */}
+        {importError !== null ? (
+          <div
             data-testid="import-error"
             role="alert"
-            className="text-2xs text-destructive-text"
+            className="flex flex-wrap items-baseline gap-x-2 text-2xs text-destructive-text"
           >
-            {importError}
-          </span>
+            <span>{t("importSession.importing.failed")}</span>
+            <FailureDetail detail={importError} className="min-w-0" />
+          </div>
         ) : null}
       </div>
     </DialogFooter>

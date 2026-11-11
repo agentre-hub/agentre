@@ -1798,6 +1798,141 @@ describe("SessionIndexPage session rows", () => {
     });
     expect(useChatTabsStore.getState().tabs).toHaveLength(0);
   });
+
+  // ── B4：确认键进行态、成功才关窗、失败留窗说事实 ─────────────────────────
+
+  async function openDeleteDialog(user: ReturnType<typeof setupUser>) {
+    fireEvent.contextMenu(
+      await screen.findByRole("button", { name: /Debug session/ }),
+    );
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    return screen.findByRole("dialog", { name: "Delete Session" });
+  }
+
+  async function openRenameDialog(user: ReturnType<typeof setupUser>) {
+    fireEvent.contextMenu(
+      await screen.findByRole("button", { name: /Debug session/ }),
+    );
+    await user.click(await screen.findByRole("menuitem", { name: "Rename" }));
+    return screen.findByRole("dialog", { name: "Rename Session" });
+  }
+
+  function deferred() {
+    let resolve!: (v: unknown) => void;
+    const promise = new Promise((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  it("Given a session row, When delete is requested, Then the confirmation names that session's title", async () => {
+    const user = setupUser();
+    renderIndex();
+
+    const dialog = await openDeleteDialog(user);
+
+    expect(dialog).toHaveTextContent(/Delete “Debug session”\?/);
+  });
+
+  it("Given delete is confirmed, When the write is still in flight, Then the confirm button is busy and the dialog stays open until it succeeds", async () => {
+    const user = setupUser();
+    const pending = deferred();
+    appMocks.DeleteChatSession.mockReturnValueOnce(pending.promise);
+    renderIndex();
+
+    const dialog = await openDeleteDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    expect(
+      within(dialog).getByRole("button", { name: "Delete" }),
+    ).toBeDisabled();
+    expect(
+      within(dialog).getByRole("button", { name: "Cancel" }),
+    ).toBeDisabled();
+    await user.keyboard("{Escape}");
+    expect(
+      screen.getByRole("dialog", { name: "Delete Session" }),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      pending.resolve({});
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Delete Session" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("Given delete fails with a raw error, When confirmed, Then the dialog stays open saying it failed, the raw text sits in a collapsed Details, and the tab is kept", async () => {
+    const user = setupUser();
+    selectSessionTab(1);
+    appMocks.DeleteChatSession.mockRejectedValueOnce(
+      new Error("sql: database is locked"),
+    );
+    renderIndex();
+
+    const dialog = await openDeleteDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't delete this session");
+    const raw = within(alert).getByText("sql: database is locked");
+    expect(raw.closest("details")).not.toHaveAttribute("open");
+    expect(
+      within(dialog).getByRole("button", { name: "Delete" }),
+    ).toBeEnabled();
+    expect(useChatTabsStore.getState().tabs).toHaveLength(1);
+  });
+
+  it("Given rename is confirmed, When the write is still in flight, Then Save is busy and the dialog closes only after it succeeds", async () => {
+    const user = setupUser();
+    const pending = deferred();
+    appMocks.RenameChatSession.mockReturnValueOnce(pending.promise);
+    renderIndex();
+
+    const dialog = await openRenameDialog(user);
+    const input = within(dialog).getByLabelText("Session name");
+    await user.clear(input);
+    await user.type(input, "Renamed session");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(
+      screen.getByRole("dialog", { name: "Rename Session" }),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      pending.resolve({});
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Rename Session" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("Given rename fails with a coded error, When confirmed, Then the dialog stays open with the draft kept and the backend sentence shown without the code prefix", async () => {
+    const user = setupUser();
+    appMocks.RenameChatSession.mockRejectedValueOnce(
+      new Error("agentre-code:17000 Session not found"),
+    );
+    renderIndex();
+
+    const dialog = await openRenameDialog(user);
+    const input = within(dialog).getByLabelText("Session name");
+    await user.clear(input);
+    await user.type(input, "Renamed session");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't rename this session");
+    expect(alert).toHaveTextContent("Session not found");
+    expect(alert).not.toHaveTextContent("agentre-code");
+    expect(within(dialog).getByLabelText("Session name")).toHaveValue(
+      "Renamed session",
+    );
+  });
 });
 
 // ── 命令面板的「新会话上下文」桥接 ─────────────────────────────────────────

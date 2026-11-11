@@ -25,6 +25,7 @@ import { useIsStreamActive } from "../../live-state";
 import { useTranscriptBooleanState } from "../../transcript-ui-state";
 import { useTranscriptPorts } from "../../ports-context";
 import { useUiTranslation } from "../../../i18n";
+import { failureDetailText } from "../../failure-detail";
 
 import type { CanonicalCardProps, PlanActionStream } from "../props";
 import type { CanonicalDTO, PlanActionDTO } from "../types";
@@ -71,27 +72,6 @@ function readPlan(toolBlock: unknown): NormalizedPlan | undefined {
     };
   }
   return undefined;
-}
-
-function errorMessage(err: unknown): string {
-  if (err instanceof Error && err.message) return err.message;
-  if (typeof err === "string" && err.trim()) return err;
-  if (err && typeof err === "object") {
-    for (const key of ["message", "error", "detail", "details", "reason"]) {
-      const value = (err as Record<string, unknown>)[key];
-      if (typeof value === "string" && value.trim()) return value;
-      if (value instanceof Error && value.message) return value.message;
-    }
-    const text = String(err);
-    if (text && text !== "[object Object]") return text;
-  }
-  try {
-    const text = JSON.stringify(err);
-    if (text && text !== "{}") return text;
-  } catch {
-    // fall through to generic text
-  }
-  return "Submit failed";
 }
 
 function readPlanActionStream(resp: unknown): PlanActionStream | null {
@@ -165,7 +145,10 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
     return saved?.feedback ?? "";
   });
   const [submitting, setSubmitting] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  // 提交失败:null 表示没有失败;detail 是机器原话,只进 title。
+  const [failure, setFailure] = React.useState<{ detail?: string } | null>(
+    null,
+  );
   const [localResolution, setLocalResolution] = React.useState<{
     allowed: boolean;
     resolved: boolean;
@@ -209,7 +192,7 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
     if (!sessionId) return;
     if (submitting) return;
     if (streamActive && startsNewTurn) return;
-    setError(null);
+    setFailure(null);
     setSubmitting(true);
     try {
       const resp = await ports.resolvePlanAction({
@@ -241,7 +224,7 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
         setFeedback("");
       }
     } catch (err) {
-      setError(errorMessage(err));
+      setFailure({ detail: failureDetailText(err) || undefined });
     } finally {
       setSubmitting(false);
     }
@@ -360,8 +343,13 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
                 : metaFor(refineAction, activePlan, t).label}
             </Button>
           ) : null}
-          {error ? (
-            <span className="text-xs text-destructive-text">{error}</span>
+          {failure ? (
+            <span
+              title={failure.detail}
+              className="text-xs text-destructive-text"
+            >
+              {t("canonical.plan.submitFailed")}
+            </span>
           ) : null}
         </TranscriptCardBody>
       ) : null}

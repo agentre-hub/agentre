@@ -174,7 +174,10 @@ describe("ToolPermissionCard optimistic resolution", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Reject" }));
 
-    expect(await screen.findByText("no waiting tool permission")).toBeDefined();
+    // 正文是本地化事实句，机器原话只进 title。
+    const fact = await screen.findByText("Approval submission failed");
+    expect(fact.getAttribute("title")).toBe("no waiting tool permission");
+    expect(screen.queryByText("no waiting tool permission")).toBeNull();
     expect(markToolPermissionResolved).toHaveBeenLastCalledWith({
       sessionId: 7,
       assistantMessageId: 42,

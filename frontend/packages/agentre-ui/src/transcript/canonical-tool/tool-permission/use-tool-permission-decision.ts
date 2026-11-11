@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 
 import type { TranscriptBlockToolPermission } from "../../dto";
 import { useUiTranslation } from "../../../i18n";
+import { failureDetailText } from "../../failure-detail";
 import { useMarkToolPermissionResolved } from "../../live-state";
 import { useTranscriptPorts } from "../../ports-context";
 
@@ -42,13 +43,16 @@ export function useToolPermissionDecision({
   const payload = readToolPermission(toolBlock);
   const isResolved = !!payload?.resolved;
   const [submitting, setSubmitting] = useState(false);
+  // error 是本地化事实句;errorDetail 是机器原话,调用方只把它放进 title。
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | undefined>();
 
   const submit = useCallback(
     async (allow: boolean, alwaysAllowSession: boolean) => {
       if (!payload || !payload.requestId || !sessionId) return;
       if (isResolved || submitting) return;
       setError(null);
+      setErrorDetail(undefined);
       setSubmitting(true);
       const optimistic: TranscriptBlockToolPermission = {
         requestId: payload.requestId,
@@ -84,11 +88,8 @@ export function useToolPermissionDecision({
             alwaysAllow: false,
           },
         });
-        setError(
-          err instanceof Error
-            ? err.message
-            : t("canonical.toolPermission.submitFailed"),
-        );
+        setError(t("canonical.toolPermission.submitFailed"));
+        setErrorDetail(failureDetailText(err) || undefined);
       } finally {
         setSubmitting(false);
       }
@@ -105,5 +106,5 @@ export function useToolPermissionDecision({
     ],
   );
 
-  return { payload, isResolved, submitting, error, submit };
+  return { payload, isResolved, submitting, error, errorDetail, submit };
 }

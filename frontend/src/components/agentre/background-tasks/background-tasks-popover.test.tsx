@@ -89,7 +89,8 @@ describe("BackgroundTasksPopoverContent processes", () => {
     ).toHaveLength(5);
   });
 
-  it("Given handlers, When the open button is clicked, Then only rows with ports offer it and it passes that process", async () => {
+  // A5:多端口时每个端口各自是一颗按钮,打开的就是那个端口;行尾不再放含糊的图标键。
+  it("Given a process with several ports, When a port button is clicked, Then that port opens and no row-end open button is offered", async () => {
     const onOpen = vi.fn();
     render(
       <BackgroundTasksPopoverContent
@@ -99,27 +100,33 @@ describe("BackgroundTasksPopoverContent processes", () => {
         onKillProcess={vi.fn()}
       />,
     );
-    const buttons = screen.getAllByRole("button", {
-      name: "Open in browser",
-    });
-    expect(buttons).toHaveLength(1);
-    await userEvent.click(buttons[0]);
-    expect(onOpen).toHaveBeenCalledWith(vite);
+    expect(
+      screen.queryByRole("button", { name: "Open in browser" }),
+    ).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open :5392 in browser" }),
+    );
+    expect(onOpen).toHaveBeenCalledWith(vite, 5392);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open :5391 in browser" }),
+    );
+    expect(onOpen).toHaveBeenLastCalledWith(vite, 5391);
   });
 
-  it("Given handlers, When stop is clicked on a row, Then onKillProcess gets that process", async () => {
-    const onKill = vi.fn();
+  it("Given a process with one port, When the row-end open button is clicked, Then it opens that port", async () => {
+    const onOpen = vi.fn();
+    const single = { ...vite, ports: [5391] };
     render(
       <BackgroundTasksPopoverContent
         tasks={[]}
-        processes={[vite, tail]}
-        onKillProcess={onKill}
+        processes={[single, tail]}
+        onOpenProcess={onOpen}
       />,
     );
-    const stops = screen.getAllByRole("button", { name: "Stop process" });
-    expect(stops).toHaveLength(2);
-    await userEvent.click(stops[1]);
-    expect(onKill).toHaveBeenCalledWith(tail);
+    const buttons = screen.getAllByRole("button", { name: "Open in browser" });
+    expect(buttons).toHaveLength(1);
+    await userEvent.click(buttons[0]);
+    expect(onOpen).toHaveBeenCalledWith(single, 5391);
   });
 
   it("Given no callbacks, When rendered, Then no action buttons appear and rows are not clickable", () => {
@@ -161,4 +168,163 @@ describe("BackgroundTasksPopoverContent processes", () => {
       ).toBeNull();
     },
   );
+});
+
+// A4:结束进程不可恢复,两段式确认;执行中转圈,失败复原。
+describe("BackgroundTasksPopoverContent kill process", () => {
+  it("Given a process, When kill is clicked once, Then nothing runs and the button turns into a destructive Stop? confirm", async () => {
+    const onKill = vi.fn();
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[]}
+        processes={[vite, tail]}
+        onKillProcess={onKill}
+      />,
+    );
+    const stops = screen.getAllByRole("button", { name: "Stop process" });
+    expect(stops).toHaveLength(2);
+    // 图标与「停止任务」的方块不同。
+    expect(stops[1].querySelector("svg.lucide-x")).not.toBeNull();
+    expect(stops[1].querySelector("svg.lucide-square")).toBeNull();
+    await userEvent.click(stops[1]);
+    expect(onKill).not.toHaveBeenCalled();
+    const confirm = screen.getByRole("button", { name: "Stop?" });
+    expect(confirm).toBe(stops[1]);
+  });
+
+  it("Given the confirm is showing, When clicked again within the window, Then onKillProcess gets that process and the button spins disabled", async () => {
+    const onKill = vi.fn(() => new Promise<void>(() => {}));
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[]}
+        processes={[vite, tail]}
+        onKillProcess={onKill}
+      />,
+    );
+    const button = screen.getAllByRole("button", { name: "Stop process" })[1];
+    await userEvent.click(button);
+    await userEvent.click(button);
+    expect(onKill).toHaveBeenCalledTimes(1);
+    expect(onKill).toHaveBeenCalledWith(tail);
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleName("Stop process");
+    expect(button.querySelector("svg.animate-spin")).not.toBeNull();
+  });
+
+  it("Given the confirm is showing, When about 2 seconds pass without a second click, Then it reverts and the next click only re-arms", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const onKill = vi.fn();
+    const user = userEvent.setup({
+      advanceTimers: vi.advanceTimersByTime.bind(vi),
+    });
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[]}
+        processes={[tail]}
+        onKillProcess={onKill}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Stop process" });
+    await user.click(button);
+    expect(button).toHaveAccessibleName("Stop?");
+    act(() => {
+      vi.advanceTimersByTime(2100);
+    });
+    expect(button).toHaveAccessibleName("Stop process");
+    await user.click(button);
+    expect(onKill).not.toHaveBeenCalled();
+    expect(button).toHaveAccessibleName("Stop?");
+  });
+
+  it("Given the kill fails, When it settles, Then the button returns to its resting state", async () => {
+    let reject!: (e: Error) => void;
+    const onKill = vi.fn(
+      () =>
+        new Promise<void>((_, r) => {
+          reject = r;
+        }),
+    );
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[]}
+        processes={[tail]}
+        onKillProcess={onKill}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Stop process" });
+    await userEvent.click(button);
+    await userEvent.click(button);
+    expect(button).toBeDisabled();
+    await act(async () => {
+      reject(new Error("denied"));
+    });
+    expect(button).toBeEnabled();
+    expect(button).toHaveAccessibleName("Stop process");
+    expect(button.querySelector("svg.lucide-x")).not.toBeNull();
+  });
+});
+
+describe("BackgroundTasksPopoverContent process row", () => {
+  it("Given a process row, When rendered, Then the row has no hover fill, the command wraps and is selectable, and cwd truncates from the head", () => {
+    render(<BackgroundTasksPopoverContent tasks={[]} processes={[vite]} />);
+    const section = processSection();
+    const row = section.querySelector("li")!;
+    expect(row.className).not.toMatch(/hover:bg-/);
+    const command = within(section).getByText("node vite --port 5391");
+    expect(command.className).not.toContain("truncate");
+    expect(command.className).toContain("break-all");
+    expect(command.closest("[data-selectable-text='true']")).not.toBeNull();
+    const cwd = within(section).getByText("~/work/demo/frontend");
+    const cwdBox = cwd.closest("[dir='rtl']");
+    expect(cwdBox).not.toBeNull();
+    expect(cwdBox!.className).toContain("truncate");
+    expect(cwd.closest("[data-selectable-text='true']")).not.toBeNull();
+  });
+});
+
+// A4:停止后台任务点下后转圈并禁用,直到状态变化或调用失败。
+describe("BackgroundTasksPopoverContent stop task", () => {
+  const runningWithId: BackgroundTask = { ...runningBash, taskId: "b3875slp0" };
+
+  it("Given a running task, When stop is clicked, Then onStopTask gets it and the button spins disabled while pending", async () => {
+    const onStop = vi.fn(() => new Promise<void>(() => {}));
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[runningWithId]}
+        onStopTask={onStop}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Stop" });
+    await userEvent.click(button);
+    await userEvent.click(button);
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(onStop).toHaveBeenCalledWith(runningWithId);
+    expect(button).toBeDisabled();
+    expect(button.querySelector("svg.animate-spin")).not.toBeNull();
+    expect(button.className).toContain("size-6");
+  });
+
+  it("Given the stop fails, When it settles, Then the stop button is usable again", async () => {
+    let reject!: (e: Error) => void;
+    const onStop = vi.fn(
+      () =>
+        new Promise<void>((_, r) => {
+          reject = r;
+        }),
+    );
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[runningWithId]}
+        onStopTask={onStop}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Stop" });
+    await userEvent.click(button);
+    expect(button).toBeDisabled();
+    await act(async () => {
+      reject(new Error("missing task id"));
+    });
+    expect(button).toBeEnabled();
+    expect(button.querySelector("svg.animate-spin")).toBeNull();
+  });
 });

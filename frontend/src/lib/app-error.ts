@@ -1,3 +1,5 @@
+import type { ProjectWriteFailure } from "@agentre-hub/agentre-ui";
+
 import { splitErrorDetail } from "./error-detail";
 
 /**
@@ -56,6 +58,10 @@ const KIND_BY_CODE: Record<number, AppErrorKind> = {
   20911: "offline", // ChatImportDeviceOffline
   21000: "offline", // PortForwardDeviceOffline
   // conflict：和现有数据撞上了，换个做法才行
+  13001: "conflict", // DepartmentNameDuplicated
+  13005: "conflict", // DepartmentCircularReference
+  14001: "conflict", // AgentNameDuplicated
+  14011: "conflict", // AgentCircularReference
   18001: "conflict", // ProjectNameDuplicated
   18007: "conflict", // ProjectCircularReference
   18010: "conflict", // ProjectHasChildren
@@ -67,6 +73,11 @@ const KIND_BY_CODE: Record<number, AppErrorKind> = {
   21002: "conflict", // PortForwardPortTaken
   // notFound：要动的东西已经不在了
   10002: "notFound", // NotFound
+  13000: "notFound", // DepartmentNotFound
+  13003: "notFound", // DepartmentParentNotFound
+  14000: "notFound", // AgentNotFound
+  14005: "notFound", // AgentDepartmentNotFound
+  14010: "notFound", // AgentParentNotFound
   17000: "notFound", // ChatSessionNotFound
   18000: "notFound", // ProjectNotFound
   18004: "notFound", // ProjectPathNotExist
@@ -114,4 +125,33 @@ export function classifyAppError(e: unknown): AppError {
     message: msg.trim(),
     detail,
   };
+}
+
+/**
+ * 项目写入（新建 / 改字段 / 移动 / 成员 / 本机路径 / 远端位置）的码 → 共享包那几类。
+ * 只列这一端真能产出的码；`notSynced` 是中继写才有的一类，桌面端的写不经那台机器。
+ */
+const PROJECT_WRITE_KIND_BY_CODE: Record<number, ProjectWriteFailure["kind"]> =
+  {
+    18003: "invalidPath", // ProjectInvalidPath
+    18004: "pathNotFound", // ProjectPathNotExist
+    18101: "invalidPath", // ProjectLocationInvalidPath
+  };
+
+/**
+ * 把一次项目写入失败翻成共享包认识的 `ProjectWriteFailure`。
+ *
+ * 分得出类时包说它自己那一句；分不出类时，带码的那句后端业务文案（「同级下已存在
+ * 同名项目」）进 `message` 由包原样透出。不带码的是机器原话，不进 `message`，
+ * 包退回它自己的通用句。
+ */
+export function classifyProjectWriteError(e: unknown): ProjectWriteFailure {
+  const raw = errorText(e).trim();
+  const coded = parseCodedError(raw);
+  if (!coded) return { kind: "unknown", message: undefined };
+  const message = splitErrorDetail(coded.message).msg.trim() || undefined;
+  const kind =
+    PROJECT_WRITE_KIND_BY_CODE[coded.code] ??
+    (KIND_BY_CODE[coded.code] === "offline" ? "disconnected" : "unknown");
+  return { kind, message };
 }

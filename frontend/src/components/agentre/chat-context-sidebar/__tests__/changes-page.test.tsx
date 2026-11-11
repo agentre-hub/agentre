@@ -203,6 +203,39 @@ describe("「变更」页 · 一级导航", () => {
     );
   });
 
+  it("Given 一级三段, When 在当前段上按方向键 / Home / End, Then 焦点与选中一起移动并回绕，只有当前段在 Tab 序列里", async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    const outline = screen.getByRole("tab", { name: /^Outline/ });
+    const changes = screen.getByRole("tab", { name: /^Changes/ });
+    const directory = screen.getByRole("tab", { name: /^Directory$/ });
+    expect(changes).toHaveAttribute("tabindex", "0");
+    expect(outline).toHaveAttribute("tabindex", "-1");
+    expect(directory).toHaveAttribute("tabindex", "-1");
+
+    changes.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(useChatSidebarStore.getState().activeTab).toBe("directory");
+    expect(screen.getByRole("tab", { name: /^Directory$/ })).toHaveFocus();
+
+    await user.keyboard("{ArrowRight}");
+    expect(useChatSidebarStore.getState().activeTab).toBe("outline");
+    expect(screen.getByRole("tab", { name: /^Outline/ })).toHaveFocus();
+
+    await user.keyboard("{ArrowLeft}");
+    expect(useChatSidebarStore.getState().activeTab).toBe("directory");
+
+    await user.keyboard("{Home}");
+    expect(useChatSidebarStore.getState().activeTab).toBe("outline");
+    await user.keyboard("{End}");
+    expect(useChatSidebarStore.getState().activeTab).toBe("directory");
+    expect(screen.getByRole("tab", { name: /^Directory$/ })).toHaveAttribute(
+      "tabindex",
+      "0",
+    );
+  });
+
   it('持久化的旧一级 tab 值 "git" 非法，回落到大纲', () => {
     localStorage.setItem(
       "chat-sidebar-state",
@@ -230,6 +263,29 @@ describe("「变更」页 · 本次会话档", () => {
       "README.md",
       "docs/gone.md",
     ]);
+  });
+
+  it("Given 「本次会话 / 未提交」两档, When 在当前档上按方向键, Then 切到另一档且焦点跟过去，只有当前档在 Tab 序列里", async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    const session = screen.getByRole("tab", { name: "This session" });
+    expect(session).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tab", { name: "Uncommitted" })).toHaveAttribute(
+      "tabindex",
+      "-1",
+    );
+
+    session.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(useChatSidebarStore.getState().changesScope).toBe("uncommitted");
+    // 焦点留在档位组里，不冒泡到一级三段上（那会把一级 tab 也切走）。
+    expect(useChatSidebarStore.getState().activeTab).toBe("changes");
+    expect(screen.getByRole("tab", { name: "Uncommitted" })).toHaveFocus();
+
+    await user.keyboard("{ArrowLeft}");
+    expect(useChatSidebarStore.getState().changesScope).toBe("session");
+    expect(screen.getByRole("tab", { name: "This session" })).toHaveFocus();
   });
 
   it("正在跑的那一轮改到的文件当场进列表，不必等轮次落定", () => {

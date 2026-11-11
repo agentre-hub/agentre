@@ -11,6 +11,14 @@
       "empty": {
         "noMountNodes": "暂无可挂载节点"
       },
+      "errors": {
+        "createAgentFailed": "Agent 没有创建成功",
+        "createDepartmentFailed": "部门没有创建成功",
+        "deleteFailed": "没有删除成功",
+        "moveFailed": "没有移动成功，已回到原来的位置",
+        "reorderFailed": "顺序没保存，已恢复原来的顺序"
+      },
+      "loadFailed": "加载失败",
       "loading": "正在加载组织架构…",
       "newAgent": {
         "agentOption": "Agent · {{name}}",
@@ -123,6 +131,7 @@
         "countCompact": "继承 {{inherit}} · 开 {{on}} · 关 {{off}}",
         "inheritNote": "灰=继承全局已启用 · 蓝=仅此 agent 强制开 · 红=仅此 agent 强制关(不动全局)。改动下次起新会话生效。",
         "empty": "未授予技能包",
+        "loadFailed": "没能列出这一档可用的技能包",
         "copyFrom": "复制自",
         "copyFromDisabledHint": "后端类型不同，包 ID 对不上",
         "offlineNote": "机器离线，列不出可添加的包 · 已授权的仍可移除"

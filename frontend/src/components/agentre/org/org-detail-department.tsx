@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useTranslation } from "react-i18next";
 
 import type { department_svc } from "../../../../wailsjs/go/models";
 
@@ -12,6 +13,7 @@ import {
 import { OrgDetailDepartmentHeader } from "./org-detail-department-header";
 import { OrgDetailDepartmentMembers } from "./org-detail-department-members";
 import { OrgDetailDepartmentStructure } from "./org-detail-department-structure";
+import { writeFailureOf, type WriteFailure } from "./write-failure-line";
 
 type Props = {
   department: OrgDepartment;
@@ -30,6 +32,7 @@ type Props = {
 };
 
 export function OrgDetailDepartment(props: Props) {
+  const { t } = useTranslation();
   const { values, patch, flush, wrap, status, pendingInvalid, retry } =
     useAutoSave({
       initial: {
@@ -60,10 +63,25 @@ export function OrgDetailDepartment(props: Props) {
   const [strategy, setStrategy] =
     React.useState<DeleteDepartmentStrategy>("reparent");
 
+  const [deleteFailure, setDeleteFailure] = React.useState<WriteFailure | null>(
+    null,
+  );
+  const setDeleteDialogOpen = (open: boolean) => {
+    setDeleteFailure(null);
+    setDeletePromptOpen(open);
+  };
+
   const handleConfirmDelete = React.useCallback(async () => {
-    await props.onDelete({ id: props.department.id, strategy });
+    setDeleteFailure(null);
+    try {
+      await props.onDelete({ id: props.department.id, strategy });
+    } catch (err) {
+      // 没删掉：确认框与详情都留着、话说在确认框的页脚，用户可以再点一次或取消。
+      setDeleteFailure(writeFailureOf(err, t("org.chart.errors.deleteFailed")));
+      return;
+    }
     props.onClose();
-  }, [strategy, props]);
+  }, [strategy, props, t]);
 
   const handlePickParent = (p: number) => {
     setParentId(p);
@@ -145,9 +163,10 @@ export function OrgDetailDepartment(props: Props) {
         open={deletePromptOpen}
         departmentName={props.department.name}
         strategy={strategy}
+        failure={deleteFailure}
         onStrategyChange={setStrategy}
-        onOpenChange={(o) => !o && setDeletePromptOpen(false)}
-        onCancel={() => setDeletePromptOpen(false)}
+        onOpenChange={(o) => !o && setDeleteDialogOpen(false)}
+        onCancel={() => setDeleteDialogOpen(false)}
         onConfirm={handleConfirmDelete}
       />
     </div>

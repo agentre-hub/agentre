@@ -58,6 +58,7 @@
       "groupedName": "Agents",
       "runToggle": "Toggle run {{index}}: {{name}}",
       "stop": "Stop",
+      "stopping": "Stopping",
       "openSession": "Open session",
       "emptyPrompt": "No prompt",
       "emptyResult": "(empty result)",
@@ -175,6 +176,7 @@
         "sendWithoutFeedback": "Continue Planning Without Feedback",
         "title": "Continue Planning with Feedback"
       },
+      "submitFailed": "Couldn't submit the plan action",
       "refineDefaultPrompt": "Continue refining the plan above.",
       "subtitle": {
         "approved": "Start executing the plan",
@@ -229,7 +231,8 @@
       "errors": {
         "optionRequired": "Select an option before submitting",
         "otherRequired": "Fill in the custom answer you selected",
-        "expired": "This prompt has expired: the session ended or it was superseded by a newer message"
+        "expired": "This prompt has expired: the session ended or it was superseded by a newer message",
+        "submitFailed": "Couldn't submit"
       },
       "multi": "Multiple",
       "otherPlaceholder": "Custom answer - enter your own response...",

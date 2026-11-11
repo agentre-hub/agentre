@@ -21,6 +21,8 @@ import { Info as FetchAppInfo } from "../../../wailsjs/go/app/App";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
 import { updatesOffered, useUpdateStore } from "@/stores/update-store";
 
+import { toastFailure } from "./failure-toast";
+
 import {
   getAvailableMirrors,
   getBugReportInfo,
@@ -171,9 +173,9 @@ export function UpdateSection() {
     try {
       await openLogsDir();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toastFailure(t("update.error.openLogsFailed"), err);
     }
-  }, []);
+  }, [t]);
 
   const handleDebugToggle = React.useCallback(
     async (next: boolean) => {
@@ -187,7 +189,12 @@ export function UpdateSection() {
         );
       } catch (err) {
         setDebugEnabled(!next);
-        toast.error(err instanceof Error ? err.message : String(err));
+        toastFailure(
+          next
+            ? t("update.debug.enableFailed")
+            : t("update.debug.disableFailed"),
+          err,
+        );
       }
     },
     [t],

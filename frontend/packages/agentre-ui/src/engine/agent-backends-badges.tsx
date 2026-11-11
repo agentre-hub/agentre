@@ -1,11 +1,12 @@
 // 徽章与结果条：类型选择器及其徽标 / 只读形态、生效配置摘要、测试结果条与顶部 flash。
 // 全部只吃 props，不碰端口，可在测试里单独渲染。
 import * as React from "react";
-import { AlertCircle, CheckCircle2, ChevronDown, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, X } from "lucide-react";
 
 import { useUiTranslation as useTranslation } from "../i18n";
 import { Button } from "../ui/button";
 import { cn } from "../lib/utils";
+import { FailureDetail } from "../transcript/failure-detail";
 
 import {
   truncateFlashText,
@@ -18,6 +19,7 @@ import {
   type BackendType,
   type CLIProbe,
   type ClaudeTier,
+  type FailureNotice,
   type FlashState,
   type RouteTarget,
 } from "./agent-backends-shared";
@@ -377,48 +379,42 @@ export function TestResultPill({ state }: { state: FlashState }) {
       ) : (
         <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
       )}
-      <span
-        className="min-w-0 flex-1 break-words"
-        title={truncated ? full : undefined}
-      >
-        {display}
-      </span>
+      <div className="min-w-0 flex-1">
+        <span className="break-words" title={truncated ? full : undefined}>
+          {display}
+        </span>
+        {ok ? null : <FailureDetail detail={state.detail} className="mt-1" />}
+      </div>
     </div>
   );
 }
 
+/**
+ * 清单顶部的提示条：只承载**定位不到某一行或某个字段的失败**（清单没读出来、扫描
+ * 没跑完、删除被拒）。成功走 Sonner toast，行内测试的失败贴在那一行下面。
+ */
 export function FlashBanner({
-  state,
+  failure,
   onDismiss,
 }: {
-  state: FlashState;
+  failure: FailureNotice | null;
   onDismiss: () => void;
 }) {
   const { t } = useTranslation();
-  if (!state) return null;
-  const ok = state.kind === "ok";
-  const { display, full, truncated } = truncateFlashText(state.text);
+  if (!failure) return null;
+  const { display, full, truncated } = truncateFlashText(failure.text);
   return (
     <div
-      className={cn(
-        "flex items-center gap-2 px-4 py-2 text-xs",
-        ok
-          ? "bg-status-running-bg text-status-running-text"
-          : "bg-destructive-soft text-destructive-text",
-      )}
+      className="flex items-start gap-2 bg-destructive-soft px-4 py-2 text-xs text-destructive-text"
       role="status"
     >
-      {ok ? (
-        <CheckCircle2 className="size-3.5" />
-      ) : (
-        <AlertCircle className="size-3.5" />
-      )}
-      <span
-        className="min-w-0 flex-1 truncate"
-        title={truncated ? full : undefined}
-      >
-        {display}
-      </span>
+      <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <span className="break-words" title={truncated ? full : undefined}>
+          {display}
+        </span>
+        <FailureDetail detail={failure.detail} className="mt-1" />
+      </div>
       <Button
         type="button"
         variant="ghost"
@@ -426,7 +422,7 @@ export function FlashBanner({
         onClick={onDismiss}
         aria-label={t("agentBackends.flash.close")}
       >
-        <ChevronDown className="size-3.5 rotate-45" aria-hidden="true" />
+        <X className="size-3.5" aria-hidden="true" />
       </Button>
     </div>
   );

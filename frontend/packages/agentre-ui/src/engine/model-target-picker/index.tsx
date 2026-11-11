@@ -61,6 +61,9 @@ export type ModelTargetPickerProps = {
   // 持久化切换失败的真实信息透出来）。
   error?: boolean;
   errorText?: string;
+  // switchError：持久化切换失败的那句本地化事实（chat 场景）。不顶替供应商列表，
+  // 在列表下方单起一行 destructive 色；未传时不渲染。
+  switchError?: string;
   disabled?: boolean;
   // openOnMount：直达更换绑定等入口打开消费方时，同时展开选择器。
   openOnMount?: boolean;
@@ -119,6 +122,7 @@ export function ModelTargetPicker({
   loading = false,
   error = false,
   errorText,
+  switchError,
   disabled = false,
   openOnMount = false,
   invalid = false,
@@ -293,7 +297,7 @@ export function ModelTargetPicker({
               {t("modelTargetPicker.loading")}
             </div>
           ) : error ? (
-            <div className="px-2.5 py-3 text-xs text-status-waiting-text">
+            <div className="px-2.5 py-3 text-xs text-destructive-text">
               {errorText ?? t("modelTargetPicker.error")}
             </div>
           ) : !cliState && catalog.length === 0 && isNativeTarget(selected) ? (
@@ -330,6 +334,15 @@ export function ModelTargetPicker({
             />
           ) : null}
         </div>
+
+        {switchError ? (
+          <div
+            role="alert"
+            className="px-2.5 py-[7px] text-2xs text-destructive-text"
+          >
+            {switchError}
+          </div>
+        ) : null}
 
         {/* 灰色项的原因每一行自己已经写了，底部不再总述一遍；这里只承诺同步的后果
             （mockup 远端弹层的 foot 也只有这一句）。 */}

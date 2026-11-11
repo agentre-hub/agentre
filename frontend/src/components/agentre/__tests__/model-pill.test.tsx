@@ -966,7 +966,11 @@ describe("ProviderPill · 已有会话（决策 1/9/10：选择立即持久化 +
       ),
     );
     await user.click(screen.getByTestId("provider-pill"));
-    expect(screen.getByText("nope")).toBeInTheDocument();
+    // A2：弹层只说本地化事实，原话进失败 toast 的折叠详情。
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The last switch didn't go through",
+    );
+    expect(screen.queryByText("nope")).toBeNull();
   });
 
   it("切换成功后按执行位置指纹记录最近使用（本机/远端隔离，决策 19）", async () => {

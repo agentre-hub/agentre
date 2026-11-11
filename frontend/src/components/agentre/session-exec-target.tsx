@@ -451,72 +451,77 @@ function ExecTargetReselectPopover(props: {
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const titleId = React.useId();
   const onGoAdjust = () => {
     navigateToTarget(navigate, "org-agent:<id>", props.agentId);
   };
   return (
     <div data-testid="exec-target-picker">
       <div className="flex items-baseline justify-between gap-2 px-3 py-2">
-        <span className="text-2xs font-semibold">
+        <span id={titleId} className="text-2xs font-semibold">
           {t("chatPanel.execTarget.pickerTitle")}
         </span>
         <span className="text-2xs text-muted-foreground">
           {t("chatPanel.execTarget.pickerScope")}
         </span>
       </div>
-      {props.candidates.map((c) => (
-        <button
-          key={c.agentBackendId}
-          type="button"
-          disabled={!c.available}
-          onClick={() => props.onPick(c.agentBackendId)}
-          className={cn(
-            "flex w-full items-start gap-2 px-3 py-2 text-left",
-            c.available ? "hover:bg-accent" : "cursor-not-allowed opacity-60",
-          )}
-        >
-          <span
+      <div role="radiogroup" aria-labelledby={titleId}>
+        {props.candidates.map((c) => (
+          <button
+            key={c.agentBackendId}
+            type="button"
+            role="radio"
+            aria-checked={c.agentBackendId === props.selectedId}
+            disabled={!c.available}
+            onClick={() => props.onPick(c.agentBackendId)}
             className={cn(
-              "mt-1 size-3.5 shrink-0 rounded-full border-[1.5px]",
-              c.agentBackendId === props.selectedId
-                ? "border-primary shadow-[inset_0_0_0_3px_var(--primary)]"
-                : "border-border-strong",
+              "flex w-full items-start gap-2 px-3 py-2 text-left",
+              c.available ? "hover:bg-accent" : "cursor-not-allowed opacity-60",
             )}
-            aria-hidden="true"
-          />
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="text-xs font-semibold">
-              {backendPrimaryName(c, t)}
-            </span>
-            {/* 这一档在哪台机器上跑：图标 + 设备名（本机/远端），比"名 × 设备"
-                一行平铺更易扫读。 */}
-            <span className="flex items-center gap-1 text-2xs text-muted-foreground">
-              {!c.deviceId ? (
-                <MapPin className="size-3" aria-hidden="true" />
-              ) : c.online ? (
-                <Server className="size-3" aria-hidden="true" />
-              ) : (
-                <ServerOff className="size-3" aria-hidden="true" />
+          >
+            <span
+              className={cn(
+                "mt-1 size-3.5 shrink-0 rounded-full border-[1.5px]",
+                c.agentBackendId === props.selectedId
+                  ? "border-primary shadow-[inset_0_0_0_3px_var(--primary)]"
+                  : "border-border-strong",
               )}
-              <span>{deviceLabelOf(c, t)}</span>
-            </span>
-            {!c.available && (
-              <span className="font-mono text-2xs text-muted-foreground">
-                {reasonLabel(c.reason, t)}
+              aria-hidden="true"
+            />
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="text-xs font-semibold">
+                {backendPrimaryName(c, t)}
               </span>
-            )}
-            {c.projectPath ? (
-              <span
-                data-testid="exec-target-project-path"
-                title={c.projectPath}
-                className="truncate font-mono text-2xs text-muted-foreground"
-              >
-                {c.projectPath}
+              {/* 这一档在哪台机器上跑：图标 + 设备名（本机/远端），比"名 × 设备"
+                一行平铺更易扫读。 */}
+              <span className="flex items-center gap-1 text-2xs text-muted-foreground">
+                {!c.deviceId ? (
+                  <MapPin className="size-3" aria-hidden="true" />
+                ) : c.online ? (
+                  <Server className="size-3" aria-hidden="true" />
+                ) : (
+                  <ServerOff className="size-3" aria-hidden="true" />
+                )}
+                <span>{deviceLabelOf(c, t)}</span>
               </span>
-            ) : null}
-          </div>
-        </button>
-      ))}
+              {!c.available && (
+                <span className="font-mono text-2xs text-muted-foreground">
+                  {reasonLabel(c.reason, t)}
+                </span>
+              )}
+              {c.projectPath ? (
+                <span
+                  data-testid="exec-target-project-path"
+                  title={c.projectPath}
+                  className="truncate font-mono text-2xs text-muted-foreground"
+                >
+                  {c.projectPath}
+                </span>
+              ) : null}
+            </div>
+          </button>
+        ))}
+      </div>
       <div className="flex items-center justify-between gap-2 bg-muted px-3 py-2">
         <span className="text-2xs text-muted-foreground">
           {t("chatPanel.execTarget.stickyHint")}

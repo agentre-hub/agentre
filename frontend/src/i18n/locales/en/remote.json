@@ -3,15 +3,7 @@
     "alreadyHandled": "That decision was already handled; state refreshed",
     "composerPlaceholder": "Send a message to the remote session…",
     "decision": {
-      "allow": "Allow",
-      "answer": "Answer",
-      "askAnswered": "That question was already answered",
-      "askSkipped": "That question was skipped",
-      "askTitle": "The remote session is waiting for your answer",
-      "deny": "Deny",
-      "permissionAllowed": "Tool permission was allowed",
-      "permissionDenied": "Tool permission was denied",
-      "permissionTitle": "{{tool}} is requesting tool permission"
+      "submitFailed": "Your reply didn't reach the other computer"
     },
     "error": {
       "description": "Could not reach Agentre on {{device}}. Make sure Agentre is running on that computer.",
@@ -39,8 +31,10 @@
       "editTls": "Edit TLS Trust",
       "refreshStatus": "Refresh Status",
       "removeConfirm": "Unpair \"{{name}}\"? This desktop will clear the token and fingerprint pin for this agentred. The remote agentred state.json.pairedPeers will not be cleaned up automatically.",
+      "removeFailed": "Couldn't unpair this device",
       "removePairing": "Unpair",
       "rename": "Rename",
+      "renameFailed": "Couldn't rename this device",
       "renamePrompt": "Rename to"
     },
     "add": {
@@ -204,7 +198,7 @@
       "copyDone": "Fix command copied",
       "copyFailed": "Failed to copy fix command",
       "empty": "No local Agent Backend providers are linked to this device.",
-      "loadFailed": "Load failed: {{message}}",
+      "loadFailed": "Could not load the provider sync status for this device",
       "loading": "Loading Provider sync status...",
       "missing": "Missing",
       "synced": "Synced",
@@ -232,6 +226,7 @@
     "thisDevice": "This device",
     "tls": {
       "apply": "Apply",
+      "applyFailed": "Couldn't apply the TLS trust setting",
       "badges": {
         "notRecommended": "Not recommended",
         "recommended": "Recommended"

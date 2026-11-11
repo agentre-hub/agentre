@@ -91,6 +91,13 @@ type State = {
     title: string;
     deviceName: string;
   }) => Promise<void>;
+  /**
+   * 接入失败之后重新接入（失败页的「重试」）。
+   *
+   * 单独一条路而不是再调 attach：attach 对已有的会话是空操作 —— Tab 重渲染不该
+   * 重复接入。只对 status:"error" 的会话生效，已接入 / 接入中的那条不打断。
+   */
+  reattach: (fingerprint: string, conversationId: string) => Promise<void>;
   detach: (fingerprint: string, conversationId: string) => void;
   steer: (
     fingerprint: string,
@@ -256,6 +263,25 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
           },
         },
       };
+    });
+  },
+
+  reattach: async (fingerprint, conversationId) => {
+    const key = peerKeyOf(fingerprint, conversationId);
+    const failed = get().sessions[key];
+    if (!failed || failed.status !== "error") return;
+    // 失败的那条先摘掉，attach 才会把它当成一条新的接入从头走。只摘本地这条，
+    // 不发 PeerDetach —— 那是「关掉这枚 Tab」，重试是要接回去。
+    set((state) => {
+      const sessions = { ...state.sessions };
+      delete sessions[key];
+      return { sessions };
+    });
+    await get().attach({
+      fingerprint,
+      conversationId,
+      title: failed.title,
+      deviceName: failed.deviceName,
     });
   },
 

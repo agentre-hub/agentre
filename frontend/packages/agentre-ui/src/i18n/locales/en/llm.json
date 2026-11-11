@@ -538,11 +538,17 @@
       "typeLocked": "Cannot be changed after creation"
     },
     "flash": {
+      "cliPathReadFailed": "Couldn't read the CLI path on this device",
       "close": "Close notice",
       "created": "Agent backend added",
+      "deleteFailed": "Not deleted",
       "deleted": "Deleted",
+      "loadFailed": "Agent backends didn't load",
       "providerSynced": "Remote provider synced",
-      "saved": "Saved"
+      "saveFailed": "Not saved",
+      "saved": "Saved",
+      "scanFailed": "The scan didn't finish",
+      "testFailed": "Couldn't connect"
     },
     "list": {
       "ariaLabel": "Agent backend list"

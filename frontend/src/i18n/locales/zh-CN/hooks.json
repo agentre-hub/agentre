@@ -2,17 +2,20 @@
   "hooks": {
     "title": "Hooks",
     "loading": "正在加载 Hooks…",
+    "loadFailed": "Hooks 没有加载出来",
     "list": {
       "search": "搜索 Hook",
       "groupScheduled": "定时任务",
       "empty": "还没有 Hook",
       "emptyHint": "点击右上角 + 新建一个脚本 Hook",
       "addAria": "新建 Hook",
-      "disabled": "停用"
+      "disabled": "停用",
+      "unsaved": "有未保存的修改"
     },
     "header": {
       "kindLabel": "{{interp}} Hook",
       "run": "试运行",
+      "saveAndRun": "保存并运行",
       "enable": "启用",
       "disable": "停用",
       "more": "更多操作",
@@ -97,14 +100,22 @@
       "deleted": "已删除 Hook {{name}}",
       "enabled": "已启用",
       "disabled": "已停用",
-      "saveFailed": "保存失败:{{error}}",
-      "runFailed": "运行失败:{{error}}"
+      "saveFailed": "保存失败",
+      "runFailed": "运行失败",
+      "deleteFailed": "删除失败",
+      "enableFailed": "启用失败",
+      "disableFailed": "停用失败"
     },
     "del": {
       "title": "删除 Hook",
       "description": "确定删除「{{name}}」?此操作不可撤销。",
       "confirm": "删除",
       "cancel": "取消"
+    },
+    "discard": {
+      "title": "放弃对「{{name}}」的修改？",
+      "keep": "继续编辑",
+      "confirm": "放弃修改"
     },
     "create": {
       "defaultName": "新 Hook"

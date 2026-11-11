@@ -10,7 +10,10 @@ import {
 } from "@agentre-hub/agentre-ui";
 
 import { usePanelShown } from "../chat-panel/panel-shown";
-import { BackgroundTasksPopoverContent } from "./background-tasks-popover";
+import {
+  BackgroundTasksPopoverContent,
+  type PendingAction,
+} from "./background-tasks-popover";
 import type { BackgroundTask, SessionProcess } from "./types";
 
 // 指针停在按钮上多久才打开；离开按钮、又没进弹层多久才收起（留出跨过两者
@@ -21,12 +24,12 @@ const HOVER_CLOSE_DELAY_MS = 120;
 type BackgroundTasksChipProps = {
   tasks: BackgroundTask[];
   onClearCompleted?: () => void;
-  onStopTask?: (task: BackgroundTask) => void;
+  onStopTask?: PendingAction<BackgroundTask>;
   onLocateTask?: (task: BackgroundTask) => void;
   // 会话留下的存活进程;有进程时按钮即使没有运行中的任务也保留。
   processes?: SessionProcess[];
-  onOpenProcess?: (process: SessionProcess) => void;
-  onKillProcess?: (process: SessionProcess) => void;
+  onOpenProcess?: (process: SessionProcess, port: number) => void;
+  onKillProcess?: PendingAction<SessionProcess>;
   // 弹层每次打开 / 收起都回调,宿主据此立刻刷新进程列表。
   onOpenChange?: (open: boolean) => void;
 };

@@ -619,6 +619,12 @@ const HostedTerminalPanel = React.memo(function HostedTerminalPanel({
     () => closeTab(tab.id),
     [closeTab, tab.id],
   );
+  // 断线后「新开终端」:同一项目 / 设备起一个全新标签;旧标签留着看输出,由用户关。
+  const openTerminal = useChatTabsStore((s) => s.openTerminal);
+  const handleNewTerminal = React.useCallback(
+    () => openTerminal(meta.projectId, meta.deviceId),
+    [openTerminal, meta.projectId, meta.deviceId],
+  );
 
   return (
     <div
@@ -634,6 +640,7 @@ const HostedTerminalPanel = React.memo(function HostedTerminalPanel({
         active={active}
         attach={meta.attach}
         onClose={handleClose}
+        onNewTerminal={handleNewTerminal}
       />
     </div>
   );

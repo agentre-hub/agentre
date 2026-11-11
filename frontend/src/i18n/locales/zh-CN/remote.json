@@ -3,15 +3,7 @@
     "alreadyHandled": "该决策已被处理，状态已刷新",
     "composerPlaceholder": "发送消息到远端会话…",
     "decision": {
-      "allow": "允许",
-      "answer": "回答",
-      "askAnswered": "该提问已被回答",
-      "askSkipped": "该提问已被跳过",
-      "askTitle": "远端会话在等待你的回答",
-      "deny": "拒绝",
-      "permissionAllowed": "该工具权限已允许",
-      "permissionDenied": "该工具权限已拒绝",
-      "permissionTitle": "{{tool}} 请求工具权限"
+      "submitFailed": "答复没有送到对端"
     },
     "error": {
       "description": "无法连接到 {{device}} 上的 Agentre。请确认那台电脑上的 Agentre 正在运行。",
@@ -39,8 +31,10 @@
       "editTls": "编辑 TLS 信任",
       "refreshStatus": "刷新状态",
       "removeConfirm": "解除配对 \"{{name}}\"？本桌面将清空对该 agentred 的 token 与 fingerprint pin；远端 agentred 的 state.json.pairedPeers 不会自动清理。",
+      "removeFailed": "没能解除这台设备的配对",
       "removePairing": "解除配对",
       "rename": "重命名",
+      "renameFailed": "没能重命名这台设备",
       "renamePrompt": "重命名为"
     },
     "add": {
@@ -204,7 +198,7 @@
       "copyDone": "已复制修复命令",
       "copyFailed": "复制修复命令失败",
       "empty": "该设备上没有关联任何本地 Agent 后端 Provider。",
-      "loadFailed": "加载失败：{{message}}",
+      "loadFailed": "没能读取这台设备的 Provider 同步状态",
       "loading": "正在加载 Provider 同步状态…",
       "missing": "缺失",
       "synced": "已同步",
@@ -232,6 +226,7 @@
     "thisDevice": "本机",
     "tls": {
       "apply": "应用",
+      "applyFailed": "没能应用 TLS 信任设置",
       "badges": {
         "notRecommended": "不推荐",
         "recommended": "推荐"

@@ -30,7 +30,7 @@ beforeEach(() => {
   api.set.mockResolvedValue({ mode: "fixed", value: "sonnet" });
 });
 describe("local session CLI models", () => {
-  it("Given a session's previous model, When the CLI rejects a switch, Then the popover shows the original rejection and the pill and notice callback stay unchanged", async () => {
+  it("Given a session's previous model, When the CLI rejects a switch, Then the rejection goes to the host's onFailed instead of the popover and the pill and notice callback stay unchanged", async () => {
     const originalError = "Model 'denied' not found";
     api.list.mockResolvedValue({
       models: [
@@ -41,6 +41,7 @@ describe("local session CLI models", () => {
     api.set.mockRejectedValue(new Error(originalError));
     const onChosen = vi.fn();
     const onSwitched = vi.fn();
+    const onFailed = vi.fn();
     function SessionModelPill() {
       const model = useChatCLIModel({
         backendId: 7,
@@ -50,6 +51,7 @@ describe("local session CLI models", () => {
         persistedValue: "opus",
         onChosen,
         onSwitched,
+        onFailed,
       });
       return (
         <ModelTargetPicker
@@ -81,11 +83,11 @@ describe("local session CLI models", () => {
       await screen.findByRole("option", { name: /Denied model/ }),
     );
     const popover = screen.getByTestId("model-target-popover");
-    expect(
-      await within(popover).findByText(
-        `Switch did not take effect: ${originalError}`,
-      ),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(onFailed).toHaveBeenCalledWith(new Error(originalError)),
+    );
+    // 原话只进宿主 toast 的折叠详情（A2），不当弹层正文。
+    expect(within(popover).queryByText(/not found/)).toBeNull();
     expect(pill).toHaveTextContent("Opus");
     expect(pill).not.toHaveTextContent("Denied model");
     expect(
@@ -123,15 +125,17 @@ describe("local session CLI models", () => {
     expect(result.current.value).toBe("sonnet");
     expect(clear).toHaveBeenCalled();
   });
-  it("Given an idle session, When its CLI rejects a choice, Then the choice remains unchanged and the original error is returned to the picker", async () => {
+  it("Given an idle session, When its CLI rejects a choice, Then the choice remains unchanged and the original error is handed to the host", async () => {
     api.set.mockRejectedValue(new Error("Model denied by CLI"));
     const clear = vi.fn();
+    const onFailed = vi.fn();
     const { result } = renderHook(() =>
       useChatCLIModel({
         backendId: 7,
         enabled: true,
         sessionId: 42,
         onChosen: clear,
+        onFailed,
       }),
     );
     await act(async () => {
@@ -144,7 +148,8 @@ describe("local session CLI models", () => {
     });
     expect(result.current.mode).toBe("");
     expect(clear).not.toHaveBeenCalled();
-    expect(result.current.error).toContain("Model denied by CLI");
+    expect(onFailed).toHaveBeenCalledWith(new Error("Model denied by CLI"));
+    expect(result.current.cliModels?.switchError).toBeUndefined();
   });
   it("Given unchanged inputs, When the host re-renders, Then the hook hands back the same object, inherit callback and picker state; When the persisted choice changes, Then those follow", async () => {
     const onChosen = vi.fn();

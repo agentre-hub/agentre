@@ -38,7 +38,7 @@ export function ToolPermissionDock({
   className,
 }: ToolPermissionDockProps) {
   const { t } = useUiTranslation();
-  const { payload, isResolved, submitting, error, submit } =
+  const { payload, isResolved, submitting, error, errorDetail, submit } =
     useToolPermissionDecision({ toolBlock, sessionId, messageId });
 
   if (!payload || !payload.requestId || isResolved) return null;
@@ -96,7 +96,11 @@ export function ToolPermissionDock({
         </Button>
       </div>
       {error ? (
-        <p role="alert" className="text-aux text-destructive-text">
+        <p
+          role="alert"
+          title={errorDetail}
+          className="text-aux text-destructive-text"
+        >
           {error}
         </p>
       ) : null}

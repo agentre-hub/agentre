@@ -441,7 +441,7 @@ describe("PlanApproveCard", () => {
     expect(screen.getByText("Plan Approved")).toBeDefined();
   });
 
-  it("shows backend error detail when plan action submission rejects", async () => {
+  it("Given the plan action submission rejects, Then the card shows the localized fact and keeps the backend text in title", async () => {
     const err = {};
     Object.defineProperty(err, "message", {
       value: "当前会话已有进行中的对话，请稍后再试",
@@ -452,9 +452,13 @@ describe("PlanApproveCard", () => {
     renderCard(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
     fireEvent.click(screen.getByText("Execute Plan"));
 
+    const fact = await screen.findByText("Couldn't submit the plan action");
+    expect(fact.getAttribute("title")).toBe(
+      "当前会话已有进行中的对话，请稍后再试",
+    );
     expect(
-      await screen.findByText("当前会话已有进行中的对话，请稍后再试"),
-    ).toBeDefined();
+      screen.queryByText("当前会话已有进行中的对话，请稍后再试"),
+    ).toBeNull();
   });
 
   // TranscriptCard tone 派生:未决→pending(bg-primary-soft)、已批准→done

@@ -254,6 +254,45 @@ describe("根切换器：只在工作根 ≥ 2 时存在", () => {
     expect(options[1]).toHaveTextContent("worktree");
     expect(options[1]).toHaveTextContent("1");
   });
+
+  it("Given two same-named worktrees under different folders, When the menu opens, Then the current root is marked current and every option shows its parent folder on a second line", async () => {
+    const user = userEvent.setup();
+    workRootsMock.mockResolvedValue([
+      root("/work/shop-web", "shop-web", { isPrimary: true }),
+      root("/work/.worktrees/a/shop-web", "shop-web", { isWorktree: true }),
+      root("/work/.worktrees/b/shop-web", "shop-web", { isWorktree: true }),
+    ]);
+    renderSidebar({ cwd: "/work/shop-web" });
+    await screen.findByTestId("root-switcher");
+
+    const menu = await openSwitcher(user);
+    const options = within(menu).getAllByTestId("root-option");
+    expect(options[0]).toHaveAttribute("aria-current", "true");
+    expect(options[1]).not.toHaveAttribute("aria-current");
+    expect(options[2]).not.toHaveAttribute("aria-current");
+    expect(
+      options.map(
+        (el) => within(el).getByTestId("root-option-parent").textContent,
+      ),
+    ).toEqual(["/work", "/work/.worktrees/a", "/work/.worktrees/b"]);
+  });
+
+  it("Given a Windows work root, When the menu opens, Then its parent folder is cut at the backslash", async () => {
+    const user = userEvent.setup();
+    workRootsMock.mockResolvedValue([
+      root("C:\\src\\proj", "proj", { isPrimary: true }),
+      root("C:\\src\\wt\\proj", "proj", { isWorktree: true }),
+    ]);
+    renderSidebar({ cwd: "C:\\src\\proj" });
+    await screen.findByTestId("root-switcher");
+
+    const menu = await openSwitcher(user);
+    expect(
+      within(menu)
+        .getAllByTestId("root-option-parent")
+        .map((el) => el.textContent),
+    ).toEqual(["C:\\src", "C:\\src\\wt"]);
+  });
 });
 
 describe("换根时在途的分支状态响应", () => {

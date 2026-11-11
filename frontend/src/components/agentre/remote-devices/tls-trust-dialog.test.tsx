@@ -92,6 +92,64 @@ describe("TLSTrustDialog", () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
+  // B4：「应用」进行中为进行态、窗关不掉；失败留窗，事实句 + 默认折叠的详情。
+  describe("apply in flight / failure", () => {
+    it("Given apply is in flight, Then Apply and Cancel are disabled and a second click does not apply again", async () => {
+      let resolve!: () => void;
+      const onApply = vi.fn(() => new Promise<void>((res) => (resolve = res)));
+      const onClose = vi.fn();
+      render(
+        <TLSTrustDialog
+          open
+          initialMode="default"
+          initialPEM=""
+          onClose={onClose}
+          onApply={onApply}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled(),
+      );
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+      expect(onApply).toHaveBeenCalledTimes(1);
+      fireEvent.keyDown(document.activeElement ?? document.body, {
+        key: "Escape",
+      });
+      expect(onClose).not.toHaveBeenCalled();
+
+      resolve();
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled(),
+      );
+    });
+
+    it("Given apply fails, Then the dialog stays open with a factual sentence and the raw text folded", async () => {
+      const onApply = vi.fn().mockRejectedValue(new Error("x509: bad cert"));
+      const onClose = vi.fn();
+      render(
+        <TLSTrustDialog
+          open
+          initialMode="default"
+          initialPEM=""
+          onClose={onClose}
+          onApply={onApply}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Couldn't apply the TLS trust setting");
+      const raw = screen.getByText("x509: bad cert");
+      expect(raw.closest("details")).not.toBeNull();
+      expect(raw.closest("details")).not.toHaveAttribute("open");
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled();
+    });
+  });
+
   // 可及性:四个信任模式是 <button role="radio">,内容为空,包裹式 <label> 对 button
   // 不生效 —— 名称必须显式指到旁边那行标题(与登录对话框同一缺陷、同一改法)。
   describe("accessibility", () => {

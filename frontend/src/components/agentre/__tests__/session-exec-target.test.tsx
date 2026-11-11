@@ -299,7 +299,7 @@ describe("NewSessionExecTargetLine", () => {
     const picker = await openPicker();
     // 浮层不再有 1、2 序号徽标（序号对选择无意义，已移除）。
     expect(within(picker).queryByText(/^[12]$/)).toBeNull();
-    const disabledRow = within(picker).getByRole("button", {
+    const disabledRow = within(picker).getByRole("radio", {
       name: /构建机/,
     });
     expect(disabledRow).toBeDisabled();
@@ -640,7 +640,7 @@ describe("NewSessionExecTargetLine", () => {
     // 手动改选到构建机。
     const picker = await openPicker();
     await userEvent.click(
-      within(picker).getByRole("button", { name: /构建机/ }),
+      within(picker).getByRole("radio", { name: /构建机/ }),
     );
     expect(onOverride).toHaveBeenLastCalledWith(52);
 
@@ -678,6 +678,41 @@ describe("NewSessionExecTargetLine", () => {
     expect(within(line).getByText("构建机")).toBeInTheDocument();
     // chip 配色/图标沿用共享 DeviceTag 的机器归属语义（远端在线 → Server 图标）。
     expect(line.querySelector(".lucide-server")).not.toBeNull();
+  });
+
+  it("Given the reselect popover, When it opens, Then the candidates are a radio group whose checked option is the effective target and unavailable ones are disabled radios", async () => {
+    stubWails(
+      [
+        { agentBackendId: 51, available: true },
+        { agentBackendId: 52, available: true },
+        {
+          agentBackendId: 53,
+          available: false,
+          reason: "exec-target-offline",
+        },
+      ],
+      [
+        { id: 51, deviceId: "", name: "claude-fable-5" },
+        { id: 52, deviceId: "3", deviceName: "构建机", online: true },
+        { id: 53, deviceId: "4", deviceName: "离线机" },
+      ],
+    );
+    renderLine({ overrideBackendId: 52 });
+    await screen.findByTestId("new-session-exec-target-line");
+
+    const picker = await openPicker();
+    const group = within(picker).getByRole("radiogroup", {
+      name: "Which machine to run on",
+    });
+    const radios = within(group).getAllByRole("radio");
+    expect(radios).toHaveLength(3);
+    expect(
+      within(group).getByRole("radio", { name: /构建机/ }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      within(group).getByRole("radio", { name: /claude-fable-5/ }),
+    ).toHaveAttribute("aria-checked", "false");
+    expect(within(group).getByRole("radio", { name: /离线机/ })).toBeDisabled();
   });
 });
 

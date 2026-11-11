@@ -1,7 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
 
 import { Badge, Button } from "@agentre-hub/agentre-ui";
 
@@ -11,6 +10,8 @@ import {
   UninstallCtlSkill,
 } from "../../../wailsjs/go/app/App";
 import type { ctlskill } from "../../../wailsjs/go/models";
+
+import { toastFailure } from "./failure-toast";
 
 // 通用目录 ~/.agents/skills/agrctl 的读取方一览，来自 spec 的既有事实核实
 // （Problem 5）。产品名是专有名词，不进 i18n。
@@ -68,11 +69,7 @@ export function CtlSkillPanel() {
       const next = await InstallCtlSkill();
       setInfo(next);
     } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : t("settings.ctlSkill.toast.installFailed"),
-      );
+      toastFailure(t("settings.ctlSkill.toast.installFailed"), err);
     } finally {
       setPending(null);
     }
@@ -84,11 +81,7 @@ export function CtlSkillPanel() {
       const next = await UninstallCtlSkill();
       setInfo(next);
     } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : t("settings.ctlSkill.toast.uninstallFailed"),
-      );
+      toastFailure(t("settings.ctlSkill.toast.uninstallFailed"), err);
     } finally {
       setPending(null);
     }

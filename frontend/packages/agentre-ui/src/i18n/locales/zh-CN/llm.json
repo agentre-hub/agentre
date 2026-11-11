@@ -538,11 +538,17 @@
       "typeLocked": "创建后不可更改"
     },
     "flash": {
+      "cliPathReadFailed": "没读到这台设备上的 CLI 路径",
       "close": "关闭提示",
       "created": "已新增 Agent 后端",
+      "deleteFailed": "没有删除成功",
       "deleted": "已删除",
+      "loadFailed": "Agent 后端没有加载出来",
       "providerSynced": "已同步远端 Provider",
-      "saved": "已保存"
+      "saveFailed": "没有保存成功",
+      "saved": "已保存",
+      "scanFailed": "扫描没有完成",
+      "testFailed": "没连上"
     },
     "list": {
       "ariaLabel": "Agent 后端列表"

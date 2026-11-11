@@ -127,7 +127,8 @@
       "running": "正在扫描本地会话…",
       "stop": "停止",
       "stopped": "已停止扫描",
-      "rescan": "重新扫描"
+      "rescan": "重新扫描",
+      "failed": "扫描没完成"
     },
     "empty": {
       "title": "没有可导入的会话",
@@ -177,7 +178,8 @@
       "title": "正在导入「{{title}}」",
       "progress": "已写入 {{done}} / {{total}} 轮",
       "progressUnknown": "已写入 {{done}} 轮",
-      "cancel": "取消导入"
+      "cancel": "取消导入",
+      "failed": "没导入成功"
     }
   }
 }

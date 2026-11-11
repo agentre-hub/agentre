@@ -9,6 +9,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { useUiTranslation } from "../i18n";
@@ -32,6 +33,10 @@ export interface TerminalPanelProps {
   // 不开 / 不关 PTY。默认 false 走既有 live 路径。
   attach?: boolean;
   onClose: () => void;
+  // 断线后红条上的「新开终端」:宿主按它平时开终端的方式起一个全新标签(同一项目 /
+  // 设备)。原会话不可恢复(transport 不支持重连),本标签保留旧输出直到用户关闭。
+  // 不传时红条只有「关闭」。
+  onNewTerminal?: () => void;
 }
 
 export function TerminalPanel({
@@ -41,6 +46,7 @@ export function TerminalPanel({
   active = true,
   attach = false,
   onClose,
+  onNewTerminal,
 }: TerminalPanelProps) {
   const { t } = useUiTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -58,14 +64,13 @@ export function TerminalPanel({
     (info: { code: number; reason: string; msg?: string }) => {
       if (info.reason === "connection_lost") {
         setConnectionLost(true);
-        toast.error(t("terminal.toast.connectionLost"));
-        return; // banner is shown; user dismisses to close.
+        return; // the banner is the only report; user picks New terminal / Close.
       }
       if (info.reason === "error") {
+        // 标题只写事实,原文进 description。
         toast.error(
-          t("terminal.toast.startFailed", {
-            message: info.msg ?? t("terminal.unknown"),
-          }),
+          t("terminal.toast.startFailed"),
+          info.msg ? { description: info.msg } : undefined,
         );
         onClose();
         return;
@@ -228,16 +233,38 @@ export function TerminalPanel({
           className="flex items-center justify-between bg-destructive-soft px-3 py-2 text-xs text-destructive-text"
         >
           <span>{t("terminal.banner.connectionLost")}</span>
-          <button
-            type="button"
-            onClick={dismissAndClose}
-            className="rounded bg-destructive/10 px-2 py-0.5 hover:bg-destructive/20"
-          >
-            {t("common.close")}
-          </button>
+          <div className="flex items-center gap-1.5">
+            {onNewTerminal ? (
+              <button
+                type="button"
+                onClick={onNewTerminal}
+                className="rounded bg-destructive/10 px-2 py-0.5 hover:bg-destructive/20"
+              >
+                {t("terminal.banner.newTerminal")}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={dismissAndClose}
+              className="rounded bg-destructive/10 px-2 py-0.5 hover:bg-destructive/20"
+            >
+              {t("common.close")}
+            </button>
+          </div>
         </div>
       ) : null}
-      <div ref={containerRef} className="h-full w-full p-2" />
+      <div className="relative min-h-0 flex-1">
+        <div ref={containerRef} className="h-full w-full p-2" />
+        {state === "opening" ? (
+          <div
+            role="status"
+            className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-muted-foreground"
+          >
+            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+            {t("terminal.opening")}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

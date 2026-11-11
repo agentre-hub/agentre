@@ -26,7 +26,8 @@ export type CanonicalCardProps = {
   onPlanActionStarted?: (stream: PlanActionStream, userText: string) => void;
   // onStopSubagent 停掉这张卡对应的正在运行的子 agent / 后台任务(下发 CLI stop_task)。
   // 入参是发起它的 tool_use_id(= toolBlock.toolUseId);仅 backend 支持时由 chat-panel 传入。
-  onStopSubagent?: (toolUseId: string) => void;
+  // 返回 Promise 时卡片显示停止进行态,reject 即视为失败并复原按钮;返回 void 保持旧行为。
+  onStopSubagent?: (toolUseId: string) => void | Promise<void>;
   /** Stable key for transcript-local UI state that must survive virtualization unmounts. */
   uiStateKey?: string;
   /** Stable mounted chat tab key for UI drafts that must survive route/tab remounts. */

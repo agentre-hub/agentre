@@ -2013,3 +2013,127 @@ describe("AgentSpawnCard for agrctl-upgraded shell calls", () => {
     expect(native.queryByRole("button", { name: "Open session" })).toBeNull();
   });
 });
+
+// A4:停止子代理一点即生效、没有进行态——点下后键变成禁用的 spinner,直到状态
+// 变化或调用失败;命中区 24px。设计决策 3:停止子代理不加确认。
+describe("AgentSpawnCard stop in progress", () => {
+  function runningSingle(status = "running"): TranscriptBlock {
+    return {
+      type: "tool_use",
+      toolName: "Task",
+      toolUseId: "toolu-stop",
+      canonical: {
+        kind: "agent.spawn",
+        agentSpawn: { taskId: "1", taskDescription: "review", status },
+      },
+    } as unknown as TranscriptBlock;
+  }
+
+  function deferred() {
+    let resolve!: () => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  it("Given a pending stop, When Stop is clicked, Then it calls once without confirmation and becomes a disabled spinner with a 24px hit area", async () => {
+    const call = deferred();
+    const onStop = vi.fn(() => call.promise);
+    render(
+      <AgentSpawnCard toolBlock={runningSingle()} onStopSubagent={onStop} />,
+    );
+    const idle = screen.getByRole("button", { name: "Stop" });
+    expect(idle).toHaveClass("size-6");
+
+    fireEvent.click(idle);
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(onStop).toHaveBeenCalledWith("toolu-stop");
+
+    const busy = await screen.findByRole("button", { name: "Stopping" });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    expect(busy).toHaveClass("size-6");
+    expect(busy.querySelector("svg.animate-spin")).not.toBeNull();
+    fireEvent.click(busy);
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given the stop call fails, When it rejects, Then the button returns to an enabled Stop", async () => {
+    const call = deferred();
+    render(
+      <AgentSpawnCard
+        toolBlock={runningSingle()}
+        onStopSubagent={() => call.promise}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await screen.findByRole("button", { name: "Stopping" });
+
+    call.reject(new Error("no task id"));
+    const again = await screen.findByRole("button", { name: "Stop" });
+    expect(again).toBeEnabled();
+  });
+
+  it("Given the stop call resolved, When the status has not changed yet, Then it stays a spinner until the status changes", async () => {
+    const call = deferred();
+    const onStop = () => call.promise;
+    const { rerender } = render(
+      <AgentSpawnCard toolBlock={runningSingle()} onStopSubagent={onStop} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    call.resolve();
+    await call.promise;
+    expect(
+      await screen.findByRole("button", { name: "Stopping" }),
+    ).toBeDisabled();
+
+    rerender(
+      <AgentSpawnCard
+        toolBlock={runningSingle("waiting")}
+        onStopSubagent={onStop}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+  });
+
+  it("Given a host callback that returns nothing, When Stop is clicked, Then the button keeps today's behaviour", () => {
+    const onStop = vi.fn();
+    render(
+      <AgentSpawnCard toolBlock={runningSingle()} onStopSubagent={onStop} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(onStop).toHaveBeenCalledWith("toolu-stop");
+    expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+  });
+
+  it("Given a grouped card, When stop is pending and then fails, Then it spins disabled and recovers", async () => {
+    const call = deferred();
+    const onStop = vi.fn(() => call.promise);
+    render(
+      <AgentSpawnCard
+        toolBlock={normalizedSpawnBlock({
+          mode: "parallel",
+          runs: [
+            { id: "a", index: 0, agent: "a", task: "t", status: "running" },
+            { id: "b", index: 1, agent: "b", task: "t", status: "running" },
+          ],
+        })}
+        childBlocks={groupedChildren([])}
+        onStopSubagent={onStop}
+      />,
+    );
+    const idle = screen.getByRole("button", { name: "Stop" });
+    expect(idle).toHaveClass("size-6");
+    fireEvent.click(idle);
+    expect(onStop).toHaveBeenCalledWith("toolu-parent");
+    const busy = await screen.findByRole("button", { name: "Stopping" });
+    expect(busy).toBeDisabled();
+    expect(busy.querySelector("svg.animate-spin")).not.toBeNull();
+
+    call.reject(new Error("boom"));
+    expect(await screen.findByRole("button", { name: "Stop" })).toBeEnabled();
+  });
+});

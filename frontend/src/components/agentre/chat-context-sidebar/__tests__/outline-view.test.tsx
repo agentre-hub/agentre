@@ -116,6 +116,40 @@ describe("OutlineView", () => {
     expect(screen.getByText(long).className).toContain("break-words");
   });
 
+  it("Given the current outline item, When rendered, Then only that row carries aria-current", () => {
+    render(
+      <OutlineView items={items} activeMessageId={22} onSelect={() => {}} />,
+    );
+    const active = screen.getByText("do thing two").closest("button")!;
+    const idle = screen.getByText("do thing one").closest("button")!;
+    expect(active).toHaveAttribute("aria-current", "true");
+    expect(idle).not.toHaveAttribute("aria-current");
+  });
+
+  it("Given the Chinese locale, When a failed turn with edits is rendered, Then the failure tag and the screen-reader edit count are localized", async () => {
+    const { default: i18n } = await import("@/i18n");
+    await i18n.changeLanguage("zh-CN");
+    try {
+      render(
+        <OutlineView
+          items={[{ ...items[0], err: true }]}
+          activeMessageId={null}
+          onSelect={() => {}}
+        />,
+      );
+      const row = screen
+        .getByText("do thing one")
+        .closest("[data-outline-message-id]") as HTMLElement;
+      expect(within(row).getByText("出错")).toBeInTheDocument();
+      expect(within(row).queryByText(/^error$/i)).toBeNull();
+      expect(within(row).getByTestId("outline-edits")).toHaveTextContent(
+        /^2\s*处改动$/,
+      );
+    } finally {
+      await i18n.changeLanguage("en");
+    }
+  });
+
   it("renders empty state when items is empty", () => {
     render(
       <OutlineView items={[]} activeMessageId={null} onSelect={() => {}} />,

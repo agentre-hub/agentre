@@ -2,6 +2,9 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+const toastError = vi.hoisted(() => vi.fn());
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
+
 import { OrgDetailDepartment } from "../org-detail-department";
 import type { OrgAgent, OrgDepartment } from "../types";
 
@@ -227,5 +230,43 @@ describe("OrgDetailDepartment delete dialog", () => {
       screen.getByRole("button", { name: /Confirm Delete/ }),
     );
     expect(onDelete).toHaveBeenCalledWith({ id: 1, strategy: "cascade" });
+  });
+});
+
+describe("OrgDetailDepartment 删除失败", () => {
+  it("Given 删除写入失败, When 确认删除, Then 确认框留着、详情不关，后端那句话在页脚、原文进 title，不弹 toast", async () => {
+    toastError.mockReset();
+    const onDelete = vi
+      .fn()
+      .mockRejectedValue(new Error("agentre-code:13000 部门不存在"));
+    const onClose = vi.fn();
+    render(
+      <OrgDetailDepartment
+        department={dept()}
+        allDepartments={[]}
+        allAgents={[]}
+        leadCandidates={[]}
+        onUpdate={vi.fn()}
+        onMove={vi.fn()}
+        onDelete={onDelete}
+        onSelect={vi.fn()}
+        onClose={onClose}
+      />,
+    );
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /Delete department/ })[0],
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Confirm Delete/ }),
+    );
+
+    const line = await screen.findByRole("alert");
+    expect(line).toHaveTextContent("部门不存在");
+    expect(line).toHaveAttribute("title", "agentre-code:13000 部门不存在");
+    expect(toastError).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: /Confirm Delete/ }),
+    ).toBeInTheDocument();
   });
 });

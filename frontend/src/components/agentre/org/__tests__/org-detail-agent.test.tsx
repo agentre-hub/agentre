@@ -9,6 +9,9 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const toastError = vi.hoisted(() => vi.fn());
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
+
 import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
 import { OrgDetailAgent } from "../org-detail-agent";
 import type { OrgAgent, OrgDepartment } from "../types";
@@ -617,5 +620,84 @@ describe("OrgDetailAgent", () => {
         expect.objectContaining({ name: "Boris 二号" }),
       );
     });
+  });
+});
+
+describe("OrgDetailAgent 删除失败", () => {
+  it("Given 删除写入失败（带码）, When 确认删除, Then 确认框留着，后端那句话在页脚、原文进 title，不弹 toast", async () => {
+    toastError.mockReset();
+    const onDelete = vi
+      .fn()
+      .mockRejectedValue(new Error("agentre-code:14000 Agent 不存在"));
+    render(
+      <MemoryRouter initialEntries={["/org"]}>
+        <OrgDetailAgent
+          agent={agent()}
+          departments={[dept]}
+          agents={[]}
+          backends={[]}
+          isLeadOf={null}
+          availableTools={[]}
+          onUpdate={vi.fn().mockResolvedValue(undefined)}
+          onMove={vi.fn().mockResolvedValue(undefined)}
+          onDelete={onDelete}
+          onUploadAvatar={vi.fn().mockResolvedValue(undefined)}
+          onDeleteAvatar={vi.fn().mockResolvedValue(undefined)}
+          onClose={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Delete Agent" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Confirm Delete/ }),
+    );
+
+    const line = await screen.findByRole("alert");
+    expect(line).toHaveTextContent("Agent 不存在");
+    expect(line).not.toHaveTextContent("agentre-code");
+    expect(line).toHaveAttribute("title", "agentre-code:14000 Agent 不存在");
+    expect(toastError).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: /Confirm Delete/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given 删除写入失败（不带码）, When 确认删除, Then 页脚是通用句，机器原话只进 title；重开确认框时不留上次的失败", async () => {
+    toastError.mockReset();
+    const onDelete = vi
+      .fn()
+      .mockRejectedValue(new Error("sqlite: disk I/O error"));
+    render(
+      <MemoryRouter initialEntries={["/org"]}>
+        <OrgDetailAgent
+          agent={agent()}
+          departments={[dept]}
+          agents={[]}
+          backends={[]}
+          isLeadOf={null}
+          availableTools={[]}
+          onUpdate={vi.fn().mockResolvedValue(undefined)}
+          onMove={vi.fn().mockResolvedValue(undefined)}
+          onDelete={onDelete}
+          onUploadAvatar={vi.fn().mockResolvedValue(undefined)}
+          onDeleteAvatar={vi.fn().mockResolvedValue(undefined)}
+          onClose={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Delete Agent" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Confirm Delete/ }),
+    );
+
+    const line = await screen.findByRole("alert");
+    expect(line).toHaveTextContent("Couldn't delete it");
+    expect(line).not.toHaveTextContent("sqlite");
+    expect(line).toHaveAttribute("title", "sqlite: disk I/O error");
+    expect(toastError).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete Agent" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
