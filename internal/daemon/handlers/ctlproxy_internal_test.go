@@ -192,6 +192,29 @@ func TestCtlProxy_GivenDesktopOwnedSession_WhenWriting_ThenAgentredAnnouncesTheD
 	assert.JSONEq(t, `{"error":"rejected in session #55"}`, got)
 }
 
+// 记忆写入在桌面端免审批（spec 2026-11-11 决策 10）：agentred 原样转回桌面端、由桌面端判定，
+// 不先替它报「等待审批」。
+func TestCtlProxy_GivenDesktopOwnedSession_WhenWritingMemory_ThenForwardedWithoutAWaitingLine(t *testing.T) {
+	c, tok := desktopOwned(t)
+	fn := &fakeTunnelNotifier{resp: wire.MCPProxyResponse{Status: 200, Body: []byte(`{"write":{"id":"83"}}`)}}
+	h := NewCtlProxyHandler(CtlProxyDeps{Sessions: c, Tunnel: func(devicefp.Initiator, string) NotifierPort { return fn }})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	raw, err := protojson.Marshal(&agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_Write{Write: &agentrewire.CtlWriteRequest{
+		Op: agentrewire.CtlOp_CTL_OP_CREATE, Kind: agentrewire.CtlKind_CTL_KIND_MEMORY, Caller: agentrewire.CtlCaller_CTL_CALLER_SESSION,
+		Resource: &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Memory{Memory: &agentrewire.CtlMemory{Summary: "用 pnpm"}}},
+		Fields:   []string{"summary"},
+	}}})
+	require.NoError(t, err)
+	status, got, waiting := postCtl(t, srv.URL+"/ctl/v1/resources", tok, string(raw))
+
+	assert.Empty(t, waiting, "memory writes are not approved, so no waiting line")
+	assert.Equal(t, http.StatusOK, status)
+	assert.JSONEq(t, `{"write":{"id":"83"}}`, got)
+	assert.JSONEq(t, string(raw), string(fn.gotParams.(wire.MCPProxyRequest).Body), "forwarded unchanged")
+}
+
 func TestCtlProxy_GivenDesktopOffline_WhenCalled_ThenClearError(t *testing.T) {
 	c, tok := desktopOwned(t)
 	h := NewCtlProxyHandler(CtlProxyDeps{Sessions: c, Tunnel: func(devicefp.Initiator, string) NotifierPort { return nil }})

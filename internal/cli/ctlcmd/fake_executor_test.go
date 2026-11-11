@@ -30,6 +30,8 @@ type fakeExecutor struct {
 	failBeforeApproval string
 	// nextID 是 create 返回的新 id。
 	nextID int64
+	// writeResp 非 nil 时由它给出写入的响应（记忆写入要带回所在的层、是否已存在、超预算）。
+	writeResp func(*agentrewire.CtlWriteRequest) *agentrewire.CtlWriteResponse
 }
 
 func deptDoc(d *agentrewire.CtlDepartment) *agentrewire.CtlResource {
@@ -134,9 +136,12 @@ func (f *fakeExecutor) serve(w http.ResponseWriter, r *http.Request) {
 			_, _ = io.WriteString(w, `{"error":"`+f.failBeforeApproval+`"}`)
 			return
 		}
-		// 和真执行者一样：要审批的调用方先收到 102，告诉它去哪里批准。
+		// 和真执行者一样：要审批的调用方先收到 102，告诉它去哪里批准；会话里的记忆写入免审批。
 		switch op.Write.GetCaller() {
 		case agentrewire.CtlCaller_CTL_CALLER_SESSION:
+			if op.Write.GetKind() == agentrewire.CtlKind_CTL_KIND_MEMORY {
+				break
+			}
 			w.Header().Set(approvalPendingHeader, "session=42")
 			w.WriteHeader(http.StatusProcessing)
 		case agentrewire.CtlCaller_CTL_CALLER_EXTERNAL:
@@ -153,7 +158,11 @@ func (f *fakeExecutor) serve(w http.ResponseWriter, r *http.Request) {
 		if op.Write.GetOp() == agentrewire.CtlOp_CTL_OP_CREATE {
 			id = f.nextID
 		}
-		resp.Result = &agentrewire.CtlResponse_Write{Write: &agentrewire.CtlWriteResponse{Id: id}}
+		out := &agentrewire.CtlWriteResponse{Id: id}
+		if f.writeResp != nil {
+			out = f.writeResp(op.Write)
+		}
+		resp.Result = &agentrewire.CtlResponse_Write{Write: out}
 	default:
 		f.t.Errorf("fake executor: request without op: %s", raw)
 		w.WriteHeader(http.StatusBadRequest)
@@ -189,6 +198,8 @@ func docID(r *agentrewire.CtlResource) int64 {
 		return d.Model.GetId()
 	case *agentrewire.CtlResource_Backend:
 		return d.Backend.GetId()
+	case *agentrewire.CtlResource_Memory:
+		return d.Memory.GetId()
 	}
 	return 0
 }

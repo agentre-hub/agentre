@@ -19,14 +19,17 @@ Usage:
   agrctl send --agent <name> [flags] <text...>  dispatch a task to an agent
   agrctl acp --agent <name>                     run as an ACP v1 agent over stdio
 
-Resources: agent, department (dept), project (proj), provider, model, backend.
+Resources: agent, department (dept), project (proj), provider, model, backend, memory.
 <ref> is a numeric id, a name, or a parent/child path (projects, departments);
-a model is <provider>/<model id>. Flags that name another resource
-(--department, --parent, --backend, --provider, --lead, …) take the same forms.
+a model is <provider>/<model id>; a memory is its id (m58 or 58). Flags that name
+another resource (--department, --parent, --backend, --provider, --lead, …) take
+the same forms.
 
 Writes from an Agentre session wait for approval in that session; writes from a
 program without a terminal, or from a terminal an agent CLI (Claude Code, Codex,
 Gemini CLI, opencode, …) is running in, wait for approval in the desktop.
+memory is the exception: it only works inside an Agentre session, and its writes
+take effect at once (agrctl help memory).
 
 Exit codes: 0 ok · 1 failed, rejected or executor unreachable · 2 usage error
 (unknown command or flag, missing value, ambiguous ref) · 3 needs a human
@@ -82,8 +85,11 @@ func writeKindHelp(w io.Writer, spec *kindSpec) {
 	var b strings.Builder
 	_, _ = fmt.Fprintf(&b, "Resource: %s\n\nCommands:\n", spec.name)
 	ref := "<ref>"
-	if spec == kindModel {
+	switch spec {
+	case kindModel:
 		ref = "<provider>/<model id>"
+	case kindMemory:
+		ref = "<id>"
 	}
 	filters := ""
 	for _, f := range spec.filters {
@@ -102,6 +108,9 @@ func writeKindHelp(w io.Writer, spec *kindSpec) {
 	del := ""
 	for _, f := range spec.deleteFlags {
 		del += " [--" + f.name + "]"
+	}
+	if spec == kindMemory {
+		del += "    (archives it)"
 	}
 	_, _ = fmt.Fprintf(&b, "  agrctl delete %s %s%s\n", spec.name, ref, del)
 
@@ -126,6 +135,9 @@ func writeKindHelp(w io.Writer, spec *kindSpec) {
 	}
 	if spec == kindBackend {
 		_, _ = fmt.Fprintf(&b, "\nTypes: %s\n  --config fields depend on the type: agrctl help backend <type>\n", backendTypeNames())
+	}
+	if spec.notes != "" {
+		b.WriteString("\n" + spec.notes + "\n")
 	}
 	b.WriteString("\nSecrets:\n")
 	if spec.secretHelp != "" {

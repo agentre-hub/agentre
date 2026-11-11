@@ -12,12 +12,15 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo/mock_department_repo"
 	"github.com/agentre-hub/agentre/internal/repository/memory_repo"
@@ -33,6 +36,7 @@ type svcMocks struct {
 	agent   *mock_agent_repo.MockAgentRepo
 	dept    *mock_department_repo.MockDepartmentRepo
 	project *mock_project_repo.MockProjectRepo
+	session *mock_chat_repo.MockSessionRepo
 }
 
 func setupMemorySvc(t *testing.T) (context.Context, svcMocks, *memorySvc) {
@@ -44,12 +48,25 @@ func setupMemorySvc(t *testing.T) (context.Context, svcMocks, *memorySvc) {
 		agent:   mock_agent_repo.NewMockAgentRepo(ctrl),
 		dept:    mock_department_repo.NewMockDepartmentRepo(ctrl),
 		project: mock_project_repo.NewMockProjectRepo(ctrl),
+		session: mock_chat_repo.NewMockSessionRepo(ctrl),
 	}
 	memory_repo.RegisterMemory(m.memory)
 	agent_repo.RegisterAgent(m.agent)
 	department_repo.RegisterDepartment(m.dept)
 	project_repo.RegisterProject(m.project)
+	chat_repo.RegisterSession(m.session)
 	return context.Background(), m, newMemorySvc(func() int64 { return testNow })
+}
+
+// expectAIScope 摆好 aiActor 的会话范围：会话 70 在项目 9；agent 5 在部门 2，部门 2 的
+// 上级是部门 1。于是 AI 所属的层是全局、部门 1、部门 2、agent 5、项目 9。这些查询怎么
+// 发、发几次不是契约，所以不限次数。
+func expectAIScope(m svcMocks) {
+	m.session.EXPECT().Find(gomock.Any(), int64(70)).Return(&chat_entity.Session{ID: 70, AgentID: 5, ProjectID: 9}, nil).AnyTimes()
+	m.agent.EXPECT().Find(gomock.Any(), int64(5)).Return(&agent_entity.Agent{ID: 5, DepartmentID: 2, Status: consts.ACTIVE}, nil).AnyTimes()
+	m.dept.EXPECT().Find(gomock.Any(), int64(2)).Return(&department_entity.Department{ID: 2, ParentID: 1, Status: consts.ACTIVE}, nil).AnyTimes()
+	m.dept.EXPECT().Find(gomock.Any(), int64(1)).Return(&department_entity.Department{ID: 1, Status: consts.ACTIVE}, nil).AnyTimes()
+	m.project.EXPECT().Find(gomock.Any(), int64(9)).Return(&project_entity.Project{ID: 9}, nil).AnyTimes()
 }
 
 func codeOf(err error) int {
@@ -98,7 +115,7 @@ func TestMemorySvc_Create(t *testing.T) {
 		})
 
 		convey.Convey("AI 写入记下来源 agent 与会话", func() {
-			m.agent.EXPECT().Find(ctx, int64(5)).Return(&agent_entity.Agent{ID: 5, Status: consts.ACTIVE}, nil)
+			expectAIScope(m)
 			m.memory.EXPECT().FindNormalBySummary(ctx, agentOwner, "用 pnpm").Return(nil, nil)
 			m.memory.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, e *memory_entity.Memory) error {
 				convey.So(e.Creator(), convey.ShouldResemble, aiActor)
@@ -111,7 +128,7 @@ func TestMemorySvc_Create(t *testing.T) {
 		})
 
 		convey.Convey("同层已有摘要完全相同的正常条目时返回已有的那条，不新增", func() {
-			m.project.EXPECT().Find(ctx, int64(9)).Return(&project_entity.Project{ID: 9}, nil)
+			expectAIScope(m)
 			m.memory.EXPECT().FindNormalBySummary(ctx, projectOwner, "用 pnpm").Return(stored(4, projectOwner, "用 pnpm"), nil)
 			res, err := svc.Create(ctx, &CreateRequest{Owner: projectOwner, Summary: "用 pnpm", Detail: "别的详情", Actor: aiActor})
 			convey.So(err, convey.ShouldBeNil)
@@ -149,6 +166,7 @@ func TestMemorySvc_Update(t *testing.T) {
 		ctx, m, svc := setupMemorySvc(t)
 
 		convey.Convey("AI 可以修改用户写的条目，上一版被保留", func() {
+			expectAIScope(m)
 			m.memory.EXPECT().Find(ctx, int64(4)).Return(stored(4, agentOwner, "用 npm"), nil)
 			m.memory.EXPECT().Update(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, e *memory_entity.Memory) error {
 				convey.So(e.Summary, convey.ShouldEqual, "用 pnpm")
@@ -199,6 +217,7 @@ func TestMemorySvc_StateChanges(t *testing.T) {
 		})
 
 		convey.Convey("AI 归档记下归档者", func() {
+			expectAIScope(m)
 			m.memory.EXPECT().Find(ctx, int64(4)).Return(stored(4, agentOwner, "a"), nil)
 			m.memory.EXPECT().Update(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, e *memory_entity.Memory) error {
 				convey.So(e.State, convey.ShouldEqual, memory_entity.StateArchived)

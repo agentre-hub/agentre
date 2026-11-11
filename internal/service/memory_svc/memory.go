@@ -44,6 +44,10 @@ type MemorySvc interface {
 	Search(ctx context.Context, keyword string) ([]*MemoryItem, error)
 	// Visible 一个 agent 在某项目（0 = 无项目）里的会话看得到的记忆，逐层按预算分好。
 	Visible(ctx context.Context, agentID, projectID int64) (*VisibleMemory, error)
+	// SessionOwners AI 写入者所属（可见、可写）的层；项目取自它的会话。
+	SessionOwners(ctx context.Context, actor memory_entity.Actor) ([]memory_entity.Owner, error)
+	// SessionVisible AI 写入者所在会话看得到的记忆（agrctl 记忆命令的读）。
+	SessionVisible(ctx context.Context, actor memory_entity.Actor) (*VisibleMemory, error)
 }
 
 type memorySvc struct {
@@ -72,6 +76,9 @@ func (s *memorySvc) Create(ctx context.Context, req *CreateRequest) (*CreateResu
 	}
 	summary, detail := memory_entity.NormalizeContent(req.Summary, req.Detail)
 	if err := memory_entity.CheckContent(ctx, summary, detail); err != nil {
+		return nil, err
+	}
+	if err := s.requireOwnLayer(ctx, req.Actor, req.Owner); err != nil {
 		return nil, err
 	}
 	if err := s.requireOwner(ctx, req.Owner); err != nil {
@@ -103,7 +110,7 @@ func (s *memorySvc) Update(ctx context.Context, req *UpdateRequest) (*MemoryItem
 	if err := memory_entity.CheckContent(ctx, summary, detail); err != nil {
 		return nil, err
 	}
-	return s.mutate(ctx, req.ID, string(memory_entity.ActionEdited), func(m *memory_entity.Memory) (bool, error) {
+	return s.mutateAs(ctx, req.ID, req.Actor, string(memory_entity.ActionEdited), func(m *memory_entity.Memory) (bool, error) {
 		return m.Edit(summary, detail, req.Actor, s.now()), nil
 	})
 }
@@ -122,7 +129,7 @@ func (s *memorySvc) Archive(ctx context.Context, id int64, actor memory_entity.A
 	if err := checkActor(ctx, actor); err != nil {
 		return nil, err
 	}
-	return s.mutate(ctx, id, string(memory_entity.ActionArchived), func(m *memory_entity.Memory) (bool, error) {
+	return s.mutateAs(ctx, id, actor, string(memory_entity.ActionArchived), func(m *memory_entity.Memory) (bool, error) {
 		if m.IsArchived() {
 			return false, nil
 		}
@@ -135,7 +142,7 @@ func (s *memorySvc) Unarchive(ctx context.Context, id int64, actor memory_entity
 	if err := checkActor(ctx, actor); err != nil {
 		return nil, err
 	}
-	return s.mutate(ctx, id, string(memory_entity.ActionUnarchived), func(m *memory_entity.Memory) (bool, error) {
+	return s.mutateAs(ctx, id, actor, string(memory_entity.ActionUnarchived), func(m *memory_entity.Memory) (bool, error) {
 		if !m.IsArchived() {
 			return false, nil
 		}
@@ -148,7 +155,7 @@ func (s *memorySvc) RestorePrevious(ctx context.Context, id int64, actor memory_
 	if err := checkActor(ctx, actor); err != nil {
 		return nil, err
 	}
-	return s.mutate(ctx, id, string(memory_entity.ActionRestored), func(m *memory_entity.Memory) (bool, error) {
+	return s.mutateAs(ctx, id, actor, string(memory_entity.ActionRestored), func(m *memory_entity.Memory) (bool, error) {
 		if !m.RestorePrevious(actor, s.now()) {
 			return false, i18n.NewError(ctx, code.MemoryNoPrevious)
 		}
@@ -160,9 +167,12 @@ func (s *memorySvc) Move(ctx context.Context, id int64, owner memory_entity.Owne
 	if err := checkActor(ctx, actor); err != nil {
 		return nil, err
 	}
-	return s.mutate(ctx, id, string(memory_entity.ActionMoved), func(m *memory_entity.Memory) (bool, error) {
+	return s.mutateAs(ctx, id, actor, string(memory_entity.ActionMoved), func(m *memory_entity.Memory) (bool, error) {
 		if m.Owner() == owner {
 			return false, nil
+		}
+		if err := s.requireOwnLayer(ctx, actor, owner); err != nil {
+			return false, err
 		}
 		if err := s.requireOwner(ctx, owner); err != nil {
 			return false, err
@@ -182,6 +192,16 @@ func (s *memorySvc) Delete(ctx context.Context, id int64) error {
 	}
 	logWrite(ctx, m, "deleted")
 	return nil
+}
+
+// mutateAs 同 mutate，先确认条目在 actor 能写的层里（AI 只能写它所属的层）。
+func (s *memorySvc) mutateAs(ctx context.Context, id int64, actor memory_entity.Actor, op string, apply func(*memory_entity.Memory) (bool, error)) (*MemoryItem, error) {
+	return s.mutate(ctx, id, op, func(m *memory_entity.Memory) (bool, error) {
+		if err := s.requireOwnLayer(ctx, actor, m.Owner()); err != nil {
+			return false, err
+		}
+		return apply(m)
+	})
 }
 
 // mutate 读出条目、交给 apply 改，有改动才落库并记一条 op 日志。apply 返回的错误原样返回。

@@ -303,4 +303,5 @@ var zhCN = map[int]string{
 	MemoryInvisibleChars:   "记忆内容含有不可见字符，请删掉后再保存",
 	MemorySensitiveContent: "记忆内容像是密钥或令牌，不能写进记忆",
 	MemoryNoPrevious:       "这条记忆没有上一版可恢复",
+	MemoryNotOwnLayer:      "agent 只能写它所属的层：全局、它所在的部门及上级部门、它自己、本会话所在的项目",
 }

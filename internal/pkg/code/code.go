@@ -432,4 +432,5 @@ const (
 	MemoryInvisibleChars                  // 含不可见字符
 	MemorySensitiveContent                // 含明显的凭据格式
 	MemoryNoPrevious                      // 没有上一版可恢复
+	MemoryNotOwnLayer                     // AI 写入的层不是本会话 agent 所属的层(决策 7)
 )

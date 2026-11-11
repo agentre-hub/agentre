@@ -303,4 +303,5 @@ var enUS = map[int]string{
 	MemoryInvisibleChars:   "Memory contains invisible characters; remove them and save again",
 	MemorySensitiveContent: "Memory looks like a key or token; credentials cannot be stored in memory",
 	MemoryNoPrevious:       "This memory has no previous version to restore",
+	MemoryNotOwnLayer:      "An agent can only write memories in its own layers: global, its department and the departments above it, itself, and this session's project",
 }

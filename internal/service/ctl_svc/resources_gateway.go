@@ -9,10 +9,12 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	"github.com/agentre-hub/agentre/internal/service/department_svc"
 	"github.com/agentre-hub/agentre/internal/service/llm_provider_svc"
+	"github.com/agentre-hub/agentre/internal/service/memory_svc"
 	"github.com/agentre-hub/agentre/internal/service/project_location_svc"
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
@@ -32,7 +34,35 @@ func ProductionResources() Resources {
 		Backends:  backendSvcResources{},
 		Writers:   productionWriters(ports),
 		Cascade:   departmentWriter{ports},
+		Memory:    liveMemory{},
 	}
+}
+
+// liveMemory 每次调用现取 memory_svc 单例。
+type liveMemory struct{}
+
+func (liveMemory) SessionOwners(ctx context.Context, actor memory_entity.Actor) ([]memory_entity.Owner, error) {
+	return memory_svc.Memory().SessionOwners(ctx, actor)
+}
+
+func (liveMemory) SessionVisible(ctx context.Context, actor memory_entity.Actor) (*memory_svc.VisibleMemory, error) {
+	return memory_svc.Memory().SessionVisible(ctx, actor)
+}
+
+func (liveMemory) Create(ctx context.Context, req *memory_svc.CreateRequest) (*memory_svc.CreateResult, error) {
+	return memory_svc.Memory().Create(ctx, req)
+}
+
+func (liveMemory) Update(ctx context.Context, req *memory_svc.UpdateRequest) (*memory_svc.MemoryItem, error) {
+	return memory_svc.Memory().Update(ctx, req)
+}
+
+func (liveMemory) Archive(ctx context.Context, id int64, actor memory_entity.Actor) (*memory_svc.MemoryItem, error) {
+	return memory_svc.Memory().Archive(ctx, id, actor)
+}
+
+func (liveMemory) ListByOwner(ctx context.Context, owner memory_entity.Owner) (*memory_svc.OwnerList, error) {
+	return memory_svc.Memory().ListByOwner(ctx, owner)
 }
 
 // ---- agents / departments ----

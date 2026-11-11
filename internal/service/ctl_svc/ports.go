@@ -3,11 +3,13 @@ package ctl_svc
 import (
 	"context"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	"github.com/agentre-hub/agentre/internal/service/agent_svc"
 	"github.com/agentre-hub/agentre/internal/service/department_svc"
 	"github.com/agentre-hub/agentre/internal/service/llm_provider_svc"
+	"github.com/agentre-hub/agentre/internal/service/memory_svc"
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
@@ -84,6 +86,17 @@ type DeviceDirectory interface {
 	// List，不必等前端先打开过设备面板才认得出账号里已有、本机还没记录的
 	// agentred；selfName 命中时 --device 直接解析成本机（空指纹）。
 	EnsureFromAccount(ctx context.Context) (selfName string, ok bool, err error)
+}
+
+// MemoryService 记忆读写（memory_svc）。会话里的写入一律以 AI 写入者进行：只写它所属的
+// 层由 memory_svc 把关；删除即归档——这里根本没有彻底删除的方法。
+type MemoryService interface {
+	SessionOwners(ctx context.Context, actor memory_entity.Actor) ([]memory_entity.Owner, error)
+	SessionVisible(ctx context.Context, actor memory_entity.Actor) (*memory_svc.VisibleMemory, error)
+	Create(ctx context.Context, req *memory_svc.CreateRequest) (*memory_svc.CreateResult, error)
+	Update(ctx context.Context, req *memory_svc.UpdateRequest) (*memory_svc.MemoryItem, error)
+	Archive(ctx context.Context, id int64, actor memory_entity.Actor) (*memory_svc.MemoryItem, error)
+	ListByOwner(ctx context.Context, owner memory_entity.Owner) (*memory_svc.OwnerList, error)
 }
 
 // servicePorts 按调用现取服务单例（bootstrap 之后才注册），测试注入 mock。

@@ -75,6 +75,8 @@ type Resources struct {
 	// Writers 按资源类型写入；某类缺席时该类的写请求 503。
 	Writers map[agentrewire.CtlKind]KindWriter
 	Cascade CascadeCounter
+	// Memory 是会话里 agent 的记忆读写；缺席时记忆请求 503。
+	Memory MemoryService
 }
 
 func (r Resources) ready() bool {
@@ -108,6 +110,10 @@ func (h *ctlHandler) serveResources(w http.ResponseWriter, r *http.Request, cred
 	var req agentrewire.CtlRequest
 	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if requestKind(&req) == agentrewire.CtlKind_CTL_KIND_MEMORY {
+		h.serveMemory(w, r, cred, &req)
 		return
 	}
 	switch op := req.GetOp().(type) {

@@ -20,6 +20,11 @@ func (s *memorySvc) Visible(ctx context.Context, agentID, projectID int64) (*Vis
 	if err != nil {
 		return nil, err
 	}
+	return visibleIn(ctx, owners)
+}
+
+// visibleIn 取 owners 各层的正常条目，按 owners 的顺序逐层按预算分好。
+func visibleIn(ctx context.Context, owners []memory_entity.Owner) (*VisibleMemory, error) {
 	rows, err := memory_repo.Memory().ListNormalByOwners(ctx, owners)
 	if err != nil {
 		return nil, err
