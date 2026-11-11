@@ -269,6 +269,28 @@ describe("ImageViewer", () => {
     expect(copyMocks.copyImageWithToast).not.toHaveBeenCalled();
   });
 
+  it("Given text left selected outside the viewer, When ⌘C is pressed inside it, Then the current image is copied instead of that text", () => {
+    const outside = document.createElement("p");
+    outside.textContent = "转录里先前选中的一段";
+    document.body.appendChild(outside);
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(outside);
+      window.getSelection()?.addRange(range);
+      openViewer({ startIndex: 1 });
+
+      const event = fireEvent.keyDown(screen.getByRole("dialog"), {
+        key: "c",
+        metaKey: true,
+      });
+
+      expect(event).toBe(false); // preventDefault：不让浏览器去复制外面那段文字
+      expect(copyMocks.copyImageWithToast).toHaveBeenCalledWith(IMAGES[1]);
+    } finally {
+      outside.remove();
+    }
+  });
+
   it("Given the copy button, When clicked, Then the current image is copied", () => {
     openViewer();
 

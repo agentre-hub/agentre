@@ -154,6 +154,23 @@ describe("copyImageWithToast", () => {
     expect(sonnerMocks.toast.success).not.toHaveBeenCalled();
   });
 
+  it("Given the browser rejects with its own message, When an image is copied, Then the raw error goes to the log, not the toast", async () => {
+    const raw = new DOMException("Document is not focused.", "NotAllowedError");
+    installImageClipboard(vi.fn().mockRejectedValue(raw));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await copyImageWithToast({ dataUrl: PNG_DATA_URL });
+
+      expect(warn).toHaveBeenCalledWith(expect.any(String), raw);
+      expect(JSON.stringify(sonnerMocks.toast.error.mock.calls)).not.toContain(
+        "Document is not focused",
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("Given no host writer but a browser clipboard, When an image is copied, Then navigator.clipboard.write receives an image/png ClipboardItem", async () => {
     const write = vi.fn().mockResolvedValue(undefined);
     installImageClipboard(write);

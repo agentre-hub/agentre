@@ -133,6 +133,8 @@ export async function copyImageWithToast(
     });
     return true;
   } catch (err) {
+    // 原话（浏览器 / 原生通道的错误）只进日志，可见文案只给分类句。
+    console.warn("[clipboard-image] copy image failed", err);
     toast.error(i18n.t("imageCopy.failed", { ns: AGENTRE_UI_NAMESPACE }), {
       description: copyFailureDescription(err, "imageCopy.insecureContext"),
       duration: COPY_TOAST_ERROR_DURATION_MS,

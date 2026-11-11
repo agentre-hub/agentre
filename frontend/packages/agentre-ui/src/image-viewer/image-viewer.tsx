@@ -48,6 +48,16 @@ function formatLabel(image: ViewerImage): string {
   return type.replace(/^image\//, "").toUpperCase();
 }
 
+/** 当前选区是否落在查看器里、且选中了文字。 */
+function hasSelectionInside(container: Element): boolean {
+  const selection = window.getSelection();
+  if (!selection || !selection.toString()) return false;
+  return (
+    container.contains(selection.anchorNode) ||
+    container.contains(selection.focusNode)
+  );
+}
+
 const barButton =
   "inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-xs text-media-foreground/80 transition-colors hover:bg-media-foreground/10 hover:text-media-foreground focus-visible:focus-outline";
 
@@ -141,8 +151,9 @@ function ViewerContent({
       !event.shiftKey &&
       event.key.toLowerCase() === "c"
     ) {
-      // 查看器里有选中的文字（比如文件名）时，⌘C 复制的是文字。
-      if (window.getSelection()?.toString()) return;
+      // 查看器里有选中的文字（比如文件名）时，⌘C 复制的是文字；打开前留在
+      // 查看器外面的选区（被遮罩挡住、看不见）不算，照样复制图片。
+      if (hasSelectionInside(event.currentTarget)) return;
       event.preventDefault();
       copy();
     }
