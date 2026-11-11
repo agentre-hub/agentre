@@ -56,10 +56,7 @@ function installImageClipboard(write: ReturnType<typeof vi.fn>) {
 describe("imageToPngBlob", () => {
   it("Given a PNG data URL, When converted, Then the bytes are passed through unchanged as image/png", async () => {
     const rasterize = vi.fn();
-    const blob = await imageToPngBlob(
-      { dataUrl: PNG_DATA_URL, mediaType: "image/png" },
-      { rasterize },
-    );
+    const blob = await imageToPngBlob({ dataUrl: PNG_DATA_URL }, { rasterize });
 
     expect(blob.type).toBe("image/png");
     expect(await bytesOf(blob)).toEqual(base64Bytes(PNG_BASE64));
@@ -73,7 +70,7 @@ describe("imageToPngBlob", () => {
     const rasterize = vi.fn().mockResolvedValue(png);
 
     const blob = await imageToPngBlob(
-      { dataUrl: JPEG_DATA_URL, mediaType: "image/jpeg" },
+      { dataUrl: JPEG_DATA_URL },
       { rasterize },
     );
 
@@ -113,7 +110,6 @@ describe("copyImageWithToast", () => {
 
     const copied = await copyImageWithToast({
       dataUrl: PNG_DATA_URL,
-      mediaType: "image/png",
     });
 
     expect(copied).toBe(true);

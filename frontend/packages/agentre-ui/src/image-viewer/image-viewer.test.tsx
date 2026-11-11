@@ -334,6 +334,37 @@ describe("ImageViewer", () => {
   });
 });
 
+describe("ImageViewer · 开着时组变小", () => {
+  it("Given the viewer is on the last image, When the host shrinks the group, Then it shows the last remaining image instead of an empty overlay", () => {
+    const { rerender } = render(
+      <ImageViewer
+        images={IMAGES}
+        startIndex={2}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("3 / 3")).toBeInTheDocument();
+
+    rerender(
+      <ImageViewer
+        images={IMAGES.slice(0, 1)}
+        startIndex={2}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("dialog")).toHaveAccessibleName(
+      "Image viewer: 登录页.png",
+    );
+    expect(screen.getByTestId("image-viewer-image")).toHaveAttribute(
+      "src",
+      IMAGES[0].dataUrl,
+    );
+  });
+});
+
 describe("查看器的对外契约", () => {
   it("从 barrel 出得去", async () => {
     const pkg = await import("../index");

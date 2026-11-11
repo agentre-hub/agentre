@@ -9,10 +9,12 @@ import {
   copyFailureDescription,
 } from "./clipboard-toast";
 
-/** 要复制的那张图：转录图片块和输入框附件都是 data URL。 */
+/**
+ * 要复制的那张图：转录图片块和输入框附件都是 data URL。格式只看 data URL 自己的头
+ * （`imageToPngBlob`），所以这里不收 mediaType。
+ */
 export type CopyableImage = {
   dataUrl: string;
-  mediaType?: string;
 };
 
 /**

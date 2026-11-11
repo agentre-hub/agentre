@@ -89,7 +89,6 @@ describe("installNativeClipboard", () => {
 
       await copyImageToClipboard({
         dataUrl: `data:image/png;base64,${PNG_BASE64}`,
-        mediaType: "image/png",
       });
 
       expect(CopyImageToClipboard).toHaveBeenCalledWith(PNG_BASE64);

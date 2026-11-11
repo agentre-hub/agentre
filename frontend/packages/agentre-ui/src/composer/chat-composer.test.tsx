@@ -1652,3 +1652,39 @@ describe("ChatComposer · 附件查看大图", () => {
     );
   });
 });
+
+describe("ChatComposer · 查看器开着时宿主换掉附件", () => {
+  const ONE = [
+    {
+      dataUrl: "data:image/png;base64,AAA",
+      mediaType: "image/png",
+      name: "a.png",
+    },
+  ];
+
+  it("Given the viewer is open on an attachment, When the host clears the draft, Then the viewer closes completely and does not reopen when attachments come back", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    render(<ChatComposer ref={handle} supportsImageInput onSubmit={vi.fn()} />);
+    act(() => handle.current?.restoreDraft("", ONE));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "View image: a.png" }),
+    );
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    act(() => handle.current?.clearDraft());
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      document.querySelector('[data-slot="image-viewer-overlay"]'),
+    ).toBeNull();
+
+    act(() =>
+      handle.current?.restoreDraft(
+        "",
+        ONE.map((i) => ({ ...i })),
+      ),
+    );
+    await screen.findByAltText("a.png");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});

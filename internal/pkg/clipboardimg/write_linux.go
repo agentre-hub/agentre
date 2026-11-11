@@ -40,8 +40,11 @@ static gboolean agentreSetImage(gpointer data) {
 		g_clear_error(&error);
 		return G_SOURCE_REMOVE;
 	}
-	if (!gdk_pixbuf_loader_write(loader, job->data, job->len, &error) ||
-	    !gdk_pixbuf_loader_close(loader, &error)) {
+	// close 写失败时也要调：没 close 就 unref，GdkPixbufLoader 会在 finalize 时报警告。
+	// 写失败时 close 的错误丢掉，留下写那一步的原因。
+	gboolean wrote = gdk_pixbuf_loader_write(loader, job->data, job->len, &error);
+	gboolean closed = gdk_pixbuf_loader_close(loader, wrote ? &error : NULL);
+	if (!wrote || !closed) {
 		agentreFinish(job, FALSE, error != NULL ? error->message : "gdk_pixbuf_loader failed");
 		g_clear_error(&error);
 		g_object_unref(loader);

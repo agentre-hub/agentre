@@ -265,8 +265,14 @@ export const ChatComposer = React.forwardRef<
   const formRef = React.useRef<HTMLFormElement>(null);
   const [empty, setEmpty] = React.useState(true);
   const [images, setImages] = React.useState<ChatImageAttachment[]>([]);
-  // 正在查看第几张附件（null = 查看器没开）。查看器开着时遮罩挡住输入框，附件列表不会变。
-  const [viewingIndex, setViewingIndex] = React.useState<number | null>(null);
+  // 从哪张附件点开的查看器（null = 没开）。按附件本身记而不是按下标：遮罩挡住了输入框，
+  // 但宿主仍可能换掉附件（clearDraft / restoreDraft / 换成不收图的 agent），那张附件
+  // 不在了查看器就跟着关，之后再加进来的附件也不会让它自己弹开。
+  const [viewing, setViewing] = React.useState<ChatImageAttachment | null>(
+    null,
+  );
+  const viewingIndex = viewing ? images.indexOf(viewing) : -1;
+  if (viewing && viewingIndex < 0) setViewing(null);
   // 关掉查看器后焦点回到点开它的那张缩略图。
   const viewerReturnFocusRef = React.useRef<HTMLElement | null>(null);
   const [imageError, setImageError] = React.useState("");
@@ -690,7 +696,7 @@ export const ChatComposer = React.forwardRef<
                   }
                   onClick={(event) => {
                     viewerReturnFocusRef.current = event.currentTarget;
-                    setViewingIndex(index);
+                    setViewing(image);
                   }}
                   className="block h-full w-full cursor-zoom-in focus-visible:focus-outline-inset"
                 >
@@ -722,10 +728,10 @@ export const ChatComposer = React.forwardRef<
         ) : null}
         <ImageViewer
           images={images}
-          startIndex={viewingIndex ?? 0}
-          open={viewingIndex !== null}
+          startIndex={Math.max(viewingIndex, 0)}
+          open={viewingIndex >= 0}
           onOpenChange={(open) => {
-            if (!open) setViewingIndex(null);
+            if (!open) setViewing(null);
           }}
           returnFocusTo={viewerReturnFocusRef}
         />

@@ -110,9 +110,10 @@ function ViewerContent({
   returnFocusTo?: React.RefObject<HTMLElement | null>;
 }) {
   const { t } = useUiTranslation();
-  const [index, setIndex] = React.useState(() =>
-    Math.min(Math.max(startIndex, 0), Math.max(images.length - 1, 0)),
-  );
+  const [selected, setSelected] = React.useState(() => Math.max(startIndex, 0));
+  // 开着时宿主可能缩小这组图（输入框的附件被换掉）：停在仍存在的最后一张，
+  // 而不是指向空位、只剩一层没有内容也关不掉的遮罩。
+  const index = Math.min(selected, Math.max(images.length - 1, 0));
   const [actual, setActual] = React.useState(false);
   const [loaded, setLoaded] = React.useState<Loaded | null>(null);
   const [failed, setFailed] = React.useState(false);
@@ -125,7 +126,7 @@ function ViewerContent({
 
   const go = (next: number) => {
     if (next < 0 || next >= images.length || next === index) return;
-    setIndex(next);
+    setSelected(next);
     setActual(false);
     setLoaded(null);
     setFailed(false);
