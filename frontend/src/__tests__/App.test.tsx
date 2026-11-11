@@ -808,11 +808,12 @@ describe("App", () => {
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label"));
 
-    expect(labels.slice(0, 4)).toEqual([
+    expect(labels.slice(0, 5)).toEqual([
       "Chat",
       "Board",
       "Organization",
       "Hooks",
+      "Memory",
     ]);
   });
 

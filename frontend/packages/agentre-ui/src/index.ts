@@ -780,3 +780,27 @@ export {
   AgentredInstallSection,
 } from "./onboarding/agentred-install-section";
 export { AgentredServiceSection } from "./onboarding/agentred-service-section";
+
+// ── Agent 记忆 ────────────────────────────────────────────────────────
+// 记忆页的行、分组、预算条与就地编辑表单；对话里的记忆卡片复用同一份编辑表单。
+// 写入经 props 回到宿主（桌面端接 Wails、控制台接 HTTP），包不认识任何传输。
+export { MemoryBudgetMeter } from "./memory/memory-budget-meter";
+export type { MemoryBudgetMeterProps } from "./memory/memory-budget-meter";
+export { MemoryEditForm } from "./memory/memory-edit-form";
+export type { MemoryEditFormProps } from "./memory/memory-edit-form";
+export { MemoryEntryGroups } from "./memory/memory-entry-groups";
+export { MemoryRow } from "./memory/memory-row";
+export { formatMemoryDate } from "./memory/format";
+export type {
+  MemoryCreatorView,
+  MemoryDraft,
+  MemoryEntryGroupsProps,
+  MemoryEntryView,
+  MemoryInheritedLayer,
+  MemoryMoveTarget,
+  MemoryOwnerKind,
+  MemoryOwnerRef,
+  MemoryRowAction,
+  MemoryRowProps,
+  MemoryWriteResult,
+} from "./memory/types";

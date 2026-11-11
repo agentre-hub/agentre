@@ -38,6 +38,7 @@ const NAV_PATHS: Record<string, string> = {
   "nav.issues": "/issues",
   "nav.org": "/org",
   "nav.hooks": "/hooks",
+  "nav.memory": "/memory",
 };
 
 // ⌘, 不是导航：设置是浮在当前页面上的对话框，这一下开、再一下关。

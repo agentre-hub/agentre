@@ -1,0 +1,69 @@
+{
+  "memoryPage": {
+    "nav": "Memory",
+    "shortcut": {
+      "label": "Switch to Memory",
+      "hint": "What agents remember across sessions"
+    },
+    "sidebar": {
+      "label": "Memory owners",
+      "search": "Search all memories",
+      "recent": "Recent changes",
+      "global": "Global",
+      "departments": "Departments",
+      "agents": "Agents",
+      "projects": "Projects"
+    },
+    "owner": {
+      "unknown": "Unknown owner"
+    },
+    "header": {
+      "memoryEnabled": "Memory enabled",
+      "memoryDisabledHint": "Off: new sessions of this agent carry no memory, and it won't write any."
+    },
+    "groups": {
+      "own": "Own",
+      "layer": "This layer"
+    },
+    "add": {
+      "placeholder": "Add a memory, press Enter to save",
+      "failed": "Not added. Your text is still here; try again.",
+      "failedWithReason": "Not added: {{reason}}",
+      "existed": "This layer already has the same memory."
+    },
+    "creator": {
+      "agentSession": "{{agent}}'s session"
+    },
+    "empty": {
+      "title": "No memories yet",
+      "description": "Write one above, or ask an agent to remember something in a chat."
+    },
+    "loading": "Loading memories",
+    "loadFailed": "Memories didn't load.",
+    "pageLoadFailed": "The memory page didn't load.",
+    "toggleFailed": "Couldn't change the memory switch.",
+    "search": {
+      "results": "Search results",
+      "noResults": "No memory matches “{{query}}”."
+    },
+    "recent": {
+      "title": "Recent changes",
+      "subtitle": "Last 14 days · all owners",
+      "empty": "Nothing changed in the last 14 days.",
+      "you": "You",
+      "unknownAgent": "An agent",
+      "restorePrevious": "Restore previous version",
+      "unarchive": "Restore",
+      "failed": "Didn't go through. Try again.",
+      "failedWithReason": "Didn't go through: {{reason}}",
+      "action": {
+        "created": "{{actor}} added",
+        "edited": "{{actor}} edited",
+        "archived": "{{actor}} archived",
+        "unarchived": "{{actor}} restored",
+        "restored": "{{actor}} restored the previous version of",
+        "moved": "{{actor}} moved"
+      }
+    }
+  }
+}

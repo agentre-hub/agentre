@@ -48,6 +48,12 @@ const NAV_REGISTRY: ShortcutDef[] = [
     "Y",
   ),
   navDef(
+    "nav.memory",
+    i18n.t("memoryPage.shortcut.label"),
+    i18n.t("memoryPage.shortcut.hint"),
+    "U",
+  ),
+  navDef(
     "nav.settings",
     i18n.t("shortcuts.registry.nav.settings.label"),
     i18n.t("shortcuts.registry.nav.settings.hint"),

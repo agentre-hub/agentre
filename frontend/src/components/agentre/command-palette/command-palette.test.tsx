@@ -1486,12 +1486,13 @@ describe("CommandPalette — navigation source (BDD)", () => {
 
     // nav 分组渲染（heading 与 Footer 的 "Navigate" 提示共用同一文案 → getAllByText）
     expect(screen.getAllByText("Navigate").length).toBeGreaterThanOrEqual(1);
-    // 5 个导航目的地都在
+    // 6 个导航目的地都在
     for (const label of [
       "Chat",
       "Board",
       "Organization",
       "Hooks",
+      "Memory",
       "Settings",
     ]) {
       expect(screen.getByText(label)).toBeTruthy();

@@ -103,6 +103,7 @@ const NAV_BINDING_IDS: Record<string, string> = {
   "/issues": "nav.issues",
   "/org": "nav.org",
   "/hooks": "nav.hooks",
+  "/memory": "nav.memory",
 };
 
 // AppLayout 挂在 ShortcutsProvider 外层，读不到上下文；这个小包装在 Provider 里面，
@@ -123,6 +124,11 @@ function RailButton({
 const HooksPage = lazyView(() =>
   import("@/components/agentre/hooks-page").then((m) => ({
     default: m.HooksPage,
+  })),
+);
+const MemoryPage = lazyView(() =>
+  import("@/components/agentre/memory-page").then((m) => ({
+    default: m.MemoryPage,
   })),
 );
 const IssuesPage = lazyView(() =>
@@ -431,6 +437,7 @@ function App() {
             <Route path="/projects" element={<RedirectToChat />} />
             <Route path="/issues" element={<IssuesPage />} />
             <Route path="/hooks" element={<HooksPage />} />
+            <Route path="/memory" element={<MemoryPage />} />
             <Route path="/org" element={<OrgChartPage />} />
             <Route path="*" element={<Navigate to="/chat" replace />} />
           </Route>

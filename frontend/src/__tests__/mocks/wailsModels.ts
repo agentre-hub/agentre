@@ -77,3 +77,7 @@ export const hook_svc = {
   CreateHookRequest: ModelClass,
   UpdateHookRequest: ModelClass,
 };
+
+export const app = {
+  MemoryCreateRequest: ModelClass,
+};
