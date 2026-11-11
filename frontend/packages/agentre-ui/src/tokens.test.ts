@@ -90,6 +90,8 @@ const THEME_INVARIANT = new Set([
   "--status-waiting-foreground",
   // 身份色块上的字形。两主题都是白字，深色靠压暗底色读得出（见下方守卫）。
   "--agent-foreground",
+  // 图片查看器遮罩上的字。遮罩两主题都是深色（见文件末的守卫）。
+  "--media-foreground",
 ]);
 
 /**
@@ -1095,5 +1097,36 @@ describe("@mention chip 不许撑破它所在的列", () => {
 
   it("不是 flex 容器 —— 匿名 flex item 出不了省略号", () => {
     expect(chip).not.toMatch(/display:\s*inline-flex/);
+  });
+});
+
+/**
+ * 图片查看器（spec 2026-11-06-image-viewer-and-copy 决策 2）：浅色主题下也是深色遮罩，
+ * 截图的边缘在深底上才看得清。所以这两个 token 只在 :root 声明一次，两主题同值。
+ */
+describe("图片查看器的深色遮罩与亮前景", () => {
+  it("两主题同值：只在 :root 声明，.dark 不覆盖", () => {
+    expect(root["--media-scrim"]).toBeDefined();
+    expect(root["--media-foreground"]).toBeDefined();
+    expect(dark["--media-scrim"]).toBeUndefined();
+    expect(dark["--media-foreground"]).toBeUndefined();
+  });
+
+  it("遮罩是近乎不透明的中性黑", () => {
+    const m = /^rgba\(0, 0, 0, (0?\.\d+)\)$/.exec(root["--media-scrim"] ?? "");
+    expect(m, `--media-scrim ${root["--media-scrim"]}`).not.toBeNull();
+    expect(Number(m![1])).toBeGreaterThanOrEqual(0.85);
+  });
+
+  it("前景字在纯黑上达正文门槛", () => {
+    expect(isHex(root["--media-foreground"])).toBe(true);
+    expect(
+      contrast(root["--media-foreground"], "#000000"),
+    ).toBeGreaterThanOrEqual(TEXT_MIN);
+  });
+
+  it("有 --color-* 映射", () => {
+    expect(theme["--color-media-scrim"]).toBe("var(--media-scrim)");
+    expect(theme["--color-media-foreground"]).toBe("var(--media-foreground)");
   });
 });

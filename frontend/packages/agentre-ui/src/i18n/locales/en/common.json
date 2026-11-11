@@ -66,6 +66,21 @@
     "failed": "Failed to copy image",
     "insecureContext": "This page cannot copy images. Open it over HTTPS to copy images."
   },
+  "imageViewer": {
+    "title": "Image viewer",
+    "titleWithName": "Image viewer: {{name}}",
+    "copy": "Copy",
+    "actualSize": "Actual size",
+    "fitToWindow": "Fit to window",
+    "close": "Close",
+    "previous": "Previous image",
+    "next": "Next image",
+    "decodeFailed": "Image cannot be displayed",
+    "hintClose": "Esc close",
+    "hintSwitch": "← → switch",
+    "hintCopy": "{{mod}}C copy",
+    "hintToggle": "Click image to toggle actual size"
+  },
   "theme": {
     "dark": "Dark",
     "darkMode": "Dark mode",

@@ -121,6 +121,11 @@ export type {
   ClipboardImageWriter,
   CopyableImage,
 } from "./lib/clipboard-image";
+export { ImageViewer } from "./image-viewer/image-viewer";
+export type {
+  ImageViewerProps,
+  ViewerImage,
+} from "./image-viewer/image-viewer";
 export { AgentAvatar, getAgentInitials } from "./ui/agent-avatar";
 export { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 export { Badge } from "./ui/badge";
