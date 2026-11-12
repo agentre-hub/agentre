@@ -257,7 +257,8 @@
       "project": "项目",
       "provider": "LLM 提供方",
       "model": "模型",
-      "backend": "后端"
+      "backend": "后端",
+      "memory": "记忆"
     },
     "secretUpdated": "已更新（值不显示）",
     "cascade": "--cascade：连同 {{departments}} 个子部门、{{agents}} 个 Agent 一起删除"

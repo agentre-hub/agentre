@@ -39,6 +39,9 @@ type MemoryRepo interface {
 	// ListByOwners 若干层的全部条目（含已归档）；owners 为空时不查库。归属被删时用它先读出
 	// 要落墓碑的行（记忆是硬删，删后就读不到了）。
 	ListByOwners(ctx context.Context, owners []memory_entity.Owner) ([]*memory_entity.Memory, error)
+	// CountByOwners 若干层的全部条目数（含已归档）：删除归属时会一并删掉的条数。owners 为空时
+	// 不查库，返回 0。
+	CountByOwners(ctx context.Context, owners []memory_entity.Owner) (int64, error)
 	// DeleteByOwners 彻底删掉若干层的全部条目；owners 为空时什么都不删。
 	DeleteByOwners(ctx context.Context, owners []memory_entity.Owner) error
 	// ReassignOwner 把 from 层的全部条目（含已归档）改挂到同类的 to 层（项目合并）。
@@ -163,6 +166,16 @@ func (r *memoryRepo) ListByOwners(ctx context.Context, owners []memory_entity.Ow
 	var rows []*memory_entity.Memory
 	err := db.Ctx(ctx).Where(clause, args...).Order(budgetOrder).Find(&rows).Error
 	return rows, err
+}
+
+func (r *memoryRepo) CountByOwners(ctx context.Context, owners []memory_entity.Owner) (int64, error) {
+	if len(owners) == 0 {
+		return 0, nil
+	}
+	clause, args := ownersClause(owners)
+	var n int64
+	err := db.Ctx(ctx).Model(&memory_entity.Memory{}).Where(clause, args...).Count(&n).Error
+	return n, err
 }
 
 func (r *memoryRepo) DeleteByOwners(ctx context.Context, owners []memory_entity.Owner) error {

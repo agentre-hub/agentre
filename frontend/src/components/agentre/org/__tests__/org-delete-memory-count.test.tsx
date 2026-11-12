@@ -7,21 +7,45 @@ import { OrgDetailDepartment } from "../org-detail-department";
 import type { OrgAgent, OrgDepartment } from "../types";
 
 // 三处删除确认里的第一处和第二处：agent 与部门。确认框要写明会一并删掉多少条记忆，
-// 数取自 MemoryCountsByOwner；部门按所选策略汇总（只挪走子节点 vs 整棵子树）。
+// 数取自 MemoryCountOwned（名下全部条目，含已归档——级联删的就是这么多）；部门按所选
+// 策略汇总（只挪走子节点 vs 整棵子树）。MemoryCountsByOwner 只数正常条目，是左列与
+// 「记忆 N 条」入口的口径，确认框不能用它。
 
+const countOwnedMock = vi.fn();
 const countsMock = vi.fn();
 
-function mockCounts(rows: { kind: string; id: number; count: number }[]) {
+type OwnerRow = { kind: string; id: number; count: number };
+
+/** totals 是各归属名下的全部条数（含已归档）；正常条目数一律少 1，用来识破口径用错。 */
+function mockCounts(totals: OwnerRow[]) {
+  const key = (o: { kind: string; id: number }) => `${o.kind}:${o.id}`;
+  const byKey = new Map(totals.map((r) => [key(r), r.count]));
+  countOwnedMock.mockImplementation(
+    async (owners: { kind: string; id: number }[]) =>
+      owners.reduce((sum, o) => sum + (byKey.get(key(o)) ?? 0), 0),
+  );
   countsMock.mockResolvedValue(
-    rows.map((r) => ({ owner: { kind: r.kind, id: r.id }, count: r.count })),
+    totals.map((r) => ({
+      owner: { kind: r.kind, id: r.id },
+      count: r.count - 1,
+    })),
   );
 }
 
+function ownersOfLastCall() {
+  const owners = countOwnedMock.mock.lastCall?.[0] as
+    | { kind: string; id: number }[]
+    | undefined;
+  return (owners ?? []).map((o) => `${o.kind}:${o.id}`).sort();
+}
+
 beforeEach(() => {
+  countOwnedMock.mockReset();
   countsMock.mockReset();
   window.go = {
     app: {
       App: {
+        MemoryCountOwned: countOwnedMock,
         MemoryCountsByOwner: countsMock,
         GetBackendCapabilities: vi.fn().mockResolvedValue({ capabilities: [] }),
       },
@@ -128,13 +152,14 @@ describe("delete agent confirmation", () => {
     expect(
       await screen.findByText("Its 5 memories are deleted too."),
     ).toBeInTheDocument();
+    expect(ownersOfLastCall()).toEqual(["agent:7"]);
   });
 
   it("says nothing about memories when the count cannot be loaded", async () => {
-    countsMock.mockRejectedValue(new Error("boom"));
+    countOwnedMock.mockRejectedValue(new Error("boom"));
     renderAgent();
     await userEvent.click(screen.getByRole("button", { name: "Delete Agent" }));
-    await waitFor(() => expect(countsMock).toHaveBeenCalled());
+    await waitFor(() => expect(countOwnedMock).toHaveBeenCalled());
     expect(screen.queryByText(/memor/i)).toBeNull();
   });
 });
@@ -158,6 +183,7 @@ describe("delete department confirmation", () => {
     expect(
       await screen.findByText("Its 8 memories are deleted too."),
     ).toBeInTheDocument();
+    expect(ownersOfLastCall()).toEqual(["department:3"]);
   });
 
   it("with the cascade strategy adds every sub-department and agent removed with it", async () => {
@@ -173,5 +199,11 @@ describe("delete department confirmation", () => {
     expect(
       await screen.findByText("Its 16 memories are deleted too."),
     ).toBeInTheDocument();
+    expect(ownersOfLastCall()).toEqual([
+      "agent:7",
+      "agent:8",
+      "department:3",
+      "department:4",
+    ]);
   });
 });

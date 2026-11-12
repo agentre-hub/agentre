@@ -19,7 +19,7 @@ import {
 import { classifyAppError } from "@/lib/app-error";
 
 import {
-  MemoryCountsByOwner,
+  MemoryCountOwned,
   ProjectDelete,
   ProjectListTree,
   ProjectLocationList,
@@ -124,10 +124,9 @@ export function DeleteProjectDialog({
   }, [projectID]);
 
   /*
-    子树（含它自己）名下会一并删掉的记忆条数。
+    子树（含它自己）名下会一并删掉的记忆条数：全部条目，含已归档（级联删的就是这么多）。
 
     读不上来时不传：包因此不提记忆，而不是说一句「没有记忆」去冒充读到的结果。
-    计数口径沿用 MemoryCountsByOwner（只数正常条目）。
   */
   React.useEffect(() => {
     if (projectID <= 0) {
@@ -135,18 +134,17 @@ export function DeleteProjectDialog({
       return;
     }
     let cancelled = false;
-    void Promise.all([
-      ProjectListTree() as Promise<ProjectTreeView[]>,
-      MemoryCountsByOwner(),
-    ])
-      .then(([tree, counts]) => {
-        if (cancelled) return;
-        const ids = subtreeIds(tree ?? [], projectID);
-        setMemoryCount(
-          (counts ?? [])
-            .filter((c) => c.owner.kind === "project" && ids.has(c.owner.id))
-            .reduce((sum, c) => sum + c.count, 0),
-        );
+    void (ProjectListTree() as Promise<ProjectTreeView[]>)
+      .then((tree) =>
+        MemoryCountOwned(
+          [...subtreeIds(tree ?? [], projectID)].map((id) => ({
+            kind: "project",
+            id,
+          })),
+        ),
+      )
+      .then((total) => {
+        if (!cancelled) setMemoryCount(total ?? 0);
       })
       .catch(() => {
         if (!cancelled) setMemoryCount(undefined);

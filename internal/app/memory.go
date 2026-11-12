@@ -107,6 +107,13 @@ func (a *App) MemoryCountsByOwner() ([]*memory_svc.OwnerCount, error) {
 	return res, codedError(err)
 }
 
+// MemoryCountOwned 这些归属名下会随归属一并删掉的记忆条数（含已归档）：agent、部门、项目
+// 的删除确认用它。
+func (a *App) MemoryCountOwned(owners []memory_entity.Owner) (int64, error) {
+	res, err := memory_svc.Memory().CountOwned(a.ctx, owners)
+	return res, codedError(err)
+}
+
 // MemoryRecentChanges 近 14 天的最近变更。
 func (a *App) MemoryRecentChanges() ([]*memory_svc.MemoryItem, error) {
 	res, err := memory_svc.Memory().RecentChanges(a.ctx)

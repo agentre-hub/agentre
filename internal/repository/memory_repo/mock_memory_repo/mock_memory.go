@@ -42,6 +42,21 @@ func (m *MockMemoryRepo) EXPECT() *MockMemoryRepoMockRecorder {
 	return m.recorder
 }
 
+// CountByOwners mocks base method.
+func (m *MockMemoryRepo) CountByOwners(ctx context.Context, owners []memory_entity.Owner) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountByOwners", ctx, owners)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountByOwners indicates an expected call of CountByOwners.
+func (mr *MockMemoryRepoMockRecorder) CountByOwners(ctx, owners any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByOwners", reflect.TypeOf((*MockMemoryRepo)(nil).CountByOwners), ctx, owners)
+}
+
 // CountNormalByOwner mocks base method.
 func (m *MockMemoryRepo) CountNormalByOwner(ctx context.Context) ([]*memory_repo.OwnerCount, error) {
 	m.ctrl.T.Helper()

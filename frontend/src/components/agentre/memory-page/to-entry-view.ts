@@ -37,6 +37,11 @@ export function toEntryView(
           }
         : { kind: "user" },
     createdAt: item.createtime,
-    updatedAt: item.updatetime,
+    // 最近修改 = 最近一次变更（置顶、同步落地也会刷新 updatetime，那不是修改）。
+    updatedAt: item.lastChange.at,
+    lastChange: {
+      action: item.lastChange.action,
+      actor: item.lastChange.actor.kind === "ai" ? "ai" : "user",
+    },
   };
 }

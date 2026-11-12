@@ -35,6 +35,22 @@ export type MemoryEntryView = {
   createdAt: number;
   /** 毫秒 epoch：最近修改。 */
   updatedAt: number;
+  /** 最近一次变更做了什么、是谁做的；宿主拿不到时不给。 */
+  lastChange?: MemoryChangeView;
+};
+
+/** 变更动作，与 `memory_entity.ChangeAction` 同值。置顶不算变更。 */
+export type MemoryChangeAction =
+  | "created"
+  | "edited"
+  | "archived"
+  | "unarchived"
+  | "restored"
+  | "moved";
+
+export type MemoryChangeView = {
+  action: MemoryChangeAction | (string & {});
+  actor: "user" | "ai";
 };
 
 /** 编辑表单交回的内容。 */

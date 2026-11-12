@@ -315,16 +315,170 @@ func TestMemory_GivenGetThenFullEntryOrNotFoundOutsideTheSession(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// ---- 调用方 ----
+// ---- 非会话调用方：沿用现有规则（spec「Agent 读写记忆」前提） ----
+//
+// 握手 token：终端里的人直接执行，外部调用方在桌面端审批；两者都以用户身份写，看得到
+// 所有层。层没有会话可以推断，必须写明。
 
-func TestMemory_GivenNonSessionCallerThenForbiddenAndNothingRead(t *testing.T) {
-	r := newMemoryRig(t) // mock 上没有任何期望：碰一下记忆服务就判红
-	for _, body := range []string{
-		listBody(t, agentrewire.CtlKind_CTL_KIND_MEMORY),
-		memoryWrite(t, agentrewire.CtlOp_CTL_OP_CREATE, 0, &agentrewire.CtlMemory{Summary: "x"}, "summary"),
+func callerWrite(t *testing.T, caller agentrewire.CtlCaller, op agentrewire.CtlOp, id int64, m *agentrewire.CtlMemory, fields ...string) string {
+	t.Helper()
+	return writeBody(t, &agentrewire.CtlWriteRequest{
+		Op: op, Kind: agentrewire.CtlKind_CTL_KIND_MEMORY, Id: id, Caller: caller,
+		Resource: &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Memory{Memory: m}}, Fields: fields,
+		Command: "agrctl create memory --summary x --layer global",
+	})
+}
+
+// answerWhenQueued 扮演桌面弹窗：等第一条请求入队后作答。
+func (r *memoryRig) answerWhenQueued(allow bool) {
+	for {
+		r.desktop.mu.Lock()
+		if len(r.desktop.queued) > 0 {
+			id := r.desktop.queued[0].RequestID
+			r.desktop.mu.Unlock()
+			_ = r.desktop.Answer(id, allow)
+			return
+		}
+		r.desktop.mu.Unlock()
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestMemory_GivenHumanOutsideASessionThenListsEveryLayer(t *testing.T) {
+	r := newMemoryRig(t)
+	r.mem.EXPECT().AllLayers(gomock.Any()).Return(visibleFixture(), nil)
+	resp := decodeCtlResponse(t, postResources(t, r.h, testToken, listBody(t, agentrewire.CtlKind_CTL_KIND_MEMORY)))
+	ids := make([]int64, 0, len(resp.GetList().GetItems()))
+	for _, it := range resp.GetList().GetItems() {
+		ids = append(ids, it.GetMemory().GetId())
+	}
+	assert.Equal(t, []int64{58, 61, 77}, ids)
+}
+
+func TestMemory_GivenHumanCreateOutsideASessionThenWrittenDirectlyAsTheUser(t *testing.T) {
+	r := newMemoryRig(t)
+	r.mem.EXPECT().Create(gomock.Any(), &memory_svc.CreateRequest{Owner: memGlobal, Summary: "用 pnpm", Actor: memory_entity.UserActor()}).
+		Return(&memory_svc.CreateResult{Item: memItem(83, memGlobal, "用 pnpm", "")}, nil)
+	r.mem.EXPECT().ListByOwner(gomock.Any(), memGlobal).Return(usage(memGlobal, 6), nil)
+	status, body, pending := realPost(t, r.h, testToken, callerWrite(t, agentrewire.CtlCaller_CTL_CALLER_HUMAN,
+		agentrewire.CtlOp_CTL_OP_CREATE, 0, &agentrewire.CtlMemory{Layer: "global", Summary: "用 pnpm"}, "summary", "layer"))
+	resp := decodeWrite(t, status, body)
+	r.assertNoApproval(t, pending)
+	assert.Equal(t, int64(83), resp.GetId())
+	assert.Equal(t, "global", resp.GetResource().GetMemory().GetLayer())
+}
+
+func TestMemory_GivenHumanCreateOfANamedAgentOrProjectThenThatOwner(t *testing.T) {
+	for layer, want := range map[string]memory_entity.Owner{"agent": {Kind: memory_entity.OwnerAgent, ID: 12}, "project": {Kind: memory_entity.OwnerProject, ID: 3}} {
+		t.Run(layer, func(t *testing.T) {
+			r := newMemoryRig(t)
+			r.mem.EXPECT().Create(gomock.Any(), &memory_svc.CreateRequest{Owner: want, Summary: "x", Actor: memory_entity.UserActor()}).
+				Return(&memory_svc.CreateResult{Item: memItem(91, want, "x", "")}, nil)
+			r.mem.EXPECT().ListByOwner(gomock.Any(), want).Return(usage(want, 1), nil)
+			rec := postResources(t, r.h, testToken, callerWrite(t, agentrewire.CtlCaller_CTL_CALLER_HUMAN, agentrewire.CtlOp_CTL_OP_CREATE, 0,
+				&agentrewire.CtlMemory{Layer: layer, OwnerId: want.ID, Summary: "x"}, "summary", "layer", "ownerId"))
+			assert.Equal(t, want.ID, decodeWrite(t, rec.Code, rec.Body.Bytes()).GetResource().GetMemory().GetOwnerId())
+		})
+	}
+}
+
+func TestMemory_GivenHumanCreateWithoutANamedLayerOutsideASessionThenBadRequest(t *testing.T) {
+	cases := map[string]*agentrewire.CtlMemory{
+		"no layer":                {Summary: "x"},
+		"agent layer, no agent":   {Layer: "agent", Summary: "x"},
+		"department, none named":  {Layer: "department", Summary: "x"},
+		"project layer, no named": {Layer: "project", Summary: "x"},
+	}
+	for name, doc := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := newMemoryRig(t) // 不该碰记忆服务
+			fields := []string{"summary"}
+			if doc.GetLayer() != "" {
+				fields = append(fields, "layer")
+			}
+			rec := postResources(t, r.h, testToken, callerWrite(t, agentrewire.CtlCaller_CTL_CALLER_HUMAN, agentrewire.CtlOp_CTL_OP_CREATE, 0, doc, fields...))
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), "outside an Agentre session")
+		})
+	}
+}
+
+func TestMemory_GivenHumanDeleteOutsideASessionThenArchivedAsTheUser(t *testing.T) {
+	r := newMemoryRig(t)
+	archived := memItem(58, memAgent, "提交前先跑 lint", "")
+	archived.State = memory_entity.StateArchived
+	r.mem.EXPECT().AllLayers(gomock.Any()).Return(visibleFixture(), nil)
+	r.mem.EXPECT().Archive(gomock.Any(), int64(58), memory_entity.UserActor()).Return(archived, nil)
+	r.mem.EXPECT().ListByOwner(gomock.Any(), memAgent).Return(usage(memAgent, 6), nil)
+	status, body, pending := realPost(t, r.h, testToken, writeBody(t, &agentrewire.CtlWriteRequest{
+		Op: agentrewire.CtlOp_CTL_OP_DELETE, Kind: agentrewire.CtlKind_CTL_KIND_MEMORY, Id: 58, Caller: agentrewire.CtlCaller_CTL_CALLER_HUMAN,
+	}))
+	resp := decodeWrite(t, status, body)
+	r.assertNoApproval(t, pending)
+	assert.Equal(t, int64(58), resp.GetId())
+}
+
+func TestMemory_GivenExternalCallerWhenDesktopApprovesThenWrittenAsTheUser(t *testing.T) {
+	r := newMemoryRig(t)
+	r.mem.EXPECT().AllLayers(gomock.Any()).Return(visibleFixture(), nil).AnyTimes()
+	r.mem.EXPECT().Update(gomock.Any(), &memory_svc.UpdateRequest{ID: 77, Summary: "联调机在内网", Detail: "192.168.8.141", Actor: memory_entity.UserActor()}).
+		Return(memItem(77, memProject, "联调机在内网", "192.168.8.141"), nil)
+	r.mem.EXPECT().ListByOwner(gomock.Any(), memProject).Return(usage(memProject, 6), nil)
+	go r.answerWhenQueued(true)
+	status, body, pending := realPost(t, r.h, testToken, callerWrite(t, agentrewire.CtlCaller_CTL_CALLER_EXTERNAL,
+		agentrewire.CtlOp_CTL_OP_UPDATE, 77, &agentrewire.CtlMemory{Detail: "192.168.8.141"}, "detail"))
+	resp := decodeWrite(t, status, body)
+	assert.Equal(t, int64(77), resp.GetId())
+	assert.Equal(t, []string{"desktop"}, pending)
+	_, begun, _ := r.sessions.snapshot()
+	assert.Empty(t, begun, "外部调用方不在会话里出卡")
+	require.Len(t, r.desktop.queued, 1)
+	in := r.desktop.queued[0].Input
+	require.Len(t, in.Changes, 1)
+	ch := in.Changes[0]
+	assert.Equal(t, "update", ch.Op)
+	assert.Equal(t, "memory", ch.Kind)
+	assert.Equal(t, int64(77), ch.ID)
+	assert.Equal(t, "联调机在内网", ch.Name)
+	require.Len(t, ch.Fields, 1)
+	assert.Equal(t, "detail", ch.Fields[0].Field)
+	assert.Nil(t, ch.Fields[0].Before)
+	assert.Equal(t, "192.168.8.141", *ch.Fields[0].After)
+}
+
+func TestMemory_GivenExternalCallerWhenDesktopRejectsThenNothingWritten(t *testing.T) {
+	r := newMemoryRig(t) // 没有 Create 期望：写了就判红
+	go r.answerWhenQueued(false)
+	status, body, pending := realPost(t, r.h, testToken, callerWrite(t, agentrewire.CtlCaller_CTL_CALLER_EXTERNAL,
+		agentrewire.CtlOp_CTL_OP_CREATE, 0, &agentrewire.CtlMemory{Layer: "global", Summary: "x"}, "summary", "layer"))
+	assert.Equal(t, http.StatusForbidden, status, string(body))
+	assert.Equal(t, []string{"desktop"}, pending)
+	require.Len(t, r.desktop.queued, 1)
+	assert.Equal(t, "create", r.desktop.queued[0].Input.Changes[0].Op)
+	assert.Equal(t, "x", r.desktop.queued[0].Input.Changes[0].Name)
+}
+
+func TestMemory_GivenExternalCallerWithAnInvalidRequestThenRefusedBeforeAnyApproval(t *testing.T) {
+	for name, body := range map[string]func(t *testing.T) string{
+		"create without a layer": func(t *testing.T) string {
+			return callerWrite(t, agentrewire.CtlCaller_CTL_CALLER_EXTERNAL, agentrewire.CtlOp_CTL_OP_CREATE, 0,
+				&agentrewire.CtlMemory{Summary: "x"}, "summary")
+		},
+		"update with nothing": func(t *testing.T) string {
+			return callerWrite(t, agentrewire.CtlCaller_CTL_CALLER_EXTERNAL, agentrewire.CtlOp_CTL_OP_UPDATE, 58, &agentrewire.CtlMemory{})
+		},
+		"update of a memory that does not exist": func(t *testing.T) string {
+			return callerWrite(t, agentrewire.CtlCaller_CTL_CALLER_EXTERNAL, agentrewire.CtlOp_CTL_OP_UPDATE, 500,
+				&agentrewire.CtlMemory{Summary: "x"}, "summary")
+		},
 	} {
-		rec := postResources(t, r.h, testToken, body)
-		assert.Equal(t, http.StatusForbidden, rec.Code)
-		assert.Contains(t, rec.Body.String(), "Agentre session")
+		t.Run(name, func(t *testing.T) {
+			r := newMemoryRig(t)
+			r.mem.EXPECT().AllLayers(gomock.Any()).Return(visibleFixture(), nil).AnyTimes()
+			status, _, pending := realPost(t, r.h, testToken, body(t))
+			assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, status)
+			assert.Empty(t, pending, "不该挂上审批")
+			assert.Empty(t, r.desktop.queued)
+		})
 	}
 }

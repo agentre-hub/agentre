@@ -86,10 +86,39 @@ func TestMemory_GivenNamedUpperDepartmentThenDepartmentLayerWithThatID(t *testin
 	}
 }
 
+// 会话以外（终端里的人、外部调用方）没有可推断的层：--agent / --project 指明是哪一个，与
+// --department 同一写法。
+func TestMemory_GivenNamedAgentOrProjectThenThatLayerWithItsID(t *testing.T) {
+	for name, c := range map[string]struct {
+		args    []string
+		layer   string
+		ownerID int64
+	}{
+		"--agent":   {[]string{"--agent", "reviewer"}, "agent", 12},
+		"--project": {[]string{"--project", "agentre"}, "project", 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, env := memorySession(t)
+			f.writeResp = memoryWritten(92, c.layer, c.ownerID, false, 0)
+			r := runWith(append([]string{"create", "memory", "--summary", "x"}, c.args...), env, term{})
+			wantCode(t, r, 0)
+			w := f.onlyWrite(t)
+			if m := w.GetResource().GetMemory(); m.GetLayer() != c.layer || m.GetOwnerId() != c.ownerID {
+				t.Fatalf("memory doc = %v", m)
+			}
+			if !slices.Contains(w.GetFields(), "layer") || !slices.Contains(w.GetFields(), "ownerId") {
+				t.Fatalf("fields = %v", w.GetFields())
+			}
+		})
+	}
+}
+
 func TestMemory_GivenBadLayerFlagsThenUsageErrorAndNoWrite(t *testing.T) {
 	for name, args := range map[string][]string{
 		"unknown layer":                   {"create", "memory", "--summary", "x", "--layer", "team"},
 		"--department with another layer": {"create", "memory", "--summary", "x", "--layer", "project", "--department", "总部"},
+		"--agent with another layer":      {"create", "memory", "--summary", "x", "--layer", "global", "--agent", "reviewer"},
+		"--agent and --project together":  {"create", "memory", "--summary", "x", "--agent", "reviewer", "--project", "agentre"},
 		"missing summary":                 {"create", "memory", "--layer", "global"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -231,8 +260,8 @@ func TestMemory_GivenGetThenFullEntryAsJSON(t *testing.T) {
 func TestMemory_GivenHelpThenUsageLayersAndWhatToRemember(t *testing.T) {
 	r := runWith([]string{"help", "memory"}, noEnv, term{})
 	wantCode(t, r, 0)
-	for _, want := range []string{"agrctl create memory --summary <text>", "--layer", "--department", "--query",
-		"archives", "no approval", "Worth remembering", "Do not remember"} {
+	for _, want := range []string{"agrctl create memory --summary <text>", "--layer", "--department", "--agent", "--project", "--query",
+		"archives", "no approval", "Outside an Agentre session", "Worth remembering", "Do not remember"} {
 		if !strings.Contains(r.stdout, want) {
 			t.Fatalf("help memory lacks %q:\n%s", want, r.stdout)
 		}

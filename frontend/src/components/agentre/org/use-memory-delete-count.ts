@@ -2,21 +2,22 @@ import * as React from "react";
 
 import type { MemoryOwnerRef } from "@agentre-hub/agentre-ui";
 
-import { MemoryCountsByOwner } from "../../../../wailsjs/go/app/App";
+import { MemoryCountOwned } from "../../../../wailsjs/go/app/App";
 
 /**
- * 删除确认里「会一并删掉几条记忆」的数：把 owners 各自的条数加起来。
+ * 删除确认里「会一并删掉几条记忆」的数：owners 名下的全部条目（含已归档——级联删的
+ * 就是这么多），由 MemoryCountOwned 数。
  *
  * 只在 `enabled`（确认框开着）时读，owners 变了（部门换删除策略）重读。读失败或还
  * 没读到都返回 null —— 确认框这时不提记忆，而不是说一句「没有记忆」去冒充读到的结果。
- * 计数口径沿用 MemoryCountsByOwner（只数正常条目，已归档的不在内）。
  */
 export function useMemoryDeleteCount(
   owners: MemoryOwnerRef[],
   enabled: boolean,
 ): number | null {
   const [count, setCount] = React.useState<number | null>(null);
-  const key = owners.map((o) => `${o.kind}:${o.id}`).join(",");
+  // 只按内容重读：调用方每次渲染给的可能是新数组，内容没变就不该重读。
+  const key = JSON.stringify(owners.map((o) => [o.kind, o.id]));
 
   React.useEffect(() => {
     if (!enabled) {
@@ -24,16 +25,13 @@ export function useMemoryDeleteCount(
       return;
     }
     let alive = true;
-    const wanted = new Set(key === "" ? [] : key.split(","));
+    const wanted = (JSON.parse(key) as [MemoryOwnerRef["kind"], number][]).map(
+      ([kind, id]) => ({ kind, id }),
+    );
     void (async () => {
       try {
-        const rows = await MemoryCountsByOwner();
-        if (!alive) return;
-        setCount(
-          (rows ?? [])
-            .filter((r) => wanted.has(`${r.owner.kind}:${r.owner.id}`))
-            .reduce((sum, r) => sum + r.count, 0),
-        );
+        const total = await MemoryCountOwned(wanted);
+        if (alive) setCount(total ?? 0);
       } catch {
         if (alive) setCount(null);
       }

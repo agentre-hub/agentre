@@ -762,6 +762,21 @@ func (m *MockMemoryService) EXPECT() *MockMemoryServiceMockRecorder {
 	return m.recorder
 }
 
+// AllLayers mocks base method.
+func (m *MockMemoryService) AllLayers(ctx context.Context) (*memory_svc.VisibleMemory, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AllLayers", ctx)
+	ret0, _ := ret[0].(*memory_svc.VisibleMemory)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AllLayers indicates an expected call of AllLayers.
+func (mr *MockMemoryServiceMockRecorder) AllLayers(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllLayers", reflect.TypeOf((*MockMemoryService)(nil).AllLayers), ctx)
+}
+
 // Archive mocks base method.
 func (m *MockMemoryService) Archive(ctx context.Context, id int64, actor memory_entity.Actor) (*memory_svc.MemoryItem, error) {
 	m.ctrl.T.Helper()

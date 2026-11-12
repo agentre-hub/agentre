@@ -68,7 +68,7 @@ func TestBackendCapabilities(t *testing.T) {
 		release()
 	}
 
-	t.Run("remote device never connected is unknown and is not dialled", func(t *testing.T) {
+	t.Run("remote device never connected is unknown and is not dialed", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		installPairedDevice(t, ctrl, 7)
 		svc := &chatSvc{emitter: NoopEmitter{}}

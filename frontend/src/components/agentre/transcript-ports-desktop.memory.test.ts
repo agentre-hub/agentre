@@ -43,6 +43,11 @@ describe("desktop transcript memory port", () => {
       state: "archived",
       hasPrevious: true,
       creator: { kind: "ai", agentId: 5, sessionId: 70 },
+      lastChange: {
+        action: "restored",
+        actor: { kind: "user", agentId: 0, sessionId: 0 },
+        at: 3,
+      },
       createtime: 1,
       updatetime: 2,
     });
@@ -54,6 +59,9 @@ describe("desktop transcript memory port", () => {
       detail: "d",
       archived: true,
       hasPrevious: true,
+      updatedAt: 3,
+      // 卡片据此认出「这次写入已被用户撤回」。
+      lastChange: { action: "restored", actor: "user" },
     });
   });
 

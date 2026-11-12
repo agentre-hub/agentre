@@ -96,6 +96,41 @@ describe("MemoryWriteCard", () => {
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
   });
 
+  // 撤销后卡片显示为已撤销、不可再点——重新打开会话（卡片重新挂载）之后也是。撤销与记忆页
+  // 的「恢复上一版」/「恢复」是同一个动作（决策 9），所以条目最近一次变更是用户做的那一步
+  // 就说明这次写入已被撤回。
+  it.each([
+    [
+      "memory m7 updated (agent A)",
+      entry({ lastChange: { action: "restored", actor: "user" } }),
+    ],
+    [
+      "memory m7 archived (agent A)",
+      entry({ lastChange: { action: "unarchived", actor: "user" } }),
+    ],
+  ])(
+    "a write the user already undid shows undone with no buttons when the card mounts again (%s)",
+    async (line, current) => {
+      renderCard(line, memoryPort({ get: vi.fn(async () => current) }));
+      expect(await screen.findByText("Undone")).toBeDefined();
+      expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    },
+  );
+
+  it("a write changed since by someone else still offers undo (which then explains the refusal)", async () => {
+    renderCard(
+      "memory m7 updated (agent A)",
+      memoryPort({
+        get: vi.fn(async () =>
+          entry({ lastChange: { action: "edited", actor: "user" } }),
+        ),
+      }),
+    );
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeDefined();
+    expect(screen.queryByText("Undone")).toBeNull();
+  });
+
   it("a refused undo keeps the buttons and explains why in place", async () => {
     const memory = memoryPort({
       undoWrite: vi.fn(async () => ({ status: "changed" as const })),

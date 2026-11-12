@@ -35,6 +35,7 @@ const appMocks = vi.hoisted(() => ({
   DeleteChatSession: vi.fn(),
   ListChatAgents: vi.fn(),
   ListChatIndexSessions: vi.fn(),
+  MemoryCountOwned: vi.fn(),
   MemoryCountsByOwner: vi.fn(),
   ProjectCreate: vi.fn(),
   ProjectDelete: vi.fn(),
@@ -371,6 +372,7 @@ function resetAll() {
     inheritedMembers: [],
   });
   appMocks.ProjectLocationList.mockResolvedValue([]);
+  appMocks.MemoryCountOwned.mockResolvedValue(0);
   appMocks.MemoryCountsByOwner.mockResolvedValue([]);
   appMocks.RemoteDeviceList.mockResolvedValue([]);
   appMocks.ServerListDevices.mockResolvedValue([]);

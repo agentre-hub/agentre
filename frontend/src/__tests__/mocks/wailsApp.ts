@@ -257,6 +257,9 @@ export const MemoryListByOwner = windowBackedMock(
 export const MemoryCountsByOwner = windowBackedMock("MemoryCountsByOwner", () =>
   Promise.resolve([]),
 );
+export const MemoryCountOwned = windowBackedMock("MemoryCountOwned", () =>
+  Promise.resolve(0),
+);
 export const MemoryRecentChanges = windowBackedMock("MemoryRecentChanges", () =>
   Promise.resolve([]),
 );

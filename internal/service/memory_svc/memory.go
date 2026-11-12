@@ -45,11 +45,16 @@ type MemorySvc interface {
 	UndoWrite(ctx context.Context, req *UndoWriteRequest) (*UndoWriteResult, error)
 	ListByOwner(ctx context.Context, owner memory_entity.Owner) (*OwnerList, error)
 	CountsByOwner(ctx context.Context) ([]*OwnerCount, error)
+	// CountOwned 这些归属名下的全部条目数（含已归档）：删除归属的确认里写明会一并删掉几条。
+	CountOwned(ctx context.Context, owners []memory_entity.Owner) (int64, error)
 	// RecentChanges 近 14 天内被新增、修改、归档、恢复或移层过的条目，新的在前。
 	RecentChanges(ctx context.Context) ([]*MemoryItem, error)
 	Search(ctx context.Context, keyword string) ([]*MemoryItem, error)
 	// Visible 一个 agent 在某项目（0 = 无项目）里的会话看得到的记忆，逐层按预算分好。
 	Visible(ctx context.Context, agentID, projectID int64) (*VisibleMemory, error)
+	// AllLayers 所有有正常条目的层（全局恒在），逐层按预算分好：会话以外（终端里的人、
+	// 桌面端审批过的外部调用方）用 agrctl 读记忆时看到的范围。
+	AllLayers(ctx context.Context) (*VisibleMemory, error)
 	// SessionOwners AI 写入者所属（可见、可写）的层；项目取自它的会话。
 	SessionOwners(ctx context.Context, actor memory_entity.Actor) ([]memory_entity.Owner, error)
 	// SessionVisible AI 写入者所在会话看得到的记忆（agrctl 记忆命令的读）。
@@ -287,6 +292,15 @@ func (s *memorySvc) CountsByOwner(ctx context.Context) ([]*OwnerCount, error) {
 		out = append(out, &OwnerCount{Owner: r.Owner, Count: r.Count})
 	}
 	return out, nil
+}
+
+func (s *memorySvc) CountOwned(ctx context.Context, owners []memory_entity.Owner) (int64, error) {
+	for _, o := range owners {
+		if !o.Valid() {
+			return 0, i18n.NewError(ctx, code.MemoryInvalidOwner)
+		}
+	}
+	return memory_repo.Memory().CountByOwners(ctx, owners)
 }
 
 func (s *memorySvc) RecentChanges(ctx context.Context) ([]*MemoryItem, error) {

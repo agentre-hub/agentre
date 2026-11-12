@@ -2491,7 +2491,7 @@ func (s *chatSvc) buildRunRequest(
 		return agentruntime.RunRequest{}, err
 	}
 	// 记忆快照按本轮选中的 runtime 判档,首个回合取下后各回合原样沿用(spec 2026-11-11 决策 11/12)。
-	memorySnapshot, err := s.sessionMemorySnapshot(ctx, sess, a, MemoryTier(runner.Capabilities(), be.Type))
+	memorySnapshot, err := s.sessionMemorySnapshot(ctx, sess, a, MemoryTier(turnCapabilities(runner, be), be.Type))
 	if err != nil {
 		return agentruntime.RunRequest{}, err
 	}

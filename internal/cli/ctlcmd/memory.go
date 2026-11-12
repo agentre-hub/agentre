@@ -10,8 +10,9 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
-// 记忆（spec 2026-11-11「Agent 读写记忆」）：只在 Agentre 会话里可用，执行者只给出本会话
-// 看得到的条目，写入不等审批。记忆没有名字，按编号定位：m58 或 58。
+// 记忆（spec 2026-11-11「Agent 读写记忆」）：在 Agentre 会话里，执行者只给出本会话看得到的
+// 条目，写入不等审批；会话以外沿用现有规则（终端里的人直接执行，外部调用方在桌面端审批），
+// 看得到所有层，新增时层要写明。记忆没有名字，按编号定位：m58 或 58。
 //
 // 写入的结果行是稳定格式，对话里的记忆卡片据此识别（改动要同步那边）：
 //
@@ -25,9 +26,9 @@ import (
 var memoryLayers = []string{"agent", "department", "project", "global"}
 
 const memoryNotes = `Layers (--layer; default: agent):
-  agent        only you
+  agent        only you; --agent <agent> names an agent
   department   your department; --department <department> names one above it instead
-  project      this session's project
+  project      this session's project; --project <project> names a project
   global       every agent
 You can only write to these layers. You can update or archive any memory you can see,
 including ones the user wrote; the version before your change is kept and can be restored.
@@ -37,6 +38,10 @@ Inside an Agentre session these commands take effect at once, with no approval. 
 memory reaches new sessions, not this one. Each layer carries summaries into a session
 only up to its budget; list shows the rest as CARRIED no. When a write leaves a layer over
 budget, merge or shorten the memories there.
+
+Outside an Agentre session the usual rules apply: a person at the terminal writes
+directly, any other caller waits for approval in the Agentre desktop. Every layer is
+visible, and create needs a named layer: --layer global, --department, --agent or --project.
 
 Worth remembering: a way of working the user corrected, a lasting preference, a fact the
 repository cannot tell you.
@@ -55,24 +60,29 @@ func initMemoryFlags() {
 			m(w).Layer = v
 			return nil
 		}}
-	department := &flagDef{name: "department", value: "<department>", field: "ownerId",
-		usage: "write to this department (yours or one above it) instead of your own (create only)",
-		apply: func(w *writeCtx, v string) error {
-			if w.fieldSet("layer") && m(w).GetLayer() != "department" {
-				return usageErrorf("--department only goes with --layer department")
-			}
-			id, err := w.memberRef(kindDepartment, v)
-			if err != nil {
-				return err
-			}
-			if !w.fieldSet("layer") {
-				w.fieldOwner["layer"] = "department"
-				w.req.Fields = append(w.req.Fields, "layer")
-			}
-			m(w).Layer, m(w).OwnerId = "department", id
-			return nil
-		}}
-	kindMemory.createFlags = []*flagDef{summary, detail, layer, department}
+	// owner 生成「写到这一个部门 / agent / 项目」的 flag：定下层并写入所指的 id。
+	owner := func(spec *kindSpec, layer, usage string) *flagDef {
+		return &flagDef{name: spec.name, value: "<" + spec.name + ">", field: "ownerId", usage: usage,
+			apply: func(w *writeCtx, v string) error {
+				if w.fieldSet("layer") && m(w).GetLayer() != layer {
+					return usageErrorf("--%s only goes with --layer %s", spec.name, layer)
+				}
+				id, err := w.memberRef(spec, v)
+				if err != nil {
+					return err
+				}
+				if !w.fieldSet("layer") {
+					w.fieldOwner["layer"] = spec.name
+					w.req.Fields = append(w.req.Fields, "layer")
+				}
+				m(w).Layer, m(w).OwnerId = layer, id
+				return nil
+			}}
+	}
+	department := owner(kindDepartment, "department", "write to this department (yours or one above it) instead of your own (create only)")
+	agent := owner(kindAgent, "agent", "write to this agent's layer; inside a session only your own (create only)")
+	project := owner(kindProject, "project", "write to this project's layer; inside a session only the session's (create only)")
+	kindMemory.createFlags = []*flagDef{summary, detail, layer, department, agent, project}
 	kindMemory.updateFlags = []*flagDef{summary, detail}
 	kindMemory.required = []string{"summary"}
 	kindMemory.filters = []*flagDef{

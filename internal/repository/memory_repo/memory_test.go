@@ -208,3 +208,20 @@ func TestMemoryReassignOwner_MovesEveryStateAndStampsUpdatetime(t *testing.T) {
 		memory_entity.Owner{Kind: memory_entity.OwnerProject, ID: 8}))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestMemoryCountByOwners_CountsEveryState(t *testing.T) {
+	ctx, mock, repo := setupMemoryRepo(t)
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `memories` WHERE \\(owner_kind = \\? AND owner_id = \\?\\) OR \\(owner_kind = \\? AND owner_id = \\?\\)").
+		WithArgs("agent", int64(5), "department", int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4))
+	got, err := repo.CountByOwners(ctx, []memory_entity.Owner{
+		{Kind: memory_entity.OwnerAgent, ID: 5}, {Kind: memory_entity.OwnerDepartment, ID: 3},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+
+	got, err = repo.CountByOwners(ctx, nil)
+	require.NoError(t, err)
+	assert.Zero(t, got, "没有归属时不查库，更不能数整张表")
+}

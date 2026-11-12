@@ -28,8 +28,8 @@ the same forms.
 Writes from an Agentre session wait for approval in that session; writes from a
 program without a terminal, or from a terminal an agent CLI (Claude Code, Codex,
 Gemini CLI, opencode, …) is running in, wait for approval in the desktop.
-memory is the exception: it only works inside an Agentre session, and its writes
-take effect at once (agrctl help memory).
+memory is the exception inside an Agentre session: its writes take effect at
+once (agrctl help memory).
 
 Exit codes: 0 ok · 1 failed, rejected or executor unreachable · 2 usage error
 (unknown command or flag, missing value, ambiguous ref) · 3 needs a human

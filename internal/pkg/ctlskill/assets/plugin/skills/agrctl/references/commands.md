@@ -125,8 +125,10 @@ Error: rejected in session #231
 
 ## Memory
 
-Only inside an Agentre session; anywhere else every memory command fails with exit `1`. Reads
-see this session's memories only; writes never wait for approval.
+Inside an Agentre session reads see this session's memories only and writes never wait for
+approval. Outside a session the usual approval rules apply (a person at a terminal writes
+directly, any other caller waits for the desktop), every layer is visible, and `create` needs a
+named layer: `--layer global`, `--department <d>`, `--agent <a>` or `--project <p>`.
 
 ```
 {{AGRCTL_PATH}} list memory --query lint

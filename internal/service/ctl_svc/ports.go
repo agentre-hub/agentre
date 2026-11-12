@@ -89,10 +89,13 @@ type DeviceDirectory interface {
 }
 
 // MemoryService 记忆读写（memory_svc）。会话里的写入一律以 AI 写入者进行：只写它所属的
-// 层由 memory_svc 把关；删除即归档——这里根本没有彻底删除的方法。
+// 层由 memory_svc 把关；会话以外（握手 token）以用户身份写、看得到所有层。删除即归档——
+// 这里根本没有彻底删除的方法。
 type MemoryService interface {
 	SessionOwners(ctx context.Context, actor memory_entity.Actor) ([]memory_entity.Owner, error)
 	SessionVisible(ctx context.Context, actor memory_entity.Actor) (*memory_svc.VisibleMemory, error)
+	// AllLayers 所有层的正常条目，逐层按预算分好（会话以外的读）。
+	AllLayers(ctx context.Context) (*memory_svc.VisibleMemory, error)
 	Create(ctx context.Context, req *memory_svc.CreateRequest) (*memory_svc.CreateResult, error)
 	Update(ctx context.Context, req *memory_svc.UpdateRequest) (*memory_svc.MemoryItem, error)
 	Archive(ctx context.Context, id int64, actor memory_entity.Actor) (*memory_svc.MemoryItem, error)

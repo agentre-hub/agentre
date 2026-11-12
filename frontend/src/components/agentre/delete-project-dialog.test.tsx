@@ -6,7 +6,7 @@ const appMocks = vi.hoisted(() => ({
   ProjectLocationList: vi.fn(),
   RemoteDeviceList: vi.fn(),
   ProjectListTree: vi.fn(),
-  MemoryCountsByOwner: vi.fn(),
+  MemoryCountOwned: vi.fn(),
 }));
 
 vi.mock("../../../wailsjs/go/app/App", () => appMocks);
@@ -38,7 +38,7 @@ beforeEach(() => {
   appMocks.ProjectLocationList.mockResolvedValue([]);
   appMocks.RemoteDeviceList.mockResolvedValue([]);
   appMocks.ProjectListTree.mockResolvedValue([]);
-  appMocks.MemoryCountsByOwner.mockResolvedValue([]);
+  appMocks.MemoryCountOwned.mockResolvedValue(0);
 });
 
 describe("名下的记忆", () => {
@@ -47,17 +47,12 @@ describe("名下的记忆", () => {
     children,
   });
 
-  it("把这棵子树里每个项目的记忆加起来；别的项目的不算", async () => {
+  it("数这棵子树里每个项目名下的全部记忆（含已归档，它们一样被删）；别的项目的不算", async () => {
     appMocks.ProjectListTree.mockResolvedValue([
       node(7, [node(8, [node(9)])]),
       node(20),
     ]);
-    appMocks.MemoryCountsByOwner.mockResolvedValue([
-      { owner: { kind: "project", id: 7 }, count: 2 },
-      { owner: { kind: "project", id: 9 }, count: 4 },
-      { owner: { kind: "project", id: 20 }, count: 50 },
-      { owner: { kind: "agent", id: 7 }, count: 60 },
-    ]);
+    appMocks.MemoryCountOwned.mockResolvedValue(6);
     renderDialog({ id: 7, name: "Nebula", childCount: 2 });
 
     await waitFor(() =>
@@ -65,15 +60,22 @@ describe("名下的记忆", () => {
         "6",
       ),
     );
+    const owners = appMocks.MemoryCountOwned.mock.lastCall?.[0] as {
+      kind: string;
+      id: number;
+    }[];
+    expect(owners.map((o) => `${o.kind}:${o.id}`).sort()).toEqual([
+      "project:7",
+      "project:8",
+      "project:9",
+    ]);
   });
 
   it("读不上来就不提记忆，而不是说「没有记忆」", async () => {
-    appMocks.MemoryCountsByOwner.mockRejectedValue(new Error("boom"));
+    appMocks.MemoryCountOwned.mockRejectedValue(new Error("boom"));
     renderDialog({ id: 7, name: "Nebula" });
 
-    await waitFor(() =>
-      expect(appMocks.MemoryCountsByOwner).toHaveBeenCalled(),
-    );
+    await waitFor(() => expect(appMocks.MemoryCountOwned).toHaveBeenCalled());
     expect(screen.queryByTestId("delete-project-memories")).toBeNull();
   });
 });

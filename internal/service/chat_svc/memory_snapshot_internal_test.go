@@ -75,8 +75,10 @@ func memTime(y int, m time.Month, d int) int64 {
 	return time.Date(y, m, d, 12, 0, 0, 0, time.Local).UnixMilli()
 }
 
-func memItem(id int64, summary, detail string, updated int64) *memory_svc.MemoryItem {
-	return &memory_svc.MemoryItem{ID: id, Summary: summary, Detail: detail, Updatetime: updated}
+// memItem 一条最近修改于 changed 的条目（行的 updatetime 同刻）。
+func memItem(id int64, summary, detail string, changed int64) *memory_svc.MemoryItem {
+	return &memory_svc.MemoryItem{ID: id, Summary: summary, Detail: detail, Updatetime: changed,
+		LastChange: memory_svc.ChangeDTO{At: changed}}
 }
 
 func fourLayerSections() []memorySection {
@@ -97,6 +99,14 @@ func fourLayerSections() []memorySection {
 }
 
 func TestRenderMemorySnapshot(t *testing.T) {
+	t.Run("Given an entry pinned or synced after its last change, When rendering, Then its date is the last change, not the row's updatetime", func(t *testing.T) {
+		item := memItem(9, "发布走内部制品库", "", memTime(2026, 10, 1))
+		item.Updatetime = memTime(2026, 11, 10) // 置顶、同步落地都会刷新行的 updatetime
+		got := renderMemorySnapshot([]memorySection{{kind: memory_entity.OwnerGlobal, items: []*memory_svc.MemoryItem{item}}},
+			MemoryLevelFull, app_setting_entity.UILanguageEn)
+		assert.Contains(t, got, "- [m9] 发布走内部制品库 (2026-10-01)")
+	})
+
 	t.Run("Given four visible layers in zh-CN, When rendering the full tier, Then sections, the over-budget note and the fixed lines follow in order", func(t *testing.T) {
 		got := renderMemorySnapshot(fourLayerSections(), MemoryLevelFull, app_setting_entity.UILanguageZhCN)
 		want := strings.Join([]string{
@@ -570,6 +580,42 @@ func TestBuildRunRequest_MemorySnapshot_RemoteWithCapabilityMatchesLocal(t *test
 
 	assert.Equal(t, localReq.SystemPrompt, remoteReq.SystemPrompt, "远程执行带上的内容与本地一致")
 	assert.Contains(t, remoteReq.SystemPrompt, "完整用法：agrctl help memory")
+}
+
+// 同一台设备上跑着两种后端（这里是 acp 与 Claude Code）：远端 runtime 缓存了两份能力集，
+// 判档必须取本轮后端那一份，否则 Claude Code 的会话会随机拿到 acp 的能力集、首回合就冻结成
+// 「不带记忆」（spec「远程执行：带上的内容与本地一致」）。
+func TestBuildRunRequest_MemorySnapshot_RemoteDeviceWithTwoBackendsUsesThisTurnsBackend(t *testing.T) {
+	env := newMemoryTurnEnv(t)
+	rec := newRecordingDaemonClient()
+	for _, caps := range []capability.Capabilities{
+		{Set: map[capability.Capability]bool{capability.CapSteer: true}}, // acp：不认识记忆命令
+		fullMemoryCaps, // claudecode
+	} {
+		rec.expect(wire.MethodCapabilities, func(_, result any) error {
+			*(result.(*wire.CapabilitiesResult)) = wire.CapabilitiesResult{Capabilities: caps}
+			return nil
+		})
+	}
+	pool := mock_remote_device_svc.NewMockConnPool(env.ctrl)
+	lease := mock_remote_device_svc.NewMockLease(env.ctrl)
+	pool.EXPECT().Borrow(gomock.Any(), int64(7)).Return(lease, nil).AnyTimes()
+	lease.EXPECT().Client().Return(protorpctest.WrapConnection(rec)).AnyTimes()
+	lease.EXPECT().Closed().Return(make(chan struct{})).AnyTimes()
+	lease.EXPECT().Release().AnyTimes()
+	env.svc.setConnPoolForTest(pool)
+	installPairedDevice(env.t, env.ctrl, 7)
+	acp := &agent_backend_entity.AgentBackend{ID: 13, Type: string(agent_backend_entity.TypeACP), DeviceFingerprint: testDeviceFingerprint(7)}
+	cc := &agent_backend_entity.AgentBackend{ID: 12, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: testDeviceFingerprint(7)}
+
+	_, err := env.turn(&chat_entity.Session{ID: 400, AgentID: 7}, memoryAgent(7, true), acp, "")
+	require.NoError(t, err)
+	// map 的遍历次序是随机的：多跑几条会话，取错的那一份迟早会出现。
+	for i := int64(0); i < 24; i++ {
+		req, err := env.turn(&chat_entity.Session{ID: 401 + i, AgentID: 7}, memoryAgent(7, true), cc, "")
+		require.NoError(t, err)
+		require.Contains(t, req.SystemPrompt, "完整用法：agrctl help memory", "会话 %d", 401+i)
+	}
 }
 
 func TestBuildRunRequest_MemorySnapshot_BuiltinCarriesSummariesOnly(t *testing.T) {

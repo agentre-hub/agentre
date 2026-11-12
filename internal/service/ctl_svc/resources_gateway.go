@@ -49,6 +49,10 @@ func (liveMemory) SessionVisible(ctx context.Context, actor memory_entity.Actor)
 	return memory_svc.Memory().SessionVisible(ctx, actor)
 }
 
+func (liveMemory) AllLayers(ctx context.Context) (*memory_svc.VisibleMemory, error) {
+	return memory_svc.Memory().AllLayers(ctx)
+}
+
 func (liveMemory) Create(ctx context.Context, req *memory_svc.CreateRequest) (*memory_svc.CreateResult, error) {
 	return memory_svc.Memory().Create(ctx, req)
 }

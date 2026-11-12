@@ -86,15 +86,16 @@ the agent CLI's environment markers and skip it. Never try to do any of these.
 
 ### Memory
 
-Memory holds facts that carry over to your later sessions. It only works inside an Agentre
-session, and unlike every other resource its writes **take effect at once, with no approval**.
+Memory holds facts that carry over to your later sessions. Inside an Agentre session, unlike
+every other resource, its writes **take effect at once, with no approval**; outside one they
+follow the same approval rules as everything else.
 `help memory` is the full usage and the rules for what is worth remembering — read it before
 your first write.
 
 ```
 {{AGRCTL_PATH}} list memory [--layer <layer>] [--query <text>]
 {{AGRCTL_PATH}} get memory <id>
-{{AGRCTL_PATH}} create memory --summary "<one line>" [--detail "<text>"] [--layer <layer>] [--department <d>]
+{{AGRCTL_PATH}} create memory --summary "<one line>" [--detail "<text>"] [--layer <layer>] [--department <d> | --agent <a> | --project <p>]
 {{AGRCTL_PATH}} update memory <id> [--summary "<one line>"] [--detail "<text>"]
 {{AGRCTL_PATH}} delete memory <id>
 ```
@@ -113,6 +114,8 @@ your first write.
   A second line `over budget: <layer> is <N> characters over its memory budget; …` means you
   should merge or shorten that layer's memories.
 - What you write now reaches new sessions, not this one.
+- Outside a session every layer is visible and `create` needs a named layer: `--layer global`,
+  `--department <d>`, `--agent <a>` or `--project <p>`.
 
 ### Secrets
 

@@ -792,6 +792,8 @@ export { MemoryEntryGroups } from "./memory/memory-entry-groups";
 export { MemoryRow } from "./memory/memory-row";
 export { formatMemoryDate } from "./memory/format";
 export type {
+  MemoryChangeAction,
+  MemoryChangeView,
   MemoryCreatorView,
   MemoryDraft,
   MemoryEntryGroupsProps,

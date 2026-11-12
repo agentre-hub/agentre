@@ -14,7 +14,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
@@ -47,6 +49,16 @@ func MemoryTier(caps capability.Capabilities, backendType string) MemoryLevel {
 		return MemoryLevelSummaries
 	}
 	return MemoryLevelNone
+}
+
+// turnCapabilities 是本轮后端那一种的能力集。远端 runtime 缓存着同一台设备上各种后端的能力集，
+// 它的 Capabilities() 只随手给其中一份；判档要的是本轮这一种（没缓存上 = 不知道，按不带）。
+func turnCapabilities(runner agentruntime.Runtime, be *agent_backend_entity.AgentBackend) capability.Capabilities {
+	if rt, ok := runner.(*remote.Runtime); ok {
+		caps, _ := rt.CachedCapabilities(agent_backend_entity.BackendType(be.Type))
+		return caps
+	}
+	return runner.Capabilities()
 }
 
 // sessionMemorySnapshot 返回这条会话每个回合接在 agent 提示词之后的记忆段落。首个回合
@@ -212,8 +224,9 @@ func renderMemorySnapshot(sections []memorySection, level MemoryLevel, lang stri
 		}
 		lines := []string{copyFor.heading(section)}
 		for _, item := range section.items {
-			// 编号与 agrctl 输出里的写法一致(m58),agent 拿它直接去读详情。
-			line := fmt.Sprintf("- [m%d] %s (%s)", item.ID, item.Summary, time.UnixMilli(item.Updatetime).Format("2006-01-02"))
+			// 编号与 agrctl 输出里的写法一致(m58),agent 拿它直接去读详情。日期是最近一次变更
+			// (与预算取舍、agrctl list 同一口径),不是行的 updatetime——置顶、同步落地也会刷新它。
+			line := fmt.Sprintf("- [m%d] %s (%s)", item.ID, item.Summary, time.UnixMilli(item.LastChange.At).Format("2006-01-02"))
 			if full && item.Detail != "" {
 				line += copyFor.hasDetail
 			}

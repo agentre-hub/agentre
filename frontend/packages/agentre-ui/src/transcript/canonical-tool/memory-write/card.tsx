@@ -74,8 +74,12 @@ function MemoryCard({
   }, [load]);
 
   const exists = write.action === "exists";
-  // 新增的写入，条目已经没了：就是被撤销（或被删）了。
-  const isUndone = undone || (write.action === "created" && entry === null);
+  // 卡片重新挂载（重开会话）后也要认出已撤销：新增的条目已经没了；修改、归档的条目最近
+  // 一次变更是用户的恢复上一版 / 恢复（与卡片上的撤销是同一个动作，决策 9）。
+  const isUndone =
+    undone ||
+    (write.action === "created" && entry === null) ||
+    (entry != null && undoneByUser(write.action, entry));
   const gone = entry === null && !isUndone;
   const summary = entry?.summary ?? lastSummary;
   const action = write.action;
@@ -219,6 +223,23 @@ function MemoryCard({
       ) : null}
     </TranscriptCard>
   );
+}
+
+/** 条目现在的样子说明这次修改 / 归档已被用户撤回。 */
+function undoneByUser(
+  action: MemoryWrite["action"],
+  entry: MemoryEntryView,
+): boolean {
+  const last = entry.lastChange;
+  if (last?.actor !== "user") return false;
+  switch (action) {
+    case "updated":
+      return last.action === "restored";
+    case "archived":
+      return !entry.archived && last.action === "unarchived";
+    default:
+      return false;
+  }
 }
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;

@@ -440,3 +440,59 @@ func TestMemorySvc_Visible(t *testing.T) {
 		})
 	})
 }
+
+func TestMemorySvc_AllLayers(t *testing.T) {
+	convey.Convey("会话以外看到的记忆：所有有正常条目的层", t, func() {
+		ctx, m, svc := setupMemorySvc(t)
+
+		convey.Convey("全局恒在最前，其余按部门、agent、项目再按编号排，逐层按预算取舍", func() {
+			m.memory.EXPECT().CountNormalByOwner(ctx).Return([]*memory_repo.OwnerCount{
+				{Owner: projectOwner, Count: 1},
+				{Owner: agentOwner, Count: 11},
+				{Owner: memory_entity.Owner{Kind: memory_entity.OwnerDepartment, ID: 7}, Count: 1},
+				{Owner: deptOwner, Count: 1},
+			}, nil)
+			dept7 := memory_entity.Owner{Kind: memory_entity.OwnerDepartment, ID: 7}
+			owners := []memory_entity.Owner{memory_entity.GlobalOwner(), deptOwner, dept7, agentOwner, projectOwner}
+			rows := append(budgetRows(agentOwner, 11), stored(51, deptOwner, "部门"), stored(52, dept7, "另一个部门"), stored(53, projectOwner, "项目"))
+			m.memory.EXPECT().ListNormalByOwners(ctx, owners).Return(rows, nil)
+
+			got, err := svc.AllLayers(ctx)
+			convey.So(err, convey.ShouldBeNil)
+			layerOwners := make([]memory_entity.Owner, 0, len(got.Layers))
+			for _, l := range got.Layers {
+				layerOwners = append(layerOwners, l.Owner)
+			}
+			convey.So(layerOwners, convey.ShouldResemble, owners)
+			convey.So(got.Layers[0].Carried, convey.ShouldBeEmpty)
+			convey.So(summaries(got.Layers[1].Carried), convey.ShouldResemble, []string{"部门"})
+			convey.So(len(got.Layers[3].Carried), convey.ShouldEqual, 10)
+			convey.So(len(got.Layers[3].OverBudget), convey.ShouldEqual, 1)
+		})
+
+		convey.Convey("计数读不出来时报错", func() {
+			m.memory.EXPECT().CountNormalByOwner(ctx).Return(nil, errors.New("db down"))
+			_, err := svc.AllLayers(ctx)
+			convey.So(err, convey.ShouldNotBeNil)
+		})
+	})
+}
+
+func TestMemorySvc_CountOwned(t *testing.T) {
+	convey.Convey("删除归属时会一并删掉的记忆条数", t, func() {
+		ctx, m, svc := setupMemorySvc(t)
+
+		convey.Convey("数的是这些归属名下的全部条目，已归档的也算（它们同样被删）", func() {
+			owners := []memory_entity.Owner{agentOwner, deptOwner}
+			m.memory.EXPECT().CountByOwners(ctx, owners).Return(int64(6), nil)
+			got, err := svc.CountOwned(ctx, owners)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(got, convey.ShouldEqual, 6)
+		})
+
+		convey.Convey("形状不合法的归属被拒，不查库", func() {
+			_, err := svc.CountOwned(ctx, []memory_entity.Owner{{Kind: memory_entity.OwnerAgent}})
+			convey.So(codeOf(err), convey.ShouldEqual, code.MemoryInvalidOwner)
+		})
+	})
+}

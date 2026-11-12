@@ -1,6 +1,7 @@
 package memory_svc
 
 import (
+	"cmp"
 	"context"
 	"slices"
 
@@ -20,6 +21,32 @@ func (s *memorySvc) Visible(ctx context.Context, agentID, projectID int64) (*Vis
 	if err != nil {
 		return nil, err
 	}
+	return visibleIn(ctx, owners)
+}
+
+// ownerKindOrder 是 AllLayers 里各层的先后，与会话可见的层同序：全局、部门、agent、项目。
+var ownerKindOrder = map[memory_entity.OwnerKind]int{
+	memory_entity.OwnerGlobal: 0, memory_entity.OwnerDepartment: 1, memory_entity.OwnerAgent: 2, memory_entity.OwnerProject: 3,
+}
+
+// AllLayers 见 MemorySvc 接口注释。
+func (s *memorySvc) AllLayers(ctx context.Context) (*VisibleMemory, error) {
+	counts, err := memory_repo.Memory().CountNormalByOwner(ctx)
+	if err != nil {
+		return nil, err
+	}
+	owners := []memory_entity.Owner{memory_entity.GlobalOwner()}
+	for _, c := range counts {
+		if c.Owner.Kind != memory_entity.OwnerGlobal {
+			owners = append(owners, c.Owner)
+		}
+	}
+	slices.SortStableFunc(owners[1:], func(a, b memory_entity.Owner) int {
+		if d := ownerKindOrder[a.Kind] - ownerKindOrder[b.Kind]; d != 0 {
+			return d
+		}
+		return cmp.Compare(a.ID, b.ID)
+	})
 	return visibleIn(ctx, owners)
 }
 

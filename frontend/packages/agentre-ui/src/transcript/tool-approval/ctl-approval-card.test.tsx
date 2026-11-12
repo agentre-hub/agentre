@@ -114,6 +114,25 @@ describe("CtlApprovalCard (toolKey=ctl change-list card)", () => {
     expect(screen.queryByText("line-through")).toBeNull();
   });
 
+  it("labels a memory write outside a session (desktop approval) with a localized kind", () => {
+    renderCtlCard({
+      toolInput: {
+        command: "agrctl create memory --summary 用 pnpm --layer global",
+        changes: [
+          {
+            op: "create",
+            kind: "memory",
+            name: "用 pnpm",
+            fields: [{ field: "layer", after: "global" }],
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText("Memory")).toBeDefined();
+    expect(screen.queryByText("memory")).toBeNull();
+  });
+
   it("shows the cascade counts for a delete with --cascade", () => {
     renderCtlCard({
       toolInput: {
