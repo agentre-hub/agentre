@@ -408,8 +408,18 @@ func buildLaunchSpec(req agentruntime.RunRequest, env map[string]string, cwd str
 	if ap := strings.TrimSpace(req.Backend.Approval); ap != "" {
 		spec.approval = codex.ApprovalPolicy(ap)
 	}
+	// 决策 21：沙箱内的 agrctl 要连回本机网关。app-server 的 thread 参数只带沙箱模式字符串、
+	// 没有 networkAccess 字段，所以只能在 app-server 进程启动时用 -c 覆盖。
+	// 空沙箱 = Codex 默认 workspace-write；read-only 不放开，danger-full-access 本就不受限。
+	if req.CtlCredentials().Injectable() &&
+		(spec.sandbox == "" || spec.sandbox == codex.SandboxWorkspaceWrite) {
+		spec.config = append(spec.config, workspaceWriteNetworkConfig)
+	}
 	return spec
 }
+
+// workspaceWriteNetworkConfig 打开 workspace-write 沙箱的网络访问。
+const workspaceWriteNetworkConfig = "sandbox_workspace_write.network_access=true"
 
 func buildMCPServerConfig(specs []agentruntime.MCPServerSpec) []string {
 	if len(specs) == 0 {

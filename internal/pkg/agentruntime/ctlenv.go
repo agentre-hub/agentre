@@ -29,6 +29,9 @@ type CtlCredentials struct {
 
 func (c CtlCredentials) complete() bool { return c.Endpoint != "" && c.Token != "" }
 
+// Injectable 报告这组凭证会不会真被注入子进程（与 applyCtlEnv 同一判据）。
+func (c CtlCredentials) Injectable() bool { return c.complete() }
+
 // CtlCredentialSource 为 (agent, session) 签发会话凭证；签不了时返回零值。
 type CtlCredentialSource func(agentID, sessionID int64) CtlCredentials
 
