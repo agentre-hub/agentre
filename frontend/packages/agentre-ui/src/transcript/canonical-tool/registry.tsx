@@ -6,6 +6,8 @@ import { AgentSpawnCard } from "./agent-spawn/card";
 import { ToolPermissionCard } from "./tool-permission/card";
 import { RawToolCard } from "./raw/card";
 import { isAgrctlSpawn } from "./agrctl";
+import { MemoryWriteCard } from "./memory-write/card";
+import { isMemoryWriteCall } from "./memory-write/parse";
 import type { CanonicalCardProps } from "./props";
 import type { CanonicalDTO, CanonicalKind } from "./types";
 
@@ -27,6 +29,8 @@ const REGISTRY: Partial<Record<CanonicalKind, React.FC<CanonicalCardProps>>> = {
 export function CanonicalToolRouter(props: CanonicalCardProps) {
   // agrctl 升级的 shell 调用：canonical 可能缺或仍是命令类，卡片类型由 overlay 来源决定。
   if (isAgrctlSpawn(props.toolBlock)) return <AgentSpawnCard {...props} />;
+  // agrctl 记忆写入：有结果行且宿主接了记忆端口时是记忆卡，否则卡片自己退回 RawToolCard。
+  if (isMemoryWriteCall(props.toolBlock)) return <MemoryWriteCard {...props} />;
   const canonical = (props.toolBlock as { canonical?: CanonicalDTO }).canonical;
   if (!canonical) {
     return <RawToolCard {...props} />;

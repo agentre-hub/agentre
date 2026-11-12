@@ -82,6 +82,19 @@ func (a *App) MemoryDelete(id int64) error {
 	return codedError(memory_svc.Memory().Delete(a.ctx, id))
 }
 
+// MemoryGet 按编号读一条记忆（对话里的记忆卡片用）；不存在返回 null。
+func (a *App) MemoryGet(id int64) (*memory_svc.MemoryItem, error) {
+	res, err := memory_svc.Memory().Get(a.ctx, id)
+	return res, codedError(err)
+}
+
+// MemoryUndoWrite 撤销对话里记忆卡片代表的那次 AI 写入：新增的彻底删除、修改的恢复上一版、
+// 归档的恢复为正常。条目之后又被改过则不动它，结果 status 为 "changed"。
+func (a *App) MemoryUndoWrite(req *memory_svc.UndoWriteRequest) (*memory_svc.UndoWriteResult, error) {
+	res, err := memory_svc.Memory().UndoWrite(a.ctx, req)
+	return res, codedError(err)
+}
+
 // MemoryListByOwner 某个归属的条目：本次带上、超出预算、已归档三组与预算用量。
 func (a *App) MemoryListByOwner(owner memory_entity.Owner) (*memory_svc.OwnerList, error) {
 	res, err := memory_svc.Memory().ListByOwner(a.ctx, owner)

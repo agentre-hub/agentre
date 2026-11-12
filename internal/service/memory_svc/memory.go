@@ -39,6 +39,10 @@ type MemorySvc interface {
 	Move(ctx context.Context, id int64, owner memory_entity.Owner, actor memory_entity.Actor) (*MemoryItem, error)
 	// Delete 彻底删除（只有用户能做；AI 的删除是 Archive）。
 	Delete(ctx context.Context, id int64) error
+	// Get 按编号读一条；不存在返回 nil。
+	Get(ctx context.Context, id int64) (*MemoryItem, error)
+	// UndoWrite 撤销对话卡片代表的那次 AI 写入；条目之后被改过则拒绝（Status=changed）。
+	UndoWrite(ctx context.Context, req *UndoWriteRequest) (*UndoWriteResult, error)
 	ListByOwner(ctx context.Context, owner memory_entity.Owner) (*OwnerList, error)
 	CountsByOwner(ctx context.Context) ([]*OwnerCount, error)
 	// RecentChanges 近 14 天内被新增、修改、归档、恢复或移层过的条目，新的在前。
