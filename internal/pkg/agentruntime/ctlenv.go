@@ -1,6 +1,13 @@
 package agentruntime
 
-import "github.com/agentre-hub/agentre/internal/pkg/procscan"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+
+	"github.com/agentre-hub/agentre/internal/pkg/procscan"
+)
 
 // agrctl 会话级凭证（spec「Routing and approval」会话级 token）：CLI 类 agent 子进程
 // 启动时带上执行者的控制端点和绑定 (agent, session) 的 token，子进程里跑的 agrctl
@@ -41,6 +48,19 @@ func (r RunRequest) CtlCredentials() CtlCredentials {
 	return ctlCredentialSource(r.AgentID, r.SessionID)
 }
 
+// agrctlPath 是本进程已装 agrctl 的绝对路径；空 = 没装/没登记。
+var agrctlPath atomic.Value // string
+
+// RegisterAgrctlPath 登记已装 agrctl 的路径（桌面端 bootstrap、agentred 装好后调用），
+// 供注入会话凭证时把它所在目录排到子进程 PATH 最前，让会话里的裸 `agrctl` 能跑。
+// 传空串清空(测试用)。
+func RegisterAgrctlPath(path string) { agrctlPath.Store(path) }
+
+func registeredAgrctlPath() string {
+	p, _ := agrctlPath.Load().(string)
+	return p
+}
+
 // applyCtlEnv 把会话凭证写进 env。在用户 env_json 之后调用：会话身份不能被后端配置盖掉。
 func applyCtlEnv(env map[string]string, c CtlCredentials) {
 	if !c.complete() {
@@ -48,6 +68,32 @@ func applyCtlEnv(env map[string]string, c CtlCredentials) {
 	}
 	env[CtlEndpointEnv] = c.Endpoint
 	env[CtlTokenEnv] = c.Token
+	prependAgrctlDir(env)
+}
+
+// prependAgrctlDir 把已登记 agrctl 所在目录排到 env["PATH"] 最前。基底取 env_json 写的
+// PATH，没写则取进程 PATH（clienv.BuildEnv 里 extra 覆盖继承的环境，这里写下的就是子进程
+// 看到的 PATH）。已在最前不重复；没登记则不动。
+func prependAgrctlDir(env map[string]string) {
+	path := registeredAgrctlPath()
+	if path == "" {
+		return
+	}
+	dir := filepath.Dir(path)
+	base, ok := env["PATH"]
+	if !ok {
+		base = os.Getenv("PATH")
+	}
+	sep := string(os.PathListSeparator)
+	if base == dir || strings.HasPrefix(base, dir+sep) {
+		env["PATH"] = base
+		return
+	}
+	if base == "" {
+		env["PATH"] = dir
+		return
+	}
+	env["PATH"] = dir + sep + base
 }
 
 // applySessionEnv 把会话标记写进 env。与 applyCtlEnv 一样在用户 env_json 之后调用：

@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/buildinfo"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agrctlinstall"
 	"github.com/agentre-hub/agentre/internal/pkg/ctlskill"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
@@ -42,6 +43,8 @@ func InstallCtlTools(opts CtlTools) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("install agrctl: %w", err)
 	}
+	// 会话里裸跑 agrctl 靠 PATH：二进制装好即登记，不必等技能铺设成功。
+	agentruntime.RegisterAgrctlPath(path)
 	if err := ctlskill.Install(ctlskill.Options{Home: opts.Home, AgrctlPath: path, Version: opts.Version}); err != nil {
 		return path, fmt.Errorf("install ctl skill: %w", err)
 	}
