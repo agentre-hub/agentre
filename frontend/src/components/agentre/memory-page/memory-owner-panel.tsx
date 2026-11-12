@@ -34,6 +34,8 @@ import {
 } from "./directory";
 import { memoryWriteFailure, runMemoryWrite } from "./memory-errors";
 import { OwnerMark } from "./owner-mark";
+import { RestrictedTargets } from "./restricted-targets";
+import { useRestrictedTargets } from "./use-restricted-targets";
 import { toEntryView, type CreatorContext } from "./to-entry-view";
 import { useOwnerMemory } from "./use-owner-memory";
 
@@ -82,6 +84,9 @@ export function MemoryOwnerPanel({
   const { t } = useTranslation();
   const owner = entry.owner;
   const { state, reload, retry } = useOwnerMemory(owner);
+  const restrictedTargets = useRestrictedTargets(
+    owner.kind === "agent" ? owner.id : null,
+  );
   // 正在编辑哪一条归页面持有：后台重拉只换数据，不关掉编辑中的行。
   const [editingId, setEditingId] = React.useState<number | null>(null);
   const [enabledOverride, setEnabledOverride] = React.useState<boolean | null>(
@@ -183,6 +188,9 @@ export function MemoryOwnerPanel({
         <p className="px-6 pb-2 text-xs text-muted-foreground">
           {t("memoryPage.header.memoryDisabledHint")}
         </p>
+      ) : null}
+      {owner.kind === "agent" ? (
+        <RestrictedTargets targets={restrictedTargets} />
       ) : null}
 
       <div className="px-6 pb-4">

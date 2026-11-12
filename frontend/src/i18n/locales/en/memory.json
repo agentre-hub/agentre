@@ -64,6 +64,13 @@
         "restored": "{{actor}} restored the previous version of",
         "moved": "{{actor}} moved"
       }
+    },
+    "restricted": {
+      "label": "Execution targets that carry limited memory",
+      "unsupportedBackend": "{{target}}: carries no memory (this backend doesn't support it)",
+      "builtinSummaries": "{{target}}: reads summaries only, cannot write",
+      "needsUpgrade": "{{target}}: carries no memory (that device needs upgrading)",
+      "remoteTarget": "{{device}} · {{name}}"
     }
   }
 }

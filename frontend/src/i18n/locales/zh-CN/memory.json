@@ -64,6 +64,13 @@
         "restored": "{{actor}}恢复了上一版",
         "moved": "{{actor}}移动了"
       }
+    },
+    "restricted": {
+      "label": "带不全记忆的执行目标",
+      "unsupportedBackend": "{{target}}：不带记忆（这个后端不支持）",
+      "builtinSummaries": "{{target}}：只能读摘要，不能写",
+      "needsUpgrade": "{{target}}：不带记忆（那台设备需要升级）",
+      "remoteTarget": "{{device}} · {{name}}"
     }
   }
 }

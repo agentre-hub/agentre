@@ -129,6 +129,9 @@ type ChatSvc interface {
 	// AgentBackendHasCapability 报告某 agent 的后端 runtime 是否声明指定能力(领域无关探针)。
 	// 后端缺失/类型无法解析 → (false, nil)。MVP 仅解析本地 runtime; 远程后端目前返回 (false, nil)。
 	AgentBackendHasCapability(ctx context.Context, agentID int64, wantCap capability.Capability) (bool, error)
+	// BackendCapabilities 报告一档后端此刻的能力集及是否真的知道：本机查 runtime 注册表，
+	// 远端只读本机已连着那台设备时缓存的矩阵，没有连接或没预取成功即 known=false（不拨号）。
+	BackendCapabilities(ctx context.Context, be *agent_backend_entity.AgentBackend) (caps capability.Capabilities, known bool, err error)
 	CountActiveSessions(ctx context.Context) (int, error)
 	// BeginToolApproval 在 sessionID 当前活跃 turn 上登记一条 pending 工具审批、推流,
 	// 并返回等待 channel;无活跃 turn → error(工具 MCP handler 据此拒绝工具调用)。

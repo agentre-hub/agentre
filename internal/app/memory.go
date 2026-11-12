@@ -1,7 +1,16 @@
 package app
 
 import (
+	"context"
+
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/memory_svc"
 )
 
@@ -102,4 +111,94 @@ func (a *App) MemorySearch(keyword string) ([]*memory_svc.MemoryItem, error) {
 func (a *App) MemoryVisible(agentID, projectID int64) (*memory_svc.VisibleMemory, error) {
 	res, err := memory_svc.Memory().Visible(a.ctx, agentID, projectID)
 	return res, codedError(err)
+}
+
+// MemoryRestrictedTargets 记忆页 agent 头部：这个 agent 的哪些执行目标不带记忆或只能读摘要，
+// 以及原因。全部完整支持（或没有执行目标）时返回空列表。
+func (a *App) MemoryRestrictedTargets(agentID int64) ([]memory_svc.RestrictedTarget, error) {
+	advisor := memory_svc.NewTargetAdvisor(newMemoryTargetSource(), memoryTier)
+	res, err := advisor.Restricted(a.ctx, agentID)
+	return res, codedError(err)
+}
+
+// memoryTier 把 chat_svc.MemoryTier 接给 memory_svc：memory_svc 不能 import chat_svc
+// （chat_svc 依赖 memory_svc），判档规则只有 chat_svc 这一份。
+func memoryTier(caps capability.Capabilities, backendType string) string {
+	return string(chat_svc.MemoryTier(caps, backendType))
+}
+
+// memoryTargetSource 是 memory_svc.TargetSource 的宿主实现：执行目标与顺序来自
+// exec_target_svc，后端来自仓储，能力集来自 chat_svc（远端只读已缓存的，不拨号）。
+type memoryTargetSource struct {
+	resolve            func(ctx context.Context, agentID int64) ([]*agent_entity.AgentExecTarget, error)
+	backends           func(ctx context.Context, ids []int64) (map[int64]*agent_backend_entity.AgentBackend, error)
+	caps               func(ctx context.Context, be *agent_backend_entity.AgentBackend) (capability.Capabilities, bool, error)
+	deviceName         func(ctx context.Context, be *agent_backend_entity.AgentBackend) string
+	typeSupportsMemory func(backendType string) bool
+}
+
+func newMemoryTargetSource() *memoryTargetSource {
+	return &memoryTargetSource{
+		resolve: func(ctx context.Context, agentID int64) ([]*agent_entity.AgentExecTarget, error) {
+			return exec_target_svc.ExecTarget().ResolvedExecTargets(ctx, agentID)
+		},
+		backends: func(ctx context.Context, ids []int64) (map[int64]*agent_backend_entity.AgentBackend, error) {
+			return agent_backend_repo.AgentBackend().BatchFind(ctx, ids)
+		},
+		caps: func(ctx context.Context, be *agent_backend_entity.AgentBackend) (capability.Capabilities, bool, error) {
+			return chat_svc.Chat().BackendCapabilities(ctx, be)
+		},
+		deviceName: func(ctx context.Context, be *agent_backend_entity.AgentBackend) string {
+			if view := exec_target_svc.LocalPairedDeviceView(ctx, be.DeviceFingerprint); view != nil {
+				return view.Name
+			}
+			return ""
+		},
+		typeSupportsMemory: func(backendType string) bool {
+			r := agentruntime.RuntimeFor(agent_backend_entity.BackendType(backendType))
+			return r != nil && r.Capabilities().Has(capability.CapMemory)
+		},
+	}
+}
+
+func (s *memoryTargetSource) ExecTargets(ctx context.Context, agentID int64) ([]memory_svc.ExecTarget, error) {
+	targets, err := s.resolve(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if len(targets) == 0 {
+		return nil, nil
+	}
+	ids := make([]int64, 0, len(targets))
+	for _, t := range targets {
+		ids = append(ids, t.AgentBackendID)
+	}
+	backends, err := s.backends(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]memory_svc.ExecTarget, 0, len(targets))
+	for _, t := range targets {
+		be := backends[t.AgentBackendID]
+		if be == nil {
+			continue
+		}
+		caps, known, err := s.caps(ctx, be)
+		if err != nil {
+			return nil, err
+		}
+		if !known {
+			continue
+		}
+		remote := exec_target_svc.BackendTargetsRemote(be)
+		target := memory_svc.ExecTarget{
+			BackendID: be.ID, BackendName: be.Name, BackendType: be.Type,
+			Remote: remote, Caps: caps, TypeSupportsMemory: s.typeSupportsMemory(be.Type),
+		}
+		if remote {
+			target.DeviceName = s.deviceName(ctx, be)
+		}
+		out = append(out, target)
+	}
+	return out, nil
 }

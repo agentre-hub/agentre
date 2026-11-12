@@ -36,6 +36,7 @@ const app = vi.hoisted(() => ({
   MemoryMove: vi.fn(),
   MemoryDelete: vi.fn(),
   SetAgentMemoryEnabled: vi.fn(),
+  MemoryRestrictedTargets: vi.fn(),
 }));
 vi.mock("../../../../wailsjs/go/app/App", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -161,6 +162,7 @@ function seed() {
   app.MemoryRecentChanges.mockResolvedValue([]);
   app.MemorySearch.mockResolvedValue([]);
   app.MemoryVisible.mockResolvedValue({ layers: [] });
+  app.MemoryRestrictedTargets.mockResolvedValue([]);
   app.MemoryListByOwner.mockImplementation(async (owner: Owner) => list(owner));
 }
 
@@ -612,5 +614,97 @@ describe("Memory page · recent changes", () => {
       within(second).getByRole("button", { name: "Restore" }),
     );
     expect(app.MemoryUnarchive).toHaveBeenCalledWith(2);
+  });
+});
+
+describe("Memory page · agent header restricted execution targets", () => {
+  const restricted = (
+    over: Partial<{
+      backendId: number;
+      backendName: string;
+      deviceName: string;
+      level: string;
+      reason: string;
+    }>,
+  ) => ({
+    backendId: 1,
+    backendName: "Hermes",
+    deviceName: "",
+    level: "none",
+    reason: "unsupported_backend",
+    ...over,
+  });
+  const targetsList = () =>
+    screen.queryByRole("list", {
+      name: "Execution targets that carry limited memory",
+    });
+
+  it("Given every target is fully supported, Then the header shows nothing about targets", async () => {
+    app.MemoryRestrictedTargets.mockResolvedValue([]);
+    renderPage("/memory?owner=agent:2");
+    await waitFor(() =>
+      expect(app.MemoryRestrictedTargets).toHaveBeenCalledWith(2),
+    );
+    await screen.findByRole("switch");
+    expect(targetsList()).not.toBeInTheDocument();
+  });
+
+  it("Given the builtin backend, Then it says it only reads summaries", async () => {
+    app.MemoryRestrictedTargets.mockResolvedValue([
+      restricted({
+        backendName: "Builtin",
+        level: "summaries",
+        reason: "builtin_summaries",
+      }),
+    ]);
+    renderPage("/memory?owner=agent:2");
+    const list = await screen.findByRole("list", {
+      name: "Execution targets that carry limited memory",
+    });
+    expect(
+      within(list).getByText("Builtin: reads summaries only, cannot write"),
+    ).toBeInTheDocument();
+  });
+
+  it("Given an unsupported backend, Then it says the backend is not supported", async () => {
+    app.MemoryRestrictedTargets.mockResolvedValue([restricted({})]);
+    renderPage("/memory?owner=agent:2");
+    expect(
+      await screen.findByText(
+        "Hermes: carries no memory (this backend doesn't support it)",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("Given a remote device that needs upgrading, Then the line names the device and says it needs upgrading", async () => {
+    app.MemoryRestrictedTargets.mockResolvedValue([
+      restricted({
+        backendId: 2,
+        backendName: "Claude Code",
+        deviceName: "Rack 2",
+        reason: "needs_upgrade",
+      }),
+    ]);
+    renderPage("/memory?owner=agent:2");
+    expect(
+      await screen.findByText(
+        "Rack 2 · Claude Code: carries no memory (that device needs upgrading)",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("Given the binding fails, Then the page still works and shows nothing about targets", async () => {
+    app.MemoryRestrictedTargets.mockRejectedValue(new Error("boom"));
+    renderPage("/memory?owner=agent:2");
+    await waitFor(() => expect(app.MemoryRestrictedTargets).toHaveBeenCalled());
+    expect(await screen.findByRole("switch")).toBeInTheDocument();
+    expect(targetsList()).not.toBeInTheDocument();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("Given a non-agent owner, Then targets are not queried", async () => {
+    renderPage("/memory?owner=global");
+    await waitFor(() => expect(app.MemoryListByOwner).toHaveBeenCalled());
+    expect(app.MemoryRestrictedTargets).not.toHaveBeenCalled();
   });
 });
