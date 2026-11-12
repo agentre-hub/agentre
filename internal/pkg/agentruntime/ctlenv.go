@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/agentre-hub/agentre/internal/pkg/clienv"
 	"github.com/agentre-hub/agentre/internal/pkg/procscan"
 )
 
@@ -53,8 +54,19 @@ var agrctlPath atomic.Value // string
 
 // RegisterAgrctlPath 登记已装 agrctl 的路径（桌面端 bootstrap、agentred 装好后调用），
 // 供注入会话凭证时把它所在目录排到子进程 PATH 最前，让会话里的裸 `agrctl` 能跑。
-// 传空串清空(测试用)。
-func RegisterAgrctlPath(path string) { agrctlPath.Store(path) }
+// 传空串清空(测试用)。相对路径（dev 覆盖 AGENTRE_AGRCTL_PATH=build/bin/agrctl）按本进程
+// cwd 定成绝对路径：原样进 PATH 会按会话 cwd（项目工作区）解析，让工作区里的同名程序顶替
+// 系统命令；定不下来就不登记。
+func RegisterAgrctlPath(path string) {
+	if path != "" && !filepath.IsAbs(path) {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			abs = ""
+		}
+		path = abs
+	}
+	agrctlPath.Store(path)
+}
 
 func registeredAgrctlPath() string {
 	p, _ := agrctlPath.Load().(string)
@@ -80,7 +92,7 @@ func prependAgrctlDir(env map[string]string) {
 		return
 	}
 	dir := filepath.Dir(path)
-	base, ok := env["PATH"]
+	base, ok := clienv.PathValue(env) // Windows 上 env_json 写的 Path 也算
 	if !ok {
 		base = os.Getenv("PATH")
 	}

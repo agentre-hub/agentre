@@ -90,3 +90,22 @@ func TestCLIEnv_PutsAgrctlDirOnPathForSessions(t *testing.T) {
 		})
 	}
 }
+
+// dev 覆盖 AGENTRE_AGRCTL_PATH 照注释写成 build/bin/agrctl（或裸 agrctl）时是相对路径：原样排进
+// PATH 会按会话子进程的 cwd（项目工作区）解析，工作区里的 build/bin/git、./ls 就能顶替系统命令。
+// 登记时按登记进程自己的 cwd 定成绝对路径。
+func TestRegisterAgrctlPath_GivenRelativePath_ThenPathEntryIsAbsolute(t *testing.T) {
+	t.Cleanup(func() { RegisterAgrctlPath("") })
+	t.Setenv("PATH", "/usr/bin")
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	ctl := CtlCredentials{Endpoint: "http://127.0.0.1:1", Token: "t"}
+
+	for _, rel := range []string{filepath.Join("build", "bin", "agrctl"), "agrctl"} {
+		RegisterAgrctlPath(rel)
+		env := map[string]string{}
+		applyCtlEnv(env, ctl)
+		first := filepath.SplitList(env["PATH"])[0]
+		assert.Equal(t, filepath.Join(cwd, filepath.Dir(rel)), first, rel)
+	}
+}

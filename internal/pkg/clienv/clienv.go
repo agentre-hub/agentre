@@ -23,11 +23,55 @@ var (
 // BuildEnv returns os.Environ merged with caller-provided variables, then
 // augments PATH so GUI-launched app bundles can still run Homebrew/npm CLIs.
 func BuildEnv(extra map[string]string, binary string) []string {
-	env := environMap(os.Environ())
-	for k, v := range extra {
-		env[k] = v
+	return buildEnv(os.Environ(), extra, binary, envFoldCase)
+}
+
+// envFoldCase: Windows env names are case-insensitive (the system spells it
+// "Path"), and exec keeps only the last of several spellings — after sorting,
+// an inherited "Path" would land after, and silently replace, our "PATH".
+var envFoldCase = runtime.GOOS == "windows"
+
+// PathValue returns env's PATH as the child process would see it: on Windows
+// any spelling counts (an exact "PATH" wins).
+func PathValue(env map[string]string) (string, bool) {
+	return pathValue(env, envFoldCase)
+}
+
+func pathValue(env map[string]string, foldCase bool) (string, bool) {
+	if v, ok := env["PATH"]; ok {
+		return v, true
 	}
-	env["PATH"] = SearchPathFrom(env["PATH"], binary)
+	if foldCase {
+		for k, v := range env {
+			if strings.EqualFold(k, "PATH") {
+				return v, true
+			}
+		}
+	}
+	return "", false
+}
+
+func isPathKey(k string, foldCase bool) bool {
+	return k == "PATH" || foldCase && strings.EqualFold(k, "PATH")
+}
+
+func buildEnv(environ []string, extra map[string]string, binary string, foldCase bool) []string {
+	env := environMap(environ)
+	path, ok := pathValue(extra, foldCase)
+	if !ok {
+		path, _ = pathValue(env, foldCase)
+	}
+	for k := range env {
+		if isPathKey(k, foldCase) {
+			delete(env, k)
+		}
+	}
+	for k, v := range extra {
+		if !isPathKey(k, foldCase) {
+			env[k] = v
+		}
+	}
+	env["PATH"] = SearchPathFrom(path, binary)
 	if _, ok := env["HOME"]; !ok {
 		if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
 			env["HOME"] = home
