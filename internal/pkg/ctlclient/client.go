@@ -43,10 +43,13 @@ type Endpoint struct {
 	codexSandbox bool
 }
 
-// codexSandboxHint 是 Codex 沙箱挡住本机网关时追加到拨号失败报错后的说明。按 spec 决策 21，
-// 后端沙箱为 workspace-write 时 Agentre 会为 Codex 打开沙箱网络，出口就指向它。
-const codexSandboxHint = "the Codex sandbox blocks the local Agentre gateway: " +
-	"set the sandbox of this Agentre agent backend to workspace-write"
+// codexSandboxHint 是 Codex 沙箱挡住本机网关时追加到拨号失败报错后的说明。
+const codexSandboxHint = "the Codex sandbox blocks the local Agentre gateway"
+
+// codexSandboxBackendAdvice 是会话 token 由 Agentre 注入时（TokenFromEnv）跟在提示后的出口：
+// 按 spec 决策 21，带会话凭证、后端沙箱为 workspace-write 时 Agentre 会为 Codex 打开沙箱网络。
+// 没有会话 token 的 Codex 不是 Agentre 带凭证启动的，这条出口对它不成立。
+const codexSandboxBackendAdvice = ": set the sandbox of this Agentre agent backend to workspace-write"
 
 // ServerError 是控制 API 回的非 2xx 响应;Message 是执行者给出的原始错误消息。
 type ServerError struct {
@@ -136,7 +139,11 @@ func (e Endpoint) dialFailure(err error) error {
 		failure = errAgentredHostNoSession
 	}
 	if e.codexSandbox && couldNotDial {
-		return fmt.Errorf("%w\n%s", failure, codexSandboxHint)
+		hint := codexSandboxHint
+		if e.TokenFromEnv {
+			hint += codexSandboxBackendAdvice
+		}
+		return fmt.Errorf("%w\n%s", failure, hint)
 	}
 	return failure
 }

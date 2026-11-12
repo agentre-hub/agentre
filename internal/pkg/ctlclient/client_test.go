@@ -311,6 +311,36 @@ func TestGet_DialFailureUnderNetworkDisabledCodexSandboxNamesTheSandbox(t *testi
 	}
 }
 
+// TestGet_DialFailureUnderNetworkDisabledCodexSandboxWithoutSessionTokenGivesNoBackendAdvice：
+// 没有会话注入的 AGENTRE_CTL_TOKEN（凭证取自桌面握手文件）说明这个 Codex 不是 Agentre 带着会话
+// 凭证启动的，决策 21 不会为它打开沙箱网络，「把后端沙箱设为 workspace-write」帮不上忙。
+// 仍说明是 Codex 沙箱挡住了本机网关，但不给这条出口。
+func TestGet_DialFailureUnderNetworkDisabledCodexSandboxWithoutSessionTokenGivesNoBackendAdvice(t *testing.T) {
+	desktopDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", desktopDir)
+	t.Setenv("AGENTRED_DATA_DIR", t.TempDir())
+	if err := ctlendpoint.Write(desktopDir, ctlendpoint.Endpoint{URL: "http://" + unreachableAddr(t), Token: "hs-token"}); err != nil {
+		t.Fatalf("write handshake: %v", err)
+	}
+
+	ep, err := Resolve("", "", envOf(map[string]string{"CODEX_SANDBOX_NETWORK_DISABLED": "1"}))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	err = ep.Get("/ctl/v1/resources", nil)
+	if err == nil {
+		t.Fatal("want an error when the endpoint can't be reached")
+	}
+	for _, want := range []string{"connect to", "Codex sandbox"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %q, want it to contain %q", err.Error(), want)
+		}
+	}
+	if strings.Contains(err.Error(), "workspace-write") {
+		t.Fatalf("err = %q, workspace-write opens the network only for Agentre sessions with injected credentials", err.Error())
+	}
+}
+
 // TestGet_DialFailureWithoutCodexSandboxKeepsPlainMessage：没有 CODEX_SANDBOX 时拨号失败的
 // 报错不变，不提 Codex 沙箱。
 func TestGet_DialFailureWithoutCodexSandboxKeepsPlainMessage(t *testing.T) {

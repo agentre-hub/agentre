@@ -27,10 +27,9 @@ type CtlCredentials struct {
 	Token    string
 }
 
-func (c CtlCredentials) complete() bool { return c.Endpoint != "" && c.Token != "" }
-
-// Injectable 报告这组凭证会不会真被注入子进程（与 applyCtlEnv 同一判据）。
-func (c CtlCredentials) Injectable() bool { return c.complete() }
+// Injectable 报告这组凭证会不会真被注入子进程：applyCtlEnv 与 codex 打开沙箱网络（决策 21）
+// 共用这一个判据。
+func (c CtlCredentials) Injectable() bool { return c.Endpoint != "" && c.Token != "" }
 
 // CtlCredentialSource 为 (agent, session) 签发会话凭证；签不了时返回零值。
 type CtlCredentialSource func(agentID, sessionID int64) CtlCredentials
@@ -78,7 +77,7 @@ func registeredAgrctlPath() string {
 
 // applyCtlEnv 把会话凭证写进 env。在用户 env_json 之后调用：会话身份不能被后端配置盖掉。
 func applyCtlEnv(env map[string]string, c CtlCredentials) {
-	if !c.complete() {
+	if !c.Injectable() {
 		return
 	}
 	env[CtlEndpointEnv] = c.Endpoint

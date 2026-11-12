@@ -363,6 +363,62 @@ func TestRun_ProviderChangeEvictsAndRespawns(t *testing.T) {
 	})
 }
 
+// TestRun_SandboxNetworkChangeEvictsAndRespawns：决策 21 的 sandbox_workspace_write.network_access
+// 是 app-server 启动期的 -c 覆盖项，池跨轮复用进程。带 agrctl 凭证的会话把后端沙箱从 read-only
+// 改成 workspace-write（agrctl 的报错正是这么教的）后，下一轮必须换一个带网络的进程；反过来收紧到
+// read-only 也不能接着用那个开了网的进程。
+func TestRun_SandboxNetworkChangeEvictsAndRespawns(t *testing.T) {
+	const netCfg = "sandbox_workspace_write.network_access=true"
+	Convey("Given 带 agrctl 凭证的同一 codex 会话", t, func() {
+		agentruntime.RegisterCtlCredentialSource(func(int64, int64) agentruntime.CtlCredentials {
+			return agentruntime.CtlCredentials{Endpoint: "http://127.0.0.1:60080", Token: "sess-tok"}
+		})
+		defer agentruntime.RegisterCtlCredentialSource(nil)
+		var spawns [][]string
+		restore := SetSessionFactoryForTest(func(req agentruntime.RunRequest, env map[string]string, cwd string) (cxSessionHandle, error) {
+			spawns = append(spawns, buildLaunchSpec(req, env, cwd).config)
+			return &fakeRuntimeSession{stream: &emptyRuntimeStream{}, sid: "thread-net", model: "m"}, nil
+		})
+		defer restore()
+
+		r := NewWithPool(nil)
+		run := func(sandbox string) {
+			events, _, err := r.Run(context.Background(), agentruntime.RunRequest{
+				Backend: &agent_backend_entity.AgentBackend{
+					Type:    string(agent_backend_entity.TypeCodex),
+					EnvJSON: "{}",
+					Sandbox: sandbox,
+				},
+				SessionID: 79,
+				Cwd:       t.TempDir(),
+				UserText:  "hi",
+			})
+			So(err, ShouldBeNil)
+			for range events {
+			}
+		}
+
+		Convey("When 同一沙箱再来一轮, Then 复用不重 spawn", func() {
+			run("workspace-write")
+			run("workspace-write")
+			So(len(spawns), ShouldEqual, 1)
+		})
+		Convey("When read-only 改成 workspace-write, Then 重 spawn 且新进程打开沙箱网络", func() {
+			run("read-only")
+			run("workspace-write")
+			So(len(spawns), ShouldEqual, 2)
+			So(spawns[0], ShouldNotContain, netCfg)
+			So(spawns[1], ShouldContain, netCfg)
+		})
+		Convey("When workspace-write 收紧成 read-only, Then 不再复用开了网的进程", func() {
+			run("workspace-write")
+			run("read-only")
+			So(len(spawns), ShouldEqual, 2)
+			So(spawns[1], ShouldNotContain, netCfg)
+		})
+	})
+}
+
 // TestRun_ModelKeyChangeEvictsAndResumes locks the approved launch identity:
 // ProviderKey + ModelKey + resolved ModelID. Stable ProviderKey/ModelID do not
 // permit reuse when the persisted fixed-model identity changed; the rebuilt
