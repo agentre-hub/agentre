@@ -252,10 +252,11 @@ func TestPostRaw_CancelledRequestToLiveHandshakeEndpointOnAgentredHostKeepsCance
 	}
 }
 
-// TestGet_DialFailureUnderCodexSandboxNamesTheSandbox：Codex 沙箱挡住回环拨号时（CODEX_SANDBOX
-// 由 codex 注入），报错要说明是 Codex 沙箱挡住了本机网关，并指出该后端的沙箱要设为
-// danger-full-access；原始拨号错误仍保留。
-func TestGet_DialFailureUnderCodexSandboxNamesTheSandbox(t *testing.T) {
+// TestGet_DialFailureUnderNetworkOpenCodexSandboxKeepsPlainMessage：spec 决策 21 下默认/
+// workspace-write 沙箱的网络是开的，codex 在 macOS 仍注入 CODEX_SANDBOX=seatbelt、但不注入
+// CODEX_SANDBOX_NETWORK_DISABLED（codex-cli 0.166 实测）。这时拨不通是网关本身的问题，
+// 报错不能把锅推给沙箱。
+func TestGet_DialFailureUnderNetworkOpenCodexSandboxKeepsPlainMessage(t *testing.T) {
 	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
 	t.Setenv("AGENTRED_DATA_DIR", t.TempDir())
 
@@ -271,16 +272,19 @@ func TestGet_DialFailureUnderCodexSandboxNamesTheSandbox(t *testing.T) {
 	if err == nil {
 		t.Fatal("want an error when the endpoint can't be reached")
 	}
-	for _, want := range []string{"connect to", "Codex sandbox", "danger-full-access"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("err = %q, want it to contain %q", err.Error(), want)
-		}
+	if !strings.Contains(err.Error(), "connect to") {
+		t.Fatalf("err = %q, want the dial error kept", err.Error())
+	}
+	if strings.Contains(err.Error(), "sandbox") {
+		t.Fatalf("err = %q, a network-open Codex sandbox does not block the gateway", err.Error())
 	}
 }
 
 // TestGet_DialFailureUnderNetworkDisabledCodexSandboxNamesTheSandbox：codex 给每个断网的沙箱
 // 都注入 CODEX_SANDBOX_NETWORK_DISABLED=1，而 CODEX_SANDBOX=seatbelt 只有 macOS 的 seatbelt
-// 才注入（Linux 的 agentred 主机上没有它）。只有前者时拨号失败同样要说明是 Codex 沙箱。
+// 才注入（Linux 的 agentred 主机上没有它）。只有前者时拨号失败同样要说明是 Codex 沙箱
+// （spec「Agent 读写记忆」Codex 沙箱：read-only 时命令失败并说明是沙箱挡住了本机网关）；
+// 按决策 21，workspace-write 就会放行，出口指向它而不是 danger-full-access。
 func TestGet_DialFailureUnderNetworkDisabledCodexSandboxNamesTheSandbox(t *testing.T) {
 	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
 	t.Setenv("AGENTRED_DATA_DIR", t.TempDir())
@@ -297,10 +301,13 @@ func TestGet_DialFailureUnderNetworkDisabledCodexSandboxNamesTheSandbox(t *testi
 	if err == nil {
 		t.Fatal("want an error when the endpoint can't be reached")
 	}
-	for _, want := range []string{"connect to", "Codex sandbox", "danger-full-access"} {
+	for _, want := range []string{"connect to", "Codex sandbox", "workspace-write"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("err = %q, want it to contain %q", err.Error(), want)
 		}
+	}
+	if strings.Contains(err.Error(), "danger-full-access") {
+		t.Fatalf("err = %q, workspace-write already reaches the gateway (decision 21)", err.Error())
 	}
 }
 
@@ -336,9 +343,9 @@ func TestPostRaw_CancelledUnderCodexSandboxHasNoSandboxHint(t *testing.T) {
 	t.Setenv("AGENTRED_DATA_DIR", t.TempDir())
 
 	ep, err := Resolve("", "", envOf(map[string]string{
-		"AGENTRE_CTL_ENDPOINT": "http://" + unreachableAddr(t),
-		"AGENTRE_CTL_TOKEN":    "session-token",
-		"CODEX_SANDBOX":        "seatbelt",
+		"AGENTRE_CTL_ENDPOINT":           "http://" + unreachableAddr(t),
+		"AGENTRE_CTL_TOKEN":              "session-token",
+		"CODEX_SANDBOX_NETWORK_DISABLED": "1",
 	}))
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
