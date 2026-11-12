@@ -175,6 +175,19 @@ describe("MemoryWriteCard", () => {
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });
 
+  it("a created write whose entry cannot be read is not mistaken for undone or gone", async () => {
+    const get = vi.fn(async () => {
+      throw new Error("ipc down");
+    });
+    renderCard("memory m7 created (agent A)", memoryPort({ get }));
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    await Promise.resolve();
+    const card = screen.getByTestId("memory-write-card");
+    expect(card.getAttribute("data-state")).toBe("created");
+    expect(screen.getByText("Remembered")).toBeDefined();
+    expect(screen.queryByText("Undone")).toBeNull();
+  });
+
   it("an updated write whose entry is gone says so and offers nothing", async () => {
     renderCard(
       "memory m7 updated (agent A)",

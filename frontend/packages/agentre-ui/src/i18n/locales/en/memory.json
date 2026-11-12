@@ -42,6 +42,9 @@
     "budget": {
       "label": "Budget usage",
       "value": "{{used}} / {{budget}} chars"
-    }
+    },
+    "entryRow": "{{count}} memories",
+    "entryRow_one": "{{count}} memory",
+    "entryRow_other": "{{count}} memories"
   }
 }

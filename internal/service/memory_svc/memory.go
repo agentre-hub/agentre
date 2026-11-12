@@ -110,6 +110,7 @@ func (s *memorySvc) Create(ctx context.Context, req *CreateRequest) (*CreateResu
 		return nil, err
 	}
 	sync_svc.NotifyCreate(ctx, syncwire.KindMemory, m.ID, m.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindMemory)
 	logWrite(ctx, m, string(memory_entity.ActionCreated))
 	return &CreateResult{Item: toItem(m)}, nil
 }
@@ -203,6 +204,7 @@ func (s *memorySvc) Delete(ctx context.Context, id int64) error {
 		return err
 	}
 	sync_svc.NotifyDelete(ctx, syncwire.KindMemory, m.ID, m.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindMemory)
 	logWrite(ctx, m, "deleted")
 	return nil
 }
@@ -232,6 +234,7 @@ func (s *memorySvc) mutate(ctx context.Context, id int64, op string, apply func(
 			return nil, err
 		}
 		sync_svc.NotifyUpdate(ctx, syncwire.KindMemory, m.ID, m.SyncMeta)
+		sync_svc.NotifyConfigChanged(syncwire.KindMemory)
 		logWrite(ctx, m, op)
 	}
 	return toItem(m), nil

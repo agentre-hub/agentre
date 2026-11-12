@@ -36,9 +36,11 @@ export function useMemoryDirectory() {
   const { t } = useTranslation();
   const [state, setState] = React.useState<State>({ status: "loading" });
   const loaded = React.useRef(false);
+  const seq = React.useRef(0);
   const globalLabel = t("memoryPage.sidebar.global");
 
   const reload = React.useCallback(async () => {
+    const mine = ++seq.current;
     try {
       const [org, projects, counts, recent] = await Promise.all([
         LoadOrg(),
@@ -46,6 +48,8 @@ export function useMemoryDirectory() {
         MemoryCountsByOwner(),
         MemoryRecentChanges(),
       ]);
+      // 写入之后的重拉与随之而来的 config:changed 会叠在一起：晚到的旧结果不盖掉更新的那一次。
+      if (mine !== seq.current) return;
       loaded.current = true;
       setState({
         status: "ready",
@@ -61,7 +65,7 @@ export function useMemoryDirectory() {
         recent: recent ?? [],
       });
     } catch {
-      if (loaded.current) return;
+      if (mine !== seq.current || loaded.current) return;
       setState({ status: "error" });
     }
   }, [globalLabel]);

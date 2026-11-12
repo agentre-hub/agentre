@@ -20,10 +20,9 @@ export function useMemoryDeleteCount(
   const key = JSON.stringify(owners.map((o) => [o.kind, o.id]));
 
   React.useEffect(() => {
-    if (!enabled) {
-      setCount(null);
-      return;
-    }
+    // 关着，或 owners 变了：旧数不再作数（换了删除策略时，旧策略的条数不能留在确认框里）。
+    setCount(null);
+    if (!enabled) return;
     let alive = true;
     const wanted = (JSON.parse(key) as [MemoryOwnerRef["kind"], number][]).map(
       ([kind, id]) => ({ kind, id }),

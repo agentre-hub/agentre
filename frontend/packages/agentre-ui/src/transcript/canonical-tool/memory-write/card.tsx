@@ -48,7 +48,7 @@ function MemoryCard({
   uiStateKey?: string;
 }) {
   const { t } = useUiTranslation();
-  // undefined = 还在读；null = 条目已不存在。
+  // undefined = 还在读或读不出来；null = 条目已不存在（端口明确答了 null）。
   const [entry, setEntry] = React.useState<MemoryEntryView | null | undefined>(
     undefined,
   );
@@ -65,7 +65,8 @@ function MemoryCard({
       if (next) setLastSummary(next.summary);
       setEntry(next);
     } catch {
-      setEntry(null);
+      // 读失败不等于条目没了：不据此判成已撤销 / 已不存在，只是不给操作。
+      setEntry(undefined);
     }
   }, [memory, write.id]);
 

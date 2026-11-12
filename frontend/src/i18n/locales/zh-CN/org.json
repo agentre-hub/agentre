@@ -124,8 +124,6 @@
         "description": "该 Agent 的对话、技能与状态记录都会一并清除，该操作不可撤销。",
         "title": "确认删除 Agent「{{name}}」？",
         "memories": "它名下的 {{count}} 条记忆也会一并删除。",
-      "memories_one": "它名下的 {{count}} 条记忆也会一并删除。",
-      "memories_other": "它名下的 {{count}} 条记忆也会一并删除。",
         "memories_one": "它名下的 {{count}} 条记忆也会一并删除。",
         "memories_other": "它名下的 {{count}} 条记忆也会一并删除。",
         "noMemories": "它名下没有记忆。"
@@ -175,8 +173,6 @@
         "strategyTitle": "选择如何处理子项",
         "title": "确认删除「{{name}}」？",
         "memories": "它名下的 {{count}} 条记忆也会一并删除。",
-      "memories_one": "它名下的 {{count}} 条记忆也会一并删除。",
-      "memories_other": "它名下的 {{count}} 条记忆也会一并删除。",
         "memories_one": "它名下的 {{count}} 条记忆也会一并删除。",
         "memories_other": "它名下的 {{count}} 条记忆也会一并删除。",
         "noMemories": "它名下没有记忆。"
@@ -200,10 +196,6 @@
       "sort": {
         "status": "状态"
       }
-    },
-    "memory": {
-      "row_one": "记忆 {{count}} 条",
-      "row_other": "记忆 {{count}} 条"
     }
   }
 }

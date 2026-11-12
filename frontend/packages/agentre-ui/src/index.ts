@@ -789,6 +789,8 @@ export type { MemoryBudgetMeterProps } from "./memory/memory-budget-meter";
 export { MemoryEditForm } from "./memory/memory-edit-form";
 export type { MemoryEditFormProps } from "./memory/memory-edit-form";
 export { MemoryEntryGroups } from "./memory/memory-entry-groups";
+export { MemoryEntryRow } from "./memory/memory-entry-row";
+export type { MemoryEntryRowProps } from "./memory/memory-entry-row";
 export { MemoryRow } from "./memory/memory-row";
 export { formatMemoryDate } from "./memory/format";
 export type {

@@ -128,9 +128,11 @@ func (memoryAdapter) apply(ctx context.Context, in *inbound, resolved map[string
 	row.CreatorKind = memory_entity.ActorKind(p.CreatorKind)
 	row.ChangeAction = memory_entity.ChangeAction(p.ChangeAction)
 	row.ChangeActorKind = memory_entity.ActorKind(p.ChangeActorKind)
+	// 会话号与 agent 本地 ID 只在产生它的那台机器上有意义：这次变更来自别的设备，本机行上
+	// 原有的最近变更者一并清掉（创建者不随变更走，已有行保留本机的）。
+	row.ChangeAgentID, row.ChangeSessionID = 0, 0
 	row.ChangedAt = p.ChangedAt
 	if !found {
-		// 会话号与 agent 本地 ID 只在产生它的那台机器上有意义，落在这里是 0。
 		row.SyncID = in.SyncID
 		return memory_repo.Memory().Create(ctx, row)
 	}

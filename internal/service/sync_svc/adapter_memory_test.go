@@ -197,6 +197,34 @@ func TestMemoryAdapter_ApplyOverwritesAnExistingRowKeepingItsLocalKey(t *testing
 	assert.True(t, updated.Pinned)
 }
 
+// 别的设备上的一次变更落地后，最近变更者不再是本机那个会话：会话号与 agent 本地 ID 归零。
+// 否则本机那张对话卡片的撤销会把别的设备的这次改动当成自己的写入撤掉。
+func TestMemoryAdapter_ApplyOverExistingRowClearsTheLocalChangeSession(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	stateReturningMemory(t, ctrl, "mem-1", &memory_entity.Memory{
+		ID: 3, OwnerKind: memory_entity.OwnerGlobal, Summary: "mine",
+		ChangeAction: memory_entity.ActionEdited, ChangeActorKind: memory_entity.ActorAI,
+		ChangeAgentID: 5, ChangeSessionID: 70,
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "mem-1", SyncVersion: 1},
+	})
+	mems := mock_memory_repo.NewMockMemoryRepo(ctrl)
+	var updated *memory_entity.Memory
+	mems.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, m *memory_entity.Memory) error { updated = m; return nil })
+	memory_repo.RegisterMemory(mems)
+
+	require.NoError(t, memoryAdapter{}.apply(context.Background(), &inbound{
+		Kind: syncwire.KindMemory, SyncID: "mem-1", Version: 2,
+		Payload: mustJSON(t, syncwire.MemoryPayload{OwnerKind: "global", Summary: "theirs", PrevSummary: "mine",
+			State: "normal", ChangeAction: "edited", ChangeActorKind: "ai", ChangedAt: 1900}),
+	}, map[string]int64{}))
+
+	require.NotNil(t, updated)
+	assert.Equal(t, memory_entity.ActionEdited, updated.ChangeAction)
+	assert.Equal(t, int64(0), updated.ChangeAgentID)
+	assert.Equal(t, int64(0), updated.ChangeSessionID)
+}
+
 // 归属在本机还不存在：落地暂缓（R2a），不写悬空引用、也不崩。
 func TestMemoryAdapter_ApplyWithDanglingOwnerDefersInsteadOfWriting(t *testing.T) {
 	ctrl := gomock.NewController(t)

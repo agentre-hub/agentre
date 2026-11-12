@@ -119,11 +119,6 @@
       "confirmName": "输入「{{name}}」以确认",
       "submit": "删除项目",
       "failed": "项目没删成。"
-    },
-    "memory": {
-      "row": "记忆 {{count}} 条",
-      "row_one": "记忆 {{count}} 条",
-      "row_other": "记忆 {{count}} 条"
     }
   },
   "projectHeader": {

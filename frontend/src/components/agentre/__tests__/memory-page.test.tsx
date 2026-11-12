@@ -282,6 +282,26 @@ describe("Memory page · left column", () => {
   });
 });
 
+describe("Memory page · search keyword changes", () => {
+  it("Given no match for the previous keyword, When the keyword grows and that search is still running, Then it does not claim the new keyword has no match", async () => {
+    app.MemorySearch.mockResolvedValueOnce([]);
+    renderPage();
+    await screen.findByRole("navigation", { name: "Memory owners" });
+    const box = screen.getByRole("searchbox", { name: "Search all memories" });
+    await userEvent.type(box, "lin");
+    expect(
+      await screen.findByText("No memory matches “lin”."),
+    ).toBeInTheDocument();
+
+    app.MemorySearch.mockReturnValueOnce(new Promise(() => {}));
+    await userEvent.type(box, "t");
+    await waitFor(() =>
+      expect(app.MemorySearch).toHaveBeenLastCalledWith("lint"),
+    );
+    expect(screen.queryByText("No memory matches “lint”.")).toBeNull();
+  });
+});
+
 describe("Memory page · an owner", () => {
   it("Given a deep link to an agent, Then the header shows its name, budget usage and memory switch, and the groups include inherited layers", async () => {
     app.MemoryListByOwner.mockResolvedValue(
@@ -572,6 +592,29 @@ describe("Memory page · changes from other devices", () => {
   });
 });
 
+describe("Memory page · overlapping reloads", () => {
+  it("Given two reloads in flight, When the older one answers last, Then the left column keeps the newer counts", async () => {
+    renderPage();
+    const global = () =>
+      within(sidebar()).getByRole("button", { name: /^Global/ });
+    await waitFor(() => expect(global()).toHaveTextContent("3"));
+
+    let answerOlder: (v: unknown) => void = () => {};
+    app.MemoryCountsByOwner.mockImplementationOnce(
+      () => new Promise((resolve) => (answerOlder = resolve)),
+    );
+    emit("config:changed");
+    app.MemoryCountsByOwner.mockResolvedValueOnce([
+      { owner: GLOBAL, count: 9 },
+    ]);
+    emit("sync:applied");
+    await waitFor(() => expect(global()).toHaveTextContent("9"));
+
+    await act(async () => answerOlder([{ owner: GLOBAL, count: 4 }]));
+    expect(global()).toHaveTextContent("9");
+  });
+});
+
 describe("Memory page · recent changes", () => {
   it("Given recent changes, Then they list who did what and offer restore previous / restore", async () => {
     app.MemoryRecentChanges.mockResolvedValue([
@@ -614,6 +657,25 @@ describe("Memory page · recent changes", () => {
       within(second).getByRole("button", { name: "Restore" }),
     );
     expect(app.MemoryUnarchive).toHaveBeenCalledWith(2);
+  });
+
+  it("When Restore previous version is clicked twice while the first is running, Then it restores once (a second swap would undo it)", async () => {
+    app.MemoryRecentChanges.mockResolvedValue([
+      item(1, "Prod DB is older than dev", AGENT_EVA, { hasPrevious: true }),
+    ]);
+    let finish: (v: unknown) => void = () => {};
+    app.MemoryRestorePrevious.mockReturnValue(
+      new Promise((resolve) => (finish = resolve)),
+    );
+    renderPage("/memory?view=recent");
+    const row = await screen.findByTestId("memory-change-1");
+    const restore = within(row).getByRole("button", {
+      name: "Restore previous version",
+    });
+    await userEvent.click(restore);
+    await userEvent.click(restore);
+    await act(async () => finish(item(1, "x", AGENT_EVA)));
+    expect(app.MemoryRestorePrevious).toHaveBeenCalledTimes(1);
   });
 });
 

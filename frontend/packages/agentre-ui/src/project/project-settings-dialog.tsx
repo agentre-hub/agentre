@@ -31,8 +31,6 @@
  */
 import * as React from "react";
 import {
-  Brain,
-  ChevronRight,
   FolderOpen,
   Loader2,
   MonitorSmartphone,
@@ -59,6 +57,7 @@ import { DirectoryPicker } from "./directory-picker";
 import { useFailureText } from "./failure-text";
 import { ParentSelect } from "./parent-select";
 import { IdentityFields } from "../identity/identity-fields";
+import { MemoryEntryRow } from "../memory/memory-entry-row";
 import type {
   PickerMachine,
   ProjectCandidateView,
@@ -333,24 +332,11 @@ export function ProjectSettingsDialog({
               />
             ) : null}
             {memory ? (
-              <button
-                type="button"
+              <MemoryEntryRow
                 data-testid="project-settings-memory"
-                onClick={memory.onOpen}
-                className="flex w-full items-center gap-2 rounded-md bg-button-fill px-3 py-2 text-left text-sm text-foreground hover:bg-accent on-accent focus-visible:focus-outline"
-              >
-                <Brain
-                  className="size-4 shrink-0 text-muted-foreground"
-                  aria-hidden
-                />
-                <span className="min-w-0 flex-1 truncate">
-                  {t("projectSettings.memory.row", { count: memory.count })}
-                </span>
-                <ChevronRight
-                  className="size-4 shrink-0 text-muted-foreground"
-                  aria-hidden
-                />
-              </button>
+                count={memory.count}
+                onOpen={memory.onOpen}
+              />
             ) : null}
           </div>
 

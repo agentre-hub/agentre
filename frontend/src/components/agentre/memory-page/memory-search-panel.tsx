@@ -17,7 +17,12 @@ const SEARCH_DEBOUNCE_MS = 200;
 type SearchState =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; items: memory_svc.MemoryItem[] };
+  | {
+      status: "ready";
+      /** 这组结果是按哪个关键词搜的：输入框里的词可能已经又变了。 */
+      keyword: string;
+      items: memory_svc.MemoryItem[];
+    };
 
 /**
  * 搜索：按摘要和详情过滤所有层，结果按归属分组（组的先后按结果里第一次出现的顺序，
@@ -43,7 +48,8 @@ export function MemorySearchPanel({
     const timer = window.setTimeout(() => {
       MemorySearch(keyword)
         .then((items) => {
-          if (!cancelled) setState({ status: "ready", items: items ?? [] });
+          if (!cancelled)
+            setState({ status: "ready", keyword, items: items ?? [] });
         })
         .catch(() => {
           if (!cancelled) setState({ status: "error" });
@@ -85,7 +91,7 @@ export function MemorySearchPanel({
         </p>
       ) : groups.length === 0 ? (
         <p className="pt-16 text-center text-xs text-muted-foreground">
-          {t("memoryPage.search.noResults", { query: keyword })}
+          {t("memoryPage.search.noResults", { query: state.keyword })}
         </p>
       ) : (
         <div className="flex flex-col gap-5">

@@ -25,10 +25,14 @@ var credentialPattern = regexp.MustCompile(
 		`|\bAIza[0-9A-Za-z_-]{35}`, // Google API key
 )
 
-// NormalizeContent 在写入边界统一去掉摘要与详情的首尾空白。
+// NormalizeContent 在写入边界统一去掉摘要与详情的首尾空白，并把详情里的 Windows 换行
+// （\r\n）规范成 \n——否则孤立的 \r 会被当成不可见字符拒掉。
 func NormalizeContent(summary, detail string) (string, string) {
-	return strings.TrimSpace(summary), strings.TrimSpace(detail)
+	return strings.TrimSpace(summary), strings.TrimSpace(strings.ReplaceAll(detail, "\r\n", "\n"))
 }
+
+// summaryLineBreaks 是会把摘要断成多行的字符：换行、回车与 Unicode 的行 / 段分隔符。
+const summaryLineBreaks = "\r\n  "
 
 // CheckContent 校验已规范化的摘要与详情：长度上限、摘要单行、不可见字符、凭据格式。
 // 拒绝时的错误码各自说明原因与上限。
@@ -39,7 +43,7 @@ func CheckContent(ctx context.Context, summary, detail string) error {
 	if utf8.RuneCountInString(summary) > SummaryMaxChars {
 		return i18n.NewError(ctx, code.MemorySummaryTooLong)
 	}
-	if strings.ContainsAny(summary, "\r\n") {
+	if strings.ContainsAny(summary, summaryLineBreaks) {
 		return i18n.NewError(ctx, code.MemorySummaryMultiline)
 	}
 	if utf8.RuneCountInString(detail) > DetailMaxChars {

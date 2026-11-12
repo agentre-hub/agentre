@@ -14,6 +14,7 @@ import {
   UpdateAppSettings,
 } from "../../../../wailsjs/go/app/App";
 import type { app_settings_svc } from "../../../../wailsjs/go/models";
+import { toastFailure } from "../failure-toast";
 
 // 只存本机（app_settings），不参与同步；缺省保留。
 const KEY = "memory.claude_native";
@@ -47,10 +48,15 @@ export function MemorySettings() {
   }, []);
 
   const save = async (next: NativeMemory) => {
-    await UpdateAppSettings({
-      entries: [{ key: KEY, value: next === "keep" ? "true" : "false" }],
-    } as app_settings_svc.UpdateRequest);
-    setValue(next);
+    try {
+      await UpdateAppSettings({
+        entries: [{ key: KEY, value: next === "keep" ? "true" : "false" }],
+      } as app_settings_svc.UpdateRequest);
+      setValue(next);
+    } catch (err) {
+      // 没存上：选择留在原值，并说清楚。
+      toastFailure(t("common.saveFailed"), err);
+    }
   };
 
   return (

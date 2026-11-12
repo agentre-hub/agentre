@@ -294,6 +294,12 @@ export const MemoryMove = windowBackedMock("MemoryMove", () =>
 export const MemoryDelete = windowBackedMock("MemoryDelete", () =>
   missingWailsBinding("MemoryDelete"),
 );
+export const MemoryGet = windowBackedMock("MemoryGet", () =>
+  Promise.resolve(null),
+);
+export const MemoryUndoWrite = windowBackedMock("MemoryUndoWrite", () =>
+  missingWailsBinding("MemoryUndoWrite"),
+);
 export const MemoryRestrictedTargets = windowBackedMock(
   "MemoryRestrictedTargets",
   () => Promise.resolve([]),

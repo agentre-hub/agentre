@@ -26,6 +26,10 @@ export function useMemoryOwnerEntry(
   const { kind, id } = owner;
 
   React.useEffect(() => {
+    // 换了归属：上一个归属的数不能顶着新归属显示。
+    setCount(null);
+    // 还没有归属（没打开的项目设置弹窗给 id 0）：没什么可读的。
+    if (kind !== "global" && id <= 0) return;
     let alive = true;
     void (async () => {
       try {

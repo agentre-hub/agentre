@@ -92,6 +92,8 @@ function ChangeRow({
 }) {
   const { t } = useTranslation();
   const [failure, setFailure] = React.useState<MemoryWriteResult | null>(null);
+  // 恢复上一版是对调：一次没回来之前再点一下会把它对调回去，所以在途时按钮不可点。
+  const [busy, setBusy] = React.useState(false);
   const change = item.lastChange;
   const actor =
     change?.actor?.kind === "ai"
@@ -106,9 +108,15 @@ function ChangeRow({
   const archived = item.state === "archived";
 
   const run = async (fn: () => Promise<unknown>) => {
-    const result = await runMemoryWrite(fn);
-    setFailure(result.ok ? null : result);
-    if (result.ok) await onChanged();
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await runMemoryWrite(fn);
+      setFailure(result.ok ? null : result);
+      if (result.ok) await onChanged();
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -142,6 +150,7 @@ function ChangeRow({
         <Button
           variant="ghost"
           size="xs"
+          disabled={busy}
           onClick={() => void run(() => MemoryUnarchive(item.id))}
         >
           {t("memoryPage.recent.unarchive")}
@@ -151,6 +160,7 @@ function ChangeRow({
         <Button
           variant="ghost"
           size="xs"
+          disabled={busy}
           onClick={() => void run(() => MemoryRestorePrevious(item.id))}
         >
           {t("memoryPage.recent.restorePrevious")}

@@ -38,6 +38,14 @@ func TestCheckContent(t *testing.T) {
 		convey.Convey("摘要含换行被拒", func() {
 			convey.So(codeOf(CheckContent(ctx, "a\nb", "")), convey.ShouldEqual, code.MemorySummaryMultiline)
 			convey.So(codeOf(CheckContent(ctx, "a\rb", "")), convey.ShouldEqual, code.MemorySummaryMultiline)
+			// Unicode 的行分隔符与段分隔符同样会把摘要断成两行（注入段落里一条一行）。
+			convey.So(codeOf(CheckContent(ctx, "a ## b", "")), convey.ShouldEqual, code.MemorySummaryMultiline)
+			convey.So(codeOf(CheckContent(ctx, "a b", "")), convey.ShouldEqual, code.MemorySummaryMultiline)
+		})
+		convey.Convey("Windows 换行的详情规范成 \\n 后通过", func() {
+			summary, detail := NormalizeContent(" 用 pnpm ", "第一行\r\n第二行\r\n")
+			convey.So(detail, convey.ShouldEqual, "第一行\n第二行")
+			convey.So(CheckContent(ctx, summary, detail), convey.ShouldBeNil)
 		})
 		convey.Convey("详情超过 4000 字被拒", func() {
 			convey.So(codeOf(CheckContent(ctx, "a", strings.Repeat("详", DetailMaxChars+1))), convey.ShouldEqual, code.MemoryDetailTooLong)

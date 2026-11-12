@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,6 +13,9 @@ vi.mock("../../../../../wailsjs/go/app/App", () => ({
   GetAppSetting: (req: { key: string }) => getMock(req),
   UpdateAppSettings: (req: unknown) => updateMock(req),
 }));
+
+const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
+vi.mock("sonner", () => ({ toast }));
 
 import i18n from "../../../../i18n";
 import { MemorySettings } from "../memory";
@@ -56,6 +59,21 @@ describe("MemorySettings", () => {
     expect(updateMock).toHaveBeenLastCalledWith({
       entries: [{ key: "memory.claude_native", value: "true" }],
     });
+  });
+
+  it("写回失败时提示保存失败，选择留在原值", async () => {
+    updateMock.mockImplementationOnce(() => Promise.reject(new Error("db")));
+    const user = userEvent.setup();
+    render(<MemorySettings />);
+    const select = await screen.findByRole("combobox", {
+      name: "Claude Code 自带记忆",
+    });
+    await user.click(select);
+    await user.click(screen.getByRole("option", { name: "关闭" }));
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("保存失败", expect.anything()),
+    );
+    expect(select).toHaveTextContent("保留");
   });
 
   it("en 文案", async () => {

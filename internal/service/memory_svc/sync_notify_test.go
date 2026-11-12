@@ -135,3 +135,42 @@ func TestMemorySvc_Delete_NotifiesATombstone(t *testing.T) {
 	assert.Equal(t, "mem-sync", rec.changes[0].Meta.SyncID)
 	assert.Equal(t, int64(4), rec.changes[0].Meta.SyncVersion)
 }
+
+// recordConfigChanges 记下「本机刚写完哪几类资源」(config:changed) 的每一次通知。
+func recordConfigChanges(t *testing.T) *[][]string {
+	t.Helper()
+	var got [][]string
+	sync_svc.SetConfigChangeEmitter(func(kinds []string) { got = append(got, kinds) })
+	t.Cleanup(func() { sync_svc.SetConfigChangeEmitter(nil) })
+	return &got
+}
+
+// 会话里 agent 用 agrctl 写的记忆也要让开着的记忆页就地重拉：每次落库成功的写入都报一次
+// memory 这一类，什么都没写的不报。
+func TestMemorySvc_Writes_AnnounceConfigChanged(t *testing.T) {
+	ctx, m, svc := setupMemorySvc(t)
+	registerRecordingSync(t)
+	got := recordConfigChanges(t)
+
+	m.memory.EXPECT().FindNormalBySummary(ctx, memory_entity.GlobalOwner(), "s").Return(nil, nil)
+	m.memory.EXPECT().Create(ctx, gomock.Any()).Return(nil)
+	_, err := svc.Create(ctx, &CreateRequest{Owner: memory_entity.GlobalOwner(), Summary: "s", Actor: memory_entity.UserActor()})
+	require.NoError(t, err)
+
+	m.memory.EXPECT().Find(ctx, int64(4)).Return(syncedMemory(4, memory_entity.GlobalOwner(), "old"), nil)
+	m.memory.EXPECT().Update(ctx, gomock.Any()).Return(nil)
+	_, err = svc.Archive(ctx, 4, memory_entity.UserActor())
+	require.NoError(t, err)
+
+	m.memory.EXPECT().Find(ctx, int64(5)).Return(syncedMemory(5, memory_entity.GlobalOwner(), "old"), nil)
+	m.memory.EXPECT().Delete(ctx, int64(5)).Return(nil)
+	require.NoError(t, svc.Delete(ctx, 5))
+
+	pinned := syncedMemory(6, memory_entity.GlobalOwner(), "old")
+	pinned.Pinned = true
+	m.memory.EXPECT().Find(ctx, int64(6)).Return(pinned, nil)
+	_, err = svc.SetPinned(ctx, 6, true) // 本来就置顶：没有写入
+	require.NoError(t, err)
+
+	assert.Equal(t, [][]string{{syncwire.KindMemory}, {syncwire.KindMemory}, {syncwire.KindMemory}}, *got)
+}

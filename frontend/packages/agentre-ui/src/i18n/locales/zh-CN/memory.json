@@ -42,6 +42,9 @@
     "budget": {
       "label": "预算用量",
       "value": "{{used}} / {{budget}} 字"
-    }
+    },
+    "entryRow": "记忆 {{count}} 条",
+    "entryRow_one": "记忆 {{count}} 条",
+    "entryRow_other": "记忆 {{count}} 条"
   }
 }
