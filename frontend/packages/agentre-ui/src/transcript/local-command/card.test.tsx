@@ -59,12 +59,17 @@ describe("LocalCommandCard", () => {
     ).toBeInTheDocument();
   });
 
-  it("after exit shows exit code and no run-time action buttons", () => {
+  it("after a failure shows a failure triangle, exit N and no run-time action buttons", () => {
     commands.start({ id: "t2", command: "go test" });
     commands.finish("t2", "failed", 1);
     renderCard(<LocalCommandCard entryId="t2" onOpenInTerminal={vi.fn()} />);
 
-    expect(screen.getByText(/Exit 1/)).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Failed" })).toHaveAttribute(
+      "data-state",
+      "failed",
+    );
+    expect(screen.getByText("exit 1")).toBeInTheDocument();
+    expect(screen.queryByText(/FAILED/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /Stop/ })).toBeNull();
     expect(
       screen.queryByRole("button", { name: /Open in terminal/ }),
@@ -97,7 +102,9 @@ describe("LocalCommandCard", () => {
 
     expect(screen.getByText("git status")).toBeInTheDocument();
     expect(screen.getByText("1.2s")).toBeInTheDocument();
-    expect(screen.getByText(/Exit 0/)).toBeInTheDocument();
+    // 成功不挂标记、不写退出码。
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.queryByText(/exit 0/i)).toBeNull();
     // 折叠行不含 chip 与 "不发送给 AI"
     expect(screen.queryByText(/Local command/)).toBeNull();
     expect(screen.queryByText(/Not sent to AI/)).toBeNull();
@@ -117,5 +124,41 @@ describe("LocalCommandCard", () => {
     // expanded header now shows chip + "not sent to AI"
     expect(screen.getByText(/Local command/)).toBeInTheDocument();
     expect(screen.getByText(/Not sent to AI/)).toBeInTheDocument();
+  });
+
+  it("Given a running command, When rendered, Then the status is a spinner mark with no status word", () => {
+    commands.start({ id: "r1", command: "sleep 9" });
+    renderCard(<LocalCommandCard entryId="r1" onOpenInTerminal={vi.fn()} />);
+
+    expect(screen.getByRole("img", { name: "Running" })).toHaveAttribute(
+      "data-state",
+      "running",
+    );
+    expect(screen.queryByText(/running/i)).toBeNull();
+    expect(screen.queryByText(/exit/i)).toBeNull();
+  });
+
+  it("Given a stopped command, When rendered, Then the status is the stopped mark", () => {
+    commands.start({ id: "p1", command: "sleep 9" });
+    commands.finish("p1", "stopped");
+    renderCard(<LocalCommandCard entryId="p1" onOpenInTerminal={vi.fn()} />);
+
+    expect(screen.getByRole("img", { name: "Stopped" })).toHaveAttribute(
+      "data-state",
+      "stopped",
+    );
+    expect(screen.queryByText(/STOPPED/)).toBeNull();
+  });
+
+  it("Given an expanded failed command, When rendered, Then the header keeps the triangle and exit N", async () => {
+    commands.start({ id: "e1", command: "false", createdAt: 1000 });
+    commands.finish("e1", "failed", 2);
+    renderCard(<LocalCommandCard entryId="e1" onOpenInTerminal={vi.fn()} />);
+    await userEvent.click(
+      screen.getByRole("button", { name: /Expand output/ }),
+    );
+
+    expect(screen.getByRole("img", { name: "Failed" })).toBeInTheDocument();
+    expect(screen.getByText("exit 2")).toBeInTheDocument();
   });
 });

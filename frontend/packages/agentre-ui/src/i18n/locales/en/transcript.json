@@ -32,7 +32,6 @@
       "thinkingMeta": "{{count}} chars",
       "exit": "exit {{code}}",
       "failed": "failed",
-      "running": "running",
       "canceled": "canceled",
       "unknown": "unknown result",
       "lines": "{{count}} lines",
@@ -46,11 +45,6 @@
     }
   },
   "canonical": {
-    "status": {
-      "done": "DONE",
-      "error": "ERROR",
-      "running": "RUNNING"
-    },
     "agentSpawn": {
       "aria": "Subagent {{name}}",
       "groupedAria": "Subagents in {{mode}} mode",
@@ -191,8 +185,6 @@
       }
     },
     "raw": {
-      "allowed": "Allowed",
-      "allowedSession": "Allowed · session",
       "approvedTitle": "This tool call has been approved",
       "aria": "Tool call {{tool}}",
       "emptyOutput": "(empty output)",

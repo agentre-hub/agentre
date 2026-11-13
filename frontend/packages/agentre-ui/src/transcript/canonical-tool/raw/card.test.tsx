@@ -65,28 +65,37 @@ describe("RawToolCard header", () => {
   });
 });
 
-describe("RawToolCard status pill", () => {
-  it("shows RUNNING while waiting for a result", () => {
+describe("RawToolCard status mark", () => {
+  it("Given 等待返回, When 渲染, Then 卡头是转圈而不是 RUNNING 文字", () => {
     render(<RawToolCard toolBlock={bashUse()} />);
-    expect(screen.getByText("RUNNING")).toBeDefined();
+    const card = screen.getByTestId("raw-tool-card");
+    expect(within(card).getByRole("img", { name: "Running" })).toHaveAttribute(
+      "data-state",
+      "running",
+    );
+    expect(screen.queryByText("RUNNING")).toBeNull();
   });
 
-  it("shows DONE once a result arrives", () => {
+  it("Given 结果已回, When 渲染, Then 成功不挂标记也不写 DONE", () => {
     render(<RawToolCard toolBlock={bashUse()} resultBlock={result()} />);
-    expect(screen.getByText("DONE")).toBeDefined();
+    const card = screen.getByTestId("raw-tool-card");
+    expect(within(card).queryByRole("img")).toBeNull();
+    expect(screen.queryByText("DONE")).toBeNull();
   });
 
-  it("shows ERROR when resultBlock.isError", () => {
+  it("Given resultBlock.isError, When 渲染, Then 卡头是红三角而不是 ERROR 文字", () => {
     render(
       <RawToolCard
-        toolBlock={bashUse({
-          toolName: "Read",
-          toolInput: { file_path: "/missing" },
-        })}
-        resultBlock={result({ text: "ENOENT", isError: true })}
+        toolBlock={bashUse()}
+        resultBlock={result({ isError: true, text: "boom" })}
       />,
     );
-    expect(screen.getByText("ERROR")).toBeDefined();
+    const card = screen.getByTestId("raw-tool-card");
+    expect(within(card).getByRole("img", { name: "Failed" })).toHaveAttribute(
+      "data-state",
+      "failed",
+    );
+    expect(screen.queryByText("ERROR")).toBeNull();
   });
 });
 
@@ -96,7 +105,7 @@ describe("RawToolCard command_execution result parsing", () => {
     toolInput: { command: "echo ok" },
   });
 
-  it("shows EXIT N pill and parsed output (not raw JSON)", () => {
+  it("Given 退出码 0, When 渲染, Then 不挂标记也不写 EXIT 0, 输出照常解析", () => {
     render(
       <RawToolCard
         toolBlock={cmdUse}
@@ -109,13 +118,16 @@ describe("RawToolCard command_execution result parsing", () => {
         })}
       />,
     );
-    expect(screen.getByText("EXIT 0")).toBeDefined();
+    expect(screen.queryByText("EXIT 0")).toBeNull();
+    expect(
+      within(screen.getByTestId("raw-tool-card")).queryByRole("img"),
+    ).toBeNull();
     fireEvent.click(screen.getByRole("button"));
     expect(screen.getByText(/^ok$/m)).toBeDefined();
     expect(screen.queryByText(/"exitCode"/)).toBeNull();
   });
 
-  it("flags non-zero exit as error", () => {
+  it("Given 非零退出码, When 渲染, Then 红三角后跟 exit N 且整卡为错误态", () => {
     render(
       <RawToolCard
         toolBlock={cmdUse}
@@ -124,7 +136,10 @@ describe("RawToolCard command_execution result parsing", () => {
         })}
       />,
     );
-    expect(screen.getByText("EXIT 1")).toBeDefined();
+    const card = screen.getByTestId("raw-tool-card");
+    expect(within(card).getByRole("img", { name: "Failed" })).toBeDefined();
+    expect(within(card).getByText("exit 1")).toBeDefined();
+    expect(screen.queryByText("EXIT 1")).toBeNull();
     expect(screen.getByTestId("raw-tool-card").className).toMatch(
       /bg-destructive-soft/,
     );
@@ -139,7 +154,9 @@ describe("RawToolCard command_execution result parsing", () => {
         })}
       />,
     );
-    expect(screen.getByText("ERROR")).toBeDefined();
+    const card = screen.getByTestId("raw-tool-card");
+    expect(within(card).getByRole("img", { name: "Failed" })).toBeDefined();
+    expect(within(card).queryByText(/^exit /)).toBeNull();
   });
 });
 
@@ -340,7 +357,7 @@ describe("RawToolCard permission integration", () => {
     expect(screen.getByTestId("tool-permission-overlay")).toBeDefined();
   });
 
-  it("shows an Allowed badge when toolPermission resolved+allowed", () => {
+  it("Given 审批已允许, When 渲染, Then 徽标是盾牌图标, 没有英文 Allowed 文字", () => {
     render(
       <RawToolCard
         toolBlock={bashUse({
@@ -354,10 +371,16 @@ describe("RawToolCard permission integration", () => {
         })}
       />,
     );
-    expect(screen.getByText("Allowed")).toBeDefined();
+    const badge = screen.getByTitle("This tool call has been approved");
+    expect(within(badge).getByRole("img", { name: "Allowed" })).toHaveAttribute(
+      "data-state",
+      "allowed",
+    );
+    expect(screen.queryByText("Allowed")).toBeNull();
+    expect(within(badge).queryByText("this session")).toBeNull();
   });
 
-  it("shows 'Allowed · session' when alwaysAllow is set", () => {
+  it("Given 本会话始终允许, When 渲染, Then 盾牌后跟灰字「this session」", () => {
     render(
       <RawToolCard
         toolBlock={bashUse({
@@ -372,6 +395,9 @@ describe("RawToolCard permission integration", () => {
         })}
       />,
     );
-    expect(screen.getByText("Allowed · session")).toBeDefined();
+    const badge = screen.getByTitle("This tool call has been approved");
+    expect(within(badge).getByRole("img", { name: "Allowed" })).toBeDefined();
+    expect(within(badge).getByText("this session")).toBeDefined();
+    expect(screen.queryByText("Allowed · session")).toBeNull();
   });
 });

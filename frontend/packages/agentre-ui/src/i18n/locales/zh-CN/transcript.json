@@ -32,7 +32,6 @@
       "thinkingMeta": "{{count}} 字",
       "exit": "exit {{code}}",
       "failed": "失败",
-      "running": "运行中",
       "canceled": "已取消",
       "unknown": "结果未知",
       "lines": "{{count}} 行",
@@ -46,11 +45,6 @@
     }
   },
   "canonical": {
-    "status": {
-      "done": "DONE",
-      "error": "ERROR",
-      "running": "RUNNING"
-    },
     "agentSpawn": {
       "aria": "Subagent {{name}}",
       "groupedAria": "{{mode}}模式的多个 Subagent",
@@ -191,8 +185,6 @@
       }
     },
     "raw": {
-      "allowed": "Allowed",
-      "allowedSession": "Allowed · session",
       "approvedTitle": "该工具调用已审批通过",
       "aria": "工具调用 {{tool}}",
       "emptyOutput": "(empty output)",

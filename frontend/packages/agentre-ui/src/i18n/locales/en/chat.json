@@ -113,13 +113,7 @@
   "localCommand": {
     "localChip": "Local command",
     "notSharedWithAI": "Not sent to AI",
-    "status": {
-      "running": "Running",
-      "done": "Done",
-      "failed": "Failed",
-      "stopped": "Stopped"
-    },
-    "exitCode": "Exit {{code}}",
+    "exitCode": "exit {{code}}",
     "stop": "Stop",
     "openInTerminal": "Open in terminal",
     "dismiss": "Dismiss command",
