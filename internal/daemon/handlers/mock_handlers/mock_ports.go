@@ -590,6 +590,22 @@ func (mr *MockSessionDeletePortMockRecorder) Delete(ctx, peerFingerprint, peerSe
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockSessionDeletePort)(nil).Delete), ctx, peerFingerprint, peerSessionID)
 }
 
+// OwnerOf mocks base method.
+func (m *MockSessionDeletePort) OwnerOf(ctx context.Context, conversationID string) (devicefp.Initiator, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OwnerOf", ctx, conversationID)
+	ret0, _ := ret[0].(devicefp.Initiator)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// OwnerOf indicates an expected call of OwnerOf.
+func (mr *MockSessionDeletePortMockRecorder) OwnerOf(ctx, conversationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OwnerOf", reflect.TypeOf((*MockSessionDeletePort)(nil).OwnerOf), ctx, conversationID)
+}
+
 // MockSessionModelTargetPort is a mock of SessionModelTargetPort interface.
 type MockSessionModelTargetPort struct {
 	ctrl     *gomock.Controller

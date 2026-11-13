@@ -128,6 +128,11 @@ type SessionRepo interface {
 	// Find 取某个对端名下的一条会话;不存在返回 (nil, nil)。
 	Find(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID string) (*DaemonSession, error)
 
+	// FindByConversation 不分对端取这条对话的行;不存在返回 (nil, nil)。conversation_id
+	// 是库上的 UNIQUE 约束,至多一行。它只服务已经过账号授权的调用方(server 删除时
+	// 不点名发起端,要先找出这条对话属于哪个对端),配对对端的读写一律走按对端收窄的 Find。
+	FindByConversation(ctx context.Context, conversationID string) (*DaemonSession, error)
+
 	// ListByPeer 列出某个对端在本 daemon 上的会话,最近活动的在前,再按 filter 收窄。
 	//
 	// 收窄放在这一层而不是调用方: 对端要的往往只是其中几条,整份回传既费带宽也把
@@ -292,6 +297,18 @@ func (r *sessionRepo) Find(ctx context.Context, peerFingerprint devicefp.Initiat
 	err := db.Ctx(ctx).
 		Where("peer_fingerprint = ? AND conversation_id = ?", peerFingerprint, conversationID).
 		First(row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
+func (r *sessionRepo) FindByConversation(ctx context.Context, conversationID string) (*DaemonSession, error) {
+	row := &DaemonSession{}
+	err := db.Ctx(ctx).Where("conversation_id = ?", conversationID).First(row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

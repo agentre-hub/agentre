@@ -278,6 +278,42 @@ func TestSessionRepo_Find_NotFound(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestSessionRepo_FindByConversation_IsNotScopedToAPeer 覆盖按对话找行:账号鉴权的调用方
+// (server)删除时没点名发起端,它要找到这条对话**属于哪个对端**,条件里因此只有
+// conversation_id —— 带上调用方指纹就又回到「删 0 行却报成功」。
+func TestSessionRepo_FindByConversation_IsNotScopedToAPeer(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	rows := sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id", "backend_type"}).
+		AddRow("peer-desktop", "s1", "claudecode")
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE conversation_id = \\? ORDER BY").
+		WithArgs("s1", 1).
+		WillReturnRows(rows)
+
+	got, err := repo.FindByConversation(ctx, "s1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, devicefp.Initiator("peer-desktop"), got.PeerFingerprint)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_FindByConversation_NotFound 覆盖未命中:(nil, nil),删除据此按
+// 「这一端已经没有这条对话」幂等返回成功,而不是把 ErrRecordNotFound 当成故障。
+func TestSessionRepo_FindByConversation_NotFound(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE conversation_id = \\?").
+		WithArgs("nope", 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+
+	got, err := repo.FindByConversation(ctx, "nope")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 // TestSessionRepo_InterruptAll_SweepsEveryNonTerminalRow 覆盖 R10 的启动清扫:
 // daemon 启动时把**全部对端**的非终态会话一次改成已中断。条件必须是
 // 「lifecycle_state <> interrupted」而不是按对端或按会话枚举 —— 重启时 daemon 内存里

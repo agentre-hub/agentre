@@ -132,6 +132,21 @@ func (mr *MockSessionRepoMockRecorder) Find(ctx, peerFingerprint, conversationID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Find", reflect.TypeOf((*MockSessionRepo)(nil).Find), ctx, peerFingerprint, conversationID)
 }
 
+// FindByConversation mocks base method.
+func (m *MockSessionRepo) FindByConversation(ctx context.Context, conversationID string) (*session_repo.DaemonSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindByConversation", ctx, conversationID)
+	ret0, _ := ret[0].(*session_repo.DaemonSession)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindByConversation indicates an expected call of FindByConversation.
+func (mr *MockSessionRepoMockRecorder) FindByConversation(ctx, conversationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByConversation", reflect.TypeOf((*MockSessionRepo)(nil).FindByConversation), ctx, conversationID)
+}
+
 // InterruptAll mocks base method.
 func (m *MockSessionRepo) InterruptAll(ctx context.Context, interruptedState string) (int64, error) {
 	m.ctrl.T.Helper()

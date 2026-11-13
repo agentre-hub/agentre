@@ -265,6 +265,10 @@ type SelfUpdateActiveTurnsPort interface {
 // 补齐族只读、跑一轮的一侧只推进生命周期,只有删除会让一条会话整个消失。
 type SessionDeletePort interface {
 	Delete(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error)
+	// OwnerOf 交回这条对话挂在哪个对端名下,不按调用方收窄;没有这条对话时 found=false。
+	// 只给账号鉴权、且没点名发起端的删除用(决策 16):会话行与转录都按对端收窄,删除
+	// 得先知道该收窄到谁。空指纹本身是合法的对端(本机),所以「不存在」单独交回。
+	OwnerOf(ctx context.Context, conversationID string) (owner devicefp.Initiator, found bool, err error)
 }
 
 // SessionModelTargetPort 改写某会话钉的 LLM ModelTarget,返回受影响行数

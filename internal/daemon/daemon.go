@@ -2365,6 +2365,15 @@ func (s daemonSessionStore) Delete(ctx context.Context, peerFingerprint devicefp
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID)
 }
 
+// OwnerOf 交回这条对话挂在哪个对端名下(handlers.SessionDeletePort),不按调用方收窄。
+func (s daemonSessionStore) OwnerOf(ctx context.Context, conversationID string) (devicefp.Initiator, bool, error) {
+	row, err := session_repo.Session().FindByConversation(dbpkg.WithContextDB(ctx, s.db), conversationID)
+	if err != nil || row == nil {
+		return "", false, err
+	}
+	return row.PeerFingerprint, true, nil
+}
+
 // CountRunning 数一数这台 daemon 此刻正在跑的会话(本机状态查询用,见 ipcStatus)。
 // 只服务本机 IPC,不经 LAN 出去,因此不按对端限定 —— 它答的是「这台机器忙不忙」。
 func (s daemonSessionStore) CountRunning(ctx context.Context) (int64, error) {

@@ -145,3 +145,74 @@ func TestSessionDelete_GivenPooledCLISession_WhenDeleted_ThenTheSubprocessIsRele
 	// 那个进程内键,而不是随手编的数字。
 	assert.Equal(t, []int64{handlers.RuntimeSessionKey(convID(7))}, recorder.Released())
 }
+
+// pairedConnContext 是一条只完成了配对的连接:有设备指纹("fp-account-wide",沿用
+// accountConnContext 的固定值),没有账号。
+func pairedConnContext(t *testing.T) context.Context {
+	t.Helper()
+	return accountConnContext(t, "")
+}
+
+// Given 账号鉴权的调用方(server)删除时没点名发起端, When 这条对话是另一台桌面发起
+// 的, Then 按对话找到它的主人,转录与会话行都对那个对端删掉 —— 按调用方自己的指纹收窄
+// 会删 0 行却报成功,server 就把这台机器记成「已删除」(决策 16 / 问题 7)。
+func TestSessionDelete_GivenAccountCallerWithoutInitiator_ThenDeletesTheOwnersConversation(t *testing.T) {
+	_, sessions, transcriptPurge, h := setupSessionDeleteTest(t, func() string { return "acct-1" })
+	sessions.EXPECT().OwnerOf(gomock.Any(), convID(7)).Return(devicefp.Initiator("fp-desktop"), true, nil)
+	gomock.InOrder(
+		transcriptPurge.EXPECT().DeleteAll(gomock.Any(), devicefp.Initiator("fp-desktop"), convID(7)).Return(int64(12), nil),
+		sessions.EXPECT().Delete(gomock.Any(), devicefp.Initiator("fp-desktop"), convID(7)).Return(int64(1), nil),
+	)
+
+	got, err := h.Delete(accountConnContext(t, "acct-1"), &agentrewire.SessionDeleteRequest{ConversationId: convID(7)})
+	require.NoError(t, err)
+	assert.True(t, got.Deleted)
+}
+
+// Given 账号鉴权的调用方没点名发起端, When 这台机器上已经没有这条对话(补删待办重放),
+// Then 照样报成功、不去删任何东西 —— 报错会让 server 那条待办永远重放下去。
+func TestSessionDelete_GivenAccountCallerAndMissingConversation_ThenSucceeds(t *testing.T) {
+	_, sessions, _, h := setupSessionDeleteTest(t, func() string { return "acct-1" })
+	sessions.EXPECT().OwnerOf(gomock.Any(), convID(7)).Return(devicefp.Initiator(""), false, nil)
+
+	got, err := h.Delete(accountConnContext(t, "acct-1"), &agentrewire.SessionDeleteRequest{ConversationId: convID(7)})
+	require.NoError(t, err)
+	assert.True(t, got.Deleted)
+}
+
+// Given 账号鉴权的调用方, When 找对话主人这一步失败, Then 整个调用报错 —— 交出成功
+// 会让 server 勾掉待办,这条对话就永远留在这台机器上了。
+func TestSessionDelete_GivenAccountCallerAndOwnerLookupFails_ThenReportsFailure(t *testing.T) {
+	_, sessions, _, h := setupSessionDeleteTest(t, func() string { return "acct-1" })
+	sessions.EXPECT().OwnerOf(gomock.Any(), convID(7)).Return(devicefp.Initiator(""), false, errors.New("disk is gone"))
+
+	_, err := h.Delete(accountConnContext(t, "acct-1"), &agentrewire.SessionDeleteRequest{ConversationId: convID(7)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disk is gone")
+}
+
+// Given 账号鉴权的调用方点名了发起端, When 删除, Then 照旧对点名的那个对端删,不另去
+// 找主人(点名是账号级能力,见 ResolveSessionPeer)。
+func TestSessionDelete_GivenAccountCallerNamingAnInitiator_ThenDeletesForThatPeer(t *testing.T) {
+	_, sessions, transcriptPurge, h := setupSessionDeleteTest(t, func() string { return "acct-1" })
+	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), devicefp.Initiator("fp-named"), convID(7)).Return(int64(3), nil)
+	sessions.EXPECT().Delete(gomock.Any(), devicefp.Initiator("fp-named"), convID(7)).Return(int64(1), nil)
+
+	got, err := h.Delete(accountConnContext(t, "acct-1"),
+		&agentrewire.SessionDeleteRequest{ConversationId: convID(7), PeerFingerprint: "fp-named"})
+	require.NoError(t, err)
+	assert.True(t, got.Deleted)
+}
+
+// Given 局域网配对的桌面(没有账号)删除时没点名发起端, When 这条对话是别的对端发起的,
+// Then 删除仍按它自己的指纹收窄、不去找主人 —— 配对身份只能删自己发起的对话(决策 16)。
+func TestSessionDelete_GivenPairedCallerWithoutInitiator_ThenStaysScopedToItsOwnPeer(t *testing.T) {
+	_, sessions, transcriptPurge, h := setupSessionDeleteTest(t, func() string { return "acct-1" })
+	// OwnerOf 没有期望:严格 mock 上调用到即失败。
+	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), devicefp.Initiator("fp-account-wide"), convID(7)).Return(int64(0), nil)
+	sessions.EXPECT().Delete(gomock.Any(), devicefp.Initiator("fp-account-wide"), convID(7)).Return(int64(0), nil)
+
+	got, err := h.Delete(pairedConnContext(t), &agentrewire.SessionDeleteRequest{ConversationId: convID(7)})
+	require.NoError(t, err)
+	assert.True(t, got.Deleted)
+}
