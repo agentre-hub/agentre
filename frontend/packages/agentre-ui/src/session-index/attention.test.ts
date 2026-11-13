@@ -136,13 +136,34 @@ describe("indexRowFromMeta", () => {
 
   it("行尾优先说「为什么需要你」，没什么可说时才退回相对时间", () => {
     expect(indexRowFromMeta(base).trailingLabel).toBe("rel:1000");
-    expect(
-      indexRowFromMeta({ ...base, agentStatus: "error", reason: "error" })
-        .trailingLabel,
-    ).toBe("error");
     expect(indexRowFromMeta({ ...base, reason: "unread" }).trailingLabel).toBe(
       "attention.unread",
     );
+  });
+
+  it("Given running or error, When the row is built, Then the tail is a status mark and no literal label is produced", () => {
+    const running = indexRowFromMeta({ ...base, agentStatus: "running" });
+    expect(running.trailingMark).toBe("running");
+    expect(running.trailingLabel).toBeUndefined();
+    const failed = indexRowFromMeta({
+      ...base,
+      agentStatus: "error",
+      reason: "error",
+    });
+    expect(failed.trailingMark).toBe("error");
+    expect(failed.trailingLabel).toBeUndefined();
+  });
+
+  it("Given approval, unread, background or idle, When the row is built, Then the tail stays text with no mark", () => {
+    for (const row of [
+      indexRowFromMeta({ ...base, reason: "needs_attention" }),
+      indexRowFromMeta({ ...base, reason: "unread" }),
+      indexRowFromMeta({ ...base, reason: "bg_running" }),
+      indexRowFromMeta(base),
+    ]) {
+      expect("trailingMark" in row).toBe(false);
+      expect(row.trailingLabel).toBeTruthy();
+    }
   });
 
   it("状态由 reason 投影而来，不是原始 agentStatus", () => {

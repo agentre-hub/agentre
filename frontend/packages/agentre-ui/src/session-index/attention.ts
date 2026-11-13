@@ -83,8 +83,7 @@ export function reasonToDisplayStatus(
  * reason → 行尾那枚 pill 的文案。取词器由宿主给（包不建 i18next 实例，见
  * `src/i18n`），key 落在包自己的 `agentreUi` namespace 下，两端因此是同一句话。
  *
- * `running` 没有 pill：那一档的行尾写的是状态码 `running` 本身（与 statusConfig 的
- * RUNNING / IDLE 同类，按约定不进 i18n）。null 同理 —— 没有理由的行不需要解释自己。
+ * `running` 没有 pill：那一档的行尾画转圈（`trailingMark`）。null 同理 —— 没有理由的行不需要解释自己。
  */
 export function reasonToPillText(
   reason: AttentionReason | null,
@@ -147,23 +146,23 @@ export type IndexRowInput = {
 };
 
 /**
- * 行尾那一列：优先说「为什么需要你」，没什么可说时才退回相对时间。
- *
- * `running` / `error` 是**状态码**而不是文案，按约定不进 i18n（与 statusConfig 的
- * RUNNING / IDLE 同类）。
+ * 行尾那一列：运行中、出错用图标说（`trailingMark`），其余优先说「为什么需要你」，
+ * 没什么可说时才退回相对时间。
  */
-function attentionTrailingLabel(
+function attentionTrailing(
   status: AgentStatus,
   reason: AttentionReason | null,
   lastMessageAt: number,
   relativeTime: (ms: number) => string,
   t: (key: string) => string,
-): string {
-  if (reason === "bg_running") return reasonToPillText(reason, t) ?? "";
-  if (status === "running") return "running";
-  if (status === "waiting") return reasonToPillText(reason, t) ?? "";
-  if (status === "error") return "error";
-  return relativeTime(lastMessageAt);
+): Pick<SessionRowModel, "trailingLabel" | "trailingMark"> {
+  if (reason === "bg_running")
+    return { trailingLabel: reasonToPillText(reason, t) ?? "" };
+  if (status === "running") return { trailingMark: "running" };
+  if (status === "waiting")
+    return { trailingLabel: reasonToPillText(reason, t) ?? "" };
+  if (status === "error") return { trailingMark: "error" };
+  return { trailingLabel: relativeTime(lastMessageAt) };
 }
 
 /**
@@ -189,13 +188,7 @@ export function indexRowFromMeta(input: IndexRowInput): SessionRowModel {
     id,
     status,
     title,
-    trailingLabel: attentionTrailingLabel(
-      status,
-      reason,
-      lastMessageAt,
-      relativeTime,
-      t,
-    ),
+    ...attentionTrailing(status, reason, lastMessageAt, relativeTime, t),
     // 不传时**不写这个键** —— 常规列表行没有 rank，写一个 undefined 进去会让
     // 包里那句 `attentionRank !== "selected"` 的判断读起来像「它有 rank」。
     ...(attentionRank !== undefined ? { attentionRank } : {}),

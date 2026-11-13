@@ -84,16 +84,20 @@ describe("Agentre foundation components", () => {
             id: "s1",
             status: "running",
             title: "修复构建",
-            trailingLabel: "running",
+            trailingMark: "running",
           },
         ]}
       />,
     );
 
     expect(screen.queryByText("2")).not.toBeInTheDocument();
+    expect(screen.queryByText("running")).not.toBeInTheDocument();
+    expect(
+      document.querySelector('[data-slot="status-mark"][data-state="running"]'),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/active/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/recent/i)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Running")).toHaveClass(
+    expect(screen.getAllByLabelText("Running")[0]).toHaveClass(
       "motion-safe:animate-pulse",
     );
 

@@ -24,6 +24,8 @@ import {
 import { AgentAvatar } from "../ui/agent-avatar";
 import type { AgentAvatarProps } from "../ui/agent-avatar";
 import { StatusDot } from "../ui/status-dot";
+import { StatusMark } from "../ui/status-mark";
+import type { SessionTrailingMark } from "./types";
 
 /**
  * 宿主的路由链接渲染器收到的一组 props。包负责**长什么样**（className / 内容 /
@@ -63,6 +65,8 @@ type SessionRowProps = Omit<React.ComponentProps<"button">, "onClick"> & {
    * span，让行尾的间距凭空多一段。
    */
   trailingLabel?: string;
+  /** 行尾状态图标（运行中 / 出错），桌面行用；手机行的状态图标由 `status` 画。 */
+  trailingMark?: SessionTrailingMark;
   onClick?: React.MouseEventHandler<HTMLElement>;
   /**
    * 行首插槽，紧跟在状态点之后。索引按一维分组时用它放**另一维**：按项目分组时是
@@ -151,6 +155,7 @@ function SessionRow({
   status,
   title,
   trailingLabel,
+  trailingMark,
   href,
   renderLink,
   leading,
@@ -227,13 +232,7 @@ function SessionRow({
   );
 
   const statusBadgeText =
-    status === "waiting"
-      ? t("sessionRow.status.waiting")
-      : status === "running"
-        ? t("sessionRow.status.running")
-        : status === "error"
-          ? t("sessionRow.status.error")
-          : null;
+    status === "waiting" ? t("sessionRow.status.waiting") : null;
   const phoneTitle = (
     <span className="block truncate text-sm">
       {highlight ? (
@@ -278,6 +277,8 @@ function SessionRow({
             >
               {statusBadgeText}
             </span>
+          ) : status === "running" || status === "error" ? (
+            <StatusMark state={status} className="shrink-0" />
           ) : unread ? (
             <span
               role="img"
@@ -306,6 +307,7 @@ function SessionRow({
       />
       {leading}
       {titleColumn}
+      {trailingMark === undefined ? null : <StatusMark state={trailingMark} />}
       {trailingLabel === undefined ? null : (
         <span
           className={cn(

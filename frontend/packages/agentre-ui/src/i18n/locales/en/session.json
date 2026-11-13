@@ -27,8 +27,6 @@
       "stopTurn": "Stop this turn"
     },
     "status": {
-      "error": "Error",
-      "running": "Running",
       "waiting": "Needs you"
     }
   },
