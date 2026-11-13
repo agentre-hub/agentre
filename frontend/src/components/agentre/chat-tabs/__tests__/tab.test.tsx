@@ -144,17 +144,17 @@ describe("Tab · 状态点与身份方块来自共享原语", () => {
   };
 
   it.each([
-    ["waiting", "bg-status-waiting"],
-    ["error", "bg-status-error"],
+    ["waiting", "bg-status-waiting", "Needs you"],
+    ["error", "bg-status-error", "Error"],
   ] as const)(
     "Given status=%s, When 渲染, Then 状态点的颜色来自共享 statusConfig 而不是 tab 私有那张表",
-    (status, dotClass) => {
+    (status, dotClass, name) => {
       render(<Tab {...baseProps} status={status} />);
 
       const dot = screen.getByTestId("tab-status-dot");
       expect(dot).toHaveClass(dotClass);
-      // 共享 StatusDot 连可及名一起带来 —— 状态不再只靠颜色说。
-      expect(dot).toHaveAccessibleName(`${status} status`);
+      // 共享 StatusDot 连可及名一起带来 —— 状态不再只靠颜色说；名字用界面语言（测试里是 en）。
+      expect(dot).toHaveAccessibleName(name);
     },
   );
 
