@@ -12,6 +12,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	watcher "github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
@@ -135,6 +136,7 @@ func (a *providerRecorderAdapter) RecordDeviceBuild(deviceID int64, version, com
 // InitRemoteDeviceWatcher 必须在 InitRemoteDevice 之后调。注入 watcher,
 // 顺带把 watcher 反向挂到 remote_device_svc。emit 必须非 nil(调用方强契约)。
 func InitRemoteDeviceWatcher(_ context.Context, emit watcher.Emitter) {
+	emit = replayOnDeviceOnline(emit)
 	devSvc := remote_device_svc.Default()
 	svc := watcher.New(
 		&repoAdapter{inner: remote_device_repo.PairedAgentred()},
@@ -173,6 +175,8 @@ func (a *watcherPortAdapter) Restart(ctx context.Context, deviceID int64) error 
 // RemoteDeviceWatcherBoot 替代旧 RemoteDeviceBoot:对所有 ACTIVE 设备启 watcher。
 // 用 Background ctx 让 watcher 生命周期跟 svc 走,不被 startup ctx 提前 cancel。
 func RemoteDeviceWatcherBoot(_ context.Context) {
+	// 启动时把上次没补发成功的待删除全部再试一遍；立即返回，补发在后台跑。
+	pendingDeleteReplay.All()
 	if err := watcher.Default().StartAll(context.Background()); err != nil {
 		logger.Default().Warn("remote_device_watcher StartAll", zap.Error(err))
 	}
@@ -186,4 +190,34 @@ func watcherRelayDial() remote_device_svc.RelayDialPort {
 		return nil
 	}
 	return relayDialAdapter{inner: svc}
+}
+
+// pendingDeleteReplayer 是「补发本地待删除」的触发口（chat_svc 里单飞、不阻塞）。
+// 只有这三个触发点：启动、账号登录 / 恢复、配对 agentred 上线。
+type pendingDeleteReplayer interface {
+	All()
+	Server()
+	Device(deviceID int64)
+}
+
+type chatPendingDeleteReplayer struct{}
+
+func (chatPendingDeleteReplayer) All()            { chat_svc.ReplayAllPendingDeletes() }
+func (chatPendingDeleteReplayer) Server()         { chat_svc.ReplayServerPendingDeletes() }
+func (chatPendingDeleteReplayer) Device(id int64) { chat_svc.ReplayDevicePendingDeletes(id) }
+
+// pendingDeleteReplay 是包级接缝，测试里换成 spy。
+var pendingDeleteReplay pendingDeleteReplayer = chatPendingDeleteReplayer{}
+
+// replayOnDeviceOnline 在 watcher 报告某台设备（重新）上线时，补发记在这台设备上的待删除。
+// 先交给原 emitter（界面事件不等补发），补发本身不阻塞。
+func replayOnDeviceOnline(next watcher.Emitter) watcher.Emitter {
+	return watcher.EmitterFunc(func(p watcher.StateEvent) {
+		if next != nil {
+			next.Emit(p)
+		}
+		if p.Online {
+			pendingDeleteReplay.Device(p.ID)
+		}
+	})
 }
