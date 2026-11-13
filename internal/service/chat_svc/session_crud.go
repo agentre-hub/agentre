@@ -130,6 +130,25 @@ func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteRespon
 	return &DeleteResponse{}, nil
 }
 
+// DeleteByUser 是用户在桌面端删除一条对话：先照 Delete 删本机那一份（失败照旧报错，
+// 不发起其它删除），再把删除带到 server 与执行端的副本（见 delete_propagation.go）。
+// 别处删不掉不影响返回，只留一笔待删除。入站删除不走这里，走 Delete（决策 10）。
+func (s *chatSvc) DeleteByUser(ctx context.Context, req *DeleteRequest) (*DeleteResponse, error) {
+	// 删除前先读出对话身份与执行端：软删之后按主键就读不到了。
+	sess, err := chat_repo.Session().Find(ctx, req.SessionID)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	resp, err := s.Delete(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if sess != nil {
+		s.propagateDelete(ctx, sess)
+	}
+	return resp, nil
+}
+
 // turnSettlePollInterval 是 cancelAndAwaitTurn 两次尝试拿会话锁之间的间隔。
 const turnSettlePollInterval = 20 * time.Millisecond
 

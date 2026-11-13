@@ -63,6 +63,10 @@ type ServerSvc interface {
 	// 只把它接到本机自己的 server 地址、access token 与一次性刷新上(internal/peer
 	// 的 auth.account 消费它)。
 	IntrospectCredential(ctx context.Context, token string) (auth.Introspection, error)
+	// DeleteSavedSession 请 server 删掉账号里的这条对话并让执行端也删，交回执行端那一份
+	// 的去向（MachineStatusDeleted / MachineStatusPending）。machineFingerprint 是执行端
+	// （本机执行为空）。未登录交回 ErrNotLoggedIn，不发请求。
+	DeleteSavedSession(ctx context.Context, conversationID, machineFingerprint string) (machineStatus string, err error)
 }
 
 var defaultSvc ServerSvc

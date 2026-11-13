@@ -85,6 +85,9 @@ func (s stubServerSvc) GetAvatar(context.Context, string) (string, string, error
 func (s stubServerSvc) IntrospectCredential(context.Context, string) (auth.Introspection, error) {
 	return auth.Introspection{}, nil
 }
+func (s stubServerSvc) DeleteSavedSession(context.Context, string, string) (string, error) {
+	return "", nil
+}
 
 // setupDesktopTargetTest 装配桌面目标可用性判定所需的最小 mock 集：账号设备清单经
 // server_svc stub 注入，本机指纹固定为 sha256:self（不走 setupPickExecTargetTest 的

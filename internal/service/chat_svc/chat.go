@@ -113,7 +113,12 @@ type ChatSvc interface {
 	Regenerate(ctx context.Context, req *RegenerateRequest) (*SendResponse, error)
 	Edit(ctx context.Context, req *EditRequest) (*SendResponse, error)
 	Rename(ctx context.Context, req *RenameRequest) (*RenameResponse, error)
+	// Delete 只删本机这一份，不往外传播 —— 入站删除（server / 别的设备发来的
+	// SESSION_DELETE）走它。
 	Delete(ctx context.Context, req *DeleteRequest) (*DeleteResponse, error)
+	// DeleteByUser 是用户发起的删除：本机删完后连带请 server / 执行端删除，发不出去的
+	// 记成本地待删除。
+	DeleteByUser(ctx context.Context, req *DeleteRequest) (*DeleteResponse, error)
 	MarkSessionRead(ctx context.Context, req *MarkSessionReadRequest) (*MarkSessionReadResponse, error)
 	AnswerUserQuestion(ctx context.Context, req *AnswerUserQuestionRequest) (*AnswerUserQuestionResponse, error)
 	AnswerToolPermission(ctx context.Context, req *AnswerToolPermissionRequest) (*AnswerToolPermissionResponse, error)
