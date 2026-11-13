@@ -6,6 +6,21 @@
       "overwrite": "覆盖",
       "skip": "跳过"
     },
+    "cleanup": {
+      "accountLabel": "账号",
+      "reason": {
+        "readFailed": "读取不到这个对话",
+        "deleteFailed": "没能从这台电脑上删除这个对话",
+        "unknown": "没能删除这个对话"
+      },
+      "toast": {
+        "deleted_one": "已删除 {{count}} 个对话",
+        "deleted_other": "已删除 {{count}} 个对话",
+        "pending": "{{machine}} 上的 {{count}} 个会在它下次上线时删除",
+        "closedTabs_one": "关闭了 {{count}} 个标签页",
+        "closedTabs_other": "关闭了 {{count}} 个标签页"
+      }
+    },
     "description": "在多台设备之间导入导出 Agentre 的配置数据。",
     "export": {
       "action": "导出...",

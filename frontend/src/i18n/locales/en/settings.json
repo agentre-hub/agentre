@@ -6,6 +6,21 @@
       "overwrite": "Overwrite",
       "skip": "Skip"
     },
+    "cleanup": {
+      "accountLabel": "your account",
+      "reason": {
+        "readFailed": "Couldn't read this conversation",
+        "deleteFailed": "Couldn't delete this conversation from this computer",
+        "unknown": "Couldn't delete this conversation"
+      },
+      "toast": {
+        "deleted_one": "Deleted {{count}} conversation",
+        "deleted_other": "Deleted {{count}} conversations",
+        "pending": "{{count}} on {{machine}} will be deleted next time it comes online",
+        "closedTabs_one": "Closed {{count}} tab",
+        "closedTabs_other": "Closed {{count}} tabs"
+      }
+    },
     "description": "Import and export Agentre configuration data across devices.",
     "export": {
       "action": "Export...",
