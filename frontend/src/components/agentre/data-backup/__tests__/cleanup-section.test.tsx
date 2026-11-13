@@ -213,10 +213,7 @@ describe("DataBackupPanel 对话清理区块", () => {
     appMocks.ExecuteChatCleanup.mockResolvedValueOnce(
       execResp({
         deleted: [11, 12],
-        pending: [
-          { kind: "machine", machine: "old-laptop", count: 2 },
-          { kind: "account", machine: "", count: 1 },
-        ],
+        pending: [{ kind: "machine", machine: "old-laptop", count: 2 }],
       }),
     );
     render(<DataBackupPanel />);
@@ -234,9 +231,6 @@ describe("DataBackupPanel 对话清理区块", () => {
     const body = String(options?.description);
     expect(body).toContain(
       "2 on old-laptop will be deleted next time it comes online",
-    );
-    expect(body).toContain(
-      "1 on your account will be deleted next time it comes online",
     );
     expect(body).toContain("Closed 2 tabs");
   });

@@ -126,7 +126,7 @@ type cleanupRun struct {
 	mu          sync.Mutex
 	serverDown  bool
 	deviceDown  map[int64]bool
-	pending     map[string]*CleanupPending // key: kind + "\x00" + machine
+	pending     map[string]*CleanupPending // key: machine name
 	pendingKeys []string
 }
 
@@ -145,15 +145,14 @@ func (r *cleanupRun) deviceKnownOffline(id int64) bool {
 }
 func (r *cleanupRun) markDeviceDown(id int64) { r.mu.Lock(); r.deviceDown[id] = true; r.mu.Unlock() }
 
-func (r *cleanupRun) addPending(kind, machine string) {
+func (r *cleanupRun) addPending(machine string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	key := kind + "\x00" + machine
-	p := r.pending[key]
+	p := r.pending[machine]
 	if p == nil {
-		p = &CleanupPending{Kind: kind, Machine: machine}
-		r.pending[key] = p
-		r.pendingKeys = append(r.pendingKeys, key)
+		p = &CleanupPending{Kind: CleanupCopyMachine, Machine: machine}
+		r.pending[machine] = p
+		r.pendingKeys = append(r.pendingKeys, machine)
 	}
 	p.Count++
 }
@@ -224,13 +223,8 @@ func (s *chatSvc) cleanupOne(ctx context.Context, run *cleanupRun, id int64, cou
 		return cleanupOutcome{failed: CleanupFailedDelete}
 	}
 	out := s.propagateForCleanup(ctx, run, sess)
-	if countPending {
-		if out.serverPending {
-			run.addPending(CleanupCopyAccount, "")
-		}
-		if out.carrierOffline {
-			run.addPending(CleanupCopyMachine, run.machineName(sess))
-		}
+	if countPending && out.carrierOffline {
+		run.addPending(run.machineName(sess))
 	}
 	return cleanupOutcome{deleted: true}
 }
@@ -238,8 +232,8 @@ func (s *chatSvc) cleanupOne(ctx context.Context, run *cleanupRun, id int64, cou
 // ExecuteCleanup 见 cleanup.go 头部。每条会话各自：重新读、跳过已不在的、保留已变成
 // 进行中的、删本机、再传播。一条失败不影响其余；多条并发（cleanupConcurrency）处理。
 //
-// Pending 只数顶层对话：machine 行是执行端那份没删成的（离线），account 行是 server 够不着
-// 而本机记了待删除的。
+// Pending 只数顶层对话，只报执行端那份没删成的离线机器（完成提示只写离线机器，spec
+// 「执行」）；server 够不着的那份照样记了本地待删除，联系上再补发，不进结果。
 func (s *chatSvc) ExecuteCleanup(ctx context.Context, req *ExecuteCleanupRequest) (*ExecuteCleanupResponse, error) {
 	if req == nil {
 		req = &ExecuteCleanupRequest{}
@@ -303,13 +297,7 @@ func (s *chatSvc) ExecuteCleanup(ctx context.Context, req *ExecuteCleanupRequest
 	for _, key := range run.pendingKeys {
 		resp.Pending = append(resp.Pending, *run.pending[key])
 	}
-	sort.SliceStable(resp.Pending, func(i, k int) bool {
-		a, b := resp.Pending[i], resp.Pending[k]
-		if a.Kind != b.Kind {
-			return a.Kind == CleanupCopyAccount
-		}
-		return a.Machine < b.Machine
-	})
+	sort.SliceStable(resp.Pending, func(i, k int) bool { return resp.Pending[i].Machine < resp.Pending[k].Machine })
 	logger.Ctx(ctx).Info("chat_svc.ExecuteCleanup",
 		zap.Int("deleted", len(resp.Deleted)), zap.Int("failed", len(resp.Failed)),
 		zap.Int64("retained", resp.Retained), zap.Int("pendingTargets", len(resp.Pending)))

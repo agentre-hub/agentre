@@ -238,7 +238,7 @@ func TestExecuteCleanup(t *testing.T) {
 			So(m.srv.maxIn, ShouldBeGreaterThanOrEqualTo, 2)
 		})
 
-		Convey("server 够不着：只有头一批并发的会真去试，其余直接记待删除，账号行计数不丢", func() {
+		Convey("server 够不着：只有头一批并发的会真去试，其余直接记待删除，一条不丢", func() {
 			m := setupCleanupTest(t, true)
 			m.srv.err = server_svc.ErrServerUnreachable
 			m.srv.gate = make(chan struct{})
@@ -276,7 +276,8 @@ func TestExecuteCleanup(t *testing.T) {
 			So(resp.Deleted, ShouldResemble, ids)
 			So(m.srv.callCount(), ShouldEqual, cleanupConcurrency)
 			So(pendingRows, ShouldEqual, 12)
-			So(resp.Pending, ShouldResemble, []CleanupPending{{Kind: CleanupCopyAccount, Count: 12}})
+			// 完成提示只报离线机器（spec「执行」）；server 那份留在本地待删除里补发，不进结果。
+			So(resp.Pending, ShouldResemble, []CleanupPending{})
 		})
 
 		Convey("没登录且已知离线的机器：不拨号，直接记 agentred 待删除并按机器名汇总", func() {

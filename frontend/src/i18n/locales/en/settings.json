@@ -7,7 +7,6 @@
       "skip": "Skip"
     },
     "cleanup": {
-      "accountLabel": "your account",
       "reason": {
         "readFailed": "Couldn't read this conversation",
         "deleteFailed": "Couldn't delete this conversation from this computer",

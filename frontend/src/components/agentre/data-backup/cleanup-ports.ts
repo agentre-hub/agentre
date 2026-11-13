@@ -108,11 +108,9 @@ export function createDesktopCleanupPorts(
           id: String(f.id),
           reason: failureReason(f.reason, deps.t),
         })),
+        // 后端只报离线执行端：完成提示只写「<机器> 上的 M 个会在它下次上线时删除」。
         pending: (resp.pending ?? []).map((p) => ({
-          label:
-            p.kind === "account"
-              ? deps.t("dataBackup.cleanup.accountLabel")
-              : p.machine,
+          label: p.machine,
           count: p.count,
         })),
       };

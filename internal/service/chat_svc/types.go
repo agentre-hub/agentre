@@ -1173,8 +1173,8 @@ type CleanupFailure struct {
 	Reason string `json:"reason"`
 }
 
-// CleanupPending 是还没删到的那份副本：Kind=machine 时是某台执行端（Machine 为它的名字），
-// Kind=account 时是账号里保存的副本（server 够不着）。只数顶层对话。
+// CleanupPending 是还没删到的那份副本：Kind 恒为 machine，Machine 是那台离线执行端的
+// 名字，它下次上线时删除。只数顶层对话。
 type CleanupPending struct {
 	Kind    string `json:"kind"`
 	Machine string `json:"machine"`

@@ -7,7 +7,6 @@
       "skip": "跳过"
     },
     "cleanup": {
-      "accountLabel": "账号",
       "reason": {
         "readFailed": "读取不到这个对话",
         "deleteFailed": "没能从这台电脑上删除这个对话",
