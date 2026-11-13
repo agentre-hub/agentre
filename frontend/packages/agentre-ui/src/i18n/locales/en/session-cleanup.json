@@ -1,0 +1,66 @@
+{
+  "sessionCleanup": {
+    "desktop": {
+      "title": "Clean up conversation history",
+      "description": "Deletes old conversations from this computer, together with their copies saved to your account and on connected runners."
+    },
+    "console": {
+      "title": "Clean up saved conversations",
+      "description": "Deletes conversations saved to your account, together with their copies on the machines that ran them."
+    },
+    "filter": {
+      "before": "Last active before",
+      "before30d": "30 days ago",
+      "before90d": "90 days ago",
+      "before180d": "180 days ago",
+      "beforeAll": "All time",
+      "agent": "Agent",
+      "allAgents": "All agents",
+      "project": "Project",
+      "allProjects": "All projects"
+    },
+    "summary": {
+      "willDelete": "{{count}} conversations will be deleted",
+      "willDelete_one": "{{count}} conversation will be deleted",
+      "willDelete_other": "{{count}} conversations will be deleted",
+      "retained": "{{count}} running or waiting for you will be kept",
+      "retained_one": "{{count}} running or waiting for you will be kept",
+      "retained_other": "{{count}} running or waiting for you will be kept",
+      "emptyBefore": "No conversations last active before {{date}}",
+      "emptyAll": "No conversations to clean up",
+      "failed": "Couldn't work out how many conversations to clean up",
+      "retry": "Try again"
+    },
+    "action": {
+      "clean": "Clean up {{count}} conversations…",
+      "clean_one": "Clean up {{count}} conversation…",
+      "clean_other": "Clean up {{count}} conversations…"
+    },
+    "confirm": {
+      "title": "Delete {{count}} conversations?",
+      "title_one": "Delete {{count}} conversation?",
+      "title_other": "Delete {{count}} conversations?",
+      "body": "This can't be undone.",
+      "copyLocal": "This computer",
+      "copyAccount": "Copies saved to your account",
+      "online": "Online",
+      "offline": "Offline · deleted next time it's online",
+      "lanDirect": "LAN pairing · deleted directly",
+      "rowCount": "{{count}} conversations",
+      "rowCount_one": "{{count}} conversation",
+      "rowCount_other": "{{count}} conversations",
+      "delete": "Delete {{count}}",
+      "deleting": "Deleting…",
+      "cancel": "Cancel",
+      "error": "Deletion didn't finish. Try again."
+    },
+    "partial": {
+      "title": "{{count}} conversations couldn't be deleted",
+      "title_one": "{{count}} conversation couldn't be deleted",
+      "title_other": "{{count}} conversations couldn't be deleted",
+      "reason": "{{reason}} ({{count}})",
+      "retry": "Retry {{count}}",
+      "close": "Close"
+    }
+  }
+}

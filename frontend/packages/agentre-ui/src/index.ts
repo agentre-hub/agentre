@@ -365,6 +365,20 @@ export type {
   ImportPreviewResult,
   SessionImportPorts,
 } from "./session-import/ports";
+// 批量清理对话历史（规格 2026-11-12）：条件 / 预览 / 确认 / 重试整段归包，宿主只提供 ports。
+export { SessionCleanupSection } from "./session-cleanup/session-cleanup-section";
+export type { SessionCleanupSectionProps } from "./session-cleanup/session-cleanup-section";
+export type {
+  CleanupBefore,
+  CleanupCopyView,
+  CleanupExecuteView,
+  CleanupFailureView,
+  CleanupFilter,
+  CleanupOption,
+  CleanupPendingView,
+  CleanupPreviewView,
+  SessionCleanupPorts,
+} from "./session-cleanup/ports";
 export { OwnSessionsHeader } from "./session-index/own-sessions-header";
 export { ProjectSessionGroup } from "./session-index/project-session-group";
 export type { ProjectSessionGroupProps } from "./session-index/project-session-group";
