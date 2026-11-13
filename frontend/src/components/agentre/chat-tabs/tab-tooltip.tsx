@@ -27,8 +27,39 @@ type Props = {
    * Tab 间滑动不再等）。测试传 0 跳过等待。
    */
   delayDuration?: number;
+  /** Tab 条拖拽排序期间关着的闸：不弹出，已开的立即收起。 */
+  gate?: HoverCardGate;
   children: React.ReactNode;
 };
+
+/**
+ * 悬停卡的闸。拖拽开始 / 结束时开关它不会让任何组件重渲染——拿起 Tab 的那一帧若要
+ * 整条 Tab 条重来，Tab 一多就掉帧；只有正开着的那张卡会收到通知收起自己。
+ */
+export type HoverCardGate = {
+  readonly closed: boolean;
+  setClosed: (closed: boolean) => void;
+  subscribe: (listener: () => void) => () => void;
+};
+
+export function createHoverCardGate(): HoverCardGate {
+  let closed = false;
+  const listeners = new Set<() => void>();
+  return {
+    get closed() {
+      return closed;
+    },
+    setClosed(next) {
+      if (next === closed) return;
+      closed = next;
+      listeners.forEach((l) => l());
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
 
 /**
  * Tab 的悬停卡：项目链 + ⌘N 一行；标题**全文**（最多 3 行 —— 悬停最想看的就是它，
@@ -46,12 +77,26 @@ export function TabTooltip({
   keyboardIndex,
   lastMessageAt,
   delayDuration,
+  gate,
   children,
 }: Props) {
   const { t } = useTranslation();
+  const [open, setOpen] = React.useState(false);
+
+  React.useEffect(
+    () =>
+      gate?.subscribe(() => {
+        if (gate.closed) setOpen(false);
+      }),
+    [gate],
+  );
 
   return (
-    <Tooltip delayDuration={delayDuration}>
+    <Tooltip
+      delayDuration={delayDuration}
+      open={open}
+      onOpenChange={(next) => setOpen(next && !gate?.closed)}
+    >
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent
         data-slot="tab-hover-card"
