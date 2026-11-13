@@ -265,6 +265,7 @@
     "expired": "已过期",
     "invalidated": "已失效",
     "queued": "排队中",
+    "answered": "已回答",
     "approved": "已批准",
     "allowed": "已允许",
     "denied": "已拒绝",

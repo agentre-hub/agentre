@@ -97,7 +97,7 @@ describe("UserAskCard", () => {
     expect(screen.queryByText(/WAITING/)).toBeNull();
   });
 
-  it("renders a done mark instead of ANSWERED when answered", () => {
+  it("renders an answered mark instead of ANSWERED when answered", () => {
     const block = {
       type: "tool_use",
       toolName: "AskUserQuestion",
@@ -118,9 +118,9 @@ describe("UserAskCard", () => {
       },
     } as unknown as TranscriptBlock;
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
-    expect(screen.getByRole("img", { name: "Done" })).toHaveAttribute(
+    expect(screen.getByRole("img", { name: "Answered" })).toHaveAttribute(
       "data-state",
-      "done",
+      "answered",
     );
     expect(screen.queryByText("ANSWERED")).toBeNull();
   });
@@ -644,7 +644,7 @@ describe("UserAskCard", () => {
           sessionId={1}
         />,
       );
-      expect(screen.getByRole("img", { name: "Done" })).toBeInTheDocument();
+      expect(screen.getByRole("img", { name: "Answered" })).toBeInTheDocument();
       expect(
         screen.getByText("Answered · content not shown"),
       ).toBeInTheDocument();

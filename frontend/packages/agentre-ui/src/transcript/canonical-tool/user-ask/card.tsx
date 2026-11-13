@@ -366,7 +366,7 @@ function StatusPill({
   const { t } = useUiTranslation();
   if (expired) return <StatusMark state="invalidated" />;
   if (skipped) return <StatusMark state="skipped" />;
-  if (answered) return <StatusMark state="done" />;
+  if (answered) return <StatusMark state="answered" />;
   return (
     <TranscriptPill tone="pending">
       <span className="h-1.5 w-1.5 rounded-full bg-status-waiting" />

@@ -99,6 +99,13 @@ const TABLE: ReadonlyArray<{
     en: "Queued",
   },
   {
+    state: "answered",
+    icon: "lucide-check",
+    tone: "text-status-running",
+    zh: "已回答",
+    en: "Answered",
+  },
+  {
     state: "approved",
     icon: "lucide-check",
     tone: "text-status-running",

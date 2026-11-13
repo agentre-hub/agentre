@@ -265,6 +265,7 @@
     "expired": "Expired",
     "invalidated": "No longer valid",
     "queued": "Queued",
+    "answered": "Answered",
     "approved": "Approved",
     "allowed": "Allowed",
     "denied": "Denied",

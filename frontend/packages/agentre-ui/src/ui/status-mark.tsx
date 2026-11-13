@@ -38,6 +38,7 @@ const STATUS_MARKS = {
   expired: { icon: Hourglass, tone: "text-muted-foreground" },
   invalidated: { icon: Hourglass, tone: "text-muted-foreground" },
   queued: { icon: Circle, tone: "text-muted-foreground" },
+  answered: { icon: Check, tone: "text-status-running" },
   approved: { icon: Check, tone: "text-status-running" },
   allowed: { icon: ShieldCheck, tone: "text-status-running" },
   denied: { icon: X, tone: "text-status-error" },
