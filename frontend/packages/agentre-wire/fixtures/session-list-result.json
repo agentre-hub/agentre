@@ -12,7 +12,8 @@
       "waitingForInput": true,
       "latestSeq": 12,
       "lastMessageAt": 1754800000000,
-      "reasoningEffort": "high"
+      "reasoningEffort": "high",
+      "carrierFingerprint": "sha256:agentred-exec"
     },
     {
       "conversationId": "00000000-0000-7000-8000-000000000008",

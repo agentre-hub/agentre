@@ -2123,6 +2123,13 @@ public nonisolated struct Agentre_Wire_SessionSummary: @unchecked Sendable {
     set {_uniqueStorage()._cliModel = newValue}
   }
 
+  /// carrier_fingerprint 是实际执行这条会话的 agentred 的承载者指纹；只有远端执行的
+  /// 会话才有，本机执行的会话留空（空 = 没有执行端，不是「未知」）。老对端不发，解出来是空串。
+  public var carrierFingerprint: String {
+    get {_storage._carrierFingerprint}
+    set {_uniqueStorage()._carrierFingerprint = newValue}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -10064,7 +10071,7 @@ nonisolated extension Agentre_Wire_SessionCountsResponse: SwiftProtobuf.Message,
 
 nonisolated extension Agentre_Wire_SessionSummary: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SessionSummary"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{3}agent_id\0\u{1}title\0\u{3}agent_sync_id\0\u{3}provider_session_id\0\u{1}cwd\0\u{3}project_sync_id\0\u{3}backend_type\0\u{3}lifecycle_state\0\u{3}waiting_for_input\0\u{3}latest_seq\0\u{3}last_message_at\0\u{3}provider_key\0\u{3}model_key\0\u{3}reasoning_effort\0\u{3}cli_model_mode\0\u{3}cli_model\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{3}agent_id\0\u{1}title\0\u{3}agent_sync_id\0\u{3}provider_session_id\0\u{1}cwd\0\u{3}project_sync_id\0\u{3}backend_type\0\u{3}lifecycle_state\0\u{3}waiting_for_input\0\u{3}latest_seq\0\u{3}last_message_at\0\u{3}provider_key\0\u{3}model_key\0\u{3}reasoning_effort\0\u{3}cli_model_mode\0\u{3}cli_model\0\u{3}carrier_fingerprint\0")
 
   fileprivate class _StorageClass {
     var _conversationID: String = String()
@@ -10085,6 +10092,7 @@ nonisolated extension Agentre_Wire_SessionSummary: SwiftProtobuf.Message, SwiftP
     var _reasoningEffort: String = String()
     var _cliModelMode: String = String()
     var _cliModel: String = String()
+    var _carrierFingerprint: String = String()
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -10113,6 +10121,7 @@ nonisolated extension Agentre_Wire_SessionSummary: SwiftProtobuf.Message, SwiftP
       _reasoningEffort = source._reasoningEffort
       _cliModelMode = source._cliModelMode
       _cliModel = source._cliModel
+      _carrierFingerprint = source._carrierFingerprint
     }
   }
 
@@ -10149,6 +10158,7 @@ nonisolated extension Agentre_Wire_SessionSummary: SwiftProtobuf.Message, SwiftP
         case 16: try { try decoder.decodeSingularStringField(value: &_storage._reasoningEffort) }()
         case 17: try { try decoder.decodeSingularStringField(value: &_storage._cliModelMode) }()
         case 18: try { try decoder.decodeSingularStringField(value: &_storage._cliModel) }()
+        case 19: try { try decoder.decodeSingularStringField(value: &_storage._carrierFingerprint) }()
         default: break
         }
       }
@@ -10211,6 +10221,9 @@ nonisolated extension Agentre_Wire_SessionSummary: SwiftProtobuf.Message, SwiftP
       if !_storage._cliModel.isEmpty {
         try visitor.visitSingularStringField(value: _storage._cliModel, fieldNumber: 18)
       }
+      if !_storage._carrierFingerprint.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._carrierFingerprint, fieldNumber: 19)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -10238,6 +10251,7 @@ nonisolated extension Agentre_Wire_SessionSummary: SwiftProtobuf.Message, SwiftP
         if _storage._reasoningEffort != rhs_storage._reasoningEffort {return false}
         if _storage._cliModelMode != rhs_storage._cliModelMode {return false}
         if _storage._cliModel != rhs_storage._cliModel {return false}
+        if _storage._carrierFingerprint != rhs_storage._carrierFingerprint {return false}
         return true
       }
       if !storagesAreEqual {return false}

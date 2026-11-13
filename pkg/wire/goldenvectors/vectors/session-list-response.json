@@ -6,6 +6,7 @@
       "agentId": "7",
       "agentSyncId": "01JZ7W2A8KZ4R5T6Y7U8I9O0P1Q",
       "backendType": "claudecode",
+      "carrierFingerprint": "sha256:agentred-exec",
       "conversationId": "00000000-0000-7000-8000-000000000042",
       "cwd": "/home/agent/proj",
       "lastMessageAt": "1754800000000",

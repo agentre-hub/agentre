@@ -253,6 +253,12 @@ func peerSessionSummary(
 	if err != nil {
 		return wire.SessionSummary{}, err
 	}
+	// 只有远端执行(ExecDeviceID > 0)的会话才报执行端指纹;本机执行的留空,
+	// 不让一个残留的指纹单独说话。
+	var carrier devicefp.Carrier
+	if session.ExecDeviceID > 0 {
+		carrier = session.ExecDeviceFingerprint
+	}
 	return wire.SessionSummary{
 		ConversationID:    session.ConversationID,
 		PeerFingerprint:   fingerprint,
@@ -274,9 +280,10 @@ func peerSessionSummary(
 		ModelKey:    session.ModelKey,
 		// 会话级思考力度同一形态的显示镜像（spec 2026-09-01 决策 1）：空表示跟随该
 		// 会话那一档 backend 的配置，同样不补默认、不猜。
-		ReasoningEffort: session.ReasoningEffort,
-		CLIModelMode:    session.CLIModelMode,
-		CLIModel:        session.CLIModel,
+		ReasoningEffort:    session.ReasoningEffort,
+		CLIModelMode:       session.CLIModelMode,
+		CLIModel:           session.CLIModel,
+		CarrierFingerprint: carrier,
 	}, nil
 }
 

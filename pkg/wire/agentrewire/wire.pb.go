@@ -4593,9 +4593,12 @@ type SessionSummary struct {
 	// 空值是有效的重置；镜像必须原样保存，不能用后端默认补齐。
 	CliModelMode string `protobuf:"bytes,17,opt,name=cli_model_mode,json=cliModelMode,proto3" json:"cli_model_mode,omitempty"`
 	// fixed 时交给 CLI 的原始 Value（别名、模型 ID 或 provider/id）。
-	CliModel      string `protobuf:"bytes,18,opt,name=cli_model,json=cliModel,proto3" json:"cli_model,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	CliModel string `protobuf:"bytes,18,opt,name=cli_model,json=cliModel,proto3" json:"cli_model,omitempty"`
+	// carrier_fingerprint 是实际执行这条会话的 agentred 的承载者指纹；只有远端执行的
+	// 会话才有，本机执行的会话留空（空 = 没有执行端，不是「未知」）。老对端不发，解出来是空串。
+	CarrierFingerprint string `protobuf:"bytes,19,opt,name=carrier_fingerprint,json=carrierFingerprint,proto3" json:"carrier_fingerprint,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SessionSummary) Reset() {
@@ -4750,6 +4753,13 @@ func (x *SessionSummary) GetCliModelMode() string {
 func (x *SessionSummary) GetCliModel() string {
 	if x != nil {
 		return x.CliModel
+	}
+	return ""
+}
+
+func (x *SessionSummary) GetCarrierFingerprint() string {
+	if x != nil {
+		return x.CarrierFingerprint
 	}
 	return ""
 }
@@ -20427,7 +20437,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x15SessionCountsResponse\x12\x14\n" +
 	"\x05total\x18\x01 \x01(\x03R\x05total\x12\x18\n" +
 	"\arunning\x18\x02 \x01(\x03R\arunning\x12\x18\n" +
-	"\awaiting\x18\x03 \x01(\x03R\awaiting\"\x90\x05\n" +
+	"\awaiting\x18\x03 \x01(\x03R\awaiting\"\xc1\x05\n" +
 	"\x0eSessionSummary\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x19\n" +
@@ -20448,7 +20458,8 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\tmodel_key\x18\x0f \x01(\tR\bmodelKey\x12)\n" +
 	"\x10reasoning_effort\x18\x10 \x01(\tR\x0freasoningEffort\x12$\n" +
 	"\x0ecli_model_mode\x18\x11 \x01(\tR\fcliModelMode\x12\x1b\n" +
-	"\tcli_model\x18\x12 \x01(\tR\bcliModel\"Q\n" +
+	"\tcli_model\x18\x12 \x01(\tR\bcliModel\x12/\n" +
+	"\x13carrier_fingerprint\x18\x13 \x01(\tR\x12carrierFingerprint\"Q\n" +
 	"\x15ActivityRollupRequest\x12\x1b\n" +
 	"\tsince_day\x18\x01 \x01(\tR\bsinceDay\x12\x1b\n" +
 	"\ttime_zone\x18\x02 \x01(\tR\btimeZone\"\xfb\x01\n" +

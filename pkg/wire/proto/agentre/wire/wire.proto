@@ -595,6 +595,9 @@ message SessionSummary {
   string cli_model_mode = 17;
   // fixed 时交给 CLI 的原始 Value（别名、模型 ID 或 provider/id）。
   string cli_model = 18;
+  // carrier_fingerprint 是实际执行这条会话的 agentred 的承载者指纹；只有远端执行的
+  // 会话才有，本机执行的会话留空（空 = 没有执行端，不是「未知」）。老对端不发，解出来是空串。
+  string carrier_fingerprint = 19;
 }
 
 // ActivityRollup is the counts-only channel behind the account's activity

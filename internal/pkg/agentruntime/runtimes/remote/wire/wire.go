@@ -742,6 +742,9 @@ type SessionSummary struct {
 	// CLIModelMode/CLIModel 是执行端记下的会话选择，供镜像原样保存。
 	CLIModelMode string `json:"cliModelMode,omitempty"`
 	CLIModel     string `json:"cliModel,omitempty"`
+	// CarrierFingerprint 是实际执行这条会话的 agentred 的承载者指纹。只有桌面端上报
+	// 远端执行的会话时才填;本机执行的会话留空。老对端不发,解出来是空串。
+	CarrierFingerprint devicefp.Carrier `json:"carrierFingerprint,omitempty"`
 }
 
 // SessionListParams 是 MethodSessionList 的请求:一页会话。

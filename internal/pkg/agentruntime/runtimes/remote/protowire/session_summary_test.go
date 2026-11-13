@@ -10,6 +10,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // TestSessionSummaryPreservesEveryGoField 是这条边界的主守卫,方向是 Go → proto → Go。
@@ -43,6 +44,14 @@ func TestSessionSummaryPreservesEveryProtoField(t *testing.T) {
 
 	require.Empty(t, unsetSummaryProtoFields(got), "这些线上字段没被解出来")
 	require.True(t, proto.Equal(want, got), "want=%v got=%v", want, got)
+}
+
+// TestSessionSummaryCarrierFingerprintCrossesTheWire 钉住 carrier_fingerprint = 19 的两个方向。
+func TestSessionSummaryCarrierFingerprintCrossesTheWire(t *testing.T) {
+	pb := SessionSummaryToProto(wire.SessionSummary{ConversationID: "c", CarrierFingerprint: "sha256:exec"})
+	require.Equal(t, "sha256:exec", pb.GetCarrierFingerprint())
+	require.Equal(t, devicefp.Carrier("sha256:exec"), SessionSummaryFromProto(pb).CarrierFingerprint)
+	require.Empty(t, SessionSummaryToProto(wire.SessionSummary{ConversationID: "c"}).GetCarrierFingerprint())
 }
 
 // TestSessionSummaryFromProtoToleratesNil 钉住 nil 入参不 panic:解码侧拿到的是对端

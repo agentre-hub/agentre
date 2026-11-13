@@ -76,6 +76,28 @@ describe("protobuf response to domain wire", () => {
     expect(session.cliModel).toBeUndefined();
   });
 
+  it("given a remote-executed session, then carrierFingerprint crosses; a local one omits it", () => {
+    const response = create(SessionListResponseSchema, {
+      sessions: [
+        create(SessionSummarySchema, {
+          conversationId: CONVERSATION_ID,
+          lifecycleState: "idle",
+          latestSeq: 1n,
+          carrierFingerprint: "sha256:exec",
+        }),
+        create(SessionSummarySchema, {
+          conversationId: "conv-local",
+          lifecycleState: "idle",
+          latestSeq: 1n,
+        }),
+      ],
+    });
+
+    const [remote, local] = sessionListFromProtobuf(response).sessions;
+    expect(remote.carrierFingerprint).toBe("sha256:exec");
+    expect(local.carrierFingerprint).toBeUndefined();
+  });
+
   it("given a paged session.list answer, then the cursor, hasMore and total cross into the domain shape", () => {
     // 机器轴靠这三格才翻得动:没有它们,浏览器只能整份取回来再自己切。
     const response = create(SessionListResponseSchema, {
