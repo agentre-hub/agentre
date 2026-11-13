@@ -131,7 +131,7 @@
 
 ## 兼容与安全
 
-- 删除和清理只作用于调用方自己账号范围内的对话。agentred 现在对删除做的范围判定（`ResolveSessionPeer`）不放宽。桌面直连删除只对已配对的 agentred 有效。
+- 删除和清理只作用于调用方自己账号范围内的对话。agentred 对局域网配对调用方的删除范围判定（`ResolveSessionPeer`）不放宽；只有账号鉴权的调用方在没点名发起端时按对话删除（决策 16）。桌面直连删除只对已配对的 agentred 有效。
 - 这一轮改 `pkg/wire`：会话摘要新增「执行端指纹」字段，只追加、不改已有字段编号，老的一端忽略它，新的一端收不到时按「列出它的那台机器」处理（决策 18）。生成的协议代码随之更新，桌面端与 server 成对发布、dev 两仓成对推送；server 的 Go `pkg/wire` 与前端 `agentre-wire`、`agentre-ui` 钉到同一个 agentre 版本（server 现有守卫要求两者同源）。`pkg/syncwire` 不改。
 - server 的待删除表要换键，追加新迁移，不改旧迁移，并且要能在 MySQL 8.4 上执行。换键后保留按 `(user_id, device_fingerprint)` 查询的索引：每 60 秒一轮的补删要靠它（`agentre-server/docs/specs/2026-09-11-db-perf-fixes.md` 决策 12）。
 - 桌面端的待删除记录要建新表，迁移追加在末尾。
