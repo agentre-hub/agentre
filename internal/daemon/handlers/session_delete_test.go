@@ -205,8 +205,13 @@ func TestSessionDelete_GivenAccountCallerNamingAnInitiator_ThenDeletesForThatPee
 }
 
 // Given 局域网配对的桌面(没有账号)删除时没点名发起端, When 这条对话是别的对端发起的,
-// Then 删除仍按它自己的指纹收窄、不去找主人 —— 配对身份只能删自己发起的对话(决策 16)。
+// Then 删除仍按它自己的指纹收窄、不去找主人 —— 配对身份只能删自己发起的对话(决策 16);
+// 那条对话主人的常驻子进程(以及 pi 此刻在飞的那一轮)也原样不动:释放广播只按对话号
+// 折算的进程内键走、不分对端,删 0 行时照发就等于让配对身份打断别人的会话。
 func TestSessionDelete_GivenPairedCallerWithoutInitiator_ThenStaysScopedToItsOwnPeer(t *testing.T) {
+	recorder := &sessionReleaseRecorder{}
+	defer agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, recorder)()
+
 	_, sessions, transcriptPurge, h := setupSessionDeleteTest(t, func() string { return "acct-1" })
 	// OwnerOf 没有期望:严格 mock 上调用到即失败。
 	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), devicefp.Initiator("fp-account-wide"), convID(7)).Return(int64(0), nil)
@@ -215,4 +220,5 @@ func TestSessionDelete_GivenPairedCallerWithoutInitiator_ThenStaysScopedToItsOwn
 	got, err := h.Delete(pairedConnContext(t), &agentrewire.SessionDeleteRequest{ConversationId: convID(7)})
 	require.NoError(t, err)
 	assert.True(t, got.Deleted)
+	assert.Empty(t, recorder.Released(), "删 0 行的那条对话不是调用方的,它的子进程不归调用方放")
 }

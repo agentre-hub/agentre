@@ -80,7 +80,12 @@ func (h *SessionDeleteHandlers) Delete(ctx context.Context, req *agentrewire.Ses
 	// 会话已经不存在了,它在本机常驻的 CLI 子进程再也不会被任何一轮用到:不放掉的话
 	// 它只能等 idle 上限把自己挤出去,否则一直活到 daemon 退出。释放用的会话键与
 	// runtime.run 交给 backend 的是同一个,否则放的是另一条会话。
-	agentruntime.CloseSessionEverywhere(ctx, runtimeSessionID(conversationID))
+	//
+	// 只在真删到了 peer 名下那一行时才放:释放键只由对话号折算、不分对端,删 0 行
+	// (配对对端拿别人的对话号来删)时照发,就是让它打断别人的会话。
+	if rows > 0 {
+		agentruntime.CloseSessionEverywhere(ctx, runtimeSessionID(conversationID))
+	}
 	logger.Ctx(ctx).Info("handlers.SessionDeleteHandlers.Delete: session removed",
 		zap.String("conversationId", conversationID), zap.Int64("sessionRows", rows),
 		zap.Int64("transcriptRows", purged))
