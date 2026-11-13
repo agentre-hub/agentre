@@ -467,10 +467,11 @@ describe("ToolPermissionCard resolved outcome mark", () => {
         messageId={1}
       />,
     );
-    expect(
-      screen.getByRole("img", { name: "Approved" }).getAttribute("data-state"),
-    ).toBe("approved");
-    expect(screen.queryByText("Approved")).toBeNull();
+    // 被替换掉的字是「Allowed」，它原样成为 ✓ 的名字（不是审批卡的 Approved）。
+    const mark = screen.getByRole("img", { name: "Allowed" });
+    expect(mark.getAttribute("data-state")).toBe("granted");
+    expect(mark.querySelector(".lucide-check")).not.toBeNull();
+    expect(screen.queryByText("Allowed")).toBeNull();
     expect(screen.queryByText("this session")).toBeNull();
   });
 
@@ -483,8 +484,8 @@ describe("ToolPermissionCard resolved outcome mark", () => {
       />,
     );
     expect(
-      screen.getByRole("img", { name: "Approved" }).getAttribute("data-state"),
-    ).toBe("approved");
+      screen.getByRole("img", { name: "Allowed" }).getAttribute("data-state"),
+    ).toBe("granted");
     expect(screen.getByText("this session")).toBeDefined();
     expect(screen.queryByText("Allowed (this session)")).toBeNull();
   });
@@ -498,7 +499,7 @@ describe("ToolPermissionCard resolved outcome mark", () => {
       />,
     );
     expect(screen.getByRole("img", { name: "Denied" })).toBeDefined();
-    expect(screen.queryByRole("img", { name: "Approved" })).toBeNull();
+    expect(screen.queryByRole("img", { name: "Allowed" })).toBeNull();
     expect(screen.queryByText("Denied")).toBeNull();
   });
 

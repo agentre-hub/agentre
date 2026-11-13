@@ -35,6 +35,8 @@ const STATUS_MARKS = {
   done: { icon: Check, tone: "text-status-running" },
   failed: { icon: TriangleAlert, tone: "text-status-error" },
   error: { icon: TriangleAlert, tone: "text-status-error" },
+  partial: { icon: TriangleAlert, tone: "text-status-error" },
+  pending: { icon: LoaderCircle, tone: "text-status-running" },
   stopped: { icon: CircleSlash, tone: "text-muted-foreground" },
   cancelled: { icon: CircleSlash, tone: "text-muted-foreground" },
   unknown: { icon: CircleHelp, tone: "text-muted-foreground" },
@@ -45,6 +47,8 @@ const STATUS_MARKS = {
   answered: { icon: Check, tone: "text-status-running" },
   approved: { icon: Check, tone: "text-status-running" },
   allowed: { icon: ShieldCheck, tone: "text-status-running" },
+  granted: { icon: Check, tone: "text-status-running" },
+  current: { icon: Check, tone: "text-primary-text" },
   denied: { icon: X, tone: "text-status-error" },
   created: { icon: Plus, tone: "text-status-running" },
   updated: { icon: Pencil, tone: "text-primary-text" },
@@ -93,7 +97,7 @@ function StatusMark({ state, className }: StatusMarkProps) {
         aria-hidden="true"
         className={cn(
           "size-full",
-          state === "running" && "animate-spin motion-reduce:animate-none",
+          Icon === LoaderCircle && "animate-spin motion-reduce:animate-none",
         )}
       />
     </span>

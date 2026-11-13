@@ -48,11 +48,7 @@ export function LocalCommandCard({
     <span className="inline-flex shrink-0 items-center gap-1 text-meta text-muted-foreground">
       {mark && <StatusMark state={mark} />}
       {showExitCode && (
-        <span
-          className={
-            entry.status === "failed" ? "text-destructive-text" : undefined
-          }
-        >
+        <span className="text-destructive-text">
           {t("localCommand.exitCode", { code: entry.exitCode })}
         </span>
       )}

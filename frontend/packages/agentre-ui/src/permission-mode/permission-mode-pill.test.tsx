@@ -55,7 +55,11 @@ describe("PermissionModePill", () => {
       "aria-selected",
       "true",
     );
-    expect(marks[0].querySelector("[data-state=done]")).not.toBeNull();
+    expect(marks[0]).toHaveAttribute("data-state", "current");
+    // 悬停提示与名字同文案，不会冒出 ✓ 的另一个名字（如 Done）。
+    expect(marks[0]).toHaveAttribute("title", "Current mode");
+    expect(marks[0].querySelector("[title]")).toBeNull();
+    expect(screen.queryByTitle("Done")).toBeNull();
   });
 
   // 只报两档的 runtime（codex）就只列两档 —— 档位集合是 runtime 说了算的，

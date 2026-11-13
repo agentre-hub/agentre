@@ -246,7 +246,7 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
         <span className="ml-auto flex items-center gap-2 text-aux text-muted-foreground">
           {isResolved && (
             <>
-              <StatusMark state={payload.allowed ? "approved" : "denied"} />
+              <StatusMark state={payload.allowed ? "granted" : "denied"} />
               {payload.allowed && payload.alwaysAllow && (
                 <span data-copyable-control-text="true">
                   {t("statusScope.thisSession")}

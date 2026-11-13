@@ -190,16 +190,7 @@ export function PermissionModePill({
                         {itemMeta.key}
                       </span>
                       {active ? (
-                        <span
-                          role="img"
-                          aria-label={t("permissionMode.active")}
-                          title={t("permissionMode.active")}
-                          className="ml-auto inline-flex"
-                        >
-                          <span aria-hidden="true" className="inline-flex">
-                            <StatusMark state="done" />
-                          </span>
-                        </span>
+                        <StatusMark state="current" className="ml-auto" />
                       ) : null}
                     </span>
                     {itemMeta.descKey ? (

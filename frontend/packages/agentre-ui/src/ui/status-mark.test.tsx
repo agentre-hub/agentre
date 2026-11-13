@@ -50,6 +50,22 @@ const TABLE: ReadonlyArray<{
     en: "Error",
   },
   {
+    // 子 Agent 的部分完成：与出错同一个三角，名字仍是被替换掉的 PARTIAL。
+    state: "partial",
+    icon: "lucide-triangle-alert",
+    tone: "text-status-error",
+    zh: "部分完成",
+    en: "Partial",
+  },
+  {
+    // 子 Agent 等待开始：与运行中同为转圈，名字仍是被替换掉的 WAITING。
+    state: "pending",
+    icon: "lucide-loader-circle",
+    tone: "text-status-running",
+    zh: "等待中",
+    en: "Waiting",
+  },
+  {
     state: "stopped",
     icon: "lucide-circle-slash",
     tone: "text-muted-foreground",
@@ -118,6 +134,22 @@ const TABLE: ReadonlyArray<{
     tone: "text-status-running",
     zh: "已允许",
     en: "Allowed",
+  },
+  {
+    // 工具权限卡已决后的「已允许」：被替换掉的字是「已允许」，形状随审批结果用对勾。
+    state: "granted",
+    icon: "lucide-check",
+    tone: "text-status-running",
+    zh: "已允许",
+    en: "Allowed",
+  },
+  {
+    // 权限模式菜单的当前项：原来的 ACTIVE 胶囊是 primary-text。
+    state: "current",
+    icon: "lucide-check",
+    tone: "text-primary-text",
+    zh: "当前模式",
+    en: "Current mode",
   },
   {
     state: "denied",
@@ -233,6 +265,13 @@ describe("StatusMark", () => {
     render(<StatusMark state="running" />);
 
     const svg = iconOf(screen.getByRole("img", { name: "Running" }));
+    expect(svg).toHaveClass("animate-spin", "motion-reduce:animate-none");
+  });
+
+  it("Given pending, When rendered, Then it spins like running and stops under reduced motion", () => {
+    render(<StatusMark state="pending" />);
+
+    const svg = iconOf(screen.getByRole("img", { name: "Waiting" }));
     expect(svg).toHaveClass("animate-spin", "motion-reduce:animate-none");
   });
 

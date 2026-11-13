@@ -459,15 +459,16 @@ Project blocks in [`components/agentre/primitives.tsx`](../frontend/src/componen
 
 | State | Icon | Colour | Notes |
 | --- | --- | --- | --- |
-| Running | `loader-circle` | `status-running` | Spins; still under reduced motion (§8) |
+| Running / waiting to start | `loader-circle` | `status-running` | Spins; still under reduced motion (§8). A sub-agent run that is waiting to start keeps its own name (等待中) |
 | Succeeded | none / `check` | `status-running` | No mark by default — a missing mark means success. `check` only where a list of outcomes has to tell them apart (task progress, a sub-agent's runs) |
-| Failed / error | `triangle-alert` | `status-error` | An exit code stays visible after it (`exit N`) |
+| Failed / error / partial | `triangle-alert` | `status-error` | An exit code stays visible after it (`exit N`); a partly completed sub-agent keeps its own name (部分完成) |
 | Stopped / cancelled | `circle-slash` | `muted-foreground` | |
 | Result unknown | `circle-help` | `muted-foreground` | |
 | Skipped | `skip-forward` | `muted-foreground` | |
 | Expired / no longer valid | `hourglass` | `muted-foreground` | |
 | Queued | `circle` | `muted-foreground` | |
-| Approved / allowed | `check` / `shield-check` | `status-running` | A grant that only lasts this session adds a grey 本会话 / this session suffix |
+| Approved / allowed | `check` / `shield-check` | `status-running` | `check` for a decided approval (已批准 / 已允许), `shield-check` for the allowed badge on a tool card header. A grant that only lasts this session adds a grey 本会话 / this session suffix |
+| Current (a menu's selected item) | `check` | `primary-text` | The permission-mode menu's current mode |
 | Denied | `x` | `status-error` | |
 | Created / updated / deleted | `plus` / `pencil` / `trash-2` | `status-running` / `primary-text` / `status-error` | Files use `file-plus` / `file-x` |
 | Needs the user | `StatusPill` with words (等你 / 待审批) | `status-waiting` | Stays text — an icon alone is not clear enough |

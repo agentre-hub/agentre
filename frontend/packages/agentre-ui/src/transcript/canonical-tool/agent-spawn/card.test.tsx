@@ -956,7 +956,7 @@ describe("AgentSpawnCard normalized runs", () => {
     expect(screen.getByText("4/6")).toBeInTheDocument();
     expect(
       within(screen.getByTestId("agent-spawn-status-pill")).getByRole("img", {
-        name: "Error",
+        name: "Partial",
       }),
     ).toBeInTheDocument();
 
@@ -2174,9 +2174,9 @@ describe("AgentSpawnCard status marks", () => {
 
   it.each([
     ["running", "running", "Running", "1m12s", 72000],
-    ["waiting", "running", "Running", "1m12s", 72000],
+    ["waiting", "pending", "Waiting", "1m12s", 72000],
     ["failed", "error", "Error", "3m05s", 185000],
-    ["partial", "error", "Error", "3m05s", 185000],
+    ["partial", "partial", "Partial", "3m05s", 185000],
     ["canceled", "stopped", "Stopped", "42.0s", 42000],
     ["unknown", "unknown", "Result unknown", "42.0s", 42000],
   ])(
@@ -2242,15 +2242,22 @@ describe("AgentSpawnCard status marks", () => {
       within(groups[i]).getByRole("img").getAttribute("data-state");
 
     expect(groups.map((_, i) => stateOf(i))).toEqual([
-      "running",
+      "pending",
       "running",
       "done",
       "failed",
       "stopped",
       "skipped",
       "unknown",
-      "error",
+      "partial",
     ]);
+    // 被替换掉的 WAITING / PARTIAL 原样成为可访问名，不与运行中、出错混为一谈。
+    expect(
+      within(groups[0]).getByRole("img", { name: "Waiting" }),
+    ).toBeVisible();
+    expect(
+      within(groups[7]).getByRole("img", { name: "Partial" }),
+    ).toBeVisible();
     expect(within(groups[2]).getByRole("img", { name: "Done" })).toBeVisible();
   });
 
@@ -2269,7 +2276,7 @@ describe("AgentSpawnCard status marks", () => {
 
     const pill = screen.getByTestId("agent-spawn-status-pill");
     expect(
-      within(pill).getByRole("img", { name: "Error" }),
+      within(pill).getByRole("img", { name: "Partial" }),
     ).toBeInTheDocument();
     expect(within(pill).getByText("1m12s")).toHaveClass(
       "text-muted-foreground",

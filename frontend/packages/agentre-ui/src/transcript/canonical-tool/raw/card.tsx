@@ -165,14 +165,14 @@ export const RawToolCard: React.FC<CanonicalCardProps> = ({
           </TranscriptPill>
         )}
         {allowedBadge && (
-          <TranscriptPill tone="done" title={t("canonical.raw.approvedTitle")}>
+          // 徽标就是盾牌图标本身；本会话始终允许时后跟灰字「本会话」。
+          <span
+            title={t("canonical.raw.approvedTitle")}
+            className="inline-flex shrink-0 items-center gap-1 text-meta text-muted-foreground"
+          >
             <StatusMark state="allowed" />
-            {perm?.alwaysAllow && (
-              <span className="text-muted-foreground">
-                {t("statusScope.thisSession")}
-              </span>
-            )}
-          </TranscriptPill>
+            {perm?.alwaysAllow && <span>{t("statusScope.thisSession")}</span>}
+          </span>
         )}
         {!hasResult && !isError && <StatusMark state="running" />}
         {isError && (

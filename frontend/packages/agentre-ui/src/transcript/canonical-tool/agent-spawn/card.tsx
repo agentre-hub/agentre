@@ -807,8 +807,9 @@ function statusAgentState(status: AgentSpawnStatus): AgentStatus {
   return "idle";
 }
 
-// statusMarkState —— 运行状态到共享状态图标的对照:排队中与运行中同为转圈
-// (排队不是需要用户处理的状态),部分完成按出错三角。
+// statusMarkState —— 运行状态到共享状态图标的对照:等待开始与运行中同为转圈
+// (等待不是需要用户处理的状态),部分完成与出错同为三角;名字各自保留
+// (等待中 / 部分完成),被替换掉的 WAITING / PARTIAL 不被读成运行中 / 出错。
 function statusMarkState(status: AgentSpawnStatus): StatusMarkState {
   switch (status) {
     case "completed":
@@ -816,7 +817,7 @@ function statusMarkState(status: AgentSpawnStatus): StatusMarkState {
     case "failed":
       return "failed";
     case "partial":
-      return "error";
+      return "partial";
     case "canceled":
       return "stopped";
     case "skipped":
@@ -824,6 +825,7 @@ function statusMarkState(status: AgentSpawnStatus): StatusMarkState {
     case "unknown":
       return "unknown";
     case "waiting":
+      return "pending";
     case "running":
     default:
       return "running";

@@ -378,6 +378,9 @@ describe("RawToolCard permission integration", () => {
     );
     expect(screen.queryByText("Allowed")).toBeNull();
     expect(within(badge).queryByText("this session")).toBeNull();
+    // 徽标换成图标本身，不再是一枚绿底胶囊。
+    expect(badge).not.toHaveClass("bg-status-running-bg");
+    expect(badge).not.toHaveClass("rounded");
   });
 
   it("Given 本会话始终允许, When 渲染, Then 盾牌后跟灰字「this session」", () => {

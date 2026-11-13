@@ -356,7 +356,7 @@ describe("PeerPanel", () => {
     renderPanel();
 
     const card = await screen.findByTestId("tool-permission-card");
-    expect(within(card).getByRole("img", { name: "Approved" })).toBeTruthy();
+    expect(within(card).getByRole("img", { name: "Allowed" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Allow/ })).toBeNull();
   });
 
