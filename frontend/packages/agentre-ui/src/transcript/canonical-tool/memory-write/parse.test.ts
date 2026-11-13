@@ -24,6 +24,23 @@ describe("isMemoryWriteCall", () => {
   });
 
   it.each([
+    `/usr/bin/zsh -lc "/root/code/memory-round/desktop/build/bin/agrctl create memory --summary '用户偏好简短的中文回复'"`,
+    `/usr/bin/zsh -lc "agrctl update memory 3 --detail 'x'"`,
+    `bash -lc 'agrctl delete memory 3'`,
+    "/usr/local/bin/agrctl create memory --summary x",
+  ])("recognizes a wrapped or path-prefixed call %s", (command) => {
+    expect(isMemoryWriteCall(use(command))).toBe(true);
+  });
+
+  it.each([
+    `zsh -lc "echo agrctl create memory"`,
+    `/usr/bin/zsh -lc "echo '/x/agrctl create memory'"`,
+    `echo /x/agrctl create memory`,
+  ])("ignores a wrapped non-call %s", (command) => {
+    expect(isMemoryWriteCall(use(command))).toBe(false);
+  });
+
+  it.each([
     "agrctl list memory --query lint",
     "agrctl create agent --name x",
     'echo "agrctl create memory"',
@@ -84,5 +101,22 @@ describe("parseMemoryWrite", () => {
         ),
       ),
     ).toBeNull();
+  });
+});
+
+describe("parseMemoryWrite on the real Codex create block", () => {
+  it("reads the first output line of the JSON command result", () => {
+    const codexResult = result(
+      JSON.stringify({
+        exitCode: 0,
+        output: "memory m1 created (agent CEO 助手)\n",
+        status: "completed",
+      }),
+    );
+    expect(parseMemoryWrite(use("x"), codexResult)).toEqual({
+      id: 1,
+      action: "created",
+      layer: { kind: "agent" },
+    });
   });
 });

@@ -8,6 +8,8 @@ import type { MemoryTranscriptPorts, TranscriptPorts } from "../../ports";
 import { TranscriptPortsProvider } from "../../ports-context";
 import { makeTestPorts } from "../../__testing__/ports";
 
+import { CanonicalToolRouter } from "../registry";
+
 import { MemoryWriteCard } from "./card";
 
 const entry = (over: Partial<MemoryEntryView> = {}): MemoryEntryView => ({
@@ -237,5 +239,38 @@ describe("MemoryWriteCard", () => {
     expect(await screen.findByText("Run lint before pushing")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  });
+});
+
+describe("CanonicalToolRouter with a Codex-wrapped memory write", () => {
+  it("renders the memory card instead of the raw command row", () => {
+    const codexCall = {
+      type: "tool_use",
+      toolName: "command_execution",
+      toolInput: {
+        command: `/usr/bin/zsh -lc "/root/code/memory-round/desktop/build/bin/agrctl create memory --summary '用户偏好简短的中文回复'"`,
+      },
+    } as unknown as TranscriptBlock;
+    const codexResult = {
+      type: "tool_result",
+      text: JSON.stringify({
+        exitCode: 0,
+        output: "memory m1 created (agent CEO 助手)\n",
+        status: "completed",
+      }),
+    } as unknown as TranscriptBlock;
+    render(
+      <TranscriptPortsProvider
+        ports={{ ...makeTestPorts(), memory: memoryPort() }}
+      >
+        <CanonicalToolRouter
+          toolBlock={codexCall}
+          resultBlock={codexResult}
+          sessionId={70}
+        />
+      </TranscriptPortsProvider>,
+    );
+    expect(screen.getByTestId("memory-write-card")).toBeDefined();
+    expect(screen.queryByTestId("raw-tool-card")).toBeNull();
   });
 });

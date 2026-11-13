@@ -8,6 +8,7 @@
 // <层> 是 global，或 department <路径> / agent <名字> / project <路径>。超预算时还有第 2 行
 // `over budget: ...`，卡片不用它。
 import type { TranscriptBlock } from "../../dto";
+import { unwrapShellCommand } from "../shell-command";
 import { commandResultOf, isFailedCommandResult } from "../command-result";
 
 export type MemoryWriteAction = "created" | "updated" | "archived" | "exists";
@@ -24,14 +25,18 @@ export type MemoryWrite = {
   layer: MemoryWriteLayer;
 };
 
-// 命令的开头必须是 agrctl（行首或 && ; | 之后），免得 echo "agrctl create memory" 之类误判。
+// 命令的开头必须是 agrctl（行首或 && ; | 之后，可带目录前缀），免得 echo "agrctl create memory"
+// 之类误判。codex 会套一层 `zsh -lc "…"`，判据前先用 unwrapShellCommand 剥掉。
 const WRITE_COMMAND =
-  /(?:^|[;&|(]\s*|&&\s*)agrctl\s+(?:create|update|delete)\s+memor(?:y|ies)\b/m;
+  /(?:^|[;&|(]\s*|&&\s*)(?:[^\s;&|()'"]*\/)?agrctl\s+(?:create|update|delete)\s+memor(?:y|ies)\b/m;
 
 export function isMemoryWriteCall(block: TranscriptBlock): boolean {
   const command = (block.toolInput as { command?: unknown } | undefined)
     ?.command;
-  return typeof command === "string" && WRITE_COMMAND.test(command);
+  return (
+    typeof command === "string" &&
+    WRITE_COMMAND.test(unwrapShellCommand(command))
+  );
 }
 
 const RESULT_LINE =
