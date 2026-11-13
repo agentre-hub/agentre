@@ -26,9 +26,10 @@ export type MemoryWrite = {
 };
 
 // 命令的开头必须是 agrctl（行首或 && ; | 之后，可带目录前缀），免得 echo "agrctl create memory"
-// 之类误判。codex 会套一层 `zsh -lc "…"`，判据前先用 unwrapShellCommand 剥掉。
+// 之类误判。codex 会套一层 `zsh -lc "…"`，判据前先用 unwrapShellCommand 剥掉。目录前缀可以
+// 引起来或转义空格：macOS 上 agrctl 装在 ~/Library/Application Support/… 下。
 const WRITE_COMMAND =
-  /(?:^|[;&|(]\s*|&&\s*)(?:[^\s;&|()'"]*\/)?agrctl\s+(?:create|update|delete)\s+memor(?:y|ies)\b/m;
+  /(?:^|[;&|(]\s*|&&\s*)(?:(?:(?:[^\s;&|()'"\\]|\\.)*\/)?agrctl|"(?:[^"]*\/)?agrctl"|'(?:[^']*\/)?agrctl')\s+(?:create|update|delete)\s+memor(?:y|ies)\b/m;
 
 export function isMemoryWriteCall(block: TranscriptBlock): boolean {
   const command = (block.toolInput as { command?: unknown } | undefined)

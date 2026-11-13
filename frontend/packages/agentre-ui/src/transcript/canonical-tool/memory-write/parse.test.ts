@@ -32,6 +32,26 @@ describe("isMemoryWriteCall", () => {
     expect(isMemoryWriteCall(use(command))).toBe(true);
   });
 
+  // macOS 上装好的 agrctl 在 ~/Library/Application Support/agentre/bin/ 下，`command -v agrctl`
+  // 给出的路径带空格，agent 照抄时要引起来或转义空格。
+  it.each([
+    `"/Users/u/Library/Application Support/agentre/bin/agrctl" create memory --summary x`,
+    `'/Users/u/Library/Application Support/agentre/bin/agrctl' delete memory 3`,
+    `/Users/u/Library/Application\\ Support/agentre/bin/agrctl update memory 3 --detail x`,
+    `/bin/zsh -lc '"/Users/u/Library/Application Support/agentre/bin/agrctl" create memory --summary x'`,
+    `/bin/zsh -lc "\\"/Users/u/Library/Application Support/agentre/bin/agrctl\\" create memory --summary 'x'"`,
+  ])("recognizes a call through a quoted or escaped path %s", (command) => {
+    expect(isMemoryWriteCall(use(command))).toBe(true);
+  });
+
+  it.each([
+    `echo "/Users/u/Library/Application Support/agentre/bin/agrctl" create memory`,
+    `"/x y/agrctl create memory"`,
+    `"/x y/notagrctl" create memory`,
+  ])("ignores a quoted non-call %s", (command) => {
+    expect(isMemoryWriteCall(use(command))).toBe(false);
+  });
+
   it.each([
     `zsh -lc "echo agrctl create memory"`,
     `/usr/bin/zsh -lc "echo '/x/agrctl create memory'"`,
