@@ -467,8 +467,10 @@ describe("ToolPermissionCard resolved outcome mark", () => {
         messageId={1}
       />,
     );
-    expect(screen.getByRole("img", { name: "Allowed" })).toBeDefined();
-    expect(screen.queryByText("Allowed")).toBeNull();
+    expect(
+      screen.getByRole("img", { name: "Approved" }).getAttribute("data-state"),
+    ).toBe("approved");
+    expect(screen.queryByText("Approved")).toBeNull();
     expect(screen.queryByText("this session")).toBeNull();
   });
 
@@ -480,7 +482,9 @@ describe("ToolPermissionCard resolved outcome mark", () => {
         messageId={1}
       />,
     );
-    expect(screen.getByRole("img", { name: "Allowed" })).toBeDefined();
+    expect(
+      screen.getByRole("img", { name: "Approved" }).getAttribute("data-state"),
+    ).toBe("approved");
     expect(screen.getByText("this session")).toBeDefined();
     expect(screen.queryByText("Allowed (this session)")).toBeNull();
   });
@@ -494,7 +498,7 @@ describe("ToolPermissionCard resolved outcome mark", () => {
       />,
     );
     expect(screen.getByRole("img", { name: "Denied" })).toBeDefined();
-    expect(screen.queryByRole("img", { name: "Allowed" })).toBeNull();
+    expect(screen.queryByRole("img", { name: "Approved" })).toBeNull();
     expect(screen.queryByText("Denied")).toBeNull();
   });
 
@@ -506,6 +510,8 @@ describe("ToolPermissionCard resolved outcome mark", () => {
         messageId={1}
       />,
     );
-    expect(screen.queryByRole("img", { name: /Allowed|Denied/ })).toBeNull();
+    expect(
+      screen.queryByRole("img", { name: /Approved|Allowed|Denied/ }),
+    ).toBeNull();
   });
 });
