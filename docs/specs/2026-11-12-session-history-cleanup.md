@@ -1,6 +1,6 @@
 # 对话历史清理与删除传播
 
-> Status: Approved（2026-11-13 修订：去掉议题保护，更正协议改动范围与入站删除行为）
+> Status: Approved（2026-11-13 修正轮：运行验证 V12、V15 不成立后补充问题 7–9 与决策 16–19，已重新批准）
 > Owner: 桌面端 + 共享 UI 包（agentre-ui），agentre-server 跟随
 > Last updated: 2026-11-13（基线：agentre `48a285b2`，agentre-server `29d665e0`）
 
@@ -16,6 +16,10 @@
 4. **桌面端不能直接让 agentred 删除。** 已核实：桌面端模块的入站契约表里，`SESSION_DELETE` 的调用方只列了 `CallerServerBackend`（`internal/pkg/wireinbound/contract.go:95`）。没登录账号、只靠局域网配对的桌面端删不掉 agentred 上的那份。这张表在桌面端模块里，不属于 `pkg/wire`。
 5. **桌面端收到删除时，会话已经不在就报错。** 已核实：会话不存在时，桌面端的入站删除返回 `-32002`（`internal/service/chat_svc/peerstream/sessions.go:361`，测试 `internal/peer/protobuf_session_wire_test.go:362` 固定了这个行为）；agentred 在同样情况下按成功返回。server 补删只在成功时清掉待办，其它错误一律留着下一轮再试（`agentre-server/internal/service/mirror_svc/sessions.go:215-224`）。所以给桌面端记的待办，碰上会话早已删掉的情况就永远清不掉。
 6. **记忆的来源链接会指向已删除的会话。** 已核实：记忆记录了创建它的会话（`memory_entity.CreatorSessionID`），记忆页的来源只要会话号大于 0 就可以点击，点了打开那个会话（`frontend/src/components/agentre/memory-page/to-entry-view.ts:34`）。会话删掉后，标题会退回成 agent 名，但链接照样能点，打开的是一个不存在的会话。单条删除现在就有这个问题，批量清理会让它很常见。
+
+7. **server 让执行端删除时，agentred 一行也删不掉。** 已核实（修正轮，运行验证 V12）：server 发出的 `SESSION_DELETE` 只带 `conversation_id`，不带发起端（`agentre-server/internal/service/mirror_svc/sessions.go:118`，注释假设「省略即那台机器自己」）。agentred 把省略的发起端解析成调用方自己的连接指纹（`internal/daemon/handlers/session_catchup.go:358-361`），而 server 连接的指纹从不出现在会话行上，删除于是按它限定范围、删 0 行，server 照样记成「已删除」（agentred 日志 `sessionRows:0`）。这是本分支之前就有的问题：保存过的对话、补删的待办一样受影响。agentred 的会话列表对账号鉴权的调用方本来就按账号列出（`session_catchup.go:72,92-103`），删除却没有。
+8. **删除没有执行端的会话时，server 会留下永远清不掉的待办。** 已核实（运行验证 V12）：桌面端已登录时删除一条本机会话（没有执行端，也不知道有没有保存过），会照规则请求 server 删除，机器指纹为空。server 没有保存记录、没有指纹，就把空指纹当成执行端去通知，通知不到便记一条空指纹待办（`agentre-server/internal/service/saved_session_svc/savedsession.go:239,262,349-353`），之后每轮补删都判为「仍离线」。
+9. **桌面发起、在 agentred 上执行的对话被保存时，执行端记成了桌面。** 已核实（运行验证 V15）：桌面端上报会话列表时把远端执行的会话也当成自己的（`internal/repository/chat_repo/session.go:451-467` 不按执行端过滤），会话摘要里也没有执行端字段（`pkg/wire/proto/agentre/wire/wire.proto:572-598`）；控制台在桌面那一行点保存，就把 `agent_session_saves.device_fingerprint` 记成桌面（`agentre-server/frontend/src/pages/chat/useSessionIndex.ts:649-659`）。原设计要求这一列是执行端（2026-08-31 spec，「承载机器」）。结果控制台删除只通知桌面，agentred 上那份留着，确认框里也不列 agentred。
 
 ## Actors and user stories
 
@@ -33,7 +37,7 @@
 | 4 | 控制台清理跟控制台单条删除语义一致：server 副本和机器上的对话一起删 | 用户已决定。已核实：2026-08-18 的决策 5 有意取消了「只从账号移除」。否决：只删 server 副本 |
 | 5 | 桌面端删除（单条和批量）也会删掉 server 上保存的副本和执行端的那份 | 用户已决定（「桌面端删也连带删 server/其它设备保存的副本，这次也一起做」） |
 | 6 | 只追三处副本：发起端、执行端、server | 用户已决定（采纳推荐）。否决：追其它桌面上可能有的副本——那些副本没有登记在任何地方，找不全 |
-| 7 | 桌面端已登录时，其它副本交给 server 删；没登录时，直接对配对的 agentred 发 `SESSION_DELETE`，入站契约表加上 `CallerDesktopToAgentred` | 用户已决定（「放开桌面直连删除」）。已核实：agentred 对空的发起端指纹按调用方自己解析，配对桌面只能删自己发起的对话，agentred 不用改。否决：未登录就只删本机 |
+| 7 | 桌面端已登录时，其它副本交给 server 删；没登录时，直接对配对的 agentred 发 `SESSION_DELETE`，入站契约表加上 `CallerDesktopToAgentred` | 用户已决定（「放开桌面直连删除」）。已核实：agentred 对空的发起端指纹按调用方自己解析，配对桌面只能删自己发起的对话。原文「agentred 不用改」只对配对桌面成立，账号鉴权的调用方见决策 16。否决：未登录就只删本机 |
 | 8 | 已登录时一律走 server，即便那台 agentred 也直接配对了 | 推荐，用户已批准。server 本来就要删③、记待办，只走一条路，待办只在一个地方。否决：两条路都发——同一次删除会在两处各记一份待办 |
 | 9 | 这一轮不做议题保护 | 用户已决定（2026-11-13）。已核实：桌面端没有任何代码把 `issues.session_id` 写成非 0，只在仓储整行更新和视图里原样带过（`internal/app/issue.go:195`），同步收到时清零（`internal/service/sync_svc/adapter_issue.go:203`）；议题实体注释写明派发「是后续的事」。现在做的话判断永远匹配不到。否决：同步议题的 `conversation_id`、只保留桌面端判断、这一轮补做议题绑定 |
 | 10 | 收到删除请求的一端只删本机，不再往外传播 | 推荐。已核实：桌面端入站删除复用 `chat_svc.Delete`（`internal/peer/protobuf_composition.go:98-107`），要是它也触发传播，server 转来的删除会被再发回 server。否决：入站也传播 |
@@ -42,6 +46,10 @@
 | 13 | 已经从账号里移除的机器：只删 server 副本，不追那台机器，界面上也不单独列出 | 用户已决定（「删不了，可以不管」） |
 | 14 | 清理组件放在 `agentre-ui`，两端通过 port 接入；agentre 先推送，server 再钉住那个版本 | 已核实：跨宿主前端只能有一份实现（`AGENTS.md`「Cross-host frontend ownership」）。合成一份 spec 是用户的决定 |
 | 15 | 会话删除后，记忆页上的来源仍显示「<agent> 的会话」，但不能点击；记忆记录本身不改 | 用户已决定（2026-11-13）。记忆 spec 规定「来源创建后不变」（`docs/specs/2026-11-11-agent-memory.md`），所以只改渲染。否决：删除会话时清空记忆的来源会话号——违反那条规定 |
+| 16 | agentred 收到账号鉴权调用方（server）的删除、且没点名发起端时，按 `conversation_id` 删除这条对话，不按调用方指纹限定；局域网配对的桌面仍然只能删自己发起的对话 | 用户已决定（2026-11-13 修正轮）。与 agentred 会话列表对账号调用方按账号列出一致；不改协议、不加迁移，补删也随之生效。否决：server 在删除请求里带上发起端——待删除表要加一列和迁移，浏览器发起的对话用什么指纹还没定 |
+| 17 | server 处理删除时，如果没有保存记录、也没有可用的执行端指纹，就把调用方设备当作执行端（它已经删了自己那份），不再通知、不记待办；任何情况下都不记录空指纹的待办 | 推荐，修正轮。生产方修正：桌面端仍要请求 server，因为它不知道这条对话是否保存过，需要 server 顺带删掉可能存在的副本。否决：桌面端跳过这次请求——会漏删保存过的副本 |
+| 18 | 桌面端上报会话列表时，远端执行的会话带上执行端指纹（会话摘要新增一个字段，向后兼容）；控制台保存时，如果这个指纹是本账号的设备，就把它记为执行端，否则仍记列出它的那台机器 | 用户已决定（2026-11-13 修正轮）。恢复原设计「保存记录里是执行端」；控制台删除因此会通知 agentred，确认框里也会列出它。否决：桌面不再上报远端会话——agentred 只做局域网配对、没登录账号时，这些对话会从控制台消失；server 删除时去问在线的 agentred——离线的就漏掉，也记不了待办 |
+| 19 | 已经按旧规则（执行端记成桌面）保存的记录不迁移、不修正 | 推荐，修正轮。首发前的测试数据，不保留历史包袱。否决：写迁移按会话反查执行端——server 不知道真实执行端，查不出来 |
 
 ## 删除传播
 
@@ -59,10 +67,11 @@
 - 没登录、对话在一台直接配对的 agentred 上：桌面端直接请求那台 agentred 删除。
 - 上面两种请求发不出去时（server 不可达，或 agentred 离线），桌面端在本地记一条待删除，下次连上时补发。补发成功或对方回答「已经没有了」后，这条记录清掉。
 - 本地不是远端会话、也没登录：只删①，没有其它要做的。
+- 本地不是远端会话、但已登录：照样请求 server（可能有保存的副本③）。server 没有保存记录时只回「已删除」，不通知任何机器、不记待办（决策 17）。
 
-**从控制台删。** server 先删③，再让②删除。如果发起端是另一台桌面（发起端指纹不等于执行端），也让它删除①。哪台机器离线，就给哪台记一条待删除，它上线时补做。待删除改成按「对话 + 机器」记，一条对话可以同时挂两台机器的待办。
+**从控制台删。** server 先删③，再让②删除（②是保存记录里的执行端；远端执行的对话，保存时就记为 agentred，见决策 18）。如果发起端是另一台桌面（发起端指纹不等于执行端），也让它删除①。哪台机器离线，就给哪台记一条待删除，它上线时补做。待删除改成按「对话 + 机器」记，一条对话可以同时挂两台机器的待办。
 
-**收到删除请求的一端**（桌面端或 agentred）只删自己这份，不再往外传播（决策 10）。这条对话在这一端已经不存在时，按成功返回：agentred 现在就是这样，桌面端要从返回 `-32002` 改成按成功返回（问题 5）。
+**收到删除请求的一端**（桌面端或 agentred）只删自己这份，不再往外传播（决策 10）。agentred 收到 server 的删除时按对话删除，不受调用方指纹限定（决策 16）；收到局域网配对桌面的删除时，只删这台桌面发起的对话。这条对话在这一端已经不存在时，按成功返回：agentred 现在就是这样，桌面端要从返回 `-32002` 改成按成功返回（问题 5）。
 
 **失败。**
 
@@ -99,7 +108,7 @@
 **确认。** 点「清理 N 个对话…」后弹出确认框，标题是「删除 N 个对话？」，写明无法撤销，并列出每份副本会删几条：
 
 - 桌面端：这台电脑；账号里保存的副本（只在已登录时出现）；每台执行端机器（标出在线 / 离线，离线的写「下次上线时删除」；未登录时写「局域网配对 · 直接删除」）。
-- 控制台：每台涉及的机器（在线 / 离线同上）。
+- 控制台：每台涉及的机器（在线 / 离线同上）。桌面发起、在 agentred 上执行的对话，涉及的机器既有 agentred（执行端），也有发起它的桌面。
 
 **执行。**
 
@@ -123,7 +132,7 @@
 ## 兼容与安全
 
 - 删除和清理只作用于调用方自己账号范围内的对话。agentred 现在对删除做的范围判定（`ResolveSessionPeer`）不放宽。桌面直连删除只对已配对的 agentred 有效。
-- 这一轮不改 `pkg/wire` 和 `pkg/syncwire`，生成的协议代码不变。server 只需要钉住包含共享清理组件的 agentre 版本（前端包）。
+- 这一轮改 `pkg/wire`：会话摘要新增「执行端指纹」字段，只追加、不改已有字段编号，老的一端忽略它，新的一端收不到时按「列出它的那台机器」处理（决策 18）。生成的协议代码随之更新，桌面端与 server 成对发布、dev 两仓成对推送；server 的 Go `pkg/wire` 与前端 `agentre-wire`、`agentre-ui` 钉到同一个 agentre 版本（server 现有守卫要求两者同源）。`pkg/syncwire` 不改。
 - server 的待删除表要换键，追加新迁移，不改旧迁移，并且要能在 MySQL 8.4 上执行。换键后保留按 `(user_id, device_fingerprint)` 查询的索引：每 60 秒一轮的补删要靠它（`agentre-server/docs/specs/2026-09-11-db-perf-fixes.md` 决策 12）。
 - 桌面端的待删除记录要建新表，迁移追加在末尾。
 - 日志里不写对话标题和内容，只记对话标识、机器指纹和数量。
@@ -134,6 +143,7 @@
 - 输入框 `!` Shell 历史、Hook 运行记录的清理。
 - 追删其它桌面上可能有的副本（决策 6）。
 - 回收 server 端 MySQL 的磁盘空间。桌面端照旧由现有的空间回收处理。
+- 修正已按旧规则保存的执行端（决策 19）。
 - 议题保护（决策 9）。以后从看板派发议题、给议题绑定会话时，由那份 spec 负责让清理跳过绑定了议题的会话。
 
 ## Testing decisions
@@ -145,12 +155,16 @@
 | 桌面端入站契约与入站删除 | `SESSION_DELETE` 允许桌面调用 agentred；会话不存在时桌面端按成功返回 | `internal/pkg/wireinbound` 契约测试，`internal/peer/protobuf_session_wire_test.go` |
 | 桌面端记忆页来源渲染（Vitest） | 来源会话不存在时显示 agent 名且不可点击；存在时照旧可点 | `frontend/src/components/agentre/memory-page` 现有测试 |
 | agentre-ui 清理组件（Vitest） | 各状态（计数中 / 空 / 计数失败 / 确认 / 删除中 / 部分失败 / 完成）、各副本列表、键盘可达 | `frontend/packages/agentre-ui` 现有组件测试 |
+| agentred 删除 handler | 账号调用方未点名发起端时按对话删除（行数非 0）；配对桌面只能删自己发起的 | `internal/daemon/handlers` 现有删除测试 |
+| 桌面端会话列表上报 | 远端执行的会话摘要带执行端指纹，本机会话不带 | `internal/service/chat_svc/peerstream` 现有测试 |
+| 控制台保存 | 摘要带的执行端是本账号设备时保存记录记它，否则记列出它的机器 | `agentre-server/frontend` 会话索引现有测试 |
 | server saved_session_svc / mirror_svc（mockgen） | 控制台删除同时通知发起端和执行端；按「对话 + 机器」记待办与补做；批量清理的筛选与排除 | `saved_session_svc/savedsession_test.go`、`mirror_svc/sessions_test.go` |
 | server controller / repo（sqlmock） | 批量计数与清理端点的鉴权和参数、待删除表的新键 | `internal/api/savedsession` 现有测试 |
 
 自动化测试覆盖不到的部分，靠运行验证：
 
 - 本机用 `make verify-up` 走一遍桌面端清理，包括标签页关闭和 toast。
+- 修正轮必须重跑运行验证 V12、V15（本机 server + 本机 agentred 的同一套搭法即可）：已登录桌面删除远端会话后 agentred 上那份消失；删除本机会话不留待办；桌面发起、agentred 执行的对话保存后，控制台删除让 agentred 和发起端桌面都删掉。
 - dev 环境（docker.local）挂真 agentred：桌面端删除后，agentred 和控制台的副本消失；agentred 离线时留下待删除，上线后补删；在控制台清理时，发起端的桌面也删掉本地那份。
 
 ## Open questions
