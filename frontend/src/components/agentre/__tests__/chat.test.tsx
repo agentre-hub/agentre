@@ -3060,7 +3060,7 @@ describe("ChatTranscript permission + tool merge", () => {
     );
 
     // ToolPermissionCard 仍渲染 (only header 显示 toolName 和 Denied pill)
-    expect(screen.getByText("Denied")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Denied" })).toBeInTheDocument();
     // 没有 tool_use 卡
     expect(screen.queryByRole("region", { name: "Tool call Bash" })).toBeNull();
   });

@@ -188,7 +188,7 @@ describe("tool_approval frames", () => {
     ]);
 
     expect(screen.getByTestId("ctl-approval-card")).toBeDefined();
-    expect(screen.getByText("Approved")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Approved" })).toBeDefined();
     expect(screen.getByText("updated provider #4")).toBeDefined();
     expect(screen.queryByText("Approve")).toBeNull();
   });
@@ -205,7 +205,7 @@ describe("tool_approval frames", () => {
 
     expect(screen.getByTestId("tool-approval-card")).toBeDefined();
     expect(screen.getByText("Create department")).toBeDefined();
-    expect(screen.getByText("Expired")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Expired" })).toBeDefined();
     expect(screen.queryByTestId("ctl-approval-card")).toBeNull();
   });
 });
