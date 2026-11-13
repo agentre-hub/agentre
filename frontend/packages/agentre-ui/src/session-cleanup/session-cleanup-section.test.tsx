@@ -159,7 +159,9 @@ describe("SessionCleanupSection · 条件与预览", () => {
   });
 
   it("计数中：汇总是骨架，清理按钮不可点", () => {
-    const ports = makePorts({ preview: vi.fn(() => new Promise(() => {})) });
+    const ports = makePorts({
+      preview: vi.fn(() => new Promise<CleanupPreviewView>(() => {})),
+    });
     render(<SessionCleanupSection ports={ports} />);
 
     expect(screen.getByRole("button", { name: /Clean up/ })).toBeDisabled();
