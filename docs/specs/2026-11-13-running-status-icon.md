@@ -83,7 +83,7 @@
 
 **部门负责人徽标。** 去掉 `LEAD` 字样，只留皇冠，可访问名与悬停提示为「负责人」。
 
-**退出确认框。** 运行中的「运行中」胶囊换成转圈；「等你」不变。
+**退出确认框。** 运行中的「运行中」胶囊换成转圈；等待中的「等待确认」胶囊不变。
 
 ## 设计规范
 
@@ -109,8 +109,8 @@
 | `StatusMark` 组件 | 每个状态对应的图标、颜色角色、中英可访问名与悬停提示；减少动态效果下转圈不转 | 无（新组件） |
 | 左侧列表行模型 `indexRowFromMeta` + `SessionRow` | 运行中、出错不再产出英文字面量，行尾渲染对应图标；审批 / 未读 / 后台 / 相对时间不变 | `session-index/attention.test.ts`、`session-row.test.tsx` |
 | 各卡片与行组件渲染测试 | 每条「各处改动」：旧文字消失、图标及其可访问名出现、保留文字的状态仍是文字 | `activity-block/block.test.tsx`、`raw/card.test.tsx`、`agent-spawn/card.test.tsx`、`user-ask/card.test.tsx`、`file-edit/hunk-renderer.test.tsx`、`tool-permission/card.test.tsx`、`tool-approval/*.test.tsx`、`local-command/card.test.tsx`、`memory-write/card.test.tsx`、`memory/memory-row.test.tsx`、`permission-mode-pill.test.tsx` |
-| 桌面宿主组件 | 任务进度条、Agent 会话弹层、退出确认框、负责人徽标的同上行为 | 无，新增 |
-| `StatusDot` | 读屏名为界面语言 | 无，新增 |
+| 桌面宿主组件 | 任务进度条、Agent 会话弹层、退出确认框、负责人徽标的同上行为 | `task-progress/__tests__/task-progress-bar.test.tsx`、`__tests__/sessions-popover.test.tsx`、`__tests__/quit-confirm-dialog.test.tsx`、`org/__tests__/org-department-badges.test.tsx` |
+| `StatusDot` | 读屏名为界面语言 | `frontend/src/components/agentre/__tests__/foundation.test.tsx` |
 | i18n 守卫 | 新键中英齐全、静态键存在 | `frontend/src/__tests__/i18n.test.ts`、`agentre-ui/src/i18n/i18n.test.tsx` |
 
 运行期：用 `make verify-up` 起隔离桌面，对一个正在运行的会话截取左侧列表、标签页、转录（活动行、工具卡、子 Agent 卡）的浅 / 深两张图，确认图标与提示；控制台钉版本后在 dev 环境看一次转录与手机版会话行。视觉细节（尺寸、对齐）无法自动化，由这两次截图覆盖。
