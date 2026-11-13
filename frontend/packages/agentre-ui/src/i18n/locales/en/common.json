@@ -250,5 +250,31 @@
       "mobile": "Mobile",
       "leadership": "Leadership"
     }
+  },
+  "statusName": {
+    "running": "Running",
+    "waiting": "Needs you",
+    "idle": "Idle",
+    "error": "Error",
+    "done": "Done",
+    "failed": "Failed",
+    "stopped": "Stopped",
+    "cancelled": "Cancelled",
+    "unknown": "Result unknown",
+    "skipped": "Skipped",
+    "expired": "Expired",
+    "invalidated": "No longer valid",
+    "queued": "Queued",
+    "approved": "Approved",
+    "allowed": "Allowed",
+    "denied": "Denied",
+    "created": "Created",
+    "updated": "Updated",
+    "deleted": "Deleted",
+    "fileNew": "New file",
+    "fileDeleted": "Deleted"
+  },
+  "statusScope": {
+    "thisSession": "this session"
   }
 }
