@@ -449,3 +449,63 @@ describe("ToolPermissionCard buttons and keyboard", () => {
     expect(answerToolPermission).not.toHaveBeenCalled();
   });
 });
+
+describe("ToolPermissionCard resolved outcome mark", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function resolvedBlock(allowed: boolean, alwaysAllow?: boolean) {
+    const block = permBlock("Bash", { command: "ls" }, "req-1", true);
+    Object.assign(block.canonical!.toolPermission!, { allowed, alwaysAllow });
+    return block;
+  }
+
+  it("Given an allowed-once permission, When rendered, Then an allowed mark shows with no text or session suffix", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={resolvedBlock(true)}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Allowed" })).toBeDefined();
+    expect(screen.queryByText("Allowed")).toBeNull();
+    expect(screen.queryByText("this session")).toBeNull();
+  });
+
+  it("Given a session-wide allow, When rendered, Then the allowed mark is followed by the this-session text", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={resolvedBlock(true, true)}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Allowed" })).toBeDefined();
+    expect(screen.getByText("this session")).toBeDefined();
+    expect(screen.queryByText("Allowed (this session)")).toBeNull();
+  });
+
+  it("Given a denied permission, When rendered, Then a denied mark shows and no allowed mark", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={resolvedBlock(false)}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Denied" })).toBeDefined();
+    expect(screen.queryByRole("img", { name: "Allowed" })).toBeNull();
+    expect(screen.queryByText("Denied")).toBeNull();
+  });
+
+  it("Given a pending permission, When rendered, Then no outcome mark shows", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={permBlock("Bash", { command: "ls" })}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    expect(screen.queryByRole("img", { name: /Allowed|Denied/ })).toBeNull();
+  });
+});

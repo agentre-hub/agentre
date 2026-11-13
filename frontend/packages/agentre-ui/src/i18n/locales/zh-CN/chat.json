@@ -223,11 +223,6 @@
     "approve": "批准",
     "deny": "拒绝",
     "submitFailed": "审批提交失败",
-    "status": {
-      "approved": "已批准",
-      "denied": "已拒绝",
-      "expired": "已过期"
-    },
     "tools": {
       "org_create_department": "创建部门",
       "org_update_department": "修改部门",
@@ -240,11 +235,6 @@
   "ctlApproval": {
     "title": "配置变更",
     "needsApproval": "需要你批准",
-    "op": {
-      "create": "新建",
-      "update": "修改",
-      "delete": "删除"
-    },
     "kind": {
       "agent": "Agent",
       "department": "部门",

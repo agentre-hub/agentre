@@ -49,6 +49,9 @@ describe("ToolApprovalCard", () => {
 
   it("renders the tool label, the input payload and approve/reject buttons when pending", () => {
     renderCard(pending());
+    expect(
+      screen.queryByRole("img", { name: /Approved|Denied|Expired/ }),
+    ).toBeNull();
     // tools.org_create_department → "Create department" (setup forces en locale)
     expect(screen.getByText("Create department")).toBeDefined();
     // 入参 JSON 原样渲染(动态内容不翻译)
@@ -112,7 +115,8 @@ describe("ToolApprovalCard", () => {
         result: "用户拒绝了删除操作",
       }),
     );
-    expect(screen.getByText("Rejected")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Denied" })).toBeDefined();
+    expect(screen.queryByText("Rejected")).toBeNull();
     expect(screen.getByText("用户拒绝了删除操作")).toBeDefined();
     expect(screen.queryByText("Approve")).toBeNull();
     expect(screen.queryByText("Reject")).toBeNull();
@@ -125,14 +129,16 @@ describe("ToolApprovalCard", () => {
         result: "已创建部门 研发部",
       }),
     );
-    expect(screen.getByText("Approved")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Approved" })).toBeDefined();
+    expect(screen.queryByText("Approved")).toBeNull();
     expect(screen.getByText("已创建部门 研发部")).toBeDefined();
     expect(screen.queryByText("Approve")).toBeNull();
   });
 
   it("renders an expired badge for status=expired", () => {
     renderCard(pending({ status: "expired" }));
-    expect(screen.getByText("Expired")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Expired" })).toBeDefined();
+    expect(screen.queryByText("Expired")).toBeNull();
     expect(screen.queryByText("Approve")).toBeNull();
   });
 

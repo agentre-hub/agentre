@@ -76,7 +76,7 @@ describe("CtlApprovalCard (toolKey=ctl change-list card)", () => {
         "agrctl update provider openrouter --base-url https://openrouter.ai/api/v1 --api-key=…",
       ),
     ).toBeDefined();
-    expect(screen.getByText("Update")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Updated" })).toBeDefined();
     expect(screen.getByText("LLM provider")).toBeDefined();
     expect(screen.getByText("openrouter")).toBeDefined();
     expect(screen.getByText(/baseURL/)).toBeDefined();
@@ -108,7 +108,7 @@ describe("CtlApprovalCard (toolKey=ctl change-list card)", () => {
       },
     });
 
-    expect(screen.getByText("Create")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Created" })).toBeDefined();
     expect(screen.getByText("Agent")).toBeDefined();
     expect(screen.getByText("reviewer")).toBeDefined();
     expect(screen.queryByText("line-through")).toBeNull();
@@ -148,7 +148,7 @@ describe("CtlApprovalCard (toolKey=ctl change-list card)", () => {
       },
     });
 
-    expect(screen.getByText("Delete")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Deleted" })).toBeDefined();
     expect(screen.getByText("Department")).toBeDefined();
     expect(
       screen.getByText(/also deletes 1 sub-department\(s\) and 2 agent\(s\)/),
@@ -190,7 +190,8 @@ describe("CtlApprovalCard (toolKey=ctl change-list card)", () => {
   it("renders a read-only status pill and result text once approved, with no buttons", () => {
     renderCtlCard({ status: "approved", result: "已更新 provider openrouter" });
 
-    expect(screen.getByText("Approved")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Approved" })).toBeDefined();
+    expect(screen.queryByText("Approved")).toBeNull();
     expect(screen.getByText("已更新 provider openrouter")).toBeDefined();
     expect(screen.queryByText("Approve")).toBeNull();
     expect(screen.queryByText("Reject")).toBeNull();
@@ -201,7 +202,8 @@ describe("CtlApprovalCard (toolKey=ctl change-list card)", () => {
   it("renders a read-only status pill once denied", () => {
     renderCtlCard({ status: "denied", result: "用户拒绝了删除操作" });
 
-    expect(screen.getByText("Rejected")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Denied" })).toBeDefined();
+    expect(screen.queryByText("Rejected")).toBeNull();
     expect(screen.getByText("用户拒绝了删除操作")).toBeDefined();
     expect(screen.queryByText("Approve")).toBeNull();
   });
@@ -209,7 +211,36 @@ describe("CtlApprovalCard (toolKey=ctl change-list card)", () => {
   it("renders a read-only status pill once expired", () => {
     renderCtlCard({ status: "expired" });
 
-    expect(screen.getByText("Expired")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Expired" })).toBeDefined();
+    expect(screen.queryByText("Expired")).toBeNull();
     expect(screen.queryByText("Approve")).toBeNull();
+  });
+
+  it("Given a pending card, When rendered, Then no outcome mark is shown", () => {
+    renderCtlCard();
+
+    expect(
+      screen.queryByRole("img", { name: /Approved|Denied|Expired/ }),
+    ).toBeNull();
+  });
+
+  it("Given create/update/delete changes, When rendered, Then each row carries its op icon instead of a text pill", () => {
+    renderCtlCard({
+      toolInput: {
+        command: "agrctl x",
+        changes: [
+          { op: "create", kind: "agent", name: "a1" },
+          { op: "update", kind: "agent", name: "a2" },
+          { op: "delete", kind: "agent", name: "a3" },
+        ],
+      },
+    });
+
+    expect(screen.getByRole("img", { name: "Created" })).toBeDefined();
+    expect(screen.getByRole("img", { name: "Updated" })).toBeDefined();
+    expect(screen.getByRole("img", { name: "Deleted" })).toBeDefined();
+    expect(screen.queryByText("Create")).toBeNull();
+    expect(screen.queryByText("Update")).toBeNull();
+    expect(screen.queryByText("Delete")).toBeNull();
   });
 });

@@ -2,15 +2,12 @@ import * as React from "react";
 import { Check, ShieldAlert, X } from "lucide-react";
 
 import { Button } from "../../ui/button";
+import { StatusMark, type StatusMarkState } from "../../ui/status-mark";
 import { cn } from "../../lib/utils";
 import { useUiTranslation } from "../../i18n";
 import type { TranscriptBlockToolApproval } from "../dto";
 import { useTranscriptPorts } from "../ports-context";
-import {
-  TranscriptCard,
-  TranscriptCardBody,
-  TranscriptPill,
-} from "../transcript-card";
+import { TranscriptCard, TranscriptCardBody } from "../transcript-card";
 
 // CtlApprovalCard 渲染 toolKey="ctl" 的「变更清单卡」(spec 2026-09-22 决策 6,
 // mockup CtlApprovalCard/ChangeRow)。agrctl 一次写命令对应一张卡:完整命令行
@@ -122,28 +119,22 @@ export function parseCtlApprovalInput(
   };
 }
 
-const opPillClass: Record<CtlApprovalOp, string> = {
-  create: "bg-status-running-bg text-status-running-text",
-  update: "bg-status-waiting-bg text-status-waiting-text",
-  delete: "bg-destructive/10 text-destructive-text",
-};
+// 已决审批的 status 字符串 → 状态标记。pending 由调用方先行排除;
+// 除 approved / expired 外的已决状态(denied 及未知值)一律按拒绝显示。
+export function approvalMarkState(status: string): StatusMarkState {
+  if (status === "approved") return "approved";
+  if (status === "expired") return "expired";
+  return "denied";
+}
+
+const opMarkState = {
+  create: "created",
+  update: "updated",
+  delete: "deleted",
+} as const satisfies Record<CtlApprovalOp, StatusMarkState>;
 
 function useCtlApprovalLabels() {
   const { t } = useUiTranslation();
-
-  const opLabel = React.useCallback(
-    (op: CtlApprovalOp): string => {
-      switch (op) {
-        case "create":
-          return t("ctlApproval.op.create");
-        case "update":
-          return t("ctlApproval.op.update");
-        case "delete":
-          return t("ctlApproval.op.delete");
-      }
-    },
-    [t],
-  );
 
   const kindLabel = React.useCallback(
     (kind: CtlApprovalKind): string => {
@@ -169,7 +160,7 @@ function useCtlApprovalLabels() {
     [t],
   );
 
-  return { opLabel, kindLabel };
+  return { kindLabel };
 }
 
 // ChangeRow 渲染一条变更:操作徽标 + 类型 + 名字,展开的字段前后值,以及
@@ -177,14 +168,12 @@ function useCtlApprovalLabels() {
 // 无论后端是否误把值带进来——前端多一层防线,不只信 Hard invariant 1。
 function ChangeRow({ change }: { change: CtlApprovalChange }) {
   const { t } = useUiTranslation();
-  const { opLabel, kindLabel } = useCtlApprovalLabels();
+  const { kindLabel } = useCtlApprovalLabels();
 
   return (
     <li className="flex flex-col gap-1 py-2 first:pt-0 last:pb-0">
       <div className="flex items-center gap-2">
-        <TranscriptPill className={opPillClass[change.op]}>
-          {opLabel(change.op)}
-        </TranscriptPill>
+        <StatusMark state={opMarkState[change.op]} />
         <span className="text-aux text-muted-foreground">
           {kindLabel(change.kind)}
         </span>
@@ -314,17 +303,10 @@ export function CtlApprovalCard({
           </span>
         )}
         {!isPending && (
-          <TranscriptPill
-            data-copyable-control-text="true"
-            className={cn(
-              "ml-auto",
-              isApproved
-                ? "bg-status-running-bg text-status-running-text"
-                : "bg-destructive/10 text-destructive-text",
-            )}
-          >
-            {t(`toolApproval.status.${approval.status}`)}
-          </TranscriptPill>
+          <StatusMark
+            state={approvalMarkState(approval.status)}
+            className="ml-auto"
+          />
         )}
       </div>
 

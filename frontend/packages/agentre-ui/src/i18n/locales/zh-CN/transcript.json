@@ -195,9 +195,6 @@
       "lines_other": "{{count}} 行",
       "allowOnce": "允许",
       "allowSession": "本会话始终允许",
-      "allowed": "已允许",
-      "allowedSession": "已允许(本会话)",
-      "denied": "已拒绝",
       "submitFailed": "审批提交失败",
       "dock": {
         "eyebrow": "需要你决定",
