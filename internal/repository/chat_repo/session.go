@@ -66,6 +66,9 @@ type SessionRepo interface {
 	// 终止判断。两者必须收同一个 filter：拿未过滤的总数去配过滤后的列表，组头的
 	// 「会话 N」就会和它下面的行自相矛盾。
 	CountIndex(ctx context.Context, filter SessionIndexFilter) (int64, error)
+	// ListForCleanup 给批量清理取候选：未软删、按 SessionCleanupFilter 收窄，按 id 升序。
+	// 不按 agent_status 过滤 —— 进行中 / 等用户操作的会话也要读出来，由调用方记成「保留」。
+	ListForCleanup(ctx context.Context, filter SessionCleanupFilter) ([]*chat_entity.Session, error)
 	// ReassignProject 把 project_id 从 fromProjectID 整批改挂到 toProjectID（R11a
 	// 的项目合并）。刻意**不带 status / purpose 过滤**：软删的会话与子 agent 委派
 	// 会话在项目会话列表里都看不见（被 nonSubagentScope 排除），逐行改挂必然
@@ -427,6 +430,21 @@ type SessionIndexFilter struct {
 	Keyword string
 }
 
+// SessionCleanupFilter 是批量清理的收窄条件（spec 2026-11-12「批量清理」）。
+// 三个数值维的 0 都是「不收窄」：ProjectID = 0 因此不是「随手对话」，未挂项目的会话
+// 只属于「全部项目」。
+type SessionCleanupFilter struct {
+	// BeforeMs > 0 时只取最后活动早于它的会话；最后活动 = last_message_at，从没有过
+	// 消息（0）的按 createtime。
+	BeforeMs int64
+	AgentID  int64
+	// ProjectID > 0 收窄到该项目。
+	ProjectID int64
+	// Subagent 取反：false 取用户看得见的顶层会话，true 只取子 agent 委派会话
+	// （它们随清理一起删，但不计入展示的数量）。
+	Subagent bool
+}
+
 // indexScope 是索引全部查询共用的 WHERE。列名一律带 `chat_sessions.` 前缀：
 // 关键词分支会 JOIN 上 agents / projects，而这两张表同样有 name / status / id 列，
 // 不限定表名的话 SQLite 直接报 ambiguous column。
@@ -502,6 +520,29 @@ func (r *sessionRepo) CountIndex(ctx context.Context, filter SessionIndexFilter)
 		Scopes(indexScope(filter)).
 		Count(&n).Error
 	return n, err
+}
+
+// ListForCleanup 见接口注释。
+func (r *sessionRepo) ListForCleanup(ctx context.Context, f SessionCleanupFilter) ([]*chat_entity.Session, error) {
+	var rows []*chat_entity.Session
+	q := db.Ctx(ctx).Model(&chat_entity.Session{}).Where("status = ?", consts.ACTIVE)
+	if f.Subagent {
+		q = q.Where("purpose = ?", chat_entity.SessionPurposeSubagent)
+	} else {
+		q = q.Where("purpose <> ?", chat_entity.SessionPurposeSubagent)
+	}
+	if f.AgentID > 0 {
+		q = q.Where("agent_id = ?", f.AgentID)
+	}
+	if f.ProjectID > 0 {
+		q = q.Where("project_id = ?", f.ProjectID)
+	}
+	if f.BeforeMs > 0 {
+		q = q.Where("CASE WHEN last_message_at > 0 THEN last_message_at ELSE createtime END < ?", f.BeforeMs)
+	}
+	err := q.Order("id ASC").Find(&rows).Error
+	applySessionDerivedFields(rows)
+	return rows, err
 }
 
 // ReassignProject 见接口注释：WHERE 里只有 project_id，没有 status / purpose。

@@ -119,6 +119,10 @@ type ChatSvc interface {
 	// DeleteByUser 是用户发起的删除：本机删完后连带请 server / 执行端删除，发不出去的
 	// 记成本地待删除。
 	DeleteByUser(ctx context.Context, req *DeleteRequest) (*DeleteResponse, error)
+	// PreviewCleanup / ExecuteCleanup 是设置里的「清理对话历史」：先按条件预览，再删预览
+	// 那一刻的那些对话（见 cleanup.go）。
+	PreviewCleanup(ctx context.Context, req *PreviewCleanupRequest) (*PreviewCleanupResponse, error)
+	ExecuteCleanup(ctx context.Context, req *ExecuteCleanupRequest) (*ExecuteCleanupResponse, error)
 	MarkSessionRead(ctx context.Context, req *MarkSessionReadRequest) (*MarkSessionReadResponse, error)
 	AnswerUserQuestion(ctx context.Context, req *AnswerUserQuestionRequest) (*AnswerUserQuestionResponse, error)
 	AnswerToolPermission(ctx context.Context, req *AnswerToolPermissionRequest) (*AnswerToolPermissionResponse, error)

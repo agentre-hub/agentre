@@ -1114,6 +1114,82 @@ type DeleteRequest struct {
 }
 type DeleteResponse struct{}
 
+// PreviewCleanupRequest 是批量清理的条件（spec 2026-11-12「批量清理」）。三个维度的 0
+// 都是「不收窄」：BeforeMs = 0 即「全部」时间；ProjectID = 0 即「全部项目」，未挂项目
+// 的随手对话只在这一格里出现，挑具体项目时不含它们。
+type PreviewCleanupRequest struct {
+	// BeforeMs：只取最后活动早于它的对话（unix ms）。最后活动 = last_message_at，
+	// 从没有过消息的按建立时间。
+	BeforeMs  int64 `json:"beforeMs"`
+	AgentID   int64 `json:"agentId"`
+	ProjectID int64 `json:"projectId"`
+}
+
+// CleanupCopyKind 是确认框里「每份副本删几条」的行种类。
+const (
+	CleanupCopyLocal   = "local"   // 这台电脑
+	CleanupCopyAccount = "account" // 账号里保存的副本（只在已登录时出现）
+	CleanupCopyMachine = "machine" // 某台执行端 agentred
+)
+
+// CleanupCopy 是确认框里的一行：这份副本会删几条对话。
+type CleanupCopy struct {
+	Kind string `json:"kind"`
+	// Name 只有 machine 行有：配对机器的展示名。
+	Name string `json:"name"`
+	// Online 只对 machine 行有意义：这台机器此刻是否在线。
+	Online bool `json:"online"`
+	// LanDirect：未登录账号、由本机直接对这台机器发删除（离线时记待删除）。
+	LanDirect bool  `json:"lanDirect"`
+	Count     int64 `json:"count"`
+}
+
+// PreviewCleanupResponse 是清理预览。Count / SessionIDs 只算用户看得见的顶层对话；
+// 子 agent 委派会话（列表里本来就隐藏）按同样条件一起清理，单列在 SubagentSessionIDs，
+// 不计入任何数字。进行中 / 等用户操作的对话计入 Retained，不在两个 id 列表里。
+type PreviewCleanupResponse struct {
+	Count              int64         `json:"count"`
+	Retained           int64         `json:"retained"`
+	Copies             []CleanupCopy `json:"copies"`
+	SessionIDs         []int64       `json:"sessionIds"`
+	SubagentSessionIDs []int64       `json:"subagentSessionIds"`
+}
+
+// ExecuteCleanupRequest 带的是预览那一刻的 id；SubagentSessionIDs 原样回传预览给的那份。
+type ExecuteCleanupRequest struct {
+	SessionIDs         []int64 `json:"sessionIds"`
+	SubagentSessionIDs []int64 `json:"subagentSessionIds"`
+}
+
+// 清理失败的原因码（界面据此用中文说明）。
+const (
+	CleanupFailedRead   = "read_failed"   // 删除前读不出会话行
+	CleanupFailedDelete = "delete_failed" // 本机那份没删掉
+)
+
+// CleanupFailure 是本机那份没删掉的一条对话。
+type CleanupFailure struct {
+	ID     int64  `json:"id"`
+	Reason string `json:"reason"`
+}
+
+// CleanupPending 是还没删到的那份副本：Kind=machine 时是某台执行端（Machine 为它的名字），
+// Kind=account 时是账号里保存的副本（server 够不着）。只数顶层对话。
+type CleanupPending struct {
+	Kind    string `json:"kind"`
+	Machine string `json:"machine"`
+	Count   int64  `json:"count"`
+}
+
+// ExecuteCleanupResponse：Deleted 是本机已删的顶层对话 id；已经不存在的 id 不在其中；
+// Retained 是执行时重新判断出已变成进行中 / 等用户操作而保留的数量。
+type ExecuteCleanupResponse struct {
+	Deleted  []int64          `json:"deleted"`
+	Failed   []CleanupFailure `json:"failed"`
+	Pending  []CleanupPending `json:"pending"`
+	Retained int64            `json:"retained"`
+}
+
 // MarkSessionReadRequest 把 last_read_at 推进到至少 Timestamp (unix ms)。
 // Timestamp <= 0 时服务侧改用当前时间。语义单调：repo 层只在新 ts 严格大于旧值时落库。
 type MarkSessionReadRequest struct {
