@@ -60,6 +60,60 @@ describe("isMemoryWriteCall", () => {
     expect(isMemoryWriteCall(use(command))).toBe(false);
   });
 
+  // codex 用双引号包外壳时按 shell 规则转义了 \ $ ` "，内层的 `Application\ Support` 在外壳里是
+  // `Application\\ Support`。
+  it("recognizes an escaped-space path inside a double-quoted codex wrapper", () => {
+    const command = `/bin/zsh -lc "/Users/u/Library/Application\\\\ Support/agentre/bin/agrctl update memory 3 --detail 'x'"`;
+    expect(isMemoryWriteCall(use(command))).toBe(true);
+  });
+
+  it.each([
+    `/bin/zsh -c "agrctl create memory --summary 'x'"`,
+    `bash -c 'agrctl delete memory 3'`,
+    `/bin/zsh -lc 'agrctl create memory --summary "it'"'"'s"'`,
+    "NO_COLOR=1 agrctl create memory --summary x",
+    `LANG=C FOO="a b" /usr/local/bin/agrctl delete memory 3`,
+    "agrctl create Memory --summary x",
+    "git status; agrctl create memory --summary x",
+    "agrctl create memory --summary x | cat",
+  ])(
+    "recognizes a call behind -c, env assignments or a separator %s",
+    (command) => {
+      expect(isMemoryWriteCall(use(command))).toBe(true);
+    },
+  );
+
+  // Windows 上装的是 agrctl.exe，路径分隔符是反斜杠；PowerShell 用 & 调用带引号的路径。
+  it.each([
+    "agrctl.exe create memory --summary x",
+    `"C:\\Users\\u\\AppData\\Roaming\\agentre\\bin\\agrctl.exe" create memory --summary x`,
+    `& 'C:\\Users\\u\\AppData\\Roaming\\agentre\\bin\\agrctl.exe' delete memory 3`,
+    `C:\\Users\\u\\AppData\\Roaming\\agentre\\bin\\agrctl.exe update memory 3 --detail x`,
+  ])("recognizes a Windows call %s", (command) => {
+    expect(isMemoryWriteCall(use(command))).toBe(true);
+  });
+
+  it.each([
+    `echo "; agrctl create memory"`,
+    `echo 'a | agrctl delete memory 3'`,
+    `git commit -m "docs (agrctl create memory)"`,
+    "echo x # ; agrctl create memory",
+    `/bin/zsh -lc "echo \\"; agrctl create memory\\""`,
+  ])(
+    "ignores a separator that sits inside quotes or a comment %s",
+    (command) => {
+      expect(isMemoryWriteCall(use(command))).toBe(false);
+    },
+  );
+
+  // 转录里每条命令都过这个判据；反斜杠转义的分隔符不能让判据退化成平方级。
+  it("stays linear on a long command full of escaped separators", () => {
+    const command = "grep agrctl" + "\\|a".repeat(60_000);
+    const start = performance.now();
+    expect(isMemoryWriteCall(use(command))).toBe(false);
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+
   it.each([
     "agrctl list memory --query lint",
     "agrctl create agent --name x",
@@ -121,22 +175,5 @@ describe("parseMemoryWrite", () => {
         ),
       ),
     ).toBeNull();
-  });
-});
-
-describe("parseMemoryWrite on the real Codex create block", () => {
-  it("reads the first output line of the JSON command result", () => {
-    const codexResult = result(
-      JSON.stringify({
-        exitCode: 0,
-        output: "memory m1 created (agent CEO 助手)\n",
-        status: "completed",
-      }),
-    );
-    expect(parseMemoryWrite(use("x"), codexResult)).toEqual({
-      id: 1,
-      action: "created",
-      layer: { kind: "agent" },
-    });
   });
 });

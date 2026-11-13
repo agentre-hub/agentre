@@ -8,7 +8,11 @@
 // <层> 是 global，或 department <路径> / agent <名字> / project <路径>。超预算时还有第 2 行
 // `over budget: ...`，卡片不用它。
 import type { TranscriptBlock } from "../../dto";
-import { unwrapShellCommand } from "../shell-command";
+import {
+  programName,
+  splitShellCommands,
+  unwrapShellCommand,
+} from "../shell-command";
 import { commandResultOf, isFailedCommandResult } from "../command-result";
 
 export type MemoryWriteAction = "created" | "updated" | "archived" | "exists";
@@ -25,19 +29,33 @@ export type MemoryWrite = {
   layer: MemoryWriteLayer;
 };
 
-// 命令的开头必须是 agrctl（行首或 && ; | 之后，可带目录前缀），免得 echo "agrctl create memory"
-// 之类误判。codex 会套一层 `zsh -lc "…"`，判据前先用 unwrapShellCommand 剥掉。目录前缀可以
-// 引起来或转义空格：macOS 上 agrctl 装在 ~/Library/Application Support/… 下。
-const WRITE_COMMAND =
-  /(?:^|[;&|(]\s*|&&\s*)(?:(?:(?:[^\s;&|()'"\\]|\\.)*\/)?agrctl|"(?:[^"]*\/)?agrctl"|'(?:[^']*\/)?agrctl')\s+(?:create|update|delete)\s+memor(?:y|ies)\b/m;
+// 一条简单命令的程序是 agrctl（可带目录前缀、Windows 上是 agrctl.exe，前面可有 FOO=1 这样的
+// 环境变量赋值），后面紧跟写动词与 memory。按 shell 的引号读：引号里、注释里的
+// "; agrctl create memory" 不是调用，引起来或转义空格的路径（macOS 上 agrctl 装在
+// ~/Library/Application Support/… 下）是。codex 套的 `zsh -lc "…"` 先由 unwrapShellCommand 剥掉。
+const AGRCTL = new Set(["agrctl", "agrctl.exe"]);
+const WRITE_VERBS = new Set(["create", "update", "delete"]);
+const MEMORY_KINDS = new Set(["memory", "memories"]); // agrctl 认名字不分大小写
+const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+function isMemoryWriteWords(words: string[]): boolean {
+  const start = words.findIndex((word) => !ENV_ASSIGNMENT.test(word));
+  if (start < 0) return false;
+  const [program, verb, kind] = words.slice(start, start + 3);
+  return (
+    AGRCTL.has(programName(program)) &&
+    WRITE_VERBS.has(verb) &&
+    kind !== undefined &&
+    MEMORY_KINDS.has(kind.toLowerCase())
+  );
+}
 
 export function isMemoryWriteCall(block: TranscriptBlock): boolean {
   const command = (block.toolInput as { command?: unknown } | undefined)
     ?.command;
-  return (
-    typeof command === "string" &&
-    WRITE_COMMAND.test(unwrapShellCommand(command))
-  );
+  if (typeof command !== "string" || !command.includes("agrctl")) return false;
+  const commands = splitShellCommands(unwrapShellCommand(command));
+  return commands !== null && commands.some(isMemoryWriteWords);
 }
 
 const RESULT_LINE =
