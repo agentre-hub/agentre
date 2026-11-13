@@ -1,29 +1,22 @@
 import * as React from "react";
 import type { TFunction } from "i18next";
 import {
-  Check,
   ChevronRight,
-  CircleHelp,
-  CircleSlash,
   Clock,
   LoaderCircle,
   RotateCcw,
   Square,
   SquareArrowOutUpRight,
-  TriangleAlert,
   Users,
   Wrench,
 } from "lucide-react";
 import type { TranscriptBlock } from "../../dto";
 import { CollapsibleCode } from "../../collapsible-code";
-import {
-  TranscriptCard,
-  TranscriptCardHeader,
-  TranscriptPill,
-} from "../../transcript-card";
+import { TranscriptCard, TranscriptCardHeader } from "../../transcript-card";
 import { cn } from "../../../lib/utils";
 import { shouldIgnoreClickForSelection } from "../../../lib/copyable-text";
-import { statusConfig, type AgentStatus } from "../../agent-status";
+import type { AgentStatus } from "../../agent-status";
+import { StatusMark, type StatusMarkState } from "../../../ui/status-mark";
 import { useCollapsible } from "../../../hooks/use-collapsible";
 import { useTranscriptBooleanState } from "../../transcript-ui-state";
 import { useUiTranslation } from "../../../i18n";
@@ -162,43 +155,6 @@ function statusFromSpawn(
   if (spawn.status) return "idle";
   if (resultBlock) return "idle";
   return "running";
-}
-
-// buildStatusLabel: cancelled 走 idle 通道但 label 单独显示 STOPPED,避免和正常
-// 完成的 DONE 混淆。
-function buildStatusLabel(
-  status: AgentStatus,
-  spawnStatus: AgentSpawnDTO["status"] | undefined,
-  t: TFunction,
-  durationMs?: number,
-): string {
-  const dur = durationMs ? formatDuration(durationMs) : "";
-  if (spawnStatus === "canceled") {
-    return dur
-      ? t("canonical.agentSpawn.status.withDuration", {
-          status: t("canonical.agentSpawn.status.stopped"),
-          duration: dur,
-        })
-      : t("canonical.agentSpawn.status.stopped");
-  }
-  const label =
-    status === "error"
-      ? t("canonical.agentSpawn.status.error")
-      : status === "running" || status === "waiting"
-        ? t("canonical.agentSpawn.status.running")
-        : t("canonical.agentSpawn.status.done");
-  switch (status) {
-    case "error":
-    case "running":
-    case "waiting":
-    default:
-      return dur
-        ? t("canonical.agentSpawn.status.withDuration", {
-            status: label,
-            duration: dur,
-          })
-        : label;
-  }
 }
 
 function formatDuration(ms: number): string {
@@ -477,21 +433,14 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
   const status = normalizedStatus
     ? statusAgentState(normalizedStatus)
     : statusFromSpawn(singleSpawn, resultBlock);
-  const { pillClassName } = statusConfig[status];
-  const StatusIcon =
-    status === "error" || singleSpawn.status === "partial"
-      ? TriangleAlert
-      : singleSpawn.status === "canceled"
-        ? CircleSlash
-        : singleSpawn.status === "unknown"
-          ? CircleHelp
-          : status === "running" || status === "waiting"
-            ? LoaderCircle
-            : Check;
-  const statusLabel =
-    normalizedRun && normalizedStatus
-      ? buildNormalizedStatusLabel(normalizedStatus, t, singleSpawn.durationMs)
-      : buildStatusLabel(status, singleSpawn.status, t, singleSpawn.durationMs);
+  const markState: StatusMarkState =
+    status === "error" && !normalizedStatus
+      ? "error"
+      : singleSpawn.status
+        ? statusMarkState(singleSpawn.status)
+        : status === "running" || status === "waiting"
+          ? "running"
+          : "done";
 
   const description = singleSpawn.taskDescription || "";
   const displayName =
@@ -707,21 +656,7 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
             </span>
           ) : null
         ) : (
-          <TranscriptPill
-            data-testid="agent-spawn-status-pill"
-            data-copyable-control-text="true"
-            className={pillClassName}
-          >
-            <StatusIcon
-              className={cn(
-                "size-2.5",
-                (status === "running" || status === "waiting") &&
-                  "animate-spin motion-reduce:animate-none",
-              )}
-              aria-hidden="true"
-            />
-            {statusLabel}
-          </TranscriptPill>
+          <StatusWithDuration state={markState} durationMs={durationMs} />
         )}
       </TranscriptCardHeader>
       <div
@@ -865,42 +800,6 @@ function isLiveRunStatus(status: AgentSpawnStatus): boolean {
   return status === "running" || status === "waiting";
 }
 
-function statusLabel(status: AgentSpawnStatus, t: TFunction): string {
-  switch (status) {
-    case "waiting":
-      return t("canonical.agentSpawn.status.waiting");
-    case "completed":
-      return t("canonical.agentSpawn.status.done");
-    case "failed":
-      return t("canonical.agentSpawn.status.failed");
-    case "canceled":
-      return t("canonical.agentSpawn.status.stopped");
-    case "skipped":
-      return t("canonical.agentSpawn.status.skipped");
-    case "unknown":
-      return t("canonical.agentSpawn.status.unknown");
-    case "partial":
-      return t("canonical.agentSpawn.status.partial");
-    case "running":
-    default:
-      return t("canonical.agentSpawn.status.running");
-  }
-}
-
-function buildNormalizedStatusLabel(
-  status: AgentSpawnStatus,
-  t: TFunction,
-  durationMs?: number,
-): string {
-  const label = statusLabel(status, t);
-  return durationMs
-    ? t("canonical.agentSpawn.status.withDuration", {
-        status: label,
-        duration: formatDuration(durationMs),
-      })
-    : label;
-}
-
 function statusAgentState(status: AgentSpawnStatus): AgentStatus {
   if (status === "failed") return "error";
   if (status === "running") return "running";
@@ -908,31 +807,50 @@ function statusAgentState(status: AgentSpawnStatus): AgentStatus {
   return "idle";
 }
 
-function statusPillClass(status: AgentSpawnStatus): string {
-  if (status === "partial") return statusConfig.waiting.pillClassName;
-  return statusConfig[statusAgentState(status)].pillClassName;
+// statusMarkState —— 运行状态到共享状态图标的对照:排队中与运行中同为转圈
+// (排队不是需要用户处理的状态),部分完成按出错三角。
+function statusMarkState(status: AgentSpawnStatus): StatusMarkState {
+  switch (status) {
+    case "completed":
+      return "done";
+    case "failed":
+      return "failed";
+    case "partial":
+      return "error";
+    case "canceled":
+      return "stopped";
+    case "skipped":
+      return "skipped";
+    case "unknown":
+      return "unknown";
+    case "waiting":
+    case "running":
+    default:
+      return "running";
+  }
 }
 
-function StatusGlyph({ status }: { status: AgentSpawnStatus }) {
-  const Icon =
-    status === "failed" || status === "partial"
-      ? TriangleAlert
-      : status === "canceled" || status === "skipped"
-        ? CircleSlash
-        : status === "unknown"
-          ? CircleHelp
-          : status === "running" || status === "waiting"
-            ? LoaderCircle
-            : Check;
+// StatusWithDuration —— 卡头状态:图标 + 灰色耗时。图标自带可访问名,耗时只在有值时出现。
+function StatusWithDuration({
+  state,
+  durationMs,
+}: {
+  state: StatusMarkState;
+  durationMs?: number;
+}) {
   return (
-    <Icon
-      className={cn(
-        "size-2.5",
-        (status === "running" || status === "waiting") &&
-          "animate-spin motion-reduce:animate-none",
-      )}
-      aria-hidden="true"
-    />
+    <span
+      data-testid="agent-spawn-status-pill"
+      data-copyable-control-text="true"
+      className="inline-flex shrink-0 items-center gap-1.5"
+    >
+      <StatusMark state={state} />
+      {durationMs ? (
+        <span className="text-meta text-muted-foreground">
+          {formatDuration(durationMs)}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -1062,13 +980,10 @@ function GroupedAgentSpawnCard({
             </span>
           ) : null
         ) : (
-          <TranscriptPill
-            data-testid="agent-spawn-status-pill"
-            className={statusPillClass(outerStatus)}
-          >
-            <StatusGlyph status={outerStatus} />
-            {statusLabel(outerStatus, t)}
-          </TranscriptPill>
+          <StatusWithDuration
+            state={statusMarkState(outerStatus)}
+            durationMs={spawn.durationMs}
+          />
         )}
       </TranscriptCardHeader>
       <div
@@ -1227,10 +1142,7 @@ function AgentSpawnRunGroup({
           </RunBadge>
         ) : null}
         <span className="min-w-0 flex-1" />
-        <TranscriptPill className={statusPillClass(status)}>
-          <StatusGlyph status={status} />
-          {statusLabel(status, t)}
-        </TranscriptPill>
+        <StatusMark state={statusMarkState(status)} />
       </button>
       <div
         aria-hidden={!expanded}

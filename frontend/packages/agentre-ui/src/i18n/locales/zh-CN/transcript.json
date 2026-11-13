@@ -87,23 +87,11 @@
         "steps_other": "{{count}} 步"
       },
       "sections": {
-        "prompt": "TASK PROMPT",
-        "tasks": "TASKS",
-        "steps": "STEPS",
-        "output": "OUTPUT",
-        "summary": "SUMMARY"
-      },
-      "status": {
-        "done": "DONE",
-        "error": "ERROR",
-        "failed": "FAILED",
-        "partial": "PARTIAL",
-        "running": "RUNNING",
-        "waiting": "WAITING",
-        "skipped": "SKIPPED",
-        "unknown": "UNKNOWN",
-        "stopped": "STOPPED",
-        "withDuration": "{{status}} · {{duration}}"
+        "prompt": "任务说明",
+        "tasks": "各次运行",
+        "steps": "步骤",
+        "output": "输出",
+        "summary": "总结"
       },
       "summaryRunning": "subagent 还在跑，结果稍后返回…",
       "waitingFirstStep": "等待第一个子调用…",
