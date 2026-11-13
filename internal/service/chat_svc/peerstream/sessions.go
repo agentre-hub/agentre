@@ -253,10 +253,10 @@ func peerSessionSummary(
 	if err != nil {
 		return wire.SessionSummary{}, err
 	}
-	// 只有远端执行(ExecDeviceID > 0)的会话才报执行端指纹;本机执行的留空,
+	// 只有远端执行(RanOnDaemon)的会话才报执行端指纹;本机执行的留空,
 	// 不让一个残留的指纹单独说话。
 	var carrier devicefp.Carrier
-	if session.ExecDeviceID > 0 {
+	if session.RanOnDaemon() {
 		carrier = session.ExecDeviceFingerprint
 	}
 	return wire.SessionSummary{
