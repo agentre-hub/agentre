@@ -179,7 +179,6 @@
       },
       "departmentMemberCount": "{{count}} members",
       "leadHint": "Choose from direct agents",
-      "leadBadge": "LEAD",
       "leader": "Leader",
       "memberSummary": "{{agents}} direct agents · {{departments}} sub-departments",
       "members": "Members",

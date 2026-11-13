@@ -40,21 +40,22 @@ export function LeadBadge({
 }) {
   const { t } = useTranslation();
 
+  const name = t("org.department.leader");
+
   return (
     <span
-      className={cn(
-        "inline-flex shrink-0 items-center rounded-sm bg-secondary font-mono font-semibold text-secondary-foreground",
-        compact ? "gap-1 px-1 py-0.5 text-2xs" : "gap-1 px-1.5 py-0.5 text-2xs",
-      )}
+      role="img"
+      aria-label={name}
+      title={name}
+      className="inline-flex shrink-0 items-center"
     >
       <Crown
         className={cn(
-          compact ? "size-2" : "size-2.5",
+          compact ? "size-2.5" : "size-3",
           agentIconColorClassNames[color],
         )}
         aria-hidden="true"
       />
-      {t("org.department.leadBadge")}
     </span>
   );
 }

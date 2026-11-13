@@ -121,7 +121,8 @@
     "untitledSession": "Untitled session"
   },
   "sessionsPopover": {
-    "untitled": "(Untitled)"
+    "untitled": "(Untitled)",
+    "waiting": "Needs you"
   },
   "shortcuts": {
     "chatTab": {

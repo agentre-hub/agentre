@@ -69,7 +69,6 @@
     "title": "退出 Agentre？",
     "description": "有 {{count}} 个会话仍在进行，退出会中断它们当前的回合，未完成的回合不会保存。",
     "runningSessions": "进行中的会话 · {{count}}",
-    "statusRunning": "运行中",
     "statusWaiting": "等待确认",
     "more": "还有 {{count}} 个会话",
     "cancel": "取消",

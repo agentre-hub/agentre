@@ -41,7 +41,7 @@ function AgentAvatar({ avatarIcon, ...props }: AgentAvatarProps) {
 
 type StatusPillProps = React.ComponentProps<"span"> & {
   status: AgentStatus;
-  label?: string;
+  label: string;
 };
 
 function StatusPill({ className, label, status, ...props }: StatusPillProps) {
@@ -57,7 +57,7 @@ function StatusPill({ className, label, status, ...props }: StatusPillProps) {
       {...props}
     >
       <StatusDot status={status} size="xs" />
-      {label ?? config.label}
+      {label}
     </span>
   );
 }

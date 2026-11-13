@@ -69,7 +69,6 @@
     "title": "Quit Agentre?",
     "description": "{{count}} session(s) are still in progress. Quitting will interrupt their current turn, and unfinished turns will not be saved.",
     "runningSessions": "In progress · {{count}}",
-    "statusRunning": "Running",
     "statusWaiting": "Awaiting you",
     "more": "{{count}} more session(s)",
     "cancel": "Cancel",

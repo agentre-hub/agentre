@@ -200,9 +200,6 @@ const DYNAMIC_KEY_PREFIXES = [
   "toolApproval.tools.",
   // ui/status-mark.tsx: t(`statusName.${state}`)；ui/status-dot.tsx: t(`statusName.${status}`)
   "statusName.",
-  // 灰色「本会话」范围后缀，挂在 StatusMark 旁。读者随 plan 2026-11-13-running-status-icon
-  // 的后续任务落地；有了 t("statusScope.thisSession") 的静态调用后删掉这一条。
-  "statusScope.thisSession",
 ];
 
 /**

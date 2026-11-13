@@ -1,14 +1,8 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Circle,
-  LoaderCircle,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, LoaderCircle } from "lucide-react";
 
-import { cn } from "@agentre-hub/agentre-ui";
+import { cn, StatusMark, type StatusMarkState } from "@agentre-hub/agentre-ui";
 
 import type { Task, TaskProgress } from "./types";
 
@@ -24,32 +18,17 @@ function findRunning(tasks: Task[]): Task | undefined {
   return tasks.find((t) => t.status === "running");
 }
 
-// 同一个状态在一行里出现两次：左边的图标是图形，留在饱和的填充色上；右边的
-// 状态词是要读的字，用 -text 角色（docs/design.md §3.5）。分表而不是共用一张。
-const STATUS_ICON_TONE: Record<Task["status"], string> = {
-  queued: "text-muted-foreground",
-  running: "text-status-running",
-  completed: "text-status-running",
-  cancelled: "text-muted-foreground",
-  failed: "text-status-error",
-};
-const STATUS_TEXT_TONE: Record<Task["status"], string> = {
-  queued: "text-muted-foreground",
-  running: "text-status-running-text",
-  completed: "text-status-running-text",
-  cancelled: "text-muted-foreground",
-  failed: "text-destructive-text",
+// 任务状态 → 共享 StatusMark 的状态；图标与颜色由 StatusMark 定（docs/design.md §6.4）。
+const STATUS_MARK_STATE: Record<Task["status"], StatusMarkState> = {
+  queued: "queued",
+  running: "running",
+  completed: "done",
+  cancelled: "cancelled",
+  failed: "failed",
 };
 
 function TaskRow({ index, task }: { index: number; task: Task }) {
-  const { t } = useTranslation();
   const isRunning = task.status === "running";
-  const Icon =
-    task.status === "completed"
-      ? Check
-      : task.status === "running"
-        ? LoaderCircle
-        : Circle;
   return (
     <li
       className={cn(
@@ -57,14 +36,7 @@ function TaskRow({ index, task }: { index: number; task: Task }) {
         isRunning && "bg-primary-soft",
       )}
     >
-      <Icon
-        className={cn(
-          "size-3 shrink-0",
-          STATUS_ICON_TONE[task.status],
-          isRunning && "animate-spin motion-reduce:animate-none",
-        )}
-        aria-hidden
-      />
+      <StatusMark state={STATUS_MARK_STATE[task.status]} className="size-3" />
       <span className="w-5 shrink-0 text-right font-semibold text-muted-foreground">
         {index + 1}.
       </span>
@@ -72,18 +44,11 @@ function TaskRow({ index, task }: { index: number; task: Task }) {
         className={cn(
           "min-w-0 flex-1 truncate font-sans",
           task.status === "completed" && "text-muted-foreground",
+          task.status === "cancelled" && "line-through",
           isRunning && "font-semibold text-primary-text",
         )}
       >
         {task.description}
-      </span>
-      <span
-        className={cn(
-          "shrink-0 text-[9px] font-bold tracking-wider",
-          STATUS_TEXT_TONE[task.status],
-        )}
-      >
-        {t(`taskProgress.status.${task.status}`)}
       </span>
     </li>
   );

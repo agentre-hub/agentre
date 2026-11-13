@@ -54,13 +54,13 @@ describe("Agentre foundation components", () => {
     render(
       <div>
         <AgentAvatar name="CEO 助手" initials="C" color="agent-1" />
-        <StatusPill status="running" />
+        <StatusPill status="running" label="Running now" />
         <SidebarButton label="对话" icon={MessageSquare} active />
       </div>,
     );
 
     expect(screen.getByLabelText("CEO 助手")).toHaveTextContent("C");
-    expect(screen.getByText("RUNNING")).toBeInTheDocument();
+    expect(screen.getByText("Running now")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "对话" })).toHaveAttribute(
       "aria-current",
       "page",

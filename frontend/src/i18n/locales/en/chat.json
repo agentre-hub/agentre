@@ -477,13 +477,6 @@
   },
   "taskProgress": {
     "allCompleted": "All done",
-    "status": {
-      "cancelled": "CANCELLED",
-      "completed": "DONE",
-      "failed": "FAILED",
-      "queued": "QUEUED",
-      "running": "RUNNING"
-    },
     "title": "Task Progress"
   }
 }
