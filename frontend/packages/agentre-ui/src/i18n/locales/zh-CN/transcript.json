@@ -105,10 +105,6 @@
       "paramCount": "{{count}} 个参数"
     },
     "fileEdit": {
-      "badge": {
-        "deleted": "DELETED",
-        "new": "NEW"
-      },
       "fileCount": "{{count}} 个文件",
       "noChanges": "无实际变更",
       "replay": {
@@ -203,8 +199,6 @@
       }
     },
     "userAsk": {
-      "answered": "ANSWERED",
-      "expired": "已失效",
       "errors": {
         "optionRequired": "请先选择一个选项再提交",
         "otherRequired": "已选「自定义答案」请填写内容",
@@ -214,10 +208,9 @@
       "multi": "多选",
       "otherPlaceholder": "自定义答案 — 输入你自己的方案…",
       "secretAnswered": "已作答 · 内容不显示",
-      "skipped": "SKIPPED",
       "single": "单选",
       "submit": "提交回复",
-      "waiting": "WAITING · 等待回复"
+      "waiting": "等待回复"
     }
   },
   "compactBoundary": {

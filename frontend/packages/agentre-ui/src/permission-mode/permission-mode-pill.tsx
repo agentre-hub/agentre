@@ -9,6 +9,7 @@ import {
 
 import { useUiTranslation as useTranslation } from "../i18n";
 import { cn } from "../lib/utils";
+import { StatusMark } from "../ui/status-mark";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 import {
@@ -189,9 +190,15 @@ export function PermissionModePill({
                         {itemMeta.key}
                       </span>
                       {active ? (
-                        <span className="ml-auto inline-flex items-center gap-1 rounded-sm bg-primary-soft px-1.5 py-px font-mono text-2xs font-semibold tracking-wider text-primary-text">
-                          <span className="size-1 rounded-full bg-primary" />
-                          {t("permissionMode.active")}
+                        <span
+                          role="img"
+                          aria-label={t("permissionMode.active")}
+                          title={t("permissionMode.active")}
+                          className="ml-auto inline-flex"
+                        >
+                          <span aria-hidden="true" className="inline-flex">
+                            <StatusMark state="done" />
+                          </span>
                         </span>
                       ) : null}
                     </span>

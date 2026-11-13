@@ -44,6 +44,20 @@ describe("PermissionModePill", () => {
     ).toBeInTheDocument();
   });
 
+  // Given 当前档，When 打开菜单，Then 当前档挂 ✓（名为「Current mode」），ACTIVE 文字消失，
+  // 其余档不挂。
+  it("当前档挂 ✓ 而不是 ACTIVE 胶囊", async () => {
+    await openPill();
+    expect(screen.queryByText("ACTIVE")).toBeNull();
+    const marks = screen.getAllByRole("img", { name: "Current mode" });
+    expect(marks).toHaveLength(1);
+    expect(marks[0].closest("[role=option]")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(marks[0].querySelector("[data-state=done]")).not.toBeNull();
+  });
+
   // 只报两档的 runtime（codex）就只列两档 —— 档位集合是 runtime 说了算的，
   // 不是前端按 backend 类型猜的。
   it("runtime 只报两档时就只列两档", async () => {

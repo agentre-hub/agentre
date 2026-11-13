@@ -105,10 +105,6 @@
       "paramCount": "{{count}} params"
     },
     "fileEdit": {
-      "badge": {
-        "deleted": "DELETED",
-        "new": "NEW"
-      },
       "fileCount": "{{count}} files",
       "noChanges": "No actual changes",
       "replay": {
@@ -203,8 +199,6 @@
       }
     },
     "userAsk": {
-      "answered": "ANSWERED",
-      "expired": "EXPIRED",
       "errors": {
         "optionRequired": "Select an option before submitting",
         "otherRequired": "Fill in the custom answer you selected",
@@ -214,10 +208,9 @@
       "multi": "Multiple",
       "otherPlaceholder": "Custom answer - enter your own response...",
       "secretAnswered": "Answered · content not shown",
-      "skipped": "SKIPPED",
       "single": "Single",
       "submit": "Submit Reply",
-      "waiting": "WAITING · Awaiting reply"
+      "waiting": "Awaiting reply"
     }
   },
   "compactBoundary": {

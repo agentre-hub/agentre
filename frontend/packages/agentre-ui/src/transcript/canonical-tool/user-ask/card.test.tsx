@@ -69,7 +69,7 @@ describe("UserAskCard", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("renders question + options + WAITING pill", () => {
+  it("renders question + options + waiting text pill", () => {
     const block = {
       type: "tool_use",
       toolName: "AskUserQuestion",
@@ -93,10 +93,11 @@ describe("UserAskCard", () => {
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
     expect(screen.getByText("想用哪种方式?")).toBeDefined();
     expect(screen.getByText("A")).toBeDefined();
-    expect(screen.getByText(/WAITING/)).toBeDefined();
+    expect(screen.getByText("Awaiting reply")).toBeDefined();
+    expect(screen.queryByText(/WAITING/)).toBeNull();
   });
 
-  it("renders ANSWERED state when answered", () => {
+  it("renders a done mark instead of ANSWERED when answered", () => {
     const block = {
       type: "tool_use",
       toolName: "AskUserQuestion",
@@ -117,7 +118,11 @@ describe("UserAskCard", () => {
       },
     } as unknown as TranscriptBlock;
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
-    expect(screen.getByText("ANSWERED")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Done" })).toHaveAttribute(
+      "data-state",
+      "done",
+    );
+    expect(screen.queryByText("ANSWERED")).toBeNull();
   });
 
   it("Given an expanded card, When collapsed, Then the body stays mounted through the collapse transition and unmounts after it ends", () => {
@@ -223,6 +228,11 @@ describe("UserAskCard", () => {
     expect(screen.getByRole("button", { name: /^B$/ })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+    expect(screen.getByRole("img", { name: "Skipped" })).toHaveAttribute(
+      "data-state",
+      "skipped",
+    );
+    expect(screen.queryByText("SKIPPED")).toBeNull();
   });
 
   it("Given a draft answer, When the Ask User card remounts in the same tab, Then it restores selections, Other text, and active question", async () => {
@@ -286,7 +296,7 @@ describe("UserAskCard", () => {
     expect(screen.getByRole("textbox")).toHaveValue("");
   });
 
-  it("renders EXPIRED state locked with no submit button", () => {
+  it("renders expired state (hourglass mark) locked with no submit button", () => {
     const block = {
       type: "tool_use",
       toolName: "AskUserQuestion",
@@ -306,7 +316,10 @@ describe("UserAskCard", () => {
       },
     } as unknown as TranscriptBlock;
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
-    expect(screen.getByText(/已失效|EXPIRED/i)).toBeDefined();
+    expect(
+      screen.getByRole("img", { name: "No longer valid" }),
+    ).toHaveAttribute("data-state", "invalidated");
+    expect(screen.queryByText("EXPIRED")).toBeNull();
     expect(screen.queryByText("提交回复")).toBeNull();
     expect(screen.queryByText("Submit reply")).toBeNull();
   });
@@ -342,7 +355,7 @@ describe("UserAskCard", () => {
     await waitFor(() => {
       expect(screen.getByText(/superseded/i)).toBeDefined();
     });
-    expect(screen.getByText("EXPIRED")).toBeDefined();
+    expect(screen.getByRole("img", { name: "No longer valid" })).toBeDefined();
     // 锁卡:提交按钮消失
     expect(screen.queryByText("Submit Reply")).toBeNull();
     // 已失效不是「没提交成功」，也不贴原文。
@@ -366,9 +379,9 @@ describe("UserAskCard", () => {
     expect(details).not.toBeNull();
     expect(details!.open).toBe(false);
     // 不锁卡、不判失效。
-    expect(screen.queryByText("EXPIRED")).toBeNull();
+    expect(screen.queryByRole("img", { name: "No longer valid" })).toBeNull();
     expect(screen.queryByText(/superseded/i)).toBeNull();
-    expect(screen.getByText(/WAITING/)).toBeDefined();
+    expect(screen.getByText("Awaiting reply")).toBeDefined();
     // 选择保留。
     expect(screen.getByRole("textbox")).toHaveValue("my own answer");
     expect(screen.getByRole("textbox")).not.toBeDisabled();
@@ -631,7 +644,7 @@ describe("UserAskCard", () => {
           sessionId={1}
         />,
       );
-      expect(screen.getByText("ANSWERED")).toBeInTheDocument();
+      expect(screen.getByRole("img", { name: "Done" })).toBeInTheDocument();
       expect(
         screen.getByText("Answered · content not shown"),
       ).toBeInTheDocument();

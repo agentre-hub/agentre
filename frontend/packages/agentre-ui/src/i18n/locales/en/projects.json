@@ -145,7 +145,7 @@
     }
   },
   "permissionMode": {
-    "active": "ACTIVE",
+    "active": "Current mode",
     "aria": "Permission mode: {{label}} (Shift+Tab to switch)",
     "disabled": {
       "bypassAfterLaunch": "This session did not start with bypassPermissions. Claude CLI does not allow entering bypass mid-session. Start a new session with bypass selected to unlock two-way switching."
