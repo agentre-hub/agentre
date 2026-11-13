@@ -91,7 +91,7 @@ export const RawToolCard: React.FC<CanonicalCardProps> = ({
   // 成功不挂标记；失败有退出码时红三角后跟 exit N。
   const exitLabel =
     isError && typeof commandResult?.exitCode === "number"
-      ? `exit ${commandResult.exitCode}`
+      ? t("activity.row.exit", { code: commandResult.exitCode })
       : null;
 
   const perm = (toolBlock as TranscriptBlock).toolPermission;

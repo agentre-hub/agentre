@@ -3,6 +3,7 @@ import { Folder, Globe, Pencil, Undo2, Users } from "lucide-react";
 
 import { useUiTranslation } from "../../../i18n";
 import { MemoryEditForm } from "../../../memory/memory-edit-form";
+import { MetaIcon } from "../../../memory/meta-icon";
 import type { MemoryEntryView } from "../../../memory/types";
 import { Button } from "../../../ui/button";
 import { StatusMark, type StatusMarkState } from "../../../ui/status-mark";
@@ -261,14 +262,7 @@ function LayerBadge({ layer }: { layer: MemoryWriteLayer }) {
   }
   return (
     <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-2xs text-muted-foreground">
-      <span
-        role="img"
-        aria-label={word}
-        title={word}
-        className="inline-flex size-3 items-center justify-center"
-      >
-        <Icon aria-hidden="true" className="size-full" />
-      </span>
+      <MetaIcon icon={Icon} name={word} />
       {name ? <span>{name}</span> : null}
     </span>
   );

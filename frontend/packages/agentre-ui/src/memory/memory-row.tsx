@@ -18,6 +18,7 @@ import {
 
 import { formatMemoryDate } from "./format";
 import { MemoryEditForm } from "./memory-edit-form";
+import { MetaIcon } from "./meta-icon";
 import type {
   MemoryEntryView,
   MemoryRowAction,
@@ -175,26 +176,6 @@ function MemoryRowMeta({
         <MetaIcon icon={Text} name={t("memory.row.hasDetail")} />
       ) : null}
     </div>
-  );
-}
-
-/** 来源 / 详情这类身份标记：只画图标，原来的字成为可访问名与悬停提示。 */
-function MetaIcon({
-  icon: Icon,
-  name,
-}: {
-  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
-  name: string;
-}) {
-  return (
-    <span
-      role="img"
-      aria-label={name}
-      title={name}
-      className="inline-flex size-3 shrink-0 items-center justify-center"
-    >
-      <Icon aria-hidden className="size-full" />
-    </span>
   );
 }
 

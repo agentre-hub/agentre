@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import i18n from "i18next";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
 import type { TranscriptBlock } from "../../dto";
 import { agentreUiResources } from "../../../i18n";
@@ -2283,13 +2284,51 @@ describe("AgentSpawnCard status marks", () => {
     );
   });
 
-  it("Given the zh-CN bundle, When reading the section titles, Then they are Chinese", () => {
-    expect(zhCommon.canonical.agentSpawn.sections).toEqual({
-      prompt: "任务说明",
-      tasks: "各次运行",
-      steps: "步骤",
-      output: "输出",
-      summary: "总结",
+  describe("Given the UI language is zh-CN", () => {
+    afterEach(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    it("When a single-run card is expanded, Then its section titles are Chinese, not the English capitals", async () => {
+      await i18n.changeLanguage("zh-CN");
+      const { container } = render(
+        <AgentSpawnCard toolBlock={singleBlock("running")} />,
+      );
+      const details = expandCard(container);
+
+      for (const title of ["任务说明", "步骤", "总结"]) {
+        expect(within(details).getByText(title)).toBeInTheDocument();
+      }
+      expect(
+        within(details).queryByText(/TASK PROMPT|STEPS|SUMMARY/),
+      ).toBeNull();
+    });
+
+    it("When a multi-run card is expanded, Then the runs section and a run's output are titled in Chinese", async () => {
+      await i18n.changeLanguage("zh-CN");
+      const { container } = render(
+        <AgentSpawnCard
+          toolBlock={normalizedSpawnBlock({
+            status: "completed",
+            runs: [
+              {
+                id: "a",
+                index: 0,
+                agent: "a",
+                task: "a",
+                status: "completed",
+                summary: "done a",
+              },
+            ],
+          })}
+        />,
+      );
+      const details = expandCard(container);
+
+      expect(within(details).getByText("各次运行")).toBeInTheDocument();
+      fireEvent.click(within(details).getByRole("button", { expanded: false }));
+      expect(within(details).getByText("输出")).toBeInTheDocument();
+      expect(within(details).queryByText(/^TASKS$|^OUTPUT$/)).toBeNull();
     });
   });
 });

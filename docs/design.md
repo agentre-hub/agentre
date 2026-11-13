@@ -470,7 +470,9 @@ Project blocks in [`components/agentre/primitives.tsx`](../frontend/src/componen
 | Approved / allowed | `check` / `shield-check` | `status-running` | `check` for a decided approval (已批准 / 已允许), `shield-check` for the allowed badge on a tool card header. A grant that only lasts this session adds a grey 本会话 / this session suffix |
 | Current (a menu's selected item) | `check` | `primary-text` | The permission-mode menu's current mode |
 | Denied | `x` | `status-error` | |
+| Answered | `check` | `status-running` | A question the user has answered |
 | Created / updated / deleted | `plus` / `pencil` / `trash-2` | `status-running` / `primary-text` / `status-error` | Files use `file-plus` / `file-x` |
+| Memory remembered / updated / archived / already there / undone | `bookmark-plus` / `pencil` / `archive` / `bookmark-check` / `undo-2` | `status-running` / `primary-text` / `muted-foreground` ×3 | A memory write's outcome on its transcript card |
 | Needs the user | `StatusPill` with words (等你 / 待审批) | `status-waiting` | Stays text — an icon alone is not clear enough |
 
 Reasons, background-run notices and counts (未读, 后台, 后台运行 · task id, `+N / −N`) stay text: they say *why* or *how much*, not *which state*.
