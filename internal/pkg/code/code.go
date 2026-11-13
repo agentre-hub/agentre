@@ -417,3 +417,20 @@ const (
 const (
 	SessionProcessNotOwned = iota + 21010 // 要结束的进程不属于这条会话(已退出、PID 被复用或不是它留下的)
 )
+
+// Agent 记忆 21100~21199。内容检查的几条要把上限 / 原因说清楚：AI 写入失败时这句话
+// 会原样回给 agent，它据此改写后重试。
+const (
+	MemoryNotFound         = iota + 21100 // 记忆不存在
+	MemoryInvalidOwner                    // 归属形状非法(未知层，或全局带了 id / 其他层缺 id)
+	MemoryOwnerNotFound                   // 归属的部门 / agent / 项目不存在
+	MemoryInvalidActor                    // 写入者非法(AI 写入缺 agent 或会话)
+	MemorySummaryRequired                 // 摘要为空
+	MemorySummaryTooLong                  // 摘要超过 200 字
+	MemorySummaryMultiline                // 摘要含换行
+	MemoryDetailTooLong                   // 详情超过 4000 字
+	MemoryInvisibleChars                  // 含不可见字符
+	MemorySensitiveContent                // 含明显的凭据格式
+	MemoryNoPrevious                      // 没有上一版可恢复
+	MemoryNotOwnLayer                     // AI 写入的层不是本会话 agent 所属的层(决策 7)
+)

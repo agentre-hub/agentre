@@ -13,11 +13,13 @@ import (
 	context "context"
 	reflect "reflect"
 
+	memory_entity "github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	project_entity "github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	agent_backend_svc "github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	agent_svc "github.com/agentre-hub/agentre/internal/service/agent_svc"
 	department_svc "github.com/agentre-hub/agentre/internal/service/department_svc"
 	llm_provider_svc "github.com/agentre-hub/agentre/internal/service/llm_provider_svc"
+	memory_svc "github.com/agentre-hub/agentre/internal/service/memory_svc"
 	project_svc "github.com/agentre-hub/agentre/internal/service/project_svc"
 	remote_device_svc "github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	gomock "go.uber.org/mock/gomock"
@@ -734,4 +736,133 @@ func (m *MockDeviceDirectory) List(ctx context.Context) ([]*remote_device_svc.De
 func (mr *MockDeviceDirectoryMockRecorder) List(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockDeviceDirectory)(nil).List), ctx)
+}
+
+// MockMemoryService is a mock of MemoryService interface.
+type MockMemoryService struct {
+	ctrl     *gomock.Controller
+	recorder *MockMemoryServiceMockRecorder
+	isgomock struct{}
+}
+
+// MockMemoryServiceMockRecorder is the mock recorder for MockMemoryService.
+type MockMemoryServiceMockRecorder struct {
+	mock *MockMemoryService
+}
+
+// NewMockMemoryService creates a new mock instance.
+func NewMockMemoryService(ctrl *gomock.Controller) *MockMemoryService {
+	mock := &MockMemoryService{ctrl: ctrl}
+	mock.recorder = &MockMemoryServiceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockMemoryService) EXPECT() *MockMemoryServiceMockRecorder {
+	return m.recorder
+}
+
+// AllLayers mocks base method.
+func (m *MockMemoryService) AllLayers(ctx context.Context) (*memory_svc.VisibleMemory, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AllLayers", ctx)
+	ret0, _ := ret[0].(*memory_svc.VisibleMemory)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AllLayers indicates an expected call of AllLayers.
+func (mr *MockMemoryServiceMockRecorder) AllLayers(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllLayers", reflect.TypeOf((*MockMemoryService)(nil).AllLayers), ctx)
+}
+
+// Archive mocks base method.
+func (m *MockMemoryService) Archive(ctx context.Context, id int64, actor memory_entity.Actor) (*memory_svc.MemoryItem, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Archive", ctx, id, actor)
+	ret0, _ := ret[0].(*memory_svc.MemoryItem)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Archive indicates an expected call of Archive.
+func (mr *MockMemoryServiceMockRecorder) Archive(ctx, id, actor any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Archive", reflect.TypeOf((*MockMemoryService)(nil).Archive), ctx, id, actor)
+}
+
+// Create mocks base method.
+func (m *MockMemoryService) Create(ctx context.Context, req *memory_svc.CreateRequest) (*memory_svc.CreateResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", ctx, req)
+	ret0, _ := ret[0].(*memory_svc.CreateResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockMemoryServiceMockRecorder) Create(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockMemoryService)(nil).Create), ctx, req)
+}
+
+// ListByOwner mocks base method.
+func (m *MockMemoryService) ListByOwner(ctx context.Context, owner memory_entity.Owner) (*memory_svc.OwnerList, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByOwner", ctx, owner)
+	ret0, _ := ret[0].(*memory_svc.OwnerList)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByOwner indicates an expected call of ListByOwner.
+func (mr *MockMemoryServiceMockRecorder) ListByOwner(ctx, owner any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByOwner", reflect.TypeOf((*MockMemoryService)(nil).ListByOwner), ctx, owner)
+}
+
+// SessionOwners mocks base method.
+func (m *MockMemoryService) SessionOwners(ctx context.Context, actor memory_entity.Actor) ([]memory_entity.Owner, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SessionOwners", ctx, actor)
+	ret0, _ := ret[0].([]memory_entity.Owner)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SessionOwners indicates an expected call of SessionOwners.
+func (mr *MockMemoryServiceMockRecorder) SessionOwners(ctx, actor any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SessionOwners", reflect.TypeOf((*MockMemoryService)(nil).SessionOwners), ctx, actor)
+}
+
+// SessionVisible mocks base method.
+func (m *MockMemoryService) SessionVisible(ctx context.Context, actor memory_entity.Actor) (*memory_svc.VisibleMemory, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SessionVisible", ctx, actor)
+	ret0, _ := ret[0].(*memory_svc.VisibleMemory)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SessionVisible indicates an expected call of SessionVisible.
+func (mr *MockMemoryServiceMockRecorder) SessionVisible(ctx, actor any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SessionVisible", reflect.TypeOf((*MockMemoryService)(nil).SessionVisible), ctx, actor)
+}
+
+// Update mocks base method.
+func (m *MockMemoryService) Update(ctx context.Context, req *memory_svc.UpdateRequest) (*memory_svc.MemoryItem, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Update", ctx, req)
+	ret0, _ := ret[0].(*memory_svc.MemoryItem)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Update indicates an expected call of Update.
+func (mr *MockMemoryServiceMockRecorder) Update(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockMemoryService)(nil).Update), ctx, req)
 }

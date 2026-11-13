@@ -54,6 +54,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/app_settings_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/goal"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/peerstream"
@@ -128,6 +129,9 @@ type ChatSvc interface {
 	// AgentBackendHasCapability 报告某 agent 的后端 runtime 是否声明指定能力(领域无关探针)。
 	// 后端缺失/类型无法解析 → (false, nil)。MVP 仅解析本地 runtime; 远程后端目前返回 (false, nil)。
 	AgentBackendHasCapability(ctx context.Context, agentID int64, wantCap capability.Capability) (bool, error)
+	// BackendCapabilities 报告一档后端此刻的能力集及是否真的知道：本机查 runtime 注册表，
+	// 远端只读本机已连着那台设备时缓存的矩阵，没有连接或没预取成功即 known=false（不拨号）。
+	BackendCapabilities(ctx context.Context, be *agent_backend_entity.AgentBackend) (caps capability.Capabilities, known bool, err error)
 	CountActiveSessions(ctx context.Context) (int, error)
 	// BeginToolApproval 在 sessionID 当前活跃 turn 上登记一条 pending 工具审批、推流,
 	// 并返回等待 channel;无活跃 turn → error(工具 MCP handler 据此拒绝工具调用)。
@@ -2486,6 +2490,11 @@ func (s *chatSvc) buildRunRequest(
 	if err != nil {
 		return agentruntime.RunRequest{}, err
 	}
+	// 记忆快照按本轮选中的 runtime 判档,首个回合取下后各回合原样沿用(spec 2026-11-11 决策 11/12)。
+	memorySnapshot, err := s.sessionMemorySnapshot(ctx, sess, a, MemoryTier(turnCapabilities(runner, be), be.Type))
+	if err != nil {
+		return agentruntime.RunRequest{}, err
+	}
 	req := agentruntime.RunRequest{
 		Backend:           effectiveBackendForSession(sess, be),
 		Provider:          prov,
@@ -2497,7 +2506,7 @@ func (s *chatSvc) buildRunRequest(
 		Title:             sess.Title,
 		AgentSyncID:       a.SyncID,
 		ProjectSyncID:     projectSyncID,
-		SystemPrompt:      strings.Join(a.GetPrompt(), "\n"),
+		SystemPrompt:      appendMemorySnapshot(strings.Join(a.GetPrompt(), "\n"), memorySnapshot),
 		ProviderSessionID: sess.ProviderSessionID,
 		// 挂账修复(2026-08-11):本地没有可续的原生会话(regenerate 无锚点 / provider 会话
 		// 失效恢复 / 首轮)时声明 freshSession,远端 daemon 据此不拿落库旧 id 续话。
@@ -2562,6 +2571,10 @@ func (s *chatSvc) buildRunRequest(
 	switch agent_backend_entity.BackendType(be.Type) {
 	case agent_backend_entity.TypeClaudeCode:
 		req.PermissionMode = ipc.NormalizeStoredPermissionMode(agent_backend_entity.TypeClaudeCode, sess.PermissionMode)
+		// 原生记忆开关只存本机(决策 13):只管本机起的 Claude Code,远程设备上的不受它管。
+		if !exec_target_svc.BackendTargetsRemote(be) {
+			req.DisableNativeAutoMemory = !app_settings_svc.AppSettings().ClaudeNativeMemoryEnabled(ctx)
+		}
 	case agent_backend_entity.TypeCodex:
 		req.CollaborationMode = ipc.NormalizeStoredPermissionMode(agent_backend_entity.TypeCodex, sess.PermissionMode)
 	case agent_backend_entity.TypeHermes:

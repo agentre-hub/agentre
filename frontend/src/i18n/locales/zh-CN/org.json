@@ -122,7 +122,11 @@
       "charCount": "{{count}} 字",
       "deleteDialog": {
         "description": "该 Agent 的对话、技能与状态记录都会一并清除，该操作不可撤销。",
-        "title": "确认删除 Agent「{{name}}」？"
+        "title": "确认删除 Agent「{{name}}」？",
+        "memories": "它名下的 {{count}} 条记忆也会一并删除。",
+        "memories_one": "它名下的 {{count}} 条记忆也会一并删除。",
+        "memories_other": "它名下的 {{count}} 条记忆也会一并删除。",
+        "noMemories": "它名下没有记忆。"
       },
       "departmentLead": "{{name}} 部门长",
       "skills": {
@@ -167,7 +171,11 @@
         "reparentDescription": "推荐 / 安全 · 直属子项移动到当前部门的父级",
         "reparentTitle": "成员上挂到父部门",
         "strategyTitle": "选择如何处理子项",
-        "title": "确认删除「{{name}}」？"
+        "title": "确认删除「{{name}}」？",
+        "memories": "它名下的 {{count}} 条记忆也会一并删除。",
+        "memories_one": "它名下的 {{count}} 条记忆也会一并删除。",
+        "memories_other": "它名下的 {{count}} 条记忆也会一并删除。",
+        "noMemories": "它名下没有记忆。"
       },
       "departmentMemberCount": "{{count}} 名成员",
       "leadHint": "从直属 Agent 中选",

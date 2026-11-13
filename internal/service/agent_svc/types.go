@@ -113,3 +113,14 @@ type SetPinnedResponse struct {
 	ID     int64 `json:"id"`
 	Pinned bool  `json:"pinned"`
 }
+
+// SetMemoryEnabledRequest 切换 Agent 的记忆开关。
+type SetMemoryEnabledRequest struct {
+	ID      int64 `json:"id" binding:"required"`
+	Enabled bool  `json:"enabled"`
+}
+
+type SetMemoryEnabledResponse struct {
+	ID      int64 `json:"id"`
+	Enabled bool  `json:"enabled"`
+}

@@ -246,6 +246,20 @@ func (mr *MockAgentRepoMockRecorder) ReparentChildren(ctx, fromParentAgentID, to
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReparentChildren", reflect.TypeOf((*MockAgentRepo)(nil).ReparentChildren), ctx, fromParentAgentID, toDepartmentID, toParentAgentID)
 }
 
+// SetMemoryEnabled mocks base method.
+func (m *MockAgentRepo) SetMemoryEnabled(ctx context.Context, id int64, enabled bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetMemoryEnabled", ctx, id, enabled)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetMemoryEnabled indicates an expected call of SetMemoryEnabled.
+func (mr *MockAgentRepoMockRecorder) SetMemoryEnabled(ctx, id, enabled any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMemoryEnabled", reflect.TypeOf((*MockAgentRepo)(nil).SetMemoryEnabled), ctx, id, enabled)
+}
+
 // SetPinned mocks base method.
 func (m *MockAgentRepo) SetPinned(ctx context.Context, id int64, pinned bool) error {
 	m.ctrl.T.Helper()

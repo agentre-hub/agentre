@@ -341,3 +341,56 @@ describe("TranscriptRowView decision switches", () => {
     expect(screen.getByTestId("plan-card")).toBeDefined();
   });
 });
+
+describe("CanonicalToolRouter memory writes", () => {
+  const writeCall = {
+    type: "tool_use",
+    toolName: "Bash",
+    toolInput: { command: 'agrctl create memory --summary "x"' },
+  } as unknown as TranscriptBlock;
+  const writeResult = {
+    type: "tool_result",
+    text: "memory m7 created (global)\n",
+  } as unknown as TranscriptBlock;
+
+  it("renders the memory card when the host provides the memory port", async () => {
+    const memory = {
+      get: vi.fn().mockResolvedValue(null),
+      undoWrite: vi.fn(),
+      save: vi.fn(),
+    };
+    render(
+      <TranscriptPortsProvider ports={{ ...ports, memory }}>
+        <CanonicalToolRouter
+          toolBlock={writeCall}
+          resultBlock={writeResult}
+          sessionId={70}
+        />
+      </TranscriptPortsProvider>,
+    );
+    expect(screen.getByTestId("memory-write-card")).toBeDefined();
+    expect(screen.queryByTestId("raw-tool-card")).toBeNull();
+  });
+
+  it("falls back to the generic rendering when the host has no memory port", () => {
+    renderRouted(
+      <CanonicalToolRouter toolBlock={writeCall} resultBlock={writeResult} />,
+    );
+    expect(screen.getByTestId("raw-tool-card")).toBeDefined();
+    expect(screen.queryByTestId("memory-write-card")).toBeNull();
+  });
+
+  it("falls back to the generic rendering while the command has no result yet", () => {
+    const memory = {
+      get: vi.fn(),
+      undoWrite: vi.fn(),
+      save: vi.fn(),
+    };
+    render(
+      <TranscriptPortsProvider ports={{ ...ports, memory }}>
+        <CanonicalToolRouter toolBlock={writeCall} />
+      </TranscriptPortsProvider>,
+    );
+    expect(screen.getByTestId("raw-tool-card")).toBeDefined();
+  });
+});

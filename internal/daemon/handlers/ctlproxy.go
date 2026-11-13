@@ -166,7 +166,7 @@ func (p *ctlProxy) forwardToDesktop(w http.ResponseWriter, r *http.Request, owne
 	headers["Authorization"] = []string{"Bearer " + owner.desktop.Token}
 	delete(headers, ctlBindToolCallHeader)
 	delete(headers, ctlBindBackgroundHeader)
-	if r.URL.Path == ctlResourcesPath && isCtlWrite(body) {
+	if r.URL.Path == ctlResourcesPath && awaitsCtlApproval(body) {
 		announceCtlPending(w, fmt.Sprintf("session=%d", owner.desktop.DesktopSessionID))
 	}
 	var bound string
@@ -276,13 +276,14 @@ func (p *ctlProxy) bindSend(ctx context.Context, owner ctlSession, body []byte, 
 	return binding.ToolCallID
 }
 
-// isCtlWrite 判断请求是不是一次写入(要审批、要发等待行)。解不开的正文交给执行者报错。
-func isCtlWrite(body []byte) bool {
+// awaitsCtlApproval 判断请求是不是一次要审批的写入(要发等待行)。记忆写入在会话里免审批
+// (spec 2026-11-11 决策 10),由桌面端直接执行,不发。解不开的正文交给执行者报错。
+func awaitsCtlApproval(body []byte) bool {
 	var req agentrewire.CtlRequest
 	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, &req); err != nil {
 		return false
 	}
-	return req.GetWrite() != nil
+	return req.GetWrite() != nil && req.GetWrite().GetKind() != agentrewire.CtlKind_CTL_KIND_MEMORY
 }
 
 // ── 控制台拥有的会话 ─────────────────────────────────────────────────────────

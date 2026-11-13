@@ -113,4 +113,30 @@ i18n.use(initReactI18next).init({
   },
 });
 
+type WailsBindings = { go?: { app?: { App?: Record<string, unknown> } } };
+
+/**
+ * 把界面语言报给后端（Wails 绑定 `App.SetUILanguage`）：注入会话的记忆段落里的
+ * 固定文字跟随它（spec 2026-11-11 决策 16）。启动时报一次，之后每次切换语言再报。
+ *
+ * 走 `window.go` 而不是 import wailsjs：这个模块在测试 setup 里最先加载，测试把
+ * wailsjs 换成了一份桩，不在桩里的绑定会让所有测试在导入时就挂掉。不在 Wails 宿主里
+ * （单测 / 浏览器预览）时没有后端可报，直接跳过；上报失败不影响界面。
+ */
+export function reportLanguageToBackend(language: string): void {
+  const supported = normalizeStoredLanguage(language);
+  if (!supported || typeof window === "undefined") return;
+
+  const setUILanguage = (window as unknown as WailsBindings).go?.app?.App
+    ?.SetUILanguage;
+  if (typeof setUILanguage !== "function") return;
+
+  void Promise.resolve(setUILanguage(supported)).catch(() => {
+    // 下次切换或启动时会再报；这里不打扰用户。
+  });
+}
+
+i18n.on("languageChanged", reportLanguageToBackend);
+reportLanguageToBackend(i18n.language);
+
 export default i18n;

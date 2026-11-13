@@ -357,6 +357,16 @@ func (r *Runtime) Capabilities() capability.Capabilities {
 	return defaultCapsBeforePrefetch
 }
 
+// CachedCapabilities 只读返回 bt 这个后端类型已缓存的能力矩阵；没有缓存返回 (空, false)。
+// 与 Capabilities 不同：它不回落到占位矩阵、不取别的类型的缓存，也不拨号 —— 调用方要的是
+// 「那台设备到底有没有报这个能力」，占位矩阵在这里会被误读成「设备没有报」。
+func (r *Runtime) CachedCapabilities(bt agent_backend_entity.BackendType) (capability.Capabilities, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	caps, ok := r.caps[bt]
+	return caps, ok
+}
+
 // defaultCapsBeforePrefetch 占位矩阵 —— Prefetch 之前 UI 才不会一片灰。
 // claudecode 是 daemon 最常见的 backend,所以默认对齐它已知能力子集。
 var defaultCapsBeforePrefetch = capability.Capabilities{

@@ -240,6 +240,74 @@ export const TerminalRunCommand = typedWindowBackedMock<
   ],
   Promise<TerminalRunCommandResponse>
 >("TerminalRunCommand", () => missingWailsBinding("TerminalRunCommand"));
+// Memory bindings (internal/app/memory.go) + the agent memory switch.
+export const MemoryListByOwner = windowBackedMock(
+  "MemoryListByOwner",
+  (owner: unknown) =>
+    Promise.resolve({
+      owner,
+      budget: 2000,
+      usedChars: 0,
+      carried: [],
+      overBudget: [],
+      archived: [],
+      memoryEnabled: true,
+    }),
+);
+export const MemoryCountsByOwner = windowBackedMock("MemoryCountsByOwner", () =>
+  Promise.resolve([]),
+);
+export const MemoryCountOwned = windowBackedMock("MemoryCountOwned", () =>
+  Promise.resolve(0),
+);
+export const MemoryRecentChanges = windowBackedMock("MemoryRecentChanges", () =>
+  Promise.resolve([]),
+);
+export const MemorySearch = windowBackedMock("MemorySearch", () =>
+  Promise.resolve([]),
+);
+export const MemoryVisible = windowBackedMock("MemoryVisible", () =>
+  Promise.resolve({ layers: [] }),
+);
+export const MemoryCreate = windowBackedMock("MemoryCreate", () =>
+  missingWailsBinding("MemoryCreate"),
+);
+export const MemoryUpdate = windowBackedMock("MemoryUpdate", () =>
+  missingWailsBinding("MemoryUpdate"),
+);
+export const MemorySetPinned = windowBackedMock("MemorySetPinned", () =>
+  missingWailsBinding("MemorySetPinned"),
+);
+export const MemoryArchive = windowBackedMock("MemoryArchive", () =>
+  missingWailsBinding("MemoryArchive"),
+);
+export const MemoryUnarchive = windowBackedMock("MemoryUnarchive", () =>
+  missingWailsBinding("MemoryUnarchive"),
+);
+export const MemoryRestorePrevious = windowBackedMock(
+  "MemoryRestorePrevious",
+  () => missingWailsBinding("MemoryRestorePrevious"),
+);
+export const MemoryMove = windowBackedMock("MemoryMove", () =>
+  missingWailsBinding("MemoryMove"),
+);
+export const MemoryDelete = windowBackedMock("MemoryDelete", () =>
+  missingWailsBinding("MemoryDelete"),
+);
+export const MemoryGet = windowBackedMock("MemoryGet", () =>
+  Promise.resolve(null),
+);
+export const MemoryUndoWrite = windowBackedMock("MemoryUndoWrite", () =>
+  missingWailsBinding("MemoryUndoWrite"),
+);
+export const MemoryRestrictedTargets = windowBackedMock(
+  "MemoryRestrictedTargets",
+  () => Promise.resolve([]),
+);
+export const SetAgentMemoryEnabled = windowBackedMock(
+  "SetAgentMemoryEnabled",
+  () => missingWailsBinding("SetAgentMemoryEnabled"),
+);
 export const ProjectListTree = windowBackedMock("ProjectListTree", () =>
   Promise.resolve([]),
 );

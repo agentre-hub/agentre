@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -328,6 +329,8 @@ func TestClaudeCodeCapabilities(t *testing.T) {
 		// CapReasoningEffort=true:claude CLI 接受 --effort 五档,composer 因此渲染
 		// 会话级思考力度选择器(spec 2026-09-01 决策 6)。
 		So(caps.Has(capability.CapReasoningEffort), ShouldBeTrue)
+		// CapMemory=true:CLI 能在会话里跑 agrctl 的记忆命令,会话带完整记忆段落。
+		So(caps.Has(capability.CapMemory), ShouldBeTrue)
 		_, ok := agentruntime.Runtime(r).(agentruntime.AutonomousTurnSource)
 		So(ok, ShouldBeTrue)
 	})
@@ -381,6 +384,46 @@ func TestRun_ForwardsUserBlockImages(t *testing.T) {
 			{Data: []byte{0x01, 0x02}, MediaType: "image/png"},
 		})
 		r.CloseAllSessions(ctx)
+	})
+}
+
+// TestRun_AutoMemorySettings 钉死原生记忆开关:仅 DisableNativeAutoMemory 置位时,
+// 新启动进程的 --settings 才带 autoMemoryEnabled:false;缺省(保留)不写该键。
+func TestRun_AutoMemorySettings(t *testing.T) {
+	spawnSettings := func(disable bool) string {
+		var got string
+		restore := SetSessionFactoryForTest(func(spec ccLaunchSpec) (ccSessionHandle, error) {
+			got = spec.Settings
+			return &fakeCCHandle{id: "fake-sid"}, nil
+		})
+		defer restore()
+		r := New()
+		ctx := context.Background()
+		events, _, err := r.Run(ctx, agentruntime.RunRequest{
+			Backend:                 &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+			SessionID:               78,
+			Cwd:                     t.TempDir(),
+			UserText:                "hi",
+			DisableNativeAutoMemory: disable,
+		})
+		So(err, ShouldBeNil)
+		for range events {
+		}
+		r.CloseAllSessions(ctx)
+		return got
+	}
+	Convey("Run 按 DisableNativeAutoMemory 决定 --settings", t, func() {
+		Convey("置位 → autoMemoryEnabled:false", func() {
+			var m map[string]any
+			So(json.Unmarshal([]byte(spawnSettings(true)), &m), ShouldBeNil)
+			So(m["autoMemoryEnabled"], ShouldEqual, false)
+		})
+		Convey("缺省 → 不带该键", func() {
+			var m map[string]any
+			So(json.Unmarshal([]byte(spawnSettings(false)), &m), ShouldBeNil)
+			_, has := m["autoMemoryEnabled"]
+			So(has, ShouldBeFalse)
+		})
 	})
 }
 

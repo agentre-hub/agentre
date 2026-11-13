@@ -707,6 +707,8 @@ func installExecDaemonRecorder(t *testing.T, ctrl *gomock.Controller) {
 	sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
 	sessRepo.EXPECT().UpdateExecDaemon(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
+	// 首个回合会把记忆快照存到会话行上(spec 2026-11-11 决策 11),只借运行时的测试不关心它。
+	sessRepo.EXPECT().SaveMemorySnapshot(gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
 	// 远端 runtime 每条会话要问一次「它在线上叫什么」——读 chat_sessions.conversation_id
 	// (见 remote_pool.sessionConversationID)。只借运行时的测试不关心取值,但不装
 	// 等于让那一问在 nil repo 上崩。
@@ -864,6 +866,7 @@ func TestPrepareTurnRun_GivenSelfFingerprintBackend_ThenRunsLocally(t *testing.T
 
 	// 不装 conn pool：任何 borrow 尝试都会因 nil pool 而失败，测试据此暴露错误分支。
 	svc := &chatSvc{}
+	allowTurnMemoryDefaults(t)
 	exec_target_svc.RegisterCwdResolver(func(context.Context, *chat_entity.Session) (string, error) { return "", nil })
 	t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(nil) })
 

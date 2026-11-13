@@ -15,6 +15,11 @@
 
 import type { MentionRef } from "../chat-input/mentions/xml";
 import type { PreviewAnchor } from "../file-preview/anchor";
+import type {
+  MemoryDraft,
+  MemoryEntryView,
+  MemoryWriteResult,
+} from "../memory/types";
 
 export interface AnswerToolPermissionInput {
   sessionId: number;
@@ -72,6 +77,36 @@ export interface ReadFileResult {
   contentType?: string;
   binary?: boolean;
   tooLarge?: boolean;
+}
+
+/** 对话卡片代表的那次 AI 写入（agrctl 结果行的动词）。 */
+export type MemoryCardWriteAction = "created" | "updated" | "archived";
+
+/**
+ * 一次撤销的结局：`changed` 是条目在这次写入之后又被改过（没有动它）；`gone` 是条目已
+ * 不存在；`failed` 的 `reason` 是宿主翻好的业务事实，拿不到可读原因就不给。
+ */
+export type MemoryUndoResult =
+  | { status: "undone" }
+  | { status: "changed" }
+  | { status: "gone" }
+  | { status: "failed"; reason?: string };
+
+/**
+ * 对话里记忆卡片的宿主端口（spec 2026-11-11「对话里」）。可选：宿主不提供时，记忆写入
+ * 退回通用的命令呈现（agentre-server 今天就是这样）。
+ */
+export interface MemoryTranscriptPorts {
+  /** 条目现在的样子；条目不存在时为 null。 */
+  get(id: number): Promise<MemoryEntryView | null>;
+  /** 撤销会话 `sessionId` 里对条目做的那次 `action` 写入；条目之后又被改过时回 `changed`。 */
+  undoWrite(input: {
+    id: number;
+    sessionId: number;
+    action: MemoryCardWriteAction;
+  }): Promise<MemoryUndoResult>;
+  /** 卡片就地编辑的保存，以用户身份写。 */
+  save(id: number, draft: MemoryDraft): Promise<MemoryWriteResult>;
 }
 
 export interface TranscriptPorts {
@@ -139,6 +174,9 @@ export interface TranscriptPorts {
      */
     opts?: { force?: boolean },
   ): boolean;
+
+  /** 记忆卡片（见 `MemoryTranscriptPorts`）。宿主不提供时记忆写入按通用命令呈现。 */
+  memory?: MemoryTranscriptPorts;
 }
 
 /**

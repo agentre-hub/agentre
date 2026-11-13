@@ -12,15 +12,24 @@ import { useFileSettingsStore } from "@/stores/file-settings-store";
 import { openSettings } from "@/stores/settings-dialog-store";
 
 import {
+  memoryWriteFailure,
+  runMemoryWrite,
+} from "./memory-page/memory-errors";
+import { toEntryView } from "./memory-page/to-entry-view";
+
+import {
   AnswerToolApproval,
   AnswerToolPermission,
   AnswerUserQuestion,
+  MemoryGet,
+  MemoryUndoWrite,
+  MemoryUpdate,
   OpenPath,
   ResolveExecApproval,
   ResolvePlanAction,
   WorkspaceFsReadFile,
 } from "../../../wailsjs/go/app/App";
-import { chat_svc } from "../../../wailsjs/go/models";
+import { chat_svc, type memory_svc } from "../../../wailsjs/go/models";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
 
 /**
@@ -135,6 +144,46 @@ export const desktopTranscriptPorts = {
       .getState()
       .openPreview(sessionId, path, "directory", anchor);
     return true;
+  },
+
+  // 对话里的记忆卡片。创建者在这里不需要可点：卡片只用摘要与详情，所以会话标题查询与
+  // 跳转都给空实现。
+  memory: {
+    async get(id) {
+      const item = await MemoryGet(id);
+      if (!item) return null;
+      return toEntryView(item, {
+        sessionTitle: () => undefined,
+        fallbackLabel: () => "",
+        openSession: () => {},
+      });
+    },
+
+    async undoWrite({ id, sessionId, action }) {
+      try {
+        const result = await MemoryUndoWrite({
+          id,
+          sessionId,
+          action,
+        } as memory_svc.UndoWriteRequest);
+        if (result.status === "undone" || result.status === "changed") {
+          return { status: result.status };
+        }
+        return { status: "gone" };
+      } catch (error) {
+        const failure = memoryWriteFailure(error);
+        return {
+          status: "failed",
+          reason: failure.ok ? undefined : failure.reason,
+        };
+      }
+    },
+
+    save(id, draft) {
+      return runMemoryWrite(() =>
+        MemoryUpdate({ id, summary: draft.summary, detail: draft.detail }),
+      );
+    },
   },
 } satisfies TranscriptPorts;
 

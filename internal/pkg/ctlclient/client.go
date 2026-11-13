@@ -35,16 +35,21 @@ type Endpoint struct {
 	// AGENTRE_CTL_ENDPOINT）：只有这种端点拨不通时，agentred 主机上才回落到「没有会话」
 	// 那句提示（dialFailure）。
 	baseFromHandshake bool
-	// codexSandbox 为 true 表示运行在 Codex 沙箱里（环境里有 CODEX_SANDBOX 或
-	// CODEX_SANDBOX_NETWORK_DISABLED）：沙箱默认挡住回环拨号，拨号失败时要说明这一点。
-	// CODEX_SANDBOX=seatbelt 只有 macOS 注入；断网的沙箱（含 Linux）都注入后者。在 Resolve
+	// codexSandbox 为 true 表示运行在断网的 Codex 沙箱里（环境里有
+	// CODEX_SANDBOX_NETWORK_DISABLED，codex 给每个断网的沙箱都注入，含 Linux）：它挡住
+	// 回环拨号，拨号失败时要说明这一点。不看 CODEX_SANDBOX=seatbelt：spec 决策 21 下
+	// workspace-write 沙箱的网络是开的，macOS 上它照样在，那时拨不通与沙箱无关。在 Resolve
 	// 里取一次，dialFailure 不再读环境。
 	codexSandbox bool
 }
 
 // codexSandboxHint 是 Codex 沙箱挡住本机网关时追加到拨号失败报错后的说明。
-const codexSandboxHint = "the Codex sandbox blocks the local Agentre gateway: " +
-	"set the sandbox of this Agentre agent backend to danger-full-access"
+const codexSandboxHint = "the Codex sandbox blocks the local Agentre gateway"
+
+// codexSandboxBackendAdvice 是会话 token 由 Agentre 注入时（TokenFromEnv）跟在提示后的出口：
+// 按 spec 决策 21，带会话凭证、后端沙箱为 workspace-write 时 Agentre 会为 Codex 打开沙箱网络。
+// 没有会话 token 的 Codex 不是 Agentre 带凭证启动的，这条出口对它不成立。
+const codexSandboxBackendAdvice = ": set the sandbox of this Agentre agent backend to workspace-write"
 
 // ServerError 是控制 API 回的非 2xx 响应;Message 是执行者给出的原始错误消息。
 type ServerError struct {
@@ -66,9 +71,7 @@ var errAgentredHostNoSession = errors.New(
 // Resolve 按优先级解析控制端点：flag > 环境变量 > AppDataDir 握手文件。
 func Resolve(flagURL, flagToken string, lookupEnv func(string) (string, bool)) (Endpoint, error) {
 	ep := Endpoint{Base: strings.TrimRight(flagURL, "/"), Token: flagToken}
-	_, seatbelt := lookupEnv("CODEX_SANDBOX")
-	_, offline := lookupEnv("CODEX_SANDBOX_NETWORK_DISABLED")
-	ep.codexSandbox = seatbelt || offline
+	_, ep.codexSandbox = lookupEnv("CODEX_SANDBOX_NETWORK_DISABLED")
 	if ep.Base == "" {
 		if v, ok := lookupEnv("AGENTRE_CTL_ENDPOINT"); ok {
 			ep.Base = strings.TrimRight(v, "/")
@@ -136,7 +139,11 @@ func (e Endpoint) dialFailure(err error) error {
 		failure = errAgentredHostNoSession
 	}
 	if e.codexSandbox && couldNotDial {
-		return fmt.Errorf("%w\n%s", failure, codexSandboxHint)
+		hint := codexSandboxHint
+		if e.TokenFromEnv {
+			hint += codexSandboxBackendAdvice
+		}
+		return fmt.Errorf("%w\n%s", failure, hint)
 	}
 	return failure
 }

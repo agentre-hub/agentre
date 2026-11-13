@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import {
+  Brain,
   LayoutDashboard,
   MessageCircle,
   Settings,
@@ -39,6 +40,12 @@ const NAV_ITEMS: NavigationItem[] = [
     path: "/hooks",
     labelKey: "nav.hooks",
     icon: Webhook,
+  },
+  {
+    key: "nav-memory",
+    path: "/memory",
+    labelKey: "memoryPage.nav",
+    icon: Brain,
   },
   {
     key: "nav-settings",

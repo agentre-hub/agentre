@@ -47,6 +47,7 @@ import {
 } from "../../../wailsjs/go/app/App";
 import type { app } from "../../../wailsjs/go/models";
 import { createRemoteFsPort } from "./remote-fs-port";
+import { useMemoryOwnerEntry } from "./org/use-memory-owner-entry";
 
 type ProjectDetailResponse = app.ProjectDetailResponse;
 type ProjectMemberItem = app.ProjectMemberItem & {
@@ -123,6 +124,7 @@ function ProjectSettingsDrawer({
 }: ProjectSettingsDrawerProps) {
   const { t } = useTranslation();
   const open = projectID > 0;
+  const memoryEntry = useMemoryOwnerEntry({ kind: "project", id: projectID });
   const { agents } = useChatAgents();
   const [detail, setDetail] = React.useState<ProjectDetailResponse | null>(
     null,
@@ -375,6 +377,11 @@ function ProjectSettingsDrawer({
       parentOptions={tree}
       ports={ports}
       focus={focus}
+      memory={
+        memoryEntry
+          ? { count: memoryEntry.count, onOpen: memoryEntry.open }
+          : undefined
+      }
       onChanged={() => {
         void reload();
         onChanged();

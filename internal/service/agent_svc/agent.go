@@ -12,11 +12,13 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/service/department_svc"
+	"github.com/agentre-hub/agentre/internal/service/memory_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
@@ -42,6 +44,7 @@ type AgentSvc interface {
 	UploadAvatar(ctx context.Context, req *UploadAvatarRequest) (*UploadAvatarResponse, error)
 	DeleteAvatar(ctx context.Context, req *DeleteAvatarRequest) (*DeleteAvatarResponse, error)
 	SetPinned(ctx context.Context, req *SetPinnedRequest) (*SetPinnedResponse, error)
+	SetMemoryEnabled(ctx context.Context, req *SetMemoryEnabledRequest) (*SetMemoryEnabledResponse, error)
 	Reorder(ctx context.Context, req *ReorderAgentsRequest) error
 }
 
@@ -65,6 +68,7 @@ func (s *agentSvc) Create(ctx context.Context, req *CreateAgentRequest) (*Create
 		ParentAgentID:  req.ParentAgentID,
 		AgentBackendID: req.AgentBackendID,
 		Status:         consts.ACTIVE,
+		MemoryEnabled:  true,
 		Createtime:     now,
 		Updatetime:     now,
 	}
@@ -301,6 +305,7 @@ func (s *agentSvc) Delete(ctx context.Context, req *DeleteAgentRequest) (*Delete
 	if existing.IsSystem() {
 		return nil, i18n.NewError(ctx, code.AgentSystemImmutable)
 	}
+	var memoryTombstones []sync_svc.LocalChange
 	err = s.tx.RunInTx(ctx, func(txCtx context.Context) error {
 		if err := agent_repo.Agent().ClearLeadOfDepartment(txCtx, existing.ID); err != nil {
 			return err
@@ -308,10 +313,20 @@ func (s *agentSvc) Delete(ctx context.Context, req *DeleteAgentRequest) (*Delete
 		if err := agent_repo.Agent().ReparentChildren(txCtx, existing.ID, existing.DepartmentID, existing.ParentAgentID); err != nil {
 			return err
 		}
+		// 名下的记忆随它一并删，与 agent 行同一个事务。
+		var err error
+		memoryTombstones, err = memory_svc.DeleteOwned(txCtx, memory_entity.Owner{Kind: memory_entity.OwnerAgent, ID: existing.ID})
+		if err != nil {
+			return err
+		}
 		return agent_repo.Agent().Delete(txCtx, existing.ID)
 	})
 	if err != nil {
 		return nil, err
+	}
+	// 记忆是硬删，墓碑只能凭删前读到的元数据，提交成功之后才发。
+	for _, ch := range memoryTombstones {
+		sync_svc.Notify(ctx, ch)
 	}
 	// 成员关系与执行目标列表项随它一并落墓碑，级联在同步层展开（R6）。
 	sync_svc.NotifyDelete(ctx, syncwire.KindAgent, existing.ID, existing.SyncMeta)
@@ -379,6 +394,23 @@ func (s *agentSvc) SetPinned(ctx context.Context, req *SetPinnedRequest) (*SetPi
 	sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, existing.ID, existing.SyncMeta)
 	sync_svc.NotifyConfigChanged(syncwire.KindAgent)
 	return &SetPinnedResponse{ID: existing.ID, Pinned: req.Pinned}, nil
+}
+
+// SetMemoryEnabled 切换 Agent 的记忆开关（记忆页 agent 头部）。
+func (s *agentSvc) SetMemoryEnabled(ctx context.Context, req *SetMemoryEnabledRequest) (*SetMemoryEnabledResponse, error) {
+	existing, err := agent_repo.Agent().Find(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, i18n.NewError(ctx, code.AgentNotFound)
+	}
+	if err := agent_repo.Agent().SetMemoryEnabled(ctx, existing.ID, req.Enabled); err != nil {
+		return nil, err
+	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, existing.ID, existing.SyncMeta)
+	sync_svc.NotifyConfigChanged(syncwire.KindAgent)
+	return &SetMemoryEnabledResponse{ID: existing.ID, Enabled: req.Enabled}, nil
 }
 
 func validateAvatarDataURL(ctx context.Context, dataURL string) error {

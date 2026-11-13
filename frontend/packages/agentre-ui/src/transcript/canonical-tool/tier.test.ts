@@ -218,3 +218,19 @@ describe("displayName", () => {
     expect(displayName("mcp__onlyserver")).toBe("mcp__onlyserver");
   });
 });
+
+describe("tier of agrctl memory writes", () => {
+  it.each([
+    'agrctl create memory --summary "x"',
+    "agrctl update memory m3 --detail y",
+    "agrctl delete memory 3",
+  ])("%s is its own card, never folded into an activity block", (command) => {
+    expect(tier(block({ toolInput: { command } }))).toBe("out");
+  });
+
+  it("memory reads stay ordinary commands", () => {
+    expect(tier(block({ toolInput: { command: "agrctl list memory" } }))).toBe(
+      "write",
+    );
+  });
+});

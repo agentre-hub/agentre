@@ -142,6 +142,13 @@ describe("ShortcutsProvider chord dispatch — darwin", () => {
     release("Meta");
   });
 
+  it("dispatches ⌘U to the memory page", () => {
+    renderHarness({ platform: "darwin", initialPath: "/chat" });
+    press("u", { metaKey: true });
+    expect(screen.getByTestId("loc").textContent).toBe("/memory");
+    release("Meta");
+  });
+
   it("ignores chords belonging to the chat scope when no scope is mounted", () => {
     renderHarness({ platform: "darwin", initialPath: "/projects" });
     press("1", { metaKey: true });

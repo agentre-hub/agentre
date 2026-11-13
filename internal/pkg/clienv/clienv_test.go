@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -63,4 +64,47 @@ func TestResolveBinaryForEnvUsesAugmentedPATH(t *testing.T) {
 
 	require.True(t, ok)
 	assert.Equal(t, binary, got)
+}
+
+// Windows 的环境变量名不分大小写，系统里一般写作 Path；exec 去重同名不同写法时只留最后
+// 一个，而输出按键排序后 "Path" 排在 "PATH" 之后。调用方（env_json、会话 agrctl 目录）
+// 给的 PATH 必须是子进程最终看到的那一个，不能被继承来的 Path 盖掉。
+func TestBuildEnv_GivenCaseInsensitiveEnv_ThenCallerPathIsTheOnlyPathEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses ':'-separated sample dirs")
+	}
+	pathEntries := func(env []string) []string {
+		var out []string
+		for _, kv := range env {
+			if k, _, _ := strings.Cut(kv, "="); strings.EqualFold(k, "PATH") {
+				out = append(out, kv)
+			}
+		}
+		return out
+	}
+
+	t.Run("调用方写 PATH，继承的是 Path", func(t *testing.T) {
+		env := buildEnv([]string{"Path=/sys"}, map[string]string{"PATH": "/agr:/sys"}, "", true)
+		entries := pathEntries(env)
+		require.Len(t, entries, 1)
+		assert.True(t, strings.HasPrefix(entries[0], "PATH=/agr:/sys"), entries[0])
+	})
+	t.Run("调用方写 Path（env_json），继承的是 Path", func(t *testing.T) {
+		env := buildEnv([]string{"Path=/sys"}, map[string]string{"Path": "/user"}, "", true)
+		entries := pathEntries(env)
+		require.Len(t, entries, 1)
+		assert.True(t, strings.HasPrefix(entries[0], "PATH=/user"), entries[0])
+	})
+	t.Run("调用方不写，继承的 Path 仍是基底", func(t *testing.T) {
+		env := buildEnv([]string{"Path=/sys"}, nil, "", true)
+		entries := pathEntries(env)
+		require.Len(t, entries, 1)
+		assert.True(t, strings.HasPrefix(entries[0], "PATH=/sys"), entries[0])
+	})
+	t.Run("大小写敏感的平台上 Path 只是另一个变量", func(t *testing.T) {
+		env := buildEnv([]string{"Path=/other", "PATH=/sys"}, map[string]string{"PATH": "/agr:/sys"}, "", false)
+		assert.Contains(t, env, "Path=/other")
+		v, _ := Lookup(env, "PATH")
+		assert.True(t, strings.HasPrefix(v, "/agr:/sys"), v)
+	})
 }

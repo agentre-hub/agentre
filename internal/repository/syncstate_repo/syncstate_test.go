@@ -494,3 +494,37 @@ func TestFindLocalID_GivenIssueLabel_Errors(t *testing.T) {
 	_, err := NewSyncState().FindLocalID(ctx, syncwire.KindIssueLabel, "link-1")
 	assert.ErrorIs(t, err, ErrUnknownKind)
 }
+
+// 记忆是硬删、归档走 state 列、表上没有 status：和成员关系一样，认领 / 清版本 /
+// 补墓碑都不能把 status 拼进 SQL；但它有自增 id，引用解析要能按同步标识取回。
+func TestFindLocalID_GivenMemory_ResolvesTheMemoriesTable(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	mock.ExpectQuery("SELECT id FROM `memories` WHERE sync_id = \\? AND sync_id != ''$").
+		WithArgs("mem-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(5)))
+
+	id, err := NewSyncState().FindLocalID(ctx, syncwire.KindMemory, "mem-1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), id)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestClaimForAccount_GivenMemories_SkipsStatusFilter(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	mock.ExpectQuery("SELECT id,sync_id,sync_version,sync_account_id FROM `memories` WHERE \\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0").
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"}))
+
+	rows, err := NewSyncState().ClaimForAccount(ctx, syncwire.KindMemory, 7)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestListUnsyncedTombstones_GivenMemories_ReturnsNothing(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	rows, err := NewSyncState().ListUnsyncedTombstones(ctx, syncwire.KindMemory, 7)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

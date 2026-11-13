@@ -408,8 +408,27 @@ func buildLaunchSpec(req agentruntime.RunRequest, env map[string]string, cwd str
 	if ap := strings.TrimSpace(req.Backend.Approval); ap != "" {
 		spec.approval = codex.ApprovalPolicy(ap)
 	}
+	if opensSandboxNetwork(req) {
+		spec.config = append(spec.config, workspaceWriteNetworkConfig)
+	}
 	return spec
 }
+
+// opensSandboxNetwork 是决策 21 的唯一判据：沙箱内的 agrctl 要连回本机网关。app-server 的
+// thread 参数只带沙箱模式字符串、没有 networkAccess 字段，所以只能在 app-server 进程启动时
+// 用 -c 覆盖；它因此也是启动身份的一部分（launchIdentity）。空沙箱 = 交给 Codex 自己的配置
+// （默认 workspace-write；那份配置是 read-only 时这项覆盖不起作用）；read-only 不放开，
+// danger-full-access 本就不受限。
+func opensSandboxNetwork(req agentruntime.RunRequest) bool {
+	if !req.CtlCredentials().Injectable() {
+		return false
+	}
+	sb := codex.SandboxMode(strings.TrimSpace(req.Backend.Sandbox))
+	return sb == "" || sb == codex.SandboxWorkspaceWrite
+}
+
+// workspaceWriteNetworkConfig 打开 workspace-write 沙箱的网络访问。
+const workspaceWriteNetworkConfig = "sandbox_workspace_write.network_access=true"
 
 func buildMCPServerConfig(specs []agentruntime.MCPServerSpec) []string {
 	if len(specs) == 0 {

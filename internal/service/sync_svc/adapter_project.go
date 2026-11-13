@@ -9,6 +9,7 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 	"gorm.io/gorm"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
@@ -92,6 +93,9 @@ func (projectAdapter) apply(ctx context.Context, in *inbound, resolved map[strin
 func (projectAdapter) remove(ctx context.Context, in *inbound) error {
 	id, err := syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindProject, in.SyncID)
 	if err != nil || id == 0 {
+		return err
+	}
+	if err := removeOwnedMemories(ctx, memory_entity.Owner{Kind: memory_entity.OwnerProject, ID: id}); err != nil {
 		return err
 	}
 	return project_repo.Project().Delete(ctx, id)

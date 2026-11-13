@@ -64,6 +64,9 @@ func runList(args []string, s *sys) error {
 
 // listFilter 把过滤 flag 翻译成谓词；引用按名字 / 路径 / id 解析。
 func listFilter(cat *catalog, spec *kindSpec, p parsedArgs) (func(*agentrewire.CtlResource) bool, error) {
+	if spec == kindMemory {
+		return memoryFilter(p)
+	}
 	keep := func(*agentrewire.CtlResource) bool { return true }
 	for _, o := range p.flags {
 		switch {
@@ -173,6 +176,8 @@ func tableHeader(kind agentrewire.CtlKind) []string {
 		return []string{"ID", "NAME", "TYPE", "ENABLED", "MODELS", "DEFAULT", "API KEY"}
 	case agentrewire.CtlKind_CTL_KIND_MODEL:
 		return []string{"ID", "MODEL ID", "PROVIDER", "CONTEXT", "ENABLED", "DEFAULT"}
+	case agentrewire.CtlKind_CTL_KIND_MEMORY:
+		return []string{"ID", "LAYER", "SUMMARY", "DETAIL", "CARRIED", "UPDATED"}
 	default:
 		return []string{"ID", "NAME", "TYPE", "DEVICE", "PROVIDER", "MODEL", "TOKEN"}
 	}
@@ -250,6 +255,8 @@ func (c *catalog) row(r *agentrewire.CtlResource) []string {
 		x := d.Backend
 		return []string{id, x.GetName(), x.GetType(), x.GetDevice(), c.label(agentrewire.CtlKind_CTL_KIND_PROVIDER, x.GetProviderId()),
 			c.label(agentrewire.CtlKind_CTL_KIND_MODEL, x.GetModelId()), tokenCell(x)}
+	case *agentrewire.CtlResource_Memory:
+		return c.memoryRow(d.Memory)
 	}
 	return []string{id}
 }
@@ -451,6 +458,8 @@ func (c *catalog) view(r *agentrewire.CtlResource, detail bool) any {
 			v.Token = tokenLabel(x.GetTokenState())
 		}
 		return v
+	case *agentrewire.CtlResource_Memory:
+		return c.memoryView(d.Memory)
 	}
 	return nil
 }

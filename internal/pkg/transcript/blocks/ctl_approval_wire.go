@@ -18,6 +18,7 @@ var CtlKindNames = map[agentrewire.CtlKind]string{
 	agentrewire.CtlKind_CTL_KIND_PROVIDER:   "provider",
 	agentrewire.CtlKind_CTL_KIND_MODEL:      "model",
 	agentrewire.CtlKind_CTL_KIND_BACKEND:    "backend",
+	agentrewire.CtlKind_CTL_KIND_MEMORY:     "memory",
 }
 
 // CtlOpName 是 create | update | delete；不认识的 op 原样写出枚举名。

@@ -8,6 +8,7 @@
 import type { TranscriptBlock } from "../dto";
 
 import { isAgrctlSpawn } from "./agrctl";
+import { isMemoryWriteCall } from "./memory-write/parse";
 import type { CanonicalDTO, CanonicalKind } from "./types";
 
 export type Tier = "out" | "write" | "read" | "neutral";
@@ -41,6 +42,8 @@ const READ_SHAPE_KEYS = [
 export function tier(block: TranscriptBlock): Tier {
   // agrctl 升级的 shell 调用是子代理卡，与 agent.spawn 同档(即便 canonical 还没跟上)。
   if (isAgrctlSpawn(block)) return "out";
+  // agent 的记忆写入是一张独立的记忆卡（宿主没接记忆端口时由路由退回通用卡）。
+  if (isMemoryWriteCall(block)) return "out";
   // block.canonical 的生成类型(wailsjs view.CanonicalDTO)把 kind 宽化成 string;
   // 这里借道本地 CanonicalDTO 拿回字面量联合类型,与其余 canonical-tool 卡片同一手法
   // (如 file-write/card.tsx:28、agent-spawn/card.tsx:51)。

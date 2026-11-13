@@ -23,3 +23,9 @@ func (a *App) GetGatewayStatus() (*app_settings_svc.GatewayStatusResponse, error
 func (a *App) RestartGateway() (*app_settings_svc.RestartGatewayResponse, error) {
 	return app_settings_svc.AppSettings().RestartGateway(a.ctx)
 }
+
+// SetUILanguage 前端在启动与切换语言时上报当前界面语言（zh-CN / en）；注入会话的记忆段落
+// 里的固定文字跟随它。
+func (a *App) SetUILanguage(language string) error {
+	return app_settings_svc.AppSettings().SetUILanguage(a.ctx, language)
+}

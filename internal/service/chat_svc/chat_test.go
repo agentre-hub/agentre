@@ -172,6 +172,10 @@ func setupChatTest(t *testing.T) *chatMocks {
 	// 对同一方法再叠加精确期望(永远匹配不到);真正要验证写回参数的用例改用
 	// exec_target_pin_test.go 里独立搭建、不含这条宽松桩的专用 mock 环境。
 	m.session.EXPECT().UpdateExecDaemon(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	// 默认宽松桩:首个回合把记忆快照存到会话行上(spec 2026-11-11 决策 11)。这批用例的
+	// agent 记忆开关是零值(关),存下的是空快照;快照本身的行为在
+	// memory_snapshot_internal_test.go 里用专门搭的环境覆盖。
+	m.session.EXPECT().SaveMemorySnapshot(gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
 
 	emitter := chat_svc.EmitterFunc(func(_ context.Context, name string, payload any) {
 		m.events = append(m.events, recorded{Name: name, Payload: payload})
@@ -2614,6 +2618,8 @@ func TestSend_NewSessionWithExecTargetOverride_GivenValidNonFirstTarget_ThenReso
 	backendMock := mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl)
 	sessionMock := mock_chat_repo.NewMockSessionRepo(ctrl)
 	messageMock := mock_transcript_repo.NewMockMessageRepo(ctrl)
+	// 首个回合存记忆快照(spec 2026-11-11 决策 11),与本用例无关。
+	sessionMock.EXPECT().SaveMemorySnapshot(gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
 
 	prevAgent, prevExecTarget := agent_repo.Agent(), agent_repo.AgentExecTarget()
 	prevBackend := agent_backend_repo.AgentBackend()

@@ -391,6 +391,9 @@ const (
 	// 模型是提供方下的子资源（spec 决策 9）。
 	CtlKind_CTL_KIND_MODEL   CtlKind = 5
 	CtlKind_CTL_KIND_BACKEND CtlKind = 6
+	// 记忆（spec 2026-11-11「Agent 读写记忆」）：只对会话级 token 开放；读只见本会话可见的
+	// 正常条目，写入不出审批卡、以该会话的 agent 身份进行，delete 是归档。
+	CtlKind_CTL_KIND_MEMORY CtlKind = 7
 )
 
 // Enum value maps for CtlKind.
@@ -403,6 +406,7 @@ var (
 		4: "CTL_KIND_PROVIDER",
 		5: "CTL_KIND_MODEL",
 		6: "CTL_KIND_BACKEND",
+		7: "CTL_KIND_MEMORY",
 	}
 	CtlKind_value = map[string]int32{
 		"CTL_KIND_UNSPECIFIED": 0,
@@ -412,6 +416,7 @@ var (
 		"CTL_KIND_PROVIDER":    4,
 		"CTL_KIND_MODEL":       5,
 		"CTL_KIND_BACKEND":     6,
+		"CTL_KIND_MEMORY":      7,
 	}
 )
 
@@ -18782,6 +18787,116 @@ func (x *CtlBackend) GetDeviceFingerprint() string {
 	return ""
 }
 
+// CtlMemory 是一条记忆。
+type CtlMemory struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// 所在的层：global | department | agent | project。create 时空 = 本会话的 agent 自己；
+	// update 不能改（不移层）。
+	Layer string `protobuf:"bytes,2,opt,name=layer,proto3" json:"layer,omitempty"`
+	// 层的归属：部门 / agent / 项目的 id，全局为 0。create 时只在部门层有意义：0 = agent
+	// 直属的部门，否则须是它所在部门或其上级部门之一。
+	OwnerId int64 `protobuf:"varint,3,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	// 一行摘要，随会话带上。
+	Summary string `protobuf:"bytes,4,opt,name=summary,proto3" json:"summary,omitempty"`
+	// 可选详情，按需读取。
+	Detail string `protobuf:"bytes,5,opt,name=detail,proto3" json:"detail,omitempty"`
+	// 只读：置顶。
+	Pinned bool `protobuf:"varint,6,opt,name=pinned,proto3" json:"pinned,omitempty"`
+	// 只读：该层超出预算，这一条本会话没带上。
+	OverBudget bool `protobuf:"varint,7,opt,name=over_budget,json=overBudget,proto3" json:"over_budget,omitempty"`
+	// 只读：最近一次变更的时间（毫秒 epoch）。
+	ChangedAt     int64 `protobuf:"varint,8,opt,name=changed_at,json=changedAt,proto3" json:"changed_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CtlMemory) Reset() {
+	*x = CtlMemory{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[256]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CtlMemory) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CtlMemory) ProtoMessage() {}
+
+func (x *CtlMemory) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[256]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CtlMemory.ProtoReflect.Descriptor instead.
+func (*CtlMemory) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{256}
+}
+
+func (x *CtlMemory) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *CtlMemory) GetLayer() string {
+	if x != nil {
+		return x.Layer
+	}
+	return ""
+}
+
+func (x *CtlMemory) GetOwnerId() int64 {
+	if x != nil {
+		return x.OwnerId
+	}
+	return 0
+}
+
+func (x *CtlMemory) GetSummary() string {
+	if x != nil {
+		return x.Summary
+	}
+	return ""
+}
+
+func (x *CtlMemory) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+func (x *CtlMemory) GetPinned() bool {
+	if x != nil {
+		return x.Pinned
+	}
+	return false
+}
+
+func (x *CtlMemory) GetOverBudget() bool {
+	if x != nil {
+		return x.OverBudget
+	}
+	return false
+}
+
+func (x *CtlMemory) GetChangedAt() int64 {
+	if x != nil {
+		return x.ChangedAt
+	}
+	return 0
+}
+
 // CtlResource 是任意一类资源的文档。
 type CtlResource struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -18793,6 +18908,7 @@ type CtlResource struct {
 	//	*CtlResource_Provider
 	//	*CtlResource_Model
 	//	*CtlResource_Backend
+	//	*CtlResource_Memory
 	Doc           isCtlResource_Doc `protobuf_oneof:"doc"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -18800,7 +18916,7 @@ type CtlResource struct {
 
 func (x *CtlResource) Reset() {
 	*x = CtlResource{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[256]
+	mi := &file_agentre_wire_wire_proto_msgTypes[257]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18812,7 +18928,7 @@ func (x *CtlResource) String() string {
 func (*CtlResource) ProtoMessage() {}
 
 func (x *CtlResource) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[256]
+	mi := &file_agentre_wire_wire_proto_msgTypes[257]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18825,7 +18941,7 @@ func (x *CtlResource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlResource.ProtoReflect.Descriptor instead.
 func (*CtlResource) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{256}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{257}
 }
 
 func (x *CtlResource) GetDoc() isCtlResource_Doc {
@@ -18889,6 +19005,15 @@ func (x *CtlResource) GetBackend() *CtlBackend {
 	return nil
 }
 
+func (x *CtlResource) GetMemory() *CtlMemory {
+	if x != nil {
+		if x, ok := x.Doc.(*CtlResource_Memory); ok {
+			return x.Memory
+		}
+	}
+	return nil
+}
+
 type isCtlResource_Doc interface {
 	isCtlResource_Doc()
 }
@@ -18917,6 +19042,10 @@ type CtlResource_Backend struct {
 	Backend *CtlBackend `protobuf:"bytes,6,opt,name=backend,proto3,oneof"`
 }
 
+type CtlResource_Memory struct {
+	Memory *CtlMemory `protobuf:"bytes,7,opt,name=memory,proto3,oneof"`
+}
+
 func (*CtlResource_Agent) isCtlResource_Doc() {}
 
 func (*CtlResource_Department) isCtlResource_Doc() {}
@@ -18929,6 +19058,8 @@ func (*CtlResource_Model) isCtlResource_Doc() {}
 
 func (*CtlResource_Backend) isCtlResource_Doc() {}
 
+func (*CtlResource_Memory) isCtlResource_Doc() {}
+
 // CtlListRequest 列出某类资源的全部条目；过滤在客户端做。
 type CtlListRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -18939,7 +19070,7 @@ type CtlListRequest struct {
 
 func (x *CtlListRequest) Reset() {
 	*x = CtlListRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[257]
+	mi := &file_agentre_wire_wire_proto_msgTypes[258]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18951,7 +19082,7 @@ func (x *CtlListRequest) String() string {
 func (*CtlListRequest) ProtoMessage() {}
 
 func (x *CtlListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[257]
+	mi := &file_agentre_wire_wire_proto_msgTypes[258]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18964,7 +19095,7 @@ func (x *CtlListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlListRequest.ProtoReflect.Descriptor instead.
 func (*CtlListRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{257}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{258}
 }
 
 func (x *CtlListRequest) GetKind() CtlKind {
@@ -18983,7 +19114,7 @@ type CtlListResponse struct {
 
 func (x *CtlListResponse) Reset() {
 	*x = CtlListResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[258]
+	mi := &file_agentre_wire_wire_proto_msgTypes[259]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18995,7 +19126,7 @@ func (x *CtlListResponse) String() string {
 func (*CtlListResponse) ProtoMessage() {}
 
 func (x *CtlListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[258]
+	mi := &file_agentre_wire_wire_proto_msgTypes[259]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19008,7 +19139,7 @@ func (x *CtlListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlListResponse.ProtoReflect.Descriptor instead.
 func (*CtlListResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{258}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{259}
 }
 
 func (x *CtlListResponse) GetItems() []*CtlResource {
@@ -19029,7 +19160,7 @@ type CtlGetRequest struct {
 
 func (x *CtlGetRequest) Reset() {
 	*x = CtlGetRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[259]
+	mi := &file_agentre_wire_wire_proto_msgTypes[260]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19041,7 +19172,7 @@ func (x *CtlGetRequest) String() string {
 func (*CtlGetRequest) ProtoMessage() {}
 
 func (x *CtlGetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[259]
+	mi := &file_agentre_wire_wire_proto_msgTypes[260]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19054,7 +19185,7 @@ func (x *CtlGetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlGetRequest.ProtoReflect.Descriptor instead.
 func (*CtlGetRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{259}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{260}
 }
 
 func (x *CtlGetRequest) GetKind() CtlKind {
@@ -19080,7 +19211,7 @@ type CtlGetResponse struct {
 
 func (x *CtlGetResponse) Reset() {
 	*x = CtlGetResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[260]
+	mi := &file_agentre_wire_wire_proto_msgTypes[261]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19092,7 +19223,7 @@ func (x *CtlGetResponse) String() string {
 func (*CtlGetResponse) ProtoMessage() {}
 
 func (x *CtlGetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[260]
+	mi := &file_agentre_wire_wire_proto_msgTypes[261]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19105,7 +19236,7 @@ func (x *CtlGetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlGetResponse.ProtoReflect.Descriptor instead.
 func (*CtlGetResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{260}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{261}
 }
 
 func (x *CtlGetResponse) GetResource() *CtlResource {
@@ -19145,7 +19276,7 @@ type CtlWriteRequest struct {
 
 func (x *CtlWriteRequest) Reset() {
 	*x = CtlWriteRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[261]
+	mi := &file_agentre_wire_wire_proto_msgTypes[262]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19157,7 +19288,7 @@ func (x *CtlWriteRequest) String() string {
 func (*CtlWriteRequest) ProtoMessage() {}
 
 func (x *CtlWriteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[261]
+	mi := &file_agentre_wire_wire_proto_msgTypes[262]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19170,7 +19301,7 @@ func (x *CtlWriteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlWriteRequest.ProtoReflect.Descriptor instead.
 func (*CtlWriteRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{261}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{262}
 }
 
 func (x *CtlWriteRequest) GetOp() CtlOp {
@@ -19269,7 +19400,7 @@ type CtlCallerInfo struct {
 
 func (x *CtlCallerInfo) Reset() {
 	*x = CtlCallerInfo{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[262]
+	mi := &file_agentre_wire_wire_proto_msgTypes[263]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19281,7 +19412,7 @@ func (x *CtlCallerInfo) String() string {
 func (*CtlCallerInfo) ProtoMessage() {}
 
 func (x *CtlCallerInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[262]
+	mi := &file_agentre_wire_wire_proto_msgTypes[263]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19294,7 +19425,7 @@ func (x *CtlCallerInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlCallerInfo.ProtoReflect.Descriptor instead.
 func (*CtlCallerInfo) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{262}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{263}
 }
 
 func (x *CtlCallerInfo) GetParentProcess() string {
@@ -19332,7 +19463,7 @@ type CtlFieldChange struct {
 
 func (x *CtlFieldChange) Reset() {
 	*x = CtlFieldChange{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[263]
+	mi := &file_agentre_wire_wire_proto_msgTypes[264]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19344,7 +19475,7 @@ func (x *CtlFieldChange) String() string {
 func (*CtlFieldChange) ProtoMessage() {}
 
 func (x *CtlFieldChange) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[263]
+	mi := &file_agentre_wire_wire_proto_msgTypes[264]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19357,7 +19488,7 @@ func (x *CtlFieldChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlFieldChange.ProtoReflect.Descriptor instead.
 func (*CtlFieldChange) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{263}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{264}
 }
 
 func (x *CtlFieldChange) GetField() string {
@@ -19404,7 +19535,7 @@ type CtlChange struct {
 
 func (x *CtlChange) Reset() {
 	*x = CtlChange{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[264]
+	mi := &file_agentre_wire_wire_proto_msgTypes[265]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19416,7 +19547,7 @@ func (x *CtlChange) String() string {
 func (*CtlChange) ProtoMessage() {}
 
 func (x *CtlChange) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[264]
+	mi := &file_agentre_wire_wire_proto_msgTypes[265]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19429,7 +19560,7 @@ func (x *CtlChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlChange.ProtoReflect.Descriptor instead.
 func (*CtlChange) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{264}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{265}
 }
 
 func (x *CtlChange) GetOp() CtlOp {
@@ -19477,16 +19608,22 @@ func (x *CtlChange) GetNote() string {
 type CtlWriteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 被写入资源的 id 与名字（create 时是新 id）。
-	Id            int64        `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string       `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Changes       []*CtlChange `protobuf:"bytes,3,rep,name=changes,proto3" json:"changes,omitempty"`
+	Id      int64        `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name    string       `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Changes []*CtlChange `protobuf:"bytes,3,rep,name=changes,proto3" json:"changes,omitempty"`
+	// 仅 memory create：同层已有摘要完全相同的正常条目，没有新增；id 是已有的那一条。
+	Existed bool `protobuf:"varint,4,opt,name=existed,proto3" json:"existed,omitempty"`
+	// 仅 memory：写入后该层正常条目的摘要总字数超出预算的字数；0 = 没有超出。
+	OverBudgetChars int32 `protobuf:"varint,5,opt,name=over_budget_chars,json=overBudgetChars,proto3" json:"over_budget_chars,omitempty"`
+	// 仅 memory：写入后的那一条（含它所在的层）。
+	Resource      *CtlResource `protobuf:"bytes,6,opt,name=resource,proto3" json:"resource,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CtlWriteResponse) Reset() {
 	*x = CtlWriteResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[265]
+	mi := &file_agentre_wire_wire_proto_msgTypes[266]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19498,7 +19635,7 @@ func (x *CtlWriteResponse) String() string {
 func (*CtlWriteResponse) ProtoMessage() {}
 
 func (x *CtlWriteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[265]
+	mi := &file_agentre_wire_wire_proto_msgTypes[266]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19511,7 +19648,7 @@ func (x *CtlWriteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlWriteResponse.ProtoReflect.Descriptor instead.
 func (*CtlWriteResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{265}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{266}
 }
 
 func (x *CtlWriteResponse) GetId() int64 {
@@ -19535,6 +19672,27 @@ func (x *CtlWriteResponse) GetChanges() []*CtlChange {
 	return nil
 }
 
+func (x *CtlWriteResponse) GetExisted() bool {
+	if x != nil {
+		return x.Existed
+	}
+	return false
+}
+
+func (x *CtlWriteResponse) GetOverBudgetChars() int32 {
+	if x != nil {
+		return x.OverBudgetChars
+	}
+	return 0
+}
+
+func (x *CtlWriteResponse) GetResource() *CtlResource {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
 // CtlRequest 是 `POST /ctl/v1/resources` 的请求体。
 type CtlRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -19550,7 +19708,7 @@ type CtlRequest struct {
 
 func (x *CtlRequest) Reset() {
 	*x = CtlRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[266]
+	mi := &file_agentre_wire_wire_proto_msgTypes[267]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19562,7 +19720,7 @@ func (x *CtlRequest) String() string {
 func (*CtlRequest) ProtoMessage() {}
 
 func (x *CtlRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[266]
+	mi := &file_agentre_wire_wire_proto_msgTypes[267]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19575,7 +19733,7 @@ func (x *CtlRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlRequest.ProtoReflect.Descriptor instead.
 func (*CtlRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{266}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{267}
 }
 
 func (x *CtlRequest) GetOp() isCtlRequest_Op {
@@ -19649,7 +19807,7 @@ type CtlResponse struct {
 
 func (x *CtlResponse) Reset() {
 	*x = CtlResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[267]
+	mi := &file_agentre_wire_wire_proto_msgTypes[268]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19661,7 +19819,7 @@ func (x *CtlResponse) String() string {
 func (*CtlResponse) ProtoMessage() {}
 
 func (x *CtlResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[267]
+	mi := &file_agentre_wire_wire_proto_msgTypes[268]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19674,7 +19832,7 @@ func (x *CtlResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlResponse.ProtoReflect.Descriptor instead.
 func (*CtlResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{267}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{268}
 }
 
 func (x *CtlResponse) GetResult() isCtlResponse_Result {
@@ -19750,7 +19908,7 @@ type CLIModelsListRequest struct {
 
 func (x *CLIModelsListRequest) Reset() {
 	*x = CLIModelsListRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[268]
+	mi := &file_agentre_wire_wire_proto_msgTypes[269]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19762,7 +19920,7 @@ func (x *CLIModelsListRequest) String() string {
 func (*CLIModelsListRequest) ProtoMessage() {}
 
 func (x *CLIModelsListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[268]
+	mi := &file_agentre_wire_wire_proto_msgTypes[269]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19775,7 +19933,7 @@ func (x *CLIModelsListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CLIModelsListRequest.ProtoReflect.Descriptor instead.
 func (*CLIModelsListRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{268}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{269}
 }
 
 func (x *CLIModelsListRequest) GetBackendType() string {
@@ -19827,7 +19985,7 @@ type CLIModel struct {
 
 func (x *CLIModel) Reset() {
 	*x = CLIModel{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[269]
+	mi := &file_agentre_wire_wire_proto_msgTypes[270]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19839,7 +19997,7 @@ func (x *CLIModel) String() string {
 func (*CLIModel) ProtoMessage() {}
 
 func (x *CLIModel) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[269]
+	mi := &file_agentre_wire_wire_proto_msgTypes[270]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19852,7 +20010,7 @@ func (x *CLIModel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CLIModel.ProtoReflect.Descriptor instead.
 func (*CLIModel) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{269}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{270}
 }
 
 func (x *CLIModel) GetValue() string {
@@ -19903,7 +20061,7 @@ type CLIModelsListResponse struct {
 
 func (x *CLIModelsListResponse) Reset() {
 	*x = CLIModelsListResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[270]
+	mi := &file_agentre_wire_wire_proto_msgTypes[271]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19915,7 +20073,7 @@ func (x *CLIModelsListResponse) String() string {
 func (*CLIModelsListResponse) ProtoMessage() {}
 
 func (x *CLIModelsListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[270]
+	mi := &file_agentre_wire_wire_proto_msgTypes[271]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19928,7 +20086,7 @@ func (x *CLIModelsListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CLIModelsListResponse.ProtoReflect.Descriptor instead.
 func (*CLIModelsListResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{270}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{271}
 }
 
 func (x *CLIModelsListResponse) GetModels() []*CLIModel {
@@ -21433,7 +21591,18 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x12device_fingerprint\x18\x0e \x01(\tR\x11deviceFingerprint\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd8\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd6\x01\n" +
+	"\tCtlMemory\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x14\n" +
+	"\x05layer\x18\x02 \x01(\tR\x05layer\x12\x19\n" +
+	"\bowner_id\x18\x03 \x01(\x03R\aownerId\x12\x18\n" +
+	"\asummary\x18\x04 \x01(\tR\asummary\x12\x16\n" +
+	"\x06detail\x18\x05 \x01(\tR\x06detail\x12\x16\n" +
+	"\x06pinned\x18\x06 \x01(\bR\x06pinned\x12\x1f\n" +
+	"\vover_budget\x18\a \x01(\bR\n" +
+	"overBudget\x12\x1d\n" +
+	"\n" +
+	"changed_at\x18\b \x01(\x03R\tchangedAt\"\x8b\x03\n" +
 	"\vCtlResource\x12.\n" +
 	"\x05agent\x18\x01 \x01(\v2\x16.agentre.wire.CtlAgentH\x00R\x05agent\x12=\n" +
 	"\n" +
@@ -21442,7 +21611,8 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\aproject\x18\x03 \x01(\v2\x18.agentre.wire.CtlProjectH\x00R\aproject\x127\n" +
 	"\bprovider\x18\x04 \x01(\v2\x19.agentre.wire.CtlProviderH\x00R\bprovider\x12.\n" +
 	"\x05model\x18\x05 \x01(\v2\x16.agentre.wire.CtlModelH\x00R\x05model\x124\n" +
-	"\abackend\x18\x06 \x01(\v2\x18.agentre.wire.CtlBackendH\x00R\abackendB\x05\n" +
+	"\abackend\x18\x06 \x01(\v2\x18.agentre.wire.CtlBackendH\x00R\abackend\x121\n" +
+	"\x06memory\x18\a \x01(\v2\x17.agentre.wire.CtlMemoryH\x00R\x06memoryB\x05\n" +
 	"\x03doc\";\n" +
 	"\x0eCtlListRequest\x12)\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x15.agentre.wire.CtlKindR\x04kind\"B\n" +
@@ -21485,11 +21655,14 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x02id\x18\x03 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x04 \x01(\tR\x04name\x124\n" +
 	"\x06fields\x18\x05 \x03(\v2\x1c.agentre.wire.CtlFieldChangeR\x06fields\x12\x12\n" +
-	"\x04note\x18\x06 \x01(\tR\x04note\"i\n" +
+	"\x04note\x18\x06 \x01(\tR\x04note\"\xe6\x01\n" +
 	"\x10CtlWriteResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x121\n" +
-	"\achanges\x18\x03 \x03(\v2\x17.agentre.wire.CtlChangeR\achanges\"\xae\x01\n" +
+	"\achanges\x18\x03 \x03(\v2\x17.agentre.wire.CtlChangeR\achanges\x12\x18\n" +
+	"\aexisted\x18\x04 \x01(\bR\aexisted\x12*\n" +
+	"\x11over_budget_chars\x18\x05 \x01(\x05R\x0foverBudgetChars\x125\n" +
+	"\bresource\x18\x06 \x01(\v2\x19.agentre.wire.CtlResourceR\bresource\"\xae\x01\n" +
 	"\n" +
 	"CtlRequest\x122\n" +
 	"\x04list\x18\x01 \x01(\v2\x1c.agentre.wire.CtlListRequestH\x00R\x04list\x12/\n" +
@@ -21608,7 +21781,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	".AGENTRED_SELF_UPDATE_REJECT_REASON_IN_PROGRESS\x10\x02\x123\n" +
 	"/AGENTRED_SELF_UPDATE_REJECT_REASON_NOT_WRITABLE\x10\x03\x125\n" +
 	"1AGENTRED_SELF_UPDATE_REJECT_REASON_ALREADY_LATEST\x10\x04\x126\n" +
-	"2AGENTRED_SELF_UPDATE_REJECT_REASON_DOWNLOAD_FAILED\x10\x05*\xa7\x01\n" +
+	"2AGENTRED_SELF_UPDATE_REJECT_REASON_DOWNLOAD_FAILED\x10\x05*\xbc\x01\n" +
 	"\aCtlKind\x12\x18\n" +
 	"\x14CTL_KIND_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eCTL_KIND_AGENT\x10\x01\x12\x17\n" +
@@ -21616,7 +21789,8 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x10CTL_KIND_PROJECT\x10\x03\x12\x15\n" +
 	"\x11CTL_KIND_PROVIDER\x10\x04\x12\x12\n" +
 	"\x0eCTL_KIND_MODEL\x10\x05\x12\x14\n" +
-	"\x10CTL_KIND_BACKEND\x10\x06*X\n" +
+	"\x10CTL_KIND_BACKEND\x10\x06\x12\x13\n" +
+	"\x0fCTL_KIND_MEMORY\x10\a*X\n" +
 	"\x05CtlOp\x12\x16\n" +
 	"\x12CTL_OP_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rCTL_OP_CREATE\x10\x01\x12\x11\n" +
@@ -21649,7 +21823,7 @@ func file_agentre_wire_wire_proto_rawDescGZIP() []byte {
 }
 
 var file_agentre_wire_wire_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 280)
+var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 281)
 var file_agentre_wire_wire_proto_goTypes = []any{
 	(RpcMethod)(0),                              // 0: agentre.wire.RpcMethod
 	(AgentredSelfUpdateRejectReason)(0),         // 1: agentre.wire.AgentredSelfUpdateRejectReason
@@ -21913,32 +22087,33 @@ var file_agentre_wire_wire_proto_goTypes = []any{
 	(*CtlProvider)(nil),                         // 259: agentre.wire.CtlProvider
 	(*CtlModel)(nil),                            // 260: agentre.wire.CtlModel
 	(*CtlBackend)(nil),                          // 261: agentre.wire.CtlBackend
-	(*CtlResource)(nil),                         // 262: agentre.wire.CtlResource
-	(*CtlListRequest)(nil),                      // 263: agentre.wire.CtlListRequest
-	(*CtlListResponse)(nil),                     // 264: agentre.wire.CtlListResponse
-	(*CtlGetRequest)(nil),                       // 265: agentre.wire.CtlGetRequest
-	(*CtlGetResponse)(nil),                      // 266: agentre.wire.CtlGetResponse
-	(*CtlWriteRequest)(nil),                     // 267: agentre.wire.CtlWriteRequest
-	(*CtlCallerInfo)(nil),                       // 268: agentre.wire.CtlCallerInfo
-	(*CtlFieldChange)(nil),                      // 269: agentre.wire.CtlFieldChange
-	(*CtlChange)(nil),                           // 270: agentre.wire.CtlChange
-	(*CtlWriteResponse)(nil),                    // 271: agentre.wire.CtlWriteResponse
-	(*CtlRequest)(nil),                          // 272: agentre.wire.CtlRequest
-	(*CtlResponse)(nil),                         // 273: agentre.wire.CtlResponse
-	(*CLIModelsListRequest)(nil),                // 274: agentre.wire.CLIModelsListRequest
-	(*CLIModel)(nil),                            // 275: agentre.wire.CLIModel
-	(*CLIModelsListResponse)(nil),               // 276: agentre.wire.CLIModelsListResponse
-	nil,                                         // 277: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
-	nil,                                         // 278: agentre.wire.LLMProvider.ModelRoutesEntry
-	nil,                                         // 279: agentre.wire.MCPServer.HeadersEntry
-	nil,                                         // 280: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
-	nil,                                         // 281: agentre.wire.MCPProxyRequest.HeadersEntry
-	nil,                                         // 282: agentre.wire.MCPProxyResponse.HeadersEntry
-	nil,                                         // 283: agentre.wire.PortForwardOpenRequest.HeadersEntry
-	nil,                                         // 284: agentre.wire.PortForwardResponseNotification.HeadersEntry
-	nil,                                         // 285: agentre.wire.CtlBackend.EnvEntry
-	(*descriptorpb.FieldOptions)(nil),           // 286: google.protobuf.FieldOptions
-	(*descriptorpb.FileOptions)(nil),            // 287: google.protobuf.FileOptions
+	(*CtlMemory)(nil),                           // 262: agentre.wire.CtlMemory
+	(*CtlResource)(nil),                         // 263: agentre.wire.CtlResource
+	(*CtlListRequest)(nil),                      // 264: agentre.wire.CtlListRequest
+	(*CtlListResponse)(nil),                     // 265: agentre.wire.CtlListResponse
+	(*CtlGetRequest)(nil),                       // 266: agentre.wire.CtlGetRequest
+	(*CtlGetResponse)(nil),                      // 267: agentre.wire.CtlGetResponse
+	(*CtlWriteRequest)(nil),                     // 268: agentre.wire.CtlWriteRequest
+	(*CtlCallerInfo)(nil),                       // 269: agentre.wire.CtlCallerInfo
+	(*CtlFieldChange)(nil),                      // 270: agentre.wire.CtlFieldChange
+	(*CtlChange)(nil),                           // 271: agentre.wire.CtlChange
+	(*CtlWriteResponse)(nil),                    // 272: agentre.wire.CtlWriteResponse
+	(*CtlRequest)(nil),                          // 273: agentre.wire.CtlRequest
+	(*CtlResponse)(nil),                         // 274: agentre.wire.CtlResponse
+	(*CLIModelsListRequest)(nil),                // 275: agentre.wire.CLIModelsListRequest
+	(*CLIModel)(nil),                            // 276: agentre.wire.CLIModel
+	(*CLIModelsListResponse)(nil),               // 277: agentre.wire.CLIModelsListResponse
+	nil,                                         // 278: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	nil,                                         // 279: agentre.wire.LLMProvider.ModelRoutesEntry
+	nil,                                         // 280: agentre.wire.MCPServer.HeadersEntry
+	nil,                                         // 281: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	nil,                                         // 282: agentre.wire.MCPProxyRequest.HeadersEntry
+	nil,                                         // 283: agentre.wire.MCPProxyResponse.HeadersEntry
+	nil,                                         // 284: agentre.wire.PortForwardOpenRequest.HeadersEntry
+	nil,                                         // 285: agentre.wire.PortForwardResponseNotification.HeadersEntry
+	nil,                                         // 286: agentre.wire.CtlBackend.EnvEntry
+	(*descriptorpb.FieldOptions)(nil),           // 287: google.protobuf.FieldOptions
+	(*descriptorpb.FileOptions)(nil),            // 288: google.protobuf.FileOptions
 }
 var file_agentre_wire_wire_proto_depIdxs = []int32{
 	13,  // 0: agentre.wire.WireFrame.notification:type_name -> agentre.wire.Notification
@@ -21963,9 +22138,9 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	15,  // 19: agentre.wire.Notification.account_mirror_changed:type_name -> agentre.wire.AccountMirrorChanged
 	16,  // 20: agentre.wire.Notification.account_device_presence:type_name -> agentre.wire.AccountDevicePresence
 	27,  // 21: agentre.wire.LLMUpsertRequest.models:type_name -> agentre.wire.LLMModel
-	277, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	278, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
 	27,  // 23: agentre.wire.LLMProvider.models:type_name -> agentre.wire.LLMModel
-	278, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
+	279, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
 	33,  // 25: agentre.wire.LLMListResponse.providers:type_name -> agentre.wire.LLMProvider
 	38,  // 26: agentre.wire.EngineDiscoverResponse.models:type_name -> agentre.wire.EngineModel
 	41,  // 27: agentre.wire.EngineScanResponse.items:type_name -> agentre.wire.EngineScanItem
@@ -21990,16 +22165,16 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	201, // 46: agentre.wire.RuntimeSubmitAnswerRequest.questions:type_name -> agentre.wire.AskQuestion
 	202, // 47: agentre.wire.RuntimeSubmitAnswerRequest.answers:type_name -> agentre.wire.AskAnswer
 	112, // 48: agentre.wire.HistoryMessage.blocks:type_name -> agentre.wire.StoredBlock
-	279, // 49: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
+	280, // 49: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
 	111, // 50: agentre.wire.RuntimeRunRequest.backend:type_name -> agentre.wire.AgentBackend
 	112, // 51: agentre.wire.RuntimeRunRequest.user_blocks:type_name -> agentre.wire.StoredBlock
 	113, // 52: agentre.wire.RuntimeRunRequest.history:type_name -> agentre.wire.HistoryMessage
 	114, // 53: agentre.wire.RuntimeRunRequest.mcp_servers:type_name -> agentre.wire.MCPServer
-	280, // 54: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	281, // 54: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
 	111, // 55: agentre.wire.RuntimeGoalRequest.backend:type_name -> agentre.wire.AgentBackend
 	118, // 56: agentre.wire.RuntimeGoalResponse.goal:type_name -> agentre.wire.Goal
-	281, // 57: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
-	282, // 58: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
+	282, // 57: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
+	283, // 58: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
 	134, // 59: agentre.wire.SkillCatalogRequest.authorized:type_name -> agentre.wire.SkillAuthorization
 	136, // 60: agentre.wire.SkillCatalogResponse.packs:type_name -> agentre.wire.SkillPackSummary
 	134, // 61: agentre.wire.SkillCommandsRequest.authorized:type_name -> agentre.wire.SkillAuthorization
@@ -22063,13 +22238,13 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	222, // 119: agentre.wire.PortForwardListResponse.mappings:type_name -> agentre.wire.PortForwardMapping
 	222, // 120: agentre.wire.PortForwardCreateResponse.mapping:type_name -> agentre.wire.PortForwardMapping
 	222, // 121: agentre.wire.PortForwardSetEnabledResponse.mapping:type_name -> agentre.wire.PortForwardMapping
-	283, // 122: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
-	284, // 123: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
+	284, // 122: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
+	285, // 123: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
 	245, // 124: agentre.wire.HermesAuthProvidersResponse.providers:type_name -> agentre.wire.HermesAuthProvider
 	252, // 125: agentre.wire.BackendConnectionTestResponse.openclaw_agents:type_name -> agentre.wire.OpenClawAgentOption
 	253, // 126: agentre.wire.BackendConnectionTestResponse.openclaw_models:type_name -> agentre.wire.OpenClawModelOption
 	257, // 127: agentre.wire.CtlProject.locations:type_name -> agentre.wire.CtlProjectLocation
-	285, // 128: agentre.wire.CtlBackend.env:type_name -> agentre.wire.CtlBackend.EnvEntry
+	286, // 128: agentre.wire.CtlBackend.env:type_name -> agentre.wire.CtlBackend.EnvEntry
 	5,   // 129: agentre.wire.CtlBackend.token_state:type_name -> agentre.wire.CtlTokenState
 	255, // 130: agentre.wire.CtlResource.agent:type_name -> agentre.wire.CtlAgent
 	256, // 131: agentre.wire.CtlResource.department:type_name -> agentre.wire.CtlDepartment
@@ -22077,37 +22252,39 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	259, // 133: agentre.wire.CtlResource.provider:type_name -> agentre.wire.CtlProvider
 	260, // 134: agentre.wire.CtlResource.model:type_name -> agentre.wire.CtlModel
 	261, // 135: agentre.wire.CtlResource.backend:type_name -> agentre.wire.CtlBackend
-	2,   // 136: agentre.wire.CtlListRequest.kind:type_name -> agentre.wire.CtlKind
-	262, // 137: agentre.wire.CtlListResponse.items:type_name -> agentre.wire.CtlResource
-	2,   // 138: agentre.wire.CtlGetRequest.kind:type_name -> agentre.wire.CtlKind
-	262, // 139: agentre.wire.CtlGetResponse.resource:type_name -> agentre.wire.CtlResource
-	3,   // 140: agentre.wire.CtlWriteRequest.op:type_name -> agentre.wire.CtlOp
-	2,   // 141: agentre.wire.CtlWriteRequest.kind:type_name -> agentre.wire.CtlKind
-	262, // 142: agentre.wire.CtlWriteRequest.resource:type_name -> agentre.wire.CtlResource
-	4,   // 143: agentre.wire.CtlWriteRequest.caller:type_name -> agentre.wire.CtlCaller
-	268, // 144: agentre.wire.CtlWriteRequest.caller_info:type_name -> agentre.wire.CtlCallerInfo
-	3,   // 145: agentre.wire.CtlChange.op:type_name -> agentre.wire.CtlOp
-	2,   // 146: agentre.wire.CtlChange.kind:type_name -> agentre.wire.CtlKind
-	269, // 147: agentre.wire.CtlChange.fields:type_name -> agentre.wire.CtlFieldChange
-	270, // 148: agentre.wire.CtlWriteResponse.changes:type_name -> agentre.wire.CtlChange
-	263, // 149: agentre.wire.CtlRequest.list:type_name -> agentre.wire.CtlListRequest
-	265, // 150: agentre.wire.CtlRequest.get:type_name -> agentre.wire.CtlGetRequest
-	267, // 151: agentre.wire.CtlRequest.write:type_name -> agentre.wire.CtlWriteRequest
-	264, // 152: agentre.wire.CtlResponse.list:type_name -> agentre.wire.CtlListResponse
-	266, // 153: agentre.wire.CtlResponse.get:type_name -> agentre.wire.CtlGetResponse
-	271, // 154: agentre.wire.CtlResponse.write:type_name -> agentre.wire.CtlWriteResponse
-	275, // 155: agentre.wire.CLIModelsListResponse.models:type_name -> agentre.wire.CLIModel
-	128, // 156: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	128, // 157: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	128, // 158: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	128, // 159: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	286, // 160: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
-	287, // 161: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
-	162, // [162:162] is the sub-list for method output_type
-	162, // [162:162] is the sub-list for method input_type
-	162, // [162:162] is the sub-list for extension type_name
-	160, // [160:162] is the sub-list for extension extendee
-	0,   // [0:160] is the sub-list for field type_name
+	262, // 136: agentre.wire.CtlResource.memory:type_name -> agentre.wire.CtlMemory
+	2,   // 137: agentre.wire.CtlListRequest.kind:type_name -> agentre.wire.CtlKind
+	263, // 138: agentre.wire.CtlListResponse.items:type_name -> agentre.wire.CtlResource
+	2,   // 139: agentre.wire.CtlGetRequest.kind:type_name -> agentre.wire.CtlKind
+	263, // 140: agentre.wire.CtlGetResponse.resource:type_name -> agentre.wire.CtlResource
+	3,   // 141: agentre.wire.CtlWriteRequest.op:type_name -> agentre.wire.CtlOp
+	2,   // 142: agentre.wire.CtlWriteRequest.kind:type_name -> agentre.wire.CtlKind
+	263, // 143: agentre.wire.CtlWriteRequest.resource:type_name -> agentre.wire.CtlResource
+	4,   // 144: agentre.wire.CtlWriteRequest.caller:type_name -> agentre.wire.CtlCaller
+	269, // 145: agentre.wire.CtlWriteRequest.caller_info:type_name -> agentre.wire.CtlCallerInfo
+	3,   // 146: agentre.wire.CtlChange.op:type_name -> agentre.wire.CtlOp
+	2,   // 147: agentre.wire.CtlChange.kind:type_name -> agentre.wire.CtlKind
+	270, // 148: agentre.wire.CtlChange.fields:type_name -> agentre.wire.CtlFieldChange
+	271, // 149: agentre.wire.CtlWriteResponse.changes:type_name -> agentre.wire.CtlChange
+	263, // 150: agentre.wire.CtlWriteResponse.resource:type_name -> agentre.wire.CtlResource
+	264, // 151: agentre.wire.CtlRequest.list:type_name -> agentre.wire.CtlListRequest
+	266, // 152: agentre.wire.CtlRequest.get:type_name -> agentre.wire.CtlGetRequest
+	268, // 153: agentre.wire.CtlRequest.write:type_name -> agentre.wire.CtlWriteRequest
+	265, // 154: agentre.wire.CtlResponse.list:type_name -> agentre.wire.CtlListResponse
+	267, // 155: agentre.wire.CtlResponse.get:type_name -> agentre.wire.CtlGetResponse
+	272, // 156: agentre.wire.CtlResponse.write:type_name -> agentre.wire.CtlWriteResponse
+	276, // 157: agentre.wire.CLIModelsListResponse.models:type_name -> agentre.wire.CLIModel
+	128, // 158: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	128, // 159: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	128, // 160: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	128, // 161: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	287, // 162: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
+	288, // 163: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
+	164, // [164:164] is the sub-list for method output_type
+	164, // [164:164] is the sub-list for method input_type
+	164, // [164:164] is the sub-list for extension type_name
+	162, // [162:164] is the sub-list for extension extendee
+	0,   // [0:162] is the sub-list for field type_name
 }
 
 func init() { file_agentre_wire_wire_proto_init() }
@@ -22183,21 +22360,22 @@ func file_agentre_wire_wire_proto_init() {
 		(*RuntimeEventNotification_ToolApprovalRequested)(nil),
 		(*RuntimeEventNotification_ToolApprovalResolved)(nil),
 	}
-	file_agentre_wire_wire_proto_msgTypes[256].OneofWrappers = []any{
+	file_agentre_wire_wire_proto_msgTypes[257].OneofWrappers = []any{
 		(*CtlResource_Agent)(nil),
 		(*CtlResource_Department)(nil),
 		(*CtlResource_Project)(nil),
 		(*CtlResource_Provider)(nil),
 		(*CtlResource_Model)(nil),
 		(*CtlResource_Backend)(nil),
+		(*CtlResource_Memory)(nil),
 	}
-	file_agentre_wire_wire_proto_msgTypes[263].OneofWrappers = []any{}
-	file_agentre_wire_wire_proto_msgTypes[266].OneofWrappers = []any{
+	file_agentre_wire_wire_proto_msgTypes[264].OneofWrappers = []any{}
+	file_agentre_wire_wire_proto_msgTypes[267].OneofWrappers = []any{
 		(*CtlRequest_List)(nil),
 		(*CtlRequest_Get)(nil),
 		(*CtlRequest_Write)(nil),
 	}
-	file_agentre_wire_wire_proto_msgTypes[267].OneofWrappers = []any{
+	file_agentre_wire_wire_proto_msgTypes[268].OneofWrappers = []any{
 		(*CtlResponse_List)(nil),
 		(*CtlResponse_Get)(nil),
 		(*CtlResponse_Write)(nil),
@@ -22208,7 +22386,7 @@ func file_agentre_wire_wire_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentre_wire_wire_proto_rawDesc), len(file_agentre_wire_wire_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   280,
+			NumMessages:   281,
 			NumExtensions: 2,
 			NumServices:   0,
 		},

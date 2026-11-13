@@ -19,7 +19,9 @@ import {
 import { classifyAppError } from "@/lib/app-error";
 
 import {
+  MemoryCountOwned,
   ProjectDelete,
+  ProjectListTree,
   ProjectLocationList,
   RemoteDeviceList,
 } from "../../../wailsjs/go/app/App";
@@ -30,6 +32,32 @@ export type DeleteProjectTarget = {
   /** 这棵子树下还有几个项目（不含它自己）；调用方从树上数。 */
   childCount?: number;
 };
+
+type ProjectTreeView = {
+  project?: { id: number };
+  children?: ProjectTreeView[];
+};
+
+/** 这棵项目树里 rootID 自己连同全部后代的 id；rootID 不在树里时只有它自己。 */
+function subtreeIds(roots: ProjectTreeView[], rootID: number): Set<number> {
+  const ids = new Set<number>([rootID]);
+  const collect = (n: ProjectTreeView) => {
+    if (n.project) ids.add(n.project.id);
+    (n.children ?? []).forEach(collect);
+  };
+  const find = (nodes: ProjectTreeView[]): boolean => {
+    for (const n of nodes) {
+      if (n.project?.id === rootID) {
+        collect(n);
+        return true;
+      }
+      if (find(n.children ?? [])) return true;
+    }
+    return false;
+  };
+  find(roots);
+  return ids;
+}
 
 type ProjectLocationView = { deviceId: string; path: string };
 type DeviceView = { id: number; name: string; online: boolean };
@@ -59,6 +87,7 @@ export function DeleteProjectDialog({
   onDeleted: () => void;
 }) {
   const [offlineMachines, setOfflineMachines] = React.useState<string[]>([]);
+  const [memoryCount, setMemoryCount] = React.useState<number | undefined>();
 
   /*
     配了这个项目、但此刻联系不上的那几台。
@@ -94,6 +123,37 @@ export function DeleteProjectDialog({
     };
   }, [projectID]);
 
+  /*
+    子树（含它自己）名下会一并删掉的记忆条数：全部条目，含已归档（级联删的就是这么多）。
+
+    读不上来时不传：包因此不提记忆，而不是说一句「没有记忆」去冒充读到的结果。
+  */
+  React.useEffect(() => {
+    if (projectID <= 0) {
+      setMemoryCount(undefined);
+      return;
+    }
+    let cancelled = false;
+    void (ProjectListTree() as Promise<ProjectTreeView[]>)
+      .then((tree) =>
+        MemoryCountOwned(
+          [...subtreeIds(tree ?? [], projectID)].map((id) => ({
+            kind: "project",
+            id,
+          })),
+        ),
+      )
+      .then((total) => {
+        if (!cancelled) setMemoryCount(total ?? 0);
+      })
+      .catch(() => {
+        if (!cancelled) setMemoryCount(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectID]);
+
   const ports = React.useMemo<ProjectDeletePorts>(
     () => ({
       deleteProject: async (id) => {
@@ -118,6 +178,7 @@ export function DeleteProjectDialog({
       }}
       project={{ id: String(target.id), name: target.name }}
       childCount={target.childCount ?? 0}
+      memoryCount={memoryCount}
       offlineMachines={offlineMachines}
       ports={ports}
       onDeleted={onDeleted}

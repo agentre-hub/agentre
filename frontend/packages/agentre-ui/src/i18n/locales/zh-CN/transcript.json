@@ -270,5 +270,25 @@
     "pendingCount": "{{count}} 项待处理",
     "title": "跳到最新",
     "turnsBelow": "下面还有 {{count}} 轮"
+  },
+  "memoryWrite": {
+    "label": {
+      "created": "记住了",
+      "updated": "改了记忆",
+      "archived": "归档了记忆",
+      "exists": "已有这条记忆",
+      "undone": "已撤销"
+    },
+    "layer": {
+      "global": "全局",
+      "department": "部门 {{name}}",
+      "project": "项目 {{name}}"
+    },
+    "edit": "编辑",
+    "undo": "撤销",
+    "undoChanged": "撤销不了：这条之后又被改过",
+    "undoFailed": "没撤销成功，可以再试一次。",
+    "undoFailedWithReason": "没撤销成功：{{reason}}",
+    "gone": "这条记忆已不存在"
   }
 }

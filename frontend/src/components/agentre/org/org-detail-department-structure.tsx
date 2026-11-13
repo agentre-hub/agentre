@@ -11,6 +11,7 @@ import {
 import { AgentAvatar } from "../primitives";
 
 import { DepartmentIconBadge, LeadBadge } from "./org-department-badges";
+import { OrgMemoryRow } from "./org-memory-row";
 import { safeAgentColor, type OrgAgent, type OrgDepartment } from "./types";
 
 /** 三栏里的「结构」栏：上级部门与负责人两个下拉。 */
@@ -138,6 +139,8 @@ export function OrgDetailDepartmentStructure({
           </SelectContent>
         </Select>
       </section>
+
+      <OrgMemoryRow owner={{ kind: "department", id: department.id }} />
     </section>
   );
 }

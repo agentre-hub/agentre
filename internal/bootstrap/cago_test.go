@@ -108,7 +108,7 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		"llm_provider_models":        {"model_key", "model_id"},
 		"agent_backends":             {"model_key", "sync_id", "device_fingerprint", "sync_origin_fingerprint"},
 		"agent_backend_cli_overlays": {"backend_sync_id", "agentred_fingerprint", "cli_path", "sync_origin_fingerprint"},
-		"agents":                     {"sync_origin_fingerprint"},
+		"agents":                     {"sync_origin_fingerprint", "memory_enabled"},
 		"agent_exec_targets":         {"sync_origin_fingerprint"},
 		"departments":                {"sync_origin_fingerprint"},
 		"projects":                   {"sync_origin_fingerprint"},
@@ -116,13 +116,14 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		// device_id 是由指纹解析出的本地缓存(实体包注释),写入路径显式带这一列——
 		// 它一旦缺席,整张表就只读不可写。
 		"project_locations":   {"device_id", "device_fingerprint", "sync_origin_fingerprint"},
-		"chat_sessions":       {"model_key", "exec_agent_backend_id", "cwd", "exec_device_fingerprint", "conversation_id"},
+		"chat_sessions":       {"model_key", "exec_agent_backend_id", "cwd", "exec_device_fingerprint", "conversation_id", "memory_snapshot", "memory_snapshot_taken"},
 		"chat_messages":       {"first_token_ms", "tokens_per_sec", "device_fingerprint"},
 		"chat_message_blocks": {"message_id", "idx", "type", "tool_call_id", "codec", "data"},
 		// 任务并入账号级同步组，三张表各带六列同步元数据；issues 另有执行归属三列。
 		"issues":       {"agent_backend_id", "llm_provider_key", "llm_model_key", "sync_id", "sync_origin_fingerprint"},
 		"labels":       {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
 		"issue_labels": {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
+		"memories":     {"owner_kind", "owner_id", "summary", "prev_summary", "state", "changed_at", "sync_id", "sync_origin_fingerprint"},
 	} {
 		if !gormDB.Migrator().HasTable(table) {
 			t.Errorf("current table %q was not created", table)

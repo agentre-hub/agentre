@@ -95,6 +95,8 @@ func newDoc(kind agentrewire.CtlKind) *agentrewire.CtlResource {
 		return &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Provider{Provider: &agentrewire.CtlProvider{}}}
 	case agentrewire.CtlKind_CTL_KIND_MODEL:
 		return &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Model{Model: &agentrewire.CtlModel{}}}
+	case agentrewire.CtlKind_CTL_KIND_MEMORY:
+		return &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Memory{Memory: &agentrewire.CtlMemory{}}}
 	default:
 		return &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Backend{Backend: &agentrewire.CtlBackend{}}}
 	}
@@ -203,6 +205,10 @@ func runWrite(verb string, args []string, s *sys) error {
 	resp, err := cat.write(w.req, s.stderr)
 	if err != nil {
 		return err
+	}
+	if spec == kindMemory {
+		cat.printMemoryWrite(s.stdout, op, resp)
+		return nil
 	}
 	switch op {
 	case agentrewire.CtlOp_CTL_OP_CREATE:

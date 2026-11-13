@@ -57,6 +57,7 @@ import { DirectoryPicker } from "./directory-picker";
 import { useFailureText } from "./failure-text";
 import { ParentSelect } from "./parent-select";
 import { IdentityFields } from "../identity/identity-fields";
+import { MemoryEntryRow } from "../memory/memory-entry-row";
 import type {
   PickerMachine,
   ProjectCandidateView,
@@ -85,8 +86,15 @@ export interface ProjectSettingsDialogProps {
   focus?: "members" | "paths";
   /** 机器一台都没有时给的那条出路（宿主自己的路由）。不给就只留那句说明。 */
   devicesLink?: React.ReactNode;
+  /**
+   * 「记忆 N 条」那一行，**宿主给了才画**。agentre-server 控制台还没有记忆，不传就
+   * 什么都不出现；桌面端传入条数与跳转（记忆页选中这个项目）。
+   */
+  memory?: ProjectMemoryEntry;
   onChanged(): void;
 }
+
+export type ProjectMemoryEntry = { count: number; onOpen(): void };
 
 export function ProjectSettingsDialog({
   open,
@@ -96,6 +104,7 @@ export function ProjectSettingsDialog({
   ports,
   focus,
   devicesLink,
+  memory,
   onChanged,
 }: ProjectSettingsDialogProps) {
   const { t } = useUiTranslation();
@@ -320,6 +329,13 @@ export function ProjectSettingsDialog({
                 options={parentOptions}
                 excludeId={project.id}
                 onChange={(parentId) => saveFields({ parentId })}
+              />
+            ) : null}
+            {memory ? (
+              <MemoryEntryRow
+                data-testid="project-settings-memory"
+                count={memory.count}
+                onOpen={memory.onOpen}
               />
             ) : null}
           </div>

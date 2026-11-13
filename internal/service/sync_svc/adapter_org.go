@@ -11,6 +11,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
@@ -125,6 +126,9 @@ func (departmentAdapter) remove(ctx context.Context, in *inbound) error {
 	if err != nil || id == 0 {
 		return err
 	}
+	if err := removeOwnedMemories(ctx, memory_entity.Owner{Kind: memory_entity.OwnerDepartment, ID: id}); err != nil {
+		return err
+	}
 	return department_repo.Department().Delete(ctx, id)
 }
 
@@ -177,6 +181,7 @@ func (a *agentAdapter) load(ctx context.Context, syncID string) (*outbound, erro
 		PromptJSON:        row.PromptJSON,
 		ToolsJSON:         row.ToolsJSON,
 		Pinned:            row.Pinned,
+		MemoryEnabled:     &row.MemoryEnabled,
 	})
 	if err != nil {
 		return nil, err
@@ -233,11 +238,23 @@ func (a *agentAdapter) apply(ctx context.Context, in *inbound, resolved map[stri
 	row.ParentAgentID = resolvedID(resolved, ref{Kind: syncwire.KindAgent, SyncID: p.ParentAgentSyncID})
 	row.SortOrder, row.PromptJSON, row.ToolsJSON, row.Pinned = p.SortOrder, p.PromptJSON, p.ToolsJSON, p.Pinned
 	row.Status = consts.ACTIVE
+	// 缺这个键 = 对端是不认识它的旧版本：保持本机现状（新行取库默认「开」）。
+	if p.MemoryEnabled != nil {
+		row.MemoryEnabled = *p.MemoryEnabled
+	}
 	if !found {
 		// 技能授权不在载荷里：它住在执行目标行上，作为独立的同步对象落地。
 		row.SyncID = in.SyncID
 		row.AgentBackendID = 0
-		return agent_repo.Agent().Create(ctx, row)
+		if err := agent_repo.Agent().Create(ctx, row); err != nil {
+			return err
+		}
+		// MemoryEnabled 列带 default:1，gorm 建行时会把 false 当「没填」写成默认的开；
+		// 对端关着记忆的 agent 要在这里再落一次开关。
+		if p.MemoryEnabled != nil && !*p.MemoryEnabled {
+			return agent_repo.Agent().SetMemoryEnabled(ctx, row.ID, false)
+		}
+		return nil
 	}
 	// UpdateRow 只写 Agent 这一行：执行目标是独立的同步对象，不能被 Agent 行的
 	// 派生字段重写掉（agent_repo.Update 会那么做）。
@@ -282,6 +299,9 @@ func (a *agentAdapter) resolveAvatarDataURL(ctx context.Context, syncID, existin
 func (*agentAdapter) remove(ctx context.Context, in *inbound) error {
 	id, err := syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindAgent, in.SyncID)
 	if err != nil || id == 0 {
+		return err
+	}
+	if err := removeOwnedMemories(ctx, memory_entity.Owner{Kind: memory_entity.OwnerAgent, ID: id}); err != nil {
 		return err
 	}
 	return agent_repo.Agent().Delete(ctx, id)

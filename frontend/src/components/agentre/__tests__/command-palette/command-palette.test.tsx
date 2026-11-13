@@ -130,6 +130,15 @@ describe("CommandPalette", () => {
     });
   });
 
+  it("Given the palette, When the Memory page entry is picked, Then it navigates to /memory", async () => {
+    renderPalette();
+    act(() => useCommandPaletteStore.getState().setOpen(true));
+    const input = await screen.findByPlaceholderText("Search sessions...");
+    await userEvent.type(input, "Memory");
+    await userEvent.click(await screen.findByText("Memory"));
+    expect(screen.getByTestId("location")).toHaveTextContent("/memory");
+  });
+
   it("Given command mode, when New agent is selected, then it navigates to org and requests the dialog", async () => {
     useNewAgentIntentStore.getState().consume();
     renderPalette();

@@ -10,7 +10,7 @@ import {
 } from "../../shortcuts/registry";
 
 describe("shortcut registry", () => {
-  it("defines six rebindable global navigation actions, two palette actions, nine fixed session-chip actions, and ten fixed tabs actions", () => {
+  it("defines seven rebindable global navigation actions, two palette actions, nine fixed session-chip actions, and ten fixed tabs actions", () => {
     const global = REGISTRY.filter((def) => def.scope === "global");
     const session = REGISTRY.filter((def) => def.scope === "session");
     const tabs = REGISTRY.filter((def) => def.scope === "tabs");
@@ -21,6 +21,7 @@ describe("shortcut registry", () => {
       "nav.issues",
       "nav.org",
       "nav.hooks",
+      "nav.memory",
       "nav.settings",
       "palette.open",
       "cmd.new-chat",
@@ -53,13 +54,14 @@ describe("shortcut registry", () => {
     expect(def?.defaultBinding).toEqual({ mod: "primary", key: "N" });
   });
 
-  it("assigns the default E/D/B/G/Y/, bindings to navigation actions", () => {
+  it("assigns the default E/D/B/G/Y/U/, bindings to navigation actions", () => {
     const defaults = getDefaultBindings();
     expect(defaults.get("nav.chat")).toEqual({ mod: "primary", key: "E" });
     expect(defaults.get("nav.projects")).toEqual({ mod: "primary", key: "D" });
     expect(defaults.get("nav.issues")).toEqual({ mod: "primary", key: "B" });
     expect(defaults.get("nav.org")).toEqual({ mod: "primary", key: "G" });
     expect(defaults.get("nav.hooks")).toEqual({ mod: "primary", key: "Y" });
+    expect(defaults.get("nav.memory")).toEqual({ mod: "primary", key: "U" });
     expect(defaults.get("nav.settings")).toEqual({ mod: "primary", key: "," });
   });
 

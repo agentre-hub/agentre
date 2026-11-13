@@ -145,6 +145,16 @@
         "external": "用外部应用打开"
       }
     },
+    "memory": {
+      "nativeTitle": "Claude Code 自带记忆",
+      "nativeDesc": "只影响这台设备上新启动的 Claude Code 进程；远程执行与已在运行的进程不变。此设置只存本机，不会同步。",
+      "native": {
+        "label": "Claude Code 自带记忆",
+        "desc": "关闭后，新启动的本机 Claude Code 不再使用它自带的自动记忆。",
+        "keep": "保留",
+        "off": "关闭"
+      }
+    },
     "nav": {
       "about": "关于",
       "agentBackend": "Agent 后端",
@@ -164,6 +174,7 @@
       "llmProviderGap_one": "{{label}}，有 {{count}} 个 Agent 缺已激活的 LLM 供应商",
       "llmProviderGap_other": "{{label}}，有 {{count}} 个 Agent 缺已激活的 LLM 供应商",
       "mcpServers": "MCP 服务器",
+      "memory": "记忆",
       "notifications": "通知",
       "remoteDevices": "远端",
       "settings": "设置",

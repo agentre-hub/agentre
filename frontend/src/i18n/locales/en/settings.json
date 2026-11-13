@@ -145,6 +145,16 @@
         "external": "Open with external app"
       }
     },
+    "memory": {
+      "nativeTitle": "Claude Code native memory",
+      "nativeDesc": "Only affects Claude Code processes newly started on this device; remote execution and already-running processes are unchanged. Stored on this machine only and never synced.",
+      "native": {
+        "label": "Claude Code native memory",
+        "desc": "When off, newly started local Claude Code no longer uses its own auto-memory.",
+        "keep": "Keep",
+        "off": "Off"
+      }
+    },
     "nav": {
       "about": "About",
       "agentBackend": "Agent Backends",
@@ -164,6 +174,7 @@
       "llmProviderGap_one": "{{label}}, {{count}} agent needs an activated LLM provider",
       "llmProviderGap_other": "{{label}}, {{count}} agents need an activated LLM provider",
       "mcpServers": "MCP Servers",
+      "memory": "Memory",
       "notifications": "Notifications",
       "remoteDevices": "Remote",
       "settings": "Settings",

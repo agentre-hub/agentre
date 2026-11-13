@@ -19,6 +19,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo/mock_department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/memory_repo"
+	"github.com/agentre-hub/agentre/internal/repository/memory_repo/mock_memory_repo"
 	"github.com/agentre-hub/agentre/internal/service/department_svc/mock_deps"
 )
 
@@ -34,6 +36,10 @@ func setupSvc(t *testing.T) (
 	deptMock := mock_department_repo.NewMockDepartmentRepo(ctrl)
 	agentMock := mock_deps.NewMockAgentPort(ctrl)
 	department_repo.RegisterDepartment(deptMock)
+	// 删部门会连带删它名下的记忆；默认答「没有记忆」，需要断言的用例自己覆写。
+	memoryMock := mock_memory_repo.NewMockMemoryRepo(ctrl)
+	memoryMock.EXPECT().ListByOwners(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	memory_repo.RegisterMemory(memoryMock)
 	return context.Background(), deptMock, agentMock, &departmentSvc{
 		now:    func() int64 { return 1700000000 },
 		agents: agentMock,

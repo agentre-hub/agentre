@@ -120,3 +120,16 @@ func TestParseBoolSetting(t *testing.T) {
 		assert.False(t, ParseBoolSetting(f), "input=%q", f)
 	}
 }
+
+func TestParseUILanguage(t *testing.T) {
+	for in, want := range map[string]string{"zh-CN": UILanguageZhCN, " zh-cn ": UILanguageZhCN, "en": UILanguageEn, "EN": UILanguageEn} {
+		got, ok := ParseUILanguage(in)
+		assert.True(t, ok, "input=%q", in)
+		assert.Equal(t, want, got, "input=%q", in)
+	}
+	// 只认前端实际提供的两种语言；其它一律拒，不猜。
+	for _, bad := range []string{"", "zh", "zh-TW", "fr", "en-US"} {
+		_, ok := ParseUILanguage(bad)
+		assert.False(t, ok, "input=%q", bad)
+	}
+}

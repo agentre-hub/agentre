@@ -41,6 +41,16 @@ const (
 	// （交给系统默认应用）。缺省 preview —— 键不存在时由前端兜底，服务端不写入缺省值。
 	KeyFilesOpenAction = "files.open_action"
 
+	// KeyClaudeNativeMemory 是否保留 Claude Code 自带的 auto-memory（"true"/"false"）；
+	// 缺省保留。只存本机、不参与同步；关闭后仅本机新启动的 Claude Code 进程在
+	// --settings 里带 autoMemoryEnabled:false。
+	KeyClaudeNativeMemory = "memory.claude_native"
+
+	// KeyUILanguage 界面当前语言（UILanguageZhCN / UILanguageEn），由前端在启动与切换
+	// 语言时上报；注入会话的记忆段落里的固定文字跟随它（spec 2026-11-11 决策 16）。
+	// 只存本机、不参与同步，不走 Update 的白名单（经 SetUILanguage 写）。
+	KeyUILanguage = "ui.language"
+
 	// KeyCtlSkillDeclined 用户是否在设置页主动卸载过 ctl 控制通道技能包（"true"/"false"）；
 	// 缺省未拒绝。卸载时置真、（重新）安装时清除；启动期把它当第一道闸——为真则整段跳过
 	// 自动安装。不走 app_settings_svc.Update 的白名单，直接经 app_setting_repo 读写，
@@ -147,4 +157,21 @@ func ValidateBoolSetting(ctx context.Context, v string) error {
 // ParseBoolSetting 解析布尔型设置项；仅 "true" 视为开启，其余（含空）关闭。
 func ParseBoolSetting(v string) bool {
 	return strings.TrimSpace(v) == "true"
+}
+
+// 界面语言：与前端 i18n 的 SupportedLanguage 一一对应。
+const (
+	UILanguageZhCN = "zh-CN"
+	UILanguageEn   = "en"
+)
+
+// ParseUILanguage 把上报的界面语言规范成 UILanguageZhCN / UILanguageEn；不认识的返回 ok=false。
+func ParseUILanguage(v string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "zh-cn":
+		return UILanguageZhCN, true
+	case "en":
+		return UILanguageEn, true
+	}
+	return "", false
 }

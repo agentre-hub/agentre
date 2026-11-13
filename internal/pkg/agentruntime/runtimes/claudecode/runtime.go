@@ -139,6 +139,8 @@ func (r *Runtime) Capabilities() capability.Capabilities {
 			capability.CapSkills: true,
 			// 力度经 --effort 下发(pkg/claudecode/args.go),spawn 时烤进子进程。
 			capability.CapReasoningEffort: true,
+			// 会话里能跑 agrctl 的记忆命令,带完整记忆段落。
+			capability.CapMemory: true,
 		},
 		PermissionModeMeta: capability.PermissionModeMeta{
 			AllowedModes:         []string{"default", "acceptEdits", "plan", "bypassPermissions"},
@@ -665,6 +667,7 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 		return nil, "", fmt.Errorf("agentruntime/runtimes/claudecode: build hook settings: %w", err)
 	}
 	settingsJSON = buildSkillsSettings(req.EnabledPlugins, settingsJSON)
+	settingsJSON = buildAutoMemorySettings(req.DisableNativeAutoMemory, settingsJSON)
 
 	pureResume := req.ProviderSessionID != "" && req.ForkAnchor == ""
 	var cliSessionUUID, inboxKey string

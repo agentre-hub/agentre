@@ -4,6 +4,7 @@
 
 import {
   Bell,
+  Brain,
   Cable,
   Cpu,
   Database,
@@ -38,6 +39,7 @@ export type SettingsPageId =
   | "llm-providers"
   | "local-proxy"
   | "mcp-servers"
+  | "memory"
   | "notifications"
   | "skills-tools"
   | "sync"
@@ -82,6 +84,7 @@ export const settingsNavSections: SettingsNavSection[] = [
     items: [
       { icon: Network, id: "local-proxy", labelKey: "settings.nav.localProxy" },
       { icon: Server, id: "mcp-servers", labelKey: "settings.nav.mcpServers" },
+      { icon: Brain, id: "memory", labelKey: "settings.nav.memory" },
       {
         icon: Wrench,
         id: "skills-tools",
@@ -115,6 +118,7 @@ export const underConstructionSettingsPages: Record<
     | "version-logs"
     | "data-backup"
     | "files"
+    | "memory"
     | "notifications"
     | "skills-tools"
     | "sync"

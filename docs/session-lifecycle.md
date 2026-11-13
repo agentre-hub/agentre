@@ -61,6 +61,18 @@ When a runtime has its own provider-side session identity, the AgentRE `chat_ses
 
 The OpenClaw backend uses the deterministic key `agentre:<backendID>:<chatSessionID>` when `ProviderSessionID` is empty, returns that key through `RunResult.ProviderSessionID`, and reuses the persisted value on later turns. Reconnect reconciles the active Gateway run; it does not import or overwrite chat history.
 
+## Memory Snapshot
+
+A session carries the agent memory it could see at its **first turn**, frozen for its whole life (spec `docs/specs/2026-11-11-agent-memory.md`, decision 11). `chat_svc.buildRunRequest` takes it through `sessionMemorySnapshot` and appends it after the agent's own prompt in `RunRequest.SystemPrompt`.
+
+- **Stored on the row.** `chat_sessions.memory_snapshot` holds the rendered paragraph and `memory_snapshot_taken` marks that the first turn has happened. Both are written once by `chat_repo.SaveMemorySnapshot` (guarded on `memory_snapshot_taken = false`, so a stale entity cannot overwrite an earlier snapshot; the caller then uses the stored one) and are outside `sessionUpdateWhitelist`. They are local only and never synced.
+- **An empty snapshot is still a snapshot.** If the agent's memory toggle is off, or the turn's runtime gets `MemoryLevelNone`, the first turn freezes an empty text; switching the toggle on mid-session does not change that session. Sessions that already had messages before the upgrade were marked taken-and-empty by migration `202611110104`.
+- **Every later turn reuses it** — next turns, process and app restarts, regenerate, edit-and-resend and rollback, since all of those stay in the same session row.
+- **Tier.** `chat_svc.MemoryTier(caps, backendType)` decides from the selected runtime: `CapMemory` (declared by claudecode / codex / piagent, and reported by a remote `agentred` only when its bundled `agrctl` knows the memory commands) → full paragraph with the fixed lines; builtin → summaries only; anything else → nothing.
+- **Subagent sessions** (`purpose = subagent_call`) take their own snapshot at their own first turn, from the called agent's identity.
+- **Remote execution.** The desktop takes the snapshot for the sessions it starts; it reaches `agentred` inside `SystemPrompt` and `agentred` stores nothing. The fixed lines follow the UI language the frontend reports (`App.SetUILanguage`, key `ui.language`).
+- **Claude Code native memory** is a separate, machine-local switch: `RunRequest.DisableNativeAutoMemory` is set only for local Claude Code turns, never for remote ones.
+
 ## Adding A New Session Purpose
 
 When adding a new feature that creates sessions:

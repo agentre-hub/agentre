@@ -25,6 +25,10 @@ vi.mock("@/components/agentre/issues-page", () => {
   evaluated.add("issues");
   return { IssuesPage: () => <div>issues-page-stub</div> };
 });
+vi.mock("@/components/agentre/memory-page", () => {
+  evaluated.add("memory");
+  return { MemoryPage: () => <div>memory-page-stub</div> };
+});
 vi.mock("@/components/agentre/org-chart-page", () => {
   evaluated.add("org");
   return { OrgChartPage: () => <div>org-page-stub</div> };
@@ -75,5 +79,11 @@ describe("App lazy loading", () => {
     window.localStorage.setItem("agentre.lastPath", "/hooks");
     render(<App />);
     expect(await screen.findByText("hooks-page-stub")).toBeInTheDocument();
+  });
+
+  it("loads the memory page when /memory is visited", async () => {
+    window.localStorage.setItem("agentre.lastPath", "/memory");
+    render(<App />);
+    expect(await screen.findByText("memory-page-stub")).toBeInTheDocument();
   });
 });

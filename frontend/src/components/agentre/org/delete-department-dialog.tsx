@@ -24,6 +24,7 @@ export function DeleteDepartmentDialog({
   open,
   departmentName,
   strategy,
+  memoryCount = null,
   failure = null,
   onStrategyChange,
   onOpenChange,
@@ -33,6 +34,8 @@ export function DeleteDepartmentDialog({
   open: boolean;
   departmentName: string;
   strategy: DeleteDepartmentStrategy;
+  /** 所选策略下会一并删掉的记忆条数；还没读到（或读失败）是 null，这时不提记忆。 */
+  memoryCount?: number | null;
   /** 上一次确认没删掉：页脚说这一句，框不关。 */
   failure?: WriteFailure | null;
   onStrategyChange: (next: DeleteDepartmentStrategy) => void;
@@ -92,6 +95,15 @@ export function DeleteDepartmentDialog({
                 )}
               />
             </RadioGroup>
+            {memoryCount !== null && (
+              <p className="text-xs text-muted-foreground">
+                {memoryCount > 0
+                  ? t("org.department.deleteDialog.memories", {
+                      count: memoryCount,
+                    })
+                  : t("org.department.deleteDialog.noMemories")}
+              </p>
+            )}
           </DialogBody>
           <DialogFooter>
             {failure ? (

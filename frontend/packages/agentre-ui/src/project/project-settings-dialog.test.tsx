@@ -891,3 +891,56 @@ describe("成员选人层", () => {
     expect(none.textContent).toContain("already a member");
   });
 });
+
+describe("ProjectSettingsDialog memory row (optional)", () => {
+  it("renders the count row and calls onOpen when the host passes `memory`", async () => {
+    const onOpen = vi.fn();
+    render(
+      <ProjectSettingsDialog
+        open
+        onOpenChange={() => {}}
+        project={PROJECT}
+        parentOptions={[]}
+        ports={ports()}
+        memory={{ count: 6, onOpen }}
+        onChanged={() => {}}
+      />,
+    );
+    const row = await screen.findByTestId("project-settings-memory");
+    expect(row).toHaveTextContent("6 memories");
+    fireEvent.click(row);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows zero as a real count", async () => {
+    render(
+      <ProjectSettingsDialog
+        open
+        onOpenChange={() => {}}
+        project={PROJECT}
+        parentOptions={[]}
+        ports={ports()}
+        memory={{ count: 0, onOpen: () => {} }}
+        onChanged={() => {}}
+      />,
+    );
+    expect(
+      await screen.findByTestId("project-settings-memory"),
+    ).toHaveTextContent("0 memories");
+  });
+
+  it("renders no row when the host does not pass `memory`", async () => {
+    render(
+      <ProjectSettingsDialog
+        open
+        onOpenChange={() => {}}
+        project={PROJECT}
+        parentOptions={[]}
+        ports={ports()}
+        onChanged={() => {}}
+      />,
+    );
+    await screen.findByTestId("project-section-identity");
+    expect(screen.queryByTestId("project-settings-memory")).toBeNull();
+  });
+});

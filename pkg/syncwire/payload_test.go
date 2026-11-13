@@ -93,13 +93,14 @@ func payloadCases() []payloadCase {
 				AvatarHash: "9f86d081884c7d65", SystemBadge: "system",
 				DepartmentSyncID: "dept-1", ParentAgentSyncID: "agent-parent",
 				SortOrder: 2, PromptJSON: `{"role":"dev"}`, ToolsJSON: `["bash"]`, Pinned: true,
+				MemoryEnabled: boolPtr(false),
 			},
 			zeroJSON: `{"name":"","description":"","avatar_color":"","avatar_icon":"",` +
 				`"system_badge":"","sort_order":0,"prompt_json":"","tools_json":"","pinned":false}`,
 			fullJSON: `{"name":"Nova","description":"ships it","avatar_color":"violet","avatar_icon":"bot",` +
 				`"avatar_hash":"9f86d081884c7d65","system_badge":"system","department_sync_id":"dept-1",` +
 				`"parent_agent_sync_id":"agent-parent","sort_order":2,"prompt_json":"{\"role\":\"dev\"}",` +
-				`"tools_json":"[\"bash\"]","pinned":true}`,
+				`"tools_json":"[\"bash\"]","pinned":true,"memory_enabled":false}`,
 		},
 		{
 			kind: syncwire.KindAgentBackend,
@@ -179,6 +180,20 @@ func payloadCases() []payloadCase {
 			fullJSON: `{"title":"Ship it","description":"why","stage":"doing","position":2.5,` +
 				`"project_sync_id":"proj-1","agent_sync_id":"agent-1","agent_backend_sync_id":"backend-1",` +
 				`"llm_provider_key":"anthropic-main","llm_model_key":"opus","closed_at":1788748996601}`,
+		},
+		{
+			kind: syncwire.KindMemory,
+			full: syncwire.MemoryPayload{
+				OwnerKind: "agent", OwnerSyncID: "agent-1",
+				Summary: "prefers tabs", Detail: "since 2026", PrevSummary: "prefers spaces", PrevDetail: "old",
+				Pinned: true, State: "archived", CreatorKind: "ai",
+				ChangeAction: "edited", ChangeActorKind: "user", ChangedAt: 1788748996601,
+			},
+			zeroJSON: `{"owner_kind":"","summary":"","detail":"","prev_summary":"","prev_detail":"",` +
+				`"pinned":false,"state":"","creator_kind":"","change_action":"","change_actor_kind":"","changed_at":0}`,
+			fullJSON: `{"owner_kind":"agent","owner_sync_id":"agent-1","summary":"prefers tabs","detail":"since 2026",` +
+				`"prev_summary":"prefers spaces","prev_detail":"old","pinned":true,"state":"archived","creator_kind":"ai",` +
+				`"change_action":"edited","change_actor_kind":"user","changed_at":1788748996601}`,
 		},
 		{
 			kind:     syncwire.KindIssueLabel,
@@ -324,3 +339,5 @@ func TestPayloadFor_GivenThePayloadTypes_ThenTheyMatchTheVocabularyExactly(t *te
 			"PayloadFor(%s) 与用例里的类型必须是同一个", c.kind)
 	}
 }
+
+func boolPtr(b bool) *bool { return &b }

@@ -270,5 +270,25 @@
     "pendingCount": "{{count}} pending",
     "title": "Jump to latest",
     "turnsBelow": "{{count}} turns below"
+  },
+  "memoryWrite": {
+    "label": {
+      "created": "Remembered",
+      "updated": "Updated a memory",
+      "archived": "Archived a memory",
+      "exists": "Already remembered",
+      "undone": "Undone"
+    },
+    "layer": {
+      "global": "Global",
+      "department": "Department {{name}}",
+      "project": "Project {{name}}"
+    },
+    "edit": "Edit",
+    "undo": "Undo",
+    "undoChanged": "Can't undo: this memory was changed after this write",
+    "undoFailed": "Couldn't undo. You can try again.",
+    "undoFailedWithReason": "Couldn't undo: {{reason}}",
+    "gone": "This memory no longer exists"
   }
 }

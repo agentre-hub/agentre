@@ -162,6 +162,8 @@ func tableOf(kind string) (string, error) {
 		return "issues", nil
 	case syncwire.KindIssueLabel:
 		return "issue_labels", nil
+	case syncwire.KindMemory:
+		return "memories", nil
 	}
 	return "", fmt.Errorf("%w: %s", ErrUnknownKind, kind)
 }
@@ -247,11 +249,11 @@ func (r *syncStateRepo) SaveMeta(ctx context.Context, kind, syncID string, meta 
 		}).Error
 }
 
-// hasStatusColumn 报告某张账号级表有没有 status 软删列。成员关系、执行目标与任务
-// ↔ 标签关联是硬删，没有这一列——认领时的「存活」判据因此按表分两种。
+// hasStatusColumn 报告某张账号级表有没有 status 软删列。成员关系、执行目标、任务
+// ↔ 标签关联与记忆（归档走 state 列，彻底删除就是删行）是硬删，没有这一列——认领时的「存活」判据因此按表分两种。
 func hasStatusColumn(kind string) bool {
 	switch kind {
-	case syncwire.KindProjectAgent, syncwire.KindAgentExecTarget, syncwire.KindIssueLabel:
+	case syncwire.KindProjectAgent, syncwire.KindAgentExecTarget, syncwire.KindIssueLabel, syncwire.KindMemory:
 		return false
 	default:
 		return true

@@ -1830,6 +1830,9 @@ enum CtlKind {
   // 模型是提供方下的子资源（spec 决策 9）。
   CTL_KIND_MODEL = 5;
   CTL_KIND_BACKEND = 6;
+  // 记忆（spec 2026-11-11「Agent 读写记忆」）：只对会话级 token 开放；读只见本会话可见的
+  // 正常条目，写入不出审批卡、以该会话的 agent 身份进行，delete 是归档。
+  CTL_KIND_MEMORY = 7;
 }
 
 // CtlOp 是写操作的种类。
@@ -1981,6 +1984,27 @@ enum CtlTokenState {
   CTL_TOKEN_STATE_UNKNOWN = 3;
 }
 
+// CtlMemory 是一条记忆。
+message CtlMemory {
+  int64 id = 1;
+  // 所在的层：global | department | agent | project。create 时空 = 本会话的 agent 自己；
+  // update 不能改（不移层）。
+  string layer = 2;
+  // 层的归属：部门 / agent / 项目的 id，全局为 0。create 时只在部门层有意义：0 = agent
+  // 直属的部门，否则须是它所在部门或其上级部门之一。
+  int64 owner_id = 3;
+  // 一行摘要，随会话带上。
+  string summary = 4;
+  // 可选详情，按需读取。
+  string detail = 5;
+  // 只读：置顶。
+  bool pinned = 6;
+  // 只读：该层超出预算，这一条本会话没带上。
+  bool over_budget = 7;
+  // 只读：最近一次变更的时间（毫秒 epoch）。
+  int64 changed_at = 8;
+}
+
 // CtlResource 是任意一类资源的文档。
 message CtlResource {
   oneof doc {
@@ -1990,6 +2014,7 @@ message CtlResource {
     CtlProvider provider = 4;
     CtlModel model = 5;
     CtlBackend backend = 6;
+    CtlMemory memory = 7;
   }
 }
 
@@ -2069,6 +2094,12 @@ message CtlWriteResponse {
   int64 id = 1;
   string name = 2;
   repeated CtlChange changes = 3;
+  // 仅 memory create：同层已有摘要完全相同的正常条目，没有新增；id 是已有的那一条。
+  bool existed = 4;
+  // 仅 memory：写入后该层正常条目的摘要总字数超出预算的字数；0 = 没有超出。
+  int32 over_budget_chars = 5;
+  // 仅 memory：写入后的那一条（含它所在的层）。
+  CtlResource resource = 6;
 }
 
 // CtlRequest 是 `POST /ctl/v1/resources` 的请求体。

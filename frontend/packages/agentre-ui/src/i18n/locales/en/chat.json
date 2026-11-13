@@ -257,7 +257,8 @@
       "project": "Project",
       "provider": "LLM provider",
       "model": "Model",
-      "backend": "Backend"
+      "backend": "Backend",
+      "memory": "Memory"
     },
     "secretUpdated": "Updated (value hidden)",
     "cascade": "--cascade: also deletes {{departments}} sub-department(s) and {{agents}} agent(s)"

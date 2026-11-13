@@ -31,6 +31,7 @@ use", …) are shown verbatim. Exit code `3` prints `NEEDS TTY: <explanation>` i
 | `provider` | id or name (unique) | — |
 | `model` | id or `<provider>/<model id>` (split at the first `/`) | `--provider <p>` |
 | `backend` | id or name (unique) | `--type <type>` |
+| `memory` | its id: `m58` or `58` | `--layer <layer>`, `--query <text>` |
 
 Not found:
 
@@ -121,6 +122,42 @@ instead and blocks until the user answers the desktop's approval dialog. A rejec
 ```
 Error: rejected in session #231
 ```
+
+## Memory
+
+Inside an Agentre session reads see this session's memories only and writes never wait for
+approval. Outside a session the usual approval rules apply (a person at a terminal writes
+directly, any other caller waits for the desktop), every layer is visible, and `create` needs a
+named layer: `--layer global`, `--department <d>`, `--agent <a>` or `--project <p>`.
+
+```
+{{AGRCTL_PATH}} list memory --query lint
+ID    LAYER            SUMMARY                          DETAIL   CARRIED   UPDATED
+m58   agent reviewer   Run lint before committing       yes      yes       2026-11-02
+m61   agent reviewer   Prod database is older than dev  -        no        2026-11-04
+
+{{AGRCTL_PATH}} create memory --summary "Release builds pull from the internal registry" --layer project
+memory m83 created (project harbor)
+
+{{AGRCTL_PATH}} create memory --summary "Run lint before committing"
+memory m58 already exists (agent reviewer)
+
+{{AGRCTL_PATH}} update memory m58 --detail "CI only runs tests"
+memory m58 updated (agent reviewer)
+over budget: agent reviewer is 120 characters over its memory budget; merge or shorten the memories there
+
+{{AGRCTL_PATH}} delete memory m58
+memory m58 archived (agent reviewer)
+```
+
+- The first result line is always `memory m<id> <created|already exists|updated|archived> (<layer>)`,
+  where `<layer>` is `global`, `department <path>`, `agent <name>` or `project <path>`.
+  The `over budget:` line follows only when the write leaves that layer over its budget.
+- `CARRIED no` means the memory did not fit its layer's budget and was not carried into this
+  session; `get` still shows it in full.
+- `get memory <id>` prints `id`, `layer`, `summary`, `detail`, `pinned`, `carried`, `updated`.
+- A layer that is not yours, a memory this session cannot see (`memory "m500" not found`) and
+  `--layer department` for an agent in no department are refused with the desktop's message.
 
 ## Secrets
 

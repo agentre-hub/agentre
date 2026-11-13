@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
@@ -19,6 +20,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/service/memory_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
@@ -26,7 +28,7 @@ import (
 // Merge 见 ProjectSvc 接口注释（R11a）。
 //
 // 流程：①挑赢家(keep)/输家(drop) ②keep 借 drop 的本机路径(若 keep 自己还没有)
-// ③五类引用逐一改挂到 keep ④用删单独一行的那一段（deleteRows）软删 drop——其中的
+// ③五类引用（外加记忆）逐一改挂到 keep ④用删单独一行的那一段（deleteRows）软删 drop——其中的
 // HasActiveChildren / CountActiveByProject 守卫在这里等于免费的二次校验：如果
 // 上一步漏改了哪一类引用，它会拒绝，合并随之失败。（Delete 自己遇到子项目是级联删
 // 整棵子树；这里不能跟着级联，漏改挂的子项目该让合并失败，而不是被一并删掉。）
@@ -116,11 +118,20 @@ func (s *projectSvc) mergeRows(
 		return nil, nil, err
 	}
 
+	// 被并项目的记忆搬到保留的项目上，与其它引用同一口径；删被并项目时它名下已空。
+	movedMemories, err := memory_svc.MoveOwned(ctx,
+		memory_entity.Owner{Kind: memory_entity.OwnerProject, ID: drop.ID},
+		memory_entity.Owner{Kind: memory_entity.OwnerProject, ID: keep.ID})
+	if err != nil {
+		return nil, nil, err
+	}
+	changes = append(changes, movedMemories...)
+
 	deleted, err := s.deleteRows(ctx, drop.ID)
 	if err != nil {
 		return nil, nil, err
 	}
-	return keep, append(changes, deleted), nil
+	return keep, append(changes, deleted...), nil
 }
 
 // MergePreview 见 ProjectSvc 接口注释（S4）。只读：不开事务、不发同步通知。

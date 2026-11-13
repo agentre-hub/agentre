@@ -31,6 +31,9 @@ const (
 	KindProjectLocation = "project_location"
 	KindLLMProvider     = "llm_provider"
 	KindAgentBackendCLI = "agent_backend_cli"
+	// KindMemory 是 Agent 记忆条目。归属(全局 / 部门 / agent / 项目)用同步标识引用,
+	// 因此排在 department / agent / project 之后。
+	KindMemory = "memory"
 	// KindLabel / KindIssue / KindIssueLabel 是看板并入账号级同步组带来的三个类型。
 	// 它们互相引用的方向是 label ← issue_label → issue,任务本身还引用项目、Agent
 	// 与 backend —— 全部用同步标识表达,载荷里没有一个本地自增 ID。
@@ -55,6 +58,8 @@ var Kinds = []string{
 	KindAgentExecTarget,
 	KindProjectAgent,
 	KindProjectLocation,
+	// 记忆引用部门 / Agent / 项目三者之一，三者都排在上面。
+	KindMemory,
 	KindLLMProvider,
 	// 看板：标签是任务的被引用者，任务又是关联行的被引用者；任务还引用项目、
 	// Agent 与 backend，三者都排在上面。

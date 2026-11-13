@@ -2,6 +2,8 @@
 // 走专用卡;不进 canonical 集合的(Bash/Read/MCP 等)走 RawToolCard,用本文件的 input shape
 // 探测出一个简短摘要。**不依赖工具名硬集合** —— 那是 backend-specific 知识泄漏。
 
+import { unwrapShellCommand } from "../shell-command";
+
 export type SummarizeOptions = { cwd?: string };
 
 const COMMAND_KEYS = ["command", "cmd"];
@@ -29,13 +31,7 @@ export function summarizeRawTool(
 }
 
 export function formatCommandExecutionCommand(command: string): string {
-  const normalized = command.replace(/\s+/g, " ").trim();
-  const shellWrapped = normalized.match(
-    /^(?:\/[^\s]+\/)?(?:zsh|bash|sh)\s+-lc\s+(['"])([\s\S]*)\1$/,
-  );
-  if (!shellWrapped) return normalized;
-  const [, quote, inner] = shellWrapped;
-  return inner.replace(new RegExp(`\\\\${quote}`, "g"), quote).trim();
+  return unwrapShellCommand(command.replace(/\s+/g, " "));
 }
 
 function pickString(input: Record<string, unknown>, keys: string[]): string {

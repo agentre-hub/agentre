@@ -19,6 +19,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo/mock_department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/memory_repo"
+	"github.com/agentre-hub/agentre/internal/repository/memory_repo/mock_memory_repo"
 	"github.com/agentre-hub/agentre/internal/service/department_svc"
 )
 
@@ -44,6 +46,10 @@ func setupSvc(t *testing.T) (
 	targetMock := mock_agent_repo.NewMockAgentExecTargetRepo(ctrl)
 	targetMock.EXPECT().ListByAgent(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	agent_repo.RegisterAgentExecTarget(targetMock)
+	// 删 agent 会连带删它名下的记忆；默认答「没有记忆」，需要断言的用例自己覆写。
+	memoryMock := mock_memory_repo.NewMockMemoryRepo(ctrl)
+	memoryMock.EXPECT().ListByOwners(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	memory_repo.RegisterMemory(memoryMock)
 	return context.Background(), agentMock, deptMock, backendMock, &agentSvc{now: func() int64 { return 1700000000 }, tx: directTx{}}
 }
 
@@ -91,6 +97,7 @@ func TestCreateAgent(t *testing.T) {
 			assert.Equal(t, int64(99), resp.Item.ID)
 			assert.Equal(t, "sparkles", captured.AvatarIcon)
 			assert.Equal(t, "sparkles", resp.Item.AvatarIcon)
+			assert.True(t, captured.MemoryEnabled, "新 Agent 的记忆开关默认为开")
 		})
 
 		convey.Convey("挂到上级 Agent 成功", func() {
@@ -545,6 +552,27 @@ func TestAgentSvc_SetPinned(t *testing.T) {
 		convey.Convey("不存在的 Agent 拒绝", func() {
 			agentMock.EXPECT().Find(ctx, int64(99)).Return(nil, nil)
 			_, err := svc.SetPinned(ctx, &SetPinnedRequest{ID: 99, Pinned: true})
+			assert.Error(t, err)
+		})
+	})
+}
+
+func TestAgentSvc_SetMemoryEnabled(t *testing.T) {
+	convey.Convey("切换 Agent 的记忆开关", t, func() {
+		ctx, agentMock, _, _, svc := setupSvc(t)
+
+		convey.Convey("存在的 Agent 关闭记忆", func() {
+			agentMock.EXPECT().Find(ctx, int64(7)).Return(&agent_entity.Agent{ID: 7, Status: consts.ACTIVE, MemoryEnabled: true}, nil)
+			agentMock.EXPECT().SetMemoryEnabled(ctx, int64(7), false).Return(nil)
+
+			resp, err := svc.SetMemoryEnabled(ctx, &SetMemoryEnabledRequest{ID: 7, Enabled: false})
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(resp, convey.ShouldResemble, &SetMemoryEnabledResponse{ID: 7, Enabled: false})
+		})
+
+		convey.Convey("不存在的 Agent 拒绝", func() {
+			agentMock.EXPECT().Find(ctx, int64(99)).Return(nil, nil)
+			_, err := svc.SetMemoryEnabled(ctx, &SetMemoryEnabledRequest{ID: 99, Enabled: true})
 			assert.Error(t, err)
 		})
 	})

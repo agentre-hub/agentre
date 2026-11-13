@@ -1,0 +1,76 @@
+{
+  "memoryPage": {
+    "nav": "记忆",
+    "shortcut": {
+      "label": "切换到记忆",
+      "hint": "agent 跨会话记住的事"
+    },
+    "sidebar": {
+      "label": "记忆归属",
+      "search": "搜索全部记忆",
+      "recent": "最近变更",
+      "global": "全局",
+      "departments": "部门",
+      "agents": "Agent",
+      "projects": "项目"
+    },
+    "owner": {
+      "unknown": "未知归属"
+    },
+    "header": {
+      "memoryEnabled": "启用记忆",
+      "memoryDisabledHint": "已关闭：这个 agent 的新会话不带记忆，它也不会再写。"
+    },
+    "groups": {
+      "own": "自己的",
+      "layer": "本层的"
+    },
+    "add": {
+      "placeholder": "添加一条记忆，回车保存",
+      "failed": "没加上，内容还在，可以再试一次。",
+      "failedWithReason": "没加上：{{reason}}",
+      "existed": "这一层已经有一条同样的记忆。"
+    },
+    "creator": {
+      "agentSession": "{{agent}} 的会话"
+    },
+    "empty": {
+      "title": "还没有记忆",
+      "description": "在上面写一条，或在对话里让 agent 记下来。"
+    },
+    "loading": "正在加载记忆",
+    "loadFailed": "记忆没加载出来。",
+    "pageLoadFailed": "记忆页没加载出来。",
+    "toggleFailed": "记忆开关没改成。",
+    "search": {
+      "results": "搜索结果",
+      "noResults": "没有记忆包含「{{query}}」。"
+    },
+    "recent": {
+      "title": "最近变更",
+      "subtitle": "近 14 天 · 所有归属",
+      "empty": "近 14 天没有变更。",
+      "you": "你",
+      "unknownAgent": "某个 agent",
+      "restorePrevious": "恢复上一版",
+      "unarchive": "恢复",
+      "failed": "没改成，可以再试一次。",
+      "failedWithReason": "没改成：{{reason}}",
+      "action": {
+        "created": "{{actor}}新增了",
+        "edited": "{{actor}}修改了",
+        "archived": "{{actor}}归档了",
+        "unarchived": "{{actor}}恢复了",
+        "restored": "{{actor}}恢复了上一版",
+        "moved": "{{actor}}移动了"
+      }
+    },
+    "restricted": {
+      "label": "带不全记忆的执行目标",
+      "unsupportedBackend": "{{target}}：不带记忆（这个后端不支持）",
+      "builtinSummaries": "{{target}}：只能读摘要，不能写",
+      "needsUpgrade": "{{target}}：不带记忆（那台设备需要升级）",
+      "remoteTarget": "{{device}} · {{name}}"
+    }
+  }
+}

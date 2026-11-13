@@ -1,0 +1,50 @@
+{
+  "memory": {
+    "edit": {
+      "summaryLabel": "摘要",
+      "detailLabel": "详情",
+      "detailPlaceholder": "详情（可选）：为什么、什么时候适用",
+      "save": "保存",
+      "saving": "保存中…",
+      "cancel": "取消",
+      "saveFailed": "没保存上，内容还在，可以再试一次。",
+      "saveFailedWithReason": "没保存上：{{reason}}"
+    },
+    "row": {
+      "writtenByYou": "你写的",
+      "fromSession": "来自会话",
+      "hasDetail": "有详情",
+      "edit": "编辑 {{summary}}",
+      "more": "更多操作",
+      "pinned": "已置顶",
+      "actionFailed": "没改成，可以再试一次。",
+      "actionFailedWithReason": "没改成：{{reason}}"
+    },
+    "menu": {
+      "pin": "置顶",
+      "unpin": "取消置顶",
+      "archive": "归档",
+      "unarchive": "恢复",
+      "restorePrevious": "恢复上一版",
+      "moveTo": "移到…",
+      "noMoveTargets": "没有别的层",
+      "delete": "删除",
+      "confirmDelete": "确认删除？"
+    },
+    "groups": {
+      "overBudget": "超出预算，本次不带",
+      "archived": "已归档",
+      "inherited": "继承的",
+      "inheritedOpen": "打开{{label}}，{{count}} 条",
+      "inheritedOpen_one": "打开{{label}}，{{count}} 条",
+      "inheritedOpen_other": "打开{{label}}，{{count}} 条"
+    },
+    "budget": {
+      "label": "预算用量",
+      "value": "{{used}} / {{budget}} 字"
+    },
+    "entryRow": "记忆 {{count}} 条",
+    "entryRow_one": "记忆 {{count}} 条",
+    "entryRow_other": "记忆 {{count}} 条"
+  }
+}

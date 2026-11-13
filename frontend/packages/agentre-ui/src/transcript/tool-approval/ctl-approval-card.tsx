@@ -37,6 +37,7 @@ export type CtlApprovalKind =
   | "provider"
   | "model"
   | "backend"
+  | "memory"
   | (string & {});
 
 export interface CtlApprovalField {
@@ -159,6 +160,8 @@ function useCtlApprovalLabels() {
           return t("ctlApproval.kind.model");
         case "backend":
           return t("ctlApproval.kind.backend");
+        case "memory":
+          return t("ctlApproval.kind.memory");
         default:
           return kind;
       }

@@ -12,6 +12,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/buildinfo"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
 	openclawrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/openclaw"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
@@ -33,6 +34,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/hook_repo"
 	"github.com/agentre-hub/agentre/internal/repository/issue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/memory_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
@@ -143,6 +145,7 @@ func Init(ctx context.Context) (*Runtime, error) {
 	issue_repo.RegisterLabel(issue_repo.NewLabel())
 	issue_repo.RegisterIssueLabel(issue_repo.NewIssueLabel())
 	issue_svc.SetDefault(issue_svc.New())
+	memory_repo.RegisterMemory(memory_repo.NewMemory())
 	// 把 project_svc 的 cwd 解析注入 exec_target_svc —— 那个包不直接 import project_svc，
 	// 避免 project_svc → chat_repo 与 exec_target_svc → project_svc 形成环。
 	exec_target_svc.RegisterCwdResolver(project_svc.Default().ResolveSessionCwd)
@@ -260,6 +263,8 @@ func Init(ctx context.Context) (*Runtime, error) {
 		agrctlPath = override
 	}
 	claudecode.Default().SetHookCLIPath(agrctlPath)
+	// 会话里 agent 直接跑裸 `agrctl …`：登记路径，注入会话凭证时把它所在目录排进子进程 PATH。
+	agentruntime.RegisterAgrctlPath(agrctlPath)
 
 	// ctl 控制通道技能包(internal/pkg/ctlskill)：让 agrctl 以 Claude Code 插件 + 通用
 	// Agent Skill 目录两种形态出现在各 CLI 的技能发现里，复用刚算出的 agrctlPath。

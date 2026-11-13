@@ -224,6 +224,9 @@ func (c *catalog) locate(spec *kindSpec, ref string) (*agentrewire.CtlResource, 
 		}
 		// id 没命中时按名字找：纯数字也可以是名字（例如项目 2024）。
 	}
+	if spec.kind == agentrewire.CtlKind_CTL_KIND_MEMORY {
+		return c.locateMemory(ref)
+	}
 	if spec.kind == agentrewire.CtlKind_CTL_KIND_MODEL && !strings.Contains(ref, "/") {
 		if _, err := strconv.ParseInt(ref, 10, 64); err == nil {
 			return nil, fmt.Errorf("%s %q not found", spec.name, ref)
@@ -358,6 +361,9 @@ func docOf(r *agentrewire.CtlResource) doc {
 		return doc{id: d.Model.GetId(), name: d.Model.GetModelId(), providerID: d.Model.GetProviderId()}
 	case *agentrewire.CtlResource_Backend:
 		return doc{id: d.Backend.GetId(), name: d.Backend.GetName()}
+	case *agentrewire.CtlResource_Memory:
+		// 记忆没有名字：按编号定位（locateMemory），名字一栏放摘要只供展示。
+		return doc{id: d.Memory.GetId(), name: d.Memory.GetSummary()}
 	}
 	return doc{}
 }

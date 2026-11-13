@@ -7,6 +7,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/pkg/codex"
 )
 
 // TestGatewayDeps 锁住 codex 网关门控的唯一口径(spec 2026-08-10 决策 6):是否装配
@@ -228,6 +229,48 @@ func TestBuildLaunchSpec_ReasoningEffort(t *testing.T) {
 			for _, cfg := range spec.config {
 				So(cfg, ShouldNotStartWith, "model_reasoning_effort")
 			}
+		})
+	})
+}
+
+// 决策 21：带 agrctl 会话凭证且有效沙箱是 workspace-write 时，app-server 进程要带
+// sandbox_workspace_write.network_access=true，沙箱内的 agrctl 才连得回本机网关。
+func TestBuildLaunchSpec_WorkspaceWriteNetworkForAgrctl(t *testing.T) {
+	const netCfg = "sandbox_workspace_write.network_access=true"
+	ctl := agentruntime.CtlCredentials{Endpoint: "http://127.0.0.1:60080", Token: "sess-tok"}
+	build := func(sandbox string, withCtl bool) codexLaunchSpec {
+		if withCtl {
+			agentruntime.RegisterCtlCredentialSource(func(int64, int64) agentruntime.CtlCredentials { return ctl })
+		} else {
+			agentruntime.RegisterCtlCredentialSource(nil)
+		}
+		t.Cleanup(func() { agentruntime.RegisterCtlCredentialSource(nil) })
+		return buildLaunchSpec(agentruntime.RunRequest{
+			SessionID: 42,
+			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex), Sandbox: sandbox},
+		}, nil, "/tmp/work")
+	}
+
+	Convey("Given 会话带 agrctl 凭证", t, func() {
+		Convey("后端沙箱为空(Codex 默认 workspace-write) -> 放开网络", func() {
+			So(build("", true).config, ShouldContain, netCfg)
+		})
+		Convey("后端沙箱 workspace-write -> 放开网络", func() {
+			So(build("workspace-write", true).config, ShouldContain, netCfg)
+		})
+		Convey("后端沙箱 read-only -> 不放开", func() {
+			So(build("read-only", true).config, ShouldNotContain, netCfg)
+		})
+		Convey("后端沙箱 danger-full-access -> 不变", func() {
+			spec := build("danger-full-access", true)
+			So(spec.config, ShouldNotContain, netCfg)
+			So(spec.sandbox, ShouldEqual, codex.SandboxDangerFullAccess)
+		})
+	})
+	Convey("Given 会话没有凭证", t, func() {
+		Convey("沙箱为空或 workspace-write -> 不放开", func() {
+			So(build("", false).config, ShouldNotContain, netCfg)
+			So(build("workspace-write", false).config, ShouldNotContain, netCfg)
 		})
 	})
 }

@@ -291,4 +291,17 @@ var enUS = map[int]string{
 	PortForwardInvalidTarget: "Enter a port, host:port, or http(s)://host[:port].",
 
 	SessionProcessNotOwned: "That process no longer belongs to this session",
+
+	MemoryNotFound:         "Memory not found",
+	MemoryInvalidOwner:     "Invalid memory owner",
+	MemoryOwnerNotFound:    "The department, agent or project this memory belongs to does not exist",
+	MemoryInvalidActor:     "Invalid memory writer",
+	MemorySummaryRequired:  "Memory summary is required",
+	MemorySummaryTooLong:   "Memory summary can be at most 200 characters",
+	MemorySummaryMultiline: "Memory summary must be a single line",
+	MemoryDetailTooLong:    "Memory detail can be at most 4000 characters",
+	MemoryInvisibleChars:   "Memory contains invisible characters; remove them and save again",
+	MemorySensitiveContent: "Memory looks like a key or token; credentials cannot be stored in memory",
+	MemoryNoPrevious:       "This memory has no previous version to restore",
+	MemoryNotOwnLayer:      "An agent can only write memories in its own layers: global, its department and the departments above it, itself, and this session's project",
 }

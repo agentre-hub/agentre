@@ -1575,6 +1575,31 @@ func TestPrefetch_CachesAndCapabilitiesReturnsIt(t *testing.T) {
 	require.NoError(t, rt.Prefetch(context.Background(), agent_backend_entity.TypeClaudeCode))
 }
 
+// CachedCapabilities 只回答「这个后端类型的能力矩阵已经缓存了吗」：没有缓存就是 (空, false)，
+// 不返占位矩阵、不拨号；缓存按后端类型分开，不被同设备上别的类型串味。
+func TestCachedCapabilities_OnlyAfterPrefetchAndPerBackendType(t *testing.T) {
+	_, cli, _, rt := setupRemote(t)
+
+	_, ok := rt.CachedCapabilities(agent_backend_entity.TypeClaudeCode)
+	assert.False(t, ok, "未 Prefetch：不是占位矩阵，而是未知")
+
+	cli.EXPECT().Call(gomock.Any(), wire.MethodCapabilities, gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
+			*(result.(*wire.CapabilitiesResult)) = wire.CapabilitiesResult{Capabilities: capability.Capabilities{
+				Set: map[capability.Capability]bool{capability.CapMemory: true},
+			}}
+			return nil
+		})
+	require.NoError(t, rt.Prefetch(context.Background(), agent_backend_entity.TypeClaudeCode))
+
+	caps, ok := rt.CachedCapabilities(agent_backend_entity.TypeClaudeCode)
+	require.True(t, ok)
+	assert.True(t, caps.Has(capability.CapMemory))
+
+	_, ok = rt.CachedCapabilities(agent_backend_entity.TypeCodex)
+	assert.False(t, ok, "别的后端类型没缓存")
+}
+
 // TestRun_LaunchPermissionMode_PassThrough 钉死 RunAck.LaunchPermissionMode
 // 在 remote 客户端被同步写入 RunResult.LaunchPermissionMode —— chat_svc 依赖
 // 这条线在主进程侧持久化 session.PermissionModeAtLaunch(daemon 进程不

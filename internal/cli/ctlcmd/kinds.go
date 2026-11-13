@@ -27,6 +27,8 @@ type kindSpec struct {
 	examples []string
 	// secrets 描述该资源的密钥 flag（help 用）。
 	secretHelp string
+	// notes 是 help 里该资源的规则说明（记忆的层与记录规则）。
+	notes string
 }
 
 var (
@@ -36,8 +38,9 @@ var (
 	kindProvider   = &kindSpec{kind: agentrewire.CtlKind_CTL_KIND_PROVIDER, name: "provider", plural: "providers"}
 	kindModel      = &kindSpec{kind: agentrewire.CtlKind_CTL_KIND_MODEL, name: "model", plural: "models"}
 	kindBackend    = &kindSpec{kind: agentrewire.CtlKind_CTL_KIND_BACKEND, name: "backend", plural: "backends"}
+	kindMemory     = &kindSpec{kind: agentrewire.CtlKind_CTL_KIND_MEMORY, name: "memory", plural: "memories"}
 
-	allKinds = []*kindSpec{kindAgent, kindDepartment, kindProject, kindProvider, kindModel, kindBackend}
+	allKinds = []*kindSpec{kindAgent, kindDepartment, kindProject, kindProvider, kindModel, kindBackend, kindMemory}
 )
 
 // lookupKind 接受单数、复数与短名。
@@ -71,6 +74,7 @@ func init() {
 	initProviderFlags()
 	initModelFlags()
 	initBackendFlags()
+	initMemoryFlags()
 }
 
 // strField 生成一个写字符串字段的 flag。

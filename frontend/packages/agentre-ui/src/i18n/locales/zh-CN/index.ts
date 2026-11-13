@@ -4,6 +4,7 @@ import chat from "./chat.json";
 import common from "./common.json";
 import filePreview from "./file-preview.json";
 import llm from "./llm.json";
+import memory from "./memory.json";
 import onboarding from "./onboarding.json";
 import org from "./org.json";
 import portForward from "./port-forward.json";
@@ -16,6 +17,7 @@ export default {
   ...common,
   ...filePreview,
   ...llm,
+  ...memory,
   ...onboarding,
   ...org,
   ...portForward,

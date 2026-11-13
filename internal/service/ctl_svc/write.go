@@ -41,7 +41,10 @@ func (h *ctlHandler) serveWrite(w http.ResponseWriter, r *http.Request, cred cre
 	case CallerSession:
 		h.approveInSession(w, r, plan, caller)
 	default:
-		h.approveInDesktop(w, r, plan, caller)
+		h.approveInDesktop(w, r, approvalInput(plan.command, plan.change, plan.cascade), plan.req.GetCallerInfo(),
+			func(ctx context.Context) {
+				_, _ = h.executeApproved(ctx, w, r, plan, caller) // 结果已写进响应
+			})
 	}
 }
 
@@ -247,8 +250,9 @@ func (h *ctlHandler) approveInSession(w http.ResponseWriter, r *http.Request, pl
 	}
 }
 
-// approveInDesktop 把外部调用挂到桌面端待审批队列；无人处理到超时即撤下，等同拒绝。
-func (h *ctlHandler) approveInDesktop(w http.ResponseWriter, r *http.Request, plan *writePlan, caller Caller) {
+// approveInDesktop 把外部调用挂到桌面端待审批队列；批准后调 run 执行并写响应（run 的 ctx
+// 脱离请求的取消：人已经批准了，调用方断开也不中止写入）。无人处理到超时即撤下，等同拒绝。
+func (h *ctlHandler) approveInDesktop(w http.ResponseWriter, r *http.Request, input blocks.CtlApprovalInput, info *agentrewire.CtlCallerInfo, run func(ctx context.Context)) {
 	if h.external == nil {
 		writeErr(w, http.StatusServiceUnavailable, "approval in the Agentre desktop is not available")
 		return
@@ -256,8 +260,8 @@ func (h *ctlHandler) approveInDesktop(w http.ResponseWriter, r *http.Request, pl
 	requestID := uuid.NewString()
 	ch, err := h.external.Enqueue(r.Context(), ExternalApproval{
 		RequestID: requestID,
-		Input:     approvalInput(plan.command, plan.change, plan.cascade),
-		Caller:    callerInfoOf(plan.req.GetCallerInfo()),
+		Input:     input,
+		Caller:    callerInfoOf(info),
 	})
 	if err != nil {
 		writeErr(w, http.StatusServiceUnavailable, "cannot ask for approval in the Agentre desktop: "+err.Error())
@@ -266,14 +270,14 @@ func (h *ctlHandler) approveInDesktop(w http.ResponseWriter, r *http.Request, pl
 	announcePending(w, "desktop")
 	switch h.await(r.Context(), ch) {
 	case outcomeApproved:
-		_, _ = h.executeApproved(context.WithoutCancel(r.Context()), w, r, plan, caller) // 结果已写进响应
+		run(context.WithoutCancel(r.Context()))
 	case outcomeRejected:
 		writeErr(w, http.StatusForbidden, "rejected in the Agentre desktop")
 	case outcomeTimedOut:
 		if !h.external.Withdraw(requestID) {
 			// 作答恰好抢在撤下之前入账：弹窗已经对用户报了成功，照它的答案办。
 			if <-ch {
-				_, _ = h.executeApproved(context.WithoutCancel(r.Context()), w, r, plan, caller)
+				run(context.WithoutCancel(r.Context()))
 			} else {
 				writeErr(w, http.StatusForbidden, "rejected in the Agentre desktop")
 			}

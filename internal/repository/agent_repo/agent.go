@@ -39,6 +39,7 @@ type AgentRepo interface {
 	UpdatePlacement(ctx context.Context, id, departmentID, parentAgentID int64, sortOrder int) error
 	UpdateAvatar(ctx context.Context, id int64, avatarDataURL string, updatetime int64) error
 	SetPinned(ctx context.Context, id int64, pinned bool) error
+	SetMemoryEnabled(ctx context.Context, id int64, enabled bool) error
 	ReparentChildren(ctx context.Context, fromParentAgentID, toDepartmentID, toParentAgentID int64) error
 	ClearLeadOfDepartment(ctx context.Context, agentID int64) error
 	Delete(ctx context.Context, id int64) error
@@ -256,6 +257,15 @@ func (r *agentRepo) SetPinned(ctx context.Context, id int64, pinned bool) error 
 	return db.Ctx(ctx).Model(&agent_entity.Agent{}).
 		Where("id = ?", id).
 		Update("pinned", pinned).Error
+}
+
+func (r *agentRepo) SetMemoryEnabled(ctx context.Context, id int64, enabled bool) error {
+	return db.Ctx(ctx).Model(&agent_entity.Agent{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"memory_enabled": enabled,
+			"updatetime":     time.Now().UnixMilli(),
+		}).Error
 }
 
 func (r *agentRepo) ReparentChildren(ctx context.Context, fromParentAgentID, toDepartmentID, toParentAgentID int64) error {

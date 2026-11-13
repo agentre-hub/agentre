@@ -1,0 +1,50 @@
+{
+  "memory": {
+    "edit": {
+      "summaryLabel": "Summary",
+      "detailLabel": "Detail",
+      "detailPlaceholder": "Detail (optional): why, and when it applies",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "saveFailed": "Not saved. Your text is still here; try again.",
+      "saveFailedWithReason": "Not saved: {{reason}}"
+    },
+    "row": {
+      "writtenByYou": "Written by you",
+      "fromSession": "From session",
+      "hasDetail": "Has detail",
+      "edit": "Edit {{summary}}",
+      "more": "More actions",
+      "pinned": "Pinned",
+      "actionFailed": "Didn't go through. Try again.",
+      "actionFailedWithReason": "Didn't go through: {{reason}}"
+    },
+    "menu": {
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "archive": "Archive",
+      "unarchive": "Restore",
+      "restorePrevious": "Restore previous version",
+      "moveTo": "Move to…",
+      "noMoveTargets": "No other layer",
+      "delete": "Delete",
+      "confirmDelete": "Confirm delete?"
+    },
+    "groups": {
+      "overBudget": "Over budget, not carried this time",
+      "archived": "Archived",
+      "inherited": "Inherited",
+      "inheritedOpen": "Open {{label}}, {{count}} entries",
+      "inheritedOpen_one": "Open {{label}}, {{count}} entry",
+      "inheritedOpen_other": "Open {{label}}, {{count}} entries"
+    },
+    "budget": {
+      "label": "Budget usage",
+      "value": "{{used}} / {{budget}} chars"
+    },
+    "entryRow": "{{count}} memories",
+    "entryRow_one": "{{count}} memory",
+    "entryRow_other": "{{count}} memories"
+  }
+}

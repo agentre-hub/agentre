@@ -1,6 +1,6 @@
 ---
 name: agrctl
-description: "Manage and drive the Agentre desktop app running on this machine — list, inspect, create, update and delete its agents, departments, projects, LLM providers, models and agent backends, and dispatch a task to another agent. Use when asked what exists in Agentre, when Agentre's configuration should change, when work should be handed to another agent, or when a task should run in a specific Agentre project."
+description: "Manage and drive the Agentre desktop app running on this machine — list, inspect, create, update and delete its agents, departments, projects, LLM providers, models and agent backends, dispatch a task to another agent, and read and write the agent's memory. Use when asked what exists in Agentre, when Agentre's configuration should change, when work should be handed to another agent, when a task should run in a specific Agentre project, or when something should be remembered for later sessions or looked up in memory."
 ---
 
 # Agentre control CLI (agrctl)
@@ -30,8 +30,8 @@ Always invoke it by that absolute path — it is not on `PATH`.
 {{AGRCTL_PATH}} send --agent <name> [--project <id>] [--wait] [--isolated] <task text...>
 ```
 
-Resources: `agent`, `department` (`dept`), `project` (`proj`), `provider`, `model`, `backend`.
-`list` also accepts the plural (`agents`, `providers`, …).
+Resources: `agent`, `department` (`dept`), `project` (`proj`), `provider`, `model`, `backend`,
+`memory`. `list` also accepts the plural (`agents`, `providers`, `memories`, …).
 
 **Before creating or changing anything, run `help <resource>`** (and `help backend <type>`
 for a backend). It prints the exact flags, the fields `--config` accepts, which flags are
@@ -83,6 +83,39 @@ A rejection ends with exit code `1`. Do not retry a rejected write.
 This approval is a guard rail for well-behaved agents, not a security boundary: any process
 running as the same OS user can read the desktop's handshake file, fake a terminal, or strip
 the agent CLI's environment markers and skip it. Never try to do any of these.
+
+### Memory
+
+Memory holds facts that carry over to your later sessions. Inside an Agentre session, unlike
+every other resource, its writes **take effect at once, with no approval**; outside one they
+follow the same approval rules as everything else.
+`help memory` is the full usage and the rules for what is worth remembering — read it before
+your first write.
+
+```
+{{AGRCTL_PATH}} list memory [--layer <layer>] [--query <text>]
+{{AGRCTL_PATH}} get memory <id>
+{{AGRCTL_PATH}} create memory --summary "<one line>" [--detail "<text>"] [--layer <layer>] [--department <d> | --agent <a> | --project <p>]
+{{AGRCTL_PATH}} update memory <id> [--summary "<one line>"] [--detail "<text>"]
+{{AGRCTL_PATH}} delete memory <id>
+```
+
+- A memory is located by its id, `m58` or `58`, as shown in your session's memory section
+  and by `list memory`.
+- `list` and `get` see only the memories of this session: global, your departments, yourself
+  and this session's project. `CARRIED no` marks one that did not fit its layer's budget and
+  so was not carried into this session. `--query` searches summaries and details.
+- `create` writes to you by default; `--layer department | project | global` picks another of
+  your layers, and `--department <d>` one of the departments above yours. Writing to a
+  layer that is not yours is refused. The same summary twice in one layer is not added again.
+- `update` and `delete` work on any memory you can see, including the user's. `delete`
+  archives; the user can restore it, and the previous version of an update is kept.
+- Each write prints one line: `memory m<id> created|already exists|updated|archived (<layer>)`.
+  A second line `over budget: <layer> is <N> characters over its memory budget; …` means you
+  should merge or shorten that layer's memories.
+- What you write now reaches new sessions, not this one.
+- Outside a session every layer is visible and `create` needs a named layer: `--layer global`,
+  `--department <d>`, `--agent <a>` or `--project <p>`.
 
 ### Secrets
 
