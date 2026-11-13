@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/repository/memory_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
@@ -282,6 +283,11 @@ func (s *memorySvc) ListByOwner(ctx context.Context, owner memory_entity.Owner) 
 	}
 	carried, over := memory_entity.SplitByBudget(normal, memory_entity.LayerBudgetChars)
 	out.Carried, out.OverBudget, out.Archived = toItems(carried), toItems(over), toItems(archived)
+	all := make([]*MemoryItem, 0, len(rows))
+	all = append(append(append(all, out.Carried...), out.OverBudget...), out.Archived...)
+	if err := s.markCreatorSessions(ctx, all); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -311,7 +317,11 @@ func (s *memorySvc) RecentChanges(ctx context.Context) ([]*MemoryItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	return toItems(rows), nil
+	items := toItems(rows)
+	if err := s.markCreatorSessions(ctx, items); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (s *memorySvc) Search(ctx context.Context, keyword string) ([]*MemoryItem, error) {
@@ -323,7 +333,45 @@ func (s *memorySvc) Search(ctx context.Context, keyword string) ([]*MemoryItem, 
 	if err != nil {
 		return nil, err
 	}
-	return toItems(rows), nil
+	items := toItems(rows)
+	if err := s.markCreatorSessions(ctx, items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// markCreatorSessions 回答「AI 创建者的来源会话本机还在不在」：按创建者的 agent 一次批量
+// 取出仍有效（未软删）的会话编号，逐条核对。前端的会话标题缓存是局部的，证明不了会话
+// 不存在，所以存在性只能由这里给。没有 AI 来源时不发查询；查询失败整体失败，不把「不知道」
+// 当成「还在」。
+func (s *memorySvc) markCreatorSessions(ctx context.Context, items []*MemoryItem) error {
+	seen := map[int64]bool{}
+	var agentIDs []int64
+	for _, it := range items {
+		if it.Creator.Kind == memory_entity.ActorAI && it.Creator.SessionID > 0 && !seen[it.Creator.AgentID] {
+			seen[it.Creator.AgentID] = true
+			agentIDs = append(agentIDs, it.Creator.AgentID)
+		}
+	}
+	if len(agentIDs) == 0 {
+		return nil
+	}
+	byAgent, err := chat_repo.Session().ListIDsByAgents(ctx, agentIDs)
+	if err != nil {
+		return err
+	}
+	alive := map[int64]bool{}
+	for _, ids := range byAgent {
+		for _, id := range ids {
+			alive[id] = true
+		}
+	}
+	for _, it := range items {
+		if it.Creator.Kind == memory_entity.ActorAI {
+			it.CreatorSessionExists = alive[it.Creator.SessionID]
+		}
+	}
+	return nil
 }
 
 // requireOwner 归属形状合法且（全局以外）对应的部门 / agent / 项目存在。

@@ -496,3 +496,60 @@ func TestMemorySvc_CountOwned(t *testing.T) {
 		})
 	})
 }
+
+// 记忆的来源会话被删之后，记忆页的来源链接必须不可点：存在性由本机会话表回答，
+// 且一次批量查询、软删的会话算不存在。
+func TestMemorySvc_CreatorSessionExists(t *testing.T) {
+	convey.Convey("来源会话是否还在本机", t, func() {
+		ctx, m, svc := setupMemorySvc(t)
+		aiMemory := func(id, agentID, sessionID int64) *memory_entity.Memory {
+			mem := memory_entity.NewMemory(agentOwner, "s", "", memory_entity.AIActor(agentID, sessionID), 100)
+			mem.ID = id
+			return mem
+		}
+
+		convey.Convey("列表只发一次会话查询：还在的为真，已删的为假，用户写的为假", func() {
+			rows := []*memory_entity.Memory{aiMemory(1, 5, 70), aiMemory(2, 5, 71), aiMemory(3, 6, 80), stored(4, agentOwner, "u")}
+			m.agent.EXPECT().Find(ctx, int64(5)).Return(&agent_entity.Agent{ID: 5}, nil)
+			m.memory.EXPECT().ListByOwner(ctx, agentOwner).Return(rows, nil)
+			m.session.EXPECT().ListIDsByAgents(ctx, gomock.InAnyOrder([]int64{5, 6})).
+				Return(map[int64][]int64{5: {70}}, nil).Times(1)
+
+			res, err := svc.ListByOwner(ctx, agentOwner)
+			convey.So(err, convey.ShouldBeNil)
+			got := map[int64]bool{}
+			for _, it := range res.Carried {
+				got[it.ID] = it.CreatorSessionExists
+			}
+			convey.So(got, convey.ShouldResemble, map[int64]bool{1: true, 2: false, 3: false, 4: false})
+		})
+
+		convey.Convey("没有 AI 来源时不查会话", func() {
+			m.memory.EXPECT().Search(ctx, "x").Return([]*memory_entity.Memory{stored(1, agentOwner, "x")}, nil)
+			got, err := svc.Search(ctx, "x")
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(got[0].CreatorSessionExists, convey.ShouldBeFalse)
+		})
+
+		convey.Convey("最近变更与单条读取同样带存在性", func() {
+			m.memory.EXPECT().ListChangedSince(ctx, gomock.Any()).Return([]*memory_entity.Memory{aiMemory(1, 5, 70)}, nil)
+			m.session.EXPECT().ListIDsByAgents(ctx, []int64{5}).Return(map[int64][]int64{5: {70}}, nil)
+			recent, err := svc.RecentChanges(ctx)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(recent[0].CreatorSessionExists, convey.ShouldBeTrue)
+
+			m.memory.EXPECT().Find(ctx, int64(2)).Return(aiMemory(2, 5, 71), nil)
+			m.session.EXPECT().ListIDsByAgents(ctx, []int64{5}).Return(map[int64][]int64{5: {70}}, nil)
+			one, err := svc.Get(ctx, 2)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(one.CreatorSessionExists, convey.ShouldBeFalse)
+		})
+
+		convey.Convey("会话查询失败时整个读取失败，不把未知当成存在", func() {
+			m.memory.EXPECT().Search(ctx, "x").Return([]*memory_entity.Memory{aiMemory(1, 5, 70)}, nil)
+			m.session.EXPECT().ListIDsByAgents(ctx, []int64{5}).Return(nil, errors.New("db closed"))
+			_, err := svc.Search(ctx, "x")
+			convey.So(err, convey.ShouldNotBeNil)
+		})
+	})
+}
