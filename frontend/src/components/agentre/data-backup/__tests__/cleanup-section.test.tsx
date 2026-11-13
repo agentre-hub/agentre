@@ -34,6 +34,7 @@ import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useProjectListStore } from "@/stores/project-list-store";
 
+import { createDesktopCleanupPorts, newCleanupMemory } from "../cleanup-ports";
 import { DataBackupPanel } from "../data-backup-panel";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -244,5 +245,44 @@ describe("DataBackupPanel 对话清理区块", () => {
     const [title, options] = sonnerMocks.toast.success.mock.calls[0];
     expect(title).toBe("Deleted 3 conversations");
     expect(options?.description).toBeUndefined();
+  });
+});
+
+describe("createDesktopCleanupPorts · 预览乱序返回", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    appMocks.ExecuteChatCleanup.mockResolvedValue(execResp());
+  });
+
+  it("先发的预览晚到：执行只回传最后一次预览给的子 agent 会话", async () => {
+    let resolveFirst!: (v: unknown) => void;
+    appMocks.PreviewChatCleanup.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveFirst = res;
+      }),
+    ).mockResolvedValueOnce(previewResp({ subagentSessionIds: [31] }));
+    const ports = createDesktopCleanupPorts({
+      memory: newCleanupMemory(),
+      t: ((k: string) => k) as never,
+      agents: [],
+      projects: [],
+      onDone: vi.fn(),
+    });
+
+    // 用户从「全部」切到「90 天前」：先发的「全部」预览在后发的之后才返回。
+    const stale = ports.preview({
+      before: "all",
+      agentId: "all",
+      projectId: "all",
+    });
+    await ports.preview({ before: "90d", agentId: "all", projectId: "all" });
+    resolveFirst(previewResp({ subagentSessionIds: [21, 22, 23, 24] }));
+    await stale;
+
+    await ports.execute(["11"]);
+    expect(appMocks.ExecuteChatCleanup).toHaveBeenCalledWith({
+      sessionIds: [11],
+      subagentSessionIds: [31],
+    });
   });
 });

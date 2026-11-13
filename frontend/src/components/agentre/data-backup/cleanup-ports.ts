@@ -46,10 +46,15 @@ export interface DesktopCleanupMemory {
   subagentIds: number[];
   /** 这一轮已删掉的会话 id（含重试累计）。 */
   deletedIds: number[];
+  /**
+   * 最近一次发出的预览编号。界面只采用最后发出的那次预览（条件切换时先发的晚到会被
+   * 丢弃），这里也只让它改写 subagentIds，否则执行会带上另一组条件的子 Agent 会话。
+   */
+  previewSeq: number;
 }
 
 export function newCleanupMemory(): DesktopCleanupMemory {
-  return { subagentIds: [], deletedIds: [] };
+  return { subagentIds: [], deletedIds: [], previewSeq: 0 };
 }
 
 export interface DesktopCleanupDeps {
@@ -73,13 +78,16 @@ export function createDesktopCleanupPorts(
     projects: deps.projects,
     async preview(filter): Promise<CleanupPreviewView> {
       const at = now();
+      const seq = ++mem.previewSeq;
       const resp = await PreviewChatCleanup({
         beforeMs: cutoffFor(filter.before, at),
         agentId: numericId(filter.agentId),
         projectId: numericId(filter.projectId),
       } as never);
-      mem.subagentIds = resp.subagentSessionIds ?? [];
-      mem.deletedIds = [];
+      if (seq === mem.previewSeq) {
+        mem.subagentIds = resp.subagentSessionIds ?? [];
+        mem.deletedIds = [];
+      }
       return {
         count: resp.count,
         retained: resp.retained,

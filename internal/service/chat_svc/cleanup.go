@@ -157,11 +157,13 @@ func (r *cleanupRun) addPending(machine string) {
 	p.Count++
 }
 
-func (r *cleanupRun) machineName(sess *chat_entity.Session) string {
+// machineName 是执行端在配对列表里的展示名。已从配对里移除的机器答 false：预览不单列
+// 它（决策 13），完成提示也就不列，更不拿指纹充当名字。
+func (r *cleanupRun) machineName(sess *chat_entity.Session) (string, bool) {
 	if v := r.env.devices[sess.ExecDeviceID]; v != nil {
-		return v.Name
+		return v.Name, true
 	}
-	return string(sess.ExecDeviceFingerprint)
+	return "", false
 }
 
 // propagateForCleanup 是 DeleteByUser 里 propagateDelete 那一步的批量版：同样的传播与待删除语义，
@@ -224,7 +226,9 @@ func (s *chatSvc) cleanupOne(ctx context.Context, run *cleanupRun, id int64, cou
 	}
 	out := s.propagateForCleanup(ctx, run, sess)
 	if countPending && out.carrierOffline {
-		run.addPending(run.machineName(sess))
+		if name, ok := run.machineName(sess); ok {
+			run.addPending(name)
+		}
 	}
 	return cleanupOutcome{deleted: true}
 }

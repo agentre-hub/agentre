@@ -321,5 +321,18 @@ func TestExecuteCleanup(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(resp.Pending, ShouldResemble, []CleanupPending{{Kind: CleanupCopyMachine, Machine: "build-box", Count: 1}})
 		})
+
+		Convey("执行端已从配对里移除、server 答它离线：照样删，但完成提示不列它（与预览一致，也不露指纹）", func() {
+			m := setupCleanupTest(t, true) // 配对列表里已经没有这台机器
+			m.srv.status = server_svc.MachineStatusPending
+			m.session.EXPECT().Find(gomock.Any(), int64(2)).Return(remoteIdle(2), nil)
+			m.expectLocalDelete(2)
+
+			resp, err := m.svc.ExecuteCleanup(m.ctx, &ExecuteCleanupRequest{SessionIDs: []int64{2}})
+
+			So(err, ShouldBeNil)
+			So(resp.Deleted, ShouldResemble, []int64{2})
+			So(resp.Pending, ShouldResemble, []CleanupPending{})
+		})
 	})
 }

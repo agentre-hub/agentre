@@ -85,14 +85,10 @@ function accumulate(
   for (const p of [...acc.pending, ...next.pending]) {
     pending.set(p.label, (pending.get(p.label) ?? 0) + p.count);
   }
-  const closedTabs = (acc.closedTabs ?? 0) + (next.closedTabs ?? 0);
   return {
     deleted: acc.deleted + next.deleted,
     failed: next.failed,
     pending: [...pending].map(([label, count]) => ({ label, count })),
-    ...(acc.closedTabs !== undefined || next.closedTabs !== undefined
-      ? { closedTabs }
-      : {}),
   };
 }
 

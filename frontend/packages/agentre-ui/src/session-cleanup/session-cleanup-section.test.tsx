@@ -344,7 +344,6 @@ describe("SessionCleanupSection · 执行", () => {
     const onDone = vi.fn();
     const result = exec({
       pending: [{ label: "old-laptop", count: 1 }],
-      closedTabs: 2,
     });
     const ports = makePorts({
       execute: vi.fn().mockResolvedValue(result),
@@ -378,7 +377,7 @@ describe("SessionCleanupSection · 执行", () => {
           pending: [{ label: "old-laptop", count: 1 }],
         }),
       )
-      .mockResolvedValueOnce(exec({ deleted: 2, closedTabs: 1 }));
+      .mockResolvedValueOnce(exec({ deleted: 2 }));
     render(<SessionCleanupSection ports={makePorts({ execute, onDone })} />);
     const dialog = await openConfirm();
 
@@ -401,7 +400,6 @@ describe("SessionCleanupSection · 执行", () => {
       deleted: 3,
       failed: [],
       pending: [{ label: "old-laptop", count: 1 }],
-      closedTabs: 1,
     });
   });
 

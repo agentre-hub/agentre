@@ -68,8 +68,6 @@ export interface CleanupExecuteView {
   failed: CleanupFailureView[];
   /** 离线、等它下次上线再删的。 */
   pending: CleanupPendingView[];
-  /** 桌面端：因此关闭的标签页数。 */
-  closedTabs?: number;
 }
 
 export interface SessionCleanupPorts {
