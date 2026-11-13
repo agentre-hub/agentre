@@ -273,7 +273,12 @@
     "updated": "修改",
     "deleted": "删除",
     "fileNew": "新文件",
-    "fileDeleted": "已删除"
+    "fileDeleted": "已删除",
+    "memoryCreated": "记住了",
+    "memoryUpdated": "改了记忆",
+    "memoryArchived": "归档了记忆",
+    "memoryExists": "已有这条记忆",
+    "memoryUndone": "已撤销"
   },
   "statusScope": {
     "thisSession": "本会话"

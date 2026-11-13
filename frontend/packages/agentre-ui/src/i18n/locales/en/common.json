@@ -273,7 +273,12 @@
     "updated": "Updated",
     "deleted": "Deleted",
     "fileNew": "New file",
-    "fileDeleted": "Deleted"
+    "fileDeleted": "Deleted",
+    "memoryCreated": "Remembered",
+    "memoryUpdated": "Updated a memory",
+    "memoryArchived": "Archived a memory",
+    "memoryExists": "Already remembered",
+    "memoryUndone": "Undone"
   },
   "statusScope": {
     "thisSession": "this session"

@@ -242,17 +242,10 @@
     "turnsBelow": "下面还有 {{count}} 轮"
   },
   "memoryWrite": {
-    "label": {
-      "created": "记住了",
-      "updated": "改了记忆",
-      "archived": "归档了记忆",
-      "exists": "已有这条记忆",
-      "undone": "已撤销"
-    },
     "layer": {
       "global": "全局",
-      "department": "部门 {{name}}",
-      "project": "项目 {{name}}"
+      "department": "部门",
+      "project": "项目"
     },
     "edit": "编辑",
     "undo": "撤销",

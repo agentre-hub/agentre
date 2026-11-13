@@ -161,6 +161,41 @@ const TABLE: ReadonlyArray<{
     zh: "已删除",
     en: "Deleted",
   },
+  {
+    state: "memoryCreated",
+    icon: "lucide-bookmark-plus",
+    tone: "text-status-running",
+    zh: "记住了",
+    en: "Remembered",
+  },
+  {
+    state: "memoryUpdated",
+    icon: "lucide-pencil",
+    tone: "text-primary-text",
+    zh: "改了记忆",
+    en: "Updated a memory",
+  },
+  {
+    state: "memoryArchived",
+    icon: "lucide-archive",
+    tone: "text-muted-foreground",
+    zh: "归档了记忆",
+    en: "Archived a memory",
+  },
+  {
+    state: "memoryExists",
+    icon: "lucide-bookmark-check",
+    tone: "text-muted-foreground",
+    zh: "已有这条记忆",
+    en: "Already remembered",
+  },
+  {
+    state: "memoryUndone",
+    icon: "lucide-undo2",
+    tone: "text-muted-foreground",
+    zh: "已撤销",
+    en: "Undone",
+  },
 ];
 
 function iconOf(mark: HTMLElement): SVGElement {

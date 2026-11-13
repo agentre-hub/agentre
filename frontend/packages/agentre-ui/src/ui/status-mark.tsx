@@ -1,4 +1,7 @@
 import {
+  Archive,
+  BookmarkCheck,
+  BookmarkPlus,
   Check,
   Circle,
   CircleHelp,
@@ -13,6 +16,7 @@ import {
   SkipForward,
   Trash2,
   TriangleAlert,
+  Undo2,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -47,6 +51,11 @@ const STATUS_MARKS = {
   deleted: { icon: Trash2, tone: "text-status-error" },
   fileNew: { icon: FilePlus, tone: "text-status-running" },
   fileDeleted: { icon: FileX, tone: "text-status-error" },
+  memoryCreated: { icon: BookmarkPlus, tone: "text-status-running" },
+  memoryUpdated: { icon: Pencil, tone: "text-primary-text" },
+  memoryArchived: { icon: Archive, tone: "text-muted-foreground" },
+  memoryExists: { icon: BookmarkCheck, tone: "text-muted-foreground" },
+  memoryUndone: { icon: Undo2, tone: "text-muted-foreground" },
 } satisfies Record<string, { icon: LucideIcon; tone: string }>;
 
 type StatusMarkState = keyof typeof STATUS_MARKS;

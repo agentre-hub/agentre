@@ -496,7 +496,9 @@ describe("Memory page · an owner", () => {
     );
     renderPage("/memory?owner=agent:2");
     const row = await screen.findByTestId("memory-row-1");
-    expect(row).toHaveTextContent("From session");
+    expect(
+      within(row).getByRole("img", { name: "From session" }),
+    ).toBeInTheDocument();
     await userEvent.click(
       within(row).getByRole("button", { name: "Eva's session" }),
     );

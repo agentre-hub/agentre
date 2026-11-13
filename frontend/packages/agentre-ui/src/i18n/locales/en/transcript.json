@@ -242,17 +242,10 @@
     "turnsBelow": "{{count}} turns below"
   },
   "memoryWrite": {
-    "label": {
-      "created": "Remembered",
-      "updated": "Updated a memory",
-      "archived": "Archived a memory",
-      "exists": "Already remembered",
-      "undone": "Undone"
-    },
     "layer": {
       "global": "Global",
-      "department": "Department {{name}}",
-      "project": "Project {{name}}"
+      "department": "Department",
+      "project": "Project"
     },
     "edit": "Edit",
     "undo": "Undo",
