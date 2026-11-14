@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronDown, GripVertical } from "lucide-react";
+import { ChevronDown, Crown, GripVertical } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
@@ -44,7 +44,7 @@ export type OrgGroupHeaderProps = {
    */
   actions?: React.ReactNode;
   /**
-   * 摘要档（手机）：Lead 徽标、`actions` 都不画，右侧收成「N 人 ›」，整个组头是一个
+   * 摘要档（手机）：负责人徽标、`actions` 都不画，右侧收成「N 人 ›」，整个组头是一个
    * ≥44px 的可点控件。不传 = 与此前一致。
    */
   summary?: boolean;
@@ -147,10 +147,16 @@ export function OrgGroupHeader({
         {/* 组头与行同字号，字距是把「部门名」和「Agent 名」拉开的最后一档。 */}
         <span className="truncate tracking-[0.045em]">{department.name}</span>
         {!summary && department.leadAgentName && (
-          <span className="inline-flex min-w-0 items-center gap-1 rounded-sm bg-secondary px-1.5 text-2xs font-normal text-muted-foreground">
-            <span className="truncate">
-              {t("org.index.lead", { name: department.leadAgentName })}
+          <span className="inline-flex min-w-0 items-center gap-1 text-2xs font-normal text-muted-foreground">
+            <span
+              role="img"
+              aria-label={t("org.index.leader")}
+              title={t("org.index.leader")}
+              className="inline-flex shrink-0 items-center"
+            >
+              <Crown className="size-3" aria-hidden="true" />
             </span>
+            <span className="truncate">{department.leadAgentName}</span>
           </span>
         )}
         <span className="ml-auto shrink-0 font-mono text-2xs font-normal text-muted-foreground">
