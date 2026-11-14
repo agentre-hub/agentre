@@ -670,6 +670,7 @@ export { OrgAgentRow } from "./org/org-agent-row";
 export { DepartmentMark } from "./org/department-mark";
 export type { DepartmentMarkProps } from "./org/department-mark";
 export { OrgGroupHeader } from "./org/org-group-header";
+export { LeaderMark } from "./org/leader-mark";
 export { OrgInsertLine } from "./org/org-insert-line";
 export { OrgPlacementField } from "./org/org-placement-field";
 export type { OrgPlacement } from "./org/org-placement-field";

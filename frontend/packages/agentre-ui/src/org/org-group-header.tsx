@@ -1,9 +1,10 @@
 import * as React from "react";
-import { ChevronDown, Crown, GripVertical } from "lucide-react";
+import { ChevronDown, GripVertical } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 import type { OrgDragHandleBinding, OrgDropState } from "./drag-binding";
+import { LeaderMark } from "./leader-mark";
 import { OrgIndentRails, orgHeaderPaddingLeft } from "./org-indent";
 import type { OrgIndexGroup } from "./org-index-model";
 import type { OrgSelection } from "./types";
@@ -148,14 +149,7 @@ export function OrgGroupHeader({
         <span className="truncate tracking-[0.045em]">{department.name}</span>
         {!summary && department.leadAgentName && (
           <span className="inline-flex min-w-0 items-center gap-1 text-2xs font-normal text-muted-foreground">
-            <span
-              role="img"
-              aria-label={t("org.index.leader")}
-              title={t("org.index.leader")}
-              className="inline-flex shrink-0 items-center"
-            >
-              <Crown className="size-3" aria-hidden="true" />
-            </span>
+            <LeaderMark />
             <span className="truncate">{department.leadAgentName}</span>
           </span>
         )}

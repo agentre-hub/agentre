@@ -52,9 +52,13 @@ function isMemoryWriteWords(words: string[]): boolean {
   );
 }
 
+// 变量、$(…)、反引号要执行才知道值：命令原文里的这句不是写进去的那句。
+const UNEXPANDED = /[$`]/;
+
 /**
- * 命令里第一条记忆写入的 --summary（结果行也是第一条写入的）；没有则 undefined。
- * 与 agrctl 读 flag 一致（ctlcmd/args.go parseArgs）：前面几个 "-" 都行，值跟在后面或 "=" 之后。
+ * 命令里第一条记忆写入的 --summary（结果行也是第一条写入的）；没有、或值要执行才知道时 undefined。
+ * 与 agrctl 读 flag 一致（ctlcmd/args.go parseArgs）：前面几个 "-" 都行，值跟在后面或 "=" 之后；
+ * 记忆的 flag 都带值，所以不带 "=" 的 flag 吃掉下一个词，别的 flag 的值里写着 --summary 不算。
  */
 function summaryOfFirstWrite(block: TranscriptBlock): string | undefined {
   const command = (block.toolInput as { command?: unknown } | undefined)
@@ -64,10 +68,13 @@ function summaryOfFirstWrite(block: TranscriptBlock): string | undefined {
   const words = commands?.find(isMemoryWriteWords);
   if (!words) return undefined;
   for (let i = 0; i < words.length; i++) {
-    if (!words[i].startsWith("-")) continue;
+    if (words[i].length < 2 || !words[i].startsWith("-")) continue;
     const flag = words[i].replace(/^-+/, "");
-    if (flag === "summary") return words[i + 1];
-    if (flag.startsWith("summary=")) return flag.slice("summary=".length);
+    const eq = flag.indexOf("=");
+    const name = eq < 0 ? flag : flag.slice(0, eq);
+    const value = eq < 0 ? words[++i] : flag.slice(eq + 1);
+    if (name !== "summary") continue;
+    return value === undefined || UNEXPANDED.test(value) ? undefined : value;
   }
   return undefined;
 }

@@ -256,6 +256,28 @@ describe("MemoryWriteCard", () => {
       expect(screen.getByRole("img", { name: "Undone" })).toBeDefined();
     });
 
+    it("Given the command's summary is a shell variable and the user undoes it, Then the struck summary is the one the entry had, not the variable", async () => {
+      const memory = memoryPort({
+        get: vi
+          .fn<MemoryTranscriptPorts["get"]>()
+          .mockResolvedValueOnce(entry({ summary: "Expanded text" }))
+          .mockResolvedValue(null),
+      });
+      renderCard(line, memory, {}, {
+        type: "tool_use",
+        toolName: "Bash",
+        toolInput: { command: 'agrctl create memory --summary "$S"' },
+      } as unknown as TranscriptBlock);
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Undo" }),
+      );
+      await screen.findByRole("img", { name: "Undone" });
+      expect((await screen.findByText("Expanded text")).className).toContain(
+        "line-through",
+      );
+      expect(screen.queryByText("$S")).toBeNull();
+    });
+
     it("Given the entry still exists, Then its current summary wins over the command's", async () => {
       renderCard(
         line,

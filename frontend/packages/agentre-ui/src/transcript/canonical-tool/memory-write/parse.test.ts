@@ -202,6 +202,34 @@ describe("parseMemoryWrite", () => {
       expect(parseMemoryWrite(use(command), line)?.summary).toBe(summary);
     });
 
+    // agrctl 的值 flag 吃掉下一个词（ctlcmd/args.go parseArgs），所以另一个 flag 的值里写着
+    // --summary 也不是摘要 flag。
+    it.each([
+      [
+        'agrctl create memory --detail "--summary=x is how you set it" --summary "real"',
+      ],
+      ["agrctl create memory --detail -summary --summary real"],
+    ])(
+      "Given %s, Then the summary is the --summary flag, not another flag's value",
+      (command) => {
+        expect(parseMemoryWrite(use(command), line)?.summary).toBe("real");
+      },
+    );
+
+    // 变量与 $(…) 要执行才知道值，命令原文不是写进去的那句。
+    it.each([
+      ['agrctl create memory --summary "$SUMMARY"'],
+      [`agrctl create memory --summary "$(cat <<'EOF'\nRun lint\nEOF\n)"`],
+      ['agrctl create memory --summary "`cat note`"'],
+    ])(
+      "Given %s, Then the write has no summary rather than the unexpanded text",
+      (command) => {
+        const write = parseMemoryWrite(use(command), line);
+        expect(write).not.toBeNull();
+        expect(write?.summary).toBeUndefined();
+      },
+    );
+
     it("Given a command without --summary, Then the write has no summary", () => {
       const write = parseMemoryWrite(
         use("agrctl update memory 7 --detail only-detail"),
