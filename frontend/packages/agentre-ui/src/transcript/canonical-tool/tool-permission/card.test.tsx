@@ -449,3 +449,70 @@ describe("ToolPermissionCard buttons and keyboard", () => {
     expect(answerToolPermission).not.toHaveBeenCalled();
   });
 });
+
+describe("ToolPermissionCard resolved outcome mark", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function resolvedBlock(allowed: boolean, alwaysAllow?: boolean) {
+    const block = permBlock("Bash", { command: "ls" }, "req-1", true);
+    Object.assign(block.canonical!.toolPermission!, { allowed, alwaysAllow });
+    return block;
+  }
+
+  it("Given an allowed-once permission, When rendered, Then an allowed mark shows with no text or session suffix", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={resolvedBlock(true)}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    // 被替换掉的字是「Allowed」，它原样成为 ✓ 的名字（不是审批卡的 Approved）。
+    const mark = screen.getByRole("img", { name: "Allowed" });
+    expect(mark.getAttribute("data-state")).toBe("granted");
+    expect(mark.querySelector(".lucide-check")).not.toBeNull();
+    expect(screen.queryByText("Allowed")).toBeNull();
+    expect(screen.queryByText("this session")).toBeNull();
+  });
+
+  it("Given a session-wide allow, When rendered, Then the allowed mark is followed by the this-session text", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={resolvedBlock(true, true)}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    expect(
+      screen.getByRole("img", { name: "Allowed" }).getAttribute("data-state"),
+    ).toBe("granted");
+    expect(screen.getByText("this session")).toBeDefined();
+    expect(screen.queryByText("Allowed (this session)")).toBeNull();
+  });
+
+  it("Given a denied permission, When rendered, Then a denied mark shows and no allowed mark", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={resolvedBlock(false)}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Denied" })).toBeDefined();
+    expect(screen.queryByRole("img", { name: "Allowed" })).toBeNull();
+    expect(screen.queryByText("Denied")).toBeNull();
+  });
+
+  it("Given a pending permission, When rendered, Then no outcome mark shows", () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={permBlock("Bash", { command: "ls" })}
+        sessionId={1}
+        messageId={1}
+      />,
+    );
+    expect(
+      screen.queryByRole("img", { name: /Approved|Allowed|Denied/ }),
+    ).toBeNull();
+  });
+});

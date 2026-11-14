@@ -267,7 +267,7 @@ describe("OrgGroupHeader（只吃 props）", () => {
       </>,
     );
 
-    expect(screen.getByText("Lead · Eva")).toBeInTheDocument();
+    expect(screen.getByText("Eva")).toBeInTheDocument();
     expect(screen.getByText("2 members")).toBeInTheDocument();
     // 空部门照常摆组头（决策 13）。
     expect(screen.getByTestId("org-group-2")).toHaveAttribute(

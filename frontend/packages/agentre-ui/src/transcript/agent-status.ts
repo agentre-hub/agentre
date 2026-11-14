@@ -12,8 +12,6 @@
 export type AgentStatus = "idle" | "running" | "waiting" | "error";
 
 export interface AgentStatusStyle {
-  /** 全大写的短标签；按约定不进 i18n（与 RUNNING/IDLE 这类状态码同类）。 */
-  label: string;
   dotClassName: string;
   textClassName: string;
   pillClassName: string;
@@ -21,25 +19,21 @@ export interface AgentStatusStyle {
 
 export const statusConfig: Record<AgentStatus, AgentStatusStyle> = {
   running: {
-    label: "RUNNING",
     dotClassName: "bg-status-running",
     textClassName: "text-status-running-text",
     pillClassName: "bg-status-running-bg text-status-running-text",
   },
   waiting: {
-    label: "WAITING",
     dotClassName: "bg-status-waiting",
     textClassName: "text-status-waiting-text",
     pillClassName: "bg-status-waiting-bg text-status-waiting-text",
   },
   idle: {
-    label: "IDLE",
     dotClassName: "bg-status-idle",
     textClassName: "text-muted-foreground",
     pillClassName: "bg-secondary text-muted-foreground",
   },
   error: {
-    label: "ERROR",
     dotClassName: "bg-status-error",
     textClassName: "text-destructive-text",
     pillClassName: "bg-destructive-soft text-destructive-text",

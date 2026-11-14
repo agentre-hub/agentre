@@ -113,13 +113,7 @@
   "localCommand": {
     "localChip": "Local command",
     "notSharedWithAI": "Not sent to AI",
-    "status": {
-      "running": "Running",
-      "done": "Done",
-      "failed": "Failed",
-      "stopped": "Stopped"
-    },
-    "exitCode": "Exit {{code}}",
+    "exitCode": "exit {{code}}",
     "stop": "Stop",
     "openInTerminal": "Open in terminal",
     "dismiss": "Dismiss command",
@@ -229,11 +223,6 @@
     "approve": "Approve",
     "deny": "Reject",
     "submitFailed": "Approval submission failed",
-    "status": {
-      "approved": "Approved",
-      "denied": "Rejected",
-      "expired": "Expired"
-    },
     "tools": {
       "org_create_department": "Create department",
       "org_update_department": "Update department",
@@ -246,11 +235,6 @@
   "ctlApproval": {
     "title": "Config change",
     "needsApproval": "Approval needed",
-    "op": {
-      "create": "Create",
-      "update": "Update",
-      "delete": "Delete"
-    },
     "kind": {
       "agent": "Agent",
       "department": "Department",

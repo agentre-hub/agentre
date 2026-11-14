@@ -121,7 +121,8 @@
     "untitledSession": "未命名会话"
   },
   "sessionsPopover": {
-    "untitled": "(未命名)"
+    "untitled": "(未命名)",
+    "waiting": "等你"
   },
   "shortcuts": {
     "chatTab": {

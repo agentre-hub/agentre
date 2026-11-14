@@ -1,7 +1,7 @@
 {
   "org": {
     "index": {
-      "lead": "Lead · {{name}}",
+      "leader": "Leader",
       "reportsToInline": "↳ {{name}}",
       "systemBadge": "System",
       "noExecTarget": "No target",

@@ -525,15 +525,47 @@ describe("SessionRow phone variant", () => {
     expect(screen.getByText("Reviewer · ~/code/app")).toBeTruthy();
   });
 
+  it("Given status waiting, When it renders, Then the badge reads Needs you", () => {
+    render(<SessionRow variant="phone" status="waiting" title="t" />);
+    expect(screen.getByText("Needs you")).toBeTruthy();
+    expect(document.querySelector('[data-slot="status-mark"]')).toBeNull();
+  });
+
   it.each([
-    ["waiting", "Needs you"],
     ["running", "Running"],
     ["error", "Error"],
   ] as const)(
-    "Given status %s, When it renders, Then the badge reads %s",
-    (status, text) => {
+    "Given status %s, When it renders, Then an icon named %s replaces the text pill",
+    (status, name) => {
       render(<SessionRow variant="phone" status={status} title="t" />);
-      expect(screen.getByText(text)).toBeTruthy();
+      const mark = screen.getByRole("img", { name });
+      expect(mark).toHaveAttribute("data-slot", "status-mark");
+      expect(mark).toHaveAttribute("data-state", status);
+      expect(screen.queryByText(name)).toBeNull();
+    },
+  );
+
+  it("Given a trailingMark on a phone row, When it renders, Then only one mark is drawn", () => {
+    render(
+      <SessionRow
+        variant="phone"
+        status="running"
+        title="t"
+        trailingMark="running"
+      />,
+    );
+    expect(document.querySelectorAll('[data-slot="status-mark"]')).toHaveLength(
+      1,
+    );
+  });
+
+  it.each(["running", "error"] as const)(
+    "Given a %s trailingMark on a desktop row, When it renders, Then the tail is the mark, not text",
+    (state) => {
+      render(<SessionRow status={state} title="t" trailingMark={state} />);
+      const mark = document.querySelector('[data-slot="status-mark"]');
+      expect(mark).toHaveAttribute("data-state", state);
+      expect(screen.queryByText(state)).toBeNull();
     },
   );
 

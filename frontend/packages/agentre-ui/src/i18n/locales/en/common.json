@@ -250,5 +250,41 @@
       "mobile": "Mobile",
       "leadership": "Leadership"
     }
+  },
+  "statusName": {
+    "running": "Running",
+    "waiting": "Needs you",
+    "idle": "Idle",
+    "error": "Error",
+    "partial": "Partial",
+    "pending": "Waiting",
+    "done": "Done",
+    "failed": "Failed",
+    "stopped": "Stopped",
+    "cancelled": "Cancelled",
+    "unknown": "Result unknown",
+    "skipped": "Skipped",
+    "expired": "Expired",
+    "invalidated": "No longer valid",
+    "queued": "Queued",
+    "answered": "Answered",
+    "approved": "Approved",
+    "allowed": "Allowed",
+    "granted": "Allowed",
+    "current": "Current mode",
+    "denied": "Denied",
+    "created": "Created",
+    "updated": "Updated",
+    "deleted": "Deleted",
+    "fileNew": "New file",
+    "fileDeleted": "Deleted",
+    "memoryCreated": "Remembered",
+    "memoryUpdated": "Updated a memory",
+    "memoryArchived": "Archived a memory",
+    "memoryExists": "Already remembered",
+    "memoryUndone": "Undone"
+  },
+  "statusScope": {
+    "thisSession": "this session"
   }
 }

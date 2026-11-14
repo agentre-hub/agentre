@@ -2,16 +2,15 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 import {
   SessionGroupOverflow,
+  StatusMark,
   isOpenInNewTabModifier,
 } from "@agentre-hub/agentre-ui";
 
 import { useEffectiveSessionStatus } from "@/hooks/use-live-session-status";
 import { formatCompactRelativeTime as relativeTime } from "@agentre-hub/agentre-ui";
-import { cn } from "@agentre-hub/agentre-ui";
 
 import { AgentAvatar, StatusDot } from "./primitives";
 import type { AgentColor, AgentStatus } from "./types";
-import { statusConfig } from "./types";
 
 const PAGE_SIZE = 20;
 
@@ -75,7 +74,6 @@ function SessionRow({
     needsAttention: false,
   });
   const status = statusOf({ ...session, status: effective.agentStatus });
-  const config = statusConfig[status];
   return (
     <button
       type="button"
@@ -93,16 +91,13 @@ function SessionRow({
           {relativeTime(session.lastMessageAt)}
         </div>
       </div>
-      <span
-        className={cn(
-          "shrink-0 self-start pt-0.5 font-mono text-2xs",
-          status === "running" || status === "error"
-            ? config.textClassName
-            : "text-muted-foreground",
-        )}
-      >
-        {config.label}
-      </span>
+      {status === "running" || status === "error" ? (
+        <StatusMark state={status} className="mt-0.5 self-start" />
+      ) : status === "waiting" ? (
+        <span className="shrink-0 self-start pt-0.5 font-mono text-2xs text-muted-foreground">
+          {t("sessionsPopover.waiting")}
+        </span>
+      ) : null}
     </button>
   );
 }

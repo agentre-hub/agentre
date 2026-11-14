@@ -55,11 +55,13 @@ describe("indexRowFromMeta", () => {
     expect(row({ reason: "bg_running" }).trailingLabel).toBe("Background");
   });
 
-  it("Given running or error, When the trailing label is built, Then it is the bare status code (not i18n, same convention as RUNNING/IDLE)", () => {
-    expect(row({ agentStatus: "running" }).trailingLabel).toBe("running");
-    expect(row({ agentStatus: "error", reason: "error" }).trailingLabel).toBe(
-      "error",
-    );
+  it("Given running or error, When the row is projected, Then the tail is a status mark and no English literal label is produced", () => {
+    const running = row({ agentStatus: "running" });
+    expect(running.trailingMark).toBe("running");
+    expect(running.trailingLabel).toBeUndefined();
+    const failed = row({ agentStatus: "error", reason: "error" });
+    expect(failed.trailingMark).toBe("error");
+    expect(failed.trailingLabel).toBeUndefined();
   });
 
   it("Given a waiting row, When the trailing label is built, Then it says why", () => {

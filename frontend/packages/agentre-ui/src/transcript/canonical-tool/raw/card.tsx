@@ -1,11 +1,9 @@
 import * as React from "react";
 import {
-  Check,
   ChevronRight,
   Copy,
   LoaderCircle,
   Terminal,
-  TriangleAlert,
   Wrench,
 } from "lucide-react";
 import type { TranscriptBlock } from "../../dto";
@@ -27,6 +25,7 @@ import { summarizeRawTool } from "./summary";
 import { useCollapsible } from "../../../hooks/use-collapsible";
 import { useTranscriptBooleanState } from "../../transcript-ui-state";
 import { useUiTranslation } from "../../../i18n";
+import { StatusMark } from "../../../ui/status-mark";
 
 import {
   commandResultOf,
@@ -89,24 +88,15 @@ export const RawToolCard: React.FC<CanonicalCardProps> = ({
       : "waiting";
   const pillConfig = statusConfig[status];
 
-  const statusLabel =
-    typeof commandResult?.exitCode === "number"
-      ? `EXIT ${commandResult.exitCode}`
-      : isError
-        ? t("canonical.status.error")
-        : hasResult
-          ? t("canonical.status.done")
-          : t("canonical.status.running");
-  const StatusIcon = isError ? TriangleAlert : hasResult ? Check : LoaderCircle;
+  // 成功不挂标记；失败有退出码时红三角后跟 exit N。
+  const exitLabel =
+    isError && typeof commandResult?.exitCode === "number"
+      ? t("activity.row.exit", { code: commandResult.exitCode })
+      : null;
 
   const perm = (toolBlock as TranscriptBlock).toolPermission;
   const showOverlay = perm && !perm.resolved;
-  const allowedBadge =
-    perm?.resolved && perm.allowed
-      ? perm.alwaysAllow
-        ? t("canonical.raw.allowedSession")
-        : t("canonical.raw.allowed")
-      : null;
+  const allowedBadge = perm?.resolved && perm.allowed;
 
   const params = React.useMemo(() => toolInputEntries(input), [input]);
   const resultMeta = commandResult
@@ -175,21 +165,22 @@ export const RawToolCard: React.FC<CanonicalCardProps> = ({
           </TranscriptPill>
         )}
         {allowedBadge && (
-          <TranscriptPill tone="done" title={t("canonical.raw.approvedTitle")}>
-            <Check className="size-2.5" aria-hidden="true" />
-            {allowedBadge}
-          </TranscriptPill>
+          // 徽标就是盾牌图标本身；本会话始终允许时后跟灰字「本会话」。
+          <span
+            title={t("canonical.raw.approvedTitle")}
+            className="inline-flex shrink-0 items-center gap-1 text-meta text-muted-foreground"
+          >
+            <StatusMark state="allowed" />
+            {perm?.alwaysAllow && <span>{t("statusScope.thisSession")}</span>}
+          </span>
         )}
-        <TranscriptPill className={pillConfig.pillClassName}>
-          <StatusIcon
-            className={cn(
-              "size-2.5",
-              !hasResult && !isError ? "animate-spin" : "",
-            )}
-            aria-hidden="true"
-          />
-          {statusLabel}
-        </TranscriptPill>
+        {!hasResult && !isError && <StatusMark state="running" />}
+        {isError && (
+          <span className="inline-flex shrink-0 items-center gap-1 text-meta text-destructive-text">
+            <StatusMark state="failed" />
+            {exitLabel}
+          </span>
+        )}
       </TranscriptCardHeader>
       <div
         aria-hidden={!expanded}

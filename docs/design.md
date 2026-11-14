@@ -46,7 +46,7 @@ Every UI change must satisfy all of these. They are the bar for "consistent, fri
 
 The "why" behind the constraints — apply these when shaping a screen.
 
-1. **Agent identity is visual.** Agentre coordinates many concurrent coding agents, so an agent must be recognizable at a glance. Identity is carried by **a 16-color agent palette** (`--agent-1…16`, §3.6) seeded from the agent's color token, and run state by **four status tokens** (`running` / `waiting` / `idle` / `error`, §3.5) rendered as dots and pills. Reuse `AgentAvatar` / `StatusDot` / `StatusPill` — don't re-derive agent color or re-style status.
+1. **Agent identity is visual.** Agentre coordinates many concurrent coding agents, so an agent must be recognizable at a glance. Identity is carried by **a 16-color agent palette** (`--agent-1…16`, §3.6) seeded from the agent's color token, and run state by **four status tokens** (`running` / `waiting` / `idle` / `error`, §3.5) rendered as status dots and status icons; only a state that needs the user to act is a worded pill. Reuse `AgentAvatar` / `StatusDot` / `StatusMark` / `StatusPill` — don't re-derive agent color or re-style status.
 2. **System state is always visible.** No silent work. Each async flow shows loading → progress → result (toast or in-place state, §9). A turn that finishes, errors, or needs approval also raises an app notification (§6.5).
 3. **Color is semantic, never decorative.** The steel-blue `primary` = interactive / brand; `status-running` green = running / success; `status-waiting` amber = needs attention; `status-error` / `destructive` red = error / dangerous. The agent hues are **identity**, not status — never read meaning into *which* agent color a session has.
 4. **One desktop frame.** Every screen lives in the same shell — custom title bar, a `w-14` icon rail, an optional resizable sidebar, the chat tab strip and a status bar, all on `chrome`, around one content sheet (§7). Swap the content in the `Outlet`/panel, not the frame.
@@ -159,9 +159,9 @@ The heart of agentre's state language. Four states, each with a solid color (dot
 | `status-running-text` | `#0c7053` | `#34d399` | The saturated fill is unreadable **as text** in light: `#109066` on its own pill is 3.83. Dark already cleared the bar, so it reuses the fill value |
 | `status-waiting-text` | `#aa5413` | `#fbbf24` | Same story: `#b07513` on its own pill is 3.72 |
 
-The `-text` split is guarded by [`packages/agentre-ui/src/tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) (≥4.5 on both the pill and `card`, both themes), and the pairs `statusConfig` actually picks by [`transcript/agent-status.test.ts`](../frontend/packages/agentre-ui/src/transcript/agent-status.test.ts). Render status only through `StatusDot` / `StatusPill` (§6.4) so the dot/pill/label stay in lockstep; labels are uppercase (`RUNNING`).
+The `-text` split is guarded by [`packages/agentre-ui/src/tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) (≥4.5 on both the pill and `card`, both themes), and the pairs `statusConfig` actually picks by [`transcript/agent-status.test.ts`](../frontend/packages/agentre-ui/src/transcript/agent-status.test.ts). Render status only through `StatusDot` / `StatusMark` / `StatusPill` (§6.4) so the dot, icon, pill and name stay in lockstep. No English status word (`RUNNING`, `DONE`, `FAILED`) is ever shown: a state is an icon, or — when the user has to act — localized copy.
 
-**Which role a call site uses.** Anything a user reads — a label, a count, a message, a letter mark — takes the `-text` role: `text-status-running-text`, `text-status-waiting-text`, and `text-destructive-text` for `error`. The saturated `status-*` values stay on dots, bars, borders and stand-alone icons (`bg-status-running`, `<Check className="text-status-running" />`). The one case that needs no judgement is enforced by lint: a class string that pairs a soft fill with the same family's saturated color as text (`bg-status-running-bg text-status-running`, `bg-destructive/10 text-destructive`, `bg-primary-soft text-primary`) is rejected — see the [enforced-rules table](./develop.md#enforced-rules-mechanically-checked).
+**Which role a call site uses.** Anything a user reads — a label, a count, a message, a letter mark — takes the `-text` role: `text-status-running-text`, `text-status-waiting-text`, and `text-destructive-text` for `error`. The saturated `status-*` values stay on dots, bars, borders and stand-alone icons (`bg-status-running`, `<Check className="text-status-running" />`) — which is why `StatusMark` colours its icons with `status-*`, not `-text`. The one case that needs no judgement is enforced by lint: a class string that pairs a soft fill with the same family's saturated color as text (`bg-status-running-bg text-status-running`, `bg-destructive/10 text-destructive`, `bg-primary-soft text-primary`) is rejected — see the [enforced-rules table](./develop.md#enforced-rules-mechanically-checked).
 
 ### 3.6 Agent palette (16 identity colors)
 
@@ -410,6 +410,7 @@ The palette is pruned to what's actually imported. **Present** in [`packages/age
 | `skeleton.tsx` / `spinner.tsx` | Placeholder block while content loads / inline loading spinner |
 | `separator.tsx` | `Separator` |
 | `agent-avatar.tsx` / `status-dot.tsx` | `AgentAvatar` / `StatusDot` — re-exported to the desktop through `components/agentre/primitives.tsx` (§6.4) |
+| `status-mark.tsx` | `StatusMark` — icon-only status mark, imported from `@agentre-hub/agentre-ui` (§6.4) |
 | `resizable-sidebar.tsx` | Drag-resized, persisted sidebar shell (§7) |
 
 **Absent** (commonly expected, but *not* in the codebase — don't import or assume them): `card`, `tabs` (use `SegmentedControl`; no underline tabs), `sheet`, `progress`, `accordion`, `collapsible`, `sonner` (the `Toaster` is imported straight from `sonner`), `command` (there's a custom command palette), `form` (no form library — see §9).
@@ -448,10 +449,35 @@ Project blocks in [`components/agentre/primitives.tsx`](../frontend/src/componen
 | Component | Use |
 | --- | --- |
 | `AgentAvatar` | Agent identity avatar. Sizes `xs`/`sm`/`md`/`lg` (`size-3.5`/`6`/`8`/`10`); `xs` is the sub-20px tier and draws a single initial. Renders, in priority: a custom image (`avatarDataUrl`), a built-in preset image (`avatarIcon` / `iconKey` starting `preset:`), a registry icon (`avatarIcon` / `iconKey`), else initials — images fill the tile with no colour fill; initials and icons sit on the `agentColorClassNames[color]` fill with white text. Defaults: `color="agent-1"`, `size="md"`. |
-| `StatusDot` | Colored run-state dot. Sizes `xs`/`sm`/`md` (`size-1.5`/`2`/`2.5`); `aria-label` = `"<status> status"`. |
-| `StatusPill` | Dot + uppercase label pill — `font-mono text-2xs`, `rounded-sm`, on the status' tinted bg. The canonical "agent is RUNNING/WAITING/…" chip. |
+| `StatusDot` | Colored run-state dot. Sizes `xs`/`sm`/`md` (`size-1.5`/`2`/`2.5`); `aria-label` = the state's name in the UI language (`运行中` / `Running`). |
+| `StatusMark` | Icon-only status mark from the shared package — `<StatusMark state="running" />`. One state, one icon (table below), coloured by §3.5's icon role, `size-3.5` unless `className` resizes it. It carries its own accessible name and a hover tip with the same text, both in the UI language. Use it wherever a status used to be a word — a row's trailing state, a card header's result, a step's outcome. |
+| `StatusPill` | Dot + label pill — `font-mono text-2xs`, `rounded-sm`, on the status' tinted bg. **Only for a state the user has to act on** (等你 / 待审批); its label is localized copy, never an English status word. Every other state is a `StatusMark`. |
 | `SidebarButton` | Icon rail button — `ghost`/`icon`, `size-10 rounded-lg`, `sidebar-icon` color; active = `bg-raised text-sidebar-icon-active shadow-xs`; ships its own hover/focus tooltip (300ms hover delay) and `aria-current`. Optional `badge` draws a 7px corner dot, `bg-primary` by default; `badgeTone="waiting"` makes it `bg-status-waiting` for "someone is waiting on you" (the Chat rail button while approvals are pending off `/chat`). The dot is `aria-hidden`, so put the fact in `label`. |
 | `DeviceTag` | Local/remote device chip (online/offline). |
+
+**Status → icon.** The only mapping; `StatusMark` implements it (lucide icons, `size-3.5`):
+
+| State | Icon | Colour | Notes |
+| --- | --- | --- | --- |
+| Running / waiting to start | `loader-circle` | `status-running` | Spins; still under reduced motion (§8). A sub-agent run that is waiting to start keeps its own name (等待中) |
+| Succeeded | none / `check` | `status-running` | No mark by default — a missing mark means success. `check` only where a list of outcomes has to tell them apart (task progress, a sub-agent's runs) |
+| Failed / error / partial | `triangle-alert` | `status-error` | An exit code stays visible after it (`exit N`); a partly completed sub-agent keeps its own name (部分完成) |
+| Stopped / cancelled | `circle-slash` | `muted-foreground` | |
+| Result unknown | `circle-help` | `muted-foreground` | |
+| Skipped | `skip-forward` | `muted-foreground` | |
+| Expired / no longer valid | `hourglass` | `muted-foreground` | |
+| Queued | `circle` | `muted-foreground` | |
+| Approved / allowed | `check` / `shield-check` | `status-running` | `check` for a decided approval (已批准 / 已允许), `shield-check` for the allowed badge on a tool card header. A grant that only lasts this session adds a grey 本会话 / this session suffix |
+| Current (a menu's selected item) | `check` | `primary-text` | The permission-mode menu's current mode |
+| Denied | `x` | `status-error` | |
+| Answered | `check` | `status-running` | A question the user has answered |
+| Created / updated / deleted | `plus` / `pencil` / `trash-2` | `status-running` / `primary-text` / `status-error` | Files use `file-plus` / `file-x` |
+| Memory remembered / updated / archived / already there / undone | `bookmark-plus` / `pencil` / `archive` / `bookmark-check` / `undo-2` | `status-running` / `primary-text` / `muted-foreground` ×3 | A memory write's outcome on its transcript card |
+| Needs the user | `StatusPill` with words (等你 / 待审批) | `status-waiting` | Stays text — an icon alone is not clear enough |
+
+Reasons, background-run notices and counts (未读, 后台, 后台运行 · task id, `+N / −N`) stay text: they say *why* or *how much*, not *which state*.
+
+**An icon-only status must stand on its own.** It has an accessible name and a hover tip (`StatusMark` gives both), and its *shape* distinguishes it from its neighbours — two states never differ by colour alone. The visible word it replaced becomes its accessible name, so a row or card header whose name is computed from its contents reads the same as before.
 
 > Other high-reuse blocks worth knowing before building. In the shared package: `code-block` (highlighted code + copy), `markdown-text` (agent markdown renderer) and `thinking-block` under `transcript/`, `resizable-sidebar` (drag-resized, persisted sidebar shell, §7) under `ui/`, `identity-mark-picker` (upload / preset / icon identity picker) under `identity/`. In [`components/agentre/`](../frontend/src/components/agentre/): `compact-history-fold` (collapsible transcript region). Search both before hand-rolling.
 
@@ -544,7 +570,7 @@ Ties break by DOM/portal order, not a bespoke number. A new "always on top" need
 - **Hover/focus via CSS pseudo-classes, not React state** — a Constraint 1 rule.
 - **Enter/leave via Radix `data-state`** — `data-[state=open]:animate-in … data-[state=closed]:animate-out` with `fade-*`/`zoom-in-95` + `zoom-out-95`/`slide-*` (see `dialog.tsx`, `dropdown-menu.tsx`, `hover-card.tsx`). Don't hand-roll show/hide with `setTimeout`.
 - **Prefer `transition-colors`/`transition-transform` over `transition-all`** — animate only what should move. Common: chevron rotation `transition-transform duration-150`, collapse via `transition-[grid-template-rows] duration-150`.
-- **Spinners:** `animate-spin` on a `lucide` spinner (`Loader2` / `RefreshCw` / `LoaderCircle`), sized to context (`size-3.5`/`size-4` inline), usually tinted to the active status.
+- **Spinners:** `animate-spin` on a `lucide` spinner (`Loader2` / `RefreshCw` / `LoaderCircle`), sized to context (`size-3.5`/`size-4` inline), usually tinted to the active status. A *run state* spinner is `StatusMark state="running"` (§6.4), which already stops under reduced motion — don't hand-roll one.
 - **Honor reduced motion explicitly.** Agentre does **not** rely on a global `prefers-reduced-motion` reset — instead each animation carries a `motion-reduce:animate-none` / `motion-reduce:transition-none` (or `motion-safe:`) modifier. **Always add one** when you introduce motion; it's how this codebase stays reduced-motion-safe. A Radix enter/leave cannot be calmed with `motion-reduce:animate-none`: `data-[state=open]:animate-in` compiles to a class plus an attribute selector, outranks the single-class reduced-motion rule and keeps playing. Put `motion-safe:` in front of every `data-[state=…]:animate-*` / `fade-*` utility instead (see `SettingsDialog` in [`settings/page.tsx`](../frontend/src/components/agentre/settings/page.tsx)); an unconditional `animate-*` such as `animate-pulse` is still fine with `motion-reduce:animate-none`.
 
 ### Available animations
@@ -596,7 +622,7 @@ Forms are plain `useState` + controlled shadcn components — **no react-hook-fo
 - **Through i18n always** (`t(...)`, zh-CN + en) — Constraint, see [`frontend.md`](./frontend.md). Don't hardcode Chinese.
 - **Buttons are verbs** naming the action ("Create", "Save", "Delete"), with an in-flight progress label ("Saving…").
 - **Errors are specific and actionable:** what failed + why + next step, not "Something went wrong." Put raw detail in a mono region, not the headline.
-- **Sentence case** for buttons/titles/labels; product names keep their casing. Status labels are the exception — uppercase (`RUNNING`).
+- **Sentence case** for buttons/titles/labels; product names keep their casing. Status labels follow it too — a state is a `StatusMark` icon or localized copy, never an uppercase English word (§6.4).
 
 ### Interactive states
 
@@ -621,7 +647,7 @@ Friendly UX includes keyboard, screen-reader, low-vision, and motion-sensitive u
 - **Target WCAG AA:** ≥ 4.5:1 for normal text, ≥ 3:1 for large text and meaningful UI/icon edges. `foreground`, the status `*-fg` pairs, and brand `primary-text` pass comfortably. Fields carry no edge: they are recognised by their fill, label, placeholder and position, and muted text or a placeholder on any fill — hovered, or a field on `chrome` — reads at ≥4.5 through `fill-muted-foreground` (§3.1).
 - **`muted-foreground` is the floor for readable text** — secondary/descriptive copy lives there; use `foreground` for anything dense or critical. `decorative-foreground` is fainter still and is **not** a text color: it is for glyphs that carry no information (§3.1). Both are guarded per-surface, so "it looks fine on a card" is no longer the test.
 - **Terminal output is colored by the program, not by us.** The xterm palettes in [`terminal-theme.ts`](../frontend/packages/agentre-ui/src/terminal/terminal-theme.ts) cannot guarantee what a program does with them — the light theme's bright colors sit at 1.65–2.27 on the terminal background, and programs also emit 256-color and truecolor. Both xterm instances (the interactive panel and the read-only command card) therefore run with `minimumContrastRatio` set to `TERMINAL_MIN_CONTRAST_RATIO` (4.5): xterm leaves a passing foreground alone and pushes a failing one toward black/white until it passes.
-- **Never encode meaning in color alone.** The agent palette is *identity*, not status — always pair an agent color with its name/initials, and every status color with its label/icon (`StatusPill` does both).
+- **Never encode meaning in color alone.** The agent palette is *identity*, not status — always pair an agent color with its name/initials, and every status color with its label or a distinct icon shape (`StatusPill` and `StatusMark` do both).
 
 ### Focus visibility
 
@@ -643,6 +669,7 @@ The inward ring gives up that gap, so it is only for the flush-clipped case, and
 
 - **Everything actionable is reachable and operable by keyboard** — prefer native `<button>`/`<a>`/`<input>`; the Radix primitives (Dialog, DropdownMenu, Popover, Select…) already ship focus trap, arrow-key nav, Esc, and return-focus — a reason to reuse them over hand-rolled overlays (§6).
 - **Icon-only controls need an accessible name:** `aria-label` on every icon `Button` (`SidebarButton` already does this).
+- **Icon-only statuses need a name and a tip:** render them through `StatusMark`, which sets both in the UI language (§6.4). Don't put an `aria-hidden` status icon where the word used to be.
 - **Announce async state:** loading/error/progress regions carry `role="status"` + `aria-label` (the `TypingIndicator` already uses `role="status"` + `aria-live="polite"`) so non-visual users get the same "no silent operations" guarantee (§9).
 - **Decorative icons** (next to a text label, or a purely visual avatar) are `aria-hidden` so they aren't double-announced.
 
@@ -666,7 +693,7 @@ When building a new page or dialog, run this checklist to stay consistent:
 
 - [ ] **Shell:** render inside the existing `AppLayout` frame — a routed `Outlet` page (title bar / rail / status bar are given) whose `<main>` is a `content-sheet`. Add a `ResizableSidebar` (on `chrome`) only if the page needs a list/detail split (§7). Settings content goes into the settings dialog, not a new route.
 - [ ] **Color** entirely from tokens (`bg-sheet` / `text-foreground` / `bg-field-fill` / `text-primary` / `bg-primary` …), no literals, verified on both themes (Constraints 1–2, §3–4).
-- [ ] **Agent/status surfaces** reuse `AgentAvatar` / `StatusDot` / `StatusPill` and the `agentColorClassNames` / `tokenToCssColor` helpers — never re-derive agent color or re-style status (Principle 1, §3.5–3.6, §6.4).
+- [ ] **Agent/status surfaces** reuse `AgentAvatar` / `StatusDot` / `StatusMark` / `StatusPill` and the `agentColorClassNames` / `tokenToCssColor` helpers — never re-derive agent color or re-style status (Principle 1, §3.5–3.6, §6.4).
 - [ ] **Components** reuse first — search [`components/agentre/`](../frontend/src/components/agentre/) and [`packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/) before building; remember there's **no `card`/`tabs`/`sheet`/`progress`** primitive — compose the inline card, use `SegmentedControl` for tab-like switching, and the §9 state patterns; variants via CVA, classes via `cn()`, icons via `lucide-react` (§6).
 - [ ] **No structural lines** (§3.4): the header and footer are separated from the body by spacing, not `border-b` / `border-t`; cards are inline `rounded-lg bg-field-fill p-4`; fields and outline buttons are fills. Lint rejects divider colors, `divide-*` and field / button edges.
 - [ ] **State:** loading / empty / error / success all covered, never silent (§9); extract a shared state block if it repeats.

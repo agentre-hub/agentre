@@ -1,5 +1,5 @@
 import * as React from "react";
-import { MoreHorizontal, Star } from "lucide-react";
+import { MessageSquare, MoreHorizontal, Star, Text, User } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
@@ -18,6 +18,7 @@ import {
 
 import { formatMemoryDate } from "./format";
 import { MemoryEditForm } from "./memory-edit-form";
+import { MetaIcon } from "./meta-icon";
 import type {
   MemoryEntryView,
   MemoryRowAction,
@@ -146,10 +147,10 @@ function MemoryRowMeta({
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-2xs text-muted-foreground">
       {entry.creator.kind === "user" ? (
-        <span>{t("memory.row.writtenByYou")}</span>
+        <MetaIcon icon={User} name={t("memory.row.writtenByYou")} />
       ) : (
         <span className="flex min-w-0 items-center gap-1">
-          <span>{t("memory.row.fromSession")}</span>
+          <MetaIcon icon={MessageSquare} name={t("memory.row.fromSession")} />
           {entry.creator.onOpen ? (
             <button
               type="button"
@@ -172,9 +173,7 @@ function MemoryRowMeta({
         </>
       ) : null}
       {showDetailChip && entry.detail.trim() !== "" ? (
-        <span className="rounded-sm bg-button-fill px-1.5 py-px text-2xs">
-          {t("memory.row.hasDetail")}
-        </span>
+        <MetaIcon icon={Text} name={t("memory.row.hasDetail")} />
       ) : null}
     </div>
   );

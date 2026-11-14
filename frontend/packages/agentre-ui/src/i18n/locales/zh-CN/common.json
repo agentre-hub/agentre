@@ -250,5 +250,41 @@
       "mobile": "移动端",
       "leadership": "管理"
     }
+  },
+  "statusName": {
+    "running": "运行中",
+    "waiting": "等你",
+    "idle": "空闲",
+    "error": "出错",
+    "partial": "部分完成",
+    "pending": "等待中",
+    "done": "已完成",
+    "failed": "失败",
+    "stopped": "已停止",
+    "cancelled": "已取消",
+    "unknown": "结果未知",
+    "skipped": "已跳过",
+    "expired": "已过期",
+    "invalidated": "已失效",
+    "queued": "排队中",
+    "answered": "已回答",
+    "approved": "已批准",
+    "allowed": "已允许",
+    "granted": "已允许",
+    "current": "当前模式",
+    "denied": "已拒绝",
+    "created": "新建",
+    "updated": "修改",
+    "deleted": "删除",
+    "fileNew": "新文件",
+    "fileDeleted": "已删除",
+    "memoryCreated": "记住了",
+    "memoryUpdated": "改了记忆",
+    "memoryArchived": "归档了记忆",
+    "memoryExists": "已有这条记忆",
+    "memoryUndone": "已撤销"
+  },
+  "statusScope": {
+    "thisSession": "本会话"
   }
 }

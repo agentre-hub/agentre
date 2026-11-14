@@ -27,8 +27,6 @@
       "stopTurn": "停止这一轮"
     },
     "status": {
-      "error": "出错",
-      "running": "运行中",
       "waiting": "等你"
     }
   },

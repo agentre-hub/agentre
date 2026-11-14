@@ -155,8 +155,6 @@ const DYNAMIC_KEY_PREFIXES = [
   "issues.exec.kinds.",
   // lib/turn-notify.ts: t(`notify.body.${kind}`)
   "notify.body.",
-  // task-progress/task-progress-bar.tsx: t(`taskProgress.status.${task.status}`)
-  "taskProgress.status.",
 ];
 
 /**

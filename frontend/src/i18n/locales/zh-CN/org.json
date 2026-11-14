@@ -179,7 +179,6 @@
       },
       "departmentMemberCount": "{{count}} 名成员",
       "leadHint": "从直属 Agent 中选",
-      "leadBadge": "LEAD",
       "leader": "负责人",
       "memberSummary": "{{agents}} 直属 Agent · {{departments}} 子部门",
       "members": "成员",

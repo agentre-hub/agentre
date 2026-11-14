@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import i18n from "i18next";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
 import type { TranscriptBlock } from "../../dto";
 import { agentreUiResources } from "../../../i18n";
@@ -227,7 +228,7 @@ describe("AgentSpawnCard", () => {
     expect(screen.queryByTestId("agent-spawn-model-badge")).toBeNull();
   });
 
-  it("shows STOPPED label when cancelled, not RUNNING/spin", () => {
+  it("shows the stopped mark when cancelled, not the running spinner", () => {
     // 用户在 turn 内点 Stop 时,chat_svc 把仍 running 的 SubagentStateBlock 改成
     // "canceled" 落 DB。前端必须识别这个值否则 narrowSpawnStatus 会 drop 掉它,
     // 回退到 base.status="running",卡片继续 spin → bug。
@@ -248,8 +249,8 @@ describe("AgentSpawnCard", () => {
       },
     } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
-    expect(screen.getByText(/STOPPED/)).toBeDefined();
-    expect(screen.queryByText(/RUNNING/)).toBeNull();
+    expect(screen.getByRole("img", { name: "Stopped" })).toBeDefined();
+    expect(screen.queryByRole("img", { name: "Running" })).toBeNull();
   });
 
   it("shows a unit-less numeric progress at the status pill's left while running (R9, A10)", () => {
@@ -331,7 +332,7 @@ describe("AgentSpawnCard", () => {
     render(<AgentSpawnCard toolBlock={block} />);
     const description = screen.getByText("x");
     const progress = screen.getByTestId("agent-spawn-progress");
-    const pill = screen.getByText(/RUNNING/);
+    const pill = screen.getByTestId("agent-spawn-status-pill");
 
     // extractShrinkFactor 显式区分三种情况而非一律 fallback 到某个默认值:
     // 没有任何 shrink 类(改动把它整个删掉)返回 null;`shrink-0`(改动关掉了
@@ -867,14 +868,13 @@ describe("AgentSpawnCard normalized runs", () => {
 
     expect(
       screen
-        .getByText("PARTIAL")
-        .parentElement?.querySelector(".lucide-triangle-alert"),
+        .getByTestId("agent-spawn-status-pill")
+        .querySelector(".lucide-triangle-alert"),
     ).not.toBeNull();
-    expect(
-      screen
-        .getByText("UNKNOWN")
-        .parentElement?.querySelector(".lucide-circle-help"),
-    ).not.toBeNull();
+    const unknownRun = screen
+      .getAllByTestId("agent-spawn-run-group")
+      .find((group) => group.getAttribute("data-run-id") === "run-unknown");
+    expect(unknownRun?.querySelector(".lucide-circle-help")).not.toBeNull();
   });
 
   it("Given parallel runs and fallback children, When expanded, Then ordered isolated groups expose translated statuses, badges, output and fallback steps", () => {
@@ -955,7 +955,11 @@ describe("AgentSpawnCard normalized runs", () => {
     expect(screen.getByText("Agents")).toBeInTheDocument();
     expect(screen.getByText("Parallel")).toBeInTheDocument();
     expect(screen.getByText("4/6")).toBeInTheDocument();
-    expect(screen.getByText("PARTIAL")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("agent-spawn-status-pill")).getByRole("img", {
+        name: "Partial",
+      }),
+    ).toBeInTheDocument();
 
     const details = expandCard(container);
     const groups = within(details).getAllByTestId("agent-spawn-run-group");
@@ -974,8 +978,12 @@ describe("AgentSpawnCard normalized runs", () => {
       within(groups[2]).getByText("Found the relevant models."),
     ).toBeInTheDocument();
     expect(within(groups[3]).getByText("Tests failed")).toBeInTheDocument();
-    expect(within(groups[4]).getByText("SKIPPED")).toBeInTheDocument();
-    expect(within(groups[5]).getByText("UNKNOWN")).toBeInTheDocument();
+    expect(
+      within(groups[4]).getByRole("img", { name: "Skipped" }),
+    ).toBeInTheDocument();
+    expect(
+      within(groups[5]).getByRole("img", { name: "Result unknown" }),
+    ).toBeInTheDocument();
     expect(within(groups[1]).getByText("Bash")).toBeInTheDocument();
     expect(within(groups[2]).getByText("Read")).toBeInTheDocument();
     expect(within(groups[1]).queryByText("Read")).toBeNull();
@@ -1031,19 +1039,25 @@ describe("AgentSpawnCard normalized runs", () => {
       "run-second",
       "run-third",
     ]);
-    expect(within(groups[0]).getByText("DONE")).toBeInTheDocument();
-    expect(within(groups[1]).getByText("FAILED")).toBeInTheDocument();
-    expect(within(groups[2]).getByText("SKIPPED")).toBeInTheDocument();
+    expect(
+      within(groups[0]).getByRole("img", { name: "Done" }),
+    ).toBeInTheDocument();
+    expect(
+      within(groups[1]).getByRole("img", { name: "Failed" }),
+    ).toBeInTheDocument();
+    expect(
+      within(groups[2]).getByRole("img", { name: "Skipped" }),
+    ).toBeInTheDocument();
     expect(within(groups[2]).queryByTestId("agent-spawn-run-model")).toBeNull();
     expect(within(groups[2]).queryByText("Inspected")).toBeNull();
     expect(within(groups[2]).queryByText("Review failed")).toBeNull();
   });
 
   it.each([
-    ["failed", "FAILED", "failed"],
-    ["canceled", "STOPPED", "canceled"],
-    ["completed", "DONE", "unknown result"],
-    ["unknown", "UNKNOWN", "unknown result"],
+    ["failed", "Failed", "failed"],
+    ["canceled", "Stopped", "canceled"],
+    ["completed", "Done", "unknown result"],
+    ["unknown", "Result unknown", "unknown result"],
   ])(
     "Given an unmatched child call in a %s run, When rendered, Then the run settles as %s, its step reports %s and no result text is invented",
     (runStatus, expectedRunStatus, expectedStepMarker) => {
@@ -1074,7 +1088,9 @@ describe("AgentSpawnCard normalized runs", () => {
       const details = expandCard(container);
       const group = within(details).getByTestId("agent-spawn-run-group");
       // run 分组的状态胶囊不变(它是 run 分组的一部分,不受成功态去胶囊影响)。
-      expect(within(group).getByText(expectedRunStatus)).toBeInTheDocument();
+      expect(
+        within(group).getByRole("img", { name: expectedRunStatus }),
+      ).toBeInTheDocument();
       expect(group.querySelector(".animate-spin")).toBeNull();
       const runToggle = within(group).getByRole("button", { name: /worker/i });
       if (runToggle.getAttribute("aria-expanded") === "false") {
@@ -1653,9 +1669,11 @@ describe("AgentSpawnCard steps region as an activity block", () => {
     expect(icon).not.toBeNull();
     expect(icon?.getAttribute("class")).not.toContain("text-primary-text");
     // 非成功态的标记不受影响。
-    expect(screen.getByTestId("agent-spawn-status-pill")).toHaveTextContent(
-      "RUNNING",
-    );
+    expect(
+      within(screen.getByTestId("agent-spawn-status-pill")).getByRole("img", {
+        name: "Running",
+      }),
+    ).toBeInTheDocument();
     expect(screen.queryByTestId("agent-spawn-outcome")).toBeNull();
   });
 
@@ -1902,9 +1920,11 @@ describe("AgentSpawnCard for agrctl-upgraded shell calls", () => {
     expect(screen.getByTestId("agent-spawn-card")).toHaveClass(
       "bg-destructive-soft",
     );
-    expect(screen.getByTestId("agent-spawn-status-pill").textContent).toMatch(
-      /FAILED/i,
-    );
+    expect(
+      within(screen.getByTestId("agent-spawn-status-pill")).getByRole("img", {
+        name: "Failed",
+      }),
+    ).toBeInTheDocument();
     expect(
       within(expandCard(container)).getByText(/child crashed: boom/),
     ).toBeDefined();
@@ -1927,9 +1947,11 @@ describe("AgentSpawnCard for agrctl-upgraded shell calls", () => {
         })}
       />,
     );
-    expect(screen.getByTestId("agent-spawn-status-pill").textContent).toMatch(
-      /STOPPED/i,
-    );
+    expect(
+      within(screen.getByTestId("agent-spawn-status-pill")).getByRole("img", {
+        name: "Stopped",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("offers no stop button on a foreground card, but keeps it on a background one", () => {
@@ -2135,5 +2157,178 @@ describe("AgentSpawnCard stop in progress", () => {
 
     call.reject(new Error("boom"));
     expect(await screen.findByRole("button", { name: "Stop" })).toBeEnabled();
+  });
+});
+
+describe("AgentSpawnCard status marks", () => {
+  function singleBlock(status: string, durationMs?: number): TranscriptBlock {
+    return {
+      type: "tool_use",
+      toolName: "Task",
+      canonical: {
+        kind: "agent.spawn",
+        agentSpawn: { taskId: "1", taskDescription: "work", status },
+      },
+      subagent: { status, durationMs },
+    } as unknown as TranscriptBlock;
+  }
+
+  it.each([
+    ["running", "running", "Running", "1m12s", 72000],
+    ["waiting", "pending", "Waiting", "1m12s", 72000],
+    ["failed", "error", "Error", "3m05s", 185000],
+    ["partial", "partial", "Partial", "3m05s", 185000],
+    ["canceled", "stopped", "Stopped", "42.0s", 42000],
+    ["unknown", "unknown", "Result unknown", "42.0s", 42000],
+  ])(
+    "Given a %s single run with a duration, When the header renders, Then it shows the %s mark named %s followed by grey %s and no English status word",
+    (status, state, name, duration, ms) => {
+      render(<AgentSpawnCard toolBlock={singleBlock(status, ms)} />);
+
+      const pill = screen.getByTestId("agent-spawn-status-pill");
+      const mark = within(pill).getByRole("img", { name });
+      expect(mark).toHaveAttribute("data-state", state);
+      const dur = within(pill).getByText(duration);
+      expect(dur).toHaveClass("text-muted-foreground");
+      expect(pill.textContent).toBe(duration);
+      expect(
+        screen.queryByText(/RUNNING|STOPPED|ERROR|FAILED|UNKNOWN|PARTIAL/),
+      ).toBeNull();
+      expect(
+        screen.getByRole("button", { name: new RegExp(name) }),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it("Given a running single run without a duration, When rendered, Then only the spinner shows", () => {
+    render(<AgentSpawnCard toolBlock={singleBlock("running")} />);
+
+    const pill = screen.getByTestId("agent-spawn-status-pill");
+    expect(within(pill).getByRole("img", { name: "Running" })).toBeVisible();
+    expect(pill.textContent).toBe("");
+  });
+
+  it("Given a successful single run, When rendered, Then no status mark appears", () => {
+    render(<AgentSpawnCard toolBlock={singleBlock("completed", 5000)} />);
+
+    expect(screen.queryByTestId("agent-spawn-status-pill")).toBeNull();
+    expect(screen.queryByRole("img", { name: "Done" })).toBeNull();
+  });
+
+  it("Given a multi-run card, When expanded, Then each row shows the mark for its state with done as a check", () => {
+    const block = normalizedSpawnBlock({
+      status: "partial",
+      runs: [
+        ["run-wait", "waiting"],
+        ["run-live", "running"],
+        ["run-done", "completed"],
+        ["run-failed", "failed"],
+        ["run-stop", "canceled"],
+        ["run-skip", "skipped"],
+        ["run-unk", "unknown"],
+        ["run-part", "partial"],
+      ].map(([id, status], index) => ({
+        id,
+        index,
+        agent: id,
+        task: id,
+        status,
+      })),
+    });
+    const { container } = render(<AgentSpawnCard toolBlock={block} />);
+    const groups = within(expandCard(container)).getAllByTestId(
+      "agent-spawn-run-group",
+    );
+    const stateOf = (i: number) =>
+      within(groups[i]).getByRole("img").getAttribute("data-state");
+
+    expect(groups.map((_, i) => stateOf(i))).toEqual([
+      "pending",
+      "running",
+      "done",
+      "failed",
+      "stopped",
+      "skipped",
+      "unknown",
+      "partial",
+    ]);
+    // 被替换掉的 WAITING / PARTIAL 原样成为可访问名，不与运行中、出错混为一谈。
+    expect(
+      within(groups[0]).getByRole("img", { name: "Waiting" }),
+    ).toBeVisible();
+    expect(
+      within(groups[7]).getByRole("img", { name: "Partial" }),
+    ).toBeVisible();
+    expect(within(groups[2]).getByRole("img", { name: "Done" })).toBeVisible();
+  });
+
+  it("Given a multi-run card with a duration, When rendered, Then the outer header shows the outer state mark and grey duration", () => {
+    const block = normalizedSpawnBlock({
+      status: "partial",
+      runs: [
+        { id: "a", index: 0, agent: "a", task: "a", status: "completed" },
+        { id: "b", index: 1, agent: "b", task: "b", status: "failed" },
+      ],
+    });
+    (
+      block as unknown as { subagent: { durationMs: number } }
+    ).subagent.durationMs = 72000;
+    render(<AgentSpawnCard toolBlock={block} />);
+
+    const pill = screen.getByTestId("agent-spawn-status-pill");
+    expect(
+      within(pill).getByRole("img", { name: "Partial" }),
+    ).toBeInTheDocument();
+    expect(within(pill).getByText("1m12s")).toHaveClass(
+      "text-muted-foreground",
+    );
+  });
+
+  describe("Given the UI language is zh-CN", () => {
+    afterEach(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    it("When a single-run card is expanded, Then its section titles are Chinese, not the English capitals", async () => {
+      await i18n.changeLanguage("zh-CN");
+      const { container } = render(
+        <AgentSpawnCard toolBlock={singleBlock("running")} />,
+      );
+      const details = expandCard(container);
+
+      for (const title of ["任务说明", "步骤", "总结"]) {
+        expect(within(details).getByText(title)).toBeInTheDocument();
+      }
+      expect(
+        within(details).queryByText(/TASK PROMPT|STEPS|SUMMARY/),
+      ).toBeNull();
+    });
+
+    it("When a multi-run card is expanded, Then the runs section and a run's output are titled in Chinese", async () => {
+      await i18n.changeLanguage("zh-CN");
+      const { container } = render(
+        <AgentSpawnCard
+          toolBlock={normalizedSpawnBlock({
+            status: "completed",
+            runs: [
+              {
+                id: "a",
+                index: 0,
+                agent: "a",
+                task: "a",
+                status: "completed",
+                summary: "done a",
+              },
+            ],
+          })}
+        />,
+      );
+      const details = expandCard(container);
+
+      expect(within(details).getByText("各次运行")).toBeInTheDocument();
+      fireEvent.click(within(details).getByRole("button", { expanded: false }));
+      expect(within(details).getByText("输出")).toBeInTheDocument();
+      expect(within(details).queryByText(/^TASKS$|^OUTPUT$/)).toBeNull();
+    });
   });
 });

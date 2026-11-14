@@ -274,6 +274,9 @@ export type {
 } from "./hooks/use-agentred-upgrade";
 export { isOpenInNewTabModifier } from "./lib/keyboard";
 export { StatusDot } from "./ui/status-dot";
+// 「状态 → 图标」的唯一实现：纯图标的状态标记，自带界面语言的可访问名与悬停提示。
+export { StatusMark } from "./ui/status-mark";
+export type { StatusMarkProps, StatusMarkState } from "./ui/status-mark";
 // ── 会话索引 ───────────────────────────────────────────────────────────────
 // 行、分组容器，以及**轴投影本身**（规格 2026-08-18「共享包承载什么」把它收了
 // 进来：组怎么分、怎么排、兜底组摆在哪只该有一份实现）。留在宿主的是各端的取数与
@@ -667,6 +670,7 @@ export { OrgAgentRow } from "./org/org-agent-row";
 export { DepartmentMark } from "./org/department-mark";
 export type { DepartmentMarkProps } from "./org/department-mark";
 export { OrgGroupHeader } from "./org/org-group-header";
+export { LeaderMark } from "./org/leader-mark";
 export { OrgInsertLine } from "./org/org-insert-line";
 export { OrgPlacementField } from "./org/org-placement-field";
 export type { OrgPlacement } from "./org/org-placement-field";

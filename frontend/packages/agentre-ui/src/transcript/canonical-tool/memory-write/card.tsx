@@ -1,9 +1,12 @@
 import * as React from "react";
+import { Folder, Globe, Pencil, Undo2, Users } from "lucide-react";
 
 import { useUiTranslation } from "../../../i18n";
 import { MemoryEditForm } from "../../../memory/memory-edit-form";
+import { MetaIcon } from "../../../memory/meta-icon";
 import type { MemoryEntryView } from "../../../memory/types";
 import { Button } from "../../../ui/button";
+import { StatusMark, type StatusMarkState } from "../../../ui/status-mark";
 import { cn } from "../../../lib/utils";
 import { useTranscriptPorts } from "../../ports-context";
 import type { MemoryCardWriteAction, MemoryTranscriptPorts } from "../../ports";
@@ -82,7 +85,11 @@ function MemoryCard({
     (write.action === "created" && entry === null) ||
     (entry != null && undoneByUser(write.action, entry));
   const gone = entry === null && !isUndone;
-  const summary = entry?.summary ?? lastSummary;
+  // 已撤销时划掉的是这次写入的那句（修改被撤销后条目已回到上一版，新增被撤销后条目已删）；
+  // 命令里没写摘要（只改详情、归档）时，这次写入的摘要就是条目自己的。
+  const summary = isUndone
+    ? (write.summary ?? entry?.summary ?? lastSummary)
+    : (entry?.summary ?? lastSummary ?? write.summary);
   const action = write.action;
 
   const undo = async () => {
@@ -117,10 +124,7 @@ function MemoryCard({
     }
   };
 
-  const layer = layerLabel(write.layer, t);
-  const label = isUndone
-    ? t("memoryWrite.label.undone")
-    : actionLabel(action, t);
+  const mark = isUndone ? "memoryUndone" : actionMark(action);
   const dimmed = isUndone || exists;
 
   if (editing && entry) {
@@ -160,14 +164,7 @@ function MemoryCard({
       data-state={isUndone ? "undone" : exists ? "exists" : action}
       className="flex items-center gap-2 px-3.5 py-2.5"
     >
-      <span
-        className={cn(
-          "shrink-0 text-xs font-medium",
-          dimmed ? "text-muted-foreground" : "text-foreground",
-        )}
-      >
-        {label}
-      </span>
+      <StatusMark state={mark} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
           {summary ? (
@@ -181,11 +178,7 @@ function MemoryCard({
               {summary}
             </span>
           ) : null}
-          {layer ? (
-            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-2xs text-muted-foreground">
-              {layer}
-            </span>
-          ) : null}
+          <LayerBadge layer={write.layer} />
         </div>
         {note ? (
           <p
@@ -205,20 +198,24 @@ function MemoryCard({
             <Button
               type="button"
               variant="ghost"
-              size="xs"
+              size="icon-xs"
+              aria-label={t("memoryWrite.edit")}
+              title={t("memoryWrite.edit")}
               onClick={() => setEditing(true)}
             >
-              {t("memoryWrite.edit")}
+              <Pencil aria-hidden="true" />
             </Button>
           ) : null}
           <Button
             type="button"
             variant="outline"
-            size="xs"
+            size="icon-xs"
+            aria-label={t("memoryWrite.undo")}
+            title={t("memoryWrite.undo")}
             disabled={busy}
             onClick={() => void undo()}
           >
-            {t("memoryWrite.undo")}
+            <Undo2 aria-hidden="true" />
           </Button>
         </div>
       ) : null}
@@ -243,30 +240,47 @@ function undoneByUser(
   }
 }
 
-type Translate = (key: string, options?: Record<string, unknown>) => string;
-
-function layerLabel(layer: MemoryWriteLayer, t: Translate): string | null {
+/** 所在层级：全局只有地球图标，部门 / 项目是图标加名字；图标的名字是被替换掉的「全局 / 部门 / 项目」。 */
+function LayerBadge({ layer }: { layer: MemoryWriteLayer }) {
+  const { t } = useUiTranslation();
+  let word: string;
+  let Icon: typeof Globe;
+  let name: string | undefined;
   switch (layer.kind) {
     case "global":
-      return t("memoryWrite.layer.global");
+      word = t("memoryWrite.layer.global");
+      Icon = Globe;
+      break;
     case "department":
-      return t("memoryWrite.layer.department", { name: layer.name });
+      word = t("memoryWrite.layer.department");
+      Icon = Users;
+      name = layer.name;
+      break;
     case "project":
-      return t("memoryWrite.layer.project", { name: layer.name });
+      word = t("memoryWrite.layer.project");
+      Icon = Folder;
+      name = layer.name;
+      break;
     default:
       return null;
   }
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-2xs text-muted-foreground">
+      <MetaIcon icon={Icon} name={word} />
+      {name ? <span>{name}</span> : null}
+    </span>
+  );
 }
 
-function actionLabel(action: MemoryWrite["action"], t: Translate): string {
+function actionMark(action: MemoryWrite["action"]): StatusMarkState {
   switch (action) {
     case "created":
-      return t("memoryWrite.label.created");
+      return "memoryCreated";
     case "updated":
-      return t("memoryWrite.label.updated");
+      return "memoryUpdated";
     case "archived":
-      return t("memoryWrite.label.archived");
+      return "memoryArchived";
     default:
-      return t("memoryWrite.label.exists");
+      return "memoryExists";
   }
 }

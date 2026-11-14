@@ -477,13 +477,6 @@
   },
   "taskProgress": {
     "allCompleted": "全部完成",
-    "status": {
-      "cancelled": "CANCELLED",
-      "completed": "DONE",
-      "failed": "FAILED",
-      "queued": "QUEUED",
-      "running": "RUNNING"
-    },
     "title": "任务进度"
   }
 }

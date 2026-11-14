@@ -145,7 +145,6 @@
     }
   },
   "permissionMode": {
-    "active": "ACTIVE",
     "aria": "权限模式：{{label}}（Shift+Tab 切换）",
     "disabled": {
       "bypassAfterLaunch": "该会话启动时未选择 bypassPermissions；Claude CLI 不允许中途进入 bypass。新建会话时选 bypass 即可解锁双向切换。"

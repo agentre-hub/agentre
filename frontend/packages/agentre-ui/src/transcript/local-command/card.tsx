@@ -5,37 +5,17 @@ import { formatDuration } from "../../lib/format-duration";
 import { shouldIgnoreClickForSelection } from "../../lib/copyable-text";
 import { Button } from "../../ui/button";
 import type { LocalCommandStatus } from "../dto";
-import { TranscriptPill } from "../transcript-card";
+import { StatusMark, type StatusMarkState } from "../../ui/status-mark";
 
 import { useLocalCommand, useLocalCommandsAccess } from "./access";
 import { isLocalCommandCollapsed } from "./collapsed";
 import { OutputTerminal } from "./output-terminal";
 
-// Status → visual style map (DRY — one place for all status styles).
-const STATUS_CONFIG: Record<
-  LocalCommandStatus,
-  { dot: string; pill: string; labelKey: string }
-> = {
-  running: {
-    dot: "bg-status-waiting",
-    pill: "bg-status-waiting-bg text-status-waiting-text",
-    labelKey: "localCommand.status.running",
-  },
-  done: {
-    dot: "bg-status-running",
-    pill: "bg-status-running-bg text-status-running-text",
-    labelKey: "localCommand.status.done",
-  },
-  failed: {
-    dot: "bg-destructive",
-    pill: "bg-destructive/15 text-destructive-text",
-    labelKey: "localCommand.status.failed",
-  },
-  stopped: {
-    dot: "bg-muted-foreground",
-    pill: "bg-muted text-muted-foreground",
-    labelKey: "localCommand.status.stopped",
-  },
+// Status → mark. Success shows no mark (spec: 没有标记 = 成功).
+const STATUS_MARK: Partial<Record<LocalCommandStatus, StatusMarkState>> = {
+  running: "running",
+  failed: "failed",
+  stopped: "stopped",
 };
 
 export function LocalCommandCard({
@@ -53,10 +33,11 @@ export function LocalCommandCard({
 
   if (!entry) return null;
 
-  const cfg = STATUS_CONFIG[entry.status];
+  const mark = STATUS_MARK[entry.status];
   const isRunning = entry.status === "running";
+  // 退出码只在失败时留：成功不挂标记也不报 exit 0。
   const showExitCode =
-    entry.status !== "running" && entry.exitCode !== undefined;
+    entry.status === "failed" && entry.exitCode !== undefined;
   const collapsed = isLocalCommandCollapsed(entry);
   const duration =
     entry.finishedAt !== undefined
@@ -64,16 +45,14 @@ export function LocalCommandCard({
       : null;
 
   const statusPill = (
-    <TranscriptPill className={cfg.pill}>
-      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-      {t(cfg.labelKey)}
+    <span className="inline-flex shrink-0 items-center gap-1 text-meta text-muted-foreground">
+      {mark && <StatusMark state={mark} />}
       {showExitCode && (
-        <>
-          <span className="opacity-50">·</span>
+        <span className="text-destructive-text">
           {t("localCommand.exitCode", { code: entry.exitCode })}
-        </>
+        </span>
       )}
-    </TranscriptPill>
+    </span>
   );
 
   const dismissBtn = (

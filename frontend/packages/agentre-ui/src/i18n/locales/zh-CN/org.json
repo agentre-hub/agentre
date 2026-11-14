@@ -1,7 +1,7 @@
 {
   "org": {
     "index": {
-      "lead": "Lead · {{name}}",
+      "leader": "负责人",
       "reportsToInline": "↳ {{name}}",
       "systemBadge": "系统",
       "noExecTarget": "无目标",

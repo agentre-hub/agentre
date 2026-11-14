@@ -31,6 +31,13 @@ const call = {
   toolInput: { command: 'agrctl create memory --summary "x"' },
 } as unknown as TranscriptBlock;
 
+// 只改详情的修改：命令里没有 --summary，卡片上的摘要就是条目自己的。
+const detailOnlyUpdate = {
+  type: "tool_use",
+  toolName: "Bash",
+  toolInput: { command: "agrctl update memory 7 --detail d" },
+} as unknown as TranscriptBlock;
+
 const resultOf = (line: string) =>
   ({ type: "tool_result", text: line + "\n" }) as unknown as TranscriptBlock;
 
@@ -49,11 +56,14 @@ function renderCard(
   line: string,
   memory: MemoryTranscriptPorts | undefined,
   extra: Partial<TranscriptPorts> = {},
+  toolBlock: TranscriptBlock = call,
+  uiStateKey?: string,
 ) {
   return render(
     <TranscriptPortsProvider ports={makeTestPorts({ memory, ...extra })}>
       <MemoryWriteCard
-        toolBlock={call}
+        toolBlock={toolBlock}
+        uiStateKey={uiStateKey}
         resultBlock={resultOf(line)}
         sessionId={70}
       />
@@ -63,29 +73,60 @@ function renderCard(
 
 describe("MemoryWriteCard", () => {
   it.each([
-    ["memory m7 created (agent A)", "Remembered"],
-    ["memory m7 updated (agent A)", "Updated a memory"],
-    ["memory m7 archived (agent A)", "Archived a memory"],
-  ])("shows the action and the summary for %s", async (line, label) => {
-    renderCard(line, memoryPort());
-    expect(screen.getByText(label)).toBeDefined();
-    expect(await screen.findByText("Run lint before pushing")).toBeDefined();
+    ["memory m7 created (agent A)", "Remembered", "lucide-bookmark-plus"],
+    ["memory m7 updated (agent A)", "Updated a memory", "lucide-pencil"],
+    ["memory m7 archived (agent A)", "Archived a memory", "lucide-archive"],
+  ])(
+    "Given %s, Then the action is an icon named %s and the summary is shown",
+    async (line, name, icon) => {
+      renderCard(line, memoryPort());
+      const mark = screen.getByRole("img", { name });
+      expect(mark.querySelector("svg")).toHaveClass(icon);
+      expect(mark).toHaveAttribute("title", name);
+      expect(screen.queryByText(name)).toBeNull();
+      expect(await screen.findByText("Run lint before pushing")).toBeDefined();
+      expect(screen.queryByRole("img", { name: "Global" })).toBeNull();
+    },
+  );
+
+  it("Given a project layer, Then it shows a folder icon named Project beside the name", async () => {
+    renderCard("memory m7 created (project Harbor/App)", memoryPort());
+    expect(await screen.findByText("Harbor/App")).toBeDefined();
+    const mark = screen.getByRole("img", { name: "Project" });
+    expect(mark.querySelector("svg")).toHaveClass("lucide-folder");
+    expect(mark).toHaveAttribute("title", "Project");
+  });
+
+  it("Given a department layer, Then it shows a users icon named Department beside the name", async () => {
+    renderCard("memory m7 created (department Platform)", memoryPort());
+    expect(await screen.findByText("Platform")).toBeDefined();
+    const mark = screen.getByRole("img", { name: "Department" });
+    expect(mark.querySelector("svg")).toHaveClass("lucide-users");
+  });
+
+  it("Given the global layer, Then it is a globe icon only, named Global", async () => {
+    renderCard("memory m7 updated (global)", memoryPort());
+    const mark = await screen.findByRole("img", { name: "Global" });
+    expect(mark.querySelector("svg")).toHaveClass("lucide-globe");
+    expect(mark).toHaveAttribute("title", "Global");
     expect(screen.queryByText("Global")).toBeNull();
   });
 
-  it("names a shared layer on the card", async () => {
-    renderCard("memory m7 created (project Harbor/App)", memoryPort());
-    expect(await screen.findByText("Project Harbor/App")).toBeDefined();
-  });
-
-  it("names the global layer", async () => {
-    renderCard("memory m7 updated (global)", memoryPort());
-    expect(await screen.findByText("Global")).toBeDefined();
+  it("Given an editable write, Then edit and undo are icon buttons with a name and a tip", async () => {
+    renderCard("memory m7 updated (agent A)", memoryPort());
+    const edit = await screen.findByRole("button", { name: "Edit" });
+    const undo = screen.getByRole("button", { name: "Undo" });
+    expect(edit).toHaveAttribute("title", "Edit");
+    expect(undo).toHaveAttribute("title", "Undo");
+    expect(edit.querySelector("svg")).toHaveClass("lucide-pencil");
+    expect(undo.querySelector("svg")).toHaveClass("lucide-undo2");
+    expect(edit).toHaveTextContent("");
+    expect(undo).toHaveTextContent("");
   });
 
   it("undoing a write calls the port with the session and action, then shows undone and no buttons", async () => {
     const memory = memoryPort();
-    renderCard("memory m7 updated (agent A)", memory);
+    renderCard("memory m7 updated (agent A)", memory, {}, detailOnlyUpdate);
     await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
 
     expect(memory.undoWrite).toHaveBeenCalledWith({
@@ -93,7 +134,11 @@ describe("MemoryWriteCard", () => {
       sessionId: 70,
       action: "updated",
     });
-    expect(await screen.findByText("Undone")).toBeDefined();
+    const mark = await screen.findByRole("img", { name: "Undone" });
+    expect(mark.querySelector("svg")).toHaveClass("lucide-undo2");
+    expect(
+      (await screen.findByText("Run lint before pushing")).className,
+    ).toContain("line-through");
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
   });
@@ -114,7 +159,7 @@ describe("MemoryWriteCard", () => {
     "a write the user already undid shows undone with no buttons when the card mounts again (%s)",
     async (line, current) => {
       renderCard(line, memoryPort({ get: vi.fn(async () => current) }));
-      expect(await screen.findByText("Undone")).toBeDefined();
+      expect(await screen.findByRole("img", { name: "Undone" })).toBeDefined();
       expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     },
@@ -130,7 +175,7 @@ describe("MemoryWriteCard", () => {
       }),
     );
     expect(await screen.findByRole("button", { name: "Undo" })).toBeDefined();
-    expect(screen.queryByText("Undone")).toBeNull();
+    expect(screen.queryByRole("img", { name: "Undone" })).toBeNull();
   });
 
   it("a refused undo keeps the buttons and explains why in place", async () => {
@@ -146,7 +191,7 @@ describe("MemoryWriteCard", () => {
       ),
     ).toBeDefined();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
-    expect(screen.queryByText("Undone")).toBeNull();
+    expect(screen.queryByRole("img", { name: "Undone" })).toBeNull();
   });
 
   it("a failed undo shows the host's reason and stays clickable", async () => {
@@ -173,8 +218,127 @@ describe("MemoryWriteCard", () => {
       "memory m7 created (agent A)",
       memoryPort({ get: vi.fn(async () => null) }),
     );
-    expect(await screen.findByText("Undone")).toBeDefined();
+    expect(await screen.findByRole("img", { name: "Undone" })).toBeDefined();
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+
+  describe("the summary of a created write whose entry is gone", () => {
+    const create = {
+      type: "tool_use",
+      toolName: "Bash",
+      toolInput: {
+        command: 'agrctl create memory --summary "Run make lint before commit"',
+      },
+    } as unknown as TranscriptBlock;
+    const line = "memory m7 created (agent A)";
+
+    it("Given the user undid it and the card remounts, Then the summary is still shown struck through", async () => {
+      const memory = memoryPort({
+        get: vi
+          .fn<MemoryTranscriptPorts["get"]>()
+          .mockResolvedValueOnce(
+            entry({ summary: "Run make lint before commit" }),
+          )
+          .mockResolvedValue(null),
+      });
+      const first = renderCard(line, memory, {}, create, "ui-key-undo");
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Undo" }),
+      );
+      expect(
+        (await screen.findByText("Run make lint before commit")).className,
+      ).toContain("line-through");
+      first.unmount();
+
+      renderCard(line, memory, {}, create, "ui-key-undo");
+      const summary = await screen.findByText("Run make lint before commit");
+      expect(summary.className).toContain("line-through");
+      expect(screen.getByRole("img", { name: "Undone" })).toBeDefined();
+    });
+
+    it("Given the command's summary is a shell variable and the user undoes it, Then the struck summary is the one the entry had, not the variable", async () => {
+      const memory = memoryPort({
+        get: vi
+          .fn<MemoryTranscriptPorts["get"]>()
+          .mockResolvedValueOnce(entry({ summary: "Expanded text" }))
+          .mockResolvedValue(null),
+      });
+      renderCard(line, memory, {}, {
+        type: "tool_use",
+        toolName: "Bash",
+        toolInput: { command: 'agrctl create memory --summary "$S"' },
+      } as unknown as TranscriptBlock);
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Undo" }),
+      );
+      await screen.findByRole("img", { name: "Undone" });
+      expect((await screen.findByText("Expanded text")).className).toContain(
+        "line-through",
+      );
+      expect(screen.queryByText("$S")).toBeNull();
+    });
+
+    it("Given the entry still exists, Then its current summary wins over the command's", async () => {
+      renderCard(
+        line,
+        memoryPort({
+          get: vi.fn(async () => entry({ summary: "Edited later" })),
+        }),
+        {},
+        create,
+      );
+      expect(await screen.findByText("Edited later")).toBeDefined();
+      expect(screen.queryByText("Run make lint before commit")).toBeNull();
+    });
+  });
+
+  // 撤销一次修改 = 恢复上一版：条目的摘要回到了旧的那句，但被划掉的应是这次写入的那句。
+  describe("the summary of an updated write the user undid", () => {
+    const update = {
+      type: "tool_use",
+      toolName: "Bash",
+      toolInput: {
+        command: 'agrctl update memory 7 --summary "New wording"',
+      },
+    } as unknown as TranscriptBlock;
+    const line = "memory m7 updated (agent A)";
+    const restored = entry({
+      summary: "Old wording",
+      lastChange: { action: "restored", actor: "user" },
+    });
+
+    it("Given the user clicks undo, Then this write's summary is struck through, not the restored one", async () => {
+      const memory = memoryPort({
+        get: vi
+          .fn<MemoryTranscriptPorts["get"]>()
+          .mockResolvedValueOnce(entry({ summary: "New wording" }))
+          .mockResolvedValue(restored),
+      });
+      renderCard(line, memory, {}, update);
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Undo" }),
+      );
+      await screen.findByRole("img", { name: "Undone" });
+      await waitFor(() => expect(memory.get).toHaveBeenCalledTimes(2));
+      expect((await screen.findByText("New wording")).className).toContain(
+        "line-through",
+      );
+      expect(screen.queryByText("Old wording")).toBeNull();
+    });
+
+    it("Given the card mounts after the undo, Then this write's summary is struck through, not the restored one", async () => {
+      renderCard(
+        line,
+        memoryPort({ get: vi.fn(async () => restored) }),
+        {},
+        update,
+      );
+      await screen.findByRole("img", { name: "Undone" });
+      expect((await screen.findByText("New wording")).className).toContain(
+        "line-through",
+      );
+      expect(screen.queryByText("Old wording")).toBeNull();
+    });
   });
 
   it("a created write whose entry cannot be read is not mistaken for undone or gone", async () => {
@@ -186,8 +350,8 @@ describe("MemoryWriteCard", () => {
     await Promise.resolve();
     const card = screen.getByTestId("memory-write-card");
     expect(card.getAttribute("data-state")).toBe("created");
-    expect(screen.getByText("Remembered")).toBeDefined();
-    expect(screen.queryByText("Undone")).toBeNull();
+    expect(screen.getByRole("img", { name: "Remembered" })).toBeDefined();
+    expect(screen.queryByRole("img", { name: "Undone" })).toBeNull();
   });
 
   it("an updated write whose entry is gone says so and offers nothing", async () => {
@@ -235,7 +399,8 @@ describe("MemoryWriteCard", () => {
   it("an already-exists result means nothing changed: no undo, no edit", async () => {
     const memory = memoryPort();
     renderCard("memory m7 already exists (global)", memory);
-    expect(screen.getByText("Already remembered")).toBeDefined();
+    const mark = screen.getByRole("img", { name: "Already remembered" });
+    expect(mark.querySelector("svg")).toHaveClass("lucide-bookmark-check");
     expect(await screen.findByText("Run lint before pushing")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
