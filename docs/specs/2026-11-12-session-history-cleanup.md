@@ -1,6 +1,6 @@
 # 对话历史清理与删除传播
 
-> Status: Approved（2026-11-13 修正轮：运行验证 V12、V15 不成立后补充问题 7–9 与决策 16–19，已重新批准）
+> Status: Approved（2026-11-14 第二个修正轮：补充问题 10，控制台清理后同页已保存条数随之更新，已批准）
 > Owner: 桌面端 + 共享 UI 包（agentre-ui），agentre-server 跟随
 > Last updated: 2026-11-13（基线：agentre `48a285b2`，agentre-server `29d665e0`）
 
@@ -20,6 +20,7 @@
 7. **server 让执行端删除时，agentred 一行也删不掉。** 已核实（修正轮，运行验证 V12）：server 发出的 `SESSION_DELETE` 只带 `conversation_id`，不带发起端（`agentre-server/internal/service/mirror_svc/sessions.go:118`，注释假设「省略即那台机器自己」）。agentred 把省略的发起端解析成调用方自己的连接指纹（`internal/daemon/handlers/session_catchup.go:358-361`），而 server 连接的指纹从不出现在会话行上，删除于是按它限定范围、删 0 行，server 照样记成「已删除」（agentred 日志 `sessionRows:0`）。这是本分支之前就有的问题：保存过的对话、补删的待办一样受影响。agentred 的会话列表对账号鉴权的调用方本来就按账号列出（`session_catchup.go:72,92-103`），删除却没有。
 8. **删除没有执行端的会话时，server 会留下永远清不掉的待办。** 已核实（运行验证 V12）：桌面端已登录时删除一条本机会话（没有执行端，也不知道有没有保存过），会照规则请求 server 删除，机器指纹为空。server 没有保存记录、没有指纹，就把空指纹当成执行端去通知，通知不到便记一条空指纹待办（`agentre-server/internal/service/saved_session_svc/savedsession.go:239,262,349-353`），之后每轮补删都判为「仍离线」。
 9. **桌面发起、在 agentred 上执行的对话被保存时，执行端记成了桌面。** 已核实（运行验证 V15）：桌面端上报会话列表时把远端执行的会话也当成自己的（`internal/repository/chat_repo/session.go:451-467` 不按执行端过滤），会话摘要里也没有执行端字段（`pkg/wire/proto/agentre/wire/wire.proto:572-598`）；控制台在桌面那一行点保存，就把 `agent_session_saves.device_fingerprint` 记成桌面（`agentre-server/frontend/src/pages/chat/useSessionIndex.ts:649-659`）。原设计要求这一列是执行端（2026-08-31 spec，「承载机器」）。结果控制台删除只通知桌面，agentred 上那份留着，确认框里也不列 agentred。
+10. **控制台清理完成后，同页「已保存的对话 N 条」不更新。** 已核实（2026-11-14 修正轮复验）：卡片的数来自 `ActivityStatsPanel` 页面加载时取的隐私设置（`agentre-server/frontend/src/components/settings/ActivityStatsPanel.tsx:79-102,248-254`），清理区块（`SessionCleanupPanel.tsx`）完成后不通知它，库里已是 0 条、卡片仍显示 1 条，刷新页面才对。
 
 ## Actors and user stories
 
@@ -114,7 +115,7 @@
 
 - 删除期间确认框不能关闭，按钮转圈，不加额外的状态 banner。
 - 实际删除的是确认那一刻计数里的那些对话。确认后才变成进行中或等用户操作的对话，执行时会重新判断并保留。
-- 全部成功：关掉确认框，弹 toast「已删除 N 个对话」。如果有离线机器，加一句「<机器> 上的 M 个会在它下次上线时删除」；桌面端如果关闭了标签页，加上关闭了几个。之后按当前条件重新计数。
+- 全部成功：关掉确认框，弹 toast「已删除 N 个对话」。如果有离线机器，加一句「<机器> 上的 M 个会在它下次上线时删除」；桌面端如果关闭了标签页，加上关闭了几个。之后按当前条件重新计数。控制台同一页上的「已保存的对话 N 条」也随之更新，不用刷新页面（问题 10）。
 - 部分失败（本机那份没删掉）：确认框不关，标题改成「还有 K 个对话没删掉」，用中文说明原因，给「重试 K 个」和「关闭」。重试只处理剩下的那些。
 
 **界面要求。**
@@ -158,6 +159,7 @@
 | agentred 删除 handler | 账号调用方未点名发起端时按对话删除（行数非 0）；配对桌面只能删自己发起的 | `internal/daemon/handlers` 现有删除测试 |
 | 桌面端会话列表上报 | 远端执行的会话摘要带执行端指纹，本机会话不带 | `internal/service/chat_svc/peerstream` 现有测试 |
 | 控制台保存 | 摘要带的执行端是本账号设备时保存记录记它，否则记列出它的机器 | `agentre-server/frontend` 会话索引现有测试 |
+| 控制台隐私页（Vitest） | 清理完成后「已保存的对话 N 条」按 server 最新数更新，不用刷新 | `agentre-server/frontend` 设置页现有测试 |
 | server saved_session_svc / mirror_svc（mockgen） | 控制台删除同时通知发起端和执行端；按「对话 + 机器」记待办与补做；批量清理的筛选与排除 | `saved_session_svc/savedsession_test.go`、`mirror_svc/sessions_test.go` |
 | server controller / repo（sqlmock） | 批量计数与清理端点的鉴权和参数、待删除表的新键 | `internal/api/savedsession` 现有测试 |
 
