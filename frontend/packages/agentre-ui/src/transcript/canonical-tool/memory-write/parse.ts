@@ -27,6 +27,8 @@ export type MemoryWrite = {
   id: number;
   action: MemoryWriteAction;
   layer: MemoryWriteLayer;
+  /** 触发这次写入的命令里 --summary 的值；条目已删（新增后被撤销）时卡片靠它继续显示摘要。 */
+  summary?: string;
 };
 
 // 一条简单命令的程序是 agrctl（可带目录前缀、Windows 上是 agrctl.exe，前面可有 FOO=1 这样的
@@ -48,6 +50,21 @@ function isMemoryWriteWords(words: string[]): boolean {
     kind !== undefined &&
     MEMORY_KINDS.has(kind.toLowerCase())
   );
+}
+
+/** 命令里第一条记忆写入的 --summary（结果行也是第一条写入的）；没有则 undefined。 */
+function summaryOfFirstWrite(block: TranscriptBlock): string | undefined {
+  const command = (block.toolInput as { command?: unknown } | undefined)
+    ?.command;
+  if (typeof command !== "string") return undefined;
+  const commands = splitShellCommands(unwrapShellCommand(command));
+  const words = commands?.find(isMemoryWriteWords);
+  if (!words) return undefined;
+  for (let i = 0; i < words.length; i++) {
+    if (words[i] === "--summary") return words[i + 1];
+    if (words[i].startsWith("--summary=")) return words[i].slice(10);
+  }
+  return undefined;
 }
 
 export function isMemoryWriteCall(block: TranscriptBlock): boolean {
@@ -82,7 +99,7 @@ function parseLayer(text: string): MemoryWriteLayer | null {
 
 /** 没有结果、命令失败或结果行对不上时返回 null（调用方退回通用呈现）。 */
 export function parseMemoryWrite(
-  _toolBlock: TranscriptBlock,
+  toolBlock: TranscriptBlock,
   resultBlock?: TranscriptBlock,
 ): MemoryWrite | null {
   if (!resultBlock || resultBlock.isError) return null;
@@ -94,5 +111,11 @@ export function parseMemoryWrite(
   if (!match) return null;
   const layer = parseLayer(match[3]);
   if (!layer) return null;
-  return { id: Number(match[1]), action: ACTIONS[match[2]], layer };
+  const summary = summaryOfFirstWrite(toolBlock);
+  return {
+    id: Number(match[1]),
+    action: ACTIONS[match[2]],
+    layer,
+    ...(summary ? { summary } : {}),
+  };
 }

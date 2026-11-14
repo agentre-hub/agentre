@@ -85,7 +85,7 @@ function MemoryCard({
     (write.action === "created" && entry === null) ||
     (entry != null && undoneByUser(write.action, entry));
   const gone = entry === null && !isUndone;
-  const summary = entry?.summary ?? lastSummary;
+  const summary = entry?.summary ?? lastSummary ?? write.summary;
   const action = write.action;
 
   const undo = async () => {

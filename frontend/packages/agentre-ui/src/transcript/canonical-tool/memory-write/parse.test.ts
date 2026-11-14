@@ -152,6 +152,7 @@ describe("parseMemoryWrite", () => {
       id: 7,
       action,
       layer,
+      summary: "x",
     });
   });
 
@@ -175,5 +176,56 @@ describe("parseMemoryWrite", () => {
         ),
       ),
     ).toBeNull();
+  });
+
+  describe("the summary written by the command", () => {
+    const line = result("memory m7 created (global)\n");
+
+    it.each([
+      [
+        'agrctl create memory --summary "Run make lint before commit"',
+        "Run make lint before commit",
+      ],
+      ['agrctl create memory --summary="用 pnpm" --detail x', "用 pnpm"],
+      [
+        `cd /repo && agrctl create memory --detail d --summary '提交前先跑 lint' && echo ok`,
+        "提交前先跑 lint",
+      ],
+      [
+        `/bin/zsh -lc "agrctl create memory --summary 'wrapped one'"`,
+        "wrapped one",
+      ],
+    ])("Given %s, Then the write carries %s", (command, summary) => {
+      expect(parseMemoryWrite(use(command), line)?.summary).toBe(summary);
+    });
+
+    it("Given a command without --summary, Then the write has no summary", () => {
+      const write = parseMemoryWrite(
+        use("agrctl update memory 7 --detail only-detail"),
+        result("memory m7 updated (global)\n"),
+      );
+      expect(write).not.toBeNull();
+      expect(write?.summary).toBeUndefined();
+    });
+
+    it("Given two writes in one command, Then the first result line takes the first command's summary", () => {
+      const command =
+        'agrctl create memory --summary "first" && agrctl create memory --summary "second"';
+      const both = result(
+        "memory m7 created (global)\nmemory m8 created (global)\n",
+      );
+      expect(parseMemoryWrite(use(command), both)?.summary).toBe("first");
+      expect(parseMemoryWrite(use(command), both)?.id).toBe(7);
+    });
+
+    it("Given the first write has no --summary, Then it does not borrow the second's", () => {
+      const command =
+        'agrctl update memory 7 --detail d && agrctl create memory --summary "second"';
+      const write = parseMemoryWrite(
+        use(command),
+        result("memory m7 updated (global)\nmemory m8 created (global)\n"),
+      );
+      expect(write?.summary).toBeUndefined();
+    });
   });
 });

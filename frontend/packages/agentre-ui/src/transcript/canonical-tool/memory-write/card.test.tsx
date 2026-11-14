@@ -49,11 +49,14 @@ function renderCard(
   line: string,
   memory: MemoryTranscriptPorts | undefined,
   extra: Partial<TranscriptPorts> = {},
+  toolBlock: TranscriptBlock = call,
+  uiStateKey?: string,
 ) {
   return render(
     <TranscriptPortsProvider ports={makeTestPorts({ memory, ...extra })}>
       <MemoryWriteCard
-        toolBlock={call}
+        toolBlock={toolBlock}
+        uiStateKey={uiStateKey}
         resultBlock={resultOf(line)}
         sessionId={70}
       />
@@ -210,6 +213,54 @@ describe("MemoryWriteCard", () => {
     );
     expect(await screen.findByRole("img", { name: "Undone" })).toBeDefined();
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+
+  describe("the summary of a created write whose entry is gone", () => {
+    const create = {
+      type: "tool_use",
+      toolName: "Bash",
+      toolInput: {
+        command: 'agrctl create memory --summary "Run make lint before commit"',
+      },
+    } as unknown as TranscriptBlock;
+    const line = "memory m7 created (agent A)";
+
+    it("Given the user undid it and the card remounts, Then the summary is still shown struck through", async () => {
+      const memory = memoryPort({
+        get: vi
+          .fn<MemoryTranscriptPorts["get"]>()
+          .mockResolvedValueOnce(
+            entry({ summary: "Run make lint before commit" }),
+          )
+          .mockResolvedValue(null),
+      });
+      const first = renderCard(line, memory, {}, create, "ui-key-undo");
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Undo" }),
+      );
+      expect(
+        (await screen.findByText("Run make lint before commit")).className,
+      ).toContain("line-through");
+      first.unmount();
+
+      renderCard(line, memory, {}, create, "ui-key-undo");
+      const summary = await screen.findByText("Run make lint before commit");
+      expect(summary.className).toContain("line-through");
+      expect(screen.getByRole("img", { name: "Undone" })).toBeDefined();
+    });
+
+    it("Given the entry still exists, Then its current summary wins over the command's", async () => {
+      renderCard(
+        line,
+        memoryPort({
+          get: vi.fn(async () => entry({ summary: "Edited later" })),
+        }),
+        {},
+        create,
+      );
+      expect(await screen.findByText("Edited later")).toBeDefined();
+      expect(screen.queryByText("Run make lint before commit")).toBeNull();
+    });
   });
 
   it("a created write whose entry cannot be read is not mistaken for undone or gone", async () => {
