@@ -2,7 +2,7 @@
 
 > Status: Approved
 > Owner: 共享 UI 包（agentre-ui）+ 桌面端；agentre-server 钉版本跟随
-> Last updated: 2026-11-13
+> Last updated: 2026-11-14
 
 **Objective:** 转录、会话列表和几处弹层里的状态标记，凡是图标能说清的都换成图标；中文界面不再出现英文状态词和英文小标题。
 
@@ -17,6 +17,8 @@
 5. **同一信息说两遍，或只靠文字区分。** 已核实：任务进度条左边已有状态图标，右边又写一遍英文状态词；而失败、已取消与排队共用同一个空心圈，只靠右边的字区分（`task-progress/task-progress-bar.tsx:47-52`）。部门负责人徽标有皇冠又写 `LEAD`（`org/org-department-badges.tsx`）。
 6. **状态点的读屏名是英文。** 已核实：`ui/status-dot.tsx:34` 的 `aria-label` 由 `statusConfig.label` 拼成 `running status`，中文界面读屏读英文。
 7. **子 Agent 卡展开后的小标题是英文。** 已核实：zh-CN `canonical.agentSpawn.sections` 为 `TASK PROMPT` / `TASKS` / `STEPS` / `OUTPUT` / `SUMMARY`；同类的工具卡小标题已是「参数」「结果」。
+8. **撤销「记住了」之后再看，记忆卡只剩一个图标。** 已在运行期观察（`e2e/scratch/2026-11-13-running-status-icon/report.md` V20）：刚点撤销时摘要划线显示；离开对话再回来，卡片只剩撤销图标、摘要为空。已核实原因：卡片的摘要只来自条目本身或卡片自己记下的那一份（`memory-write/card.tsx` 的 `entry?.summary ?? lastSummary`），新增的条目撤销后已被删除，卡片重新挂载后两者都没有；写入记录 `MemoryWrite`（`memory-write/parse.ts:26`）只有 id、动作和层级。这一缺口随 Agent 记忆（#92）引入，本轮把「已撤销」文字换成图标后卡片因此几乎为空。
+9. **组织树的部门行写英文「Lead · 名字」。** 已在运行期观察（同一报告的计划外发现）：共享包 `org/org-group-header.tsx:152` 用 `org.index.lead`，zh-CN 与 en 都是 `Lead · {{name}}`。
 
 ## Actors and user stories
 
@@ -40,6 +42,8 @@
 | 10 | 左侧列表行首状态点保留，行尾换图标 | 推荐：整列对齐不变，行布局零改动。否决：运行中把行首点换成转圈、行尾回到时间——转圈比点宽，所有行的标题会错位 |
 | 11 | 记忆卡片（⑩）最后改 | 另一会话仍在运行期验证这张卡片的编辑与撤销，避免同时改同一文件 |
 | 12 | 控制台通过钉住新的 agentre 版本获得共享包里的改动；控制台宿主自有的列表不改 | 已核实：控制台桌面版列表行尾只有时间与理由（`agentre-server/frontend/src/components/session/SessionIndex.tsx` 的 `trailing`），没有英文状态词 |
+| 13 | 撤销后的记忆卡始终显示这次写入的摘要并划线，条目已被删除、卡片重新挂载、会话重开后也一样 | 用户决定另开修正轮。否决：只在卡片未重新挂载时显示——运行期已证明离开对话再回来就丢了 |
+| 14 | 组织树部门行的负责人标记与部门负责人徽标同一套：皇冠 + 负责人名字，皇冠名为「负责人」 | 用户决定另开修正轮修这处计划外发现。否决：只把 zh 文案改成「负责人 · 名字」——spec 已规定负责人用皇冠表示 |
 
 ## 状态标记规则
 
@@ -75,13 +79,15 @@
 
 **手机版会话行（控制台）。** 运行中的「运行中」胶囊换成转圈，出错换成红色三角；「等你」胶囊不变。
 
-**记忆卡片。** 开头的动作词换成图标：记住了 → bookmark-plus，改了记忆 → pencil，归档了记忆 → archive，已有这条记忆 → bookmark-check，已撤销 → undo（摘要照旧划线）。所在层级：全局 → globe，部门 → users + 名字，项目 → folder + 名字。编辑、撤销换成带名字和悬停提示的图标按钮。撤销失败时的说明文字不变。
+**记忆卡片。** 开头的动作词换成图标：记住了 → bookmark-plus，改了记忆 → pencil，归档了记忆 → archive，已有这条记忆 → bookmark-check，已撤销 → undo（摘要照旧划线；离开对话再回来、重开会话后，即使条目已被删除，也照样显示这次写入的摘要并划线）。所在层级：全局 → globe，部门 → users + 名字，项目 → folder + 名字。编辑、撤销换成带名字和悬停提示的图标按钮。撤销失败时的说明文字不变。
 
 **记忆页条目行。** 「你写的」换成 user 图标，「来自会话」换成对话气泡图标 + 会话标题链接，「有详情」换成 text 图标。已置顶的星标和分组标题不变。
 
 **权限模式菜单。** 当前模式的 `ACTIVE` 胶囊换成 ✓。
 
 **部门负责人徽标。** 去掉 `LEAD` 字样，只留皇冠，可访问名与悬停提示为「负责人」。
+
+**组织树部门行。** 部门有负责人时，部门行上的「Lead · 名字」换成皇冠 + 负责人名字；皇冠的可访问名与悬停提示为「负责人」，名字照旧显示。没有负责人时不显示。中、英两种界面都不再出现「Lead」字样。
 
 **退出确认框。** 运行中的「运行中」胶囊换成转圈；等待中的「等待确认」胶囊不变。
 
@@ -111,8 +117,10 @@
 | 各卡片与行组件渲染测试 | 每条「各处改动」：旧文字消失、图标及其可访问名出现、保留文字的状态仍是文字 | `activity-block/block.test.tsx`、`raw/card.test.tsx`、`agent-spawn/card.test.tsx`、`user-ask/card.test.tsx`、`file-edit/hunk-renderer.test.tsx`、`tool-permission/card.test.tsx`、`tool-approval/*.test.tsx`、`local-command/card.test.tsx`、`memory-write/card.test.tsx`、`memory/memory-row.test.tsx`、`permission-mode-pill.test.tsx` |
 | 桌面宿主组件 | 任务进度条、Agent 会话弹层、退出确认框、负责人徽标的同上行为 | `task-progress/__tests__/task-progress-bar.test.tsx`、`__tests__/sessions-popover.test.tsx`、`__tests__/quit-confirm-dialog.test.tsx`、`org/__tests__/org-department-badges.test.tsx` |
 | `StatusDot` | 读屏名为界面语言 | `frontend/src/components/agentre/__tests__/foundation.test.tsx` |
+| 记忆卡片重新挂载 | 新增的记忆被撤销、条目已删除后，卡片卸载再挂载（同一转录、新的组件实例）仍显示这次写入的摘要并划线 | `memory-write/card.test.tsx` |
+| 组织树部门组头 | 有负责人时显示皇冠（名「负责人」）+ 名字、无 `Lead` 字样；无负责人时不显示 | `org/org-group-header.test.tsx` |
 | i18n 守卫 | 新键中英齐全、静态键存在 | `frontend/src/__tests__/i18n.test.ts`、`agentre-ui/src/i18n/i18n.test.tsx` |
 
-运行期：用 `make verify-up` 起隔离桌面，对一个正在运行的会话截取左侧列表、标签页、转录（活动行、工具卡、子 Agent 卡）的浅 / 深两张图，确认图标与提示；控制台钉版本后在 dev 环境看一次转录与手机版会话行。视觉细节（尺寸、对齐）无法自动化，由这两次截图覆盖。
+运行期：用 `make verify-up` 起隔离桌面（修正轮另外复现报告 V20 的路径：撤销一张「记住了」卡，离开对话再回来），对一个正在运行的会话截取左侧列表、标签页、转录（活动行、工具卡、子 Agent 卡）的浅 / 深两张图，确认图标与提示；控制台钉版本后在 dev 环境看一次转录与手机版会话行。视觉细节（尺寸、对齐）无法自动化，由这两次截图覆盖。
 
 ## Open questions
