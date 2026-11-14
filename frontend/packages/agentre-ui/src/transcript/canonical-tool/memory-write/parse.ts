@@ -52,7 +52,10 @@ function isMemoryWriteWords(words: string[]): boolean {
   );
 }
 
-/** 命令里第一条记忆写入的 --summary（结果行也是第一条写入的）；没有则 undefined。 */
+/**
+ * 命令里第一条记忆写入的 --summary（结果行也是第一条写入的）；没有则 undefined。
+ * 与 agrctl 读 flag 一致（ctlcmd/args.go parseArgs）：前面几个 "-" 都行，值跟在后面或 "=" 之后。
+ */
 function summaryOfFirstWrite(block: TranscriptBlock): string | undefined {
   const command = (block.toolInput as { command?: unknown } | undefined)
     ?.command;
@@ -61,8 +64,10 @@ function summaryOfFirstWrite(block: TranscriptBlock): string | undefined {
   const words = commands?.find(isMemoryWriteWords);
   if (!words) return undefined;
   for (let i = 0; i < words.length; i++) {
-    if (words[i] === "--summary") return words[i + 1];
-    if (words[i].startsWith("--summary=")) return words[i].slice(10);
+    if (!words[i].startsWith("-")) continue;
+    const flag = words[i].replace(/^-+/, "");
+    if (flag === "summary") return words[i + 1];
+    if (flag.startsWith("summary=")) return flag.slice("summary=".length);
   }
   return undefined;
 }

@@ -85,7 +85,11 @@ function MemoryCard({
     (write.action === "created" && entry === null) ||
     (entry != null && undoneByUser(write.action, entry));
   const gone = entry === null && !isUndone;
-  const summary = entry?.summary ?? lastSummary ?? write.summary;
+  // 已撤销时划掉的是这次写入的那句（修改被撤销后条目已回到上一版，新增被撤销后条目已删）；
+  // 命令里没写摘要（只改详情、归档）时，这次写入的摘要就是条目自己的。
+  const summary = isUndone
+    ? (write.summary ?? entry?.summary ?? lastSummary)
+    : (entry?.summary ?? lastSummary ?? write.summary);
   const action = write.action;
 
   const undo = async () => {

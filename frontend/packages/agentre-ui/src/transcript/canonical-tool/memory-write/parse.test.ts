@@ -195,6 +195,9 @@ describe("parseMemoryWrite", () => {
         `/bin/zsh -lc "agrctl create memory --summary 'wrapped one'"`,
         "wrapped one",
       ],
+      // agrctl 去掉 flag 前面任意个 "-"（ctlcmd/args.go parseArgs），单横线写法也是同一个 flag。
+      ['agrctl create memory -summary "one dash"', "one dash"],
+      ["agrctl create memory -summary=单横线 --detail x", "单横线"],
     ])("Given %s, Then the write carries %s", (command, summary) => {
       expect(parseMemoryWrite(use(command), line)?.summary).toBe(summary);
     });

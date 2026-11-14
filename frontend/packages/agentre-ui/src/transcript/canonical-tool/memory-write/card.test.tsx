@@ -31,6 +31,13 @@ const call = {
   toolInput: { command: 'agrctl create memory --summary "x"' },
 } as unknown as TranscriptBlock;
 
+// 只改详情的修改：命令里没有 --summary，卡片上的摘要就是条目自己的。
+const detailOnlyUpdate = {
+  type: "tool_use",
+  toolName: "Bash",
+  toolInput: { command: "agrctl update memory 7 --detail d" },
+} as unknown as TranscriptBlock;
+
 const resultOf = (line: string) =>
   ({ type: "tool_result", text: line + "\n" }) as unknown as TranscriptBlock;
 
@@ -119,7 +126,7 @@ describe("MemoryWriteCard", () => {
 
   it("undoing a write calls the port with the session and action, then shows undone and no buttons", async () => {
     const memory = memoryPort();
-    renderCard("memory m7 updated (agent A)", memory);
+    renderCard("memory m7 updated (agent A)", memory, {}, detailOnlyUpdate);
     await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
 
     expect(memory.undoWrite).toHaveBeenCalledWith({
@@ -260,6 +267,55 @@ describe("MemoryWriteCard", () => {
       );
       expect(await screen.findByText("Edited later")).toBeDefined();
       expect(screen.queryByText("Run make lint before commit")).toBeNull();
+    });
+  });
+
+  // 撤销一次修改 = 恢复上一版：条目的摘要回到了旧的那句，但被划掉的应是这次写入的那句。
+  describe("the summary of an updated write the user undid", () => {
+    const update = {
+      type: "tool_use",
+      toolName: "Bash",
+      toolInput: {
+        command: 'agrctl update memory 7 --summary "New wording"',
+      },
+    } as unknown as TranscriptBlock;
+    const line = "memory m7 updated (agent A)";
+    const restored = entry({
+      summary: "Old wording",
+      lastChange: { action: "restored", actor: "user" },
+    });
+
+    it("Given the user clicks undo, Then this write's summary is struck through, not the restored one", async () => {
+      const memory = memoryPort({
+        get: vi
+          .fn<MemoryTranscriptPorts["get"]>()
+          .mockResolvedValueOnce(entry({ summary: "New wording" }))
+          .mockResolvedValue(restored),
+      });
+      renderCard(line, memory, {}, update);
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Undo" }),
+      );
+      await screen.findByRole("img", { name: "Undone" });
+      await waitFor(() => expect(memory.get).toHaveBeenCalledTimes(2));
+      expect((await screen.findByText("New wording")).className).toContain(
+        "line-through",
+      );
+      expect(screen.queryByText("Old wording")).toBeNull();
+    });
+
+    it("Given the card mounts after the undo, Then this write's summary is struck through, not the restored one", async () => {
+      renderCard(
+        line,
+        memoryPort({ get: vi.fn(async () => restored) }),
+        {},
+        update,
+      );
+      await screen.findByRole("img", { name: "Undone" });
+      expect((await screen.findByText("New wording")).className).toContain(
+        "line-through",
+      );
+      expect(screen.queryByText("Old wording")).toBeNull();
     });
   });
 
