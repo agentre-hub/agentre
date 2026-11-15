@@ -956,10 +956,12 @@ type SessionAttachResult struct {
 	LatestSeq      int64  `json:"latestSeq"`
 }
 
-// SessionDeleteParams 是 MethodSessionDelete 的请求。PeerFingerprint 的语义与补齐族
-// 完全一致:省略 = 调用方自己的对端,点名别人是账号级能力(见 handlers.ResolveSessionPeer)。
+// SessionDeleteParams 是 MethodSessionDelete 的请求。点名 PeerFingerprint 的语义与补齐族
+// 完全一致:点名别人是账号级能力(见 handlers.ResolveSessionPeer)。省略时分两种:局域网
+// 配对的调用方 = 调用方自己的对端;账号鉴权的调用方(server)按 conversation_id 删这条
+// 对话,不论它由哪个对端发起。
 // 这是本 wire 上第一个破坏性方法,越界的代价不再是「读到了不该读的」而是「删掉了
-// 别人的对话」,所以它绝不能自成一套宽松的范围规则。
+// 别人的对话」,所以放宽只给账号调用方,配对调用方的范围一点不放。
 type SessionDeleteParams struct {
 	ConversationID  string             `json:"conversationId"`
 	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
