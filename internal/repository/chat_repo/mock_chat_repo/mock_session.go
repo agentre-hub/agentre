@@ -222,6 +222,21 @@ func (mr *MockSessionRepoMockRecorder) ListExecAgentBackendRefs(ctx any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExecAgentBackendRefs", reflect.TypeOf((*MockSessionRepo)(nil).ListExecAgentBackendRefs), ctx)
 }
 
+// ListForCleanup mocks base method.
+func (m *MockSessionRepo) ListForCleanup(ctx context.Context, filter chat_repo.SessionCleanupFilter) ([]*chat_entity.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListForCleanup", ctx, filter)
+	ret0, _ := ret[0].([]*chat_entity.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListForCleanup indicates an expected call of ListForCleanup.
+func (mr *MockSessionRepoMockRecorder) ListForCleanup(ctx, filter any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListForCleanup", reflect.TypeOf((*MockSessionRepo)(nil).ListForCleanup), ctx, filter)
+}
+
 // ListForRollup mocks base method.
 func (m *MockSessionRepo) ListForRollup(ctx context.Context, createdFromMs int64) ([]*chat_entity.Session, error) {
 	m.ctrl.T.Helper()

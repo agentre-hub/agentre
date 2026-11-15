@@ -62,6 +62,7 @@ type Item = {
   prevSummary: string;
   prevDetail: string;
   creator: { kind: string; agentId: number; sessionId: number };
+  creatorSessionExists?: boolean;
   lastChange: {
     action: string;
     actor: { kind: string; agentId: number; sessionId: number };
@@ -490,6 +491,7 @@ describe("Memory page · an owner", () => {
         carried: [
           item(1, "Logs mix with agent output", AGENT_EVA, {
             creator: { kind: "ai", agentId: 2, sessionId: 44 },
+            creatorSessionExists: true,
           }),
         ],
       }),
@@ -506,6 +508,28 @@ describe("Memory page · an owner", () => {
       kind: "session",
       sessionId: 44,
     });
+  });
+});
+
+describe("Memory page · deleted source session", () => {
+  it("Given the AI-written entry's session was deleted, Then the source shows the agent label and is not a button", async () => {
+    app.MemoryListByOwner.mockResolvedValue(
+      list(AGENT_EVA, {
+        carried: [
+          item(1, "Logs mix with agent output", AGENT_EVA, {
+            creator: { kind: "ai", agentId: 2, sessionId: 44 },
+            creatorSessionExists: false,
+          }),
+        ],
+      }),
+    );
+    renderPage("/memory?owner=agent:2");
+    const row = await screen.findByTestId("memory-row-1");
+    expect(row).toHaveTextContent("From session");
+    expect(row).toHaveTextContent("Eva's session");
+    expect(
+      within(row).queryByRole("button", { name: "Eva's session" }),
+    ).not.toBeInTheDocument();
   });
 });
 

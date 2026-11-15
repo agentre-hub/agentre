@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/cago-frame/cago/pkg/logger"
@@ -100,6 +101,10 @@ func productionProtobufInboundDeps(portForward *portforward.Handlers) ProtobufIn
 				return err
 			}
 			sessionID, err := chat_svc.ResolvePeerConversation(ctx, conversationID)
+			if errors.Is(err, chat_svc.ErrPeerSessionNotFound) {
+				// 这一端本就没有这条会话:删除的后置条件已经成立,按成功返回(与 agentred 一致)。
+				return nil
+			}
 			if err != nil {
 				return err
 			}

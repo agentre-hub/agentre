@@ -10,5 +10,6 @@
   "waitingForInput": true,
   "latestSeq": 12,
   "lastMessageAt": 1754800000000,
-  "reasoningEffort": "high"
+  "reasoningEffort": "high",
+  "carrierFingerprint": "sha256:agentred-exec"
 }

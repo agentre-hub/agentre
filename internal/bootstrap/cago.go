@@ -131,6 +131,7 @@ func Init(ctx context.Context) (*Runtime, error) {
 	hook_repo.RegisterHook(hook_repo.NewHook())
 	hook_repo.RegisterHookEvent(hook_repo.NewHookEvent())
 	chat_repo.RegisterSession(chat_repo.NewSession())
+	chat_repo.RegisterPendingDelete(chat_repo.NewPendingDelete())
 	transcript_repo.RegisterMessage(transcript_repo.NewMessage())
 	project_repo.RegisterProject(project_repo.NewProject())
 	project_repo.RegisterProjectAgent(project_repo.NewProjectAgent())

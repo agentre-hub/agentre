@@ -1,0 +1,66 @@
+{
+  "sessionCleanup": {
+    "desktop": {
+      "title": "清理对话历史",
+      "description": "删除这台电脑上较早的对话，同时删除它们在账号里保存的副本和各执行端上的副本。"
+    },
+    "console": {
+      "title": "清理已保存的对话",
+      "description": "删除账号里保存的对话，同时删除它们在各执行端机器上的副本。"
+    },
+    "filter": {
+      "before": "最后活动早于",
+      "before30d": "30 天前",
+      "before90d": "90 天前",
+      "before180d": "180 天前",
+      "beforeAll": "全部",
+      "agent": "Agent",
+      "allAgents": "全部 Agent",
+      "project": "项目",
+      "allProjects": "全部项目"
+    },
+    "summary": {
+      "willDelete": "将删除 {{count}} 个对话",
+      "willDelete_one": "将删除 {{count}} 个对话",
+      "willDelete_other": "将删除 {{count}} 个对话",
+      "retained": "进行中或等你操作的 {{count}} 个会保留",
+      "retained_one": "进行中或等你操作的 {{count}} 个会保留",
+      "retained_other": "进行中或等你操作的 {{count}} 个会保留",
+      "emptyBefore": "没有最后活动早于 {{date}} 的对话",
+      "emptyAll": "没有可清理的对话",
+      "failed": "没能算出要清理多少对话",
+      "retry": "重试"
+    },
+    "action": {
+      "clean": "清理 {{count}} 个对话…",
+      "clean_one": "清理 {{count}} 个对话…",
+      "clean_other": "清理 {{count}} 个对话…"
+    },
+    "confirm": {
+      "title": "删除 {{count}} 个对话？",
+      "title_one": "删除 {{count}} 个对话？",
+      "title_other": "删除 {{count}} 个对话？",
+      "body": "删除后无法撤销。",
+      "copyLocal": "这台电脑",
+      "copyAccount": "账号里保存的副本",
+      "online": "在线",
+      "offline": "离线 · 下次上线时删除",
+      "lanDirect": "局域网配对 · 直接删除",
+      "rowCount": "{{count}} 个对话",
+      "rowCount_one": "{{count}} 个对话",
+      "rowCount_other": "{{count}} 个对话",
+      "delete": "删除 {{count}} 个",
+      "deleting": "正在删除…",
+      "cancel": "取消",
+      "error": "删除没有完成，请重试。"
+    },
+    "partial": {
+      "title": "还有 {{count}} 个对话没删掉",
+      "title_one": "还有 {{count}} 个对话没删掉",
+      "title_other": "还有 {{count}} 个对话没删掉",
+      "reason": "{{reason}}（{{count}} 个）",
+      "retry": "重试 {{count}} 个",
+      "close": "关闭"
+    }
+  }
+}

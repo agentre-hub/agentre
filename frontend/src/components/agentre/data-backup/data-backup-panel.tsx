@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { CleanupSection } from "./cleanup-section";
 import { ExportSection } from "./export-section";
 import { ImportResultDialog } from "./import-result-dialog";
 import { ImportSection } from "./import-section";
@@ -22,6 +23,7 @@ export function DataBackupPanel() {
       </div>
       <ExportSection />
       <ImportSection onResult={setResult} />
+      <CleanupSection />
       <ImportResultDialog counts={result} onClose={() => setResult(null)} />
     </>
   );

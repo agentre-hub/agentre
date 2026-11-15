@@ -63,7 +63,11 @@ func (s *memorySvc) Get(ctx context.Context, id int64) (*MemoryItem, error) {
 	if err != nil || m == nil {
 		return nil, err
 	}
-	return toItem(m), nil
+	item := toItem(m)
+	if err := s.markCreatorSessions(ctx, []*MemoryItem{item}); err != nil {
+		return nil, err
+	}
+	return item, nil
 }
 
 func (s *memorySvc) UndoWrite(ctx context.Context, req *UndoWriteRequest) (*UndoWriteResult, error) {
