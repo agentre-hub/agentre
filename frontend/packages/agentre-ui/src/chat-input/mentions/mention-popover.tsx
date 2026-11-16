@@ -3,6 +3,7 @@ import * as React from "react";
 import { useUiTranslation } from "../../i18n";
 import { tokenToCssColor } from "../../lib/agent-color";
 import { cn } from "../../lib/utils";
+import { StatusMark } from "../../ui/status-mark";
 
 import { SuggestionPopover } from "../suggestion-popover";
 import type { MentionItem, MentionMenuState } from "./types";
@@ -110,11 +111,10 @@ export function MentionPopover({
                   </span>
                 ) : null}
                 {/* 只有离线才出声:在线是常态,一枚绿点已经说完了。反过来,离线单靠
-                    灰点在色觉障碍下读不出来,所以那一侧补一句文字。 */}
+                    灰点在色觉障碍下读不出来,所以那一侧补一枚离线图标——靠形状区分,
+                    名字与悬停提示是「离线」。 */}
                 {item.kind === "device" && !item.online ? (
-                  <span className="ml-auto shrink-0 text-muted-foreground">
-                    {t("mentions.device.offline")}
-                  </span>
+                  <StatusMark state="offline" className="ml-auto size-3" />
                 ) : null}
               </button>
             </React.Fragment>

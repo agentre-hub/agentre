@@ -2,17 +2,18 @@ import * as React from "react";
 import { Check, ShieldAlert, X } from "lucide-react";
 
 import { Button } from "../../ui/button";
+import { StatusMark } from "../../ui/status-mark";
 import { cn } from "../../lib/utils";
 import { useUiTranslation } from "../../i18n";
 import { CollapsibleCode } from "../collapsible-code";
 import type { TranscriptBlockToolApproval } from "../dto";
 import { useTranscriptPorts } from "../ports-context";
+import { TranscriptCard, TranscriptCardBody } from "../transcript-card";
 import {
-  TranscriptCard,
-  TranscriptCardBody,
-  TranscriptPill,
-} from "../transcript-card";
-import { CtlApprovalCard, parseCtlApprovalInput } from "./ctl-approval-card";
+  approvalMarkState,
+  CtlApprovalCard,
+  parseCtlApprovalInput,
+} from "./ctl-approval-card";
 
 // ToolApprovalCard 渲染 agent 内置写工具(org_create_department / org_update_agent /
 // ...)的审批卡。视觉对齐 canonical-tool/tool-permission/card.tsx,但走
@@ -110,17 +111,10 @@ export const ToolApprovalCard: React.FC<{
           {t("toolApproval.title")}
         </span>
         {!isPending && (
-          <TranscriptPill
-            data-copyable-control-text="true"
-            className={cn(
-              "ml-auto",
-              isApproved
-                ? "bg-status-running-bg text-status-running-text"
-                : "bg-destructive/10 text-destructive-text",
-            )}
-          >
-            {t(`toolApproval.status.${approval.status}`)}
-          </TranscriptPill>
+          <StatusMark
+            state={approvalMarkState(approval.status)}
+            className="ml-auto"
+          />
         )}
       </div>
 

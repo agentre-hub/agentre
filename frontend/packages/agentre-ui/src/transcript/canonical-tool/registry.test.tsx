@@ -297,7 +297,7 @@ describe("TranscriptRowView decision switches", () => {
   it('Given decisionPlacement="docked", When a resolved permission row renders, Then its card still shows', () => {
     renderRow(rowFor(permissionItem(true)), { decisionPlacement: "docked" });
     expect(screen.getByTestId("tool-permission-card")).toBeDefined();
-    expect(screen.getByText("Allowed")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Allowed" })).toBeDefined();
   });
 
   it('Given decisionPlacement="docked", When a pending user.ask row renders, Then the question card stays in the transcript', () => {

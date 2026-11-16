@@ -1,7 +1,7 @@
 {
   "org": {
     "index": {
-      "lead": "Lead · {{name}}",
+      "leader": "负责人",
       "reportsToInline": "↳ {{name}}",
       "systemBadge": "系统",
       "noExecTarget": "无目标",
@@ -69,7 +69,6 @@
         "replace": "更换",
         "localMachine": "本机",
         "currentlyActive": "当前生效",
-        "online": "在线",
         "skillsToggle": "{{machine}} 的技能",
         "reasons": {
           "orphanBackend": "该执行目标引用的后端已不存在",

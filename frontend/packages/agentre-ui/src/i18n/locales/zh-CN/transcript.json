@@ -32,7 +32,6 @@
       "thinkingMeta": "{{count}} 字",
       "exit": "exit {{code}}",
       "failed": "失败",
-      "running": "运行中",
       "canceled": "已取消",
       "unknown": "结果未知",
       "lines": "{{count}} 行",
@@ -46,11 +45,6 @@
     }
   },
   "canonical": {
-    "status": {
-      "done": "DONE",
-      "error": "ERROR",
-      "running": "RUNNING"
-    },
     "agentSpawn": {
       "aria": "Subagent {{name}}",
       "groupedAria": "{{mode}}模式的多个 Subagent",
@@ -93,23 +87,11 @@
         "steps_other": "{{count}} 步"
       },
       "sections": {
-        "prompt": "TASK PROMPT",
-        "tasks": "TASKS",
-        "steps": "STEPS",
-        "output": "OUTPUT",
-        "summary": "SUMMARY"
-      },
-      "status": {
-        "done": "DONE",
-        "error": "ERROR",
-        "failed": "FAILED",
-        "partial": "PARTIAL",
-        "running": "RUNNING",
-        "waiting": "WAITING",
-        "skipped": "SKIPPED",
-        "unknown": "UNKNOWN",
-        "stopped": "STOPPED",
-        "withDuration": "{{status}} · {{duration}}"
+        "prompt": "任务说明",
+        "tasks": "各次运行",
+        "steps": "步骤",
+        "output": "输出",
+        "summary": "总结"
       },
       "summaryRunning": "subagent 还在跑，结果稍后返回…",
       "waitingFirstStep": "等待第一个子调用…",
@@ -123,10 +105,6 @@
       "paramCount": "{{count}} 个参数"
     },
     "fileEdit": {
-      "badge": {
-        "deleted": "DELETED",
-        "new": "NEW"
-      },
       "fileCount": "{{count}} 个文件",
       "noChanges": "无实际变更",
       "replay": {
@@ -191,8 +169,6 @@
       }
     },
     "raw": {
-      "allowed": "Allowed",
-      "allowedSession": "Allowed · session",
       "approvedTitle": "该工具调用已审批通过",
       "aria": "工具调用 {{tool}}",
       "emptyOutput": "(empty output)",
@@ -215,9 +191,6 @@
       "lines_other": "{{count}} 行",
       "allowOnce": "允许",
       "allowSession": "本会话始终允许",
-      "allowed": "已允许",
-      "allowedSession": "已允许(本会话)",
-      "denied": "已拒绝",
       "submitFailed": "审批提交失败",
       "dock": {
         "eyebrow": "需要你决定",
@@ -226,8 +199,6 @@
       }
     },
     "userAsk": {
-      "answered": "ANSWERED",
-      "expired": "已失效",
       "errors": {
         "optionRequired": "请先选择一个选项再提交",
         "otherRequired": "已选「自定义答案」请填写内容",
@@ -237,10 +208,9 @@
       "multi": "多选",
       "otherPlaceholder": "自定义答案 — 输入你自己的方案…",
       "secretAnswered": "已作答 · 内容不显示",
-      "skipped": "SKIPPED",
       "single": "单选",
       "submit": "提交回复",
-      "waiting": "WAITING · 等待回复"
+      "waiting": "等待回复"
     }
   },
   "compactBoundary": {
@@ -272,17 +242,10 @@
     "turnsBelow": "下面还有 {{count}} 轮"
   },
   "memoryWrite": {
-    "label": {
-      "created": "记住了",
-      "updated": "改了记忆",
-      "archived": "归档了记忆",
-      "exists": "已有这条记忆",
-      "undone": "已撤销"
-    },
     "layer": {
       "global": "全局",
-      "department": "部门 {{name}}",
-      "project": "项目 {{name}}"
+      "department": "部门",
+      "project": "项目"
     },
     "edit": "编辑",
     "undo": "撤销",

@@ -576,9 +576,11 @@ describe("ActivityBlock 未落定的一步", () => {
     fireEvent.click(screen.getByTestId("activity-header"));
 
     const rows = screen.getAllByTestId("activity-row");
-    expect(within(rows[1]).getByTestId("activity-pending")).toHaveTextContent(
-      "running",
-    );
+    const pending = within(rows[1]).getByTestId("activity-pending");
+    expect(
+      within(pending).getByRole("img", { name: "Running" }),
+    ).toHaveAttribute("data-state", "running");
+    expect(pending).toHaveTextContent("");
     // 落定的那一步仍然什么标记都没有。
     expect(within(rows[0]).queryByTestId("activity-pending")).toBeNull();
   });
@@ -609,9 +611,12 @@ describe("ActivityBlock 未落定的一步", () => {
 
     // getByTestId 本身就会在出现第二个标记时报错。
     const row = screen.getAllByTestId("activity-row")[1];
-    expect(within(row).getByTestId("activity-pending")).toHaveTextContent(
-      "running",
-    );
+    expect(
+      within(within(row).getByTestId("activity-pending")).getByRole("img", {
+        name: "Running",
+      }),
+    ).toBeInTheDocument();
+    expect(within(row).queryByText(/Background/)).toBeNull();
   });
 
   it("Given 后台任务已经结束, Then 该行不再报后台运行", () => {
@@ -667,7 +672,25 @@ describe("ActivityBlock 未落定的一步", () => {
   it("Given 单条不成组的一步还在跑, Then 那一行同样带运行中标记", () => {
     renderBlock({ steps: [pendingStep], summary: summaryOf({ steps: 1 }) });
 
-    expect(screen.getByTestId("activity-pending")).toHaveTextContent("running");
+    const pending = screen.getByTestId("activity-pending");
+    expect(
+      within(pending).getByRole("img", { name: "Running" }),
+    ).toBeInTheDocument();
+    expect(pending).toHaveTextContent("");
+  });
+
+  it("Given 一步已终结却没配到结果, Then 仍写文字而不是图标", () => {
+    renderBlock({
+      steps: [readStep, pendingStep],
+      pendingOutcome: "failed",
+    });
+    fireEvent.click(screen.getByTestId("activity-header"));
+
+    const marker = within(screen.getAllByTestId("activity-row")[1]).getByTestId(
+      "activity-pending",
+    );
+    expect(marker).toHaveTextContent("failed");
+    expect(within(marker).queryByRole("img")).toBeNull();
   });
 });
 

@@ -18,6 +18,9 @@ import type { AttentionReason } from "./attention";
  */
 export type SessionAttentionRank = AttentionReason | "selected";
 
+/** 行尾能画成图标的两种状态（见 `SessionRowModel.trailingMark`）。 */
+export type SessionTrailingMark = "running" | "error";
+
 /**
  * 一条会话在索引里的**展示模型**。宿主各自投影：桌面端从 session-meta-store 来，
  * agentre-server 从 wire 的 `SessionSummary` 来（连同「没有标题的会话退化成
@@ -29,6 +32,11 @@ export type SessionRowModel = {
   status: AgentStatus;
   title: string;
   trailingLabel?: string;
+  /**
+   * 行尾的状态图标：运行中转圈、出错红三角。与 `trailingLabel`（文字）二选一 ——
+   * 状态本身用图标说，不再产出 `running` / `error` 字面量。
+   */
+  trailingMark?: SessionTrailingMark;
   attentionRank?: SessionAttentionRank;
   /**
    * 行首 / 第二行 / 行尾三个插槽。它们是**这一行显示什么**的一部分（`trailingLabel`

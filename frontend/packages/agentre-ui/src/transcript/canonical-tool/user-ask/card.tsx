@@ -1,6 +1,5 @@
 import * as React from "react";
 import {
-  Check,
   CheckCircle2,
   ChevronDown,
   Circle,
@@ -13,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "../../../ui/button";
 import { Input } from "../../../ui/input";
+import { StatusMark } from "../../../ui/status-mark";
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -364,30 +364,9 @@ function StatusPill({
   expired: boolean;
 }) {
   const { t } = useUiTranslation();
-  if (expired) {
-    return (
-      <TranscriptPill tone="default">
-        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-        {t("canonical.userAsk.expired")}
-      </TranscriptPill>
-    );
-  }
-  if (skipped) {
-    return (
-      <TranscriptPill tone="default">
-        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-        {t("canonical.userAsk.skipped")}
-      </TranscriptPill>
-    );
-  }
-  if (answered) {
-    return (
-      <TranscriptPill tone="done">
-        <Check className="h-2.5 w-2.5" />
-        {t("canonical.userAsk.answered")}
-      </TranscriptPill>
-    );
-  }
+  if (expired) return <StatusMark state="invalidated" />;
+  if (skipped) return <StatusMark state="skipped" />;
+  if (answered) return <StatusMark state="answered" />;
   return (
     <TranscriptPill tone="pending">
       <span className="h-1.5 w-1.5 rounded-full bg-status-waiting" />

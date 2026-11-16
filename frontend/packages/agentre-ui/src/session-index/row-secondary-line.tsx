@@ -1,9 +1,8 @@
 import * as React from "react";
 
-import { useUiTranslation } from "../i18n";
-
 import type { IndexAxis } from "./axis-groups";
 import { AgentAvatar } from "../ui/agent-avatar";
+import { StatusMark } from "../ui/status-mark";
 import { ProjectGlyph, type ProjectGlyphInfo } from "./project-glyph";
 
 /**
@@ -17,8 +16,9 @@ import { ProjectGlyph, type ProjectGlyphInfo } from "./project-glyph";
  * 字形就是「按 Agent」档行首、以及项目组头上那一枚 —— 否则同一条会话在几个轴之间
  * 长出几种样子，切轴时读者要重新找一遍锚点。
  *
- * 机器离线时在机器那一维后面跟一段「离线」：本体在 server 上，机器离线只影响能不能
- * 发新消息、不影响读，所以它是行上的一个状态，而不是让整条行变灰、不可点。
+ * 机器离线时在机器名后面跟一枚离线图标（名「离线」；在线是常态、不画标记）：本体在
+ * server 上，机器离线只影响能不能发新消息、不影响读，所以它是行上的一个状态，而不是
+ * 让整条行变灰、不可点。
  */
 
 /** 各维之间的分隔符。是排版符号不是文案，因此不进 i18n。 */
@@ -60,8 +60,6 @@ export function RowSecondaryLine({
   agentGlyph,
   testId = "row-secondary-line",
 }: RowSecondaryLineProps) {
-  const { t } = useUiTranslation();
-
   const agentPart =
     agent && agent.name ? (
       <>
@@ -97,9 +95,7 @@ export function RowSecondaryLine({
     <>
       <span className="truncate">{machine.name}</span>
       {!machine.online ? (
-        <span data-kind="machine-offline">
-          {DIMENSION_SEPARATOR} {t("sessionIndex.machine.offline")}
-        </span>
+        <StatusMark state="offline" className="size-3" />
       ) : null}
     </>
   ) : null;

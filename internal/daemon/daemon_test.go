@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	dbpkg "github.com/cago-frame/cago/database/db"
@@ -1874,53 +1875,65 @@ func TestDaemon_RefreshLoop_GivenTransientRefreshFailure_WhenRetrySucceeds_ThenC
 // would create — must share one refresh HTTP round trip rather than each
 // spending the (possibly single-use) refresh token.
 func TestCredentialRefresher_RefreshNow_ConcurrentCallersSingleFlightOneHTTPRoundTrip(t *testing.T) {
-	clock := &refreshTestClock{now: time.Unix(1_700_000_000, 0)}
-	var calls atomic.Int32
-	proceed := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls.Add(1)
-		<-proceed
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"access-2","expires_in":900,"refresh_token":"refresh-2","refresh_expires_in":3600}`))
-	}))
-	t.Cleanup(server.Close)
+	// synctest：synctest.Wait 只在两个调用方都停稳之后才返回——一个卡在刷新的 HTTP 往返里，
+	// 另一个在等它加入的那次刷新。只看「请求到了一个」不够：第二个调用方若被调度得晚，
+	// 会在第一次刷新已结束后才进 refreshNow，照规矩自己再刷一次，测试就假红。
+	// 往返换成内存里的 RoundTripper，这样卡住的调用方才算「停稳」。
+	synctest.Test(t, func(t *testing.T) {
+		clock := &refreshTestClock{now: time.Unix(1_700_000_000, 0)}
+		var calls atomic.Int32
+		proceed := make(chan struct{})
+		transport := refreshRoundTripFunc(func(*http.Request) (*http.Response, error) {
+			calls.Add(1)
+			<-proceed
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"access_token":"access-2","expires_in":900,"refresh_token":"refresh-2","refresh_expires_in":3600}`)),
+			}, nil
+		})
 
-	dir := t.TempDir()
-	st, err := state.Load(dir)
-	require.NoError(t, err)
-	st.Login("account-42", state.AccountCredential{
-		AccessToken:           "access-1",
-		AccessTokenExpiresAt:  clock.Now().Add(15 * time.Minute).Unix(),
-		RefreshToken:          "refresh-1",
-		RefreshTokenExpiresAt: clock.Now().Add(24 * time.Hour).Unix(),
+		dir := t.TempDir()
+		st, err := state.Load(dir)
+		require.NoError(t, err)
+		st.Login("account-42", state.AccountCredential{
+			AccessToken:           "access-1",
+			AccessTokenExpiresAt:  clock.Now().Add(15 * time.Minute).Unix(),
+			RefreshToken:          "refresh-1",
+			RefreshTokenExpiresAt: clock.Now().Add(24 * time.Hour).Unix(),
+		})
+		require.NoError(t, st.Save())
+
+		refresher := &credentialRefresher{
+			state: st, serverURL: "http://refresh.invalid", httpClient: &http.Client{Transport: transport},
+			now: clock.Now, logf: t.Logf,
+		}
+
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		for i := range 2 {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				errs[i] = refresher.refreshNow(context.Background())
+			}(i)
+		}
+		synctest.Wait()
+		assert.Equal(t, int32(1), calls.Load(), "with both callers inside refreshNow, only one refresh may be in flight")
+		close(proceed)
+		wg.Wait()
+
+		assert.Equal(t, int32(1), calls.Load(), "two concurrent refreshNow callers must share one HTTP round trip")
+		assert.NoError(t, errs[0])
+		assert.NoError(t, errs[1])
+		assert.Equal(t, "access-2", st.Snapshot().Credential.AccessToken)
 	})
-	require.NoError(t, st.Save())
-
-	refresher := &credentialRefresher{
-		state: st, serverURL: server.URL, httpClient: server.Client(), now: clock.Now, logf: t.Logf,
-	}
-
-	var wg sync.WaitGroup
-	errs := make([]error, 2)
-	for i := range 2 {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			errs[i] = refresher.refreshNow(context.Background())
-		}(i)
-	}
-	// Both goroutines must have reached refreshNow before the one HTTP request
-	// in flight is allowed to complete, otherwise a late second call joining
-	// after the first already returned would trivially also see calls==1.
-	require.Eventually(t, func() bool { return calls.Load() == 1 }, time.Second, time.Millisecond)
-	close(proceed)
-	wg.Wait()
-
-	assert.Equal(t, int32(1), calls.Load(), "two concurrent refreshNow callers must share one HTTP round trip")
-	assert.NoError(t, errs[0])
-	assert.NoError(t, errs[1])
-	assert.Equal(t, "access-2", st.Snapshot().Credential.AccessToken)
 }
+
+// refreshRoundTripFunc 让测试在内存里应答刷新请求。
+type refreshRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f refreshRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // TestCredentialRefresher_RefreshNow_GivenPermanentGrantRejection_ThenErrorWrapsRelayCredentialRejected
 // covers the "refresh itself is rejected" half of P2: a confirmed invalid_grant

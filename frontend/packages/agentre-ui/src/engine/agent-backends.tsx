@@ -18,6 +18,7 @@ import {
   DialogShellHeader,
 } from "../ui/dialog-shell";
 import { Input } from "../ui/input";
+import { StatusMark } from "../ui/status-mark";
 import { cn } from "../lib/utils";
 
 import {
@@ -568,7 +569,9 @@ function AgentBackendsPanelBody({
                   onSelect={() => void handleAutoScan(device)}
                 >
                   {device.name}
-                  {device.online ? "" : t("agentBackends.device.offlineSuffix")}
+                  {device.online ? null : (
+                    <StatusMark state="offline" className="size-3" />
+                  )}
                 </DropdownMenuItem>
               ))
             )}

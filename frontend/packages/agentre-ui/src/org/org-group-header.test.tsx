@@ -11,7 +11,7 @@ const group = {
 } as OrgIndexGroup;
 
 describe("OrgGroupHeader 摘要档（summary）", () => {
-  it("「N 人 ›」是一个整体可点控件，替掉 Lead 徽标与动作，命中区 ≥44px", async () => {
+  it("「N 人 ›」是一个整体可点控件，替掉负责人徽标与动作，命中区 ≥44px", async () => {
     const onSelect = vi.fn();
     render(
       <OrgGroupHeader
@@ -26,7 +26,8 @@ describe("OrgGroupHeader 摘要档（summary）", () => {
     expect(ctl).toHaveTextContent("Eng");
     expect(ctl).toHaveTextContent(/5.*›/);
     expect(ctl.className).toContain("min-h-11");
-    expect(screen.queryByText(/Lead/)).toBeNull();
+    expect(screen.queryByRole("img", { name: "Leader" })).toBeNull();
+    expect(ctl).not.toHaveTextContent("Ann");
     expect(screen.queryByText("plus")).toBeNull();
     await userEvent.click(ctl);
     expect(onSelect).toHaveBeenCalledWith({ kind: "department", id: 3 });
@@ -49,7 +50,7 @@ describe("OrgGroupHeader 摘要档（summary）", () => {
     );
   });
 
-  it("不传 summary：Lead 徽标与动作照旧", () => {
+  it("不传 summary：负责人徽标与动作照旧", () => {
     render(
       <OrgGroupHeader
         group={group}
@@ -58,7 +59,38 @@ describe("OrgGroupHeader 摘要档（summary）", () => {
         actions={<button type="button">plus</button>}
       />,
     );
-    expect(screen.getByText(/Lead/)).toBeInTheDocument();
     expect(screen.getByText("plus")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Leader" })).toBeInTheDocument();
+  });
+});
+
+describe("OrgGroupHeader 负责人徽标", () => {
+  it("Given 部门有负责人 When 渲染 Then 皇冠记号名与提示为 Leader，后跟纯文本姓名，且不出现 Lead ·", () => {
+    render(
+      <OrgGroupHeader group={group} selected={false} onSelect={vi.fn()} />,
+    );
+    const mark = screen.getByRole("img", { name: "Leader" });
+    expect(mark).toHaveAttribute("title", "Leader");
+    expect(mark.querySelector("svg")).not.toBeNull();
+    const ctl = screen.getByTestId("org-group-select-3");
+    expect(ctl).toContainElement(mark);
+    expect(screen.getByText("Ann")).toBeInTheDocument();
+    expect(mark.nextElementSibling).toHaveTextContent(/^Ann$/);
+    expect(ctl).not.toHaveTextContent(/Lead\b/);
+  });
+
+  it("Given 部门没有负责人 When 渲染 Then 不画皇冠也不画姓名位", () => {
+    render(
+      <OrgGroupHeader
+        group={{
+          ...group,
+          department: { ...group.department, leadAgentName: undefined },
+        }}
+        selected={false}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("img", { name: "Leader" })).toBeNull();
+    expect(screen.getByTestId("org-group-select-3")).toHaveTextContent(/^Eng/);
   });
 });

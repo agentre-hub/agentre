@@ -38,9 +38,15 @@ describe("TaskProgressBar", () => {
     expect(screen.getByText("A")).toBeInTheDocument();
     expect(screen.getByText("B")).toBeInTheDocument();
     expect(screen.getByText("C")).toBeInTheDocument();
-    expect(screen.getByText("DONE")).toBeInTheDocument();
-    expect(screen.getByText("RUNNING")).toBeInTheDocument();
-    expect(screen.getByText("QUEUED")).toBeInTheDocument();
+  });
+
+  it("Given an expanded list, When rendered, Then no row ends with a status word", () => {
+    render(<TaskProgressBar progress={claude3} />);
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+    for (const word of ["DONE", "RUNNING", "QUEUED", "FAILED", "CANCELLED"]) {
+      expect(screen.queryByText(word)).not.toBeInTheDocument();
+    }
   });
 
   it("hides the 'current task' row when expanded", () => {
@@ -50,35 +56,57 @@ describe("TaskProgressBar", () => {
   });
 
   it.each([
-    ["DONE", "text-status-running", "text-status-running-text"],
-    ["RUNNING", "text-status-running", "text-status-running-text"],
-    ["FAILED", "text-status-error", "text-destructive-text"],
-  ])(
-    "Given an expanded %s row, Then its icon keeps the fill color and only the status word takes the -text role",
-    (word, fill, text) => {
-      // 一行里同一个状态出现两次：左边的图标是图形，右边的 DONE / RUNNING 是字。
-      // 图形留在饱和的填充色上，要读的字才换 -text 角色（docs/design.md §3.5）。
+    ["completed", "done", "text-status-running"],
+    ["running", "running", "text-status-running"],
+    ["failed", "failed", "text-status-error"],
+    ["cancelled", "cancelled", "text-muted-foreground"],
+    ["queued", "queued", "text-muted-foreground"],
+  ] as const)(
+    "Given an expanded %s row, Then its leading StatusMark is the %s mark in its fill color",
+    (status, state, tone) => {
       render(
         <TaskProgressBar
-          progress={{
-            tasks: [
-              { id: "t_1", description: "A", status: "completed" },
-              { id: "t_2", description: "B", status: "running" },
-              { id: "t_3", description: "C", status: "failed" },
-            ],
-          }}
+          progress={{ tasks: [{ id: "t_1", description: "A", status }] }}
         />,
       );
       fireEvent.click(screen.getByRole("button", { expanded: false }));
 
-      const label = screen.getByText(word);
-      const icon = label.closest("li")?.querySelector("svg");
+      const mark = screen
+        .getByText("A")
+        .closest("li")!
+        .querySelector('[data-slot="status-mark"]');
 
-      expect(label).toHaveClass(text);
-      expect(icon).toHaveClass(fill);
-      expect(icon).not.toHaveClass(text);
+      expect(mark).toHaveAttribute("data-state", state);
+      expect(mark).toHaveClass(tone);
+      expect(mark).toHaveAttribute("role", "img");
     },
   );
+
+  it("Given failed and cancelled rows, When expanded, Then they carry distinct icons and only the cancelled description is struck through", () => {
+    render(
+      <TaskProgressBar
+        progress={{
+          tasks: [
+            { id: "t_1", description: "F", status: "failed" },
+            { id: "t_2", description: "X", status: "cancelled" },
+            { id: "t_3", description: "Q", status: "queued" },
+          ],
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+    const icon = (d: string) =>
+      screen
+        .getByText(d)
+        .closest("li")!
+        .querySelector("svg")!
+        .getAttribute("class");
+    expect(new Set([icon("F"), icon("X"), icon("Q")]).size).toBe(3);
+    expect(screen.getByText("X")).toHaveClass("line-through");
+    expect(screen.getByText("F")).not.toHaveClass("line-through");
+    expect(screen.getByText("Q")).not.toHaveClass("line-through");
+  });
 
   it("constrains the expanded list height and enables vertical scrolling", () => {
     const many: TaskProgress = {
@@ -163,17 +191,14 @@ describe("TaskProgressBar · 折叠态一行", () => {
 
   // 规格 C6「运行中 spinner 用 status-running」：展开态列表的结构不变，但它那枚
   // 运行中 spinner 与状态词同样不能再借「需要你注意」的琥珀。
-  it("Given a running task, When expanded, Then its row spinner and status word use status-running, not status-waiting", () => {
+  it("Given a running task, When expanded, Then its row spinner uses status-running, not status-waiting", () => {
     render(<TaskProgressBar progress={claude3} />);
     fireEvent.click(screen.getByRole("button", { expanded: false }));
     const row = screen.getByText("B").closest("li")!;
-    const spinner = row.querySelector("svg.animate-spin");
+    const spinner = row.querySelector('[data-state="running"]');
 
     expect(spinner).toHaveClass("text-status-running");
     expect(spinner).not.toHaveClass("text-status-waiting");
-    expect(within(row).getByText("RUNNING")).toHaveClass(
-      "text-status-running-text",
-    );
   });
 
   it("Given every task is completed, When collapsed, Then the single row shows the recap in place of the current task", () => {

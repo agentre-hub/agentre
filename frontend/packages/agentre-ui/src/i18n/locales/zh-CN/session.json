@@ -27,8 +27,6 @@
       "stopTurn": "停止这一轮"
     },
     "status": {
-      "error": "出错",
-      "running": "运行中",
       "waiting": "等你"
     }
   },
@@ -53,8 +51,7 @@
       "toggle": "展开/收起 {{name}} 的会话"
     },
     "machine": {
-      "empty": "这台机器上还没有对话",
-      "offline": "离线"
+      "empty": "这台机器上还没有对话"
     },
     "filter": {
       "aria": "筛选会话",

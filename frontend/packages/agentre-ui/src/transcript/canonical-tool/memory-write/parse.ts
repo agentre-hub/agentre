@@ -27,6 +27,8 @@ export type MemoryWrite = {
   id: number;
   action: MemoryWriteAction;
   layer: MemoryWriteLayer;
+  /** 触发这次写入的命令里 --summary 的值；条目已删（新增后被撤销）时卡片靠它继续显示摘要。 */
+  summary?: string;
 };
 
 // 一条简单命令的程序是 agrctl（可带目录前缀、Windows 上是 agrctl.exe，前面可有 FOO=1 这样的
@@ -48,6 +50,33 @@ function isMemoryWriteWords(words: string[]): boolean {
     kind !== undefined &&
     MEMORY_KINDS.has(kind.toLowerCase())
   );
+}
+
+// 变量、$(…)、反引号要执行才知道值：命令原文里的这句不是写进去的那句。
+const UNEXPANDED = /[$`]/;
+
+/**
+ * 命令里第一条记忆写入的 --summary（结果行也是第一条写入的）；没有、或值要执行才知道时 undefined。
+ * 与 agrctl 读 flag 一致（ctlcmd/args.go parseArgs）：前面几个 "-" 都行，值跟在后面或 "=" 之后；
+ * 记忆的 flag 都带值，所以不带 "=" 的 flag 吃掉下一个词，别的 flag 的值里写着 --summary 不算。
+ */
+function summaryOfFirstWrite(block: TranscriptBlock): string | undefined {
+  const command = (block.toolInput as { command?: unknown } | undefined)
+    ?.command;
+  if (typeof command !== "string") return undefined;
+  const commands = splitShellCommands(unwrapShellCommand(command));
+  const words = commands?.find(isMemoryWriteWords);
+  if (!words) return undefined;
+  for (let i = 0; i < words.length; i++) {
+    if (words[i].length < 2 || !words[i].startsWith("-")) continue;
+    const flag = words[i].replace(/^-+/, "");
+    const eq = flag.indexOf("=");
+    const name = eq < 0 ? flag : flag.slice(0, eq);
+    const value = eq < 0 ? words[++i] : flag.slice(eq + 1);
+    if (name !== "summary") continue;
+    return value === undefined || UNEXPANDED.test(value) ? undefined : value;
+  }
+  return undefined;
 }
 
 export function isMemoryWriteCall(block: TranscriptBlock): boolean {
@@ -82,7 +111,7 @@ function parseLayer(text: string): MemoryWriteLayer | null {
 
 /** 没有结果、命令失败或结果行对不上时返回 null（调用方退回通用呈现）。 */
 export function parseMemoryWrite(
-  _toolBlock: TranscriptBlock,
+  toolBlock: TranscriptBlock,
   resultBlock?: TranscriptBlock,
 ): MemoryWrite | null {
   if (!resultBlock || resultBlock.isError) return null;
@@ -94,5 +123,11 @@ export function parseMemoryWrite(
   if (!match) return null;
   const layer = parseLayer(match[3]);
   if (!layer) return null;
-  return { id: Number(match[1]), action: ACTIONS[match[2]], layer };
+  const summary = summaryOfFirstWrite(toolBlock);
+  return {
+    id: Number(match[1]),
+    action: ACTIONS[match[2]],
+    layer,
+    ...(summary ? { summary } : {}),
+  };
 }

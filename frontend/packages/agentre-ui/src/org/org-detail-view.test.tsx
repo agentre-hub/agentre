@@ -307,6 +307,24 @@ describe("OrgExecTargetRow（只吃 props）", () => {
     );
   });
 
+  it("远程执行端可用、又不是当前生效那一档时不挂「在线」徽标：在线是常态，不出声", () => {
+    render(
+      <OrgExecTargetRow
+        index={1}
+        total={2}
+        backend={{ ...backend, deviceId: "dev", deviceName: "MacBook" }}
+        status={{ available: true, reason: "" }}
+        isFirstAvailable={false}
+        skillsSupported={false}
+      />,
+    );
+
+    const row = screen.getByTestId("exec-target-row-1");
+    expect(row).toHaveTextContent("MacBook");
+    expect(row.textContent).not.toMatch(/online/i);
+    expect(screen.queryByRole("img", { name: "Offline" })).toBeNull();
+  });
+
   it("不可用的一档留在列表里并给出原因，不隐藏", () => {
     render(
       <OrgExecTargetRow

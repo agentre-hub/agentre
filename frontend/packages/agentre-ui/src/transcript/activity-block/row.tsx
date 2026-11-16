@@ -19,6 +19,7 @@ import { shouldIgnoreClickForSelection } from "../../lib/copyable-text";
 import { useCollapsible } from "../../hooks/use-collapsible";
 import { useTranscriptBooleanState } from "../transcript-ui-state";
 import { useUiTranslation } from "../../i18n";
+import { StatusMark } from "../../ui/status-mark";
 
 import { FileBlock } from "../canonical-tool/file-edit/hunk-renderer";
 import { FileWriteContent } from "../canonical-tool/file-write/content-renderer";
@@ -268,8 +269,7 @@ function StepTrailing({ facts }: { facts: ReturnType<typeof stepFacts> }) {
   );
 }
 
-// PendingMarker:没有结果的一步报什么。运行中用 status-running + 脉冲点(与组头
-// 运行态同一个语汇);已终结却没配到结果的一步按归属报 失败 / 已取消 / 结果未知
+// PendingMarker:没有结果的一步报什么。运行中是 StatusMark 的转圈(无字,可访问名即「运行中」);已终结却没配到结果的一步按归属报 失败 / 已取消 / 结果未知
 // —— 它们不转圈(轮次已经结束了,再转就是谎报正在跑)。
 function PendingMarker({ outcome }: { outcome: PendingOutcome }) {
   const { t } = useUiTranslation();
@@ -277,10 +277,9 @@ function PendingMarker({ outcome }: { outcome: PendingOutcome }) {
     return (
       <span
         data-testid="activity-pending"
-        className="flex shrink-0 items-center gap-1 text-status-running-text"
+        className="flex shrink-0 items-center"
       >
-        <RunningDot />
-        {t("activity.row.running")}
+        <StatusMark state="running" />
       </span>
     );
   }

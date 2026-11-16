@@ -1,5 +1,5 @@
 import * as React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -271,12 +271,16 @@ describe("OrgIndex 一屏之内", () => {
 });
 
 describe("OrgIndex 组头与行", () => {
-  it("组头带 Lead·某某，子部门缩在父部门里", () => {
+  it("组头带皇冠（负责人）+ 某某，子部门缩在父部门里", () => {
     setup();
 
     const header = screen.getByTestId("org-group-1");
     expect(header).toHaveTextContent("工程部");
-    expect(header).toHaveTextContent("Lead · Eva");
+    expect(
+      within(header).getByRole("img", { name: "Leader" }),
+    ).toBeInTheDocument();
+    expect(header).toHaveTextContent("Eva");
+    expect(header).not.toHaveTextContent("Lead");
     expect(screen.getByTestId("org-group-2")).toHaveAttribute(
       "data-depth",
       "1",

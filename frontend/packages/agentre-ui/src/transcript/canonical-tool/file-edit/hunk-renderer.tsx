@@ -1,4 +1,4 @@
-import { TranscriptPill } from "../../transcript-card";
+import { StatusMark } from "../../../ui/status-mark";
 import { cn } from "../../../lib/utils";
 import { useUiTranslation } from "../../../i18n";
 import type { DiffHunk, DiffLine, FileEditPatch } from "../types";
@@ -17,19 +17,16 @@ export function FileBlock({
     <div>
       {showHeader && (
         <div className="flex items-center gap-2 bg-secondary px-3 py-1.5">
-          <span className="font-mono text-meta font-semibold text-foreground">
+          {file.kind === "created" && <StatusMark state="fileNew" />}
+          {file.kind === "deleted" && <StatusMark state="fileDeleted" />}
+          <span
+            className={cn(
+              "font-mono text-meta font-semibold text-foreground",
+              file.kind === "deleted" && "line-through",
+            )}
+          >
             {file.path}
           </span>
-          {file.kind === "created" && (
-            <TranscriptPill tone="done">
-              {t("canonical.fileEdit.badge.new")}
-            </TranscriptPill>
-          )}
-          {file.kind === "deleted" && (
-            <TranscriptPill tone="error">
-              {t("canonical.fileEdit.badge.deleted")}
-            </TranscriptPill>
-          )}
           <span className="ml-auto font-mono text-meta font-semibold text-status-running-text">
             +{file.plus}
           </span>

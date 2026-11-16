@@ -1,7 +1,7 @@
 {
   "org": {
     "index": {
-      "lead": "Lead · {{name}}",
+      "leader": "Leader",
       "reportsToInline": "↳ {{name}}",
       "systemBadge": "System",
       "noExecTarget": "No target",
@@ -69,7 +69,6 @@
         "replace": "Replace",
         "localMachine": "Local machine",
         "currentlyActive": "Currently active",
-        "online": "Online",
         "skillsToggle": "Skills for {{machine}}",
         "reasons": {
           "orphanBackend": "This execution target's backend no longer exists",

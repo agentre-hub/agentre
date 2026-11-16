@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -457,7 +463,7 @@ describe("ProjectGroupHeader new-terminal submenu", () => {
     expect(item.closest("[data-disabled]")).not.toBeNull();
   });
 
-  it("Given an offline device, Then its item is disabled and says so", async () => {
+  it("Given an offline device, Then its item is disabled and carries the offline mark instead of a word", async () => {
     const user = setupUser();
     appMocks.RemoteDeviceList.mockResolvedValue([
       { id: 9, name: "OfflineBox", online: false },
@@ -470,7 +476,10 @@ describe("ProjectGroupHeader new-terminal submenu", () => {
     await openTerminalSub(user);
 
     const item = await screen.findByText(/OfflineBox/);
-    expect(item).toHaveTextContent("offline");
+    expect(within(item).getByRole("img", { name: "Offline" })).toBeTruthy();
+    expect(item).toHaveTextContent(/^OfflineBox$/);
+    // 禁用与悬停说明不变。
+    expect(item).toHaveAttribute("title", "Device offline");
     expect(item.closest("[data-disabled]")).not.toBeNull();
   });
 });

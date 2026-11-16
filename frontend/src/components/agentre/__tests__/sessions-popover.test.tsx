@@ -5,7 +5,13 @@
 //
 // 背景：弹层一次只拉 PAGE_SIZE 条（会话表可以有上万行，一次全取会把主进程
 // 与渲染一起拖住），此前要看到第 21 条得手点一次「加载更多」。滚到底就该继续拉。
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { Popover, PopoverAnchor } from "@agentre-hub/agentre-ui";
 import { describe, expect, it, vi } from "vitest";
 
@@ -181,5 +187,74 @@ describe("SessionsPopover paging", () => {
 
     expect(onSelectSession).toHaveBeenCalledWith(1, { newTab: true });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("SessionsPopover status marks", () => {
+  function renderWithStatuses(statuses: string[]) {
+    const loader = vi.fn(() =>
+      Promise.resolve({
+        sessions: statuses.map((status, i) => ({
+          id: i + 1,
+          title: `s-${status}`,
+          status,
+          lastMessageAt: 0,
+        })),
+        total: statuses.length,
+        hasMore: false,
+      } satisfies SessionsPopoverPage),
+    );
+    render(
+      <Popover open>
+        <PopoverAnchor />
+        <SessionsPopover
+          header={{ name: "Eng" }}
+          loader={loader}
+          onClose={() => {}}
+          onSelectSession={() => {}}
+        />
+      </Popover>,
+    );
+  }
+
+  const row = (title: string) => screen.getByText(title).closest("button")!;
+
+  it("Given sessions in every status, When the popover renders, Then no uppercase status word is printed", async () => {
+    renderWithStatuses(["running", "error", "waiting", "idle"]);
+    await screen.findByText("s-running");
+
+    for (const word of ["RUNNING", "ERROR", "WAITING", "IDLE"]) {
+      expect(screen.queryByText(word)).not.toBeInTheDocument();
+    }
+  });
+
+  it("Given a running and an error session, When rendered, Then they show the running and error marks", async () => {
+    renderWithStatuses(["running", "error"]);
+    await screen.findByText("s-running");
+
+    expect(
+      row("s-running").querySelector('[data-slot="status-mark"]'),
+    ).toHaveAttribute("data-state", "running");
+    expect(
+      row("s-error").querySelector('[data-slot="status-mark"]'),
+    ).toHaveAttribute("data-state", "error");
+  });
+
+  it("Given a waiting session, When rendered, Then it shows the text for needs-you and no mark", async () => {
+    renderWithStatuses(["waiting"]);
+    await screen.findByText("s-waiting");
+
+    expect(within(row("s-waiting")).getByText("Needs you")).toBeInTheDocument();
+    expect(
+      row("s-waiting").querySelector('[data-slot="status-mark"]'),
+    ).toBeNull();
+  });
+
+  it("Given an idle session, When rendered, Then it carries no mark and no status text", async () => {
+    renderWithStatuses(["idle"]);
+    await screen.findByText("s-idle");
+
+    expect(row("s-idle").querySelector('[data-slot="status-mark"]')).toBeNull();
+    expect(row("s-idle").textContent).toBe("s-idle");
   });
 });

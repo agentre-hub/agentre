@@ -64,7 +64,6 @@
       "choose": "浏览…",
       "remove": "移除 {{machine}} 上的路径",
       "thisMachine": "本机",
-      "offline": "离线",
       "failed": "机器清单没读到。",
       "empty": "这个账号下还没有机器。项目的路径配在机器上，先添加一台。",
       "count": "{{count}} 台",
@@ -145,7 +144,6 @@
     }
   },
   "permissionMode": {
-    "active": "ACTIVE",
     "aria": "权限模式：{{label}}（Shift+Tab 切换）",
     "disabled": {
       "bypassAfterLaunch": "该会话启动时未选择 bypassPermissions；Claude CLI 不允许中途进入 bypass。新建会话时选 bypass 即可解锁双向切换。"

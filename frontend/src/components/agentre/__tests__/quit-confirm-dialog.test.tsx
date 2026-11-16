@@ -88,6 +88,29 @@ describe("QuitConfirmDialog", () => {
     expect(screen.getByText("Frontend i18n")).toBeInTheDocument();
   });
 
+  it("Given a running and a waiting session, When quit is blocked, Then running shows the spinner mark and waiting keeps its pill text", async () => {
+    installConfirmQuit();
+    seedSession(1, "running", "Backend refactor", "Drop group table");
+    seedSession(2, "waiting", "Frontend i18n", "Proofread copy");
+    render(<QuitConfirmDialog />);
+    await waitFor(() => expect(runtimeMocks.EventsOn).toHaveBeenCalled());
+    emitQuitBlocked(2);
+    const dialog = await screen.findByRole("dialog");
+
+    const runningRow = within(dialog)
+      .getByText("Backend refactor")
+      .closest("div")!.parentElement!;
+    const waitingRow = within(dialog)
+      .getByText("Frontend i18n")
+      .closest("div")!.parentElement!;
+    expect(
+      runningRow.querySelector('[data-slot="status-mark"]'),
+    ).toHaveAttribute("data-state", "running");
+    expect(within(runningRow).queryByText("Running")).not.toBeInTheDocument();
+    expect(within(waitingRow).getByText("Awaiting you")).toBeInTheDocument();
+    expect(waitingRow.querySelector('[data-slot="status-mark"]')).toBeNull();
+  });
+
   it("quits when the user confirms", async () => {
     const ConfirmQuit = installConfirmQuit();
     seedSession(1, "running", "Backend refactor", "Drop group table");

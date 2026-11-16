@@ -1,7 +1,4 @@
-import { Crown } from "lucide-react";
-import { useTranslation } from "react-i18next";
-
-import { cn, DepartmentMark } from "@agentre-hub/agentre-ui";
+import { cn, DepartmentMark, LeaderMark } from "@agentre-hub/agentre-ui";
 
 import { agentIconColorClassNames, type AgentColor } from "../types";
 
@@ -30,7 +27,7 @@ export function DepartmentIconBadge({
   );
 }
 
-/** 主管徽标：负责人下拉的预览与成员行里各出现一次，后者用紧凑档。 */
+/** 主管徽标：负责人下拉的预览与成员行里各出现一次，后者用紧凑档；皇冠带身份色。 */
 export function LeadBadge({
   color,
   compact = false,
@@ -38,23 +35,12 @@ export function LeadBadge({
   color: AgentColor;
   compact?: boolean;
 }) {
-  const { t } = useTranslation();
-
   return (
-    <span
+    <LeaderMark
       className={cn(
-        "inline-flex shrink-0 items-center rounded-sm bg-secondary font-mono font-semibold text-secondary-foreground",
-        compact ? "gap-1 px-1 py-0.5 text-2xs" : "gap-1 px-1.5 py-0.5 text-2xs",
+        compact ? "size-2.5" : "size-3",
+        agentIconColorClassNames[color],
       )}
-    >
-      <Crown
-        className={cn(
-          compact ? "size-2" : "size-2.5",
-          agentIconColorClassNames[color],
-        )}
-        aria-hidden="true"
-      />
-      {t("org.department.leadBadge")}
-    </span>
+    />
   );
 }

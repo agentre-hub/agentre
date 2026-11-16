@@ -318,6 +318,22 @@ describe("机器与路径", () => {
     expect(screen.getByTestId("project-path-row-farm")).toBeTruthy();
   });
 
+  it("离线的机器名前那枚机器图标换成离线图标（名「离线」），不再挂「离线」小胶囊；在线的照旧画机器图标", async () => {
+    open();
+    const peer = await screen.findByTestId("project-path-row-peer");
+    // 一枚图标顶替机器图标，不是两枚并排。
+    expect(within(peer).getAllByRole("img", { name: "Offline" })).toHaveLength(
+      1,
+    );
+    expect(peer.querySelector(".lucide-monitor-smartphone")).toBeNull();
+    expect(within(peer).queryByText("Offline")).toBeNull();
+
+    const farm = screen.getByTestId("project-path-row-farm");
+    expect(within(farm).queryByRole("img", { name: "Offline" })).toBeNull();
+    expect(farm.querySelector(".lucide-server")).not.toBeNull();
+    expect(farm.textContent).not.toMatch(/online/i);
+  });
+
   it("本机那一行离线照样改得动，别人的桌面端离线就改不动", async () => {
     open();
     await screen.findByTestId("project-path-row-self");
@@ -601,6 +617,29 @@ describe("机器口径：只列相关的", () => {
     fireEvent.click(await screen.findByTestId("project-paths-add-spare"));
     // 挑完那台还没有路径；不留住它，用户挑完一台机器版面上什么都没发生。
     expect(await screen.findByTestId("project-path-row-spare")).toBeTruthy();
+  });
+
+  it("「＋」菜单里离线的机器用离线图标顶替机器图标，不写「离线」", async () => {
+    const offlineSpare = { ...SPARE, online: false };
+    open({
+      ports: { listMachines: vi.fn(async () => [...MACHINES, offlineSpare]) },
+    });
+    fireEvent.click(await screen.findByTestId("project-paths-add-open"));
+    const item = await screen.findByTestId("project-paths-add-spare");
+    expect(within(item).getAllByRole("img", { name: "Offline" })).toHaveLength(
+      1,
+    );
+    expect(item.querySelector(".lucide-server")).toBeNull();
+    expect(within(item).queryByText("Offline")).toBeNull();
+  });
+
+  it("「＋」菜单里在线的机器只画机器图标，没有在线标记", async () => {
+    open({ ports: { listMachines: vi.fn(async () => [...MACHINES, SPARE]) } });
+    fireEvent.click(await screen.findByTestId("project-paths-add-open"));
+    const item = await screen.findByTestId("project-paths-add-spare");
+    expect(within(item).queryByRole("img", { name: "Offline" })).toBeNull();
+    expect(item.querySelector(".lucide-server")).not.toBeNull();
+    expect(item.textContent).not.toMatch(/online/i);
   });
 
   /**

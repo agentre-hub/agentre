@@ -52,9 +52,15 @@ describe("MemoryRow display", () => {
     renderRow({ entry: entry({ detail: "why" }) });
     const row = screen.getByTestId("memory-row-7");
     expect(row).toHaveTextContent("Run lint before pushing");
-    expect(row).toHaveTextContent("Written by you");
     expect(row).toHaveTextContent("11-04");
-    expect(row).toHaveTextContent("Has detail");
+    const you = within(row).getByRole("img", { name: "Written by you" });
+    expect(you.querySelector("svg")).toHaveClass("lucide-user");
+    expect(you).toHaveAttribute("title", "Written by you");
+    const detail = within(row).getByRole("img", { name: "Has detail" });
+    expect(detail.querySelector("svg")).toHaveClass("lucide-text");
+    expect(detail).toHaveAttribute("title", "Has detail");
+    expect(within(row).queryByText("Written by you")).toBeNull();
+    expect(within(row).queryByText("Has detail")).toBeNull();
   });
 
   it("Given an AI-written entry, Then the creator links back to its session", async () => {
@@ -64,14 +70,15 @@ describe("MemoryRow display", () => {
         creator: { kind: "ai", label: "Fix login retry", onOpen },
       }),
     });
-    expect(screen.queryByText("Has detail")).toBeNull();
+    expect(screen.queryByRole("img", { name: "Has detail" })).toBeNull();
     await userEvent.click(
       screen.getByRole("button", { name: "Fix login retry" }),
     );
     expect(onOpen).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId("memory-row-7")).toHaveTextContent(
-      "From session",
-    );
+    const from = screen.getByRole("img", { name: "From session" });
+    expect(from.querySelector("svg")).toHaveClass("lucide-message-square");
+    expect(from).toHaveAttribute("title", "From session");
+    expect(screen.queryByText("From session")).toBeNull();
   });
 
   it("When the row is clicked, Then it asks to start editing; while editing it shows the form", async () => {

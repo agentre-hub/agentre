@@ -186,7 +186,7 @@ describe("ExecTargetList", () => {
     ).toBeNull();
   });
 
-  it("shows Currently active for the first available target and Online for a later available remote target", async () => {
+  it("shows Currently active for the first available target and no online badge for a later available remote target", async () => {
     availabilityStub([
       { agentBackendId: 51, available: true },
       { agentBackendId: 52, available: true },
@@ -204,7 +204,10 @@ describe("ExecTargetList", () => {
       />,
     );
     expect(await screen.findByText("Currently active")).toBeInTheDocument();
-    expect(screen.getByText("Online")).toBeInTheDocument();
+    // 在线是常态，不出声（spec 2026-11-13 决策 15）。
+    const remote = screen.getByTestId("exec-target-row-1");
+    expect(remote.textContent).not.toMatch(/online/i);
+    expect(within(remote).queryByRole("img", { name: "Offline" })).toBeNull();
   });
 
   it("shows the block reason for an unavailable target", async () => {

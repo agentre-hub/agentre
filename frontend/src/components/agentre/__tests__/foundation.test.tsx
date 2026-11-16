@@ -29,6 +29,8 @@ import {
   SidebarButton,
   StatusPill,
 } from "@/components/agentre";
+import { StatusDot } from "@agentre-hub/agentre-ui";
+import i18n from "@/i18n";
 
 function mockWailsRuntime() {
   const windowToggleMaximise = vi.fn();
@@ -52,13 +54,13 @@ describe("Agentre foundation components", () => {
     render(
       <div>
         <AgentAvatar name="CEO 助手" initials="C" color="agent-1" />
-        <StatusPill status="running" />
+        <StatusPill status="running" label="Running now" />
         <SidebarButton label="对话" icon={MessageSquare} active />
       </div>,
     );
 
     expect(screen.getByLabelText("CEO 助手")).toHaveTextContent("C");
-    expect(screen.getByText("RUNNING")).toBeInTheDocument();
+    expect(screen.getByText("Running now")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "对话" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -82,16 +84,20 @@ describe("Agentre foundation components", () => {
             id: "s1",
             status: "running",
             title: "修复构建",
-            trailingLabel: "running",
+            trailingMark: "running",
           },
         ]}
       />,
     );
 
     expect(screen.queryByText("2")).not.toBeInTheDocument();
+    expect(screen.queryByText("running")).not.toBeInTheDocument();
+    expect(
+      document.querySelector('[data-slot="status-mark"][data-state="running"]'),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/active/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/recent/i)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("running status")).toHaveClass(
+    expect(screen.getAllByLabelText("Running")[0]).toHaveClass(
       "motion-safe:animate-pulse",
     );
 
@@ -99,7 +105,7 @@ describe("Agentre foundation components", () => {
 
     expect(screen.queryByText(/active/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/recent/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("running status")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Running")).not.toBeInTheDocument();
   });
 
   it("shows an empty placeholder when expanded with no sessions", async () => {
@@ -508,8 +514,8 @@ describe("Agentre foundation components", () => {
       /status-waiting/,
     );
     expect(
-      container.querySelector('footer [aria-label$=" status"]'),
-    ).toHaveAttribute("aria-label", "idle status");
+      container.querySelector('footer [aria-label="Idle"]'),
+    ).toBeInTheDocument();
 
     rerender(
       <AppStatusBar
@@ -714,6 +720,27 @@ describe("Agentre foundation components", () => {
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
   });
+});
+
+describe("StatusDot 读屏名", () => {
+  it.each([
+    ["running", "Running", "运行中"],
+    ["waiting", "Needs you", "等你"],
+    ["idle", "Idle", "空闲"],
+    ["error", "Error", "出错"],
+  ] as const)(
+    "Given status %s, When the UI language changes, Then the dot is named in that language",
+    async (status, en, zh) => {
+      const { rerender } = render(<StatusDot status={status} />);
+      expect(screen.getByLabelText(en)).toBeInTheDocument();
+
+      await i18n.changeLanguage("zh-CN");
+      rerender(<StatusDot status={status} />);
+
+      expect(screen.getByLabelText(zh)).toBeInTheDocument();
+      expect(screen.queryByLabelText(/status$/)).toBeNull();
+    },
+  );
 });
 
 describe("SidebarButton 角标", () => {

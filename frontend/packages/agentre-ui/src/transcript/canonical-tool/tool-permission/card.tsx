@@ -3,12 +3,12 @@ import { useEffect, useRef } from "react";
 import { Check, ChevronDown, ShieldAlert, X } from "lucide-react";
 
 import { Button } from "../../../ui/button";
+import { StatusMark } from "../../../ui/status-mark";
 import { CollapsibleCode } from "../../collapsible-code";
 import {
   TranscriptCard,
   TranscriptCardBody,
   TranscriptCardHeader,
-  TranscriptPill,
 } from "../../transcript-card";
 import { cn } from "../../../lib/utils";
 import { shouldIgnoreClickForSelection } from "../../../lib/copyable-text";
@@ -245,20 +245,14 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
         )}
         <span className="ml-auto flex items-center gap-2 text-aux text-muted-foreground">
           {isResolved && (
-            <TranscriptPill
-              data-copyable-control-text="true"
-              className={
-                payload.allowed
-                  ? "bg-status-running-bg text-status-running-text"
-                  : "bg-destructive/10 text-destructive-text"
-              }
-            >
-              {payload.allowed
-                ? payload.alwaysAllow
-                  ? t("canonical.toolPermission.allowedSession")
-                  : t("canonical.toolPermission.allowed")
-                : t("canonical.toolPermission.denied")}
-            </TranscriptPill>
+            <>
+              <StatusMark state={payload.allowed ? "granted" : "denied"} />
+              {payload.allowed && payload.alwaysAllow && (
+                <span data-copyable-control-text="true">
+                  {t("statusScope.thisSession")}
+                </span>
+              )}
+            </>
           )}
           <ChevronDown
             className={cn(

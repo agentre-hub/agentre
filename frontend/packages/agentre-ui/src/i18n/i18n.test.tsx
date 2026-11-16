@@ -195,9 +195,10 @@ const DYNAMIC_KEY_PREFIXES = [
   // project/failure-text.ts: t(`projectSettings.failure.${kind}`)
   "projectSettings.failure.",
   // transcript/tool-approval/card.tsx:
-  //   t(`toolApproval.status.${approval.status}`) / t(`toolApproval.tools.${approval.toolName}`)
-  "toolApproval.status.",
+  //   t(`toolApproval.tools.${approval.toolName}`)
   "toolApproval.tools.",
+  // ui/status-mark.tsx: t(`statusName.${state}`)；ui/status-dot.tsx: t(`statusName.${status}`)
+  "statusName.",
 ];
 
 /**

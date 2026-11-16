@@ -274,7 +274,7 @@ describe("SessionCleanupSection · 文案变体", () => {
 });
 
 describe("SessionCleanupSection · 确认", () => {
-  it("标题含数量，写明无法撤销，逐份列出副本及在线 / 离线 / 局域网直接删除", async () => {
+  it("标题含数量，写明无法撤销，逐份列出副本；离线、局域网配对的机器名后挂图标，下面只写后果", async () => {
     render(<SessionCleanupSection ports={makePorts()} />);
     const dialog = await openConfirm();
 
@@ -288,15 +288,30 @@ describe("SessionCleanupSection · 确认", () => {
     expect(
       within(dialog).getByText("Copies saved to your account"),
     ).toBeInTheDocument();
+    // 离线：名字后一枚离线图标，下面一行只写后果，保留等待色。
     const offline = within(dialog).getByText("old-laptop").closest("li")!;
-    expect(offline).toHaveTextContent(
-      "Offline · deleted next time it's online",
+    expect(
+      within(offline).getByRole("img", { name: "Offline" }),
+    ).toBeInTheDocument();
+    expect(offline).not.toHaveTextContent("Offline");
+    const offlineEffect = within(offline).getByText(
+      "Deleted next time it's online",
     );
+    expect(offlineEffect).toHaveClass("text-status-waiting-text");
+    // 在线是常态：不写状态，也不挂图标。
     const online = within(dialog).getByText("build-box").closest("li")!;
-    expect(online).toHaveTextContent("Online");
-    expect(online).not.toHaveTextContent("Offline");
+    expect(online).not.toHaveTextContent(/online|offline/i);
+    expect(within(online).queryByRole("img")).toBeNull();
+    // 局域网配对：名字后一枚 network 图标，下面一行只写「直接删除」。
     const lan = within(dialog).getByText("pair-box").closest("li")!;
-    expect(lan).toHaveTextContent("LAN pairing · deleted directly");
+    expect(
+      within(lan).getByRole("img", { name: "LAN pairing" }),
+    ).toBeInTheDocument();
+    expect(lan).not.toHaveTextContent("LAN pairing");
+    expect(within(lan).getByText("Deleted directly")).toHaveClass(
+      "text-muted-foreground",
+    );
+    expect(within(lan).queryByRole("img", { name: "Offline" })).toBeNull();
   });
 
   it("取消只关框，不执行", async () => {

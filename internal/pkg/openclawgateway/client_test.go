@@ -9,7 +9,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -220,6 +222,91 @@ func TestClientChallengeConnectAndOutOfOrderResponses(t *testing.T) {
 	require.NoError(t, secondErr)
 	assert.Equal(t, "first", first.Method)
 	assert.Equal(t, "second", second.Method)
+}
+
+// heldWriteConn 让下一次写先完整落到网上、再卡住写的那个 goroutine，直到放行：
+// 模拟调用方刚把请求写出去、还没回到等应答的地方就被调度走。
+type heldWriteConn struct {
+	net.Conn
+	hold    atomic.Bool
+	written chan struct{}
+	release chan struct{}
+}
+
+func (c *heldWriteConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if c.hold.CompareAndSwap(true, false) {
+		close(c.written)
+		<-c.release
+	}
+	return n, err
+}
+
+func TestClientCallKeepsADeliveredResponse(t *testing.T) {
+	// 一次 select 在「应答已到」与「客户端已关」之间随机选；跑 32 次，任何一次丢掉应答都会被抓到。
+	for i := range 32 {
+		t.Run(fmt.Sprintf("Given the response arrived and the client then closed before the caller read it, then Call returns the response (run %d)", i), func(t *testing.T) {
+			gatewayURL := newTestGateway(t, func(conn *websocket.Conn, _ int) {
+				writeChallenge(t, conn, "held-nonce")
+				connect := readTestRequest(t, conn)
+				writeHello(t, conn, connect.ID, ProtocolVersion, RequiredOperatorScopes, "held-conn")
+				request := readTestRequest(t, conn)
+				writeTestJSON(t, conn, map[string]any{
+					"type": "res", "id": request.ID, "ok": true, "payload": map[string]any{"aborted": true},
+				})
+				// 应答之后的一帧事件：客户端收到它，就说明读循环已经把应答交给了调用方。
+				writeTestJSON(t, conn, map[string]any{"type": "event", "event": "chat", "seq": 2, "payload": map[string]any{}})
+				for {
+					if _, _, err := conn.ReadMessage(); err != nil {
+						return
+					}
+				}
+			})
+			held := &heldWriteConn{written: make(chan struct{}), release: make(chan struct{})}
+			client, err := NewClient(Config{URL: gatewayURL, Identity: testIdentity(t), Platform: "linux"})
+			require.NoError(t, err)
+			client.dialer = &websocket.Dialer{
+				NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					raw, dialErr := (&net.Dialer{}).DialContext(ctx, network, addr)
+					if dialErr != nil {
+						return nil, dialErr
+					}
+					held.Conn = raw
+					return held, nil
+				},
+			}
+			_, err = client.Start(context.Background())
+			require.NoError(t, err)
+
+			held.hold.Store(true)
+			var out struct {
+				Aborted bool `json:"aborted"`
+			}
+			callErr := make(chan error, 1)
+			go func() { callErr <- client.Call(context.Background(), "chat.abort", map[string]any{}, &out) }()
+
+			select {
+			case <-held.written:
+			case <-time.After(2 * time.Second):
+				t.Fatal("the request never reached the gateway")
+			}
+			select {
+			case <-client.Events():
+			case <-time.After(2 * time.Second):
+				t.Fatal("the event after the response never arrived")
+			}
+			client.Close()
+			close(held.release)
+
+			select {
+			case err := <-callErr:
+				require.NoError(t, err, "a response the gateway already delivered must not turn into a disconnect")
+				assert.True(t, out.Aborted)
+			case <-time.After(2 * time.Second):
+				t.Fatal("Call never returned")
+			}
+		})
+	}
 }
 
 func TestClientConnectDeclaresApprovalCaps(t *testing.T) {

@@ -15,6 +15,7 @@ import {
   DialogShellBody,
   DialogShellFooter,
   DialogShellHeader,
+  StatusMark,
 } from "@agentre-hub/agentre-ui";
 import { AgentAvatar, StatusPill } from "@/components/agentre/primitives";
 import { useAgentIdentity } from "@/components/agentre/use-agent-identity";
@@ -68,14 +69,14 @@ function QuitConfirmRow({ row }: { row: ActiveRow }) {
           </span>
         ) : null}
       </div>
-      <StatusPill
-        status={row.status}
-        label={
-          row.status === "running"
-            ? t("quitConfirm.statusRunning")
-            : t("quitConfirm.statusWaiting")
-        }
-      />
+      {row.status === "running" ? (
+        <StatusMark state="running" />
+      ) : (
+        <StatusPill
+          status={row.status}
+          label={t("quitConfirm.statusWaiting")}
+        />
+      )}
     </div>
   );
 }
