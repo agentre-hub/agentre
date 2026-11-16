@@ -2,7 +2,7 @@
 
 > Status: Approved
 > Owner: 共享 UI 包（agentre-ui）+ 桌面端；agentre-server 钉版本跟随
-> Last updated: 2026-11-14
+> Last updated: 2026-11-16
 
 **Objective:** 转录、会话列表和几处弹层里的状态标记，凡是图标能说清的都换成图标；中文界面不再出现英文状态词和英文小标题。
 
@@ -19,6 +19,8 @@
 7. **子 Agent 卡展开后的小标题是英文。** 已核实：zh-CN `canonical.agentSpawn.sections` 为 `TASK PROMPT` / `TASKS` / `STEPS` / `OUTPUT` / `SUMMARY`；同类的工具卡小标题已是「参数」「结果」。
 8. **撤销「记住了」之后再看，记忆卡只剩一个图标。** 已在运行期观察（`e2e/scratch/2026-11-13-running-status-icon/report.md` V20）：刚点撤销时摘要划线显示；离开对话再回来，卡片只剩撤销图标、摘要为空。已核实原因：卡片的摘要只来自条目本身或卡片自己记下的那一份（`memory-write/card.tsx` 的 `entry?.summary ?? lastSummary`），新增的条目撤销后已被删除，卡片重新挂载后两者都没有；写入记录 `MemoryWrite`（`memory-write/parse.ts:26`）只有 id、动作和层级。这一缺口随 Agent 记忆（#92）引入，本轮把「已撤销」文字换成图标后卡片因此几乎为空。
 9. **组织树的部门行写英文「Lead · 名字」。** 已在运行期观察（同一报告的计划外发现）：共享包 `org/org-group-header.tsx:152` 用 `org.index.lead`，zh-CN 与 en 都是 `Lead · {{name}}`。
+
+10. **机器的在线 / 离线写成字，其中两处是英文。** 已核实（合并 main 后复查时发现，首轮只改了运行状态）：机器名后面直接写「离线」的有左侧对话行副标题（`session-index/row-secondary-line.tsx:101`）、@ 提及弹层（`chat-input/mentions/mention-popover.tsx:116`）、项目设置的机器路径两处（`project/project-settings-dialog.tsx:865`、`:970`）、项目组头「在终端打开」子菜单（宿主 `session-index/project-group-header.tsx:302`）、执行端技能块（宿主 `org/exec-target-skills-block.tsx:186-187`，在线时写「在线」）；组织执行端行在远程执行端可用时挂「在线」徽标（`org/org-exec-target-row.tsx:269`）；main 新加的清理对话历史确认框每台机器下写「在线」「离线 · 下次上线时删除」「局域网配对 · 直接删除」（`session-cleanup/session-cleanup-section.tsx:478-483`）。中文界面里显示英文的：设备标签「名字 · offline」（宿主 `device-tag.tsx:73`，键 `deviceTag.offline`）、Agent 后端的设备菜单与设备选择「 · offline」（`engine/agent-backends.tsx:571`、`engine/backend-editor/device-field.tsx:59`，键 `agentBackends.device.offlineSuffix`）。
 
 ## Actors and user stories
 
@@ -44,10 +46,12 @@
 | 12 | 控制台通过钉住新的 agentre 版本获得共享包里的改动；控制台宿主自有的列表不改 | 已核实：控制台桌面版列表行尾只有时间与理由（`agentre-server/frontend/src/components/session/SessionIndex.tsx` 的 `trailing`），没有英文状态词 |
 | 13 | 撤销后的记忆卡始终显示这次写入的摘要并划线，条目已被删除、卡片重新挂载、会话重开后也一样 | 用户决定另开修正轮。否决：只在卡片未重新挂载时显示——运行期已证明离开对话再回来就丢了 |
 | 14 | 组织树部门行的负责人标记与部门负责人徽标同一套：皇冠 + 负责人名字，皇冠名为「负责人」 | 用户决定另开修正轮修这处计划外发现。否决：只把 zh 文案改成「负责人 · 名字」——spec 已规定负责人用皇冠表示 |
+| 15 | 机器在线不画标记；离线画灰色 server-off，可访问名与悬停提示「离线」；局域网配对画 network，名「局域网配对」；说明后果的字（「下次上线时删除」「直接删除」）保留 | 用户已决定（「可以只离线」，mockup `.dev-kit/artifacts/2026-11-13-running-status-icon/mockups/connection.html` 方案 A）。与决策 2 同理：常态不出声。否决：在线也画绿色 server——列表里多数机器在线，满屏绿图标是噪音 |
+| 16 | 「不可用原因」一族（未配对、离线、没配路径、网关没运行等）保留文字 | 它们是一组并列的理由，只把其中「离线」换图标会让同一位置一半是图标一半是字；mockup 已注明保留 |
 
 ## 状态标记规则
 
-**StatusMark。** 给定一个状态，渲染该状态的图标（对照表见决策 1–4），图标颜色取状态色（进行中、成功、批准、新建用 `status-running`，失败、拒绝、删除用 `status-error`，修改用 `primary-text`，其余终态用 `muted-foreground`）。它带可访问名（界面语言的状态名，如「运行中」「已停止」）和同文案的悬停提示。进行中的转圈在用户开启「减少动态效果」时静止。
+**StatusMark。** 给定一个状态，渲染该状态的图标（对照表见决策 1–4），图标颜色取状态色（进行中、成功、批准、新建用 `status-running`，失败、拒绝、删除用 `status-error`，修改用 `primary-text`，其余终态以及离线、局域网配对用 `muted-foreground`）。它带可访问名（界面语言的状态名，如「运行中」「已停止」）和同文案的悬停提示。进行中的转圈在用户开启「减少动态效果」时静止。
 
 **可访问名。** 被替换掉的可见文字原样成为图标的可访问名，所在行或卡头的可访问名因此不变（活动行、组头刻意不设 `aria-label`、由行内文本算出的约定保持不变）。状态点的读屏名改为界面语言，不再拼英文。
 
@@ -89,17 +93,33 @@
 
 **组织树部门行。** 部门有负责人时，部门行上的「Lead · 名字」换成皇冠 + 负责人名字；皇冠的可访问名与悬停提示为「负责人」，名字照旧显示。没有负责人时不显示。中、英两种界面都不再出现「Lead」字样。
 
+**机器在线 / 离线（决策 15、16）。** 在线的机器不显示任何在线标记；离线的机器在名字后显示离线图标（server-off，名「离线」），不再写字：
+- 左侧对话行副标题：「构建机 · 离线」→「构建机」+ 离线图标。
+- @ 提及弹层：离线设备行尾的「离线」→ 离线图标；行首的颜色点不变。
+- 项目设置的机器路径（已配路径行、添加路径菜单两处）：「离线」小胶囊去掉，名字前的机器图标在离线时换成离线图标。
+- 项目组头「在终端打开」子菜单：「构建机 · 离线」→「构建机」+ 离线图标；「未配置路径」后缀与禁用、悬停说明不变。
+- 组织执行端行：远程执行端可用时不再挂「在线」徽标；「当前生效」与不可用原因徽标不变。
+- 执行端技能块头：去掉「在线」「离线」胶囊，离线时名字后显示离线图标。
+- 清理对话历史确认框：在线的机器下不写状态；离线的机器名后显示离线图标，下面一行只写「下次上线时删除」（保留等待色）；局域网配对的机器名后显示 network 图标（名「局域网配对」），下面一行只写「直接删除」。
+- 设备标签：离线时「构建机 · offline 2h」→ 离线图标 +「构建机 · 2h」，图标名「离线」；在线、本机不变。
+- Agent 后端的设备菜单与设备选择：「笔记本 · offline」→「笔记本」+ 离线图标。
+中英两种界面都不再出现 `offline` / `Online` 字样的状态词（整句提示除外）。
+
 **退出确认框。** 运行中的「运行中」胶囊换成转圈；等待中的「等待确认」胶囊不变。
 
 ## 设计规范
 
-`docs/design.md` 同一次改动里更新：原则 1 改为「运行状态以状态点和状态图标呈现，只有要用户处理的状态才用带字胶囊」；§3.5 去掉「labels are uppercase (`RUNNING`)」，改为经 `StatusDot` / `StatusMark` / `StatusPill` 渲染且不出现英文状态词；§6.4 把 `StatusPill` 限定为要用户处理的状态并新增 `StatusMark` 条目；新增「状态 → 图标」对照表；写明纯图标状态必须有可访问名和悬停提示，且图标形状本身能区分状态、不只靠颜色。
+`docs/design.md` 同一次改动里更新：原则 1 改为「运行状态以状态点和状态图标呈现，只有要用户处理的状态才用带字胶囊」；§3.5 去掉「labels are uppercase (`RUNNING`)」，改为经 `StatusDot` / `StatusMark` / `StatusPill` 渲染且不出现英文状态词；§6.4 把 `StatusPill` 限定为要用户处理的状态并新增 `StatusMark` 条目；新增「状态 → 图标」对照表；写明纯图标状态必须有可访问名和悬停提示，且图标形状本身能区分状态、不只靠颜色。修订（决策 15、16）：对照表加「机器离线 → server-off」「局域网配对 → network」两行并写明在线不画标记；不可用原因与说明离线的整句、标题保留文字。
 
 ## 交付
 
 共享包和桌面端在 agentre 一次交付并推送；随后 agentre-server 钉住该版本，控制台的转录、手机版会话行随之更新，控制台宿主代码不改。记忆卡片与记忆页（共享包 `memory/`、`memory-write/`）排在最后一步，开工前确认另一会话的验证已收尾。
 
 ## Out of scope
+
+- 不可用原因（含「离线」）的标签与胶囊：组织执行端行与列表、对话执行端选择、看板任务的机器选择（决策 16）。
+- 说明离线后果的整句与标题：「{{machine}} 离线」状态条、文件预览「这台机器现在够不着」、端口转发「已离线——转发不可用」、项目删除确认里的离线机器列表、同步失败说明、额度条「{{device}} 离线」。
+- 左侧范围列表的「在线 / 离线」分组标题（是分组名称）；目录选择器离线机器只有悬停提示、没有可见字；远程设备列表与文件预览本来就只用状态点。
 
 - OpenClaw 执行审批卡的状态徽标：已决后显示的是具体决策（仅本次允许、本会话允许等），属于信息，保留文字。
 - 设置页里的「本机」「桌面端」、TLS 模式、Hook 日志的「失败」、同步卡的计数徽标：身份、配置或计数，出现频率低。
@@ -119,6 +139,8 @@
 | `StatusDot` | 读屏名为界面语言 | `frontend/src/components/agentre/__tests__/foundation.test.tsx` |
 | 记忆卡片重新挂载 | 新增的记忆被撤销、条目已删除后，卡片卸载再挂载（同一转录、新的组件实例）仍显示这次写入的摘要并划线 | `memory-write/card.test.tsx` |
 | 组织树部门组头 | 有负责人时显示皇冠（名「负责人」）+ 名字、无 `Lead` 字样；无负责人时不显示 | `org/org-group-header.test.tsx` |
+| `StatusMark` 新状态 | `offline` → server-off、`lan` → network，颜色 `muted-foreground`，中英可访问名与悬停提示 | `ui/status-mark.test.tsx` |
+| 机器在线 / 离线各处 | 每条：离线时字消失、名为「离线」的图标出现；在线时没有在线字样也没有图标；清理确认框后果字保留；设备标签与 Agent 后端设备项无 `offline` | `session-index/row-secondary-line.test.tsx`、`mentions/__tests__/mention-popover.test.tsx`、`project/project-settings-dialog.test.tsx`、`org/org-detail-view.test.tsx`、`session-cleanup/session-cleanup-section.test.tsx`、`engine/optional-ports.test.tsx`，宿主 `__tests__/device-tag.test.tsx`、`org/__tests__/exec-target-skills-block.test.tsx`、`org/__tests__/exec-target-list.test.tsx`、`__tests__/project-group-header.test.tsx`、`__tests__/agent-backends.test.tsx` |
 | i18n 守卫 | 新键中英齐全、静态键存在 | `frontend/src/__tests__/i18n.test.ts`、`agentre-ui/src/i18n/i18n.test.tsx` |
 
 运行期：用 `make verify-up` 起隔离桌面（修正轮另外复现报告 V20 的路径：撤销一张「记住了」卡，离开对话再回来），对一个正在运行的会话截取左侧列表、标签页、转录（活动行、工具卡、子 Agent 卡）的浅 / 深两张图，确认图标与提示；控制台钉版本后在 dev 环境看一次转录与手机版会话行。视觉细节（尺寸、对齐）无法自动化，由这两次截图覆盖。

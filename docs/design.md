@@ -473,9 +473,11 @@ Project blocks in [`components/agentre/primitives.tsx`](../frontend/src/componen
 | Answered | `check` | `status-running` | A question the user has answered |
 | Created / updated / deleted | `plus` / `pencil` / `trash-2` | `status-running` / `primary-text` / `status-error` | Files use `file-plus` / `file-x` |
 | Memory remembered / updated / archived / already there / undone | `bookmark-plus` / `pencil` / `archive` / `bookmark-check` / `undo-2` | `status-running` / `primary-text` / `muted-foreground` ×3 | A memory write's outcome on its transcript card |
+| Machine offline | `server-off` | `muted-foreground` | After the machine's name. **Online is the default and shows no mark** — the same rule as success. A consequence stays text after it (下次上线时删除) |
+| Machine paired over LAN | `network` | `muted-foreground` | After the machine's name, where how a machine is reached changes what happens (直接删除) |
 | Needs the user | `StatusPill` with words (等你 / 待审批) | `status-waiting` | Stays text — an icon alone is not clear enough |
 
-Reasons, background-run notices and counts (未读, 后台, 后台运行 · task id, `+N / −N`) stay text: they say *why* or *how much*, not *which state*.
+Reasons, background-run notices and counts (未读, 后台, 后台运行 · task id, `+N / −N`) stay text: they say *why* or *how much*, not *which state*. So does an unavailable execution target's reason, even when the reason is 离线 — it sits in a family of reasons (未配对, 没配路径, …) that are all words. A sentence or title about a machine being offline (「构建机 离线」 banner, 「这台机器现在够不着」) is copy, not a mark.
 
 **An icon-only status must stand on its own.** It has an accessible name and a hover tip (`StatusMark` gives both), and its *shape* distinguishes it from its neighbours — two states never differ by colour alone. The visible word it replaced becomes its accessible name, so a row or card header whose name is computed from its contents reads the same as before.
 
