@@ -27,6 +27,7 @@ import {
   ProjectGroupHeader as UiProjectGroupHeader,
   ProjectHeaderActions,
   ProjectHeaderContextMenu,
+  StatusMark,
   cn,
   type ProjectHeaderActionsProps,
   type ProjectHeaderMember,
@@ -298,11 +299,11 @@ function TerminalSubMenu({
               }}
             >
               {d.name}
-              {!d.online
-                ? t("projects.terminal.offlineSuffix")
-                : !hasPath
-                  ? t("projects.terminal.pathMissingSuffix")
-                  : ""}
+              {!d.online ? (
+                <StatusMark state="offline" className="size-3" />
+              ) : !hasPath ? (
+                t("projects.terminal.pathMissingSuffix")
+              ) : null}
             </Item>
           );
         })}

@@ -145,7 +145,6 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
         <ExecTargetStatusBadge
           status={props.status}
           isFirstAvailable={props.isFirstAvailable}
-          isRemote={Boolean(b?.deviceId)}
         />
         {props.onRemove && (
           <button
@@ -235,7 +234,6 @@ function ExecTargetSkillsFold(props: {
 function ExecTargetStatusBadge(props: {
   status: OrgExecTargetStatus | undefined;
   isFirstAvailable: boolean;
-  isRemote: boolean;
 }) {
   const { t } = useUiTranslation();
   if (!props.status) return null;
@@ -263,12 +261,6 @@ function ExecTargetStatusBadge(props: {
       </span>
     );
   }
-  if (props.isRemote) {
-    return (
-      <span className="inline-flex shrink-0 items-center rounded-sm bg-secondary px-1.5 py-0.5 text-2xs font-medium text-secondary-foreground">
-        {t("org.agent.execTargets.online")}
-      </span>
-    );
-  }
+  // 可用而不是当前生效的那一档不挂徽标：远程执行端在线是常态，不出声（spec 2026-11-13 决策 15）。
   return null;
 }

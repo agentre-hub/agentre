@@ -84,7 +84,6 @@
       "deviceOffline": "Device offline",
       "local": "Local",
       "new": "New Terminal",
-      "offlineSuffix": " · offline",
       "pathMissingSuffix": " · no path",
       "pathNotConfigured": "Configure the remote path in project settings first"
     }

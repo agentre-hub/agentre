@@ -84,7 +84,6 @@
       "deviceOffline": "设备离线",
       "local": "本地",
       "new": "新建终端",
-      "offlineSuffix": " · 离线",
       "pathMissingSuffix": " · 未配置路径",
       "pathNotConfigured": "先在项目设置配置远端路径"
     }

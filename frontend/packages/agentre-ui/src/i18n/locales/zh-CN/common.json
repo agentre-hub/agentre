@@ -282,7 +282,9 @@
     "memoryUpdated": "改了记忆",
     "memoryArchived": "归档了记忆",
     "memoryExists": "已有这条记忆",
-    "memoryUndone": "已撤销"
+    "memoryUndone": "已撤销",
+    "offline": "离线",
+    "lan": "局域网配对"
   },
   "statusScope": {
     "thisSession": "本会话"

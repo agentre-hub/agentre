@@ -64,7 +64,6 @@
       "choose": "Browse…",
       "remove": "Remove the path on {{machine}}",
       "thisMachine": "This machine",
-      "offline": "Offline",
       "failed": "Could not load the machine list.",
       "empty": "This account has no machines yet. A project's path lives on a machine — add one first.",
       "count": "{{count}}",

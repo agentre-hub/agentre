@@ -76,7 +76,7 @@ describe("RowSecondaryLine", () => {
     );
   });
 
-  it("机器离线时在机器那一维后面跟一段「离线」，而不是让整条行变灰", () => {
+  it("机器离线时在机器名后面跟一枚离线图标（名「离线」），不写字、也不让整条行变灰", () => {
     // 本体在 server 上：机器离线只影响能不能发新消息、不影响读。
     render(
       <RowSecondaryLine
@@ -86,17 +86,20 @@ describe("RowSecondaryLine", () => {
       />,
     );
 
-    expect(screen.getByTestId("row-secondary-line")).toHaveTextContent(
-      "Offline",
-    );
+    const line = screen.getByTestId("row-secondary-line");
+    expect(screen.getByRole("img", { name: "Offline" })).toBeInTheDocument();
+    expect(line).toHaveTextContent("旧笔记本");
+    expect(line).not.toHaveTextContent("Offline");
+    expect(line).not.toHaveTextContent("·");
   });
 
-  it("在线的机器不带这一段", () => {
+  it("在线的机器不画任何在线标记", () => {
     render(<RowSecondaryLine axis="agent" agent={agent} machine={machine} />);
 
     expect(screen.getByTestId("row-secondary-line")).not.toHaveTextContent(
       "Offline",
     );
+    expect(screen.queryByRole("img", { name: "Offline" })).toBeNull();
   });
 
   it("自由会话如实写宿主给的那句话并把字形置灰，不留半行空白（决策 7）", () => {

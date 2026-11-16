@@ -313,7 +313,10 @@ describe("AgentBackendsPanel runtime device list", () => {
     );
 
     const offline = await screen.findByRole("option", { name: /linux-srv/ });
-    expect(offline).toHaveTextContent(/offline/i);
+    expect(
+      within(offline).getByRole("img", { name: "Offline" }),
+    ).toBeInTheDocument();
+    expect(offline).not.toHaveTextContent(/offline/i);
     expect(offline).not.toHaveAttribute("aria-disabled", "true");
 
     act(() =>
@@ -328,8 +331,11 @@ describe("AgentBackendsPanel runtime device list", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("option", { name: /linux-srv/ }),
-      ).not.toHaveTextContent(/offline/i),
+        within(screen.getByRole("option", { name: /linux-srv/ })).queryByRole(
+          "img",
+          { name: "Offline" },
+        ),
+      ).toBeNull(),
     );
   });
 });

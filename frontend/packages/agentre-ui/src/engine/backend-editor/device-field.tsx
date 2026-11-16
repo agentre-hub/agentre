@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../ui/select";
+import { StatusMark } from "../../ui/status-mark";
 import type { DeviceOption } from "../agent-backends-utils";
 import type { BackendType } from "../agent-backends-shared";
 
@@ -56,7 +57,9 @@ export function DeviceField({
             // 自动扫描依赖。禁用它等于让刚登记或暂时掉线的机器配不了后端。
             <SelectItem key={d.value} value={d.value}>
               📡 {d.name}
-              {d.online ? "" : t("agentBackends.device.offlineSuffix")}
+              {d.online ? null : (
+                <StatusMark state="offline" className="size-3" />
+              )}
             </SelectItem>
           ))}
           {!selectedDeviceKnown && deviceId ? (

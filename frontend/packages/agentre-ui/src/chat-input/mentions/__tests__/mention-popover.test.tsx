@@ -70,7 +70,8 @@ describe("MentionPopover", () => {
   });
 
   // 设备行的状态不靠颜色单独承担:在线用与设备面板同一枚 --status-running 点,
-  // 离线额外落一句文字(色觉障碍下只有点是读不出来的)。在线不加字 —— 常态不出声。
+  // 离线额外落一枚离线图标(色觉障碍下只有点是读不出来的,图标靠形状区分)。在线不加
+  // 标记 —— 常态不出声。
   it("Given devices, When rendered, Then they get their own group and only the offline one is named as such", () => {
     const devices: MentionItem[] = [
       {
@@ -102,10 +103,12 @@ describe("MentionPopover", () => {
       .querySelector("span") as HTMLElement;
     expect(onlineDot.style.backgroundColor).toBe("var(--status-running)");
     expect(offlineDot.style.backgroundColor).toBe("var(--muted-foreground)");
-    expect(screen.getByText("Offline")).toBeInTheDocument();
+    expect(screen.queryByText("Offline")).toBeNull();
+    const offlineMark = screen.getByRole("img", { name: "Offline" });
     expect(screen.getByText("NAS").closest("button")).toContainElement(
-      screen.getByText("Offline"),
+      offlineMark,
     );
+    expect(screen.getAllByRole("img", { name: "Offline" })).toHaveLength(1);
   });
 
   it("calls onPick on mousedown", () => {

@@ -212,7 +212,7 @@ describe("engine settings runtime device selection", () => {
     expect(screen.queryByRole("option", { name: /chrome/ })).toBeNull();
   });
 
-  it("Given an offline account device, When the runtime device list opens, Then it stays selectable and is marked offline in words", async () => {
+  it("Given an offline account device, When the runtime device list opens, Then it stays selectable and carries the offline mark instead of a word", async () => {
     const user = userEvent.setup();
     renderPanel(
       createPorts({
@@ -227,7 +227,13 @@ describe("engine settings runtime device selection", () => {
 
     const offline = await screen.findByRole("option", { name: /laptop/ });
     expect(offline).not.toHaveAttribute("aria-disabled", "true");
-    expect(offline).toHaveTextContent(/offline/i);
+    expect(
+      within(offline).getByRole("img", { name: "Offline" }),
+    ).toBeInTheDocument();
+    expect(offline).not.toHaveTextContent(/offline/i);
+    // 在线的机器不画在线标记。
+    const online = screen.getByRole("option", { name: /build-box/ });
+    expect(within(online).queryByRole("img", { name: "Offline" })).toBeNull();
   });
 
   it("Given a host that exposes localDeviceFingerprint, When the runtime device list opens, Then the local item is offered", async () => {
@@ -316,6 +322,26 @@ describe("engine settings auto scan", () => {
         expect.stringMatching(/^laptop: /),
       ),
     );
+  });
+
+  it("Given a host without a local device, When the auto scan device menu opens, Then an offline device carries the offline mark instead of a word", async () => {
+    const user = userEvent.setup();
+    renderPanel(
+      createPorts({
+        listAccountDevices: vi.fn().mockResolvedValue(ACCOUNT_DEVICES),
+      }),
+    );
+
+    await screen.findByText("Claude Code");
+    await user.click(screen.getByRole("button", { name: /Auto Scan/i }));
+
+    const offline = await screen.findByRole("menuitem", { name: /laptop/ });
+    expect(
+      within(offline).getByRole("img", { name: "Offline" }),
+    ).toBeInTheDocument();
+    expect(offline).not.toHaveTextContent(/offline/i);
+    const online = screen.getByRole("menuitem", { name: /build-box/ });
+    expect(within(online).queryByRole("img", { name: "Offline" })).toBeNull();
   });
 
   it("Given a host with a local device, When auto scan runs, Then it stays a single click on this machine", async () => {

@@ -26,6 +26,7 @@ import {
   SegmentedControlItem,
 } from "../ui/segmented-control";
 import { Skeleton } from "../ui/skeleton";
+import { StatusMark } from "../ui/status-mark";
 import { cn } from "../lib/utils";
 import {
   CLEANUP_ALL,
@@ -472,30 +473,39 @@ function CopyRow({ copy }: { copy: CleanupCopyView }) {
       : copy.kind === "account"
         ? t("sessionCleanup.confirm.copyAccount")
         : copy.label;
-  const status =
+  // 机器怎么连着：离线、局域网配对才画图标，在线是常态、不出声（spec 2026-11-13
+  // 决策 15）。图标说状态，下面一行只说后果。
+  const reach =
     copy.kind !== "machine"
       ? null
       : copy.online === false
-        ? t("sessionCleanup.confirm.offline")
+        ? ({
+            mark: "offline",
+            effect: t("sessionCleanup.confirm.offlineEffect"),
+          } as const)
         : copy.lanDirect
-          ? t("sessionCleanup.confirm.lanDirect")
-          : copy.online
-            ? t("sessionCleanup.confirm.online")
-            : null;
+          ? ({
+              mark: "lan",
+              effect: t("sessionCleanup.confirm.lanEffect"),
+            } as const)
+          : null;
   return (
     <li className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-sm">
       <span className="flex min-w-0 flex-col">
-        <span className="truncate text-foreground">{name}</span>
-        {status ? (
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="truncate text-foreground">{name}</span>
+          {reach ? <StatusMark state={reach.mark} className="size-3" /> : null}
+        </span>
+        {reach ? (
           <span
             className={cn(
               "text-xs",
-              copy.online === false
+              reach.mark === "offline"
                 ? "text-status-waiting-text"
                 : "text-muted-foreground",
             )}
           >
-            {status}
+            {reach.effect}
           </span>
         ) : null}
       </span>

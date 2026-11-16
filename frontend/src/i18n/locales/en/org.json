@@ -104,8 +104,6 @@
         "add": "Add",
         "addFull": "Add execution target",
         "moved": "Moved to position {{position}} of {{total}}.",
-        "online": "Online",
-        "offline": "Offline",
         "localMachine": "Local machine",
         "emptyTitle": "This agent can't chat yet",
         "emptyHint": "At least one is required before this agent can start a session.",

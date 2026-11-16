@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -217,11 +217,41 @@ describe("ExecTargetSkillsBlock", () => {
     expect(await screen.findByText("2")).toBeInTheDocument();
     expect(screen.getByText(/构建机/)).toBeInTheDocument();
     expect(await screen.findByText("superpowers")).toBeInTheDocument();
+    // 在线是常态：头上不写「在线」，也不挂离线图标（spec 2026-11-13 决策 15）。
+    const block = screen.getByTestId("exec-target-skills-block-1");
+    expect(block.textContent).not.toMatch(/online/i);
+    expect(screen.queryByRole("img", { name: "Offline" })).toBeNull();
   });
 
   // 「这一档的 backend 不支持技能」现在由**行**说：行不给展开入口，也就没有这一块
   // 可挂（判据搬到 exec-target-list.test.tsx 的
   // 「Given a backend without skills support…」那条）。
+
+  it("offline target: shows the offline mark after the machine name instead of a word", async () => {
+    withCaps(["skills"]);
+    render(
+      <ExecTargetSkillsBlock
+        agentId={7}
+        index={0}
+        total={2}
+        backend={backend({
+          id: 51,
+          deviceId: "3",
+          deviceName: "构建机",
+          online: false,
+        })}
+        skills={[]}
+        onSkillsChange={vi.fn()}
+        copySources={[]}
+      />,
+    );
+    const block = await screen.findByTestId("exec-target-skills-block-0");
+    expect(
+      within(block).getByRole("img", { name: "Offline" }),
+    ).toBeInTheDocument();
+    // 头上不再有「离线」胶囊；下面那句说明离线后果的整句照旧是字。
+    expect(within(block).queryByText("Offline")).toBeNull();
+  });
 
   it("offline target: disables Manage skills but keeps granted chips removable and hides the inherited count", async () => {
     withCaps(["skills"]);

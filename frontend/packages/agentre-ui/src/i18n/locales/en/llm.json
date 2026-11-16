@@ -475,7 +475,6 @@
       "local": "📍 Local (this machine)",
       "localShort": "Local",
       "noneAvailable": "No runtime device registered yet",
-      "offlineSuffix": " · offline",
       "placeholder": "Select runtime device",
       "revoked": "Device revoked",
       "unspecified": "No runtime device"

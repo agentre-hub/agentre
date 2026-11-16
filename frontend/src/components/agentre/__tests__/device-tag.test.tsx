@@ -9,16 +9,32 @@ describe("DeviceTag", () => {
     expect(screen.getByText("Local")).toBeInTheDocument();
   });
 
-  it("远端 online: 显示 deviceName, 不显示 offline", () => {
+  it("远端 online: 显示 deviceName, 不显示 offline, 也不挂离线图标", () => {
     render(<DeviceTag deviceId="7" deviceName="linux-srv" online />);
     expect(screen.getByText("linux-srv")).toBeInTheDocument();
     expect(screen.queryByText(/offline/i)).toBeNull();
+    expect(screen.queryByRole("img", { name: "Offline" })).toBeNull();
   });
 
-  it("远端 offline: 显示 deviceName + offline 后缀", () => {
-    render(<DeviceTag deviceId="7" deviceName="mac-mini" online={false} />);
-    expect(screen.getByText(/mac-mini/)).toBeInTheDocument();
-    expect(screen.getByText(/offline/i)).toBeInTheDocument();
+  it("远端 offline: 离线图标(名「离线」) + deviceName, 不再写 offline 字样", () => {
+    const { container } = render(
+      <DeviceTag deviceId="7" deviceName="mac-mini" online={false} />,
+    );
+    expect(screen.getByRole("img", { name: "Offline" })).toBeInTheDocument();
+    expect(container.firstElementChild).toHaveTextContent(/^mac-mini$/);
+  });
+
+  it("远端 offline + lastSeen: 名字后跟「 · 上次在线」", () => {
+    const { container } = render(
+      <DeviceTag
+        deviceId="7"
+        deviceName="mac-mini"
+        online={false}
+        lastSeen="2h"
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Offline" })).toBeInTheDocument();
+    expect(container.firstElementChild).toHaveTextContent(/^mac-mini · 2h$/);
   });
 
   it("传入 className 时附加到根 span 上(不覆盖默认样式)", () => {

@@ -228,6 +228,22 @@ const TABLE: ReadonlyArray<{
     zh: "已撤销",
     en: "Undone",
   },
+  {
+    // 机器离线（决策 15）：在线不画标记，离线才画；名字是被替换掉的「离线」。
+    state: "offline",
+    icon: "lucide-server-off",
+    tone: "text-muted-foreground",
+    zh: "离线",
+    en: "Offline",
+  },
+  {
+    // 局域网配对的机器：与离线同色，靠形状区分。
+    state: "lan",
+    icon: "lucide-network",
+    tone: "text-muted-foreground",
+    zh: "局域网配对",
+    en: "LAN pairing",
+  },
 ];
 
 function iconOf(mark: HTMLElement): SVGElement {

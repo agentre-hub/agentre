@@ -141,9 +141,6 @@
       "agents": "Agent",
       "projects": "项目",
       "devices": "设备"
-    },
-    "device": {
-      "offline": "离线"
     }
   },
   "openclawExecApproval": {

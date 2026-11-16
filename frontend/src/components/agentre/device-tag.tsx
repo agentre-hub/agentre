@@ -1,8 +1,8 @@
 import * as React from "react";
-import { MapPin, Server, ServerOff } from "lucide-react";
+import { MapPin, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { cn } from "@agentre-hub/agentre-ui";
+import { cn, StatusMark } from "@agentre-hub/agentre-ui";
 
 type DeviceTagProps = React.ComponentProps<"span"> & {
   deviceId: string;
@@ -16,7 +16,7 @@ type DeviceTagProps = React.ComponentProps<"span"> & {
 // DeviceTag 渲染 agent / location 的设备归属 chip。
 //   - deviceId === "" → 本地(蓝色 MapPin)
 //   - deviceId !== "" + online → 远端在线(绿色 Server + name)
-//   - deviceId !== "" + !online → 远端离线(灰色 ServerOff + name + "offline [lastSeen]")
+//   - deviceId !== "" + !online → 远端离线(离线图标 StatusMark,名「离线」+ name [· lastSeen])
 //
 // 共享给 MembersTab / Command Palette / 聊天头三处使用,保证视觉一致。
 //
@@ -69,9 +69,9 @@ export function DeviceTag({
       )}
       {...props}
     >
-      <ServerOff className="size-3" aria-hidden="true" />
-      {t("deviceTag.offline", { name: deviceName })}
-      {lastSeen ? ` ${lastSeen}` : ""}
+      <StatusMark state="offline" className="size-3" />
+      {deviceName}
+      {lastSeen ? ` · ${lastSeen}` : ""}
     </span>
   );
 }

@@ -64,7 +64,6 @@
       "choose": "浏览…",
       "remove": "移除 {{machine}} 上的路径",
       "thisMachine": "本机",
-      "offline": "离线",
       "failed": "机器清单没读到。",
       "empty": "这个账号下还没有机器。项目的路径配在机器上，先添加一台。",
       "count": "{{count}} 台",

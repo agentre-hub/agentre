@@ -36,8 +36,7 @@
     "unsavedChanges": "未保存的修改"
   },
   "deviceTag": {
-    "local": "本地",
-    "offline": "{{name}} · offline"
+    "local": "本地"
   },
   "language": {
     "en": "English",

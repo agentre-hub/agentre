@@ -51,8 +51,7 @@
       "toggle": "Toggle {{name}} sessions"
     },
     "machine": {
-      "empty": "No conversations on this machine yet",
-      "offline": "Offline"
+      "empty": "No conversations on this machine yet"
     },
     "filter": {
       "aria": "Filter sessions",

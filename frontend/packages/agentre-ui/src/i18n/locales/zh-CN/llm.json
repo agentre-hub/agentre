@@ -475,7 +475,6 @@
       "local": "📍 本地（当前机器）",
       "localShort": "本机",
       "noneAvailable": "账号下还没有可用的运行设备",
-      "offlineSuffix": " · offline",
       "placeholder": "选择运行设备",
       "revoked": "设备已撤销",
       "unspecified": "未指定设备"

@@ -53,6 +53,7 @@ import {
 } from "../ui/dialog-shell";
 import { Input } from "../ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { StatusMark } from "../ui/status-mark";
 import { DirectoryPicker } from "./directory-picker";
 import { useFailureText } from "./failure-text";
 import { ParentSelect } from "./parent-select";
@@ -858,13 +859,8 @@ function AddMachinePopover({
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent"
               >
                 <MachineDot online={m.online} />
-                <MachineIcon kind={m.kind} />
+                <MachineIcon kind={m.kind} online={m.online} />
                 <span className="min-w-0 flex-1 truncate">{m.name}</span>
-                {!m.online ? (
-                  <span className="shrink-0 rounded-sm bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
-                    {t("projectSettings.paths.offline")}
-                  </span>
-                ) : null}
               </button>
             </li>
           ))}
@@ -894,7 +890,18 @@ function MachineDot({ online }: { online: boolean }) {
   );
 }
 
-function MachineIcon({ kind }: { kind: ProjectMachineView["kind"] }) {
+/**
+ * 名字前那一枚机器图标。离线时它让位给离线图标（名「离线」）—— 一枚顶一枚，不在
+ * 机器图标旁边再挂一枚；在线是常态，不画在线标记（spec 2026-11-13 决策 15）。
+ */
+function MachineIcon({
+  kind,
+  online,
+}: {
+  kind: ProjectMachineView["kind"];
+  online: boolean;
+}) {
+  if (!online) return <StatusMark state="offline" className="size-3" />;
   const Comp = kind === "agentred" ? Server : MonitorSmartphone;
   return (
     <Comp
@@ -956,18 +963,13 @@ function MachineRow({
     >
       <div className="flex items-center gap-2 text-xs">
         <MachineDot online={machine.online} />
-        <MachineIcon kind={machine.kind} />
+        <MachineIcon kind={machine.kind} online={machine.online} />
         <span className="min-w-0 truncate font-medium" title={displayName}>
           {displayName}
         </span>
         {showSelfBadge ? (
           <span className="shrink-0 rounded-sm bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
             {selfLabel}
-          </span>
-        ) : null}
-        {!machine.online ? (
-          <span className="shrink-0 rounded-sm bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
-            {t("projectSettings.paths.offline")}
           </span>
         ) : null}
         <span className="flex-1" />

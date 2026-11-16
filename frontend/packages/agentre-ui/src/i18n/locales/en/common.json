@@ -282,7 +282,9 @@
     "memoryUpdated": "Updated a memory",
     "memoryArchived": "Archived a memory",
     "memoryExists": "Already remembered",
-    "memoryUndone": "Undone"
+    "memoryUndone": "Undone",
+    "offline": "Offline",
+    "lan": "LAN pairing"
   },
   "statusScope": {
     "thisSession": "this session"

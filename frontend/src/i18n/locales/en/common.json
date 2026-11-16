@@ -36,8 +36,7 @@
     "unsavedChanges": "Unsaved changes"
   },
   "deviceTag": {
-    "local": "Local",
-    "offline": "{{name}} · offline"
+    "local": "Local"
   },
   "language": {
     "en": "English",

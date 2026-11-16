@@ -10,8 +10,10 @@ import {
   FileX,
   Hourglass,
   LoaderCircle,
+  Network,
   Pencil,
   Plus,
+  ServerOff,
   ShieldCheck,
   SkipForward,
   Trash2,
@@ -60,6 +62,9 @@ const STATUS_MARKS = {
   memoryArchived: { icon: Archive, tone: "text-muted-foreground" },
   memoryExists: { icon: BookmarkCheck, tone: "text-muted-foreground" },
   memoryUndone: { icon: Undo2, tone: "text-muted-foreground" },
+  // 机器连接：在线是常态、不画标记（决策 15），只有离线、局域网配对才画。
+  offline: { icon: ServerOff, tone: "text-muted-foreground" },
+  lan: { icon: Network, tone: "text-muted-foreground" },
 } satisfies Record<string, { icon: LucideIcon; tone: string }>;
 
 type StatusMarkState = keyof typeof STATUS_MARKS;

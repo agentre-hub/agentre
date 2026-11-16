@@ -141,9 +141,6 @@
       "agents": "Agents",
       "projects": "Projects",
       "devices": "Devices"
-    },
-    "device": {
-      "offline": "Offline"
     }
   },
   "openclawExecApproval": {

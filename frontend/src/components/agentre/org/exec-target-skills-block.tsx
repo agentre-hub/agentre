@@ -8,6 +8,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  StatusMark,
 } from "@agentre-hub/agentre-ui";
 import { cn } from "@agentre-hub/agentre-ui";
 
@@ -180,13 +181,8 @@ export function ExecTargetSkillsBlock(props: Props) {
         <span className="truncate text-2xs font-semibold">
           {machine} · {backendLabel}
         </span>
-        {isRemote && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-secondary px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
-            {online
-              ? t("org.agent.execTargets.online")
-              : t("org.agent.execTargets.offline")}
-          </span>
-        )}
+        {/* 在线是常态、不出声；离线才在名字后挂离线图标（spec 2026-11-13 决策 15）。 */}
+        {!online && <StatusMark state="offline" className="size-3" />}
         <div className="flex-1" />
         {online && (
           <span className="shrink-0 font-mono text-2xs text-muted-foreground">
