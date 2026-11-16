@@ -103,6 +103,8 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 		LastMessageAt:     1754800000000,
 		// 执行端记下的会话思考力度,随清单回传给浏览器端显示。
 		ReasoningEffort: "high",
+		// 远端执行的会话带执行端承载者指纹(新增字段 19,向后兼容)。
+		CarrierFingerprint: "sha256:agentred-exec",
 	}
 	// 一条还没跑过第一轮的会话:标题 / Agent 标识 / provider_session_id 如实留空
 	// (omitempty 直接省略键,不填占位名)。

@@ -44,9 +44,12 @@ type MemoryItem struct {
 	PrevSummary string              `json:"prevSummary"`
 	PrevDetail  string              `json:"prevDetail"`
 	Creator     memory_entity.Actor `json:"creator"`
-	LastChange  ChangeDTO           `json:"lastChange"`
-	Createtime  int64               `json:"createtime"`
-	Updatetime  int64               `json:"updatetime"`
+	// CreatorSessionExists AI 创建者的来源会话在本机是否还在（软删算不在）。记忆本身的
+	// 来源不随会话删除而改，只是来源链接据此不可点；用户写入的恒为 false。
+	CreatorSessionExists bool      `json:"creatorSessionExists"`
+	LastChange           ChangeDTO `json:"lastChange"`
+	Createtime           int64     `json:"createtime"`
+	Updatetime           int64     `json:"updatetime"`
 }
 
 // OwnerList 记忆页选中某个归属时的右侧内容。UsedChars 是全部正常条目的摘要字数，

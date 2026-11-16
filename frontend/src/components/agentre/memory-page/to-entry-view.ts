@@ -16,6 +16,12 @@ export function toEntryView(
   ctx: CreatorContext,
 ): MemoryEntryView {
   const creator = item.creator;
+  // 来源会话在本机是否还在由后端回答：sessionMetas 只是局部缓存，证明不了会话不存在。
+  // 已删的会话既不显示缓存里可能残留的标题，也不给点击入口，回落到 agent 名。
+  const sessionAlive =
+    creator?.kind === "ai" &&
+    creator.sessionId > 0 &&
+    item.creatorSessionExists;
   return {
     id: item.id,
     summary: item.summary,
@@ -28,12 +34,12 @@ export function toEntryView(
         ? {
             kind: "ai",
             label:
-              ctx.sessionTitle(creator.sessionId) ||
-              ctx.fallbackLabel(creator.agentId),
-            onOpen:
-              creator.sessionId > 0
-                ? () => ctx.openSession(creator.sessionId)
-                : undefined,
+              (sessionAlive
+                ? ctx.sessionTitle(creator.sessionId)
+                : undefined) || ctx.fallbackLabel(creator.agentId),
+            onOpen: sessionAlive
+              ? () => ctx.openSession(creator.sessionId)
+              : undefined,
           }
         : { kind: "user" },
     createdAt: item.createtime,

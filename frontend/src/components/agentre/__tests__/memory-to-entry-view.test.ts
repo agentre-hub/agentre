@@ -38,4 +38,51 @@ describe("toEntryView", () => {
     );
     expect(view.updatedAt).toBe(1_000);
   });
+
+  const aiItem = (exists: boolean) =>
+    ({
+      id: 2,
+      owner: { kind: "agent", id: 2 },
+      summary: "s",
+      detail: "",
+      pinned: false,
+      state: "normal",
+      hasPrevious: false,
+      prevSummary: "",
+      prevDetail: "",
+      creator: { kind: "ai", agentId: 2, sessionId: 44 },
+      creatorSessionExists: exists,
+      lastChange: {
+        action: "created",
+        actor: { kind: "ai", agentId: 2, sessionId: 44 },
+        at: 1_000,
+      },
+      createtime: 1_000,
+      updatetime: 1_000,
+    }) as unknown as memory_svc.MemoryItem;
+
+  it("Given the creator session is gone, Then it falls back to the agent label and is not openable even if a stale title is cached", () => {
+    const view = toEntryView(aiItem(false), {
+      sessionTitle: () => "旧标题",
+      fallbackLabel: (agentId) => `agent ${agentId} 的会话`,
+      openSession: () => {},
+    });
+    expect(view.creator).toEqual({
+      kind: "ai",
+      label: "agent 2 的会话",
+      onOpen: undefined,
+    });
+  });
+
+  it("Given the creator session still exists, Then it opens that session", () => {
+    const opened: number[] = [];
+    const view = toEntryView(aiItem(true), {
+      sessionTitle: () => "修复登录",
+      fallbackLabel: () => "fb",
+      openSession: (id) => opened.push(id),
+    });
+    expect(view.creator.kind === "ai" && view.creator.label).toBe("修复登录");
+    if (view.creator.kind === "ai") view.creator.onOpen?.();
+    expect(opened).toEqual([44]);
+  });
 });

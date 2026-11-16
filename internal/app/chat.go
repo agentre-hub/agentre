@@ -188,9 +188,19 @@ func (a *App) RenameChatSession(req *chat_svc.RenameRequest) (*chat_svc.RenameRe
 	return chat_svc.Chat().Rename(a.ctx, req)
 }
 
-// DeleteChatSession 软删会话。
+// DeleteChatSession 用户删除会话：删本机，并连带删除 server 与执行端的副本。
 func (a *App) DeleteChatSession(req *chat_svc.DeleteRequest) (*chat_svc.DeleteResponse, error) {
-	return chat_svc.Chat().Delete(a.ctx, req)
+	return chat_svc.Chat().DeleteByUser(a.ctx, req)
+}
+
+// PreviewChatCleanup 按条件预览「清理对话历史」会删哪些对话、各份副本各删几条。
+func (a *App) PreviewChatCleanup(req *chat_svc.PreviewCleanupRequest) (*chat_svc.PreviewCleanupResponse, error) {
+	return chat_svc.Chat().PreviewCleanup(a.ctx, req)
+}
+
+// ExecuteChatCleanup 删除预览那一刻的那批对话（执行时逐条重新判断，进行中的保留）。
+func (a *App) ExecuteChatCleanup(req *chat_svc.ExecuteCleanupRequest) (*chat_svc.ExecuteCleanupResponse, error) {
+	return chat_svc.Chat().ExecuteCleanup(a.ctx, req)
 }
 
 // MarkChatSessionRead 推进会话「最后已读时间」(单调，旧 ts 自动忽略)。

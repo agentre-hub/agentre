@@ -36,6 +36,7 @@ func allEntities() []any {
 		&agent_entity.AgentExecTarget{},
 		&agent_entity.AgentExecTargetOverride{},
 		&app_setting_entity.AppSetting{},
+		&chat_entity.PendingDelete{},
 		&chat_entity.Session{},
 		&department_entity.Department{},
 		&hook_entity.Hook{},

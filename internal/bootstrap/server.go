@@ -33,7 +33,7 @@ func InitServer(ctx context.Context) error {
 		baseURL = row.ServerURL
 	}
 	svc := server_svc.New(server_svc.NewHTTPClient(baseURL, ""), nil)
-	server_svc.SetDefault(svc)
+	server_svc.SetDefault(&replayOnLoginServer{ServerSvc: svc})
 
 	// 工作区多端同步：server_svc 充当网络出入口，域服务通过 sync_svc.Notify 交出
 	// 改动。未登录时同步引擎自己就是空操作（R12），因此这里无条件装配。
@@ -46,6 +46,26 @@ func InitServer(ctx context.Context) error {
 	logger.Ctx(ctx).Debug("bootstrap.InitServer: services initialized",
 		zap.Bool("hasServerURL", baseURL != ""))
 	return nil
+}
+
+// replayOnLoginServer 在 server_svc 报告账号登录成功 / 服务端恢复可达时，补发记在 server
+// 目标上的待删除。它包住 SetEmitter：app 之后装上的界面 emitter 照常收到每个事件，
+// 补发只是多挂了一个旁路，不阻塞事件分发（补发在 chat_svc 里后台单飞）。
+type replayOnLoginServer struct {
+	server_svc.ServerSvc
+}
+
+func (s *replayOnLoginServer) SetEmitter(emit func(any)) {
+	s.ServerSvc.SetEmitter(func(payload any) {
+		if emit != nil {
+			emit(payload)
+		}
+		if m, ok := payload.(map[string]any); ok {
+			if kind, _ := m["kind"].(string); kind == "logged_in" || kind == "server_online" {
+				pendingDeleteReplay.Server()
+			}
+		}
+	})
 }
 
 // SyncBoot 起 30 秒周期的下行轮询（R3）。与 ServerBoot 一样由 app.go.startup 调用。
@@ -101,6 +121,8 @@ func ServerBoot(ctx context.Context) {
 		// 才清本地登录。（旧实现一律清，一次服务端停机就把 keychain 里的凭据删了，
 		// 服务端恢复也回不来，用户只能重新扫码登录。）
 		server_svc.Server().RefreshWithBackoff(ctx)
+		// 登录刷新过了：补发 server 那一份没删成的待删除（没登录则原样留着）。
+		pendingDeleteReplay.Server()
 		logger.Ctx(ctx).Debug("bootstrap.ServerBoot: refresh completed",
 			zap.Int64("userId", row.ServerUserID), zap.Int64("deviceId", row.DeviceID))
 		return nil

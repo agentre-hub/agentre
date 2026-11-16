@@ -161,6 +161,36 @@ func TestListPeerSessions_GivenDesktopSessions_ThenReturnsCompleteNonDegradedSum
 	assert.NotEqual(t, "Unnamed", got.Sessions[0].Title)
 }
 
+// Given an agentred-executed session and a local one, when the desktop answers the
+// session list, then only the remote one carries the executor's carrier fingerprint.
+func TestListPeerSessions_GivenRemoteExecutedSession_ThenCarriesExecutorFingerprint(t *testing.T) {
+	deps := setupPeerSessionTest(t)
+	ctx := context.Background()
+	agent := &agent_entity.Agent{
+		ID: 7, Name: "Release captain",
+		SyncMeta:       syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
+		AgentBackendID: 11, Status: consts.ACTIVE,
+	}
+	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{agent}, nil)
+	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(""), 0, math.MaxInt).
+		Return([]*chat_entity.Session{
+			{ID: 41, ConversationID: convID(41), AgentID: 7, Title: "Remote", AgentStatus: "idle", Status: consts.ACTIVE,
+				ExecDeviceID: 9, ExecDeviceFingerprint: devicefp.Carrier("sha256:agentred-9")},
+			{ID: 42, ConversationID: convID(42), AgentID: 7, Title: "Local", AgentStatus: "idle", Status: consts.ACTIVE},
+			// A stale fingerprint without an executor device must not leak out.
+			{ID: 43, ConversationID: convID(43), AgentID: 7, Title: "Stale", AgentStatus: "idle", Status: consts.ACTIVE,
+				ExecDeviceFingerprint: devicefp.Carrier("sha256:stale")},
+		}, nil)
+	deps.backend.EXPECT().Find(ctx, int64(11)).Return(&agent_backend_entity.AgentBackend{ID: 11, Type: string(agent_backend_entity.TypeClaudeCode)}, nil).AnyTimes()
+
+	got, err := deps.svc.ListPeerSessions(ctx, wire.SessionListParams{})
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 3)
+	assert.Equal(t, devicefp.Carrier("sha256:agentred-9"), got.Sessions[0].CarrierFingerprint)
+	assert.Empty(t, got.Sessions[1].CarrierFingerprint)
+	assert.Empty(t, got.Sessions[2].CarrierFingerprint)
+}
+
 // Given a corrupt desktop row missing first-class title or Agent identity, when
 // it is listed, then it is omitted instead of being fabricated into a degraded group.
 func TestListPeerSessions_GivenMissingTitleOrAgentIdentity_ThenOmitsRatherThanDegrade(t *testing.T) {

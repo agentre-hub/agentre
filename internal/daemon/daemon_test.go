@@ -1403,6 +1403,30 @@ func TestDaemon_IPCStatus_CountsSessionsRunningRightNow(t *testing.T) {
 		"数的是此刻真的在跑的那些:空闲会话不算,别的对端在跑的算")
 }
 
+// Given 真库上一条由 peerA 发起的对话, When 删除前按对话找它的主人, Then 交回 peerA;
+// 对话不存在时交回 found=false。账号鉴权的删除(决策 16)靠它把转录清理与会话行删除
+// 收窄到真正的主人 —— 交错了就是删 0 行却报成功。
+func TestDaemon_SessionOwnerOf_FindsTheOwningPeerByConversation(t *testing.T) {
+	d, err := New(Options{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+	ctx := dbpkg.WithContextDB(context.Background(), d.db)
+	conversationID, err := conversationid.New()
+	require.NoError(t, err)
+	seedSession(t, ctx, d.sessionStore, "peerA", conversationID, wire.SessionLifecycleIdle)
+
+	owner, found, err := d.sessionStore.OwnerOf(ctx, conversationID)
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, devicefp.Initiator("peerA"), owner)
+
+	missing, err := conversationid.New()
+	require.NoError(t, err)
+	_, found, err = d.sessionStore.OwnerOf(ctx, missing)
+	require.NoError(t, err)
+	assert.False(t, found, "没有这条对话时不能交回一个看上去合法的空指纹主人")
+}
+
 // seedSession 给某会话建一条生命周期行。
 func seedSession(t *testing.T, ctx context.Context, store daemonSessionStore, peer devicefp.Initiator, sid, lifecycle string) {
 	t.Helper()

@@ -6,9 +6,16 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/cago-frame/cago/pkg/gogo"
+	"go.uber.org/mock/gomock"
+
 	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	watcher "github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/internal/service/server_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -211,5 +218,138 @@ func TestWatcherDialAdapter_GivenRelayOnlyRowWithoutRelay_ThenFailsWithoutDialin
 	}
 	if dial.called {
 		t.Fatal("must not dial an empty URL")
+	}
+}
+
+// spyReplay 记下三类触发；断言「触发了什么」，不碰 chat_svc 的真实补发。
+type spyReplay struct {
+	all, server int
+	devices     []int64
+}
+
+func (s *spyReplay) All()            { s.all++ }
+func (s *spyReplay) Server()         { s.server++ }
+func (s *spyReplay) Device(id int64) { s.devices = append(s.devices, id) }
+
+func installSpyReplay(t *testing.T) *spyReplay {
+	t.Helper()
+	spy := &spyReplay{}
+	prev := pendingDeleteReplay
+	pendingDeleteReplay = spy
+	t.Cleanup(func() { pendingDeleteReplay = prev })
+	return spy
+}
+
+func TestReplayOnDeviceOnline_GivenDeviceComesOnline_ThenReplaysThatDeviceAndStillEmits(t *testing.T) {
+	spy := installSpyReplay(t)
+	var got []watcher.StateEvent
+	emit := replayOnDeviceOnline(watcher.EmitterFunc(func(p watcher.StateEvent) { got = append(got, p) }))
+
+	emit.Emit(watcher.StateEvent{ID: 7, Online: true})
+	emit.Emit(watcher.StateEvent{ID: 8, Online: false, LastError: "dial_failed"})
+
+	if !reflect.DeepEqual(spy.devices, []int64{7}) {
+		t.Fatalf("replayed devices = %v, want only the online one [7]", spy.devices)
+	}
+	if len(got) != 2 {
+		t.Fatalf("the original emitter must still see both events, got %d", len(got))
+	}
+}
+
+func TestReplayOnDeviceOnline_GivenNilNext_ThenOnlineStillReplays(t *testing.T) {
+	spy := installSpyReplay(t)
+	replayOnDeviceOnline(nil).Emit(watcher.StateEvent{ID: 3, Online: true})
+	if !reflect.DeepEqual(spy.devices, []int64{3}) {
+		t.Fatalf("replayed devices = %v, want [3]", spy.devices)
+	}
+}
+
+// fakeServerSvc 只截获 SetEmitter，把包装后的 emitter 交给测试去触发。
+type fakeServerSvc struct {
+	server_svc.ServerSvc
+	emit func(any)
+}
+
+func (f *fakeServerSvc) SetEmitter(emit func(any)) { f.emit = emit }
+
+func TestReplayOnLoginServer_GivenLoginEvents_ThenReplaysServerRowsAndForwardsEveryEvent(t *testing.T) {
+	spy := installSpyReplay(t)
+	inner := &fakeServerSvc{}
+	srv := &replayOnLoginServer{ServerSvc: inner}
+	var forwarded []any
+	srv.SetEmitter(func(p any) { forwarded = append(forwarded, p) })
+
+	inner.emit(map[string]any{"kind": "logged_out", "reason": "user"})
+	inner.emit(map[string]any{"kind": "server_offline"})
+	if spy.server != 0 {
+		t.Fatalf("logged_out / server_offline must not replay, got %d", spy.server)
+	}
+	inner.emit(map[string]any{"kind": "logged_in"})
+	inner.emit(map[string]any{"kind": "server_online"})
+	if spy.server != 2 {
+		t.Fatalf("logged_in and server_online must each replay server rows, got %d", spy.server)
+	}
+	if len(forwarded) != 4 {
+		t.Fatalf("the app emitter must still receive all 4 events, got %d", len(forwarded))
+	}
+}
+
+func TestReplayOnLoginServer_GivenNilEmitter_ThenDoesNotPanic(t *testing.T) {
+	spy := installSpyReplay(t)
+	inner := &fakeServerSvc{}
+	(&replayOnLoginServer{ServerSvc: inner}).SetEmitter(nil)
+	inner.emit(map[string]any{"kind": "logged_in"})
+	if spy.server != 1 {
+		t.Fatalf("server replays = %d, want 1", spy.server)
+	}
+}
+
+// refreshSpyServer 记下 RefreshWithBackoff 被调用；其余方法靠嵌入占位。
+type refreshSpyServer struct {
+	server_svc.ServerSvc
+	refreshed int
+}
+
+func (r *refreshSpyServer) RefreshWithBackoff(context.Context) { r.refreshed++ }
+
+func TestServerBoot_GivenLoggedInAccount_ThenReplaysServerRowsAfterRefresh(t *testing.T) {
+	spy := installSpyReplay(t)
+	ctrl := gomock.NewController(t)
+	repo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
+	repo.EXPECT().Get(gomock.Any()).Return(&server_state_entity.ServerState{
+		ServerUserID: 1, DeviceID: 2, KeychainAccount: "acct",
+	}, nil).AnyTimes()
+	prevRepo, prevSrv := server_state_repo.ServerState(), server_svc.Server()
+	server_state_repo.RegisterServerState(repo)
+	srv := &refreshSpyServer{}
+	server_svc.SetDefault(srv)
+	t.Cleanup(func() { server_state_repo.RegisterServerState(prevRepo); server_svc.SetDefault(prevSrv) })
+
+	ServerBoot(context.Background())
+	gogo.Wait()
+
+	if srv.refreshed != 1 || spy.server != 1 {
+		t.Fatalf("refreshed=%d serverReplays=%d, want 1 and 1", srv.refreshed, spy.server)
+	}
+}
+
+type startAllSpyWatcher struct {
+	watcher.Service
+	startAll int
+}
+
+func (w *startAllSpyWatcher) StartAll(context.Context) error { w.startAll++; return nil }
+
+func TestRemoteDeviceWatcherBoot_ThenReplaysEverythingOnce(t *testing.T) {
+	spy := installSpyReplay(t)
+	w := &startAllSpyWatcher{}
+	prev := watcher.Default()
+	watcher.SetDefault(w)
+	t.Cleanup(func() { watcher.SetDefault(prev) })
+
+	RemoteDeviceWatcherBoot(context.Background())
+
+	if w.startAll != 1 || spy.all != 1 {
+		t.Fatalf("startAll=%d allReplays=%d, want 1 and 1", w.startAll, spy.all)
 	}
 }

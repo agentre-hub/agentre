@@ -1512,3 +1512,49 @@ func TestSessionRepo_UpdateKeepsReasoningEffort(t *testing.T) {
 	assert.Equal(t, "idle", row["agent_status"], "收尾本来要写的状态照常落库")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+// 批量清理（spec 2026-11-12「批量清理」）：候选集口径与会话索引一致（未软删），可见集
+// 排除子 agent 委派会话，子 agent 集只取它们；最后活动按 last_message_at，从没有过消息
+// （0）的按 createtime；project / agent 0 = 不收窄。
+func TestSessionRepo_ListForCleanup(t *testing.T) {
+	t.Run("Given an empty filter, When listing visible sessions, Then it only drops soft-deleted and subagent rows", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE status = \\? AND purpose <> \\? ORDER BY id ASC").
+			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "agent_status"}).AddRow(int64(1), "idle"))
+
+		rows, err := chat_repo.NewSession().ListForCleanup(ctx, chat_repo.SessionCleanupFilter{})
+		assert.NoError(t, err)
+		assert.Len(t, rows, 1)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given before/agent/project, When listing, Then last activity falls back to createtime and each dimension narrows", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE status = \\? AND purpose <> \\? "+
+			"AND agent_id = \\? AND project_id = \\? "+
+			"AND CASE WHEN last_message_at > 0 THEN last_message_at ELSE createtime END < \\? ORDER BY id ASC").
+			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent, int64(3), int64(5), int64(1700000000000)).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+		_, err := chat_repo.NewSession().ListForCleanup(ctx, chat_repo.SessionCleanupFilter{
+			BeforeMs: 1700000000000, AgentID: 3, ProjectID: 5})
+		assert.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given Subagent, When listing, Then it selects only subagent delegation sessions", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE status = \\? AND purpose = \\? ORDER BY id ASC").
+			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(9)))
+
+		rows, err := chat_repo.NewSession().ListForCleanup(ctx, chat_repo.SessionCleanupFilter{Subagent: true})
+		assert.NoError(t, err)
+		assert.Len(t, rows, 1)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}

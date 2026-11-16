@@ -5,12 +5,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/agentre-hub/agentre/internal/pkg/activityrollup"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -356,17 +359,35 @@ func TestPeerSessionWire_GivenAMalformedConversationID_ThenAnswersInvalidParams(
 	}
 }
 
-// TestPeerSessionWire_GivenAMissingPeerSession_ThenAnswersMinus32002 钉住
-// protobufPeerError 比 agentred 的 protobufError 多认的那一种:
-// chat_svc.ErrPeerSessionNotFound 换来 -32002,而不是笼统的 -32603。两宿主的错误
-// 接受集本就不同 —— 错误映射因此只能是端口,不能在共用注册面里统一掉。
-func TestPeerSessionWire_GivenAMissingPeerSession_ThenAnswersMinus32002(t *testing.T) {
+// registerNoPeerSessionForDelete 让会话仓储对任何对话号都答「本机没有」。删除的
+// 缺席分支只碰这一个依赖(requireOwnOrigin 对空发起端不碰设备),其余不必装。
+func registerNoPeerSessionForDelete(t *testing.T) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	sessions := mock_chat_repo.NewMockSessionRepo(ctrl)
+	sessions.EXPECT().FindByConversationID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	prev := chat_repo.Session()
+	chat_repo.RegisterSession(sessions)
+	t.Cleanup(func() {
+		chat_repo.RegisterSession(prev)
+		ctrl.Finish()
+	})
+}
+
+// TestPeerSessionWire_GivenAMissingPeerSessionOnDelete_ThenAnswersDeletedTrue 钉住
+// 删除的后置条件:这一端本就没有这条会话时,删除按成功返回 deleted:true,不报
+// chat_svc.ErrPeerSessionNotFound(-32002)。与 agentred 一致 —— agentred 对同样的
+// 缺席答成功。打在生产装配的 DeleteSession 上,而不是拿一个桩直接吐错误。
+func TestPeerSessionWire_GivenAMissingPeerSessionOnDelete_ThenAnswersDeletedTrue(t *testing.T) {
+	registerNoPeerSessionForDelete(t)
 	deps := peerSessionWireDeps()
-	deps.DeleteSession = func(context.Context, string, devicefp.Initiator) error { return chat_svc.ErrPeerSessionNotFound }
+	deps.DeleteSession = productionProtobufInboundDeps(nil).DeleteSession
 	client, ctx := peerSessionWireRig(t, deps, true)
 
+	response := &agentrewire.SessionDeleteResponse{}
 	err := protorpc.CallMessage(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_DELETE),
-		&agentrewire.SessionDeleteRequest{ConversationId: convID(7)}, &agentrewire.SessionDeleteResponse{})
+		&agentrewire.SessionDeleteRequest{ConversationId: convID(7)}, response)
 
-	requirePeerWireError(t, err, -32002, chat_svc.ErrPeerSessionNotFound.Error())
+	require.NoError(t, err)
+	require.True(t, response.GetDeleted())
 }
