@@ -163,22 +163,39 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 		return ErrDisconnected
 	}
 
+	var response pendingResponse
 	select {
-	case response := <-responseCh:
-		if response.err != nil {
-			return response.err
-		}
-		if out == nil || len(response.payload) == 0 || string(response.payload) == "null" {
-			return nil
-		}
-		if err := json.Unmarshal(response.payload, out); err != nil {
-			return fmt.Errorf("decode openclaw gateway %s response: %w", method, err)
-		}
-		return nil
+	case response = <-responseCh:
 	case <-ctx.Done():
-		return ctx.Err()
+		// 应答可能已经先到、只是这一刻同时就绪：select 随机选，已送达的应答优先。
+		if !takeDelivered(responseCh, &response) {
+			return ctx.Err()
+		}
 	case <-c.clientDone():
-		return ErrDisconnected
+		// 例如 chat.abort 的应答之后紧跟本轮终态，本轮随即关掉客户端：应答已经到了，不算断线。
+		if !takeDelivered(responseCh, &response) {
+			return ErrDisconnected
+		}
+	}
+	if response.err != nil {
+		return response.err
+	}
+	if out == nil || len(response.payload) == 0 || string(response.payload) == "null" {
+		return nil
+	}
+	if err := json.Unmarshal(response.payload, out); err != nil {
+		return fmt.Errorf("decode openclaw gateway %s response: %w", method, err)
+	}
+	return nil
+}
+
+// takeDelivered 不阻塞地取走已经送到的应答。
+func takeDelivered(responseCh <-chan pendingResponse, response *pendingResponse) bool {
+	select {
+	case *response = <-responseCh:
+		return true
+	default:
+		return false
 	}
 }
 
