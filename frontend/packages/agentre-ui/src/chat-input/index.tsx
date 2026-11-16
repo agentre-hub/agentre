@@ -5,6 +5,7 @@ import {
   useEffect,
   useId,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   type HTMLAttributes,
@@ -214,7 +215,10 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
       onCommandSubmitRef.current = onCommandSubmit;
     }, [onCommandSubmit]);
 
-    useEffect(() => {
+    // 同步放在 layout 阶段:外壳的发送回调随附件等状态每次渲染换新,被动 effect 要等
+    // 提交之后另起一轮才跑,这中间按下发送(缩略图刚画出来就点)读到的还是上一帧那份,
+    // 刚贴的图就跟着丢了。layout effect 在提交里同步跑完,画面上看得见的就是它发的。
+    useLayoutEffect(() => {
       submitRef.current = onSubmit;
     }, [onSubmit]);
 

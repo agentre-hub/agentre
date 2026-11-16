@@ -63,6 +63,42 @@ describe("ChatComposer", () => {
     );
   });
 
+  it("Given a typed draft, When send is pressed the moment a new thumbnail appears, Then the image goes out with the text", async () => {
+    // 缩略图一画出来就点发送(早于这次提交后的被动 effect):文字那条路经编辑器的
+    // submit 句柄回到外壳,那个句柄要拿到的必须是**已经带上这张图**的发送,不能是上一帧的。
+    const inputHandle = createRef<AIChatInputHandle>();
+    const onSubmit = vi.fn();
+    render(
+      <ChatComposer
+        inputHandleRef={inputHandle}
+        supportsImageInput
+        onSubmit={onSubmit}
+      />,
+    );
+    inputHandle.current?.loadDraft("what is wrong here");
+    await waitFor(() => expect(sendButton()).toBeEnabled());
+
+    const clicked = new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (!screen.queryByAltText("race.png")) return;
+        observer.disconnect();
+        fireEvent.click(sendButton());
+        resolve();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+    fireEvent.change(imageInput(), {
+      target: { files: [pngFile("race.png")] },
+    });
+    await clicked;
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith({
+      images: [expect.objectContaining({ name: "race.png" })],
+      text: "what is wrong here",
+    });
+  });
+
   it("Given attached images and an empty editor, When Enter is pressed, Then the images are sent on their own", async () => {
     const onSubmit = vi.fn();
     const { container } = render(
