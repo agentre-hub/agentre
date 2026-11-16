@@ -527,7 +527,9 @@ describe("Memory page · deleted source session", () => {
     );
     renderPage("/memory?owner=agent:2");
     const row = await screen.findByTestId("memory-row-1");
-    expect(row).toHaveTextContent("From session");
+    expect(
+      within(row).getByRole("img", { name: "From session" }),
+    ).toBeInTheDocument();
     expect(row).toHaveTextContent("Eva's session");
     expect(
       within(row).queryByRole("button", { name: "Eva's session" }),
