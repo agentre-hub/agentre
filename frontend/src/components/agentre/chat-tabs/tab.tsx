@@ -54,6 +54,17 @@ export const Tab = React.forwardRef<
 ) {
   const { t } = useTranslation();
 
+  const running = status === "running";
+  // 尾部一格：running 时静止是 spinner、悬停换成 ×；否则活动 tab 常驻 ×、非活动 tab 悬停才出。
+  // 外壳窄于 88px（Tab 条的外壳是 @container）时这一格整个收起、悬停也不出 ×——
+  // 太窄容易误关，关闭走 ⌘W 或右键菜单；活动 tab 例外，× 常驻。
+  // group-hover 的选择器比单个容器查询类多一层伪类，悬停时一定压得过它，与类的先后无关。
+  const closeVisibility = active
+    ? running
+      ? "hidden group-hover/tab:inline-flex @max-[88px]:inline-flex"
+      : "inline-flex"
+    : "hidden @min-[88px]:group-hover/tab:inline-flex";
+
   return (
     <div
       ref={ref}
@@ -70,10 +81,12 @@ export const Tab = React.forwardRef<
         // 负 z：所有 tab 沉在 Tab 条这一层叠上下文的负层（键盘焦点环画在它们之上）；活动
         // tab 比相邻 tab 高一层，相邻 tab 铺满整格的悬停底才不会盖住它的反向圆角。
         // pointer-events-auto：外壳不接指针（见 tab-strip），指针命中落在这一层。
-        "pointer-events-auto relative isolate flex h-[38px] min-w-[120px] max-w-[240px] flex-shrink items-center gap-1.5 px-2.5 text-xs",
+        // w-full：宽度只由外壳分配（tab-strip），这里再设 min-width 会撑出外壳、叠到下一格上。
+        // 下面的 @max-[…] 按外壳宽度分档，像 Chrome 一样一路压缩到只剩方块。
+        "group/tab pointer-events-auto relative isolate flex h-[38px] w-full items-center gap-1.5 px-2.5 text-xs",
         active
-          ? "-z-[9] rounded-t-xl bg-sheet-header tab-flare"
-          : "-z-10 tab-hover-sheet",
+          ? "-z-[9] rounded-t-xl bg-sheet-header tab-flare @max-[96px]:justify-between"
+          : "-z-10 tab-hover-sheet @max-[56px]:justify-center @max-[56px]:gap-0 @max-[56px]:px-0",
         isPreview && "italic",
         className,
       )}
@@ -82,87 +95,102 @@ export const Tab = React.forwardRef<
     >
       {/* 颜色与可及名都来自共享 statusConfig（规格 2026-08-23 决策 9 的同源要求）。
           闲置维持今天的「没有记号」—— tab 条上一排灰点只是噪音。
-          running 只留右侧 spinner：它本身有形状，不只靠颜色，不再叠一个点。 */}
-      {status === "idle" || status === "running" ? null : (
-        <StatusDot data-testid="tab-status-dot" status={status} size="xs" />
-      )}
-      {kind === "terminal" ? (
-        <TerminalSquare
-          className="size-4 text-muted-foreground"
-          aria-hidden="true"
-        />
-      ) : kind === "peer" ? (
-        <MonitorUp
-          className="size-4 text-muted-foreground"
-          aria-hidden="true"
-        />
-      ) : (
-        // 身份方块是共享原语的最小档。底色由 use-tabs-view 那边已经解出来了
-        // （avatarFromMeta → tokenToCssColor），这里直接覆盖上去；方块本身仍是
-        // 装饰，可及名由旁边的标题给。
-        <AgentAvatar
-          testId="tab-avatar"
-          aria-hidden="true"
-          name=""
-          initials={avatar.letter}
-          avatarDataUrl={avatar.avatarDataUrl}
-          iconKey={avatar.avatarIcon}
+          running 只留 spinner：它本身有形状，不只靠颜色，不再叠一个点。
+          窄到只剩方块时，点贴到方块右上角（2px 外框色描边把它从方块上抠出来）。 */}
+      {status === "idle" || running ? null : (
+        <StatusDot
+          data-testid="tab-status-dot"
+          status={status}
           size="xs"
-          style={{ backgroundColor: avatar.color }}
+          className="@max-[56px]:absolute @max-[56px]:top-2.5 @max-[56px]:left-[calc(50%+4px)] @max-[56px]:shadow-[0_0_0_2px_var(--chrome)]"
         />
       )}
+      <span className="relative inline-flex shrink-0">
+        {kind === "terminal" ? (
+          <TerminalSquare
+            className={cn(
+              "size-4 text-muted-foreground",
+              running && "@max-[88px]:invisible",
+            )}
+            aria-hidden="true"
+          />
+        ) : kind === "peer" ? (
+          <MonitorUp
+            className={cn(
+              "size-4 text-muted-foreground",
+              running && "@max-[88px]:invisible",
+            )}
+            aria-hidden="true"
+          />
+        ) : (
+          // 身份方块是共享原语的最小档。底色由 use-tabs-view 那边已经解出来了
+          // （avatarFromMeta → tokenToCssColor），这里直接覆盖上去；方块本身仍是
+          // 装饰，可及名由旁边的标题给。
+          <AgentAvatar
+            testId="tab-avatar"
+            aria-hidden="true"
+            name=""
+            initials={avatar.letter}
+            avatarDataUrl={avatar.avatarDataUrl}
+            iconKey={avatar.avatarIcon}
+            size="xs"
+            className={cn(running && "@max-[88px]:invisible")}
+            style={{ backgroundColor: avatar.color }}
+          />
+        )}
+        {running ? (
+          // 窄于 88px 尾部那一格收起，spinner 挪来顶替方块（像 Chrome 加载时 spinner 顶替
+          // favicon），方块 invisible 留着占位，宽度不跳。
+          <Loader2
+            data-testid="tab-avatar-spinner"
+            className="absolute inset-0 m-auto hidden size-3 animate-spin text-status-running @max-[88px]:inline-flex"
+            aria-hidden="true"
+          />
+        ) : null}
+      </span>
       {isPinned ? (
         <Pin
           data-testid="tab-pin-icon"
-          className="size-2.5 rotate-[30deg] text-primary"
+          className="size-2.5 shrink-0 rotate-[30deg] text-primary @max-[56px]:hidden"
           aria-hidden="true"
         />
       ) : null}
       <span
         className={cn(
           "min-w-0 flex-1 truncate",
-          active ? "font-medium text-foreground" : "text-muted-foreground",
+          active
+            ? "font-medium text-foreground @max-[96px]:hidden"
+            : "text-muted-foreground @max-[56px]:hidden",
         )}
       >
         {title}
       </span>
       {pillText ? (
-        <span className="inline-flex items-center rounded-sm bg-status-waiting-bg px-1.5 text-[9px] font-semibold text-status-waiting-text">
+        <span className="inline-flex shrink-0 items-center rounded-sm bg-status-waiting-bg px-1.5 text-[9px] font-semibold text-status-waiting-text @max-[88px]:hidden">
           {pillText}
         </span>
       ) : null}
-      {status === "running" ? (
-        <span className="inline-flex items-center gap-0.5">
-          <Loader2
-            data-testid="tab-spinner"
-            className="size-3 animate-spin text-status-running"
-            aria-hidden="true"
-          />
-          <button
-            type="button"
-            aria-label={t("chatTabs.actions.closeTab")}
-            className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose();
-            }}
-          >
-            <X className="size-2.5" aria-hidden="true" />
-          </button>
-        </span>
-      ) : (
-        <button
-          type="button"
-          aria-label={t("chatTabs.actions.closeTab")}
-          className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
-        >
-          <X className="size-2.5" aria-hidden="true" />
-        </button>
-      )}
+      {running ? (
+        <Loader2
+          data-testid="tab-spinner"
+          className="hidden size-3 shrink-0 animate-spin text-status-running @min-[88px]:inline-flex group-hover/tab:hidden"
+          aria-hidden="true"
+        />
+      ) : null}
+      <button
+        type="button"
+        aria-label={t("chatTabs.actions.closeTab")}
+        className={cn(
+          "size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+          closeVisibility,
+        )}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+      >
+        <X className="size-2.5" aria-hidden="true" />
+      </button>
     </div>
   );
 });
