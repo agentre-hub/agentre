@@ -276,7 +276,13 @@ const SortableTab = React.forwardRef<HTMLSpanElement, SortableTabProps>(
         // 点击会全落在这一层、到不了标签页（切不了 tab、× 点不到）。这一层不接指针、
         // 标签页接（Tab 的 pointer-events-auto），事件从标签页冒泡上来，拖拽与悬停卡
         // 照样挂在这一层；右键菜单挂在标签页本身。
-        className="pointer-events-none relative inline-flex h-full min-w-0 flex-shrink focus-visible:focus-outline-inset"
+        // @container + flex-[0_1_240px]：每格的宽度只在这里分配——都从 240px 起、等比压缩，
+        // 不设下限（像 Chrome 一样一路挤，Tab 本体按这一格的宽度分档，见 tab.tsx）；
+        // 活动 tab 留得下方块 + ×。
+        className={cn(
+          "pointer-events-none relative @container inline-flex h-full max-w-[240px] flex-[0_1_240px] focus-visible:focus-outline-inset",
+          active ? "min-w-[60px]" : "min-w-0",
+        )}
         style={style}
         {...attributes}
         {...rest}
@@ -420,8 +426,9 @@ const TabDragPreview = React.memo(function TabDragPreview({
       aria-hidden="true"
       // isolate：Tab 沉在负层，要沉在这一份自己的层叠上下文里。非活动 Tab 本身没有
       // 底色，浮着压在别的 Tab 上会和它们的字叠成一团——铺上悬停底，像被拿在手里。
+      // @container：浮层挂在 body 下、离开了 Tab 条的外壳，Tab 按宽度分档要有自己的容器。
       className={cn(
-        "pointer-events-none relative isolate flex h-full w-full",
+        "pointer-events-none relative @container isolate flex h-full w-full",
         !active && "rounded-t-xl bg-tab-hover",
       )}
     >

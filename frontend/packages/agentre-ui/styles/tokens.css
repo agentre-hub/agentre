@@ -32,8 +32,10 @@
      下面的转录分开。活动 Tab 也画这个色、经反向圆角流进顶带，所以它夹在外框与内容页
      之间、和两边都分得开（chrome 1.09，sheet 1.08）。 */
   --sheet-header: #f6f6f7;
-  /* 非活动 Tab 悬停时那块和活动 Tab 同轮廓的底；浅色外框与顶带只差一档，取顶带本身。 */
-  --tab-hover: #f6f6f7;
+  /* 非活动 Tab 悬停时那块和活动 Tab 同轮廓的底。浅色外框与顶带只差 1.09，夹在中间的色和
+     两边都分不开（此前直接取顶带本身，悬停看着像又选中了一个），所以落到外框之下：离外框
+     1.05、离活动 Tab 1.14。再深，弱化文字（4.5）与空闲点（3.0）落在上面就不达标。 */
+  --tab-hover: #e7e7ea;
   /* 内容页的投影：一圈 0.5px 的极淡环 + 1–3px 软影，把白纸从浅灰外框上托起来。
      深色不要（见 .dark）。 */
   --sheet-shadow:
@@ -323,8 +325,10 @@
   /* Brighter than the sheet here: a header darker than the sheet sits too close to
      the chrome, and the active tab painted in it would melt into the tab strip. */
   --sheet-header: #242529;
-  /* Between the chrome and the active tab, roughly 65% of the way up. */
-  --tab-hover: #1e1f22;
+  /* Between the chrome and the active tab, a little below halfway (1.09 from the
+     chrome, 1.13 from the active tab): at 65% of the way up (#1e1f22) a hovered tab
+     read as a second active one. */
+  --tab-hover: #1a1b1e;
   /* The step from chrome to sheet already reads as a layer here; a shadow on a
      near-black chrome only muddies the edge. */
   --sheet-shadow: none;

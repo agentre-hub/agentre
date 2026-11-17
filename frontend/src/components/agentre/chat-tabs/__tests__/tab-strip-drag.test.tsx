@@ -139,6 +139,23 @@ describe("TabStrip 拖拽排序", () => {
     expect(shell.style.opacity).toBe("0");
   });
 
+  it("Given 拿起一个被压窄的 Tab, When 拖着它, Then 拷贝自己也是容器查询的容器，按原宽度分档、不退回成宽 Tab 的样子", () => {
+    mockLayout();
+    for (const sid of [1, 2]) {
+      useChatTabsStore.getState().openSessionInNewTab(sid);
+    }
+    render(<TabStrip />);
+    const shell = screen.getAllByRole("tab")[0].parentElement as HTMLElement;
+
+    pickUp(shell);
+
+    // 浮层挂在 body 下，离开了 Tab 条的外壳；没有自己的 @container，Tab 里的
+    // @max-[…] / @min-[…] 全部失效——窄 Tab 拖起来会丢掉 spinner、露出标题。
+    expect(
+      document.querySelector('[data-testid="tab-drag-preview"]'),
+    ).toHaveClass("@container");
+  });
+
   it("Given 拖着 Tab, When 松手, Then 拷贝用 200ms ease-out 滑进它的落点", () => {
     useChatTabsStore.getState().openSessionInNewTab(1);
     render(<TabStrip />);

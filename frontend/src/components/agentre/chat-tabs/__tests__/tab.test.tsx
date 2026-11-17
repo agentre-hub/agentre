@@ -26,9 +26,13 @@ describe("Tab 组件", () => {
     expect(screen.getByText("处理周一例会纪要")).toBeInTheDocument();
   });
 
-  it("限制最大宽度，长标题交给 CSS truncate", () => {
+  it("填满外壳、自己不设最小 / 最大宽度（宽度由 Tab 条的外壳分配），长标题交给 CSS truncate", () => {
     render(<Tab {...baseProps} />);
-    expect(screen.getByRole("tab")).toHaveClass("max-w-[240px]");
+    const tab = screen.getByRole("tab");
+    expect(tab).toHaveClass("w-full");
+    // 自己再设 min-width 会撑出外壳、压到右边那一格上（2026-11-17 截图里的叠压）。
+    expect(tab.className).not.toMatch(/(^|\s)min-w-\[/);
+    expect(tab.className).not.toMatch(/(^|\s)max-w-\[/);
     expect(screen.getByText("处理周一例会纪要")).toHaveClass("truncate");
   });
 
@@ -232,5 +236,123 @@ describe("Tab · 状态点与身份方块来自共享原语", () => {
 
       expect(glyph).toHaveTextContent("C");
     });
+  });
+});
+
+// ─── 2026-11-17 Tab 条像 Chrome 一样一路压缩 ─────────────────────────────────
+// 分档按外壳自身的宽度（容器查询，外壳是 @container）：
+//   ≥ 88px  方块 + 标题 + 尾部一格（running 是 spinner，否则 ×）
+//   < 88px  尾部一格收起（悬停也不出 ×）、running 的 spinner 顶替方块、待批胶囊收起
+//   < 56px  标题也收起，只剩居中的方块；状态点贴到方块右上角
+// 活动 tab 例外：始终留 ×；窄于 96px 时收起标题。
+// happy-dom 不算容器查询，这里守的是类名契约；真机效果见运行期验证。
+
+describe("Tab · 尾部一格与按宽度分档", () => {
+  const baseProps = {
+    title: "处理周一例会纪要",
+    avatar: { letter: "C", color: "#3b82f6" },
+    active: false,
+    isPreview: false,
+    isPinned: false,
+    status: "idle" as const,
+    projectColor: null as string | null,
+    pillText: null as string | null,
+    onActivate: vi.fn(),
+    onClose: vi.fn(),
+    onDoublePromote: vi.fn(),
+  };
+  const closeX = () => screen.getByLabelText("Close Tab");
+
+  it("Given 非活动、闲置, When 静止, Then × 不出；悬停且够宽（≥88px）才出", () => {
+    render(<Tab {...baseProps} />);
+
+    expect(screen.getByRole("tab")).toHaveClass("group/tab");
+    expect(closeX()).toHaveClass(
+      "hidden",
+      "@min-[88px]:group-hover/tab:inline-flex",
+    );
+  });
+
+  it("Given 活动、闲置, When 渲染, Then × 始终在，再窄也不收", () => {
+    render(<Tab {...baseProps} active />);
+
+    expect(closeX()).not.toHaveClass("hidden");
+    expect(closeX().className).not.toMatch(/@max-\[\d+px\]:hidden/);
+  });
+
+  it("Given 非活动、running, When 渲染, Then 尾部那一格是 spinner、悬停换成 ×；窄于 88px 时这一格整个收起", () => {
+    render(<Tab {...baseProps} status="running" />);
+
+    const spinner = screen.getByTestId("tab-spinner");
+    expect(spinner).toHaveClass(
+      "hidden",
+      "@min-[88px]:inline-flex",
+      "group-hover/tab:hidden",
+    );
+    expect(closeX()).toHaveClass(
+      "hidden",
+      "@min-[88px]:group-hover/tab:inline-flex",
+    );
+  });
+
+  it("Given 活动、running, When 渲染, Then 静止时尾部是 spinner（不丢状态），悬停换成 ×；窄于 88px 时 × 常驻", () => {
+    render(<Tab {...baseProps} active status="running" />);
+
+    expect(screen.getByTestId("tab-spinner")).toHaveClass(
+      "group-hover/tab:hidden",
+    );
+    expect(closeX()).toHaveClass(
+      "hidden",
+      "group-hover/tab:inline-flex",
+      "@max-[88px]:inline-flex",
+    );
+  });
+
+  it("Given running, When 窄于 88px, Then spinner 顶替身份方块（方块隐去、占位不变）", () => {
+    render(<Tab {...baseProps} status="running" />);
+
+    expect(screen.getByTestId("tab-avatar-spinner")).toHaveClass(
+      "hidden",
+      "@max-[88px]:inline-flex",
+    );
+    expect(screen.getByTestId("tab-avatar")).toHaveClass(
+      "@max-[88px]:invisible",
+    );
+  });
+
+  it("Given 不在 running, When 渲染, Then 方块位上没有 spinner", () => {
+    render(<Tab {...baseProps} />);
+
+    expect(screen.queryByTestId("tab-avatar-spinner")).toBeNull();
+    expect(screen.getByTestId("tab-avatar")).not.toHaveClass(
+      "@max-[88px]:invisible",
+    );
+  });
+
+  it("Given 非活动, When 窄于 56px, Then 标题收起、方块居中；活动 tab 窄于 96px 就收标题", () => {
+    const { unmount } = render(<Tab {...baseProps} />);
+    expect(screen.getByText("处理周一例会纪要")).toHaveClass(
+      "@max-[56px]:hidden",
+    );
+    expect(screen.getByRole("tab")).toHaveClass(
+      "@max-[56px]:justify-center",
+      "@max-[56px]:px-0",
+    );
+    unmount();
+
+    render(<Tab {...baseProps} active />);
+    expect(screen.getByText("处理周一例会纪要")).toHaveClass(
+      "@max-[96px]:hidden",
+    );
+    expect(screen.getByRole("tab")).toHaveClass("@max-[96px]:justify-between");
+  });
+
+  it("Given 待批胶囊, When 窄于 88px, Then 胶囊收起，只留状态点；窄于 56px 状态点贴到方块右上角", () => {
+    render(<Tab {...baseProps} status="waiting" pillText="审批" />);
+
+    expect(screen.getByText("审批")).toHaveClass("@max-[88px]:hidden");
+    expect(screen.getByTestId("tab-status-dot")).toHaveClass(
+      "@max-[56px]:absolute",
+    );
   });
 });

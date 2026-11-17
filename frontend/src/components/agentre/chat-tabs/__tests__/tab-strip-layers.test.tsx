@@ -126,6 +126,25 @@ describe("TabStrip · 层叠、悬停面与项目色线", () => {
     expect(lineOf(c)).toHaveClass("rounded-l-full");
   });
 
+  // 2026-11-17：外壳 min-w-0 能压、里面的 Tab 却 min-w-[120px] 压不动，每格向右溢出
+  // 约 20px 叠到下一格上，× 被下一格的悬停底盖住。宽度只由外壳分配，Tab 填满它。
+  it("Given 一排 Tab, When 渲染, Then 外壳是容器查询的容器、平分宽度一路压缩（不设下限），Tab 填满外壳", () => {
+    const [active, inactive] = renderStrip([view("t1"), view("t2")], "t1");
+
+    for (const tab of [active, inactive]) {
+      expect(wrapperOf(tab)).toHaveClass(
+        "@container",
+        "flex-[0_1_240px]",
+        "max-w-[240px]",
+      );
+      expect(tab).toHaveClass("w-full");
+    }
+    expect(wrapperOf(inactive)).toHaveClass("min-w-0");
+    // 活动 tab 留得下方块 + ×。
+    expect(wrapperOf(active)).toHaveClass("min-w-[60px]");
+    expect(wrapperOf(active)).not.toHaveClass("min-w-0");
+  });
+
   // jsdom 不做命中测试，这里守的是契约本身；真机复现见 2026-10-20 验证记录：
   // Tab 沉在 Tab 条层叠上下文的负层后，外壳（定位、z auto）的盒子画在它上面，
   // 点击一律落在外壳上 —— 切不了 Tab，× 也点不到。

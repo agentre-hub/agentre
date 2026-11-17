@@ -634,9 +634,13 @@ describe("外框、内容页、抬起三层表面", () => {
  * 活动 Tab 也画成这个色（Tab → 顶带连成一体），所以它还得和外框分得开，否则活动 Tab
  * 就化进 Tab 条里了。
  *
- * `--tab-hover` 是非活动 Tab 悬停时那块和活动 Tab 同轮廓的底：介于外框与顶带之间（不比
- * 活动 Tab 更亮），且与外框分得开。
+ * `--tab-hover` 是非活动 Tab 悬停时那块和活动 Tab 同轮廓的底：与外框分得开、不比活动 Tab
+ * 更亮，且离活动 Tab 比离外框更远。深色夹在外框与顶带之间（浮起一点）；浅色外框与顶带只差
+ * 1.09，夹不下一个与两边都分得开的色，所以落到外框之下（压下一点，2026-11-17 用户选定）。
+ * 浅色往下压不到 SURFACE_MIN：再深，弱化文字与空闲点落在上面就不达标（两张表都列着
+ * --tab-hover），所以悬停面离外框只要求 TAB_HOVER_MIN——它是瞬时反馈、不是静止分层。
  */
+const TAB_HOVER_MIN = 1.04;
 describe("对话页顶带与 Tab 悬停面", () => {
   it.each(THEMES)(
     "%s(%s)下顶带与外框、与内容页都分得开",
@@ -657,19 +661,30 @@ describe("对话页顶带与 Tab 悬停面", () => {
   );
 
   it.each(THEMES)(
-    "%s(%s)下 Tab 悬停面在外框与活动 Tab 之间，且与外框分得开",
+    "%s(%s)下 Tab 悬停面不比活动 Tab 亮，且与外框分得开",
     (_scope, _label, get) => {
       const t = get();
-      expect(lightness(t["--tab-hover"])).toBeGreaterThan(
-        lightness(t["--chrome"]),
-      );
-      expect(lightness(t["--tab-hover"])).toBeLessThanOrEqual(
+      expect(lightness(t["--tab-hover"])).toBeLessThan(
         lightness(t["--sheet-header"]),
       );
       expect(
         contrast(t["--tab-hover"], t["--chrome"]),
         `--tab-hover ${t["--tab-hover"]} 与 --chrome ${t["--chrome"]}`,
-      ).toBeGreaterThanOrEqual(SURFACE_MIN);
+      ).toBeGreaterThanOrEqual(TAB_HOVER_MIN);
+    },
+  );
+
+  // 2026-11-17：深色悬停面 #1e1f22 与活动 Tab #242529 只差 1.08，悬停时看着像同时选中了
+  // 两个 Tab；浅色更是与活动 Tab 同色。悬停面要离活动 Tab 比离外框更远——它是「碰到了」，
+  // 不是「快选中了」。
+  it.each(THEMES)(
+    "%s(%s)下 Tab 悬停面离活动 Tab 至少和离外框一样远",
+    (_scope, _label, get) => {
+      const t = get();
+      expect(
+        contrast(t["--tab-hover"], t["--sheet-header"]),
+        `--tab-hover ${t["--tab-hover"]} 与 --sheet-header ${t["--sheet-header"]}`,
+      ).toBeGreaterThanOrEqual(contrast(t["--tab-hover"], t["--chrome"]));
     },
   );
 });
