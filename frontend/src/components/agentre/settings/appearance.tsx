@@ -10,10 +10,13 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Switch,
 } from "@agentre-hub/agentre-ui";
 import { LANGUAGE_STORAGE_KEY, type SupportedLanguage } from "@/i18n";
+import { useTabSettingsStore } from "@/stores/tab-settings-store";
 
 import type { AppTheme, AppThemePreference } from "../chrome";
+import { toastFailure } from "../failure-toast";
 
 import { SettingsPageHeader } from "./header";
 
@@ -160,6 +163,59 @@ export function AppearanceSettings({
           </div>
         </div>
       </section>
+      <TabsGroup />
     </>
+  );
+}
+
+// 「标签页」一组：新建对话是否靠拢同项目（spec 2026-11-17-group-new-tabs-by-project）。
+// 写库成功才翻开关；没存上就留在原值并说清楚（与记忆设置页同一做法）。
+function TabsGroup() {
+  const { t } = useTranslation();
+  const groupNewByProject = useTabSettingsStore(
+    (s) => s.settings.groupNewByProject,
+  );
+  const load = useTabSettingsStore((s) => s.load);
+  const save = useTabSettingsStore((s) => s.save);
+  const labelId = React.useId();
+  const descId = React.useId();
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  const handleChange = async (next: boolean) => {
+    try {
+      await save({ groupNewByProject: next });
+    } catch (err) {
+      toastFailure(t("common.saveFailed"), err);
+    }
+  };
+
+  return (
+    <section data-slot="appearance-group" className="flex flex-col pt-3">
+      <h2 className="pb-1 text-sm font-semibold">
+        {t("settings.appearance.tabs.title")}
+      </h2>
+      <div className="flex items-center gap-4 py-3">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span id={labelId} className="text-sm font-medium">
+            {t("settings.appearance.tabs.groupNewByProject.label")}
+          </span>
+          <span
+            id={descId}
+            className="text-2xs leading-relaxed text-muted-foreground"
+          >
+            {t("settings.appearance.tabs.groupNewByProject.desc")}
+          </span>
+        </div>
+        <Switch
+          aria-labelledby={labelId}
+          aria-describedby={descId}
+          checked={groupNewByProject}
+          onCheckedChange={(v) => void handleChange(v)}
+        />
+      </div>
+    </section>
   );
 }
