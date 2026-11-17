@@ -35,10 +35,16 @@ type State = {
   save: (patch: Partial<TabSettings>) => Promise<void>;
 };
 
+// 每次写库成功加一。load 发出读取后若期间有写入落定，读回的是写之前的值，丢弃，
+// 否则会把刚存上的开关盖回旧值（启动时与外观页挂载时都会 load）。
+let saved = 0;
+
 export const useTabSettingsStore = create<State>((set, get) => ({
   settings: { ...DEFAULT_TAB_SETTINGS },
   load: async () => {
+    const before = saved;
     const raw = await readRaw(KEYS.groupNewByProject);
+    if (saved !== before) return;
     set({ settings: { groupNewByProject: raw === "true" } });
   },
   save: async (patch) => {
@@ -48,6 +54,7 @@ export const useTabSettingsStore = create<State>((set, get) => ({
     }));
     if (entries.length === 0) return;
     await UpdateAppSettings({ entries } as app_settings_svc.UpdateRequest);
+    saved++;
     set({ settings: { ...get().settings, ...patch } });
   },
 }));

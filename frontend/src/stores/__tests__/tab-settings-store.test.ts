@@ -24,7 +24,8 @@ describe("tab-settings-store", () => {
     expect(DEFAULT_TAB_SETTINGS).toEqual({ groupNewByProject: false });
   });
 
-  it("Given 键从未设置过(reject) When load Then 仍为关闭", async () => {
+  it("Given 键从未设置过(reject) When load Then 按关闭处理", async () => {
+    useTabSettingsStore.setState({ settings: { groupNewByProject: true } });
     getMock.mockRejectedValue(new Error("not found"));
     await useTabSettingsStore.getState().load();
     expect(getMock).toHaveBeenCalledWith({ key: "tabs.group_new_by_project" });
@@ -45,6 +46,7 @@ describe("tab-settings-store", () => {
   });
 
   it("Given 存的是非 true 的怪值 When load Then 按关闭处理", async () => {
+    useTabSettingsStore.setState({ settings: { groupNewByProject: true } });
     getMock.mockResolvedValue({
       key: "tabs.group_new_by_project",
       value: "yes",
@@ -61,6 +63,23 @@ describe("tab-settings-store", () => {
     expect(updateMock).toHaveBeenCalledWith({
       entries: [{ key: "tabs.group_new_by_project", value: "true" }],
     });
+    expect(useTabSettingsStore.getState().settings.groupNewByProject).toBe(
+      true,
+    );
+  });
+
+  it("Given load 在飞时 save(true) 已落库 When 更早发出的读取后回来 Then 不把开关盖回旧值", async () => {
+    let resolveRead: (v: { key: string; value: string }) => void = () => {};
+    getMock.mockReturnValue(
+      new Promise((r) => {
+        resolveRead = r;
+      }) as never,
+    );
+    updateMock.mockResolvedValue({} as never);
+    const loading = useTabSettingsStore.getState().load();
+    await useTabSettingsStore.getState().save({ groupNewByProject: true });
+    resolveRead({ key: "tabs.group_new_by_project", value: "false" });
+    await loading;
     expect(useTabSettingsStore.getState().settings.groupNewByProject).toBe(
       true,
     );
