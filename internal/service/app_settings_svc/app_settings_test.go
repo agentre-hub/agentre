@@ -260,6 +260,35 @@ func TestUpdate_FilesOpenAction(t *testing.T) {
 	})
 }
 
+func TestUpdate_TabsGroupNewByProject(t *testing.T) {
+	convey.Convey("Update 新对话靠拢同项目开关", t, func() {
+		ctx, repo, gw, svc := setupSvcTest(t)
+
+		convey.Convey("true / false 都写得进去,键名为 tabs.group_new_by_project,不触发 gateway", func() {
+			for _, v := range []string{"true", "false"} {
+				repo.EXPECT().Set(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, s *app_setting_entity.AppSetting) error {
+						assert.Equal(t, "tabs.group_new_by_project", s.Key)
+						assert.Equal(t, v, s.Value)
+						return nil
+					}).Times(1)
+				_, err := svc.Update(ctx, &UpdateRequest{Entries: []SettingEntry{
+					{Key: app_setting_entity.KeyTabsGroupNewByProject, Value: v},
+				}})
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, int32(0), gw.restartCalls.Load(), "标签页设置不应触发 Restart")
+		})
+
+		convey.Convey("非布尔值直接拒,不落库", func() {
+			_, err := svc.Update(ctx, &UpdateRequest{Entries: []SettingEntry{
+				{Key: app_setting_entity.KeyTabsGroupNewByProject, Value: "yes"},
+			}})
+			assert.Error(t, err)
+		})
+	})
+}
+
 func TestUpdate_SkippedUpdateVersion(t *testing.T) {
 	convey.Convey("Update 跳过版本 key", t, func() {
 		ctx, repo, gw, svc := setupSvcTest(t)
