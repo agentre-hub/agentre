@@ -152,6 +152,18 @@ describe("newTabInsertIndex", () => {
     expect(newTabInsertIndex(tabs, 1, ctx)).toBe(2);
   });
 
+  // 取消固定是原地不动的（togglePin「unpin 时位置不动」），固定的标签页因此不一定是
+  // 前缀：[a, b📌, c📌] 里 b、c 仍是用户看到的固定区，新标签页不能夹进两者之间。
+  it("Given 同组成员是前缀之外的一段固定标签页 When 新建 Then 放到这段固定区之后，不夹进固定标签页之间", () => {
+    const tabs = [
+      newTab("a", 2),
+      newTab("b", 1, true),
+      newTab("c", 2, true),
+      newTab("d", 2),
+    ];
+    expect(newTabInsertIndex(tabs, 1, ctx)).toBe(3);
+  });
+
   it("Given 同组在固定区与非固定区都有 When 新建 Then 以非固定区里最后一个为准", () => {
     const tabs = [
       newTab("a", 1, true),

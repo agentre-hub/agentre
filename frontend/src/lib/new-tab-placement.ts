@@ -32,11 +32,13 @@ export function newTabInsertIndex(
     if (pid !== null && pid > 0 && ctx.rootOf(pid) === root) last = i;
   });
   if (last < 0) return tabs.length;
-  let pinnedPrefix = 0;
-  while (pinnedPrefix < tabs.length && tabs[pinnedPrefix].isPinned) {
-    pinnedPrefix++;
+  // 成员在固定区内：越过它所在的那段连续固定标签页。固定的标签页不一定是前缀
+  // （取消固定原地不动），所以不能只看前缀长度，否则会夹进两枚固定标签页之间。
+  let at = last + 1;
+  while (at < tabs.length && tabs[at - 1].isPinned && tabs[at].isPinned) {
+    at++;
   }
-  return Math.max(last + 1, pinnedPrefix);
+  return at;
 }
 
 /**
