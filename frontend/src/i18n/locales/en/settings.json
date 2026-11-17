@@ -78,7 +78,14 @@
       "colorMode": {
         "title": "Color Mode"
       },
-      "description": "Theme and language preferences are saved on this device.",
+      "description": "Theme, language and tab preferences are saved on this device.",
+      "tabs": {
+        "title": "Tabs",
+        "groupNewByProject": {
+          "label": "Keep new chats next to their project",
+          "desc": "New chats open right after the last tab of the same project, or at the far right if there is none."
+        }
+      },
       "themeMode": {
         "label": "Theme Mode"
       },

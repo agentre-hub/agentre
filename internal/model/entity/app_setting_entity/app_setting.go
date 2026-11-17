@@ -41,6 +41,11 @@ const (
 	// （交给系统默认应用）。缺省 preview —— 键不存在时由前端兜底，服务端不写入缺省值。
 	KeyFilesOpenAction = "files.open_action"
 
+	// KeyTabsGroupNewByProject 新建对话的标签页是否插到同一顶层项目族最后一个标签页右侧
+	// （"true"/"false"）；缺省关闭——键不存在时由前端兜底。只存本机、不参与同步。
+	// 由「设置 → 外观 → 标签页」开关写入（spec 2026-11-17-group-new-tabs-by-project）。
+	KeyTabsGroupNewByProject = "tabs.group_new_by_project"
+
 	// KeyClaudeNativeMemory 是否保留 Claude Code 自带的 auto-memory（"true"/"false"）；
 	// 缺省保留。只存本机、不参与同步；关闭后仅本机新启动的 Claude Code 进程在
 	// --settings 里带 autoMemoryEnabled:false。

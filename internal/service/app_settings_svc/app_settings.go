@@ -86,7 +86,8 @@ func (s *appSettingsSvc) Update(ctx context.Context, req *UpdateRequest) (*Updat
 			app_setting_entity.KeyNotifyOnlyWhenUnfocused,
 			app_setting_entity.KeyNotifySystem,
 			app_setting_entity.KeyNotifyToast,
-			app_setting_entity.KeyClaudeNativeMemory:
+			app_setting_entity.KeyClaudeNativeMemory,
+			app_setting_entity.KeyTabsGroupNewByProject:
 			if err := app_setting_entity.ValidateBoolSetting(ctx, val); err != nil {
 				return nil, err
 			}

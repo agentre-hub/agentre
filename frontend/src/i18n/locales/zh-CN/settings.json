@@ -78,7 +78,14 @@
       "colorMode": {
         "title": "配色模式"
       },
-      "description": "主题偏好和语言保存在当前设备。",
+      "description": "主题偏好、语言和标签页设置保存在当前设备。",
+      "tabs": {
+        "title": "标签页",
+        "groupNewByProject": {
+          "label": "新对话靠拢同项目",
+          "desc": "新建对话时，新标签页放在同一项目最后一个标签页的右边；没有同项目的标签页时仍放在最右边。"
+        }
+      },
       "themeMode": {
         "label": "主题模式"
       },

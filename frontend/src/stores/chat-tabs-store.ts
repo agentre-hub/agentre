@@ -76,6 +76,15 @@ export const __setNextIdFactoryForTesting = (fn: () => string) => {
   nextId = fn;
 };
 
+// 新建对话标签页的插入位置端口（spec 2026-11-17-group-new-tabs-by-project）。
+// 本 store 不认识设置、会话 meta 与项目树；由 new-tab-placement-wiring 在启动时装上。
+// 未装时（或卸下后）追加到最右，即今天的行为。返回值会被夹到 [0, tabs.length]。
+export type NewTabPlacement = (tabs: ChatTab[], projectId: number) => number;
+let newTabPlacement: NewTabPlacement | null = null;
+export const setNewTabPlacement = (fn: NewTabPlacement | null) => {
+  newTabPlacement = fn;
+};
+
 // now: 同上,测试可控的时间源。
 let now = (): number => Date.now();
 export const __setNowForTesting = (fn: () => number) => {
@@ -138,7 +147,13 @@ export const useChatTabsStore = create<State & Actions>((set, _get) => ({
         pinAt: 0,
         openedAt: now(),
       };
-      return { tabs: [...state.tabs, newTab], activeTabId: newTab.id };
+      const len = state.tabs.length;
+      const at = newTabPlacement
+        ? Math.min(Math.max(newTabPlacement(state.tabs, projectId), 0), len)
+        : len;
+      const tabs = [...state.tabs];
+      tabs.splice(at, 0, newTab);
+      return { tabs, activeTabId: newTab.id };
     }),
   promoteCurrent: () =>
     set((state) => {
