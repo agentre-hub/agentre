@@ -48,6 +48,12 @@ export function reloadProjectTreeCache(): Promise<ProjectTreeNode[]> {
   return fetchTree();
 }
 
+// getProjectTreeSnapshot 给非 React 处读当前缓存的树（可能为空：还没人拉过）。
+// 新对话靠拢同项目的接线用它，不为此主动发 RPC。
+export function getProjectTreeSnapshot(): ProjectTreeNode[] {
+  return cache.tree;
+}
+
 // isProjectTreeCacheLoaded 给非 React 处用 (sidebar-reload): 没人订阅过
 // 项目树时不必为 chat 侧的 sidebar 刷新顺带拉一遍项目数据。
 export function isProjectTreeCacheLoaded(): boolean {

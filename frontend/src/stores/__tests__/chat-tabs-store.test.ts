@@ -1,9 +1,24 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, beforeEach, vi } from "vitest";
+import type { app } from "../../../wailsjs/go/models";
+
+// 接线读项目树走模块级快照；这里换成可控的虚构树。
+const projectTree = vi.hoisted(() => ({ current: [] as unknown[] }));
+vi.mock("@/hooks/use-project-tree", () => ({
+  getProjectTreeSnapshot: () => projectTree.current,
+}));
+
 import {
   useChatTabsStore,
   __setNextIdFactoryForTesting,
   __setNowForTesting,
+  setNewTabPlacement,
 } from "../chat-tabs-store";
+import { installNewTabPlacement } from "../new-tab-placement-wiring";
+import { useSessionMetaStore } from "../session-meta-store";
+import {
+  DEFAULT_TAB_SETTINGS,
+  useTabSettingsStore,
+} from "../tab-settings-store";
 
 beforeEach(() => {
   localStorage.clear();
@@ -112,6 +127,245 @@ describe("chat-tabs-store · openNewSession", () => {
     });
     expect(tabs[0].isPreview).toBe(false);
     expect(activeTabId).toBe(tabs[0].id);
+  });
+});
+
+describe("chat-tabs-store · openNewSession · 插入位置端口", () => {
+  beforeEach(() => {
+    let nid = 1;
+    __setNextIdFactoryForTesting(() => `n${nid++}`);
+    __setNowForTesting(() => 1000);
+    useChatTabsStore.setState({
+      tabs: [
+        {
+          id: "a",
+          meta: { kind: "session", sessionId: 1 },
+          isPreview: false,
+          isPinned: false,
+          pinAt: 0,
+          openedAt: 0,
+        },
+        {
+          id: "b",
+          meta: { kind: "session", sessionId: 2 },
+          isPreview: false,
+          isPinned: false,
+          pinAt: 0,
+          openedAt: 0,
+        },
+      ],
+      activeTabId: "a",
+    });
+  });
+  afterEach(() => setNewTabPlacement(null));
+
+  it("Given 未装端口 When 新建 Then 追加到最右（今天的行为）", () => {
+    useChatTabsStore.getState().openNewSession(7, 3, "");
+    expect(useChatTabsStore.getState().tabs.map((t) => t.id)).toEqual([
+      "a",
+      "b",
+      "n1",
+    ]);
+  });
+
+  it("Given 端口给出位置 When 新建 Then 插到该位置并激活，其余标签页相对顺序不变", () => {
+    const seen: Array<[string[], number]> = [];
+    setNewTabPlacement((tabs, projectId) => {
+      seen.push([tabs.map((t) => t.id), projectId]);
+      return 1;
+    });
+    useChatTabsStore.getState().openNewSession(7, 3, "");
+    const s = useChatTabsStore.getState();
+    expect(seen).toEqual([[["a", "b"], 7]]);
+    expect(s.tabs.map((t) => t.id)).toEqual(["a", "n1", "b"]);
+    expect(s.activeTabId).toBe("n1");
+    expect(s.tabs[1]).toMatchObject({ isPreview: false, isPinned: false });
+  });
+
+  it("Given 端口给出越界位置 When 新建 Then 夹到合法范围", () => {
+    setNewTabPlacement(() => 99);
+    useChatTabsStore.getState().openNewSession(7, 3, "");
+    expect(useChatTabsStore.getState().tabs.map((t) => t.id)).toEqual([
+      "a",
+      "b",
+      "n1",
+    ]);
+    setNewTabPlacement(() => -5);
+    useChatTabsStore.getState().openNewSession(7, 3, "");
+    expect(useChatTabsStore.getState().tabs.map((t) => t.id)).toEqual([
+      "n2",
+      "a",
+      "b",
+      "n1",
+    ]);
+  });
+});
+
+describe("新对话靠拢同项目 · 接线（设置 + 会话项目 + 项目树）", () => {
+  const node = (id: number, children: app.ProjectTreeNode[] = []) =>
+    ({ project: { id }, children }) as unknown as app.ProjectTreeNode;
+
+  beforeEach(() => {
+    let nid = 1;
+    __setNextIdFactoryForTesting(() => `n${nid++}`);
+    __setNowForTesting(() => 1000);
+    // 1 ─ 11（子项目）；2 独立
+    projectTree.current = [node(1, [node(11)]), node(2)];
+    useSessionMetaStore.getState().__reset();
+    useSessionMetaStore.getState().bulkUpsert([
+      [
+        101,
+        {
+          agentId: 1,
+          agentName: "C",
+          agentColor: "",
+          title: "s1",
+          projectId: 1,
+        },
+      ],
+      [
+        102,
+        {
+          agentId: 1,
+          agentName: "C",
+          agentColor: "",
+          title: "s2",
+          projectId: 2,
+        },
+      ],
+      [
+        103,
+        {
+          agentId: 1,
+          agentName: "C",
+          agentColor: "",
+          title: "s3",
+          projectId: 11,
+        },
+      ],
+    ] as never);
+    useChatTabsStore.setState({
+      tabs: [
+        {
+          id: "a",
+          meta: { kind: "session", sessionId: 101 },
+          isPreview: false,
+          isPinned: false,
+          pinAt: 0,
+          openedAt: 0,
+        },
+        {
+          id: "b",
+          meta: { kind: "session", sessionId: 102 },
+          isPreview: false,
+          isPinned: false,
+          pinAt: 0,
+          openedAt: 0,
+        },
+        {
+          id: "c",
+          meta: { kind: "session", sessionId: 103 },
+          isPreview: true,
+          isPinned: false,
+          pinAt: 0,
+          openedAt: 0,
+        },
+        {
+          id: "d",
+          meta: {
+            kind: "terminal",
+            projectId: 2,
+            deviceId: "",
+            terminalId: "x",
+          },
+          isPreview: false,
+          isPinned: false,
+          pinAt: 0,
+          openedAt: 0,
+        },
+        {
+          id: "e",
+          meta: { kind: "session", sessionId: 999 },
+          isPreview: false,
+          isPinned: false,
+          pinAt: 0,
+          openedAt: 0,
+        },
+      ],
+      activeTabId: "a",
+    });
+    installNewTabPlacement();
+  });
+  afterEach(() => {
+    setNewTabPlacement(null);
+    useTabSettingsStore.setState({ settings: { ...DEFAULT_TAB_SETTINGS } });
+  });
+
+  it("Given 设置关闭 When 在项目 1 新建 Then 追加到最右", () => {
+    useTabSettingsStore.setState({ settings: { groupNewByProject: false } });
+    useChatTabsStore.getState().openNewSession(1, 3, "");
+    expect(useChatTabsStore.getState().tabs.map((t) => t.id)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "n1",
+    ]);
+  });
+
+  it("Given 设置开启 When 在项目 1 新建 Then 插到子项目 11 的预览标签页之后", () => {
+    useTabSettingsStore.setState({ settings: { groupNewByProject: true } });
+    useChatTabsStore.getState().openNewSession(1, 3, "");
+    expect(useChatTabsStore.getState().tabs.map((t) => t.id)).toEqual([
+      "a",
+      "b",
+      "c",
+      "n1",
+      "d",
+      "e",
+    ]);
+  });
+
+  it("Given 设置开启 When 在项目 2 新建 Then 终端标签页算同组，插到它之后", () => {
+    useTabSettingsStore.setState({ settings: { groupNewByProject: true } });
+    useChatTabsStore.getState().openNewSession(2, 3, "");
+    expect(useChatTabsStore.getState().tabs.map((t) => t.id)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "n1",
+      "e",
+    ]);
+  });
+
+  it("Given 设置开启 When 不在项目下新建(0) Then 追加到最右", () => {
+    useTabSettingsStore.setState({ settings: { groupNewByProject: true } });
+    useChatTabsStore.getState().openNewSession(0, 3, "");
+    expect(useChatTabsStore.getState().tabs.map((t) => t.id)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "n1",
+    ]);
+  });
+
+  it("Given 设置开启 When 连续在同项目新建两次 Then 第二个排在第一个右边", () => {
+    useTabSettingsStore.setState({ settings: { groupNewByProject: true } });
+    useChatTabsStore.getState().openNewSession(2, 3, "");
+    useChatTabsStore.getState().openNewSession(2, 3, "");
+    expect(useChatTabsStore.getState().tabs.map((t) => t.id)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "n1",
+      "n2",
+      "e",
+    ]);
   });
 });
 
