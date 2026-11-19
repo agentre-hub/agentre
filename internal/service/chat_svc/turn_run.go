@@ -611,6 +611,18 @@ func (t *turnRun) finalize(ctx context.Context) {
 		}
 	}
 	_ = t.svc.persistSessionStatus(finalCtx, t.sess)
+	// 行已落成终态,终态帧此刻才发(对端收到即查清单)。还要自动接续时这一轮没完,不发:
+	// 接续的那一轮收口时再发,对端看到的是一整轮。
+	if len(pending) == 0 {
+		var peerStopErr error
+		switch {
+		case stopErr != nil && (!aborted || anchorPersistErr != nil):
+			peerStopErr = stopErr
+		case aborted:
+			peerStopErr = agentruntime.ErrAborted
+		}
+		t.svc.publishPeerTurnEnded(t.sess.ID, t.assistantMsg, peerStopErr)
+	}
 	if aborted || stopErr != nil {
 		if t.svc.clearBgRunning(t.sess.ID) {
 			t.svc.emitBgRunningStatus(finalCtx, t.sess, t.stream)
@@ -705,6 +717,8 @@ func (t *turnRun) finalize(ctx context.Context) {
 		_ = t.svc.persistSessionStatus(finalCtx, t.sess)
 		// 接续的两行若已落库,那一轮已被记为在跑(persistAutoContinueTurn),它不会再跑了。
 		t.svc.peerTurnSettled(finalCtx, t.sess.ID, t.stream)
+		// 上面因为还要接续而没发终态帧;接续没开起来,这一轮就在这里收场。
+		t.svc.publishPeerTurnEnded(t.sess.ID, t.assistantMsg, nil)
 		// 上面那条 "agent_status finalized" 打的是自动接续的中间态(仍 running)。这条
 		// 恢复分支刚把它改成 idle 并落库,不补一条的话,这次会话在日志里的**最后**一条
 		// 终态记录与库里的值正好相反 —— 排「卡 running」时按日志对时间线会看反。

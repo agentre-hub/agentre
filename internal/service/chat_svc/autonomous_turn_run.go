@@ -309,7 +309,9 @@ func (t *autonomousTurnRun) emitStarted(ctx context.Context) {
 	t.stream = StreamName(t.sessionID, t.assistantMsg.ID)
 	// 这一轮的 assistant 行已落库:此后的切换 notice 在桌面端排在它之后,对端同样扣到
 	// 本轮收口(finalize 的 publishPeerTurnDone)之后再发,见 peer_notice_hold.go。
-	t.svc.peerTurnOpened(t.sessionID, t.stream)
+	if t.svc.peerTurnOpened(t.sessionID, t.stream) {
+		t.svc.publishPeerAutonomousTurnStarted(t.sessionID, t.at.Trigger)
+	}
 	logger.Ctx(ctx).Info("chat_svc: autonomous turn started",
 		zap.Int64("sessionId", t.sessionID),
 		zap.Int64("assistantMsgId", t.assistantMsg.ID),
@@ -649,6 +651,8 @@ func (t *autonomousTurnRun) finalize(ctx context.Context) {
 	t.sess.NeedsAttention = false
 	t.sess.LastMessageAt = time.Now().UnixMilli()
 	_ = t.svc.persistSessionStatus(finalCtx, t.sess)
+	// 行已落成终态,终态帧此刻才发(对端收到即查清单)。
+	t.svc.publishPeerAutonomousTurnEnded(t.sessionID, t.assistantMsg, stopErr)
 	logger.Ctx(finalCtx).Info("chat_svc: autonomous turn finalized",
 		zap.Int64("sessionId", t.sessionID),
 		zap.Int64("assistantMsgId", t.assistantMsg.ID),

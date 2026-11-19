@@ -1,5 +1,5 @@
-// sync-applied-host.tsx —— 把「多端同步刚落地了东西」与「本机刚写完了这五类资源」
-// 接到左栏的刷新上。
+// sync-applied-host.tsx —— 把「多端同步刚落地了东西」「本机刚写完了这五类资源」与
+// 「别的设备在这台机器上新建了一条对话」接到左栏的刷新上。
 //
 // 项目树没有任何推送通道：全仓库的 EventsOn 里没有一条是项目变更，此前靠已删除的
 // 项目页那条 1 秒轮询兜着。轮询随单一会话索引一起删掉之后，另一台设备同步过来的
@@ -19,6 +19,11 @@ import { EventsOn } from "../../../wailsjs/runtime/runtime";
 const SYNC_APPLIED_EVENT = "sync:applied";
 /** 与 `sync_svc.ConfigChangedEvent` 同名；那边是常量，这边只有这一处引用。 */
 const CONFIG_CHANGED_EVENT = "config:changed";
+/**
+ * 与 `chat_svc.SessionsChangedEvent` 同名：别的设备把新对话派到这台桌面端上跑了。
+ * 会话行是本机新建的，但本机界面没参与，上面两条事件都不会发生。
+ */
+const SESSIONS_CHANGED_EVENT = "chat:sessions-changed";
 
 export function SyncAppliedHost() {
   React.useEffect(() => {
@@ -27,7 +32,11 @@ export function SyncAppliedHost() {
     // 而不是在这里 if 一串字符串。
     // 退订只退自己这一条：EventsOff(name) 会把同名事件下别的组件（组织页、设置面板）
     // 的订阅一起清掉。
-    const offs = [SYNC_APPLIED_EVENT, CONFIG_CHANGED_EVENT].map((name) =>
+    const offs = [
+      SYNC_APPLIED_EVENT,
+      CONFIG_CHANGED_EVENT,
+      SESSIONS_CHANGED_EVENT,
+    ].map((name) =>
       EventsOn(name, () => {
         reloadSidebarSources();
       }),

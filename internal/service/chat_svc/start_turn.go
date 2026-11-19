@@ -268,7 +268,10 @@ func (ts *turnStart) emitTurnStarted(ctx context.Context, stream string) {
 	// 之后(编号顺序就是补齐的重放顺序)。
 	//
 	// 这一轮从这里起算在跑:此后的切换 notice 扣到它收口之后(见 peer_notice_hold.go)。
-	ts.svc.peerTurnOpened(ts.sess.ID, stream)
+	if ts.svc.peerTurnOpened(ts.sess.ID, stream) {
+		// 开轮帧排在用户那一行之前:对端(控制台 / 账号镜像)据它把这条会话翻成在跑。
+		ts.svc.publishPeerTurnStarted(ts.sess.ID)
+	}
 	ts.userMessageMinSeq, ts.userMessageSeq = ts.svc.publishPeerMessageFrames(ctx, ts.sess.ID, ts.userMsg, true)
 	// 这里不另发 user_message **预览帧**(R18 的发起方标记):上面那一发已经把同一句话
 	// 作为**持久帧**交出去了,而拿帧重建转录的消费方(浏览器控制台、桌面端 Peer Tab)对

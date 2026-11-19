@@ -63,6 +63,17 @@ describe("SyncAppliedHost", () => {
     expect(reloadSidebarSources).toHaveBeenCalledTimes(1);
   });
 
+  // 别的设备（浏览器控制台）把新对话派到这台桌面端上跑：会话行是本机新建的，但本机
+  // 界面没有参与，sync:applied / config:changed 都不会发生。不接这一条，那条对话要等
+  // 用户碰巧做点别的才出现在「随手对话」里（2026-11-19 线上）。
+  it("Given the host is mounted, When a peer creates a session on this desktop, Then the sidebar sources reload", () => {
+    render(<SyncAppliedHost />);
+
+    handlers.get("chat:sessions-changed")?.(2);
+
+    expect(reloadSidebarSources).toHaveBeenCalledTimes(1);
+  });
+
   it("Given the host unmounts, When it goes away, Then it takes the config:changed subscription with it too", () => {
     const view = render(<SyncAppliedHost />);
 

@@ -37,15 +37,20 @@ func (s *chatSvc) peerNoticeHoldFor(sessionID int64) *peerNoticeHold {
 }
 
 // peerTurnOpened 记下这条会话上 stream 那一轮在跑:之后落库的切换 notice 扣到它收口
-// 之后。同一轮重复开轮是幂等的。
-func (s *chatSvc) peerTurnOpened(sessionID int64, stream string) {
+// 之后。同一轮重复开轮是幂等的;交回的是「这一次是不是真的开了一轮」,调用方据此只发
+// 一次开轮帧(用户发起的轮先经 emitTurnStarted、再进 runTurn,两处都会走到这里)。
+func (s *chatSvc) peerTurnOpened(sessionID int64, stream string) bool {
 	hold := s.peerNoticeHoldFor(sessionID)
 	hold.mu.Lock()
+	defer hold.mu.Unlock()
 	if hold.open == nil {
 		hold.open = make(map[string]struct{})
 	}
+	if _, already := hold.open[stream]; already {
+		return false
+	}
 	hold.open[stream] = struct{}{}
-	hold.mu.Unlock()
+	return true
 }
 
 // peerTurnSettled 在 stream 那一轮的收口帧发出之后调用。会话上再没有在跑的轮时放行

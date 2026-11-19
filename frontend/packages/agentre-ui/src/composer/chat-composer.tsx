@@ -710,7 +710,14 @@ export const ChatComposer = React.forwardRef<
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="absolute top-1 right-1 size-5 bg-background/90 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  className={cn(
+                    "absolute top-1 right-1 bg-background/90",
+                    // 触屏没有悬停：移除键常驻，热区用伪元素撑到 44px（缩略图只有
+                    // 64px 高，键本身放大会盖住半张图）。
+                    touch
+                      ? "size-6 after:absolute after:-inset-2.5 after:content-['']"
+                      : "size-5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                  )}
                   aria-label={t("chatComposer.images.remove", {
                     name: image.name || index + 1,
                   })}

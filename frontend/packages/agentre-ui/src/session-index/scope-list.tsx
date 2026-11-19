@@ -22,6 +22,8 @@ import { ProjectGlyph } from "./project-glyph";
 export type ScopeValue =
   | { kind: "all" }
   | { kind: "project"; id: string }
+  /** 「随手对话」：不属于任何项目的对话（项目轴上的兜底组，见 axis-groups）。 */
+  | { kind: "unassignedProject" }
   | { kind: "agent"; id: string }
   | { kind: "machine"; id: string };
 
@@ -64,6 +66,11 @@ export type ScopeListProps = {
   selected: ScopeValue;
   onSelect: (scope: ScopeValue) => void;
   projects: ScopeProjectNode[];
+  /**
+   * 给了就在项目档末尾摆一行「随手对话」（与项目轴的兜底组同名、同字形、同位置）。
+   * 计数与「等你」口径同项目行；不给就没有这一行。
+   */
+  unassignedProject?: Pick<ScopeItemBase, "count" | "needsYou">;
   agentGroups: ScopeAgentGroup[];
   machines: ScopeMachineItem[];
   /** 不传就是非受控，从「项目」档起。 */
@@ -284,6 +291,7 @@ export function ScopeList({
   selected,
   onSelect,
   projects,
+  unassignedProject,
   agentGroups,
   machines,
   tab: tabProp,
@@ -306,6 +314,9 @@ export function ScopeList({
     });
 
   const visibleProjects = filterProjects(projects, needle);
+  const unassignedLabel = t("sessionIndex.free.name");
+  const showUnassigned =
+    unassignedProject !== undefined && matches(unassignedLabel, needle);
   const visibleGroups = agentGroups
     .map((group) => ({
       ...group,
@@ -315,7 +326,7 @@ export function ScopeList({
   const visibleMachines = machines.filter((m) => matches(m.name, needle));
   const empty =
     tab === "project"
-      ? visibleProjects.length === 0
+      ? visibleProjects.length === 0 && !showUnassigned
       : tab === "agent"
         ? visibleGroups.length === 0
         : visibleMachines.length === 0;
@@ -400,6 +411,28 @@ export function ScopeList({
               onToggle={toggle}
               onSelect={onSelect}
             />
+            {showUnassigned ? (
+              <li className="flex list-none items-center">
+                {/* 与项目行的箭头槽对齐：它没有子项，但字形要和根项目落在同一列。 */}
+                <span className="size-11 shrink-0" aria-hidden="true" />
+                <ItemRow
+                  testId="scope-unassigned-project"
+                  selected={selected.kind === "unassignedProject"}
+                  onClick={() => onSelect({ kind: "unassignedProject" })}
+                  leading={
+                    <ProjectGlyph
+                      project={null}
+                      className="size-5 rounded-sm"
+                    />
+                  }
+                  name={unassignedLabel}
+                  needle={needle}
+                  count={unassignedProject?.count}
+                  needsYou={unassignedProject?.needsYou}
+                  className="min-w-0 flex-1"
+                />
+              </li>
+            ) : null}
           </ul>
         ) : tab === "agent" ? (
           visibleGroups.map((group) => (

@@ -1073,6 +1073,49 @@ describe("ChatComposer · top slot", () => {
  * 各 44px；空草稿是胶囊、有字是卡片，两种形态之间输入框不重挂载。
  */
 describe("ChatComposer · touch input mode", () => {
+  /*
+   * 缩略图上的移除键此前是 `opacity-0 group-hover:opacity-100`：Tailwind v4 的 hover
+   * 只在设备支持悬停时生效，手机上它永远不出现；点缩略图打开的是查看器，那里也没有
+   * 移除——贴错一张图只能整条草稿清掉重来（2026-11-19 手机形态排查）。
+   */
+  it("Given touch mode and an attached image, When rendered, Then its remove button is always visible with a 44px hit area", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    render(
+      <ChatComposer
+        ref={handle}
+        inputMode="touch"
+        supportsImageInput
+        onSubmit={vi.fn()}
+      />,
+    );
+    handle.current?.restoreDraft("", [
+      {
+        dataUrl: "data:image/png;base64,AAA",
+        mediaType: "image/png",
+        name: "a.png",
+      },
+    ]);
+    const remove = await screen.findByRole("button", { name: /remove/i });
+
+    expect(remove.className).not.toContain("opacity-0");
+    expect(remove.className).toContain("after:-inset-2.5");
+  });
+
+  it("Given pointer mode and an attached image, When rendered, Then the remove button still waits for hover", async () => {
+    const handle = createRef<ChatComposerHandle>();
+    render(<ChatComposer ref={handle} supportsImageInput onSubmit={vi.fn()} />);
+    handle.current?.restoreDraft("", [
+      {
+        dataUrl: "data:image/png;base64,AAA",
+        mediaType: "image/png",
+        name: "a.png",
+      },
+    ]);
+    const remove = await screen.findByRole("button", { name: /remove/i });
+
+    expect(remove.className).toContain("opacity-0");
+  });
+
   it("Given touch mode and a typed draft, When Enter is pressed, Then a new line is inserted and nothing is sent", async () => {
     const editorRef = createRef<Editor | null>();
     const inputHandle = createRef<AIChatInputHandle>();

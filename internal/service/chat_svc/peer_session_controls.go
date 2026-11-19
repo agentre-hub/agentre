@@ -171,6 +171,8 @@ func (s *chatSvc) runFreshPeerSession(
 	if err != nil {
 		return nil, err
 	}
+	// 本机界面不知道多了这一条:叫左栏重拉(见 SessionsChangedEvent)。
+	s.emitter.Emit(ctx, SessionsChangedEvent, out.SessionID)
 	return out, nil
 }
 
@@ -464,3 +466,11 @@ func decodePeerUserBlocks(userText string, in []cagoblocks.StoredBlock) ([]cagob
 	}
 	return transcript.TurnAttachments(userText, out), nil
 }
+
+// SessionsChangedEvent 是「这台桌面端上多了一条不是本机界面建的会话」在 Wails 事件
+// 总线上的名字,载荷是新会话的本地 id。
+//
+// 桌面端左栏只在本机界面操作、多端同步落地(sync:applied)与本机改配置
+// (config:changed)时重拉;对端把新对话派到这台机器上跑(R17)时三者都不发生,
+// 那条对话于是迟迟不出现在「随手对话」/ 项目组里,直到用户碰巧做了点别的。
+const SessionsChangedEvent = "chat:sessions-changed"

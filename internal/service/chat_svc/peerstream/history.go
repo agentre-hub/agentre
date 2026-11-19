@@ -87,7 +87,10 @@ type peerSessionSubscription struct {
 	subscriber PeerSessionSubscriber
 	highWater  int64
 	cursor     int64
-	pending    []wire.EventFrame
+	// pending 是排给这个订阅者、还没交出去的通知:绝大多数是持久帧(NotifyEvent),
+	// 夹着少量轮次边界帧(见 turn_boundary.go)。两者同排一条队,对端收到的相对顺序
+	// 就是这里入队的顺序。
+	pending []queuedNotification
 	// dropped 记这个订阅者被丢过帧。只用于日志:对端靠持久帧的 seq 跳号自己发现
 	// 并补齐,不需要服务端告诉它。
 	dropped bool
@@ -174,8 +177,8 @@ func (s *Publisher) deliverPeerPending(publication *peerSessionPublication, key 
 		subscriber := sub.subscriber
 		publication.mu.Unlock()
 
-		for _, frame := range frames {
-			if err := subscriber.Notify(wire.NotifyEvent, frame); err != nil {
+		for _, n := range frames {
+			if err := subscriber.Notify(n.method, n.params); err != nil {
 				publication.mu.Lock()
 				if publication.subscribers[key] == sub {
 					delete(publication.subscribers, key)
@@ -198,7 +201,7 @@ func enqueuePeerFrame(sub *peerSessionSubscription, frame wire.EventFrame) {
 		sub.dropped = true
 		return
 	}
-	sub.pending = append(sub.pending, frame)
+	sub.pending = append(sub.pending, queuedNotification{method: wire.NotifyEvent, params: frame})
 }
 
 // PullPeerSession serves the same runtime.session.pull contract used by

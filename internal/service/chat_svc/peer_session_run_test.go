@@ -178,6 +178,21 @@ func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRun
 		}
 	}
 	assert.Equal(t, "helloworld", got)
+	// 桌面端左栏没有别的来路得知「别人在这台机器上新建了一条对话」:它只在本机界面
+	// 操作、多端同步落地与本机改配置时重拉。不发这一声,这条对话要等用户碰巧做点别的
+	// 才出现在「随手对话」/ 项目组里(2026-11-19 线上)。
+	assert.Equal(t, 1, countEventsNamed(m.events, chat_svc.SessionsChangedEvent),
+		"对端新建的会话要通知左栏重拉")
+}
+
+func countEventsNamed(events []recorded, name string) int {
+	n := 0
+	for _, ev := range events {
+		if ev.Name == name {
+			n++
+		}
+	}
+	return n
 }
 
 // Given a web peer sends runtime.run with a cwd that no longer matches any local project,
@@ -285,6 +300,8 @@ func TestRunPeerSession_GivenExistingSession_ThenContinuesThatSession(t *testing
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for runtime request")
 	}
+	assert.Zero(t, countEventsNamed(m.events, chat_svc.SessionsChangedEvent),
+		"续轮没有新会话,左栏不必为它整体重拉")
 }
 
 // Given a web peer sends runtime.run with an agentSyncId the desktop does not know yet,

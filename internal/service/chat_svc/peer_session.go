@@ -76,3 +76,66 @@ func (s *chatSvc) publishPeerTurnDone(ctx context.Context, sessionID int64, stre
 	s.peerStream().PublishTurnDone(ctx, sessionID, msg)
 	s.peerTurnSettled(ctx, sessionID, stream)
 }
+
+// 轮次边界帧的四个发布点(见 peerstream/turn_boundary.go)。对端判「这一轮开始了 /
+// 结束了」只认它们 —— 浏览器控制台据终态帧放下停止键,server 的账号镜像据它们翻
+// 那一行的生命周期。agentred 一直发,桌面端承载时此前一帧都不发。
+//
+// 两只「Ended」必须在会话行**落成终态之后**调:对端收到终态帧会立刻查清单,那时看到
+// 的必须已经是终态(agentred 的 fanout 同样先 settleSession 再发帧)。AST 守卫认的是
+// 这几个名字。
+
+// publishPeerTurnStarted 在一轮用户发起的轮次(含 compact)开起来时调。
+func (s *chatSvc) publishPeerTurnStarted(sessionID int64) {
+	s.peerStream().PublishTurnStarted(sessionID)
+}
+
+// publishPeerTurnEnded 在一轮用户发起的轮次收场时调。stopErr 为 nil 是正常结束,
+// agentruntime.ErrAborted 是用户点了停止,其余是故障。
+func (s *chatSvc) publishPeerTurnEnded(sessionID int64, msg *chat_entity.Message, stopErr error) {
+	s.peerStream().PublishRunResultDone(sessionID, peerTurnEndFrame(msg, stopErr))
+}
+
+// publishPeerAutonomousTurnStarted 在后端自己续起的一轮宣告开轮时调。
+func (s *chatSvc) publishPeerAutonomousTurnStarted(sessionID int64, trigger string) {
+	s.peerStream().PublishAutonomousTurnStarted(sessionID, trigger)
+}
+
+// publishPeerAutonomousTurnEnded 在自主续轮收场时调,stopErr 口径同 publishPeerTurnEnded。
+func (s *chatSvc) publishPeerAutonomousTurnEnded(sessionID int64, msg *chat_entity.Message, stopErr error) {
+	s.peerStream().PublishAutonomousTurnDone(sessionID, peerTurnEndFrame(msg, stopErr))
+}
+
+// peerTurnEndFrame 把收场的那条 assistant 消息折成终态帧。
+//
+// 帧上的模型 / 用量 / 计时与 agentred 那一份同口径(都出自 internal/pkg/turnstats),
+// 对端拿它们画 meta 那一行。零值一律不带:对端把 0 读作「有这个数,值是 0」。
+//
+// 停止原因的码由 wire.ToRPCError 给:用户点的停止(ErrAborted)映射成 ErrCodeAborted,
+// 对端据此画「已中断」而不是故障(turnstate.IsFailure)。
+func peerTurnEndFrame(msg *chat_entity.Message, stopErr error) wire.RunResultDoneFrame {
+	var frame wire.RunResultDoneFrame
+	if msg != nil {
+		frame.Model = msg.Model
+		frame.DurationMs = msg.DurationMs
+		frame.FirstTokenMs = msg.FirstTokenMs
+		frame.TokensPerSec = msg.TokensPerSec
+		usage := wire.UsageWire{
+			PromptTokens:        msg.PromptTokens,
+			CompletionTokens:    msg.CompletionTokens,
+			ReasoningTokens:     msg.ReasoningTokens,
+			CachedTokens:        msg.CachedTokens,
+			CacheCreationTokens: msg.CacheCreationTokens,
+		}
+		if usage != (wire.UsageWire{}) {
+			frame.Usage = &usage
+		}
+	}
+	if stopErr != nil {
+		frame.StopErrMsg = stopErr.Error()
+		if rpcErr := wire.ToRPCError(stopErr); rpcErr != nil {
+			frame.StopErrCode = int(rpcErr.Code)
+		}
+	}
+	return frame
+}

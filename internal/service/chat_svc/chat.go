@@ -2671,7 +2671,10 @@ func (s *chatSvc) runTurn(
 	// 正常收口早已在 finalize / failTurn / abortTurnBeforeStream 里关过,退出时再关一次
 	// 是空操作;它兜的是 panic(调用方 gogo.WithIgnorePanic 吞掉后应用照常跑)—— 否则这
 	// 一格永远开着,这条会话之后的切换 notice 一条都发不出去。
-	s.peerTurnOpened(sess.ID, stream)
+	if s.peerTurnOpened(sess.ID, stream) {
+		// compact 不经 emitTurnStarted,开轮帧在这里补;用户发起的轮已在那边发过。
+		s.publishPeerTurnStarted(sess.ID)
+	}
 	defer s.peerTurnSettled(context.WithoutCancel(ctx), sess.ID, stream)
 
 	if prepared == nil {

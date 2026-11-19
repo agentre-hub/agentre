@@ -85,6 +85,59 @@ describe("ScopeList", () => {
     );
   });
 
+  /*
+   * 「随手对话」（不属于任何项目的对话）在项目档里排最后，与桌面左栏的项目轴一致
+   * （决策 12：它是一条正当的去处，不是分类失败的残留）。手机上的范围弹层此前没有
+   * 这一档：一条随手对话只能在「全部」里翻（2026-11-19 用户反馈）。
+   */
+  it("Given the host offers quick chats, When on the projects tab, Then they come last and select the unassigned scope", async () => {
+    const { onSelect, user } = setup({
+      unassignedProject: { count: 4, needsYou: true },
+    });
+    const rows = screen.getAllByTestId(
+      /^scope-item-project-|^scope-unassigned-project$/,
+    );
+    const last = rows[rows.length - 1];
+    expect(last).toHaveAttribute("data-testid", "scope-unassigned-project");
+    expect(last).toHaveTextContent("Quick chats");
+    expect(last).toHaveTextContent("4");
+    expect(within(last).getByTestId("scope-needs-you")).toBeInTheDocument();
+    await user.click(last);
+    expect(onSelect).toHaveBeenCalledWith({ kind: "unassignedProject" });
+  });
+
+  it("Given quick chats are the selected scope, When rendered, Then that row carries the check", () => {
+    setup({
+      unassignedProject: {},
+      selected: { kind: "unassignedProject" },
+    });
+    const row = screen.getByTestId("scope-unassigned-project");
+    expect(row).toHaveAttribute("aria-current", "true");
+    expect(within(row).getByTestId("scope-check")).toBeInTheDocument();
+  });
+
+  it("Given no projects at all, When the host offers quick chats, Then the tab is not empty", () => {
+    setup({ projects: [], unassignedProject: { count: 2 } });
+    expect(screen.getByTestId("scope-unassigned-project")).toBeInTheDocument();
+    expect(screen.queryByText("No matches")).not.toBeInTheDocument();
+  });
+
+  it("Given a search that misses the quick chats label, When typed, Then that row hides with the other misses", async () => {
+    const { user } = setup({ unassignedProject: { count: 2 } });
+    await user.type(screen.getByRole("searchbox"), "docs");
+    expect(
+      screen.queryByTestId("scope-unassigned-project"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("scope-item-project-p2")).toBeInTheDocument();
+  });
+
+  it("Given the host does not offer quick chats, When rendered, Then there is no such row", () => {
+    setup();
+    expect(
+      screen.queryByTestId("scope-unassigned-project"),
+    ).not.toBeInTheDocument();
+  });
+
   it("offers three tabs, starting on projects", () => {
     setup();
     const tabs = screen.getAllByRole("tab");
