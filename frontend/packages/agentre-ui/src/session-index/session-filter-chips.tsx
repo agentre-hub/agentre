@@ -67,8 +67,10 @@ function SessionFilterChips<V extends string = SessionFilterValue>({
             onClick={() => onChange(next)}
             className={cn(
               "inline-flex cursor-pointer items-center gap-1 rounded-full outline-none transition-colors focus-visible:focus-outline motion-reduce:transition-none",
+              // 触屏：视觉 32px 的胶囊，透明 ::before 上下各撑 6px，点按区回到 44px；
+              // 左右各 3px 补满 gap-1.5 的缝，相邻 chip 之间点不空。
               size === "touch"
-                ? "min-h-11 px-3.5 text-sm"
+                ? "relative h-8 px-3 text-sm before:absolute before:-inset-x-[3px] before:-inset-y-1.5"
                 : "px-2.5 py-1 text-2xs",
               active
                 ? "bg-primary-soft font-medium text-primary-text"

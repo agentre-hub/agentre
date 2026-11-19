@@ -93,7 +93,9 @@ describe("SessionFilterChips item list and touch size", () => {
     expect(onChange).toHaveBeenCalledWith("attention");
   });
 
-  it("Given the touch size, Then every chip has a 44px hit area; default stays compact", () => {
+  // 触屏 chip 视觉上是 32px 的胶囊，点按区靠透明的 ::before 往上下各撑 6px 回到 44px
+  // （32 + 6 + 6）——44px 的实心胶囊在手机首页上太笨重（2026-11-19 真机反馈）。
+  it("Given the touch size, Then every chip looks 32px tall but keeps a 44px hit area; default stays compact", () => {
     const { rerender } = render(
       <SessionFilterChips
         value="all"
@@ -102,10 +104,20 @@ describe("SessionFilterChips item list and touch size", () => {
         size="touch"
       />,
     );
-    expect(screen.getByTestId("filter-chip-all")).toHaveClass("min-h-11");
+    const chip = screen.getByTestId("filter-chip-all");
+    expect(chip).toHaveClass(
+      "h-8",
+      "relative",
+      "before:absolute",
+      "before:-inset-y-1.5",
+    );
+    expect(chip).not.toHaveClass("min-h-11");
     rerender(
       <SessionFilterChips value="all" unreadCount={0} onChange={() => {}} />,
     );
-    expect(screen.getByTestId("filter-chip-all")).not.toHaveClass("min-h-11");
+    expect(screen.getByTestId("filter-chip-all")).not.toHaveClass("h-8");
+    expect(screen.getByTestId("filter-chip-all")).not.toHaveClass(
+      "before:absolute",
+    );
   });
 });

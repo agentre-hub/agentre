@@ -57,7 +57,8 @@ export function IdentityFields({
           placeholder={t("identityFields.name")}
           onChange={(e) => onNameChange(e.target.value)}
           onBlur={onNameBlur}
-          className="h-9 text-prose font-semibold"
+          // 手机上 16px（text-base）：iOS 聚焦字号 < 16px 的输入会放大整页，桌面端回到 15px。
+          className="h-9 text-base font-semibold md:text-prose"
         />
         {nameError ? (
           <p
@@ -77,7 +78,8 @@ export function IdentityFields({
           placeholder={t("identityFields.descriptionPlaceholder")}
           onChange={(e) => onDescriptionChange(e.target.value)}
           onBlur={onDescriptionBlur}
-          className="min-h-[52px] text-xs"
+          // 同上：手机 16px 防 iOS 聚焦放大，桌面端回到 12px。
+          className="min-h-[52px] text-base md:text-xs"
         />
       </div>
     </div>

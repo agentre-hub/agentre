@@ -42,3 +42,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 收起的触屏胶囊（data-shape=pill）：编辑器 min-h-10 是 40px，单行 24px 会贴在顶上、
+ * 比胶囊中线高 8px，提示文字和打进去的字都偏上。上下各 8px 把这一行放回正中。
+ * 只限胶囊：聚焦展开成卡片（data-shape=card）后保持原来的排版，桌面端不带 data-shape。 */
+[data-shape="pill"] [data-slot="composer-editor"] .ProseMirror {
+  padding-block: 8px;
+}

@@ -89,6 +89,22 @@ describe("AIChatInput 自带占位文字样式", () => {
     expect(rule![1]).toMatch(/max-width:\s*100%/);
   });
 
+  // 收起成胶囊（data-shape=pill）时编辑器高 40px（min-h-10），单行 24px 贴在顶上，提示
+  // 比胶囊中线高 8px（2026-11-19 真机反馈）。上下各 8px 把这一行放回正中；只限胶囊，
+  // 展开成卡片后排版保持原样（用户确认过那一态现在更好看）。
+  it("收起的触屏胶囊里编辑器上下各 8px，单行落在 40px 正中；卡片形态不受影响", () => {
+    const css = declarationsOf("src/chat-input/chat-input.css");
+    const rule = css.match(
+      /\[data-shape="pill"\]\s+\[data-slot="composer-editor"\]\s+\.ProseMirror\s*\{([^}]*)\}/,
+    );
+
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toMatch(/padding-block:\s*8px/);
+    expect(css).not.toMatch(
+      /\[data-shape="card"\][^{]*\.ProseMirror\s*\{[^}]*padding/,
+    );
+  });
+
   it("触屏胶囊里截断不裁掉整行：裁剪框得有一行高，靠绝对定位而不是 height:0 不占位", () => {
     // 基础规则的 float + height:0 再叠 overflow:hidden，裁剪框是 0 高，占位文字整行
     // 被裁光（Chromium 与 WebKit 实测皆空白）。截断那条规则必须把高度还回来，改由
