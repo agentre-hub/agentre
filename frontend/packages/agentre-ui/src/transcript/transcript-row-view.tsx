@@ -1157,7 +1157,11 @@ function extractAssistantOutputText(
   liveBlocks: TranscriptBlock[] = [],
   liveTail: string = "",
 ): string {
-  const allBlocks = [...blocks, ...liveBlocks];
+  // 子代理内层块(parentToolUseId)画在派遣卡里,不属于消息正文流;后台子代理在
+  // 主轮收尾后继续干活,它们会被追加到消息末尾,不能算作「正文之后的工具块」。
+  const allBlocks = [...blocks, ...liveBlocks].filter(
+    (block) => !block.parentToolUseId,
+  );
   let lastSectionStart = -1;
   for (let index = allBlocks.length - 1; index >= 0; index -= 1) {
     if (allBlocks[index].type !== "text") {

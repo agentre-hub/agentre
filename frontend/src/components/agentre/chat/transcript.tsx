@@ -38,6 +38,8 @@ import { useTranscriptVirtualizer } from "./transcript/use-transcript-virtualize
 export type TranscriptLiveContent = LiveRowContent & {
   liveRetry?: RetryNotice | null;
   liveTurn?: LiveTurnInput | null;
+  /** 后台 subagent 在已收尾消息上的活动流:内容照画,但这条消息没有一轮在跑。 */
+  background?: boolean;
 };
 
 type ChatTranscriptProps = {

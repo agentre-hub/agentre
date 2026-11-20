@@ -191,7 +191,9 @@ export function useTranscriptRowView({
           // 桌面端的真相就是 liveByMessageId 的成员资格(表里有 key 的消息就在
           // 流式中),而那张表的每一项恒带 liveBlocks 数组 —— 所以这与旧判据
           // 逐帧等价,只是把判据本身说清楚了。
-          turnRunning={isLiveTail}
+          // 后台 subagent 活动流例外:它在一条早已收尾的消息上画内层块,这条消息
+          // 并没有一轮在跑(sess-4932)。
+          turnRunning={isLiveTail && !live?.background}
           fallbackModel={fallbackModel}
         />
       );

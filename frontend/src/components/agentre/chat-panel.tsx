@@ -235,11 +235,13 @@ function ChatPanel({
   // 索引。引用只在本会话有流增删 / 内容变动时才变,别的会话在流不会触发本 panel 重渲染;
   // 非活动 tab 连本会话的内容变动也不跟(见 usePanelSessionStreams)。
   const sessionStreams = usePanelSessionStreams(sessionId, active);
-  // 主流 = 最近开的那条,供会话级读数(进度条 / typing indicator / 停止按钮)。
+  // 主流 = 最近开的那条**轮次**流,供会话级读数(进度条 / typing indicator / 停止按钮)。
+  // 后台 subagent 活动流不是一轮在跑(LiveStream.background),不参与。
   const currentStream = React.useMemo(() => {
     if (!sessionStreams || sessionStreams.size === 0) return null;
     let best: LiveStream | null = null;
     for (const s of sessionStreams.values()) {
+      if (s.background) continue;
       if (!best || s.streamStartedAt >= best.streamStartedAt) best = s;
     }
     return best;
