@@ -28,12 +28,15 @@ export type OrgToolListProps = {
   /** 这个 Agent 现在的授权状态。 */
   agentTools: OrgAgentTool[];
   onToggleGrant: (key: string) => void;
+  /** 手机触屏档：授权键视觉 28px、点按区 44px（透明 ::before）。不传 = 桌面形态。 */
+  touch?: boolean;
 };
 
 export function OrgToolList({
   toolKeys,
   agentTools,
   onToggleGrant,
+  touch,
 }: OrgToolListProps) {
   const { t } = useUiTranslation();
   const items = buildOrgToolList(toolKeys, agentTools, t);
@@ -71,7 +74,8 @@ export function OrgToolList({
                 key={item.key}
                 data-granted={item.granted}
                 className={cn(
-                  "flex min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5",
+                  "flex min-w-0 items-center gap-2 rounded-md px-2.5",
+                  touch ? "py-2" : "py-1.5",
                   item.granted ? "bg-primary-soft" : "bg-field-fill",
                 )}
               >
@@ -136,7 +140,10 @@ export function OrgToolList({
                   )}
                   onClick={() => onToggleGrant(item.key)}
                   className={cn(
-                    "shrink-0 rounded-sm px-2 py-0.5 text-2xs transition-colors focus-visible:focus-outline",
+                    "shrink-0 rounded-sm transition-colors focus-visible:focus-outline",
+                    touch
+                      ? "relative h-7 px-3 text-xs before:absolute before:-inset-x-1 before:-inset-y-2"
+                      : "px-2 py-0.5 text-2xs",
                     item.granted
                       ? "bg-status-running-bg text-status-running-text"
                       : "bg-button-fill text-muted-foreground hover:bg-button-fill-hover hover:text-foreground",

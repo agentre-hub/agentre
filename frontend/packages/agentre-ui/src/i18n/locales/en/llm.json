@@ -384,6 +384,7 @@
       "cancelTestNamed": "Cancel test for {{name}}",
       "deleteNamed": "Delete {{name}}",
       "editNamed": "Edit {{name}}",
+      "moreNamed": "More actions for {{name}}",
       "changeBinding": "Change binding",
       "changeBindingNamed": "Change binding for {{name}}",
       "rebind": "Reselect",
@@ -676,6 +677,8 @@
     },
     "row": {
       "agentCount": "{{count}} agents in use",
+      "agentCount_one": "{{count}} agent in use",
+      "agentCount_other": "{{count}} agents in use",
       "needsAction": "Needs action",
       "unused": "Not used by any agent",
       "bindingCliLogin": "Use CLI login state",

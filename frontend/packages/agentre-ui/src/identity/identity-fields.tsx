@@ -78,8 +78,9 @@ export function IdentityFields({
           placeholder={t("identityFields.descriptionPlaceholder")}
           onChange={(e) => onDescriptionChange(e.target.value)}
           onBlur={onDescriptionBlur}
-          // 同上：手机 16px 防 iOS 聚焦放大，桌面端回到 12px。
-          className="min-h-[52px] text-base md:text-xs"
+          // 描述保持 12px（2026-11-20 定稿）：主屏幕 App 已整体禁止缩放兜住聚焦放大，
+          // 放大到 16px 只会让描述显得突兀；Safari 标签页里点它仍会放大一下，可接受。
+          className="min-h-[52px] text-xs"
         />
       </div>
     </div>

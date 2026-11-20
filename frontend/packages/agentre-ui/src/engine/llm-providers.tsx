@@ -48,11 +48,20 @@ import {
 } from "./llm-provider-models/index";
 import type { FlashState } from "./agent-backends-shared";
 
+export type LlmProvidersHeaderContext = {
+  // 只在 layer="detail" 且选中项已在目录里时给出。
+  providerName?: string;
+};
+
 type LlmProvidersPanelProps = {
   onOpenAgentBackends?: () => void;
   // 页头由宿主渲染，面板把自己的页级操作（新增供应商）交进去：按钮要落在 H1
-  // 行，而它开的创建弹窗仍归面板持有。
-  renderHeader?: (actions: React.ReactNode) => React.ReactNode;
+  // 行，而它开的创建弹窗仍归面板持有。逐层档的详情层不交「新增」（那是列表层的
+  // 事），改交选中供应商的名字，供宿主拿来当页头标题。
+  renderHeader?: (
+    actions: React.ReactNode,
+    context?: LlmProvidersHeaderContext,
+  ) => React.ReactNode;
   // 宿主在得知账号数据有同步变化时换一个新值：面板经端口重拉供应商与当前模型表，
   // 已打开的弹窗保留用户正在编辑的内容。首次挂载时的值不触发额外拉取。
   refreshSignal?: number | string;
@@ -222,7 +231,7 @@ function LlmProvidersPanelBody({
 
   // 空态自带「添加第一个供应商」CTA，此时页头不再出第二个——全页始终只有一个入口。
   const headerActions =
-    providersLoading || providers.length === 0 ? null : (
+    layer === "detail" || providersLoading || providers.length === 0 ? null : (
       <Button
         type="button"
         size="sm"
@@ -236,7 +245,12 @@ function LlmProvidersPanelBody({
 
   return (
     <>
-      {renderHeader?.(headerActions)}
+      {renderHeader?.(
+        headerActions,
+        layer === "detail" && selectedProvider
+          ? { providerName: selectedProvider.name }
+          : undefined,
+      )}
       <div className="flex min-w-0 flex-col gap-3">
         {flash ? (
           <Alert

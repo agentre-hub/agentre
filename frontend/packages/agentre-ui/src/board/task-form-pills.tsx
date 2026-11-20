@@ -182,6 +182,11 @@ export interface TaskLabelChipsProps {
   labels: LabelUsageView[];
   onChange: (labelIds: number[]) => void;
   disabled?: boolean;
+  /**
+   * 触屏（整页档）：标签 24px 高；移除 × 常显（触屏没有悬停，藏起来就删不掉），视觉
+   * 20px、透明 ::before 撑到 44px；末尾的 + 32px。不传 = 桌面形态。
+   */
+  touch?: boolean;
 }
 
 /**
@@ -193,6 +198,7 @@ export function TaskLabelChips({
   labels,
   onChange,
   disabled,
+  touch,
 }: TaskLabelChipsProps) {
   const { t } = useUiTranslation();
   const [open, setOpen] = React.useState(false);
@@ -205,7 +211,8 @@ export function TaskLabelChips({
           key={label.id}
           data-testid={`task-label-${label.id}`}
           className={cn(
-            "group/label inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs",
+            "group/label inline-flex items-center gap-1 rounded-full",
+            touch ? "h-6 pr-1 pl-2.5 text-xs" : "px-2 py-0.5 text-2xs",
             toneClass(label.tone),
           )}
         >
@@ -216,8 +223,13 @@ export function TaskLabelChips({
             aria-label={t("board.chip.remove", { name: label.name })}
             disabled={disabled}
             onClick={() => onChange(labelIds.filter((id) => id !== label.id))}
-            // 悬停某一颗才露出它自己的移除键，不让一排 × 抢走标签本身的注意力。
-            className="cursor-pointer opacity-0 transition-opacity group-hover/label:opacity-100 focus-visible:opacity-100 focus-visible:focus-outline"
+            // 桌面：悬停某一颗才露出它自己的移除键，不让一排 × 抢走标签本身的注意力。
+            className={cn(
+              "cursor-pointer focus-visible:focus-outline",
+              touch
+                ? "relative inline-flex size-5 items-center justify-center rounded-full before:absolute before:-inset-3"
+                : "opacity-0 transition-opacity group-hover/label:opacity-100 focus-visible:opacity-100",
+            )}
           >
             <X className="size-3" aria-hidden="true" />
           </button>
@@ -230,7 +242,10 @@ export function TaskLabelChips({
             data-testid="task-label-add"
             disabled={disabled}
             aria-label={t("board.form.addLabel")}
-            className="inline-flex size-5 cursor-pointer items-center justify-center rounded-full bg-button-fill text-muted-foreground transition-colors hover:bg-button-fill-hover hover:text-foreground focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50"
+            className={cn(
+              "inline-flex cursor-pointer items-center justify-center rounded-full bg-button-fill text-muted-foreground transition-colors hover:bg-button-fill-hover hover:text-foreground focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50",
+              touch ? "size-8" : "size-5",
+            )}
           >
             <Plus className="size-3" aria-hidden="true" />
           </button>

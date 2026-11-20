@@ -679,6 +679,7 @@ function AgentBackendsPanelBody({
                   onEdit={() => void openEditor(b)}
                   onChangeBinding={() => void openEditor(b, true)}
                   onDelete={() => setPendingDelete(b)}
+                  touch={layer === "list"}
                 />
               ))}
             </div>
@@ -1667,6 +1668,7 @@ function BackendEditor({
       <DefaultPermissionModeField
         value={defaultPermissionMode}
         onChange={setDefaultPermissionMode}
+        stacked={presentation === "page"}
         // 这颗提示问的是「跑这个 CLI 的是不是另一台机器上的 agentred」。桌面端
         // 靠 remoteExecution 判；而**没有本机的宿主**（浏览器控制台）从不在本地
         // 执行，选中的任何一台都是远端——那里 localFingerprint 恒为空，而

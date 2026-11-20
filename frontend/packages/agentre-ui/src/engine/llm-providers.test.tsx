@@ -81,6 +81,45 @@ function renderWithTranslations(node: React.ReactNode) {
 }
 
 describe("LlmProvidersPanel layered mode", () => {
+  it("Given layer=detail, When providers load, Then the page header gets no Add-provider action but the selected provider's name as its title", async () => {
+    const renderHeader = vi.fn(
+      (_actions: React.ReactNode, _ctx?: { providerName?: string }) => null,
+    );
+    renderWithTranslations(
+      <LlmProvidersPanel
+        ports={createPorts()}
+        layer="detail"
+        selectedId={7}
+        onSelect={vi.fn()}
+        renderHeader={renderHeader}
+      />,
+    );
+
+    await screen.findByRole("region");
+    const [actions, ctx] = renderHeader.mock.calls.at(-1)!;
+    expect(actions).toBeNull();
+    expect(ctx).toEqual({ providerName: "Anthropic" });
+  });
+
+  it("Given layer=list, When providers load, Then the page header still gets the Add-provider action", async () => {
+    const renderHeader = vi.fn(
+      (actions: React.ReactNode, _ctx?: { providerName?: string }) => actions,
+    );
+    renderWithTranslations(
+      <LlmProvidersPanel
+        ports={createPorts()}
+        layer="list"
+        selectedId={null}
+        onSelect={vi.fn()}
+        renderHeader={renderHeader}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /New Provider/i }),
+    ).toBeInTheDocument();
+  });
+
   it("Given layer=list, When providers load, Then only the list renders and picking one reports its id without opening a detail", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();

@@ -492,6 +492,26 @@ describe("useUiTranslation", () => {
     },
   );
 
+  // 2026-11-20 手机审计：中文写成「1 agents 使用中」，英文单数也是 agents。
+  it.each([
+    ["en", 1, "1 agent in use"],
+    ["en", 3, "3 agents in use"],
+    ["zh-CN", 1, "1 个 Agent 使用中"],
+    ["zh-CN", 3, "3 个 Agent 使用中"],
+  ] as const)(
+    "Given a backend used by agents, When the row count resolves in %s with count %i, Then it reads naturally",
+    (language, count, expected) => {
+      const instance = createHostInstance(language);
+
+      expect(
+        instance.t("agentBackends.row.agentCount", {
+          ns: AGENTRE_UI_NAMESPACE,
+          count,
+        }),
+      ).toBe(expected);
+    },
+  );
+
   it("Given the host switches language, When the package renders, Then it follows the host instance instead of keeping its own state", () => {
     const instance = createHostInstance("en");
 

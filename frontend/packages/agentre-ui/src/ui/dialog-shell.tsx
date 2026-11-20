@@ -161,7 +161,8 @@ export function DialogShellHeader({
     <div
       data-slot="dialog-shell-header"
       className={cn(
-        "flex shrink-0 items-start gap-3 px-5 py-3.5",
+        // 贴底 sheet（基础）与标题同一中线；sm: 浮卡档还原顶对齐。
+        "flex shrink-0 items-center gap-3 px-5 py-3.5 sm:items-start",
         danger && "bg-destructive-soft/40",
       )}
     >
@@ -211,9 +212,11 @@ export function DialogShellHeader({
           aria-label={t("common.close")}
           disabled={busy}
           onClick={onClose}
-          className="-mr-1 mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline disabled:pointer-events-none disabled:opacity-40"
+          // sheet 档（基础）是手指点的：44px 点按区、20px 图标，负外边距吃掉多出来的
+          // 那圈，头部高度不变；sm: 浮卡档还原 28px。
+          className="-my-2.5 -mr-3 inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline disabled:pointer-events-none disabled:opacity-40 sm:my-0 sm:-mr-1 sm:mt-0.5 sm:size-7"
         >
-          <X className="size-4" aria-hidden="true" />
+          <X className="size-5 sm:size-4" aria-hidden="true" />
         </button>
       ) : null}
     </div>

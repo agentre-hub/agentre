@@ -8,6 +8,10 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "../ui/hover-card";
+import {
+  ICON_CONTROL_CELL,
+  ICON_CONTROL_TEXT,
+} from "../lib/composer-icon-controls";
 import { usageLevel, type UsageLevel } from "./usage-level";
 
 // 环的几何：14px 外径 + 2.5px 描边。端点用 butt 而不是 round —— round 在这个描边
@@ -78,6 +82,9 @@ export function ContextMeter({ used, max, dataTestId }: ContextMeterProps) {
             "font-mono text-meta tabular-nums transition-colors motion-reduce:transition-none",
             "hover:bg-accent",
             "focus-visible:bg-accent focus-visible:focus-outline",
+            // 只留图标档：点按区靠 ::before 伸出去，不能被自己的 overflow-hidden 裁掉。
+            ICON_CONTROL_CELL,
+            "in-data-[controls=icons]:overflow-visible",
           )}
           aria-label={t("contextMeter.aria", {
             max: formatTokens(max),
@@ -87,7 +94,11 @@ export function ContextMeter({ used, max, dataTestId }: ContextMeterProps) {
         >
           <ContextRing used={safeUsed} max={max} pct={pct} level={level} />
           <span
-            className={cn("font-medium tabular-nums", LEVEL_TEXT_TONE[level])}
+            className={cn(
+              "font-medium tabular-nums",
+              LEVEL_TEXT_TONE[level],
+              ICON_CONTROL_TEXT,
+            )}
           >
             {pct}%
           </span>

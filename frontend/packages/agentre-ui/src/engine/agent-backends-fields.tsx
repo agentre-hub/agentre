@@ -1062,10 +1062,14 @@ export function DefaultPermissionModeField({
   hasIsSandbox,
   onAddIsSandbox,
   addIsSandboxError,
+  stacked = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   isRemote: boolean;
+  // 手机整屏编辑页：下拉挪到标题下独占一行（40px、14px 字）。并排的 170px 框在
+  // 390 宽里会把选项截成「acceptEdit」。弹窗档不传。
+  stacked?: boolean;
   canAddIsSandbox: boolean;
   hasIsSandbox: boolean;
   onAddIsSandbox: () => void;
@@ -1083,7 +1087,12 @@ export function DefaultPermissionModeField({
         isBypass ? "bg-destructive-soft" : "bg-field-fill",
       )}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div
+        className={cn(
+          "flex gap-3",
+          stacked ? "flex-col gap-2" : "items-start justify-between",
+        )}
+      >
         <div className="flex min-w-0 flex-col gap-0.5">
           <span
             className={cn(
@@ -1106,7 +1115,9 @@ export function DefaultPermissionModeField({
         >
           <SelectTrigger
             aria-label={t("agentBackends.permission.label")}
-            className="h-7 w-[170px] text-2xs"
+            className={
+              stacked ? "h-10 w-full text-sm" : "h-7 w-[170px] text-2xs"
+            }
           >
             <SelectValue />
           </SelectTrigger>

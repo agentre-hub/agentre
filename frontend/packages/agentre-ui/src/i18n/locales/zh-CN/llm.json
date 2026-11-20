@@ -384,6 +384,7 @@
       "cancelTestNamed": "取消测试 {{name}}",
       "deleteNamed": "删除 {{name}}",
       "editNamed": "编辑 {{name}}",
+      "moreNamed": "{{name}} 的更多操作",
       "changeBinding": "更换绑定",
       "changeBindingNamed": "更换 {{name}} 的模型绑定",
       "rebind": "重新选择",
@@ -675,7 +676,9 @@
       }
     },
     "row": {
-      "agentCount": "{{count}} agents 使用中",
+      "agentCount": "{{count}} 个 Agent 使用中",
+      "agentCount_one": "{{count}} 个 Agent 使用中",
+      "agentCount_other": "{{count}} 个 Agent 使用中",
       "needsAction": "需处理",
       "unused": "暂未被 Agent 使用",
       "bindingCliLogin": "走 CLI 自身登录态",

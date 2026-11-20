@@ -41,4 +41,36 @@ describe("SessionRowSkeleton", () => {
       container.querySelectorAll("span.animate-pulse").length,
     ).toBeGreaterThan(0);
   });
+
+  // 2026-11-20 手机审计 15e：手机首页的骨架还是桌面那一档（8px 圆点 + 两条细线、行高
+  // 约 40px），真实行是 64px 高、44px 圆角头像、右上角时间——加载完整列表会跳一下。
+  // phone 档照 SessionRow variant="phone" 的几何画。
+  it("Given the phone variant, When it renders, Then each placeholder row has the phone row geometry: 64px tall, a 44px rounded avatar and a top-right time", () => {
+    const { container } = render(
+      <SessionRowSkeleton variant="phone" rows={2} />,
+    );
+
+    const skeleton = container.querySelector(
+      '[data-slot="session-row-skeleton"]',
+    )!;
+    expect(skeleton).toHaveAttribute("data-variant", "phone");
+    const row = skeleton.children[0] as HTMLElement;
+    expect(row).toHaveClass("min-h-16", "gap-3");
+    const avatar = row.firstElementChild as HTMLElement;
+    expect(avatar).toHaveClass("size-11", "rounded-xl");
+    expect(
+      row.querySelector('[data-slot="session-row-skeleton-time"]'),
+    ).not.toBeNull();
+  });
+
+  it("Given no variant, When it renders, Then the desktop dot row is unchanged", () => {
+    const { container } = render(<SessionRowSkeleton rows={1} />);
+
+    const row = container.querySelector('[data-slot="session-row-skeleton"]')!
+      .children[0] as HTMLElement;
+    expect(row.firstElementChild).toHaveClass("size-2", "rounded-full");
+    expect(
+      row.querySelector('[data-slot="session-row-skeleton-time"]'),
+    ).toBeNull();
+  });
 });

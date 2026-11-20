@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   AlertCircle,
+  Ellipsis,
   Lock,
   Pencil,
   Plus,
@@ -15,6 +16,12 @@ import {
 import { useUiTranslation as useTranslation } from "../i18n";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { cn } from "../lib/utils";
 import { FailureDetail } from "../transcript/failure-detail";
 
@@ -225,6 +232,7 @@ export function BackendRow({
   onEdit,
   onChangeBinding,
   onDelete,
+  touch = false,
 }: {
   backend: Backend;
   hasLocalDevice: boolean;
@@ -237,6 +245,10 @@ export function BackendRow({
   onEdit: () => void;
   onChangeBinding: () => void;
   onDelete: () => void;
+  // 手机逐层页的排法（宿主 layer="list"）：整行点进编辑，右侧只留一颗 44px「⋯」，
+  // 测试 / 换绑 / 删除收进菜单；元数据拆成「绑定」「设备 · 引用数」两行。390 宽里
+  // 塞不下桌面那一行加四颗 26px 键——名称会被压到 0 宽。
+  touch?: boolean;
 }) {
   const { t } = useTranslation();
   const typ = (backend.type as BackendType) ?? "builtin";
@@ -267,6 +279,126 @@ export function BackendRow({
       ? t("agentBackends.row.agentCount", { count: backend.agentCount })
       : t("agentBackends.row.unused"),
   ];
+
+  const canChangeBinding = !openClaw && typ !== "hermes";
+  const failureNode = testFailure ? (
+    // 与名称左对齐（28px logo + 10px 间距）。
+    <div
+      role="alert"
+      className="min-w-0 pl-[38px] text-xs text-destructive-text"
+    >
+      <p className="break-words">{testFailure.text}</p>
+      <FailureDetail detail={testFailure.detail} className="mt-1" />
+    </div>
+  ) : null;
+
+  if (touch) {
+    return (
+      <div
+        role="listitem"
+        className={cn(
+          "relative flex min-w-0 flex-col gap-1.5 py-3 pr-1 pl-4",
+          warning && "shadow-[inset_3px_0_0_0_var(--status-waiting)]",
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-2.5">
+          {/* 整行就是「编辑」：透明按钮铺满行，⋯ 叠在它上面单独接点按。 */}
+          <button
+            type="button"
+            aria-label={t("agentBackends.actions.editNamed", {
+              name: backend.name,
+            })}
+            className="absolute inset-0 cursor-pointer outline-none transition-colors focus-visible:focus-outline active:bg-accent/45"
+            onClick={onEdit}
+          />
+          <AgentBackendLogo
+            backendType={typ}
+            className="pointer-events-none relative size-7 rounded-md"
+          />
+          <div className="pointer-events-none relative flex min-w-0 flex-1 flex-col gap-1">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="max-w-full min-w-0 shrink-0 truncate text-sm font-semibold">
+                {backend.name}
+              </span>
+              <Badge
+                data-testid="backend-type-chip"
+                variant="secondary"
+                className="min-w-0 shrink justify-start truncate rounded-sm px-1.5 py-0 text-2xs font-normal"
+              >
+                {t(`agentBackends.backendType.${typ}.label`)}
+              </Badge>
+              {warning ? (
+                <Badge
+                  variant="secondary"
+                  className="shrink-0 rounded-sm bg-status-waiting-bg px-1.5 py-0 font-mono text-2xs text-status-waiting-text"
+                >
+                  {t("agentBackends.row.needsAction")}
+                </Badge>
+              ) : null}
+            </div>
+            <div
+              data-testid="backend-meta"
+              className="flex min-w-0 text-2xs text-muted-foreground"
+            >
+              <BackendRowBinding backend={backend} variant={bindingVariant} />
+            </div>
+            <span
+              data-testid="backend-place"
+              className="min-w-0 truncate text-2xs text-muted-foreground"
+            >
+              {metaTail.join(" · ")}
+            </span>
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("agentBackends.actions.moreNamed", {
+                  name: backend.name,
+                })}
+                className={cn(
+                  "relative size-11 shrink-0",
+                  testing ? "text-status-error" : "text-muted-foreground",
+                )}
+              >
+                <Ellipsis className="size-5" aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[160px]">
+              <DropdownMenuItem
+                disabled={testDisabled && !testing}
+                onSelect={testing ? onCancelTest : onTest}
+              >
+                {testing ? (
+                  <X aria-hidden="true" />
+                ) : (
+                  <SendHorizontal aria-hidden="true" />
+                )}
+                {testing
+                  ? t("agentBackends.actions.cancelTest")
+                  : t("agentBackends.actions.test")}
+              </DropdownMenuItem>
+              {canChangeBinding ? (
+                <DropdownMenuItem onSelect={onChangeBinding}>
+                  <Pencil aria-hidden="true" />
+                  {warning
+                    ? t("agentBackends.actions.rebind")
+                    : t("agentBackends.actions.changeBinding")}
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+                <Trash2 aria-hidden="true" />
+                {t("common.delete")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        {failureNode}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -404,16 +536,7 @@ export function BackendRow({
           </Button>
         </div>
       </div>
-      {testFailure ? (
-        // 与名称左对齐（28px logo + 10px 间距）。
-        <div
-          role="alert"
-          className="min-w-0 pl-[38px] text-xs text-destructive-text"
-        >
-          <p className="break-words">{testFailure.text}</p>
-          <FailureDetail detail={testFailure.detail} className="mt-1" />
-        </div>
-      ) : null}
+      {failureNode}
     </div>
   );
 }

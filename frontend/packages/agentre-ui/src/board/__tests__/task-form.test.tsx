@@ -464,7 +464,43 @@ describe("整页档 page", () => {
     );
     const pills = screen.getByTestId("task-form-pills");
     expect(pills.className).toContain("flex-wrap");
-    expect(pills.className).toContain("min-h-11");
+    // 视觉 32px（与对话首页筛选 chip 同一套），透明 ::before 上下各 6px 撑回 44px；
+    // 两行之间 12px，上下两行的命中区不叠。
+    expect(pills.className).toContain(
+      "[&_button:not([data-testid^=task-label-remove])]:h-8",
+    );
+    expect(pills.className).toContain(
+      "[&_button:not([data-testid^=task-label-remove])]:before:-inset-y-1.5",
+    );
+    expect(pills.className).toContain("gap-y-3");
+    expect(pills.className).not.toContain(
+      "[&_button:not([data-testid^=task-label-remove])]:min-h-11",
+    );
+  });
+
+  it("Given page mode and a label on the task, When it renders, Then the label is 24px and its remove key is always shown with a 44px hit area", () => {
+    renderForm({
+      page: true,
+      initial: initialTaskFormValue({
+        issue: { labelIds: [2] },
+        scope: { kind: "all" },
+      }),
+    });
+    expect(screen.getByTestId("task-label-2")).toHaveClass("h-6");
+    const remove = screen.getByTestId("task-label-remove-2");
+    expect(remove).not.toHaveClass("opacity-0");
+    expect(remove).toHaveClass("size-5", "relative", "before:-inset-3");
+    expect(screen.getByTestId("task-label-add")).toHaveClass("size-8");
+  });
+
+  it("Given no page prop and a label, When it renders, Then its remove key still only shows on hover", () => {
+    renderForm({
+      initial: initialTaskFormValue({
+        issue: { labelIds: [2] },
+        scope: { kind: "all" },
+      }),
+    });
+    expect(screen.getByTestId("task-label-remove-2")).toHaveClass("opacity-0");
   });
 
   it("Given page mode, When it renders, Then the form fills the host height so the pill row docks at the bottom", () => {

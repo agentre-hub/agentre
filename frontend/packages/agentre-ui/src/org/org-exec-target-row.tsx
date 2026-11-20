@@ -51,6 +51,12 @@ export type OrgExecTargetRowProps = {
   /** 展开后的技能块（发现来源与授权都要拉后端，因此由宿主给）。 */
   skillsBlock?: React.ReactNode;
   drag?: OrgSortableRowBinding;
+  /**
+   * 手机触屏档：柄与移除键图标 16px、按钮本身撑到 44×44（负外边距把占位收回去——
+   * 列表外框裁溢出，透明 ::before 会被裁掉一截），行名 14px，技能入口视觉 28px、
+   * 点按区 44px。不传 = 桌面形态。
+   */
+  touch?: boolean;
 };
 
 export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
@@ -96,7 +102,8 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
       ref={drag?.setNodeRef}
       style={drag?.style}
       className={cn(
-        "flex min-w-0 flex-col rounded-md bg-field-fill px-2.5 py-2",
+        "flex min-w-0 flex-col rounded-md bg-field-fill",
+        props.touch ? "px-3 py-2.5" : "px-2.5 py-2",
         // 当前生效的一档在视觉上与其余区分：左侧一道色条，不只靠徽标。
         props.isFirstAvailable && "border-l-2 border-l-status-running",
       )}
@@ -116,18 +123,28 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
             {...(handle?.listeners ?? {})}
             onKeyDown={onHandleKeyDown}
             className={cn(
-              "mt-0.5 shrink-0 touch-none select-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:focus-outline",
+              "shrink-0 touch-none select-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:focus-outline",
+              props.touch ? TOUCH_ICON_BUTTON : "mt-0.5",
               drag && "cursor-grab",
             )}
           >
-            <GripVertical className="size-3.5" aria-hidden="true" />
+            <GripVertical
+              className={props.touch ? "size-4" : "size-3.5"}
+              aria-hidden="true"
+            />
           </button>
         )}
         {!single && !reorderable && (
           // 钉住不动的那一档（宿主两个重排回调都没给）不画柄 —— 没有可做的事就不该
           // 有控件。但要留一枚等宽占位：少画一个柄会让这一行的左缘比邻居往左缩，整列
           // 参差（与 OrgAgentRow 对不可拖动行的处理同一条判据）。
-          <span className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <span
+            className={cn(
+              "shrink-0",
+              props.touch ? "size-5" : "mt-0.5 size-3.5",
+            )}
+            aria-hidden="true"
+          />
         )}
         {!single && (
           <span className="mt-px inline-flex size-5 shrink-0 items-center justify-center rounded-sm bg-secondary font-mono text-2xs text-muted-foreground">
@@ -137,7 +154,14 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
         {/* 详情面板只有 380px 宽：长机器名在行内截断，不换行把行撑高、也不把面板顶出
           横向滚动。 */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-xs font-semibold">{local}</span>
+          <span
+            className={cn(
+              "truncate font-semibold",
+              props.touch ? "text-sm" : "text-xs",
+            )}
+          >
+            {local}
+          </span>
           <span className="truncate font-mono text-2xs text-muted-foreground">
             {sub}
           </span>
@@ -151,9 +175,12 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
             type="button"
             aria-label={t("org.agent.execTargets.remove")}
             onClick={props.onRemove}
-            className="shrink-0 text-muted-foreground hover:text-destructive"
+            className={cn(
+              "shrink-0 text-muted-foreground hover:text-destructive",
+              props.touch && TOUCH_ICON_BUTTON,
+            )}
           >
-            <X className="size-3.5" />
+            <X className={props.touch ? "size-4" : "size-3.5"} />
           </button>
         )}
         {props.replacePanel && (
@@ -177,10 +204,15 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
         machine={local}
         supported={props.skillsSupported}
         block={props.skillsBlock}
+        touch={props.touch}
       />
     </div>
   );
 }
+
+// 触屏的图标键：按钮本身 44×44，-m-3 把占位收回到 20px，16px 图标居中。
+const TOUCH_ICON_BUTTON =
+  "-m-3 inline-flex size-11 items-center justify-center";
 
 // ExecTargetSkillsFold 是折在行内的那一小块技能：
 //   · backend 不支持技能 —— 不给展开入口，只留一句话说明为什么（展开后给一句
@@ -192,6 +224,7 @@ function ExecTargetSkillsFold(props: {
   machine: string;
   supported: boolean;
   block?: React.ReactNode;
+  touch?: boolean;
 }) {
   const { t } = useUiTranslation();
   const [expanded, setExpanded] = React.useState(props.total === 1);
@@ -217,12 +250,24 @@ function ExecTargetSkillsFold(props: {
           machine: props.machine,
         })}
         onClick={() => setExpanded((v) => !v)}
-        className="inline-flex items-center gap-1 rounded-sm font-mono text-2xs text-muted-foreground hover:text-foreground"
+        className={cn(
+          "inline-flex items-center gap-1 rounded-sm font-mono text-muted-foreground hover:text-foreground",
+          // 触屏：视觉 28px，透明 ::before 上下各撑 8px 到 44px。
+          props.touch
+            ? "relative h-7 text-xs before:absolute before:-inset-x-2 before:-inset-y-2"
+            : "text-2xs",
+        )}
       >
         {expanded ? (
-          <ChevronDown className="size-3" aria-hidden="true" />
+          <ChevronDown
+            className={props.touch ? "size-3.5" : "size-3"}
+            aria-hidden="true"
+          />
         ) : (
-          <ChevronRight className="size-3" aria-hidden="true" />
+          <ChevronRight
+            className={props.touch ? "size-3.5" : "size-3"}
+            aria-hidden="true"
+          />
         )}
         <span>{t("org.agent.skills.title")}</span>
       </button>

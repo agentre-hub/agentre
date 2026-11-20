@@ -8,6 +8,10 @@ import {
 } from "lucide-react";
 
 import { useUiTranslation as useTranslation } from "../i18n";
+import {
+  ICON_CONTROL_CELL,
+  ICON_CONTROL_DROP,
+} from "../lib/composer-icon-controls";
 import { cn } from "../lib/utils";
 import { StatusMark } from "../ui/status-mark";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
@@ -104,6 +108,7 @@ export function PermissionModePill({
             "focus-visible:focus-outline",
             "disabled:cursor-not-allowed disabled:opacity-60",
             meta.pillClass,
+            ICON_CONTROL_CELL,
           )}
         >
           <Icon className={cn("size-3", meta.iconClass)} aria-hidden="true" />
@@ -111,7 +116,7 @@ export function PermissionModePill({
               aria-label 与 title 承载,标签是最后一档才让位的。 */}
           <span className="@max-[620px]/composer:hidden">{meta.label}</span>
           <ChevronDown
-            className={cn("size-2.5", meta.iconClass)}
+            className={cn("size-2.5", meta.iconClass, ICON_CONTROL_DROP)}
             aria-hidden="true"
           />
         </button>

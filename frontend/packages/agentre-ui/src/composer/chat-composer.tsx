@@ -24,6 +24,7 @@ import {
 } from "../chat-input/use-file-drop";
 import { useUiTranslation } from "../i18n";
 import { ImageViewer } from "../image-viewer/image-viewer";
+import { COMPOSER_ICON_CONTROLS } from "../lib/composer-icon-controls";
 import { cn } from "../lib/utils";
 import { Button } from "../ui/button";
 
@@ -756,6 +757,8 @@ export const ChatComposer = React.forwardRef<
         {/* 胶囊里底栏拆进同一行（contents）：＋ 排到输入框前，提交位留在最右。 */}
         <div
           data-slot="composer-bar"
+          // 触屏卡片：宿主控件按这个祖先标记退成图标（见 lib/composer-icon-controls.ts）。
+          data-controls={touch && !pill ? COMPOSER_ICON_CONTROLS : undefined}
           className={
             pill
               ? "contents"

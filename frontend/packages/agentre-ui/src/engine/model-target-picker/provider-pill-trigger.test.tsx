@@ -21,6 +21,44 @@ function state(over: Partial<ProviderPillState> = {}): ProviderPillState {
   };
 }
 
+describe("ProviderPillTrigger 宿主覆盖跟随态的字与图标", () => {
+  // 看板任务页一排里机器、模型两颗都写「跟随 Agent 绑定」时认不出谁是谁：宿主可以
+  // 把跟随态那句话换成带字段名的「模型 · 跟随 Agent」，人形兜底换成字段图标。
+  it("给了 followLabel / followIcon：跟随态写宿主的字，兜底图标换成宿主的", () => {
+    render(
+      <ProviderPillTrigger
+        state={state({ mode: "follow-agent" })}
+        followLabel="Model · Follows agent"
+        followIcon={<svg data-testid="field-icon" />}
+      />,
+    );
+    expect(screen.getByText("Model · Follows agent")).toBeInTheDocument();
+    expect(screen.queryByText(/Follow agent binding/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("field-icon")).toBeInTheDocument();
+    expect(screen.queryByTestId("follow-agent-icon")).not.toBeInTheDocument();
+  });
+
+  it("覆盖只换那句话：解析到的模型照样跟在后面、品牌标识照样优先", () => {
+    render(
+      <ProviderPillTrigger
+        state={state({
+          mode: "follow-agent",
+          modelLabel: "Sonnet 4.6",
+          modelId: "claude-sonnet-4-6",
+          providerLabel: "Anthropic",
+          providerType: "anthropic",
+        })}
+        followLabel="Model · Follows agent"
+        followIcon={<svg data-testid="field-icon" />}
+      />,
+    );
+    expect(screen.getByText(/Model · Follows agent/).textContent).toContain(
+      "Sonnet 4.6",
+    );
+    expect(screen.queryByTestId("field-icon")).not.toBeInTheDocument();
+  });
+});
+
 describe("ProviderPillTrigger", () => {
   // 脸上写的是「实际会跑哪个模型」，而模式由图标承担。跟随态是唯一一个把模式
   // 写成字的：那句话正是用户问「为什么没和桌面端对齐」时指的那一格。

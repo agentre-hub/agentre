@@ -37,16 +37,18 @@ afterEach(async () => {
 });
 
 describe("IdentityFields", () => {
-  // iOS 聚焦字号小于 16px 的输入控件会放大整个页面（2026-11-19 真机：新建 Agent 输名称时页面
-  // 自己放大）。所以手机上两个框都得是 16px（text-base），桌面端才回到 15px / 12px。
-  it("Given a phone-width screen When the fields render Then both inputs are 16px so iOS does not zoom on focus", () => {
+  // iOS 聚焦字号小于 16px 的输入控件会放大整个页面（2026-11-19 真机：新建 Agent 点名称、
+  // 弹出输入法时页面自己放大）。名称框手机上 16px（text-base），桌面端回到 15px。
+  // 描述框保持原来的 12px（2026-11-20 用户定稿）：主屏幕 App 已整体禁止缩放兜住，
+  // 放大它只会让描述显得突兀；代价是 Safari 标签页里点描述仍会放大一下。
+  it("Given a phone-width screen When the fields render Then the name is 16px and the description keeps its small size", () => {
     open();
     const name = screen.getByTestId("identity-name");
     const description = screen.getByTestId("identity-description");
     expect(name).toHaveClass("text-base", "md:text-prose");
     expect(name).not.toHaveClass("text-prose");
-    expect(description).toHaveClass("text-base", "md:text-xs");
-    expect(description).not.toHaveClass("text-xs");
+    expect(description).toHaveClass("text-xs");
+    expect(description).not.toHaveClass("text-base");
   });
 
   it("Given a controlled identity When edited Then only changes are reported and blur remains host-owned", async () => {

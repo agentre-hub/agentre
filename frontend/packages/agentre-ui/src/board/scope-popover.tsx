@@ -148,8 +148,9 @@ export function ProjectScopePopover({
           <input
             data-testid="scope-search"
             // 打开就落在搜索框上：上下键要有落点，否则「键盘移动当前行」得先用
-            // 鼠标点进来，键盘用户够不着这条路。
-            autoFocus
+            // 鼠标点进来，键盘用户够不着这条路。弹层档（手机）不自动聚焦：一聚焦
+            // iOS 就弹键盘，盖住项目树和底部「查看」。
+            autoFocus={!sheet}
             value={needle}
             onChange={(event) => onNeedleChange(event.target.value)}
             onKeyDown={onSearchKeyDown}

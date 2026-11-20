@@ -14,6 +14,10 @@ import { useUiTranslation } from "../i18n";
 // 档位枚举只有一份：后端编辑器那张表与这颗控件说的是同一个 reasoning_effort。
 // 纯类型引用，运行期不把引擎设置那棵模块树拖进 composer。
 import type { ReasoningEffortValue } from "../engine/agent-backends-shared";
+import {
+  ICON_CONTROL_CELL,
+  ICON_CONTROL_DROP,
+} from "../lib/composer-icon-controls";
 import { cn } from "../lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
@@ -102,6 +106,7 @@ export function ReasoningEffortPicker({
             "font-mono text-meta transition-colors motion-reduce:transition-none",
             "hover:bg-accent",
             "focus-visible:bg-accent focus-visible:focus-outline",
+            ICON_CONTROL_CELL,
           )}
         >
           <Brain
@@ -115,7 +120,10 @@ export function ReasoningEffortPicker({
           </span>
           <ChevronDown
             data-testid="effort-chevron"
-            className="size-3 shrink-0 text-muted-foreground"
+            className={cn(
+              "size-3 shrink-0 text-muted-foreground",
+              ICON_CONTROL_DROP,
+            )}
             aria-hidden="true"
           />
         </button>

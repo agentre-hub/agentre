@@ -231,9 +231,11 @@ export function TaskFormShell({
         data-testid="task-form-pills"
         className={cn(
           "flex shrink-0 flex-wrap items-center gap-1.5 px-4 py-2",
-          // 每颗 44px 命中区：宿主端口渲染的机器 / 模型 pill 也是 button，靠容器统一抬。
+          // 整页档（手机）：每颗视觉 32px、透明 ::before 上下各 6px 撑回 44px 命中区（与
+          // 对话首页的筛选 chip 同一套）。宿主端口渲染的机器 / 模型 pill 也是 button，
+          // 靠容器统一压；两行之间留 12px，上下两行的命中区不叠。
           page &&
-            "min-h-11 gap-2 [&_button:not([data-testid^=task-label-remove])]:min-h-11 [&_button:not([data-testid^=task-label-remove])]:min-w-11",
+            "min-h-11 gap-x-2 gap-y-3 py-2.5 [&_button:not([data-testid^=task-label-remove])]:relative [&_button:not([data-testid^=task-label-remove])]:h-8 [&_button:not([data-testid^=task-label-remove])]:min-w-8 [&_button:not([data-testid^=task-label-remove])]:before:absolute [&_button:not([data-testid^=task-label-remove])]:before:-inset-x-1 [&_button:not([data-testid^=task-label-remove])]:before:-inset-y-1.5",
         )}
       >
         <TaskStagePill
@@ -252,6 +254,7 @@ export function TaskFormShell({
           labels={labels}
           onChange={(labelIds) => patch({ labelIds })}
           disabled={submitting}
+          touch={page}
         />
         {/* 左边说「这条任务是什么」，右边说「谁在哪台机器上用什么模型做它」；
             两组之间靠留白分开，不画竖线。 */}

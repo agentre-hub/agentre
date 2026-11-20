@@ -294,3 +294,37 @@ describe("EnvJsonField", () => {
     );
   });
 });
+
+/**
+ * 手机整屏编辑页（stacked）：下拉写死 170px 并排在标题右边，390 宽里被截成
+ * 「acceptEdit」。整屏页把它挪到标题下独占一行、40px 高、14px 字；弹窗档不变。
+ */
+describe("DefaultPermissionModeField 的整屏排法", () => {
+  const base = {
+    value: "acceptEdits",
+    onChange: vi.fn(),
+    isRemote: false,
+    hasIsSandbox: false,
+    canAddIsSandbox: false,
+    onAddIsSandbox: vi.fn(),
+  };
+
+  it("Given stacked, When it renders, Then the select spans the full width under the label at 40px", () => {
+    render(<DefaultPermissionModeField {...base} stacked />);
+
+    const trigger = screen.getByRole("combobox", {
+      name: "Default Permission Mode",
+    });
+    expect(trigger).toHaveClass("h-10", "w-full", "text-sm");
+    expect(trigger).not.toHaveClass("w-[170px]");
+  });
+
+  it("Given the dialog form, When it renders, Then the select stays a 170px compact box beside the label", () => {
+    render(<DefaultPermissionModeField {...base} />);
+
+    const trigger = screen.getByRole("combobox", {
+      name: "Default Permission Mode",
+    });
+    expect(trigger).toHaveClass("h-7", "w-[170px]", "text-2xs");
+  });
+});

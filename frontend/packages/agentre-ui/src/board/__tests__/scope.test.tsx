@@ -260,4 +260,19 @@ describe("范围弹层档（sheet）", () => {
     await user.click(apply);
     expect(screen.queryByTestId("scope-sheet")).toBeNull();
   });
+
+  // 2026-11-20 手机审计 15d：弹层档一打开就把焦点落在搜索框上，iOS 立刻弹出键盘，
+  // 盖住项目树和底部「查看」按钮。弹层档里搜索要等用户点了才聚焦；桌面弹出框照旧
+  // 自动聚焦（键盘上下键要有落点，见上面那条）。
+  it("Given sheet, When opened, Then nothing focuses the search box so the iOS keyboard stays down", async () => {
+    const user = userEvent.setup();
+    renderPicker({ kind: "all" }, { sheet: true, matchedCount: 9 });
+
+    await user.click(screen.getByRole("button", { name: /./ }));
+    const sheet = await screen.findByTestId("scope-sheet");
+    const search = within(sheet).getByTestId("scope-search");
+
+    expect(document.activeElement).not.toBe(search);
+    expect(search).not.toHaveAttribute("autofocus");
+  });
 });

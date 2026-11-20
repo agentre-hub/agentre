@@ -9,6 +9,10 @@
 import * as React from "react";
 import { AlertTriangle, ChevronDown } from "lucide-react";
 
+import {
+  ICON_CONTROL_CELL,
+  ICON_CONTROL_DROP,
+} from "../../lib/composer-icon-controls";
 import { cn } from "../../lib/utils";
 
 export interface PickerTriggerProps {
@@ -78,6 +82,8 @@ export const PickerTrigger = React.forwardRef<
           ? "bg-status-waiting-bg ring-2 ring-status-waiting"
           : "hover:bg-field-fill-hover",
         className,
+        // 放在宿主 className 之后：宿主给的 h-[26px] / px-2.5 在只留图标档里要让位。
+        ICON_CONTROL_CELL,
       )}
     >
       <span className="flex min-w-0 items-center gap-1.5">
@@ -112,7 +118,10 @@ export const PickerTrigger = React.forwardRef<
         </span>
       </span>
       <ChevronDown
-        className="size-3.5 shrink-0 text-muted-foreground"
+        className={cn(
+          "size-3.5 shrink-0 text-muted-foreground",
+          ICON_CONTROL_DROP,
+        )}
         aria-hidden="true"
       />
     </button>

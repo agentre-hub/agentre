@@ -16,6 +16,11 @@ import {
   LlmModelLogo,
   LlmProviderLogo,
 } from "../ai-brand-logo";
+import {
+  ICON_CONTROL_DROP,
+  ICON_CONTROL_TEXT,
+} from "../../lib/composer-icon-controls";
+import { cn } from "../../lib/utils";
 import { resolveProviderPillLogoTier } from "./pill-state";
 
 /**
@@ -66,8 +71,23 @@ export type ProviderPillState = {
  * 跟随态也画**解析到的模型**的品牌标识（spec 决策 8）：品牌比人形更快认出模型。
  * 回落链见 `resolveProviderPillLogoTier`——模型 → 供应商 → 后端 → 人形，不留空位。
  */
-export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
+export function ProviderPillTrigger({
+  state,
+  followLabel,
+  followIcon,
+}: {
+  state: ProviderPillState;
+  /**
+   * 跟随态那句话的宿主覆盖（缺省「跟随 Agent 绑定」）。一排里还有别的「跟随 Agent」
+   * pill 时（看板任务页的机器 / 模型），宿主写成带字段名的「模型 · 跟随 Agent」，
+   * 两颗才分得清。解析到的模型照样跟在后面。
+   */
+  followLabel?: React.ReactNode;
+  /** 跟随态回落链最末一格（缺省人形）的宿主覆盖：品牌标识解析得到时仍画品牌。 */
+  followIcon?: React.ReactNode;
+}) {
   const { t } = useTranslation();
+  const followText = followLabel ?? t("modelTargetPicker.special.chat");
 
   const logoClass = "size-3.5";
   const providerLogo = state.providerType ? (
@@ -106,6 +126,7 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
         />
       );
     }
+    if (followIcon) return followIcon;
     return (
       <UserRound
         data-testid="follow-agent-icon"
@@ -133,7 +154,7 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
   const modeMarker = state.dynamic ? (
     <RefreshCw
       data-testid="provider-pill-dynamic-icon"
-      className="size-3 shrink-0 text-primary-text"
+      className={cn("size-3 shrink-0 text-primary-text", ICON_CONTROL_DROP)}
       aria-hidden="true"
     />
   ) : null;
@@ -141,7 +162,7 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
   const triggerText =
     state.mode === "follow-agent" ? (
       <>
-        {t("modelTargetPicker.special.chat")}
+        {followText}
         {resolvedTarget ? (
           <>
             {" · "}
@@ -166,7 +187,8 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
       ) : (
         triggerIcon
       )}
-      <span className="min-w-0 truncate">
+      {/* 触屏卡片底栏只留图标档：模型名收进 sr-only，脸上只剩标识（见 composer-icon-controls）。 */}
+      <span className={cn("min-w-0 truncate", ICON_CONTROL_TEXT)}>
         {state.pending ? (
           <>
             {resolvedTarget || t("modelTargetPicker.cli.decides")} →{" "}
@@ -181,7 +203,7 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
             </span>
           </>
         ) : (
-          triggerText || t("modelTargetPicker.special.chat")
+          triggerText || followText
         )}
       </span>
       {modeMarker}

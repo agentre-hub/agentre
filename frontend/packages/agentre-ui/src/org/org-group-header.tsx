@@ -125,11 +125,18 @@ export function OrgGroupHeader({
           aria-expanded={expanded}
           aria-label={t("org.index.toggleGroup", { name: department.name })}
           onClick={onToggleExpanded}
-          className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus-visible:focus-outline"
+          className={cn(
+            "shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus-visible:focus-outline",
+            // 摘要档（手机）：三角 16px，透明 ::before 四周各撑 14px 到 44×44；组头
+            // 其余部分仍是「进详情」。
+            summary &&
+              "relative inline-flex items-center justify-center before:absolute before:-inset-3.5",
+          )}
         >
           <ChevronDown
             className={cn(
-              "size-3 transition-transform duration-150 ease-out motion-reduce:transition-none",
+              summary ? "size-4" : "size-3",
+              "transition-transform duration-150 ease-out motion-reduce:transition-none",
               !expanded && "-rotate-90",
             )}
             aria-hidden="true"

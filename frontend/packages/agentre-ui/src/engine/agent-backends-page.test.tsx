@@ -262,10 +262,14 @@ describe("AgentBackendsPanel editor page mode", () => {
       <AgentBackendsPanel {...props} layer="list" selectedId={null} />,
     );
 
+    // 逐层页的行把换绑收进「⋯」菜单
     await user.click(
       await screen.findByRole("button", {
-        name: "Change binding for My Claude",
+        name: "More actions for My Claude",
       }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Change binding" }),
     );
     expect(onSelect).toHaveBeenLastCalledWith(7);
     rerender(<AgentBackendsPanel {...props} layer="editor" selectedId={7} />);

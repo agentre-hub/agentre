@@ -302,6 +302,26 @@ describe("DialogShellHeader 的保存态", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  // 2026-11-20 手机审计第 7 项（定稿 C）：贴底 sheet 上的 ✕ 只有 28px、还比标题低 6px。
+  // sheet 档（基础样式）是 44px 无底色、图标 20px、与标题同一中线；sm: 浮卡档还原 28px。
+  it("关闭按钮在 sheet 档是 44px、与标题居中对齐，sm: 浮卡档还原 28px", () => {
+    render(
+      <DialogShell open onOpenChange={vi.fn()}>
+        <DialogShellHeader title="项目设置" onClose={vi.fn()} />
+        <DialogShellBody>正文</DialogShellBody>
+      </DialogShell>,
+    );
+    const header = document.querySelector('[data-slot="dialog-shell-header"]');
+    expect(header).toHaveClass("items-center", "sm:items-start");
+    expect(header).not.toHaveClass("items-start");
+    const close = screen.getByRole("button", { name: "Close" });
+    expect(close).toHaveClass("size-11", "sm:size-7");
+    expect(close).not.toHaveClass("size-7");
+    const icon = close.querySelector("svg");
+    expect(icon).toHaveClass("size-5", "sm:size-4");
+    expect(icon).not.toHaveClass("size-4");
+  });
+
   it("没给 onClose 就不画关闭按钮", () => {
     // 头部不替调用方决定「这个窗能不能就这么关掉」。
     renderShell();
